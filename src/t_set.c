@@ -858,25 +858,17 @@ void sinterGenericCommand(client *c, robj **setkeys,
     int64_t intobj;
     void *replylen = NULL;
     unsigned long j, cardinality = 0;
-    int encoding;
+    int encoding, empty = 0;
 
     for (j = 0; j < setnum; j++) {
         robj *setobj = dstkey ?
             lookupKeyWrite(c->db,setkeys[j]) :
             lookupKeyRead(c->db,setkeys[j]);
         if (!setobj) {
-            zfree(sets);
-            if (dstkey) {
-                if (dbDelete(c->db,dstkey)) {
-                    signalModifiedKey(c,c->db,dstkey);
-                    notifyKeyspaceEvent(NOTIFY_GENERIC,"del",dstkey,c->db->id);
-                    server.dirty++;
-                }
-                addReply(c,shared.czero);
-            } else {
-                addReply(c,shared.emptyset[c->resp]);
-            }
-            return;
+            /* A NULL is considered an empty set */
+            empty += 1;
+            sets[j] = NULL;
+            continue;
         }
         if (checkType(c,setobj,OBJ_SET)) {
             zfree(sets);
@@ -884,6 +876,24 @@ void sinterGenericCommand(client *c, robj **setkeys,
         }
         sets[j] = setobj;
     }
+
+    /* Set intersection with an empty set always results in an empty set.
+     * Return ASAP if there is an empty set. */
+    if (empty > 0) {
+        zfree(sets);
+        if (dstkey) {
+            if (dbDelete(c->db,dstkey)) {
+                signalModifiedKey(c,c->db,dstkey);
+                notifyKeyspaceEvent(NOTIFY_GENERIC,"del",dstkey,c->db->id);
+                server.dirty++;
+            }
+            addReply(c,shared.czero);
+        } else {
+            addReply(c,shared.emptyset[c->resp]);
+        }
+        return;
+    }
+
     /* Sort sets from the smallest to largest, this will improve our
      * algorithm's performance */
     qsort(sets,setnum,sizeof(robj*),qsortCompareSetsByCardinality);
