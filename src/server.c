@@ -781,6 +781,10 @@ struct redisCommand redisCommandTable[] = {
      "write use-memory @list @set @sortedset @dangerous",
      0,sortGetKeys,1,1,1,0,0,0},
 
+    {"sort_ro",sortroCommand,-2,
+     "read-only @list @set @sortedset @dangerous",
+     0,NULL,1,1,1,0,0,0},
+
     {"info",infoCommand,-1,
      "ok-loading ok-stale random @dangerous",
      0,NULL,0,0,0,0,0,0},

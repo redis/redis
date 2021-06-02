@@ -2593,6 +2593,7 @@ void syncCommand(client *c);
 void flushdbCommand(client *c);
 void flushallCommand(client *c);
 void sortCommand(client *c);
+void sortroCommand(client *c);
 void lremCommand(client *c);
 void lposCommand(client *c);
 void rpoplpushCommand(client *c);
