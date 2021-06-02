@@ -539,7 +539,7 @@ start_server {tags {"scripting external-ok"}} {
             end
             redis.call('rpush','mylist',unpack(x))
             return redis.call('lrange','mylist',0,-1)
-        } 0
+        } 1 mylist
     } {1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99 100}
 
     test {Number conversion precision test (issue #1118)} {
@@ -547,14 +547,14 @@ start_server {tags {"scripting external-ok"}} {
               local value = 9007199254740991
               redis.call("set","foo",value)
               return redis.call("get","foo")
-        } 0
+        } 1 foo
     } {9007199254740991}
 
     test {String containing number precision test (regression of issue #1118)} {
         r eval {
             redis.call("set", "key", "12039611435714932082")
             return redis.call("get", "key")
-        } 0
+        } 1 key
     } {12039611435714932082}
 
     test {Verify negative arg count is error instead of crash (issue #1842)} {
@@ -565,13 +565,13 @@ start_server {tags {"scripting external-ok"}} {
     test {Correct handling of reused argv (issue #1939)} {
         r eval {
               for i = 0, 10 do
-                  redis.call('SET', 'a', '1')
+                  redis.call('SET', 'a{t}', '1')
                   redis.call('MGET', 'a{t}', 'b{t}', 'c{t}')
-                  redis.call('EXPIRE', 'a', 0)
-                  redis.call('GET', 'a')
+                  redis.call('EXPIRE', 'a{t}', 0)
+                  redis.call('GET', 'a{t}')
                   redis.call('MGET', 'a{t}', 'b{t}', 'c{t}')
               end
-        } 0
+        } 3 a{t} b{t} c{t}
     }
 
     test {Functions in the Redis namespace are able to report errors} {
