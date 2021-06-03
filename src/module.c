@@ -3319,6 +3319,7 @@ int RM_HashGet(RedisModuleKey *key, int flags, ...) {
  * - EDOM if the given ID was 0-0 or not greater than all other IDs in the
  *   stream (only if the AUTOID flag is unset)
  * - EFBIG if the stream has reached the last possible ID
+ * - ERANGE if the elements are too large to be stored.
  */
 int RM_StreamAdd(RedisModuleKey *key, int flags, RedisModuleStreamID *id, RedisModuleString **argv, long numfields) {
     /* Validate args */
@@ -3362,8 +3363,9 @@ int RM_StreamAdd(RedisModuleKey *key, int flags, RedisModuleStreamID *id, RedisM
         use_id_ptr = &use_id;
     }
     if (streamAppendItem(s, argv, numfields, &added_id, use_id_ptr) == C_ERR) {
-        /* ID not greater than all existing IDs in the stream */
-        errno = EDOM;
+        /* Either the ID not greater than all existing IDs in the stream, or
+         * the elements are too large to be stored. either way, errno is already
+         * set by streamAppendItem. */
         return REDISMODULE_ERR;
     }
     /* Postponed signalKeyAsReady(). Done implicitly by moduleCreateEmptyKey()
