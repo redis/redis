@@ -1089,7 +1089,7 @@ start_server {
         set k [r lrange k 0 -1]
         set dump [r dump k]
 
-        r config set sanitize-dump-payload no
+        config_set sanitize-dump-payload no mayfail
         r restore kk 0 $dump
         set kk [r lrange kk 0 -1]
 
@@ -1106,10 +1106,10 @@ start_server {
         assert_equal [lpop k] [string repeat x 8191]
         assert_equal [lpop k] [string repeat x 31]
         set _ $k
-    } {12 0 9223372036854775808 2147483647 32767 127} {needs:config-sanitize}
+    } {12 0 9223372036854775808 2147483647 32767 127}
 
     test {List ziplist of various encodings - sanitize dump} {
-        r config set sanitize-dump-payload yes
+        config_set sanitize-dump-payload yes mayfail
         r restore kk 0 $dump replace
         set k [r lrange k 0 -1]
         set kk [r lrange kk 0 -1]
@@ -1120,6 +1120,6 @@ start_server {
         assert_equal [lpop k] [string repeat x 8191]
         assert_equal [lpop k] [string repeat x 31]
         set _ $k
-    } {12 0 9223372036854775808 2147483647 32767 127} {needs:config-sanitize}
+    } {12 0 9223372036854775808 2147483647 32767 127}
 
 }

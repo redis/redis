@@ -43,7 +43,6 @@ The following compatibility and capability tags are currently used:
 | `needs:config-maxmemory`  | Uses `CONFIG SET` to manipulate memory limit. |
 | `needs:config-set-save`   | Uses `CONFIG SET` to change persistence settings. |
 | `needs:local-process`     | Assumes the server is a local process on the same host. |
-| `needs:config-sanitize`   | Uses `CONFIG SET` to configure sanitization. |
 | `needs:config-resetstat`  | Uses `CONFIG RESETSTAT` to reset statistics. |
 
 When using an external server (`--host` and `--port`), filtering using the

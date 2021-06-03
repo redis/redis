@@ -841,3 +841,27 @@ proc assert_aof_content {aof_path patterns} {
         assert_match [lindex $patterns $j] [read_from_aof $fp]
     }
 }
+
+proc config_set {param value {options {}}} {
+    set mayfail 0
+    foreach option $options {
+        switch $option {
+            "mayfail" {
+                set mayfail 1
+            }
+            default {
+                error "Unknown option $option"
+            }
+        }
+    }
+
+    if {[catch {r config set $param $value} err]} {
+        if {!$mayfail} {
+            error $err
+        } else {
+            if {$::verbose} {
+                puts "Ignoring CONFIG SET $param $value failure: $err"
+            }
+        }
+    }
+}
