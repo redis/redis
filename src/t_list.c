@@ -29,6 +29,8 @@
 
 #include "server.h"
 
+#define LIST_MAX_ITEM_SIZE ((1ull<<32)-1024)
+
 /*-----------------------------------------------------------------------------
  * List API
  *----------------------------------------------------------------------------*/
@@ -196,6 +198,14 @@ void listTypeConvert(robj *subject, int enc) {
 
 void pushGenericCommand(client *c, int where) {
     int j, pushed = 0;
+
+    for (j = 2; j < c->argc; j++) {
+        if (sdslen(c->argv[j]->ptr) > LIST_MAX_ITEM_SIZE) {
+            addReplyError(c, "Element too large");
+            return;
+        }
+    }
+
     robj *lobj = lookupKeyWrite(c->db,c->argv[1]);
 
     if (lobj && lobj->type != OBJ_LIST) {
@@ -277,6 +287,11 @@ void linsertCommand(client *c) {
         return;
     }
 
+    if (sdslen(c->argv[4]->ptr) > LIST_MAX_ITEM_SIZE) {
+        addReplyError(c, "Element too large");
+        return;
+    }
+
     if ((subject = lookupKeyWriteOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,subject,OBJ_LIST)) return;
 
@@ -343,6 +358,11 @@ void lsetCommand(client *c) {
     if (o == NULL || checkType(c,o,OBJ_LIST)) return;
     long index;
     robj *value = c->argv[3];
+
+    if (sdslen(value->ptr) > LIST_MAX_ITEM_SIZE) {
+        addReplyError(c, "Element too large");
+        return;
+    }
 
     if ((getLongFromObjectOrReply(c, c->argv[2], &index, NULL) != C_OK))
         return;
@@ -510,6 +530,11 @@ void lposCommand(client *c) {
     int direction = LIST_TAIL;
     long rank = 1, count = -1, maxlen = 0; /* Count -1: option not given. */
 
+    if (sdslen(ele->ptr) > LIST_MAX_ITEM_SIZE) {
+        addReplyError(c, "Element too large");
+        return;
+    }
+
     /* Parse the optional arguments. */
     for (int j = 3; j < c->argc; j++) {
         char *opt = c->argv[j]->ptr;
@@ -609,6 +634,11 @@ void lremCommand(client *c) {
     obj = c->argv[3];
     long toremove;
     long removed = 0;
+
+    if (sdslen(obj->ptr) > LIST_MAX_ITEM_SIZE) {
+        addReplyError(c, "Element too large");
+        return;
+    }
 
     if ((getLongFromObjectOrReply(c, c->argv[2], &toremove, NULL) != C_OK))
         return;
