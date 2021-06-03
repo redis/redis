@@ -555,7 +555,7 @@ proc stop_bg_complex_data {handle} {
     catch {exec /bin/kill -9 $handle}
 }
 
-proc populate {num prefix size} {
+proc populate {num {prefix key:} {size 3}} {
     set rd [redis_deferring_client]
     for {set j 0} {$j < $num} {incr j} {
         $rd set $prefix$j [string repeat A $size]
@@ -790,17 +790,6 @@ proc psubscribe {client channels} {
 proc punsubscribe {client {channels {}}} {
     $client punsubscribe {*}$channels
     consume_subscribe_messages $client punsubscribe $channels
-}
-
-proc debug_populate {num} {
-    set rd [redis_deferring_client]
-    for {set j 0} {$j < $num} {incr j} {
-        $rd set key:$j foo
-    }
-    for {set j 0} {$j < $num} {incr j} {
-        $rd read
-    }
-    $rd close
 }
 
 proc debug_digest_value {key} {
