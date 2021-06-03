@@ -140,6 +140,16 @@
 
 static inline void lpAssertValidEntry(unsigned char* lp, size_t lpbytes, unsigned char *p);
 
+/* Don't let listpacks grow over 1GB in any case, don't wanna risk overflow in
+ * Total Bytes header field */
+#define LISTPACK_MAX_SAFETY_SIZE (1<<30)
+int lpSafeToAdd(unsigned char* lp, size_t add) {
+    size_t len = lp? lpGetTotalBytes(lp): 0;
+    if (len + add > LISTPACK_MAX_SAFETY_SIZE)
+        return 0;
+    return 1;
+}
+
 /* Convert a string into a signed 64 bit integer.
  * The function returns 1 if the string could be parsed into a (non-overflowing)
  * signed 64 bit int, 0 otherwise. The 'value' will be set to the parsed value
@@ -324,7 +334,7 @@ static inline int lpEncodeGetType(unsigned char *ele, uint32_t size, unsigned ch
     } else {
         if (size < 64) *enclen = 1+size;
         else if (size < 4096) *enclen = 2+size;
-        else *enclen = 5+size;
+        else *enclen = 5+(uint64_t)size;
         return LP_ENCODING_STRING;
     }
 }
