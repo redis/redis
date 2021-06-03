@@ -49,6 +49,7 @@ unsigned char *ziplistFind(unsigned char *p, unsigned char *vstr, unsigned int v
 unsigned int ziplistLen(unsigned char *zl);
 size_t ziplistBlobLen(unsigned char *zl);
 void ziplistRepr(unsigned char *zl);
+int ziplistSafeToAdd(unsigned char* zl, size_t add);
 
 #ifdef REDIS_TEST
 int ziplistTest(int argc, char *argv[]);

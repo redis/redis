@@ -99,6 +99,27 @@ proc wait_for_ofs_sync {r1 r2} {
     }
 }
 
+# count current log lines in server's stdout
+proc count_log_lines {srv_idx} {
+    set _ [string trim [exec wc -l < [srv $srv_idx stdout]]]
+}
+
+# returns the number of times a line with that pattern appears in a file
+proc count_message_lines {file pattern} {
+    set res 0
+    # exec fails when grep exists with status other than 0 (when the patter wasn't found)
+    catch {
+        set res [string trim [exec grep $pattern $file 2> /dev/null | wc -l]]
+    }
+    return $res
+}
+
+# returns the number of times a line with that pattern appears in the log
+proc count_log_message {srv_idx pattern} {
+    set stdout [srv $srv_idx stdout]
+    return [count_message_lines $stdout $pattern]
+}
+
 # Random integer between 0 and max (excluded).
 proc randomInt {max} {
     expr {int(rand()*$max)}
