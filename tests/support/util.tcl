@@ -109,7 +109,23 @@ proc wait_done_loading r {
 
 # count current log lines in server's stdout
 proc count_log_lines {srv_idx} {
-    set _ [exec wc -l < [srv $srv_idx stdout]]
+    set _ [string trim [exec wc -l < [srv $srv_idx stdout]]]
+}
+
+# returns the number of times a line with that pattern appears in a file
+proc count_message_lines {file pattern} {
+    set res 0
+    # exec fails when grep exists with status other than 0 (when the patter wasn't found)
+    catch {
+        set res [string trim [exec grep $pattern $file 2> /dev/null | wc -l]]
+    }
+    return $res
+}
+
+# returns the number of times a line with that pattern appears in the log
+proc count_log_message {srv_idx pattern} {
+    set stdout [srv $srv_idx stdout]
+    return [count_message_lines $stdout $pattern]
 }
 
 # verify pattern exists in server's sdtout after a certain line number
