@@ -38,7 +38,7 @@ The following compatibility and capability tags are currently used:
 | `external-skip`           | Not compatible with external servers. |
 | `cluster-skip`            | Not compatible with `--cluster-mode`. |
 | `needs:repl`              | Uses replication and needs to be able to `SYNC` from server. |
-| `needs:debug`             | Uses the `DEBUG` command. |
+| `needs:debug`             | Uses the `DEBUG` command or other debugging focused commands (like `OBJECT`). |
 | `needs:pfdebug`           | Uses the `PFDEBUG` command. |
 | `needs:config-maxmemory`  | Uses `CONFIG SET` to manipulate memory limit. |
 | `needs:config-set-save`   | Uses `CONFIG SET` to change persistence settings. |
