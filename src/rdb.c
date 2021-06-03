@@ -1498,7 +1498,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, robj *key) {
     } else if (rdbtype == RDB_TYPE_ZSET_2 || rdbtype == RDB_TYPE_ZSET) {
         /* Read list/set value. */
         uint64_t zsetlen;
-        size_t maxelelen = 0;
+        size_t maxelelen = 0, totelelen = 0;
         zset *zs;
 
         if ((zsetlen = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
@@ -1525,6 +1525,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, robj *key) {
 
             /* Don't care about integer-encoded strings. */
             if (sdslen(sdsele) > maxelelen) maxelelen = sdslen(sdsele);
+            totelelen += sdslen(sdsele);
 
             znode = zslInsert(zs->zsl,score,sdsele);
             dictAdd(zs->dict,sdsele,&znode->score);
@@ -1532,8 +1533,11 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, robj *key) {
 
         /* Convert *after* loading, since sorted sets are not stored ordered. */
         if (zsetLength(o) <= server.zset_max_ziplist_entries &&
-            maxelelen <= server.zset_max_ziplist_value)
-                zsetConvert(o,OBJ_ENCODING_ZIPLIST);
+            maxelelen <= server.zset_max_ziplist_value &&
+            ziplistSafeToAdd(NULL, totelelen))
+        {
+            zsetConvert(o,OBJ_ENCODING_ZIPLIST);
+        }
     } else if (rdbtype == RDB_TYPE_HASH) {
         uint64_t len;
         int ret;
@@ -1557,21 +1561,25 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, robj *key) {
             if ((value = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL))
                 == NULL) return NULL;
 
+            /* Convert to hash table if size threshold is exceeded */
+            if (sdslen(field) > server.hash_max_ziplist_value ||
+                sdslen(value) > server.hash_max_ziplist_value ||
+                !ziplistSafeToAdd(o->ptr, sdslen(field)+sdslen(value)))
+            {
+                hashTypeConvert(o, OBJ_ENCODING_HT);
+                ret = dictAdd((dict*)o->ptr, field, value);
+                if (ret == DICT_ERR) {
+                    rdbExitReportCorruptRDB("Duplicate hash fields detected");
+                }
+                break;
+            }
+
             /* Add pair to ziplist */
             o->ptr = ziplistPush(o->ptr, (unsigned char*)field,
                     sdslen(field), ZIPLIST_TAIL);
             o->ptr = ziplistPush(o->ptr, (unsigned char*)value,
                     sdslen(value), ZIPLIST_TAIL);
 
-            /* Convert to hash table if size threshold is exceeded */
-            if (sdslen(field) > server.hash_max_ziplist_value ||
-                sdslen(value) > server.hash_max_ziplist_value)
-            {
-                sdsfree(field);
-                sdsfree(value);
-                hashTypeConvert(o, OBJ_ENCODING_HT);
-                break;
-            }
             sdsfree(field);
             sdsfree(value);
         }
@@ -1640,6 +1648,10 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, robj *key) {
                     while ((zi = zipmapNext(zi, &fstr, &flen, &vstr, &vlen)) != NULL) {
                         if (flen > maxlen) maxlen = flen;
                         if (vlen > maxlen) maxlen = vlen;
+                        if (!ziplistSafeToAdd(zl, (size_t)flen + vlen)) {
+                            rdbExitReportCorruptRDB("Hash zipmap too big (%u)", flen);
+                        }
+
                         zl = ziplistPush(zl, fstr, flen, ZIPLIST_TAIL);
                         zl = ziplistPush(zl, vstr, vlen, ZIPLIST_TAIL);
                     }
