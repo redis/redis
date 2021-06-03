@@ -29,6 +29,8 @@
 
 #include "server.h"
 
+#define LIST_MAX_ITEM_SIZE ((1ull<<32)-1024)
+
 /*-----------------------------------------------------------------------------
  * List API
  *----------------------------------------------------------------------------*/
@@ -224,6 +226,13 @@ robj *listTypeDup(robj *o) {
 void pushGenericCommand(client *c, int where, int xx) {
     int j;
 
+    for (j = 2; j < c->argc; j++) {
+        if (sdslen(c->argv[j]->ptr) > LIST_MAX_ITEM_SIZE) {
+            addReplyError(c, "Element too large");
+            return;
+        }
+    }
+
     robj *lobj = lookupKeyWrite(c->db, c->argv[1]);
     if (checkType(c,lobj,OBJ_LIST)) return;
     if (!lobj) {
@@ -284,6 +293,11 @@ void linsertCommand(client *c) {
         where = LIST_HEAD;
     } else {
         addReplyErrorObject(c,shared.syntaxerr);
+        return;
+    }
+
+    if (sdslen(c->argv[4]->ptr) > LIST_MAX_ITEM_SIZE) {
+        addReplyError(c, "Element too large");
         return;
     }
 
@@ -353,6 +367,11 @@ void lsetCommand(client *c) {
     if (o == NULL || checkType(c,o,OBJ_LIST)) return;
     long index;
     robj *value = c->argv[3];
+
+    if (sdslen(value->ptr) > LIST_MAX_ITEM_SIZE) {
+        addReplyError(c, "Element too large");
+        return;
+    }
 
     if ((getLongFromObjectOrReply(c, c->argv[2], &index, NULL) != C_OK))
         return;
@@ -576,6 +595,11 @@ void lposCommand(client *c) {
     int direction = LIST_TAIL;
     long rank = 1, count = -1, maxlen = 0; /* Count -1: option not given. */
 
+    if (sdslen(ele->ptr) > LIST_MAX_ITEM_SIZE) {
+        addReplyError(c, "Element too large");
+        return;
+    }
+
     /* Parse the optional arguments. */
     for (int j = 3; j < c->argc; j++) {
         char *opt = c->argv[j]->ptr;
@@ -670,6 +694,11 @@ void lremCommand(client *c) {
     obj = c->argv[3];
     long toremove;
     long removed = 0;
+
+    if (sdslen(obj->ptr) > LIST_MAX_ITEM_SIZE) {
+        addReplyError(c, "Element too large");
+        return;
+    }
 
     if ((getLongFromObjectOrReply(c, c->argv[2], &toremove, NULL) != C_OK))
         return;
