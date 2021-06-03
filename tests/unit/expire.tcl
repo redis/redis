@@ -178,10 +178,12 @@ start_server {tags {expire external-ok}} {
         # Redis expires random keys ten times every second so we are
         # fairly sure that all the three keys should be evicted after
         # two seconds.
-        after 2000
-        set size2 [r dbsize]
-        list $size1 $size2
-    } {3 0}
+        wait_for_condition 20 100 {
+            [r dbsize] eq 0
+        } fail {
+            "Keys did not actively expire."
+        }
+    }
 
     test {Redis should lazy expire keys} {
         r flushdb
