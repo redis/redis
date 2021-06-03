@@ -301,6 +301,34 @@ void psetexCommand(client *c) {
     setGenericCommand(c,OBJ_PX,c->argv[1],c->argv[3],c->argv[2],UNIT_MILLISECONDS,NULL,NULL);
 }
 
+int setcasObjectCompare(robj *oldval, robj *chkval) {
+    if (oldval->type == OBJ_STRING && oldval->type == chkval->type) {
+        switch (oldval->encoding) {
+        case OBJ_ENCODING_INT:
+            return oldval->ptr == chkval->ptr;
+        case OBJ_ENCODING_RAW:
+        case OBJ_ENCODING_EMBSTR:
+            return !sdscmp(oldval->ptr, chkval->ptr);
+        }
+    }
+    return 0;
+}
+
+void setcasCommand(client *c) {
+    robj *old = lookupKeyWrite(c->db,c->argv[1]);
+
+    if (old != NULL) {
+        c->argv[2] = tryObjectEncoding(c->argv[2]);
+        if (!setcasObjectCompare(old, c->argv[2])) {
+            addReply(c, shared.null[c->resp]);
+            return;
+        }
+    }
+
+    c->argv[3] = tryObjectEncoding(c->argv[3]);
+    setGenericCommand(c,OBJ_SET_NO_FLAGS,c->argv[1],c->argv[3],NULL,0,NULL,NULL);
+}
+
 int getGenericCommand(client *c) {
     robj *o;
 
