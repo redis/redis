@@ -4036,17 +4036,27 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
             continue;
         }
 
-        int low_flags = HASH_SET_COPY;
+        int low_flags = HSET_IN_DEFAULT;
         /* If CFIELDS is active, we can pass the ownership of the
          * SDS object to the low level function that sets the field
          * to avoid a useless copy. */
         if (flags & REDISMODULE_HASH_CFIELDS)
-            low_flags |= HASH_SET_TAKE_FIELD;
+            low_flags |= HSET_IN_TAKE_FIELD;
 
         robj *argv[2] = {field,value};
         hashTypeTryConversion(key->value,argv,0,1);
-        int updated = hashTypeSet(key->value, field->ptr, value->ptr, low_flags);
-        count += (flags & REDISMODULE_HASH_COUNT_ALL) ? 1 : updated;
+        int retflags = 0;
+        hashTypeSet(key->value, field->ptr, value->ptr, low_flags, &retflags);
+        if (flags & REDISMODULE_HASH_COUNT_ALL) {
+            count += 1;
+        } else {
+            if (retflags & HSET_OUT_UPDATED)
+                count += 1;
+        }
+        /* Or
+        if ((flags & REDISMODULE_HASH_COUNT_ALL) || (retflags & HSET_OUT_UPDATED))
+            count += 1;
+        */
 
         /* If CFIELDS is active, SDS string ownership is now of hashTypeSet(),
          * however we still have to release the 'field' object shell. */
