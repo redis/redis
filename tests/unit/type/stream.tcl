@@ -205,7 +205,7 @@ start_server {
             r XADD yourstream * xitem v
         }
         r XADD yourstream MAXLEN ~ 0 limit 1 * xitem v
-        assert {[r XLEN yourstream] >= 3}
+        assert {[r XLEN yourstream] == 4}
     }
 
     test {XRANGE COUNT works as expected} {
@@ -541,7 +541,7 @@ start_server {
         for {set j 0} {$j < 3} {incr j} {
             r XADD mystream * xitem v
         }
-        assert {[r XTRIM mystream MAXLEN ~ 0 LIMIT 1] <= 1}
+        assert {[r XTRIM mystream MAXLEN ~ 0 LIMIT 1] == 0}
     }
 }
 
