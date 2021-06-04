@@ -542,6 +542,7 @@ start_server {
             r XADD mystream * xitem v
         }
         assert {[r XTRIM mystream MAXLEN ~ 0 LIMIT 1] == 0}
+        assert {[r XTRIM mystream MAXLEN ~ 0 LIMIT 2] == 2}
     }
 }
 
