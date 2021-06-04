@@ -708,6 +708,10 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
         unsigned char *lp = ri.data, *p = lpFirst(lp);
         int64_t entries = lpGetInteger(p);
 
+        /* Check if we exceeded the amount of work we could do */
+        if (limit && (deleted + entries) > limit)
+            break;
+
         /* Check if we can remove the whole node. */
         int remove_node;
         streamID master_id = {0}; /* For MINID */
@@ -726,9 +730,6 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
         }
 
         if (remove_node) {
-            /* Check if we exceeded the amount of work we could do */
-            if (limit && (deleted + entries) > limit)
-                break;
             lpFree(lp);
             raxRemove(s->rax,ri.key,ri.key_len,NULL);
             raxSeek(&ri,">=",ri.key,ri.key_len);
