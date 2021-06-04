@@ -21,7 +21,7 @@ start_server {tags {"querybuf"}} {
     # The test will run at least 2s to check if client query
     # buffer will be resized when client idle 2s.
     if {$::accurate} {
-        test "query buffer will never be resized when less than 64k" {
+        test "query buffer will never be resized when less than 32k" {
             # Memory will increase by more than 32k due to query buffer of client.
             set rd [redis_deferring_client]
             $rd client setname test_client
@@ -41,14 +41,14 @@ start_server {tags {"querybuf"}} {
     # The test will run at least 2s to wait for client query
     # buffer to be resized after idle 2s.
     if {$::accurate} {
-        test "query buffer will be resized when more than 64k" {
+        test "query buffer will be resized when more than 32k" {
             set rd [redis_deferring_client]
             $rd client setname test_client
-            assert_morethan_equal [client_query_buffer test_client] 32768
+            assert_morethan_equal [client_query_buffer test_client] 16384
 
-            # Fill client query buffer to more than 64k without adding extra memory
+            # Fill client query buffer to more than 32k without adding extra memory
             $rd set bigstring v
-            $rd set bigstring [string repeat A 65535] nx
+            $rd set bigstring [string repeat A 32768] nx
 
             # Wait for client query buffer to be resized to 0.
             wait_for_condition 1000 10 {
