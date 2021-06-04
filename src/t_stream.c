@@ -702,10 +702,6 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
 
     int64_t deleted = 0;
     while (raxNext(&ri)) {
-        /* Check if we exceeded the amount of work we could do */
-        if (limit && deleted >= limit)
-            break;
-
         if (trim_strategy == TRIM_STRATEGY_MAXLEN && s->length <= maxlen)
             break;
 
@@ -730,6 +726,9 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
         }
 
         if (remove_node) {
+            /* Check if we exceeded the amount of work we could do */
+            if (limit && (deleted + entries) > limit)
+                break;
             lpFree(lp);
             raxRemove(s->rax,ri.key,ri.key_len,NULL);
             raxSeek(&ri,">=",ri.key,ri.key_len);
