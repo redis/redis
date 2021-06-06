@@ -3233,7 +3233,7 @@ void xtrimCommand(client *c) {
 
     /* Argument parsing. */
     streamAddTrimArgs parsed_args;
-    if (streamParseAddOrTrimArgsOrReply(c, &parsed_args, 1) < 0)
+    if (streamParseAddOrTrimArgsOrReply(c, &parsed_args, 0) < 0)
         return; /* streamParseAddOrTrimArgsOrReply already replied. */
 
     /* If the key does not exist, we are ok returning zero, that is, the
