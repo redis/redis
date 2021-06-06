@@ -2,7 +2,7 @@ proc cmdstat {cmd} {
     return [cmdrstat $cmd r]
 }
 
-start_server {tags {"introspection external-ok"}} {
+start_server {tags {"introspection"}} {
     test {TTL, TYPE and EXISTS do not alter the last access time of a key} {
         r set foo bar
         after 3000

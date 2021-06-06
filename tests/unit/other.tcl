@@ -1,4 +1,4 @@
-start_server {overrides {save ""} tags {"other external-ok needs:config-set-save"}} {
+start_server {overrides {save ""} tags {"other needs:config-set-save"}} {
     if {$::force_failure} {
         # This is used just for test suite development purposes.
         test {Failing test} {
@@ -304,7 +304,7 @@ start_server {overrides {save ""} tags {"other external-ok needs:config-set-save
     }
 }
 
-start_server {tags {"other"}} {
+start_server {tags {"other external:skip"}} {
     test {Don't rehash if redis has child proecess} {
         r config set save ""
         r config set rdb-key-save-delay 1000000
@@ -338,7 +338,7 @@ proc read_proc_title {pid} {
     return $cmdline
 }
 
-start_server {tags {"other"}} {
+start_server {tags {"other external:skip"}} {
     test {Process title set as expected} {
         # Test only on Linux where it's easy to get cmdline without relying on tools.
         # Skip valgrind as it messes up the arguments.

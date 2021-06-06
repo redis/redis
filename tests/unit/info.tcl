@@ -6,7 +6,7 @@ proc errorstat {cmd} {
     return [errorrstat $cmd r]
 }
 
-start_server {tags {"info"}} {
+start_server {tags {"info" "external:skip"}} {
     start_server {} {
 
         test {errorstats: failed call authentication error} {

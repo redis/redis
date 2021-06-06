@@ -1,4 +1,4 @@
-start_server {tags {expire external-ok}} {
+start_server {tags {"expire"}} {
     test {EXPIRE - set timeouts multiple times} {
         r set x foobar
         set v1 [r expire x 5]
@@ -283,7 +283,7 @@ start_server {tags {expire external-ok}} {
     } {-2}
 
     # Start a new server with empty data and AOF file.
-    start_server {overrides {appendonly {yes} appendfilename {appendonly.aof} appendfsync always}} {
+    start_server {overrides {appendonly {yes} appendfilename {appendonly.aof} appendfsync always} tags {external:skip}} {
         test {All time-to-live(TTL) in commands are propagated as absolute timestamp in milliseconds in AOF} {
             # This test makes sure that expire times are propagated as absolute
             # times to the AOF file and not as relative time, so that when the AOF
@@ -488,7 +488,7 @@ start_server {tags {expire external-ok}} {
     }
 
     # Start another server to test replication of TTLs
-    start_server {tags {needs:repl}} {
+    start_server {tags {needs:repl external:skip}} {
         # Set the outer layer server as primary
         set primary [srv -1 client]
         set primary_host [srv -1 host]

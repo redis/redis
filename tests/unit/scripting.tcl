@@ -1,4 +1,4 @@
-start_server {tags {"scripting external-ok"}} {
+start_server {tags {"scripting"}} {
     test {EVAL - Does Lua interpreter replies to our requests?} {
         r eval {return 'hello'} 0
     } {hello}
@@ -479,7 +479,7 @@ start_server {tags {"scripting external-ok"}} {
         r slaveof no one
         r config set aof-use-rdb-preamble yes
         set res
-    } {102} {external-skip}
+    } {102} {external:skip}
 
     test {EVAL timeout from AOF} {
         # generate a long running script that is propagated to the AOF as script
@@ -516,7 +516,7 @@ start_server {tags {"scripting external-ok"}} {
         if {$::verbose} { puts "loading took $elapsed milliseconds" }
         $rd close
         r get x
-    } {y} {external-skip}
+    } {y} {external:skip}
 
     test {We can call scripts rewriting client->argv from Lua} {
         r del myset
@@ -705,7 +705,7 @@ start_server {tags {"scripting"}} {
         assert_match {UNKILLABLE*} $e
         catch {r ping} e
         assert_match {BUSY*} $e
-    }
+    } {} {external:skip}
 
     # Note: keep this test at the end of this server stanza because it
     # kills the server.
@@ -717,11 +717,11 @@ start_server {tags {"scripting"}} {
         # Make sure the server was killed
         catch {set rd [redis_deferring_client]} e
         assert_match {*connection refused*} $e
-    }
+    } {} {external:skip}
 }
 
 foreach cmdrepl {0 1} {
-    start_server {tags {"scripting repl needs:debug"}} {
+    start_server {tags {"scripting repl needs:debug external:skip"}} {
         start_server {} {
             if {$cmdrepl == 1} {
                 set rt "(commands replication)"
@@ -822,7 +822,7 @@ foreach cmdrepl {0 1} {
     }
 }
 
-start_server {tags {"scripting repl"}} {
+start_server {tags {"scripting repl external:skip"}} {
     start_server {overrides {appendonly yes aof-use-rdb-preamble no}} {
         test "Connect a replica to the master instance" {
             r -1 slaveof [srv 0 host] [srv 0 port]
@@ -929,7 +929,7 @@ start_server {tags {"scripting repl"}} {
     }
 }
 
-start_server {tags {"scripting"}} {
+start_server {tags {"scripting external:skip"}} {
     r script debug sync
     r eval {return 'hello'} 0
     r eval {return 'hello'} 0

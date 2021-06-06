@@ -182,7 +182,7 @@ proc tags_acceptable {tags err_return} {
         }
     }
 
-    if {$::external && ([lsearch $tags "external-ok"] == -1 || [lsearch $tags "external-skip"] >= 0)} {
+    if {$::external && [lsearch $tags "external:skip"] >= 0} {
         set err "Not supported on external server"
         return 0
     }
@@ -380,9 +380,7 @@ proc start_server {options {code undefined}} {
     # If we are running against an external server, we just push the
     # host/port pair in the stack the first time
     if {$::external} {
-        if {[lsearch $tags "external-ok"] >= 0} {
-            run_external_server_test $code $overrides
-        }
+        run_external_server_test $code $overrides
 
         set ::tags [lrange $::tags 0 end-[llength $tags]]
         return

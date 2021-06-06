@@ -1,4 +1,4 @@
-start_server {tags {"bitops" "external-ok"}} {
+start_server {tags {"bitops"}} {
     test {BITFIELD signed SET and GET basics} {
         r del bits
         set results {}
@@ -200,7 +200,7 @@ start_server {tags {"bitops" "external-ok"}} {
     }
 }
 
-start_server {tags {"repl"}} {
+start_server {tags {"repl external:skip"}} {
     start_server {} {
         set master [srv -1 client]
         set master_host [srv -1 host]

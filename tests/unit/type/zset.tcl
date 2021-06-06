@@ -1,4 +1,4 @@
-start_server {tags {"zset external-ok"}} {
+start_server {tags {"zset"}} {
     proc create_zset {key items} {
         r del $key
         foreach {score entry} $items {

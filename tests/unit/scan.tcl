@@ -1,4 +1,4 @@
-start_server {tags {"scan network external-ok"}} {
+start_server {tags {"scan network"}} {
     test "SCAN basic" {
         r flushdb
         populate 1000

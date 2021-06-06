@@ -111,7 +111,7 @@ start_server {tags {"dump"}} {
             r -1 migrate $second_host $second_port key 9 1000
             assert_match {*migrate_cached_sockets:1*} [r -1 info]
         }
-    }
+    } {} {external:skip}
 
     test {MIGRATE cached connections are released after some time} {
         after 15000
@@ -135,7 +135,7 @@ start_server {tags {"dump"}} {
             assert {[$second get key] eq {Some Value}}
             assert {[$second ttl key] == -1}
         }
-    }
+    } {} {external:skip}
 
     test {MIGRATE is able to copy a key between two instances} {
         set first [srv 0 client]
@@ -154,7 +154,7 @@ start_server {tags {"dump"}} {
             assert {[$second exists list] == 1}
             assert {[$first lrange list 0 -1] eq [$second lrange list 0 -1]}
         }
-    }
+    } {} {external:skip}
 
     test {MIGRATE will not overwrite existing keys, unless REPLACE is used} {
         set first [srv 0 client]
@@ -176,7 +176,7 @@ start_server {tags {"dump"}} {
             assert {[$second exists list] == 1}
             assert {[$first lrange list 0 -1] eq [$second lrange list 0 -1]}
         }
-    }
+    } {} {external:skip}
 
     test {MIGRATE propagates TTL correctly} {
         set first [srv 0 client]
@@ -196,7 +196,7 @@ start_server {tags {"dump"}} {
             assert {[$second get key] eq {Some Value}}
             assert {[$second ttl key] >= 7 && [$second ttl key] <= 10}
         }
-    }
+    } {} {external:skip}
 
     test {MIGRATE can correctly transfer large values} {
         set first [srv 0 client]
@@ -221,7 +221,7 @@ start_server {tags {"dump"}} {
             assert {[$second ttl key] == -1}
             assert {[$second llen key] == 40000*20}
         }
-    }
+    } {} {external:skip}
 
     test {MIGRATE can correctly transfer hashes} {
         set first [srv 0 client]
@@ -241,7 +241,7 @@ start_server {tags {"dump"}} {
             assert {[$second exists key] == 1}
             assert {[$second ttl key] == -1}
         }
-    }
+    } {} {external:skip}
 
     test {MIGRATE timeout actually works} {
         set first [srv 0 client]
@@ -260,7 +260,7 @@ start_server {tags {"dump"}} {
             catch {r -1 migrate $second_host $second_port key 9 500} e
             assert_match {IOERR*} $e
         }
-    }
+    } {} {external:skip}
 
     test {MIGRATE can migrate multiple keys at once} {
         set first [srv 0 client]
@@ -283,12 +283,12 @@ start_server {tags {"dump"}} {
             assert {[$second get key2] eq {v2}}
             assert {[$second get key3] eq {v3}}
         }
-    }
+    } {} {external:skip}
 
     test {MIGRATE with multiple keys must have empty key arg} {
         catch {r MIGRATE 127.0.0.1 6379 NotEmpty 9 5000 keys a b c} e
         set e
-    } {*empty string*}
+    } {*empty string*} {external:skip}
 
     test {MIGRATE with multiple keys migrate just existing ones} {
         set first [srv 0 client]
@@ -314,7 +314,7 @@ start_server {tags {"dump"}} {
             assert {[$second get key2] eq {v2}}
             assert {[$second get key3] eq {v3}}
         }
-    }
+    } {} {external:skip}
 
     test {MIGRATE with multiple keys: stress command rewriting} {
         set first [srv 0 client]
@@ -330,7 +330,7 @@ start_server {tags {"dump"}} {
             assert {[$first dbsize] == 0}
             assert {[$second dbsize] == 15}
         }
-    }
+    } {} {external:skip}
 
     test {MIGRATE with multiple keys: delete just ack keys} {
         set first [srv 0 client]
@@ -350,7 +350,7 @@ start_server {tags {"dump"}} {
             assert {[$first exists c] == 1}
             assert {[$first exists d] == 1}
         }
-    }
+    } {} {external:skip}
 
     test {MIGRATE AUTH: correct and wrong password cases} {
         set first [srv 0 client]
@@ -375,5 +375,5 @@ start_server {tags {"dump"}} {
             catch {r -1 migrate $second_host $second_port list 9 5000 AUTH foobar} err
             assert_match {*WRONGPASS*} $err
         }
-    }
+    } {} {external:skip}
 }

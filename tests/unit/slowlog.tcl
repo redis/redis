@@ -1,4 +1,4 @@
-start_server {tags {"slowlog external-ok"} overrides {slowlog-log-slower-than 1000000}} {
+start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
     test {SLOWLOG - check that it starts with an empty log} {
         if {$::external} {
             r slowlog reset

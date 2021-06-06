@@ -50,7 +50,7 @@ proc streamSimulateXRANGE {items start end} {
 set content {} ;# Will be populated with Tcl side copy of the stream content.
 
 start_server {
-    tags {"stream external-ok"}
+    tags {"stream"}
 } {
     test {XADD can add entries into a stream that XRANGE can fetch} {
         r XADD mystream * item 1 value a

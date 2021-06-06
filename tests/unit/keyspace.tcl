@@ -1,4 +1,4 @@
-start_server {tags {"keyspace" "external-ok"}} {
+start_server {tags {"keyspace"}} {
     test {DEL against a single item} {
         r set x foo
         assert {[r get x] eq "foo"}

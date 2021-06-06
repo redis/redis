@@ -8,7 +8,7 @@ proc wait_for_dbsize {size} {
     $r2 close
 }
 
-start_server {tags {"multi external-ok"}} {
+start_server {tags {"multi"}} {
     test {MUTLI / EXEC basics} {
         r del mylist
         r rpush mylist a

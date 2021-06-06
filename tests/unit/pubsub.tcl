@@ -1,4 +1,4 @@
-start_server {tags {"pubsub network external-ok"}} {
+start_server {tags {"pubsub network"}} {
     if {$::singledb} {
         set db 0
     } else {
