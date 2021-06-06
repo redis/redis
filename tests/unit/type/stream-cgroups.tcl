@@ -549,7 +549,7 @@ start_server {
     }
 }
 
-start_server {tags {"stream"} overrides {appendonly yes aof-use-rdb-preamble no appendfsync always}} {
+start_server {tags {"stream needs:debug"} overrides {appendonly yes aof-use-rdb-preamble no appendfsync always}} {
         test {XREADGROUP with NOACK creates consumer} {
             r del mystream
             r XGROUP CREATE mystream mygroup $ MKSTREAM
@@ -648,7 +648,7 @@ start_server {tags {"external:skip"}} {
         }
 }
 
-start_server {tags {"stream"} overrides {appendonly yes aof-use-rdb-preamble no}} {
+start_server {tags {"stream needs:debug"} overrides {appendonly yes aof-use-rdb-preamble no}} {
         test {Empty stream with no lastid can be rewrite into AOF correctly} {
             r XGROUP CREATE mystream group-name $ MKSTREAM
             assert {[dict get [r xinfo stream mystream] length] == 0}

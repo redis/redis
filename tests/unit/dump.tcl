@@ -46,7 +46,7 @@ start_server {tags {"dump"}} {
         catch {r debug object foo} e
         r debug set-active-expire 1
         set e
-    } {ERR no such key}
+    } {ERR no such key} {needs:debug}
 
     test {RESTORE can set LRU} {
         r set foo bar
@@ -58,7 +58,7 @@ start_server {tags {"dump"}} {
         assert {$idle >= 1000 && $idle <= 1010}
         assert_equal [r get foo] {bar}
         r config set maxmemory-policy noeviction
-    }
+    } {OK} {needs:config-maxmemory}
     
     test {RESTORE can set LFU} {
         r set foo bar
@@ -71,7 +71,7 @@ start_server {tags {"dump"}} {
         r get foo
         assert_equal [r get foo] {bar}
         r config set maxmemory-policy noeviction
-    }
+    } {OK} {needs:config-maxmemory}
 
     test {RESTORE returns an error of the key already exists} {
         r set foo bar
