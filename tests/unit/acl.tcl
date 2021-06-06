@@ -1,4 +1,4 @@
-start_server {tags {"acl"}} {
+start_server {tags {"acl external:skip"}} {
     test {Connections start with the default user} {
         r ACL WHOAMI
     } {default}

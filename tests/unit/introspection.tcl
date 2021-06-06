@@ -125,7 +125,7 @@ start_server {tags {"introspection"}} {
             # Defaults
             assert_match [r config get save] {save {100 100}}
         }
-    }
+    } {} {external:skip}
 
     test {CONFIG sanity} {
         # Do CONFIG GET, CONFIG SET and then CONFIG GET again
@@ -203,7 +203,7 @@ start_server {tags {"introspection"}} {
             }
 
         }
-    }
+    } {} {external:skip}
 
     # Do a force-all config rewrite and make sure we're able to parse
     # it.
