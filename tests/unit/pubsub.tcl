@@ -333,7 +333,8 @@ start_server {tags {"pubsub network"}} {
         assert_equal "pmessage * __keyevent@${db}__:evicted foo" [$rd1 read]
         r config set maxmemory 0
         $rd1 close
-    } {0} {needs:config-maxmemory}
+        r config set maxmemory-policy noeviction
+    } {OK} {needs:config-maxmemory}
 
     test "Keyspace notifications: test CONFIG GET/SET of event flags" {
         r config set notify-keyspace-events gKE

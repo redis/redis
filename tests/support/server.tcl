@@ -311,6 +311,11 @@ proc run_external_server_test {code overrides} {
     foreach {param val} $overrides {
         dict set saved_config $param [lindex [r config get $param] 1]
         r config set $param $val
+
+        # If we enable appendonly, wait for for rewrite to complete
+        if {$param == "appendonly" && $val == "yes"} {
+            waitForBgrewriteaof r
+        }
     }
 
     if {[catch {set retval [uplevel 2 $code]} error]} {

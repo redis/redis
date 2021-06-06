@@ -565,7 +565,7 @@ start_server {tags {"stream"} overrides {appendonly yes}} {
     }
 }
 
-start_server {tags {"stream"} overrides {appendonly yes}} {
+start_server {tags {"stream"} overrides {appendonly yes stream-node-max-entries 100}} {
     test {XADD with ~ MAXLEN can propagate correctly} {
         for {set j 0} {$j < 100} {incr j} {
             r XADD mystream * xitem v
@@ -595,7 +595,7 @@ start_server {tags {"stream"} overrides {appendonly yes stream-node-max-entries 
     }
 }
 
-start_server {tags {"stream"} overrides {appendonly yes}} {
+start_server {tags {"stream"} overrides {appendonly yes stream-node-max-entries 100}} {
     test {XADD with ~ MINID can propagate correctly} {
         for {set j 0} {$j < 100} {incr j} {
             set id [expr {$j+1}]

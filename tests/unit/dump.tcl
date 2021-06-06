@@ -56,8 +56,9 @@ start_server {tags {"dump"}} {
         r restore foo 0 $encoded idletime 1000
         set idle [r object idletime foo]
         assert {$idle >= 1000 && $idle <= 1010}
-        r get foo
-    } {bar}
+        assert_equal [r get foo] {bar}
+        r config set maxmemory-policy noeviction
+    }
     
     test {RESTORE can set LFU} {
         r set foo bar
@@ -68,7 +69,9 @@ start_server {tags {"dump"}} {
         set freq [r object freq foo]
         assert {$freq == 100}
         r get foo
-    } {bar}
+        assert_equal [r get foo] {bar}
+        r config set maxmemory-policy noeviction
+    }
 
     test {RESTORE returns an error of the key already exists} {
         r set foo bar
