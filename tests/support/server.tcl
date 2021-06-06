@@ -302,6 +302,8 @@ proc run_external_server_test {code overrides} {
 
     if {[llength $::servers] == 1} {
         r flushall
+    } else {
+        puts "Warning: nested start_server statements in external server mode!"
     }
 
     # store overrides
