@@ -127,11 +127,11 @@ set ::numclients 16
 # a "run" command from the server, with a filename as data.
 # It will run the specified test source file and signal it to the
 # test server when finished.
-proc execute_test_file name {
-    set path "tests/$name.tcl"
+proc execute_test_file __testname {
+    set path "tests/$__testname.tcl"
     set ::curfile $path
     source $path
-    send_data_packet $::test_server_fd done "$name"
+    send_data_packet $::test_server_fd done "$__testname"
 }
 
 # This function is called by one of the test clients when it receives
@@ -139,10 +139,10 @@ proc execute_test_file name {
 # as argument, and an associated name.
 # It will run the specified code and signal it to the test server when
 # finished.
-proc execute_test_code {name filename code} {
+proc execute_test_code {__testname filename code} {
     set ::curfile $filename
     eval $code
-    send_data_packet $::test_server_fd done "$name"
+    send_data_packet $::test_server_fd done "$__testname"
 }
 
 # Setup a list to hold a stack of server configs. When calls to start_server
