@@ -315,7 +315,12 @@ start_server {tags {"cli"}} {
         set cmds [tmpfile "cli_cmds"]
         set cmds_fd [open $cmds "w"]
 
-        puts $cmds_fd [formatCommand select 9]
+        set cmds_count 2101
+
+        if {!$::singledb} {
+            puts $cmds_fd [formatCommand select 9]
+            incr cmds_count
+        }
         puts $cmds_fd [formatCommand del test-counter]
 
         for {set i 0} {$i < 1000} {incr i} {
@@ -333,8 +338,8 @@ start_server {tags {"cli"}} {
         set output [read_cli $cli_fd]
 
         assert_equal {1000} [r get test-counter]
-        assert_match {*All data transferred*errors: 0*replies: 2102*} $output
+        assert_match "*All data transferred*errors: 0*replies: ${cmds_count}*" $output
 
         file delete $cmds
-    } {} {singledb-skip}
+    }
 }
