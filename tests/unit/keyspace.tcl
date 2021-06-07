@@ -18,7 +18,7 @@ start_server {tags {"keyspace"}} {
         r set foo2 b
         r set foo3 c
         list [r del foo1 foo2 foo3 foo4] [r mget foo1 foo2 foo3]
-    } {3 {{} {} {}}} {cluster-skip}
+    } {3 {{} {} {}}} {cluster:skip}
 
     test {KEYS with pattern} {
         foreach key {key_x key_y key_z foo_a foo_b foo_c} {
@@ -174,7 +174,7 @@ start_server {tags {"keyspace"}} {
         set res [r dbsize]
         r select 9
         format $res
-    } {0} {singledb-skip}
+    } {0} {singledb:skip}
 
     test {COPY basic usage for string} {
         r set mykey{t} foobar
@@ -198,13 +198,13 @@ start_server {tags {"keyspace"}} {
         r set mykey2{t} hello
         catch {r copy mykey2{t} mynewkey{t} DB 10} e
         set e
-    } {0} {singledb-skip}
+    } {0} {singledb:skip}
 
     test {COPY for string can replace an existing key with REPLACE option} {
         r copy mykey2{t} mynewkey{t} DB 10 REPLACE
         r select 10
         r get mynewkey{t}
-    } {hello} {singledb-skip}
+    } {hello} {singledb:skip}
 
     test {COPY for string ensures that copied data is independent of copying data} {
         r flushdb
@@ -222,7 +222,7 @@ start_server {tags {"keyspace"}} {
         r flushdb
         r select 9
         format $res
-    } [list foobar hoge foobar] {singledb-skip}
+    } [list foobar hoge foobar] {singledb:skip}
 
     test {COPY for string does not copy data to no-integer DB} {
         r set mykey{t} foobar
@@ -398,18 +398,18 @@ start_server {tags {"keyspace"}} {
         lappend res [r dbsize]
         r select 9
         format $res
-    } [list 0 0 foobar 1] {singledb-skip}
+    } [list 0 0 foobar 1] {singledb:skip}
 
     test {MOVE against key existing in the target DB} {
         r set mykey hello
         r move mykey 10
-    } {0} {singledb-skip}
+    } {0} {singledb:skip}
 
     test {MOVE against non-integer DB (#1428)} {
         r set mykey hello
         catch {r move mykey notanumber} e
         set e
-    } {ERR value is not an integer or out of range} {singledb-skip}
+    } {ERR value is not an integer or out of range} {singledb:skip}
 
     test {MOVE can move key expire metadata as well} {
         r select 10
@@ -422,7 +422,7 @@ start_server {tags {"keyspace"}} {
         assert {[r ttl mykey] > 0 && [r ttl mykey] <= 100}
         assert {[r get mykey] eq "foo"}
         r select 9
-    } {OK} {singledb-skip}
+    } {OK} {singledb:skip}
 
     test {MOVE does not create an expire if it does not exist} {
         r select 10
@@ -435,7 +435,7 @@ start_server {tags {"keyspace"}} {
         assert {[r ttl mykey] == -1}
         assert {[r get mykey] eq "foo"}
         r select 9
-    } {OK} {singledb-skip}
+    } {OK} {singledb:skip}
 
     test {SET/GET keys in different DBs} {
         r set a hello
@@ -452,7 +452,7 @@ start_server {tags {"keyspace"}} {
         lappend res [r get b]
         r select 9
         format $res
-    } {hello world foo bared} {singledb-skip}
+    } {hello world foo bared} {singledb:skip}
 
     test {RANDOMKEY} {
         r flushdb

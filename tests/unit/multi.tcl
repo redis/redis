@@ -129,7 +129,7 @@ start_server {tags {"multi"}} {
         r multi
         r ping
         r exec
-    } {} {cluster-skip}
+    } {} {cluster:skip}
 
     test {After successful EXEC key is no longer watched} {
         r set x 30
@@ -215,7 +215,7 @@ start_server {tags {"multi"}} {
         r multi
         r ping
         r exec
-    } {} {singledb-skip}
+    } {} {singledb:skip}
 
     test {SWAPDB is able to touch the watched keys that do not exist} {
         r flushall
@@ -227,7 +227,7 @@ start_server {tags {"multi"}} {
         r multi
         r ping
         r exec
-    } {} {singledb-skip}
+    } {} {singledb:skip}
 
     test {WATCH is able to remember the DB a key belongs to} {
         r select 5
@@ -242,7 +242,7 @@ start_server {tags {"multi"}} {
         # Restore original DB
         r select 9
         set res
-    } {PONG} {singledb-skip}
+    } {PONG} {singledb:skip}
 
     test {WATCH will consider touched keys target of EXPIRE} {
         r del x
@@ -507,7 +507,7 @@ start_server {tags {"multi"}} {
         # make sure that the INCR was executed
         assert { $xx == 1 }
         $r1 close
-    } {0} {needs:repl cluster-skip}
+    } {0} {needs:repl cluster:skip}
 
     test {EXEC with only read commands should not be rejected when OOM} {
         set r2 [redis_client]
@@ -579,7 +579,7 @@ start_server {tags {"multi"}} {
             {exec}
         }
         close_replication_stream $repl
-    } {} {needs:repl cluster-skip}
+    } {} {needs:repl cluster:skip}
 
     test {MULTI propagation of SCRIPT LOAD} {
         set repl [attach_to_replication_stream]

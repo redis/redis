@@ -116,7 +116,7 @@ start_server {tags {"scripting"}} {
         r select 10
         r set mykey "this is DB 10"
         r eval {return redis.pcall('get',KEYS[1])} 1 mykey
-    } {this is DB 10} {singledb-skip}
+    } {this is DB 10} {singledb:skip}
 
     test {EVAL - SELECT inside Lua should not affect the caller} {
         # here we DB 10 is selected
@@ -125,7 +125,7 @@ start_server {tags {"scripting"}} {
         set res [r get mykey]
         r select 9
         set res
-    } {original value} {singledb-skip}
+    } {original value} {singledb:skip}
 
     if 0 {
         test {EVAL - Script can't run more than configured time limit} {
@@ -374,19 +374,19 @@ start_server {tags {"scripting"}} {
         r del myset
         r sadd myset 1 2 3 4 10
         r eval {return redis.call('sort',KEYS[1],'desc')} 1 myset
-    } {10 4 3 2 1} {cluster-skip}
+    } {10 4 3 2 1} {cluster:skip}
 
     test "SORT BY <constant> output gets ordered for scripting" {
         r del myset
         r sadd myset a b c d e f g h i l m n o p q r s t u v z aa aaa azz
         r eval {return redis.call('sort',KEYS[1],'by','_')} 1 myset
-    } {a aa aaa azz b c d e f g h i l m n o p q r s t u v z} {cluster-skip}
+    } {a aa aaa azz b c d e f g h i l m n o p q r s t u v z} {cluster:skip}
 
     test "SORT BY <constant> with GET gets ordered for scripting" {
         r del myset
         r sadd myset a b c
         r eval {return redis.call('sort',KEYS[1],'by','_','get','#','get','_:*')} 1 myset
-    } {a {} b {} c {}} {cluster-skip}
+    } {a {} b {} c {}} {cluster:skip}
 
     test "redis.sha1hex() implementation" {
         list [r eval {return redis.sha1hex('')} 0] \
@@ -817,7 +817,7 @@ foreach cmdrepl {0 1} {
                 } else {
                     fail "Master-Replica desync after Lua script using SELECT."
                 }
-            } {} {singledb-skip}
+            } {} {singledb:skip}
         }
     }
 }

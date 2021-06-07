@@ -187,12 +187,12 @@ proc tags_acceptable {tags err_return} {
         return 0
     }
 
-    if {$::singledb && [lsearch $tags "singledb-skip"] >= 0} {
+    if {$::singledb && [lsearch $tags "singledb:skip"] >= 0} {
         set err "Not supported on singledb"
         return 0
     }
 
-    if {$::cluster_mode && [lsearch $tags "cluster-skip"] >= 0} {
+    if {$::cluster_mode && [lsearch $tags "cluster:skip"] >= 0} {
         set err "Not supported in cluster mode"
         return 0
     }

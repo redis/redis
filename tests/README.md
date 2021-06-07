@@ -6,7 +6,7 @@ local `redis-server` instances, inspecting process state, log files, etc.
 
 The test suite also supports execution against an external server, which is
 enabled using the `--host` and `--port` parameters. When executing against an
-external server, a subset of the tests - those tagged `external-ok` are invoked.
+external server, tests tagged `external:skip` are skipped.
 
 There are additional runtime options that can further adjust the test suite to
 match different external server configurations:
@@ -34,21 +34,20 @@ The following compatibility and capability tags are currently used:
 
 | Tag                       | Indicates |
 | ---------------------     | --------- |
-| `external-ok`             | Compatible with external servers (i.e `--host`). |
-| `external-skip`           | Not compatible with external servers. |
-| `cluster-skip`            | Not compatible with `--cluster-mode`. |
+| `external:skip`           | Not compatible with external servers. |
+| `cluster:skip`            | Not compatible with `--cluster-mode`. |
 | `needs:repl`              | Uses replication and needs to be able to `SYNC` from server. |
 | `needs:debug`             | Uses the `DEBUG` command or other debugging focused commands (like `OBJECT`). |
 | `needs:pfdebug`           | Uses the `PFDEBUG` command. |
-| `needs:config-maxmemory`  | Uses `CONFIG SET` to manipulate memory limit. |
-| `needs:config-set-save`   | Uses `CONFIG SET` to change persistence settings. |
-| `needs:local-process`     | Assumes the server is a local process on the same host. |
+| `needs:config-maxmemory`  | Uses `CONFIG SET` to manipulate memory limit, eviction policies, etc. |
 | `needs:config-resetstat`  | Uses `CONFIG RESETSTAT` to reset statistics. |
+| `needs:reset`             | Uses `RESET` to reset client connections. |
+| `needs:save`              | Uses `SAVE` to create an RDB file. |
 
 When using an external server (`--host` and `--port`), filtering using the
-`external-ok` and `external-skip` tags is done automatically.
+`external:skip` tags is done automatically.
 
-When using `--cluster-mode`, filtering using the `cluster-skip` tag is done
+When using `--cluster-mode`, filtering using the `cluster:skip` tag is done
 automatically.
 
 In addition, it is possible to specify additional configuration. For example, to

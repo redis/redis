@@ -47,28 +47,28 @@ start_server {
 
         test "$title: SORT BY key" {
             assert_equal $result [r sort tosort BY weight_*]
-        } {} {cluster-skip}
+        } {} {cluster:skip}
 
         test "$title: SORT BY key with limit" {
             assert_equal [lrange $result 5 9] [r sort tosort BY weight_* LIMIT 5 5]
-        } {} {cluster-skip}
+        } {} {cluster:skip}
 
         test "$title: SORT BY hash field" {
             assert_equal $result [r sort tosort BY wobj_*->weight]
-        } {} {cluster-skip}
+        } {} {cluster:skip}
     }
 
     set result [create_random_dataset 16 lpush]
     test "SORT GET #" {
         assert_equal [lsort -integer $result] [r sort tosort GET #]
-    } {} {cluster-skip}
+    } {} {cluster:skip}
 
     test "SORT GET <const>" {
         r del foo
         set res [r sort tosort GET foo]
         assert_equal 16 [llength $res]
         foreach item $res { assert_equal {} $item }
-    } {} {cluster-skip}
+    } {} {cluster:skip}
 
     test "SORT GET (key and hash) with sanity check" {
         set l1 [r sort tosort GET # GET weight_*]
@@ -78,21 +78,21 @@ start_server {
             assert_equal $w1 [r get weight_$id1]
             assert_equal $w2 [r get weight_$id1]
         }
-    } {} {cluster-skip}
+    } {} {cluster:skip}
 
     test "SORT BY key STORE" {
         r sort tosort BY weight_* store sort-res
         assert_equal $result [r lrange sort-res 0 -1]
         assert_equal 16 [r llen sort-res]
         assert_encoding quicklist sort-res
-    } {} {cluster-skip}
+    } {} {cluster:skip}
 
     test "SORT BY hash field STORE" {
         r sort tosort BY wobj_*->weight store sort-res
         assert_equal $result [r lrange sort-res 0 -1]
         assert_equal 16 [r llen sort-res]
         assert_encoding quicklist sort-res
-    } {} {cluster-skip}
+    } {} {cluster:skip}
 
     test "SORT extracts STORE correctly" {
         r command getkeys sort abc store def
@@ -210,7 +210,7 @@ start_server {
         r sadd myset a b c d e f g h i l m n o p q r s t u v z aa aaa azz
         r sort myset alpha by _ store mylist
         r lrange mylist 0 -1
-    } {a aa aaa azz b c d e f g h i l m n o p q r s t u v z} {cluster-skip}
+    } {a aa aaa azz b c d e f g h i l m n o p q r s t u v z} {cluster:skip}
 
     test "SORT will complain with numerical sorting and bad doubles (1)" {
         r del myset
@@ -227,7 +227,7 @@ start_server {
         set e {}
         catch {r sort myset by score:*} e
         set e
-    } {*ERR*double*} {cluster-skip}
+    } {*ERR*double*} {cluster:skip}
 
     test "SORT BY sub-sorts lexicographically if score is the same" {
         r del myset
@@ -236,32 +236,32 @@ start_server {
             set score:$ele 100
         }
         r sort myset by score:*
-    } {a aa aaa azz b c d e f g h i l m n o p q r s t u v z} {cluster-skip}
+    } {a aa aaa azz b c d e f g h i l m n o p q r s t u v z} {cluster:skip}
 
     test "SORT GET with pattern ending with just -> does not get hash field" {
         r del mylist
         r lpush mylist a
         r set x:a-> 100
         r sort mylist by num get x:*->
-    } {100} {cluster-skip}
+    } {100} {cluster:skip}
 
     test "SORT by nosort retains native order for lists" {
         r del testa
         r lpush testa 2 1 4 3 5
         r sort testa by nosort
-    } {5 3 4 1 2} {cluster-skip}
+    } {5 3 4 1 2} {cluster:skip}
 
     test "SORT by nosort plus store retains native order for lists" {
         r del testa
         r lpush testa 2 1 4 3 5
         r sort testa by nosort store testb
         r lrange testb 0 -1
-    } {5 3 4 1 2} {cluster-skip}
+    } {5 3 4 1 2} {cluster:skip}
 
     test "SORT by nosort with limit returns based on original list order" {
         r sort testa by nosort limit 0 3 store testb
         r lrange testb 0 -1
-    } {5 3 4} {cluster-skip}
+    } {5 3 4} {cluster:skip}
 
     tags {"slow"} {
         set num 100
@@ -277,7 +277,7 @@ start_server {
                 puts -nonewline "\n  Average time to sort: [expr double($elapsed)/100] milliseconds "
                 flush stdout
             }
-        } {} {cluster-skip}
+        } {} {cluster:skip}
 
         test "SORT speed, $num element list BY hash field, 100 times" {
             set start [clock clicks -milliseconds]
@@ -289,7 +289,7 @@ start_server {
                 puts -nonewline "\n  Average time to sort: [expr double($elapsed)/100] milliseconds "
                 flush stdout
             }
-        } {} {cluster-skip}
+        } {} {cluster:skip}
 
         test "SORT speed, $num element list directly, 100 times" {
             set start [clock clicks -milliseconds]
@@ -313,6 +313,6 @@ start_server {
                 puts -nonewline "\n  Average time to sort: [expr double($elapsed)/100] milliseconds "
                 flush stdout
             }
-        } {} {cluster-skip}
+        } {} {cluster:skip}
     }
 }
