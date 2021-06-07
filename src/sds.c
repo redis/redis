@@ -291,8 +291,8 @@ sds sdsMakeRoomFor(sds s, size_t addlen) {
     return _sdsMakeRoomFor(s, addlen, 0);
 }
 
-/* Unlike sdsMakeRoomFor(), this is just prealloc `addlen` bytes of memory. */
-sds sdsMakeRoomForExact(sds s, size_t addlen) {
+/* Unlike sdsMakeRoomFor(), this is just add the grow to the necessary size. */
+sds sdsMakeRoomForNonGreedy(sds s, size_t addlen) {
     return _sdsMakeRoomFor(s, addlen, 1);
 }
 
