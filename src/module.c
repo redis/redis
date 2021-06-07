@@ -9007,7 +9007,7 @@ int *RM_GetCommandKeys(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, 
 
 /* Return the name of the command currently running */
 const char *RM_GetCurrentCommandName(RedisModuleCtx *ctx) {
-    if (!ctx || !ctx->client|| !ctx->client->cmd)
+    if (!ctx || !ctx->client || !ctx->client->cmd)
         return NULL;
 
     return (const char*)ctx->client->cmd->name;
