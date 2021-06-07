@@ -1,4 +1,4 @@
-start_server {overrides {save ""} tags {"other needs:config-set-save"}} {
+start_server {tags {"other"}} {
     if {$::force_failure} {
         # This is used just for test suite development purposes.
         test {Failing test} {
@@ -17,7 +17,7 @@ start_server {overrides {save ""} tags {"other needs:config-set-save"}} {
         r zadd mytestzset 20 b
         r zadd mytestzset 30 c
         r save
-    } {OK}
+    } {OK} {needs:save}
 
     tags {slow} {
         if {$::accurate} {set iterations 10000} else {set iterations 1000}
@@ -47,7 +47,7 @@ start_server {overrides {save ""} tags {"other needs:config-set-save"}} {
         waitForBgsave r
         r debug reload
         r get x
-    } {10}
+    } {10} {needs:save}
 
     test {SELECT an out of range DB} {
         catch {r select 1000000} err
@@ -104,8 +104,8 @@ start_server {overrides {save ""} tags {"other needs:config-set-save"}} {
 
                     set _ 0
                 }
-            } {1} {needs:debug}
-        }
+            }
+        } {1} {needs:debug}
     }
 
     test {EXPIRES after a reload (snapshot + append only file rewrite)} {
@@ -122,7 +122,7 @@ start_server {overrides {save ""} tags {"other needs:config-set-save"}} {
         set ttl [r ttl x]
         set e2 [expr {$ttl > 900 && $ttl <= 1000}]
         list $e1 $e2
-    } {1 1}
+    } {1 1} {needs:debug needs:save}
 
     test {EXPIRES after AOF reload (without rewrite)} {
         r flushdb
@@ -253,7 +253,7 @@ start_server {overrides {save ""} tags {"other needs:config-set-save"}} {
     test {Perform a final SAVE to leave a clean DB on disk} {
         waitForBgsave r
         r save
-    } {OK}
+    } {OK} {needs:save}
 
     test {RESET clears client state} {
         r client setname test-client
@@ -263,7 +263,7 @@ start_server {overrides {save ""} tags {"other needs:config-set-save"}} {
         set client [r client list]
         assert_match {*name= *} $client
         assert_match {*flags=N *} $client
-    }
+    } {} {needs:reset}
 
     test {RESET clears MONITOR state} {
         set rd [redis_deferring_client]
@@ -274,7 +274,7 @@ start_server {overrides {save ""} tags {"other needs:config-set-save"}} {
         assert_equal [$rd read] "RESET"
 
         assert_no_match {*flags=O*} [r client list]
-    }
+    } {} {needs:reset}
 
     test {RESET clears and discards MULTI state} {
         r multi
@@ -283,7 +283,7 @@ start_server {overrides {save ""} tags {"other needs:config-set-save"}} {
         r reset
         catch {r exec} err
         assert_match {*EXEC without MULTI*} $err
-    }
+    } {} {needs:reset}
 
     test {RESET clears Pub/Sub state} {
         r subscribe channel-1
@@ -291,7 +291,7 @@ start_server {overrides {save ""} tags {"other needs:config-set-save"}} {
 
         # confirm we're not subscribed by executing another command
         r set key val
-    }
+    } {OK} {needs:reset}
 
     test {RESET clears authenticated state} {
         r acl setuser user1 on >secret +@all
@@ -301,7 +301,7 @@ start_server {overrides {save ""} tags {"other needs:config-set-save"}} {
         r reset
 
         assert_equal [r acl whoami] default
-    }
+    } {} {needs:reset}
 }
 
 start_server {tags {"other external:skip"}} {
