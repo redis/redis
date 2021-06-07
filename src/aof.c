@@ -342,7 +342,7 @@ ssize_t aofWrite(int fd, const char *buf, size_t len) {
 /* Write the append only file buffer on disk.
  *
  * Since we are required to write the AOF before replying to the client,
- * and the only way the client socket can get a write is entering when the
+ * and the only way the client socket can get a write is entering when
  * the event loop, we accumulate all the AOF writes in a memory
  * buffer and write it on disk using this function just before entering
  * the event loop again.
