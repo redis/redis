@@ -14,11 +14,10 @@ start_server {tags {"keyspace"}} {
     } {3 {{} {} {}}}
 
     test {Untagged multi-key commands} {
-        r set foo1 a
-        r set foo2 b
-        r set foo3 c
-        list [r del foo1 foo2 foo3 foo4] [r mget foo1 foo2 foo3]
-    } {3 {{} {} {}}} {cluster:skip}
+        r mset foo1 a foo2 b foo3 c
+        assert_equal {a b c {}} [r mget foo1 foo2 foo3 foo4]
+        r del foo1 foo2 foo3 foo4
+    } {3} {cluster:skip}
 
     test {KEYS with pattern} {
         foreach key {key_x key_y key_z foo_a foo_b foo_c} {
