@@ -34,3 +34,29 @@ test {CONFIG SET bind address} {
         $rd close
     }
 } {} {external:skip}
+
+test {Default bind address configuration handling} {
+    start_server {config "minimal.conf"} {
+        # Default is explicit and sane
+        assert_equal "* -::*" [lindex [r CONFIG GET bind] 1]
+
+        # CONFIG REWRITE acknowledges this as a default
+        r CONFIG REWRITE
+        assert_equal 0 [count_message_lines [srv 0 config_file] bind]
+
+        # Removing the bind address works
+        r CONFIG SET bind ""
+        assert_equal "" [lindex [r CONFIG GET bind] 1]
+
+        # No additional clients can connect
+        catch {redis_client} e
+        assert_match {*connection refused*} $e
+
+        # CONFIG REWRITE handles empty bindaddr
+        r CONFIG REWRITE
+        assert_equal 1 [count_message_lines [srv 0 config_file] bind]
+
+        # TODO: Ideally we'd want to restart the server but the Redis client
+        # doesn't currently support Unix sockets.
+    }
+} {} {external:skip}
