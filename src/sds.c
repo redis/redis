@@ -286,7 +286,7 @@ sds _sdsMakeRoomFor(sds s, size_t addlen, int exact) {
 }
 
 /* Enlarge the free space at the end of the sds string more than needed,
- * pre-allocate at least `sdslen(s) + addlen * 2` bytes of memory. */
+ * This is useful to avoid repeated re-allocations when repeatedly appending to the sds. */
 sds sdsMakeRoomFor(sds s, size_t addlen) {
     return _sdsMakeRoomFor(s, addlen, 0);
 }
