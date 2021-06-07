@@ -300,11 +300,13 @@ proc run_external_server_test {code overrides} {
     # append the server to the stack
     lappend ::servers $srv
 
-    if {[llength $::servers] == 1} {
-        r flushall
-    } else {
-        puts "Warning: nested start_server statements in external server mode!"
+    if {[llength $::servers] > 1} {
+        if {$::verbose} {
+            puts "Notice: nested start_server statements in external server mode, test must be aware of that!"
+        }
     }
+
+    r flushall
 
     # store overrides
     set saved_config {}

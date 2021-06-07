@@ -547,9 +547,8 @@ start_server {
         r XADD mystream * f v
         assert_error "*NOGROUP*" {r XGROUP CREATECONSUMER mystream mygroup consumer}
     }
-}
 
-start_server {tags {"stream needs:debug"} overrides {appendonly yes aof-use-rdb-preamble no appendfsync always}} {
+    start_server {tags {"stream needs:debug"} overrides {appendonly yes aof-use-rdb-preamble no appendfsync always}} {
         test {XREADGROUP with NOACK creates consumer} {
             r del mystream
             r XGROUP CREATE mystream mygroup $ MKSTREAM
@@ -595,9 +594,9 @@ start_server {tags {"stream needs:debug"} overrides {appendonly yes aof-use-rdb-
             set consumer_info [lindex $reply 1]
             assert_equal [lindex $consumer_info 1] "Charlie"
         }
-}
+    }
 
-start_server {tags {"external:skip"}} {
+    start_server {tags {"external:skip"}} {
         set master [srv -1 client]
         set master_host [srv -1 host]
         set master_port [srv -1 port]
@@ -646,9 +645,9 @@ start_server {tags {"external:skip"}} {
                 assert {$myentry eq {a 3}}
             }
         }
-}
+    }
 
-start_server {tags {"stream needs:debug"} overrides {appendonly yes aof-use-rdb-preamble no}} {
+    start_server {tags {"stream needs:debug"} overrides {appendonly yes aof-use-rdb-preamble no}} {
         test {Empty stream with no lastid can be rewrite into AOF correctly} {
             r XGROUP CREATE mystream group-name $ MKSTREAM
             assert {[dict get [r xinfo stream mystream] length] == 0}
@@ -659,4 +658,5 @@ start_server {tags {"stream needs:debug"} overrides {appendonly yes aof-use-rdb-
             assert {[dict get [r xinfo stream mystream] length] == 0}
             assert {[r xinfo groups mystream] == $grpinfo}
         }
+    }
 }
