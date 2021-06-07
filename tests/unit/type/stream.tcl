@@ -199,6 +199,15 @@ start_server {
         assert {[r EXISTS otherstream] == 0}
     }
 
+    test {XADD with LIMIT delete entries no more than limit} {
+        r del yourstream
+        for {set j 0} {$j < 3} {incr j} {
+            r XADD yourstream * xitem v
+        }
+        r XADD yourstream MAXLEN ~ 0 limit 1 * xitem v
+        assert {[r XLEN yourstream] == 4}
+    }
+
     test {XRANGE COUNT works as expected} {
         assert {[llength [r xrange mystream - + COUNT 10]] == 10}
     }
@@ -524,6 +533,16 @@ start_server {
             r XADD mystream * xitem v
         }
         assert_error ERR* {r XTRIM mystream MAXLEN 1 LIMIT 30}
+    }
+
+    test {XTRIM with LIMIT delete entries no more than limit} {
+        r del mystream
+        r config set stream-node-max-entries 2
+        for {set j 0} {$j < 3} {incr j} {
+            r XADD mystream * xitem v
+        }
+        assert {[r XTRIM mystream MAXLEN ~ 0 LIMIT 1] == 0}
+        assert {[r XTRIM mystream MAXLEN ~ 0 LIMIT 2] == 2}
     }
 }
 
