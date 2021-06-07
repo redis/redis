@@ -203,7 +203,7 @@ start_server {tags {"introspection"}} {
             }
 
         }
-    } {} {external:skip}
+    }
 
     # Do a force-all config rewrite and make sure we're able to parse
     # it.
