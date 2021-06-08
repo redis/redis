@@ -1917,7 +1917,7 @@ int processMultibulkBuffer(client *c) {
                     c->qb_pos = 0;
                     /* Hint the sds library about the amount of bytes this string is
                      * going to contain. */
-                    c->querybuf = sdsMakeRoomFor(c->querybuf,ll+2-sdslen(c->querybuf));
+                    c->querybuf = sdsMakeRoomForNonGreedy(c->querybuf,ll+2-sdslen(c->querybuf));
                 }
             }
             c->bulklen = ll;
@@ -2126,7 +2126,7 @@ void processInputBuffer(client *c) {
 
 void readQueryFromClient(connection *conn) {
     client *c = connGetPrivateData(conn);
-    int nread, readlen;
+    int nread, readlen, greedy = 1;
     size_t qblen;
 
     /* Check if we want to read from the client later when exiting from
@@ -2151,11 +2151,18 @@ void readQueryFromClient(connection *conn) {
         /* Note that the 'remaining' variable may be zero in some edge case,
          * for example once we resume a blocked client after CLIENT PAUSE. */
         if (remaining > 0 && remaining < readlen) readlen = remaining;
+
+        /* Non-greedy to make room for query buffer when bulklen > BIG_ARG. */
+        greedy = 0;
     }
 
     qblen = sdslen(c->querybuf);
     if (c->querybuf_peak < qblen) c->querybuf_peak = qblen;
-    c->querybuf = sdsMakeRoomForExact(c->querybuf, readlen);
+    if (!greedy || sdsalloc(c->querybuf) < PROTO_IOBUF_LEN) {
+        c->querybuf = sdsMakeRoomForNonGreedy(c->querybuf, readlen);
+    } else {
+        c->querybuf = sdsMakeRoomFor(c->querybuf, readlen);
+    }
     nread = connRead(c->conn, c->querybuf+qblen, readlen);
     if (nread == -1) {
         if (connGetState(conn) == CONN_STATE_CONNECTED) {

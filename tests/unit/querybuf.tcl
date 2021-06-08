@@ -21,36 +21,25 @@ start_server {tags {"querybuf"}} {
     # The test will run at least 2s to check if client query
     # buffer will be resized when client idle 2s.
     if {$::accurate} {
-        test "query buffer will never be resized when less than 32k" {
-            # Memory will increase by more than 32k due to query buffer of client.
+        test "query buffer resized correctly" {
+            # Memory will increase by more than 32k due to client query buffer.
             set rd [redis_deferring_client]
             $rd client setname test_client
             set orig_test_client_qbuf [client_query_buffer test_client]
+            assert {$orig_test_client_qbuf > 16384 && $orig_test_client_qbuf < 32768}
 
-            # Check if client query buffer will be resized when client idle more than 2s
+            # Check that the initial query buffer is not resized if it is idle for more than 2s
             wait_for_condition 1000 10 {
                 [client_idle_sec test_client] > 3 && [client_query_buffer test_client] == $orig_test_client_qbuf
             } else {
                 fail "query buffer was resized"
             }
-        }
-    }
-}
 
-start_server {tags {"querybuf"}} {
-    # The test will run at least 2s to wait for client query
-    # buffer to be resized after idle 2s.
-    if {$::accurate} {
-        test "query buffer will be resized when more than 32k" {
-            set rd [redis_deferring_client]
-            $rd client setname test_client
-            assert_morethan_equal [client_query_buffer test_client] 16384
-
-            # Fill client query buffer to more than 32k without adding extra memory
-            $rd set bigstring v
+            # Fill query buffer to more than 32k
+            $rd set bigstring v ;# create bigstring in advance to avoid adding extra memory
             $rd set bigstring [string repeat A 32768] nx
 
-            # Wait for client query buffer to be resized to 0.
+            # Wait for query buffer to be resized to 0.
             wait_for_condition 1000 10 {
                 [client_query_buffer test_client] == 0
             } else {
