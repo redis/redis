@@ -1435,6 +1435,7 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
 
             while (config.pubsub_mode) {
                 if (cliReadReply(output_raw) != REDIS_OK) exit(1);
+                fflush(stdout); /* Make it grep friendly */
                 if (config.last_cmd_type == REDIS_REPLY_ERROR) {
                     if (config.push_output) {
                         redisSetPushCallback(context, cliPushHandler);
