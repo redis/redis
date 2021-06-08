@@ -743,7 +743,7 @@ void configSetCommand(client *c) {
         int vlen;
         sds *v = sdssplitlen(o->ptr,sdslen(o->ptr)," ",1,&vlen);
 
-        if (vlen > CONFIG_BINDADDR_MAX) {
+        if (vlen < 1 || vlen > CONFIG_BINDADDR_MAX) {
             addReplyError(c, "Too many bind addresses specified.");
             sdsfreesplitres(v, vlen);
             return;
