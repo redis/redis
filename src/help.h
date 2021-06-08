@@ -189,7 +189,7 @@ struct commandHelp {
     8,
     "2.4.0" },
     { "CLIENT LIST",
-    "[TYPE normal|master|replica|pubsub] [ID client-id [client-id ...]]",
+    "[TYPE normal|master|replica|pubsub|monitor] [ID client-id [client-id ...]]",
     "Get the list of client connections",
     8,
     "2.4.0" },
