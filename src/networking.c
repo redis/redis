@@ -2166,7 +2166,11 @@ void readQueryFromClient(connection *conn) {
             return;
         }
     } else if (nread == 0) {
-        serverLog(LL_VERBOSE, "Client closed connection");
+        if (server.verbosity <= LL_VERBOSE) {
+            sds info = catClientInfoString(sdsempty(), c);
+            serverLog(LL_VERBOSE, "Client closed connection %s", info);
+            sdsfree(info);
+        }
         freeClientAsync(c);
         return;
     } else if (c->flags & CLIENT_MASTER) {
