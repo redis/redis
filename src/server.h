@@ -805,6 +805,7 @@ typedef struct multiState {
     int cmd_inv_flags;      /* Same as cmd_flags, OR-ing the ~flags. so that it
                                is possible to know if all the commands have a
                                certain flag. */
+    size_t argv_mem_sum;    /* mem used by all commands arguments */
 } multiState;
 
 /* This structure holds the blocking operation state for a client.
@@ -2132,6 +2133,7 @@ void unwatchAllKeys(client *c);
 void initClientMultiState(client *c);
 void freeClientMultiState(client *c);
 void queueMultiCommand(client *c);
+size_t multiStateMemOverhead(client *c);
 void touchWatchedKey(redisDb *db, robj *key);
 int isWatchedKeyExpired(client *c);
 void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with);

@@ -1795,7 +1795,7 @@ int processInlineBuffer(client *c) {
     if (argc) {
         if (c->argv) zfree(c->argv);
         c->argv = zmalloc(sizeof(robj*)*argc);
-        c->argv_len_sum = 0;
+        c->argv_len_sum = sizeof(robj*)*argc;
     }
 
     /* Create redis objects for all arguments. */
@@ -1894,7 +1894,7 @@ int processMultibulkBuffer(client *c) {
         /* Setup argv array on client structure */
         if (c->argv) zfree(c->argv);
         c->argv = zmalloc(sizeof(robj*)*c->multibulklen);
-        c->argv_len_sum = 0;
+        c->argv_len_sum = sizeof(robj*)*c->multibulklen;
     }
 
     serverAssertWithInfo(c,NULL,c->multibulklen > 0);
@@ -2346,7 +2346,7 @@ sds catClientInfoString(sds s, client *client) {
     size_t obufmem, total_mem = getClientMemoryUsage(client, &obufmem);
 
     return sdscatfmt(s,
-        "id=%U addr=%s laddr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i multi=%i qbuf=%U qbuf-free=%U argv-mem=%U obl=%U oll=%U omem=%U tot-mem=%U events=%s cmd=%s user=%s redir=%I resp=%i",
+        "id=%U addr=%s laddr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i multi=%i qbuf=%U qbuf-free=%U argv-mem=%U multi-mem=%U obl=%U oll=%U omem=%U tot-mem=%U events=%s cmd=%s user=%s redir=%I resp=%i",
         (unsigned long long) client->id,
         getClientPeerId(client),
         getClientSockname(client),
@@ -2362,6 +2362,7 @@ sds catClientInfoString(sds s, client *client) {
         (unsigned long long) sdslen(client->querybuf),
         (unsigned long long) sdsavail(client->querybuf),
         (unsigned long long) client->argv_len_sum,
+        (unsigned long long) client->mstate.argv_mem_sum,
         (unsigned long long) client->bufpos,
         (unsigned long long) listLength(client->reply),
         (unsigned long long) obufmem, /* should not include client->buf since we want to see 0 for static clients. */
@@ -3197,11 +3198,12 @@ size_t getClientMemoryUsage(client *c, size_t *output_buffer_mem_usage) {
         *output_buffer_mem_usage = mem;
     mem += sdsZmallocSize(c->querybuf);
     mem += zmalloc_size(c);
-    mem += c->argv_len_sum;
     /* For efficiency (less work keeping track of the argv memory), it doesn't include the used memory
      * i.e. unused sds space and internal fragmentation, just the string length. but this is enough to
      * spot problematic clients. */
-    if (c->argv) mem += zmalloc_size(c->argv);
+    mem += c->argv_len_sum;
+    mem += multiStateMemOverhead(c);
+
     return mem;
 }
 
