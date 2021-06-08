@@ -35,8 +35,8 @@ test {CONFIG SET bind address} {
     }
 } {} {external:skip}
 
-test {Default bind address configuration handling} {
-    start_server {config "minimal.conf"} {
+start_server {config "minimal.conf" tags {"external:skip"}} {
+    test {Default bind address configuration handling} {
         # Default is explicit and sane
         assert_equal "* -::*" [lindex [r CONFIG GET bind] 1]
 
@@ -56,7 +56,11 @@ test {Default bind address configuration handling} {
         r CONFIG REWRITE
         assert_equal 1 [count_message_lines [srv 0 config_file] bind]
 
-        # TODO: Ideally we'd want to restart the server but the Redis client
-        # doesn't currently support Unix sockets.
-    }
-} {} {external:skip}
+        # Make sure we're able to restart
+        restart_server 0 0 0 0
+        exec src/redis-cli -s [srv 0 unixsocket] config set bind *
+
+        reconnect 0
+        r ping
+    } {PONG}
+}
