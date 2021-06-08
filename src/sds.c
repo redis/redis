@@ -227,12 +227,12 @@ void sdsclear(sds s) {
 /* Enlarge the free space at the end of the sds string so that the caller
  * is sure that after calling this function can overwrite up to addlen
  * bytes after the end of the string, plus one more byte for nul term.
- * When exact is 0, enlarge to twice the needed size.
- * When exact is 1, enlarge fixed space of length 'addlen'.
+ * When greedy is 0, enlarge more than needed.
+ * When greedy is 1, enlarge fixed space of length 'addlen'.
  *
  * Note: this does not change the *length* of the sds string as returned
  * by sdslen(), but only the free buffer space we have. */
-sds _sdsMakeRoomFor(sds s, size_t addlen, int exact) {
+sds _sdsMakeRoomFor(sds s, size_t addlen, int greedy) {
     void *sh, *newsh;
     size_t avail = sdsavail(s);
     size_t len, newlen;
@@ -247,7 +247,7 @@ sds _sdsMakeRoomFor(sds s, size_t addlen, int exact) {
     sh = (char*)s-sdsHdrSize(oldtype);
     newlen = (len+addlen);
     assert(newlen > len);   /* Catch size_t overflow */
-    if (exact == 0) {
+    if (greedy == 0) {
         if (newlen < SDS_MAX_PREALLOC)
             newlen *= 2;
         else
