@@ -1,3 +1,5 @@
+source tests/support/cli.tcl
+
 test {CONFIG SET port number} {
     start_server {} {
         if {$::tls} { set port_cfg tls-port} else { set port_cfg port }
@@ -49,8 +51,8 @@ start_server {config "minimal.conf" tags {"external:skip"}} {
         assert_equal "" [lindex [r CONFIG GET bind] 1]
 
         # No additional clients can connect
-        catch {redis_client} e
-        assert_match {*connection refused*} $e
+        catch {redis_client} err
+        assert_match {*connection refused*} $err
 
         # CONFIG REWRITE handles empty bindaddr
         r CONFIG REWRITE
@@ -58,8 +60,14 @@ start_server {config "minimal.conf" tags {"external:skip"}} {
 
         # Make sure we're able to restart
         restart_server 0 0 0 0
-        exec src/redis-cli -s [srv 0 unixsocket] config set bind *
 
+        # Make sure bind parameter is as expected and server handles binding
+        # accordingly.
+        assert_equal {bind {}} [rediscli_exec 0 config get bind]
+        catch {reconnect 0} err
+        assert_match {*connection refused*} $err
+
+        assert_equal {OK} [rediscli_exec 0 config set bind *]
         reconnect 0
         r ping
     } {PONG}
