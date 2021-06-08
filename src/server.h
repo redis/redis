@@ -224,9 +224,10 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 
 /* AOF return values for loadAppendOnlyFile() */
 #define AOF_OK 0
-#define AOF_EMPTY 1
-#define AOF_OPEN_ERR 2
-#define AOF_FAILED 3
+#define AOF_NOT_EXIST 1
+#define AOF_EMPTY 2
+#define AOF_OPEN_ERR 3
+#define AOF_FAILED 4
 
 /* Client flags */
 #define CLIENT_SLAVE (1<<0)   /* This client is a replica */

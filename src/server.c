@@ -5915,9 +5915,9 @@ int checkForSentinelMode(int argc, char **argv) {
 void loadDataFromDisk(void) {
     long long start = ustime();
     if (server.aof_state == AOF_ON) {
-        /* It's not an failure if the file is empty or doesn't exist (later we will create it) */
+        /* It's not a failure if the file is empty or doesn't exist (later we will create it) */
         int ret = loadAppendOnlyFile(server.aof_filename);
-        if (ret == AOF_FAILED)
+        if (ret == AOF_FAILED || ret == AOF_OPEN_ERR)
             exit(1);
         if (ret == AOF_OK)
             serverLog(LL_NOTICE,"DB loaded from append only file: %.3f seconds",(float)(ustime()-start)/1000000);

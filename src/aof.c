@@ -748,9 +748,12 @@ void freeFakeClient(struct client *c) {
     zfree(c);
 }
 
-/* Replay the append log file. On success C_OK is returned. On non fatal
- * error (the append only file is zero-length) C_ERR is returned. On
- * fatal error an error message is logged and the program exists. */
+/* Replay the append log file. On success AOF_OK is returned,
+ * otherwise, one of the following is returned:
+ * AOF_OPEN_ERR: Failed to open the AOF file.
+ * AOF_NOT_EXIST: AOF file doesn't exist.
+ * AOF_EMPTY: The AOF file is empty (nothing to load).
+ * AOF_FAILED: Failed to load the AOF file. */
 int loadAppendOnlyFile(char *filename) {
     struct client *fakeClient;
     FILE *fp = fopen(filename,"r");
@@ -762,8 +765,14 @@ int loadAppendOnlyFile(char *filename) {
     int ret;
 
     if (fp == NULL) {
-        serverLog(LL_WARNING,"Fatal error: can't open the append log file for reading: %s",strerror(errno));
-        return AOF_OPEN_ERR;
+        int en = errno;
+        if (redis_stat(filename, &sb) == 0) {
+            serverLog(LL_WARNING,"Fatal error: can't open the append log file for reading: %s",strerror(en));
+            return AOF_OPEN_ERR;
+        } else {
+            serverLog(LL_WARNING,"The append log file doesn't exist: %s",strerror(errno));
+            return AOF_NOT_EXIST;
+        }
     }
 
     /* Handle a zero-length AOF file as a special case. An empty AOF file
