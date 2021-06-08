@@ -128,7 +128,7 @@ configEnum sanitize_dump_payload_enum[] = {
 
 /* Output buffer limits presets. */
 clientBufferLimitsConfig clientBufferLimitsDefaults[CLIENT_TYPE_OBUF_COUNT] = {
-    {0, 0, 0}, /* normal */
+    {0, -10, 0}, /* normal */
     {1024*1024*256, 1024*1024*64, 60}, /* slave */
     {1024*1024*32, 1024*1024*8, 60}  /* pubsub */
 };
@@ -557,7 +557,7 @@ void loadServerConfigFromString(char *config) {
                    argc == 5)
         {
             int class = getClientTypeByName(argv[1]);
-            unsigned long long hard, soft;
+            long long hard, soft;
             int soft_seconds;
 
             if (class == -1 || class == CLIENT_TYPE_MASTER) {
@@ -572,8 +572,8 @@ void loadServerConfigFromString(char *config) {
                 err = "Negative number of seconds in soft limit is invalid";
                 goto loaderr;
             }
-            server.client_obuf_limits[class].hard_limit_bytes = hard;
-            server.client_obuf_limits[class].soft_limit_bytes = soft;
+            server.client_obuf_limits[class].hard_limit = hard;
+            server.client_obuf_limits[class].soft_limit = soft;
             server.client_obuf_limits[class].soft_limit_seconds = soft_seconds;
         } else if (!strcasecmp(argv[0],"oom-score-adj-values") && argc == 1 + CONFIG_OOM_COUNT) {
             if (updateOOMScoreAdjValues(&argv[1], &err, 0) == C_ERR) goto loaderr;
@@ -808,8 +808,6 @@ void configSetCommand(client *c) {
          * whole configuration string or accept it all, even if a single
          * error in a single client class is present. */
         for (j = 0; j < vlen; j++) {
-            long val;
-
             if ((j % 4) == 0) {
                 int class = getClientTypeByName(v[j]);
                 if (class == -1 || class == CLIENT_TYPE_MASTER) {
@@ -817,8 +815,8 @@ void configSetCommand(client *c) {
                     goto badfmt;
                 }
             } else {
-                val = memtoll(v[j], &err);
-                if (err || val < 0) {
+                memtoll(v[j], &err);
+                if (err) {
                     sdsfreesplitres(v,vlen);
                     goto badfmt;
                 }
@@ -835,8 +833,8 @@ void configSetCommand(client *c) {
             soft = memtoll(v[j+2],NULL);
             soft_seconds = strtoll(v[j+3],NULL,10);
 
-            server.client_obuf_limits[class].hard_limit_bytes = hard;
-            server.client_obuf_limits[class].soft_limit_bytes = soft;
+            server.client_obuf_limits[class].hard_limit = hard;
+            server.client_obuf_limits[class].soft_limit = soft;
             server.client_obuf_limits[class].soft_limit_seconds = soft_seconds;
         }
         sdsfreesplitres(v,vlen);
@@ -978,10 +976,10 @@ void configGetCommand(client *c) {
         int j;
 
         for (j = 0; j < CLIENT_TYPE_OBUF_COUNT; j++) {
-            buf = sdscatprintf(buf,"%s %llu %llu %ld",
+            buf = sdscatprintf(buf,"%s %lld %lld %ld",
                     getClientTypeName(j),
-                    server.client_obuf_limits[j].hard_limit_bytes,
-                    server.client_obuf_limits[j].soft_limit_bytes,
+                    server.client_obuf_limits[j].hard_limit,
+                    server.client_obuf_limits[j].soft_limit,
                     (long) server.client_obuf_limits[j].soft_limit_seconds);
             if (j != CLIENT_TYPE_OBUF_COUNT-1)
                 buf = sdscatlen(buf," ",1);
@@ -1477,19 +1475,19 @@ void rewriteConfigClientoutputbufferlimitOption(struct rewriteConfigState *state
     char *option = "client-output-buffer-limit";
 
     for (j = 0; j < CLIENT_TYPE_OBUF_COUNT; j++) {
-        int force = (server.client_obuf_limits[j].hard_limit_bytes !=
-                    clientBufferLimitsDefaults[j].hard_limit_bytes) ||
-                    (server.client_obuf_limits[j].soft_limit_bytes !=
-                    clientBufferLimitsDefaults[j].soft_limit_bytes) ||
+        int force = (server.client_obuf_limits[j].hard_limit !=
+                    clientBufferLimitsDefaults[j].hard_limit) ||
+                    (server.client_obuf_limits[j].soft_limit !=
+                    clientBufferLimitsDefaults[j].soft_limit) ||
                     (server.client_obuf_limits[j].soft_limit_seconds !=
                     clientBufferLimitsDefaults[j].soft_limit_seconds);
         sds line;
         char hard[64], soft[64];
 
         rewriteConfigFormatMemory(hard,sizeof(hard),
-                server.client_obuf_limits[j].hard_limit_bytes);
+                server.client_obuf_limits[j].hard_limit);
         rewriteConfigFormatMemory(soft,sizeof(soft),
-                server.client_obuf_limits[j].soft_limit_bytes);
+                server.client_obuf_limits[j].soft_limit);
 
         char *typename = getClientTypeName(j);
         if (!strcmp(typename,"slave")) typename = "replica";

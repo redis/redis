@@ -911,7 +911,7 @@ typedef struct client {
     time_t ctime;           /* Client creation time. */
     long duration;          /* Current command duration. Used for measuring latency of blocking/non-blocking cmds */
     time_t lastinteraction; /* Time of the last interaction, used for timeout */
-    time_t obuf_soft_limit_reached_time;
+    time_t obuf_soft_limit_reached_time; /* Time in which the COB soft limit was crossed (or 0) */
     uint64_t flags;         /* Client flags: CLIENT_* macros. */
     int authenticated;      /* Needed when the default user requires auth. */
     int replstate;          /* Replication state if this is a slave. */
@@ -943,6 +943,7 @@ typedef struct client {
     sds sockname;           /* Cached connection target address. */
     listNode *client_list_node; /* list node in client list */
     listNode *paused_list_node; /* list node within the pause list */
+    listNode *unthrottled_list_node; /* list node within the unthrottled list */
     RedisModuleUserChangedFunc auth_callback; /* Module callback to execute
                                                * when the authenticated user
                                                * changes. */
@@ -1046,8 +1047,8 @@ typedef struct zset {
 } zset;
 
 typedef struct clientBufferLimitsConfig {
-    unsigned long long hard_limit_bytes;
-    unsigned long long soft_limit_bytes;
+    long long hard_limit; /* positive is in bytes, negative is % of maxmemory */
+    long long soft_limit; /* positive is in bytes, negative is % of maxmemory */
     time_t soft_limit_seconds;
 } clientBufferLimitsConfig;
 
@@ -1536,6 +1537,7 @@ struct redisServer {
     unsigned int blocked_clients_by_type[BLOCKED_NUM];
     list *unblocked_clients; /* list of clients to unblock before next loop */
     list *ready_keys;        /* List of readyList structures for BLPOP & co */
+    list *unthrottled_clients; /* List of clients previously throttled by the soft limit back pressure */
     /* Client side caching. */
     unsigned int tracking_clients;  /* # of clients with tracking enabled.*/
     size_t tracking_table_max_keys; /* Max number of keys in tracking table. */
@@ -1897,7 +1899,7 @@ void replaceClientCommandVector(client *c, int argc, robj **argv);
 void redactClientCommandArgument(client *c, int argc);
 unsigned long getClientOutputBufferMemoryUsage(client *c);
 int freeClientsInAsyncFreeQueue(void);
-int closeClientOnOutputBufferLimitReached(client *c, int async);
+int handleClientOnOutputBufferLimits(client *c, int async_close);
 int getClientType(client *c);
 int getClientTypeByName(char *name);
 char *getClientTypeName(int class);
@@ -2228,6 +2230,7 @@ size_t freeMemoryGetNotCountedMemory();
 int overMaxmemoryAfterAlloc(size_t moremem);
 int processCommand(client *c);
 int processPendingCommandsAndResetClient(client *c);
+void processUnthrottledClients();
 void setupSignalHandlers(void);
 void removeSignalHandlers(void);
 int createSocketAcceptHandler(socketFds *sfd, aeFileProc *accept_handler);
