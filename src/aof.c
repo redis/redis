@@ -651,6 +651,7 @@ struct client *createAOFClient(void) {
     c->original_argv = NULL;
     c->argv_len_sum = 0;
     c->bufpos = 0;
+    c->buf_usable_size = zmalloc_usable_size(c)-offsetof(client,buf);
 
     /*
      * The AOF client should never be blocked (unlike master
