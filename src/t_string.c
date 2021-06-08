@@ -81,15 +81,17 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
         return;
     }
 
+    if (flags & OBJ_SET_GET) {
+        if (getGenericCommand(c) == C_ERR) return;
+    }
+
     if ((flags & OBJ_SET_NX && lookupKeyWrite(c->db,key) != NULL) ||
         (flags & OBJ_SET_XX && lookupKeyWrite(c->db,key) == NULL))
     {
-        addReply(c, abort_reply ? abort_reply : shared.null[c->resp]);
+        if (!(flags & OBJ_SET_GET)) {
+            addReply(c, abort_reply ? abort_reply : shared.null[c->resp]);
+        }
         return;
-    }
-
-    if (flags & OBJ_SET_GET) {
-        if (getGenericCommand(c) == C_ERR) return;
     }
 
     genericSetKey(c,c->db,key, val,flags & OBJ_KEEPTTL,1);
@@ -196,7 +198,7 @@ int parseExtendedStringArgumentsOrReply(client *c, int *flags, int *unit, robj *
 
         if ((opt[0] == 'n' || opt[0] == 'N') &&
             (opt[1] == 'x' || opt[1] == 'X') && opt[2] == '\0' &&
-            !(*flags & OBJ_SET_XX) && !(*flags & OBJ_SET_GET) && (command_type == COMMAND_SET))
+            !(*flags & OBJ_SET_XX) && (command_type == COMMAND_SET))
         {
             *flags |= OBJ_SET_NX;
         } else if ((opt[0] == 'x' || opt[0] == 'X') &&
@@ -207,7 +209,7 @@ int parseExtendedStringArgumentsOrReply(client *c, int *flags, int *unit, robj *
         } else if ((opt[0] == 'g' || opt[0] == 'G') &&
                    (opt[1] == 'e' || opt[1] == 'E') &&
                    (opt[2] == 't' || opt[2] == 'T') && opt[3] == '\0' &&
-                   !(*flags & OBJ_SET_NX) && (command_type == COMMAND_SET))
+                   (command_type == COMMAND_SET))
         {
             *flags |= OBJ_SET_GET;
         } else if (!strcasecmp(opt, "KEEPTTL") && !(*flags & OBJ_PERSIST) &&

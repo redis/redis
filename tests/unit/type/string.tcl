@@ -494,11 +494,35 @@ start_server {tags {"string"}} {
         list $old_value $new_value
     } {{} bar}
 
-    test {Extended SET GET with NX option should result in syntax err} {
-      catch {r set foo bar NX GET} err1
-      catch {r set foo bar NX GET} err2
-      list $err1 $err2
-    } {*syntax err* *syntax err*}
+    test {Extended SET GET option with XX} {
+        r del foo
+        r set foo bar
+        set old_value [r set foo baz GET XX]
+        set new_value [r get foo]
+        list $old_value $new_value
+    } {bar baz}
+
+    test {Extended SET GET option with XX and no previous value} {
+        r del foo
+        set old_value [r set foo bar GET XX]
+        set new_value [r get foo]
+        list $old_value $new_value
+    } {{} {}}
+
+    test {Extended SET GET option with NX} {
+        r del foo
+        set old_value [r set foo bar GET NX]
+        set new_value [r get foo]
+        list $old_value $new_value
+    } {{} bar}
+
+    test {Extended SET GET option with NX and previous value} {
+        r del foo
+        r set foo bar
+        set old_value [r set foo baz GET NX]
+        set new_value [r get foo]
+        list $old_value $new_value
+    } {bar bar}
 
     test {Extended SET GET with incorrect type should result in wrong type error} {
       r del foo
