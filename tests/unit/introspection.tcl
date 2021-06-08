@@ -178,6 +178,9 @@ start_server {tags {"introspection"}} {
             }
         }
 
+        # TODO: Remove this when CONFIG SET bind "" is fixed.
+        append skip_configs bind
+
         set configs {}
         foreach {k v} [r config get *] {
             if {[lsearch $skip_configs $k] != -1} {
