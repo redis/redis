@@ -2126,7 +2126,7 @@ void processInputBuffer(client *c) {
 
 void readQueryFromClient(connection *conn) {
     client *c = connGetPrivateData(conn);
-    int nread, readlen, greedy = 1;
+    int nread, readlen, big_arg = 0;
     size_t qblen;
 
     /* Check if we want to read from the client later when exiting from
@@ -2147,18 +2147,18 @@ void readQueryFromClient(connection *conn) {
         && c->bulklen >= PROTO_MBULK_BIG_ARG)
     {
         ssize_t remaining = (size_t)(c->bulklen+2)-sdslen(c->querybuf);
+        big_arg = 1;
 
         /* Note that the 'remaining' variable may be zero in some edge case,
          * for example once we resume a blocked client after CLIENT PAUSE. */
         if (remaining > 0 && remaining < readlen) readlen = remaining;
-
-        /* Non-greedy to make room for query buffer when bulklen > BIG_ARG. */
-        greedy = 0;
     }
 
     qblen = sdslen(c->querybuf);
     if (c->querybuf_peak < qblen) c->querybuf_peak = qblen;
-    if (!greedy || sdsalloc(c->querybuf) < PROTO_IOBUF_LEN) {
+    if (big_arg || sdsalloc(c->querybuf) < PROTO_IOBUF_LEN) {
+        /* When BIG_ARG is detected or when query buffer dose not exceed its
+         * initial size,  We will make room for query buffer non-greedily. */
         c->querybuf = sdsMakeRoomForNonGreedy(c->querybuf, readlen);
     } else {
         c->querybuf = sdsMakeRoomFor(c->querybuf, readlen);
