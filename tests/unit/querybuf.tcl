@@ -18,9 +18,9 @@ proc client_query_buffer {name} {
 }
 
 start_server {tags {"querybuf"}} {
-    # The test will run at least 2s to check if client query
-    # buffer will be resized when client idle 2s.
-    if {$::accurate} {
+    tags {slow} {
+        # The test will run at least 2s to check if client query
+        # buffer will be resized when client idle 2s.
         test "query buffer resized correctly" {
             # Memory will increase by more than 32k due to client query buffer.
             set rd [redis_deferring_client]

@@ -104,7 +104,7 @@ set ::skip_till ""
 set ::external 0; # If "1" this means, we are running against external instance
 set ::file ""; # If set, runs only the tests in this comma separated list
 set ::curfile ""; # Hold the filename of the current suite
-set ::accurate 0; # If true runs fuzz tests with more iterations, and slow time driven tests
+set ::accurate 0; # If true runs fuzz tests with more iterations
 set ::force_failure 0
 set ::timeout 1200; # 20 minutes without progresses will quit the test.
 set ::last_progress [clock seconds]
@@ -554,7 +554,7 @@ proc print_help_screen {} {
         "--valgrind         Run the test over valgrind."
         "--durable          suppress test crashes and keep running"
         "--stack-logging    Enable OSX leaks/malloc stack logging."
-        "--accurate         Run slow randomized tests for more iterations, and slow time driven tests."
+        "--accurate         Run slow randomized tests for more iterations."
         "--quiet            Don't show individual tests."
         "--single <unit>    Just execute the specified unit (see next option). This option can be repeated."
         "--verbose          Increases verbosity."
