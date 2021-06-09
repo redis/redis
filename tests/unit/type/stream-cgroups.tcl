@@ -214,24 +214,24 @@ start_server {
     }
 
     test {RENAME can unblock XREADGROUP with data} {
-        r del mystream
-        r XGROUP CREATE mystream mygroup $ MKSTREAM
+        r del mystream{t}
+        r XGROUP CREATE mystream{t} mygroup $ MKSTREAM
         set rd [redis_deferring_client]
-        $rd XREADGROUP GROUP mygroup Alice BLOCK 0 STREAMS mystream ">"
-        r XGROUP CREATE mystream2 mygroup $ MKSTREAM
-        r XADD mystream2 100 f1 v1
-        r RENAME mystream2 mystream
-        assert_equal "{mystream {{100-0 {f1 v1}}}}" [$rd read] ;# mystream2 had mygroup before RENAME
+        $rd XREADGROUP GROUP mygroup Alice BLOCK 0 STREAMS mystream{t} ">"
+        r XGROUP CREATE mystream2{t} mygroup $ MKSTREAM
+        r XADD mystream2{t} 100 f1 v1
+        r RENAME mystream2{t} mystream{t}
+        assert_equal "{mystream{t} {{100-0 {f1 v1}}}}" [$rd read] ;# mystream2{t} had mygroup before RENAME
     }
 
     test {RENAME can unblock XREADGROUP with -NOGROUP} {
-        r del mystream
-        r XGROUP CREATE mystream mygroup $ MKSTREAM
+        r del mystream{t}
+        r XGROUP CREATE mystream{t} mygroup $ MKSTREAM
         set rd [redis_deferring_client]
-        $rd XREADGROUP GROUP mygroup Alice BLOCK 0 STREAMS mystream ">"
-        r XADD mystream2 100 f1 v1
-        r RENAME mystream2 mystream
-        assert_error "*NOGROUP*" {$rd read} ;# mystream2 didn't have mygroup before RENAME
+        $rd XREADGROUP GROUP mygroup Alice BLOCK 0 STREAMS mystream{t} ">"
+        r XADD mystream2{t} 100 f1 v1
+        r RENAME mystream2{t} mystream{t}
+        assert_error "*NOGROUP*" {$rd read} ;# mystream2{t} didn't have mygroup before RENAME
     }
 
     test {XCLAIM can claim PEL items from another consumer} {
@@ -548,7 +548,7 @@ start_server {
         assert_error "*NOGROUP*" {r XGROUP CREATECONSUMER mystream mygroup consumer}
     }
 
-    start_server {tags {"stream"} overrides {appendonly yes aof-use-rdb-preamble no appendfsync always}} {
+    start_server {tags {"stream needs:debug"} overrides {appendonly yes aof-use-rdb-preamble no appendfsync always}} {
         test {XREADGROUP with NOACK creates consumer} {
             r del mystream
             r XGROUP CREATE mystream mygroup $ MKSTREAM
@@ -596,7 +596,7 @@ start_server {
         }
     }
 
-    start_server {} {
+    start_server {tags {"external:skip"}} {
         set master [srv -1 client]
         set master_host [srv -1 host]
         set master_port [srv -1 port]
@@ -647,7 +647,7 @@ start_server {
         }
     }
 
-    start_server {tags {"stream"} overrides {appendonly yes aof-use-rdb-preamble no}} {
+    start_server {tags {"stream needs:debug"} overrides {appendonly yes aof-use-rdb-preamble no}} {
         test {Empty stream with no lastid can be rewrite into AOF correctly} {
             r XGROUP CREATE mystream group-name $ MKSTREAM
             assert {[dict get [r xinfo stream mystream] length] == 0}

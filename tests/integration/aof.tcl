@@ -22,7 +22,7 @@ proc start_server_aof {overrides code} {
     kill_server $srv
 }
 
-tags {"aof"} {
+tags {"aof external:skip"} {
     ## Server can start when aof-load-truncated is set to yes and AOF
     ## is truncated, with an incomplete MULTI block.
     create_aof {
@@ -228,10 +228,10 @@ tags {"aof"} {
         }
     }
 
-    ## Test that EXPIREAT is loaded correctly
+    ## Test that PEXPIREAT is loaded correctly
     create_aof {
         append_to_aof [formatCommand rpush list foo]
-        append_to_aof [formatCommand expireat list 1000]
+        append_to_aof [formatCommand pexpireat list 1000]
         append_to_aof [formatCommand rpush list bar]
     }
 

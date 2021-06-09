@@ -70,7 +70,7 @@ proc show_cluster_status {} {
     }
 }
 
-start_server {tags {"psync2"}} {
+start_server {tags {"psync2 external:skip"}} {
 start_server {} {
 start_server {} {
 start_server {} {

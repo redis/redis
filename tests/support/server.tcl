@@ -158,14 +158,14 @@ proc server_is_up {host port retrynum} {
 # there must be some intersection. If ::denytags are used, no intersection
 # is allowed. Returns 1 if tags are acceptable or 0 otherwise, in which
 # case err_return names a return variable for the message to be logged.
-proc tags_acceptable {err_return} {
+proc tags_acceptable {tags err_return} {
     upvar $err_return err
 
     # If tags are whitelisted, make sure there's match
     if {[llength $::allowtags] > 0} {
         set matched 0
         foreach tag $::allowtags {
-            if {[lsearch $::tags $tag] >= 0} {
+            if {[lsearch $tags $tag] >= 0} {
                 incr matched
             }
         }
@@ -176,10 +176,25 @@ proc tags_acceptable {err_return} {
     }
 
     foreach tag $::denytags {
-        if {[lsearch $::tags $tag] >= 0} {
+        if {[lsearch $tags $tag] >= 0} {
             set err "Tag: $tag denied"
             return 0
         }
+    }
+
+    if {$::external && [lsearch $tags "external:skip"] >= 0} {
+        set err "Not supported on external server"
+        return 0
+    }
+
+    if {$::singledb && [lsearch $tags "singledb:skip"] >= 0} {
+        set err "Not supported on singledb"
+        return 0
+    }
+
+    if {$::cluster_mode && [lsearch $tags "cluster:skip"] >= 0} {
+        set err "Not supported in cluster mode"
+        return 0
     }
 
     return 1
@@ -191,7 +206,7 @@ proc tags {tags code} {
     # we want to get rid of the quotes in order to have a proper list
     set tags [string map { \" "" } $tags]
     set ::tags [concat $::tags $tags]
-    if {![tags_acceptable err]} {
+    if {![tags_acceptable $::tags err]} {
         incr ::num_aborted
         send_data_packet $::test_server_fd ignore $err
         set ::tags [lrange $::tags 0 end-[llength $tags]]
@@ -268,6 +283,68 @@ proc dump_server_log {srv} {
     puts "===== End of server log (pid $pid) =====\n"
 }
 
+proc run_external_server_test {code overrides} {
+    set srv {}
+    dict set srv "host" $::host
+    dict set srv "port" $::port
+    set client [redis $::host $::port 0 $::tls]
+    dict set srv "client" $client
+    if {!$::singledb} {
+        $client select 9
+    }
+
+    set config {}
+    dict set config "port" $::port
+    dict set srv "config" $config
+
+    # append the server to the stack
+    lappend ::servers $srv
+
+    if {[llength $::servers] > 1} {
+        if {$::verbose} {
+            puts "Notice: nested start_server statements in external server mode, test must be aware of that!"
+        }
+    }
+
+    r flushall
+
+    # store overrides
+    set saved_config {}
+    foreach {param val} $overrides {
+        dict set saved_config $param [lindex [r config get $param] 1]
+        r config set $param $val
+
+        # If we enable appendonly, wait for for rewrite to complete. This is
+        # required for tests that begin with a bg* command which will fail if
+        # the rewriteaof operation is not completed at this point.
+        if {$param == "appendonly" && $val == "yes"} {
+            waitForBgrewriteaof r
+        }
+    }
+
+    if {[catch {set retval [uplevel 2 $code]} error]} {
+        if {$::durable} {
+            set msg [string range $error 10 end]
+            lappend details $msg
+            lappend details $::errorInfo
+            lappend ::tests_failed $details
+
+            incr ::num_failed
+            send_data_packet $::test_server_fd err [join $details "\n"]
+        } else {
+            # Re-raise, let handler up the stack take care of this.
+            error $error $::errorInfo
+        }
+    }
+
+    # restore overrides
+    dict for {param val} $saved_config {
+        r config set $param $val
+    }
+
+    lpop ::servers
+}
+
 proc start_server {options {code undefined}} {
     # setup defaults
     set baseconfig "default.conf"
@@ -304,7 +381,7 @@ proc start_server {options {code undefined}} {
     }
 
     # We skip unwanted tags
-    if {![tags_acceptable err]} {
+    if {![tags_acceptable $::tags err]} {
         incr ::num_aborted
         send_data_packet $::test_server_fd ignore $err
         set ::tags [lrange $::tags 0 end-[llength $tags]]
@@ -314,36 +391,8 @@ proc start_server {options {code undefined}} {
     # If we are running against an external server, we just push the
     # host/port pair in the stack the first time
     if {$::external} {
-        if {[llength $::servers] == 0} {
-            set srv {}
-            dict set srv "host" $::host
-            dict set srv "port" $::port
-            set client [redis $::host $::port 0 $::tls]
-            dict set srv "client" $client
-            $client select 9
+        run_external_server_test $code $overrides
 
-            set config {}
-            dict set config "port" $::port
-            dict set srv "config" $config
-
-            # append the server to the stack
-            lappend ::servers $srv
-        }
-        r flushall
-        if {[catch {set retval [uplevel 1 $code]} error]} {
-            if {$::durable} {
-                set msg [string range $error 10 end]
-                lappend details $msg
-                lappend details $::errorInfo
-                lappend ::tests_failed $details
-
-                incr ::num_failed
-                send_data_packet $::test_server_fd err [join $details "\n"]
-            } else {
-                # Re-raise, let handler up the stack take care of this.
-                error $error $::errorInfo
-            }
-        }
         set ::tags [lrange $::tags 0 end-[llength $tags]]
         return
     }

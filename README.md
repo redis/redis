@@ -304,8 +304,8 @@ struct client {
     redisDb *db;
     int flags;
     list *reply;
-    char buf[PROTO_REPLY_CHUNK_BYTES];
     // ... many other fields ...
+    char buf[PROTO_REPLY_CHUNK_BYTES];
 }
 ```
 The client structure defines a *connected client*:
