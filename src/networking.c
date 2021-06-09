@@ -1309,6 +1309,10 @@ int processMultibulkBuffer(client *c) {
             addReplyError(c,"Protocol error: invalid multibulk length");
             setProtocolError("invalid mbulk count",c);
             return C_ERR;
+        } else if (ll > 10 && server.requirepass && !c->authenticated) {
+            addReplyError(c, "Protocol error: unauthenticated multibulk length");
+            setProtocolError("unauth mbulk count", c);
+            return C_ERR;
         }
 
         c->qb_pos = (newline-c->querybuf)+2;
@@ -1353,6 +1357,10 @@ int processMultibulkBuffer(client *c) {
             if (!ok || ll < 0 || ll > server.proto_max_bulk_len) {
                 addReplyError(c,"Protocol error: invalid bulk length");
                 setProtocolError("invalid bulk length",c);
+                return C_ERR;
+            } else if (ll > 16384 && server.requirepass && !c->authenticated) {
+                addReplyError(c, "Protocol error: unauthenticated bulk length");
+                setProtocolError("unauth bulk length", c);
                 return C_ERR;
             }
 
