@@ -395,7 +395,7 @@ start_server {
         assert_equal 1 [r exists set3{t}]
         assert_equal {e} [lsort [r smembers set3{t}]]
 
-        assert_error "WRONGTYPE*" {r sinterstore set3 noset{t} key1{t} set2{t}}
+        assert_error "WRONGTYPE*" {r sinterstore set3{t} noset{t} key1{t} set2{t}}
         assert_equal 1 [r exists set3{t}]
         assert_equal {e} [lsort [r smembers set3{t}]]
     }
