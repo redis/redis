@@ -325,74 +325,74 @@ start_server {tags {"geo"}} {
     }
 
     test {GEORADIUS STORE option: syntax error} {
-        r del points
-        r geoadd points 13.361389 38.115556 "Palermo" \
-                        15.087269 37.502669 "Catania"
-        catch {r georadius points 13.361389 38.115556 50 km store} e
+        r del points{t}
+        r geoadd points{t} 13.361389 38.115556 "Palermo" \
+                           15.087269 37.502669 "Catania"
+        catch {r georadius points{t} 13.361389 38.115556 50 km store} e
         set e
     } {*ERR*syntax*}
 
     test {GEOSEARCHSTORE STORE option: syntax error} {
-        catch {r geosearchstore abc points fromlonlat 13.361389 38.115556 byradius 50 km store abc} e
+        catch {r geosearchstore abc{t} points{t} fromlonlat 13.361389 38.115556 byradius 50 km store abc{t}} e
         set e
     } {*ERR*syntax*}
 
     test {GEORANGE STORE option: incompatible options} {
-        r del points
-        r geoadd points 13.361389 38.115556 "Palermo" \
-                        15.087269 37.502669 "Catania"
-        catch {r georadius points 13.361389 38.115556 50 km store points2 withdist} e
+        r del points{t}
+        r geoadd points{t} 13.361389 38.115556 "Palermo" \
+                           15.087269 37.502669 "Catania"
+        catch {r georadius points{t} 13.361389 38.115556 50 km store points2{t} withdist} e
         assert_match {*ERR*} $e
-        catch {r georadius points 13.361389 38.115556 50 km store points2 withhash} e
+        catch {r georadius points{t} 13.361389 38.115556 50 km store points2{t} withhash} e
         assert_match {*ERR*} $e
-        catch {r georadius points 13.361389 38.115556 50 km store points2 withcoords} e
+        catch {r georadius points{t} 13.361389 38.115556 50 km store points2{t} withcoords} e
         assert_match {*ERR*} $e
     }
 
     test {GEORANGE STORE option: plain usage} {
-        r del points
-        r geoadd points 13.361389 38.115556 "Palermo" \
-                        15.087269 37.502669 "Catania"
-        r georadius points 13.361389 38.115556 500 km store points2
-        assert_equal [r zrange points 0 -1] [r zrange points2 0 -1]
+        r del points{t}
+        r geoadd points{t} 13.361389 38.115556 "Palermo" \
+                           15.087269 37.502669 "Catania"
+        r georadius points{t} 13.361389 38.115556 500 km store points2{t}
+        assert_equal [r zrange points{t} 0 -1] [r zrange points2{t} 0 -1]
     }
 
     test {GEOSEARCHSTORE STORE option: plain usage} {
-        r geosearchstore points2 points fromlonlat 13.361389 38.115556 byradius 500 km
-        assert_equal [r zrange points 0 -1] [r zrange points2 0 -1]
+        r geosearchstore points2{t} points{t} fromlonlat 13.361389 38.115556 byradius 500 km
+        assert_equal [r zrange points{t} 0 -1] [r zrange points2{t} 0 -1]
     }
 
     test {GEORANGE STOREDIST option: plain usage} {
-        r del points
-        r geoadd points 13.361389 38.115556 "Palermo" \
-                        15.087269 37.502669 "Catania"
-        r georadius points 13.361389 38.115556 500 km storedist points2
-        set res [r zrange points2 0 -1 withscores]
+        r del points{t}
+        r geoadd points{t} 13.361389 38.115556 "Palermo" \
+                           15.087269 37.502669 "Catania"
+        r georadius points{t} 13.361389 38.115556 500 km storedist points2{t}
+        set res [r zrange points2{t} 0 -1 withscores]
         assert {[lindex $res 1] < 1}
         assert {[lindex $res 3] > 166}
         assert {[lindex $res 3] < 167}
     }
 
     test {GEOSEARCHSTORE STOREDIST option: plain usage} {
-        r geosearchstore points2 points fromlonlat 13.361389 38.115556 byradius 500 km storedist
-        set res [r zrange points2 0 -1 withscores]
+        r geosearchstore points2{t} points{t} fromlonlat 13.361389 38.115556 byradius 500 km storedist
+        set res [r zrange points2{t} 0 -1 withscores]
         assert {[lindex $res 1] < 1}
         assert {[lindex $res 3] > 166}
         assert {[lindex $res 3] < 167}
     }
 
     test {GEORANGE STOREDIST option: COUNT ASC and DESC} {
-        r del points
-        r geoadd points 13.361389 38.115556 "Palermo" \
-                        15.087269 37.502669 "Catania"
-        r georadius points 13.361389 38.115556 500 km storedist points2 asc count 1
-        assert {[r zcard points2] == 1}
-        set res [r zrange points2 0 -1 withscores]
+        r del points{t}
+        r geoadd points{t} 13.361389 38.115556 "Palermo" \
+                           15.087269 37.502669 "Catania"
+        r georadius points{t} 13.361389 38.115556 500 km storedist points2{t} asc count 1
+        assert {[r zcard points2{t}] == 1}
+        set res [r zrange points2{t} 0 -1 withscores]
         assert {[lindex $res 0] eq "Palermo"}
 
-        r georadius points 13.361389 38.115556 500 km storedist points2 desc count 1
-        assert {[r zcard points2] == 1}
-        set res [r zrange points2 0 -1 withscores]
+        r georadius points{t} 13.361389 38.115556 500 km storedist points2{t} desc count 1
+        assert {[r zcard points2{t}] == 1}
+        set res [r zrange points2{t} 0 -1 withscores]
         assert {[lindex $res 0] eq "Catania"}
     }
 

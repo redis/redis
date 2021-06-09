@@ -1,0 +1,42 @@
+name: External Server Tests
+
+on:
+    pull_request:
+    push:
+    schedule:
+      - cron: '0 0 * * *'
+
+jobs:
+  test-external-standalone:
+    runs-on: ubuntu-latest
+    timeout-minutes: 14400
+    steps:
+    - uses: actions/checkout@v2
+    - name: Build
+      run: make REDIS_CFLAGS=-Werror
+    - name: Start redis-server
+      run: ./src/redis-server --daemonize yes
+    - name: Run external test
+      run: |
+          ./runtest \
+            --host 127.0.0.1 --port 6379 \
+            --tags -slow
+
+  test-external-cluster:
+    runs-on: ubuntu-latest
+    timeout-minutes: 14400
+    steps:
+    - uses: actions/checkout@v2
+    - name: Build
+      run: make REDIS_CFLAGS=-Werror
+    - name: Start redis-server
+      run: ./src/redis-server --cluster-enabled yes --daemonize yes
+    - name: Create a single node cluster
+      run: ./src/redis-cli cluster addslots $(for slot in {0..16383}; do echo $slot; done); sleep 5
+    - name: Run external test
+      run: |
+          ./runtest \
+            --host 127.0.0.1 --port 6379 \
+            --cluster-mode \
+            --tags -slow
+

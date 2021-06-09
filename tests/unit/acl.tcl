@@ -1,4 +1,4 @@
-start_server {tags {"acl"}} {
+start_server {tags {"acl external:skip"}} {
     test {Connections start with the default user} {
         r ACL WHOAMI
     } {default}
@@ -482,7 +482,7 @@ start_server {tags {"acl"}} {
 
 set server_path [tmpdir "server.acl"]
 exec cp -f tests/assets/user.acl $server_path
-start_server [list overrides [list "dir" $server_path "aclfile" "user.acl"]] {
+start_server [list overrides [list "dir" $server_path "aclfile" "user.acl"] tags [list "external:skip"]] {
     # user alice on allcommands allkeys >alice
     # user bob on -@all +@set +acl ~set* >bob
     # user default on nopass ~* +@all
@@ -570,7 +570,7 @@ start_server [list overrides [list "dir" $server_path "aclfile" "user.acl"]] {
 set server_path [tmpdir "resetchannels.acl"]
 exec cp -f tests/assets/nodefaultuser.acl $server_path
 exec cp -f tests/assets/default.conf $server_path
-start_server [list overrides [list "dir" $server_path "acl-pubsub-default" "resetchannels" "aclfile" "nodefaultuser.acl"]] {
+start_server [list overrides [list "dir" $server_path "acl-pubsub-default" "resetchannels" "aclfile" "nodefaultuser.acl"] tags [list "external:skip"]] {
 
     test {Default user has access to all channels irrespective of flag} {
         set channelinfo [dict get [r ACL getuser default] channels]
@@ -609,7 +609,7 @@ start_server [list overrides [list "dir" $server_path "acl-pubsub-default" "rese
 set server_path [tmpdir "resetchannels.acl"]
 exec cp -f tests/assets/nodefaultuser.acl $server_path
 exec cp -f tests/assets/default.conf $server_path
-start_server [list overrides [list "dir" $server_path "acl-pubsub-default" "resetchannels" "aclfile" "nodefaultuser.acl"]] {
+start_server [list overrides [list "dir" $server_path "acl-pubsub-default" "resetchannels" "aclfile" "nodefaultuser.acl"] tags [list "external:skip"]] {
 
     test {Only default user has access to all channels irrespective of flag} {
         set channelinfo [dict get [r ACL getuser default] channels]
@@ -620,7 +620,7 @@ start_server [list overrides [list "dir" $server_path "acl-pubsub-default" "rese
 }
 
 
-start_server {overrides {user "default on nopass ~* +@all"}} {
+start_server {overrides {user "default on nopass ~* +@all"} tags {"external:skip"}} {
     test {default: load from config file, can access any channels} {
         r SUBSCRIBE foo
         r PSUBSCRIBE bar*

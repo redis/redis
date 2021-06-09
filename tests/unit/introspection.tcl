@@ -1,7 +1,7 @@
 start_server {tags {"introspection"}} {
     test {CLIENT LIST} {
         r client list
-    } {*addr=*:* fd=* age=* idle=* flags=N db=9 sub=0 psub=0 multi=-1 qbuf=26 qbuf-free=* argv-mem=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client*}
+    } {*addr=*:* fd=* age=* idle=* flags=N db=* sub=0 psub=0 multi=-1 qbuf=26 qbuf-free=* argv-mem=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client*}
 
     test {CLIENT LIST with IDs} {
         set myid [r client id]
@@ -11,7 +11,7 @@ start_server {tags {"introspection"}} {
 
     test {CLIENT INFO} {
         r client info
-    } {*addr=*:* fd=* age=* idle=* flags=N db=9 sub=0 psub=0 multi=-1 qbuf=26 qbuf-free=* argv-mem=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client*}
+    } {*addr=*:* fd=* age=* idle=* flags=N db=* sub=0 psub=0 multi=-1 qbuf=26 qbuf-free=* argv-mem=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client*}
 
     test {MONITOR can log executed commands} {
         set rd [redis_deferring_client]
@@ -50,7 +50,7 @@ start_server {tags {"introspection"}} {
         assert_match {*"auth"*"(redacted)"*"(redacted)"*} [$rd read]
         assert_match {*"hello"*"2"*"AUTH"*"(redacted)"*"(redacted)"*} [$rd read]
         $rd close
-    }
+    } {0} {needs:repl}
 
     test {MONITOR correctly handles multi-exec cases} {
         set rd [redis_deferring_client]
@@ -125,7 +125,7 @@ start_server {tags {"introspection"}} {
             # Defaults
             assert_match [r config get save] {save {100 100}}
         }
-    }
+    } {} {external:skip}
 
     test {CONFIG sanity} {
         # Do CONFIG GET, CONFIG SET and then CONFIG GET again
@@ -178,6 +178,11 @@ start_server {tags {"introspection"}} {
             }
         }
 
+        # TODO: Remove this when CONFIG SET bind "" is fixed.
+        if {$::external} {
+            append skip_configs bind
+        }
+
         set configs {}
         foreach {k v} [r config get *] {
             if {[lsearch $skip_configs $k] != -1} {
@@ -224,7 +229,7 @@ start_server {tags {"introspection"}} {
         dict for {k v} $configs {
             assert_equal $v [lindex [r config get $k] 1]
         }
-    }
+    } {} {external:skip}
 
     test {CONFIG REWRITE handles save properly} {
         r config set save "3600 1 300 100 60 10000"
@@ -244,7 +249,7 @@ start_server {tags {"introspection"}} {
             restart_server 0 true false
             assert_equal [r config get save] {save {}}
         }
-    }
+    } {} {external:skip}
 
     # Config file at this point is at a wierd state, and includes all
     # known keywords. Might be a good idea to avoid adding tests here.

@@ -114,6 +114,10 @@ set ::stop_on_failure 0
 set ::dump_logs 0
 set ::loop 0
 set ::tlsdir "tests/tls"
+set ::singledb 0
+set ::cluster_mode 0
+set ::ignoreencoding 0
+set ::ignoredigest 0
 
 # Set to 1 when we are running in client mode. The Redis test uses a
 # server-client model to run tests simultaneously. The server instance
@@ -191,7 +195,7 @@ proc reconnect {args} {
     dict set srv "client" $client
 
     # select the right db when we don't have to authenticate
-    if {![dict exists $config "requirepass"]} {
+    if {![dict exists $config "requirepass"] && !$::singledb} {
         $client select 9
     }
 
@@ -210,8 +214,14 @@ proc redis_deferring_client {args} {
     set client [redis [srv $level "host"] [srv $level "port"] 1 $::tls]
 
     # select the right db and read the response (OK)
-    $client select 9
-    $client read
+    if {!$::singledb} {
+        $client select 9
+        $client read
+    } else {
+        # For timing/symmetry with the above select
+        $client ping
+        $client read
+    }
     return $client
 }
 
@@ -225,8 +235,13 @@ proc redis_client {args} {
     # create client that defers reading reply
     set client [redis [srv $level "host"] [srv $level "port"] 0 $::tls]
 
-    # select the right db and read the response (OK)
-    $client select 9
+    # select the right db and read the response (OK), or at least ping
+    # the server if we're in a singledb mode.
+    if {$::singledb} {
+        $client ping
+    } else {
+        $client select 9
+    }
     return $client
 }
 
@@ -552,6 +567,7 @@ proc print_help_screen {} {
         "--config <k> <v>   Extra config file argument."
         "--skipfile <file>  Name of a file containing test names that should be skipped (one per line)."
         "--skiptest <name>  Name of a file containing test names that should be skipped (one per line)."
+        "--tags <tags>      Run only tests having specified tags or not having '-' prefixed tags."
         "--dont-clean       Don't delete redis log files after the run."
         "--no-latency       Skip latency measurements and validation by some tests."
         "--stop             Blocks once the first test fails."
@@ -563,6 +579,10 @@ proc print_help_screen {} {
         "--port <port>      TCP port to use against external host."
         "--baseport <port>  Initial port number for spawned redis servers."
         "--portcount <num>  Port range for spawned redis servers."
+        "--singledb         Use a single database, avoid SELECT."
+        "--cluster-mode     Run tests in cluster protocol compatible mode."
+        "--ignore-encoding  Don't validate object encoding."
+        "--ignore-digest    Don't use debug digest validations."
         "--help             Print this help screen."
     } "\n"]
 }
@@ -669,6 +689,15 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
     } elseif {$opt eq {--timeout}} {
         set ::timeout $arg
         incr j
+    } elseif {$opt eq {--singledb}} {
+        set ::singledb 1
+    } elseif {$opt eq {--cluster-mode}} {
+        set ::cluster_mode 1
+        set ::singledb 1
+    } elseif {$opt eq {--ignore-encoding}} {
+        set ::ignoreencoding 1
+    } elseif {$opt eq {--ignore-digest}} {
+        set ::ignoredigest 1
     } elseif {$opt eq {--help}} {
         print_help_screen
         exit 0
@@ -782,6 +811,7 @@ proc assert_replication_stream {s patterns} {
 proc close_replication_stream {s} {
     close $s
     r config set repl-ping-replica-period 10
+    return
 }
 
 # With the parallel test running multiple Redis instances at the same time

@@ -20,7 +20,7 @@ test {CONFIG SET port number} {
         $rd PING
         $rd close
     }
-}
+} {} {external:skip}
 
 test {CONFIG SET bind address} {
     start_server {} {
@@ -33,4 +33,4 @@ test {CONFIG SET bind address} {
         $rd PING
         $rd close
     }
-}
+} {} {external:skip}

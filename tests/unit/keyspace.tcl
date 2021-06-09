@@ -7,11 +7,17 @@ start_server {tags {"keyspace"}} {
     } {}
 
     test {Vararg DEL} {
-        r set foo1 a
-        r set foo2 b
-        r set foo3 c
-        list [r del foo1 foo2 foo3 foo4] [r mget foo1 foo2 foo3]
+        r set foo1{t} a
+        r set foo2{t} b
+        r set foo3{t} c
+        list [r del foo1{t} foo2{t} foo3{t} foo4{t}] [r mget foo1{t} foo2{t} foo3{t}]
     } {3 {{} {} {}}}
+
+    test {Untagged multi-key commands} {
+        r mset foo1 a foo2 b foo3 c
+        assert_equal {a b c {}} [r mget foo1 foo2 foo3 foo4]
+        r del foo1 foo2 foo3 foo4
+    } {3} {cluster:skip}
 
     test {KEYS with pattern} {
         foreach key {key_x key_y key_z foo_a foo_b foo_c} {
@@ -39,7 +45,7 @@ start_server {tags {"keyspace"}} {
         after 1100
         assert_equal 0 [r del keyExpire]
         r debug set-active-expire 1
-    }
+    } {OK} {needs:debug}
 
     test {EXISTS} {
         set res {}
@@ -74,10 +80,10 @@ start_server {tags {"keyspace"}} {
     } {1}
 
     test {RENAME basic usage} {
-        r set mykey hello
-        r rename mykey mykey1
-        r rename mykey1 mykey2
-        r get mykey2
+        r set mykey{t} hello
+        r rename mykey{t} mykey1{t}
+        r rename mykey1{t} mykey2{t}
+        r get mykey2{t}
     } {hello}
 
     test {RENAME source key should no longer exist} {
@@ -85,35 +91,35 @@ start_server {tags {"keyspace"}} {
     } {0}
 
     test {RENAME against already existing key} {
-        r set mykey a
-        r set mykey2 b
-        r rename mykey2 mykey
-        set res [r get mykey]
-        append res [r exists mykey2]
+        r set mykey{t} a
+        r set mykey2{t} b
+        r rename mykey2{t} mykey{t}
+        set res [r get mykey{t}]
+        append res [r exists mykey2{t}]
     } {b0}
 
     test {RENAMENX basic usage} {
-        r del mykey
-        r del mykey2
-        r set mykey foobar
-        r renamenx mykey mykey2
-        set res [r get mykey2]
-        append res [r exists mykey]
+        r del mykey{t}
+        r del mykey2{t}
+        r set mykey{t} foobar
+        r renamenx mykey{t} mykey2{t}
+        set res [r get mykey2{t}]
+        append res [r exists mykey{t}]
     } {foobar0}
 
     test {RENAMENX against already existing key} {
-        r set mykey foo
-        r set mykey2 bar
-        r renamenx mykey mykey2
+        r set mykey{t} foo
+        r set mykey2{t} bar
+        r renamenx mykey{t} mykey2{t}
     } {0}
 
     test {RENAMENX against already existing key (2)} {
-        set res [r get mykey]
-        append res [r get mykey2]
+        set res [r get mykey{t}]
+        append res [r get mykey2{t}]
     } {foobar}
 
     test {RENAME against non existing source key} {
-        catch {r rename nokey foobar} err
+        catch {r rename nokey{t} foobar{t}} err
         format $err
     } {ERR*}
 
@@ -134,22 +140,22 @@ start_server {tags {"keyspace"}} {
     } {ERR*}
 
     test {RENAME with volatile key, should move the TTL as well} {
-        r del mykey mykey2
-        r set mykey foo
-        r expire mykey 100
-        assert {[r ttl mykey] > 95 && [r ttl mykey] <= 100}
-        r rename mykey mykey2
-        assert {[r ttl mykey2] > 95 && [r ttl mykey2] <= 100}
+        r del mykey{t} mykey2{t}
+        r set mykey{t} foo
+        r expire mykey{t} 100
+        assert {[r ttl mykey{t}] > 95 && [r ttl mykey{t}] <= 100}
+        r rename mykey{t} mykey2{t}
+        assert {[r ttl mykey2{t}] > 95 && [r ttl mykey2{t}] <= 100}
     }
 
     test {RENAME with volatile key, should not inherit TTL of target key} {
-        r del mykey mykey2
-        r set mykey foo
-        r set mykey2 bar
-        r expire mykey2 100
-        assert {[r ttl mykey] == -1 && [r ttl mykey2] > 0}
-        r rename mykey mykey2
-        r ttl mykey2
+        r del mykey{t} mykey2{t}
+        r set mykey{t} foo
+        r set mykey2{t} bar
+        r expire mykey2{t} 100
+        assert {[r ttl mykey{t}] == -1 && [r ttl mykey2{t}] > 0}
+        r rename mykey{t} mykey2{t}
+        r ttl mykey2{t}
     } {-1}
 
     test {DEL all keys again (DB 0)} {
@@ -167,212 +173,216 @@ start_server {tags {"keyspace"}} {
         set res [r dbsize]
         r select 9
         format $res
-    } {0}
+    } {0} {singledb:skip}
 
     test {COPY basic usage for string} {
-        r set mykey foobar
+        r set mykey{t} foobar
         set res {}
-        r copy mykey mynewkey
-        lappend res [r get mynewkey]
+        r copy mykey{t} mynewkey{t}
+        lappend res [r get mynewkey{t}]
         lappend res [r dbsize]
-        r copy mykey mynewkey DB 10
-        r select 10
-        lappend res [r get mynewkey]
-        lappend res [r dbsize]
-        r select 9
-        format $res
-    } [list foobar 2 foobar 1]
+        if {$::singledb} {
+            assert_equal [list foobar 2] [format $res]
+        } else {
+            r copy mykey{t} mynewkey{t} DB 10
+            r select 10
+            lappend res [r get mynewkey{t}]
+            lappend res [r dbsize]
+            r select 9
+            assert_equal [list foobar 2 foobar 1] [format $res]
+        }
+    } 
 
     test {COPY for string does not replace an existing key without REPLACE option} {
-        r set mykey2 hello
-        catch {r copy mykey2 mynewkey DB 10} e
+        r set mykey2{t} hello
+        catch {r copy mykey2{t} mynewkey{t} DB 10} e
         set e
-    } {0}
+    } {0} {singledb:skip}
 
     test {COPY for string can replace an existing key with REPLACE option} {
-        r copy mykey2 mynewkey DB 10 REPLACE
+        r copy mykey2{t} mynewkey{t} DB 10 REPLACE
         r select 10
-        r get mynewkey
-    } {hello}
+        r get mynewkey{t}
+    } {hello} {singledb:skip}
 
     test {COPY for string ensures that copied data is independent of copying data} {
         r flushdb
         r select 9
-        r set mykey foobar
+        r set mykey{t} foobar
         set res {}
-        r copy mykey mynewkey DB 10
+        r copy mykey{t} mynewkey{t} DB 10
         r select 10
-        lappend res [r get mynewkey]
-        r set mynewkey hoge
-        lappend res [r get mynewkey]
+        lappend res [r get mynewkey{t}]
+        r set mynewkey{t} hoge
+        lappend res [r get mynewkey{t}]
         r select 9
-        lappend res [r get mykey]
+        lappend res [r get mykey{t}]
         r select 10
         r flushdb
         r select 9
         format $res
-    } [list foobar hoge foobar]
+    } [list foobar hoge foobar] {singledb:skip}
 
     test {COPY for string does not copy data to no-integer DB} {
-        r set mykey foobar
-        catch {r copy mykey mynewkey DB notanumber} e
+        r set mykey{t} foobar
+        catch {r copy mykey{t} mynewkey{t} DB notanumber} e
         set e
     } {ERR value is not an integer or out of range}
 
     test {COPY can copy key expire metadata as well} {
-        r set mykey foobar ex 100
-        r copy mykey mynewkey REPLACE
-        assert {[r ttl mynewkey] > 0 && [r ttl mynewkey] <= 100}
-        assert {[r get mynewkey] eq "foobar"}
+        r set mykey{t} foobar ex 100
+        r copy mykey{t} mynewkey{t} REPLACE
+        assert {[r ttl mynewkey{t}] > 0 && [r ttl mynewkey{t}] <= 100}
+        assert {[r get mynewkey{t}] eq "foobar"}
     }
 
     test {COPY does not create an expire if it does not exist} {
-        r set mykey foobar
-        assert {[r ttl mykey] == -1}
-        r copy mykey mynewkey REPLACE
-        assert {[r ttl mynewkey] == -1}
-        assert {[r get mynewkey] eq "foobar"}
+        r set mykey{t} foobar
+        assert {[r ttl mykey{t}] == -1}
+        r copy mykey{t} mynewkey{t} REPLACE
+        assert {[r ttl mynewkey{t}] == -1}
+        assert {[r get mynewkey{t}] eq "foobar"}
     }
 
     test {COPY basic usage for list} {
-        r del mylist mynewlist
-        r lpush mylist a b c d
-        r copy mylist mynewlist
-        set digest [r debug digest-value mylist]
-        assert_equal $digest [r debug digest-value mynewlist]
-        assert_equal 1 [r object refcount mylist]
-        assert_equal 1 [r object refcount mynewlist]
-        r del mylist
-        assert_equal $digest [r debug digest-value mynewlist]
+        r del mylist{t} mynewlist{t}
+        r lpush mylist{t} a b c d
+        r copy mylist{t} mynewlist{t}
+        set digest [debug_digest_value mylist{t}]
+        assert_equal $digest [debug_digest_value mynewlist{t}]
+        assert_equal 1 [r object refcount mylist{t}]
+        assert_equal 1 [r object refcount mynewlist{t}]
+        r del mylist{t}
+        assert_equal $digest [debug_digest_value mynewlist{t}]
     }
 
     test {COPY basic usage for intset set} {
-        r del set1 newset1 
-        r sadd set1 1 2 3
-        assert_encoding intset set1
-        r copy set1 newset1
-        set digest [r debug digest-value set1]
-        assert_equal $digest [r debug digest-value newset1]
-        assert_equal 1 [r object refcount set1]
-        assert_equal 1 [r object refcount newset1]
-        r del set1
-        assert_equal $digest [r debug digest-value newset1]
+        r del set1{t} newset1{t}
+        r sadd set1{t} 1 2 3
+        assert_encoding intset set1{t}
+        r copy set1{t} newset1{t}
+        set digest [debug_digest_value set1{t}]
+        assert_equal $digest [debug_digest_value newset1{t}]
+        assert_equal 1 [r object refcount set1{t}]
+        assert_equal 1 [r object refcount newset1{t}]
+        r del set1{t}
+        assert_equal $digest [debug_digest_value newset1{t}]
     }
 
     test {COPY basic usage for hashtable set} {
-        r del set2 newset2
-        r sadd set2 1 2 3 a
-        assert_encoding hashtable set2
-        r copy set2 newset2
-        set digest [r debug digest-value set2]
-        assert_equal $digest [r debug digest-value newset2]
-        assert_equal 1 [r object refcount set2]
-        assert_equal 1 [r object refcount newset2]
-        r del set2
-        assert_equal $digest [r debug digest-value newset2]
+        r del set2{t} newset2{t}
+        r sadd set2{t} 1 2 3 a
+        assert_encoding hashtable set2{t}
+        r copy set2{t} newset2{t}
+        set digest [debug_digest_value set2{t}]
+        assert_equal $digest [debug_digest_value newset2{t}]
+        assert_equal 1 [r object refcount set2{t}]
+        assert_equal 1 [r object refcount newset2{t}]
+        r del set2{t}
+        assert_equal $digest [debug_digest_value newset2{t}]
     }
 
     test {COPY basic usage for ziplist sorted set} {
-        r del zset1 newzset1
-        r zadd zset1 123 foobar
-        assert_encoding ziplist zset1
-        r copy zset1 newzset1
-        set digest [r debug digest-value zset1]
-        assert_equal $digest [r debug digest-value newzset1]
-        assert_equal 1 [r object refcount zset1]
-        assert_equal 1 [r object refcount newzset1]
-        r del zset1
-        assert_equal $digest [r debug digest-value newzset1]
+        r del zset1{t} newzset1{t}
+        r zadd zset1{t} 123 foobar
+        assert_encoding ziplist zset1{t}
+        r copy zset1{t} newzset1{t}
+        set digest [debug_digest_value zset1{t}]
+        assert_equal $digest [debug_digest_value newzset1{t}]
+        assert_equal 1 [r object refcount zset1{t}]
+        assert_equal 1 [r object refcount newzset1{t}]
+        r del zset1{t}
+        assert_equal $digest [debug_digest_value newzset1{t}]
     }
 
      test {COPY basic usage for skiplist sorted set} {
-        r del zset2 newzset2
+        r del zset2{t} newzset2{t}
         set original_max [lindex [r config get zset-max-ziplist-entries] 1]
         r config set zset-max-ziplist-entries 0
         for {set j 0} {$j < 130} {incr j} {
-            r zadd zset2 [randomInt 50] ele-[randomInt 10]
+            r zadd zset2{t} [randomInt 50] ele-[randomInt 10]
         }
-        assert_encoding skiplist zset2
-        r copy zset2 newzset2
-        set digest [r debug digest-value zset2]
-        assert_equal $digest [r debug digest-value newzset2]
-        assert_equal 1 [r object refcount zset2]
-        assert_equal 1 [r object refcount newzset2]
-        r del zset2
-        assert_equal $digest [r debug digest-value newzset2]
+        assert_encoding skiplist zset2{t}
+        r copy zset2{t} newzset2{t}
+        set digest [debug_digest_value zset2{t}]
+        assert_equal $digest [debug_digest_value newzset2{t}]
+        assert_equal 1 [r object refcount zset2{t}]
+        assert_equal 1 [r object refcount newzset2{t}]
+        r del zset2{t}
+        assert_equal $digest [debug_digest_value newzset2{t}]
         r config set zset-max-ziplist-entries $original_max
     }
 
     test {COPY basic usage for ziplist hash} {
-        r del hash1 newhash1
-        r hset hash1 tmp 17179869184
-        assert_encoding ziplist hash1
-        r copy hash1 newhash1
-        set digest [r debug digest-value hash1]
-        assert_equal $digest [r debug digest-value newhash1]
-        assert_equal 1 [r object refcount hash1]
-        assert_equal 1 [r object refcount newhash1]
-        r del hash1
-        assert_equal $digest [r debug digest-value newhash1]
+        r del hash1{t} newhash1{t}
+        r hset hash1{t} tmp 17179869184
+        assert_encoding ziplist hash1{t}
+        r copy hash1{t} newhash1{t}
+        set digest [debug_digest_value hash1{t}]
+        assert_equal $digest [debug_digest_value newhash1{t}]
+        assert_equal 1 [r object refcount hash1{t}]
+        assert_equal 1 [r object refcount newhash1{t}]
+        r del hash1{t}
+        assert_equal $digest [debug_digest_value newhash1{t}]
     }
 
     test {COPY basic usage for hashtable hash} {
-        r del hash2 newhash2
+        r del hash2{t} newhash2{t}
         set original_max [lindex [r config get hash-max-ziplist-entries] 1]
         r config set hash-max-ziplist-entries 0
         for {set i 0} {$i < 64} {incr i} {
-            r hset hash2 [randomValue] [randomValue]
+            r hset hash2{t} [randomValue] [randomValue]
         }
-        assert_encoding hashtable hash2
-        r copy hash2 newhash2
-        set digest [r debug digest-value hash2]
-        assert_equal $digest [r debug digest-value newhash2]
-        assert_equal 1 [r object refcount hash2]
-        assert_equal 1 [r object refcount newhash2]
-        r del hash2
-        assert_equal $digest [r debug digest-value newhash2]
+        assert_encoding hashtable hash2{t}
+        r copy hash2{t} newhash2{t}
+        set digest [debug_digest_value hash2{t}]
+        assert_equal $digest [debug_digest_value newhash2{t}]
+        assert_equal 1 [r object refcount hash2{t}]
+        assert_equal 1 [r object refcount newhash2{t}]
+        r del hash2{t}
+        assert_equal $digest [debug_digest_value newhash2{t}]
         r config set hash-max-ziplist-entries $original_max
     }
 
     test {COPY basic usage for stream} {
-        r del mystream mynewstream
+        r del mystream{t} mynewstream{t}
         for {set i 0} {$i < 1000} {incr i} {
-            r XADD mystream * item 2 value b
+            r XADD mystream{t} * item 2 value b
         }
-        r copy mystream mynewstream
-        set digest [r debug digest-value mystream]
-        assert_equal $digest [r debug digest-value mynewstream]
-        assert_equal 1 [r object refcount mystream]
-        assert_equal 1 [r object refcount mynewstream]
-        r del mystream
-        assert_equal $digest [r debug digest-value mynewstream]
+        r copy mystream{t} mynewstream{t}
+        set digest [debug_digest_value mystream{t}]
+        assert_equal $digest [debug_digest_value mynewstream{t}]
+        assert_equal 1 [r object refcount mystream{t}]
+        assert_equal 1 [r object refcount mynewstream{t}]
+        r del mystream{t}
+        assert_equal $digest [debug_digest_value mynewstream{t}]
     }
 
     test {COPY basic usage for stream-cgroups} {
-        r del x
-        r XADD x 100 a 1
-        set id [r XADD x 101 b 1]
-        r XADD x 102 c 1
-        r XADD x 103 e 1
-        r XADD x 104 f 1
-        r XADD x 105 g 1
-        r XGROUP CREATE x g1 0
-        r XGROUP CREATE x g2 0
-        r XREADGROUP GROUP g1 Alice COUNT 1 STREAMS x >
-        r XREADGROUP GROUP g1 Bob COUNT 1 STREAMS x >
-        r XREADGROUP GROUP g1 Bob NOACK COUNT 1 STREAMS x >
-        r XREADGROUP GROUP g2 Charlie COUNT 4 STREAMS x >
-        r XGROUP SETID x g1 $id
-        r XREADGROUP GROUP g1 Dave COUNT 3 STREAMS x >
-        r XDEL x 103
+        r del x{t}
+        r XADD x{t} 100 a 1
+        set id [r XADD x{t} 101 b 1]
+        r XADD x{t} 102 c 1
+        r XADD x{t} 103 e 1
+        r XADD x{t} 104 f 1
+        r XADD x{t} 105 g 1
+        r XGROUP CREATE x{t} g1 0
+        r XGROUP CREATE x{t} g2 0
+        r XREADGROUP GROUP g1 Alice COUNT 1 STREAMS x{t} >
+        r XREADGROUP GROUP g1 Bob COUNT 1 STREAMS x{t} >
+        r XREADGROUP GROUP g1 Bob NOACK COUNT 1 STREAMS x{t} >
+        r XREADGROUP GROUP g2 Charlie COUNT 4 STREAMS x{t} >
+        r XGROUP SETID x{t} g1 $id
+        r XREADGROUP GROUP g1 Dave COUNT 3 STREAMS x{t} >
+        r XDEL x{t} 103
 
-        r copy x newx
-        set info [r xinfo stream x full]
-        assert_equal $info [r xinfo stream newx full]
-        assert_equal 1 [r object refcount x]
-        assert_equal 1 [r object refcount newx]
-        r del x
-        assert_equal $info [r xinfo stream newx full]
+        r copy x{t} newx{t}
+        set info [r xinfo stream x{t} full]
+        assert_equal $info [r xinfo stream newx{t} full]
+        assert_equal 1 [r object refcount x{t}]
+        assert_equal 1 [r object refcount newx{t}]
+        r del x{t}
+        assert_equal $info [r xinfo stream newx{t} full]
         r flushdb
     }
 
@@ -387,18 +397,18 @@ start_server {tags {"keyspace"}} {
         lappend res [r dbsize]
         r select 9
         format $res
-    } [list 0 0 foobar 1]
+    } [list 0 0 foobar 1] {singledb:skip}
 
     test {MOVE against key existing in the target DB} {
         r set mykey hello
         r move mykey 10
-    } {0}
+    } {0} {singledb:skip}
 
     test {MOVE against non-integer DB (#1428)} {
         r set mykey hello
         catch {r move mykey notanumber} e
         set e
-    } {ERR value is not an integer or out of range}
+    } {ERR value is not an integer or out of range} {singledb:skip}
 
     test {MOVE can move key expire metadata as well} {
         r select 10
@@ -411,7 +421,7 @@ start_server {tags {"keyspace"}} {
         assert {[r ttl mykey] > 0 && [r ttl mykey] <= 100}
         assert {[r get mykey] eq "foo"}
         r select 9
-    }
+    } {OK} {singledb:skip}
 
     test {MOVE does not create an expire if it does not exist} {
         r select 10
@@ -424,7 +434,7 @@ start_server {tags {"keyspace"}} {
         assert {[r ttl mykey] == -1}
         assert {[r get mykey] eq "foo"}
         r select 9
-    }
+    } {OK} {singledb:skip}
 
     test {SET/GET keys in different DBs} {
         r set a hello
@@ -441,7 +451,7 @@ start_server {tags {"keyspace"}} {
         lappend res [r get b]
         r select 9
         format $res
-    } {hello world foo bared}
+    } {hello world foo bared} {singledb:skip}
 
     test {RANDOMKEY} {
         r flushdb

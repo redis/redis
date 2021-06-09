@@ -5,7 +5,7 @@ proc log_file_matches {log pattern} {
     string match $pattern $content
 }
 
-start_server {tags {"repl network"}} {
+start_server {tags {"repl network external:skip"}} {
     set slave [srv 0 client]
     set slave_host [srv 0 host]
     set slave_port [srv 0 port]
@@ -51,7 +51,7 @@ start_server {tags {"repl network"}} {
     }
 }
 
-start_server {tags {"repl"}} {
+start_server {tags {"repl external:skip"}} {
     set A [srv 0 client]
     set A_host [srv 0 host]
     set A_port [srv 0 port]
@@ -187,7 +187,7 @@ start_server {tags {"repl"}} {
     }
 }
 
-start_server {tags {"repl"}} {
+start_server {tags {"repl external:skip"}} {
     r set mykey foo
 
     start_server {} {
@@ -252,7 +252,7 @@ start_server {tags {"repl"}} {
 
 foreach mdl {no yes} {
     foreach sdl {disabled swapdb} {
-        start_server {tags {"repl"}} {
+        start_server {tags {"repl external:skip"}} {
             set master [srv 0 client]
             $master config set repl-diskless-sync $mdl
             $master config set repl-diskless-sync-delay 1
@@ -340,7 +340,7 @@ foreach mdl {no yes} {
     }
 }
 
-start_server {tags {"repl"}} {
+start_server {tags {"repl external:skip"}} {
     set master [srv 0 client]
     set master_host [srv 0 host]
     set master_port [srv 0 port]
@@ -448,7 +448,7 @@ test {slave fails full sync and diskless load swapdb recovers it} {
             assert_equal [$slave dbsize] 2000
         }
     }
-}
+} {} {external:skip}
 
 test {diskless loading short read} {
     start_server {tags {"repl"}} {
@@ -547,7 +547,7 @@ test {diskless loading short read} {
             $master config set rdb-key-save-delay 0
         }
     }
-}
+} {} {external:skip}
 
 # get current stime and utime metrics for a thread (since it's creation)
 proc get_cpu_metrics { statfile } {
@@ -581,7 +581,7 @@ proc compute_cpu_usage {start end} {
 
 
 # test diskless rdb pipe with multiple replicas, which may drop half way
-start_server {tags {"repl"}} {
+start_server {tags {"repl external:skip"}} {
     set master [srv 0 client]
     $master config set repl-diskless-sync yes
     $master config set repl-diskless-sync-delay 1
@@ -769,7 +769,7 @@ test "diskless replication child being killed is collected" {
             }
         }
     }
-}
+} {} {external:skip}
 
 test "diskless replication read pipe cleanup" {
     # In diskless replication, we create a read pipe for the RDB, between the child and the parent.
@@ -808,7 +808,7 @@ test "diskless replication read pipe cleanup" {
             $master ping
         }
     }
-}
+} {} {external:skip}
 
 test {replicaof right after disconnection} {
     # this is a rare race condition that was reproduced sporadically by the psync2 unit.
@@ -860,7 +860,7 @@ test {replicaof right after disconnection} {
             }
         }
     }
-}
+} {} {external:skip}
 
 test {Kill rdb child process if its dumping RDB is not useful} {
     start_server {tags {"repl"}} {
@@ -925,4 +925,4 @@ test {Kill rdb child process if its dumping RDB is not useful} {
             }
         }
     }
-}
+} {} {external:skip}

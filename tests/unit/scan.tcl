@@ -1,7 +1,7 @@
 start_server {tags {"scan network"}} {
     test "SCAN basic" {
         r flushdb
-        r debug populate 1000
+        populate 1000
 
         set cur 0
         set keys {}
@@ -19,7 +19,7 @@ start_server {tags {"scan network"}} {
 
     test "SCAN COUNT" {
         r flushdb
-        r debug populate 1000
+        populate 1000
 
         set cur 0
         set keys {}
@@ -37,7 +37,7 @@ start_server {tags {"scan network"}} {
 
     test "SCAN MATCH" {
         r flushdb
-        r debug populate 1000
+        populate 1000
 
         set cur 0
         set keys {}
@@ -56,7 +56,7 @@ start_server {tags {"scan network"}} {
     test "SCAN TYPE" {
         r flushdb
         # populate only creates strings
-        r debug populate 1000
+        populate 1000
 
         # Check non-strings are excluded
         set cur 0
@@ -114,7 +114,7 @@ start_server {tags {"scan network"}} {
             r sadd set {*}$elements
 
             # Verify that the encoding matches.
-            assert {[r object encoding set] eq $enc}
+            assert_encoding $enc set
 
             # Test SSCAN
             set cur 0
@@ -148,7 +148,7 @@ start_server {tags {"scan network"}} {
             r hmset hash {*}$elements
 
             # Verify that the encoding matches.
-            assert {[r object encoding hash] eq $enc}
+            assert_encoding $enc hash
 
             # Test HSCAN
             set cur 0
@@ -188,7 +188,7 @@ start_server {tags {"scan network"}} {
             r zadd zset {*}$elements
 
             # Verify that the encoding matches.
-            assert {[r object encoding zset] eq $enc}
+            assert_encoding $enc zset
 
             # Test ZSCAN
             set cur 0
@@ -214,7 +214,7 @@ start_server {tags {"scan network"}} {
 
     test "SCAN guarantees check under write load" {
         r flushdb
-        r debug populate 100
+        populate 100
 
         # We start scanning here, so keys from 0 to 99 should all be
         # reported at the end of the iteration.
