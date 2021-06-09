@@ -1,3 +1,5 @@
+tags {"external:skip"} {
+
 set system_name [string tolower [exec uname -s]]
 set system_supported 0
 
@@ -47,5 +49,7 @@ if {$system_supported} {
             }
         }
     }
+
+}
 
 }

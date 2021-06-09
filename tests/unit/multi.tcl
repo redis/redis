@@ -1,3 +1,13 @@
+proc wait_for_dbsize {size} {
+    set r2 [redis_client]
+    wait_for_condition 50 100 {
+        [$r2 dbsize] == $size
+    } else {
+        fail "Target dbsize not reached"
+    }
+    $r2 close
+}
+
 start_server {tags {"multi"}} {
     test {MUTLI / EXEC basics} {
         r del mylist
@@ -47,47 +57,47 @@ start_server {tags {"multi"}} {
     } {*ERR WATCH*}
 
     test {EXEC fails if there are errors while queueing commands #1} {
-        r del foo1 foo2
+        r del foo1{t} foo2{t}
         r multi
-        r set foo1 bar1
+        r set foo1{t} bar1
         catch {r non-existing-command}
-        r set foo2 bar2
+        r set foo2{t} bar2
         catch {r exec} e
         assert_match {EXECABORT*} $e
-        list [r exists foo1] [r exists foo2]
+        list [r exists foo1{t}] [r exists foo2{t}]
     } {0 0}
 
     test {EXEC fails if there are errors while queueing commands #2} {
         set rd [redis_deferring_client]
-        r del foo1 foo2
+        r del foo1{t} foo2{t}
         r multi
-        r set foo1 bar1
+        r set foo1{t} bar1
         $rd config set maxmemory 1
         assert  {[$rd read] eq {OK}}
-        catch {r lpush mylist myvalue}
+        catch {r lpush mylist{t} myvalue}
         $rd config set maxmemory 0
         assert  {[$rd read] eq {OK}}
-        r set foo2 bar2
+        r set foo2{t} bar2
         catch {r exec} e
         assert_match {EXECABORT*} $e
         $rd close
-        list [r exists foo1] [r exists foo2]
-    } {0 0}
+        list [r exists foo1{t}] [r exists foo2{t}]
+    } {0 0} {needs:config-maxmemory}
 
     test {If EXEC aborts, the client MULTI state is cleared} {
-        r del foo1 foo2
+        r del foo1{t} foo2{t}
         r multi
-        r set foo1 bar1
+        r set foo1{t} bar1
         catch {r non-existing-command}
-        r set foo2 bar2
+        r set foo2{t} bar2
         catch {r exec} e
         assert_match {EXECABORT*} $e
         r ping
     } {PONG}
 
     test {EXEC works on WATCHed key not modified} {
-        r watch x y z
-        r watch k
+        r watch x{t} y{t} z{t}
+        r watch k{t}
         r multi
         r ping
         r exec
@@ -103,9 +113,9 @@ start_server {tags {"multi"}} {
     } {}
 
     test {EXEC fail on WATCHed key modified (1 key of 5 watched)} {
-        r set x 30
-        r watch a b x k z
-        r set x 40
+        r set x{t} 30
+        r watch a{t} b{t} x{t} k{t} z{t}
+        r set x{t} 40
         r multi
         r ping
         r exec
@@ -119,7 +129,7 @@ start_server {tags {"multi"}} {
         r multi
         r ping
         r exec
-    } {}
+    } {} {cluster:skip}
 
     test {After successful EXEC key is no longer watched} {
         r set x 30
@@ -205,7 +215,7 @@ start_server {tags {"multi"}} {
         r multi
         r ping
         r exec
-    } {}
+    } {} {singledb:skip}
 
     test {SWAPDB is able to touch the watched keys that do not exist} {
         r flushall
@@ -217,7 +227,7 @@ start_server {tags {"multi"}} {
         r multi
         r ping
         r exec
-    } {}
+    } {} {singledb:skip}
 
     test {WATCH is able to remember the DB a key belongs to} {
         r select 5
@@ -232,7 +242,7 @@ start_server {tags {"multi"}} {
         # Restore original DB
         r select 9
         set res
-    } {PONG}
+    } {PONG} {singledb:skip}
 
     test {WATCH will consider touched keys target of EXPIRE} {
         r del x
@@ -245,11 +255,15 @@ start_server {tags {"multi"}} {
     } {}
 
     test {WATCH will consider touched expired keys} {
+        r flushall
         r del x
         r set x foo
         r expire x 1
         r watch x
-        after 1100
+
+        # Wait for the keys to expire.
+        wait_for_dbsize 0
+
         r multi
         r ping
         r exec
@@ -288,7 +302,7 @@ start_server {tags {"multi"}} {
             {exec}
         }
         close_replication_stream $repl
-    }
+    } {} {needs:repl}
 
     test {MULTI / EXEC is propagated correctly (empty transaction)} {
         set repl [attach_to_replication_stream]
@@ -300,7 +314,7 @@ start_server {tags {"multi"}} {
             {set foo bar}
         }
         close_replication_stream $repl
-    }
+    } {} {needs:repl}
 
     test {MULTI / EXEC is propagated correctly (read-only commands)} {
         r set foo value1
@@ -314,10 +328,11 @@ start_server {tags {"multi"}} {
             {set foo value2}
         }
         close_replication_stream $repl
-    }
+    } {} {needs:repl}
 
     test {MULTI / EXEC is propagated correctly (write command, no effect)} {
-        r del bar foo bar
+        r del bar
+        r del foo
         set repl [attach_to_replication_stream]
         r multi
         r del foo
@@ -332,7 +347,7 @@ start_server {tags {"multi"}} {
             {incr foo}
         }
         close_replication_stream $repl
-    }
+    } {} {needs:repl}
 
     test {DISCARD should not fail during OOM} {
         set rd [redis_deferring_client]
@@ -346,7 +361,7 @@ start_server {tags {"multi"}} {
         assert  {[$rd read] eq {OK}}
         $rd close
         r ping
-    } {PONG}
+    } {PONG} {needs:config-maxmemory}
 
     test {MULTI and script timeout} {
         # check that if MULTI arrives during timeout, it is either refused, or
@@ -460,8 +475,8 @@ start_server {tags {"multi"}} {
         # make sure that the INCR wasn't executed
         assert { $xx == 1}
         $r1 config set min-replicas-to-write 0
-        $r1 close;
-    }
+        $r1 close
+    } {0} {needs:repl}
 
     test {exec with read commands and stale replica state change} {
         # check that exec that contains read commands fails if server state changed since they were queued
@@ -491,8 +506,8 @@ start_server {tags {"multi"}} {
         set xx [r exec]
         # make sure that the INCR was executed
         assert { $xx == 1 }
-        $r1 close;
-    }
+        $r1 close
+    } {0} {needs:repl cluster:skip}
 
     test {EXEC with only read commands should not be rejected when OOM} {
         set r2 [redis_client]
@@ -511,7 +526,7 @@ start_server {tags {"multi"}} {
         # releasing OOM
         $r2 config set maxmemory 0
         $r2 close
-    }
+    } {0} {needs:config-maxmemory}
 
     test {EXEC with at least one use-memory command should fail} {
         set r2 [redis_client]
@@ -530,20 +545,20 @@ start_server {tags {"multi"}} {
         # releasing OOM
         $r2 config set maxmemory 0
         $r2 close
-    }
+    } {0} {needs:config-maxmemory}
 
     test {Blocking commands ignores the timeout} {
-        r xgroup create s g $ MKSTREAM
+        r xgroup create s{t} g $ MKSTREAM
 
         set m [r multi]
-        r blpop empty_list 0
-        r brpop empty_list 0
-        r brpoplpush empty_list1 empty_list2 0
-        r blmove empty_list1 empty_list2 LEFT LEFT 0
-        r bzpopmin empty_zset 0
-        r bzpopmax empty_zset 0
-        r xread BLOCK 0 STREAMS s $
-        r xreadgroup group g c BLOCK 0 STREAMS s >
+        r blpop empty_list{t} 0
+        r brpop empty_list{t} 0
+        r brpoplpush empty_list1{t} empty_list2{t} 0
+        r blmove empty_list1{t} empty_list2{t} LEFT LEFT 0
+        r bzpopmin empty_zset{t} 0
+        r bzpopmax empty_zset{t} 0
+        r xread BLOCK 0 STREAMS s{t} $
+        r xreadgroup group g c BLOCK 0 STREAMS s{t} >
         set res [r exec]
 
         list $m $res
@@ -564,7 +579,7 @@ start_server {tags {"multi"}} {
             {exec}
         }
         close_replication_stream $repl
-    }
+    } {} {needs:repl cluster:skip}
 
     test {MULTI propagation of SCRIPT LOAD} {
         set repl [attach_to_replication_stream]
@@ -582,7 +597,7 @@ start_server {tags {"multi"}} {
             {exec}
         }
         close_replication_stream $repl
-    }
+    } {} {needs:repl}
 
     test {MULTI propagation of SCRIPT LOAD} {
         set repl [attach_to_replication_stream]
@@ -600,7 +615,7 @@ start_server {tags {"multi"}} {
             {exec}
         }
         close_replication_stream $repl
-    }
+    } {} {needs:repl}
 
     tags {"stream"} {
         test {MULTI propagation of XREADGROUP} {
@@ -624,7 +639,7 @@ start_server {tags {"multi"}} {
                 {exec}
             }
             close_replication_stream $repl
-        }
+        } {} {needs:repl}
     }
 
 }

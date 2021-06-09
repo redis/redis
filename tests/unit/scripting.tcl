@@ -35,8 +35,8 @@ start_server {tags {"scripting"}} {
     } {1 2 3 ciao {1 2}}
 
     test {EVAL - Are the KEYS and ARGV arrays populated correctly?} {
-        r eval {return {KEYS[1],KEYS[2],ARGV[1],ARGV[2]}} 2 a b c d
-    } {a b c d}
+        r eval {return {KEYS[1],KEYS[2],ARGV[1],ARGV[2]}} 2 a{t} b{t} c{t} d{t}
+    } {a{t} b{t} c{t} d{t}}
 
     test {EVAL - is Lua able to call Redis API?} {
         r set mykey myval
@@ -116,7 +116,7 @@ start_server {tags {"scripting"}} {
         r select 10
         r set mykey "this is DB 10"
         r eval {return redis.pcall('get',KEYS[1])} 1 mykey
-    } {this is DB 10}
+    } {this is DB 10} {singledb:skip}
 
     test {EVAL - SELECT inside Lua should not affect the caller} {
         # here we DB 10 is selected
@@ -125,7 +125,7 @@ start_server {tags {"scripting"}} {
         set res [r get mykey]
         r select 9
         set res
-    } {original value}
+    } {original value} {singledb:skip}
 
     if 0 {
         test {EVAL - Script can't run more than configured time limit} {
@@ -195,7 +195,7 @@ start_server {tags {"scripting"}} {
         } e
         r debug lua-always-replicate-commands 1
         set e
-    } {*not allowed after*}
+    } {*not allowed after*} {needs:debug}
 
     test {EVAL - No arguments to redis.call/pcall is considered an error} {
         set e {}
@@ -368,25 +368,25 @@ start_server {tags {"scripting"}} {
         set res [r eval {return redis.call('smembers',KEYS[1])} 1 myset]
         r debug lua-always-replicate-commands 1
         set res
-    } {a aa aaa azz b c d e f g h i l m n o p q r s t u v z}
+    } {a aa aaa azz b c d e f g h i l m n o p q r s t u v z} {needs:debug}
 
     test "SORT is normally not alpha re-ordered for the scripting engine" {
         r del myset
         r sadd myset 1 2 3 4 10
         r eval {return redis.call('sort',KEYS[1],'desc')} 1 myset
-    } {10 4 3 2 1}
+    } {10 4 3 2 1} {cluster:skip}
 
     test "SORT BY <constant> output gets ordered for scripting" {
         r del myset
         r sadd myset a b c d e f g h i l m n o p q r s t u v z aa aaa azz
         r eval {return redis.call('sort',KEYS[1],'by','_')} 1 myset
-    } {a aa aaa azz b c d e f g h i l m n o p q r s t u v z}
+    } {a aa aaa azz b c d e f g h i l m n o p q r s t u v z} {cluster:skip}
 
     test "SORT BY <constant> with GET gets ordered for scripting" {
         r del myset
         r sadd myset a b c
         r eval {return redis.call('sort',KEYS[1],'by','_','get','#','get','_:*')} 1 myset
-    } {a {} b {} c {}}
+    } {a {} b {} c {}} {cluster:skip}
 
     test "redis.sha1hex() implementation" {
         list [r eval {return redis.sha1hex('')} 0] \
@@ -477,9 +477,9 @@ start_server {tags {"scripting"}} {
         r debug loadaof
         set res [r get foo]
         r slaveof no one
+        r config set aof-use-rdb-preamble yes
         set res
-    } {102}
-    r config set aof-use-rdb-preamble yes
+    } {102} {external:skip}
 
     test {EVAL timeout from AOF} {
         # generate a long running script that is propagated to the AOF as script
@@ -516,16 +516,16 @@ start_server {tags {"scripting"}} {
         if {$::verbose} { puts "loading took $elapsed milliseconds" }
         $rd close
         r get x
-    } {y}
+    } {y} {external:skip}
 
     test {We can call scripts rewriting client->argv from Lua} {
         r del myset
         r sadd myset a b c
-        r mset a 1 b 2 c 3 d 4
+        r mset a{t} 1 b{t} 2 c{t} 3 d{t} 4
         assert {[r spop myset] ne {}}
         assert {[r spop myset 1] ne {}}
         assert {[r spop myset] ne {}}
-        assert {[r mget a b c d] eq {1 2 3 4}}
+        assert {[r mget a{t} b{t} c{t} d{t}] eq {1 2 3 4}}
         assert {[r spop myset] eq {}}
     }
 
@@ -539,7 +539,7 @@ start_server {tags {"scripting"}} {
             end
             redis.call('rpush','mylist',unpack(x))
             return redis.call('lrange','mylist',0,-1)
-        } 0
+        } 1 mylist
     } {1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99 100}
 
     test {Number conversion precision test (issue #1118)} {
@@ -547,14 +547,14 @@ start_server {tags {"scripting"}} {
               local value = 9007199254740991
               redis.call("set","foo",value)
               return redis.call("get","foo")
-        } 0
+        } 1 foo
     } {9007199254740991}
 
     test {String containing number precision test (regression of issue #1118)} {
         r eval {
             redis.call("set", "key", "12039611435714932082")
             return redis.call("get", "key")
-        } 0
+        } 1 key
     } {12039611435714932082}
 
     test {Verify negative arg count is error instead of crash (issue #1842)} {
@@ -565,13 +565,13 @@ start_server {tags {"scripting"}} {
     test {Correct handling of reused argv (issue #1939)} {
         r eval {
               for i = 0, 10 do
-                  redis.call('SET', 'a', '1')
-                  redis.call('MGET', 'a', 'b', 'c')
-                  redis.call('EXPIRE', 'a', 0)
-                  redis.call('GET', 'a')
-                  redis.call('MGET', 'a', 'b', 'c')
+                  redis.call('SET', 'a{t}', '1')
+                  redis.call('MGET', 'a{t}', 'b{t}', 'c{t}')
+                  redis.call('EXPIRE', 'a{t}', 0)
+                  redis.call('GET', 'a{t}')
+                  redis.call('MGET', 'a{t}', 'b{t}', 'c{t}')
               end
-        } 0
+        } 3 a{t} b{t} c{t}
     }
 
     test {Functions in the Redis namespace are able to report errors} {
@@ -705,7 +705,7 @@ start_server {tags {"scripting"}} {
         assert_match {UNKILLABLE*} $e
         catch {r ping} e
         assert_match {BUSY*} $e
-    }
+    } {} {external:skip}
 
     # Note: keep this test at the end of this server stanza because it
     # kills the server.
@@ -717,11 +717,11 @@ start_server {tags {"scripting"}} {
         # Make sure the server was killed
         catch {set rd [redis_deferring_client]} e
         assert_match {*connection refused*} $e
-    }
+    } {} {external:skip}
 }
 
 foreach cmdrepl {0 1} {
-    start_server {tags {"scripting repl"}} {
+    start_server {tags {"scripting repl needs:debug external:skip"}} {
         start_server {} {
             if {$cmdrepl == 1} {
                 set rt "(commands replication)"
@@ -817,12 +817,12 @@ foreach cmdrepl {0 1} {
                 } else {
                     fail "Master-Replica desync after Lua script using SELECT."
                 }
-            }
+            } {} {singledb:skip}
         }
     }
 }
 
-start_server {tags {"scripting repl"}} {
+start_server {tags {"scripting repl external:skip"}} {
     start_server {overrides {appendonly yes aof-use-rdb-preamble no}} {
         test "Connect a replica to the master instance" {
             r -1 slaveof [srv 0 host] [srv 0 port]
@@ -929,7 +929,7 @@ start_server {tags {"scripting repl"}} {
     }
 }
 
-start_server {tags {"scripting"}} {
+start_server {tags {"scripting external:skip"}} {
     r script debug sync
     r eval {return 'hello'} 0
     r eval {return 'hello'} 0

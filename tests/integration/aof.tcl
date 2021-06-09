@@ -22,7 +22,7 @@ proc start_server_aof {overrides code} {
     kill_server $srv
 }
 
-tags {"aof"} {
+tags {"aof external:skip"} {
     ## Server can start when aof-load-truncated is set to yes and AOF
     ## is truncated, with an incomplete MULTI block.
     create_aof {

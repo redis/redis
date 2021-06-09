@@ -250,13 +250,19 @@ proc findKeyWithType {r type} {
 }
 
 proc createComplexDataset {r ops {opt {}}} {
+    set useexpire [expr {[lsearch -exact $opt useexpire] != -1}]
+    if {[lsearch -exact $opt usetag] != -1} {
+        set tag "{t}"
+    } else {
+        set tag ""
+    }
     for {set j 0} {$j < $ops} {incr j} {
-        set k [randomKey]
-        set k2 [randomKey]
+        set k [randomKey]$tag
+        set k2 [randomKey]$tag
         set f [randomValue]
         set v [randomValue]
 
-        if {[lsearch -exact $opt useexpire] != -1} {
+        if {$useexpire} {
             if {rand() < 0.1} {
                 {*}$r expire [randomKey] [randomInt 2]
             }
@@ -353,8 +359,15 @@ proc formatCommand {args} {
 
 proc csvdump r {
     set o {}
-    for {set db 0} {$db < 16} {incr db} {
-        {*}$r select $db
+    if {$::singledb} {
+        set maxdb 1
+    } else {
+        set maxdb 16
+    }
+    for {set db 0} {$db < $maxdb} {incr db} {
+        if {!$::singledb} {
+            {*}$r select $db
+        }
         foreach k [lsort [{*}$r keys *]] {
             set type [{*}$r type $k]
             append o [csvstring $db] , [csvstring $k] , [csvstring $type] ,
@@ -396,7 +409,9 @@ proc csvdump r {
             }
         }
     }
-    {*}$r select 9
+    if {!$::singledb} {
+        {*}$r select 9
+    }
     return $o
 }
 
@@ -540,7 +555,7 @@ proc stop_bg_complex_data {handle} {
     catch {exec /bin/kill -9 $handle}
 }
 
-proc populate {num prefix size} {
+proc populate {num {prefix key:} {size 3}} {
     set rd [redis_deferring_client]
     for {set j 0} {$j < $num} {incr j} {
         $rd set $prefix$j [string repeat A $size]
@@ -777,6 +792,30 @@ proc punsubscribe {client {channels {}}} {
     consume_subscribe_messages $client punsubscribe $channels
 }
 
+proc debug_digest_value {key} {
+    if {!$::ignoredigest} {
+        r debug digest-value $key
+    } else {
+        return "dummy-digest-value"
+    }
+}
+
+proc wait_for_blocked_client {} {
+    wait_for_condition 50 100 {
+        [s blocked_clients] ne 0
+    } else {
+        fail "no blocked clients"
+    }
+}
+
+proc wait_for_blocked_clients_count {count {maxtries 100} {delay 10}} {
+    wait_for_condition $maxtries $delay  {
+        [s blocked_clients] == $count
+    } else {
+        fail "Timeout waiting for blocked clients"
+    }
+}
+
 proc read_from_aof {fp} {
     # Input fp is a blocking binary file descriptor of an opened AOF file.
     if {[gets $fp count] == -1} return ""
@@ -800,5 +839,29 @@ proc assert_aof_content {aof_path patterns} {
 
     for {set j 0} {$j < [llength $patterns]} {incr j} {
         assert_match [lindex $patterns $j] [read_from_aof $fp]
+    }
+}
+
+proc config_set {param value {options {}}} {
+    set mayfail 0
+    foreach option $options {
+        switch $option {
+            "mayfail" {
+                set mayfail 1
+            }
+            default {
+                error "Unknown option $option"
+            }
+        }
+    }
+
+    if {[catch {r config set $param $value} err]} {
+        if {!$mayfail} {
+            error $err
+        } else {
+            if {$::verbose} {
+                puts "Ignoring CONFIG SET $param $value failure: $err"
+            }
+        }
     }
 }

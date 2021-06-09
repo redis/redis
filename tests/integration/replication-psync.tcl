@@ -117,6 +117,7 @@ proc test_psync {descr duration backlog_size backlog_ttl delay cond mdl sdl reco
     }
 }
 
+tags {"external:skip"} {
 foreach mdl {no yes} {
     foreach sdl {disabled swapdb} {
         test_psync {no reconnection, just sync} 6 1000000 3600 0 {
@@ -138,4 +139,5 @@ foreach mdl {no yes} {
         assert {[s -1 sync_partial_err] > 0}
         } $mdl $sdl 1
     }
+}
 }
