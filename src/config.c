@@ -490,21 +490,8 @@ void loadServerConfigFromString(char *config) {
                 exit(1);
             }
         } else if (!strcasecmp(argv[0],"logfile") && argc == 2) {
-            FILE *logfp;
-
             zfree(server.logfile);
             server.logfile = zstrdup(argv[1]);
-            if (server.logfile[0] != '\0') {
-                /* Test if we are able to open the file. The server will not
-                 * be able to abort just for this problem later... */
-                logfp = fopen(server.logfile,"a");
-                if (logfp == NULL) {
-                    err = sdscatprintf(sdsempty(),
-                        "Can't open the log file: %s", strerror(errno));
-                    goto loaderr;
-                }
-                fclose(logfp);
-            }
         } else if (!strcasecmp(argv[0],"include") && argc == 2) {
             loadServerConfig(argv[1], 0, NULL);
         } else if ((!strcasecmp(argv[0],"slaveof") ||
@@ -611,6 +598,20 @@ void loadServerConfigFromString(char *config) {
             err = "Bad directive or wrong number of arguments"; goto loaderr;
         }
         sdsfreesplitres(argv,argc);
+    }
+
+    if (server.logfile[0] != '\0') {
+        FILE *logfp;
+
+        /* Test if we are able to open the file. The server will not
+         * be able to abort just for this problem later... */
+        logfp = fopen(server.logfile,"a");
+        if (logfp == NULL) {
+            err = sdscatprintf(sdsempty(),
+                               "Can't open the log file: %s", strerror(errno));
+            goto loaderr;
+        }
+        fclose(logfp);
     }
 
     /* Sanity checks. */
