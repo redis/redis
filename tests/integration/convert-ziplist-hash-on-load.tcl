@@ -1,3 +1,5 @@
+tags {"external:skip"} {
+
 # Copy RDB with ziplist encoded hash to server path
 set server_path [tmpdir "server.convert-ziplist-hash-on-load"]
 
@@ -43,4 +45,6 @@ start_server [list overrides [list "dir" $server_path "dbfilename" "hash-ziplist
         assert_equal 2 [r hlen hash]
         assert_match {v1 v2} [r hmget hash f1 f2]
     }
+}
+
 }
