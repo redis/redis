@@ -2901,7 +2901,7 @@ void replicationCacheMaster(client *c) {
     unlinkClient(c);
 
     /* Reset the master client so that's ready to accept new commands:
-     * we want to discard te non processed query buffers and non processed
+     * we want to discard the non processed query buffers and non processed
      * offsets, including pending transactions, already populated arguments,
      * pending outputs to the master. */
     sdsclear(server.master->querybuf);
