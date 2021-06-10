@@ -302,7 +302,7 @@ void _addReplyProtoToList(client *c, const char *s, size_t len) {
 
     /* Note that 'tail' may be NULL even if we have a tail node, because when
      * addReplyDeferredLen() is used, it sets a dummy node to NULL just
-     * for fill it later, when the size of the bulk length is set. */
+     * to fill it later, when the size of the bulk length is set. */
 
     /* Append to tail string when possible. */
     if (tail) {
