@@ -73,7 +73,7 @@ static int checkStringLength(client *c, long long size) {
 #define OBJ_PERSIST (1<<8)         /* Set if we need to remove the ttl */
 
 void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
-    long long milliseconds = 0, when = 0; /* initialized to avoid any harmless warning */
+    long long milliseconds = 0, when = 0; /* initialized to avoid any harmness warning */
 
     if (expire) {
         if (getLongLongFromObjectOrReply(c, expire, &milliseconds, NULL) != C_OK)
