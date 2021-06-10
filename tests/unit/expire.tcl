@@ -221,8 +221,9 @@ start_server {tags {"expire"}} {
         r set e c
         r set s c
         r set foo b
-        lsort [r keys *]
-    } {a e foo s t}
+        assert_equal [lsort [r keys *]] {a e foo s t}
+        r del a ; # Do not leak volatile keys to other tests
+    }
 
     test {EXPIRE with empty string as TTL should report an error} {
         r set foo bar
@@ -433,6 +434,7 @@ start_server {tags {"expire"}} {
         #    stream, which is as absolute timestamps.
         # See: https://github.com/redis/redis/issues/8433
 
+        r flushall ; # Clean up keyspace to avoid interference by keys from other tests
         set repl [attach_to_replication_stream]
         # SET commands
         r set foo1 bar ex 200
