@@ -539,6 +539,10 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
     } else {
         setExpire(c,c->db,key,when);
         addReply(c,shared.cone);
+        /* Propagate as PEXPIREAT millisecond-timestamp */
+        robj *when_obj = createStringObjectFromLongLong(when);
+        rewriteClientCommandVector(c, 3, shared.pexpireat, key, when_obj);
+        decrRefCount(when_obj);
         signalModifiedKey(c,c->db,key);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",key,c->db->id);
         server.dirty++;
@@ -566,8 +570,8 @@ void pexpireatCommand(client *c) {
     expireGenericCommand(c,0,UNIT_MILLISECONDS);
 }
 
-/* Implements TTL and PTTL */
-void ttlGenericCommand(client *c, int output_ms) {
+/* Implements TTL, PTTL and EXPIRETIME */
+void ttlGenericCommand(client *c, int output_ms, int output_abs) {
     long long expire, ttl = -1;
 
     /* If the key does not exist at all, return -2 */
@@ -575,11 +579,12 @@ void ttlGenericCommand(client *c, int output_ms) {
         addReplyLongLong(c,-2);
         return;
     }
+
     /* The key exists. Return -1 if it has no expire, or the actual
      * TTL value otherwise. */
     expire = getExpire(c->db,c->argv[1]);
     if (expire != -1) {
-        ttl = expire-mstime();
+        ttl = output_abs ? expire : expire-mstime();
         if (ttl < 0) ttl = 0;
     }
     if (ttl == -1) {
@@ -591,12 +596,22 @@ void ttlGenericCommand(client *c, int output_ms) {
 
 /* TTL key */
 void ttlCommand(client *c) {
-    ttlGenericCommand(c, 0);
+    ttlGenericCommand(c, 0, 0);
 }
 
 /* PTTL key */
 void pttlCommand(client *c) {
-    ttlGenericCommand(c, 1);
+    ttlGenericCommand(c, 1, 0);
+}
+
+/* EXPIRETIME key */
+void expiretimeCommand(client *c) {
+    ttlGenericCommand(c, 0, 1);
+}
+
+/* PEXPIRETIME key */
+void pexpiretimeCommand(client *c) {
+    ttlGenericCommand(c, 1, 1);
 }
 
 /* PERSIST key */

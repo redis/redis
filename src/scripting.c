@@ -748,7 +748,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     /* Convert the result of the Redis command into a suitable Lua type.
      * The first thing we need is to create a single string from the client
      * output buffers. */
-    if (listLength(c->reply) == 0 && c->bufpos < PROTO_REPLY_CHUNK_BYTES) {
+    if (listLength(c->reply) == 0 && (size_t)c->bufpos < c->buf_usable_size) {
         /* This is a fast path for the common case of a reply inside the
          * client static buffer. Don't create an SDS string but just use
          * the client buffer directly. */

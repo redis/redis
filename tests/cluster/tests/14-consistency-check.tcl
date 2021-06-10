@@ -53,7 +53,7 @@ proc test_slave_load_expired_keys {aof} {
 
         # config the replica persistency and rewrite the config file to survive restart
         # note that this needs to be done before populating the volatile keys since
-        # that triggers and AOFRW, and we rather the AOF file to have SETEX commands
+        # that triggers and AOFRW, and we rather the AOF file to have 'SET PXAT' commands
         # rather than an RDB with volatile keys
         R $replica_id config set appendonly $aof
         R $replica_id config rewrite

@@ -5,7 +5,7 @@
 # We keep these tests just because they reproduce edge cases in the replication
 # logic in hope they'll be able to spot some problem in the future.
 
-start_server {tags {"psync2"}} {
+start_server {tags {"psync2 external:skip"}} {
 start_server {} {
     # Config
     set debug_msg 0                 ; # Enable additional debug messages
@@ -74,7 +74,7 @@ start_server {} {
 }}
 
 
-start_server {tags {"psync2"}} {
+start_server {tags {"psync2 external:skip"}} {
 start_server {} {
 start_server {} {
 start_server {} {
@@ -180,7 +180,7 @@ start_server {} {
 }
 }}}}}
 
-start_server {tags {"psync2"}} {
+start_server {tags {"psync2 external:skip"}} {
 start_server {} {
 start_server {} {
 

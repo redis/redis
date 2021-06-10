@@ -342,7 +342,7 @@ size_t freeMemoryGetNotCountedMemory(void) {
         }
     }
     if (server.aof_state != AOF_OFF) {
-        overhead += sdsAllocSize(server.aof_buf)+aofRewriteBufferSize();
+        overhead += sdsAllocSize(server.aof_buf)+aofRewriteBufferMemoryUsage();
     }
     return overhead;
 }

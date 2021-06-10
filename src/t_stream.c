@@ -702,15 +702,15 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
 
     int64_t deleted = 0;
     while (raxNext(&ri)) {
-        /* Check if we exceeded the amount of work we could do */
-        if (limit && deleted >= limit)
-            break;
-
         if (trim_strategy == TRIM_STRATEGY_MAXLEN && s->length <= maxlen)
             break;
 
         unsigned char *lp = ri.data, *p = lpFirst(lp);
         int64_t entries = lpGetInteger(p);
+
+        /* Check if we exceeded the amount of work we could do */
+        if (limit && (deleted + entries) > limit)
+            break;
 
         /* Check if we can remove the whole node. */
         int remove_node;
@@ -3233,7 +3233,7 @@ void xtrimCommand(client *c) {
 
     /* Argument parsing. */
     streamAddTrimArgs parsed_args;
-    if (streamParseAddOrTrimArgsOrReply(c, &parsed_args, 1) < 0)
+    if (streamParseAddOrTrimArgsOrReply(c, &parsed_args, 0) < 0)
         return; /* streamParseAddOrTrimArgsOrReply already replied. */
 
     /* If the key does not exist, we are ok returning zero, that is, the

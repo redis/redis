@@ -1,4 +1,4 @@
-tags {"rdb"} {
+tags {"rdb external:skip"} {
 
 set server_path [tmpdir "server.rdb-encoding-test"]
 

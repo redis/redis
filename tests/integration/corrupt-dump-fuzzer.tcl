@@ -1,6 +1,6 @@
 # tests of corrupt ziplist payload with valid CRC
 
-tags {"dump" "corruption"} {
+tags {"dump" "corruption" "external:skip"} {
 
 # catch sigterm so that in case one of the random command hangs the test,
 # usually due to redis not putting a response in the output buffers,

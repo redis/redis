@@ -1,4 +1,4 @@
-start_server {tags {"obuf-limits"}} {
+start_server {tags {"obuf-limits external:skip"}} {
     test {Client output buffer hard limit is enforced} {
         r config set client-output-buffer-limit {pubsub 100000 0 0}
         set rd1 [redis_deferring_client]

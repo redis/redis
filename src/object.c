@@ -1011,7 +1011,7 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     mem = 0;
     if (server.aof_state != AOF_OFF) {
         mem += sdsZmallocSize(server.aof_buf);
-        mem += aofRewriteBufferSize();
+        mem += aofRewriteBufferMemoryUsage();
     }
     mh->aof_buffer = mem;
     mem_total+=mem;

@@ -493,22 +493,22 @@ dbBackup *backupDb(void) {
 
 /* Discard a previously created backup, this can be slow (similar to FLUSHALL)
  * Arguments are similar to the ones of emptyDb, see EMPTYDB_ flags. */
-void discardDbBackup(dbBackup *buckup, int flags, void(callback)(void*)) {
+void discardDbBackup(dbBackup *backup, int flags, void(callback)(void*)) {
     int async = (flags & EMPTYDB_ASYNC);
 
     /* Release main DBs backup . */
-    emptyDbStructure(buckup->dbarray, -1, async, callback);
+    emptyDbStructure(backup->dbarray, -1, async, callback);
     for (int i=0; i<server.dbnum; i++) {
-        dictRelease(buckup->dbarray[i].dict);
-        dictRelease(buckup->dbarray[i].expires);
+        dictRelease(backup->dbarray[i].dict);
+        dictRelease(backup->dbarray[i].expires);
     }
 
     /* Release slots to keys map backup if enable cluster. */
-    if (server.cluster_enabled) freeSlotsToKeysMap(buckup->slots_to_keys, async);
+    if (server.cluster_enabled) freeSlotsToKeysMap(backup->slots_to_keys, async);
 
-    /* Release buckup. */
-    zfree(buckup->dbarray);
-    zfree(buckup);
+    /* Release backup. */
+    zfree(backup->dbarray);
+    zfree(backup);
 
     moduleFireServerEvent(REDISMODULE_EVENT_REPL_BACKUP,
                           REDISMODULE_SUBEVENT_REPL_BACKUP_DISCARD,
@@ -519,28 +519,28 @@ void discardDbBackup(dbBackup *buckup, int flags, void(callback)(void*)) {
  * in the db).
  * This function should be called after the current contents of the database
  * was emptied with a previous call to emptyDb (possibly using the async mode). */
-void restoreDbBackup(dbBackup *buckup) {
+void restoreDbBackup(dbBackup *backup) {
     /* Restore main DBs. */
     for (int i=0; i<server.dbnum; i++) {
         serverAssert(dictSize(server.db[i].dict) == 0);
         serverAssert(dictSize(server.db[i].expires) == 0);
         dictRelease(server.db[i].dict);
         dictRelease(server.db[i].expires);
-        server.db[i] = buckup->dbarray[i];
+        server.db[i] = backup->dbarray[i];
     }
 
     /* Restore slots to keys map backup if enable cluster. */
     if (server.cluster_enabled) {
         serverAssert(server.cluster->slots_to_keys->numele == 0);
         raxFree(server.cluster->slots_to_keys);
-        server.cluster->slots_to_keys = buckup->slots_to_keys;
-        memcpy(server.cluster->slots_keys_count, buckup->slots_keys_count,
+        server.cluster->slots_to_keys = backup->slots_to_keys;
+        memcpy(server.cluster->slots_keys_count, backup->slots_keys_count,
                 sizeof(server.cluster->slots_keys_count));
     }
 
-    /* Release buckup. */
-    zfree(buckup->dbarray);
-    zfree(buckup);
+    /* Release backup. */
+    zfree(backup->dbarray);
+    zfree(backup);
 
     moduleFireServerEvent(REDISMODULE_EVENT_REPL_BACKUP,
                           REDISMODULE_SUBEVENT_REPL_BACKUP_RESTORE,

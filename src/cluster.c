@@ -5206,6 +5206,13 @@ void restoreCommand(client *c) {
     dbAdd(c->db,key,obj);
     if (ttl) {
         setExpire(c,c->db,key,ttl);
+        if (!absttl) {
+            /* Propagate TTL as absolute timestamp */
+            robj *ttl_obj = createStringObjectFromLongLong(ttl);
+            rewriteClientCommandArgument(c,2,ttl_obj);
+            decrRefCount(ttl_obj);
+            rewriteClientCommandArgument(c,c->argc,shared.absttl);
+        }
     }
     objectSetLRUOrLFU(obj,lfu_freq,lru_idle,lru_clock,1000);
     signalModifiedKey(c,c->db,key);

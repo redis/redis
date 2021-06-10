@@ -48,6 +48,7 @@ void lazyFreeTrackingTable(void *args[]) {
     atomicIncr(lazyfreed_objects,len);
 }
 
+/* Release the lua_scripts dict. */
 void lazyFreeLuaScripts(void *args[]) {
     dict *lua_scripts = args[0];
     long long len = dictSize(lua_scripts);
@@ -212,16 +213,28 @@ void emptyDbAsync(redisDb *db) {
     bioCreateLazyFreeJob(lazyfreeFreeDatabase,2,oldht1,oldht2);
 }
 
-/* Release the radix tree mapping Redis Cluster keys to slots asynchronously. */
+/* Release the radix tree mapping Redis Cluster keys to slots.
+ * If the rax is huge enough, free it in async way. */
 void freeSlotsToKeysMapAsync(rax *rt) {
-    atomicIncr(lazyfree_objects,rt->numele);
-    bioCreateLazyFreeJob(lazyfreeFreeSlotsMap,1,rt);
+    /* Because this rax has only keys and no values so we use numnodes. */
+    if (rt->numnodes > LAZYFREE_THRESHOLD) {
+        atomicIncr(lazyfree_objects,rt->numele);
+        bioCreateLazyFreeJob(lazyfreeFreeSlotsMap,1,rt);
+    } else {
+        raxFree(rt);
+    }
 }
 
-/* Free an object, if the object is huge enough, free it in async way. */
+/* Free the key tracking table.
+ * If the table is huge enough, free it in async way. */
 void freeTrackingRadixTreeAsync(rax *tracking) {
-    atomicIncr(lazyfree_objects,tracking->numele);
-    bioCreateLazyFreeJob(lazyFreeTrackingTable,1,tracking);
+    /* Because this rax has only keys and no values so we use numnodes. */
+    if (tracking->numnodes > LAZYFREE_THRESHOLD) {
+        atomicIncr(lazyfree_objects,tracking->numele);
+        bioCreateLazyFreeJob(lazyFreeTrackingTable,1,tracking);
+    } else {
+        freeTrackingRadixTree(tracking);
+    }
 }
 
 /* Free lua_scripts dict, if the dict is huge enough, free it in async way. */

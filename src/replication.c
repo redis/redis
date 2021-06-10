@@ -1531,14 +1531,14 @@ dbBackup *disklessLoadMakeBackup(void) {
  *
  * If the socket loading went wrong, we want to restore the old backups
  * into the server databases. */
-void disklessLoadRestoreBackup(dbBackup *buckup) {
-    restoreDbBackup(buckup);
+void disklessLoadRestoreBackup(dbBackup *backup) {
+    restoreDbBackup(backup);
 }
 
 /* Helper function for readSyncBulkPayload() to discard our old backups
  * when the loading succeeded. */
-void disklessLoadDiscardBackup(dbBackup *buckup, int flag) {
-    discardDbBackup(buckup, flag, replicationEmptyDbCallback);
+void disklessLoadDiscardBackup(dbBackup *backup, int flag) {
+    discardDbBackup(backup, flag, replicationEmptyDbCallback);
 }
 
 /* Asynchronously read the SYNC payload we receive from a master */
