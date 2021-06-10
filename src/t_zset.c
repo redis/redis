@@ -1697,7 +1697,7 @@ void zsetTypeRandomElement(robj *zsetobj, unsigned long zsetsize, ziplistEntry *
             }
         }
     } else {
-        serverPanic("Unknown sorted set encoding");
+        serverPanic("Unknown zset encoding");
     }
 }
 
