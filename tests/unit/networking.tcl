@@ -71,4 +71,47 @@ start_server {config "minimal.conf" tags {"external:skip"}} {
         reconnect 0
         r ping
     } {PONG}
+
+    proc get_nonloopback_addr {} {
+        set addrlist [list {}]
+        catch { set addrlist [exec hostname -I] }
+        return [lindex $addrlist 0]
+    }
+
+    proc get_nonloopback_client {} {
+        return [redis [get_nonloopback_addr] [srv 0 "port"] 0 $::tls]
+    }
+
+    test {Protected mode works as expected} {
+        # Get a non-loopback address of this instance for this test.
+        set myaddr [get_nonloopback_addr]
+        if {$myaddr != "" && ![string match {127.*} $myaddr]} {
+            # Non-loopback client shoudl fail by default
+            set r2 [get_nonloopback_client]
+            catch {$r2 ping} err
+            assert_match {*DENIED*} $err
+
+            # Bind configuration should not matter
+            assert_equal {OK} [r config set bind "*"]
+            set r2 [get_nonloopback_client]
+            catch {$r2 ping} err
+            assert_match {*DENIED*} $err
+
+            # Setting a password should disable protected mode
+            assert_equal {OK} [r config set requirepass "secret"]
+            set r2 [redis $myaddr [srv 0 "port"] 0 $::tls]
+            assert_equal {OK} [$r2 auth secret]
+            assert_equal {PONG} [$r2 ping]
+
+            # Clearing the password re-enables protected mode
+            assert_equal {OK} [r config set requirepass ""]
+            set r2 [redis $myaddr [srv 0 "port"] 0 $::tls]
+            assert_match {*DENIED*} $err
+
+            # Explicitly disabling protected-mode works
+            assert_equal {OK} [r config set protected-mode no]
+            set r2 [redis $myaddr [srv 0 "port"] 0 $::tls]
+            assert_equal {PONG} [$r2 ping]
+        }
+    }
 }

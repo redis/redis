@@ -992,7 +992,6 @@ void clientAcceptHandler(connection *conn) {
      * requests from non loopback interfaces. Instead we try to explain the
      * user what to do to fix it if needed. */
     if (server.protected_mode &&
-        server.bindaddr_count == 0 &&
         DefaultUser->flags & USER_FLAG_NOPASS &&
         !(c->flags & CLIENT_UNIX_SOCKET))
     {
