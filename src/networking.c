@@ -2164,7 +2164,7 @@ void readQueryFromClient(connection *conn) {
     if (c->querybuf_peak < qblen) c->querybuf_peak = qblen;
     if (big_arg || sdsalloc(c->querybuf) < PROTO_IOBUF_LEN) {
         /* When BIG_ARG is detected or when query buffer does not exceed its
-         * initial size,  We will make room for query buffer non-greedily. */
+         * initial size, We will make room for query buffer non-greedily. */
         c->querybuf = sdsMakeRoomForNonGreedy(c->querybuf, readlen);
     } else {
         c->querybuf = sdsMakeRoomFor(c->querybuf, readlen);
