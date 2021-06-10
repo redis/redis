@@ -808,9 +808,9 @@ struct redisCommand redisCommandTable[] = {
      "read-only fast random @keyspace",
      0,NULL,1,1,1,0,0,0},
 
-    {"persist",persistCommand,2,
+    {"persist",persistCommand,-2,
      "write fast @keyspace",
-     0,NULL,1,1,1,0,0,0},
+     0,NULL,1,-1,1,0,0,0},
 
     {"slaveof",replicaofCommand,3,
      "admin no-script ok-stale",

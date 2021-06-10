@@ -72,6 +72,15 @@ start_server {tags {"expire"}} {
         list [r persist foo] [r persist nokeyatall]
     } {0 0}
 
+    test {PERSIST against multi keys} {
+        r set x foo
+        r expire x 50
+        r set y foo
+        r expire y 100
+        r set a foo
+        list [r ttl x] [r ttl y] [r persist x y a b] [r ttl x] [r ttl y] [r ttl a] [r ttl b]
+    } {50 100 2 -1 -1 -1 -2}
+
     test {EXPIRE precision is now the millisecond} {
         # This test is very likely to do a false positive if the
         # server is under pressure, so if it does not work give it a few more

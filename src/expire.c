@@ -614,20 +614,19 @@ void pexpiretimeCommand(client *c) {
     ttlGenericCommand(c, 1, 1);
 }
 
-/* PERSIST key */
+/* PERSIST key1 [key2 key3 ... keyN] */
 void persistCommand(client *c) {
-    if (lookupKeyWrite(c->db,c->argv[1])) {
-        if (removeExpire(c->db,c->argv[1])) {
-            signalModifiedKey(c,c->db,c->argv[1]);
-            notifyKeyspaceEvent(NOTIFY_GENERIC,"persist",c->argv[1],c->db->id);
-            addReply(c,shared.cone);
+    int persisted = 0;
+
+    for (int j = 1; j < c->argc; j++) {
+        if (lookupKeyWrite(c->db,c->argv[j]) && removeExpire(c->db,c->argv[j])) {
+            signalModifiedKey(c,c->db,c->argv[j]);
+            notifyKeyspaceEvent(NOTIFY_GENERIC,"persist",c->argv[j],c->db->id);
+            persisted++;
             server.dirty++;
-        } else {
-            addReply(c,shared.czero);
         }
-    } else {
-        addReply(c,shared.czero);
     }
+    addReplyLongLong(c,persisted);
 }
 
 /* TOUCH key1 [key2 key3 ... keyN] */
