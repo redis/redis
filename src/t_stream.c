@@ -626,7 +626,7 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
     lp_count += 3; /* Add the 3 fixed fields flags + ms-diff + seq-diff. */
     if (!(flags & STREAM_ITEM_FLAG_SAMEFIELDS)) {
         /* If the item is not compressed, it also has the fields other than
-         * the values, and an additional num-fileds field. */
+         * the values, and an additional num-fields field. */
         lp_count += numfields+1;
     }
     lp = lpAppendInteger(lp,lp_count);
@@ -968,7 +968,7 @@ static int streamParseAddOrTrimArgsOrReply(client *c, streamAddTrimArgs *args, i
     }
 
     if (c == server.master || c->id == CLIENT_ID_AOF) {
-        /* If command cam from master or from AOF we must not enforce maxnodes
+        /* If command came from master or from AOF we must not enforce maxnodes
          * (The maxlen/minid argument was re-written to make sure there's no
          * inconsistency). */
         args->limit = 0;
@@ -1365,7 +1365,7 @@ void streamPropagateXCLAIM(client *c, robj *key, streamCG *group, robj *groupnam
     argv[12] = shared.lastid;
     argv[13] = createObjectFromStreamID(&group->last_id);
 
-    /* We use progagate() because this code path is not always called from
+    /* We use propagate() because this code path is not always called from
      * the command execution context. Moreover this will just alter the
      * consumer group state, and we don't need MULTI/EXEC wrapping because
      * there is no message state cross-message atomicity required. */
@@ -1390,7 +1390,7 @@ void streamPropagateGroupID(client *c, robj *key, streamCG *group, robj *groupna
     argv[3] = groupname;
     argv[4] = createObjectFromStreamID(&group->last_id);
 
-    /* We use progagate() because this code path is not always called from
+    /* We use propagate() because this code path is not always called from
      * the command execution context. Moreover this will just alter the
      * consumer group state, and we don't need MULTI/EXEC wrapping because
      * there is no message state cross-message atomicity required. */
@@ -1412,7 +1412,7 @@ void streamPropagateConsumerCreation(client *c, robj *key, robj *groupname, sds 
     argv[3] = groupname;
     argv[4] = createObject(OBJ_STRING,sdsdup(consumername));
 
-    /* We use progagate() because this code path is not always called from
+    /* We use propagate() because this code path is not always called from
      * the command execution context. Moreover this will just alter the
      * consumer group state, and we don't need MULTI/EXEC wrapping because
      * there is no message state cross-message atomicity required. */
@@ -1576,7 +1576,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
     return arraylen;
 }
 
-/* This is an helper function for streamReplyWithRange() when called with
+/* This is a helper function for streamReplyWithRange() when called with
  * group and consumer arguments, but with a range that is referring to already
  * delivered messages. In this case we just emit messages that are already
  * in the history of the consumer, fetching the IDs from its PEL.
@@ -1944,7 +1944,7 @@ void xreadCommand(client *c) {
             if (c->flags & CLIENT_LUA) {
                 /*
                  * Although the CLIENT_DENY_BLOCKING flag should protect from blocking the client
-                 * on Lua/MULTI/RM_Call we want special treatment for Lua to keep backword compatibility.
+                 * on Lua/MULTI/RM_Call we want special treatment for Lua to keep backward compatibility.
                  * There is no sense to use BLOCK option within Lua. */
                 addReplyErrorFormat(c, "%s command is not allowed with BLOCK option from scripts", (char *)c->argv[0]->ptr);
                 return;
@@ -2506,7 +2506,7 @@ void xsetidCommand(client *c) {
 /* XACK <key> <group> <id> <id> ... <id>
  *
  * Acknowledge a message as processed. In practical terms we just check the
- * pendine entries list (PEL) of the group, and delete the PEL entry both from
+ * pending entries list (PEL) of the group, and delete the PEL entry both from
  * the group and the consumer (pending messages are referenced in both places).
  *
  * Return value of the command is the number of messages successfully
@@ -2572,7 +2572,7 @@ cleanup:
  * delivery time and so forth. */
 void xpendingCommand(client *c) {
     int justinfo = c->argc == 3; /* Without the range just outputs general
-                                    informations about the PEL. */
+                                    information about the PEL. */
     robj *key = c->argv[1];
     robj *groupname = c->argv[2];
     robj *consumername = NULL;
@@ -2928,7 +2928,7 @@ void xclaimCommand(client *c) {
         streamNACK *nack = raxFind(group->pel,buf,sizeof(buf));
 
         /* If FORCE is passed, let's check if at least the entry
-         * exists in the Stream. In such case, we'll crate a new
+         * exists in the Stream. In such case, we'll create a new
          * entry in the PEL from scratch, so that XCLAIM can also
          * be used to create entries in the PEL. Useful for AOF
          * and replication of consumer groups. */
@@ -3548,7 +3548,7 @@ NULL
 }
 
 /* Validate the integrity stream listpack entries structure. Both in term of a
- * valid listpack, but also that the structure of the entires matches a valid
+ * valid listpack, but also that the structure of the entries matches a valid
  * stream. return 1 if valid 0 if not valid. */
 int streamValidateListpackIntegrity(unsigned char *lp, size_t size, int deep) {
     int valid_record;

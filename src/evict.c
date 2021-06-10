@@ -133,7 +133,7 @@ void evictionPoolAlloc(void) {
     EvictionPoolLRU = ep;
 }
 
-/* This is an helper function for performEvictions(), it is used in order
+/* This is a helper function for performEvictions(), it is used in order
  * to populate the evictionPool with a few entries every time we want to
  * expire a key. Keys with idle time bigger than one of the current
  * keys are added. Keys are always added if there are free entries.

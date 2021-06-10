@@ -53,7 +53,7 @@ test "Wait cluster to be stable" {
     }
 }
 
-test "Master #0 stil should have its replicas" {
+test "Master #0 still should have its replicas" {
     assert { [llength [lindex [R 0 role] 2]] >= 2 }
 }
 

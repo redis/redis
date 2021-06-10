@@ -302,7 +302,7 @@ void _addReplyProtoToList(client *c, const char *s, size_t len) {
 
     /* Note that 'tail' may be NULL even if we have a tail node, because when
      * addReplyDeferredLen() is used, it sets a dummy node to NULL just
-     * fo fill it later, when the size of the bulk length is set. */
+     * to fill it later, when the size of the bulk length is set. */
 
     /* Append to tail string when possible. */
     if (tail) {
@@ -1752,7 +1752,7 @@ int processInlineBuffer(client *c) {
     /* Masters should never send us inline protocol to run actual
      * commands. If this happens, it is likely due to a bug in Redis where
      * we got some desynchronization in the protocol, for example
-     * beause of a PSYNC gone bad.
+     * because of a PSYNC gone bad.
      *
      * However the is an exception: masters may send us just a newline
      * to keep the connection active. */
@@ -1783,7 +1783,7 @@ int processInlineBuffer(client *c) {
     return C_OK;
 }
 
-/* Helper function. Record protocol erro details in server log,
+/* Helper function. Record protocol error details in server log,
  * and set the client as CLIENT_CLOSE_AFTER_REPLY and
  * CLIENT_PROTOCOL_ERROR. */
 #define PROTO_DUMP_LEN 128
@@ -2367,7 +2367,7 @@ sds getAllClientsInfoString(int type) {
 
 /* This function implements CLIENT SETNAME, including replying to the
  * user with an error if the charset is wrong (in that case C_ERR is
- * returned). If the function succeeeded C_OK is returned, and it's up
+ * returned). If the function succeeded C_OK is returned, and it's up
  * to the caller to send a reply if needed.
  *
  * Setting an empty string as name has the effect of unsetting the
@@ -2484,7 +2484,7 @@ void clientCommand(client *c) {
 "UNPAUSE",
 "    Stop the current client pause, resuming traffic.",
 "PAUSE <timeout> [WRITE|ALL]",
-"    Suspend all, or just write, clients for <timout> milliseconds.",
+"    Suspend all, or just write, clients for <timeout> milliseconds.",
 "REPLY (ON|OFF|SKIP)",
 "    Control the replies sent to the current connection.",
 "SETNAME <name>",
@@ -3312,7 +3312,7 @@ void flushSlavesOutputBuffers(void) {
  *
  * A main use case of this function is to allow pausing replication traffic
  * so that a failover without data loss to occur. Replicas will continue to receive
- * traffic to faciliate this functionality.
+ * traffic to facilitate this functionality.
  * 
  * This function is also internally used by Redis Cluster for the manual
  * failover procedure implemented by CLUSTER FAILOVER.
@@ -3401,7 +3401,7 @@ void processEventsWhileBlocked(void) {
             AE_FILE_EVENTS|AE_DONT_WAIT|
             AE_CALL_BEFORE_SLEEP|AE_CALL_AFTER_SLEEP);
         /* Note that server.events_processed_while_blocked will also get
-         * incremeted by callbacks called by the event loop handlers. */
+         * incremented by callbacks called by the event loop handlers. */
         server.events_processed_while_blocked += ae_events;
         long long events = server.events_processed_while_blocked - startval;
         if (!events) break;

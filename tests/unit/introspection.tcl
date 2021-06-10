@@ -251,6 +251,6 @@ start_server {tags {"introspection"}} {
         }
     } {} {external:skip}
 
-    # Config file at this point is at a wierd state, and includes all
+    # Config file at this point is at a weird state, and includes all
     # known keywords. Might be a good idea to avoid adding tests here.
 }

@@ -498,7 +498,7 @@ proc find_valgrind_errors {stderr on_termination} {
         return ""
     }
 
-    # Look for the absense of a leak free summary (happens when redis isn't terminated properly).
+    # Look for the absence of a leak free summary (happens when redis isn't terminated properly).
     if {(![regexp -- {definitely lost: 0 bytes} $buf] &&
          ![regexp -- {no leaks are possible} $buf])} {
         return $buf

@@ -475,7 +475,7 @@ static void tlsEventHandler(struct aeEventLoop *el, int fd, void *clientData, in
 
 /* Process the return code received from OpenSSL>
  * Update the want parameter with expected I/O.
- * Update the connection's error state if a real error has occured.
+ * Update the connection's error state if a real error has occurred.
  * Returns an SSL error code, or 0 if no further handling is required.
  */
 static int handleSSLReturnCode(tls_connection *conn, int ret_value, WantIOType *want) {

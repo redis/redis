@@ -594,7 +594,7 @@ int zslParseLexRangeItem(robj *item, sds *dest, int *ex) {
     }
 }
 
-/* Free a lex range structure, must be called only after zelParseLexRange()
+/* Free a lex range structure, must be called only after zslParseLexRange()
  * populated the structure with success (C_OK returned). */
 void zslFreeLexRange(zlexrangespec *spec) {
     if (spec->min != shared.minstring &&
@@ -806,7 +806,7 @@ void zzlNext(unsigned char *zl, unsigned char **eptr, unsigned char **sptr) {
 }
 
 /* Move to the previous entry based on the values in eptr and sptr. Both are
- * set to NULL when there is no next entry. */
+ * set to NULL when there is no prev entry. */
 void zzlPrev(unsigned char *zl, unsigned char **eptr, unsigned char **sptr) {
     unsigned char *_eptr, *_sptr;
     serverAssert(*eptr != NULL && *sptr != NULL);
@@ -1610,7 +1610,7 @@ robj *zsetDup(robj *o) {
     return zobj;
 }
 
-/* callback for to check the ziplist doesn't have duplicate recoreds */
+/* callback for to check the ziplist doesn't have duplicate records */
 static int _zsetZiplistValidateIntegrity(unsigned char *p, void *userdata) {
     struct {
         long count;
@@ -2481,7 +2481,7 @@ static void zdiffAlgorithm2(zsetopsrc *src, long setnum, zset *dstzset, size_t *
         if (cardinality == 0) break;
     }
 
-    /* Redize dict if needed after removing multiple elements */
+    /* Resize dict if needed after removing multiple elements */
     if (htNeedsResize(dstzset->dict)) dictResize(dstzset->dict);
 
     /* Using this algorithm, we can't calculate the max element as we go,
@@ -3600,7 +3600,7 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start, int st
         }
     }
 
-    /* Use defaults if not overriden by arguments. */
+    /* Use defaults if not overridden by arguments. */
     if (direction == ZRANGE_DIRECTION_AUTO)
         direction = ZRANGE_DIRECTION_FORWARD;
     if (rangetype == ZRANGE_AUTO)

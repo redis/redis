@@ -899,7 +899,7 @@ promote: /* Promote to dense representation. */
  * the element belongs to is incremented if needed.
  *
  * This function is actually a wrapper for hllSparseSet(), it only performs
- * the hashshing of the element to obtain the index and zeros run length. */
+ * the hashing of the element to obtain the index and zeros run length. */
 int hllSparseAdd(robj *o, unsigned char *ele, size_t elesize) {
     long index;
     uint8_t count = hllPatLen(ele,elesize,&index);
