@@ -12,7 +12,7 @@ proc prepare_value {size} {
     return $_v
 }
 
-start_server {tags {"wait"}} {
+start_server {tags {"wait external:skip"}} {
 start_server {} {
     set slave [srv 0 client]
     set slave_host [srv 0 host]

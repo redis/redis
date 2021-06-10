@@ -706,7 +706,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,0,0,0,0,0,0},
 
     {"auth",authCommand,-2,
-     "no-auth no-script ok-loading ok-stale fast no-monitor no-slowlog @connection",
+     "no-auth no-script ok-loading ok-stale fast @connection",
      0,NULL,0,0,0,0,0,0},
 
     /* We don't allow PING during loading since in Redis PING is used as
@@ -749,7 +749,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,0,0,0,0,0,0},
 
     {"exec",execCommand,1,
-     "no-script no-monitor no-slowlog ok-loading ok-stale @transaction",
+     "no-script no-slowlog ok-loading ok-stale @transaction",
      0,NULL,0,0,0,0,0,0},
 
     {"discard",discardCommand,1,
@@ -797,6 +797,14 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,1,-1,1,0,0,0},
 
     {"pttl",pttlCommand,2,
+     "read-only fast random @keyspace",
+     0,NULL,1,1,1,0,0,0},
+
+    {"expiretime",expiretimeCommand,2,
+     "read-only fast random @keyspace",
+     0,NULL,1,1,1,0,0,0},
+
+    {"pexpiretime",pexpiretimeCommand,2,
      "read-only fast random @keyspace",
      0,NULL,1,1,1,0,0,0},
 
@@ -901,17 +909,29 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,0,0,0,0,0,0},
 
     {"hello",helloCommand,-1,
-     "no-auth no-script fast no-monitor ok-loading ok-stale @connection",
+     "no-auth no-script fast ok-loading ok-stale @connection",
      0,NULL,0,0,0,0,0,0},
 
     /* EVAL can modify the dataset, however it is not flagged as a write
-     * command since we do the check while running commands from Lua. */
+     * command since we do the check while running commands from Lua.
+     * 
+     * EVAL and EVALSHA also feed monitors before the commands are executed,
+     * as opposed to after.
+      */
     {"eval",evalCommand,-3,
-     "no-script may-replicate @scripting",
+     "no-script no-monitor may-replicate @scripting",
+     0,evalGetKeys,0,0,0,0,0,0},
+
+    {"eval_ro",evalRoCommand,-3,
+     "no-script no-monitor @scripting",
      0,evalGetKeys,0,0,0,0,0,0},
 
     {"evalsha",evalShaCommand,-3,
-     "no-script may-replicate @scripting",
+     "no-script no-monitor may-replicate @scripting",
+     0,evalGetKeys,0,0,0,0,0,0},
+
+    {"evalsha_ro",evalShaRoCommand,-3,
+     "no-script no-monitor @scripting",
      0,evalGetKeys,0,0,0,0,0,0},
 
     {"slowlog",slowlogCommand,-2,
@@ -1839,6 +1859,7 @@ void clientsCron(void) {
         if (clientsCronResizeQueryBuffer(c)) continue;
         if (clientsCronTrackExpansiveClients(c, curr_peak_mem_usage_slot)) continue;
         if (clientsCronTrackClientsMemUsage(c)) continue;
+        if (closeClientOnOutputBufferLimitReached(c, 0)) continue;
     }
 }
 
@@ -1978,7 +1999,7 @@ void checkChildrenDone(void) {
     }
 }
 
-/* Called from serverCron and loadingCron to update cached memory metrics. */
+/* Called from serverCron and cronUpdateMemoryStats to update cached memory metrics. */
 void cronUpdateMemoryStats() {
     /* Record the max memory used since the server was started. */
     if (zmalloc_used_memory() > server.stat_peak_memory)
@@ -2588,7 +2609,6 @@ void createSharedObjects(void) {
     shared.left = createStringObject("left",4);
     shared.right = createStringObject("right",5);
     shared.pxat = createStringObject("PXAT", 4);
-    shared.px = createStringObject("PX",2);
     shared.time = createStringObject("TIME",4);
     shared.retrycount = createStringObject("RETRYCOUNT",10);
     shared.force = createStringObject("FORCE",5);
@@ -2598,11 +2618,13 @@ void createSharedObjects(void) {
     shared.ping = createStringObject("ping",4);
     shared.setid = createStringObject("SETID",5);
     shared.keepttl = createStringObject("KEEPTTL",7);
+    shared.absttl = createStringObject("ABSTTL",6);
     shared.load = createStringObject("LOAD",4);
     shared.createconsumer = createStringObject("CREATECONSUMER",14);
     shared.getack = createStringObject("GETACK",6);
     shared.special_asterick = createStringObject("*",1);
     shared.special_equals = createStringObject("=",1);
+    shared.redacted = makeObjectShared(createStringObject("(redacted)",10));
 
     for (j = 0; j < OBJ_SHARED_INTEGERS; j++) {
         shared.integers[j] =
@@ -3118,6 +3140,7 @@ void resetServerStats(void) {
     server.stat_total_error_replies = 0;
     server.stat_dump_payload_sanitizations = 0;
     server.aof_delayed_fsync = 0;
+    lazyfreeResetStats();
 }
 
 /* Make the thread killable at any time, so that kill threads functions
@@ -3559,6 +3582,8 @@ struct redisCommand *lookupCommandOrOriginal(sds name) {
 void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
                int flags)
 {
+    UNUSED(cmd);
+
     if (!server.replication_allowed)
         return;
 
@@ -3575,7 +3600,7 @@ void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
     serverAssert(!(areClientsPaused() && !server.client_pause_in_transaction));
 
     if (server.aof_state != AOF_OFF && flags & PROPAGATE_AOF)
-        feedAppendOnlyFile(cmd,dbid,argv,argc);
+        feedAppendOnlyFile(dbid,argv,argc);
     if (flags & PROPAGATE_REPL)
         replicationFeedSlaves(server.slaves,dbid,argv,argc);
 }
@@ -3624,12 +3649,6 @@ void preventCommandPropagation(client *c) {
     c->flags |= CLIENT_PREVENT_PROP;
 }
 
-/* Avoid logging any information about this client's arguments
- * since they contain sensitive information. */
-void preventCommandLogging(client *c) {
-    c->flags |= CLIENT_PREVENT_LOGGING;
-}
-
 /* AOF specific version of preventCommandPropagation(). */
 void preventCommandAOF(client *c) {
     c->flags |= CLIENT_PREVENT_AOF_PROP;
@@ -3643,7 +3662,7 @@ void preventCommandReplication(client *c) {
 /* Log the last command a client executed into the slowlog. */
 void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t duration) {
     /* Some commands may contain sensitive data that should not be available in the slowlog. */
-    if ((c->flags & CLIENT_PREVENT_LOGGING) || (cmd->flags & CMD_SKIP_SLOWLOG))
+    if (cmd->flags & CMD_SKIP_SLOWLOG)
         return;
 
     /* If command argument vector was rewritten, use the original
@@ -3698,15 +3717,6 @@ void call(client *c, int flags) {
     static long long prev_err_count;
 
     server.fixed_time_expire++;
-
-    /* Send the command to clients in MONITOR mode if applicable.
-     * Administrative commands are considered too dangerous to be shown. */
-    if (listLength(server.monitors) &&
-        !server.loading &&
-        !(c->cmd->flags & (CMD_SKIP_MONITOR|CMD_ADMIN)))
-    {
-        replicationFeedMonitors(c,server.monitors,c->db->id,c->argv,c->argc);
-    }
 
     /* Initialization: clear the flags that must be set by the command on
      * demand, and initialize the array for additional commands propagation. */
@@ -3772,6 +3782,14 @@ void call(client *c, int flags) {
      * If the client is blocked we will handle slowlog when it is unblocked. */
     if ((flags & CMD_CALL_SLOWLOG) && !(c->flags & CLIENT_BLOCKED))
         slowlogPushCurrentCommand(c, real_cmd, duration);
+
+    /* Send the command to clients in MONITOR mode if applicable.
+     * Administrative commands are considered too dangerous to be shown. */
+    if (!(c->cmd->flags & (CMD_SKIP_MONITOR|CMD_ADMIN))) {
+        robj **argv = c->original_argv ? c->original_argv : c->argv;
+        int argc = c->original_argv ? c->original_argc : c->argc;
+        replicationFeedMonitors(c,server.monitors,c->db->id,argv,argc);
+    }
 
     /* Clear the original argv.
      * If the client is blocked we will handle slowlog when it is unblocked. */

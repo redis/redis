@@ -75,28 +75,6 @@ typedef struct RedisModuleInfoCtx {
     int in_dict_field;  /* indication that we're currently appending to a dict */
 } RedisModuleInfoCtx;
 
-typedef void (*RedisModuleInfoFunc)(RedisModuleInfoCtx *ctx, int for_crash_report);
-typedef void (*RedisModuleDefragFunc)(struct RedisModuleDefragCtx *ctx);
-
-/* This structure represents a module inside the system. */
-struct RedisModule {
-    void *handle;   /* Module dlopen() handle. */
-    char *name;     /* Module name. */
-    int ver;        /* Module version. We use just progressive integers. */
-    int apiver;     /* Module API version as requested during initialization.*/
-    list *types;    /* Module data types. */
-    list *usedby;   /* List of modules using APIs from this one. */
-    list *using;    /* List of modules we use some APIs of. */
-    list *filters;  /* List of filters the module has registered. */
-    int in_call;    /* RM_Call() nesting level */
-    int in_hook;    /* Hooks callback nesting level for this module (0 or 1). */
-    int options;    /* Module options and capabilities. */
-    int blocked_clients;         /* Count of RedisModuleBlockedClient in this module. */
-    RedisModuleInfoFunc info_cb; /* Callback for module to add INFO fields. */
-    RedisModuleDefragFunc defrag_cb;    /* Callback for global data defrag. */
-};
-typedef struct RedisModule RedisModule;
-
 /* This represents a shared API. Shared APIs will be used to populate
  * the server.sharedapi dictionary, mapping names of APIs exported by
  * modules for other modules to use, to their structure specifying the
@@ -107,7 +85,7 @@ struct RedisModuleSharedAPI {
 };
 typedef struct RedisModuleSharedAPI RedisModuleSharedAPI;
 
-static dict *modules; /* Hash table of modules. SDS -> RedisModule ptr.*/
+dict *modules; /* Hash table of modules. SDS -> RedisModule ptr.*/
 
 /* Entries in the context->amqueue array, representing objects to free
  * when the callback returns. */
@@ -818,7 +796,7 @@ int64_t commandFlagsFromString(char *s) {
 }
 
 /* Register a new command in the Redis server, that will be handled by
- * calling the function pointer 'func' using the RedisModule calling
+ * calling the function pointer 'cmdfunc' using the RedisModule calling
  * convention. The function returns REDISMODULE_ERR if the specified command
  * name is already busy or a set of invalid flags were passed, otherwise
  * REDISMODULE_OK is returned and the new command is registered.
@@ -876,6 +854,21 @@ int64_t commandFlagsFromString(char *s) {
  *                     to authenticate a client. 
  * * **"may-replicate"**: This command may generate replication traffic, even
  *                        though it's not a write command.  
+ *
+ * The last three parameters specify which arguments of the new command are
+ * Redis keys. See https://redis.io/commands/command for more information.
+ *
+ * * 'firstkey': One-based index of the first argument that's a key.
+ *               Position 0 is always the command name itself.
+ *               0 for commands with no keys.
+ * * 'lastkey':  One-based index of the last argument that's a key.
+ *               Negative numbers refer to counting backwards from the last
+ *               argument (-1 means the last argument provided)
+ *               0 for commands with no keys.
+ * * 'keystep':  Step between first and last key indexes.
+ *               0 for commands with no keys.
+ *
+ * This information is used by ACL, Cluster and the 'COMMAND' command.
  */
 int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep) {
     int64_t flags = strflags ? commandFlagsFromString((char*)strflags) : 0;
@@ -935,7 +928,7 @@ void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int api
 
     if (ctx->module != NULL) return;
     module = zmalloc(sizeof(*module));
-    module->name = sdsnew((char*)name);
+    module->name = sdsnew(name);
     module->ver = ver;
     module->apiver = apiver;
     module->types = listCreate();
@@ -947,6 +940,7 @@ void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int api
     module->options = 0;
     module->info_cb = 0;
     module->defrag_cb = 0;
+    module->loadmod = NULL;
     ctx->module = module;
 }
 
@@ -6200,13 +6194,13 @@ int RM_GetClusterNodeInfo(RedisModuleCtx *ctx, const char *id, char *ip, char *m
  *
  * With the following effects:
  *
- * * NO_FAILOVER: prevent Redis Cluster slaves to failover a failing master.
+ * * NO_FAILOVER: prevent Redis Cluster slaves from failing over a dead master.
  *                Also disables the replica migration feature.
  *
  * * NO_REDIRECTION: Every node will accept any key, without trying to perform
- *                   partitioning according to the user Redis Cluster algorithm.
- *                   Slots informations will still be propagated across the
- *                   cluster, but without effects. */
+ *                   partitioning according to the Redis Cluster algorithm.
+ *                   Slots information will still be propagated across the
+ *                   cluster, but without effect. */
 void RM_SetClusterFlags(RedisModuleCtx *ctx, uint64_t flags) {
     UNUSED(ctx);
     if (flags & REDISMODULE_CLUSTER_FLAG_NO_FAILOVER)
@@ -8453,6 +8447,16 @@ void moduleInitModulesSystem(void) {
     pthread_mutex_lock(&moduleGIL);
 }
 
+void moduleLoadQueueEntryFree(struct moduleLoadQueueEntry *loadmod) {
+    if (!loadmod) return;
+    sdsfree(loadmod->path);
+    for (int i = 0; i < loadmod->argc; i++) {
+        decrRefCount(loadmod->argv[i]);
+    }
+    zfree(loadmod->argv);
+    zfree(loadmod);
+}
+
 /* Load all the modules in the server.loadmodule_queue list, which is
  * populated by `loadmodule` directives in the configuration file.
  * We can't load modules directly when processing the configuration file
@@ -8477,6 +8481,8 @@ void moduleLoadFromQueue(void) {
                 loadmod->path);
             exit(1);
         }
+        moduleLoadQueueEntryFree(loadmod);
+        listDelNode(server.loadmodule_queue, ln);
     }
 }
 
@@ -8486,6 +8492,7 @@ void moduleFreeModuleStructure(struct RedisModule *module) {
     listRelease(module->usedby);
     listRelease(module->using);
     sdsfree(module->name);
+    moduleLoadQueueEntryFree(module->loadmod);
     zfree(module);
 }
 
@@ -8559,6 +8566,15 @@ int moduleLoad(const char *path, void **module_argv, int module_argc) {
     dictAdd(modules,ctx.module->name,ctx.module);
     ctx.module->blocked_clients = 0;
     ctx.module->handle = handle;
+    ctx.module->loadmod = zmalloc(sizeof(struct moduleLoadQueueEntry));
+    ctx.module->loadmod->path = sdsnew(path);
+    ctx.module->loadmod->argv = module_argc ? zmalloc(sizeof(robj*)*module_argc) : NULL;
+    ctx.module->loadmod->argc = module_argc;
+    for (int i = 0; i < module_argc; i++) {
+        ctx.module->loadmod->argv[i] = module_argv[i];
+        incrRefCount(ctx.module->loadmod->argv[i]);
+    }
+
     serverLog(LL_NOTICE,"Module '%s' loaded from %s",ctx.module->name,path);
     /* Fire the loaded modules event. */
     moduleFireServerEvent(REDISMODULE_EVENT_MODULE_CHANGE,
@@ -8575,7 +8591,10 @@ int moduleLoad(const char *path, void **module_argv, int module_argc) {
  * to the following values depending on the type of error:
  *
  * * ENONET: No such module having the specified name.
- * * EBUSY: The module exports a new data type and can only be reloaded. */
+ * * EBUSY: The module exports a new data type and can only be reloaded. 
+ * * EPERM: The module exports APIs which are used by other module. 
+ * * EAGAIN: The module has blocked clients. 
+ * * ECANCELED: Unload module error.  */
 int moduleUnload(sds name) {
     struct RedisModule *module = dictFetchValue(modules,name);
 
@@ -8652,11 +8671,19 @@ void addReplyLoadedModules(client *c) {
     while ((de = dictNext(di)) != NULL) {
         sds name = dictGetKey(de);
         struct RedisModule *module = dictGetVal(de);
-        addReplyMapLen(c,2);
+        sds path = module->loadmod->path;
+        addReplyMapLen(c,4);
         addReplyBulkCString(c,"name");
         addReplyBulkCBuffer(c,name,sdslen(name));
         addReplyBulkCString(c,"ver");
         addReplyLongLong(c,module->ver);
+        addReplyBulkCString(c,"path");
+        addReplyBulkCBuffer(c,path,sdslen(path));
+        addReplyBulkCString(c,"args");
+        addReplyArrayLen(c,module->loadmod->argc);
+        for (int i = 0; i < module->loadmod->argc; i++) {
+            addReplyBulk(c,module->loadmod->argv[i]);
+        }
     }
     dictReleaseIterator(di);
 }
@@ -8998,6 +9025,14 @@ int *RM_GetCommandKeys(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, 
     return res;
 }
 
+/* Return the name of the command currently running */
+const char *RM_GetCurrentCommandName(RedisModuleCtx *ctx) {
+    if (!ctx || !ctx->client || !ctx->client->cmd)
+        return NULL;
+
+    return (const char*)ctx->client->cmd->name;
+}
+
 /* --------------------------------------------------------------------------
  * ## Defrag API
  * -------------------------------------------------------------------------- */
@@ -9197,6 +9232,7 @@ long moduleDefragGlobals(void) {
         module->defrag_cb(&defrag_ctx);
         defragged += defrag_ctx.defragged;
     }
+    dictReleaseIterator(di);
 
     return defragged;
 }
@@ -9458,6 +9494,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(GetServerVersion);
     REGISTER_API(GetClientCertificate);
     REGISTER_API(GetCommandKeys);
+    REGISTER_API(GetCurrentCommandName);
     REGISTER_API(GetTypeMethodVersion);
     REGISTER_API(RegisterDefragFunc);
     REGISTER_API(DefragAlloc);

@@ -365,7 +365,7 @@ long activeDefragSdsListAndDict(list *l, dict *d, int dict_val_type) {
         } else if (dict_val_type == DEFRAG_SDS_DICT_VAL_IS_STROB) {
             robj *newele, *ele = dictGetVal(de);
             if ((newele = activeDefragStringOb(ele, &defragged)))
-                de->v.val = newele, defragged++;
+                de->v.val = newele;
         } else if (dict_val_type == DEFRAG_SDS_DICT_VAL_VOID_PTR) {
             void *newptr, *ptr = dictGetVal(de);
             if ((newptr = activeDefragAlloc(ptr)))

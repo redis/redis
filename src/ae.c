@@ -400,9 +400,9 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
             eventLoop->aftersleep(eventLoop);
 
         for (j = 0; j < numevents; j++) {
-            aeFileEvent *fe = &eventLoop->events[eventLoop->fired[j].fd];
-            int mask = eventLoop->fired[j].mask;
             int fd = eventLoop->fired[j].fd;
+            aeFileEvent *fe = &eventLoop->events[fd];
+            int mask = eventLoop->fired[j].mask;
             int fired = 0; /* Number of events fired for current fd. */
 
             /* Normally we execute the readable event first, and the writable

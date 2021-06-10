@@ -279,7 +279,6 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
                                            and AOF client */
 #define CLIENT_REPL_RDBONLY (1ULL<<42) /* This client is a replica that only wants
                                           RDB without replication buffer. */
-#define CLIENT_PREVENT_LOGGING (1ULL<<43)  /* Prevent logging of command to slowlog */
 
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */
@@ -539,8 +538,10 @@ struct RedisModule;
 struct RedisModuleIO;
 struct RedisModuleDigest;
 struct RedisModuleCtx;
+struct moduleLoadQueueEntry;
 struct redisObject;
 struct RedisModuleDefragCtx;
+struct RedisModuleInfoCtx;
 
 /* Each module type implementation should export a set of methods in order
  * to serialize and deserialize the value in the RDB file, rewrite the AOF
@@ -558,6 +559,8 @@ typedef size_t (*moduleTypeFreeEffortFunc)(struct redisObject *key, const void *
 typedef void (*moduleTypeUnlinkFunc)(struct redisObject *key, void *value);
 typedef void *(*moduleTypeCopyFunc)(struct redisObject *fromkey, struct redisObject *tokey, const void *value);
 typedef int (*moduleTypeDefragFunc)(struct RedisModuleDefragCtx *ctx, struct redisObject *key, void **value);
+typedef void (*RedisModuleInfoFunc)(struct RedisModuleInfoCtx *ctx, int for_crash_report);
+typedef void (*RedisModuleDefragFunc)(struct RedisModuleDefragCtx *ctx);
 
 /* This callback type is called by moduleNotifyUserChanged() every time
  * a user authenticated via the module API is associated with a different
@@ -606,6 +609,26 @@ typedef struct moduleValue {
     moduleType *type;
     void *value;
 } moduleValue;
+
+/* This structure represents a module inside the system. */
+struct RedisModule {
+    void *handle;   /* Module dlopen() handle. */
+    char *name;     /* Module name. */
+    int ver;        /* Module version. We use just progressive integers. */
+    int apiver;     /* Module API version as requested during initialization.*/
+    list *types;    /* Module data types. */
+    list *usedby;   /* List of modules using APIs from this one. */
+    list *using;    /* List of modules we use some APIs of. */
+    list *filters;  /* List of filters the module has registered. */
+    int in_call;    /* RM_Call() nesting level */
+    int in_hook;    /* Hooks callback nesting level for this module (0 or 1). */
+    int options;    /* Module options and capabilities. */
+    int blocked_clients;         /* Count of RedisModuleBlockedClient in this module. */
+    RedisModuleInfoFunc info_cb; /* Callback for module to add INFO fields. */
+    RedisModuleDefragFunc defrag_cb;    /* Callback for global data defrag. */
+    struct moduleLoadQueueEntry *loadmod; /* Module load arguments for config rewrite. */
+};
+typedef struct RedisModule RedisModule;
 
 /* This is a wrapper for the 'rio' streams used inside rdb.c in Redis, so that
  * the user does not have to take the total count of the written bytes nor
@@ -947,6 +970,12 @@ typedef struct client {
     int      client_cron_last_memory_type;
     /* Response buffer */
     int bufpos;
+    size_t buf_usable_size; /* Usable size of buffer. */
+    /* Note that 'buf' must be the last field of client struct, because memory
+     * allocator may give us more memory than our apply for reducing fragments,
+     * but we want to make full use of given memory, i.e. we may access the
+     * memory after 'buf'. To avoid make others fields corrupt, 'buf' must be
+     * the last one. */
     char buf[PROTO_REPLY_CHUNK_BYTES];
 } client;
 
@@ -985,9 +1014,9 @@ struct sharedObjectsStruct {
     *rpop, *lpop, *lpush, *rpoplpush, *lmove, *blmove, *zpopmin, *zpopmax,
     *emptyscan, *multi, *exec, *left, *right, *hset, *srem, *xgroup, *xclaim,  
     *script, *replconf, *eval, *persist, *set, *pexpireat, *pexpire, 
-    *time, *pxat, *px, *retrycount, *force, *justid, 
+    *time, *pxat, *absttl, *retrycount, *force, *justid, 
     *lastid, *ping, *setid, *keepttl, *load, *createconsumer,
-    *getack, *special_asterick, *special_equals, *default_username,
+    *getack, *special_asterick, *special_equals, *default_username, *redacted,
     *select[PROTO_SHARED_SELECT_CMDS],
     *integers[OBJ_SHARED_INTEGERS],
     *mbulkhdr[OBJ_SHARED_BULKHDR_LEN], /* "*<value>\r\n" */
@@ -1434,6 +1463,7 @@ struct redisServer {
     int repl_ping_slave_period;     /* Master pings the slave every N seconds */
     char *repl_backlog;             /* Replication backlog for partial syncs */
     long long repl_backlog_size;    /* Backlog circular buffer size */
+    long long cfg_repl_backlog_size;/* Backlog circular buffer size in config */
     long long repl_backlog_histlen; /* Backlog actual data length */
     long long repl_backlog_idx;     /* Backlog circular buffer current offset,
                                        that is the next byte will'll write to.*/
@@ -1749,6 +1779,7 @@ extern dictType replScriptCacheDictType;
 extern dictType dbExpiresDictType;
 extern dictType modulesDictType;
 extern dictType sdsReplyDictType;
+extern dict *modules;
 
 /*-----------------------------------------------------------------------------
  * Functions prototypes
@@ -1806,7 +1837,6 @@ void redisSetCpuAffinity(const char *cpulist);
 
 /* networking.c -- Networking and Client related operations */
 client *createClient(connection *conn);
-void closeTimedoutClients(void);
 void freeClient(client *c);
 void freeClientAsync(client *c);
 void resetClient(client *c);
@@ -1820,7 +1850,6 @@ void setDeferredAttributeLen(client *c, void *node, long length);
 void setDeferredPushLen(client *c, void *node, long length);
 void processInputBuffer(client *c);
 void processGopherRequest(client *c);
-void acceptHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 void acceptTLSHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 void acceptUnixHandler(aeEventLoop *el, int fd, void *privdata, int mask);
@@ -1868,9 +1897,10 @@ sds getAllClientsInfoString(int type);
 void rewriteClientCommandVector(client *c, int argc, ...);
 void rewriteClientCommandArgument(client *c, int i, robj *newval);
 void replaceClientCommandVector(client *c, int argc, robj **argv);
+void redactClientCommandArgument(client *c, int argc);
 unsigned long getClientOutputBufferMemoryUsage(client *c);
 int freeClientsInAsyncFreeQueue(void);
-void asyncCloseClientOnOutputBufferLimitReached(client *c);
+int closeClientOnOutputBufferLimitReached(client *c, int async);
 int getClientType(client *c);
 int getClientTypeByName(char *name);
 char *getClientTypeName(int class);
@@ -1882,7 +1912,6 @@ void unpauseClients(void);
 int areClientsPaused(void);
 int checkClientPauseTimeoutAndReturnIfPaused(void);
 void processEventsWhileBlocked(void);
-void loadingCron(void);
 void whileBlockedCron();
 void blockingOperationStarts();
 void blockingOperationEnds();
@@ -2075,7 +2104,7 @@ int bg_unlink(const char *filename);
 
 /* AOF persistence */
 void flushAppendOnlyFile(int force);
-void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int argc);
+void feedAppendOnlyFile(int dictid, robj **argv, int argc);
 void aofRemoveTempFile(pid_t childpid);
 int rewriteAppendOnlyFileBackground(void);
 int loadAppendOnlyFile(char *filename);
@@ -2084,6 +2113,7 @@ int startAppendOnly(void);
 void backgroundRewriteDoneHandler(int exitcode, int bysignal);
 void aofRewriteBufferReset(void);
 unsigned long aofRewriteBufferSize(void);
+unsigned long aofRewriteBufferMemoryUsage(void);
 ssize_t aofReadDiffFromParent(void);
 void killAppendOnlyChild(void);
 void restartAOFAfterSYNC();
@@ -2218,7 +2248,6 @@ void redisOpArrayInit(redisOpArray *oa);
 void redisOpArrayFree(redisOpArray *oa);
 void forceCommandPropagation(client *c, int flags);
 void preventCommandPropagation(client *c);
-void preventCommandLogging(client *c);
 void preventCommandAOF(client *c);
 void preventCommandReplication(client *c);
 void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t duration);
@@ -2360,8 +2389,8 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async, void(callback
 void flushAllDataAndResetRDB(int flags);
 long long dbTotalServerKeyCount();
 dbBackup *backupDb(void);
-void restoreDbBackup(dbBackup *buckup);
-void discardDbBackup(dbBackup *buckup, int flags, void(callback)(void*));
+void restoreDbBackup(dbBackup *backup);
+void discardDbBackup(dbBackup *backup, int flags, void(callback)(void*));
 
 
 int selectDb(client *c, int id);
@@ -2380,6 +2409,7 @@ void emptyDbAsync(redisDb *db);
 void slotToKeyFlush(int async);
 size_t lazyfreeGetPendingObjectsCount(void);
 size_t lazyfreeGetFreedObjectsCount(void);
+void lazyfreeResetStats(void);
 void freeObjAsync(robj *key, robj *obj);
 void freeSlotsToKeysMapAsync(rax *rt);
 void freeSlotsToKeysMap(rax *rt, int async);
@@ -2569,6 +2599,8 @@ void getsetCommand(client *c);
 void ttlCommand(client *c);
 void touchCommand(client *c);
 void pttlCommand(client *c);
+void expiretimeCommand(client *c);
+void pexpiretimeCommand(client *c);
 void persistCommand(client *c);
 void replicaofCommand(client *c);
 void roleCommand(client *c);
@@ -2653,7 +2685,9 @@ void memoryCommand(client *c);
 void clientCommand(client *c);
 void helloCommand(client *c);
 void evalCommand(client *c);
+void evalRoCommand(client *c);
 void evalShaCommand(client *c);
+void evalShaRoCommand(client *c);
 void scriptCommand(client *c);
 void timeCommand(client *c);
 void bitopCommand(client *c);

@@ -1,4 +1,4 @@
-start_server {tags {"maxmemory"}} {
+start_server {tags {"maxmemory external:skip"}} {
     test "Without maxmemory small integers are shared" {
         r config set maxmemory 0
         r set a 1
@@ -144,7 +144,7 @@ start_server {tags {"maxmemory"}} {
 }
 
 proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} {
-    start_server {tags {"maxmemory"}} {
+    start_server {tags {"maxmemory external:skip"}} {
         start_server {} {
         set slave_pid [s process_id]
         test "$test_name" {
@@ -241,7 +241,7 @@ test_slave_buffers {slave buffer are counted correctly} 1000000 10 0 1
 # test again with fewer (and bigger) commands without pipeline, but with eviction
 test_slave_buffers "replica buffer don't induce eviction" 100000 100 1 0
 
-start_server {tags {"maxmemory"}} {
+start_server {tags {"maxmemory external:skip"}} {
     test {Don't rehash if used memory exceeds maxmemory after rehash} {
         r config set maxmemory 0
         r config set maxmemory-policy allkeys-random
@@ -261,7 +261,7 @@ start_server {tags {"maxmemory"}} {
     } {4098}
 }
 
-start_server {tags {"maxmemory"}} {
+start_server {tags {"maxmemory external:skip"}} {
     test {client tracking don't cause eviction feedback loop} {
         r config set maxmemory 0
         r config set maxmemory-policy allkeys-lru

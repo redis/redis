@@ -321,7 +321,7 @@ void queueLoadModule(sds path, sds *argv, int argc) {
     struct moduleLoadQueueEntry *loadmod;
 
     loadmod = zmalloc(sizeof(struct moduleLoadQueueEntry));
-    loadmod->argv = zmalloc(sizeof(robj*)*argc);
+    loadmod->argv = argc ? zmalloc(sizeof(robj*)*argc) : NULL;
     loadmod->path = sdsnew(path);
     loadmod->argc = argc;
     for (i = 0; i < argc; i++) {
@@ -732,7 +732,7 @@ void configSetCommand(client *c) {
             (config->alias && !strcasecmp(c->argv[2]->ptr,config->alias))))
         {
             if (config->flags & SENSITIVE_CONFIG) {
-                preventCommandLogging(c);
+                redactClientCommandArgument(c,3);
             }
             if (!config->interface.set(config->data,o->ptr,1,&errstr)) {
                 goto badfmt;
@@ -1548,6 +1548,27 @@ void rewriteConfigBindOption(struct rewriteConfigState *state) {
     rewriteConfigRewriteLine(state,option,line,force);
 }
 
+/* Rewrite the loadmodule option. */
+void rewriteConfigLoadmoduleOption(struct rewriteConfigState *state) {
+    sds line;
+
+    dictIterator *di = dictGetIterator(modules);
+    dictEntry *de;
+    while ((de = dictNext(di)) != NULL) {
+        struct RedisModule *module = dictGetVal(de);
+        line = sdsnew("loadmodule ");
+        line = sdscatsds(line, module->loadmod->path);
+        for (int i = 0; i < module->loadmod->argc; i++) {
+            line = sdscatlen(line, " ", 1);
+            line = sdscatsds(line, module->loadmod->argv[i]->ptr);
+        }
+        rewriteConfigRewriteLine(state,"loadmodule",line,1);
+    }
+    dictReleaseIterator(di);
+    /* Mark "loadmodule" as processed in case modules is empty. */
+    rewriteConfigMarkAsProcessed(state,"loadmodule");
+}
+
 /* Glue together the configuration lines in the current configuration
  * rewrite state into a single string, stripping multiple empty lines. */
 sds rewriteConfigGetContentFromState(struct rewriteConfigState *state) {
@@ -1708,6 +1729,7 @@ int rewriteConfig(char *path, int force_all) {
     rewriteConfigNotifykeyspaceeventsOption(state);
     rewriteConfigClientoutputbufferlimitOption(state);
     rewriteConfigOOMScoreAdjValuesOption(state);
+    rewriteConfigLoadmoduleOption(state);
 
     /* Rewrite Sentinel config if in Sentinel mode. */
     if (server.sentinel_mode) rewriteConfigSentinelOption(state);
@@ -2248,10 +2270,10 @@ static int updateJemallocBgThread(int val, int prev, const char **err) {
 }
 
 static int updateReplBacklogSize(long long val, long long prev, const char **err) {
-    /* resizeReplicationBacklog sets server.repl_backlog_size, and relies on
+    /* resizeReplicationBacklog sets server.cfg_repl_backlog_size, and relies on
      * being able to tell when the size changes, so restore prev before calling it. */
     UNUSED(err);
-    server.repl_backlog_size = prev;
+    server.cfg_repl_backlog_size = prev;
     resizeReplicationBacklog(val);
     return 1;
 }
@@ -2531,7 +2553,7 @@ standardConfig configs[] = {
     createLongLongConfig("latency-monitor-threshold", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.latency_monitor_threshold, 0, INTEGER_CONFIG, NULL, NULL),
     createLongLongConfig("proto-max-bulk-len", NULL, MODIFIABLE_CONFIG, 1024*1024, LONG_MAX, server.proto_max_bulk_len, 512ll*1024*1024, MEMORY_CONFIG, NULL, NULL), /* Bulk request max size */
     createLongLongConfig("stream-node-max-entries", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.stream_node_max_entries, 100, INTEGER_CONFIG, NULL, NULL),
-    createLongLongConfig("repl-backlog-size", NULL, MODIFIABLE_CONFIG, 1, LLONG_MAX, server.repl_backlog_size, 1024*1024, MEMORY_CONFIG, NULL, updateReplBacklogSize), /* Default: 1mb */
+    createLongLongConfig("repl-backlog-size", NULL, MODIFIABLE_CONFIG, 1, LLONG_MAX, server.cfg_repl_backlog_size, 1024*1024, MEMORY_CONFIG, NULL, updateReplBacklogSize), /* Default: 1mb */
 
     /* Unsigned Long Long configs */
     createULongLongConfig("maxmemory", NULL, MODIFIABLE_CONFIG, 0, ULLONG_MAX, server.maxmemory, 0, MEMORY_CONFIG, NULL, updateMaxmemory),

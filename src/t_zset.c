@@ -4070,6 +4070,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
             if (withscores)
                 addReplyDouble(c, zval.score);
         }
+        zuiClearIterator(&src);
         return;
     }
 
@@ -4137,6 +4138,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
             zarndmemberReplyWithZiplist(c, count, keys, vals);
             zfree(keys);
             zfree(vals);
+            zuiClearIterator(&src);
             return;
         }
 
@@ -4170,6 +4172,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
         /* Release memory */
         dictRelease(d);
     }
+    zuiClearIterator(&src);
 }
 
 /* ZRANDMEMBER [<count> WITHSCORES] */

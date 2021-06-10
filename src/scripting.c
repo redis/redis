@@ -603,6 +603,15 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
         goto cleanup;
     }
 
+    /* This check is for EVAL_RO, EVALSHA_RO. We want to allow only read only commands */
+    if ((server.lua_caller->cmd->proc == evalRoCommand ||
+         server.lua_caller->cmd->proc == evalShaRoCommand) &&
+         (cmd->flags & CMD_WRITE))
+    {
+        luaPushError(lua, "Write commands are not allowed from read-only scripts");
+        goto cleanup;
+    }
+
     /* Check the ACLs. */
     int acl_errpos;
     int acl_retval = ACLCheckAllPerm(c,&acl_errpos);
@@ -739,7 +748,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     /* Convert the result of the Redis command into a suitable Lua type.
      * The first thing we need is to create a single string from the client
      * output buffers. */
-    if (listLength(c->reply) == 0 && c->bufpos < PROTO_REPLY_CHUNK_BYTES) {
+    if (listLength(c->reply) == 0 && (size_t)c->bufpos < c->buf_usable_size) {
         /* This is a fast path for the common case of a reply inside the
          * client static buffer. Don't create an SDS string but just use
          * the client buffer directly. */
@@ -1690,13 +1699,23 @@ void evalGenericCommand(client *c, int evalsha) {
 }
 
 void evalCommand(client *c) {
+    /* Explicitly feed monitor here so that lua commands appear after their
+     * script command. */
+    replicationFeedMonitors(c,server.monitors,c->db->id,c->argv,c->argc);
     if (!(c->flags & CLIENT_LUA_DEBUG))
         evalGenericCommand(c,0);
     else
         evalGenericCommandWithDebugging(c,0);
 }
 
+void evalRoCommand(client *c) {
+    evalCommand(c);
+}
+
 void evalShaCommand(client *c) {
+    /* Explicitly feed monitor here so that lua commands appear after their
+     * script command. */
+    replicationFeedMonitors(c,server.monitors,c->db->id,c->argv,c->argc);
     if (sdslen(c->argv[1]->ptr) != 40) {
         /* We know that a match is not possible if the provided SHA is
          * not the right length. So we return an error ASAP, this way
@@ -1711,6 +1730,10 @@ void evalShaCommand(client *c) {
         addReplyError(c,"Please use EVAL instead of EVALSHA for debugging");
         return;
     }
+}
+
+void evalShaRoCommand(client *c) {
+    evalShaCommand(c);
 }
 
 void scriptCommand(client *c) {

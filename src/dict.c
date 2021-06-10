@@ -381,7 +381,7 @@ dictEntry *dictAddOrFind(dict *d, void *key) {
     return entry ? entry : existing;
 }
 
-/* Search and remove an element. This is an helper function for
+/* Search and remove an element. This is a helper function for
  * dictDelete() and dictUnlink(), please check the top comment
  * of those functions. */
 static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
@@ -389,7 +389,8 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
     dictEntry *he, *prevHe;
     int table;
 
-    if (d->ht[0].used == 0 && d->ht[1].used == 0) return NULL;
+    /* dict is empty */
+    if (dictSize(d) == 0) return NULL;
 
     if (dictIsRehashing(d)) _dictRehashStep(d);
     h = dictHashKey(d, key);
@@ -406,9 +407,7 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
                 else
                     d->ht[table].table[idx] = he->next;
                 if (!nofree) {
-                    dictFreeKey(d, he);
-                    dictFreeVal(d, he);
-                    zfree(he);
+                    dictFreeUnlinkedEntry(d, he);
                 }
                 d->ht[table].used--;
                 return he;

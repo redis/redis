@@ -1892,10 +1892,6 @@ void addACLLogEntry(client *c, int reason, int argpos, sds username) {
 void aclCommand(client *c) {
     char *sub = c->argv[1]->ptr;
     if (!strcasecmp(sub,"setuser") && c->argc >= 3) {
-        /* Consider information about passwords or permissions
-         * to be sensitive, which will be the arguments for this
-         * subcommand. */
-        preventCommandLogging(c); 
         sds username = c->argv[2]->ptr;
         /* Check username validity. */
         if (ACLStringHasSpaces(username,sdslen(username))) {
@@ -1911,6 +1907,12 @@ void aclCommand(client *c) {
         user *tempu = ACLCreateUnlinkedUser();
         user *u = ACLGetUserByName(username,sdslen(username));
         if (u) ACLCopyUser(tempu, u);
+
+        /* Initially redact all of the arguments to not leak any information
+         * about the user. */
+        for (int j = 2; j < c->argc; j++) {
+            redactClientCommandArgument(c, j);
+        }
 
         for (int j = 3; j < c->argc; j++) {
             if (ACLSetUser(tempu,c->argv[j]->ptr,sdslen(c->argv[j]->ptr)) != C_OK) {
@@ -2245,6 +2247,8 @@ void authCommand(client *c) {
         addReplyErrorObject(c,shared.syntaxerr);
         return;
     }
+    /* Always redact the second argument */
+    redactClientCommandArgument(c, 1);
 
     /* Handle the two different forms here. The form with two arguments
      * will just use "default" as username. */
@@ -2264,6 +2268,7 @@ void authCommand(client *c) {
     } else {
         username = c->argv[1];
         password = c->argv[2];
+        redactClientCommandArgument(c, 2);
     }
 
     if (ACLAuthenticateUser(c,username,password) == C_OK) {

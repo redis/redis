@@ -44,7 +44,7 @@ def argument arg
 end
 
 def arguments command
-  return "-" unless command["arguments"]
+  return "" unless command["arguments"]
   command["arguments"].map do |arg|
     argument arg
   end.join " "

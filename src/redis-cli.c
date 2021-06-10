@@ -207,7 +207,8 @@ static struct config {
     cliSSLconfig sslconfig;
     long repeat;
     long interval;
-    int dbnum;
+    int dbnum; /* db num currently selected */
+    int input_dbnum; /* db num user input */
     int interactive;
     int shutdown;
     int monitor_mode;
@@ -445,7 +446,7 @@ static void parseRedisUri(const char *uri) {
     if (curr == end) return;
 
     /* Extract database number. */
-    config.dbnum = atoi(curr);
+    config.input_dbnum = atoi(curr);
 }
 
 static uint64_t dictSdsHash(const void *key) {
@@ -656,7 +657,7 @@ static void cliOutputHelp(int argc, char **argv) {
         help = entry->org;
         if (group == -1) {
             /* Compare all arguments */
-            if (argc == entry->argc) {
+            if (argc <= entry->argc) {
                 for (j = 0; j < argc; j++) {
                     if (strcasecmp(argv[j],entry->argv[j]) != 0) break;
                 }
@@ -706,9 +707,10 @@ static void completionCallback(const char *buf, linenoiseCompletions *lc) {
 static char *hintsCallback(const char *buf, int *color, int *bold) {
     if (!pref.hints) return NULL;
 
-    int i, argc, buflen = strlen(buf);
-    sds *argv = sdssplitargs(buf,&argc);
+    int i, rawargc, argc, buflen = strlen(buf), matchlen = 0;
+    sds *rawargv, *argv = sdssplitargs(buf,&argc);
     int endspace = buflen && isspace(buf[buflen-1]);
+    helpEntry *entry = NULL;
 
     /* Check if the argument list is empty and return ASAP. */
     if (argc == 0) {
@@ -716,38 +718,51 @@ static char *hintsCallback(const char *buf, int *color, int *bold) {
         return NULL;
     }
 
+    /* Search longest matching prefix command */
     for (i = 0; i < helpEntriesLen; i++) {
         if (!(helpEntries[i].type & CLI_HELP_COMMAND)) continue;
 
-        if (strcasecmp(argv[0],helpEntries[i].full) == 0 ||
-            strcasecmp(buf,helpEntries[i].full) == 0)
-        {
-            *color = 90;
-            *bold = 0;
-            sds hint = sdsnew(helpEntries[i].org->params);
-
-            /* Remove arguments from the returned hint to show only the
-             * ones the user did not yet typed. */
-            int toremove = argc-1;
-            while(toremove > 0 && sdslen(hint)) {
-                if (hint[0] == '[') break;
-                if (hint[0] == ' ') toremove--;
-                sdsrange(hint,1,-1);
+        rawargv = sdssplitargs(helpEntries[i].full,&rawargc);
+        if (rawargc <= argc) {
+            int j;
+            for (j = 0; j < rawargc; j++) {
+                if (strcasecmp(rawargv[j],argv[j])) {
+                    break;
+                }
             }
-
-            /* Add an initial space if needed. */
-            if (!endspace) {
-                sds newhint = sdsnewlen(" ",1);
-                newhint = sdscatsds(newhint,hint);
-                sdsfree(hint);
-                hint = newhint;
+            if (j == rawargc && rawargc > matchlen) {
+                matchlen = rawargc;
+                entry = &helpEntries[i];
             }
-
-            sdsfreesplitres(argv,argc);
-            return hint;
         }
+        sdsfreesplitres(rawargv,rawargc);
     }
     sdsfreesplitres(argv,argc);
+
+    if (entry) {
+        *color = 90;
+        *bold = 0;
+        sds hint = sdsnew(entry->org->params);
+
+        /* Remove arguments from the returned hint to show only the
+            * ones the user did not yet type. */
+        int toremove = argc-matchlen;
+        while(toremove > 0 && sdslen(hint)) {
+            if (hint[0] == '[') break;
+            if (hint[0] == ' ') toremove--;
+            sdsrange(hint,1,-1);
+        }
+
+        /* Add an initial space if needed. */
+        if (!endspace) {
+            sds newhint = sdsnewlen(" ",1);
+            newhint = sdscatsds(newhint,hint);
+            sdsfree(hint);
+            hint = newhint;
+        }
+
+        return hint;
+    }
     return NULL;
 }
 
@@ -785,28 +800,42 @@ static int cliAuth(redisContext *ctx, char *user, char *auth) {
         reply = redisCommand(ctx,"AUTH %s",auth);
     else
         reply = redisCommand(ctx,"AUTH %s %s",user,auth);
-    if (reply != NULL) {
-        if (reply->type == REDIS_REPLY_ERROR)
-            fprintf(stderr,"Warning: AUTH failed\n");
-        freeReplyObject(reply);
-        return REDIS_OK;
+
+    if (reply == NULL) {
+        fprintf(stderr, "\nI/O error\n");
+        return REDIS_ERR;
     }
-    return REDIS_ERR;
+
+    int result = REDIS_OK;
+    if (reply->type == REDIS_REPLY_ERROR) {
+        result = REDIS_ERR;
+        fprintf(stderr, "AUTH failed: %s\n", reply->str);
+    }
+    freeReplyObject(reply);
+    return result;
 }
 
-/* Send SELECT dbnum to the server */
+/* Send SELECT input_dbnum to the server */
 static int cliSelect(void) {
     redisReply *reply;
-    if (config.dbnum == 0) return REDIS_OK;
+    if (config.input_dbnum == config.dbnum) return REDIS_OK;
 
-    reply = redisCommand(context,"SELECT %d",config.dbnum);
-    if (reply != NULL) {
-        int result = REDIS_OK;
-        if (reply->type == REDIS_REPLY_ERROR) result = REDIS_ERR;
-        freeReplyObject(reply);
-        return result;
+    reply = redisCommand(context,"SELECT %d",config.input_dbnum);
+    if (reply == NULL) {
+        fprintf(stderr, "\nI/O error\n");
+        return REDIS_ERR;
     }
-    return REDIS_ERR;
+
+    int result = REDIS_OK;
+    if (reply->type == REDIS_REPLY_ERROR) {
+        result = REDIS_ERR;
+        fprintf(stderr,"SELECT %d failed: %s\n",config.input_dbnum,reply->str);
+    } else {
+        config.dbnum = config.input_dbnum;
+        cliRefreshPrompt();
+    }
+    freeReplyObject(reply);
+    return result;
 }
 
 /* Select RESP3 mode if redis-cli was started with the -3 option.  */
@@ -815,13 +844,18 @@ static int cliSwitchProto(void) {
     if (config.resp3 == 0) return REDIS_OK;
 
     reply = redisCommand(context,"HELLO 3");
-    if (reply != NULL) {
-        int result = REDIS_OK;
-        if (reply->type == REDIS_REPLY_ERROR) result = REDIS_ERR;
-        freeReplyObject(reply);
-        return result;
+    if (reply == NULL) {
+        fprintf(stderr, "\nI/O error\n");
+        return REDIS_ERR;
     }
-    return REDIS_ERR;
+
+    int result = REDIS_OK;
+    if (reply->type == REDIS_REPLY_ERROR) {
+        result = REDIS_ERR;
+        fprintf(stderr,"HELLO 3 failed: %s\n",reply->str);
+    }
+    freeReplyObject(reply);
+    return result;
 }
 
 /* Connect to the server. It is possible to pass certain flags to the function:
@@ -858,12 +892,15 @@ static int cliConnect(int flags) {
         if (context->err) {
             if (!(flags & CC_QUIET)) {
                 fprintf(stderr,"Could not connect to Redis at ");
-                if (config.hostsocket == NULL)
-                    fprintf(stderr,"%s:%d: %s\n",
+                if (config.hostsocket == NULL ||
+                    (config.cluster_mode && config.cluster_reissue_command))
+                {
+                    fprintf(stderr, "%s:%d: %s\n",
                         config.hostip,config.hostport,context->errstr);
-                else
+                } else {
                     fprintf(stderr,"%s: %s\n",
                         config.hostsocket,context->errstr);
+                }
             }
             redisFree(context);
             context = NULL;
@@ -1398,6 +1435,7 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
 
             while (config.pubsub_mode) {
                 if (cliReadReply(output_raw) != REDIS_OK) exit(1);
+                fflush(stdout); /* Make it grep friendly */
                 if (config.last_cmd_type == REDIS_REPLY_ERROR) {
                     if (config.push_output) {
                         redisSetPushCallback(context, cliPushHandler);
@@ -1424,7 +1462,7 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
             if (!strcasecmp(command,"select") && argc == 2 && 
                 config.last_cmd_type != REDIS_REPLY_ERROR) 
             {
-                config.dbnum = atoi(argv[1]);
+                config.input_dbnum = config.dbnum = atoi(argv[1]);
                 cliRefreshPrompt();
             } else if (!strcasecmp(command,"auth") && (argc == 2 || argc == 3)) {
                 cliSelect();
@@ -1436,21 +1474,23 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
                 cliRefreshPrompt();
             } else if (!strcasecmp(command,"exec") && argc == 1 && config.in_multi) {
                 config.in_multi = 0;
-                if (config.last_cmd_type == REDIS_REPLY_ERROR) {
-                    config.dbnum = config.pre_multi_dbnum;
+                if (config.last_cmd_type == REDIS_REPLY_ERROR ||
+                    config.last_cmd_type == REDIS_REPLY_NIL)
+                {
+                    config.input_dbnum = config.dbnum = config.pre_multi_dbnum;
                 }
                 cliRefreshPrompt();
             } else if (!strcasecmp(command,"discard") && argc == 1 && 
                 config.last_cmd_type != REDIS_REPLY_ERROR) 
             {
                 config.in_multi = 0;
-                config.dbnum = config.pre_multi_dbnum;
+                config.input_dbnum = config.dbnum = config.pre_multi_dbnum;
                 cliRefreshPrompt();
             } 
         }
         if (config.cluster_reissue_command){
             /* If we need to reissue the command, break to prevent a
-               further 'repeat' number of dud interations */
+               further 'repeat' number of dud interactions */
             break;
         }
         if (config.interval) usleep(config.interval);
@@ -1531,7 +1571,7 @@ static int parseOptions(int argc, char **argv) {
             double seconds = atof(argv[++i]);
             config.interval = seconds*1000000;
         } else if (!strcmp(argv[i],"-n") && !lastarg) {
-            config.dbnum = atoi(argv[++i]);
+            config.input_dbnum = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--no-auth-warning")) {
             config.no_auth_warning = 1;
         } else if (!strcmp(argv[i], "--askpass")) {
@@ -1996,9 +2036,12 @@ static int issueCommandRepeat(int argc, char **argv, long repeat) {
                 return REDIS_ERR;
             }
         }
+
         /* Issue the command again if we got redirected in cluster mode */
         if (config.cluster_mode && config.cluster_reissue_command) {
-            cliConnect(CC_FORCE);
+            /* If cliConnect fails, sleep for a while and try again. */
+            if (cliConnect(CC_FORCE) != REDIS_OK)
+                sleep(1);
         } else {
             break;
         }
@@ -2072,6 +2115,58 @@ void cliLoadPreferences(void) {
     sdsfree(rcfile);
 }
 
+/* Some commands can include sensitive information and shouldn't be put in the
+ * history file. Currently these commands are include:
+ * - AUTH
+ * - ACL SETUSER
+ * - CONFIG SET masterauth/masteruser/requirepass
+ * - HELLO with [AUTH username password]
+ * - MIGRATE with [AUTH password] or [AUTH2 username password] */
+static int isSensitiveCommand(int argc, char **argv) {
+    if (!strcasecmp(argv[0],"auth")) {
+        return 1;
+    } else if (argc > 1 &&
+        !strcasecmp(argv[0],"acl") &&
+        !strcasecmp(argv[1],"setuser"))
+    {
+        return 1;
+    } else if (argc > 2 &&
+        !strcasecmp(argv[0],"config") &&
+        !strcasecmp(argv[1],"set") && (
+            !strcasecmp(argv[2],"masterauth") ||
+            !strcasecmp(argv[2],"masteruser") ||
+            !strcasecmp(argv[2],"requirepass")))
+    {
+        return 1;
+    /* HELLO [protover [AUTH username password] [SETNAME clientname]] */
+    } else if (argc > 4 && !strcasecmp(argv[0],"hello")) {
+        for (int j = 2; j < argc; j++) {
+            int moreargs = argc - 1 - j;
+            if (!strcasecmp(argv[j],"AUTH") && moreargs >= 2) {
+                return 1;
+            } else if (!strcasecmp(argv[j],"SETNAME") && moreargs) {
+                j++;
+            } else {
+                return 0;
+            }
+        }
+    /* MIGRATE host port key|"" destination-db timeout [COPY] [REPLACE]
+     * [AUTH password] [AUTH2 username password] [KEYS key [key ...]] */
+    } else if (argc > 7 && !strcasecmp(argv[0], "migrate")) {
+        for (int j = 6; j < argc; j++) {
+            int moreargs = argc - 1 - j;
+            if (!strcasecmp(argv[j],"auth") && moreargs) {
+                return 1;
+            } else if (!strcasecmp(argv[j],"auth2") && moreargs >= 2) {
+                return 1;
+            } else if (!strcasecmp(argv[j],"keys") && moreargs) {
+                return 0;
+            }
+        }
+    }
+    return 0;
+}
+
 static void repl(void) {
     sds historyfile = NULL;
     int history = 0;
@@ -2109,97 +2204,87 @@ static void repl(void) {
             char *endptr = NULL;
 
             argv = cliSplitArgs(line,&argc);
+            if (argv == NULL) {
+                printf("Invalid argument(s)\n");
+                fflush(stdout);
+                if (history) linenoiseHistoryAdd(line);
+                if (historyfile) linenoiseHistorySave(historyfile);
+                linenoiseFree(line);
+                continue;
+            } else if (argc == 0) {
+                sdsfreesplitres(argv,argc);
+                linenoiseFree(line);
+                continue;
+            }
 
             /* check if we have a repeat command option and
              * need to skip the first arg */
-            if (argv && argc > 0) {
-                errno = 0;
-                repeat = strtol(argv[0], &endptr, 10);
-                if (argc > 1 && *endptr == '\0') {
-                    if (errno == ERANGE || errno == EINVAL || repeat <= 0) {
-                        fputs("Invalid redis-cli repeat command option value.\n", stdout);
-                        sdsfreesplitres(argv, argc);
-                        linenoiseFree(line);
-                        continue;
-                    }
-                    skipargs = 1;
-                } else {
-                    repeat = 1;
+            errno = 0;
+            repeat = strtol(argv[0], &endptr, 10);
+            if (argc > 1 && *endptr == '\0') {
+                if (errno == ERANGE || errno == EINVAL || repeat <= 0) {
+                    fputs("Invalid redis-cli repeat command option value.\n", stdout);
+                    sdsfreesplitres(argv, argc);
+                    linenoiseFree(line);
+                    continue;
                 }
+                skipargs = 1;
+            } else {
+                repeat = 1;
             }
 
-            /* Won't save auth or acl setuser commands in history file */
-            int dangerous = 0;
-            if (argv && argc > 0) {
-                if (!strcasecmp(argv[skipargs], "auth")) {
-                    dangerous = 1;
-                } else if (skipargs+1 < argc &&
-                           !strcasecmp(argv[skipargs], "acl") &&
-                           !strcasecmp(argv[skipargs+1], "setuser"))
-                {
-                    dangerous = 1;
-                }
-            }
-
-            if (!dangerous) {
+            if (!isSensitiveCommand(argc - skipargs, argv + skipargs)) {
                 if (history) linenoiseHistoryAdd(line);
                 if (historyfile) linenoiseHistorySave(historyfile);
             }
 
-            if (argv == NULL) {
-                printf("Invalid argument(s)\n");
-                fflush(stdout);
+            if (strcasecmp(argv[0],"quit") == 0 ||
+                strcasecmp(argv[0],"exit") == 0)
+            {
+                exit(0);
+            } else if (argv[0][0] == ':') {
+                cliSetPreferences(argv,argc,1);
+                sdsfreesplitres(argv,argc);
                 linenoiseFree(line);
                 continue;
-            } else if (argc > 0) {
-                if (strcasecmp(argv[0],"quit") == 0 ||
-                    strcasecmp(argv[0],"exit") == 0)
-                {
-                    exit(0);
-                } else if (argv[0][0] == ':') {
-                    cliSetPreferences(argv,argc,1);
+            } else if (strcasecmp(argv[0],"restart") == 0) {
+                if (config.eval) {
+                    config.eval_ldb = 1;
+                    config.output = OUTPUT_RAW;
                     sdsfreesplitres(argv,argc);
                     linenoiseFree(line);
-                    continue;
-                } else if (strcasecmp(argv[0],"restart") == 0) {
-                    if (config.eval) {
-                        config.eval_ldb = 1;
-                        config.output = OUTPUT_RAW;
-                        sdsfreesplitres(argv,argc);
-                        linenoiseFree(line);
-                        return; /* Return to evalMode to restart the session. */
-                    } else {
-                        printf("Use 'restart' only in Lua debugging mode.");
-                    }
-                } else if (argc == 3 && !strcasecmp(argv[0],"connect")) {
-                    sdsfree(config.hostip);
-                    config.hostip = sdsnew(argv[1]);
-                    config.hostport = atoi(argv[2]);
-                    cliRefreshPrompt();
-                    cliConnect(CC_FORCE);
-                } else if (argc == 1 && !strcasecmp(argv[0],"clear")) {
-                    linenoiseClearScreen();
+                    return; /* Return to evalMode to restart the session. */
                 } else {
-                    long long start_time = mstime(), elapsed;
+                    printf("Use 'restart' only in Lua debugging mode.");
+                }
+            } else if (argc == 3 && !strcasecmp(argv[0],"connect")) {
+                sdsfree(config.hostip);
+                config.hostip = sdsnew(argv[1]);
+                config.hostport = atoi(argv[2]);
+                cliRefreshPrompt();
+                cliConnect(CC_FORCE);
+            } else if (argc == 1 && !strcasecmp(argv[0],"clear")) {
+                linenoiseClearScreen();
+            } else {
+                long long start_time = mstime(), elapsed;
 
-                    issueCommandRepeat(argc-skipargs, argv+skipargs, repeat);
+                issueCommandRepeat(argc-skipargs, argv+skipargs, repeat);
 
-                    /* If our debugging session ended, show the EVAL final
-                     * reply. */
-                    if (config.eval_ldb_end) {
-                        config.eval_ldb_end = 0;
-                        cliReadReply(0);
-                        printf("\n(Lua debugging session ended%s)\n\n",
-                            config.eval_ldb_sync ? "" :
-                            " -- dataset changes rolled back");
-                    }
+                /* If our debugging session ended, show the EVAL final
+                    * reply. */
+                if (config.eval_ldb_end) {
+                    config.eval_ldb_end = 0;
+                    cliReadReply(0);
+                    printf("\n(Lua debugging session ended%s)\n\n",
+                        config.eval_ldb_sync ? "" :
+                        " -- dataset changes rolled back");
+                }
 
-                    elapsed = mstime()-start_time;
-                    if (elapsed >= 500 &&
-                        config.output == OUTPUT_STANDARD)
-                    {
-                        printf("(%.2fs)\n",(double)elapsed/1000);
-                    }
+                elapsed = mstime()-start_time;
+                if (elapsed >= 500 &&
+                    config.output == OUTPUT_STANDARD)
+                {
+                    printf("(%.2fs)\n",(double)elapsed/1000);
                 }
             }
             /* Free the argument vector */
@@ -2414,7 +2499,7 @@ static void clusterManagerPrintNotClusterNodeError(clusterManagerNode *node,
                                                    char *err);
 static int clusterManagerNodeLoadInfo(clusterManagerNode *node, int opts,
                                       char **err);
-static int clusterManagerLoadInfoFromNode(clusterManagerNode *node, int opts);
+static int clusterManagerLoadInfoFromNode(clusterManagerNode *node);
 static int clusterManagerNodeIsEmpty(clusterManagerNode *node, char **err);
 static int clusterManagerGetAntiAffinityScore(clusterManagerNodeArray *ipnodes,
     int ip_count, clusterManagerNode ***offending, int *offending_len);
@@ -3340,7 +3425,7 @@ static int clusterManagerAddSlots(clusterManagerNode *node, char**err)
             argv_idx++;
         }
     }
-    if (!argv_idx) {
+    if (argv_idx == 2) {
         success = 0;
         goto cleanup;
     }
@@ -4176,12 +4261,11 @@ cleanup:
  * point. All nodes will be loaded inside the cluster_manager.nodes list.
  * Warning: if something goes wrong, it will free the starting node before
  * returning 0. */
-static int clusterManagerLoadInfoFromNode(clusterManagerNode *node, int opts) {
+static int clusterManagerLoadInfoFromNode(clusterManagerNode *node) {
     if (node->context == NULL && !clusterManagerNodeConnect(node)) {
         freeClusterManagerNode(node);
         return 0;
     }
-    opts |= CLUSTER_MANAGER_OPT_GETFRIENDS;
     char *e = NULL;
     if (!clusterManagerNodeIsCluster(node, &e)) {
         clusterManagerPrintNotClusterNodeError(node, e);
@@ -4190,7 +4274,7 @@ static int clusterManagerLoadInfoFromNode(clusterManagerNode *node, int opts) {
         return 0;
     }
     e = NULL;
-    if (!clusterManagerNodeLoadInfo(node, opts, &e)) {
+    if (!clusterManagerNodeLoadInfo(node, CLUSTER_MANAGER_OPT_GETFRIENDS, &e)) {
         if (e) {
             CLUSTER_MANAGER_PRINT_REPLY_ERROR(node, e);
             zfree(e);
@@ -4906,7 +4990,7 @@ static int clusterManagerFixOpenSlot(int slot) {
                                       "in node %s:%d!\n", slot, n->ip,
                                       n->port);
                 char *sep = (listLength(importing) == 0 ? "" : ",");
-                importing_str = sdscatfmt(importing_str, "%s%S:%u",
+                importing_str = sdscatfmt(importing_str, "%s%s:%u",
                                           sep, n->ip, n->port);
                 listAddNodeTail(importing, n);
             }
@@ -4944,11 +5028,6 @@ static int clusterManagerFixOpenSlot(int slot) {
         /* Since CLUSTER ADDSLOTS succeeded, we also update the slot
          * info into the node struct, in order to keep it synced */
         owner->slots[slot] = 1;
-        /* Make sure this information will propagate. Not strictly needed
-         * since there is no past owner, so all the other nodes will accept
-         * whatever epoch this node will claim the slot with. */
-        success = clusterManagerBumpEpoch(owner);
-        if (!success) goto cleanup;
         /* Remove the owner from the list of migrating/importing
          * nodes. */
         clusterManagerRemoveNodeFromList(migrating, owner);
@@ -5476,7 +5555,7 @@ static void clusterManagerNodeArrayReset(clusterManagerNodeArray *array) {
 static void clusterManagerNodeArrayShift(clusterManagerNodeArray *array,
                                          clusterManagerNode **nodeptr)
 {
-    assert(array->nodes < (array->nodes + array->len));
+    assert(array->len > 0);
     /* If the first node to be shifted is not NULL, decrement count. */
     if (*array->nodes != NULL) array->count--;
     /* Store the first node to be shifted into 'nodeptr'. */
@@ -5489,7 +5568,7 @@ static void clusterManagerNodeArrayShift(clusterManagerNodeArray *array,
 static void clusterManagerNodeArrayAdd(clusterManagerNodeArray *array,
                                        clusterManagerNode *node)
 {
-    assert(array->nodes < (array->nodes + array->len));
+    assert(array->len > 0);
     assert(node != NULL);
     assert(array->count < array->len);
     array->nodes[array->count++] = node;
@@ -5676,7 +5755,7 @@ assign_replicas:
             if (found) slave = found;
             else if (firstNodeIdx >= 0) {
                 slave = interleaved[firstNodeIdx];
-                interleaved_len -= (interleaved - (interleaved + firstNodeIdx));
+                interleaved_len -= (firstNodeIdx + 1);
                 interleaved += (firstNodeIdx + 1);
             }
             if (slave != NULL) {
@@ -5788,7 +5867,7 @@ assign_replicas:
             else freeClusterManagerNode(node);
         }
         listEmpty(cluster_manager.nodes);
-        if (!clusterManagerLoadInfoFromNode(first_node, 0)) {
+        if (!clusterManagerLoadInfoFromNode(first_node)) {
             success = 0;
             goto cleanup;
         }
@@ -5819,7 +5898,7 @@ static int clusterManagerCommandAddNode(int argc, char **argv) {
                           ref_ip, ref_port);
     // Check the existing cluster
     clusterManagerNode *refnode = clusterManagerNewNode(ref_ip, ref_port);
-    if (!clusterManagerLoadInfoFromNode(refnode, 0)) return 0;
+    if (!clusterManagerLoadInfoFromNode(refnode)) return 0;
     if (!clusterManagerCheckCluster(0)) return 0;
 
     /* If --cluster-master-id was specified, try to resolve it now so that we
@@ -5916,7 +5995,7 @@ static int clusterManagerCommandDeleteNode(int argc, char **argv) {
     clusterManagerNode *node = NULL;
 
     // Load cluster information
-    if (!clusterManagerLoadInfoFromNode(ref_node, 0)) return 0;
+    if (!clusterManagerLoadInfoFromNode(ref_node)) return 0;
 
     // Check if the node exists and is not empty
     node = clusterManagerNodeByName(node_id);
@@ -5975,7 +6054,7 @@ static int clusterManagerCommandInfo(int argc, char **argv) {
     char *ip = NULL;
     if (!getClusterHostFromCmdArgs(argc, argv, &ip, &port)) goto invalid_args;
     clusterManagerNode *node = clusterManagerNewNode(ip, port);
-    if (!clusterManagerLoadInfoFromNode(node, 0)) return 0;
+    if (!clusterManagerLoadInfoFromNode(node)) return 0;
     clusterManagerShowClusterInfo();
     return 1;
 invalid_args:
@@ -5988,7 +6067,7 @@ static int clusterManagerCommandCheck(int argc, char **argv) {
     char *ip = NULL;
     if (!getClusterHostFromCmdArgs(argc, argv, &ip, &port)) goto invalid_args;
     clusterManagerNode *node = clusterManagerNewNode(ip, port);
-    if (!clusterManagerLoadInfoFromNode(node, 0)) return 0;
+    if (!clusterManagerLoadInfoFromNode(node)) return 0;
     clusterManagerShowClusterInfo();
     return clusterManagerCheckCluster(0);
 invalid_args:
@@ -6006,7 +6085,7 @@ static int clusterManagerCommandReshard(int argc, char **argv) {
     char *ip = NULL;
     if (!getClusterHostFromCmdArgs(argc, argv, &ip, &port)) goto invalid_args;
     clusterManagerNode *node = clusterManagerNewNode(ip, port);
-    if (!clusterManagerLoadInfoFromNode(node, 0)) return 0;
+    if (!clusterManagerLoadInfoFromNode(node)) return 0;
     clusterManagerCheckCluster(0);
     if (cluster_manager.errors && listLength(cluster_manager.errors) > 0) {
         fflush(stdout);
@@ -6195,7 +6274,7 @@ static int clusterManagerCommandRebalance(int argc, char **argv) {
     list *involved = NULL;
     if (!getClusterHostFromCmdArgs(argc, argv, &ip, &port)) goto invalid_args;
     clusterManagerNode *node = clusterManagerNewNode(ip, port);
-    if (!clusterManagerLoadInfoFromNode(node, 0)) return 0;
+    if (!clusterManagerLoadInfoFromNode(node)) return 0;
     int result = 1, i;
     if (config.cluster_manager_command.weight != NULL) {
         for (i = 0; i < config.cluster_manager_command.weight_argc; i++) {
@@ -6390,7 +6469,7 @@ static int clusterManagerCommandSetTimeout(int argc, char **argv) {
     }
     // Load cluster information
     clusterManagerNode *node = clusterManagerNewNode(ip, port);
-    if (!clusterManagerLoadInfoFromNode(node, 0)) return 0;
+    if (!clusterManagerLoadInfoFromNode(node)) return 0;
     int ok_count = 0, err_count = 0;
 
     clusterManagerLogInfo(">>> Reconfiguring node timeout in every "
@@ -6460,7 +6539,7 @@ static int clusterManagerCommandImport(int argc, char **argv) {
                           src_ip, src_port, ip, port);
 
     clusterManagerNode *refnode = clusterManagerNewNode(ip, port);
-    if (!clusterManagerLoadInfoFromNode(refnode, 0)) return 0;
+    if (!clusterManagerLoadInfoFromNode(refnode)) return 0;
     if (!clusterManagerCheckCluster(0)) return 0;
     char *reply_err = NULL;
     redisReply *src_reply = NULL;
@@ -6529,9 +6608,9 @@ static int clusterManagerCommandImport(int argc, char **argv) {
     }
 
     if (config.cluster_manager_command.flags & CLUSTER_MANAGER_CMD_FLAG_COPY)
-        strcat(cmdfmt, " %s");
+        cmdfmt = sdscat(cmdfmt," COPY");
     if (config.cluster_manager_command.flags & CLUSTER_MANAGER_CMD_FLAG_REPLACE)
-        strcat(cmdfmt, " %s");
+        cmdfmt = sdscat(cmdfmt," REPLACE");
 
     /* Use SCAN to iterate over the keys, migrating to the
      * right node as needed. */
@@ -6563,8 +6642,7 @@ static int clusterManagerCommandImport(int argc, char **argv) {
             printf("Migrating %s to %s:%d: ", key, target->ip, target->port);
             redisReply *r = reconnectingRedisCommand(src_ctx, cmdfmt,
                                                      target->ip, target->port,
-                                                     key, 0, timeout,
-                                                     "COPY", "REPLACE");
+                                                     key, 0, timeout);
             if (!r || r->type == REDIS_REPLY_ERROR) {
                 if (r && r->str) {
                     clusterManagerLogErr("Source %s:%d replied with "
@@ -6596,7 +6674,7 @@ static int clusterManagerCommandCall(int argc, char **argv) {
     char *ip = NULL;
     if (!getClusterHostFromCmdArgs(1, argv, &ip, &port)) goto invalid_args;
     clusterManagerNode *refnode = clusterManagerNewNode(ip, port);
-    if (!clusterManagerLoadInfoFromNode(refnode, 0)) return 0;
+    if (!clusterManagerLoadInfoFromNode(refnode)) return 0;
     argc--;
     argv++;
     size_t *argvlen = zmalloc(argc*sizeof(size_t));
@@ -6641,7 +6719,7 @@ static int clusterManagerCommandBackup(int argc, char **argv) {
     char *ip = NULL;
     if (!getClusterHostFromCmdArgs(1, argv, &ip, &port)) goto invalid_args;
     clusterManagerNode *refnode = clusterManagerNewNode(ip, port);
-    if (!clusterManagerLoadInfoFromNode(refnode, 0)) return 0;
+    if (!clusterManagerLoadInfoFromNode(refnode)) return 0;
     int no_issues = clusterManagerCheckCluster(0);
     int cluster_errors_count = (no_issues ? 0 :
                                 listLength(cluster_manager.errors));
@@ -6733,7 +6811,8 @@ static int clusterManagerCommandHelp(int argc, char **argv) {
             }
         }
     }
-    fprintf(stderr, "\nFor check, fix, reshard, del-node, set-timeout you "
+    fprintf(stderr, "\nFor check, fix, reshard, del-node, set-timeout, "
+                    "info, rebalance, call, import, backup you "
                     "can specify the host and port of any working node in "
                     "the cluster.\n");
 
@@ -6866,7 +6945,7 @@ void showLatencyDistSamples(struct distsamples *samples, long long tot) {
     printf("\033[38;5;0m"); /* Set foreground color to black. */
     for (j = 0; ; j++) {
         int coloridx =
-            ceil((float) samples[j].count / tot * (spectrum_palette_size-1));
+            ceil((double) samples[j].count / tot * (spectrum_palette_size-1));
         int color = spectrum_palette[coloridx];
         printf("\033[48;5;%dm%c", (int)color, samples[j].character);
         samples[j].count = 0;
@@ -8142,7 +8221,7 @@ static void intrinsicLatencyModeStop(int s) {
 static void intrinsicLatencyMode(void) {
     long long test_end, run_time, max_latency = 0, runs = 0;
 
-    run_time = config.intrinsic_latency_duration*1000000;
+    run_time = (long long)config.intrinsic_latency_duration * 1000000;
     test_end = ustime() + run_time;
     signal(SIGINT, intrinsicLatencyModeStop);
 
@@ -8198,6 +8277,7 @@ int main(int argc, char **argv) {
     config.repeat = 1;
     config.interval = 0;
     config.dbnum = 0;
+    config.input_dbnum = 0;
     config.interactive = 0;
     config.shutdown = 0;
     config.monitor_mode = 0;

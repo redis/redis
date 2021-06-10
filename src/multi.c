@@ -153,8 +153,7 @@ void execCommandAbort(client *c, sds error) {
     /* Send EXEC to clients waiting data from MONITOR. We did send a MULTI
      * already, and didn't send any of the queued commands, now we'll just send
      * EXEC so it is clear that the transaction is over. */
-    if (listLength(server.monitors) && !server.loading)
-        replicationFeedMonitors(c,server.monitors,c->db->id,c->argv,c->argc);
+    replicationFeedMonitors(c,server.monitors,c->db->id,c->argv,c->argc);
 }
 
 void execCommand(client *c) {
@@ -179,7 +178,7 @@ void execCommand(client *c) {
         addReply(c, c->flags & CLIENT_DIRTY_EXEC ? shared.execaborterr :
                                                    shared.nullarray[c->resp]);
         discardTransaction(c);
-        goto handle_monitor;
+        return;
     }
 
     uint64_t old_flags = c->flags;
@@ -266,15 +265,6 @@ void execCommand(client *c) {
     }
 
     server.in_exec = 0;
-
-handle_monitor:
-    /* Send EXEC to clients waiting data from MONITOR. We do it here
-     * since the natural order of commands execution is actually:
-     * MUTLI, EXEC, ... commands inside transaction ...
-     * Instead EXEC is flagged as CMD_SKIP_MONITOR in the command
-     * table, and we do it here with correct ordering. */
-    if (listLength(server.monitors) && !server.loading)
-        replicationFeedMonitors(c,server.monitors,c->db->id,c->argv,c->argc);
 }
 
 /* ===================== WATCH (CAS alike for MULTI/EXEC) ===================

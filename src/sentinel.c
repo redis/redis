@@ -1845,43 +1845,29 @@ void loadSentinelConfigFromQueue(void) {
     listNode *ln;
     int linenum = 0;
     sds line = NULL;
+    unsigned int j;
 
     /* if there is no sentinel_config entry, we can return immediately */
     if (server.sentinel_config == NULL) return;
 
-    /* loading from pre monitor config queue first to avoid dependency issues */
-    listRewind(server.sentinel_config->pre_monitor_cfg,&li);
-    while((ln = listNext(&li))) {
-        struct sentinelLoadQueueEntry *entry = ln->value;
-        err = sentinelHandleConfiguration(entry->argv,entry->argc);
-        if (err) {
-            linenum = entry->linenum;
-            line = entry->line;
-            goto loaderr;
-        }
-    }
-
-    /* loading from monitor config queue */
-    listRewind(server.sentinel_config->monitor_cfg,&li);
-    while((ln = listNext(&li))) {
-        struct sentinelLoadQueueEntry *entry = ln->value;
-        err = sentinelHandleConfiguration(entry->argv,entry->argc);
-        if (err) {
-            linenum = entry->linenum;
-            line = entry->line;
-            goto loaderr;
-        }
-    }
-
-    /* loading from the post monitor config queue */
-    listRewind(server.sentinel_config->post_monitor_cfg,&li);
-    while((ln = listNext(&li))) {
-        struct sentinelLoadQueueEntry *entry = ln->value;
-        err = sentinelHandleConfiguration(entry->argv,entry->argc);
-        if (err) {
-            linenum = entry->linenum;
-            line = entry->line;
-            goto loaderr;
+    list *sentinel_configs[3] = {
+        server.sentinel_config->pre_monitor_cfg,
+        server.sentinel_config->monitor_cfg,
+        server.sentinel_config->post_monitor_cfg
+    };
+    /* loading from pre monitor config queue first to avoid dependency issues
+     * loading from monitor config queue
+     * loading from the post monitor config queue */
+    for (j = 0; j < sizeof(sentinel_configs) / sizeof(sentinel_configs[0]); j++) {
+        listRewind(sentinel_configs[j],&li);
+        while((ln = listNext(&li))) {
+            struct sentinelLoadQueueEntry *entry = ln->value;
+            err = sentinelHandleConfiguration(entry->argv,entry->argc);
+            if (err) {
+                linenum = entry->linenum;
+                line = entry->line;
+                goto loaderr;
+            }
         }
     }
 
@@ -3175,11 +3161,13 @@ void sentinelConfigSetCommand(client *c) {
         sentinel.announce_port = numval;
     } else if (!strcasecmp(o->ptr, "sentinel-user")) {
         sdsfree(sentinel.sentinel_auth_user);
-        sentinel.sentinel_auth_user = sdsnew(val->ptr);
+        sentinel.sentinel_auth_user = sdslen(val->ptr) == 0 ?
+            NULL : sdsdup(val->ptr);
         drop_conns = 1;
     } else if (!strcasecmp(o->ptr, "sentinel-pass")) {
         sdsfree(sentinel.sentinel_auth_pass);
-        sentinel.sentinel_auth_pass = sdsnew(val->ptr);
+        sentinel.sentinel_auth_pass = sdslen(val->ptr) == 0 ?
+            NULL : sdsdup(val->ptr);
         drop_conns = 1;
     } else {
         addReplyErrorFormat(c, "Invalid argument '%s' to SENTINEL CONFIG SET",
@@ -3779,7 +3767,7 @@ NULL
             addReplySds(c,e);
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"set")) {
-        if (c->argc < 3) goto numargserr;
+        if (c->argc <= 3) goto numargserr;
         sentinelSetCommand(c);
     } else if (!strcasecmp(c->argv[1]->ptr,"config")) {
         if (c->argc < 3) goto numargserr;
@@ -3874,6 +3862,7 @@ NULL
                 addReplyArrayLen(c,2);
                 addReplyBulkCString(c,"crash-after-election");
                 addReplyBulkCString(c,"crash-after-promotion");
+                return;
             } else {
                 addReplyError(c,"Unknown failure simulation specified");
                 return;
@@ -4119,16 +4108,16 @@ void sentinelSetCommand(client *c) {
         int numargs = j-old_j+1;
         switch(numargs) {
         case 2:
-            sentinelEvent(LL_WARNING,"+set",ri,"%@ %s %s",c->argv[old_j]->ptr,
-                                                          c->argv[old_j+1]->ptr);
+            sentinelEvent(LL_WARNING,"+set",ri,"%@ %s %s",(char*)c->argv[old_j]->ptr,
+                                                          (char*)c->argv[old_j+1]->ptr);
             break;
         case 3:
-            sentinelEvent(LL_WARNING,"+set",ri,"%@ %s %s %s",c->argv[old_j]->ptr,
-                                                             c->argv[old_j+1]->ptr,
-                                                             c->argv[old_j+2]->ptr);
+            sentinelEvent(LL_WARNING,"+set",ri,"%@ %s %s %s",(char*)c->argv[old_j]->ptr,
+                                                             (char*)c->argv[old_j+1]->ptr,
+                                                             (char*)c->argv[old_j+2]->ptr);
             break;
         default:
-            sentinelEvent(LL_WARNING,"+set",ri,"%@ %s",c->argv[old_j]->ptr);
+            sentinelEvent(LL_WARNING,"+set",ri,"%@ %s",(char*)c->argv[old_j]->ptr);
             break;
         }
     }

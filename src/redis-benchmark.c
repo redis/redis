@@ -361,9 +361,10 @@ fail:
     if (hostsocket == NULL) fprintf(stderr, "%s:%d\n", ip, port);
     else fprintf(stderr, "%s\n", hostsocket);
     int abort_test = 0;
-    if (!strncmp(reply->str,"NOAUTH",5) ||
-        !strncmp(reply->str,"WRONGPASS",9) ||
-        !strncmp(reply->str,"NOPERM",5))
+    if (reply && reply->type == REDIS_REPLY_ERROR &&
+        (!strncmp(reply->str,"NOAUTH",6) ||
+         !strncmp(reply->str,"WRONGPASS",9) ||
+         !strncmp(reply->str,"NOPERM",6)))
         abort_test = 1;
     freeReplyObject(reply);
     redisFree(c);
@@ -529,21 +530,21 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                             * before requesting the new configuration. */
                             fetch_slots = 1;
                             do_wait = 1;
-                            printf("Error from server %s:%d: %s.\n",
-                                   c->cluster_node->ip,
-                                   c->cluster_node->port,
-                                   r->str);
+                            fprintf(stderr, "Error from server %s:%d: %s.\n",
+                                    c->cluster_node->ip,
+                                    c->cluster_node->port,
+                                    r->str);
                         }
                         if (do_wait) sleep(1);
                         if (fetch_slots && !fetchClusterSlotsConfiguration(c))
                             exit(1);
                     } else {
                         if (c->cluster_node) {
-                            printf("Error from server %s:%d: %s\n",
-                                c->cluster_node->ip,
-                                c->cluster_node->port,
-                                r->str);
-                        } else printf("Error from server: %s\n", r->str);
+                            fprintf(stderr, "Error from server %s:%d: %s\n",
+                                 c->cluster_node->ip,
+                                 c->cluster_node->port,
+                                 r->str);
+                        } else fprintf(stderr, "Error from server: %s\n", r->str);
                         exit(1);
                     }
                 }
@@ -1939,8 +1940,8 @@ int main(int argc, const char **argv) {
         }
 
         if (test_is_selected("lrange") || test_is_selected("lrange_500")) {
-            len = redisFormatCommand(&cmd,"LRANGE mylist%s 0 449",tag);
-            benchmark("LRANGE_500 (first 450 elements)",cmd,len);
+            len = redisFormatCommand(&cmd,"LRANGE mylist%s 0 499",tag);
+            benchmark("LRANGE_500 (first 500 elements)",cmd,len);
             free(cmd);
         }
 
@@ -1967,6 +1968,7 @@ int main(int argc, const char **argv) {
         if (!config.csv) printf("\n");
     } while(config.loop);
 
+    zfree(data);
     if (config.redis_config != NULL) freeRedisConfig(config.redis_config);
 
     return 0;
