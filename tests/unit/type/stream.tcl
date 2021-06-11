@@ -714,4 +714,9 @@ start_server {tags {"stream"}} {
         catch {r XGROUP help xxx} e
         assert_match "*Unknown subcommand or wrong number of arguments*" $e
     }
+
+    test {XINFO HELP should not have unexpected options} {
+        catch {r XINFO help xxx} e
+        assert_match "*Unknown subcommand or wrong number of arguments*" $e
+    }
 }
