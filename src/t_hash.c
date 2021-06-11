@@ -291,7 +291,7 @@ int hashTypeDelete(robj *o, sds field) {
             }
         }
     } else if (o->encoding == OBJ_ENCODING_HT) {
-        if (dictDelete((dict*)o->ptr, field) == C_OK) {
+        if (dictDelete((dict*)o->ptr, field) == DICT_OK) {
             deleted = 1;
 
             /* Always check if the dictionary needs a resize after a delete. */

@@ -147,24 +147,22 @@ void latencyAddSample(const char *event, mstime_t latency) {
 /* Reset data for the specified event, or all the events data if 'event' is
  * NULL.
  *
- * Note: this is O(N) even when event_to_reset is not NULL because makes
- * the code simpler and we have a small fixed max number of events. */
+ * Return the number of events we reset. */
 int latencyResetEvent(char *event_to_reset) {
-    dictIterator *di;
-    dictEntry *de;
-    int resets = 0;
+    unsigned long size = dictSize(server.latency_events);
 
-    di = dictGetSafeIterator(server.latency_events);
-    while((de = dictNext(di)) != NULL) {
-        char *event = dictGetKey(de);
+    /* latency_events is empty */
+    if (size == 0) return 0;
 
-        if (event_to_reset == NULL || strcasecmp(event,event_to_reset) == 0) {
-            dictDelete(server.latency_events, event);
-            resets++;
-        }
+    /* Reset all the events */
+    if (event_to_reset == NULL) {
+        dictEmpty(server.latency_events, NULL);
+        return size;
     }
-    dictReleaseIterator(di);
-    return resets;
+
+    /* Reset the target event. */
+    int retval = dictDelete(server.latency_events, event_to_reset);
+    return retval == DICT_OK ? 1 : 0;
 }
 
 /* ------------------------ Latency reporting (doctor) ---------------------- */
