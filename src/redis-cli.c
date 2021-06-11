@@ -1077,7 +1077,7 @@ int isColorTerm(void) {
     return t != NULL && strstr(t,"xterm") != NULL;
 }
 
-/* Helper  function for sdsCatColorizedLdbReply() appending colorize strings
+/* Helper function for sdsCatColorizedLdbReply() appending colorize strings
  * to an SDS string. */
 sds sdscatcolor(sds o, char *s, size_t len, char *color) {
     if (!isColorTerm()) return sdscatlen(o,s,len);
@@ -1893,11 +1893,11 @@ static void usage(void) {
 "  --insecure         Allow insecure TLS connection by skipping cert validation.\n"
 "  --cert <file>      Client certificate to authenticate with.\n"
 "  --key <file>       Private key file to authenticate with.\n"
-"  --tls-ciphers <list> Sets the list of prefered ciphers (TLSv1.2 and below)\n"
+"  --tls-ciphers <list> Sets the list of preferred ciphers (TLSv1.2 and below)\n"
 "                     in order of preference from highest to lowest separated by colon (\":\").\n"
 "                     See the ciphers(1ssl) manpage for more information about the syntax of this string.\n"
 #ifdef TLS1_3_VERSION
-"  --tls-ciphersuites <list> Sets the list of prefered ciphersuites (TLSv1.3)\n"
+"  --tls-ciphersuites <list> Sets the list of preferred ciphersuites (TLSv1.3)\n"
 "                     in order of preference from highest to lowest separated by colon (\":\").\n"
 "                     See the ciphers(1ssl) manpage for more information about the syntax of this string,\n"
 "                     and specifically for TLSv1.3 ciphersuites.\n"
@@ -1909,7 +1909,7 @@ static void usage(void) {
 "  --quoted-input     Force input to be handled as quoted strings.\n"
 "  --csv              Output in CSV format.\n"
 "  --show-pushes <yn> Whether to print RESP3 PUSH messages.  Enabled by default when\n"
-"                     STDOUT is a tty but can be overriden with --show-pushes no.\n"
+"                     STDOUT is a tty but can be overridden with --show-pushes no.\n"
 "  --stat             Print rolling stats about server: mem, clients, ...\n"
 "  --latency          Enter a special mode continuously sampling latency.\n"
 "                     If you use this mode in an interactive session it runs\n"
@@ -2639,7 +2639,7 @@ static int parseClusterNodeAddress(char *addr, char **ip_ptr, int *port_ptr,
  * been provided it must be in the form of 'ip:port', elsewhere
  * the first argument must be the ip and the second one the port.
  * If host and port can be detected, it returns 1 and it stores host and
- * port into variables referenced by'ip_ptr' and 'port_ptr' pointers,
+ * port into variables referenced by 'ip_ptr' and 'port_ptr' pointers,
  * elsewhere it returns 0. */
 static int getClusterHostFromCmdArgs(int argc, char **argv,
                                      char **ip_ptr, int *port_ptr) {
@@ -2992,7 +2992,7 @@ result:
  * So a greater score means a worse anti-affinity level, while zero
  * means perfect anti-affinity.
  *
- * The anti affinity optimizator will try to get a score as low as
+ * The anti affinity optimization will try to get a score as low as
  * possible. Since we do not want to sacrifice the fact that slaves should
  * not be in the same host as the master, we assign 10000 times the score
  * to this violation, so that we'll optimize for the second factor only
@@ -8183,7 +8183,7 @@ static void LRUTestMode(void) {
 }
 
 /*------------------------------------------------------------------------------
- * Intrisic latency mode.
+ * Intrinsic latency mode.
  *
  * Measure max latency of a running process that does not result from
  * syscalls. Basically this software should provide a hint about how much

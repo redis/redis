@@ -13,12 +13,12 @@ test "Cluster should start ok" {
 set primary1 [Rn 0]
 set primary2 [Rn 1]
 
-proc cmdstat {instace cmd} {
-    return [cmdrstat $cmd $instace]
+proc cmdstat {instance cmd} {
+    return [cmdrstat $cmd $instance]
 }
 
-proc errorstat {instace cmd} {
-    return [errorrstat $cmd $instace]
+proc errorstat {instance cmd} {
+    return [errorrstat $cmd $instance]
 }
 
 test "errorstats: rejected call due to MOVED Redirection" {

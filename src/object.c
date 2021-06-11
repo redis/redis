@@ -762,7 +762,7 @@ char *strEncoding(int encoding) {
 /* =========================== Memory introspection ========================= */
 
 
-/* This is an helper function with the goal of estimating the memory
+/* This is a helper function with the goal of estimating the memory
  * size of a radix tree that is used to store Stream IDs.
  *
  * Note: to guess the size of the radix tree is not trivial, so we
@@ -1208,9 +1208,9 @@ int objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
          * below statement will expand to lru_idle*1000/1000. */
         lru_idle = lru_idle*lru_multiplier/LRU_CLOCK_RESOLUTION;
         long lru_abs = lru_clock - lru_idle; /* Absolute access time. */
-        /* If the LRU field underflows (since LRU it is a wrapping
+        /* If the LRU field underflow (since LRU it is a wrapping
          * clock), the best we can do is to provide a large enough LRU
-         * that is half-way in the circlular LRU clock we use: this way
+         * that is half-way in the circular LRU clock we use: this way
          * the computed idle time for this object will stay high for quite
          * some time. */
         if (lru_abs < 0)

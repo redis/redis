@@ -1667,7 +1667,7 @@ void evalGenericCommand(client *c, int evalsha) {
      * To do so we use a cache of SHA1s of scripts that we already propagated
      * as full EVAL, that's called the Replication Script Cache.
      *
-     * For replication, everytime a new slave attaches to the master, we need to
+     * For replication, every time a new slave attaches to the master, we need to
      * flush our cache of scripts that can be replicated as EVALSHA, while
      * for AOF we need to do so every time we rewrite the AOF file. */
     if (evalsha && !server.lua_replicate_commands) {
@@ -2275,7 +2275,7 @@ sds ldbCatStackValue(sds s, lua_State *lua, int idx) {
 }
 
 /* Produce a debugger log entry representing the value of the Lua object
- * currently on the top of the stack. The element is ot popped nor modified.
+ * currently on the top of the stack. The element is not popped nor modified.
  * Check ldbCatStackValue() for the actual implementation. */
 void ldbLogStackValue(lua_State *lua, char *prefix) {
     sds s = sdsnew(prefix);

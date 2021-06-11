@@ -102,7 +102,7 @@ lwCanvas *lwDrawSchotter(int console_cols, int squares_per_row, int squares_per_
 }
 
 /* Converts the canvas to an SDS string representing the UTF8 characters to
- * print to the terminal in order to obtain a graphical representaiton of the
+ * print to the terminal in order to obtain a graphical representation of the
  * logical canvas. The actual returned string will require a terminal that is
  * width/2 large and height/4 tall in order to hold the whole image without
  * overflowing or scrolling, since each Barille character is 2x4. */

@@ -414,7 +414,7 @@ start_server {tags {"multi"}} {
     }
 
     test {MULTI-EXEC body and script timeout} {
-        # check that we don't run an imcomplete transaction due to some commands
+        # check that we don't run an incomplete transaction due to some commands
         # arriving during busy script
         set rd1 [redis_deferring_client]
         set r2 [redis_client]

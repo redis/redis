@@ -52,7 +52,7 @@ proc generate_types {} {
     generate_collections big 10
 
     # make sure our big stream also has a listpack record that has different
-    # field names than the master recored
+    # field names than the master recorded
     r xadd streambig * item 1 value 1
     r xadd streambig * item 1 unique value
 }

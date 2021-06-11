@@ -344,7 +344,7 @@ void subscribeCommand(client *c) {
          * expect a reply per command and so can not execute subscribe.
          *
          * Notice that we have a special treatment for multi because of
-         * backword compatibility
+         * backward compatibility
          */
         addReplyError(c, "SUBSCRIBE isn't allowed for a DENY BLOCKING client");
         return;
@@ -377,7 +377,7 @@ void psubscribeCommand(client *c) {
          * expect a reply per command and so can not execute subscribe.
          *
          * Notice that we have a special treatment for multi because of
-         * backword compatibility
+         * backward compatibility
          */
         addReplyError(c, "PSUBSCRIBE isn't allowed for a DENY BLOCKING client");
         return;
