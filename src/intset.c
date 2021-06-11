@@ -306,7 +306,7 @@ int intsetValidateIntegrity(const unsigned char *p, size_t size, int deep) {
         return 0;
     }
 
-    /* check that the size matchies (all records are inside the buffer). */
+    /* check that the size matches (all records are inside the buffer). */
     uint32_t count = intrev32ifbe(is->length);
     if (sizeof(*is) + count*record_size != size)
         return 0;

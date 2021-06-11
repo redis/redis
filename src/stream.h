@@ -86,7 +86,7 @@ typedef struct streamNACK {
                                    in the last delivery. */
 } streamNACK;
 
-/* Stream propagation informations, passed to functions in order to propagate
+/* Stream propagation information, passed to functions in order to propagate
  * XCLAIM commands to AOF and slaves. */
 typedef struct streamPropInfo {
     robj *keyname;

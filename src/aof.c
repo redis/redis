@@ -364,7 +364,7 @@ ssize_t aofWrite(int fd, const char *buf, size_t len) {
 /* Write the append only file buffer on disk.
  *
  * Since we are required to write the AOF before replying to the client,
- * and the only way the client socket can get a write is entering when the
+ * and the only way the client socket can get a write is entering when
  * the event loop, we accumulate all the AOF writes in a memory
  * buffer and write it on disk using this function just before entering
  * the event loop again.
@@ -419,7 +419,7 @@ void flushAppendOnlyFile(int force) {
                  * than two seconds this is still ok. Postpone again. */
                 return;
             }
-            /* Otherwise fall trough, and go write since we can't wait
+            /* Otherwise fall through, and go write since we can't wait
              * over two seconds. */
             server.aof_delayed_fsync++;
             serverLog(LL_NOTICE,"Asynchronous AOF fsync is taking too long (disk is busy?). Writing the AOF buffer without waiting for fsync to complete, this may slow down Redis.");
@@ -651,6 +651,7 @@ struct client *createAOFClient(void) {
     c->original_argv = NULL;
     c->argv_len_sum = 0;
     c->bufpos = 0;
+    c->buf_usable_size = zmalloc_usable_size(c)-offsetof(client,buf);
 
     /*
      * The AOF client should never be blocked (unlike master
@@ -1744,7 +1745,7 @@ int rewriteAppendOnlyFileBackground(void) {
         server.aof_rewrite_scheduled = 0;
         server.aof_rewrite_time_start = time(NULL);
 
-        /* We set appendseldb to -1 in order to force the next call to the
+        /* We set aof_selected_db to -1 in order to force the next call to the
          * feedAppendOnlyFile() to issue a SELECT command, so the differences
          * accumulated by the parent into server.aof_rewrite_buf will start
          * with a SELECT statement and it will be safe to merge. */
@@ -1884,7 +1885,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             oldfd = open(server.aof_filename,O_RDONLY|O_NONBLOCK);
         } else {
             /* AOF enabled */
-            oldfd = -1; /* We'll set this to the current AOF filedes later. */
+            oldfd = -1; /* We'll set this to the current AOF file descriptor later. */
         }
 
         /* Rename the temporary file. This will not unlink the target file if

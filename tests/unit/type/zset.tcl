@@ -642,9 +642,9 @@ start_server {tags {"zset"}} {
         }
 
         test "ZUNIONSTORE against non-existing key doesn't set destination - $encoding" {
-            r del zseta
-            assert_equal 0 [r zunionstore dst_key 1 zseta]
-            assert_equal 0 [r exists dst_key]
+            r del zseta{t}
+            assert_equal 0 [r zunionstore dst_key{t} 1 zseta{t}]
+            assert_equal 0 [r exists dst_key{t}]
         }
 
         test "ZUNION/ZINTER/ZDIFF against non-existing key - $encoding" {
@@ -655,214 +655,214 @@ start_server {tags {"zset"}} {
         }
 
         test "ZUNIONSTORE with empty set - $encoding" {
-            r del zseta zsetb
-            r zadd zseta 1 a
-            r zadd zseta 2 b
-            r zunionstore zsetc 2 zseta zsetb
-            r zrange zsetc 0 -1 withscores
+            r del zseta{t} zsetb{t}
+            r zadd zseta{t} 1 a
+            r zadd zseta{t} 2 b
+            r zunionstore zsetc{t} 2 zseta{t} zsetb{t}
+            r zrange zsetc{t} 0 -1 withscores
         } {a 1 b 2}
 
         test "ZUNION/ZINTER/ZDIFF with empty set - $encoding" {
-            r del zseta zsetb
-            r zadd zseta 1 a
-            r zadd zseta 2 b
-            assert_equal {a 1 b 2} [r zunion 2 zseta zsetb withscores]
-            assert_equal {} [r zinter 2 zseta zsetb withscores]
-            assert_equal {a 1 b 2} [r zdiff 2 zseta zsetb withscores]
+            r del zseta{t} zsetb{t}
+            r zadd zseta{t} 1 a
+            r zadd zseta{t} 2 b
+            assert_equal {a 1 b 2} [r zunion 2 zseta{t} zsetb{t} withscores]
+            assert_equal {} [r zinter 2 zseta{t} zsetb{t} withscores]
+            assert_equal {a 1 b 2} [r zdiff 2 zseta{t} zsetb{t} withscores]
         }
 
         test "ZUNIONSTORE basics - $encoding" {
-            r del zseta zsetb zsetc
-            r zadd zseta 1 a
-            r zadd zseta 2 b
-            r zadd zseta 3 c
-            r zadd zsetb 1 b
-            r zadd zsetb 2 c
-            r zadd zsetb 3 d
+            r del zseta{t} zsetb{t} zsetc{t}
+            r zadd zseta{t} 1 a
+            r zadd zseta{t} 2 b
+            r zadd zseta{t} 3 c
+            r zadd zsetb{t} 1 b
+            r zadd zsetb{t} 2 c
+            r zadd zsetb{t} 3 d
 
-            assert_equal 4 [r zunionstore zsetc 2 zseta zsetb]
-            assert_equal {a 1 b 3 d 3 c 5} [r zrange zsetc 0 -1 withscores]
+            assert_equal 4 [r zunionstore zsetc{t} 2 zseta{t} zsetb{t}]
+            assert_equal {a 1 b 3 d 3 c 5} [r zrange zsetc{t} 0 -1 withscores]
         }
 
         test "ZUNION/ZINTER/ZDIFF with integer members - $encoding" {
-            r del zsetd zsetf
-            r zadd zsetd 1 1
-            r zadd zsetd 2 2
-            r zadd zsetd 3 3
-            r zadd zsetf 1 1
-            r zadd zsetf 3 3
-            r zadd zsetf 4 4
+            r del zsetd{t} zsetf{t}
+            r zadd zsetd{t} 1 1
+            r zadd zsetd{t} 2 2
+            r zadd zsetd{t} 3 3
+            r zadd zsetf{t} 1 1
+            r zadd zsetf{t} 3 3
+            r zadd zsetf{t} 4 4
 
-            assert_equal {1 2 2 2 4 4 3 6} [r zunion 2 zsetd zsetf withscores]
-            assert_equal {1 2 3 6} [r zinter 2 zsetd zsetf withscores]
-            assert_equal {2 2} [r zdiff 2 zsetd zsetf withscores]
+            assert_equal {1 2 2 2 4 4 3 6} [r zunion 2 zsetd{t} zsetf{t} withscores]
+            assert_equal {1 2 3 6} [r zinter 2 zsetd{t} zsetf{t} withscores]
+            assert_equal {2 2} [r zdiff 2 zsetd{t} zsetf{t} withscores]
         }
 
         test "ZUNIONSTORE with weights - $encoding" {
-            assert_equal 4 [r zunionstore zsetc 2 zseta zsetb weights 2 3]
-            assert_equal {a 2 b 7 d 9 c 12} [r zrange zsetc 0 -1 withscores]
+            assert_equal 4 [r zunionstore zsetc{t} 2 zseta{t} zsetb{t} weights 2 3]
+            assert_equal {a 2 b 7 d 9 c 12} [r zrange zsetc{t} 0 -1 withscores]
         }
 
         test "ZUNION with weights - $encoding" {
-            assert_equal {a 2 b 7 d 9 c 12} [r zunion 2 zseta zsetb weights 2 3 withscores]
-            assert_equal {b 7 c 12} [r zinter 2 zseta zsetb weights 2 3 withscores]
+            assert_equal {a 2 b 7 d 9 c 12} [r zunion 2 zseta{t} zsetb{t} weights 2 3 withscores]
+            assert_equal {b 7 c 12} [r zinter 2 zseta{t} zsetb{t} weights 2 3 withscores]
         }
 
         test "ZUNIONSTORE with a regular set and weights - $encoding" {
-            r del seta
-            r sadd seta a
-            r sadd seta b
-            r sadd seta c
+            r del seta{t}
+            r sadd seta{t} a
+            r sadd seta{t} b
+            r sadd seta{t} c
 
-            assert_equal 4 [r zunionstore zsetc 2 seta zsetb weights 2 3]
-            assert_equal {a 2 b 5 c 8 d 9} [r zrange zsetc 0 -1 withscores]
+            assert_equal 4 [r zunionstore zsetc{t} 2 seta{t} zsetb{t} weights 2 3]
+            assert_equal {a 2 b 5 c 8 d 9} [r zrange zsetc{t} 0 -1 withscores]
         }
 
         test "ZUNIONSTORE with AGGREGATE MIN - $encoding" {
-            assert_equal 4 [r zunionstore zsetc 2 zseta zsetb aggregate min]
-            assert_equal {a 1 b 1 c 2 d 3} [r zrange zsetc 0 -1 withscores]
+            assert_equal 4 [r zunionstore zsetc{t} 2 zseta{t} zsetb{t} aggregate min]
+            assert_equal {a 1 b 1 c 2 d 3} [r zrange zsetc{t} 0 -1 withscores]
         }
 
         test "ZUNION/ZINTER with AGGREGATE MIN - $encoding" {
-            assert_equal {a 1 b 1 c 2 d 3} [r zunion 2 zseta zsetb aggregate min withscores]
-            assert_equal {b 1 c 2} [r zinter 2 zseta zsetb aggregate min withscores]
+            assert_equal {a 1 b 1 c 2 d 3} [r zunion 2 zseta{t} zsetb{t} aggregate min withscores]
+            assert_equal {b 1 c 2} [r zinter 2 zseta{t} zsetb{t} aggregate min withscores]
         }
 
         test "ZUNIONSTORE with AGGREGATE MAX - $encoding" {
-            assert_equal 4 [r zunionstore zsetc 2 zseta zsetb aggregate max]
-            assert_equal {a 1 b 2 c 3 d 3} [r zrange zsetc 0 -1 withscores]
+            assert_equal 4 [r zunionstore zsetc{t} 2 zseta{t} zsetb{t} aggregate max]
+            assert_equal {a 1 b 2 c 3 d 3} [r zrange zsetc{t} 0 -1 withscores]
         }
 
         test "ZUNION/ZINTER with AGGREGATE MAX - $encoding" {
-            assert_equal {a 1 b 2 c 3 d 3} [r zunion 2 zseta zsetb aggregate max withscores]
-            assert_equal {b 2 c 3} [r zinter 2 zseta zsetb aggregate max withscores]
+            assert_equal {a 1 b 2 c 3 d 3} [r zunion 2 zseta{t} zsetb{t} aggregate max withscores]
+            assert_equal {b 2 c 3} [r zinter 2 zseta{t} zsetb{t} aggregate max withscores]
         }
 
         test "ZINTERSTORE basics - $encoding" {
-            assert_equal 2 [r zinterstore zsetc 2 zseta zsetb]
-            assert_equal {b 3 c 5} [r zrange zsetc 0 -1 withscores]
+            assert_equal 2 [r zinterstore zsetc{t} 2 zseta{t} zsetb{t}]
+            assert_equal {b 3 c 5} [r zrange zsetc{t} 0 -1 withscores]
         }
 
         test "ZINTER basics - $encoding" {
-            assert_equal {b 3 c 5} [r zinter 2 zseta zsetb withscores]
+            assert_equal {b 3 c 5} [r zinter 2 zseta{t} zsetb{t} withscores]
         }
 
         test "ZINTER RESP3 - $encoding" {
             r hello 3
-            assert_equal {{b 3.0} {c 5.0}} [r zinter 2 zseta zsetb withscores]
+            assert_equal {{b 3.0} {c 5.0}} [r zinter 2 zseta{t} zsetb{t} withscores]
+            r hello 2
         }
-        r hello 2
 
         test "ZINTERSTORE with weights - $encoding" {
-            assert_equal 2 [r zinterstore zsetc 2 zseta zsetb weights 2 3]
-            assert_equal {b 7 c 12} [r zrange zsetc 0 -1 withscores]
+            assert_equal 2 [r zinterstore zsetc{t} 2 zseta{t} zsetb{t} weights 2 3]
+            assert_equal {b 7 c 12} [r zrange zsetc{t} 0 -1 withscores]
         }
 
         test "ZINTER with weights - $encoding" {
-            assert_equal {b 7 c 12} [r zinter 2 zseta zsetb weights 2 3 withscores]
+            assert_equal {b 7 c 12} [r zinter 2 zseta{t} zsetb{t} weights 2 3 withscores]
         }
 
         test "ZINTERSTORE with a regular set and weights - $encoding" {
-            r del seta
-            r sadd seta a
-            r sadd seta b
-            r sadd seta c
-            assert_equal 2 [r zinterstore zsetc 2 seta zsetb weights 2 3]
-            assert_equal {b 5 c 8} [r zrange zsetc 0 -1 withscores]
+            r del seta{t}
+            r sadd seta{t} a
+            r sadd seta{t} b
+            r sadd seta{t} c
+            assert_equal 2 [r zinterstore zsetc{t} 2 seta{t} zsetb{t} weights 2 3]
+            assert_equal {b 5 c 8} [r zrange zsetc{t} 0 -1 withscores]
         }
 
         test "ZINTERSTORE with AGGREGATE MIN - $encoding" {
-            assert_equal 2 [r zinterstore zsetc 2 zseta zsetb aggregate min]
-            assert_equal {b 1 c 2} [r zrange zsetc 0 -1 withscores]
+            assert_equal 2 [r zinterstore zsetc{t} 2 zseta{t} zsetb{t} aggregate min]
+            assert_equal {b 1 c 2} [r zrange zsetc{t} 0 -1 withscores]
         }
 
         test "ZINTERSTORE with AGGREGATE MAX - $encoding" {
-            assert_equal 2 [r zinterstore zsetc 2 zseta zsetb aggregate max]
-            assert_equal {b 2 c 3} [r zrange zsetc 0 -1 withscores]
+            assert_equal 2 [r zinterstore zsetc{t} 2 zseta{t} zsetb{t} aggregate max]
+            assert_equal {b 2 c 3} [r zrange zsetc{t} 0 -1 withscores]
         }
 
         foreach cmd {ZUNIONSTORE ZINTERSTORE} {
             test "$cmd with +inf/-inf scores - $encoding" {
-                r del zsetinf1 zsetinf2
+                r del zsetinf1{t} zsetinf2{t}
 
-                r zadd zsetinf1 +inf key
-                r zadd zsetinf2 +inf key
-                r $cmd zsetinf3 2 zsetinf1 zsetinf2
-                assert_equal inf [r zscore zsetinf3 key]
+                r zadd zsetinf1{t} +inf key
+                r zadd zsetinf2{t} +inf key
+                r $cmd zsetinf3{t} 2 zsetinf1{t} zsetinf2{t}
+                assert_equal inf [r zscore zsetinf3{t} key]
 
-                r zadd zsetinf1 -inf key
-                r zadd zsetinf2 +inf key
-                r $cmd zsetinf3 2 zsetinf1 zsetinf2
-                assert_equal 0 [r zscore zsetinf3 key]
+                r zadd zsetinf1{t} -inf key
+                r zadd zsetinf2{t} +inf key
+                r $cmd zsetinf3{t} 2 zsetinf1{t} zsetinf2{t}
+                assert_equal 0 [r zscore zsetinf3{t} key]
 
-                r zadd zsetinf1 +inf key
-                r zadd zsetinf2 -inf key
-                r $cmd zsetinf3 2 zsetinf1 zsetinf2
-                assert_equal 0 [r zscore zsetinf3 key]
+                r zadd zsetinf1{t} +inf key
+                r zadd zsetinf2{t} -inf key
+                r $cmd zsetinf3{t} 2 zsetinf1{t} zsetinf2{t}
+                assert_equal 0 [r zscore zsetinf3{t} key]
 
-                r zadd zsetinf1 -inf key
-                r zadd zsetinf2 -inf key
-                r $cmd zsetinf3 2 zsetinf1 zsetinf2
-                assert_equal -inf [r zscore zsetinf3 key]
+                r zadd zsetinf1{t} -inf key
+                r zadd zsetinf2{t} -inf key
+                r $cmd zsetinf3{t} 2 zsetinf1{t} zsetinf2{t}
+                assert_equal -inf [r zscore zsetinf3{t} key]
             }
 
             test "$cmd with NaN weights - $encoding" {
-                r del zsetinf1 zsetinf2
+                r del zsetinf1{t} zsetinf2{t}
 
-                r zadd zsetinf1 1.0 key
-                r zadd zsetinf2 1.0 key
+                r zadd zsetinf1{t} 1.0 key
+                r zadd zsetinf2{t} 1.0 key
                 assert_error "*weight*not*float*" {
-                    r $cmd zsetinf3 2 zsetinf1 zsetinf2 weights nan nan
+                    r $cmd zsetinf3{t} 2 zsetinf1{t} zsetinf2{t} weights nan nan
                 }
             }
         }
 
         test "ZDIFFSTORE basics - $encoding" {
-            assert_equal 1 [r zdiffstore zsetc 2 zseta zsetb]
-            assert_equal {a 1} [r zrange zsetc 0 -1 withscores]
+            assert_equal 1 [r zdiffstore zsetc{t} 2 zseta{t} zsetb{t}]
+            assert_equal {a 1} [r zrange zsetc{t} 0 -1 withscores]
         }
 
         test "ZDIFF basics - $encoding" {
-            assert_equal {a 1} [r zdiff 2 zseta zsetb withscores]
+            assert_equal {a 1} [r zdiff 2 zseta{t} zsetb{t} withscores]
         }
 
         test "ZDIFFSTORE with a regular set - $encoding" {
-            r del seta
-            r sadd seta a
-            r sadd seta b
-            r sadd seta c
-            assert_equal 1 [r zdiffstore zsetc 2 seta zsetb]
-            assert_equal {a 1} [r zrange zsetc 0 -1 withscores]
+            r del seta{t}
+            r sadd seta{t} a
+            r sadd seta{t} b
+            r sadd seta{t} c
+            assert_equal 1 [r zdiffstore zsetc{t} 2 seta{t} zsetb{t}]
+            assert_equal {a 1} [r zrange zsetc{t} 0 -1 withscores]
         }
 
         test "ZDIFF subtracting set from itself - $encoding" {
-            assert_equal 0 [r zdiffstore zsetc 2 zseta zseta]
-            assert_equal {} [r zrange zsetc 0 -1 withscores]
+            assert_equal 0 [r zdiffstore zsetc{t} 2 zseta{t} zseta{t}]
+            assert_equal {} [r zrange zsetc{t} 0 -1 withscores]
         }
 
         test "ZDIFF algorithm 1 - $encoding" {
-            r del zseta zsetb zsetc
-            r zadd zseta 1 a
-            r zadd zseta 2 b
-            r zadd zseta 3 c
-            r zadd zsetb 1 b
-            r zadd zsetb 2 c
-            r zadd zsetb 3 d
-            assert_equal 1 [r zdiffstore zsetc 2 zseta zsetb]
-            assert_equal {a 1} [r zrange zsetc 0 -1 withscores]
+            r del zseta{t} zsetb{t} zsetc{t}
+            r zadd zseta{t} 1 a
+            r zadd zseta{t} 2 b
+            r zadd zseta{t} 3 c
+            r zadd zsetb{t} 1 b
+            r zadd zsetb{t} 2 c
+            r zadd zsetb{t} 3 d
+            assert_equal 1 [r zdiffstore zsetc{t} 2 zseta{t} zsetb{t}]
+            assert_equal {a 1} [r zrange zsetc{t} 0 -1 withscores]
         }
 
         test "ZDIFF algorithm 2 - $encoding" {
-            r del zseta zsetb zsetc zsetd zsete
-            r zadd zseta 1 a
-            r zadd zseta 2 b
-            r zadd zseta 3 c
-            r zadd zseta 5 e
-            r zadd zsetb 1 b
-            r zadd zsetc 1 c
-            r zadd zsetd 1 d
-            assert_equal 2 [r zdiffstore zsete 4 zseta zsetb zsetc zsetd]
-            assert_equal {a 1 e 5} [r zrange zsete 0 -1 withscores]
+            r del zseta{t} zsetb{t} zsetc{t} zsetd{t} zsete{t}
+            r zadd zseta{t} 1 a
+            r zadd zseta{t} 2 b
+            r zadd zseta{t} 3 c
+            r zadd zseta{t} 5 e
+            r zadd zsetb{t} 1 b
+            r zadd zsetc{t} 1 c
+            r zadd zsetd{t} 1 d
+            assert_equal 2 [r zdiffstore zsete{t} 4 zseta{t} zsetb{t} zsetc{t} zsetd{t}]
+            assert_equal {a 1 e 5} [r zrange zsete{t} 0 -1 withscores]
         }
 
         test "ZDIFF fuzzing - $encoding" {
@@ -873,11 +873,11 @@ start_server {tags {"zset"}} {
                 set num_sets [expr {[randomInt 10]+1}]
                 for {set i 0} {$i < $num_sets} {incr i} {
                     set num_elements [randomInt 100]
-                    r del zset_$i
-                    lappend args zset_$i
+                    r del zset_$i{t}
+                    lappend args zset_$i{t}
                     while {$num_elements} {
                         set ele [randomValue]
-                        r zadd zset_$i [randomInt 100] $ele
+                        r zadd zset_$i{t} [randomInt 100] $ele
                         if {$i == 0} {
                             set s($ele) x
                         } else {
@@ -906,7 +906,10 @@ start_server {tags {"zset"}} {
         }
 
         test "ZPOP with count - $encoding" {
-            r del z1 z2 z3 foo
+            r del z1
+            r del z2
+            r del z3
+            r del foo
             r set foo bar
             assert_equal {} [r zpopmin z1 2]
             assert_error "*WRONGTYPE*" {r zpopmin foo 2}
@@ -930,34 +933,34 @@ start_server {tags {"zset"}} {
 
         test "BZPOP with multiple existing sorted sets - $encoding" {
             set rd [redis_deferring_client]
-            create_zset z1 {0 a 1 b 2 c}
-            create_zset z2 {3 d 4 e 5 f}
+            create_zset z1{t} {0 a 1 b 2 c}
+            create_zset z2{t} {3 d 4 e 5 f}
 
-            $rd bzpopmin z1 z2 5
-            assert_equal {z1 a 0} [$rd read]
-            $rd bzpopmax z1 z2 5
-            assert_equal {z1 c 2} [$rd read]
-            assert_equal 1 [r zcard z1]
-            assert_equal 3 [r zcard z2]
+            $rd bzpopmin z1{t} z2{t} 5
+            assert_equal {z1{t} a 0} [$rd read]
+            $rd bzpopmax z1{t} z2{t} 5
+            assert_equal {z1{t} c 2} [$rd read]
+            assert_equal 1 [r zcard z1{t}]
+            assert_equal 3 [r zcard z2{t}]
 
-            $rd bzpopmax z2 z1 5
-            assert_equal {z2 f 5} [$rd read]
-            $rd bzpopmin z2 z1 5
-            assert_equal {z2 d 3} [$rd read]
-            assert_equal 1 [r zcard z1]
-            assert_equal 1 [r zcard z2]
+            $rd bzpopmax z2{t} z1{t} 5
+            assert_equal {z2{t} f 5} [$rd read]
+            $rd bzpopmin z2{t} z1{t} 5
+            assert_equal {z2{t} d 3} [$rd read]
+            assert_equal 1 [r zcard z1{t}]
+            assert_equal 1 [r zcard z2{t}]
         }
 
         test "BZPOP second sorted set has members - $encoding" {
             set rd [redis_deferring_client]
-            r del z1
-            create_zset z2 {3 d 4 e 5 f}
-            $rd bzpopmax z1 z2 5
-            assert_equal {z2 f 5} [$rd read]
-            $rd bzpopmin z2 z1 5
-            assert_equal {z2 d 3} [$rd read]
-            assert_equal 0 [r zcard z1]
-            assert_equal 1 [r zcard z2]
+            r del z1{t}
+            create_zset z2{t} {3 d 4 e 5 f}
+            $rd bzpopmax z1{t} z2{t} 5
+            assert_equal {z2{t} f 5} [$rd read]
+            $rd bzpopmin z2{t} z1{t} 5
+            assert_equal {z2{t} d 3} [$rd read]
+            assert_equal 0 [r zcard z1{t}]
+            assert_equal 1 [r zcard z2{t}]
         }
 
         r config set zset-max-ziplist-entries $original_max_entries
@@ -968,52 +971,52 @@ start_server {tags {"zset"}} {
     basics skiplist
 
     test {ZINTERSTORE regression with two sets, intset+hashtable} {
-        r del seta setb setc
-        r sadd set1 a
-        r sadd set2 10
-        r zinterstore set3 2 set1 set2
+        r del seta{t} setb{t} setc{t}
+        r sadd set1{t} a
+        r sadd set2{t} 10
+        r zinterstore set3{t} 2 set1{t} set2{t}
     } {0}
 
     test {ZUNIONSTORE regression, should not create NaN in scores} {
-        r zadd z -inf neginf
-        r zunionstore out 1 z weights 0
-        r zrange out 0 -1 withscores
+        r zadd z{t} -inf neginf
+        r zunionstore out{t} 1 z{t} weights 0
+        r zrange out{t} 0 -1 withscores
     } {neginf 0}
 
     test {ZINTERSTORE #516 regression, mixed sets and ziplist zsets} {
-        r sadd one 100 101 102 103
-        r sadd two 100 200 201 202
-        r zadd three 1 500 1 501 1 502 1 503 1 100
-        r zinterstore to_here 3 one two three WEIGHTS 0 0 1
-        r zrange to_here 0 -1
+        r sadd one{t} 100 101 102 103
+        r sadd two{t} 100 200 201 202
+        r zadd three{t} 1 500 1 501 1 502 1 503 1 100
+        r zinterstore to_here{t} 3 one{t} two{t} three{t} WEIGHTS 0 0 1
+        r zrange to_here{t} 0 -1
     } {100}
 
     test {ZUNIONSTORE result is sorted} {
         # Create two sets with common and not common elements, perform
         # the UNION, check that elements are still sorted.
-        r del one two dest
-        set cmd1 [list r zadd one]
-        set cmd2 [list r zadd two]
+        r del one{t} two{t} dest{t}
+        set cmd1 [list r zadd one{t}]
+        set cmd2 [list r zadd two{t}]
         for {set j 0} {$j < 1000} {incr j} {
             lappend cmd1 [expr rand()] [randomInt 1000]
             lappend cmd2 [expr rand()] [randomInt 1000]
         }
         {*}$cmd1
         {*}$cmd2
-        assert {[r zcard one] > 100}
-        assert {[r zcard two] > 100}
-        r zunionstore dest 2 one two
+        assert {[r zcard one{t}] > 100}
+        assert {[r zcard two{t}] > 100}
+        r zunionstore dest{t} 2 one{t} two{t}
         set oldscore 0
-        foreach {ele score} [r zrange dest 0 -1 withscores] {
+        foreach {ele score} [r zrange dest{t} 0 -1 withscores] {
             assert {$score >= $oldscore}
             set oldscore $score
         }
     }
 
     test "ZUNIONSTORE/ZINTERSTORE/ZDIFFSTORE error if using WITHSCORES " {
-        assert_error "*ERR*syntax*" {r zunionstore foo 2 zsetd zsetf withscores}
-        assert_error "*ERR*syntax*" {r zinterstore foo 2 zsetd zsetf withscores}
-        assert_error "*ERR*syntax*" {r zdiffstore foo 2 zsetd zsetf withscores}
+        assert_error "*ERR*syntax*" {r zunionstore foo{t} 2 zsetd{t} zsetf{t} withscores}
+        assert_error "*ERR*syntax*" {r zinterstore foo{t} 2 zsetd{t} zsetf{t} withscores}
+        assert_error "*ERR*syntax*" {r zdiffstore foo{t} 2 zsetd{t} zsetf{t} withscores}
     }
     
     test {ZMSCORE retrieve} {
@@ -1119,7 +1122,7 @@ start_server {tags {"zset"}} {
             for {set i 0} {$i < $elements} {incr i} {
                 assert_equal [lindex $aux $i] [r zscore zscoretest $i]
             }
-        }
+        } {} {needs:debug}
 
         test "ZSET sorting stresser - $encoding" {
             set delta 0
@@ -1318,16 +1321,16 @@ start_server {tags {"zset"}} {
 
         test "ZREMRANGEBYLEX fuzzy test, 100 ranges in $elements element sorted set - $encoding" {
             set lexset {}
-            r del zset zsetcopy
+            r del zset{t} zsetcopy{t}
             for {set j 0} {$j < $elements} {incr j} {
                 set e [randstring 0 30 alpha]
                 lappend lexset $e
-                r zadd zset 0 $e
+                r zadd zset{t} 0 $e
             }
             set lexset [lsort -unique $lexset]
             for {set j 0} {$j < 100} {incr j} {
                 # Copy...
-                r zunionstore zsetcopy 1 zset
+                r zunionstore zsetcopy{t} 1 zset{t}
                 set lexsetcopy $lexset
 
                 set min [randstring 0 30 alpha]
@@ -1338,13 +1341,13 @@ start_server {tags {"zset"}} {
                 if {$maxinc} {set cmax "\[$max"} else {set cmax "($max"}
 
                 # Make sure data is the same in both sides
-                assert {[r zrange zset 0 -1] eq $lexset}
+                assert {[r zrange zset{t} 0 -1] eq $lexset}
 
                 # Get the range we are going to remove
-                set torem [r zrangebylex zset $cmin $cmax]
-                set toremlen [r zlexcount zset $cmin $cmax]
-                r zremrangebylex zsetcopy $cmin $cmax
-                set output [r zrange zsetcopy 0 -1]
+                set torem [r zrangebylex zset{t} $cmin $cmax]
+                set toremlen [r zlexcount zset{t} $cmin $cmax]
+                r zremrangebylex zsetcopy{t} $cmin $cmax
+                set output [r zrange zsetcopy{t} 0 -1]
 
                 # Remove the range with Tcl from the original list
                 if {$toremlen} {
@@ -1434,23 +1437,23 @@ start_server {tags {"zset"}} {
 
         test "BZPOPMIN with same key multiple times should work" {
             set rd [redis_deferring_client]
-            r del z1 z2
+            r del z1{t} z2{t}
 
             # Data arriving after the BZPOPMIN.
-            $rd bzpopmin z1 z2 z2 z1 0
-            r zadd z1 0 a
-            assert_equal [$rd read] {z1 a 0}
-            $rd bzpopmin z1 z2 z2 z1 0
-            r zadd z2 1 b
-            assert_equal [$rd read] {z2 b 1}
+            $rd bzpopmin z1{t} z2{t} z2{t} z1{t} 0
+            r zadd z1{t} 0 a
+            assert_equal [$rd read] {z1{t} a 0}
+            $rd bzpopmin z1{t} z2{t} z2{t} z1{t} 0
+            r zadd z2{t} 1 b
+            assert_equal [$rd read] {z2{t} b 1}
 
             # Data already there.
-            r zadd z1 0 a
-            r zadd z2 1 b
-            $rd bzpopmin z1 z2 z2 z1 0
-            assert_equal [$rd read] {z1 a 0}
-            $rd bzpopmin z1 z2 z2 z1 0
-            assert_equal [$rd read] {z2 b 1}
+            r zadd z1{t} 0 a
+            r zadd z2{t} 1 b
+            $rd bzpopmin z1{t} z2{t} z2{t} z1{t} 0
+            assert_equal [$rd read] {z1{t} a 0}
+            $rd bzpopmin z1{t} z2{t} z2{t} z1{t} 0
+            assert_equal [$rd read] {z2{t} b 1}
         }
 
         test "MULTI/EXEC is isolated from the point of view of BZPOPMIN" {
@@ -1522,89 +1525,89 @@ start_server {tags {"zset"}} {
 
     test {ZRANGESTORE basic} {
         r flushall
-        r zadd z1 1 a 2 b 3 c 4 d
-        set res [r zrangestore z2 z1 0 -1]
+        r zadd z1{t} 1 a 2 b 3 c 4 d
+        set res [r zrangestore z2{t} z1{t} 0 -1]
         assert_equal $res 4
-        r zrange z2 0 -1 withscores
+        r zrange z2{t} 0 -1 withscores
     } {a 1 b 2 c 3 d 4}
 
     test {ZRANGESTORE RESP3} {
         r hello 3
-        r zrange z2 0 -1 withscores
-    } {{a 1.0} {b 2.0} {c 3.0} {d 4.0}}
-    r hello 2
+        assert_equal [r zrange z2{t} 0 -1 withscores] {{a 1.0} {b 2.0} {c 3.0} {d 4.0}}
+        r hello 2
+    } 
 
     test {ZRANGESTORE range} {
-        set res [r zrangestore z2 z1 1 2]
+        set res [r zrangestore z2{t} z1{t} 1 2]
         assert_equal $res 2
-        r zrange z2 0 -1 withscores
+        r zrange z2{t} 0 -1 withscores
     } {b 2 c 3}
 
     test {ZRANGESTORE BYLEX} {
-        set res [r zrangestore z2 z1 \[b \[c BYLEX]
+        set res [r zrangestore z2{t} z1{t} \[b \[c BYLEX]
         assert_equal $res 2
-        r zrange z2 0 -1 withscores
+        r zrange z2{t} 0 -1 withscores
     } {b 2 c 3}
 
     test {ZRANGESTORE BYSCORE} {
-        set res [r zrangestore z2 z1 1 2 BYSCORE]
+        set res [r zrangestore z2{t} z1{t} 1 2 BYSCORE]
         assert_equal $res 2
-        r zrange z2 0 -1 withscores
+        r zrange z2{t} 0 -1 withscores
     } {a 1 b 2}
 
     test {ZRANGESTORE BYSCORE LIMIT} {
-        set res [r zrangestore z2 z1 0 5 BYSCORE LIMIT 0 2]
+        set res [r zrangestore z2{t} z1{t} 0 5 BYSCORE LIMIT 0 2]
         assert_equal $res 2
-        r zrange z2 0 -1 withscores
+        r zrange z2{t} 0 -1 withscores
     } {a 1 b 2}
 
     test {ZRANGESTORE BYSCORE REV LIMIT} {
-        set res [r zrangestore z2 z1 5 0 BYSCORE REV LIMIT 0 2]
+        set res [r zrangestore z2{t} z1{t} 5 0 BYSCORE REV LIMIT 0 2]
         assert_equal $res 2
-        r zrange z2 0 -1 withscores
+        r zrange z2{t} 0 -1 withscores
     } {c 3 d 4}
 
     test {ZRANGE BYSCORE REV LIMIT} {
-        r zrange z1 5 0 BYSCORE REV LIMIT 0 2 WITHSCORES
+        r zrange z1{t} 5 0 BYSCORE REV LIMIT 0 2 WITHSCORES
     } {d 4 c 3}
 
     test {ZRANGESTORE - empty range} {
-        set res [r zrangestore z2 z1 5 6]
+        set res [r zrangestore z2{t} z1{t} 5 6]
         assert_equal $res 0
-        r exists z2
+        r exists z2{t}
     } {0}
 
     test {ZRANGESTORE BYLEX - empty range} {
-        set res [r zrangestore z2 z1 \[f \[g BYLEX]
+        set res [r zrangestore z2{t} z1{t} \[f \[g BYLEX]
         assert_equal $res 0
-        r exists z2
+        r exists z2{t}
     } {0}
 
     test {ZRANGESTORE BYSCORE - empty range} {
-        set res [r zrangestore z2 z1 5 6 BYSCORE]
+        set res [r zrangestore z2{t} z1{t} 5 6 BYSCORE]
         assert_equal $res 0
-        r exists z2
+        r exists z2{t}
     } {0}
 
     test {ZRANGE BYLEX} {
-        r zrange z1 \[b \[c BYLEX
+        r zrange z1{t} \[b \[c BYLEX
     } {b c}
 
     test {ZRANGESTORE invalid syntax} {
-        catch {r zrangestore z2 z1 0 -1 limit 1 2} err
+        catch {r zrangestore z2{t} z1{t} 0 -1 limit 1 2} err
         assert_match "*syntax*" $err
-        catch {r zrangestore z2 z1 0 -1 WITHSCORES} err
+        catch {r zrangestore z2{t} z1{t} 0 -1 WITHSCORES} err
         assert_match "*syntax*" $err
     }
 
     test {ZRANGE invalid syntax} {
-        catch {r zrange z1 0 -1 limit 1 2} err
+        catch {r zrange z1{t} 0 -1 limit 1 2} err
         assert_match "*syntax*" $err
-        catch {r zrange z1 0 -1 BYLEX WITHSCORES} err
+        catch {r zrange z1{t} 0 -1 BYLEX WITHSCORES} err
         assert_match "*syntax*" $err
-        catch {r zrevrange z1 0 -1 BYSCORE} err
+        catch {r zrevrange z1{t} 0 -1 BYSCORE} err
         assert_match "*syntax*" $err
-        catch {r zrangebyscore z1 0 -1 REV} err
+        catch {r zrangebyscore z1{t} 0 -1 REV} err
         assert_match "*syntax*" $err
     }
 
@@ -1643,8 +1646,8 @@ start_server {tags {"zset"}} {
         set res [r zrandmember myzset 3]
         assert_equal [llength $res] 3
         assert_equal [llength [lindex $res 1]] 1
+        r hello 2
     }
-    r hello 2
 
     test "ZRANDMEMBER count of 0 is handled correctly" {
         r zrandmember myzset 0

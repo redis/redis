@@ -96,7 +96,9 @@ start_server {tags {"expire"}} {
         # server is under pressure, so if it does not work give it a few more
         # chances.
         for {set j 0} {$j < 30} {incr j} {
-            r del x y z
+            r del x
+            r del y
+            r del z
             r psetex x 100 somevalue
             after 80
             set a [r get x]
@@ -172,32 +174,34 @@ start_server {tags {"expire"}} {
         r psetex key1 500 a
         r psetex key2 500 a
         r psetex key3 500 a
-        set size1 [r dbsize]
+        assert_equal 3 [r dbsize]
         # Redis expires random keys ten times every second so we are
         # fairly sure that all the three keys should be evicted after
-        # one second.
-        after 1000
-        set size2 [r dbsize]
-        list $size1 $size2
-    } {3 0}
+        # two seconds.
+        wait_for_condition 20 100 {
+            [r dbsize] eq 0
+        } fail {
+            "Keys did not actively expire."
+        }
+    }
 
     test {Redis should lazy expire keys} {
         r flushdb
         r debug set-active-expire 0
-        r psetex key1 500 a
-        r psetex key2 500 a
-        r psetex key3 500 a
+        r psetex key1{t} 500 a
+        r psetex key2{t} 500 a
+        r psetex key3{t} 500 a
         set size1 [r dbsize]
         # Redis expires random keys ten times every second so we are
         # fairly sure that all the three keys should be evicted after
         # one second.
         after 1000
         set size2 [r dbsize]
-        r mget key1 key2 key3
+        r mget key1{t} key2{t} key3{t}
         set size3 [r dbsize]
         r debug set-active-expire 1
         list $size1 $size2 $size3
-    } {3 3 0}
+    } {3 3 0} {needs:debug}
 
     test {EXPIRE should not resurrect keys (issue #1026)} {
         r debug set-active-expire 0
@@ -207,7 +211,7 @@ start_server {tags {"expire"}} {
         r expire foo 10
         r debug set-active-expire 1
         r exists foo
-    } {0}
+    } {0} {needs:debug}
 
     test {5 keys in, 5 keys out} {
         r flushdb
@@ -279,7 +283,7 @@ start_server {tags {"expire"}} {
     } {-2}
 
     # Start a new server with empty data and AOF file.
-    start_server {overrides {appendonly {yes} appendfilename {appendonly.aof} appendfsync always}} {
+    start_server {overrides {appendonly {yes} appendfilename {appendonly.aof} appendfsync always} tags {external:skip}} {
         test {All time-to-live(TTL) in commands are propagated as absolute timestamp in milliseconds in AOF} {
             # This test makes sure that expire times are propagated as absolute
             # times to the AOF file and not as relative time, so that when the AOF
@@ -417,7 +421,7 @@ start_server {tags {"expire"}} {
             assert_equal [r pexpiretime foo16] "-1" ; # foo16 has no TTL
             assert_equal [r pexpiretime foo17] $ttl17
             assert_equal [r pexpiretime foo18] $ttl18
-        }
+        } {} {needs:debug}
     }
 
     test {All TTL in commands are propagated as absolute timestamp in replication stream} {
@@ -484,7 +488,7 @@ start_server {tags {"expire"}} {
     }
 
     # Start another server to test replication of TTLs
-    start_server {} {
+    start_server {tags {needs:repl external:skip}} {
         # Set the outer layer server as primary
         set primary [srv -1 client]
         set primary_host [srv -1 host]
@@ -566,7 +570,7 @@ start_server {tags {"expire"}} {
         r debug loadaof
         set ttl [r ttl foo]
         assert {$ttl <= 98 && $ttl > 90}
-    }
+    } {} {needs:debug}
 
     test {GETEX use of PERSIST option should remove TTL} {
        r set foo bar EX 100
@@ -580,7 +584,7 @@ start_server {tags {"expire"}} {
        after 2000
        r debug loadaof
        r ttl foo
-    } {-1}
+    } {-1} {needs:debug}
 
     test {GETEX propagate as to replica as PERSIST, DEL, or nothing} {
        set repl [attach_to_replication_stream]
@@ -594,5 +598,5 @@ start_server {tags {"expire"}} {
            {persist foo}
            {del foo}
         }
-    }
+    } {} {needs:repl}
 }

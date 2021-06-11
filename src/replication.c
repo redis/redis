@@ -789,7 +789,7 @@ void syncCommand(client *c) {
 
             /* Increment stats for failed PSYNCs, but only if the
              * replid is not "?", as this is used by slaves to force a full
-             * resync on purpose when they are not albe to partially
+             * resync on purpose when they are not able to partially
              * resync. */
             if (master_replid[0] != '?') server.stat_sync_partial_err++;
         }
@@ -870,7 +870,7 @@ void syncCommand(client *c) {
          * in order to synchronize. */
         serverLog(LL_NOTICE,"Current BGSAVE has socket target. Waiting for next BGSAVE for SYNC");
 
-    /* CASE 3: There is no BGSAVE is progress. */
+    /* CASE 3: There is no BGSAVE is in progress. */
     } else {
         if (server.repl_diskless_sync && (c->slave_capa & SLAVE_CAPA_EOF) &&
             server.repl_diskless_sync_delay)
@@ -1234,7 +1234,7 @@ void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData,
             }
             serverLog(LL_WARNING,"Diskless rdb transfer, done reading from pipe, %d replicas still up.", stillUp);
             /* Now that the replicas have finished reading, notify the child that it's safe to exit. 
-             * When the server detectes the child has exited, it can mark the replica as online, and
+             * When the server detects the child has exited, it can mark the replica as online, and
              * start streaming the replication buffers. */
             close(server.rdb_child_exit_pipe);
             server.rdb_child_exit_pipe = -1;
@@ -1336,7 +1336,7 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
                  *
                  * So things work like that:
                  *
-                 * 1. We end trasnferring the RDB file via socket.
+                 * 1. We end transferring the RDB file via socket.
                  * 2. The replica is put ONLINE but the write handler
                  *    is not installed.
                  * 3. The replica however goes really online, and pings us
@@ -1351,7 +1351,7 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
                  * in advance). Detecting such final EOF string is much
                  * simpler and less CPU intensive if no more data is sent
                  * after such final EOF. So we don't want to glue the end of
-                 * the RDB trasfer with the start of the other replication
+                 * the RDB transfer with the start of the other replication
                  * data. */
                 slave->replstate = SLAVE_STATE_ONLINE;
                 slave->repl_put_online_on_ack = 1;
@@ -1717,7 +1717,7 @@ void readSyncBulkPayload(connection *conn) {
      *    such case we want just to read the RDB file in memory. */
     serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Flushing old data");
 
-    /* We need to stop any AOF rewriting child before flusing and parsing
+    /* We need to stop any AOF rewriting child before flushing and parsing
      * the RDB, otherwise we'll create a copy-on-write disaster. */
     if (server.aof_state != AOF_OFF) stopAppendOnly();
 
@@ -2408,7 +2408,7 @@ void syncWithMaster(connection *conn) {
         server.repl_state = REPL_STATE_SEND_PSYNC;
     }
 
-    /* Try a partial resynchonization. If we don't have a cached master
+    /* Try a partial resynchronization. If we don't have a cached master
      * slaveTryPartialResynchronization() will at least try to use PSYNC
      * to start a full resynchronization so that we get the master replid
      * and the global offset, to try a partial resync at the next
@@ -2901,7 +2901,7 @@ void replicationCacheMaster(client *c) {
     unlinkClient(c);
 
     /* Reset the master client so that's ready to accept new commands:
-     * we want to discard te non processed query buffers and non processed
+     * we want to discard the non processed query buffers and non processed
      * offsets, including pending transactions, already populated arguments,
      * pending outputs to the master. */
     sdsclear(server.master->querybuf);
@@ -2935,13 +2935,13 @@ void replicationCacheMaster(client *c) {
     replicationHandleMasterDisconnection();
 }
 
-/* This function is called when a master is turend into a slave, in order to
+/* This function is called when a master is turned into a slave, in order to
  * create from scratch a cached master for the new client, that will allow
  * to PSYNC with the slave that was promoted as the new master after a
  * failover.
  *
  * Assuming this instance was previously the master instance of the new master,
- * the new master will accept its replication ID, and potentiall also the
+ * the new master will accept its replication ID, and potential also the
  * current offset if no data was lost during the failover. So we use our
  * current replication ID and offset in order to synthesize a cached master. */
 void replicationCacheMasterUsingMyself(void) {

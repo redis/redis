@@ -67,7 +67,7 @@ start_server {tags {"lazyfree"}} {
             fail "lazyfree isn't done"
         }
         assert_equal [s lazyfreed_objects] 1
-    }
+    } {} {needs:config-resetstat}
 
     test "lazy free a stream with deleted cgroup" {
         r config resetstat
@@ -83,5 +83,5 @@ start_server {tags {"lazyfree"}} {
             fail "lazyfree isn't done"
         }
         assert_equal [s lazyfreed_objects] 0
-    }
+    } {} {needs:config-resetstat}
 }

@@ -128,7 +128,7 @@ void rdbCheckError(const char *fmt, ...) {
     rdbShowGenericInfo();
 }
 
-/* Print informations during RDB checking. */
+/* Print information during RDB checking. */
 void rdbCheckInfo(const char *fmt, ...) {
     char msg[1024];
     va_list ap;
@@ -265,7 +265,7 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
         } else if (type == RDB_OPCODE_AUX) {
             /* AUX: generic string-string fields. Use to add state to RDB
              * which is backward compatible. Implementations of RDB loading
-             * are requierd to skip AUX fields they don't understand.
+             * are required to skip AUX fields they don't understand.
              *
              * An AUX field is composed of two strings: key and value. */
             robj *auxkey, *auxval;

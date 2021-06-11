@@ -295,7 +295,7 @@ robj *dbRandomKey(redisDb *db) {
                  * it could happen that all the keys are already logically
                  * expired in the slave, so the function cannot stop because
                  * expireIfNeeded() is false, nor it can stop because
-                 * dictGetRandomKey() returns NULL (there are keys to return).
+                 * dictGetFairRandomKey() returns NULL (there are keys to return).
                  * To prevent the infinite loop we do some tries, but if there
                  * are the conditions for an infinite loop, eventually we
                  * return a key name that may be already expired. */
