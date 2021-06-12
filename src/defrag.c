@@ -1144,7 +1144,6 @@ void activeDefragCycle(void) {
 
                 start_scan = now;
                 current_db = -1;
-                cursor = 0;
                 db = NULL;
                 server.active_defrag_running = 0;
 
@@ -1160,7 +1159,6 @@ void activeDefragCycle(void) {
             }
 
             db = &server.db[current_db];
-            cursor = 0;
         }
 
         do {
