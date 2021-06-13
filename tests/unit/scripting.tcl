@@ -741,3 +741,17 @@ start_server {tags {"scripting repl"}} {
     }
 }
 
+start_server {tags {"scripting"}} {
+    test {Test scripting debug protocol parsing} {
+        r script debug sync
+        r eval {return 'hello'} 0
+        catch {r 'hello\0world'} e
+        assert_match {*Unknown Redis Lua debugger command*} $e
+        catch {r 'hello\0'} e
+        assert_match {*Unknown Redis Lua debugger command*} $e
+        catch {r '\0hello'} e
+        assert_match {*Unknown Redis Lua debugger command*} $e
+        catch {r '\0hello\0'} e
+        assert_match {*Unknown Redis Lua debugger command*} $e
+    }
+}
