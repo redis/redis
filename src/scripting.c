@@ -129,6 +129,16 @@ void sha1hex(char *digest, char *script, size_t len) {
  */
 
 char *redisProtocolToLuaType(lua_State *lua, char* reply) {
+
+    if (!lua_checkstack(lua, 5)) {
+        /*
+         * Increase the Lua stack if needed, to make sure there is enough room
+         * to push 5 elements to the stack. On failure, exit with panic.
+         * Notice that we need, in the worst case, 5 elements because redisProtocolToLuaType_Aggregate
+         * might push 5 elements to the Lua stack.*/
+        serverPanic("lua stack limit reach when parsing redis.call reply");
+    }
+
     char *p = reply;
 
     switch(*p) {
@@ -221,6 +231,11 @@ char *redisProtocolToLuaType_Aggregate(lua_State *lua, char *reply, int atype) {
             if (atype == '%') {
                 p = redisProtocolToLuaType(lua,p);
             } else {
+                if (!lua_checkstack(lua, 1)) {
+                    /* Notice that here we need to check the stack again because the recursive
+                     * call to redisProtocolToLuaType might have use the room allocated in the stack */
+                    serverPanic("lua stack limit reach when parsing redis.call reply");
+                }
                 lua_pushboolean(lua,1);
             }
             lua_settable(lua,-3);
@@ -340,6 +355,17 @@ void luaSortArray(lua_State *lua) {
 /* Reply to client 'c' converting the top element in the Lua stack to a
  * Redis reply. As a side effect the element is consumed from the stack.  */
 void luaReplyToRedisReply(client *c, lua_State *lua) {
+
+    if (!lua_checkstack(lua, 4)) {
+        /* Increase the Lua stack if needed to make sure there is enough room
+         * to push 4 elements to the stack. On failure, return error.
+         * Notice that we need, in the worst case, 4 elements because returning a map might
+         * require push 4 elements to the Lua stack.*/
+        addReplyErrorFormat(c, "reached lua stack limit");
+        lua_pop(lua,1); /* pop the element from the stack */
+        return;
+    }
+
     int t = lua_type(lua,-1);
 
     switch(t) {
@@ -363,6 +389,7 @@ void luaReplyToRedisReply(client *c, lua_State *lua) {
          * field. */
 
         /* Handle error reply. */
+        /* we took care of the stack size on function start */
         lua_pushstring(lua,"err");
         lua_gettable(lua,-2);
         t = lua_type(lua,-1);
@@ -405,6 +432,7 @@ void luaReplyToRedisReply(client *c, lua_State *lua) {
         if (t == LUA_TTABLE) {
             int maplen = 0;
             void *replylen = addReplyDeferredLen(c);
+            /* we took care of the stack size on function start */
             lua_pushnil(lua); /* Use nil to start iteration. */
             while (lua_next(lua,-2)) {
                 /* Stack now: table, key, value */
@@ -427,6 +455,7 @@ void luaReplyToRedisReply(client *c, lua_State *lua) {
         if (t == LUA_TTABLE) {
             int setlen = 0;
             void *replylen = addReplyDeferredLen(c);
+            /* we took care of the stack size on function start */
             lua_pushnil(lua); /* Use nil to start iteration. */
             while (lua_next(lua,-2)) {
                 /* Stack now: table, key, true */
@@ -446,6 +475,7 @@ void luaReplyToRedisReply(client *c, lua_State *lua) {
         void *replylen = addReplyDeferredLen(c);
         int j = 1, mbulklen = 0;
         while(1) {
+            /* we took care of the stack size on function start */
             lua_pushnumber(lua,j++);
             lua_gettable(lua,-2);
             t = lua_type(lua,-1);
@@ -2560,6 +2590,17 @@ void ldbEval(lua_State *lua, sds *argv, int argc) {
  * and its reply are logged. */
 void ldbRedis(lua_State *lua, sds *argv, int argc) {
     int j, saved_rc = server.lua_replicate_commands;
+
+    if (!lua_checkstack(lua, argc + 1)) {
+        /* Increase the Lua stack if needed to make sure there is enough room
+         * to push 'argc + 1' elements to the stack. On failure, return error.
+         * Notice that we need, in worst case, 'argc + 1' elements because we push all the arguments
+         * given by the user (without the first argument) and we also push the 'redis' global table and
+         * 'redis.call' function so:
+         * (1 (redis table)) + (1 (redis.call function)) + (argc - 1 (all arguments without the first)) = argc + 1*/
+        ldbLogRedisReply("max lua stack reached");
+        return;
+    }
 
     lua_getglobal(lua,"redis");
     lua_pushstring(lua,"call");
