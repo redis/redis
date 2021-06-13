@@ -572,10 +572,10 @@ int performEvictions(void) {
                     bestdbid = pool[k].dbid;
 
                     if (server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS) {
-                        de = dictFind(server.db[pool[k].dbid].dict,
+                        de = dictFind(server.db[bestdbid].dict,
                             pool[k].key);
                     } else {
-                        de = dictFind(server.db[pool[k].dbid].expires,
+                        de = dictFind(server.db[bestdbid].expires,
                             pool[k].key);
                     }
 
