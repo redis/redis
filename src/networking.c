@@ -2163,8 +2163,11 @@ void readQueryFromClient(connection *conn) {
     qblen = sdslen(c->querybuf);
     if (c->querybuf_peak < qblen) c->querybuf_peak = qblen;
     if (big_arg || sdsalloc(c->querybuf) < PROTO_IOBUF_LEN) {
-        /* When BIG_ARG is detected or when query buffer does not exceed its
-         * initial size, We will make room for query buffer non-greedily. */
+        /* When reading a BIG_ARG we won't be reading more than that one arg
+         * into the query buffer, so we don't need to pre-allocate more than we
+         * need, so using the non-greedy growing. For an initial allocation of
+         * the query buffer, we also don't wanna use the greedy growth, in order
+         * to avoid collision with the RESIZE_THRESHOLD mechanism. */
         c->querybuf = sdsMakeRoomForNonGreedy(c->querybuf, readlen);
     } else {
         c->querybuf = sdsMakeRoomFor(c->querybuf, readlen);
