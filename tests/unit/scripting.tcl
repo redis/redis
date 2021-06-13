@@ -935,6 +935,21 @@ start_server {tags {"scripting external:skip"}} {
     r eval {return 'hello'} 0
 }
 
+start_server {tags {"scripting needs:debug external:skip"}} {
+    test {Test scripting debug protocol parsing} {
+        r script debug sync
+        r eval {return 'hello'} 0
+        catch {r 'hello\0world'} e
+        assert_match {*Unknown Redis Lua debugger command*} $e
+        catch {r 'hello\0'} e
+        assert_match {*Unknown Redis Lua debugger command*} $e
+        catch {r '\0hello'} e
+        assert_match {*Unknown Redis Lua debugger command*} $e
+        catch {r '\0hello\0'} e
+        assert_match {*Unknown Redis Lua debugger command*} $e
+    }
+}
+
 start_server {tags {"scripting resp3 needs:debug"}} {
     r debug set-disable-deny-scripts 1
     for {set i 2} {$i <= 3} {incr i} {
