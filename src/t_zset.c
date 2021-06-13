@@ -3825,9 +3825,10 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
     /* We emit the key only for the blocking variant. */
     if (emitkey) addReplyBulk(c,key);
 
-    /* Respond with a single array in RESP2 and nested arrays in RESP3.
-     * Even in RESP3, use a single array when blocking or when no 'count' argument.  */
-    int use_nested_array = (c->resp > 2 && emitkey == 0 && countarg != NULL);
+    /* Respond with a single (flat) array in RESP2 or if countarg is not
+     * provided (returning a single element). In RESP3, when countarg is
+     * provided, use nested array.  */
+    int use_nested_array = c->resp > 2 && countarg != NULL;
 
     /* Remove the element. */
     do {
