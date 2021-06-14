@@ -551,11 +551,9 @@ NULL
         emptyDb(-1,EMPTYDB_NO_FLAGS,NULL);
         protectClient(c);
         int ret = loadAppendOnlyFile(server.aof_filename);
+        if (ret != AOF_OK && ret != AOF_EMPTY)
+            exit(1);
         unprotectClient(c);
-        if (ret != C_OK) {
-            addReplyErrorObject(c,shared.err);
-            return;
-        }
         server.dirty = 0; /* Prevent AOF / replication */
         serverLog(LL_WARNING,"Append Only File loaded by DEBUG LOADAOF");
         addReply(c,shared.ok);

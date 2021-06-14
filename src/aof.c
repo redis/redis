@@ -700,9 +700,12 @@ void freeFakeClient(struct client *c) {
     zfree(c);
 }
 
-/* Replay the append log file. On success C_OK is returned. On non fatal
- * error (the append only file is zero-length) C_ERR is returned. On
- * fatal error an error message is logged and the program exists. */
+/* Replay the append log file. On success AOF_OK is returned,
+ * otherwise, one of the following is returned:
+ * AOF_OPEN_ERR: Failed to open the AOF file.
+ * AOF_NOT_EXIST: AOF file doesn't exist.
+ * AOF_EMPTY: The AOF file is empty (nothing to load).
+ * AOF_FAILED: Failed to load the AOF file. */
 int loadAppendOnlyFile(char *filename) {
     struct client *fakeClient;
     FILE *fp = fopen(filename,"r");
@@ -711,10 +714,17 @@ int loadAppendOnlyFile(char *filename) {
     long loops = 0;
     off_t valid_up_to = 0; /* Offset of latest well-formed command loaded. */
     off_t valid_before_multi = 0; /* Offset before MULTI command loaded. */
+    int ret;
 
     if (fp == NULL) {
-        serverLog(LL_WARNING,"Fatal error: can't open the append log file for reading: %s",strerror(errno));
-        exit(1);
+        int en = errno;
+        if (redis_stat(filename, &sb) == 0) {
+            serverLog(LL_WARNING,"Fatal error: can't open the append log file for reading: %s",strerror(en));
+            return AOF_OPEN_ERR;
+        } else {
+            serverLog(LL_WARNING,"The append log file doesn't exist: %s",strerror(errno));
+            return AOF_NOT_EXIST;
+        }
     }
 
     /* Handle a zero-length AOF file as a special case. An empty AOF file
@@ -725,7 +735,7 @@ int loadAppendOnlyFile(char *filename) {
         server.aof_current_size = 0;
         server.aof_fsync_offset = server.aof_current_size;
         fclose(fp);
-        return C_ERR;
+        return AOF_EMPTY;
     }
 
     /* Temporarily disable AOF, to prevent EXEC from feeding a MULTI
@@ -826,7 +836,9 @@ int loadAppendOnlyFile(char *filename) {
             serverLog(LL_WARNING,
                 "Unknown command '%s' reading the append only file",
                 (char*)argv[0]->ptr);
-            exit(1);
+            freeFakeClientArgv(fakeClient);
+            ret = AOF_FAILED;
+            goto cleanup;
         }
 
         if (cmd == server.multiCommand) valid_before_multi = valid_up_to;
@@ -869,21 +881,18 @@ int loadAppendOnlyFile(char *filename) {
     }
 
 loaded_ok: /* DB loaded, cleanup and return C_OK to the caller. */
-    fclose(fp);
-    freeFakeClient(fakeClient);
     server.aof_state = old_aof_state;
-    stopLoading(1);
     aofUpdateCurrentSize();
     server.aof_rewrite_base_size = server.aof_current_size;
     server.aof_fsync_offset = server.aof_current_size;
-    return C_OK;
+    ret = AOF_OK;
+    goto cleanup;
 
 readerr: /* Read error. If feof(fp) is true, fall through to unexpected EOF. */
     if (!feof(fp)) {
-        if (fakeClient) freeFakeClient(fakeClient); /* avoid valgrind warning */
-        fclose(fp);
         serverLog(LL_WARNING,"Unrecoverable error reading the append only file: %s", strerror(errno));
-        exit(1);
+        ret = AOF_FAILED;
+        goto cleanup;
     }
 
 uxeof: /* Unexpected AOF end of file. */
@@ -911,16 +920,20 @@ uxeof: /* Unexpected AOF end of file. */
             }
         }
     }
-    if (fakeClient) freeFakeClient(fakeClient); /* avoid valgrind warning */
-    fclose(fp);
     serverLog(LL_WARNING,"Unexpected end of file reading the append only file. You can: 1) Make a backup of your AOF file, then use ./redis-check-aof --fix <filename>. 2) Alternatively you can set the 'aof-load-truncated' configuration option to yes and restart the server.");
-    exit(1);
+    ret = AOF_FAILED;
+    goto cleanup;
 
 fmterr: /* Format error. */
+    serverLog(LL_WARNING,"Bad file format reading the append only file: make a backup of your AOF file, then use ./redis-check-aof --fix <filename>");
+    ret = AOF_FAILED;
+    /* fall through to cleanup. */
+
+cleanup:
     if (fakeClient) freeFakeClient(fakeClient); /* avoid valgrind warning */
     fclose(fp);
-    serverLog(LL_WARNING,"Bad file format reading the append only file: make a backup of your AOF file, then use ./redis-check-aof --fix <filename>");
-    exit(1);
+    stopLoading(ret == AOF_OK);
+    return ret;
 }
 
 /* ----------------------------------------------------------------------------

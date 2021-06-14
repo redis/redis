@@ -3342,17 +3342,6 @@ void initServer(void) {
     aeSetBeforeSleepProc(server.el,beforeSleep);
     aeSetAfterSleepProc(server.el,afterSleep);
 
-    /* Open the AOF file if needed. */
-    if (server.aof_state == AOF_ON) {
-        server.aof_fd = open(server.aof_filename,
-                               O_WRONLY|O_APPEND|O_CREAT,0644);
-        if (server.aof_fd == -1) {
-            serverLog(LL_WARNING, "Can't open the append-only file: %s",
-                strerror(errno));
-            exit(1);
-        }
-    }
-
     /* 32 bit instances are limited to 4GB of address space, so if there is
      * no explicit limit in the user provided configuration we set a limit
      * at 3 GB using maxmemory with 'noeviction' policy'. This avoids
@@ -5936,7 +5925,11 @@ int checkForSentinelMode(int argc, char **argv) {
 void loadDataFromDisk(void) {
     long long start = ustime();
     if (server.aof_state == AOF_ON) {
-        if (loadAppendOnlyFile(server.aof_filename) == C_OK)
+        /* It's not a failure if the file is empty or doesn't exist (later we will create it) */
+        int ret = loadAppendOnlyFile(server.aof_filename);
+        if (ret == AOF_FAILED || ret == AOF_OPEN_ERR)
+            exit(1);
+        if (ret == AOF_OK)
             serverLog(LL_NOTICE,"DB loaded from append only file: %.3f seconds",(float)(ustime()-start)/1000000);
     } else {
         rdbSaveInfo rsi = RDB_SAVE_INFO_INIT;
@@ -6370,6 +6363,16 @@ int main(int argc, char **argv) {
         ACLLoadUsersAtStartup();
         InitServerLast();
         loadDataFromDisk();
+        /* Open the AOF file if needed. */
+        if (server.aof_state == AOF_ON) {
+            server.aof_fd = open(server.aof_filename,
+                                 O_WRONLY|O_APPEND|O_CREAT,0644);
+            if (server.aof_fd == -1) {
+                serverLog(LL_WARNING, "Can't open the append-only file: %s",
+                          strerror(errno));
+                exit(1);
+            }
+        }
         if (server.cluster_enabled) {
             if (verifyClusterConfigWithData() == C_ERR) {
                 serverLog(LL_WARNING,
