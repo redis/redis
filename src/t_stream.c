@@ -3458,12 +3458,7 @@ void xinfoCommand(client *c) {
     robj *key;
 
     /* HELP is special. Handle it ASAP. */
-    if (!strcasecmp(c->argv[1]->ptr,"HELP")) {
-        if (c->argc != 2) {
-            addReplySubcommandSyntaxError(c);
-            return;
-        }
-
+    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"HELP")) {
         const char *help[] = {
 "CONSUMERS <key> <groupname>",
 "    Show consumers of <groupname>.",
