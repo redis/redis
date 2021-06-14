@@ -3454,8 +3454,6 @@ void xinfoReplyWithStreamInfo(client *c, stream *s) {
  * XINFO HELP. */
 void xinfoCommand(client *c) {
     stream *s = NULL;
-    char *opt;
-    robj *key;
 
     /* HELP is special. Handle it ASAP. */
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"HELP")) {
@@ -3470,29 +3468,17 @@ NULL
         };
         addReplyHelp(c, help);
         return;
-    } else if (c->argc < 3) {
-        addReplySubcommandSyntaxError(c);
-        return;
-    }
-
-    /* With the exception of HELP handled before any other sub commands, all
-     * the ones are in the form of "<subcommand> <key>". */
-    opt = c->argv[1]->ptr;
-    key = c->argv[2];
-
-    /* Lookup the key now, this is common for all the subcommands but HELP. */
-    robj *o = lookupKeyReadOrReply(c,key,shared.nokeyerr);
-    if (o == NULL || checkType(c,o,OBJ_STREAM)) return;
-    s = o->ptr;
-
-    /* Dispatch the different subcommands. */
-    if (!strcasecmp(opt,"CONSUMERS") && c->argc == 4) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"CONSUMERS") && c->argc == 4) {
         /* XINFO CONSUMERS <key> <group>. */
+        robj *o = lookupKeyReadOrReply(c,c->argv[2],shared.nokeyerr);
+        if (o == NULL || checkType(c,o,OBJ_STREAM)) return;
+        s = o->ptr;
+
         streamCG *cg = streamLookupCG(s,c->argv[3]->ptr);
         if (cg == NULL) {
             addReplyErrorFormat(c, "-NOGROUP No such consumer group '%s' "
                                    "for key name '%s'",
-                                   (char*)c->argv[3]->ptr, (char*)key->ptr);
+                                   (char*)c->argv[3]->ptr, (char*)c->argv[2]->ptr);
             return;
         }
 
@@ -3515,8 +3501,12 @@ NULL
             addReplyLongLong(c,idle);
         }
         raxStop(&ri);
-    } else if (!strcasecmp(opt,"GROUPS") && c->argc == 3) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"GROUPS") && c->argc == 3) {
         /* XINFO GROUPS <key>. */
+        robj *o = lookupKeyReadOrReply(c,c->argv[2],shared.nokeyerr);
+        if (o == NULL || checkType(c,o,OBJ_STREAM)) return;
+        s = o->ptr;
+
         if (s->cgroups == NULL) {
             addReplyArrayLen(c,0);
             return;
@@ -3539,8 +3529,12 @@ NULL
             addReplyStreamID(c,&cg->last_id);
         }
         raxStop(&ri);
-    } else if (!strcasecmp(opt,"STREAM")) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"STREAM") && c->argc >= 3) {
         /* XINFO STREAM <key> [FULL [COUNT <count>]]. */
+        robj *o = lookupKeyReadOrReply(c,c->argv[2],shared.nokeyerr);
+        if (o == NULL || checkType(c,o,OBJ_STREAM)) return;
+        s = o->ptr;
+
         xinfoReplyWithStreamInfo(c,s);
     } else {
         addReplySubcommandSyntaxError(c);
