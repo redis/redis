@@ -2132,8 +2132,9 @@ void processInputBuffer(client *c) {
 
 void readQueryFromClient(connection *conn) {
     client *c = connGetPrivateData(conn);
-    int nread, readlen, big_arg = 0;
-    size_t qblen;
+    size_t qblen, readlen;
+    ssize_t nread;
+    int big_arg = 0;
 
     /* Check if we want to read from the client later when exiting from
      * the event loop. This is the case if threaded I/O is enabled. */
@@ -2157,7 +2158,7 @@ void readQueryFromClient(connection *conn) {
 
         /* Note that the 'remaining' variable may be zero in some edge case,
          * for example once we resume a blocked client after CLIENT PAUSE. */
-        if (remaining > 0 && remaining < readlen) readlen = remaining;
+        if (remaining > 0 && (size_t)remaining < readlen) readlen = remaining;
     }
 
     qblen = sdslen(c->querybuf);
@@ -2171,6 +2172,9 @@ void readQueryFromClient(connection *conn) {
         c->querybuf = sdsMakeRoomForNonGreedy(c->querybuf, readlen);
     } else {
         c->querybuf = sdsMakeRoomFor(c->querybuf, readlen);
+
+        /* Read as much as possible from the socket to save read(2) system calls. */
+        readlen = sdsavail(c->querybuf);
     }
     nread = connRead(c->conn, c->querybuf+qblen, readlen);
     if (nread == -1) {

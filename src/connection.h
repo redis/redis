@@ -57,7 +57,7 @@ typedef struct ConnectionType {
     void (*ae_handler)(struct aeEventLoop *el, int fd, void *clientData, int mask);
     int (*connect)(struct connection *conn, const char *addr, int port, const char *source_addr, ConnectionCallbackFunc connect_handler);
     int (*write)(struct connection *conn, const void *data, size_t data_len);
-    int (*read)(struct connection *conn, void *buf, size_t buf_len);
+    ssize_t (*read)(struct connection *conn, void *buf, size_t buf_len);
     void (*close)(struct connection *conn);
     int (*accept)(struct connection *conn, ConnectionCallbackFunc accept_handler);
     int (*set_write_handler)(struct connection *conn, ConnectionCallbackFunc handler, int barrier);
@@ -148,7 +148,7 @@ static inline int connWrite(connection *conn, const void *data, size_t data_len)
  * The caller should NOT rely on errno. Testing for an EAGAIN-like condition, use
  * connGetState() to see if the connection state is still CONN_STATE_CONNECTED.
  */
-static inline int connRead(connection *conn, void *buf, size_t buf_len) {
+static inline ssize_t connRead(connection *conn, void *buf, size_t buf_len) {
     return conn->type->read(conn, buf, buf_len);
 }
 
