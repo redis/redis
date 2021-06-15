@@ -63,7 +63,7 @@ void queueMultiCommand(client *c) {
      * this is useful in case client sends these in a pipeline, or doesn't
      * bother to read previous responses and didn't notice the multi was already
      * aborted. */
-    if (c->flags & CLIENT_DIRTY_EXEC)
+    if (c->flags & (CLIENT_DIRTY_CAS|CLIENT_DIRTY_EXEC))
         return;
 
     c->mstate.commands = zrealloc(c->mstate.commands,
@@ -97,6 +97,9 @@ void flagTransaction(client *c) {
 void multiCommand(client *c) {
     if (c->flags & CLIENT_MULTI) {
         addReplyError(c,"MULTI calls can not be nested");
+        return;
+    } else if (c->flags & CLIENT_DIRTY_CAS) {
+        addReplyError(c,"Watched keys modified. MULTI EXEC will fail.");
         return;
     }
     c->flags |= CLIENT_MULTI;
