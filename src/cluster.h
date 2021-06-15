@@ -298,7 +298,6 @@ int verifyClusterConfigWithData(void);
 unsigned long getClusterConnectionsCount(void);
 int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uint8_t type, unsigned char *payload, uint32_t len);
 void clusterPropagatePublish(robj *channel, robj *message);
-unsigned short crc16(const char *buf, int len);
 unsigned int keyHashSlot(char *key, int keylen);
 
 #endif /* __CLUSTER_H */

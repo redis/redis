@@ -2417,6 +2417,8 @@ int xreadGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult 
 int memoryGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int lcsGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 
+unsigned short crc16(const char *buf, int len);
+
 /* Sentinel */
 void initSentinelConfig(void);
 void initSentinel(void);
