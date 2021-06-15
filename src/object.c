@@ -428,6 +428,7 @@ void unusedHashObject(robj *o) {
 }
 
 void unusedObject(robj *o) {
+    if (o->refcount != 1) return;
     switch(o->type) {
         case OBJ_STRING: unusedStringObject(o); break;
         case OBJ_SET: unusedSetObject(o); break;
