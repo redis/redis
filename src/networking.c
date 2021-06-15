@@ -2332,7 +2332,7 @@ sds catClientInfoString(sds s, client *client) {
     if (client->flags & CLIENT_CLOSE_ASAP) *p++ = 'A';
     if (client->flags & CLIENT_UNIX_SOCKET) *p++ = 'U';
     if (client->flags & CLIENT_READONLY) *p++ = 'r';
-    if (client->flags & CLIENT_NO_EVICT) *p++ = 'p';
+    if (client->flags & CLIENT_NO_EVICT) *p++ = 'e';
     if (p == flags) *p++ = 'N';
     *p++ = '\0';
 
@@ -2584,7 +2584,7 @@ NULL
             addReplyErrorObject(c,shared.syntaxerr);
             return;
         }
-    } else if (!strcasecmp(c->argv[1]->ptr,"protect") && c->argc == 3) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"no-evict") && c->argc == 3) {
         /* CLIENT PROTECT ON|OFF */
         if (!strcasecmp(c->argv[2]->ptr,"on")) {
             c->flags |= CLIENT_NO_EVICT;
@@ -3828,7 +3828,7 @@ int clientEvictionCheckLimit() {
     return 1;
 }
 
-void clientsEviction() {
+void evictClients() {
     /* Start eviction from topmost bucket (largest clients) */
     int curr_bucket = CLIENT_MEM_USAGE_BUCKETS-1;
     listIter bucket_iter;
