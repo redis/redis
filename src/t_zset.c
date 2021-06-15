@@ -3663,7 +3663,12 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start, int st
         lookupKeyWrite(c->db,key) :
         lookupKeyRead(c->db,key);
     if (zobj == NULL) {
-        addReply(c,shared.emptyarray);
+        if (store) {
+            handler->beginResultEmission(handler);
+            handler->finalizeResultEmission(handler, 0);
+        } else {
+            addReply(c, shared.emptyarray);
+        }
         goto cleanup;
     }
 
@@ -3683,7 +3688,7 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start, int st
         break;
 
     case ZRANGE_LEX:
-        genericZrangebylexCommand(handler, &lexrange, zobj, opt_withscores || store,
+         genericZrangebylexCommand(handler, &lexrange, zobj, opt_withscores || store,
             opt_offset, opt_limit, direction == ZRANGE_DIRECTION_REVERSE);
         break;
     }

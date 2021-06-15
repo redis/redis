@@ -1571,6 +1571,12 @@ start_server {tags {"zset"}} {
         r zrange z1{t} 5 0 BYSCORE REV LIMIT 0 2 WITHSCORES
     } {d 4 c 3}
 
+    test {ZRANGESTORE - null src key} {
+        set res [r zrangestore z2{t} null 0 -1]
+        assert_equal $res 0
+        r exists z2{t}
+    } {0}
+
     test {ZRANGESTORE - empty range} {
         set res [r zrangestore z2{t} z1{t} 5 6]
         assert_equal $res 0
