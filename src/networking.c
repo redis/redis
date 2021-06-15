@@ -1923,7 +1923,7 @@ int processMultibulkBuffer(client *c) {
                     c->qb_pos = 0;
                     /* Hint the sds library about the amount of bytes this string is
                      * going to contain. */
-                    c->querybuf = sdsMakeRoomFor(c->querybuf,ll+2-sdslen(c->querybuf));
+                    c->querybuf = sdsMakeRoomForNonGreedy(c->querybuf,ll+2-sdslen(c->querybuf));
                 }
             }
             c->bulklen = ll;
@@ -2132,8 +2132,8 @@ void processInputBuffer(client *c) {
 
 void readQueryFromClient(connection *conn) {
     client *c = connGetPrivateData(conn);
-    int nread, readlen;
-    size_t qblen;
+    int nread, big_arg = 0;
+    size_t qblen, readlen;
 
     /* Check if we want to read from the client later when exiting from
      * the event loop. This is the case if threaded I/O is enabled. */
@@ -2153,15 +2153,28 @@ void readQueryFromClient(connection *conn) {
         && c->bulklen >= PROTO_MBULK_BIG_ARG)
     {
         ssize_t remaining = (size_t)(c->bulklen+2)-sdslen(c->querybuf);
+        big_arg = 1;
 
         /* Note that the 'remaining' variable may be zero in some edge case,
          * for example once we resume a blocked client after CLIENT PAUSE. */
-        if (remaining > 0 && remaining < readlen) readlen = remaining;
+        if (remaining > 0 && (size_t)remaining < readlen) readlen = remaining;
     }
 
     qblen = sdslen(c->querybuf);
     if (c->querybuf_peak < qblen) c->querybuf_peak = qblen;
-    c->querybuf = sdsMakeRoomFor(c->querybuf, readlen);
+    if (big_arg || sdsalloc(c->querybuf) < PROTO_IOBUF_LEN) {
+        /* When reading a BIG_ARG we won't be reading more than that one arg
+         * into the query buffer, so we don't need to pre-allocate more than we
+         * need, so using the non-greedy growing. For an initial allocation of
+         * the query buffer, we also don't wanna use the greedy growth, in order
+         * to avoid collision with the RESIZE_THRESHOLD mechanism. */
+        c->querybuf = sdsMakeRoomForNonGreedy(c->querybuf, readlen);
+    } else {
+        c->querybuf = sdsMakeRoomFor(c->querybuf, readlen);
+
+        /* Read as much as possible from the socket to save read(2) system calls. */
+        readlen = sdsavail(c->querybuf);
+    }
     nread = connRead(c->conn, c->querybuf+qblen, readlen);
     if (nread == -1) {
         if (connGetState(conn) == CONN_STATE_CONNECTED) {
