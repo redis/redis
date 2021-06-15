@@ -2132,9 +2132,8 @@ void processInputBuffer(client *c) {
 
 void readQueryFromClient(connection *conn) {
     client *c = connGetPrivateData(conn);
+    int nread, big_arg = 0;
     size_t qblen, readlen;
-    ssize_t nread;
-    int big_arg = 0;
 
     /* Check if we want to read from the client later when exiting from
      * the event loop. This is the case if threaded I/O is enabled. */

@@ -770,7 +770,7 @@ static int connTLSWrite(connection *conn_, const void *data, size_t data_len) {
     return ret;
 }
 
-static ssize_t connTLSRead(connection *conn_, void *buf, size_t buf_len) {
+static int connTLSRead(connection *conn_, void *buf, size_t buf_len) {
     tls_connection *conn = (tls_connection *) conn_;
     int ret;
     int ssl_err;
