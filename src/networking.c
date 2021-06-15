@@ -3718,7 +3718,8 @@ int handleClientsWithPendingReadsUsingThreads(void) {
         c->flags &= ~CLIENT_PENDING_READ;
         listDelNode(server.clients_pending_read,ln);
 
-        if ((c->flags & CLIENT_BLOCKED) || processPendingCommandsAndResetClient(c) == C_ERR) {
+        serverAssert(!(c->flags & CLIENT_BLOCKED));
+        if (processPendingCommandsAndResetClient(c) == C_ERR) {
             /* If the client is no longer valid, we avoid
              * processing the client later. So we just go
              * to the next. */
