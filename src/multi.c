@@ -98,9 +98,6 @@ void multiCommand(client *c) {
     if (c->flags & CLIENT_MULTI) {
         addReplyError(c,"MULTI calls can not be nested");
         return;
-    } else if (c->flags & CLIENT_DIRTY_CAS) {
-        addReplyError(c,"Watched keys modified. MULTI EXEC will fail.");
-        return;
     }
     c->flags |= CLIENT_MULTI;
 
