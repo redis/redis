@@ -63,7 +63,7 @@ void queueMultiCommand(client *c) {
      * this is useful in case client sends these in a pipeline, or doesn't
      * bother to read previous responses and didn't notice the multi was already
      * aborted. */
-    if (c->flags & CLIENT_DIRTY_EXEC)
+    if (c->flags & (CLIENT_DIRTY_CAS|CLIENT_DIRTY_EXEC))
         return;
 
     c->mstate.commands = zrealloc(c->mstate.commands,
