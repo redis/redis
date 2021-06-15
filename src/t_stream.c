@@ -3459,6 +3459,11 @@ void xinfoCommand(client *c) {
 
     /* HELP is special. Handle it ASAP. */
     if (!strcasecmp(c->argv[1]->ptr,"HELP")) {
+        if (c->argc != 2) {
+            addReplySubcommandSyntaxError(c);
+            return;
+        }
+
         const char *help[] = {
 "CONSUMERS <key> <groupname>",
 "    Show consumers of <groupname>.",
