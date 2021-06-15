@@ -182,8 +182,8 @@ client *createClient(connection *conn) {
     c->paused_list_node = NULL;
     c->client_tracking_redirection = 0;
     c->client_tracking_prefixes = NULL;
-    c->client_last_memory_usage = 0;
-    c->client_last_memory_type = CLIENT_TYPE_NORMAL;
+    c->last_memory_usage = c->last_memory_usage_on_bucket_update = 0;
+    c->last_memory_type = CLIENT_TYPE_NORMAL;
     c->auth_callback = NULL;
     c->auth_callback_privdata = NULL;
     c->auth_module = NULL;
@@ -269,7 +269,7 @@ int prepareClientToWrite(client *c) {
      * not install a write handler. Instead, it will be done by
      * handleClientsWithPendingReadsUsingThreads() upon return.
      */
-    if (!clientHasPendingReplies(c) && !(c->flags & CLIENT_PENDING_READ))
+    if (!clientHasPendingReplies(c) && io_threads_op == IO_THREADS_OP_IDLE)
             clientInstallWriteHandler(c);
 
     /* Authorize the caller to queue in the output buffer of this client. */
@@ -1290,12 +1290,9 @@ void unlinkClient(client *c) {
     }
 
     /* Remove from the list of pending reads if needed. */
-    if (c->flags & CLIENT_PENDING_READ) {
-        ln = listSearchKey(server.clients_pending_read,c);
-        serverAssert(ln != NULL);
-        listDelNode(server.clients_pending_read,ln);
-        c->flags &= ~CLIENT_PENDING_READ;
-    }
+    serverAssert(io_threads_op == IO_THREADS_OP_IDLE);
+    ln = listSearchKey(server.clients_pending_read,c);
+    if (ln != NULL) listDelNode(server.clients_pending_read,ln);
 
     /* When client was just unblocked because of a blocking operation,
      * remove it from the list of unblocked clients. */
@@ -1434,11 +1431,11 @@ void freeClient(client *c) {
 
     /* Remove the contribution that this client gave to our
      * incrementally computed memory usage. */
-    server.stat_clients_type_memory[c->client_last_memory_type] -=
-        c->client_last_memory_usage;
+    server.stat_clients_type_memory[c->last_memory_type] -=
+        c->last_memory_usage;
     /* Remove client from memory usage buckets */
     if (c->mem_usage_bucket) {
-        c->mem_usage_bucket->mem_usage_sum -= c->client_last_memory_usage;
+        c->mem_usage_bucket->mem_usage_sum -= c->last_memory_usage;
         listDelNode(c->mem_usage_bucket->clients, c->mem_usage_bucket_node);
     }
 
@@ -1601,7 +1598,10 @@ int writeToClient(client *c, int handler_installed) {
          * adDeleteFileEvent() is not thread safe: however writeToClient()
          * is always called with handler_installed set to 0 from threads
          * so we are fine. */
-        if (handler_installed) connSetWriteHandler(c->conn, NULL);
+        if (handler_installed) {
+            serverAssert(io_threads_op == IO_THREADS_OP_IDLE);
+            connSetWriteHandler(c->conn, NULL);
+        }
 
         /* Close connection after entire reply has been sent. */
         if (c->flags & CLIENT_CLOSE_AFTER_REPLY) {
@@ -2130,7 +2130,8 @@ void processInputBuffer(client *c) {
             /* If we are in the context of an I/O thread, we can't really
              * execute the command here. All we can do is to flag the client
              * as one that needs to process the command. */
-            if (c->flags & CLIENT_PENDING_READ) {
+            if (io_threads_op != IO_THREADS_OP_IDLE) {
+                serverAssert(io_threads_op == IO_THREADS_OP_READ);
                 c->flags |= CLIENT_PENDING_COMMAND;
                 break;
             }
@@ -2362,7 +2363,7 @@ sds catClientInfoString(sds s, client *client) {
         (unsigned long long) sdslen(client->querybuf),
         (unsigned long long) sdsavail(client->querybuf),
         (unsigned long long) client->argv_len_sum,
-        (unsigned long long) client->mstate.argv_mem_sum,
+        (unsigned long long) client->mstate.argv_len_sums,
         (unsigned long long) client->bufpos,
         (unsigned long long) listLength(client->reply),
         (unsigned long long) obufmem, /* should not include client->buf since we want to see 0 for static clients. */
@@ -3473,13 +3474,11 @@ void processEventsWhileBlocked(void) {
  * ========================================================================== */
 
 #define IO_THREADS_MAX_NUM 128
-#define IO_THREADS_OP_READ 0
-#define IO_THREADS_OP_WRITE 1
 
 pthread_t io_threads[IO_THREADS_MAX_NUM];
 pthread_mutex_t io_threads_mutex[IO_THREADS_MAX_NUM];
 redisAtomic unsigned long io_threads_pending[IO_THREADS_MAX_NUM];
-int io_threads_op;      /* IO_THREADS_OP_WRITE or IO_THREADS_OP_READ. */
+int io_threads_op;      /* IO_THREADS_OP_IDLE, IO_THREADS_OP_READ or IO_THREADS_OP_WRITE. */ // TODO: should access to this be atomic??!
 
 /* This is the list of clients each thread will serve when threaded I/O is
  * used. We spawn io_threads_num-1 threads, since one is the main thread
@@ -3545,6 +3544,9 @@ void *IOThreadMain(void *myid) {
 /* Initialize the data structures needed for threaded I/O. */
 void initThreadedIO(void) {
     server.io_threads_active = 0; /* We start with threads not active. */
+
+    /* Indicate that io-threads are currently idle */
+    io_threads_op = IO_THREADS_OP_IDLE;
 
     /* Don't spawn any thread if the user selected a single thread:
      * we'll handle I/O directly from the main thread. */
@@ -3690,11 +3692,16 @@ int handleClientsWithPendingWritesUsingThreads(void) {
         if (pending == 0) break;
     }
 
+    io_threads_op = IO_THREADS_OP_IDLE;
+
     /* Run the list of clients again to install the write handler where
      * needed. */
     listRewind(server.clients_pending_write,&li);
     while((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
+
+        /* Update the client in the mem usage buckets after we're done processing it in the io-threads */
+        updateClientMemUsageBucket(c);
 
         /* Install the write handler if there are pending writes in some
          * of the clients. */
@@ -3720,9 +3727,8 @@ int postponeClientRead(client *c) {
     if (server.io_threads_active &&
         server.io_threads_do_reads &&
         !ProcessingEventsWhileBlocked &&
-        !(c->flags & (CLIENT_MASTER|CLIENT_SLAVE|CLIENT_PENDING_READ|CLIENT_BLOCKED))) 
+        !(c->flags & (CLIENT_MASTER|CLIENT_SLAVE|CLIENT_BLOCKED))) 
     {
-        c->flags |= CLIENT_PENDING_READ;
         listAddNodeHead(server.clients_pending_read,c);
         return 1;
     } else {
@@ -3777,14 +3783,19 @@ int handleClientsWithPendingReadsUsingThreads(void) {
         if (pending == 0) break;
     }
 
+    io_threads_op = IO_THREADS_OP_IDLE;
+
     /* Run the list of clients again to process the new buffers. */
     while(listLength(server.clients_pending_read)) {
         ln = listFirst(server.clients_pending_read);
         client *c = listNodeValue(ln);
-        c->flags &= ~CLIENT_PENDING_READ;
         listDelNode(server.clients_pending_read,ln);
 
         serverAssert(!(c->flags & CLIENT_BLOCKED));
+
+        /* Once io-threads are idle we can update the client in the mem usage buckets */
+        updateClientMemUsageBucket(c);
+
         if (processPendingCommandsAndResetClient(c) == C_ERR) {
             /* If the client is no longer valid, we avoid
              * processing the client later. So we just go

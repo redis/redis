@@ -2197,19 +2197,33 @@ clientMemUsageBucket *getMemUsageBucket(size_t mem) {
 int updateClientMemUsage(client *c) {
     size_t mem = getClientMemoryUsage(c, NULL);
     int type = getClientType(c);
-    int allow_eviction =
-            (type == CLIENT_TYPE_NORMAL || type == CLIENT_TYPE_PUBSUB) &&
-            !(c->flags & CLIENT_NO_EVICT);
 
     /* Remove the old value of the memory used by the client from the old
      * category, and add it back. */
-    server.stat_clients_type_memory[c->client_last_memory_type] -=
-        c->client_last_memory_usage;
-    server.stat_clients_type_memory[type] += mem;
+    atomicDecr(server.stat_clients_type_memory[c->last_memory_type], c->last_memory_usage);
+    atomicIncr(server.stat_clients_type_memory[type], mem);
+
+    /* Remember what we added and where, to remove it next time. */
+    c->last_memory_usage = mem;
+    c->last_memory_type = type;
+
+    /* Update client mem usage bucket only when we're no in the context of an IO thread */
+    if (io_threads_op == IO_THREADS_OP_IDLE)
+        updateClientMemUsageBucket(c); // do this only when no pending read flag and no write_handler flag - unify?!
+
+    return 0;
+}
+
+// TODO: doc!!!
+void updateClientMemUsageBucket(client *c) {
+    serverAssert(io_threads_op == IO_THREADS_OP_IDLE);
+    int allow_eviction =
+            (c->last_memory_type == CLIENT_TYPE_NORMAL || c->last_memory_type == CLIENT_TYPE_PUBSUB) &&
+            !(c->flags & CLIENT_NO_EVICT);
 
     /* Update the client in the mem usage buckets */
     if (c->mem_usage_bucket) {
-        c->mem_usage_bucket->mem_usage_sum -= c->client_last_memory_usage;
+        c->mem_usage_bucket->mem_usage_sum -= c->last_memory_usage_on_bucket_update;
         /* If this client can't be evicted then remove it from the mem usage
          * buckets */
         if (!allow_eviction) {
@@ -2219,8 +2233,8 @@ int updateClientMemUsage(client *c) {
         }
     }
     if (allow_eviction) {
-        clientMemUsageBucket *bucket = getMemUsageBucket(mem);
-        bucket->mem_usage_sum += mem;
+        clientMemUsageBucket *bucket = getMemUsageBucket(c->last_memory_usage);
+        bucket->mem_usage_sum += c->last_memory_usage;
         if (bucket != c->mem_usage_bucket) {
             if (c->mem_usage_bucket)
                 listDelNode(c->mem_usage_bucket->clients,
@@ -2231,11 +2245,7 @@ int updateClientMemUsage(client *c) {
         }
     }
 
-    /* Remember what we added and where, to remove it next time. */
-    c->client_last_memory_usage = mem;
-    c->client_last_memory_type = type;
-
-    return 0;
+    c->last_memory_usage_on_bucket_update = c->last_memory_usage;
 }
 
 /* Return the max samples in the memory usage of clients tracked by

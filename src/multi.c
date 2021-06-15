@@ -37,7 +37,7 @@ void initClientMultiState(client *c) {
     c->mstate.count = 0;
     c->mstate.cmd_flags = 0;
     c->mstate.cmd_inv_flags = 0;
-    c->mstate.argv_mem_sum = 0;
+    c->mstate.argv_len_sums = 0;
 }
 
 /* Release all the resources associated with MULTI/EXEC state */
@@ -439,7 +439,7 @@ void unwatchCommand(client *c) {
 }
 
 size_t multiStateMemOverhead(client *c) {
-    size_t mem = c->mstate.argv_mem_sum;
+    size_t mem = c->mstate.argv_len_sums;
     /* Add watched keys overhead */
     /* TODO: this doesn't take into account the watched keys themselves, becuase they aren't managed per-client. Also handle this in mem overhead. */
     mem += listLength(c->watched_keys) * (sizeof(listNode) + sizeof(watchedKey));

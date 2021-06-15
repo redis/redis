@@ -281,9 +281,6 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CLIENT_LUA_DEBUG_SYNC (1<<26)  /* EVAL debugging without fork() */
 #define CLIENT_MODULE (1<<27) /* Non connected client used by some module. */
 #define CLIENT_PROTECTED (1<<28) /* Client should not be freed for now. */
-#define CLIENT_PENDING_READ (1<<29) /* The client has pending reads and was put
-                                       in the list of clients we can read
-                                       from. */
 #define CLIENT_PENDING_COMMAND (1<<30) /* Indicates the client has a fully
                                         * parsed command ready for execution. */
 #define CLIENT_TRACKING (1ULL<<31) /* Client enabled keys tracking in order to
@@ -805,7 +802,7 @@ typedef struct multiState {
     int cmd_inv_flags;      /* Same as cmd_flags, OR-ing the ~flags. so that it
                                is possible to know if all the commands have a
                                certain flag. */
-    size_t argv_mem_sum;    /* mem used by all commands arguments */
+    size_t argv_len_sums;    /* mem used by all commands arguments */
 } multiState;
 
 /* This structure holds the blocking operation state for a client.
@@ -1012,9 +1009,10 @@ typedef struct client {
      * however we need to remember what was the old contribution of each
      * client, and in which category the client was, in order to remove it
      * before adding it the new value. */
-    size_t client_last_memory_usage;
-    int client_last_memory_type;
+    size_t last_memory_usage;
+    int last_memory_type;
 
+    size_t last_memory_usage_on_bucket_update;
     listNode *mem_usage_bucket_node;
     clientMemUsageBucket *mem_usage_bucket;
 
@@ -1906,6 +1904,11 @@ typedef struct {
 #define OBJ_HASH_KEY 1
 #define OBJ_HASH_VALUE 2
 
+#define IO_THREADS_OP_IDLE 0
+#define IO_THREADS_OP_READ 1
+#define IO_THREADS_OP_WRITE 2
+extern int io_threads_op;
+
 /*-----------------------------------------------------------------------------
  * Extern declarations
  *----------------------------------------------------------------------------*/
@@ -2075,6 +2078,7 @@ int handleClientsWithPendingReadsUsingThreads(void);
 int stopThreadedIOIfNeeded(void);
 int clientHasPendingReplies(client *c);
 int updateClientMemUsage(client *c);
+void updateClientMemUsageBucket(client *c);
 void unlinkClient(client *c);
 int writeToClient(client *c, int handler_installed);
 void linkClient(client *c);

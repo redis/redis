@@ -91,8 +91,8 @@ start_server {tags {"maxmemory"}} {
 
             foreach rr $clients {
                 if {[catch {
-                    $rr write "*200\r\n"
-                    for {set j 0} {$j < 199} {incr j} {
+                    $rr write "*250\r\n"
+                    for {set j 0} {$j < 249} {incr j} {
                         $rr write "\$1000\r\n"
                         $rr write [string repeat x 1000]
                         $rr write "\r\n"
