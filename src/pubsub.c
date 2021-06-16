@@ -28,6 +28,7 @@
  */
 
 #include "server.h"
+#include "cluster.h"
 
 int clientSubscriptionsCount(client *c);
 

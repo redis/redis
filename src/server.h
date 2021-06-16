@@ -1178,8 +1178,6 @@ typedef struct redisTLSContextConfig {
  * Global server state
  *----------------------------------------------------------------------------*/
 
-struct clusterState;
-
 /* AIX defines hz to __hz, we don't use this define and in order to allow
  * Redis build on AIX we need to undef it. */
 #ifdef _AIX
@@ -1774,8 +1772,6 @@ extern dictType objectKeyPointerValueDictType;
 extern dictType objectKeyHeapPointerValueDictType;
 extern dictType setDictType;
 extern dictType zsetDictType;
-extern dictType clusterNodesDictType;
-extern dictType clusterNodesBlackListDictType;
 extern dictType dbDictType;
 extern dictType shaScriptObjectDictType;
 extern double R_Zero, R_PosInf, R_NegInf, R_Nan;
@@ -2400,7 +2396,6 @@ void signalFlushedDb(int dbid, int async);
 unsigned int getKeysInSlot(unsigned int hashslot, robj **keys, unsigned int count);
 unsigned int countKeysInSlot(unsigned int hashslot);
 unsigned int delKeysInSlot(unsigned int hashslot);
-int verifyClusterConfigWithData(void);
 void scanGenericCommand(client *c, robj *o, unsigned long cursor);
 int parseScanCursorOrReply(client *c, robj *o, unsigned long *cursor);
 void slotToKeyAdd(sds key);
@@ -2430,15 +2425,7 @@ int xreadGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult 
 int memoryGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int lcsGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 
-/* Cluster */
-void clusterInit(void);
 unsigned short crc16(const char *buf, int len);
-unsigned int keyHashSlot(char *key, int keylen);
-void clusterCron(void);
-void clusterPropagatePublish(robj *channel, robj *message);
-void migrateCloseTimedoutSockets(void);
-void clusterBeforeSleep(void);
-int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uint8_t type, unsigned char *payload, uint32_t len);
 
 /* Sentinel */
 void initSentinelConfig(void);
@@ -2503,7 +2490,9 @@ int performEvictions(void);
 
 /* Keys hashing / comparison functions for dict.c hash tables. */
 uint64_t dictSdsHash(const void *key);
+uint64_t dictSdsCaseHash(const void *key);
 int dictSdsKeyCompare(void *privdata, const void *key1, const void *key2);
+int dictSdsKeyCaseCompare(void *privdata, const void *key1, const void *key2);
 void dictSdsDestructor(void *privdata, void *val);
 
 /* Git SHA1 */

@@ -2537,9 +2537,6 @@ static void zdiff(zsetopsrc *src, long setnum, zset *dstzset, size_t *maxelelen)
     }
 }
 
-uint64_t dictSdsHash(const void *key);
-int dictSdsKeyCompare(void *privdata, const void *key1, const void *key2);
-
 dictType setAccumulatorDictType = {
     dictSdsHash,               /* hash function */
     NULL,                      /* key dup */

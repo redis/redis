@@ -6125,8 +6125,6 @@ size_t RM_GetClusterSize(void) {
     return dictSize(server.cluster->nodes);
 }
 
-clusterNode *clusterLookupNode(const char *name); /* We need access to internals */
-
 /* Populate the specified info for the node having as ID the specified 'id',
  * then returns REDISMODULE_OK. Otherwise if the node ID does not exist from
  * the POV of this local node, REDISMODULE_ERR is returned.
