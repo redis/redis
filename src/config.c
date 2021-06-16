@@ -33,6 +33,8 @@
 
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <glob.h>
+#include <string.h>
 
 /*-----------------------------------------------------------------------------
  * Config file name-value maps.
@@ -648,19 +650,58 @@ void loadServerConfig(char *filename, char config_from_stdin, char *options) {
     sds config = sdsempty();
     char buf[CONFIG_MAX_LINE+1];
     FILE *fp;
+    glob_t globbuf;
 
     /* Load the file content */
     if (filename) {
-        if ((fp = fopen(filename,"r")) == NULL) {
-            serverLog(LL_WARNING,
-                    "Fatal error, can't open config file '%s': %s",
-                    filename, strerror(errno));
-            exit(1);
+
+        /* The logic for handling wildcards has slightly different behavior in cases where
+         * there is a failure to locate the included file.
+         * Whether or not a wildcard is specified, we should ALWAYS log errors when attempting
+         * to open included config files.
+         *
+         * However, we desire a behavioral difference between instances where a wildcard was
+         * specified and those where it hasn't:
+         *      no wildcards   : attempt to open the specified file and fail with a logged error
+         *                       if the file cannot be found and opened.
+         *      with wildcards : attempt to glob the specified pattern; if no files match the
+         *                       pattern, then gracefully continue on to the next entry in the
+         *                       config file, as if the current entry was never encountered.
+         *                       This will allow for empty conf.d directories to be included. */
+
+        if (strchr(filename, '*') || strchr(filename, '?') || strchr(filename, '[')) {
+            /* A wildcard character detected in filename, so let us use glob */
+            if (glob(filename, 0, NULL, &globbuf) == 0) {
+
+                for (size_t i = 0; i < globbuf.gl_pathc; i++) {
+                    if ((fp = fopen(globbuf.gl_pathv[i], "r")) == NULL) {
+                        serverLog(LL_WARNING,
+                                  "Fatal error, can't open config file '%s': %s",
+                                  globbuf.gl_pathv[i], strerror(errno));
+                        exit(1);
+                    }
+                    while(fgets(buf,CONFIG_MAX_LINE+1,fp) != NULL)
+                        config = sdscat(config,buf);
+                    fclose(fp);
+                }
+
+                globfree(&globbuf);
+            }
+        } else {
+            /* No wildcard in filename means we can use the original logic to read and
+             * potentially fail traditionally */
+            if ((fp = fopen(filename, "r")) == NULL) {
+                serverLog(LL_WARNING,
+                          "Fatal error, can't open config file '%s': %s",
+                          filename, strerror(errno));
+                exit(1);
+            }
+            while(fgets(buf,CONFIG_MAX_LINE+1,fp) != NULL)
+                config = sdscat(config,buf);
+            fclose(fp);
         }
-        while(fgets(buf,CONFIG_MAX_LINE+1,fp) != NULL)
-            config = sdscat(config,buf);
-        fclose(fp);
     }
+
     /* Append content from stdin */
     if (config_from_stdin) {
         serverLog(LL_WARNING,"Reading config from stdin");
