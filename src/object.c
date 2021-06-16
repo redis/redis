@@ -790,7 +790,7 @@ size_t streamRadixTreeMemoryUsage(rax *rax) {
  * case of aggregated data types where only "sample_size" elements
  * are checked and averaged to estimate the total size. */
 #define OBJ_COMPUTE_SIZE_DEF_SAMPLES 5 /* Default sample size. */
-size_t objectComputeSize(robj *o, size_t sample_size) {
+size_t objectComputeSize(robj *key, robj *o, size_t sample_size, int dbid) {
     sds ele, ele2;
     dict *d;
     dictIterator *di;
@@ -941,13 +941,7 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
             raxStop(&ri);
         }
     } else if (o->type == OBJ_MODULE) {
-        moduleValue *mv = o->ptr;
-        moduleType *mt = mv->type;
-        if (mt->mem_usage != NULL) {
-            asize = mt->mem_usage(mv->value);
-        } else {
-            asize = 0;
-        }
+        asize = moduleGetMemUsage(key, o, dbid);
     } else {
         serverPanic("Unknown object type");
     }
@@ -1336,7 +1330,7 @@ NULL
             addReplyNull(c);
             return;
         }
-        size_t usage = objectComputeSize(dictGetVal(de),samples);
+        size_t usage = objectComputeSize(c->argv[2],dictGetVal(de),samples,c->db->id);
         usage += sdsZmallocSize(dictGetKey(de));
         usage += sizeof(dictEntry);
         addReplyLongLong(c,usage);

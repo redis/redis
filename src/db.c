@@ -233,11 +233,11 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
     /* Although the key is not really deleted from the database, we regard 
     overwrite as two steps of unlink+add, so we still need to call the unlink 
     callback of the module. */
-    moduleNotifyKeyUnlink(key,old);
+    moduleNotifyKeyUnlink(key,old,db->id);
     dictSetVal(db->dict, de, val);
 
     if (server.lazyfree_lazy_server_del) {
-        freeObjAsync(key,old);
+        freeObjAsync(key,old,db->id);
         dictSetVal(db->dict, &auxentry, NULL);
     }
 
@@ -319,7 +319,7 @@ int dbSyncDelete(redisDb *db, robj *key) {
     if (de) {
         robj *val = dictGetVal(de);
         /* Tells the module that the key has been unlinked from the database. */
-        moduleNotifyKeyUnlink(key,val);
+        moduleNotifyKeyUnlink(key,val,db->id);
         dictFreeUnlinkedEntry(db->dict,de);
         if (server.cluster_enabled) slotToKeyDel(key->ptr);
         return 1;
@@ -1277,7 +1277,7 @@ void copyCommand(client *c) {
         case OBJ_HASH: newobj = hashTypeDup(o); break;
         case OBJ_STREAM: newobj = streamDup(o); break;
         case OBJ_MODULE:
-            newobj = moduleTypeDupOrReply(c, key, newkey, o);
+            newobj = moduleTypeDupOrReply(c, key, newkey, dst->id, o);
             if (!newobj) return;
             break;
         default:

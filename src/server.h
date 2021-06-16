@@ -550,6 +550,7 @@ struct moduleLoadQueueEntry;
 struct redisObject;
 struct RedisModuleDefragCtx;
 struct RedisModuleInfoCtx;
+struct RedisModuleKeyOptCtx;
 
 /* Each module type implementation should export a set of methods in order
  * to serialize and deserialize the value in the RDB file, rewrite the AOF
@@ -569,6 +570,11 @@ typedef void *(*moduleTypeCopyFunc)(struct redisObject *fromkey, struct redisObj
 typedef int (*moduleTypeDefragFunc)(struct RedisModuleDefragCtx *ctx, struct redisObject *key, void **value);
 typedef void (*RedisModuleInfoFunc)(struct RedisModuleInfoCtx *ctx, int for_crash_report);
 typedef void (*RedisModuleDefragFunc)(struct RedisModuleDefragCtx *ctx);
+typedef size_t (*moduleTypeMemUsageFunc2)(struct RedisModuleKeyOptCtx *ctx, const void *value);
+typedef void (*moduleTypeFreeFunc2)(struct RedisModuleKeyOptCtx *ctx, void *value);
+typedef size_t (*moduleTypeFreeEffortFunc2)(struct RedisModuleKeyOptCtx *ctx, const void *value);
+typedef void (*moduleTypeUnlinkFunc2)(struct RedisModuleKeyOptCtx *ctx, void *value);
+typedef void *(*moduleTypeCopyFunc2)(struct RedisModuleKeyOptCtx *ctx, const void *value);
 
 /* This callback type is called by moduleNotifyUserChanged() every time
  * a user authenticated via the module API is associated with a different
@@ -594,6 +600,10 @@ typedef struct RedisModuleType {
     moduleTypeDefragFunc defrag;
     moduleTypeAuxLoadFunc aux_load;
     moduleTypeAuxSaveFunc aux_save;
+    moduleTypeMemUsageFunc2 mem_usage2;
+    moduleTypeFreeEffortFunc2 free_effort2;
+    moduleTypeUnlinkFunc2 unlink2;
+    moduleTypeCopyFunc2 copy2;
     int aux_save_triggers;
     char name[10]; /* 9 bytes name + null term. Charset: A-Z a-z 0-9 _- */
 } moduleType;
@@ -650,17 +660,19 @@ typedef struct RedisModuleIO {
                          * 2 (current version with opcodes annotation). */
     struct RedisModuleCtx *ctx; /* Optional context, see RM_GetContextFromIO()*/
     struct redisObject *key;    /* Optional name of key processed */
-} RedisModuleIO;
+    int dbid;            /* The dbid of the key being processed, -1 when unknown. */
+} RedisModuleIO;       
 
 /* Macro to initialize an IO context. Note that the 'ver' field is populated
  * inside rdb.c according to the version of the value to load. */
-#define moduleInitIOContext(iovar,mtype,rioptr,keyptr) do { \
+#define moduleInitIOContext(iovar,mtype,rioptr,keyptr,db) do { \
     iovar.rio = rioptr; \
     iovar.type = mtype; \
     iovar.bytes = 0; \
     iovar.error = 0; \
     iovar.ver = 0; \
     iovar.key = keyptr; \
+    iovar.dbid = db; \
     iovar.ctx = NULL; \
 } while(0)
 
@@ -672,6 +684,8 @@ typedef struct RedisModuleIO {
 typedef struct RedisModuleDigest {
     unsigned char o[20];    /* Ordered elements. */
     unsigned char x[20];    /* Xored elements. */
+    struct redisObject *key; /* Optional name of key processed */
+    int dbid;                /* The dbid of the key being processed */
 } RedisModuleDigest;
 
 /* Just start with a digest composed of all zero bytes. */
@@ -1817,10 +1831,12 @@ int moduleTryServeClientBlockedOnKey(client *c, robj *key);
 void moduleUnblockClient(client *c);
 int moduleClientIsBlockedOnKeys(client *c);
 void moduleNotifyUserChanged(client *c);
-void moduleNotifyKeyUnlink(robj *key, robj *val);
-robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, robj *value);
-int moduleDefragValue(robj *key, robj *obj, long *defragged);
-int moduleLateDefrag(robj *key, robj *value, unsigned long *cursor, long long endtime, long long *defragged);
+void moduleNotifyKeyUnlink(robj *key, robj *val, int dbid);
+size_t moduleGetFreeEffort(robj *key, robj *val, int dbid);
+size_t moduleGetMemUsage(robj *key, robj *val, int dbid);
+robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, int todb, robj *value);
+int moduleDefragValue(robj *key, robj *obj, long *defragged, int dbid);
+int moduleLateDefrag(robj *key, robj *value, unsigned long *cursor, long long endtime, long long *defragged, int dbid);
 long moduleDefragGlobals(void);
 
 /* Utils */
@@ -2406,7 +2422,7 @@ void slotToKeyFlush(int async);
 size_t lazyfreeGetPendingObjectsCount(void);
 size_t lazyfreeGetFreedObjectsCount(void);
 void lazyfreeResetStats(void);
-void freeObjAsync(robj *key, robj *obj);
+void freeObjAsync(robj *key, robj *obj, int dbid);
 void freeSlotsToKeysMapAsync(rax *rt);
 void freeSlotsToKeysMap(rax *rt, int async);
 

@@ -249,7 +249,7 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
         }
         streamIteratorStop(&si);
     } else if (o->type == OBJ_MODULE) {
-        RedisModuleDigest md = {{0},{0}};
+        RedisModuleDigest md = {{0},{0},keyobj,db->id};
         moduleValue *mv = o->ptr;
         moduleType *mt = mv->type;
         moduleInitDigestContext(md);
@@ -607,7 +607,7 @@ NULL
             "encoding:%s serializedlength:%zu "
             "lru:%d lru_seconds_idle:%llu%s",
             (void*)val, val->refcount,
-            strenc, rdbSavedObjectLen(val, c->argv[2]),
+            strenc, rdbSavedObjectLen(val, c->argv[2], c->db->id),
             val->lru, estimateObjectIdleTime(val)/1000, extra);
     } else if (!strcasecmp(c->argv[1]->ptr,"sdslen") && c->argc == 3) {
         dictEntry *de;

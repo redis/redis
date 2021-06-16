@@ -28,6 +28,7 @@ TEST_MODULES = \
     blockonbackground.so \
     scan.so \
     datatype.so \
+    datatype2.so \
     auth.so \
     keyspace_events.so \
     blockedclient.so \
@@ -37,7 +38,7 @@ TEST_MODULES = \
     defragtest.so \
     hash.so \
     zset.so \
-    stream.so
+    stream.so \
 
 
 .PHONY: all
