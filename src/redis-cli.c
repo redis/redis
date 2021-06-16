@@ -5125,7 +5125,6 @@ static int clusterManagerFixMultipleSlotOwners(int slot, list *owners) {
             success = clusterManagerMoveSlot(n, owner, slot, opts, NULL);
             if (!success) break;
 
-            //close the improting flag
             success = clusterManagerClearSlotStatus(n, slot);
             if (!success) break;
         }
