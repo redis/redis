@@ -3825,10 +3825,15 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
     }
 
     void *arraylen_ptr = addReplyDeferredLen(c);
-    long arraylen = 0;
+    long result_count = 0;
 
     /* We emit the key only for the blocking variant. */
     if (emitkey) addReplyBulk(c,key);
+
+    /* Respond with a single (flat) array in RESP2 or if countarg is not
+     * provided (returning a single element). In RESP3, when countarg is
+     * provided, use nested array.  */
+    int use_nested_array = c->resp > 2 && countarg != NULL;
 
     /* Remove the element. */
     do {
@@ -3872,16 +3877,19 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
         serverAssertWithInfo(c,zobj,zsetDel(zobj,ele));
         server.dirty++;
 
-        if (arraylen == 0) { /* Do this only for the first iteration. */
+        if (result_count == 0) { /* Do this only for the first iteration. */
             char *events[2] = {"zpopmin","zpopmax"};
             notifyKeyspaceEvent(NOTIFY_ZSET,events[where],key,c->db->id);
             signalModifiedKey(c,c->db,key);
         }
 
+        if (use_nested_array) {
+            addReplyArrayLen(c,2);
+        }
         addReplyBulkCBuffer(c,ele,sdslen(ele));
         addReplyDouble(c,score);
         sdsfree(ele);
-        arraylen += 2;
+        ++result_count;
 
         /* Remove the key, if indeed needed. */
         if (zsetLength(zobj) == 0) {
@@ -3891,7 +3899,10 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
         }
     } while(--count);
 
-    setDeferredArrayLen(c,arraylen_ptr,arraylen + (emitkey != 0));
+    if (!use_nested_array) {
+        result_count *= 2;
+    }
+    setDeferredArrayLen(c,arraylen_ptr,result_count + (emitkey != 0));
 }
 
 /* ZPOPMIN key [<count>] */
