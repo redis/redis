@@ -25,7 +25,7 @@ start_server {tags {"querybuf slow"}} {
         set rd [redis_deferring_client]
         $rd client setname test_client
         set orig_test_client_qbuf [client_query_buffer test_client]
-        assert {$orig_test_client_qbuf > 16384 && $orig_test_client_qbuf < 32768}
+        assert {$orig_test_client_qbuf >= 16384 && $orig_test_client_qbuf < 32768}
 
         # Check that the initial query buffer is not resized if it is idle for more than 2s
         wait_for_condition 1000 10 {
