@@ -1572,7 +1572,7 @@ start_server {tags {"zset"}} {
     } {d 4 c 3}
 
     test {ZRANGESTORE - src key missing} {
-        set res [r zrangestore z2{t} missing 0 -1]
+        set res [r zrangestore z2{t} missing{t} 0 -1]
         assert_equal $res 0
         r exists z2{t}
     } {0}
