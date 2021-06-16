@@ -3688,7 +3688,7 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start, int st
         break;
 
     case ZRANGE_LEX:
-         genericZrangebylexCommand(handler, &lexrange, zobj, opt_withscores || store,
+        genericZrangebylexCommand(handler, &lexrange, zobj, opt_withscores || store,
             opt_offset, opt_limit, direction == ZRANGE_DIRECTION_REVERSE);
         break;
     }
