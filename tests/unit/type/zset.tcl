@@ -1579,8 +1579,8 @@ start_server {tags {"zset"}} {
 
     test {ZRANGESTORE - src key wrong type} {
         r zadd z2{t} 1 a
-        r set foo bar
-        assert_error "*WRONGTYPE*" {r zrangestore z2{t} foo 0 -1}
+        r set foo{t} bar
+        assert_error "*WRONGTYPE*" {r zrangestore z2{t} foo{t} 0 -1}
         r zrange z2{t} 0 -1
     } {a}
 
