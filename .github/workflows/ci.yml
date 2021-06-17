@@ -141,7 +141,7 @@ jobs:
         prepare: pkg install -y bash gmake lang/tcl86 lang/tclx
         run: >
           gmake &&
-          ./runtest-moduleapi --verbose
+          MAKE=gmake ./runtest-moduleapi --verbose
 
   test-alpine-jemalloc:
     runs-on: ubuntu-latest
