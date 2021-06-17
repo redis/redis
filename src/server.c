@@ -5499,7 +5499,7 @@ int linuxMadvFreeForkBugCheck(void) {
 
         if (write(pipefd[1], &bug_found, sizeof(bug_found)) < 0)
             serverLog(LL_WARNING, "Failed to write to parent: %s", strerror(errno));
-        exit(0);
+        exitFromChild(0);
     } else {
         /* Read the result from the child. */
         ret = read(pipefd[0], &bug_found, sizeof(bug_found));
