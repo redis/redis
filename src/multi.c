@@ -440,8 +440,7 @@ void unwatchCommand(client *c) {
 
 size_t multiStateMemOverhead(client *c) {
     size_t mem = c->mstate.argv_len_sums;
-    /* Add watched keys overhead */
-    /* TODO: this doesn't take into account the watched keys themselves, becuase they aren't managed per-client. Also handle this in mem overhead. */
+    /* Add watched keys overhead, Note: this doesn't take into account the watched keys themselves, because they aren't managed per-client. */
     mem += listLength(c->watched_keys) * (sizeof(listNode) + sizeof(watchedKey));
     return mem;
 }
