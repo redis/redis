@@ -19,6 +19,16 @@ OPTIMIZATION?=-O2
 DEPENDENCY_TARGETS=hiredis linenoise lua
 NODEPS:=clean distclean
 
+HAVE_PTHREAD_SETNAME_NP := "0"
+ifeq ($(uname_S),Linux)
+   HAVE_PTHREAD_SETNAME_NP := $(shell sh -c "grep 'pthread_setname_np' /usr/include/pthread.h | wc -l")
+endif
+
+ifeq "$(HAVE_PTHREAD_SETNAME_NP)" "1"
+   $(info "PTHREAD_SETNAME_NP enable")
+   FINAL_CFLAGS+=-DHAVE_PTHREAD_SETNAME_NP $(HAVE_PTHREAD_SETNAME_NP)
+endif
+
 # Default settings
 STD=-std=c11 -pedantic -DREDIS_STATIC=''
 ifneq (,$(findstring clang,$(CC)))

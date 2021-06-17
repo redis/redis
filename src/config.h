@@ -220,7 +220,11 @@ void setproctitle(const char *fmt, ...);
 
 /* Define for redis_set_thread_title */
 #ifdef __linux__
+#ifdef HAVE_PTHREAD_SETNAME_NP
 #define redis_set_thread_title(name) pthread_setname_np(pthread_self(), name)
+#else
+#define redis_set_thread_title(name)
+#endif
 #else
 #if (defined __FreeBSD__ || defined __OpenBSD__)
 #include <pthread_np.h>
