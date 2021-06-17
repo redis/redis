@@ -2145,7 +2145,7 @@ void readQueryFromClient(connection *conn) {
 
         /* Note that the 'remaining' variable may be zero in some edge case,
          * for example once we resume a blocked client after CLIENT PAUSE. */
-        if (remaining > 0 && (size_t)remaining < readlen) readlen = remaining;
+        if (remaining > 0) readlen = remaining;
     }
 
     qblen = sdslen(c->querybuf);
