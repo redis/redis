@@ -2207,7 +2207,7 @@ int updateClientMemUsage(client *c) {
     c->last_memory_usage = mem;
     c->last_memory_type = type;
 
-    /* Update client mem usage bucket only when we're no in the context of an IO thread */
+    /* Update client mem usage bucket only when we're not in the context of an IO thread */
     if (io_threads_op == IO_THREADS_OP_IDLE)
         updateClientMemUsageBucket(c); // do this only when no pending read flag and no write_handler flag - unify?!
 
