@@ -1486,7 +1486,12 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
                 config.in_multi = 0;
                 config.input_dbnum = config.dbnum = config.pre_multi_dbnum;
                 cliRefreshPrompt();
-            } 
+            } else if (!strcasecmp(command,"reset") && argc == 1 &&
+                                     config.last_cmd_type != REDIS_REPLY_ERROR) {
+                config.in_multi = 0;
+                config.dbnum = 0;
+                cliRefreshPrompt();
+            }
         }
         if (config.cluster_reissue_command){
             /* If we need to reissue the command, break to prevent a
