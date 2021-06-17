@@ -527,26 +527,30 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
         /* Make space for the value pointer if needed. */
         if (!h->iskey || (h->isnull && overwrite)) {
             h = raxReallocForData(h,data);
-            if (h) memcpy(parentlink,&h,sizeof(h));
-        }
-        if (h == NULL) {
-            errno = ENOMEM;
-            return 0;
+            if (h == NULL) {
+                errno = ENOMEM;
+                return 0;
+            }
+            memcpy(parentlink,&h,sizeof(h));
         }
 
+        int res;
         /* Update the existing key if there is already one. */
         if (h->iskey) {
             if (old) *old = raxGetData(h);
             if (overwrite) raxSetData(h,data);
             errno = 0;
-            return 0; /* Element already exists. */
+            res = 0;    /* Element already exists. */
         }
 
-        /* Otherwise set the node as a key. Note that raxSetData()
-         * will set h->iskey. */
-        raxSetData(h,data);
-        rax->numele++;
-        return 1; /* Element inserted. */
+        /* A new element, note raxSetData() will set h->iskey. */
+        if (!h->iskey) {
+            raxSetData(h,data);
+            rax->numele++;
+            res = 1;    /* Element inserted. */
+        }
+
+        return res;
     }
 
     /* If the node we stopped at is a compressed node, we need to
