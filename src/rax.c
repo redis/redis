@@ -674,7 +674,7 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
      */
 
     /* ------------------------- ALGORITHM 1 --------------------------- */
-    if (h->iscompr && i != len) {
+    if (h->iscompr && i < len) {
         debugf("ALGO 1: Stopped at compressed node %.*s (%p)\n",
             h->size, h->data, (void*)h);
         debugf("Still to insert: %.*s\n", (int)(len-i), s+i);
@@ -731,7 +731,7 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
 
         if (j == 0) {
             /* 3a: Replace the old node with the split node. */
-            if (h->iskey) {
+            if (h->iskey && !h->isnull) {
                 void *ndata = raxGetData(h);
                 raxSetData(splitnode,ndata);
             }
@@ -826,7 +826,7 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
         trimmed->isnull = 0;
         memcpy(trimmed->data,h->data,j);
         memcpy(parentlink,&trimmed,sizeof(trimmed));
-        if (h->iskey) {
+        if (h->iskey && !h->isnull) {
             void *aux = raxGetData(h);
             raxSetData(trimmed,aux);
         }
@@ -1301,7 +1301,7 @@ void raxIteratorDelChars(raxIterator *it, size_t count) {
  * to step in the specified direction since there are no longer elements, the
  * iterator is flagged with RAX_ITER_EOF.
  *
- * If 'noup' is true the function starts directly scanning for the next
+ * If 'noup' is false the function starts directly scanning for the next
  * lexicographically smaller children, and the current node is already assumed
  * to be the parent of the last key node, so the first operation to go back to
  * the parent will be skipped. This option is used by raxSeek() when
