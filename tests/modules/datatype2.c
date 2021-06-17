@@ -220,6 +220,8 @@ void flushdbCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub, void
     int i;
     RedisModuleFlushInfo *fi = data;
 
+    RedisModule_AutoMemory(ctx);
+
     if (sub == REDISMODULE_SUBEVENT_FLUSHDB_START) {
         if (fi->dbnum != -1) {
            MemPoolFreeDb(ctx, fi->dbnum);
