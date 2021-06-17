@@ -1490,6 +1490,8 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
                                      config.last_cmd_type != REDIS_REPLY_ERROR) {
                 config.in_multi = 0;
                 config.dbnum = 0;
+                config.input_dbnum = 0;
+                config.resp3 = 0;
                 cliRefreshPrompt();
             }
         }
