@@ -68,7 +68,11 @@ jobs:
     - name: make
       run: make valgrind REDIS_CFLAGS='-Werror -DREDIS_TEST'
     - name: module api test
-      run: ./runtest-moduleapi --valgrind --no-latency --verbose --clients 1
+      run: |
+        sudo apt-get update
+        sudo apt-get install tcl8.6 tclx valgrind -y
+        ./runtest-moduleapi --valgrind --no-latency --verbose --clients 1
+
   test-valgrind-no-malloc-usable-size:
     runs-on: ubuntu-latest
     if: github.repository == 'redis/redis'
@@ -78,7 +82,11 @@ jobs:
     - name: make
       run: make valgrind CFLAGS="-DNO_MALLOC_USABLE_SIZE"
     - name: module api test
-      run: ./runtest-moduleapi --valgrind --no-latency --verbose --clients 1
+      run: |
+        sudo apt-get update
+        sudo apt-get install tcl8.6 tclx valgrind -y
+        ./runtest-moduleapi --valgrind --no-latency --verbose --clients 1
+
   test-ubuntu-no-malloc-usable-size:
     runs-on: ubuntu-latest
     if: github.repository == 'redis/redis'
@@ -88,7 +96,10 @@ jobs:
     - name: make
       run: make MALLOC=libc CFLAGS=-DNO_MALLOC_USABLE_SIZE
     - name: module api test
-      run: ./runtest-moduleapi --verbose
+      run: |
+        sudo apt-get install tcl8.6 tclx
+        ./runtest-moduleapi --verbose
+
   test-ubuntu-32bit:
     runs-on: ubuntu-latest
     if: github.repository == 'redis/redis'
@@ -101,8 +112,10 @@ jobs:
         make 32bit REDIS_CFLAGS='-Werror -DREDIS_TEST'
     - name: module api test
       run: |
+        sudo apt-get install tcl8.6 tclx
         make -C tests/modules 32bit # the script below doesn't have an argument, we must build manually ahead of time
         ./runtest-moduleapi --verbose
+
   test-macos-latest:
     runs-on: macos-latest
     if: github.repository == 'redis/redis'
@@ -113,6 +126,7 @@ jobs:
       run: make
     - name: module api test
       run: ./runtest-moduleapi --verbose
+
   test-freebsd:
     runs-on: macos-latest
     if: github.repository == 'redis/redis'
@@ -128,6 +142,7 @@ jobs:
         run: >
           gmake &&
           ./runtest-moduleapi --verbose
+
   test-alpine-jemalloc:
     runs-on: ubuntu-latest
     if: github.repository == 'redis/redis'
@@ -139,7 +154,10 @@ jobs:
           apk add build-base
           make REDIS_CFLAGS='-Werror'
     - name: module api test
-      run: ./runtest-moduleapi --verbose
+      run: |
+        apk add tcl procps tclx
+        ./runtest-moduleapi --verbose
+
   test-alpine-libc-malloc:
     runs-on: ubuntu-latest
     if: github.repository == 'redis/redis'
@@ -151,4 +169,6 @@ jobs:
           apk add build-base
           make REDIS_CFLAGS='-Werror' USE_JEMALLOC=no CFLAGS=-DUSE_MALLOC_USABLE_SIZE
     - name: module api test
-      run: ./runtest-moduleapi --verbose
+      run: |
+        apk add tcl procps tclx
+        ./runtest-moduleapi --verbose
