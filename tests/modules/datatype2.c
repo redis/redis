@@ -220,6 +220,8 @@ void flushdbCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub, void
     int i;
     RedisModuleFlushInfo *fi = data;
 
+    RedisModule_AutoMemory(ctx);
+
     if (sub == REDISMODULE_SUBEVENT_FLUSHDB_START) {
         if (fi->dbnum != -1) {
            MemPoolFreeDb(ctx, fi->dbnum);
@@ -298,6 +300,7 @@ int MemFree_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     int nokey;
     struct MemBlock *mem = (struct MemBlock *)RedisModule_DictGet(mem_pool[RedisModule_GetSelectedDb(ctx)], argv[1], &nokey);
     if (!nokey && mem) {
+        RedisModule_DictDel(mem_pool[RedisModule_GetSelectedDb(ctx)], argv[1], NULL);
         MemBlockFree(mem);
         o->used = 0;
         o->size = 0;
