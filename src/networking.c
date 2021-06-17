@@ -3205,6 +3205,16 @@ size_t getClientMemoryUsage(client *c, size_t *output_buffer_mem_usage) {
     mem += c->argv_len_sum;
     mem += multiStateMemOverhead(c);
 
+    /* Add memory overhead of pubsub channels and patterns. Note: this is just the overhead of the robj pointers
+     * the strings themselves because they aren't stored per client */
+    mem += listLength(c->pubsub_patterns) * sizeof(listNode);
+    mem += dictSize(c->pubsub_channels) * sizeof(dictEntry) +
+           dictSlots(c->pubsub_channels) * sizeof(dictEntry*);
+
+    /* Add memory overhaed of the tracking prefixes, this is an underestimation so we don't need to traverse the entire rax */
+    if (c->client_tracking_prefixes)
+        mem += c->client_tracking_prefixes->numnodes * (sizeof(raxNode) * sizeof(raxNode*));
+
     return mem;
 }
 
@@ -3727,7 +3737,8 @@ int postponeClientRead(client *c) {
     if (server.io_threads_active &&
         server.io_threads_do_reads &&
         !ProcessingEventsWhileBlocked &&
-        !(c->flags & (CLIENT_MASTER|CLIENT_SLAVE|CLIENT_BLOCKED))) 
+        !(c->flags & (CLIENT_MASTER|CLIENT_SLAVE|CLIENT_BLOCKED)) &&
+        io_threads_op == IO_THREADS_OP_IDLE)
     {
         listAddNodeHead(server.clients_pending_read,c);
         return 1;
