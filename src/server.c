@@ -3952,13 +3952,24 @@ int processCommand(client *c) {
      * such as wrong arity, bad command name and so forth. */
     c->cmd = c->lastcmd = lookupCommand(c->argv[0]->ptr);
     if (!c->cmd) {
-        sds args = sdsempty();
-        int i;
-        for (i=1; i < c->argc && sdslen(args) < 128; i++)
-            args = sdscatprintf(args, "`%.*s`, ", 128-(int)sdslen(args), (char*)c->argv[i]->ptr);
-        rejectCommandFormat(c,"unknown command `%s`, with args beginning with: %s",
-            (char*)c->argv[0]->ptr, args);
-        sdsfree(args);
+        if (c->argc == 1) {
+            rejectCommandFormat(c,"unknown command '%s'",
+                                (char*)c->argv[0]->ptr);
+        } else {
+            sds args = sdsempty();
+            int i;
+            for (i=1; i < c->argc && sdslen(args) < 128; i++) {
+                if (i == c->argc - 1) {
+                    args = sdscatprintf(args, "`%.*s`", 128-(int)sdslen(args), (char*)c->argv[i]->ptr);
+                } else {
+                    args = sdscatprintf(args, "`%.*s`, ", 128-(int)sdslen(args), (char*)c->argv[i]->ptr);
+                }
+            }
+
+            rejectCommandFormat(c,"unknown command `%s`, with args beginning with: %s",
+                                (char*)c->argv[0]->ptr, args);
+            sdsfree(args);
+        }
         return C_OK;
     } else if ((c->cmd->arity > 0 && c->cmd->arity != c->argc) ||
                (c->argc < -c->cmd->arity)) {
