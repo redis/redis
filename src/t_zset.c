@@ -3097,7 +3097,7 @@ void zrangeCommand(client *c) {
     zrangeGenericCommand(&handler, 1, 0, ZRANGE_AUTO, ZRANGE_DIRECTION_AUTO);
 }
 
-/* ZREVRANGE <key> <min> <max> [WITHSCORES] */
+/* ZREVRANGE <key> <start> <stop> [WITHSCORES] */
 void zrevrangeCommand(client *c) {
     zrange_result_handler handler;
     zrangeResultHandlerInit(&handler, c, ZRANGE_CONSUMER_TYPE_CLIENT);
@@ -3225,7 +3225,7 @@ void zrangebyscoreCommand(client *c) {
     zrangeGenericCommand(&handler, 1, 0, ZRANGE_SCORE, ZRANGE_DIRECTION_FORWARD);
 }
 
-/* ZREVRANGEBYSCORE <key> <min> <max> [WITHSCORES] [LIMIT offset count] */
+/* ZREVRANGEBYSCORE <key> <max> <min> [WITHSCORES] [LIMIT offset count] */
 void zrevrangebyscoreCommand(client *c) {
     zrange_result_handler handler;
     zrangeResultHandlerInit(&handler, c, ZRANGE_CONSUMER_TYPE_CLIENT);
@@ -3506,7 +3506,7 @@ void zrangebylexCommand(client *c) {
     zrangeGenericCommand(&handler, 1, 0, ZRANGE_LEX, ZRANGE_DIRECTION_FORWARD);
 }
 
-/* ZREVRANGEBYLEX <key> <min> <max> [LIMIT offset count] */
+/* ZREVRANGEBYLEX <key> <max> <min> [LIMIT offset count] */
 void zrevrangebylexCommand(client *c) {
     zrange_result_handler handler;
     zrangeResultHandlerInit(&handler, c, ZRANGE_CONSUMER_TYPE_CLIENT);
