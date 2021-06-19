@@ -490,6 +490,7 @@ void loadServerConfigFromString(char *config) {
                 err = sdscatprintf(sdsempty(), "Can't chdir to '%s': %s",
                                    argv[1], strerror(errno));
                 goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"logfile") && argc == 2) {
             FILE *logfp;
 
