@@ -478,7 +478,7 @@ void loadServerConfigFromString(char *config) {
             if (argc == 3) {
                 int seconds = atoi(argv[1]);
                 int changes = atoi(argv[2]);
-                if (seconds < 1 || changes < 0) {
+                if (seconds < 1 || changes < 1) {
                     err = "Invalid save parameters"; goto loaderr;
                 }
                 appendServerSaveParams(seconds,changes);
