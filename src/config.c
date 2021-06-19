@@ -517,10 +517,10 @@ void loadServerConfigFromString(char *config) {
                 server.masterhost = NULL;
                 continue;
             }
+
             server.masterhost = sdsnew(argv[1]);
-            char *ptr;
-            server.masterport = strtol(argv[2], &ptr, 10);
-            if (server.masterport < 0 || server.masterport > 65535 || *ptr != '\0') {
+            server.masterport = atoi(argv[2]);
+            if (server.masterport < 1 || server.masterport > 65535) {
                 err = "Invalid master port"; goto loaderr;
             }
             server.repl_state = REPL_STATE_CONNECT;
