@@ -1576,30 +1576,8 @@ int raxSeek(raxIterator *it, const char *op, unsigned char *ele, size_t len) {
     } else if (lt || gt) {
         /* Exact key not found or eq flag not set. We have to set as current
          * key the one represented by the node we stopped at, and perform
-         * a next/prev operation to seek. To reconstruct the key at this node
-         * we start from the parent and go to the current node, accumulating
-         * the characters found along the way. */
-        if (!raxStackPush(&it->stack,it->node)) return 0;
-        for (size_t j = 1; j < it->stack.items; j++) {
-            raxNode *parent = it->stack.stack[j-1];
-            raxNode *child = it->stack.stack[j];
-            if (parent->iscompr) {
-                if (!raxIteratorAddChars(it,parent->data,parent->size))
-                    return 0;
-            } else {
-                raxNode **cp = raxNodeFirstChildPtr(parent);
-                unsigned char *p = parent->data;
-                while(1) {
-                    raxNode *aux;
-                    memcpy(&aux,cp,sizeof(aux));
-                    if (aux == child) break;
-                    cp++;
-                    p++;
-                }
-                if (!raxIteratorAddChars(it,p,1)) return 0;
-            }
-        }
-        raxStackPop(&it->stack);
+         * a next/prev operation to seek. */
+        raxIteratorAddChars(it, ele, i-splitpos);
 
         /* We need to set the iterator in the correct state to call next/prev
          * step in order to seek the desired element. */
