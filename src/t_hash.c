@@ -563,7 +563,7 @@ static int _hashZiplistEntryValidation(unsigned char *p, void *userdata) {
         long long vll;
         if (!ziplistGet(p, &str, &slen, &vll))
             return 0;
-        sds field = str? sdsnewlen(str, slen): sdsfromlonglong(vll);;
+        sds field = str? sdsnewlen(str, slen): sdsfromlonglong(vll);
         if (dictAdd(data->fields, field, NULL) != DICT_OK) {
             /* Duplicate, return an error */
             sdsfree(field);
