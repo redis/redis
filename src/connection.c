@@ -181,7 +181,7 @@ static int connSocketWrite(connection *conn, const void *data, size_t data_len) 
 static int connSocketRead(connection *conn, void *buf, size_t buf_len) {
     int ret = read(conn->fd, buf, buf_len);
     if (!ret) {
-        conn->state = CONN_STATE_CLOSED;
+        conn->state = CONN_STATE_ERROR;
     } else if (ret < 0 && errno != EAGAIN) {
         conn->last_errno = errno;
 

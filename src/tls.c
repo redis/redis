@@ -756,14 +756,8 @@ static int connTLSWrite(connection *conn_, const void *data, size_t data_len) {
             errno = EAGAIN;
             return -1;
         } else {
-            if (ssl_err == SSL_ERROR_ZERO_RETURN ||
-                    ((ssl_err == SSL_ERROR_SYSCALL && !errno))) {
-                conn->c.state = CONN_STATE_CLOSED;
-                return 0;
-            } else {
-                conn->c.state = CONN_STATE_ERROR;
-                return -1;
-            }
+            conn->c.state = CONN_STATE_ERROR;
+            return -1;
         }
     }
 
@@ -787,14 +781,8 @@ static int connTLSRead(connection *conn_, void *buf, size_t buf_len) {
             errno = EAGAIN;
             return -1;
         } else {
-            if (ssl_err == SSL_ERROR_ZERO_RETURN ||
-                    ((ssl_err == SSL_ERROR_SYSCALL) && !errno)) {
-                conn->c.state = CONN_STATE_CLOSED;
-                return 0;
-            } else {
-                conn->c.state = CONN_STATE_ERROR;
-                return -1;
-            }
+            conn->c.state = CONN_STATE_ERROR;
+            return -1;
         }
     }
 
