@@ -326,7 +326,7 @@ void trackingRememberKeyToBroadcast(client *c, char *keyname, size_t keylen) {
          * tree. This way we know who was the client that did the last
          * change to the key, and can avoid sending the notification in the
          * case the client is in NOLOOP mode. */
-        raxTryInsert(bs->keys,(unsigned char*)keyname,keylen,c,NULL);
+        raxInsert(bs->keys,(unsigned char*)keyname,keylen,c,NULL);
     }
     raxStop(&ri);
 }
