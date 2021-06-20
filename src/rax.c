@@ -1338,8 +1338,9 @@ int raxIteratorNextStep(raxIterator *it, int noup) {
             memcpy(&it->node,cp,sizeof(it->node));
             /* Call the node callback if any, and replace the node pointer
              * if the callback returns true. */
-            if (it->node_cb && it->node_cb(&it->node))
-                memcpy(cp,&it->node,sizeof(it->node));
+            if (it->node_cb) {
+                it->node_cb(&it->node);
+            }
             /* For "next" step, stop every time we find a key along the
              * way, since the key is lexicograhically smaller compared to
              * what follows in the sub-children. */
@@ -1394,8 +1395,9 @@ int raxIteratorNextStep(raxIterator *it, int noup) {
                         memcpy(&it->node,cp,sizeof(it->node));
                         /* Call the node callback if any, and replace the node
                          * pointer if the callback returns true. */
-                        if (it->node_cb && it->node_cb(&it->node))
-                            memcpy(cp,&it->node,sizeof(it->node));
+                        if (it->node_cb) {
+                            it->node_cb(&it->node);
+                        }
                         if (it->node->iskey) {
                             it->data = raxGetData(it->node);
                             return 1;
