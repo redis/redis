@@ -1072,7 +1072,7 @@ void configGetCommand(client *c) {
         matches++;
     }
 
-    if (stringmatch(pattern,"oom-score-adj-values",0)) {
+    if (stringmatch(pattern,"oom-score-adj-values",1)) {
         sds buf = sdsempty();
         int j;
 
