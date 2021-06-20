@@ -802,7 +802,7 @@ void configSetCommand(client *c) {
 
         /* Perform sanity check before setting the new config:
          * - Even number of args
-         * - Seconds >= 1, changes >= 0 */
+         * - Seconds >= 1, changes >= 1 */
         if (vlen & 1) {
             sdsfreesplitres(v,vlen);
             goto badfmt;
@@ -814,7 +814,7 @@ void configSetCommand(client *c) {
             val = strtoll(v[j], &eptr, 10);
             if (eptr[0] != '\0' ||
                 ((j & 1) == 0 && val < 1) ||
-                ((j & 1) == 1 && val < 0)) {
+                ((j & 1) == 1 && val < 1)) {
                 sdsfreesplitres(v,vlen);
                 goto badfmt;
             }
