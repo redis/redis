@@ -556,7 +556,7 @@ static int _hashZiplistEntryValidation(unsigned char *p, void *userdata) {
         dict *fields;
     } *data = userdata;
 
-    /* Odd records are field names, add to dict and check that's not a dup */
+    /* Even records are field names, add to dict and check that's not a dup */
     if (((data->count) & 1) == 0) {
         unsigned char *str;
         unsigned int slen;
