@@ -1129,6 +1129,7 @@ static sds cliFormatReplyRaw(redisReply *r) {
     case REDIS_REPLY_DOUBLE:
         out = sdscatprintf(out,"%s",r->str);
         break;
+    case REDIS_REPLY_SET:
     case REDIS_REPLY_ARRAY:
     case REDIS_REPLY_PUSH:
         for (i = 0; i < r->elements; i++) {
@@ -1187,6 +1188,7 @@ static sds cliFormatReplyCSV(redisReply *r) {
         out = sdscat(out,r->integer ? "true" : "false");
     break;
     case REDIS_REPLY_ARRAY:
+    case REDIS_REPLY_SET:
     case REDIS_REPLY_PUSH:
     case REDIS_REPLY_MAP: /* CSV has no map type, just output flat list. */
         for (i = 0; i < r->elements; i++) {
