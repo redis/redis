@@ -117,7 +117,7 @@ static size_t rioFileWrite(rio *r, const void *buf, size_t len) {
         r->io.file.buffered >= r->io.file.autosync)
     {
         fflush(r->io.file.fp);
-        redis_fsync(fileno(r->io.file.fp));
+        if (redis_fsync(fileno(r->io.file.fp)) == -1) return 0;
         r->io.file.buffered = 0;
     }
     return retval;
@@ -160,7 +160,7 @@ void rioInitWithFile(rio *r, FILE *fp) {
 }
 
 /* ------------------- Connection implementation -------------------
- * We use this RIO implemetnation when reading an RDB file directly from
+ * We use this RIO implementation when reading an RDB file directly from
  * the connection to the memory via rdbLoadRio(), thus this implementation
  * only implements reading from a connection that is, normally,
  * just a socket. */
@@ -190,15 +190,18 @@ static size_t rioConnRead(rio *r, void *buf, size_t len) {
     /* If we don't already have all the data in the sds, read more */
     while (len > sdslen(r->io.conn.buf) - r->io.conn.pos) {
         size_t buffered = sdslen(r->io.conn.buf) - r->io.conn.pos;
-        size_t toread = len - buffered;
+        size_t needs = len - buffered;
         /* Read either what's missing, or PROTO_IOBUF_LEN, the bigger of
          * the two. */
-        if (toread < PROTO_IOBUF_LEN) toread = PROTO_IOBUF_LEN;
+        size_t toread = needs < PROTO_IOBUF_LEN ? PROTO_IOBUF_LEN: needs;
         if (toread > sdsavail(r->io.conn.buf)) toread = sdsavail(r->io.conn.buf);
         if (r->io.conn.read_limit != 0 &&
             r->io.conn.read_so_far + buffered + toread > r->io.conn.read_limit)
         {
-            if (r->io.conn.read_limit >= r->io.conn.read_so_far - buffered)
+            /* Make sure the caller didn't request to read past the limit.
+             * If they didn't we'll buffer till the limit, if they did, we'll
+             * return an error. */
+            if (r->io.conn.read_limit >= r->io.conn.read_so_far + len)
                 toread = r->io.conn.read_limit - r->io.conn.read_so_far - buffered;
             else {
                 errno = EOVERFLOW;
@@ -259,7 +262,7 @@ void rioInitWithConn(rio *r, connection *conn, size_t read_limit) {
     sdsclear(r->io.conn.buf);
 }
 
-/* Release the RIO tream. Optionally returns the unread buffered data
+/* Release the RIO stream. Optionally returns the unread buffered data
  * when the SDS pointer 'remaining' is passed. */
 void rioFreeConn(rio *r, sds *remaining) {
     if (remaining && (size_t)r->io.conn.pos < sdslen(r->io.conn.buf)) {
@@ -307,7 +310,7 @@ static size_t rioFdWrite(rio *r, const void *buf, size_t len) {
             if (!doflush)
                 return 1;
         }
-        /* Flusing the buffered data. set 'p' and 'len' accordintly. */
+        /* Flushing the buffered data. set 'p' and 'len' accordingly. */
         p = (unsigned char*) r->io.fd.buf;
         len = sdslen(r->io.fd.buf);
     }

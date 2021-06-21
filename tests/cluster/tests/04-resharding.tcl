@@ -1,7 +1,7 @@
 # Failover stress test.
 # In this test a different node is killed in a loop for N
 # iterations. The test checks that certain properties
-# are preseved across iterations.
+# are preserved across iterations.
 
 source "../tests/includes/init-tests.tcl"
 source "../../../tests/support/cli.tcl"
@@ -32,7 +32,7 @@ test "Enable AOF in all the instances" {
     }
 }
 
-# Return nno-zero if the specified PID is about a process still in execution,
+# Return non-zero if the specified PID is about a process still in execution,
 # otherwise 0 is returned.
 proc process_is_running {pid} {
     # PS should return with an error if PID is non existing,
@@ -45,7 +45,7 @@ proc process_is_running {pid} {
 #
 # - N commands are sent to the cluster in the course of the test.
 # - Every command selects a random key from key:0 to key:MAX-1.
-# - The operation RPUSH key <randomvalue> is perforemd.
+# - The operation RPUSH key <randomvalue> is performed.
 # - Tcl remembers into an array all the values pushed to each list.
 # - After N/2 commands, the resharding process is started in background.
 # - The test continues while the resharding is in progress.
@@ -54,7 +54,17 @@ proc process_is_running {pid} {
 
 set numkeys 50000
 set numops 200000
-set cluster [redis_cluster 127.0.0.1:[get_instance_attrib redis 0 port]]
+set start_node_port [get_instance_attrib redis 0 port]
+set cluster [redis_cluster 127.0.0.1:$start_node_port]
+if {$::tls} {
+    # setup a non-TLS cluster client to the TLS cluster
+    set plaintext_port [get_instance_attrib redis 0 plaintext-port]
+    set cluster_plaintext [redis_cluster 127.0.0.1:$plaintext_port 0]
+    puts "Testing TLS cluster on start node 127.0.0.1:$start_node_port, plaintext port $plaintext_port"
+} else {
+    set cluster_plaintext $cluster
+    puts "Testing using non-TLS cluster"
+}
 catch {unset content}
 array set content {}
 set tribpid {}
@@ -94,8 +104,11 @@ test "Cluster consistency during live resharding" {
         # This way we are able to stress Lua -> Redis command invocation
         # as well, that has tests to prevent Lua to write into wrong
         # hash slots.
-        if {$listid % 2} {
+        # We also use both TLS and plaintext connections.
+        if {$listid % 3 == 0} {
             $cluster rpush $key $ele
+        } elseif {$listid % 3 == 1} {
+            $cluster_plaintext rpush $key $ele
         } else {
             $cluster eval {redis.call("rpush",KEYS[1],ARGV[1])} 1 $key $ele
         }
@@ -171,4 +184,11 @@ test "Verify slaves consistency" {
         }
     }
     assert {$verified_masters >= 5}
+}
+
+test "Dump sanitization was skipped for migrations" {
+    set verified_masters 0
+    foreach_redis_id id {
+        assert {[RI $id dump_payload_sanitizations] == 0}
+    }
 }

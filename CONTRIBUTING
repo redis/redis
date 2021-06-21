@@ -7,18 +7,24 @@ each source file that you contribute.
 
 # IMPORTANT: HOW TO USE REDIS GITHUB ISSUES
 
-* Github issues SHOULD ONLY BE USED to report bugs, and for DETAILED feature
-  requests. Everything else belongs to the Redis Google Group:
+Github issues SHOULD ONLY BE USED to report bugs, and for DETAILED feature
+requests. Everything else belongs to the Redis Google Group:
       
-      https://groups.google.com/forum/m/#!forum/Redis-db
+    https://groups.google.com/forum/m/#!forum/Redis-db
 
-  PLEASE DO NOT POST GENERAL QUESTIONS that are not about bugs or suspected
-  bugs in the Github issues system. We'll be very happy to help you and provide
-  all the support in the mailing list.
+PLEASE DO NOT POST GENERAL QUESTIONS that are not about bugs or suspected
+bugs in the Github issues system. We'll be very happy to help you and provide
+all the support in the mailing list.
 
-  There is also an active community of Redis users at Stack Overflow:
+There is also an active community of Redis users at Stack Overflow:
 
-      http://stackoverflow.com/questions/tagged/redis
+    https://stackoverflow.com/questions/tagged/redis
+
+Issues and pull requests for documentation belong on the redis-doc repo:
+
+    https://github.com/redis/redis-doc
+
+If you are reporting a security bug or vulnerability, see SECURITY.md.
 
 # How to provide a patch for a new feature
 
@@ -32,10 +38,10 @@ Here you'll see if there is consensus about your idea.
 2. If in step 1 you get an acknowledgment from the project leaders, use the
    following procedure to submit a patch:
 
-    a. Fork Redis on github ( http://help.github.com/fork-a-repo/ )
+    a. Fork Redis on github ( https://docs.github.com/en/github/getting-started-with-github/fork-a-repo )
     b. Create a topic branch (git checkout -b my_branch)
     c. Push to your branch (git push origin my_branch)
-    d. Initiate a pull request on github ( https://help.github.com/articles/creating-a-pull-request/ )
+    d. Initiate a pull request on github ( https://docs.github.com/en/github/collaborating-with-issues-and-pull-requests/creating-a-pull-request )
     e. Done :)
 
 3. Keep in mind that we are very overloaded, so issues and PRs sometimes wait

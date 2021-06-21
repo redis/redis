@@ -47,7 +47,7 @@ typedef struct redisLibeventEvents {
 } redisLibeventEvents;
 
 static void redisLibeventDestroy(redisLibeventEvents *e) {
-    free(e);
+    hi_free(e);
 }
 
 static void redisLibeventHandler(int fd, short event, void *arg) {
@@ -152,7 +152,10 @@ static int redisLibeventAttach(redisAsyncContext *ac, struct event_base *base) {
         return REDIS_ERR;
 
     /* Create container for context and r/w events */
-    e = (redisLibeventEvents*)calloc(1, sizeof(*e));
+    e = (redisLibeventEvents*)hi_calloc(1, sizeof(*e));
+    if (e == NULL)
+        return REDIS_ERR;
+
     e->context = ac;
 
     /* Register functions to start/stop listening for events */

@@ -94,6 +94,7 @@ start_server {
                 r XADD mystream MAXLEN 5 * yitem $j
             }
         }
+        assert {[r xlen mystream] == 5}
         set res [r xrange mystream - +]
         set expected 995
         foreach r $res {
@@ -102,19 +103,93 @@ start_server {
         }
     }
 
-    test {XADD mass insertion and XLEN} {
+    test {XADD with MAXLEN option and the '=' argument} {
         r DEL mystream
+        for {set j 0} {$j < 1000} {incr j} {
+            if {rand() < 0.9} {
+                r XADD mystream MAXLEN = 5 * xitem $j
+            } else {
+                r XADD mystream MAXLEN = 5 * yitem $j
+            }
+        }
+        assert {[r XLEN mystream] == 5}
+    }
+
+    test {XADD with MAXLEN option and the '~' argument} {
+        r DEL mystream
+        r config set stream-node-max-entries 100
+        for {set j 0} {$j < 1000} {incr j} {
+            if {rand() < 0.9} {
+                r XADD mystream MAXLEN ~ 555 * xitem $j
+            } else {
+                r XADD mystream MAXLEN ~ 555 * yitem $j
+            }
+        }
+        assert {[r XLEN mystream] == 600}
+    }
+
+    test {XADD with NOMKSTREAM option} {
+        r DEL mystream
+        assert_equal "" [r XADD mystream NOMKSTREAM * item 1 value a]
+        assert_equal 0 [r EXISTS mystream]
+        r XADD mystream * item 1 value a
+        r XADD mystream NOMKSTREAM * item 2 value b
+        assert_equal 2 [r XLEN mystream]
+        set items [r XRANGE mystream - +]
+        assert_equal [lindex $items 0 1] {item 1 value a}
+        assert_equal [lindex $items 1 1] {item 2 value b}
+    }
+
+    test {XADD with MINID option} {
+        r DEL mystream
+        for {set j 1} {$j < 1001} {incr j} {
+            set minid 1000
+            if {$j >= 5} {
+                set minid [expr {$j-5}]
+            }
+            if {rand() < 0.9} {
+                r XADD mystream MINID $minid $j xitem $j
+            } else {
+                r XADD mystream MINID $minid $j yitem $j
+            }
+        }
+        assert {[r xlen mystream] == 6}
+        set res [r xrange mystream - +]
+        set expected 995
+        foreach r $res {
+            assert {[lindex $r 1 1] == $expected}
+            incr expected
+        }
+    }
+
+    test {XTRIM with MINID option} {
+        r DEL mystream
+        r XADD mystream 1-0 f v
+        r XADD mystream 2-0 f v
+        r XADD mystream 3-0 f v
+        r XADD mystream 4-0 f v
+        r XADD mystream 5-0 f v
+        r XTRIM mystream MINID = 3-0
+        assert_equal [r XRANGE mystream - +] {{3-0 {f v}} {4-0 {f v}} {5-0 {f v}}}
+    }
+
+    proc insert_into_stream_key {key {count 10000}} {
         r multi
-        for {set j 0} {$j < 10000} {incr j} {
+        for {set j 0} {$j < $count} {incr j} {
             # From time to time insert a field with a different set
             # of fields in order to stress the stream compression code.
             if {rand() < 0.9} {
-                r XADD mystream * item $j
+                r XADD $key * item $j
             } else {
-                r XADD mystream * item $j otherfield foo
+                r XADD $key * item $j otherfield foo
             }
         }
         r exec
+    }
+
+    test {XADD mass insertion and XLEN} {
+        r DEL mystream
+        insert_into_stream_key mystream
 
         set items [r XRANGE mystream - +]
         for {set j 0} {$j < 10000} {incr j} {
@@ -127,6 +202,15 @@ start_server {
         r DEL otherstream
         catch {r XADD otherstream 0-0 k v} err
         assert {[r EXISTS otherstream] == 0}
+    }
+
+    test {XADD with LIMIT delete entries no more than limit} {
+        r del yourstream
+        for {set j 0} {$j < 3} {incr j} {
+            r XADD yourstream * xitem v
+        }
+        r XADD yourstream MAXLEN ~ 0 limit 1 * xitem v
+        assert {[r XLEN yourstream] == 4}
     }
 
     test {XRANGE COUNT works as expected} {
@@ -156,38 +240,65 @@ start_server {
         assert {[r xrange mystream - +] == [lreverse [r xrevrange mystream + -]]}
     }
 
+    test {XRANGE exclusive ranges} {
+        set ids {0-1 0-18446744073709551615 1-0 42-0 42-42
+                 18446744073709551615-18446744073709551614
+                 18446744073709551615-18446744073709551615}
+        set total [llength $ids]
+        r multi
+        r DEL vipstream
+        foreach id $ids {
+            r XADD vipstream $id foo bar
+        }
+        r exec
+        assert {[llength [r xrange vipstream - +]] == $total}
+        assert {[llength [r xrange vipstream ([lindex $ids 0] +]] == $total-1}
+        assert {[llength [r xrange vipstream - ([lindex $ids $total-1]]] == $total-1}
+        assert {[llength [r xrange vipstream (0-1 (1-0]] == 1}
+        assert {[llength [r xrange vipstream (1-0 (42-42]] == 1}
+        catch {r xrange vipstream (- +} e
+        assert_match {ERR*} $e
+        catch {r xrange vipstream - (+} e
+        assert_match {ERR*} $e
+        catch {r xrange vipstream (18446744073709551615-18446744073709551615 +} e
+        assert_match {ERR*} $e
+        catch {r xrange vipstream - (0-0} e
+        assert_match {ERR*} $e
+    }
+
     test {XREAD with non empty stream} {
         set res [r XREAD COUNT 1 STREAMS mystream 0-0]
         assert {[lrange [lindex $res 0 1 0 1] 0 1] eq {item 0}}
     }
 
     test {Non blocking XREAD with empty streams} {
-        set res [r XREAD STREAMS s1 s2 0-0 0-0]
+        set res [r XREAD STREAMS s1{t} s2{t} 0-0 0-0]
         assert {$res eq {}}
     }
 
     test {XREAD with non empty second stream} {
-        set res [r XREAD COUNT 1 STREAMS nostream mystream 0-0 0-0]
-        assert {[lindex $res 0 0] eq {mystream}}
+        insert_into_stream_key mystream{t}
+        set res [r XREAD COUNT 1 STREAMS nostream{t} mystream{t} 0-0 0-0]
+        assert {[lindex $res 0 0] eq {mystream{t}}}
         assert {[lrange [lindex $res 0 1 0 1] 0 1] eq {item 0}}
     }
 
     test {Blocking XREAD waiting new data} {
-        r XADD s2 * old abcd1234
+        r XADD s2{t} * old abcd1234
         set rd [redis_deferring_client]
-        $rd XREAD BLOCK 20000 STREAMS s1 s2 s3 $ $ $
-        r XADD s2 * new abcd1234
+        $rd XREAD BLOCK 20000 STREAMS s1{t} s2{t} s3{t} $ $ $
+        r XADD s2{t} * new abcd1234
         set res [$rd read]
-        assert {[lindex $res 0 0] eq {s2}}
+        assert {[lindex $res 0 0] eq {s2{t}}}
         assert {[lindex $res 0 1 0 1] eq {new abcd1234}}
     }
 
     test {Blocking XREAD waiting old data} {
         set rd [redis_deferring_client]
-        $rd XREAD BLOCK 20000 STREAMS s1 s2 s3 $ 0-0 $
-        r XADD s2 * foo abcd1234
+        $rd XREAD BLOCK 20000 STREAMS s1{t} s2{t} s3{t} $ 0-0 $
+        r XADD s2{t} * foo abcd1234
         set res [$rd read]
-        assert {[lindex $res 0 0] eq {s2}}
+        assert {[lindex $res 0 0] eq {s2{t}}}
         assert {[lindex $res 0 1 0 1] eq {old abcd1234}}
     }
 
@@ -305,12 +416,13 @@ start_server {
     }
 
     test {XRANGE fuzzing} {
+        set items [r XRANGE mystream{t} - +]
         set low_id [lindex $items 0 0]
         set high_id [lindex $items end 0]
         for {set j 0} {$j < 100} {incr j} {
             set start [streamRandomID $low_id $high_id]
             set end [streamRandomID $low_id $high_id]
-            set range [r xrange mystream $start $end]
+            set range [r xrange mystream{t} $start $end]
             set tcl_range [streamSimulateXRANGE $items $start $end]
             if {$range ne $tcl_range} {
                 puts "*** WARNING *** - XRANGE fuzzing mismatch: $start - $end"
@@ -366,9 +478,82 @@ start_server {
         r XADD x * f2 v2
         assert_equal [r XRANGE x - +] {{2577343934890-18446744073709551615 {f v}} {2577343934891-0 {f2 v2}}}
     }
+
+    test {XTRIM with MAXLEN option basic test} {
+        r DEL mystream
+        for {set j 0} {$j < 1000} {incr j} {
+            if {rand() < 0.9} {
+                r XADD mystream * xitem $j
+            } else {
+                r XADD mystream * yitem $j
+            }
+        }
+        r XTRIM mystream MAXLEN 666
+        assert {[r XLEN mystream] == 666}
+        r XTRIM mystream MAXLEN = 555
+        assert {[r XLEN mystream] == 555}
+        r XTRIM mystream MAXLEN ~ 444
+        assert {[r XLEN mystream] == 500}
+        r XTRIM mystream MAXLEN ~ 400
+        assert {[r XLEN mystream] == 400}
+    }
+
+    test {XADD with LIMIT consecutive calls} {
+        r del mystream
+        r config set stream-node-max-entries 10
+        for {set j 0} {$j < 100} {incr j} {
+            r XADD mystream * xitem v
+        }
+        r XADD mystream MAXLEN ~ 55 LIMIT 30 * xitem v
+        assert {[r xlen mystream] == 71}
+        r XADD mystream MAXLEN ~ 55 LIMIT 30 * xitem v
+        assert {[r xlen mystream] == 62}
+        r config set stream-node-max-entries 100
+    }
+
+    test {XTRIM with ~ is limited} {
+        r del mystream
+        r config set stream-node-max-entries 1
+        for {set j 0} {$j < 102} {incr j} {
+            r XADD mystream * xitem v
+        }
+        r XTRIM mystream MAXLEN ~ 1
+        assert {[r xlen mystream] == 2}
+        r config set stream-node-max-entries 100
+    }
+
+    test {XTRIM without ~ is not limited} {
+        r del mystream
+        r config set stream-node-max-entries 1
+        for {set j 0} {$j < 102} {incr j} {
+            r XADD mystream * xitem v
+        }
+        r XTRIM mystream MAXLEN 1
+        assert {[r xlen mystream] == 1}
+        r config set stream-node-max-entries 100
+    }
+
+    test {XTRIM without ~ and with LIMIT} {
+        r del mystream
+        r config set stream-node-max-entries 1
+        for {set j 0} {$j < 102} {incr j} {
+            r XADD mystream * xitem v
+        }
+        assert_error ERR* {r XTRIM mystream MAXLEN 1 LIMIT 30}
+    }
+
+    test {XTRIM with LIMIT delete entries no more than limit} {
+        r del mystream
+        r config set stream-node-max-entries 2
+        for {set j 0} {$j < 3} {incr j} {
+            r XADD mystream * xitem v
+        }
+        assert {[r XTRIM mystream MAXLEN ~ 0 LIMIT 1] == 0}
+        assert {[r XTRIM mystream MAXLEN ~ 0 LIMIT 2] == 2}
+    }
 }
 
-start_server {tags {"stream"} overrides {appendonly yes}} {
+start_server {tags {"stream needs:debug"} overrides {appendonly yes}} {
     test {XADD with MAXLEN > xlen can propagate correctly} {
         for {set j 0} {$j < 100} {incr j} {
             r XADD mystream * xitem v
@@ -383,7 +568,23 @@ start_server {tags {"stream"} overrides {appendonly yes}} {
     }
 }
 
-start_server {tags {"stream"} overrides {appendonly yes}} {
+start_server {tags {"stream needs:debug"} overrides {appendonly yes}} {
+    test {XADD with MINID > lastid can propagate correctly} {
+        for {set j 0} {$j < 100} {incr j} {
+            set id [expr {$j+1}]
+            r XADD mystream $id xitem v
+        }
+        r XADD mystream MINID 1 * xitem v
+        incr j
+        assert {[r xlen mystream] == $j}
+        r debug loadaof
+        r XADD mystream * xitem v
+        incr j
+        assert {[r xlen mystream] == $j}
+    }
+}
+
+start_server {tags {"stream needs:debug"} overrides {appendonly yes stream-node-max-entries 100}} {
     test {XADD with ~ MAXLEN can propagate correctly} {
         for {set j 0} {$j < 100} {incr j} {
             r XADD mystream * xitem v
@@ -399,7 +600,53 @@ start_server {tags {"stream"} overrides {appendonly yes}} {
     }
 }
 
-start_server {tags {"stream"} overrides {appendonly yes stream-node-max-entries 10}} {
+start_server {tags {"stream needs:debug"} overrides {appendonly yes stream-node-max-entries 10}} {
+    test {XADD with ~ MAXLEN and LIMIT can propagate correctly} {
+        for {set j 0} {$j < 100} {incr j} {
+            r XADD mystream * xitem v
+        }
+        r XADD mystream MAXLEN ~ 55 LIMIT 30 * xitem v
+        assert {[r xlen mystream] == 71}
+        r config set stream-node-max-entries 1
+        r debug loadaof
+        r XADD mystream * xitem v
+        assert {[r xlen mystream] == 72}
+    }
+}
+
+start_server {tags {"stream needs:debug"} overrides {appendonly yes stream-node-max-entries 100}} {
+    test {XADD with ~ MINID can propagate correctly} {
+        for {set j 0} {$j < 100} {incr j} {
+            set id [expr {$j+1}]
+            r XADD mystream $id xitem v
+        }
+        r XADD mystream MINID ~ $j * xitem v
+        incr j
+        assert {[r xlen mystream] == $j}
+        r config set stream-node-max-entries 1
+        r debug loadaof
+        r XADD mystream * xitem v
+        incr j
+        assert {[r xlen mystream] == $j}
+    }
+}
+
+start_server {tags {"stream needs:debug"} overrides {appendonly yes stream-node-max-entries 10}} {
+    test {XADD with ~ MINID and LIMIT can propagate correctly} {
+        for {set j 0} {$j < 100} {incr j} {
+            set id [expr {$j+1}]
+            r XADD mystream $id xitem v
+        }
+        r XADD mystream MINID ~ 55 LIMIT 30 * xitem v
+        assert {[r xlen mystream] == 71}
+        r config set stream-node-max-entries 1
+        r debug loadaof
+        r XADD mystream * xitem v
+        assert {[r xlen mystream] == 72}
+    }
+}
+
+start_server {tags {"stream needs:debug"} overrides {appendonly yes stream-node-max-entries 10}} {
     test {XTRIM with ~ MAXLEN can propagate correctly} {
         for {set j 0} {$j < 100} {incr j} {
             r XADD mystream * xitem v
@@ -438,7 +685,7 @@ start_server {tags {"stream xsetid"}} {
     } {ERR no such key}
 }
 
-start_server {tags {"stream"} overrides {appendonly yes aof-use-rdb-preamble no}} {
+start_server {tags {"stream needs:debug"} overrides {appendonly yes aof-use-rdb-preamble no}} {
     test {Empty stream can be rewrite into AOF correctly} {
         r XADD mystream MAXLEN 0 * a b
         assert {[dict get [r xinfo stream mystream] length] == 0}
@@ -459,5 +706,17 @@ start_server {tags {"stream"} overrides {appendonly yes aof-use-rdb-preamble no}
         r debug loadaof
         assert {[dict get [r xinfo stream mystream] length] == 1}
         assert {[dict get [r xinfo stream mystream] last-generated-id] == "2-2"}
+    }
+}
+
+start_server {tags {"stream"}} {
+    test {XGROUP HELP should not have unexpected options} {
+        catch {r XGROUP help xxx} e
+        assert_match "*Unknown subcommand or wrong number of arguments*" $e
+    }
+
+    test {XINFO HELP should not have unexpected options} {
+        catch {r XINFO help xxx} e
+        assert_match "*Unknown subcommand or wrong number of arguments*" $e
     }
 }

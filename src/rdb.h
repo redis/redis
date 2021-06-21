@@ -45,7 +45,7 @@
  * the first byte to interpreter the length:
  *
  * 00|XXXXXX => if the two MSB are 00 the len is the 6 bits of this byte
- * 01|XXXXXX XXXXXXXX =>  01, the len is 14 byes, 6 bits + 8 bits of next byte
+ * 01|XXXXXX XXXXXXXX =>  01, the len is 14 bits, 6 bits + 8 bits of next byte
  * 10|000000 [32 bit integer] => A full 32 bit len in net byte order will follow
  * 10|000001 [64 bit integer] => A full 64 bit len in net byte order will follow
  * 11|OBKIND this means: specially encoded object will follow. The six bits
@@ -141,14 +141,15 @@ int rdbLoadObjectType(rio *rdb);
 int rdbLoad(char *filename, rdbSaveInfo *rsi, int rdbflags);
 int rdbSaveBackground(char *filename, rdbSaveInfo *rsi);
 int rdbSaveToSlavesSockets(rdbSaveInfo *rsi);
-void rdbRemoveTempFile(pid_t childpid);
+void rdbRemoveTempFile(pid_t childpid, int from_signal);
 int rdbSave(char *filename, rdbSaveInfo *rsi);
-ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key);
-size_t rdbSavedObjectLen(robj *o, robj *key);
-robj *rdbLoadObject(int type, rio *rdb, sds key);
+ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid);
+size_t rdbSavedObjectLen(robj *o, robj *key, int dbid);
+robj *rdbLoadObject(int type, rio *rdb, sds key, int dbid);
 void backgroundSaveDoneHandler(int exitcode, int bysignal);
-int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime);
+int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime,int dbid);
 ssize_t rdbSaveSingleModuleAux(rio *rdb, int when, moduleType *mt);
+robj *rdbLoadCheckModuleValue(rio *rdb, char *modulename);
 robj *rdbLoadStringObject(rio *rdb);
 ssize_t rdbSaveStringObject(rio *rdb, robj *obj);
 ssize_t rdbSaveRawString(rio *rdb, unsigned char *s, size_t len);

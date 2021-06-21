@@ -70,7 +70,7 @@ proc show_cluster_status {} {
     }
 }
 
-start_server {tags {"psync2"}} {
+start_server {tags {"psync2 external:skip"}} {
 start_server {} {
 start_server {} {
 start_server {} {
@@ -117,7 +117,7 @@ start_server {} {
         set used [list $master_id]
         test "PSYNC2: \[NEW LAYOUT\] Set #$master_id as master" {
             $R($master_id) slaveof no one
-            $R($master_id) config set repl-ping-replica-period 1 ;# increse the chance that random ping will cause issues
+            $R($master_id) config set repl-ping-replica-period 1 ;# increase the chance that random ping will cause issues
             if {$counter_value == 0} {
                 $R($master_id) set x $counter_value
             }
@@ -242,7 +242,6 @@ start_server {} {
             show_cluster_status
             fail "Replicas and master offsets were unable to match *exactly*."
         }
-        $R($master_id) config set repl-ping-replica-period 10
 
         # Limit anyway the maximum number of cycles. This is useful when the
         # test is skipped via --only option of the test suite. In that case
@@ -281,7 +280,8 @@ start_server {} {
         set sync_partial_err [status $R($master_id) sync_partial_err]
         catch {
             $R($slave_id) config rewrite
-            $R($slave_id) debug restart
+            restart_server [expr {0-$slave_id}] true false
+            set R($slave_id) [srv [expr {0-$slave_id}] client]
         }
         # note: just waiting for connected_slaves==4 has a race condition since
         # we might do the check before the master realized that the slave disconnected
@@ -329,7 +329,8 @@ start_server {} {
 
         catch {
             $R($slave_id) config rewrite
-            $R($slave_id) debug restart
+            restart_server [expr {0-$slave_id}] true false
+            set R($slave_id) [srv [expr {0-$slave_id}] client]
         }
 
         # Reconfigure the slave correctly again, when it's back online.

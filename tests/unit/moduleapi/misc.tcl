@@ -16,6 +16,16 @@ start_server {tags {"modules"}} {
         assert { [string match "*cmdstat_module*" $info] }
     }
 
+    test {test RM_Call recursive} {
+        set info [r test.call_generic test.call_generic info commandstats]
+        assert { [string match "*cmdstat_module*" $info] }
+    }
+
+    test {test redis version} {
+        set version [s redis_version]
+        assert_equal $version [r test.redisversion]
+    }
+
     test {test long double conversions} {
         set ld [r test.ld_conversion]
         assert {[string match $ld "0.00000000000000001"]}
@@ -30,7 +40,7 @@ start_server {tags {"modules"}} {
         assert_equal [r test.dbsize] 0
     }
 
-    test {test modle lru api} {
+    test {test module lru api} {
         r config set maxmemory-policy allkeys-lru
         r set x foo
         set lru [r test.getlru x]
@@ -49,7 +59,7 @@ start_server {tags {"modules"}} {
     }
     r config set maxmemory-policy allkeys-lru
 
-    test {test modle lfu api} {
+    test {test module lfu api} {
         r config set maxmemory-policy allkeys-lfu
         r set x foo
         set lfu [r test.getlfu x]
@@ -67,4 +77,42 @@ start_server {tags {"modules"}} {
         assert { $was_set == 0 }
     }
 
+    test {test module clientinfo api} {
+        # Test basic sanity and SSL flag
+        set info [r test.clientinfo]
+        set ssl_flag [expr $::tls ? {"ssl:"} : {":"}]
+
+        assert { [dict get $info db] == 9 }
+        assert { [dict get $info flags] == "${ssl_flag}::::" }
+
+        # Test MULTI flag
+        r multi
+        r test.clientinfo
+        set info [lindex [r exec] 0]
+        assert { [dict get $info flags] == "${ssl_flag}::::multi" }
+
+        # Test TRACKING flag
+        r client tracking on
+        set info [r test.clientinfo]
+        assert { [dict get $info flags] == "${ssl_flag}::tracking::" }
+    }
+
+    test {test module getclientcert api} {
+        set cert [r test.getclientcert]
+
+        if {$::tls} {
+            assert {$cert != ""}
+        } else {
+            assert {$cert == ""}
+        }
+    }
+
+    test {test detached thread safe cnotext} {
+        r test.log_tsctx "info" "Test message"
+        verify_log_message 0 "*<misc> Test message*" 0
+    }
+
+    test {test RM_Call CLIENT INFO} {
+        assert_match "*fd=-1*" [r test.call_generic client info]
+    }
 }

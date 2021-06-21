@@ -1,11 +1,11 @@
-start_server {tags {"auth"}} {
+start_server {tags {"auth external:skip"}} {
     test {AUTH fails if there is no password configured server side} {
         catch {r auth foo} err
         set _ $err
     } {ERR*any password*}
 }
 
-start_server {tags {"auth"} overrides {requirepass foobar}} {
+start_server {tags {"auth external:skip"} overrides {requirepass foobar}} {
     test {AUTH fails when a wrong password is given} {
         catch {r auth wrong!} err
         set _ $err
@@ -24,4 +24,45 @@ start_server {tags {"auth"} overrides {requirepass foobar}} {
         r set foo 100
         r incr foo
     } {101}
+}
+
+start_server {tags {"auth_binary_password external:skip"}} {
+    test {AUTH fails when binary password is wrong} {
+        r config set requirepass "abc\x00def"
+        catch {r auth abc} err
+        set _ $err
+    } {WRONGPASS*}
+
+    test {AUTH succeeds when binary password is correct} {
+        r config set requirepass "abc\x00def"
+        r auth "abc\x00def"
+    } {OK}
+
+    start_server {tags {"masterauth"}} {
+        set master [srv -1 client]
+        set master_host [srv -1 host]
+        set master_port [srv -1 port]
+        set slave [srv 0 client]
+
+        test {MASTERAUTH test with binary password} {
+            $master config set requirepass "abc\x00def"
+
+            # Configure the replica with masterauth
+            set loglines [count_log_lines 0]
+            $slave slaveof $master_host $master_port
+            $slave config set masterauth "abc"
+
+            # Verify replica is not able to sync with master
+            wait_for_log_messages 0 {"*Unable to AUTH to MASTER*"} $loglines 1000 10
+            assert_equal {down} [s 0 master_link_status]
+            
+            # Test replica with the correct masterauth
+            $slave config set masterauth "abc\x00def"
+            wait_for_condition 50 100 {
+                [s 0 master_link_status] eq {up}
+            } else {
+                fail "Can't turn the instance into a replica"
+            }
+        }
+    }
 }

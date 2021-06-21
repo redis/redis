@@ -35,8 +35,8 @@ start_server {tags {"scripting"}} {
     } {1 2 3 ciao {1 2}}
 
     test {EVAL - Are the KEYS and ARGV arrays populated correctly?} {
-        r eval {return {KEYS[1],KEYS[2],ARGV[1],ARGV[2]}} 2 a b c d
-    } {a b c d}
+        r eval {return {KEYS[1],KEYS[2],ARGV[1],ARGV[2]}} 2 a{t} b{t} c{t} d{t}
+    } {a{t} b{t} c{t} d{t}}
 
     test {EVAL - is Lua able to call Redis API?} {
         r set mykey myval
@@ -116,7 +116,7 @@ start_server {tags {"scripting"}} {
         r select 10
         r set mykey "this is DB 10"
         r eval {return redis.pcall('get',KEYS[1])} 1 mykey
-    } {this is DB 10}
+    } {this is DB 10} {singledb:skip}
 
     test {EVAL - SELECT inside Lua should not affect the caller} {
         # here we DB 10 is selected
@@ -125,7 +125,7 @@ start_server {tags {"scripting"}} {
         set res [r get mykey]
         r select 9
         set res
-    } {original value}
+    } {original value} {singledb:skip}
 
     if 0 {
         test {EVAL - Script can't run more than configured time limit} {
@@ -140,9 +140,39 @@ start_server {tags {"scripting"}} {
         } {*execution time*}
     }
 
-    test {EVAL - Scripts can't run certain commands} {
+    test {EVAL - Scripts can't run blpop command} {
         set e {}
         catch {r eval {return redis.pcall('blpop','x',0)} 0} e
+        set e
+    } {*not allowed*}
+
+    test {EVAL - Scripts can't run brpop command} {
+        set e {}
+        catch {r eval {return redis.pcall('brpop','empty_list',0)} 0} e
+        set e
+    } {*not allowed*}
+
+    test {EVAL - Scripts can't run brpoplpush command} {
+        set e {}
+        catch {r eval {return redis.pcall('brpoplpush','empty_list1', 'empty_list2',0)} 0} e
+        set e
+    } {*not allowed*}
+
+    test {EVAL - Scripts can't run blmove command} {
+        set e {}
+        catch {r eval {return redis.pcall('blmove','empty_list1', 'empty_list2', 'LEFT', 'LEFT', 0)} 0} e
+        set e
+    } {*not allowed*}
+
+    test {EVAL - Scripts can't run bzpopmin command} {
+        set e {}
+        catch {r eval {return redis.pcall('bzpopmin','empty_zset', 0)} 0} e
+        set e
+    } {*not allowed*}
+
+    test {EVAL - Scripts can't run bzpopmax command} {
+        set e {}
+        catch {r eval {return redis.pcall('bzpopmax','empty_zset', 0)} 0} e
         set e
     } {*not allowed*}
 
@@ -165,7 +195,7 @@ start_server {tags {"scripting"}} {
         } e
         r debug lua-always-replicate-commands 1
         set e
-    } {*not allowed after*}
+    } {*not allowed after*} {needs:debug}
 
     test {EVAL - No arguments to redis.call/pcall is considered an error} {
         set e {}
@@ -242,7 +272,7 @@ start_server {tags {"scripting"}} {
                 local encoded = cmsgpack.pack(a)
                 local h = ""
                 -- cmsgpack encodes to a depth of 16, but can't encode
-                -- references, so the encoded object has a deep copy recusive
+                -- references, so the encoded object has a deep copy recursive
                 -- depth of 16.
                 for i = 1, #encoded do
                     h = h .. string.format("%02x",string.byte(encoded,i))
@@ -290,6 +320,17 @@ start_server {tags {"scripting"}} {
         r eval {return 'hello' --trailing comment} 0
     } {hello}
 
+    test {EVAL_RO - Successful case} {
+        r set foo bar
+        assert_equal bar [r eval_ro {return redis.call('get', KEYS[1]);} 1 foo]
+    }
+
+    test {EVAL_RO - Cannot run write commands} {
+        r set foo bar
+        catch {r eval_ro {redis.call('del', KEYS[1]);} 1 foo} e
+        set e
+    } {*Write commands are not allowed from read-only scripts*}
+
     test {SCRIPTING FLUSH - is able to clear the scripts cache?} {
         r set mykey myval
         set v [r evalsha fd758d1589d044dd850a6f05d52f2eefd27f033f 1 mykey]
@@ -299,6 +340,15 @@ start_server {tags {"scripting"}} {
         catch {r evalsha fd758d1589d044dd850a6f05d52f2eefd27f033f 1 mykey} e
         set e
     } {NOSCRIPT*}
+
+    test {SCRIPTING FLUSH ASYNC} {
+        for {set j 0} {$j < 100} {incr j} {
+            r script load "return $j"
+        }
+        assert { [string match "*number_of_cached_scripts:100*" [r info Memory]] }
+        r script flush async
+        assert { [string match "*number_of_cached_scripts:0*" [r info Memory]] }
+    }
 
     test {SCRIPT EXISTS - can detect already defined scripts?} {
         r eval "return 1+1" 0
@@ -318,25 +368,25 @@ start_server {tags {"scripting"}} {
         set res [r eval {return redis.call('smembers',KEYS[1])} 1 myset]
         r debug lua-always-replicate-commands 1
         set res
-    } {a aa aaa azz b c d e f g h i l m n o p q r s t u v z}
+    } {a aa aaa azz b c d e f g h i l m n o p q r s t u v z} {needs:debug}
 
     test "SORT is normally not alpha re-ordered for the scripting engine" {
         r del myset
         r sadd myset 1 2 3 4 10
         r eval {return redis.call('sort',KEYS[1],'desc')} 1 myset
-    } {10 4 3 2 1}
+    } {10 4 3 2 1} {cluster:skip}
 
     test "SORT BY <constant> output gets ordered for scripting" {
         r del myset
         r sadd myset a b c d e f g h i l m n o p q r s t u v z aa aaa azz
         r eval {return redis.call('sort',KEYS[1],'by','_')} 1 myset
-    } {a aa aaa azz b c d e f g h i l m n o p q r s t u v z}
+    } {a aa aaa azz b c d e f g h i l m n o p q r s t u v z} {cluster:skip}
 
     test "SORT BY <constant> with GET gets ordered for scripting" {
         r del myset
         r sadd myset a b c
         r eval {return redis.call('sort',KEYS[1],'by','_','get','#','get','_:*')} 1 myset
-    } {a {} b {} c {}}
+    } {a {} b {} c {}} {cluster:skip}
 
     test "redis.sha1hex() implementation" {
         list [r eval {return redis.sha1hex('')} 0] \
@@ -427,17 +477,55 @@ start_server {tags {"scripting"}} {
         r debug loadaof
         set res [r get foo]
         r slaveof no one
+        r config set aof-use-rdb-preamble yes
         set res
-    } {102}
+    } {102} {external:skip}
+
+    test {EVAL timeout from AOF} {
+        # generate a long running script that is propagated to the AOF as script
+        # make sure that the script times out during loading
+        r config set appendonly no
+        r config set aof-use-rdb-preamble no
+        r config set lua-replicate-commands no
+        r flushall
+        r config set appendonly yes
+        wait_for_condition 50 100 {
+            [s aof_rewrite_in_progress] == 0
+        } else {
+            fail "AOF rewrite can't complete after CONFIG SET appendonly yes."
+        }
+        r config set lua-time-limit 1
+        set rd [redis_deferring_client]
+        set start [clock clicks -milliseconds]
+        $rd eval {redis.call('set',KEYS[1],'y'); for i=1,1500000 do redis.call('ping') end return 'ok'} 1 x
+        $rd flush
+        after 100
+        catch {r ping} err
+        assert_match {BUSY*} $err
+        $rd read
+        set elapsed [expr [clock clicks -milliseconds]-$start]
+        if {$::verbose} { puts "script took $elapsed milliseconds" }
+        set start [clock clicks -milliseconds]
+        $rd debug loadaof
+        $rd flush
+        after 100
+        catch {r ping} err
+        assert_match {LOADING*} $err
+        $rd read
+        set elapsed [expr [clock clicks -milliseconds]-$start]
+        if {$::verbose} { puts "loading took $elapsed milliseconds" }
+        $rd close
+        r get x
+    } {y} {external:skip}
 
     test {We can call scripts rewriting client->argv from Lua} {
         r del myset
         r sadd myset a b c
-        r mset a 1 b 2 c 3 d 4
+        r mset a{t} 1 b{t} 2 c{t} 3 d{t} 4
         assert {[r spop myset] ne {}}
         assert {[r spop myset 1] ne {}}
         assert {[r spop myset] ne {}}
-        assert {[r mget a b c d] eq {1 2 3 4}}
+        assert {[r mget a{t} b{t} c{t} d{t}] eq {1 2 3 4}}
         assert {[r spop myset] eq {}}
     }
 
@@ -451,7 +539,7 @@ start_server {tags {"scripting"}} {
             end
             redis.call('rpush','mylist',unpack(x))
             return redis.call('lrange','mylist',0,-1)
-        } 0
+        } 1 mylist
     } {1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99 100}
 
     test {Number conversion precision test (issue #1118)} {
@@ -459,14 +547,14 @@ start_server {tags {"scripting"}} {
               local value = 9007199254740991
               redis.call("set","foo",value)
               return redis.call("get","foo")
-        } 0
+        } 1 foo
     } {9007199254740991}
 
     test {String containing number precision test (regression of issue #1118)} {
         r eval {
             redis.call("set", "key", "12039611435714932082")
             return redis.call("get", "key")
-        } 0
+        } 1 key
     } {12039611435714932082}
 
     test {Verify negative arg count is error instead of crash (issue #1842)} {
@@ -477,13 +565,13 @@ start_server {tags {"scripting"}} {
     test {Correct handling of reused argv (issue #1939)} {
         r eval {
               for i = 0, 10 do
-                  redis.call('SET', 'a', '1')
-                  redis.call('MGET', 'a', 'b', 'c')
-                  redis.call('EXPIRE', 'a', 0)
-                  redis.call('GET', 'a')
-                  redis.call('MGET', 'a', 'b', 'c')
+                  redis.call('SET', 'a{t}', '1')
+                  redis.call('MGET', 'a{t}', 'b{t}', 'c{t}')
+                  redis.call('EXPIRE', 'a{t}', 0)
+                  redis.call('GET', 'a{t}')
+                  redis.call('MGET', 'a{t}', 'b{t}', 'c{t}')
               end
-        } 0
+        } 3 a{t} b{t} c{t}
     }
 
     test {Functions in the Redis namespace are able to report errors} {
@@ -494,6 +582,30 @@ start_server {tags {"scripting"}} {
         } e
         set e
     } {*wrong number*}
+
+    test {Script with RESP3 map} {
+        set expected_dict [dict create field value]
+        set expected_list [list field value]
+
+        # Sanity test for RESP3 without scripts
+        r HELLO 3
+        r hset hash field value
+        set res [r hgetall hash]
+        assert_equal $res $expected_dict
+
+        # Test RESP3 client with script in both RESP2 and RESP3 modes
+        set res [r eval {redis.setresp(3); return redis.call('hgetall', KEYS[1])} 1 hash]
+        assert_equal $res $expected_dict
+        set res [r eval {redis.setresp(2); return redis.call('hgetall', KEYS[1])} 1 hash]
+        assert_equal $res $expected_list
+
+        # Test RESP2 client with script in both RESP2 and RESP3 modes
+        r HELLO 2
+        set res [r eval {redis.setresp(3); return redis.call('hgetall', KEYS[1])} 1 hash]
+        assert_equal $res $expected_list
+        set res [r eval {redis.setresp(2); return redis.call('hgetall', KEYS[1])} 1 hash]
+        assert_equal $res $expected_list
+    }
 }
 
 # Start a new server since the last test in this stanza will kill the
@@ -509,6 +621,71 @@ start_server {tags {"scripting"}} {
         r script kill
         after 200 ; # Give some time to Lua to call the hook again...
         assert_equal [r ping] "PONG"
+    }
+
+    test {Timedout read-only scripts can be killed by SCRIPT KILL even when use pcall} {
+        set rd [redis_deferring_client]
+        r config set lua-time-limit 10
+        $rd eval {local f = function() while 1 do redis.call('ping') end end while 1 do pcall(f) end} 0
+        
+        wait_for_condition 50 100 {
+            [catch {r ping} e] == 1
+        } else {
+            fail "Can't wait for script to start running"
+        }
+        catch {r ping} e
+        assert_match {BUSY*} $e
+
+        r script kill
+
+        wait_for_condition 50 100 {
+            [catch {r ping} e] == 0
+        } else {
+            fail "Can't wait for script to be killed"
+        }
+        assert_equal [r ping] "PONG"
+
+        catch {$rd read} res
+        $rd close
+
+        assert_match {*killed by user*} $res        
+    }
+
+    test {Timedout script does not cause a false dead client} {
+        set rd [redis_deferring_client]
+        r config set lua-time-limit 10
+
+        # senging (in a pipeline):
+        # 1. eval "while 1 do redis.call('ping') end" 0
+        # 2. ping
+        set buf "*3\r\n\$4\r\neval\r\n\$33\r\nwhile 1 do redis.call('ping') end\r\n\$1\r\n0\r\n"
+        append buf "*1\r\n\$4\r\nping\r\n"
+        $rd write $buf
+        $rd flush
+
+        wait_for_condition 50 100 {
+            [catch {r ping} e] == 1
+        } else {
+            fail "Can't wait for script to start running"
+        }
+        catch {r ping} e
+        assert_match {BUSY*} $e
+
+        r script kill
+        wait_for_condition 50 100 {
+            [catch {r ping} e] == 0
+        } else {
+            fail "Can't wait for script to be killed"
+        }
+        assert_equal [r ping] "PONG"
+
+        catch {$rd read} res
+        assert_match {*killed by user*} $res
+
+        set res [$rd read]
+        assert_match {*PONG*} $res        
+
+        $rd close
     }
 
     test {Timedout script link is still usable after Lua returns} {
@@ -528,23 +705,23 @@ start_server {tags {"scripting"}} {
         assert_match {UNKILLABLE*} $e
         catch {r ping} e
         assert_match {BUSY*} $e
-    }
+    } {} {external:skip}
 
     # Note: keep this test at the end of this server stanza because it
     # kills the server.
     test {SHUTDOWN NOSAVE can kill a timedout script anyway} {
-        # The server could be still unresponding to normal commands.
+        # The server should be still unresponding to normal commands.
         catch {r ping} e
         assert_match {BUSY*} $e
         catch {r shutdown nosave}
         # Make sure the server was killed
         catch {set rd [redis_deferring_client]} e
         assert_match {*connection refused*} $e
-    }
+    } {} {external:skip}
 }
 
 foreach cmdrepl {0 1} {
-    start_server {tags {"scripting repl"}} {
+    start_server {tags {"scripting repl needs:debug external:skip"}} {
         start_server {} {
             if {$cmdrepl == 1} {
                 set rt "(commands replication)"
@@ -640,12 +817,12 @@ foreach cmdrepl {0 1} {
                 } else {
                     fail "Master-Replica desync after Lua script using SELECT."
                 }
-            }
+            } {} {singledb:skip}
         }
     }
 }
 
-start_server {tags {"scripting repl"}} {
+start_server {tags {"scripting repl external:skip"}} {
     start_server {overrides {appendonly yes aof-use-rdb-preamble no}} {
         test "Connect a replica to the master instance" {
             r -1 slaveof [srv 0 host] [srv 0 port]
@@ -752,7 +929,7 @@ start_server {tags {"scripting repl"}} {
     }
 }
 
-start_server {tags {"scripting"}} {
+start_server {tags {"scripting external:skip"}} {
     r script debug sync
     r eval {return 'hello'} 0
     r eval {return 'hello'} 0

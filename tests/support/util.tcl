@@ -12,7 +12,11 @@ proc randstring {min max {type binary}} {
         set maxval 52
     }
     while {$len} {
-        append output [format "%c" [expr {$minval+int(rand()*($maxval-$minval+1))}]]
+        set rr [expr {$minval+int(rand()*($maxval-$minval+1))}]
+        if {$type eq {alpha} && $rr eq 92} {
+            set rr 90; # avoid putting '\' char in the string, it can mess up TCL processing
+        }
+        append output [format "%c" $rr]
         incr len -1
     }
     return $output
@@ -27,7 +31,7 @@ proc zlistAlikeSort {a b} {
 
 # Return all log lines starting with the first line that contains a warning.
 # Generally, this will be an assertion error with a stack trace.
-proc warnings_from_file {filename} {
+proc crashlog_from_file {filename} {
     set lines [split [exec cat $filename] "\n"]
     set matched 0
     set logall 0
@@ -46,11 +50,15 @@ proc warnings_from_file {filename} {
     join $result "\n"
 }
 
-# Return value for INFO property
-proc status {r property} {
-    if {[regexp "\r\n$property:(.*?)\r\n" [{*}$r info] _ value]} {
+proc getInfoProperty {infostr property} {
+    if {[regexp "\r\n$property:(.*?)\r\n" $infostr _ value]} {
         set _ $value
     }
+}
+
+# Return value for INFO property
+proc status {r property} {
+    set _ [getInfoProperty [{*}$r info] $property]
 }
 
 proc waitForBgsave r {
@@ -82,12 +90,10 @@ proc waitForBgrewriteaof r {
 }
 
 proc wait_for_sync r {
-    while 1 {
-        if {[status $r master_link_status] eq "down"} {
-            after 10
-        } else {
-            break
-        }
+    wait_for_condition 50 100 {
+        [status $r master_link_status] eq "up"
+    } else {
+        fail "replica didn't sync in time"
     }
 }
 
@@ -99,23 +105,81 @@ proc wait_for_ofs_sync {r1 r2} {
     }
 }
 
-proc wait_for_log_message {srv_idx pattern last_lines maxtries delay} {
+proc wait_done_loading r {
+    wait_for_condition 50 100 {
+        [catch {$r ping} e] == 0
+    } else {
+        fail "Loading DB is taking too much time."
+    }
+}
+
+# count current log lines in server's stdout
+proc count_log_lines {srv_idx} {
+    set _ [string trim [exec wc -l < [srv $srv_idx stdout]]]
+}
+
+# returns the number of times a line with that pattern appears in a file
+proc count_message_lines {file pattern} {
+    set res 0
+    # exec fails when grep exists with status other than 0 (when the patter wasn't found)
+    catch {
+        set res [string trim [exec grep $pattern $file 2> /dev/null | wc -l]]
+    }
+    return $res
+}
+
+# returns the number of times a line with that pattern appears in the log
+proc count_log_message {srv_idx pattern} {
+    set stdout [srv $srv_idx stdout]
+    return [count_message_lines $stdout $pattern]
+}
+
+# verify pattern exists in server's sdtout after a certain line number
+proc verify_log_message {srv_idx pattern from_line} {
+    incr from_line
+    set result [exec tail -n +$from_line < [srv $srv_idx stdout]]
+    if {![string match $pattern $result]} {
+        error "assertion:expected message not found in log file: $pattern"
+    }
+}
+
+# wait for pattern to be found in server's stdout after certain line number
+# return value is a list containing the line that matched the pattern and the line number
+proc wait_for_log_messages {srv_idx patterns from_line maxtries delay} {
     set retry $maxtries
+    set next_line [expr $from_line + 1] ;# searching form the line after
     set stdout [srv $srv_idx stdout]
     while {$retry} {
-        set result [exec tail -$last_lines < $stdout]
+        # re-read the last line (unless it's before to our first), last time we read it, it might have been incomplete
+        set next_line [expr $next_line - 1 > $from_line + 1 ? $next_line - 1 : $from_line + 1]
+        set result [exec tail -n +$next_line < $stdout]
         set result [split $result "\n"]
         foreach line $result {
-            if {[string match $pattern $line]} {
-                return $line
+            foreach pattern $patterns {
+                if {[string match $pattern $line]} {
+                    return [list $line $next_line]
+                }
             }
+            incr next_line
         }
         incr retry -1
         after $delay
     }
     if {$retry == 0} {
-        fail "log message of '$pattern' not found"
+        if {$::verbose} {
+            puts "content of $stdout from line: $from_line:"
+            puts [exec tail -n +$from_line < $stdout]
+        }
+        fail "log message of '$patterns' not found in $stdout after line: $from_line till line: [expr $next_line -1]"
     }
+}
+
+# write line to server log file
+proc write_log_line {srv_idx msg} {
+    set logfile [srv $srv_idx stdout]
+    set fd [open $logfile "a+"]
+    puts $fd "### $msg"
+    close $fd
 }
 
 # Random integer between 0 and max (excluded).
@@ -186,13 +250,19 @@ proc findKeyWithType {r type} {
 }
 
 proc createComplexDataset {r ops {opt {}}} {
+    set useexpire [expr {[lsearch -exact $opt useexpire] != -1}]
+    if {[lsearch -exact $opt usetag] != -1} {
+        set tag "{t}"
+    } else {
+        set tag ""
+    }
     for {set j 0} {$j < $ops} {incr j} {
-        set k [randomKey]
-        set k2 [randomKey]
+        set k [randomKey]$tag
+        set k2 [randomKey]$tag
         set f [randomValue]
         set v [randomValue]
 
-        if {[lsearch -exact $opt useexpire] != -1} {
+        if {$useexpire} {
             if {rand() < 0.1} {
                 {*}$r expire [randomKey] [randomInt 2]
             }
@@ -289,8 +359,15 @@ proc formatCommand {args} {
 
 proc csvdump r {
     set o {}
-    for {set db 0} {$db < 16} {incr db} {
-        {*}$r select $db
+    if {$::singledb} {
+        set maxdb 1
+    } else {
+        set maxdb 16
+    }
+    for {set db 0} {$db < $maxdb} {incr db} {
+        if {!$::singledb} {
+            {*}$r select $db
+        }
         foreach k [lsort [{*}$r keys *]] {
             set type [{*}$r type $k]
             append o [csvstring $db] , [csvstring $k] , [csvstring $type] ,
@@ -332,7 +409,9 @@ proc csvdump r {
             }
         }
     }
-    {*}$r select 9
+    if {!$::singledb} {
+        {*}$r select 9
+    }
     return $o
 }
 
@@ -344,21 +423,26 @@ proc roundFloat f {
     format "%.10g" $f
 }
 
-proc find_available_port start {
-    for {set j $start} {$j < $start+1024} {incr j} {
-        if {[catch {set fd1 [socket 127.0.0.1 $j]}] &&
-            [catch {set fd2 [socket 127.0.0.1 [expr $j+10000]]}]} {
-            return $j
+set ::last_port_attempted 0
+proc find_available_port {start count} {
+    set port [expr $::last_port_attempted + 1]
+    for {set attempts 0} {$attempts < $count} {incr attempts} {
+        if {$port < $start || $port >= $start+$count} {
+            set port $start
+        }
+        if {[catch {set fd1 [socket 127.0.0.1 $port]}] &&
+            [catch {set fd2 [socket 127.0.0.1 [expr $port+10000]]}]} {
+            set ::last_port_attempted $port
+            return $port
         } else {
             catch {
                 close $fd1
                 close $fd2
             }
         }
+        incr port
     }
-    if {$j == $start+1024} {
-        error "Can't find a non busy port in the $start-[expr {$start+1023}] range."
-    }
+    error "Can't find a non busy port in the $start-[expr {$start+$count-1}] range."
 }
 
 # Test if TERM looks like to support colors
@@ -391,6 +475,38 @@ proc colorstr {color str} {
     }
 }
 
+proc find_valgrind_errors {stderr on_termination} {
+    set fd [open $stderr]
+    set buf [read $fd]
+    close $fd
+
+    # Look for stack trace (" at 0x") and other errors (Invalid, Mismatched, etc).
+    # Look for "Warnings", but not the "set address range perms". These don't indicate any real concern.
+    # corrupt-dump unit, not sure why but it seems they don't indicate any real concern.
+    if {[regexp -- { at 0x} $buf] ||
+        [regexp -- {^(?=.*Warning)(?:(?!set address range perms).)*$} $buf] ||
+        [regexp -- {Invalid} $buf] ||
+        [regexp -- {Mismatched} $buf] ||
+        [regexp -- {uninitialized} $buf] ||
+        [regexp -- {has a fishy} $buf] ||
+        [regexp -- {overlap} $buf]} {
+        return $buf
+    }
+
+    # If the process didn't terminate yet, we can't look for the summary report
+    if {!$on_termination} {
+        return ""
+    }
+
+    # Look for the absence of a leak free summary (happens when redis isn't terminated properly).
+    if {(![regexp -- {definitely lost: 0 bytes} $buf] &&
+         ![regexp -- {no leaks are possible} $buf])} {
+        return $buf
+    }
+
+    return ""
+}
+
 # Execute a background process writing random data for the specified number
 # of seconds to the specified Redis instance.
 proc start_write_load {host port seconds} {
@@ -403,20 +519,28 @@ proc stop_write_load {handle} {
     catch {exec /bin/kill -9 $handle}
 }
 
+proc wait_load_handlers_disconnected {{level 0}} {
+    wait_for_condition 50 100 {
+        ![string match {*name=LOAD_HANDLER*} [r $level client list]]
+    } else {
+        fail "load_handler(s) still connected after too long time."
+    }
+}
+
 proc K { x y } { set x } 
 
-# Shuffle a list. From Tcl wiki. Originally from Steve Cohen that improved
-# other versions. Code should be under public domain.
+# Shuffle a list with Fisher-Yates algorithm.
 proc lshuffle {list} {
     set n [llength $list]
-    while {$n>0} {
+    while {$n>1} {
         set j [expr {int(rand()*$n)}]
-        lappend slist [lindex $list $j]
         incr n -1
-        set temp [lindex $list $n]
-        set list [lreplace [K $list [set list {}]] $j $j $temp]
+        if {$n==$j} continue
+        set v [lindex $list $j]
+        lset list $j [lindex $list $n]
+        lset list $n $v
     }
-    return $slist
+    return $list
 }
 
 # Execute a background process writing complex data for the specified number
@@ -429,4 +553,315 @@ proc start_bg_complex_data {host port db ops} {
 # Stop a process generating write load executed with start_bg_complex_data.
 proc stop_bg_complex_data {handle} {
     catch {exec /bin/kill -9 $handle}
+}
+
+proc populate {num {prefix key:} {size 3}} {
+    set rd [redis_deferring_client]
+    for {set j 0} {$j < $num} {incr j} {
+        $rd set $prefix$j [string repeat A $size]
+    }
+    for {set j 0} {$j < $num} {incr j} {
+        $rd read
+    }
+    $rd close
+}
+
+proc get_child_pid {idx} {
+    set pid [srv $idx pid]
+    if {[file exists "/usr/bin/pgrep"]} {
+        set fd [open "|pgrep -P $pid" "r"]
+        set child_pid [string trim [lindex [split [read $fd] \n] 0]]
+    } else {
+        set fd [open "|ps --ppid $pid -o pid" "r"]
+        set child_pid [string trim [lindex [split [read $fd] \n] 1]]
+    }
+    close $fd
+
+    return $child_pid
+}
+
+proc cmdrstat {cmd r} {
+    if {[regexp "\r\ncmdstat_$cmd:(.*?)\r\n" [$r info commandstats] _ value]} {
+        set _ $value
+    }
+}
+
+proc errorrstat {cmd r} {
+    if {[regexp "\r\nerrorstat_$cmd:(.*?)\r\n" [$r info errorstats] _ value]} {
+        set _ $value
+    }
+}
+
+proc generate_fuzzy_traffic_on_key {key duration} {
+    # Commands per type, blocking commands removed
+    # TODO: extract these from help.h or elsewhere, and improve to include other types
+    set string_commands {APPEND BITCOUNT BITFIELD BITOP BITPOS DECR DECRBY GET GETBIT GETRANGE GETSET INCR INCRBY INCRBYFLOAT MGET MSET MSETNX PSETEX SET SETBIT SETEX SETNX SETRANGE STRALGO STRLEN}
+    set hash_commands {HDEL HEXISTS HGET HGETALL HINCRBY HINCRBYFLOAT HKEYS HLEN HMGET HMSET HSCAN HSET HSETNX HSTRLEN HVALS HRANDFIELD}
+    set zset_commands {ZADD ZCARD ZCOUNT ZINCRBY ZINTERSTORE ZLEXCOUNT ZPOPMAX ZPOPMIN ZRANGE ZRANGEBYLEX ZRANGEBYSCORE ZRANK ZREM ZREMRANGEBYLEX ZREMRANGEBYRANK ZREMRANGEBYSCORE ZREVRANGE ZREVRANGEBYLEX ZREVRANGEBYSCORE ZREVRANK ZSCAN ZSCORE ZUNIONSTORE ZRANDMEMBER}
+    set list_commands {LINDEX LINSERT LLEN LPOP LPOS LPUSH LPUSHX LRANGE LREM LSET LTRIM RPOP RPOPLPUSH RPUSH RPUSHX}
+    set set_commands {SADD SCARD SDIFF SDIFFSTORE SINTER SINTERSTORE SISMEMBER SMEMBERS SMOVE SPOP SRANDMEMBER SREM SSCAN SUNION SUNIONSTORE}
+    set stream_commands {XACK XADD XCLAIM XDEL XGROUP XINFO XLEN XPENDING XRANGE XREAD XREADGROUP XREVRANGE XTRIM}
+    set commands [dict create string $string_commands hash $hash_commands zset $zset_commands list $list_commands set $set_commands stream $stream_commands]
+
+    set type [r type $key]
+    set cmds [dict get $commands $type]
+    set start_time [clock seconds]
+    set sent {}
+    set succeeded 0
+    while {([clock seconds]-$start_time) < $duration} {
+        # find a random command for our key type
+        set cmd_idx [expr {int(rand()*[llength $cmds])}]
+        set cmd [lindex $cmds $cmd_idx]
+        # get the command details from redis
+        if { [ catch {
+            set cmd_info [lindex [r command info $cmd] 0]
+        } err ] } {
+            # if we failed, it means redis crashed after the previous command
+            return $sent
+        }
+        # try to build a valid command argument
+        set arity [lindex $cmd_info 1]
+        set arity [expr $arity < 0 ? - $arity: $arity]
+        set firstkey [lindex $cmd_info 3]
+        set i 1
+        if {$cmd == "XINFO"} {
+            lappend cmd "STREAM"
+            lappend cmd $key
+            lappend cmd "FULL"
+            incr i 3
+        }
+        if {$cmd == "XREAD"} {
+            lappend cmd "STREAMS"
+            lappend cmd $key
+            randpath {
+                lappend cmd \$
+            } {
+                lappend cmd [randomValue]
+            }
+            incr i 3
+        }
+        if {$cmd == "XADD"} {
+            lappend cmd $key
+            randpath {
+                lappend cmd "*"
+            } {
+                lappend cmd [randomValue]
+            }
+            lappend cmd [randomValue]
+            lappend cmd [randomValue]
+            incr i 4
+        }
+        for {} {$i < $arity} {incr i} {
+            if {$i == $firstkey} {
+                lappend cmd $key
+            } else {
+                lappend cmd [randomValue]
+            }
+        }
+        # execute the command, we expect commands to fail on syntax errors
+        lappend sent $cmd
+        if { ! [ catch {
+            r {*}$cmd
+        } err ] } {
+            incr succeeded
+        } else {
+            set err [format "%s" $err] ;# convert to string for pattern matching
+            if {[string match "*SIGTERM*" $err]} {
+                puts "command caused test to hang? $cmd"
+                exit 1
+            }
+        }
+    }
+
+    # print stats so that we know if we managed to generate commands that actually made senes
+    #if {$::verbose} {
+    #    set count [llength $sent]
+    #    puts "Fuzzy traffic sent: $count, succeeded: $succeeded"
+    #}
+
+    # return the list of commands we sent
+    return $sent
+}
+
+# write line to server log file
+proc write_log_line {srv_idx msg} {
+    set logfile [srv $srv_idx stdout]
+    set fd [open $logfile "a+"]
+    puts $fd "### $msg"
+    close $fd
+}
+
+proc string2printable s {
+    set res {}
+    set has_special_chars false
+    foreach i [split $s {}] {
+        scan $i %c int
+        # non printable characters, including space and excluding: " \ $ { }
+        if {$int < 32 || $int > 122 || $int == 34 || $int == 36 || $int == 92} {
+            set has_special_chars true
+        }
+        # TCL8.5 has issues mixing \x notation and normal chars in the same
+        # source code string, so we'll convert the entire string.
+        append res \\x[format %02X $int]
+    }
+    if {!$has_special_chars} {
+        return $s
+    }
+    set res "\"$res\""
+    return $res
+}
+
+# Calculation value of Chi-Square Distribution. By this value
+# we can verify the random distribution sample confidence.
+# Based on the following wiki:
+# https://en.wikipedia.org/wiki/Chi-square_distribution
+#
+# param res    Random sample list
+# return       Value of Chi-Square Distribution
+#
+# x2_value: return of chi_square_value function
+# df: Degrees of freedom, Number of independent values minus 1
+#
+# By using x2_value and df to back check the cardinality table,
+# we can know the confidence of the random sample.
+proc chi_square_value {res} {
+    unset -nocomplain mydict
+    foreach key $res {
+        dict incr mydict $key 1
+    }
+
+    set x2_value 0
+    set p [expr [llength $res] / [dict size $mydict]]
+    foreach key [dict keys $mydict] {
+        set value [dict get $mydict $key]
+
+        # Aggregate the chi-square value of each element
+        set v [expr {pow($value - $p, 2) / $p}]
+        set x2_value [expr {$x2_value + $v}]
+    }
+
+    return $x2_value
+}
+
+#subscribe to Pub/Sub channels
+proc consume_subscribe_messages {client type channels} {
+    set numsub -1
+    set counts {}
+
+    for {set i [llength $channels]} {$i > 0} {incr i -1} {
+        set msg [$client read]
+        assert_equal $type [lindex $msg 0]
+
+        # when receiving subscribe messages the channels names
+        # are ordered. when receiving unsubscribe messages
+        # they are unordered
+        set idx [lsearch -exact $channels [lindex $msg 1]]
+        if {[string match "*unsubscribe" $type]} {
+            assert {$idx >= 0}
+        } else {
+            assert {$idx == 0}
+        }
+        set channels [lreplace $channels $idx $idx]
+
+        # aggregate the subscription count to return to the caller
+        lappend counts [lindex $msg 2]
+    }
+
+    # we should have received messages for channels
+    assert {[llength $channels] == 0}
+    return $counts
+}
+
+proc subscribe {client channels} {
+    $client subscribe {*}$channels
+    consume_subscribe_messages $client subscribe $channels
+}
+
+proc unsubscribe {client {channels {}}} {
+    $client unsubscribe {*}$channels
+    consume_subscribe_messages $client unsubscribe $channels
+}
+
+proc psubscribe {client channels} {
+    $client psubscribe {*}$channels
+    consume_subscribe_messages $client psubscribe $channels
+}
+
+proc punsubscribe {client {channels {}}} {
+    $client punsubscribe {*}$channels
+    consume_subscribe_messages $client punsubscribe $channels
+}
+
+proc debug_digest_value {key} {
+    if {!$::ignoredigest} {
+        r debug digest-value $key
+    } else {
+        return "dummy-digest-value"
+    }
+}
+
+proc wait_for_blocked_client {} {
+    wait_for_condition 50 100 {
+        [s blocked_clients] ne 0
+    } else {
+        fail "no blocked clients"
+    }
+}
+
+proc wait_for_blocked_clients_count {count {maxtries 100} {delay 10}} {
+    wait_for_condition $maxtries $delay  {
+        [s blocked_clients] == $count
+    } else {
+        fail "Timeout waiting for blocked clients"
+    }
+}
+
+proc read_from_aof {fp} {
+    # Input fp is a blocking binary file descriptor of an opened AOF file.
+    if {[gets $fp count] == -1} return ""
+    set count [string range $count 1 end]
+
+    # Return a list of arguments for the command.
+    set res {}
+    for {set j 0} {$j < $count} {incr j} {
+        read $fp 1
+        set arg [::redis::redis_bulk_read $fp]
+        if {$j == 0} {set arg [string tolower $arg]}
+        lappend res $arg
+    }
+    return $res
+}
+
+proc assert_aof_content {aof_path patterns} {
+    set fp [open $aof_path r]
+    fconfigure $fp -translation binary
+    fconfigure $fp -blocking 1
+
+    for {set j 0} {$j < [llength $patterns]} {incr j} {
+        assert_match [lindex $patterns $j] [read_from_aof $fp]
+    }
+}
+
+proc config_set {param value {options {}}} {
+    set mayfail 0
+    foreach option $options {
+        switch $option {
+            "mayfail" {
+                set mayfail 1
+            }
+            default {
+                error "Unknown option $option"
+            }
+        }
+    }
+
+    if {[catch {r config set $param $value} err]} {
+        if {!$mayfail} {
+            error $err
+        } else {
+            if {$::verbose} {
+                puts "Ignoring CONFIG SET $param $value failure: $err"
+            }
+        }
+    }
 }

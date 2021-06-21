@@ -85,5 +85,10 @@ start_server {tags {"modules"}} {
         set keys [scan [regexp -inline {keys\=([\d]*)} $keyspace] keys=%d]
     } {3}
 
+    test {module info unsafe fields} {
+        set info [r info infotest_unsafe]
+        assert_match {*infotest_unsafe_field:value=1*} $info
+    }
+
     # TODO: test crash report.
 } 

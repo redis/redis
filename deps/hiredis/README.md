@@ -1,6 +1,6 @@
 [![Build Status](https://travis-ci.org/redis/hiredis.png)](https://travis-ci.org/redis/hiredis)
 
-**This Readme reflects the latest changed in the master branch. See [v0.13.3](https://github.com/redis/hiredis/tree/v0.13.3) for the Readme and documentation for the latest release.**
+**This Readme reflects the latest changed in the master branch. See [v1.0.0](https://github.com/redis/hiredis/tree/v1.0.0) for the Readme and documentation for the latest release ([API/ABI history](https://abi-laboratory.pro/?view=timeline&l=hiredis)).**
 
 # HIREDIS
 
@@ -24,11 +24,30 @@ The library comes with multiple APIs. There is the
 
 ## Upgrading to `1.0.0`
 
-Version 1.0.0 marks a stable release of hiredis.
+Version 1.0.0 marks the first stable release of Hiredis.
 It includes some minor breaking changes, mostly to make the exposed API more uniform and self-explanatory.
 It also bundles the updated `sds` library, to sync up with upstream and Redis.
-For most applications a recompile against the new hiredis should be enough.
 For code changes see the [Changelog](CHANGELOG.md).
+
+_Note:  As described below, a few member names have been changed but most applications should be able to upgrade with minor code changes and recompiling._
+
+## IMPORTANT:  Breaking changes from `0.14.1` -> `1.0.0`
+
+* `redisContext` has two additional members (`free_privdata`, and `privctx`).
+* `redisOptions.timeout` has been renamed to `redisOptions.connect_timeout`, and we've added `redisOptions.command_timeout`.
+* `redisReplyObjectFunctions.createArray` now takes `size_t` instead of `int` for its length parameter.
+
+## IMPORTANT:  Breaking changes when upgrading from 0.13.x -> 0.14.x
+
+Bulk and multi-bulk lengths less than -1 or greater than `LLONG_MAX` are now
+protocol errors. This is consistent with the RESP specification. On 32-bit
+platforms, the upper bound is lowered to `SIZE_MAX`.
+
+Change `redisReply.len` to `size_t`, as it denotes the the size of a string
+
+User code should compare this to `size_t` values as well.  If it was used to
+compare to other values, casting might be necessary or can be removed, if
+casting was applied before.
 
 ## Upgrading from `<0.9.0`
 
@@ -110,6 +129,8 @@ The standard replies that `redisCommand` are of the type `redisReply`. The
 `type` field in the `redisReply` should be used to test what kind of reply
 was received:
 
+### RESP2
+
 * **`REDIS_REPLY_STATUS`**:
     * The command replied with a status reply. The status string can be accessed using `reply->str`.
       The length of this string can be accessed using `reply->len`.
@@ -134,16 +155,51 @@ was received:
       and can be accessed via `reply->element[..index..]`.
       Redis may reply with nested arrays but this is fully supported.
 
+### RESP3
+
+Hiredis also supports every new `RESP3` data type which are as follows.  For more information about the protocol see the `RESP3` [specification.](https://github.com/antirez/RESP3/blob/master/spec.md)
+
+* **`REDIS_REPLY_DOUBLE`**:
+    * The command replied with a double-precision floating point number.
+      The value is stored as a string in the `str` member, and can be converted with `strtod` or similar.
+
+* **`REDIS_REPLY_BOOL`**:
+    * A boolean true/false reply.
+      The value is stored in the `integer` member and will be either `0` or `1`.
+
+* **`REDIS_REPLY_MAP`**:
+    * An array with the added invariant that there will always be an even number of elements.
+      The MAP is functionally equivelant to `REDIS_REPLY_ARRAY` except for the previously mentioned invariant.
+
+* **`REDIS_REPLY_SET`**:
+    * An array response where each entry is unique.
+      Like the MAP type, the data is identical to an array response except there are no duplicate values.
+
+* **`REDIS_REPLY_PUSH`**:
+    * An array that can be generated spontaneously by Redis.
+      This array response will always contain at least two subelements.  The first contains the type of `PUSH` message (e.g. `message`, or `invalidate`), and the second being a sub-array with the `PUSH` payload itself.
+
+* **`REDIS_REPLY_ATTR`**:
+    * An array structurally identical to a `MAP` but intended as meta-data about a reply.
+      _As of Redis 6.0.6 this reply type is not used in Redis_
+
+* **`REDIS_REPLY_BIGNUM`**:
+    * A string representing an arbitrarily large signed or unsigned integer value.
+      The number will be encoded as a string in the `str` member of `redisReply`.
+
+* **`REDIS_REPLY_VERB`**:
+    * A verbatim string, intended to be presented to the user without modification.
+      The string payload is stored in the `str` memeber, and type data is stored in the `vtype` member (e.g. `txt` for raw text or `md` for markdown).
+
 Replies should be freed using the `freeReplyObject()` function.
 Note that this function will take care of freeing sub-reply objects
 contained in arrays and nested arrays, so there is no need for the user to
 free the sub replies (it is actually harmful and will corrupt the memory).
 
-**Important:** the current version of hiredis (0.10.0) frees replies when the
+**Important:** the current version of hiredis (1.0.0) frees replies when the
 asynchronous API is used. This means you should not call `freeReplyObject` when
 you use this API. The reply is cleaned up by hiredis _after_ the callback
-returns. This behavior will probably change in future releases, so make sure to
-keep an eye on the changelog when upgrading (see issue #39).
+returns.  We may introduce a flag to make this configurable in future versions of the library.
 
 ### Cleaning up
 
@@ -205,16 +261,16 @@ a single call to `read(2)`):
 redisReply *reply;
 redisAppendCommand(context,"SET foo bar");
 redisAppendCommand(context,"GET foo");
-redisGetReply(context,&reply); // reply for SET
+redisGetReply(context,(void *)&reply); // reply for SET
 freeReplyObject(reply);
-redisGetReply(context,&reply); // reply for GET
+redisGetReply(context,(void *)&reply); // reply for GET
 freeReplyObject(reply);
 ```
 This API can also be used to implement a blocking subscriber:
 ```c
 reply = redisCommand(context,"SUBSCRIBE foo");
 freeReplyObject(reply);
-while(redisGetReply(context,&reply) == REDIS_OK) {
+while(redisGetReply(context,(void *)&reply) == REDIS_OK) {
     // consume message
     freeReplyObject(reply);
 }
@@ -404,9 +460,199 @@ This should be done only in order to maximize performances when working with
 large payloads. The context should be set back to `REDIS_READER_MAX_BUF` again
 as soon as possible in order to prevent allocation of useless memory.
 
+### Reader max array elements
+
+By default the hiredis reply parser sets the maximum number of multi-bulk elements
+to 2^32 - 1 or 4,294,967,295 entries.  If you need to process multi-bulk replies
+with more than this many elements you can set the value higher or to zero, meaning
+unlimited with:
+```c
+context->reader->maxelements = 0;
+```
+
+## SSL/TLS Support
+
+### Building
+
+SSL/TLS support is not built by default and requires an explicit flag:
+
+    make USE_SSL=1
+
+This requires OpenSSL development package (e.g. including header files to be
+available.
+
+When enabled, SSL/TLS support is built into extra `libhiredis_ssl.a` and
+`libhiredis_ssl.so` static/dynamic libraries. This leaves the original libraries
+unaffected so no additional dependencies are introduced.
+
+### Using it
+
+First, you'll need to make sure you include the SSL header file:
+
+```c
+#include "hiredis.h"
+#include "hiredis_ssl.h"
+```
+
+You will also need to link against `libhiredis_ssl`, **in addition** to
+`libhiredis` and add `-lssl -lcrypto` to satisfy its dependencies.
+
+Hiredis implements SSL/TLS on top of its normal `redisContext` or
+`redisAsyncContext`, so you will need to establish a connection first and then
+initiate an SSL/TLS handshake.
+
+#### Hiredis OpenSSL Wrappers
+
+Before Hiredis can negotiate an SSL/TLS connection, it is necessary to
+initialize OpenSSL and create a context. You can do that in two ways:
+
+1. Work directly with the OpenSSL API to initialize the library's global context
+   and create `SSL_CTX *` and `SSL *` contexts. With an `SSL *` object you can
+   call `redisInitiateSSL()`.
+2. Work with a set of Hiredis-provided wrappers around OpenSSL, create a
+   `redisSSLContext` object to hold configuration and use
+   `redisInitiateSSLWithContext()` to initiate the SSL/TLS handshake.
+
+```c
+/* An Hiredis SSL context. It holds SSL configuration and can be reused across
+ * many contexts.
+ */
+redisSSLContext *ssl;
+
+/* An error variable to indicate what went wrong, if the context fails to
+ * initialize.
+ */
+redisSSLContextError ssl_error;
+
+/* Initialize global OpenSSL state.
+ *
+ * You should call this only once when your app initializes, and only if
+ * you don't explicitly or implicitly initialize OpenSSL it elsewhere.
+ */
+redisInitOpenSSL();
+
+/* Create SSL context */
+ssl = redisCreateSSLContext(
+    "cacertbundle.crt",     /* File name of trusted CA/ca bundle file, optional */
+    "/path/to/certs",       /* Path of trusted certificates, optional */
+    "client_cert.pem",      /* File name of client certificate file, optional */
+    "client_key.pem",       /* File name of client private key, optional */
+    "redis.mydomain.com",   /* Server name to request (SNI), optional */
+    &ssl_error
+    ) != REDIS_OK) {
+        printf("SSL error: %s\n", redisSSLContextGetError(ssl_error);
+        /* Abort... */
+    }
+
+/* Create Redis context and establish connection */
+c = redisConnect("localhost", 6443);
+if (c == NULL || c->err) {
+    /* Handle error and abort... */
+}
+
+/* Negotiate SSL/TLS */
+if (redisInitiateSSLWithContext(c, ssl) != REDIS_OK) {
+    /* Handle error, in c->err / c->errstr */
+}
+```
+
+## RESP3 PUSH replies
+Redis 6.0 introduced PUSH replies with the reply-type `>`.  These messages are generated spontaneously and can arrive at any time, so must be handled using callbacks.
+
+### Default behavior
+Hiredis installs handlers on `redisContext` and `redisAsyncContext` by default, which will intercept and free any PUSH replies detected.  This means existing code will work as-is after upgrading to Redis 6 and switching to `RESP3`.
+
+### Custom PUSH handler prototypes
+The callback prototypes differ between `redisContext` and `redisAsyncContext`.
+
+#### redisContext
+```c
+void my_push_handler(void *privdata, void *reply) {
+    /* Handle the reply */
+
+    /* Note: We need to free the reply in our custom handler for
+             blocking contexts.  This lets us keep the reply if
+             we want. */
+    freeReplyObject(reply);
+}
+```
+
+#### redisAsyncContext
+```c
+void my_async_push_handler(redisAsyncContext *ac, void *reply) {
+    /* Handle the reply */
+
+    /* Note:  Because async hiredis always frees replies, you should
+              not call freeReplyObject in an async push callback. */
+}
+```
+
+### Installing a custom handler
+There are two ways to set your own PUSH handlers.
+
+1. Set `push_cb` or `async_push_cb` in the `redisOptions` struct and connect with `redisConnectWithOptions` or `redisAsyncConnectWithOptions`.
+    ```c
+    redisOptions = {0};
+    REDIS_OPTIONS_SET_TCP(&options, "127.0.0.1", 6379);
+    options->push_cb = my_push_handler;
+    redisContext *context = redisConnectWithOptions(&options);
+    ```
+2.  Call `redisSetPushCallback` or `redisAsyncSetPushCallback` on a connected context.
+    ```c
+    redisContext *context = redisConnect("127.0.0.1", 6379);
+    redisSetPushCallback(context, my_push_handler);
+    ```
+
+    _Note `redisSetPushCallback` and `redisAsyncSetPushCallback` both return any currently configured handler,  making it easy to override and then return to the old value._
+
+### Specifying no handler
+If you have a unique use-case where you don't want hiredis to automatically intercept and free PUSH replies, you will want to configure no handler at all.  This can be done in two ways.
+1.  Set the `REDIS_OPT_NO_PUSH_AUTOFREE` flag in `redisOptions` and leave the callback function pointer `NULL`.
+    ```c
+    redisOptions = {0};
+    REDIS_OPTIONS_SET_TCP(&options, "127.0.0.1", 6379);
+    options->options |= REDIS_OPT_NO_PUSH_AUTOFREE;
+    redisContext *context = redisConnectWithOptions(&options);
+    ```
+3.  Call `redisSetPushCallback` with `NULL` once connected.
+    ```c
+    redisContext *context = redisConnect("127.0.0.1", 6379);
+    redisSetPushCallback(context, NULL);
+    ```
+
+    _Note:  With no handler configured, calls to `redisCommand` may generate more than one reply, so this strategy is only applicable when there's some kind of blocking`redisGetReply()` loop (e.g. `MONITOR` or `SUBSCRIBE` workloads)._
+
+## Allocator injection
+
+Hiredis uses a pass-thru structure of function pointers defined in [alloc.h](https://github.com/redis/hiredis/blob/f5d25850/alloc.h#L41) that contain the currently configured allocation and deallocation functions.  By default they just point to libc (`malloc`, `calloc`, `realloc`, etc).
+
+### Overriding
+
+One can override the allocators like so:
+
+```c
+hiredisAllocFuncs myfuncs = {
+    .mallocFn = my_malloc,
+    .callocFn = my_calloc,
+    .reallocFn = my_realloc,
+    .strdupFn = my_strdup,
+    .freeFn = my_free,
+};
+
+// Override allocators (function returns current allocators if needed)
+hiredisAllocFuncs orig = hiredisSetAllocators(&myfuncs);
+```
+
+To reset the allocators to their default libc function simply call:
+
+```c
+hiredisResetAllocators();
+```
+
 ## AUTHORS
 
-Hiredis was written by Salvatore Sanfilippo (antirez at gmail) and
-Pieter Noordhuis (pcnoordhuis at gmail) and is released under the BSD license.
-Hiredis is currently maintained by Matt Stancliff (matt at genges dot com) and
-Jan-Erik Rediger (janerik at fnordig dot com)
+Salvatore Sanfilippo (antirez at gmail),\
+Pieter Noordhuis (pcnoordhuis at gmail)\
+Michael Grunder (michael dot grunder at gmail)
+
+_Hiredis is released under the BSD license._

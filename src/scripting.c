@@ -31,6 +31,7 @@
 #include "sha1.h"
 #include "rand.h"
 #include "cluster.h"
+#include "monotonic.h"
 
 #include <lua.h>
 #include <lauxlib.h>
@@ -69,7 +70,7 @@ struct ldbState {
     list *children; /* All forked debugging sessions pids. */
     int bp[LDB_BREAKPOINTS_MAX]; /* An array of breakpoints line numbers. */
     int bpcount; /* Number of valid entries inside bp. */
-    int step;   /* Stop at next line ragardless of breakpoints. */
+    int step;   /* Stop at next line regardless of breakpoints. */
     int luabp;  /* Stop at next line because redis.breakpoint() was called. */
     sds *src;   /* Lua script source code split by line. */
     int lines;  /* Number of lines in 'src'. */
@@ -366,10 +367,7 @@ void luaReplyToRedisReply(client *c, lua_State *lua) {
         lua_gettable(lua,-2);
         t = lua_type(lua,-1);
         if (t == LUA_TSTRING) {
-            sds err = sdsnew(lua_tostring(lua,-1));
-            sdsmapchars(err,"\r\n","  ",2);
-            addReplySds(c,sdscatprintf(sdsempty(),"-%s\r\n",err));
-            sdsfree(err);
+            addReplyErrorFormat(c,"-%s",lua_tostring(lua,-1));
             lua_pop(lua,2);
             return;
         }
@@ -410,9 +408,9 @@ void luaReplyToRedisReply(client *c, lua_State *lua) {
             lua_pushnil(lua); /* Use nil to start iteration. */
             while (lua_next(lua,-2)) {
                 /* Stack now: table, key, value */
-                luaReplyToRedisReply(c, lua); /* Return value. */
-                lua_pushvalue(lua,-1);        /* Dup key before consuming. */
+                lua_pushvalue(lua,-2);        /* Dup key before consuming. */
                 luaReplyToRedisReply(c, lua); /* Return key. */
+                luaReplyToRedisReply(c, lua); /* Return value. */
                 /* Stack now: table, key. */
                 maplen++;
             }
@@ -605,18 +603,39 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
         goto cleanup;
     }
 
+    /* This check is for EVAL_RO, EVALSHA_RO. We want to allow only read only commands */
+    if ((server.lua_caller->cmd->proc == evalRoCommand ||
+         server.lua_caller->cmd->proc == evalShaRoCommand) &&
+         (cmd->flags & CMD_WRITE))
+    {
+        luaPushError(lua, "Write commands are not allowed from read-only scripts");
+        goto cleanup;
+    }
+
     /* Check the ACLs. */
-    int acl_keypos;
-    int acl_retval = ACLCheckCommandPerm(c,&acl_keypos);
+    int acl_errpos;
+    int acl_retval = ACLCheckAllPerm(c,&acl_errpos);
     if (acl_retval != ACL_OK) {
-        addACLLogEntry(c,acl_retval,acl_keypos,NULL);
-        if (acl_retval == ACL_DENIED_CMD)
+        addACLLogEntry(c,acl_retval,acl_errpos,NULL);
+        switch (acl_retval) {
+        case ACL_DENIED_CMD:
             luaPushError(lua, "The user executing the script can't run this "
                               "command or subcommand");
-        else
+            break;
+        case ACL_DENIED_KEY:
             luaPushError(lua, "The user executing the script can't access "
                               "at least one of the keys mentioned in the "
                               "command arguments");
+            break;
+        case ACL_DENIED_CHANNEL:
+            luaPushError(lua, "The user executing the script can't publish "
+                              "to the channel mentioned in the command");
+            break;
+        default:
+            luaPushError(lua, "The user executing the script is lacking the "
+                              "permissions for the command");
+            break;
+        }
         goto cleanup;
     }
 
@@ -680,11 +699,11 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
         if (getNodeByQuery(c,c->cmd,c->argv,c->argc,NULL,&error_code) !=
                            server.cluster->myself)
         {
-            if (error_code == CLUSTER_REDIR_DOWN_RO_STATE) { 
+            if (error_code == CLUSTER_REDIR_DOWN_RO_STATE) {
                 luaPushError(lua,
                     "Lua script attempted to execute a write command while the "
                     "cluster is down and readonly");
-            } else if (error_code == CLUSTER_REDIR_DOWN_STATE) { 
+            } else if (error_code == CLUSTER_REDIR_DOWN_STATE) {
                 luaPushError(lua,
                     "Lua script attempted to execute a command while the "
                     "cluster is down");
@@ -707,7 +726,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
         server.lua_write_dirty &&
         server.lua_repl != PROPAGATE_NONE)
     {
-        execCommandPropagateMulti(server.lua_caller);
+        execCommandPropagateMulti(server.lua_caller->db->id);
         server.lua_multi_emitted = 1;
         /* Now we are in the MULTI context, the lua_client should be
          * flag as CLIENT_MULTI. */
@@ -724,11 +743,12 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
             call_flags |= CMD_CALL_PROPAGATE_REPL;
     }
     call(c,call_flags);
+    serverAssert((c->flags & CLIENT_BLOCKED) == 0);
 
     /* Convert the result of the Redis command into a suitable Lua type.
      * The first thing we need is to create a single string from the client
      * output buffers. */
-    if (listLength(c->reply) == 0 && c->bufpos < PROTO_REPLY_CHUNK_BYTES) {
+    if (listLength(c->reply) == 0 && (size_t)c->bufpos < c->buf_usable_size) {
         /* This is a fast path for the common case of a reply inside the
          * client static buffer. Don't create an SDS string but just use
          * the client buffer directly. */
@@ -886,7 +906,7 @@ int luaRedisReplicateCommandsCommand(lua_State *lua) {
 
 /* redis.breakpoint()
  *
- * Allows to stop execution during a debuggign session from within
+ * Allows to stop execution during a debugging session from within
  * the Lua code implementation, like if a breakpoint was set in the code
  * immediately after the function. */
 int luaRedisBreakpointCommand(lua_State *lua) {
@@ -1255,6 +1275,9 @@ void scriptingInit(int setup) {
     if (server.lua_client == NULL) {
         server.lua_client = createClient(NULL);
         server.lua_client->flags |= CLIENT_LUA;
+
+        /* We do not want to allow blocking commands inside Lua */
+        server.lua_client->flags |= CLIENT_DENY_BLOCKING;
     }
 
     /* Lua beginners often don't use "local", this is likely to introduce
@@ -1267,14 +1290,17 @@ void scriptingInit(int setup) {
 
 /* Release resources related to Lua scripting.
  * This function is used in order to reset the scripting environment. */
-void scriptingRelease(void) {
-    dictRelease(server.lua_scripts);
+void scriptingRelease(int async) {
+    if (async)
+        freeLuaScriptsAsync(server.lua_scripts);
+    else
+        dictRelease(server.lua_scripts);
     server.lua_scripts_mem = 0;
     lua_close(server.lua);
 }
 
-void scriptingReset(void) {
-    scriptingRelease();
+void scriptingReset(int async) {
+    scriptingRelease(async);
     scriptingInit(0);
 }
 
@@ -1411,7 +1437,7 @@ sds luaCreateFunction(client *c, lua_State *lua, robj *body) {
 
 /* This is the Lua script "count" hook that we use to detect scripts timeout. */
 void luaMaskCountHook(lua_State *lua, lua_Debug *ar) {
-    long long elapsed = mstime() - server.lua_time_start;
+    long long elapsed = elapsedMs(server.lua_time_start);
     UNUSED(ar);
     UNUSED(lua);
 
@@ -1424,6 +1450,7 @@ void luaMaskCountHook(lua_State *lua, lua_Debug *ar) {
             "Script SHA1 is: %s",
             elapsed, server.lua_cur_script);
         server.lua_timedout = 1;
+        blockingOperationStarts();
         /* Once the script timeouts we reenter the event loop to permit others
          * to call SCRIPT KILL or SHUTDOWN NOSAVE if needed. For this reason
          * we need to mask the client executing the script from the event loop.
@@ -1434,6 +1461,14 @@ void luaMaskCountHook(lua_State *lua, lua_Debug *ar) {
     if (server.lua_timedout) processEventsWhileBlocked();
     if (server.lua_kill) {
         serverLog(LL_WARNING,"Lua script killed by user with SCRIPT KILL.");
+
+        /*
+         * Set the hook to invoke all the time so the user
+         * will not be able to catch the error with pcall and invoke
+         * pcall again which will prevent the script from ever been killed
+         */
+        lua_sethook(lua, luaMaskCountHook, LUA_MASKLINE, 0);
+
         lua_pushstring(lua,"Script killed by user with SCRIPT KILL...");
         lua_error(lua);
     }
@@ -1499,7 +1534,7 @@ void evalGenericCommand(client *c, int evalsha) {
         /* Hash the code if this is an EVAL call */
         sha1hex(funcname+2,c->argv[1]->ptr,sdslen(c->argv[1]->ptr));
     } else {
-        /* We already have the SHA if it is a EVALSHA */
+        /* We already have the SHA if it is an EVALSHA */
         int j;
         char *sha = c->argv[1]->ptr;
 
@@ -1524,7 +1559,7 @@ void evalGenericCommand(client *c, int evalsha) {
          * return an error. */
         if (evalsha) {
             lua_pop(lua,1); /* remove the error handler from the stack. */
-            addReply(c, shared.noscripterr);
+            addReplyErrorObject(c, shared.noscripterr);
             return;
         }
         if (luaCreateFunction(c,lua,c->argv[1]) == NULL) {
@@ -1550,9 +1585,11 @@ void evalGenericCommand(client *c, int evalsha) {
      *
      * If we are debugging, we set instead a "line" hook so that the
      * debugger is call-back at every line executed by the script. */
+    server.in_eval = 1;
     server.lua_caller = c;
     server.lua_cur_script = funcname + 2;
-    server.lua_time_start = mstime();
+    server.lua_time_start = getMonotonicUs();
+    server.lua_time_snapshot = mstime();
     server.lua_kill = 0;
     if (server.lua_time_limit > 0 && ldb.active == 0) {
         lua_sethook(lua,luaMaskCountHook,LUA_MASKCOUNT,100000);
@@ -1575,12 +1612,14 @@ void evalGenericCommand(client *c, int evalsha) {
     if (delhook) lua_sethook(lua,NULL,0,0); /* Disable hook */
     if (server.lua_timedout) {
         server.lua_timedout = 0;
+        blockingOperationEnds();
         /* Restore the client that was protected when the script timeout
          * was detected. */
         unprotectClient(c);
         if (server.masterhost && server.master)
             queueClientForReprocessing(server.master);
     }
+    server.in_eval = 0;
     server.lua_caller = NULL;
     server.lua_cur_script = NULL;
 
@@ -1617,7 +1656,7 @@ void evalGenericCommand(client *c, int evalsha) {
     if (server.lua_replicate_commands) {
         preventCommandPropagation(c);
         if (server.lua_multi_emitted) {
-            execCommandPropagateExec(c);
+            execCommandPropagateExec(c->db->id);
         }
     }
 
@@ -1628,7 +1667,7 @@ void evalGenericCommand(client *c, int evalsha) {
      * To do so we use a cache of SHA1s of scripts that we already propagated
      * as full EVAL, that's called the Replication Script Cache.
      *
-     * For repliation, everytime a new slave attaches to the master, we need to
+     * For replication, every time a new slave attaches to the master, we need to
      * flush our cache of scripts that can be replicated as EVALSHA, while
      * for AOF we need to do so every time we rewrite the AOF file. */
     if (evalsha && !server.lua_replicate_commands) {
@@ -1647,12 +1686,11 @@ void evalGenericCommand(client *c, int evalsha) {
              * or just running a CPU costly read-only script on the slaves. */
             if (server.dirty == initial_server_dirty) {
                 rewriteClientCommandVector(c,3,
-                    resetRefCount(createStringObject("SCRIPT",6)),
-                    resetRefCount(createStringObject("LOAD",4)),
+                    shared.script,
+                    shared.load,
                     script);
             } else {
-                rewriteClientCommandArgument(c,0,
-                    resetRefCount(createStringObject("EVAL",4)));
+                rewriteClientCommandArgument(c,0,shared.eval);
                 rewriteClientCommandArgument(c,1,script);
             }
             forceCommandPropagation(c,PROPAGATE_REPL|PROPAGATE_AOF);
@@ -1661,19 +1699,29 @@ void evalGenericCommand(client *c, int evalsha) {
 }
 
 void evalCommand(client *c) {
+    /* Explicitly feed monitor here so that lua commands appear after their
+     * script command. */
+    replicationFeedMonitors(c,server.monitors,c->db->id,c->argv,c->argc);
     if (!(c->flags & CLIENT_LUA_DEBUG))
         evalGenericCommand(c,0);
     else
         evalGenericCommandWithDebugging(c,0);
 }
 
+void evalRoCommand(client *c) {
+    evalCommand(c);
+}
+
 void evalShaCommand(client *c) {
+    /* Explicitly feed monitor here so that lua commands appear after their
+     * script command. */
+    replicationFeedMonitors(c,server.monitors,c->db->id,c->argv,c->argc);
     if (sdslen(c->argv[1]->ptr) != 40) {
         /* We know that a match is not possible if the provided SHA is
          * not the right length. So we return an error ASAP, this way
          * evalGenericCommand() can be implemented without string length
          * sanity check */
-        addReply(c, shared.noscripterr);
+        addReplyErrorObject(c, shared.noscripterr);
         return;
     }
     if (!(c->flags & CLIENT_LUA_DEBUG))
@@ -1684,19 +1732,43 @@ void evalShaCommand(client *c) {
     }
 }
 
+void evalShaRoCommand(client *c) {
+    evalShaCommand(c);
+}
+
 void scriptCommand(client *c) {
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
-"DEBUG (yes|sync|no) -- Set the debug mode for subsequent scripts executed.",
-"EXISTS <sha1> [<sha1> ...] -- Return information about the existence of the scripts in the script cache.",
-"FLUSH -- Flush the Lua scripts cache. Very dangerous on replicas.",
-"KILL -- Kill the currently executing Lua script.",
-"LOAD <script> -- Load a script into the scripts cache, without executing it.",
+"DEBUG (YES|SYNC|NO)",
+"    Set the debug mode for subsequent scripts executed.",
+"EXISTS <sha1> [<sha1> ...]",
+"    Return information about the existence of the scripts in the script cache.",
+"FLUSH [ASYNC|SYNC]",
+"    Flush the Lua scripts cache. Very dangerous on replicas.",
+"    When called without the optional mode argument, the behavior is determined by the",
+"    lazyfree-lazy-user-flush configuration directive. Valid modes are:",
+"    * ASYNC: Asynchronously flush the scripts cache.",
+"    * SYNC: Synchronously flush the scripts cache.",
+"KILL",
+"    Kill the currently executing Lua script.",
+"LOAD <script>",
+"    Load a script into the scripts cache without executing it.",
 NULL
         };
         addReplyHelp(c, help);
-    } else if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"flush")) {
-        scriptingReset();
+    } else if (c->argc >= 2 && !strcasecmp(c->argv[1]->ptr,"flush")) {
+        int async = 0;
+        if (c->argc == 3 && !strcasecmp(c->argv[2]->ptr,"sync")) {
+            async = 0;
+        } else if (c->argc == 3 && !strcasecmp(c->argv[2]->ptr,"async")) {
+            async = 1;
+        } else if (c->argc == 2) {
+            async = server.lazyfree_lazy_user_flush ? 1 : 0;
+        } else {
+            addReplyError(c,"SCRIPT FLUSH only support SYNC|ASYNC option");
+            return;
+        }
+        scriptingReset(async);
         addReply(c,shared.ok);
         replicationScriptCacheFlush();
         server.dirty++; /* Propagating this command is a good idea. */
@@ -1717,11 +1789,11 @@ NULL
         forceCommandPropagation(c,PROPAGATE_REPL|PROPAGATE_AOF);
     } else if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"kill")) {
         if (server.lua_caller == NULL) {
-            addReplySds(c,sdsnew("-NOTBUSY No scripts in execution right now.\r\n"));
+            addReplyError(c,"-NOTBUSY No scripts in execution right now.");
         } else if (server.lua_caller->flags & CLIENT_MASTER) {
-            addReplySds(c,sdsnew("-UNKILLABLE The busy script was sent by a master instance in the context of replication and cannot be killed.\r\n"));
+            addReplyError(c,"-UNKILLABLE The busy script was sent by a master instance in the context of replication and cannot be killed.");
         } else if (server.lua_write_dirty) {
-            addReplySds(c,sdsnew("-UNKILLABLE Sorry the script already executed write commands against the dataset. You can either wait the script termination or kill the server in a hard way using the SHUTDOWN NOSAVE command.\r\n"));
+            addReplyError(c,"-UNKILLABLE Sorry the script already executed write commands against the dataset. You can either wait the script termination or kill the server in a hard way using the SHUTDOWN NOSAVE command.");
         } else {
             server.lua_kill = 1;
             addReply(c,shared.ok);
@@ -1742,7 +1814,7 @@ NULL
             addReply(c,shared.ok);
             c->flags |= CLIENT_LUA_DEBUG_SYNC;
         } else {
-            addReplyError(c,"Use SCRIPT DEBUG yes/sync/no");
+            addReplyError(c,"Use SCRIPT DEBUG YES/SYNC/NO");
             return;
         }
     } else {
@@ -1801,7 +1873,7 @@ void ldbLog(sds entry) {
 }
 
 /* A version of ldbLog() which prevents producing logs greater than
- * ldb.maxlen. The first time the limit is reached an hint is generated
+ * ldb.maxlen. The first time the limit is reached a hint is generated
  * to inform the user that reply trimming can be disabled using the
  * debugger "maxlen" command. */
 void ldbLogWithMaxLen(sds entry) {
@@ -1842,7 +1914,7 @@ void ldbSendLogs(void) {
 }
 
 /* Start a debugging session before calling EVAL implementation.
- * The techique we use is to capture the client socket file descriptor,
+ * The technique we use is to capture the client socket file descriptor,
  * in order to perform direct I/O with it from within Lua hooks. This
  * way we don't have to re-enter Redis in order to handle I/O.
  *
@@ -1856,7 +1928,7 @@ void ldbSendLogs(void) {
 int ldbStartSession(client *c) {
     ldb.forked = (c->flags & CLIENT_LUA_DEBUG_SYNC) == 0;
     if (ldb.forked) {
-        pid_t cp = redisFork();
+        pid_t cp = redisFork(CHILD_TYPE_LDB);
         if (cp == -1) {
             addReplyError(c,"Fork() failed: can't run EVAL in debugging mode.");
             return 0;
@@ -1925,7 +1997,7 @@ void ldbEndSession(client *c) {
     connNonBlock(ldb.conn);
     connSendTimeout(ldb.conn,0);
 
-    /* Close the client connectin after sending the final EVAL reply
+    /* Close the client connection after sending the final EVAL reply
      * in order to signal the end of the debugging session. */
     c->flags |= CLIENT_CLOSE_AFTER_REPLY;
 
@@ -2094,7 +2166,7 @@ void ldbLogSourceLine(int lnum) {
 /* Implement the "list" command of the Lua debugger. If around is 0
  * the whole file is listed, otherwise only a small portion of the file
  * around the specified line is shown. When a line number is specified
- * the amonut of context (lines before/after) is specified via the
+ * the amount of context (lines before/after) is specified via the
  * 'context' argument. */
 void ldbList(int around, int context) {
     int j;
@@ -2105,7 +2177,7 @@ void ldbList(int around, int context) {
     }
 }
 
-/* Append an human readable representation of the Lua value at position 'idx'
+/* Append a human readable representation of the Lua value at position 'idx'
  * on the stack of the 'lua' state, to the SDS string passed as argument.
  * The new SDS string with the represented value attached is returned.
  * Used in order to implement ldbLogStackValue().
@@ -2203,7 +2275,7 @@ sds ldbCatStackValue(sds s, lua_State *lua, int idx) {
 }
 
 /* Produce a debugger log entry representing the value of the Lua object
- * currently on the top of the stack. The element is ot popped nor modified.
+ * currently on the top of the stack. The element is not popped nor modified.
  * Check ldbCatStackValue() for the actual implementation. */
 void ldbLogStackValue(lua_State *lua, char *prefix) {
     sds s = sdsnew(prefix);
@@ -2349,7 +2421,7 @@ char *ldbRedisProtocolToHuman_Double(sds *o, char *reply) {
     return p+2;
 }
 
-/* Log a Redis reply as debugger output, in an human readable format.
+/* Log a Redis reply as debugger output, in a human readable format.
  * If the resulting string is longer than 'len' plus a few more chars
  * used as prefix, it gets truncated. */
 void ldbLogRedisReply(char *reply) {
@@ -2533,7 +2605,7 @@ void ldbTrace(lua_State *lua) {
     }
 }
 
-/* Impleemnts the debugger "maxlen" command. It just queries or sets the
+/* Implements the debugger "maxlen" command. It just queries or sets the
  * ldb.maxlen variable. */
 void ldbMaxlen(sds *argv, int argc) {
     if (argc == 2) {
@@ -2606,8 +2678,8 @@ ldbLog(sdsnew("                     mode dataset changes will be retained."));
 ldbLog(sdsnew(""));
 ldbLog(sdsnew("Debugger functions you can call from Lua scripts:"));
 ldbLog(sdsnew("redis.debug()        Produce logs in the debugger console."));
-ldbLog(sdsnew("redis.breakpoint()   Stop execution like if there was a breakpoing."));
-ldbLog(sdsnew("                     in the next line of code."));
+ldbLog(sdsnew("redis.breakpoint()   Stop execution like if there was a breakpoint in the"));
+ldbLog(sdsnew("                     next line of code."));
             ldbSendLogs();
         } else if (!strcasecmp(argv[0],"s") || !strcasecmp(argv[0],"step") ||
                    !strcasecmp(argv[0],"n") || !strcasecmp(argv[0],"next")) {
@@ -2682,7 +2754,7 @@ void luaLdbLineHook(lua_State *lua, lua_Debug *ar) {
 
     /* Check if a timeout occurred. */
     if (ar->event == LUA_HOOKCOUNT && ldb.step == 0 && bp == 0) {
-        mstime_t elapsed = mstime() - server.lua_time_start;
+        mstime_t elapsed = elapsedMs(server.lua_time_start);
         mstime_t timelimit = server.lua_time_limit ?
                              server.lua_time_limit : 5000;
         if (elapsed >= timelimit) {
@@ -2712,7 +2784,7 @@ void luaLdbLineHook(lua_State *lua, lua_Debug *ar) {
             lua_pushstring(lua, "timeout during Lua debugging with client closing connection");
             lua_error(lua);
         }
-        server.lua_time_start = mstime();
+        server.lua_time_start = getMonotonicUs();
+        server.lua_time_snapshot = mstime();
     }
 }
-

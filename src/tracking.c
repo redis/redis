@@ -99,10 +99,61 @@ void disableTracking(client *c) {
     }
 }
 
+static int stringCheckPrefix(unsigned char *s1, size_t s1_len, unsigned char *s2, size_t s2_len) {
+    size_t min_length = s1_len < s2_len ? s1_len : s2_len;
+    return memcmp(s1,s2,min_length) == 0;   
+}
+
+/* Check if any of the provided prefixes collide with one another or
+ * with an existing prefix for the client. A collision is defined as two 
+ * prefixes that will emit an invalidation for the same key. If no prefix 
+ * collision is found, 1 is return, otherwise 0 is returned and the client 
+ * has an error emitted describing the error. */
+int checkPrefixCollisionsOrReply(client *c, robj **prefixes, size_t numprefix) {
+    for (size_t i = 0; i < numprefix; i++) {
+        /* Check input list has no overlap with existing prefixes. */
+        if (c->client_tracking_prefixes) {
+            raxIterator ri;
+            raxStart(&ri,c->client_tracking_prefixes);
+            raxSeek(&ri,"^",NULL,0);
+            while(raxNext(&ri)) {
+                if (stringCheckPrefix(ri.key,ri.key_len,
+                    prefixes[i]->ptr,sdslen(prefixes[i]->ptr))) 
+                {
+                    sds collision = sdsnewlen(ri.key,ri.key_len);
+                    addReplyErrorFormat(c,
+                        "Prefix '%s' overlaps with an existing prefix '%s'. "
+                        "Prefixes for a single client must not overlap.",
+                        (unsigned char *)prefixes[i]->ptr,
+                        (unsigned char *)collision);
+                    sdsfree(collision);
+                    raxStop(&ri);
+                    return 0;
+                }
+            }
+            raxStop(&ri);
+        }
+        /* Check input has no overlap with itself. */
+        for (size_t j = i + 1; j < numprefix; j++) {
+            if (stringCheckPrefix(prefixes[i]->ptr,sdslen(prefixes[i]->ptr),
+                prefixes[j]->ptr,sdslen(prefixes[j]->ptr)))
+            {
+                addReplyErrorFormat(c,
+                    "Prefix '%s' overlaps with another provided prefix '%s'. "
+                    "Prefixes for a single client must not overlap.",
+                    (unsigned char *)prefixes[i]->ptr,
+                    (unsigned char *)prefixes[j]->ptr);
+                return i;
+            }
+        }
+    }
+    return 1;
+}
+
 /* Set the client 'c' to track the prefix 'prefix'. If the client 'c' is
  * already registered for the specified prefix, no operation is performed. */
 void enableBcastTrackingForPrefix(client *c, char *prefix, size_t plen) {
-    bcastState *bs = raxFind(PrefixTable,(unsigned char*)prefix,sdslen(prefix));
+    bcastState *bs = raxFind(PrefixTable,(unsigned char*)prefix,plen);
     /* If this is the first client subscribing to such prefix, create
      * the prefix in the table. */
     if (bs == raxNotFound) {
@@ -134,7 +185,7 @@ void enableTracking(client *c, uint64_t redirect_to, uint64_t options, robj **pr
                   CLIENT_TRACKING_NOLOOP);
     c->client_tracking_redirection = redirect_to;
 
-    /* This may be the first client we ever enable. Crete the tracking
+    /* This may be the first client we ever enable. Create the tracking
      * table if it does not exist. */
     if (TrackingTable == NULL) {
         TrackingTable = raxNew();
@@ -171,9 +222,14 @@ void trackingRememberKeys(client *c) {
     uint64_t caching_given = c->flags & CLIENT_TRACKING_CACHING;
     if ((optin && !caching_given) || (optout && caching_given)) return;
 
-    int numkeys;
-    int *keys = getKeysFromCommand(c->cmd,c->argv,c->argc,&numkeys);
-    if (keys == NULL) return;
+    getKeysResult result = GETKEYS_RESULT_INIT;
+    int numkeys = getKeysFromCommand(c->cmd,c->argv,c->argc,&result);
+    if (!numkeys) {
+        getKeysFreeResult(&result);
+        return;
+    }
+
+    int *keys = result.keys;
 
     for(int j = 0; j < numkeys; j++) {
         int idx = keys[j];
@@ -188,19 +244,21 @@ void trackingRememberKeys(client *c) {
         if (raxTryInsert(ids,(unsigned char*)&c->id,sizeof(c->id),NULL,NULL))
             TrackingTableTotalItems++;
     }
-    getKeysFreeResult(keys);
+    getKeysFreeResult(&result);
 }
 
 /* Given a key name, this function sends an invalidation message in the
  * proper channel (depending on RESP version: PubSub or Push message) and
- * to the proper client (in case fo redirection), in the context of the
+ * to the proper client (in case of redirection), in the context of the
  * client 'c' with tracking enabled.
  *
  * In case the 'proto' argument is non zero, the function will assume that
  * 'keyname' points to a buffer of 'keylen' bytes already expressed in the
- * form of Redis RESP protocol, representing an array of keys to send
- * to the client as value of the invalidation. This is used in BCAST mode
- * in order to optimized the implementation to use less CPU time. */
+ * form of Redis RESP protocol. This is used for:
+ * - In BCAST mode, to send an array of invalidated keys to all
+ *   applicable clients
+ * - Following a flush command, to send a single RESP NULL to indicate
+ *   that all keys are now invalid. */
 void sendTrackingMessage(client *c, char *keyname, size_t keylen, int proto) {
     int using_redirection = 0;
     if (c->client_tracking_redirection) {
@@ -211,7 +269,7 @@ void sendTrackingMessage(client *c, char *keyname, size_t keylen, int proto) {
              * are unable to send invalidation messages to the redirected
              * connection, because the client no longer exist. */
             if (c->resp > 2) {
-                addReplyPushLen(c,3);
+                addReplyPushLen(c,2);
                 addReplyBulkCBuffer(c,"tracking-redir-broken",21);
                 addReplyLongLong(c,c->client_tracking_redirection);
             }
@@ -342,18 +400,23 @@ void trackingInvalidateKey(client *c, robj *keyobj) {
     trackingInvalidateKeyRaw(c,keyobj->ptr,sdslen(keyobj->ptr),1);
 }
 
-/* This function is called when one or all the Redis databases are flushed
- * (dbid == -1 in case of FLUSHALL). Caching keys are not specific for
- * each DB but are global: currently what we do is send a special
- * notification to clients with tracking enabled, invalidating the caching
- * key "", which means, "all the keys", in order to avoid flooding clients
- * with many invalidation messages for all the keys they may hold.
+/* This function is called when one or all the Redis databases are
+ * flushed. Caching keys are not specific for each DB but are global: 
+ * currently what we do is send a special notification to clients with 
+ * tracking enabled, sending a RESP NULL, which means, "all the keys", 
+ * in order to avoid flooding clients with many invalidation messages 
+ * for all the keys they may hold.
  */
-void freeTrackingRadixTree(void *rt) {
+void freeTrackingRadixTreeCallback(void *rt) {
     raxFree(rt);
 }
 
-void trackingInvalidateKeysOnFlush(int dbid) {
+void freeTrackingRadixTree(rax *rt) {
+    raxFreeWithCallback(rt,freeTrackingRadixTreeCallback);
+}
+
+/* A RESP NULL is sent to indicate that all keys are invalid */
+void trackingInvalidateKeysOnFlush(int async) {
     if (server.tracking_clients) {
         listNode *ln;
         listIter li;
@@ -361,14 +424,18 @@ void trackingInvalidateKeysOnFlush(int dbid) {
         while ((ln = listNext(&li)) != NULL) {
             client *c = listNodeValue(ln);
             if (c->flags & CLIENT_TRACKING) {
-                sendTrackingMessage(c,"",1,0);
+                sendTrackingMessage(c,shared.null[c->resp]->ptr,sdslen(shared.null[c->resp]->ptr),1);
             }
         }
     }
 
     /* In case of FLUSHALL, reclaim all the memory used by tracking. */
-    if (dbid == -1 && TrackingTable) {
-        raxFreeWithCallback(TrackingTable,freeTrackingRadixTree);
+    if (TrackingTable) {
+        if (async) {
+            freeTrackingRadixTreeAsync(TrackingTable);
+        } else {
+            freeTrackingRadixTree(TrackingTable);
+        }
         TrackingTable = raxNew();
         TrackingTableTotalItems = 0;
     }
@@ -381,7 +448,7 @@ void trackingInvalidateKeysOnFlush(int dbid) {
  *
  * So Redis allows the user to configure a maximum number of keys for the
  * invalidation table. This function makes sure that we don't go over the
- * specified fill rate: if we are over, we can just evict informations about
+ * specified fill rate: if we are over, we can just evict information about
  * a random key, and send invalidation messages to clients like if the key was
  * modified. */
 void trackingLimitUsedSlots(void) {
@@ -426,7 +493,7 @@ void trackingLimitUsedSlots(void) {
  * include keys that were modified the last time by this client, in order
  * to implement the NOLOOP option.
  *
- * If the resultin array would be empty, NULL is returned instead. */
+ * If the resulting array would be empty, NULL is returned instead. */
 sds trackingBuildBroadcastReply(client *c, rax *keys) {
     raxIterator ri;
     uint64_t count;

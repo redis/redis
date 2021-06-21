@@ -84,9 +84,9 @@ lwCanvas *lwDrawSchotter(int console_cols, int squares_per_row, int squares_per_
              * rows. */
             float angle = 0;
             if (y > 1) {
-                float r1 = (float)rand() / RAND_MAX / squares_per_col * y;
-                float r2 = (float)rand() / RAND_MAX / squares_per_col * y;
-                float r3 = (float)rand() / RAND_MAX / squares_per_col * y;
+                float r1 = (float)rand() / (float) RAND_MAX / squares_per_col * y;
+                float r2 = (float)rand() / (float) RAND_MAX / squares_per_col * y;
+                float r3 = (float)rand() / (float) RAND_MAX / squares_per_col * y;
                 if (rand() % 2) r1 = -r1;
                 if (rand() % 2) r2 = -r2;
                 if (rand() % 2) r3 = -r3;
@@ -102,7 +102,7 @@ lwCanvas *lwDrawSchotter(int console_cols, int squares_per_row, int squares_per_
 }
 
 /* Converts the canvas to an SDS string representing the UTF8 characters to
- * print to the terminal in order to obtain a graphical representaiton of the
+ * print to the terminal in order to obtain a graphical representation of the
  * logical canvas. The actual returned string will require a terminal that is
  * width/2 large and height/4 tall in order to hold the whole image without
  * overflowing or scrolling, since each Barille character is 2x4. */
@@ -156,7 +156,7 @@ void lolwut5Command(client *c) {
         return;
 
     /* Limits. We want LOLWUT to be always reasonably fast and cheap to execute
-     * so we have maximum number of columns, rows, and output resulution. */
+     * so we have maximum number of columns, rows, and output resolution. */
     if (cols < 1) cols = 1;
     if (cols > 1000) cols = 1000;
     if (squares_per_row < 1) squares_per_row = 1;

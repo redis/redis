@@ -56,13 +56,14 @@ int keyspaceEventsStringToFlags(char *classes) {
         case 'E': flags |= NOTIFY_KEYEVENT; break;
         case 't': flags |= NOTIFY_STREAM; break;
         case 'm': flags |= NOTIFY_KEY_MISS; break;
+        case 'd': flags |= NOTIFY_MODULE; break;
         default: return -1;
         }
     }
     return flags;
 }
 
-/* This function does exactly the revese of the function above: it gets
+/* This function does exactly the reverse of the function above: it gets
  * as input an integer with the xored flags and returns a string representing
  * the selected classes. The string returned is an sds string that needs to
  * be released with sdsfree(). */
@@ -82,6 +83,7 @@ sds keyspaceEventsFlagsToString(int flags) {
         if (flags & NOTIFY_EXPIRED) res = sdscatlen(res,"x",1);
         if (flags & NOTIFY_EVICTED) res = sdscatlen(res,"e",1);
         if (flags & NOTIFY_STREAM) res = sdscatlen(res,"t",1);
+        if (flags & NOTIFY_MODULE) res = sdscatlen(res,"d",1);
     }
     if (flags & NOTIFY_KEYSPACE) res = sdscatlen(res,"K",1);
     if (flags & NOTIFY_KEYEVENT) res = sdscatlen(res,"E",1);
@@ -91,8 +93,9 @@ sds keyspaceEventsFlagsToString(int flags) {
 
 /* The API provided to the rest of the Redis core is a simple function:
  *
- * notifyKeyspaceEvent(char *event, robj *key, int dbid);
+ * notifyKeyspaceEvent(int type, char *event, robj *key, int dbid);
  *
+ * 'type' is the notification class we define in `server.h`.
  * 'event' is a C string representing the event name.
  * 'key' is a Redis object representing the key name.
  * 'dbid' is the database ID where the key lives.  */

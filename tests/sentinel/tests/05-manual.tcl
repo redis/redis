@@ -3,7 +3,7 @@
 source "../tests/includes/init-tests.tcl"
 
 test "Manual failover works" {
-    set old_port [RI $master_id tcp_port]
+    set old_port [RPort $master_id]
     set addr [S 0 SENTINEL GET-MASTER-ADDR-BY-NAME mymaster]
     assert {[lindex $addr 1] == $old_port}
     catch {S 0 SENTINEL FAILOVER mymaster} reply

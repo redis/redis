@@ -244,6 +244,33 @@ long long memtoll(const char *p, int *err) {
     return val*mul;
 }
 
+/* Search a memory buffer for any set of bytes, like strpbrk().
+ * Returns pointer to first found char or NULL.
+ */
+const char *mempbrk(const char *s, size_t len, const char *chars, size_t charslen) {
+    for (size_t j = 0; j < len; j++) {
+        for (size_t n = 0; n < charslen; n++)
+            if (s[j] == chars[n]) return &s[j];
+    }
+
+    return NULL;
+}
+
+/* Modify the buffer replacing all occurrences of chars from the 'from'
+ * set with the corresponding char in the 'to' set. Always returns s.
+ */
+char *memmapchars(char *s, size_t len, const char *from, const char *to, size_t setlen) {
+    for (size_t j = 0; j < len; j++) {
+        for (size_t i = 0; i < setlen; i++) {
+            if (s[j] == from[i]) {
+                s[j] = to[i];
+                break;
+            }
+        }
+    }
+    return s;
+}
+
 /* Return the number of digits of 'v' when converted to string in radix 10.
  * See ll2string() for more information. */
 uint32_t digits10(uint64_t v) {
@@ -749,9 +776,8 @@ sds getAbsolutePath(char *filename) {
  * Gets the proper timezone in a more portable fashion
  * i.e timezone variables are linux specific.
  */
-
-unsigned long getTimeZone(void) {
-#ifdef __linux__
+long getTimeZone(void) {
+#if defined(__linux__) || defined(__sun)
     return timezone;
 #else
     struct timeval tv;
@@ -759,7 +785,7 @@ unsigned long getTimeZone(void) {
 
     gettimeofday(&tv, &tz);
 
-    return tz.tz_minuteswest * 60UL;
+    return tz.tz_minuteswest * 60L;
 #endif
 }
 
@@ -920,9 +946,10 @@ static void test_ll2string(void) {
 }
 
 #define UNUSED(x) (void)(x)
-int utilTest(int argc, char **argv) {
+int utilTest(int argc, char **argv, int accurate) {
     UNUSED(argc);
     UNUSED(argv);
+    UNUSED(accurate);
 
     test_string2ll();
     test_string2l();
