@@ -7,6 +7,29 @@ on:
       - '[0-9].[0-9]'
   schedule:
     - cron: '0 0 * * *'
+  workflow_dispatch:
+    inputs:
+      valgrind:
+        description: 'with valgrind'
+        default: 'true'
+      tls:
+        description: 'with tls'
+        default: 'true'
+      iothreads:
+        description: 'with io threads'
+        default: 'true'
+      freebsd:
+        description: 'with freebsd'
+        default: 'true'
+      cluster:
+        description: 'with cluster tests'
+        default: 'true'
+      sentinel:
+        description: 'with sentinel tests'
+        default: 'true'
+      arguments:
+        description: 'extra arguments'
+        default: ''
 
 jobs:
 
@@ -21,13 +44,15 @@ jobs:
     - name: test
       run: |
         sudo apt-get install tcl8.6 tclx
-        ./runtest --accurate --verbose --dump-logs
+        ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.arguments}}
     - name: module api test
-      run: ./runtest-moduleapi --verbose
+      run: ./runtest-moduleapi --verbose ${{github.event.inputs.arguments}}
     - name: sentinel tests
-      run: ./runtest-sentinel
+      if: github.event.inputs.sentinel == 'true'
+      run: ./runtest-sentinel ${{github.event.inputs.arguments}}
     - name: cluster tests
-      run: ./runtest-cluster
+      if: github.event.inputs.cluster == 'true'
+      run: ./runtest-cluster ${{github.event.inputs.arguments}}
     - name: unittest
       run: ./src/redis-server test all
 
@@ -42,13 +67,15 @@ jobs:
     - name: test
       run: |
         sudo apt-get install tcl8.6 tclx
-        ./runtest --accurate --verbose --dump-logs
+        ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.arguments}}
     - name: module api test
-      run: ./runtest-moduleapi --verbose
+      run: ./runtest-moduleapi --verbose ${{github.event.inputs.arguments}}
     - name: sentinel tests
-      run: ./runtest-sentinel
+      if: github.event.inputs.sentinel == 'true'
+      run: ./runtest-sentinel ${{github.event.inputs.arguments}}
     - name: cluster tests
-      run: ./runtest-cluster
+      if: github.event.inputs.cluster == 'true'
+      run: ./runtest-cluster ${{github.event.inputs.arguments}}
 
   test-ubuntu-no-malloc-usable-size:
     runs-on: ubuntu-latest
@@ -61,13 +88,15 @@ jobs:
     - name: test
       run: |
         sudo apt-get install tcl8.6 tclx
-        ./runtest --accurate --verbose --dump-logs
+        ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.arguments}}
     - name: module api test
-      run: ./runtest-moduleapi --verbose
+      run: ./runtest-moduleapi --verbose ${{github.event.inputs.arguments}}
     - name: sentinel tests
-      run: ./runtest-sentinel
+      if: github.event.inputs.sentinel == 'true'
+      run: ./runtest-sentinel ${{github.event.inputs.arguments}}
     - name: cluster tests
-      run: ./runtest-cluster
+      if: github.event.inputs.cluster == 'true'
+      run: ./runtest-cluster ${{github.event.inputs.arguments}}
 
   test-ubuntu-32bit:
     runs-on: ubuntu-latest
@@ -82,21 +111,23 @@ jobs:
     - name: test
       run: |
         sudo apt-get install tcl8.6 tclx
-        ./runtest --accurate --verbose --dump-logs
+        ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.arguments}}
     - name: module api test
       run: |
         make -C tests/modules 32bit # the script below doesn't have an argument, we must build manually ahead of time
-        ./runtest-moduleapi --verbose
+        ./runtest-moduleapi --verbose ${{github.event.inputs.arguments}}
     - name: sentinel tests
-      run: ./runtest-sentinel
+      if: github.event.inputs.sentinel == 'true'
+      run: ./runtest-sentinel ${{github.event.inputs.arguments}}
     - name: cluster tests
-      run: ./runtest-cluster
+      if: github.event.inputs.cluster == 'true'
+      run: ./runtest-cluster ${{github.event.inputs.arguments}}
     - name: unittest
       run: ./src/redis-server test all
 
   test-ubuntu-tls:
     runs-on: ubuntu-latest
-    if: github.repository == 'redis/redis'
+    if: github.repository == 'redis/redis' && github.event.inputs.tls == 'true'
     timeout-minutes: 14400
     steps:
     - uses: actions/checkout@v2
@@ -107,24 +138,26 @@ jobs:
       run: |
         sudo apt-get install tcl8.6 tclx tcl-tls
         ./utils/gen-test-certs.sh
-        ./runtest --accurate --verbose --tls --dump-logs
-        ./runtest --accurate --verbose --dump-logs
+        ./runtest --accurate --verbose --tls --dump-logs ${{github.event.inputs.arguments}}
+        ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.arguments}}
     - name: module api test
       run: |
-        ./runtest-moduleapi --verbose --tls
-        ./runtest-moduleapi --verbose
+        ./runtest-moduleapi --verbose --tls ${{github.event.inputs.arguments}}
+        ./runtest-moduleapi --verbose ${{github.event.inputs.arguments}}
     - name: sentinel tests
+      if: github.event.inputs.sentinel == 'true'
       run: |
-        ./runtest-sentinel --tls
-        ./runtest-sentinel
+        ./runtest-sentinel --tls ${{github.event.inputs.arguments}}
+        ./runtest-sentinel ${{github.event.inputs.arguments}}
     - name: cluster tests
+      if: github.event.inputs.cluster == 'true'
       run: |
-        ./runtest-cluster --tls
-        ./runtest-cluster
+        ./runtest-cluster --tls ${{github.event.inputs.arguments}}
+        ./runtest-cluster ${{github.event.inputs.arguments}}
 
   test-ubuntu-io-threads:
     runs-on: ubuntu-latest
-    if: github.repository == 'redis/redis'
+    if: github.repository == 'redis/redis' && github.event.inputs.iothreads == 'true'
     timeout-minutes: 14400
     steps:
     - uses: actions/checkout@v2
@@ -134,14 +167,14 @@ jobs:
     - name: test
       run: |
         sudo apt-get install tcl8.6 tclx tcl-tls
-        ./runtest --config io-threads 4 --config io-threads-do-reads yes --accurate --verbose --tags network --dump-logs
+        ./runtest --config io-threads 4 --config io-threads-do-reads yes --accurate --verbose --tags network --dump-logs ${{github.event.inputs.arguments}}
     - name: cluster tests
       run: |
-        ./runtest-cluster --config io-threads 4 --config io-threads-do-reads yes
+        ./runtest-cluster --config io-threads 4 --config io-threads-do-reads yes ${{github.event.inputs.arguments}}
 
   test-valgrind:
     runs-on: ubuntu-latest
-    if: github.repository == 'redis/redis'
+    if: github.repository == 'redis/redis' && github.event.inputs.valgrind == 'true'
     timeout-minutes: 14400
     steps:
     - uses: actions/checkout@v2
@@ -151,9 +184,9 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install tcl8.6 tclx valgrind -y
-        ./runtest --valgrind --verbose --clients 1 --dump-logs
+        ./runtest --valgrind --verbose --clients 1 --dump-logs ${{github.event.inputs.arguments}}
     - name: module api test
-      run: ./runtest-moduleapi --valgrind --no-latency --verbose --clients 1
+      run: ./runtest-moduleapi --valgrind --no-latency --verbose --clients 1 ${{github.event.inputs.arguments}}
     - name: unittest
       run: |
         valgrind --track-origins=yes --suppressions=./src/valgrind.sup --show-reachable=no --show-possibly-lost=no --leak-check=full --log-file=err.txt ./src/redis-server test all
@@ -161,7 +194,7 @@ jobs:
 
   test-valgrind-no-malloc-usable-size:
     runs-on: ubuntu-latest
-    if: github.repository == 'redis/redis'
+    if: github.repository == 'redis/redis' && github.event.inputs.valgrind == 'true'
     timeout-minutes: 14400
     steps:
     - uses: actions/checkout@v2
@@ -171,9 +204,9 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install tcl8.6 tclx valgrind -y
-        ./runtest --valgrind --verbose --clients 1 --dump-logs
+        ./runtest --valgrind --verbose --clients 1 --dump-logs ${{github.event.inputs.arguments}}
     - name: module api test
-      run: ./runtest-moduleapi --valgrind --no-latency --verbose --clients 1
+      run: ./runtest-moduleapi --valgrind --no-latency --verbose --clients 1 ${{github.event.inputs.arguments}}
 
   test-centos7-jemalloc:
     runs-on: ubuntu-latest
@@ -189,17 +222,19 @@ jobs:
     - name: test
       run: |
         yum -y install which tcl tclx
-        ./runtest --accurate --verbose --dump-logs
+        ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.arguments}}
     - name: module api test
-      run: ./runtest-moduleapi --verbose
+      run: ./runtest-moduleapi --verbose ${{github.event.inputs.arguments}}
     - name: sentinel tests
-      run: ./runtest-sentinel
+      if: github.event.inputs.sentinel == 'true'
+      run: ./runtest-sentinel ${{github.event.inputs.arguments}}
     - name: cluster tests
-      run: ./runtest-cluster
+      if: github.event.inputs.cluster == 'true'
+      run: ./runtest-cluster ${{github.event.inputs.arguments}}
 
   test-centos7-tls:
     runs-on: ubuntu-latest
-    if: github.repository == 'redis/redis'
+    if: github.repository == 'redis/redis' && github.event.inputs.tls == 'true'
     container: centos:7
     timeout-minutes: 14400
     steps:
@@ -213,20 +248,22 @@ jobs:
       run: |
         yum -y install tcl tcltls tclx
         ./utils/gen-test-certs.sh
-        ./runtest --accurate --verbose --tls --dump-logs
-        ./runtest --accurate --verbose --dump-logs
+        ./runtest --accurate --verbose --tls --dump-logs ${{github.event.inputs.arguments}}
+        ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.arguments}}
     - name: module api test
       run: |
-        ./runtest-moduleapi --verbose --tls
-        ./runtest-moduleapi --verbose
+        ./runtest-moduleapi --verbose --tls ${{github.event.inputs.arguments}}
+        ./runtest-moduleapi --verbose ${{github.event.inputs.arguments}}
     - name: sentinel tests
+      if: github.event.inputs.sentinel == 'true'
       run: |
-        ./runtest-sentinel --tls
-        ./runtest-sentinel
+        ./runtest-sentinel --tls ${{github.event.inputs.arguments}}
+        ./runtest-sentinel ${{github.event.inputs.arguments}}
     - name: cluster tests
+      if: github.event.inputs.cluster == 'true'
       run: |
-        ./runtest-cluster --tls
-        ./runtest-cluster
+        ./runtest-cluster --tls ${{github.event.inputs.arguments}}
+        ./runtest-cluster ${{github.event.inputs.arguments}}
 
   test-macos-latest:
     runs-on: macos-latest
@@ -238,17 +275,18 @@ jobs:
       run: make
     - name: test
       run: |
-        ./runtest --accurate --verbose --no-latency --dump-logs
+        ./runtest --accurate --verbose --no-latency --dump-logs ${{github.event.inputs.arguments}}s
     - name: module api test
-      run: ./runtest-moduleapi --verbose
+      run: ./runtest-moduleapi --verbose ${{github.event.inputs.arguments}}
     - name: sentinel tests
-      run: ./runtest-sentinel
+      run: ./runtest-sentinel ${{github.event.inputs.arguments}}
     - name: cluster tests
-      run: ./runtest-cluster
+      if: github.event.inputs.cluster == 'true'
+      run: ./runtest-cluster ${{github.event.inputs.arguments}}
 
   test-freebsd:
     runs-on: macos-latest
-    if: github.repository == 'redis/redis'
+    if: github.repository == 'redis/redis' && github.event.inputs.freebsd == 'true'
     timeout-minutes: 14400
     steps:
     - uses: actions/checkout@v2
@@ -260,10 +298,10 @@ jobs:
         prepare: pkg install -y bash gmake lang/tcl86 lang/tclx
         run: >
           gmake &&
-          ./runtest --accurate --verbose --no-latency --dump-logs &&
-          MAKE=gmake ./runtest-moduleapi --verbose &&
-          ./runtest-sentinel &&
-          ./runtest-cluster
+          ./runtest --accurate --verbose --no-latency --dump-logs ${{github.event.inputs.arguments}} &&
+          MAKE=gmake ./runtest-moduleapi --verbose ${{github.event.inputs.arguments}} &&
+          if [ ${{github.event.inputs.sentinel}} == 'true' ] ; then ./runtest-sentinel ${{github.event.inputs.arguments}} ; fi &&
+          if [ ${{github.event.inputs.cluster}} == 'true' ] ; then ./runtest-cluster ${{github.event.inputs.arguments}} ; fi
 
   test-alpine-jemalloc:
     runs-on: ubuntu-latest
@@ -278,13 +316,14 @@ jobs:
     - name: test
       run: |
         apk add tcl procps tclx
-        ./runtest --accurate --verbose --dump-logs
+        ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.arguments}}
     - name: module api test
-      run: ./runtest-moduleapi --verbose
+      run: ./runtest-moduleapi --verbose ${{github.event.inputs.arguments}}
     - name: sentinel tests
-      run: ./runtest-sentinel
+      run: ./runtest-sentinel ${{github.event.inputs.arguments}}
     - name: cluster tests
-      run: ./runtest-cluster
+      if: github.event.inputs.cluster == 'true'
+      run: ./runtest-cluster ${{github.event.inputs.arguments}}
 
   test-alpine-libc-malloc:
     runs-on: ubuntu-latest
@@ -299,10 +338,11 @@ jobs:
     - name: test
       run: |
         apk add tcl procps tclx
-        ./runtest --accurate --verbose --dump-logs
+        ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.arguments}}
     - name: module api test
-      run: ./runtest-moduleapi --verbose
+      run: ./runtest-moduleapi --verbose ${{github.event.inputs.arguments}}
     - name: sentinel tests
-      run: ./runtest-sentinel
+      run: ./runtest-sentinel ${{github.event.inputs.arguments}}
     - name: cluster tests
-      run: ./runtest-cluster
+      if: github.event.inputs.cluster == 'true'
+      run: ./runtest-cluster ${{github.event.inputs.arguments}}
