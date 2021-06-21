@@ -84,9 +84,9 @@ dict* getServerPubSubLocalChannels();
 void channelList(client *c, sds pat, dict* pubsub_channels);
 
 /*
- * Pub/Sub meta for global channels.
+ * Pub/Sub type for global channels.
  */
-pubsubmeta pubSubMeta = {
+pubsubtype pubSubType = {
     .local = 0,
     .serverPubSubChannels = getServerPubSubChannels,
     .clientPubSubChannels = getClientPubSubChannels,
@@ -96,9 +96,9 @@ pubsubmeta pubSubMeta = {
 };
 
 /*
- * Pub/Sub meta for local channels bounded to a slot.
+ * Pub/Sub type for local channels bounded to a slot.
  */
-pubsubmeta pubSubLocalMeta = {
+pubsubtype pubSubLocalType = {
     .local = 1,
     .serverPubSubChannels = getServerPubSubLocalChannels,
     .clientPubSubChannels = getClientPubSubLocalChannels,
@@ -141,31 +141,31 @@ void addReplyPubsubPatMessage(client *c, robj *pat, robj *channel, robj *msg) {
 }
 
 /* Send the pubsub subscription notification to the client. */
-void addReplyPubsubSubscribed(client *c, robj *channel, pubsubmeta meta) {
+void addReplyPubsubSubscribed(client *c, robj *channel, pubsubtype type) {
     if (c->resp == 2)
         addReply(c,shared.mbulkhdr[3]);
     else
         addReplyPushLen(c,3);
-    addReply(c,meta.subscribeMsg());
+    addReply(c, type.subscribeMsg());
     addReplyBulk(c,channel);
-    addReplyLongLong(c,meta.subscriptionCount(c));
+    addReplyLongLong(c, type.subscriptionCount(c));
 }
 
 /* Send the pubsub unsubscription notification to the client.
  * Channel can be NULL: this is useful when the client sends a mass
  * unsubscribe command but there are no channels to unsubscribe from: we
  * still send a notification. */
-void addReplyPubsubUnsubscribed(client *c, robj *channel, pubsubmeta meta) {
+void addReplyPubsubUnsubscribed(client *c, robj *channel, pubsubtype type) {
     if (c->resp == 2)
         addReply(c,shared.mbulkhdr[3]);
     else
         addReplyPushLen(c,3);
-    addReply(c,meta.unsubscribeMsg());
+    addReply(c, type.unsubscribeMsg());
     if (channel)
         addReplyBulk(c,channel);
     else
         addReplyNull(c);
-    addReplyLongLong(c,meta.subscriptionCount(c));
+    addReplyLongLong(c, type.subscriptionCount(c));
 }
 
 /* Send the pubsub pattern subscription notification to the client. */
@@ -251,20 +251,20 @@ int clientTotalPubSubSubscriptionCount(client *c) {
 
 /* Subscribe a client to a channel. Returns 1 if the operation succeeded, or
  * 0 if the client was already subscribed to that channel. */
-int pubsubSubscribeChannel(client *c, robj *channel, pubsubmeta meta) {
+int pubsubSubscribeChannel(client *c, robj *channel, pubsubtype type) {
     dictEntry *de;
     list *clients = NULL;
     int retval = 0;
 
     /* Add the channel to the client -> channels hash table */
-    if (dictAdd(meta.clientPubSubChannels(c),channel,NULL) == DICT_OK) {
+    if (dictAdd(type.clientPubSubChannels(c), channel, NULL) == DICT_OK) {
         retval = 1;
         incrRefCount(channel);
         /* Add the client to the channel -> list of clients hash table */
-        de = dictFind(meta.serverPubSubChannels(), channel);
+        de = dictFind(type.serverPubSubChannels(), channel);
         if (de == NULL) {
             clients = listCreate();
-            dictAdd(meta.serverPubSubChannels(), channel, clients);
+            dictAdd(type.serverPubSubChannels(), channel, clients);
             incrRefCount(channel);
         } else {
             clients = dictGetVal(de);
@@ -272,13 +272,13 @@ int pubsubSubscribeChannel(client *c, robj *channel, pubsubmeta meta) {
         listAddNodeTail(clients,c);
     }
     /* Notify the client */
-    addReplyPubsubSubscribed(c,channel,meta);
+    addReplyPubsubSubscribed(c, channel, type);
     return retval;
 }
 
 /* Unsubscribe a client from a channel. Returns 1 if the operation succeeded, or
  * 0 if the client was not subscribed to the specified channel. */
-int pubsubUnsubscribeChannel(client *c, robj *channel, int notify, pubsubmeta meta) {
+int pubsubUnsubscribeChannel(client *c, robj *channel, int notify, pubsubtype type) {
     dictEntry *de;
     list *clients;
     listNode *ln;
@@ -287,10 +287,10 @@ int pubsubUnsubscribeChannel(client *c, robj *channel, int notify, pubsubmeta me
     /* Remove the channel from the client -> channels hash table */
     incrRefCount(channel); /* channel may be just a pointer to the same object
                             we have in the hash tables. Protect it... */
-    if (dictDelete(meta.clientPubSubChannels(c),channel) == DICT_OK) {
+    if (dictDelete(type.clientPubSubChannels(c), channel) == DICT_OK) {
         retval = 1;
         /* Remove the client from the channel -> clients list hash table */
-        de = dictFind(meta.serverPubSubChannels(), channel);
+        de = dictFind(type.serverPubSubChannels(), channel);
         serverAssertWithInfo(c,NULL,de != NULL);
         clients = dictGetVal(de);
         ln = listSearchKey(clients,c);
@@ -300,23 +300,23 @@ int pubsubUnsubscribeChannel(client *c, robj *channel, int notify, pubsubmeta me
             /* Free the list and associated hash entry at all if this was
              * the latest client, so that it will be possible to abuse
              * Redis PUBSUB creating millions of channels. */
-            dictDelete(meta.serverPubSubChannels(), channel);
+            dictDelete(type.serverPubSubChannels(), channel);
             /* As this channel isn't subscribed by anyone, it's safe
              * to remove the channel from the slot. */
-            if (server.cluster_enabled & meta.local) {
+            if (server.cluster_enabled & type.local) {
                 slotToChannelDel(channel->ptr);
             }
         }
     }
     /* Notify the client */
     if (notify) {
-        addReplyPubsubUnsubscribed(c,channel,meta);
+        addReplyPubsubUnsubscribed(c, channel, type);
     }
     decrRefCount(channel); /* it is finally safe to release it */
     return retval;
 }
 
-void pubsuLocalbUnsubscribeAllClients(robj *channel, int notify) {
+void pubsubLocalUnsubscribeAllClients(robj *channel) {
     int retval;
     dictEntry *de = dictFind(server.pubsublocal_channels,channel);
     serverAssertWithInfo(NULL,channel,de != NULL);
@@ -330,9 +330,7 @@ void pubsuLocalbUnsubscribeAllClients(robj *channel, int notify) {
             client *c = listNodeValue(ln);
             retval = dictDelete(c->pubsublocal_channels,channel);
             serverAssertWithInfo(c,channel,retval == DICT_OK);
-            if (notify) {
-                addReplyPubsubUnsubscribed(c,channel,pubSubLocalMeta);
-            }
+            addReplyPubsubUnsubscribed(c, channel, pubSubLocalType);
             /* If the client has no other pubsub subscription,
              * move out of pubsub mode. */
             if (clientTotalPubSubSubscriptionCount(c) == 0) {
@@ -408,33 +406,33 @@ int pubsubUnsubscribePattern(client *c, robj *pattern, int notify) {
 
 /* Unsubscribe from all the channels. Return the number of channels the
  * client was subscribed to. */
-int pubsubUnsubscribeAllChannelsInternal(client *c, int notify, pubsubmeta meta) {
+int pubsubUnsubscribeAllChannelsInternal(client *c, int notify, pubsubtype type) {
     int count = 0;
-    if (dictSize(meta.clientPubSubChannels(c)) > 0) {
-        dictIterator *di = dictGetSafeIterator(meta.clientPubSubChannels(c));
+    if (dictSize(type.clientPubSubChannels(c)) > 0) {
+        dictIterator *di = dictGetSafeIterator(type.clientPubSubChannels(c));
         dictEntry *de;
 
         while((de = dictNext(di)) != NULL) {
             robj *channel = dictGetKey(de);
 
-            count += pubsubUnsubscribeChannel(c,channel,notify,meta);
+            count += pubsubUnsubscribeChannel(c, channel, notify, type);
         }
         dictReleaseIterator(di);
     }
     /* We were subscribed to nothing? Still reply to the client. */
     if (notify && count == 0) {
-        addReplyPubsubUnsubscribed(c,NULL,meta);
+        addReplyPubsubUnsubscribed(c, NULL, type);
     }
     return count;
 }
 
 int pubsubUnsubscribeAllChannels(client *c, int notify) {
-    int count = pubsubUnsubscribeAllChannelsInternal(c, notify, pubSubMeta);
+    int count = pubsubUnsubscribeAllChannelsInternal(c, notify, pubSubType);
     return count;
 }
 
 int pubsubUnsubscribeLocalAllChannels(client *c, int notify) {
-    int count = pubsubUnsubscribeAllChannelsInternal(c, notify, pubSubLocalMeta);
+    int count = pubsubUnsubscribeAllChannelsInternal(c, notify, pubSubLocalType);
     return count;
 }
 
@@ -442,7 +440,7 @@ void pubsubUnsubscribeLocalAllChannelsInSlot(robj **channels, unsigned int count
     for (unsigned int j = 0; j < count; j++) {
         /* Remove the channel from server and from the clients
          * subscribed to it as well as notify them. */
-        pubsuLocalbUnsubscribeAllClients(channels[j], 1);
+        pubsubLocalUnsubscribeAllClients(channels[j]);
     }
 }
 
@@ -463,7 +461,7 @@ int pubsubUnsubscribeAllPatterns(client *c, int notify) {
     return count;
 }
 
-int pubsubPublishMessageInternal(robj *channel, robj *message, pubsubmeta meta) {
+int pubsubPublishMessageInternal(robj *channel, robj *message, pubsubtype type) {
     int receivers = 0;
     dictEntry *de;
     dictIterator *di;
@@ -471,7 +469,7 @@ int pubsubPublishMessageInternal(robj *channel, robj *message, pubsubmeta meta) 
     listIter li;
 
     /* Send to clients listening for that channel */
-    de = dictFind(meta.serverPubSubChannels(),channel);
+    de = dictFind(type.serverPubSubChannels(), channel);
     if (de) {
         list *list = dictGetVal(de);
         listNode *ln;
@@ -485,37 +483,46 @@ int pubsubPublishMessageInternal(robj *channel, robj *message, pubsubmeta meta) 
         }
     }
 
-    if (!meta.local) {
-        /* Send to clients listening to matching channels */
-        di = dictGetIterator(server.pubsub_patterns);
-        if (di) {
-            channel = getDecodedObject(channel);
-            while((de = dictNext(di)) != NULL) {
-                robj *pattern = dictGetKey(de);
-                list *clients = dictGetVal(de);
-                if (!stringmatchlen((char*)pattern->ptr,
-                                    sdslen(pattern->ptr),
-                                    (char*)channel->ptr,
-                                    sdslen(channel->ptr),0)) continue;
+    if (type.local) {
+        /* Local pubsub ignores patterns. */
+        return receivers;
+    }
 
-                listRewind(clients,&li);
-                while ((ln = listNext(&li)) != NULL) {
-                    client *c = listNodeValue(ln);
-                    addReplyPubsubPatMessage(c,pattern,channel,message);
-                    receivers++;
-                }
+    /* Send to clients listening to matching channels */
+    di = dictGetIterator(server.pubsub_patterns);
+    if (di) {
+        channel = getDecodedObject(channel);
+        while((de = dictNext(di)) != NULL) {
+            robj *pattern = dictGetKey(de);
+            list *clients = dictGetVal(de);
+            if (!stringmatchlen((char*)pattern->ptr,
+                                sdslen(pattern->ptr),
+                                (char*)channel->ptr,
+                                sdslen(channel->ptr),0)) continue;
+
+            listRewind(clients,&li);
+            while ((ln = listNext(&li)) != NULL) {
+                client *c = listNodeValue(ln);
+                addReplyPubsubPatMessage(c,pattern,channel,message);
+                receivers++;
             }
-            decrRefCount(channel);
-            dictReleaseIterator(di);
         }
+        decrRefCount(channel);
+        dictReleaseIterator(di);
     }
     return receivers;
 }
 
 /* Publish a message */
 int pubsubPublishMessage(robj *channel, robj *message) {
-    return pubsubPublishMessageInternal(channel,message,pubSubMeta);
+    return pubsubPublishMessageInternal(channel, message, pubSubType);
 }
+
+/* Publish a local message */
+int pubsubPublishMessageLocal(robj *channel, robj *message) {
+    return pubsubPublishMessageInternal(channel, message, pubSubLocalType);
+}
+
 
 /*-----------------------------------------------------------------------------
  * Pubsub commands implementation
@@ -536,7 +543,7 @@ void subscribeCommand(client *c) {
         return;
     }
     for (j = 1; j < c->argc; j++)
-        pubsubSubscribeChannel(c,c->argv[j],pubSubMeta);
+        pubsubSubscribeChannel(c, c->argv[j], pubSubType);
     c->flags |= CLIENT_PUBSUB;
 }
 
@@ -548,7 +555,7 @@ void unsubscribeCommand(client *c) {
         int j;
 
         for (j = 1; j < c->argc; j++)
-            pubsubUnsubscribeChannel(c,c->argv[j],1,pubSubMeta);
+            pubsubUnsubscribeChannel(c, c->argv[j], 1, pubSubType);
     }
     if (clientTotalPubSubSubscriptionCount(c) == 0) c->flags &= ~CLIENT_PUBSUB;
 }
@@ -679,8 +686,12 @@ void channelList(client *c, sds pat, dict *pubsub_channels) {
 
 /* PUBLISHLOCAL <channel> <message> */
 void publishLocalCommand(client *c) {
-    int receivers = pubsubPublishMessageInternal(c->argv[1],c->argv[2],pubSubLocalMeta);
-    forceCommandPropagation(c,PROPAGATE_REPL);
+    int receivers = pubsubPublishMessageInternal(c->argv[1], c->argv[2], pubSubLocalType);
+    if (server.cluster_enabled) {
+        clusterPropagatePublishLocal(c->argv[1],c->argv[2]);
+    } else {
+        forceCommandPropagation(c,PROPAGATE_REPL);
+    }
     addReplyLongLong(c,receivers);
 }
 
@@ -702,10 +713,10 @@ void subscribeLocalCommand(client *c) {
          * already exists the slotToChannel doesn't needs
          * to be incremented. */
         if (server.cluster_enabled &
-            (dictFind(pubSubLocalMeta.serverPubSubChannels(), c->argv[j]) == NULL)) {
+            (dictFind(pubSubLocalType.serverPubSubChannels(), c->argv[j]) == NULL)) {
             slotToChannelAdd(c->argv[j]->ptr);
         }
-        pubsubSubscribeChannel(c,c->argv[j],pubSubLocalMeta);
+        pubsubSubscribeChannel(c, c->argv[j], pubSubLocalType);
     }
     c->flags |= CLIENT_PUBSUB;
 }
@@ -717,7 +728,7 @@ void unsubscribeLocalCommand(client *c) {
         pubsubUnsubscribeLocalAllChannels(c,1);
     } else {
         for (int j = 1; j < c->argc; j++) {
-            pubsubUnsubscribeChannel(c,c->argv[j],1,pubSubLocalMeta);
+            pubsubUnsubscribeChannel(c, c->argv[j], 1, pubSubLocalType);
         }
     }
     if (clientTotalPubSubSubscriptionCount(c) == 0) c->flags &= ~CLIENT_PUBSUB;

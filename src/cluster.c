@@ -57,6 +57,7 @@ void clusterUpdateState(void);
 int clusterNodeGetSlotBit(clusterNode *n, int slot);
 sds clusterGenNodesDescription(int filter, int use_pport);
 clusterNode *clusterLookupNode(const char *name);
+list *clusterGetNodesForSlot(clusterNode *node);
 int clusterNodeAddSlave(clusterNode *master, clusterNode *slave);
 int clusterAddSlot(clusterNode *n, int slot);
 int clusterDelSlot(int slot);
@@ -552,8 +553,6 @@ void clusterInit(void) {
 
     /* The slots -> channels map is a radix tree. Initialize it here. */
     server.cluster->slots_to_channels = raxNew();
-    memset(server.cluster->slots_channels_count,0,
-           sizeof(server.cluster->slots_channels_count));
 
     /* Set myself->port / cport to my listening ports, we'll just need to
      * discover the IP address via MEET messages. */
@@ -1037,6 +1036,26 @@ clusterNode *clusterLookupNode(const char *name) {
     sdsfree(s);
     if (de == NULL) return NULL;
     return dictGetVal(de);
+}
+
+/* Get all the nodes serving this slot. */
+list *clusterGetNodesForSlot(clusterNode *node) {
+    list *nodesForSlot = listCreate();
+    if (node->slaves) {
+        for (int i=0; i < node->numslaves; i++) {
+            listAddNodeTail(nodesForSlot, node->slaves[i]);
+        }
+    } else if (node->slaveof) {
+        clusterNode *master = node->slaveof;
+        listAddNodeTail(nodesForSlot, master);
+        for (int i=0; i < master->numslaves; i++) {
+            if (master->slaves[i] == node) {
+                continue;
+            }
+            listAddNodeTail(nodesForSlot, master->slaves[i]);
+        }
+    }
+    return nodesForSlot;
 }
 
 /* This is only used after the handshake. When we connect a given IP/PORT
@@ -1794,7 +1813,7 @@ int clusterProcessPacket(clusterLink *link) {
 
         explen += sizeof(clusterMsgDataFail);
         if (totlen != explen) return 1;
-    } else if (type == CLUSTERMSG_TYPE_PUBLISH) {
+    } else if (type == CLUSTERMSG_TYPE_PUBLISH || type == CLUSTERMSG_TYPE_PUBLISHLOCAL) {
         uint32_t explen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
 
         explen += sizeof(clusterMsgDataPublish) -
@@ -2173,6 +2192,27 @@ int clusterProcessPacket(clusterLink *link) {
                         (char*)hdr->data.publish.msg.bulk_data+channel_len,
                         message_len);
             pubsubPublishMessage(channel,message);
+            decrRefCount(channel);
+            decrRefCount(message);
+        }
+    } else if (type == CLUSTERMSG_TYPE_PUBLISHLOCAL) {
+        if (!sender) return 1;  /* We don't know that node. */
+
+        robj *channel, *message;
+        uint32_t channel_len, message_len;
+
+        /* Don't bother creating useless objects if there are no
+         * Pub/Sub subscribers. */
+        if (dictSize(server.pubsublocal_channels))
+        {
+            channel_len = ntohl(hdr->data.publish.msg.channel_len);
+            message_len = ntohl(hdr->data.publish.msg.message_len);
+            channel = createStringObject(
+                    (char*)hdr->data.publish.msg.bulk_data,channel_len);
+            message = createStringObject(
+                    (char*)hdr->data.publish.msg.bulk_data+channel_len,
+                    message_len);
+            pubsubPublishMessageLocal(channel,message);
             decrRefCount(channel);
             decrRefCount(message);
         }
@@ -2709,7 +2749,7 @@ void clusterBroadcastPong(int target) {
 /* Send a PUBLISH message.
  *
  * If link is NULL, then the message is broadcasted to the whole cluster. */
-void clusterSendPublish(clusterLink *link, robj *channel, robj *message) {
+void clusterSendPublish(clusterLink *link, robj *channel, robj *message, uint16_t type) {
     unsigned char *payload;
     clusterMsg buf[1];
     clusterMsg *hdr = (clusterMsg*) buf;
@@ -2721,7 +2761,7 @@ void clusterSendPublish(clusterLink *link, robj *channel, robj *message) {
     channel_len = sdslen(channel->ptr);
     message_len = sdslen(message->ptr);
 
-    clusterBuildMessageHdr(hdr,CLUSTERMSG_TYPE_PUBLISH);
+    clusterBuildMessageHdr(hdr,type);
     totlen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
     totlen += sizeof(clusterMsgDataPublish) - 8 + channel_len + message_len;
 
@@ -2844,7 +2884,26 @@ int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uin
  * messages to hosts without receives for a given channel.
  * -------------------------------------------------------------------------- */
 void clusterPropagatePublish(robj *channel, robj *message) {
-    clusterSendPublish(NULL, channel, message);
+    clusterSendPublish(NULL, channel, message, CLUSTERMSG_TYPE_PUBLISH);
+}
+
+/* -----------------------------------------------------------------------------
+ * CLUSTER Pub/Sub local support
+ *
+ * Publish this message across the slot (primary/replica).
+ * -------------------------------------------------------------------------- */
+void clusterPropagatePublishLocal(robj *channel, robj *message) {
+    list *nodesForSlot = clusterGetNodesForSlot(server.cluster->myself);
+    if (listLength(nodesForSlot) != 0) {
+        listIter li;
+        listNode *ln;
+        listRewind(nodesForSlot,&li);
+        while((ln = listNext(&li))) {
+            clusterNode *node = listNodeValue(ln);
+            clusterSendPublish(node->link, channel, message, CLUSTERMSG_TYPE_PUBLISHLOCAL);
+        }
+    }
+    listRelease(nodesForSlot);
 }
 
 /* -----------------------------------------------------------------------------
@@ -4340,6 +4399,7 @@ const char *clusterGetMessageTypeString(int type) {
     case CLUSTERMSG_TYPE_MEET: return "meet";
     case CLUSTERMSG_TYPE_FAIL: return "fail";
     case CLUSTERMSG_TYPE_PUBLISH: return "publish";
+    case CLUSTERMSG_TYPE_PUBLISHLOCAL: return "publishlocal";
     case CLUSTERMSG_TYPE_FAILOVER_AUTH_REQUEST: return "auth-req";
     case CLUSTERMSG_TYPE_FAILOVER_AUTH_ACK: return "auth-ack";
     case CLUSTERMSG_TYPE_UPDATE: return "update";
@@ -5802,6 +5862,12 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
         mc.cmd = cmd;
     }
 
+
+    int is_pubsublocal = cmd->proc == subscribeLocalCommand ||
+                         cmd->proc == unsubscribeLocalCommand ||
+                         cmd->proc == publishLocalCommand;
+
+
     /* Check that all the keys are in the same hash slot, and obtain this
      * slot and the node associated. */
     for (i = 0; i < ms->count; i++) {
@@ -5816,16 +5882,6 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
         getKeysResult result = GETKEYS_RESULT_INIT;
         numkeys = getKeysFromCommand(mcmd,margv,margc,&result);
         keyindex = result.keys;
-
-        /* If it is pubsublocal command, it isn't required to check
-         * the channel being present or not in the node during the
-         * slot migration, the channel will be served from the source
-         * node until the migration completes with CLUSTER SETSLOT <slot>
-         * NODE <node-id>. */
-
-        int is_pubsublocal = cmd->proc == subscribeLocalCommand ||
-                             cmd->proc == unsubscribeLocalCommand ||
-                             cmd->proc == publishLocalCommand;
 
         for (j = 0; j < numkeys; j++) {
             robj *thiskey = margv[keyindex[j]];
@@ -5885,7 +5941,13 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
                 }
             }
 
-            /* Migrating / Importing slot? Count keys we don't have. */
+            /* Migrating / Importing slot? Count keys we don't have.
+             * If it is pubsublocal command, it isn't required to check
+             * the channel being present or not in the node during the
+             * slot migration, the channel will be served from the source
+             * node until the migration completes with CLUSTER SETSLOT <slot>
+             * NODE <node-id>. */
+
             if ((migrating_slot || importing_slot) && !is_pubsublocal &&
                 lookupKeyRead(&server.db[0],thiskey) == NULL)
             {
@@ -5954,7 +6016,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
      * is serving, we can reply without redirection. */
     int is_write_command = (c->cmd->flags & CMD_WRITE) ||
                            (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_WRITE));
-    if (c->flags & CLIENT_READONLY &&
+    if (((c->flags & CLIENT_READONLY) || is_pubsublocal) &&
         !is_write_command &&
         nodeIsSlave(myself) &&
         myself->slaveof == n)

@@ -448,9 +448,7 @@ long long emptyDb(int dbnum, int flags, void(callback)(void*)) {
     /* Flush slots to keys map if enable cluster, we can flush entire
      * slots to keys map whatever dbnum because only support one DB
      * in cluster mode. */
-    if (server.cluster_enabled) {
-        slotToKeyFlush(async);
-    }
+    if (server.cluster_enabled) slotToKeyFlush(async);
 
     if (dbnum == -1) flushSlaveKeysWithExpireList();
 
@@ -1933,7 +1931,6 @@ void slotToChannelUpdate(sds channel, int add) {
     unsigned char buf[64];
     unsigned char *indexed = buf;
 
-    server.cluster->slots_channels_count[hashslot] += add ? 1 : -1;
     if (keylen+2 > 64) indexed = zmalloc(keylen+2);
     indexed[0] = (hashslot >> 8) & 0xff;
     indexed[1] = hashslot & 0xff;
@@ -1994,17 +1991,6 @@ void slotToKeyFlush(int async) {
     memset(server.cluster->slots_keys_count,0,
            sizeof(server.cluster->slots_keys_count));
     freeSlotsToKeysMap(old, async);
-}
-
-/* Empty the slots-channel map of Redis CLuster by creating a new empty one and
- * freeing the old one. */
-void slotToChannelFlush(int async) {
-    rax *old = server.cluster->slots_to_channels;
-
-    server.cluster->slots_to_channels = raxNew();
-    memset(server.cluster->slots_channels_count,0,
-           sizeof(server.cluster->slots_channels_count));
-    freeSlotsToChannelsMap(old, async);
 }
 
 /* Populate the specified array of objects with keys in the specified slot.
@@ -2074,5 +2060,18 @@ unsigned int countKeysInSlot(unsigned int hashslot) {
 }
 
 unsigned int countChannelsInSlot(unsigned int hashslot) {
-    return server.cluster->slots_channels_count[hashslot];
+    raxIterator iter;
+    int j = 0;
+    unsigned char indexed[2];
+
+    indexed[0] = (hashslot >> 8) & 0xff;
+    indexed[1] = hashslot & 0xff;
+    raxStart(&iter,server.cluster->slots_to_channels);
+    raxSeek(&iter,">=",indexed,2);
+    while(raxNext(&iter)) {
+        if (iter.key[0] != indexed[0] || iter.key[1] != indexed[1]) break;
+        j++;
+    }
+    raxStop(&iter);
+    return j;
 }

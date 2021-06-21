@@ -98,7 +98,8 @@ typedef struct clusterLink {
 #define CLUSTERMSG_TYPE_UPDATE 7        /* Another node slots configuration */
 #define CLUSTERMSG_TYPE_MFSTART 8       /* Pause clients for manual failover */
 #define CLUSTERMSG_TYPE_MODULE 9        /* Module cluster API message. */
-#define CLUSTERMSG_TYPE_COUNT 10        /* Total number of message types. */
+#define CLUSTERMSG_TYPE_PUBLISHLOCAL 10       /* Pub/Sub Publish local propagation */
+#define CLUSTERMSG_TYPE_COUNT 11        /* Total number of message types. */
 
 /* Flags that a module can set in order to prevent certain Redis Cluster
  * features to be enabled. Useful when implementing a different distributed
@@ -155,7 +156,6 @@ typedef struct clusterState {
     clusterNode *importing_slots_from[CLUSTER_SLOTS];
     clusterNode *slots[CLUSTER_SLOTS];
     uint64_t slots_keys_count[CLUSTER_SLOTS];
-    uint64_t slots_channels_count[CLUSTER_SLOTS];
     rax *slots_to_keys;
     rax *slots_to_channels;
     /* The following fields are used to take the slave state on elections. */

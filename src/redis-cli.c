@@ -2548,7 +2548,7 @@ typedef struct clusterManagerCommandDef {
 } clusterManagerCommandDef;
 
 clusterManagerCommandDef clusterManagerCommands[] = {
-    {"create", clusterManagerCommandCreate, -1, "host1:port1 ... hostN:portN",
+    {"create", clusterManagerCommandCreate, -2, "host1:port1 ... hostN:portN",
      "replicas <arg>"},
     {"check", clusterManagerCommandCheck, -1, "host:port",
      "search-multiple-owners"},

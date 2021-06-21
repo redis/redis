@@ -1725,16 +1725,16 @@ typedef struct {
     dictEntry *de;
 } hashTypeIterator;
 
-/* Structure to hold the pubsub related meta data. Currently used
+/* Structure to hold the pubsub related metadata. Currently used
  * for pubsub and pubsublocal feature. */
-typedef struct pubsubmeta {
+typedef struct pubsubtype {
     int local;
     dict *(*serverPubSubChannels)();
     dict *(*clientPubSubChannels)(client*);
     int (*subscriptionCount)(client*);
     robj *(*subscribeMsg)();
     robj *(*unsubscribeMsg)();
-}pubsubmeta;
+}pubsubtype;
 
 
 #include "stream.h"  /* Stream data type header file. */
@@ -2315,6 +2315,7 @@ int pubsubUnsubscribeLocalAllChannels(client *c, int notify);
 void pubsubUnsubscribeLocalAllChannelsInSlot(robj **channels, unsigned int count);
 int pubsubUnsubscribeAllPatterns(client *c, int notify);
 int pubsubPublishMessage(robj *channel, robj *message);
+int pubsubPublishMessageLocal(robj *channel, robj *message);
 void addReplyPubsubMessage(client *c, robj *channel, robj *msg);
 
 /* Keyspace events notification */
@@ -2423,6 +2424,7 @@ unsigned short crc16(const char *buf, int len);
 unsigned int keyHashSlot(char *key, int keylen);
 void clusterCron(void);
 void clusterPropagatePublish(robj *channel, robj *message);
+void clusterPropagatePublishLocal(robj *channel, robj *message);
 void migrateCloseTimedoutSockets(void);
 void clusterBeforeSleep(void);
 int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uint8_t type, unsigned char *payload, uint32_t len);
