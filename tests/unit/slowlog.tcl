@@ -175,4 +175,26 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         r debug sleep 0.2
         assert_equal [r slowlog len] 0
     } {} {needs:debug}
+
+    test {SLOWLOG - count must be >= -1} {
+       assert_error "ERR count should be greater than or equal to -1" {r slowlog get -2}
+       assert_error "ERR count should be greater than or equal to -1" {r slowlog get -222}
+    }
+
+    test {SLOWLOG - get all slow logs} {
+        r config set slowlog-log-slower-than 0
+        r config set slowlog-max-len 3
+        r slowlog reset
+
+        r set key test
+        r sadd set a b c
+        r incr num
+        r lpush list a
+
+        assert_equal [r slowlog len] 3
+        assert_equal 0 [llength [r slowlog get 0]]
+        assert_equal 1 [llength [r slowlog get 1]]
+        assert_equal 3 [llength [r slowlog get -1]]
+        assert_equal 3 [llength [r slowlog get 3]]
+    }
 }

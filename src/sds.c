@@ -92,7 +92,7 @@ static inline size_t sdsTypeMaxSize(char type) {
  * If NULL is used for 'init' the string is initialized with zero bytes.
  * If SDS_NOINIT is used, the buffer is left uninitialized;
  *
- * The string is always null-termined (all the sds strings are, always) so
+ * The string is always null-terminated (all the sds strings are, always) so
  * even if you create an sds string with:
  *
  * mystring = sdsnewlen("abc",3);
@@ -227,10 +227,16 @@ void sdsclear(sds s) {
 /* Enlarge the free space at the end of the sds string so that the caller
  * is sure that after calling this function can overwrite up to addlen
  * bytes after the end of the string, plus one more byte for nul term.
+ * If there's already sufficient free space, this function returns without any
+ * action, if there isn't sufficient free space, it'll allocate what's missing,
+ * and possibly more:
+ * When greedy is 1, enlarge more than needed, to avoid need for future reallocs
+ * on incremental growth.
+ * When greedy is 0, enlarge just enough so that there's free space for 'addlen'.
  *
  * Note: this does not change the *length* of the sds string as returned
  * by sdslen(), but only the free buffer space we have. */
-sds sdsMakeRoomFor(sds s, size_t addlen) {
+sds _sdsMakeRoomFor(sds s, size_t addlen, int greedy) {
     void *sh, *newsh;
     size_t avail = sdsavail(s);
     size_t len, newlen;
@@ -245,10 +251,12 @@ sds sdsMakeRoomFor(sds s, size_t addlen) {
     sh = (char*)s-sdsHdrSize(oldtype);
     newlen = (len+addlen);
     assert(newlen > len);   /* Catch size_t overflow */
-    if (newlen < SDS_MAX_PREALLOC)
-        newlen *= 2;
-    else
-        newlen += SDS_MAX_PREALLOC;
+    if (greedy == 1) {
+        if (newlen < SDS_MAX_PREALLOC)
+            newlen *= 2;
+        else
+            newlen += SDS_MAX_PREALLOC;
+    }
 
     type = sdsReqType(newlen);
 
@@ -279,6 +287,17 @@ sds sdsMakeRoomFor(sds s, size_t addlen) {
         usable = sdsTypeMaxSize(type);
     sdssetalloc(s, usable);
     return s;
+}
+
+/* Enlarge the free space at the end of the sds string more than needed,
+ * This is useful to avoid repeated re-allocations when repeatedly appending to the sds. */
+sds sdsMakeRoomFor(sds s, size_t addlen) {
+    return _sdsMakeRoomFor(s, addlen, 1);
+}
+
+/* Unlike sdsMakeRoomFor(), this one just grows to the necessary size. */
+sds sdsMakeRoomForNonGreedy(sds s, size_t addlen) {
+    return _sdsMakeRoomFor(s, addlen, 0);
 }
 
 /* Reallocate the sds string so that it has no free space at the end. The
@@ -469,7 +488,7 @@ sds sdscpylen(sds s, const char *t, size_t len) {
     return s;
 }
 
-/* Like sdscpylen() but 't' must be a null-termined string so that the length
+/* Like sdscpylen() but 't' must be a null-terminated string so that the length
  * of the string is obtained with strlen(). */
 sds sdscpy(sds s, const char *t) {
     return sdscpylen(s, t, strlen(t));
@@ -731,7 +750,7 @@ sds sdscatfmt(sds s, char const *fmt, ...) {
 }
 
 /* Remove the part of the string from left and from right composed just of
- * contiguous characters found in 'cset', that is a null terminted C string.
+ * contiguous characters found in 'cset', that is a null terminated C string.
  *
  * After the call, the modified sds string is no longer valid and all the
  * references must be substituted with the new pointer returned by the call.
@@ -1179,7 +1198,7 @@ sds sdstemplate(const char *template, sdstemplate_callback_t cb_func, void *cb_a
             res = sdscat(res, p);
             break;
         } else if (sv > p) {
-            /* Found: copy anything up to the begining of the variable */
+            /* Found: copy anything up to the beginning of the variable */
             res = sdscatlen(res, p, sv - p);
         }
 

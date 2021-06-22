@@ -570,7 +570,7 @@ void pexpireatCommand(client *c) {
     expireGenericCommand(c,0,UNIT_MILLISECONDS);
 }
 
-/* Implements TTL, PTTL and EXPIRETIME */
+/* Implements TTL, PTTL, EXPIRETIME and PEXPIRETIME */
 void ttlGenericCommand(client *c, int output_ms, int output_abs) {
     long long expire, ttl = -1;
 

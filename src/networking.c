@@ -302,7 +302,7 @@ void _addReplyProtoToList(client *c, const char *s, size_t len) {
 
     /* Note that 'tail' may be NULL even if we have a tail node, because when
      * addReplyDeferredLen() is used, it sets a dummy node to NULL just
-     * fo fill it later, when the size of the bulk length is set. */
+     * to fill it later, when the size of the bulk length is set. */
 
     /* Append to tail string when possible. */
     if (tail) {
@@ -1752,7 +1752,7 @@ int processInlineBuffer(client *c) {
     /* Masters should never send us inline protocol to run actual
      * commands. If this happens, it is likely due to a bug in Redis where
      * we got some desynchronization in the protocol, for example
-     * beause of a PSYNC gone bad.
+     * because of a PSYNC gone bad.
      *
      * However the is an exception: masters may send us just a newline
      * to keep the connection active. */
@@ -1783,7 +1783,7 @@ int processInlineBuffer(client *c) {
     return C_OK;
 }
 
-/* Helper function. Record protocol erro details in server log,
+/* Helper function. Record protocol error details in server log,
  * and set the client as CLIENT_CLOSE_AFTER_REPLY and
  * CLIENT_PROTOCOL_ERROR. */
 #define PROTO_DUMP_LEN 128
@@ -1923,7 +1923,7 @@ int processMultibulkBuffer(client *c) {
                     c->qb_pos = 0;
                     /* Hint the sds library about the amount of bytes this string is
                      * going to contain. */
-                    c->querybuf = sdsMakeRoomFor(c->querybuf,ll+2-sdslen(c->querybuf));
+                    c->querybuf = sdsMakeRoomForNonGreedy(c->querybuf,ll+2-sdslen(c->querybuf));
                 }
             }
             c->bulklen = ll;
@@ -2083,18 +2083,6 @@ void processInputBuffer(client *c) {
 
         if (c->reqtype == PROTO_REQ_INLINE) {
             if (processInlineBuffer(c) != C_OK) break;
-            /* If the Gopher mode and we got zero or one argument, process
-             * the request in Gopher mode. To avoid data race, Redis won't
-             * support Gopher if enable io threads to read queries. */
-            if (server.gopher_enabled && !server.io_threads_do_reads &&
-                ((c->argc == 1 && ((char*)(c->argv[0]->ptr))[0] == '/') ||
-                  c->argc == 0))
-            {
-                processGopherRequest(c);
-                resetClient(c);
-                c->flags |= CLIENT_CLOSE_AFTER_REPLY;
-                break;
-            }
         } else if (c->reqtype == PROTO_REQ_MULTIBULK) {
             if (processMultibulkBuffer(c) != C_OK) break;
         } else {
@@ -2132,8 +2120,8 @@ void processInputBuffer(client *c) {
 
 void readQueryFromClient(connection *conn) {
     client *c = connGetPrivateData(conn);
-    int nread, readlen;
-    size_t qblen;
+    int nread, big_arg = 0;
+    size_t qblen, readlen;
 
     /* Check if we want to read from the client later when exiting from
      * the event loop. This is the case if threaded I/O is enabled. */
@@ -2153,15 +2141,28 @@ void readQueryFromClient(connection *conn) {
         && c->bulklen >= PROTO_MBULK_BIG_ARG)
     {
         ssize_t remaining = (size_t)(c->bulklen+2)-sdslen(c->querybuf);
+        big_arg = 1;
 
         /* Note that the 'remaining' variable may be zero in some edge case,
          * for example once we resume a blocked client after CLIENT PAUSE. */
-        if (remaining > 0 && remaining < readlen) readlen = remaining;
+        if (remaining > 0) readlen = remaining;
     }
 
     qblen = sdslen(c->querybuf);
     if (c->querybuf_peak < qblen) c->querybuf_peak = qblen;
-    c->querybuf = sdsMakeRoomFor(c->querybuf, readlen);
+    if (big_arg || sdsalloc(c->querybuf) < PROTO_IOBUF_LEN) {
+        /* When reading a BIG_ARG we won't be reading more than that one arg
+         * into the query buffer, so we don't need to pre-allocate more than we
+         * need, so using the non-greedy growing. For an initial allocation of
+         * the query buffer, we also don't wanna use the greedy growth, in order
+         * to avoid collision with the RESIZE_THRESHOLD mechanism. */
+        c->querybuf = sdsMakeRoomForNonGreedy(c->querybuf, readlen);
+    } else {
+        c->querybuf = sdsMakeRoomFor(c->querybuf, readlen);
+
+        /* Read as much as possible from the socket to save read(2) system calls. */
+        readlen = sdsavail(c->querybuf);
+    }
     nread = connRead(c->conn, c->querybuf+qblen, readlen);
     if (nread == -1) {
         if (connGetState(conn) == CONN_STATE_CONNECTED) {
@@ -2367,7 +2368,7 @@ sds getAllClientsInfoString(int type) {
 
 /* This function implements CLIENT SETNAME, including replying to the
  * user with an error if the charset is wrong (in that case C_ERR is
- * returned). If the function succeeeded C_OK is returned, and it's up
+ * returned). If the function succeeded C_OK is returned, and it's up
  * to the caller to send a reply if needed.
  *
  * Setting an empty string as name has the effect of unsetting the
@@ -2484,7 +2485,7 @@ void clientCommand(client *c) {
 "UNPAUSE",
 "    Stop the current client pause, resuming traffic.",
 "PAUSE <timeout> [WRITE|ALL]",
-"    Suspend all, or just write, clients for <timout> milliseconds.",
+"    Suspend all, or just write, clients for <timeout> milliseconds.",
 "REPLY (ON|OFF|SKIP)",
 "    Control the replies sent to the current connection.",
 "SETNAME <name>",
@@ -3312,7 +3313,7 @@ void flushSlavesOutputBuffers(void) {
  *
  * A main use case of this function is to allow pausing replication traffic
  * so that a failover without data loss to occur. Replicas will continue to receive
- * traffic to faciliate this functionality.
+ * traffic to facilitate this functionality.
  * 
  * This function is also internally used by Redis Cluster for the manual
  * failover procedure implemented by CLUSTER FAILOVER.
@@ -3401,7 +3402,7 @@ void processEventsWhileBlocked(void) {
             AE_FILE_EVENTS|AE_DONT_WAIT|
             AE_CALL_BEFORE_SLEEP|AE_CALL_AFTER_SLEEP);
         /* Note that server.events_processed_while_blocked will also get
-         * incremeted by callbacks called by the event loop handlers. */
+         * incremented by callbacks called by the event loop handlers. */
         server.events_processed_while_blocked += ae_events;
         long long events = server.events_processed_while_blocked - startval;
         if (!events) break;
@@ -3664,7 +3665,7 @@ int postponeClientRead(client *c) {
     if (server.io_threads_active &&
         server.io_threads_do_reads &&
         !ProcessingEventsWhileBlocked &&
-        !(c->flags & (CLIENT_MASTER|CLIENT_SLAVE|CLIENT_PENDING_READ)))
+        !(c->flags & (CLIENT_MASTER|CLIENT_SLAVE|CLIENT_PENDING_READ|CLIENT_BLOCKED))) 
     {
         c->flags |= CLIENT_PENDING_READ;
         listAddNodeHead(server.clients_pending_read,c);
@@ -3728,6 +3729,7 @@ int handleClientsWithPendingReadsUsingThreads(void) {
         c->flags &= ~CLIENT_PENDING_READ;
         listDelNode(server.clients_pending_read,ln);
 
+        serverAssert(!(c->flags & CLIENT_BLOCKED));
         if (processPendingCommandsAndResetClient(c) == C_ERR) {
             /* If the client is no longer valid, we avoid
              * processing the client later. So we just go

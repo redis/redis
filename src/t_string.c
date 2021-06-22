@@ -549,7 +549,8 @@ void msetGenericCommand(client *c, int nx) {
     int j;
 
     if ((c->argc % 2) == 0) {
-        addReplyError(c,"wrong number of arguments for MSET");
+        addReplyErrorFormat(c,"wrong number of arguments for '%s' command",
+                            c->cmd->name);
         return;
     }
 

@@ -419,7 +419,7 @@ test {slave fails full sync and diskless load swapdb recovers it} {
                 fail "Replica didn't get into loading mode"
             }
 
-            # make sure that next sync will not start immediately so that we can catch the slave in betweeen syncs
+            # make sure that next sync will not start immediately so that we can catch the slave in between syncs
             $master config set repl-diskless-sync-delay 5
             # for faster server shutdown, make rdb saving fast again (the fork is already uses the slow one)
             $master config set rdb-key-save-delay 0

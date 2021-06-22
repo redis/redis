@@ -122,7 +122,7 @@
     (p)[5] = ((v)>>8)&0xff; \
 } while(0)
 
-/* Validates that 'p' is not ouside the listpack.
+/* Validates that 'p' is not outside the listpack.
  * All function that return a pointer to an element in the listpack will assert
  * that this element is valid, so it can be freely used.
  * Generally functions such lpNext and lpDelete assume the input pointer is
@@ -131,7 +131,7 @@
     assert((p) >= (lp)+LP_HDR_SIZE && (p) < (lp)+lpGetTotalBytes((lp))); \
 } while (0)
 
-/* Similar to the above, but validates the entire element lenth rather than just
+/* Similar to the above, but validates the entire element length rather than just
  * it's pointer. */
 #define ASSERT_INTEGRITY_LEN(lp, p, len) do { \
     assert((p) >= (lp)+LP_HDR_SIZE && (p)+(len) < (lp)+lpGetTotalBytes((lp))); \
@@ -224,7 +224,7 @@ int lpStringToInt64(const char *s, unsigned long slen, int64_t *value) {
 /* Create a new, empty listpack.
  * On success the new listpack is returned, otherwise an error is returned.
  * Pre-allocate at least `capacity` bytes of memory,
- * over-allocated memory can be shrinked by `lpShrinkToFit`.
+ * over-allocated memory can be shrunk by `lpShrinkToFit`.
  * */
 unsigned char *lpNew(size_t capacity) {
     unsigned char *lp = lp_malloc(capacity > LP_HDR_SIZE+1 ? capacity : LP_HDR_SIZE+1);
@@ -422,7 +422,7 @@ uint32_t lpCurrentEncodedSizeUnsafe(unsigned char *p) {
 }
 
 /* Return bytes needed to encode the length of the listpack element pointed by 'p'.
- * This includes just the encodign byte, and the bytes needed to encode the length
+ * This includes just the encoding byte, and the bytes needed to encode the length
  * of the element (excluding the element data itself)
  * If the element encoding is wrong then 0 is returned. */
 uint32_t lpCurrentEncodedSizeBytes(unsigned char *p) {
@@ -746,7 +746,7 @@ unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s,
  *
  * If 'newp' is not NULL, at the end of a successful call '*newp' will be set
  * to the address of the element just added, so that it will be possible to
- * continue an interation with lpNext() and lpPrev().
+ * continue an interaction with lpNext() and lpPrev().
  *
  * For deletion operations ('ele' set to NULL) 'newp' is set to the next
  * element, on the right of the deleted one, or to NULL if the deleted element
@@ -1005,7 +1005,7 @@ int lpValidateNext(unsigned char *lp, unsigned char **pp, size_t lpbytes) {
     if (!lenbytes)
         return 0;
 
-    /* make sure the encoded entry length doesn't rech outside the edge of the listpack */
+    /* make sure the encoded entry length doesn't reach outside the edge of the listpack */
     if (OUT_OF_RANGE(p + lenbytes))
         return 0;
 
@@ -1014,7 +1014,7 @@ int lpValidateNext(unsigned char *lp, unsigned char **pp, size_t lpbytes) {
     unsigned long encodedBacklen = lpEncodeBacklen(NULL,entrylen);
     entrylen += encodedBacklen;
 
-    /* make sure the entry doesn't rech outside the edge of the listpack */
+    /* make sure the entry doesn't reach outside the edge of the listpack */
     if (OUT_OF_RANGE(p + entrylen))
         return 0;
 
@@ -1052,7 +1052,7 @@ int lpValidateIntegrity(unsigned char *lp, size_t size, int deep,
     if (!deep)
         return 1;
 
-    /* Validate the invividual entries. */
+    /* Validate the individual entries. */
     uint32_t count = 0;
     unsigned char *p = lpFirst(lp);
     while(p && p[0] != LP_EOF) {

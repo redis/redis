@@ -594,7 +594,7 @@ int zslParseLexRangeItem(robj *item, sds *dest, int *ex) {
     }
 }
 
-/* Free a lex range structure, must be called only after zelParseLexRange()
+/* Free a lex range structure, must be called only after zslParseLexRange()
  * populated the structure with success (C_OK returned). */
 void zslFreeLexRange(zlexrangespec *spec) {
     if (spec->min != shared.minstring &&
@@ -806,7 +806,7 @@ void zzlNext(unsigned char *zl, unsigned char **eptr, unsigned char **sptr) {
 }
 
 /* Move to the previous entry based on the values in eptr and sptr. Both are
- * set to NULL when there is no next entry. */
+ * set to NULL when there is no prev entry. */
 void zzlPrev(unsigned char *zl, unsigned char **eptr, unsigned char **sptr) {
     unsigned char *_eptr, *_sptr;
     serverAssert(*eptr != NULL && *sptr != NULL);
@@ -1610,7 +1610,7 @@ robj *zsetDup(robj *o) {
     return zobj;
 }
 
-/* callback for to check the ziplist doesn't have duplicate recoreds */
+/* callback for to check the ziplist doesn't have duplicate records */
 static int _zsetZiplistValidateIntegrity(unsigned char *p, void *userdata) {
     struct {
         long count;
@@ -2481,7 +2481,7 @@ static void zdiffAlgorithm2(zsetopsrc *src, long setnum, zset *dstzset, size_t *
         if (cardinality == 0) break;
     }
 
-    /* Redize dict if needed after removing multiple elements */
+    /* Resize dict if needed after removing multiple elements */
     if (htNeedsResize(dstzset->dict)) dictResize(dstzset->dict);
 
     /* Using this algorithm, we can't calculate the max element as we go,
@@ -2536,9 +2536,6 @@ static void zdiff(zsetopsrc *src, long setnum, zset *dstzset, size_t *maxelelen)
         }
     }
 }
-
-uint64_t dictSdsHash(const void *key);
-int dictSdsKeyCompare(void *privdata, const void *key1, const void *key2);
 
 dictType setAccumulatorDictType = {
     dictSdsHash,               /* hash function */
@@ -3600,7 +3597,7 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start, int st
         }
     }
 
-    /* Use defaults if not overriden by arguments. */
+    /* Use defaults if not overridden by arguments. */
     if (direction == ZRANGE_DIRECTION_AUTO)
         direction = ZRANGE_DIRECTION_FORWARD;
     if (rangetype == ZRANGE_AUTO)
@@ -3820,10 +3817,15 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
     }
 
     void *arraylen_ptr = addReplyDeferredLen(c);
-    long arraylen = 0;
+    long result_count = 0;
 
     /* We emit the key only for the blocking variant. */
     if (emitkey) addReplyBulk(c,key);
+
+    /* Respond with a single (flat) array in RESP2 or if countarg is not
+     * provided (returning a single element). In RESP3, when countarg is
+     * provided, use nested array.  */
+    int use_nested_array = c->resp > 2 && countarg != NULL;
 
     /* Remove the element. */
     do {
@@ -3867,16 +3869,19 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
         serverAssertWithInfo(c,zobj,zsetDel(zobj,ele));
         server.dirty++;
 
-        if (arraylen == 0) { /* Do this only for the first iteration. */
+        if (result_count == 0) { /* Do this only for the first iteration. */
             char *events[2] = {"zpopmin","zpopmax"};
             notifyKeyspaceEvent(NOTIFY_ZSET,events[where],key,c->db->id);
             signalModifiedKey(c,c->db,key);
         }
 
+        if (use_nested_array) {
+            addReplyArrayLen(c,2);
+        }
         addReplyBulkCBuffer(c,ele,sdslen(ele));
         addReplyDouble(c,score);
         sdsfree(ele);
-        arraylen += 2;
+        ++result_count;
 
         /* Remove the key, if indeed needed. */
         if (zsetLength(zobj) == 0) {
@@ -3886,7 +3891,10 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
         }
     } while(--count);
 
-    setDeferredArrayLen(c,arraylen_ptr,arraylen + (emitkey != 0));
+    if (!use_nested_array) {
+        result_count *= 2;
+    }
+    setDeferredArrayLen(c,arraylen_ptr,result_count + (emitkey != 0));
 }
 
 /* ZPOPMIN key [<count>] */

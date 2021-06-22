@@ -143,6 +143,18 @@ start_server {tags {"maxmemory external:skip"}} {
     }
 }
 
+# Calculate query buffer memory of slave
+proc slave_query_buffer {srv} {
+    set clients [split [$srv client list] "\r\n"]
+    set c [lsearch -inline $clients *flags=S*]
+    if {[string length $c] > 0} {
+        assert {[regexp {qbuf=([0-9]+)} $c - qbuf]}
+        assert {[regexp {qbuf-free=([0-9]+)} $c - qbuf_free]}
+        return [expr $qbuf + $qbuf_free]
+    }
+    return 0
+}
+
 proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} {
     start_server {tags {"maxmemory external:skip"}} {
         start_server {} {
@@ -154,6 +166,9 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
             set master [srv -1 client]
             set master_host [srv -1 host]
             set master_port [srv -1 port]
+
+            # Disable slow log for master to avoid memory growth in slow env.
+            $master config set slowlog-log-slower-than -1
 
             # add 100 keys of 100k (10MB total)
             for {set j 0} {$j < 100} {incr j} {
@@ -207,7 +222,13 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
             set slave_buf [s -1 mem_clients_slaves]
             set client_buf [s -1 mem_clients_normal]
             set mem_not_counted_for_evict [s -1 mem_not_counted_for_evict]
-            set used_no_repl [expr {$new_used - $mem_not_counted_for_evict}]
+            set used_no_repl [expr {$new_used - $mem_not_counted_for_evict - [slave_query_buffer $master]}]
+            # we need to exclude replies buffer and query buffer of replica from used memory.
+            # removing the replica (output) buffers is done so that we are able to measure any other
+            # changes to the used memory and see that they're insignificant (the test's purpose is to check that
+            # the replica buffers are counted correctly, so the used memory growth after deducting them
+            # should be nearly 0).
+            # we remove the query buffers because on slow test platforms, they can accumulate many ACKs.
             set delta [expr {($used_no_repl - $client_buf) - ($orig_used_no_repl - $orig_client_buf)}]
 
             assert {[$master dbsize] == 100}
@@ -219,7 +240,8 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
             set killed_used [s -1 used_memory]
             set killed_slave_buf [s -1 mem_clients_slaves]
             set killed_mem_not_counted_for_evict [s -1 mem_not_counted_for_evict]
-            set killed_used_no_repl [expr {$killed_used - $killed_mem_not_counted_for_evict}]
+            # we need to exclude replies buffer and query buffer of slave from used memory after kill slave
+            set killed_used_no_repl [expr {$killed_used - $killed_mem_not_counted_for_evict - [slave_query_buffer $master]}]
             set delta_no_repl [expr {$killed_used_no_repl - $used_no_repl}]
             assert {$killed_slave_buf == 0}
             assert {$delta_no_repl > -$delta_max && $delta_no_repl < $delta_max}

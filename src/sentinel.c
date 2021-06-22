@@ -404,10 +404,6 @@ void sentinelSimFailureCrash(void);
 
 /* ========================= Dictionary types =============================== */
 
-uint64_t dictSdsHash(const void *key);
-uint64_t dictSdsCaseHash(const void *key);
-int dictSdsKeyCompare(void *privdata, const void *key1, const void *key2);
-int dictSdsKeyCaseCompare(void *privdata, const void *key1, const void *key2);
 void releaseSentinelRedisInstance(sentinelRedisInstance *ri);
 
 void dictInstancesValDestructor (void *privdata, void *obj) {
@@ -1422,7 +1418,7 @@ sentinelRedisInstance *sentinelRedisInstanceLookupSlave(
 
     /* We need to handle a slave_addr that is potentially a hostname.
      * If that is the case, depending on configuration we either resolve
-     * it and use the IP addres or fail.
+     * it and use the IP address or fail.
      */
     addr = createSentinelAddr(slave_addr, port);
     if (!addr) return NULL;
@@ -3550,7 +3546,7 @@ void sentinelCommand(client *c) {
 "SENTINELS <master-name>",
 "    Show a list of Sentinel instances for this master and their state.",
 "SET <master-name> <option> <value>",
-"    Set configuration paramters for certain masters.",
+"    Set configuration parameters for certain masters.",
 "SIMULATE-FAILURE (CRASH-AFTER-ELECTION|CRASH-AFTER-PROMOTION|HELP)",
 "    Simulate a Sentinel crash.",
 NULL
@@ -3990,7 +3986,7 @@ void sentinelSetCommand(client *c) {
         int old_j = j; /* Used to know what to log as an event. */
 
         if (!strcasecmp(option,"down-after-milliseconds") && moreargs > 0) {
-            /* down-after-millisecodns <milliseconds> */
+            /* down-after-milliseconds <milliseconds> */
             robj *o = c->argv[++j];
             if (getLongLongFromObject(o,&ll) == C_ERR || ll <= 0) {
                 badarg = j;

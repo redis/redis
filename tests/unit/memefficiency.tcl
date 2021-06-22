@@ -393,7 +393,7 @@ start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-r
             # there was an edge case in defrag where all the slabs of a certain bin are exact the same
             # % utilization, with the exception of the current slab from which new allocations are made
             # if the current slab is lower in utilization the defragger would have ended up in stagnation,
-            # keept running and not move any allocation.
+            # kept running and not move any allocation.
             # this test is more consistent on a fresh server with no history
             start_server {tags {"defrag"} overrides {save ""}} {
                 r flushdb

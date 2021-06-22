@@ -1,7 +1,7 @@
 # tests of corrupt ziplist payload with valid CRC
 # * setting crash-memcheck-enabled to no to avoid issues with valgrind
 # * setting use-exit-on-panic to yes so that valgrind can search for leaks
-# * settng debug set-skip-checksum-validation to 1 on some tests for which we
+# * setting debug set-skip-checksum-validation to 1 on some tests for which we
 #   didn't bother to fake a valid checksum
 # * some tests set sanitize-dump-payload to no and some to yet, depending on
 #   what we want to test
@@ -214,7 +214,7 @@ test {corrupt payload: hash ziplist uneven record count} {
     }
 }
 
-test {corrupt payload: hash dupliacte records} {
+test {corrupt payload: hash duplicate records} {
     # when we do perform full sanitization, we expect duplicate records to fail the restore
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r config set sanitize-dump-payload yes

@@ -131,7 +131,7 @@ start_server {tags {"obuf-limits external:skip"}} {
         after 100
 
         # Create a pipeline of commands that will be processed in one socket read.
-        # It is important to use one write, in TLS mode independant writes seem
+        # It is important to use one write, in TLS mode independent writes seem
         # to wait for response from the server.
         # Total size should be less than OS socket buffer, redis can
         # execute all commands in this pipeline when it wakes up.

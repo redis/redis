@@ -295,4 +295,29 @@ tags {"aof external:skip"} {
             assert_equal $before $after
         }
     }
+
+    ## Test that the server exits when the AOF contains a unknown command
+    create_aof {
+        append_to_aof [formatCommand set foo hello]
+        append_to_aof [formatCommand bla foo hello]
+        append_to_aof [formatCommand set foo hello]
+    }
+
+    start_server_aof [list dir $server_path aof-load-truncated yes] {
+        test "Unknown command: Server should have logged an error" {
+            set pattern "*Unknown command 'bla' reading the append only file*"
+            set retry 10
+            while {$retry} {
+                set result [exec tail -1 < [dict get $srv stdout]]
+                if {[string match $pattern $result]} {
+                    break
+                }
+                incr retry -1
+                after 1000
+            }
+            if {$retry == 0} {
+                error "assertion:expected error not found on config file"
+            }
+        }
+    }
 }

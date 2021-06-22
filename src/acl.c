@@ -1363,7 +1363,7 @@ int ACLCheckPubsubPerm(client *c, int idx, int count, int literal, int *idxptr) 
 
 }
 
-/* Check whether the command is ready to be exceuted by ACLCheckCommandPerm.
+/* Check whether the command is ready to be executed by ACLCheckCommandPerm.
  * If check passes, then check whether pub/sub channels of the command is
  * ready to be executed by ACLCheckPubsubPerm */
 int ACLCheckAllPerm(client *c, int *idxptr) {
@@ -2254,8 +2254,8 @@ void authCommand(client *c) {
      * will just use "default" as username. */
     robj *username, *password;
     if (c->argc == 2) {
-        /* Mimic the old behavior of giving an error for the two commands
-         * from if no password is configured. */
+        /* Mimic the old behavior of giving an error for the two argument
+         * form if no password is configured. */
         if (DefaultUser->flags & USER_FLAG_NOPASS) {
             addReplyError(c,"AUTH <password> called without any password "
                             "configured for the default user. Are you sure "

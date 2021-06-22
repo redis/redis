@@ -40,7 +40,7 @@ start_server {tags {"modules"}} {
         assert_equal [r test.dbsize] 0
     }
 
-    test {test modle lru api} {
+    test {test module lru api} {
         r config set maxmemory-policy allkeys-lru
         r set x foo
         set lru [r test.getlru x]
@@ -59,7 +59,7 @@ start_server {tags {"modules"}} {
     }
     r config set maxmemory-policy allkeys-lru
 
-    test {test modle lfu api} {
+    test {test module lfu api} {
         r config set maxmemory-policy allkeys-lfu
         r set x foo
         set lfu [r test.getlfu x]
