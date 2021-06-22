@@ -4684,6 +4684,10 @@ int processCommand(client *c) {
      * before key eviction, after the last command was executed and consumed
      * some client output buffer memory. */
     evictClients();
+    if (server.current_client == NULL) {
+        /* If we evicted ourself then abort processing the command */
+        return C_ERR;
+    }
 
     /* Handle the maxmemory directive.
      *

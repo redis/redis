@@ -2044,11 +2044,10 @@ int processCommandAndResetClient(client *c) {
     server.current_client = c;
     if (processCommand(c) == C_OK) {
         commandProcessed(c);
+        /* Update the client's memory to include output buffer growth following the
+         * processed command. */
+        updateClientMemUsage(c);
     }
-
-    /* Update the client's memory to include output buffer growth following the
-     * processed command. */
-    updateClientMemUsage(c);
 
     if (server.current_client == NULL) deadclient = 1;
     /*
@@ -2249,7 +2248,7 @@ void readQueryFromClient(connection *conn) {
      * in case to check if there is a full command to execute. */
      processInputBuffer(c);
 
-     /* If the client was marked to be closed the free it now so we reclaim
+     /* If the client was marked to be closed then free it now so we reclaim
       * client memory before handling any other clients. */
      if (c->flags & CLIENT_CLOSE_ASAP) {
          serverLog(LL_WARNING, "@@@ freeing client early!");
