@@ -7,6 +7,39 @@ on:
       - '[0-9].[0-9]'
   schedule:
     - cron: '0 0 * * *'
+  workflow_dispatch:
+    inputs:
+      valgrind:
+        description: 'with valgrind'
+        default: '1'
+      tls:
+        description: 'with tls'
+        default: '1'
+      iothreads:
+        description: 'with io threads'
+        default: '1'
+      freebsd:
+        description: 'with freebsd'
+        default: '1'
+      redistests:
+        description: 'with redis tests'
+        default: '1'
+      moduleapi:
+        description: 'with module api tests'
+        default: '1'
+      sentinel:
+        description: 'with sentinel tests'
+        default: '1'
+      cluster:
+        description: 'with cluster tests'
+        default: '1'
+      test_args:
+        description: 'extra test arguments'
+        default: ''
+      cluster_test_args:
+        description: 'extra cluster / sentinel test arguments'
+        default: ''
+
 
 jobs:
 
@@ -18,16 +51,20 @@ jobs:
     - uses: actions/checkout@v2
     - name: make
       run: make REDIS_CFLAGS='-Werror -DREDIS_TEST'
+    - name: testprep
+      run: sudo apt-get install tcl8.6 tclx
     - name: test
-      run: |
-        sudo apt-get install tcl8.6 tclx
-        ./runtest --accurate --verbose --dump-logs
+      if: github.event.inputs.redistests != '0'
+      run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
-      run: ./runtest-moduleapi --verbose
+      if: github.event.inputs.moduleapi != '0'
+      run: ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}}
     - name: sentinel tests
-      run: ./runtest-sentinel
+      if: github.event.inputs.sentinel != '0'
+      run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
     - name: cluster tests
-      run: ./runtest-cluster
+      if: github.event.inputs.cluster != '0'
+      run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
     - name: unittest
       run: ./src/redis-server test all
 
@@ -39,16 +76,20 @@ jobs:
     - uses: actions/checkout@v2
     - name: make
       run: make MALLOC=libc
+    - name: testprep
+      run: sudo apt-get install tcl8.6 tclx
     - name: test
-      run: |
-        sudo apt-get install tcl8.6 tclx
-        ./runtest --accurate --verbose --dump-logs
+      if: github.event.inputs.redistests != '0'
+      run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
-      run: ./runtest-moduleapi --verbose
+      if: github.event.inputs.moduleapi != '0'
+      run: ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}}
     - name: sentinel tests
-      run: ./runtest-sentinel
+      if: github.event.inputs.sentinel != '0'
+      run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
     - name: cluster tests
-      run: ./runtest-cluster
+      if: github.event.inputs.cluster != '0'
+      run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
 
   test-ubuntu-no-malloc-usable-size:
     runs-on: ubuntu-latest
@@ -58,16 +99,20 @@ jobs:
     - uses: actions/checkout@v2
     - name: make
       run: make MALLOC=libc CFLAGS=-DNO_MALLOC_USABLE_SIZE
+    - name: testprep
+      run: sudo apt-get install tcl8.6 tclx
     - name: test
-      run: |
-        sudo apt-get install tcl8.6 tclx
-        ./runtest --accurate --verbose --dump-logs
+      if: github.event.inputs.redistests != '0'
+      run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
-      run: ./runtest-moduleapi --verbose
+      if: github.event.inputs.moduleapi != '0'
+      run: ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}}
     - name: sentinel tests
-      run: ./runtest-sentinel
+      if: github.event.inputs.sentinel != '0'
+      run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
     - name: cluster tests
-      run: ./runtest-cluster
+      if: github.event.inputs.cluster != '0'
+      run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
 
   test-ubuntu-32bit:
     runs-on: ubuntu-latest
@@ -79,81 +124,94 @@ jobs:
       run: |
         sudo apt-get update && sudo apt-get install libc6-dev-i386
         make 32bit REDIS_CFLAGS='-Werror -DREDIS_TEST'
+    - name: testprep
+      run: sudo apt-get install tcl8.6 tclx
     - name: test
-      run: |
-        sudo apt-get install tcl8.6 tclx
-        ./runtest --accurate --verbose --dump-logs
+      if: github.event.inputs.redistests != '0'
+      run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
+      if: github.event.inputs.moduleapi != '0'
       run: |
         make -C tests/modules 32bit # the script below doesn't have an argument, we must build manually ahead of time
-        ./runtest-moduleapi --verbose
+        ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}}
     - name: sentinel tests
-      run: ./runtest-sentinel
+      if: github.event.inputs.sentinel != '0'
+      run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
     - name: cluster tests
-      run: ./runtest-cluster
+      if: github.event.inputs.cluster != '0'
+      run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
     - name: unittest
       run: ./src/redis-server test all
 
   test-ubuntu-tls:
     runs-on: ubuntu-latest
-    if: github.repository == 'redis/redis'
+    if: github.repository == 'redis/redis' && github.event.inputs.tls != '0'
     timeout-minutes: 14400
     steps:
     - uses: actions/checkout@v2
     - name: make
       run: |
         make BUILD_TLS=yes
-    - name: test
+    - name: testprep
       run: |
         sudo apt-get install tcl8.6 tclx tcl-tls
         ./utils/gen-test-certs.sh
-        ./runtest --accurate --verbose --tls --dump-logs
-        ./runtest --accurate --verbose --dump-logs
+    - name: test
+      if: github.event.inputs.redistests != '0'
+      run: |
+        ./runtest --accurate --verbose --tls --dump-logs ${{github.event.inputs.test_args}}
+        ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
+      if: github.event.inputs.moduleapi != '0'
       run: |
-        ./runtest-moduleapi --verbose --tls
-        ./runtest-moduleapi --verbose
+        ./runtest-moduleapi --verbose --tls ${{github.event.inputs.test_args}}
+        ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}}
     - name: sentinel tests
+      if: github.event.inputs.sentinel != '0'
       run: |
-        ./runtest-sentinel --tls
-        ./runtest-sentinel
+        ./runtest-sentinel --tls ${{github.event.inputs.cluster_test_args}}
+        ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
     - name: cluster tests
+      if: github.event.inputs.cluster != '0'
       run: |
-        ./runtest-cluster --tls
-        ./runtest-cluster
+        ./runtest-cluster --tls ${{github.event.inputs.cluster_test_args}}
+        ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
 
   test-ubuntu-io-threads:
     runs-on: ubuntu-latest
-    if: github.repository == 'redis/redis'
+    if: github.repository == 'redis/redis' && github.event.inputs.iothreads != '0'
     timeout-minutes: 14400
     steps:
     - uses: actions/checkout@v2
     - name: make
       run: |
         make
+    - name: testprep
+      run: sudo apt-get install tcl8.6 tclx
     - name: test
-      run: |
-        sudo apt-get install tcl8.6 tclx tcl-tls
-        ./runtest --config io-threads 4 --config io-threads-do-reads yes --accurate --verbose --tags network --dump-logs
+      if: github.event.inputs.redistests != '0'
+      run: ./runtest --config io-threads 4 --config io-threads-do-reads yes --accurate --verbose --tags network --dump-logs ${{github.event.inputs.test_args}}
     - name: cluster tests
-      run: |
-        ./runtest-cluster --config io-threads 4 --config io-threads-do-reads yes
+      run: ./runtest-cluster --config io-threads 4 --config io-threads-do-reads yes ${{github.event.inputs.cluster_test_args}}
 
   test-valgrind:
     runs-on: ubuntu-latest
-    if: github.repository == 'redis/redis'
+    if: github.repository == 'redis/redis' && github.event.inputs.valgrind != '0'
     timeout-minutes: 14400
     steps:
     - uses: actions/checkout@v2
     - name: make
       run: make valgrind REDIS_CFLAGS='-Werror -DREDIS_TEST'
-    - name: test
+    - name: testprep
       run: |
         sudo apt-get update
         sudo apt-get install tcl8.6 tclx valgrind -y
-        ./runtest --valgrind --verbose --clients 1 --dump-logs
+    - name: test
+      if: github.event.inputs.redistests != '0'
+      run: ./runtest --valgrind --verbose --clients 1 --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
-      run: ./runtest-moduleapi --valgrind --no-latency --verbose --clients 1
+      if: github.event.inputs.moduleapi != '0'
+      run: ./runtest-moduleapi --valgrind --no-latency --verbose --clients 1 ${{github.event.inputs.test_args}}
     - name: unittest
       run: |
         valgrind --track-origins=yes --suppressions=./src/valgrind.sup --show-reachable=no --show-possibly-lost=no --leak-check=full --log-file=err.txt ./src/redis-server test all
@@ -161,19 +219,22 @@ jobs:
 
   test-valgrind-no-malloc-usable-size:
     runs-on: ubuntu-latest
-    if: github.repository == 'redis/redis'
+    if: github.repository == 'redis/redis' && github.event.inputs.valgrind != '0'
     timeout-minutes: 14400
     steps:
     - uses: actions/checkout@v2
     - name: make
       run: make valgrind CFLAGS="-DNO_MALLOC_USABLE_SIZE"
-    - name: test
+    - name: testprep
       run: |
         sudo apt-get update
         sudo apt-get install tcl8.6 tclx valgrind -y
-        ./runtest --valgrind --verbose --clients 1 --dump-logs
+    - name: test
+      if: github.event.inputs.redistests != '0'
+      run: /runtest --valgrind --verbose --clients 1 --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
-      run: ./runtest-moduleapi --valgrind --no-latency --verbose --clients 1
+      if: github.event.inputs.moduleapi != '0'
+      run: ./runtest-moduleapi --valgrind --no-latency --verbose --clients 1 ${{github.event.inputs.test_args}}
 
   test-centos7-jemalloc:
     runs-on: ubuntu-latest
@@ -186,20 +247,24 @@ jobs:
       run: |
         yum -y install gcc make
         make
+    - name: testprep
+      run: yum -y install which tcl tclx
     - name: test
-      run: |
-        yum -y install which tcl tclx
-        ./runtest --accurate --verbose --dump-logs
+      if: github.event.inputs.redistests != '0'
+      run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
-      run: ./runtest-moduleapi --verbose
+      if: github.event.inputs.moduleapi != '0'
+      run: ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}}
     - name: sentinel tests
-      run: ./runtest-sentinel
+      if: github.event.inputs.sentinel != '0'
+      run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
     - name: cluster tests
-      run: ./runtest-cluster
+      if: github.event.inputs.cluster != '0'
+      run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
 
   test-centos7-tls:
     runs-on: ubuntu-latest
-    if: github.repository == 'redis/redis'
+    if: github.repository == 'redis/redis' && github.event.inputs.tls != '0'
     container: centos:7
     timeout-minutes: 14400
     steps:
@@ -209,24 +274,30 @@ jobs:
         yum -y install centos-release-scl epel-release
         yum -y install devtoolset-7 openssl-devel openssl
         scl enable devtoolset-7 "make BUILD_TLS=yes"
-    - name: test
+    - name: testprep
       run: |
         yum -y install tcl tcltls tclx
         ./utils/gen-test-certs.sh
-        ./runtest --accurate --verbose --tls --dump-logs
-        ./runtest --accurate --verbose --dump-logs
+    - name: test
+      if: github.event.inputs.redistests != '0'
+      run: |
+        ./runtest --accurate --verbose --tls --dump-logs ${{github.event.inputs.test_args}}
+        ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
+      if: github.event.inputs.moduleapi != '0'
       run: |
-        ./runtest-moduleapi --verbose --tls
-        ./runtest-moduleapi --verbose
+        ./runtest-moduleapi --verbose --tls ${{github.event.inputs.test_args}}
+        ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}}
     - name: sentinel tests
+      if: github.event.inputs.sentinel != '0'
       run: |
-        ./runtest-sentinel --tls
-        ./runtest-sentinel
+        ./runtest-sentinel --tls ${{github.event.inputs.cluster_test_args}}
+        ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
     - name: cluster tests
+      if: github.event.inputs.cluster != '0'
       run: |
-        ./runtest-cluster --tls
-        ./runtest-cluster
+        ./runtest-cluster --tls ${{github.event.inputs.cluster_test_args}}
+        ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
 
   test-macos-latest:
     runs-on: macos-latest
@@ -237,18 +308,20 @@ jobs:
     - name: make
       run: make
     - name: test
-      run: |
-        ./runtest --accurate --verbose --no-latency --dump-logs
+      if: github.event.inputs.redistests != '0'
+      run: ./runtest --accurate --verbose --no-latency --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
-      run: ./runtest-moduleapi --verbose
+      if: github.event.inputs.moduleapi != '0'
+      run: ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}}
     - name: sentinel tests
-      run: ./runtest-sentinel
+      run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
     - name: cluster tests
-      run: ./runtest-cluster
+      if: github.event.inputs.cluster != '0'
+      run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
 
   test-freebsd:
     runs-on: macos-latest
-    if: github.repository == 'redis/redis'
+    if: github.repository == 'redis/redis' && github.event.inputs.freebsd != '0'
     timeout-minutes: 14400
     steps:
     - uses: actions/checkout@v2
@@ -260,10 +333,10 @@ jobs:
         prepare: pkg install -y bash gmake lang/tcl86 lang/tclx
         run: >
           gmake &&
-          ./runtest --accurate --verbose --no-latency --dump-logs &&
-          MAKE=gmake ./runtest-moduleapi --verbose &&
-          ./runtest-sentinel &&
-          ./runtest-cluster
+          if [ ${{github.event.inputs.redistests}} != '0' ] ; then ./runtest --accurate --verbose --no-latency --dump-logs ${{github.event.inputs.test_args}} ; fi &&
+          if [ ${{github.event.inputs.moduleapi}} != '0' ] ; then MAKE=gmake ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}} ; fi &&
+          if [ ${{github.event.inputs.sentinel}} != '0' ] ; then ./runtest-sentinel ${{github.event.inputs.cluster_test_args}} ; fi &&
+          if [ ${{github.event.inputs.cluster}} != '0' ] ; then ./runtest-cluster ${{github.event.inputs.cluster_test_args}} ; fi
 
   test-alpine-jemalloc:
     runs-on: ubuntu-latest
@@ -275,16 +348,19 @@ jobs:
       run: |
           apk add build-base
           make REDIS_CFLAGS='-Werror'
+    - name: testprep
+      run: apk add tcl procps tclx
     - name: test
-      run: |
-        apk add tcl procps tclx
-        ./runtest --accurate --verbose --dump-logs
+      if: github.event.inputs.redistests != '0'
+      run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
-      run: ./runtest-moduleapi --verbose
+      if: github.event.inputs.moduleapi != '0'
+      run: ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}}
     - name: sentinel tests
-      run: ./runtest-sentinel
+      run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
     - name: cluster tests
-      run: ./runtest-cluster
+      if: github.event.inputs.cluster != '0'
+      run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
 
   test-alpine-libc-malloc:
     runs-on: ubuntu-latest
@@ -296,13 +372,16 @@ jobs:
       run: |
           apk add build-base
           make REDIS_CFLAGS='-Werror' USE_JEMALLOC=no CFLAGS=-DUSE_MALLOC_USABLE_SIZE
+    - name: testprep
+      run: apk add tcl procps tclx
     - name: test
-      run: |
-        apk add tcl procps tclx
-        ./runtest --accurate --verbose --dump-logs
+      if: github.event.inputs.redistests != '0'
+      run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
-      run: ./runtest-moduleapi --verbose
+      if: github.event.inputs.moduleapi != '0'
+      run: ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}}
     - name: sentinel tests
-      run: ./runtest-sentinel
+      run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
     - name: cluster tests
-      run: ./runtest-cluster
+      if: github.event.inputs.cluster != '0'
+      run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
