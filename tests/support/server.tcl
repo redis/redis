@@ -626,7 +626,7 @@ proc start_server {options {code undefined}} {
     }
 }
 
-proc restart_server {level wait_ready rotate_logs} {
+proc restart_server {level wait_ready rotate_logs {reconnect 1}} {
     set srv [lindex $::servers end+$level]
     kill_server $srv
 
@@ -668,5 +668,7 @@ proc restart_server {level wait_ready rotate_logs} {
             after 10
         }
     }
-    reconnect $level
+    if {$reconnect} {
+        reconnect $level
+    }
 }

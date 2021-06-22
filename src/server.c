@@ -2622,6 +2622,7 @@ void createSharedObjects(void) {
 
 void initServerConfig(void) {
     int j;
+    char *default_bindaddr[CONFIG_DEFAULT_BINDADDR_COUNT] = CONFIG_DEFAULT_BINDADDR;
 
     updateCachedTime(1);
     getRandomHexChars(server.runid,CONFIG_RUN_ID_SIZE);
@@ -2636,7 +2637,9 @@ void initServerConfig(void) {
     server.configfile = NULL;
     server.executable = NULL;
     server.arch_bits = (sizeof(long) == 8) ? 64 : 32;
-    server.bindaddr_count = 0;
+    server.bindaddr_count = CONFIG_DEFAULT_BINDADDR_COUNT;
+    for (j = 0; j < CONFIG_DEFAULT_BINDADDR_COUNT; j++)
+        server.bindaddr[j] = zstrdup(default_bindaddr[j]);
     server.unixsocketperm = CONFIG_DEFAULT_UNIX_SOCKET_PERM;
     server.ipfd.count = 0;
     server.tlsfd.count = 0;
@@ -3028,16 +3031,11 @@ int createSocketAcceptHandler(socketFds *sfd, aeFileProc *accept_handler) {
 int listenToPort(int port, socketFds *sfd) {
     int j;
     char **bindaddr = server.bindaddr;
-    int bindaddr_count = server.bindaddr_count;
-    char *default_bindaddr[2] = {"*", "-::*"};
 
-    /* Force binding of 0.0.0.0 if no bind address is specified. */
-    if (server.bindaddr_count == 0) {
-        bindaddr_count = 2;
-        bindaddr = default_bindaddr;
-    }
+    /* If we have no bind address, we don't listen on a TCP socket */
+    if (server.bindaddr_count == 0) return C_OK;
 
-    for (j = 0; j < bindaddr_count; j++) {
+    for (j = 0; j < server.bindaddr_count; j++) {
         char* addr = bindaddr[j];
         int optional = *addr == '-';
         if (optional) addr++;

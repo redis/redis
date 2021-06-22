@@ -453,6 +453,10 @@ void loadServerConfigFromString(char *config) {
             if (addresses > CONFIG_BINDADDR_MAX) {
                 err = "Too many bind addresses specified"; goto loaderr;
             }
+
+            /* A single empty argument is treated as a zero bindaddr count */
+            if (addresses == 1 && sdslen(argv[1]) == 0) addresses = 0;
+
             /* Free old bind addresses */
             for (j = 0; j < server.bindaddr_count; j++) {
                 zfree(server.bindaddr[j]);
@@ -785,7 +789,7 @@ void configSetCommand(client *c) {
         int vlen;
         sds *v = sdssplitlen(o->ptr,sdslen(o->ptr)," ",1,&vlen);
 
-        if (vlen < 1 || vlen > CONFIG_BINDADDR_MAX) {
+        if (vlen > CONFIG_BINDADDR_MAX) {
             addReplyError(c, "Too many bind addresses specified.");
             sdsfreesplitres(v, vlen);
             return;
@@ -1564,15 +1568,30 @@ void rewriteConfigBindOption(struct rewriteConfigState *state) {
     int force = 1;
     sds line, addresses;
     char *option = "bind";
+    int is_default = 0;
 
-    /* Nothing to rewrite if we don't have bind addresses. */
-    if (server.bindaddr_count == 0) {
+    /* Compare server.bindaddr with CONFIG_DEFAULT_BINDADDR */
+    if (server.bindaddr_count == CONFIG_DEFAULT_BINDADDR_COUNT) {
+        is_default = 1;
+        char *default_bindaddr[CONFIG_DEFAULT_BINDADDR_COUNT] = CONFIG_DEFAULT_BINDADDR;
+        for (int j = 0; j < CONFIG_DEFAULT_BINDADDR_COUNT; j++) {
+            if (strcmp(server.bindaddr[j], default_bindaddr[j]) != 0) {
+                is_default = 0;
+                break;
+            }
+        }
+    }
+
+    if (is_default) {
         rewriteConfigMarkAsProcessed(state,option);
         return;
     }
 
     /* Rewrite as bind <addr1> <addr2> ... <addrN> */
-    addresses = sdsjoin(server.bindaddr,server.bindaddr_count," ");
+    if (server.bindaddr_count > 0)
+        addresses = sdsjoin(server.bindaddr,server.bindaddr_count," ");
+    else
+        addresses = sdsnew("\"\"");
     line = sdsnew(option);
     line = sdscatlen(line, " ", 1);
     line = sdscatsds(line, addresses);
