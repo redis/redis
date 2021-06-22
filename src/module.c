@@ -2538,19 +2538,14 @@ int RM_StringTruncate(RedisModuleKey *key, size_t newlen) {
     } else {
         /* Unshare and resize. */
         key->value = dbUnshareStringValue(key->db, key->key, key->value);
-        if (newlen == 0) {
-            sdsfree(key->value->ptr);
-            key->value->ptr = sdsempty();
-        } else {
-            size_t curlen = sdslen(key->value->ptr);
-            if (newlen > curlen) {
-                key->value->ptr = sdsgrowzero(key->value->ptr,newlen);
-            } else if (newlen < curlen) {
-                sdsrange(key->value->ptr,0,newlen-1);
-                /* If the string is too wasteful, reallocate it. */
-                if (sdslen(key->value->ptr) < sdsavail(key->value->ptr))
-                    key->value->ptr = sdsRemoveFreeSpace(key->value->ptr);
-            }
+        size_t curlen = sdslen(key->value->ptr);
+        if (newlen > curlen) {
+            key->value->ptr = sdsgrowzero(key->value->ptr,newlen);
+        } else if (newlen < curlen) {
+            sdssubstr(key->value->ptr,0,newlen);
+            /* If the string is too wasteful, reallocate it. */
+            if (sdslen(key->value->ptr) < sdsavail(key->value->ptr))
+                key->value->ptr = sdsRemoveFreeSpace(key->value->ptr);
         }
     }
     return REDISMODULE_OK;

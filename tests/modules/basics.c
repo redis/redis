@@ -156,6 +156,7 @@ int TestUnlink(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
 /* TEST.STRING.TRUNCATE -- Test truncating an existing string object. */
 int TestStringTruncate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    RedisModule_AutoMemory(ctx);
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
 
@@ -208,6 +209,7 @@ int TestStringTruncate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
 int NotifyCallback(RedisModuleCtx *ctx, int type, const char *event,
                    RedisModuleString *key) {
+  RedisModule_AutoMemory(ctx);
   /* Increment a counter on the notifications: for each key notified we
    * increment a counter */
   RedisModule_Log(ctx, "notice", "Got event type %d, event %s, key %s", type,
@@ -219,6 +221,7 @@ int NotifyCallback(RedisModuleCtx *ctx, int type, const char *event,
 
 /* TEST.NOTIFICATIONS -- Test Keyspace Notifications. */
 int TestNotifications(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    RedisModule_AutoMemory(ctx);
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
 
