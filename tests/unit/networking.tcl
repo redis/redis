@@ -86,7 +86,7 @@ start_server {config "minimal.conf" tags {"external:skip"}} {
         # Get a non-loopback address of this instance for this test.
         set myaddr [get_nonloopback_addr]
         if {$myaddr != "" && ![string match {127.*} $myaddr]} {
-            # Non-loopback client shoudl fail by default
+            # Non-loopback client should fail by default
             set r2 [get_nonloopback_client]
             catch {$r2 ping} err
             assert_match {*DENIED*} $err
