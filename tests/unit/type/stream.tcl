@@ -1,3 +1,4 @@
+# return value is like strcmp() and similar.
 proc streamCompareID {a b} {
     if {$a eq $b} {return 0}
     lassign [split $a -] a_ms a_seq
@@ -523,32 +524,6 @@ start_server {
             r XADD mystream * xitem v
         }
         assert_error ERR* {r XTRIM mystream MAXLEN 1 LIMIT 30}
-    }
-
-    test {XADD advances the offset} {
-        r DEL x
-        r XADD x 1-0 data a
-
-        set reply [r XINFO STREAM x FULL]
-        assert_equal [lindex $reply 11] 1 ;# stream last offset
-    }
-    
-    test {Maxmimum XDEL ID behaves correctly} {
-        r DEL x
-        r XADD x 1-0 data a
-        r XADD x 2-0 data b
-        r XADD x 3-0 data c
-
-        set reply [r XINFO STREAM x FULL]
-        assert_equal [lindex $reply 9] "0-0" ;# stream xdel max id
-
-        r XDEL x 2-0
-        set reply [r XINFO STREAM x FULL]
-        assert_equal [lindex $reply 9] "2-0" ;# stream xdel max id
-
-        r XDEL x 1-0
-        set reply [r XINFO STREAM x FULL]
-        assert_equal [lindex $reply 9] "2-0" ;# stream xdel max id
     }
 }
 
