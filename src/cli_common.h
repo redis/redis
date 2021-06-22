@@ -2,6 +2,7 @@
 #define __CLICOMMON_H
 
 #include <hiredis.h>
+#include <sdscompat.h> /* Use hiredis' sds compat header that maps sds calls to their hi_ variants */
 
 typedef struct cliSSLconfig {
     /* Requested SNI, or NULL */
@@ -46,5 +47,17 @@ ssize_t cliWriteConn(redisContext *c, const char *buf, size_t buf_len);
 /* Wrapper around OpenSSL (libssl and libcrypto) initialisation.
  */
 int cliSecureInit();
+
+/* Create an sds from stdin */
+sds readArgFromStdin(void);
+
+/* Create an sds array from argv, either as-is or by dequoting every
+ * element. When quoted is non-zero, may return a NULL to indicate an
+ * invalid quoted string.
+ */
+sds *getSdsArrayFromArgv(int argc,char **argv, int quoted);
+
+/* Unquote a null-terminated string and return it as a binary-safe sds. */
+sds unquoteCString(char *str);
 
 #endif /* __CLICOMMON_H */

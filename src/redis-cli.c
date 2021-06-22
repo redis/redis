@@ -774,23 +774,6 @@ static void freeHintsCallback(void *ptr) {
  * Networking / parsing
  *--------------------------------------------------------------------------- */
 
-/* Unquote a null-terminated string and return it as a binary-safe sds. */
-static sds unquoteCString(char *str) {
-    int count;
-    sds *unquoted = sdssplitargs(str, &count);
-    sds res = NULL;
-
-    if (unquoted && count == 1) {
-        res = unquoted[0];
-        unquoted[0] = NULL;
-    }
-
-    if (unquoted)
-        sdsfreesplitres(unquoted, count);
-
-    return res;
-}
-
 /* Send AUTH command to the server */
 static int cliAuth(redisContext *ctx, char *user, char *auth) {
     redisReply *reply;
@@ -1839,23 +1822,6 @@ static void parseEnv() {
     }
 }
 
-static sds readArgFromStdin(void) {
-    char buf[1024];
-    sds arg = sdsempty();
-
-    while(1) {
-        int nread = read(fileno(stdin),buf,1024);
-
-        if (nread == 0) break;
-        else if (nread == -1) {
-            perror("Reading from standard input");
-            exit(1);
-        }
-        arg = sdscatlen(arg,buf,nread);
-    }
-    return arg;
-}
-
 static void usage(void) {
     sds version = cliVersion();
     fprintf(stderr,
@@ -1999,30 +1965,6 @@ static int confirmWithYes(char *msg, int ignore_force) {
     int nread = read(fileno(stdin),buf,4);
     buf[3] = '\0';
     return (nread != 0 && !strcmp("yes", buf));
-}
-
-/* Create an sds array from argv, either as-is or by dequoting every
- * element. When quoted is non-zero, may return a NULL to indicate an
- * invalid quoted string.
- */
-static sds *getSdsArrayFromArgv(int argc, char **argv, int quoted) {
-    sds *res = sds_malloc(sizeof(sds) * argc);
-
-    for (int j = 0; j < argc; j++) {
-        if (quoted) {
-            sds unquoted = unquoteCString(argv[j]);
-            if (!unquoted) {
-                while (--j >= 0) sdsfree(res[j]);
-                sds_free(res);
-                return NULL;
-            }
-            res[j] = unquoted;
-        } else {
-            res[j] = sdsnew(argv[j]);
-        }
-    }
-
-    return res;
 }
 
 static int issueCommandRepeat(int argc, char **argv, long repeat) {
