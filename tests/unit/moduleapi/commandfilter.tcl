@@ -81,5 +81,4 @@ start_server {tags {"modules"}} {
         assert_equal {} [r lrange log-key 0 -1]
     }
 
-    r module unload commandfilter
-}
+} 

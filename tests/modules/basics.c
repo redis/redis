@@ -425,8 +425,11 @@ int TestAssertIntegerReply(RedisModuleCtx *ctx, RedisModuleCallReply *reply, lon
         reply = RedisModule_Call(ctx,name,__VA_ARGS__); \
     } while (0)
 
-/* TEST.IT -- Run all the tests. */
-int TestIt(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+/* TEST.BASICS -- Run all the tests.
+ * Note: it is useful to run these tests from the module rather than TCL
+ * since it's easier to check the reply types like that (make a distinction
+ * between 0 and "0", etc. */
+int TestBasics(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
 
@@ -509,7 +512,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"test.basics",
-        TestIt,"readonly",1,1,1) == REDISMODULE_ERR)
+        TestBasics,"readonly",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     RedisModule_SubscribeToKeyspaceEvents(ctx,
