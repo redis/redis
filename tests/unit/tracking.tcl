@@ -132,6 +132,22 @@ start_server {tags {"tracking network"}} {
         assert {$keys eq {mykey}}
     }
 
+    test {Tracking gets notification of lazy expired keys} {
+        r CLIENT TRACKING off
+        r CLIENT TRACKING on BCAST REDIRECT $redir_id NOLOOP
+        # Use multi-exec to expose a race where the key gets an two invalidations
+        # in the same event loop, once by the client so filtered by NOLOOP, and
+        # the second one by the lazy expire
+        r MULTI
+        r SET mykey{t} myval px 1
+        r SET mykeyotherkey{t} myval ; # We should not get it
+        r DEBUG SLEEP 0.1
+        r GET mykey{t}
+        r EXEC
+        set keys [lsort [lindex [$rd_redirection read] 2]]
+        assert {$keys eq {mykey{t}}}
+    } {} {needs:debug}
+
     test {HELLO 3 reply is correct} {
         set reply [r HELLO 3]
         assert_equal [dict get $reply proto] 3
