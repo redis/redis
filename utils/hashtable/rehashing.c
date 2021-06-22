@@ -30,7 +30,8 @@ dictType dictTypeTest = {
     NULL,                          /* val dup */
     dictKeyCompare,                /* key compare */
     NULL,                          /* key destructor */
-    NULL                           /* val destructor */
+    NULL,                          /* val destructor */
+    NULL                           /* allow to expand */
 };
 
 void showBuckets(dictht ht) {

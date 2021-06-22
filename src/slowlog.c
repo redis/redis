@@ -75,7 +75,7 @@ slowlogEntry *slowlogCreateEntry(client *c, robj **argv, int argc, long long dur
             } else if (argv[j]->refcount == OBJ_SHARED_REFCOUNT) {
                 se->argv[j] = argv[j];
             } else {
-                /* Here we need to dupliacate the string objects composing the
+                /* Here we need to duplicate the string objects composing the
                  * argument vector of the command, because those may otherwise
                  * end shared with string objects stored into keys. Having
                  * shared objects between any part of Redis, and the data
@@ -142,11 +142,15 @@ void slowlogReset(void) {
 void slowlogCommand(client *c) {
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
-"GET [count] -- Return top entries from the slowlog (default: 10)."
+"GET [<count>]",
+"    Return top <count> entries from the slowlog (default: 10, -1 mean all).",
 "    Entries are made of:",
-"    id, timestamp, time in microseconds, arguments array, client IP and port, client name",
-"LEN -- Return the length of the slowlog.",
-"RESET -- Reset the slowlog.",
+"    id, timestamp, time in microseconds, arguments array, client IP and port,",
+"    client name",
+"LEN",
+"    Return the length of the slowlog.",
+"RESET",
+"    Reset the slowlog.",
 NULL
         };
         addReplyHelp(c, help);
@@ -164,9 +168,18 @@ NULL
         listNode *ln;
         slowlogEntry *se;
 
-        if (c->argc == 3 &&
-            getLongFromObjectOrReply(c,c->argv[2],&count,NULL) != C_OK)
-            return;
+        if (c->argc == 3) {
+            /* Consume count arg. */
+            if (getRangeLongFromObjectOrReply(c, c->argv[2], -1,
+                    LONG_MAX, &count, "count should be greater than or equal to -1") != C_OK)
+                return;
+
+            if (count == -1) {
+                /* We treat -1 as a special value, which means to get all slow logs.
+                 * Simply set count to the length of server.slowlog.*/
+                count = listLength(server.slowlog);
+            }
+        }
 
         listRewind(server.slowlog,&li);
         totentries = addReplyDeferredLen(c);

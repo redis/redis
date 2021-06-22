@@ -82,7 +82,7 @@ void CommandFilter_CommandFilter(RedisModuleCommandFilterCtx *filter)
      * - Remove @delme
      * - Replace @replaceme
      * - Append @insertbefore or @insertafter
-     * - Prefix with Log command if @log encounterd
+     * - Prefix with Log command if @log encountered
      */
     int log = 0;
     int pos = 0;
@@ -145,5 +145,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
                     noself ? REDISMODULE_CMDFILTER_NOSELF : 0))
             == NULL) return REDISMODULE_ERR;
 
+    return REDISMODULE_OK;
+}
+
+int RedisModule_OnUnload(RedisModuleCtx *ctx) {
+    RedisModule_FreeString(ctx, log_key_name);
     return REDISMODULE_OK;
 }
