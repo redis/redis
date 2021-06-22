@@ -31,7 +31,7 @@
  */
 
 #define REDISMODULE_EXPERIMENTAL_API
-#include "../redismodule.h"
+#include "redismodule.h"
 #include <string.h>
 
 /* --------------------------------- Helpers -------------------------------- */
@@ -508,7 +508,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         TestUnlink,"write deny-oom",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx,"test.it",
+    if (RedisModule_CreateCommand(ctx,"test.basics",
         TestIt,"readonly",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
