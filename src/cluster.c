@@ -561,6 +561,10 @@ void clusterInit(void) {
                    "Your Redis port number must be 55535 or less.");
         exit(1);
     }
+    if (!server.bindaddr_count) {
+        serverLog(LL_WARNING, "No bind address is configured, but it is required for the Cluster bus.");
+        exit(1);
+    }
     if (listenToPort(port+CLUSTER_PORT_INCR, &server.cfd) == C_ERR) {
         exit(1);
     }

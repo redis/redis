@@ -111,6 +111,8 @@ typedef long long ustime_t; /* microsecond time type. */
 #define CONFIG_DEFAULT_CLUSTER_CONFIG_FILE "nodes.conf"
 #define CONFIG_DEFAULT_UNIX_SOCKET_PERM 0
 #define CONFIG_DEFAULT_LOGFILE ""
+#define CONFIG_DEFAULT_BINDADDR_COUNT 2
+#define CONFIG_DEFAULT_BINDADDR { "*", "-::*" }
 #define NET_HOST_STR_LEN 256 /* Longest valid hostname */
 #define NET_IP_STR_LEN 46 /* INET6_ADDRSTRLEN is 46, but we need to be sure */
 #define NET_ADDR_STR_LEN (NET_IP_STR_LEN+32) /* Must be enough for ip:port */
