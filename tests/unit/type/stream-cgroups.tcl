@@ -482,22 +482,22 @@ start_server {
         r XDEL x 103
 
         set reply [r XINFO STREAM x FULL]
-        assert_equal [llength $reply] 12
+        assert_equal [llength $reply] 16
         assert_equal [lindex $reply 1] 4 ;# stream length
-        assert_equal [lindex $reply 9] "{100-0 {a 1}} {101-0 {b 1}} {102-0 {c 1}} {104-0 {f 1}}" ;# entries
-        assert_equal [lindex $reply 11 0 1] "g1" ;# first group name
-        assert_equal [lindex $reply 11 0 7 0 0] "100-0" ;# first entry in group's PEL
-        assert_equal [lindex $reply 11 0 9 0 1] "Alice" ;# first consumer
-        assert_equal [lindex $reply 11 0 9 0 7 0 0] "100-0" ;# first entry in first consumer's PEL
-        assert_equal [lindex $reply 11 1 1] "g2" ;# second group name
-        assert_equal [lindex $reply 11 1 9 0 1] "Charlie" ;# first consumer
-        assert_equal [lindex $reply 11 1 9 0 7 0 0] "100-0" ;# first entry in first consumer's PEL
-        assert_equal [lindex $reply 11 1 9 0 7 1 0] "101-0" ;# second entry in first consumer's PEL
+        assert_equal [lindex $reply 13] "{100-0 {a 1}} {101-0 {b 1}} {102-0 {c 1}} {104-0 {f 1}}" ;# entries
+        assert_equal [lindex $reply 15 0 1] "g1" ;# first group name
+        assert_equal [lindex $reply 15 0 11 0 0] "100-0" ;# first entry in group's PEL
+        assert_equal [lindex $reply 15 0 13 0 1] "Alice" ;# first consumer
+        assert_equal [lindex $reply 15 0 13 0 7 0 0] "100-0" ;# first entry in first consumer's PEL
+        assert_equal [lindex $reply 15 1 1] "g2" ;# second group name
+        assert_equal [lindex $reply 15 1 11 0 1] "Charlie" ;# first consumer
+        assert_equal [lindex $reply 15 1 13 0 7 0 0] "100-0" ;# first entry in first consumer's PEL
+        assert_equal [lindex $reply 15 1 13 0 7 1 0] "101-0" ;# second entry in first consumer's PEL
 
         set reply [r XINFO STREAM x FULL COUNT 1]
-        assert_equal [llength $reply] 12
+        assert_equal [llength $reply] 16
         assert_equal [lindex $reply 1] 4
-        assert_equal [lindex $reply 9] "{100-0 {a 1}}"
+        assert_equal [lindex $reply 13] "{100-0 {a 1}}"
     }
 
     test {XGROUP CREATECONSUMER: create consumer if does not exist} {
@@ -548,115 +548,221 @@ start_server {
         assert_error "*NOGROUP*" {r XGROUP CREATECONSUMER mystream mygroup consumer}
     }
 
-    start_server {tags {"stream"} overrides {appendonly yes aof-use-rdb-preamble no appendfsync always}} {
-        test {XREADGROUP with NOACK creates consumer} {
-            r del mystream
-            r XGROUP CREATE mystream mygroup $ MKSTREAM
-            r XADD mystream * f1 v1
-            r XREADGROUP GROUP mygroup Alice NOACK STREAMS mystream ">"
-            set rd [redis_deferring_client]
-            $rd XREADGROUP GROUP mygroup Bob BLOCK 0 NOACK STREAMS mystream ">"
-            r XADD mystream * f2 v2
-            set grpinfo [r xinfo groups mystream]
+    test {Consumer group offset and lag in empty streams} {
+        r DEL x
+        r XGROUP CREATE x g1 0 MKSTREAM
 
-            r debug loadaof
-            assert {[r xinfo groups mystream] == $grpinfo}
-            set reply [r xinfo consumers mystream mygroup]
-            set consumer_info [lindex $reply 0]
-            assert_equal [lindex $consumer_info 1] "Alice" ;# consumer name
-            set consumer_info [lindex $reply 1]
-            assert_equal [lindex $consumer_info 1] "Bob" ;# consumer name
-        }
+        set reply [r XINFO STREAM x FULL]
+        assert_equal [lindex $reply 9] "0-0" ;# stream xdel max id
+        assert_equal [lindex $reply 11] 0 ;# stream last offset
+        assert_equal [lindex $reply 15 0 5] 0 ;# group last delivered offset
+        assert_equal [lindex $reply 15 0 7] 0 ;# group lag
 
-        test {Consumer without PEL is present in AOF after AOFRW} {
-            r del mystream
-            r XGROUP CREATE mystream mygroup $ MKSTREAM
-            r XADD mystream * f v
-            r XREADGROUP GROUP mygroup Alice NOACK STREAMS mystream ">"
-            set rd [redis_deferring_client]
-            $rd XREADGROUP GROUP mygroup Bob BLOCK 0 NOACK STREAMS mystream ">"
-            r XGROUP CREATECONSUMER mystream mygroup Charlie
-            set grpinfo [lindex [r xinfo groups mystream] 0]
+        r XADD x 1-0 data a
+        r XDEL x 1-0
 
-            r bgrewriteaof
-            waitForBgrewriteaof r
-            r debug loadaof
-
-            set curr_grpinfo [lindex [r xinfo groups mystream] 0]
-            assert {$curr_grpinfo == $grpinfo}
-            set n_consumers [lindex $grpinfo 3]
-
-            # Bob should be created only when there will be new data for this consumer
-            assert_equal $n_consumers 2
-            set reply [r xinfo consumers mystream mygroup]
-            set consumer_info [lindex $reply 0]
-            assert_equal [lindex $consumer_info 1] "Alice"
-            set consumer_info [lindex $reply 1]
-            assert_equal [lindex $consumer_info 1] "Charlie"
-        }
+        set reply [r XINFO STREAM x FULL]
+        assert_equal [lindex $reply 9] "1-0" ;# stream xdel max id
+        assert_equal [lindex $reply 11] 1 ;# stream last offset
+        assert_equal [lindex $reply 15 0 5] 0 ;# group last delivered offset
+        assert_equal [lindex $reply 15 0 7] 0 ;# group lag
     }
 
-    start_server {} {
-        set master [srv -1 client]
-        set master_host [srv -1 host]
-        set master_port [srv -1 port]
-        set slave [srv 0 client]
+    test {Consumer group offset and lag sanity} {
+        r DEL x
+        r XADD x 1-0 data a
+        r XADD x 2-0 data b
+        r XADD x 3-0 data c
+        r XADD x 4-0 data d
+        r XADD x 5-0 data e
+        r XGROUP CREATE x g1 0
 
-        foreach noack {0 1} {
-            test "Consumer group last ID propagation to slave (NOACK=$noack)" {
-                $slave slaveof $master_host $master_port
-                wait_for_condition 50 100 {
-                    [s 0 master_link_status] eq {up}
-                } else {
-                    fail "Replication not started."
-                }
+        set reply [r XINFO STREAM x FULL]
+        assert_equal [lindex $reply 15 0 5] 0 ;# group last delivered offset
+        assert_equal [lindex $reply 15 0 7] 5 ;# group lag
 
-                $master del stream
-                $master xadd stream * a 1
-                $master xadd stream * a 2
-                $master xadd stream * a 3
-                $master xgroup create stream mygroup 0
+        r XREADGROUP GROUP g1 c11 COUNT 1 STREAMS x >
+        set reply [r XINFO STREAM x FULL]
+        assert_equal [lindex $reply 15 0 5] 1 ;# group last delivered offset
+        assert_equal [lindex $reply 15 0 7] 4 ;# group lag
 
-                # Consume the first two items on the master
-                for {set j 0} {$j < 2} {incr j} {
-                    if {$noack} {
-                        set item [$master xreadgroup group mygroup \
-                                  myconsumer COUNT 1 NOACK STREAMS stream >]
-                    } else {
-                        set item [$master xreadgroup group mygroup \
-                                  myconsumer COUNT 1 STREAMS stream >]
-                    }
-                    set id [lindex $item 0 1 0 0]
-                    if {$noack == 0} {
-                        assert {[$master xack stream mygroup $id] eq "1"}
-                    }
-                }
+        r XREADGROUP GROUP g1 c12 COUNT 10 STREAMS x >
+        set reply [r XINFO STREAM x FULL]
+        assert_equal [lindex $reply 15 0 5] 5 ;# group last delivered offset
+        assert_equal [lindex $reply 15 0 7] 0 ;# group lag
+        
+        r XADD x 6-0 data f
+        set reply [r XINFO STREAM x FULL]
+        assert_equal [lindex $reply 15 0 5] 5 ;# group last delivered offset
+        assert_equal [lindex $reply 15 0 7] 1 ;# group lag        
+    }
 
-                wait_for_ofs_sync $master $slave
+    test {Consumer group lag with XDELs} {
+        r DEL x
+        r XADD x 1-0 data a
+        r XADD x 2-0 data b
+        r XADD x 3-0 data c
+        r XADD x 4-0 data d
+        r XADD x 5-0 data e
+        r XDEL x 3-0
+        r XGROUP CREATE x g1 0
+        r XGROUP CREATE x g2 0
+        
+        set reply [r XINFO STREAM x FULL]
+        assert_equal [lindex $reply 15 0 5] 0 ;# group last delivered offset
+        assert_equal [lindex $reply 15 0 7] {} ;# group lag
 
-                # Turn slave into master
-                $slave slaveof no one
+        r XREADGROUP GROUP g1 c11 COUNT 1 STREAMS x >
+        set reply [r XINFO STREAM x FULL]
+        assert_equal [lindex $reply 15 0 5] 0 ;# group last delivered offset
+        assert_equal [lindex $reply 15 0 7] {} ;# group lag
 
-                set item [$slave xreadgroup group mygroup myconsumer \
-                          COUNT 1 STREAMS stream >]
+        r XREADGROUP GROUP g1 c11 COUNT 1 STREAMS x >
+        set reply [r XINFO STREAM x FULL]
+        assert_equal [lindex $reply 15 0 5] 0 ;# group last delivered offset
+        assert_equal [lindex $reply 15 0 7] {} ;# group lag
 
-                # The consumed enty should be the third
-                set myentry [lindex $item 0 1 0 1]
-                assert {$myentry eq {a 3}}
+        r XREADGROUP GROUP g1 c11 COUNT 1 STREAMS x >
+        set reply [r XINFO STREAM x FULL]
+        assert_equal [lindex $reply 15 0 5] 0 ;# group last delivered offset
+        assert_equal [lindex $reply 15 0 7] {} ;# group lag
+
+        r XREADGROUP GROUP g1 c11 COUNT 1 STREAMS x >
+        set reply [r XINFO STREAM x FULL]
+        assert_equal [lindex $reply 15 0 5] 5 ;# group last delivered offset
+        assert_equal [lindex $reply 15 0 7] 0 ;# group lag
+
+        r XADD x 6-0 data f
+        set reply [r XINFO STREAM x FULL]
+        assert_equal [lindex $reply 15 0 5] 5 ;# group last delivered offset
+        assert_equal [lindex $reply 15 0 7] 1 ;# group lag
+        
+        r XTRIM x MINID = 3-0
+        set reply [r XINFO STREAM x FULL]
+        assert_equal [lindex $reply 15 0 5] 5 ;# group last delivered offset
+        assert_equal [lindex $reply 15 0 7] 1 ;# group lag
+        assert_equal [lindex $reply 15 1 5] 0 ;# 2nd group last delivered offset
+        assert_equal [lindex $reply 15 1 7] 3 ;# 2nd group lag
+
+        r XTRIM x MINID = 5-0
+        set reply [r XINFO STREAM x FULL]
+        assert_equal [lindex $reply 15 0 5] 5 ;# group last delivered offset
+        assert_equal [lindex $reply 15 0 7] 1 ;# group lag
+        assert_equal [lindex $reply 15 1 5] 0 ;# 2nd group last delivered offset
+        assert_equal [lindex $reply 15 1 7] 2 ;# 2nd group lag
+    }
+
+    if {!$::external} {
+        start_server {tags {"stream"} overrides {appendonly yes aof-use-rdb-preamble no appendfsync always}} {
+            test {XREADGROUP with NOACK creates consumer} {
+                r del mystream
+                r XGROUP CREATE mystream mygroup $ MKSTREAM
+                r XADD mystream * f1 v1
+                r XREADGROUP GROUP mygroup Alice NOACK STREAMS mystream ">"
+                set rd [redis_deferring_client]
+                $rd XREADGROUP GROUP mygroup Bob BLOCK 0 NOACK STREAMS mystream ">"
+                r XADD mystream * f2 v2
+                set grpinfo [r xinfo groups mystream]
+
+                r debug loadaof
+                assert {[r xinfo groups mystream] == $grpinfo}
+                set reply [r xinfo consumers mystream mygroup]
+                set consumer_info [lindex $reply 0]
+                assert_equal [lindex $consumer_info 1] "Alice" ;# consumer name
+                set consumer_info [lindex $reply 1]
+                assert_equal [lindex $consumer_info 1] "Bob" ;# consumer name
+            }
+
+            test {Consumer without PEL is present in AOF after AOFRW} {
+                r del mystream
+                r XGROUP CREATE mystream mygroup $ MKSTREAM
+                r XADD mystream * f v
+                r XREADGROUP GROUP mygroup Alice NOACK STREAMS mystream ">"
+                set rd [redis_deferring_client]
+                $rd XREADGROUP GROUP mygroup Bob BLOCK 0 NOACK STREAMS mystream ">"
+                r XGROUP CREATECONSUMER mystream mygroup Charlie
+                set grpinfo [lindex [r xinfo groups mystream] 0]
+
+                r bgrewriteaof
+                waitForBgrewriteaof r
+                r debug loadaof
+
+                set curr_grpinfo [lindex [r xinfo groups mystream] 0]
+                assert {$curr_grpinfo == $grpinfo}
+                set n_consumers [lindex $grpinfo 3]
+
+                # Bob should be created only when there will be new data for this consumer
+                assert_equal $n_consumers 2
+                set reply [r xinfo consumers mystream mygroup]
+                set consumer_info [lindex $reply 0]
+                assert_equal [lindex $consumer_info 1] "Alice"
+                set consumer_info [lindex $reply 1]
+                assert_equal [lindex $consumer_info 1] "Charlie"
             }
         }
-    }
 
-    start_server {tags {"stream"} overrides {appendonly yes aof-use-rdb-preamble no}} {
-        test {Empty stream with no lastid can be rewrite into AOF correctly} {
-            r XGROUP CREATE mystream group-name $ MKSTREAM
-            assert {[dict get [r xinfo stream mystream] length] == 0}
-            set grpinfo [r xinfo groups mystream]
-            r bgrewriteaof
-            waitForBgrewriteaof r
-            r debug loadaof
-            assert {[dict get [r xinfo stream mystream] length] == 0}
-            assert {[r xinfo groups mystream] == $grpinfo}
+        start_server {} {
+            set master [srv -1 client]
+            set master_host [srv -1 host]
+            set master_port [srv -1 port]
+            set slave [srv 0 client]
+
+            foreach noack {0 1} {
+                test "Consumer group last ID propagation to slave (NOACK=$noack)" {
+                    $slave slaveof $master_host $master_port
+                    wait_for_condition 50 100 {
+                        [s 0 master_link_status] eq {up}
+                    } else {
+                        fail "Replication not started."
+                    }
+
+                    $master del stream
+                    $master xadd stream * a 1
+                    $master xadd stream * a 2
+                    $master xadd stream * a 3
+                    $master xgroup create stream mygroup 0
+
+                    # Consume the first two items on the master
+                    for {set j 0} {$j < 2} {incr j} {
+                        if {$noack} {
+                            set item [$master xreadgroup group mygroup \
+                                    myconsumer COUNT 1 NOACK STREAMS stream >]
+                        } else {
+                            set item [$master xreadgroup group mygroup \
+                                    myconsumer COUNT 1 STREAMS stream >]
+                        }
+                        set id [lindex $item 0 1 0 0]
+                        if {$noack == 0} {
+                            assert {[$master xack stream mygroup $id] eq "1"}
+                        }
+                    }
+
+                    wait_for_ofs_sync $master $slave
+
+                    # Turn slave into master
+                    $slave slaveof no one
+
+                    set item [$slave xreadgroup group mygroup myconsumer \
+                            COUNT 1 STREAMS stream >]
+
+                    # The consumed enty should be the third
+                    set myentry [lindex $item 0 1 0 1]
+                    assert {$myentry eq {a 3}}
+                }
+            }
+        }
+
+        start_server {tags {"stream"} overrides {appendonly yes aof-use-rdb-preamble no}} {
+            test {Empty stream with no lastid can be rewrite into AOF correctly} {
+                r XGROUP CREATE mystream group-name $ MKSTREAM
+                assert {[dict get [r xinfo stream mystream] length] == 0}
+                set grpinfo [r xinfo groups mystream]
+                r bgrewriteaof
+                waitForBgrewriteaof r
+                r debug loadaof
+                assert {[dict get [r xinfo stream mystream] length] == 0}
+                assert {[r xinfo groups mystream] == $grpinfo}
+            }
         }
     }
 }

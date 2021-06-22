@@ -64,6 +64,9 @@ stream *streamNew(void) {
     s->length = 0;
     s->last_id.ms = 0;
     s->last_id.seq = 0;
+    s->xdel_max_id.seq = 0;
+    s->xdel_max_id.ms = 0;
+    s->offset = 0;
     s->cgroups = NULL; /* Created on demand to save memory when not used. */
     return s;
 }
@@ -179,6 +182,8 @@ robj *streamDup(robj *o) {
     }
     new_s->length = s->length;
     new_s->last_id = s->last_id;
+    new_s->xdel_max_id = s->xdel_max_id;
+    new_s->offset = s->offset;
     raxStop(&ri);
 
     if (s->cgroups == NULL) return sobj;
@@ -190,7 +195,8 @@ robj *streamDup(robj *o) {
     while (raxNext(&ri_cgroups)) {
         streamCG *cg = ri_cgroups.data;
         streamCG *new_cg = streamCreateCG(new_s, (char *)ri_cgroups.key,
-                                          ri_cgroups.key_len, &cg->last_id);
+                                          ri_cgroups.key_len, &cg->last_id,
+                                          cg->offset);
 
         serverAssert(new_cg != NULL);
 
@@ -635,6 +641,7 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
     if (ri.data != lp)
         raxInsert(s->rax,(unsigned char*)&rax_key,sizeof(rax_key),lp,NULL);
     s->length++;
+    s->offset++;
     s->last_id = id;
     if (added_id) *added_id = id;
     return C_OK;
@@ -1236,7 +1243,7 @@ void streamIteratorRemoveEntry(streamIterator *si, streamID *current) {
     int64_t aux;
 
     /* We do not really delete the entry here. Instead we mark it as
-     * deleted flagging it, and also incrementing the count of the
+     * deleted by flagging it, and also incrementing the count of the
      * deleted entries in the listpack header.
      *
      * We start flagging: */
@@ -1280,7 +1287,7 @@ void streamIteratorRemoveEntry(streamIterator *si, streamID *current) {
     streamIteratorStop(si);
     streamIteratorStart(si,si->stream,&start,&end,si->rev);
 
-    /* TODO: perform a garbage collection here if the ration between
+    /* TODO: perform a garbage collection here if the ratio between
      * deleted and valid goes over a certain limit. */
 }
 
@@ -1338,6 +1345,130 @@ robj *createObjectFromStreamID(streamID *id) {
                         id->ms,id->seq));
 }
 
+/* Get the first or last entry ID from a non-empty stream. */
+void streamGetTipID(stream *s, streamID *id, int first) {
+    streamIterator si;
+    int64_t numfields;
+    streamID min, max;
+    min.seq = min.ms = 0;
+    max.seq = max.seq = UINT64_MAX;
+
+    streamIteratorStart(&si,s,&min,&max,!first);
+    streamIteratorGetID(&si,id,&numfields);
+    streamIteratorStop(&si);
+}
+
+/* Returns 1 if the ID is 0-0. */
+int streamIDEqZero(streamID *id) {
+    return !(id->ms || id->seq);
+}
+
+/* Check if a range contains an XDEL.
+ * Assumes start < end && end < s->last_id. */
+int streamIsContiguousRange(stream *s, streamID *start, streamID *end) {
+    streamID start_id, end_id;
+    streamID first_id;
+
+    if (!s->offset || streamIDEqZero(&s->xdel_max_id)) {
+        /* A newly-initialized stream or no XDELs. */
+        return 1;
+    }
+
+    /* Copy input IDs, if given, or default to min/max IDs. */
+    if (start) {
+        start_id = *start;
+    } else {
+        start_id.ms = start_id.seq = 0;
+    }
+    if (end) {
+        end_id = *end;
+    } else {
+        end_id.ms = end_id.seq = UINT64_MAX;
+    }
+
+    streamGetTipID(s,&first_id,1);
+    int cmp_first = streamCompareID(&first_id,&s->xdel_max_id);
+    if (cmp_first == 1) {
+        /* The XDEL is before the first entry. */
+        return 1;
+    }
+
+    int cmp_start = streamCompareID(&start_id,&s->xdel_max_id);
+    if (cmp_start != -1) {
+        /* The range doesn't include an XDEL. */
+        return 1;
+    }
+
+    /* The range includes an XDEL. */
+    return 0;
+}
+
+/* A helper for getting an offset for a given ID in the stream.
+ * A non-zero offset can be either logical (one before the first ID in the
+ * in the stream) or exact (the first or last IDs), but in both cases
+ * it provides a valid lag estimate. The zero offset usually means that
+ * the offset isn't available, except in the case of the 
+ * newly-initialized stream. */
+uint64_t streamGetOffset(stream *s, streamID *id) {
+    /* The offset of any ID in an empty, never-before-used stream is 0. */
+    if (!s->offset) {
+        return 0;
+    }
+
+    /* In the empty stream, if the ID is smaller or equal to the last ID,
+     * it can set to the logical start offset, which is the current offset. */
+    if (!s->length && streamCompareID(id,&s->last_id) < 1) {
+        return s->offset;
+    }
+
+    int cmp_last = streamCompareID(id,&s->last_id);
+    if (cmp_last == 0) {
+        /* Return the exact offset of the last entry in the stream. */
+        return s->offset;
+    } else if (cmp_last == 1) {
+        /* The offset of a future ID is unknown. */
+        return 0;
+    }
+
+    streamID first_id;
+    streamGetTipID(s,&first_id,1);
+    int cmp_first = streamCompareID(id,&first_id);
+    int cmp_xdel = streamCompareID(id,&s->xdel_max_id);
+    if (streamIDEqZero(&s->xdel_max_id) || cmp_xdel == 1) {
+        /* There's definitely no fragmentation. */
+        if (cmp_first == -1) {
+            /* Return the logical start offset. */
+            return s->offset - s->length;
+        } else if (cmp_first == 0) {
+            /* Return the exact offset of the first entry in the stream. */
+            return s->offset - s->length + 1;
+        } else {
+            /* The offset of an arbitrary ID in the stream is unknown. */
+            return 0;
+        }
+    }
+
+    /* There's a chance that the next ID is valid, and the only thing
+     * before the ID is an XDEL. */
+    streamIterator si;
+    int64_t numfields;
+    streamID next_id = *id;
+    streamIncrID(&next_id);
+    streamIteratorStart(&si,s,&next_id,NULL,0);
+    streamIteratorGetID(&si,&next_id,&numfields);   /* Next entry must exist. */
+    streamIteratorStop(&si);
+
+    int cmp_next = streamCompareID(&next_id,&s->xdel_max_id);
+    if (cmp_next == 1) {
+        /* Return the logical start offset. */
+        return s->offset - s->length - 1;
+    }
+
+    /* The ID is before an XDEL that fragments the stream, so we can't make a
+     * prediction. */
+    return 0;
+}
+
 /* As a result of an explicit XCLAIM or XREADGROUP command, new entries
  * are created in the pending list of the stream and consumers. We need
  * to propagate this changes in the form of XCLAIM commands. */
@@ -1380,22 +1511,24 @@ void streamPropagateXCLAIM(client *c, robj *key, streamCG *group, robj *groupnam
  * that was consumed by XREADGROUP with the NOACK option: in that case we can't
  * propagate the last ID just using the XCLAIM LASTID option, so we emit
  *
- *  XGROUP SETID <key> <groupname> <id>
+ *  XGROUP SETID <key> <groupname> <id> <offset>
  */
 void streamPropagateGroupID(client *c, robj *key, streamCG *group, robj *groupname) {
-    robj *argv[5];
+    robj *argv[6];
     argv[0] = shared.xgroup;
     argv[1] = shared.setid;
     argv[2] = key;
     argv[3] = groupname;
     argv[4] = createObjectFromStreamID(&group->last_id);
+    argv[5] = createStringObjectFromLongLong((long long)&group->offset);
 
     /* We use progagate() because this code path is not always called from
      * the command execution context. Moreover this will just alter the
      * consumer group state, and we don't need MULTI/EXEC wrapping because
      * there is no message state cross-message atomicity required. */
-    propagate(server.xgroupCommand,c->db->id,argv,5,PROPAGATE_AOF|PROPAGATE_REPL);
+    propagate(server.xgroupCommand,c->db->id,argv,6,PROPAGATE_AOF|PROPAGATE_REPL);
     decrRefCount(argv[4]);
+    decrRefCount(argv[5]);
 }
 
 /* We need this when we want to propagate creation of consumer that was created
@@ -1493,6 +1626,11 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
     while(streamIteratorGetID(&si,&id,&numfields)) {
         /* Update the group last_id if needed. */
         if (group && streamCompareID(&id,&group->last_id) > 0) {
+            if (group->offset && streamIsContiguousRange(s,&id,NULL)) {
+                group->offset++;
+            } else if (s->offset) {
+                group->offset = streamGetOffset(s,&id);
+            }
             group->last_id = id;
             /* Group last ID should be propagated only if NOACK was
              * specified, otherwise the last id will be included
@@ -1747,7 +1885,7 @@ void streamRewriteTrimArgument(client *c, stream *s, int trim_strategy, int idx)
         arg = createStringObjectFromLongLong(s->length);
     } else {
         streamID first_id;
-        streamGetEdgeID(s, 1, &first_id);
+        streamGetEdgeID(s,1,&first_id);
         arg = createObjectFromStreamID(&first_id);
     }
 
@@ -2233,10 +2371,10 @@ void streamFreeConsumer(streamConsumer *sc) {
 }
 
 /* Create a new consumer group in the context of the stream 's', having the
- * specified name and last server ID. If a consumer group with the same name
- * already existed NULL is returned, otherwise the pointer to the consumer
- * group is returned. */
-streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id) {
+ * specified name, last server ID and its offset. If a consumer group with the
+ * same name already exists NULL is returned, otherwise the pointer to the
+ * consumer group is returned. */
+streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id, uint64_t offset) {
     if (s->cgroups == NULL) s->cgroups = raxNew();
     if (raxFind(s->cgroups,(unsigned char*)name,namelen) != raxNotFound)
         return NULL;
@@ -2245,6 +2383,7 @@ streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id) {
     cg->pel = raxNew();
     cg->consumers = raxNew();
     cg->last_id = *id;
+    cg->offset = offset;
     raxInsert(s->cgroups,(unsigned char*)name,namelen,cg,NULL);
     return cg;
 }
@@ -2320,8 +2459,8 @@ uint64_t streamDelConsumer(streamCG *cg, sds name) {
  * Consumer groups commands
  * ----------------------------------------------------------------------- */
 
-/* XGROUP CREATE <key> <groupname> <id or $> [MKSTREAM]
- * XGROUP SETID <key> <groupname> <id or $>
+/* XGROUP CREATE <key> <groupname> <id or $> [MKSTREAM] [OFFSET offset]
+ * XGROUP SETID <key> <groupname> <id or $> [offset]
  * XGROUP DESTROY <key> <groupname>
  * XGROUP CREATECONSUMER <key> <groupname> <consumer>
  * XGROUP DELCONSUMER <key> <groupname> <consumername> */
@@ -2331,16 +2470,32 @@ void xgroupCommand(client *c) {
     streamCG *cg = NULL;
     char *opt = c->argv[1]->ptr; /* Subcommand name. */
     int mkstream = 0;
+    long long offset = 0;
     robj *o;
 
     /* CREATE has an MKSTREAM option that creates the stream if it
-     * does not exist. */
-    if (c->argc == 6 && !strcasecmp(opt,"CREATE")) {
-        if (strcasecmp(c->argv[5]->ptr,"MKSTREAM")) {
-            addReplySubcommandSyntaxError(c);
-            return;
+     * does not exist, so we want check that in advance. In this opportunity
+     * we can also parse CREATE's additional options. */
+    if (c->argc >= 6 && c->argc <= 8 && !strcasecmp(opt,"CREATE")) {
+        int i = 5;
+        while (i < c->argc) {
+            if (!strcasecmp(c->argv[i]->ptr,"MKSTREAM")) {
+                mkstream = 1;
+                i++;
+            } else if (!strcasecmp(c->argv[i]->ptr,"OFFSET") &&
+                       ++i < c->argc ) {
+                if (getLongLongFromObjectOrReply(c,c->argv[i],&offset,NULL) != C_OK) {
+                    return;
+                } else if (offset < 0) {
+                    addReplyError(c,"offset must be positive");
+                    return;
+                }
+                i++;
+            } else {
+                addReplySubcommandSyntaxError(c);
+                return;
+            }
         }
-        mkstream = 1;
         grpname = c->argv[3]->ptr;
     }
 
@@ -2385,18 +2540,20 @@ void xgroupCommand(client *c) {
 "    Create a new consumer group. Options are:",
 "    * MKSTREAM",
 "      Create the empty stream if it does not exist.",
+"    * OFFSET offset",
+"      Set the group's offset (internal use)."
 "CREATECONSUMER <key> <groupname> <consumer>",
 "    Create a new consumer in the specified group.",
 "DELCONSUMER <key> <groupname> <consumer>",
 "    Remove the specified consumer.",
 "DESTROY <key> <groupname>"
 "    Remove the specified group.",
-"SETID <key> <groupname> <id|$>",
-"    Set the current group ID.",
+"SETID <key> <groupname> <id|$> [offset]",
+"    Set the current group ID and offset.",
 NULL
         };
         addReplyHelp(c, help);
-    } else if (!strcasecmp(opt,"CREATE") && (c->argc == 5 || c->argc == 6)) {
+    } else if (!strcasecmp(opt,"CREATE") && (c->argc >= 5 && c->argc <= 8)) {
         streamID id;
         if (!strcmp(c->argv[4]->ptr,"$")) {
             if (s) {
@@ -2415,10 +2572,16 @@ NULL
             o = createStreamObject();
             dbAdd(c->db,c->argv[2],o);
             s = o->ptr;
+            offset = 0;
             signalModifiedKey(c,c->db,c->argv[2]);
         }
 
-        streamCG *cg = streamCreateCG(s,grpname,sdslen(grpname),&id);
+        /* Handle missing/invalid offset for the group. */
+        if (!offset || (uint64_t)offset > s->offset) {
+            offset = streamGetOffset(s,&id);
+        }
+
+        streamCG *cg = streamCreateCG(s,grpname,sdslen(grpname),&id,offset);
         if (cg) {
             addReply(c,shared.ok);
             server.dirty++;
@@ -2427,14 +2590,25 @@ NULL
         } else {
             addReplyError(c,"-BUSYGROUP Consumer Group name already exists");
         }
-    } else if (!strcasecmp(opt,"SETID") && c->argc == 5) {
+    } else if (!strcasecmp(opt,"SETID") && (c->argc == 5 || c->argc == 6)) {
         streamID id;
         if (!strcmp(c->argv[4]->ptr,"$")) {
             id = s->last_id;
         } else if (streamParseIDOrReply(c,c->argv[4],&id,0) != C_OK) {
             return;
         }
+        if (c->argc == 6) {
+            if (getLongLongFromObjectOrReply(c,c->argv[5],&offset,NULL) != C_OK) {
+                return;
+            } else if (offset < 0) {
+                addReplyError(c,"offset must be positive");
+                return;
+            }
+        } else {
+            offset = 0;
+        }
         cg->last_id = id;
+        cg->offset = (uint64_t)offset;
         addReply(c,shared.ok);
         server.dirty++;
         notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-setid",c->argv[2],c->db->id);
@@ -2473,16 +2647,40 @@ NULL
     }
 }
 
-/* XSETID <stream> <id>
+/* XSETID <stream> <id> [offset xdel_max_id]
  *
- * Set the internal "last ID" of a stream. */
+ * Set the internal "last ID", "offset" and "max XDEL ID" of a stream. */
 void xsetidCommand(client *c) {
+    streamID id;
+    long long offset;
+    streamID max_xdel_id;
+    if (c->argc != 3  && c->argc != 5) {
+        addReplyErrorObject(c,shared.syntaxerr);
+        return;
+    }
+    if (streamParseStrictIDOrReply(c,c->argv[2],&id,0) != C_OK) return;
+    if (c->argc == 5) {
+        if (getLongLongFromObjectOrReply(c,c->argv[3],&offset,NULL) != C_OK) {
+            return;
+        } else if (offset < 0) {
+            addReplyError(c,"offset must be positive");
+            return;
+        }
+        if (streamParseStrictIDOrReply(c,c->argv[4],&max_xdel_id,0) != C_OK) {
+            return;
+        } else if (streamCompareID(&id,&max_xdel_id) > 0) {
+            addReplyError(c,"The ID specified in XSETID is smaller than the "
+                            "provided maxmimal XDEL ID ");
+            return;
+        }
+    } else {
+        offset = 0;
+        max_xdel_id.ms = max_xdel_id.seq = 0;
+    }
+
     robj *o = lookupKeyWriteOrReply(c,c->argv[1],shared.nokeyerr);
     if (o == NULL || checkType(c,o,OBJ_STREAM)) return;
-
     stream *s = o->ptr;
-    streamID id;
-    if (streamParseStrictIDOrReply(c,c->argv[2],&id,0) != C_OK) return;
 
     /* If the stream has at least one item, we want to check that the user
      * is setting a last ID that is equal or greater than the current top
@@ -2498,6 +2696,8 @@ void xsetidCommand(client *c) {
         }
     }
     s->last_id = id;
+    s->offset = (uint64_t)offset;
+    s->xdel_max_id = max_xdel_id;
     addReply(c,shared.ok);
     server.dirty++;
     notifyKeyspaceEvent(NOTIFY_STREAM,"xsetid",c->argv[1],c->db->id);
@@ -3191,7 +3391,13 @@ void xdelCommand(client *c) {
     /* Actually apply the command. */
     int deleted = 0;
     for (int j = 2; j < c->argc; j++) {
-        deleted += streamDeleteItem(s,&ids[j-2]);
+        streamID *id = &ids[j-2];
+        if (streamDeleteItem(s,id)) {
+            if (streamCompareID(id,&s->xdel_max_id) > 0) {
+                s->xdel_max_id = *id;
+            }
+            deleted++;
+        };
     }
 
     /* Propagate the write if needed. */
@@ -3299,7 +3505,7 @@ void xinfoReplyWithStreamInfo(client *c, stream *s) {
         }
     }
 
-    addReplyMapLen(c,full ? 6 : 7);
+    addReplyMapLen(c,full ? 8 : 9);
     addReplyBulkCString(c,"length");
     addReplyLongLong(c,s->length);
     addReplyBulkCString(c,"radix-tree-keys");
@@ -3308,6 +3514,10 @@ void xinfoReplyWithStreamInfo(client *c, stream *s) {
     addReplyLongLong(c,s->rax->numnodes);
     addReplyBulkCString(c,"last-generated-id");
     addReplyStreamID(c,&s->last_id);
+    addReplyBulkCString(c,"xdel-max-id");
+    addReplyStreamID(c,&s->xdel_max_id);
+    addReplyBulkCString(c,"last-offset");
+    addReplyLongLong(c,s->offset);
 
     if (!full) {
         /* XINFO STREAM <key> */
@@ -3346,7 +3556,7 @@ void xinfoReplyWithStreamInfo(client *c, stream *s) {
             raxSeek(&ri_cgroups,"^",NULL,0);
             while(raxNext(&ri_cgroups)) {
                 streamCG *cg = ri_cgroups.data;
-                addReplyMapLen(c,5);
+                addReplyMapLen(c,7);
 
                 /* Name */
                 addReplyBulkCString(c,"name");
@@ -3355,6 +3565,47 @@ void xinfoReplyWithStreamInfo(client *c, stream *s) {
                 /* Last delivered ID */
                 addReplyBulkCString(c,"last-delivered-id");
                 addReplyStreamID(c,&cg->last_id);
+
+                /* Offset of the last delivered ID */
+                addReplyBulkCString(c,"last-delivered-offset");
+                addReplyLongLong(c,cg->offset);
+
+                /* Group lag */
+                int valid = 1;
+                uint64_t lag = 0;
+
+                addReplyBulkCString(c,"lag");
+                if (!s->offset) {
+                    /* The lag of a newly-initialized stream is 0. */
+                    lag = 0;
+                } else if (cg->offset &&
+                           streamIsContiguousRange(s,&cg->last_id,NULL)) {
+                        /* No fragmentation ahead means that the group's
+                         * offset is valid for lag calculation. */
+                        lag = s->offset - cg->offset;
+                } else if (streamIDEqZero(&cg->last_id)) {
+                    if (streamIsContiguousRange(s,NULL,NULL)) {
+                        /* The group is at 0-0 of a non-fragmented stream. */
+                        lag = s->length;
+                    } else {
+                        valid = 0;
+                    }
+                } else {
+                    /* Attempt to retrieve the group's pffset. */
+                    uint64_t offset = streamGetOffset(s,&cg->last_id);
+                    if (offset) {
+                        /* A valid offset was obtained - w00t! */
+                        lag = s->offset - offset;
+                    } else {
+                        valid = 0;
+                    }
+                }
+
+                if (valid) {
+                    addReplyLongLong(c,(long long)lag);
+                } else {
+                    addReplyNull(c);
+                }
 
                 /* Group PEL count */
                 addReplyBulkCString(c,"pel-count");

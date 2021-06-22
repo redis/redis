@@ -971,7 +971,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key) {
         nwritten += n;
         if ((n = rdbSaveLen(rdb,s->last_id.seq)) == -1) return -1;
         nwritten += n;
-
+        /* TBD: Save offset and xdel_max_id. */
         /* The consumer groups and their clients are part of the stream
          * type, so serialize every consumer group. */
 
@@ -1005,6 +1005,8 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key) {
                     return -1;
                 }
                 nwritten += n;
+                
+                /* TBD: Save cg offset. */
 
                 /* Save the global PEL. */
                 if ((n = rdbSaveStreamPEL(rdb,cg->pel,1)) == -1) {
@@ -2014,6 +2016,10 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
         /* Load the last entry ID. */
         s->last_id.ms = rdbLoadLen(rdb,NULL);
         s->last_id.seq = rdbLoadLen(rdb,NULL);
+        
+        /* TBD: Load offset and max_xdel_id. */
+        s->offset = 0;
+        s->xdel_max_id.ms = s->xdel_max_id.seq = 0;
 
         if (rioGetReadError(rdb)) {
             rdbReportReadError("Stream object metadata loading failed.");
@@ -2049,8 +2055,12 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
                 decrRefCount(o);
                 return NULL;
             }
+            
+            /* TBD: Load cg_offset. */
+            int cg_offset = 0;
 
-            streamCG *cgroup = streamCreateCG(s,cgname,sdslen(cgname),&cg_id);
+            streamCG *cgroup = streamCreateCG(s,cgname,sdslen(cgname),&cg_id,
+                                              cg_offset);
             if (cgroup == NULL) {
                 rdbReportCorruptRDB("Duplicated consumer group name %s",
                                          cgname);

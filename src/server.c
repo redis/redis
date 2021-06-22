@@ -1062,7 +1062,7 @@ struct redisCommand redisCommandTable[] = {
      "write use-memory @stream",
      0,NULL,2,2,1,0,0,0},
 
-    {"xsetid",xsetidCommand,3,
+    {"xsetid",xsetidCommand,-3,
      "write use-memory fast @stream",
      0,NULL,1,1,1,0,0,0},
 

@@ -15,8 +15,10 @@ typedef struct streamID {
 
 typedef struct stream {
     rax *rax;               /* The radix tree holding the stream. */
-    uint64_t length;        /* Number of elements inside this stream. */
+    uint64_t length;        /* Current number of elements inside this stream. */
     streamID last_id;       /* Zero if there are yet no items. */
+    streamID xdel_max_id;   /* The maximal ID that was deleted. */
+    uint64_t offset;        /* All time number of elements in this stream. */
     rax *cgroups;           /* Consumer groups dictionary: name -> streamCG */
 } stream;
 
@@ -52,6 +54,7 @@ typedef struct streamCG {
     streamID last_id;       /* Last delivered (not acknowledged) ID for this
                                group. Consumers that will just ask for more
                                messages will served with IDs > than this. */
+    uint64_t offset;        /* The offset of the last ID of this group. */
     rax *pel;               /* Pending entries list. This is a radix tree that
                                has every message delivered to consumers (without
                                the NOACK option) that was yet not acknowledged
@@ -112,7 +115,7 @@ void streamIteratorRemoveEntry(streamIterator *si, streamID *current);
 void streamIteratorStop(streamIterator *si);
 streamCG *streamLookupCG(stream *s, sds groupname);
 streamConsumer *streamLookupConsumer(streamCG *cg, sds name, int flags, int *created);
-streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id);
+streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id, uint64_t offset);
 streamNACK *streamCreateNACK(streamConsumer *consumer);
 void streamDecodeID(void *buf, streamID *id);
 int streamCompareID(streamID *a, streamID *b);
