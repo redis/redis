@@ -61,8 +61,8 @@ start_server {tags {"hash"}} {
         set res [r hrandfield myhash 3]
         assert_equal [llength $res] 3
         assert_equal [llength [lindex $res 1]] 1
+        r hello 2
     }
-    r hello 2
 
     test "HRANDFIELD count of 0 is handled correctly" {
         r hrandfield myhash 0
@@ -445,7 +445,7 @@ start_server {tags {"hash"}} {
     test {Is a ziplist encoded Hash promoted on big payload?} {
         r hset smallhash foo [string repeat a 1024]
         r debug object smallhash
-    } {*hashtable*}
+    } {*hashtable*} {needs:debug}
 
     test {HINCRBY against non existing database key} {
         r del htest
@@ -709,7 +709,7 @@ start_server {tags {"hash"}} {
             for {set i 0} {$i < 64} {incr i} {
                 r hset myhash [randomValue] [randomValue]
             }
-            assert {[r object encoding myhash] eq {hashtable}}
+            assert_encoding hashtable myhash
         }
     }
 
@@ -733,8 +733,8 @@ start_server {tags {"hash"}} {
 
     test {Hash ziplist of various encodings} {
         r del k
-        r config set hash-max-ziplist-entries 1000000000
-        r config set hash-max-ziplist-value 1000000000
+        config_set hash-max-ziplist-entries 1000000000
+        config_set hash-max-ziplist-value 1000000000
         r hset k ZIP_INT_8B 127
         r hset k ZIP_INT_16B 32767
         r hset k ZIP_INT_32B 2147483647
@@ -748,8 +748,8 @@ start_server {tags {"hash"}} {
         set dump [r dump k]
 
         # will be converted to dict at RESTORE
-        r config set hash-max-ziplist-entries 2
-        r config set sanitize-dump-payload no
+        config_set hash-max-ziplist-entries 2
+        config_set sanitize-dump-payload no mayfail
         r restore kk 0 $dump
         set kk [r hgetall kk]
 
@@ -765,7 +765,7 @@ start_server {tags {"hash"}} {
     } {ZIP_INT_8B 127 ZIP_INT_16B 32767 ZIP_INT_32B 2147483647 ZIP_INT_64B 9223372036854775808 ZIP_INT_IMM_MIN 0 ZIP_INT_IMM_MAX 12}
 
     test {Hash ziplist of various encodings - sanitize dump} {
-        r config set sanitize-dump-payload yes
+        config_set sanitize-dump-payload yes mayfail
         r restore kk 0 $dump replace
         set k [r hgetall k]
         set kk [r hgetall kk]

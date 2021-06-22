@@ -16,6 +16,7 @@ fi
 $MAKE -C tests/modules && \
 $TCLSH tests/test_helper.tcl \
 --single unit/moduleapi/commandfilter \
+--single unit/moduleapi/basics \
 --single unit/moduleapi/fork \
 --single unit/moduleapi/testrdb \
 --single unit/moduleapi/infotest \
@@ -36,4 +37,5 @@ $TCLSH tests/test_helper.tcl \
 --single unit/moduleapi/hash \
 --single unit/moduleapi/zset \
 --single unit/moduleapi/stream \
+--single unit/moduleapi/datatype2 \
 "${@}"

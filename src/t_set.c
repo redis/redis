@@ -858,25 +858,17 @@ void sinterGenericCommand(client *c, robj **setkeys,
     int64_t intobj;
     void *replylen = NULL;
     unsigned long j, cardinality = 0;
-    int encoding;
+    int encoding, empty = 0;
 
     for (j = 0; j < setnum; j++) {
         robj *setobj = dstkey ?
             lookupKeyWrite(c->db,setkeys[j]) :
             lookupKeyRead(c->db,setkeys[j]);
         if (!setobj) {
-            zfree(sets);
-            if (dstkey) {
-                if (dbDelete(c->db,dstkey)) {
-                    signalModifiedKey(c,c->db,dstkey);
-                    notifyKeyspaceEvent(NOTIFY_GENERIC,"del",dstkey,c->db->id);
-                    server.dirty++;
-                }
-                addReply(c,shared.czero);
-            } else {
-                addReply(c,shared.emptyset[c->resp]);
-            }
-            return;
+            /* A NULL is considered an empty set */
+            empty += 1;
+            sets[j] = NULL;
+            continue;
         }
         if (checkType(c,setobj,OBJ_SET)) {
             zfree(sets);
@@ -884,6 +876,24 @@ void sinterGenericCommand(client *c, robj **setkeys,
         }
         sets[j] = setobj;
     }
+
+    /* Set intersection with an empty set always results in an empty set.
+     * Return ASAP if there is an empty set. */
+    if (empty > 0) {
+        zfree(sets);
+        if (dstkey) {
+            if (dbDelete(c->db,dstkey)) {
+                signalModifiedKey(c,c->db,dstkey);
+                notifyKeyspaceEvent(NOTIFY_GENERIC,"del",dstkey,c->db->id);
+                server.dirty++;
+            }
+            addReply(c,shared.czero);
+        } else {
+            addReply(c,shared.emptyset[c->resp]);
+        }
+        return;
+    }
+
     /* Sort sets from the smallest to largest, this will improve our
      * algorithm's performance */
     qsort(sets,setnum,sizeof(robj*),qsortCompareSetsByCardinality);
@@ -977,10 +987,12 @@ void sinterGenericCommand(client *c, robj **setkeys,
     zfree(sets);
 }
 
+/* SINTER key [key ...] */
 void sinterCommand(client *c) {
     sinterGenericCommand(c,c->argv+1,c->argc-1,NULL);
 }
 
+/* SINTERSTORE destination key [key ...] */
 void sinterstoreCommand(client *c) {
     sinterGenericCommand(c,c->argv+2,c->argc-2,c->argv[1]);
 }
@@ -1125,7 +1137,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
             sdsfree(ele);
         }
         setTypeReleaseIterator(si);
-        server.lazyfree_lazy_server_del ? freeObjAsync(NULL, dstset) :
+        server.lazyfree_lazy_server_del ? freeObjAsync(NULL, dstset, -1) :
                                           decrRefCount(dstset);
     } else {
         /* If we have a target key where to store the resulting set
@@ -1150,18 +1162,22 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
     zfree(sets);
 }
 
+/* SUNION key [key ...] */
 void sunionCommand(client *c) {
     sunionDiffGenericCommand(c,c->argv+1,c->argc-1,NULL,SET_OP_UNION);
 }
 
+/* SUNIONSTORE destination key [key ...] */
 void sunionstoreCommand(client *c) {
     sunionDiffGenericCommand(c,c->argv+2,c->argc-2,c->argv[1],SET_OP_UNION);
 }
 
+/* SDIFF key [key ...] */
 void sdiffCommand(client *c) {
     sunionDiffGenericCommand(c,c->argv+1,c->argc-1,NULL,SET_OP_DIFF);
 }
 
+/* SDIFFSTORE destination key [key ...] */
 void sdiffstoreCommand(client *c) {
     sunionDiffGenericCommand(c,c->argv+2,c->argc-2,c->argv[1],SET_OP_DIFF);
 }

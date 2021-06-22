@@ -15,7 +15,7 @@ jobs:
     - name: test
       run: |
         sudo apt-get install tcl8.6 tclx
-        ./runtest --verbose
+        ./runtest --verbose --tags -slow
     - name: module api test
       run: ./runtest-moduleapi --verbose
 

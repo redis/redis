@@ -1,7 +1,7 @@
 # Failover stress test.
 # In this test a different node is killed in a loop for N
 # iterations. The test checks that certain properties
-# are preseved across iterations.
+# are preserved across iterations.
 
 source "../tests/includes/init-tests.tcl"
 

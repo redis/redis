@@ -899,7 +899,7 @@ promote: /* Promote to dense representation. */
  * the element belongs to is incremented if needed.
  *
  * This function is actually a wrapper for hllSparseSet(), it only performs
- * the hashshing of the element to obtain the index and zeros run length. */
+ * the hashing of the element to obtain the index and zeros run length. */
 int hllSparseAdd(robj *o, unsigned char *ele, size_t elesize) {
     long index;
     uint8_t count = hllPatLen(ele,elesize,&index);
@@ -1033,7 +1033,7 @@ uint64_t hllCount(struct hllhdr *hdr, int *invalid) {
         serverPanic("Unknown HyperLogLog encoding in hllCount()");
     }
 
-    /* Estimate cardinality form register histogram. See:
+    /* Estimate cardinality from register histogram. See:
      * "New cardinality estimation algorithms for HyperLogLog sketches"
      * Otmar Ertl, arXiv:1702.01284 */
     double z = m * hllTau((m-reghisto[HLL_Q+1])/(double)m);

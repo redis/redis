@@ -84,7 +84,7 @@ void lolwutCommand(client *c) {
     }
 }
 
-/* ========================== LOLWUT Canvase ===============================
+/* ========================== LOLWUT Canvas ===============================
  * Many LOLWUT versions will likely print some computer art to the screen.
  * This is the case with LOLWUT 5 and LOLWUT 6, so here there is a generic
  * canvas implementation that can be reused.  */

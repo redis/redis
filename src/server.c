@@ -1499,31 +1499,6 @@ dictType keylistDictType = {
     NULL                        /* allow to expand */
 };
 
-/* Cluster nodes hash table, mapping nodes addresses 1.2.3.4:6379 to
- * clusterNode structures. */
-dictType clusterNodesDictType = {
-    dictSdsHash,                /* hash function */
-    NULL,                       /* key dup */
-    NULL,                       /* val dup */
-    dictSdsKeyCompare,          /* key compare */
-    dictSdsDestructor,          /* key destructor */
-    NULL,                       /* val destructor */
-    NULL                        /* allow to expand */
-};
-
-/* Cluster re-addition blacklist. This maps node IDs to the time
- * we can re-add this node. The goal is to avoid readding a removed
- * node for some time. */
-dictType clusterNodesBlackListDictType = {
-    dictSdsCaseHash,            /* hash function */
-    NULL,                       /* key dup */
-    NULL,                       /* val dup */
-    dictSdsKeyCaseCompare,      /* key compare */
-    dictSdsDestructor,          /* key destructor */
-    NULL,                       /* val destructor */
-    NULL                        /* allow to expand */
-};
-
 /* Modules system dictionary type. Keys are module name,
  * values are pointer to RedisModule struct. */
 dictType modulesDictType = {
@@ -1693,9 +1668,9 @@ int clientsCronResizeQueryBuffer(client *c) {
     time_t idletime = server.unixtime - c->lastinteraction;
 
     /* There are two conditions to resize the query buffer:
-     * 1) Query buffer is > BIG_ARG and too big for latest peak.
-     * 2) Query buffer is > BIG_ARG and client is idle. */
-    if (querybuf_size > PROTO_MBULK_BIG_ARG &&
+     * 1) Query buffer is > PROTO_RESIZE_THRESHOLD and too big for latest peak.
+     * 2) Query buffer is > PROTO_RESIZE_THRESHOLD and client is idle. */
+    if (querybuf_size > PROTO_RESIZE_THRESHOLD &&
          ((querybuf_size/(c->querybuf_peak+1)) > 2 ||
           idletime > 2))
     {
@@ -1759,7 +1734,7 @@ int clientsCronTrackExpansiveClients(client *c, int time_idx) {
 /* Iterating all the clients in getMemoryOverheadData() is too slow and
  * in turn would make the INFO command too slow. So we perform this
  * computation incrementally and track the (not instantaneous but updated
- * to the second) total memory used by clients using clinetsCron() in
+ * to the second) total memory used by clients using clientsCron() in
  * a more incremental way (depending on server.hz). */
 int clientsCronTrackClientsMemUsage(client *c) {
     size_t mem = 0;
@@ -2203,7 +2178,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             }
         }
     }
-    /* Just for the sake of defensive programming, to avoid forgeting to
+    /* Just for the sake of defensive programming, to avoid forgetting to
      * call this function when need. */
     updateDictResizePolicy();
 
@@ -2482,7 +2457,7 @@ void afterSleep(struct aeEventLoop *eventLoop) {
 
     /* Do NOT add anything above moduleAcquireGIL !!! */
 
-    /* Aquire the modules GIL so that their threads won't touch anything. */
+    /* Acquire the modules GIL so that their threads won't touch anything. */
     if (!ProcessingEventsWhileBlocked) {
         if (moduleCount()) moduleAcquireGIL();
     }
@@ -2637,7 +2612,7 @@ void createSharedObjects(void) {
         shared.bulkhdr[j] = createObject(OBJ_STRING,
             sdscatprintf(sdsempty(),"$%d\r\n",j));
     }
-    /* The following two shared objects, minstring and maxstrings, are not
+    /* The following two shared objects, minstring and maxstring, are not
      * actually used for their value but as a special object meaning
      * respectively the minimum possible string and the maximum possible
      * string in string comparisons for the ZRANGEBYLEX command. */
@@ -2647,6 +2622,7 @@ void createSharedObjects(void) {
 
 void initServerConfig(void) {
     int j;
+    char *default_bindaddr[CONFIG_DEFAULT_BINDADDR_COUNT] = CONFIG_DEFAULT_BINDADDR;
 
     updateCachedTime(1);
     getRandomHexChars(server.runid,CONFIG_RUN_ID_SIZE);
@@ -2661,7 +2637,9 @@ void initServerConfig(void) {
     server.configfile = NULL;
     server.executable = NULL;
     server.arch_bits = (sizeof(long) == 8) ? 64 : 32;
-    server.bindaddr_count = 0;
+    server.bindaddr_count = CONFIG_DEFAULT_BINDADDR_COUNT;
+    for (j = 0; j < CONFIG_DEFAULT_BINDADDR_COUNT; j++)
+        server.bindaddr[j] = zstrdup(default_bindaddr[j]);
     server.unixsocketperm = CONFIG_DEFAULT_UNIX_SOCKET_PERM;
     server.ipfd.count = 0;
     server.tlsfd.count = 0;
@@ -2829,7 +2807,7 @@ int restartServer(int flags, mstime_t delay) {
         return C_ERR;
     }
 
-    /* Close all file descriptors, with the exception of stdin, stdout, strerr
+    /* Close all file descriptors, with the exception of stdin, stdout, stderr
      * which are useful if we restart a Redis server which is not daemonized. */
     for (j = 3; j < (int)server.maxclients + 1024; j++) {
         /* Test the descriptor validity before closing it, otherwise
@@ -3053,16 +3031,11 @@ int createSocketAcceptHandler(socketFds *sfd, aeFileProc *accept_handler) {
 int listenToPort(int port, socketFds *sfd) {
     int j;
     char **bindaddr = server.bindaddr;
-    int bindaddr_count = server.bindaddr_count;
-    char *default_bindaddr[2] = {"*", "-::*"};
 
-    /* Force binding of 0.0.0.0 if no bind address is specified. */
-    if (server.bindaddr_count == 0) {
-        bindaddr_count = 2;
-        bindaddr = default_bindaddr;
-    }
+    /* If we have no bind address, we don't listen on a TCP socket */
+    if (server.bindaddr_count == 0) return C_OK;
 
-    for (j = 0; j < bindaddr_count; j++) {
+    for (j = 0; j < server.bindaddr_count; j++) {
         char* addr = bindaddr[j];
         int optional = *addr == '-';
         if (optional) addr++;
@@ -3342,17 +3315,6 @@ void initServer(void) {
     aeSetBeforeSleepProc(server.el,beforeSleep);
     aeSetAfterSleepProc(server.el,afterSleep);
 
-    /* Open the AOF file if needed. */
-    if (server.aof_state == AOF_ON) {
-        server.aof_fd = open(server.aof_filename,
-                               O_WRONLY|O_APPEND|O_CREAT,0644);
-        if (server.aof_fd == -1) {
-            serverLog(LL_WARNING, "Can't open the append-only file: %s",
-                strerror(errno));
-            exit(1);
-        }
-    }
-
     /* 32 bit instances are limited to 4GB of address space, so if there is
      * no explicit limit in the user provided configuration we set a limit
      * at 3 GB using maxmemory with 'noeviction' policy'. This avoids
@@ -3596,7 +3558,7 @@ void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
         execCommandPropagateMulti(dbid);
 
     /* This needs to be unreachable since the dataset should be fixed during 
-     * client pause, otherwise data may be lossed during a failover. */
+     * client pause, otherwise data may be lost during a failover. */
     serverAssert(!(areClientsPaused() && !server.client_pause_in_transaction));
 
     if (server.aof_state != AOF_OFF && flags & PROPAGATE_AOF)
@@ -3912,7 +3874,7 @@ void call(client *c, int flags) {
 }
 
 /* Used when a command that is ready for execution needs to be rejected, due to
- * varios pre-execution checks. it returns the appropriate error to the client.
+ * various pre-execution checks. it returns the appropriate error to the client.
  * If there's a transaction is flags it as dirty, and if the command is EXEC,
  * it aborts the transaction.
  * Note: 'reply' is expected to end with \r\n */
@@ -4230,7 +4192,7 @@ int processCommand(client *c) {
      * The main objective here is to prevent abuse of client pause check
      * from which replicas are exempt. */
     if ((c->flags & CLIENT_SLAVE) && (is_may_replicate_command || is_write_command || is_read_command)) {
-        rejectCommandFormat(c, "Replica can't interract with the keyspace");
+        rejectCommandFormat(c, "Replica can't interact with the keyspace");
         return C_OK;
     }
 
@@ -4322,7 +4284,7 @@ int prepareForShutdown(int flags) {
         /* Note that, in killRDBChild normally has backgroundSaveDoneHandler
          * doing it's cleanup, but in this case this code will not be reached,
          * so we need to call rdbRemoveTempFile which will close fd(in order
-         * to unlink file actully) in background thread.
+         * to unlink file actually) in background thread.
          * The temp rdb file fd may won't be closed when redis exits quickly,
          * but OS will close this fd when process exits. */
         rdbRemoveTempFile(server.child_pid, 0);
@@ -5535,7 +5497,7 @@ int linuxMadvFreeForkBugCheck(void) {
 
         if (write(pipefd[1], &bug_found, sizeof(bug_found)) < 0)
             serverLog(LL_WARNING, "Failed to write to parent: %s", strerror(errno));
-        exit(0);
+        exitFromChild(0);
     } else {
         /* Read the result from the child. */
         ret = read(pipefd[0], &bug_found, sizeof(bug_found));
@@ -5691,12 +5653,12 @@ int changeBindAddr(sds *addrlist, int addrlist_len) {
         /* Re-Listen TCP and TLS */
         server.ipfd.count = 0;
         if (server.port != 0 && listenToPort(server.port, &server.ipfd) != C_OK) {
-            serverPanic("Failed to restore old listening sockets.");
+            serverPanic("Failed to restore old listening TCP socket.");
         }
 
         server.tlsfd.count = 0;
         if (server.tls_port != 0 && listenToPort(server.tls_port, &server.tlsfd) != C_OK) {
-            serverPanic("Failed to restore old listening sockets.");
+            serverPanic("Failed to restore old listening TLS socket.");
         }
 
         result = C_ERR;
@@ -5936,7 +5898,11 @@ int checkForSentinelMode(int argc, char **argv) {
 void loadDataFromDisk(void) {
     long long start = ustime();
     if (server.aof_state == AOF_ON) {
-        if (loadAppendOnlyFile(server.aof_filename) == C_OK)
+        /* It's not a failure if the file is empty or doesn't exist (later we will create it) */
+        int ret = loadAppendOnlyFile(server.aof_filename);
+        if (ret == AOF_FAILED || ret == AOF_OPEN_ERR)
+            exit(1);
+        if (ret == AOF_OK)
             serverLog(LL_NOTICE,"DB loaded from append only file: %.3f seconds",(float)(ustime()-start)/1000000);
     } else {
         rdbSaveInfo rsi = RDB_SAVE_INFO_INIT;
@@ -5959,7 +5925,7 @@ void loadDataFromDisk(void) {
                 memcpy(server.replid,rsi.repl_id,sizeof(server.replid));
                 server.master_repl_offset = rsi.repl_offset;
                 /* If we are a slave, create a cached master from this
-                 * information, in order to allow partial resynchronizations
+                 * information, in order to allow partial resynchronization
                  * with masters. */
                 replicationCacheMasterUsingMyself();
                 selectDb(server.cached_master,rsi.repl_stream_db);
@@ -6370,6 +6336,16 @@ int main(int argc, char **argv) {
         ACLLoadUsersAtStartup();
         InitServerLast();
         loadDataFromDisk();
+        /* Open the AOF file if needed. */
+        if (server.aof_state == AOF_ON) {
+            server.aof_fd = open(server.aof_filename,
+                                 O_WRONLY|O_APPEND|O_CREAT,0644);
+            if (server.aof_fd == -1) {
+                serverLog(LL_WARNING, "Can't open the append-only file: %s",
+                          strerror(errno));
+                exit(1);
+            }
+        }
         if (server.cluster_enabled) {
             if (verifyClusterConfigWithData() == C_ERR) {
                 serverLog(LL_WARNING,

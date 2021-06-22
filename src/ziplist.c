@@ -54,7 +54,7 @@
  *
  * The length of the previous entry, <prevlen>, is encoded in the following way:
  * If this length is smaller than 254 bytes, it will only consume a single
- * byte representing the length as an unsinged 8 bit integer. When the length
+ * byte representing the length as an unsigned 8 bit integer. When the length
  * is greater than or equal to 254, it will consume 5 bytes. The first byte is
  * set to 254 (FE) to indicate a larger value is following. The remaining 4
  * bytes take the length of the previous entry as value.
@@ -620,7 +620,7 @@ static inline int zipEntrySafe(unsigned char* zl, size_t zlbytes, unsigned char 
     unsigned char *zllast = zl + zlbytes - ZIPLIST_END_SIZE;
 #define OUT_OF_RANGE(p) (unlikely((p) < zlfirst || (p) > zllast))
 
-    /* If threre's no possibility for the header to reach outside the ziplist,
+    /* If there's no possibility for the header to reach outside the ziplist,
      * take the fast path. (max lensize and prevrawlensize are both 5 bytes) */
     if (p >= zlfirst && p + 10 < zllast) {
         ZIP_DECODE_PREVLEN(p, e->prevrawlensize, e->prevrawlen);
@@ -631,16 +631,16 @@ static inline int zipEntrySafe(unsigned char* zl, size_t zlbytes, unsigned char 
         /* We didn't call ZIP_ASSERT_ENCODING, so we check lensize was set to 0. */
         if (unlikely(e->lensize == 0))
             return 0;
-        /* Make sure the entry doesn't rech outside the edge of the ziplist */
+        /* Make sure the entry doesn't reach outside the edge of the ziplist */
         if (OUT_OF_RANGE(p + e->headersize + e->len))
             return 0;
-        /* Make sure prevlen doesn't rech outside the edge of the ziplist */
+        /* Make sure prevlen doesn't reach outside the edge of the ziplist */
         if (validate_prevlen && OUT_OF_RANGE(p - e->prevrawlen))
             return 0;
         return 1;
     }
 
-    /* Make sure the pointer doesn't rech outside the edge of the ziplist */
+    /* Make sure the pointer doesn't reach outside the edge of the ziplist */
     if (OUT_OF_RANGE(p))
         return 0;
 
@@ -664,11 +664,11 @@ static inline int zipEntrySafe(unsigned char* zl, size_t zlbytes, unsigned char 
     ZIP_DECODE_LENGTH(p + e->prevrawlensize, e->encoding, e->lensize, e->len);
     e->headersize = e->prevrawlensize + e->lensize;
 
-    /* Make sure the entry doesn't rech outside the edge of the ziplist */
+    /* Make sure the entry doesn't reach outside the edge of the ziplist */
     if (OUT_OF_RANGE(p + e->headersize + e->len))
         return 0;
 
-    /* Make sure prevlen doesn't rech outside the edge of the ziplist */
+    /* Make sure prevlen doesn't reach outside the edge of the ziplist */
     if (validate_prevlen && OUT_OF_RANGE(p - e->prevrawlen))
         return 0;
 
@@ -827,7 +827,7 @@ unsigned char *__ziplistCascadeUpdate(unsigned char *zl, unsigned char *p) {
             /* An entry's prevlen can only increment 4 bytes. */
             zipStorePrevEntryLength(p, cur.prevrawlen+delta);
         }
-        /* Foward to previous entry. */
+        /* Forward to previous entry. */
         prevoffset -= cur.prevrawlen;
         cnt--;
     }

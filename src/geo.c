@@ -213,7 +213,7 @@ void addReplyDoubleDistance(client *c, double d) {
  * representing a point, and a GeoShape, appends this entry as a geoPoint
  * into the specified geoArray only if the point is within the search area.
  *
- * returns C_OK if the point is included, or REIDS_ERR if it is outside. */
+ * returns C_OK if the point is included, or C_ERR if it is outside. */
 int geoAppendIfWithinShape(geoArray *ga, GeoShape *shape, double score, sds member) {
     double distance = 0, xy[2];
 
@@ -241,10 +241,10 @@ int geoAppendIfWithinShape(geoArray *ga, GeoShape *shape, double score, sds memb
 }
 
 /* Query a Redis sorted set to extract all the elements between 'min' and
- * 'max', appending them into the array of geoPoint structures 'gparray'.
+ * 'max', appending them into the array of geoPoint structures 'geoArray'.
  * The command returns the number of elements added to the array.
  *
- * Elements which are farest than 'radius' from the specified 'x' and 'y'
+ * Elements which are farther than 'radius' from the specified 'x' and 'y'
  * coordinates are not included.
  *
  * The ability of this function to append to an existing set of points is
@@ -330,7 +330,7 @@ void scoresOfGeoHashBox(GeoHashBits hash, GeoHashFix52Bits *min, GeoHashFix52Bit
      *
      * To get the min score we just use the initial hash value left
      * shifted enough to get the 52 bit value. Later we increment the
-     * 6 bit prefis (see the hash.bits++ statement), and get the new
+     * 6 bit prefix (see the hash.bits++ statement), and get the new
      * prefix: 101011, which we align again to 52 bits to get the maximum
      * value (which is excluded from the search). So we get everything
      * between the two following scores (represented in binary):
