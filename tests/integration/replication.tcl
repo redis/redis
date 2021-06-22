@@ -397,7 +397,7 @@ test {slave fails full sync and diskless load swapdb recovers it} {
             # Put different data sets on the master and slave
             # we need to put large keys on the master since the slave replies to info only once in 2mb
             $slave debug populate 2000 slave 10
-            $master debug populate 200 master 100000
+            $master debug populate 800 master 100000
             $master config set rdbcompression no
 
             # Set master and slave to use diskless replication
@@ -406,7 +406,7 @@ test {slave fails full sync and diskless load swapdb recovers it} {
             $slave config set repl-diskless-load swapdb
 
             # Set master with a slow rdb generation, so that we can easily disconnect it mid sync
-            # 10ms per key, with 200 keys is 2 seconds
+            # 10ms per key, with 800 keys is 8 seconds
             $master config set rdb-key-save-delay 10000
 
             # Start the replication process...
