@@ -685,6 +685,34 @@ start_server {tags {"stream xsetid"}} {
     } {ERR no such key}
 }
 
+start_server {tags {"stream offset"}} {
+    test {XADD advances the offset} {
+        r DEL x
+        r XADD x 1-0 data a
+
+        set reply [r XINFO STREAM x FULL]
+        assert_equal [lindex $reply 11] 1 ;# stream last offset
+    }
+    
+    test {Maxmimum XDEL ID behaves correctly} {
+        r DEL x
+        r XADD x 1-0 data a
+        r XADD x 2-0 data b
+        r XADD x 3-0 data c
+
+        set reply [r XINFO STREAM x FULL]
+        assert_equal [lindex $reply 9] "0-0" ;# stream xdel max id
+
+        r XDEL x 2-0
+        set reply [r XINFO STREAM x FULL]
+        assert_equal [lindex $reply 9] "2-0" ;# stream xdel max id
+
+        r XDEL x 1-0
+        set reply [r XINFO STREAM x FULL]
+        assert_equal [lindex $reply 9] "2-0" ;# stream xdel max id
+    }
+}
+
 start_server {tags {"stream needs:debug"} overrides {appendonly yes aof-use-rdb-preamble no}} {
     test {Empty stream can be rewrite into AOF correctly} {
         r XADD mystream MAXLEN 0 * a b

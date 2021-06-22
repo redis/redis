@@ -482,22 +482,22 @@ start_server {
         r XDEL x 103
 
         set reply [r XINFO STREAM x FULL]
-        assert_equal [llength $reply] 12
+        assert_equal [llength $reply] 16
         assert_equal [lindex $reply 1] 4 ;# stream length
-        assert_equal [lindex $reply 9] "{100-0 {a 1}} {101-0 {b 1}} {102-0 {c 1}} {104-0 {f 1}}" ;# entries
-        assert_equal [lindex $reply 11 0 1] "g1" ;# first group name
-        assert_equal [lindex $reply 11 0 7 0 0] "100-0" ;# first entry in group's PEL
-        assert_equal [lindex $reply 11 0 9 0 1] "Alice" ;# first consumer
-        assert_equal [lindex $reply 11 0 9 0 7 0 0] "100-0" ;# first entry in first consumer's PEL
-        assert_equal [lindex $reply 11 1 1] "g2" ;# second group name
-        assert_equal [lindex $reply 11 1 9 0 1] "Charlie" ;# first consumer
-        assert_equal [lindex $reply 11 1 9 0 7 0 0] "100-0" ;# first entry in first consumer's PEL
-        assert_equal [lindex $reply 11 1 9 0 7 1 0] "101-0" ;# second entry in first consumer's PEL
+        assert_equal [lindex $reply 13] "{100-0 {a 1}} {101-0 {b 1}} {102-0 {c 1}} {104-0 {f 1}}" ;# entries
+        assert_equal [lindex $reply 15 0 1] "g1" ;# first group name
+        assert_equal [lindex $reply 15 0 11 0 0] "100-0" ;# first entry in group's PEL
+        assert_equal [lindex $reply 15 0 13 0 1] "Alice" ;# first consumer
+        assert_equal [lindex $reply 15 0 13 0 7 0 0] "100-0" ;# first entry in first consumer's PEL
+        assert_equal [lindex $reply 15 1 1] "g2" ;# second group name
+        assert_equal [lindex $reply 15 1 11 0 1] "Charlie" ;# first consumer
+        assert_equal [lindex $reply 15 1 13 0 7 0 0] "100-0" ;# first entry in first consumer's PEL
+        assert_equal [lindex $reply 15 1 13 0 7 1 0] "101-0" ;# second entry in first consumer's PEL
 
         set reply [r XINFO STREAM x FULL COUNT 1]
-        assert_equal [llength $reply] 12
+        assert_equal [llength $reply] 16
         assert_equal [lindex $reply 1] 4
-        assert_equal [lindex $reply 9] "{100-0 {a 1}}"
+        assert_equal [lindex $reply 13] "{100-0 {a 1}}"
     }
 
     test {XGROUP CREATECONSUMER: create consumer if does not exist} {
@@ -594,6 +594,110 @@ start_server {
             set consumer_info [lindex $reply 1]
             assert_equal [lindex $consumer_info 1] "Charlie"
         }
+    }
+
+    test {Consumer group offset and lag in empty streams} {
+        r DEL x
+        r XGROUP CREATE x g1 0 MKSTREAM
+
+        set reply [r XINFO STREAM x FULL]
+        assert_equal [lindex $reply 9] "0-0" ;# stream xdel max id
+        assert_equal [lindex $reply 11] 0 ;# stream last offset
+        assert_equal [lindex $reply 15 0 5] 0 ;# group last delivered offset
+        assert_equal [lindex $reply 15 0 7] 0 ;# group lag
+
+        r XADD x 1-0 data a
+        r XDEL x 1-0
+
+        set reply [r XINFO STREAM x FULL]
+        assert_equal [lindex $reply 9] "1-0" ;# stream xdel max id
+        assert_equal [lindex $reply 11] 1 ;# stream last offset
+        assert_equal [lindex $reply 15 0 5] 0 ;# group last delivered offset
+        assert_equal [lindex $reply 15 0 7] 0 ;# group lag
+    }
+
+    test {Consumer group offset and lag sanity} {
+        r DEL x
+        r XADD x 1-0 data a
+        r XADD x 2-0 data b
+        r XADD x 3-0 data c
+        r XADD x 4-0 data d
+        r XADD x 5-0 data e
+        r XGROUP CREATE x g1 0
+
+        set reply [r XINFO STREAM x FULL]
+        assert_equal [lindex $reply 15 0 5] 0 ;# group last delivered offset
+        assert_equal [lindex $reply 15 0 7] 5 ;# group lag
+
+        r XREADGROUP GROUP g1 c11 COUNT 1 STREAMS x >
+        set reply [r XINFO STREAM x FULL]
+        assert_equal [lindex $reply 15 0 5] 1 ;# group last delivered offset
+        assert_equal [lindex $reply 15 0 7] 4 ;# group lag
+
+        r XREADGROUP GROUP g1 c12 COUNT 10 STREAMS x >
+        set reply [r XINFO STREAM x FULL]
+        assert_equal [lindex $reply 15 0 5] 5 ;# group last delivered offset
+        assert_equal [lindex $reply 15 0 7] 0 ;# group lag
+        
+        r XADD x 6-0 data f
+        set reply [r XINFO STREAM x FULL]
+        assert_equal [lindex $reply 15 0 5] 5 ;# group last delivered offset
+        assert_equal [lindex $reply 15 0 7] 1 ;# group lag        
+    }
+
+    test {Consumer group lag with XDELs} {
+        r DEL x
+        r XADD x 1-0 data a
+        r XADD x 2-0 data b
+        r XADD x 3-0 data c
+        r XADD x 4-0 data d
+        r XADD x 5-0 data e
+        r XDEL x 3-0
+        r XGROUP CREATE x g1 0
+        r XGROUP CREATE x g2 0
+        
+        set reply [r XINFO STREAM x FULL]
+        assert_equal [lindex $reply 15 0 5] 0 ;# group last delivered offset
+        assert_equal [lindex $reply 15 0 7] {} ;# group lag
+
+        r XREADGROUP GROUP g1 c11 COUNT 1 STREAMS x >
+        set reply [r XINFO STREAM x FULL]
+        assert_equal [lindex $reply 15 0 5] 0 ;# group last delivered offset
+        assert_equal [lindex $reply 15 0 7] {} ;# group lag
+
+        r XREADGROUP GROUP g1 c11 COUNT 1 STREAMS x >
+        set reply [r XINFO STREAM x FULL]
+        assert_equal [lindex $reply 15 0 5] 0 ;# group last delivered offset
+        assert_equal [lindex $reply 15 0 7] {} ;# group lag
+
+        r XREADGROUP GROUP g1 c11 COUNT 1 STREAMS x >
+        set reply [r XINFO STREAM x FULL]
+        assert_equal [lindex $reply 15 0 5] 0 ;# group last delivered offset
+        assert_equal [lindex $reply 15 0 7] {} ;# group lag
+
+        r XREADGROUP GROUP g1 c11 COUNT 1 STREAMS x >
+        set reply [r XINFO STREAM x FULL]
+        assert_equal [lindex $reply 15 0 5] 5 ;# group last delivered offset
+        assert_equal [lindex $reply 15 0 7] 0 ;# group lag
+
+        r XADD x 6-0 data f
+        set reply [r XINFO STREAM x FULL]
+        assert_equal [lindex $reply 15 0 5] 5 ;# group last delivered offset
+        assert_equal [lindex $reply 15 0 7] 1 ;# group lag
+        
+        r XTRIM x MINID = 3-0
+        set reply [r XINFO STREAM x FULL]
+        assert_equal [lindex $reply 15 0 5] 5 ;# group last delivered offset
+        assert_equal [lindex $reply 15 0 7] 1 ;# group lag
+        assert_equal [lindex $reply 15 1 5] 0 ;# 2nd group last delivered offset
+        assert_equal [lindex $reply 15 1 7] 3 ;# 2nd group lag
+
+        r XTRIM x MINID = 5-0
+        set reply [r XINFO STREAM x FULL]
+        assert_equal [lindex $reply 15 0 5] 5 ;# group last delivered offset
+        assert_equal [lindex $reply 15 0 7] 1 ;# group lag
+        assert_equal [lindex $reply 15 1 5] 0 ;# 2nd group last delivered offset
+        assert_equal [lindex $reply 15 1 7] 2 ;# 2nd group lag
     }
 
     start_server {tags {"external:skip"}} {
