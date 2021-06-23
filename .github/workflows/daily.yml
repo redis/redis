@@ -54,16 +54,16 @@ jobs:
     - name: testprep
       run: sudo apt-get install tcl8.6 tclx
     - name: test
-      if: github.event.inputs.redistests != '0'
+      if: github.event_name != 'workflow_dispatch' || github.event.inputs.redistests != '0'
       run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
-      if: github.event.inputs.moduleapi != '0'
+      if: github.event_name != 'workflow_dispatch' || github.event.inputs.moduleapi != '0'
       run: ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}}
     - name: sentinel tests
-      if: github.event.inputs.sentinel != '0'
+      if: github.event_name != 'workflow_dispatch' || github.event.inputs.sentinel != '0'
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
     - name: cluster tests
-      if: github.event.inputs.cluster != '0'
+      if: github.event_name != 'workflow_dispatch' || github.event.inputs.cluster != '0'
       run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
     - name: unittest
       run: ./src/redis-server test all
@@ -79,16 +79,16 @@ jobs:
     - name: testprep
       run: sudo apt-get install tcl8.6 tclx
     - name: test
-      if: github.event.inputs.redistests != '0'
+      if: github.event_name != 'workflow_dispatch' || github.event.inputs.redistests != '0'
       run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
-      if: github.event.inputs.moduleapi != '0'
+      if: github.event_name != 'workflow_dispatch' || github.event.inputs.moduleapi != '0'
       run: ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}}
     - name: sentinel tests
-      if: github.event.inputs.sentinel != '0'
+      if: github.event_name != 'workflow_dispatch' || github.event.inputs.sentinel != '0'
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
     - name: cluster tests
-      if: github.event.inputs.cluster != '0'
+      if: github.event_name != 'workflow_dispatch' || github.event.inputs.cluster != '0'
       run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
 
   test-ubuntu-no-malloc-usable-size:
@@ -102,16 +102,16 @@ jobs:
     - name: testprep
       run: sudo apt-get install tcl8.6 tclx
     - name: test
-      if: github.event.inputs.redistests != '0'
+      if: github.event_name != 'workflow_dispatch' || github.event.inputs.redistests != '0'
       run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
-      if: github.event.inputs.moduleapi != '0'
+      if: github.event_name != 'workflow_dispatch' || github.event.inputs.moduleapi != '0'
       run: ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}}
     - name: sentinel tests
-      if: github.event.inputs.sentinel != '0'
+      if: github.event_name != 'workflow_dispatch' || github.event.inputs.sentinel != '0'
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
     - name: cluster tests
-      if: github.event.inputs.cluster != '0'
+      if: github.event_name != 'workflow_dispatch' || github.event.inputs.cluster != '0'
       run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
 
   test-ubuntu-32bit:
@@ -127,25 +127,25 @@ jobs:
     - name: testprep
       run: sudo apt-get install tcl8.6 tclx
     - name: test
-      if: github.event.inputs.redistests != '0'
+      if: github.event_name != 'workflow_dispatch' || github.event.inputs.redistests != '0'
       run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
-      if: github.event.inputs.moduleapi != '0'
+      if: github.event_name != 'workflow_dispatch' || github.event.inputs.moduleapi != '0'
       run: |
         make -C tests/modules 32bit # the script below doesn't have an argument, we must build manually ahead of time
         ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}}
     - name: sentinel tests
-      if: github.event.inputs.sentinel != '0'
+      if: github.event_name != 'workflow_dispatch' || github.event.inputs.sentinel != '0'
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
     - name: cluster tests
-      if: github.event.inputs.cluster != '0'
+      if: github.event_name != 'workflow_dispatch' || github.event.inputs.cluster != '0'
       run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
     - name: unittest
       run: ./src/redis-server test all
 
   test-ubuntu-tls:
     runs-on: ubuntu-latest
-    if: github.repository == 'redis/redis' && github.event.inputs.tls != '0'
+    if: github.repository == 'redis/redis' && (github.event_name != 'workflow_dispatch' || github.event.inputs.tls != '0')
     timeout-minutes: 14400
     steps:
     - uses: actions/checkout@v2
@@ -157,29 +157,29 @@ jobs:
         sudo apt-get install tcl8.6 tclx tcl-tls
         ./utils/gen-test-certs.sh
     - name: test
-      if: github.event.inputs.redistests != '0'
+      if: github.event_name != 'workflow_dispatch' || github.event.inputs.redistests != '0'
       run: |
         ./runtest --accurate --verbose --tls --dump-logs ${{github.event.inputs.test_args}}
         ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
-      if: github.event.inputs.moduleapi != '0'
+      if: github.event_name != 'workflow_dispatch' || github.event.inputs.moduleapi != '0'
       run: |
         ./runtest-moduleapi --verbose --tls ${{github.event.inputs.test_args}}
         ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}}
     - name: sentinel tests
-      if: github.event.inputs.sentinel != '0'
+      if: github.event_name != 'workflow_dispatch' || github.event.inputs.sentinel != '0'
       run: |
         ./runtest-sentinel --tls ${{github.event.inputs.cluster_test_args}}
         ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
     - name: cluster tests
-      if: github.event.inputs.cluster != '0'
+      if: github.event_name != 'workflow_dispatch' || github.event.inputs.cluster != '0'
       run: |
         ./runtest-cluster --tls ${{github.event.inputs.cluster_test_args}}
         ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
 
   test-ubuntu-io-threads:
     runs-on: ubuntu-latest
-    if: github.repository == 'redis/redis' && github.event.inputs.iothreads != '0'
+    if: github.repository == 'redis/redis' && (github.event_name != 'workflow_dispatch' || github.event.inputs.iothreads != '0')
     timeout-minutes: 14400
     steps:
     - uses: actions/checkout@v2
@@ -189,14 +189,14 @@ jobs:
     - name: testprep
       run: sudo apt-get install tcl8.6 tclx
     - name: test
-      if: github.event.inputs.redistests != '0'
+      if: github.event_name != 'workflow_dispatch' || github.event.inputs.redistests != '0'
       run: ./runtest --config io-threads 4 --config io-threads-do-reads yes --accurate --verbose --tags network --dump-logs ${{github.event.inputs.test_args}}
     - name: cluster tests
       run: ./runtest-cluster --config io-threads 4 --config io-threads-do-reads yes ${{github.event.inputs.cluster_test_args}}
 
   test-valgrind:
     runs-on: ubuntu-latest
-    if: github.repository == 'redis/redis' && github.event.inputs.valgrind != '0'
+    if: github.repository == 'redis/redis' && (github.event_name != 'workflow_dispatch' || github.event.inputs.valgrind != '0')
     timeout-minutes: 14400
     steps:
     - uses: actions/checkout@v2
@@ -207,10 +207,10 @@ jobs:
         sudo apt-get update
         sudo apt-get install tcl8.6 tclx valgrind -y
     - name: test
-      if: github.event.inputs.redistests != '0'
+      if: github.event_name != 'workflow_dispatch' || github.event.inputs.redistests != '0'
       run: ./runtest --valgrind --verbose --clients 1 --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
-      if: github.event.inputs.moduleapi != '0'
+      if: github.event_name != 'workflow_dispatch' || github.event.inputs.moduleapi != '0'
       run: ./runtest-moduleapi --valgrind --no-latency --verbose --clients 1 ${{github.event.inputs.test_args}}
     - name: unittest
       run: |
@@ -219,7 +219,7 @@ jobs:
 
   test-valgrind-no-malloc-usable-size:
     runs-on: ubuntu-latest
-    if: github.repository == 'redis/redis' && github.event.inputs.valgrind != '0'
+    if: github.repository == 'redis/redis' && (github.event_name != 'workflow_dispatch' || github.event.inputs.valgrind != '0')
     timeout-minutes: 14400
     steps:
     - uses: actions/checkout@v2
@@ -230,10 +230,10 @@ jobs:
         sudo apt-get update
         sudo apt-get install tcl8.6 tclx valgrind -y
     - name: test
-      if: github.event.inputs.redistests != '0'
+      if: github.event_name != 'workflow_dispatch' || github.event.inputs.redistests != '0'
       run: /runtest --valgrind --verbose --clients 1 --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
-      if: github.event.inputs.moduleapi != '0'
+      if: github.event_name != 'workflow_dispatch' || github.event.inputs.moduleapi != '0'
       run: ./runtest-moduleapi --valgrind --no-latency --verbose --clients 1 ${{github.event.inputs.test_args}}
 
   test-centos7-jemalloc:
@@ -250,21 +250,21 @@ jobs:
     - name: testprep
       run: yum -y install which tcl tclx
     - name: test
-      if: github.event.inputs.redistests != '0'
+      if: github.event_name != 'workflow_dispatch' || github.event.inputs.redistests != '0'
       run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
-      if: github.event.inputs.moduleapi != '0'
+      if: github.event_name != 'workflow_dispatch' || github.event.inputs.moduleapi != '0'
       run: ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}}
     - name: sentinel tests
-      if: github.event.inputs.sentinel != '0'
+      if: github.event_name != 'workflow_dispatch' || github.event.inputs.sentinel != '0'
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
     - name: cluster tests
-      if: github.event.inputs.cluster != '0'
+      if: github.event_name != 'workflow_dispatch' || github.event.inputs.cluster != '0'
       run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
 
   test-centos7-tls:
     runs-on: ubuntu-latest
-    if: github.repository == 'redis/redis' && github.event.inputs.tls != '0'
+    if: github.repository == 'redis/redis' && (github.event_name != 'workflow_dispatch' || github.event.inputs.tls != '0')
     container: centos:7
     timeout-minutes: 14400
     steps:
@@ -279,22 +279,22 @@ jobs:
         yum -y install tcl tcltls tclx
         ./utils/gen-test-certs.sh
     - name: test
-      if: github.event.inputs.redistests != '0'
+      if: github.event_name != 'workflow_dispatch' || github.event.inputs.redistests != '0'
       run: |
         ./runtest --accurate --verbose --tls --dump-logs ${{github.event.inputs.test_args}}
         ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
-      if: github.event.inputs.moduleapi != '0'
+      if: github.event_name != 'workflow_dispatch' || github.event.inputs.moduleapi != '0'
       run: |
         ./runtest-moduleapi --verbose --tls ${{github.event.inputs.test_args}}
         ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}}
     - name: sentinel tests
-      if: github.event.inputs.sentinel != '0'
+      if: github.event_name != 'workflow_dispatch' || github.event.inputs.sentinel != '0'
       run: |
         ./runtest-sentinel --tls ${{github.event.inputs.cluster_test_args}}
         ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
     - name: cluster tests
-      if: github.event.inputs.cluster != '0'
+      if: github.event_name != 'workflow_dispatch' || github.event.inputs.cluster != '0'
       run: |
         ./runtest-cluster --tls ${{github.event.inputs.cluster_test_args}}
         ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
@@ -308,20 +308,20 @@ jobs:
     - name: make
       run: make
     - name: test
-      if: github.event.inputs.redistests != '0'
+      if: github.event_name != 'workflow_dispatch' || github.event.inputs.redistests != '0'
       run: ./runtest --accurate --verbose --no-latency --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
-      if: github.event.inputs.moduleapi != '0'
+      if: github.event_name != 'workflow_dispatch' || github.event.inputs.moduleapi != '0'
       run: ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}}
     - name: sentinel tests
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
     - name: cluster tests
-      if: github.event.inputs.cluster != '0'
+      if: github.event_name != 'workflow_dispatch' || github.event.inputs.cluster != '0'
       run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
 
   test-freebsd:
     runs-on: macos-latest
-    if: github.repository == 'redis/redis' && github.event.inputs.freebsd != '0'
+    if: github.repository == 'redis/redis' && (github.event_name != 'workflow_dispatch' || github.event.inputs.freebsd != '0')
     timeout-minutes: 14400
     steps:
     - uses: actions/checkout@v2
@@ -351,15 +351,15 @@ jobs:
     - name: testprep
       run: apk add tcl procps tclx
     - name: test
-      if: github.event.inputs.redistests != '0'
+      if: github.event_name != 'workflow_dispatch' || github.event.inputs.redistests != '0'
       run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
-      if: github.event.inputs.moduleapi != '0'
+      if: github.event_name != 'workflow_dispatch' || github.event.inputs.moduleapi != '0'
       run: ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}}
     - name: sentinel tests
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
     - name: cluster tests
-      if: github.event.inputs.cluster != '0'
+      if: github.event_name != 'workflow_dispatch' || github.event.inputs.cluster != '0'
       run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
 
   test-alpine-libc-malloc:
@@ -375,13 +375,13 @@ jobs:
     - name: testprep
       run: apk add tcl procps tclx
     - name: test
-      if: github.event.inputs.redistests != '0'
+      if: github.event_name != 'workflow_dispatch' || github.event.inputs.redistests != '0'
       run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
-      if: github.event.inputs.moduleapi != '0'
+      if: github.event_name != 'workflow_dispatch' || github.event.inputs.moduleapi != '0'
       run: ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}}
     - name: sentinel tests
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
     - name: cluster tests
-      if: github.event.inputs.cluster != '0'
+      if: github.event_name != 'workflow_dispatch' || github.event.inputs.cluster != '0'
       run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
