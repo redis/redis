@@ -22,7 +22,7 @@ on:
         description: 'extra cluster / sentinel test arguments'
         default: ''
       use_repo:
-        description: 'repo ownwer and name'
+        description: 'repo owner and name'
         default: 'redis/redis'
       use_git_ref:
         description: 'git branch or sha to use'
