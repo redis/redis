@@ -9,36 +9,24 @@ on:
     - cron: '0 0 * * *'
   workflow_dispatch:
     inputs:
-      valgrind:
-        description: 'with valgrind'
-        default: '1'
-      tls:
-        description: 'with tls'
-        default: '1'
-      iothreads:
-        description: 'with io threads'
-        default: '1'
-      freebsd:
-        description: 'with freebsd'
-        default: '1'
-      redistests:
-        description: 'with redis tests'
-        default: '1'
-      moduleapi:
-        description: 'with module api tests'
-        default: '1'
-      sentinel:
-        description: 'with sentinel tests'
-        default: '1'
-      cluster:
-        description: 'with cluster tests'
-        default: '1'
+      skipjobs:
+        description: 'jobs to skip'
+        default: 'valgrind,tls,freebsd,iothreads'
+      skiptests:
+        description: 'tests to skip'
+        default: 'redis,modules,sentinel,cluster'
       test_args:
         description: 'extra test arguments'
         default: ''
       cluster_test_args:
         description: 'extra cluster / sentinel test arguments'
         default: ''
+      use_repo:
+        description: 'repo owner and name'
+        default: 'redis/redis'
+      use_git_ref:
+        description: 'git branch or sha to use'
+        default: 'unstable'
 
 
 jobs:
@@ -48,22 +36,30 @@ jobs:
     if: github.repository == 'redis/redis'
     timeout-minutes: 14400
     steps:
+    - name: prep
+      if: github.event_name == 'workflow_dispatch'
+      run: |
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
     - uses: actions/checkout@v2
+      with:
+        repository: ${{ env.GITHUB_REPOSITORY }}
+        ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
       run: make REDIS_CFLAGS='-Werror -DREDIS_TEST'
     - name: testprep
       run: sudo apt-get install tcl8.6 tclx
     - name: test
-      if: github.event.inputs.redistests != '0'
+      if: !contains(github.event.inputs.skiptests, 'redis')
       run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
-      if: github.event.inputs.moduleapi != '0'
+      if: !contains(github.event.inputs.skiptests, 'modules')
       run: ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}}
     - name: sentinel tests
-      if: github.event.inputs.sentinel != '0'
+      if: !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
     - name: cluster tests
-      if: github.event.inputs.cluster != '0'
+      if: !contains(github.event.inputs.skiptests, 'cluster')
       run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
     - name: unittest
       run: ./src/redis-server test all
@@ -73,22 +69,30 @@ jobs:
     if: github.repository == 'redis/redis'
     timeout-minutes: 14400
     steps:
+    - name: prep
+      if: github.event_name == 'workflow_dispatch'
+      run: |
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
     - uses: actions/checkout@v2
+      with:
+        repository: ${{ env.GITHUB_REPOSITORY }}
+        ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
       run: make MALLOC=libc
     - name: testprep
       run: sudo apt-get install tcl8.6 tclx
     - name: test
-      if: github.event.inputs.redistests != '0'
+      if: !contains(github.event.inputs.skiptests, 'redis')
       run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
-      if: github.event.inputs.moduleapi != '0'
+      if: !contains(github.event.inputs.skiptests, 'modules')
       run: ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}}
     - name: sentinel tests
-      if: github.event.inputs.sentinel != '0'
+      if: !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
     - name: cluster tests
-      if: github.event.inputs.cluster != '0'
+      if: !contains(github.event.inputs.skiptests, 'cluster')
       run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
 
   test-ubuntu-no-malloc-usable-size:
@@ -96,22 +100,30 @@ jobs:
     if: github.repository == 'redis/redis'
     timeout-minutes: 14400
     steps:
+    - name: prep
+      if: github.event_name == 'workflow_dispatch'
+      run: |
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
     - uses: actions/checkout@v2
+      with:
+        repository: ${{ env.GITHUB_REPOSITORY }}
+        ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
       run: make MALLOC=libc CFLAGS=-DNO_MALLOC_USABLE_SIZE
     - name: testprep
       run: sudo apt-get install tcl8.6 tclx
     - name: test
-      if: github.event.inputs.redistests != '0'
+      if: !contains(github.event.inputs.skiptests, 'redis')
       run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
-      if: github.event.inputs.moduleapi != '0'
+      if: !contains(github.event.inputs.skiptests, 'modules')
       run: ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}}
     - name: sentinel tests
-      if: github.event.inputs.sentinel != '0'
+      if: !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
     - name: cluster tests
-      if: github.event.inputs.cluster != '0'
+      if: !contains(github.event.inputs.skiptests, 'cluster')
       run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
 
   test-ubuntu-32bit:
@@ -119,7 +131,15 @@ jobs:
     if: github.repository == 'redis/redis'
     timeout-minutes: 14400
     steps:
+    - name: prep
+      if: github.event_name == 'workflow_dispatch'
+      run: |
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
     - uses: actions/checkout@v2
+      with:
+        repository: ${{ env.GITHUB_REPOSITORY }}
+        ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
       run: |
         sudo apt-get update && sudo apt-get install libc6-dev-i386
@@ -127,28 +147,36 @@ jobs:
     - name: testprep
       run: sudo apt-get install tcl8.6 tclx
     - name: test
-      if: github.event.inputs.redistests != '0'
+      if: !contains(github.event.inputs.skiptests, 'redis')
       run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
-      if: github.event.inputs.moduleapi != '0'
+      if: !contains(github.event.inputs.skiptests, 'modules')
       run: |
         make -C tests/modules 32bit # the script below doesn't have an argument, we must build manually ahead of time
         ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}}
     - name: sentinel tests
-      if: github.event.inputs.sentinel != '0'
+      if: !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
     - name: cluster tests
-      if: github.event.inputs.cluster != '0'
+      if: !contains(github.event.inputs.skiptests, 'cluster')
       run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
     - name: unittest
       run: ./src/redis-server test all
 
   test-ubuntu-tls:
     runs-on: ubuntu-latest
-    if: github.repository == 'redis/redis' && github.event.inputs.tls != '0'
+    if: github.repository == 'redis/redis' && !contains(github.event.inputs.skipjobs, 'tls')
     timeout-minutes: 14400
     steps:
+    - name: prep
+      if: github.event_name == 'workflow_dispatch'
+      run: |
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
     - uses: actions/checkout@v2
+      with:
+        repository: ${{ env.GITHUB_REPOSITORY }}
+        ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
       run: |
         make BUILD_TLS=yes
@@ -157,49 +185,66 @@ jobs:
         sudo apt-get install tcl8.6 tclx tcl-tls
         ./utils/gen-test-certs.sh
     - name: test
-      if: github.event.inputs.redistests != '0'
+      if: !contains(github.event.inputs.skiptests, 'redis')
       run: |
         ./runtest --accurate --verbose --tls --dump-logs ${{github.event.inputs.test_args}}
         ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
-      if: github.event.inputs.moduleapi != '0'
+      if: !contains(github.event.inputs.skiptests, 'modules')
       run: |
         ./runtest-moduleapi --verbose --tls ${{github.event.inputs.test_args}}
         ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}}
     - name: sentinel tests
-      if: github.event.inputs.sentinel != '0'
+      if: !contains(github.event.inputs.skiptests, 'sentinel')
       run: |
         ./runtest-sentinel --tls ${{github.event.inputs.cluster_test_args}}
         ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
     - name: cluster tests
-      if: github.event.inputs.cluster != '0'
+      if: !contains(github.event.inputs.skiptests, 'cluster')
       run: |
         ./runtest-cluster --tls ${{github.event.inputs.cluster_test_args}}
         ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
 
   test-ubuntu-io-threads:
     runs-on: ubuntu-latest
-    if: github.repository == 'redis/redis' && github.event.inputs.iothreads != '0'
+    if: github.repository == 'redis/redis' && !contains(github.event.inputs.skipjobs, 'iothreads')
     timeout-minutes: 14400
     steps:
+    - name: prep
+      if: github.event_name == 'workflow_dispatch'
+      run: |
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
     - uses: actions/checkout@v2
+      with:
+        repository: ${{ env.GITHUB_REPOSITORY }}
+        ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
       run: |
         make
     - name: testprep
       run: sudo apt-get install tcl8.6 tclx
     - name: test
-      if: github.event.inputs.redistests != '0'
+      if: !contains(github.event.inputs.skiptests, 'redis')
       run: ./runtest --config io-threads 4 --config io-threads-do-reads yes --accurate --verbose --tags network --dump-logs ${{github.event.inputs.test_args}}
     - name: cluster tests
+      if: !contains(github.event.inputs.skiptests, 'cluster')
       run: ./runtest-cluster --config io-threads 4 --config io-threads-do-reads yes ${{github.event.inputs.cluster_test_args}}
 
   test-valgrind:
     runs-on: ubuntu-latest
-    if: github.repository == 'redis/redis' && github.event.inputs.valgrind != '0'
+    if: github.repository == 'redis/redis' && !contains(github.event.inputs.skipjobs, 'valgrind')
     timeout-minutes: 14400
     steps:
+    - name: prep
+      if: github.event_name == 'workflow_dispatch'
+      run: |
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
     - uses: actions/checkout@v2
+      with:
+        repository: ${{ env.GITHUB_REPOSITORY }}
+        ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
       run: make valgrind REDIS_CFLAGS='-Werror -DREDIS_TEST'
     - name: testprep
@@ -207,10 +252,10 @@ jobs:
         sudo apt-get update
         sudo apt-get install tcl8.6 tclx valgrind -y
     - name: test
-      if: github.event.inputs.redistests != '0'
+      if: !contains(github.event.inputs.skiptests, 'redis')
       run: ./runtest --valgrind --verbose --clients 1 --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
-      if: github.event.inputs.moduleapi != '0'
+      if: !contains(github.event.inputs.skiptests, 'modules')
       run: ./runtest-moduleapi --valgrind --no-latency --verbose --clients 1 ${{github.event.inputs.test_args}}
     - name: unittest
       run: |
@@ -219,10 +264,18 @@ jobs:
 
   test-valgrind-no-malloc-usable-size:
     runs-on: ubuntu-latest
-    if: github.repository == 'redis/redis' && github.event.inputs.valgrind != '0'
+    if: github.repository == 'redis/redis' && !contains(github.event.inputs.skipjobs, 'valgrind')
     timeout-minutes: 14400
     steps:
+    - name: prep
+      if: github.event_name == 'workflow_dispatch'
+      run: |
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
     - uses: actions/checkout@v2
+      with:
+        repository: ${{ env.GITHUB_REPOSITORY }}
+        ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
       run: make valgrind CFLAGS="-DNO_MALLOC_USABLE_SIZE"
     - name: testprep
@@ -230,10 +283,10 @@ jobs:
         sudo apt-get update
         sudo apt-get install tcl8.6 tclx valgrind -y
     - name: test
-      if: github.event.inputs.redistests != '0'
+      if: !contains(github.event.inputs.skiptests, 'redis')
       run: /runtest --valgrind --verbose --clients 1 --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
-      if: github.event.inputs.moduleapi != '0'
+      if: !contains(github.event.inputs.skiptests, 'modules')
       run: ./runtest-moduleapi --valgrind --no-latency --verbose --clients 1 ${{github.event.inputs.test_args}}
 
   test-centos7-jemalloc:
@@ -242,7 +295,15 @@ jobs:
     container: centos:7
     timeout-minutes: 14400
     steps:
+    - name: prep
+      if: github.event_name == 'workflow_dispatch'
+      run: |
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
     - uses: actions/checkout@v2
+      with:
+        repository: ${{ env.GITHUB_REPOSITORY }}
+        ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
       run: |
         yum -y install gcc make
@@ -250,25 +311,33 @@ jobs:
     - name: testprep
       run: yum -y install which tcl tclx
     - name: test
-      if: github.event.inputs.redistests != '0'
+      if: !contains(github.event.inputs.skiptests, 'redis')
       run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
-      if: github.event.inputs.moduleapi != '0'
+      if: !contains(github.event.inputs.skiptests, 'modules')
       run: ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}}
     - name: sentinel tests
-      if: github.event.inputs.sentinel != '0'
+      if: !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
     - name: cluster tests
-      if: github.event.inputs.cluster != '0'
+      if: !contains(github.event.inputs.skiptests, 'cluster')
       run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
 
   test-centos7-tls:
     runs-on: ubuntu-latest
-    if: github.repository == 'redis/redis' && github.event.inputs.tls != '0'
+    if: github.repository == 'redis/redis' && !contains(github.event.inputs.skipjobs, 'tls')
     container: centos:7
     timeout-minutes: 14400
     steps:
+    - name: prep
+      if: github.event_name == 'workflow_dispatch'
+      run: |
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
     - uses: actions/checkout@v2
+      with:
+        repository: ${{ env.GITHUB_REPOSITORY }}
+        ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
       run: |
         yum -y install centos-release-scl epel-release
@@ -279,22 +348,22 @@ jobs:
         yum -y install tcl tcltls tclx
         ./utils/gen-test-certs.sh
     - name: test
-      if: github.event.inputs.redistests != '0'
+      if: !contains(github.event.inputs.skiptests, 'redis')
       run: |
         ./runtest --accurate --verbose --tls --dump-logs ${{github.event.inputs.test_args}}
         ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
-      if: github.event.inputs.moduleapi != '0'
+      if: !contains(github.event.inputs.skiptests, 'modules')
       run: |
         ./runtest-moduleapi --verbose --tls ${{github.event.inputs.test_args}}
         ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}}
     - name: sentinel tests
-      if: github.event.inputs.sentinel != '0'
+      if: !contains(github.event.inputs.skiptests, 'sentinel')
       run: |
         ./runtest-sentinel --tls ${{github.event.inputs.cluster_test_args}}
         ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
     - name: cluster tests
-      if: github.event.inputs.cluster != '0'
+      if: !contains(github.event.inputs.skiptests, 'cluster')
       run: |
         ./runtest-cluster --tls ${{github.event.inputs.cluster_test_args}}
         ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
@@ -304,27 +373,43 @@ jobs:
     if: github.repository == 'redis/redis'
     timeout-minutes: 14400
     steps:
+    - name: prep
+      if: github.event_name == 'workflow_dispatch'
+      run: |
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
     - uses: actions/checkout@v2
+      with:
+        repository: ${{ env.GITHUB_REPOSITORY }}
+        ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
       run: make
     - name: test
-      if: github.event.inputs.redistests != '0'
+      if: !contains(github.event.inputs.skiptests, 'redis')
       run: ./runtest --accurate --verbose --no-latency --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
-      if: github.event.inputs.moduleapi != '0'
+      if: !contains(github.event.inputs.skiptests, 'modules')
       run: ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}}
     - name: sentinel tests
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
     - name: cluster tests
-      if: github.event.inputs.cluster != '0'
+      if: !contains(github.event.inputs.skiptests, 'cluster')
       run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
 
   test-freebsd:
     runs-on: macos-latest
-    if: github.repository == 'redis/redis' && github.event.inputs.freebsd != '0'
+    if: github.repository == 'redis/redis' && !contains(github.event.inputs.skipjobs, 'freebsd')
     timeout-minutes: 14400
     steps:
+    - name: prep
+      if: github.event_name == 'workflow_dispatch'
+      run: |
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
     - uses: actions/checkout@v2
+      with:
+        repository: ${{ env.GITHUB_REPOSITORY }}
+        ref: ${{ env.GITHUB_HEAD_REF }}
     - name: test
       uses: vmactions/freebsd-vm@v0.1.4
       with:
@@ -333,17 +418,25 @@ jobs:
         prepare: pkg install -y bash gmake lang/tcl86 lang/tclx
         run: >
           gmake &&
-          if [ ${{github.event.inputs.redistests}} != '0' ] ; then ./runtest --accurate --verbose --no-latency --dump-logs ${{github.event.inputs.test_args}} ; fi &&
-          if [ ${{github.event.inputs.moduleapi}} != '0' ] ; then MAKE=gmake ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}} ; fi &&
-          if [ ${{github.event.inputs.sentinel}} != '0' ] ; then ./runtest-sentinel ${{github.event.inputs.cluster_test_args}} ; fi &&
-          if [ ${{github.event.inputs.cluster}} != '0' ] ; then ./runtest-cluster ${{github.event.inputs.cluster_test_args}} ; fi
+          if [[ "${{github.event.inputs.skiptests}}" == *'redis'* ]] ; then ./runtest --accurate --verbose --no-latency --dump-logs ${{github.event.inputs.test_args}} ; fi &&
+          if [[ "${{github.event.inputs.skiptests}}" == *'mnodules'* ]] ; then MAKE=gmake ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}} ; fi &&
+          if [[ "${{github.event.inputs.skiptests}}" == *'sentinel'* ]] ; then ./runtest-sentinel ${{github.event.inputs.cluster_test_args}} ; fi &&
+          if [[ "${{github.event.inputs.skiptests}}" == *'cluster'* ]] ; then ./runtest-cluster ${{github.event.inputs.cluster_test_args}} ; fi
 
   test-alpine-jemalloc:
     runs-on: ubuntu-latest
     if: github.repository == 'redis/redis'
     container: alpine:latest
     steps:
+    - name: prep
+      if: github.event_name == 'workflow_dispatch'
+      run: |
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
     - uses: actions/checkout@v2
+      with:
+        repository: ${{ env.GITHUB_REPOSITORY }}
+        ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
       run: |
           apk add build-base
@@ -351,15 +444,15 @@ jobs:
     - name: testprep
       run: apk add tcl procps tclx
     - name: test
-      if: github.event.inputs.redistests != '0'
+      if: !contains(github.event.inputs.skiptests, 'redis')
       run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
-      if: github.event.inputs.moduleapi != '0'
+      if: !contains(github.event.inputs.skiptests, 'modules')
       run: ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}}
     - name: sentinel tests
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
     - name: cluster tests
-      if: github.event.inputs.cluster != '0'
+      if: !contains(github.event.inputs.skiptests, 'cluster')
       run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
 
   test-alpine-libc-malloc:
@@ -367,7 +460,15 @@ jobs:
     if: github.repository == 'redis/redis'
     container: alpine:latest
     steps:
+    - name: prep
+      if: github.event_name == 'workflow_dispatch'
+      run: |
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
     - uses: actions/checkout@v2
+      with:
+        repository: ${{ env.GITHUB_REPOSITORY }}
+        ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
       run: |
           apk add build-base
@@ -375,13 +476,13 @@ jobs:
     - name: testprep
       run: apk add tcl procps tclx
     - name: test
-      if: github.event.inputs.redistests != '0'
+      if: !contains(github.event.inputs.skiptests, 'redis')
       run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
-      if: github.event.inputs.moduleapi != '0'
+      if: !contains(github.event.inputs.skiptests, 'modules')
       run: ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}}
     - name: sentinel tests
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
     - name: cluster tests
-      if: github.event.inputs.cluster != '0'
+      if: !contains(github.event.inputs.skiptests, 'cluster')
       run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
