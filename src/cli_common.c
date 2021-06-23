@@ -221,7 +221,7 @@ sds readArgFromStdin(void) {
  * invalid quoted string.
  *
  * The caller should free the resulting array of sds strings with
- * hi_sdsfreesplitres().
+ * sdsfreesplitres().
  */
 sds *getSdsArrayFromArgv(int argc,char **argv, int quoted) {
     sds *res = sds_malloc(sizeof(sds) * argc);
