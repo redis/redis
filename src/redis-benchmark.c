@@ -1579,7 +1579,7 @@ usage:
 " -t <tests>         Only run the comma separated list of tests. The test\n"
 "                    names are the same as the ones produced as output.\n"
 " -I                 Idle mode. Just open N idle connections and wait.\n"
-" -x                Read last argument from STDIN.\n"
+" -x                 Read last argument from STDIN.\n"
 #ifdef USE_OPENSSL
 " --tls              Establish a secure TLS connection.\n"
 " --sni <host>       Server name indication for TLS.\n"
