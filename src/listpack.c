@@ -261,7 +261,7 @@ unsigned char* lpShrinkToFit(unsigned char *lp) {
  * Regardless of the returned encoding, 'enclen' is populated by reference to
  * the number of bytes that the string or integer encoded element will require
  * in order to be represented. */
-int lpEncodeGetType(unsigned char *ele, uint32_t size, unsigned char *intenc, uint64_t *enclen) {
+static inline int lpEncodeGetType(unsigned char *ele, uint32_t size, unsigned char *intenc, uint64_t *enclen) {
     int64_t v;
     if (lpStringToInt64((const char*)ele, size, &v)) {
         if (v >= 0 && v <= 127) {
@@ -326,7 +326,7 @@ int lpEncodeGetType(unsigned char *ele, uint32_t size, unsigned char *intenc, ui
  * The function returns the number of bytes used to encode it, from
  * 1 to 5. If 'buf' is NULL the function just returns the number of bytes
  * needed in order to encode the backlen. */
-unsigned long lpEncodeBacklen(unsigned char *buf, uint64_t l) {
+static inline unsigned long lpEncodeBacklen(unsigned char *buf, uint64_t l) {
     if (l <= 127) {
         if (buf) buf[0] = l;
         return 1;
@@ -365,7 +365,7 @@ unsigned long lpEncodeBacklen(unsigned char *buf, uint64_t l) {
 
 /* Decode the backlen and returns it. If the encoding looks invalid (more than
  * 5 bytes are used), UINT64_MAX is returned to report the problem. */
-uint64_t lpDecodeBacklen(unsigned char *p) {
+static inline uint64_t lpDecodeBacklen(unsigned char *p) {
     uint64_t val = 0;
     uint64_t shift = 0;
     do {
@@ -382,7 +382,7 @@ uint64_t lpDecodeBacklen(unsigned char *p) {
  * buffer 's'. The function should be called with 'buf' having always enough
  * space for encoding the string. This is done by calling lpEncodeGetType()
  * before calling this function. */
-void lpEncodeString(unsigned char *buf, unsigned char *s, uint32_t len) {
+static inline void lpEncodeString(unsigned char *buf, unsigned char *s, uint32_t len) {
     if (len < 64) {
         buf[0] = len | LP_ENCODING_6BIT_STR;
         memcpy(buf+1,s,len);
@@ -407,7 +407,7 @@ void lpEncodeString(unsigned char *buf, unsigned char *s, uint32_t len) {
  * str), so should only be called when we know 'p' was already validated by
  * lpCurrentEncodedSizeBytes or ASSERT_INTEGRITY_LEN (possibly since 'p' is
  * a return value of another function that validated its return. */
-uint32_t lpCurrentEncodedSizeUnsafe(unsigned char *p) {
+static inline uint32_t lpCurrentEncodedSizeUnsafe(unsigned char *p) {
     if (LP_ENCODING_IS_7BIT_UINT(p[0])) return 1;
     if (LP_ENCODING_IS_6BIT_STR(p[0])) return 1+LP_ENCODING_6BIT_STR_LEN(p);
     if (LP_ENCODING_IS_13BIT_INT(p[0])) return 2;
@@ -425,7 +425,7 @@ uint32_t lpCurrentEncodedSizeUnsafe(unsigned char *p) {
  * This includes just the encoding byte, and the bytes needed to encode the length
  * of the element (excluding the element data itself)
  * If the element encoding is wrong then 0 is returned. */
-uint32_t lpCurrentEncodedSizeBytes(unsigned char *p) {
+static inline uint32_t lpCurrentEncodedSizeBytes(unsigned char *p) {
     if (LP_ENCODING_IS_7BIT_UINT(p[0])) return 1;
     if (LP_ENCODING_IS_6BIT_STR(p[0])) return 1;
     if (LP_ENCODING_IS_13BIT_INT(p[0])) return 1;
@@ -446,7 +446,7 @@ uint32_t lpCurrentEncodedSizeBytes(unsigned char *p) {
  * str), so should only be called when we know 'p' was already validated by
  * lpCurrentEncodedSizeBytes or ASSERT_INTEGRITY_LEN (possibly since 'p' is
  * a return value of another function that validated its return. */
-uint32_t lpEntrySizeUnsafe(unsigned char *p) {
+static inline uint32_t lpEntrySizeUnsafe(unsigned char *p) {
     if (LP_ENCODING_IS_7BIT_UINT(p[0])) return LP_ENCODING_7BIT_UINT_ENTRY_SIZE;
     if (LP_ENCODING_IS_6BIT_STR(p[0])) return 2 + LP_ENCODING_6BIT_STR_LEN(p);
     if (LP_ENCODING_IS_13BIT_INT(p[0])) return LP_ENCODING_13BIT_INT_ENTRY_SIZE;
@@ -572,7 +572,7 @@ unsigned long lpLength(unsigned char *lp) {
  * assumed to be valid, so that would be a very high API cost. However a function
  * in order to check the integrity of the listpack at load time is provided,
  * check lpIsValid(). */
-unsigned char *lpGetWithSize(unsigned char *p, int64_t *count, unsigned char *intbuf, uint64_t *size) {
+static inline unsigned char *lpGetWithSize(unsigned char *p, int64_t *count, unsigned char *intbuf, uint64_t *size) {
     int64_t val;
     uint64_t uval, negstart, negmax;
 
@@ -674,16 +674,17 @@ unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s,
     unsigned char vencoding = 0;
     unsigned char *value;
     int64_t ll, vll;
-    uint32_t lp_bytes;
-    uint64_t entry_size;
+    uint64_t entry_size = 123456789; /* initialized to avoid warning. */
+    uint32_t lp_bytes = lpBytes(lp);
+    unsigned char *lp_head = lp + LP_HDR_SIZE;
+    unsigned char *lp_tail = lp + lp_bytes;
 
     assert(p);
-    lp_bytes = lpBytes(lp);
     while (p) {
         if (skipcnt == 0) {
             value = lpGetWithSize(p, &ll, NULL, &entry_size);
             if (value) {
-                if (slen == ll && memcmp(value,s,slen) == 0) {
+                if (slen == ll && memcmp(value, s, slen) == 0) {
                     return p;
                 }
             } else {
@@ -694,10 +695,10 @@ unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s,
                     /* If the entry can be encoded as integer we set it to
                      * 1, else set it to UCHAR_MAX, so that we don't retry
                      * again the next time. */
-                    if (lpStringToInt64((const char*)s, slen, &vll)) {
-                        vencoding = 1;
-                    } else {
+                    if (slen >= 32 || slen == 0 || !lpStringToInt64((const char*)s, slen, &vll)) {
                         vencoding = UCHAR_MAX;
+                    } else {
+                        vencoding = 1;
                     }
                 }
 
@@ -721,7 +722,7 @@ unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s,
             p = lpSkip(p);
         }
 
-        assert(p >= (lp + LP_HDR_SIZE) && p < (lp + lp_bytes));
+        assert(p >= lp_head && p < lp_tail);
         if (p[0] == LP_EOF) break;
     }
 
