@@ -198,6 +198,7 @@ int cliSecureInit()
     return REDIS_OK;
 }
 
+/* Create an sds from stdin */
 sds readArgFromStdin(void) {
     char buf[1024];
     sds arg = sdsempty();
@@ -218,6 +219,9 @@ sds readArgFromStdin(void) {
 /* Create an sds array from argv, either as-is or by dequoting every
  * element. When quoted is non-zero, may return a NULL to indicate an
  * invalid quoted string.
+ *
+ * The caller should free the resulting array of sds strings with
+ * hi_sdsfreesplitres().
  */
 sds *getSdsArrayFromArgv(int argc,char **argv, int quoted) {
     sds *res = sds_malloc(sizeof(sds) * argc);
