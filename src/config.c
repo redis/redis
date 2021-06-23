@@ -754,6 +754,7 @@ void loadServerConfig(char *filename, char config_from_stdin, char *options) {
     } else if (!strcasecmp(c->argv[2]->ptr,_name1) || \
                !strcasecmp(c->argv[2]->ptr,_name2)) {
 
+#define config_set_if if (0) {
 #define config_set_else } else
 
 void configSetCommand(client *c) {
@@ -782,7 +783,7 @@ void configSetCommand(client *c) {
         }
     }
 
-    if (0) { /* this starts the config_set macros else-if chain. */
+    config_set_if /* this starts the config_set macros else-if chain. */
 
     /* Special fields that can't be handled with general macros. */
     config_set_special_field("bind") {
