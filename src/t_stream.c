@@ -396,6 +396,9 @@ int streamCompareID(streamID *a, streamID *b) {
     return 0;
 }
 
+/* Retrieves the ID of the stream edge entry. An edge is either the first or
+ * the last ID in the stream. The tombstone argument controls whether an ID of
+ * a deleted edge entry is a valid reply. */
 void streamGetEdgeID(stream *s, int first, streamID *edge_id)
 {
     raxIterator ri;
@@ -1370,8 +1373,8 @@ int streamIDEqZero(streamID *id) {
 int streamIsContiguousRange(stream *s, streamID *start) {
     streamID start_id, first_id;
 
-    if (!s->offset || streamIDEqZero(&s->xdel_max_id)) {
-        /* A newly-initialized stream or no XDELs. */
+    if (!s->length || streamIDEqZero(&s->xdel_max_id)) {
+        /* An empty stream or no XDELs. */
         return 1;
     }
 
