@@ -1365,27 +1365,22 @@ int streamIDEqZero(streamID *id) {
     return !(id->ms || id->seq);
 }
 
-/* Check if a range contains an XDEL.
+/* Check if a range possibly contains a tombstone.
  * Assumes start < end && end < s->last_id. */
-int streamIsContiguousRange(stream *s, streamID *start, streamID *end) {
-    streamID start_id, end_id;
-    streamID first_id;
+int streamIsContiguousRange(stream *s, streamID *start) {
+    streamID start_id, first_id;
 
     if (!s->offset || streamIDEqZero(&s->xdel_max_id)) {
         /* A newly-initialized stream or no XDELs. */
         return 1;
     }
 
-    /* Copy input IDs, if given, or default to min/max IDs. */
+    /* Copy start ID, if given, or default to 0-0. */
     if (start) {
         start_id = *start;
     } else {
-        start_id.ms = start_id.seq = 0;
-    }
-    if (end) {
-        end_id = *end;
-    } else {
-        end_id.ms = end_id.seq = UINT64_MAX;
+        start_id.ms = 0;
+        start_id.seq = 0;
     }
 
     streamGetTipID(s,&first_id,1);
@@ -1628,7 +1623,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
     while(streamIteratorGetID(&si,&id,&numfields)) {
         /* Update the group last_id if needed. */
         if (group && streamCompareID(&id,&group->last_id) > 0) {
-            if (group->offset && streamIsContiguousRange(s,&id,NULL)) {
+            if (group->offset && streamIsContiguousRange(s,&id)) {
                 group->offset++;
             } else if (s->offset) {
                 group->offset = streamGetOffset(s,&id);
@@ -3581,12 +3576,12 @@ void xinfoReplyWithStreamInfo(client *c, stream *s) {
                     /* The lag of a newly-initialized stream is 0. */
                     lag = 0;
                 } else if (cg->offset &&
-                           streamIsContiguousRange(s,&cg->last_id,NULL)) {
+                           streamIsContiguousRange(s,&cg->last_id)) {
                         /* No fragmentation ahead means that the group's
                          * offset is valid for lag calculation. */
                         lag = s->offset - cg->offset;
                 } else if (streamIDEqZero(&cg->last_id)) {
-                    if (streamIsContiguousRange(s,NULL,NULL)) {
+                    if (streamIsContiguousRange(s,NULL)) {
                         /* The group is at 0-0 of a non-fragmented stream. */
                         lag = s->length;
                     } else {
