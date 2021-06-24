@@ -138,30 +138,14 @@ void processUnblockedClients(void) {
          * the code is conceptually more correct this way. */
         if (!(c->flags & CLIENT_BLOCKED)) {
             /* If we have a queued command, execute it now. */
-            if (processPendingCommandsAndResetClient(c) == C_ERR) {
-                continue;
-            }
-
-            /* Free the client if it's no longer needed after processing the
-             * command to reclaim its memory */
-            if (c->flags & CLIENT_CLOSE_ASAP) {
-                serverLog(LL_WARNING, "@@@ freeing unblocked client early!");
-                freeClient(c);
-                continue;
-            }
-
-            /* Then process client if it has more data in it's buffer. */
-            if (c->querybuf && sdslen(c->querybuf) > 0) {
-                processInputBuffer(c);
-
-                /* Free the client if it's no longer needed after processing the
-                 * command to reclaim its memory */
-                if (c->flags & CLIENT_CLOSE_ASAP) {
-                    serverLog(LL_WARNING, "@@@ freeing unblocked client early!");
-                    freeClient(c);
+            if (processPendingCommandsAndResetClient(c) == C_OK) {
+                /* Now process client if it has more data in it's buffer. */
+                if (c->querybuf && sdslen(c->querybuf) > 0) {
+                    processInputBuffer(c);
                 }
             }
         }
+        beforeNextClient(c);
     }
 }
 

@@ -52,22 +52,32 @@ start_server {} {
     }
 }
 
+proc mb {v} {
+    return [expr $v * 1024 * 1024]
+}
+
 start_server {} {
-    set maxmemory_clients 20000000
-    set obuf_limit 6000000
+    set server_pid [s process_id]
+    set maxmemory_clients [mb 10]
+    set obuf_limit [mb 3]
     r config set maxmemory-clients $maxmemory_clients
-    r config set client-output-buffer-limit "normal $obuf_limit 0 0"
 
     test "avoid client eviction when client is freed by output buffer limit" {
         r flushdb
-        r setrange k 200000 v
-        # Occupy client's query buff with half of maxmemory_clients
+        set obuf_size [expr {$obuf_limit + [mb 1]}]
+        r setrange k $obuf_size v
         set rr1 [redis_client]
         $rr1 client setname "qbuf-client"
         set rr2 [redis_deferring_client]
-        set qbsize [expr {$maxmemory_clients - 5000000 }]
+        $rr2 client setname "obuf-client1"
+        assert_match [$rr2 read] OK
+        set rr3 [redis_deferring_client]
+        $rr3 client setname "obuf-client2"
+        assert_match [$rr3 read] OK
+
+        # Occupy client's query buff with less than output buffer limit left to exceed maxmemory-clients
+        set qbsize [expr {$maxmemory_clients - $obuf_size}]
         $rr1 write [join [list "*1\r\n\$$qbsize\r\n" [string repeat v $qbsize]] ""]
-        #$rr1 write [string repeat v [expr {100000 }]]
         $rr1 flush
         # Wait for qbuff to be as expected
         wait_for_condition 200 10 {
@@ -76,18 +86,24 @@ start_server {} {
             fail "Failed to fill qbuf for test"
         }
         
-        # Now we know that ~15mb is being used by rr1, fill rr2's obuf until obuf limit, hopefully we won't trigger rr1 to disconnect
-        while true {
-            if { [catch {
-                $rr2 get k
-                $rr2 flush
-               } e]} {
-                assert_match {I/O error reading reply} $e
-                break
-            }
-        }
+        # Make the other two obuf-clients pass obuf limit and also pass maxmemory-clients
+        # We use two obuf-clients to make sure that even if client eviction is attempted
+        # btween two command processing (with no sleep) we don't perform any client eviction
+        # because the obuf limit is enforced with precendence.
+        exec kill -SIGSTOP $server_pid
+        $rr2 get k
+        $rr2 flush
+        $rr3 get k
+        $rr3 flush
+        exec kill -SIGCONT $server_pid
         
-        # Validate rr1 is still connected
+        # Validate obuf-clients were disconnected (because of obuf limit)
+        catch {[client_field obuf-client1 name]} e
+        assert_match $e {no client named obuf-client1 found}
+        catch {[client_field obuf-client2 name]} e
+        assert_match $e {no client named obuf-client2 found}
+        
+        # Validate qbuf-client is still connected and wasn't evicted
         assert_match [client_field qbuf-client name] {qbuf-client}
     }
 }

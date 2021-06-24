@@ -2211,6 +2211,8 @@ int updateClientMemUsage(client *c) {
     if (io_threads_op == IO_THREADS_OP_IDLE)
         updateClientMemUsageBucket(c); // do this only when no pending read flag and no write_handler flag - unify?!
 
+    serverLog(LL_WARNING, "Client: %s, mem usage: %zu", c->name ? (char*)c->name->ptr : "", mem);
+
     return 0;
 }
 
