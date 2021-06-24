@@ -61,6 +61,7 @@ start_server {} {
     set maxmemory_clients [mb 10]
     set obuf_limit [mb 3]
     r config set maxmemory-clients $maxmemory_clients
+    r config set client-output-buffer-limit "normal $obuf_limit 0 0"
 
     test "avoid client eviction when client is freed by output buffer limit" {
         r flushdb
@@ -98,9 +99,9 @@ start_server {} {
         exec kill -SIGCONT $server_pid
         
         # Validate obuf-clients were disconnected (because of obuf limit)
-        catch {[client_field obuf-client1 name]} e
+        catch {client_field obuf-client1 name} e
         assert_match $e {no client named obuf-client1 found}
-        catch {[client_field obuf-client2 name]} e
+        catch {client_field obuf-client2 name} e
         assert_match $e {no client named obuf-client2 found}
         
         # Validate qbuf-client is still connected and wasn't evicted
