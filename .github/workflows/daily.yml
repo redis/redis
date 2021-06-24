@@ -10,10 +10,10 @@ on:
   workflow_dispatch:
     inputs:
       skipjobs:
-        description: 'jobs to skip'
-        default: 'valgrind,tls,freebsd,iothreads'
+        description: 'jobs to skip (delete the ones you wanna keep)'
+        default: 'valgrind,tls,freebsd,macos,alpine,32bit'
       skiptests:
-        description: 'tests to skip'
+        description: 'tests to skip (delete the ones you wanna keep)'
         default: 'redis,modules,sentinel,cluster'
       test_args:
         description: 'extra test arguments'
@@ -41,6 +41,7 @@ jobs:
       run: |
         echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
         echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipping: ${{github.event.inputs.skipjobs}} and ${{github.event.inputs.skiptests}}"
     - uses: actions/checkout@v2
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -128,7 +129,7 @@ jobs:
 
   test-ubuntu-32bit:
     runs-on: ubuntu-latest
-    if: github.repository == 'redis/redis'
+    if: github.repository == 'redis/redis' && !contains(github.event.inputs.skipjobs, '32bit')
     timeout-minutes: 14400
     steps:
     - name: prep
@@ -284,7 +285,7 @@ jobs:
         sudo apt-get install tcl8.6 tclx valgrind -y
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
-      run: /runtest --valgrind --verbose --clients 1 --dump-logs ${{github.event.inputs.test_args}}
+      run: ./runtest --valgrind --verbose --clients 1 --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
       if: true && !contains(github.event.inputs.skiptests, 'modules')
       run: ./runtest-moduleapi --valgrind --no-latency --verbose --clients 1 ${{github.event.inputs.test_args}}
@@ -370,7 +371,7 @@ jobs:
 
   test-macos-latest:
     runs-on: macos-latest
-    if: github.repository == 'redis/redis'
+    if: github.repository == 'redis/redis' && !contains(github.event.inputs.skipjobs, 'macos')
     timeout-minutes: 14400
     steps:
     - name: prep
@@ -417,15 +418,15 @@ jobs:
         sync: rsync
         prepare: pkg install -y bash gmake lang/tcl86 lang/tclx
         run: >
-          gmake &&
-          if [[ "${{github.event.inputs.skiptests}}" == *'redis'* ]] ; then ./runtest --accurate --verbose --no-latency --dump-logs ${{github.event.inputs.test_args}} ; fi &&
-          if [[ "${{github.event.inputs.skiptests}}" == *'mnodules'* ]] ; then MAKE=gmake ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}} ; fi &&
-          if [[ "${{github.event.inputs.skiptests}}" == *'sentinel'* ]] ; then ./runtest-sentinel ${{github.event.inputs.cluster_test_args}} ; fi &&
-          if [[ "${{github.event.inputs.skiptests}}" == *'cluster'* ]] ; then ./runtest-cluster ${{github.event.inputs.cluster_test_args}} ; fi
+          gmake || exit 1 ;
+          if echo "${{github.event.inputs.skiptests}}" | grep -vq redis ; then ./runtest --accurate --verbose --no-latency --dump-logs ${{github.event.inputs.test_args}} || exit 1 ; fi ;
+          if echo "${{github.event.inputs.skiptests}}" | grep -vq modules ; then MAKE=gmake ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}} || exit 1 ; fi ;
+          if echo "${{github.event.inputs.skiptests}}" | grep -vq sentinel ; then ./runtest-sentinel ${{github.event.inputs.cluster_test_args}} || exit 1 ; fi ;
+          if echo "${{github.event.inputs.skiptests}}" | grep -vq cluster ; then ./runtest-cluster ${{github.event.inputs.cluster_test_args}} || exit 1 ; fi ;
 
   test-alpine-jemalloc:
     runs-on: ubuntu-latest
-    if: github.repository == 'redis/redis'
+    if: github.repository == 'redis/redis' && !contains(github.event.inputs.skipjobs, 'alpine')
     container: alpine:latest
     steps:
     - name: prep
@@ -457,7 +458,7 @@ jobs:
 
   test-alpine-libc-malloc:
     runs-on: ubuntu-latest
-    if: github.repository == 'redis/redis'
+    if: github.repository == 'redis/redis' && !contains(github.event.inputs.skipjobs, 'alpine')
     container: alpine:latest
     steps:
     - name: prep
