@@ -1,8 +1,7 @@
 set testmodule [file normalize tests/modules/basics.so]
 
 
-# TEST.CTXFLAGS requires RDB to be disabled, so override save file
-start_server {tags {"modules"} overrides {save ""}} {
+start_server {tags {"modules"}} {
     r module load $testmodule
 
     test {test module api basics} {
