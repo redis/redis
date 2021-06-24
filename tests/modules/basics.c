@@ -156,6 +156,7 @@ int TestUnlink(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
 /* TEST.STRING.TRUNCATE -- Test truncating an existing string object. */
 int TestStringTruncate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    RedisModule_AutoMemory(ctx);
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
 
@@ -208,6 +209,7 @@ int TestStringTruncate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
 int NotifyCallback(RedisModuleCtx *ctx, int type, const char *event,
                    RedisModuleString *key) {
+  RedisModule_AutoMemory(ctx);
   /* Increment a counter on the notifications: for each key notified we
    * increment a counter */
   RedisModule_Log(ctx, "notice", "Got event type %d, event %s, key %s", type,
@@ -219,6 +221,7 @@ int NotifyCallback(RedisModuleCtx *ctx, int type, const char *event,
 
 /* TEST.NOTIFICATIONS -- Test Keyspace Notifications. */
 int TestNotifications(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    RedisModule_AutoMemory(ctx);
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
 
@@ -330,6 +333,9 @@ int TestCtxFlags(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     flags = RedisModule_GetContextFlags(ctx);
     if (!(flags & REDISMODULE_CTX_FLAGS_AOF)) FAIL("AOF Flag not set after config set");
 
+    /* Disable RDB saving and test the flag. */
+    RedisModule_Call(ctx, "config", "ccc", "set", "save", "");
+    flags = RedisModule_GetContextFlags(ctx);
     if (flags & REDISMODULE_CTX_FLAGS_RDB) FAIL("RDB Flag was set");
     /* Enable RDB to test RDB flags */
     RedisModule_Call(ctx, "config", "ccc", "set", "save", "900 1");
@@ -341,8 +347,12 @@ int TestCtxFlags(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (flags & REDISMODULE_CTX_FLAGS_READONLY) FAIL("Read-only flag was set");
     if (flags & REDISMODULE_CTX_FLAGS_CLUSTER) FAIL("Cluster flag was set");
 
+    /* Disable maxmemory and test the flag. (it is implicitly set in 32bit builds. */
+    RedisModule_Call(ctx, "config", "ccc", "set", "maxmemory", "0");
+    flags = RedisModule_GetContextFlags(ctx);
     if (flags & REDISMODULE_CTX_FLAGS_MAXMEMORY) FAIL("Maxmemory flag was set");
 
+    /* Enable maxmemory and test the flag. */
     RedisModule_Call(ctx, "config", "ccc", "set", "maxmemory", "100000000");
     flags = RedisModule_GetContextFlags(ctx);
     if (!(flags & REDISMODULE_CTX_FLAGS_MAXMEMORY))
