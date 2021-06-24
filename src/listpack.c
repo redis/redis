@@ -676,8 +676,6 @@ unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s,
     int64_t ll, vll;
     uint64_t entry_size = 123456789; /* initialized to avoid warning. */
     uint32_t lp_bytes = lpBytes(lp);
-    unsigned char *lp_head = lp + LP_HDR_SIZE;
-    unsigned char *lp_tail = lp + lp_bytes;
 
     assert(p);
     while (p) {
@@ -722,7 +720,7 @@ unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s,
             p = lpSkip(p);
         }
 
-        assert(p >= lp_head && p < lp_tail);
+        assert(p >= lp + LP_HDR_SIZE && p < lp + lp_bytes);
         if (p[0] == LP_EOF) break;
     }
 
