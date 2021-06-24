@@ -37,6 +37,30 @@ test {CONFIG SET bind address} {
     }
 } {} {external:skip}
 
+test {CONFIG SET bind-source-addr} {
+    if {[exec uname] == {Linux}} {
+        start_server {} {
+            start_server {} {
+                set replica [srv 0 client]
+                set master [srv -1 client]
+
+                $master config set protected-mode no
+
+                $replica config set bind-source-addr 127.0.0.2
+                $replica replicaof [srv -1 host] [srv -1 port]
+
+                wait_for_condition 50 100 {
+                    [s 0 master_link_status] eq {up}
+                } else {
+                    fail "Replication not started."
+                }
+
+                assert_match {*ip=127.0.0.2*} [s -1 slave0]
+            }
+        }
+    }
+} {} {external:skip}
+
 start_server {config "minimal.conf" tags {"external:skip"}} {
     test {Default bind address configuration handling} {
         # Default is explicit and sane
