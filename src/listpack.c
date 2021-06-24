@@ -1325,7 +1325,7 @@ static void stress(int pos, int num, int maxsize, int dnum) {
             }
             lp = lpDelete(lp, lpFirst(lp), NULL);
         }
-        printf("List size: %8d, bytes: %8ld, %dx push+pop (%s): %6lld usec\n",
+        printf("List size: %8d, bytes: %8zu, %dx push+pop (%s): %6lld usec\n",
                i, lpBytes(lp), num, posstr[pos], usec()-start);
         lpFree(lp);
     }
