@@ -669,7 +669,9 @@ start_server {tags {"stream xsetid"}} {
 
     test {XSETID can set a specific ID} {
         r XSETID mystream "200-0"
-        assert {[dict get [r xinfo stream mystream] last-generated-id] == "200-0"}
+        set reply [r XINFO stream mystream]
+        assert_equal [lindex $reply 7] "200-0" ;# stream last id
+        assert_equal [lindex $reply 11] "1" ;# stream offset
     }
 
     test {XSETID cannot SETID with smaller ID} {
@@ -683,6 +685,39 @@ start_server {tags {"stream xsetid"}} {
         catch {r XSETID stream 1-1} err
         set _ $err
     } {ERR no such key}
+
+    test {XSETID cannot run with an offset but without a maximal tombstone} {
+        catch {r XSETID stream 1-1 0} err
+        set _ $err
+    } {ERR syntax error}
+
+    test {XSETID cannot run with a maximal tombstone but without an offset} {
+        catch {r XSETID stream 1-1 0-0} err
+        set _ $err
+    } {ERR syntax error}
+
+    test {XSETID errors on negstive offset} {
+        catch {r XSETID stream 1-1 -1 0-0} err
+        set _ $err
+    } {ERR offset must be positive}
+
+    test {XSETID cannot set the maximal tombstone with larger ID} {
+        r DEL x
+        r XADD x 1-0 a b
+        
+        catch {r XSETID x "1-0" 1 "2-0" } err
+        r XADD mystream MAXLEN 0 * a b
+        set err
+    } {ERR*smaller*}
+
+    test {XSETID cannot set the offset to less than the length} {
+        r DEL x
+        r XADD x 1-0 a b
+        
+        catch {r XSETID x "1-0" 0 "0-0" } err
+        r XADD mystream MAXLEN 0 * a b
+        set err
+    } {ERR*smaller*}
 }
 
 start_server {tags {"stream offset"}} {

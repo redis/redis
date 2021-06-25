@@ -2654,12 +2654,14 @@ void xsetidCommand(client *c) {
     streamID id;
     long long offset;
     streamID max_xdel_id;
+    int ext_form = (c->argc == 5);
+
     if (c->argc != 3  && c->argc != 5) {
         addReplyErrorObject(c,shared.syntaxerr);
         return;
     }
     if (streamParseStrictIDOrReply(c,c->argv[2],&id,0) != C_OK) return;
-    if (c->argc == 5) {
+    if (ext_form) {
         if (getLongLongFromObjectOrReply(c,c->argv[3],&offset,NULL) != C_OK) {
             return;
         } else if (offset < 0) {
@@ -2668,14 +2670,15 @@ void xsetidCommand(client *c) {
         }
         if (streamParseStrictIDOrReply(c,c->argv[4],&max_xdel_id,0) != C_OK) {
             return;
-        } else if (streamCompareID(&id,&max_xdel_id) > 0) {
+        } else if (streamCompareID(&id,&max_xdel_id) == -1) {
             addReplyError(c,"The ID specified in XSETID is smaller than the "
                             "provided maxmimal XDEL ID ");
             return;
         }
     } else {
+        max_xdel_id.ms = 0;
+        max_xdel_id.seq = 0;
         offset = 0;
-        max_xdel_id.ms = max_xdel_id.seq = 0;
     }
 
     robj *o = lookupKeyWriteOrReply(c,c->argv[1],shared.nokeyerr);
@@ -2694,10 +2697,20 @@ void xsetidCommand(client *c) {
                             "target stream top item");
             return;
         }
+
+        /* If an offset was provided, it can't be lower than the length. */
+        if (ext_form && s->length > (uint64_t)offset) {
+            addReplyError(c,"The offset specified in XSETID is smaller than the "
+                            "target stream length");
+            return;
+        }
     }
+
     s->last_id = id;
-    s->offset = (uint64_t)offset;
-    s->xdel_max_id = max_xdel_id;
+    if (ext_form) {
+        s->offset = (uint64_t)offset;
+        s->xdel_max_id = max_xdel_id;
+    }
     addReply(c,shared.ok);
     server.dirty++;
     notifyKeyspaceEvent(NOTIFY_STREAM,"xsetid",c->argv[1],c->db->id);
