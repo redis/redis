@@ -679,7 +679,7 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
         else
             serverPanic("Unknown hash encoding");
     case OBJ_STREAM:
-        return rdbSaveType(rdb,RDB_TYPE_STREAM_LISTPACKS);
+        return rdbSaveType(rdb,RDB_TYPE_STREAM_LP_2);
     case OBJ_MODULE:
         return rdbSaveType(rdb,RDB_TYPE_MODULE_2);
     default:
@@ -971,7 +971,15 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
         nwritten += n;
         if ((n = rdbSaveLen(rdb,s->last_id.seq)) == -1) return -1;
         nwritten += n;
-        /* TBD: Save offset and xdel_max_id. */
+        /* Save the maximal tombstone ID. */
+        if ((n = rdbSaveLen(rdb,s->xdel_max_id.ms)) == -1) return -1;
+        nwritten += n;
+        if ((n = rdbSaveLen(rdb,s->xdel_max_id.seq)) == -1) return -1;
+        nwritten += n;
+        /* Save the offset. */
+        if ((n = rdbSaveLen(rdb,s->offset)) == -1) return -1;
+        nwritten += n;
+
         /* The consumer groups and their clients are part of the stream
          * type, so serialize every consumer group. */
 
@@ -1006,7 +1014,12 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
                 }
                 nwritten += n;
                 
-                /* TBD: Save cg offset. */
+                /* Save the group offset. */
+                if ((n = rdbSaveLen(rdb,cg->offset)) == -1) {
+                    raxStop(&ri);
+                    return -1;
+                }
+                nwritten += n;
 
                 /* Save the global PEL. */
                 if ((n = rdbSaveStreamPEL(rdb,cg->pel,1)) == -1) {
@@ -1940,7 +1953,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid) {
                 rdbReportCorruptRDB("Unknown RDB encoding type %d",rdbtype);
                 break;
         }
-    } else if (rdbtype == RDB_TYPE_STREAM_LISTPACKS) {
+    } else if (rdbtype == RDB_TYPE_STREAM_LISTPACKS ||
+               rdbtype == RDB_TYPE_STREAM_LP_2)
+    {
         o = createStreamObject();
         stream *s = o->ptr;
         uint64_t listpacks = rdbLoadLen(rdb,NULL);
@@ -2017,9 +2032,18 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid) {
         s->last_id.ms = rdbLoadLen(rdb,NULL);
         s->last_id.seq = rdbLoadLen(rdb,NULL);
         
-        /* TBD: Load offset and max_xdel_id. */
-        s->offset = 0;
-        s->xdel_max_id.ms = s->xdel_max_id.seq = 0;
+        if (rdbtype == RDB_TYPE_STREAM_LP_2) {
+            /* Load the maximal tombstone ID. */
+            s->xdel_max_id.ms = rdbLoadLen(rdb,NULL);
+            s->xdel_max_id.seq = rdbLoadLen(rdb,NULL);
+
+            /* Load the offset. */
+            s->offset = rdbLoadLen(rdb,NULL);
+        } else {
+            s->xdel_max_id.ms = 0;
+            s->xdel_max_id.seq = 0;
+            s->offset = s->length;
+        }
 
         if (rioGetReadError(rdb)) {
             rdbReportReadError("Stream object metadata loading failed.");
@@ -2056,8 +2080,13 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid) {
                 return NULL;
             }
             
-            /* TBD: Load cg_offset. */
-            int cg_offset = 0;
+            /* Load group offset. */
+            int cg_offset;
+            if (rdbtype == RDB_TYPE_STREAM_LP_2) {
+                cg_offset = rdbLoadLen(rdb,NULL);
+            } else {
+                cg_offset = streamGetOffset(s,&cg_id);
+            }
 
             streamCG *cgroup = streamCreateCG(s,cgname,sdslen(cgname),&cg_id,
                                               cg_offset);
