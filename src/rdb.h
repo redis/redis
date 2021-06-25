@@ -91,7 +91,7 @@
 #define RDB_TYPE_HASH_ZIPLIST  13
 #define RDB_TYPE_LIST_QUICKLIST 14
 #define RDB_TYPE_STREAM_LISTPACKS 15
-#define RDB_TYPE_STREAM_LP_2   15
+#define RDB_TYPE_STREAM_LP_2   16
 /* NOTE: WHEN ADDING NEW RDB TYPE, UPDATE rdbIsObjectType() BELOW */
 
 /* Test if a type is an object type. */
