@@ -605,7 +605,7 @@ int performEvictions(void) {
              * each DB, so we use the static 'next_db' variable to
              * incrementally visit all DBs. */
             for (i = 0; i < server.dbnum; i++) {
-                j = (++next_db) % server.dbnum;
+                j = (next_db++) % server.dbnum;
                 db = server.db+j;
                 dict = (server.maxmemory_policy == MAXMEMORY_ALLKEYS_RANDOM) ?
                         db->dict : db->expires;
