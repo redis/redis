@@ -873,7 +873,7 @@ size_t objectComputeSize(robj *key, robj *o, size_t sample_size, int dbid) {
             serverPanic("Unknown sorted set encoding");
         }
     } else if (o->type == OBJ_HASH) {
-        if (o->encoding == OBJ_ENCODING_ZIPLIST) {
+        if (OBJ_IS_PACKED(o)) {
             asize = sizeof(*o)+zmalloc_size(o->ptr);
         } else if (o->encoding == OBJ_ENCODING_HT) {
             d = o->ptr;
