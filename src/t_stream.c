@@ -1520,7 +1520,7 @@ void streamPropagateGroupID(client *c, robj *key, streamCG *group, robj *groupna
     argv[2] = key;
     argv[3] = groupname;
     argv[4] = createObjectFromStreamID(&group->last_id);
-    argv[5] = createStringObjectFromLongLong((long long)&group->offset);
+    argv[5] = createStringObjectFromLongLong((long long)group->offset);
 
     /* We use propagate() because this code path is not always called from
      * the command execution context. Moreover this will just alter the
