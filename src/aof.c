@@ -1308,7 +1308,7 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
         !rioWriteBulkString(r,"XSETID",6) ||
         !rioWriteBulkObject(r,key) ||
         !rioWriteBulkStreamID(r,&s->last_id) ||
-        !rioWriteBulkLongLong(r,(long long)&s->offset) ||
+        !rioWriteBulkLongLong(r,s->offset) ||
         !rioWriteBulkStreamID(r,&s->xdel_max_id)) 
     {
         streamIteratorStop(&si);
