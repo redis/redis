@@ -751,6 +751,15 @@ typedef struct clientReplyBlock {
     char buf[];
 } clientReplyBlock;
 
+/* Similar with 'clientReplyBlock', and we add refcount field, because we
+ * want to all replicas to share global replication buffer, we increase
+ * reference count when one replica uses it, decrease when we already send
+ * this block to one replica. */
+typedef struct replBufferBlock {
+    size_t size, used, refcount;
+    char buf[];
+} replBufferBlock;
+
 /* Redis database representation. There are multiple databases identified
  * by integers from 0 (the default database) up to the max configured
  * database. The database number is the 'id' field in the structure. */
@@ -989,6 +998,11 @@ typedef struct client {
      * before adding it the new value. */
     uint64_t client_cron_last_memory_usage;
     int      client_cron_last_memory_type;
+
+    /* The position of global replication buffer. */
+    size_t head_buf_block_pos;
+    listNode *head_buf_node;
+
     /* Response buffer */
     int bufpos;
     size_t buf_usable_size; /* Usable size of buffer. */
@@ -1497,6 +1511,7 @@ struct redisServer {
     int repl_diskless_load;         /* Slave parse RDB directly from the socket.
                                      * see REPL_DISKLESS_LOAD_* enum */
     int repl_diskless_sync_delay;   /* Delay to start a diskless repl BGSAVE. */
+    list *repl_buffer_blocks;       /* Replication buffer blocks list. */
     /* Replication (slave) */
     char *masteruser;               /* AUTH with this user and masterauth with master */
     sds masterauth;                 /* AUTH with this password with master */
@@ -1897,7 +1912,10 @@ void addReplyPushLen(client *c, long length);
 void addReplyHelp(client *c, const char **help);
 void addReplySubcommandSyntaxError(client *c);
 void addReplyLoadedModules(client *c);
-void copyClientOutputBuffer(client *dst, client *src);
+int prepareClientToWrite(client *c);
+void freeReplicaReplBuffer(client *replica);
+void feedReplicationBuffer(char *buf, size_t len);
+void copyWaitBgsaveReplicaReplBuffer(client *dst, client *src);
 size_t sdsZmallocSize(sds s);
 size_t getStringObjectSdsUsedMemory(robj *o);
 void freeClientReplyValue(void *o);
