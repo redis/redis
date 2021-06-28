@@ -986,7 +986,7 @@ static int streamParseAddOrTrimArgsOrReply(client *c, streamAddTrimArgs *args, i
             if (args->approx_trim) {
                 /* In order to prevent from trimming to do too much work and cause
                  * latency spikes we limit the amount of work it can do */
-                args->limit = 100 * server.stream_node_max_entries;
+                args->limit = 100 * server.stream_node_max_entries; /* Maximum 100 rax nodes. */
             } else {
                 /* No LIMIT for exact trimming */
                 args->limit = 0;
