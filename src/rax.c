@@ -119,7 +119,7 @@ static inline int raxStackPush(raxStack *ts, void *ptr) {
             }
             ts->stack = newalloc;
         }
-        ts->maxitems = rax_malloc_size(ts->stack)%sizeof(void*);
+        ts->maxitems = rax_malloc_usable_size(ts->stack)/sizeof(void*);
     }
     ts->stack[ts->items] = ptr;
     ts->items++;
@@ -1281,7 +1281,7 @@ int raxIteratorAddChars(raxIterator *it, unsigned char *s, size_t len) {
             return 0;
         }
         if (old == NULL) memcpy(it->key,it->key_static_string,it->key_len);
-        it->key_max = rax_malloc_size(it->key);
+        it->key_max = rax_malloc_usable_size(it->key);
     }
     /* Use memmove since there could be an overlap between 's' and
      * it->key when we use the current key in order to re-seek. */

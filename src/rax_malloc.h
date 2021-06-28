@@ -41,5 +41,5 @@
 #define rax_malloc zmalloc
 #define rax_realloc zrealloc
 #define rax_free zfree
-#define rax_malloc_size zmalloc_size
+#define rax_malloc_usable_size zmalloc_usable_size
 #endif
