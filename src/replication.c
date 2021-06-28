@@ -225,7 +225,7 @@ int canFeedReplicationBuffer(void) {
 }
 
 /* Similar with 'prepareClientToWrite', we apply to evey replica,
- * we can add replicaiton buffer only when not less one replica
+ * we can add replication buffer only when not less one replica
  * is prepared to write. */
 int prepareReplicasToWrite(void) {
     listIter li;
