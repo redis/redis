@@ -984,18 +984,14 @@ static int streamParseAddOrTrimArgsOrReply(client *c, streamAddTrimArgs *args, i
             /* User didn't provide LIMIT, we must set it. */
 
             if (args->approx_trim) {
-                /* In order to prevent from trimming to do too much work and cause
-                 * latency spikes we limit the amount of work it can do.
-                 * Maybe we want to limit the listpack only by `stream_node_max_bytes`, 
-                 * thus setting `stream_node_max_entries` to zero, but this will result 
-                 * in unlimited trim. 
-                 * In the case of larger stream_node_max_entries, it is actually 
-                 * meaningless, so we limit the effective range to [1,32k].
+                /* In order to prevent from trimming to do too much work and 
+                 * cause latency spikes we limit the amount of work it can do.
+                 * We have to cap args->limit from both sides in case 
+                 * stream_node_max_entries is 0 or too big (could cause overflow)
                  */
-                long long max_limit = 32*1000;
-                args->limit = server.stream_node_max_entries > 0 ? server.stream_node_max_entries : 1;
-                args->limit = args->limit > max_limit ? max_limit : args->limit;
-                args->limit *= 100;
+                args->limit = 100 * server.stream_node_max_entries; /* Maximum 100 rax nodes. */
+                if (args->limit < 1) args->limit = 1;
+                if (args->limit > 1000000) args->limit = 1000000;
             } else {
                 /* No LIMIT for exact trimming */
                 args->limit = 0;
