@@ -329,6 +329,7 @@ unsigned long LFUDecrAndReturn(robj *o) {
  * returns the sum of AOF and slaves buffer. */
 size_t freeMemoryGetNotCountedMemory(void) {
     size_t overhead = 0;
+    size_t max_replica_mem = 0;
     int slaves = listLength(server.slaves);
 
     if (slaves) {
@@ -338,9 +339,11 @@ size_t freeMemoryGetNotCountedMemory(void) {
         listRewind(server.slaves,&li);
         while((ln = listNext(&li))) {
             client *slave = listNodeValue(ln);
-            overhead += getClientOutputBufferMemoryUsage(slave);
+            size_t mem =  getClientOutputBufferMemoryUsage(slave);
+            if (mem > max_replica_mem) max_replica_mem = mem;
         }
     }
+    overhead += max_replica_mem;
     if (server.aof_state != AOF_OFF) {
         overhead += sdsAllocSize(server.aof_buf)+aofRewriteBufferMemoryUsage();
     }
