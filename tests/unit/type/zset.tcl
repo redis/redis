@@ -1652,6 +1652,21 @@ start_server {tags {"zset"}} {
         return $res
     }
 
+    # Check whether the zset members belong to the zset
+    proc check_member {mydict res} {
+        foreach ele $res {
+            assert {[dict exists $mydict $ele]}
+        }
+    }
+
+    # Check whether the zset members and score belong to the zset
+    proc check_member_and_score {mydict res} {
+       foreach {key val} $res {
+            assert {[dict exists $mydict $key]}
+            assert_equal $val [dict get $mydict $key]
+        }
+    }
+
     foreach {type contents} "ziplist {1 a 2 b 3 c} skiplist {1 a 2 b 3 [randstring 70 90 alpha]}" {
         set original_max_value [lindex [r config get zset-max-ziplist-value] 1]
         r config set zset-max-ziplist-value 10
@@ -1697,7 +1712,10 @@ start_server {tags {"zset"}} {
             set original_max_value [lindex [r config get zset-max-ziplist-value] 1]
             r config set zset-max-ziplist-value 10
             create_zset myzset $contents
+            set card [r zcard myzset]
+
             assert_encoding $type myzset
+            assert_equal $card 10
 
             # create a dict for easy lookup
             unset -nocomplain mydict
@@ -1712,25 +1730,29 @@ start_server {tags {"zset"}} {
             # PATH 1: Use negative count.
 
             # 1) Check that it returns repeated elements with and without values.
+            # 2) Check that all the elements actually belong to the original zset.
             set res [r zrandmember myzset -20]
             assert_equal [llength $res] 20
+            check_member $mydict $res
+
             set res [r zrandmember myzset -1001]
             assert_equal [llength $res] 1001
+            check_member $mydict $res
+
             # again with WITHSCORES
             set res [r zrandmember myzset -20 withscores]
             assert_equal [llength $res] 40
+            check_member_and_score $mydict $res
+
             set res [r zrandmember myzset -1001 withscores]
             assert_equal [llength $res] 2002
+            check_member_and_score $mydict $res
 
             # Test random uniform distribution
             # df = 9, 40 means 0.00001 probability
             set res [r zrandmember myzset -1000]
             assert_lessthan [chi_square_value $res] 40
-
-            # 2) Check that all the elements actually belong to the original zset.
-            foreach {key val} $res {
-                assert {[dict exists $mydict $key]}
-            }
+            check_member $mydict $res
 
             # 3) Check that eventually all the elements are returned.
             #    Use both WITHSCORES and without
@@ -1746,7 +1768,7 @@ start_server {tags {"zset"}} {
                 } else {
                     set res [r zrandmember myzset -3]
                     foreach key $res {
-                        dict append auxset $key $val
+                        dict append auxset $key
                     }
                 }
                 if {[lsort [dict keys $mydict]] eq
@@ -1760,12 +1782,12 @@ start_server {tags {"zset"}} {
             # equal or greater than set size.
             foreach size {10 20} {
                 set res [r zrandmember myzset $size]
-                assert_equal [llength $res] 10
+                assert_equal [llength $res] $card
                 assert_equal [lsort $res] [lsort [dict keys $mydict]]
 
                 # again with WITHSCORES
                 set res [r zrandmember myzset $size withscores]
-                assert_equal [llength $res] 20
+                assert_equal [llength $res] [expr {$card * 2}]
                 assert_equal [lsort $res] [lsort $mydict]
             }
 
@@ -1778,18 +1800,17 @@ start_server {tags {"zset"}} {
             #
             # We can test both the code paths just changing the size but
             # using the same code.
-            foreach size {8 2} {
+            foreach size {1 2 8} {
+                # 1) Check that all the elements actually belong to the
+                # original set.
                 set res [r zrandmember myzset $size]
                 assert_equal [llength $res] $size
+                check_member $mydict $res
+
                 # again with WITHSCORES
                 set res [r zrandmember myzset $size withscores]
                 assert_equal [llength $res] [expr {$size * 2}]
-
-                # 1) Check that all the elements actually belong to the
-                # original set.
-                foreach ele [dict keys $res] {
-                    assert {[dict exists $mydict $ele]}
-                }
+                check_member_and_score $mydict $res
 
                 # 2) Check that eventually all the elements are returned.
                 #    Use both WITHSCORES and without
