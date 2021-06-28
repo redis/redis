@@ -3,7 +3,7 @@
 # Copyright (C) 2010-2011 Pieter Noordhuis <pcnoordhuis at gmail dot com>
 # This file is released under the BSD license, see the COPYING file
 
-OBJ=alloc.o net.o hiredis.o sds.o async.o read.o sockcompat.o
+OBJ=alloc.o net.o hiredis.o sds.o async.o read.o sockcompat.o rdma.o
 SSL_OBJ=ssl.o
 EXAMPLES=hiredis-example hiredis-example-libevent hiredis-example-libev hiredis-example-glib hiredis-example-push
 ifeq ($(USE_SSL),1)
@@ -78,6 +78,11 @@ endif
 
 ifeq ($(uname_S),Linux)
   SSL_LDFLAGS=-lssl -lcrypto
+  ifeq ($(BUILD_RDMA),yes)
+  EXAMPLES+=hiredis-example-rdma
+  CFLAGS+=-DUSE_RDMA
+  REAL_LDFLAGS+= -lrdmacm -libverbs
+  endif
 else
   OPENSSL_PREFIX?=/usr/local/opt/openssl
   CFLAGS+=-I$(OPENSSL_PREFIX)/include
@@ -118,6 +123,7 @@ read.o: read.c fmacros.h alloc.h read.h sds.h win32.h
 sds.o: sds.c sds.h sdsalloc.h alloc.h
 sockcompat.o: sockcompat.c sockcompat.h
 ssl.o: ssl.c hiredis.h read.h sds.h alloc.h async.h win32.h async_private.h
+rdma.o: rdma.c hiredis.h read.h sds.h alloc.h async.h async_private.h fmacros.h
 test.o: test.c fmacros.h hiredis.h read.h sds.h alloc.h net.h sockcompat.h win32.h
 
 $(DYLIBNAME): $(OBJ)

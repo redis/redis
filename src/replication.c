@@ -2314,6 +2314,8 @@ void syncWithMaster(connection *conn) {
                 port = server.slave_announce_port;
             else if (server.tls_replication && server.tls_port)
                 port = server.tls_port;
+            else if (server.rdma_replication && server.rdma_port)
+                port = server.rdma_port;
             else
                 port = server.port;
             sds portstr = sdsfromlonglong(port);
@@ -2537,7 +2539,11 @@ write_error: /* Handle sendCommand() errors. */
 }
 
 int connectWithMaster(void) {
-    server.repl_transfer_s = server.tls_replication ? connCreateTLS() : connCreateSocket();
+    if (server.rdma_replication) {
+        server.repl_transfer_s = connCreateRdma();
+    } else {
+        server.repl_transfer_s = server.tls_replication ? connCreateTLS() : connCreateSocket();
+    }
     if (connConnect(server.repl_transfer_s, server.masterhost, server.masterport,
                 server.bind_source_addr, syncWithMaster) == C_ERR) {
         serverLog(LL_WARNING,"Unable to connect to MASTER: %s",

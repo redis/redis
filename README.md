@@ -40,6 +40,12 @@ libssl-dev on Debian/Ubuntu) and run:
 
     % make BUILD_TLS=yes
 
+To build with RDMA support(currently only supported on Linux), you'll need
+librdmacm&libibverbs development libraries (e.g. librdmacm-dev
+&libibverbs-dev on Debian/Ubuntu) and run:
+
+    % make BUILD_RDMA=yes
+
 To build with systemd support, you'll need systemd development libraries (such 
 as libsystemd-dev on Debian/Ubuntu or systemd-devel on CentOS) and run:
 
