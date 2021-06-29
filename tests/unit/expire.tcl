@@ -487,7 +487,7 @@ start_server {tags {"expire"}} {
             {restore foo6 * {*} ABSTTL}
             {restore foo7 * {*} absttl}
         }
-    }
+    } {} {needs:repl}
 
     # Start another server to test replication of TTLs
     start_server {tags {needs:repl external:skip}} {
