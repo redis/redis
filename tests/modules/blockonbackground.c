@@ -87,7 +87,8 @@ void HelloBlock_Disconnected(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc) 
 
 /* BLOCK.DEBUG <delay_ms> <timeout_ms> -- Block for <count> milliseconds, then reply with
  * a random number. Timeout is the command timeout, so that you can test
- * what happens when the delay is greater than the timeout. */
+ * what happens when the delay is greater than the timeout. If Timeout is -1,
+ * no timeout callback is set. */
 int HelloBlock_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc != 3) return RedisModule_WrongArity(ctx);
     long long delay;
@@ -102,7 +103,10 @@ int HelloBlock_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     }
 
     pthread_t tid;
-    RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx,HelloBlock_Reply,HelloBlock_Timeout,HelloBlock_FreeData,timeout);
+    RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx,HelloBlock_Reply,
+            timeout != -1 ? HelloBlock_Timeout : NULL,
+            HelloBlock_FreeData,
+            timeout != -1 ? timeout : 0);
 
     /* Here we set a disconnection handler, however since this module will
      * block in sleep() in a thread, there is not much we can do in the

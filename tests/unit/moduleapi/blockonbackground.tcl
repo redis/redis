@@ -85,4 +85,20 @@ start_server {tags {"modules"}} {
             assert_equal [r slowlog len] 0
         }
     }
+
+    test "client unblock works only for modules with timeout support" {
+        set rd [redis_deferring_client]
+        $rd client id
+        set id [$rd read]
+
+        $rd block.debug 5000 10000
+        assert_equal 1 [r client unblock $id]
+        assert_match {*Request timedout*} [$rd read]
+
+        $rd block.debug 1000 -1
+        assert_equal 0 [r client unblock $id]
+
+        # Make sure client is alive
+        $rd read
+    }
 }
