@@ -2030,7 +2030,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int rdbver) {
         s->last_id.ms = rdbLoadLen(rdb,NULL);
         s->last_id.seq = rdbLoadLen(rdb,NULL);
         
-        if (rdbver > 9) {
+        if (rdbver >= RDB_VERSION_STREAM_LAG) {
             /* Load the maximal tombstone ID. */
             s->xdel_max_id.ms = rdbLoadLen(rdb,NULL);
             s->xdel_max_id.seq = rdbLoadLen(rdb,NULL);
@@ -2082,9 +2082,15 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int rdbver) {
             }
             
             /* Load group offset. */
-            int cg_offset;
-            if (rdbver > 9) {
+            uint64_t cg_offset;
+            if (rdbver >= RDB_VERSION_STREAM_LAG) {
                 cg_offset = rdbLoadLen(rdb,NULL);
+                if (rioGetReadError(rdb)) {
+                    rdbReportReadError("Stream cgroup offset loading failed.");
+                    sdsfree(cgname);
+                    decrRefCount(o);
+                    return NULL;
+                }
             } else {
                 cg_offset = streamGetOffset(s,&cg_id);
             }
