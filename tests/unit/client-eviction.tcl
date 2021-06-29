@@ -50,6 +50,34 @@ start_server {} {
             }
         }
     }
+
+    foreach {no_evict} {on off} {
+        test "client no-evict $no_evict" {
+            r flushdb
+            r client setname control
+            r client no-evict on ;# Avoid evicting the main connection
+            set rr [redis_client]
+            $rr client no-evict $no_evict
+            $rr client setname test_client
+        
+            # Overflow maxmemory-clients
+            set qbsize [expr {$maxmemory_clients + 1}]
+            if {[catch {
+                $rr write [join [list "*1\r\n\$$qbsize\r\n" [string repeat v $qbsize]] ""]
+                $rr flush
+                wait_for_condition 200 10 {
+                    [client_field test_client qbuf] == $qbsize
+                } else {
+                    fail "Failed to fill qbuf for test"
+                }
+            } e] && $no_evict == off} {
+                assert_match {*connection reset by peer*} $e
+            } elseif {$no_evict == on} {
+                assert {[client_field test_client tot-mem] > $maxmemory_clients}
+                $rr close
+            }            
+        }
+    }
 }
 
 proc mb {v} {
@@ -107,4 +135,41 @@ start_server {} {
         # Validate qbuf-client is still connected and wasn't evicted
         assert_match [client_field qbuf-client name] {qbuf-client}
     }
+}
+
+start_server {} {
+
+    test "decrease maxmemory-clients causes client eviction" {
+        set maxmemory_clients [mb 4]
+        set client_count 10
+        set qbsize [expr ($maxmemory_clients - [mb 1]) / $client_count]
+        r config set maxmemory-clients $maxmemory_clients
+
+
+        for {set j 0} {$j < $client_count} {incr j} {
+            set rr [redis_client]
+            $rr client setname client$j
+            #$rr write [join [list "*2\r\n\$$qbsize\r\n" [string repeat v $qbsize] "\r\n"] ""] ->for TODO below
+            $rr write [join [list "*2\r\n\$$qbsize\r\n" [string repeat v $qbsize]] ""]
+            $rr flush
+            #TODO: improve test latency - use bigarg instead of qbuf/qbuf-free
+            #after 10
+            #puts [r client list]
+            wait_for_condition 200 10 {
+                [client_field client$j qbuf] == $qbsize && [client_field client$j qbuf-free] == 0
+            } else {
+                fail "Failed to fill qbuf for test"
+            }
+        }
+        
+        # Make sure all clients are connected
+        set connected_clients [llength [lsearch -all [split [string trim [r client list]] "\r\n"] *name=client*]]
+        assert {$connected_clients == $client_count}
+        
+        # Decrease maxmemory_clients and expect client eviction
+        r config set maxmemory-clients [expr $maxmemory_clients / 2]
+        set connected_clients [llength [lsearch -all [split [string trim [r client list]] "\r\n"] *name=client*]]
+        assert {$connected_clients > 0 && $connected_clients < $client_count}
+    }
+    
 }
