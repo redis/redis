@@ -43,6 +43,7 @@ int ProcessingEventsWhileBlocked = 0; /* See processEventsWhileBlocked(). */
  * including internal fragmentation. This function is used in order to compute
  * the client output buffer size. */
 size_t sdsZmallocSize(sds s) {
+    if (s == NULL) return 0;
     void *sh = sdsAllocPtr(s);
     return zmalloc_size(sh);
 }
@@ -133,7 +134,7 @@ client *createClient(connection *conn) {
     c->bufpos = 0;
     c->buf_usable_size = zmalloc_usable_size(c)-offsetof(client,buf);
     c->qb_pos = 0;
-    c->querybuf = sdsempty();
+    c->querybuf = NULL;
     c->pending_querybuf = sdsempty();
     c->querybuf_peak = 0;
     c->reqtype = 0;
@@ -1871,7 +1872,7 @@ int processMultibulkBuffer(client *c) {
     }
 
     serverAssertWithInfo(c,NULL,c->multibulklen > 0);
-    while(c->multibulklen) {
+    while(c->multibulklen && c->querybuf != NULL) {
         /* Read bulk length if unknown */
         if (c->bulklen == -1) {
             newline = strchr(c->querybuf+c->qb_pos,'\r');
@@ -1942,10 +1943,7 @@ int processMultibulkBuffer(client *c) {
                 c->argv[c->argc++] = createObject(OBJ_STRING,c->querybuf);
                 c->argv_len_sum += c->bulklen;
                 sdsIncrLen(c->querybuf,-2); /* remove CRLF */
-                /* Assume that if we saw a fat argument we'll see another one
-                 * likely... */
-                c->querybuf = sdsnewlen(SDS_NOINIT,c->bulklen+2);
-                sdsclear(c->querybuf);
+                c->querybuf = NULL;
             } else {
                 c->argv[c->argc++] =
                     createStringObject(c->querybuf+c->qb_pos,c->bulklen);
@@ -1973,7 +1971,7 @@ void commandProcessed(client *c) {
     long long prev_offset = c->reploff;
     if (c->flags & CLIENT_MASTER && !(c->flags & CLIENT_MULTI)) {
         /* Update the applied replication offset of our master. */
-        c->reploff = c->read_reploff - sdslen(c->querybuf) + c->qb_pos;
+        c->reploff = c->read_reploff - (c->querybuf ? sdslen(c->querybuf) : 0) + c->qb_pos;
     }
 
     /* Don't reset the client structure for blocked clients, so that the reply
@@ -2049,7 +2047,7 @@ int processPendingCommandsAndResetClient(client *c) {
  * pending query buffer, already representing a full command, to process. */
 void processInputBuffer(client *c) {
     /* Keep processing while there is something in the input buffer */
-    while(c->qb_pos < sdslen(c->querybuf)) {
+    while(c->querybuf && c->qb_pos < sdslen(c->querybuf)) {
         /* Immediately abort if the client is in the middle of something. */
         if (c->flags & CLIENT_BLOCKED) break;
 
@@ -2111,7 +2109,7 @@ void processInputBuffer(client *c) {
 
     /* Trim to pos */
     if (c->qb_pos) {
-        sdsrange(c->querybuf,c->qb_pos,-1);
+        if (c->querybuf) sdsrange(c->querybuf,c->qb_pos,-1);
         c->qb_pos = 0;
     }
 }
@@ -2138,12 +2136,19 @@ void readQueryFromClient(connection *conn) {
     if (c->reqtype == PROTO_REQ_MULTIBULK && c->multibulklen && c->bulklen != -1
         && c->bulklen >= PROTO_MBULK_BIG_ARG)
     {
-        ssize_t remaining = (size_t)(c->bulklen+2)-sdslen(c->querybuf);
         big_arg = 1;
+        if (c->querybuf) {
+            ssize_t remaining = (size_t) (c->bulklen + 2) - sdslen(c->querybuf);
 
-        /* Note that the 'remaining' variable may be zero in some edge case,
-         * for example once we resume a blocked client after CLIENT PAUSE. */
-        if (remaining > 0) readlen = remaining;
+            /* Note that the 'remaining' variable may be zero in some edge case,
+             * for example once we resume a blocked client after CLIENT PAUSE. */
+            if (remaining > 0) readlen = remaining;
+        }
+    }
+
+    if (c->querybuf == NULL) {
+        c->querybuf = sdsnewlen(SDS_NOINIT, readlen);
+        sdsclear(c->querybuf);
     }
 
     qblen = sdslen(c->querybuf);
@@ -2204,24 +2209,6 @@ void readQueryFromClient(connection *conn) {
     /* There is more data in the client input buffer, continue parsing it
      * in case to check if there is a full command to execute. */
      processInputBuffer(c);
-}
-
-void getClientsMaxBuffers(unsigned long *longest_output_list,
-                          unsigned long *biggest_input_buffer) {
-    client *c;
-    listNode *ln;
-    listIter li;
-    unsigned long lol = 0, bib = 0;
-
-    listRewind(server.clients,&li);
-    while ((ln = listNext(&li)) != NULL) {
-        c = listNodeValue(ln);
-
-        if (listLength(c->reply) > lol) lol = listLength(c->reply);
-        if (sdslen(c->querybuf) > bib) bib = sdslen(c->querybuf);
-    }
-    *longest_output_list = lol;
-    *biggest_input_buffer = bib;
 }
 
 /* A Redis "Address String" is a colon separated ip:port pair.
@@ -2335,8 +2322,8 @@ sds catClientInfoString(sds s, client *client) {
         (int) dictSize(client->pubsub_channels),
         (int) listLength(client->pubsub_patterns),
         (client->flags & CLIENT_MULTI) ? client->mstate.count : -1,
-        (unsigned long long) sdslen(client->querybuf),
-        (unsigned long long) sdsavail(client->querybuf),
+        (unsigned long long) client->querybuf ? sdslen(client->querybuf) : 0,
+        (unsigned long long) client->querybuf ? sdsavail(client->querybuf): 0,
         (unsigned long long) client->argv_len_sum,
         (unsigned long long) client->bufpos,
         (unsigned long long) listLength(client->reply),

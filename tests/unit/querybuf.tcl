@@ -34,10 +34,15 @@ start_server {tags {"querybuf slow"}} {
             fail "query buffer was resized"
         }
 
+        puts [client_query_buffer test_client]
+
         # Fill query buffer to more than 32k
         $rd set bigstring v ;# create bigstring in advance to avoid adding extra memory
         $rd set bigstring [string repeat A 32768] nx
+        $rd flush
 
+        puts [client_query_buffer test_client]
+        
         # Wait for query buffer to be resized to 0.
         wait_for_condition 1000 10 {
             [client_query_buffer test_client] == 0
