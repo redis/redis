@@ -1662,7 +1662,6 @@ start_server {tags {"zset"}} {
     # Check whether the zset members and score belong to the zset
     proc check_member_and_score {mydict res} {
        foreach {key val} $res {
-            assert {[dict exists $mydict $key]}
             assert_equal $val [dict get $mydict $key]
         }
     }
@@ -1786,6 +1785,7 @@ start_server {tags {"zset"}} {
                 set res [r zrandmember myzset $size withscores]
                 assert_equal [llength $res] 20
                 assert_equal [lsort $res] [lsort $mydict]
+                check_member_and_score $mydict $res
             }
 
             # PATH 3: Ask almost as elements as there are in the set.
