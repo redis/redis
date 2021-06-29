@@ -1051,65 +1051,40 @@ void bitfieldGeneric(client *c, int flags) {
             /* We need two different but very similar code paths for signed
              * and unsigned operations, since the set of functions to get/set
              * the integers and the used variables types are different. */
-            if (thisop->sign) {
-                int64_t oldval, newval, wrapped, retval;
-                int overflow;
+            int64_t oldval, newval, wrapped, retval;
+            int overflow;
 
-                oldval = getSignedBitfield(o->ptr,thisop->offset,
-                        thisop->bits);
+            oldval = getSignedBitfield(o->ptr,thisop->offset,
+                                       thisop->bits);
 
-                if (thisop->opcode == BITFIELDOP_INCRBY) {
-                    newval = oldval + thisop->i64;
-                    overflow = checkSignedBitfieldOverflow(oldval,
-                            thisop->i64,thisop->bits,thisop->owtype,&wrapped);
-                    if (overflow) newval = wrapped;
-                    retval = newval;
-                } else {
-                    newval = thisop->i64;
-                    overflow = checkSignedBitfieldOverflow(newval,
-                            0,thisop->bits,thisop->owtype,&wrapped);
-                    if (overflow) newval = wrapped;
-                    retval = oldval;
-                }
+            if (thisop->opcode == BITFIELDOP_INCRBY) {
+                newval = oldval + thisop->i64;
+                overflow = checkSignedBitfieldOverflow(oldval,
+                                                       thisop->i64,thisop->bits,thisop->owtype,&wrapped);
+                if (overflow) newval = wrapped;
+                retval = newval;
+            } else {
+                newval = thisop->i64;
+                overflow = checkSignedBitfieldOverflow(newval,
+                                                       0,thisop->bits,thisop->owtype,&wrapped);
+                if (overflow) newval = wrapped;
+                retval = oldval;
+            }
 
-                /* On overflow of type is "FAIL", don't write and return
-                 * NULL to signal the condition. */
-                if (!(overflow && thisop->owtype == BFOVERFLOW_FAIL)) {
-                    addReplyLongLong(c,retval);
+            /* On overflow of type is "FAIL", don't write and return
+             * NULL to signal the condition. */
+            if (!(overflow && thisop->owtype == BFOVERFLOW_FAIL)) {
+                addReplyLongLong(c,retval);
+                if (thisop->sign){
                     setSignedBitfield(o->ptr,thisop->offset,
                                       thisop->bits,newval);
-                } else {
-                    addReplyNull(c);
-                }
-            } else {
-                uint64_t oldval, newval, wrapped, retval;
-                int overflow;
-
-                oldval = getUnsignedBitfield(o->ptr,thisop->offset,
-                        thisop->bits);
-
-                if (thisop->opcode == BITFIELDOP_INCRBY) {
-                    newval = oldval + thisop->i64;
-                    overflow = checkUnsignedBitfieldOverflow(oldval,
-                            thisop->i64,thisop->bits,thisop->owtype,&wrapped);
-                    if (overflow) newval = wrapped;
-                    retval = newval;
-                } else {
-                    newval = thisop->i64;
-                    overflow = checkUnsignedBitfieldOverflow(newval,
-                            0,thisop->bits,thisop->owtype,&wrapped);
-                    if (overflow) newval = wrapped;
-                    retval = oldval;
-                }
-                /* On overflow of type is "FAIL", don't write and return
-                 * NULL to signal the condition. */
-                if (!(overflow && thisop->owtype == BFOVERFLOW_FAIL)) {
-                    addReplyLongLong(c,retval);
+                } else{
                     setUnsignedBitfield(o->ptr,thisop->offset,
                                         thisop->bits,newval);
-                } else {
-                    addReplyNull(c);
                 }
+
+            } else {
+                addReplyNull(c);
             }
             changes++;
         } else {
