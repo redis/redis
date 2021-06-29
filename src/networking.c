@@ -1317,8 +1317,6 @@ void freeClient(client *c) {
         return;
     }
 
-    serverLog(LL_WARNING, "Freeing %s", c->name ? (char*)c->name->ptr : "");
-
     /* For connected clients, call the disconnection event of modules hooks. */
     if (c->conn) {
         moduleFireServerEvent(REDISMODULE_EVENT_CLIENT_CHANGE,
@@ -1464,7 +1462,6 @@ void freeClientAsync(client *c) {
      * are in the context of the main thread while the other threads are
      * idle. */
     if (c->flags & CLIENT_CLOSE_ASAP || c->flags & CLIENT_LUA) return;
-    serverLog(LL_WARNING, "Marking client %s to be freed", c->name ? (char*)c->name->ptr : "");
     c->flags |= CLIENT_CLOSE_ASAP;
     if (server.io_threads_num == 1) {
         /* no need to bother with locking if there's just one thread (the main thread) */
@@ -1489,7 +1486,6 @@ int beforeNextClient(client *c) {
     /* Handle async frees */
     /* TODO: check if we even need freeClientsInAsyncFreeQueue() anymore... */
     if (c->flags & CLIENT_CLOSE_ASAP) {
-        serverLog(LL_WARNING, "@@ freeing client %s scheduled for async freeing", c->name ? (char*)c->name->ptr : "");
         freeClient(c);
         return C_ERR;
     }
@@ -1502,8 +1498,6 @@ int freeClientsInAsyncFreeQueue(void) {
     int freed = 0;
     listIter li;
     listNode *ln;
-
-    serverLog(LL_WARNING, "Doing async client frees");
 
     listRewind(server.clients_to_close,&li);
     while ((ln = listNext(&li)) != NULL) {
@@ -3290,7 +3284,6 @@ int checkClientOutputBufferLimits(client *c) {
      * like normal clients. */
     if (class == CLIENT_TYPE_MASTER) class = CLIENT_TYPE_NORMAL;
 
-    serverLog(LL_WARNING, "checking obuf limit, used_mem %zu limit %llu", used_mem, server.client_obuf_limits[class].hard_limit_bytes);
     if (server.client_obuf_limits[class].hard_limit_bytes &&
         used_mem >= server.client_obuf_limits[class].hard_limit_bytes)
         hard = 1;
@@ -3858,8 +3851,6 @@ int handleClientsWithPendingReadsUsingThreads(void) {
 
 /* Returns true if client memory limit was reached */
 int clientEvictionCheckLimit() {
-    serverLog(LL_WARNING, "Used client mem: %zu", server.stat_clients_type_memory[CLIENT_TYPE_NORMAL] +
-                                                  server.stat_clients_type_memory[CLIENT_TYPE_PUBSUB]);
     if (server.maxmemory_clients == 0 ||
         server.stat_clients_type_memory[CLIENT_TYPE_NORMAL] +
         server.stat_clients_type_memory[CLIENT_TYPE_PUBSUB] < server.maxmemory_clients) {
