@@ -755,10 +755,10 @@ typedef struct clientReplyBlock {
  * want to all replicas to share global replication buffer, we increase
  * reference count when one replica uses it, decrease when we already send
  * this block to one replica. */
-typedef struct replBufferBlock {
+typedef struct replBufBlock {
     size_t size, used, refcount;
     char buf[];
-} replBufferBlock;
+} replBufBlock;
 
 /* Redis database representation. There are multiple databases identified
  * by integers from 0 (the default database) up to the max configured
@@ -999,9 +999,9 @@ typedef struct client {
     uint64_t client_cron_last_memory_usage;
     int      client_cron_last_memory_type;
 
-    /* The position of global replication buffer. */
-    size_t head_buf_block_pos;
-    listNode *head_buf_node;
+    listNode *start_buf_node;    /* Start node of replication buffer blocks. */
+    size_t start_buf_block_pos;  /* Start position of start node. */
+    size_t used_repl_buf_size;   /* Used size of replication buffer. */
 
     /* Response buffer */
     int bufpos;
@@ -1511,6 +1511,7 @@ struct redisServer {
     int repl_diskless_load;         /* Slave parse RDB directly from the socket.
                                      * see REPL_DISKLESS_LOAD_* enum */
     int repl_diskless_sync_delay;   /* Delay to start a diskless repl BGSAVE. */
+    size_t repl_buffer_size;        /* The size of replication buffer. */
     list *repl_buffer_blocks;       /* Replication buffer blocks list. */
     /* Replication (slave) */
     char *masteruser;               /* AUTH with this user and masterauth with master */
@@ -1931,6 +1932,7 @@ void rewriteClientCommandArgument(client *c, int i, robj *newval);
 void replaceClientCommandVector(client *c, int argc, robj **argv);
 void redactClientCommandArgument(client *c, int argc);
 unsigned long getClientOutputBufferMemoryUsage(client *c);
+unsigned long getClientPrivateOutputBufferMemoryUsage(client *c);
 int freeClientsInAsyncFreeQueue(void);
 int closeClientOnOutputBufferLimitReached(client *c, int async);
 int getClientType(client *c);

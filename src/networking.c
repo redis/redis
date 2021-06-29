@@ -132,8 +132,9 @@ client *createClient(connection *conn) {
     c->name = NULL;
     c->bufpos = 0;
     c->buf_usable_size = zmalloc_usable_size(c)-offsetof(client,buf);
-    c->head_buf_node = NULL;
-    c->head_buf_block_pos = 0;
+    c->start_buf_node = NULL;
+    c->start_buf_block_pos = 0;
+    c->used_repl_buf_size = 0;
     c->qb_pos = 0;
     c->querybuf = sdsempty();
     c->pending_querybuf = sdsempty();
@@ -960,24 +961,24 @@ void copyWaitBgsaveReplicaReplBuffer(client *dst, client *src) {
      * static buffer and reply list must be empty. */
     serverAssert(src->bufpos == 0 && listLength(src->reply) == 0);
 
-    if (src->head_buf_node == NULL) return;
-    dst->reply_bytes = src->reply_bytes;
-    dst->head_buf_node = src->head_buf_node;
-    dst->head_buf_block_pos = src->head_buf_block_pos;
-    ((replBufferBlock *)listNodeValue(dst->head_buf_node))->refcount++;
+    if (src->start_buf_node == NULL) return;
+    dst->start_buf_node = src->start_buf_node;
+    dst->start_buf_block_pos = src->start_buf_block_pos;
+    dst->used_repl_buf_size = src->used_repl_buf_size;
+    ((replBufBlock *)listNodeValue(dst->start_buf_node))->refcount++;
 }
 
 /* Return true if the specified client has pending reply buffers to write to
  * the socket. */
 int clientHasPendingReplies(client *c) {
-    if (c->flags & CLIENT_SLAVE) {
+    if (c->flags & CLIENT_SLAVE && !(c->flags & CLIENT_MONITOR)) {
         if (c->bufpos || listLength(c->reply)) return 1;
-        if (c->head_buf_node == NULL) return 0;
+        if (c->start_buf_node == NULL) return 0;
 
         listNode *ln = listLast(server.repl_buffer_blocks);
-        replBufferBlock *tail = ln ? listNodeValue(ln) : NULL;
+        replBufBlock *tail = ln ? listNodeValue(ln) : NULL;
         serverAssert(tail != NULL);
-        if (ln == c->head_buf_node && c->head_buf_block_pos == tail->used) {
+        if (ln == c->start_buf_node && c->start_buf_block_pos == tail->used) {
             return 0;
         }
         return 1;
@@ -1304,14 +1305,15 @@ void unlinkClient(client *c) {
 /* Free replication buffer blocks that are referred by this client. */
 void freeReplicaReplBuffer(client *replica) {
     listNode *head = listFirst(server.repl_buffer_blocks);
-    if (head && head == replica->head_buf_node) {
-        replBufferBlock *o = listNodeValue(head);
+    if (head && head == replica->start_buf_node) {
+        replBufBlock *o = listNodeValue(head);
         o->refcount--; /* Only decr the first block. */
 
         while (head != NULL) {
             listNode *next = listNextNode(head);
             o = listNodeValue(head);
             if (o->refcount == 0) {
+                server.repl_buffer_size -= o->size;
                 listDelNode(server.repl_buffer_blocks, head);
             } else {
                 /* Can't continue to iterate, because other clients may
@@ -1321,8 +1323,9 @@ void freeReplicaReplBuffer(client *replica) {
             head = next;
         }
     }
-    replica->head_buf_node = NULL;
-    replica->head_buf_block_pos = 0;
+    replica->start_buf_node = NULL;
+    replica->start_buf_block_pos = 0;
+    replica->used_repl_buf_size = 0;
 }
 
 void freeClient(client *c) {
@@ -1522,42 +1525,43 @@ int _writeToClient(client *c, ssize_t *nwritten) {
     *nwritten = 0;
     /* For Replica, we need to send static buffer and reply list, these
      * are copied from replication backlog and must be sent firstly. */
-    if (c->flags & CLIENT_SLAVE &&
+    if (c->flags & CLIENT_SLAVE && !(c->flags & CLIENT_MONITOR) &&
         c->bufpos == 0 && listLength(c->reply) == 0)
     {
-        replBufferBlock *o = listNodeValue(c->head_buf_node);
-        serverAssert(o->used >= c->head_buf_block_pos);
+        replBufBlock *o = listNodeValue(c->start_buf_node);
+        serverAssert(o->used >= c->start_buf_block_pos);
         /* Send current block if it is not fully sent. */
-        if (o->used > c->head_buf_block_pos) {
-            *nwritten = connWrite(c->conn, o->buf + c->head_buf_block_pos,
-                            o->used - c->head_buf_block_pos);
+        if (o->used > c->start_buf_block_pos) {
+            *nwritten = connWrite(c->conn, o->buf + c->start_buf_block_pos,
+                            o->used - c->start_buf_block_pos);
             if (*nwritten <= 0) return C_ERR;
-            c->head_buf_block_pos += *nwritten;
+            c->start_buf_block_pos += *nwritten;
         }
 
-        listNode *next = listNextNode(c->head_buf_node);
+        listNode *next = listNextNode(c->start_buf_node);
         if (next == NULL) {
             /* The replica must always keep the last buffer block. */
-            serverAssert(c->reply_bytes == o->size +
-                sizeof(listNode) + sizeof(replBufferBlock));
+            serverAssert(c->used_repl_buf_size == o->size +
+                sizeof(listNode) + sizeof(replBufBlock));
         }
 
         /* If we fully sent the object on head go to the next one */
-        if (next && c->head_buf_block_pos == o->used) {
+        if (next && c->start_buf_block_pos == o->used) {
             serverAssert(o->size == o->used);
-            c->reply_bytes -= (o->size + sizeof(listNode) +
-                               sizeof(replBufferBlock));
+            c->used_repl_buf_size -= (o->size + sizeof(listNode) +
+                               sizeof(replBufBlock));
             o->refcount--;
             /* Only can free the first node and its refcount is 0 */
             if (o->refcount == 0 &&
-                listFirst(server.repl_buffer_blocks) == c->head_buf_node)
+                listFirst(server.repl_buffer_blocks) == c->start_buf_node)
             {
-                listDelNode(server.repl_buffer_blocks,c->head_buf_node);
+                server.repl_buffer_size -= o->size;
+                listDelNode(server.repl_buffer_blocks,c->start_buf_node);
             }
             /* Incr the block reference count. */
-            ((replBufferBlock *)(listNodeValue(next)))->refcount++;
-            c->head_buf_node = next;
-            c->head_buf_block_pos = 0;
+            ((replBufBlock *)(listNodeValue(next)))->refcount++;
+            c->start_buf_node = next;
+            c->start_buf_block_pos = 0;
         }
         return C_OK;
     }
@@ -1594,7 +1598,7 @@ int _writeToClient(client *c, ssize_t *nwritten) {
             c->sentlen = 0;
             /* If there are no longer objects in the list, we expect
              * the count of reply bytes to be exactly zero. */
-            if (listLength(c->reply) == 0 && c->head_buf_node == NULL)
+            if (listLength(c->reply) == 0)
                 serverAssert(c->reply_bytes == 0);
         }
     }
@@ -3230,6 +3234,19 @@ void rewriteClientCommandArgument(client *c, int i, robj *newval) {
  * the caller wishes. The main usage of this function currently is
  * enforcing the client output length limits. */
 unsigned long getClientOutputBufferMemoryUsage(client *c) {
+    unsigned long list_item_size = sizeof(listNode) + sizeof(clientReplyBlock);
+    return c->used_repl_buf_size + c->reply_bytes +
+           (list_item_size*listLength(c->reply));
+}
+
+/* For normal clients, actually there is no difference with the function
+ * getClientOutputBufferMemoryUsage .
+ * For replica clients, We use one global shared replication buffer to store
+ * all replicas output buffer, and there may be some buffer in reply list
+ * because we will add replication backlog into replicas' output buffer when
+ * replicas can start incremental synchronization, currently only this memory
+ * is private. */
+unsigned long getClientPrivateOutputBufferMemoryUsage(client *c) {
     unsigned long list_item_size = sizeof(listNode) + sizeof(clientReplyBlock);
     return c->reply_bytes + (list_item_size*listLength(c->reply));
 }

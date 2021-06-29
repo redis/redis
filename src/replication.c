@@ -271,9 +271,9 @@ void feedReplicationBuffer(char *s, size_t len) {
     size_t start_pos = 0;
     listNode *start_node = NULL;
     int add_new_block = 0;
-    replBufferBlock *used_last_block = NULL;
+    replBufBlock *used_last_block = NULL;
     listNode *ln = listLast(server.repl_buffer_blocks);
-    replBufferBlock *tail = ln? listNodeValue(ln): NULL;
+    replBufBlock *tail = ln? listNodeValue(ln): NULL;
 
     /* Append to tail string when possible. */
     if (tail && tail->size > tail->used) {
@@ -294,13 +294,14 @@ void feedReplicationBuffer(char *s, size_t len) {
          * least PROTO_REPLY_CHUNK_BYTES */
         size_t usable_size;
         size_t size = len < PROTO_REPLY_CHUNK_BYTES? PROTO_REPLY_CHUNK_BYTES: len;
-        tail = zmalloc_usable(size + sizeof(replBufferBlock), &usable_size);
+        tail = zmalloc_usable(size + sizeof(replBufBlock), &usable_size);
         /* Take over the allocation's internal fragmentation */
-        tail->size = usable_size - sizeof(replBufferBlock);
+        tail->size = usable_size - sizeof(replBufBlock);
         tail->used = len;
         tail->refcount = 0;
         memcpy(tail->buf, s, len);
         listAddNodeTail(server.repl_buffer_blocks, tail);
+        server.repl_buffer_size += tail->size;
         add_new_block = 1;
         if (start_node == NULL) {
             start_node = listLast(server.repl_buffer_blocks);
@@ -315,24 +316,24 @@ void feedReplicationBuffer(char *s, size_t len) {
         if (!canFeedReplicaReplBuffer(slave)) continue;
 
         /* Update shared replication buffer start position. */
-        if (slave->head_buf_node == NULL) {
-            slave->head_buf_node = start_node;
-            slave->head_buf_block_pos = start_pos;
+        if (slave->start_buf_node == NULL) {
+            slave->start_buf_node = start_node;
+            slave->start_buf_block_pos = start_pos;
             /* Only increase the start block reference count. */
-            ((replBufferBlock *)listNodeValue(start_node))->refcount++;
+            ((replBufBlock *)listNodeValue(start_node))->refcount++;
 
             /* Use the before existed last node. */
             if (used_last_block) {
                 /* To easily calculate output buffer size of slave, we add repl
-                 * buffer block size and list node size into reply_bytes. */
-                slave->reply_bytes += (used_last_block->size +
-                        sizeof(listNode) + sizeof(replBufferBlock));
+                 * block size and list node size into used_repl_buf_size. */
+                slave->used_repl_buf_size += (used_last_block->size +
+                            sizeof(listNode) + sizeof(replBufBlock));
             }
         }
 
         if (add_new_block) {
-            slave->reply_bytes += (tail->size + sizeof(listNode) +
-                               sizeof(replBufferBlock));
+            slave->used_repl_buf_size += (tail->size + sizeof(listNode) +
+                                          sizeof(replBufBlock));
             closeClientOnOutputBufferLimitReached(slave, 1);
         }
     }
@@ -3897,7 +3898,7 @@ void updateFailoverStatus(void) {
      * referred by some one replica, because it will be freed if no reference, otherwise,
      * server will be OOM. */
     if (listLength(server.repl_buffer_blocks)) {
-       replBufferBlock *o = listNodeValue(listFirst(server.repl_buffer_blocks));
+       replBufBlock *o = listNodeValue(listFirst(server.repl_buffer_blocks));
        serverAssert(o->refcount > 0);
     }
 }

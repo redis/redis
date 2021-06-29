@@ -994,7 +994,10 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     /* Computing the memory used by the clients would be O(N) if done
      * here online. We use our values computed incrementally by
      * clientsCronTrackClientsMemUsage(). */
-    mh->clients_slaves = server.stat_clients_type_memory[CLIENT_TYPE_SLAVE];
+    mh->clients_slaves = server.stat_clients_type_memory[CLIENT_TYPE_SLAVE]+
+                         server.repl_buffer_size +
+                         listLength(server.repl_buffer_blocks)*
+                          (sizeof(listNode)+sizeof(replBufBlock));
     mh->clients_normal = server.stat_clients_type_memory[CLIENT_TYPE_MASTER]+
                          server.stat_clients_type_memory[CLIENT_TYPE_PUBSUB]+
                          server.stat_clients_type_memory[CLIENT_TYPE_NORMAL];
