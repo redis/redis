@@ -1604,6 +1604,19 @@ start_server {tags {"zset"}} {
         r zrange z1{t} 5 0 BYSCORE REV LIMIT 0 2 WITHSCORES
     } {d 4 c 3}
 
+    test {ZRANGESTORE - src key missing} {
+        set res [r zrangestore z2{t} missing{t} 0 -1]
+        assert_equal $res 0
+        r exists z2{t}
+    } {0}
+
+    test {ZRANGESTORE - src key wrong type} {
+        r zadd z2{t} 1 a
+        r set foo{t} bar
+        assert_error "*WRONGTYPE*" {r zrangestore z2{t} foo{t} 0 -1}
+        r zrange z2{t} 0 -1
+    } {a}
+
     test {ZRANGESTORE - empty range} {
         set res [r zrangestore z2{t} z1{t} 5 6]
         assert_equal $res 0
