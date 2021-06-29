@@ -397,8 +397,7 @@ int streamCompareID(streamID *a, streamID *b) {
 }
 
 /* Retrieves the ID of the stream edge entry. An edge is either the first or
- * the last ID in the stream. The tombstone argument controls whether an ID of
- * a deleted edge entry is a valid reply. */
+ * the last ID in the stream. */
 void streamGetEdgeID(stream *s, int first, streamID *edge_id)
 {
     raxIterator ri;
@@ -1388,13 +1387,13 @@ int streamIsContiguousRange(stream *s, streamID *start) {
 
     streamGetTipID(s,&first_id,1);
     int cmp_first = streamCompareID(&first_id,&s->xdel_max_id);
-    if (cmp_first == 1) {
+    if (cmp_first > 0) {
         /* The XDEL is before the first entry. */
         return 1;
     }
 
     int cmp_start = streamCompareID(&start_id,&s->xdel_max_id);
-    if (cmp_start != -1) {
+    if (cmp_start >= 0) {
         /* The range doesn't include an XDEL. */
         return 1;
     }
@@ -1425,7 +1424,7 @@ uint64_t streamGetOffset(stream *s, streamID *id) {
     if (cmp_last == 0) {
         /* Return the exact offset of the last entry in the stream. */
         return s->offset;
-    } else if (cmp_last == 1) {
+    } else if (cmp_last > 0) {
         /* The offset of a future ID is unknown. */
         return 0;
     }
@@ -1434,9 +1433,9 @@ uint64_t streamGetOffset(stream *s, streamID *id) {
     streamGetTipID(s,&first_id,1);
     int cmp_first = streamCompareID(id,&first_id);
     int cmp_xdel = streamCompareID(id,&s->xdel_max_id);
-    if (streamIDEqZero(&s->xdel_max_id) || cmp_xdel == 1) {
+    if (streamIDEqZero(&s->xdel_max_id) || cmp_xdel > 0) {
         /* There's definitely no fragmentation. */
-        if (cmp_first == -1) {
+        if (cmp_first < 0) {
             /* Return the logical start offset. */
             return s->offset - s->length;
         } else if (cmp_first == 0) {
@@ -1459,7 +1458,7 @@ uint64_t streamGetOffset(stream *s, streamID *id) {
     streamIteratorStop(&si);
 
     int cmp_next = streamCompareID(&next_id,&s->xdel_max_id);
-    if (cmp_next == 1) {
+    if (cmp_next > 0) {
         /* Return the logical start offset. */
         return s->offset - s->length - 1;
     }
@@ -2670,7 +2669,7 @@ void xsetidCommand(client *c) {
         }
         if (streamParseStrictIDOrReply(c,c->argv[4],&max_xdel_id,0) != C_OK) {
             return;
-        } else if (streamCompareID(&id,&max_xdel_id) == -1) {
+        } else if (streamCompareID(&id,&max_xdel_id) < 0) {
             addReplyError(c,"The ID specified in XSETID is smaller than the "
                             "provided maxmimal XDEL ID ");
             return;
