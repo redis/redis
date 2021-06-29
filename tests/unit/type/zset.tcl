@@ -1712,10 +1712,7 @@ start_server {tags {"zset"}} {
             set original_max_value [lindex [r config get zset-max-ziplist-value] 1]
             r config set zset-max-ziplist-value 10
             create_zset myzset $contents
-            set card [r zcard myzset]
-
             assert_encoding $type myzset
-            assert_equal $card 10
 
             # create a dict for easy lookup
             unset -nocomplain mydict
@@ -1782,12 +1779,12 @@ start_server {tags {"zset"}} {
             # equal or greater than set size.
             foreach size {10 20} {
                 set res [r zrandmember myzset $size]
-                assert_equal [llength $res] $card
+                assert_equal [llength $res] 10
                 assert_equal [lsort $res] [lsort [dict keys $mydict]]
 
                 # again with WITHSCORES
                 set res [r zrandmember myzset $size withscores]
-                assert_equal [llength $res] [expr {$card * 2}]
+                assert_equal [llength $res] 20
                 assert_equal [lsort $res] [lsort $mydict]
             }
 
