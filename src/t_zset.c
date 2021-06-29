@@ -4023,7 +4023,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
                     addReplyArrayLen(c,2);
                 addReplyBulkCBuffer(c, key, sdslen(key));
                 if (withscores)
-                    addReplyDouble(c, dictGetDoubleVal(de));
+                    addReplyDouble(c, *(double*)dictGetVal(de));
             }
         } else if (zsetobj->encoding == OBJ_ENCODING_ZIPLIST) {
             ziplistEntry *keys, *vals = NULL;
