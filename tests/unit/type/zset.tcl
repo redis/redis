@@ -1780,6 +1780,7 @@ start_server {tags {"zset"}} {
                 set res [r zrandmember myzset $size]
                 assert_equal [llength $res] 10
                 assert_equal [lsort $res] [lsort [dict keys $mydict]]
+                check_member $mydict $res
 
                 # again with WITHSCORES
                 set res [r zrandmember myzset $size withscores]
