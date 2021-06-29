@@ -1021,7 +1021,7 @@ static benchmarkThread *createBenchmarkThread(int index) {
     if (thread == NULL) return NULL;
     thread->index = index;
     thread->el = aeCreateEventLoop(1024*10);
-    aeCreateTimeEvent(thread->el,1,showThroughput,(void *)(uintptr_t)(index),NULL);
+    aeCreateTimeEvent(thread->el,1,showThroughput,(void *)(intptr_t)index,NULL);
     return thread;
 }
 
@@ -1621,7 +1621,7 @@ usage:
 int showThroughput(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     UNUSED(eventLoop);
     UNUSED(id);
-    uintptr_t index = (uintptr_t)clientData;
+    intptr_t index = (intptr_t)clientData;
     int liveclients = 0;
     int requests_finished = 0;
     int previous_requests_finished = 0;
@@ -1640,7 +1640,7 @@ int showThroughput(struct aeEventLoop *eventLoop, long long id, void *clientData
     }
     if (config.csv) return SHOW_THROUGHPUT_INTERVAL;
     /* only first thread output throughput */
-    if (index) {
+    if (index != 0) {
         return SHOW_THROUGHPUT_INTERVAL;
     }
     if (config.idlemode == 1) {
