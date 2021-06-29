@@ -679,7 +679,7 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
         else
             serverPanic("Unknown hash encoding");
     case OBJ_STREAM:
-        return rdbSaveType(rdb,RDB_TYPE_STREAM_LP_2);
+        return rdbSaveType(rdb,RDB_TYPE_STREAM_LISTPACKS);
     case OBJ_MODULE:
         return rdbSaveType(rdb,RDB_TYPE_MODULE_2);
     default:
@@ -1525,7 +1525,7 @@ robj *rdbLoadCheckModuleValue(rio *rdb, char *modulename) {
 
 /* Load a Redis object of the specified type from the specified file.
  * On success a newly allocated object is returned, otherwise NULL. */
-robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid) {
+robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int rdbver) {
     robj *o = NULL, *ele, *dec;
     uint64_t len;
     unsigned int i;
@@ -1953,9 +1953,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid) {
                 rdbReportCorruptRDB("Unknown RDB encoding type %d",rdbtype);
                 break;
         }
-    } else if (rdbtype == RDB_TYPE_STREAM_LISTPACKS ||
-               rdbtype == RDB_TYPE_STREAM_LP_2)
-    {
+    } else if (rdbtype == RDB_TYPE_STREAM_LISTPACKS) {
         o = createStreamObject();
         stream *s = o->ptr;
         uint64_t listpacks = rdbLoadLen(rdb,NULL);
@@ -2032,7 +2030,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid) {
         s->last_id.ms = rdbLoadLen(rdb,NULL);
         s->last_id.seq = rdbLoadLen(rdb,NULL);
         
-        if (rdbtype == RDB_TYPE_STREAM_LP_2) {
+        if (rdbver > 9) {
             /* Load the maximal tombstone ID. */
             s->xdel_max_id.ms = rdbLoadLen(rdb,NULL);
             s->xdel_max_id.seq = rdbLoadLen(rdb,NULL);
@@ -2040,6 +2038,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid) {
             /* Load the offset. */
             s->offset = rdbLoadLen(rdb,NULL);
         } else {
+            /* During migration the offset can be initialized to the stream's
+             * length. At this point, we also don't care about tombstones
+             * because CG offsets will be initialized as well. */
             s->xdel_max_id.ms = 0;
             s->xdel_max_id.seq = 0;
             s->offset = s->length;
@@ -2082,7 +2083,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid) {
             
             /* Load group offset. */
             int cg_offset;
-            if (rdbtype == RDB_TYPE_STREAM_LP_2) {
+            if (rdbver > 9) {
                 cg_offset = rdbLoadLen(rdb,NULL);
             } else {
                 cg_offset = streamGetOffset(s,&cg_id);
@@ -2565,7 +2566,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
         if ((key = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL)) == NULL)
             goto eoferr;
         /* Read value */
-        if ((val = rdbLoadObject(type,rdb,key,db->id)) == NULL) {
+        if ((val = rdbLoadObject(type,rdb,key,db->id,rdbver)) == NULL) {
             sdsfree(key);
             goto eoferr;
         }
