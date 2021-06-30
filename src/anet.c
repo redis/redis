@@ -505,7 +505,7 @@ static int anetGenericAccept(char *err, int s, struct sockaddr *sa, socklen_t *l
         fd = accept(s,sa,len);
         if (fd != -1) {
             anetCloexec(fd);
-            connNonBlock(conn);
+            anetNonBlock(NULL, fd);
         }
 #endif
     } while(fd == -1 && errno == EINTR);
