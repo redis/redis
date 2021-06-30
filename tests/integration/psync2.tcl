@@ -119,7 +119,7 @@ start_server {} {
                 set r_master_port [status $R($r) master_port]
 
                 if {$r_master_port == ""} {
-                    set root_master($r) $r
+                    set root_master($j) $r
                     break
                 }
 
