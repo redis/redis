@@ -7226,7 +7226,7 @@ static void getRDB(clusterManagerNode *node) {
             payload, filename);
     }
 
-    int write_to_stdout = !strcmp(filename,"-") || !strcmp(filename,"/dev/stdout");
+    int write_to_stdout = !strcmp(filename,"-");
     /* Write to file. */
     if (write_to_stdout) {
         fd = STDOUT_FILENO;
