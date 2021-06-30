@@ -1,4 +1,4 @@
-start_server {tags {"pause network external:skip"}} {
+start_server {tags {"pause network"}} {
     test "Test read commands are not blocked by client pause" {
         r client PAUSE 100000000 WRITE
         set rd [redis_deferring_client]
@@ -143,16 +143,16 @@ start_server {tags {"pause network external:skip"}} {
         r client unpause
     }
 
-    test "Test both active and passive expiries are skipped during client pause" {
+    test "Test both active and passive expires are skipped during client pause" {
         set expired_keys [s 0 expired_keys]
         r multi
-        r set foo bar PX 10
-        r set bar foo PX 10
+        r set foo{t} bar{t} PX 10
+        r set bar{t} foo{t} PX 10
         r client PAUSE 100000000 WRITE
         r exec
 
         wait_for_condition 10 100 {
-            [r get foo] == {} && [r get bar] == {}
+            [r get foo{t}] == {} && [r get bar{t}] == {}
         } else {
             fail "Keys were never logically expired"
         }
@@ -163,8 +163,8 @@ start_server {tags {"pause network external:skip"}} {
         r client unpause
 
         # Force the keys to expire
-        r get foo
-        r get bar
+        r get foo{t}
+        r get bar{t}
 
         # Now that clients have been unpaused, expires should go through
         assert_match [expr $expired_keys + 2] [s 0 expired_keys]   
@@ -172,13 +172,13 @@ start_server {tags {"pause network external:skip"}} {
 
     test "Test that client pause starts at the end of a transaction" {
         r MULTI
-        r SET FOO1 BAR
+        r SET FOO1{t} BAR
         r client PAUSE 100000000 WRITE
-        r SET FOO2 BAR
+        r SET FOO2{t} BAR
         r exec
 
         set rd [redis_deferring_client]
-        $rd SET FOO3 BAR
+        $rd SET FOO3{t} BAR
         
         wait_for_condition 50 100 {
             [s 0 blocked_clients] eq {1}
@@ -186,9 +186,9 @@ start_server {tags {"pause network external:skip"}} {
             fail "Clients are not blocked"
         }
 
-        assert_match "BAR" [r GET FOO1]
-        assert_match "BAR" [r GET FOO2]
-        assert_match "" [r GET FOO3]
+        assert_match "BAR" [r GET FOO1{t}]
+        assert_match "BAR" [r GET FOO2{t}]
+        assert_match "" [r GET FOO3{t}]
 
         r client unpause 
         assert_match "OK" [$rd read]
