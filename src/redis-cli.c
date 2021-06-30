@@ -1928,7 +1928,7 @@ static void usage(void) {
 "                     Default time interval is 1 sec. Change it using -i.\n"
 "  --lru-test <keys>  Simulate a cache workload with an 80-20 distribution.\n"
 "  --replica          Simulate a replica showing commands received from the master.\n"
-"  --rdb <filename>   Transfer an RDB dump from remote server to local file.
+"  --rdb <filename>   Transfer an RDB dump from remote server to local file.\n"
 "                     Use filename of \"-\" to write to stdout.\n"
 "  --pipe             Transfer raw Redis protocol from stdin to server.\n"
 "  --pipe-timeout <n> In --pipe mode, abort with error if after sending all data.\n"
