@@ -492,6 +492,8 @@ int anetUnixServer(char *err, char *path, mode_t perm, int backlog)
     return s;
 }
 
+/* Accept a connection and also make sure the socket is non-blocking, and CLOEXEC.
+ * returns the new socket FD, or -1 on error. */
 static int anetGenericAccept(char *err, int s, struct sockaddr *sa, socklen_t *len) {
     int fd;
     do {
@@ -501,6 +503,10 @@ static int anetGenericAccept(char *err, int s, struct sockaddr *sa, socklen_t *l
         fd = accept4(s, sa, len,  SOCK_NONBLOCK | SOCK_CLOEXEC);
 #else
         fd = accept(s,sa,len);
+        if (fd != -1) {
+            anetCloexec(fd);
+            connNonBlock(conn);
+        }
 #endif
     } while(fd == -1 && errno == EINTR);
     if (fd == -1) {

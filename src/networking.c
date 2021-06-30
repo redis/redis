@@ -115,9 +115,6 @@ client *createClient(connection *conn) {
      * in the context of a client. When commands are executed in other
      * contexts (for instance a Lua script) we need a non connected client. */
     if (conn) {
-#ifndef HAVE_ACCEPT4
-        connNonBlock(conn);
-#endif
         connEnableTcpNoDelay(conn);
         if (server.tcpkeepalive)
             connKeepAlive(conn,server.tcpkeepalive);
@@ -1041,10 +1038,6 @@ static void acceptCommonHandler(connection *conn, int flags, char *ip) {
     client *c;
     char conninfo[100];
     UNUSED(ip);
-
-#ifndef HAVE_ACCEPT4
-    anetCloexec(conn->fd);
-#endif
 
     if (connGetState(conn) != CONN_STATE_ACCEPTING) {
         serverLog(LL_VERBOSE,
