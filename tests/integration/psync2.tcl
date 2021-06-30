@@ -100,6 +100,7 @@ start_server {} {
         set R($j) [srv [expr 0-$j] client]
         set R_host($j) [srv [expr 0-$j] host]
         set R_port($j) [srv [expr 0-$j] port]
+        set R_id_from_port($R_port($j)) $j ;# To get a replica index by port
         set R_log($j) [srv [expr 0-$j] stdout]
         if {$debug_msg} {puts "Log file: [srv [expr 0-$j] stdout]"}
     }
@@ -121,6 +122,36 @@ start_server {} {
             if {$counter_value == 0} {
                 $R($master_id) set x $counter_value
             }
+        }
+
+        # Build a lookup with the root master of each replica (head of the chain).
+        array set root_master {}
+        for {set j 0} {$j < 5} {incr j} {
+            set r $j
+            while {1} {
+                set r_master_port [status $R($r) master_port]
+                if {$r_master_port == ""} {
+                    set root_master($j) $r
+                    break
+                }
+                set r_master_id $R_id_from_port($r_master_port)
+                set r $r_master_id
+            }
+        }
+
+        # Wait for the newly detached master-replica chain (new master and existing replicas that were
+        # already connected to it, to get updated on the new replication id.
+        # This is needed to avoid a race that can result in a full sync when a replica that already
+        # got an updated repl id, tries to psync from one that's not yet aware of it.
+        wait_for_condition 50 1000 {
+            ([status $R(0) master_replid] == [status $R($root_master(0)) master_replid]) &&
+            ([status $R(1) master_replid] == [status $R($root_master(1)) master_replid]) &&
+            ([status $R(2) master_replid] == [status $R($root_master(2)) master_replid]) &&
+            ([status $R(3) master_replid] == [status $R($root_master(3)) master_replid]) &&
+            ([status $R(4) master_replid] == [status $R($root_master(4)) master_replid])
+        } else {
+            show_cluster_status
+            fail "Replica did not inherit the new replid."
         }
 
         # 2) Attach all the slaves to a random instance
