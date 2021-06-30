@@ -982,11 +982,15 @@ static int streamParseAddOrTrimArgsOrReply(client *c, streamAddTrimArgs *args, i
             }
         } else {
             /* User didn't provide LIMIT, we must set it. */
-
             if (args->approx_trim) {
-                /* In order to prevent from trimming to do too much work and cause
-                 * latency spikes we limit the amount of work it can do */
+                /* In order to prevent from trimming to do too much work and 
+                 * cause latency spikes we limit the amount of work it can do.
+                 * We have to cap args->limit from both sides in case 
+                 * stream_node_max_entries is 0 or too big (could cause overflow)
+                 */
                 args->limit = 100 * server.stream_node_max_entries; /* Maximum 100 rax nodes. */
+                if (args->limit <= 0) args->limit = 10000;
+                if (args->limit > 1000000) args->limit = 1000000;
             } else {
                 /* No LIMIT for exact trimming */
                 args->limit = 0;
