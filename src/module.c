@@ -59,6 +59,7 @@
 #include <dlfcn.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include "call_reply.h"
 
 /* --------------------------------------------------------------------------
  * Private data structures used by the modules system. Those are data
@@ -232,22 +233,7 @@ typedef struct RedisModuleCommandProxy RedisModuleCommandProxy;
 /* Reply of RM_Call() function. The function is filled in a lazy
  * way depending on the function called on the reply structure. By default
  * only the type, proto and protolen are filled. */
-typedef struct RedisModuleCallReply {
-    RedisModuleCtx *ctx;
-    int type;       /* REDISMODULE_REPLY_... */
-    int flags;      /* REDISMODULE_REPLYFLAG_...  */
-    size_t len;     /* Len of strings or num of elements of arrays. */
-    char *proto;    /* Raw reply protocol. An SDS string at top-level object. */
-    size_t protolen;/* Length of protocol. */
-    union {
-        const char *str; /* String pointer for string and error replies. This
-                            does not need to be freed, always points inside
-                            a reply->proto buffer of the reply object or, in
-                            case of array elements, of parent reply objects. */
-        long long ll;    /* Reply value for integer reply. */
-        struct RedisModuleCallReply *array; /* Array of sub-reply elements. */
-    } val;
-} RedisModuleCallReply;
+typedef struct CallReply RedisModuleCallReply;
 
 /* Structure representing a blocked client. We get a pointer to such
  * an object when blocking from modules. */
@@ -350,6 +336,7 @@ typedef struct RedisModuleServerInfoData {
 #define REDISMODULE_ARGV_REPLICATE (1<<0)
 #define REDISMODULE_ARGV_NO_AOF (1<<1)
 #define REDISMODULE_ARGV_NO_REPLICAS (1<<2)
+#define REDISMODULE_ARGV_RESP_3 (1<<3)
 
 /* Determine whether Redis should signalModifiedKey implicitly.
  * In case 'ctx' has no 'module' member (and therefore no module->options),
@@ -1702,8 +1689,9 @@ int RM_ReplyWithNull(RedisModuleCtx *ctx) {
 int RM_ReplyWithCallReply(RedisModuleCtx *ctx, RedisModuleCallReply *reply) {
     client *c = moduleGetReplyClient(ctx);
     if (c == NULL) return REDISMODULE_OK;
-    sds proto = sdsnewlen(reply->proto, reply->protolen);
-    addReplySds(c,proto);
+    sds proto = callReplyGetProto(reply);
+    sds proto_dup = sdsnewlen(proto, sdslen(proto));
+    addReplySds(c,proto_dup);
     return REDISMODULE_OK;
 }
 
@@ -3769,141 +3757,14 @@ long long RM_StreamTrimByID(RedisModuleKey *key, int flags, RedisModuleStreamID 
  * RM_Call() sends a command to Redis. The remaining functions handle the reply.
  * -------------------------------------------------------------------------- */
 
-/* Create a new RedisModuleCallReply object. The processing of the reply
- * is lazy, the object is just populated with the raw protocol and later
- * is processed as needed. Initially we just make sure to set the right
- * reply type, which is extremely cheap to do. */
-RedisModuleCallReply *moduleCreateCallReplyFromProto(RedisModuleCtx *ctx, sds proto) {
-    RedisModuleCallReply *reply = zmalloc(sizeof(*reply));
-    reply->ctx = ctx;
-    reply->proto = proto;
-    reply->protolen = sdslen(proto);
-    reply->flags = REDISMODULE_REPLYFLAG_TOPARSE; /* Lazy parsing. */
-    switch(proto[0]) {
-    case '$':
-    case '+': reply->type = REDISMODULE_REPLY_STRING; break;
-    case '-': reply->type = REDISMODULE_REPLY_ERROR; break;
-    case ':': reply->type = REDISMODULE_REPLY_INTEGER; break;
-    case '*': reply->type = REDISMODULE_REPLY_ARRAY; break;
-    default: reply->type = REDISMODULE_REPLY_UNKNOWN; break;
-    }
-    if ((proto[0] == '*' || proto[0] == '$') && proto[1] == '-')
-        reply->type = REDISMODULE_REPLY_NULL;
-    return reply;
-}
 
 void moduleParseCallReply_Int(RedisModuleCallReply *reply);
 void moduleParseCallReply_BulkString(RedisModuleCallReply *reply);
 void moduleParseCallReply_SimpleString(RedisModuleCallReply *reply);
 void moduleParseCallReply_Array(RedisModuleCallReply *reply);
 
-/* Do nothing if REDISMODULE_REPLYFLAG_TOPARSE is false, otherwise
- * use the protocol of the reply in reply->proto in order to fill the
- * reply with parsed data according to the reply type. */
-void moduleParseCallReply(RedisModuleCallReply *reply) {
-    if (!(reply->flags & REDISMODULE_REPLYFLAG_TOPARSE)) return;
-    reply->flags &= ~REDISMODULE_REPLYFLAG_TOPARSE;
 
-    switch(reply->proto[0]) {
-    case ':': moduleParseCallReply_Int(reply); break;
-    case '$': moduleParseCallReply_BulkString(reply); break;
-    case '-': /* handled by next item. */
-    case '+': moduleParseCallReply_SimpleString(reply); break;
-    case '*': moduleParseCallReply_Array(reply); break;
-    }
-}
 
-void moduleParseCallReply_Int(RedisModuleCallReply *reply) {
-    char *proto = reply->proto;
-    char *p = strchr(proto+1,'\r');
-
-    string2ll(proto+1,p-proto-1,&reply->val.ll);
-    reply->protolen = p-proto+2;
-    reply->type = REDISMODULE_REPLY_INTEGER;
-}
-
-void moduleParseCallReply_BulkString(RedisModuleCallReply *reply) {
-    char *proto = reply->proto;
-    char *p = strchr(proto+1,'\r');
-    long long bulklen;
-
-    string2ll(proto+1,p-proto-1,&bulklen);
-    if (bulklen == -1) {
-        reply->protolen = p-proto+2;
-        reply->type = REDISMODULE_REPLY_NULL;
-    } else {
-        reply->val.str = p+2;
-        reply->len = bulklen;
-        reply->protolen = p-proto+2+bulklen+2;
-        reply->type = REDISMODULE_REPLY_STRING;
-    }
-}
-
-void moduleParseCallReply_SimpleString(RedisModuleCallReply *reply) {
-    char *proto = reply->proto;
-    char *p = strchr(proto+1,'\r');
-
-    reply->val.str = proto+1;
-    reply->len = p-proto-1;
-    reply->protolen = p-proto+2;
-    reply->type = proto[0] == '+' ? REDISMODULE_REPLY_STRING :
-                                    REDISMODULE_REPLY_ERROR;
-}
-
-void moduleParseCallReply_Array(RedisModuleCallReply *reply) {
-    char *proto = reply->proto;
-    char *p = strchr(proto+1,'\r');
-    long long arraylen, j;
-
-    string2ll(proto+1,p-proto-1,&arraylen);
-    p += 2;
-
-    if (arraylen == -1) {
-        reply->protolen = p-proto;
-        reply->type = REDISMODULE_REPLY_NULL;
-        return;
-    }
-
-    reply->val.array = zmalloc(sizeof(RedisModuleCallReply)*arraylen);
-    reply->len = arraylen;
-    for (j = 0; j < arraylen; j++) {
-        RedisModuleCallReply *ele = reply->val.array+j;
-        ele->flags = REDISMODULE_REPLYFLAG_NESTED |
-                     REDISMODULE_REPLYFLAG_TOPARSE;
-        ele->proto = p;
-        ele->ctx = reply->ctx;
-        moduleParseCallReply(ele);
-        p += ele->protolen;
-    }
-    reply->protolen = p-proto;
-    reply->type = REDISMODULE_REPLY_ARRAY;
-}
-
-/* Recursive free reply function. */
-void moduleFreeCallReplyRec(RedisModuleCallReply *reply, int freenested){
-    /* Don't free nested replies by default: the user must always free the
-     * toplevel reply. However be gentle and don't crash if the module
-     * misuses the API. */
-    if (!freenested && reply->flags & REDISMODULE_REPLYFLAG_NESTED) return;
-
-    if (!(reply->flags & REDISMODULE_REPLYFLAG_TOPARSE)) {
-        if (reply->type == REDISMODULE_REPLY_ARRAY) {
-            size_t j;
-            for (j = 0; j < reply->len; j++)
-                moduleFreeCallReplyRec(reply->val.array+j,1);
-            zfree(reply->val.array);
-        }
-    }
-
-    /* For nested replies, we don't free reply->proto (which if not NULL
-     * references the parent reply->proto buffer), nor the structure
-     * itself which is allocated as an array of structures, and is freed
-     * when the array value is released. */
-    if (!(reply->flags & REDISMODULE_REPLYFLAG_NESTED)) {
-        if (reply->proto) sdsfree(reply->proto);
-        zfree(reply);
-    }
-}
 
 /* Free a Call reply and all the nested replies it contains if it's an
  * array. */
@@ -3911,67 +3772,80 @@ void RM_FreeCallReply(RedisModuleCallReply *reply) {
     /* This is a wrapper for the recursive free reply function. This is needed
      * in order to have the first level function to return on nested replies,
      * but only if called by the module API. */
-    RedisModuleCtx *ctx = reply->ctx;
-    moduleFreeCallReplyRec(reply,0);
+    RedisModuleCtx *ctx = callReplyGetPrivateData(reply);
+    freeCallReply(reply);
     autoMemoryFreed(ctx,REDISMODULE_AM_REPLY,reply);
 }
 
 /* Return the reply type. */
 int RM_CallReplyType(RedisModuleCallReply *reply) {
-    if (!reply) return REDISMODULE_REPLY_UNKNOWN;
-    return reply->type;
+    return callReplyType(reply);
 }
 
 /* Return the reply type length, where applicable. */
 size_t RM_CallReplyLength(RedisModuleCallReply *reply) {
-    moduleParseCallReply(reply);
-    switch(reply->type) {
-    case REDISMODULE_REPLY_STRING:
-    case REDISMODULE_REPLY_ERROR:
-    case REDISMODULE_REPLY_ARRAY:
-        return reply->len;
-    default:
-        return 0;
-    }
+    return callReplyGetLen(reply);
 }
 
 /* Return the 'idx'-th nested call reply element of an array reply, or NULL
  * if the reply type is wrong or the index is out of range. */
 RedisModuleCallReply *RM_CallReplyArrayElement(RedisModuleCallReply *reply, size_t idx) {
-    moduleParseCallReply(reply);
-    if (reply->type != REDISMODULE_REPLY_ARRAY) return NULL;
-    if (idx >= reply->len) return NULL;
-    return reply->val.array+idx;
+    return callReplyGetArrElement(reply, idx);
 }
 
 /* Return the long long of an integer reply. */
 long long RM_CallReplyInteger(RedisModuleCallReply *reply) {
-    moduleParseCallReply(reply);
-    if (reply->type != REDISMODULE_REPLY_INTEGER) return LLONG_MIN;
-    return reply->val.ll;
+    return callReplyGetLongLong(reply);
+}
+
+/* Return the double value of an double reply. */
+double RM_CallReplyDouble(RedisModuleCallReply *reply) {
+    return callReplyGetDouble(reply);
+}
+
+/* Return the boolean value of an boolean reply. */
+int RM_CallReplyBool(RedisModuleCallReply *reply) {
+    return callReplyGetBool(reply);
+}
+
+/* Return the 'idx'-th nested call reply element of a set reply, or NULL
+ * if the reply type is wrong or the index is out of range. */
+RedisModuleCallReply *RM_CallReplySetElement(RedisModuleCallReply *reply, size_t idx) {
+    return callReplyGetSetElement(reply, idx);
+}
+
+/* Return the 'idx'-th key of a map reply, or NULL
+ * if the reply type is wrong or the index is out of range. */
+RedisModuleCallReply *RM_CallReplyMapKey(RedisModuleCallReply *reply, size_t idx) {
+    return callReplyGetMapKey(reply, idx);
+}
+
+/* Return the 'idx'-th value of a map reply, or NULL
+ * if the reply type is wrong or the index is out of range. */
+RedisModuleCallReply *RM_CallReplyMapVal(RedisModuleCallReply *reply, size_t idx) {
+    return callReplyGetMapVal(reply, idx);
 }
 
 /* Return the pointer and length of a string or error reply. */
 const char *RM_CallReplyStringPtr(RedisModuleCallReply *reply, size_t *len) {
-    moduleParseCallReply(reply);
-    if (reply->type != REDISMODULE_REPLY_STRING &&
-        reply->type != REDISMODULE_REPLY_ERROR) return NULL;
-    if (len) *len = reply->len;
-    return reply->val.str;
+    return callReplyGetStr(reply, len);
 }
 
 /* Return a new string object from a call reply of type string, error or
  * integer. Otherwise (wrong reply type) return NULL. */
 RedisModuleString *RM_CreateStringFromCallReply(RedisModuleCallReply *reply) {
-    moduleParseCallReply(reply);
-    switch(reply->type) {
+    RedisModuleCtx* ctx = callReplyGetPrivateData(reply);
+    size_t len;
+    const char* str;
+    switch(callReplyType(reply)) {
     case REDISMODULE_REPLY_STRING:
     case REDISMODULE_REPLY_ERROR:
-        return RM_CreateString(reply->ctx,reply->val.str,reply->len);
+        str = callReplyGetStr(reply, &len);
+        return RM_CreateString(ctx, str, len);
     case REDISMODULE_REPLY_INTEGER: {
         char buf[64];
-        int len = ll2string(buf,sizeof(buf),reply->val.ll);
-        return RM_CreateString(reply->ctx,buf,len);
+        int len = ll2string(buf,sizeof(buf),callReplyGetLongLong(reply));
+        return RM_CreateString(ctx ,buf,len);
         }
     default: return NULL;
     }
@@ -3987,6 +3861,7 @@ RedisModuleString *RM_CreateStringFromCallReply(RedisModuleCallReply *reply) {
  *     "!" -> REDISMODULE_ARGV_REPLICATE
  *     "A" -> REDISMODULE_ARGV_NO_AOF
  *     "R" -> REDISMODULE_ARGV_NO_REPLICAS
+ *     "N" -> REDISMODULE_ARGV_RESP_3
  *
  * On error (format specifier error) NULL is returned and nothing is
  * allocated. On success the argument vector is returned. */
@@ -4045,6 +3920,8 @@ robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int 
             if (flags) (*flags) |= REDISMODULE_ARGV_NO_AOF;
         } else if (*p == 'R') {
             if (flags) (*flags) |= REDISMODULE_ARGV_NO_REPLICAS;
+        } else if (*p == 'N') {
+            if (flags) (*flags) |= REDISMODULE_ARGV_RESP_3;
         } else {
             goto fmterr;
         }
@@ -4135,6 +4012,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     c->db = ctx->client->db;
     c->argv = argv;
     c->argc = argc;
+    c->resp = (flags & REDISMODULE_ARGV_RESP_3)? 3 : 2;
     if (ctx->module) ctx->module->in_call++;
 
     /* We handle the above format error only when the client is setup so that
@@ -4221,7 +4099,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         proto = sdscatlen(proto,o->buf,o->used);
         listDelNode(c->reply,listFirst(c->reply));
     }
-    reply = moduleCreateCallReplyFromProto(ctx,proto);
+    reply = callReplyCreate(proto, ctx);
     autoMemoryAdd(ctx,REDISMODULE_AM_REPLY,reply);
 
 cleanup:
@@ -4244,8 +4122,9 @@ cleanup:
 /* Return a pointer, and a length, to the protocol returned by the command
  * that returned the reply object. */
 const char *RM_CallReplyProto(RedisModuleCallReply *reply, size_t *len) {
-    if (reply->proto) *len = sdslen(reply->proto);
-    return reply->proto;
+    sds proto = callReplyGetProto(reply);
+    if (proto) *len = sdslen(proto);
+    return proto;
 }
 
 /* --------------------------------------------------------------------------
@@ -9414,6 +9293,11 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(CallReplyProto);
     REGISTER_API(FreeCallReply);
     REGISTER_API(CallReplyInteger);
+    REGISTER_API(CallReplyDouble);
+    REGISTER_API(CallReplyBool);
+    REGISTER_API(CallReplySetElement);
+    REGISTER_API(CallReplyMapKey);
+    REGISTER_API(CallReplyMapVal);
     REGISTER_API(CallReplyType);
     REGISTER_API(CallReplyLength);
     REGISTER_API(CallReplyArrayElement);
