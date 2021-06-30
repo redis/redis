@@ -109,6 +109,19 @@ start_server {} {
     while {([clock seconds]-$start_time) < $duration} {
         test "PSYNC2: --- CYCLE $cycle ---" {}
         incr cycle
+        # Create a random replication layout.
+        # Start with switching master (this simulates a failover).
+
+        # 1) Select the new master.
+        set master_id [randomInt 5]
+        set used [list $master_id]
+        test "PSYNC2: \[NEW LAYOUT\] Set #$master_id as master" {
+            $R($master_id) slaveof no one
+            $R($master_id) config set repl-ping-replica-period 1 ;# increase the chance that random ping will cause issues
+            if {$counter_value == 0} {
+                $R($master_id) set x $counter_value
+            }
+        }
 
         # Build a lookup with the root master of each replica (head of the chain).
         array set root_master {}
@@ -126,20 +139,6 @@ start_server {} {
                 # Need to prepare that lookup.
                 set r_master_id $R_id_from_port($r_master_port)
                 set r $r_master_id
-            }
-        }
-
-        # Create a random replication layout.
-        # Start with switching master (this simulates a failover).
-
-        # 1) Select the new master.
-        set master_id [randomInt 5]
-        set used [list $master_id]
-        test "PSYNC2: \[NEW LAYOUT\] Set #$master_id as master" {
-            $R($master_id) slaveof no one
-            $R($master_id) config set repl-ping-replica-period 1 ;# increase the chance that random ping will cause issues
-            if {$counter_value == 0} {
-                $R($master_id) set x $counter_value
             }
         }
 
