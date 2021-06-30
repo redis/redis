@@ -125,7 +125,7 @@ start_server {} {
 
                 # Need to prepare that lookup.
                 set r_master_id $R_id_from_port($r_master_port)
-                set r $root_master($r_master_id)
+                set r $r_master_id
             }
         }
 
