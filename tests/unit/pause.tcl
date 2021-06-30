@@ -15,11 +15,7 @@ start_server {tags {"pause network"}} {
 
         set rd [redis_deferring_client]
         $rd SET FOO BAR
-        wait_for_condition 50 100 {
-            [s 0 blocked_clients] eq {1}
-        } else {
-            fail "Clients are not blocked"
-        }
+        wait_for_blocked_clients_count 1 50 100
 
         r client unpause
         assert_match "OK" [$rd read]
@@ -33,30 +29,18 @@ start_server {tags {"pause network"}} {
         # Test that pfcount, which can replicate, is also blocked
         set rd [redis_deferring_client]
         $rd PFCOUNT pause-hll
-        wait_for_condition 50 100 {
-            [s 0 blocked_clients] eq {1}
-        } else {
-            fail "Clients are not blocked"
-        }
+        wait_for_blocked_clients_count 1 50 100
 
         # Test that publish, which adds the message to the replication
         # stream is blocked.
         set rd2 [redis_deferring_client]
         $rd2 publish foo bar
-        wait_for_condition 50 100 {
-            [s 0 blocked_clients] eq {2}
-        } else {
-            fail "Clients are not blocked"
-        }
+        wait_for_blocked_clients_count 2 50 100
 
         # Test that SCRIPT LOAD, which is replicated. 
         set rd3 [redis_deferring_client]
         $rd3 script load "return 1"
-        wait_for_condition 50 100 {
-            [s 0 blocked_clients] eq {3}
-        } else {
-            fail "Clients are not blocked"
-        }
+        wait_for_blocked_clients_count 3 50 100
 
         r client unpause 
         assert_match "1" [$rd read]
@@ -92,11 +76,7 @@ start_server {tags {"pause network"}} {
         r client PAUSE 100000000 WRITE
         assert_equal [$rd read] "QUEUED"
         $rd EXEC
-        wait_for_condition 50 100 {
-            [s 0 blocked_clients] eq {1}
-        } else {
-            fail "Clients are not blocked"
-        }
+        wait_for_blocked_clients_count 1 50 100
         r client unpause 
         assert_match "OK" [$rd read]
         $rd close
@@ -106,12 +86,8 @@ start_server {tags {"pause network"}} {
         r client PAUSE 100000000 WRITE
         set rd [redis_deferring_client]
         $rd EVAL "return 1" 0
-        
-        wait_for_condition 50 100 {
-            [s 0 blocked_clients] eq {1}
-        } else {
-            fail "Clients are not blocked"
-        }
+
+        wait_for_blocked_clients_count 1 50 100
         r client unpause 
         assert_match "1" [$rd read]
         $rd close
@@ -123,12 +99,8 @@ start_server {tags {"pause network"}} {
         foreach client $clients {
             $client SET FOO BAR
         }
-        
-        wait_for_condition 50 100 {
-            [s 0 blocked_clients] eq {3}
-        } else {
-            fail "Clients are not blocked"
-        }
+
+        wait_for_blocked_clients_count 3 50 100
         r client unpause
         foreach client $clients {
             assert_match "OK" [$client read]
@@ -179,12 +151,8 @@ start_server {tags {"pause network"}} {
 
         set rd [redis_deferring_client]
         $rd SET FOO3{t} BAR
-        
-        wait_for_condition 50 100 {
-            [s 0 blocked_clients] eq {1}
-        } else {
-            fail "Clients are not blocked"
-        }
+
+        wait_for_blocked_clients_count 1 50 100
 
         assert_match "BAR" [r GET FOO1{t}]
         assert_match "BAR" [r GET FOO2{t}]
