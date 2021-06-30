@@ -1302,32 +1302,6 @@ void unlinkClient(client *c) {
     if (c->flags & CLIENT_TRACKING) disableTracking(c);
 }
 
-/* Free replication buffer blocks that are referred by this client. */
-void freeReplicaReplBuffer(client *replica) {
-    listNode *head = listFirst(server.repl_buffer_blocks);
-    if (head && head == replica->start_buf_node) {
-        replBufBlock *o = listNodeValue(head);
-        o->refcount--; /* Only decr the first block. */
-
-        while (head != NULL) {
-            listNode *next = listNextNode(head);
-            o = listNodeValue(head);
-            if (o->refcount == 0) {
-                server.repl_buffer_size -= o->size;
-                listDelNode(server.repl_buffer_blocks, head);
-            } else {
-                /* Can't continue to iterate, because other clients may
-                 * refer the remaining buffer blocks. */
-                break;
-            }
-            head = next;
-        }
-    }
-    replica->start_buf_node = NULL;
-    replica->start_buf_block_pos = 0;
-    replica->used_repl_buf_size = 0;
-}
-
 void freeClient(client *c) {
     listNode *ln;
 
@@ -1556,7 +1530,7 @@ int _writeToClient(client *c, ssize_t *nwritten) {
                 listFirst(server.repl_buffer_blocks) == c->start_buf_node)
             {
                 server.repl_buffer_size -= o->size;
-                listDelNode(server.repl_buffer_blocks,c->start_buf_node);
+                listDelNode(server.repl_buffer_blocks, c->start_buf_node);
             }
             /* Incr the block reference count. */
             ((replBufBlock *)(listNodeValue(next)))->refcount++;

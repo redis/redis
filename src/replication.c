@@ -339,6 +339,36 @@ void feedReplicationBuffer(char *s, size_t len) {
     }
 }
 
+/* Free replication buffer blocks that are referred by this client. */
+void freeReplicaReplBuffer(client *replica) {
+    /* Increase the start buffer node reference count. */
+    if (replica->start_buf_node) {
+        replBufBlock *o = listNodeValue(replica->start_buf_node);
+        serverAssert(o->refcount > 0);
+        o->refcount--;
+    }
+
+    listIter li;
+    listNode *ln;
+    /* Free replication buffer blocks whose refcount is 0. */
+    listRewind(server.repl_buffer_blocks, &li);
+    while ((ln = listNext(&li))) {
+        replBufBlock *o = listNodeValue(ln);
+        if (o->refcount == 0) {
+            server.repl_buffer_size -= o->size;
+            listDelNode(server.repl_buffer_blocks, ln);
+        } else {
+            /* Can't continue to iterate, because other clients may
+             * refer the remaining buffer blocks even their reference
+             * count is 0. */
+            break;
+        }
+    }
+    replica->start_buf_node = NULL;
+    replica->start_buf_block_pos = 0;
+    replica->used_repl_buf_size = 0;
+}
+
 /* Propagate write commands to slaves, and populate the replication backlog
  * as well. This function is used if the instance is a master: we use
  * the commands received by our clients in order to create the replication
