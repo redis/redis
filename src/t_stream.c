@@ -1362,18 +1362,21 @@ void streamGetTipID(stream *s, streamID *id, int first) {
     streamIteratorStop(&si);
 }
 
-/* Returns 1 if the ID is 0-0. */
+/* Returns non-zero if the ID is 0-0. */
 int streamIDEqZero(streamID *id) {
     return !(id->ms || id->seq);
 }
 
-/* Check if a range possibly contains a tombstone.
- * Assumes start < end && end < s->last_id. */
+/* A helper that returns non-zero if the range from 'start' to the stream's
+ * end doesn't contain a tombstone.
+ *
+ * NOTE: this assumes that the caller had verified that 'start' is less than
+ * 's->last_id'. */
 int streamIsContiguousRange(stream *s, streamID *start) {
     streamID start_id, first_id;
 
     if (!s->length || streamIDEqZero(&s->xdel_max_id)) {
-        /* An empty stream or no XDELs. */
+        /* An empty stream or no tombstones. */
         return 1;
     }
 
@@ -1388,17 +1391,17 @@ int streamIsContiguousRange(stream *s, streamID *start) {
     streamGetTipID(s,&first_id,1);
     int cmp_first = streamCompareID(&first_id,&s->xdel_max_id);
     if (cmp_first > 0) {
-        /* The XDEL is before the first entry. */
+        /* The latest tombstone is before the first entry. */
         return 1;
     }
 
     int cmp_start = streamCompareID(&start_id,&s->xdel_max_id);
     if (cmp_start >= 0) {
-        /* The range doesn't include an XDEL. */
+        /* The range doesn't include a tombstone. */
         return 1;
     }
 
-    /* The range includes an XDEL. */
+    /* The range includes a tombstone. */
     return 0;
 }
 
@@ -1448,18 +1451,24 @@ uint64_t streamGetOffset(stream *s, streamID *id) {
     }
 
     /* There's a chance that the next ID is valid, and the only thing
-     * before the ID is an XDEL. */
+     * before our ID is a tombstone. If we got here, we know that the
+     * stream isn't empty and that our ID is before it's start, so there 
+     * must be at least one entry with a larger ID in it. */
     streamIterator si;
     int64_t numfields;
     streamID next_id = *id;
     streamIncrID(&next_id);
     streamIteratorStart(&si,s,&next_id,NULL,0);
-    streamIteratorGetID(&si,&next_id,&numfields);   /* Next entry must exist. */
+    serverAssert(streamIteratorGetID(&si,&next_id,&numfields));
     streamIteratorStop(&si);
 
     int cmp_next = streamCompareID(&next_id,&s->xdel_max_id);
     if (cmp_next > 0) {
-        /* Return the logical start offset. */
+        /* Return the logical start offset. At this point we know that
+         * the ID is smaller than the first ID, and that there's a tombstone
+         * between them. However, the tombstone is also before the first ID,
+         * so the next ID is actually the first in the stream. This lets us
+         * set the offset to that of the next ID, but off by one. */
         return s->offset - s->length - 1;
     }
 
@@ -1569,6 +1578,9 @@ void streamPropagateConsumerCreation(client *c, robj *key, robj *groupname, sds 
  *    function will not return it to the client.
  * 3. An entry in the pending list will be created for every entry delivered
  *    for the first time to this consumer.
+ * 4. The group's offset is incremented if it is already valid and there are no
+ *    future tombstones, or is invalidated (set to 0) otherwise. If the offset
+ *    isn't valid to begin with, we try to obtain it for the last delivered ID.
  *
  * The behavior may be modified passing non-zero flags:
  *
@@ -1626,8 +1638,14 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
         /* Update the group last_id if needed. */
         if (group && streamCompareID(&id,&group->last_id) > 0) {
             if (group->offset && streamIsContiguousRange(s,&id)) {
+                /* A valid (non-zero) offset and no future tombstones mean we
+                 * can increment the offset to keep tracking the group's
+                 * progress. */
                 group->offset++;
             } else if (s->offset) {
+                /* The group's offset may be zero because it is was invalid, or
+                 * because it is the real 0 offset (the one before the first).
+                 * Either way, in this case, we try to obtain the offset. */
                 group->offset = streamGetOffset(s,&id);
             }
             group->last_id = id;
@@ -2481,15 +2499,14 @@ void xgroupCommand(client *c) {
             if (!strcasecmp(c->argv[i]->ptr,"MKSTREAM")) {
                 mkstream = 1;
                 i++;
-            } else if (!strcasecmp(c->argv[i]->ptr,"OFFSET") &&
-                       ++i < c->argc ) {
-                if (getLongLongFromObjectOrReply(c,c->argv[i],&offset,NULL) != C_OK) {
+            } else if (!strcasecmp(c->argv[i]->ptr,"OFFSET") && i + 1 < c->argc) {
+                if (getLongLongFromObjectOrReply(c,c->argv[i+1],&offset,NULL) != C_OK) {
                     return;
                 } else if (offset < 0) {
                     addReplyError(c,"offset must be positive");
                     return;
                 }
-                i++;
+                i = i + 2;
             } else {
                 addReplySubcommandSyntaxError(c);
                 return;
@@ -3590,11 +3607,10 @@ void xinfoReplyWithStreamInfo(client *c, stream *s) {
                 if (!s->offset) {
                     /* The lag of a newly-initialized stream is 0. */
                     lag = 0;
-                } else if (cg->offset &&
-                           streamIsContiguousRange(s,&cg->last_id)) {
-                        /* No fragmentation ahead means that the group's
-                         * offset is valid for lag calculation. */
-                        lag = s->offset - cg->offset;
+                } else if (cg->offset && streamIsContiguousRange(s,&cg->last_id)) {
+                    /* No fragmentation ahead means that the group's
+                        * offset is valid for lag calculation. */
+                    lag = s->offset - cg->offset;
                 } else if (streamIDEqZero(&cg->last_id)) {
                     if (streamIsContiguousRange(s,NULL)) {
                         /* The group is at 0-0 of a non-fragmented stream. */
