@@ -265,7 +265,7 @@ static struct pref {
 } pref;
 
 static volatile sig_atomic_t force_cancel_loop = 0;
-static void usage(void);
+static void usage(int err);
 static void slaveMode(void);
 char *redisGitSHA1(void);
 char *redisGitDirty(void);
@@ -1558,9 +1558,9 @@ static int parseOptions(int argc, char **argv) {
             sdsfree(config.hostip);
             config.hostip = sdsnew(argv[++i]);
         } else if (!strcmp(argv[i],"-h") && lastarg) {
-            usage();
+            usage(0);
         } else if (!strcmp(argv[i],"--help")) {
-            usage();
+            usage(0);
         } else if (!strcmp(argv[i],"-x")) {
             config.stdinarg = 1;
         } else if (!strcmp(argv[i],"-p") && !lastarg) {
@@ -1667,7 +1667,7 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"--verbose")) {
             config.verbose = 1;
         } else if (!strcmp(argv[i],"--cluster") && !lastarg) {
-            if (CLUSTER_MANAGER_MODE()) usage();
+            if (CLUSTER_MANAGER_MODE()) usage(1);
             char *cmd = argv[++i];
             int j = i;
             while (j < argc && argv[j][0] != '-') j++;
@@ -1675,7 +1675,7 @@ static int parseOptions(int argc, char **argv) {
             createClusterManagerCommand(cmd, j - i, argv + i + 1);
             i = j;
         } else if (!strcmp(argv[i],"--cluster") && lastarg) {
-            usage();
+            usage(1);
         } else if ((!strcmp(argv[i],"--cluster-only-masters"))) {
             config.cluster_manager_command.flags |=
                     CLUSTER_MANAGER_CMD_FLAG_MASTERS_ONLY;
@@ -1856,9 +1856,10 @@ static sds readArgFromStdin(void) {
     return arg;
 }
 
-static void usage(void) {
+static void usage(int err) {
     sds version = cliVersion();
-    fprintf(stderr,
+    FILE *target = err ? stderr: stdout;
+    fprintf(target,
 "redis-cli %s\n"
 "\n"
 "Usage: redis-cli [OPTIONS] [cmd [arg [arg ...]]]\n"
@@ -1921,7 +1922,7 @@ static void usage(void) {
 "                     -i to change the interval), then produces a single output\n"
 "                     and exits.\n",version);
 
-    fprintf(stderr,
+    fprintf(target,
 "  --latency-history  Like --latency but tracking latency changes over time.\n"
 "                     Default time interval is 15 sec. Change it using -i.\n"
 "  --latency-dist     Shows latency as a spectrum, requires xterm 256 colors.\n"
@@ -1934,7 +1935,7 @@ static void usage(void) {
 "                     no reply is received within <n> seconds.\n"
 "                     Default timeout: %d. Use 0 to wait forever.\n",
     REDIS_CLI_DEFAULT_PIPE_TIMEOUT);
-    fprintf(stderr,
+    fprintf(target,
 "  --bigkeys          Sample Redis keys looking for keys with many elements (complexity).\n"
 "  --memkeys          Sample Redis keys looking for keys consuming a lot of memory.\n"
 "  --memkeys-samples <n> Sample Redis keys looking for keys consuming a lot of memory.\n"
@@ -1962,7 +1963,7 @@ static void usage(void) {
 "  --version          Output version and exit.\n"
 "\n");
     /* Using another fprintf call to avoid -Woverlength-strings compile warning */
-    fprintf(stderr,
+    fprintf(target,
 "Cluster Manager Commands:\n"
 "  Use --cluster help to list all available cluster manager commands.\n"
 "\n"
@@ -1982,7 +1983,7 @@ static void usage(void) {
 "and settings.\n"
 "\n");
     sdsfree(version);
-    exit(1);
+    exit(err);
 }
 
 static int confirmWithYes(char *msg, int ignore_force) {
