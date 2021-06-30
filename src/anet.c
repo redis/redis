@@ -60,8 +60,6 @@ static void anetSetError(char *err, const char *fmt, ...)
 }
 
 int anetSetBlock(char *err, int fd, int non_block) {
-    /* Depend on accept4() to set the socket as non-blocking. */
-#ifndef HAVE_ACCEPT4
     int flags;
 
     /* Set the socket blocking (if non_block is zero) or non-blocking.
@@ -86,7 +84,6 @@ int anetSetBlock(char *err, int fd, int non_block) {
         anetSetError(err, "fcntl(F_SETFL,O_NONBLOCK): %s", strerror(errno));
         return ANET_ERR;
     }
-#endif
     return ANET_OK;
 }
 
