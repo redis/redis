@@ -143,7 +143,7 @@ start_server {} {
             }
         }
 
-        # For the newly detached master-replica chain (new master and existing replicas that were
+        # Wait for the newly detached master-replica chain (new master and existing replicas that were
         # already connected to it, to get updated on the new replication id.
         wait_for_condition 50 1000 {
             ([status $R(0) master_replid] == [status $R($root_master(0)) master_replid]) &&
