@@ -100,7 +100,7 @@ start_server {} {
         set R($j) [srv [expr 0-$j] client]
         set R_host($j) [srv [expr 0-$j] host]
         set R_port($j) [srv [expr 0-$j] port]
-        set R_id_from_port($R_port($j)) $j; # Find id according to port
+        set R_id_from_port($R_port($j)) $j ;# To get a replica index by port
         set R_log($j) [srv [expr 0-$j] stdout]
         if {$debug_msg} {puts "Log file: [srv [expr 0-$j] stdout]"}
     }
@@ -128,16 +128,12 @@ start_server {} {
         array set root_master {}
         for {set j 0} {$j < 5} {incr j} {
             set r $j
-
             while {1} {
                 set r_master_port [status $R($r) master_port]
-
                 if {$r_master_port == ""} {
                     set root_master($j) $r
                     break
                 }
-
-                # Need to prepare that lookup.
                 set r_master_id $R_id_from_port($r_master_port)
                 set r $r_master_id
             }
@@ -155,7 +151,7 @@ start_server {} {
             ([status $R(4) master_replid] == [status $R($root_master(4)) master_replid])
         } else {
             show_cluster_status
-            fail "Replica does not inherit the new replid."
+            fail "Replica did not inherit the new replid."
         }
 
         # 2) Attach all the slaves to a random instance
