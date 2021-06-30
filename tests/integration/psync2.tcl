@@ -145,6 +145,8 @@ start_server {} {
 
         # Wait for the newly detached master-replica chain (new master and existing replicas that were
         # already connected to it, to get updated on the new replication id.
+        # This is needed to avoid a race that can result in a full sync when a replica that already
+        # got an updated repl id, tries to psync from one that's not yet aware of it.
         wait_for_condition 50 1000 {
             ([status $R(0) master_replid] == [status $R($root_master(0)) master_replid]) &&
             ([status $R(1) master_replid] == [status $R($root_master(1)) master_replid]) &&
