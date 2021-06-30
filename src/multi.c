@@ -27,18 +27,20 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "redis.h"
+#include "server.h"
 
 /* ================================ MULTI/EXEC ============================== */
 
 /* Client state initialization for MULTI/EXEC */
-void initClientMultiState(redisClient *c) {
+void initClientMultiState(client *c) {
     c->mstate.commands = NULL;
     c->mstate.count = 0;
+    c->mstate.cmd_flags = 0;
+    c->mstate.cmd_inv_flags = 0;
 }
 
 /* Release all the resources associated with MULTI/EXEC state */
-void freeClientMultiState(redisClient *c) {
+void freeClientMultiState(client *c) {
     int j;
 
     for (j = 0; j < c->mstate.count; j++) {
@@ -53,9 +55,16 @@ void freeClientMultiState(redisClient *c) {
 }
 
 /* Add a new command into the MULTI commands queue */
-void queueMultiCommand(redisClient *c) {
+void queueMultiCommand(client *c) {
     multiCmd *mc;
     int j;
+
+    /* No sense to waste memory if the transaction is already aborted.
+     * this is useful in case client sends these in a pipeline, or doesn't
+     * bother to read previous responses and didn't notice the multi was already
+     * aborted. */
+    if (c->flags & (CLIENT_DIRTY_CAS|CLIENT_DIRTY_EXEC))
+        return;
 
     c->mstate.commands = zrealloc(c->mstate.commands,
             sizeof(multiCmd)*(c->mstate.count+1));
@@ -67,33 +76,36 @@ void queueMultiCommand(redisClient *c) {
     for (j = 0; j < c->argc; j++)
         incrRefCount(mc->argv[j]);
     c->mstate.count++;
+    c->mstate.cmd_flags |= c->cmd->flags;
+    c->mstate.cmd_inv_flags |= ~c->cmd->flags;
 }
 
-void discardTransaction(redisClient *c) {
+void discardTransaction(client *c) {
     freeClientMultiState(c);
     initClientMultiState(c);
-    c->flags &= ~(REDIS_MULTI|REDIS_DIRTY_CAS|REDIS_DIRTY_EXEC);;
+    c->flags &= ~(CLIENT_MULTI|CLIENT_DIRTY_CAS|CLIENT_DIRTY_EXEC);
     unwatchAllKeys(c);
 }
 
-/* Flag the transacation as DIRTY_EXEC so that EXEC will fail.
+/* Flag the transaction as DIRTY_EXEC so that EXEC will fail.
  * Should be called every time there is an error while queueing a command. */
-void flagTransaction(redisClient *c) {
-    if (c->flags & REDIS_MULTI)
-        c->flags |= REDIS_DIRTY_EXEC;
+void flagTransaction(client *c) {
+    if (c->flags & CLIENT_MULTI)
+        c->flags |= CLIENT_DIRTY_EXEC;
 }
 
-void multiCommand(redisClient *c) {
-    if (c->flags & REDIS_MULTI) {
+void multiCommand(client *c) {
+    if (c->flags & CLIENT_MULTI) {
         addReplyError(c,"MULTI calls can not be nested");
         return;
     }
-    c->flags |= REDIS_MULTI;
+    c->flags |= CLIENT_MULTI;
+
     addReply(c,shared.ok);
 }
 
-void discardCommand(redisClient *c) {
-    if (!(c->flags & REDIS_MULTI)) {
+void discardCommand(client *c) {
+    if (!(c->flags & CLIENT_MULTI)) {
         addReplyError(c,"DISCARD without MULTI");
         return;
     }
@@ -101,24 +113,57 @@ void discardCommand(redisClient *c) {
     addReply(c,shared.ok);
 }
 
-/* Send a MULTI command to all the slaves and AOF file. Check the execCommand
- * implementation for more information. */
-void execCommandPropagateMulti(redisClient *c) {
-    robj *multistring = createStringObject("MULTI",5);
-
-    propagate(server.multiCommand,c->db->id,&multistring,1,
-              REDIS_PROPAGATE_AOF|REDIS_PROPAGATE_REPL);
-    decrRefCount(multistring);
+void beforePropagateMulti() {
+    /* Propagating MULTI */
+    serverAssert(!server.propagate_in_transaction);
+    server.propagate_in_transaction = 1;
 }
 
-void execCommand(redisClient *c) {
+void afterPropagateExec() {
+    /* Propagating EXEC */
+    serverAssert(server.propagate_in_transaction == 1);
+    server.propagate_in_transaction = 0;
+}
+
+/* Send a MULTI command to all the slaves and AOF file. Check the execCommand
+ * implementation for more information. */
+void execCommandPropagateMulti(int dbid) {
+    beforePropagateMulti();
+    propagate(server.multiCommand,dbid,&shared.multi,1,
+              PROPAGATE_AOF|PROPAGATE_REPL);
+}
+
+void execCommandPropagateExec(int dbid) {
+    propagate(server.execCommand,dbid,&shared.exec,1,
+              PROPAGATE_AOF|PROPAGATE_REPL);
+    afterPropagateExec();
+}
+
+/* Aborts a transaction, with a specific error message.
+ * The transaction is always aborted with -EXECABORT so that the client knows
+ * the server exited the multi state, but the actual reason for the abort is
+ * included too.
+ * Note: 'error' may or may not end with \r\n. see addReplyErrorFormat. */
+void execCommandAbort(client *c, sds error) {
+    discardTransaction(c);
+
+    if (error[0] == '-') error++;
+    addReplyErrorFormat(c, "-EXECABORT Transaction discarded because of: %s", error);
+
+    /* Send EXEC to clients waiting data from MONITOR. We did send a MULTI
+     * already, and didn't send any of the queued commands, now we'll just send
+     * EXEC so it is clear that the transaction is over. */
+    replicationFeedMonitors(c,server.monitors,c->db->id,c->argv,c->argc);
+}
+
+void execCommand(client *c) {
     int j;
     robj **orig_argv;
     int orig_argc;
     struct redisCommand *orig_cmd;
-    int must_propagate = 0; /* Need to propagate MULTI/EXEC to AOF / slaves? */
+    int was_master = server.masterhost == NULL;
 
-    if (!(c->flags & REDIS_MULTI)) {
+    if (!(c->flags & CLIENT_MULTI)) {
         addReplyError(c,"EXEC without MULTI");
         return;
     }
@@ -129,56 +174,97 @@ void execCommand(redisClient *c) {
      * A failed EXEC in the first case returns a multi bulk nil object
      * (technically it is not an error but a special behavior), while
      * in the second an EXECABORT error is returned. */
-    if (c->flags & (REDIS_DIRTY_CAS|REDIS_DIRTY_EXEC)) {
-        addReply(c, c->flags & REDIS_DIRTY_EXEC ? shared.execaborterr :
-                                                  shared.nullmultibulk);
+    if (c->flags & (CLIENT_DIRTY_CAS|CLIENT_DIRTY_EXEC)) {
+        addReply(c, c->flags & CLIENT_DIRTY_EXEC ? shared.execaborterr :
+                                                   shared.nullarray[c->resp]);
         discardTransaction(c);
-        goto handle_monitor;
+        return;
     }
+
+    uint64_t old_flags = c->flags;
+
+    /* we do not want to allow blocking commands inside multi */
+    c->flags |= CLIENT_DENY_BLOCKING;
 
     /* Exec all the queued commands */
     unwatchAllKeys(c); /* Unwatch ASAP otherwise we'll waste CPU cycles */
+
+    server.in_exec = 1;
+
     orig_argv = c->argv;
     orig_argc = c->argc;
     orig_cmd = c->cmd;
-    addReplyMultiBulkLen(c,c->mstate.count);
+    addReplyArrayLen(c,c->mstate.count);
     for (j = 0; j < c->mstate.count; j++) {
         c->argc = c->mstate.commands[j].argc;
         c->argv = c->mstate.commands[j].argv;
         c->cmd = c->mstate.commands[j].cmd;
 
-        /* Propagate a MULTI request once we encounter the first write op.
-         * This way we'll deliver the MULTI/..../EXEC block as a whole and
-         * both the AOF and the replication link will have the same consistency
-         * and atomicity guarantees. */
-        if (!must_propagate && !(c->cmd->flags & REDIS_CMD_READONLY)) {
-            execCommandPropagateMulti(c);
-            must_propagate = 1;
+        /* ACL permissions are also checked at the time of execution in case
+         * they were changed after the commands were queued. */
+        int acl_errpos;
+        int acl_retval = ACLCheckAllPerm(c,&acl_errpos);
+        if (acl_retval != ACL_OK) {
+            char *reason;
+            switch (acl_retval) {
+            case ACL_DENIED_CMD:
+                reason = "no permission to execute the command or subcommand";
+                break;
+            case ACL_DENIED_KEY:
+                reason = "no permission to touch the specified keys";
+                break;
+            case ACL_DENIED_CHANNEL:
+                reason = "no permission to access one of the channels used "
+                         "as arguments";
+                break;
+            default:
+                reason = "no permission";
+                break;
+            }
+            addACLLogEntry(c,acl_retval,acl_errpos,NULL);
+            addReplyErrorFormat(c,
+                "-NOPERM ACLs rules changed between the moment the "
+                "transaction was accumulated and the EXEC call. "
+                "This command is no longer allowed for the "
+                "following reason: %s", reason);
+        } else {
+            call(c,server.loading ? CMD_CALL_NONE : CMD_CALL_FULL);
+            serverAssert((c->flags & CLIENT_BLOCKED) == 0);
         }
-
-        call(c,REDIS_CALL_FULL);
 
         /* Commands may alter argc/argv, restore mstate. */
         c->mstate.commands[j].argc = c->argc;
         c->mstate.commands[j].argv = c->argv;
         c->mstate.commands[j].cmd = c->cmd;
     }
+
+    // restore old DENY_BLOCKING value
+    if (!(old_flags & CLIENT_DENY_BLOCKING))
+        c->flags &= ~CLIENT_DENY_BLOCKING;
+
     c->argv = orig_argv;
     c->argc = orig_argc;
     c->cmd = orig_cmd;
     discardTransaction(c);
+
     /* Make sure the EXEC command will be propagated as well if MULTI
      * was already propagated. */
-    if (must_propagate) server.dirty++;
+    if (server.propagate_in_transaction) {
+        int is_master = server.masterhost == NULL;
+        server.dirty++;
+        /* If inside the MULTI/EXEC block this instance was suddenly
+         * switched from master to slave (using the SLAVEOF command), the
+         * initial MULTI was propagated into the replication backlog, but the
+         * rest was not. We need to make sure to at least terminate the
+         * backlog with the final EXEC. */
+        if (server.repl_backlog && was_master && !is_master) {
+            char *execcmd = "*1\r\n$4\r\nEXEC\r\n";
+            feedReplicationBacklog(execcmd,strlen(execcmd));
+        }
+        afterPropagateExec();
+    }
 
-handle_monitor:
-    /* Send EXEC to clients waiting data from MONITOR. We do it here
-     * since the natural order of commands execution is actually:
-     * MUTLI, EXEC, ... commands inside transaction ...
-     * Instead EXEC is flagged as REDIS_CMD_SKIP_MONITOR in the command
-     * table, and we do it here with correct ordering. */
-    if (listLength(server.monitors) && !server.loading)
-        replicationFeedMonitors(c,server.monitors,c->db->id,c->argv,c->argc);
+    server.in_exec = 0;
 }
 
 /* ===================== WATCH (CAS alike for MULTI/EXEC) ===================
@@ -199,7 +285,7 @@ typedef struct watchedKey {
 } watchedKey;
 
 /* Watch for the specified key */
-void watchForKey(redisClient *c, robj *key) {
+void watchForKey(client *c, robj *key) {
     list *clients = NULL;
     listIter li;
     listNode *ln;
@@ -214,7 +300,7 @@ void watchForKey(redisClient *c, robj *key) {
     }
     /* This key is not already watched in this DB. Let's add it */
     clients = dictFetchValue(c->db->watched_keys,key);
-    if (!clients) { 
+    if (!clients) {
         clients = listCreate();
         dictAdd(c->db->watched_keys,key,clients);
         incrRefCount(key);
@@ -230,7 +316,7 @@ void watchForKey(redisClient *c, robj *key) {
 
 /* Unwatch all the keys watched by this client. To clean the EXEC dirty
  * flag is up to the caller. */
-void unwatchAllKeys(redisClient *c) {
+void unwatchAllKeys(client *c) {
     listIter li;
     listNode *ln;
 
@@ -244,7 +330,7 @@ void unwatchAllKeys(redisClient *c) {
          * from the list */
         wk = listNodeValue(ln);
         clients = dictFetchValue(wk->db->watched_keys, wk->key);
-        redisAssertWithInfo(c,NULL,clients != NULL);
+        serverAssertWithInfo(c,NULL,clients != NULL);
         listDelNode(clients,listSearchKey(clients,c));
         /* Kill the entry at all if this was the only client */
         if (listLength(clients) == 0)
@@ -267,47 +353,52 @@ void touchWatchedKey(redisDb *db, robj *key) {
     clients = dictFetchValue(db->watched_keys, key);
     if (!clients) return;
 
-    /* Mark all the clients watching this key as REDIS_DIRTY_CAS */
+    /* Mark all the clients watching this key as CLIENT_DIRTY_CAS */
     /* Check if we are already watching for this key */
     listRewind(clients,&li);
     while((ln = listNext(&li))) {
-        redisClient *c = listNodeValue(ln);
+        client *c = listNodeValue(ln);
 
-        c->flags |= REDIS_DIRTY_CAS;
+        c->flags |= CLIENT_DIRTY_CAS;
     }
 }
 
-/* On FLUSHDB or FLUSHALL all the watched keys that are present before the
- * flush but will be deleted as effect of the flushing operation should
- * be touched. "dbid" is the DB that's getting the flush. -1 if it is
- * a FLUSHALL operation (all the DBs flushed). */
-void touchWatchedKeysOnFlush(int dbid) {
-    listIter li1, li2;
+/* Set CLIENT_DIRTY_CAS to all clients of DB when DB is dirty.
+ * It may happen in the following situations:
+ * FLUSHDB, FLUSHALL, SWAPDB
+ *
+ * replaced_with: for SWAPDB, the WATCH should be invalidated if
+ * the key exists in either of them, and skipped only if it
+ * doesn't exist in both. */
+void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with) {
+    listIter li;
     listNode *ln;
+    dictEntry *de;
 
-    /* For every client, check all the waited keys */
-    listRewind(server.clients,&li1);
-    while((ln = listNext(&li1))) {
-        redisClient *c = listNodeValue(ln);
-        listRewind(c->watched_keys,&li2);
-        while((ln = listNext(&li2))) {
-            watchedKey *wk = listNodeValue(ln);
+    if (dictSize(emptied->watched_keys) == 0) return;
 
-            /* For every watched key matching the specified DB, if the
-             * key exists, mark the client as dirty, as the key will be
-             * removed. */
-            if (dbid == -1 || wk->db->id == dbid) {
-                if (dictFind(wk->db->dict, wk->key->ptr) != NULL)
-                    c->flags |= REDIS_DIRTY_CAS;
+    dictIterator *di = dictGetSafeIterator(emptied->watched_keys);
+    while((de = dictNext(di)) != NULL) {
+        robj *key = dictGetKey(de);
+        list *clients = dictGetVal(de);
+        if (!clients) continue;
+        listRewind(clients,&li);
+        while((ln = listNext(&li))) {
+            client *c = listNodeValue(ln);
+            if (dictFind(emptied->dict, key->ptr)) {
+                c->flags |= CLIENT_DIRTY_CAS;
+            } else if (replaced_with && dictFind(replaced_with->dict, key->ptr)) {
+                c->flags |= CLIENT_DIRTY_CAS;
             }
         }
     }
+    dictReleaseIterator(di);
 }
 
-void watchCommand(redisClient *c) {
+void watchCommand(client *c) {
     int j;
 
-    if (c->flags & REDIS_MULTI) {
+    if (c->flags & CLIENT_MULTI) {
         addReplyError(c,"WATCH inside MULTI is not allowed");
         return;
     }
@@ -316,8 +407,8 @@ void watchCommand(redisClient *c) {
     addReply(c,shared.ok);
 }
 
-void unwatchCommand(redisClient *c) {
+void unwatchCommand(client *c) {
     unwatchAllKeys(c);
-    c->flags &= (~REDIS_DIRTY_CAS);
+    c->flags &= (~CLIENT_DIRTY_CAS);
     addReply(c,shared.ok);
 }

@@ -1,1 +1,3 @@
-linenoise_example*
+linenoise_example
+*.dSYM
+history.txt

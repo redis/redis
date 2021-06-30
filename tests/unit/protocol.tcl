@@ -1,4 +1,4 @@
-start_server {tags {"protocol"}} {
+start_server {tags {"protocol network"}} {
     test "Handle an empty query" {
         reconnect
         r write "\r\n"
@@ -60,11 +60,23 @@ start_server {tags {"protocol"}} {
         assert_error "*wrong*arguments*ping*" {r ping x y z}
     }
 
+    test "Unbalanced number of quotes" {
+        reconnect
+        r write "set \"\"\"test-key\"\"\" test-value\r\n"
+        r write "ping\r\n"
+        r flush
+        assert_error "*unbalanced*" {r read}
+    }
+
     set c 0
     foreach seq [list "\x00" "*\x00" "$\x00"] {
         incr c
         test "Protocol desync regression test #$c" {
-            set s [socket [srv 0 host] [srv 0 port]]
+            if {$::tls} {
+                set s [::tls::socket [srv 0 host] [srv 0 port]]
+            } else {
+                set s [socket [srv 0 host] [srv 0 port]]
+            }
             puts -nonewline $s $seq
             set payload [string repeat A 1024]"\n"
             set test_start [clock seconds]

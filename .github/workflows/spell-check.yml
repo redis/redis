@@ -1,0 +1,25 @@
+# A CI action that using codespell to check spell.
+# .github/.codespellrc is a config file.
+# .github/wordlist.txt is a list of words that will ignore word checks.
+# More details please check the following link:
+# https://github.com/codespell-project/codespell
+name: Spellcheck
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    name: Spellcheck
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Install prerequisites
+        run: sudo pip install codespell==2.0.0
+
+      - name: Spell check
+        run: codespell --config=./.github/.codespellrc

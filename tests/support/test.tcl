@@ -1,7 +1,10 @@
 set ::num_tests 0
 set ::num_passed 0
 set ::num_failed 0
+set ::num_skipped 0
+set ::num_aborted 0
 set ::tests_failed {}
+set ::cur_test ""
 
 proc fail {msg} {
     error "assertion:$msg"
@@ -9,19 +12,67 @@ proc fail {msg} {
 
 proc assert {condition} {
     if {![uplevel 1 [list expr $condition]]} {
-        error "assertion:Expected condition '$condition' to be true ([uplevel 1 [list subst -nocommands $condition]])"
+        set context "(context: [info frame -1])"
+        error "assertion:Expected [uplevel 1 [list subst -nocommands $condition]] $context"
+    }
+}
+
+proc assert_no_match {pattern value} {
+    if {[string match $pattern $value]} {
+        set context "(context: [info frame -1])"
+        error "assertion:Expected '$value' to not match '$pattern' $context"
     }
 }
 
 proc assert_match {pattern value} {
     if {![string match $pattern $value]} {
-        error "assertion:Expected '$value' to match '$pattern'"
+        set context "(context: [info frame -1])"
+        error "assertion:Expected '$value' to match '$pattern' $context"
     }
 }
 
-proc assert_equal {expected value} {
+proc assert_failed {expected_err detail} {
+     if {$detail ne ""} {
+        set detail "(detail: $detail)"
+     } else {
+        set detail "(context: [info frame -2])"
+     }
+     error "assertion:$expected_err $detail"
+}
+
+proc assert_equal {value expected {detail ""}} {
     if {$expected ne $value} {
-        error "assertion:Expected '$value' to be equal to '$expected'"
+        assert_failed "Expected '$value' to be equal to '$expected'" $detail
+    }
+}
+
+proc assert_lessthan {value expected {detail ""}} {
+    if {!($value < $expected)} {
+        assert_failed "Expected '$value' to be less than '$expected'" $detail
+    }
+}
+
+proc assert_lessthan_equal {value expected {detail ""}} {
+    if {!($value <= $expected)} {
+        assert_failed "Expected '$value' to be less than or equal to '$expected'" $detail
+    }
+}
+
+proc assert_morethan {value expected {detail ""}} {
+    if {!($value > $expected)} {
+        assert_failed "Expected '$value' to be more than '$expected'" $detail
+    }
+}
+
+proc assert_morethan_equal {value expected {detail ""}} {
+    if {!($value >= $expected)} {
+        assert_failed "Expected '$value' to be more than or equal to '$expected'" $detail
+    }
+}
+
+proc assert_range {value min max {detail ""}} {
+    if {!($value <= $max && $value >= $min)} {
+        assert_failed "Expected '$value' to be between to '$min' and '$max'" $detail
     }
 }
 
@@ -29,18 +80,15 @@ proc assert_error {pattern code} {
     if {[catch {uplevel 1 $code} error]} {
         assert_match $pattern $error
     } else {
-        error "assertion:Expected an error but nothing was catched"
+        error "assertion:Expected an error but nothing was caught"
     }
 }
 
 proc assert_encoding {enc key} {
-    # Swapped out values don't have an encoding, so make sure that
-    # the value is swapped in before checking the encoding.
-    set dbg [r debug object $key]
-    while {[string match "* swapped at:*" $dbg]} {
-        r debug swapin $key
-        set dbg [r debug object $key]
+    if {$::ignoreencoding} {
+        return
     }
+    set dbg [r debug object $key]
     assert_match "* encoding:$enc *" $dbg
 }
 
@@ -53,80 +101,81 @@ proc assert_type {type key} {
 # executed.
 proc wait_for_condition {maxtries delay e _else_ elsescript} {
     while {[incr maxtries -1] >= 0} {
-        if {[uplevel 1 [list expr $e]]} break
+        set errcode [catch {uplevel 1 [list expr $e]} result]
+        if {$errcode == 0} {
+            if {$result} break
+        } else {
+            return -code $errcode $result
+        }
         after $delay
     }
     if {$maxtries == -1} {
-        uplevel 1 $elsescript
+        set errcode [catch [uplevel 1 $elsescript] result]
+        return -code $errcode $result
     }
 }
 
-# Test if TERM looks like to support colors
-proc color_term {} {
-    expr {[info exists ::env(TERM)] && [string match *xterm* $::env(TERM)]}
-}
-
-proc colorstr {color str} {
-    if {[color_term]} {
-        set b 0
-        if {[string range $color 0 4] eq {bold-}} {
-            set b 1
-            set color [string range $color 5 end]
-        }
-        switch $color {
-            red {set colorcode {31}}
-            green {set colorcode {32}}
-            yellow {set colorcode {33}}
-            blue {set colorcode {34}}
-            magenta {set colorcode {35}}
-            cyan {set colorcode {36}}
-            white {set colorcode {37}}
-            default {set colorcode {37}}
-        }
-        if {$colorcode ne {}} {
-            return "\033\[$b;${colorcode};40m$str\033\[0m"
-        }
-    } else {
-        return $str
-    }
-}
-
-proc test {name code {okpattern undefined}} {
-    # abort if tagged with a tag to deny
-    foreach tag $::denytags {
-        if {[lsearch $::tags $tag] >= 0} {
-            return
-        }
+proc test {name code {okpattern undefined} {tags {}}} {
+    # abort if test name in skiptests
+    if {[lsearch $::skiptests $name] >= 0} {
+        incr ::num_skipped
+        send_data_packet $::test_server_fd skip $name
+        return
     }
 
-    # check if tagged with at least 1 tag to allow when there *is* a list
-    # of tags to allow, because default policy is to run everything
-    if {[llength $::allowtags] > 0} {
-        set matched 0
-        foreach tag $::allowtags {
-            if {[lsearch $::tags $tag] >= 0} {
-                incr matched
-            }
-        }
-        if {$matched < 1} {
-            return
-        }
+    # abort if only_tests was set but test name is not included
+    if {[llength $::only_tests] > 0 && [lsearch $::only_tests $name] < 0} {
+        incr ::num_skipped
+        send_data_packet $::test_server_fd skip $name
+        return
+    }
+
+    set tags [concat $::tags $tags]
+    if {![tags_acceptable $tags err]} {
+        incr ::num_aborted
+        send_data_packet $::test_server_fd ignore "$name: $err"
+        return
     }
 
     incr ::num_tests
     set details {}
     lappend details "$name in $::curfile"
 
+    # set a cur_test global to be logged into new servers that are spown
+    # and log the test name in all existing servers
+    set prev_test $::cur_test
+    set ::cur_test "$name in $::curfile"
+    if {!$::external} {
+        foreach srv $::servers {
+            set stdout [dict get $srv stdout]
+            set fd [open $stdout "a+"]
+            puts $fd "### Starting test $::cur_test"
+            close $fd
+        }
+    }
+
     send_data_packet $::test_server_fd testing $name
 
     if {[catch {set retval [uplevel 1 $code]} error]} {
-        if {[string match "assertion:*" $error]} {
+        set assertion [string match "assertion:*" $error]
+        if {$assertion || $::durable} {
+            # durable prevents the whole tcl test from exiting on an exception.
+            # an assertion is handled gracefully anyway.
             set msg [string range $error 10 end]
             lappend details $msg
+            if {!$assertion} {
+                lappend details $::errorInfo
+            }
             lappend ::tests_failed $details
 
             incr ::num_failed
             send_data_packet $::test_server_fd err [join $details "\n"]
+
+            if {$::stop_on_failure} {
+                puts "Test error (last server port:[srv port], log:[srv stdout]), press enter to teardown the test."
+                flush stdout
+                gets stdin
+            }
         } else {
             # Re-raise, let handler up the stack take care of this.
             error $error $::errorInfo
@@ -151,4 +200,5 @@ proc test {name code {okpattern undefined}} {
             send_data_packet $::test_server_fd err "Detected a memory leak in test '$name': $output"
         }
     }
+    set ::cur_test $prev_test
 }

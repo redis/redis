@@ -1,51 +1,25 @@
-start_server {tags {"pubsub"}} {
-    proc __consume_subscribe_messages {client type channels} {
-        set numsub -1
-        set counts {}
-
-        for {set i [llength $channels]} {$i > 0} {incr i -1} {
-            set msg [$client read]
-            assert_equal $type [lindex $msg 0]
-
-            # when receiving subscribe messages the channels names
-            # are ordered. when receiving unsubscribe messages
-            # they are unordered
-            set idx [lsearch -exact $channels [lindex $msg 1]]
-            if {[string match "*unsubscribe" $type]} {
-                assert {$idx >= 0}
-            } else {
-                assert {$idx == 0}
-            }
-            set channels [lreplace $channels $idx $idx]
-
-            # aggregate the subscription count to return to the caller
-            lappend counts [lindex $msg 2]
-        }
-
-        # we should have received messages for channels
-        assert {[llength $channels] == 0}
-        return $counts
+start_server {tags {"pubsub network"}} {
+    if {$::singledb} {
+        set db 0
+    } else {
+        set db 9
     }
 
-    proc subscribe {client channels} {
-        $client subscribe {*}$channels
-        __consume_subscribe_messages $client subscribe $channels
-    }
-
-    proc unsubscribe {client {channels {}}} {
-        $client unsubscribe {*}$channels
-        __consume_subscribe_messages $client unsubscribe $channels
-    }
-
-    proc psubscribe {client channels} {
-        $client psubscribe {*}$channels
-        __consume_subscribe_messages $client psubscribe $channels
-    }
-
-    proc punsubscribe {client {channels {}}} {
-        $client punsubscribe {*}$channels
-        __consume_subscribe_messages $client punsubscribe $channels
-    }
+    test "Pub/Sub PING" {
+        set rd1 [redis_deferring_client]
+        subscribe $rd1 somechannel
+        # While subscribed to non-zero channels PING works in Pub/Sub mode.
+        $rd1 ping
+        $rd1 ping "foo"
+        set reply1 [$rd1 read]
+        set reply2 [$rd1 read]
+        unsubscribe $rd1 somechannel
+        # Now we are unsubscribed, PING should just return PONG.
+        $rd1 ping
+        set reply3 [$rd1 read]
+        $rd1 close
+        list $reply1 $reply2 $reply3
+    } {{pong {}} {pong foo} PONG}
 
     test "PUBLISH/SUBSCRIBE basics" {
         set rd1 [redis_deferring_client]
@@ -180,6 +154,10 @@ start_server {tags {"pubsub"}} {
         $rd1 close
     }
 
+    test "NUMSUB returns numbers, not strings (#1561)" {
+        r pubsub numsub abc def
+    } {abc 0 def 0}
+
     test "Mix SUBSCRIBE and PSUBSCRIBE" {
         set rd1 [redis_deferring_client]
         assert_equal {1} [subscribe $rd1 {foo.bar}]
@@ -210,7 +188,7 @@ start_server {tags {"pubsub"}} {
         set rd1 [redis_deferring_client]
         assert_equal {1} [psubscribe $rd1 *]
         r set foo bar
-        assert_equal {pmessage * __keyspace@9__:foo set} [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:foo set" [$rd1 read]
         $rd1 close
     }
 
@@ -219,7 +197,7 @@ start_server {tags {"pubsub"}} {
         set rd1 [redis_deferring_client]
         assert_equal {1} [psubscribe $rd1 *]
         r set foo bar
-        assert_equal {pmessage * __keyevent@9__:set foo} [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:set foo" [$rd1 read]
         $rd1 close
     }
 
@@ -228,8 +206,8 @@ start_server {tags {"pubsub"}} {
         set rd1 [redis_deferring_client]
         assert_equal {1} [psubscribe $rd1 *]
         r set foo bar
-        assert_equal {pmessage * __keyspace@9__:foo set} [$rd1 read]
-        assert_equal {pmessage * __keyevent@9__:set foo} [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:foo set" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:set foo" [$rd1 read]
         $rd1 close
     }
 
@@ -241,8 +219,8 @@ start_server {tags {"pubsub"}} {
         r set foo bar
         r lpush mylist a
         # No notification for set, because only list commands are enabled.
-        assert_equal {pmessage * __keyspace@9__:mylist lpush} [$rd1 read]
-        assert_equal {pmessage * __keyevent@9__:lpush mylist} [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:mylist lpush" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:lpush mylist" [$rd1 read]
         $rd1 close
     }
 
@@ -253,10 +231,10 @@ start_server {tags {"pubsub"}} {
         r set foo bar
         r expire foo 1
         r del foo
-        assert_equal {pmessage * __keyspace@9__:foo expire} [$rd1 read]
-        assert_equal {pmessage * __keyevent@9__:expire foo} [$rd1 read]
-        assert_equal {pmessage * __keyspace@9__:foo del} [$rd1 read]
-        assert_equal {pmessage * __keyevent@9__:del foo} [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:foo expire" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:expire foo" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:foo del" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:del foo" [$rd1 read]
         $rd1 close
     }
 
@@ -268,12 +246,12 @@ start_server {tags {"pubsub"}} {
         r lpush mylist a
         r rpush mylist a
         r rpop mylist
-        assert_equal {pmessage * __keyspace@9__:mylist lpush} [$rd1 read]
-        assert_equal {pmessage * __keyevent@9__:lpush mylist} [$rd1 read]
-        assert_equal {pmessage * __keyspace@9__:mylist rpush} [$rd1 read]
-        assert_equal {pmessage * __keyevent@9__:rpush mylist} [$rd1 read]
-        assert_equal {pmessage * __keyspace@9__:mylist rpop} [$rd1 read]
-        assert_equal {pmessage * __keyevent@9__:rpop mylist} [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:mylist lpush" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:lpush mylist" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:mylist rpush" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:rpush mylist" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:mylist rpop" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:rpop mylist" [$rd1 read]
         $rd1 close
     }
 
@@ -286,9 +264,9 @@ start_server {tags {"pubsub"}} {
         r srem myset x
         r sadd myset x y z
         r srem myset x
-        assert_equal {pmessage * __keyspace@9__:myset sadd} [$rd1 read]
-        assert_equal {pmessage * __keyspace@9__:myset sadd} [$rd1 read]
-        assert_equal {pmessage * __keyspace@9__:myset srem} [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myset sadd" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myset sadd" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myset srem" [$rd1 read]
         $rd1 close
     }
 
@@ -301,9 +279,9 @@ start_server {tags {"pubsub"}} {
         r zrem myzset x
         r zadd myzset 3 x 4 y 5 z
         r zrem myzset x
-        assert_equal {pmessage * __keyspace@9__:myzset zadd} [$rd1 read]
-        assert_equal {pmessage * __keyspace@9__:myzset zadd} [$rd1 read]
-        assert_equal {pmessage * __keyspace@9__:myzset zrem} [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myzset zadd" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myzset zadd" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myzset zrem" [$rd1 read]
         $rd1 close
     }
 
@@ -314,8 +292,8 @@ start_server {tags {"pubsub"}} {
         assert_equal {1} [psubscribe $rd1 *]
         r hmset myhash yes 1 no 0
         r hincrby myhash yes 10
-        assert_equal {pmessage * __keyspace@9__:myhash hset} [$rd1 read]
-        assert_equal {pmessage * __keyspace@9__:myhash hincrby} [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myhash hset" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myhash hincrby" [$rd1 read]
         $rd1 close
     }
 
@@ -330,7 +308,7 @@ start_server {tags {"pubsub"}} {
         } else {
             fail "Key does not expire?!"
         }
-        assert_equal {pmessage * __keyevent@9__:expired foo} [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:expired foo" [$rd1 read]
         $rd1 close
     }
 
@@ -340,7 +318,7 @@ start_server {tags {"pubsub"}} {
         set rd1 [redis_deferring_client]
         assert_equal {1} [psubscribe $rd1 *]
         r psetex foo 100 1
-        assert_equal {pmessage * __keyevent@9__:expired foo} [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:expired foo" [$rd1 read]
         $rd1 close
     }
 
@@ -352,8 +330,20 @@ start_server {tags {"pubsub"}} {
         assert_equal {1} [psubscribe $rd1 *]
         r set foo bar
         r config set maxmemory 1
-        assert_equal {pmessage * __keyevent@9__:evicted foo} [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:evicted foo" [$rd1 read]
         r config set maxmemory 0
         $rd1 close
+        r config set maxmemory-policy noeviction
+    } {OK} {needs:config-maxmemory}
+
+    test "Keyspace notifications: test CONFIG GET/SET of event flags" {
+        r config set notify-keyspace-events gKE
+        assert_equal {gKE} [lindex [r config get notify-keyspace-events] 1]
+        r config set notify-keyspace-events {$lshzxeKE}
+        assert_equal {$lshzxeKE} [lindex [r config get notify-keyspace-events] 1]
+        r config set notify-keyspace-events KA
+        assert_equal {AK} [lindex [r config get notify-keyspace-events] 1]
+        r config set notify-keyspace-events EA
+        assert_equal {AE} [lindex [r config get notify-keyspace-events] 1]
     }
 }

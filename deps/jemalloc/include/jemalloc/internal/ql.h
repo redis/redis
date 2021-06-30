@@ -1,6 +1,9 @@
-/*
- * List definitions.
- */
+#ifndef JEMALLOC_INTERNAL_QL_H
+#define JEMALLOC_INTERNAL_QL_H
+
+#include "jemalloc/internal/qr.h"
+
+/* List definitions. */
 #define ql_head(a_type)							\
 struct {								\
 	a_type *qlh_first;						\
@@ -81,3 +84,5 @@ struct {								\
 
 #define ql_reverse_foreach(a_var, a_head, a_field)			\
 	qr_reverse_foreach((a_var), ql_first(a_head), a_field)
+
+#endif /* JEMALLOC_INTERNAL_QL_H */

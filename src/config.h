@@ -34,6 +34,10 @@
 #include <AvailabilityMacros.h>
 #endif
 
+#ifdef __linux__
+#include <features.h>
+#endif
+
 /* Define redis_fstat to fstat or fstat64() */
 #if defined(__APPLE__) && !defined(MAC_OS_X_VERSION_10_6)
 #define redis_fstat fstat64
@@ -48,6 +52,8 @@
 #define HAVE_PROC_STAT 1
 #define HAVE_PROC_MAPS 1
 #define HAVE_PROC_SMAPS 1
+#define HAVE_PROC_SOMAXCONN 1
+#define HAVE_PROC_OOM_SCORE_ADJ 1
 #endif
 
 /* Test for task_info() */
@@ -56,8 +62,15 @@
 #endif
 
 /* Test for backtrace() */
-#if defined(__APPLE__) || defined(__linux__)
+#if defined(__APPLE__) || (defined(__linux__) && defined(__GLIBC__)) || \
+    defined(__FreeBSD__) || ((defined(__OpenBSD__) || defined(__NetBSD__)) && defined(USE_BACKTRACE))\
+ || defined(__DragonFly__) || (defined(__UCLIBC__) && defined(__UCLIBC_HAS_BACKTRACE__))
 #define HAVE_BACKTRACE 1
+#endif
+
+/* MSG_NOSIGNAL. */
+#ifdef __linux__
+#define HAVE_MSG_NOSIGNAL 1
 #endif
 
 /* Test for polling API */
@@ -78,33 +91,34 @@
 #include <sys/feature_tests.h>
 #ifdef _DTRACE_VERSION
 #define HAVE_EVPORT 1
+#define HAVE_PSINFO 1
 #endif
 #endif
 
-/* Define aof_fsync to fdatasync() in Linux and fsync() for all the rest */
+/* Define redis_fsync to fdatasync() in Linux and fsync() for all the rest */
 #ifdef __linux__
-#define aof_fsync fdatasync
+#define redis_fsync fdatasync
 #else
-#define aof_fsync fsync
+#define redis_fsync fsync
+#endif
+
+#if __GNUC__ >= 4
+#define redis_unreachable __builtin_unreachable
+#else
+#define redis_unreachable abort
+#endif
+
+#if __GNUC__ >= 3
+#define likely(x) __builtin_expect(!!(x), 1)
+#define unlikely(x) __builtin_expect(!!(x), 0)
+#else
+#define likely(x) (x)
+#define unlikely(x) (x)
 #endif
 
 /* Define rdb_fsync_range to sync_file_range() on Linux, otherwise we use
  * the plain fsync() call. */
-#ifdef __linux__
-#include <linux/version.h>
-#include <features.h>
-#if defined(__GLIBC__) && defined(__GLIBC_PREREQ)
-#if (LINUX_VERSION_CODE >= 0x020611 && __GLIBC_PREREQ(2, 6))
-#define HAVE_SYNC_FILE_RANGE 1
-#endif
-#else
-#if (LINUX_VERSION_CODE >= 0x020611)
-#define HAVE_SYNC_FILE_RANGE 1
-#endif
-#endif
-#endif
-
-#ifdef HAVE_SYNC_FILE_RANGE
+#if (defined(__linux__) && defined(SYNC_FILE_RANGE_WAIT_BEFORE))
 #define rdb_fsync_range(fd,off,size) sync_file_range(fd,off,size,SYNC_FILE_RANGE_WAIT_BEFORE|SYNC_FILE_RANGE_WRITE)
 #else
 #define rdb_fsync_range(fd,off,size) fsync(fd)
@@ -115,6 +129,10 @@
  * Linux and osx. */
 #if (defined __NetBSD__ || defined __FreeBSD__ || defined __OpenBSD__)
 #define USE_SETPROCTITLE
+#endif
+
+#if defined(__HAIKU__)
+#define ESOCKTNOSUPPORT 0
 #endif
 
 #if (defined __linux || defined __APPLE__)
@@ -159,7 +177,7 @@ void setproctitle(const char *fmt, ...);
 #endif /* BYTE_ORDER */
 
 /* Sometimes after including an OS-specific header that defines the
- * endianess we end with __BYTE_ORDER but not with BYTE_ORDER that is what
+ * endianness we end with __BYTE_ORDER but not with BYTE_ORDER that is what
  * the Redis code uses. In this case let's define everything without the
  * underscores. */
 #ifndef BYTE_ORDER
@@ -190,11 +208,64 @@ void setproctitle(const char *fmt, ...);
 #error "Undefined or invalid BYTE_ORDER"
 #endif
 
-#if (__i386 || __amd64) && __GNUC__
+#if (__i386 || __amd64 || __powerpc__) && __GNUC__
 #define GNUC_VERSION (__GNUC__ * 10000 + __GNUC_MINOR__ * 100 + __GNUC_PATCHLEVEL__)
-#if GNUC_VERSION >= 40100
+#if defined(__clang__)
 #define HAVE_ATOMIC
 #endif
+#if (defined(__GLIBC__) && defined(__GLIBC_PREREQ))
+#if (GNUC_VERSION >= 40100 && __GLIBC_PREREQ(2, 6))
+#define HAVE_ATOMIC
+#endif
+#endif
+#endif
+
+/* Make sure we can test for ARM just checking for __arm__, since sometimes
+ * __arm is defined but __arm__ is not. */
+#if defined(__arm) && !defined(__arm__)
+#define __arm__
+#endif
+#if defined (__aarch64__) && !defined(__arm64__)
+#define __arm64__
+#endif
+
+/* Make sure we can test for SPARC just checking for __sparc__. */
+#if defined(__sparc) && !defined(__sparc__)
+#define __sparc__
+#endif
+
+#if defined(__sparc__) || defined(__arm__)
+#define USE_ALIGNED_ACCESS
+#endif
+
+/* Define for redis_set_thread_title */
+#ifdef __linux__
+#define redis_set_thread_title(name) pthread_setname_np(pthread_self(), name)
+#else
+#if (defined __FreeBSD__ || defined __OpenBSD__)
+#include <pthread_np.h>
+#define redis_set_thread_title(name) pthread_set_name_np(pthread_self(), name)
+#elif defined __NetBSD__
+#include <pthread.h>
+#define redis_set_thread_title(name) pthread_setname_np(pthread_self(), "%s", name)
+#elif defined __HAIKU__
+#include <kernel/OS.h>
+#define redis_set_thread_title(name) rename_thread(find_thread(0), name)
+#else
+#if (defined __APPLE__ && defined(MAC_OS_X_VERSION_10_7))
+int pthread_setname_np(const char *name);
+#include <pthread.h>
+#define redis_set_thread_title(name) pthread_setname_np(name)
+#else
+#define redis_set_thread_title(name)
+#endif
+#endif
+#endif
+
+/* Check if we can use setcpuaffinity(). */
+#if (defined __linux || defined __NetBSD__ || defined __FreeBSD__ || defined __DragonFly__)
+#define USE_SETCPUAFFINITY
+void setcpuaffinity(const char *cpulist);
 #endif
 
 #endif

@@ -28,7 +28,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "redis.h"
+#include "server.h"
 
 /* ----------------- Blocking sockets I/O with timeouts --------------------- */
 
@@ -40,7 +40,7 @@
  *
  * All the functions take the timeout in milliseconds. */
 
-#define REDIS_SYNCIO_RESOLUTION 10 /* Resolution in milliseconds */
+#define SYNCIO__RESOLUTION 10 /* Resolution in milliseconds */
 
 /* Write the specified payload to 'fd'. If writing the whole payload will be
  * done within 'timeout' milliseconds the operation succeeds and 'size' is
@@ -52,8 +52,8 @@ ssize_t syncWrite(int fd, char *ptr, ssize_t size, long long timeout) {
     long long remaining = timeout;
 
     while(1) {
-        long long wait = (remaining > REDIS_SYNCIO_RESOLUTION) ?
-                          remaining : REDIS_SYNCIO_RESOLUTION;
+        long long wait = (remaining > SYNCIO__RESOLUTION) ?
+                          remaining : SYNCIO__RESOLUTION;
         long long elapsed;
 
         /* Optimistically try to write before checking if the file descriptor
@@ -89,8 +89,8 @@ ssize_t syncRead(int fd, char *ptr, ssize_t size, long long timeout) {
 
     if (size == 0) return 0;
     while(1) {
-        long long wait = (remaining > REDIS_SYNCIO_RESOLUTION) ?
-                          remaining : REDIS_SYNCIO_RESOLUTION;
+        long long wait = (remaining > SYNCIO__RESOLUTION) ?
+                          remaining : SYNCIO__RESOLUTION;
         long long elapsed;
 
         /* Optimistically try to read before checking if the file descriptor
@@ -119,7 +119,7 @@ ssize_t syncRead(int fd, char *ptr, ssize_t size, long long timeout) {
 
 /* Read a line making sure that every char will not require more than 'timeout'
  * milliseconds to be read.
- * 
+ *
  * On success the number of bytes read is returned, otherwise -1.
  * On success the string is always correctly terminated with a 0 byte. */
 ssize_t syncReadLine(int fd, char *ptr, ssize_t size, long long timeout) {
@@ -139,6 +139,7 @@ ssize_t syncReadLine(int fd, char *ptr, ssize_t size, long long timeout) {
             *ptr = '\0';
             nread++;
         }
+        size--;
     }
     return nread;
 }

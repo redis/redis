@@ -4,7 +4,7 @@
  * efficient.
  *
  * The Redis Hash type uses this data structure for hashes composed of a small
- * number of elements, to switch to an hash table once a given number of
+ * number of elements, to switch to a hash table once a given number of
  * elements is reached.
  *
  * Given that many times Redis Hashes are used to represent objects composed
@@ -51,12 +51,11 @@
  * <len> is the length of the following string (key or value).
  * <len> lengths are encoded in a single value or in a 5 bytes value.
  * If the first byte value (as an unsigned 8 bit value) is between 0 and
- * 252, it's a single-byte length. If it is 253 then a four bytes unsigned
+ * 253, it's a single-byte length. If it is 254 then a four bytes unsigned
  * integer follows (in the host byte ordering). A value of 255 is used to
- * signal the end of the hash. The special value 254 is used to mark
- * empty space that can be used to add new key/value pairs.
+ * signal the end of the hash.
  *
- * <free> is the number of free unused bytes after the string, resulting 
+ * <free> is the number of free unused bytes after the string, resulting
  * from modification of values associated to a key. For instance if "foo"
  * is set to "bar", and later "foo" will be set to "hi", it will have a
  * free byte to use if the value will enlarge again later, or even in
@@ -112,6 +111,10 @@ static unsigned int zipmapDecodeLength(unsigned char *p) {
     return len;
 }
 
+static unsigned int zipmapGetEncodedLengthSize(unsigned char *p) {
+    return (*p < ZIPMAP_BIGLEN) ? 1: 5;
+}
+
 /* Encode the length 'l' writing it in 'p'. If p is NULL it just returns
  * the amount of bytes required to encode such a length. */
 static unsigned int zipmapEncodeLength(unsigned char *p, unsigned int len) {
@@ -134,7 +137,7 @@ static unsigned int zipmapEncodeLength(unsigned char *p, unsigned int len) {
  * zipmap. Returns NULL if the key is not found.
  *
  * If NULL is returned, and totlen is not NULL, it is set to the entire
- * size of the zimap, so that the calling function will be able to
+ * size of the zipmap, so that the calling function will be able to
  * reallocate the original zipmap to make room for more entries. */
 static unsigned char *zipmapLookupRaw(unsigned char *zm, unsigned char *key, unsigned int klen, unsigned int *totlen) {
     unsigned char *p = zm+1, *k = NULL;
@@ -186,7 +189,7 @@ static unsigned int zipmapRawKeyLength(unsigned char *p) {
 static unsigned int zipmapRawValueLength(unsigned char *p) {
     unsigned int l = zipmapDecodeLength(p);
     unsigned int used;
-    
+
     used = zipmapEncodeLength(NULL,l);
     used += p[used] + 1 + l;
     return used;
@@ -214,7 +217,7 @@ unsigned char *zipmapSet(unsigned char *zm, unsigned char *key, unsigned int kle
     unsigned int freelen, reqlen = zipmapRequiredLength(klen,vlen);
     unsigned int empty, vempty;
     unsigned char *p;
-   
+
     freelen = reqlen;
     if (update) *update = 0;
     p = zipmapLookupRaw(zm,key,klen,&zmlen);
@@ -371,8 +374,72 @@ size_t zipmapBlobLen(unsigned char *zm) {
     return totlen;
 }
 
-#ifdef ZIPMAP_TEST_MAIN
-void zipmapRepr(unsigned char *p) {
+/* Validate the integrity of the data structure.
+ * when `deep` is 0, only the integrity of the header is validated.
+ * when `deep` is 1, we scan all the entries one by one. */
+int zipmapValidateIntegrity(unsigned char *zm, size_t size, int deep) {
+#define OUT_OF_RANGE(p) ( \
+        (p) < zm + 2 || \
+        (p) > zm + size - 1)
+    unsigned int l, s, e;
+
+    /* check that we can actually read the header (or ZIPMAP_END). */
+    if (size < 2)
+        return 0;
+
+    /* the last byte must be the terminator. */
+    if (zm[size-1] != ZIPMAP_END)
+        return 0;
+
+    if (!deep)
+        return 1;
+
+    unsigned int count = 0;
+    unsigned char *p = zm + 1; /* skip the count */
+    while(*p != ZIPMAP_END) {
+        /* read the field name length encoding type */
+        s = zipmapGetEncodedLengthSize(p);
+        /* make sure the entry length doesn't reach outside the edge of the zipmap */
+        if (OUT_OF_RANGE(p+s))
+            return 0;
+
+        /* read the field name length */
+        l = zipmapDecodeLength(p);
+        p += s; /* skip the encoded field size */
+        p += l; /* skip the field */
+
+        /* make sure the entry doesn't reach outside the edge of the zipmap */
+        if (OUT_OF_RANGE(p))
+            return 0;
+
+        /* read the value length encoding type */
+        s = zipmapGetEncodedLengthSize(p);
+        /* make sure the entry length doesn't reach outside the edge of the zipmap */
+        if (OUT_OF_RANGE(p+s))
+            return 0;
+
+        /* read the value length */
+        l = zipmapDecodeLength(p);
+        p += s; /* skip the encoded value size*/
+        e = *p++; /* skip the encoded free space (always encoded in one byte) */
+        p += l+e; /* skip the value and free space */
+        count++;
+
+        /* make sure the entry doesn't reach outside the edge of the zipmap */
+        if (OUT_OF_RANGE(p))
+            return 0;
+    }
+
+    /* check that the count in the header is correct */
+    if (zm[0] != ZIPMAP_BIGLEN && zm[0] != count)
+        return 0;
+
+    return 1;
+#undef OUT_OF_RANGE
+}
+
+#ifdef REDIS_TEST
+static void zipmapRepr(unsigned char *p) {
     unsigned int l;
 
     printf("{status %u}",*p++);
@@ -405,8 +472,13 @@ void zipmapRepr(unsigned char *p) {
     printf("\n");
 }
 
-int main(void) {
+#define UNUSED(x) (void)(x)
+int zipmapTest(int argc, char *argv[], int accurate) {
     unsigned char *zm;
+
+    UNUSED(argc);
+    UNUSED(argv);
+    UNUSED(accurate);
 
     zm = zipmapNew();
 
@@ -461,6 +533,7 @@ int main(void) {
             printf("  %d:%.*s => %d:%.*s\n", klen, klen, key, vlen, vlen, value);
         }
     }
+    zfree(zm);
     return 0;
 }
 #endif

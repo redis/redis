@@ -34,6 +34,7 @@
 #include "intset.h"
 #include "zmalloc.h"
 #include "endianconv.h"
+#include "redisassert.h"
 
 /* Note that these encodings are ordered, so:
  * INTSET_ENC_INT16 < INTSET_ENC_INT32 < INTSET_ENC_INT64. */
@@ -123,7 +124,7 @@ static uint8_t intsetSearch(intset *is, int64_t value, uint32_t *pos) {
     } else {
         /* Check for the case where we know we cannot find the value,
          * but do know the insert position. */
-        if (value > _intsetGet(is,intrev32ifbe(is->length)-1)) {
+        if (value > _intsetGet(is,max)) {
             if (pos) *pos = intrev32ifbe(is->length);
             return 0;
         } else if (value < _intsetGet(is,0)) {
@@ -133,7 +134,7 @@ static uint8_t intsetSearch(intset *is, int64_t value, uint32_t *pos) {
     }
 
     while(max >= min) {
-        mid = (min+max)/2;
+        mid = ((unsigned int)min + (unsigned int)max) >> 1;
         cur = _intsetGet(is,mid);
         if (value > cur) {
             min = mid+1;
@@ -258,10 +259,12 @@ uint8_t intsetFind(intset *is, int64_t value) {
 
 /* Return random member */
 int64_t intsetRandom(intset *is) {
-    return _intsetGet(is,rand()%intrev32ifbe(is->length));
+    uint32_t len = intrev32ifbe(is->length);
+    assert(len); /* avoid division by zero on corrupt intset payload. */
+    return _intsetGet(is,rand()%len);
 }
 
-/* Sets the value to the value at the given position. When this position is
+/* Get the value at the given position. When this position is
  * out of range the function returns 0, when in range it returns 1. */
 uint8_t intsetGet(intset *is, uint32_t pos, int64_t *value) {
     if (pos < intrev32ifbe(is->length)) {
@@ -272,53 +275,95 @@ uint8_t intsetGet(intset *is, uint32_t pos, int64_t *value) {
 }
 
 /* Return intset length */
-uint32_t intsetLen(intset *is) {
+uint32_t intsetLen(const intset *is) {
     return intrev32ifbe(is->length);
 }
 
 /* Return intset blob size in bytes. */
 size_t intsetBlobLen(intset *is) {
-    return sizeof(intset)+intrev32ifbe(is->length)*intrev32ifbe(is->encoding);
+    return sizeof(intset)+(size_t)intrev32ifbe(is->length)*intrev32ifbe(is->encoding);
 }
 
-#ifdef INTSET_TEST_MAIN
-#include <sys/time.h>
+/* Validate the integrity of the data structure.
+ * when `deep` is 0, only the integrity of the header is validated.
+ * when `deep` is 1, we make sure there are no duplicate or out of order records. */
+int intsetValidateIntegrity(const unsigned char *p, size_t size, int deep) {
+    intset *is = (intset *)p;
+    /* check that we can actually read the header. */
+    if (size < sizeof(*is))
+        return 0;
 
-void intsetRepr(intset *is) {
-    int i;
-    for (i = 0; i < intrev32ifbe(is->length); i++) {
+    uint32_t encoding = intrev32ifbe(is->encoding);
+
+    size_t record_size;
+    if (encoding == INTSET_ENC_INT64) {
+        record_size = INTSET_ENC_INT64;
+    } else if (encoding == INTSET_ENC_INT32) {
+        record_size = INTSET_ENC_INT32;
+    } else if (encoding == INTSET_ENC_INT16){
+        record_size = INTSET_ENC_INT16;
+    } else {
+        return 0;
+    }
+
+    /* check that the size matches (all records are inside the buffer). */
+    uint32_t count = intrev32ifbe(is->length);
+    if (sizeof(*is) + count*record_size != size)
+        return 0;
+
+    /* check that the set is not empty. */
+    if (count==0)
+        return 0;
+
+    if (!deep)
+        return 1;
+
+    /* check that there are no dup or out of order records. */
+    int64_t prev = _intsetGet(is,0);
+    for (uint32_t i=1; i<count; i++) {
+        int64_t cur = _intsetGet(is,i);
+        if (cur <= prev)
+            return 0;
+        prev = cur;
+    }
+
+    return 1;
+}
+
+#ifdef REDIS_TEST
+#include <sys/time.h>
+#include <time.h>
+
+#if 0
+static void intsetRepr(intset *is) {
+    for (uint32_t i = 0; i < intrev32ifbe(is->length); i++) {
         printf("%lld\n", (uint64_t)_intsetGet(is,i));
     }
     printf("\n");
 }
 
-void error(char *err) {
+static void error(char *err) {
     printf("%s\n", err);
     exit(1);
 }
+#endif
 
-void ok(void) {
+static void ok(void) {
     printf("OK\n");
 }
 
-long long usec(void) {
+static long long usec(void) {
     struct timeval tv;
     gettimeofday(&tv,NULL);
     return (((long long)tv.tv_sec)*1000000)+tv.tv_usec;
 }
 
-#define assert(_e) ((_e)?(void)0:(_assert(#_e,__FILE__,__LINE__),exit(1)))
-void _assert(char *estr, char *file, int line) {
-    printf("\n\n=== ASSERTION FAILED ===\n");
-    printf("==> %s:%d '%s' is not true\n",file,line,estr);
-}
-
-intset *createSet(int bits, int size) {
+static intset *createSet(int bits, int size) {
     uint64_t mask = (1<<bits)-1;
-    uint64_t i, value;
+    uint64_t value;
     intset *is = intsetNew();
 
-    for (i = 0; i < size; i++) {
+    for (int i = 0; i < size; i++) {
         if (bits > 32) {
             value = (rand()*rand()) & mask;
         } else {
@@ -329,10 +374,8 @@ intset *createSet(int bits, int size) {
     return is;
 }
 
-void checkConsistency(intset *is) {
-    int i;
-
-    for (i = 0; i < (intrev32ifbe(is->length)-1); i++) {
+static void checkConsistency(intset *is) {
+    for (uint32_t i = 0; i < (intrev32ifbe(is->length)-1); i++) {
         uint32_t encoding = intrev32ifbe(is->encoding);
 
         if (encoding == INTSET_ENC_INT16) {
@@ -348,11 +391,16 @@ void checkConsistency(intset *is) {
     }
 }
 
-int main(int argc, char **argv) {
+#define UNUSED(x) (void)(x)
+int intsetTest(int argc, char **argv, int accurate) {
     uint8_t success;
     int i;
     intset *is;
-    sranddev();
+    srand(time(NULL));
+
+    UNUSED(argc);
+    UNUSED(argv);
+    UNUSED(accurate);
 
     printf("Value encodings: "); {
         assert(_intsetValueEncoding(-32768) == INTSET_ENC_INT16);
@@ -363,8 +411,10 @@ int main(int argc, char **argv) {
         assert(_intsetValueEncoding(+2147483647) == INTSET_ENC_INT32);
         assert(_intsetValueEncoding(-2147483649) == INTSET_ENC_INT64);
         assert(_intsetValueEncoding(+2147483648) == INTSET_ENC_INT64);
-        assert(_intsetValueEncoding(-9223372036854775808ull) == INTSET_ENC_INT64);
-        assert(_intsetValueEncoding(+9223372036854775807ull) == INTSET_ENC_INT64);
+        assert(_intsetValueEncoding(-9223372036854775808ull) ==
+                    INTSET_ENC_INT64);
+        assert(_intsetValueEncoding(+9223372036854775807ull) ==
+                    INTSET_ENC_INT64);
         ok();
     }
 
@@ -375,10 +425,11 @@ int main(int argc, char **argv) {
         is = intsetAdd(is,4,&success); assert(success);
         is = intsetAdd(is,4,&success); assert(!success);
         ok();
+        zfree(is);
     }
 
     printf("Large number of random adds: "); {
-        int inserts = 0;
+        uint32_t inserts = 0;
         is = intsetNew();
         for (i = 0; i < 1024; i++) {
             is = intsetAdd(is,rand()%0x800,&success);
@@ -387,6 +438,7 @@ int main(int argc, char **argv) {
         assert(intrev32ifbe(is->length) == inserts);
         checkConsistency(is);
         ok();
+        zfree(is);
     }
 
     printf("Upgrade from int16 to int32: "); {
@@ -398,6 +450,7 @@ int main(int argc, char **argv) {
         assert(intsetFind(is,32));
         assert(intsetFind(is,65535));
         checkConsistency(is);
+        zfree(is);
 
         is = intsetNew();
         is = intsetAdd(is,32,NULL);
@@ -408,6 +461,7 @@ int main(int argc, char **argv) {
         assert(intsetFind(is,-65535));
         checkConsistency(is);
         ok();
+        zfree(is);
     }
 
     printf("Upgrade from int16 to int64: "); {
@@ -419,6 +473,7 @@ int main(int argc, char **argv) {
         assert(intsetFind(is,32));
         assert(intsetFind(is,4294967295));
         checkConsistency(is);
+        zfree(is);
 
         is = intsetNew();
         is = intsetAdd(is,32,NULL);
@@ -429,6 +484,7 @@ int main(int argc, char **argv) {
         assert(intsetFind(is,-4294967295));
         checkConsistency(is);
         ok();
+        zfree(is);
     }
 
     printf("Upgrade from int32 to int64: "); {
@@ -440,6 +496,7 @@ int main(int argc, char **argv) {
         assert(intsetFind(is,65535));
         assert(intsetFind(is,4294967295));
         checkConsistency(is);
+        zfree(is);
 
         is = intsetNew();
         is = intsetAdd(is,65535,NULL);
@@ -450,6 +507,7 @@ int main(int argc, char **argv) {
         assert(intsetFind(is,-4294967295));
         checkConsistency(is);
         ok();
+        zfree(is);
     }
 
     printf("Stress lookups: "); {
@@ -461,7 +519,9 @@ int main(int argc, char **argv) {
 
         start = usec();
         for (i = 0; i < num; i++) intsetSearch(is,rand() % ((1<<bits)-1),NULL);
-        printf("%ld lookups, %ld element set, %lldusec\n",num,size,usec()-start);
+        printf("%ld lookups, %ld element set, %lldusec\n",
+               num,size,usec()-start);
+        zfree(is);
     }
 
     printf("Stress add+delete: "); {
@@ -478,6 +538,9 @@ int main(int argc, char **argv) {
         }
         checkConsistency(is);
         ok();
+        zfree(is);
     }
+
+    return 0;
 }
 #endif

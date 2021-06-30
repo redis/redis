@@ -1,8 +1,7 @@
 start_server {
     tags {"sort"}
     overrides {
-        "list-max-ziplist-value" 16
-        "list-max-ziplist-entries" 32
+        "list-max-ziplist-size" 32
         "set-max-intset-entries" 32
     }
 } {
@@ -36,9 +35,9 @@ start_server {
     }
 
     foreach {num cmd enc title} {
-        16 lpush ziplist "Ziplist"
-        1000 lpush linkedlist "Linked list"
-        10000 lpush linkedlist "Big Linked list"
+        16 lpush quicklist "Old Ziplist"
+        1000 lpush quicklist "Old Linked list"
+        10000 lpush quicklist "Old Big Linked list"
         16 sadd intset "Intset"
         1000 sadd hashtable "Hash table"
         10000 sadd hashtable "Big Hash table"
@@ -48,28 +47,28 @@ start_server {
 
         test "$title: SORT BY key" {
             assert_equal $result [r sort tosort BY weight_*]
-        }
+        } {} {cluster:skip}
 
         test "$title: SORT BY key with limit" {
             assert_equal [lrange $result 5 9] [r sort tosort BY weight_* LIMIT 5 5]
-        }
+        } {} {cluster:skip}
 
         test "$title: SORT BY hash field" {
             assert_equal $result [r sort tosort BY wobj_*->weight]
-        }
+        } {} {cluster:skip}
     }
 
     set result [create_random_dataset 16 lpush]
     test "SORT GET #" {
         assert_equal [lsort -integer $result] [r sort tosort GET #]
-    }
+    } {} {cluster:skip}
 
     test "SORT GET <const>" {
         r del foo
         set res [r sort tosort GET foo]
         assert_equal 16 [llength $res]
         foreach item $res { assert_equal {} $item }
-    }
+    } {} {cluster:skip}
 
     test "SORT GET (key and hash) with sanity check" {
         set l1 [r sort tosort GET # GET weight_*]
@@ -79,21 +78,29 @@ start_server {
             assert_equal $w1 [r get weight_$id1]
             assert_equal $w2 [r get weight_$id1]
         }
-    }
+    } {} {cluster:skip}
 
     test "SORT BY key STORE" {
         r sort tosort BY weight_* store sort-res
         assert_equal $result [r lrange sort-res 0 -1]
         assert_equal 16 [r llen sort-res]
-        assert_encoding ziplist sort-res
-    }
+        assert_encoding quicklist sort-res
+    } {} {cluster:skip}
 
     test "SORT BY hash field STORE" {
         r sort tosort BY wobj_*->weight store sort-res
         assert_equal $result [r lrange sort-res 0 -1]
         assert_equal 16 [r llen sort-res]
-        assert_encoding ziplist sort-res
-    }
+        assert_encoding quicklist sort-res
+    } {} {cluster:skip}
+
+    test "SORT extracts STORE correctly" {
+        r command getkeys sort abc store def
+    } {abc def}
+
+    test "SORT extracts multiple STORE correctly" {
+        r command getkeys sort abc store invalid store stillbad store def
+    } {abc def}
 
     test "SORT DESC" {
         assert_equal [lsort -decreasing -integer $result] [r sort tosort DESC]
@@ -154,9 +161,9 @@ start_server {
         r zadd zset 10 d
         r zadd zset 3 e
         r eval {
-            return {redis.call('sort','zset','by','nosort','asc'),
-                    redis.call('sort','zset','by','nosort','desc')}
-        } 0
+            return {redis.call('sort',KEYS[1],'by','nosort','asc'),
+                    redis.call('sort',KEYS[1],'by','nosort','desc')}
+        } 1 zset
     } {{a c e b d} {d b e c a}}
 
     test "SORT sorted set: +inf and -inf handling" {
@@ -179,23 +186,23 @@ start_server {
         assert_equal [lsort -real $floats] [r sort mylist]
     }
 
-    test "SORT with STORE returns zero if result is empty (github isse 224)" {
+    test "SORT with STORE returns zero if result is empty (github issue 224)" {
         r flushdb
-        r sort foo store bar
+        r sort foo{t} store bar{t}
     } {0}
 
     test "SORT with STORE does not create empty lists (github issue 224)" {
         r flushdb
-        r lpush foo bar
-        r sort foo alpha limit 10 10 store zap
-        r exists zap
+        r lpush foo{t} bar
+        r sort foo{t} alpha limit 10 10 store zap{t}
+        r exists zap{t}
     } {0}
 
     test "SORT with STORE removes key if result is empty (github issue 227)" {
         r flushdb
-        r lpush foo bar
-        r sort emptylist store foo
-        r exists foo
+        r lpush foo{t} bar
+        r sort emptylist{t} store foo{t}
+        r exists foo{t}
     } {0}
 
     test "SORT with BY <constant> and STORE should still order output" {
@@ -203,7 +210,7 @@ start_server {
         r sadd myset a b c d e f g h i l m n o p q r s t u v z aa aaa azz
         r sort myset alpha by _ store mylist
         r lrange mylist 0 -1
-    } {a aa aaa azz b c d e f g h i l m n o p q r s t u v z}
+    } {a aa aaa azz b c d e f g h i l m n o p q r s t u v z} {cluster:skip}
 
     test "SORT will complain with numerical sorting and bad doubles (1)" {
         r del myset
@@ -220,7 +227,7 @@ start_server {
         set e {}
         catch {r sort myset by score:*} e
         set e
-    } {*ERR*double*}
+    } {*ERR*double*} {cluster:skip}
 
     test "SORT BY sub-sorts lexicographically if score is the same" {
         r del myset
@@ -229,14 +236,32 @@ start_server {
             set score:$ele 100
         }
         r sort myset by score:*
-    } {a aa aaa azz b c d e f g h i l m n o p q r s t u v z}
+    } {a aa aaa azz b c d e f g h i l m n o p q r s t u v z} {cluster:skip}
 
     test "SORT GET with pattern ending with just -> does not get hash field" {
         r del mylist
         r lpush mylist a
         r set x:a-> 100
         r sort mylist by num get x:*->
-    } {100}
+    } {100} {cluster:skip}
+
+    test "SORT by nosort retains native order for lists" {
+        r del testa
+        r lpush testa 2 1 4 3 5
+        r sort testa by nosort
+    } {5 3 4 1 2} {cluster:skip}
+
+    test "SORT by nosort plus store retains native order for lists" {
+        r del testa
+        r lpush testa 2 1 4 3 5
+        r sort testa by nosort store testb
+        r lrange testb 0 -1
+    } {5 3 4 1 2} {cluster:skip}
+
+    test "SORT by nosort with limit returns based on original list order" {
+        r sort testa by nosort limit 0 3 store testb
+        r lrange testb 0 -1
+    } {5 3 4} {cluster:skip}
 
     tags {"slow"} {
         set num 100
@@ -252,7 +277,7 @@ start_server {
                 puts -nonewline "\n  Average time to sort: [expr double($elapsed)/100] milliseconds "
                 flush stdout
             }
-        }
+        } {} {cluster:skip}
 
         test "SORT speed, $num element list BY hash field, 100 times" {
             set start [clock clicks -milliseconds]
@@ -264,7 +289,7 @@ start_server {
                 puts -nonewline "\n  Average time to sort: [expr double($elapsed)/100] milliseconds "
                 flush stdout
             }
-        }
+        } {} {cluster:skip}
 
         test "SORT speed, $num element list directly, 100 times" {
             set start [clock clicks -milliseconds]
@@ -288,6 +313,6 @@ start_server {
                 puts -nonewline "\n  Average time to sort: [expr double($elapsed)/100] milliseconds "
                 flush stdout
             }
-        }
+        } {} {cluster:skip}
     }
 }

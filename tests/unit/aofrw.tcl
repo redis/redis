@@ -1,5 +1,63 @@
-start_server {tags {"aofrw"}} {
+start_server {tags {"aofrw external:skip"}} {
+    # Enable the AOF
+    r config set appendonly yes
+    r config set auto-aof-rewrite-percentage 0 ; # Disable auto-rewrite.
+    waitForBgrewriteaof r
 
+    foreach rdbpre {yes no} {
+        r config set aof-use-rdb-preamble $rdbpre
+        test "AOF rewrite during write load: RDB preamble=$rdbpre" {
+            # Start a write load for 10 seconds
+            set master [srv 0 client]
+            set master_host [srv 0 host]
+            set master_port [srv 0 port]
+            set load_handle0 [start_write_load $master_host $master_port 10]
+            set load_handle1 [start_write_load $master_host $master_port 10]
+            set load_handle2 [start_write_load $master_host $master_port 10]
+            set load_handle3 [start_write_load $master_host $master_port 10]
+            set load_handle4 [start_write_load $master_host $master_port 10]
+
+            # Make sure the instance is really receiving data
+            wait_for_condition 50 100 {
+                [r dbsize] > 0
+            } else {
+                fail "No write load detected."
+            }
+
+            # After 3 seconds, start a rewrite, while the write load is still
+            # active.
+            after 3000
+            r bgrewriteaof
+            waitForBgrewriteaof r
+
+            # Let it run a bit more so that we'll append some data to the new
+            # AOF.
+            after 1000
+
+            # Stop the processes generating the load if they are still active
+            stop_write_load $load_handle0
+            stop_write_load $load_handle1
+            stop_write_load $load_handle2
+            stop_write_load $load_handle3
+            stop_write_load $load_handle4
+
+            # Make sure no more commands processed, before taking debug digest
+            wait_load_handlers_disconnected
+
+            # Get the data set digest
+            set d1 [r debug digest]
+
+            # Load the AOF
+            r debug loadaof
+            set d2 [r debug digest]
+
+            # Make sure they are the same
+            assert {$d1 eq $d2}
+        }
+    }
+}
+
+start_server {tags {"aofrw external:skip"} overrides {aof-use-rdb-preamble no}} {
     test {Turning off AOF kills the background writing child if any} {
         r config set appendonly yes
         waitForBgrewriteaof r
@@ -8,17 +66,17 @@ start_server {tags {"aofrw"}} {
         r config set appendonly no
         r exec
         wait_for_condition 50 100 {
-            [string match {*Killing*AOF*child*} [exec tail -n5 < [srv 0 stdout]]]
+            [string match {*Killing*AOF*child*} [exec tail -5 < [srv 0 stdout]]]
         } else {
             fail "Can't find 'Killing AOF child' into recent logs"
         }
     }
 
     foreach d {string int} {
-        foreach e {ziplist linkedlist} {
+        foreach e {quicklist} {
             test "AOF rewrite of list with $e encoding, $d data" {
                 r flushall
-                if {$e eq {ziplist}} {set len 10} else {set len 1000}
+                set len 1000
                 for {set j 0} {$j < $len} {incr j} {
                     if {$d eq {string}} {
                         set data [randstring 0 16 alpha]
