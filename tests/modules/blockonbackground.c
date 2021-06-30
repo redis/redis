@@ -220,7 +220,11 @@ int Block_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return RedisModule_ReplyWithError(ctx, "ERR another client already blocked");
     }
 
-    blocked_client = RedisModule_BlockClient(ctx, Block_RedisCommand, timeout > 0 ? Block_RedisCommand : NULL, NULL, timeout);
+    /* Block client. We use this function as both a reply and optional timeout
+     * callback and differentiate the different code flows above.
+     */
+    blocked_client = RedisModule_BlockClient(ctx, Block_RedisCommand,
+            timeout > 0 ? Block_RedisCommand : NULL, NULL, timeout);
     return REDISMODULE_OK;
 }
 
