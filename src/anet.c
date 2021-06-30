@@ -503,16 +503,23 @@ static int anetGenericAccept(char *err, int s, struct sockaddr *sa, socklen_t *l
         fd = accept4(s, sa, len,  SOCK_NONBLOCK | SOCK_CLOEXEC);
 #else
         fd = accept(s,sa,len);
-        if (fd != -1) {
-            anetCloexec(fd);
-            anetNonBlock(NULL, fd);
-        }
 #endif
     } while(fd == -1 && errno == EINTR);
     if (fd == -1) {
         anetSetError(err, "accept: %s", strerror(errno));
         return ANET_ERR;
     }
+#ifndef HAVE_ACCEPT4
+    if (anetCloexec(fd) == -1) {
+        anetSetError(err, "anetCloexec: %s", strerror(errno));
+        close(fd);
+        fd = -1;
+    }
+    if (anetNonBlock(err, fd)!=ANET_OK) {
+        close(fd);
+        fd = -1;
+    }
+#endif
     return fd;
 }
 
