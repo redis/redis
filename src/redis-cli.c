@@ -1896,6 +1896,7 @@ static void usage(void) {
 "  --lru-test <keys>  Simulate a cache workload with an 80-20 distribution.\n"
 "  --replica          Simulate a replica showing commands received from the master.\n"
 "  --rdb <filename>   Transfer an RDB dump from remote server to local file.\n"
+"                     Use filename of \"-\" to write to stdout.\n"
 "  --pipe             Transfer raw Redis protocol from stdin to server.\n"
 "  --pipe-timeout <n> In --pipe mode, abort with error if after sending all data.\n"
 "                     no reply is received within <n> seconds.\n"
@@ -7154,8 +7155,9 @@ static void getRDB(clusterManagerNode *node) {
             payload, filename);
     }
 
+    int write_to_stdout = !strcmp(filename,"-");
     /* Write to file. */
-    if (!strcmp(filename,"-")) {
+    if (write_to_stdout) {
         fd = STDOUT_FILENO;
     } else {
         fd = open(filename, O_CREAT|O_WRONLY, 0644);
@@ -7197,7 +7199,7 @@ static void getRDB(clusterManagerNode *node) {
     }
     if (usemark) {
         payload = ULLONG_MAX - payload - RDB_EOF_MARK_SIZE;
-        if (ftruncate(fd, payload) == -1)
+        if (!write_to_stdout && ftruncate(fd, payload) == -1)
             fprintf(stderr,"ftruncate failed: %s.\n", strerror(errno));
         fprintf(stderr,"Transfer finished with success after %llu bytes\n", payload);
     } else {
@@ -7206,7 +7208,7 @@ static void getRDB(clusterManagerNode *node) {
     redisFree(s); /* Close the connection ASAP as fsync() may take time. */
     if (node)
         node->context = NULL;
-    if (fsync(fd) == -1) {
+    if (!write_to_stdout && fsync(fd) == -1) {
         fprintf(stderr,"Fail to fsync '%s': %s\n", filename, strerror(errno));
         exit(1);
     }
