@@ -5213,8 +5213,7 @@ void restoreCommand(client *c) {
 
     rioInitWithBuffer(&payload,c->argv[3]->ptr);
     if (((type = rdbLoadObjectType(&payload)) == -1) ||
-        ((obj = rdbLoadObject(type,&payload,key->ptr,c->db->id,
-                              rdbver)) == NULL))
+        ((obj = rdbLoadObject(type,&payload,key->ptr,c->db->id,rdbver)) == NULL))
     {
         addReplyError(c,"Bad data format");
         return;
