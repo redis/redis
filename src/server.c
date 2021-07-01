@@ -5885,12 +5885,13 @@ void sendChildInfo(childInfoType info_type, size_t keys, char *pname) {
 void memtest(size_t megabytes, int passes);
 
 /* Returns 1 if there is --sentinel among the arguments or if
- * argv[0] contains "redis-sentinel". */
+ * executable name contains "redis-sentinel". */
 int checkForSentinelMode(int argc, char **argv) {
-    int j;
+    char *exec_name = strrchr(argv[0], '/');
+    if (exec_name == NULL) exec_name = argv[0];
+    if (strstr(exec_name,"redis-sentinel") != NULL) return 1;
 
-    if (strstr(argv[0],"redis-sentinel") != NULL) return 1;
-    for (j = 1; j < argc; j++)
+    for (int j = 1; j < argc; j++)
         if (!strcmp(argv[j],"--sentinel")) return 1;
     return 0;
 }
