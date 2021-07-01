@@ -1351,13 +1351,10 @@ robj *createObjectFromStreamID(streamID *id) {
 void streamGetTipID(stream *s, streamID *id, int first) {
     streamIterator si;
     int64_t numfields;
-    streamID min, max;
-    min.seq = 0;
-    min.ms = 0;
-    max.seq = UINT64_MAX;
-    max.seq = UINT64_MAX;
+    streamID min_id = {0, 0};
+    streamID max_id = {UINT64_MAX, UINT64_MAX};
 
-    streamIteratorStart(&si,s,&min,&max,!first);
+    streamIteratorStart(&si,s,&min_id,&max_id,!first);
     streamIteratorGetID(&si,id,&numfields);
     streamIteratorStop(&si);
 }
