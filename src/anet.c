@@ -513,16 +513,18 @@ static int anetGenericAccept(char *err, int s, struct sockaddr *sa, socklen_t *l
     if (anetCloexec(fd) == -1) {
         anetSetError(err, "anetCloexec: %s", strerror(errno));
         close(fd);
-        fd = -1;
+        return ANET_ERR;
     }
-    if (anetNonBlock(err, fd)!=ANET_OK) {
+    if (anetNonBlock(err, fd) != ANET_OK) {
         close(fd);
-        fd = -1;
+        return ANET_ERR;
     }
 #endif
     return fd;
 }
 
+/* Accept a connection and also make sure the socket is non-blocking, and CLOEXEC.
+ * returns the new socket FD, or -1 on error. */
 int anetTcpAccept(char *err, int s, char *ip, size_t ip_len, int *port) {
     int fd;
     struct sockaddr_storage sa;
@@ -542,6 +544,8 @@ int anetTcpAccept(char *err, int s, char *ip, size_t ip_len, int *port) {
     return fd;
 }
 
+/* Accept a connection and also make sure the socket is non-blocking, and CLOEXEC.
+ * returns the new socket FD, or -1 on error. */
 int anetUnixAccept(char *err, int s) {
     int fd;
     struct sockaddr_un sa;
