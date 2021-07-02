@@ -458,6 +458,9 @@ proc start_server {options {code undefined}} {
         close $fd
     }
 
+    set host $::host
+    if {[dict exists $config bind]} { set host [dict get $config bind] }
+
     # We need a loop here to retry with different ports.
     set server_started 0
     while {$server_started == 0} {
@@ -494,7 +497,7 @@ proc start_server {options {code undefined}} {
 
         if {$::valgrind} {set retrynum 1000} else {set retrynum 100}
         if {$code ne "undefined"} {
-            set serverisup [server_is_up $::host $port $retrynum]
+            set serverisup [server_is_up $host $port $retrynum]
         } else {
             set serverisup 1
         }
@@ -514,8 +517,6 @@ proc start_server {options {code undefined}} {
 
     # setup properties to be able to initialize a client object
     set port_param [expr $::tls ? {"tls-port"} : {"port"}]
-    set host $::host
-    if {[dict exists $config bind]} { set host [dict get $config bind] }
     if {[dict exists $config $port_param]} { set port [dict get $config $port_param] }
 
     # setup config dict
