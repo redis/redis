@@ -534,23 +534,19 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
             memcpy(parentlink,&h,sizeof(h));
         }
 
-        int res;
         /* Update the existing key if there is already one. */
         if (h->iskey) {
             if (old) *old = raxGetData(h);
             if (overwrite) raxSetData(h,data);
             errno = 0;
-            res = 0;    /* Element already exists. */
+            return 0; /* Element already exists. */
         }
 
-        /* A new element, note raxSetData() will set h->iskey. */
-        if (!h->iskey) {
-            raxSetData(h,data);
-            rax->numele++;
-            res = 1;    /* Element inserted. */
-        }
-
-        return res;
+        /* Otherwise set the node as a key. Note that raxSetData()
+         * will set h->iskey. */
+        raxSetData(h,data);
+        rax->numele++;
+        return 1; /* Element inserted. */
     }
 
     /* If the node we stopped at is a compressed node, we need to
