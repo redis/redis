@@ -39,14 +39,14 @@ test {CONFIG SET bind address} {
 
 test {CONFIG SET bind-source-addr} {
     if {[exec uname] == {Linux}} {
-        start_server {} {
-            start_server {} {
+        start_server [list overrides [list bind "127.0.0.2"] ] {
+            start_server [list overrides [list bind "127.0.0.2"] ] {
                 set replica [srv 0 client]
                 set master [srv -1 client]
 
                 $master config set protected-mode no
 
-                $replica config set bind-source-addr 127.0.0.2
+                $replica config set bind-source-addr 127.0.0.1
                 $replica replicaof [srv -1 host] [srv -1 port]
 
                 wait_for_condition 50 100 {
@@ -55,7 +55,7 @@ test {CONFIG SET bind-source-addr} {
                     fail "Replication not started."
                 }
 
-                assert_match {*ip=127.0.0.2*} [s -1 slave0]
+                assert_match {*ip=127.0.0.1*} [s -1 slave0]
             }
         }
     }
