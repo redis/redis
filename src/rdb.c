@@ -971,6 +971,11 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
         nwritten += n;
         if ((n = rdbSaveLen(rdb,s->last_id.seq)) == -1) return -1;
         nwritten += n;
+        /* Save the first entry ID. */
+        if ((n = rdbSaveLen(rdb,s->first_id.ms)) == -1) return -1;
+        nwritten += n;
+        if ((n = rdbSaveLen(rdb,s->first_id.seq)) == -1) return -1;
+        nwritten += n;
         /* Save the maximal tombstone ID. */
         if ((n = rdbSaveLen(rdb,s->xdel_max_id.ms)) == -1) return -1;
         nwritten += n;
@@ -2031,6 +2036,10 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int rdbver) {
         s->last_id.seq = rdbLoadLen(rdb,NULL);
         
         if (rdbver >= RDB_VERSION_STREAM_LAG) {
+            /* Load the first entry ID. */
+            s->first_id.ms = rdbLoadLen(rdb,NULL);
+            s->first_id.seq = rdbLoadLen(rdb,NULL);
+
             /* Load the maximal tombstone ID. */
             s->xdel_max_id.ms = rdbLoadLen(rdb,NULL);
             s->xdel_max_id.seq = rdbLoadLen(rdb,NULL);
@@ -2040,10 +2049,14 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int rdbver) {
         } else {
             /* During migration the offset can be initialized to the stream's
              * length. At this point, we also don't care about tombstones
-             * because CG offsets will be initialized as well. */
+             * because CG offsets will be later initialized as well. */
             s->xdel_max_id.ms = 0;
             s->xdel_max_id.seq = 0;
             s->offset = s->length;
+            
+            /* Since the rax is already loaded, we can find the first entry's
+             * ID. */ 
+            streamGetTipID(s,&s->first_id,1);
         }
 
         if (rioGetReadError(rdb)) {

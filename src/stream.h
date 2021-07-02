@@ -17,6 +17,7 @@ typedef struct stream {
     rax *rax;               /* The radix tree holding the stream. */
     uint64_t length;        /* Current number of elements inside this stream. */
     streamID last_id;       /* Zero if there are yet no items. */
+    streamID first_id;      /* The first non-tombstone entry, zero if empty. */
     streamID xdel_max_id;   /* The maximal ID that was deleted. */
     uint64_t offset;        /* All time number of elements in this stream. */
     rax *cgroups;           /* Consumer groups dictionary: name -> streamCG */
@@ -129,6 +130,7 @@ int streamParseID(const robj *o, streamID *id);
 robj *createObjectFromStreamID(streamID *id);
 int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_id, streamID *use_id);
 int streamDeleteItem(stream *s, streamID *id);
+void streamGetTipID(stream *s, streamID *id, int first);
 uint64_t streamGetOffset(stream *s, streamID *id);
 int64_t streamTrimByLength(stream *s, long long maxlen, int approx);
 int64_t streamTrimByID(stream *s, streamID minid, int approx);

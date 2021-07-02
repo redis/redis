@@ -62,6 +62,8 @@ stream *streamNew(void) {
     stream *s = zmalloc(sizeof(*s));
     s->rax = raxNew();
     s->length = 0;
+    s->first_id.ms = 0;
+    s->first_id.seq = 0;
     s->last_id.ms = 0;
     s->last_id.seq = 0;
     s->xdel_max_id.seq = 0;
@@ -181,6 +183,7 @@ robj *streamDup(robj *o) {
                   new_lp, NULL);
     }
     new_s->length = s->length;
+    new_s->first_id = s->first_id;
     new_s->last_id = s->last_id;
     new_s->xdel_max_id = s->xdel_max_id;
     new_s->offset = s->offset;
@@ -431,6 +434,18 @@ void streamGetEdgeID(stream *s, int first, streamID *edge_id)
     raxStop(&ri);
 }
 
+/* Get the first or last entry ID from a non-empty stream. */
+void streamGetTipID(stream *s, streamID *id, int first) {
+    streamIterator si;
+    int64_t numfields;
+    streamID min_id = {0, 0};
+    streamID max_id = {UINT64_MAX, UINT64_MAX};
+
+    streamIteratorStart(&si,s,&min_id,&max_id,!first);
+    streamIteratorGetID(&si,id,&numfields);
+    streamIteratorStop(&si);
+}
+
 /* Adds a new item into the stream 's' having the specified number of
  * field-value pairs as specified in 'numfields' and stored into 'argv'.
  * Returns the new entry ID populating the 'added_id' structure.
@@ -645,6 +660,7 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
     s->length++;
     s->offset++;
     s->last_id = id;
+    if (s->length == 1) s->first_id = id;
     if (added_id) *added_id = id;
     return C_OK;
 }
@@ -821,7 +837,7 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
         }
         deleted += deleted_from_lp;
 
-        /* Now we the entries/deleted counters. */
+        /* Now we update the entries/deleted counters. */
         p = lpFirst(lp);
         lp = lpReplaceInteger(lp,&p,entries-deleted_from_lp);
         p = lpNext(lp,p); /* Skip deleted field. */
@@ -843,8 +859,16 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
         break; /* If we are here, there was enough to delete in the current
                   node, so no need to go to the next node. */
     }
-
     raxStop(&ri);
+
+    /* Update the stream's first ID after the trimming. */
+    if (s->length == 0) {
+        s->first_id.ms = 0;
+        s->first_id.seq = 0;
+    } else if (deleted) {
+        streamGetTipID(s,&s->first_id,1);
+    }
+
     return deleted;
 }
 
@@ -1347,18 +1371,6 @@ robj *createObjectFromStreamID(streamID *id) {
                         id->ms,id->seq));
 }
 
-/* Get the first or last entry ID from a non-empty stream. */
-void streamGetTipID(stream *s, streamID *id, int first) {
-    streamIterator si;
-    int64_t numfields;
-    streamID min_id = {0, 0};
-    streamID max_id = {UINT64_MAX, UINT64_MAX};
-
-    streamIteratorStart(&si,s,&min_id,&max_id,!first);
-    streamIteratorGetID(&si,id,&numfields);
-    streamIteratorStop(&si);
-}
-
 /* Returns non-zero if the ID is 0-0. */
 int streamIDEqZero(streamID *id) {
     return !(id->ms || id->seq);
@@ -1370,7 +1382,7 @@ int streamIDEqZero(streamID *id) {
  * NOTE: this assumes that the caller had verified that 'start' is less than
  * 's->last_id'. */
 int streamIsContiguousRange(stream *s, streamID *start) {
-    streamID start_id, first_id;
+    streamID start_id;
 
     if (!s->length || streamIDEqZero(&s->xdel_max_id)) {
         /* An empty stream or no tombstones. */
@@ -1385,15 +1397,12 @@ int streamIsContiguousRange(stream *s, streamID *start) {
         start_id.seq = 0;
     }
 
-    streamGetTipID(s,&first_id,1);
-    int cmp_first = streamCompareID(&first_id,&s->xdel_max_id);
-    if (cmp_first > 0) {
+    if (streamCompareID(&s->first_id,&s->xdel_max_id) > 0) {
         /* The latest tombstone is before the first entry. */
         return 1;
     }
 
-    int cmp_start = streamCompareID(&start_id,&s->xdel_max_id);
-    if (cmp_start >= 0) {
+    if (streamCompareID(&start_id,&s->xdel_max_id) >= 0) {
         /* The range doesn't include a tombstone. */
         return 1;
     }
@@ -1429,9 +1438,7 @@ uint64_t streamGetOffset(stream *s, streamID *id) {
         return 0;
     }
 
-    streamID first_id;
-    streamGetTipID(s,&first_id,1);
-    int cmp_first = streamCompareID(id,&first_id);
+    int cmp_first = streamCompareID(id,&s->first_id);
     int cmp_xdel = streamCompareID(id,&s->xdel_max_id);
     if (streamIDEqZero(&s->xdel_max_id) || cmp_xdel > 0) {
         /* There's definitely no fragmentation. */
@@ -3416,14 +3423,31 @@ void xdelCommand(client *c) {
 
     /* Actually apply the command. */
     int deleted = 0;
+    int first_entry = 0;
     for (int j = 2; j < c->argc; j++) {
         streamID *id = &ids[j-2];
         if (streamDeleteItem(s,id)) {
+            /* We want to know if the first entry in the stream was deleted
+             * so we can later set the new one. */
+            if (streamCompareID(id,&s->first_id) == 0) {
+                first_entry = 1;
+            }
+            /* Update the stream's maximal tombstone if needed. */
             if (streamCompareID(id,&s->xdel_max_id) > 0) {
                 s->xdel_max_id = *id;
             }
             deleted++;
         };
+    }
+
+    /* Update the stream's first ID. */
+    if (deleted) {
+        if (s->length == 0) {
+            s->first_id.ms = 0;
+            s->first_id.seq = 0;
+        } else if (first_entry) {
+            streamGetTipID(s,&s->first_id,1);
+        }
     }
 
     /* Propagate the write if needed. */
