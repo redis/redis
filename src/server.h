@@ -891,6 +891,7 @@ typedef struct {
                         field is NULL the user cannot mention any channel in a
                         `PUBLISH` or [P][UNSUBSCRIBE] command, unless the flag
                         ALLCHANNELS is set in the user. */
+    list *roles; /* A list of roles associated to the user. */
 } user;
 
 /* With multiplexing we need to take per-client state.
@@ -2146,6 +2147,7 @@ int isMutuallyExclusiveChildType(int type);
 
 /* acl.c -- Authentication related prototypes. */
 extern rax *Users;
+extern rax *Roles;
 extern user *DefaultUser;
 void ACLInit(void);
 /* Return values for ACLCheckAllPerm(). */
@@ -2154,11 +2156,13 @@ void ACLInit(void);
 #define ACL_DENIED_KEY 2
 #define ACL_DENIED_AUTH 3 /* Only used for ACL LOG entries. */
 #define ACL_DENIED_CHANNEL 4 /* Only used for pub/sub commands */
+#define ACL_DENIED_ROLE 5
 int ACLCheckUserCredentials(robj *username, robj *password);
 int ACLAuthenticateUser(client *c, robj *username, robj *password);
 unsigned long ACLGetCommandID(const char *cmdname);
 void ACLClearCommandID(void);
 user *ACLGetUserByName(const char *name, size_t namelen);
+user *ACLGetRoleByName(const char *name, size_t namelen);
 int ACLCheckAllPerm(client *c, int *idxptr);
 int ACLSetUser(user *u, const char *op, ssize_t oplen);
 sds ACLDefaultUserFirstPassword(void);
