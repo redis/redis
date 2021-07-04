@@ -1930,6 +1930,12 @@ void databasesCron(void) {
  * such info only when calling this function from serverCron() but not when
  * calling it from call(). */
 void updateCachedTime(int update_daylight_info) {
+    /* In case we have nested calls we want to
+     * update only on the first call*/
+    if (server.fixed_time_expire == 1) {
+        return;
+    }
+
     server.ustime = ustime();
     server.mstime = server.ustime / 1000;
     time_t unixtime = server.mstime / 1000;
@@ -3716,7 +3722,9 @@ void call(client *c, int flags) {
     /* Call the command. */
     dirty = server.dirty;
     prev_err_count = server.stat_total_error_replies;
+
     updateCachedTime(0);
+
     elapsedStart(&call_timer);
     c->cmd->proc(c);
     const long duration = elapsedUs(call_timer);
