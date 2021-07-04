@@ -2656,10 +2656,10 @@ NULL
                 addReplyBulkCBuffer(c, thispat, sdslen(thispat));
             }
         }
-    } else if ((!strcasecmp(sub,"rolelist") || !strcasecmp(sub,"mappings")) &&
+    } else if ((!strcasecmp(sub,"rolelist") || !strcasecmp(sub,"roles")) &&
                c->argc == 2)
     {
-        int justnames = !strcasecmp(sub,"mappings");
+        int justnames = !strcasecmp(sub,"roles");
         addReplyArrayLen(c,raxSize(Roles));
         raxIterator ri;
         raxStart(&ri,Roles);
