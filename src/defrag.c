@@ -1064,7 +1064,8 @@ void computeDefragCycles() {
      /* We allow increasing the aggressiveness during a scan, but don't
       * reduce it. */
     if (!server.active_defrag_running ||
-        cpu_pct > server.active_defrag_running) {
+        cpu_pct > server.active_defrag_running)
+    {
         server.active_defrag_running = cpu_pct;
         serverLog(LL_VERBOSE,
             "Starting active defrag, frag=%.0f%%, frag_bytes=%zu, cpu=%d%%",
@@ -1137,8 +1138,10 @@ void activeDefragCycle(void) {
                 long long now = ustime();
                 size_t frag_bytes;
                 float frag_pct = getAllocatorFragmentation(&frag_bytes);
+                /* reallocated, misses and scanned respectively represent the hits, misses
+                 * and scanned keys of the db keys actually executed in a defrag. */
                 serverLog(LL_VERBOSE,
-                    "Active defrag done in %dms, hits=%d, misses=%d, scanned=%d, frag=%.0f%%, frag_bytes=%zu",
+                    "Active defrag done in %dms, reallocated=%d, misses=%d, scanned=%d, frag=%.0f%%, frag_bytes=%zu",
                     (int)((now - start_time)/1000), (int)(server.stat_active_defrag_hits - start_hit), 
                     (int)(server.stat_active_defrag_misses - start_miss),
                     (int)(server.stat_active_defrag_scanned - start_scan), frag_pct, frag_bytes);
