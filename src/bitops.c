@@ -410,7 +410,7 @@ void printBits(unsigned char *p, unsigned long count) {
  * If the 'hash' argument is true, and 'bits is positive, then the command
  * will also parse bit offsets prefixed by "#". In such a case the offset
  * is multiplied by 'bits'. This is useful for the BITFIELD command. */
-int getBitOffsetFromArgument(client *c, robj *o, size_t *offset, int hash, int bits) {
+int getBitOffsetFromArgument(client *c, robj *o, uint64_t *offset, int hash, int bits) {
     long long loffset;
     char *err = "bit offset is not an integer or out of range";
     char *p = o->ptr;
@@ -435,7 +435,7 @@ int getBitOffsetFromArgument(client *c, robj *o, size_t *offset, int hash, int b
         return C_ERR;
     }
 
-    *offset = (size_t)loffset;
+    *offset = loffset;
     return C_OK;
 }
 
@@ -527,7 +527,7 @@ unsigned char *getObjectReadOnlyString(robj *o, long *len, char *llbuf) {
 void setbitCommand(client *c) {
     robj *o;
     char *err = "bit is not an integer or out of range";
-    size_t bitoffset;
+    uint64_t bitoffset;
     ssize_t byte, bit;
     int byteval, bitval;
     long on;
@@ -566,7 +566,7 @@ void setbitCommand(client *c) {
 void getbitCommand(client *c) {
     robj *o;
     char llbuf[32];
-    size_t bitoffset;
+    uint64_t bitoffset;
     size_t byte, bit;
     size_t bitval = 0;
 
@@ -933,12 +933,12 @@ struct bitfieldOp {
  * GET subcommand is allowed, other subcommands will return an error. */
 void bitfieldGeneric(client *c, int flags) {
     robj *o;
-    size_t bitoffset;
+    uint64_t bitoffset;
     int j, numops = 0, changes = 0;
     struct bitfieldOp *ops = NULL; /* Array of ops to execute at end. */
     int owtype = BFOVERFLOW_WRAP; /* Overflow type. */
     int readonly = 1;
-    size_t highest_write_offset = 0;
+    uint64_t highest_write_offset = 0;
 
     for (j = 2; j < c->argc; j++) {
         int remargs = c->argc-j-1; /* Remaining args other than current. */
