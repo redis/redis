@@ -29,6 +29,9 @@
 
 #include "server.h"
 #include "sha256.h"
+#include "../../../../Library/Developer/CommandLineTools/SDKs/MacOSX10.15.sdk/usr/include/sys/_types/_size_t.h"
+#include "../../../../Library/Developer/CommandLineTools/SDKs/MacOSX10.15.sdk/usr/include/sys/_types/_null.h"
+#include "../../../../Library/Developer/CommandLineTools/SDKs/MacOSX10.15.sdk/usr/include/string.h"
 #include <fcntl.h>
 #include <ctype.h>
 
@@ -108,6 +111,8 @@ void ACLAddAllowedSubcommand(user *u, unsigned long id, const char *sub);
 void ACLFreeLogEntry(void *le);
 
 /* The length of the string representation of a hashed password. */
+user *createUser(const char *name, size_t namelen);
+
 #define HASH_PASSWORD_LEN SHA256_BLOCK_SIZE*2
 
 /* =============================================================================
@@ -244,33 +249,19 @@ void *ACLListDupSds(void *item) {
  * If the user with such name already exists NULL is returned. */
 user *ACLCreateUser(const char *name, size_t namelen) {
     if (raxFind(Users,(unsigned char*)name,namelen) != raxNotFound) return NULL;
-    user *u = zmalloc(sizeof(*u));
-    u->name = sdsnewlen(name,namelen);
-    u->flags = USER_FLAG_DISABLED | server.acl_pubsub_default;
-    u->allowed_subcommands = NULL;
-    u->passwords = listCreate();
-    u->patterns = listCreate();
-    u->channels = listCreate();
-    u->mappings = listCreate();
-    listSetMatchMethod(u->passwords,ACLListMatchSds);
-    listSetFreeMethod(u->passwords,ACLListFreeSds);
-    listSetDupMethod(u->passwords,ACLListDupSds);
-    listSetMatchMethod(u->patterns,ACLListMatchSds);
-    listSetFreeMethod(u->patterns,ACLListFreeSds);
-    listSetDupMethod(u->patterns,ACLListDupSds);
-    listSetMatchMethod(u->channels,ACLListMatchSds);
-    listSetFreeMethod(u->channels,ACLListFreeSds);
-    listSetDupMethod(u->channels,ACLListDupSds);
-    listSetMatchMethod(u->mappings, ACLListMatchSds);
-    listSetFreeMethod(u->mappings, ACLListFreeSds);
-    listSetDupMethod(u->mappings, ACLListDupSds);
-    memset(u->allowed_commands,0,sizeof(u->allowed_commands));
+    user *u = createUser(name, namelen);
     raxInsert(Users,(unsigned char*)name,namelen,u,NULL);
     return u;
 }
 
 user *ACLCreateRole(const char *name, size_t namelen) {
-    if (raxFind(Users,(unsigned char*)name,namelen) != raxNotFound) return NULL;
+    if (raxFind(Roles,(unsigned char*)name,namelen) != raxNotFound) return NULL;
+    user *u = createUser(name, namelen);
+    raxInsert(Roles,(unsigned char*)name,namelen,u,NULL);
+    return u;
+}
+
+user *createUser(const char *name, size_t namelen) {
     user *u = zmalloc(sizeof(*u));
     u->name = sdsnewlen(name,namelen);
     u->flags = USER_FLAG_DISABLED;
@@ -279,20 +270,19 @@ user *ACLCreateRole(const char *name, size_t namelen) {
     u->patterns = listCreate();
     u->channels = listCreate();
     u->mappings = listCreate();
-    listSetMatchMethod(u->passwords,ACLListMatchSds);
-    listSetFreeMethod(u->passwords,ACLListFreeSds);
-    listSetDupMethod(u->passwords,ACLListDupSds);
-    listSetMatchMethod(u->patterns,ACLListMatchSds);
-    listSetFreeMethod(u->patterns,ACLListFreeSds);
-    listSetDupMethod(u->patterns,ACLListDupSds);
-    listSetMatchMethod(u->channels,ACLListMatchSds);
-    listSetFreeMethod(u->channels,ACLListFreeSds);
-    listSetDupMethod(u->channels,ACLListDupSds);
+    listSetMatchMethod(u->passwords, ACLListMatchSds);
+    listSetFreeMethod(u->passwords, ACLListFreeSds);
+    listSetDupMethod(u->passwords, ACLListDupSds);
+    listSetMatchMethod(u->patterns, ACLListMatchSds);
+    listSetFreeMethod(u->patterns, ACLListFreeSds);
+    listSetDupMethod(u->patterns, ACLListDupSds);
+    listSetMatchMethod(u->channels, ACLListMatchSds);
+    listSetFreeMethod(u->channels, ACLListFreeSds);
+    listSetDupMethod(u->channels, ACLListDupSds);
     listSetMatchMethod(u->mappings, ACLListMatchSds);
     listSetFreeMethod(u->mappings, ACLListFreeSds);
     listSetDupMethod(u->mappings, ACLListDupSds);
     memset(u->allowed_commands,0,sizeof(u->allowed_commands));
-    raxInsert(Roles,(unsigned char*)name,namelen,u,NULL);
     return u;
 }
 
