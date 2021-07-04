@@ -891,7 +891,7 @@ typedef struct {
                         field is NULL the user cannot mention any channel in a
                         `PUBLISH` or [P][UNSUBSCRIBE] command, unless the flag
                         ALLCHANNELS is set in the user. */
-    list *roles; /* A list of roles associated to the user. */
+    list *mappings; /* A list of mappings associated to the user. */
 } user;
 
 /* With multiplexing we need to take per-client state.

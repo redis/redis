@@ -37,7 +37,7 @@
  * ==========================================================================*/
 
 rax *Users; /* Table mapping usernames to user structures. */
-rax *Roles; /* Table mapping usernames to user structures. */
+rax *Roles; /* Table mapping rolenames to user structures. */
 
 user *DefaultUser;  /* Global reference to the default user.
                        Every new connection is associated to it, if no
@@ -251,7 +251,7 @@ user *ACLCreateUser(const char *name, size_t namelen) {
     u->passwords = listCreate();
     u->patterns = listCreate();
     u->channels = listCreate();
-    u->roles = listCreate();
+    u->mappings = listCreate();
     listSetMatchMethod(u->passwords,ACLListMatchSds);
     listSetFreeMethod(u->passwords,ACLListFreeSds);
     listSetDupMethod(u->passwords,ACLListDupSds);
@@ -261,9 +261,9 @@ user *ACLCreateUser(const char *name, size_t namelen) {
     listSetMatchMethod(u->channels,ACLListMatchSds);
     listSetFreeMethod(u->channels,ACLListFreeSds);
     listSetDupMethod(u->channels,ACLListDupSds);
-    listSetMatchMethod(u->roles, ACLListMatchSds);
-    listSetFreeMethod(u->roles, ACLListFreeSds);
-    listSetDupMethod(u->roles, ACLListDupSds);
+    listSetMatchMethod(u->mappings, ACLListMatchSds);
+    listSetFreeMethod(u->mappings, ACLListFreeSds);
+    listSetDupMethod(u->mappings, ACLListDupSds);
     memset(u->allowed_commands,0,sizeof(u->allowed_commands));
     raxInsert(Users,(unsigned char*)name,namelen,u,NULL);
     return u;
@@ -278,7 +278,7 @@ user *ACLCreateRole(const char *name, size_t namelen) {
     u->passwords = listCreate();
     u->patterns = listCreate();
     u->channels = listCreate();
-    u->roles = listCreate();
+    u->mappings = listCreate();
     listSetMatchMethod(u->passwords,ACLListMatchSds);
     listSetFreeMethod(u->passwords,ACLListFreeSds);
     listSetDupMethod(u->passwords,ACLListDupSds);
@@ -288,9 +288,9 @@ user *ACLCreateRole(const char *name, size_t namelen) {
     listSetMatchMethod(u->channels,ACLListMatchSds);
     listSetFreeMethod(u->channels,ACLListFreeSds);
     listSetDupMethod(u->channels,ACLListDupSds);
-    listSetMatchMethod(u->roles, ACLListMatchSds);
-    listSetFreeMethod(u->roles, ACLListFreeSds);
-    listSetDupMethod(u->roles, ACLListDupSds);
+    listSetMatchMethod(u->mappings, ACLListMatchSds);
+    listSetFreeMethod(u->mappings, ACLListFreeSds);
+    listSetDupMethod(u->mappings, ACLListDupSds);
     memset(u->allowed_commands,0,sizeof(u->allowed_commands));
     raxInsert(Roles,(unsigned char*)name,namelen,u,NULL);
     return u;
@@ -320,6 +320,7 @@ void ACLFreeUser(user *u) {
     listRelease(u->passwords);
     listRelease(u->patterns);
     listRelease(u->channels);
+    listRelease(u->mappings);
     ACLResetSubcommands(u);
     zfree(u);
 }
@@ -361,11 +362,11 @@ void ACLCopyUser(user *dst, user *src) {
     listRelease(dst->passwords);
     listRelease(dst->patterns);
     listRelease(dst->channels);
-    listRelease(dst->roles);
+    listRelease(dst->mappings);
     dst->passwords = listDup(src->passwords);
     dst->patterns = listDup(src->patterns);
     dst->channels = listDup(src->channels);
-    dst->roles = listDup(src->roles);
+    dst->mappings = listDup(src->mappings);
     memcpy(dst->allowed_commands,src->allowed_commands,
            sizeof(dst->allowed_commands));
     dst->flags = src->flags;
@@ -381,6 +382,34 @@ void ACLCopyUser(user *dst, user *src) {
                 }
             }
         }
+    }
+}
+
+void ACLUserRoleAssociation(user *u, list *prevroles) {
+    listIter li;
+    listNode *ln;
+
+    if (prevroles) {
+        listRewind(prevroles,&li);
+        while ((ln = listNext(&li))) {
+            sds thisrole = listNodeValue(ln);
+            user *role = ACLGetRoleByName(thisrole,sdslen(thisrole));
+            // Remove the user to role's mapping
+            ln = listSearchKey(role->mappings,u->name);
+            if (ln)
+                listDelNode(role->mappings,ln);
+        }
+    }
+
+    listRewind(u->mappings,&li);
+    while ((ln = listNext(&li))) {
+        sds thisrole = listNodeValue(ln);
+        user *role = ACLGetRoleByName(thisrole,sdslen(thisrole));
+        // Add the user to role's mapping
+        ln = listSearchKey(role->mappings,u->name);
+        /* Avoid re-adding the same username multiple times. */
+        if (ln == NULL)
+            listAddNodeTail(role->mappings,sdsnew(u->name));
     }
 }
 
@@ -702,7 +731,7 @@ sds ACLDescribeUser(user *u) {
     sdsfree(rules);
 
     /* Roles. */
-    listRewind(u->roles, &li);
+    listRewind(u->mappings, &li);
     while((ln = listNext(&li))) {
         res = sdscatlen(res," ",1);
         res = sdscatlen(res,"$+",2);
@@ -1107,29 +1136,32 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
         serverAssert(ACLSetUser(u,"sanitize-payload",-1) == C_OK);
         serverAssert(ACLSetUser(u,"-@all",-1) == C_OK);
     } else if (op[0] == '$' && op[1] == '+') {
-        sds role = sdsnew(op+2);
-        if (!ACLGetRoleByName(role,sdslen(role))) {
+        sds thisrole = sdsnew(op + 2);
+        user *role = ACLGetRoleByName(thisrole,sdslen(thisrole));
+        if (!role) {
             errno = ENOENT;
             return C_ERR;
         }
-        listNode *ln = listSearchKey(u->roles, role);
-        /* Avoid re-adding the same role multiple times. */
+        // Add the role to user's mapping
+        listNode *ln = listSearchKey(u->mappings, thisrole);
+        /* Avoid re-adding the same thisrole multiple times. */
         if (ln == NULL)
-            listAddNodeTail(u->roles, role);
+            listAddNodeTail(u->mappings, thisrole);
         else
-            sdsfree(role);
+            sdsfree(thisrole);
     } else if (op[0] == '$' && op[1] == '-') {
-        sds role = sdsnew(op+2);
-        if (!ACLGetRoleByName(role,sdslen(role))) {
+        sds rolename = sdsnew(op + 2);
+        user *role = ACLGetRoleByName(rolename, sdslen(rolename));
+        if (!role) {
             errno = ENOENT;
             return C_ERR;
         }
-        listNode *ln = listSearchKey(u->roles, role);
-        /* Delete the role if exists. */
+        listNode *ln = listSearchKey(u->mappings, rolename);
+        /* Delete the rolename from user's mappings if exists. */
         if (ln)
-            listDelNode(u->roles, ln);
+            listDelNode(u->mappings, ln);
         else
-            sdsfree(role);
+            sdsfree(rolename);
     } else {
         errno = EINVAL;
         return C_ERR;
@@ -1531,13 +1563,15 @@ int ACLCheckCommandPerm(client *c, int *keyidxptr) {
     int retval = ACLCheckCommandPermForUser(c,u,keyidxptr);
     listIter li;
     listNode *ln;
-    listRewind(u->roles, &li);
+    listRewind(u->mappings, &li);
     int role_retval = ACL_DENIED_ROLE;
     while((ln = listNext(&li))) {
         sds thisrole = listNodeValue(ln);
         user *role = ACLGetRoleByName(thisrole,sdslen(thisrole));
         // Verify each role permission.
-        role_retval &= ACLCheckCommandPermForUser(c,role,keyidxptr);
+        // Should we use each role's return value and return to client.
+        if (ACLCheckCommandPermForUser(c,role,keyidxptr) == ACL_OK)
+            break;
     }
     if (role_retval == ACL_OK || retval == ACL_OK) {
         return ACL_OK;
@@ -2201,7 +2235,11 @@ void aclCommand(client *c) {
          * If there are any errors then none of the changes will be applied. */
         user *tempu = ACLCreateUnlinkedUser();
         user *u = ACLGetUserByName(username,sdslen(username));
-        if (u) ACLCopyUser(tempu, u);
+        list *prevroles = NULL;
+        if (u) {
+            ACLCopyUser(tempu, u);
+            prevroles = listDup(u->mappings);
+        }
 
         /* Initially redact all of the arguments to not leak any information
          * about the user. */
@@ -2230,6 +2268,10 @@ void aclCommand(client *c) {
         if (!u) u = ACLCreateUser(username,sdslen(username));
         serverAssert(u != NULL);
         ACLCopyUser(u, tempu);
+        ACLUserRoleAssociation(u,prevroles);
+        if (prevroles) {
+            listRelease(prevroles);
+        }
         ACLFreeUser(tempu);
         addReply(c,shared.ok);
     } else if (!strcasecmp(sub,"deluser") && c->argc >= 3) {
@@ -2493,7 +2535,7 @@ void aclCommand(client *c) {
 "DELUSER <username> [<username> ...]",
 "    Delete a list of users.",
 "DELROLE <rolename> [<rolename> ...]",
-"    Delete a list of roles.",
+"    Delete a list of mappings.",
 "GETUSER <username>",
 "    Get the user's details.",
 "GETROLE <rolename>",
@@ -2504,7 +2546,7 @@ void aclCommand(client *c) {
 "LIST",
 "    Show users details in config file format.",
 "ROLELIST",
-"    Show roles details in config file format.",
+"    Show mappings details in config file format.",
 "LOAD",
 "    Reload users from the ACL file.",
 "LOG [<count> | RESET]",
@@ -2518,7 +2560,7 @@ void aclCommand(client *c) {
 "USERS",
 "    List all the registered usernames.",
 "ROLES",
-"    List all the registered roles.",
+"    List all the registered mappings.",
 "WHOAMI",
 "    Return the current connection username.",
 NULL
@@ -2624,10 +2666,10 @@ NULL
                 addReplyBulkCBuffer(c, thispat, sdslen(thispat));
             }
         }
-    } else if ((!strcasecmp(sub,"rolelist") || !strcasecmp(sub,"roles")) &&
+    } else if ((!strcasecmp(sub,"rolelist") || !strcasecmp(sub,"mappings")) &&
                c->argc == 2)
     {
-        int justnames = !strcasecmp(sub,"roles");
+        int justnames = !strcasecmp(sub,"mappings");
         addReplyArrayLen(c,raxSize(Roles));
         raxIterator ri;
         raxStart(&ri,Roles);
@@ -2654,10 +2696,16 @@ NULL
         for (int j = 2; j < c->argc; j++) {
             sds rolename = c->argv[j]->ptr;
             user *u;
+            user *role = ACLGetRoleByName(rolename,sdslen(rolename));
+            if (listLength(role->mappings) != 0) {
+                addReplyError(c,"Role is associated to users. "
+                                "Disassociate all users first to "
+                                "delete a role.");
+                return;
+            }
             if (raxRemove(Roles,(unsigned char*)rolename,
                           sdslen(rolename),
-                          (void**)&u))
-            {
+                          (void**)&u)) {
                 deleted++;
             }
         }
