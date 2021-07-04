@@ -206,6 +206,7 @@ int Block_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         RedisModuleString *r = RedisModule_GetBlockedClientPrivateData(ctx);
         return RedisModule_ReplyWithString(ctx, r);
     } else if (RedisModule_IsBlockedTimeoutRequest(ctx)) {
+        RedisModule_UnblockClient(blocked_client, NULL); /* Must be called to avoid leaks. */
         blocked_client = NULL;
         return RedisModule_ReplyWithSimpleString(ctx, "Timed out");
     }
@@ -245,7 +246,9 @@ int Release_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
         return RedisModule_ReplyWithError(ctx, "ERR No blocked client");
     }
 
-    RedisModule_UnblockClient(blocked_client, argv[1]);
+    RedisModuleString *replystr = argv[1];
+    RedisModule_RetainString(ctx, replystr);
+    int err = RedisModule_UnblockClient(blocked_client, replystr);
     blocked_client = NULL;
 
     RedisModule_ReplyWithSimpleString(ctx, "OK");
