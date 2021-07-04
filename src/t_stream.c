@@ -1411,13 +1411,13 @@ int streamIsContiguousRange(stream *s, streamID *start) {
     return 0;
 }
 
-/* A helper for getting an offset for a given ID in the stream.
+/* A helper for getting an offset for the given ID if it is at one of the tips.
  * A non-zero offset can be either logical (one before the first ID in the
  * in the stream) or exact (the first or last IDs), but in both cases
  * it provides a valid lag estimate. The zero offset usually means that
  * the offset isn't available, except in the case of the 
  * newly-initialized stream. */
-uint64_t streamGetOffset(stream *s, streamID *id) {
+uint64_t streamGetOffsetForTip(stream *s, streamID *id) {
     /* The offset of any ID in an empty, never-before-used stream is 0. */
     if (!s->offset) {
         return 0;
@@ -1650,7 +1650,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
                 /* The group's offset may be zero because it is was invalid, or
                  * because it is the real 0 offset (the one before the first).
                  * Either way, in this case, we try to obtain the offset. */
-                group->offset = streamGetOffset(s,&id);
+                group->offset = streamGetOffsetForTip(s,&id);
             }
             group->last_id = id;
             /* Group last ID should be propagated only if NOACK was
@@ -2598,7 +2598,7 @@ NULL
 
         /* Handle missing/invalid offset for the group. */
         if (!offset || (uint64_t)offset > s->offset) {
-            offset = streamGetOffset(s,&id);
+            offset = streamGetOffsetForTip(s,&id);
         }
 
         streamCG *cg = streamCreateCG(s,grpname,sdslen(grpname),&id,offset);
@@ -3641,7 +3641,7 @@ void xinfoReplyWithStreamInfo(client *c, stream *s) {
                     }
                 } else {
                     /* Attempt to retrieve the group's pffset. */
-                    uint64_t offset = streamGetOffset(s,&cg->last_id);
+                    uint64_t offset = streamGetOffsetForTip(s,&cg->last_id);
                     if (offset) {
                         /* A valid offset was obtained - w00t! */
                         lag = s->offset - offset;
