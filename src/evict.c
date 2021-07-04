@@ -509,7 +509,7 @@ static unsigned long evictionTimeLimitUs() {
  *   EVICT_RUNNING  - memory is over the limit, but eviction is still processing
  *   EVICT_FAIL     - memory is over the limit, and there's nothing to evict
  * */
-int performEvictions(void) {
+int doPerformEvictions(void) {
     if (!isSafeToPerformEvictions()) return EVICT_OK;
 
     int keys_freed = 0;
@@ -708,3 +708,16 @@ cant_free:
     return result;
 }
 
+int performEvictions(void) {
+    int result = doPerformEvictions();
+
+    if (result == EVICT_RUNNING) {
+        if (server.stat_last_eviction_exceeded_time == 0) {
+            server.stat_last_eviction_exceeded_time = ustime();
+        }
+    } else if (server.stat_last_eviction_exceeded_time != 0) {
+        server.stat_eviction_exceeded_time += (ustime() - server.stat_last_eviction_exceeded_time);
+        server.stat_last_eviction_exceeded_time = 0;
+    }
+    return result;
+}
