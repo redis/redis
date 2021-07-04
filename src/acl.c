@@ -29,9 +29,6 @@
 
 #include "server.h"
 #include "sha256.h"
-#include "../../../../Library/Developer/CommandLineTools/SDKs/MacOSX10.15.sdk/usr/include/sys/_types/_size_t.h"
-#include "../../../../Library/Developer/CommandLineTools/SDKs/MacOSX10.15.sdk/usr/include/sys/_types/_null.h"
-#include "../../../../Library/Developer/CommandLineTools/SDKs/MacOSX10.15.sdk/usr/include/string.h"
 #include <fcntl.h>
 #include <ctype.h>
 
