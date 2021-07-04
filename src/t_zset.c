@@ -4188,7 +4188,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
     zuiClearIterator(&src);
 }
 
-/* ZRANDMEMBER key [count [WITHSCORES]] */
+/* ZRANDMEMBER key [<count> [WITHSCORES]] */
 void zrandmemberCommand(client *c) {
     long l;
     int withscores = 0;
