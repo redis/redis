@@ -1178,7 +1178,7 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
     }
 }
 
-/* HRANDFIELD key [count [WITHVALUES]] */
+/* HRANDFIELD key [<count> [WITHVALUES]] */
 void hrandfieldCommand(client *c) {
     long l;
     int withvalues = 0;
