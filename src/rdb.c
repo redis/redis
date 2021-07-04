@@ -2056,7 +2056,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int rdbver) {
             
             /* Since the rax is already loaded, we can find the first entry's
              * ID. */ 
-            streamGetTipID(s,&s->first_id,1);
+            streamGetEdgeID(s,1,0,&s->first_id);
         }
 
         if (rioGetReadError(rdb)) {

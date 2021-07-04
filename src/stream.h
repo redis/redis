@@ -130,7 +130,7 @@ int streamParseID(const robj *o, streamID *id);
 robj *createObjectFromStreamID(streamID *id);
 int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_id, streamID *use_id);
 int streamDeleteItem(stream *s, streamID *id);
-void streamGetTipID(stream *s, streamID *id, int first);
+void streamGetEdgeID(stream *s, int first, int tombstone, streamID *edge_id);
 uint64_t streamGetOffsetForTip(stream *s, streamID *id);
 int64_t streamTrimByLength(stream *s, long long maxlen, int approx);
 int64_t streamTrimByID(stream *s, streamID minid, int approx);

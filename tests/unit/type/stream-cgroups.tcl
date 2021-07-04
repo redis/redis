@@ -707,6 +707,7 @@ start_server {
         # XADD x 3-0 data c
         # XADD x 4-0 data d
         # XADD x 5-0 data e
+        # XADD x 6-0 data f
         # XDEL x 3-0
         # XGROUP CREATE x g1 0
         # XGROUP CREATE x g2 0

@@ -400,50 +400,52 @@ int streamCompareID(streamID *a, streamID *b) {
 }
 
 /* Retrieves the ID of the stream edge entry. An edge is either the first or
- * the last ID in the stream. */
-void streamGetEdgeID(stream *s, int first, streamID *edge_id)
+ * the last ID in the stream, and may be a tombstone. To filter out tombstones,
+ * set the'tombstone' argument to 0. */
+void streamGetEdgeID(stream *s, int first, int tombstone, streamID *edge_id)
 {
-    raxIterator ri;
-    raxStart(&ri, s->rax);
-    int empty;
-    if (first) {
-        raxSeek(&ri, "^", NULL, 0);
-        empty = !raxNext(&ri);
-    } else {
-        raxSeek(&ri, "$", NULL, 0);
-        empty = !raxPrev(&ri);
+    int empty = (s->length == 0);
+    streamID min_id, max_id;
+    min_id.ms = 0;
+    min_id.seq = 0;
+    max_id.ms = UINT64_MAX;
+    max_id.seq = UINT64_MAX;
+    if (tombstone) {
+        raxIterator ri;
+        raxStart(&ri, s->rax);
+        if (first) {
+            raxSeek(&ri, "^", NULL, 0);
+            empty = !raxNext(&ri);
+        } else {
+            raxSeek(&ri, "$", NULL, 0);
+            empty = !raxPrev(&ri);
+        }
+
+        if (!empty) {
+            unsigned char *lp = ri.data;
+
+            /* Read the master ID from the radix tree key. */
+            streamID master_id;
+            streamDecodeID(ri.key,&master_id);
+
+            /* Construct edge ID. */
+            lpGetEdgeStreamID(lp,first,&master_id,edge_id);
+        }
+        raxStop(&ri);
+    } else if (!empty) {
+        streamIterator si;
+        int64_t numfields;
+
+        streamIteratorStart(&si,s,&min_id,&max_id,!first);
+        streamIteratorGetID(&si,edge_id,&numfields);
+        streamIteratorStop(&si);
     }
 
     if (empty) {
         /* Stream is empty, mark edge ID as lowest/highest possible. */
-        edge_id->ms = first ? UINT64_MAX : 0;
-        edge_id->seq = first ? UINT64_MAX : 0;
-        raxStop(&ri);
-        return;
+        *edge_id = first ? max_id : min_id;
     }
 
-    unsigned char *lp = ri.data;
-
-    /* Read the master ID from the radix tree key. */
-    streamID master_id;
-    streamDecodeID(ri.key, &master_id);
-
-    /* Construct edge ID. */
-    lpGetEdgeStreamID(lp, first, &master_id, edge_id);
-
-    raxStop(&ri);
-}
-
-/* Get the first or last entry ID from a non-empty stream. */
-void streamGetTipID(stream *s, streamID *id, int first) {
-    streamIterator si;
-    int64_t numfields;
-    streamID min_id = {0, 0};
-    streamID max_id = {UINT64_MAX, UINT64_MAX};
-
-    streamIteratorStart(&si,s,&min_id,&max_id,!first);
-    streamIteratorGetID(&si,id,&numfields);
-    streamIteratorStop(&si);
 }
 
 /* Adds a new item into the stream 's' having the specified number of
@@ -866,7 +868,7 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
         s->first_id.ms = 0;
         s->first_id.seq = 0;
     } else if (deleted) {
-        streamGetTipID(s,&s->first_id,1);
+        streamGetEdgeID(s,1,0,&s->first_id);
     }
 
     return deleted;
@@ -1906,7 +1908,7 @@ void streamRewriteTrimArgument(client *c, stream *s, int trim_strategy, int idx)
         arg = createStringObjectFromLongLong(s->length);
     } else {
         streamID first_id;
-        streamGetEdgeID(s,1,&first_id);
+        streamGetEdgeID(s,1,1,&first_id);
         arg = createObjectFromStreamID(&first_id);
     }
 
@@ -3446,7 +3448,7 @@ void xdelCommand(client *c) {
             s->first_id.ms = 0;
             s->first_id.seq = 0;
         } else if (first_entry) {
-            streamGetTipID(s,&s->first_id,1);
+            streamGetEdgeID(s,1,0,&s->first_id);
         }
     }
 
