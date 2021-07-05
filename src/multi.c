@@ -355,7 +355,7 @@ int isWatchedKeyExpired(client *c) {
     watchedKey *wk;
     if (listLength(c->watched_keys) == 0) return 0;
     listRewind(c->watched_keys,&li);
-    while((ln = listNext(&li))) {
+    while ((ln = listNext(&li))) {
         wk = listNodeValue(ln);
         if (keyIsExpired(wk->db, wk->key)) return 1;
     }
