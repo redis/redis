@@ -1717,6 +1717,7 @@ start_server {tags {"zset"}} {
         r zrandmember nonexisting_key 100
     } {}
 
+    # Make sure we can distinguish between an empty array and a null response
     r readraw 1
 
     test "ZRANDMEMBER count of 0 is handled correctly - emptyarray" {

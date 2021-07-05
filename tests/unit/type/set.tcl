@@ -590,6 +590,7 @@ start_server {
         r srandmember nonexisting_key 100
     } {}
 
+    # Make sure we can distinguish between an empty array and a null response
     r readraw 1
 
     test "SRANDMEMBER count of 0 is handled correctly - emptyarray" {
