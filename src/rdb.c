@@ -2108,8 +2108,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int rdbver) {
                 cg_offset = streamGetOffsetForTip(s,&cg_id);
             }
 
-            streamCG *cgroup = streamCreateCG(s,cgname,sdslen(cgname),&cg_id,
-                                              cg_offset);
+            streamCG *cgroup = streamCreateCG(s,cgname,sdslen(cgname),&cg_id,cg_offset);
             if (cgroup == NULL) {
                 rdbReportCorruptRDB("Duplicated consumer group name %s",
                                          cgname);
