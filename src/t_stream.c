@@ -1173,8 +1173,7 @@ int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields) {
              * deleted or tombstones are included, emit it. */
             if (!si->rev) {
                 if (memcmp(buf,si->start_key,sizeof(streamID)) >= 0 &&
-                    (!si->skip_tombstones ||
-                    (!(flags & STREAM_ITEM_FLAG_DELETED) && si->skip_tombstones)))
+                    (!si->skip_tombstones || !(flags & STREAM_ITEM_FLAG_DELETED)))
                 {
                     if (memcmp(buf,si->end_key,sizeof(streamID)) > 0)
                         return 0; /* We are already out of range. */
