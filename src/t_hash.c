@@ -989,7 +989,7 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
     int uniq = 1;
     robj *hash;
 
-    if ((hash = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp]))
+    if ((hash = lookupKeyReadOrReply(c,c->argv[1],shared.emptyarray))
         == NULL || checkType(c,hash,OBJ_HASH)) return;
     size = hashTypeLength(hash);
 
@@ -1178,7 +1178,7 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
     }
 }
 
-/* HRANDFIELD [<count> WITHVALUES] */
+/* HRANDFIELD key [<count> [WITHVALUES]] */
 void hrandfieldCommand(client *c) {
     long l;
     int withvalues = 0;
