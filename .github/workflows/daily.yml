@@ -10,10 +10,10 @@ on:
   workflow_dispatch:
     inputs:
       skipjobs:
-        description: 'jobs to skip (delete the ones you wanna keep)'
+        description: 'jobs to skip (delete the ones you wanna keep, do not leave empty)'
         default: 'valgrind,tls,freebsd,macos,alpine,32bit'
       skiptests:
-        description: 'tests to skip (delete the ones you wanna keep)'
+        description: 'tests to skip (delete the ones you wanna keep, do not leave empty)'
         default: 'redis,modules,sentinel,cluster'
       test_args:
         description: 'extra test arguments'
@@ -392,6 +392,7 @@ jobs:
       if: true && !contains(github.event.inputs.skiptests, 'modules')
       run: ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}}
     - name: sentinel tests
+      if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
     - name: cluster tests
       if: true && !contains(github.event.inputs.skiptests, 'cluster')
@@ -451,6 +452,7 @@ jobs:
       if: true && !contains(github.event.inputs.skiptests, 'modules')
       run: ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}}
     - name: sentinel tests
+      if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
     - name: cluster tests
       if: true && !contains(github.event.inputs.skiptests, 'cluster')
@@ -483,6 +485,7 @@ jobs:
       if: true && !contains(github.event.inputs.skiptests, 'modules')
       run: ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}}
     - name: sentinel tests
+      if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
     - name: cluster tests
       if: true && !contains(github.event.inputs.skiptests, 'cluster')
