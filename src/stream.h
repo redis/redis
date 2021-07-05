@@ -37,6 +37,7 @@ typedef struct streamIterator {
     unsigned char *master_fields_ptr;   /* Master field to emit next. */
     int entry_flags;                    /* Flags of entry we are emitting. */
     int rev;                /* True if iterating end to start (reverse). */
+    int skip_tombstones;    /* True if not emitting tombstone entries. */
     uint64_t start_key[2];  /* Start key as 128 bit big endian. */
     uint64_t end_key[2];    /* End key as 128 bit big endian. */
     raxIterator ri;         /* Rax iterator. */
@@ -130,7 +131,7 @@ int streamParseID(const robj *o, streamID *id);
 robj *createObjectFromStreamID(streamID *id);
 int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_id, streamID *use_id);
 int streamDeleteItem(stream *s, streamID *id);
-void streamGetEdgeID(stream *s, int first, int tombstone, streamID *edge_id);
+void streamGetEdgeID(stream *s, int first, int skip_tombstones, streamID *edge_id);
 uint64_t streamGetOffsetForTip(stream *s, streamID *id);
 int64_t streamTrimByLength(stream *s, long long maxlen, int approx);
 int64_t streamTrimByID(stream *s, streamID minid, int approx);

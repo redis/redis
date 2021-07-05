@@ -401,44 +401,23 @@ int streamCompareID(streamID *a, streamID *b) {
 
 /* Retrieves the ID of the stream edge entry. An edge is either the first or
  * the last ID in the stream, and may be a tombstone. To filter out tombstones,
- * set the'tombstone' argument to 0. */
-void streamGetEdgeID(stream *s, int first, int tombstone, streamID *edge_id)
+ * set the'skip_tombstones' argument to 1. */
+void streamGetEdgeID(stream *s, int first, int skip_tombstones, streamID *edge_id)
 {
+    streamIterator si;
+    int64_t numfields;
     int empty = (s->length == 0);
     streamID min_id, max_id;
     min_id.ms = 0;
     min_id.seq = 0;
     max_id.ms = UINT64_MAX;
     max_id.seq = UINT64_MAX;
-    if (tombstone) {
-        raxIterator ri;
-        raxStart(&ri, s->rax);
-        if (first) {
-            raxSeek(&ri, "^", NULL, 0);
-            empty = !raxNext(&ri);
-        } else {
-            raxSeek(&ri, "$", NULL, 0);
-            empty = !raxPrev(&ri);
-        }
 
-        if (!empty) {
-            unsigned char *lp = ri.data;
-
-            /* Read the master ID from the radix tree key. */
-            streamID master_id;
-            streamDecodeID(ri.key,&master_id);
-
-            /* Construct edge ID. */
-            lpGetEdgeStreamID(lp,first,&master_id,edge_id);
-        }
-        raxStop(&ri);
-    } else if (!empty) {
-        streamIterator si;
-        int64_t numfields;
-
+    if (!(skip_tombstones && empty)) {
         streamIteratorStart(&si,s,&min_id,&max_id,!first);
-        streamIteratorGetID(&si,edge_id,&numfields);
-        streamIteratorStop(&si);
+        si.skip_tombstones = skip_tombstones;
+        empty = !streamIteratorGetID(&si,edge_id,&numfields);
+        streamIteratorStop(&si);        
     }
 
     if (empty) {
@@ -868,7 +847,7 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
         s->first_id.ms = 0;
         s->first_id.seq = 0;
     } else if (deleted) {
-        streamGetEdgeID(s,1,0,&s->first_id);
+        streamGetEdgeID(s,1,1,&s->first_id);
     }
 
     return deleted;
@@ -1090,9 +1069,10 @@ void streamIteratorStart(streamIterator *si, stream *s, streamID *start, streamI
         }
     }
     si->stream = s;
-    si->lp = NULL; /* There is no current listpack right now. */
+    si->lp = NULL;     /* There is no current listpack right now. */
     si->lp_ele = NULL; /* Current listpack cursor. */
-    si->rev = rev;  /* Direction, if non-zero reversed, from end to start. */
+    si->rev = rev;     /* Direction, if non-zero reversed, from end to start. */
+    si->skip_tombstones = 1;    /* By default tombstones aren't emitted. */
 }
 
 /* Return 1 and store the current item ID at 'id' if there are still
@@ -1190,10 +1170,11 @@ int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields) {
             serverAssert(*numfields>=0);
 
             /* If current >= start, and the entry is not marked as
-             * deleted, emit it. */
+             * deleted or tombstones are included, emit it. */
             if (!si->rev) {
                 if (memcmp(buf,si->start_key,sizeof(streamID)) >= 0 &&
-                    !(flags & STREAM_ITEM_FLAG_DELETED))
+                    (!si->skip_tombstones ||
+                    (!(flags & STREAM_ITEM_FLAG_DELETED) && si->skip_tombstones)))
                 {
                     if (memcmp(buf,si->end_key,sizeof(streamID)) > 0)
                         return 0; /* We are already out of range. */
@@ -1908,7 +1889,7 @@ void streamRewriteTrimArgument(client *c, stream *s, int trim_strategy, int idx)
         arg = createStringObjectFromLongLong(s->length);
     } else {
         streamID first_id;
-        streamGetEdgeID(s,1,1,&first_id);
+        streamGetEdgeID(s,1,0,&first_id);
         arg = createObjectFromStreamID(&first_id);
     }
 
@@ -3448,7 +3429,7 @@ void xdelCommand(client *c) {
             s->first_id.ms = 0;
             s->first_id.seq = 0;
         } else if (first_entry) {
-            streamGetEdgeID(s,1,0,&s->first_id);
+            streamGetEdgeID(s,1,1,&s->first_id);
         }
     }
 
