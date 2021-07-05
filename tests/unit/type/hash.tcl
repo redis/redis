@@ -72,6 +72,7 @@ start_server {tags {"hash"}} {
         r hrandfield nonexisting_key 100
     } {}
 
+    # Make sure we can distinguish between an empty array and a null response
     r readraw 1
 
     test "HRANDFIELD count of 0 is handled correctly - emptyarray" {
