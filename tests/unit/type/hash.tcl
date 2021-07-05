@@ -72,6 +72,19 @@ start_server {tags {"hash"}} {
         r hrandfield nonexisting_key 100
     } {}
 
+    # Make sure we can distinguish between an empty array and a null response
+    r readraw 1
+
+    test "HRANDFIELD count of 0 is handled correctly - emptyarray" {
+        r hrandfield myhash 0
+    } {*0}
+
+    test "HRANDFIELD with <count> against non existing key - emptyarray" {
+        r hrandfield nonexisting_key 100
+    } {*0}
+
+    r readraw 0
+
     foreach {type contents} "
         hashtable {{a 1} {b 2} {c 3} {d 4} {e 5} {6 f} {7 g} {8 h} {9 i} {[randstring 70 90 alpha] 10}}
         ziplist {{a 1} {b 2} {c 3} {d 4} {e 5} {6 f} {7 g} {8 h} {9 i} {10 j}} " {
