@@ -2477,8 +2477,10 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
             int when_opcode = rdbLoadLen(rdb,NULL);
             int when = rdbLoadLen(rdb,NULL);
             if (rioGetReadError(rdb)) goto eoferr;
-            if (when_opcode != RDB_MODULE_OPCODE_UINT)
+            if (when_opcode != RDB_MODULE_OPCODE_UINT) {
                 rdbReportReadError("bad when_opcode");
+                goto eoferr;
+            }
             moduleType *mt = moduleTypeLookupModuleByID(moduleid);
             char name[10];
             moduleTypeNameByID(name,moduleid);
@@ -2502,7 +2504,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
                 if (mt->aux_load(&io,moduleid&1023, when) != REDISMODULE_OK || io.error) {
                     moduleTypeNameByID(name,moduleid);
                     serverLog(LL_WARNING,"The RDB file contains module AUX data for the module type '%s', that the responsible module is not able to load. Check for modules log above for additional clues.", name);
-                    exit(1);
+                    goto eoferr;
                 }
                 if (io.ctx) {
                     moduleFreeContext(io.ctx);
@@ -2511,7 +2513,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
                 uint64_t eof = rdbLoadLen(rdb,NULL);
                 if (eof != RDB_MODULE_OPCODE_EOF) {
                     serverLog(LL_WARNING,"The RDB file contains module AUX data for the module '%s' that is not terminated by the proper module value EOF marker", name);
-                    exit(1);
+                    goto eoferr;
                 }
                 continue;
             } else {
