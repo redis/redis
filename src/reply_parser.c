@@ -2,7 +2,7 @@
 #include "server.h"
 
 static int parseBulk(ReplyParser* parser, void* p_ctx) {
-    char *proto = parser->curr_location;
+    const char *proto = parser->curr_location;
     char *p = strchr(proto+1,'\r');
     long long bulklen;
 
@@ -10,40 +10,40 @@ static int parseBulk(ReplyParser* parser, void* p_ctx) {
 
     string2ll(proto+1,p-proto-1,&bulklen);
     if (bulklen == -1) {
-        parser->empty_bulk_callback(p_ctx);
+        parser->empty_bulk_callback(p_ctx, proto, parser->curr_location - proto);
     } else {
-        parser->bulk_callback(p_ctx, parser->curr_location, bulklen);
         parser->curr_location += bulklen;
         parser->curr_location += 2; // for \r\n
+        parser->bulk_callback(p_ctx, parser->curr_location, bulklen, proto, parser->curr_location - proto);
     }
 
     return C_OK;
 }
 
 static int parseSimpleString(ReplyParser* parser, void* p_ctx) {
-    char *proto = parser->curr_location;
+    const char *proto = parser->curr_location;
     char *p = strchr(proto+1,'\r');
 
     parser->curr_location = p + 2; // for \r\n
 
-    parser->simple_str_callback(p_ctx, proto+1, p-proto-1);
+    parser->simple_str_callback(p_ctx, proto+1, p-proto-1, proto, parser->curr_location - proto);
 
     return C_OK;
 }
 
 static int parseError(ReplyParser* parser, void* p_ctx) {
-    char *proto = parser->curr_location;
+    const char *proto = parser->curr_location;
     char *p = strchr(proto+1,'\r');
 
     parser->curr_location = p + 2; // for \r\n
 
-    parser->error_callback(p_ctx, proto+1, p-proto-1);
+    parser->error_callback(p_ctx, proto+1, p-proto-1, proto, parser->curr_location - proto);
 
     return C_OK;
 }
 
 static int parseLong(ReplyParser* parser, void* p_ctx) {
-    char *proto = parser->curr_location;
+    const char *proto = parser->curr_location;
     char *p = strchr(proto+1,'\r');
 
     parser->curr_location = p + 2; // for \r\n
@@ -51,24 +51,24 @@ static int parseLong(ReplyParser* parser, void* p_ctx) {
     long long val;
     string2ll(proto+1,p-proto-1,&val);
 
-    parser->long_callback(p_ctx, val);
+    parser->long_callback(p_ctx, val, proto, parser->curr_location - proto);
 
     return C_OK;
 }
 
 static int parseNull(ReplyParser* parser, void* p_ctx) {
-    char *proto = parser->curr_location;
+    const char *proto = parser->curr_location;
     char *p = strchr(proto+1,'\r');
 
     parser->curr_location = p + 2; // for \r\n
 
-    parser->null_callback(p_ctx);
+    parser->null_callback(p_ctx, proto, parser->curr_location - proto);
 
     return C_OK;
 }
 
 static int parseDouble(ReplyParser* parser, void* p_ctx) {
-    char *proto = parser->curr_location;
+    const char *proto = parser->curr_location;
     char *p = strchr(proto+1,'\r');
     parser->curr_location = p + 2; // for \r\n
     char buf[MAX_LONG_DOUBLE_CHARS+1];
@@ -83,20 +83,20 @@ static int parseDouble(ReplyParser* parser, void* p_ctx) {
         d = 0;
     }
 
-    parser->double_callback(p_ctx, d);
+    parser->double_callback(p_ctx, d, proto, parser->curr_location - proto);
     return C_OK;
 }
 
 static int parseBool(ReplyParser* parser, void* p_ctx) {
-    char *proto = parser->curr_location;
+    const char *proto = parser->curr_location;
     char *p = strchr(proto+1,'\r');
     parser->curr_location = p + 2; // for \r\n
-    parser->bool_callback(p_ctx, proto[1] == 't');
+    parser->bool_callback(p_ctx, proto[1] == 't', proto, parser->curr_location - proto);
     return C_OK;
 }
 
 static int parseArray(ReplyParser* parser, void* p_ctx) {
-    char *proto = parser->curr_location;
+    const char *proto = parser->curr_location;
     char *p = strchr(proto+1,'\r');
     long long len;
 
@@ -106,16 +106,16 @@ static int parseArray(ReplyParser* parser, void* p_ctx) {
     parser->curr_location = p;
 
     if (len == -1) {
-        parser->empty_mbulk_callback(p_ctx);
+        parser->empty_mbulk_callback(p_ctx, proto, parser->curr_location - proto);
     } else {
-        parser->array_callback(parser, p_ctx, len);
+        parser->array_callback(parser, p_ctx, len, proto);
     }
 
     return C_OK;
 }
 
 static int parseSet(ReplyParser* parser, void* p_ctx) {
-    char *proto = parser->curr_location;
+    const char *proto = parser->curr_location;
     char *p = strchr(proto+1,'\r');
     long long len;
 
@@ -124,13 +124,13 @@ static int parseSet(ReplyParser* parser, void* p_ctx) {
 
     parser->curr_location = p;
 
-    parser->set_callback(parser, p_ctx, len);
+    parser->set_callback(parser, p_ctx, len, proto);
 
     return C_OK;
 }
 
 static int parseMap(ReplyParser* parser, void* p_ctx) {
-    char *proto = parser->curr_location;
+    const char *proto = parser->curr_location;
     char *p = strchr(proto+1,'\r');
     long long len;
 
@@ -139,7 +139,7 @@ static int parseMap(ReplyParser* parser, void* p_ctx) {
 
     parser->curr_location = p;
 
-    parser->map_callback(parser, p_ctx, len);
+    parser->map_callback(parser, p_ctx, len, proto);
 
     return C_OK;
 }

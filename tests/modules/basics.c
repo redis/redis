@@ -152,6 +152,28 @@ fail:
     return REDISMODULE_OK;
 }
 
+int TestCallReplyWithNestedReply(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+
+    RedisModule_AutoMemory(ctx);
+    RedisModuleCallReply *reply;
+
+    RedisModule_Call(ctx,"DEL","c","mylist");
+    RedisModule_Call(ctx,"RPUSH","ccl","mylist","test",(long long)1234);
+    reply = RedisModule_Call(ctx,"LRANGE","ccc","mylist","0","-1");
+    if (RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_ARRAY) goto fail;
+    if (RedisModule_CallReplyLength(reply) < 1) goto fail;
+    RedisModuleCallReply *nestedReply = RedisModule_CallReplyArrayElement(reply, 0);
+
+    RedisModule_ReplyWithCallReply(ctx,nestedReply);
+    return REDISMODULE_OK;
+
+fail:
+    RedisModule_ReplyWithSimpleString(ctx,"ERR");
+    return REDISMODULE_OK;
+}
+
 int TestCallResp3Double(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -594,6 +616,9 @@ int TestBasics(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     T("test.callresp3null","");
     if (!TestAssertStringReply(ctx,reply,"OK",2)) goto fail;
 
+    T("test.callreplywithnestedreply","");
+    if (!TestAssertStringReply(ctx,reply,"test",4)) goto fail;
+
     T("test.ctxflags","");
     if (!TestAssertStringReply(ctx,reply,"OK",2)) goto fail;
 
@@ -653,6 +678,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx,"test.callresp3null",
         TestCallResp3Null,"write deny-oom",1,1,1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"test.callreplywithnestedreply",
+        TestCallReplyWithNestedReply,"write deny-oom",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"test.string.append",

@@ -90,7 +90,7 @@ CallReply* callReplyGetMapVal(CallReply* rep, size_t idx);
  * Return the current reply blob. The return value is borrowed
  * and can only be used as long as the CallReply is alive
  */
-sds callReplyGetProto(CallReply* rep);
+const char* callReplyGetProto(CallReply* rep, size_t* len);
 
 /**
  * Return CallReply private data as it was give when the reply was

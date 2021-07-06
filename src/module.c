@@ -1689,8 +1689,9 @@ int RM_ReplyWithNull(RedisModuleCtx *ctx) {
 int RM_ReplyWithCallReply(RedisModuleCtx *ctx, RedisModuleCallReply *reply) {
     client *c = moduleGetReplyClient(ctx);
     if (c == NULL) return REDISMODULE_OK;
-    sds proto = callReplyGetProto(reply);
-    sds proto_dup = sdsnewlen(proto, sdslen(proto));
+    size_t proto_len;
+    const char* proto = callReplyGetProto(reply, &proto_len);
+    sds proto_dup = sdsnewlen(proto, proto_len);
     addReplySds(c,proto_dup);
     return REDISMODULE_OK;
 }
@@ -4122,9 +4123,7 @@ cleanup:
 /* Return a pointer, and a length, to the protocol returned by the command
  * that returned the reply object. */
 const char *RM_CallReplyProto(RedisModuleCallReply *reply, size_t *len) {
-    sds proto = callReplyGetProto(reply);
-    if (proto) *len = sdslen(proto);
-    return proto;
+    return callReplyGetProto(reply, len);
 }
 
 /* --------------------------------------------------------------------------

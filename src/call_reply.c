@@ -6,7 +6,9 @@
 
 struct CallReply {
     void* private_data;
-    sds proto;
+    sds origilan_proto; /* available only for root reply */
+    const char* proto;
+    size_t proto_len;
     int type;       /* REPLY_... */
     int flags;       /* REPLY_FLAG... */
     size_t len;     /* Len of strings or num of elements of arrays. */
@@ -21,61 +23,67 @@ struct CallReply {
     } val;
 };
 
-static void callReplyNull(void* ctx) {
-    CallReply* rep = ctx;
-    rep->type = REDISMODULE_REPLY_NULL;
+static void callReplySetSharedData(CallReply* rep, int type, const char* proto, size_t proto_len) {
+    rep->type = type;
+    rep->proto = proto;
+    rep->proto_len = proto_len;
 }
 
-static void callReplyEmptyBulk(void* ctx) {
+static void callReplyNull(void* ctx, const char* proto, size_t proto_len) {
     CallReply* rep = ctx;
-    rep->type = REDISMODULE_REPLY_NULL;
+    callReplySetSharedData(rep, REDISMODULE_REPLY_NULL, proto, proto_len);
 }
 
-static void callReplyEmptyMBulk(void* ctx) {
+static void callReplyEmptyBulk(void* ctx, const char* proto, size_t proto_len) {
     CallReply* rep = ctx;
-    rep->type = REDISMODULE_REPLY_NULL;
+    callReplySetSharedData(rep, REDISMODULE_REPLY_NULL, proto, proto_len);
 }
 
-static void callReplyBulk(void* ctx, const char* str, size_t len) {
+static void callReplyEmptyMBulk(void* ctx, const char* proto, size_t proto_len) {
     CallReply* rep = ctx;
-    rep->type = REDISMODULE_REPLY_STRING;
+    callReplySetSharedData(rep, REDISMODULE_REPLY_NULL, proto, proto_len);
+}
+
+static void callReplyBulk(void* ctx, const char* str, size_t len, const char* proto, size_t proto_len) {
+    CallReply* rep = ctx;
+    callReplySetSharedData(rep, REDISMODULE_REPLY_STRING, proto, proto_len);
     rep->len = len;
     rep->val.str = str;
 }
 
-static void callReplyError(void* ctx, const char* str, size_t len) {
+static void callReplyError(void* ctx, const char* str, size_t len, const char* proto, size_t proto_len) {
     CallReply* rep = ctx;
-    rep->type = REDISMODULE_REPLY_ERROR;
+    callReplySetSharedData(rep, REDISMODULE_REPLY_ERROR, proto, proto_len);
     rep->len = len;
     rep->val.str = str;
 }
 
-static void callReplySimpleStr(void* ctx, const char* str, size_t len) {
+static void callReplySimpleStr(void* ctx, const char* str, size_t len, const char* proto, size_t proto_len) {
     CallReply* rep = ctx;
-    rep->type = REDISMODULE_REPLY_STRING;
+    callReplySetSharedData(rep, REDISMODULE_REPLY_STRING, proto, proto_len);
     rep->len = len;
     rep->val.str = str;
 }
 
-static void callReplyLong(void* ctx, long long val) {
+static void callReplyLong(void* ctx, long long val, const char* proto, size_t proto_len) {
     CallReply* rep = ctx;
-    rep->type = REDISMODULE_REPLY_INTEGER;
+    callReplySetSharedData(rep, REDISMODULE_REPLY_INTEGER, proto, proto_len);
     rep->val.ll = val;
 }
 
-static void callReplyDouble(void* ctx, double val) {
+static void callReplyDouble(void* ctx, double val, const char* proto, size_t proto_len) {
     CallReply* rep = ctx;
-    rep->type = REDISMODULE_REPLY_DOUBLE;
+    callReplySetSharedData(rep, REDISMODULE_REPLY_DOUBLE, proto, proto_len);
     rep->val.d = val;
 }
 
-static void callReplyBool(void* ctx, int val) {
+static void callReplyBool(void* ctx, int val, const char* proto, size_t proto_len) {
     CallReply* rep = ctx;
-    rep->type = REDISMODULE_REPLY_BOOL;
+    callReplySetSharedData(rep, REDISMODULE_REPLY_BOOL, proto, proto_len);
     rep->val.ll = val;
 }
 
-static void callReplyParseCollection(ReplyParser* parser, CallReply* rep, size_t len, size_t elements_per_enptry) {
+static void callReplyParseCollection(ReplyParser* parser, CallReply* rep, size_t len, const char* proto, size_t elements_per_enptry) {
     rep->len = len;
     rep->val.array = zcalloc(elements_per_enptry * len * sizeof(CallReply));
     for (size_t i = 0 ; i < len * elements_per_enptry ; i += elements_per_enptry) {
@@ -85,24 +93,27 @@ static void callReplyParseCollection(ReplyParser* parser, CallReply* rep, size_t
             rep->val.array[i + j].private_data = rep->private_data;
         }
     }
+
+    rep->proto = proto;
+    rep->proto_len = parser->curr_location - proto;
 }
 
-static void callReplyArray(ReplyParser* parser, void* ctx, size_t len) {
+static void callReplyArray(ReplyParser* parser, void* ctx, size_t len, const char* proto) {
     CallReply* rep = ctx;
     rep->type = REDISMODULE_REPLY_ARRAY;
-    callReplyParseCollection(parser, rep, len, 1);
+    callReplyParseCollection(parser, rep, len, proto, 1);
 }
 
-static void callReplySet(ReplyParser* parser, void* ctx, size_t len) {
+static void callReplySet(ReplyParser* parser, void* ctx, size_t len, const char* proto) {
     CallReply* rep = ctx;
     rep->type = REDISMODULE_REPLY_SET;
-    callReplyParseCollection(parser, rep, len, 1);
+    callReplyParseCollection(parser, rep, len, proto, 1);
 }
 
-static void callReplyMap(ReplyParser* parser, void* ctx, size_t len) {
+static void callReplyMap(ReplyParser* parser, void* ctx, size_t len, const char* proto) {
     CallReply* rep = ctx;
     rep->type = REDISMODULE_REPLY_MAP;
-    callReplyParseCollection(parser, rep, len, 2);
+    callReplyParseCollection(parser, rep, len, proto, 2);
 }
 
 static void callReplyParseError(void* ctx) {
@@ -135,7 +146,7 @@ void freeCallReply(CallReply* rep) {
     if (rep->flags & REPLY_FLAG_PARSED) {
         freeCallReplyInternal(rep);
     }
-    sdsfree(rep->proto);
+    sdsfree(rep->origilan_proto);
     zfree(rep);
 
 }
@@ -242,7 +253,8 @@ CallReply* callReplyGetMapVal(CallReply* rep, size_t idx){
 }
 
 
-sds callReplyGetProto(CallReply* rep) {
+const char* callReplyGetProto(CallReply* rep, size_t* proto_len) {
+    *proto_len = rep->proto_len;
     return rep->proto;
 }
 
@@ -253,7 +265,9 @@ void* callReplyGetPrivateData(CallReply* rep) {
 CallReply* callReplyCreate(sds reply, void* private_data) {
     CallReply* res = zmalloc(sizeof(*res));
     res->flags = REPLY_FLAG_ROOT;
+    res->origilan_proto = reply;
     res->proto = reply;
+    res->proto_len = sdslen(reply);
     res->private_data = private_data;
 
     return res;
