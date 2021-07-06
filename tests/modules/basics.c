@@ -174,6 +174,26 @@ fail:
     return REDISMODULE_OK;
 }
 
+int TestCallReplyWithArrayReply(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+
+    RedisModule_AutoMemory(ctx);
+    RedisModuleCallReply *reply;
+
+    RedisModule_Call(ctx,"DEL","c","mylist");
+    RedisModule_Call(ctx,"RPUSH","ccl","mylist","test",(long long)1234);
+    reply = RedisModule_Call(ctx,"LRANGE","ccc","mylist","0","-1");
+    if (RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_ARRAY) goto fail;
+
+    RedisModule_ReplyWithCallReply(ctx,reply);
+    return REDISMODULE_OK;
+
+fail:
+    RedisModule_ReplyWithSimpleString(ctx,"ERR");
+    return REDISMODULE_OK;
+}
+
 int TestCallResp3Double(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -640,6 +660,12 @@ int TestBasics(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     T("test.notify", "");
     if (!TestAssertStringReply(ctx,reply,"OK",2)) goto fail;
 
+    T("test.callreplywitharrayreply", "");
+    if (RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_ARRAY) goto fail;
+    if (RedisModule_CallReplyLength(reply) != 2) goto fail;
+    if (!TestAssertStringReply(ctx,RedisModule_CallReplyArrayElement(reply, 0),"test",4)) goto fail;
+    if (!TestAssertStringReply(ctx,RedisModule_CallReplyArrayElement(reply, 1),"1234",4)) goto fail;
+
     RedisModule_ReplyWithSimpleString(ctx,"ALL TESTS PASSED");
     return REDISMODULE_OK;
 
@@ -678,6 +704,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx,"test.callresp3null",
         TestCallResp3Null,"write deny-oom",1,1,1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"test.callreplywitharrayreply",
+        TestCallReplyWithArrayReply,"write deny-oom",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"test.callreplywithnestedreply",

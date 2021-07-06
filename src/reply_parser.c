@@ -12,9 +12,10 @@ static int parseBulk(ReplyParser* parser, void* p_ctx) {
     if (bulklen == -1) {
         parser->empty_bulk_callback(p_ctx, proto, parser->curr_location - proto);
     } else {
+        const char* str = parser->curr_location;
         parser->curr_location += bulklen;
         parser->curr_location += 2; // for \r\n
-        parser->bulk_callback(p_ctx, parser->curr_location, bulklen, proto, parser->curr_location - proto);
+        parser->bulk_callback(p_ctx, str, bulklen, proto, parser->curr_location - proto);
     }
 
     return C_OK;
