@@ -652,7 +652,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,0,0,0,0,0,0},
 
     {"select",selectCommand,2,
-     "ok-loading fast ok-stale @keyspace",
+     "read-only ok-loading fast ok-stale @keyspace",
      0,NULL,0,0,0,0,0,0},
 
     {"swapdb",swapdbCommand,3,
