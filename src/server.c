@@ -881,15 +881,15 @@ struct redisCommand redisCommandTable[] = {
      0,migrateGetKeys,0,0,0,0,0,0},
 
     {"asking",askingCommand,1,
-     "fast @keyspace",
+     "fast @connection",
      0,NULL,0,0,0,0,0,0},
 
     {"readonly",readonlyCommand,1,
-     "fast @keyspace",
+     "fast @connection",
      0,NULL,0,0,0,0,0,0},
 
     {"readwrite",readwriteCommand,1,
-     "fast @keyspace",
+     "fast @connection",
      0,NULL,0,0,0,0,0,0},
 
     {"dump",dumpCommand,2,
