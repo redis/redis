@@ -231,8 +231,13 @@ int TestCallResp3Set(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
     val0 = RedisModule_CallReplySetElement(reply,0);
     val1 = RedisModule_CallReplySetElement(reply,1);
-    if (!TestMatchReply(val0,"v1")) goto fail;
-    if (!TestMatchReply(val1,"v2")) goto fail;
+
+    /*
+     * The order of elements on sets are not promised so we just
+     * veridy that the reply maches one of the elements.
+     */
+    if (!TestMatchReply(val0,"v1") && !TestMatchReply(val0,"v2")) goto fail;
+    if (!TestMatchReply(val1,"v1") && !TestMatchReply(val1,"v2")) goto fail;
 
     RedisModule_ReplyWithSimpleString(ctx,"OK");
     return REDISMODULE_OK;
