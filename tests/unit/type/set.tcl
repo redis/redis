@@ -582,9 +582,26 @@ start_server {
         assert {[lsort $union] eq [lsort $content]}
     }
 
+    test "SRANDMEMBER count of 0 is handled correctly" {
+        r srandmember myset 0
+    } {}
+
     test "SRANDMEMBER with <count> against non existing key" {
         r srandmember nonexisting_key 100
     } {}
+
+    # Make sure we can distinguish between an empty array and a null response
+    r readraw 1
+
+    test "SRANDMEMBER count of 0 is handled correctly - emptyarray" {
+        r srandmember myset 0
+    } {*0}
+
+    test "SRANDMEMBER with <count> against non existing key - emptyarray" {
+        r srandmember nonexisting_key 100
+    } {*0}
+
+    r readraw 0
 
     foreach {type contents} {
         hashtable {

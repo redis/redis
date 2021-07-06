@@ -1664,25 +1664,34 @@ long long getInstantaneousMetric(int metric) {
  *
  * The function always returns 0 as it never terminates the client. */
 int clientsCronResizeQueryBuffer(client *c) {
-    size_t querybuf_size = sdsAllocSize(c->querybuf);
+    size_t querybuf_size = sdsalloc(c->querybuf);
     time_t idletime = server.unixtime - c->lastinteraction;
 
-    /* There are two conditions to resize the query buffer:
-     * 1) Query buffer is > PROTO_RESIZE_THRESHOLD and too big for latest peak.
-     * 2) Query buffer is > PROTO_RESIZE_THRESHOLD and client is idle. */
-    if (querybuf_size > PROTO_RESIZE_THRESHOLD &&
-         ((querybuf_size/(c->querybuf_peak+1)) > 2 ||
-          idletime > 2))
-    {
-        /* Only resize the query buffer if it is actually wasting
-         * at least a few kbytes. */
-        if (sdsavail(c->querybuf) > 1024*4) {
+    /* Only resize the query buffer if the buffer is bigger than
+     * PROTO_RESIZE_THRESHOLD, and it is actually wasting at least a few kbytes. */
+    if (querybuf_size > PROTO_RESIZE_THRESHOLD && sdsavail(c->querybuf) > 1024*4) {
+        /* There are two conditions to resize the query buffer: */
+        if (idletime > 2) {
+            /* 1) Query is idle for a long time. */
             c->querybuf = sdsRemoveFreeSpace(c->querybuf);
+        } else if (querybuf_size/2 > c->querybuf_peak) {
+            /* 2) Query buffer is too big for latest peak. trim excess space but
+             *    only up to a limit, not below the recent peak and current
+             *    c->querybuf (which will be soon get used). */
+            size_t resize = sdslen(c->querybuf);
+            if (resize < c->querybuf_peak) resize = c->querybuf_peak;
+            if (c->bulklen != -1 && resize < (size_t)c->bulklen) resize = c->bulklen;
+            c->querybuf = sdsResize(c->querybuf, resize);
         }
     }
+
     /* Reset the peak again to capture the peak memory usage in the next
      * cycle. */
-    c->querybuf_peak = 0;
+    c->querybuf_peak = sdslen(c->querybuf);
+    /* We reset to either the current used, or currently processed bulk size,
+     * which ever is bigger. */
+    if (c->bulklen != -1 && (size_t)c->bulklen > c->querybuf_peak)
+        c->querybuf_peak = c->bulklen;
 
     /* Clients representing masters also use a "pending query buffer" that
      * is the yet not applied part of the stream we are reading. Such buffer
@@ -2479,7 +2488,6 @@ void createSharedObjects(void) {
     shared.queued = createObject(OBJ_STRING,sdsnew("+QUEUED\r\n"));
     shared.emptyscan = createObject(OBJ_STRING,sdsnew("*2\r\n$1\r\n0\r\n*0\r\n"));
     shared.space = createObject(OBJ_STRING,sdsnew(" "));
-    shared.colon = createObject(OBJ_STRING,sdsnew(":"));
     shared.plus = createObject(OBJ_STRING,sdsnew("+"));
 
     /* Shared command error responses */
@@ -5885,12 +5893,13 @@ void sendChildInfo(childInfoType info_type, size_t keys, char *pname) {
 void memtest(size_t megabytes, int passes);
 
 /* Returns 1 if there is --sentinel among the arguments or if
- * argv[0] contains "redis-sentinel". */
+ * executable name contains "redis-sentinel". */
 int checkForSentinelMode(int argc, char **argv) {
-    int j;
+    char *exec_name = strrchr(argv[0], '/');
+    if (exec_name == NULL) exec_name = argv[0];
+    if (strstr(exec_name,"redis-sentinel") != NULL) return 1;
 
-    if (strstr(argv[0],"redis-sentinel") != NULL) return 1;
-    for (j = 1; j < argc; j++)
+    for (int j = 1; j < argc; j++)
         if (!strcmp(argv[j],"--sentinel")) return 1;
     return 0;
 }

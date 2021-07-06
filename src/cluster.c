@@ -735,7 +735,6 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
             connClose(conn);
             return;
         }
-        connNonBlock(conn);
         connEnableTcpNoDelay(conn);
 
         /* Use non-blocking I/O for cluster messages. */

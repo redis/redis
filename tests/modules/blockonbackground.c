@@ -195,6 +195,66 @@ int HelloDoubleBlock_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
     return REDISMODULE_OK;
 }
 
+RedisModuleBlockedClient *blocked_client = NULL;
+
+/* BLOCK.BLOCK [TIMEOUT] -- Blocks the current client until released
+ * or TIMEOUT seconds. If TIMEOUT is zero, no timeout function is
+ * registered.
+ */
+int Block_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (RedisModule_IsBlockedReplyRequest(ctx)) {
+        RedisModuleString *r = RedisModule_GetBlockedClientPrivateData(ctx);
+        return RedisModule_ReplyWithString(ctx, r);
+    } else if (RedisModule_IsBlockedTimeoutRequest(ctx)) {
+        RedisModule_UnblockClient(blocked_client, NULL); /* Must be called to avoid leaks. */
+        blocked_client = NULL;
+        return RedisModule_ReplyWithSimpleString(ctx, "Timed out");
+    }
+
+    if (argc != 2) return RedisModule_WrongArity(ctx);
+    long long timeout;
+
+    if (RedisModule_StringToLongLong(argv[1], &timeout) != REDISMODULE_OK) {
+        return RedisModule_ReplyWithError(ctx, "ERR invalid timeout");
+    }
+    if (blocked_client) {
+        return RedisModule_ReplyWithError(ctx, "ERR another client already blocked");
+    }
+
+    /* Block client. We use this function as both a reply and optional timeout
+     * callback and differentiate the different code flows above.
+     */
+    blocked_client = RedisModule_BlockClient(ctx, Block_RedisCommand,
+            timeout > 0 ? Block_RedisCommand : NULL, NULL, timeout);
+    return REDISMODULE_OK;
+}
+
+/* BLOCK.IS_BLOCKED -- Returns 1 if we have a blocked client, or 0 otherwise.
+ */
+int IsBlocked_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    UNUSED(argv);
+    UNUSED(argc);
+    RedisModule_ReplyWithLongLong(ctx, blocked_client ? 1 : 0);
+    return REDISMODULE_OK;
+}
+
+/* BLOCK.RELEASE [reply] -- Releases the blocked client and produce the specified reply.
+ */
+int Release_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 2) return RedisModule_WrongArity(ctx);
+    if (!blocked_client) {
+        return RedisModule_ReplyWithError(ctx, "ERR No blocked client");
+    }
+
+    RedisModuleString *replystr = argv[1];
+    RedisModule_RetainString(ctx, replystr);
+    int err = RedisModule_UnblockClient(blocked_client, replystr);
+    blocked_client = NULL;
+
+    RedisModule_ReplyWithSimpleString(ctx, "OK");
+
+    return REDISMODULE_OK;
+}
 
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     UNUSED(argv);
@@ -213,6 +273,18 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx,"block.debug_no_track",
         HelloBlockNoTracking_RedisCommand,"",0,0,0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "block.block",
+        Block_RedisCommand, "", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"block.is_blocked",
+        IsBlocked_RedisCommand,"",0,0,0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"block.release",
+        Release_RedisCommand,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;
