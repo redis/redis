@@ -2777,7 +2777,8 @@ void replicaofCommand(client *c) {
             return;
         }
 
-        if ((getLongFromObjectOrReply(c, c->argv[2], &port, NULL) != C_OK))
+        if (getRangeLongFromObjectOrReply(c, c->argv[2], 0, 65535, &port,
+                                          "Invalid master port") != C_OK)
             return;
 
         /* Check if we are already attached to the specified master */
