@@ -413,7 +413,9 @@ void streamGetEdgeID(stream *s, int first, int skip_tombstones, streamID *edge_i
     max_id.ms = UINT64_MAX;
     max_id.seq = UINT64_MAX;
 
-    if (!(skip_tombstones && empty)) {
+    /* If the stream isn't empty, locate the edge ID (the stream may appear
+     * empty, but may still have tombstones). */
+    if (!empty || !skip_tombstones) {
         streamIteratorStart(&si,s,&min_id,&max_id,!first);
         si.skip_tombstones = skip_tombstones;
         empty = !streamIteratorGetID(&si,edge_id,&numfields);
