@@ -561,6 +561,10 @@ void clusterInit(void) {
                    "Your Redis port number must be 55535 or less.");
         exit(1);
     }
+    if (!server.bindaddr_count) {
+        serverLog(LL_WARNING, "No bind address is configured, but it is required for the Cluster bus.");
+        exit(1);
+    }
     if (listenToPort(port+CLUSTER_PORT_INCR, &server.cfd) == C_ERR) {
         exit(1);
     }
@@ -3601,7 +3605,7 @@ void clusterCron(void) {
             clusterLink *link = createClusterLink(node);
             link->conn = server.tls_cluster ? connCreateTLS() : connCreateSocket();
             connSetPrivateData(link->conn, link);
-            if (connConnect(link->conn, node->ip, node->cport, NET_FIRST_BIND_ADDR,
+            if (connConnect(link->conn, node->ip, node->cport, server.bind_source_addr,
                         clusterLinkConnectHandler) == -1) {
                 /* We got a synchronous error from connect before
                  * clusterSendPing() had a chance to be called.

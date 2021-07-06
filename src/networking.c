@@ -992,7 +992,6 @@ void clientAcceptHandler(connection *conn) {
      * requests from non loopback interfaces. Instead we try to explain the
      * user what to do to fix it if needed. */
     if (server.protected_mode &&
-        server.bindaddr_count == 0 &&
         DefaultUser->flags & USER_FLAG_NOPASS &&
         !(c->flags & CLIENT_UNIX_SOCKET))
     {
@@ -1002,9 +1001,8 @@ void clientAcceptHandler(connection *conn) {
         if (strcmp(cip,"127.0.0.1") && strcmp(cip,"::1")) {
             char *err =
                 "-DENIED Redis is running in protected mode because protected "
-                "mode is enabled, no bind address was specified, no "
-                "authentication password is requested to clients. In this mode "
-                "connections are only accepted from the loopback interface. "
+                "mode is enabled and no password is set for the default user. "
+                "In this mode connections are only accepted from the loopback interface. "
                 "If you want to connect from external computers to Redis you "
                 "may adopt one of the following solutions: "
                 "1) Just disable protected mode sending the command "
@@ -1018,7 +1016,7 @@ void clientAcceptHandler(connection *conn) {
                 "mode option to 'no', and then restarting the server. "
                 "3) If you started the server manually just for testing, restart "
                 "it with the '--protected-mode no' option. "
-                "4) Setup a bind address or an authentication password. "
+                "4) Setup a an authentication password for the default user. "
                 "NOTE: You only need to do one of the above things in order for "
                 "the server to start accepting connections from the outside.\r\n";
             if (connWrite(c->conn,err,strlen(err)) == -1) {

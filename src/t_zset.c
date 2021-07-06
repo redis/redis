@@ -1624,7 +1624,7 @@ static int _zsetZiplistValidateIntegrity(unsigned char *p, void *userdata) {
         long long vll;
         if (!ziplistGet(p, &str, &slen, &vll))
             return 0;
-        sds field = str? sdsnewlen(str, slen): sdsfromlonglong(vll);;
+        sds field = str? sdsnewlen(str, slen): sdsfromlonglong(vll);
         if (dictAdd(data->fields, field, NULL) != DICT_OK) {
             /* Duplicate, return an error */
             sdsfree(field);
@@ -3660,7 +3660,12 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start, int st
         lookupKeyWrite(c->db,key) :
         lookupKeyRead(c->db,key);
     if (zobj == NULL) {
-        addReply(c,shared.emptyarray);
+        if (store) {
+            handler->beginResultEmission(handler);
+            handler->finalizeResultEmission(handler, 0);
+        } else {
+            addReply(c, shared.emptyarray);
+        }
         goto cleanup;
     }
 
@@ -4031,7 +4036,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
                     addReplyArrayLen(c,2);
                 addReplyBulkCBuffer(c, key, sdslen(key));
                 if (withscores)
-                    addReplyDouble(c, dictGetDoubleVal(de));
+                    addReplyDouble(c, *(double*)dictGetVal(de));
             }
         } else if (zsetobj->encoding == OBJ_ENCODING_ZIPLIST) {
             ziplistEntry *keys, *vals = NULL;

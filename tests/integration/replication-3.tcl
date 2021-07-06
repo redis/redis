@@ -118,7 +118,7 @@ start_server {tags {"repl external:skip"}} {
             # correctly the RDB file: such file will contain "lua" AUX
             # sections with scripts already in the memory of the master.
 
-            wait_for_condition 500 100 {
+            wait_for_condition 1000 100 {
                 [s -1 master_link_status] eq {up}
             } else {
                 fail "Replication not started."

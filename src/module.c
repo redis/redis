@@ -2563,7 +2563,7 @@ int RM_StringTruncate(RedisModuleKey *key, size_t newlen) {
         if (newlen > curlen) {
             key->value->ptr = sdsgrowzero(key->value->ptr,newlen);
         } else if (newlen < curlen) {
-            sdsrange(key->value->ptr,0,newlen-1);
+            sdssubstr(key->value->ptr,0,newlen);
             /* If the string is too wasteful, reallocate it. */
             if (sdslen(key->value->ptr) < sdsavail(key->value->ptr))
                 key->value->ptr = sdsRemoveFreeSpace(key->value->ptr);
