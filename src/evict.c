@@ -509,7 +509,7 @@ static unsigned long evictionTimeLimitUs() {
  *   EVICT_RUNNING  - memory is over the limit, but eviction is still processing
  *   EVICT_FAIL     - memory is over the limit, and there's nothing to evict
  * */
-int doPerformEvictions(void) {
+int performEvictions(void) {
     if (!isSafeToPerformEvictions()) return EVICT_OK;
 
     int keys_freed = 0;
@@ -520,11 +520,15 @@ int doPerformEvictions(void) {
     int slaves = listLength(server.slaves);
     int result = EVICT_FAIL;
 
-    if (getMaxmemoryState(&mem_reported,NULL,&mem_tofree,NULL) == C_OK)
-        return EVICT_OK;
+    if (getMaxmemoryState(&mem_reported,NULL,&mem_tofree,NULL) == C_OK) {
+        result = EVICT_OK;
+        goto exceeded_info;
+    }
 
-    if (server.maxmemory_policy == MAXMEMORY_NO_EVICTION)
-        return EVICT_FAIL;  /* We need to free memory, but policy forbids. */
+    if (server.maxmemory_policy == MAXMEMORY_NO_EVICTION) {
+        result = EVICT_FAIL;  /* We need to free memory, but policy forbids. */
+        goto exceeded_info;
+    }
 
     unsigned long eviction_time_limit_us = evictionTimeLimitUs();
 
@@ -705,18 +709,13 @@ cant_free:
 
     latencyEndMonitor(latency);
     latencyAddSampleIfNeeded("eviction-cycle",latency);
-    return result;
-}
 
-int performEvictions(void) {
-    int result = doPerformEvictions();
-
-    if (result == EVICT_RUNNING) {
-        if (server.stat_last_eviction_exceeded_time == 0) {
-            server.stat_last_eviction_exceeded_time = ustime();
-        }
+exceeded_info:
+    if (result == EVICT_RUNNING || result == EVICT_FAIL) {
+        if (server.stat_last_eviction_exceeded_time == 0)
+            elapsedStart(&server.stat_last_eviction_exceeded_time);
     } else if (server.stat_last_eviction_exceeded_time != 0) {
-        server.stat_eviction_exceeded_time += (ustime() - server.stat_last_eviction_exceeded_time);
+        server.stat_total_eviction_exceeded_time += elapsedUs(server.stat_last_eviction_exceeded_time);
         server.stat_last_eviction_exceeded_time = 0;
     }
     return result;
