@@ -2478,8 +2478,8 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
             int when = rdbLoadLen(rdb,NULL);
             if (rioGetReadError(rdb)) goto eoferr;
             if (when_opcode != RDB_MODULE_OPCODE_UINT) {
-              rdbReportReadError("bad when_opcode");
-              goto eoferr;
+                rdbReportReadError("bad when_opcode");
+                goto eoferr;
             }
             moduleType *mt = moduleTypeLookupModuleByID(moduleid);
             char name[10];
@@ -2513,7 +2513,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
                 uint64_t eof = rdbLoadLen(rdb,NULL);
                 if (eof != RDB_MODULE_OPCODE_EOF) {
                     serverLog(LL_WARNING,"The RDB file contains module AUX data for the module '%s' that is not terminated by the proper module value EOF marker", name);
-                  goto eoferr;
+                    goto eoferr;
                 }
                 continue;
             } else {
