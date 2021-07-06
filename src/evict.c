@@ -510,8 +510,8 @@ static unsigned long evictionTimeLimitUs() {
  *   EVICT_FAIL     - memory is over the limit, and there's nothing to evict
  * */
 int performEvictions(void) {
-    /* we don't go to update_metrics on purpose because it's as if we don't
-     * call this function */
+    /* Note, we don't goto update_metrics here because this check skips eviction
+     * as if it wasn't triggered. it's a fake EVICT_OK. */
     if (!isSafeToPerformEvictions()) return EVICT_OK;
 
     int keys_freed = 0;
@@ -717,7 +717,7 @@ update_metrics:
         if (server.stat_last_eviction_exceeded_time == 0)
             elapsedStart(&server.stat_last_eviction_exceeded_time);
     } else if (server.stat_last_eviction_exceeded_time != 0) {
-        server.stat_total_eviction_exceeded_time += elapsedUs(server.stat_last_eviction_exceeded_time) / 1000;
+        server.stat_total_eviction_exceeded_time += elapsedUs(server.stat_last_eviction_exceeded_time);
         server.stat_last_eviction_exceeded_time = 0;
     }
     return result;
