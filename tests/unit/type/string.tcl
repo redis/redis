@@ -348,17 +348,6 @@ start_server {tags {"string"}} {
         assert_equal 0 [r getbit mykey 10000]
     }
 
-    test "GETBIT pos larger than UINT_MAX" {
-        r del mykey
-        r setbit mykey [expr (1 << 32) - 1] 1
-        set oldval [lindex [r config get proto-max-bulk-len] 1]
-        r config set proto-max-bulk-len [expr (1 << 29) + 1]
-        r append mykey "\xFF"
-        set res [r getbit mykey [expr (1 << 32)]]
-        r config set proto-max-bulk-len $oldval
-        assert_equal 1 $res
-    }
-
     test "SETRANGE against non-existing key" {
         r del mykey
         assert_equal 3 [r setrange mykey 0 foo]

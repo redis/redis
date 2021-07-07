@@ -1128,9 +1128,9 @@ void bitfieldGeneric(client *c, int flags) {
              * object boundaries. */
             memset(buf,0,9);
             int i;
-            size_t byte = thisop->offset >> 3;
+            uint64_t byte = thisop->offset >> 3;
             for (i = 0; i < 9; i++) {
-                if (src == NULL || i+byte >= (size_t)strlen) break;
+                if (src == NULL || i+byte >= (uint64_t)strlen) break;
                 buf[i] = src[i+byte];
             }
 
