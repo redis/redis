@@ -312,11 +312,10 @@ start_server {tags {"cli"}} {
             fail "redis-cli --replica didn't read commands"
         }
 
+        fconfigure $fd -blocking true
         r client kill type slave
-        #catch { read_cli $fd } err
-        #assert_match {*exited abnormally*} $err
-
-        close_cli $fd
+        catch { close_cli $fd } err
+        assert_match {*Server closed the connection*} $err
     }
 
     test "Connecting as a replica" {
