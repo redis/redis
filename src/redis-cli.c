@@ -1312,6 +1312,7 @@ static int cliReadReply(int output_raw_strings) {
     if (output) {
         out = cliFormatReply(reply, config.output, output_raw_strings);
         fwrite(out,sdslen(out),1,stdout);
+        fflush(stdout);
         sdsfree(out);
     }
     freeReplyObject(reply);
@@ -6990,7 +6991,7 @@ static void latencyDistMode(void) {
 #define RDB_EOF_MARK_SIZE 40
 
 void sendReplconf(const char* arg1, const char* arg2) {
-    printf("sending REPLCONF %s %s\n", arg1, arg2);
+    fprintf(stderr, "sending REPLCONF %s %s\n", arg1, arg2);
     redisReply *reply = redisCommand(context, "REPLCONF %s %s", arg1, arg2);
 
     /* Handle any error conditions */
@@ -7050,7 +7051,7 @@ unsigned long long sendSync(redisContext *c, char *out_eof) {
     }
     *p = '\0';
     if (buf[0] == '-') {
-        printf("SYNC with master failed: %s\n", buf);
+        fprintf(stderr, "SYNC with master failed: %s\n", buf);
         exit(1);
     }
     if (strncmp(buf+1,"EOF:",4) == 0 && strlen(buf+5) >= RDB_EOF_MARK_SIZE) {
