@@ -716,9 +716,11 @@ update_metrics:
     if (result == EVICT_RUNNING || result == EVICT_FAIL) {
         if (server.stat_last_eviction_exceeded_time == 0)
             elapsedStart(&server.stat_last_eviction_exceeded_time);
-    } else if (server.stat_last_eviction_exceeded_time != 0) {
-        server.stat_total_eviction_exceeded_time += elapsedUs(server.stat_last_eviction_exceeded_time);
-        server.stat_last_eviction_exceeded_time = 0;
+    } else if (result == EVICT_OK) {
+        if (server.stat_last_eviction_exceeded_time != 0) {
+            server.stat_total_eviction_exceeded_time += elapsedUs(server.stat_last_eviction_exceeded_time);
+            server.stat_last_eviction_exceeded_time = 0;
+        }
     }
     return result;
 }
