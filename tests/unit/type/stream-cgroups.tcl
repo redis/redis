@@ -482,22 +482,22 @@ start_server {
         r XDEL x 103
 
         set reply [r XINFO STREAM x FULL]
-        assert_equal [llength $reply] 12
+        assert_equal [llength $reply] 16
         assert_equal [lindex $reply 1] 4 ;# stream length
-        assert_equal [lindex $reply 9] "{100-0 {a 1}} {101-0 {b 1}} {102-0 {c 1}} {104-0 {f 1}}" ;# entries
-        assert_equal [lindex $reply 11 0 1] "g1" ;# first group name
-        assert_equal [lindex $reply 11 0 7 0 0] "100-0" ;# first entry in group's PEL
-        assert_equal [lindex $reply 11 0 9 0 1] "Alice" ;# first consumer
-        assert_equal [lindex $reply 11 0 9 0 7 0 0] "100-0" ;# first entry in first consumer's PEL
-        assert_equal [lindex $reply 11 1 1] "g2" ;# second group name
-        assert_equal [lindex $reply 11 1 9 0 1] "Charlie" ;# first consumer
-        assert_equal [lindex $reply 11 1 9 0 7 0 0] "100-0" ;# first entry in first consumer's PEL
-        assert_equal [lindex $reply 11 1 9 0 7 1 0] "101-0" ;# second entry in first consumer's PEL
+        assert_equal [lindex $reply 13] "{100-0 {a 1}} {101-0 {b 1}} {102-0 {c 1}} {104-0 {f 1}}" ;# entries
+        assert_equal [lindex $reply 15 0 1] "g1" ;# first group name
+        assert_equal [lindex $reply 15 0 7 0 0] "100-0" ;# first entry in group's PEL
+        assert_equal [lindex $reply 15 0 9 0 1] "Alice" ;# first consumer
+        assert_equal [lindex $reply 15 0 9 0 7 0 0] "100-0" ;# first entry in first consumer's PEL
+        assert_equal [lindex $reply 15 1 1] "g2" ;# second group name
+        assert_equal [lindex $reply 15 1 9 0 1] "Charlie" ;# first consumer
+        assert_equal [lindex $reply 15 1 9 0 7 0 0] "100-0" ;# first entry in first consumer's PEL
+        assert_equal [lindex $reply 15 1 9 0 7 1 0] "101-0" ;# second entry in first consumer's PEL
 
         set reply [r XINFO STREAM x FULL COUNT 1]
-        assert_equal [llength $reply] 12
+        assert_equal [llength $reply] 16
         assert_equal [lindex $reply 1] 4
-        assert_equal [lindex $reply 9] "{100-0 {a 1}}"
+        assert_equal [lindex $reply 13] "{100-0 {a 1}}"
     }
 
     test {XGROUP CREATECONSUMER: create consumer if does not exist} {
