@@ -294,9 +294,9 @@ start_server {tags {"cli"}} {
         assert_equal {key:2} [run_cli --scan --quoted-pattern {"*:\x32"}]
     }
 
-    test "Connecting as a replica" {
+    proc test_redis_cli_repl {} {
         set fd [open_cli "--replica"]
-        wait_for_condition 500 500 {
+        wait_for_condition 500 100 {
             [string match {*slave0:*state=online*} [r info]]
         } else {
             fail "redis-cli --replica did not connect"
@@ -305,12 +305,28 @@ start_server {tags {"cli"}} {
         for {set i 0} {$i < 100} {incr i} {
            r set test-key test-value-$i
         }
-        r client kill type slave
-        catch {
-            assert_match {*SET*key-a*} [read_cli $fd]
+
+        wait_for_condition 500 100 {
+            [string match {*test-value-99*} [read_cli $fd]]
+        } else {
+            fail "redis-cli --replica didn't read commands"
         }
 
-        close_cli $fd
+        fconfigure $fd -blocking true
+        r client kill type slave
+        catch { close_cli $fd } err
+        assert_match {*Server closed the connection*} $err
+    }
+
+    test "Connecting as a replica" {
+        # Disk-based master
+        assert_match "OK" [r config set repl-diskless-sync no]
+        test_redis_cli_repl
+
+        # Disk-less master
+        assert_match "OK" [r config set repl-diskless-sync yes]
+        assert_match "OK" [r config set repl-diskless-sync-delay 0]
+        test_redis_cli_repl
     } {} {needs:repl}
 
     test "Piping raw protocol" {
