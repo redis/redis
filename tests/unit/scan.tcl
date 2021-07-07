@@ -132,11 +132,11 @@ start_server {tags {"scan network"}} {
         }
     }
 
-    foreach enc {ziplist hashtable} {
+    foreach enc {listpack hashtable} {
         test "HSCAN with encoding $enc" {
             # Create the Hash
             r del hash
-            if {$enc eq {ziplist}} {
+            if {$enc eq {listpack}} {
                 set count 30
             } else {
                 set count 1000
@@ -148,11 +148,7 @@ start_server {tags {"scan network"}} {
             r hmset hash {*}$elements
 
             # Verify that the encoding matches.
-            if {$enc == "ziplist"} {
-                assert_packed_encoding hash
-            } else {
-                assert_encoding $enc hash
-            }
+            assert_encoding $enc hash
 
             # Test HSCAN
             set cur 0

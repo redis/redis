@@ -1131,18 +1131,10 @@ unsigned char *ziplistPush(unsigned char *zl, unsigned char *s, unsigned int sle
     return __ziplistInsert(zl,p,s,slen);
 }
 
-unsigned char *ziplistPushHead(unsigned char *zl, unsigned char *s, unsigned int slen) {
-    return ziplistPush(zl, s, slen, ZIPLIST_HEAD);
-}
-
-unsigned char *ziplistPushTail(unsigned char *zl, unsigned char *s, unsigned int slen) {
-    return ziplistPush(zl, s, slen, ZIPLIST_TAIL);
-}
-
 /* Returns an offset to use for iterating with ziplistNext. When the given
  * index is negative, the list is traversed back to front. When the list
  * doesn't contain an element at the provided index, NULL is returned. */
-unsigned char *ziplistIndex(unsigned char *zl, long index) {
+unsigned char *ziplistIndex(unsigned char *zl, int index) {
     unsigned char *p;
     unsigned int prevlensize, prevlen = 0;
     size_t zlbytes = intrev32ifbe(ZIPLIST_BYTES(zl));
@@ -1398,7 +1390,7 @@ unsigned char *ziplistFind(unsigned char *zl, unsigned char *p, unsigned char *v
 }
 
 /* Return length of ziplist. */
-unsigned long ziplistLen(unsigned char *zl) {
+unsigned int ziplistLen(unsigned char *zl) {
     unsigned int len = 0;
     if (intrev16ifbe(ZIPLIST_LENGTH(zl)) < UINT16_MAX) {
         len = intrev16ifbe(ZIPLIST_LENGTH(zl));
@@ -1672,23 +1664,6 @@ unsigned int ziplistRandomPairsUnique(unsigned char *zl, unsigned int count, zip
     }
     return picked;
 }
-
-packedClass packedZiplist = {
-    ziplistLen,
-    ziplistBlobLen,
-    ziplistGet,
-    ziplistIndex,
-    ziplistNext,
-    ziplistPrev,
-    ziplistPushHead,
-    ziplistPushTail,
-    ziplistReplace,
-    ziplistDelete,
-    ziplistFind,
-    ziplistRandomPair,
-    ziplistRandomPairs,
-    ziplistRandomPairsUnique,
-};
 
 #ifdef REDIS_TEST
 #include <sys/time.h>
@@ -2304,7 +2279,7 @@ int ziplistTest(int argc, char **argv, int accurate) {
         ziplistRepr(zl2);
 
         if (ziplistLen(zl2) != 8) {
-            printf("ERROR: Merged length not 8, but: %lu\n", ziplistLen(zl2));
+            printf("ERROR: Merged length not 8, but: %u\n", ziplistLen(zl2));
             return 1;
         }
 
@@ -2457,22 +2432,12 @@ int ziplistTest(int argc, char **argv, int accurate) {
             zl = ziplistPush(zl, (unsigned char*)"100000", 6, ZIPLIST_TAIL);
         }
 
-        printf("Benchmark ziplistFind string:\n");
+        printf("Benchmark ziplistFind:\n");
         {
             unsigned long long start = usec();
             for (int i = 0; i < 2000; i++) {
                 unsigned char *fptr = ziplistIndex(zl, ZIPLIST_HEAD);
                 fptr = ziplistFind(zl, fptr, (unsigned char*)"nothing", 7, 1);
-            }
-            printf("%lld\n", usec()-start);
-        }
-
-        printf("Benchmark ziplistFind number:\n");
-        {
-            unsigned long long start = usec();
-            for (int i = 0; i < 2000; i++) {
-                unsigned char *fptr = ziplistIndex(zl, ZIPLIST_HEAD);
-                fptr = ziplistFind(zl, fptr, (unsigned char*)"99999", 5, 1);
             }
             printf("%lld\n", usec()-start);
         }

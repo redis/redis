@@ -672,9 +672,7 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
         else
             serverPanic("Unknown sorted set encoding");
     case OBJ_HASH:
-        if (o->encoding == OBJ_ENCODING_ZIPLIST)
-            return rdbSaveType(rdb,RDB_TYPE_HASH_ZIPLIST);
-        else if (o->encoding == OBJ_ENCODING_LISTPACK)
+        if (o->encoding == OBJ_ENCODING_LISTPACK)
             return rdbSaveType(rdb,RDB_TYPE_HASH_LISTPACK);
         else if (o->encoding == OBJ_ENCODING_HT)
             return rdbSaveType(rdb,RDB_TYPE_HASH);
@@ -895,13 +893,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
         }
     } else if (o->type == OBJ_HASH) {
         /* Save a hash value */
-        if (o->encoding == OBJ_ENCODING_ZIPLIST) {
-            size_t l = ziplistBlobLen((unsigned char*)o->ptr);
-
-            if ((n = rdbSaveRawString(rdb,o->ptr,l)) == -1) return -1;
-            nwritten += n;
-
-        } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
+        if (o->encoding == OBJ_ENCODING_LISTPACK) {
             size_t l = lpBytes((unsigned char*)o->ptr);
 
             if ((n = rdbSaveRawString(rdb,o->ptr,l)) == -1) return -1;
@@ -1701,8 +1693,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid) {
 
 
         /* Load every field and value into the ziplist */
-        packedClass *packed = OBJ_PACKED_CLASS(o);
-        while (OBJ_IS_PACKED(o) && len > 0) {
+        while (o->encoding == OBJ_ENCODING_LISTPACK && len > 0) {
             len--;
             /* Load raw strings */
             if ((field = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL)) == NULL) {
@@ -1731,8 +1722,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid) {
             }
 
             /* Add pair to listpack */
-            o->ptr = packed->listPushTail(o->ptr, (unsigned char*)field, sdslen(field));
-            o->ptr = packed->listPushTail(o->ptr, (unsigned char*)value, sdslen(value));
+            o->ptr = lpPushTail(o->ptr, (unsigned char*)field, sdslen(field));
+            o->ptr = lpPushTail(o->ptr, (unsigned char*)value, sdslen(value));
 
             /* Convert to hash table if size threshold is exceeded */
             if (sdslen(field) > server.hash_max_ziplist_value ||
@@ -1937,13 +1928,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid) {
                 }
                 o->type = OBJ_HASH;
                 o->encoding = OBJ_ENCODING_ZIPLIST;
+                hashTypeConvert(o, OBJ_ENCODING_LISTPACK);
                 if (hashTypeLength(o) > server.hash_max_ziplist_entries) {
                     hashTypeConvert(o, OBJ_ENCODING_HT);
-                } else if (server.rdb_convert_ziplist || deep_integrity_validation) {
-                    /* If rdb_convert_ziplist is enabled , we will convert ziplist 
-                     * to listpack. We do the same for deep sanitization, since we 
-                     * already do O(N) anyway. */
-                    hashTypeConvert(o, OBJ_ENCODING_LISTPACK);
                 }
                 break;
             case RDB_TYPE_HASH_LISTPACK:

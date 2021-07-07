@@ -121,7 +121,6 @@ set ::singledb 0
 set ::cluster_mode 0
 set ::ignoreencoding 0
 set ::ignoredigest 0
-set ::scripts_run_on_startup {}
 
 # Set to 1 when we are running in client mode. The Redis test uses a
 # server-client model to run tests simultaneously. The server instance
@@ -587,7 +586,6 @@ proc print_help_screen {} {
         "--cluster-mode     Run tests in cluster protocol compatible mode."
         "--ignore-encoding  Don't validate object encoding."
         "--ignore-digest    Don't use debug digest validations."
-        "--run-on-startup <script> Run script after server started and before proceeding the tests."
         "--help             Print this help screen."
     } "\n"]
 }
@@ -703,9 +701,6 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         set ::ignoreencoding 1
     } elseif {$opt eq {--ignore-digest}} {
         set ::ignoredigest 1
-    } elseif {$opt eq {--run-on-startup}} {
-        lappend ::scripts_run_on_startup $arg
-        incr j 1
     } elseif {$opt eq {--help}} {
         print_help_screen
         exit 0

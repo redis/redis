@@ -891,15 +891,6 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *ele, uint32_t size, un
     return lp;
 }
 
-/* Append the specified element 'ele' of length 'len' at the end of the
- * listpack. It is implemented in terms of lpInsert(), so the return value is
- * the same as lpInsert(). */
-unsigned char *lpAppend(unsigned char *lp, unsigned char *ele, uint32_t size) {
-    uint64_t listpack_bytes = lpGetTotalBytes(lp);
-    unsigned char *eofptr = lp + listpack_bytes - 1;
-    return lpInsert(lp,ele,size,eofptr,LP_BEFORE,NULL);
-}
-
 /* Append the specified element 's' of length 'slen' at the head of the listpack. */
 unsigned char *lpPushHead(unsigned char *lp, unsigned char *s, uint32_t slen) {
     unsigned char *p = lpFirst(lp);
@@ -1231,38 +1222,6 @@ unsigned int lpRandomPairsUnique(unsigned char *lp, unsigned int count, ziplistE
     }
     return picked;
 }
-
-unsigned int _lpGet(unsigned char *p, unsigned char **sstr, unsigned int *slen, long long *lval) {
-    int64_t vlen;
-    *sstr = lpGet(p, &vlen, NULL);
-    if (*sstr) {
-        *slen = vlen;
-    } else {
-        *lval = vlen;
-    }
-    return 1;
-}
-
-unsigned char *_lpDelete(unsigned char *l, unsigned char **p) {
-    return lpDelete(l, *p, p);
-}
-
-packedClass packedListpack = {
-    lpLength,
-    lpBytes,
-    _lpGet,
-    lpSeek,
-    lpNext,
-    lpPrev,
-    lpPushHead,
-    lpPushTail,
-    lpReplace,
-    _lpDelete,
-    lpFind,
-    lpRandomPair,
-    lpRandomPairs,
-    lpRandomPairsUnique,
-};
 
 #ifdef REDIS_TEST
 

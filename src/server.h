@@ -1570,8 +1570,6 @@ struct redisServer {
     size_t set_max_intset_entries;
     size_t zset_max_ziplist_entries;
     size_t zset_max_ziplist_value;
-    int rdb_convert_ziplist;
-    int default_packed_encoding; /* Set default packed encoding for testing purposes. */
     size_t hll_sparse_max_bytes;
     size_t stream_node_max_bytes;
     long long stream_node_max_entries;
@@ -2053,8 +2051,6 @@ int equalStringObjects(robj *a, robj *b);
 unsigned long long estimateObjectIdleTime(robj *o);
 void trimStringObjectIfNeeded(robj *o);
 #define sdsEncodedObject(objptr) (objptr->encoding == OBJ_ENCODING_RAW || objptr->encoding == OBJ_ENCODING_EMBSTR)
-#define OBJ_PACKED_CLASS(o) ((o)->encoding == OBJ_ENCODING_ZIPLIST ? &packedZiplist : &packedListpack)
-#define OBJ_IS_PACKED(o) ((o)->encoding == OBJ_ENCODING_ZIPLIST || (o)->encoding == OBJ_ENCODING_LISTPACK)
 
 /* Synchronous I/O with timeout */
 ssize_t syncWrite(int fd, char *ptr, ssize_t size, long long timeout);

@@ -1645,7 +1645,7 @@ static int _ql_verify(quicklist *ql, uint32_t len, uint32_t count,
     if (ql->head && head_count != ql->head->count &&
         head_count != ziplistLen(ql->head->zl)) {
         yell("quicklist head count wrong: expected %d, "
-             "got cached %d vs. actual %lu",
+             "got cached %d vs. actual %d",
              head_count, ql->head->count, ziplistLen(ql->head->zl));
         errors++;
     }
@@ -1653,7 +1653,7 @@ static int _ql_verify(quicklist *ql, uint32_t len, uint32_t count,
     if (ql->tail && tail_count != ql->tail->count &&
         tail_count != ziplistLen(ql->tail->zl)) {
         yell("quicklist tail count wrong: expected %d, "
-             "got cached %u vs. actual %lu",
+             "got cached %u vs. actual %d",
              tail_count, ql->tail->count, ziplistLen(ql->tail->zl));
         errors++;
     }

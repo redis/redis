@@ -240,18 +240,9 @@ robj *createIntsetObject(void) {
 }
 
 robj *createHashObject(void) {
-    unsigned char *zl;
-
-    if (server.default_packed_encoding == OBJ_ENCODING_LISTPACK) {
-        zl = lpNew(0);
-    } else if (server.default_packed_encoding == OBJ_ENCODING_ZIPLIST) {
-        zl = ziplistNew();
-    } else {
-        serverPanic("Unknown hash encoding");
-    }
-
+    unsigned char *zl = lpNew(0);
     robj *o = createObject(OBJ_HASH, zl);
-    o->encoding = server.default_packed_encoding;
+    o->encoding = OBJ_ENCODING_LISTPACK;
     return o;
 }
 
@@ -335,9 +326,6 @@ void freeHashObject(robj *o) {
     switch (o->encoding) {
     case OBJ_ENCODING_HT:
         dictRelease((dict*) o->ptr);
-        break;
-    case OBJ_ENCODING_ZIPLIST:
-        zfree(o->ptr);
         break;
     case OBJ_ENCODING_LISTPACK:
         lpFree(o->ptr);
@@ -873,7 +861,7 @@ size_t objectComputeSize(robj *key, robj *o, size_t sample_size, int dbid) {
             serverPanic("Unknown sorted set encoding");
         }
     } else if (o->type == OBJ_HASH) {
-        if (OBJ_IS_PACKED(o)) {
+        if (o->encoding == OBJ_ENCODING_LISTPACK) {
             asize = sizeof(*o)+zmalloc_size(o->ptr);
         } else if (o->encoding == OBJ_ENCODING_HT) {
             d = o->ptr;
