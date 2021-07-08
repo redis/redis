@@ -37,7 +37,6 @@
 
 #include <stdlib.h>
 #include <stdint.h>
-#include "ziplist.h"
 
 #define LP_INTBUF_SIZE 21 /* 20 digits of -2^63 + 1 null term = 21. */
 
@@ -45,6 +44,15 @@
 #define LP_BEFORE 0
 #define LP_AFTER 1
 #define LP_REPLACE 2
+
+/* Each entry in the listpack is either a string or an integer. */
+typedef struct {
+    /* When string is used, it is provided with the length (slen). */
+    unsigned char *sval;
+    uint32_t slen;
+    /* When integer is used, 'sval' is NULL, and lval holds the value. */
+    int64_t lval;
+} listpackEntry;
 
 unsigned char *lpNew(size_t capacity);
 void lpFree(unsigned char *lp);
@@ -56,7 +64,7 @@ unsigned char *lpReplace(unsigned char *lp, unsigned char *p, unsigned char *s, 
 unsigned char *lpDelete(unsigned char *lp, unsigned char *p, unsigned char **newp);
 unsigned long lpLength(unsigned char *lp);
 unsigned char *lpGet(unsigned char *p, int64_t *count, unsigned char *intbuf);
-unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s, unsigned int slen, unsigned int skip);
+unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s, uint32_t slen, unsigned int skip);
 unsigned char *lpFirst(unsigned char *lp);
 unsigned char *lpLast(unsigned char *lp);
 unsigned char *lpNext(unsigned char *lp, unsigned char *p);
@@ -68,9 +76,9 @@ int lpValidateIntegrity(unsigned char *lp, size_t size, int deep,
                         listpackValidateEntryCB entry_cb, void *cb_userdata);
 int lpValidateNext(unsigned char *lp, unsigned char **pp, size_t lpbytes);
 unsigned int lpCompare(unsigned char *p, unsigned char *s, unsigned int slen);
-void lpRandomPair(unsigned char *lp, unsigned long total_count, ziplistEntry *key, ziplistEntry *val);
-void lpRandomPairs(unsigned char *lp, unsigned int count, ziplistEntry *keys, ziplistEntry *vals);
-unsigned int lpRandomPairsUnique(unsigned char *lp, unsigned int count, ziplistEntry *keys, ziplistEntry *vals);
+void lpRandomPair(unsigned char *lp, unsigned long total_count, listpackEntry *key, listpackEntry *val);
+void lpRandomPairs(unsigned char *lp, unsigned int count, listpackEntry *keys, listpackEntry *vals);
+unsigned int lpRandomPairsUnique(unsigned char *lp, unsigned int count, listpackEntry *keys, listpackEntry *vals);
 
 #ifdef REDIS_TEST
 int listpackTest(int argc, char *argv[], int accurate);

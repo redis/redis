@@ -669,7 +669,7 @@ unsigned char *lpGet(unsigned char *p, int64_t *count, unsigned char *intbuf) {
 /* Find pointer to the entry equal to the specified entry. Skip 'skip' entries
  * between every comparison. Returns NULL when the field could not be found. */
 unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s, 
-                      unsigned int slen, unsigned int skip) {
+                      uint32_t slen, unsigned int skip) {
     int skipcnt = 0;
     unsigned char vencoding = 0;
     unsigned char *value;
@@ -1080,13 +1080,13 @@ static int uintCompare(const void *a, const void *b) {
 }
 
 /* Helper method to store a string into from val or lval into dest */
-static inline void lpSaveValue(unsigned char *val, unsigned int len, int64_t lval, ziplistEntry *dest) {
+static inline void lpSaveValue(unsigned char *val, unsigned int len, int64_t lval, listpackEntry *dest) {
     dest->sval = val;
     dest->slen = len;
     dest->lval = lval;
 }
 
-void lpRandomPair(unsigned char *lp, unsigned long total_count, ziplistEntry *key, ziplistEntry *val) {
+void lpRandomPair(unsigned char *lp, unsigned long total_count, listpackEntry *key, listpackEntry *val) {
     unsigned char *p;
     int64_t vlen;
 
@@ -1116,7 +1116,7 @@ void lpRandomPair(unsigned char *lp, unsigned long total_count, ziplistEntry *ke
     }
 }
 
-void lpRandomPairs(unsigned char *lp, unsigned int count, ziplistEntry *keys, ziplistEntry *vals) {
+void lpRandomPairs(unsigned char *lp, unsigned int count, listpackEntry *keys, listpackEntry *vals) {
     unsigned char *p, *key, *value;
     unsigned int klen = 0, vlen = 0;
     int64_t klval = 0, vlval = 0, ele_len = 0;
@@ -1174,7 +1174,7 @@ void lpRandomPairs(unsigned char *lp, unsigned int count, ziplistEntry *keys, zi
     zfree(picks);
 }
 
-unsigned int lpRandomPairsUnique(unsigned char *lp, unsigned int count, ziplistEntry *keys, ziplistEntry *vals) {
+unsigned int lpRandomPairsUnique(unsigned char *lp, unsigned int count, listpackEntry *keys, listpackEntry *vals) {
     unsigned char *p, *key;
     unsigned int klen = 0;
     int64_t klval = 0, ele_len = 0;
@@ -1560,7 +1560,7 @@ int listpackTest(int argc, char *argv[], int accurate) {
     }
 
     TEST("Random pair with one element") {
-        ziplistEntry key, val;
+        listpackEntry key, val;
         unsigned char *lp = lpNew(0);
         lp = lpPushTail(lp, (unsigned char*)"abc", 3);
         lp = lpPushTail(lp, (unsigned char*)"123", 3);
@@ -1571,7 +1571,7 @@ int listpackTest(int argc, char *argv[], int accurate) {
     }
 
     TEST("Random pair with many elements") {
-        ziplistEntry key, val;
+        listpackEntry key, val;
         unsigned char *lp = lpNew(0);
         lp = lpPushTail(lp, (unsigned char*)"abc", 3);
         lp = lpPushTail(lp, (unsigned char*)"123", 3);
@@ -1593,8 +1593,8 @@ int listpackTest(int argc, char *argv[], int accurate) {
     TEST("Random pairs with one element") {
         int count = 5;
         unsigned char *lp = lpNew(0);
-        ziplistEntry *keys = zmalloc(sizeof(ziplistEntry) * count);
-        ziplistEntry *vals = zmalloc(sizeof(ziplistEntry) * count);
+        listpackEntry *keys = zmalloc(sizeof(listpackEntry) * count);
+        listpackEntry *vals = zmalloc(sizeof(listpackEntry) * count);
 
         lp = lpPushTail(lp, (unsigned char*)"abc", 3);
         lp = lpPushTail(lp, (unsigned char*)"123", 3);
@@ -1609,8 +1609,8 @@ int listpackTest(int argc, char *argv[], int accurate) {
     TEST("Random pairs with many elements") {
         int count = 5;
         lp = lpNew(0);
-        ziplistEntry *keys = zmalloc(sizeof(ziplistEntry) * count);
-        ziplistEntry *vals = zmalloc(sizeof(ziplistEntry) * count);
+        listpackEntry *keys = zmalloc(sizeof(listpackEntry) * count);
+        listpackEntry *vals = zmalloc(sizeof(listpackEntry) * count);
 
         lp = lpPushTail(lp, (unsigned char*)"abc", 3);
         lp = lpPushTail(lp, (unsigned char*)"123", 3);
@@ -1637,8 +1637,8 @@ int listpackTest(int argc, char *argv[], int accurate) {
         unsigned picked;
         int count = 5;
         lp = lpNew(0);
-        ziplistEntry *keys = zmalloc(sizeof(ziplistEntry) * count);
-        ziplistEntry *vals = zmalloc(sizeof(ziplistEntry) * count);
+        listpackEntry *keys = zmalloc(sizeof(listpackEntry) * count);
+        listpackEntry *vals = zmalloc(sizeof(listpackEntry) * count);
 
         lp = lpPushTail(lp, (unsigned char*)"abc", 3);
         lp = lpPushTail(lp, (unsigned char*)"123", 3);
@@ -1655,8 +1655,8 @@ int listpackTest(int argc, char *argv[], int accurate) {
         unsigned picked;
         int count = 5;
         lp = lpNew(0);
-        ziplistEntry *keys = zmalloc(sizeof(ziplistEntry) * count);
-        ziplistEntry *vals = zmalloc(sizeof(ziplistEntry) * count);
+        listpackEntry *keys = zmalloc(sizeof(listpackEntry) * count);
+        listpackEntry *vals = zmalloc(sizeof(listpackEntry) * count);
 
         lp = lpPushTail(lp, (unsigned char*)"abc", 3);
         lp = lpPushTail(lp, (unsigned char*)"123", 3);
@@ -1762,7 +1762,7 @@ int listpackTest(int argc, char *argv[], int accurate) {
                     }
                 }
 
-                /* Add to ziplist */
+                /* Add to listpack */
                 if (where == 0) {
                     lp = lpPushHead(lp, (unsigned char*)buf, buflen);
                 } else {
@@ -1795,7 +1795,7 @@ int listpackTest(int argc, char *argv[], int accurate) {
         printf("Done. usec=%lld\n\n", usec()-start);
     }
 
-    TEST("Stress with variable ziplist size") {
+    TEST("Stress with variable listpack size") {
         unsigned long long start = usec();
         int maxsize = accurate ? 16384 : 16;
         stress(0,100000,maxsize,256);

@@ -691,12 +691,12 @@ int hashListpackValidateIntegrity(unsigned char *lp, size_t size, int deep) {
 }
 
 /* Create a new sds string from the ziplist entry. */
-sds hashSdsFromZiplistEntry(ziplistEntry *e) {
+sds hashSdsFromListpackEntry(listpackEntry *e) {
     return e->sval ? sdsnewlen(e->sval, e->slen) : sdsfromlonglong(e->lval);
 }
 
 /* Reply with bulk string from the ziplist entry. */
-void hashReplyFromZiplistEntry(client *c, ziplistEntry *e) {
+void hashReplyFromListpackEntry(client *c, listpackEntry *e) {
     if (e->sval)
         addReplyBulkCBuffer(c, e->sval, e->slen);
     else
@@ -707,7 +707,7 @@ void hashReplyFromZiplistEntry(client *c, ziplistEntry *e) {
  * 'key' and 'val' will be set to hold the element.
  * The memory in them is not to be freed or modified by the caller.
  * 'val' can be NULL in which case it's not extracted. */
-void hashTypeRandomElement(robj *hashobj, unsigned long hashsize, ziplistEntry *key, ziplistEntry *val) {
+void hashTypeRandomElement(robj *hashobj, unsigned long hashsize, listpackEntry *key, listpackEntry *val) {
     if (hashobj->encoding == OBJ_ENCODING_HT) {
         dictEntry *de = dictGetFairRandomKey(hashobj->ptr);
         sds s = dictGetKey(de);
@@ -1049,7 +1049,7 @@ void hscanCommand(client *c) {
     scanGenericCommand(c,o,cursor);
 }
 
-static void harndfieldReplyWithZiplist(client *c, unsigned int count, ziplistEntry *keys, ziplistEntry *vals) {
+static void harndfieldReplyWithZiplist(client *c, unsigned int count, listpackEntry *keys, listpackEntry *vals) {
     for (unsigned long i = 0; i < count; i++) {
         if (vals && c->resp > 2)
             addReplyArrayLen(c,2);
@@ -1121,13 +1121,13 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
                     addReplyBulkCBuffer(c, value, sdslen(value));
             }
         } else if (hash->encoding == OBJ_ENCODING_LISTPACK) {
-            ziplistEntry *keys, *vals = NULL;
+            listpackEntry *keys, *vals = NULL;
             unsigned long limit, sample_count;
 
             limit = count > HRANDFIELD_RANDOM_SAMPLE_LIMIT ? HRANDFIELD_RANDOM_SAMPLE_LIMIT : count;
-            keys = zmalloc(sizeof(ziplistEntry)*limit);
+            keys = zmalloc(sizeof(listpackEntry)*limit);
             if (withvalues)
-                vals = zmalloc(sizeof(ziplistEntry)*limit);
+                vals = zmalloc(sizeof(listpackEntry)*limit);
             while (count) {
                 sample_count = count > limit ? limit : count;
                 count -= sample_count;
@@ -1229,10 +1229,10 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
         if (hash->encoding == OBJ_ENCODING_LISTPACK) {
             /* it is inefficient to repeatedly pick one random element from a
              * ziplist. so we use this instead: */
-            ziplistEntry *keys, *vals = NULL;
-            keys = zmalloc(sizeof(ziplistEntry)*count);
+            listpackEntry *keys, *vals = NULL;
+            keys = zmalloc(sizeof(listpackEntry)*count);
             if (withvalues)
-                vals = zmalloc(sizeof(ziplistEntry)*count);
+                vals = zmalloc(sizeof(listpackEntry)*count);
             serverAssert(lpRandomPairsUnique(hash->ptr, count, keys, vals) == count);
             harndfieldReplyWithZiplist(c, count, keys, vals);
             zfree(keys);
@@ -1242,7 +1242,7 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
 
         /* Hashtable encoding (generic implementation) */
         unsigned long added = 0;
-        ziplistEntry key, value;
+        listpackEntry key, value;
         dict *d = dictCreate(&hashDictType, NULL);
         dictExpand(d, count);
         while(added < count) {
@@ -1251,7 +1251,7 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
             /* Try to add the object to the dictionary. If it already exists
             * free it, otherwise increment the number of objects we have
             * in the result dictionary. */
-            sds skey = hashSdsFromZiplistEntry(&key);
+            sds skey = hashSdsFromListpackEntry(&key);
             if (dictAdd(d,skey,NULL) != DICT_OK) {
                 sdsfree(skey);
                 continue;
@@ -1261,9 +1261,9 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
             /* We can reply right away, so that we don't need to store the value in the dict. */
             if (withvalues && c->resp > 2)
                 addReplyArrayLen(c,2);
-            hashReplyFromZiplistEntry(c, &key);
+            hashReplyFromListpackEntry(c, &key);
             if (withvalues)
-                hashReplyFromZiplistEntry(c, &value);
+                hashReplyFromListpackEntry(c, &value);
         }
 
         /* Release memory */
@@ -1276,7 +1276,7 @@ void hrandfieldCommand(client *c) {
     long l;
     int withvalues = 0;
     robj *hash;
-    ziplistEntry ele;
+    listpackEntry ele;
 
     if (c->argc >= 3) {
         if (getLongFromObjectOrReply(c,c->argv[2],&l,NULL) != C_OK) return;
@@ -1296,5 +1296,5 @@ void hrandfieldCommand(client *c) {
     }
 
     hashTypeRandomElement(hash,hashTypeLength(hash),&ele,NULL);
-    hashReplyFromZiplistEntry(c, &ele);
+    hashReplyFromListpackEntry(c, &ele);
 }
