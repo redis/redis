@@ -143,9 +143,9 @@ start_server {tags {"multi"}} {
 
         r multi
         r incr key
-        r exec
+        assert_equal [r exec] {}
         r debug set-active-expire 1
-    } {}
+    } {OK}
 
     test {After successful EXEC key is no longer watched} {
         r set x 30
