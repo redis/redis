@@ -6,7 +6,7 @@ on:
       # any PR to a release branch.
       - '[0-9].[0-9]'
   schedule:
-    - cron: '0 0 * * *'
+    - cron: '0 9 * * *'
   workflow_dispatch:
     inputs:
       skipjobs:
@@ -33,7 +33,7 @@ jobs:
 
   test-ubuntu-jemalloc:
     runs-on: ubuntu-latest
-    if: github.repository == 'redis/redis'
+    if: github.repository == 'huangzhw/redis'
     timeout-minutes: 14400
     steps:
     - name: prep
@@ -67,7 +67,7 @@ jobs:
 
   test-ubuntu-libc-malloc:
     runs-on: ubuntu-latest
-    if: github.repository == 'redis/redis'
+    if: github.repository == 'huangzhw/redis'
     timeout-minutes: 14400
     steps:
     - name: prep
@@ -98,7 +98,7 @@ jobs:
 
   test-ubuntu-no-malloc-usable-size:
     runs-on: ubuntu-latest
-    if: github.repository == 'redis/redis'
+    if: github.repository == 'huangzhw/redis'
     timeout-minutes: 14400
     steps:
     - name: prep
@@ -129,7 +129,7 @@ jobs:
 
   test-ubuntu-32bit:
     runs-on: ubuntu-latest
-    if: github.repository == 'redis/redis' && !contains(github.event.inputs.skipjobs, '32bit')
+    if: github.repository == 'huangzhw/redis' && !contains(github.event.inputs.skipjobs, '32bit')
     timeout-minutes: 14400
     steps:
     - name: prep
@@ -166,7 +166,7 @@ jobs:
 
   test-ubuntu-tls:
     runs-on: ubuntu-latest
-    if: github.repository == 'redis/redis' && !contains(github.event.inputs.skipjobs, 'tls')
+    if: github.repository == 'huangzhw/redis' && !contains(github.event.inputs.skipjobs, 'tls')
     timeout-minutes: 14400
     steps:
     - name: prep
@@ -208,7 +208,7 @@ jobs:
 
   test-ubuntu-io-threads:
     runs-on: ubuntu-latest
-    if: github.repository == 'redis/redis' && !contains(github.event.inputs.skipjobs, 'iothreads')
+    if: github.repository == 'huangzhw/redis' && !contains(github.event.inputs.skipjobs, 'iothreads')
     timeout-minutes: 14400
     steps:
     - name: prep
@@ -234,7 +234,7 @@ jobs:
 
   test-valgrind:
     runs-on: ubuntu-latest
-    if: github.repository == 'redis/redis' && !contains(github.event.inputs.skipjobs, 'valgrind')
+    if: github.repository == 'huangzhw/redis' && !contains(github.event.inputs.skipjobs, 'valgrind')
     timeout-minutes: 14400
     steps:
     - name: prep
@@ -265,7 +265,7 @@ jobs:
 
   test-valgrind-no-malloc-usable-size:
     runs-on: ubuntu-latest
-    if: github.repository == 'redis/redis' && !contains(github.event.inputs.skipjobs, 'valgrind')
+    if: github.repository == 'huangzhw/redis' && !contains(github.event.inputs.skipjobs, 'valgrind')
     timeout-minutes: 14400
     steps:
     - name: prep
@@ -292,7 +292,7 @@ jobs:
 
   test-centos7-jemalloc:
     runs-on: ubuntu-latest
-    if: github.repository == 'redis/redis'
+    if: github.repository == 'huangzhw/redis'
     container: centos:7
     timeout-minutes: 14400
     steps:
@@ -326,7 +326,7 @@ jobs:
 
   test-centos7-tls:
     runs-on: ubuntu-latest
-    if: github.repository == 'redis/redis' && !contains(github.event.inputs.skipjobs, 'tls')
+    if: github.repository == 'huangzhw/redis' && !contains(github.event.inputs.skipjobs, 'tls')
     container: centos:7
     timeout-minutes: 14400
     steps:
@@ -371,7 +371,7 @@ jobs:
 
   test-macos-latest:
     runs-on: macos-latest
-    if: github.repository == 'redis/redis' && !contains(github.event.inputs.skipjobs, 'macos')
+    if: github.repository == 'huangzhw/redis' && !contains(github.event.inputs.skipjobs, 'macos')
     timeout-minutes: 14400
     steps:
     - name: prep
@@ -399,7 +399,7 @@ jobs:
 
   test-freebsd:
     runs-on: macos-latest
-    if: github.repository == 'redis/redis' && !contains(github.event.inputs.skipjobs, 'freebsd')
+    if: github.repository == 'huangzhw/redis' && !contains(github.event.inputs.skipjobs, 'freebsd')
     timeout-minutes: 14400
     steps:
     - name: prep
@@ -426,7 +426,7 @@ jobs:
 
   test-alpine-jemalloc:
     runs-on: ubuntu-latest
-    if: github.repository == 'redis/redis' && !contains(github.event.inputs.skipjobs, 'alpine')
+    if: github.repository == 'huangzhw/redis' && !contains(github.event.inputs.skipjobs, 'alpine')
     container: alpine:latest
     steps:
     - name: prep
@@ -458,7 +458,7 @@ jobs:
 
   test-alpine-libc-malloc:
     runs-on: ubuntu-latest
-    if: github.repository == 'redis/redis' && !contains(github.event.inputs.skipjobs, 'alpine')
+    if: github.repository == 'huangzhw/redis' && !contains(github.event.inputs.skipjobs, 'alpine')
     container: alpine:latest
     steps:
     - name: prep
