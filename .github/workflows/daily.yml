@@ -1,32 +1,6 @@
 name: Daily
 
-on:
-  pull_request:
-    branches:
-      # any PR to a release branch.
-      - '[0-9].[0-9]'
-  schedule:
-    - cron: '0 9 * * *'
-  workflow_dispatch:
-    inputs:
-      skipjobs:
-        description: 'jobs to skip (delete the ones you wanna keep)'
-        default: 'valgrind,tls,freebsd,macos,alpine,32bit'
-      skiptests:
-        description: 'tests to skip (delete the ones you wanna keep)'
-        default: 'redis,modules,sentinel,cluster'
-      test_args:
-        description: 'extra test arguments'
-        default: ''
-      cluster_test_args:
-        description: 'extra cluster / sentinel test arguments'
-        default: ''
-      use_repo:
-        description: 'repo owner and name'
-        default: 'redis/redis'
-      use_git_ref:
-        description: 'git branch or sha to use'
-        default: 'unstable'
+on: [pull_request, push]
 
 
 jobs:
