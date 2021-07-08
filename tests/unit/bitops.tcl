@@ -358,12 +358,14 @@ start_server {tags {"bitops"}} {
         set len [r strlen mykey]
         set bit [r getbit mykey $bitpos]
         set fields [r bitfield mykey get u8 $bitpos set u8 $bitpos 255 get i8 $bitpos]
-        set pos [r bitpos mykey 1]
+        set pos1 [r bitpos mykey 1]
+        set pos2 [r bitpos mykey 1 [expr $bytes - 1]]
         r config set proto-max-bulk-len $oldval
         assert_equal $bytes $len
         assert_equal 1 $bit
         assert_equal [list 128 128 -1] $fields
-        assert_equal $bitpos $pos
+        assert_equal $bitpos $pos1
+        assert_equal $bitpos $pos2
         r del mykey
     } {1} {large-memory}
 }

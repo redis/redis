@@ -897,11 +897,11 @@ void bitposCommand(client *c) {
          * So if redisBitpos() returns the first bit outside the range,
          * we return -1 to the caller, to mean, in the specified range there
          * is not a single "0" bit. */
-        if (end_given && bit == 0 && pos == bytes*8) {
+        if (end_given && bit == 0 && pos == (long long)bytes<<3) {
             addReplyLongLong(c,-1);
             return;
         }
-        if (pos != -1) pos += start*8; /* Adjust for the bytes we skipped. */
+        if (pos != -1) pos += (long long)start<<3; /* Adjust for the bytes we skipped. */
         addReplyLongLong(c,pos);
     }
 }
