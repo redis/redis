@@ -115,7 +115,7 @@ start_server {
     test {R/LPOP against empty list} {
         r lpop non-existing-list
     } {}
-    
+
     test {R/LPOP with the optional count argument} {
         assert_equal 7 [r lpush listcount aa bb cc dd ee ff gg]
         assert_equal {} [r lpop listcount 0]
@@ -1121,5 +1121,43 @@ start_server {
         assert_equal [lpop k] [string repeat x 31]
         set _ $k
     } {12 0 9223372036854775808 2147483647 32767 127}
+
+    test {__ziplistInsert nextdiff == -4 && reqlen < 4 (issue #7170)} {
+        r del mylist
+        # Set back to default configuration
+        r config set list-max-ziplist-size -2
+
+        # We set some values to almost reach the critical point - 254
+        set A_252 [string repeat A 252]
+        set A_250 [string repeat A 250]
+
+        # After the rpush, the list look like: [one two A_252 A_250 three 10]
+        r rpush mylist one
+        r rpush mylist two
+        r rpush mylist $A_252
+        r rpush mylist $A_250
+        r rpush mylist three
+        r rpush mylist 10
+
+        # When we remove A_252, the list became: [one two A_250 three 10]
+        # A_250's prev node became node two, because node two quite small
+        # So A_250's prevlenSize shrink to 1, A_250's total size became 253(1+2+250)
+        # The prev node of node three is still node A_250.
+        # Although the length of the node A_250 can be represented by one byte.
+        # We will not shrink the node three's prevlenSize, keep it at 5 bytes
+        r lrem mylist 1 $A_252
+
+        # We want to insert a node after A_250, the list became: [one two A_250 10 three 10]
+        # Because the new node is quite small, node three prevlenSize will shrink to 1
+        r linsert mylist after $A_250 10
+
+        # We should be able to get the correct result
+        set res [r lrange mylist 0 -1]
+        assert_equal $res "one two $A_250 10 three 10"
+
+        # Last element should equal 10
+        set last_ele [r lindex mylist -1]
+        assert_equal $last_ele {10}
+    }
 
 }
