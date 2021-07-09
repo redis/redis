@@ -4,17 +4,6 @@ tags {"external:skip"} {
 set server_path [tmpdir "server.convert-ziplist-hash-on-load"]
 
 exec cp -f tests/assets/hash-ziplist.rdb $server_path
-start_server [list overrides [list "dir" $server_path "dbfilename" "hash-ziplist.rdb" "sanitize-dump-payload" yes]] {
-    test "RDB load ziplist hash: converts to listpack table when enable sanitize-dump-payload" {
-        r select 0
-
-        assert_encoding listpack hash
-        assert_equal 2 [r hlen hash]
-        assert_match {v1 v2} [r hmget hash f1 f2]
-    }
-}
-
-exec cp -f tests/assets/hash-ziplist.rdb $server_path
 start_server [list overrides [list "dir" $server_path "dbfilename" "hash-ziplist.rdb"]] {
     test "RDB load ziplist hash: converts to listpack when RDB loading" {
         r select 0
