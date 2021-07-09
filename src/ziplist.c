@@ -952,8 +952,8 @@ unsigned char *__ziplistInsert(unsigned char *zl, unsigned char *p, unsigned cha
     int forcelarge = 0;
     nextdiff = (p[0] != ZIP_END) ? zipPrevLenByteDiff(p,reqlen) : 0;
     if (nextdiff == -4 && reqlen < 4) {
-//        nextdiff = 0;
-//        forcelarge = 1;
+        nextdiff = 0;
+        forcelarge = 1;
     }
 
     /* Store offset because a realloc may change the address of zl. */
