@@ -457,6 +457,8 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
                 }
                 id = s->last_id;
                 id.seq++;
+            } else {
+                id = *use_id;
             }
         }
     } else {
