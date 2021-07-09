@@ -672,6 +672,7 @@ struct client *createAOFClient(void) {
     c->reply_bytes = 0;
     c->start_buf_node = NULL;
     c->start_buf_block_pos = 0;
+    c->used_repl_buf_blocks = 0;
     c->used_repl_buf_size = 0;
     c->obuf_soft_limit_reached_time = 0;
     c->watched_keys = listCreate();

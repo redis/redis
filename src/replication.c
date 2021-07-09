@@ -301,7 +301,7 @@ void feedReplicationBuffer(char *s, size_t len) {
         tail->refcount = 0;
         memcpy(tail->buf, s, len);
         listAddNodeTail(server.repl_buffer_blocks, tail);
-        server.repl_buffer_size += tail->size;
+        server.repl_buffer_size += (usable_size + sizeof(listNode));
         add_new_block = 1;
         if (start_node == NULL) {
             start_node = listLast(server.repl_buffer_blocks);
@@ -324,6 +324,7 @@ void feedReplicationBuffer(char *s, size_t len) {
 
             /* Use the before existed last node. */
             if (used_last_block) {
+                slave->used_repl_buf_blocks++;
                 /* To easily calculate output buffer size of slave, we add repl
                  * block size and list node size into used_repl_buf_size. */
                 slave->used_repl_buf_size += (used_last_block->size +
@@ -332,6 +333,7 @@ void feedReplicationBuffer(char *s, size_t len) {
         }
 
         if (add_new_block) {
+            slave->used_repl_buf_blocks++;
             slave->used_repl_buf_size += (tail->size + sizeof(listNode) +
                                           sizeof(replBufBlock));
             closeClientOnOutputBufferLimitReached(slave, 1);
@@ -355,7 +357,8 @@ void freeReplicaReplBuffer(client *replica) {
     while ((ln = listNext(&li))) {
         replBufBlock *o = listNodeValue(ln);
         if (o->refcount == 0) {
-            server.repl_buffer_size -= o->size;
+            server.repl_buffer_size -= (o->size +
+                sizeof(listNode) + sizeof(replBufBlock));
             listDelNode(server.repl_buffer_blocks, ln);
         } else {
             /* Can't continue to iterate, because other clients may
@@ -366,6 +369,7 @@ void freeReplicaReplBuffer(client *replica) {
     }
     replica->start_buf_node = NULL;
     replica->start_buf_block_pos = 0;
+    replica->used_repl_buf_blocks = 0;
     replica->used_repl_buf_size = 0;
 }
 
@@ -3926,9 +3930,9 @@ void updateFailoverStatus(void) {
 
     /* Check replication buffer, the first block of replication buffer blocks must be
      * referred by some one replica, because it will be freed if no reference, otherwise,
-     * server will be OOM. */
+     * server will be OOM, and its refcount must not be more than replicas number. */
     if (listLength(server.repl_buffer_blocks)) {
        replBufBlock *o = listNodeValue(listFirst(server.repl_buffer_blocks));
-       serverAssert(o->refcount > 0);
+       serverAssert(o->refcount > 0 && o->refcount <= listLength(server.slaves));
     }
 }

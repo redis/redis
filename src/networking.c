@@ -134,6 +134,7 @@ client *createClient(connection *conn) {
     c->buf_usable_size = zmalloc_usable_size(c)-offsetof(client,buf);
     c->start_buf_node = NULL;
     c->start_buf_block_pos = 0;
+    c->used_repl_buf_blocks = 0;
     c->used_repl_buf_size = 0;
     c->qb_pos = 0;
     c->querybuf = sdsempty();
@@ -964,6 +965,7 @@ void copyWaitBgsaveReplicaReplBuffer(client *dst, client *src) {
     if (src->start_buf_node == NULL) return;
     dst->start_buf_node = src->start_buf_node;
     dst->start_buf_block_pos = src->start_buf_block_pos;
+    dst->used_repl_buf_blocks = src->used_repl_buf_blocks;
     dst->used_repl_buf_size = src->used_repl_buf_size;
     ((replBufBlock *)listNodeValue(dst->start_buf_node))->refcount++;
 }
@@ -1517,11 +1519,13 @@ int _writeToClient(client *c, ssize_t *nwritten) {
             /* The replica must always keep the last buffer block. */
             serverAssert(c->used_repl_buf_size == o->size +
                 sizeof(listNode) + sizeof(replBufBlock));
+            serverAssert(c->used_repl_buf_blocks == 1);
         }
 
         /* If we fully sent the object on head go to the next one */
         if (next && c->start_buf_block_pos == o->used) {
             serverAssert(o->size == o->used);
+            c->used_repl_buf_blocks--;
             c->used_repl_buf_size -= (o->size + sizeof(listNode) +
                                sizeof(replBufBlock));
             o->refcount--;
@@ -1529,7 +1533,8 @@ int _writeToClient(client *c, ssize_t *nwritten) {
             if (o->refcount == 0 &&
                 listFirst(server.repl_buffer_blocks) == c->start_buf_node)
             {
-                server.repl_buffer_size -= o->size;
+                server.repl_buffer_size -= (o->size +
+                    sizeof(listNode) + sizeof(replBufBlock));
                 listDelNode(server.repl_buffer_blocks, c->start_buf_node);
             }
             /* Incr the block reference count. */
@@ -2267,24 +2272,6 @@ void readQueryFromClient(connection *conn) {
      processInputBuffer(c);
 }
 
-void getClientsMaxBuffers(unsigned long *longest_output_list,
-                          unsigned long *biggest_input_buffer) {
-    client *c;
-    listNode *ln;
-    listIter li;
-    unsigned long lol = 0, bib = 0;
-
-    listRewind(server.clients,&li);
-    while ((ln = listNext(&li)) != NULL) {
-        c = listNodeValue(ln);
-
-        if (listLength(c->reply) > lol) lol = listLength(c->reply);
-        if (sdslen(c->querybuf) > bib) bib = sdslen(c->querybuf);
-    }
-    *longest_output_list = lol;
-    *biggest_input_buffer = bib;
-}
-
 /* A Redis "Address String" is a colon separated ip:port pair.
  * For IPv4 it's in the form x.y.z.k:port, example: "127.0.0.1:1234".
  * For IPv6 addresses we use [] around the IP part, like in "[::1]:1234".
@@ -2400,7 +2387,7 @@ sds catClientInfoString(sds s, client *client) {
         (unsigned long long) sdsavail(client->querybuf),
         (unsigned long long) client->argv_len_sum,
         (unsigned long long) client->bufpos,
-        (unsigned long long) listLength(client->reply),
+        (unsigned long long) listLength(client->reply) + client->used_repl_buf_blocks,
         (unsigned long long) obufmem, /* should not include client->buf since we want to see 0 for static clients. */
         (unsigned long long) total_mem,
         events,

@@ -1001,6 +1001,7 @@ typedef struct client {
 
     listNode *start_buf_node;    /* Start node of replication buffer blocks. */
     size_t start_buf_block_pos;  /* Start position of start node. */
+    size_t used_repl_buf_blocks; /* Replication buffer block number. */
     size_t used_repl_buf_size;   /* Used size of replication buffer. */
 
     /* Response buffer */
@@ -1914,15 +1915,10 @@ void addReplyHelp(client *c, const char **help);
 void addReplySubcommandSyntaxError(client *c);
 void addReplyLoadedModules(client *c);
 int prepareClientToWrite(client *c);
-void freeReplicaReplBuffer(client *replica);
-void feedReplicationBuffer(char *buf, size_t len);
-void copyWaitBgsaveReplicaReplBuffer(client *dst, client *src);
 size_t sdsZmallocSize(sds s);
 size_t getStringObjectSdsUsedMemory(robj *o);
 void freeClientReplyValue(void *o);
 void *dupClientReplyValue(void *o);
-void getClientsMaxBuffers(unsigned long *longest_output_list,
-                          unsigned long *biggest_input_buffer);
 char *getClientPeerId(client *client);
 char *getClientSockName(client *client);
 sds catClientInfoString(sds s, client *client);
@@ -2113,6 +2109,9 @@ void clearFailoverState(void);
 void updateFailoverStatus(void);
 void abortFailover(const char *err);
 const char *getFailoverStateString();
+void freeReplicaReplBuffer(client *replica);
+void feedReplicationBuffer(char *buf, size_t len);
+void copyWaitBgsaveReplicaReplBuffer(client *dst, client *src);
 
 /* Generic persistence functions */
 void startLoadingFile(FILE* fp, char* filename, int rdbflags);

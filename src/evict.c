@@ -341,9 +341,7 @@ size_t freeMemoryGetNotCountedMemory(void) {
             overhead += getClientPrivateOutputBufferMemoryUsage(slave);
         }
     }
-    size_t item_extra_size = sizeof(replBufBlock) + sizeof(listNode);
-    overhead += (server.repl_buffer_size +
-        listLength(server.repl_buffer_blocks)*item_extra_size);
+    overhead += server.repl_buffer_size;
     if (server.aof_state != AOF_OFF) {
         overhead += sdsAllocSize(server.aof_buf)+aofRewriteBufferMemoryUsage();
     }
