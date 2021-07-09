@@ -5894,9 +5894,7 @@ void memtest(size_t megabytes, int passes);
 
 /* Returns 1 if there is --sentinel among the arguments or if
  * executable name contains "redis-sentinel". */
-int checkForSentinelMode(int argc, char **argv) {
-    char *exec_name = strrchr(argv[0], '/');
-    if (exec_name == NULL) exec_name = argv[0];
+int checkForSentinelMode(int argc, char **argv, char *exec_name) {
     if (strstr(exec_name,"redis-sentinel") != NULL) return 1;
 
     for (int j = 1; j < argc; j++)
@@ -6206,7 +6204,10 @@ int main(int argc, char **argv) {
     uint8_t hashseed[16];
     getRandomBytes(hashseed,sizeof(hashseed));
     dictSetHashFunctionSeed(hashseed);
-    server.sentinel_mode = checkForSentinelMode(argc,argv);
+
+    char *exec_name = strrchr(argv[0], '/');
+    if (exec_name == NULL) exec_name = argv[0];
+    server.sentinel_mode = checkForSentinelMode(argc,argv, exec_name);
     initServerConfig();
     ACLInit(); /* The ACL subsystem must be initialized ASAP because the
                   basic networking code and client creation depends on it. */
@@ -6231,9 +6232,9 @@ int main(int argc, char **argv) {
     /* Check if we need to start in redis-check-rdb/aof mode. We just execute
      * the program main. However the program is part of the Redis executable
      * so that we can easily execute an RDB check on loading errors. */
-    if (strstr(argv[0],"redis-check-rdb") != NULL)
+    if (strstr(exec_name,"redis-check-rdb") != NULL)
         redis_check_rdb_main(argc,argv,NULL);
-    else if (strstr(argv[0],"redis-check-aof") != NULL)
+    else if (strstr(exec_name,"redis-check-aof") != NULL)
         redis_check_aof_main(argc,argv);
 
     if (argc >= 2) {
