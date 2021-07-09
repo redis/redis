@@ -117,7 +117,9 @@ start_server {
 
     test {XADD 0-* should succeed} {
         r DEL mystream
-        r xadd mystream 0-* a b
+        set id [r xadd mystream 0-* a b]
+        lassign [split $id -] _ seq
+        assert {$seq == 1}
     }
 
     test {XADD with MAXLEN option} {
