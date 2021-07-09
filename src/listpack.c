@@ -460,10 +460,10 @@ static inline uint32_t lpEntrySizeUnsafe(unsigned char *p) {
     }
     if (LP_ENCODING_IS_32BIT_STR(p[0])) {
         uint32_t bytes = LP_ENCODING_32BIT_STR_LEN(p);
-        return 5 + bytes+ lpEncodeBacklen(NULL, bytes + 5);
+        return 5 + bytes + lpEncodeBacklen(NULL, bytes + 5);
     }
     if (p[0] == LP_EOF) return 1;
-    return 0;
+    assert(0);
 }
 
 /* Skip the current entry returning the next. It is invalid to call this
