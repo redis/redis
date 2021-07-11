@@ -168,6 +168,11 @@ void execCommand(client *c) {
         return;
     }
 
+    /* EXEC with expired watched key is disallowed*/
+    if (isWatchedKeyExpired(c)) {
+        c->flags |= (CLIENT_DIRTY_CAS);
+    }
+
     /* Check if we need to abort the EXEC because:
      * 1) Some WATCHed key was touched.
      * 2) There was a previous error while queueing commands.
@@ -340,6 +345,22 @@ void unwatchAllKeys(client *c) {
         decrRefCount(wk->key);
         zfree(wk);
     }
+}
+
+/* iterates over the watched_keys list and
+ * look for an expired key . */
+int isWatchedKeyExpired(client *c) {
+    listIter li;
+    listNode *ln;
+    watchedKey *wk;
+    if (listLength(c->watched_keys) == 0) return 0;
+    listRewind(c->watched_keys,&li);
+    while ((ln = listNext(&li))) {
+        wk = listNodeValue(ln);
+        if (keyIsExpired(wk->db, wk->key)) return 1;
+    }
+
+    return 0;
 }
 
 /* "Touch" a key, so that if this key is being WATCHed by some client the
