@@ -759,7 +759,7 @@ static int connTLSWrite(connection *conn_, const void *data, size_t data_len) {
             if (ssl_err == SSL_ERROR_ZERO_RETURN ||
                     ((ssl_err == SSL_ERROR_SYSCALL && !errno))) {
                 conn->c.state = CONN_STATE_CLOSED;
-                return 0;
+                return -1;
             } else {
                 conn->c.state = CONN_STATE_ERROR;
                 return -1;
