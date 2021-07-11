@@ -3338,8 +3338,6 @@ void call(client *c, int flags) {
     int client_old_flags = c->flags;
     struct redisCommand *real_cmd = c->cmd;
 
-    server.fixed_time_expire++;
-
     /* Send the command to clients in MONITOR mode if applicable.
      * Administrative commands are considered too dangerous to be shown. */
     if (listLength(server.monitors) &&
@@ -3357,7 +3355,13 @@ void call(client *c, int flags) {
 
     /* Call the command. */
     dirty = server.dirty;
-    updateCachedTime(0);
+
+    /* Update cache time, in case we have nested calls we want to
+     * update only on the first call*/
+    if (server.fixed_time_expire++ == 0) {
+        updateCachedTime(0);
+    }
+
     start = server.ustime;
     c->cmd->proc(c);
     duration = ustime()-start;
