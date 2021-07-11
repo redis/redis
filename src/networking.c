@@ -683,6 +683,16 @@ void addReplyDouble(client *c, double d) {
     }
 }
 
+void addReplyBigNum(client *c, const char* num, size_t len) {
+    if (c->resp == 2) {
+        addReplyBulkCBuffer(c, num, len);
+    } else {
+        addReplyLongLongWithPrefix(c,len,'(');
+        addReplyProto(c,num,len);
+        addReply(c,shared.crlf);
+    }
+}
+
 /* Add a long double as a bulk reply, but uses a human readable formatting
  * of the double instead of exposing the crude behavior of doubles to the
  * dear user. */

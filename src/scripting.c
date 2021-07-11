@@ -435,6 +435,43 @@ void luaReplyToRedisReply(client *c, lua_State *lua) {
         }
         lua_pop(lua,1); /* Discard field name pushed before. */
 
+        /* Handle big number reply. */
+        lua_pushstring(lua,"big_number");
+        lua_gettable(lua,-2);
+        t = lua_type(lua,-1);
+        if (t == LUA_TSTRING) {
+            addReplyBigNum(c,(char*)lua_tostring(lua,-1),lua_strlen(lua,-1));
+            lua_pop(lua,2);
+            return;
+        }
+        lua_pop(lua,1); /* Discard field name pushed before. */
+
+        /* Handle verbatim reply. */
+        lua_pushstring(lua,"verbatim_string");
+        lua_gettable(lua,-2);
+        t = lua_type(lua,-1);
+        if (t == LUA_TTABLE) {
+            lua_pushstring(lua,"format");
+            lua_gettable(lua,-2);
+            t = lua_type(lua,-1);
+            if (t == LUA_TSTRING){
+                char* format = (char*)lua_tostring(lua,-1);
+                lua_pushstring(lua,"string");
+                lua_gettable(lua,-3);
+                t = lua_type(lua,-1);
+                if (t == LUA_TSTRING){
+                    size_t len;
+                    char* str = (char*)lua_tolstring(lua,-1,&len);
+                    addReplyVerbatim(c, str, len, format);
+                    lua_pop(lua,4);
+                    return;
+                }
+                lua_pop(lua,1);
+            }
+            lua_pop(lua,1);
+        }
+        lua_pop(lua,1); /* Discard field name pushed before. */
+
         /* Handle map reply. */
         lua_pushstring(lua,"map");
         lua_gettable(lua,-2);

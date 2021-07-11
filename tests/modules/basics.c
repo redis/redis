@@ -726,6 +726,18 @@ fail:
     return REDISMODULE_OK;
 }
 
+int TestExecute(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc < 2) {
+        return RedisModule_WrongArity(ctx);
+    }
+    const char* command = RedisModule_StringPtrLen(argv[1], NULL);
+    RedisModuleCallReply* reply = RedisModule_Call(ctx, command, "3v", argv + 2, argc - 2);
+
+    RedisModule_ReplyWithCallReply(ctx, reply);
+
+    return REDISMODULE_OK;
+}
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -799,6 +811,11 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx,"test.basics",
         TestBasics,"readonly",1,1,1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    /* use to test Lua functionality of resp3 reply parsing */
+    if (RedisModule_CreateCommand(ctx,"test.execute",
+        TestExecute,"readonly",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     RedisModule_SubscribeToKeyspaceEvents(ctx,
