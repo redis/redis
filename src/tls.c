@@ -755,9 +755,10 @@ static int connTLSWrite(connection *conn_, const void *data, size_t data_len) {
             updateSSLEvent(conn);
             errno = EAGAIN;
             return -1;
+        } else {
+            conn->c.state = CONN_STATE_ERROR;
+            return -1;
         }
-        conn->c.state = CONN_STATE_ERROR;
-        return -1;
     }
 
     return ret;
@@ -779,9 +780,10 @@ static int connTLSRead(connection *conn_, void *buf, size_t buf_len) {
 
             errno = EAGAIN;
             return -1;
+        } else {
+            conn->c.state = CONN_STATE_ERROR;
+            return -1;
         }
-        conn->c.state = CONN_STATE_ERROR;
-        return -1;
     }
 
     return ret;
