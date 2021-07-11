@@ -115,7 +115,7 @@ start_server {
     test {R/LPOP against empty list} {
         r lpop non-existing-list
     } {}
-
+    
     test {R/LPOP with the optional count argument} {
         assert_equal 7 [r lpush listcount aa bb cc dd ee ff gg]
         assert_equal {} [r lpop listcount 0]
