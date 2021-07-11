@@ -41,9 +41,9 @@
 #include "reply_parser.h"
 
 static void redisProtocolToLuaType_Int(void* ctx, long long val, const char* proto, size_t proto_len);
-static void redisProtocolToLuaType_Bulk(void* ctx, const char* str, size_t len, const char* proto, size_t proto_len);
-static void redisProtocolToLuaType_EmptyBulk(void* ctx, const char* proto, size_t proto_len);
-static void redisProtocolToLuaType_EmptyMBulk(void* ctx, const char* proto, size_t proto_len);
+static void redisProtocolToLuaType_BulkString(void* ctx, const char* str, size_t len, const char* proto, size_t proto_len);
+static void redisProtocolToLuaType_NullBulkString(void* ctx, const char* proto, size_t proto_len);
+static void redisProtocolToLuaType_NullArray(void* ctx, const char* proto, size_t proto_len);
 static void redisProtocolToLuaType_Status(void* ctx, const char* str, size_t len, const char* proto, size_t proto_len);
 static void redisProtocolToLuaType_Error(void* ctx, const char* str, size_t len, const char* proto, size_t proto_len);
 static void redisProtocolToLuaType_Array(struct ReplyParser* parser, void* ctx, size_t len, const char* proto);
@@ -52,6 +52,8 @@ static void redisProtocolToLuaType_Set(struct ReplyParser* parser, void* ctx, si
 static void redisProtocolToLuaType_Null(void* ctx, const char* proto, size_t proto_len);
 static void redisProtocolToLuaType_Bool(void* ctx, int val, const char* proto, size_t proto_len);
 static void redisProtocolToLuaType_Double(void* ctx, double d, const char* proto, size_t proto_len);
+static void redisProtocolToLuaType_BigNumber(void* ctx, const char* str, size_t len, const char* proto, size_t proto_len);
+static void redisProtocolToLuaType_VerbatimString(void* ctx, const char* format, const char* str, size_t len, const char* proto, size_t proto_len);
 int redis_math_random (lua_State *L);
 int redis_math_randomseed (lua_State *L);
 void ldbInit(void);
@@ -137,9 +139,9 @@ void redisProtocolToLuaType(lua_State *lua, char* reply) {
     ReplyParser parser;
 
     parser.curr_location = reply;
-    parser.empty_mbulk_callback = redisProtocolToLuaType_EmptyMBulk;
-    parser.bulk_callback = redisProtocolToLuaType_Bulk;
-    parser.empty_bulk_callback = redisProtocolToLuaType_EmptyBulk;
+    parser.null_array_callback = redisProtocolToLuaType_NullArray;
+    parser.bulk_string_callback = redisProtocolToLuaType_BulkString;
+    parser.null_bulk_string_callback = redisProtocolToLuaType_NullBulkString;
     parser.error_callback = redisProtocolToLuaType_Error;
     parser.simple_str_callback = redisProtocolToLuaType_Status;
     parser.long_callback = redisProtocolToLuaType_Int;
@@ -149,6 +151,8 @@ void redisProtocolToLuaType(lua_State *lua, char* reply) {
     parser.bool_callback = redisProtocolToLuaType_Bool;
     parser.double_callback = redisProtocolToLuaType_Double;
     parser.null_callback = redisProtocolToLuaType_Null;
+    parser.big_number_callback = redisProtocolToLuaType_BigNumber;
+    parser.verbatim_string_callback = redisProtocolToLuaType_VerbatimString;
     parser.error = NULL;
 
     parseReply(&parser, lua);
@@ -161,14 +165,14 @@ static void redisProtocolToLuaType_Int(void* ctx, long long val, const char* pro
     lua_pushnumber(lua,(lua_Number)val);
 }
 
-static void redisProtocolToLuaType_EmptyBulk(void* ctx, const char* proto, size_t proto_len) {
+static void redisProtocolToLuaType_NullBulkString(void* ctx, const char* proto, size_t proto_len) {
     UNUSED(proto);
     UNUSED(proto_len);
     lua_State *lua = ctx;
     lua_pushboolean(lua,0);
 }
 
-static void redisProtocolToLuaType_EmptyMBulk(void* ctx, const char* proto, size_t proto_len) {
+static void redisProtocolToLuaType_NullArray(void* ctx, const char* proto, size_t proto_len) {
     UNUSED(proto);
     UNUSED(proto_len);
     lua_State *lua = ctx;
@@ -176,7 +180,7 @@ static void redisProtocolToLuaType_EmptyMBulk(void* ctx, const char* proto, size
 }
 
 
-static void redisProtocolToLuaType_Bulk(void* ctx, const char* str, size_t len, const char* proto, size_t proto_len) {
+static void redisProtocolToLuaType_BulkString(void* ctx, const char* str, size_t len, const char* proto, size_t proto_len) {
     UNUSED(proto);
     UNUSED(proto_len);
     lua_State *lua = ctx;
@@ -242,6 +246,34 @@ static void redisProtocolToLuaType_Array(struct ReplyParser* parser, void* ctx, 
         parseReply(parser,lua);
         lua_settable(lua,-3);
     }
+}
+
+static void redisProtocolToLuaType_VerbatimString(void* ctx, const char* format, const char* str, size_t len, const char* proto, size_t proto_len) {
+    UNUSED(proto);
+    UNUSED(proto_len);
+    lua_State *lua = ctx;
+
+    lua_newtable(lua);
+    lua_pushstring(lua,"verbatim_string");
+    lua_newtable(lua);
+    lua_pushstring(lua,"string");
+    lua_pushlstring(lua,str,len);
+    lua_settable(lua,-3);
+    lua_pushstring(lua,"format");
+    lua_pushlstring(lua,format,3);
+    lua_settable(lua,-3);
+    lua_settable(lua,-3);
+}
+
+static void redisProtocolToLuaType_BigNumber(void* ctx, const char* str, size_t len, const char* proto, size_t proto_len) {
+    UNUSED(proto);
+    UNUSED(proto_len);
+    lua_State *lua = ctx;
+
+    lua_newtable(lua);
+    lua_pushstring(lua,"big_number");
+    lua_pushlstring(lua,str,len);
+    lua_settable(lua,-3);
 }
 
 static void redisProtocolToLuaType_Null(void* ctx, const char* proto, size_t proto_len) {

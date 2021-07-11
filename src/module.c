@@ -3804,6 +3804,21 @@ double RM_CallReplyDouble(RedisModuleCallReply *reply) {
     return callReplyGetDouble(reply);
 }
 
+/* Return the big number value of a big number reply. */
+const char* RM_CallReplyBigNumber(RedisModuleCallReply *reply, size_t* len) {
+    return callReplyGetBigNumber(reply, len);
+}
+
+/* Return the string value of an verbatim string reply. */
+const char* RM_CallReplyVerbatimFormat(RedisModuleCallReply *reply) {
+    return callReplyGetVerbatimFormat(reply);
+}
+
+/* Return the format value of an verbatim string reply. */
+const char* RM_CallReplyVerbatimString(RedisModuleCallReply *reply, size_t* len) {
+    return callReplyGetVerbatimString(reply, len);
+}
+
 /* Return the boolean value of an boolean reply. */
 int RM_CallReplyBool(RedisModuleCallReply *reply) {
     return callReplyGetBool(reply);
@@ -3829,6 +3844,10 @@ RedisModuleCallReply *RM_CallReplyMapVal(RedisModuleCallReply *reply, size_t idx
 
 /* Return the pointer and length of a string or error reply. */
 const char *RM_CallReplyStringPtr(RedisModuleCallReply *reply, size_t *len) {
+    size_t private_len;
+    if (!len) {
+        len = &private_len;
+    }
     return callReplyGetStr(reply, len);
 }
 
@@ -3862,7 +3881,7 @@ RedisModuleString *RM_CreateStringFromCallReply(RedisModuleCallReply *reply) {
  *     "!" -> REDISMODULE_ARGV_REPLICATE
  *     "A" -> REDISMODULE_ARGV_NO_AOF
  *     "R" -> REDISMODULE_ARGV_NO_REPLICAS
- *     "N" -> REDISMODULE_ARGV_RESP_3
+ *     "3" -> REDISMODULE_ARGV_RESP_3
  *
  * On error (format specifier error) NULL is returned and nothing is
  * allocated. On success the argument vector is returned. */
@@ -3921,7 +3940,7 @@ robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int 
             if (flags) (*flags) |= REDISMODULE_ARGV_NO_AOF;
         } else if (*p == 'R') {
             if (flags) (*flags) |= REDISMODULE_ARGV_NO_REPLICAS;
-        } else if (*p == 'N') {
+        } else if (*p == '3') {
             if (flags) (*flags) |= REDISMODULE_ARGV_RESP_3;
         } else {
             goto fmterr;
@@ -9293,6 +9312,9 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(FreeCallReply);
     REGISTER_API(CallReplyInteger);
     REGISTER_API(CallReplyDouble);
+    REGISTER_API(CallReplyBigNumber);
+    REGISTER_API(CallReplyVerbatimFormat);
+    REGISTER_API(CallReplyVerbatimString);
     REGISTER_API(CallReplyBool);
     REGISTER_API(CallReplySetElement);
     REGISTER_API(CallReplyMapKey);
