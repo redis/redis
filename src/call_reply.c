@@ -429,7 +429,7 @@ const char* callReplyGetBigNumber(CallReply* rep, size_t* len) {
  * * REDISMODULE_REPLY_VERBATIM_STRING
  *
  * An optional output argument can be given to get verbatim reply
- * format, NULL can be give to ignore it.
+ * format, or NULL if not needed.
  *
  * The returned value is only borrowed and its lifetime is
  * as long as the given CallReply.
