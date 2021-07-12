@@ -3861,9 +3861,7 @@ RedisModuleCallReply *RM_CallReplyAttribute(RedisModuleCallReply *reply) {
 /* Return the pointer and length of a string or error reply. */
 const char *RM_CallReplyStringPtr(RedisModuleCallReply *reply, size_t *len) {
     size_t private_len;
-    if (!len) {
-        len = &private_len;
-    }
+    if (!len) len = &private_len;
     return callReplyGetStr(reply, len);
 }
 
