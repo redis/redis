@@ -371,7 +371,7 @@ static int callReplyGetMapElementInternal(CallReply* rep, size_t idx, CallReply*
  * The key and val are both output params which can be NULL(in this case they are not populated).
  * Return C_OK on success and C_ERR if reply type is wrong or if the idx is out of range.
  *
- * The returned values are only borrowed and thier lifetime is
+ * The returned values are only borrowed and their lifetime is
  * as long as the given CallReply. In addition there is no need
  * to manually free the returned CallReplies, it will be freed when
  * the root CallReplied will be freed.
@@ -399,7 +399,7 @@ CallReply* callReplyGetAttribute(CallReply* rep) {
  * The key and val are both output params which can be NULL(in this case they are not populated).
  * Return C_OK on success and C_ERR if reply type is wrong or if the idx is out of range.
  *
- * The returned values are only borrowed and thier lifetime is
+ * The returned values are only borrowed and their lifetime is
  * as long as the given CallReply. In addition there is no need
  * to manually free the returned CallReplies, it will be freed when
  * the root CallReplied will be freed.

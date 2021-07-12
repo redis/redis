@@ -3825,7 +3825,7 @@ RedisModuleCallReply *RM_CallReplySetElement(RedisModuleCallReply *reply, size_t
     return callReplyGetSetElement(reply, idx);
 }
 
-/* Retrive the 'idx'-th key and value of a map reply, return REDISMODULE_OK on succuess
+/* Retrieve the 'idx'-th key and value of a map reply, return REDISMODULE_OK on succuess
  * and REDISMODULE_ERR if idx out of range or if the reply type is wrong */
 int RM_CallReplyMapElement(RedisModuleCallReply *reply, size_t idx, RedisModuleCallReply **key, RedisModuleCallReply **val) {
     if (callReplyGetMapElement(reply, idx, key, val) == C_OK){
@@ -3839,7 +3839,7 @@ RedisModuleCallReply *RM_CallReplyAttribute(RedisModuleCallReply *reply) {
     return callReplyGetAttribute(reply);
 }
 
-/* Retrive the 'idx'-th key and value of a attribute reply, return REDISMODULE_OK on succuess
+/* Retrieve the 'idx'-th key and value of a attribute reply, return REDISMODULE_OK on succuess
  * and REDISMODULE_ERR if idx out of range or if the reply type is wrong */
 int RM_CallReplyAttributeElement(RedisModuleCallReply *reply, size_t idx, RedisModuleCallReply **key, RedisModuleCallReply **val) {
     if (callReplyGetAttributeElement(reply, idx, key, val) == C_OK){

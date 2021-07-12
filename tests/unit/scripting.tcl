@@ -972,7 +972,7 @@ start_server {tags {"scripting resp3 tests"}} {
         } {0}
     }
 
-    # attibute is not relevant to test with resp2
+    # attribute is not relevant to test with resp2
     test {test resp3 attribute protocol parsing} {
         # attributes are not (yet) expose to the script
         # So here we just check the parser handles them and they are ignored.
