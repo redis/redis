@@ -47,6 +47,9 @@ typedef struct ReplyParser {
     /* Called when the parser reach a double (','), the double value is given as an argument*/
     void (*verbatim_string_callback)(void* ctx, const char* format, const char* str, size_t len, const char* proto, size_t proto_len);
 
+    /* Called when the parser reach an attribute ('|'), the attribute map size is given as an argument*/
+    void (*attribute_callback)(struct ReplyParser* parser, void* ctx, size_t len, const char* proto);
+
     /* Called when the parser reach a null ('_') */
     void (*null_callback)(void* ctx, const char* proto, size_t proto_len);
 

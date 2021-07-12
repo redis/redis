@@ -27,8 +27,10 @@ struct CallReply {
         }verbatim_str;   /* Reply value for verbatim string */
         long long ll;    /* Reply value for integer reply. */
         double d;        /* Reply value for double reply. */
-        struct CallReply *array; /* Array of sub-reply elements. */
+        struct CallReply *array; /* Array of sub-reply elements. used for set, array, map, and attribute */
     } val;
+
+    struct CallReply *attribute; /* attribute reply, NULL if not exists */
 };
 
 static void callReplySetSharedData(CallReply* rep, int type, const char* proto, size_t proto_len) {
@@ -121,6 +123,25 @@ static void callReplyParseCollection(ReplyParser* parser, CallReply* rep, size_t
     rep->proto_len = parser->curr_location - proto;
 }
 
+static void callReplyAttribute(ReplyParser* parser, void* ctx, size_t len, const char* proto) {
+    CallReply* rep = ctx;
+    rep->attribute = zcalloc(sizeof(CallReply));
+
+    /* continue parsing the attribute reply */
+    rep->attribute->len = len;
+    rep->attribute->type = REDISMODULE_REPLY_ATTRIBUTE;
+    callReplyParseCollection(parser, rep->attribute, len, proto, 2);
+    rep->attribute->flags |= REPLY_FLAG_PARSED;
+    rep->attribute->private_data = rep->private_data;
+
+    /* continue parsing the reply */
+    parseReply(parser, rep);
+
+    /* in this case we need to fix the proto address and len, it should start from the attribute */
+    rep->proto = proto;
+    rep->proto_len = parser->curr_location - proto;
+}
+
 static void callReplyArray(ReplyParser* parser, void* ctx, size_t len, const char* proto) {
     CallReply* rep = ctx;
     rep->type = REDISMODULE_REPLY_ARRAY;
@@ -155,12 +176,17 @@ static void freeCallReplyInternal(CallReply* rep) {
         zfree(rep->val.array);
     }
 
-    if (rep->type == REDISMODULE_REPLY_MAP) {
+    if (rep->type == REDISMODULE_REPLY_MAP || rep->type == REDISMODULE_REPLY_ATTRIBUTE) {
         for (size_t i = 0 ; i < rep->len ; ++i) {
             freeCallReplyInternal(rep->val.array + i * 2);
             freeCallReplyInternal(rep->val.array + i * 2 + 1);
         }
         zfree(rep->val.array);
+    }
+
+    if (rep->attribute) {
+        freeCallReplyInternal(rep->attribute);
+        zfree(rep->attribute);
     }
 }
 
@@ -207,6 +233,7 @@ static void callReplyParse(CallReply* rep) {
     parser.bool_callback = callReplyBool;
     parser.big_number_callback = callReplyBigNumber;
     parser.verbatim_string_callback = callReplyVerbatimString;
+    parser.attribute_callback = callReplyAttribute;
     parser.error = callReplyParseError;
 
     parseReply(&parser, rep);
@@ -277,6 +304,7 @@ int callReplyGetBool(CallReply* rep) {
  * * REDISMODULE_REPLY_ARRAY
  * * REDISMODULE_REPLY_SET
  * * REDISMODULE_REPLY_MAP
+ * * REDISMODULE_REPLY_ATTRIBUTE
  */
 size_t callReplyGetLen(CallReply* rep) {
     callReplyParse(rep);
@@ -286,6 +314,7 @@ size_t callReplyGetLen(CallReply* rep) {
     case REDISMODULE_REPLY_ARRAY:
     case REDISMODULE_REPLY_SET:
     case REDISMODULE_REPLY_MAP:
+    case REDISMODULE_REPLY_ATTRIBUTE:
         return rep->len;
     default:
         return 0;
@@ -332,7 +361,7 @@ CallReply* callReplyGetSetElement(CallReply* rep, size_t idx) {
  * * REDISMODULE_REPLY_MAP
  *
  * The returned value is only borrowed and its lifetime is
- * as long as the given CallReply. In addition there is not need
+ * as long as the given CallReply. In addition there is no need
  * to manually free the returned CallReply, it will be freed when
  * the root CallReplied will be freed.
  */
@@ -348,13 +377,55 @@ CallReply* callReplyGetMapKey(CallReply* rep, size_t idx) {
  * * REDISMODULE_REPLY_MAP
  *
  * The returned value is only borrowed and its lifetime is
- * as long as the given CallReply. In addition there is not need
+ * as long as the given CallReply. In addition there is no need
  * to manually free the returned CallReply, it will be freed when
  * the root CallReplied will be freed.
  */
 CallReply* callReplyGetMapVal(CallReply* rep, size_t idx) {
     callReplyParse(rep);
     if (rep->type != REDISMODULE_REPLY_MAP) return NULL;
+    return callReplyGetCollectionElement(rep, idx * 2 + 1, 2);
+}
+
+/**
+ * Return reply attribute if exists or NULL, applicabale for all replies.
+ *
+ * The returned value is only borrowed and its lifetime is
+ * as long as the given CallReply. In addition there is no need
+ * to manually free the returned CallReply, it will be freed when
+ * the root CallReplied will be freed.
+ */
+CallReply* callReplyGetAttribute(CallReply* rep) {
+    return rep->attribute;
+}
+
+/**
+ * Return attribute reply key at a given index, applicabale for:
+ * * REDISMODULE_REPLY_ATTRIBUTE
+ *
+ * The returned value is only borrowed and its lifetime is
+ * as long as the given CallReply. In addition there is no need
+ * to manually free the returned CallReply, it will be freed when
+ * the root CallReplied will be freed.
+ */
+CallReply* callReplyGetAttributeKey(CallReply* rep, size_t idx) {
+    callReplyParse(rep);
+    if (rep->type != REDISMODULE_REPLY_ATTRIBUTE) return NULL;
+    return callReplyGetCollectionElement(rep, idx * 2, 2);
+}
+
+/**
+ * Return attribute reply value at a given index, applicabale for:
+ * * REDISMODULE_REPLY_ATTRIBUTE
+ *
+ * The returned value is only borrowed and its lifetime is
+ * as long as the given CallReply. In addition there is no need
+ * to manually free the returned CallReply, it will be freed when
+ * the root CallReplied will be freed.
+ */
+CallReply* callReplyGetAttributeVal(CallReply* rep, size_t idx) {
+    callReplyParse(rep);
+    if (rep->type != REDISMODULE_REPLY_ATTRIBUTE) return NULL;
     return callReplyGetCollectionElement(rep, idx * 2 + 1, 2);
 }
 
@@ -445,6 +516,7 @@ CallReply* callReplyCreate(sds reply, void* private_data) {
     res->proto = reply;
     res->proto_len = sdslen(reply);
     res->private_data = private_data;
+    res->attribute = NULL;
 
     return res;
 }

@@ -993,4 +993,11 @@ start_server {tags {"scripting resp3 tests"}} {
             return redis.call('debug', 'protocol', 'false')
         } 0
     } {0}
+
+    test {test resp3 attribute protocol parsing} {
+        r eval {
+            redis.setresp(3);
+            return redis.call('debug', 'protocol', 'attrib')
+        } 0
+    } {Some real reply following the attribute}
 }

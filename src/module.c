@@ -3842,6 +3842,23 @@ RedisModuleCallReply *RM_CallReplyMapVal(RedisModuleCallReply *reply, size_t idx
     return callReplyGetMapVal(reply, idx);
 }
 
+/* Return the 'idx'-th key of a attribute reply, or NULL
+ * if the reply type is wrong or the index is out of range. */
+RedisModuleCallReply *RM_CallReplyAttributeKey(RedisModuleCallReply *reply, size_t idx) {
+    return callReplyGetAttributeKey(reply, idx);
+}
+
+/* Return the 'idx'-th value of a attribute reply, or NULL
+ * if the reply type is wrong or the index is out of range. */
+RedisModuleCallReply *RM_CallReplyAttributeVal(RedisModuleCallReply *reply, size_t idx) {
+    return callReplyGetAttributeVal(reply, idx);
+}
+
+/* Return the attribute of the given reply, or NULL if no attribute exists. */
+RedisModuleCallReply *RM_CallReplyAttribute(RedisModuleCallReply *reply) {
+    return callReplyGetAttribute(reply);
+}
+
 /* Return the pointer and length of a string or error reply. */
 const char *RM_CallReplyStringPtr(RedisModuleCallReply *reply, size_t *len) {
     size_t private_len;
@@ -9319,6 +9336,9 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(CallReplySetElement);
     REGISTER_API(CallReplyMapKey);
     REGISTER_API(CallReplyMapVal);
+    REGISTER_API(CallReplyAttributeKey);
+    REGISTER_API(CallReplyAttributeVal);
+    REGISTER_API(CallReplyAttribute);
     REGISTER_API(CallReplyType);
     REGISTER_API(CallReplyLength);
     REGISTER_API(CallReplyArrayElement);

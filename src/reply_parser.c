@@ -77,6 +77,21 @@ static int parseLong(ReplyParser* parser, void* p_ctx) {
     return C_OK;
 }
 
+static int parseAttributes(ReplyParser* parser, void* p_ctx) {
+    const char *proto = parser->curr_location;
+    char *p = strchr(proto+1,'\r');
+    long long len;
+
+    string2ll(proto+1,p-proto-1,&len);
+    p += 2;
+
+    parser->curr_location = p;
+
+    parser->attribute_callback(parser, p_ctx, len, proto);
+
+    return C_OK;
+}
+
 static int parseVerbatimString(ReplyParser* parser, void* p_ctx) {
     const char *proto = parser->curr_location;
     char *p = strchr(proto+1,'\r');
@@ -212,6 +227,7 @@ int parseReply(ReplyParser* parser, void* p_ctx) {
     case '_': return parseNull(parser, p_ctx);
     case '(': return parseBigNumber(parser, p_ctx);
     case '=': return parseVerbatimString(parser, p_ctx);
+    case '|': return parseAttributes(parser, p_ctx);
     default: if (parser->error) parser->error(p_ctx);
     }
     return C_OK;

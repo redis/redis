@@ -77,6 +77,38 @@ fail:
     return REDISMODULE_OK;
 }
 
+int TestCallResp3Attribute(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+
+    RedisModule_AutoMemory(ctx);
+    RedisModuleCallReply *reply;
+
+    reply = RedisModule_Call(ctx,"DEBUG","3cc" ,"PROTOCOL", "attrib"); /* 3 stands for resp 3 reply */
+    if (RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_STRING) goto fail;
+    if (!TestMatchReply(reply,"Some real reply following the attribute")) goto fail;
+
+    reply = RedisModule_CallReplyAttribute(reply);
+    if (!reply || RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_ATTRIBUTE) goto fail;
+    if (RedisModule_CallReplyLength(reply) != 1) goto fail;
+
+    RedisModuleCallReply *key = RedisModule_CallReplyAttributeKey(reply,0);
+    RedisModuleCallReply *val = RedisModule_CallReplyAttributeVal(reply,0);
+    if (!TestMatchReply(key,"key-popularity")) goto fail;
+
+    if (RedisModule_CallReplyType(val) != REDISMODULE_REPLY_ARRAY) goto fail;
+    if (RedisModule_CallReplyLength(val) != 2) goto fail;
+    if (!TestMatchReply(RedisModule_CallReplyArrayElement(val, 0),"key:123")) goto fail;
+    if (!TestMatchReply(RedisModule_CallReplyArrayElement(val, 1),"90")) goto fail;
+
+    RedisModule_ReplyWithSimpleString(ctx,"OK");
+    return REDISMODULE_OK;
+
+fail:
+    RedisModule_ReplyWithSimpleString(ctx,"ERR");
+    return REDISMODULE_OK;
+}
+
 int TestCallResp3Map(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -739,6 +771,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx,"test.callresp3map",
         TestCallResp3Map,"write deny-oom",1,1,1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"test.callresp3attribute",
+        TestCallResp3Attribute,"write deny-oom",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"test.callresp3set",

@@ -52,6 +52,7 @@
 #define REDISMODULE_REPLY_DOUBLE 7
 #define REDISMODULE_REPLY_BIG_NUMBER 8
 #define REDISMODULE_REPLY_VERBATIM_STRING 9
+#define REDISMODULE_REPLY_ATTRIBUTE 9
 
 /* Postponed array length. */
 #define REDISMODULE_POSTPONED_ARRAY_LEN -1
@@ -623,6 +624,9 @@ REDISMODULE_API const char* (*RedisModule_CallReplyVerbatimString)(RedisModuleCa
 REDISMODULE_API RedisModuleCallReply * (*RedisModule_CallReplySetElement)(RedisModuleCallReply *reply, size_t idx) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleCallReply * (*RedisModule_CallReplyMapKey)(RedisModuleCallReply *reply, size_t idx) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleCallReply * (*RedisModule_CallReplyMapVal)(RedisModuleCallReply *reply, size_t idx) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleCallReply * (*RedisModule_CallReplyAttributeKey)(RedisModuleCallReply *reply, size_t idx) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleCallReply * (*RedisModule_CallReplyAttributeVal)(RedisModuleCallReply *reply, size_t idx) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleCallReply * (*RedisModule_CallReplyAttribute)(RedisModuleCallReply *reply) REDISMODULE_ATTR;
 REDISMODULE_API size_t (*RedisModule_CallReplyLength)(RedisModuleCallReply *reply) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleCallReply * (*RedisModule_CallReplyArrayElement)(RedisModuleCallReply *reply, size_t idx) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleString * (*RedisModule_CreateString)(RedisModuleCtx *ctx, const char *ptr, size_t len) REDISMODULE_ATTR;
@@ -934,6 +938,9 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(CallReplySetElement);
     REDISMODULE_GET_API(CallReplyMapKey);
     REDISMODULE_GET_API(CallReplyMapVal);
+    REDISMODULE_GET_API(CallReplyAttributeKey);
+    REDISMODULE_GET_API(CallReplyAttributeVal);
+    REDISMODULE_GET_API(CallReplyAttribute);
     REDISMODULE_GET_API(CallReplyType);
     REDISMODULE_GET_API(CallReplyLength);
     REDISMODULE_GET_API(CallReplyArrayElement);
