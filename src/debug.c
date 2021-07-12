@@ -871,14 +871,10 @@ NULL
     {
         stringmatchlen_fuzz_test();
         addReplyStatus(c,"Apparently Redis did not crash: test passed");
-    } else if (!strcasecmp(c->argv[1]->ptr,"disable-deny-scripts") && c->argc == 2)
+    } else if (!strcasecmp(c->argv[1]->ptr,"set-disable-deny-scripts") && c->argc == 3)
     {
-        server.lua_disable_deny_script = 1;
+        server.lua_disable_deny_script = atoi(c->argv[2]->ptr);;
         addReplyStatus(c,"OK, disabling deny-scripts is dangerous and should not be done on production");
-    } else if (!strcasecmp(c->argv[1]->ptr,"enable-deny-scripts") && c->argc == 2)
-    {
-        server.lua_disable_deny_script = 0;
-        addReplyStatus(c,"OK");
     } else if (!strcasecmp(c->argv[1]->ptr,"config-rewrite-force-all") && c->argc == 2)
     {
         if (rewriteConfig(server.configfile, 1) == -1)

@@ -936,7 +936,7 @@ start_server {tags {"scripting external:skip"}} {
 }
 
 start_server {tags {"scripting resp3 tests"}} {
-    r debug disable-deny-scripts
+    r debug set-disable-deny-scripts 1
 
     test {test resp3 big number protocol parsing} {
         r eval {
