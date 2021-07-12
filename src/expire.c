@@ -258,8 +258,8 @@ void activeExpireCycle(int type) {
                     if (table == 1 && !dictIsRehashing(db->expires)) break;
 
                     unsigned long idx = db->expires_cursor;
-                    idx &= DICTHT_SIZE_MASK(&db->expires->ht[table]);
-                    dictEntry *de = db->expires->ht[table].table[idx];
+                    idx &= DICTHT_SIZE_MASK(db->expires->ht_size_exp[table]);
+                    dictEntry *de = db->expires->ht_table[table][idx];
                     long long ttl;
 
                     /* Scan the current bucket of the current table. */

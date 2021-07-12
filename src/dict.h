@@ -68,21 +68,21 @@ typedef struct dictType {
     int (*expandAllowed)(size_t moreMem, double usedRatio);
 } dictType;
 
-typedef struct dictht {
-    dictEntry **table;
-    unsigned long used;
-    char size_exp;
-} dictht;
-
-#define DICTHT_SIZE(d) ((d)->size_exp == -1 ? 0 : (unsigned long)1<<(d)->size_exp)
-#define DICTHT_SIZE_MASK(d) ((d)->size_exp == -1 ? 0 : (DICTHT_SIZE(d))-1)
+#define DICTHT_SIZE(exp) ((exp) == -1 ? 0 : (unsigned long)1<<(exp))
+#define DICTHT_SIZE_MASK(exp) ((exp) == -1 ? 0 : (DICTHT_SIZE(exp))-1)
 
 typedef struct dict {
     dictType *type;
     void *privdata;
-    dictht ht[2];
+
+    dictEntry **ht_table[2];
+    unsigned long ht_used[2];
+
     long rehashidx; /* rehashing not in progress if rehashidx == -1 */
+
+    /* Keep small vars at end for optimal (minimal) struct padding */
     int16_t pauserehash; /* If >0 rehashing is paused (<0 indicates coding error) */
+    char ht_size_exp[2];
 } dict;
 
 /* If safe is set to 1 this is a safe iterator, that means, you can call
@@ -148,8 +148,8 @@ typedef void (dictScanBucketFunction)(void *privdata, dictEntry **bucketref);
 #define dictGetSignedIntegerVal(he) ((he)->v.s64)
 #define dictGetUnsignedIntegerVal(he) ((he)->v.u64)
 #define dictGetDoubleVal(he) ((he)->v.d)
-#define dictSlots(d) (DICTHT_SIZE(&(d)->ht[0])+DICTHT_SIZE(&(d)->ht[1]))
-#define dictSize(d) ((d)->ht[0].used+(d)->ht[1].used)
+#define dictSlots(d) (DICTHT_SIZE((d)->ht_size_exp[0])+DICTHT_SIZE((d)->ht_size_exp[1]))
+#define dictSize(d) ((d)->ht_used[0]+(d)->ht_used[1])
 #define dictIsRehashing(d) ((d)->rehashidx != -1)
 #define dictPauseRehashing(d) (d)->pauserehash++
 #define dictResumeRehashing(d) (d)->pauserehash--
