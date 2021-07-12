@@ -394,7 +394,7 @@ CallReply* callReplyGetAttribute(CallReply* rep) {
  * Retrieve attribute reply key and value at a given index, applicabale for:
  * * REDISMODULE_REPLY_ATTRIBUTE
  *
- * The key and val are both output params which can be NULL(in this case they are not populated).
+ * The key and val are both output params which can be NULL (in this case they are not needed).
  * Return C_OK on success and C_ERR if reply type is wrong or if the idx is out of range.
  *
  * The returned values are only borrowed and their lifetime is
