@@ -1434,7 +1434,7 @@ NULL
         addReplyVerbatim(c,info,sdslen(info),"txt");
         sdsfree(info);
 #else
-        addReplyError(c,"Stats not supported for the current allocator");
+        addReplyBulkCString(c,"Stats not supported for the current allocator");
 #endif
     } else if (!strcasecmp(c->argv[1]->ptr,"doctor") && c->argc == 2) {
         sds report = getMemoryDoctorReport();
