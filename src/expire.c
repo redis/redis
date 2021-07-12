@@ -258,7 +258,7 @@ void activeExpireCycle(int type) {
                     if (table == 1 && !dictIsRehashing(db->expires)) break;
 
                     unsigned long idx = db->expires_cursor;
-                    idx &= db->expires->ht[table].sizemask;
+                    idx &= DICTHT_SIZE_MASK(&db->expires->ht[table]);
                     dictEntry *de = db->expires->ht[table].table[idx];
                     long long ttl;
 
