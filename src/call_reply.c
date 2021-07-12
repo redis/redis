@@ -368,7 +368,6 @@ CallReply* callReplyGetMapKey(CallReply* rep, size_t idx) {
     callReplyParse(rep);
     if (rep->type != REDISMODULE_REPLY_MAP) return NULL;
     return callReplyGetCollectionElement(rep, idx * 2, 2);
-
 }
 
 /**
