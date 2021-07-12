@@ -1691,8 +1691,7 @@ int RM_ReplyWithCallReply(RedisModuleCtx *ctx, RedisModuleCallReply *reply) {
     if (c == NULL) return REDISMODULE_OK;
     size_t proto_len;
     const char* proto = callReplyGetProto(reply, &proto_len);
-    sds proto_dup = sdsnewlen(proto, proto_len);
-    addReplySds(c,proto_dup);
+    addReplyProto(c,proto, proto_len);
     return REDISMODULE_OK;
 }
 
