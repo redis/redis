@@ -205,7 +205,6 @@ void freeCallReply(CallReply* rep) {
     }
     sdsfree(rep->original_proto);
     zfree(rep);
-
 }
 
 /**
@@ -520,4 +519,3 @@ CallReply* callReplyCreate(sds reply, void* private_data) {
 
     return res;
 }
-
