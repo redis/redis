@@ -3841,7 +3841,8 @@ RedisModuleCallReply *RM_CallReplyAttribute(RedisModuleCallReply *reply) {
 }
 
 /* Retrieve the 'idx'-th key and value of a attribute reply, return REDISMODULE_OK on succuess
- * and REDISMODULE_ERR if idx out of range or if the reply type is wrong */
+ * and REDISMODULE_ERR if idx out of range or if the reply type is wrong.
+  * `key` and `val` are output parameters (can be NULL if note needed) */
 int RM_CallReplyAttributeElement(RedisModuleCallReply *reply, size_t idx, RedisModuleCallReply **key, RedisModuleCallReply **val) {
     if (callReplyGetAttributeElement(reply, idx, key, val) == C_OK){
         return REDISMODULE_OK;
