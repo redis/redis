@@ -23,8 +23,6 @@ static int parseBulk(ReplyParser* parser, void* p_ctx) {
     const char *proto = parser->curr_location;
     char *p = strchr(proto+1,'\r');
     long long bulklen;
-
-
     parser->curr_location = p + 2; /* for \r\n */
 
     string2ll(proto+1,p-proto-1,&bulklen);
@@ -232,5 +230,4 @@ int parseReply(ReplyParser* parser, void* p_ctx) {
     }
     return C_OK;
 }
-
 
