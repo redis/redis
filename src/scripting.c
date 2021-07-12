@@ -672,7 +672,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     c->cmd = c->lastcmd = cmd;
 
     /* There are commands that are not allowed inside scripts. */
-    if (cmd->flags & CMD_NOSCRIPT) {
+    if (!server.lua_disable_deny_script && (cmd->flags & CMD_NOSCRIPT)) {
         luaPushError(lua, "This Redis command is not allowed from scripts");
         goto cleanup;
     }
@@ -1189,6 +1189,7 @@ void scriptingInit(int setup) {
         server.lua_caller = NULL;
         server.lua_cur_script = NULL;
         server.lua_timedout = 0;
+        server.lua_disable_deny_script = 0;
         ldbInit();
     }
 

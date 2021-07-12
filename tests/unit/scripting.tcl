@@ -934,3 +934,63 @@ start_server {tags {"scripting external:skip"}} {
     r eval {return 'hello'} 0
     r eval {return 'hello'} 0
 }
+
+start_server {tags {"scripting resp3 tests"}} {
+    r debug disable-deny-scripts
+
+    test {test resp3 big number protocol parsing} {
+        r eval {
+            redis.setresp(3);
+            return redis.call('debug', 'protocol', 'bignum')
+        } 0
+    } {1234567999999999999999999999999999999}
+
+    test {test resp3 map protocol parsing} {
+        r eval {
+            redis.setresp(3);
+            return redis.call('debug', 'protocol', 'map')
+        } 0
+    } {1 1 2 0 0 0}
+
+    test {test resp3 set protocol parsing} {
+        r eval {
+            redis.setresp(3);
+            return redis.call('debug', 'protocol', 'set')
+        } 0
+    } {1 2 0}
+
+    test {test resp3 double protocol parsing} {
+        r eval {
+            redis.setresp(3);
+            return redis.call('debug', 'protocol', 'double')
+        } 0
+    } {3.1415926535900001}
+
+    test {test resp3 null protocol parsing} {
+        r eval {
+            redis.setresp(3);
+            return redis.call('debug', 'protocol', 'null')
+        } 0
+    } {}
+
+    test {test resp3 verbatim protocol parsing} {
+        r eval {
+            redis.setresp(3);
+            return redis.call('debug', 'protocol', 'verbatim')
+        } 0
+    } "This is a verbatim\nstring"
+
+    test {test resp3 true protocol parsing} {
+        r eval {
+            redis.setresp(3);
+            return redis.call('debug', 'protocol', 'true')
+        } 0
+    } {1}
+
+    test {test resp3 false protocol parsing} {
+        r eval {
+            redis.setresp(3);
+            return redis.call('debug', 'protocol', 'false')
+        } 0
+    } {0}
+}
