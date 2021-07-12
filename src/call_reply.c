@@ -118,7 +118,6 @@ static void callReplyParseCollection(ReplyParser* parser, CallReply* rep, size_t
             rep->val.array[i + j].private_data = rep->private_data;
         }
     }
-
     rep->proto = proto;
     rep->proto_len = parser->curr_location - proto;
 }
@@ -199,7 +198,6 @@ void freeCallReply(CallReply* rep) {
     if (!(rep->flags & REPLY_FLAG_ROOT)) {
         return;
     }
-
     if (rep->flags & REPLY_FLAG_PARSED) {
         freeCallReplyInternal(rep);
     }
@@ -485,6 +483,5 @@ CallReply* callReplyCreate(sds reply, void* private_data) {
     res->proto_len = sdslen(reply);
     res->private_data = private_data;
     res->attribute = NULL;
-
     return res;
 }
