@@ -1928,9 +1928,10 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid) {
                 }
                 o->type = OBJ_HASH;
                 o->encoding = OBJ_ENCODING_ZIPLIST;
-                hashTypeConvert(o, OBJ_ENCODING_LISTPACK);
-                if (hashTypeLength(o) > server.hash_max_ziplist_entries) {
+                if (ziplistLen(o->ptr) > server.hash_max_ziplist_entries) {
                     hashTypeConvert(o, OBJ_ENCODING_HT);
+                } else {
+                    hashTypeConvert(o, OBJ_ENCODING_LISTPACK);
                 }
                 break;
             case RDB_TYPE_HASH_LISTPACK:

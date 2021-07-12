@@ -463,15 +463,16 @@ robj *hashTypeLookupWriteOrCreate(client *c, robj *key) {
 }
 
 void hashTypeConvertZiplist(robj *o, int enc) {
+    unsigned char *p, *val;
+    unsigned int vlen;
+    long long lval;
+    char longstr[32] = {0};
+
     serverAssert(o->encoding == OBJ_ENCODING_ZIPLIST);
 
-    if (enc == OBJ_ENCODING_ZIPLIST || enc == OBJ_ENCODING_HT) {
+    if (enc == OBJ_ENCODING_ZIPLIST) {
         /* Nothing to do... */
     } else if (enc == OBJ_ENCODING_LISTPACK) {
-        unsigned char *p, *val;
-        unsigned int vlen;
-        long long lval;
-        char longstr[32] = {0};
         unsigned char *lp; 
 
         /* Use ziplist's size to pre-allocate listpack,
@@ -492,6 +493,32 @@ void hashTypeConvertZiplist(robj *o, int enc) {
         zfree(o->ptr);
         o->encoding = OBJ_ENCODING_LISTPACK;
         o->ptr = lp;
+    } else if (enc == OBJ_ENCODING_HT) {
+        dict *dict = dictCreate(&hashDictType, NULL);
+
+        /* Presize the dict to avoid rehashing */
+        dictExpand(dict, ziplistLen(o->ptr)/2);
+
+        p = ziplistIndex(o->ptr, 0);
+        while (ziplistGet(p, &val, &vlen, &lval)) {
+            sds key, value;
+
+            key = val ? sdsnewlen(val, vlen) : sdsfromlonglong(lval);
+            p = ziplistNext(o->ptr, p);
+            serverAssert(ziplistGet(p, &val, &vlen, &lval));
+            value = val ? sdsnewlen(val, vlen) : sdsfromlonglong(lval);
+            if (dictAdd(dict, key, value) != DICT_OK) {
+                serverLogHexDump(LL_WARNING,"ziplist with dup elements dump",
+                    o->ptr,lpBytes(o->ptr));
+                serverPanic("Ziplist corruption detected");
+            }
+
+            p = ziplistNext(o->ptr, p);
+        }
+
+        zfree(o->ptr);
+        o->encoding = OBJ_ENCODING_HT;
+        o->ptr = dict;
     } else {
         serverPanic("Unknown hash encoding");
     }
@@ -521,9 +548,9 @@ void hashTypeConvertListpack(robj *o, int enc) {
             value = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_VALUE);
             ret = dictAdd(dict, key, value);
             if (ret != DICT_OK) {
-                serverLogHexDump(LL_WARNING,"ziplist with dup elements dump",
+                serverLogHexDump(LL_WARNING,"listpack with dup elements dump",
                     o->ptr,lpBytes(o->ptr));
-                serverPanic("Ziplist corruption detected");
+                serverPanic("Listpack corruption detected");
             }
         }
         hashTypeReleaseIterator(hi);

@@ -69,7 +69,17 @@ test {corrupt payload: valid zipped hash header, dup records} {
         r config set hash-max-ziplist-entries 1
         # cause an assertion when converting to hash table
         catch {r hset key b b}
-        verify_log_message 0 "*ziplist with dup elements dump*" 0
+        verify_log_message 0 "*listpack with dup elements dump*" 0
+    }
+
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload no
+        r config set hash-max-ziplist-entries 1
+        # cause an assertion when converting to hash table
+        catch {
+            r restore key 0 "\x0D\x1B\x1B\x00\x00\x00\x16\x00\x00\x00\x04\x00\x00\x02\x61\x00\x04\x02\x62\x00\x04\x02\x61\x00\x04\x02\x64\x00\xFF\x09\x00\xA1\x98\x36\x78\xCC\x8E\x93\x2E"
+        }
+        verify_log_message 0 "*ziplist with dup elements dump*" 1
     }
 }
 
