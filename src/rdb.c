@@ -1722,8 +1722,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid) {
             }
 
             /* Add pair to listpack */
-            o->ptr = lpPushTail(o->ptr, (unsigned char*)field, sdslen(field));
-            o->ptr = lpPushTail(o->ptr, (unsigned char*)value, sdslen(value));
+            o->ptr = lpAppend(o->ptr, (unsigned char*)field, sdslen(field));
+            o->ptr = lpAppend(o->ptr, (unsigned char*)value, sdslen(value));
 
             /* Convert to hash table if size threshold is exceeded */
             if (sdslen(field) > server.hash_max_ziplist_value ||
@@ -1847,8 +1847,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid) {
                     while ((zi = zipmapNext(zi, &fstr, &flen, &vstr, &vlen)) != NULL) {
                         if (flen > maxlen) maxlen = flen;
                         if (vlen > maxlen) maxlen = vlen;
-                        zl = lpPushTail(zl, fstr, flen);
-                        zl = lpPushTail(zl, vstr, vlen);
+                        zl = lpAppend(zl, fstr, flen);
+                        zl = lpAppend(zl, vstr, vlen);
 
                         /* search for duplicate records */
                         sds field = sdstrynewlen(fstr, flen);

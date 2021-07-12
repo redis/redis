@@ -227,8 +227,8 @@ int hashTypeSet(robj *o, sds field, sds value, int flags) {
 
         if (!update) {
             /* Push new field/value pair onto the tail of the ziplist */
-            zl = lpPushTail(zl, (unsigned char*)field, sdslen(field));
-            zl = lpPushTail(zl, (unsigned char*)value, sdslen(value));
+            zl = lpAppend(zl, (unsigned char*)field, sdslen(field));
+            zl = lpAppend(zl, (unsigned char*)value, sdslen(value));
         }
         o->ptr = zl;
 
@@ -475,7 +475,7 @@ void hashTypeConvertZiplist(robj *o, int enc) {
         unsigned char *lp; 
 
         /* Use ziplist's size to pre-allocate listpack,
-         * avoid realloc when lpPushTail. */
+         * avoid realloc when lpAppend. */
         lp = lpNew(ziplistBlobLen(o->ptr)); 
         p = ziplistIndex(o->ptr, 0);
         while (ziplistGet(p, &val, &vlen, &lval)) {
@@ -484,7 +484,7 @@ void hashTypeConvertZiplist(robj *o, int enc) {
                 val = (unsigned char *)longstr;
             }
 
-            lp = lpPushTail(lp, val, vlen);
+            lp = lpAppend(lp, val, vlen);
             p = ziplistNext(o->ptr, p);
         }
 

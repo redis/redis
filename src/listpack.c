@@ -441,7 +441,7 @@ static inline uint32_t lpCurrentEncodedSizeBytes(unsigned char *p) {
 
 /* Return the entry size of the listpack element pointed by 'p'.
  * This includes the encoding byte, length bytes, the element data itself,
- * and backlen, If the element encoding is wrong then 0 is returned.
+ * and backlen.
  * Note that this method may access additional bytes (in case of 12 and 32 bit
  * str), so should only be called when we know 'p' was already validated by
  * lpCurrentEncodedSizeBytes or ASSERT_INTEGRITY_LEN (possibly since 'p' is
@@ -892,19 +892,19 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *ele, uint32_t size, un
 }
 
 /* Append the specified element 's' of length 'slen' at the head of the listpack. */
-unsigned char *lpPushHead(unsigned char *lp, unsigned char *s, uint32_t slen) {
+unsigned char *lpPrepend(unsigned char *lp, unsigned char *s, uint32_t slen) {
     unsigned char *p = lpFirst(lp);
-    if (!p) return lpPushTail(lp, s, slen);
+    if (!p) return lpAppend(lp, s, slen);
     return lpInsert(lp, s, slen, p, LP_BEFORE, NULL);
 }
 
-/* Append the specified element 's' of length 'slen' at the end of the
+/* Append the specified element 'ele' of length 'len' at the end of the
  * listpack. It is implemented in terms of lpInsert(), so the return value is
  * the same as lpInsert(). */
-unsigned char *lpPushTail(unsigned char *lp, unsigned char *s, uint32_t slen) {
+unsigned char *lpAppend(unsigned char *lp, unsigned char *ele, uint32_t size) {
     uint64_t listpack_bytes = lpGetTotalBytes(lp);
     unsigned char *eofptr = lp + listpack_bytes - 1;
-    return lpInsert(lp, s, slen, eofptr, LP_BEFORE, NULL);
+    return lpInsert(lp,ele,size,eofptr,LP_BEFORE,NULL);
 }
 
 /* Remove the element pointed by 'p'. */
@@ -1064,7 +1064,7 @@ int lpValidateIntegrity(unsigned char *lp, size_t size, int deep,
     return 1;
 }
 
-unsigned int lpCompare(unsigned char *p, unsigned char *s, unsigned int slen) {
+unsigned int lpCompare(unsigned char *p, unsigned char *s, uint32_t slen) {
     unsigned char buf[LP_INTBUF_SIZE];
     unsigned char *value;
     int64_t sz;
@@ -1238,21 +1238,21 @@ char *intlist[] = {"4294967296", "-100", "100", "128000",
 
 static unsigned char *createList() {
     unsigned char *lp = lpNew(0);
-    lp = lpPushTail(lp, (unsigned char*)mixlist[1], strlen(mixlist[1]));
-    lp = lpPushTail(lp, (unsigned char*)mixlist[2], strlen(mixlist[2]));
-    lp = lpPushHead(lp, (unsigned char*)mixlist[0], strlen(mixlist[0]));
-    lp = lpPushTail(lp, (unsigned char*)mixlist[3], strlen(mixlist[3]));
+    lp = lpAppend(lp, (unsigned char*)mixlist[1], strlen(mixlist[1]));
+    lp = lpAppend(lp, (unsigned char*)mixlist[2], strlen(mixlist[2]));
+    lp = lpPrepend(lp, (unsigned char*)mixlist[0], strlen(mixlist[0]));
+    lp = lpAppend(lp, (unsigned char*)mixlist[3], strlen(mixlist[3]));
     return lp;
 }
 
 static unsigned char *createIntList() {
     unsigned char *lp = lpNew(0);
-    lp = lpPushTail(lp, (unsigned char*)intlist[2], strlen(intlist[2]));
-    lp = lpPushTail(lp, (unsigned char*)intlist[3], strlen(intlist[3]));
-    lp = lpPushHead(lp, (unsigned char*)intlist[1], strlen(intlist[1]));
-    lp = lpPushHead(lp, (unsigned char*)intlist[0], strlen(intlist[0]));
-    lp = lpPushTail(lp, (unsigned char*)intlist[4], strlen(intlist[4]));
-    lp = lpPushTail(lp, (unsigned char*)intlist[5], strlen(intlist[5]));
+    lp = lpAppend(lp, (unsigned char*)intlist[2], strlen(intlist[2]));
+    lp = lpAppend(lp, (unsigned char*)intlist[3], strlen(intlist[3]));
+    lp = lpPrepend(lp, (unsigned char*)intlist[1], strlen(intlist[1]));
+    lp = lpPrepend(lp, (unsigned char*)intlist[0], strlen(intlist[0]));
+    lp = lpAppend(lp, (unsigned char*)intlist[4], strlen(intlist[4]));
+    lp = lpAppend(lp, (unsigned char*)intlist[5], strlen(intlist[5]));
     return lp;
 }
 
@@ -1270,16 +1270,16 @@ static void stress(int pos, int num, int maxsize, int dnum) {
     for (i = 0; i < maxsize; i+=dnum) {
         lp = lpNew(0);
         for (j = 0; j < i; j++) {
-            lp = lpPushTail(lp, (unsigned char*)"quux", 4);
+            lp = lpAppend(lp, (unsigned char*)"quux", 4);
         }
 
         /* Do num times a push+pop from pos */
         start = usec();
         for (k = 0; k < num; k++) {
             if (pos == 0) {
-                lp = lpPushHead(lp, (unsigned char*)"quux", 4);
+                lp = lpPrepend(lp, (unsigned char*)"quux", 4);
             } else {
-                lp = lpPushTail(lp, (unsigned char*)"quux", 4);
+                lp = lpAppend(lp, (unsigned char*)"quux", 4);
 
             }
             lp = lpDelete(lp, lpFirst(lp), NULL);
@@ -1514,8 +1514,8 @@ int listpackTest(int argc, char *argv[], int accurate) {
         memset(v1,'x',256);
         memset(v2,'y',256);
         lp = lpNew(0);
-        lp = lpPushTail(lp, (unsigned char*)v1 ,strlen(v1));
-        lp = lpPushTail(lp, (unsigned char*)v2 ,strlen(v2));
+        lp = lpAppend(lp, (unsigned char*)v1 ,strlen(v1));
+        lp = lpAppend(lp, (unsigned char*)v2 ,strlen(v2));
 
         /* Pop values again and compare their value. */
         p = lpFirst(lp);
@@ -1533,7 +1533,7 @@ int listpackTest(int argc, char *argv[], int accurate) {
         int i,len;
         for (i = 0; i < 1000; i++) {
             len = sprintf(buf, "%d", i);
-            lp = lpPushTail(lp, (unsigned char*)buf, len);
+            lp = lpAppend(lp, (unsigned char*)buf, len);
         }
         for (i = 0; i < 1000; i++) {
             p = lpSeek(lp, i);
@@ -1562,8 +1562,8 @@ int listpackTest(int argc, char *argv[], int accurate) {
     TEST("Random pair with one element") {
         listpackEntry key, val;
         unsigned char *lp = lpNew(0);
-        lp = lpPushTail(lp, (unsigned char*)"abc", 3);
-        lp = lpPushTail(lp, (unsigned char*)"123", 3);
+        lp = lpAppend(lp, (unsigned char*)"abc", 3);
+        lp = lpAppend(lp, (unsigned char*)"123", 3);
         lpRandomPair(lp, 1, &key, &val);
         assert(memcmp(key.sval, "abc", key.slen) == 0);
         assert(val.lval == 123);
@@ -1573,10 +1573,10 @@ int listpackTest(int argc, char *argv[], int accurate) {
     TEST("Random pair with many elements") {
         listpackEntry key, val;
         unsigned char *lp = lpNew(0);
-        lp = lpPushTail(lp, (unsigned char*)"abc", 3);
-        lp = lpPushTail(lp, (unsigned char*)"123", 3);
-        lp = lpPushTail(lp, (unsigned char*)"456", 3);
-        lp = lpPushTail(lp, (unsigned char*)"def", 3);
+        lp = lpAppend(lp, (unsigned char*)"abc", 3);
+        lp = lpAppend(lp, (unsigned char*)"123", 3);
+        lp = lpAppend(lp, (unsigned char*)"456", 3);
+        lp = lpAppend(lp, (unsigned char*)"def", 3);
         lpRandomPair(lp, 2, &key, &val);
         if (key.sval) {
             assert(!memcmp(key.sval, "abc", key.slen));
@@ -1596,8 +1596,8 @@ int listpackTest(int argc, char *argv[], int accurate) {
         listpackEntry *keys = zmalloc(sizeof(listpackEntry) * count);
         listpackEntry *vals = zmalloc(sizeof(listpackEntry) * count);
 
-        lp = lpPushTail(lp, (unsigned char*)"abc", 3);
-        lp = lpPushTail(lp, (unsigned char*)"123", 3);
+        lp = lpAppend(lp, (unsigned char*)"abc", 3);
+        lp = lpAppend(lp, (unsigned char*)"123", 3);
         lpRandomPairs(lp, count, keys, vals);
         assert(memcmp(keys[4].sval, "abc", keys[4].slen) == 0);
         assert(vals[4].lval == 123);
@@ -1612,10 +1612,10 @@ int listpackTest(int argc, char *argv[], int accurate) {
         listpackEntry *keys = zmalloc(sizeof(listpackEntry) * count);
         listpackEntry *vals = zmalloc(sizeof(listpackEntry) * count);
 
-        lp = lpPushTail(lp, (unsigned char*)"abc", 3);
-        lp = lpPushTail(lp, (unsigned char*)"123", 3);
-        lp = lpPushTail(lp, (unsigned char*)"456", 3);
-        lp = lpPushTail(lp, (unsigned char*)"def", 3);
+        lp = lpAppend(lp, (unsigned char*)"abc", 3);
+        lp = lpAppend(lp, (unsigned char*)"123", 3);
+        lp = lpAppend(lp, (unsigned char*)"456", 3);
+        lp = lpAppend(lp, (unsigned char*)"def", 3);
         lpRandomPairs(lp, count, keys, vals);
         for (int i = 0; i < count; i++) {
             if (keys[i].sval) {
@@ -1640,8 +1640,8 @@ int listpackTest(int argc, char *argv[], int accurate) {
         listpackEntry *keys = zmalloc(sizeof(listpackEntry) * count);
         listpackEntry *vals = zmalloc(sizeof(listpackEntry) * count);
 
-        lp = lpPushTail(lp, (unsigned char*)"abc", 3);
-        lp = lpPushTail(lp, (unsigned char*)"123", 3);
+        lp = lpAppend(lp, (unsigned char*)"abc", 3);
+        lp = lpAppend(lp, (unsigned char*)"123", 3);
         picked = lpRandomPairsUnique(lp, count, keys, vals);
         assert(picked == 1);
         assert(memcmp(keys[0].sval, "abc", keys[0].slen) == 0);
@@ -1658,10 +1658,10 @@ int listpackTest(int argc, char *argv[], int accurate) {
         listpackEntry *keys = zmalloc(sizeof(listpackEntry) * count);
         listpackEntry *vals = zmalloc(sizeof(listpackEntry) * count);
 
-        lp = lpPushTail(lp, (unsigned char*)"abc", 3);
-        lp = lpPushTail(lp, (unsigned char*)"123", 3);
-        lp = lpPushTail(lp, (unsigned char*)"456", 3);
-        lp = lpPushTail(lp, (unsigned char*)"def", 3);
+        lp = lpAppend(lp, (unsigned char*)"abc", 3);
+        lp = lpAppend(lp, (unsigned char*)"123", 3);
+        lp = lpAppend(lp, (unsigned char*)"456", 3);
+        lp = lpAppend(lp, (unsigned char*)"def", 3);
         picked = lpRandomPairsUnique(lp, count, keys, vals);
         assert(picked == 2);
         for (int i = 0; i < 2; i++) {
@@ -1684,27 +1684,27 @@ int listpackTest(int argc, char *argv[], int accurate) {
         lp = lpNew(0);
 
         /* integer encode */
-        lp = lpPushTail(lp, (unsigned char*)"127", 3);
+        lp = lpAppend(lp, (unsigned char*)"127", 3);
         assert(LP_ENCODING_IS_7BIT_UINT(lpLast(lp)[0]));
-        lp = lpPushTail(lp, (unsigned char*)"4095", 4);
+        lp = lpAppend(lp, (unsigned char*)"4095", 4);
         assert(LP_ENCODING_IS_13BIT_INT(lpLast(lp)[0]));
-        lp = lpPushTail(lp, (unsigned char*)"32767", 5);
+        lp = lpAppend(lp, (unsigned char*)"32767", 5);
         assert(LP_ENCODING_IS_16BIT_INT(lpLast(lp)[0]));
-        lp = lpPushTail(lp, (unsigned char*)"8388607", 7);
+        lp = lpAppend(lp, (unsigned char*)"8388607", 7);
         assert(LP_ENCODING_IS_24BIT_INT(lpLast(lp)[0]));
-        lp = lpPushTail(lp, (unsigned char*)"2147483647", 10);
+        lp = lpAppend(lp, (unsigned char*)"2147483647", 10);
         assert(LP_ENCODING_IS_32BIT_INT(lpLast(lp)[0]));
-        lp = lpPushTail(lp, (unsigned char*)"9223372036854775807", 19);
+        lp = lpAppend(lp, (unsigned char*)"9223372036854775807", 19);
         assert(LP_ENCODING_IS_64BIT_INT(lpLast(lp)[0]));
 
         /* string encode */
         unsigned char *str = zmalloc(65535);
         memset(str, 0, 65535);
-        lp = lpPushTail(lp, (unsigned char*)str, 63);
+        lp = lpAppend(lp, (unsigned char*)str, 63);
         assert(LP_ENCODING_IS_6BIT_STR(lpLast(lp)[0]));
-        lp = lpPushTail(lp, (unsigned char*)str, 4095);
+        lp = lpAppend(lp, (unsigned char*)str, 4095);
         assert(LP_ENCODING_IS_12BIT_STR(lpLast(lp)[0]));
-        lp = lpPushTail(lp, (unsigned char*)str, 65535);
+        lp = lpAppend(lp, (unsigned char*)str, 65535);
         assert(LP_ENCODING_IS_32BIT_STR(lpLast(lp)[0]));
         zfree(str);
         lpFree(lp);
@@ -1764,9 +1764,9 @@ int listpackTest(int argc, char *argv[], int accurate) {
 
                 /* Add to listpack */
                 if (where == 0) {
-                    lp = lpPushHead(lp, (unsigned char*)buf, buflen);
+                    lp = lpPrepend(lp, (unsigned char*)buf, buflen);
                 } else {
-                    lp = lpPushTail(lp, (unsigned char*)buf, buflen);
+                    lp = lpAppend(lp, (unsigned char*)buf, buflen);
                 }
 
                 /* Add to reference list */
@@ -1807,20 +1807,20 @@ int listpackTest(int argc, char *argv[], int accurate) {
     {
         int iteration = accurate ? 100000 : 100;
         lp = lpNew(0);
-        TEST("Benchmark lpPushTail") {
+        TEST("Benchmark lpAppend") {
             unsigned long long start = usec();
             for (int i=0; i<iteration; i++) {
                 char buf[4096] = "asdf";
-                lp = lpPushTail(lp, (unsigned char*)buf, 4);
-                lp = lpPushTail(lp, (unsigned char*)buf, 40);
-                lp = lpPushTail(lp, (unsigned char*)buf, 400);
-                lp = lpPushTail(lp, (unsigned char*)buf, 4000);
-                lp = lpPushTail(lp, (unsigned char*)"1", 1);
-                lp = lpPushTail(lp, (unsigned char*)"10", 2);
-                lp = lpPushTail(lp, (unsigned char*)"100", 3);
-                lp = lpPushTail(lp, (unsigned char*)"1000", 4);
-                lp = lpPushTail(lp, (unsigned char*)"10000", 5);
-                lp = lpPushTail(lp, (unsigned char*)"100000", 6);
+                lp = lpAppend(lp, (unsigned char*)buf, 4);
+                lp = lpAppend(lp, (unsigned char*)buf, 40);
+                lp = lpAppend(lp, (unsigned char*)buf, 400);
+                lp = lpAppend(lp, (unsigned char*)buf, 4000);
+                lp = lpAppend(lp, (unsigned char*)"1", 1);
+                lp = lpAppend(lp, (unsigned char*)"10", 2);
+                lp = lpAppend(lp, (unsigned char*)"100", 3);
+                lp = lpAppend(lp, (unsigned char*)"1000", 4);
+                lp = lpAppend(lp, (unsigned char*)"10000", 5);
+                lp = lpAppend(lp, (unsigned char*)"100000", 6);
             }
             printf("Done. usec=%lld\n", usec()-start);
         }
