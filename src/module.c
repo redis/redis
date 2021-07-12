@@ -3980,7 +3980,8 @@ fmterr:
  *     * `!` -- Sends the Redis command and its arguments to replicas and AOF.
  *     * `A` -- Suppress AOF propagation, send only to replicas (requires `!`).
  *     * `R` -- Suppress replicas propagation, send only to AOF (requires `!`).
- *     * `3` -- Return the reply in resp3.
+ *     * `3` -- Return the reply in RESP3. This will change the command reply.
+ *              e.g. HGETALL returns a map instead of flat array, 
  * * **...**: The actual arguments to the Redis command.
  *
  * On success a RedisModuleCallReply object is returned, otherwise
