@@ -938,66 +938,44 @@ start_server {tags {"scripting external:skip"}} {
 start_server {tags {"scripting resp3 tests"}} {
     r debug set-disable-deny-scripts 1
 
-    test {test resp3 big number protocol parsing} {
-        r eval {
-            redis.setresp(3);
-            return redis.call('debug', 'protocol', 'bignum')
-        } 0
-    } {1234567999999999999999999999999999999}
+    for {set i 2} {$i <= 3} {incr i} {
+        test {test resp3 big number protocol parsing} {
+            r eval "redis.setresp($i);return redis.call('debug', 'protocol', 'bignum')" 0
+        } {1234567999999999999999999999999999999}
 
-    test {test resp3 map protocol parsing} {
-        r eval {
-            redis.setresp(3);
-            return redis.call('debug', 'protocol', 'map')
-        } 0
-    } {1 1 2 0 0 0}
+        test {test resp3 map protocol parsing} {
+            lsort [r eval "redis.setresp($i);return redis.call('debug', 'protocol', 'map')" 0]
+        } [lsort {1 1 2 0 0 0}]
 
-    test {test resp3 set protocol parsing} {
-        r eval {
-            redis.setresp(3);
-            return redis.call('debug', 'protocol', 'set')
-        } 0
-    } {1 2 0}
+        test {test resp3 set protocol parsing} {
+            lsort [r eval "redis.setresp($i);return redis.call('debug', 'protocol', 'set')" 0]
+        } [lsort {1 2 0}]
 
-    test {test resp3 double protocol parsing} {
-        r eval {
-            redis.setresp(3);
-            return redis.call('debug', 'protocol', 'double')
-        } 0
-    } {3.1415926535900001}
+        test {test resp3 double protocol parsing} {
+            r eval "redis.setresp($i);return redis.call('debug', 'protocol', 'double')" 0
+        } {3.1415926535900001}
 
-    test {test resp3 null protocol parsing} {
-        r eval {
-            redis.setresp(3);
-            return redis.call('debug', 'protocol', 'null')
-        } 0
-    } {}
+        test {test resp3 null protocol parsing} {
+            r eval "redis.setresp($i);return redis.call('debug', 'protocol', 'null')" 0
+        } {}
 
-    test {test resp3 verbatim protocol parsing} {
-        r eval {
-            redis.setresp(3);
-            return redis.call('debug', 'protocol', 'verbatim')
-        } 0
-    } "This is a verbatim\nstring"
+        test {test resp3 verbatim protocol parsing} {
+            r eval "redis.setresp($i);return redis.call('debug', 'protocol', 'verbatim')" 0
+        } "This is a verbatim\nstring"
 
-    test {test resp3 true protocol parsing} {
-        r eval {
-            redis.setresp(3);
-            return redis.call('debug', 'protocol', 'true')
-        } 0
-    } {1}
+        test {test resp3 true protocol parsing} {
+            r eval "redis.setresp($i);return redis.call('debug', 'protocol', 'true')" 0
+        } {1}
 
-    test {test resp3 false protocol parsing} {
-        r eval {
-            redis.setresp(3);
-            return redis.call('debug', 'protocol', 'false')
-        } 0
-    } {0}
+        test {test resp3 false protocol parsing} {
+            r eval "redis.setresp($i);return redis.call('debug', 'protocol', 'false')" 0
+        } {0}
+    }
 
+    # attibute is not relevant to test with resp2
     test {test resp3 attribute protocol parsing} {
-        r eval {
-            redis.setresp(3);
-            return redis.call('debug', 'protocol', 'attrib')
-        } 0
+        # attributes are not (yet) expose to the script
+        # So here we just check the parser handles them and they are ignored.
+        r eval "redis.setresp(3);return redis.call('debug', 'protocol', 'attrib')" 0
     } {Some real reply following the attribute}
 }

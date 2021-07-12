@@ -3808,14 +3808,10 @@ const char* RM_CallReplyBigNumber(RedisModuleCallReply *reply, size_t* len) {
     return callReplyGetBigNumber(reply, len);
 }
 
-/* Return the string value of an verbatim string reply. */
-const char* RM_CallReplyVerbatimFormat(RedisModuleCallReply *reply) {
-    return callReplyGetVerbatimFormat(reply);
-}
-
-/* Return the format value of an verbatim string reply. */
-const char* RM_CallReplyVerbatimString(RedisModuleCallReply *reply, size_t* len) {
-    return callReplyGetVerbatimString(reply, len);
+/* Return the value of an verbatim string reply,
+ * An optional output argument can be given to get verbatim reply format */
+const char* RM_CallReplyVerbatim(RedisModuleCallReply *reply, size_t* len, const char** format) {
+    return callReplyGetVerbatim(reply, len, format);
 }
 
 /* Return the boolean value of an boolean reply. */
@@ -3829,33 +3825,27 @@ RedisModuleCallReply *RM_CallReplySetElement(RedisModuleCallReply *reply, size_t
     return callReplyGetSetElement(reply, idx);
 }
 
-/* Return the 'idx'-th key of a map reply, or NULL
- * if the reply type is wrong or the index is out of range. */
-RedisModuleCallReply *RM_CallReplyMapKey(RedisModuleCallReply *reply, size_t idx) {
-    return callReplyGetMapKey(reply, idx);
-}
-
-/* Return the 'idx'-th value of a map reply, or NULL
- * if the reply type is wrong or the index is out of range. */
-RedisModuleCallReply *RM_CallReplyMapVal(RedisModuleCallReply *reply, size_t idx) {
-    return callReplyGetMapVal(reply, idx);
-}
-
-/* Return the 'idx'-th key of a attribute reply, or NULL
- * if the reply type is wrong or the index is out of range. */
-RedisModuleCallReply *RM_CallReplyAttributeKey(RedisModuleCallReply *reply, size_t idx) {
-    return callReplyGetAttributeKey(reply, idx);
-}
-
-/* Return the 'idx'-th value of a attribute reply, or NULL
- * if the reply type is wrong or the index is out of range. */
-RedisModuleCallReply *RM_CallReplyAttributeVal(RedisModuleCallReply *reply, size_t idx) {
-    return callReplyGetAttributeVal(reply, idx);
+/* Retrive the 'idx'-th key and value of a map reply, return REDISMODULE_OK on succuess
+ * and REDISMODULE_ERR if idx out of range or if the reply type is wrong */
+int RM_CallReplyMapElement(RedisModuleCallReply *reply, size_t idx, RedisModuleCallReply **key, RedisModuleCallReply **val) {
+    if (callReplyGetMapElement(reply, idx, key, val) == C_OK){
+        return REDISMODULE_OK;
+    }
+    return REDISMODULE_ERR;
 }
 
 /* Return the attribute of the given reply, or NULL if no attribute exists. */
 RedisModuleCallReply *RM_CallReplyAttribute(RedisModuleCallReply *reply) {
     return callReplyGetAttribute(reply);
+}
+
+/* Retrive the 'idx'-th key and value of a attribute reply, return REDISMODULE_OK on succuess
+ * and REDISMODULE_ERR if idx out of range or if the reply type is wrong */
+int RM_CallReplyAttributeElement(RedisModuleCallReply *reply, size_t idx, RedisModuleCallReply **key, RedisModuleCallReply **val) {
+    if (callReplyGetAttributeElement(reply, idx, key, val) == C_OK){
+        return REDISMODULE_OK;
+    }
+    return REDISMODULE_ERR;
 }
 
 /* Return the pointer and length of a string or error reply. */
@@ -3976,7 +3966,7 @@ fmterr:
  * * **cmdname**: The Redis command to call.
  * * **fmt**: A format specifier string for the command's arguments. Each
  *   of the arguments should be specified by a valid type specification. The
- *   format specifier can also contain the modifiers `!`, `A` and `R` which
+ *   format specifier can also contain the modifiers `!`, `A`, `3` and `R` which
  *   don't have a corresponding argument.
  *
  *     * `b` -- The argument is a buffer and is immediately followed by another
@@ -3988,6 +3978,7 @@ fmterr:
  *     * `!` -- Sends the Redis command and its arguments to replicas and AOF.
  *     * `A` -- Suppress AOF propagation, send only to replicas (requires `!`).
  *     * `R` -- Suppress replicas propagation, send only to AOF (requires `!`).
+ *     * `3` -- Return the reply in resp3.
  * * **...**: The actual arguments to the Redis command.
  *
  * On success a RedisModuleCallReply object is returned, otherwise
@@ -9327,14 +9318,11 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(CallReplyInteger);
     REGISTER_API(CallReplyDouble);
     REGISTER_API(CallReplyBigNumber);
-    REGISTER_API(CallReplyVerbatimFormat);
-    REGISTER_API(CallReplyVerbatimString);
+    REGISTER_API(CallReplyVerbatim);
     REGISTER_API(CallReplyBool);
     REGISTER_API(CallReplySetElement);
-    REGISTER_API(CallReplyMapKey);
-    REGISTER_API(CallReplyMapVal);
-    REGISTER_API(CallReplyAttributeKey);
-    REGISTER_API(CallReplyAttributeVal);
+    REGISTER_API(CallReplyMapElement);
+    REGISTER_API(CallReplyAttributeElement);
     REGISTER_API(CallReplyAttribute);
     REGISTER_API(CallReplyType);
     REGISTER_API(CallReplyLength);

@@ -92,10 +92,9 @@ int TestCallResp3Attribute(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
     if (!reply || RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_ATTRIBUTE) goto fail;
     if (RedisModule_CallReplyLength(reply) != 1) goto fail;
 
-    RedisModuleCallReply *key = RedisModule_CallReplyAttributeKey(reply,0);
-    RedisModuleCallReply *val = RedisModule_CallReplyAttributeVal(reply,0);
+    RedisModuleCallReply *key, *val;
+    if (RedisModule_CallReplyAttributeElement(reply,0,&key,&val) != REDISMODULE_OK) goto fail;
     if (!TestMatchReply(key,"key-popularity")) goto fail;
-
     if (RedisModule_CallReplyType(val) != REDISMODULE_REPLY_ARRAY) goto fail;
     if (RedisModule_CallReplyLength(val) != 2) goto fail;
     if (!TestMatchReply(RedisModule_CallReplyArrayElement(val, 0),"key:123")) goto fail;
@@ -125,11 +124,8 @@ int TestCallResp3Map(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
     RedisModuleCallReply *key0, *key1;
     RedisModuleCallReply *val0, *val1;
-
-    key0 = RedisModule_CallReplyMapKey(reply,0);
-    key1 = RedisModule_CallReplyMapKey(reply,1);
-    val0 = RedisModule_CallReplyMapVal(reply,0);
-    val1 = RedisModule_CallReplyMapVal(reply,1);
+    if (RedisModule_CallReplyMapElement(reply,0,&key0,&val0) != REDISMODULE_OK) goto fail;
+    if (RedisModule_CallReplyMapElement(reply,1,&key1,&val1) != REDISMODULE_OK) goto fail;
     if (!TestMatchReply(key0,"f1")) goto fail;
     if (!TestMatchReply(key1,"f2")) goto fail;
     if (!TestMatchReply(val0,"v1")) goto fail;
@@ -273,9 +269,9 @@ int TestCallResp3Verbatim(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 
     reply = RedisModule_Call(ctx,"DEBUG","3cc" ,"PROTOCOL", "verbatim"); /* 3 stands for resp 3 reply */
     if (RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_VERBATIM_STRING) goto fail;
+    const char* format;
     size_t len;
-    const char* str = RedisModule_CallReplyVerbatimString(reply, &len);
-    const char* format = RedisModule_CallReplyVerbatimFormat(reply);
+    const char* str = RedisModule_CallReplyVerbatim(reply, &len, &format);
     RedisModuleString *s = RedisModule_CreateStringPrintf(ctx, "%.*s:%.*s", 3, format, (int)len, str);
     RedisModule_ReplyWithString(ctx,s);
     return REDISMODULE_OK;

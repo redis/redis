@@ -355,34 +355,29 @@ CallReply* callReplyGetSetElement(CallReply* rep, size_t idx) {
     return callReplyGetCollectionElement(rep, idx, 1);
 }
 
-/**
- * Return map reply key at a given index, applicabale for:
- * * REDISMODULE_REPLY_MAP
- *
- * The returned value is only borrowed and its lifetime is
- * as long as the given CallReply. In addition there is no need
- * to manually free the returned CallReply, it will be freed when
- * the root CallReplied will be freed.
- */
-CallReply* callReplyGetMapKey(CallReply* rep, size_t idx) {
+static int callReplyGetMapElementInternal(CallReply* rep, size_t idx, CallReply** key, CallReply** val, int type) {
     callReplyParse(rep);
-    if (rep->type != REDISMODULE_REPLY_MAP) return NULL;
-    return callReplyGetCollectionElement(rep, idx * 2, 2);
+    if (rep->type != type) return C_ERR;
+    if (idx >= rep->len) return C_ERR;
+    if (key) *key = callReplyGetCollectionElement(rep, idx * 2, 2);
+    if (val) *val = callReplyGetCollectionElement(rep, idx * 2 + 1, 2);
+    return C_OK;
 }
 
 /**
- * Return map reply value at a given index, applicabale for:
+ * Retrieve map reply key and value at a given index, applicabale for:
  * * REDISMODULE_REPLY_MAP
  *
- * The returned value is only borrowed and its lifetime is
+ * The key and val are both output params which can be NULL(in this case they are not populated).
+ * Return C_OK on success and C_ERR if reply type is wrong or if the idx is out of range.
+ *
+ * The returned values are only borrowed and thier lifetime is
  * as long as the given CallReply. In addition there is no need
- * to manually free the returned CallReply, it will be freed when
+ * to manually free the returned CallReplies, it will be freed when
  * the root CallReplied will be freed.
  */
-CallReply* callReplyGetMapVal(CallReply* rep, size_t idx) {
-    callReplyParse(rep);
-    if (rep->type != REDISMODULE_REPLY_MAP) return NULL;
-    return callReplyGetCollectionElement(rep, idx * 2 + 1, 2);
+int callReplyGetMapElement(CallReply* rep, size_t idx, CallReply** key, CallReply** val) {
+    return callReplyGetMapElementInternal(rep, idx, key, val, REDISMODULE_REPLY_MAP);
 }
 
 /**
@@ -398,33 +393,19 @@ CallReply* callReplyGetAttribute(CallReply* rep) {
 }
 
 /**
- * Return attribute reply key at a given index, applicabale for:
+ * Retrieve attribute reply key and value at a given index, applicabale for:
  * * REDISMODULE_REPLY_ATTRIBUTE
  *
- * The returned value is only borrowed and its lifetime is
- * as long as the given CallReply. In addition there is no need
- * to manually free the returned CallReply, it will be freed when
- * the root CallReplied will be freed.
- */
-CallReply* callReplyGetAttributeKey(CallReply* rep, size_t idx) {
-    callReplyParse(rep);
-    if (rep->type != REDISMODULE_REPLY_ATTRIBUTE) return NULL;
-    return callReplyGetCollectionElement(rep, idx * 2, 2);
-}
-
-/**
- * Return attribute reply value at a given index, applicabale for:
- * * REDISMODULE_REPLY_ATTRIBUTE
+ * The key and val are both output params which can be NULL(in this case they are not populated).
+ * Return C_OK on success and C_ERR if reply type is wrong or if the idx is out of range.
  *
- * The returned value is only borrowed and its lifetime is
+ * The returned values are only borrowed and thier lifetime is
  * as long as the given CallReply. In addition there is no need
- * to manually free the returned CallReply, it will be freed when
+ * to manually free the returned CallReplies, it will be freed when
  * the root CallReplied will be freed.
  */
-CallReply* callReplyGetAttributeVal(CallReply* rep, size_t idx) {
-    callReplyParse(rep);
-    if (rep->type != REDISMODULE_REPLY_ATTRIBUTE) return NULL;
-    return callReplyGetCollectionElement(rep, idx * 2 + 1, 2);
+int callReplyGetAttributeElement(CallReply* rep, size_t idx, CallReply** key, CallReply** val) {
+    return callReplyGetMapElementInternal(rep, idx, key, val, REDISMODULE_REPLY_MAP);
 }
 
 /**
@@ -446,33 +427,22 @@ const char* callReplyGetBigNumber(CallReply* rep, size_t* len) {
 }
 
 /**
- * Return verbatim string reply format, applicabale for:
- * * REDISMODULE_REPLY_VERBATIM_STRING
- *
- * The returned value is only borrowed and its lifetime is
- * as long as the given CallReply.
- * The returned value is promised to be 3 chars string (not NULL terminated)
- * as describe on RESP3 spacifications.
- */
-const char* callReplyGetVerbatimFormat(CallReply* rep) {
-    callReplyParse(rep);
-    if (rep->type != REDISMODULE_REPLY_VERBATIM_STRING) return NULL;
-    return rep->val.verbatim_str.format;
-}
-
-/**
  * Return verbatim string reply value, applicabale for:
  * * REDISMODULE_REPLY_VERBATIM_STRING
+ *
+ * An optional output argument can be given to get verbatim reply
+ * format, NULL can be give to ignore it.
  *
  * The returned value is only borrowed and its lifetime is
  * as long as the given CallReply.
  * The returned value is not NULL terminated and its mandatory to
  * give the len argument
  */
-const char* callReplyGetVerbatimString(CallReply* rep, size_t* len){
+const char* callReplyGetVerbatim(CallReply* rep, size_t* len, const char** format){
     callReplyParse(rep);
     if (rep->type != REDISMODULE_REPLY_VERBATIM_STRING) return NULL;
     *len = rep->len;
+    if (format) *format = rep->val.verbatim_str.format;
     return rep->val.verbatim_str.str;
 }
 

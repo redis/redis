@@ -285,7 +285,9 @@ static void redisProtocolToLuaType_Attribute(struct ReplyParser* parser, void* c
     UNUSED(proto);
 
     /* parse the attributer reply,
-       use NULL as ctx to make sure the attribute reply will be ignored */
+     * currently we do not expose the attribute to the Lua script so
+     * we just need to continue parsing and ignore it (NULL make sure the
+     * reply will be ignored). */
     for (size_t j = 0; j < len; j++) {
         parseReply(parser,NULL);
         parseReply(parser,NULL);
