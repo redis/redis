@@ -569,6 +569,9 @@ static int processItem(redisReader *r) {
             case '>':
                 cur->type = REDIS_REPLY_PUSH;
                 break;
+            case '(':
+                cur->type = REDIS_REPLY_BIGNUM;
+                break;
             default:
                 __redisReaderSetErrorProtocolByte(r,*p);
                 return REDIS_ERR;
@@ -585,6 +588,7 @@ static int processItem(redisReader *r) {
     case REDIS_REPLY_STATUS:
     case REDIS_REPLY_INTEGER:
     case REDIS_REPLY_DOUBLE:
+    case REDIS_REPLY_BIGNUM:
     case REDIS_REPLY_NIL:
     case REDIS_REPLY_BOOL:
         return processLineItem(r);

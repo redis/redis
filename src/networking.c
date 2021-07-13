@@ -779,6 +779,16 @@ void addReplyBool(client *c, int b) {
     }
 }
 
+void addReplyBigNumber(client *c, const char *s, size_t len) {
+    if (c->resp == 2) {
+        addReplyProto(c,"$",1);
+    } else {
+        addReplyProto(c,"(",1);
+    }
+    addReplyProto(c,s,len);
+    addReplyProto(c,"\r\n",2);
+}
+
 /* A null array is a concept that no longer exists in RESP3. However
  * RESP2 had it, so API-wise we have this call, that will emit the correct
  * RESP2 protocol, however for RESP3 the reply will always be just the

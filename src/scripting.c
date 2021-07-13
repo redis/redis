@@ -2311,6 +2311,7 @@ char *ldbRedisProtocolToHuman(sds *o, char *reply) {
     case '_': p = ldbRedisProtocolToHuman_Null(o,reply); break;
     case '#': p = ldbRedisProtocolToHuman_Bool(o,reply); break;
     case ',': p = ldbRedisProtocolToHuman_Double(o,reply); break;
+    case '(': break; // TODO:
     }
     return p;
 }

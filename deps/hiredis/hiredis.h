@@ -111,7 +111,7 @@ typedef struct redisReply {
     long long integer; /* The integer when type is REDIS_REPLY_INTEGER */
     double dval; /* The double when type is REDIS_REPLY_DOUBLE */
     size_t len; /* Length of string */
-    char *str; /* Used for REDIS_REPLY_ERROR, REDIS_REPLY_STRING
+    char *str; /* Used for REDIS_REPLY_ERROR, REDIS_REPLY_STRING, REDIS_REPLY_BIGNUM,
                   REDIS_REPLY_VERB, and REDIS_REPLY_DOUBLE (in additional to dval). */
     char vtype[4]; /* Used for REDIS_REPLY_VERB, contains the null
                       terminated 3 character content type, such as "txt". */
