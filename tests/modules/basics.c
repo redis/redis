@@ -86,10 +86,16 @@ int TestCallResp3Attribute(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
 
     reply = RedisModule_Call(ctx,"DEBUG","3cc" ,"PROTOCOL", "attrib"); /* 3 stands for resp 3 reply */
     if (RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_STRING) goto fail;
+
+    /* make sure we can not reply to resp2 client with resp3 (it might be a string but it contains attribute) */
+    if (RedisModule_ReplyWithCallReply(ctx, reply) != REDISMODULE_ERR) goto fail;
+
     if (!TestMatchReply(reply,"Some real reply following the attribute")) goto fail;
 
     reply = RedisModule_CallReplyAttribute(reply);
     if (!reply || RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_ATTRIBUTE) goto fail;
+    /* make sure we can not reply to resp2 client with resp3 attribute */
+    if (RedisModule_ReplyWithCallReply(ctx, reply) != REDISMODULE_ERR) goto fail;
     if (RedisModule_CallReplyLength(reply) != 1) goto fail;
 
     RedisModuleCallReply *key, *val;
@@ -119,6 +125,10 @@ int TestCallResp3Map(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_Call(ctx,"HSET","ccccc","myhash", "f1", "v1", "f2", "v2");
     reply = RedisModule_Call(ctx,"HGETALL","3c" ,"myhash"); /* 3 stands for resp 3 reply */
     if (RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_MAP) goto fail;
+
+    /* make sure we can not reply to resp2 client with resp3 map */
+    if (RedisModule_ReplyWithCallReply(ctx, reply) != REDISMODULE_ERR) goto fail;
+
     long long items = RedisModule_CallReplyLength(reply);
     if (items != 2) goto fail;
 
@@ -148,8 +158,10 @@ int TestCallResp3Bool(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
     reply = RedisModule_Call(ctx,"DEBUG","3cc" ,"PROTOCOL", "true"); /* 3 stands for resp 3 reply */
     if (RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_BOOL) goto fail;
-    if (!RedisModule_CallReplyBool(reply)) goto fail;
+    /* make sure we can not reply to resp2 client with resp3 bool */
+    if (RedisModule_ReplyWithCallReply(ctx, reply) != REDISMODULE_ERR) goto fail;
 
+    if (!RedisModule_CallReplyBool(reply)) goto fail;
     reply = RedisModule_Call(ctx,"DEBUG","3cc" ,"PROTOCOL", "false"); /* 3 stands for resp 3 reply */
     if (RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_BOOL) goto fail;
     if (RedisModule_CallReplyBool(reply)) goto fail;
@@ -171,6 +183,9 @@ int TestCallResp3Null(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
     reply = RedisModule_Call(ctx,"DEBUG","3cc" ,"PROTOCOL", "null"); /* 3 stands for resp 3 reply */
     if (RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_NULL) goto fail;
+
+    /* make sure we can not reply to resp2 client with resp3 null */
+    if (RedisModule_ReplyWithCallReply(ctx, reply) != REDISMODULE_ERR) goto fail;
 
     RedisModule_ReplyWithSimpleString(ctx,"OK");
     return REDISMODULE_OK;
@@ -231,6 +246,10 @@ int TestCallResp3Double(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
     reply = RedisModule_Call(ctx,"DEBUG","3cc" ,"PROTOCOL", "double"); /* 3 stands for resp 3 reply */
     if (RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_DOUBLE) goto fail;
+
+    /* make sure we can not reply to resp2 client with resp3 double*/
+    if (RedisModule_ReplyWithCallReply(ctx, reply) != REDISMODULE_ERR) goto fail;
+
     double d = RedisModule_CallReplyDouble(reply);
     if (d != 3.1415926535900001) goto fail;
     RedisModule_ReplyWithSimpleString(ctx,"OK");
@@ -250,6 +269,10 @@ int TestCallResp3BigNumber(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
 
     reply = RedisModule_Call(ctx,"DEBUG","3cc" ,"PROTOCOL", "bignum"); /* 3 stands for resp 3 reply */
     if (RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_BIG_NUMBER) goto fail;
+
+    /* make sure we can not reply to resp2 client with resp3 big number */
+    if (RedisModule_ReplyWithCallReply(ctx, reply) != REDISMODULE_ERR) goto fail;
+
     size_t len;
     const char* big_num = RedisModule_CallReplyBigNumber(reply, &len);
     RedisModule_ReplyWithStringBuffer(ctx,big_num,len);
@@ -269,6 +292,10 @@ int TestCallResp3Verbatim(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 
     reply = RedisModule_Call(ctx,"DEBUG","3cc" ,"PROTOCOL", "verbatim"); /* 3 stands for resp 3 reply */
     if (RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_VERBATIM_STRING) goto fail;
+
+    /* make sure we can not reply to resp2 client with resp3 verbatim string */
+    if (RedisModule_ReplyWithCallReply(ctx, reply) != REDISMODULE_ERR) goto fail;
+
     const char* format;
     size_t len;
     const char* str = RedisModule_CallReplyVerbatim(reply, &len, &format);
@@ -292,6 +319,10 @@ int TestCallResp3Set(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_Call(ctx,"sadd","ccc","myset", "v1", "v2");
     reply = RedisModule_Call(ctx,"smembers","3c" ,"myset"); // N stands for resp 3 reply
     if (RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_SET) goto fail;
+
+    /* make sure we can not reply to resp2 client with resp3 set */
+    if (RedisModule_ReplyWithCallReply(ctx, reply) != REDISMODULE_ERR) goto fail;
+
     long long items = RedisModule_CallReplyLength(reply);
     if (items != 2) goto fail;
 

@@ -1689,6 +1689,11 @@ int RM_ReplyWithNull(RedisModuleCtx *ctx) {
 int RM_ReplyWithCallReply(RedisModuleCtx *ctx, RedisModuleCallReply *reply) {
     client *c = moduleGetReplyClient(ctx);
     if (c == NULL) return REDISMODULE_OK;
+    if (c->resp == 2 && callReplyIsResp3(reply)) {
+        /* reply is in resp3 format and the client is resp2,
+         * it is not possible to send this reply to the client */
+        return REDISMODULE_ERR;
+    }
     size_t proto_len;
     const char* proto = callReplyGetProto(reply, &proto_len);
     addReplyProto(c,proto, proto_len);

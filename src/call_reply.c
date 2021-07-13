@@ -3,6 +3,7 @@
 
 #define REPLY_FLAG_ROOT (1<<0)
 #define REPLY_FLAG_PARSED (1<<1)
+#define REPLY_FLAG_RESP3 (1<<2)
 
 /* --------------------------------------------------------
  * Opaque struct used by module API to parse and
@@ -33,63 +34,64 @@ struct CallReply {
     struct CallReply *attribute; /* attribute reply, NULL if not exists */
 };
 
-static void callReplySetSharedData(CallReply* rep, int type, const char* proto, size_t proto_len) {
+static void callReplySetSharedData(CallReply* rep, int type, const char* proto, size_t proto_len, int extra_flags) {
     rep->type = type;
     rep->proto = proto;
     rep->proto_len = proto_len;
+    rep->flags |= extra_flags;
 }
 
 static void callReplyNull(void* ctx, const char* proto, size_t proto_len) {
     CallReply* rep = ctx;
-    callReplySetSharedData(rep, REDISMODULE_REPLY_NULL, proto, proto_len);
+    callReplySetSharedData(rep, REDISMODULE_REPLY_NULL, proto, proto_len, REPLY_FLAG_RESP3);
 }
 
 static void callReplyNullBulkString(void* ctx, const char* proto, size_t proto_len) {
     CallReply* rep = ctx;
-    callReplySetSharedData(rep, REDISMODULE_REPLY_NULL, proto, proto_len);
+    callReplySetSharedData(rep, REDISMODULE_REPLY_NULL, proto, proto_len, 0);
 }
 
 static void callReplyNullArray(void* ctx, const char* proto, size_t proto_len) {
     CallReply* rep = ctx;
-    callReplySetSharedData(rep, REDISMODULE_REPLY_NULL, proto, proto_len);
+    callReplySetSharedData(rep, REDISMODULE_REPLY_NULL, proto, proto_len, 0);
 }
 
 static void callReplyBulkString(void* ctx, const char* str, size_t len, const char* proto, size_t proto_len) {
     CallReply* rep = ctx;
-    callReplySetSharedData(rep, REDISMODULE_REPLY_STRING, proto, proto_len);
+    callReplySetSharedData(rep, REDISMODULE_REPLY_STRING, proto, proto_len, 0);
     rep->len = len;
     rep->val.str = str;
 }
 
 static void callReplyError(void* ctx, const char* str, size_t len, const char* proto, size_t proto_len) {
     CallReply* rep = ctx;
-    callReplySetSharedData(rep, REDISMODULE_REPLY_ERROR, proto, proto_len);
+    callReplySetSharedData(rep, REDISMODULE_REPLY_ERROR, proto, proto_len, 0);
     rep->len = len;
     rep->val.str = str;
 }
 
 static void callReplySimpleStr(void* ctx, const char* str, size_t len, const char* proto, size_t proto_len) {
     CallReply* rep = ctx;
-    callReplySetSharedData(rep, REDISMODULE_REPLY_STRING, proto, proto_len);
+    callReplySetSharedData(rep, REDISMODULE_REPLY_STRING, proto, proto_len, 0);
     rep->len = len;
     rep->val.str = str;
 }
 
 static void callReplyLong(void* ctx, long long val, const char* proto, size_t proto_len) {
     CallReply* rep = ctx;
-    callReplySetSharedData(rep, REDISMODULE_REPLY_INTEGER, proto, proto_len);
+    callReplySetSharedData(rep, REDISMODULE_REPLY_INTEGER, proto, proto_len, 0);
     rep->val.ll = val;
 }
 
 static void callReplyDouble(void* ctx, double val, const char* proto, size_t proto_len) {
     CallReply* rep = ctx;
-    callReplySetSharedData(rep, REDISMODULE_REPLY_DOUBLE, proto, proto_len);
+    callReplySetSharedData(rep, REDISMODULE_REPLY_DOUBLE, proto, proto_len, REPLY_FLAG_RESP3);
     rep->val.d = val;
 }
 
 static void callReplyVerbatimString(void* ctx, const char* format, const char* str, size_t len, const char* proto, size_t proto_len) {
     CallReply* rep = ctx;
-    callReplySetSharedData(rep, REDISMODULE_REPLY_VERBATIM_STRING, proto, proto_len);
+    callReplySetSharedData(rep, REDISMODULE_REPLY_VERBATIM_STRING, proto, proto_len, REPLY_FLAG_RESP3);
     rep->len = len;
     rep->val.verbatim_str.str = str;
     rep->val.verbatim_str.format = format;
@@ -97,14 +99,14 @@ static void callReplyVerbatimString(void* ctx, const char* format, const char* s
 
 static void callReplyBigNumber(void* ctx, const char* str, size_t len, const char* proto, size_t proto_len) {
     CallReply* rep = ctx;
-    callReplySetSharedData(rep, REDISMODULE_REPLY_BIG_NUMBER, proto, proto_len);
+    callReplySetSharedData(rep, REDISMODULE_REPLY_BIG_NUMBER, proto, proto_len, REPLY_FLAG_RESP3);
     rep->len = len;
     rep->val.str = str;
 }
 
 static void callReplyBool(void* ctx, int val, const char* proto, size_t proto_len) {
     CallReply* rep = ctx;
-    callReplySetSharedData(rep, REDISMODULE_REPLY_BOOL, proto, proto_len);
+    callReplySetSharedData(rep, REDISMODULE_REPLY_BOOL, proto, proto_len, REPLY_FLAG_RESP3);
     rep->val.ll = val;
 }
 
@@ -116,6 +118,10 @@ static void callReplyParseCollection(ReplyParser* parser, CallReply* rep, size_t
             parseReply(parser, rep->val.array + i + j);
             rep->val.array[i + j].flags |= REPLY_FLAG_PARSED;
             rep->val.array[i + j].private_data = rep->private_data;
+            if (rep->val.array[i + j].flags & REPLY_FLAG_RESP3) {
+                /* if one of the subreplies are resp3 then the current reply is also resp3 */
+                rep->flags |= REPLY_FLAG_RESP3;
+            }
         }
     }
     rep->proto = proto;
@@ -130,7 +136,7 @@ static void callReplyAttribute(ReplyParser* parser, void* ctx, size_t len, const
     rep->attribute->len = len;
     rep->attribute->type = REDISMODULE_REPLY_ATTRIBUTE;
     callReplyParseCollection(parser, rep->attribute, len, proto, 2);
-    rep->attribute->flags |= REPLY_FLAG_PARSED;
+    rep->attribute->flags |= REPLY_FLAG_PARSED | REPLY_FLAG_RESP3;
     rep->attribute->private_data = rep->private_data;
 
     /* continue parsing the reply */
@@ -139,6 +145,7 @@ static void callReplyAttribute(ReplyParser* parser, void* ctx, size_t len, const
     /* in this case we need to fix the proto address and len, it should start from the attribute */
     rep->proto = proto;
     rep->proto_len = parser->curr_location - proto;
+    rep->flags |= REPLY_FLAG_RESP3;
 }
 
 static void callReplyArray(ReplyParser* parser, void* ctx, size_t len, const char* proto) {
@@ -151,12 +158,14 @@ static void callReplySet(ReplyParser* parser, void* ctx, size_t len, const char*
     CallReply* rep = ctx;
     rep->type = REDISMODULE_REPLY_SET;
     callReplyParseCollection(parser, rep, len, proto, 1);
+    rep->flags |= REPLY_FLAG_RESP3;
 }
 
 static void callReplyMap(ReplyParser* parser, void* ctx, size_t len, const char* proto) {
     CallReply* rep = ctx;
     rep->type = REDISMODULE_REPLY_MAP;
     callReplyParseCollection(parser, rep, len, proto, 2);
+    rep->flags |= REPLY_FLAG_RESP3;
 }
 
 static void callReplyParseError(void* ctx) {
@@ -462,6 +471,13 @@ const char* callReplyGetProto(CallReply* rep, size_t* proto_len) {
  */
 void* callReplyGetPrivateData(CallReply* rep) {
     return rep->private_data;
+}
+
+/**
+ * Return true if the reply or one of its children format is resp3
+ */
+int callReplyIsResp3(CallReply* rep) {
+    return rep->flags & REPLY_FLAG_RESP3;
 }
 
 /**

@@ -21,6 +21,7 @@ const char* callReplyGetBigNumber(CallReply* rep, size_t* len);
 const char* callReplyGetVerbatim(CallReply* rep, size_t* len, const char** format);
 const char* callReplyGetProto(CallReply* rep, size_t* len);
 void* callReplyGetPrivateData(CallReply* rep);
+int callReplyIsResp3(CallReply* rep);
 void freeCallReply(CallReply* rep);
 
 
