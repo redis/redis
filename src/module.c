@@ -1688,12 +1688,12 @@ int RM_ReplyWithNull(RedisModuleCtx *ctx) {
  *
  * Return:
  * * REDISMODULE_OK On success returns .
- * * REDISMODULE_ERR if the given reply is in resp3 format but the client expects resp2
- *   In case of error, its the module writer responsibility to translate the reply
- *   to resp2 (or maybe handle it differently by returning an error). Notice that for
+ * * REDISMODULE_ERR if the given reply is in RESP3 format but the client expects RESP2
+ *   In case of error, it's the module writer responsibility to translate the reply
+ *   to RESP2 (or maybe handle it differently by returning an error). Notice that for
  *   module writer convinient, it is possible to pass `0` as a parameter to the fmt
  *   argument of `RM_Call` so that the RedisModuleCallReply will return in the same
- *   format (resp2 or resp3) as the current client expects it.
+ *   format (RESP2 or RESP3) as the current client expects it.
  * */
 int RM_ReplyWithCallReply(RedisModuleCtx *ctx, RedisModuleCallReply *reply) {
     client *c = moduleGetReplyClient(ctx);

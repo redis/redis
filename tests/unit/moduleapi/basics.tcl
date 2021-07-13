@@ -15,7 +15,7 @@ start_server {tags {"modules"}} {
         assert_equal [lindex $reply 1] v1
         assert_equal [lindex $reply 2] f2
         assert_equal [lindex $reply 3] v2
-    	r hello 3
+        r hello 3
         set reply [r test.rmcallautomode]
         assert_equal [dict get $reply f1] v1
         assert_equal [dict get $reply f2] v2
