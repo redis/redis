@@ -1293,7 +1293,7 @@ void memoryCommand(client *c) {
         const char *help[] = {
 "DOCTOR",
 "    Return memory problems reports.",
-"MALLOC-STATS"
+"MALLOC-STATS",
 "    Return internal statistics report from the memory allocator.",
 "PURGE",
 "    Attempt to purge dirty pages for reclamation by the allocator.",
