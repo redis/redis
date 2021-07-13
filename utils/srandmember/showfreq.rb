@@ -17,7 +17,7 @@ freq = {}
     }
 }
 
-# Print the frequency each element was yeld to process it with gnuplot
+# Print the frequency each element was yield to process it with gnuplot
 freq.each{|item,count|
     puts "#{item} #{count}"
 }

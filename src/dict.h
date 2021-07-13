@@ -196,9 +196,8 @@ unsigned long dictScan(dict *d, unsigned long v, dictScanFunction *fn, dictScanB
 uint64_t dictGetHash(dict *d, const void *key);
 dictEntry **dictFindEntryRefByPtrAndHash(dict *d, const void *oldptr, uint64_t hash);
 
-/* Hash table types */
-extern dictType dictTypeHeapStringCopyKey;
-extern dictType dictTypeHeapStrings;
-extern dictType dictTypeHeapStringCopyKeyValue;
+#ifdef REDIS_TEST
+int dictTest(int argc, char *argv[], int accurate);
+#endif
 
 #endif /* __DICT_H */

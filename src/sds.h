@@ -238,6 +238,7 @@ sds sdscatprintf(sds s, const char *fmt, ...);
 
 sds sdscatfmt(sds s, char const *fmt, ...);
 sds sdstrim(sds s, const char *cset);
+void sdssubstr(sds s, size_t start, size_t len);
 void sdsrange(sds s, ssize_t start, ssize_t end);
 void sdsupdatelen(sds s);
 void sdsclear(sds s);
@@ -263,8 +264,10 @@ sds sdstemplate(const char *template, sdstemplate_callback_t cb_func, void *cb_a
 
 /* Low level functions exposed to the user API */
 sds sdsMakeRoomFor(sds s, size_t addlen);
+sds sdsMakeRoomForNonGreedy(sds s, size_t addlen);
 void sdsIncrLen(sds s, ssize_t incr);
 sds sdsRemoveFreeSpace(sds s);
+sds sdsResize(sds s, size_t size);
 size_t sdsAllocSize(sds s);
 void *sdsAllocPtr(sds s);
 
@@ -277,7 +280,7 @@ void *sds_realloc(void *ptr, size_t size);
 void sds_free(void *ptr);
 
 #ifdef REDIS_TEST
-int sdsTest(int argc, char *argv[]);
+int sdsTest(int argc, char *argv[], int accurate);
 #endif
 
 #endif

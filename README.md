@@ -15,10 +15,10 @@ Another good example is to think of Redis as a more complex version of memcached
 
 If you want to know more, this is a list of selected starting points:
 
-* Introduction to Redis data types. http://redis.io/topics/data-types-intro
-* Try Redis directly inside your browser. http://try.redis.io
-* The full list of Redis commands. http://redis.io/commands
-* There is much more inside the official Redis documentation. http://redis.io/documentation
+* Introduction to Redis data types. https://redis.io/topics/data-types-intro
+* Try Redis directly inside your browser. https://try.redis.io
+* The full list of Redis commands. https://redis.io/commands
+* There is much more inside the official Redis documentation. https://redis.io/documentation
 
 Building Redis
 --------------
@@ -49,7 +49,7 @@ To append a suffix to Redis program names, use:
 
     % make PROG_SUFFIX="-alt"
 
-You can run a 32 bit Redis binary using:
+You can build a 32 bit Redis binary using:
 
     % make 32bit
 
@@ -184,7 +184,7 @@ then in another terminal try the following:
     (integer) 2
     redis>
 
-You can find the list of all the available commands at http://redis.io/commands.
+You can find the list of all the available commands at https://redis.io/commands.
 
 Installing Redis
 -----------------
@@ -224,10 +224,11 @@ of the BSD license that you can find in the [COPYING][1] file included in the Re
 source distribution.
 
 Please see the [CONTRIBUTING][2] file in this source distribution for more
-information, including details on our process for security bugs/vulnerabilities.
+information. For security bugs and vulnerabilities, please see [SECURITY.md][3].
 
 [1]: https://github.com/redis/redis/blob/unstable/COPYING
 [2]: https://github.com/redis/redis/blob/unstable/CONTRIBUTING
+[3]: https://github.com/redis/redis/blob/unstable/SECURITY.md
 
 Redis internals
 ===
@@ -294,19 +295,19 @@ the structure definition.
 Another important Redis data structure is the one defining a client.
 In the past it was called `redisClient`, now just `client`. The structure
 has many fields, here we'll just show the main ones:
-
-    struct client {
-        int fd;
-        sds querybuf;
-        int argc;
-        robj **argv;
-        redisDb *db;
-        int flags;
-        list *reply;
-        char buf[PROTO_REPLY_CHUNK_BYTES];
-        ... many other fields ...
-    }
-
+```c
+struct client {
+    int fd;
+    sds querybuf;
+    int argc;
+    robj **argv;
+    redisDb *db;
+    int flags;
+    list *reply;
+    // ... many other fields ...
+    char buf[PROTO_REPLY_CHUNK_BYTES];
+}
+```
 The client structure defines a *connected client*:
 
 * The `fd` field is the client socket file descriptor.
@@ -379,8 +380,8 @@ aof.c and rdb.c
 
 As you can guess from the names, these files implement the RDB and AOF
 persistence for Redis. Redis uses a persistence model based on the `fork()`
-system call in order to create a thread with the same (shared) memory
-content of the main Redis thread. This secondary thread dumps the content
+system call in order to create a process with the same (shared) memory
+content of the main Redis process. This secondary process dumps the content
 of the memory on disk. This is used by `rdb.c` to create the snapshots
 on disk and by `aof.c` in order to perform the AOF rewrite when the
 append only file gets too big.
@@ -447,13 +448,13 @@ Other C files
 
 * `t_hash.c`, `t_list.c`, `t_set.c`, `t_string.c`, `t_zset.c` and `t_stream.c` contains the implementation of the Redis data types. They implement both an API to access a given data type, and the client command implementations for these data types.
 * `ae.c` implements the Redis event loop, it's a self contained library which is simple to read and understand.
-* `sds.c` is the Redis string library, check http://github.com/antirez/sds for more information.
+* `sds.c` is the Redis string library, check https://github.com/antirez/sds for more information.
 * `anet.c` is a library to use POSIX networking in a simpler way compared to the raw interface exposed by the kernel.
 * `dict.c` is an implementation of a non-blocking hash table which rehashes incrementally.
 * `scripting.c` implements Lua scripting. It is completely self-contained and isolated from the rest of the Redis implementation and is simple enough to understand if you are familiar with the Lua API.
-* `cluster.c` implements the Redis Cluster. Probably a good read only after being very familiar with the rest of the Redis code base. If you want to read `cluster.c` make sure to read the [Redis Cluster specification][3].
+* `cluster.c` implements the Redis Cluster. Probably a good read only after being very familiar with the rest of the Redis code base. If you want to read `cluster.c` make sure to read the [Redis Cluster specification][4].
 
-[3]: http://redis.io/topics/cluster-spec
+[4]: https://redis.io/topics/cluster-spec
 
 Anatomy of a Redis command
 ---

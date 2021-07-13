@@ -173,7 +173,7 @@ start_server {tags {"string"}} {
             {set foo bar}
             {del foo}
         }
-    }
+    } {} {needs:repl}
 
     test {GETEX without argument does not propagate to replica} {
         set repl [attach_to_replication_stream]
@@ -185,23 +185,23 @@ start_server {tags {"string"}} {
             {set foo bar}
             {del foo}
         }
-    }
+    } {} {needs:repl}
 
     test {MGET} {
         r flushdb
-        r set foo BAR
-        r set bar FOO
-        r mget foo bar
+        r set foo{t} BAR
+        r set bar{t} FOO
+        r mget foo{t} bar{t}
     } {BAR FOO}
 
     test {MGET against non existing key} {
-        r mget foo baazz bar
+        r mget foo{t} baazz{t} bar{t}
     } {BAR {} FOO}
 
     test {MGET against non-string key} {
-        r sadd myset ciao
-        r sadd myset bau
-        r mget foo baazz bar myset
+        r sadd myset{t} ciao
+        r sadd myset{t} bau
+        r mget foo{t} baazz{t} bar{t} myset{t}
     } {BAR {} FOO {}}
 
     test {GETSET (set new value)} {
@@ -215,21 +215,21 @@ start_server {tags {"string"}} {
     } {bar xyz}
 
     test {MSET base case} {
-        r mset x 10 y "foo bar" z "x x x x x x x\n\n\r\n"
-        r mget x y z
+        r mset x{t} 10 y{t} "foo bar" z{t} "x x x x x x x\n\n\r\n"
+        r mget x{t} y{t} z{t}
     } [list 10 {foo bar} "x x x x x x x\n\n\r\n"]
 
     test {MSET wrong number of args} {
-        catch {r mset x 10 y "foo bar" z} err
+        catch {r mset x{t} 10 y{t} "foo bar" z{t}} err
         format $err
     } {*wrong number*}
 
     test {MSETNX with already existent key} {
-        list [r msetnx x1 xxx y2 yyy x 20] [r exists x1] [r exists y2]
+        list [r msetnx x1{t} xxx y2{t} yyy x{t} 20] [r exists x1{t}] [r exists y2{t}]
     } {0 0 0}
 
     test {MSETNX with not existing keys} {
-        list [r msetnx x1 xxx y2 yyy] [r get x1] [r get y2]
+        list [r msetnx x1{t} xxx y2{t} yyy] [r get x1{t}] [r get y2{t}]
     } {1 xxx yyy}
 
     test "STRLEN against non-existing key" {
@@ -494,11 +494,35 @@ start_server {tags {"string"}} {
         list $old_value $new_value
     } {{} bar}
 
-    test {Extended SET GET with NX option should result in syntax err} {
-      catch {r set foo bar NX GET} err1
-      catch {r set foo bar NX GET} err2
-      list $err1 $err2
-    } {*syntax err* *syntax err*}
+    test {Extended SET GET option with XX} {
+        r del foo
+        r set foo bar
+        set old_value [r set foo baz GET XX]
+        set new_value [r get foo]
+        list $old_value $new_value
+    } {bar baz}
+
+    test {Extended SET GET option with XX and no previous value} {
+        r del foo
+        set old_value [r set foo bar GET XX]
+        set new_value [r get foo]
+        list $old_value $new_value
+    } {{} {}}
+
+    test {Extended SET GET option with NX} {
+        r del foo
+        set old_value [r set foo bar GET NX]
+        set new_value [r get foo]
+        list $old_value $new_value
+    } {{} bar}
+
+    test {Extended SET GET option with NX and previous value} {
+        r del foo
+        r set foo bar
+        set old_value [r set foo baz GET NX]
+        set new_value [r get foo]
+        list $old_value $new_value
+    } {bar bar}
 
     test {Extended SET GET with incorrect type should result in wrong type error} {
       r del foo
@@ -558,20 +582,20 @@ start_server {tags {"string"}} {
     } [string length $rnalcs]
 
     test {LCS with KEYS option} {
-        r set virus1 $rna1
-        r set virus2 $rna2
-        r STRALGO LCS KEYS virus1 virus2
+        r set virus1{t} $rna1
+        r set virus2{t} $rna2
+        r STRALGO LCS KEYS virus1{t} virus2{t}
     } $rnalcs
 
     test {LCS indexes} {
-        dict get [r STRALGO LCS IDX KEYS virus1 virus2] matches
+        dict get [r STRALGO LCS IDX KEYS virus1{t} virus2{t}] matches
     } {{{238 238} {239 239}} {{236 236} {238 238}} {{229 230} {236 237}} {{224 224} {235 235}} {{1 222} {13 234}}}
 
     test {LCS indexes with match len} {
-        dict get [r STRALGO LCS IDX KEYS virus1 virus2 WITHMATCHLEN] matches
+        dict get [r STRALGO LCS IDX KEYS virus1{t} virus2{t} WITHMATCHLEN] matches
     } {{{238 238} {239 239} 1} {{236 236} {238 238} 1} {{229 230} {236 237} 2} {{224 224} {235 235} 1} {{1 222} {13 234} 222}}
 
     test {LCS indexes with match len and minimum match len} {
-        dict get [r STRALGO LCS IDX KEYS virus1 virus2 WITHMATCHLEN MINMATCHLEN 5] matches
+        dict get [r STRALGO LCS IDX KEYS virus1{t} virus2{t} WITHMATCHLEN MINMATCHLEN 5] matches
     } {{{1 222} {13 234} 222}}
 }

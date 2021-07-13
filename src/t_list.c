@@ -562,7 +562,7 @@ void ltrimCommand(client *c) {
  *
  * If COUNT is given, instead of returning the single element, a list of
  * all the matching elements up to "num-matches" are returned. COUNT can
- * be combiled with RANK in order to returning only the element starting
+ * be combined with RANK in order to returning only the element starting
  * from the Nth. If COUNT is zero, all the matching elements are returned.
  *
  * MAXLEN tells the command to scan a max of len elements. If zero (the
@@ -592,20 +592,14 @@ void lposCommand(client *c) {
             }
         } else if (!strcasecmp(opt,"COUNT") && moreargs) {
             j++;
-            if (getLongFromObjectOrReply(c, c->argv[j], &count, NULL) != C_OK)
+            if (getPositiveLongFromObjectOrReply(c, c->argv[j], &count,
+              "COUNT can't be negative") != C_OK)
                 return;
-            if (count < 0) {
-                addReplyError(c,"COUNT can't be negative");
-                return;
-            }
         } else if (!strcasecmp(opt,"MAXLEN") && moreargs) {
             j++;
-            if (getLongFromObjectOrReply(c, c->argv[j], &maxlen, NULL) != C_OK)
+            if (getPositiveLongFromObjectOrReply(c, c->argv[j], &maxlen, 
+              "MAXLEN can't be negative") != C_OK)
                 return;
-            if (maxlen < 0) {
-                addReplyError(c,"MAXLEN can't be negative");
-                return;
-            }
         } else {
             addReplyErrorObject(c,shared.syntaxerr);
             return;

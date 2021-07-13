@@ -1,4 +1,4 @@
-start_server {tags {"latency-monitor"}} {
+start_server {tags {"latency-monitor needs:latency"}} {
     # Set a threshold high enough to avoid spurious latency events.
     r config set latency-monitor-threshold 200
     r latency reset

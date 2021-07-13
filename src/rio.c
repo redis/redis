@@ -117,7 +117,7 @@ static size_t rioFileWrite(rio *r, const void *buf, size_t len) {
         r->io.file.buffered >= r->io.file.autosync)
     {
         fflush(r->io.file.fp);
-        redis_fsync(fileno(r->io.file.fp));
+        if (redis_fsync(fileno(r->io.file.fp)) == -1) return 0;
         r->io.file.buffered = 0;
     }
     return retval;
@@ -160,7 +160,7 @@ void rioInitWithFile(rio *r, FILE *fp) {
 }
 
 /* ------------------- Connection implementation -------------------
- * We use this RIO implemetnation when reading an RDB file directly from
+ * We use this RIO implementation when reading an RDB file directly from
  * the connection to the memory via rdbLoadRio(), thus this implementation
  * only implements reading from a connection that is, normally,
  * just a socket. */
@@ -262,7 +262,7 @@ void rioInitWithConn(rio *r, connection *conn, size_t read_limit) {
     sdsclear(r->io.conn.buf);
 }
 
-/* Release the RIO tream. Optionally returns the unread buffered data
+/* Release the RIO stream. Optionally returns the unread buffered data
  * when the SDS pointer 'remaining' is passed. */
 void rioFreeConn(rio *r, sds *remaining) {
     if (remaining && (size_t)r->io.conn.pos < sdslen(r->io.conn.buf)) {
@@ -310,7 +310,7 @@ static size_t rioFdWrite(rio *r, const void *buf, size_t len) {
             if (!doflush)
                 return 1;
         }
-        /* Flusing the buffered data. set 'p' and 'len' accordintly. */
+        /* Flushing the buffered data. set 'p' and 'len' accordingly. */
         p = (unsigned char*) r->io.fd.buf;
         len = sdslen(r->io.fd.buf);
     }

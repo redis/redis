@@ -99,10 +99,8 @@ static struct config {
     int randomkeys_keyspacelen;
     int keepalive;
     int pipeline;
-    int showerrors;
     long long start;
     long long totlatency;
-    long long *latency;
     const char *title;
     list *clients;
     int quiet;
@@ -264,13 +262,6 @@ static int dictSdsKeyCompare(void *privdata, const void *key1,
     return memcmp(key1, key2, l1) == 0;
 }
 
-/* _serverAssert is needed by dict */
-void _serverAssert(const char *estr, const char *file, int line) {
-    fprintf(stderr, "=== ASSERTION FAILED ===");
-    fprintf(stderr, "==> %s:%d '%s' is not true",file,line,estr);
-    *((char*)-1) = 'x';
-}
-
 static redisContext *getRedisContext(const char *ip, int port,
                                      const char *hostsocket)
 {
@@ -308,7 +299,9 @@ static redisContext *getRedisContext(const char *ip, int port,
                 fprintf(stderr, "Node %s:%d replied with error:\n%s\n", ip, port, reply->str);
             else
                 fprintf(stderr, "Node %s replied with error:\n%s\n", hostsocket, reply->str);
-            goto cleanup;
+            freeReplyObject(reply);
+            redisFree(ctx);
+            exit(1);
         }
         freeReplyObject(reply);
         return ctx;
@@ -367,9 +360,16 @@ fail:
     fprintf(stderr, "ERROR: failed to fetch CONFIG from ");
     if (hostsocket == NULL) fprintf(stderr, "%s:%d\n", ip, port);
     else fprintf(stderr, "%s\n", hostsocket);
+    int abort_test = 0;
+    if (reply && reply->type == REDIS_REPLY_ERROR &&
+        (!strncmp(reply->str,"NOAUTH",6) ||
+         !strncmp(reply->str,"WRONGPASS",9) ||
+         !strncmp(reply->str,"NOPERM",6)))
+        abort_test = 1;
     freeReplyObject(reply);
     redisFree(c);
     freeRedisConfig(cfg);
+    if (abort_test) exit(1);
     return NULL;
 }
 static void freeRedisConfig(redisConfig *cfg) {
@@ -514,44 +514,39 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                     exit(1);
                 }
                 redisReply *r = reply;
-                int is_err = (r->type == REDIS_REPLY_ERROR);
-
-                if (is_err && config.showerrors) {
-                    /* TODO: static lasterr_time not thread-safe */
-                    static time_t lasterr_time = 0;
-                    time_t now = time(NULL);
-                    if (lasterr_time != now) {
-                        lasterr_time = now;
+                if (r->type == REDIS_REPLY_ERROR) {
+                    /* Try to update slots configuration if reply error is
+                    * MOVED/ASK/CLUSTERDOWN and the key(s) used by the command
+                    * contain(s) the slot hash tag.
+                    * If the error is not topology-update related then we
+                    * immediately exit to avoid false results. */
+                    if (c->cluster_node && c->staglen) {
+                        int fetch_slots = 0, do_wait = 0;
+                        if (!strncmp(r->str,"MOVED",5) || !strncmp(r->str,"ASK",3))
+                            fetch_slots = 1;
+                        else if (!strncmp(r->str,"CLUSTERDOWN",11)) {
+                            /* Usually the cluster is able to recover itself after
+                            * a CLUSTERDOWN error, so try to sleep one second
+                            * before requesting the new configuration. */
+                            fetch_slots = 1;
+                            do_wait = 1;
+                            fprintf(stderr, "Error from server %s:%d: %s.\n",
+                                    c->cluster_node->ip,
+                                    c->cluster_node->port,
+                                    r->str);
+                        }
+                        if (do_wait) sleep(1);
+                        if (fetch_slots && !fetchClusterSlotsConfiguration(c))
+                            exit(1);
+                    } else {
                         if (c->cluster_node) {
-                            printf("Error from server %s:%d: %s\n",
-                                   c->cluster_node->ip,
-                                   c->cluster_node->port,
-                                   r->str);
-                        } else printf("Error from server: %s\n", r->str);
-                    }
-                }
-
-                /* Try to update slots configuration if reply error is
-                 * MOVED/ASK/CLUSTERDOWN and the key(s) used by the command
-                 * contain(s) the slot hash tag. */
-                if (is_err && c->cluster_node && c->staglen) {
-                    int fetch_slots = 0, do_wait = 0;
-                    if (!strncmp(r->str,"MOVED",5) || !strncmp(r->str,"ASK",3))
-                        fetch_slots = 1;
-                    else if (!strncmp(r->str,"CLUSTERDOWN",11)) {
-                        /* Usually the cluster is able to recover itself after
-                         * a CLUSTERDOWN error, so try to sleep one second
-                         * before requesting the new configuration. */
-                        fetch_slots = 1;
-                        do_wait = 1;
-                        printf("Error from server %s:%d: %s\n",
-                               c->cluster_node->ip,
-                               c->cluster_node->port,
-                               r->str);
-                    }
-                    if (do_wait) sleep(1);
-                    if (fetch_slots && !fetchClusterSlotsConfiguration(c))
+                            fprintf(stderr, "Error from server %s:%d: %s\n",
+                                 c->cluster_node->ip,
+                                 c->cluster_node->port,
+                                 r->str);
+                        } else fprintf(stderr, "Error from server: %s\n", r->str);
                         exit(1);
+                    }
                 }
 
                 freeReplyObject(reply);
@@ -1294,8 +1289,7 @@ static int fetchClusterSlotsConfiguration(client c) {
     atomicGetIncr(config.is_fetching_slots, is_fetching_slots, 1);
     if (is_fetching_slots) return -1; //TODO: use other codes || errno ?
     atomicSet(config.is_fetching_slots, 1);
-    if (config.showerrors)
-        printf("Cluster slots configuration changed, fetching new one...\n");
+    printf("WARNING: Cluster slots configuration changed, fetching new one...\n");
     const char *errmsg = "Failed to update cluster slots configuration";
     static dictType dtype = {
         dictSdsHash,               /* hash function */
@@ -1471,7 +1465,8 @@ int parseOptions(int argc, const char **argv) {
         } else if (!strcmp(argv[i],"-I")) {
             config.idlemode = 1;
         } else if (!strcmp(argv[i],"-e")) {
-            config.showerrors = 1;
+            printf("WARNING: -e option has been deprecated. "
+                   "We now immediately exit on error to avoid false results.\n");
         } else if (!strcmp(argv[i],"-t")) {
             if (lastarg) goto invalid;
             /* We get the list of tests to run as a string in the form
@@ -1574,8 +1569,6 @@ usage:
 "  is executed. Default tests use this to hit random keys in the\n"
 "  specified range.\n"
 " -P <numreq>        Pipeline <numreq> requests. Default 1 (no pipeline).\n"
-" -e                 If server replies with errors, show them on stdout.\n"
-"                    (no more than 1 error per second is displayed)\n"
 " -q                 Quiet. Just show query/sec values\n"
 " --precision        Number of decimal places to display in latency output (default 0)\n"
 " --csv              Output in CSV format\n"
@@ -1593,11 +1586,11 @@ usage:
 " --insecure         Allow insecure TLS connection by skipping cert validation.\n"
 " --cert <file>      Client certificate to authenticate with.\n"
 " --key <file>       Private key file to authenticate with.\n"
-" --tls-ciphers <list> Sets the list of prefered ciphers (TLSv1.2 and below)\n"
+" --tls-ciphers <list> Sets the list of preferred ciphers (TLSv1.2 and below)\n"
 "                    in order of preference from highest to lowest separated by colon (\":\").\n"
 "                    See the ciphers(1ssl) manpage for more information about the syntax of this string.\n"
 #ifdef TLS1_3_VERSION
-" --tls-ciphersuites <list> Sets the list of prefered ciphersuites (TLSv1.3)\n"
+" --tls-ciphersuites <list> Sets the list of preferred ciphersuites (TLSv1.3)\n"
 "                    in order of preference from highest to lowest separated by colon (\":\").\n"
 "                    See the ciphers(1ssl) manpage for more information about the syntax of this string,\n"
 "                    and specifically for TLSv1.3 ciphersuites.\n"
@@ -1656,7 +1649,11 @@ int showThroughput(struct aeEventLoop *eventLoop, long long id, void *clientData
     const float instantaneous_rps = (float)(requests_finished-previous_requests_finished)/instantaneous_dt;
     config.previous_tick = current_tick;
     atomicSet(config.previous_requests_finished,requests_finished);
-    config.last_printed_bytes = printf("%s: rps=%.1f (overall: %.1f) avg_msec=%.3f (overall: %.3f)\r", config.title, instantaneous_rps, rps, hdr_mean(config.current_sec_latency_histogram)/1000.0f, hdr_mean(config.latency_histogram)/1000.0f);
+    printf("%*s\r", config.last_printed_bytes, " "); /* ensure there is a clean line */
+    int printed_bytes = printf("%s: rps=%.1f (overall: %.1f) avg_msec=%.3f (overall: %.3f)\r", config.title, instantaneous_rps, rps, hdr_mean(config.current_sec_latency_histogram)/1000.0f, hdr_mean(config.latency_histogram)/1000.0f);
+    if (printed_bytes > config.last_printed_bytes){
+       config.last_printed_bytes = printed_bytes;
+    }
     hdr_reset(config.current_sec_latency_histogram);
     fflush(stdout);
     return 250; /* every 250ms */
@@ -1697,7 +1694,6 @@ int main(int argc, const char **argv) {
     config.keepalive = 1;
     config.datasize = 3;
     config.pipeline = 1;
-    config.showerrors = 0;
     config.randomkeys = 0;
     config.randomkeys_keyspacelen = 0;
     config.quiet = 0;
@@ -1780,8 +1776,9 @@ int main(int argc, const char **argv) {
     } else {
         config.redis_config =
             getRedisConfig(config.hostip, config.hostport, config.hostsocket);
-        if (config.redis_config == NULL)
+        if (config.redis_config == NULL) {
             fprintf(stderr, "WARN: could not fetch server CONFIG\n");
+        }
     }
     if (config.num_threads > 0) {
         pthread_mutex_init(&(config.liveclients_mutex), NULL);
@@ -1944,8 +1941,8 @@ int main(int argc, const char **argv) {
         }
 
         if (test_is_selected("lrange") || test_is_selected("lrange_500")) {
-            len = redisFormatCommand(&cmd,"LRANGE mylist%s 0 449",tag);
-            benchmark("LRANGE_500 (first 450 elements)",cmd,len);
+            len = redisFormatCommand(&cmd,"LRANGE mylist%s 0 499",tag);
+            benchmark("LRANGE_500 (first 500 elements)",cmd,len);
             free(cmd);
         }
 
@@ -1972,6 +1969,7 @@ int main(int argc, const char **argv) {
         if (!config.csv) printf("\n");
     } while(config.loop);
 
+    zfree(data);
     if (config.redis_config != NULL) freeRedisConfig(config.redis_config);
 
     return 0;

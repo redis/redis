@@ -30,7 +30,7 @@ start_server {tags {"modules"}} {
         assert_equal [r auth.changecount] 1
     }
 
-    test {Modules cant authenticate with ACLs users that dont exist} {
+    test {Modules can't authenticate with ACLs users that dont exist} {
         catch { [r auth.authrealuser auth-module-test-fake] } e
         assert_match {*Invalid user*} $e
     }

@@ -15,8 +15,6 @@
  * multiplicators of the node timeout value (when ending with MULT). */
 #define CLUSTER_FAIL_REPORT_VALIDITY_MULT 2 /* Fail report validity. */
 #define CLUSTER_FAIL_UNDO_TIME_MULT 2 /* Undo fail if master is back. */
-#define CLUSTER_FAIL_UNDO_TIME_ADD 10 /* Some additional time. */
-#define CLUSTER_FAILOVER_DELAY 5 /* Seconds */
 #define CLUSTER_MF_TIMEOUT 5000 /* Milliseconds to do a manual failover. */
 #define CLUSTER_MF_PAUSE_MULT 2 /* Master pause manual failover mult. */
 #define CLUSTER_SLAVE_MIGRATION_DELAY 5000 /* Delay for slave migration. */
@@ -135,7 +133,9 @@ typedef struct clusterNode {
     mstime_t orphaned_time;     /* Starting time of orphaned master condition */
     long long repl_offset;      /* Last known repl offset for this node. */
     char ip[NET_IP_STR_LEN];  /* Latest known IP address of this node */
-    int port;                   /* Latest known clients port of this node */
+    int port;                   /* Latest known clients port (TLS or plain). */
+    int pport;                  /* Latest known clients plaintext port. Only used
+                                   if the main clients port is for TLS. */
     int cport;                  /* Latest known cluster port of this node. */
     clusterLink *link;          /* TCP/IP link with this node */
     list *fail_reports;         /* List of nodes signaling this as failing */
@@ -168,7 +168,7 @@ typedef struct clusterState {
     clusterNode *mf_slave;      /* Slave performing the manual failover. */
     /* Manual failover state of slave. */
     long long mf_master_offset; /* Master offset the slave needs to start MF
-                                   or zero if still not received. */
+                                   or -1 if still not received. */
     int mf_can_start;           /* If non-zero signal that the manual failover
                                    can start requesting masters vote. */
     /* The following fields are used by masters to take state on elections. */
@@ -194,7 +194,8 @@ typedef struct {
     uint16_t port;              /* base port last time it was seen */
     uint16_t cport;             /* cluster port last time it was seen */
     uint16_t flags;             /* node->flags copy */
-    uint32_t notused1;
+    uint16_t pport;             /* plaintext-port, when base port is TLS */
+    uint16_t notused1;
 } clusterMsgDataGossip;
 
 typedef struct {
@@ -267,7 +268,8 @@ typedef struct {
     unsigned char myslots[CLUSTER_SLOTS/8];
     char slaveof[CLUSTER_NAMELEN];
     char myip[NET_IP_STR_LEN];    /* Sender IP, if not all zeroed. */
-    char notused1[34];  /* 34 bytes reserved for future usage. */
+    char notused1[32];  /* 32 bytes reserved for future usage. */
+    uint16_t pport;      /* Sender TCP plaintext port, if base port is TLS */
     uint16_t cport;      /* Sender TCP cluster bus port */
     uint16_t flags;      /* Sender node flags */
     unsigned char state; /* Cluster state from the POV of the sender */
@@ -284,9 +286,18 @@ typedef struct {
                                             master is up. */
 
 /* ---------------------- API exported outside cluster.c -------------------- */
+void clusterInit(void);
+void clusterCron(void);
+void clusterBeforeSleep(void);
 clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, int *ask);
+clusterNode *clusterLookupNode(const char *name);
 int clusterRedirectBlockedClientIfNeeded(client *c);
 void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_code);
+void migrateCloseTimedoutSockets(void);
+int verifyClusterConfigWithData(void);
 unsigned long getClusterConnectionsCount(void);
+int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uint8_t type, unsigned char *payload, uint32_t len);
+void clusterPropagatePublish(robj *channel, robj *message);
+unsigned int keyHashSlot(char *key, int keylen);
 
 #endif /* __CLUSTER_H */

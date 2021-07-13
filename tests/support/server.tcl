@@ -72,6 +72,8 @@ proc kill_server config {
     # kill server and wait for the process to be totally exited
     send_data_packet $::test_server_fd server-killing $pid
     catch {exec kill $pid}
+    # Node might have been stopped in the test
+    catch {exec kill -SIGCONT $pid}
     if {$::valgrind} {
         set max_wait 60000
     } else {
@@ -156,14 +158,14 @@ proc server_is_up {host port retrynum} {
 # there must be some intersection. If ::denytags are used, no intersection
 # is allowed. Returns 1 if tags are acceptable or 0 otherwise, in which
 # case err_return names a return variable for the message to be logged.
-proc tags_acceptable {err_return} {
+proc tags_acceptable {tags err_return} {
     upvar $err_return err
 
     # If tags are whitelisted, make sure there's match
     if {[llength $::allowtags] > 0} {
         set matched 0
         foreach tag $::allowtags {
-            if {[lsearch $::tags $tag] >= 0} {
+            if {[lsearch $tags $tag] >= 0} {
                 incr matched
             }
         }
@@ -174,10 +176,25 @@ proc tags_acceptable {err_return} {
     }
 
     foreach tag $::denytags {
-        if {[lsearch $::tags $tag] >= 0} {
+        if {[lsearch $tags $tag] >= 0} {
             set err "Tag: $tag denied"
             return 0
         }
+    }
+
+    if {$::external && [lsearch $tags "external:skip"] >= 0} {
+        set err "Not supported on external server"
+        return 0
+    }
+
+    if {$::singledb && [lsearch $tags "singledb:skip"] >= 0} {
+        set err "Not supported on singledb"
+        return 0
+    }
+
+    if {$::cluster_mode && [lsearch $tags "cluster:skip"] >= 0} {
+        set err "Not supported in cluster mode"
+        return 0
     }
 
     return 1
@@ -185,11 +202,11 @@ proc tags_acceptable {err_return} {
 
 # doesn't really belong here, but highly coupled to code in start_server
 proc tags {tags code} {
-    # If we 'tags' contain multiple tags, quoted and seperated by spaces,
+    # If we 'tags' contain multiple tags, quoted and separated by spaces,
     # we want to get rid of the quotes in order to have a proper list
     set tags [string map { \" "" } $tags]
     set ::tags [concat $::tags $tags]
-    if {![tags_acceptable err]} {
+    if {![tags_acceptable $::tags err]} {
         incr ::num_aborted
         send_data_packet $::test_server_fd ignore $err
         set ::tags [lrange $::tags 0 end-[llength $tags]]
@@ -251,7 +268,7 @@ proc wait_server_started {config_file stdout pid} {
 
         # Check if the port is actually busy and the server failed
         # for this reason.
-        if {[regexp {Could not create server TCP} [exec cat $stdout]]} {
+        if {[regexp {Failed listening on port} [exec cat $stdout]]} {
             set port_busy 1
             break
         }
@@ -264,6 +281,68 @@ proc dump_server_log {srv} {
     puts "\n===== Start of server log (pid $pid) =====\n"
     puts [exec cat [dict get $srv "stdout"]]
     puts "===== End of server log (pid $pid) =====\n"
+}
+
+proc run_external_server_test {code overrides} {
+    set srv {}
+    dict set srv "host" $::host
+    dict set srv "port" $::port
+    set client [redis $::host $::port 0 $::tls]
+    dict set srv "client" $client
+    if {!$::singledb} {
+        $client select 9
+    }
+
+    set config {}
+    dict set config "port" $::port
+    dict set srv "config" $config
+
+    # append the server to the stack
+    lappend ::servers $srv
+
+    if {[llength $::servers] > 1} {
+        if {$::verbose} {
+            puts "Notice: nested start_server statements in external server mode, test must be aware of that!"
+        }
+    }
+
+    r flushall
+
+    # store overrides
+    set saved_config {}
+    foreach {param val} $overrides {
+        dict set saved_config $param [lindex [r config get $param] 1]
+        r config set $param $val
+
+        # If we enable appendonly, wait for for rewrite to complete. This is
+        # required for tests that begin with a bg* command which will fail if
+        # the rewriteaof operation is not completed at this point.
+        if {$param == "appendonly" && $val == "yes"} {
+            waitForBgrewriteaof r
+        }
+    }
+
+    if {[catch {set retval [uplevel 2 $code]} error]} {
+        if {$::durable} {
+            set msg [string range $error 10 end]
+            lappend details $msg
+            lappend details $::errorInfo
+            lappend ::tests_failed $details
+
+            incr ::num_failed
+            send_data_packet $::test_server_fd err [join $details "\n"]
+        } else {
+            # Re-raise, let handler up the stack take care of this.
+            error $error $::errorInfo
+        }
+    }
+
+    # restore overrides
+    dict for {param val} $saved_config {
+        r config set $param $val
+    }
+
+    lpop ::servers
 }
 
 proc start_server {options {code undefined}} {
@@ -287,7 +366,7 @@ proc start_server {options {code undefined}} {
                 set omit $value
             }
             "tags" {
-                # If we 'tags' contain multiple tags, quoted and seperated by spaces,
+                # If we 'tags' contain multiple tags, quoted and separated by spaces,
                 # we want to get rid of the quotes in order to have a proper list
                 set tags [string map { \" "" } $value]
                 set ::tags [concat $::tags $tags]
@@ -302,7 +381,7 @@ proc start_server {options {code undefined}} {
     }
 
     # We skip unwanted tags
-    if {![tags_acceptable err]} {
+    if {![tags_acceptable $::tags err]} {
         incr ::num_aborted
         send_data_packet $::test_server_fd ignore $err
         set ::tags [lrange $::tags 0 end-[llength $tags]]
@@ -312,36 +391,8 @@ proc start_server {options {code undefined}} {
     # If we are running against an external server, we just push the
     # host/port pair in the stack the first time
     if {$::external} {
-        if {[llength $::servers] == 0} {
-            set srv {}
-            dict set srv "host" $::host
-            dict set srv "port" $::port
-            set client [redis $::host $::port 0 $::tls]
-            dict set srv "client" $client
-            $client select 9
+        run_external_server_test $code $overrides
 
-            set config {}
-            dict set config "port" $::port
-            dict set srv "config" $config
-
-            # append the server to the stack
-            lappend ::servers $srv
-        }
-        r flushall
-        if {[catch {set retval [uplevel 1 $code]} error]} {
-            if {$::durable} {
-                set msg [string range $error 10 end]
-                lappend details $msg
-                lappend details $::errorInfo
-                lappend ::tests_failed $details
-
-                incr ::num_failed
-                send_data_packet $::test_server_fd err [join $details "\n"]
-            } else {
-                # Re-raise, let handler up the stack take care of this.
-                error $error $::errorInfo
-            }
-        }
         set ::tags [lrange $::tags 0 end-[llength $tags]]
         return
     }
@@ -506,6 +557,7 @@ proc start_server {options {code undefined}} {
         set num_tests $::num_tests
         if {[catch { uplevel 1 $code } error]} {
             set backtrace $::errorInfo
+            set assertion [string match "assertion:*" $error]
 
             # fetch srv back from the server list, in case it was restarted by restart_server (new PID)
             set srv [lindex $::servers end]
@@ -517,17 +569,23 @@ proc start_server {options {code undefined}} {
             dict set srv "skipleaks" 1
             kill_server $srv
 
-            # Print warnings from log
-            puts [format "\nLogged warnings (pid %d):" [dict get $srv "pid"]]
-            set warnings [warnings_from_file [dict get $srv "stdout"]]
-            if {[string length $warnings] > 0} {
-                puts "$warnings"
+            if {$::dump_logs && $assertion} {
+                # if we caught an assertion ($::num_failed isn't incremented yet)
+                # this happens when the test spawns a server and not the other way around
+                dump_server_log $srv
             } else {
-                puts "(none)"
+                # Print crash report from log
+                set crashlog [crashlog_from_file [dict get $srv "stdout"]]
+                if {[string length $crashlog] > 0} {
+                    puts [format "\nLogged crash report (pid %d):" [dict get $srv "pid"]]
+                    puts "$crashlog"
+                    puts ""
+                }
             }
-            puts ""
 
-            if {$::durable} {
+            if {!$assertion && $::durable} {
+                # durable is meant to prevent the whole tcl test from exiting on
+                # an exception. an assertion will be caught by the test proc.
                 set msg [string range $error 10 end]
                 lappend details $msg
                 lappend details $backtrace
@@ -568,7 +626,7 @@ proc start_server {options {code undefined}} {
     }
 }
 
-proc restart_server {level wait_ready rotate_logs} {
+proc restart_server {level wait_ready rotate_logs {reconnect 1}} {
     set srv [lindex $::servers end+$level]
     kill_server $srv
 
@@ -610,5 +668,7 @@ proc restart_server {level wait_ready rotate_logs} {
             after 10
         }
     }
-    reconnect $level
+    if {$reconnect} {
+        reconnect $level
+    }
 }

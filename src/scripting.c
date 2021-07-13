@@ -31,6 +31,7 @@
 #include "sha1.h"
 #include "rand.h"
 #include "cluster.h"
+#include "monotonic.h"
 
 #include <lua.h>
 #include <lauxlib.h>
@@ -602,11 +603,18 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
         goto cleanup;
     }
 
+    /* This check is for EVAL_RO, EVALSHA_RO. We want to allow only read only commands */
+    if ((server.lua_caller->cmd->proc == evalRoCommand ||
+         server.lua_caller->cmd->proc == evalShaRoCommand) &&
+         (cmd->flags & CMD_WRITE))
+    {
+        luaPushError(lua, "Write commands are not allowed from read-only scripts");
+        goto cleanup;
+    }
+
     /* Check the ACLs. */
     int acl_errpos;
-    int acl_retval = ACLCheckCommandPerm(c,&acl_errpos);
-    if (acl_retval == ACL_OK && c->cmd->proc == publishCommand)
-        acl_retval = ACLCheckPubsubPerm(c,1,1,0,&acl_errpos);
+    int acl_retval = ACLCheckAllPerm(c,&acl_errpos);
     if (acl_retval != ACL_OK) {
         addACLLogEntry(c,acl_retval,acl_errpos,NULL);
         switch (acl_retval) {
@@ -619,7 +627,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
                               "at least one of the keys mentioned in the "
                               "command arguments");
             break;
-        case ACL_DENIED_AUTH:
+        case ACL_DENIED_CHANNEL:
             luaPushError(lua, "The user executing the script can't publish "
                               "to the channel mentioned in the command");
             break;
@@ -740,7 +748,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     /* Convert the result of the Redis command into a suitable Lua type.
      * The first thing we need is to create a single string from the client
      * output buffers. */
-    if (listLength(c->reply) == 0 && c->bufpos < PROTO_REPLY_CHUNK_BYTES) {
+    if (listLength(c->reply) == 0 && (size_t)c->bufpos < c->buf_usable_size) {
         /* This is a fast path for the common case of a reply inside the
          * client static buffer. Don't create an SDS string but just use
          * the client buffer directly. */
@@ -1429,7 +1437,7 @@ sds luaCreateFunction(client *c, lua_State *lua, robj *body) {
 
 /* This is the Lua script "count" hook that we use to detect scripts timeout. */
 void luaMaskCountHook(lua_State *lua, lua_Debug *ar) {
-    long long elapsed = mstime() - server.lua_time_start;
+    long long elapsed = elapsedMs(server.lua_time_start);
     UNUSED(ar);
     UNUSED(lua);
 
@@ -1453,6 +1461,14 @@ void luaMaskCountHook(lua_State *lua, lua_Debug *ar) {
     if (server.lua_timedout) processEventsWhileBlocked();
     if (server.lua_kill) {
         serverLog(LL_WARNING,"Lua script killed by user with SCRIPT KILL.");
+
+        /*
+         * Set the hook to invoke all the time so the user
+         * will not be able to catch the error with pcall and invoke
+         * pcall again which will prevent the script from ever been killed
+         */
+        lua_sethook(lua, luaMaskCountHook, LUA_MASKLINE, 0);
+
         lua_pushstring(lua,"Script killed by user with SCRIPT KILL...");
         lua_error(lua);
     }
@@ -1498,7 +1514,6 @@ void evalGenericCommand(client *c, int evalsha) {
     server.lua_replicate_commands = server.lua_always_replicate_commands;
     server.lua_multi_emitted = 0;
     server.lua_repl = PROPAGATE_AOF|PROPAGATE_REPL;
-    server.in_eval = 1;
 
     /* Get the number of arguments that are keys */
     if (getLongLongFromObjectOrReply(c,c->argv[2],&numkeys,NULL) != C_OK)
@@ -1544,7 +1559,7 @@ void evalGenericCommand(client *c, int evalsha) {
          * return an error. */
         if (evalsha) {
             lua_pop(lua,1); /* remove the error handler from the stack. */
-            addReply(c, shared.noscripterr);
+            addReplyErrorObject(c, shared.noscripterr);
             return;
         }
         if (luaCreateFunction(c,lua,c->argv[1]) == NULL) {
@@ -1570,9 +1585,11 @@ void evalGenericCommand(client *c, int evalsha) {
      *
      * If we are debugging, we set instead a "line" hook so that the
      * debugger is call-back at every line executed by the script. */
+    server.in_eval = 1;
     server.lua_caller = c;
     server.lua_cur_script = funcname + 2;
-    server.lua_time_start = mstime();
+    server.lua_time_start = getMonotonicUs();
+    server.lua_time_snapshot = mstime();
     server.lua_kill = 0;
     if (server.lua_time_limit > 0 && ldb.active == 0) {
         lua_sethook(lua,luaMaskCountHook,LUA_MASKCOUNT,100000);
@@ -1602,6 +1619,7 @@ void evalGenericCommand(client *c, int evalsha) {
         if (server.masterhost && server.master)
             queueClientForReprocessing(server.master);
     }
+    server.in_eval = 0;
     server.lua_caller = NULL;
     server.lua_cur_script = NULL;
 
@@ -1649,7 +1667,7 @@ void evalGenericCommand(client *c, int evalsha) {
      * To do so we use a cache of SHA1s of scripts that we already propagated
      * as full EVAL, that's called the Replication Script Cache.
      *
-     * For replication, everytime a new slave attaches to the master, we need to
+     * For replication, every time a new slave attaches to the master, we need to
      * flush our cache of scripts that can be replicated as EVALSHA, while
      * for AOF we need to do so every time we rewrite the AOF file. */
     if (evalsha && !server.lua_replicate_commands) {
@@ -1678,24 +1696,32 @@ void evalGenericCommand(client *c, int evalsha) {
             forceCommandPropagation(c,PROPAGATE_REPL|PROPAGATE_AOF);
         }
     }
-
-    server.in_eval = 0;
 }
 
 void evalCommand(client *c) {
+    /* Explicitly feed monitor here so that lua commands appear after their
+     * script command. */
+    replicationFeedMonitors(c,server.monitors,c->db->id,c->argv,c->argc);
     if (!(c->flags & CLIENT_LUA_DEBUG))
         evalGenericCommand(c,0);
     else
         evalGenericCommandWithDebugging(c,0);
 }
 
+void evalRoCommand(client *c) {
+    evalCommand(c);
+}
+
 void evalShaCommand(client *c) {
+    /* Explicitly feed monitor here so that lua commands appear after their
+     * script command. */
+    replicationFeedMonitors(c,server.monitors,c->db->id,c->argv,c->argc);
     if (sdslen(c->argv[1]->ptr) != 40) {
         /* We know that a match is not possible if the provided SHA is
          * not the right length. So we return an error ASAP, this way
          * evalGenericCommand() can be implemented without string length
          * sanity check */
-        addReply(c, shared.noscripterr);
+        addReplyErrorObject(c, shared.noscripterr);
         return;
     }
     if (!(c->flags & CLIENT_LUA_DEBUG))
@@ -1704,6 +1730,10 @@ void evalShaCommand(client *c) {
         addReplyError(c,"Please use EVAL instead of EVALSHA for debugging");
         return;
     }
+}
+
+void evalShaRoCommand(client *c) {
+    evalShaCommand(c);
 }
 
 void scriptCommand(client *c) {
@@ -2245,7 +2275,7 @@ sds ldbCatStackValue(sds s, lua_State *lua, int idx) {
 }
 
 /* Produce a debugger log entry representing the value of the Lua object
- * currently on the top of the stack. The element is ot popped nor modified.
+ * currently on the top of the stack. The element is not popped nor modified.
  * Check ldbCatStackValue() for the actual implementation. */
 void ldbLogStackValue(lua_State *lua, char *prefix) {
     sds s = sdsnew(prefix);
@@ -2724,7 +2754,7 @@ void luaLdbLineHook(lua_State *lua, lua_Debug *ar) {
 
     /* Check if a timeout occurred. */
     if (ar->event == LUA_HOOKCOUNT && ldb.step == 0 && bp == 0) {
-        mstime_t elapsed = mstime() - server.lua_time_start;
+        mstime_t elapsed = elapsedMs(server.lua_time_start);
         mstime_t timelimit = server.lua_time_limit ?
                              server.lua_time_limit : 5000;
         if (elapsed >= timelimit) {
@@ -2754,6 +2784,7 @@ void luaLdbLineHook(lua_State *lua, lua_Debug *ar) {
             lua_pushstring(lua, "timeout during Lua debugging with client closing connection");
             lua_error(lua);
         }
-        server.lua_time_start = mstime();
+        server.lua_time_start = getMonotonicUs();
+        server.lua_time_snapshot = mstime();
     }
 }

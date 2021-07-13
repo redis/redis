@@ -34,12 +34,14 @@ array set ::redis::fd {}
 array set ::redis::addr {}
 array set ::redis::blocking {}
 array set ::redis::deferred {}
+array set ::redis::readraw {}
 array set ::redis::reconnect {}
+array set ::redis::tls {}
 array set ::redis::callback {}
 array set ::redis::state {} ;# State in non-blocking reply reading
 array set ::redis::statestack {} ;# Stack of states, for nested mbulks
 
-proc redis {{server 127.0.0.1} {port 6379} {defer 0} {tls 0} {tlsoptions {}}} {
+proc redis {{server 127.0.0.1} {port 6379} {defer 0} {tls 0} {tlsoptions {}} {readraw 0}} {
     if {$tls} {
         package require tls
         ::tls::init \
@@ -57,8 +59,9 @@ proc redis {{server 127.0.0.1} {port 6379} {defer 0} {tls 0} {tlsoptions {}}} {
     set ::redis::addr($id) [list $server $port]
     set ::redis::blocking($id) 1
     set ::redis::deferred($id) $defer
+    set ::redis::readraw($id) $readraw
     set ::redis::reconnect($id) 0
-    set ::redis::tls $tls
+    set ::redis::tls($id) $tls
     ::redis::redis_reset_state $id
     interp alias {} ::redis::redisHandle$id {} ::redis::__dispatch__ $id
 }
@@ -83,7 +86,7 @@ proc ::redis::__dispatch__raw__ {id method argv} {
     # Reconnect the link if needed.
     if {$fd eq {}} {
         lassign $::redis::addr($id) host port
-        if {$::redis::tls} {
+        if {$::redis::tls($id)} {
             set ::redis::fd($id) [::tls::socket $host $port]
         } else {
             set ::redis::fd($id) [socket $host $port]
@@ -157,7 +160,9 @@ proc ::redis::__method__close {id fd} {
     catch {unset ::redis::addr($id)}
     catch {unset ::redis::blocking($id)}
     catch {unset ::redis::deferred($id)}
+    catch {unset ::redis::readraw($id)}
     catch {unset ::redis::reconnect($id)}
+    catch {unset ::redis::tls($id)}
     catch {unset ::redis::state($id)}
     catch {unset ::redis::statestack($id)}
     catch {unset ::redis::callback($id)}
@@ -170,6 +175,10 @@ proc ::redis::__method__channel {id fd} {
 
 proc ::redis::__method__deferred {id fd val} {
     set ::redis::deferred($id) $val
+}
+
+proc ::redis::__method__readraw {id fd val} {
+    set ::redis::readraw($id) $val
 }
 
 proc ::redis::redis_write {fd buf} {
@@ -239,6 +248,10 @@ proc ::redis::redis_read_null fd {
 }
 
 proc ::redis::redis_read_reply {id fd} {
+    if {$::redis::readraw($id)} {
+        return [redis_read_line $fd]
+    }
+
     set type [read $fd 1]
     switch -exact -- $type {
         _ {redis_read_null $fd}

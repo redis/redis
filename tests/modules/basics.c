@@ -31,7 +31,7 @@
  */
 
 #define REDISMODULE_EXPERIMENTAL_API
-#include "../redismodule.h"
+#include "redismodule.h"
 #include <string.h>
 
 /* --------------------------------- Helpers -------------------------------- */
@@ -152,11 +152,64 @@ int TestUnlink(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         return failTest(ctx, "Could not verify key to be unlinked");
     }
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
 
+/* TEST.STRING.TRUNCATE -- Test truncating an existing string object. */
+int TestStringTruncate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    RedisModule_AutoMemory(ctx);
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+
+    RedisModule_Call(ctx, "SET", "cc", "foo", "abcde");
+    RedisModuleKey *k = RedisModule_OpenKey(ctx, RedisModule_CreateStringPrintf(ctx, "foo"), REDISMODULE_READ | REDISMODULE_WRITE);
+    if (!k) return failTest(ctx, "Could not create key");
+
+    size_t len = 0;
+    char* s;
+
+    /* expand from 5 to 8 and check null pad */
+    if (REDISMODULE_ERR == RedisModule_StringTruncate(k, 8)) {
+        return failTest(ctx, "Could not truncate string value (8)");
+    }
+    s = RedisModule_StringDMA(k, &len, REDISMODULE_READ);
+    if (!s) {
+        return failTest(ctx, "Failed to read truncated string (8)");
+    } else if (len != 8) {
+        return failTest(ctx, "Failed to expand string value (8)");
+    } else if (0 != strncmp(s, "abcde\0\0\0", 8)) {
+        return failTest(ctx, "Failed to null pad string value (8)");
+    }
+
+    /* shrink from 8 to 4 */
+    if (REDISMODULE_ERR == RedisModule_StringTruncate(k, 4)) {
+        return failTest(ctx, "Could not truncate string value (4)");
+    }
+    s = RedisModule_StringDMA(k, &len, REDISMODULE_READ);
+    if (!s) {
+        return failTest(ctx, "Failed to read truncated string (4)");
+    } else if (len != 4) {
+        return failTest(ctx, "Failed to shrink string value (4)");
+    } else if (0 != strncmp(s, "abcd", 4)) {
+        return failTest(ctx, "Failed to truncate string value (4)");
+    }
+
+    /* shrink to 0 */
+    if (REDISMODULE_ERR == RedisModule_StringTruncate(k, 0)) {
+        return failTest(ctx, "Could not truncate string value (0)");
+    }
+    s = RedisModule_StringDMA(k, &len, REDISMODULE_READ);
+    if (!s) {
+        return failTest(ctx, "Failed to read truncated string (0)");
+    } else if (len != 0) {
+        return failTest(ctx, "Failed to shrink string value to (0)");
+    }
+
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
 int NotifyCallback(RedisModuleCtx *ctx, int type, const char *event,
                    RedisModuleString *key) {
+  RedisModule_AutoMemory(ctx);
   /* Increment a counter on the notifications: for each key notified we
    * increment a counter */
   RedisModule_Log(ctx, "notice", "Got event type %d, event %s, key %s", type,
@@ -168,6 +221,7 @@ int NotifyCallback(RedisModuleCtx *ctx, int type, const char *event,
 
 /* TEST.NOTIFICATIONS -- Test Keyspace Notifications. */
 int TestNotifications(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    RedisModule_AutoMemory(ctx);
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
 
@@ -279,6 +333,9 @@ int TestCtxFlags(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     flags = RedisModule_GetContextFlags(ctx);
     if (!(flags & REDISMODULE_CTX_FLAGS_AOF)) FAIL("AOF Flag not set after config set");
 
+    /* Disable RDB saving and test the flag. */
+    RedisModule_Call(ctx, "config", "ccc", "set", "save", "");
+    flags = RedisModule_GetContextFlags(ctx);
     if (flags & REDISMODULE_CTX_FLAGS_RDB) FAIL("RDB Flag was set");
     /* Enable RDB to test RDB flags */
     RedisModule_Call(ctx, "config", "ccc", "set", "save", "900 1");
@@ -290,8 +347,12 @@ int TestCtxFlags(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (flags & REDISMODULE_CTX_FLAGS_READONLY) FAIL("Read-only flag was set");
     if (flags & REDISMODULE_CTX_FLAGS_CLUSTER) FAIL("Cluster flag was set");
 
+    /* Disable maxmemory and test the flag. (it is implicitly set in 32bit builds. */
+    RedisModule_Call(ctx, "config", "ccc", "set", "maxmemory", "0");
+    flags = RedisModule_GetContextFlags(ctx);
     if (flags & REDISMODULE_CTX_FLAGS_MAXMEMORY) FAIL("Maxmemory flag was set");
 
+    /* Enable maxmemory and test the flag. */
     RedisModule_Call(ctx, "config", "ccc", "set", "maxmemory", "100000000");
     flags = RedisModule_GetContextFlags(ctx);
     if (!(flags & REDISMODULE_CTX_FLAGS_MAXMEMORY))
@@ -324,7 +385,11 @@ end:
 int TestAssertStringReply(RedisModuleCtx *ctx, RedisModuleCallReply *reply, char *str, size_t len) {
     RedisModuleString *mystr, *expected;
 
-    if (RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_STRING) {
+    if (RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ERROR) {
+        RedisModule_Log(ctx,"warning","Test error reply: %s",
+            RedisModule_CallReplyStringPtr(reply, NULL));
+        return 0;
+    } else if (RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_STRING) {
         RedisModule_Log(ctx,"warning","Unexpected reply type %d",
             RedisModule_CallReplyType(reply));
         return 0;
@@ -345,7 +410,11 @@ int TestAssertStringReply(RedisModuleCtx *ctx, RedisModuleCallReply *reply, char
 /* Return 1 if the reply matches the specified integer, otherwise log errors
  * in the server log and return 0. */
 int TestAssertIntegerReply(RedisModuleCtx *ctx, RedisModuleCallReply *reply, long long expected) {
-    if (RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_INTEGER) {
+    if (RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ERROR) {
+        RedisModule_Log(ctx,"warning","Test error reply: %s",
+            RedisModule_CallReplyStringPtr(reply, NULL));
+        return 0;
+    } else if (RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_INTEGER) {
         RedisModule_Log(ctx,"warning","Unexpected reply type %d",
             RedisModule_CallReplyType(reply));
         return 0;
@@ -366,8 +435,11 @@ int TestAssertIntegerReply(RedisModuleCtx *ctx, RedisModuleCallReply *reply, lon
         reply = RedisModule_Call(ctx,name,__VA_ARGS__); \
     } while (0)
 
-/* TEST.IT -- Run all the tests. */
-int TestIt(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+/* TEST.BASICS -- Run all the tests.
+ * Note: it is useful to run these tests from the module rather than TCL
+ * since it's easier to check the reply types like that (make a distinction
+ * between 0 and "0", etc. */
+int TestBasics(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
 
@@ -390,6 +462,9 @@ int TestIt(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     T("test.string.append","");
     if (!TestAssertStringReply(ctx,reply,"foobar",6)) goto fail;
 
+    T("test.string.truncate","");
+    if (!TestAssertStringReply(ctx,reply,"OK",2)) goto fail;
+
     T("test.unlink","");
     if (!TestAssertStringReply(ctx,reply,"OK",2)) goto fail;
 
@@ -407,7 +482,7 @@ int TestIt(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
 fail:
     RedisModule_ReplyWithSimpleString(ctx,
-        "SOME TEST NOT PASSED! Check server logs");
+        "SOME TEST DID NOT PASS! Check server logs");
     return REDISMODULE_OK;
 }
 
@@ -430,6 +505,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         TestStringAppendAM,"write deny-oom",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
+    if (RedisModule_CreateCommand(ctx,"test.string.truncate",
+        TestStringTruncate,"write deny-oom",1,1,1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
     if (RedisModule_CreateCommand(ctx,"test.string.printf",
         TestStringPrintf,"write deny-oom",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
@@ -442,8 +521,8 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         TestUnlink,"write deny-oom",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx,"test.it",
-        TestIt,"readonly",1,1,1) == REDISMODULE_ERR)
+    if (RedisModule_CreateCommand(ctx,"test.basics",
+        TestBasics,"readonly",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     RedisModule_SubscribeToKeyspaceEvents(ctx,

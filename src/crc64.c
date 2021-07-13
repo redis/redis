@@ -127,9 +127,10 @@ uint64_t crc64(uint64_t crc, const unsigned char *s, uint64_t l) {
 #include <stdio.h>
 
 #define UNUSED(x) (void)(x)
-int crc64Test(int argc, char *argv[]) {
+int crc64Test(int argc, char *argv[], int accurate) {
     UNUSED(argc);
     UNUSED(argv);
+    UNUSED(accurate);
     crc64_init();
     printf("[calcula]: e9c6d914c4b8d9ca == %016" PRIx64 "\n",
            (uint64_t)_crc64(0, "123456789", 9));

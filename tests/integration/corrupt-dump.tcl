@@ -1,12 +1,12 @@
 # tests of corrupt ziplist payload with valid CRC
 # * setting crash-memcheck-enabled to no to avoid issues with valgrind
 # * setting use-exit-on-panic to yes so that valgrind can search for leaks
-# * settng debug set-skip-checksum-validation to 1 on some tests for which we
+# * setting debug set-skip-checksum-validation to 1 on some tests for which we
 #   didn't bother to fake a valid checksum
 # * some tests set sanitize-dump-payload to no and some to yet, depending on
 #   what we want to test
 
-tags {"dump" "corruption"} {
+tags {"dump" "corruption" "external:skip"} {
 
 set corrupt_payload_7445 "\x0E\x01\x1D\x1D\x00\x00\x00\x16\x00\x00\x00\x03\x00\x00\x04\x43\x43\x43\x43\x06\x04\x42\x42\x42\x42\x06\x3F\x41\x41\x41\x41\xFF\x09\x00\x88\xA5\xCA\xA8\xC5\x41\xF4\x35"
 
@@ -214,7 +214,7 @@ test {corrupt payload: hash ziplist uneven record count} {
     }
 }
 
-test {corrupt payload: hash dupliacte records} {
+test {corrupt payload: hash duplicate records} {
     # when we do perform full sanitization, we expect duplicate records to fail the restore
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r config set sanitize-dump-payload yes
@@ -515,6 +515,17 @@ test {corrupt payload: fuzzer findings - HRANDFIELD on bad ziplist} {
         catch {r HRANDFIELD _int}
         assert_equal [count_log_message 0 "crashed by signal"] 0
         assert_equal [count_log_message 0 "ASSERTION FAILED"] 1
+    }
+}
+
+test {corrupt payload: fuzzer findings - stream with no records} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload no
+        r debug set-skip-checksum-validation 1
+        r restore _stream 0 "\x0F\x01\x10\x00\x00\x01\x78\x4D\x55\x68\x09\x00\x00\x00\x00\x00\x00\x00\x00\x40\x42\x42\x00\x00\x00\x18\x00\x02\x01\x01\x01\x02\x01\x84\x69\x74\x65\x6D\x05\x85\x76\x61\x6C\x75\x65\x06\x00\x01\x02\x01\x00\x01\x00\x01\x01\x01\x00\x01\x05\x01\x03\x01\x3E\x01\x00\x01\x01\x01\x82\x5F\x31\x03\x05\x01\x02\x01\x50\x01\x00\x01\x01\x01\x02\x01\x05\x23\xFF\x02\x81\x00\x00\x01\x78\x4D\x55\x68\x59\x00\x01\x07\x6D\x79\x67\x72\x6F\x75\x70\x81\x00\x00\x01\x78\x4D\x55\x68\x47\x00\x01\x00\x00\x01\x78\x4D\x55\x68\x47\x00\x00\x00\x00\x00\x00\x00\x00\x9F\x68\x55\x4D\x78\x01\x00\x00\x01\x01\x05\x41\x6C\x69\x63\x65\x85\x68\x55\x4D\x78\x01\x00\x00\x01\x00\x00\x01\x78\x4D\x55\x68\x47\x00\x00\x00\x00\x00\x00\x00\x00\x09\x00\xF1\xC0\x72\x70\x39\x40\x1E\xA9" replace
+        catch {r XREAD STREAMS _stream $}
+        assert_equal [count_log_message 0 "crashed by signal"] 0
+        assert_equal [count_log_message 0 "Guru Meditation"] 1
     }
 }
 

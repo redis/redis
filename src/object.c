@@ -727,7 +727,11 @@ int getRangeLongFromObjectOrReply(client *c, robj *o, long min, long max, long *
 }
 
 int getPositiveLongFromObjectOrReply(client *c, robj *o, long *target, const char *msg) {
-    return getRangeLongFromObjectOrReply(c, o, 0, LONG_MAX, target, msg);
+    if (msg) {
+        return getRangeLongFromObjectOrReply(c, o, 0, LONG_MAX, target, msg);
+    } else {
+        return getRangeLongFromObjectOrReply(c, o, 0, LONG_MAX, target, "value is out of range, must be positive");
+    }
 }
 
 int getIntFromObjectOrReply(client *c, robj *o, int *target, const char *msg) {
@@ -758,7 +762,7 @@ char *strEncoding(int encoding) {
 /* =========================== Memory introspection ========================= */
 
 
-/* This is an helper function with the goal of estimating the memory
+/* This is a helper function with the goal of estimating the memory
  * size of a radix tree that is used to store Stream IDs.
  *
  * Note: to guess the size of the radix tree is not trivial, so we
@@ -786,7 +790,7 @@ size_t streamRadixTreeMemoryUsage(rax *rax) {
  * case of aggregated data types where only "sample_size" elements
  * are checked and averaged to estimate the total size. */
 #define OBJ_COMPUTE_SIZE_DEF_SAMPLES 5 /* Default sample size. */
-size_t objectComputeSize(robj *o, size_t sample_size) {
+size_t objectComputeSize(robj *key, robj *o, size_t sample_size, int dbid) {
     sds ele, ele2;
     dict *d;
     dictIterator *di;
@@ -799,7 +803,7 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
         } else if(o->encoding == OBJ_ENCODING_RAW) {
             asize = sdsZmallocSize(o->ptr)+sizeof(*o);
         } else if(o->encoding == OBJ_ENCODING_EMBSTR) {
-            asize = sdslen(o->ptr)+2+sizeof(*o);
+            asize = zmalloc_size((void *)o);
         } else {
             serverPanic("Unknown string encoding");
         }
@@ -809,12 +813,12 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
             quicklistNode *node = ql->head;
             asize = sizeof(*o)+sizeof(quicklist);
             do {
-                elesize += sizeof(quicklistNode)+ziplistBlobLen(node->zl);
+                elesize += sizeof(quicklistNode)+zmalloc_size(node->zl);
                 samples++;
             } while ((node = node->next) && samples < sample_size);
             asize += (double)elesize/samples*ql->len;
         } else if (o->encoding == OBJ_ENCODING_ZIPLIST) {
-            asize = sizeof(*o)+ziplistBlobLen(o->ptr);
+            asize = sizeof(*o)+zmalloc_size(o->ptr);
         } else {
             serverPanic("Unknown list encoding");
         }
@@ -831,14 +835,13 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
             dictReleaseIterator(di);
             if (samples) asize += (double)elesize/samples*dictSize(d);
         } else if (o->encoding == OBJ_ENCODING_INTSET) {
-            intset *is = o->ptr;
-            asize = sizeof(*o)+sizeof(*is)+is->encoding*is->length;
+            asize = sizeof(*o)+zmalloc_size(o->ptr);
         } else {
             serverPanic("Unknown set encoding");
         }
     } else if (o->type == OBJ_ZSET) {
         if (o->encoding == OBJ_ENCODING_ZIPLIST) {
-            asize = sizeof(*o)+(ziplistBlobLen(o->ptr));
+            asize = sizeof(*o)+zmalloc_size(o->ptr);
         } else if (o->encoding == OBJ_ENCODING_SKIPLIST) {
             d = ((zset*)o->ptr)->dict;
             zskiplist *zsl = ((zset*)o->ptr)->zsl;
@@ -848,7 +851,7 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
                     zmalloc_size(zsl->header);
             while(znode != NULL && samples < sample_size) {
                 elesize += sdsZmallocSize(znode->ele);
-                elesize += sizeof(struct dictEntry) + zmalloc_size(znode);
+                elesize += sizeof(struct dictEntry)+zmalloc_size(znode);
                 samples++;
                 znode = znode->level[0].forward;
             }
@@ -858,7 +861,7 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
         }
     } else if (o->type == OBJ_HASH) {
         if (o->encoding == OBJ_ENCODING_ZIPLIST) {
-            asize = sizeof(*o)+(ziplistBlobLen(o->ptr));
+            asize = sizeof(*o)+zmalloc_size(o->ptr);
         } else if (o->encoding == OBJ_ENCODING_HT) {
             d = o->ptr;
             di = dictGetIterator(d);
@@ -877,7 +880,7 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
         }
     } else if (o->type == OBJ_STREAM) {
         stream *s = o->ptr;
-        asize = sizeof(*o);
+        asize = sizeof(*o)+sizeof(*s);
         asize += streamRadixTreeMemoryUsage(s->rax);
 
         /* Now we have to add the listpacks. The last listpack is often non
@@ -937,13 +940,7 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
             raxStop(&ri);
         }
     } else if (o->type == OBJ_MODULE) {
-        moduleValue *mv = o->ptr;
-        moduleType *mt = mv->type;
-        if (mt->mem_usage != NULL) {
-            asize = mt->mem_usage(mv->value);
-        } else {
-            asize = 0;
-        }
+        asize = moduleGetMemUsage(key, o, dbid);
     } else {
         serverPanic("Unknown object type");
     }
@@ -1007,7 +1004,7 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     mem = 0;
     if (server.aof_state != AOF_OFF) {
         mem += sdsZmallocSize(server.aof_buf);
-        mem += aofRewriteBufferSize();
+        mem += aofRewriteBufferMemoryUsage();
     }
     mh->aof_buffer = mem;
     mem_total+=mem;
@@ -1204,9 +1201,9 @@ int objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
          * below statement will expand to lru_idle*1000/1000. */
         lru_idle = lru_idle*lru_multiplier/LRU_CLOCK_RESOLUTION;
         long lru_abs = lru_clock - lru_idle; /* Absolute access time. */
-        /* If the LRU field underflows (since LRU it is a wrapping
+        /* If the LRU field underflow (since LRU it is a wrapping
          * clock), the best we can do is to provide a large enough LRU
-         * that is half-way in the circlular LRU clock we use: this way
+         * that is half-way in the circular LRU clock we use: this way
          * the computed idle time for this object will stay high for quite
          * some time. */
         if (lru_abs < 0)
@@ -1332,7 +1329,7 @@ NULL
             addReplyNull(c);
             return;
         }
-        size_t usage = objectComputeSize(dictGetVal(de),samples);
+        size_t usage = objectComputeSize(c->argv[2],dictGetVal(de),samples,c->db->id);
         usage += sdsZmallocSize(dictGetKey(de));
         usage += sizeof(dictEntry);
         addReplyLongLong(c,usage);

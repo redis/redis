@@ -61,12 +61,31 @@
 #define zmalloc_size(p) malloc_size(p)
 #endif
 
+/* On native libc implementations, we should still do our best to provide a
+ * HAVE_MALLOC_SIZE capability. This can be set explicitly as well:
+ *
+ * NO_MALLOC_USABLE_SIZE disables it on all platforms, even if they are
+ *      known to support it.
+ * USE_MALLOC_USABLE_SIZE forces use of malloc_usable_size() regardless
+ *      of platform.
+ */
 #ifndef ZMALLOC_LIB
 #define ZMALLOC_LIB "libc"
-#ifdef __GLIBC__
+
+#if !defined(NO_MALLOC_USABLE_SIZE) && \
+    (defined(__GLIBC__) || defined(__FreeBSD__) || \
+     defined(USE_MALLOC_USABLE_SIZE))
+
+/* Includes for malloc_usable_size() */
+#ifdef __FreeBSD__
+#include <malloc_np.h>
+#else
 #include <malloc.h>
+#endif
+
 #define HAVE_MALLOC_SIZE 1
 #define zmalloc_size(p) malloc_usable_size(p)
+
 #endif
 #endif
 
@@ -116,7 +135,7 @@ size_t zmalloc_usable_size(void *ptr);
 #endif
 
 #ifdef REDIS_TEST
-int zmalloc_test(int argc, char **argv);
+int zmalloc_test(int argc, char **argv, int accurate);
 #endif
 
 #endif /* __ZMALLOC_H */

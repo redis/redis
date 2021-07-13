@@ -111,7 +111,7 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
     int retval, numevents = 0;
 
     retval = epoll_wait(state->epfd,state->events,eventLoop->setsize,
-            tvp ? (tvp->tv_sec*1000 + tvp->tv_usec/1000) : -1);
+            tvp ? (tvp->tv_sec*1000 + (tvp->tv_usec + 999)/1000) : -1);
     if (retval > 0) {
         int j;
 
@@ -127,7 +127,10 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
             eventLoop->fired[j].fd = e->data.fd;
             eventLoop->fired[j].mask = mask;
         }
+    } else if (retval == -1 && errno != EINTR) {
+        panic("aeApiPoll: epoll_wait, %s", strerror(errno));
     }
+
     return numevents;
 }
 

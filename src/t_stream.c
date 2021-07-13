@@ -458,8 +458,8 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
     size_t lp_bytes = 0;        /* Total bytes in the tail listpack. */
     unsigned char *lp = NULL;   /* Tail listpack pointer. */
 
-    /* Get a reference to the tail node listpack. */
-    if (raxNext(&ri)) {
+    if (!raxEOF(&ri)) {
+        /* Get a reference to the tail node listpack. */
         lp = ri.data;
         lp_bytes = lpBytes(lp);
     }
@@ -626,7 +626,7 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
     lp_count += 3; /* Add the 3 fixed fields flags + ms-diff + seq-diff. */
     if (!(flags & STREAM_ITEM_FLAG_SAMEFIELDS)) {
         /* If the item is not compressed, it also has the fields other than
-         * the values, and an additional num-fileds field. */
+         * the values, and an additional num-fields field. */
         lp_count += numfields+1;
     }
     lp = lpAppendInteger(lp,lp_count);
@@ -702,15 +702,15 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
 
     int64_t deleted = 0;
     while (raxNext(&ri)) {
-        /* Check if we exceeded the amount of work we could do */
-        if (limit && deleted >= limit)
-            break;
-
         if (trim_strategy == TRIM_STRATEGY_MAXLEN && s->length <= maxlen)
             break;
 
         unsigned char *lp = ri.data, *p = lpFirst(lp);
         int64_t entries = lpGetInteger(p);
+
+        /* Check if we exceeded the amount of work we could do */
+        if (limit && (deleted + entries) > limit)
+            break;
 
         /* Check if we can remove the whole node. */
         int remove_node;
@@ -861,7 +861,7 @@ int64_t streamTrimByID(stream *s, streamID minid, int approx) {
     return streamTrim(s, &args);
 }
 
-/* Parse the arguements of XADD/XTRIM.
+/* Parse the arguments of XADD/XTRIM.
  *
  * See streamAddTrimArgs for more details about the arguments handled.
  *
@@ -968,7 +968,7 @@ static int streamParseAddOrTrimArgsOrReply(client *c, streamAddTrimArgs *args, i
     }
 
     if (c == server.master || c->id == CLIENT_ID_AOF) {
-        /* If command cam from master or from AOF we must not enforce maxnodes
+        /* If command came from master or from AOF we must not enforce maxnodes
          * (The maxlen/minid argument was re-written to make sure there's no
          * inconsistency). */
         args->limit = 0;
@@ -982,11 +982,15 @@ static int streamParseAddOrTrimArgsOrReply(client *c, streamAddTrimArgs *args, i
             }
         } else {
             /* User didn't provide LIMIT, we must set it. */
-
             if (args->approx_trim) {
-                /* In order to prevent from trimming to do too much work and cause
-                 * latency spikes we limit the amount of work it can do */
+                /* In order to prevent from trimming to do too much work and 
+                 * cause latency spikes we limit the amount of work it can do.
+                 * We have to cap args->limit from both sides in case 
+                 * stream_node_max_entries is 0 or too big (could cause overflow)
+                 */
                 args->limit = 100 * server.stream_node_max_entries; /* Maximum 100 rax nodes. */
+                if (args->limit <= 0) args->limit = 10000;
+                if (args->limit > 1000000) args->limit = 1000000;
             } else {
                 /* No LIMIT for exact trimming */
                 args->limit = 0;
@@ -1313,7 +1317,8 @@ void streamLastValidID(stream *s, streamID *maxid)
     streamIterator si;
     streamIteratorStart(&si,s,NULL,NULL,1);
     int64_t numfields;
-    streamIteratorGetID(&si,maxid,&numfields);
+    if (!streamIteratorGetID(&si,maxid,&numfields) && s->length)
+        serverPanic("Corrupt stream, length is %llu, but no max id", (unsigned long long)s->length);
     streamIteratorStop(&si);
 }
 
@@ -1364,7 +1369,7 @@ void streamPropagateXCLAIM(client *c, robj *key, streamCG *group, robj *groupnam
     argv[12] = shared.lastid;
     argv[13] = createObjectFromStreamID(&group->last_id);
 
-    /* We use progagate() because this code path is not always called from
+    /* We use propagate() because this code path is not always called from
      * the command execution context. Moreover this will just alter the
      * consumer group state, and we don't need MULTI/EXEC wrapping because
      * there is no message state cross-message atomicity required. */
@@ -1375,7 +1380,7 @@ void streamPropagateXCLAIM(client *c, robj *key, streamCG *group, robj *groupnam
     decrRefCount(argv[13]);
 }
 
-/* We need this when we want to propoagate the new last-id of a consumer group
+/* We need this when we want to propagate the new last-id of a consumer group
  * that was consumed by XREADGROUP with the NOACK option: in that case we can't
  * propagate the last ID just using the XCLAIM LASTID option, so we emit
  *
@@ -1389,7 +1394,7 @@ void streamPropagateGroupID(client *c, robj *key, streamCG *group, robj *groupna
     argv[3] = groupname;
     argv[4] = createObjectFromStreamID(&group->last_id);
 
-    /* We use progagate() because this code path is not always called from
+    /* We use propagate() because this code path is not always called from
      * the command execution context. Moreover this will just alter the
      * consumer group state, and we don't need MULTI/EXEC wrapping because
      * there is no message state cross-message atomicity required. */
@@ -1411,7 +1416,7 @@ void streamPropagateConsumerCreation(client *c, robj *key, robj *groupname, sds 
     argv[3] = groupname;
     argv[4] = createObject(OBJ_STRING,sdsdup(consumername));
 
-    /* We use progagate() because this code path is not always called from
+    /* We use propagate() because this code path is not always called from
      * the command execution context. Moreover this will just alter the
      * consumer group state, and we don't need MULTI/EXEC wrapping because
      * there is no message state cross-message atomicity required. */
@@ -1575,7 +1580,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
     return arraylen;
 }
 
-/* This is an helper function for streamReplyWithRange() when called with
+/* This is a helper function for streamReplyWithRange() when called with
  * group and consumer arguments, but with a range that is referring to already
  * delivered messages. In this case we just emit messages that are already
  * in the history of the consumer, fetching the IDs from its PEL.
@@ -1943,7 +1948,7 @@ void xreadCommand(client *c) {
             if (c->flags & CLIENT_LUA) {
                 /*
                  * Although the CLIENT_DENY_BLOCKING flag should protect from blocking the client
-                 * on Lua/MULTI/RM_Call we want special treatment for Lua to keep backword compatibility.
+                 * on Lua/MULTI/RM_Call we want special treatment for Lua to keep backward compatibility.
                  * There is no sense to use BLOCK option within Lua. */
                 addReplyErrorFormat(c, "%s command is not allowed with BLOCK option from scripts", (char *)c->argv[0]->ptr);
                 return;
@@ -2505,7 +2510,7 @@ void xsetidCommand(client *c) {
 /* XACK <key> <group> <id> <id> ... <id>
  *
  * Acknowledge a message as processed. In practical terms we just check the
- * pendine entries list (PEL) of the group, and delete the PEL entry both from
+ * pending entries list (PEL) of the group, and delete the PEL entry both from
  * the group and the consumer (pending messages are referenced in both places).
  *
  * Return value of the command is the number of messages successfully
@@ -2571,7 +2576,7 @@ cleanup:
  * delivery time and so forth. */
 void xpendingCommand(client *c) {
     int justinfo = c->argc == 3; /* Without the range just outputs general
-                                    informations about the PEL. */
+                                    information about the PEL. */
     robj *key = c->argv[1];
     robj *groupname = c->argv[2];
     robj *consumername = NULL;
@@ -2927,7 +2932,7 @@ void xclaimCommand(client *c) {
         streamNACK *nack = raxFind(group->pel,buf,sizeof(buf));
 
         /* If FORCE is passed, let's check if at least the entry
-         * exists in the Stream. In such case, we'll crate a new
+         * exists in the Stream. In such case, we'll create a new
          * entry in the PEL from scratch, so that XCLAIM can also
          * be used to create entries in the PEL. Useful for AOF
          * and replication of consumer groups. */
@@ -3050,12 +3055,8 @@ void xautoclaimCommand(client *c) {
         int moreargs = (c->argc-1) - j; /* Number of additional arguments. */
         char *opt = c->argv[j]->ptr;
         if (!strcasecmp(opt,"COUNT") && moreargs) {
-            if (getPositiveLongFromObjectOrReply(c,c->argv[j+1],&count,NULL) != C_OK)
+            if (getRangeLongFromObjectOrReply(c,c->argv[j+1],1,LONG_MAX,&count,"COUNT must be > 0") != C_OK)
                 return;
-            if (count == 0) {
-                addReplyError(c,"COUNT must be > 0");
-                return;
-            }
             j++;
         } else if (!strcasecmp(opt,"JUSTID")) {
             justid = 1;
@@ -3120,7 +3121,9 @@ void xautoclaimCommand(client *c) {
 
         /* Update the consumer and idle time. */
         nack->delivery_time = now;
-        nack->delivery_count++;
+        /* Increment the delivery attempts counter unless JUSTID option provided */
+        if (!justid)
+            nack->delivery_count++;
 
         if (nack->consumer != consumer) {
             /* Add the entry in the new consumer local PEL. */
@@ -3147,6 +3150,9 @@ void xautoclaimCommand(client *c) {
         decrRefCount(idstr);
         server.dirty++;
     }
+
+    /* We need to return the next entry as a cursor for the next XAUTOCLAIM call */
+    raxNext(&ri);
 
     streamID endid;
     if (raxEOF(&ri)) {
@@ -3229,16 +3235,16 @@ cleanup:
 void xtrimCommand(client *c) {
     robj *o;
 
+    /* Argument parsing. */
+    streamAddTrimArgs parsed_args;
+    if (streamParseAddOrTrimArgsOrReply(c, &parsed_args, 0) < 0)
+        return; /* streamParseAddOrTrimArgsOrReply already replied. */
+
     /* If the key does not exist, we are ok returning zero, that is, the
      * number of elements removed from the stream. */
     if ((o = lookupKeyWriteOrReply(c,c->argv[1],shared.czero)) == NULL
         || checkType(c,o,OBJ_STREAM)) return;
     stream *s = o->ptr;
-
-    /* Argument parsing. */
-    streamAddTrimArgs parsed_args;
-    if (streamParseAddOrTrimArgsOrReply(c, &parsed_args, 1) < 0)
-        return; /* streamParseAddOrTrimArgsOrReply already replied. */
 
     /* Perform the trimming. */
     int64_t deleted = streamTrim(s, &parsed_args);
@@ -3457,6 +3463,11 @@ void xinfoCommand(client *c) {
 
     /* HELP is special. Handle it ASAP. */
     if (!strcasecmp(c->argv[1]->ptr,"HELP")) {
+        if (c->argc != 2) {
+            addReplySubcommandSyntaxError(c);
+            return;
+        }
+
         const char *help[] = {
 "CONSUMERS <key> <groupname>",
 "    Show consumers of <groupname>.",
@@ -3545,8 +3556,8 @@ NULL
     }
 }
 
-/* Validate the integrity stream listpack entries stracture. Both in term of a
- * valid listpack, but also that the stracture of the entires matches a valid
+/* Validate the integrity stream listpack entries structure. Both in term of a
+ * valid listpack, but also that the structure of the entries matches a valid
  * stream. return 1 if valid 0 if not valid. */
 int streamValidateListpackIntegrity(unsigned char *lp, size_t size, int deep) {
     int valid_record;
@@ -3570,7 +3581,7 @@ int streamValidateListpackIntegrity(unsigned char *lp, size_t size, int deep) {
     p = next; if (!lpValidateNext(lp, &next, size)) return 0;
 
     /* deleted */
-    lpGetIntegerIfValid(p, &valid_record);
+    int64_t deleted_count = lpGetIntegerIfValid(p, &valid_record);
     if (!valid_record) return 0;
     p = next; if (!lpValidateNext(lp, &next, size)) return 0;
 
@@ -3589,6 +3600,7 @@ int streamValidateListpackIntegrity(unsigned char *lp, size_t size, int deep) {
     if (!valid_record || zero != 0) return 0;
     p = next; if (!lpValidateNext(lp, &next, size)) return 0;
 
+    entry_count += deleted_count;
     while (entry_count--) {
         if (!p) return 0;
         int64_t fields = master_fields, extra_fields = 3;

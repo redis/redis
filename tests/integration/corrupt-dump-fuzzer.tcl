@@ -1,6 +1,15 @@
 # tests of corrupt ziplist payload with valid CRC
 
-tags {"dump" "corruption"} {
+tags {"dump" "corruption" "external:skip"} {
+
+# catch sigterm so that in case one of the random command hangs the test,
+# usually due to redis not putting a response in the output buffers,
+# we'll know which command it was
+if { ! [ catch {
+    package require Tclx
+} err ] } {
+    signal error SIGTERM
+}
 
 proc generate_collections {suffix elements} {
     set rd [redis_deferring_client]
@@ -32,6 +41,7 @@ proc generate_types {} {
     # add some metadata to the stream
     r xgroup create stream mygroup 0
     set records [r xreadgroup GROUP mygroup Alice COUNT 2 STREAMS stream >]
+    r xdel stream [lindex [lindex [lindex [lindex $records 0] 1] 1] 0]
     r xack stream mygroup [lindex [lindex [lindex [lindex $records 0] 1] 0] 0]
 
     # create other non-collection types
@@ -42,7 +52,7 @@ proc generate_types {} {
     generate_collections big 10
 
     # make sure our big stream also has a listpack record that has different
-    # field names than the master recored
+    # field names than the master recorded
     r xadd streambig * item 1 value 1
     r xadd streambig * item 1 unique value
 }

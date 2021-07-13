@@ -128,7 +128,7 @@ void rdbCheckError(const char *fmt, ...) {
     rdbShowGenericInfo();
 }
 
-/* Print informations during RDB checking. */
+/* Print information during RDB checking. */
 void rdbCheckInfo(const char *fmt, ...) {
     char msg[1024];
     va_list ap;
@@ -184,6 +184,7 @@ void rdbCheckSetupSignals(void) {
  * otherwise the already open file 'fp' is checked. */
 int redis_check_rdb(char *rdbfilename, FILE *fp) {
     uint64_t dbid;
+    int selected_dbid = -1;
     int type, rdbver;
     char buf[1024];
     long long expiretime, now = mstime();
@@ -192,6 +193,7 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
     int closefile = (fp == NULL);
     if (fp == NULL && (fp = fopen(rdbfilename,"r")) == NULL) return 1;
 
+    startLoadingFile(fp, rdbfilename, RDBFLAGS_NONE);
     rioInitWithFile(&rdb,fp);
     rdbstate.rio = &rdb;
     rdb.update_cksum = rdbLoadProgressCallback;
@@ -208,7 +210,6 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
     }
 
     expiretime = -1;
-    startLoadingFile(fp, rdbfilename, RDBFLAGS_NONE);
     while(1) {
         robj *key, *val;
 
@@ -250,7 +251,8 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
             rdbstate.doing = RDB_CHECK_DOING_READ_LEN;
             if ((dbid = rdbLoadLen(&rdb,NULL)) == RDB_LENERR)
                 goto eoferr;
-            rdbCheckInfo("Selecting DB ID %d", dbid);
+            rdbCheckInfo("Selecting DB ID %llu", (unsigned long long)dbid);
+            selected_dbid = dbid;
             continue; /* Read type again. */
         } else if (type == RDB_OPCODE_RESIZEDB) {
             /* RESIZEDB: Hint about the size of the keys in the currently
@@ -265,7 +267,7 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
         } else if (type == RDB_OPCODE_AUX) {
             /* AUX: generic string-string fields. Use to add state to RDB
              * which is backward compatible. Implementations of RDB loading
-             * are requierd to skip AUX fields they don't understand.
+             * are required to skip AUX fields they don't understand.
              *
              * An AUX field is composed of two strings: key and value. */
             robj *auxkey, *auxval;
@@ -308,7 +310,7 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
         rdbstate.keys++;
         /* Read value */
         rdbstate.doing = RDB_CHECK_DOING_READ_OBJECT_VALUE;
-        if ((val = rdbLoadObject(type,&rdb,key->ptr)) == NULL) goto eoferr;
+        if ((val = rdbLoadObject(type,&rdb,key->ptr,selected_dbid)) == NULL) goto eoferr;
         /* Check if the key already expired. */
         if (expiretime != -1 && expiretime < now)
             rdbstate.already_expired++;

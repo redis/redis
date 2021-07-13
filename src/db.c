@@ -139,9 +139,9 @@ robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
 
 keymiss:
     if (!(flags & LOOKUP_NONOTIFY)) {
-        server.stat_keyspace_misses++;
         notifyKeyspaceEvent(NOTIFY_KEY_MISS, "keymiss", key, db->id);
     }
+    server.stat_keyspace_misses++;
     return NULL;
 }
 
@@ -164,16 +164,24 @@ robj *lookupKeyWriteWithFlags(redisDb *db, robj *key, int flags) {
 robj *lookupKeyWrite(redisDb *db, robj *key) {
     return lookupKeyWriteWithFlags(db, key, LOOKUP_NONE);
 }
-
+static void SentReplyOnKeyMiss(client *c, robj *reply){
+    serverAssert(sdsEncodedObject(reply));
+    sds rep = reply->ptr;
+    if (sdslen(rep) > 1 && rep[0] == '-'){
+        addReplyErrorObject(c, reply);
+    } else {
+        addReply(c,reply);
+    }
+}
 robj *lookupKeyReadOrReply(client *c, robj *key, robj *reply) {
     robj *o = lookupKeyRead(c->db, key);
-    if (!o) addReply(c,reply);
+    if (!o) SentReplyOnKeyMiss(c, reply);
     return o;
 }
 
 robj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply) {
     robj *o = lookupKeyWrite(c->db, key);
-    if (!o) addReply(c,reply);
+    if (!o) SentReplyOnKeyMiss(c, reply);
     return o;
 }
 
@@ -225,11 +233,11 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
     /* Although the key is not really deleted from the database, we regard 
     overwrite as two steps of unlink+add, so we still need to call the unlink 
     callback of the module. */
-    moduleNotifyKeyUnlink(key,old);
+    moduleNotifyKeyUnlink(key,old,db->id);
     dictSetVal(db->dict, de, val);
 
     if (server.lazyfree_lazy_server_del) {
-        freeObjAsync(key,old);
+        freeObjAsync(key,old,db->id);
         dictSetVal(db->dict, &auxentry, NULL);
     }
 
@@ -287,7 +295,7 @@ robj *dbRandomKey(redisDb *db) {
                  * it could happen that all the keys are already logically
                  * expired in the slave, so the function cannot stop because
                  * expireIfNeeded() is false, nor it can stop because
-                 * dictGetRandomKey() returns NULL (there are keys to return).
+                 * dictGetFairRandomKey() returns NULL (there are keys to return).
                  * To prevent the infinite loop we do some tries, but if there
                  * are the conditions for an infinite loop, eventually we
                  * return a key name that may be already expired. */
@@ -311,7 +319,7 @@ int dbSyncDelete(redisDb *db, robj *key) {
     if (de) {
         robj *val = dictGetVal(de);
         /* Tells the module that the key has been unlinked from the database. */
-        moduleNotifyKeyUnlink(key,val);
+        moduleNotifyKeyUnlink(key,val,db->id);
         dictFreeUnlinkedEntry(db->dict,de);
         if (server.cluster_enabled) slotToKeyDel(key->ptr);
         return 1;
@@ -485,22 +493,22 @@ dbBackup *backupDb(void) {
 
 /* Discard a previously created backup, this can be slow (similar to FLUSHALL)
  * Arguments are similar to the ones of emptyDb, see EMPTYDB_ flags. */
-void discardDbBackup(dbBackup *buckup, int flags, void(callback)(void*)) {
+void discardDbBackup(dbBackup *backup, int flags, void(callback)(void*)) {
     int async = (flags & EMPTYDB_ASYNC);
 
     /* Release main DBs backup . */
-    emptyDbStructure(buckup->dbarray, -1, async, callback);
+    emptyDbStructure(backup->dbarray, -1, async, callback);
     for (int i=0; i<server.dbnum; i++) {
-        dictRelease(buckup->dbarray[i].dict);
-        dictRelease(buckup->dbarray[i].expires);
+        dictRelease(backup->dbarray[i].dict);
+        dictRelease(backup->dbarray[i].expires);
     }
 
     /* Release slots to keys map backup if enable cluster. */
-    if (server.cluster_enabled) freeSlotsToKeysMap(buckup->slots_to_keys, async);
+    if (server.cluster_enabled) freeSlotsToKeysMap(backup->slots_to_keys, async);
 
-    /* Release buckup. */
-    zfree(buckup->dbarray);
-    zfree(buckup);
+    /* Release backup. */
+    zfree(backup->dbarray);
+    zfree(backup);
 
     moduleFireServerEvent(REDISMODULE_EVENT_REPL_BACKUP,
                           REDISMODULE_SUBEVENT_REPL_BACKUP_DISCARD,
@@ -511,28 +519,28 @@ void discardDbBackup(dbBackup *buckup, int flags, void(callback)(void*)) {
  * in the db).
  * This function should be called after the current contents of the database
  * was emptied with a previous call to emptyDb (possibly using the async mode). */
-void restoreDbBackup(dbBackup *buckup) {
+void restoreDbBackup(dbBackup *backup) {
     /* Restore main DBs. */
     for (int i=0; i<server.dbnum; i++) {
         serverAssert(dictSize(server.db[i].dict) == 0);
         serverAssert(dictSize(server.db[i].expires) == 0);
         dictRelease(server.db[i].dict);
         dictRelease(server.db[i].expires);
-        server.db[i] = buckup->dbarray[i];
+        server.db[i] = backup->dbarray[i];
     }
 
     /* Restore slots to keys map backup if enable cluster. */
     if (server.cluster_enabled) {
         serverAssert(server.cluster->slots_to_keys->numele == 0);
         raxFree(server.cluster->slots_to_keys);
-        server.cluster->slots_to_keys = buckup->slots_to_keys;
-        memcpy(server.cluster->slots_keys_count, buckup->slots_keys_count,
+        server.cluster->slots_to_keys = backup->slots_to_keys;
+        memcpy(server.cluster->slots_keys_count, backup->slots_keys_count,
                 sizeof(server.cluster->slots_keys_count));
     }
 
-    /* Release buckup. */
-    zfree(buckup->dbarray);
-    zfree(buckup);
+    /* Release backup. */
+    zfree(backup->dbarray);
+    zfree(backup);
 
     moduleFireServerEvent(REDISMODULE_EVENT_REPL_BACKUP,
                           REDISMODULE_SUBEVENT_REPL_BACKUP_RESTORE,
@@ -1269,7 +1277,7 @@ void copyCommand(client *c) {
         case OBJ_HASH: newobj = hashTypeDup(o); break;
         case OBJ_STREAM: newobj = streamDup(o); break;
         case OBJ_MODULE:
-            newobj = moduleTypeDupOrReply(c, key, newkey, o);
+            newobj = moduleTypeDupOrReply(c, key, newkey, dst->id, o);
             if (!newobj) return;
             break;
         default:
@@ -1315,7 +1323,7 @@ void scanDatabaseForReadyLists(redisDb *db) {
  *
  * Returns C_ERR if at least one of the DB ids are out of range, otherwise
  * C_OK is returned. */
-int dbSwapDatabases(long id1, long id2) {
+int dbSwapDatabases(int id1, int id2) {
     if (id1 < 0 || id1 >= server.dbnum ||
         id2 < 0 || id2 >= server.dbnum) return C_ERR;
     if (id1 == id2) return C_OK;
@@ -1356,7 +1364,7 @@ int dbSwapDatabases(long id1, long id2) {
 
 /* SWAPDB db1 db2 */
 void swapdbCommand(client *c) {
-    long id1, id2;
+    int id1, id2;
 
     /* Not allowed in cluster mode: we have just DB 0 there. */
     if (server.cluster_enabled) {
@@ -1365,11 +1373,11 @@ void swapdbCommand(client *c) {
     }
 
     /* Get the two DBs indexes. */
-    if (getLongFromObjectOrReply(c, c->argv[1], &id1,
+    if (getIntFromObjectOrReply(c, c->argv[1], &id1,
         "invalid first DB index") != C_OK)
         return;
 
-    if (getLongFromObjectOrReply(c, c->argv[2], &id2,
+    if (getIntFromObjectOrReply(c, c->argv[2], &id2,
         "invalid second DB index") != C_OK)
         return;
 
@@ -1445,7 +1453,12 @@ void propagateExpire(redisDb *db, robj *key, int lazy) {
     incrRefCount(argv[0]);
     incrRefCount(argv[1]);
 
+    /* If the master decided to expire a key we must propagate it to replicas no matter what..
+     * Even if module executed a command without asking for propagation. */
+    int prev_replication_allowed = server.replication_allowed;
+    server.replication_allowed = 1;
     propagate(server.delCommand,db->id,argv,2,PROPAGATE_AOF|PROPAGATE_REPL);
+    server.replication_allowed = prev_replication_allowed;
 
     decrRefCount(argv[0]);
     decrRefCount(argv[1]);
@@ -1467,7 +1480,7 @@ int keyIsExpired(redisDb *db, robj *key) {
      * script execution, making propagation to slaves / AOF consistent.
      * See issue #1525 on Github for more information. */
     if (server.lua_caller) {
-        now = server.lua_time_start;
+        now = server.lua_time_snapshot;
     }
     /* If we are in the middle of a command execution, we still want to use
      * a reference time that does not change: in that case we just use the
@@ -1528,14 +1541,17 @@ int expireIfNeeded(redisDb *db, robj *key) {
     if (checkClientPauseTimeoutAndReturnIfPaused()) return 1;
 
     /* Delete the key */
+    if (server.lazyfree_lazy_expire) {
+        dbAsyncDelete(db,key);
+    } else {
+        dbSyncDelete(db,key);
+    }
     server.stat_expiredkeys++;
     propagateExpire(db,key,server.lazyfree_lazy_expire);
     notifyKeyspaceEvent(NOTIFY_EXPIRED,
         "expired",key,db->id);
-    int retval = server.lazyfree_lazy_expire ? dbAsyncDelete(db,key) :
-                                               dbSyncDelete(db,key);
-    if (retval) signalModifiedKey(NULL,db,key);
-    return retval;
+    signalModifiedKey(NULL,db,key);
+    return 1;
 }
 
 /* -----------------------------------------------------------------------------

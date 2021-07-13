@@ -1,4 +1,4 @@
-start_server {tags {"repl network"}} {
+start_server {tags {"repl network external:skip"}} {
     start_server {} {
 
         set master [srv -1 client]
@@ -21,15 +21,9 @@ start_server {tags {"repl network"}} {
             stop_bg_complex_data $load_handle0
             stop_bg_complex_data $load_handle1
             stop_bg_complex_data $load_handle2
-            set retry 10
-            while {$retry && ([$master debug digest] ne [$slave debug digest])}\
-            {
-                after 1000
-                incr retry -1
-            }
-            assert {[$master dbsize] > 0}
-
-            if {[$master debug digest] ne [$slave debug digest]} {
+            wait_for_condition 100 100 {
+                [$master debug digest] == [$slave debug digest]
+            } else {
                 set csv1 [csvdump r]
                 set csv2 [csvdump {r -1}]
                 set fd [open /tmp/repldump1.txt w]
@@ -38,15 +32,14 @@ start_server {tags {"repl network"}} {
                 set fd [open /tmp/repldump2.txt w]
                 puts -nonewline $fd $csv2
                 close $fd
-                puts "Master - Replica inconsistency"
-                puts "Run diff -u against /tmp/repldump*.txt for more info"
+                fail "Master - Replica inconsistency, Run diff -u against /tmp/repldump*.txt for more info"
             }
-            assert_equal [r debug digest] [r -1 debug digest]
+            assert {[$master dbsize] > 0}
         }
     }
 }
 
-start_server {tags {"repl"}} {
+start_server {tags {"repl external:skip"}} {
     start_server {} {
         set master [srv -1 client]
         set master_host [srv -1 host]
@@ -79,16 +72,20 @@ start_server {tags {"repl"}} {
             $master config set min-slaves-max-lag 2
             $master config set min-slaves-to-write 1
             assert {[$master set foo bar] eq {OK}}
-            $slave deferred 1
-            $slave debug sleep 6
-            after 4000
-            catch {$master set foo bar} e
-            set e
-        } {NOREPLICAS*}
+            exec kill -SIGSTOP [srv 0 pid]
+            wait_for_condition 100 100 {
+                [catch {$master set foo bar}] != 0
+            } else {
+                fail "Master didn't become readonly"
+            }
+            catch {$master set foo bar} err
+            assert_match {NOREPLICAS*} $err
+            exec kill -SIGCONT [srv 0 pid]
+        }
     }
 }
 
-start_server {tags {"repl"}} {
+start_server {tags {"repl external:skip"}} {
     start_server {} {
         set master [srv -1 client]
         set master_host [srv -1 host]

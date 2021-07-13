@@ -47,6 +47,7 @@
 #include <stdio.h>
 
 #include "anet.h"
+#include "config.h"
 
 static void anetSetError(char *err, const char *fmt, ...)
 {
@@ -184,27 +185,6 @@ int anetEnableTcpNoDelay(char *err, int fd)
 int anetDisableTcpNoDelay(char *err, int fd)
 {
     return anetSetTcpNoDelay(err, fd, 0);
-}
-
-
-int anetSetSendBuffer(char *err, int fd, int buffsize)
-{
-    if (setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &buffsize, sizeof(buffsize)) == -1)
-    {
-        anetSetError(err, "setsockopt SO_SNDBUF: %s", strerror(errno));
-        return ANET_ERR;
-    }
-    return ANET_OK;
-}
-
-int anetTcpKeepAlive(char *err, int fd)
-{
-    int yes = 1;
-    if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &yes, sizeof(yes)) == -1) {
-        anetSetError(err, "setsockopt SO_KEEPALIVE: %s", strerror(errno));
-        return ANET_ERR;
-    }
-    return ANET_OK;
 }
 
 /* Set the socket send timeout (SO_SNDTIMEO socket option) to the specified
@@ -378,21 +358,9 @@ end:
     }
 }
 
-int anetTcpConnect(char *err, const char *addr, int port)
-{
-    return anetTcpGenericConnect(err,addr,port,NULL,ANET_CONNECT_NONE);
-}
-
 int anetTcpNonBlockConnect(char *err, const char *addr, int port)
 {
     return anetTcpGenericConnect(err,addr,port,NULL,ANET_CONNECT_NONBLOCK);
-}
-
-int anetTcpNonBlockBindConnect(char *err, const char *addr, int port,
-                               const char *source_addr)
-{
-    return anetTcpGenericConnect(err,addr,port,source_addr,
-            ANET_CONNECT_NONBLOCK);
 }
 
 int anetTcpNonBlockBestEffortBindConnect(char *err, const char *addr, int port,
@@ -428,46 +396,6 @@ int anetUnixGenericConnect(char *err, const char *path, int flags)
         return ANET_ERR;
     }
     return s;
-}
-
-int anetUnixConnect(char *err, const char *path)
-{
-    return anetUnixGenericConnect(err,path,ANET_CONNECT_NONE);
-}
-
-int anetUnixNonBlockConnect(char *err, const char *path)
-{
-    return anetUnixGenericConnect(err,path,ANET_CONNECT_NONBLOCK);
-}
-
-/* Like read(2) but make sure 'count' is read before to return
- * (unless error or EOF condition is encountered) */
-int anetRead(int fd, char *buf, int count)
-{
-    ssize_t nread, totlen = 0;
-    while(totlen != count) {
-        nread = read(fd,buf,count-totlen);
-        if (nread == 0) return totlen;
-        if (nread == -1) return -1;
-        totlen += nread;
-        buf += nread;
-    }
-    return totlen;
-}
-
-/* Like write(2) but make sure 'count' is written before to return
- * (unless error is encountered) */
-int anetWrite(int fd, char *buf, int count)
-{
-    ssize_t nwritten, totlen = 0;
-    while(totlen != count) {
-        nwritten = write(fd,buf,count-totlen);
-        if (nwritten == 0) return totlen;
-        if (nwritten == -1) return -1;
-        totlen += nwritten;
-        buf += nwritten;
-    }
-    return totlen;
 }
 
 static int anetListen(char *err, int s, struct sockaddr *sa, socklen_t len, int backlog) {
@@ -564,28 +492,44 @@ int anetUnixServer(char *err, char *path, mode_t perm, int backlog)
     return s;
 }
 
+/* Accept a connection and also make sure the socket is non-blocking, and CLOEXEC.
+ * returns the new socket FD, or -1 on error. */
 static int anetGenericAccept(char *err, int s, struct sockaddr *sa, socklen_t *len) {
     int fd;
-    while(1) {
+    do {
+        /* Use the accept4() call on linux to simultaneously accept and
+         * set a socket as non-blocking. */
+#ifdef HAVE_ACCEPT4
+        fd = accept4(s, sa, len,  SOCK_NONBLOCK | SOCK_CLOEXEC);
+#else
         fd = accept(s,sa,len);
-        if (fd == -1) {
-            if (errno == EINTR)
-                continue;
-            else {
-                anetSetError(err, "accept: %s", strerror(errno));
-                return ANET_ERR;
-            }
-        }
-        break;
+#endif
+    } while(fd == -1 && errno == EINTR);
+    if (fd == -1) {
+        anetSetError(err, "accept: %s", strerror(errno));
+        return ANET_ERR;
     }
+#ifndef HAVE_ACCEPT4
+    if (anetCloexec(fd) == -1) {
+        anetSetError(err, "anetCloexec: %s", strerror(errno));
+        close(fd);
+        return ANET_ERR;
+    }
+    if (anetNonBlock(err, fd) != ANET_OK) {
+        close(fd);
+        return ANET_ERR;
+    }
+#endif
     return fd;
 }
 
+/* Accept a connection and also make sure the socket is non-blocking, and CLOEXEC.
+ * returns the new socket FD, or -1 on error. */
 int anetTcpAccept(char *err, int s, char *ip, size_t ip_len, int *port) {
     int fd;
     struct sockaddr_storage sa;
     socklen_t salen = sizeof(sa);
-    if ((fd = anetGenericAccept(err,s,(struct sockaddr*)&sa,&salen)) == -1)
+    if ((fd = anetGenericAccept(err,s,(struct sockaddr*)&sa,&salen)) == ANET_ERR)
         return ANET_ERR;
 
     if (sa.ss_family == AF_INET) {
@@ -600,11 +544,13 @@ int anetTcpAccept(char *err, int s, char *ip, size_t ip_len, int *port) {
     return fd;
 }
 
+/* Accept a connection and also make sure the socket is non-blocking, and CLOEXEC.
+ * returns the new socket FD, or -1 on error. */
 int anetUnixAccept(char *err, int s) {
     int fd;
     struct sockaddr_un sa;
     socklen_t salen = sizeof(sa);
-    if ((fd = anetGenericAccept(err,s,(struct sockaddr*)&sa,&salen)) == -1)
+    if ((fd = anetGenericAccept(err,s,(struct sockaddr*)&sa,&salen)) == ANET_ERR)
         return ANET_ERR;
 
     return fd;
@@ -619,18 +565,26 @@ int anetFdToString(int fd, char *ip, size_t ip_len, int *port, int fd_to_str_typ
     } else {
         if (getsockname(fd, (struct sockaddr *)&sa, &salen) == -1) goto error;
     }
-    if (ip_len == 0) goto error;
 
     if (sa.ss_family == AF_INET) {
         struct sockaddr_in *s = (struct sockaddr_in *)&sa;
-        if (ip) inet_ntop(AF_INET,(void*)&(s->sin_addr),ip,ip_len);
+        if (ip) {
+            if (inet_ntop(AF_INET,(void*)&(s->sin_addr),ip,ip_len) == NULL)
+                goto error;
+        }
         if (port) *port = ntohs(s->sin_port);
     } else if (sa.ss_family == AF_INET6) {
         struct sockaddr_in6 *s = (struct sockaddr_in6 *)&sa;
-        if (ip) inet_ntop(AF_INET6,(void*)&(s->sin6_addr),ip,ip_len);
+        if (ip) {
+            if (inet_ntop(AF_INET6,(void*)&(s->sin6_addr),ip,ip_len) == NULL)
+                goto error;
+        }
         if (port) *port = ntohs(s->sin6_port);
     } else if (sa.ss_family == AF_UNIX) {
-        if (ip) snprintf(ip, ip_len, "/unixsocket");
+        if (ip) {
+            int res = snprintf(ip, ip_len, "/unixsocket");
+            if (res < 0 || (unsigned int) res >= ip_len) goto error;
+        }
         if (port) *port = 0;
     } else {
         goto error;

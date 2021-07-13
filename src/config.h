@@ -35,7 +35,6 @@
 #endif
 
 #ifdef __linux__
-#include <linux/version.h>
 #include <features.h>
 #endif
 
@@ -79,6 +78,11 @@
 #define HAVE_EPOLL 1
 #endif
 
+/* Test for accept4() */
+#ifdef __linux__
+#define HAVE_ACCEPT4 1
+#endif
+
 #if (defined(__APPLE__) && defined(MAC_OS_X_VERSION_10_6)) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined (__NetBSD__)
 #define HAVE_KQUEUE 1
 #endif
@@ -114,19 +118,7 @@
 
 /* Define rdb_fsync_range to sync_file_range() on Linux, otherwise we use
  * the plain fsync() call. */
-#ifdef __linux__
-#if defined(__GLIBC__) && defined(__GLIBC_PREREQ)
-#if (LINUX_VERSION_CODE >= 0x020611 && __GLIBC_PREREQ(2, 6))
-#define HAVE_SYNC_FILE_RANGE 1
-#endif
-#else
-#if (LINUX_VERSION_CODE >= 0x020611)
-#define HAVE_SYNC_FILE_RANGE 1
-#endif
-#endif
-#endif
-
-#ifdef HAVE_SYNC_FILE_RANGE
+#if (defined(__linux__) && defined(SYNC_FILE_RANGE_WAIT_BEFORE))
 #define rdb_fsync_range(fd,off,size) sync_file_range(fd,off,size,SYNC_FILE_RANGE_WAIT_BEFORE|SYNC_FILE_RANGE_WRITE)
 #else
 #define rdb_fsync_range(fd,off,size) fsync(fd)
@@ -143,7 +135,7 @@
 #define ESOCKTNOSUPPORT 0
 #endif
 
-#if ((defined __linux && defined(__GLIBC__)) || defined __APPLE__)
+#if (defined __linux || defined __APPLE__)
 #define USE_SETPROCTITLE
 #define INIT_SETPROCTITLE_REPLACEMENT
 void spt_init(int argc, char *argv[]);

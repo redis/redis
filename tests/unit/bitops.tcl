@@ -121,15 +121,15 @@ start_server {tags {"bitops"}} {
     } {74}
 
     test {BITOP NOT (empty string)} {
-        r set s ""
-        r bitop not dest s
-        r get dest
+        r set s{t} ""
+        r bitop not dest{t} s{t}
+        r get dest{t}
     } {}
 
     test {BITOP NOT (known string)} {
-        r set s "\xaa\x00\xff\x55"
-        r bitop not dest s
-        r get dest
+        r set s{t} "\xaa\x00\xff\x55"
+        r bitop not dest{t} s{t}
+        r get dest{t}
     } "\x55\xff\x00\xaa"
 
     test {BITOP where dest and target are the same key} {
@@ -139,28 +139,28 @@ start_server {tags {"bitops"}} {
     } "\x55\xff\x00\xaa"
 
     test {BITOP AND|OR|XOR don't change the string with single input key} {
-        r set a "\x01\x02\xff"
-        r bitop and res1 a
-        r bitop or  res2 a
-        r bitop xor res3 a
-        list [r get res1] [r get res2] [r get res3]
+        r set a{t} "\x01\x02\xff"
+        r bitop and res1{t} a{t}
+        r bitop or  res2{t} a{t}
+        r bitop xor res3{t} a{t}
+        list [r get res1{t}] [r get res2{t}] [r get res3{t}]
     } [list "\x01\x02\xff" "\x01\x02\xff" "\x01\x02\xff"]
 
     test {BITOP missing key is considered a stream of zero} {
-        r set a "\x01\x02\xff"
-        r bitop and res1 no-suck-key a
-        r bitop or  res2 no-suck-key a no-such-key
-        r bitop xor res3 no-such-key a
-        list [r get res1] [r get res2] [r get res3]
+        r set a{t} "\x01\x02\xff"
+        r bitop and res1{t} no-suck-key{t} a{t}
+        r bitop or  res2{t} no-suck-key{t} a{t} no-such-key{t}
+        r bitop xor res3{t} no-such-key{t} a{t}
+        list [r get res1{t}] [r get res2{t}] [r get res3{t}]
     } [list "\x00\x00\x00" "\x01\x02\xff" "\x01\x02\xff"]
 
     test {BITOP shorter keys are zero-padded to the key with max length} {
-        r set a "\x01\x02\xff\xff"
-        r set b "\x01\x02\xff"
-        r bitop and res1 a b
-        r bitop or  res2 a b
-        r bitop xor res3 a b
-        list [r get res1] [r get res2] [r get res3]
+        r set a{t} "\x01\x02\xff\xff"
+        r set b{t} "\x01\x02\xff"
+        r bitop and res1{t} a{t} b{t}
+        r bitop or  res2{t} a{t} b{t}
+        r bitop xor res3{t} a{t} b{t}
+        list [r get res1{t}] [r get res2{t}] [r get res3{t}]
     } [list "\x01\x02\xff\x00" "\x01\x02\xff\xff" "\x00\x00\x00\xff"]
 
     foreach op {and or xor} {
@@ -173,11 +173,11 @@ start_server {tags {"bitops"}} {
                 for {set j 0} {$j < $numvec} {incr j} {
                     set str [randstring 0 1000]
                     lappend vec $str
-                    lappend veckeys vector_$j
-                    r set vector_$j $str
+                    lappend veckeys vector_$j{t}
+                    r set vector_$j{t} $str
                 }
-                r bitop $op target {*}$veckeys
-                assert_equal [r get target] [simulate_bit_op $op {*}$vec]
+                r bitop $op target{t} {*}$veckeys
+                assert_equal [r get target{t}] [simulate_bit_op $op {*}$vec]
             }
         }
     }
@@ -186,32 +186,32 @@ start_server {tags {"bitops"}} {
         for {set i 0} {$i < 10} {incr i} {
             r flushall
             set str [randstring 0 1000]
-            r set str $str
-            r bitop not target str
-            assert_equal [r get target] [simulate_bit_op not $str]
+            r set str{t} $str
+            r bitop not target{t} str{t}
+            assert_equal [r get target{t}] [simulate_bit_op not $str]
         }
     }
 
     test {BITOP with integer encoded source objects} {
-        r set a 1
-        r set b 2
-        r bitop xor dest a b a
-        r get dest
+        r set a{t} 1
+        r set b{t} 2
+        r bitop xor dest{t} a{t} b{t} a{t}
+        r get dest{t}
     } {2}
 
     test {BITOP with non string source key} {
-        r del c
-        r set a 1
-        r set b 2
-        r lpush c foo
-        catch {r bitop xor dest a b c d} e
+        r del c{t}
+        r set a{t} 1
+        r set b{t} 2
+        r lpush c{t} foo
+        catch {r bitop xor dest{t} a{t} b{t} c{t} d{t}} e
         set e
     } {WRONGTYPE*}
 
     test {BITOP with empty string after non empty string (issue #529)} {
         r flushdb
-        r set a "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
-        r bitop or x a b
+        r set a{t} "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+        r bitop or x{t} a{t} b{t}
     } {32}
 
     test {BITPOS bit=0 with empty key returns 0} {
