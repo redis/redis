@@ -98,21 +98,6 @@ int rw_attribute(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_OK;
 }
 
-int rw_push(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    if (argc != 2) return RedisModule_WrongArity(ctx);
-
-    long long integer;
-    if (RedisModule_StringToLongLong(argv[1], &integer) != REDISMODULE_OK)
-        return RedisModule_ReplyWithError(ctx, "Arg cannot be parsed as a integer");
-
-    RedisModule_ReplyWithPush(ctx, integer);
-    for (int i = 0; i < integer; ++i) {
-        RedisModule_ReplyWithLongLong(ctx, i);
-    }
-
-    return REDISMODULE_OK;
-}
-
 int rw_bool(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     if (argc != 1) return RedisModule_WrongArity(ctx);
@@ -155,8 +140,6 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx,"rw.map",rw_map,"",0,0,0) != REDISMODULE_OK)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"rw.attribute",rw_attribute,"",0,0,0) != REDISMODULE_OK)
-        return REDISMODULE_ERR;
-    if (RedisModule_CreateCommand(ctx,"rw.push",rw_push,"",0,0,0) != REDISMODULE_OK)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"rw.set",rw_set,"",0,0,0) != REDISMODULE_OK)
         return REDISMODULE_ERR;

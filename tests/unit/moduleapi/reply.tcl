@@ -37,10 +37,6 @@ start_server {tags {"modules"}} {
 #        assert_equal {0 1 2} [r rw.attribute 3]
 #    }
 
-    test {RM_ReplyWithPush: an set reply} {
-        assert_equal {0 1 2} [r rw.push 3]
-    }
-
     test {RM_ReplyWithBool: a boolean reply} {
         assert_equal {0 1} [r rw.bool]
     }
