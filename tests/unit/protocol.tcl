@@ -140,7 +140,7 @@ start_server {tags {"protocol network"}} {
     test "test big number parsing" {
         r hello 3
         r debug protocol bignum
-    } {1234567999999999999999999999999999999}
+    } {1234567999999999999999999999999999999} {needs:debug resp3}
 }
 
 start_server {tags {"regression"}} {
