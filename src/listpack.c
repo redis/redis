@@ -439,39 +439,15 @@ static inline uint32_t lpCurrentEncodedSizeBytes(unsigned char *p) {
     return 0;
 }
 
-/* Return the entry size of the listpack element pointed by 'p'.
- * This includes the encoding byte, length bytes, the element data itself,
- * and backlen.
- * Note that this method may access additional bytes (in case of 12 and 32 bit
- * str), so should only be called when we know 'p' was already validated by
- * lpCurrentEncodedSizeBytes or ASSERT_INTEGRITY_LEN (possibly since 'p' is
- * a return value of another function that validated its return. */
-static inline uint32_t lpEntrySizeUnsafe(unsigned char *p) {
-    if (LP_ENCODING_IS_7BIT_UINT(p[0])) return LP_ENCODING_7BIT_UINT_ENTRY_SIZE;
-    if (LP_ENCODING_IS_6BIT_STR(p[0])) return 2 + LP_ENCODING_6BIT_STR_LEN(p);
-    if (LP_ENCODING_IS_13BIT_INT(p[0])) return LP_ENCODING_13BIT_INT_ENTRY_SIZE;
-    if (LP_ENCODING_IS_16BIT_INT(p[0])) return LP_ENCODING_16BIT_INT_ENTRY_SIZE;
-    if (LP_ENCODING_IS_24BIT_INT(p[0])) return LP_ENCODING_24BIT_INT_ENTRY_SIZE;
-    if (LP_ENCODING_IS_32BIT_INT(p[0])) return LP_ENCODING_32BIT_INT_ENTRY_SIZE;
-    if (LP_ENCODING_IS_64BIT_INT(p[0])) return LP_ENCODING_64BIT_INT_ENTRY_SIZE;
-    if (LP_ENCODING_IS_12BIT_STR(p[0])) {
-        uint32_t bytes = LP_ENCODING_12BIT_STR_LEN(p);
-        return 2 + bytes + lpEncodeBacklen(NULL, bytes + 2);
-    }
-    if (LP_ENCODING_IS_32BIT_STR(p[0])) {
-        uint32_t bytes = LP_ENCODING_32BIT_STR_LEN(p);
-        return 5 + bytes + lpEncodeBacklen(NULL, bytes + 5);
-    }
-    if (p[0] == LP_EOF) return 1;
-    assert(0);
-}
-
 /* Skip the current entry returning the next. It is invalid to call this
  * function if the current element is the EOF element at the end of the
  * listpack, however, while this function is used to implement lpNext(),
  * it does not return NULL when the EOF element is encountered. */
 unsigned char *lpSkip(unsigned char *p) {
-    return p + lpEntrySizeUnsafe(p);
+    unsigned long entrylen = lpCurrentEncodedSizeUnsafe(p);
+    entrylen += lpEncodeBacklen(NULL,entrylen);
+    p += entrylen;
+    return p;
 }
 
 /* If 'p' points to an element of the listpack, calling lpNext() will return
