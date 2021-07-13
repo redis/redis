@@ -935,7 +935,7 @@ start_server {tags {"scripting external:skip"}} {
     r eval {return 'hello'} 0
 }
 
-start_server {tags {"scripting resp3 tests"}} {
+start_server {tags {"scripting resp3 needs:debug"}} {
     r debug set-disable-deny-scripts 1
     for {set i 2} {$i <= 3} {incr i} {
         for {set client_proto 2} {$client_proto <= 3} {incr client_proto} {
@@ -1044,4 +1044,6 @@ start_server {tags {"scripting resp3 tests"}} {
         # So here we just check the parser handles them and they are ignored.
         r eval "redis.setresp(3);return redis.call('debug', 'protocol', 'attrib')" 0
     } {Some real reply following the attribute}
+
+    r debug set-disable-deny-scripts 0
 }
