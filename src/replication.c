@@ -3078,7 +3078,7 @@ void refreshGoodSlavesCount(void) {
 /* Initialize the script cache, only called at startup. */
 void replicationScriptCacheInit(void) {
     server.repl_scriptcache_size = 10000;
-    server.repl_scriptcache_dict = dictCreate(&replScriptCacheDictType,NULL);
+    server.repl_scriptcache_dict = dictCreate(&replScriptCacheDictType);
     server.repl_scriptcache_fifo = listCreate();
 }
 

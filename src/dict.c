@@ -63,7 +63,7 @@ static unsigned int dict_force_resize_ratio = 5;
 static int _dictExpandIfNeeded(dict *ht);
 static unsigned char _dictNextExp(unsigned long size);
 static long _dictKeyIndex(dict *ht, const void *key, uint64_t hash, dictEntry **existing);
-static int _dictInit(dict *ht, dictType *type, void *privDataPtr);
+static int _dictInit(dict *ht, dictType *type);
 
 /* -------------------------- hash functions -------------------------------- */
 
@@ -103,23 +103,20 @@ static void _dictReset(dict *d, int htidx)
 }
 
 /* Create a new hash table */
-dict *dictCreate(dictType *type,
-        void *privDataPtr)
+dict *dictCreate(dictType *type)
 {
     dict *d = zmalloc(sizeof(*d));
 
-    _dictInit(d,type,privDataPtr);
+    _dictInit(d,type);
     return d;
 }
 
 /* Initialize the hash table */
-int _dictInit(dict *d, dictType *type,
-        void *privDataPtr)
+int _dictInit(dict *d, dictType *type)
 {
     _dictReset(d, 0);
     _dictReset(d, 1);
     d->type = type;
-    d->privdata = privDataPtr;
     d->rehashidx = -1;
     d->pauserehash = 0;
     return DICT_OK;
@@ -467,14 +464,14 @@ void dictFreeUnlinkedEntry(dict *d, dictEntry *he) {
 }
 
 /* Destroy an entire dictionary */
-int _dictClear(dict *d, int htidx, void(callback)(void *)) {
+int _dictClear(dict *d, int htidx, void(callback)()) {
     unsigned long i;
 
     /* Free all the elements */
     for (i = 0; i < DICTHT_SIZE(d->ht_size_exp[htidx]) && d->ht_used[htidx] > 0; i++) {
         dictEntry *he, *nextHe;
 
-        if (callback && (i & 65535) == 0) callback(d->privdata);
+        if (callback && (i & 65535) == 0) callback();
 
         if ((he = d->ht_table[htidx][i]) == NULL) continue;
         while(he) {

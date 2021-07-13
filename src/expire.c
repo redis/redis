@@ -439,7 +439,7 @@ void rememberSlaveKeyWithExpire(redisDb *db, robj *key) {
             NULL,                       /* val destructor */
             NULL                        /* allow to expand */
         };
-        slaveKeysWithExpire = dictCreate(&dt,NULL);
+        slaveKeysWithExpire = dictCreate(&dt);
     }
     if (db->id > 63) return;
 

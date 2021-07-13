@@ -1254,23 +1254,19 @@ void exitFromChild(int retcode) {
  * keys and redis objects as values (objects can hold SDS strings,
  * lists, sets). */
 
-void dictVanillaFree(void *privdata, void *val)
+void dictVanillaFree(void *val)
 {
-    DICT_NOTUSED(privdata);
     zfree(val);
 }
 
-void dictListDestructor(void *privdata, void *val)
+void dictListDestructor(void *val)
 {
-    DICT_NOTUSED(privdata);
     listRelease((list*)val);
 }
 
-int dictSdsKeyCompare(void *privdata, const void *key1,
-        const void *key2)
+int dictSdsKeyCompare(const void *key1, const void *key2)
 {
     int l1,l2;
-    DICT_NOTUSED(privdata);
 
     l1 = sdslen((sds)key1);
     l2 = sdslen((sds)key2);
@@ -1280,34 +1276,26 @@ int dictSdsKeyCompare(void *privdata, const void *key1,
 
 /* A case insensitive version used for the command lookup table and other
  * places where case insensitive non binary-safe comparison is needed. */
-int dictSdsKeyCaseCompare(void *privdata, const void *key1,
-        const void *key2)
+int dictSdsKeyCaseCompare(const void *key1, const void *key2)
 {
-    DICT_NOTUSED(privdata);
-
     return strcasecmp(key1, key2) == 0;
 }
 
-void dictObjectDestructor(void *privdata, void *val)
+void dictObjectDestructor(void *val)
 {
-    DICT_NOTUSED(privdata);
-
     if (val == NULL) return; /* Lazy freeing will set value to NULL. */
     decrRefCount(val);
 }
 
-void dictSdsDestructor(void *privdata, void *val)
+void dictSdsDestructor(void *val)
 {
-    DICT_NOTUSED(privdata);
-
     sdsfree(val);
 }
 
-int dictObjKeyCompare(void *privdata, const void *key1,
-        const void *key2)
+int dictObjKeyCompare(const void *key1, const void *key2)
 {
     const robj *o1 = key1, *o2 = key2;
-    return dictSdsKeyCompare(privdata,o1->ptr,o2->ptr);
+    return dictSdsKeyCompare(o1->ptr,o2->ptr);
 }
 
 uint64_t dictObjHash(const void *key) {
@@ -1323,8 +1311,7 @@ uint64_t dictSdsCaseHash(const void *key) {
     return dictGenCaseHashFunction((unsigned char*)key, sdslen((char*)key));
 }
 
-int dictEncObjKeyCompare(void *privdata, const void *key1,
-        const void *key2)
+int dictEncObjKeyCompare(const void *key1, const void *key2)
 {
     robj *o1 = (robj*) key1, *o2 = (robj*) key2;
     int cmp;
@@ -1339,7 +1326,7 @@ int dictEncObjKeyCompare(void *privdata, const void *key1,
      * objects as well. */
     if (o1->refcount != OBJ_STATIC_REFCOUNT) o1 = getDecodedObject(o1);
     if (o2->refcount != OBJ_STATIC_REFCOUNT) o2 = getDecodedObject(o2);
-    cmp = dictSdsKeyCompare(privdata,o1->ptr,o2->ptr);
+    cmp = dictSdsKeyCompare(o1->ptr,o2->ptr);
     if (o1->refcount != OBJ_STATIC_REFCOUNT) decrRefCount(o1);
     if (o2->refcount != OBJ_STATIC_REFCOUNT) decrRefCount(o2);
     return cmp;
@@ -2681,7 +2668,7 @@ void initServerConfig(void) {
     server.shutdown_asap = 0;
     server.cluster_configfile = zstrdup(CONFIG_DEFAULT_CLUSTER_CONFIG_FILE);
     server.cluster_module_flags = CLUSTER_MODULE_FLAG_NONE;
-    server.migrate_cached_sockets = dictCreate(&migrateCacheDictType,NULL);
+    server.migrate_cached_sockets = dictCreate(&migrateCacheDictType);
     server.next_client_id = 1; /* Client IDs, start from 1 .*/
     server.loading_process_events_interval_bytes = (1024*1024*2);
 
@@ -2739,8 +2726,8 @@ void initServerConfig(void) {
     /* Command table -- we initialize it here as it is part of the
      * initial configuration, since command names may be changed via
      * redis.conf using the rename-command directive. */
-    server.commands = dictCreate(&commandTableDictType,NULL);
-    server.orig_commands = dictCreate(&commandTableDictType,NULL);
+    server.commands = dictCreate(&commandTableDictType);
+    server.orig_commands = dictCreate(&commandTableDictType);
     populateCommandTable();
     server.delCommand = lookupCommandByCString("del");
     server.multiCommand = lookupCommandByCString("multi");
@@ -3228,20 +3215,20 @@ void initServer(void) {
 
     /* Create the Redis databases, and initialize other internal state. */
     for (j = 0; j < server.dbnum; j++) {
-        server.db[j].dict = dictCreate(&dbDictType,NULL);
-        server.db[j].expires = dictCreate(&dbExpiresDictType,NULL);
+        server.db[j].dict = dictCreate(&dbDictType);
+        server.db[j].expires = dictCreate(&dbExpiresDictType);
         server.db[j].expires_cursor = 0;
-        server.db[j].blocking_keys = dictCreate(&keylistDictType,NULL);
-        server.db[j].ready_keys = dictCreate(&objectKeyPointerValueDictType,NULL);
-        server.db[j].watched_keys = dictCreate(&keylistDictType,NULL);
+        server.db[j].blocking_keys = dictCreate(&keylistDictType);
+        server.db[j].ready_keys = dictCreate(&objectKeyPointerValueDictType);
+        server.db[j].watched_keys = dictCreate(&keylistDictType);
         server.db[j].id = j;
         server.db[j].avg_ttl = 0;
         server.db[j].defrag_later = listCreate();
         listSetFreeMethod(server.db[j].defrag_later,(void (*)(void*))sdsfree);
     }
     evictionPoolAlloc(); /* Initialize the LRU keys pool. */
-    server.pubsub_channels = dictCreate(&keylistDictType,NULL);
-    server.pubsub_patterns = dictCreate(&keylistDictType,NULL);
+    server.pubsub_channels = dictCreate(&keylistDictType);
+    server.pubsub_patterns = dictCreate(&keylistDictType);
     server.cronloops = 0;
     server.in_eval = 0;
     server.in_exec = 0;

@@ -1689,7 +1689,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid) {
              * later when the ziplist is converted to a dict.
              * Create a set (dict with no values) to for a dup search.
              * We can dismiss it as soon as we convert the ziplist to a hash. */
-            dupSearchDict = dictCreate(&hashDictType, NULL);
+            dupSearchDict = dictCreate(&hashDictType);
         }
 
 
@@ -1844,7 +1844,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid) {
                     unsigned char *fstr, *vstr;
                     unsigned int flen, vlen;
                     unsigned int maxlen = 0;
-                    dict *dupSearchDict = dictCreate(&hashDictType, NULL);
+                    dict *dupSearchDict = dictCreate(&hashDictType);
 
                     while ((zi = zipmapNext(zi, &fstr, &flen, &vstr, &vlen)) != NULL) {
                         if (flen > maxlen) maxlen = flen;

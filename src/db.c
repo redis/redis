@@ -470,8 +470,8 @@ dbBackup *backupDb(void) {
     backup->dbarray = zmalloc(sizeof(redisDb)*server.dbnum);
     for (int i=0; i<server.dbnum; i++) {
         backup->dbarray[i] = server.db[i];
-        server.db[i].dict = dictCreate(&dbDictType,NULL);
-        server.db[i].expires = dictCreate(&dbExpiresDictType,NULL);
+        server.db[i].dict = dictCreate(&dbDictType);
+        server.db[i].expires = dictCreate(&dbExpiresDictType);
     }
 
     /* Backup cluster slots to keys map if enable cluster. */

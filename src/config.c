@@ -1104,7 +1104,7 @@ void configGetCommand(client *c) {
 /* We use the following dictionary type to store where a configuration
  * option is mentioned in the old configuration file, so it's
  * like "maxmemory" -> list of line numbers (first line is zero). */
-void dictListDestructor(void *privdata, void *val);
+void dictListDestructor(void *val);
 
 /* Sentinel config rewriting is implemented inside sentinel.c by
  * rewriteConfigSentinelOption(). */
@@ -1181,8 +1181,8 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
     char buf[CONFIG_MAX_LINE+1];
     int linenum = -1;
     struct rewriteConfigState *state = zmalloc(sizeof(*state));
-    state->option_to_line = dictCreate(&optionToLineDictType,NULL);
-    state->rewritten = dictCreate(&optionSetDictType,NULL);
+    state->option_to_line = dictCreate(&optionToLineDictType);
+    state->rewritten = dictCreate(&optionSetDictType);
     state->numlines = 0;
     state->lines = NULL;
     state->has_tail = 0;

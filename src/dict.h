@@ -44,9 +44,6 @@
 #define DICT_OK 0
 #define DICT_ERR 1
 
-/* Unused arguments generate annoying warnings... */
-#define DICT_NOTUSED(V) ((void) V)
-
 typedef struct dictEntry {
     void *key;
     union {
@@ -60,11 +57,11 @@ typedef struct dictEntry {
 
 typedef struct dictType {
     uint64_t (*hashFunction)(const void *key);
-    void *(*keyDup)(void *privdata, const void *key);
-    void *(*valDup)(void *privdata, const void *obj);
-    int (*keyCompare)(void *privdata, const void *key1, const void *key2);
-    void (*keyDestructor)(void *privdata, void *key);
-    void (*valDestructor)(void *privdata, void *obj);
+    void *(*keyDup)(const void *key);
+    void *(*valDup)(const void *obj);
+    int (*keyCompare)(const void *key1, const void *key2);
+    void (*keyDestructor)(void *key);
+    void (*valDestructor)(void *obj);
     int (*expandAllowed)(size_t moreMem, double usedRatio);
 } dictType;
 
@@ -73,7 +70,6 @@ typedef struct dictType {
 
 typedef struct dict {
     dictType *type;
-    void *privdata;
 
     dictEntry **ht_table[2];
     unsigned long ht_used[2];
@@ -108,11 +104,11 @@ typedef void (dictScanBucketFunction)(void *privdata, dictEntry **bucketref);
 /* ------------------------------- Macros ------------------------------------*/
 #define dictFreeVal(d, entry) \
     if ((d)->type->valDestructor) \
-        (d)->type->valDestructor((d)->privdata, (entry)->v.val)
+        (d)->type->valDestructor((entry)->v.val)
 
 #define dictSetVal(d, entry, _val_) do { \
     if ((d)->type->valDup) \
-        (entry)->v.val = (d)->type->valDup((d)->privdata, _val_); \
+        (entry)->v.val = (d)->type->valDup(_val_); \
     else \
         (entry)->v.val = (_val_); \
 } while(0)
@@ -128,18 +124,18 @@ typedef void (dictScanBucketFunction)(void *privdata, dictEntry **bucketref);
 
 #define dictFreeKey(d, entry) \
     if ((d)->type->keyDestructor) \
-        (d)->type->keyDestructor((d)->privdata, (entry)->key)
+        (d)->type->keyDestructor((entry)->key)
 
 #define dictSetKey(d, entry, _key_) do { \
     if ((d)->type->keyDup) \
-        (entry)->key = (d)->type->keyDup((d)->privdata, _key_); \
+        (entry)->key = (d)->type->keyDup(_key_); \
     else \
         (entry)->key = (_key_); \
 } while(0)
 
 #define dictCompareKeys(d, key1, key2) \
     (((d)->type->keyCompare) ? \
-        (d)->type->keyCompare((d)->privdata, key1, key2) : \
+        (d)->type->keyCompare(key1, key2) : \
         (key1) == (key2))
 
 #define dictHashKey(d, key) (d)->type->hashFunction(key)
@@ -162,7 +158,7 @@ typedef void (dictScanBucketFunction)(void *privdata, dictEntry **bucketref);
 #endif
 
 /* API */
-dict *dictCreate(dictType *type, void *privDataPtr);
+dict *dictCreate(dictType *type);
 int dictExpand(dict *d, unsigned long size);
 int dictTryExpand(dict *d, unsigned long size);
 int dictAdd(dict *d, void *key, void *val);
