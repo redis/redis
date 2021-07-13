@@ -256,6 +256,7 @@ proc ::redis::redis_read_reply {id fd} {
     switch -exact -- $type {
         _ {redis_read_null $fd}
         : -
+        ( -
         + {redis_read_line $fd}
         , {expr {double([redis_read_line $fd])}}
         - {return -code error [redis_read_line $fd]}
@@ -301,6 +302,7 @@ proc ::redis::redis_readable {fd id} {
             : -
             + {redis_call_callback $id reply [string range $line 1 end-1]}
             - {redis_call_callback $id err [string range $line 1 end-1]}
+            ( {redis_call_callback $id reply [string range $line 1 end-1]}
             $ {
                 dict set ::redis::state($id) bulk \
                     [expr [string range $line 1 end-1]+2]

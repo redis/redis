@@ -136,6 +136,10 @@ start_server {tags {"protocol network"}} {
 
     # check the connection still works
     assert_equal [r ping] {PONG}
+
+    test "test big number parsing" {
+        r debug protocol bignum
+    } {1234567999999999999999999999999999999}
 }
 
 start_server {tags {"regression"}} {
