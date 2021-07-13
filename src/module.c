@@ -337,6 +337,7 @@ typedef struct RedisModuleServerInfoData {
 #define REDISMODULE_ARGV_NO_AOF (1<<1)
 #define REDISMODULE_ARGV_NO_REPLICAS (1<<2)
 #define REDISMODULE_ARGV_RESP_3 (1<<3)
+#define REDISMODULE_ARGV_RESP_AUTO (1<<4)
 
 /* Determine whether Redis should signalModifiedKey implicitly.
  * In case 'ctx' has no 'module' member (and therefore no module->options),
@@ -1685,7 +1686,15 @@ int RM_ReplyWithNull(RedisModuleCtx *ctx) {
  * execute some command, as we want to reply to the client exactly the
  * same reply we obtained by the command.
  *
- * The function always returns REDISMODULE_OK. */
+ * Return:
+ * * REDISMODULE_OK On success returns .
+ * * REDISMODULE_ERR if the given reply is in resp3 format but the client expects resp2
+ *   In case of error, its the module writer responsibility to translate the reply
+ *   to resp2 (or maybe handle it differently by returning an error). Notice that for
+ *   module writer convinient, it is possible to pass `0` as a parameter to the fmt
+ *   argument of `RM_Call` so that the RedisModuleCallReply will return in the same
+ *   format (resp2 or resp3) as the current client expects it.
+ * */
 int RM_ReplyWithCallReply(RedisModuleCtx *ctx, RedisModuleCallReply *reply) {
     client *c = moduleGetReplyClient(ctx);
     if (c == NULL) return REDISMODULE_OK;
@@ -2099,6 +2108,9 @@ int RM_GetContextFlags(RedisModuleCtx *ctx) {
             /* Module command received from MASTER, is replicated. */
             if (ctx->client->flags & CLIENT_MASTER)
                 flags |= REDISMODULE_CTX_FLAGS_REPLICATED;
+            if (ctx->client->resp == 3) {
+                flags |= REDISMODULE_CTX_FLAGS_RESP3;
+            }
         }
 
         /* For DIRTY flags, we need the blocked client if used */
@@ -3893,6 +3905,7 @@ RedisModuleString *RM_CreateStringFromCallReply(RedisModuleCallReply *reply) {
  *     "A" -> REDISMODULE_ARGV_NO_AOF
  *     "R" -> REDISMODULE_ARGV_NO_REPLICAS
  *     "3" -> REDISMODULE_ARGV_RESP_3
+ *     "0" -> REDISMODULE_ARGV_RESP_AUTO
  *
  * On error (format specifier error) NULL is returned and nothing is
  * allocated. On success the argument vector is returned. */
@@ -3953,6 +3966,8 @@ robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int 
             if (flags) (*flags) |= REDISMODULE_ARGV_NO_REPLICAS;
         } else if (*p == '3') {
             if (flags) (*flags) |= REDISMODULE_ARGV_RESP_3;
+        } else if (*p == '0') {
+            if (flags) (*flags) |= REDISMODULE_ARGV_RESP_AUTO;
         } else {
             goto fmterr;
         }
@@ -3987,6 +4002,9 @@ fmterr:
  *     * `R` -- Suppress replicas propagation, send only to AOF (requires `!`).
  *     * `3` -- Return the reply in RESP3. This will change the command reply.
  *              e.g. HGETALL returns a map instead of flat array, 
+ *     * `0` -- Return the reply in auto mode. e.g. the reply format will be the
+ *              same as the client attached to the given RedisModuleCtx. This will
+ *              probably used when you want to pass the reply directly to the client.
  * * **...**: The actual arguments to the Redis command.
  *
  * On success a RedisModuleCallReply object is returned, otherwise
@@ -4045,7 +4063,13 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     c->db = ctx->client->db;
     c->argv = argv;
     c->argc = argc;
-    c->resp = (flags & REDISMODULE_ARGV_RESP_3)? 3 : 2;
+    c->resp = 2;
+    if (flags & REDISMODULE_ARGV_RESP_3) {
+        c->resp = 3;
+    } else if (flags & REDISMODULE_ARGV_RESP_AUTO) {
+        /* auto mode means to take the same protocol as the ctx client */
+        c->resp = ctx->client->resp;
+    }
     if (ctx->module) ctx->module->in_call++;
 
     /* We handle the above format error only when the client is setup so that

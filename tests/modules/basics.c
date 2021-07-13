@@ -114,6 +114,36 @@ fail:
     return REDISMODULE_OK;
 }
 
+int TestGetResp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+
+    int flags = RedisModule_GetContextFlags(ctx);
+
+    if (flags & REDISMODULE_CTX_FLAGS_RESP3) {
+        RedisModule_ReplyWithLongLong(ctx, 3);
+    } else {
+        RedisModule_ReplyWithLongLong(ctx, 2);
+    }
+
+    return REDISMODULE_OK;
+}
+
+int TestCallRespAutoMode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+
+    RedisModule_AutoMemory(ctx);
+    RedisModuleCallReply *reply;
+
+    RedisModule_Call(ctx,"DEL","c","myhash");
+    RedisModule_Call(ctx,"HSET","ccccc","myhash", "f1", "v1", "f2", "v2");
+    /* 0 stands for auto mode, we will get the reply in the same format as the client */
+    reply = RedisModule_Call(ctx,"HGETALL","0c" ,"myhash");
+    RedisModule_ReplyWithCallReply(ctx, reply);
+    return REDISMODULE_OK;
+}
+
 int TestCallResp3Map(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -862,6 +892,15 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx,"test.basics",
         TestBasics,"readonly",1,1,1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    /* the following commands are used by an external test and should not be added to TestBasics */
+    if (RedisModule_CreateCommand(ctx,"test.rmcallautomode",
+        TestCallRespAutoMode,"readonly",1,1,1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"test.getresp",
+        TestGetResp,"readonly",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     RedisModule_SubscribeToKeyspaceEvents(ctx,
