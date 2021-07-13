@@ -168,6 +168,11 @@ void execCommand(client *c) {
         return;
     }
 
+    /* EXEC with expired watched key is disallowed*/
+    if (isWatchedKeyExpired(c)) {
+        c->flags |= (CLIENT_DIRTY_CAS);
+    }
+
     /* Check if we need to abort the EXEC because:
      * 1) Some WATCHed key was touched.
      * 2) There was a previous error while queueing commands.
@@ -342,6 +347,22 @@ void unwatchAllKeys(client *c) {
     }
 }
 
+/* iterates over the watched_keys list and
+ * look for an expired key . */
+int isWatchedKeyExpired(client *c) {
+    listIter li;
+    listNode *ln;
+    watchedKey *wk;
+    if (listLength(c->watched_keys) == 0) return 0;
+    listRewind(c->watched_keys,&li);
+    while ((ln = listNext(&li))) {
+        wk = listNodeValue(ln);
+        if (keyIsExpired(wk->db, wk->key)) return 1;
+    }
+
+    return 0;
+}
+
 /* "Touch" a key, so that if this key is being WATCHed by some client the
  * next EXEC will fail. */
 void touchWatchedKey(redisDb *db, robj *key) {
@@ -380,14 +401,14 @@ void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with) {
     dictIterator *di = dictGetSafeIterator(emptied->watched_keys);
     while((de = dictNext(di)) != NULL) {
         robj *key = dictGetKey(de);
-        list *clients = dictGetVal(de);
-        if (!clients) continue;
-        listRewind(clients,&li);
-        while((ln = listNext(&li))) {
-            client *c = listNodeValue(ln);
-            if (dictFind(emptied->dict, key->ptr)) {
-                c->flags |= CLIENT_DIRTY_CAS;
-            } else if (replaced_with && dictFind(replaced_with->dict, key->ptr)) {
+        if (dictFind(emptied->dict, key->ptr) ||
+            (replaced_with && dictFind(replaced_with->dict, key->ptr)))
+        {
+            list *clients = dictGetVal(de);
+            if (!clients) continue;
+            listRewind(clients,&li);
+            while((ln = listNext(&li))) {
+                client *c = listNodeValue(ln);
                 c->flags |= CLIENT_DIRTY_CAS;
             }
         }

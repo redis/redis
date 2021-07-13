@@ -115,7 +115,6 @@ client *createClient(connection *conn) {
      * in the context of a client. When commands are executed in other
      * contexts (for instance a Lua script) we need a non connected client. */
     if (conn) {
-        connNonBlock(conn);
         connEnableTcpNoDelay(conn);
         if (server.tcpkeepalive)
             connKeepAlive(conn,server.tcpkeepalive);
@@ -1132,7 +1131,6 @@ void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                     "Accepting client connection: %s", server.neterr);
             return;
         }
-        anetCloexec(cfd);
         serverLog(LL_VERBOSE,"Accepted %s:%d", cip, cport);
         acceptCommonHandler(connCreateAcceptedSocket(cfd),0,cip);
     }
@@ -1153,7 +1151,6 @@ void acceptTLSHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                     "Accepting client connection: %s", server.neterr);
             return;
         }
-        anetCloexec(cfd);
         serverLog(LL_VERBOSE,"Accepted %s:%d", cip, cport);
         acceptCommonHandler(connCreateAcceptedTLS(cfd, server.tls_auth_clients),0,cip);
     }
@@ -1173,7 +1170,6 @@ void acceptUnixHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                     "Accepting client connection: %s", server.neterr);
             return;
         }
-        anetCloexec(cfd);
         serverLog(LL_VERBOSE,"Accepted connection to %s", server.unixsocket);
         acceptCommonHandler(connCreateAcceptedSocket(cfd),CLIENT_UNIX_SOCKET,NULL);
     }
@@ -2157,7 +2153,6 @@ void readQueryFromClient(connection *conn) {
     }
 
     qblen = sdslen(c->querybuf);
-    if (c->querybuf_peak < qblen) c->querybuf_peak = qblen;
     if (big_arg || sdsalloc(c->querybuf) < PROTO_IOBUF_LEN) {
         /* When reading a BIG_ARG we won't be reading more than that one arg
          * into the query buffer, so we don't need to pre-allocate more than we
@@ -2197,6 +2192,9 @@ void readQueryFromClient(connection *conn) {
     }
 
     sdsIncrLen(c->querybuf,nread);
+    qblen = sdslen(c->querybuf);
+    if (c->querybuf_peak < qblen) c->querybuf_peak = qblen;
+
     c->lastinteraction = server.unixtime;
     if (c->flags & CLIENT_MASTER) c->read_reploff += nread;
     atomicIncr(server.stat_net_input_bytes, nread);
@@ -2688,7 +2686,7 @@ NULL
         if (getLongLongFromObjectOrReply(c,c->argv[2],&id,NULL)
             != C_OK) return;
         struct client *target = lookupClientByID(id);
-        if (target && target->flags & CLIENT_BLOCKED) {
+        if (target && target->flags & CLIENT_BLOCKED && moduleBlockedClientMayTimeout(target)) {
             if (unblock_error)
                 addReplyError(target,
                     "-UNBLOCKED client unblocked via CLIENT UNBLOCK");
