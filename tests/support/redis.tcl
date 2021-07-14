@@ -247,6 +247,13 @@ proc ::redis::redis_read_null fd {
     return {}
 }
 
+proc ::redis::redis_read_bool fd {
+    set l [redis_read_line $fd]
+    if {$l == "t"} {return 1}
+    if {$l == "f"} {return 0}
+    return -code error "Bad protocol, '$l' as reply for bool type"
+}
+
 proc ::redis::redis_read_reply {id fd} {
     if {$::redis::readraw($id)} {
         return [redis_read_line $fd]
@@ -258,7 +265,7 @@ proc ::redis::redis_read_reply {id fd} {
         : -
         + {redis_read_line $fd}
         , {expr {double([redis_read_line $fd])}}
-        # {expr {[redis_read_line $fd] == "t"}}
+        # {redis_read_bool $fd}
         - {return -code error [redis_read_line $fd]}
         $ {redis_bulk_read $fd}
         > -

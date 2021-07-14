@@ -1,8 +1,12 @@
 set testmodule [file normalize tests/modules/reply.so]
 
+# test all with hello 2/3
+
 start_server {tags {"modules"}} {
     r hello 3
     r module load $testmodule
+    
+#for {proto=2; proto<=3; incr proto} {
 
     test {RM_ReplyWithString: an string reply} {
         # RedisString
@@ -26,7 +30,12 @@ start_server {tags {"modules"}} {
     }
 
     test {RM_ReplyWithMap: an map reply} {
-        assert_equal {0 0.0 1 1.5 2 3.0} [r rw.map 3]
+        set res [r rw.map 3]
+    #    if {$proto == 2} {
+    #        assert_equal {0 0.0 1 1.5 2 3.0} $res
+    #    } else {
+            assert_equal [dict create 0 0.0 1 1.5 2 3.0] $res
+    #    }
     }
 
     test {RM_ReplyWithSet: an set reply} {
@@ -34,7 +43,14 @@ start_server {tags {"modules"}} {
     }
 
 #    test {RM_ReplyWithAttribute: an set reply} {
-#        assert_equal {0 1 2} [r rw.attribute 3]
+#        set res [r rw.attribute 3]
+#        if {$proto == 2} {
+#            catch {r rw.error} e
+#            assert_match "Attributes aren't supported by RESP 2" $e
+#        } else {
+#            assert_equal [dict create 0 0.0 1 1.5 2 3.0] $res
+#        }
+#        assert_equal "OK" $res
 #    }
 
     test {RM_ReplyWithBool: a boolean reply} {
@@ -49,5 +65,5 @@ start_server {tags {"modules"}} {
         catch {r rw.error} e
         assert_match "An error" $e
     }
+#}
 }
-

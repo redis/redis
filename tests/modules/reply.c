@@ -37,6 +37,16 @@ int rw_double(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithDouble(ctx, dbl);
 }
 
+int rw_longdouble(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 2) return RedisModule_WrongArity(ctx);
+
+    long double longdbl;
+    if (RedisModule_StringToLongDouble(argv[1], &longdbl) != REDISMODULE_OK)
+        return RedisModule_ReplyWithError(ctx, "Arg cannot be parsed as a double");
+
+    return RedisModule_ReplyWithLongDouble(ctx, longdbl);
+}
+
 int rw_array(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc != 2) return RedisModule_WrongArity(ctx);
 
@@ -90,11 +100,15 @@ int rw_attribute(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (RedisModule_StringToLongLong(argv[1], &integer) != REDISMODULE_OK)
         return RedisModule_ReplyWithError(ctx, "Arg cannot be parsed as a integer");
 
-    RedisModule_ReplyWithAttribute(ctx, integer);
+    if (RedisModule_ReplyWithAttribute(ctx, integer) != REDISMODULE_OK) {
+        return RedisModule_ReplyWithError(ctx, "Attributes aren't supported by RESP 2");
+    }
+
     for (int i = 0; i < integer; ++i) {
         RedisModule_ReplyWithLongLong(ctx, i);
     }
 
+    RedisModule_ReplyWithSimpleString(ctx, "OK");
     return REDISMODULE_OK;
 }
 
@@ -121,6 +135,15 @@ int rw_error(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, "An error");
 }
 
+int rw_verbatim(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 1) return RedisModule_WrongArity(ctx);
+
+    RedisModule_ReplyWithVerbatimString(ctx, )
+
+
+    return RedisModule_ReplyWithError(ctx, "An error");
+}
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -135,6 +158,8 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"rw.double",rw_double,"",0,0,0) != REDISMODULE_OK)
         return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx,"rw.longdouble",rw_longdouble,"",0,0,0) != REDISMODULE_OK)
+        return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"rw.array",rw_array,"",0,0,0) != REDISMODULE_OK)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"rw.map",rw_map,"",0,0,0) != REDISMODULE_OK)
@@ -148,6 +173,8 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx,"rw.null",rw_null,"",0,0,0) != REDISMODULE_OK)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"rw.error",rw_error,"",0,0,0) != REDISMODULE_OK)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx,"rw.verbatim",rw_verbatim,"",0,0,0) != REDISMODULE_OK)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;
