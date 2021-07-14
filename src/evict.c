@@ -338,9 +338,10 @@ size_t freeMemoryGetNotCountedMemory(void) {
         listRewind(server.slaves,&li);
         while((ln = listNext(&li))) {
             client *slave = listNodeValue(ln);
-            overhead += getClientOutputBufferMemoryUsage(slave);
+            overhead += getClientPrivateOutputBufferMemoryUsage(slave);
         }
     }
+    overhead += server.repl_buffer_size;
     if (server.aof_state != AOF_OFF) {
         overhead += sdsAllocSize(server.aof_buf)+aofRewriteBufferMemoryUsage();
     }

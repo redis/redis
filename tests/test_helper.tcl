@@ -43,6 +43,7 @@ set ::all_tests {
     integration/replication-3
     integration/replication-4
     integration/replication-psync
+    integration/replication-buffer
     integration/aof
     integration/rdb
     integration/corrupt-dump

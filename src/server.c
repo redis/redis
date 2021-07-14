@@ -1748,7 +1748,7 @@ int clientsCronTrackExpansiveClients(client *c, int time_idx) {
 int clientsCronTrackClientsMemUsage(client *c) {
     size_t mem = 0;
     int type = getClientType(c);
-    mem += getClientOutputBufferMemoryUsage(c);
+    mem += getClientPrivateOutputBufferMemoryUsage(c);
     mem += sdsZmallocSize(c->querybuf);
     mem += zmalloc_size(c);
     mem += c->argv_len_sum;
@@ -3175,6 +3175,9 @@ void initServer(void) {
     server.system_memory_size = zmalloc_get_memory_size();
     server.blocked_last_cron = 0;
     server.blocking_op_nesting = 0;
+    server.repl_buffer_size = 0;
+    server.repl_buffer_blocks = listCreate();
+    listSetFreeMethod(server.repl_buffer_blocks,(void (*)(void*))zfree);
 
     if ((server.tls_port || server.tls_replication || server.tls_cluster)
                 && tlsConfigure(&server.tls_ctx_config) == C_ERR) {
@@ -4801,6 +4804,7 @@ sds genRedisInfoString(const char *section) {
             "mem_fragmentation_bytes:%zd\r\n"
             "mem_not_counted_for_evict:%zu\r\n"
             "mem_replication_backlog:%zu\r\n"
+            "mem_replication_buffer:%zu\r\n"
             "mem_clients_slaves:%zu\r\n"
             "mem_clients_normal:%zu\r\n"
             "mem_aof_buffer:%zu\r\n"
@@ -4845,6 +4849,7 @@ sds genRedisInfoString(const char *section) {
             mh->total_frag_bytes,
             freeMemoryGetNotCountedMemory(),
             mh->repl_backlog,
+            server.repl_buffer_size,
             mh->clients_slaves,
             mh->clients_normal,
             mh->aof_buffer,
