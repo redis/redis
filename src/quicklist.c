@@ -1728,7 +1728,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
 
         TEST("add to tail of empty list") {
             quicklist *ql = quicklistNew(-2, options[_i]);
-            quicklistPushTail(ql, "hello", 6);
+            quicklistPushTail(ql, "hello", 5);
             /* 1 for head and 1 for tail because 1 node = head = tail */
             ql_verify(ql, 1, 1, 1, 1);
             quicklistRelease(ql);
@@ -1736,7 +1736,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
 
         TEST("add to head of empty list") {
             quicklist *ql = quicklistNew(-2, options[_i]);
-            quicklistPushHead(ql, "hello", 6);
+            quicklistPushHead(ql, "hello", 5);
             /* 1 for head and 1 for tail because 1 node = head = tail */
             ql_verify(ql, 1, 1, 1, 1);
             quicklistRelease(ql);
@@ -1804,7 +1804,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
         TEST("rotate one val once") {
             for (int f = 0; f < fill_count; f++) {
                 quicklist *ql = quicklistNew(fills[f], options[_i]);
-                quicklistPushHead(ql, "hello", 6);
+                quicklistPushHead(ql, "hello", 5);
                 quicklistRotate(ql);
                 /* Ignore compression verify because ziplist is
                  * too small to compress. */
@@ -1974,8 +1974,15 @@ int quicklistTest(int argc, char *argv[], int accurate) {
             quicklist *ql = quicklistNew(-2, options[_i]);
             quicklistEntry entry;
             quicklistIndex(ql, 0, &entry);
-            quicklistInsertBefore(ql, &entry, "abc", 4);
+            quicklistInsertBefore(ql, &entry, "abc", 3);
             ql_verify(ql, 1, 1, 1, 1);
+
+            /* verify results */
+            quicklistIndex(ql, 0, &entry);
+            if (strncmp((char *)entry.value, "abc", 3)) {
+                ERR("Value 0 didn't match, instead got: %.*s", entry.sz,
+                    entry.value);
+            }
             quicklistRelease(ql);
         }
 
@@ -1983,28 +1990,61 @@ int quicklistTest(int argc, char *argv[], int accurate) {
             quicklist *ql = quicklistNew(-2, options[_i]);
             quicklistEntry entry;
             quicklistIndex(ql, 0, &entry);
-            quicklistInsertAfter(ql, &entry, "abc", 4);
+            quicklistInsertAfter(ql, &entry, "abc", 3);
             ql_verify(ql, 1, 1, 1, 1);
+
+            /* verify results */
+            quicklistIndex(ql, 0, &entry);
+            if (strncmp((char *)entry.value, "abc", 3)) {
+                ERR("Value 0 didn't match, instead got: %.*s", entry.sz,
+                    entry.value);
+            }
             quicklistRelease(ql);
         }
 
         TEST("insert after 1 element") {
             quicklist *ql = quicklistNew(-2, options[_i]);
-            quicklistPushHead(ql, "hello", 6);
+            quicklistPushHead(ql, "hello", 5);
             quicklistEntry entry;
             quicklistIndex(ql, 0, &entry);
-            quicklistInsertAfter(ql, &entry, "abc", 4);
+            quicklistInsertAfter(ql, &entry, "abc", 3);
             ql_verify(ql, 1, 2, 2, 2);
+
+            /* verify results */
+            quicklistIndex(ql, 0, &entry);
+            if (strncmp((char *)entry.value, "hello", 5)) {
+                ERR("Value 0 didn't match, instead got: %.*s", entry.sz,
+                    entry.value);
+            }
+            quicklistIndex(ql, 1, &entry);
+            if (strncmp((char *)entry.value, "abc", 3)) {
+                ERR("Value 1 didn't match, instead got: %.*s", entry.sz,
+                    entry.value);
+            }
+
             quicklistRelease(ql);
         }
 
         TEST("insert before 1 element") {
             quicklist *ql = quicklistNew(-2, options[_i]);
-            quicklistPushHead(ql, "hello", 6);
+            quicklistPushHead(ql, "hello", 5);
             quicklistEntry entry;
             quicklistIndex(ql, 0, &entry);
-            quicklistInsertAfter(ql, &entry, "abc", 4);
+            quicklistInsertBefore(ql, &entry, "abc", 3);
             ql_verify(ql, 1, 2, 2, 2);
+
+            /* verify results */
+            quicklistIndex(ql, 0, &entry);
+            if (strncmp((char *)entry.value, "abc", 3)) {
+                ERR("Value 0 didn't match, instead got: %.*s", entry.sz,
+                    entry.value);
+            }
+            quicklistIndex(ql, 1, &entry);
+            if (strncmp((char *)entry.value, "hello", 5)) {
+                ERR("Value 1 didn't match, instead got: %.*s", entry.sz,
+                    entry.value);
+            }
+
             quicklistRelease(ql);
         }
 

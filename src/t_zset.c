@@ -3114,7 +3114,7 @@ void zrangeCommand(client *c) {
     zrangeGenericCommand(&handler, 1, 0, ZRANGE_AUTO, ZRANGE_DIRECTION_AUTO);
 }
 
-/* ZREVRANGE <key> <min> <max> [WITHSCORES] */
+/* ZREVRANGE <key> <start> <stop> [WITHSCORES] */
 void zrevrangeCommand(client *c) {
     zrange_result_handler handler;
     zrangeResultHandlerInit(&handler, c, ZRANGE_CONSUMER_TYPE_CLIENT);
@@ -3132,7 +3132,7 @@ void genericZrangebyscoreCommand(zrange_result_handler *handler,
     handler->beginResultEmission(handler);
 
     /* For invalid offset, return directly. */
-    if (offset > 0 && offset >= (long)zsetLength(zobj)) {
+    if (offset >= (long)zsetLength(zobj) || offset < 0) {
         handler->finalizeResultEmission(handler, 0);
         return;
     }
@@ -3247,7 +3247,7 @@ void zrangebyscoreCommand(client *c) {
     zrangeGenericCommand(&handler, 1, 0, ZRANGE_SCORE, ZRANGE_DIRECTION_FORWARD);
 }
 
-/* ZREVRANGEBYSCORE <key> <min> <max> [WITHSCORES] [LIMIT offset count] */
+/* ZREVRANGEBYSCORE <key> <max> <min> [WITHSCORES] [LIMIT offset count] */
 void zrevrangebyscoreCommand(client *c) {
     zrange_result_handler handler;
     zrangeResultHandlerInit(&handler, c, ZRANGE_CONSUMER_TYPE_CLIENT);
@@ -3420,6 +3420,12 @@ void genericZrangebylexCommand(zrange_result_handler *handler,
 
     handler->beginResultEmission(handler);
 
+    /* For invalid offset, return directly. */
+    if (offset >= (long)zsetLength(zobj) || offset < 0) {
+        handler->finalizeResultEmission(handler, 0);
+        return;
+    }
+
     if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
         unsigned char *zl = zobj->ptr;
         unsigned char *eptr, *sptr;
@@ -3532,7 +3538,7 @@ void zrangebylexCommand(client *c) {
     zrangeGenericCommand(&handler, 1, 0, ZRANGE_LEX, ZRANGE_DIRECTION_FORWARD);
 }
 
-/* ZREVRANGEBYLEX <key> <min> <max> [LIMIT offset count] */
+/* ZREVRANGEBYLEX <key> <max> <min> [LIMIT offset count] */
 void zrevrangebylexCommand(client *c) {
     zrange_result_handler handler;
     zrangeResultHandlerInit(&handler, c, ZRANGE_CONSUMER_TYPE_CLIENT);

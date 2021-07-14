@@ -68,7 +68,7 @@
 #define MAX_THREADS 500
 #define CLUSTER_SLOTS 16384
 #define CONFIG_LATENCY_HISTOGRAM_MIN_VALUE 10L          /* >= 10 usecs */
-#define CONFIG_LATENCY_HISTOGRAM_MAX_VALUE 3000000L          /* <= 30 secs(us precision) */
+#define CONFIG_LATENCY_HISTOGRAM_MAX_VALUE 3000000L          /* <= 3 secs(us precision) */
 #define CONFIG_LATENCY_HISTOGRAM_INSTANT_MAX_VALUE 3000000L   /* <= 3 secs(us precision) */
 
 #define CLIENT_GET_EVENTLOOP(c) \
@@ -1547,7 +1547,7 @@ invalid:
 
 usage:
     printf(
-"Usage: redis-benchmark [-h <host>] [-p <port>] [-c <clients>] [-n <requests>] [-k <boolean>]\n\n"
+"Usage: redis-benchmark [OPTIONS] [cmd [arg [arg ...]]]\n"
 " -h <hostname>      Server hostname (default 127.0.0.1)\n"
 " -p <port>          Server port (default 6379)\n"
 " -s <socket>        Server socket (overrides host and port)\n"
@@ -1821,6 +1821,7 @@ int main(int argc, const char **argv) {
             free(cmd);
         } while(config.loop);
 
+        sdsfree(title);
         if (config.redis_config != NULL) freeRedisConfig(config.redis_config);
         return 0;
     }

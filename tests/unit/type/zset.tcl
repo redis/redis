@@ -460,6 +460,7 @@ start_server {tags {"zset"}} {
             assert_equal {d c b} [r zrevrangebyscore zset 10 0 LIMIT 2 3]
             assert_equal {d c b} [r zrevrangebyscore zset 10 0 LIMIT 2 10]
             assert_equal {}      [r zrevrangebyscore zset 10 0 LIMIT 20 10]
+            assert_equal {}      [r zrevrangebyscore zset 10 0 LIMIT -1 10]
         }
 
         test "ZRANGEBYSCORE with LIMIT and WITHSCORES - $encoding" {
@@ -467,6 +468,7 @@ start_server {tags {"zset"}} {
             assert_equal {e 4 f 5} [r zrangebyscore zset 2 5 LIMIT 2 3 WITHSCORES]
             assert_equal {d 3 c 2} [r zrevrangebyscore zset 5 2 LIMIT 2 3 WITHSCORES]
             assert_equal {} [r zrangebyscore zset 2 5 LIMIT 12 13 WITHSCORES]
+            assert_equal {} [r zrangebyscore zset 2 5 LIMIT -1 13 WITHSCORES]
         }
 
         test "ZRANGEBYSCORE with non-value min or max - $encoding" {
@@ -532,6 +534,8 @@ start_server {tags {"zset"}} {
             assert_equal {bar cool} [r zrangebylex zset - \[cool LIMIT 1 2]
             assert_equal {} [r zrangebylex zset \[bar \[down LIMIT 0 0]
             assert_equal {} [r zrangebylex zset \[bar \[down LIMIT 2 0]
+            assert_equal {} [r zrangebylex zset \[bar \[down LIMIT 10 0]
+            assert_equal {} [r zrangebylex zset \[bar \[down LIMIT -1 0]
             assert_equal {bar} [r zrangebylex zset \[bar \[down LIMIT 0 1]
             assert_equal {cool} [r zrangebylex zset \[bar \[down LIMIT 1 1]
             assert_equal {bar cool down} [r zrangebylex zset \[bar \[down LIMIT 0 100]
