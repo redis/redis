@@ -37,6 +37,7 @@
  * ==========================================================================*/
 
 rax *Users; /* Table mapping usernames to user structures. */
+rax *Roles; /* Table mapping rolenames to user structures. */
 
 user *DefaultUser;  /* Global reference to the default user.
                        Every new connection is associated to it, if no
@@ -107,6 +108,8 @@ void ACLAddAllowedSubcommand(user *u, unsigned long id, const char *sub);
 void ACLFreeLogEntry(void *le);
 
 /* The length of the string representation of a hashed password. */
+user *createUser(const char *name, size_t namelen);
+
 #define HASH_PASSWORD_LEN SHA256_BLOCK_SIZE*2
 
 /* =============================================================================
@@ -243,24 +246,40 @@ void *ACLListDupSds(void *item) {
  * If the user with such name already exists NULL is returned. */
 user *ACLCreateUser(const char *name, size_t namelen) {
     if (raxFind(Users,(unsigned char*)name,namelen) != raxNotFound) return NULL;
+    user *u = createUser(name, namelen);
+    raxInsert(Users,(unsigned char*)name,namelen,u,NULL);
+    return u;
+}
+
+user *ACLCreateRole(const char *name, size_t namelen) {
+    if (raxFind(Roles,(unsigned char*)name,namelen) != raxNotFound) return NULL;
+    user *u = createUser(name, namelen);
+    raxInsert(Roles,(unsigned char*)name,namelen,u,NULL);
+    return u;
+}
+
+user *createUser(const char *name, size_t namelen) {
     user *u = zmalloc(sizeof(*u));
     u->name = sdsnewlen(name,namelen);
-    u->flags = USER_FLAG_DISABLED | server.acl_pubsub_default;
+    u->flags = USER_FLAG_DISABLED;
     u->allowed_subcommands = NULL;
     u->passwords = listCreate();
     u->patterns = listCreate();
     u->channels = listCreate();
-    listSetMatchMethod(u->passwords,ACLListMatchSds);
-    listSetFreeMethod(u->passwords,ACLListFreeSds);
-    listSetDupMethod(u->passwords,ACLListDupSds);
-    listSetMatchMethod(u->patterns,ACLListMatchSds);
-    listSetFreeMethod(u->patterns,ACLListFreeSds);
-    listSetDupMethod(u->patterns,ACLListDupSds);
-    listSetMatchMethod(u->channels,ACLListMatchSds);
-    listSetFreeMethod(u->channels,ACLListFreeSds);
-    listSetDupMethod(u->channels,ACLListDupSds);
+    u->mappings = listCreate();
+    listSetMatchMethod(u->passwords, ACLListMatchSds);
+    listSetFreeMethod(u->passwords, ACLListFreeSds);
+    listSetDupMethod(u->passwords, ACLListDupSds);
+    listSetMatchMethod(u->patterns, ACLListMatchSds);
+    listSetFreeMethod(u->patterns, ACLListFreeSds);
+    listSetDupMethod(u->patterns, ACLListDupSds);
+    listSetMatchMethod(u->channels, ACLListMatchSds);
+    listSetFreeMethod(u->channels, ACLListFreeSds);
+    listSetDupMethod(u->channels, ACLListDupSds);
+    listSetMatchMethod(u->mappings, ACLListMatchSds);
+    listSetFreeMethod(u->mappings, ACLListFreeSds);
+    listSetDupMethod(u->mappings, ACLListDupSds);
     memset(u->allowed_commands,0,sizeof(u->allowed_commands));
-    raxInsert(Users,(unsigned char*)name,namelen,u,NULL);
     return u;
 }
 
@@ -288,6 +307,7 @@ void ACLFreeUser(user *u) {
     listRelease(u->passwords);
     listRelease(u->patterns);
     listRelease(u->channels);
+    listRelease(u->mappings);
     ACLResetSubcommands(u);
     zfree(u);
 }
@@ -329,9 +349,11 @@ void ACLCopyUser(user *dst, user *src) {
     listRelease(dst->passwords);
     listRelease(dst->patterns);
     listRelease(dst->channels);
+    listRelease(dst->mappings);
     dst->passwords = listDup(src->passwords);
     dst->patterns = listDup(src->patterns);
     dst->channels = listDup(src->channels);
+    dst->mappings = listDup(src->mappings);
     memcpy(dst->allowed_commands,src->allowed_commands,
            sizeof(dst->allowed_commands));
     dst->flags = src->flags;
@@ -347,6 +369,34 @@ void ACLCopyUser(user *dst, user *src) {
                 }
             }
         }
+    }
+}
+
+void ACLUserRoleAssociation(user *u, list *prevroles) {
+    listIter li;
+    listNode *ln;
+
+    if (prevroles) {
+        listRewind(prevroles,&li);
+        while ((ln = listNext(&li))) {
+            sds thisrole = listNodeValue(ln);
+            user *role = ACLGetRoleByName(thisrole,sdslen(thisrole));
+            // Remove the user to role's mapping
+            ln = listSearchKey(role->mappings,u->name);
+            if (ln)
+                listDelNode(role->mappings,ln);
+        }
+    }
+
+    listRewind(u->mappings,&li);
+    while ((ln = listNext(&li))) {
+        sds thisrole = listNodeValue(ln);
+        user *role = ACLGetRoleByName(thisrole,sdslen(thisrole));
+        // Add the user to role's mapping
+        ln = listSearchKey(role->mappings,u->name);
+        /* Avoid re-adding the same username multiple times. */
+        if (ln == NULL)
+            listAddNodeTail(role->mappings,sdsnew(u->name));
     }
 }
 
@@ -666,6 +716,72 @@ sds ACLDescribeUser(user *u) {
     sds rules = ACLDescribeUserCommandRules(u);
     res = sdscatsds(res,rules);
     sdsfree(rules);
+
+    /* Roles. */
+    listRewind(u->mappings, &li);
+    while((ln = listNext(&li))) {
+        res = sdscatlen(res," ",1);
+        res = sdscatlen(res,"$+",2);
+        sds thisrole = listNodeValue(ln);
+        res = sdscatsds(res, thisrole);
+    }
+
+    return res;
+}
+
+sds ACLDescribeRole(user *u) {
+    sds res = sdsempty();
+
+    /* Flags. */
+    for (int j = 0; ACLUserFlags[j].flag; j++) {
+        /* Skip the allcommands, allkeys and allchannels flags because they'll
+         * be emitted later as +@all, ~* and &*. */
+        if (ACLUserFlags[j].flag == USER_FLAG_ALLKEYS ||
+            ACLUserFlags[j].flag == USER_FLAG_ALLCHANNELS ||
+            ACLUserFlags[j].flag == USER_FLAG_ALLCOMMANDS ||
+            ACLUserFlags[j].flag == USER_FLAG_DISABLED ||
+            ACLUserFlags[j].flag == USER_FLAG_ENABLED) continue;
+        if (u->flags & ACLUserFlags[j].flag) {
+            res = sdscat(res,ACLUserFlags[j].name);
+            res = sdscatlen(res," ",1);
+        }
+    }
+
+    listIter li;
+    listNode *ln;
+
+    /* Key patterns. */
+    if (u->flags & USER_FLAG_ALLKEYS) {
+        res = sdscatlen(res,"~* ",3);
+    } else {
+        listRewind(u->patterns,&li);
+        while((ln = listNext(&li))) {
+            sds thispat = listNodeValue(ln);
+            res = sdscatlen(res,"~",1);
+            res = sdscatsds(res,thispat);
+            res = sdscatlen(res," ",1);
+        }
+    }
+
+    /* Pub/sub channel patterns. */
+    if (u->flags & USER_FLAG_ALLCHANNELS) {
+        res = sdscatlen(res,"&* ",3);
+    } else {
+        res = sdscatlen(res,"resetchannels ",14);
+        listRewind(u->channels,&li);
+        while((ln = listNext(&li))) {
+            sds thispat = listNodeValue(ln);
+            res = sdscatlen(res,"&",1);
+            res = sdscatsds(res,thispat);
+            res = sdscatlen(res," ",1);
+        }
+    }
+
+    /* Command rules. */
+    sds rules = ACLDescribeUserCommandRules(u);
+    res = sdscatsds(res,rules);
+    sdsfree(rules);
+
     return res;
 }
 
@@ -1006,6 +1122,178 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
         serverAssert(ACLSetUser(u,"off",-1) == C_OK);
         serverAssert(ACLSetUser(u,"sanitize-payload",-1) == C_OK);
         serverAssert(ACLSetUser(u,"-@all",-1) == C_OK);
+    } else if (op[0] == '$' && op[1] == '+') {
+        sds thisrole = sdsnew(op + 2);
+        user *role = ACLGetRoleByName(thisrole,sdslen(thisrole));
+        if (!role) {
+            errno = ENOENT;
+            return C_ERR;
+        }
+        // Add the role to user's mapping
+        listNode *ln = listSearchKey(u->mappings, thisrole);
+        /* Avoid re-adding the same thisrole multiple times. */
+        if (ln == NULL)
+            listAddNodeTail(u->mappings, thisrole);
+        else
+            sdsfree(thisrole);
+    } else if (op[0] == '$' && op[1] == '-') {
+        sds rolename = sdsnew(op + 2);
+        user *role = ACLGetRoleByName(rolename, sdslen(rolename));
+        if (!role) {
+            errno = ENOENT;
+            return C_ERR;
+        }
+        listNode *ln = listSearchKey(u->mappings, rolename);
+        /* Delete the rolename from user's mappings if exists. */
+        if (ln)
+            listDelNode(u->mappings, ln);
+        else
+            sdsfree(rolename);
+    } else {
+        errno = EINVAL;
+        return C_ERR;
+    }
+    return C_OK;
+}
+
+int ACLSetRole(user *u, const char *op, ssize_t oplen) {
+    if (oplen == -1) oplen = strlen(op);
+    if (oplen == 0) return C_OK; /* Empty string is a no-operation. */
+    if (!strcasecmp(op,"skip-sanitize-payload")) {
+        u->flags |= USER_FLAG_SANITIZE_PAYLOAD_SKIP;
+        u->flags &= ~USER_FLAG_SANITIZE_PAYLOAD;
+    } else if (!strcasecmp(op,"sanitize-payload")) {
+        u->flags &= ~USER_FLAG_SANITIZE_PAYLOAD_SKIP;
+        u->flags |= USER_FLAG_SANITIZE_PAYLOAD;
+    } else if (!strcasecmp(op,"allkeys") ||
+               !strcasecmp(op,"~*"))
+    {
+        u->flags |= USER_FLAG_ALLKEYS;
+        listEmpty(u->patterns);
+    } else if (!strcasecmp(op,"resetkeys")) {
+        u->flags &= ~USER_FLAG_ALLKEYS;
+        listEmpty(u->patterns);
+    } else if (!strcasecmp(op,"allchannels") ||
+               !strcasecmp(op,"&*"))
+    {
+        u->flags |= USER_FLAG_ALLCHANNELS;
+        listEmpty(u->channels);
+    } else if (!strcasecmp(op,"resetchannels")) {
+        u->flags &= ~USER_FLAG_ALLCHANNELS;
+        listEmpty(u->channels);
+    } else if (!strcasecmp(op,"allcommands") ||
+               !strcasecmp(op,"+@all"))
+    {
+        memset(u->allowed_commands,255,sizeof(u->allowed_commands));
+        u->flags |= USER_FLAG_ALLCOMMANDS;
+        ACLResetSubcommands(u);
+    } else if (!strcasecmp(op,"nocommands") ||
+               !strcasecmp(op,"-@all"))
+    {
+        memset(u->allowed_commands,0,sizeof(u->allowed_commands));
+        u->flags &= ~USER_FLAG_ALLCOMMANDS;
+        ACLResetSubcommands(u);
+    } else if (!strcasecmp(op,"nopass")) {
+        u->flags |= USER_FLAG_NOPASS;
+        listEmpty(u->passwords);
+    } else if (!strcasecmp(op,"resetpass")) {
+        u->flags &= ~USER_FLAG_NOPASS;
+        listEmpty(u->passwords);
+    } else if (op[0] == '~') {
+        if (u->flags & USER_FLAG_ALLKEYS) {
+            errno = EEXIST;
+            return C_ERR;
+        }
+        if (ACLStringHasSpaces(op+1,oplen-1)) {
+            errno = EINVAL;
+            return C_ERR;
+        }
+        sds newpat = sdsnewlen(op+1,oplen-1);
+        listNode *ln = listSearchKey(u->patterns,newpat);
+        /* Avoid re-adding the same key pattern multiple times. */
+        if (ln == NULL)
+            listAddNodeTail(u->patterns,newpat);
+        else
+            sdsfree(newpat);
+        u->flags &= ~USER_FLAG_ALLKEYS;
+    } else if (op[0] == '&') {
+        if (u->flags & USER_FLAG_ALLCHANNELS) {
+            errno = EISDIR;
+            return C_ERR;
+        }
+        if (ACLStringHasSpaces(op+1,oplen-1)) {
+            errno = EINVAL;
+            return C_ERR;
+        }
+        sds newpat = sdsnewlen(op+1,oplen-1);
+        listNode *ln = listSearchKey(u->channels,newpat);
+        /* Avoid re-adding the same channel pattern multiple times. */
+        if (ln == NULL)
+            listAddNodeTail(u->channels,newpat);
+        else
+            sdsfree(newpat);
+        u->flags &= ~USER_FLAG_ALLCHANNELS;
+    } else if (op[0] == '+' && op[1] != '@') {
+        if (strchr(op,'|') == NULL) {
+            if (ACLLookupCommand(op+1) == NULL) {
+                errno = ENOENT;
+                return C_ERR;
+            }
+            unsigned long id = ACLGetCommandID(op+1);
+            ACLSetUserCommandBit(u,id,1);
+            ACLResetSubcommandsForCommand(u,id);
+        } else {
+            /* Split the command and subcommand parts. */
+            char *copy = zstrdup(op+1);
+            char *sub = strchr(copy,'|');
+            sub[0] = '\0';
+            sub++;
+
+            /* Check if the command exists. We can't check the
+             * subcommand to see if it is valid. */
+            if (ACLLookupCommand(copy) == NULL) {
+                zfree(copy);
+                errno = ENOENT;
+                return C_ERR;
+            }
+
+            /* The subcommand cannot be empty, so things like DEBUG|
+             * are syntax errors of course. */
+            if (strlen(sub) == 0) {
+                zfree(copy);
+                errno = EINVAL;
+                return C_ERR;
+            }
+
+            unsigned long id = ACLGetCommandID(copy);
+            /* Add the subcommand to the list of valid ones, if the command is not set. */
+            if (ACLGetUserCommandBit(u,id) == 0) {
+                ACLAddAllowedSubcommand(u,id,sub);
+            }
+
+            zfree(copy);
+        }
+    } else if (op[0] == '-' && op[1] != '@') {
+        if (ACLLookupCommand(op+1) == NULL) {
+            errno = ENOENT;
+            return C_ERR;
+        }
+        unsigned long id = ACLGetCommandID(op+1);
+        ACLSetUserCommandBit(u,id,0);
+        ACLResetSubcommandsForCommand(u,id);
+    } else if ((op[0] == '+' || op[0] == '-') && op[1] == '@') {
+        int bitval = op[0] == '+' ? 1 : 0;
+        if (ACLSetUserCommandBitsForCategory(u,op+2,bitval) == C_ERR) {
+            errno = ENOENT;
+            return C_ERR;
+        }
+    } else if (!strcasecmp(op,"reset")) {
+        serverAssert(ACLSetUser(u,"resetpass",-1) == C_OK);
+        serverAssert(ACLSetUser(u,"resetkeys",-1) == C_OK);
+        serverAssert(ACLSetUser(u,"resetchannels",-1) == C_OK);
+        serverAssert(ACLSetUser(u,"off",-1) == C_OK);
+        serverAssert(ACLSetUser(u,"sanitize-payload",-1) == C_OK);
+        serverAssert(ACLSetUser(u,"-@all",-1) == C_OK);
     } else {
         errno = EINVAL;
         return C_ERR;
@@ -1054,6 +1342,7 @@ void ACLInitDefaultUser(void) {
 /* Initialization of the ACL subsystem. */
 void ACLInit(void) {
     Users = raxNew();
+    Roles = raxNew();
     UsersToLoad = listCreate();
     ACLLog = listCreate();
     ACLInitDefaultUser();
@@ -1167,24 +1456,18 @@ user *ACLGetUserByName(const char *name, size_t namelen) {
     return myuser;
 }
 
-/* Check if the command is ready to be executed in the client 'c', already
- * referenced by c->cmd, and can be executed by this client according to the
- * ACLs associated to the client user c->user.
- *
- * If the user can execute the command ACL_OK is returned, otherwise
- * ACL_DENIED_CMD or ACL_DENIED_KEY is returned: the first in case the
- * command cannot be executed because the user is not allowed to run such
- * command, the second if the command is denied because the user is trying
- * to access keys that are not among the specified patterns. */
-int ACLCheckCommandPerm(client *c, int *keyidxptr) {
-    user *u = c->user;
+/* Return an role by its name, or NULL if the role does not exist. */
+user *ACLGetRoleByName(const char *name, size_t namelen) {
+    void *myrole = raxFind(Roles,(unsigned char*)name,namelen);
+    if (myrole == raxNotFound) return NULL;
+    return myrole;
+}
+
+int ACLCheckCommandPermForUser(client *c, user *u, int *keyidxptr) {
     uint64_t id = c->cmd->id;
 
-    /* If there is no associated user, the connection can run anything. */
-    if (u == NULL) return ACL_OK;
-
     /* Check if the user can execute this command or if the command
-     * doesn't need to be authenticated (hello, auth). */
+ * doesn't need to be authenticated (hello, auth). */
     if (!(u->flags & USER_FLAG_ALLCOMMANDS) && !(c->cmd->flags & CMD_NO_AUTH))
     {
         /* If the bit is not set we have to check further, in case the
@@ -1244,10 +1527,43 @@ int ACLCheckCommandPerm(client *c, int *keyidxptr) {
         }
         getKeysFreeResult(&result);
     }
-
     /* If we survived all the above checks, the user can execute the
      * command. */
     return ACL_OK;
+}
+
+/* Check if the command is ready to be executed in the client 'c', already
+ * referenced by c->cmd, and can be executed by this client according to the
+ * ACLs associated to the client user c->user.
+ *
+ * If the user can execute the command ACL_OK is returned, otherwise
+ * ACL_DENIED_CMD or ACL_DENIED_KEY is returned: the first in case the
+ * command cannot be executed because the user is not allowed to run such
+ * command, the second if the command is denied because the user is trying
+ * to access keys that are not among the specified patterns. */
+int ACLCheckCommandPerm(client *c, int *keyidxptr) {
+    user *u = c->user;
+
+    /* If there is no associated user, the connection can run anything. */
+    if (u == NULL) return ACL_OK;
+
+    int retval = ACLCheckCommandPermForUser(c,u,keyidxptr);
+    listIter li;
+    listNode *ln;
+    listRewind(u->mappings, &li);
+    int role_retval = ACL_DENIED_ROLE;
+    while((ln = listNext(&li))) {
+        sds thisrole = listNodeValue(ln);
+        user *role = ACLGetRoleByName(thisrole,sdslen(thisrole));
+        // Verify each role permission.
+        // Should we use each role's return value and return to client.
+        if (ACLCheckCommandPermForUser(c,role,keyidxptr) == ACL_OK)
+            break;
+    }
+    if (role_retval == ACL_OK || retval == ACL_OK) {
+        return ACL_OK;
+    }
+    return retval;
 }
 
 /* Check if the provided channel is whitelisted by the given allowed channels
@@ -1906,7 +2222,11 @@ void aclCommand(client *c) {
          * If there are any errors then none of the changes will be applied. */
         user *tempu = ACLCreateUnlinkedUser();
         user *u = ACLGetUserByName(username,sdslen(username));
-        if (u) ACLCopyUser(tempu, u);
+        list *prevroles = NULL;
+        if (u) {
+            ACLCopyUser(tempu, u);
+            prevroles = listDup(u->mappings);
+        }
 
         /* Initially redact all of the arguments to not leak any information
          * about the user. */
@@ -1935,6 +2255,10 @@ void aclCommand(client *c) {
         if (!u) u = ACLCreateUser(username,sdslen(username));
         serverAssert(u != NULL);
         ACLCopyUser(u, tempu);
+        ACLUserRoleAssociation(u,prevroles);
+        if (prevroles) {
+            listRelease(prevroles);
+        }
         ACLFreeUser(tempu);
         addReply(c,shared.ok);
     } else if (!strcasecmp(sub,"deluser") && c->argc >= 3) {
@@ -2197,13 +2521,19 @@ void aclCommand(client *c) {
 "    when no category is specified.",
 "DELUSER <username> [<username> ...]",
 "    Delete a list of users.",
+"DELROLE <rolename> [<rolename> ...]",
+"    Delete a list of mappings.",
 "GETUSER <username>",
 "    Get the user's details.",
+"GETROLE <rolename>",
+"    Get the role's details.",
 "GENPASS [<bits>]",
 "    Generate a secure 256-bit user password. The optional `bits` argument can",
 "    be used to specify a different size.",
 "LIST",
 "    Show users details in config file format.",
+"ROLELIST",
+"    Show mappings details in config file format.",
 "LOAD",
 "    Reload users from the ACL file.",
 "LOG [<count> | RESET]",
@@ -2212,13 +2542,161 @@ void aclCommand(client *c) {
 "    Save the current config to the ACL file.",
 "SETUSER <username> <attribute> [<attribute> ...]",
 "    Create or modify a user with the specified attributes.",
+"SETROLE <rolename> <attribute> [<attribute> ...]",
+"    Create or modify a role with the specified attributes.",
 "USERS",
 "    List all the registered usernames.",
+"ROLES",
+"    List all the registered mappings.",
 "WHOAMI",
 "    Return the current connection username.",
 NULL
         };
         addReplyHelp(c,help);
+    } else if (!strcasecmp(sub,"setrole") && c->argc >= 3) {
+        sds rolename = c->argv[2]->ptr;
+        /* Check rolename validity (Same as username. */
+        if (ACLStringHasSpaces(rolename,sdslen(rolename))) {
+            addReplyErrorFormat(c,
+                                "Rolenames can't contain spaces or null characters");
+            return;
+        }
+        /* Create a temporary user to validate and stage all changes against
+         * before applying to an existing user or creating a new user. If all
+         * arguments are valid the user parameters will all be applied together.
+         * If there are any errors then none of the changes will be applied. */
+        user *tempu = ACLCreateUnlinkedUser();
+        user *u = ACLGetRoleByName(rolename,sdslen(rolename));
+        if (u) ACLCopyUser(tempu, u);
+
+        /* Initially redact all of the arguments to not leak any information
+         * about the user. */
+        for (int j = 2; j < c->argc; j++) {
+            redactClientCommandArgument(c, j);
+        }
+
+        for (int j = 3; j < c->argc; j++) {
+            if (ACLSetRole(tempu,c->argv[j]->ptr,sdslen(c->argv[j]->ptr)) != C_OK) {
+                const char *errmsg = ACLSetUserStringError();
+                addReplyErrorFormat(c,
+                                    "Error in ACL SETROLE modifier '%s': %s",
+                                    (char*)c->argv[j]->ptr, errmsg);
+
+                ACLFreeUser(tempu);
+                return;
+            }
+        }
+
+        /* Overwrite the user with the temporary user we modified above. */
+        if (!u) u = ACLCreateRole(rolename,sdslen(rolename));
+        serverAssert(u != NULL);
+        ACLCopyUser(u, tempu);
+        ACLFreeUser(tempu);
+        addReply(c,shared.ok);
+
+    } else if (!strcasecmp(sub,"getrole") && c->argc >= 3) {
+        user *u = ACLGetRoleByName(c->argv[2]->ptr, sdslen(c->argv[2]->ptr));
+        if (u == NULL) {
+            addReplyNull(c);
+            return;
+        }
+
+        addReplyMapLen(c, 4);
+
+        /* Flags */
+        addReplyBulkCString(c, "flags");
+        void *deflen = addReplyDeferredLen(c);
+        int numflags = 0;
+        for (int j = 0; ACLUserFlags[j].flag; j++) {
+            if (ACLUserFlags[j].flag == USER_FLAG_DISABLED ||
+                ACLUserFlags[j].flag == USER_FLAG_ENABLED) continue;
+            if (u->flags & ACLUserFlags[j].flag) {
+                addReplyBulkCString(c, ACLUserFlags[j].name);
+                numflags++;
+            }
+        }
+        setDeferredSetLen(c, deflen, numflags);
+
+        /* Commands */
+        addReplyBulkCString(c, "commands");
+        sds cmddescr = ACLDescribeUserCommandRules(u);
+        addReplyBulkSds(c, cmddescr);
+
+        /* Key patterns */
+        addReplyBulkCString(c, "keys");
+        if (u->flags & USER_FLAG_ALLKEYS) {
+            addReplyArrayLen(c, 1);
+            addReplyBulkCBuffer(c, "*", 1);
+        } else {
+            addReplyArrayLen(c, listLength(u->patterns));
+            listIter li;
+            listNode *ln;
+            listRewind(u->patterns, &li);
+            while ((ln = listNext(&li))) {
+                sds thispat = listNodeValue(ln);
+                addReplyBulkCBuffer(c, thispat, sdslen(thispat));
+            }
+        }
+
+        /* Pub/sub patterns */
+        addReplyBulkCString(c, "channels");
+        if (u->flags & USER_FLAG_ALLCHANNELS) {
+            addReplyArrayLen(c, 1);
+            addReplyBulkCBuffer(c, "*", 1);
+        } else {
+            addReplyArrayLen(c, listLength(u->channels));
+            listIter li;
+            listNode *ln;
+            listRewind(u->channels, &li);
+            while ((ln = listNext(&li))) {
+                sds thispat = listNodeValue(ln);
+                addReplyBulkCBuffer(c, thispat, sdslen(thispat));
+            }
+        }
+    } else if ((!strcasecmp(sub,"rolelist") || !strcasecmp(sub,"roles")) &&
+               c->argc == 2)
+    {
+        int justnames = !strcasecmp(sub,"roles");
+        addReplyArrayLen(c,raxSize(Roles));
+        raxIterator ri;
+        raxStart(&ri,Roles);
+        raxSeek(&ri,"^",NULL,0);
+        while(raxNext(&ri)) {
+            user *u = ri.data;
+            if (justnames) {
+                addReplyBulkCBuffer(c,u->name,sdslen(u->name));
+            } else {
+                /* Return information in the configuration file format. */
+                sds config = sdsnew("role ");
+                config = sdscatsds(config,u->name);
+                config = sdscatlen(config," ",1);
+                sds descr = ACLDescribeRole(u);
+                config = sdscatsds(config,descr);
+                sdsfree(descr);
+                addReplyBulkSds(c,config);
+            }
+        }
+        raxStop(&ri);
+    } else if (!strcasecmp(sub,"delrole") && c->argc >= 3) {
+        int deleted = 0;
+
+        for (int j = 2; j < c->argc; j++) {
+            sds rolename = c->argv[j]->ptr;
+            user *u;
+            user *role = ACLGetRoleByName(rolename,sdslen(rolename));
+            if (listLength(role->mappings) != 0) {
+                addReplyError(c,"Role is associated to users. "
+                                "Disassociate all users first to "
+                                "delete a role.");
+                return;
+            }
+            if (raxRemove(Roles,(unsigned char*)rolename,
+                          sdslen(rolename),
+                          (void**)&u)) {
+                deleted++;
+            }
+        }
+        addReplyLongLong(c,deleted);
     } else {
         addReplySubcommandSyntaxError(c);
     }
