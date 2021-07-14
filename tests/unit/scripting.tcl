@@ -237,7 +237,7 @@ start_server {tags {"scripting"}} {
                    cjson.decode(
                     "[0.0, -5e3, -1, 0.3e-3, 1023.2, 0e10]"), " ")
         } 0
-    } {0 -5000 -1 0.0003 1023.2 0}
+    } {0.0 -5000.0 -1.0 0.0003 1023.2 0.0}
 
     test {EVAL - JSON string decoding} {
         r eval {local decoded = cjson.decode('{"keya": "a", "keyb": "b"}')
@@ -295,7 +295,7 @@ start_server {tags {"scripting"}} {
                 assert(re.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x == nil)
                 return {h, re.x.x.x.x.x.x.x.x.y == re.y, re.y == 5}
         } 0
-    } {82a17905a17881a17882a17905a17881a17882a17905a17881a17882a17905a17881a17882a17905a17881a17882a17905a17881a17882a17905a17881a17882a17905a17881a178c0 1 1}
+    } {82a17881a17882a17881a17882a17881a17882a17881a17882a17881a17882a17881a17882a17881a17882a17881a178c0a17905a17905a17905a17905a17905a17905a17905a17905 1 1}
 
     test {EVAL - Numerical sanity check from bitop} {
         r eval {assert(0x7fffffff == 2147483647, "broken hex literals");
@@ -305,14 +305,6 @@ start_server {tags {"scripting"}} {
                 assert(tostring(0xffffffff) == "-1" or
                     tostring(0xffffffff) == "4294967295",
                     "broken tostring()")
-        } 0
-    } {}
-
-    test {EVAL - Verify minimal bitop functionality} {
-        r eval {assert(bit.tobit(1) == 1);
-                assert(bit.band(1) == 1);
-                assert(bit.bxor(1,2) == 3);
-                assert(bit.bor(1,2,4,8,16,32,64,128) == 255)
         } 0
     } {}
 
@@ -537,7 +529,7 @@ start_server {tags {"scripting"}} {
             for i=1,100 do
                 table.insert(x,i)
             end
-            redis.call('rpush','mylist',unpack(x))
+            redis.call('rpush','mylist',table.unpack(x))
             return redis.call('lrange','mylist',0,-1)
         } 1 mylist
     } {1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99 100}

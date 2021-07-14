@@ -344,7 +344,7 @@ void luaReplyToRedisReply(client *c, lua_State *lua) {
 
     switch(t) {
     case LUA_TSTRING:
-        addReplyBulkCBuffer(c,(char*)lua_tostring(lua,-1),lua_strlen(lua,-1));
+        addReplyBulkCBuffer(c,(char*)lua_tostring(lua,-1),lua_rawlen(lua,-1));
         break;
     case LUA_TBOOLEAN:
         if (server.lua_client->resp == 2)
@@ -1022,15 +1022,13 @@ int luaSetResp(lua_State *lua) {
  * ------------------------------------------------------------------------- */
 
 void luaLoadLib(lua_State *lua, const char *libname, lua_CFunction luafunc) {
-  lua_pushcfunction(lua, luafunc);
-  lua_pushstring(lua, libname);
-  lua_call(lua, 1, 0);
+    luaL_requiref(lua, libname, luafunc, 1);
+    lua_pop(lua, 1);
 }
 
 LUALIB_API int (luaopen_cjson) (lua_State *L);
 LUALIB_API int (luaopen_struct) (lua_State *L);
 LUALIB_API int (luaopen_cmsgpack) (lua_State *L);
-LUALIB_API int (luaopen_bit) (lua_State *L);
 
 void luaLoadLibraries(lua_State *lua) {
     luaLoadLib(lua, "", luaopen_base);
@@ -1041,7 +1039,6 @@ void luaLoadLibraries(lua_State *lua) {
     luaLoadLib(lua, "cjson", luaopen_cjson);
     luaLoadLib(lua, "struct", luaopen_struct);
     luaLoadLib(lua, "cmsgpack", luaopen_cmsgpack);
-    luaLoadLib(lua, "bit", luaopen_bit);
 
 #if 0 /* Stuff that we don't load currently, for sandboxing concerns. */
     luaLoadLib(lua, LUA_LOADLIBNAME, luaopen_package);
@@ -1108,7 +1105,7 @@ void scriptingEnableGlobalsProtection(lua_State *lua) {
  *
  * However it is simpler to just call scriptingReset() that does just that. */
 void scriptingInit(int setup) {
-    lua_State *lua = lua_open();
+    lua_State *lua = luaL_newstate();
 
     if (setup) {
         server.lua_client = NULL;
@@ -1338,14 +1335,14 @@ int redis_math_random (lua_State *L) {
       break;
     }
     case 1: {  /* only upper limit */
-      int u = luaL_checkint(L, 1);
+      lua_Integer u = luaL_checkinteger(L, 1);
       luaL_argcheck(L, 1<=u, 1, "interval is empty");
       lua_pushnumber(L, floor(r*u)+1);  /* int between 1 and `u' */
       break;
     }
     case 2: {  /* lower and upper limits */
-      int l = luaL_checkint(L, 1);
-      int u = luaL_checkint(L, 2);
+      lua_Integer l = luaL_checkinteger(L, 1);
+      lua_Integer u = luaL_checkinteger(L, 2);
       luaL_argcheck(L, l<=u, 2, "interval is empty");
       lua_pushnumber(L, floor(r*(u-l+1))+l);  /* int between `l' and `u' */
       break;
@@ -1356,7 +1353,7 @@ int redis_math_random (lua_State *L) {
 }
 
 int redis_math_randomseed (lua_State *L) {
-  redisSrand48(luaL_checkint(L, 1));
+  redisSrand48(luaL_checkinteger(L, 1));
   return 0;
 }
 

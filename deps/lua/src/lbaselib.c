@@ -1,9 +1,13 @@
 /*
-** $Id: lbaselib.c,v 1.191.1.6 2008/02/14 16:46:22 roberto Exp $
+** $Id: lbaselib.c $
 ** Basic library
 ** See Copyright Notice in lua.h
 */
 
+#define lbaselib_c
+#define LUA_LIB
+
+#include "lprefix.h"
 
 
 #include <ctype.h>
@@ -11,78 +15,107 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define lbaselib_c
-#define LUA_LIB
-
 #include "lua.h"
 
 #include "lauxlib.h"
 #include "lualib.h"
 
 
-
-
-/*
-** If your system does not support `stdout', you can just remove this function.
-** If you need, you can define your own `print' function, following this
-** model but changing `fputs' to put the strings at a proper place
-** (a console window or a log file, for instance).
-*/
 static int luaB_print (lua_State *L) {
   int n = lua_gettop(L);  /* number of arguments */
   int i;
-  lua_getglobal(L, "tostring");
-  for (i=1; i<=n; i++) {
-    const char *s;
-    lua_pushvalue(L, -1);  /* function to be called */
-    lua_pushvalue(L, i);   /* value to print */
-    lua_call(L, 1, 1);
-    s = lua_tostring(L, -1);  /* get result */
-    if (s == NULL)
-      return luaL_error(L, LUA_QL("tostring") " must return a string to "
-                           LUA_QL("print"));
-    if (i>1) fputs("\t", stdout);
-    fputs(s, stdout);
+  for (i = 1; i <= n; i++) {  /* for each argument */
+    size_t l;
+    const char *s = luaL_tolstring(L, i, &l);  /* convert it to string */
+    if (i > 1)  /* not the first element? */
+      lua_writestring("\t", 1);  /* add a tab before it */
+    lua_writestring(s, l);  /* print it */
     lua_pop(L, 1);  /* pop result */
   }
-  fputs("\n", stdout);
+  lua_writeline();
   return 0;
 }
 
 
+/*
+** Creates a warning with all given arguments.
+** Check first for errors; otherwise an error may interrupt
+** the composition of a warning, leaving it unfinished.
+*/
+static int luaB_warn (lua_State *L) {
+  int n = lua_gettop(L);  /* number of arguments */
+  int i;
+  luaL_checkstring(L, 1);  /* at least one argument */
+  for (i = 2; i <= n; i++)
+    luaL_checkstring(L, i);  /* make sure all arguments are strings */
+  for (i = 1; i < n; i++)  /* compose warning */
+    lua_warning(L, lua_tostring(L, i), 1);
+  lua_warning(L, lua_tostring(L, n), 0);  /* close warning */
+  return 0;
+}
+
+
+#define SPACECHARS	" \f\n\r\t\v"
+
+static const char *b_str2int (const char *s, int base, lua_Integer *pn) {
+  lua_Unsigned n = 0;
+  int neg = 0;
+  s += strspn(s, SPACECHARS);  /* skip initial spaces */
+  if (*s == '-') { s++; neg = 1; }  /* handle sign */
+  else if (*s == '+') s++;
+  if (!isalnum((unsigned char)*s))  /* no digit? */
+    return NULL;
+  do {
+    int digit = (isdigit((unsigned char)*s)) ? *s - '0'
+                   : (toupper((unsigned char)*s) - 'A') + 10;
+    if (digit >= base) return NULL;  /* invalid numeral */
+    n = n * base + digit;
+    s++;
+  } while (isalnum((unsigned char)*s));
+  s += strspn(s, SPACECHARS);  /* skip trailing spaces */
+  *pn = (lua_Integer)((neg) ? (0u - n) : n);
+  return s;
+}
+
+
 static int luaB_tonumber (lua_State *L) {
-  int base = luaL_optint(L, 2, 10);
-  if (base == 10) {  /* standard conversion */
-    luaL_checkany(L, 1);
-    if (lua_isnumber(L, 1)) {
-      lua_pushnumber(L, lua_tonumber(L, 1));
+  if (lua_isnoneornil(L, 2)) {  /* standard conversion? */
+    if (lua_type(L, 1) == LUA_TNUMBER) {  /* already a number? */
+      lua_settop(L, 1);  /* yes; return it */
       return 1;
+    }
+    else {
+      size_t l;
+      const char *s = lua_tolstring(L, 1, &l);
+      if (s != NULL && lua_stringtonumber(L, s) == l + 1)
+        return 1;  /* successful conversion to number */
+      /* else not a number */
+      luaL_checkany(L, 1);  /* (but there must be some parameter) */
     }
   }
   else {
-    const char *s1 = luaL_checkstring(L, 1);
-    char *s2;
-    unsigned long n;
+    size_t l;
+    const char *s;
+    lua_Integer n = 0;  /* to avoid warnings */
+    lua_Integer base = luaL_checkinteger(L, 2);
+    luaL_checktype(L, 1, LUA_TSTRING);  /* no numbers as strings */
+    s = lua_tolstring(L, 1, &l);
     luaL_argcheck(L, 2 <= base && base <= 36, 2, "base out of range");
-    n = strtoul(s1, &s2, base);
-    if (s1 != s2) {  /* at least one valid digit? */
-      while (isspace((unsigned char)(*s2))) s2++;  /* skip trailing spaces */
-      if (*s2 == '\0') {  /* no invalid trailing characters? */
-        lua_pushnumber(L, (lua_Number)n);
-        return 1;
-      }
-    }
-  }
-  lua_pushnil(L);  /* else not a number */
+    if (b_str2int(s, (int)base, &n) == s + l) {
+      lua_pushinteger(L, n);
+      return 1;
+    }  /* else not a number */
+  }  /* else not a number */
+  luaL_pushfail(L);  /* not a number */
   return 1;
 }
 
 
 static int luaB_error (lua_State *L) {
-  int level = luaL_optint(L, 2, 1);
+  int level = (int)luaL_optinteger(L, 2, 1);
   lua_settop(L, 1);
-  if (lua_isstring(L, 1) && level > 0) {  /* add extra information? */
-    luaL_where(L, level);
+  if (lua_type(L, 1) == LUA_TSTRING && level > 0) {
+    luaL_where(L, level);   /* add extra information */
     lua_pushvalue(L, 1);
     lua_concat(L, 2);
   }
@@ -104,56 +137,11 @@ static int luaB_getmetatable (lua_State *L) {
 static int luaB_setmetatable (lua_State *L) {
   int t = lua_type(L, 2);
   luaL_checktype(L, 1, LUA_TTABLE);
-  luaL_argcheck(L, t == LUA_TNIL || t == LUA_TTABLE, 2,
-                    "nil or table expected");
-  if (luaL_getmetafield(L, 1, "__metatable"))
-    luaL_error(L, "cannot change a protected metatable");
+  luaL_argexpected(L, t == LUA_TNIL || t == LUA_TTABLE, 2, "nil or table");
+  if (luaL_getmetafield(L, 1, "__metatable") != LUA_TNIL)
+    return luaL_error(L, "cannot change a protected metatable");
   lua_settop(L, 2);
   lua_setmetatable(L, 1);
-  return 1;
-}
-
-
-static void getfunc (lua_State *L, int opt) {
-  if (lua_isfunction(L, 1)) lua_pushvalue(L, 1);
-  else {
-    lua_Debug ar;
-    int level = opt ? luaL_optint(L, 1, 1) : luaL_checkint(L, 1);
-    luaL_argcheck(L, level >= 0, 1, "level must be non-negative");
-    if (lua_getstack(L, level, &ar) == 0)
-      luaL_argerror(L, 1, "invalid level");
-    lua_getinfo(L, "f", &ar);
-    if (lua_isnil(L, -1))
-      luaL_error(L, "no function environment for tail call at level %d",
-                    level);
-  }
-}
-
-
-static int luaB_getfenv (lua_State *L) {
-  getfunc(L, 1);
-  if (lua_iscfunction(L, -1))  /* is a C function? */
-    lua_pushvalue(L, LUA_GLOBALSINDEX);  /* return the thread's global env. */
-  else
-    lua_getfenv(L, -1);
-  return 1;
-}
-
-
-static int luaB_setfenv (lua_State *L) {
-  luaL_checktype(L, 2, LUA_TTABLE);
-  getfunc(L, 0);
-  lua_pushvalue(L, 2);
-  if (lua_isnumber(L, 1) && lua_tonumber(L, 1) == 0) {
-    /* change environment of current thread */
-    lua_pushthread(L);
-    lua_insert(L, -2);
-    lua_setfenv(L, -2);
-    return 0;
-  }
-  else if (lua_iscfunction(L, -2) || lua_setfenv(L, -2) == 0)
-    luaL_error(L,
-          LUA_QL("setfenv") " cannot change environment of given object");
   return 1;
 }
 
@@ -162,6 +150,15 @@ static int luaB_rawequal (lua_State *L) {
   luaL_checkany(L, 1);
   luaL_checkany(L, 2);
   lua_pushboolean(L, lua_rawequal(L, 1, 2));
+  return 1;
+}
+
+
+static int luaB_rawlen (lua_State *L) {
+  int t = lua_type(L, 1);
+  luaL_argexpected(L, t == LUA_TTABLE || t == LUA_TSTRING, 1,
+                      "table or string");
+  lua_pushinteger(L, lua_rawlen(L, 1));
   return 1;
 }
 
@@ -184,32 +181,59 @@ static int luaB_rawset (lua_State *L) {
 }
 
 
-static int luaB_gcinfo (lua_State *L) {
-  lua_pushinteger(L, lua_getgccount(L));
+static int pushmode (lua_State *L, int oldmode) {
+  lua_pushstring(L, (oldmode == LUA_GCINC) ? "incremental" : "generational");
   return 1;
 }
 
 
 static int luaB_collectgarbage (lua_State *L) {
   static const char *const opts[] = {"stop", "restart", "collect",
-    "count", "step", "setpause", "setstepmul", NULL};
+    "count", "step", "setpause", "setstepmul",
+    "isrunning", "generational", "incremental", NULL};
   static const int optsnum[] = {LUA_GCSTOP, LUA_GCRESTART, LUA_GCCOLLECT,
-    LUA_GCCOUNT, LUA_GCSTEP, LUA_GCSETPAUSE, LUA_GCSETSTEPMUL};
-  int o = luaL_checkoption(L, 1, "collect", opts);
-  int ex = luaL_optint(L, 2, 0);
-  int res = lua_gc(L, optsnum[o], ex);
-  switch (optsnum[o]) {
+    LUA_GCCOUNT, LUA_GCSTEP, LUA_GCSETPAUSE, LUA_GCSETSTEPMUL,
+    LUA_GCISRUNNING, LUA_GCGEN, LUA_GCINC};
+  int o = optsnum[luaL_checkoption(L, 1, "collect", opts)];
+  switch (o) {
     case LUA_GCCOUNT: {
-      int b = lua_gc(L, LUA_GCCOUNTB, 0);
-      lua_pushnumber(L, res + ((lua_Number)b/1024));
+      int k = lua_gc(L, o);
+      int b = lua_gc(L, LUA_GCCOUNTB);
+      lua_pushnumber(L, (lua_Number)k + ((lua_Number)b/1024));
       return 1;
     }
     case LUA_GCSTEP: {
+      int step = (int)luaL_optinteger(L, 2, 0);
+      int res = lua_gc(L, o, step);
       lua_pushboolean(L, res);
       return 1;
     }
+    case LUA_GCSETPAUSE:
+    case LUA_GCSETSTEPMUL: {
+      int p = (int)luaL_optinteger(L, 2, 0);
+      int previous = lua_gc(L, o, p);
+      lua_pushinteger(L, previous);
+      return 1;
+    }
+    case LUA_GCISRUNNING: {
+      int res = lua_gc(L, o);
+      lua_pushboolean(L, res);
+      return 1;
+    }
+    case LUA_GCGEN: {
+      int minormul = (int)luaL_optinteger(L, 2, 0);
+      int majormul = (int)luaL_optinteger(L, 3, 0);
+      return pushmode(L, lua_gc(L, o, minormul, majormul));
+    }
+    case LUA_GCINC: {
+      int pause = (int)luaL_optinteger(L, 2, 0);
+      int stepmul = (int)luaL_optinteger(L, 3, 0);
+      int stepsize = (int)luaL_optinteger(L, 4, 0);
+      return pushmode(L, lua_gc(L, o, pause, stepmul, stepsize));
+    }
     default: {
-      lua_pushnumber(L, res);
+      int res = lua_gc(L, o);
+      lua_pushinteger(L, res);
       return 1;
     }
   }
@@ -217,8 +241,9 @@ static int luaB_collectgarbage (lua_State *L) {
 
 
 static int luaB_type (lua_State *L) {
-  luaL_checkany(L, 1);
-  lua_pushstring(L, luaL_typename(L, 1));
+  int t = lua_type(L, 1);
+  luaL_argcheck(L, t != LUA_TNONE, 1, "value expected");
+  lua_pushstring(L, lua_typename(L, t));
   return 1;
 }
 
@@ -236,122 +261,155 @@ static int luaB_next (lua_State *L) {
 
 
 static int luaB_pairs (lua_State *L) {
-  luaL_checktype(L, 1, LUA_TTABLE);
-  lua_pushvalue(L, lua_upvalueindex(1));  /* return generator, */
-  lua_pushvalue(L, 1);  /* state, */
-  lua_pushnil(L);  /* and initial value */
-  return 3;
-}
-
-
-static int ipairsaux (lua_State *L) {
-  int i = luaL_checkint(L, 2);
-  luaL_checktype(L, 1, LUA_TTABLE);
-  i++;  /* next value */
-  lua_pushinteger(L, i);
-  lua_rawgeti(L, 1, i);
-  return (lua_isnil(L, -1)) ? 0 : 2;
-}
-
-
-static int luaB_ipairs (lua_State *L) {
-  luaL_checktype(L, 1, LUA_TTABLE);
-  lua_pushvalue(L, lua_upvalueindex(1));  /* return generator, */
-  lua_pushvalue(L, 1);  /* state, */
-  lua_pushinteger(L, 0);  /* and initial value */
-  return 3;
-}
-
-
-static int load_aux (lua_State *L, int status) {
-  if (status == 0)  /* OK? */
-    return 1;
-  else {
-    lua_pushnil(L);
-    lua_insert(L, -2);  /* put before error message */
-    return 2;  /* return nil plus error message */
+  luaL_checkany(L, 1);
+  if (luaL_getmetafield(L, 1, "__pairs") == LUA_TNIL) {  /* no metamethod? */
+    lua_pushcfunction(L, luaB_next);  /* will return generator, */
+    lua_pushvalue(L, 1);  /* state, */
+    lua_pushnil(L);  /* and initial value */
   }
+  else {
+    lua_pushvalue(L, 1);  /* argument 'self' to metamethod */
+    lua_call(L, 1, 3);  /* get 3 values from metamethod */
+  }
+  return 3;
 }
 
 
-static int luaB_loadstring (lua_State *L) {
-  size_t l;
-  const char *s = luaL_checklstring(L, 1, &l);
-  const char *chunkname = luaL_optstring(L, 2, s);
-  return load_aux(L, luaL_loadbuffer(L, s, l, chunkname));
+/*
+** Traversal function for 'ipairs'
+*/
+static int ipairsaux (lua_State *L) {
+  lua_Integer i = luaL_checkinteger(L, 2) + 1;
+  lua_pushinteger(L, i);
+  return (lua_geti(L, 1, i) == LUA_TNIL) ? 1 : 2;
+}
+
+
+/*
+** 'ipairs' function. Returns 'ipairsaux', given "table", 0.
+** (The given "table" may not be a table.)
+*/
+static int luaB_ipairs (lua_State *L) {
+  luaL_checkany(L, 1);
+  lua_pushcfunction(L, ipairsaux);  /* iteration function */
+  lua_pushvalue(L, 1);  /* state */
+  lua_pushinteger(L, 0);  /* initial value */
+  return 3;
+}
+
+
+static int load_aux (lua_State *L, int status, int envidx) {
+  if (status == LUA_OK) {
+    if (envidx != 0) {  /* 'env' parameter? */
+      lua_pushvalue(L, envidx);  /* environment for loaded function */
+      if (!lua_setupvalue(L, -2, 1))  /* set it as 1st upvalue */
+        lua_pop(L, 1);  /* remove 'env' if not used by previous call */
+    }
+    return 1;
+  }
+  else {  /* error (message is on top of the stack) */
+    luaL_pushfail(L);
+    lua_insert(L, -2);  /* put before error message */
+    return 2;  /* return fail plus error message */
+  }
 }
 
 
 static int luaB_loadfile (lua_State *L) {
   const char *fname = luaL_optstring(L, 1, NULL);
-  return load_aux(L, luaL_loadfile(L, fname));
+  const char *mode = luaL_optstring(L, 2, NULL);
+  int env = (!lua_isnone(L, 3) ? 3 : 0);  /* 'env' index or 0 if no 'env' */
+  int status = luaL_loadfilex(L, fname, mode);
+  return load_aux(L, status, env);
 }
 
 
 /*
-** Reader for generic `load' function: `lua_load' uses the
+** {======================================================
+** Generic Read function
+** =======================================================
+*/
+
+
+/*
+** reserved slot, above all arguments, to hold a copy of the returned
+** string to avoid it being collected while parsed. 'load' has four
+** optional arguments (chunk, source name, mode, and environment).
+*/
+#define RESERVEDSLOT	5
+
+
+/*
+** Reader for generic 'load' function: 'lua_load' uses the
 ** stack for internal stuff, so the reader cannot change the
 ** stack top. Instead, it keeps its resulting string in a
 ** reserved slot inside the stack.
 */
 static const char *generic_reader (lua_State *L, void *ud, size_t *size) {
-  (void)ud;  /* to avoid warnings */
+  (void)(ud);  /* not used */
   luaL_checkstack(L, 2, "too many nested functions");
   lua_pushvalue(L, 1);  /* get function */
   lua_call(L, 0, 1);  /* call it */
   if (lua_isnil(L, -1)) {
+    lua_pop(L, 1);  /* pop result */
     *size = 0;
     return NULL;
   }
-  else if (lua_isstring(L, -1)) {
-    lua_replace(L, 3);  /* save string in a reserved stack slot */
-    return lua_tolstring(L, 3, size);
-  }
-  else luaL_error(L, "reader function must return a string");
-  return NULL;  /* to avoid warnings */
+  else if (!lua_isstring(L, -1))
+    luaL_error(L, "reader function must return a string");
+  lua_replace(L, RESERVEDSLOT);  /* save string in reserved slot */
+  return lua_tolstring(L, RESERVEDSLOT, size);
 }
 
 
 static int luaB_load (lua_State *L) {
   int status;
-  const char *cname = luaL_optstring(L, 2, "=(load)");
-  luaL_checktype(L, 1, LUA_TFUNCTION);
-  lua_settop(L, 3);  /* function, eventual name, plus one reserved slot */
-  status = lua_load(L, generic_reader, NULL, cname);
-  return load_aux(L, status);
+  size_t l;
+  const char *s = lua_tolstring(L, 1, &l);
+  const char *mode = luaL_optstring(L, 3, "bt");
+  int env = (!lua_isnone(L, 4) ? 4 : 0);  /* 'env' index or 0 if no 'env' */
+  if (s != NULL) {  /* loading a string? */
+    const char *chunkname = luaL_optstring(L, 2, s);
+    status = luaL_loadbufferx(L, s, l, chunkname, mode);
+  }
+  else {  /* loading from a reader function */
+    const char *chunkname = luaL_optstring(L, 2, "=(load)");
+    luaL_checktype(L, 1, LUA_TFUNCTION);
+    lua_settop(L, RESERVEDSLOT);  /* create reserved slot */
+    status = lua_load(L, generic_reader, NULL, chunkname, mode);
+  }
+  return load_aux(L, status, env);
+}
+
+/* }====================================================== */
+
+
+static int dofilecont (lua_State *L, int d1, lua_KContext d2) {
+  (void)d1;  (void)d2;  /* only to match 'lua_Kfunction' prototype */
+  return lua_gettop(L) - 1;
 }
 
 
 static int luaB_dofile (lua_State *L) {
   const char *fname = luaL_optstring(L, 1, NULL);
-  int n = lua_gettop(L);
-  if (luaL_loadfile(L, fname) != 0) lua_error(L);
-  lua_call(L, 0, LUA_MULTRET);
-  return lua_gettop(L) - n;
+  lua_settop(L, 1);
+  if (luaL_loadfile(L, fname) != LUA_OK)
+    return lua_error(L);
+  lua_callk(L, 0, LUA_MULTRET, 0, dofilecont);
+  return dofilecont(L, 0, 0);
 }
 
 
 static int luaB_assert (lua_State *L) {
-  luaL_checkany(L, 1);
-  if (!lua_toboolean(L, 1))
-    return luaL_error(L, "%s", luaL_optstring(L, 2, "assertion failed!"));
-  return lua_gettop(L);
-}
-
-
-static int luaB_unpack (lua_State *L) {
-  int i, e, n;
-  luaL_checktype(L, 1, LUA_TTABLE);
-  i = luaL_optint(L, 2, 1);
-  e = luaL_opt(L, luaL_checkint, 3, luaL_getn(L, 1));
-  if (i > e) return 0;  /* empty range */
-  n = e - i + 1;  /* number of elements */
-  if (n <= 0 || !lua_checkstack(L, n))  /* n <= 0 means arith. overflow */
-    return luaL_error(L, "too many results to unpack");
-  lua_rawgeti(L, 1, i);  /* push arg[i] (avoiding overflow problems) */
-  while (i++ < e)  /* push arg[i + 1...e] */
-    lua_rawgeti(L, 1, i);
-  return n;
+  if (lua_toboolean(L, 1))  /* condition is true? */
+    return lua_gettop(L);  /* return all arguments */
+  else {  /* error */
+    luaL_checkany(L, 1);  /* there must be a condition */
+    lua_remove(L, 1);  /* remove it */
+    lua_pushliteral(L, "assertion failed!");  /* default message */
+    lua_settop(L, 1);  /* leave only message (default if no other one) */
+    return luaB_error(L);  /* call 'error' */
+  }
 }
 
 
@@ -362,84 +420,63 @@ static int luaB_select (lua_State *L) {
     return 1;
   }
   else {
-    int i = luaL_checkint(L, 1);
+    lua_Integer i = luaL_checkinteger(L, 1);
     if (i < 0) i = n + i;
     else if (i > n) i = n;
     luaL_argcheck(L, 1 <= i, 1, "index out of range");
-    return n - i;
+    return n - (int)i;
   }
+}
+
+
+/*
+** Continuation function for 'pcall' and 'xpcall'. Both functions
+** already pushed a 'true' before doing the call, so in case of success
+** 'finishpcall' only has to return everything in the stack minus
+** 'extra' values (where 'extra' is exactly the number of items to be
+** ignored).
+*/
+static int finishpcall (lua_State *L, int status, lua_KContext extra) {
+  if (status != LUA_OK && status != LUA_YIELD) {  /* error? */
+    lua_pushboolean(L, 0);  /* first result (false) */
+    lua_pushvalue(L, -2);  /* error message */
+    return 2;  /* return false, msg */
+  }
+  else
+    return lua_gettop(L) - (int)extra;  /* return all results */
 }
 
 
 static int luaB_pcall (lua_State *L) {
   int status;
   luaL_checkany(L, 1);
-  status = lua_pcall(L, lua_gettop(L) - 1, LUA_MULTRET, 0);
-  lua_pushboolean(L, (status == 0));
-  lua_insert(L, 1);
-  return lua_gettop(L);  /* return status + all results */
+  lua_pushboolean(L, 1);  /* first result if no errors */
+  lua_insert(L, 1);  /* put it in place */
+  status = lua_pcallk(L, lua_gettop(L) - 2, LUA_MULTRET, 0, 0, finishpcall);
+  return finishpcall(L, status, 0);
 }
 
 
+/*
+** Do a protected call with error handling. After 'lua_rotate', the
+** stack will have <f, err, true, f, [args...]>; so, the function passes
+** 2 to 'finishpcall' to skip the 2 first values when returning results.
+*/
 static int luaB_xpcall (lua_State *L) {
   int status;
-  luaL_checkany(L, 2);
-  lua_settop(L, 2);
-  lua_insert(L, 1);  /* put error function under function to be called */
-  status = lua_pcall(L, 0, LUA_MULTRET, 1);
-  lua_pushboolean(L, (status == 0));
-  lua_replace(L, 1);
-  return lua_gettop(L);  /* return status + all results */
+  int n = lua_gettop(L);
+  luaL_checktype(L, 2, LUA_TFUNCTION);  /* check error function */
+  lua_pushboolean(L, 1);  /* first result */
+  lua_pushvalue(L, 1);  /* function */
+  lua_rotate(L, 3, 2);  /* move them below function's arguments */
+  status = lua_pcallk(L, n - 2, LUA_MULTRET, 2, 2, finishpcall);
+  return finishpcall(L, status, 2);
 }
 
 
 static int luaB_tostring (lua_State *L) {
   luaL_checkany(L, 1);
-  if (luaL_callmeta(L, 1, "__tostring"))  /* is there a metafield? */
-    return 1;  /* use its value */
-  switch (lua_type(L, 1)) {
-    case LUA_TNUMBER:
-      lua_pushstring(L, lua_tostring(L, 1));
-      break;
-    case LUA_TSTRING:
-      lua_pushvalue(L, 1);
-      break;
-    case LUA_TBOOLEAN:
-      lua_pushstring(L, (lua_toboolean(L, 1) ? "true" : "false"));
-      break;
-    case LUA_TNIL:
-      lua_pushliteral(L, "nil");
-      break;
-    default:
-      lua_pushfstring(L, "%s: %p", luaL_typename(L, 1), lua_topointer(L, 1));
-      break;
-  }
-  return 1;
-}
-
-
-static int luaB_newproxy (lua_State *L) {
-  lua_settop(L, 1);
-  lua_newuserdata(L, 0);  /* create proxy */
-  if (lua_toboolean(L, 1) == 0)
-    return 1;  /* no metatable */
-  else if (lua_isboolean(L, 1)) {
-    lua_newtable(L);  /* create a new metatable `m' ... */
-    lua_pushvalue(L, -1);  /* ... and mark `m' as a valid metatable */
-    lua_pushboolean(L, 1);
-    lua_rawset(L, lua_upvalueindex(1));  /* weaktable[m] = true */
-  }
-  else {
-    int validproxy = 0;  /* to check if weaktable[metatable(u)] == true */
-    if (lua_getmetatable(L, 1)) {
-      lua_rawget(L, lua_upvalueindex(1));
-      validproxy = lua_toboolean(L, -1);
-      lua_pop(L, 1);  /* remove value */
-    }
-    luaL_argcheck(L, validproxy, 1, "boolean or proxy expected");
-    lua_getmetatable(L, 1);  /* metatable is valid; get it */
-  }
-  lua_setmetatable(L, 2);
+  luaL_tolstring(L, 1, NULL);
   return 1;
 }
 
@@ -449,205 +486,42 @@ static const luaL_Reg base_funcs[] = {
   {"collectgarbage", luaB_collectgarbage},
   {"dofile", luaB_dofile},
   {"error", luaB_error},
-  {"gcinfo", luaB_gcinfo},
-  {"getfenv", luaB_getfenv},
   {"getmetatable", luaB_getmetatable},
+  {"ipairs", luaB_ipairs},
   {"loadfile", luaB_loadfile},
   {"load", luaB_load},
-  {"loadstring", luaB_loadstring},
   {"next", luaB_next},
+  {"pairs", luaB_pairs},
   {"pcall", luaB_pcall},
   {"print", luaB_print},
+  {"warn", luaB_warn},
   {"rawequal", luaB_rawequal},
+  {"rawlen", luaB_rawlen},
   {"rawget", luaB_rawget},
   {"rawset", luaB_rawset},
   {"select", luaB_select},
-  {"setfenv", luaB_setfenv},
   {"setmetatable", luaB_setmetatable},
   {"tonumber", luaB_tonumber},
   {"tostring", luaB_tostring},
   {"type", luaB_type},
-  {"unpack", luaB_unpack},
   {"xpcall", luaB_xpcall},
+  /* placeholders */
+  {LUA_GNAME, NULL},
+  {"_VERSION", NULL},
   {NULL, NULL}
 };
 
 
-/*
-** {======================================================
-** Coroutine library
-** =======================================================
-*/
-
-#define CO_RUN	0	/* running */
-#define CO_SUS	1	/* suspended */
-#define CO_NOR	2	/* 'normal' (it resumed another coroutine) */
-#define CO_DEAD	3
-
-static const char *const statnames[] =
-    {"running", "suspended", "normal", "dead"};
-
-static int costatus (lua_State *L, lua_State *co) {
-  if (L == co) return CO_RUN;
-  switch (lua_status(co)) {
-    case LUA_YIELD:
-      return CO_SUS;
-    case 0: {
-      lua_Debug ar;
-      if (lua_getstack(co, 0, &ar) > 0)  /* does it have frames? */
-        return CO_NOR;  /* it is running */
-      else if (lua_gettop(co) == 0)
-          return CO_DEAD;
-      else
-        return CO_SUS;  /* initial state */
-    }
-    default:  /* some error occured */
-      return CO_DEAD;
-  }
-}
-
-
-static int luaB_costatus (lua_State *L) {
-  lua_State *co = lua_tothread(L, 1);
-  luaL_argcheck(L, co, 1, "coroutine expected");
-  lua_pushstring(L, statnames[costatus(L, co)]);
-  return 1;
-}
-
-
-static int auxresume (lua_State *L, lua_State *co, int narg) {
-  int status = costatus(L, co);
-  if (!lua_checkstack(co, narg))
-    luaL_error(L, "too many arguments to resume");
-  if (status != CO_SUS) {
-    lua_pushfstring(L, "cannot resume %s coroutine", statnames[status]);
-    return -1;  /* error flag */
-  }
-  lua_xmove(L, co, narg);
-  lua_setlevel(L, co);
-  status = lua_resume(co, narg);
-  if (status == 0 || status == LUA_YIELD) {
-    int nres = lua_gettop(co);
-    if (!lua_checkstack(L, nres + 1))
-      luaL_error(L, "too many results to resume");
-    lua_xmove(co, L, nres);  /* move yielded values */
-    return nres;
-  }
-  else {
-    lua_xmove(co, L, 1);  /* move error message */
-    return -1;  /* error flag */
-  }
-}
-
-
-static int luaB_coresume (lua_State *L) {
-  lua_State *co = lua_tothread(L, 1);
-  int r;
-  luaL_argcheck(L, co, 1, "coroutine expected");
-  r = auxresume(L, co, lua_gettop(L) - 1);
-  if (r < 0) {
-    lua_pushboolean(L, 0);
-    lua_insert(L, -2);
-    return 2;  /* return false + error message */
-  }
-  else {
-    lua_pushboolean(L, 1);
-    lua_insert(L, -(r + 1));
-    return r + 1;  /* return true + `resume' returns */
-  }
-}
-
-
-static int luaB_auxwrap (lua_State *L) {
-  lua_State *co = lua_tothread(L, lua_upvalueindex(1));
-  int r = auxresume(L, co, lua_gettop(L));
-  if (r < 0) {
-    if (lua_isstring(L, -1)) {  /* error object is a string? */
-      luaL_where(L, 1);  /* add extra info */
-      lua_insert(L, -2);
-      lua_concat(L, 2);
-    }
-    lua_error(L);  /* propagate error */
-  }
-  return r;
-}
-
-
-static int luaB_cocreate (lua_State *L) {
-  lua_State *NL = lua_newthread(L);
-  luaL_argcheck(L, lua_isfunction(L, 1) && !lua_iscfunction(L, 1), 1,
-    "Lua function expected");
-  lua_pushvalue(L, 1);  /* move function to top */
-  lua_xmove(L, NL, 1);  /* move function from L to NL */
-  return 1;
-}
-
-
-static int luaB_cowrap (lua_State *L) {
-  luaB_cocreate(L);
-  lua_pushcclosure(L, luaB_auxwrap, 1);
-  return 1;
-}
-
-
-static int luaB_yield (lua_State *L) {
-  return lua_yield(L, lua_gettop(L));
-}
-
-
-static int luaB_corunning (lua_State *L) {
-  if (lua_pushthread(L))
-    lua_pushnil(L);  /* main thread is not a coroutine */
-  return 1;
-}
-
-
-static const luaL_Reg co_funcs[] = {
-  {"create", luaB_cocreate},
-  {"resume", luaB_coresume},
-  {"running", luaB_corunning},
-  {"status", luaB_costatus},
-  {"wrap", luaB_cowrap},
-  {"yield", luaB_yield},
-  {NULL, NULL}
-};
-
-/* }====================================================== */
-
-
-static void auxopen (lua_State *L, const char *name,
-                     lua_CFunction f, lua_CFunction u) {
-  lua_pushcfunction(L, u);
-  lua_pushcclosure(L, f, 1);
-  lua_setfield(L, -2, name);
-}
-
-
-static void base_open (lua_State *L) {
-  /* set global _G */
-  lua_pushvalue(L, LUA_GLOBALSINDEX);
-  lua_setglobal(L, "_G");
+LUAMOD_API int luaopen_base (lua_State *L) {
   /* open lib into global table */
-  luaL_register(L, "_G", base_funcs);
+  lua_pushglobaltable(L);
+  luaL_setfuncs(L, base_funcs, 0);
+  /* set global _G */
+  lua_pushvalue(L, -1);
+  lua_setfield(L, -2, LUA_GNAME);
+  /* set global _VERSION */
   lua_pushliteral(L, LUA_VERSION);
-  lua_setglobal(L, "_VERSION");  /* set global _VERSION */
-  /* `ipairs' and `pairs' need auxiliary functions as upvalues */
-  auxopen(L, "ipairs", luaB_ipairs, ipairsaux);
-  auxopen(L, "pairs", luaB_pairs, luaB_next);
-  /* `newproxy' needs a weaktable as upvalue */
-  lua_createtable(L, 0, 1);  /* new table `w' */
-  lua_pushvalue(L, -1);  /* `w' will be its own metatable */
-  lua_setmetatable(L, -2);
-  lua_pushliteral(L, "kv");
-  lua_setfield(L, -2, "__mode");  /* metatable(w).__mode = "kv" */
-  lua_pushcclosure(L, luaB_newproxy, 1);
-  lua_setglobal(L, "newproxy");  /* set global `newproxy' */
-}
-
-
-LUALIB_API int luaopen_base (lua_State *L) {
-  base_open(L);
-  luaL_register(L, LUA_COLIBNAME, co_funcs);
-  return 2;
+  lua_setfield(L, -2, "_VERSION");
+  return 1;
 }
 

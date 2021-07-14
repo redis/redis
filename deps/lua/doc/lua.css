@@ -1,83 +1,161 @@
+html {
+	background-color: #F8F8F8 ;
+}
+
 body {
-	color: #000000 ;
 	background-color: #FFFFFF ;
+	color: #000000 ;
 	font-family: Helvetica, Arial, sans-serif ;
 	text-align: justify ;
-	margin-right: 30px ;
-	margin-left: 30px ;
+	line-height: 1.25 ;
+	margin: 16px auto ;
+	padding: 32px ;
+	border: solid #ccc 1px ;
+	border-radius: 20px ;
+	max-width: 70em ;
+	width: 90% ;
 }
 
 h1, h2, h3, h4 {
+	color: #000080 ;
 	font-family: Verdana, Geneva, sans-serif ;
 	font-weight: normal ;
-	font-style: italic ;
+	font-style: normal ;
+	text-align: left ;
 }
 
-h2 {
-	padding-top: 0.4em ;
-	padding-bottom: 0.4em ;
-	padding-left: 30px ;
-	padding-right: 30px ;
-	margin-left: -30px ;
-	background-color: #E0E0FF ;
+h1 {
+	font-size: 28pt ;
 }
 
-h3 {
-	padding-left: 0.5em ;
-	border-left: solid #E0E0FF 1em ;
+h1 img {
+	vertical-align: text-bottom ;
 }
 
-table h3 {
-	padding-left: 0px ;
-	border-left: none ;
+h2:before {
+	content: "\2756" ;
+	padding-right: 0.5em ;
+}
+
+a {
+	text-decoration: none ;
 }
 
 a:link {
 	color: #000080 ;
-	background-color: inherit ;
-	text-decoration: none ;
-}
-
-a:visited {
-	background-color: inherit ;
-	text-decoration: none ;
 }
 
 a:link:hover, a:visited:hover {
+	background-color: #D0D0FF ;
 	color: #000080 ;
-	background-color: #E0E0FF ;
+	border-radius: 4px ;
 }
 
 a:link:active, a:visited:active {
 	color: #FF0000 ;
 }
 
-hr {
-	border: 0 ;
-	height: 1px ;
-	color: #a0a0a0 ;
-	background-color: #a0a0a0 ;
+div.menubar {
+	padding-bottom: 0.5em ;
+}
+
+p.menubar {
+	margin-left: 2.5em ;
+}
+
+.menubar a:hover  {
+	margin: -3px -3px -3px -3px ;
+	padding: 3px  3px  3px  3px ;
+	border-radius: 4px ;
 }
 
 :target {
-	background-color: #F8F8F8 ;
+	background-color: #F0F0F0 ;
+	margin: -8px ;
 	padding: 8px ;
-	border: solid #a0a0a0 2px ;
+	border-radius: 8px ;
+	outline: none ;
+}
+
+hr {
+	display: none ;
+}
+
+table hr {
+	background-color: #a0a0a0 ;
+	color: #a0a0a0 ;
+	border: 0 ;
+	height: 1px ;
+	display: block ;
 }
 
 .footer {
 	color: gray ;
-	font-size: small ;
+	font-size: x-small ;
+	text-transform: lowercase ;
 }
 
 input[type=text] {
 	border: solid #a0a0a0 2px ;
 	border-radius: 2em ;
-	-moz-border-radius: 2em ;
 	background-image: url('images/search.png') ;
-	background-repeat: no-repeat;
+	background-repeat: no-repeat ;
 	background-position: 4px center ;
 	padding-left: 20px ;
 	height: 2em ;
 }
 
+pre.session {
+	background-color: #F8F8F8 ;
+	padding: 1em ;
+	border-radius: 8px ;
+}
+
+table {
+	border: none ;
+	border-spacing: 0 ;
+	border-collapse: collapse ;
+}
+
+td {
+	padding: 0 ;
+	margin: 0 ;
+}
+
+td.gutter {
+	width: 4% ;
+}
+
+table.columns td {
+	vertical-align: top ;
+	padding-bottom: 1em ;
+	text-align: justify ;
+	line-height: 1.25 ;
+}
+
+table.book td {
+	vertical-align: top ;
+}
+
+table.book td.cover {
+	padding-right: 1em ;
+}
+
+table.book img {
+	border: solid #000080 1px ;
+}
+
+table.book span {
+	font-size: small ;
+	text-align: left ;
+	display: block ;
+	margin-top: 0.25em ;
+}
+
+p.logos a:link:hover, p.logos a:visited:hover {
+	background-color: inherit ;
+}
+
+img {
+	background-color: white ;
+}
