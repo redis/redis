@@ -1011,6 +1011,7 @@ void clusterDelNode(clusterNode *delnode) {
             server.cluster->migrating_slots_to[j] = NULL;
         if (server.cluster->slots[j] == delnode)
             clusterDelSlot(j);
+            removeChannelsInSlot(j);
     }
 
     /* 2) Remove failure reports. */
@@ -1713,6 +1714,7 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
                     countKeysInSlot(j) &&
                     sender != myself)
                 {
+                    removeChannelsInSlot(j);
                     dirty_slots[dirty_slots_count] = j;
                     dirty_slots_count++;
                 }
@@ -1721,6 +1723,7 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
                     newmaster = sender;
                     migrated_our_slots++;
                 }
+                removeChannelsInSlot(j);
                 clusterDelSlot(j);
                 clusterAddSlot(sender,j);
                 clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
@@ -5107,6 +5110,7 @@ void removeChannelsInSlot(unsigned int slot) {
         robj **channels = zmalloc(sizeof(robj*)*channelcount);
         getChannelsInSlot(slot,channels);
         pubsubUnsubscribeLocalAllChannelsInSlot(channels,channelcount);
+        zfree(channels);
     }
 }
 

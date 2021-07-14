@@ -15,9 +15,6 @@ test "Pub/Sub local basics" {
     array set publishnode [$cluster masternode_for_slot $slot]
     array set notlocalnode [$cluster masternode_notfor_slot $slot]
 
-    puts $publishnode(port)
-    puts $notlocalnode(port)
-
     set publishclient [redis_deferring_client $publishnode(host) $publishnode(port)]
     set subscribeclient [redis_deferring_client $publishnode(host) $publishnode(port)]
     set subscribeclient2 [redis_deferring_client $publishnode(host) $publishnode(port)]
