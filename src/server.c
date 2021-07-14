@@ -5302,16 +5302,26 @@ sds genRedisInfoString(const char *section) {
     if (allsections || defsections || !strcasecmp(section,"keyspace")) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Keyspace\r\n");
+        int used_db = 0;
+        long long total_keys = 0, total_vkeys = 0;
         for (j = 0; j < server.dbnum; j++) {
             long long keys, vkeys;
 
             keys = dictSize(server.db[j].dict);
             vkeys = dictSize(server.db[j].expires);
+            total_keys += keys;
+            total_vkeys += vkeys;
             if (keys || vkeys) {
+                used_db++;
                 info = sdscatprintf(info,
                     "db%d:keys=%lld,expires=%lld,avg_ttl=%lld\r\n",
                     j, keys, vkeys, server.db[j].avg_ttl);
             }
+        }
+
+        if (used_db > 1) {
+            info = sdscatprintf(info,
+            "total:keys=%lld,expires=%lld\r\n", total_keys, total_vkeys);
         }
     }
 
