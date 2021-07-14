@@ -377,6 +377,67 @@ void decrRefCount(robj *o) {
     }
 }
 
+void unusedStringObject(robj *o) {
+    if (o->encoding == OBJ_ENCODING_RAW) {
+        redisUnusedMemory(sdsAllocPtr(o->ptr));
+    }
+}
+
+void unusedSetObject(robj *o) {
+    switch (o->encoding) {
+    case OBJ_ENCODING_HT:
+        redisUnusedMemory(((dict*)o->ptr)->ht[0].table);
+        redisUnusedMemory(((dict*)o->ptr)->ht[1].table);
+        break;
+    case OBJ_ENCODING_INTSET:
+        redisUnusedMemory(o->ptr);
+        break;
+    default:
+        serverPanic("Unknown set encoding type");
+    }
+}
+
+void unusedZsetObject(robj *o) {
+    zset *zs;
+    switch (o->encoding) {
+    case OBJ_ENCODING_SKIPLIST:
+        zs = o->ptr;
+        redisUnusedMemory(zs->dict->ht[0].table);
+        redisUnusedMemory(zs->dict->ht[1].table);
+        break;
+    case OBJ_ENCODING_ZIPLIST:
+        redisUnusedMemory(o->ptr);
+        break;
+    default:
+        serverPanic("Unknown sorted set encoding");
+    }
+}
+
+void unusedHashObject(robj *o) {
+    switch (o->encoding) {
+    case OBJ_ENCODING_HT:
+        redisUnusedMemory(((dict*)o->ptr)->ht[0].table);
+        redisUnusedMemory(((dict*)o->ptr)->ht[1].table);
+        break;
+    case OBJ_ENCODING_ZIPLIST:
+        redisUnusedMemory(o->ptr);
+        break;
+    default:
+        serverPanic("Unknown hash encoding type");
+    }
+}
+
+void unusedObject(robj *o) {
+    if (o->refcount != 1) return;
+    switch(o->type) {
+        case OBJ_STRING: unusedStringObject(o); break;
+        case OBJ_SET: unusedSetObject(o); break;
+        case OBJ_ZSET: unusedZsetObject(o); break;
+        case OBJ_HASH: unusedHashObject(o); break;
+        default: break;
+    }
+}
+
 /* This variant of decrRefCount() gets its argument as void, and is useful
  * as free method in data structures that expect a 'void free_object(void*)'
  * prototype for the free method. */

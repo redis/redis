@@ -1216,6 +1216,7 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
     int j;
     long key_count = 0;
     long long info_updated_time = 0;
+    int is_child = getpid() != server.pid;
     char *pname = (rdbflags & RDBFLAGS_AOF_PREAMBLE) ? "AOF rewrite" :  "RDB";
 
     if (server.rdb_checksum)
@@ -1252,6 +1253,10 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
             initStaticStringObject(key,keystr);
             expire = getExpire(db,&key);
             if (rdbSaveKeyValuePair(rdb,&key,o,expire,j) == -1) goto werr;
+
+            /* We can try to release memory quickly to avoid COW
+             * in the child process. */
+            if (is_child) unusedObject(o);
 
             /* When this RDB is produced as part of an AOF rewrite, move
              * accumulated diff from parent to child while rewriting in

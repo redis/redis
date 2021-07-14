@@ -58,10 +58,7 @@
 #include <locale.h>
 #include <sys/socket.h>
 #include <sys/resource.h>
-
-#ifdef __linux__
 #include <sys/mman.h>
-#endif
 
 /* Our shared "common" objects */
 
@@ -3175,6 +3172,8 @@ void initServer(void) {
     server.system_memory_size = zmalloc_get_memory_size();
     server.blocked_last_cron = 0;
     server.blocking_op_nesting = 0;
+    server.thp_enabled = 0;
+    server.page_size = sysconf(_SC_PAGESIZE);
 
     if ((server.tls_port || server.tls_replication || server.tls_cluster)
                 && tlsConfigure(&server.tls_ctx_config) == C_ERR) {
@@ -5847,6 +5846,7 @@ int redisFork(int purpose) {
     if ((childpid = fork()) == 0) {
         /* Child */
         server.in_fork_child = purpose;
+        redisUnusedMemoryInChild();
         setOOMScoreAdj(CONFIG_OOM_BGCHILD);
         setupChildSignalHandlers();
         closeChildUnusedResourceAfterFork();
@@ -5892,6 +5892,62 @@ void sendChildCowInfo(childInfoType info_type, char *pname) {
 
 void sendChildInfo(childInfoType info_type, size_t keys, char *pname) {
     sendChildInfoGeneric(info_type, keys, -1, pname);
+}
+
+/* Use 'MADV_DONTNEED' to release memory to operation system quickly. */
+void redisUnusedMemory(void *ptr) {
+#if HAVE_MALLOC_SIZE
+    /* madvise(MADV_DONTNEED) may not work if enabled Transparent Huge Pages. */
+    if (server.thp_enabled == 1) return;
+    if (ptr == NULL) return;
+
+    size_t real_size = zmalloc_size(ptr);
+    if (real_size < server.page_size) return;
+    size_t page_size_mask = server.page_size - 1;
+
+    /* We need to align the pointer upwards according to page size, because
+     * the memory address is increased upwards and we only can free memory
+     * based on page. */
+    char *aligned_ptr = (char *)(((size_t)ptr+page_size_mask) &
+                        ~page_size_mask);
+    real_size -= (aligned_ptr-(char*)ptr);
+    if (real_size >= server.page_size) {
+        madvise((void *)aligned_ptr, real_size&~page_size_mask, MADV_DONTNEED);
+    }
+#endif
+}
+
+void unusedClientMemory(client *c) {
+    listIter li;
+    listNode *ln;
+    listRewind(c->reply, &li);
+    while((ln = listNext(&li))) {
+        void *bulk = listNodeValue(ln);
+        /* Default bulk size is 16k, actually it has extra data, maybe it
+         * occupies 20k according to jemalloc bin size if using jemalloc. */
+        if (bulk) redisUnusedMemory(bulk);
+    }
+
+    /* The 'client' is a bit big because it has 16k default reply buffer. */
+    redisUnusedMemory(c);
+}
+
+/* In child process, we don't need some memory, but it is much possible
+ * to change them because clients' heavy requests. We can free them ASAP. */
+void redisUnusedMemoryInChild(void) {
+    /* Replication backlog. */
+    if (server.repl_backlog != NULL) {
+        redisUnusedMemory(server.repl_backlog);
+    }
+
+    /* All clients memory. */
+    listIter li;
+    listNode *ln;
+    listRewind(server.clients, &li);
+    while((ln = listNext(&li))) {
+        client *c = listNodeValue(ln);
+        unusedClientMemory(c);
+    }
 }
 
 void memtest(size_t megabytes, int passes);
@@ -6329,6 +6385,7 @@ int main(int argc, char **argv) {
         serverLog(LL_WARNING,"Server initialized");
     #ifdef __linux__
         linuxMemoryWarnings();
+        server.thp_enabled = THPIsEnabled();
     #if defined (__arm64__)
         int ret;
         if ((ret = linuxMadvFreeForkBugCheck())) {
