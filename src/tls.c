@@ -146,6 +146,8 @@ void tlsInit(void) {
      */
     #if OPENSSL_VERSION_NUMBER < 0x10100000L
     OPENSSL_config(NULL);
+    #elif OPENSSL_VERSION_NUMBER < 0x10101000L
+    OPENSSL_init_crypto(OPENSSL_INIT_LOAD_CONFIG, NULL);
     #else
     OPENSSL_init_crypto(OPENSSL_INIT_LOAD_CONFIG|OPENSSL_INIT_ATFORK, NULL);
     #endif
