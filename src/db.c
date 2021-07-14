@@ -1912,15 +1912,18 @@ void slotToKeyUpdateKey(sds key, int add) {
     unsigned char buf[64];
     unsigned char *indexed = buf;
 
-    server.cluster->slots_keys_count[hashslot] += add ? 1 : -1;
     if (keylen+2 > 64) indexed = zmalloc(keylen+2);
     indexed[0] = (hashslot >> 8) & 0xff;
     indexed[1] = hashslot & 0xff;
     memcpy(indexed+2,key,keylen);
     if (add) {
-        raxInsert(server.cluster->slots_to_keys,indexed,keylen+2,NULL,NULL);
+        if (raxInsert(server.cluster->slots_to_keys,indexed,keylen+2,NULL,NULL) == 1) {
+            server.cluster->slots_keys_count[hashslot] += 1; // Increment the count only if a new key is inserted
+        }
     } else {
-        raxRemove(server.cluster->slots_to_keys,indexed,keylen+2,NULL);
+        if (raxRemove(server.cluster->slots_to_keys,indexed,keylen+2,NULL) ==  1) {
+            server.cluster->slots_keys_count[hashslot] -= 1; // Decrement the count only if an existing key is found and deleted
+        }
     }
     if (indexed != buf) zfree(indexed);
 }
