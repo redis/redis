@@ -524,7 +524,7 @@ sds sdscatsds(sds s, const sds t) {
  * safe string pointed by 't' of length 'len' bytes. */
 sds sdscpylen(sds s, const char *t, size_t len) {
     if (sdsalloc(s) < len) {
-        s = sdsMakeRoomFor(s,len-sdslen(s));
+        s = sdsMakeRoomFor(s,len-sdsalloc(s));
         if (s == NULL) return NULL;
     }
     memcpy(s, t, len);
