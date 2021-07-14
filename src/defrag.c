@@ -380,7 +380,7 @@ long activeDefragSdsListAndDict(list *l, dict *d, int dict_val_type) {
 
 /* Utility function that replaces an old key pointer in the dictionary with a
  * new pointer. Additionally, we try to defrag the dictEntry in that dict.
- * Oldkey mey be a dead pointer and should not be accessed (we get a
+ * Oldkey may be a dead pointer and should not be accessed (we get a
  * pre-calculated hash value). Newkey may be null if the key pointer wasn't
  * moved. Return value is the the dictEntry if found, or NULL if not found.
  * NOTE: this is very ugly code, but it let's us avoid the complication of
@@ -1075,7 +1075,7 @@ void activeDefragCycle(void) {
     static int current_db = -1;
     static unsigned long cursor = 0;
     static redisDb *db = NULL;
-    static long long start_scan, start_stat;
+    static long long start_time, start_hit, start_miss, start_scan;
     unsigned int iterations = 0;
     unsigned long long prev_defragged = server.stat_active_defrag_hits;
     unsigned long long prev_scanned = server.stat_active_defrag_scanned;
@@ -1133,11 +1133,15 @@ void activeDefragCycle(void) {
                 long long now = ustime();
                 size_t frag_bytes;
                 float frag_pct = getAllocatorFragmentation(&frag_bytes);
+                /* reallocated, misses and scanned respectively represent the hits, misses
+                 * and scanned keys of the db keys actually executed in a defrag. */
                 serverLog(LL_VERBOSE,
-                    "Active defrag done in %dms, reallocated=%d, frag=%.0f%%, frag_bytes=%zu",
-                    (int)((now - start_scan)/1000), (int)(server.stat_active_defrag_hits - start_stat), frag_pct, frag_bytes);
+                    "Active defrag done in %dms, reallocated=%d, misses=%d, scanned=%d, frag=%.0f%%, frag_bytes=%zu",
+                    (int)((now - start_time)/1000), (int)(server.stat_active_defrag_hits - start_hit), 
+                    (int)(server.stat_active_defrag_misses - start_miss),
+                    (int)(server.stat_active_defrag_scanned - start_scan), frag_pct, frag_bytes);
 
-                start_scan = now;
+                start_time = now;
                 current_db = -1;
                 cursor = 0;
                 db = NULL;
@@ -1147,11 +1151,12 @@ void activeDefragCycle(void) {
                 if (server.active_defrag_running != 0 && ustime() < endtime)
                     continue;
                 break;
-            }
-            else if (current_db==0) {
+            } else if (current_db==0) {
                 /* Start a scan from the first database. */
-                start_scan = ustime();
-                start_stat = server.stat_active_defrag_hits;
+                start_time = ustime();
+                start_hit = server.stat_active_defrag_hits;
+                start_miss = server.stat_active_defrag_misses;
+                start_scan = server.stat_active_defrag_scanned;
             }
 
             db = &server.db[current_db];
@@ -1167,7 +1172,7 @@ void activeDefragCycle(void) {
 
             cursor = dictScan(db->dict, cursor, defragScanCallback, defragDictBucketCallback, db);
 
-            /* Once in 16 scan iterations, 512 pointer reallocations. or 64 keys
+            /* Once in 16 scan iterations, 512 pointer reallocations or 64 keys
              * (if we have a lot of pointers in one hash bucket or rehasing),
              * check if we reached the time limit.
              * But regardless, don't start a new db in this loop, this is because after
