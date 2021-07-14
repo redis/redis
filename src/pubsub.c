@@ -309,26 +309,24 @@ int pubsubPublishMessage(robj *channel, robj *message) {
     }
     /* Send to clients listening to matching channels */
     di = dictGetIterator(server.pubsub_patterns);
-    if (di) {
-        channel = getDecodedObject(channel);
-        while((de = dictNext(di)) != NULL) {
-            robj *pattern = dictGetKey(de);
-            list *clients = dictGetVal(de);
-            if (!stringmatchlen((char*)pattern->ptr,
-                                sdslen(pattern->ptr),
-                                (char*)channel->ptr,
-                                sdslen(channel->ptr),0)) continue;
+    channel = getDecodedObject(channel);
+    while((de = dictNext(di)) != NULL) {
+        robj *pattern = dictGetKey(de);
+        list *clients = dictGetVal(de);
+        if (!stringmatchlen((char*)pattern->ptr,
+                            sdslen(pattern->ptr),
+                            (char*)channel->ptr,
+                            sdslen(channel->ptr),0)) continue;
 
-            listRewind(clients,&li);
-            while ((ln = listNext(&li)) != NULL) {
-                client *c = listNodeValue(ln);
-                addReplyPubsubPatMessage(c,pattern,channel,message);
-                receivers++;
-            }
+        listRewind(clients,&li);
+        while ((ln = listNext(&li)) != NULL) {
+            client *c = listNodeValue(ln);
+            addReplyPubsubPatMessage(c,pattern,channel,message);
+            receivers++;
         }
-        decrRefCount(channel);
-        dictReleaseIterator(di);
     }
+    decrRefCount(channel);
+    dictReleaseIterator(di);
     return receivers;
 }
 
@@ -463,7 +461,14 @@ NULL
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"numpat") && c->argc == 2) {
         /* PUBSUB NUMPAT */
-        addReplyLongLong(c,dictSize(server.pubsub_patterns));
+        long long count = 0;
+        dictEntry *de;
+        dictIterator *di = dictGetIterator(server.pubsub_patterns);
+        while((de = dictNext(di)) != NULL) {
+            count += listLength((list *)dictGetVal(de));
+        }
+        dictReleaseIterator(di);
+        addReplyLongLong(c,count);
     } else {
         addReplySubcommandSyntaxError(c);
     }

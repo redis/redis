@@ -158,6 +158,24 @@ start_server {tags {"pubsub network"}} {
         r pubsub numsub abc def
     } {abc 0 def 0}
 
+    test "NUMPATs returns the number of pattern subscriptions" {
+        set rd1 [redis_deferring_client]
+        set rd2 [redis_deferring_client]
+
+        # Three unique patterns and one that overlaps
+        psubscribe $rd1 "foo*"
+        psubscribe $rd2 "foo*"
+        psubscribe $rd1 "bar*"
+        psubscribe $rd2 "baz*"
+
+        set patterns [r pubsub numpat]
+
+        # clean up clients
+        punsubscribe $rd1
+        punsubscribe $rd2
+        assert_equal 4 $patterns
+    }
+
     test "Mix SUBSCRIBE and PSUBSCRIBE" {
         set rd1 [redis_deferring_client]
         assert_equal {1} [subscribe $rd1 {foo.bar}]
