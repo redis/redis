@@ -652,7 +652,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,0,0,0,0,0,0},
 
     {"select",selectCommand,2,
-     "ok-loading fast ok-stale @keyspace",
+     "ok-loading fast ok-stale @connection",
      0,NULL,0,0,0,0,0,0},
 
     {"swapdb",swapdbCommand,3,
@@ -881,15 +881,15 @@ struct redisCommand redisCommandTable[] = {
      0,migrateGetKeys,0,0,0,0,0,0},
 
     {"asking",askingCommand,1,
-     "fast @keyspace",
+     "fast @connection",
      0,NULL,0,0,0,0,0,0},
 
     {"readonly",readonlyCommand,1,
-     "fast @keyspace",
+     "fast @connection",
      0,NULL,0,0,0,0,0,0},
 
     {"readwrite",readwriteCommand,1,
-     "fast @keyspace",
+     "fast @connection",
      0,NULL,0,0,0,0,0,0},
 
     {"dump",dumpCommand,2,
@@ -959,7 +959,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,1,1,1,0,0,0},
 
     {"wait",waitCommand,3,
-     "no-script @keyspace",
+     "no-script @connection",
      0,NULL,0,0,0,0,0,0},
 
     {"command",commandCommand,-1,
