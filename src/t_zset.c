@@ -1188,7 +1188,7 @@ void zsetConvert(robj *zobj, int encoding) {
             serverPanic("Unknown target encoding");
 
         zs = zmalloc(sizeof(*zs));
-        zs->dict = dictCreate(&zsetDictType,NULL);
+        zs->dict = dictCreate(&zsetDictType);
         zs->zsl = zslCreate();
 
         eptr = ziplistIndex(zl,0);
@@ -1647,7 +1647,7 @@ int zsetZiplistValidateIntegrity(unsigned char *zl, size_t size, int deep) {
     struct {
         long count;
         dict *fields;
-    } data = {0, dictCreate(&hashDictType, NULL)};
+    } data = {0, dictCreate(&hashDictType)};
 
     int ret = ziplistValidateIntegrity(zl, size, 1, _zsetZiplistValidateIntegrity, &data);
 
@@ -2704,7 +2704,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
             zuiClearIterator(&src[0]);
         }
     } else if (op == SET_OP_UNION) {
-        dict *accumulator = dictCreate(&setAccumulatorDictType,NULL);
+        dict *accumulator = dictCreate(&setAccumulatorDictType);
         dictIterator *di;
         dictEntry *de, *existing;
         double score;
@@ -4097,7 +4097,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
      * a bit less than the number of elements in the set, the natural approach
      * used into CASE 4 is highly inefficient. */
     if (count*ZRANDMEMBER_SUB_STRATEGY_MUL > size) {
-        dict *d = dictCreate(&sdsReplyDictType, NULL);
+        dict *d = dictCreate(&sdsReplyDictType);
         dictExpand(d, size);
         /* Add all the elements into the temporary dictionary. */
         while (zuiNext(&src, &zval)) {
@@ -4157,7 +4157,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
 
         /* Hashtable encoding (generic implementation) */
         unsigned long added = 0;
-        dict *d = dictCreate(&hashDictType, NULL);
+        dict *d = dictCreate(&hashDictType);
         dictExpand(d, count);
 
         while (added < count) {

@@ -168,10 +168,10 @@ int spectrum_palette_size;
 /* Dict Helpers */
 
 static uint64_t dictSdsHash(const void *key);
-static int dictSdsKeyCompare(void *privdata, const void *key1,
+static int dictSdsKeyCompare(const void *key1,
     const void *key2);
-static void dictSdsDestructor(void *privdata, void *val);
-static void dictListDestructor(void *privdata, void *val);
+static void dictSdsDestructor(void *val);
+static void dictListDestructor(void *val);
 
 /* Cluster Manager Command Info */
 typedef struct clusterManagerCommand {
@@ -453,11 +453,9 @@ static uint64_t dictSdsHash(const void *key) {
     return dictGenHashFunction((unsigned char*)key, sdslen((char*)key));
 }
 
-static int dictSdsKeyCompare(void *privdata, const void *key1,
-        const void *key2)
+static int dictSdsKeyCompare(const void *key1, const void *key2)
 {
     int l1,l2;
-    DICT_NOTUSED(privdata);
 
     l1 = sdslen((sds)key1);
     l2 = sdslen((sds)key2);
@@ -465,15 +463,13 @@ static int dictSdsKeyCompare(void *privdata, const void *key1,
     return memcmp(key1, key2, l1) == 0;
 }
 
-static void dictSdsDestructor(void *privdata, void *val)
+static void dictSdsDestructor(void *val)
 {
-    DICT_NOTUSED(privdata);
     sdsfree(val);
 }
 
-void dictListDestructor(void *privdata, void *val)
+void dictListDestructor(void *val)
 {
-    DICT_NOTUSED(privdata);
     listRelease((list*)val);
 }
 
@@ -3032,7 +3028,7 @@ static int clusterManagerGetAntiAffinityScore(clusterManagerNodeArray *ipnodes,
      * replication of each other) */
     for (i = 0; i < ip_count; i++) {
         clusterManagerNodeArray *node_array = &(ipnodes[i]);
-        dict *related = dictCreate(&clusterManagerDictType, NULL);
+        dict *related = dictCreate(&clusterManagerDictType);
         char *ip = NULL;
         for (j = 0; j < node_array->len; j++) {
             clusterManagerNode *node = node_array->nodes[j];
@@ -4539,7 +4535,7 @@ cleanup:
  * node addresses that cannot reach the unreachable node. */
 static dict *clusterManagerGetLinkStatus(void) {
     if (cluster_manager.nodes == NULL) return NULL;
-    dict *status = dictCreate(&clusterManagerLinkDictType, NULL);
+    dict *status = dictCreate(&clusterManagerLinkDictType);
     listIter li;
     listNode *ln;
     listRewind(cluster_manager.nodes, &li);
@@ -5302,7 +5298,7 @@ static int clusterManagerCheckCluster(int quiet) {
         clusterManagerNode *n = ln->value;
         if (n->migrating != NULL) {
             if (open_slots == NULL)
-                open_slots = dictCreate(&clusterManagerDictType, NULL);
+                open_slots = dictCreate(&clusterManagerDictType);
             sds errstr = sdsempty();
             errstr = sdscatprintf(errstr,
                                 "[WARNING] Node %s:%d has slots in "
@@ -5320,7 +5316,7 @@ static int clusterManagerCheckCluster(int quiet) {
         }
         if (n->importing != NULL) {
             if (open_slots == NULL)
-                open_slots = dictCreate(&clusterManagerDictType, NULL);
+                open_slots = dictCreate(&clusterManagerDictType);
             sds errstr = sdsempty();
             errstr = sdscatprintf(errstr,
                                 "[WARNING] Node %s:%d has slots in "
@@ -5381,7 +5377,7 @@ static int clusterManagerCheckCluster(int quiet) {
             dictType dtype = clusterManagerDictType;
             dtype.keyDestructor = dictSdsDestructor;
             dtype.valDestructor = dictListDestructor;
-            clusterManagerUncoveredSlots = dictCreate(&dtype, NULL);
+            clusterManagerUncoveredSlots = dictCreate(&dtype);
             int fixed = clusterManagerFixSlotsCoverage(slots);
             if (fixed > 0) result = 1;
         }
@@ -7548,9 +7544,8 @@ static typeinfo* typeinfo_add(dict *types, char* name, typeinfo* type_template) 
     return info;
 }
 
-void type_free(void* priv_data, void* val) {
+void type_free(void* val) {
     typeinfo *info = val;
-    UNUSED(priv_data);
     if (info->biggest_key)
         sdsfree(info->biggest_key);
     sdsfree(info->name);
@@ -7676,7 +7671,7 @@ static void findBigKeys(int memkeys, unsigned memkeys_samples) {
     typeinfo **types = NULL;
     double pct;
 
-    dict *types_dict = dictCreate(&typeinfoDictType, NULL);
+    dict *types_dict = dictCreate(&typeinfoDictType);
     typeinfo_add(types_dict, "string", &type_string);
     typeinfo_add(types_dict, "list", &type_list);
     typeinfo_add(types_dict, "set", &type_set);

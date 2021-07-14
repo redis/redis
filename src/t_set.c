@@ -239,7 +239,7 @@ void setTypeConvert(robj *setobj, int enc) {
 
     if (enc == OBJ_ENCODING_HT) {
         int64_t intele;
-        dict *d = dictCreate(&setDictType,NULL);
+        dict *d = dictCreate(&setDictType);
         sds element;
 
         /* Presize the dict to avoid rehashing */
@@ -723,7 +723,7 @@ void srandmemberWithCountCommand(client *c) {
     }
 
     /* For CASE 3 and CASE 4 we need an auxiliary dictionary. */
-    d = dictCreate(&sdsReplyDictType,NULL);
+    d = dictCreate(&sdsReplyDictType);
 
     /* CASE 3:
      * The number of elements inside the set is not greater than

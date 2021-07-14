@@ -511,9 +511,9 @@ void clusterInit(void) {
     server.cluster->state = CLUSTER_FAIL;
     server.cluster->size = 1;
     server.cluster->todo_before_sleep = 0;
-    server.cluster->nodes = dictCreate(&clusterNodesDictType,NULL);
+    server.cluster->nodes = dictCreate(&clusterNodesDictType);
     server.cluster->nodes_black_list =
-        dictCreate(&clusterNodesBlackListDictType,NULL);
+        dictCreate(&clusterNodesBlackListDictType);
     server.cluster->failover_auth_time = 0;
     server.cluster->failover_auth_count = 0;
     server.cluster->failover_auth_rank = 0;

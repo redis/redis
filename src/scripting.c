@@ -1124,7 +1124,7 @@ void scriptingInit(int setup) {
     /* Initialize a dictionary we use to map SHAs to scripts.
      * This is useful for replication, as we need to replicate EVALSHA
      * as EVAL, so we need to remember the associated script. */
-    server.lua_scripts = dictCreate(&shaScriptObjectDictType,NULL);
+    server.lua_scripts = dictCreate(&shaScriptObjectDictType);
     server.lua_scripts_mem = 0;
 
     /* Register the redis commands table and fields */

@@ -36,8 +36,7 @@
 #include "server.h"
 
 /* Dictionary type for latency events. */
-int dictStringKeyCompare(void *privdata, const void *key1, const void *key2) {
-    UNUSED(privdata);
+int dictStringKeyCompare(const void *key1, const void *key2) {
     return strcmp(key1,key2) == 0;
 }
 
@@ -45,7 +44,7 @@ uint64_t dictStringHash(const void *key) {
     return dictGenHashFunction(key, strlen(key));
 }
 
-void dictVanillaFree(void *privdata, void *val);
+void dictVanillaFree(void *val);
 
 dictType latencyTimeSeriesDictType = {
     dictStringHash,             /* hash function */
@@ -105,7 +104,7 @@ int THPGetAnonHugePagesSize(void) {
  * of time series, each time series is created on demand in order to avoid
  * having a fixed list to maintain. */
 void latencyMonitorInit(void) {
-    server.latency_events = dictCreate(&latencyTimeSeriesDictType,NULL);
+    server.latency_events = dictCreate(&latencyTimeSeriesDictType);
 }
 
 /* Add the specified sample to the specified time series "event".
