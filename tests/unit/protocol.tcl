@@ -136,6 +136,60 @@ start_server {tags {"protocol network"}} {
 
     # check the connection still works
     assert_equal [r ping] {PONG}
+
+    test {RESP3 attributes} {
+        r hello 3
+        set res [r debug protocol attrib]
+        # currently the parser in redis.tcl ignores the attributes
+
+        # restore state
+        r hello 2
+        set _ $res
+    } {Some real reply following the attribute}
+
+    test {RESP3 attributes readraw} {
+        r hello 3
+        r readraw 1
+        r deferred 1
+
+        r debug protocol attrib
+        assert_equal [r read] {|1}
+        assert_equal [r read] {$14}
+        assert_equal [r read] {key-popularity}
+        assert_equal [r read] {*2}
+        assert_equal [r read] {$7}
+        assert_equal [r read] {key:123}
+        assert_equal [r read] {:90}
+        assert_equal [r read] {$39}
+        assert_equal [r read] {Some real reply following the attribute}
+
+        # restore state
+        r readraw 0
+        r deferred 0
+        r hello 2
+        set _ {}
+    } {}
+
+    test {RESP3 attributes on RESP2} {
+        r hello 2
+        set res [r debug protocol attrib]
+        set _ $res
+    } {Some real reply following the attribute}
+
+    test "test big number parsing" {
+        r hello 3
+        r debug protocol bignum
+    } {1234567999999999999999999999999999999}
+
+    test "test bool parsing" {
+        r hello 3
+        assert_equal [r debug protocol true] 1
+        assert_equal [r debug protocol false] 0
+        r hello 2
+        assert_equal [r debug protocol true] 1
+        assert_equal [r debug protocol false] 0
+        set _ {}
+    } {}
 }
 
 start_server {tags {"regression"}} {
