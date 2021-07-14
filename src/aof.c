@@ -568,9 +568,9 @@ try_fsync:
                 server.unixtime > server.aof_last_fsync)) {
         if (!sync_in_progress) {
             aof_background_fsync(server.aof_fd);
+            server.aof_last_fsync = server.unixtime;
             server.aof_fsync_offset = server.aof_current_size;
         }
-        server.aof_last_fsync = server.unixtime;
     }
 }
 
