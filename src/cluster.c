@@ -1936,9 +1936,9 @@ int clusterProcessPacket(clusterLink *link) {
         if (!sender && type == CLUSTERMSG_TYPE_MEET)
             clusterProcessGossipSection(hdr,link);
 	    
-	if (sender && type == CLUSTERMSG_TYPE_PING && link->node == NULL){
+        if (sender && type == CLUSTERMSG_TYPE_PING && link->node == NULL) {
             link->node = sender;
-            if(sender->link_from) {
+            if (sender->link_from) {
                 sender->link_from->node = NULL;
                 freeClusterLink(sender->link_from);
             }
