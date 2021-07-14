@@ -971,6 +971,19 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
         nwritten += n;
         if ((n = rdbSaveLen(rdb,s->last_id.seq)) == -1) return -1;
         nwritten += n;
+        /* Save the first entry ID. */
+        if ((n = rdbSaveLen(rdb,s->first_id.ms)) == -1) return -1;
+        nwritten += n;
+        if ((n = rdbSaveLen(rdb,s->first_id.seq)) == -1) return -1;
+        nwritten += n;
+        /* Save the maximal tombstone ID. */
+        if ((n = rdbSaveLen(rdb,s->xdel_max_id.ms)) == -1) return -1;
+        nwritten += n;
+        if ((n = rdbSaveLen(rdb,s->xdel_max_id.seq)) == -1) return -1;
+        nwritten += n;
+        /* Save the offset. */
+        if ((n = rdbSaveLen(rdb,s->offset)) == -1) return -1;
+        nwritten += n;
 
         /* The consumer groups and their clients are part of the stream
          * type, so serialize every consumer group. */
@@ -1001,6 +1014,13 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
                 }
                 nwritten += n;
                 if ((n = rdbSaveLen(rdb,cg->last_id.seq)) == -1) {
+                    raxStop(&ri);
+                    return -1;
+                }
+                nwritten += n;
+                
+                /* Save the group offset. */
+                if ((n = rdbSaveLen(rdb,cg->offset)) == -1) {
                     raxStop(&ri);
                     return -1;
                 }
@@ -1510,7 +1530,7 @@ robj *rdbLoadCheckModuleValue(rio *rdb, char *modulename) {
 
 /* Load a Redis object of the specified type from the specified file.
  * On success a newly allocated object is returned, otherwise NULL. */
-robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid) {
+robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int rdbver) {
     robj *o = NULL, *ele, *dec;
     uint64_t len;
     unsigned int i;
@@ -2014,6 +2034,30 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid) {
         /* Load the last entry ID. */
         s->last_id.ms = rdbLoadLen(rdb,NULL);
         s->last_id.seq = rdbLoadLen(rdb,NULL);
+        
+        if (rdbver >= RDB_VERSION_STREAM_LAG) {
+            /* Load the first entry ID. */
+            s->first_id.ms = rdbLoadLen(rdb,NULL);
+            s->first_id.seq = rdbLoadLen(rdb,NULL);
+
+            /* Load the maximal tombstone ID. */
+            s->xdel_max_id.ms = rdbLoadLen(rdb,NULL);
+            s->xdel_max_id.seq = rdbLoadLen(rdb,NULL);
+
+            /* Load the offset. */
+            s->offset = rdbLoadLen(rdb,NULL);
+        } else {
+            /* During migration the offset can be initialized to the stream's
+             * length. At this point, we also don't care about tombstones
+             * because CG offsets will be later initialized as well. */
+            s->xdel_max_id.ms = 0;
+            s->xdel_max_id.seq = 0;
+            s->offset = s->length;
+            
+            /* Since the rax is already loaded, we can find the first entry's
+             * ID. */ 
+            streamGetEdgeID(s,1,1,&s->first_id);
+        }
 
         if (rioGetReadError(rdb)) {
             rdbReportReadError("Stream object metadata loading failed.");
@@ -2049,8 +2093,22 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid) {
                 decrRefCount(o);
                 return NULL;
             }
+            
+            /* Load group offset. */
+            uint64_t cg_offset;
+            if (rdbver >= RDB_VERSION_STREAM_LAG) {
+                cg_offset = rdbLoadLen(rdb,NULL);
+                if (rioGetReadError(rdb)) {
+                    rdbReportReadError("Stream cgroup offset loading failed.");
+                    sdsfree(cgname);
+                    decrRefCount(o);
+                    return NULL;
+                }
+            } else {
+                cg_offset = streamGetOffsetForTip(s,&cg_id);
+            }
 
-            streamCG *cgroup = streamCreateCG(s,cgname,sdslen(cgname),&cg_id);
+            streamCG *cgroup = streamCreateCG(s,cgname,sdslen(cgname),&cg_id,cg_offset);
             if (cgroup == NULL) {
                 rdbReportCorruptRDB("Duplicated consumer group name %s",
                                          cgname);
@@ -2528,7 +2586,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
         if ((key = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL)) == NULL)
             goto eoferr;
         /* Read value */
-        if ((val = rdbLoadObject(type,rdb,key,db->id)) == NULL) {
+        if ((val = rdbLoadObject(type,rdb,key,db->id,rdbver)) == NULL) {
             sdsfree(key);
             goto eoferr;
         }

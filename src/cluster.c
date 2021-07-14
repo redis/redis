@@ -5095,10 +5095,11 @@ void createDumpPayload(rio *payload, robj *o, robj *key, int dbid) {
 }
 
 /* Verify that the RDB version of the dump payload matches the one of this Redis
- * instance and that the checksum is ok.
+ * instance and that the checksum is ok. When provided with the 'version' arg,
+ * it is set to the payload's version.
  * If the DUMP payload looks valid C_OK is returned, otherwise C_ERR
  * is returned. */
-int verifyDumpPayload(unsigned char *p, size_t len) {
+int verifyDumpPayload(unsigned char *p, size_t len, int *version) {
     unsigned char *footer;
     uint16_t rdbver;
     uint64_t crc;
@@ -5107,8 +5108,11 @@ int verifyDumpPayload(unsigned char *p, size_t len) {
     if (len < 10) return C_ERR;
     footer = p+(len-10);
 
-    /* Verify RDB version */
+    /* Set and verify RDB version. */
     rdbver = (footer[1] << 8) | footer[0];
+    if (version != NULL) {
+        *version = rdbver;
+    }
     if (rdbver > RDB_VERSION) return C_ERR;
 
     if (server.skip_checksum_validation)
@@ -5198,7 +5202,9 @@ void restoreCommand(client *c) {
     }
 
     /* Verify RDB version and data checksum. */
-    if (verifyDumpPayload(c->argv[3]->ptr,sdslen(c->argv[3]->ptr)) == C_ERR)
+    int rdbver;
+    if (verifyDumpPayload(c->argv[3]->ptr,sdslen(c->argv[3]->ptr),
+                          &rdbver) == C_ERR)
     {
         addReplyError(c,"DUMP payload version or checksum are wrong");
         return;
@@ -5206,7 +5212,7 @@ void restoreCommand(client *c) {
 
     rioInitWithBuffer(&payload,c->argv[3]->ptr);
     if (((type = rdbLoadObjectType(&payload)) == -1) ||
-        ((obj = rdbLoadObject(type,&payload,key->ptr,c->db->id)) == NULL))
+        ((obj = rdbLoadObject(type,&payload,key->ptr,c->db->id,rdbver)) == NULL))
     {
         addReplyError(c,"Bad data format");
         return;

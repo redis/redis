@@ -1306,10 +1306,12 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
 
     /* Append XSETID after XADD, make sure lastid is correct,
      * in case of XDEL lastid. */
-    if (!rioWriteBulkCount(r,'*',3) ||
+    if (!rioWriteBulkCount(r,'*',5) ||
         !rioWriteBulkString(r,"XSETID",6) ||
         !rioWriteBulkObject(r,key) ||
-        !rioWriteBulkStreamID(r,&s->last_id)) 
+        !rioWriteBulkStreamID(r,&s->last_id) ||
+        !rioWriteBulkLongLong(r,s->offset) ||
+        !rioWriteBulkStreamID(r,&s->xdel_max_id)) 
     {
         streamIteratorStop(&si);
         return 0; 
@@ -1324,12 +1326,14 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
         while(raxNext(&ri)) {
             streamCG *group = ri.data;
             /* Emit the XGROUP CREATE in order to create the group. */
-            if (!rioWriteBulkCount(r,'*',5) ||
+            if (!rioWriteBulkCount(r,'*',7) ||
                 !rioWriteBulkString(r,"XGROUP",6) ||
                 !rioWriteBulkString(r,"CREATE",6) ||
                 !rioWriteBulkObject(r,key) ||
                 !rioWriteBulkString(r,(char*)ri.key,ri.key_len) ||
-                !rioWriteBulkStreamID(r,&group->last_id)) 
+                !rioWriteBulkStreamID(r,&group->last_id) ||
+                !rioWriteBulkString(r,"OFFSET",6) ||
+                !rioWriteBulkLongLong(r,(long long)group->offset)) 
             {
                 raxStop(&ri);
                 streamIteratorStop(&si);
