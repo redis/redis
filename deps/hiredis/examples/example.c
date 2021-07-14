@@ -38,52 +38,87 @@ int main(int argc, char **argv) {
 
     /* PING server */
     reply = redisCommand(c,"PING");
-    printf("PING: %s\n", reply->str);
-    freeReplyObject(reply);
+    if (reply) {
+        printf("PING: %s\n", reply->str);
+        freeReplyObject(reply);
+    } else {
+        printf("PING: There was an error in performing the request.\n");
+    }
 
     /* Set a key */
     reply = redisCommand(c,"SET %s %s", "foo", "hello world");
-    printf("SET: %s\n", reply->str);
-    freeReplyObject(reply);
+    if (reply) {
+        printf("SET: %s\n", reply->str);
+        freeReplyObject(reply);
+    } else {
+        printf("SET: There was an error in performing the request.\n");
+    }
 
     /* Set a key using binary safe API */
     reply = redisCommand(c,"SET %b %b", "bar", (size_t) 3, "hello", (size_t) 5);
-    printf("SET (binary API): %s\n", reply->str);
-    freeReplyObject(reply);
+    if (reply) {
+        printf("SET (binary API): %s\n", reply->str);
+        freeReplyObject(reply);
+    } else {
+        printf("SET (binary API): There was an error in performing the request.\n");
+    }
 
     /* Try a GET and two INCR */
     reply = redisCommand(c,"GET foo");
-    printf("GET foo: %s\n", reply->str);
-    freeReplyObject(reply);
+    if (reply) {
+        printf("GET foo: %s\n", reply->str);
+        freeReplyObject(reply);
+    } else {
+        printf("GET foo: There was an error in performing the request.\n");
+    }
 
     reply = redisCommand(c,"INCR counter");
-    printf("INCR counter: %lld\n", reply->integer);
-    freeReplyObject(reply);
+    if (reply) {
+        printf("INCR counter: %lld\n", reply->integer);
+        freeReplyObject(reply);
+    } else {
+        printf("INCR counter: There was an error in performing the request.\n");
+    }
+
     /* again ... */
     reply = redisCommand(c,"INCR counter");
-    printf("INCR counter: %lld\n", reply->integer);
-    freeReplyObject(reply);
+    if (reply) {
+        printf("INCR counter: %lld\n", reply->integer);
+        freeReplyObject(reply);
+    } else {
+        printf("INCR counter: There was an error in performing the request.\n");
+    }
 
     /* Create a list of numbers, from 0 to 9 */
     reply = redisCommand(c,"DEL mylist");
-    freeReplyObject(reply);
+    if (reply) {
+        freeReplyObject(reply);
+    } else {
+        printf("DEL: There was an error in performing the request.\n");
+    }
+
     for (j = 0; j < 10; j++) {
         char buf[64];
 
         snprintf(buf,64,"%u",j);
         reply = redisCommand(c,"LPUSH mylist element-%s", buf);
-        freeReplyObject(reply);
+        if (reply) {
+            freeReplyObject(reply);
+        } else {
+            printf("LPUSH: There was an error in performing the request.\n");
+        }
     }
 
     /* Let's check what we have inside the list */
     reply = redisCommand(c,"LRANGE mylist 0 -1");
-    if (reply->type == REDIS_REPLY_ARRAY) {
-        for (j = 0; j < reply->elements; j++) {
-            printf("%u) %s\n", j, reply->element[j]->str);
+    if (reply) {
+        if (reply->type == REDIS_REPLY_ARRAY) {
+            for (j = 0; j < reply->elements; j++) {
+                printf("%u) %s\n", j, reply->element[j]->str);
+            }
         }
+        freeReplyObject(reply);
     }
-    freeReplyObject(reply);
-
     /* Disconnects and frees the context */
     redisFree(c);
 
