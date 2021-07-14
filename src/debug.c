@@ -721,7 +721,7 @@ NULL
         } else if (!strcasecmp(name,"double")) {
             addReplyDouble(c,3.14159265359);
         } else if (!strcasecmp(name,"bignum")) {
-            addReplyProto(c,"(1234567999999999999999999999999999999\r\n",40);
+            addReplyBigNum(c,"1234567999999999999999999999999999999",37);
         } else if (!strcasecmp(name,"null")) {
             addReplyNull(c);
         } else if (!strcasecmp(name,"array")) {
@@ -871,6 +871,10 @@ NULL
     {
         stringmatchlen_fuzz_test();
         addReplyStatus(c,"Apparently Redis did not crash: test passed");
+    } else if (!strcasecmp(c->argv[1]->ptr,"set-disable-deny-scripts") && c->argc == 3)
+    {
+        server.lua_disable_deny_script = atoi(c->argv[2]->ptr);;
+        addReplyStatus(c,"OK, disabling deny-scripts is dangerous and should not be done on production");
     } else if (!strcasecmp(c->argv[1]->ptr,"config-rewrite-force-all") && c->argc == 2)
     {
         if (rewriteConfig(server.configfile, 1) == -1)

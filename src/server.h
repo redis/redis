@@ -1633,6 +1633,8 @@ struct redisServer {
     int lua_kill;         /* Kill the script if true. */
     int lua_always_replicate_commands; /* Default replication type. */
     int lua_oom;          /* OOM detected when script start? */
+    int lua_disable_deny_script; /* allow running commands that marked with no-script flags
+                                    inside a script */
     /* Lazy free */
     int lazyfree_lazy_eviction;
     int lazyfree_lazy_expire;
@@ -1888,6 +1890,8 @@ void addReplyErrorSds(client *c, sds err);
 void addReplyError(client *c, const char *err);
 void addReplyStatus(client *c, const char *status);
 void addReplyDouble(client *c, double d);
+void addReplyLongLongWithPrefix(client *c, long long ll, char prefix);
+void addReplyBigNum(client *c, const char* num, size_t len);
 void addReplyHumanLongDouble(client *c, long double d);
 void addReplyLongLong(client *c, long long ll);
 void addReplyArrayLen(client *c, long length);
