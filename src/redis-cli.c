@@ -2179,6 +2179,14 @@ static int isSensitiveCommand(int argc, char **argv) {
     return 0;
 }
 
+int isCommentCmd(const char* cmd) {
+    if (cmd == NULL) {
+        return 0;
+    }
+
+    return cmd[0] == '#';
+}
+
 static void repl(void) {
     sds historyfile = NULL;
     int history = 0;
@@ -2227,6 +2235,10 @@ static void repl(void) {
                 sdsfreesplitres(argv,argc);
                 linenoiseFree(line);
                 continue;
+            }
+
+            if (isCommentCmd(argv[0])) {
+              continue;
             }
 
             /* check if we have a repeat command option and
