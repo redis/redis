@@ -423,8 +423,20 @@ void watchCommand(client *c) {
         addReplyError(c,"WATCH inside MULTI is not allowed");
         return;
     }
-    for (j = 1; j < c->argc; j++)
+    for (j = 1; j < c->argc; j++) {
+        /* check and delete the expired keys, in case we watch the expired keys,
+         * if the expired keys get deleted before EXEC, the transaction would fail,
+         * but the deletion should not affect the transaction.
+         *
+         * and considering stale data would not be deleted if clients are paused,
+         * so the WATCH command is now with may-replicate flag, means WATCH command
+         * would be paused when redis is write paused mode.
+         *
+         * TODO: since replicas cannot delete expired keys by themselves, 
+         * we need more work in future to handle the corner case. */
+        expireIfNeeded(c->db,c->argv[j]);
         watchForKey(c,c->argv[j]);
+    }
     addReply(c,shared.ok);
 }
 

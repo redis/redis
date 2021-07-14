@@ -857,7 +857,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,0,0,0,0,0,0},
 
     {"watch",watchCommand,-2,
-     "no-script fast ok-loading ok-stale @transaction",
+     "no-script fast ok-loading ok-stale may-replicate @transaction",
      0,NULL,1,-1,1,0,0,0},
 
     {"unwatch",unwatchCommand,1,
