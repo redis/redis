@@ -1633,7 +1633,8 @@ int RM_ReplyWithSet(RedisModuleCtx *ctx, long len) {
 }
 
 
-/* Reply with a set type of 'len' elements.
+/* Add attributes (metadata) to the reply. Should be done before adding the
+ * actual reply. see https://github.com/antirez/RESP3/blob/master/spec.md#attribute-type
  *
  * Use RM_ReplySetAttributeLength() to set deferred length.
  * 
