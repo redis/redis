@@ -5911,25 +5911,25 @@ void sendChildInfo(childInfoType info_type, size_t keys, char *pname) {
 
 /* Use 'MADV_DONTNEED' to release memory to operation system quickly. */
 void redisUnusedMemory(void *ptr) {
+#if HAVE_MALLOC_SIZE
     /* madvise(MADV_DONTNEED) may not work if enabled Transparent Huge Pages. */
     if (server.thp_enabled == 1) return;
     if (ptr == NULL) return;
 
     size_t real_size = zmalloc_size(ptr);
     if (real_size < server.page_size) return;
-
     size_t page_size_mask = server.page_size - 1;
-    void *real_ptr = zmalloc_realptr(ptr);
 
     /* We need to align the pointer upwards according to page size, because
      * the memory address is increased upwards and we only can free memory
      * based on page. */
-    char *aligned_ptr = (char *)(((size_t)real_ptr+page_size_mask) &
+    char *aligned_ptr = (char *)(((size_t)ptr+page_size_mask) &
                         ~page_size_mask);
-    real_size -= (aligned_ptr-(char*)real_ptr);
+    real_size -= (aligned_ptr-(char*)ptr);
     if (real_size >= server.page_size) {
         madvise((void *)aligned_ptr, real_size&~page_size_mask, MADV_DONTNEED);
     }
+#endif
 }
 
 void unusedClientMemory(client *c) {

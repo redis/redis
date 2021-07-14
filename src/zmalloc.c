@@ -280,12 +280,6 @@ size_t zmalloc_usable_size(void *ptr) {
 }
 #endif
 
-#ifndef HAVE_MALLOC_SIZE
-void* zmalloc_realptr(void *ptr) {
-    return (void*)((char*)prt-PREFIX_SIZE);
-}
-#endif
-
 void zfree(void *ptr) {
 #ifndef HAVE_MALLOC_SIZE
     void *realptr;
