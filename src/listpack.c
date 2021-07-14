@@ -366,8 +366,13 @@ uint64_t lpDecodeBacklen(unsigned char *p) {
         val |= (uint64_t)(p[0] & 127) << shift;
         if (!(p[0] & 128)) break;
         shift += 7;
+        if (shift > 28) {
+            shift -= 7;
+            /* Set val when the eighth bit of the fifth byte is 1. */
+            val |= (uint64_t)(p[0] & 128) << shift;
+            break;
+        }
         p--;
-        if (shift > 28) return UINT64_MAX;
     } while(1);
     return val;
 }
