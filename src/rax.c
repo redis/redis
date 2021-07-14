@@ -527,11 +527,11 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
         /* Make space for the value pointer if needed. */
         if (!h->iskey || (h->isnull && overwrite)) {
             h = raxReallocForData(h,data);
-            if (h) memcpy(parentlink,&h,sizeof(h));
-        }
-        if (h == NULL) {
-            errno = ENOMEM;
-            return 0;
+            if (h == NULL) {
+                errno = ENOMEM;
+                return 0;
+            }
+            memcpy(parentlink,&h,sizeof(h));
         }
 
         /* Update the existing key if there is already one. */
