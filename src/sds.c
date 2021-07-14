@@ -396,6 +396,7 @@ sds sdsResize(sds s, size_t size) {
  * 4) The implicit null term.
  */
 size_t sdsAllocSize(sds s) {
+    if (s == NULL) return 0;
     size_t alloc = sdsalloc(s);
     return sdsHdrSize(s[-1])+alloc+1;
 }

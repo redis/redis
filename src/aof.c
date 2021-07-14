@@ -645,7 +645,7 @@ struct client *createAOFClient(void) {
     c->id = CLIENT_ID_AOF; /* So modules can identify it's the AOF client. */
     c->conn = NULL;
     c->name = NULL;
-    c->querybuf = sdsempty();
+    c->querybuf = NULL;
     c->querybuf_peak = 0;
     c->argc = 0;
     c->argv = NULL;

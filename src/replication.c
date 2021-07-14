@@ -2905,7 +2905,8 @@ void replicationCacheMaster(client *c) {
      * we want to discard the non processed query buffers and non processed
      * offsets, including pending transactions, already populated arguments,
      * pending outputs to the master. */
-    sdsclear(server.master->querybuf);
+    if (server.master->querybuf != NULL)
+        sdsclear(server.master->querybuf);
     sdsclear(server.master->pending_querybuf);
     server.master->read_reploff = server.master->reploff;
     if (c->flags & CLIENT_MULTI) discardTransaction(c);
