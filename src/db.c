@@ -1418,7 +1418,7 @@ void setExpire(client *c, redisDb *db, robj *key, long long when) {
     dictSetSignedIntegerVal(de,when);
 
     int writable_slave = server.masterhost && server.repl_slave_ro == 0;
-    if (c && writable_slave && !(c->flags & CLIENT_MASTER))
+    if (!server.loading && c && writable_slave && !(c->flags & CLIENT_MASTER))
         rememberSlaveKeyWithExpire(db,key);
 }
 

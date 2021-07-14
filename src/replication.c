@@ -2697,6 +2697,10 @@ void replicationUnsetMaster(void) {
     /* Update oom_score_adj */
     setOOMScoreAdj(-1);
 
+    /* There is no need to keep slaves keys with expire when redis is changed
+     * into master role. */
+    flushSlaveKeysWithExpireList();
+
     /* Once we turn from slave to master, we consider the starting time without
      * slaves (that is used to count the replication backlog time to live) as
      * starting from now. Otherwise the backlog will be freed after a
