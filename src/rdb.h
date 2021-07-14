@@ -69,6 +69,10 @@
 #define RDB_ENC_INT32 2       /* 32 bit signed integer */
 #define RDB_ENC_LZF 3         /* string compressed with FASTLZ */
 
+/* We use stack buffer instead of dynamic allocation if required size
+ * is less than this value. */
+#define RDB_LZF_BUF_SIZE (16*1024)
+
 /* Map object types to RDB object types. Macros starting with OBJ_ are for
  * memory storage and may change. Instead RDB types must be fixed because
  * we store them on disk. */
