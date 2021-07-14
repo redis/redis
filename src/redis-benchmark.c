@@ -70,6 +70,7 @@
 #define CONFIG_LATENCY_HISTOGRAM_MIN_VALUE 10L          /* >= 10 usecs */
 #define CONFIG_LATENCY_HISTOGRAM_MAX_VALUE 3000000L          /* <= 30 secs(us precision) */
 #define CONFIG_LATENCY_HISTOGRAM_INSTANT_MAX_VALUE 3000000L   /* <= 3 secs(us precision) */
+#define SHOW_THROUGHPUT_INTERVAL 250  /* 250ms */
 
 #define CLIENT_GET_EVENTLOOP(c) \
     (c->thread_id >= 0 ? config.threads[c->thread_id]->el : config.el)
@@ -1020,7 +1021,7 @@ static benchmarkThread *createBenchmarkThread(int index) {
     if (thread == NULL) return NULL;
     thread->index = index;
     thread->el = aeCreateEventLoop(1024*10);
-    aeCreateTimeEvent(thread->el,1,showThroughput,NULL,NULL);
+    aeCreateTimeEvent(thread->el,1,showThroughput,(void *)(intptr_t)index,NULL);
     return thread;
 }
 
@@ -1620,7 +1621,7 @@ usage:
 int showThroughput(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     UNUSED(eventLoop);
     UNUSED(id);
-    UNUSED(clientData);
+    intptr_t index = (intptr_t)clientData;
     int liveclients = 0;
     int requests_finished = 0;
     int previous_requests_finished = 0;
@@ -1628,7 +1629,7 @@ int showThroughput(struct aeEventLoop *eventLoop, long long id, void *clientData
     atomicGet(config.liveclients, liveclients);
     atomicGet(config.requests_finished, requests_finished);
     atomicGet(config.previous_requests_finished, previous_requests_finished);
-    
+
     if (liveclients == 0 && requests_finished != config.requests) {
         fprintf(stderr,"All clients disconnected... aborting.\n");
         exit(1);
@@ -1637,11 +1638,15 @@ int showThroughput(struct aeEventLoop *eventLoop, long long id, void *clientData
         aeStop(eventLoop);
         return AE_NOMORE;
     }
-    if (config.csv) return 250;
+    if (config.csv) return SHOW_THROUGHPUT_INTERVAL;
+    /* only first thread output throughput */
+    if (index != 0) {
+        return SHOW_THROUGHPUT_INTERVAL;
+    }
     if (config.idlemode == 1) {
         printf("clients: %d\r", config.liveclients);
         fflush(stdout);
-	return 250;
+        return SHOW_THROUGHPUT_INTERVAL;
     }
     const float dt = (float)(current_tick-config.start)/1000.0;
     const float rps = (float)requests_finished/dt;
@@ -1650,13 +1655,10 @@ int showThroughput(struct aeEventLoop *eventLoop, long long id, void *clientData
     config.previous_tick = current_tick;
     atomicSet(config.previous_requests_finished,requests_finished);
     printf("%*s\r", config.last_printed_bytes, " "); /* ensure there is a clean line */
-    int printed_bytes = printf("%s: rps=%.1f (overall: %.1f) avg_msec=%.3f (overall: %.3f)\r", config.title, instantaneous_rps, rps, hdr_mean(config.current_sec_latency_histogram)/1000.0f, hdr_mean(config.latency_histogram)/1000.0f);
-    if (printed_bytes > config.last_printed_bytes){
-       config.last_printed_bytes = printed_bytes;
-    }
+    config.last_printed_bytes = printf("%s: rps=%.1f (overall: %.1f) avg_msec=%.3f (overall: %.3f)\r", config.title, instantaneous_rps, rps, hdr_mean(config.current_sec_latency_histogram)/1000.0f, hdr_mean(config.latency_histogram)/1000.0f);
     hdr_reset(config.current_sec_latency_histogram);
     fflush(stdout);
-    return 250; /* every 250ms */
+    return SHOW_THROUGHPUT_INTERVAL;
 }
 
 /* Return true if the named test was selected using the -t command line
@@ -1690,7 +1692,7 @@ int main(int argc, const char **argv) {
     config.requests = 100000;
     config.liveclients = 0;
     config.el = aeCreateEventLoop(1024*10);
-    aeCreateTimeEvent(config.el,1,showThroughput,NULL,NULL);
+    aeCreateTimeEvent(config.el,1,showThroughput,(void *)0,NULL);
     config.keepalive = 1;
     config.datasize = 3;
     config.pipeline = 1;
