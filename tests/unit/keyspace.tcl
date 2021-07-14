@@ -313,10 +313,10 @@ start_server {tags {"keyspace"}} {
         r config set zset-max-ziplist-entries $original_max
     }
 
-    test {COPY basic usage for ziplist hash} {
+    test {COPY basic usage for listpack hash} {
         r del hash1{t} newhash1{t}
         r hset hash1{t} tmp 17179869184
-        assert_encoding ziplist hash1{t}
+        assert_encoding listpack hash1{t}
         r copy hash1{t} newhash1{t}
         set digest [debug_digest_value hash1{t}]
         assert_equal $digest [debug_digest_value newhash1{t}]

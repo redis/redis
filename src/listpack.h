@@ -45,21 +45,43 @@
 #define LP_AFTER 1
 #define LP_REPLACE 2
 
+/* Each entry in the listpack is either a string or an integer. */
+typedef struct {
+    /* When string is used, it is provided with the length (slen). */
+    unsigned char *sval;
+    uint32_t slen;
+    /* When integer is used, 'sval' is NULL, and lval holds the value. */
+    int64_t lval;
+} listpackEntry;
+
 unsigned char *lpNew(size_t capacity);
 void lpFree(unsigned char *lp);
 unsigned char* lpShrinkToFit(unsigned char *lp);
 unsigned char *lpInsert(unsigned char *lp, unsigned char *ele, uint32_t size, unsigned char *p, int where, unsigned char **newp);
-unsigned char *lpAppend(unsigned char *lp, unsigned char *ele, uint32_t size);
+unsigned char *lpPrepend(unsigned char *lp, unsigned char *s, uint32_t slen);
+unsigned char *lpAppend(unsigned char *lp, unsigned char *s, uint32_t slen);
+unsigned char *lpReplace(unsigned char *lp, unsigned char *p, unsigned char *s, uint32_t slen);
 unsigned char *lpDelete(unsigned char *lp, unsigned char *p, unsigned char **newp);
-uint32_t lpLength(unsigned char *lp);
+unsigned long lpLength(unsigned char *lp);
 unsigned char *lpGet(unsigned char *p, int64_t *count, unsigned char *intbuf);
+unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s, uint32_t slen, unsigned int skip);
 unsigned char *lpFirst(unsigned char *lp);
 unsigned char *lpLast(unsigned char *lp);
 unsigned char *lpNext(unsigned char *lp, unsigned char *p);
 unsigned char *lpPrev(unsigned char *lp, unsigned char *p);
-uint32_t lpBytes(unsigned char *lp);
+size_t lpBytes(unsigned char *lp);
 unsigned char *lpSeek(unsigned char *lp, long index);
-int lpValidateIntegrity(unsigned char *lp, size_t size, int deep);
+typedef int (*listpackValidateEntryCB)(unsigned char *p, void *userdata);
+int lpValidateIntegrity(unsigned char *lp, size_t size, int deep,
+                        listpackValidateEntryCB entry_cb, void *cb_userdata);
 int lpValidateNext(unsigned char *lp, unsigned char **pp, size_t lpbytes);
+unsigned int lpCompare(unsigned char *p, unsigned char *s, uint32_t slen);
+void lpRandomPair(unsigned char *lp, unsigned long total_count, listpackEntry *key, listpackEntry *val);
+void lpRandomPairs(unsigned char *lp, unsigned int count, listpackEntry *keys, listpackEntry *vals);
+unsigned int lpRandomPairsUnique(unsigned char *lp, unsigned int count, listpackEntry *keys, listpackEntry *vals);
+
+#ifdef REDIS_TEST
+int listpackTest(int argc, char *argv[], int accurate);
+#endif
 
 #endif
