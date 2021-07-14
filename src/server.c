@@ -641,11 +641,11 @@ struct redisCommand redisCommandTable[] = {
 
     {"mset",msetCommand,-3,
      "write use-memory @string",
-     0,NULL,1,-1,2,0,0,0},
+     0,NULL,1,-2,2,0,0,0},
 
     {"msetnx",msetnxCommand,-3,
      "write use-memory @string",
-     0,NULL,1,-1,2,0,0,0},
+     0,NULL,1,-2,2,0,0,0},
 
     {"randomkey",randomkeyCommand,1,
      "read-only random @keyspace",
