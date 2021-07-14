@@ -1,5 +1,5 @@
-#ifndef SRC_CALL_REPLY_H_
-#define SRC_CALL_REPLY_H_
+#ifndef __CALL_REPLY_H
+#define __CALL_REPLY_H
 
 #include "reply_parser.h"
 
@@ -25,4 +25,4 @@ int callReplyIsResp3(CallReply* rep);
 void freeCallReply(CallReply* rep);
 
 
-#endif /* SRC_CALL_REPLY_H_ */
+#endif /* __CALL_REPLY_H */

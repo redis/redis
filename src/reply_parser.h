@@ -5,19 +5,19 @@
 #include <stddef.h>
 
 typedef struct ReplyParser {
-    /* The current location on the reply buffer, need to set to the beginning of the reply*/
+    /* The current location on the reply buffer, need to set to the beginning of the reply */
     const char* curr_location;
 
-    /* Called when the parser reach an empty mbulk ('*-1') */
+    /* Called when the parser reaches an empty mbulk ('*-1') */
     void (*null_array_callback)(void* ctx, const char* proto, size_t proto_len);
 
-    /* Called when the parser reach an empty bulk ('$-1') (bulk len is -1) */
+    /* Called when the parser reaches an empty bulk ('$-1') (bulk len is -1) */
     void (*null_bulk_string_callback)(void* ctx, const char* proto, size_t proto_len);
 
-    /* Called when the parser reach a bulk ('$'), given the bulk payload and size */
+    /* Called when the parser reaches a bulk ('$'), given the bulk payload and size */
     void (*bulk_string_callback)(void* ctx, const char* str, size_t len, const char* proto, size_t proto_len);
 
-    /* Called when the parser reach an error ('-'), given the error message and len */
+    /* Called when the parser reaches an error ('-'), given the error message and len */
     void (*error_callback)(void* ctx, const char* str, size_t len, const char* proto, size_t proto_len);
 
     /* Called when the parser reach a simple string ('+'), given the string message and len */
@@ -41,10 +41,10 @@ typedef struct ReplyParser {
     /* Called when the parser reach a double (','), the double value is given as an argument*/
     void (*double_callback)(void* ctx, double val, const char* proto, size_t proto_len);
 
-    /* Called when the parser reach a double (','), the double value is given as an argument*/
+    /* Called when the parser reach a big number (','), the double value is given as an argument */
     void (*big_number_callback)(void* ctx, const char* str, size_t len, const char* proto, size_t proto_len);
 
-    /* Called when the parser reach a double (','), the double value is given as an argument*/
+    /* Called when the parser reaches a string, the value is given as an argument */
     void (*verbatim_string_callback)(void* ctx, const char* format, const char* str, size_t len, const char* proto, size_t proto_len);
 
     /* Called when the parser reach an attribute ('|'), the attribute map size is given as an argument*/
