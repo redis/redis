@@ -6513,7 +6513,7 @@ reply_err:;
         int need_free = 0;
         if (err == NULL) err = "";
         else need_free = 1;
-        clusterManagerLogErr("ERR setting node-timeot for %s:%d: %s\n", n->ip,
+        clusterManagerLogErr("ERR setting node-timeout for %s:%d: %s\n", n->ip,
                              n->port, err);
         if (need_free) zfree(err);
         err_count++;
