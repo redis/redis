@@ -283,12 +283,16 @@ void execCommand(client *c) {
  * Also every client contains a list of WATCHed keys so that's possible to
  * un-watch such keys when the client is freed or when UNWATCH is called. */
 
+#define WATCHED_KEY_NONE 0
+#define WATCHED_KEY_STALE (1<<0)
+
 /* In the client->watched_keys list we need to use watchedKey structures
  * as in order to identify a key in Redis we need both the key name and the
  * DB */
 typedef struct watchedKey {
     robj *key;
     redisDb *db;
+    int flags;
 } watchedKey;
 
 /* Watch for the specified key */
@@ -317,6 +321,7 @@ void watchForKey(client *c, robj *key) {
     wk = zmalloc(sizeof(*wk));
     wk->key = key;
     wk->db = c->db;
+    wk->flags = keyIsExpired(wk->db,wk->key) ? WATCHED_KEY_STALE : WATCHED_KEY_NONE;
     incrRefCount(key);
     listAddNodeTail(c->watched_keys,wk);
 }
@@ -359,7 +364,8 @@ int isWatchedKeyExpired(client *c) {
     listRewind(c->watched_keys,&li);
     while ((ln = listNext(&li))) {
         wk = listNodeValue(ln);
-        if (keyIsExpired(wk->db, wk->key)) return 1;
+        if (!(wk->flags & WATCHED_KEY_STALE) &&
+            keyIsExpired(wk->db, wk->key)) return 1;
     }
 
     return 0;
@@ -376,13 +382,31 @@ void touchWatchedKey(redisDb *db, robj *key) {
     clients = dictFetchValue(db->watched_keys, key);
     if (!clients) return;
 
+    int deleted = dictFind(db->dict,key->ptr) ? 0 : 1;
+
     /* Mark all the clients watching this key as CLIENT_DIRTY_CAS */
-    /* Check if we are already watching for this key */
     listRewind(clients,&li);
     while((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
 
-        c->flags |= CLIENT_DIRTY_CAS;
+        int dirty = 1;
+        listIter wk_li;
+        listNode *wk_ln;
+        watchedKey *wk;
+        listRewind(c->watched_keys,&wk_li);
+        while((wk_ln = listNext(&wk_li))) {
+            wk = listNodeValue(wk_ln);
+            if (wk->db == db && equalStringObjects(key,wk->key)) {
+                if (wk->flags & WATCHED_KEY_STALE) {
+                    wk->flags &= ~WATCHED_KEY_STALE;
+                    /* A stale key deleted, don't flag CLIENT_DIRTY_CAS */
+                    if (deleted) dirty = 0;
+                }
+                break;
+            }
+        }
+
+        if (dirty) c->flags |= CLIENT_DIRTY_CAS;
     }
 }
 
@@ -425,8 +449,10 @@ void watchCommand(client *c) {
         addReplyError(c,"WATCH inside MULTI is not allowed");
         return;
     }
-    for (j = 1; j < c->argc; j++)
+    for (j = 1; j < c->argc; j++) {
+        expireIfNeeded(c->db,c->argv[j]);
         watchForKey(c,c->argv[j]);
+    }
     addReply(c,shared.ok);
 }
 

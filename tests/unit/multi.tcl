@@ -147,6 +147,18 @@ start_server {tags {"multi"}} {
         r debug set-active-expire 1
     } {OK} {needs:debug}
 
+    test {WATCH stale keys should not fail EXEC} {
+        r del x
+        r debug set-active-expire 0
+        r set x foo px 1
+        after 2
+        r watch x
+        r multi
+        r ping
+        assert_equal {PONG} [r exec]
+        r debug set-active-expire 1
+    } {OK} {needs:debug}
+
     test {After successful EXEC key is no longer watched} {
         r set x 30
         r watch x
