@@ -1060,6 +1060,22 @@ clusterNode *clusterLookupNode(const char *name) {
     return dictGetVal(de);
 }
 
+/* Checks if a given ip:port combination matches an existing cluster node */
+int clusterNodeExists(char *ip, int port) {
+    dictIterator *di;
+    dictEntry *de;
+
+    di = dictGetSafeIterator(server.cluster->nodes);
+    while((de = dictNext(di)) != NULL) {
+        clusterNode *node = dictGetVal(de);
+
+        if (!strcasecmp(node->ip,ip) &&
+            node->port == port) break;
+    }
+    dictReleaseIterator(di);
+    return de != NULL;
+}
+
 /* This is only used after the handshake. When we connect a given IP/PORT
  * as a result of CLUSTER MEET we don't have the node name yet, so we
  * pick a random one, and will fix it when we receive the PONG request using
@@ -4522,6 +4538,12 @@ NULL
             }
         } else {
             cport = port + CLUSTER_PORT_INCR;
+        }
+
+        if (clusterNodeExists(c->argv[2]->ptr,port) != 0) {
+            addReplyErrorFormat(c,"Node already known: %s:%s",
+                                        (char*)c->argv[2]->ptr, (char*)c->argv[3]->ptr);
+                    return;
         }
 
         if (clusterStartHandshake(c->argv[2]->ptr,port,cport) == 0 &&

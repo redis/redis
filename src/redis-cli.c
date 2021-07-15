@@ -116,6 +116,7 @@
 #define CLUSTER_MANAGER_FLAG_NOADDR     1 << 3
 #define CLUSTER_MANAGER_FLAG_DISCONNECT 1 << 4
 #define CLUSTER_MANAGER_FLAG_FAIL       1 << 5
+#define CLUSTER_MANAGER_FLAG_HANDSHAKE  1 << 6
 
 #define CLUSTER_MANAGER_CMD_FLAG_FIX            1 << 0
 #define CLUSTER_MANAGER_CMD_FLAG_SLAVE          1 << 1
@@ -4249,6 +4250,8 @@ static int clusterManagerNodeLoadInfo(clusterManagerNode *node, int opts,
                 currentNode->flags |= CLUSTER_MANAGER_FLAG_DISCONNECT;
             else if (strcmp(flag, "fail") == 0)
                 currentNode->flags |= CLUSTER_MANAGER_FLAG_FAIL;
+            else if (strcmp(flag, "handshake") == 0)
+                currentNode->flags |= CLUSTER_MANAGER_FLAG_HANDSHAKE;
             else if (strcmp(flag, "slave") == 0) {
                 currentNode->flags |= CLUSTER_MANAGER_FLAG_SLAVE;
                 if (master_id != NULL) {
@@ -4308,6 +4311,7 @@ static int clusterManagerLoadInfoFromNode(clusterManagerNode *node) {
         listRewind(node->friends, &li);
         while ((ln = listNext(&li)) != NULL) {
             clusterManagerNode *friend = ln->value;
+            if (friend->flags & CLUSTER_MANAGER_FLAG_HANDSHAKE) goto invalid_friend;
             if (!friend->ip || !friend->port) goto invalid_friend;
             if (!friend->context && !clusterManagerNodeConnect(friend))
                 goto invalid_friend;
