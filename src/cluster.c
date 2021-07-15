@@ -1974,6 +1974,8 @@ int clusterProcessPacket(clusterLink *link) {
                 link->node->flags &= ~CLUSTER_NODE_HANDSHAKE;
                 link->node->flags |= flags&(CLUSTER_NODE_MASTER|CLUSTER_NODE_SLAVE);
                 clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
+                /* Request pong to update slots of master node or slaveof slave */
+                clusterSendPing(link,CLUSTERMSG_TYPE_PING);
             } else if (memcmp(link->node->name,hdr->sender,
                         CLUSTER_NAMELEN) != 0)
             {
