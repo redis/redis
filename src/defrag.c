@@ -130,31 +130,32 @@ robj *activeDefragStringOb(robj* ob, long *defragged) {
 /* Defrag helper for dictEntries to be used during dict iteration (called on
  * each step). Returns a stat of how many pointers were moved. */
 long dictIterDefragEntry(dictIterator *iter) {
+    UNUSED(iter);
     /* This function is a little bit dirty since it messes with the internals
      * of the dict and it's iterator, but the benefit is that it is very easy
      * to use, and require no other changes in the dict. */
     long defragged = 0;
-    dictht *ht;
-    /* Handle the next entry (if there is one), and update the pointer in the
-     * current entry. */
-    if (iter->nextEntry) {
-        dictEntry *newde = activeDefragAlloc(iter->nextEntry);
-        if (newde) {
-            defragged++;
-            iter->nextEntry = newde;
-            iter->entry->next = newde;
-        }
-    }
-    /* handle the case of the first entry in the hash bucket. */
-    ht = &iter->d->ht[iter->table];
-    if (ht->table[iter->index] == iter->entry) {
-        dictEntry *newde = activeDefragAlloc(iter->entry);
-        if (newde) {
-            iter->entry = newde;
-            ht->table[iter->index] = newde;
-            defragged++;
-        }
-    }
+    /* dictht *ht; */
+    /* /\* Handle the next entry (if there is one), and update the pointer in the */
+    /*  * current entry. *\/ */
+    /* if (iter->nextEntry) { */
+    /*     dictEntry *newde = activeDefragAlloc(iter->nextEntry); */
+    /*     if (newde) { */
+    /*         defragged++; */
+    /*         iter->nextEntry = newde; */
+    /*         iter->entry->next = newde; */
+    /*     } */
+    /* } */
+    /* /\* handle the case of the first entry in the hash bucket. *\/ */
+    /* ht = &iter->d->ht[iter->table]; */
+    /* if (ht->table[iter->index] == iter->entry) { */
+    /*     dictEntry *newde = activeDefragAlloc(iter->entry); */
+    /*     if (newde) { */
+    /*         iter->entry = newde; */
+    /*         ht->table[iter->index] = newde; */
+    /*         defragged++; */
+    /*     } */
+    /* } */
     return defragged;
 }
 
@@ -162,18 +163,19 @@ long dictIterDefragEntry(dictIterator *iter) {
  * receives a pointer to the dict* and implicitly updates it when the dict
  * struct itself was moved. Returns a stat of how many pointers were moved. */
 long dictDefragTables(dict* d) {
-    dictEntry **newtable;
+    UNUSED(d);
+    /* dictEntry **newtable; */
     long defragged = 0;
-    /* handle the first hash table */
-    newtable = activeDefragAlloc(d->ht[0].table);
-    if (newtable)
-        defragged++, d->ht[0].table = newtable;
-    /* handle the second hash table */
-    if (d->ht[1].table) {
-        newtable = activeDefragAlloc(d->ht[1].table);
-        if (newtable)
-            defragged++, d->ht[1].table = newtable;
-    }
+    /* /\* handle the first hash table *\/ */
+    /* newtable = activeDefragAlloc(d->ht[0].table); */
+    /* if (newtable) */
+    /*     defragged++, d->ht[0].table = newtable; */
+    /* /\* handle the second hash table *\/ */
+    /* if (d->ht[1].table) { */
+    /*     newtable = activeDefragAlloc(d->ht[1].table); */
+    /*     if (newtable) */
+    /*         defragged++, d->ht[1].table = newtable; */
+    /* } */
     return defragged;
 }
 
@@ -899,12 +901,10 @@ void defragScanCallback(void *privdata, const dictEntry *de) {
  * used in order to defrag the dictEntry allocations. */
 void defragDictBucketCallback(void *privdata, dictEntry **bucketref) {
     UNUSED(privdata); /* NOTE: this function is also used by both activeDefragCycle and scanLaterHash, etc. don't use privdata */
-    while(*bucketref) {
-        dictEntry *de = *bucketref, *newde;
-        if ((newde = activeDefragAlloc(de))) {
-            *bucketref = newde;
-        }
-        bucketref = &(*bucketref)->next;
+    /* FIXME: *bucketref will be a dictNode array, not a single entry. */
+    dictEntry *de = *bucketref, *newde;
+    if ((newde = activeDefragAlloc(de))) {
+        *bucketref = newde;
     }
 }
 

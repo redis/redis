@@ -42,85 +42,85 @@
 /* Unused arguments generate annoying warnings... */
 #define DICT_NOTUSED(V) ((void) V)
 
-typedef struct dictEntry {
+typedef struct hi_dictEntry {
     void *key;
     void *val;
-    struct dictEntry *next;
-} dictEntry;
+    struct hi_dictEntry *next;
+} hi_dictEntry;
 
-typedef struct dictType {
+typedef struct hi_dictType {
     unsigned int (*hashFunction)(const void *key);
     void *(*keyDup)(void *privdata, const void *key);
     void *(*valDup)(void *privdata, const void *obj);
     int (*keyCompare)(void *privdata, const void *key1, const void *key2);
     void (*keyDestructor)(void *privdata, void *key);
     void (*valDestructor)(void *privdata, void *obj);
-} dictType;
+} hi_dictType;
 
-typedef struct dict {
-    dictEntry **table;
-    dictType *type;
+typedef struct hi_dict {
+    hi_dictEntry **table;
+    hi_dictType *type;
     unsigned long size;
     unsigned long sizemask;
     unsigned long used;
     void *privdata;
-} dict;
+} hi_dict;
 
-typedef struct dictIterator {
-    dict *ht;
+typedef struct hi_dictIterator {
+    hi_dict *ht;
     int index;
-    dictEntry *entry, *nextEntry;
-} dictIterator;
+    hi_dictEntry *entry, *nextEntry;
+} hi_dictIterator;
 
 /* This is the initial size of every hash table */
 #define DICT_HT_INITIAL_SIZE     4
 
 /* ------------------------------- Macros ------------------------------------*/
-#define dictFreeEntryVal(ht, entry) \
+#define hi_dictFreeEntryVal(ht, entry) \
     if ((ht)->type->valDestructor) \
         (ht)->type->valDestructor((ht)->privdata, (entry)->val)
 
-#define dictSetHashVal(ht, entry, _val_) do { \
+#define hi_dictSetHashVal(ht, entry, _val_) do { \
     if ((ht)->type->valDup) \
         entry->val = (ht)->type->valDup((ht)->privdata, _val_); \
     else \
         entry->val = (_val_); \
 } while(0)
 
-#define dictFreeEntryKey(ht, entry) \
+#define hi_dictFreeEntryKey(ht, entry) \
     if ((ht)->type->keyDestructor) \
         (ht)->type->keyDestructor((ht)->privdata, (entry)->key)
 
-#define dictSetHashKey(ht, entry, _key_) do { \
+#define hi_dictSetHashKey(ht, entry, _key_) do { \
     if ((ht)->type->keyDup) \
         entry->key = (ht)->type->keyDup((ht)->privdata, _key_); \
     else \
         entry->key = (_key_); \
 } while(0)
 
-#define dictCompareHashKeys(ht, key1, key2) \
+#define hi_dictCompareHashKeys(ht, key1, key2) \
     (((ht)->type->keyCompare) ? \
         (ht)->type->keyCompare((ht)->privdata, key1, key2) : \
         (key1) == (key2))
 
-#define dictHashKey(ht, key) (ht)->type->hashFunction(key)
+#define hi_dictHashKey(ht, key) (ht)->type->hashFunction(key)
 
-#define dictGetEntryKey(he) ((he)->key)
-#define dictGetEntryVal(he) ((he)->val)
-#define dictSlots(ht) ((ht)->size)
-#define dictSize(ht) ((ht)->used)
+#define hi_dictGetEntryKey(he) ((he)->key)
+#define hi_dictGetEntryVal(he) ((he)->val)
+#define hi_dictSlots(ht) ((ht)->size)
+#define hi_dictSize(ht) ((ht)->used)
 
 /* API */
-static unsigned int dictGenHashFunction(const unsigned char *buf, int len);
-static dict *dictCreate(dictType *type, void *privDataPtr);
-static int dictExpand(dict *ht, unsigned long size);
-static int dictAdd(dict *ht, void *key, void *val);
-static int dictReplace(dict *ht, void *key, void *val);
-static int dictDelete(dict *ht, const void *key);
-static void dictRelease(dict *ht);
-static dictEntry * dictFind(dict *ht, const void *key);
-static dictIterator *dictGetIterator(dict *ht);
-static dictEntry *dictNext(dictIterator *iter);
-static void dictReleaseIterator(dictIterator *iter);
+static unsigned int hi_dictGenHashFunction(const unsigned char *buf, int len);
+static hi_dict *hi_dictCreate(hi_dictType *type, void *privDataPtr);
+static int hi_dictExpand(hi_dict *ht, unsigned long size);
+static int hi_dictAdd(hi_dict *ht, void *key, void *val);
+static int hi_dictReplace(hi_dict *ht, void *key, void *val);
+static int hi_dictDelete(hi_dict *ht, const void *key);
+static void hi_dictRelease(hi_dict *ht);
+static hi_dictEntry * hi_dictFind(hi_dict *ht, const void *key);
+static hi_dictIterator *hi_dictGetIterator(hi_dict *ht);
+static hi_dictEntry *hi_dictNext(hi_dictIterator *iter);
+static void hi_dictReleaseIterator(hi_dictIterator *iter);
 
 #endif /* __DICT_H */

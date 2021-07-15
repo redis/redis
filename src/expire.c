@@ -211,7 +211,7 @@ void activeExpireCycle(int type) {
          * we scanned. The percentage, stored in config_cycle_acceptable_stale
          * is not fixed, but depends on the Redis configured "expire effort". */
         do {
-            unsigned long num, slots;
+            unsigned long num;
             long long now, ttl_sum;
             int ttl_samples;
             iteration++;
@@ -221,14 +221,7 @@ void activeExpireCycle(int type) {
                 db->avg_ttl = 0;
                 break;
             }
-            slots = dictSlots(db->expires);
             now = mstime();
-
-            /* When there are less than 1% filled slots, sampling the key
-             * space is expensive, so stop here waiting for better times...
-             * The dictionary will be resized asap. */
-            if (slots > DICT_HT_INITIAL_SIZE &&
-                (num*100/slots < 1)) break;
 
             /* The main collection cycle. Sample random keys among keys
              * with an expire set, checking for expired ones. */
@@ -253,36 +246,28 @@ void activeExpireCycle(int type) {
             long max_buckets = num*20;
             long checked_buckets = 0;
 
+            dictIterator expires_iter;
+            dictInitIterator(&expires_iter, db->expires, db->expires_cursor);
             while (sampled < num && checked_buckets < max_buckets) {
-                for (int table = 0; table < 2; table++) {
-                    if (table == 1 && !dictIsRehashing(db->expires)) break;
 
-                    unsigned long idx = db->expires_cursor;
-                    idx &= db->expires->ht[table].sizemask;
-                    dictEntry *de = db->expires->ht[table].table[idx];
-                    long long ttl;
+                dictEntry *de = dictNext(&expires_iter);
+                if (de == NULL) break;
+                long long ttl;
 
-                    /* Scan the current bucket of the current table. */
-                    checked_buckets++;
-                    while(de) {
-                        /* Get the next entry now since this entry may get
-                         * deleted. */
-                        dictEntry *e = de;
-                        de = de->next;
+                /* Scan the current bucket of the current table. */
+                checked_buckets++;
 
-                        ttl = dictGetSignedIntegerVal(e)-now;
-                        if (activeExpireCycleTryExpire(db,e,now)) expired++;
-                        if (ttl > 0) {
-                            /* We want the average TTL of keys yet
-                             * not expired. */
-                            ttl_sum += ttl;
-                            ttl_samples++;
-                        }
-                        sampled++;
-                    }
+                ttl = dictGetSignedIntegerVal(de)-now;
+                if (activeExpireCycleTryExpire(db,de,now)) expired++;
+                if (ttl > 0) {
+                    /* We want the average TTL of keys yet
+                     * not expired. */
+                    ttl_sum += ttl;
+                    ttl_samples++;
                 }
-                db->expires_cursor++;
+                sampled++;
             }
+            db->expires_cursor = dictIteratorCursor(&expires_iter);
             total_expired += expired;
             total_sampled += sampled;
 

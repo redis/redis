@@ -4113,7 +4113,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
         while (size > count) {
             dictEntry *de;
             de = dictGetRandomKey(d);
-            dictUnlink(d,dictGetKey(de));
+            de = dictUnlink(d,dictGetKey(de));
             sdsfree(dictGetKey(de));
             dictFreeUnlinkedEntry(d,de);
             size--;

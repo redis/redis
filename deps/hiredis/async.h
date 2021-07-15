@@ -103,8 +103,8 @@ typedef struct redisAsyncContext {
     /* Subscription callbacks */
     struct {
         redisCallbackList invalid;
-        struct dict *channels;
-        struct dict *patterns;
+        struct hi_dict *channels;
+        struct hi_dict *patterns;
     } sub;
 
     /* Any configured RESP3 PUSH handler */

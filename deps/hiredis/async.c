@@ -53,7 +53,7 @@ void __redisSetError(redisContext *c, int type, const char *str);
 
 /* Functions managing dictionary of callbacks for pub/sub. */
 static unsigned int callbackHash(const void *key) {
-    return dictGenHashFunction((const unsigned char *)key,
+    return hi_dictGenHashFunction((const unsigned char *)key,
                                hi_sdslen((const hisds)key));
 }
 
@@ -89,7 +89,7 @@ static void callbackValDestructor(void *privdata, void *val) {
     hi_free(val);
 }
 
-static dictType callbackDict = {
+static hi_dictType callbackDict = {
     callbackHash,
     NULL,
     callbackValDup,
@@ -100,13 +100,13 @@ static dictType callbackDict = {
 
 static redisAsyncContext *redisAsyncInitialize(redisContext *c) {
     redisAsyncContext *ac;
-    dict *channels = NULL, *patterns = NULL;
+    hi_dict *channels = NULL, *patterns = NULL;
 
-    channels = dictCreate(&callbackDict,NULL);
+    channels = hi_dictCreate(&callbackDict,NULL);
     if (channels == NULL)
         goto oom;
 
-    patterns = dictCreate(&callbackDict,NULL);
+    patterns = hi_dictCreate(&callbackDict,NULL);
     if (patterns == NULL)
         goto oom;
 
@@ -146,8 +146,8 @@ static redisAsyncContext *redisAsyncInitialize(redisContext *c) {
 
     return ac;
 oom:
-    if (channels) dictRelease(channels);
-    if (patterns) dictRelease(patterns);
+    if (channels) hi_dictRelease(channels);
+    if (patterns) hi_dictRelease(patterns);
     return NULL;
 }
 
@@ -301,8 +301,8 @@ static void __redisRunPushCallback(redisAsyncContext *ac, redisReply *reply) {
 static void __redisAsyncFree(redisAsyncContext *ac) {
     redisContext *c = &(ac->c);
     redisCallback cb;
-    dictIterator *it;
-    dictEntry *de;
+    hi_dictIterator *it;
+    hi_dictEntry *de;
 
     /* Execute pending callbacks with NULL reply. */
     while (__redisShiftCallback(&ac->replies,&cb) == REDIS_OK)
@@ -314,25 +314,25 @@ static void __redisAsyncFree(redisAsyncContext *ac) {
 
     /* Run subscription callbacks with NULL reply */
     if (ac->sub.channels) {
-        it = dictGetIterator(ac->sub.channels);
+        it = hi_dictGetIterator(ac->sub.channels);
         if (it != NULL) {
-            while ((de = dictNext(it)) != NULL)
-                __redisRunCallback(ac,dictGetEntryVal(de),NULL);
-            dictReleaseIterator(it);
+            while ((de = hi_dictNext(it)) != NULL)
+                __redisRunCallback(ac,hi_dictGetEntryVal(de),NULL);
+            hi_dictReleaseIterator(it);
         }
 
-        dictRelease(ac->sub.channels);
+        hi_dictRelease(ac->sub.channels);
     }
 
     if (ac->sub.patterns) {
-        it = dictGetIterator(ac->sub.patterns);
+        it = hi_dictGetIterator(ac->sub.patterns);
         if (it != NULL) {
-            while ((de = dictNext(it)) != NULL)
-                __redisRunCallback(ac,dictGetEntryVal(de),NULL);
-            dictReleaseIterator(it);
+            while ((de = hi_dictNext(it)) != NULL)
+                __redisRunCallback(ac,hi_dictGetEntryVal(de),NULL);
+            hi_dictReleaseIterator(it);
         }
 
-        dictRelease(ac->sub.patterns);
+        hi_dictRelease(ac->sub.patterns);
     }
 
     /* Signal event lib to clean up */
@@ -413,9 +413,9 @@ void redisAsyncDisconnect(redisAsyncContext *ac) {
 
 static int __redisGetSubscribeCallback(redisAsyncContext *ac, redisReply *reply, redisCallback *dstcb) {
     redisContext *c = &(ac->c);
-    dict *callbacks;
+    hi_dict *callbacks;
     redisCallback *cb;
-    dictEntry *de;
+    hi_dictEntry *de;
     int pvariant;
     char *stype;
     hisds sname;
@@ -439,9 +439,9 @@ static int __redisGetSubscribeCallback(redisAsyncContext *ac, redisReply *reply,
         if (sname == NULL)
             goto oom;
 
-        de = dictFind(callbacks,sname);
+        de = hi_dictFind(callbacks,sname);
         if (de != NULL) {
-            cb = dictGetEntryVal(de);
+            cb = hi_dictGetEntryVal(de);
 
             /* If this is an subscribe reply decrease pending counter. */
             if (strcasecmp(stype+pvariant,"subscribe") == 0) {
@@ -453,7 +453,7 @@ static int __redisGetSubscribeCallback(redisAsyncContext *ac, redisReply *reply,
             /* If this is an unsubscribe message, remove it. */
             if (strcasecmp(stype+pvariant,"unsubscribe") == 0) {
                 if (cb->pending_subs == 0)
-                    dictDelete(callbacks,sname);
+                    hi_dictDelete(callbacks,sname);
 
                 /* If this was the last unsubscribe message, revert to
                  * non-subscribe mode. */
@@ -461,8 +461,8 @@ static int __redisGetSubscribeCallback(redisAsyncContext *ac, redisReply *reply,
 
                 /* Unset subscribed flag only when no pipelined pending subscribe. */
                 if (reply->element[2]->integer == 0
-                    && dictSize(ac->sub.channels) == 0
-                    && dictSize(ac->sub.patterns) == 0)
+                    && hi_dictSize(ac->sub.channels) == 0
+                    && hi_dictSize(ac->sub.patterns) == 0)
                     c->flags &= ~REDIS_SUBSCRIBED;
             }
         }
@@ -737,8 +737,8 @@ static const char *nextArgument(const char *start, const char **str, size_t *len
 static int __redisAsyncCommand(redisAsyncContext *ac, redisCallbackFn *fn, void *privdata, const char *cmd, size_t len) {
     redisContext *c = &(ac->c);
     redisCallback cb;
-    struct dict *cbdict;
-    dictEntry *de;
+    struct hi_dict *cbdict;
+    hi_dictEntry *de;
     redisCallback *existcb;
     int pvariant, hasnext;
     const char *cstr, *astr;
@@ -777,14 +777,14 @@ static int __redisAsyncCommand(redisAsyncContext *ac, redisCallbackFn *fn, void 
             else
                 cbdict = ac->sub.channels;
 
-            de = dictFind(cbdict,sname);
+            de = hi_dictFind(cbdict,sname);
 
             if (de != NULL) {
-                existcb = dictGetEntryVal(de);
+                existcb = hi_dictGetEntryVal(de);
                 cb.pending_subs = existcb->pending_subs + 1;
             }
 
-            ret = dictReplace(cbdict,sname,&cb);
+            ret = hi_dictReplace(cbdict,sname,&cb);
 
             if (ret == 0) hi_sdsfree(sname);
         }
