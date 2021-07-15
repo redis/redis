@@ -392,9 +392,9 @@ void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv,
     if (c->flags & CLIENT_LUA) {
         cmdrepr = sdscatprintf(cmdrepr,"[%d lua] ",dictid);
     } else if (c->flags & CLIENT_UNIX_SOCKET) {
-        cmdrepr = sdscatprintf(cmdrepr,"[%d unix:%s] ",dictid,server.unixsocket);
+        cmdrepr = sdscatprintf(cmdrepr,"[%d unix:%s%s%s] ",dictid,server.unixsocket, c->name ? " " : "", c->name ? (char*)c->name->ptr : "");
     } else {
-        cmdrepr = sdscatprintf(cmdrepr,"[%d %s] ",dictid,getClientPeerId(c));
+        cmdrepr = sdscatprintf(cmdrepr,"[%d %s%s%s] ",dictid,getClientPeerId(c), c->name ? " " : "", c->name ? (char*)c->name->ptr : "");
     }
 
     for (j = 0; j < argc; j++) {
