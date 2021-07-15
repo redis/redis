@@ -3968,6 +3968,15 @@ static int clusterManagerMoveSlot(clusterManagerNode *source,
     if (!success) return 0;
     /* Set the new node as the owner of the slot in all the known nodes. */
     if (!option_cold) {
+        /* If source node lost last slot and target node receives CLUSTER SETSLOT
+         * before source node, source node will be replica of target node. Then
+         * source node will report error when CLUSTER SETSLOT is received. So we
+         * need to send CLUSTER SETSLOT to source node before target node. See
+         * https://github.com/redis/redis/issues/9223 */
+        listNode *source_node = listSearchKey(cluster_manager.nodes, source);
+        listDelNode(cluster_manager.nodes, source_node);
+        listAddNodeHead(cluster_manager.nodes, source);
+
         listIter li;
         listNode *ln;
         listRewind(cluster_manager.nodes, &li);
