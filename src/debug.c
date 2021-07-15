@@ -425,6 +425,8 @@ void debugCommand(client *c) {
 #endif
 "OBJECT <key>",
 "    Show low level info about `key` and associated value.",
+"DROP-CLUSTER-PACKET-FILTER <packet-type>",
+"    Drop all packets that match the filtered type. Set to -1 allow all packets.",
 "OOM",
 "    Crash the server simulating an out-of-memory error.",
 "PANIC",
@@ -574,6 +576,12 @@ NULL
         unprotectClient(c);
         server.dirty = 0; /* Prevent AOF / replication */
         serverLog(LL_WARNING,"Append Only File loaded by DEBUG LOADAOF");
+        addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"drop-cluster-packet-filter") && c->argc == 3) {
+        long packet_type;
+        if (getLongFromObjectOrReply(c, c->argv[2], &packet_type, NULL) != C_OK)
+            return;
+        server.cluster_drop_packet_filter = packet_type;
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"object") && c->argc == 3) {
         dictEntry *de;
