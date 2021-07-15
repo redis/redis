@@ -3821,13 +3821,13 @@ double RM_CallReplyDouble(RedisModuleCallReply *reply) {
 }
 
 /* Return the big number value of a big number reply. */
-const char* RM_CallReplyBigNumber(RedisModuleCallReply *reply, size_t* len) {
+const char* RM_CallReplyBigNumber(RedisModuleCallReply *reply, size_t *len) {
     return callReplyGetBigNumber(reply, len);
 }
 
 /* Return the value of an verbatim string reply,
  * An optional output argument can be given to get verbatim reply format */
-const char* RM_CallReplyVerbatim(RedisModuleCallReply *reply, size_t* len, const char** format) {
+const char* RM_CallReplyVerbatim(RedisModuleCallReply *reply, size_t *len, const char **format) {
     return callReplyGetVerbatim(reply, len, format);
 }
 

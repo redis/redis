@@ -19,7 +19,7 @@
  * can calculate the len after finish parsing the entire collection.
  * ---------------------------------------------------------------------------------------- */
 
-static int parseBulk(ReplyParser* parser, void* p_ctx) {
+static int parseBulk(ReplyParser *parser, void *p_ctx) {
     const char *proto = parser->curr_location;
     char *p = strchr(proto+1,'\r');
     long long bulklen;
@@ -29,7 +29,7 @@ static int parseBulk(ReplyParser* parser, void* p_ctx) {
     if (bulklen == -1) {
         parser->null_bulk_string_callback(p_ctx, proto, parser->curr_location - proto);
     } else {
-        const char* str = parser->curr_location;
+        const char *str = parser->curr_location;
         parser->curr_location += bulklen;
         parser->curr_location += 2; /* for \r\n */
         parser->bulk_string_callback(p_ctx, str, bulklen, proto, parser->curr_location - proto);
@@ -38,7 +38,7 @@ static int parseBulk(ReplyParser* parser, void* p_ctx) {
     return C_OK;
 }
 
-static int parseSimpleString(ReplyParser* parser, void* p_ctx) {
+static int parseSimpleString(ReplyParser *parser, void *p_ctx) {
     const char *proto = parser->curr_location;
     char *p = strchr(proto+1,'\r');
     parser->curr_location = p + 2; /* for \r\n */
@@ -46,7 +46,7 @@ static int parseSimpleString(ReplyParser* parser, void* p_ctx) {
     return C_OK;
 }
 
-static int parseError(ReplyParser* parser, void* p_ctx) {
+static int parseError(ReplyParser *parser, void *p_ctx) {
     const char *proto = parser->curr_location;
     char *p = strchr(proto+1,'\r');
     parser->curr_location = p + 2; // for \r\n
@@ -54,7 +54,7 @@ static int parseError(ReplyParser* parser, void* p_ctx) {
     return C_OK;
 }
 
-static int parseLong(ReplyParser* parser, void* p_ctx) {
+static int parseLong(ReplyParser *parser, void *p_ctx) {
     const char *proto = parser->curr_location;
     char *p = strchr(proto+1,'\r');
     parser->curr_location = p + 2; /* for \r\n */
@@ -64,7 +64,7 @@ static int parseLong(ReplyParser* parser, void* p_ctx) {
     return C_OK;
 }
 
-static int parseAttributes(ReplyParser* parser, void* p_ctx) {
+static int parseAttributes(ReplyParser *parser, void *p_ctx) {
     const char *proto = parser->curr_location;
     char *p = strchr(proto+1,'\r');
     long long len;
@@ -75,20 +75,20 @@ static int parseAttributes(ReplyParser* parser, void* p_ctx) {
     return C_OK;
 }
 
-static int parseVerbatimString(ReplyParser* parser, void* p_ctx) {
+static int parseVerbatimString(ReplyParser *parser, void *p_ctx) {
     const char *proto = parser->curr_location;
     char *p = strchr(proto+1,'\r');
     long long bulklen;
     parser->curr_location = p + 2; /* for \r\n */
     string2ll(proto+1,p-proto-1,&bulklen);
-    const char* format = parser->curr_location;
+    const char *format = parser->curr_location;
     parser->curr_location += bulklen;
     parser->curr_location += 2; /* for \r\n */
     parser->verbatim_string_callback(p_ctx, format, format + 4, bulklen - 4, proto, parser->curr_location - proto);
     return C_OK;
 }
 
-static int parseBigNumber(ReplyParser* parser, void* p_ctx) {
+static int parseBigNumber(ReplyParser *parser, void *p_ctx) {
     const char *proto = parser->curr_location;
     char *p = strchr(proto+1,'\r');
     parser->curr_location = p + 2; /* for \r\n */
@@ -96,7 +96,7 @@ static int parseBigNumber(ReplyParser* parser, void* p_ctx) {
     return C_OK;
 }
 
-static int parseNull(ReplyParser* parser, void* p_ctx) {
+static int parseNull(ReplyParser *parser, void *p_ctx) {
     const char *proto = parser->curr_location;
     char *p = strchr(proto+1,'\r');
     parser->curr_location = p + 2; /* for \r\n */
@@ -104,7 +104,7 @@ static int parseNull(ReplyParser* parser, void* p_ctx) {
     return C_OK;
 }
 
-static int parseDouble(ReplyParser* parser, void* p_ctx) {
+static int parseDouble(ReplyParser *parser, void *p_ctx) {
     const char *proto = parser->curr_location;
     char *p = strchr(proto+1,'\r');
     parser->curr_location = p + 2; /* for \r\n */
@@ -122,7 +122,7 @@ static int parseDouble(ReplyParser* parser, void* p_ctx) {
     return C_OK;
 }
 
-static int parseBool(ReplyParser* parser, void* p_ctx) {
+static int parseBool(ReplyParser *parser, void *p_ctx) {
     const char *proto = parser->curr_location;
     char *p = strchr(proto+1,'\r');
     parser->curr_location = p + 2; /* for \r\n */
@@ -130,7 +130,7 @@ static int parseBool(ReplyParser* parser, void* p_ctx) {
     return C_OK;
 }
 
-static int parseArray(ReplyParser* parser, void* p_ctx) {
+static int parseArray(ReplyParser *parser, void *p_ctx) {
     const char *proto = parser->curr_location;
     char *p = strchr(proto+1,'\r');
     long long len;
@@ -145,7 +145,7 @@ static int parseArray(ReplyParser* parser, void* p_ctx) {
     return C_OK;
 }
 
-static int parseSet(ReplyParser* parser, void* p_ctx) {
+static int parseSet(ReplyParser *parser, void *p_ctx) {
     const char *proto = parser->curr_location;
     char *p = strchr(proto+1,'\r');
     long long len;
@@ -156,7 +156,7 @@ static int parseSet(ReplyParser* parser, void* p_ctx) {
     return C_OK;
 }
 
-static int parseMap(ReplyParser* parser, void* p_ctx) {
+static int parseMap(ReplyParser *parser, void *p_ctx) {
     const char *proto = parser->curr_location;
     char *p = strchr(proto+1,'\r');
     long long len;
@@ -170,7 +170,7 @@ static int parseMap(ReplyParser* parser, void* p_ctx) {
 /**
  * Parse a reply set on parser->curr_location
  */
-int parseReply(ReplyParser* parser, void* p_ctx) {
+int parseReply(ReplyParser *parser, void *p_ctx) {
     switch(parser->curr_location[0]) {
     case '$': return parseBulk(parser, p_ctx);
     case '+': return parseSimpleString(parser, p_ctx);

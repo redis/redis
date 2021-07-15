@@ -620,8 +620,8 @@ REDISMODULE_API int (*RedisModule_CallReplyType)(RedisModuleCallReply *reply) RE
 REDISMODULE_API long long (*RedisModule_CallReplyInteger)(RedisModuleCallReply *reply) REDISMODULE_ATTR;
 REDISMODULE_API double (*RedisModule_CallReplyDouble)(RedisModuleCallReply *reply) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_CallReplyBool)(RedisModuleCallReply *reply) REDISMODULE_ATTR;
-REDISMODULE_API const char* (*RedisModule_CallReplyBigNumber)(RedisModuleCallReply *reply, size_t* len) REDISMODULE_ATTR;
-REDISMODULE_API const char* (*RedisModule_CallReplyVerbatim)(RedisModuleCallReply *reply, size_t* len, const char **format) REDISMODULE_ATTR;
+REDISMODULE_API const char* (*RedisModule_CallReplyBigNumber)(RedisModuleCallReply *reply, size_t *len) REDISMODULE_ATTR;
+REDISMODULE_API const char* (*RedisModule_CallReplyVerbatim)(RedisModuleCallReply *reply, size_t *len, const char **format) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleCallReply * (*RedisModule_CallReplySetElement)(RedisModuleCallReply *reply, size_t idx) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_CallReplyMapElement)(RedisModuleCallReply *reply, size_t idx, RedisModuleCallReply **key, RedisModuleCallReply **val) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_CallReplyAttributeElement)(RedisModuleCallReply *reply, size_t idx, RedisModuleCallReply **key, RedisModuleCallReply **val) REDISMODULE_ATTR;
