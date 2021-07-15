@@ -1202,7 +1202,6 @@ int sentinelUpdateSentinelAddressInAllMasters(sentinelRedisInstance *ri) {
         sentinelRedisInstance *master = dictGetVal(de), *match;
         match = getSentinelRedisInstanceByAddrAndRunID(master->sentinels,
                                                        NULL,0,ri->runid);
-
         /* If there is no match, this master does not know about this
          * Sentinel, try with the next one. */
         if (match == NULL) continue;
@@ -1214,9 +1213,8 @@ int sentinelUpdateSentinelAddressInAllMasters(sentinelRedisInstance *ri) {
             instanceLinkCloseConnection(match->link,match->link->pc);
 
 		/*Remove any sentinel with port number set to 0 */
-        if (match->addr->port == 0) {
+        if (match->addr->port == 0)
             dictDelete(master->sentinels,match->name);
-        }
 
         if (match == ri) continue; /* Address already updated for it. */
 
