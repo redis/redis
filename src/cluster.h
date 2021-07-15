@@ -137,8 +137,7 @@ typedef struct clusterNode {
     int pport;                  /* Latest known clients plaintext port. Only used
                                    if the main clients port is for TLS. */
     int cport;                  /* Latest known cluster port of this node. */
-    clusterLink *link;          /* TCP/IP link with this node  - outbound connection*/
-    clusterLink *link_from;  /*TCP/IP link with this node - inbound connection*/
+    clusterLink *link;          /* TCP/IP link with this node */
     list *fail_reports;         /* List of nodes signaling this as failing */
 } clusterNode;
 
