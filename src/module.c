@@ -4001,7 +4001,7 @@ fmterr:
  *     * `A` -- Suppress AOF propagation, send only to replicas (requires `!`).
  *     * `R` -- Suppress replicas propagation, send only to AOF (requires `!`).
  *     * `3` -- Return the reply in RESP3. This will change the command reply.
- *              e.g. HGETALL returns a map instead of flat array, 
+ *              e.g. HGETALL returns a map instead of flat array,
  *     * `0` -- Return the reply in auto mode. e.g. the reply format will be the
  *              same as the client attached to the given RedisModuleCtx. This will
  *              probably used when you want to pass the reply directly to the client.

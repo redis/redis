@@ -1011,7 +1011,7 @@ start_server {tags {"scripting resp3 needs:debug"}} {
                     assert_equal $ret {=29}
                     assert_equal [r read] {txt:This is a verbatim}
                     assert_equal [r read] {string}
-                }   
+                }
             }
 
             test {test resp3 true protocol parsing} {
