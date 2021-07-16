@@ -8832,6 +8832,7 @@ sds genModulesInfoStringRenderModulesList(list *l) {
     while((ln = listNext(&li))) {
         RedisModule *module = ln->value;
         output = sdscat(output,module->name);
+        output = sdscat(output,"|");
     }
     output = sdstrim(output,"|");
     output = sdscat(output,"]");
