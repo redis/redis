@@ -1383,24 +1383,28 @@ void refraxGetEdge(rax *refrax, int first, streamID *id) {
  * minimal (first) parameter. */
 void refraxInsertAndSetMinID(rax *refrax, streamID *id, streamID *min_id) {
     unsigned char key[sizeof(streamID)];
-    void *data;
+    int exists;
     size_t value;
+    void *new, *old;
 
+    /* We can't use raxFind here, because there's a chance that our counters
+     * will eventually reach the 'raxNotFound' address. Instead, we'll try
+     * inserting a new key, and update the existing upon failure. */
+    value = 1;
+    new = (void *)value;
     streamEncodeID(key,id);
-    data = raxFind(refrax,key,sizeof(streamID));
-    if (data == raxNotFound) {
-        value = 1;
-        data = (void *)value;
-        raxInsert(refrax,key,sizeof(streamID),data,NULL);
-        if (streamIDEqZero(min_id) || streamCompareID(id,min_id) < 0) {
-            min_id->ms = id->ms;
-            min_id->seq = id->seq;
-        }
-    } else {
-        value = (size_t)data;
+    exists = raxTryInsert(refrax,key,sizeof(streamID),new,&old);
+
+    if (exists) {
+        /* Increrement exisiting reference counter for the ID by 1. */
+        value = (size_t)old;
         value++;
-        data = (void *)value;
-        raxInsert(refrax,key,sizeof(streamID),data,NULL);
+        new = (void *)value;
+        raxInsert(refrax,key,sizeof(streamID),new,NULL);
+    } else if (streamIDEqZero(min_id) || streamCompareID(id,min_id) < 0) {
+        /* Set the minimal ID to the newly-inserted ID. */
+        min_id->ms = id->ms;
+        min_id->seq = id->seq;
     }
 }
 
@@ -1408,29 +1412,42 @@ void refraxInsertAndSetMinID(rax *refrax, streamID *id, streamID *min_id) {
  * reference counting rax, and updates the minimal (first) parameter. */
 void refraxRemoveAndSetMinID(rax *refrax, streamID *id, streamID *min_id) {
     unsigned char key[sizeof(streamID)];
-    void *data;
+    int exists;
     size_t value;
+    void *new, *old;
 
+    /* We can't use raxFind here, because there's a chance that our counters
+     * will eventually reach the 'raxNotFound' address. Instead, we'll try
+     * inserting a new key, and update or remove the existing upon failure.
+     * In the rare case that this is called with a non-existing key, we'll add
+     * and immediately remove the key. */
+    value = 1;
+    new = (void *)value;
     streamEncodeID(key,id);
-    data = raxFind(refrax,key,sizeof(streamID));
-    if (data == raxNotFound) {
-        return;
+    exists = raxTryInsert(refrax,key,sizeof(streamID),new,&old);
+
+    if (exists) {
+        value = (size_t)old;
     }
 
-    value = (size_t)data;
     if (value == 1) {
+        /* The key is no lenger referenced and can be removed. */
         raxRemove(refrax,key,sizeof(streamID),NULL);
-        int cmp = streamCompareID(id,min_id);
-        serverAssert(cmp >= 0);
-        if (streamCompareID(id,min_id) == 0) {
-            refraxGetEdge(refrax,1,min_id);
+        if (exists) {
+            /* In case the removed ID was the minimal ID, we need to retrieve
+             * and set the new one. */
+            int cmp = streamCompareID(id,min_id);
+            serverAssert(cmp >= 0);
+            if (streamCompareID(id,min_id) == 0) {
+                refraxGetEdge(refrax,1,min_id);
+            }
         }
-        return;
+    } else {
+        /* Decrement the reference counter by 1. */
+        value--;
+        new = (void *)value;
+        raxInsert(refrax,key,sizeof(streamID),new,NULL);
     }
-
-    value--;
-    data = (void *)value;
-    raxInsert(refrax,key,sizeof(streamID),data,NULL);
 }
 
 /* As a result of an explicit XCLAIM or XREADGROUP command, new entries
