@@ -81,9 +81,9 @@ void freeStream(stream *s) {
     if (s->cgroups)
         raxFreeWithCallback(s->cgroups,(void(*)(void*))streamFreeCG);
     if (s->cgpels)
-        raxFreeWithCallback(s->cgpels,zfree);
+        raxFreeWithCallback(s->cgpels,NULL);
     if (s->cglasts)
-        raxFreeWithCallback(s->cglasts,zfree);
+        raxFreeWithCallback(s->cglasts,NULL);
     zfree(s);
 }
 
@@ -1384,31 +1384,32 @@ void refraxGetEdge(rax *refrax, int first, streamID *id) {
 void refraxInsertAndSetMinID(rax *refrax, streamID *id, streamID *min_id) {
     unsigned char key[sizeof(streamID)];
     void *data;
-    int *value;
+    size_t value;
 
     streamEncodeID(key,id);
     data = raxFind(refrax,key,sizeof(streamID));
     if (data == raxNotFound) {
-        value = zmalloc(sizeof(int));
-        *value = 1;
-        raxInsert(refrax,key,sizeof(streamID),value,NULL);
+        value = 1;
+        data = (void *)value;
+        raxInsert(refrax,key,sizeof(streamID),data,NULL);
         if (streamIDEqZero(min_id) || streamCompareID(id,min_id) < 0) {
             min_id->ms = id->ms;
             min_id->seq = id->seq;
         }
     } else {
-        value = data;
-        *value = *value + 1;
-        raxInsert(refrax,key,sizeof(streamID),value,NULL);
+        value = (size_t)data;
+        value++;
+        data = (void *)value;
+        raxInsert(refrax,key,sizeof(streamID),data,NULL);
     }
 }
 
-/* Decrements/removes the key from the reference counting rax, and updates the
- * minimal (first) parameter. */
+/* Decrements or removes (when the reference count is zeroed) the key from the
+ * reference counting rax, and updates the minimal (first) parameter. */
 void refraxRemoveAndSetMinID(rax *refrax, streamID *id, streamID *min_id) {
     unsigned char key[sizeof(streamID)];
     void *data;
-    int *value;
+    size_t value;
 
     streamEncodeID(key,id);
     data = raxFind(refrax,key,sizeof(streamID));
@@ -1416,10 +1417,9 @@ void refraxRemoveAndSetMinID(rax *refrax, streamID *id, streamID *min_id) {
         return;
     }
 
-    value = data;
-    if (*value == 1) {
+    value = (size_t)data;
+    if (value == 1) {
         raxRemove(refrax,key,sizeof(streamID),NULL);
-        zfree(data);
         int cmp = streamCompareID(id,min_id);
         serverAssert(cmp >= 0);
         if (streamCompareID(id,min_id) == 0) {
@@ -1428,8 +1428,9 @@ void refraxRemoveAndSetMinID(rax *refrax, streamID *id, streamID *min_id) {
         return;
     }
 
-    *value = *value - 1;
-    raxInsert(refrax,key,sizeof(streamID),value,NULL);
+    value--;
+    data = (void *)value;
+    raxInsert(refrax,key,sizeof(streamID),data,NULL);
 }
 
 /* As a result of an explicit XCLAIM or XREADGROUP command, new entries
