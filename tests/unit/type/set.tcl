@@ -847,7 +847,7 @@ start_server {
         r exec
         set res [r scard dstset{t}]
         assert_equal $res 2
-        r2 close
+        $r2 close
     }
 
     tags {slow} {
