@@ -33,6 +33,7 @@
 #include <stdint.h>
 #include <unistd.h>
 #include <assert.h>
+#include <sys/mman.h>
 
 /* This function provide us access to the original libc free(). This is useful
  * for instance to free results obtained by backtrace_symbols(). We need
@@ -339,9 +340,12 @@ void zmalloc_set_oom_handler(void (*oom_handler)(size_t)) {
 void zmadvise_dontneed(void *ptr) {
     if (ptr == NULL) return;
 #if defined(USE_JEMALLOC)
+    static size_t page_size = 0;
+    if (page_size == 0) page_size = sysconf(_SC_PAGESIZE);
+    size_t page_size_mask = page_size - 1;
+
     size_t real_size = zmalloc_size(ptr);
-    if (real_size < server.page_size) return;
-    size_t page_size_mask = server.page_size - 1;
+    if (real_size < page_size) return;
 
     /* We need to align the pointer upwards according to page size, because
      * the memory address is increased upwards and we only can free memory
@@ -349,7 +353,7 @@ void zmadvise_dontneed(void *ptr) {
     char *aligned_ptr = (char *)(((size_t)ptr+page_size_mask) &
                         ~page_size_mask);
     real_size -= (aligned_ptr-(char*)ptr);
-    if (real_size >= server.page_size) {
+    if (real_size >= page_size) {
         madvise((void *)aligned_ptr, real_size&~page_size_mask, MADV_DONTNEED);
     }
 #endif
