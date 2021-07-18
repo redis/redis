@@ -488,7 +488,7 @@ unsigned long zslGetRank(zskiplist *zsl, double score, sds ele) {
         }
 
         /* x might be equal to zsl->header, so test if obj is non-NULL */
-        if (x->ele && sdscmp(x->ele,ele) == 0) {
+        if (x->ele && x->score == score && sdscmp(x->ele,ele) == 0) {
             return rank;
         }
     }
