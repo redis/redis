@@ -499,7 +499,10 @@ int checkAlreadyExpired(long long when) {
  * for *AT variants of the command, or the current time for relative expires).
  *
  * unit is either UNIT_SECONDS or UNIT_MILLISECONDS, and is only used for
- * the argv[2] parameter. The basetime is always specified in milliseconds. */
+ * the argv[2] parameter. The basetime is always specified in milliseconds.
+ *
+ * Optional arguments supported:
+ * - NX: only set when no previous expiry set. */
 void expireGenericCommand(client *c, long long basetime, int unit) {
     robj *key = c->argv[1], *param = c->argv[2];
     long long when; /* unix time in milliseconds when the key will expire. */

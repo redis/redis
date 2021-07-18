@@ -601,4 +601,44 @@ start_server {tags {"expire"}} {
            {del foo}
         }
     } {} {needs:repl}
+
+    test {EXPIRE with NX option on a key with ttl} {
+        r SET foo bar EX 100
+        r EXPIRE foo 200 NX
+    } {0}
+
+    test {EXPIRE with NX option on a key without ttl} {
+        r SET foo bar
+        r EXPIRE foo 200 NX
+    } {1}
+
+    test {EXPIREAT with NX option on a key with ttl} {
+        r SET foo bar EX 100
+        r EXPIREAT foo 200 NX
+    } {0}
+
+    test {EXPIREAT with NX option on a key without ttl} {
+        r SET foo bar
+        r EXPIREAT foo 200 NX
+    } {1}
+
+    test {PEXPIRE with NX option on a key with ttl} {
+        r SET foo bar EX 100
+        r PEXPIRE foo 200 NX
+    } {0}
+
+    test {PEXPIRE with NX option on a key without ttl} {
+        r SET foo bar
+        r PEXPIRE foo 200 NX
+    } {1}
+
+    test {PEXPIREAT with NX option on a key with ttl} {
+        r SET foo bar EX 100
+        r PEXPIREAT foo 200 NX
+    } {0}
+
+    test {PEXPIREAT with NX option on a key without ttl} {
+        r SET foo bar
+        r PEXPIREAT foo 200 NX
+    } {1}
 }
