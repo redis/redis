@@ -489,6 +489,26 @@ int checkAlreadyExpired(long long when) {
     return (when <= mstime() && !server.loading && !server.masterhost);
 }
 
+#define FLAG_NO_FLAGS 0
+#define FLAG_NX (1<<0)
+
+/* Parse additional flags of expire commands
+ *
+ * Supported flags:
+ * - NX: set expiry only when the key has no expiry */
+void parseExtendedExpireArguments(client *c, int *flags) {
+    // command index
+    int j = 3;
+
+    for (; j < c->argc; j++) {
+        char *a = c->argv[j]->ptr;
+        if ((a[0] == 'n' || a[0] == 'N') &&
+            (a[1] == 'x' || a[1] == 'X') && a[2] == '\0') {
+            *flags |= FLAG_NX;
+        }
+    }
+}
+
 /*-----------------------------------------------------------------------------
  * Expires Commands
  *----------------------------------------------------------------------------*/
@@ -507,16 +527,10 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
     robj *key = c->argv[1], *param = c->argv[2];
     long long when; /* unix time in milliseconds when the key will expire. */
     long long current_expire = -1;
-    int nx = 0, j;
+    int flag = 0;
 
-    /* checking nx option */
-    for (j=3; j<c->argc; j++) {
-        char *a = c->argv[j]->ptr;
-        if ((a[0] == 'n' || a[0] == 'N') &&
-            (a[1] == 'x' || a[1] == 'X') && a[2] == '\0') {
-            nx = 1;
-        }
-    }
+    /* checking optional flags */
+    parseExtendedExpireArguments(c, &flag);
 
     if (getLongLongFromObjectOrReply(c, param, &when, NULL) != C_OK)
         return;
@@ -536,7 +550,7 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
     }
 
     /* NX option is set, check current expiry */
-    if (nx == 1) {
+    if (flag & FLAG_NX) {
         current_expire = getExpire(c->db, key);
         if (current_expire != -1) {
             addReply(c,shared.czero);
