@@ -5,7 +5,7 @@
 #include <stddef.h>
 
 typedef struct ReplyParser {
-    /* The current location on the reply buffer, need to set to the beginning of the reply */
+    /* The current location in the reply buffer, need to be set to the beginning of the reply */
     const char *curr_location;
 
     /* Called when the parser reaches an empty mbulk ('*-1') */
@@ -35,7 +35,7 @@ typedef struct ReplyParser {
     /* Called when the parser reach a map ('%'), the map size is given as an argument*/
     void (*map_callback)(struct ReplyParser *parser, void *ctx, size_t len, const char *proto);
 
-    /* Called when the parser reach a bool ('#'), the boolean value is given as an argument*/
+    /* Called when the parser reach a bool ('#'), the Boolean value is given as an argument*/
     void (*bool_callback)(void *ctx, int val, const char *proto, size_t proto_len);
 
     /* Called when the parser reach a double (','), the double value is given as an argument*/
@@ -47,10 +47,10 @@ typedef struct ReplyParser {
     /* Called when the parser reaches a string, the value is given as an argument */
     void (*verbatim_string_callback)(void *ctx, const char *format, const char *str, size_t len, const char *proto, size_t proto_len);
 
-    /* Called when the parser reach an attribute ('|'), the attribute map size is given as an argument*/
+    /* Called when the parser reaches an attribute ('|'), the attribute map size is given as an argument*/
     void (*attribute_callback)(struct ReplyParser *parser, void *ctx, size_t len, const char *proto);
 
-    /* Called when the parser reach a null ('_') */
+    /* Called when the parser reaches a null ('_') */
     void (*null_callback)(void *ctx, const char *proto, size_t proto_len);
 
     void (*error)(void *ctx);

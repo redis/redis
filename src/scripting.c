@@ -284,16 +284,16 @@ static void redisProtocolToLuaType_Array(struct ReplyParser *parser, void *ctx, 
 static void redisProtocolToLuaType_Attribute(struct ReplyParser *parser, void *ctx, size_t len, const char *proto) {
     UNUSED(proto);
 
-    /* parse the attributer reply,
-     * currently we do not expose the attribute to the Lua script so
-     * we just need to continue parsing and ignore it (NULL make sure the
+    /* Parse the attribute reply.
+     * Currently, we do not expose the attribute to the Lua script so
+     * we just need to continue parsing and ignore it (the NULL ensures that the
      * reply will be ignored). */
     for (size_t j = 0; j < len; j++) {
         parseReply(parser,NULL);
         parseReply(parser,NULL);
     }
 
-    /* parse the reply itself */
+    /* Parse the reply itself. */
     parseReply(parser,ctx);
 }
 

@@ -2,17 +2,17 @@
 #include "server.h"
 
 /* ----------------------------------------------------------------------------------------
- * A resp parser used to parse replies returned by RM_Call or Lua redis.call.
- * The parser introduce callbacks that needs to be set by the user. Each callback
+ * A RESP parser for parsing replies returned by RM_Call or Lua's 'redis.call()'.
+ * The parser introduces callbacks that need to be set by the user. Each callback
  * represents a different reply type. Each callback gets a p_ctx that was given
- * to the parseReply function. The callbacks also give the protocol (underline blob)
+ * to the parseReply function. The callbacks also give the protocol (underlying blob)
  * of the current reply and the size.
  *
  * 3 special callbacks also get the parser object itself (array_callback, set_callback,
  * map_callback). This is because it's their responsibility to continue the parsing by
  * calling parseReply. When the user continues parsing he can give a different p_ctx
- * (this is used by CallReply to give the nested reply as the p_ctx). Also notice that
- * those 3 callbacks do not get the proto len, this is because When calling those
+ * (this is used by CallReply to give the nested reply as the p_ctx). Also, notice that
+ * those 3 callbacks do not get the proto len. This is because when calling those
  * callbacks the proto len is still unknown. the user can calculate the len after finish
  * parsing the entire collection.
  * ---------------------------------------------------------------------------------------- */
@@ -187,4 +187,3 @@ int parseReply(ReplyParser *parser, void *p_ctx) {
     }
     return C_OK;
 }
-

@@ -1687,20 +1687,19 @@ int RM_ReplyWithNull(RedisModuleCtx *ctx) {
  * same reply we obtained by the command.
  *
  * Return:
- * * REDISMODULE_OK On success returns .
- * * REDISMODULE_ERR if the given reply is in RESP3 format but the client expects RESP2
- *   In case of error, it's the module writer responsibility to translate the reply
- *   to RESP2 (or maybe handle it differently by returning an error). Notice that for
- *   module writer convenient, it is possible to pass `0` as a parameter to the fmt
+ * - REDISMODULE_OK on success.
+ * - REDISMODULE_ERR if the given reply is in RESP3 format but the client expects RESP2.
+ *   In case of an error, it's the module writer responsibility to translate the reply
+ *   to RESP2 (or handle it differently by returning an error). Notice that for
+ *   module writer convenience, it is possible to pass `0` as a parameter to the fmt
  *   argument of `RM_Call` so that the RedisModuleCallReply will return in the same
- *   format (RESP2 or RESP3) as the current client expects it.
- * */
+ *   protocol (RESP2 or RESP3) as set in the current client's context. */
 int RM_ReplyWithCallReply(RedisModuleCtx *ctx, RedisModuleCallReply *reply) {
     client *c = moduleGetReplyClient(ctx);
     if (c == NULL) return REDISMODULE_OK;
     if (c->resp == 2 && callReplyIsResp3(reply)) {
-        /* reply is in resp3 format and the client is resp2,
-         * it is not possible to send this reply to the client */
+        /* The reply is in RESP3 format and the client is RESP2,
+         * so it isn't possible to send this reply to the client. */
         return REDISMODULE_ERR;
     }
     size_t proto_len;
@@ -3826,12 +3825,12 @@ const char* RM_CallReplyBigNumber(RedisModuleCallReply *reply, size_t *len) {
 }
 
 /* Return the value of an verbatim string reply,
- * An optional output argument can be given to get verbatim reply format */
+ * An optional output argument can be given to get verbatim reply format. */
 const char* RM_CallReplyVerbatim(RedisModuleCallReply *reply, size_t *len, const char **format) {
     return callReplyGetVerbatim(reply, len, format);
 }
 
-/* Return the boolean value of an boolean reply. */
+/* Return the Boolean value of a Boolean reply. */
 int RM_CallReplyBool(RedisModuleCallReply *reply) {
     return callReplyGetBool(reply);
 }
@@ -3844,7 +3843,7 @@ RedisModuleCallReply *RM_CallReplySetElement(RedisModuleCallReply *reply, size_t
 
 /* Retrieve the 'idx'-th key and value of a map reply, return REDISMODULE_OK on succuess
  * and REDISMODULE_ERR if idx out of range or if the reply type is wrong.
- * `key` and `val` are output parameters (can be NULL if note needed) */
+ * `key` and `val` are output parameters (can be set to NULL if not needed). */
 int RM_CallReplyMapElement(RedisModuleCallReply *reply, size_t idx, RedisModuleCallReply **key, RedisModuleCallReply **val) {
     if (callReplyGetMapElement(reply, idx, key, val) == C_OK){
         return REDISMODULE_OK;
@@ -3859,7 +3858,7 @@ RedisModuleCallReply *RM_CallReplyAttribute(RedisModuleCallReply *reply) {
 
 /* Retrieve the 'idx'-th key and value of a attribute reply, return REDISMODULE_OK on succuess
  * and REDISMODULE_ERR if idx out of range or if the reply type is wrong.
-  * `key` and `val` are output parameters (can be NULL if note needed) */
+  * `key` and `val` are output parameters (can be set to NULL if note needed). */
 int RM_CallReplyAttributeElement(RedisModuleCallReply *reply, size_t idx, RedisModuleCallReply **key, RedisModuleCallReply **val) {
     if (callReplyGetAttributeElement(reply, idx, key, val) == C_OK){
         return REDISMODULE_OK;
@@ -4001,8 +4000,8 @@ fmterr:
  *     * `A` -- Suppress AOF propagation, send only to replicas (requires `!`).
  *     * `R` -- Suppress replicas propagation, send only to AOF (requires `!`).
  *     * `3` -- Return the reply in RESP3. This will change the command reply.
- *              e.g. HGETALL returns a map instead of flat array,
- *     * `0` -- Return the reply in auto mode. e.g. the reply format will be the
+ *              e.g. HGETALL returns a map instead of a flat array.
+ *     * `0` -- Return the reply in auto mode, i.e. the reply format will be the
  *              same as the client attached to the given RedisModuleCtx. This will
  *              probably used when you want to pass the reply directly to the client.
  * * **...**: The actual arguments to the Redis command.
@@ -4067,7 +4066,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     if (flags & REDISMODULE_ARGV_RESP_3) {
         c->resp = 3;
     } else if (flags & REDISMODULE_ARGV_RESP_AUTO) {
-        /* auto mode means to take the same protocol as the ctx client */
+        /* Auto mode means to take the same protocol as the ctx client. */
         c->resp = ctx->client->resp;
     }
     if (ctx->module) ctx->module->in_call++;
