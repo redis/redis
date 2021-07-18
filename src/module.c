@@ -7551,7 +7551,7 @@ int RM_CommandFilterArgsCount(RedisModuleCommandFilterCtx *fctx)
 /* Return the specified command argument.  The first argument (position 0) is
  * the command itself, and the rest are user-provided args.
  */
-const RedisModuleString *RM_CommandFilterArgGet(RedisModuleCommandFilterCtx *fctx, int pos)
+RedisModuleString *RM_CommandFilterArgGet(RedisModuleCommandFilterCtx *fctx, int pos)
 {
     if (pos < 0 || pos >= fctx->argc) return NULL;
     return fctx->argv[pos];
