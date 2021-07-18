@@ -521,8 +521,7 @@ void parseExtendedExpireArguments(client *c, int *flags) {
  * unit is either UNIT_SECONDS or UNIT_MILLISECONDS, and is only used for
  * the argv[2] parameter. The basetime is always specified in milliseconds.
  *
- * Optional arguments supported:
- * - NX: only set when no previous expiry set. */
+ * Additional flags are supported parsed via parseExtendedExpireArguments */
 void expireGenericCommand(client *c, long long basetime, int unit) {
     robj *key = c->argv[1], *param = c->argv[2];
     long long when; /* unix time in milliseconds when the key will expire. */
