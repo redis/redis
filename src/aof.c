@@ -1456,7 +1456,6 @@ int rewriteAppendOnlyFileRio(rio *aof) {
     int j;
     long key_count = 0;
     long long updated_time = 0;
-    int is_child = getpid() != server.pid;
 
     for (j = 0; j < server.dbnum; j++) {
         char selectcmd[] = "*2\r\n$6\r\nSELECT\r\n";
@@ -1507,7 +1506,7 @@ int rewriteAppendOnlyFileRio(rio *aof) {
 
             /* We can try to release memory quickly to avoid COW
              * in the child process. */
-            if (is_child) unusedObject(o);
+            if (server.in_fork_child) dontNeedObject(o);
 
             /* Save the expire time */
             if (expiretime != -1) {

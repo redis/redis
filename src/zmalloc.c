@@ -335,6 +335,26 @@ void zmalloc_set_oom_handler(void (*oom_handler)(size_t)) {
     zmalloc_oom_handler = oom_handler;
 }
 
+/* Use 'MADV_DONTNEED' to release memory to operation system quickly. */
+void zmadvise_dontneed(void *ptr) {
+    if (ptr == NULL) return;
+#if defined(USE_JEMALLOC)
+    size_t real_size = zmalloc_size(ptr);
+    if (real_size < server.page_size) return;
+    size_t page_size_mask = server.page_size - 1;
+
+    /* We need to align the pointer upwards according to page size, because
+     * the memory address is increased upwards and we only can free memory
+     * based on page. */
+    char *aligned_ptr = (char *)(((size_t)ptr+page_size_mask) &
+                        ~page_size_mask);
+    real_size -= (aligned_ptr-(char*)ptr);
+    if (real_size >= server.page_size) {
+        madvise((void *)aligned_ptr, real_size&~page_size_mask, MADV_DONTNEED);
+    }
+#endif
+}
+
 /* Get the RSS information in an OS-specific way.
  *
  * WARNING: the function zmalloc_get_rss() is not designed to be fast

@@ -1965,7 +1965,7 @@ void freeListObject(robj *o);
 void freeSetObject(robj *o);
 void freeZsetObject(robj *o);
 void freeHashObject(robj *o);
-void unusedObject(robj *o);
+void dontNeedObject(robj *o);
 robj *createObject(int type, void *ptr);
 robj *createStringObject(const char *ptr, size_t len);
 robj *createRawStringObject(const char *ptr, size_t len);
@@ -2248,8 +2248,8 @@ int setOOMScoreAdj(int process_class);
 void rejectCommandFormat(client *c, const char *fmt, ...);
 void *activeDefragAlloc(void *ptr);
 robj *activeDefragStringOb(robj* ob, long *defragged);
-void redisUnusedMemory(void *ptr);
-void redisUnusedMemoryInChild(void);
+void dontNeedMemory(void* ptr);
+void dontNeedMemoryInChild(void);
 
 #define RESTART_SERVER_NONE 0
 #define RESTART_SERVER_GRACEFULLY (1<<0)     /* Do proper shutdown. */

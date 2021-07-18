@@ -5861,7 +5861,7 @@ int redisFork(int purpose) {
     if ((childpid = fork()) == 0) {
         /* Child */
         server.in_fork_child = purpose;
-        redisUnusedMemoryInChild();
+        dontNeedMemoryInChild();
         setOOMScoreAdj(CONFIG_OOM_BGCHILD);
         setupChildSignalHandlers();
         closeChildUnusedResourceAfterFork();
@@ -5909,30 +5909,14 @@ void sendChildInfo(childInfoType info_type, size_t keys, char *pname) {
     sendChildInfoGeneric(info_type, keys, -1, pname);
 }
 
-/* Use 'MADV_DONTNEED' to release memory to operation system quickly. */
-void redisUnusedMemory(void *ptr) {
-#if HAVE_MALLOC_SIZE
-    /* madvise(MADV_DONTNEED) may not work if enabled Transparent Huge Pages. */
+void dontNeedMemory(void* ptr) {
+    /* madvise(MADV_DONTNEED) may not work if we enable
+     * Transparent Huge Pages. */
     if (server.thp_enabled == 1) return;
-    if (ptr == NULL) return;
-
-    size_t real_size = zmalloc_size(ptr);
-    if (real_size < server.page_size) return;
-    size_t page_size_mask = server.page_size - 1;
-
-    /* We need to align the pointer upwards according to page size, because
-     * the memory address is increased upwards and we only can free memory
-     * based on page. */
-    char *aligned_ptr = (char *)(((size_t)ptr+page_size_mask) &
-                        ~page_size_mask);
-    real_size -= (aligned_ptr-(char*)ptr);
-    if (real_size >= server.page_size) {
-        madvise((void *)aligned_ptr, real_size&~page_size_mask, MADV_DONTNEED);
-    }
-#endif
+    zmadvise_dontneed(ptr);
 }
 
-void unusedClientMemory(client *c) {
+void dontNeedClientMemory(client *c) {
     listIter li;
     listNode *ln;
     listRewind(c->reply, &li);
@@ -5940,19 +5924,19 @@ void unusedClientMemory(client *c) {
         void *bulk = listNodeValue(ln);
         /* Default bulk size is 16k, actually it has extra data, maybe it
          * occupies 20k according to jemalloc bin size if using jemalloc. */
-        if (bulk) redisUnusedMemory(bulk);
+        if (bulk) dontNeedMemory(bulk);
     }
 
     /* The 'client' is a bit big because it has 16k default reply buffer. */
-    redisUnusedMemory(c);
+    dontNeedMemory(c);
 }
 
 /* In child process, we don't need some memory, but it is much possible
  * to change them because clients' heavy requests. We can free them ASAP. */
-void redisUnusedMemoryInChild(void) {
+void dontNeedMemoryInChild(void) {
     /* Replication backlog. */
     if (server.repl_backlog != NULL) {
-        redisUnusedMemory(server.repl_backlog);
+        dontNeedMemory(server.repl_backlog);
     }
 
     /* All clients memory. */
@@ -5961,7 +5945,7 @@ void redisUnusedMemoryInChild(void) {
     listRewind(server.clients, &li);
     while((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
-        unusedClientMemory(c);
+        dontNeedClientMemory(c);
     }
 }
 

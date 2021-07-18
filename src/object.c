@@ -377,63 +377,63 @@ void decrRefCount(robj *o) {
     }
 }
 
-void unusedStringObject(robj *o) {
+void dontNeedStringObject(robj *o) {
     if (o->encoding == OBJ_ENCODING_RAW) {
-        redisUnusedMemory(sdsAllocPtr(o->ptr));
+        dontNeedMemory(sdsAllocPtr(o->ptr));
     }
 }
 
-void unusedSetObject(robj *o) {
+void dontNeedSetObject(robj *o) {
     switch (o->encoding) {
     case OBJ_ENCODING_HT:
-        redisUnusedMemory(((dict*)o->ptr)->ht[0].table);
-        redisUnusedMemory(((dict*)o->ptr)->ht[1].table);
+        dontNeedMemory(((dict*)o->ptr)->ht[0].table);
+        dontNeedMemory(((dict*)o->ptr)->ht[1].table);
         break;
     case OBJ_ENCODING_INTSET:
-        redisUnusedMemory(o->ptr);
+        dontNeedMemory(o->ptr);
         break;
     default:
         serverPanic("Unknown set encoding type");
     }
 }
 
-void unusedZsetObject(robj *o) {
+void dontNeedZsetObject(robj *o) {
     zset *zs;
     switch (o->encoding) {
     case OBJ_ENCODING_SKIPLIST:
         zs = o->ptr;
-        redisUnusedMemory(zs->dict->ht[0].table);
-        redisUnusedMemory(zs->dict->ht[1].table);
+        dontNeedMemory(zs->dict->ht[0].table);
+        dontNeedMemory(zs->dict->ht[1].table);
         break;
     case OBJ_ENCODING_ZIPLIST:
-        redisUnusedMemory(o->ptr);
+        dontNeedMemory(o->ptr);
         break;
     default:
         serverPanic("Unknown sorted set encoding");
     }
 }
 
-void unusedHashObject(robj *o) {
+void dontNeedHashObject(robj *o) {
     switch (o->encoding) {
     case OBJ_ENCODING_HT:
-        redisUnusedMemory(((dict*)o->ptr)->ht[0].table);
-        redisUnusedMemory(((dict*)o->ptr)->ht[1].table);
+        dontNeedMemory(((dict*)o->ptr)->ht[0].table);
+        dontNeedMemory(((dict*)o->ptr)->ht[1].table);
         break;
     case OBJ_ENCODING_ZIPLIST:
-        redisUnusedMemory(o->ptr);
+        dontNeedMemory(o->ptr);
         break;
     default:
         serverPanic("Unknown hash encoding type");
     }
 }
 
-void unusedObject(robj *o) {
+void dontNeedObject(robj *o) {
     if (o->refcount != 1) return;
     switch(o->type) {
-        case OBJ_STRING: unusedStringObject(o); break;
-        case OBJ_SET: unusedSetObject(o); break;
-        case OBJ_ZSET: unusedZsetObject(o); break;
-        case OBJ_HASH: unusedHashObject(o); break;
+        case OBJ_STRING: dontNeedStringObject(o); break;
+        case OBJ_SET: dontNeedSetObject(o); break;
+        case OBJ_ZSET: dontNeedZsetObject(o); break;
+        case OBJ_HASH: dontNeedHashObject(o); break;
         default: break;
     }
 }
