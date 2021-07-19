@@ -1149,7 +1149,7 @@ static int rioWriteHashIteratorCursor(rio *r, hashTypeIterator *hi, int what) {
         unsigned int vlen = UINT_MAX;
         long long vll = LLONG_MAX;
 
-        hashTypeCurrentFromZiplist(hi, what, &vstr, &vlen, &vll);
+        hashTypeCurrentFromListpack(hi, what, &vstr, &vlen, &vll);
         if (vstr)
             return rioWriteBulkString(r, (char*)vstr, vlen);
         else

@@ -2331,10 +2331,10 @@ unsigned long hashTypeLength(const robj *o);
 hashTypeIterator *hashTypeInitIterator(robj *subject);
 void hashTypeReleaseIterator(hashTypeIterator *hi);
 int hashTypeNext(hashTypeIterator *hi);
-void hashTypeCurrentFromZiplist(hashTypeIterator *hi, int what,
-                                unsigned char **vstr,
-                                unsigned int *vlen,
-                                long long *vll);
+void hashTypeCurrentFromListpack(hashTypeIterator *hi, int what,
+                                 unsigned char **vstr,
+                                 unsigned int *vlen,
+                                 long long *vll);
 sds hashTypeCurrentFromHashTable(hashTypeIterator *hi, int what);
 void hashTypeCurrentObject(hashTypeIterator *hi, int what, unsigned char **vstr, unsigned int *vlen, long long *vll);
 sds hashTypeCurrentObjectNewSds(hashTypeIterator *hi, int what);

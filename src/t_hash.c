@@ -35,7 +35,7 @@
  *----------------------------------------------------------------------------*/
 
 /* Check the length of a number of objects to see if we need to convert a
- * ziplist to a real hash. Note that we only check string encoded objects
+ * listpack to a real hash. Note that we only check string encoded objects
  * as their string length can be queried in constant time. */
 void hashTypeTryConversion(robj *o, robj **argv, int start, int end) {
     int i;
@@ -52,12 +52,12 @@ void hashTypeTryConversion(robj *o, robj **argv, int start, int end) {
     }
 }
 
-/* Get the value from a ziplist encoded hash, identified by field.
+/* Get the value from a listpack encoded hash, identified by field.
  * Returns -1 when the field cannot be found. */
-int hashTypeGetFromZiplist(robj *o, sds field,
-                           unsigned char **vstr,
-                           unsigned int *vlen,
-                           long long *vll)
+int hashTypeGetFromListpack(robj *o, sds field,
+                            unsigned char **vstr,
+                            unsigned int *vlen,
+                            long long *vll)
 {
     unsigned char *zl, *fptr = NULL, *vptr = NULL;
     int64_t ele_len;
@@ -113,7 +113,7 @@ sds hashTypeGetFromHashTable(robj *o, sds field) {
 int hashTypeGetValue(robj *o, sds field, unsigned char **vstr, unsigned int *vlen, long long *vll) {
     if (o->encoding == OBJ_ENCODING_LISTPACK) {
         *vstr = NULL;
-        if (hashTypeGetFromZiplist(o, field, vstr, vlen, vll) == 0)
+        if (hashTypeGetFromListpack(o, field, vstr, vlen, vll) == 0)
             return C_OK;
     } else if (o->encoding == OBJ_ENCODING_HT) {
         sds value;
@@ -152,7 +152,7 @@ size_t hashTypeGetValueLength(robj *o, sds field) {
         unsigned int vlen = UINT_MAX;
         long long vll = LLONG_MAX;
 
-        if (hashTypeGetFromZiplist(o, field, &vstr, &vlen, &vll) == 0)
+        if (hashTypeGetFromListpack(o, field, &vstr, &vlen, &vll) == 0)
             len = vstr ? vlen : sdigits10(vll);
     } else if (o->encoding == OBJ_ENCODING_HT) {
         sds aux;
@@ -173,7 +173,7 @@ int hashTypeExists(robj *o, sds field) {
         unsigned int vlen = UINT_MAX;
         long long vll = LLONG_MAX;
 
-        if (hashTypeGetFromZiplist(o, field, &vstr, &vlen, &vll) == 0) return 1;
+        if (hashTypeGetFromListpack(o, field, &vstr, &vlen, &vll) == 0) return 1;
     } else if (o->encoding == OBJ_ENCODING_HT) {
         if (hashTypeGetFromHashTable(o, field) != NULL) return 1;
     } else {
@@ -226,13 +226,13 @@ int hashTypeSet(robj *o, sds field, sds value, int flags) {
         }
 
         if (!update) {
-            /* Push new field/value pair onto the tail of the ziplist */
+            /* Push new field/value pair onto the tail of the listpack */
             zl = lpAppend(zl, (unsigned char*)field, sdslen(field));
             zl = lpAppend(zl, (unsigned char*)value, sdslen(value));
         }
         o->ptr = zl;
 
-        /* Check if the ziplist needs to be converted to a hash table */
+        /* Check if the listpack needs to be converted to a hash table */
         if (hashTypeLength(o) > server.hash_max_ziplist_entries)
             hashTypeConvert(o, OBJ_ENCODING_HT);
     } else if (o->encoding == OBJ_ENCODING_HT) {
@@ -380,11 +380,11 @@ int hashTypeNext(hashTypeIterator *hi) {
 }
 
 /* Get the field or value at iterator cursor, for an iterator on a hash value
- * encoded as a ziplist. Prototype is similar to `hashTypeGetFromZiplist`. */
-void hashTypeCurrentFromZiplist(hashTypeIterator *hi, int what,
-                                unsigned char **vstr,
-                                unsigned int *vlen,
-                                long long *vll)
+ * encoded as a listpack. Prototype is similar to `hashTypeGetFromListpack`. */
+void hashTypeCurrentFromListpack(hashTypeIterator *hi, int what,
+                                 unsigned char **vstr,
+                                 unsigned int *vlen,
+                                 long long *vll)
 {
     int64_t ele_len;
 
@@ -429,7 +429,7 @@ sds hashTypeCurrentFromHashTable(hashTypeIterator *hi, int what) {
 void hashTypeCurrentObject(hashTypeIterator *hi, int what, unsigned char **vstr, unsigned int *vlen, long long *vll) {
     if (hi->encoding == OBJ_ENCODING_LISTPACK) {
         *vstr = NULL;
-        hashTypeCurrentFromZiplist(hi, what, vstr, vlen, vll);
+        hashTypeCurrentFromListpack(hi, what, vstr, vlen, vll);
     } else if (hi->encoding == OBJ_ENCODING_HT) {
         sds ele = hashTypeCurrentFromHashTable(hi, what);
         *vstr = (unsigned char*) ele;
@@ -717,12 +717,12 @@ int hashListpackValidateIntegrity(unsigned char *lp, size_t size, int deep) {
     return ret;
 }
 
-/* Create a new sds string from the ziplist entry. */
+/* Create a new sds string from the listpack entry. */
 sds hashSdsFromListpackEntry(listpackEntry *e) {
     return e->sval ? sdsnewlen(e->sval, e->slen) : sdsfromlonglong(e->lval);
 }
 
-/* Reply with bulk string from the ziplist entry. */
+/* Reply with bulk string from the listpack entry. */
 void hashReplyFromListpackEntry(client *c, listpackEntry *e) {
     if (e->sval)
         addReplyBulkCBuffer(c, e->sval, e->slen);
@@ -898,7 +898,7 @@ static void addHashFieldToReply(client *c, robj *o, sds field) {
         unsigned int vlen = UINT_MAX;
         long long vll = LLONG_MAX;
 
-        ret = hashTypeGetFromZiplist(o, field, &vstr, &vlen, &vll);
+        ret = hashTypeGetFromListpack(o, field, &vstr, &vlen, &vll);
         if (ret < 0) {
             addReplyNull(c);
         } else {
@@ -995,7 +995,7 @@ static void addHashIteratorCursorToReply(client *c, hashTypeIterator *hi, int wh
         unsigned int vlen = UINT_MAX;
         long long vll = LLONG_MAX;
 
-        hashTypeCurrentFromZiplist(hi, what, &vstr, &vlen, &vll);
+        hashTypeCurrentFromListpack(hi, what, &vstr, &vlen, &vll);
         if (vstr)
             addReplyBulkCBuffer(c, vstr, vlen);
         else
@@ -1076,7 +1076,7 @@ void hscanCommand(client *c) {
     scanGenericCommand(c,o,cursor);
 }
 
-static void harndfieldReplyWithZiplist(client *c, unsigned int count, listpackEntry *keys, listpackEntry *vals) {
+static void harndfieldReplyWithListpack(client *c, unsigned int count, listpackEntry *keys, listpackEntry *vals) {
     for (unsigned long i = 0; i < count; i++) {
         if (vals && c->resp > 2)
             addReplyArrayLen(c,2);
@@ -1159,7 +1159,7 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
                 sample_count = count > limit ? limit : count;
                 count -= sample_count;
                 lpRandomPairs(hash->ptr, sample_count, keys, vals);
-                harndfieldReplyWithZiplist(c, sample_count, keys, vals);
+                harndfieldReplyWithListpack(c, sample_count, keys, vals);
             }
             zfree(keys);
             zfree(vals);
@@ -1255,13 +1255,13 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
     else {
         if (hash->encoding == OBJ_ENCODING_LISTPACK) {
             /* it is inefficient to repeatedly pick one random element from a
-             * ziplist. so we use this instead: */
+             * listpack. so we use this instead: */
             listpackEntry *keys, *vals = NULL;
             keys = zmalloc(sizeof(listpackEntry)*count);
             if (withvalues)
                 vals = zmalloc(sizeof(listpackEntry)*count);
             serverAssert(lpRandomPairsUnique(hash->ptr, count, keys, vals) == count);
-            harndfieldReplyWithZiplist(c, count, keys, vals);
+            harndfieldReplyWithListpack(c, count, keys, vals);
             zfree(keys);
             zfree(vals);
             return;
