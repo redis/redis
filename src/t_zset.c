@@ -131,7 +131,7 @@ int zslRandomLevel(void) {
  * of the passed SDS string 'ele'. */
 zskiplistNode *zslInsert(zskiplist *zsl, double score, sds ele) {
     zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;
-    unsigned int rank[ZSKIPLIST_MAXLEVEL];
+    unsigned long rank[ZSKIPLIST_MAXLEVEL];
     int i, level;
 
     serverAssert(!isnan(score));

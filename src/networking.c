@@ -646,14 +646,13 @@ void setDeferredSetLen(client *c, void *node, long length) {
 }
 
 void setDeferredAttributeLen(client *c, void *node, long length) {
-    int prefix = c->resp == 2 ? '*' : '|';
-    if (c->resp == 2) length *= 2;
-    setDeferredAggregateLen(c,node,length,prefix);
+    serverAssert(c->resp >= 3);
+    setDeferredAggregateLen(c,node,length,'|');
 }
 
 void setDeferredPushLen(client *c, void *node, long length) {
-    int prefix = c->resp == 2 ? '*' : '>';
-    setDeferredAggregateLen(c,node,length,prefix);
+    serverAssert(c->resp >= 3);
+    setDeferredAggregateLen(c,node,length,'>');
 }
 
 /* Add a double as a bulk reply */
@@ -682,7 +681,7 @@ void addReplyDouble(client *c, double d) {
     }
 }
 
-void addReplyBigNum(client *c, const char *num, size_t len) {
+void addReplyBigNum(client *c, const char* num, size_t len) {
     if (c->resp == 2) {
         addReplyBulkCBuffer(c, num, len);
     } else {
@@ -763,14 +762,13 @@ void addReplySetLen(client *c, long length) {
 }
 
 void addReplyAttributeLen(client *c, long length) {
-    int prefix = c->resp == 2 ? '*' : '|';
-    if (c->resp == 2) length *= 2;
-    addReplyAggregateLen(c,length,prefix);
+    serverAssert(c->resp >= 3);
+    addReplyAggregateLen(c,length,'|');
 }
 
 void addReplyPushLen(client *c, long length) {
-    int prefix = c->resp == 2 ? '*' : '>';
-    addReplyAggregateLen(c,length,prefix);
+    serverAssert(c->resp >= 3);
+    addReplyAggregateLen(c,length,'>');
 }
 
 void addReplyNull(client *c) {
