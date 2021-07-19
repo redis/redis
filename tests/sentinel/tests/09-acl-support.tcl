@@ -40,7 +40,7 @@ test "SENTINEL CONFIG SET handles on-the-fly credentials reconfiguration" {
         assert_equal {OK} [S $id SENTINEL CONFIG SET sentinel-pass $::password]
     }
 
-    after 5000
+    after $::delay_milliseconds
     assert_match {*OK*} [S 1 SENTINEL CKQUORUM mymaster]
 }
 

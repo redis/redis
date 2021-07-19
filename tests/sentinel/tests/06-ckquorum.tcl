@@ -24,7 +24,7 @@ test "CKQUORUM detects failover authorization cannot be reached" {
         kill_instance sentinel [expr {$i + 1}]
     }
 
-    after 5000
+    after $::delay_milliseconds
     catch {[S 0 SENTINEL CKQUORUM mymaster]} err
     assert_match "*NOQUORUM*" $err
     S 0 SENTINEL SET mymaster quorum $orig_quorum
