@@ -582,9 +582,26 @@ start_server {
         assert {[lsort $union] eq [lsort $content]}
     }
 
+    test "SRANDMEMBER count of 0 is handled correctly" {
+        r srandmember myset 0
+    } {}
+
     test "SRANDMEMBER with <count> against non existing key" {
         r srandmember nonexisting_key 100
     } {}
+
+    # Make sure we can distinguish between an empty array and a null response
+    r readraw 1
+
+    test "SRANDMEMBER count of 0 is handled correctly - emptyarray" {
+        r srandmember myset 0
+    } {*0}
+
+    test "SRANDMEMBER with <count> against non existing key - emptyarray" {
+        r srandmember nonexisting_key 100
+    } {*0}
+
+    r readraw 0
 
     foreach {type contents} {
         hashtable {
@@ -810,6 +827,28 @@ start_server {
         r smove set{t} set{t} b
         lsort [r smembers set{t}]
     } {a b c}
+
+    test "SMOVE only notify dstset when the addition is successful" {
+        r del srcset{t}
+        r del dstset{t}
+
+        r sadd srcset{t} a b
+        r sadd dstset{t} a
+
+        r watch dstset{t}
+
+        r multi
+        r sadd dstset{t} c
+
+        set r2 [redis_client]
+        $r2 smove srcset{t} dstset{t} a
+
+        # The dstset is actually unchanged, multi should success
+        r exec
+        set res [r scard dstset{t}]
+        assert_equal $res 2
+        $r2 close
+    }
 
     tags {slow} {
         test {intsets implementation stress testing} {

@@ -131,7 +131,7 @@ int zslRandomLevel(void) {
  * of the passed SDS string 'ele'. */
 zskiplistNode *zslInsert(zskiplist *zsl, double score, sds ele) {
     zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;
-    unsigned int rank[ZSKIPLIST_MAXLEVEL];
+    unsigned long rank[ZSKIPLIST_MAXLEVEL];
     int i, level;
 
     serverAssert(!isnan(score));
@@ -4000,7 +4000,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
     int uniq = 1;
     robj *zsetobj;
 
-    if ((zsetobj = lookupKeyReadOrReply(c, c->argv[1], shared.null[c->resp]))
+    if ((zsetobj = lookupKeyReadOrReply(c, c->argv[1], shared.emptyarray))
         == NULL || checkType(c, zsetobj, OBJ_ZSET)) return;
     size = zsetLength(zsetobj);
 
@@ -4188,7 +4188,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
     zuiClearIterator(&src);
 }
 
-/* ZRANDMEMBER [<count> WITHSCORES] */
+/* ZRANDMEMBER key [<count> [WITHSCORES]] */
 void zrandmemberCommand(client *c) {
     long l;
     int withscores = 0;

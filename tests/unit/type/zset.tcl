@@ -1717,6 +1717,19 @@ start_server {tags {"zset"}} {
         r zrandmember nonexisting_key 100
     } {}
 
+    # Make sure we can distinguish between an empty array and a null response
+    r readraw 1
+
+    test "ZRANDMEMBER count of 0 is handled correctly - emptyarray" {
+        r zrandmember myzset 0
+    } {*0}
+
+    test "ZRANDMEMBER with <count> against non existing key - emptyarray" {
+        r zrandmember nonexisting_key 100
+    } {*0}
+
+    r readraw 0
+
     foreach {type contents} "
         skiplist {1 a 2 b 3 c 4 d 5 e 6 f 7 g 7 h 9 i 10 [randstring 70 90 alpha]}
         ziplist {1 a 2 b 3 c 4 d 5 e 6 f 7 g 7 h 9 i 10 j} " {
