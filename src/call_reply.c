@@ -210,31 +210,34 @@ void freeCallReply(CallReply *rep) {
     zfree(rep);
 }
 
-/* Parsing the buffer located on rep->original_proto as CallReply
- * using ReplyParser. */
+static const ReplyParser DefaultParser = {
+    .null_callback = callReplyNull,
+    .bulk_string_callback = callReplyBulkString,
+    .null_bulk_string_callback = callReplyNullBulkString,
+    .null_array_callback = callReplyNullArray,
+    .error_callback = callReplyError,
+    .simple_str_callback = callReplySimpleStr,
+    .long_callback = callReplyLong,
+    .array_callback = callReplyArray,
+    .set_callback = callReplySet,
+    .map_callback = callReplyMap,
+    .double_callback = callReplyDouble,
+    .bool_callback = callReplyBool,
+    .big_number_callback = callReplyBigNumber,
+    .verbatim_string_callback = callReplyVerbatimString,
+    .attribute_callback = callReplyAttribute,
+    .error = callReplyParseError,
+};
+
+/* Parse the buffer located in rep->original_proto and update the CallReply
+ * structure to represent its contents. */
 static void callReplyParse(CallReply *rep) {
     if (rep->flags & REPLY_FLAG_PARSED){
         return;
     }
 
-    ReplyParser parser;
+    ReplyParser parser = DefaultParser;
     parser.curr_location = rep->proto;
-    parser.null_callback = callReplyNull;
-    parser.bulk_string_callback = callReplyBulkString;
-    parser.null_bulk_string_callback = callReplyNullBulkString;
-    parser.null_array_callback = callReplyNullArray;
-    parser.error_callback = callReplyError;
-    parser.simple_str_callback = callReplySimpleStr;
-    parser.long_callback = callReplyLong;
-    parser.array_callback = callReplyArray;
-    parser.set_callback = callReplySet;
-    parser.map_callback = callReplyMap;
-    parser.double_callback = callReplyDouble;
-    parser.bool_callback = callReplyBool;
-    parser.big_number_callback = callReplyBigNumber;
-    parser.verbatim_string_callback = callReplyVerbatimString;
-    parser.attribute_callback = callReplyAttribute;
-    parser.error = callReplyParseError;
 
     parseReply(&parser, rep);
     rep->flags |= REPLY_FLAG_PARSED;

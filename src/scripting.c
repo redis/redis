@@ -136,25 +136,28 @@ void sha1hex(char *digest, char *script, size_t len) {
  * error string.
  */
 
+static const ReplyParser DefaultLuaTypeParser = {
+    .null_array_callback = redisProtocolToLuaType_NullArray,
+    .bulk_string_callback = redisProtocolToLuaType_BulkString,
+    .null_bulk_string_callback = redisProtocolToLuaType_NullBulkString,
+    .error_callback = redisProtocolToLuaType_Error,
+    .simple_str_callback = redisProtocolToLuaType_Status,
+    .long_callback = redisProtocolToLuaType_Int,
+    .array_callback = redisProtocolToLuaType_Array,
+    .set_callback = redisProtocolToLuaType_Set,
+    .map_callback = redisProtocolToLuaType_Map,
+    .bool_callback = redisProtocolToLuaType_Bool,
+    .double_callback = redisProtocolToLuaType_Double,
+    .null_callback = redisProtocolToLuaType_Null,
+    .big_number_callback = redisProtocolToLuaType_BigNumber,
+    .verbatim_string_callback = redisProtocolToLuaType_VerbatimString,
+    .attribute_callback = redisProtocolToLuaType_Attribute,
+};
+
 void redisProtocolToLuaType(lua_State *lua, char* reply) {
-    ReplyParser parser;
+    ReplyParser parser = DefaultLuaTypeParser;
 
     parser.curr_location = reply;
-    parser.null_array_callback = redisProtocolToLuaType_NullArray;
-    parser.bulk_string_callback = redisProtocolToLuaType_BulkString;
-    parser.null_bulk_string_callback = redisProtocolToLuaType_NullBulkString;
-    parser.error_callback = redisProtocolToLuaType_Error;
-    parser.simple_str_callback = redisProtocolToLuaType_Status;
-    parser.long_callback = redisProtocolToLuaType_Int;
-    parser.array_callback = redisProtocolToLuaType_Array;
-    parser.set_callback = redisProtocolToLuaType_Set;
-    parser.map_callback = redisProtocolToLuaType_Map;
-    parser.bool_callback = redisProtocolToLuaType_Bool;
-    parser.double_callback = redisProtocolToLuaType_Double;
-    parser.null_callback = redisProtocolToLuaType_Null;
-    parser.big_number_callback = redisProtocolToLuaType_BigNumber;
-    parser.verbatim_string_callback = redisProtocolToLuaType_VerbatimString;
-    parser.attribute_callback = redisProtocolToLuaType_Attribute;
     parser.error = NULL;
 
     parseReply(&parser, lua);
