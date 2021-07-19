@@ -80,6 +80,7 @@ const char *clusterGetMessageTypeString(int type);
 
 #define RCVBUF_INIT_LEN 1024
 #define RCVBUF_MAX_PREALLOC (1<<20) /* 1MB */
+#define SNDBUF_AVAILABLE_THRESHOLD 1024
 
 /* Cluster nodes hash table, mapping nodes addresses 1.2.3.4:6379 to
  * clusterNode structures. */
@@ -3650,6 +3651,19 @@ void clusterCron(void) {
             clusterSendPing(min_pong_node->link, CLUSTERMSG_TYPE_PING);
         }
     }
+
+    /* Iterate nodes to remove free space in the send buffer
+    * to reclaim memory. */
+    di = dictGetSafeIterator(server.cluster->nodes);
+    while((de = dictNext(di)) != NULL) {
+        clusterNode *node = dictGetVal(de);
+        /* Resize the send buffer if it is wasting
+        * enough space. */
+        if (node->link != NULL && sdsavail(node->link->sndbuf) > SNDBUF_AVAILABLE_THRESHOLD) {
+            node->link->sndbuf = sdsRemoveFreeSpace(node->link->sndbuf);
+        }
+    }
+    dictReleaseIterator(di);
 
     /* Iterate nodes to check if we need to flag something as failing.
      * This loop is also responsible to:
