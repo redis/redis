@@ -3814,19 +3814,19 @@ long long RM_CallReplyInteger(RedisModuleCallReply *reply) {
     return callReplyGetLongLong(reply);
 }
 
-/* Return the double value of an double reply. */
+/* Return the double value of a double reply. */
 double RM_CallReplyDouble(RedisModuleCallReply *reply) {
     return callReplyGetDouble(reply);
 }
 
 /* Return the big number value of a big number reply. */
-const char* RM_CallReplyBigNumber(RedisModuleCallReply *reply, size_t *len) {
+const char *RM_CallReplyBigNumber(RedisModuleCallReply *reply, size_t *len) {
     return callReplyGetBigNumber(reply, len);
 }
 
 /* Return the value of an verbatim string reply,
  * An optional output argument can be given to get verbatim reply format. */
-const char* RM_CallReplyVerbatim(RedisModuleCallReply *reply, size_t *len, const char **format) {
+const char *RM_CallReplyVerbatim(RedisModuleCallReply *reply, size_t *len, const char **format) {
     return callReplyGetVerbatim(reply, len, format);
 }
 
@@ -3841,9 +3841,14 @@ RedisModuleCallReply *RM_CallReplySetElement(RedisModuleCallReply *reply, size_t
     return callReplyGetSetElement(reply, idx);
 }
 
-/* Retrieve the 'idx'-th key and value of a map reply, return REDISMODULE_OK on succuess
- * and REDISMODULE_ERR if idx out of range or if the reply type is wrong.
- * `key` and `val` are output parameters (can be set to NULL if not needed). */
+/* Retrieve the 'idx'-th key and value of a map reply.
+ *
+ * Returns:
+ * - REDISMODULE_OK on success.
+ * - REDISMODULE_ERR if idx out of range or if the reply type is wrong.
+ *
+ * The `key` and `value` arguments are used to return by reference, and may be
+ * NULL if not required. */
 int RM_CallReplyMapElement(RedisModuleCallReply *reply, size_t idx, RedisModuleCallReply **key, RedisModuleCallReply **val) {
     if (callReplyGetMapElement(reply, idx, key, val) == C_OK){
         return REDISMODULE_OK;
@@ -3856,9 +3861,14 @@ RedisModuleCallReply *RM_CallReplyAttribute(RedisModuleCallReply *reply) {
     return callReplyGetAttribute(reply);
 }
 
-/* Retrieve the 'idx'-th key and value of a attribute reply, return REDISMODULE_OK on succuess
- * and REDISMODULE_ERR if idx out of range or if the reply type is wrong.
-  * `key` and `val` are output parameters (can be set to NULL if note needed). */
+/* Retrieve the 'idx'-th key and value of a attribute reply.
+ *
+ * Returns:
+ * - REDISMODULE_OK on success.
+ * - REDISMODULE_ERR if idx out of range or if the reply type is wrong.
+ *
+ * The `key` and `value` arguments are used to return by reference, and may be
+ * NULL if not required. */
 int RM_CallReplyAttributeElement(RedisModuleCallReply *reply, size_t idx, RedisModuleCallReply **key, RedisModuleCallReply **val) {
     if (callReplyGetAttributeElement(reply, idx, key, val) == C_OK){
         return REDISMODULE_OK;
@@ -3878,18 +3888,19 @@ const char *RM_CallReplyStringPtr(RedisModuleCallReply *reply, size_t *len) {
 RedisModuleString *RM_CreateStringFromCallReply(RedisModuleCallReply *reply) {
     RedisModuleCtx* ctx = callReplyGetPrivateData(reply);
     size_t len;
-    const char* str;
+    const char *str;
     switch(callReplyType(reply)) {
-    case REDISMODULE_REPLY_STRING:
-    case REDISMODULE_REPLY_ERROR:
-        str = callReplyGetStr(reply, &len);
-        return RM_CreateString(ctx, str, len);
-    case REDISMODULE_REPLY_INTEGER: {
-        char buf[64];
-        int len = ll2string(buf,sizeof(buf),callReplyGetLongLong(reply));
-        return RM_CreateString(ctx ,buf,len);
-        }
-    default: return NULL;
+        case REDISMODULE_REPLY_STRING:
+        case REDISMODULE_REPLY_ERROR:
+            str = callReplyGetStr(reply, &len);
+            return RM_CreateString(ctx, str, len);
+        case REDISMODULE_REPLY_INTEGER: {
+            char buf[64];
+            int len = ll2string(buf,sizeof(buf),callReplyGetLongLong(reply));
+            return RM_CreateString(ctx ,buf,len);
+            }
+        default:
+            return NULL;
     }
 }
 
@@ -3999,8 +4010,8 @@ fmterr:
  *     * `!` -- Sends the Redis command and its arguments to replicas and AOF.
  *     * `A` -- Suppress AOF propagation, send only to replicas (requires `!`).
  *     * `R` -- Suppress replicas propagation, send only to AOF (requires `!`).
- *     * `3` -- Return the reply in RESP3. This will change the command reply.
- *              e.g. HGETALL returns a map instead of a flat array.
+ *     * `3` -- Return a RESP3 reply. This will change the command reply.
+ *              e.g., HGETALL returns a map instead of a flat array.
  *     * `0` -- Return the reply in auto mode, i.e. the reply format will be the
  *              same as the client attached to the given RedisModuleCtx. This will
  *              probably used when you want to pass the reply directly to the client.

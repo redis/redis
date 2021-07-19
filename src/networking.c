@@ -682,7 +682,7 @@ void addReplyDouble(client *c, double d) {
     }
 }
 
-void addReplyBigNum(client *c, const char* num, size_t len) {
+void addReplyBigNum(client *c, const char *num, size_t len) {
     if (c->resp == 2) {
         addReplyBulkCBuffer(c, num, len);
     } else {
