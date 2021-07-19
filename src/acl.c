@@ -62,7 +62,7 @@ struct ACLCategoryItem {
     uint64_t flag;
 } ACLCommandCategories[] = {
     {"keyspace", CMD_CATEGORY_KEYSPACE},   /* Writing or reading from keyspace, keys or their metadata but not a certain data type.
-                                            * Includes DEL, RESTORE, DUMP, RENAME, EXIST, DBSIZE, KEYS, EXPIRE, TTL, FLUSHALL, etc.
+                                            * Includes DEL, RESTORE, DUMP, RENAME, EXISTS, DBSIZE, KEYS, EXPIRE, TTL, FLUSHALL, etc.
                                             * Commands that may modify the keyspace, key or metadata will also have `write` category.
                                             * Commands that only read the keyspace, key or medatada will have the `read` category. */
     {"read", CMD_CATEGORY_READ},           /* Reading from keys (values or metadata).
@@ -78,9 +78,9 @@ struct ACLCategoryItem {
     {"geo", CMD_CATEGORY_GEO},             /* Data type: geo related. */
     {"stream", CMD_CATEGORY_STREAM},       /* Data type: streams related. */
     {"pubsub", CMD_CATEGORY_PUBSUB},       /* PUBLISH / SUBSCRIBE related */
-    {"admin", CMD_CATEGORY_ADMIN},         /* Administrative comands (Normal applications will never need to use these.
+    {"admin", CMD_CATEGORY_ADMIN},         /* Administrative commands (Normal applications will never need to use these).
                                             * Includes REPLICAOF, CONFIG, DEBUG, SAVE, MONITOR, ACL, SHUTDOWN, etc. */
-    {"fast", CMD_CATEGORY_FAST},           /* Fast O(1) commands. */
+    {"fast", CMD_CATEGORY_FAST},           /* Fast O(1) commands. (May loop on the number of arguments, but not the number of elements in the key). */
     {"slow", CMD_CATEGORY_SLOW},           /* All commands that are not Fast. */
     {"blocking", CMD_CATEGORY_BLOCKING},   /* Potentially blocking the connectoin. */
     {"dangerous", CMD_CATEGORY_DANGEROUS}, /* Potentially dangerous (each should be considered with care for various reasons).
