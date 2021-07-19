@@ -44,7 +44,7 @@ void hashTypeTryConversion(robj *o, robj **argv, int start, int end) {
 
     for (i = start; i <= end; i++) {
         if (sdsEncodedObject(argv[i]) &&
-            sdslen(argv[i]->ptr) > server.hash_max_ziplist_value)
+            sdslen(argv[i]->ptr) > server.hash_max_listpack_value)
         {
             hashTypeConvert(o, OBJ_ENCODING_HT);
             break;
@@ -233,7 +233,7 @@ int hashTypeSet(robj *o, sds field, sds value, int flags) {
         o->ptr = zl;
 
         /* Check if the listpack needs to be converted to a hash table */
-        if (hashTypeLength(o) > server.hash_max_ziplist_entries)
+        if (hashTypeLength(o) > server.hash_max_listpack_entries)
             hashTypeConvert(o, OBJ_ENCODING_HT);
     } else if (o->encoding == OBJ_ENCODING_HT) {
         dictEntry *de = dictFind(o->ptr,field);
