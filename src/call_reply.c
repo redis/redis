@@ -211,7 +211,7 @@ void freeCallReply(CallReply *rep) {
     zfree(rep);
 }
 
-static const ReplyParser DefaultParser = {
+static const ReplyParserCallbacks DefaultParserCallbacks = {
     .null_callback = callReplyNull,
     .bulk_string_callback = callReplyBulkString,
     .null_bulk_string_callback = callReplyNullBulkString,
@@ -237,8 +237,7 @@ static void callReplyParse(CallReply *rep) {
         return;
     }
 
-    ReplyParser parser = DefaultParser;
-    parser.curr_location = rep->proto;
+    ReplyParser parser = {.curr_location = rep->proto, .callbacks = DefaultParserCallbacks};
 
     parseReply(&parser, rep);
     rep->flags |= REPLY_FLAG_PARSED;

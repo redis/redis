@@ -4,10 +4,9 @@
 
 #include <stddef.h>
 
-typedef struct ReplyParser {
-    /* The current location in the reply buffer, needs to be set to the beginning of the reply */
-    const char *curr_location;
+typedef struct ReplyParser ReplyParser;
 
+typedef struct ReplyParserCallbacks {
     /* Called when the parser reaches an empty mbulk ('*-1') */
     void (*null_array_callback)(void *ctx, const char *proto, size_t proto_len);
 
@@ -54,7 +53,13 @@ typedef struct ReplyParser {
     void (*null_callback)(void *ctx, const char *proto, size_t proto_len);
 
     void (*error)(void *ctx);
-} ReplyParser ;
+} ReplyParserCallbacks ;
+
+struct ReplyParser {
+    /* The current location in the reply buffer, needs to be set to the beginning of the reply */
+    const char *curr_location;
+    ReplyParserCallbacks callbacks;
+};
 
 int parseReply(ReplyParser *parser, void *p_ctx);
 

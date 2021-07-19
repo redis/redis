@@ -136,7 +136,7 @@ void sha1hex(char *digest, char *script, size_t len) {
  * error string.
  */
 
-static const ReplyParser DefaultLuaTypeParser = {
+static const ReplyParserCallbacks DefaultLuaTypeParserCallbacks = {
     .null_array_callback = redisProtocolToLuaType_NullArray,
     .bulk_string_callback = redisProtocolToLuaType_BulkString,
     .null_bulk_string_callback = redisProtocolToLuaType_NullBulkString,
@@ -152,13 +152,11 @@ static const ReplyParser DefaultLuaTypeParser = {
     .big_number_callback = redisProtocolToLuaType_BigNumber,
     .verbatim_string_callback = redisProtocolToLuaType_VerbatimString,
     .attribute_callback = redisProtocolToLuaType_Attribute,
+    .error = NULL,
 };
 
 void redisProtocolToLuaType(lua_State *lua, char* reply) {
-    ReplyParser parser = DefaultLuaTypeParser;
-
-    parser.curr_location = reply;
-    parser.error = NULL;
+    ReplyParser parser = {.curr_location = reply, .callbacks = DefaultLuaTypeParserCallbacks};
 
     parseReply(&parser, lua);
 }
