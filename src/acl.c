@@ -60,35 +60,28 @@ static unsigned long nextid = 0; /* Next command id that has not been assigned *
 struct ACLCategoryItem {
     const char *name;
     uint64_t flag;
-} ACLCommandCategories[] = {
-    {"keyspace", CMD_CATEGORY_KEYSPACE},   /* Writing or reading from keyspace, keys or their metadata but not a certain data type.
-                                            * Includes DEL, RESTORE, DUMP, RENAME, EXISTS, DBSIZE, KEYS, EXPIRE, TTL, FLUSHALL, etc.
-                                            * Commands that may modify the keyspace, key or metadata will also have `write` category.
-                                            * Commands that only read the keyspace, key or medatada will have the `read` category. */
-    {"read", CMD_CATEGORY_READ},           /* Reading from keys (values or metadata).
-                                            * Note that commands that don't interact with keys, will not have either `read` or `write`. */
-    {"write", CMD_CATEGORY_WRITE},         /* Writing to keys (values or metadata) */
-    {"set", CMD_CATEGORY_SET},             /* Data type: sets related. */
-    {"sortedset", CMD_CATEGORY_SORTEDSET}, /* Data type: zsets related. */
-    {"list", CMD_CATEGORY_LIST},           /* Data type: lists related. */
-    {"hash", CMD_CATEGORY_HASH},           /* Data type: hashes related. */
-    {"string", CMD_CATEGORY_STRING},       /* Data type: strings related. */
-    {"bitmap", CMD_CATEGORY_BITMAP},       /* Data type: bitmaps related. */
-    {"hyperloglog", CMD_CATEGORY_HYPERLOGLOG}, /* Data type: HLL related. */
-    {"geo", CMD_CATEGORY_GEO},             /* Data type: geo related. */
-    {"stream", CMD_CATEGORY_STREAM},       /* Data type: streams related. */
-    {"pubsub", CMD_CATEGORY_PUBSUB},       /* PUBLISH / SUBSCRIBE related */
-    {"admin", CMD_CATEGORY_ADMIN},         /* Administrative commands (Normal applications will never need to use these).
-                                            * Includes REPLICAOF, CONFIG, DEBUG, SAVE, MONITOR, ACL, SHUTDOWN, etc. */
-    {"fast", CMD_CATEGORY_FAST},           /* Fast O(1) commands. (May loop on the number of arguments, but not the number of elements in the key). */
-    {"slow", CMD_CATEGORY_SLOW},           /* All commands that are not Fast. */
-    {"blocking", CMD_CATEGORY_BLOCKING},   /* Potentially blocking the connectoin. */
-    {"dangerous", CMD_CATEGORY_DANGEROUS}, /* Potentially dangerous (each should be considered with care for various reasons).
-                                            * This includes FLUSHALL, MIGRATE, RESTORE, SORT, KEYS, CLIENT, DEBUG, INFO, CONFIG, SAVE, REPLICAOF, etc. */
-    {"connection", CMD_CATEGORY_CONNECTION}, /* Commands affecting the connection or other connections.
-                                              * This includes AUTH, SELECT, COMMAND, CLIENT, ECHO, PING, etc. */
-    {"transaction", CMD_CATEGORY_TRANSACTION}, /* WATCH / MULTI / EXEC related commands. */
-    {"scripting", CMD_CATEGORY_SCRIPTING}, /* Scripting related. */
+} ACLCommandCategories[] = { /* See redis.conf for details on each category. */
+    {"keyspace", CMD_CATEGORY_KEYSPACE},
+    {"read", CMD_CATEGORY_READ},
+    {"write", CMD_CATEGORY_WRITE},
+    {"set", CMD_CATEGORY_SET},
+    {"sortedset", CMD_CATEGORY_SORTEDSET},
+    {"list", CMD_CATEGORY_LIST},
+    {"hash", CMD_CATEGORY_HASH},
+    {"string", CMD_CATEGORY_STRING},
+    {"bitmap", CMD_CATEGORY_BITMAP},
+    {"hyperloglog", CMD_CATEGORY_HYPERLOGLOG},
+    {"geo", CMD_CATEGORY_GEO},
+    {"stream", CMD_CATEGORY_STREAM},
+    {"pubsub", CMD_CATEGORY_PUBSUB},
+    {"admin", CMD_CATEGORY_ADMIN},
+    {"fast", CMD_CATEGORY_FAST},
+    {"slow", CMD_CATEGORY_SLOW},
+    {"blocking", CMD_CATEGORY_BLOCKING},
+    {"dangerous", CMD_CATEGORY_DANGEROUS},
+    {"connection", CMD_CATEGORY_CONNECTION},
+    {"transaction", CMD_CATEGORY_TRANSACTION},
+    {"scripting", CMD_CATEGORY_SCRIPTING},
     {NULL,0} /* Terminator. */
 };
 
