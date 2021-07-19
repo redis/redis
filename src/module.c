@@ -56,10 +56,10 @@
 #include "slowlog.h"
 #include "rdb.h"
 #include "monotonic.h"
+#include "call_reply.h"
 #include <dlfcn.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
-#include "call_reply.h"
 
 /* --------------------------------------------------------------------------
  * Private data structures used by the modules system. Those are data

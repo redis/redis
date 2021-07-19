@@ -32,13 +32,13 @@
 #include "rand.h"
 #include "cluster.h"
 #include "monotonic.h"
+#include "resp_parser.h"
 
 #include <lua.h>
 #include <lauxlib.h>
 #include <lualib.h>
 #include <ctype.h>
 #include <math.h>
-#include "reply_parser.h"
 
 static void redisProtocolToLuaType_Int(void *ctx, long long val, const char *proto, size_t proto_len);
 static void redisProtocolToLuaType_BulkString(void *ctx, const char *str, size_t len, const char *proto, size_t proto_len);
