@@ -794,7 +794,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,1,1,1,0,0,0},
 
     {"touch",touchCommand,-2,
-     "write fast @keyspace",
+     "read-only fast @keyspace",
      0,NULL,1,-1,1,0,0,0},
 
     {"pttl",pttlCommand,2,
