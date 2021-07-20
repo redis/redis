@@ -143,7 +143,7 @@ static void callReplyBool(void *ctx, int val, const char *proto, size_t proto_le
 static void callReplyParseCollection(ReplyParser *parser, CallReply *rep, size_t len, const char *proto, size_t elements_per_entry) {
     rep->len = len;
     rep->val.array = zcalloc(elements_per_entry * len * sizeof(CallReply));
-    for (size_t i = 0 ; i < len * elements_per_entry ; i += elements_per_entry) {
+    for (size_t i = 0; i < len * elements_per_entry; i += elements_per_entry) {
         for (size_t j = 0 ; j < elements_per_entry ; ++j) {
             parseReply(parser, rep->val.array + i + j);
             rep->val.array[i + j].flags |= REPLY_FLAG_PARSED;
