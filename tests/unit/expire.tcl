@@ -603,42 +603,107 @@ start_server {tags {"expire"}} {
     } {} {needs:repl}
 
     test {EXPIRE with NX option on a key with ttl} {
-        r SET foo bar EX 100
-        r EXPIRE foo 200 NX
+        r SET foo bar EX 100000
+        r EXPIRE foo 200000 NX
     } {0}
 
     test {EXPIRE with NX option on a key without ttl} {
         r SET foo bar
-        r EXPIRE foo 200 NX
+        r EXPIRE foo 200000 NX
     } {1}
 
     test {EXPIREAT with NX option on a key with ttl} {
-        r SET foo bar EX 100
-        r EXPIREAT foo 200 NX
+        r SET foo bar EX 100000
+        r EXPIREAT foo 200000 NX
     } {0}
 
     test {EXPIREAT with NX option on a key without ttl} {
         r SET foo bar
-        r EXPIREAT foo 200 NX
+        r EXPIREAT foo 200000 NX
     } {1}
 
     test {PEXPIRE with NX option on a key with ttl} {
-        r SET foo bar EX 100
-        r PEXPIRE foo 200 NX
+        r SET foo bar EX 100000
+        r PEXPIRE foo 200000 NX
     } {0}
 
     test {PEXPIRE with NX option on a key without ttl} {
         r SET foo bar
-        r PEXPIRE foo 200 NX
+        r PEXPIRE foo 200000 NX
     } {1}
 
     test {PEXPIREAT with NX option on a key with ttl} {
-        r SET foo bar EX 100
-        r PEXPIREAT foo 200 NX
+        r SET foo bar EX 100000
+        r PEXPIREAT foo 200000 NX
     } {0}
 
     test {PEXPIREAT with NX option on a key without ttl} {
         r SET foo bar
-        r PEXPIREAT foo 200 NX
+        r PEXPIREAT foo 200000 NX
     } {1}
+
+    test {EXPIRE with XX option on a key with ttl} {
+        r SET foo bar EX 100000
+        r EXPIRE foo 200000 XX
+    } {1}
+
+    test {EXPIRE with XX option on a key without ttl} {
+        r SET foo bar
+        r EXPIRE foo 200000 XX
+    } {0}
+
+    test {EXPIRE with GT option} {
+        r SET foo bar EX 100000
+        r EXPIRE foo 200000 GT
+    } {1}
+
+    test {EXPIRE with GT option} {
+        r SET foo bar EX 200000
+        r EXPIRE foo 100000 GT
+    } {0}
+
+    test {EXPIRE with LT option} {
+        r SET foo bar EX 100000
+        r EXPIRE foo 200000 LT
+    } {0}
+
+    test {EXPIRE with LT option} {
+        r SET foo bar EX 200000
+        r EXPIRE foo 100000 LT
+    } {1}
+
+    test {EXPIRE with GT option on a key without ttl} {
+        r SET foo bar
+        r EXPIRE foo 200000 GT
+    } {0}
+
+    test {EXPIRE with LT option on a key without ttl} {
+        r SET foo bar
+        r EXPIRE foo 200000 LT
+    } {0}
+
+    test {EXPIRE with LT and XX option on a key without ttl} {
+        r SET foo bar
+        r EXPIRE foo 200000 LT XX
+    } {0}
+
+    test {EXPIRE with conflict options} {
+        catch {r EXPIRE foo 200000 LT GT} e
+        set e
+    } {ERR GT and LT options at the same time are not compatible}
+
+    test {EXPIRE with conflict options} {
+        catch {r EXPIRE foo 200000 NX GT} e
+        set e
+    } {ERR NX and XX, GT or LT options at the same time are not compatible}
+
+    test {EXPIRE with conflict options} {
+        catch {r EXPIRE foo 200000 NX LT} e
+        set e
+    } {ERR NX and XX, GT or LT options at the same time are not compatible}
+
+    test {EXPIRE with conflict options} {
+        catch {r EXPIRE foo 200000 NX XX} e
+        set e
+    } {ERR NX and XX, GT or LT options at the same time are not compatible}
 }

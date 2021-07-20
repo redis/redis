@@ -491,22 +491,52 @@ int checkAlreadyExpired(long long when) {
 
 #define FLAG_NO_FLAGS 0
 #define FLAG_NX (1<<0)
+#define FLAG_XX (1<<1)
+#define FLAG_GT (1<<2)
+#define FLAG_LT (1<<3)
 
 /* Parse additional flags of expire commands
  *
  * Supported flags:
- * - NX: set expiry only when the key has no expiry */
-void parseExtendedExpireArguments(client *c, int *flags) {
-    // command index
-    int j = 3;
+ * - NX: set expiry only when the key has no expiry
+ * - XX: set expiry only when the key has an existed expiry
+ * - GT: set expiry only when the new expiry is greater than current one
+ * - LT: set expiry only when the new expiry is less than current one */
+int parseExtendedExpireArgumentsOrReply(client *c, int *flags) {
+    int nx = 0, xx = 0, gt = 0, lt = 0;
 
-    for (; j < c->argc; j++) {
-        char *a = c->argv[j]->ptr;
-        if ((a[0] == 'n' || a[0] == 'N') &&
-            (a[1] == 'x' || a[1] == 'X') && a[2] == '\0') {
+    int j = 3;
+    while(j < c->argc) {
+        char *opt = c->argv[j]->ptr;
+        if (!strcasecmp(opt,"nx")) {
             *flags |= FLAG_NX;
+            nx = 1;
+        } else if (!strcasecmp(opt,"xx")) {
+            *flags |= FLAG_XX;
+            xx = 1;
+        } else if (!strcasecmp(opt,"gt")) {
+            *flags |= FLAG_GT;
+            gt = 1;
+        } else if (!strcasecmp(opt,"lt")) {
+            *flags |= FLAG_LT;
+            lt = 1;
+        } else {
+            break;
         }
+        j++;
     }
+
+    if ((nx && xx) || (nx && gt) || (nx && lt)) {
+        addReplyError(c, "NX and XX, GT or LT options at the same time are not compatible");
+        return C_ERR;
+    }
+
+    if (gt && lt) {
+        addReplyError(c, "GT and LT options at the same time are not compatible");
+        return C_ERR;
+    }
+
+    return C_OK;
 }
 
 /*-----------------------------------------------------------------------------
@@ -526,10 +556,12 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
     robj *key = c->argv[1], *param = c->argv[2];
     long long when; /* unix time in milliseconds when the key will expire. */
     long long current_expire = -1;
-    int flag = 0;
+    int flag = FLAG_NO_FLAGS;
 
     /* checking optional flags */
-    parseExtendedExpireArguments(c, &flag);
+    if (parseExtendedExpireArgumentsOrReply(c, &flag) != C_OK) {
+        return;
+    }
 
     if (getLongLongFromObjectOrReply(c, param, &when, NULL) != C_OK)
         return;
@@ -552,6 +584,36 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
     if (flag & FLAG_NX) {
         current_expire = getExpire(c->db, key);
         if (current_expire != -1) {
+            addReply(c,shared.czero);
+            return;
+        }
+    }
+
+    /* XX option is set, check current expiry */
+    if (flag & FLAG_XX) {
+        current_expire = getExpire(c->db, key);
+        if (current_expire == -1) {
+            /* reply 0 when the key has no expiry */
+            addReply(c,shared.czero);
+            return;
+        }
+    }
+
+    /* GT option is set, check current expiry */
+    if (flag & FLAG_GT) {
+        current_expire = getExpire(c->db, key);
+        if (when <= current_expire || current_expire == -1) {
+            /* reply 0 when the new expiry is not greater than current */
+            addReply(c,shared.czero);
+            return;
+        }
+    }
+
+    /* LT option is set, check current expiry */
+    if (flag & FLAG_LT) {
+        current_expire = getExpire(c->db, key);
+        if (when >= current_expire) {
+            /* reply 0 when the new expiry is not less than current */
             addReply(c,shared.czero);
             return;
         }
