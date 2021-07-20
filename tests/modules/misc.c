@@ -288,6 +288,31 @@ int test_log_tsctx(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     return REDISMODULE_OK;
 }
 
+int test_aligned_alloc(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+
+    size_t size = 100;
+
+    for(int i = 0; i < 6; i++) {
+        // Alignment, which must be a power of two and a multiple of sizeof(void *)
+        int alignment = sizeof(void*) * (2 << i);
+        void* ptr = RedisModule_AllocAligned(alignment, size);
+        if(!ptr) {
+            return REDISMODULE_ERR;
+        }
+        // Check  the address % alignment is 0
+        if((size_t)ptr % alignment) {
+            RedisModule_Free(ptr);
+            return REDISMODULE_ERR;
+        }
+        RedisModule_Free(ptr);
+
+    }
+    RedisModule_ReplyWithSimpleString(ctx, "OK");
+    return REDISMODULE_OK;
+}
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -321,6 +346,8 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx,"test.getclientcert", test_getclientcert,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"test.log_tsctx", test_log_tsctx,"",0,0,0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx,"test.aligned_alloc", test_aligned_alloc,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;

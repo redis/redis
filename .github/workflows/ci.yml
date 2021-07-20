@@ -58,3 +58,38 @@ jobs:
       run: |
         yum -y install gcc make
         make REDIS_CFLAGS='-Werror'
+
+  build-alpine-libc-malloc:
+    runs-on: ubuntu-latest
+    container: alpine:latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: make
+      run: |
+          apk add build-base
+          make REDIS_CFLAGS='-Werror' USE_JEMALLOC=no CFLAGS=-DUSE_MALLOC_USABLE_SIZE
+
+  build-alpine-jemalloc:
+    runs-on: ubuntu-latest
+    container: alpine:latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: make
+      run: |
+          apk add build-base
+          make REDIS_CFLAGS='-Werror'
+
+  build-freebsd:
+    runs-on: macos-latest
+    if: github.repository == 'redis/redis'
+    timeout-minutes: 14400
+    steps:
+    - uses: actions/checkout@v2
+    - name: build
+      uses: vmactions/freebsd-vm@v0.1.2
+      with:
+        usesh: true
+        sync: rsync
+        prepare: pkg install -y bash gmake lang/tcl86
+        run: >
+          gmake

@@ -115,4 +115,8 @@ start_server {tags {"modules"}} {
     test {test RM_Call CLIENT INFO} {
         assert_match "*fd=-1*" [r test.call_generic client info]
     }
+
+    test {test aligned alloc} {
+        assert_equal "OK" [r test.aligned_alloc]
+    }
 }

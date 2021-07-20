@@ -421,6 +421,14 @@ void *RM_Alloc(size_t bytes) {
     return zmalloc(bytes);
 }
 
+/* Use like aligned_alloc(). Memory allocated with this function is reported in
+ * Redis INFO memory, used for keys eviction according to maxmemory settings
+ * and in general is taken into account as memory allocated by Redis.
+ * You should avoid using aligned_alloc() directly. */
+void *RM_AllocAligned(size_t alignment, size_t bytes) {
+    return zaligned_alloc(alignment,bytes);
+}
+
 /* Use like calloc(). Memory allocated with this function is reported in
  * Redis INFO memory, used for keys eviction according to maxmemory settings
  * and in general is taken into account as memory allocated by Redis.
@@ -9392,6 +9400,7 @@ void moduleRegisterCoreAPI(void) {
     server.moduleapi = dictCreate(&moduleAPIDictType,NULL);
     server.sharedapi = dictCreate(&moduleAPIDictType,NULL);
     REGISTER_API(Alloc);
+    REGISTER_API(AllocAligned);
     REGISTER_API(Calloc);
     REGISTER_API(Realloc);
     REGISTER_API(Free);
