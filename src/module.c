@@ -1703,8 +1703,8 @@ int RM_ReplyWithCallReply(RedisModuleCtx *ctx, RedisModuleCallReply *reply) {
         return REDISMODULE_ERR;
     }
     size_t proto_len;
-    const char* proto = callReplyGetProto(reply, &proto_len);
-    addReplyProto(c,proto, proto_len);
+    const char *proto = callReplyGetProto(reply, &proto_len);
+    addReplyProto(c, proto, proto_len);
     return REDISMODULE_OK;
 }
 
