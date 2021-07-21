@@ -12,6 +12,22 @@ SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 5.0.13 Released Wed Jul 21 16:32:19 IDT 2021
+================================================================================
+
+Upgrade urgency: SECURITY, contains fixes to security issues that affect
+authenticated client connections on 32-bit versions. MODERATE otherwise.
+
+Fix integer overflow in BITFIELD on 32-bit versions (CVE-2021-32761).
+An integer overflow bug in Redis version 2.2 or newer can be exploited using the
+BITFIELD command to corrupt the heap and potentially result with remote code
+execution.
+
+Bug fixes:
+* Fix overflows on 32-bit versions in GETBIT, SETBIT, BITCOUNT, BITPOS, and BITFIELD (#9191)
+* Fix ziplist length updates on big-endian platforms (#2080)
+
+================================================================================
 Redis 5.0.12     Released Mon Mar  1 17:29:52 IST 2021
 ================================================================================
 
