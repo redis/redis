@@ -151,7 +151,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install tcl8.6 valgrind -y
-        ./runtest --valgrind --verbose --clients 1 --dump-logs
+        ./runtest --valgrind --verbose --clients 1 --tags -large-memory --dump-logs
     - name: module api test
       run: ./runtest-moduleapi --valgrind --no-latency --verbose --clients 1
     - name: unittest
@@ -171,7 +171,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install tcl8.6 valgrind -y
-        ./runtest --valgrind --verbose --clients 1 --dump-logs
+        ./runtest --valgrind --verbose --clients 1 --tags -large-memory --dump-logs
     - name: module api test
       run: ./runtest-moduleapi --valgrind --no-latency --verbose --clients 1
 
@@ -260,7 +260,7 @@ jobs:
         prepare: pkg install -y bash gmake lang/tcl86
         run: >
           gmake &&
-          ./runtest --accurate --verbose --no-latency --dump-logs &&
+          ./runtest --accurate --verbose --no-latency --tags -large-memory --dump-logs &&
           MAKE=gmake ./runtest-moduleapi --verbose &&
           ./runtest-sentinel &&
           ./runtest-cluster
