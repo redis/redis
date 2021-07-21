@@ -1,0 +1,33 @@
+name: "Trigger redis/benchmarks"
+
+on:
+  push:
+  pull_request:
+  schedule:
+    # run weekly new vulnerability was added to the the database
+    - cron: '0 0 * * *'
+
+jobs:
+  deployment:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Get git vars
+        id: get_git_vars
+        run: |
+            git_hash=$(git rev-parse --short "$GITHUB_SHA")
+            git_branch=${GITHUB_REF#refs/heads/}
+            echo "::set-output name=git_hash::$git_hash"
+            echo "::set-output name=git_branch::$git_branch"
+
+    - name: Trigger redis/redis
+      id: api_trigger
+      uses: fjogeleit/http-request-action@master
+      with:
+        url: 'http://benchmarks.redislabs.com:15000/api/gh/redis/redis/commits'
+        method: 'POST'
+        username: ${{ secrets.BENCHMARKS_API_GH_USER }}
+        password: ${{ secrets.BENCHMARKS_API_GH_PASSWORD }}
+        data: '{"git_hash": ${{steps.get_git_vars.outputs.git_hash}}, "git_branch": ${{steps.get_git_vars.outputs.git_branch}} }'
+    
+    - name: Show Response
+      run: echo ${{ steps.api_trigger.outputs.response }}
