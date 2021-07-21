@@ -639,16 +639,17 @@ dictEntry *dictGetRandomKey(dict *d)
     if (dictSize(d) == 0) return NULL;
     if (dictIsRehashing(d)) _dictRehashStep(d);
     if (dictIsRehashing(d)) {
+        unsigned long s0 = DICTHT_SIZE(d->ht_size_exp[0]);
         do {
             /* We are sure there are no elements in indexes from 0
              * to rehashidx-1 */
             h = d->rehashidx + (randomULong() % (dictSlots(d) - d->rehashidx));
-            he = (h >= DICTHT_SIZE(d->ht_size_exp[0])) ? d->ht_table[1][h - DICTHT_SIZE(d->ht_size_exp[0])] :
-                                      d->ht_table[0][h];
+            he = (h >= s0) ? d->ht_table[1][h - s0] : d->ht_table[0][h];
         } while(he == NULL);
     } else {
+        unsigned long m = DICTHT_SIZE_MASK(d->ht_size_exp[0]);
         do {
-            h = randomULong() & DICTHT_SIZE_MASK(d->ht_size_exp[0]);
+            h = randomULong() & m;
             he = d->ht_table[0][h];
         } while(he == NULL);
     }
