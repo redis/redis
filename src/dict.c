@@ -1179,9 +1179,8 @@ uint64_t hashCallback(const void *key) {
     return dictGenHashFunction((unsigned char*)key, strlen((char*)key));
 }
 
-int compareCallback(void *privdata, const void *key1, const void *key2) {
+int compareCallback(const void *key1, const void *key2) {
     int l1,l2;
-    DICT_NOTUSED(privdata);
 
     l1 = strlen((char*)key1);
     l2 = strlen((char*)key2);
@@ -1189,9 +1188,7 @@ int compareCallback(void *privdata, const void *key1, const void *key2) {
     return memcmp(key1, key2, l1) == 0;
 }
 
-void freeCallback(void *privdata, void *val) {
-    DICT_NOTUSED(privdata);
-
+void freeCallback(void *val) {
     zfree(val);
 }
 
@@ -1227,7 +1224,7 @@ dictType BenchmarkDictType = {
 int dictTest(int argc, char **argv, int accurate) {
     long j;
     long long start, elapsed;
-    dict *dict = dictCreate(&BenchmarkDictType,NULL);
+    dict *dict = dictCreate(&BenchmarkDictType);
     long count = 0;
 
     if (argc == 4) {
