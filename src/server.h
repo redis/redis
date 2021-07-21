@@ -1436,7 +1436,7 @@ void getRandomHexChars(char *p, size_t len);
 void getRandomBytes(unsigned char *p, size_t len);
 uint64_t crc64(uint64_t crc, const unsigned char *s, uint64_t l);
 void exitFromChild(int retcode);
-size_t redisPopcount(void *s, long count);
+long long redisPopcount(void *s, long count);
 void redisSetProcTitle(char *title);
 
 /* networking.c -- Networking and Client related operations */
