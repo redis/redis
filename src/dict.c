@@ -643,7 +643,6 @@ dictEntry *dictGetRandomKey(dict *d)
             /* We are sure there are no elements in indexes from 0
              * to rehashidx-1 */
             h = d->rehashidx + (randomULong() % (dictSlots(d) - d->rehashidx));
-            h = d->rehashidx + (randomULong() % (dictSlots(d) - d->rehashidx));
             he = (h >= DICTHT_SIZE(d->ht_size_exp[0])) ? d->ht_table[1][h - DICTHT_SIZE(d->ht_size_exp[0])] :
                                       d->ht_table[0][h];
         } while(he == NULL);
