@@ -1248,6 +1248,7 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
             sds keystr = dictGetKey(de);
             robj key, *o = dictGetVal(de);
             long long expire;
+            size_t before = rdb->processed_bytes;
 
             initStaticStringObject(key,keystr);
             expire = getExpire(db,&key);
@@ -1255,7 +1256,8 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
 
             /* We can try to release memory quickly to avoid COW
              * in the child process. */
-            if (server.in_fork_child) dontNeedObject(o);
+            size_t dump_size = rdb->processed_bytes - before;
+            if (server.in_fork_child) dismissObject(o, dump_size);
 
             /* When this RDB is produced as part of an AOF rewrite, move
              * accumulated diff from parent to child while rewriting in

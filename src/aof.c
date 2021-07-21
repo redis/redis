@@ -1503,11 +1503,6 @@ int rewriteAppendOnlyFileRio(rio *aof) {
             } else {
                 serverPanic("Unknown object type");
             }
-
-            /* We can try to release memory quickly to avoid COW
-             * in the child process. */
-            if (server.in_fork_child) dontNeedObject(o);
-
             /* Save the expire time */
             if (expiretime != -1) {
                 char cmd[]="*3\r\n$9\r\nPEXPIREAT\r\n";

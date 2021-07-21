@@ -1622,6 +1622,7 @@ void resetChildState() {
     server.child_pid = -1;
     server.stat_current_cow_bytes = 0;
     server.stat_current_cow_updated = 0;
+    server.stat_current_cow_peak = 0;
     server.stat_current_save_keys_processed = 0;
     server.stat_module_progress = 0;
     server.stat_current_save_keys_total = 0;
@@ -2686,6 +2687,7 @@ void initServerConfig(void) {
     server.migrate_cached_sockets = dictCreate(&migrateCacheDictType,NULL);
     server.next_client_id = 1; /* Client IDs, start from 1 .*/
     server.loading_process_events_interval_bytes = (1024*1024*2);
+    server.page_size = sysconf(_SC_PAGESIZE);
 
     unsigned int lruclock = getLRUClock();
     atomicSet(server.lruclock,lruclock);
@@ -3280,6 +3282,7 @@ void initServer(void) {
     server.stat_peak_memory = 0;
     server.stat_current_cow_bytes = 0;
     server.stat_current_cow_updated = 0;
+    server.stat_current_cow_peak = 0;
     server.stat_current_save_keys_processed = 0;
     server.stat_current_save_keys_total = 0;
     server.stat_rdb_cow_bytes = 0;
@@ -4886,6 +4889,7 @@ sds genRedisInfoString(const char *section) {
             "loading:%d\r\n"
             "current_cow_size:%zu\r\n"
             "current_cow_size_age:%lu\r\n"
+            "current_cow_peak:%zu\r\n"
             "current_fork_perc:%.2f\r\n"
             "current_save_keys_processed:%zu\r\n"
             "current_save_keys_total:%zu\r\n"
@@ -4909,6 +4913,7 @@ sds genRedisInfoString(const char *section) {
             (int)server.loading,
             server.stat_current_cow_bytes,
             server.stat_current_cow_updated ? (unsigned long) elapsedMs(server.stat_current_cow_updated) / 1000 : 0,
+            server.stat_current_cow_peak,
             fork_perc,
             server.stat_current_save_keys_processed,
             server.stat_current_save_keys_total,
@@ -5860,7 +5865,7 @@ int redisFork(int purpose) {
     if ((childpid = fork()) == 0) {
         /* Child */
         server.in_fork_child = purpose;
-        dontNeedMemoryInChild();
+        dismissMemoryInChild();
         setOOMScoreAdj(CONFIG_OOM_BGCHILD);
         setupChildSignalHandlers();
         closeChildUnusedResourceAfterFork();
@@ -5887,6 +5892,7 @@ int redisFork(int purpose) {
             server.child_type = purpose;
             server.stat_current_cow_bytes = 0;
             server.stat_current_cow_updated = 0;
+            server.stat_current_cow_peak = 0;
             server.stat_current_save_keys_processed = 0;
             server.stat_module_progress = 0;
             server.stat_current_save_keys_total = dbTotalServerKeyCount();
@@ -5908,14 +5914,14 @@ void sendChildInfo(childInfoType info_type, size_t keys, char *pname) {
     sendChildInfoGeneric(info_type, keys, -1, pname);
 }
 
-void dontNeedMemory(void* ptr) {
+void dismissMemory(void* ptr) {
     /* madvise(MADV_DONTNEED) may not work if we enable
      * Transparent Huge Pages. */
     if (server.thp_enabled == 1) return;
     zmadvise_dontneed(ptr);
 }
 
-void dontNeedClientMemory(client *c) {
+void dismissClientMemory(client *c) {
     listIter li;
     listNode *ln;
     listRewind(c->reply, &li);
@@ -5923,19 +5929,19 @@ void dontNeedClientMemory(client *c) {
         void *bulk = listNodeValue(ln);
         /* Default bulk size is 16k, actually it has extra data, maybe it
          * occupies 20k according to jemalloc bin size if using jemalloc. */
-        if (bulk) dontNeedMemory(bulk);
+        if (bulk) dismissMemory(bulk);
     }
 
     /* The 'client' is a bit big because it has 16k default reply buffer. */
-    dontNeedMemory(c);
+    dismissMemory(c);
 }
 
 /* In child process, we don't need some memory, but it is much possible
  * to change them because clients' heavy requests. We can free them ASAP. */
-void dontNeedMemoryInChild(void) {
+void dismissMemoryInChild(void) {
     /* Replication backlog. */
     if (server.repl_backlog != NULL) {
-        dontNeedMemory(server.repl_backlog);
+        dismissMemory(server.repl_backlog);
     }
 
     /* All clients memory. */
@@ -5944,7 +5950,7 @@ void dontNeedMemoryInChild(void) {
     listRewind(server.clients, &li);
     while((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
-        dontNeedClientMemory(c);
+        dismissClientMemory(c);
     }
 }
 

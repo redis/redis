@@ -28,6 +28,10 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "fmacros.h"
+#include "config.h"
+#include "solarisfixes.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -45,7 +49,6 @@ void zlibc_free(void *ptr) {
 
 #include <string.h>
 #include <pthread.h>
-#include "config.h"
 #include "zmalloc.h"
 #include "atomicvar.h"
 
@@ -338,7 +341,6 @@ void zmalloc_set_oom_handler(void (*oom_handler)(size_t)) {
 
 /* Use 'MADV_DONTNEED' to release memory to operation system quickly. */
 void zmadvise_dontneed(void *ptr) {
-    if (ptr == NULL) return;
 #if defined(USE_JEMALLOC)
     static size_t page_size = 0;
     if (page_size == 0) page_size = sysconf(_SC_PAGESIZE);
@@ -356,6 +358,8 @@ void zmadvise_dontneed(void *ptr) {
     if (real_size >= page_size) {
         madvise((void *)aligned_ptr, real_size&~page_size_mask, MADV_DONTNEED);
     }
+#else
+    (void)(ptr);
 #endif
 }
 

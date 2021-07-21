@@ -377,63 +377,120 @@ void decrRefCount(robj *o) {
     }
 }
 
-void dontNeedStringObject(robj *o) {
+void dismissSds(sds s) {
+    /* Calling 'zmalloc_size' in 'dismissMemory' is unnecessary
+     * for small sds. */
+    if (sdsAllocSize(s) > server.page_size / 2) {
+        dismissMemory(sdsAllocPtr(s));
+    }
+}
+
+void dismissStringObject(robj *o) {
     if (o->encoding == OBJ_ENCODING_RAW) {
-        dontNeedMemory(sdsAllocPtr(o->ptr));
+        dismissSds(o->ptr);
     }
 }
 
-void dontNeedSetObject(robj *o) {
-    switch (o->encoding) {
-    case OBJ_ENCODING_HT:
-        dontNeedMemory(((dict*)o->ptr)->ht[0].table);
-        dontNeedMemory(((dict*)o->ptr)->ht[1].table);
-        break;
-    case OBJ_ENCODING_INTSET:
-        dontNeedMemory(o->ptr);
-        break;
-    default:
-        serverPanic("Unknown set encoding type");
+void dismissListObject(robj *o, size_t dump_size) {
+    if (o->encoding == OBJ_ENCODING_QUICKLIST) {
+        quicklist *ql = o->ptr;
+        /* We iterate all nodes only when average node size
+         * is more than page size. */
+        if (dump_size / ql->len >= server.page_size) {
+            /* Dismiss list nodes memory. */
+            quicklistNode *node = ql->head;
+            while (node) {
+                dismissMemory(node->zl);
+                node = node->next;
+            }
+        }
     }
 }
 
-void dontNeedZsetObject(robj *o) {
-    zset *zs;
-    switch (o->encoding) {
-    case OBJ_ENCODING_SKIPLIST:
-        zs = o->ptr;
-        dontNeedMemory(zs->dict->ht[0].table);
-        dontNeedMemory(zs->dict->ht[1].table);
-        break;
-    case OBJ_ENCODING_ZIPLIST:
-        dontNeedMemory(o->ptr);
-        break;
-    default:
-        serverPanic("Unknown sorted set encoding");
+void dismissSetObject(robj *o, size_t dump_size) {
+    if (o->encoding == OBJ_ENCODING_HT) {
+        dict *set = o->ptr;
+        /* We iterate all members only when average member size
+         * is more than page size. */
+        if (dump_size / dictSize(set) >= server.page_size) {
+            /* Dismiss members memory. */
+            dictEntry *de;
+            dictIterator *di = dictGetIterator(set);
+            while((de = dictNext(di)) != NULL) {
+                dismissSds(dictGetKey(de));
+            }
+            dictReleaseIterator(di);
+        }
+
+        /* Dismiss hash table memory. */
+        dismissMemory(set->ht[0].table);
+        dismissMemory(set->ht[1].table);
+    } else if (o->encoding == OBJ_ENCODING_INTSET) {
+        dismissMemory(o->ptr);
     }
 }
 
-void dontNeedHashObject(robj *o) {
-    switch (o->encoding) {
-    case OBJ_ENCODING_HT:
-        dontNeedMemory(((dict*)o->ptr)->ht[0].table);
-        dontNeedMemory(((dict*)o->ptr)->ht[1].table);
-        break;
-    case OBJ_ENCODING_ZIPLIST:
-        dontNeedMemory(o->ptr);
-        break;
-    default:
-        serverPanic("Unknown hash encoding type");
+void dismissZsetObject(robj *o, size_t dump_size) {
+    if (o->encoding == OBJ_ENCODING_SKIPLIST) {
+        zset *zs = o->ptr;
+        zskiplist *zsl = zs->zsl;
+        /* We iterate all members only when average member size
+         * is more than page size. */
+        if (dump_size / zsl->length >= server.page_size) {
+            /* Dismiss members memory. */
+            zskiplistNode *zn = zsl->tail;
+            while (zn != NULL) {
+                dismissSds(zn->ele);
+                zn = zn->backward;
+            }
+        }
+
+        /* Dismiss hash table memory. */
+        dismissMemory(zs->dict->ht[0].table);
+        dismissMemory(zs->dict->ht[1].table);
+    } else if (o->encoding == OBJ_ENCODING_ZIPLIST) {
+        dismissMemory(o->ptr);
     }
 }
 
-void dontNeedObject(robj *o) {
+void dismissHashObject(robj *o, size_t dump_size) {
+    if (o->encoding == OBJ_ENCODING_HT) {
+        dict *d = o->ptr;
+        /* We iterate all field/values only when average field/values
+         * size is more than page size. */
+        if (dump_size / dictSize(d) >= server.page_size) {
+            /* Only dismiss values memory since the field size usually
+             * is small. */
+            dictEntry *de;
+            dictIterator *di = dictGetIterator(d);
+            while((de = dictNext(di)) != NULL) {
+                dismissSds(dictGetKey(de));
+                dismissSds(dictGetVal(de));
+            }
+            dictReleaseIterator(di);
+        }
+
+        /* Dismiss hash table memory. */
+        dismissMemory(d->ht[0].table);
+        dismissMemory(d->ht[1].table);
+    } else if (o->encoding == OBJ_ENCODING_ZIPLIST) {
+        dismissMemory(o->ptr);
+    }
+}
+
+/* Because it may cost much time to iterate all node/field/members of complex
+ * data type, we decide to iterate and dismiss them only when approximate
+ * average node/field/member size is more than page size of OS. 'dump_size'
+ * is the size of serialized key values. This method is not accurate, but it
+ * can avoid unnecessary iteration for complex data type. */
+void dismissObject(robj *o, size_t dump_size) {
     if (o->refcount != 1) return;
     switch(o->type) {
-        case OBJ_STRING: dontNeedStringObject(o); break;
-        case OBJ_SET: dontNeedSetObject(o); break;
-        case OBJ_ZSET: dontNeedZsetObject(o); break;
-        case OBJ_HASH: dontNeedHashObject(o); break;
+        case OBJ_STRING: dismissStringObject(o); break;
+        case OBJ_LIST: dismissListObject(o, dump_size); break;
+        case OBJ_SET: dismissSetObject(o, dump_size); break;
+        case OBJ_ZSET: dismissZsetObject(o, dump_size); break;
+        case OBJ_HASH: dismissHashObject(o, dump_size); break;
         default: break;
     }
 }

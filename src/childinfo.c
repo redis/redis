@@ -92,10 +92,11 @@ void sendChildInfoGeneric(childInfoType info_type, size_t keys, double progress,
         if (cow > peak_cow) peak_cow = cow;
 
         int cow_info = (info_type != CHILD_INFO_TYPE_CURRENT_INFO);
-        if (cow) {
+        if (cow || cow_info) {
             serverLog(cow_info ? LL_NOTICE : LL_VERBOSE,
-                      "%s: %zu MB of memory used by copy-on-write",
-                      pname, (cow_info ? peak_cow : cow) / (1024 * 1024));
+                      "%s: current %zu MB and peak %zu MB of memory "
+                      "used by copy-on-write",
+                      pname, cow/(1024*1024), peak_cow/(1024*1024));
         }
     }
 
@@ -114,8 +115,7 @@ void sendChildInfoGeneric(childInfoType info_type, size_t keys, double progress,
 
 /* Update Child info. */
 void updateChildInfo(childInfoType information_type, size_t cow, monotime cow_updated, size_t keys, double progress) {
-    static size_t peak_cow = 0;
-    if (cow > peak_cow) peak_cow = cow;
+    if (cow > server.stat_current_cow_peak) server.stat_current_cow_peak = cow;
 
     if (information_type == CHILD_INFO_TYPE_CURRENT_INFO) {
         server.stat_current_cow_bytes = cow;
@@ -123,15 +123,12 @@ void updateChildInfo(childInfoType information_type, size_t cow, monotime cow_up
         server.stat_current_save_keys_processed = keys;
         if (progress != -1) server.stat_module_progress = progress;
     } else if (information_type == CHILD_INFO_TYPE_AOF_COW_SIZE) {
-        server.stat_aof_cow_bytes = peak_cow;
+        server.stat_aof_cow_bytes = server.stat_current_cow_peak;
     } else if (information_type == CHILD_INFO_TYPE_RDB_COW_SIZE) {
-        server.stat_rdb_cow_bytes = peak_cow;
+        server.stat_rdb_cow_bytes = server.stat_current_cow_peak;
     } else if (information_type == CHILD_INFO_TYPE_MODULE_COW_SIZE) {
-        server.stat_module_cow_bytes = peak_cow;
+        server.stat_module_cow_bytes = server.stat_current_cow_peak;
     }
-
-    /* Reset peak_cow. */
-    if (information_type != CHILD_INFO_TYPE_CURRENT_INFO) peak_cow = 0;
 }
 
 /* Read child info data from the pipe.
