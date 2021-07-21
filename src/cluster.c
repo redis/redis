@@ -3659,7 +3659,8 @@ void clusterCron(void) {
         clusterNode *node = dictGetVal(de);
         /* Resize the send buffer if it is wasting
         * enough space. */
-        if (node->link != NULL && sdsavail(node->link->sndbuf) > SNDBUF_AVAILABLE_THRESHOLD) {
+        /* If available space is more than twice the size of the buffer then free up unused space */
+        if (node->link != NULL && sdsavail(node->link->sndbuf) / 2 > sdslen(node->link->sndbuf)) {
             node->link->sndbuf = sdsRemoveFreeSpace(node->link->sndbuf);
         }
     }
