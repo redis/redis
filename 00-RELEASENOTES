@@ -12,6 +12,53 @@ SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 6.2.5 Released Wed Jul 21 16:32:19 IDT 2021
+================================================================================
+
+Upgrade urgency: SECURITY, contains fixes to security issues that affect
+authenticated client connections on 32-bit versions. MODERATE otherwise.
+
+Fix integer overflow in BITFIELD on 32-bit versions (CVE-2021-32761).
+An integer overflow bug in Redis version 2.2 or newer can be exploited using the
+BITFIELD command to corrupt the heap and potentially result with remote code
+execution.
+
+Bug fixes that involve behavior changes:
+* Change reply type for ZPOPMAX/MIN with count in RESP3 to nested array (#8981).
+  Was using a flat array like in RESP2 instead of a nested array like ZRANGE does.
+* Fix reply type for HRANDFIELD and ZRANDMEMBER when key is missing (#9178).
+  Was using a null array instead of an empty array.
+* Fix reply type for ZRANGESTORE when source key is missing (#9089).
+  Was using an empty array like ZRANGE instead of 0 (used in the STORE variant).
+
+Bug fixes that are only applicable to previous releases of Redis 6.2:
+* ZRANDMEMBER WITHSCORES with negative COUNT may return bad score (#9162)
+* Fix crash after CLIENT UNPAUSE when threaded I/O config is enabled (#9041)
+* Fix XTRIM or XADD with LIMIT may delete more entries than the limit (#9048)
+* Fix build issue with OpenSSL 1.1.0 (#9233)
+
+Other bug fixes:
+* Fail EXEC command in case a watched key is expired (#9194)
+* Fix SMOVE not to invalidate dest key (WATCH and tracking) when member already exists (#9244)
+* Fix SINTERSTORE not to delete dest key when getting a wrong type error (#9032)
+* Fix overflows on 32-bit versions in GETBIT, SETBIT, BITCOUNT, BITPOS, and BITFIELD (#9191)
+* Improve MEMORY USAGE on stream keys (#9164)
+* Set TCP keepalive on inbound cluster bus connections (#9230)
+* Fix diskless replica loading to recover from RDB short read on module AUX data (#9199)
+* Fix race in client side tracking (#9116)
+* Fix ziplist length updates on big-endian platforms (#2080)
+
+CLI tools:
+* redis-cli cluster import command may issue wrong MIGRATE command, sending COPY instead of REPLACE (#8945)
+* redis-cli --rdb fixes when using "-" to write to stdout (#9136, #9135)
+* redis-cli support for RESP3 set type in CSV and RAW output (#7338)
+
+Modules:
+* Module API for getting current command name (#8792)
+* Fix RM_StringTruncate when newlen is 0 (#3718)
+* Fix CLIENT UNBLOCK crashing modules without timeout callback (#9167)
+
+================================================================================
 Redis 6.2.4 Released Tue June 1 12:00:00 IST 2021
 ================================================================================
 
