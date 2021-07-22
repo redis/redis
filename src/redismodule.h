@@ -630,8 +630,6 @@ REDISMODULE_API int (*RedisModule_ReplyWithAttribute)(RedisModuleCtx *ctx, long 
 REDISMODULE_API int (*RedisModule_ReplyWithPush)(RedisModuleCtx *ctx, long len) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ReplyWithNullArray)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ReplyWithEmptyArray)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_ReplyWithEmptyMap)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_ReplyWithEmptySet)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_ReplySetArrayLength)(RedisModuleCtx *ctx, long len) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_ReplySetMapLength)(RedisModuleCtx *ctx, long len) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_ReplySetSetLength)(RedisModuleCtx *ctx, long len) REDISMODULE_ATTR;
@@ -902,8 +900,6 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(ReplyWithPush);
     REDISMODULE_GET_API(ReplyWithNullArray);
     REDISMODULE_GET_API(ReplyWithEmptyArray);
-    REDISMODULE_GET_API(ReplyWithEmptyMap);
-    REDISMODULE_GET_API(ReplyWithEmptySet);
     REDISMODULE_GET_API(ReplySetArrayLength);
     REDISMODULE_GET_API(ReplySetMapLength);
     REDISMODULE_GET_API(ReplySetSetLength);
