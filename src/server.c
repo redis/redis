@@ -173,6 +173,7 @@ struct redisServer server; /* Server global state */
  *
  * The following additional flags are only used in order to put commands
  * in a specific ACL category. Commands can have multiple ACL categories.
+ * See redis.conf for the exact meaning of each.
  *
  * @keyspace, @read, @write, @set, @sortedset, @list, @hash, @string, @bitmap,
  * @hyperloglog, @stream, @admin, @fast, @slow, @pubsub, @blocking, @dangerous,
@@ -652,7 +653,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,0,0,0,0,0,0},
 
     {"select",selectCommand,2,
-     "ok-loading fast ok-stale @keyspace",
+     "ok-loading fast ok-stale @connection",
      0,NULL,0,0,0,0,0,0},
 
     {"swapdb",swapdbCommand,3,
@@ -821,7 +822,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,0,0,0,0,0,0},
 
     {"role",roleCommand,1,
-     "ok-loading ok-stale no-script fast @dangerous",
+     "ok-loading ok-stale no-script fast @admin @dangerous",
      0,NULL,0,0,0,0,0,0},
 
     {"debug",debugCommand,-2,
@@ -881,15 +882,15 @@ struct redisCommand redisCommandTable[] = {
      0,migrateGetKeys,0,0,0,0,0,0},
 
     {"asking",askingCommand,1,
-     "fast @keyspace",
+     "fast @connection",
      0,NULL,0,0,0,0,0,0},
 
     {"readonly",readonlyCommand,1,
-     "fast @keyspace",
+     "fast @connection",
      0,NULL,0,0,0,0,0,0},
 
     {"readwrite",readwriteCommand,1,
-     "fast @keyspace",
+     "fast @connection",
      0,NULL,0,0,0,0,0,0},
 
     {"dump",dumpCommand,2,
@@ -959,7 +960,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,1,1,1,0,0,0},
 
     {"wait",waitCommand,3,
-     "no-script @keyspace",
+     "no-script @connection",
      0,NULL,0,0,0,0,0,0},
 
     {"command",commandCommand,-1,

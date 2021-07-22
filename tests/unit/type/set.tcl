@@ -828,6 +828,28 @@ start_server {
         lsort [r smembers set{t}]
     } {a b c}
 
+    test "SMOVE only notify dstset when the addition is successful" {
+        r del srcset{t}
+        r del dstset{t}
+
+        r sadd srcset{t} a b
+        r sadd dstset{t} a
+
+        r watch dstset{t}
+
+        r multi
+        r sadd dstset{t} c
+
+        set r2 [redis_client]
+        $r2 smove srcset{t} dstset{t} a
+
+        # The dstset is actually unchanged, multi should success
+        r exec
+        set res [r scard dstset{t}]
+        assert_equal $res 2
+        $r2 close
+    }
+
     tags {slow} {
         test {intsets implementation stress testing} {
             for {set j 0} {$j < 20} {incr j} {
