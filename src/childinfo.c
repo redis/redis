@@ -115,7 +115,9 @@ void sendChildInfoGeneric(childInfoType info_type, size_t keys, double progress,
 
 /* Update Child info. */
 void updateChildInfo(childInfoType information_type, size_t cow, monotime cow_updated, size_t keys, double progress) {
-    if (cow > server.stat_current_cow_peak) server.stat_current_cow_peak = cow;
+    if (cow > server.stat_current_cow_peak) {
+        server.stat_current_cow_peak = cow;
+    }
 
     if (information_type == CHILD_INFO_TYPE_CURRENT_INFO) {
         server.stat_current_cow_bytes = cow;
