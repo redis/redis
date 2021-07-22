@@ -215,7 +215,7 @@ int redisSetTcpNoDelay(redisContext *c) {
 
 #define __MAX_MSEC (((LONG_MAX) - 999) / 1000)
 
-static int redisContextTimeoutMsec(redisContext *c, long *result)
+int redisContextTimeoutMsec(redisContext *c, long *result)
 {
     const struct timeval *timeout = c->connect_timeout;
     long msec = -1;

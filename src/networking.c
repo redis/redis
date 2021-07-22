@@ -1165,6 +1165,28 @@ void acceptUnixHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     }
 }
 
+void acceptRdmaHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
+    int cport, cfd, max = MAX_ACCEPTS_PER_CALL;
+    char cip[NET_IP_STR_LEN];
+    UNUSED(el);
+    UNUSED(mask);
+    UNUSED(privdata);
+
+    while(max--) {
+        cfd = rdmaAccept(server.neterr, fd, cip, sizeof(cip), &cport);
+        if (cfd == ANET_ERR) {
+            if (errno != EWOULDBLOCK)
+                serverLog(LL_WARNING,
+                    "RDMA Accepting client connection: %s", server.neterr);
+            return;
+        }
+
+        anetCloexec(cfd);
+        serverLog(LL_VERBOSE,"RDMA Accepted %s:%d", cip, cport);
+        acceptCommonHandler(connCreateAcceptedRdma(cfd), 0, cip);
+    }
+}
+
 void freeClientOriginalArgv(client *c) {
     /* We didn't rewrite this client */
     if (!c->original_argv) return;

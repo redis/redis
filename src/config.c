@@ -464,6 +464,26 @@ void loadServerConfigFromString(char *config) {
             for (j = 0; j < addresses; j++)
                 server.bindaddr[j] = zstrdup(argv[j+1]);
             server.bindaddr_count = addresses;
+#ifdef USE_RDMA
+        } else if (!strcasecmp(argv[0],"rdma-bind") && argc >= 2) {
+            /* almost the same logic with "bind", is it necessary to abstruct a function? */
+            int j, addresses = argc-1;
+
+            if (addresses > CONFIG_BINDADDR_MAX) {
+                err = "Too many bind addresses specified"; goto loaderr;
+            }
+
+            /* A single empty argument is treated as a zero bindaddr count */
+            if (addresses == 1 && sdslen(argv[1]) == 0) addresses = 0;
+
+            /* Free old bind addresses */
+            for (j = 0; j < server.rdma_bindaddr_count; j++) {
+                zfree(server.rdma_bindaddr[j]);
+            }
+            for (j = 0; j < addresses; j++)
+                server.rdma_bindaddr[j] = zstrdup(argv[j+1]);
+            server.rdma_bindaddr_count = addresses;
+#endif
         } else if (!strcasecmp(argv[0],"unixsocketperm") && argc == 2) {
             errno = 0;
             server.unixsocketperm = (mode_t)strtol(argv[1], NULL, 8);
@@ -2645,6 +2665,11 @@ standardConfig configs[] = {
     createStringConfig("tls-protocols", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.protocols, NULL, NULL, updateTlsCfg),
     createStringConfig("tls-ciphers", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.ciphers, NULL, NULL, updateTlsCfg),
     createStringConfig("tls-ciphersuites", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.ciphersuites, NULL, NULL, updateTlsCfg),
+#endif
+#ifdef USE_RDMA
+    createStringConfig("rdma-bind-source-addr", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.rdma_bind_source_addr, NULL, NULL, NULL),
+    createIntConfig("rdma-port", NULL, MODIFIABLE_CONFIG, 0, 65535, server.rdma_port, 0, INTEGER_CONFIG, NULL, NULL), /* RDMA port. */
+    createBoolConfig("rdma-replication", NULL, MODIFIABLE_CONFIG, server.rdma_replication, 0, NULL, NULL),
 #endif
 
     /* NULL Terminator */

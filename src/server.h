@@ -1673,6 +1673,13 @@ struct redisServer {
                                 * failover then any replica can be used. */
     int target_replica_port; /* Failover target port */
     int failover_state; /* Failover state */
+    /* RDMA config */
+    char *rdma_bindaddr[CONFIG_BINDADDR_MAX]; /* Addresses RDMA should bind to */
+    int rdma_bindaddr_count; /* Number of addresses in server.rdma_bindaddr[] */
+    char *rdma_bind_source_addr; /* Source address to bind on for outgoing connections */
+    int rdma_port; /* RDMA listening port */
+    socketFds rdmafd; /* RDMA file descriptors */
+    int rdma_replication; /* RDMA replication */
 };
 
 #define MAX_KEYS_BUFFER 256
@@ -1868,6 +1875,7 @@ void processInputBuffer(client *c);
 void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 void acceptTLSHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 void acceptUnixHandler(aeEventLoop *el, int fd, void *privdata, int mask);
+void acceptRdmaHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 void readQueryFromClient(connection *conn);
 void addReplyNull(client *c);
 void addReplyNullArray(client *c);
@@ -1922,6 +1930,7 @@ char *getClientTypeName(int class);
 void flushSlavesOutputBuffers(void);
 void disconnectSlaves(void);
 int listenToPort(int port, socketFds *fds);
+int listenToRdma(int port, socketFds *fds);
 void pauseClients(mstime_t duration, pause_type type);
 void unpauseClients(void);
 int areClientsPaused(void);
