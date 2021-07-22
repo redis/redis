@@ -604,83 +604,75 @@ start_server {tags {"expire"}} {
 
     test {EXPIRE with NX option on a key with ttl} {
         r SET foo bar EX 100000
-        r EXPIRE foo 200000 NX
-    } {0}
+        assert_equal [r EXPIRE foo 200000 NX] 0
+        assert_range [r TTL foo] 50000 100000
+    } {}
 
     test {EXPIRE with NX option on a key without ttl} {
         r SET foo bar
-        r EXPIRE foo 200000 NX
-    } {1}
-
-    test {EXPIREAT with NX option on a key with ttl} {
-        r SET foo bar EX 100000
-        r EXPIREAT foo 200000 NX
-    } {0}
-
-    test {EXPIREAT with NX option on a key without ttl} {
-        r SET foo bar
-        r EXPIREAT foo 200000 NX
-    } {1}
+        assert_equal [r EXPIRE foo 200000 NX] 1
+        assert_range [r TTL foo] 100000 200000
+    } {}
 
     test {PEXPIRE with NX option on a key with ttl} {
         r SET foo bar EX 100000
-        r PEXPIRE foo 200000 NX
-    } {0}
+        assert_equal [r PEXPIRE foo 200000 NX] 0
+        assert_range [r TTL foo] 50 100
+    } {}
 
     test {PEXPIRE with NX option on a key without ttl} {
         r SET foo bar
-        r PEXPIRE foo 200000 NX
-    } {1}
-
-    test {PEXPIREAT with NX option on a key with ttl} {
-        r SET foo bar EX 100000
-        r PEXPIREAT foo 200000 NX
-    } {0}
-
-    test {PEXPIREAT with NX option on a key without ttl} {
-        r SET foo bar
-        r PEXPIREAT foo 200000 NX
-    } {1}
+        assert_equal [r PEXPIRE foo 200000 NX] 1
+        assert_range [r TTL foo] 100 200
+    } {}
 
     test {EXPIRE with XX option on a key with ttl} {
         r SET foo bar EX 100000
-        r EXPIRE foo 200000 XX
+        assert_equal [r EXPIRE foo 200000 XX] 1
+        assert_range [r TTL foo] 100000 200000
     } {1}
 
     test {EXPIRE with XX option on a key without ttl} {
         r SET foo bar
-        r EXPIRE foo 200000 XX
+        assert_equal [r EXPIRE foo 200000 XX] 0
+        assert_range [r TTL foo] 50000 100000
     } {0}
 
     test {EXPIRE with GT option} {
         r SET foo bar EX 100000
-        r EXPIRE foo 200000 GT
-    } {1}
+        assert_equal [r EXPIRE foo 200000 GT] 1
+        assert_range [r TTL foo] 100000 200000
+    } {}
 
     test {EXPIRE with GT option} {
         r SET foo bar EX 200000
-        r EXPIRE foo 100000 GT
-    } {0}
+        assert_equal [r EXPIRE foo 100000 GT] 0
+        assert_range [r TTL foo] 100000 200000
+    } {}
 
     test {EXPIRE with LT option} {
         r SET foo bar EX 100000
-        r EXPIRE foo 200000 LT
-    } {0}
+        assert_equal [r EXPIRE foo 200000 LT] 0
+        assert_range [r TTL foo] 50000 100000
+    } {}
 
     test {EXPIRE with LT option} {
         r SET foo bar EX 200000
-        r EXPIRE foo 100000 LT
-    } {1}
+        assert_equal [r EXPIRE foo 100000 LT] 1
+        assert_range [r TTL foo] 50000 100000
+    } {}
 
     test {EXPIRE with GT option on a key without ttl} {
         r SET foo bar
-        r EXPIRE foo 200000 GT
-    } {0}
+        assert_equal [r EXPIRE foo 200000 GT] 0
+        assert_equal [r TTL foo] -1
+    } {}
 
     test {EXPIRE with LT option on a key without ttl} {
         r SET foo bar
-        r EXPIRE foo 200000 LT
-    } {0}
+        assert_equal [r EXPIRE foo 100000 LT] 1
+        assert_range [r TTL foo] 50000 100000
+    } {}
 
     test {EXPIRE with LT and XX option on a key without ttl} {
         r SET foo bar
@@ -706,4 +698,14 @@ start_server {tags {"expire"}} {
         catch {r EXPIRE foo 200000 NX XX} e
         set e
     } {ERR NX and XX, GT or LT options at the same time are not compatible}
+
+    test {EXPIRE with unsupported options} {
+        catch {r EXPIRE foo 200000 AB} e
+        set e
+    } {ERR Unsupported option AB}
+
+    test {EXPIRE with unsupported options} {
+        catch {r EXPIRE foo 200000 XX AB} e
+        set e
+    } {ERR Unsupported option AB}
 }
