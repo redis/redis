@@ -138,10 +138,7 @@ int rw_error(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 int rw_verbatim(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc != 1) return RedisModule_WrongArity(ctx);
 
-    RedisModule_ReplyWithVerbatimString(ctx, )
-
-
-    return RedisModule_ReplyWithError(ctx, "An error");
+    return RedisModule_ReplyWithVerbatimString(ctx, argv[1]);
 }
 
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {

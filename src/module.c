@@ -1448,6 +1448,18 @@ int RM_StringAppendBuffer(RedisModuleCtx *ctx, RedisModuleString *str, const cha
  *
  *     if (... some condition ...)
  *         return RedisModule_ReplyWithLongLong(ctx,mycount);
+ *
+ * ### Reply with collection functions
+ *
+ * After starting a collection reply, the module must make calls to other
+ * `ReplyWith*` style functions in order to emit the elements of the collection.
+ * Collection types include: Array, Map, Set and Attribute.
+ *
+ * When producing collections with a number of element that is not known
+ * beforehand, the function can be called with a special flag
+ * REDISMODULE_POSTPONED_LEN (REDISMODULE_POSTPONED_ARRAY_LEN in the past),
+ * and the actual number of elements can be later set with RM_ReplySet*Length()
+ * call (which will set the latest "open" count if there are multiple ones).
  * -------------------------------------------------------------------------- */
 
 /* Send an error about the number of arguments given to the command,
@@ -1562,6 +1574,9 @@ int moduleReplyWithCollection(RedisModuleCtx *ctx, long len, int type) {
         case COLLECTION_REPLY_SET:
             addReply(c, shared.emptyset[c->resp]);
             break;
+        case COLLECTION_REPLY_ATTRIBUTE:
+            addReplyAttributeLen(c,len);
+            break;
         default:
             serverPanic("Invalid module empty reply type %d", type);        }
     } else {
@@ -1585,25 +1600,11 @@ int moduleReplyWithCollection(RedisModuleCtx *ctx, long len, int type) {
     return REDISMODULE_OK;
 }
 
-/* --------------------------------------------------------------------------
- * ## Reply with collection functions
- *
- * Collection types include: Array, Map, Set and Attribute.
- * 
- * Reply with a collection of 'len' elements. However 'len' other calls
- * to `ReplyWith*` style functions must follow in order to emit the elements
- * of the array.
- * 
- * When producing collections with a number of element that is not known
- * beforehand, the function can be called with a special flag
- * REDISMODULE_POSTPONED_LEN, and the actual number of elements can be
- * later set with RM_ReplySet*Length() (which will set the
- * latest "open" count if there are multiple ones).
- * 
- * Visit https://github.com/antirez/RESP3/blob/master/spec.md for more info about RESP3.
- * -------------------------------------------------------------------------- */
-
 /* Reply with an array type of 'len' elements.
+ *
+ * After starting an array reply, the module must make `len` calls to other
+ * `ReplyWith*` style functions in order to emit the elements of the array.
+ * See Reply APIs section for more details.
  *
  * Use RM_ReplySetArrayLength() to set deferred length.
  *
@@ -1612,9 +1613,15 @@ int RM_ReplyWithArray(RedisModuleCtx *ctx, long len) {
     return moduleReplyWithCollection(ctx, len, COLLECTION_REPLY_ARRAY);
 }
 
-/* Reply with a map type of 'len' pairs. The actual number of elements
- * (i.e. the number of times to call a `ReplyWith*` style function)
- * is `len`*2.
+/* Reply with a RESP3 Map type of 'len' pairs.
+ * Visit https://github.com/antirez/RESP3/blob/master/spec.md for more info about RESP3.
+ *
+ * After starting a map reply, the module must make `len*2` calls to other
+ * `ReplyWith*` style functions in order to emit the elements of the map.
+ * See Reply APIs section for more details.
+ *
+ * If the connected client is using RESP2, the reply will be converted to a flat
+ * array.
  * 
  * Use RM_ReplySetMapLength() to set deferred length.
  * 
@@ -1623,7 +1630,15 @@ int RM_ReplyWithMap(RedisModuleCtx *ctx, long len) {
     return moduleReplyWithCollection(ctx, len, COLLECTION_REPLY_MAP);
 }
 
-/* Reply with a set type of 'len' elements.
+/* Reply with a RESP3 Set type of 'len' elements.
+ * Visit https://github.com/antirez/RESP3/blob/master/spec.md for more info about RESP3.
+ *
+ * After starting a set reply, the module must make `len` calls to other
+ * `ReplyWith*` style functions in order to emit the elements of the set.
+ * See Reply APIs section for more details.
+ *
+ * If the connected client is using RESP2, the reply will be converted to an
+ * array type.
  *
  * Use RM_ReplySetSetLength() to set deferred length.
  * 
@@ -1636,6 +1651,10 @@ int RM_ReplyWithSet(RedisModuleCtx *ctx, long len) {
 /* Add attributes (metadata) to the reply. Should be done before adding the
  * actual reply. see https://github.com/antirez/RESP3/blob/master/spec.md#attribute-type
  *
+ * After starting an attributes reply, the module must make `len*2` calls to other
+ * `ReplyWith*` style functions in order to emit the elements of the attribtute map.
+ * See Reply APIs section for more details.
+ *
  * Use RM_ReplySetAttributeLength() to set deferred length.
  * 
  * Not supported by RESP2 and will return REDISMODULE_ERR, otherwise
@@ -1646,11 +1665,11 @@ int RM_ReplyWithAttribute(RedisModuleCtx *ctx, long len) {
     return moduleReplyWithCollection(ctx, len, COLLECTION_REPLY_ATTRIBUTE);
 }
 
-/* Reply to the client with a null array, simply null in RESP3
+/* Reply to the client with a null array, simply null in RESP3,
  * null array in RESP2.
  *
  * Note: In RESP3 there's no difference between Null reply and
- * NullArray reply so, to prevent ambiguity it's better to avoid
+ * NullArray reply, so to prevent ambiguity it's better to avoid
  * using this API and use RedisModule_ReplyWithNull instead.
  *
  * The function always returns REDISMODULE_OK. */
