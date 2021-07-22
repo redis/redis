@@ -653,14 +653,15 @@ void clusterReset(int hard) {
  * CLUSTER communication link
  * -------------------------------------------------------------------------- */
 
-clusterLink *createClusterLink(clusterNode *node) {
+clusterLink *createClusterLink(clusterNode *node, connection *conn) {
+    serverAssert(conn);
     clusterLink *link = zmalloc(sizeof(*link));
     link->ctime = mstime();
     link->sndbuf = sdsempty();
     link->rcvbuf = zmalloc(link->rcvbuf_alloc = RCVBUF_INIT_LEN);
     link->rcvbuf_len = 0;
     link->node = node;
-    link->conn = NULL;
+    link->conn = conn;
     return link;
 }
 
@@ -668,10 +669,10 @@ clusterLink *createClusterLink(clusterNode *node) {
  * This function will just make sure that the original node associated
  * with this link will have the 'link' field set to NULL. */
 void freeClusterLink(clusterLink *link) {
-    if (link->conn) {
-        connClose(link->conn);
-        link->conn = NULL;
-    }
+    serverAssert(link->conn);
+    connClose(link->conn);
+    link->conn = NULL;
+
     sdsfree(link->sndbuf);
     zfree(link->rcvbuf);
     if (link->node)
@@ -694,8 +695,7 @@ static void clusterConnAcceptHandler(connection *conn) {
      * Initially the link->node pointer is set to NULL as we don't know
      * which node is, but the right node is references once we know the
      * node identity. */
-    link = createClusterLink(NULL);
-    link->conn = conn;
+    link = createClusterLink(NULL, conn);
     connSetPrivateData(conn, link);
 
     /* Register read handler */
@@ -3602,8 +3602,8 @@ void clusterCron(void) {
         }
 
         if (node->link == NULL) {
-            clusterLink *link = createClusterLink(node);
-            link->conn = server.tls_cluster ? connCreateTLS() : connCreateSocket();
+            connection *conn = server.tls_cluster ? connCreateTLS() : connCreateSocket();
+            clusterLink *link = createClusterLink(node, conn);
             connSetPrivateData(link->conn, link);
             if (connConnect(link->conn, node->ip, node->cport, server.bind_source_addr,
                         clusterLinkConnectHandler) == -1) {
@@ -4228,7 +4228,8 @@ sds clusterGenNodeDescription(clusterNode *node, int use_pport) {
         (long long) node->ping_sent,
         (long long) node->pong_received,
         nodeEpoch,
-        (node->link || node->flags & CLUSTER_NODE_MYSELF) ?
+        ((node->link && connGetState(node->link->conn) == CONN_STATE_CONNECTED) ||
+         node->flags & CLUSTER_NODE_MYSELF) ?
                     "connected" : "disconnected");
 
     /* Slots served by this instance. If we already have slots info,
