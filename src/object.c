@@ -416,7 +416,7 @@ void dismissSetObject(robj *o, size_t dump_size) {
             /* Dismiss members memory. */
             dictEntry *de;
             dictIterator *di = dictGetIterator(set);
-            while((de = dictNext(di)) != NULL) {
+            while ((de = dictNext(di)) != NULL) {
                 dismissSds(dictGetKey(de));
             }
             dictReleaseIterator(di);
@@ -463,8 +463,7 @@ void dismissHashObject(robj *o, size_t dump_size) {
              * is small. */
             dictEntry *de;
             dictIterator *di = dictGetIterator(d);
-            while((de = dictNext(di)) != NULL) {
-                dismissSds(dictGetKey(de));
+            while ((de = dictNext(di)) != NULL) {
                 dismissSds(dictGetVal(de));
             }
             dictReleaseIterator(di);
