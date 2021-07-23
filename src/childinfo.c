@@ -69,10 +69,12 @@ void closeChildInfoPipe(void) {
 /* Send save data to parent. */
 void sendChildInfoGeneric(childInfoType info_type, size_t keys, double progress, char *pname) {
     if (server.child_info_pipe[1] == -1) return;
-    static size_t peak_cow = 0;
     static monotime cow_updated = 0;
     static uint64_t cow_update_cost = 0;
     static size_t cow = 0;
+    static size_t peak_cow = 0;
+    static size_t update_count = 0;
+    static unsigned long long sum_cow = 0;
 
     child_info_data data = {0}; /* zero everything, including padding to satisfy valgrind */
 
@@ -90,13 +92,16 @@ void sendChildInfoGeneric(childInfoType info_type, size_t keys, double progress,
         cow_updated = getMonotonicUs();
         cow_update_cost = cow_updated - now;
         if (cow > peak_cow) peak_cow = cow;
+        sum_cow += cow;
+        update_count++;
 
         int cow_info = (info_type != CHILD_INFO_TYPE_CURRENT_INFO);
         if (cow || cow_info) {
             serverLog(cow_info ? LL_NOTICE : LL_VERBOSE,
-                      "%s: current %zu MB and peak %zu MB of memory "
-                      "used by copy-on-write",
-                      pname, cow/(1024*1024), peak_cow/(1024*1024));
+                      "%s: current %zu MB, peak %zu MB and average %llu MB "
+                      "of memory used by copy-on-write",
+                      pname, cow/(1024*1024), peak_cow/(1024*1024),
+                      sum_cow/update_count/(1024*1024));
         }
     }
 
@@ -115,9 +120,7 @@ void sendChildInfoGeneric(childInfoType info_type, size_t keys, double progress,
 
 /* Update Child info. */
 void updateChildInfo(childInfoType information_type, size_t cow, monotime cow_updated, size_t keys, double progress) {
-    if (cow > server.stat_current_cow_peak) {
-        server.stat_current_cow_peak = cow;
-    }
+    if (cow > server.stat_current_cow_peak) server.stat_current_cow_peak = cow;
 
     if (information_type == CHILD_INFO_TYPE_CURRENT_INFO) {
         server.stat_current_cow_bytes = cow;

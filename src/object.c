@@ -378,11 +378,7 @@ void decrRefCount(robj *o) {
 }
 
 void dismissSds(sds s) {
-    /* Calling 'zmalloc_size' in 'dismissMemory' is unnecessary
-     * for small sds. */
-    if (sdsAllocSize(s) > server.page_size / 2) {
-        dismissMemory(sdsAllocPtr(s));
-    }
+    dismissMemory(sdsAllocPtr(s), sdsAllocSize(s));
 }
 
 void dismissStringObject(robj *o) {
@@ -400,7 +396,11 @@ void dismissListObject(robj *o, size_t dump_size) {
             /* Dismiss list nodes memory. */
             quicklistNode *node = ql->head;
             while (node) {
-                dismissMemory(node->zl);
+                if (quicklistNodeIsCompressed(node)) {
+                    dismissMemory(node->zl, ((quicklistLZF*)node->zl)->sz);
+                } else {
+                    dismissMemory(node->zl, node->sz);
+                }
                 node = node->next;
             }
         }
@@ -423,10 +423,10 @@ void dismissSetObject(robj *o, size_t dump_size) {
         }
 
         /* Dismiss hash table memory. */
-        dismissMemory(set->ht[0].table);
-        dismissMemory(set->ht[1].table);
+        dismissMemory(set->ht[0].table, set->ht[0].size*sizeof(dictEntry*));
+        dismissMemory(set->ht[1].table, set->ht[1].size*sizeof(dictEntry*));
     } else if (o->encoding == OBJ_ENCODING_INTSET) {
-        dismissMemory(o->ptr);
+        dismissMemory(o->ptr, intsetBlobLen((intset*)o->ptr));
     }
 }
 
@@ -446,10 +446,11 @@ void dismissZsetObject(robj *o, size_t dump_size) {
         }
 
         /* Dismiss hash table memory. */
-        dismissMemory(zs->dict->ht[0].table);
-        dismissMemory(zs->dict->ht[1].table);
+        dict *d = zs->dict;
+        dismissMemory(d->ht[0].table, d->ht[0].size*sizeof(dictEntry*));
+        dismissMemory(d->ht[1].table, d->ht[1].size*sizeof(dictEntry*));
     } else if (o->encoding == OBJ_ENCODING_ZIPLIST) {
-        dismissMemory(o->ptr);
+        dismissMemory(o->ptr, ziplistBlobLen((unsigned char*)o->ptr));
     }
 }
 
@@ -470,10 +471,24 @@ void dismissHashObject(robj *o, size_t dump_size) {
         }
 
         /* Dismiss hash table memory. */
-        dismissMemory(d->ht[0].table);
-        dismissMemory(d->ht[1].table);
+        dismissMemory(d->ht[0].table, d->ht[0].size*sizeof(dictEntry*));
+        dismissMemory(d->ht[1].table, d->ht[1].size*sizeof(dictEntry*));
     } else if (o->encoding == OBJ_ENCODING_ZIPLIST) {
-        dismissMemory(o->ptr);
+        dismissMemory(o->ptr, ziplistBlobLen((unsigned char*)o->ptr));
+    }
+}
+
+void dismissStreamObject(robj *o, size_t dump_size) {
+    stream *s = o->ptr;
+    rax *rax = s->rax;
+    if (dump_size / raxSize(rax) >= server.page_size) {
+        raxIterator ri;
+        raxStart(&ri,rax);
+        raxSeek(&ri,"^",NULL,0);
+        while (raxNext(&ri)) {
+            dismissMemory(ri.data, lpBytes(ri.data));
+        }
+        raxStop(&ri);
     }
 }
 
@@ -490,6 +505,7 @@ void dismissObject(robj *o, size_t dump_size) {
         case OBJ_SET: dismissSetObject(o, dump_size); break;
         case OBJ_ZSET: dismissZsetObject(o, dump_size); break;
         case OBJ_HASH: dismissHashObject(o, dump_size); break;
+        case OBJ_STREAM: dismissStreamObject(o, dump_size); break;
         default: break;
     }
 }

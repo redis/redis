@@ -5919,10 +5919,24 @@ void sendChildInfo(childInfoType info_type, size_t keys, char *pname) {
     sendChildInfoGeneric(info_type, keys, -1, pname);
 }
 
-void dismissMemory(void* ptr) {
+/* For some small size memory, madvise(MADV_DONTNEED) can't release any page,
+ * so we can judge to do that by its size first if we can know the memory size,
+ * it is valid size only if 'size' is more than 0, otherwise, we will get its
+ * its real size by zmalloc_size in zmadvise_dontneed. Also please note that
+ * the size may be not accurate, so in order to make this solution effective,
+ * the judgement for releasing memory pages should not be too strict. */
+void dismissMemory(void* ptr, size_t size) {
+    if (ptr == NULL) return;
+
     /* madvise(MADV_DONTNEED) may not work if we enable
      * Transparent Huge Pages. */
     if (server.thp_enabled == 1) return;
+
+    /* madvise(MADV_DONTNEED) can not release pages if the size of memory
+     * is too small, we try to release only for the memory which the size
+     * is more than half of page size. */
+    if (size && size <= server.page_size/2) return;
+
     zmadvise_dontneed(ptr);
 }
 
@@ -5934,11 +5948,11 @@ void dismissClientMemory(client *c) {
         void *bulk = listNodeValue(ln);
         /* Default bulk size is 16k, actually it has extra data, maybe it
          * occupies 20k according to jemalloc bin size if using jemalloc. */
-        if (bulk) dismissMemory(bulk);
+        if (bulk) dismissMemory(bulk, 0);
     }
 
     /* The 'client' is a bit big because it has 16k default reply buffer. */
-    dismissMemory(c);
+    dismissMemory(c, 0);
 }
 
 /* In child process, we don't need some memory, but it is much possible
@@ -5946,7 +5960,7 @@ void dismissClientMemory(client *c) {
 void dismissMemoryInChild(void) {
     /* Replication backlog. */
     if (server.repl_backlog != NULL) {
-        dismissMemory(server.repl_backlog);
+        dismissMemory(server.repl_backlog, 0);
     }
 
     /* All clients memory. */

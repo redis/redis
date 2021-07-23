@@ -1473,6 +1473,7 @@ int rewriteAppendOnlyFileRio(rio *aof) {
             sds keystr;
             robj key, *o;
             long long expiretime;
+            size_t before = aof->processed_bytes;
 
             keystr = dictGetKey(de);
             o = dictGetVal(de);
@@ -1503,6 +1504,12 @@ int rewriteAppendOnlyFileRio(rio *aof) {
             } else {
                 serverPanic("Unknown object type");
             }
+
+            /* We can try to release memory quickly to avoid COW
+             * in the child process. */
+            size_t dump_size = aof->processed_bytes - before;
+            if (server.in_fork_child) dismissObject(o, dump_size);
+
             /* Save the expire time */
             if (expiretime != -1) {
                 char cmd[]="*3\r\n$9\r\nPEXPIREAT\r\n";
