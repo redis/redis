@@ -5919,13 +5919,16 @@ void sendChildInfo(childInfoType info_type, size_t keys, char *pname) {
     sendChildInfoGeneric(info_type, keys, -1, pname);
 }
 
-/* For some small size memory, madvise(MADV_DONTNEED) can't release any page,
- * so we can judge to do that by its size first if we can know the memory size,
- * it is valid size only if 'size' is more than 0, otherwise, we will get its
- * its real size by zmalloc_size in zmadvise_dontneed. Also please note that
- * the size may be not accurate, so in order to make this solution effective,
- * the judgement for releasing memory pages should not be too strict. */
-void dismissMemory(void* ptr, size_t size) {
+/* Try to release pages back to the OS directly (bypassing the allocatior),
+ * in an effort to decrease CoW during fork. For small allocations, we can't
+ * release any full page, so in an effort to avoid getting the size of the
+ * allocation from the allocator (malloc_size) when we already know it's small,
+ * we check the size_hint. if the size is not already known, passing a size_hint
+ * of 0 will lead the checking the real size of the allocation.
+ * Also please note that the size may be not accurate, so in order to make this
+ * solution effective, the judgement for releasing memory pages should not be
+ * too strict. */
+void dismissMemory(void* ptr, size_t size_hint) {
     if (ptr == NULL) return;
 
     /* madvise(MADV_DONTNEED) may not work if we enable
@@ -5948,7 +5951,7 @@ void dismissClientMemory(client *c) {
         void *bulk = listNodeValue(ln);
         /* Default bulk size is 16k, actually it has extra data, maybe it
          * occupies 20k according to jemalloc bin size if using jemalloc. */
-        if (bulk) dismissMemory(bulk, 0);
+        if (bulk) dismissMemory(bulk, ((clientReplyBlock*)bulk)->size);
     }
 
     /* The 'client' is a bit big because it has 16k default reply buffer. */

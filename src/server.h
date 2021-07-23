@@ -2249,7 +2249,7 @@ int setOOMScoreAdj(int process_class);
 void rejectCommandFormat(client *c, const char *fmt, ...);
 void *activeDefragAlloc(void *ptr);
 robj *activeDefragStringOb(robj* ob, long *defragged);
-void dismissMemory(void* ptr, size_t size);
+void dismissMemory(void* ptr, size_t size_hint);
 void dismissMemoryInChild(void);
 
 #define RESTART_SERVER_NONE 0
