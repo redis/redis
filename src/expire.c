@@ -489,7 +489,6 @@ int checkAlreadyExpired(long long when) {
     return (when <= mstime() && !server.loading && !server.masterhost);
 }
 
-#define EXPIRE_NO_EXPIRES 0
 #define EXPIRE_NX (1<<0)
 #define EXPIRE_XX (1<<1)
 #define EXPIRE_GT (1<<2)
@@ -557,7 +556,7 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
     robj *key = c->argv[1], *param = c->argv[2];
     long long when; /* unix time in milliseconds when the key will expire. */
     long long current_expire = -1;
-    int flag = EXPIRE_NO_EXPIRES;
+    int flag = 0;
 
     /* checking optional flags */
     if (parseExtendedExpireArgumentsOrReply(c, &flag) != C_OK) {
@@ -603,8 +602,8 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
     /* GT option is set, check current expiry */
     if (flag & EXPIRE_GT) {
         current_expire = getExpire(c->db, key);
-        /* current_expire -1 is considered as infinite ttl
-           so expire command with gt always fail */
+        /* When current_expire -1, we consider it as infinite TTL,
+           so expire command with gt always fail the GT. */
         if (when <= current_expire || current_expire == -1) {
             /* reply 0 when the new expiry is not greater than current */
             addReply(c,shared.czero);
@@ -615,7 +614,9 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
     /* LT option is set, check current expiry */
     if (flag & EXPIRE_LT) {
         current_expire = getExpire(c->db, key);
-        /* there is an expiry on the key and it's not less than current */
+        /* When current_expire -1, we consider it as infinite TTL,
+         * But 'when' can still be negative at this point, so if there is
+         * an expiry on the key and it's not less than current, we fail the LT. */
         if (when >= current_expire && current_expire > -1) {
             /* reply 0 when the new expiry is not less than current */
             addReply(c,shared.czero);

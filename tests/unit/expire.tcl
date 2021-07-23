@@ -617,7 +617,7 @@ start_server {tags {"expire"}} {
     test {PEXPIRE with NX option on a key with ttl} {
         r SET foo bar EX 100000
         assert_equal [r PEXPIRE foo 200000 NX] 0
-        assert_range [r TTL foo] 50 100
+        assert_range [r TTL foo] 50000 100000
     } {}
 
     test {PEXPIRE with NX option on a key without ttl} {
@@ -630,13 +630,13 @@ start_server {tags {"expire"}} {
         r SET foo bar EX 100000
         assert_equal [r EXPIRE foo 200000 XX] 1
         assert_range [r TTL foo] 100000 200000
-    } {1}
+    } {}
 
     test {EXPIRE with XX option on a key without ttl} {
         r SET foo bar
         assert_equal [r EXPIRE foo 200000 XX] 0
-        assert_range [r TTL foo] 50000 100000
-    } {0}
+        assert_equal [r TTL foo] -1
+    } {}
 
     test {EXPIRE with GT option} {
         r SET foo bar EX 100000
@@ -708,4 +708,10 @@ start_server {tags {"expire"}} {
         catch {r EXPIRE foo 200000 XX AB} e
         set e
     } {ERR Unsupported option AB}
+
+    test {EXPIRE with negative expiry} {
+        r SET foo bar EX 100000
+        assert_equal [r EXPIRE foo -10000 LT] 1
+        assert_equal [r TTL foo] -2
+    } {}
 }
