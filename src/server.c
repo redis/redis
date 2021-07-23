@@ -5923,7 +5923,7 @@ void sendChildInfo(childInfoType info_type, size_t keys, char *pname) {
  * in an effort to decrease CoW during fork. For small allocations, we can't
  * release any full page, so in an effort to avoid getting the size of the
  * allocation from the allocator (malloc_size) when we already know it's small,
- * we check the size_hint. if the size is not already known, passing a size_hint
+ * we check the size_hint. If the size is not already known, passing a size_hint
  * of 0 will lead the checking the real size of the allocation.
  * Also please note that the size may be not accurate, so in order to make this
  * solution effective, the judgement for releasing memory pages should not be
@@ -5938,20 +5938,35 @@ void dismissMemory(void* ptr, size_t size_hint) {
     /* madvise(MADV_DONTNEED) can not release pages if the size of memory
      * is too small, we try to release only for the memory which the size
      * is more than half of page size. */
-    if (size && size <= server.page_size/2) return;
+    if (size_hint && size_hint <= server.page_size/2) return;
 
     zmadvise_dontneed(ptr);
 }
 
 void dismissClientMemory(client *c) {
-    listIter li;
-    listNode *ln;
-    listRewind(c->reply, &li);
-    while((ln = listNext(&li))) {
-        void *bulk = listNodeValue(ln);
-        /* Default bulk size is 16k, actually it has extra data, maybe it
-         * occupies 20k according to jemalloc bin size if using jemalloc. */
-        if (bulk) dismissMemory(bulk, ((clientReplyBlock*)bulk)->size);
+    /* Dismiss client query buffer. */
+    dismissSds(c->querybuf);
+    dismissSds(c->pending_querybuf);
+    dismissMemory(c->argv, c->argc*sizeof(robj*));
+    if (c->argc && c->argv_len_sum/c->argc >= server.page_size) {
+        for (int i = 0; i < c->argc; i++) {
+            /* c->argv[i] always is string object, the argument
+             * 'dump_size' is not used in dismissObject. */
+            dismissObject(c->argv[i], 0);
+        }
+    }
+
+    /* Dismiss client output buffer. */
+    if (c->reply_bytes >= PROTO_REPLY_CHUNK_BYTES) {
+        listIter li;
+        listNode *ln;
+        listRewind(c->reply, &li);
+        while ((ln = listNext(&li))) {
+            clientReplyBlock *bulk = listNodeValue(ln);
+            /* Default bulk size is 16k, actually it has extra data, maybe it
+             * occupies 20k according to jemalloc bin size if using jemalloc. */
+            if (bulk) dismissMemory(bulk, bulk->size);
+        }
     }
 
     /* The 'client' is a bit big because it has 16k default reply buffer. */
@@ -5963,7 +5978,7 @@ void dismissClientMemory(client *c) {
 void dismissMemoryInChild(void) {
     /* Replication backlog. */
     if (server.repl_backlog != NULL) {
-        dismissMemory(server.repl_backlog, 0);
+        dismissMemory(server.repl_backlog, server.repl_backlog_size);
     }
 
     /* All clients memory. */
