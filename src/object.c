@@ -390,10 +390,10 @@ void dismissStringObject(robj *o) {
 void dismissListObject(robj *o, size_t dump_size) {
     if (o->encoding == OBJ_ENCODING_QUICKLIST) {
         quicklist *ql = o->ptr;
+        serverAssert(ql->len != 0);
         /* We iterate all nodes only when average node size
          * is more than page size. */
         if (dump_size / ql->len >= server.page_size) {
-            /* Dismiss list nodes memory. */
             quicklistNode *node = ql->head;
             while (node) {
                 if (quicklistNodeIsCompressed(node)) {
@@ -410,10 +410,10 @@ void dismissListObject(robj *o, size_t dump_size) {
 void dismissSetObject(robj *o, size_t dump_size) {
     if (o->encoding == OBJ_ENCODING_HT) {
         dict *set = o->ptr;
+        serverAssert(dictSize(set) != 0);
         /* We iterate all members only when average member size
          * is more than page size. */
         if (dump_size / dictSize(set) >= server.page_size) {
-            /* Dismiss members memory. */
             dictEntry *de;
             dictIterator *di = dictGetIterator(set);
             while ((de = dictNext(di)) != NULL) {
@@ -434,10 +434,10 @@ void dismissZsetObject(robj *o, size_t dump_size) {
     if (o->encoding == OBJ_ENCODING_SKIPLIST) {
         zset *zs = o->ptr;
         zskiplist *zsl = zs->zsl;
+        serverAssert(zsl->length != 0);
         /* We iterate all members only when average member size
          * is more than page size. */
         if (dump_size / zsl->length >= server.page_size) {
-            /* Dismiss members memory. */
             zskiplistNode *zn = zsl->tail;
             while (zn != NULL) {
                 dismissSds(zn->ele);
@@ -457,14 +457,15 @@ void dismissZsetObject(robj *o, size_t dump_size) {
 void dismissHashObject(robj *o, size_t dump_size) {
     if (o->encoding == OBJ_ENCODING_HT) {
         dict *d = o->ptr;
+        serverAssert(dictSize(d) != 0);
         /* We iterate all field/values only when average field/values
          * size is more than page size. */
         if (dump_size / dictSize(d) >= server.page_size) {
-            /* Only dismiss values memory since the field size usually
-             * is small. */
             dictEntry *de;
             dictIterator *di = dictGetIterator(d);
             while ((de = dictNext(di)) != NULL) {
+                /* Only dismiss values memory since the field size
+                 * usually is small. */
                 dismissSds(dictGetVal(de));
             }
             dictReleaseIterator(di);
@@ -481,6 +482,11 @@ void dismissHashObject(robj *o, size_t dump_size) {
 void dismissStreamObject(robj *o, size_t dump_size) {
     stream *s = o->ptr;
     rax *rax = s->rax;
+    if (raxSize(rax) == 0) return;
+
+    /* Iterate stream entries, although dump_size may include serialized
+     * consumer groups info, but usually, stream entries take up most of
+     * the space. */
     if (dump_size / raxSize(rax) >= server.page_size) {
         raxIterator ri;
         raxStart(&ri,rax);
