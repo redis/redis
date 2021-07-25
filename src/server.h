@@ -1127,6 +1127,7 @@ struct redisServer {
     int hz;                     /* serverCron() calls frequency in hertz */
     int in_fork_child;          /* indication that this is a fork child */
     redisDb *db;
+    redisDb *migrateDb;
     dict *commands;             /* Command table */
     dict *orig_commands;        /* Command table before command renaming. */
     aeEventLoop *el;
@@ -1555,6 +1556,24 @@ struct redisServer {
     char *bio_cpulist; /* cpu affinity list of bio thread. */
     char *aof_rewrite_cpulist; /* cpu affinity list of aof rewrite process. */
     char *bgsave_cpulist; /* cpu affinity list of bgsave process. */
+
+
+    long long startSlot;
+    long long endSlot;
+    int migrate_data_selected_db;
+    sds migrate_data_buf;
+    int migrate_data_state;
+    connection * migrate_data_fd;
+    int import_data_state;
+    char *import_data_transfer_tmpfile;
+    off_t import_data_transfer_size;
+    off_t import_data_transfer_read;
+    off_t import_data_transfer_last_fsync_off;
+    int import_data_syncio_timeout;
+    int import_data_transfer_fd;
+    client * import_data_client;
+    time_t import_data_transfer_lastio;
+    rdbSaveInfo migrateRsi;
 };
 
 typedef struct pubsubPattern {
@@ -2271,6 +2290,36 @@ int dbSyncDelete(redisDb *db, robj *key);
 int dbDelete(redisDb *db, robj *key);
 robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o);
 
+
+
+#define MIGRATE_DATA_FAIL_SEND_DATA -7
+#define MIGRATE_DATA_FAIL_RECEIVE_ID -6
+#define MIGRATE_DATA_FAIL_FINISH_RDB -5
+#define MIGRATE_DATA_FAIL_START_RDB -4
+#define MIGRATE_DATA_TARGET_NOT_INIT -3
+#define MIGRATE_DATA_FAIL_NOTICE_TARGET -3
+#define MIGRATE_DATA_FAIL_CREATE_WRITABLE_EVENT -2
+#define MIGRATE_DATA_FAIL_CONNECT_TARGET -1
+#define MIGRATE_DATA_INIT 0
+#define MIGRATE_DATA_BEGIN 1
+#define MIGRATE_DATA_NOTICE_TARGET 2
+#define MIGRATE_DATA_BEGIN_RDB 3
+#define MIGRATE_DATA_SUCCESS_START_RDB 4
+#define MIGRATE_DATA_FINISH_RDB 5
+#define MIGRATE_DATA_BEGIN_INCREMENT 6
+
+
+
+#define IMPORT_DATA_FAIL_SEND_RESULT -5
+#define IMPORT_DATA_FAIL_ANALYSIS -4
+#define IMPORT_DATA_FAIL_CREATE_READABLE_LOAD -3
+#define IMPORT_DATA_FAIL_SEND_CONTINUE -2
+#define IMPORT_DATA_FAIL_OPEN_DFD -1
+#define IMPORT_DATA_BEGIN_INIT 0
+#define IMPORT_DATA_BEGIN_ANALYSIS 1
+#define IMPORT_DATA_FINISH_ANALYSIS 2
+#define IMPORT_DATA_FINISH_INTO_DB 3
+
 #define EMPTYDB_NO_FLAGS 0      /* No flags. */
 #define EMPTYDB_ASYNC (1<<0)    /* Reclaim memory in another thread. */
 long long emptyDb(int dbnum, int flags, void(callback)(void*));
@@ -2405,6 +2454,12 @@ void setnxCommand(client *c);
 void setexCommand(client *c);
 void psetexCommand(client *c);
 void getCommand(client *c);
+void migrateDataCommand(client *c);
+void importDataCommand(client *c);
+void migrateDataWaitTarget(connection *conn);
+void importDataFinishIntoDb(connection *conn);
+void importDataReadSyncBulkPayload(connection *conn);
+void *importDataBackgroundJobs(void *arg);
 void delCommand(client *c);
 void unlinkCommand(client *c);
 void existsCommand(client *c);
@@ -2427,6 +2482,7 @@ void scanCommand(client *c);
 void dbsizeCommand(client *c);
 void lastsaveCommand(client *c);
 void saveCommand(client *c);
+int migrateDataRdbSaveToTargetSockets(rdbSaveInfo *rsi,connection *conn);
 void bgsaveCommand(client *c);
 void bgrewriteaofCommand(client *c);
 void shutdownCommand(client *c);
@@ -2643,6 +2699,9 @@ void killIOThreads(void);
 void killThreads(void);
 void makeThreadKillable(void);
 
+void migrateDataRdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData, int mask);
+char *sendCommand(connection *conn,long long timeout, ...);
+char *receiveSynchronousResponse(connection *conn,long long timeout);
 /* TLS stuff */
 void tlsInit(void);
 int tlsConfigure(redisTLSContextConfig *ctx_config);
