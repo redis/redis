@@ -1853,81 +1853,217 @@ void databasesCron(void) {
             resize_db++;
         }
         if (server.import_data_state == IMPORT_DATA_FINISH_ANALYSIS) {
-            for (j = 0; j < server.dbnum; j++) {
-                redisDb *targetDb = server.db + j;
-                redisDb *sourceDb = server.migrateDb + j;
-                dict *sourceDict = sourceDb->dict;
-                dict *targetDict = targetDb->dict;
-                if (dictSize(sourceDict) == 0) continue;
-                if (dictIsRehashing(sourceDict)) {
-                    continue;
-                }
-                if (dictSize(targetDict) == 0) {
-                    dictExpand(targetDict, DICT_HT_INITIAL_SIZE);
-                }
-                sourceDict->rehashidx = 0;
-                while (sourceDict->ht[0].used != 0) {
-                    //获取链表
-                    dictEntry *de, *nextde;
-                    while (sourceDict->ht[0].table[sourceDict->rehashidx] == NULL) {
+            long long start = timeInMilliseconds();
+            int dict_finish = 0;
+            int timeout = 0;
+            int isRehashing = 0;
+            while (dict_finish != 1 && timeout != 1 && isRehashing != 1) {
+                for (j = 0; j < server.dbnum; j++) {
+                    redisDb *targetDb = server.db + j;
+                    redisDb *sourceDb = server.migrateDb + j;
+                    dict *sourceDict = sourceDb->dict;
+                    dict *targetDict = targetDb->dict;
+                    if (dictSize(sourceDict) == 0) {
+                        if (j == (server.dbnum - 1)) {
+                            dict_finish = 1;
+                            break;
+                        }
+                    }
+
+                    if (dictIsRehashing(targetDict)) {
+                        isRehashing = 1;
+                        break;
+                    }
+                    if (dictSize(targetDict) == 0) {
+                        dictExpand(targetDict, DICT_HT_INITIAL_SIZE);
+                    }
+                    if (sourceDict->rehashidx == -1) {
+                        sourceDict->rehashidx = 0;
+                    }
+                    while (sourceDict->ht[0].used != 0) {
+                        //获取链表
+                        dictEntry *de, *nextde;
+                        while (sourceDict->ht[0].table[sourceDict->rehashidx] == NULL) {
+                            sourceDict->rehashidx++;
+                        }
+                        de = sourceDict->ht[0].table[sourceDict->rehashidx];
+                        /* Move all the keys in this bucket from the old to the new hash HT */
+                        while (de) {
+                            uint64_t h;
+                            nextde = de->next;
+                            /* Get the index in the new hash table */
+                            h = dictHashKey(targetDict, de->key) & targetDict->ht[0].sizemask;
+                            //插入到首位置
+                            de->next = targetDict->ht[0].table[h];
+                            targetDict->ht[0].table[h] = de;
+                            sourceDict->ht[0].used--;
+                            targetDict->ht[0].used++;
+                            de = nextde;
+                        }
+                        sourceDict->ht[0].table[sourceDict->rehashidx] = NULL;
                         sourceDict->rehashidx++;
+                        if (timeInMilliseconds() - start > 2) {
+                            timeout = 1;
+                            break;
+                        }
                     }
-                    de = sourceDict->ht[0].table[sourceDict->rehashidx];
-                    /* Move all the keys in this bucket from the old to the new hash HT */
-                    while (de) {
-                        uint64_t h;
-                        nextde = de->next;
-                        /* Get the index in the new hash table */
-                        h = dictHashKey(targetDict, de->key) & targetDict->ht[0].sizemask;
-                        //插入到首位置
-                        de->next = targetDict->ht[0].table[h];
-                        targetDict->ht[0].table[h] = de;
-                        sourceDict->ht[0].used--;
-                        targetDict->ht[0].used++;
-                        de = nextde;
+                    if (sourceDict->ht[0].used == 0 && j == (server.dbnum - 1)) {
+                        dict_finish = 1;
+                        break;
                     }
-                    sourceDict->ht[0].table[sourceDict->rehashidx] = NULL;
-                    sourceDict->rehashidx++;
+                    if (timeout > 0) {
+                        break;
+                    }
                 }
             }
 
-            for (j = 0; j < server.dbnum; j++) {
-                redisDb *targetDb = server.db + j;
-                redisDb *sourceDb = server.migrateDb + j;
-                dict *sourceDict = sourceDb->expires;
-                dict *targetDict = targetDb->expires;
-                if (dictSize(sourceDict) == 0) continue;
-                if (dictIsRehashing(sourceDict)) {
-                    continue;
-                }
-                if (dictSize(targetDict) == 0) {
-                    dictExpand(targetDict, DICT_HT_INITIAL_SIZE);
-                }
-                sourceDict->rehashidx = 0;
-                while (sourceDict->ht[0].used != 0) {
-                    //获取链表
-                    dictEntry *de, *nextde;
-                    while (sourceDict->ht[0].table[sourceDict->rehashidx] == NULL) {
+
+            start = timeInMilliseconds();
+            int expires_finish = 0;
+            timeout = 0;
+            isRehashing = 0;
+            while (expires_finish != 1 && timeout != 1 && isRehashing != 1) {
+                for (j = 0; j < server.dbnum; j++) {
+                    redisDb *targetDb = server.db + j;
+                    redisDb *sourceDb = server.migrateDb + j;
+                    dict *sourceDict = sourceDb->expires;
+                    dict *targetDict = targetDb->expires;
+                    if (dictSize(sourceDict) == 0) {
+                        if (j == (server.dbnum - 1)) {
+                            expires_finish = 1;
+                            break;
+                        }
+                    }
+
+                    if (dictIsRehashing(targetDict)) {
+                        isRehashing = 1;
+                        break;
+                    }
+                    if (dictSize(targetDict) == 0) {
+                        dictExpand(targetDict, DICT_HT_INITIAL_SIZE);
+                    }
+                    if (sourceDict->rehashidx == -1) {
+                        sourceDict->rehashidx = 0;
+                    }
+                    while (sourceDict->ht[0].used != 0) {
+                        //获取链表
+                        dictEntry *de, *nextde;
+                        while (sourceDict->ht[0].table[sourceDict->rehashidx] == NULL) {
+                            sourceDict->rehashidx++;
+                        }
+                        de = sourceDict->ht[0].table[sourceDict->rehashidx];
+                        /* Move all the keys in this bucket from the old to the new hash HT */
+                        while (de) {
+                            uint64_t h;
+                            nextde = de->next;
+                            /* Get the index in the new hash table */
+                            h = dictHashKey(targetDict, de->key) & targetDict->ht[0].sizemask;
+                            //插入到首位置
+                            de->next = targetDict->ht[0].table[h];
+                            targetDict->ht[0].table[h] = de;
+                            sourceDict->ht[0].used--;
+                            targetDict->ht[0].used++;
+                            de = nextde;
+                        }
+                        sourceDict->ht[0].table[sourceDict->rehashidx] = NULL;
                         sourceDict->rehashidx++;
+                        if (timeInMilliseconds() - start > 2) {
+                            timeout = 1;
+                            break;
+                        }
                     }
-                    de = sourceDict->ht[0].table[sourceDict->rehashidx];
-                    /* Move all the keys in this bucket from the old to the new hash HT */
-                    while (de) {
-                        uint64_t h;
-                        nextde = de->next;
-                        /* Get the index in the new hash table */
-                        h = dictHashKey(targetDict, de->key) & targetDict->ht[0].sizemask;
-                        //插入到首位置
-                        de->next = targetDict->ht[0].table[h];
-                        targetDict->ht[0].table[h] = de;
-                        sourceDict->ht[0].used--;
-                        targetDict->ht[0].used++;
-                        de = nextde;
+                    if (sourceDict->ht[0].used == 0 && j == (server.dbnum - 1)) {
+                        expires_finish = 1;
+                        break;
                     }
-                    sourceDict->ht[0].table[sourceDict->rehashidx] = NULL;
-                    sourceDict->rehashidx++;
+                    if (timeout > 0) {
+                        break;
+                    }
                 }
             }
+            if (dict_finish > 0 && expires_finish > 0) {
+                connSetWriteHandler(server.import_data_client->conn, importDataFinishIntoDb);
+                server.import_data_state = IMPORT_DATA_FINISH_INTO_DB;
+            }
+
+//            for (j = 0; j < server.dbnum; j++) {
+//                redisDb *targetDb = server.db + j;
+//                redisDb *sourceDb = server.migrateDb + j;
+//                dict *sourceDict = sourceDb->dict;
+//                dict *targetDict = targetDb->dict;
+//                if (dictSize(sourceDict) == 0) continue;
+//                if (dictIsRehashing(sourceDict)) {
+//                    continue;
+//                }
+//                if (dictSize(targetDict) == 0) {
+//                    dictExpand(targetDict, DICT_HT_INITIAL_SIZE);
+//                }
+//                sourceDict->rehashidx = 0;
+//                while (sourceDict->ht[0].used != 0) {
+//                    //获取链表
+//                    dictEntry *de, *nextde;
+//                    while (sourceDict->ht[0].table[sourceDict->rehashidx] == NULL) {
+//                        sourceDict->rehashidx++;
+//                    }
+//                    de = sourceDict->ht[0].table[sourceDict->rehashidx];
+//                    /* Move all the keys in this bucket from the old to the new hash HT */
+//                    while (de) {
+//                        uint64_t h;
+//                        nextde = de->next;
+//                        /* Get the index in the new hash table */
+//                        h = dictHashKey(targetDict, de->key) & targetDict->ht[0].sizemask;
+//                        //插入到首位置
+//                        de->next = targetDict->ht[0].table[h];
+//                        targetDict->ht[0].table[h] = de;
+//                        sourceDict->ht[0].used--;
+//                        targetDict->ht[0].used++;
+//                        de = nextde;
+//                    }
+//                    sourceDict->ht[0].table[sourceDict->rehashidx] = NULL;
+//                    sourceDict->rehashidx++;
+//                }
+//            }
+//
+//            for (j = 0; j < server.dbnum; j++) {
+//                redisDb *targetDb = server.db + j;
+//                redisDb *sourceDb = server.migrateDb + j;
+//                dict *sourceDict = sourceDb->expires;
+//                dict *targetDict = targetDb->expires;
+//                if (dictSize(sourceDict) == 0) continue;
+//                if (dictIsRehashing(sourceDict)) {
+//                    continue;
+//                }
+//                if (dictSize(targetDict) == 0) {
+//                    dictExpand(targetDict, DICT_HT_INITIAL_SIZE);
+//                }
+//                sourceDict->rehashidx = 0;
+//                while (sourceDict->ht[0].used != 0) {
+//                    //获取链表
+//                    dictEntry *de, *nextde;
+//                    while (sourceDict->ht[0].table[sourceDict->rehashidx] == NULL) {
+//                        sourceDict->rehashidx++;
+//                    }
+//                    de = sourceDict->ht[0].table[sourceDict->rehashidx];
+//                    /* Move all the keys in this bucket from the old to the new hash HT */
+//                    while (de) {
+//                        uint64_t h;
+//                        nextde = de->next;
+//                        /* Get the index in the new hash table */
+//                        h = dictHashKey(targetDict, de->key) & targetDict->ht[0].sizemask;
+//                        //插入到首位置
+//                        de->next = targetDict->ht[0].table[h];
+//                        targetDict->ht[0].table[h] = de;
+//                        sourceDict->ht[0].used--;
+//                        targetDict->ht[0].used++;
+//                        de = nextde;
+//                    }
+//                    sourceDict->ht[0].table[sourceDict->rehashidx] = NULL;
+//                    sourceDict->rehashidx++;
+//                }
+//            }
+
+
+
 
             connSetWriteHandler(server.import_data_client->conn, importDataFinishIntoDb);
             server.import_data_state = IMPORT_DATA_FINISH_INTO_DB;

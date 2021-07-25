@@ -3409,8 +3409,9 @@ int importDataRdbLoad(char *filename, rdbSaveInfo *rsi) {
 
 void *importDataBackgroundJobs(void *arg) {
     UNUSED(arg);
+    server.import_data_state = IMPORT_DATA_BEGIN_ANALYSIS;
+    emptyDbStructure(server.migrateDb, -1, EMPTYDB_NO_FLAGS, NULL);
     if (importDataRdbLoad(server.import_data_transfer_tmpfile, &server.migrateRsi) == C_OK) {
-        /* Final setup of the connected slave <- master link */
         zfree(server.import_data_transfer_tmpfile);
         unlink(server.import_data_transfer_tmpfile);
         server.import_data_state = IMPORT_DATA_FINISH_ANALYSIS;

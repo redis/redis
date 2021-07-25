@@ -1928,6 +1928,7 @@ void importDataReadSyncBulkPayload(connection *conn) {
     /* If repl_transfer_size == -1 we still have to read the bulk length
      * from the master reply. */
     if (server.import_data_transfer_size == -1) {
+        server.import_data_state = IMPORT_DATA_BEGIN_RECEIVE_RDB;
         if (connSyncReadLine(conn, buf, 1024, 300) == -1) {
             serverLog(LL_WARNING,
                       "I/O error reading bulk count from target: %s",
@@ -2001,7 +2002,7 @@ void importDataReadSyncBulkPayload(connection *conn) {
             /* equivalent to EAGAIN */
             return;
         }
-        serverLog(LL_WARNING, "I/O error trying to sync with MASTER: %s",
+        serverLog(LL_WARNING, "I/O error trying to import data  with target: %s",
                   (nread == -1) ? strerror(errno) : "connection lost");
         cancelReplicationHandshake(1);
         return;
@@ -2034,7 +2035,7 @@ void importDataReadSyncBulkPayload(connection *conn) {
     if ((nwritten = write(server.import_data_transfer_fd, buf, nread)) != nread) {
         serverLog(LL_WARNING,
                   "Write error or short write writing to the DB dump file "
-                  "needed for MASTER <-> REPLICA synchronization: %s",
+                  "needed for import data  <-> target  synchronization: %s",
                   (nwritten == -1) ? strerror(errno) : "short write");
         goto error;
     }
@@ -2045,8 +2046,8 @@ void importDataReadSyncBulkPayload(connection *conn) {
         if (ftruncate(server.import_data_transfer_fd,
                       server.import_data_transfer_read - CONFIG_RUN_ID_SIZE) == -1) {
             serverLog(LL_WARNING,
-                      "Error truncating the RDB file received from the master "
-                      "for SYNC: %s", strerror(errno));
+                      "Error truncating the RDB file received from the target "
+                      "for import data: %s", strerror(errno));
             goto error;
         }
     }
@@ -2076,14 +2077,15 @@ void importDataReadSyncBulkPayload(connection *conn) {
 
     server.migrateRsi = rsi;
     pthread_t thread;
-    server.import_data_state = IMPORT_DATA_BEGIN_ANALYSIS;
+    server.import_data_state = IMPORT_DATA_FINISH_RECEIVE_RDB;
     connSetWriteHandler(conn,NULL);
     connSetReadHandler(conn,NULL);
     pthread_create(&thread, NULL, importDataBackgroundJobs, NULL);
     return;
 
     error:
-    connClose(conn);
+    server.import_data_state = IMPORT_DATA_FAIL_RECEIVE_RDB;
+    freeClientAsync(server.import_data_client);
     close(server.import_data_transfer_fd);
     unlink(server.import_data_transfer_tmpfile);
     zfree(server.import_data_transfer_tmpfile);
