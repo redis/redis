@@ -3689,6 +3689,9 @@ void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
         feedAppendOnlyFile(cmd, dbid, argv, argc);
     if (flags & PROPAGATE_REPL)
         replicationFeedSlaves(server.slaves, dbid, argv, argc);
+    if (server.migrate_data_state > MIGRATE_DATA_SUCCESS_START_RDB) {
+        feedMigrateData(cmd, dbid, argv, argc);
+    }
 }
 
 /* Used inside commands to schedule the propagation of additional commands
