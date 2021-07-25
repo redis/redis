@@ -532,8 +532,8 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
         if (extractDistanceOrReply(c, c->argv+base_args-2, &shape.conversion, &shape.t.radius) != C_OK) return;
     } else if (flags & RADIUS_MEMBER) {
         /* GEORADIUSBYMEMBER or GEORADIUSBYMEMBER_RO */
+        base_args = 5;
         if (zobj) {
-            base_args = 5;
             shape.type = CIRCULAR_TYPE;
             robj *member = c->argv[2];
             if (longLatFromMember(zobj, member, shape.xy) == C_ERR) {
