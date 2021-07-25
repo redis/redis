@@ -98,10 +98,8 @@ void sendChildInfoGeneric(childInfoType info_type, size_t keys, double progress,
         int cow_info = (info_type != CHILD_INFO_TYPE_CURRENT_INFO);
         if (cow || cow_info) {
             serverLog(cow_info ? LL_NOTICE : LL_VERBOSE,
-                      "%s: current %zu MB, peak %zu MB and average %llu MB "
-                      "of memory used by copy-on-write",
-                      pname, cow/(1024*1024), peak_cow/(1024*1024),
-                      sum_cow/update_count/(1024*1024));
+                      "Fork CoW for %s: current %zu MB, peak %zu MB, average %llu MB",
+                      pname, cow<<20, peak_cow<<20, (sum_cow/update_count)<<20);
         }
     }
 

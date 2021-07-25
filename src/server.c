@@ -5957,7 +5957,8 @@ void dismissClientMemory(client *c) {
     }
 
     /* Dismiss client output buffer. */
-    if (c->reply_bytes >= PROTO_REPLY_CHUNK_BYTES) {
+    /* Release the reply array only if the average buffer size is bigger than a page. */
+    if (c->reply_bytes / listLength(c->reply) >= server.page_size) {
         listIter li;
         listNode *ln;
         listRewind(c->reply, &li);
