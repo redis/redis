@@ -1455,7 +1455,7 @@ int RM_StringAppendBuffer(RedisModuleCtx *ctx, RedisModuleString *str, const cha
  * `ReplyWith*` style functions in order to emit the elements of the collection.
  * Collection types include: Array, Map, Set and Attribute.
  *
- * When producing collections with a number of element that is not known
+ * When producing collections with a number of elements that is not known
  * beforehand, the function can be called with a special flag
  * REDISMODULE_POSTPONED_LEN (REDISMODULE_POSTPONED_ARRAY_LEN in the past),
  * and the actual number of elements can be later set with RM_ReplySet*Length()
