@@ -613,7 +613,11 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
                       !fromloc)
             {
                 /* No source key, proceed with argument parsing and return an error when done. */
-                if (zobj == NULL) continue;
+                if (zobj == NULL) {
+                    frommember = 1;
+                    i++;
+                    continue;
+                }
 
                 if (longLatFromMember(zobj, c->argv[base_args+i+1], shape.xy) == C_ERR) {
                     addReplyError(c, "could not decode requested zset member");
