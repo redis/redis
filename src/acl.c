@@ -60,7 +60,7 @@ static unsigned long nextid = 0; /* Next command id that has not been assigned *
 struct ACLCategoryItem {
     const char *name;
     uint64_t flag;
-} ACLCommandCategories[] = {
+} ACLCommandCategories[] = { /* See redis.conf for details on each category. */
     {"keyspace", CMD_CATEGORY_KEYSPACE},
     {"read", CMD_CATEGORY_READ},
     {"write", CMD_CATEGORY_WRITE},
@@ -1363,7 +1363,7 @@ int ACLCheckPubsubPerm(client *c, int idx, int count, int literal, int *idxptr) 
 
 }
 
-/* Check whether the command is ready to be exceuted by ACLCheckCommandPerm.
+/* Check whether the command is ready to be executed by ACLCheckCommandPerm.
  * If check passes, then check whether pub/sub channels of the command is
  * ready to be executed by ACLCheckPubsubPerm */
 int ACLCheckAllPerm(client *c, int *idxptr) {
@@ -1892,10 +1892,6 @@ void addACLLogEntry(client *c, int reason, int argpos, sds username) {
 void aclCommand(client *c) {
     char *sub = c->argv[1]->ptr;
     if (!strcasecmp(sub,"setuser") && c->argc >= 3) {
-        /* Consider information about passwords or permissions
-         * to be sensitive, which will be the arguments for this
-         * subcommand. */
-        preventCommandLogging(c); 
         sds username = c->argv[2]->ptr;
         /* Check username validity. */
         if (ACLStringHasSpaces(username,sdslen(username))) {
@@ -1911,6 +1907,12 @@ void aclCommand(client *c) {
         user *tempu = ACLCreateUnlinkedUser();
         user *u = ACLGetUserByName(username,sdslen(username));
         if (u) ACLCopyUser(tempu, u);
+
+        /* Initially redact all of the arguments to not leak any information
+         * about the user. */
+        for (int j = 2; j < c->argc; j++) {
+            redactClientCommandArgument(c, j);
+        }
 
         for (int j = 3; j < c->argc; j++) {
             if (ACLSetUser(tempu,c->argv[j]->ptr,sdslen(c->argv[j]->ptr)) != C_OK) {
@@ -2245,13 +2247,15 @@ void authCommand(client *c) {
         addReplyErrorObject(c,shared.syntaxerr);
         return;
     }
+    /* Always redact the second argument */
+    redactClientCommandArgument(c, 1);
 
     /* Handle the two different forms here. The form with two arguments
      * will just use "default" as username. */
     robj *username, *password;
     if (c->argc == 2) {
-        /* Mimic the old behavior of giving an error for the two commands
-         * from if no password is configured. */
+        /* Mimic the old behavior of giving an error for the two argument
+         * form if no password is configured. */
         if (DefaultUser->flags & USER_FLAG_NOPASS) {
             addReplyError(c,"AUTH <password> called without any password "
                             "configured for the default user. Are you sure "
@@ -2264,6 +2268,7 @@ void authCommand(client *c) {
     } else {
         username = c->argv[1];
         password = c->argv[2];
+        redactClientCommandArgument(c, 2);
     }
 
     if (ACLAuthenticateUser(c,username,password) == C_OK) {

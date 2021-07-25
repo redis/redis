@@ -249,7 +249,7 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
         }
         streamIteratorStop(&si);
     } else if (o->type == OBJ_MODULE) {
-        RedisModuleDigest md = {{0},{0}};
+        RedisModuleDigest md = {{0},{0},keyobj,db->id};
         moduleValue *mv = o->ptr;
         moduleType *mt = mv->type;
         moduleInitDigestContext(md);
@@ -389,14 +389,14 @@ void debugCommand(client *c) {
 "    Server will sleep before flushing the AOF, this is used for testing.",
 "ASSERT",
 "    Crash by assertion failed.",
-"CHANGE-REPL-ID"
+"CHANGE-REPL-ID",
 "    Change the replication IDs of the instance.",
 "    Dangerous: should be used only for testing the replication subsystem.",
 "CONFIG-REWRITE-FORCE-ALL",
 "    Like CONFIG REWRITE but writes all configuration options, including",
 "    keywords not listed in original configuration file or default values.",
-"CRASH-AND-RECOVER <milliseconds>",
-"    Hard crash and restart after a <milliseconds> delay.",
+"CRASH-AND-RECOVER [<milliseconds>]",
+"    Hard crash and restart after a <milliseconds> delay (default 0).",
 "DIGEST",
 "    Output a hex signature representing the current DB content.",
 "DIGEST-VALUE <key> [<key> ...]",
@@ -404,6 +404,8 @@ void debugCommand(client *c) {
 "ERROR <string>",
 "    Return a Redis protocol error with <string> as message. Useful for clients",
 "    unit tests to simulate Redis errors.",
+"LEAK <string>",
+"    Create a memory leak of the input string.",
 "LOG <message>",
 "    Write <message> to the server log.",
 "HTSTATS <dbid>",
@@ -430,7 +432,7 @@ void debugCommand(client *c) {
 "POPULATE <count> [<prefix>] [<size>]",
 "    Create <count> string keys named key:<num>. If <prefix> is specified then",
 "    it is used instead of the 'key' prefix.",
-"DEBUG PROTOCOL <type>",
+"PROTOCOL <type>",
 "    Reply with a test value of the specified type. <type> can be: string,",
 "    integer, double, bignum, null, array, set, map, attrib, push, verbatim,",
 "    true, false.",
@@ -438,7 +440,7 @@ void debugCommand(client *c) {
 "    Save the RDB on disk and reload it back to memory. Valid <option> values:",
 "    * MERGE: conflicting keys will be loaded from RDB.",
 "    * NOFLUSH: the existing database will not be removed before load, but",
-"      conflicting keys will generate an exception and kill the server."
+"      conflicting keys will generate an exception and kill the server.",
 "    * NOSAVE: the database will be loaded from an existing RDB file.",
 "    Examples:",
 "    * DEBUG RELOAD: verify that the server is able to persist, flush and reload",
@@ -447,8 +449,8 @@ void debugCommand(client *c) {
 "      existing RDB file.",
 "    * DEBUG RELOAD NOSAVE NOFLUSH MERGE: add the contents of an existing RDB",
 "      file to the database.",
-"RESTART",
-"    Graceful restart: save config, db, restart.",
+"RESTART [<milliseconds>]",
+"    Graceful restart: save config, db, restart after a <milliseconds> delay (default 0).",
 "SDSLEN <key>",
 "    Show low level SDS string info representing `key` and value.",
 "SEGFAULT",
@@ -551,11 +553,9 @@ NULL
         emptyDb(-1,EMPTYDB_NO_FLAGS,NULL);
         protectClient(c);
         int ret = loadAppendOnlyFile(server.aof_filename);
+        if (ret != AOF_OK && ret != AOF_EMPTY)
+            exit(1);
         unprotectClient(c);
-        if (ret != C_OK) {
-            addReplyErrorObject(c,shared.err);
-            return;
-        }
         server.dirty = 0; /* Prevent AOF / replication */
         serverLog(LL_WARNING,"Append Only File loaded by DEBUG LOADAOF");
         addReply(c,shared.ok);
@@ -609,7 +609,7 @@ NULL
             "encoding:%s serializedlength:%zu "
             "lru:%d lru_seconds_idle:%llu%s",
             (void*)val, val->refcount,
-            strenc, rdbSavedObjectLen(val, c->argv[2]),
+            strenc, rdbSavedObjectLen(val, c->argv[2], c->db->id),
             val->lru, estimateObjectIdleTime(val)/1000, extra);
     } else if (!strcasecmp(c->argv[1]->ptr,"sdslen") && c->argc == 3) {
         dictEntry *de;
@@ -721,7 +721,7 @@ NULL
         } else if (!strcasecmp(name,"double")) {
             addReplyDouble(c,3.14159265359);
         } else if (!strcasecmp(name,"bignum")) {
-            addReplyProto(c,"(1234567999999999999999999999999999999\r\n",40);
+            addReplyBigNum(c,"1234567999999999999999999999999999999",37);
         } else if (!strcasecmp(name,"null")) {
             addReplyNull(c);
         } else if (!strcasecmp(name,"array")) {
@@ -737,11 +737,13 @@ NULL
                 addReplyBool(c, j == 1);
             }
         } else if (!strcasecmp(name,"attrib")) {
-            addReplyAttributeLen(c,1);
-            addReplyBulkCString(c,"key-popularity");
-            addReplyArrayLen(c,2);
-            addReplyBulkCString(c,"key:123");
-            addReplyLongLong(c,90);
+            if (c->resp >= 3) {
+                addReplyAttributeLen(c,1);
+                addReplyBulkCString(c,"key-popularity");
+                addReplyArrayLen(c,2);
+                addReplyBulkCString(c,"key:123");
+                addReplyLongLong(c,90);
+            }
             /* Attributes are not real replies, so a well formed reply should
              * also have a normal reply type after the attribute. */
             addReplyBulkCString(c,"Some real reply following the attribute");
@@ -936,8 +938,8 @@ void _serverAssertPrintClientInfo(const client *c) {
 }
 
 void serverLogObjectDebugInfo(const robj *o) {
-    serverLog(LL_WARNING,"Object type: %d", o->type);
-    serverLog(LL_WARNING,"Object encoding: %d", o->encoding);
+    serverLog(LL_WARNING,"Object type: %u", o->type);
+    serverLog(LL_WARNING,"Object encoding: %u", o->encoding);
     serverLog(LL_WARNING,"Object refcount: %d", o->refcount);
 #if UNSAFE_CRASH_REPORT
     /* This code is now disabled. o->ptr may be unreliable to print. in some
@@ -1980,7 +1982,7 @@ void disableWatchdog(void) {
  * of microseconds, i.e. -10 means 100 nanoseconds. */
 void debugDelay(int usec) {
     /* Since even the shortest sleep results in context switch and system call,
-     * the way we achive short sleeps is by statistically sleeping less often. */
+     * the way we achieve short sleeps is by statistically sleeping less often. */
     if (usec < 0) usec = (rand() % -usec) == 0 ? 1: 0;
     if (usec) usleep(usec);
 }

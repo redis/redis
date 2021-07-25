@@ -229,7 +229,7 @@ void HelloBlock_FreeData(RedisModuleCtx *ctx, void *privdata) {
     RedisModule_Free(privdata);
 }
 
-/* HELLOTYPE.BRANGE key first count timeout -- This is a blocking verison of
+/* HELLOTYPE.BRANGE key first count timeout -- This is a blocking version of
  * the RANGE operation, in order to show how to use the API
  * RedisModule_BlockClientOnKeys(). */
 int HelloTypeBRange_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {

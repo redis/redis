@@ -52,7 +52,7 @@ test "SDOWN is triggered by masters advertising as slaves" {
     ensure_master_up
 }
 
-test "SDOWN is triggered by misconfigured instance repling with errors" {
+test "SDOWN is triggered by misconfigured instance replying with errors" {
     ensure_master_up
     set orig_dir [lindex [R 0 config get dir] 1]
     set orig_save [lindex [R 0 config get save] 1]

@@ -109,7 +109,8 @@ int bg_unlink(const char *filename) {
 
 void createReplicationBacklog(void) {
     serverAssert(server.repl_backlog == NULL);
-    server.repl_backlog = zmalloc(server.repl_backlog_size);
+    server.repl_backlog = zmalloc(server.cfg_repl_backlog_size);
+    server.repl_backlog_size = zmalloc_usable_size(server.repl_backlog);
     server.repl_backlog_histlen = 0;
     server.repl_backlog_idx = 0;
 
@@ -121,16 +122,16 @@ void createReplicationBacklog(void) {
 
 /* This function is called when the user modifies the replication backlog
  * size at runtime. It is up to the function to both update the
- * server.repl_backlog_size and to resize the buffer and setup it so that
+ * server.cfg_repl_backlog_size and to resize the buffer and setup it so that
  * it contains the same data as the previous one (possibly less data, but
  * the most recent bytes, or the same data and more free space in case the
  * buffer is enlarged). */
 void resizeReplicationBacklog(long long newsize) {
     if (newsize < CONFIG_REPL_BACKLOG_MIN_SIZE)
         newsize = CONFIG_REPL_BACKLOG_MIN_SIZE;
-    if (server.repl_backlog_size == newsize) return;
+    if (server.cfg_repl_backlog_size == newsize) return;
 
-    server.repl_backlog_size = newsize;
+    server.cfg_repl_backlog_size = newsize;
     if (server.repl_backlog != NULL) {
         /* What we actually do is to flush the old buffer and realloc a new
          * empty one. It will refill with new data incrementally.
@@ -138,7 +139,8 @@ void resizeReplicationBacklog(long long newsize) {
          * worse often we need to alloc additional space before freeing the
          * old buffer. */
         zfree(server.repl_backlog);
-        server.repl_backlog = zmalloc(server.repl_backlog_size);
+        server.repl_backlog = zmalloc(server.cfg_repl_backlog_size);
+        server.repl_backlog_size = zmalloc_usable_size(server.repl_backlog);
         server.repl_backlog_histlen = 0;
         server.repl_backlog_idx = 0;
         /* Next byte we have is... the next since the buffer is empty. */
@@ -377,6 +379,7 @@ void replicationFeedSlavesFromMasterStream(list *slaves, char *buf, size_t bufle
 }
 
 void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv, int argc) {
+    if (!(listLength(server.monitors) && !server.loading)) return;
     listNode *ln;
     listIter li;
     int j;
@@ -460,7 +463,7 @@ long long addReplyReplicationBacklog(client *c, long long offset) {
             (server.repl_backlog_size - j) : len;
 
         serverLog(LL_DEBUG, "[PSYNC] addReply() length: %lld", thislen);
-        addReplySds(c,sdsnewlen(server.repl_backlog + j, thislen));
+        addReplyProto(c,server.repl_backlog + j, thislen);
         len -= thislen;
         j = 0;
     }
@@ -786,7 +789,7 @@ void syncCommand(client *c) {
 
             /* Increment stats for failed PSYNCs, but only if the
              * replid is not "?", as this is used by slaves to force a full
-             * resync on purpose when they are not albe to partially
+             * resync on purpose when they are not able to partially
              * resync. */
             if (master_replid[0] != '?') server.stat_sync_partial_err++;
         }
@@ -867,7 +870,7 @@ void syncCommand(client *c) {
          * in order to synchronize. */
         serverLog(LL_NOTICE,"Current BGSAVE has socket target. Waiting for next BGSAVE for SYNC");
 
-    /* CASE 3: There is no BGSAVE is progress. */
+    /* CASE 3: There is no BGSAVE is in progress. */
     } else {
         if (server.repl_diskless_sync && (c->slave_capa & SLAVE_CAPA_EOF) &&
             server.repl_diskless_sync_delay)
@@ -1231,7 +1234,7 @@ void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData,
             }
             serverLog(LL_WARNING,"Diskless rdb transfer, done reading from pipe, %d replicas still up.", stillUp);
             /* Now that the replicas have finished reading, notify the child that it's safe to exit. 
-             * When the server detectes the child has exited, it can mark the replica as online, and
+             * When the server detects the child has exited, it can mark the replica as online, and
              * start streaming the replication buffers. */
             close(server.rdb_child_exit_pipe);
             server.rdb_child_exit_pipe = -1;
@@ -1333,7 +1336,7 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
                  *
                  * So things work like that:
                  *
-                 * 1. We end trasnferring the RDB file via socket.
+                 * 1. We end transferring the RDB file via socket.
                  * 2. The replica is put ONLINE but the write handler
                  *    is not installed.
                  * 3. The replica however goes really online, and pings us
@@ -1348,7 +1351,7 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
                  * in advance). Detecting such final EOF string is much
                  * simpler and less CPU intensive if no more data is sent
                  * after such final EOF. So we don't want to glue the end of
-                 * the RDB trasfer with the start of the other replication
+                 * the RDB transfer with the start of the other replication
                  * data. */
                 slave->replstate = SLAVE_STATE_ONLINE;
                 slave->repl_put_online_on_ack = 1;
@@ -1528,14 +1531,14 @@ dbBackup *disklessLoadMakeBackup(void) {
  *
  * If the socket loading went wrong, we want to restore the old backups
  * into the server databases. */
-void disklessLoadRestoreBackup(dbBackup *buckup) {
-    restoreDbBackup(buckup);
+void disklessLoadRestoreBackup(dbBackup *backup) {
+    restoreDbBackup(backup);
 }
 
 /* Helper function for readSyncBulkPayload() to discard our old backups
  * when the loading succeeded. */
-void disklessLoadDiscardBackup(dbBackup *buckup, int flag) {
-    discardDbBackup(buckup, flag, replicationEmptyDbCallback);
+void disklessLoadDiscardBackup(dbBackup *backup, int flag) {
+    discardDbBackup(backup, flag, replicationEmptyDbCallback);
 }
 
 /* Asynchronously read the SYNC payload we receive from a master */
@@ -1714,7 +1717,7 @@ void readSyncBulkPayload(connection *conn) {
      *    such case we want just to read the RDB file in memory. */
     serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Flushing old data");
 
-    /* We need to stop any AOF rewriting child before flusing and parsing
+    /* We need to stop any AOF rewriting child before flushing and parsing
      * the RDB, otherwise we'll create a copy-on-write disaster. */
     if (server.aof_state != AOF_OFF) stopAppendOnly();
 
@@ -2405,7 +2408,7 @@ void syncWithMaster(connection *conn) {
         server.repl_state = REPL_STATE_SEND_PSYNC;
     }
 
-    /* Try a partial resynchonization. If we don't have a cached master
+    /* Try a partial resynchronization. If we don't have a cached master
      * slaveTryPartialResynchronization() will at least try to use PSYNC
      * to start a full resynchronization so that we get the master replid
      * and the global offset, to try a partial resync at the next
@@ -2536,7 +2539,7 @@ write_error: /* Handle sendCommand() errors. */
 int connectWithMaster(void) {
     server.repl_transfer_s = server.tls_replication ? connCreateTLS() : connCreateSocket();
     if (connConnect(server.repl_transfer_s, server.masterhost, server.masterport,
-                NET_FIRST_BIND_ADDR, syncWithMaster) == C_ERR) {
+                server.bind_source_addr, syncWithMaster) == C_ERR) {
         serverLog(LL_WARNING,"Unable to connect to MASTER: %s",
                 connGetLastError(server.repl_transfer_s));
         connClose(server.repl_transfer_s);
@@ -2774,7 +2777,8 @@ void replicaofCommand(client *c) {
             return;
         }
 
-        if ((getLongFromObjectOrReply(c, c->argv[2], &port, NULL) != C_OK))
+        if (getRangeLongFromObjectOrReply(c, c->argv[2], 0, 65535, &port,
+                                          "Invalid master port") != C_OK)
             return;
 
         /* Check if we are already attached to the specified master */
@@ -2898,7 +2902,7 @@ void replicationCacheMaster(client *c) {
     unlinkClient(c);
 
     /* Reset the master client so that's ready to accept new commands:
-     * we want to discard te non processed query buffers and non processed
+     * we want to discard the non processed query buffers and non processed
      * offsets, including pending transactions, already populated arguments,
      * pending outputs to the master. */
     sdsclear(server.master->querybuf);
@@ -2932,13 +2936,13 @@ void replicationCacheMaster(client *c) {
     replicationHandleMasterDisconnection();
 }
 
-/* This function is called when a master is turend into a slave, in order to
+/* This function is called when a master is turned into a slave, in order to
  * create from scratch a cached master for the new client, that will allow
  * to PSYNC with the slave that was promoted as the new master after a
  * failover.
  *
  * Assuming this instance was previously the master instance of the new master,
- * the new master will accept its replication ID, and potentiall also the
+ * the new master will accept its replication ID, and potential also the
  * current offset if no data was lost during the failover. So we use our
  * current replication ID and offset in order to synthesize a cached master. */
 void replicationCacheMasterUsingMyself(void) {

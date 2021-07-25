@@ -340,8 +340,8 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
  * if flags has AE_ALL_EVENTS set, all the kind of events are processed.
  * if flags has AE_FILE_EVENTS set, file events are processed.
  * if flags has AE_TIME_EVENTS set, time events are processed.
- * if flags has AE_DONT_WAIT set the function returns ASAP until all
- * the events that's possible to process without to wait are processed.
+ * if flags has AE_DONT_WAIT set, the function returns ASAP once all
+ * the events that can be handled without a wait are processed.
  * if flags has AE_CALL_AFTER_SLEEP set, the aftersleep callback is called.
  * if flags has AE_CALL_BEFORE_SLEEP set, the beforesleep callback is called.
  *

@@ -33,6 +33,8 @@
 
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <glob.h>
+#include <string.h>
 
 /*-----------------------------------------------------------------------------
  * Config file name-value maps.
@@ -315,7 +317,7 @@ void queueLoadModule(sds path, sds *argv, int argc) {
     struct moduleLoadQueueEntry *loadmod;
 
     loadmod = zmalloc(sizeof(struct moduleLoadQueueEntry));
-    loadmod->argv = zmalloc(sizeof(robj*)*argc);
+    loadmod->argv = argc ? zmalloc(sizeof(robj*)*argc) : NULL;
     loadmod->path = sdsnew(path);
     loadmod->argc = argc;
     for (i = 0; i < argc; i++) {
@@ -451,6 +453,10 @@ void loadServerConfigFromString(char *config) {
             if (addresses > CONFIG_BINDADDR_MAX) {
                 err = "Too many bind addresses specified"; goto loaderr;
             }
+
+            /* A single empty argument is treated as a zero bindaddr count */
+            if (addresses == 1 && sdslen(argv[1]) == 0) addresses = 0;
+
             /* Free old bind addresses */
             for (j = 0; j < server.bindaddr_count; j++) {
                 zfree(server.bindaddr[j]);
@@ -485,26 +491,13 @@ void loadServerConfigFromString(char *config) {
             }
         } else if (!strcasecmp(argv[0],"dir") && argc == 2) {
             if (chdir(argv[1]) == -1) {
-                serverLog(LL_WARNING,"Can't chdir to '%s': %s",
-                    argv[1], strerror(errno));
-                exit(1);
+                err = sdscatprintf(sdsempty(), "Can't chdir to '%s': %s",
+                                   argv[1], strerror(errno));
+                goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"logfile") && argc == 2) {
-            FILE *logfp;
-
             zfree(server.logfile);
             server.logfile = zstrdup(argv[1]);
-            if (server.logfile[0] != '\0') {
-                /* Test if we are able to open the file. The server will not
-                 * be able to abort just for this problem later... */
-                logfp = fopen(server.logfile,"a");
-                if (logfp == NULL) {
-                    err = sdscatprintf(sdsempty(),
-                        "Can't open the log file: %s", strerror(errno));
-                    goto loaderr;
-                }
-                fclose(logfp);
-            }
         } else if (!strcasecmp(argv[0],"include") && argc == 2) {
             loadServerConfig(argv[1], 0, NULL);
         } else if ((!strcasecmp(argv[0],"slaveof") ||
@@ -581,7 +574,7 @@ void loadServerConfigFromString(char *config) {
             int flags = keyspaceEventsStringToFlags(argv[1]);
 
             if (flags == -1) {
-                err = "Invalid event class character. Use 'g$lshzxeA'.";
+                err = "Invalid event class character. Use 'Ag$lshzxeKEtmd'.";
                 goto loaderr;
             }
             server.notify_keyspace_events = flags;
@@ -611,6 +604,20 @@ void loadServerConfigFromString(char *config) {
             err = "Bad directive or wrong number of arguments"; goto loaderr;
         }
         sdsfreesplitres(argv,argc);
+    }
+
+    if (server.logfile[0] != '\0') {
+        FILE *logfp;
+
+        /* Test if we are able to open the file. The server will not
+         * be able to abort just for this problem later... */
+        logfp = fopen(server.logfile,"a");
+        if (logfp == NULL) {
+            err = sdscatprintf(sdsempty(),
+                               "Can't open the log file: %s", strerror(errno));
+            goto loaderr;
+        }
+        fclose(logfp);
     }
 
     /* Sanity checks. */
@@ -648,19 +655,58 @@ void loadServerConfig(char *filename, char config_from_stdin, char *options) {
     sds config = sdsempty();
     char buf[CONFIG_MAX_LINE+1];
     FILE *fp;
+    glob_t globbuf;
 
     /* Load the file content */
     if (filename) {
-        if ((fp = fopen(filename,"r")) == NULL) {
-            serverLog(LL_WARNING,
-                    "Fatal error, can't open config file '%s': %s",
-                    filename, strerror(errno));
-            exit(1);
+
+        /* The logic for handling wildcards has slightly different behavior in cases where
+         * there is a failure to locate the included file.
+         * Whether or not a wildcard is specified, we should ALWAYS log errors when attempting
+         * to open included config files.
+         *
+         * However, we desire a behavioral difference between instances where a wildcard was
+         * specified and those where it hasn't:
+         *      no wildcards   : attempt to open the specified file and fail with a logged error
+         *                       if the file cannot be found and opened.
+         *      with wildcards : attempt to glob the specified pattern; if no files match the
+         *                       pattern, then gracefully continue on to the next entry in the
+         *                       config file, as if the current entry was never encountered.
+         *                       This will allow for empty conf.d directories to be included. */
+
+        if (strchr(filename, '*') || strchr(filename, '?') || strchr(filename, '[')) {
+            /* A wildcard character detected in filename, so let us use glob */
+            if (glob(filename, 0, NULL, &globbuf) == 0) {
+
+                for (size_t i = 0; i < globbuf.gl_pathc; i++) {
+                    if ((fp = fopen(globbuf.gl_pathv[i], "r")) == NULL) {
+                        serverLog(LL_WARNING,
+                                  "Fatal error, can't open config file '%s': %s",
+                                  globbuf.gl_pathv[i], strerror(errno));
+                        exit(1);
+                    }
+                    while(fgets(buf,CONFIG_MAX_LINE+1,fp) != NULL)
+                        config = sdscat(config,buf);
+                    fclose(fp);
+                }
+
+                globfree(&globbuf);
+            }
+        } else {
+            /* No wildcard in filename means we can use the original logic to read and
+             * potentially fail traditionally */
+            if ((fp = fopen(filename, "r")) == NULL) {
+                serverLog(LL_WARNING,
+                          "Fatal error, can't open config file '%s': %s",
+                          filename, strerror(errno));
+                exit(1);
+            }
+            while(fgets(buf,CONFIG_MAX_LINE+1,fp) != NULL)
+                config = sdscat(config,buf);
+            fclose(fp);
         }
-        while(fgets(buf,CONFIG_MAX_LINE+1,fp) != NULL)
-            config = sdscat(config,buf);
-        fclose(fp);
     }
+
     /* Append content from stdin */
     if (config_from_stdin) {
         serverLog(LL_WARNING,"Reading config from stdin");
@@ -726,7 +772,7 @@ void configSetCommand(client *c) {
             (config->alias && !strcasecmp(c->argv[2]->ptr,config->alias))))
         {
             if (config->flags & SENSITIVE_CONFIG) {
-                preventCommandLogging(c);
+                redactClientCommandArgument(c,3);
             }
             if (!config->interface.set(config->data,o->ptr,1,&errstr)) {
                 goto badfmt;
@@ -743,7 +789,7 @@ void configSetCommand(client *c) {
         int vlen;
         sds *v = sdssplitlen(o->ptr,sdslen(o->ptr)," ",1,&vlen);
 
-        if (vlen < 1 || vlen > CONFIG_BINDADDR_MAX) {
+        if (vlen > CONFIG_BINDADDR_MAX) {
             addReplyError(c, "Too many bind addresses specified.");
             sdsfreesplitres(v, vlen);
             return;
@@ -1030,7 +1076,7 @@ void configGetCommand(client *c) {
         matches++;
     }
 
-    if (stringmatch(pattern,"oom-score-adj-values",0)) {
+    if (stringmatch(pattern,"oom-score-adj-values",1)) {
         sds buf = sdsempty();
         int j;
 
@@ -1058,9 +1104,6 @@ void configGetCommand(client *c) {
 /* We use the following dictionary type to store where a configuration
  * option is mentioned in the old configuration file, so it's
  * like "maxmemory" -> list of line numbers (first line is zero). */
-uint64_t dictSdsCaseHash(const void *key);
-int dictSdsKeyCaseCompare(void *privdata, const void *key1, const void *key2);
-void dictSdsDestructor(void *privdata, void *val);
 void dictListDestructor(void *privdata, void *val);
 
 /* Sentinel config rewriting is implemented inside sentinel.c by
@@ -1525,21 +1568,57 @@ void rewriteConfigBindOption(struct rewriteConfigState *state) {
     int force = 1;
     sds line, addresses;
     char *option = "bind";
+    int is_default = 0;
 
-    /* Nothing to rewrite if we don't have bind addresses. */
-    if (server.bindaddr_count == 0) {
+    /* Compare server.bindaddr with CONFIG_DEFAULT_BINDADDR */
+    if (server.bindaddr_count == CONFIG_DEFAULT_BINDADDR_COUNT) {
+        is_default = 1;
+        char *default_bindaddr[CONFIG_DEFAULT_BINDADDR_COUNT] = CONFIG_DEFAULT_BINDADDR;
+        for (int j = 0; j < CONFIG_DEFAULT_BINDADDR_COUNT; j++) {
+            if (strcmp(server.bindaddr[j], default_bindaddr[j]) != 0) {
+                is_default = 0;
+                break;
+            }
+        }
+    }
+
+    if (is_default) {
         rewriteConfigMarkAsProcessed(state,option);
         return;
     }
 
     /* Rewrite as bind <addr1> <addr2> ... <addrN> */
-    addresses = sdsjoin(server.bindaddr,server.bindaddr_count," ");
+    if (server.bindaddr_count > 0)
+        addresses = sdsjoin(server.bindaddr,server.bindaddr_count," ");
+    else
+        addresses = sdsnew("\"\"");
     line = sdsnew(option);
     line = sdscatlen(line, " ", 1);
     line = sdscatsds(line, addresses);
     sdsfree(addresses);
 
     rewriteConfigRewriteLine(state,option,line,force);
+}
+
+/* Rewrite the loadmodule option. */
+void rewriteConfigLoadmoduleOption(struct rewriteConfigState *state) {
+    sds line;
+
+    dictIterator *di = dictGetIterator(modules);
+    dictEntry *de;
+    while ((de = dictNext(di)) != NULL) {
+        struct RedisModule *module = dictGetVal(de);
+        line = sdsnew("loadmodule ");
+        line = sdscatsds(line, module->loadmod->path);
+        for (int i = 0; i < module->loadmod->argc; i++) {
+            line = sdscatlen(line, " ", 1);
+            line = sdscatsds(line, module->loadmod->argv[i]->ptr);
+        }
+        rewriteConfigRewriteLine(state,"loadmodule",line,1);
+    }
+    dictReleaseIterator(di);
+    /* Mark "loadmodule" as processed in case modules is empty. */
+    rewriteConfigMarkAsProcessed(state,"loadmodule");
 }
 
 /* Glue together the configuration lines in the current configuration
@@ -1702,6 +1781,7 @@ int rewriteConfig(char *path, int force_all) {
     rewriteConfigNotifykeyspaceeventsOption(state);
     rewriteConfigClientoutputbufferlimitOption(state);
     rewriteConfigOOMScoreAdjValuesOption(state);
+    rewriteConfigLoadmoduleOption(state);
 
     /* Rewrite Sentinel config if in Sentinel mode. */
     if (server.sentinel_mode) rewriteConfigSentinelOption(state);
@@ -2242,10 +2322,10 @@ static int updateJemallocBgThread(int val, int prev, const char **err) {
 }
 
 static int updateReplBacklogSize(long long val, long long prev, const char **err) {
-    /* resizeReplicationBacklog sets server.repl_backlog_size, and relies on
+    /* resizeReplicationBacklog sets server.cfg_repl_backlog_size, and relies on
      * being able to tell when the size changes, so restore prev before calling it. */
     UNUSED(err);
-    server.repl_backlog_size = prev;
+    server.cfg_repl_backlog_size = prev;
     resizeReplicationBacklog(val);
     return 1;
 }
@@ -2416,7 +2496,6 @@ standardConfig configs[] = {
     createBoolConfig("lazyfree-lazy-user-flush", NULL, MODIFIABLE_CONFIG, server.lazyfree_lazy_user_flush , 0, NULL, NULL),
     createBoolConfig("repl-disable-tcp-nodelay", NULL, MODIFIABLE_CONFIG, server.repl_disable_tcp_nodelay, 0, NULL, NULL),
     createBoolConfig("repl-diskless-sync", NULL, MODIFIABLE_CONFIG, server.repl_diskless_sync, 0, NULL, NULL),
-    createBoolConfig("gopher-enabled", NULL, MODIFIABLE_CONFIG, server.gopher_enabled, 0, NULL, NULL),
     createBoolConfig("aof-rewrite-incremental-fsync", NULL, MODIFIABLE_CONFIG, server.aof_rewrite_incremental_fsync, 1, NULL, NULL),
     createBoolConfig("no-appendfsync-on-rewrite", NULL, MODIFIABLE_CONFIG, server.aof_no_fsync_on_rewrite, 0, NULL, NULL),
     createBoolConfig("cluster-require-full-coverage", NULL, MODIFIABLE_CONFIG, server.cluster_require_full_coverage, 1, NULL, NULL),
@@ -2457,6 +2536,7 @@ standardConfig configs[] = {
     createStringConfig("bgsave_cpulist", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.bgsave_cpulist, NULL, NULL, NULL),
     createStringConfig("ignore-warnings", NULL, MODIFIABLE_CONFIG, ALLOW_EMPTY_STRING, server.ignore_warnings, "", NULL, NULL),
     createStringConfig("proc-title-template", NULL, MODIFIABLE_CONFIG, ALLOW_EMPTY_STRING, server.proc_title_template, CONFIG_DEFAULT_PROC_TITLE_TEMPLATE, isValidProcTitleTemplate, updateProcTitleTemplate),
+    createStringConfig("bind-source-addr", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.bind_source_addr, NULL, NULL, NULL),
 
     /* SDS Configs */
     createSDSConfig("masterauth", NULL, MODIFIABLE_CONFIG | SENSITIVE_CONFIG, EMPTY_STRING_IS_NULL, server.masterauth, NULL, NULL, NULL),
@@ -2523,7 +2603,7 @@ standardConfig configs[] = {
     createLongLongConfig("latency-monitor-threshold", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.latency_monitor_threshold, 0, INTEGER_CONFIG, NULL, NULL),
     createLongLongConfig("proto-max-bulk-len", NULL, MODIFIABLE_CONFIG, 1024*1024, LONG_MAX, server.proto_max_bulk_len, 512ll*1024*1024, MEMORY_CONFIG, NULL, NULL), /* Bulk request max size */
     createLongLongConfig("stream-node-max-entries", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.stream_node_max_entries, 100, INTEGER_CONFIG, NULL, NULL),
-    createLongLongConfig("repl-backlog-size", NULL, MODIFIABLE_CONFIG, 1, LLONG_MAX, server.repl_backlog_size, 1024*1024, MEMORY_CONFIG, NULL, updateReplBacklogSize), /* Default: 1mb */
+    createLongLongConfig("repl-backlog-size", NULL, MODIFIABLE_CONFIG, 1, LLONG_MAX, server.cfg_repl_backlog_size, 1024*1024, MEMORY_CONFIG, NULL, updateReplBacklogSize), /* Default: 1mb */
 
     /* Unsigned Long Long configs */
     createULongLongConfig("maxmemory", NULL, MODIFIABLE_CONFIG, 0, ULLONG_MAX, server.maxmemory, 0, MEMORY_CONFIG, NULL, updateMaxmemory),

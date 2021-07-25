@@ -1,4 +1,4 @@
-tags {"rdb"} {
+tags {"rdb external:skip"} {
 
 set server_path [tmpdir "server.rdb-encoding-test"]
 
@@ -130,7 +130,7 @@ start_server_and_kill_it [list "dir" $server_path] {
 
 start_server {} {
     test {Test FLUSHALL aborts bgsave} {
-        # 1000 keys with 1ms sleep per key shuld take 1 second
+        # 1000 keys with 1ms sleep per key should take 1 second
         r config set rdb-key-save-delay 1000
         r debug populate 1000
         r bgsave
@@ -161,10 +161,10 @@ start_server {} {
 }
 
 test {client freed during loading} {
-    start_server [list overrides [list key-load-delay 10 rdbcompression no]] {
+    start_server [list overrides [list key-load-delay 50 rdbcompression no]] {
         # create a big rdb that will take long to load. it is important
         # for keys to be big since the server processes events only once in 2mb.
-        # 100mb of rdb, 100k keys will load in more than 1 second
+        # 100mb of rdb, 100k keys will load in more than 5 seconds
         r debug populate 100000 key 1000
 
         restart_server 0 false false
@@ -172,9 +172,9 @@ test {client freed during loading} {
         # make sure it's still loading
         assert_equal [s loading] 1
 
-        # connect and disconnect 10 clients
+        # connect and disconnect 5 clients
         set clients {}
-        for {set j 0} {$j < 10} {incr j} {
+        for {set j 0} {$j < 5} {incr j} {
             lappend clients [redis_deferring_client]
         }
         foreach rd $clients {

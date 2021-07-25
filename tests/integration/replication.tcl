@@ -5,7 +5,7 @@ proc log_file_matches {log pattern} {
     string match $pattern $content
 }
 
-start_server {tags {"repl network"}} {
+start_server {tags {"repl network external:skip"}} {
     set slave [srv 0 client]
     set slave_host [srv 0 host]
     set slave_port [srv 0 port]
@@ -51,7 +51,7 @@ start_server {tags {"repl network"}} {
     }
 }
 
-start_server {tags {"repl"}} {
+start_server {tags {"repl external:skip"}} {
     set A [srv 0 client]
     set A_host [srv 0 host]
     set A_port [srv 0 port]
@@ -187,7 +187,7 @@ start_server {tags {"repl"}} {
     }
 }
 
-start_server {tags {"repl"}} {
+start_server {tags {"repl external:skip"}} {
     r set mykey foo
 
     start_server {} {
@@ -252,7 +252,7 @@ start_server {tags {"repl"}} {
 
 foreach mdl {no yes} {
     foreach sdl {disabled swapdb} {
-        start_server {tags {"repl"}} {
+        start_server {tags {"repl external:skip"}} {
             set master [srv 0 client]
             $master config set repl-diskless-sync $mdl
             $master config set repl-diskless-sync-delay 1
@@ -316,15 +316,12 @@ foreach mdl {no yes} {
                             stop_write_load $load_handle3
                             stop_write_load $load_handle4
 
-                            # Make sure that slaves and master have same
-                            # number of keys
-                            wait_for_condition 500 100 {
-                                [$master dbsize] == [[lindex $slaves 0] dbsize] &&
-                                [$master dbsize] == [[lindex $slaves 1] dbsize] &&
-                                [$master dbsize] == [[lindex $slaves 2] dbsize]
-                            } else {
-                                fail "Different number of keys between master and replica after too long time."
-                            }
+                            # Make sure no more commands processed
+                            wait_load_handlers_disconnected
+
+                            wait_for_ofs_sync $master [lindex $slaves 0]
+                            wait_for_ofs_sync $master [lindex $slaves 1]
+                            wait_for_ofs_sync $master [lindex $slaves 2]
 
                             # Check digests
                             set digest [$master debug digest]
@@ -343,7 +340,7 @@ foreach mdl {no yes} {
     }
 }
 
-start_server {tags {"repl"}} {
+start_server {tags {"repl external:skip"}} {
     set master [srv 0 client]
     set master_host [srv 0 host]
     set master_port [srv 0 port]
@@ -400,7 +397,7 @@ test {slave fails full sync and diskless load swapdb recovers it} {
             # Put different data sets on the master and slave
             # we need to put large keys on the master since the slave replies to info only once in 2mb
             $slave debug populate 2000 slave 10
-            $master debug populate 200 master 100000
+            $master debug populate 800 master 100000
             $master config set rdbcompression no
 
             # Set master and slave to use diskless replication
@@ -409,7 +406,7 @@ test {slave fails full sync and diskless load swapdb recovers it} {
             $slave config set repl-diskless-load swapdb
 
             # Set master with a slow rdb generation, so that we can easily disconnect it mid sync
-            # 10ms per key, with 200 keys is 2 seconds
+            # 10ms per key, with 800 keys is 8 seconds
             $master config set rdb-key-save-delay 10000
 
             # Start the replication process...
@@ -422,7 +419,7 @@ test {slave fails full sync and diskless load swapdb recovers it} {
                 fail "Replica didn't get into loading mode"
             }
 
-            # make sure that next sync will not start immediately so that we can catch the slave in betweeen syncs
+            # make sure that next sync will not start immediately so that we can catch the slave in between syncs
             $master config set repl-diskless-sync-delay 5
             # for faster server shutdown, make rdb saving fast again (the fork is already uses the slow one)
             $master config set rdb-key-save-delay 0
@@ -451,7 +448,7 @@ test {slave fails full sync and diskless load swapdb recovers it} {
             assert_equal [$slave dbsize] 2000
         }
     }
-}
+} {} {external:skip}
 
 test {diskless loading short read} {
     start_server {tags {"repl"}} {
@@ -550,7 +547,7 @@ test {diskless loading short read} {
             $master config set rdb-key-save-delay 0
         }
     }
-}
+} {} {external:skip}
 
 # get current stime and utime metrics for a thread (since it's creation)
 proc get_cpu_metrics { statfile } {
@@ -584,7 +581,7 @@ proc compute_cpu_usage {start end} {
 
 
 # test diskless rdb pipe with multiple replicas, which may drop half way
-start_server {tags {"repl"}} {
+start_server {tags {"repl external:skip"}} {
     set master [srv 0 client]
     $master config set repl-diskless-sync yes
     $master config set repl-diskless-sync-delay 1
@@ -772,7 +769,46 @@ test "diskless replication child being killed is collected" {
             }
         }
     }
-}
+} {} {external:skip}
+
+test "diskless replication read pipe cleanup" {
+    # In diskless replication, we create a read pipe for the RDB, between the child and the parent.
+    # When we close this pipe (fd), the read handler also needs to be removed from the event loop (if it still registered).
+    # Otherwise, next time we will use the same fd, the registration will be fail (panic), because
+    # we will use EPOLL_CTL_MOD (the fd still register in the event loop), on fd that already removed from epoll_ctl
+    start_server {tags {"repl"}} {
+        set master [srv 0 client]
+        set master_host [srv 0 host]
+        set master_port [srv 0 port]
+        set master_pid [srv 0 pid]
+        $master config set repl-diskless-sync yes
+        $master config set repl-diskless-sync-delay 0
+
+        # put enough data in the db, and slowdown the save, to keep the parent busy at the read process
+        $master config set rdb-key-save-delay 100000
+        $master debug populate 20000 test 10000
+        $master config set rdbcompression no
+        start_server {} {
+            set replica [srv 0 client]
+            set loglines [count_log_lines 0]
+            $replica config set repl-diskless-load swapdb
+            $replica replicaof $master_host $master_port
+
+            # wait for the replicas to start reading the rdb
+            wait_for_log_messages 0 {"*Loading DB in memory*"} $loglines 800 10
+
+            set loglines [count_log_lines 0]
+            # send FLUSHALL so the RDB child will be killed
+            $master flushall
+
+            # wait for another RDB child process to be started
+            wait_for_log_messages -1 {"*Background RDB transfer started by pid*"} $loglines 800 10
+
+            # make sure master is alive
+            $master ping
+        }
+    }
+} {} {external:skip}
 
 test {replicaof right after disconnection} {
     # this is a rare race condition that was reproduced sporadically by the psync2 unit.
@@ -824,7 +860,7 @@ test {replicaof right after disconnection} {
             }
         }
     }
-}
+} {} {external:skip}
 
 test {Kill rdb child process if its dumping RDB is not useful} {
     start_server {tags {"repl"}} {
@@ -864,7 +900,7 @@ test {Kill rdb child process if its dumping RDB is not useful} {
                 # Slave2 disconnect with master
                 $slave2 slaveof no one
                 # Should kill child
-                wait_for_condition 20 10 {
+                wait_for_condition 100 10 {
                     [s 0 rdb_bgsave_in_progress] eq 0
                 } else {
                     fail "can't kill rdb child"
@@ -889,4 +925,4 @@ test {Kill rdb child process if its dumping RDB is not useful} {
             }
         }
     }
-}
+} {} {external:skip}

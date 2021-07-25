@@ -60,7 +60,12 @@ void aofClosePipes(void);
 #define AOF_RW_BUF_BLOCK_SIZE (1024*1024*10)    /* 10 MB per block */
 
 typedef struct aofrwblock {
-    unsigned long used, free;
+    unsigned long used, free, pos;
+    /* Note that 'buf' must be the last field of aofrwblock struct, because
+     * memory allocator may give us more memory than our apply for reducing
+     * fragments, but we want to make full use of given memory, i.e. we may
+     * access the memory after 'buf'. To avoid make others fields corrupt,
+     * 'buf' must be the last one. */
     char buf[AOF_RW_BUF_BLOCK_SIZE];
 } aofrwblock;
 
@@ -89,6 +94,22 @@ unsigned long aofRewriteBufferSize(void) {
     return size;
 }
 
+/* This function is different from aofRewriteBufferSize, to get memory usage,
+ * we should also count all other fields(except 'buf') of aofrwblock and the
+ * last block's free size. */
+unsigned long aofRewriteBufferMemoryUsage(void) {
+    unsigned long size = aofRewriteBufferSize();
+
+    listNode *ln = listLast(server.aof_rewrite_buf_blocks);
+    if (ln != NULL) {
+        aofrwblock *block = listNodeValue(ln);
+        size += block->free;
+        size += (offsetof(aofrwblock,buf) *
+                 listLength(server.aof_rewrite_buf_blocks));
+    }
+    return size;
+}
+
 /* Event handler used to send data to the child process doing the AOF
  * rewrite. We send pieces of our AOF differences buffer so that the final
  * write when the child finishes the rewrite will be small. */
@@ -96,29 +117,31 @@ void aofChildWriteDiffData(aeEventLoop *el, int fd, void *privdata, int mask) {
     listNode *ln;
     aofrwblock *block;
     ssize_t nwritten;
+    mstime_t latency;
     UNUSED(el);
     UNUSED(fd);
     UNUSED(privdata);
     UNUSED(mask);
 
+    latencyStartMonitor(latency);
     while(1) {
         ln = listFirst(server.aof_rewrite_buf_blocks);
         block = ln ? ln->value : NULL;
         if (server.aof_stop_sending_diff || !block) {
             aeDeleteFileEvent(server.el,server.aof_pipe_write_data_to_child,
                               AE_WRITABLE);
-            return;
+            break;
         }
-        if (block->used > 0) {
+        if (block->used != block->pos) {
             nwritten = write(server.aof_pipe_write_data_to_child,
-                             block->buf,block->used);
-            if (nwritten <= 0) return;
-            memmove(block->buf,block->buf+nwritten,block->used-nwritten);
-            block->used -= nwritten;
-            block->free += nwritten;
+                             block->buf+block->pos,block->used-block->pos);
+            if (nwritten <= 0) break;
+            block->pos += nwritten;
         }
-        if (block->used == 0) listDelNode(server.aof_rewrite_buf_blocks,ln);
+        if (block->used == block->pos) listDelNode(server.aof_rewrite_buf_blocks,ln);
     }
+    latencyEndMonitor(latency);
+    latencyAddSampleIfNeeded("aof-rewrite-write-data-to-child",latency);
 }
 
 /* Append data to the AOF rewrite buffer, allocating new blocks if needed. */
@@ -142,10 +165,12 @@ void aofRewriteBufferAppend(unsigned char *s, unsigned long len) {
 
         if (len) { /* First block to allocate, or need another block. */
             int numblocks;
+            size_t usable_size;
 
-            block = zmalloc(sizeof(*block));
-            block->free = AOF_RW_BUF_BLOCK_SIZE;
+            block = zmalloc_usable(sizeof(*block), &usable_size);
+            block->free = usable_size-offsetof(aofrwblock,buf);
             block->used = 0;
+            block->pos = 0;
             listAddNodeTail(server.aof_rewrite_buf_blocks,block);
 
             /* Log every time we cross more 10 or 100 blocks, respectively
@@ -162,7 +187,9 @@ void aofRewriteBufferAppend(unsigned char *s, unsigned long len) {
 
     /* Install a file event to send data to the rewrite child if there is
      * not one already. */
-    if (aeGetFileEvents(server.el,server.aof_pipe_write_data_to_child) == 0) {
+    if (!server.aof_stop_sending_diff &&
+        aeGetFileEvents(server.el,server.aof_pipe_write_data_to_child) == 0)
+    {
         aeCreateFileEvent(server.el, server.aof_pipe_write_data_to_child,
             AE_WRITABLE, aofChildWriteDiffData, NULL);
     }
@@ -181,9 +208,9 @@ ssize_t aofRewriteBufferWrite(int fd) {
         aofrwblock *block = listNodeValue(ln);
         ssize_t nwritten;
 
-        if (block->used) {
-            nwritten = write(fd,block->buf,block->used);
-            if (nwritten != (ssize_t)block->used) {
+        if (block->used != block->pos) {
+            nwritten = write(fd,block->buf+block->pos,block->used-block->pos);
+            if (nwritten != (ssize_t)(block->used-block->pos)) {
                 if (nwritten == 0) errno = EIO;
                 return -1;
             }
@@ -339,7 +366,7 @@ ssize_t aofWrite(int fd, const char *buf, size_t len) {
 /* Write the append only file buffer on disk.
  *
  * Since we are required to write the AOF before replying to the client,
- * and the only way the client socket can get a write is entering when the
+ * and the only way the client socket can get a write is entering when
  * the event loop, we accumulate all the AOF writes in a memory
  * buffer and write it on disk using this function just before entering
  * the event loop again.
@@ -394,7 +421,7 @@ void flushAppendOnlyFile(int force) {
                  * than two seconds this is still ok. Postpone again. */
                 return;
             }
-            /* Otherwise fall trough, and go write since we can't wait
+            /* Otherwise fall through, and go write since we can't wait
              * over two seconds. */
             server.aof_delayed_fsync++;
             serverLog(LL_NOTICE,"Asynchronous AOF fsync is taking too long (disk is busy?). Writing the AOF buffer without waiting for fsync to complete, this may slow down Redis.");
@@ -572,43 +599,7 @@ sds catAppendOnlyGenericCommand(sds dst, int argc, robj **argv) {
     return dst;
 }
 
-/* Create the sds representation of a PEXPIREAT command, using
- * 'seconds' as time to live and 'cmd' to understand what command
- * we are translating into a PEXPIREAT.
- *
- * This command is used in order to translate EXPIRE and PEXPIRE commands
- * into PEXPIREAT command so that we retain precision in the append only
- * file, and the time is always absolute and not relative. */
-sds catAppendOnlyExpireAtCommand(sds buf, struct redisCommand *cmd, robj *key, robj *seconds) {
-    long long when;
-    robj *argv[3];
-
-    /* Make sure we can use strtoll */
-    seconds = getDecodedObject(seconds);
-    when = strtoll(seconds->ptr,NULL,10);
-    /* Convert argument into milliseconds for EXPIRE, SETEX, EXPIREAT */
-    if (cmd->proc == expireCommand || cmd->proc == setexCommand ||
-        cmd->proc == expireatCommand)
-    {
-        when *= 1000;
-    }
-    /* Convert into absolute time for EXPIRE, PEXPIRE, SETEX, PSETEX */
-    if (cmd->proc == expireCommand || cmd->proc == pexpireCommand ||
-        cmd->proc == setexCommand || cmd->proc == psetexCommand)
-    {
-        when += mstime();
-    }
-    decrRefCount(seconds);
-
-    argv[0] = shared.pexpireat;
-    argv[1] = key;
-    argv[2] = createStringObjectFromLongLong(when);
-    buf = catAppendOnlyGenericCommand(buf, 3, argv);
-    decrRefCount(argv[2]);
-    return buf;
-}
-
-void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int argc) {
+void feedAppendOnlyFile(int dictid, robj **argv, int argc) {
     sds buf = sdsempty();
     /* The DB this command was targeting is not the same as the last command
      * we appended. To issue a SELECT command is needed. */
@@ -621,44 +612,9 @@ void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int a
         server.aof_selected_db = dictid;
     }
 
-    if (cmd->proc == expireCommand || cmd->proc == pexpireCommand ||
-        cmd->proc == expireatCommand) {
-        /* Translate EXPIRE/PEXPIRE/EXPIREAT into PEXPIREAT */
-        buf = catAppendOnlyExpireAtCommand(buf,cmd,argv[1],argv[2]);
-    } else if (cmd->proc == setCommand && argc > 3) {
-        robj *pxarg = NULL;
-        /* When SET is used with EX/PX argument setGenericCommand propagates them with PX millisecond argument.
-         * So since the command arguments are re-written there, we can rely here on the index of PX being 3. */
-        if (!strcasecmp(argv[3]->ptr, "px")) {
-            pxarg = argv[4];
-        }
-        /* For AOF we convert SET key value relative time in milliseconds to SET key value absolute time in
-         * millisecond. Whenever the condition is true it implies that original SET has been transformed
-         * to SET PX with millisecond time argument so we do not need to worry about unit here.*/
-        if (pxarg) {
-            robj *millisecond = getDecodedObject(pxarg);
-            long long when = strtoll(millisecond->ptr,NULL,10);
-            when += mstime();
-
-            decrRefCount(millisecond);
-
-            robj *newargs[5];
-            newargs[0] = argv[0];
-            newargs[1] = argv[1];
-            newargs[2] = argv[2];
-            newargs[3] = shared.pxat;
-            newargs[4] = createStringObjectFromLongLong(when);
-            buf = catAppendOnlyGenericCommand(buf,5,newargs);
-            decrRefCount(newargs[4]);
-        } else {
-            buf = catAppendOnlyGenericCommand(buf,argc,argv);
-        }
-    } else {
-        /* All the other commands don't need translation or need the
-         * same translation already operated in the command vector
-         * for the replication itself. */
-        buf = catAppendOnlyGenericCommand(buf,argc,argv);
-    }
+    /* All commands should be propagated the same way in AOF as in replication.
+     * No need for AOF-specific translation. */
+    buf = catAppendOnlyGenericCommand(buf,argc,argv);
 
     /* Append to the AOF buffer. This will be flushed on disk just before
      * of re-entering the event loop, so before the client will get a
@@ -697,6 +653,7 @@ struct client *createAOFClient(void) {
     c->original_argv = NULL;
     c->argv_len_sum = 0;
     c->bufpos = 0;
+    c->buf_usable_size = zmalloc_usable_size(c)-offsetof(client,buf);
 
     /*
      * The AOF client should never be blocked (unlike master
@@ -745,9 +702,12 @@ void freeFakeClient(struct client *c) {
     zfree(c);
 }
 
-/* Replay the append log file. On success C_OK is returned. On non fatal
- * error (the append only file is zero-length) C_ERR is returned. On
- * fatal error an error message is logged and the program exists. */
+/* Replay the append log file. On success AOF_OK is returned,
+ * otherwise, one of the following is returned:
+ * AOF_OPEN_ERR: Failed to open the AOF file.
+ * AOF_NOT_EXIST: AOF file doesn't exist.
+ * AOF_EMPTY: The AOF file is empty (nothing to load).
+ * AOF_FAILED: Failed to load the AOF file. */
 int loadAppendOnlyFile(char *filename) {
     struct client *fakeClient;
     FILE *fp = fopen(filename,"r");
@@ -756,10 +716,17 @@ int loadAppendOnlyFile(char *filename) {
     long loops = 0;
     off_t valid_up_to = 0; /* Offset of latest well-formed command loaded. */
     off_t valid_before_multi = 0; /* Offset before MULTI command loaded. */
+    int ret;
 
     if (fp == NULL) {
-        serverLog(LL_WARNING,"Fatal error: can't open the append log file for reading: %s",strerror(errno));
-        exit(1);
+        int en = errno;
+        if (redis_stat(filename, &sb) == 0) {
+            serverLog(LL_WARNING,"Fatal error: can't open the append log file for reading: %s",strerror(en));
+            return AOF_OPEN_ERR;
+        } else {
+            serverLog(LL_WARNING,"The append log file doesn't exist: %s",strerror(errno));
+            return AOF_NOT_EXIST;
+        }
     }
 
     /* Handle a zero-length AOF file as a special case. An empty AOF file
@@ -770,7 +737,7 @@ int loadAppendOnlyFile(char *filename) {
         server.aof_current_size = 0;
         server.aof_fsync_offset = server.aof_current_size;
         fclose(fp);
-        return C_ERR;
+        return AOF_EMPTY;
     }
 
     /* Temporarily disable AOF, to prevent EXEC from feeding a MULTI
@@ -871,7 +838,9 @@ int loadAppendOnlyFile(char *filename) {
             serverLog(LL_WARNING,
                 "Unknown command '%s' reading the append only file",
                 (char*)argv[0]->ptr);
-            exit(1);
+            freeFakeClientArgv(fakeClient);
+            ret = AOF_FAILED;
+            goto cleanup;
         }
 
         if (cmd == server.multiCommand) valid_before_multi = valid_up_to;
@@ -914,21 +883,18 @@ int loadAppendOnlyFile(char *filename) {
     }
 
 loaded_ok: /* DB loaded, cleanup and return C_OK to the caller. */
-    fclose(fp);
-    freeFakeClient(fakeClient);
     server.aof_state = old_aof_state;
-    stopLoading(1);
     aofUpdateCurrentSize();
     server.aof_rewrite_base_size = server.aof_current_size;
     server.aof_fsync_offset = server.aof_current_size;
-    return C_OK;
+    ret = AOF_OK;
+    goto cleanup;
 
 readerr: /* Read error. If feof(fp) is true, fall through to unexpected EOF. */
     if (!feof(fp)) {
-        if (fakeClient) freeFakeClient(fakeClient); /* avoid valgrind warning */
-        fclose(fp);
         serverLog(LL_WARNING,"Unrecoverable error reading the append only file: %s", strerror(errno));
-        exit(1);
+        ret = AOF_FAILED;
+        goto cleanup;
     }
 
 uxeof: /* Unexpected AOF end of file. */
@@ -956,16 +922,20 @@ uxeof: /* Unexpected AOF end of file. */
             }
         }
     }
-    if (fakeClient) freeFakeClient(fakeClient); /* avoid valgrind warning */
-    fclose(fp);
     serverLog(LL_WARNING,"Unexpected end of file reading the append only file. You can: 1) Make a backup of your AOF file, then use ./redis-check-aof --fix <filename>. 2) Alternatively you can set the 'aof-load-truncated' configuration option to yes and restart the server.");
-    exit(1);
+    ret = AOF_FAILED;
+    goto cleanup;
 
 fmterr: /* Format error. */
+    serverLog(LL_WARNING,"Bad file format reading the append only file: make a backup of your AOF file, then use ./redis-check-aof --fix <filename>");
+    ret = AOF_FAILED;
+    /* fall through to cleanup. */
+
+cleanup:
     if (fakeClient) freeFakeClient(fakeClient); /* avoid valgrind warning */
     fclose(fp);
-    serverLog(LL_WARNING,"Bad file format reading the append only file: make a backup of your AOF file, then use ./redis-check-aof --fix <filename>");
-    exit(1);
+    stopLoading(ret == AOF_OK);
+    return ret;
 }
 
 /* ----------------------------------------------------------------------------
@@ -1418,11 +1388,11 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
 /* Call the module type callback in order to rewrite a data type
  * that is exported by a module and is not handled by Redis itself.
  * The function returns 0 on error, 1 on success. */
-int rewriteModuleObject(rio *r, robj *key, robj *o) {
+int rewriteModuleObject(rio *r, robj *key, robj *o, int dbid) {
     RedisModuleIO io;
     moduleValue *mv = o->ptr;
     moduleType *mt = mv->type;
-    moduleInitIOContext(io,mt,r,key);
+    moduleInitIOContext(io,mt,r,key,dbid);
     mt->aof_rewrite(&io,key,mv->value);
     if (io.ctx) {
         moduleFreeContext(io.ctx);
@@ -1496,7 +1466,7 @@ int rewriteAppendOnlyFileRio(rio *aof) {
             } else if (o->type == OBJ_STREAM) {
                 if (rewriteStreamObject(aof,&key,o) == 0) goto werr;
             } else if (o->type == OBJ_MODULE) {
-                if (rewriteModuleObject(aof,&key,o) == 0) goto werr;
+                if (rewriteModuleObject(aof,&key,o,j) == 0) goto werr;
             } else {
                 serverPanic("Unknown object type");
             }
@@ -1790,7 +1760,7 @@ int rewriteAppendOnlyFileBackground(void) {
         server.aof_rewrite_scheduled = 0;
         server.aof_rewrite_time_start = time(NULL);
 
-        /* We set appendseldb to -1 in order to force the next call to the
+        /* We set aof_selected_db to -1 in order to force the next call to the
          * feedAppendOnlyFile() to issue a SELECT command, so the differences
          * accumulated by the parent into server.aof_rewrite_buf will start
          * with a SELECT statement and it will be safe to merge. */
@@ -1930,7 +1900,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             oldfd = open(server.aof_filename,O_RDONLY|O_NONBLOCK);
         } else {
             /* AOF enabled */
-            oldfd = -1; /* We'll set this to the current AOF filedes later. */
+            oldfd = -1; /* We'll set this to the current AOF file descriptor later. */
         }
 
         /* Rename the temporary file. This will not unlink the target file if

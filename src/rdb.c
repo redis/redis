@@ -318,18 +318,11 @@ void *rdbLoadIntegerObject(rio *rdb, int enctype, int flags, size_t *lenptr) {
  * encoded as integers to save space */
 int rdbTryIntegerEncoding(char *s, size_t len, unsigned char *enc) {
     long long value;
-    char *endptr, buf[32];
-
-    /* Check if it's possible to encode this value as a number */
-    value = strtoll(s, &endptr, 10);
-    if (endptr[0] != '\0') return 0;
-    ll2string(buf,32,value);
-
-    /* If the number converted back into a string is not identical
-     * then it's not possible to encode the string as integer */
-    if (strlen(buf) != len || memcmp(buf,s,len)) return 0;
-
-    return rdbEncodeInteger(value,enc);
+    if (string2ll(s, len, &value)) {
+        return rdbEncodeInteger(value, enc);
+    } else {
+        return 0;
+    }
 }
 
 ssize_t rdbSaveLzfBlob(rio *rdb, void *data, size_t compress_len,
@@ -706,7 +699,7 @@ int rdbLoadObjectType(rio *rdb) {
 
 /* This helper function serializes a consumer group Pending Entries List (PEL)
  * into the RDB file. The 'nacks' argument tells the function if also persist
- * the informations about the not acknowledged message, or if to persist
+ * the information about the not acknowledged message, or if to persist
  * just the IDs: this is useful because for the global consumer group PEL
  * we serialized the NACKs as well, but when serializing the local consumer
  * PELs we just add the ID, that will be resolved inside the global PEL to
@@ -799,7 +792,7 @@ size_t rdbSaveStreamConsumers(rio *rdb, streamCG *cg) {
 
 /* Save a Redis object.
  * Returns -1 on error, number of bytes written on success. */
-ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key) {
+ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
     ssize_t n = 0, nwritten = 0;
 
     if (o->type == OBJ_STRING) {
@@ -1039,7 +1032,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key) {
          * to call the right module during loading. */
         int retval = rdbSaveLen(rdb,mt->id);
         if (retval == -1) return -1;
-        moduleInitIOContext(io,mt,rdb,key);
+        moduleInitIOContext(io,mt,rdb,key,dbid);
         io.bytes += retval;
 
         /* Then write the module-specific representation + EOF marker. */
@@ -1065,8 +1058,8 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key) {
  * the rdbSaveObject() function. Currently we use a trick to get
  * this length with very little changes to the code. In the future
  * we could switch to a faster solution. */
-size_t rdbSavedObjectLen(robj *o, robj *key) {
-    ssize_t len = rdbSaveObject(NULL,o,key);
+size_t rdbSavedObjectLen(robj *o, robj *key, int dbid) {
+    ssize_t len = rdbSaveObject(NULL,o,key,dbid);
     serverAssertWithInfo(NULL,o,len != -1);
     return len;
 }
@@ -1074,7 +1067,7 @@ size_t rdbSavedObjectLen(robj *o, robj *key) {
 /* Save a key-value pair, with expire time, type, key, value.
  * On error -1 is returned.
  * On success if the key was actually saved 1 is returned. */
-int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime) {
+int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime, int dbid) {
     int savelru = server.maxmemory_policy & MAXMEMORY_FLAG_LRU;
     int savelfu = server.maxmemory_policy & MAXMEMORY_FLAG_LFU;
 
@@ -1107,7 +1100,7 @@ int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime) {
     /* Save type, key, value */
     if (rdbSaveObjectType(rdb,val) == -1) return -1;
     if (rdbSaveStringObject(rdb,key) == -1) return -1;
-    if (rdbSaveObject(rdb,val,key) == -1) return -1;
+    if (rdbSaveObject(rdb,val,key,dbid) == -1) return -1;
 
     /* Delay return if required (for testing) */
     if (server.rdb_key_save_delay)
@@ -1170,7 +1163,7 @@ ssize_t rdbSaveSingleModuleAux(rio *rdb, int when, moduleType *mt) {
     RedisModuleIO io;
     int retval = rdbSaveType(rdb, RDB_OPCODE_MODULE_AUX);
     if (retval == -1) return -1;
-    moduleInitIOContext(io,mt,rdb,NULL);
+    moduleInitIOContext(io,mt,rdb,NULL,-1);
     io.bytes += retval;
 
     /* Write the "module" identifier as prefix, so that we'll be able
@@ -1258,7 +1251,7 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
 
             initStaticStringObject(key,keystr);
             expire = getExpire(db,&key);
-            if (rdbSaveKeyValuePair(rdb,&key,o,expire) == -1) goto werr;
+            if (rdbSaveKeyValuePair(rdb,&key,o,expire,j) == -1) goto werr;
 
             /* When this RDB is produced as part of an AOF rewrite, move
              * accumulated diff from parent to child while rewriting in
@@ -1453,13 +1446,13 @@ int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
 
 /* Note that we may call this function in signal handle 'sigShutdownHandler',
  * so we need guarantee all functions we call are async-signal-safe.
- * If  we call this function from signal handle, we won't call bg_unlink that
+ * If we call this function from signal handle, we won't call bg_unlink that
  * is not async-signal-safe. */
 void rdbRemoveTempFile(pid_t childpid, int from_signal) {
     char tmpfile[256];
     char pid[32];
 
-    /* Generate temp rdb file name using aync-signal safe functions. */
+    /* Generate temp rdb file name using async-signal safe functions. */
     int pid_len = ll2string(pid, sizeof(pid), childpid);
     strcpy(tmpfile, "temp-");
     strncpy(tmpfile+5, pid, pid_len);
@@ -1517,7 +1510,7 @@ robj *rdbLoadCheckModuleValue(rio *rdb, char *modulename) {
 
 /* Load a Redis object of the specified type from the specified file.
  * On success a newly allocated object is returned, otherwise NULL. */
-robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
+robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid) {
     robj *o = NULL, *ele, *dec;
     uint64_t len;
     unsigned int i;
@@ -1621,7 +1614,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
             }
         }
     } else if (rdbtype == RDB_TYPE_ZSET_2 || rdbtype == RDB_TYPE_ZSET) {
-        /* Read list/set value. */
+        /* Read sorted set value. */
         uint64_t zsetlen;
         size_t maxelelen = 0;
         zset *zs;
@@ -2191,7 +2184,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
         RedisModuleIO io;
         robj keyobj;
         initStaticStringObject(keyobj,key);
-        moduleInitIOContext(io,mt,rdb,&keyobj);
+        moduleInitIOContext(io,mt,rdb,&keyobj,dbid);
         io.ver = (rdbtype == RDB_TYPE_MODULE) ? 1 : 2;
         /* Call the rdb_load method of the module providing the 10 bit
          * encoding version in the lower 10 bits of the module ID. */
@@ -2484,8 +2477,10 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
             int when_opcode = rdbLoadLen(rdb,NULL);
             int when = rdbLoadLen(rdb,NULL);
             if (rioGetReadError(rdb)) goto eoferr;
-            if (when_opcode != RDB_MODULE_OPCODE_UINT)
+            if (when_opcode != RDB_MODULE_OPCODE_UINT) {
                 rdbReportReadError("bad when_opcode");
+                goto eoferr;
+            }
             moduleType *mt = moduleTypeLookupModuleByID(moduleid);
             char name[10];
             moduleTypeNameByID(name,moduleid);
@@ -2502,14 +2497,14 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
                 }
 
                 RedisModuleIO io;
-                moduleInitIOContext(io,mt,rdb,NULL);
+                moduleInitIOContext(io,mt,rdb,NULL,-1);
                 io.ver = 2;
                 /* Call the rdb_load method of the module providing the 10 bit
                  * encoding version in the lower 10 bits of the module ID. */
                 if (mt->aux_load(&io,moduleid&1023, when) != REDISMODULE_OK || io.error) {
                     moduleTypeNameByID(name,moduleid);
                     serverLog(LL_WARNING,"The RDB file contains module AUX data for the module type '%s', that the responsible module is not able to load. Check for modules log above for additional clues.", name);
-                    exit(1);
+                    goto eoferr;
                 }
                 if (io.ctx) {
                     moduleFreeContext(io.ctx);
@@ -2518,7 +2513,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
                 uint64_t eof = rdbLoadLen(rdb,NULL);
                 if (eof != RDB_MODULE_OPCODE_EOF) {
                     serverLog(LL_WARNING,"The RDB file contains module AUX data for the module '%s' that is not terminated by the proper module value EOF marker", name);
-                    exit(1);
+                    goto eoferr;
                 }
                 continue;
             } else {
@@ -2533,7 +2528,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
         if ((key = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL)) == NULL)
             goto eoferr;
         /* Read value */
-        if ((val = rdbLoadObject(type,rdb,key)) == NULL) {
+        if ((val = rdbLoadObject(type,rdb,key,db->id)) == NULL) {
             sdsfree(key);
             goto eoferr;
         }
@@ -2632,7 +2627,7 @@ eoferr:
  * to do the actual loading. Moreover the ETA displayed in the INFO
  * output is initialized and finalized.
  *
- * If you pass an 'rsi' structure initialied with RDB_SAVE_OPTION_INIT, the
+ * If you pass an 'rsi' structure initialized with RDB_SAVE_OPTION_INIT, the
  * loading code will fill the information fields in the structure. */
 int rdbLoad(char *filename, rdbSaveInfo *rsi, int rdbflags) {
     FILE *fp;
@@ -2691,6 +2686,7 @@ static void backgroundSaveDoneHandlerSocket(int exitcode, int bysignal) {
     }
     if (server.rdb_child_exit_pipe!=-1)
         close(server.rdb_child_exit_pipe);
+    aeDeleteFileEvent(server.el, server.rdb_pipe_read, AE_READABLE);
     close(server.rdb_pipe_read);
     server.rdb_child_exit_pipe = -1;
     server.rdb_pipe_read = -1;
@@ -2907,7 +2903,7 @@ void bgsaveCommand(client *c) {
  * information inside the RDB file. Currently the structure explicitly
  * contains just the currently selected DB from the master stream, however
  * if the rdbSave*() family functions receive a NULL rsi structure also
- * the Replication ID/offset is not saved. The function popultes 'rsi'
+ * the Replication ID/offset is not saved. The function populates 'rsi'
  * that is normally stack-allocated in the caller, returns the populated
  * pointer if the instance has a valid master client, otherwise NULL
  * is returned, and the RDB saving will not persist any replication related

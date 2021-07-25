@@ -81,6 +81,31 @@ const char *clusterGetMessageTypeString(int type);
 #define RCVBUF_INIT_LEN 1024
 #define RCVBUF_MAX_PREALLOC (1<<20) /* 1MB */
 
+/* Cluster nodes hash table, mapping nodes addresses 1.2.3.4:6379 to
+ * clusterNode structures. */
+dictType clusterNodesDictType = {
+        dictSdsHash,                /* hash function */
+        NULL,                       /* key dup */
+        NULL,                       /* val dup */
+        dictSdsKeyCompare,          /* key compare */
+        dictSdsDestructor,          /* key destructor */
+        NULL,                       /* val destructor */
+        NULL                        /* allow to expand */
+};
+
+/* Cluster re-addition blacklist. This maps node IDs to the time
+ * we can re-add this node. The goal is to avoid readding a removed
+ * node for some time. */
+dictType clusterNodesBlackListDictType = {
+        dictSdsCaseHash,            /* hash function */
+        NULL,                       /* key dup */
+        NULL,                       /* val dup */
+        dictSdsKeyCaseCompare,      /* key compare */
+        dictSdsDestructor,          /* key destructor */
+        NULL,                       /* val destructor */
+        NULL                        /* allow to expand */
+};
+
 /* -----------------------------------------------------------------------------
  * Initialization
  * -------------------------------------------------------------------------- */
@@ -536,6 +561,10 @@ void clusterInit(void) {
                    "Your Redis port number must be 55535 or less.");
         exit(1);
     }
+    if (!server.bindaddr_count) {
+        serverLog(LL_WARNING, "No bind address is configured, but it is required for the Cluster bus.");
+        exit(1);
+    }
     if (listenToPort(port+CLUSTER_PORT_INCR, &server.cfd) == C_ERR) {
         exit(1);
     }
@@ -706,8 +735,8 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
             connClose(conn);
             return;
         }
-        connNonBlock(conn);
         connEnableTcpNoDelay(conn);
+        connKeepAlive(conn,server.cluster_node_timeout * 2);
 
         /* Use non-blocking I/O for cluster messages. */
         serverLog(LL_VERBOSE,"Accepting cluster node connection from %s:%d", cip, cport);
@@ -1185,7 +1214,7 @@ void clusterHandleConfigEpochCollision(clusterNode *sender) {
  * CLUSTER nodes blacklist
  *
  * The nodes blacklist is just a way to ensure that a given node with a given
- * Node ID is not readded before some time elapsed (this time is specified
+ * Node ID is not re-added before some time elapsed (this time is specified
  * in seconds in CLUSTER_BLACKLIST_TTL).
  *
  * This is useful when we want to remove a node from the cluster completely:
@@ -3576,7 +3605,7 @@ void clusterCron(void) {
             clusterLink *link = createClusterLink(node);
             link->conn = server.tls_cluster ? connCreateTLS() : connCreateSocket();
             connSetPrivateData(link->conn, link);
-            if (connConnect(link->conn, node->ip, node->cport, NET_FIRST_BIND_ADDR,
+            if (connConnect(link->conn, node->ip, node->cport, server.bind_source_addr,
                         clusterLinkConnectHandler) == -1) {
                 /* We got a synchronous error from connect before
                  * clusterSendPing() had a chance to be called.
@@ -4203,7 +4232,7 @@ sds clusterGenNodeDescription(clusterNode *node, int use_pport) {
                     "connected" : "disconnected");
 
     /* Slots served by this instance. If we already have slots info,
-     * append it diretly, otherwise, generate slots only if it has. */
+     * append it directly, otherwise, generate slots only if it has. */
     if (node->slots_info) {
         ci = sdscatsds(ci, node->slots_info);
     } else if (node->numslots > 0) {
@@ -5037,7 +5066,7 @@ NULL
 
 /* Generates a DUMP-format representation of the object 'o', adding it to the
  * io stream pointed by 'rio'. This function can't fail. */
-void createDumpPayload(rio *payload, robj *o, robj *key) {
+void createDumpPayload(rio *payload, robj *o, robj *key, int dbid) {
     unsigned char buf[2];
     uint64_t crc;
 
@@ -5045,7 +5074,7 @@ void createDumpPayload(rio *payload, robj *o, robj *key) {
      * byte followed by the serialized object. This is understood by RESTORE. */
     rioInitWithBuffer(payload,sdsempty());
     serverAssert(rdbSaveObjectType(payload,o));
-    serverAssert(rdbSaveObject(payload,o,key));
+    serverAssert(rdbSaveObject(payload,o,key,dbid));
 
     /* Write the footer, this is how it looks like:
      * ----------------+---------------------+---------------+
@@ -5106,7 +5135,7 @@ void dumpCommand(client *c) {
     }
 
     /* Create the DUMP encoded representation. */
-    createDumpPayload(&payload,o,c->argv[1]);
+    createDumpPayload(&payload,o,c->argv[1],c->db->id);
 
     /* Transfer to the client */
     addReplyBulkSds(c,payload.io.buffer.ptr);
@@ -5178,7 +5207,7 @@ void restoreCommand(client *c) {
 
     rioInitWithBuffer(&payload,c->argv[3]->ptr);
     if (((type = rdbLoadObjectType(&payload)) == -1) ||
-        ((obj = rdbLoadObject(type,&payload,key->ptr)) == NULL))
+        ((obj = rdbLoadObject(type,&payload,key->ptr,c->db->id)) == NULL))
     {
         addReplyError(c,"Bad data format");
         return;
@@ -5206,6 +5235,13 @@ void restoreCommand(client *c) {
     dbAdd(c->db,key,obj);
     if (ttl) {
         setExpire(c,c->db,key,ttl);
+        if (!absttl) {
+            /* Propagate TTL as absolute timestamp */
+            robj *ttl_obj = createStringObjectFromLongLong(ttl);
+            rewriteClientCommandArgument(c,2,ttl_obj);
+            decrRefCount(ttl_obj);
+            rewriteClientCommandArgument(c,c->argc,shared.absttl);
+        }
     }
     objectSetLRUOrLFU(obj,lfu_freq,lru_idle,lru_clock,1000);
     signalModifiedKey(c,c->db,key);
@@ -5363,13 +5399,16 @@ void migrateCommand(client *c) {
             }
             j++;
             password = c->argv[j]->ptr;
+            redactClientCommandArgument(c,j);
         } else if (!strcasecmp(c->argv[j]->ptr,"auth2")) {
             if (moreargs < 2) {
                 addReplyErrorObject(c,shared.syntaxerr);
                 return;
             }
             username = c->argv[++j]->ptr;
+            redactClientCommandArgument(c,j);
             password = c->argv[++j]->ptr;
+            redactClientCommandArgument(c,j);
         } else if (!strcasecmp(c->argv[j]->ptr,"keys")) {
             if (sdslen(c->argv[3]->ptr) != 0) {
                 addReplyError(c,
@@ -5488,7 +5527,7 @@ try_again:
 
         /* Emit the payload argument, that is the serialized object using
          * the DUMP format. */
-        createDumpPayload(&payload,ov[j],kv[j]);
+        createDumpPayload(&payload,ov[j],kv[j],dbid);
         serverAssertWithInfo(c,NULL,
             rioWriteBulkString(&cmd,payload.io.buffer.ptr,
                                sdslen(payload.io.buffer.ptr)));
@@ -5699,6 +5738,10 @@ void readonlyCommand(client *c) {
 
 /* The READWRITE command just clears the READONLY command state. */
 void readwriteCommand(client *c) {
+    if (server.cluster_enabled == 0) {
+        addReplyError(c,"This instance has cluster support disabled");
+        return;
+    }
     c->flags &= ~CLIENT_READONLY;
     addReply(c,shared.ok);
 }

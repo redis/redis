@@ -250,13 +250,19 @@ proc findKeyWithType {r type} {
 }
 
 proc createComplexDataset {r ops {opt {}}} {
+    set useexpire [expr {[lsearch -exact $opt useexpire] != -1}]
+    if {[lsearch -exact $opt usetag] != -1} {
+        set tag "{t}"
+    } else {
+        set tag ""
+    }
     for {set j 0} {$j < $ops} {incr j} {
-        set k [randomKey]
-        set k2 [randomKey]
+        set k [randomKey]$tag
+        set k2 [randomKey]$tag
         set f [randomValue]
         set v [randomValue]
 
-        if {[lsearch -exact $opt useexpire] != -1} {
+        if {$useexpire} {
             if {rand() < 0.1} {
                 {*}$r expire [randomKey] [randomInt 2]
             }
@@ -353,8 +359,15 @@ proc formatCommand {args} {
 
 proc csvdump r {
     set o {}
-    for {set db 0} {$db < 16} {incr db} {
-        {*}$r select $db
+    if {$::singledb} {
+        set maxdb 1
+    } else {
+        set maxdb 16
+    }
+    for {set db 0} {$db < $maxdb} {incr db} {
+        if {!$::singledb} {
+            {*}$r select $db
+        }
         foreach k [lsort [{*}$r keys *]] {
             set type [{*}$r type $k]
             append o [csvstring $db] , [csvstring $k] , [csvstring $type] ,
@@ -396,7 +409,9 @@ proc csvdump r {
             }
         }
     }
-    {*}$r select 9
+    if {!$::singledb} {
+        {*}$r select 9
+    }
     return $o
 }
 
@@ -483,7 +498,7 @@ proc find_valgrind_errors {stderr on_termination} {
         return ""
     }
 
-    # Look for the absense of a leak free summary (happens when redis isn't terminated properly).
+    # Look for the absence of a leak free summary (happens when redis isn't terminated properly).
     if {(![regexp -- {definitely lost: 0 bytes} $buf] &&
          ![regexp -- {no leaks are possible} $buf])} {
         return $buf
@@ -502,6 +517,14 @@ proc start_write_load {host port seconds} {
 # Stop a process generating write load executed with start_write_load.
 proc stop_write_load {handle} {
     catch {exec /bin/kill -9 $handle}
+}
+
+proc wait_load_handlers_disconnected {{level 0}} {
+    wait_for_condition 50 100 {
+        ![string match {*name=LOAD_HANDLER*} [r $level client list]]
+    } else {
+        fail "load_handler(s) still connected after too long time."
+    }
 }
 
 proc K { x y } { set x } 
@@ -532,7 +555,7 @@ proc stop_bg_complex_data {handle} {
     catch {exec /bin/kill -9 $handle}
 }
 
-proc populate {num prefix size} {
+proc populate {num {prefix key:} {size 3}} {
     set rd [redis_deferring_client]
     for {set j 0} {$j < $num} {incr j} {
         $rd set $prefix$j [string repeat A $size]
@@ -767,4 +790,78 @@ proc psubscribe {client channels} {
 proc punsubscribe {client {channels {}}} {
     $client punsubscribe {*}$channels
     consume_subscribe_messages $client punsubscribe $channels
+}
+
+proc debug_digest_value {key} {
+    if {!$::ignoredigest} {
+        r debug digest-value $key
+    } else {
+        return "dummy-digest-value"
+    }
+}
+
+proc wait_for_blocked_client {} {
+    wait_for_condition 50 100 {
+        [s blocked_clients] ne 0
+    } else {
+        fail "no blocked clients"
+    }
+}
+
+proc wait_for_blocked_clients_count {count {maxtries 100} {delay 10}} {
+    wait_for_condition $maxtries $delay  {
+        [s blocked_clients] == $count
+    } else {
+        fail "Timeout waiting for blocked clients"
+    }
+}
+
+proc read_from_aof {fp} {
+    # Input fp is a blocking binary file descriptor of an opened AOF file.
+    if {[gets $fp count] == -1} return ""
+    set count [string range $count 1 end]
+
+    # Return a list of arguments for the command.
+    set res {}
+    for {set j 0} {$j < $count} {incr j} {
+        read $fp 1
+        set arg [::redis::redis_bulk_read $fp]
+        if {$j == 0} {set arg [string tolower $arg]}
+        lappend res $arg
+    }
+    return $res
+}
+
+proc assert_aof_content {aof_path patterns} {
+    set fp [open $aof_path r]
+    fconfigure $fp -translation binary
+    fconfigure $fp -blocking 1
+
+    for {set j 0} {$j < [llength $patterns]} {incr j} {
+        assert_match [lindex $patterns $j] [read_from_aof $fp]
+    }
+}
+
+proc config_set {param value {options {}}} {
+    set mayfail 0
+    foreach option $options {
+        switch $option {
+            "mayfail" {
+                set mayfail 1
+            }
+            default {
+                error "Unknown option $option"
+            }
+        }
+    }
+
+    if {[catch {r config set $param $value} err]} {
+        if {!$mayfail} {
+            error $err
+        } else {
+            if {$::verbose} {
+                puts "Ignoring CONFIG SET $param $value failure: $err"
+            }
+        }
+    }
 }

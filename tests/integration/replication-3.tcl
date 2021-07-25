@@ -1,4 +1,4 @@
-start_server {tags {"repl"}} {
+start_server {tags {"repl external:skip"}} {
     start_server {} {
         test {First server should have role slave after SLAVEOF} {
             r -1 slaveof [srv 0 host] [srv 0 port]
@@ -45,7 +45,7 @@ start_server {tags {"repl"}} {
     }
 }
 
-start_server {tags {"repl"}} {
+start_server {tags {"repl external:skip"}} {
     start_server {} {
         test {First server should have role slave after SLAVEOF} {
             r -1 slaveof [srv 0 host] [srv 0 port]
@@ -118,7 +118,7 @@ start_server {tags {"repl"}} {
             # correctly the RDB file: such file will contain "lua" AUX
             # sections with scripts already in the memory of the master.
 
-            wait_for_condition 500 100 {
+            wait_for_condition 1000 100 {
                 [s -1 master_link_status] eq {up}
             } else {
                 fail "Replication not started."

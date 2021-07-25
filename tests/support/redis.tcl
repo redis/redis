@@ -34,13 +34,14 @@ array set ::redis::fd {}
 array set ::redis::addr {}
 array set ::redis::blocking {}
 array set ::redis::deferred {}
+array set ::redis::readraw {}
 array set ::redis::reconnect {}
 array set ::redis::tls {}
 array set ::redis::callback {}
 array set ::redis::state {} ;# State in non-blocking reply reading
 array set ::redis::statestack {} ;# Stack of states, for nested mbulks
 
-proc redis {{server 127.0.0.1} {port 6379} {defer 0} {tls 0} {tlsoptions {}}} {
+proc redis {{server 127.0.0.1} {port 6379} {defer 0} {tls 0} {tlsoptions {}} {readraw 0}} {
     if {$tls} {
         package require tls
         ::tls::init \
@@ -58,6 +59,7 @@ proc redis {{server 127.0.0.1} {port 6379} {defer 0} {tls 0} {tlsoptions {}}} {
     set ::redis::addr($id) [list $server $port]
     set ::redis::blocking($id) 1
     set ::redis::deferred($id) $defer
+    set ::redis::readraw($id) $readraw
     set ::redis::reconnect($id) 0
     set ::redis::tls($id) $tls
     ::redis::redis_reset_state $id
@@ -158,6 +160,7 @@ proc ::redis::__method__close {id fd} {
     catch {unset ::redis::addr($id)}
     catch {unset ::redis::blocking($id)}
     catch {unset ::redis::deferred($id)}
+    catch {unset ::redis::readraw($id)}
     catch {unset ::redis::reconnect($id)}
     catch {unset ::redis::tls($id)}
     catch {unset ::redis::state($id)}
@@ -172,6 +175,10 @@ proc ::redis::__method__channel {id fd} {
 
 proc ::redis::__method__deferred {id fd val} {
     set ::redis::deferred($id) $val
+}
+
+proc ::redis::__method__readraw {id fd val} {
+    set ::redis::readraw($id) $val
 }
 
 proc ::redis::redis_write {fd buf} {
@@ -240,26 +247,46 @@ proc ::redis::redis_read_null fd {
     return {}
 }
 
+proc ::redis::redis_read_bool fd {
+    set v [redis_read_line $fd]
+    if {$v == "t"} {return 1}
+    if {$v == "f"} {return 0}
+    return -code error "Bad protocol, '$v' as bool type"
+}
+
 proc ::redis::redis_read_reply {id fd} {
-    set type [read $fd 1]
-    switch -exact -- $type {
-        _ {redis_read_null $fd}
-        : -
-        + {redis_read_line $fd}
-        , {expr {double([redis_read_line $fd])}}
-        - {return -code error [redis_read_line $fd]}
-        $ {redis_bulk_read $fd}
-        > -
-        ~ -
-        * {redis_multi_bulk_read $id $fd}
-        % {redis_read_map $id $fd}
-        default {
-            if {$type eq {}} {
-                catch {close $fd}
-                set ::redis::fd($id) {}
-                return -code error "I/O error reading reply"
+    if {$::redis::readraw($id)} {
+        return [redis_read_line $fd]
+    }
+
+    while {1} {
+        set type [read $fd 1]
+        switch -exact -- $type {
+            _ {return [redis_read_null $fd]}
+            : -
+            ( -
+            + {return [redis_read_line $fd]}
+            , {return [expr {double([redis_read_line $fd])}]}
+            # {return [redis_read_bool $fd]}
+            - {return -code error [redis_read_line $fd]}
+            $ {return [redis_bulk_read $fd]}
+            > -
+            ~ -
+            * {return [redis_multi_bulk_read $id $fd]}
+            % {return [redis_read_map $id $fd]}
+            | {
+                # ignore attributes for now (nowhere to store them)
+                redis_read_map $id $fd
+                continue
             }
-            return -code error "Bad protocol, '$type' as reply type byte"
+            default {
+                if {$type eq {}} {
+                    catch {close $fd}
+                    set ::redis::fd($id) {}
+                    return -code error "I/O error reading reply"
+                }
+                return -code error "Bad protocol, '$type' as reply type byte"
+            }
         }
     }
 }

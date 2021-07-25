@@ -1,7 +1,16 @@
 source tests/support/cli.tcl
 
+if {$::singledb} {
+    set ::dbnum 0
+} else {
+    set ::dbnum 9
+}
+
 start_server {tags {"cli"}} {
-    proc open_cli {{opts "-n 9"} {infile ""}} {
+    proc open_cli {{opts ""} {infile ""}} {
+        if { $opts == "" } {
+            set opts "-n $::dbnum"
+        }
         set ::env(TERM) dumb
         set cmdline [rediscli [srv host] [srv port] $opts]
         if {$infile ne ""} {
@@ -65,7 +74,7 @@ start_server {tags {"cli"}} {
     }
 
     proc _run_cli {opts args} {
-        set cmd [rediscli [srv host] [srv port] [list -n 9 {*}$args]]
+        set cmd [rediscli [srv host] [srv port] [list -n $::dbnum {*}$args]]
         foreach {key value} $opts {
             if {$key eq "pipe"} {
                 set cmd "sh -c \"$value | $cmd\""
@@ -109,7 +118,9 @@ start_server {tags {"cli"}} {
     test_interactive_cli "INFO response should be printed raw" {
         set lines [split [run_command $fd info] "\n"]
         foreach line $lines {
-            assert [regexp {^$|^#|^[^#:]+:} $line]
+            if {![regexp {^$|^#|^[^#:]+:} $line]} {
+                fail "Malformed info line: $line"
+            }
         }
     }
 
@@ -267,7 +278,7 @@ start_server {tags {"cli"}} {
         assert_match "OK" [r config set repl-diskless-sync yes]
         assert_match "OK" [r config set repl-diskless-sync-delay 0]
         test_redis_cli_rdb_dump
-    }
+    } {} {needs:repl}
 
     test "Scan mode" {
         r flushdb
@@ -283,9 +294,9 @@ start_server {tags {"cli"}} {
         assert_equal {key:2} [run_cli --scan --quoted-pattern {"*:\x32"}]
     }
 
-    test "Connecting as a replica" {
+    proc test_redis_cli_repl {} {
         set fd [open_cli "--replica"]
-        wait_for_condition 500 500 {
+        wait_for_condition 500 100 {
             [string match {*slave0:*state=online*} [r info]]
         } else {
             fail "redis-cli --replica did not connect"
@@ -294,19 +305,40 @@ start_server {tags {"cli"}} {
         for {set i 0} {$i < 100} {incr i} {
            r set test-key test-value-$i
         }
-        r client kill type slave
-        catch {
-            assert_match {*SET*key-a*} [read_cli $fd]
+
+        wait_for_condition 500 100 {
+            [string match {*test-value-99*} [read_cli $fd]]
+        } else {
+            fail "redis-cli --replica didn't read commands"
         }
 
-        close_cli $fd
+        fconfigure $fd -blocking true
+        r client kill type slave
+        catch { close_cli $fd } err
+        assert_match {*Server closed the connection*} $err
     }
+
+    test "Connecting as a replica" {
+        # Disk-based master
+        assert_match "OK" [r config set repl-diskless-sync no]
+        test_redis_cli_repl
+
+        # Disk-less master
+        assert_match "OK" [r config set repl-diskless-sync yes]
+        assert_match "OK" [r config set repl-diskless-sync-delay 0]
+        test_redis_cli_repl
+    } {} {needs:repl}
 
     test "Piping raw protocol" {
         set cmds [tmpfile "cli_cmds"]
         set cmds_fd [open $cmds "w"]
 
-        puts $cmds_fd [formatCommand select 9]
+        set cmds_count 2101
+
+        if {!$::singledb} {
+            puts $cmds_fd [formatCommand select 9]
+            incr cmds_count
+        }
         puts $cmds_fd [formatCommand del test-counter]
 
         for {set i 0} {$i < 1000} {incr i} {
@@ -324,7 +356,7 @@ start_server {tags {"cli"}} {
         set output [read_cli $cli_fd]
 
         assert_equal {1000} [r get test-counter]
-        assert_match {*All data transferred*errors: 0*replies: 2102*} $output
+        assert_match "*All data transferred*errors: 0*replies: ${cmds_count}*" $output
 
         file delete $cmds
     }

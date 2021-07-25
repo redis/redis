@@ -2,7 +2,7 @@ set system_name [string tolower [exec uname -s]]
 set user_id [exec id -u]
 
 if {$system_name eq {linux}} {
-    start_server {tags {"oom-score-adj"}} {
+    start_server {tags {"oom-score-adj external:skip"}} {
         proc get_oom_score_adj {{pid ""}} {
             if {$pid == ""} {
                 set pid [srv 0 pid]

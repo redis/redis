@@ -63,7 +63,7 @@ void queueMultiCommand(client *c) {
      * this is useful in case client sends these in a pipeline, or doesn't
      * bother to read previous responses and didn't notice the multi was already
      * aborted. */
-    if (c->flags & CLIENT_DIRTY_EXEC)
+    if (c->flags & (CLIENT_DIRTY_CAS|CLIENT_DIRTY_EXEC))
         return;
 
     c->mstate.commands = zrealloc(c->mstate.commands,
@@ -153,8 +153,7 @@ void execCommandAbort(client *c, sds error) {
     /* Send EXEC to clients waiting data from MONITOR. We did send a MULTI
      * already, and didn't send any of the queued commands, now we'll just send
      * EXEC so it is clear that the transaction is over. */
-    if (listLength(server.monitors) && !server.loading)
-        replicationFeedMonitors(c,server.monitors,c->db->id,c->argv,c->argc);
+    replicationFeedMonitors(c,server.monitors,c->db->id,c->argv,c->argc);
 }
 
 void execCommand(client *c) {
@@ -169,6 +168,11 @@ void execCommand(client *c) {
         return;
     }
 
+    /* EXEC with expired watched key is disallowed*/
+    if (isWatchedKeyExpired(c)) {
+        c->flags |= (CLIENT_DIRTY_CAS);
+    }
+
     /* Check if we need to abort the EXEC because:
      * 1) Some WATCHed key was touched.
      * 2) There was a previous error while queueing commands.
@@ -179,7 +183,7 @@ void execCommand(client *c) {
         addReply(c, c->flags & CLIENT_DIRTY_EXEC ? shared.execaborterr :
                                                    shared.nullarray[c->resp]);
         discardTransaction(c);
-        goto handle_monitor;
+        return;
     }
 
     uint64_t old_flags = c->flags;
@@ -266,15 +270,6 @@ void execCommand(client *c) {
     }
 
     server.in_exec = 0;
-
-handle_monitor:
-    /* Send EXEC to clients waiting data from MONITOR. We do it here
-     * since the natural order of commands execution is actually:
-     * MUTLI, EXEC, ... commands inside transaction ...
-     * Instead EXEC is flagged as CMD_SKIP_MONITOR in the command
-     * table, and we do it here with correct ordering. */
-    if (listLength(server.monitors) && !server.loading)
-        replicationFeedMonitors(c,server.monitors,c->db->id,c->argv,c->argc);
 }
 
 /* ===================== WATCH (CAS alike for MULTI/EXEC) ===================
@@ -352,6 +347,22 @@ void unwatchAllKeys(client *c) {
     }
 }
 
+/* iterates over the watched_keys list and
+ * look for an expired key . */
+int isWatchedKeyExpired(client *c) {
+    listIter li;
+    listNode *ln;
+    watchedKey *wk;
+    if (listLength(c->watched_keys) == 0) return 0;
+    listRewind(c->watched_keys,&li);
+    while ((ln = listNext(&li))) {
+        wk = listNodeValue(ln);
+        if (keyIsExpired(wk->db, wk->key)) return 1;
+    }
+
+    return 0;
+}
+
 /* "Touch" a key, so that if this key is being WATCHed by some client the
  * next EXEC will fail. */
 void touchWatchedKey(redisDb *db, robj *key) {
@@ -390,14 +401,14 @@ void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with) {
     dictIterator *di = dictGetSafeIterator(emptied->watched_keys);
     while((de = dictNext(di)) != NULL) {
         robj *key = dictGetKey(de);
-        list *clients = dictGetVal(de);
-        if (!clients) continue;
-        listRewind(clients,&li);
-        while((ln = listNext(&li))) {
-            client *c = listNodeValue(ln);
-            if (dictFind(emptied->dict, key->ptr)) {
-                c->flags |= CLIENT_DIRTY_CAS;
-            } else if (replaced_with && dictFind(replaced_with->dict, key->ptr)) {
+        if (dictFind(emptied->dict, key->ptr) ||
+            (replaced_with && dictFind(replaced_with->dict, key->ptr)))
+        {
+            list *clients = dictGetVal(de);
+            if (!clients) continue;
+            listRewind(clients,&li);
+            while((ln = listNext(&li))) {
+                client *c = listNodeValue(ln);
                 c->flags |= CLIENT_DIRTY_CAS;
             }
         }

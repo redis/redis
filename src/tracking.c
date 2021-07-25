@@ -249,7 +249,7 @@ void trackingRememberKeys(client *c) {
 
 /* Given a key name, this function sends an invalidation message in the
  * proper channel (depending on RESP version: PubSub or Push message) and
- * to the proper client (in case fo redirection), in the context of the
+ * to the proper client (in case of redirection), in the context of the
  * client 'c' with tracking enabled.
  *
  * In case the 'proto' argument is non zero, the function will assume that
@@ -326,7 +326,7 @@ void trackingRememberKeyToBroadcast(client *c, char *keyname, size_t keylen) {
          * tree. This way we know who was the client that did the last
          * change to the key, and can avoid sending the notification in the
          * case the client is in NOLOOP mode. */
-        raxTryInsert(bs->keys,(unsigned char*)keyname,keylen,c,NULL);
+        raxInsert(bs->keys,(unsigned char*)keyname,keylen,c,NULL);
     }
     raxStop(&ri);
 }
@@ -448,7 +448,7 @@ void trackingInvalidateKeysOnFlush(int async) {
  *
  * So Redis allows the user to configure a maximum number of keys for the
  * invalidation table. This function makes sure that we don't go over the
- * specified fill rate: if we are over, we can just evict informations about
+ * specified fill rate: if we are over, we can just evict information about
  * a random key, and send invalidation messages to clients like if the key was
  * modified. */
 void trackingLimitUsedSlots(void) {
@@ -493,7 +493,7 @@ void trackingLimitUsedSlots(void) {
  * include keys that were modified the last time by this client, in order
  * to implement the NOLOOP option.
  *
- * If the resultin array would be empty, NULL is returned instead. */
+ * If the resulting array would be empty, NULL is returned instead. */
 sds trackingBuildBroadcastReply(client *c, rax *keys) {
     raxIterator ri;
     uint64_t count;
