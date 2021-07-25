@@ -824,16 +824,17 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
     return;
 
 return_emptyarray:
-    addReply(c, shared.emptyarray);
-    return;
-
-delete_store_key: /* fixme better name */
-    if (dbDelete(c->db, storekey)) {
-        signalModifiedKey(c, c->db, storekey);
-        notifyKeyspaceEvent(NOTIFY_GENERIC, "del", storekey, c->db->id);
-        server.dirty++;
+    if ((flags & GEOSEARCHSTORE) || storekey) {
+        if (dbDelete(c->db, storekey)) {
+            signalModifiedKey(c, c->db, storekey);
+            notifyKeyspaceEvent(NOTIFY_GENERIC, "del", storekey, c->db->id);
+            server.dirty++;
+        }
+        addReply(c, shared.czero);
+    } else {
+        addReply(c, shared.emptyarray);
     }
-    addReply(c, shared.czero);
+    return;
     return;
 }
 
