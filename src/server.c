@@ -1982,8 +1982,8 @@ void databasesCron(void) {
                 }
             }
             if (dict_finish > 0 && expires_finish > 0) {
-                connSetWriteHandler(server.import_data_client->conn, importDataFinishIntoDb);
                 server.import_data_state = IMPORT_DATA_FINISH_INTO_DB;
+                connSetWriteHandler(server.import_data_client->conn, importDataFinishIntoDb);
             }
 
 //            for (j = 0; j < server.dbnum; j++) {
@@ -2061,12 +2061,6 @@ void databasesCron(void) {
 //                    sourceDict->rehashidx++;
 //                }
 //            }
-
-
-
-
-            connSetWriteHandler(server.import_data_client->conn, importDataFinishIntoDb);
-            server.import_data_state = IMPORT_DATA_FINISH_INTO_DB;
         }
 
         /* Rehash */

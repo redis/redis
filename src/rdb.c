@@ -1337,6 +1337,142 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
     return C_ERR;
 }
 
+
+
+int migrateDataRdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
+    dictIterator *di = NULL;
+    dictEntry *de;
+    char magic[10];
+    uint64_t cksum;
+    size_t processed = 0;
+    int j;
+    long key_count = 0;
+    long long cow_updated_time = 0;
+
+    if (server.rdb_checksum)
+        rdb->update_cksum = rioGenericUpdateChecksum;
+    snprintf(magic, sizeof(magic), "REDIS%04d", RDB_VERSION);
+    if (rdbWriteRaw(rdb, magic, 9) == -1) goto werr;
+    if (rdbSaveInfoAuxFields(rdb, rdbflags, rsi) == -1) goto werr;
+    if (rdbSaveModulesAux(rdb, REDISMODULE_AUX_BEFORE_RDB) == -1) goto werr;
+
+    for (j = 0; j < server.dbnum; j++) {
+        redisDb *db = server.db + j;
+        dict *d = db->dict;
+        if (dictSize(d) == 0) continue;
+        di = dictGetSafeIterator(d);
+
+        /* Write the SELECT DB opcode */
+        if (rdbSaveType(rdb, RDB_OPCODE_SELECTDB) == -1) goto werr;
+        if (rdbSaveLen(rdb, j) == -1) goto werr;
+
+        /* Write the RESIZE DB opcode. */
+        uint64_t db_size, expires_size;
+        db_size = dictSize(db->dict);
+        expires_size = dictSize(db->expires);
+        if (rdbSaveType(rdb, RDB_OPCODE_RESIZEDB) == -1) goto werr;
+        if (rdbSaveLen(rdb, db_size) == -1) goto werr;
+        if (rdbSaveLen(rdb, expires_size) == -1) goto werr;
+
+        /* Iterate this DB writing every entry */
+        while ((de = dictNext(di)) != NULL) {
+            sds keystr = dictGetKey(de);
+            robj key, *o = dictGetVal(de);
+            int thisslot = keyHashSlot((char *) keystr,
+                                       sdslen(keystr));
+            if (thisslot < server.startSlot || thisslot > server.endSlot) {
+                continue;
+            }
+            long long expire;
+
+            initStaticStringObject(key, keystr);
+            expire = getExpire(db, &key);
+            if (rdbSaveKeyValuePair(rdb, &key, o, expire) == -1) goto werr;
+
+            /* When this RDB is produced as part of an AOF rewrite, move
+             * accumulated diff from parent to child while rewriting in
+             * order to have a smaller final write. */
+            if (rdbflags & RDBFLAGS_AOF_PREAMBLE &&
+                rdb->processed_bytes > processed + AOF_READ_DIFF_INTERVAL_BYTES) {
+                processed = rdb->processed_bytes;
+                aofReadDiffFromParent();
+            }
+
+            /* Update COW info every 1 second (approximately).
+             * in order to avoid calling mstime() on each iteration, we will
+             * check the diff every 1024 keys */
+            if ((key_count & 1023) == 0) {
+                key_count = 0;
+                long long now = mstime();
+                if (now - cow_updated_time >= 1000) {
+                    if (rdbflags & RDBFLAGS_AOF_PREAMBLE) {
+                        sendChildCOWInfo(CHILD_TYPE_AOF, 0, "AOF rewrite");
+                    } else {
+                        sendChildCOWInfo(CHILD_TYPE_RDB, 0, "RDB");
+                    }
+                    cow_updated_time = now;
+                }
+            }
+            key_count++;
+        }
+        dictReleaseIterator(di);
+        di = NULL; /* So that we don't release it again on error. */
+    }
+
+    /* If we are storing the replication information on disk, persist
+     * the script cache as well: on successful PSYNC after a restart, we need
+     * to be able to process any EVALSHA inside the replication backlog the
+     * master will send us. */
+    if (rsi && dictSize(server.lua_scripts)) {
+        di = dictGetIterator(server.lua_scripts);
+        while ((de = dictNext(di)) != NULL) {
+            robj *body = dictGetVal(de);
+            if (rdbSaveAuxField(rdb, "lua", 3, body->ptr, sdslen(body->ptr)) == -1)
+                goto werr;
+        }
+        dictReleaseIterator(di);
+        di = NULL; /* So that we don't release it again on error. */
+    }
+
+    if (rdbSaveModulesAux(rdb, REDISMODULE_AUX_AFTER_RDB) == -1) goto werr;
+
+    /* EOF opcode */
+    if (rdbSaveType(rdb, RDB_OPCODE_EOF) == -1) goto werr;
+
+    /* CRC64 checksum. It will be zero if checksum computation is disabled, the
+     * loading code skips the check in this case. */
+    cksum = rdb->cksum;
+    memrev64ifbe(&cksum);
+    if (rioWrite(rdb, &cksum, 8) == 0) goto werr;
+    return C_OK;
+
+    werr:
+    if (error) *error = errno;
+    if (di) dictReleaseIterator(di);
+    return C_ERR;
+}
+int migrateDataRdbSaveRioWithEOFMark(rio *rdb, int *error, rdbSaveInfo *rsi) {
+    char eofmark[RDB_EOF_MARK_SIZE];
+
+    startSaving(RDBFLAGS_REPLICATION);
+    getRandomHexChars(eofmark, RDB_EOF_MARK_SIZE);
+    if (error) *error = 0;
+    if (rioWrite(rdb, "$EOF:", 5) == 0) goto werr;
+    if (rioWrite(rdb, eofmark, RDB_EOF_MARK_SIZE) == 0) goto werr;
+    if (rioWrite(rdb, "\r\n", 2) == 0) goto werr;
+    if (migrateDataRdbSaveRio(rdb, error, RDBFLAGS_NONE, rsi) == C_ERR) goto werr;
+    if (rioWrite(rdb, eofmark, RDB_EOF_MARK_SIZE) == 0) goto werr;
+    stopSaving(1);
+    return C_OK;
+
+    werr: /* Write error. */
+    /* Set 'error' only if not already set by rdbSaveRio() call. */
+    if (error && *error == 0) *error = errno;
+    stopSaving(0);
+    return C_ERR;
+}
+
+
 /* This is just a wrapper to rdbSaveRio() that additionally adds a prefix
  * and a suffix to the generated RDB dump. The prefix is:
  *
@@ -2724,7 +2860,7 @@ static void backgroundSaveDoneHandlerSocket(int exitcode, int bysignal) {
         }
     }
     if (server.migrate_data_state == MIGRATE_DATA_FINISH_RDB) {
-        connSetWriteHandler(server.migrate_data_fd, migrateDataWaitTarget);
+        connSetReadHandler(server.migrate_data_fd, migrateDataWaitTarget);
     }
 
     if (server.rdb_child_exit_pipe != -1)
@@ -2941,7 +3077,7 @@ int migrateDataRdbSaveToTargetSockets(rdbSaveInfo *rsi, connection *conn) {
         redisSetProcTitle("redis-rdb-to-slaves");
         redisSetCpuAffinity(server.bgsave_cpulist);
 
-        retval = rdbSaveRioWithEOFMark(&rdb, NULL, rsi);
+        retval = migrateDataRdbSaveRioWithEOFMark(&rdb, NULL, rsi);
         if (retval == C_OK && rioFlush(&rdb) == 0)
             retval = C_ERR;
 

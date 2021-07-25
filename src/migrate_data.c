@@ -13,12 +13,12 @@ void migrateDataWaitTarget(connection *conn) {
         reply = receiveSynchronousResponse(conn, 300);
         if (!strncmp(reply, "+FINISH", 7)) {
             server.migrate_data_state = MIGRATE_DATA_BEGIN_INCREMENT;
-            connSetReadHandler(conn,NULL);
-            connSetWriteHandler(conn,migrateDataWaitTarget);
+            connSetReadHandler(conn, NULL);
+            connSetWriteHandler(conn, migrateDataWaitTarget);
             return;
         } else {
-            connSetReadHandler(conn,NULL);
-            connSetWriteHandler(conn,NULL);
+            connSetReadHandler(conn, NULL);
+            connSetWriteHandler(conn, NULL);
             server.migrate_data_state = MIGRATE_DATA_FAIL_RECEIVE_ID;
             connClose(conn);
             return;
@@ -26,11 +26,17 @@ void migrateDataWaitTarget(connection *conn) {
     }
     if (server.migrate_data_state == MIGRATE_DATA_BEGIN_INCREMENT) {
         int buflen = sdslen(server.migrate_data_buf);
+        if (buflen == 0) {
+            sdsfree(server.migrate_data_buf);
+            connClose(conn);
+            server.migrate_data_state = MIGRATE_DATA_INIT;
+            return;
+        }
         if (connWrite(conn, server.migrate_data_buf, buflen) != buflen) {
             sdsfree(server.migrate_data_buf);
             connClose(conn);
             server.migrate_data_state = MIGRATE_DATA_FAIL_SEND_DATA;
-        }else{
+        } else {
             sdsfree(server.migrate_data_buf);
             connClose(conn);
             server.migrate_data_state = MIGRATE_DATA_INIT;
