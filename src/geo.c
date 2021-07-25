@@ -685,13 +685,8 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
     }
 
     /* Return ASAP when src key does not exist. */
-    if (zobj == NULL) {
-        /* store key is NULL, return empty array. */
-        if (storekey == NULL) goto return_emptyarray;
+    if (zobj == NULL) goto return_emptyarray;
 
-        /* store key is not NULL, try to delete it. */
-        goto delete_store_key;
-    }
 
     /* COUNT without ordering does not make much sense (we need to
      * sort in order to return the closest N entries),
