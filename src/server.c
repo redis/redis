@@ -5947,7 +5947,6 @@ void dismissClientMemory(client *c) {
     /* Dismiss client query buffer. */
     dismissSds(c->querybuf);
     dismissSds(c->pending_querybuf);
-    if (c->argc) dismissMemory(c->argv, c->argc*sizeof(robj*));
     if (c->argc && c->argv_len_sum/c->argc >= server.page_size) {
         for (int i = 0; i < c->argc; i++) {
             /* c->argv[i] always is string object, the argument
@@ -5955,10 +5954,13 @@ void dismissClientMemory(client *c) {
             dismissObject(c->argv[i], 0);
         }
     }
+    if (c->argc) dismissMemory(c->argv, c->argc*sizeof(robj*));
 
-    /* Dismiss client output buffer. */
-    /* Release the reply array only if the average buffer size is bigger than a page. */
-    if (c->reply_bytes / listLength(c->reply) >= server.page_size) {
+    /* Release the reply array only if the average buffer size is bigger
+     * than a page. */
+    if (listLength(c->reply) &&
+        c->reply_bytes / listLength(c->reply) >= server.page_size)
+    {
         listIter li;
         listNode *ln;
         listRewind(c->reply, &li);
