@@ -28,7 +28,6 @@
  */
 
 #include "server.h"
-
 /*-----------------------------------------------------------------------------
  * List API
  *----------------------------------------------------------------------------*/
@@ -163,6 +162,11 @@ void listTypeInsert(listTypeEntry *entry, robj *value, int where) {
 int listTypeEqual(listTypeEntry *entry, robj *o) {
     if (entry->li->encoding == OBJ_ENCODING_QUICKLIST) {
         serverAssertWithInfo(NULL,o,sdsEncodedObject(o));
+
+        if(entry->entry.node->container == 3) {
+            return  (strncmp(entry->entry.value ,o->ptr,sdslen(o->ptr)) == 0);
+        }
+
         return quicklistCompare(entry->entry.zi,o->ptr,sdslen(o->ptr));
     } else {
         serverPanic("Unknown list encoding");
