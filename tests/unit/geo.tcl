@@ -166,6 +166,66 @@ start_server {tags {"geo"}} {
         r georadius nyc -73.9798091 40.7598464 3 km asc
     } {{central park n/q/r} 4545 {union square}}
 
+    test {GEOSEARCH with wrong type src key should throw error} {
+        r set src{t} wrong_type
+
+        assert_error "WRONGTYPE*" {r geosearch src{t} fromlonlat 0 0 byradius 1 km asc}
+        assert_error "WRONGTYPE*" {r geosearch src{t} fromlonlat 0 0 byradius 1 km withdist desc count 1}
+        assert_error "WRONGTYPE*" {r geosearch src{t} fromlonlat 0 0 byradius 1 km withcoord asc count 1 any}
+
+        assert_error "WRONGTYPE*" {r geosearch src{t} frommember member bybox 1 1 km asc}
+        assert_error "WRONGTYPE*" {r geosearch src{t} frommember member bybox 1 1 km asc count 1}
+        assert_error "WRONGTYPE*" {r geosearch src{t} frommember member bybox 1 1 km withhash asc count 1 any}
+    }
+
+    test {GEOSEARCH with non existing src key should return emptyarray} {
+        r del src{t}
+
+        # Make sure we can distinguish between an empty array and a null response
+        r readraw 1
+
+        assert_equal "*0" [r geosearch src{t} fromlonlat 0 0 byradius 1 km asc]
+        assert_equal "*0" [r geosearch src{t} fromlonlat 0 0 byradius 1 km desc count 1]
+        assert_equal "*0" [r geosearch src{t} fromlonlat 0 0 byradius 1 km withhash asc count 1 any]
+
+        assert_equal "*0" [r geosearch src{t} frommember member bybox 1 1 km asc]
+        assert_equal "*0" [r geosearch src{t} frommember member bybox 1 1 km withdist desc count 1]
+        assert_equal "*0" [r geosearch src{t} frommember member bybox 1 1 km withcoord asc count 1 any]
+
+        r readraw 0
+    }
+
+    test {GEOSEARCH with empty search should return emptyarray} {
+        r del src{t}
+        r geoadd src{t} 13.361389 38.115556 "Palermo" 15.087269 37.502669 "Catania"
+
+        # Make sure we can distinguish between an empty array and a null response
+        r readraw 1
+
+        assert_equal "*0" [r geosearch src{t} fromlonlat 15 37 byradius 100 m asc]
+        assert_equal "*0" [r geosearch src{t} fromlonlat 15 37 byradius 100 m withhash desc]
+        assert_equal "*0" [r geosearch src{t} fromlonlat 15 37 byradius 100 m withcoord asc]
+
+        assert_equal "*0" [r geosearch src{t} fromlonlat 15 37 bybox 100 100 km desc]
+        assert_equal "*0" [r geosearch src{t} fromlonlat 15 37 bybox 100 100 km desc count 1]
+        assert_equal "*0" [r geosearch src{t} fromlonlat 15 37 bybox 100 100 km withdist asc]
+
+        r readraw 0
+    }
+
+    test {GEOSEARCH frommember with non existing member should throw error} {
+        r del src{t}
+        r geoadd src{t} 13.361389 38.115556 "Palermo" 15.087269 37.502669 "Catania"
+
+        assert_error "ERR*" {r geosearch src{t} frommember member byradius 100 m asc}
+        assert_error "ERR*" {r geosearch src{t} frommember member byradius 100 m desc count 1 any}
+        assert_error "ERR*" {r geosearch src{t} frommember member byradius 100 m withdist desc}
+
+        assert_error "ERR*" {r geosearch src{t} frommember member bybox 100 100 km desc}
+        assert_error "ERR*" {r geosearch src{t} frommember member bybox 100 100 km withhash desc}
+        assert_error "ERR*" {r geosearch src{t} frommember member bybox 100 100 km withcoord asc}
+    }
+
     test {GEOSEARCH simple (sorted)} {
         r geosearch nyc fromlonlat -73.9798091 40.7598464 bybox 6 6 km asc
     } {{central park n/q/r} 4545 {union square} {lic market}}
@@ -202,6 +262,78 @@ start_server {tags {"geo"}} {
     test {GEOSEARCH withdist (sorted)} {
         r geosearch nyc fromlonlat -73.9798091 40.7598464 bybox 6 6 km withdist asc
     } {{{central park n/q/r} 0.7750} {4545 2.3651} {{union square} 2.7697} {{lic market} 3.1991}}
+
+    test {GEORADIUS with wrong type src key should throw error} {
+        r set src{t} wrong_type
+
+        assert_error "WRONGTYPE*" {r georadius src{t} 1 1 1 km}
+        assert_error "WRONGTYPE*" {r georadius_ro src{t} 1 1 1 m}
+        assert_error "WRONGTYPE*" {r georadius src{t} 1 1 1 km store dest{t}}
+        assert_error "WRONGTYPE*" {r georadius src{t} 1 1 1 km withdist asc}
+        assert_error "WRONGTYPE*" {r georadius src{t} 1 1 1 km withhash desc count 1}
+        assert_error "WRONGTYPE*" {r georadius src{t} 1 1 1 km withcoord count 1 any storedist dest{t}}
+    }
+
+    test {GEORADIUS with non existing src key should return emptyarray} {
+        r del src{t}
+
+        # Make sure we can distinguish between an empty array and a null response
+        r readraw 1
+
+        assert_equal "*0" [r georadius src{t} 1 1 1 km]
+        assert_equal "*0" [r georadius_ro src{t} 1 1 1 km desc]
+        assert_equal "*0" [r georadius src{t} 1 1 1 km withdist asc]
+        assert_equal "*0" [r georadius src{t} 1 1 1 km withhash desc count 1]
+        assert_equal "*0" [r georadius src{t} 1 1 1 km withcoord count 1 any]
+
+        r readraw 0
+    }
+
+    test {GEORADIUS with empty search should return emptyarray} {
+        r del src{t}
+        r geoadd src{t} 13.361389 38.115556 "Palermo" 15.087269 37.502669 "Catania"
+
+        # Make sure we can distinguish between an empty array and a null response
+        r readraw 1
+
+        assert_equal "*0" [r georadius src{t} 1 1 1 km]
+        assert_equal "*0" [r georadius_ro src{t} 1 1 1 km asc count 1]
+        assert_equal "*0" [r georadius src{t} 1 1 1 km withdist desc count 1]
+        assert_equal "*0" [r georadius src{t} 1 1 1 km withhash]
+        assert_equal "*0" [r georadius src{t} 1 1 1 km withcoord asc count 1 any]
+
+        r readraw 0
+    }
+
+    test {GEORADIUS STORE with non existing src key should return 0} {
+        r del src{t}
+
+        assert_equal 0 [r georadius src{t} 1 1 1 km store dest{t}]
+        assert_equal 0 [r georadius src{t} 1 1 1 km storedist dest{t}]
+        assert_equal 0 [r exists dest{t}]
+    }
+
+    test {GEORADIUS STORE with empty search should return 0} {
+        r del src{t}
+        r geoadd src{t} 13.361389 38.115556 "Palermo" 15.087269 37.502669 "Catania"
+
+        assert_equal 0 [r georadius src{t} 1 1 1 km count 1 asc store dest{t}]
+        assert_equal 0 [r georadius src{t} 1 1 1 km count 1 any desc storedist dest{t}]
+        assert_equal 0 [r exists dest{t}]
+    }
+
+    test {GEORADIUS STORE} {
+        r del src{t} dest{t}
+        r geoadd src{t} 13.361389 38.115556 "Palermo" 15.087269 37.502669 "Catania"
+
+        assert_equal 1 [r georadius src{t} 15 37 200 km count 1 asc store dest{t}]
+        assert_equal 1 [r zcard dest{t}]
+        assert_equal {Catania} [r zrange dest{t} 0 -1]
+
+        assert_equal 2 [r georadius src{t} 15 37 200 km desc storedist dest{t}]
+        assert_equal 2 [r zcard dest{t}]
+        assert_equal {Catania Palermo} [r zrange dest{t} 0 -1]
+    }
 
     test {GEORADIUS with COUNT} {
         r georadius nyc -73.9798091 40.7598464 10 km COUNT 3
@@ -274,6 +406,66 @@ start_server {tags {"geo"}} {
         assert_equal $ret {edge1 edge2 edge5 edge7}
     }
 
+    test {GEORADIUSBYMEMBER with wrong type src key should throw error} {
+        r set src{t} wrong_type
+
+        assert_error "WRONGTYPE*" {r georadiusbymember src{t} member 1 km}
+        assert_error "WRONGTYPE*" {r georadiusbymember_ro src{t} member 1 km}
+        assert_error "WRONGTYPE*" {r georadiusbymember src{t} member 1 km storedist dest{t}}
+        assert_error "WRONGTYPE*" {r georadiusbymember src{t} member 1 km withcoord count 1 storedist dest{t}}
+        assert_error "WRONGTYPE*" {r georadiusbymember src{t} member 1 km withdist asc store dest{t}}
+        assert_error "WRONGTYPE*" {r georadiusbymember src{t} member 1 km withhash desc count 1 any}
+    }
+
+    test {GEORADIUSBYMEMBER with non existing src key should return emptyarray} {
+        r del src{t}
+
+        # Make sure we can distinguish between an empty array and a null response
+        r readraw 1
+
+        assert_equal "*0" [r georadiusbymember src{t} member 1 km]
+        assert_equal "*0" [r georadiusbymember_ro src{t} member 1 km]
+        assert_equal "*0" [r georadiusbymember src{t} member 1 km withcoord count 1]
+        assert_equal "*0" [r georadiusbymember src{t} member 1 km withdist asc]
+        assert_equal "*0" [r georadiusbymember src{t} member 1 km withhash desc count 1 any]
+
+        r readraw 0
+    }
+
+    test {GEORADIUSBYMEMBER with non existing member should throw error} {
+        r del src{t}
+        r geoadd src{t} 13.361389 38.115556 "Palermo" 15.087269 37.502669 "Catania"
+
+        assert_error "ERR*" {r georadiusbymember src{t} member byradius 100 m asc}
+        assert_error "ERR*" {r georadiusbymember src{t} member byradius 100 m desc count 1 any}
+        assert_error "ERR*" {r georadiusbymember src{t} member byradius 100 m withdist desc}
+
+        assert_error "ERR*" {r georadiusbymember src{t} member bybox 100 100 km desc}
+        assert_error "ERR*" {r georadiusbymember src{t} member bybox 100 100 km withhash desc}
+        assert_error "ERR*" {r georadiusbymember src{t} member bybox 100 100 km withcoord asc}
+    }
+
+    test {GEORADIUSBYMEMBER STORE with non existing src key should return 0} {
+        r del src{t}
+
+        assert_equal 0 [r georadiusbymember src{t} member 1 km store dest{t}]
+        assert_equal 0 [r georadiusbymember src{t} member 1 km storedist dest{t}]
+        assert_equal 0 [r exists dest]
+    }
+
+    test {GEORADIUSBYMEMBER STORE} {
+        r del src{t} dest{t}
+        r geoadd src{t} 13.361389 38.115556 "Palermo" 15.087269 37.502669 "Catania"
+
+        assert_equal 1 [r georadiusbymember src{t} Palermo 1 km count 1 asc store dest{t}]
+        assert_equal 1 [r zcard dest{t}]
+        assert_equal {Palermo} [r zrange dest{t} 0 -1]
+
+        assert_equal 1 [r georadiusbymember src{t} Catania 1 km count 1 any desc storedist dest{t}]
+        assert_equal 1 [r zcard dest{t}]
+        assert_equal {Catania} [r zrange dest{t} 0 -1]
+    }
+
     test {GEORADIUSBYMEMBER withdist (sorted)} {
         r georadiusbymember nyc "wtc one" 7 km withdist
     } {{{wtc one} 0.0000} {{union square} 3.2544} {{central park n/q/r} 6.7000} {4545 6.1975} {{lic market} 6.8969}}
@@ -336,6 +528,57 @@ start_server {tags {"geo"}} {
         catch {r geosearchstore abc{t} points{t} fromlonlat 13.361389 38.115556 byradius 50 km store abc{t}} e
         set e
     } {*ERR*syntax*}
+
+    test {GEOSEARCHSTORE with wrong type key should throw error} {
+        r set src{t} wrong_type
+
+        assert_error "WRONGTYPE*" {r geosearchstore dest{t} src{t} fromlonlat 0 0 byradius 1 km}
+        assert_error "WRONGTYPE*" {r geosearchstore dest{t} src{t} frommember member byradius 1 m}
+    }
+
+    test {GEOSEARCHSTORE with non existing src key should return 0 and delete the dest key} {
+        r del src{t} dest{t}
+
+        # With existing src key
+        r geoadd src{t} 0 0 member
+        assert_equal [r geosearchstore dest{t} src{t} fromlonlat 0 0 byradius 1 km] 1
+        assert_equal [r exists dest{t}] 1
+        assert_equal [r geosearchstore dest{t} src{t} frommember member byradius 1 km] 1
+        assert_equal [r exists dest{t}] 1
+
+        # With non existing src key
+        r del src{t}
+        assert_equal [r geosearchstore dest{t} src{t} fromlonlat 0 0 byradius 1 km] 0
+        assert_equal [r exists dest{t}] 0
+        assert_equal [r geosearchstore dest{t} src{t} frommember member byradius 1 km] 0
+        assert_equal [r exists dest{t}] 0
+
+        # With non existing src key and a different type dest key.
+        r set dest{t} wrong_type
+        assert_equal [r geosearchstore dest{t} src{t} fromlonlat 0 0 byradius 1 km] 0
+        assert_equal [r exists dest{t}] 0
+        assert_equal [r geosearchstore dest{t} src{t} frommember member byradius 1 km] 0
+        assert_equal [r exists dest{t}] 0
+    }
+
+    test {GEOSEARCHSTORE fromlonlat with empty search should return 0 and delete the dest key} {
+        r del src{t} dest{t}
+
+        # Now we have a valid dest key.
+        r geoadd src{t} 13.361389 38.115556 "Palermo" 15.087269 37.502669 "Catania"
+        assert_equal [r geosearchstore dest{t} src{t} fromlonlat 15 37 bybox 400 400 km] 2
+        assert_equal [r exists dest{t}] 1
+
+        # With an empty search, we delete the dest key.
+        assert_equal [r geosearchstore dest{t} src{t} fromlonlat 15 37 bybox 100 100 km] 0
+        assert_equal [r exists dest{t}] 0
+    }
+
+    test {GEOSEARCHSTORE frommember with non existing member should throw error} {
+        r geoadd src{t} 0 0 member
+        assert_error "ERR*" {r geosearchstore dest{t} src{t} frommember non_existing_member byradius 1 m}
+        assert_error "ERR*" {r geosearchstore dest{t} src{t} frommember non_existing_member bybox 0 0 km}
+    }
 
     test {GEORANGE STORE option: incompatible options} {
         r del points{t}
