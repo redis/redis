@@ -143,6 +143,10 @@ start_server {
         r srem myset 1 2 3 4 5 6 7 8
     } {3}
 
+    test "SINTERCARD against non-existing key" {
+        assert_equal 0 [r sintercard non-existing-key]
+    }
+
     foreach {type} {hashtable intset} {
         for {set i 1} {$i <= 5} {incr i} {
             r del [format "set%d{t}" $i]

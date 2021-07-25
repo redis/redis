@@ -888,6 +888,8 @@ void sinterGenericCommand(client *c, robj **setkeys,
                 server.dirty++;
             }
             addReply(c,shared.czero);
+        } else if (cardinality_only) {
+            addReplyLongLong(c,cardinality);
         } else {
             addReply(c,shared.emptyset[c->resp]);
         }
