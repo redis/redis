@@ -404,7 +404,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,1,-1,1,0,0,0},
 
     {"sintercard",sinterCardCommand,-2,
-     "read-only to-sort @set",
+     "read-only @set",
      0,NULL,1,-1,1,0,0,0},
 
     {"sinterstore",sinterstoreCommand,-3,

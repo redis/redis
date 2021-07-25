@@ -892,14 +892,12 @@ void sinterGenericCommand(client *c, robj **setkeys,
      * the intersection set size, so we use a trick, append an empty object
      * to the output list and save the pointer to later modify it with the
      * right length */
-    if (!dstkey) {
-        if (!cardinality_only) {
-            replylen = addReplyDeferredLen(c);
-        }
-    } else {
+    if (dstkey) {
         /* If we have a target key where to store the resulting set
          * create this key with an empty set inside */
         dstset = createIntsetObject();
+    } else if(!cardinality_only) {
+        replylen = addReplyDeferredLen(c);
     }
 
     /* Iterate all the elements of the first (smallest) set, and test
@@ -935,13 +933,13 @@ void sinterGenericCommand(client *c, robj **setkeys,
 
         /* Only take action when all sets contain the member */
         if (j == setnum) {
-            if (!dstkey) {
-                if (!cardinality_only) {
-                    if (encoding == OBJ_ENCODING_HT)
-                        addReplyBulkCBuffer(c,elesds,sdslen(elesds));
-                    else
-                        addReplyBulkLongLong(c,intobj);
-                }
+            if (cardinality_only) {
+                cardinality++;
+            } else if (!dstkey) {
+                if (encoding == OBJ_ENCODING_HT)
+                    addReplyBulkCBuffer(c,elesds,sdslen(elesds));
+                else
+                    addReplyBulkLongLong(c,intobj);
                 cardinality++;
             } else {
                 if (encoding == OBJ_ENCODING_INTSET) {
@@ -956,7 +954,9 @@ void sinterGenericCommand(client *c, robj **setkeys,
     }
     setTypeReleaseIterator(si);
 
-    if (dstkey) {
+    if (cardinality_only) {
+        addReplyLongLong(c,cardinality);
+    } else if (dstkey) {
         /* Store the resulting set into the target, if the intersection
          * is not an empty set. */
         if (setTypeSize(dstset) > 0) {
@@ -975,11 +975,7 @@ void sinterGenericCommand(client *c, robj **setkeys,
         }
         decrRefCount(dstset);
     } else {
-        if (cardinality_only) {
-            addReplyLongLong(c,cardinality);
-        } else {
-            setDeferredSetLen(c,replylen,cardinality);
-        }
+        setDeferredSetLen(c,replylen,cardinality);
     }
     zfree(sets);
 }

@@ -2618,7 +2618,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
         int remaining = c->argc - j;
 
         while (remaining) {
-            if (op != SET_OP_DIFF &&
+            if (op != SET_OP_DIFF && !cardinality_only &&
                 remaining >= (setnum + 1) &&
                 !strcasecmp(c->argv[j]->ptr,"weights"))
             {
@@ -2631,7 +2631,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                         return;
                     }
                 }
-            } else if (op != SET_OP_DIFF &&
+            } else if (op != SET_OP_DIFF && !cardinality_only &&
                        remaining >= 2 &&
                        !strcasecmp(c->argv[j]->ptr,"aggregate"))
             {
@@ -2649,7 +2649,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                 }
                 j++; remaining--;
             } else if (remaining >= 1 &&
-                       !dstkey &&
+                       !dstkey && !cardinality_only &&
                        !strcasecmp(c->argv[j]->ptr,"withscores"))
             {
                 j++; remaining--;
@@ -2699,14 +2699,13 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                 }
 
                 /* Only continue when present in every input. */
-                if (j == setnum) {
-                    if (!cardinality_only) {
-                        tmp = zuiNewSdsFromValue(&zval);
-                        znode = zslInsert(dstzset->zsl,score,tmp);
-                        dictAdd(dstzset->dict,tmp,&znode->score);
-                        if (sdslen(tmp) > maxelelen) maxelelen = sdslen(tmp);
-                    }
+                if (j == setnum && cardinality_only) {
                     cardinality++;
+                } else if (j == setnum) {
+                    tmp = zuiNewSdsFromValue(&zval);
+                    znode = zslInsert(dstzset->zsl,score,tmp);
+                    dictAdd(dstzset->dict,tmp,&znode->score);
+                    if (sdslen(tmp) > maxelelen) maxelelen = sdslen(tmp);
                 }
             }
             zuiClearIterator(&src[0]);
@@ -2799,12 +2798,9 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                 server.dirty++;
             }
         }
+    } else if (cardinality_only) {
+        addReplyLongLong(c, cardinality);
     } else {
-        if (op == SET_OP_INTER && cardinality_only) {
-            addReplyLongLong(c, cardinality);
-            goto cleanup;
-        }
-
         unsigned long length = dstzset->zsl->length;
         zskiplist *zsl = dstzset->zsl;
         zskiplistNode *zn = zsl->header->level[0].forward;
@@ -2823,9 +2819,6 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
             zn = zn->level[0].forward;
         }
     }
-
-cleanup:
-
     decrRefCount(dstobj);
     zfree(src);
 }
