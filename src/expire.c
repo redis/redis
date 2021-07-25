@@ -498,14 +498,14 @@ int checkAlreadyExpired(long long when) {
  *
  * Supported flags:
  * - NX: set expiry only when the key has no expiry
- * - XX: set expiry only when the key has an existed expiry
+ * - XX: set expiry only when the key has an existing expiry
  * - GT: set expiry only when the new expiry is greater than current one
  * - LT: set expiry only when the new expiry is less than current one */
 int parseExtendedExpireArgumentsOrReply(client *c, int *flags) {
     int nx = 0, xx = 0, gt = 0, lt = 0;
 
     int j = 3;
-    while(j < c->argc) {
+    while (j < c->argc) {
         char *opt = c->argv[j]->ptr;
         if (!strcasecmp(opt,"nx")) {
             *flags |= EXPIRE_NX;
@@ -551,7 +551,7 @@ int parseExtendedExpireArgumentsOrReply(client *c, int *flags) {
  * unit is either UNIT_SECONDS or UNIT_MILLISECONDS, and is only used for
  * the argv[2] parameter. The basetime is always specified in milliseconds.
  *
- * Additional flags are supported parsed via parseExtendedExpireArguments */
+ * Additional flags are supported and parsed via parseExtendedExpireArguments */
 void expireGenericCommand(client *c, long long basetime, int unit) {
     robj *key = c->argv[1], *param = c->argv[2];
     long long when; /* unix time in milliseconds when the key will expire. */
@@ -580,47 +580,47 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
         return;
     }
 
-    /* NX option is set, check current expiry */
-    if (flag & EXPIRE_NX) {
+    if (flag) {
         current_expire = getExpire(c->db, key);
-        if (current_expire != -1) {
-            addReply(c,shared.czero);
-            return;
-        }
-    }
 
-    /* XX option is set, check current expiry */
-    if (flag & EXPIRE_XX) {
-        current_expire = getExpire(c->db, key);
-        if (current_expire == -1) {
-            /* reply 0 when the key has no expiry */
-            addReply(c,shared.czero);
-            return;
+        /* NX option is set, check current expiry */
+        if (flag & EXPIRE_NX) {
+            if (current_expire != -1) {
+                addReply(c,shared.czero);
+                return;
+            }
         }
-    }
 
-    /* GT option is set, check current expiry */
-    if (flag & EXPIRE_GT) {
-        current_expire = getExpire(c->db, key);
-        /* When current_expire -1, we consider it as infinite TTL,
-           so expire command with gt always fail the GT. */
-        if (when <= current_expire || current_expire == -1) {
-            /* reply 0 when the new expiry is not greater than current */
-            addReply(c,shared.czero);
-            return;
+        /* XX option is set, check current expiry */
+        if (flag & EXPIRE_XX) {
+            if (current_expire == -1) {
+                /* reply 0 when the key has no expiry */
+                addReply(c,shared.czero);
+                return;
+            }
         }
-    }
 
-    /* LT option is set, check current expiry */
-    if (flag & EXPIRE_LT) {
-        current_expire = getExpire(c->db, key);
-        /* When current_expire -1, we consider it as infinite TTL,
-         * But 'when' can still be negative at this point, so if there is
-         * an expiry on the key and it's not less than current, we fail the LT. */
-        if (when >= current_expire && current_expire > -1) {
-            /* reply 0 when the new expiry is not less than current */
-            addReply(c,shared.czero);
-            return;
+        /* GT option is set, check current expiry */
+        if (flag & EXPIRE_GT) {
+            /* When current_expire is -1, we consider it as infinite TTL,
+             * so expire command with gt always fail the GT. */
+            if (when <= current_expire || current_expire == -1) {
+                /* reply 0 when the new expiry is not greater than current */
+                addReply(c,shared.czero);
+                return;
+            }
+        }
+
+        /* LT option is set, check current expiry */
+        if (flag & EXPIRE_LT) {
+            /* When current_expire -1, we consider it as infinite TTL,
+             * but 'when' can still be negative at this point, so if there is
+             * an expiry on the key and it's not less than current, we fail the LT. */
+            if (current_expire != -1 && when >= current_expire) {
+                /* reply 0 when the new expiry is not less than current */
+                addReply(c,shared.czero);
+                return;
+            }
         }
     }
 
