@@ -909,7 +909,7 @@ void sinterGenericCommand(client *c, robj **setkeys,
         /* If we have a target key where to store the resulting set
          * create this key with an empty set inside */
         dstset = createIntsetObject();
-    } else if(!cardinality_only) {
+    } else if (!cardinality_only) {
         replylen = addReplyDeferredLen(c);
     }
 
