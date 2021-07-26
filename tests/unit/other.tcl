@@ -388,7 +388,7 @@ start_server {tags {"other"}} {
         r sadd bigset1 $bigstr              ; # hash encoding
         set biginteger [string repeat 1 19]
         for {set i 0} {$i < 512} {incr i} {
-            r sadd bigset2 $biginteger      ;  # intset encoding
+            r sadd bigset2 $biginteger      ; # intset encoding
         }
 
         # zset
