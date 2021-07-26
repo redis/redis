@@ -14,7 +14,7 @@ test "Start/Stop sentinel on same port with a different runID should not change 
 
         #Get count of total sentinels
         set a [S 0 SENTINEL  master mymaster]
-        set original_count [lindex $a 33] #num-other-sentinels at index 33
+        set original_count [lindex $a 33]
 
         #Restart sentinel with the modified config file
         set pid [exec_instance "sentinel" $dirname $orgfilename]
