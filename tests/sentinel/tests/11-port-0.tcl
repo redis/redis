@@ -5,7 +5,7 @@ test "Start/Stop sentinel on same port with a different runID should not change 
         #Kill sentinel instance
         kill_instance sentinel $sentinel_id
 
-        #Delete line with myid in sentinels configuration file
+        #Delete line with myid in sentinels config file
         set orgfilename [file join "sentinel_$sentinel_id" "sentinel.conf"]
         set tmpfilename "sentinel.conf_tmp"
         set dirname "sentinel_$sentinel_id"
