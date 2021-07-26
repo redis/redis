@@ -1497,6 +1497,20 @@ int rewriteAppendOnlyFileRio(rio *aof) {
         dictReleaseIterator(di);
         di = NULL;
     }
+    /* Save lua script */
+    if dictSize(server.lua_scripts) {
+        di = dictGetIterator(server.lua_scripts);
+        while((de = dictNext(di)) != NULL) {
+            robj *body = dictGetVal(de);
+            /* Emit SCRIPT LOAD command */
+            char cmd[]="*3\r\n$6\r\nSCRIPT\r\n$4\r\nLOAD\r\n";
+            if (rioWrite(aof,cmd,sizeof(cmd)-1) == 0) goto werr;
+            /* Lua script body */
+            if (rioWriteBulkObject(aof,body) == 0) goto werr;
+        }
+        dictReleaseIterator(di);
+        di = NULL;
+    }
     return C_OK;
 
 werr:
