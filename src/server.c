@@ -5959,7 +5959,7 @@ void dismissClientMemory(client *c) {
     /* Release the reply array only if the average buffer size is bigger
      * than a page. */
     if (listLength(c->reply) &&
-        c->reply_bytes / listLength(c->reply) >= server.page_size)
+        c->reply_bytes/listLength(c->reply) >= server.page_size)
     {
         listIter li;
         listNode *ln;

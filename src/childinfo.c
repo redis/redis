@@ -99,7 +99,7 @@ void sendChildInfoGeneric(childInfoType info_type, size_t keys, double progress,
         if (cow || cow_info) {
             serverLog(cow_info ? LL_NOTICE : LL_VERBOSE,
                       "Fork CoW for %s: current %zu MB, peak %zu MB, average %llu MB",
-                      pname, cow<<20, peak_cow<<20, (sum_cow/update_count)<<20);
+                      pname, cow>>20, peak_cow>>20, (sum_cow/update_count)>>20);
         }
     }
 
