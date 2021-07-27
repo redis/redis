@@ -72,19 +72,31 @@ proc pointInRectangle {width_km height_km lon lat search_lon search_lat error} {
 }
 
 proc verify_geo_edge_response_bylonlat {expected_response expected_store_response} {
-    assert_error_or_match $expected_response {r georadius src{t} 1 1 1 km}
-    assert_error_or_match $expected_store_response {r georadius src{t} 1 1 1 km store dest{t}}
+    catch {r georadius src{t} 1 1 1 km} response
+    assert_match $expected_response $response
 
-    assert_error_or_match $expected_response {r geosearch src{t} fromlonlat 0 0 byradius 1 km}
-    assert_error_or_match $expected_store_response {r geosearchstore dest{t} src{t} fromlonlat 0 0 byradius 1 km}
+    catch {r georadius src{t} 1 1 1 km store dest{t}} response
+    assert_match $expected_store_response $response
+
+    catch {r geosearch src{t} fromlonlat 0 0 byradius 1 km} response
+    assert_match $expected_response $response
+
+    catch {r geosearchstore dest{t} src{t} fromlonlat 0 0 byradius 1 km} response
+    assert_match $expected_store_response $response
 }
 
 proc verify_geo_edge_response_bymember {expected_response expected_store_response} {
-    assert_error_or_match $expected_response {r georadiusbymember src{t} member 1 km}
-    assert_error_or_match $expected_store_response {r georadiusbymember src{t} member 1 km store dest{t}}
+    catch {r georadiusbymember src{t} member 1 km} response
+    assert_match $expected_response $response
 
-    assert_error_or_match $expected_response {r geosearch src{t} frommember member bybox 1 1 km}
-    assert_error_or_match $expected_store_response {r geosearchstore dest{t} src{t} frommember member bybox 1 1 m}
+    catch {r georadiusbymember src{t} member 1 km store dest{t}} response
+    assert_match $expected_store_response $response
+
+    catch {r geosearch src{t} frommember member bybox 1 1 km} response
+    assert_match $expected_response $response
+
+    catch {r geosearchstore dest{t} src{t} frommember member bybox 1 1 m} response
+    assert_match $expected_store_response $response
 }
 
 # The following list represents sets of random seed, search position

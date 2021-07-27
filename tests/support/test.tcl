@@ -84,14 +84,6 @@ proc assert_error {pattern code} {
     }
 }
 
-proc assert_error_or_match {pattern code} {
-    if {[catch {set retval [uplevel 1 $code]} error]} {
-        assert_match $pattern $error
-    } else {
-        assert_match $pattern $retval
-    }
-}
-
 proc assert_encoding {enc key} {
     if {$::ignoreencoding} {
         return
