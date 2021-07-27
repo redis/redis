@@ -45,7 +45,7 @@ start_server {tags {"dismiss external:skip"}} {
     }
 
     test {dismiss client output buffer} {
-        # Big ouput buffer
+        # Big output buffer
         set item [string repeat "x" 100000]
         for {set i 0} {$i < 100} {incr i} {
             r lpush mylist $item
