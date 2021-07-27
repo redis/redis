@@ -162,12 +162,7 @@ void listTypeInsert(listTypeEntry *entry, robj *value, int where) {
 int listTypeEqual(listTypeEntry *entry, robj *o) {
     if (entry->li->encoding == OBJ_ENCODING_QUICKLIST) {
         serverAssertWithInfo(NULL,o,sdsEncodedObject(o));
-
-        if(entry->entry.node->container == 3) {
-            return  (strncmp(entry->entry.value ,o->ptr,sdslen(o->ptr)) == 0);
-        }
-
-        return quicklistCompare(entry->entry.zi,o->ptr,sdslen(o->ptr));
+        return quicklistCompare(&entry->entry,o->ptr,sdslen(o->ptr));
     } else {
         serverPanic("Unknown list encoding");
     }
@@ -294,6 +289,7 @@ void linsertCommand(client *c) {
     if ((subject = lookupKeyWriteOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,subject,OBJ_LIST)) return;
 
+
     /* Seek pivot from head to tail */
     iter = listTypeInitIterator(subject,0,LIST_TAIL);
     while (listTypeNext(iter,&entry)) {
@@ -315,7 +311,6 @@ void linsertCommand(client *c) {
         addReplyLongLong(c,-1);
         return;
     }
-
     addReplyLongLong(c,listTypeLength(subject));
 }
 
@@ -336,6 +331,7 @@ void lindexCommand(client *c) {
         return;
 
     if (o->encoding == OBJ_ENCODING_QUICKLIST) {
+        printf("frida - lindexCommand1\n");
         quicklistEntry entry;
         if (quicklistIndex(o->ptr, index, &entry)) {
             if (entry.value) {

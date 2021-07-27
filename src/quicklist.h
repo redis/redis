@@ -50,7 +50,7 @@ typedef struct quicklistNode {
     unsigned int sz;             /* entry size in bytes */
     unsigned int count : 16;     /* count of items in ziplist */
     unsigned int encoding : 2;   /* RAW==1 or LZF==2 */
-    unsigned int container : 2;  /* NONE==1 or ZIPLIST==2 ENTRY==3*/
+    unsigned int container : 2;  /* NONE==1 or ZIPLIST==2 */
     unsigned int recompress : 1; /* was this node previous compressed? */
     unsigned int attempted_compress : 1; /* node can't compress; too small */
     unsigned int extra : 10; /* more bits to steal for future usage */
@@ -160,6 +160,7 @@ int quicklistPushTail(quicklist *quicklist, void *value, const size_t sz);
 void quicklistPush(quicklist *quicklist, void *value, const size_t sz,
                    int where);
 void quicklistAppendZiplist(quicklist *quicklist, unsigned char *zl);
+void quicklistAppendEntry(quicklist *quicklist, unsigned char *zl, size_t sz);
 quicklist *quicklistAppendValuesFromZiplist(quicklist *quicklist,
                                             unsigned char *zl);
 quicklist *quicklistCreateFromZiplist(int fill, int compress,
@@ -187,7 +188,7 @@ int quicklistPopCustom(quicklist *quicklist, int where, unsigned char **data,
 int quicklistPop(quicklist *quicklist, int where, unsigned char **data,
                  unsigned int *sz, long long *slong);
 unsigned long quicklistCount(const quicklist *ql);
-int quicklistCompare(unsigned char *p1, unsigned char *p2, int p2_len);
+int quicklistCompare(quicklistEntry* entry, unsigned char *p2, int p2_len);
 size_t quicklistGetLzf(const quicklistNode *node, void **data);
 
 void quicklistRepr(unsigned char *zl);
