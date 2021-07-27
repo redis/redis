@@ -55,13 +55,15 @@ typedef struct dictEntry {
     struct dictEntry *next;
 } dictEntry;
 
+typedef struct dict dict;
+
 typedef struct dictType {
     uint64_t (*hashFunction)(const void *key);
-    void *(*keyDup)(const void *key);
-    void *(*valDup)(const void *obj);
-    int (*keyCompare)(const void *key1, const void *key2);
-    void (*keyDestructor)(void *key);
-    void (*valDestructor)(void *obj);
+    void *(*keyDup)(dict *d, const void *key);
+    void *(*valDup)(dict *d, const void *obj);
+    int (*keyCompare)(dict *d, const void *key1, const void *key2);
+    void (*keyDestructor)(dict *d, void *key);
+    void (*valDestructor)(dict *d, void *obj);
     int (*expandAllowed)(size_t moreMem, double usedRatio);
 } dictType;
 
@@ -104,11 +106,11 @@ typedef void (dictScanBucketFunction)(void *privdata, dictEntry **bucketref);
 /* ------------------------------- Macros ------------------------------------*/
 #define dictFreeVal(d, entry) \
     if ((d)->type->valDestructor) \
-        (d)->type->valDestructor((entry)->v.val)
+        (d)->type->valDestructor((d), (entry)->v.val)
 
 #define dictSetVal(d, entry, _val_) do { \
     if ((d)->type->valDup) \
-        (entry)->v.val = (d)->type->valDup(_val_); \
+        (entry)->v.val = (d)->type->valDup((d), _val_); \
     else \
         (entry)->v.val = (_val_); \
 } while(0)
@@ -124,18 +126,18 @@ typedef void (dictScanBucketFunction)(void *privdata, dictEntry **bucketref);
 
 #define dictFreeKey(d, entry) \
     if ((d)->type->keyDestructor) \
-        (d)->type->keyDestructor((entry)->key)
+        (d)->type->keyDestructor((d), (entry)->key)
 
 #define dictSetKey(d, entry, _key_) do { \
     if ((d)->type->keyDup) \
-        (entry)->key = (d)->type->keyDup(_key_); \
+        (entry)->key = (d)->type->keyDup((d), _key_); \
     else \
         (entry)->key = (_key_); \
 } while(0)
 
 #define dictCompareKeys(d, key1, key2) \
     (((d)->type->keyCompare) ? \
-        (d)->type->keyCompare(key1, key2) : \
+        (d)->type->keyCompare((d), key1, key2) : \
         (key1) == (key2))
 
 #define dictHashKey(d, key) (d)->type->hashFunction(key)
@@ -182,7 +184,7 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count);
 void dictGetStats(char *buf, size_t bufsize, dict *d);
 uint64_t dictGenHashFunction(const void *key, int len);
 uint64_t dictGenCaseHashFunction(const unsigned char *buf, int len);
-void dictEmpty(dict *d, void(callback)(void*));
+void dictEmpty(dict *d, void(callback)(dict*));
 void dictEnableResize(void);
 void dictDisableResize(void);
 int dictRehash(dict *d, int n);

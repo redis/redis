@@ -464,14 +464,14 @@ void dictFreeUnlinkedEntry(dict *d, dictEntry *he) {
 }
 
 /* Destroy an entire dictionary */
-int _dictClear(dict *d, int htidx, void(callback)()) {
+int _dictClear(dict *d, int htidx, void(callback)(dict*)) {
     unsigned long i;
 
     /* Free all the elements */
     for (i = 0; i < DICTHT_SIZE(d->ht_size_exp[htidx]) && d->ht_used[htidx] > 0; i++) {
         dictEntry *he, *nextHe;
 
-        if (callback && (i & 65535) == 0) callback();
+        if (callback && (i & 65535) == 0) callback(d);
 
         if ((he = d->ht_table[htidx][i]) == NULL) continue;
         while(he) {
@@ -1048,7 +1048,7 @@ static long _dictKeyIndex(dict *d, const void *key, uint64_t hash, dictEntry **e
     return idx;
 }
 
-void dictEmpty(dict *d, void(callback)(void*)) {
+void dictEmpty(dict *d, void(callback)(dict*)) {
     _dictClear(d,0,callback);
     _dictClear(d,1,callback);
     d->rehashidx = -1;
@@ -1175,12 +1175,15 @@ void dictGetStats(char *buf, size_t bufsize, dict *d) {
 
 #ifdef REDIS_TEST
 
+#define UNUSED(V) ((void) V)
+
 uint64_t hashCallback(const void *key) {
     return dictGenHashFunction((unsigned char*)key, strlen((char*)key));
 }
 
-int compareCallback(const void *key1, const void *key2) {
+int compareCallback(dict *d, const void *key1, const void *key2) {
     int l1,l2;
+    UNUSED(d);
 
     l1 = strlen((char*)key1);
     l2 = strlen((char*)key2);
@@ -1188,7 +1191,9 @@ int compareCallback(const void *key1, const void *key2) {
     return memcmp(key1, key2, l1) == 0;
 }
 
-void freeCallback(void *val) {
+void freeCallback(dict *d, void *val) {
+    UNUSED(d);
+
     zfree(val);
 }
 

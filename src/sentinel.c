@@ -406,7 +406,8 @@ void sentinelSimFailureCrash(void);
 
 void releaseSentinelRedisInstance(sentinelRedisInstance *ri);
 
-void dictInstancesValDestructor (void *obj) {
+void dictInstancesValDestructor (dict *d, void *obj) {
+    UNUSED(d);
     releaseSentinelRedisInstance(obj);
 }
 
@@ -4089,7 +4090,7 @@ void sentinelSetCommand(client *c) {
 
             /* If the target name is the same as the source name there
              * is no need to add an entry mapping to itself. */
-            if (!dictSdsKeyCaseCompare(oldname,newname)) {
+            if (!dictSdsKeyCaseCompare(ri->renamed_commands,oldname,newname)) {
                 oldname = sdsdup(oldname);
                 newname = sdsdup(newname);
                 dictAdd(ri->renamed_commands,oldname,newname);

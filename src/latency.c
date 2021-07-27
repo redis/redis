@@ -36,7 +36,8 @@
 #include "server.h"
 
 /* Dictionary type for latency events. */
-int dictStringKeyCompare(const void *key1, const void *key2) {
+int dictStringKeyCompare(dict *d, const void *key1, const void *key2) {
+    UNUSED(d);
     return strcmp(key1,key2) == 0;
 }
 
@@ -44,7 +45,7 @@ uint64_t dictStringHash(const void *key) {
     return dictGenHashFunction(key, strlen(key));
 }
 
-void dictVanillaFree(void *val);
+void dictVanillaFree(dict *d, void *val);
 
 dictType latencyTimeSeriesDictType = {
     dictStringHash,             /* hash function */

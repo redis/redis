@@ -1254,19 +1254,23 @@ void exitFromChild(int retcode) {
  * keys and redis objects as values (objects can hold SDS strings,
  * lists, sets). */
 
-void dictVanillaFree(void *val)
+void dictVanillaFree(dict *d, void *val)
 {
+    UNUSED(d);
     zfree(val);
 }
 
-void dictListDestructor(void *val)
+void dictListDestructor(dict *d, void *val)
 {
+    UNUSED(d);
     listRelease((list*)val);
 }
 
-int dictSdsKeyCompare(const void *key1, const void *key2)
+int dictSdsKeyCompare(dict *d, const void *key1,
+        const void *key2)
 {
     int l1,l2;
+    UNUSED(d);
 
     l1 = sdslen((sds)key1);
     l2 = sdslen((sds)key2);
@@ -1276,26 +1280,31 @@ int dictSdsKeyCompare(const void *key1, const void *key2)
 
 /* A case insensitive version used for the command lookup table and other
  * places where case insensitive non binary-safe comparison is needed. */
-int dictSdsKeyCaseCompare(const void *key1, const void *key2)
+int dictSdsKeyCaseCompare(dict *d, const void *key1,
+        const void *key2)
 {
+    UNUSED(d);
     return strcasecmp(key1, key2) == 0;
 }
 
-void dictObjectDestructor(void *val)
+void dictObjectDestructor(dict *d, void *val)
 {
+    UNUSED(d);
     if (val == NULL) return; /* Lazy freeing will set value to NULL. */
     decrRefCount(val);
 }
 
-void dictSdsDestructor(void *val)
+void dictSdsDestructor(dict *d, void *val)
 {
+    UNUSED(d);
     sdsfree(val);
 }
 
-int dictObjKeyCompare(const void *key1, const void *key2)
+int dictObjKeyCompare(dict *d, const void *key1,
+        const void *key2)
 {
     const robj *o1 = key1, *o2 = key2;
-    return dictSdsKeyCompare(o1->ptr,o2->ptr);
+    return dictSdsKeyCompare(d, o1->ptr,o2->ptr);
 }
 
 uint64_t dictObjHash(const void *key) {
@@ -1311,7 +1320,7 @@ uint64_t dictSdsCaseHash(const void *key) {
     return dictGenCaseHashFunction((unsigned char*)key, sdslen((char*)key));
 }
 
-int dictEncObjKeyCompare(const void *key1, const void *key2)
+int dictEncObjKeyCompare(dict *d, const void *key1, const void *key2)
 {
     robj *o1 = (robj*) key1, *o2 = (robj*) key2;
     int cmp;
@@ -1326,7 +1335,7 @@ int dictEncObjKeyCompare(const void *key1, const void *key2)
      * objects as well. */
     if (o1->refcount != OBJ_STATIC_REFCOUNT) o1 = getDecodedObject(o1);
     if (o2->refcount != OBJ_STATIC_REFCOUNT) o2 = getDecodedObject(o2);
-    cmp = dictSdsKeyCompare(o1->ptr,o2->ptr);
+    cmp = dictSdsKeyCompare(d,o1->ptr,o2->ptr);
     if (o1->refcount != OBJ_STATIC_REFCOUNT) decrRefCount(o1);
     if (o2->refcount != OBJ_STATIC_REFCOUNT) decrRefCount(o2);
     return cmp;

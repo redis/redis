@@ -168,10 +168,10 @@ int spectrum_palette_size;
 /* Dict Helpers */
 
 static uint64_t dictSdsHash(const void *key);
-static int dictSdsKeyCompare(const void *key1,
+static int dictSdsKeyCompare(dict *d, const void *key1,
     const void *key2);
-static void dictSdsDestructor(void *val);
-static void dictListDestructor(void *val);
+static void dictSdsDestructor(dict *d, void *val);
+static void dictListDestructor(dict *d, void *val);
 
 /* Cluster Manager Command Info */
 typedef struct clusterManagerCommand {
@@ -453,9 +453,10 @@ static uint64_t dictSdsHash(const void *key) {
     return dictGenHashFunction((unsigned char*)key, sdslen((char*)key));
 }
 
-static int dictSdsKeyCompare(const void *key1, const void *key2)
+static int dictSdsKeyCompare(dict *d, const void *key1, const void *key2)
 {
     int l1,l2;
+    UNUSED(d);
 
     l1 = sdslen((sds)key1);
     l2 = sdslen((sds)key2);
@@ -463,13 +464,15 @@ static int dictSdsKeyCompare(const void *key1, const void *key2)
     return memcmp(key1, key2, l1) == 0;
 }
 
-static void dictSdsDestructor(void *val)
+static void dictSdsDestructor(dict *d, void *val)
 {
+    UNUSED(d);
     sdsfree(val);
 }
 
-void dictListDestructor(void *val)
+void dictListDestructor(dict *d, void *val)
 {
+    UNUSED(d);
     listRelease((list*)val);
 }
 
@@ -7544,8 +7547,9 @@ static typeinfo* typeinfo_add(dict *types, char* name, typeinfo* type_template) 
     return info;
 }
 
-void type_free(void* val) {
+void type_free(dict *d, void* val) {
     typeinfo *info = val;
+    UNUSED(d);
     if (info->biggest_key)
         sdsfree(info->biggest_key);
     sdsfree(info->name);

@@ -1444,8 +1444,8 @@ void replicationSendNewlineToMaster(void) {
 
 /* Callback used by emptyDb() while flushing away old data to load
  * the new dataset received by the master. */
-void replicationEmptyDbCallback(void *privdata) {
-    UNUSED(privdata);
+void replicationEmptyDbCallback(dict *d) {
+    UNUSED(d);
     if (server.repl_state == REPL_STATE_TRANSFER)
         replicationSendNewlineToMaster();
 }
