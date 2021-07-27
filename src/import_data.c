@@ -9,10 +9,12 @@ void importDataFinishIntoDb(connection *conn) {
         char buf[128];
         int buflen = snprintf(buf, sizeof(buf), "+FINISH\r\n");
         if (connWrite(conn, buf, buflen) != buflen) {
+            serverLog(LL_WARNING, "fail to notice source to finish ");
             linkClient(server.import_data_client);
             freeClientAsync(server.import_data_client);
             server.import_data_state = IMPORT_DATA_FAIL_SEND_RESULT;
         }else{
+            serverLog(LL_WARNING, "success to notice source to finish");
             server.import_data_state = IMPORT_DATA_BEGIN_INIT;
             linkClient(server.import_data_client);
             connSetReadHandler(conn, readQueryFromClient);
@@ -45,16 +47,18 @@ void importDataCommand(client *c) {
              "temp-%d.%ld.rdb", (int) server.unixtime, (long int) getpid());
     dfd = open(tmpfile, O_CREAT | O_WRONLY | O_EXCL, 0644);
     if (dfd == -1) {
-        serverLog(LL_WARNING, "Opening the temp file needed for import data: %s",
-                  strerror(errno));
+        serverLog(LL_WARNING, "Opening the temp file needed for import data: %s",strerror(errno));
         server.import_data_state = IMPORT_DATA_FAIL_OPEN_DFD;
         goto error;
     }
+    serverLog(LL_WARNING, "success open the temp file needed for import data");
     int buflen = snprintf(buf, sizeof(buf), "+CONTINUE\r\n");
     if (connWrite(c->conn, buf, buflen) != buflen) {
+        serverLog(LL_WARNING, "fail to notice source ready to import data");
         server.import_data_state = IMPORT_DATA_FAIL_SEND_CONTINUE;
         goto error;
     }
+    serverLog(LL_WARNING, "begin to import rdb data from source");
     connSetReadHandler(c->conn, importDataReadSyncBulkPayload);
     server.import_data_transfer_size = -1;
     server.import_data_transfer_read = 0;

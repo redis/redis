@@ -1931,7 +1931,7 @@ void importDataReadSyncBulkPayload(connection *conn) {
         server.import_data_state = IMPORT_DATA_BEGIN_RECEIVE_RDB;
         if (connSyncReadLine(conn, buf, 1024, 300) == -1) {
             serverLog(LL_WARNING,
-                      "I/O error reading bulk count from target: %s",
+                      "I/O error reading bulk count from target for import data: %s",
                       strerror(errno));
             goto error;
         }
@@ -1973,15 +1973,13 @@ void importDataReadSyncBulkPayload(connection *conn) {
              * at the next call. */
             server.import_data_transfer_size = 0;
             serverLog(LL_NOTICE,
-                      "MASTER <-> REPLICA sync: receiving streamed RDB from master with EOF %s",
-                      "to disk");
+                      "source <-> import sync: receiving streamed RDB from import data");
         } else {
             importdatausemark = 0;
             server.import_data_transfer_size = strtol(buf + 1, NULL, 10);
             serverLog(LL_NOTICE,
-                      "MASTER <-> REPLICA sync: receiving %lld bytes from master %s",
-                      (long long) server.import_data_transfer_size,
-                      "to disk");
+                      "source <-> import  sync: receiving %lld bytes from source",
+                      (long long) server.import_data_transfer_size);
         }
         return;
     }
@@ -2002,10 +2000,9 @@ void importDataReadSyncBulkPayload(connection *conn) {
             /* equivalent to EAGAIN */
             return;
         }
-        serverLog(LL_WARNING, "I/O error trying to import data  with target: %s",
+        serverLog(LL_WARNING, "I/O error trying to sync with target: %s",
                   (nread == -1) ? strerror(errno) : "connection lost");
-        cancelReplicationHandshake(1);
-        return;
+        goto error;
     }
     atomicIncr(server.stat_net_input_bytes, nread);
 
@@ -2034,8 +2031,7 @@ void importDataReadSyncBulkPayload(connection *conn) {
     server.import_data_transfer_lastio = server.unixtime;
     if ((nwritten = write(server.import_data_transfer_fd, buf, nread)) != nread) {
         serverLog(LL_WARNING,
-                  "Write error or short write writing to the DB dump file "
-                  "needed for import data  <-> target  synchronization: %s",
+                  "Write error or short write writing to the DB dump file needed for source <-> import : %s",
                   (nwritten == -1) ? strerror(errno) : "short write");
         goto error;
     }
@@ -2045,9 +2041,8 @@ void importDataReadSyncBulkPayload(connection *conn) {
     if (importdatausemark && eof_reached) {
         if (ftruncate(server.import_data_transfer_fd,
                       server.import_data_transfer_read - CONFIG_RUN_ID_SIZE) == -1) {
-            serverLog(LL_WARNING,
-                      "Error truncating the RDB file received from the target "
-                      "for import data: %s", strerror(errno));
+            serverLog(LL_WARNING, "Error truncating the RDB file received from the source <-> import : %s",
+                      strerror(errno));
             goto error;
         }
     }
@@ -2073,8 +2068,8 @@ void importDataReadSyncBulkPayload(connection *conn) {
     /* If the transfer is yet not complete, we need to read more, so
      * return ASAP and wait for the handler to be called again. */
     if (!eof_reached) return;
+    serverLog(LL_WARNING, "finish truncating the RDB file received from the source <-> import ");
     rdbSaveInfo rsi = RDB_SAVE_INFO_INIT;
-
     server.migrateRsi = rsi;
     pthread_t thread;
     server.import_data_state = IMPORT_DATA_FINISH_RECEIVE_RDB;

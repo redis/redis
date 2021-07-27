@@ -2860,6 +2860,8 @@ static void backgroundSaveDoneHandlerSocket(int exitcode, int bysignal) {
         }
     }
     if (server.migrate_data_state == MIGRATE_DATA_FINISH_RDB) {
+        serverLog(LL_NOTICE,
+                  "wait to increment data signal from target");
         connSetReadHandler(server.migrate_data_fd, migrateDataWaitTarget);
     }
 
@@ -3551,12 +3553,13 @@ void *importDataBackgroundJobs(void *arg) {
         zfree(server.import_data_transfer_tmpfile);
         unlink(server.import_data_transfer_tmpfile);
         server.import_data_state = IMPORT_DATA_FINISH_ANALYSIS;
-        serverLog(LL_NOTICE, "import data: Finished with success");
+        serverLog(LL_NOTICE, "success finished import data");
     } else {
         zfree(server.import_data_transfer_tmpfile);
         unlink(server.import_data_transfer_tmpfile);
         linkClient(server.import_data_client);
         freeClientAsync(server.import_data_client);
+        serverLog(LL_NOTICE, "fail finished import data");
         server.import_data_state = IMPORT_DATA_FAIL_ANALYSIS;
     }
     return NULL;
