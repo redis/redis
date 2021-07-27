@@ -60,10 +60,10 @@ static unsigned int dict_force_resize_ratio = 5;
 
 /* -------------------------- private prototypes ---------------------------- */
 
-static int _dictExpandIfNeeded(dict *ht);
+static int _dictExpandIfNeeded(dict *d);
 static char _dictNextExp(unsigned long size);
-static long _dictKeyIndex(dict *ht, const void *key, uint64_t hash, dictEntry **existing);
-static int _dictInit(dict *ht, dictType *type);
+static long _dictKeyIndex(dict *d, const void *key, uint64_t hash, dictEntry **existing);
+static int _dictInit(dict *d, dictType *type);
 
 /* -------------------------- hash functions -------------------------------- */
 
@@ -450,8 +450,8 @@ int dictDelete(dict *ht, const void *key) {
  * // Do something with entry
  * dictFreeUnlinkedEntry(entry); // <- This does not need to lookup again.
  */
-dictEntry *dictUnlink(dict *ht, const void *key) {
-    return dictGenericDelete(ht,key,1);
+dictEntry *dictUnlink(dict *d, const void *key) {
+    return dictGenericDelete(d,key,1);
 }
 
 /* You need to call this function to really free the entry after a call
