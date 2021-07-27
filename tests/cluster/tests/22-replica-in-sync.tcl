@@ -12,44 +12,42 @@ test "Cluster is writable" {
     cluster_write_test 0
 }
 
-set numkeys 10000000000
-set numops 100000
-array set content {}
-set master_id 0
-
 proc is_in_slots {id slots} {
     set found_position [string first $id $slots]
     set result [expr {$found_position != -1}]
     return $result
 }
 
-test "Fill up with keys" {
-    for {set j 0} {$j < $numops} {incr j} {
-        set listid [randomInt $numkeys]
-        set key "key:$listid"
-        set ele [randomValue]
-        R 0 rpush $key $ele
-        lappend content($key) $ele
-    }
+proc is_replica_online {info_repl} {
+    set found_position [string first "state=online" $info_repl]
+    set result [expr {$found_position != -1}]
+    return $result
+}
+
+set master_id 0
+
+test "Fill up" {
+    R $master_id debug populate 1000000 key 100
 }
 
 test "Add new node as replica" {
     set replica_id [cluster_find_available_slave 1]
     set master_myself [get_myself $master_id]
+    set replica_myself [get_myself $replica_id]
+    set replica [dict get $replica_myself id]
     R $replica_id clusteradmin replicate [dict get $master_myself id]
 }
 
-test "Check keys exist in the new replica" {
+test "Check digest and replica state" {
     R 1 readonly
     while (1) {
-        set slots [R 0 cluster slots]
-        set replica_myself [get_myself $replica_id]
-        set replica [dict get $replica_myself id]
+        set slots [R $master_id cluster slots]
         if ([is_in_slots $replica $slots]) {
-            foreach {key value} [array get content] {
-                set is_exist [R 1 exists $key]
-                assert {$is_exist}
-            }
+            set master_digest [R $master_id debug digest]
+            set replica_digest [R $replica_id debug digest]
+            set info_repl [R $master_id info replication]
+            assert {$master_digest eq $replica_digest}
+            assert {[is_replica_online $info_repl]}
             break
         }
     }
