@@ -650,7 +650,7 @@ unsigned char *lpGet(unsigned char *p, int64_t *count, unsigned char *intbuf) {
 }
 
 /* This is just a wrapper to lpGet() that is able to get entry value directly.
- * the function returns NULL and populates the integer value by reference in 'lval'.
+ * When the function returns NULL, it populates the integer value by reference in 'lval'.
  * Otherwise if the element is encoded as a string a pointer to the string (pointing
  * inside the listpack itself) is returned, and 'slen' is set to the length of the
  * string. */
