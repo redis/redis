@@ -60,7 +60,6 @@ int hashTypeGetFromListpack(robj *o, sds field,
                             long long *vll)
 {
     unsigned char *zl, *fptr = NULL, *vptr = NULL;
-    int64_t ele_len;
 
     serverAssert(o->encoding == OBJ_ENCODING_LISTPACK);
 
@@ -76,12 +75,7 @@ int hashTypeGetFromListpack(robj *o, sds field,
     }
 
     if (vptr != NULL) {
-        *vstr = lpGet(vptr, &ele_len, NULL);
-        if (*vstr) {
-            *vlen = ele_len;
-        } else {
-            *vll = ele_len;
-        }
+        *vstr = lpGetValue(vptr, vlen, vll);
         return 0;
     }
 
@@ -386,20 +380,12 @@ void hashTypeCurrentFromListpack(hashTypeIterator *hi, int what,
                                  unsigned int *vlen,
                                  long long *vll)
 {
-    int64_t ele_len;
-
     serverAssert(hi->encoding == OBJ_ENCODING_LISTPACK);
 
     if (what & OBJ_HASH_KEY) {
-        *vstr = lpGet(hi->fptr, &ele_len, NULL);
+        *vstr = lpGetValue(hi->fptr, vlen, vll);
     } else {
-        *vstr = lpGet(hi->vptr, &ele_len, NULL);
-    }
-
-    if (*vstr) {
-        *vlen = ele_len;
-    } else {
-        *vll = ele_len;
+        *vstr = lpGetValue(hi->vptr, vlen, vll);
     }
 }
 
@@ -462,67 +448,6 @@ robj *hashTypeLookupWriteOrCreate(client *c, robj *key) {
     return o;
 }
 
-void hashTypeConvertZiplist(robj *o, int enc) {
-    unsigned char *p, *val;
-    unsigned int vlen;
-    long long lval;
-    char longstr[32] = {0};
-
-    serverAssert(o->encoding == OBJ_ENCODING_ZIPLIST);
-
-    if (enc == OBJ_ENCODING_ZIPLIST) {
-        /* Nothing to do... */
-    } else if (enc == OBJ_ENCODING_LISTPACK) {
-        unsigned char *lp; 
-
-        /* Use ziplist's size to pre-allocate listpack,
-         * avoid realloc when lpAppend. */
-        lp = lpNew(ziplistBlobLen(o->ptr)); 
-        p = ziplistIndex(o->ptr, 0);
-        while (ziplistGet(p, &val, &vlen, &lval)) {
-            if (!val) {
-                vlen = ll2string(longstr, sizeof(longstr), lval);
-                val = (unsigned char *)longstr;
-            }
-
-            lp = lpAppend(lp, val, vlen);
-            p = ziplistNext(o->ptr, p);
-        }
-
-        lp = lpShrinkToFit(lp);
-        zfree(o->ptr);
-        o->encoding = OBJ_ENCODING_LISTPACK;
-        o->ptr = lp;
-    } else if (enc == OBJ_ENCODING_HT) {
-        dict *dict = dictCreate(&hashDictType, NULL);
-
-        /* Presize the dict to avoid rehashing */
-        dictExpand(dict, ziplistLen(o->ptr)/2);
-
-        p = ziplistIndex(o->ptr, 0);
-        while (ziplistGet(p, &val, &vlen, &lval)) {
-            sds key, value;
-
-            key = val ? sdsnewlen(val, vlen) : sdsfromlonglong(lval);
-            p = ziplistNext(o->ptr, p);
-            serverAssert(ziplistGet(p, &val, &vlen, &lval));
-            value = val ? sdsnewlen(val, vlen) : sdsfromlonglong(lval);
-            if (dictAdd(dict, key, value) != DICT_OK) {
-                serverLogHexDump(LL_WARNING,"ziplist with dup elements dump",
-                    o->ptr,lpBytes(o->ptr));
-                serverPanic("Ziplist corruption detected");
-            }
-
-            p = ziplistNext(o->ptr, p);
-        }
-
-        zfree(o->ptr);
-        o->encoding = OBJ_ENCODING_HT;
-        o->ptr = dict;
-    } else {
-        serverPanic("Unknown hash encoding");
-    }
-}
 
 void hashTypeConvertListpack(robj *o, int enc) {
     serverAssert(o->encoding == OBJ_ENCODING_LISTPACK);
@@ -563,9 +488,7 @@ void hashTypeConvertListpack(robj *o, int enc) {
 }
 
 void hashTypeConvert(robj *o, int enc) {
-    if (o->encoding == OBJ_ENCODING_ZIPLIST) {
-        hashTypeConvertZiplist(o, enc);
-    } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
+    if (o->encoding == OBJ_ENCODING_LISTPACK) {
         hashTypeConvertListpack(o, enc);
     } else if (o->encoding == OBJ_ENCODING_HT) {
         serverPanic("Not implemented");
@@ -621,25 +544,32 @@ robj *hashTypeDup(robj *o) {
 
 /* callback for to check the ziplist doesn't have duplicate records */
 static int _hashZiplistEntryValidation(unsigned char *p, void *userdata) {
+    unsigned char *str;
+    unsigned int slen;
+    long long vll;
+
     struct {
         long count;
         dict *fields;
+        unsigned char **lp;
     } *data = userdata;
+
+    if (!ziplistGet(p, &str, &slen, &vll))
+        return 0;
+
+    sds field = str? sdsnewlen(str, slen): sdsfromlonglong(vll);
+    *(data->lp) = lpAppend(*(data->lp), (unsigned char*)field, sdslen(field));
 
     /* Even records are field names, add to dict and check that's not a dup */
     if (((data->count) & 1) == 0) {
-        unsigned char *str;
-        unsigned int slen;
-        long long vll;
-        if (!ziplistGet(p, &str, &slen, &vll))
-            return 0;
-        sds field = str? sdsnewlen(str, slen): sdsfromlonglong(vll);
         if (dictAdd(data->fields, field, NULL) != DICT_OK) {
             /* Duplicate, return an error */
             sdsfree(field);
             return 0;
         }
-    }
+    } else {
+        sdsfree(field);
+    } 
 
     (data->count)++;
     return 1;
@@ -671,18 +601,15 @@ static int _hashListpackEntryValidation(unsigned char *p, void *userdata) {
     return 1;
 }
 
-/* Validate the integrity of the data structure.
- * when `deep` is 0, only the integrity of the header is validated.
- * when `deep` is 1, we scan all the entries one by one. */
-int hashZiplistValidateIntegrity(unsigned char *zl, size_t size, int deep) {
-    if (!deep)
-        return ziplistValidateIntegrity(zl, size, 0, NULL, NULL);
-
+/* Validate the integrity of the data structure. The function will convert
+ * ziplist to listpack and store it in 'lp' at the same time. */
+int hashZiplistValidateIntegrity(unsigned char *zl, size_t size, unsigned char **lp) {
     /* Keep track of the field names to locate duplicate ones */
     struct {
         long count;
         dict *fields;
-    } data = {0, dictCreate(&hashDictType, NULL)};
+        unsigned char **lp;
+    } data = {0, dictCreate(&hashDictType, NULL), lp};
 
     int ret = ziplistValidateIntegrity(zl, size, 1, _hashZiplistEntryValidation, &data);
 

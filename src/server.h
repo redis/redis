@@ -2342,7 +2342,7 @@ robj *hashTypeLookupWriteOrCreate(client *c, robj *key);
 robj *hashTypeGetValueObject(robj *o, sds field);
 int hashTypeSet(robj *o, sds field, sds value, int flags);
 robj *hashTypeDup(robj *o);
-int hashZiplistValidateIntegrity(unsigned char *zl, size_t size, int deep);
+int hashZiplistValidateIntegrity(unsigned char *zl, size_t size, unsigned char **lp);
 int hashListpackValidateIntegrity(unsigned char *lp, size_t size, int deep);
 
 /* Pub / Sub */

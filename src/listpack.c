@@ -137,6 +137,8 @@
     assert((p) >= (lp)+LP_HDR_SIZE && (p)+(len) < (lp)+lpGetTotalBytes((lp))); \
 } while (0)
 
+static inline void lpAssertValidEntry(unsigned char* lp, size_t lpbytes, unsigned char *p);
+
 /* Convert a string into a signed 64 bit integer.
  * The function returns 1 if the string could be parsed into a (non-overflowing)
  * signed 64 bit int, 0 otherwise. The 'value' will be set to the parsed value
@@ -456,8 +458,8 @@ unsigned char *lpSkip(unsigned char *p) {
 unsigned char *lpNext(unsigned char *lp, unsigned char *p) {
     assert(p);
     p = lpSkip(p);
-    ASSERT_INTEGRITY(lp, p);
     if (p[0] == LP_EOF) return NULL;
+    lpAssertValidEntry(lp, lpBytes(lp), p);
     return p;
 }
 
@@ -471,16 +473,17 @@ unsigned char *lpPrev(unsigned char *lp, unsigned char *p) {
     uint64_t prevlen = lpDecodeBacklen(p);
     prevlen += lpEncodeBacklen(NULL,prevlen);
     p -= prevlen-1; /* Seek the first byte of the previous entry. */
-    ASSERT_INTEGRITY(lp, p);
+    lpAssertValidEntry(lp, lpBytes(lp), p);
     return p;
 }
 
 /* Return a pointer to the first element of the listpack, or NULL if the
  * listpack has no elements. */
 unsigned char *lpFirst(unsigned char *lp) {
-    lp += LP_HDR_SIZE; /* Skip the header. */
-    if (lp[0] == LP_EOF) return NULL;
-    return lp;
+    unsigned char *p = lp + LP_HDR_SIZE; /* Skip the header. */
+    if (p[0] == LP_EOF) return NULL;
+    lpAssertValidEntry(lp, lpBytes(lp), p);
+    return p;
 }
 
 /* Return a pointer to the last element of the listpack, or NULL if the
@@ -537,6 +540,10 @@ unsigned long lpLength(unsigned char *lp) {
  * by the function, than to pass a buffer (and convert it back to a number)
  * is of course useless.
  *
+ * If 'entry_size' is not NULL, *entry_size is set to the entry length of the
+ * listpack element pointed by 'p'. This includes the encoding bytes, length
+ * bytes, the element data itself, and the backlen bytes.
+ *
  * If the function is called against a badly encoded ziplist, so that there
  * is no valid way to parse it, the function returns like if there was an
  * integer encoded with value 12345678900000000 + <unrecognized byte>, this may
@@ -548,7 +555,7 @@ unsigned long lpLength(unsigned char *lp) {
  * assumed to be valid, so that would be a very high API cost. However a function
  * in order to check the integrity of the listpack at load time is provided,
  * check lpIsValid(). */
-static inline unsigned char *lpGetWithSize(unsigned char *p, int64_t *count, unsigned char *intbuf, uint64_t *size) {
+static inline unsigned char *lpGetWithSize(unsigned char *p, int64_t *count, unsigned char *intbuf, uint64_t *entry_size) {
     int64_t val;
     uint64_t uval, negstart, negmax;
 
@@ -557,29 +564,29 @@ static inline unsigned char *lpGetWithSize(unsigned char *p, int64_t *count, uns
         negstart = UINT64_MAX; /* 7 bit ints are always positive. */
         negmax = 0;
         uval = p[0] & 0x7f;
-        if (size) *size = LP_ENCODING_7BIT_UINT_ENTRY_SIZE;
+        if (entry_size) *entry_size = LP_ENCODING_7BIT_UINT_ENTRY_SIZE;
     } else if (LP_ENCODING_IS_6BIT_STR(p[0])) {
         *count = LP_ENCODING_6BIT_STR_LEN(p);
-        if (size) *size = 2 + *count;
+        if (entry_size) *entry_size = 1 + *count + lpEncodeBacklen(NULL, *count + 1);
         return p+1;
     } else if (LP_ENCODING_IS_13BIT_INT(p[0])) {
         uval = ((p[0]&0x1f)<<8) | p[1];
         negstart = (uint64_t)1<<12;
         negmax = 8191;
-        if (size) *size = LP_ENCODING_13BIT_INT_ENTRY_SIZE;
+        if (entry_size) *entry_size = LP_ENCODING_13BIT_INT_ENTRY_SIZE;
     } else if (LP_ENCODING_IS_16BIT_INT(p[0])) {
         uval = (uint64_t)p[1] |
                (uint64_t)p[2]<<8;
         negstart = (uint64_t)1<<15;
         negmax = UINT16_MAX;
-        if (size) *size = LP_ENCODING_16BIT_INT_ENTRY_SIZE;
+        if (entry_size) *entry_size = LP_ENCODING_16BIT_INT_ENTRY_SIZE;
     } else if (LP_ENCODING_IS_24BIT_INT(p[0])) {
         uval = (uint64_t)p[1] |
                (uint64_t)p[2]<<8 |
                (uint64_t)p[3]<<16;
         negstart = (uint64_t)1<<23;
         negmax = UINT32_MAX>>8;
-        if (size) *size = LP_ENCODING_24BIT_INT_ENTRY_SIZE;
+        if (entry_size) *entry_size = LP_ENCODING_24BIT_INT_ENTRY_SIZE;
     } else if (LP_ENCODING_IS_32BIT_INT(p[0])) {
         uval = (uint64_t)p[1] |
                (uint64_t)p[2]<<8 |
@@ -587,7 +594,7 @@ static inline unsigned char *lpGetWithSize(unsigned char *p, int64_t *count, uns
                (uint64_t)p[4]<<24;
         negstart = (uint64_t)1<<31;
         negmax = UINT32_MAX;
-        if (size) *size = LP_ENCODING_32BIT_INT_ENTRY_SIZE;
+        if (entry_size) *entry_size = LP_ENCODING_32BIT_INT_ENTRY_SIZE;
     } else if (LP_ENCODING_IS_64BIT_INT(p[0])) {
         uval = (uint64_t)p[1] |
                (uint64_t)p[2]<<8 |
@@ -599,14 +606,14 @@ static inline unsigned char *lpGetWithSize(unsigned char *p, int64_t *count, uns
                (uint64_t)p[8]<<56;
         negstart = (uint64_t)1<<63;
         negmax = UINT64_MAX;
-        if (size) *size = LP_ENCODING_64BIT_INT_ENTRY_SIZE;
+        if (entry_size) *entry_size = LP_ENCODING_64BIT_INT_ENTRY_SIZE;
     } else if (LP_ENCODING_IS_12BIT_STR(p[0])) {
         *count = LP_ENCODING_12BIT_STR_LEN(p);
-        if (size) *size = 2 + *count + lpEncodeBacklen(NULL, *count + 2);
+        if (entry_size) *entry_size = 2 + *count + lpEncodeBacklen(NULL, *count + 2);
         return p+2;
     } else if (LP_ENCODING_IS_32BIT_STR(p[0])) {
         *count = LP_ENCODING_32BIT_STR_LEN(p);
-        if (size) *size = 5 + *count + lpEncodeBacklen(NULL, *count + 5);
+        if (entry_size) *entry_size = 5 + *count + lpEncodeBacklen(NULL, *count + 5);
         return p+5;
     } else {
         uval = 12345678900000000ULL + p[0];
@@ -640,6 +647,24 @@ static inline unsigned char *lpGetWithSize(unsigned char *p, int64_t *count, uns
 
 unsigned char *lpGet(unsigned char *p, int64_t *count, unsigned char *intbuf) {
     return lpGetWithSize(p, count, intbuf, NULL);
+}
+
+/* This is just a wrapper to lpGet() that is able to get entry value directly.
+ * the function returns NULL and populates the integer value by reference in 'lval'.
+ * Otherwise if the element is encoded as a string a pointer to the string (pointing
+ * inside the listpack itself) is returned, and 'slen' is set to the length of the
+ * string. */
+unsigned char *lpGetValue(unsigned char *p, unsigned int *slen, long long *lval) {
+    unsigned char *vstr;
+    int64_t ele_len;
+
+    vstr = lpGet(p, &ele_len, NULL);
+    if (vstr) {
+        *slen = ele_len;
+    } else {
+        *lval = ele_len;
+    }
+    return vstr;
 }
 
 /* Find pointer to the entry equal to the specified entry. Skip 'skip' entries
@@ -997,6 +1022,11 @@ int lpValidateNext(unsigned char *lp, unsigned char **pp, size_t lpbytes) {
 #undef OUT_OF_RANGE
 }
 
+/* Validate that the entry doesn't reach outside the listpack allocation. */
+static inline void lpAssertValidEntry(unsigned char* lp, size_t lpbytes, unsigned char *p) {
+    assert(lpValidateNext(lp, &p, lpbytes));
+}
+
 /* Validate the integrity of the data structure.
  * when `deep` is 0, only the integrity of the header is validated.
  * when `deep` is 1, we scan all the entries one by one. */
@@ -1062,6 +1092,10 @@ static inline void lpSaveValue(unsigned char *val, unsigned int len, int64_t lva
     dest->lval = lval;
 }
 
+/* Randomly select a pair of key and value.
+ * total_count is a pre-computed length/2 of the listpack (to avoid calls to lpLength)
+ * 'key' and 'val' are used to store the result key value pair.
+ * 'val' can be NULL if the value is not needed. */
 void lpRandomPair(unsigned char *lp, unsigned long total_count, listpackEntry *key, listpackEntry *val) {
     unsigned char *p;
     int64_t vlen;
@@ -1071,8 +1105,7 @@ void lpRandomPair(unsigned char *lp, unsigned long total_count, listpackEntry *k
 
     /* Generate even numbers, because listpack saved K-V pair */
     int r = (rand() % total_count) * 2;
-    p = lpSeek(lp, r);
-    assert(p);
+    assert((p = lpSeek(lp, r)));
     key->sval = lpGet(p, &vlen, NULL);
     if (key->sval) {
         key->slen = vlen;
@@ -1082,8 +1115,7 @@ void lpRandomPair(unsigned char *lp, unsigned long total_count, listpackEntry *k
 
     if (!val)
         return;
-    p = lpNext(lp, p);
-    assert(p);
+    assert((p = lpNext(lp, p)));
     val->sval = lpGet(p, &vlen, NULL);
     if (val->sval) {
         val->slen = vlen;
@@ -1092,10 +1124,14 @@ void lpRandomPair(unsigned char *lp, unsigned long total_count, listpackEntry *k
     }
 }
 
+/* Randomly select count of key value pairs and store into 'keys' and
+ * 'vals' args. The order of the picked entries is random, and the selections
+ * are non-unique (repetitions are possible).
+ * The 'vals' arg can be NULL in which case we skip these. */
 void lpRandomPairs(unsigned char *lp, unsigned int count, listpackEntry *keys, listpackEntry *vals) {
     unsigned char *p, *key, *value;
     unsigned int klen = 0, vlen = 0;
-    int64_t klval = 0, vlval = 0, ele_len = 0;
+    long long klval = 0, vlval = 0;
 
     /* Notice: the index member must be first due to the use in uintCompare */
     typedef struct {
@@ -1122,20 +1158,9 @@ void lpRandomPairs(unsigned char *lp, unsigned int count, listpackEntry *keys, l
     unsigned int lpindex = picks[0].index, pickindex = 0;
     p = lpSeek(lp, lpindex);
     while (p && pickindex < count) {
-        key = lpGet(p, &ele_len, NULL);
-        if (key) {
-            klen = ele_len;
-        } else {
-            klval = ele_len;
-        }
-        p = lpNext(lp, p);
-        assert(p);
-        value = lpGet(p, &ele_len, NULL);
-        if (value) {
-            vlen = ele_len;
-        } else {
-            vlval = ele_len;
-        }
+        key = lpGetValue(p, &klen, &klval);
+        assert((p = lpNext(lp, p)));
+        value = lpGetValue(p, &vlen, &vlval);
         while (pickindex < count && lpindex == picks[pickindex].index) {
             int storeorder = picks[pickindex].order;
             lpSaveValue(key, klen, klval, &keys[storeorder]);
@@ -1150,6 +1175,12 @@ void lpRandomPairs(unsigned char *lp, unsigned int count, listpackEntry *keys, l
     zfree(picks);
 }
 
+/* Randomly select count of key value pairs and store into 'keys' and
+ * 'vals' args. The selections are unique (no repetitions), and the order of
+ * the picked entries is NOT-random.
+ * The 'vals' arg can be NULL in which case we skip these.
+ * The return value is the number of items picked which can be lower than the
+ * requested count if the listpack doesn't hold enough pairs. */
 unsigned int lpRandomPairsUnique(unsigned char *lp, unsigned int count, listpackEntry *keys, listpackEntry *vals) {
     unsigned char *p, *key;
     unsigned int klen = 0;
@@ -1176,8 +1207,7 @@ unsigned int lpRandomPairsUnique(unsigned char *lp, unsigned int count, listpack
                 klval = ele_len;
             }
             lpSaveValue(key, klen, klval, &keys[picked]);
-            p = lpNext(lp, p);
-            assert(p);
+            assert((p = lpNext(lp, p)));
             if (vals) {
                 key = lpGet(p, &ele_len, NULL);
                 if (key) {
@@ -1190,8 +1220,7 @@ unsigned int lpRandomPairsUnique(unsigned char *lp, unsigned int count, listpack
             remaining--;
             picked++;
         } else {
-            p = lpNext(lp, p);
-            assert(p);
+            assert((p = lpNext(lp, p)));
         }
         p = lpNext(lp, p);
         index++;
