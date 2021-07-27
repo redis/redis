@@ -1086,6 +1086,29 @@ void rdbPipeWriteHandlerConnRemoved(struct connection *conn) {
 
 /* Called in diskless master during transfer of data from the rdb pipe, when
  * the replica becomes writable again. */
+void migrateDatardbPipeWriteHandler(struct connection *conn) {
+    serverAssert(server.rdb_pipe_bufflen > 0);
+    client *slave = connGetPrivateData(conn);
+    int nwritten;
+    if ((nwritten = connWrite(conn, server.rdb_pipe_buff + slave->repldboff,
+                              server.rdb_pipe_bufflen - slave->repldboff)) == -1) {
+        if (connGetState(conn) == CONN_STATE_CONNECTED)
+            return; /* equivalent to EAGAIN */
+        serverLog(LL_WARNING, "Write error sending DB to replica: %s",
+                  connGetLastError(conn));
+        freeClient(slave);
+        return;
+    } else {
+        slave->repldboff += nwritten;
+        atomicIncr(server.stat_net_output_bytes, nwritten);
+        if (slave->repldboff < server.rdb_pipe_bufflen)
+            return; /* more data to write.. */
+    }
+    rdbPipeWriteHandlerConnRemoved(conn);
+}
+
+/* Called in diskless master during transfer of data from the rdb pipe, when
+ * the replica becomes writable again. */
 void rdbPipeWriteHandler(struct connection *conn) {
     serverAssert(server.rdb_pipe_bufflen > 0);
     client *slave = connGetPrivateData(conn);
@@ -1113,37 +1136,23 @@ void migrateDataRdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *
     UNUSED(clientData);
     UNUSED(eventLoop);
     int i;
-    if (!server.rdb_pipe_buff)
-        server.rdb_pipe_buff = zmalloc(PROTO_IOBUF_LEN);
+    if (!server.migrate_data_rdb_pipe_buff)
+        server.migrate_data_rdb_pipe_buff = zmalloc(PROTO_IOBUF_LEN);
     serverAssert(server.rdb_pipe_numconns_writing == 0);
 
     while (1) {
-        server.rdb_pipe_bufflen = read(fd, server.rdb_pipe_buff, PROTO_IOBUF_LEN);
-        if (server.rdb_pipe_bufflen < 0) {
+        server.migrate_data_rdb_pipe_bufflen = read(fd, server.migrate_data_rdb_pipe_buff, PROTO_IOBUF_LEN);
+        if (server.migrate_data_rdb_pipe_bufflen < 0) {
             if (errno == EAGAIN || errno == EWOULDBLOCK)
                 return;
             serverLog(LL_WARNING, "Diskless rdb transfer, read error sending DB to replicas: %s", strerror(errno));
-            for (i = 0; i < server.rdb_pipe_numconns; i++) {
-                connection *conn = server.rdb_pipe_conns[i];
-                if (!conn)
-                    continue;
-                server.rdb_pipe_conns[i] = NULL;
-            }
             killRDBChild();
             return;
         }
 
-        if (server.rdb_pipe_bufflen == 0) {
+        if (server.migrate_data_rdb_pipe_bufflen == 0) {
             /* EOF - write end was closed. */
-            int stillUp = 0;
             aeDeleteFileEvent(server.el, server.rdb_pipe_read, AE_READABLE);
-            for (i = 0; i < server.rdb_pipe_numconns; i++) {
-                connection *conn = server.rdb_pipe_conns[i];
-                if (!conn)
-                    continue;
-                stillUp++;
-            }
-            serverLog(LL_WARNING, "Diskless rdb transfer, done reading from pipe, %d replicas still up.", stillUp);
             /* Now that the replicas have finished reading, notify the child that it's safe to exit.
              * When the server detectes the child has exited, it can mark the replica as online, and
              * start streaming the replication buffers. */
@@ -1151,44 +1160,20 @@ void migrateDataRdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *
             server.rdb_child_exit_pipe = -1;
             return;
         }
-
-        int stillAlive = 0;
-        for (i = 0; i < server.rdb_pipe_numconns; i++) {
-            int nwritten;
-            connection *conn = server.rdb_pipe_conns[i];
-            if (!conn)
+        int nwritten;
+        if ((nwritten = connWrite(server.migrate_data_fd, server.migrate_data_rdb_pipe_buff, server.migrate_data_rdb_pipe_bufflen)) == -1) {
+            if (connGetState(server.migrate_data_fd) != CONN_STATE_CONNECTED) {
+                serverLog(LL_WARNING, "Diskless rdb transfer, write error sending DB to replica: %s",
+                          connGetLastError(server.migrate_data_fd));
+                connClose(server.migrate_data_fd);
+                aeDeleteFileEvent(server.el, server.rdb_pipe_read, AE_READABLE);
                 continue;
-
-            if ((nwritten = connWrite(conn, server.rdb_pipe_buff, server.rdb_pipe_bufflen)) == -1) {
-                if (connGetState(conn) != CONN_STATE_CONNECTED) {
-                    serverLog(LL_WARNING, "Diskless rdb transfer, write error sending DB to replica: %s",
-                              connGetLastError(conn));
-                    server.rdb_pipe_conns[i] = NULL;
-                    continue;
-                }
-                /* An error and still in connected state, is equivalent to EAGAIN */
-            } else {
-                /* Note: when use diskless replication, 'repldboff' is the offset
-                 * of 'rdb_pipe_buff' sent rather than the offset of entire RDB. */
-                atomicIncr(server.stat_net_output_bytes, nwritten);
             }
-            /* If we were unable to write all the data to one of the replicas,
-             * setup write handler (and disable pipe read handler, below) */
-            if (nwritten != server.rdb_pipe_bufflen) {
-                server.rdb_pipe_numconns_writing++;
-                connSetWriteHandler(conn, rdbPipeWriteHandler);
-            }
-            stillAlive++;
-        }
-
-        if (stillAlive == 0) {
-            serverLog(LL_WARNING, "Diskless rdb transfer, last replica dropped, killing fork child.");
-            killRDBChild();
-        }
-        /*  Remove the pipe read handler if at least one write handler was set. */
-        if (server.rdb_pipe_numconns_writing || stillAlive == 0) {
-            aeDeleteFileEvent(server.el, server.rdb_pipe_read, AE_READABLE);
-            break;
+            /* An error and still in connected state, is equivalent to EAGAIN */
+        } else {
+            /* Note: when use diskless replication, 'repldboff' is the offset
+             * of 'rdb_pipe_buff' sent rather than the offset of entire RDB. */
+            atomicIncr(server.stat_net_output_bytes, nwritten);
         }
     }
 }
@@ -2073,8 +2058,8 @@ void importDataReadSyncBulkPayload(connection *conn) {
     server.migrateRsi = rsi;
     pthread_t thread;
     server.import_data_state = IMPORT_DATA_FINISH_RECEIVE_RDB;
-    connSetWriteHandler(conn,NULL);
-    connSetReadHandler(conn,NULL);
+    connSetWriteHandler(conn, NULL);
+    connSetReadHandler(conn, NULL);
     pthread_create(&thread, NULL, importDataBackgroundJobs, NULL);
     return;
 
@@ -2122,7 +2107,7 @@ char *sendCommandRaw(connection *conn, sds cmd, long long timeout) {
  * The command returns an sds string representing the result of the
  * operation. On error the first byte is a "-".
  */
-char *sendCommand(connection *conn,long long timeout, ...) {
+char *sendCommand(connection *conn, long long timeout, ...) {
     va_list ap;
     sds cmd = sdsempty();
     sds cmdargs = sdsempty();

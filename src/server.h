@@ -1574,6 +1574,8 @@ struct redisServer {
     client * import_data_client;
     time_t import_data_transfer_lastio;
     rdbSaveInfo migrateRsi;
+    char *migrate_data_rdb_pipe_buff;            /* In diskless replication, this buffer holds data */
+    int migrate_data_rdb_pipe_bufflen;           /* that was read from the the rdb pipe. */
 };
 
 typedef struct pubsubPattern {

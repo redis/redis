@@ -1338,7 +1338,6 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
 }
 
 
-
 int migrateDataRdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
     dictIterator *di = NULL;
     dictEntry *de;
@@ -1451,6 +1450,7 @@ int migrateDataRdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) 
     if (di) dictReleaseIterator(di);
     return C_ERR;
 }
+
 int migrateDataRdbSaveRioWithEOFMark(rio *rdb, int *error, rdbSaveInfo *rsi) {
     char eofmark[RDB_EOF_MARK_SIZE];
 
@@ -2875,6 +2875,8 @@ static void backgroundSaveDoneHandlerSocket(int exitcode, int bysignal) {
     server.rdb_pipe_numconns = 0;
     server.rdb_pipe_numconns_writing = 0;
     zfree(server.rdb_pipe_buff);
+    zfree(server.migrate_data_rdb_pipe_buff);
+    server.migrate_data_rdb_pipe_bufflen = 0;
     server.rdb_pipe_buff = NULL;
     server.rdb_pipe_bufflen = 0;
 }
@@ -3063,10 +3065,6 @@ int migrateDataRdbSaveToTargetSockets(rdbSaveInfo *rsi, connection *conn) {
 
     /* Collect the connections of the replicas we want to transfer
      * the RDB to, which are i WAIT_BGSAVE_START state. */
-    server.rdb_pipe_conns = zmalloc(sizeof(connection *));
-    server.rdb_pipe_numconns = 0;
-    server.rdb_pipe_numconns_writing = 0;
-    server.rdb_pipe_conns[server.rdb_pipe_numconns++] = conn;
 
     /* Create the child process. */
     if ((childpid = redisFork(CHILD_TYPE_RDB)) == 0) {
@@ -3118,6 +3116,7 @@ int migrateDataRdbSaveToTargetSockets(rdbSaveInfo *rsi, connection *conn) {
             server.rdb_save_time_start = time(NULL);
             server.rdb_child_type = RDB_CHILD_TYPE_SOCKET;
             close(rdb_pipe_write); /* close write in parent so that it can detect the close on the child. */
+            serverLog(LL_NOTICE, "Background RDB transfer started by fid %d",conn->fd);
             if (aeCreateFileEvent(server.el, server.rdb_pipe_read, AE_READABLE, migrateDataRdbPipeReadHandler, NULL) ==
                 AE_ERR) {
                 serverPanic("Unrecoverable error creating server.rdb_pipe_read file event.");

@@ -20,6 +20,7 @@ void migrateDataWaitTarget(connection *conn) {
             serverLog(LL_WARNING, "target fail to finish migrate data");
             connSetReadHandler(conn, NULL);
             connSetWriteHandler(conn, NULL);
+            sdsfree(server.migrate_data_buf);
             server.migrate_data_state = MIGRATE_DATA_FAIL_RECEIVE_ID;
             connClose(conn);
             return;
@@ -28,6 +29,7 @@ void migrateDataWaitTarget(connection *conn) {
     if (server.migrate_data_state == MIGRATE_DATA_BEGIN_INCREMENT) {
         int buflen = sdslen(server.migrate_data_buf);
         if (buflen == 0) {
+            serverLog(LL_WARNING, "success to send increment data");
             sdsfree(server.migrate_data_buf);
             connClose(conn);
             server.migrate_data_state = MIGRATE_DATA_INIT;
@@ -122,7 +124,7 @@ void migrateDataCommand(client *c) {
     server.endSlot = endSlot;
 
     server.migrate_data_fd = server.tls_replication ? connCreateTLS() : connCreateSocket();
-    if (connConnect(server.migrate_data_fd, key->ptr, port,NET_FIRST_BIND_ADDR, startMigrateData) == C_ERR) {
+    if (connConnect(server.migrate_data_fd, key->ptr, (int)port,NET_FIRST_BIND_ADDR, startMigrateData) == C_ERR) {
         serverLog(LL_WARNING, "Unable to connect to target to migrate data by rdb");
         connClose(server.migrate_data_fd);
         server.startSlot = -1;
