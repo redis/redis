@@ -793,33 +793,25 @@ size_t rdbSaveStreamConsumers(rio *rdb, streamCG *cg) {
 /* Save a Redis object.
  * Returns -1 on error, number of bytes written on success. */
 ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
-    printf("frida00\n");
     ssize_t n = 0, nwritten = 0;
 
     if (o->type == OBJ_STRING) {
-        printf("frida11\n");
         /* Save a string value */
         if ((n = rdbSaveStringObject(rdb,o)) == -1) return -1;
         nwritten += n;
     } else if (o->type == OBJ_LIST) {
-        printf("frida22a\n");
         /* Save a list value */
         if (o->encoding == OBJ_ENCODING_QUICKLIST) {
-            printf("frida33\n");
             quicklist *ql = o->ptr;
-            printf("frida44\n");
             quicklistNode *node = ql->head;
 
             if ((n = rdbSaveLen(rdb,ql->len)) == -1) return -1;
             nwritten += n;
 
             while(node) {
-                printf("frida55\n");
                 if ((n = rdbSaveLen(rdb,node->container)) == -1) return -1;
-                printf("frida66\n");
                 nwritten += n;
 
-                printf("frida77\n");
 
                 if (quicklistNodeIsCompressed(node)) {
                     void *data;
@@ -1552,7 +1544,6 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid) {
 
         /* Load every single element of the list */
         while(len--) {
-            printf("frida7\n");
             if ((ele = rdbLoadEncodedStringObject(rdb)) == NULL) {
                 decrRefCount(o);
                 return NULL;
@@ -1797,50 +1788,33 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid) {
         /* All pairs should be read by now */
         serverAssert(len == 0);
     } else if (rdbtype == RDB_TYPE_LIST_QUICKLIST) {
-
-        printf("frida8\n");
         if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
         o = createQuicklistObject();
         quicklistSetOptions(o->ptr, server.list_max_ziplist_size,
                             server.list_compress_depth);
-
+        int container = 0;
         while (len--) {
             size_t encoded_len;
-
-            // TODO
-            printf("fridab10\n");
-
-                           int container = 0;
             if ((container = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
-                     printf("fridab10000 - container=%d\n", container);
             unsigned char *zl =
                 rdbGenericLoadStringObject(rdb,RDB_LOAD_PLAIN,&encoded_len);
 
-            printf("fridab - container=%d\n", container);
-
             if (zl == NULL) {
-                printf("frida20b\n");
                 decrRefCount(o);
                 return NULL;
             }
-            printf("frida21b\n");
             if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
-            printf("frida22b\n");
             if (container == QUICKLIST_NODE_CONTAINER_NONE ) {
-                printf("fridayaacov1\n");
                 quicklistAppendEntry(o->ptr, zl, encoded_len);
                 continue;
             } else if (!ziplistValidateIntegrity(zl, encoded_len, deep_integrity_validation, NULL, NULL)) {
                 rdbReportCorruptRDB("Ziplist integrity check failed.");
                 decrRefCount(o);
                 zfree(zl);
-                printf("frida23\n");
                 return NULL;
             }
 
-            printf("frida24\n");
             quicklistAppendZiplist(o->ptr, zl);
-            printf("frida25\n");
         }
     } else if (rdbtype == RDB_TYPE_HASH_ZIPMAP  ||
                rdbtype == RDB_TYPE_LIST_ZIPLIST ||

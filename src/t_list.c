@@ -28,6 +28,7 @@
  */
 
 #include "server.h"
+
 /*-----------------------------------------------------------------------------
  * List API
  *----------------------------------------------------------------------------*/
@@ -289,7 +290,6 @@ void linsertCommand(client *c) {
     if ((subject = lookupKeyWriteOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,subject,OBJ_LIST)) return;
 
-
     /* Seek pivot from head to tail */
     iter = listTypeInitIterator(subject,0,LIST_TAIL);
     while (listTypeNext(iter,&entry)) {
@@ -311,6 +311,7 @@ void linsertCommand(client *c) {
         addReplyLongLong(c,-1);
         return;
     }
+
     addReplyLongLong(c,listTypeLength(subject));
 }
 
@@ -331,7 +332,6 @@ void lindexCommand(client *c) {
         return;
 
     if (o->encoding == OBJ_ENCODING_QUICKLIST) {
-        printf("frida - lindexCommand1\n");
         quicklistEntry entry;
         if (quicklistIndex(o->ptr, index, &entry)) {
             if (entry.value) {
