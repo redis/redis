@@ -78,21 +78,31 @@ typedef struct sentinelAddr {
 #define SRI_SCRIPT_KILL_SENT (1<<12) /* SCRIPT KILL already sent on -BUSY */
 
 /* Note: times are in milliseconds. */
-#define SENTINEL_INFO_PERIOD 10000
-#define SENTINEL_PING_PERIOD 1000
-#define SENTINEL_ASK_PERIOD 1000
-#define SENTINEL_PUBLISH_PERIOD 2000
-#define SENTINEL_DEFAULT_DOWN_AFTER 30000
+static int sentinel_info_period = 10000;
+static int sentinel_ping_period = 1000;
+static int sentinel_ask_period = 1000;
+static int sentinel_publish_period = 1000;
+
+static int sentinel_tilt_trigger = 2000;
+static int sentinel_tilt_period = 1000 * 30;
+static int sentinel_slave_reconf_timeout = 10000;
+static int sentinel_min_link_reconnect_period = 15000;
+static int sentinel_election_timeout = 10000;
+static int sentinel_script_max_runtime = 60000;  /* 60 seconds max exec time. */
+static int sentinel_script_retry_delay = 30000;  /* 30 seconds between retries. */
+
+
+#define SENTINEL_DEFAUT_DOWN_AFTER 30000
 #define SENTINEL_HELLO_CHANNEL "__sentinel__:hello"
-#define SENTINEL_TILT_TRIGGER 2000
-#define SENTINEL_TILT_PERIOD (SENTINEL_PING_PERIOD*30)
+
+
 #define SENTINEL_DEFAULT_SLAVE_PRIORITY 100
-#define SENTINEL_SLAVE_RECONF_TIMEOUT 10000
+
 #define SENTINEL_DEFAULT_PARALLEL_SYNCS 1
-#define SENTINEL_MIN_LINK_RECONNECT_PERIOD 15000
+
 #define SENTINEL_DEFAULT_FAILOVER_TIMEOUT (60*3*1000)
 #define SENTINEL_MAX_PENDING_COMMANDS 100
-#define SENTINEL_ELECTION_TIMEOUT 10000
+
 #define SENTINEL_MAX_DESYNC 1000
 #define SENTINEL_DEFAULT_DENY_SCRIPTS_RECONFIG 1
 #define SENTINEL_DEFAULT_RESOLVE_HOSTNAMES 0
@@ -123,9 +133,8 @@ typedef struct sentinelAddr {
 #define SENTINEL_SCRIPT_RUNNING 1
 #define SENTINEL_SCRIPT_MAX_QUEUE 256
 #define SENTINEL_SCRIPT_MAX_RUNNING 16
-#define SENTINEL_SCRIPT_MAX_RUNTIME 60000 /* 60 seconds max exec time. */
 #define SENTINEL_SCRIPT_MAX_RETRY 10
-#define SENTINEL_SCRIPT_RETRY_DELAY 30000 /* 30 seconds between retries. */
+
 
 /* SENTINEL SIMULATE-FAILURE command flags. */
 #define SENTINEL_SIMFAILURE_NONE 0
@@ -578,6 +587,10 @@ void sentinelIsRunning(void) {
     }
 
     /* Log its ID to make debugging of issues simpler. */
+    serverLog(LL_WARNING,"Sentinel info-period is %d", sentinel_info_period);
+    serverLog(LL_WARNING,"Sentinel ask-period is %d", sentinel_ask_period);
+    serverLog(LL_WARNING,"Sentinel ping-period is %d", sentinel_ping_period);
+    serverLog(LL_WARNING,"Sentinel publish-period is %d", sentinel_publish_period);
     serverLog(LL_WARNING,"Sentinel ID is %s", sentinel.myid);
 
     /* We want to generate a +monitor event for every configured master
@@ -891,7 +904,7 @@ void sentinelRunPendingScripts(void) {
  * starting from the second attempt to execute the script the delays are:
  * 30 sec, 60 sec, 2 min, 4 min, 8 min, 16 min, 32 min, 64 min, 128 min. */
 mstime_t sentinelScriptRetryDelay(int retry_num) {
-    mstime_t delay = SENTINEL_SCRIPT_RETRY_DELAY;
+    mstime_t delay = sentinel_script_retry_delay;
 
     while (retry_num-- > 1) delay *= 2;
     return delay;
@@ -958,7 +971,7 @@ void sentinelKillTimedoutScripts(void) {
         sentinelScriptJob *sj = ln->value;
 
         if (sj->flags & SENTINEL_SCRIPT_RUNNING &&
-            (now - sj->start_time) > SENTINEL_SCRIPT_MAX_RUNTIME)
+            (now - sj->start_time) > sentinel_script_max_runtime)
         {
             sentinelEvent(LL_WARNING,"-script-timeout",NULL,"%s %ld",
                 sj->argv[0], (long)sj->pid);
@@ -1331,7 +1344,7 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
     ri->s_down_since_time = 0;
     ri->o_down_since_time = 0;
     ri->down_after_period = master ? master->down_after_period :
-                            SENTINEL_DEFAULT_DOWN_AFTER;
+                            SENTINEL_DEFAUT_DOWN_AFTER;
     ri->master_link_down_time = 0;
     ri->auth_pass = NULL;
     ri->auth_user = NULL;
@@ -2004,7 +2017,7 @@ const char *sentinelHandleConfiguration(char **argv, int argc) {
             return "Same command renamed multiple times with rename-command.";
         }
     } else if (!strcasecmp(argv[0],"announce-ip") && argc == 2) {
-        /* announce-ip <ip-address> */
+        /* announce-ip <ip-address> */  
         if (strlen(argv[1]))
             sentinel.announce_ip = sdsnew(argv[1]);
     } else if (!strcasecmp(argv[0],"announce-port") && argc == 2) {
@@ -2034,10 +2047,45 @@ const char *sentinelHandleConfiguration(char **argv, int argc) {
         if ((sentinel.announce_hostnames = yesnotoi(argv[1])) == -1) {
             return "Please specify yes or no for the announce-hostnames option.";
         }
-    } else {
+    } else if (!strcasecmp(argv[0],"info-period") && argc == 2) {
+        /* info-period <milliseconds> */
+        sentinel_info_period = atoi(argv[1]);
+    } else if (!strcasecmp(argv[0],"ping-period") && argc == 2) {
+        /* ping-period <milliseconds> */
+        sentinel_ping_period = atoi(argv[1]);
+    } else if (!strcasecmp(argv[0],"ask-period") && argc == 2) {
+        /* ask-period <milliseconds> */
+        sentinel_ask_period = atoi(argv[1]);
+    } else if (!strcasecmp(argv[0],"publish-period") && argc == 2) {
+        /* publish-period <milliseconds> */
+        sentinel_publish_period = atoi(argv[1]);
+    } else if (!strcasecmp(argv[0],"tilt_trigger") && argc == 2) {
+        /* tilt_trigger <milliseconds> */
+        sentinel_tilt_trigger = atoi(argv[1]);
+    } else if (!strcasecmp(argv[0],"tilt_period") && argc == 2) {
+        /* tilt_period <milliseconds> */
+        sentinel_tilt_period = atoi(argv[1]);
+    } else if (!strcasecmp(argv[0],"slave_reconf_timeout") && argc == 2) {
+        /* slave_reconf_timeout <milliseconds> */
+        sentinel_slave_reconf_timeout = atoi(argv[1]);
+    } else if (!strcasecmp(argv[0],"min_link_reconnect_period") && argc == 2) {
+        /* min_link_reconnect_period <milliseconds> */
+        sentinel_min_link_reconnect_period = atoi(argv[1]);
+    } else if (!strcasecmp(argv[0],"election_timeout") && argc == 2) {
+        /* election_timeout <milliseconds> */
+        sentinel_election_timeout = atoi(argv[1]);
+    } else if (!strcasecmp(argv[0],"script_max_runtime") && argc == 2) {
+        /* script_max_runtime <milliseconds> */
+        sentinel_script_max_runtime = atoi(argv[1]);
+    } else if (!strcasecmp(argv[0],"script_retry_delay") && argc == 2) {
+        /* script_retry_delay <milliseconds> */
+        sentinel_script_retry_delay = atoi(argv[1]);
+    } 
+    else {
         return "Unrecognized sentinel configuration statement.";
     }
     return NULL;
+    
 }
 
 /* Implements CONFIG REWRITE for "sentinel" option.
@@ -2091,7 +2139,7 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
         /* rewriteConfigMarkAsProcessed is handled after the loop */
 
         /* sentinel down-after-milliseconds */
-        if (master->down_after_period != SENTINEL_DEFAULT_DOWN_AFTER) {
+        if (master->down_after_period != SENTINEL_DEFAUT_DOWN_AFTER) {
             line = sdscatprintf(sdsempty(),
                 "sentinel down-after-milliseconds %s %ld",
                 master->name, (long) master->down_after_period);
@@ -2398,7 +2446,7 @@ void sentinelReconnectInstance(sentinelRedisInstance *ri) {
     instanceLink *link = ri->link;
     mstime_t now = mstime();
 
-    if (now - ri->link->last_reconn_time < SENTINEL_PING_PERIOD) return;
+    if (now - ri->link->last_reconn_time < sentinel_ping_period) return;
     ri->link->last_reconn_time = now;
 
     /* Commands connection. */
@@ -2486,7 +2534,7 @@ int sentinelMasterLooksSane(sentinelRedisInstance *master) {
         master->flags & SRI_MASTER &&
         master->role_reported == SRI_MASTER &&
         (master->flags & (SRI_S_DOWN|SRI_O_DOWN)) == 0 &&
-        (mstime() - master->info_refresh) < SENTINEL_INFO_PERIOD*2;
+        (mstime() - master->info_refresh) < sentinel_info_period*2;
 }
 
 /* Process the INFO output from masters. */
@@ -2679,7 +2727,7 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
             /* A slave turned into a master. We want to force our view and
              * reconfigure as slave. Wait some time after the change before
              * going forward, to receive new configs if any. */
-            mstime_t wait_time = SENTINEL_PUBLISH_PERIOD*4;
+            mstime_t wait_time = sentinel_publish_period*4;
 
             if (!(ri->flags & SRI_PROMOTED) &&
                  sentinelMasterLooksSane(ri->master) &&
@@ -3020,8 +3068,8 @@ void sentinelForceHelloUpdateDictOfRedisInstances(dict *instances) {
     di = dictGetSafeIterator(instances);
     while((de = dictNext(di)) != NULL) {
         sentinelRedisInstance *ri = dictGetVal(de);
-        if (ri->last_pub_time >= (SENTINEL_PUBLISH_PERIOD+1))
-            ri->last_pub_time -= (SENTINEL_PUBLISH_PERIOD+1);
+        if (ri->last_pub_time >= (sentinel_publish_period+1))
+            ri->last_pub_time -= (sentinel_publish_period+1);
     }
     dictReleaseIterator(di);
 }
@@ -3036,8 +3084,8 @@ void sentinelForceHelloUpdateDictOfRedisInstances(dict *instances) {
  * to the other Sentinels ASAP. */
 int sentinelForceHelloUpdateForMaster(sentinelRedisInstance *master) {
     if (!(master->flags & SRI_MASTER)) return C_ERR;
-    if (master->last_pub_time >= (SENTINEL_PUBLISH_PERIOD+1))
-        master->last_pub_time -= (SENTINEL_PUBLISH_PERIOD+1);
+    if (master->last_pub_time >= (sentinel_publish_period+1))
+        master->last_pub_time -= (sentinel_publish_period+1);
     sentinelForceHelloUpdateDictOfRedisInstances(master->sentinels);
     sentinelForceHelloUpdateDictOfRedisInstances(master->slaves);
     return C_OK;
@@ -3100,14 +3148,14 @@ void sentinelSendPeriodicCommands(sentinelRedisInstance *ri) {
     {
         info_period = 1000;
     } else {
-        info_period = SENTINEL_INFO_PERIOD;
+        info_period = sentinel_info_period;
     }
 
     /* We ping instances every time the last received pong is older than
      * the configured 'down-after-milliseconds' time, but every second
      * anyway if 'down-after-milliseconds' is greater than 1 second. */
     ping_period = ri->down_after_period;
-    if (ping_period > SENTINEL_PING_PERIOD) ping_period = SENTINEL_PING_PERIOD;
+    if (ping_period > sentinel_ping_period) ping_period = sentinel_ping_period;
 
     /* Send INFO to masters and slaves, not sentinels. */
     if ((ri->flags & SRI_SENTINEL) == 0 &&
@@ -3127,7 +3175,7 @@ void sentinelSendPeriodicCommands(sentinelRedisInstance *ri) {
     }
 
     /* PUBLISH hello messages to all the three kinds of instances. */
-    if ((now - ri->last_pub_time) > SENTINEL_PUBLISH_PERIOD) {
+    if ((now - ri->last_pub_time) > sentinel_publish_period) {
         sentinelSendHello(ri);
     }
 }
@@ -4166,7 +4214,7 @@ void sentinelCheckSubjectivelyDown(sentinelRedisInstance *ri) {
      *    pending ping for more than half the timeout. */
     if (ri->link->cc &&
         (mstime() - ri->link->cc_conn_time) >
-        SENTINEL_MIN_LINK_RECONNECT_PERIOD &&
+        sentinel_min_link_reconnect_period &&
         ri->link->act_ping_time != 0 && /* There is a pending ping... */
         /* The pending ping is delayed, and we did not receive
          * error replies as well. */
@@ -4183,8 +4231,8 @@ void sentinelCheckSubjectivelyDown(sentinelRedisInstance *ri) {
      */
     if (ri->link->pc &&
         (mstime() - ri->link->pc_conn_time) >
-         SENTINEL_MIN_LINK_RECONNECT_PERIOD &&
-        (mstime() - ri->link->pc_last_activity) > (SENTINEL_PUBLISH_PERIOD*3))
+         sentinel_min_link_reconnect_period &&
+        (mstime() - ri->link->pc_last_activity) > (sentinel_publish_period*3))
     {
         instanceLinkCloseConnection(ri->link,ri->link->pc);
     }
@@ -4199,7 +4247,7 @@ void sentinelCheckSubjectivelyDown(sentinelRedisInstance *ri) {
         (ri->flags & SRI_MASTER &&
          ri->role_reported == SRI_SLAVE &&
          mstime() - ri->role_reported_time >
-          (ri->down_after_period+SENTINEL_INFO_PERIOD*2)))
+          (ri->down_after_period+sentinel_info_period*2)))
     {
         /* Is subjectively down */
         if ((ri->flags & SRI_S_DOWN) == 0) {
@@ -4314,7 +4362,7 @@ void sentinelAskMasterStateToOtherSentinels(sentinelRedisInstance *master, int f
         int retval;
 
         /* If the master state from other sentinel is too old, we clear it. */
-        if (elapsed > SENTINEL_ASK_PERIOD*5) {
+        if (elapsed > sentinel_ask_period*5) {
             ri->flags &= ~SRI_MASTER_DOWN;
             sdsfree(ri->leader);
             ri->leader = NULL;
@@ -4328,7 +4376,7 @@ void sentinelAskMasterStateToOtherSentinels(sentinelRedisInstance *master, int f
         if ((master->flags & SRI_S_DOWN) == 0) continue;
         if (ri->link->disconnected) continue;
         if (!(flags & SENTINEL_ASK_FORCED) &&
-            mstime() - ri->last_master_down_reply_time < SENTINEL_ASK_PERIOD)
+            mstime() - ri->last_master_down_reply_time < sentinel_ask_period)
             continue;
 
         /* Ask */
@@ -4693,16 +4741,16 @@ sentinelRedisInstance *sentinelSelectSlave(sentinelRedisInstance *master) {
 
         if (slave->flags & (SRI_S_DOWN|SRI_O_DOWN)) continue;
         if (slave->link->disconnected) continue;
-        if (mstime() - slave->link->last_avail_time > SENTINEL_PING_PERIOD*5) continue;
+        if (mstime() - slave->link->last_avail_time > sentinel_ping_period*5) continue;
         if (slave->slave_priority == 0) continue;
 
         /* If the master is in SDOWN state we get INFO for slaves every second.
          * Otherwise we get it with the usual period so we need to account for
          * a larger delay. */
         if (master->flags & SRI_S_DOWN)
-            info_validity_time = SENTINEL_PING_PERIOD*5;
+            info_validity_time = sentinel_ping_period*5;
         else
-            info_validity_time = SENTINEL_INFO_PERIOD*3;
+            info_validity_time = sentinel_info_period*3;
         if (mstime() - slave->info_refresh > info_validity_time) continue;
         if (slave->master_link_down_time > max_master_down_time) continue;
         instance[instances++] = slave;
@@ -4730,7 +4778,7 @@ void sentinelFailoverWaitStart(sentinelRedisInstance *ri) {
     /* If I'm not the leader, and it is not a forced failover via
      * SENTINEL FAILOVER, then I can't continue with the failover. */
     if (!isleader && !(ri->flags & SRI_FORCE_FAILOVER)) {
-        int election_timeout = SENTINEL_ELECTION_TIMEOUT;
+        int election_timeout = sentinel_election_timeout;
 
         /* The election timeout is the MIN between SENTINEL_ELECTION_TIMEOUT
          * and the configured failover timeout. */
@@ -4900,7 +4948,7 @@ void sentinelFailoverReconfNextSlave(sentinelRedisInstance *master) {
          * configuration later. */
         if ((slave->flags & SRI_RECONF_SENT) &&
             (mstime() - slave->slave_reconf_sent_time) >
-            SENTINEL_SLAVE_RECONF_TIMEOUT)
+            sentinel_slave_reconf_timeout)
         {
             sentinelEvent(LL_NOTICE,"-slave-reconf-sent-timeout",slave,"%@");
             slave->flags &= ~SRI_RECONF_SENT;
@@ -5000,7 +5048,7 @@ void sentinelHandleRedisInstance(sentinelRedisInstance *ri) {
      * TILT happens when we find something odd with the time, like a
      * sudden change in the clock. */
     if (sentinel.tilt) {
-        if (mstime()-sentinel.tilt_start_time < SENTINEL_TILT_PERIOD) return;
+        if (mstime()-sentinel.tilt_start_time < sentinel_tilt_period) return;
         sentinel.tilt = 0;
         sentinelEvent(LL_WARNING,"-tilt",NULL,"#tilt mode exited");
     }
@@ -5072,7 +5120,7 @@ void sentinelCheckTiltCondition(void) {
     mstime_t now = mstime();
     mstime_t delta = now - sentinel.previous_time;
 
-    if (delta < 0 || delta > SENTINEL_TILT_TRIGGER) {
+    if (delta < 0 || delta > sentinel_tilt_trigger) {
         sentinel.tilt = 1;
         sentinel.tilt_start_time = mstime();
         sentinelEvent(LL_WARNING,"+tilt",NULL,"#tilt mode entered");
