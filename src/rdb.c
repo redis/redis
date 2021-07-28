@@ -812,7 +812,6 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
                 if ((n = rdbSaveLen(rdb,node->container)) == -1) return -1;
                 nwritten += n;
 
-
                 if (quicklistNodeIsCompressed(node)) {
                     void *data;
                     size_t compress_len = quicklistGetLzf(node, &data);
@@ -1792,13 +1791,13 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid) {
         o = createQuicklistObject();
         quicklistSetOptions(o->ptr, server.list_max_ziplist_size,
                             server.list_compress_depth);
-        int container = 0;
+        uint64_t container = 0;
         while (len--) {
             size_t encoded_len;
             if ((container = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
+
             unsigned char *zl =
                 rdbGenericLoadStringObject(rdb,RDB_LOAD_PLAIN,&encoded_len);
-
             if (zl == NULL) {
                 decrRefCount(o);
                 return NULL;
@@ -1807,13 +1806,13 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid) {
             if (container == QUICKLIST_NODE_CONTAINER_NONE ) {
                 quicklistAppendEntry(o->ptr, zl, encoded_len);
                 continue;
-            } else if (!ziplistValidateIntegrity(zl, encoded_len, deep_integrity_validation, NULL, NULL)) {
+            }
+            if (!ziplistValidateIntegrity(zl, encoded_len, deep_integrity_validation, NULL, NULL)) {
                 rdbReportCorruptRDB("Ziplist integrity check failed.");
                 decrRefCount(o);
                 zfree(zl);
                 return NULL;
             }
-
             quicklistAppendZiplist(o->ptr, zl);
         }
     } else if (rdbtype == RDB_TYPE_HASH_ZIPMAP  ||

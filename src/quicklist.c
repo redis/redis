@@ -143,7 +143,7 @@ quicklist *quicklistNew(int fill, int compress) {
 
 void quicklistRepr(unsigned char *ql)
 {
-    quicklist *quicklist  = ql;
+    quicklist *quicklist  = (struct quicklist*) ql;
 
     printf("count=%ld\n", quicklist->count);
     printf("len=%ld\n", quicklist->len);
@@ -769,7 +769,7 @@ void quicklistDelEntry(quicklistIter *iter, quicklistEntry *entry) {
  * Returns 1 if replace happened.
  * Returns 0 if replace failed and no changes happened. */
 int quicklistReplaceAtIndex(quicklist *quicklist, long index, void *data,
-                            int sz) {
+                            size_t sz) {
     quicklistEntry entry;
     if (likely(quicklistIndex(quicklist, index, &entry))) {
         if(unlikely(entry.node->container == QUICKLIST_NODE_CONTAINER_NONE)) {
@@ -1178,10 +1178,9 @@ int quicklistDelRange(quicklist *quicklist, const long start,
 }
 
 /* Passthrough to ziplistCompare() */
-int quicklistCompare(quicklistEntry* entry, unsigned char *p2, int p2_len) {
-
+int quicklistCompare(quicklistEntry* entry, unsigned char *p2, const size_t p2_len) {
     if(unlikely(entry->node->container == QUICKLIST_NODE_CONTAINER_NONE)) {
-        return  (strncmp(entry->value ,p2,sdslen(p2)) == 0);
+        return  (strncmp((char *)entry->value ,(char *)p2,sdslen((char*)p2)) == 0);
     }
     return ziplistCompare(entry->zi, p2, p2_len);
 }
@@ -1318,7 +1317,7 @@ int quicklistNext(quicklistIter *iter, quicklistEntry *entry) {
 
     if (iter->zi) {
         /* Populate value from existing ziplist position */
-        ziplistGet(entry->zi, &entry->value, &entry->sz, &entry->longval);
+        ziplistGet(entry->zi, &entry->value, (unsigned int*) &entry->sz, &entry->longval);
         return 1;
     } else {
         /* We ran out of ziplist entries.
@@ -1442,7 +1441,7 @@ int quicklistIndex(const quicklist *quicklist, const long long idx,
     }
 
     entry->zi = ziplistIndex(entry->node->zl, entry->offset);
-    if (!ziplistGet(entry->zi, &entry->value, &entry->sz, &entry->longval))
+    if (!ziplistGet(entry->zi, &entry->value, (unsigned int*) &entry->sz, &entry->longval))
         assert(0); /* This can happen on corrupt ziplist with fake entry count. */
     /* The caller will use our result, so we don't re-compress here.
      * The caller can recompress or delete the node as needed. */
@@ -1461,9 +1460,9 @@ void quicklistRotate(quicklist *quicklist) {
     unsigned char *p = ziplistIndex(quicklist->tail->zl, -1);
     unsigned char *value, *tmp;
     long long longval;
-    unsigned int sz;
+    size_t sz;
     char longstr[32] = {0};
-    ziplistGet(p, &tmp, &sz, &longval);
+    ziplistGet(p, &tmp, (unsigned int*) &sz, &longval);
 
     /* If value found is NULL, then ziplistGet populated longval instead */
     if (!tmp) {
@@ -1505,8 +1504,8 @@ void quicklistRotate(quicklist *quicklist) {
  * Return value of 1 means check 'data' and 'sval' for values.
  * If 'data' is set, use 'data' and 'sz'.  Otherwise, use 'sval'. */
 int quicklistPopCustom(quicklist *quicklist, int where, unsigned char **data,
-                       unsigned int *sz, long long *sval,
-                       void *(*saver)(unsigned char *data, unsigned int sz)) {
+                       size_t *sz, long long *sval,
+                       void *(*saver)(unsigned char *data, size_t sz)) {
     unsigned char *p;
     unsigned char *vstr;
     unsigned int vlen;
@@ -1562,7 +1561,7 @@ int quicklistPopCustom(quicklist *quicklist, int where, unsigned char **data,
 }
 
 /* Return a malloc'd copy of data passed in */
-REDIS_STATIC void *_quicklistSaver(unsigned char *data, unsigned int sz) {
+REDIS_STATIC void *_quicklistSaver(unsigned char *data, size_t sz) {
     unsigned char *vstr;
     if (data) {
         vstr = zmalloc(sz);
@@ -1576,9 +1575,9 @@ REDIS_STATIC void *_quicklistSaver(unsigned char *data, unsigned int sz) {
  *
  * Returns malloc'd value from quicklist */
 int quicklistPop(quicklist *quicklist, int where, unsigned char **data,
-                 unsigned int *sz, long long *slong) {
+                 size_t *sz, long long *slong) {
     unsigned char *vstr;
-    unsigned int vlen;
+    size_t vlen;
     long long vlong;
     if (quicklist->count == 0)
         return 0;

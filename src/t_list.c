@@ -53,7 +53,7 @@ void listTypePush(robj *subject, robj *value, int where) {
     }
 }
 
-void *listPopSaver(unsigned char *data, unsigned int sz) {
+void *listPopSaver(unsigned char *data, size_t sz) {
     return createStringObject((char*)data,sz);
 }
 
