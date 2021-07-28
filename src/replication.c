@@ -1759,7 +1759,7 @@ void readSyncBulkPayload(connection *conn) {
             stopLoading(0);
             serverLog(LL_WARNING,
                 "Failed trying to load the MASTER synchronization DB "
-                "from socket");
+                "from socket: %s", strerror(errno));
             cancelReplicationHandshake(1);
             rioFreeConn(&rdb, NULL);
 
