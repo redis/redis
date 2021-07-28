@@ -1835,6 +1835,11 @@ static int parseOptions(int argc, char **argv) {
         }
     }
 
+    if (config.hostsocket && config.cluster_mode) {
+        fprintf(stderr,"Options -c and -s are mutualluy exclusive.\n");
+        exit(1);
+    }
+
     /* --ldb requires --eval. */
     if (config.eval_ldb && config.eval == NULL) {
         fprintf(stderr,"Options --ldb and --ldb-sync-mode require --eval.\n");
@@ -2051,36 +2056,32 @@ static sds *getSdsArrayFromArgv(int argc, char **argv, int quoted) {
 
 static int issueCommandRepeat(int argc, char **argv, long repeat) {
     while (1) {
-        config.cluster_reissue_command = 0;
-        if (config.cluster_send_asking) {
-            if (cliSendAsking() != REDIS_OK) {
-                if (cliConnect(CC_FORCE) != REDIS_OK) {
-                    return REDIS_ERR;
-                }
-                if (cliSendAsking() != REDIS_OK) {
-                    return REDIS_ERR;
-                }
-            }
-        }
-        if (cliSendCommand(argc,argv,repeat) != REDIS_OK) {
-            cliConnect(CC_FORCE);
-
-            /* If we still cannot send the command print error.
-             * We'll try to reconnect the next time. */
-            if (cliSendCommand(argc,argv,repeat) != REDIS_OK) {
+        if (config.cluster_reissue_command || context == NULL ||
+            context->err == REDIS_ERR_IO || context->err == REDIS_ERR_EOF)
+        {
+            if (cliConnect(CC_FORCE) != REDIS_OK) {
                 cliPrintContextError();
                 return REDIS_ERR;
             }
         }
+        config.cluster_reissue_command = 0;
+        if (config.cluster_send_asking) {
+            if (cliSendAsking() != REDIS_OK) {
+                cliPrintContextError();
+                return REDIS_ERR;
+            }
+            config.cluster_send_asking = 0;
+        }
+        if (cliSendCommand(argc,argv,repeat) != REDIS_OK) {
+            cliPrintContextError();
+            return REDIS_ERR;
+        }
 
         /* Issue the command again if we got redirected in cluster mode */
         if (config.cluster_mode && config.cluster_reissue_command) {
-            /* If cliConnect fails, sleep for a while and try again. */
-            if (cliConnect(CC_FORCE) != REDIS_OK)
-                sleep(1);
-        } else {
-            break;
+            continue;
         }
+        break;
     }
     return REDIS_OK;
 }
