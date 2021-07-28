@@ -439,9 +439,7 @@ test {corrupt payload: fuzzer findings - infinite loop} {
     }
 }
 
-test {corrupt payload: fuzzer findings - hash convert asserts on RESTORE with shallow sanitization} {
-    # if we don't perform full sanitization, and the next command can assert on converting
-    # a ziplist to hash records, then we're ok with that happning in RESTORE too
+test {corrupt payload: fuzzer findings - hash ziplist too long entry len} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r debug set-skip-checksum-validation 1
         catch {

@@ -1920,7 +1920,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid) {
             case RDB_TYPE_HASH_ZIPLIST:
                 {
                     unsigned char *lp = lpNew(encoded_len);
-                    if (!hashZiplistValidateIntegrity(encoded, encoded_len, &lp)) {
+                    if (!hashZiplistConvertAndValidateIntegrity(encoded, encoded_len, &lp)) {
                         rdbReportCorruptRDB("Hash ziplist integrity check failed.");
                         zfree(lp);
                         zfree(encoded);

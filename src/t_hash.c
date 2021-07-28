@@ -557,19 +557,21 @@ static int _hashZiplistEntryValidation(unsigned char *p, void *userdata) {
     if (!ziplistGet(p, &str, &slen, &vll))
         return 0;
 
-    sds field = str? sdsnewlen(str, slen): sdsfromlonglong(vll);
-    *(data->lp) = lpAppend(*(data->lp), (unsigned char*)field, sdslen(field));
-
     /* Even records are field names, add to dict and check that's not a dup */
     if (((data->count) & 1) == 0) {
+        sds field = str? sdsnewlen(str, slen): sdsfromlonglong(vll);
         if (dictAdd(data->fields, field, NULL) != DICT_OK) {
             /* Duplicate, return an error */
             sdsfree(field);
             return 0;
         }
+    }
+
+    if (str) {
+        *(data->lp) = lpAppend(*(data->lp), (unsigned char*)str, slen);
     } else {
-        sdsfree(field);
-    } 
+        *(data->lp) = lpAppendInteger(*(data->lp), vll);
+    }
 
     (data->count)++;
     return 1;
@@ -601,9 +603,11 @@ static int _hashListpackEntryValidation(unsigned char *p, void *userdata) {
     return 1;
 }
 
-/* Validate the integrity of the data structure. The function will convert
- * ziplist to listpack and store it in 'lp' at the same time. */
-int hashZiplistValidateIntegrity(unsigned char *zl, size_t size, unsigned char **lp) {
+/* Validate the integrity of the data structure while converting it to 
+ * listpack and storing it at 'lp'.
+ * The function is safe to call on non-validated ziplists, it returns 0
+ * when encounter an integrity validation issue. */
+int hashZiplistConvertAndValidateIntegrity(unsigned char *zl, size_t size, unsigned char **lp) {
     /* Keep track of the field names to locate duplicate ones */
     struct {
         long count;

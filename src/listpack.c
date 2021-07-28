@@ -252,6 +252,58 @@ unsigned char* lpShrinkToFit(unsigned char *lp) {
     }
 }
 
+/* Stores the integer encoded representation of 'v' in the 'intenc' buffer. */
+static inline void lpEncodeIntegerGetType(int64_t v, unsigned char *intenc, uint64_t *enclen) {
+    if (v >= 0 && v <= 127) {
+        /* Single byte 0-127 integer. */
+        intenc[0] = v;
+        *enclen = 1;
+    } else if (v >= -4096 && v <= 4095) {
+        /* 13 bit integer. */
+        if (v < 0) v = ((int64_t)1<<13)+v;
+        intenc[0] = (v>>8)|LP_ENCODING_13BIT_INT;
+        intenc[1] = v&0xff;
+        *enclen = 2;
+    } else if (v >= -32768 && v <= 32767) {
+        /* 16 bit integer. */
+        if (v < 0) v = ((int64_t)1<<16)+v;
+        intenc[0] = LP_ENCODING_16BIT_INT;
+        intenc[1] = v&0xff;
+        intenc[2] = v>>8;
+        *enclen = 3;
+    } else if (v >= -8388608 && v <= 8388607) {
+        /* 24 bit integer. */
+        if (v < 0) v = ((int64_t)1<<24)+v;
+        intenc[0] = LP_ENCODING_24BIT_INT;
+        intenc[1] = v&0xff;
+        intenc[2] = (v>>8)&0xff;
+        intenc[3] = v>>16;
+        *enclen = 4;
+    } else if (v >= -2147483648 && v <= 2147483647) {
+        /* 32 bit integer. */
+        if (v < 0) v = ((int64_t)1<<32)+v;
+        intenc[0] = LP_ENCODING_32BIT_INT;
+        intenc[1] = v&0xff;
+        intenc[2] = (v>>8)&0xff;
+        intenc[3] = (v>>16)&0xff;
+        intenc[4] = v>>24;
+        *enclen = 5;
+    } else {
+        /* 64 bit integer. */
+        uint64_t uv = v;
+        intenc[0] = LP_ENCODING_64BIT_INT;
+        intenc[1] = uv&0xff;
+        intenc[2] = (uv>>8)&0xff;
+        intenc[3] = (uv>>16)&0xff;
+        intenc[4] = (uv>>24)&0xff;
+        intenc[5] = (uv>>32)&0xff;
+        intenc[6] = (uv>>40)&0xff;
+        intenc[7] = (uv>>48)&0xff;
+        intenc[8] = uv>>56;
+        *enclen = 9;
+    }
+}
+
 /* Given an element 'ele' of size 'size', determine if the element can be
  * represented inside the listpack encoded as integer, and returns
  * LP_ENCODING_INT if so. Otherwise returns LP_ENCODING_STR if no integer
@@ -266,54 +318,7 @@ unsigned char* lpShrinkToFit(unsigned char *lp) {
 static inline int lpEncodeGetType(unsigned char *ele, uint32_t size, unsigned char *intenc, uint64_t *enclen) {
     int64_t v;
     if (lpStringToInt64((const char*)ele, size, &v)) {
-        if (v >= 0 && v <= 127) {
-            /* Single byte 0-127 integer. */
-            intenc[0] = v;
-            *enclen = 1;
-        } else if (v >= -4096 && v <= 4095) {
-            /* 13 bit integer. */
-            if (v < 0) v = ((int64_t)1<<13)+v;
-            intenc[0] = (v>>8)|LP_ENCODING_13BIT_INT;
-            intenc[1] = v&0xff;
-            *enclen = 2;
-        } else if (v >= -32768 && v <= 32767) {
-            /* 16 bit integer. */
-            if (v < 0) v = ((int64_t)1<<16)+v;
-            intenc[0] = LP_ENCODING_16BIT_INT;
-            intenc[1] = v&0xff;
-            intenc[2] = v>>8;
-            *enclen = 3;
-        } else if (v >= -8388608 && v <= 8388607) {
-            /* 24 bit integer. */
-            if (v < 0) v = ((int64_t)1<<24)+v;
-            intenc[0] = LP_ENCODING_24BIT_INT;
-            intenc[1] = v&0xff;
-            intenc[2] = (v>>8)&0xff;
-            intenc[3] = v>>16;
-            *enclen = 4;
-        } else if (v >= -2147483648 && v <= 2147483647) {
-            /* 32 bit integer. */
-            if (v < 0) v = ((int64_t)1<<32)+v;
-            intenc[0] = LP_ENCODING_32BIT_INT;
-            intenc[1] = v&0xff;
-            intenc[2] = (v>>8)&0xff;
-            intenc[3] = (v>>16)&0xff;
-            intenc[4] = v>>24;
-            *enclen = 5;
-        } else {
-            /* 64 bit integer. */
-            uint64_t uv = v;
-            intenc[0] = LP_ENCODING_64BIT_INT;
-            intenc[1] = uv&0xff;
-            intenc[2] = (uv>>8)&0xff;
-            intenc[3] = (uv>>16)&0xff;
-            intenc[4] = (uv>>24)&0xff;
-            intenc[5] = (uv>>32)&0xff;
-            intenc[6] = (uv>>40)&0xff;
-            intenc[7] = (uv>>48)&0xff;
-            intenc[8] = uv>>56;
-            *enclen = 9;
-        }
+        lpEncodeIntegerGetType(v, intenc, enclen);
         return LP_ENCODING_INT;
     } else {
         if (size < 64) *enclen = 1+size;
@@ -735,10 +740,14 @@ unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s,
  * The element is inserted before, after, or replaces the element pointed
  * by 'p' depending on the 'where' argument, that can be LP_BEFORE, LP_AFTER
  * or LP_REPLACE.
- *
- * If 'ele' is set to NULL, the function removes the element pointed by 'p'
- * instead of inserting one.
- *
+ * 
+ * If 'enctype'==-1, 'ele' is NULL and the function removes the element pointed by 'p'
+ *                   instead of inserting one.
+ * If 'enctype'==LP_ENCODING_INT, the function insert or replace with a 64 bit integer,
+ *                   which is stored in the 'intenc' buffer.
+ * If 'enctype'==LP_ENCODING_STR, the function insert or replace with a string,
+ *                   which is stored in the 'ele' buffer.
+ * 
  * Returns NULL on out of memory or when the listpack total length would exceed
  * the max allowed size of 2^32-1, otherwise the new pointer to the listpack
  * holding the new element is returned (and the old pointer passed is no longer
@@ -751,16 +760,16 @@ unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s,
  * For deletion operations ('ele' set to NULL) 'newp' is set to the next
  * element, on the right of the deleted one, or to NULL if the deleted element
  * was the last one. */
-unsigned char *lpInsert(unsigned char *lp, unsigned char *ele, uint32_t size, unsigned char *p, int where, unsigned char **newp) {
-    unsigned char intenc[LP_MAX_INT_ENCODING_LEN];
+unsigned char *lpInsert(unsigned char *lp, int enctype, uint64_t enclen, unsigned char *ele,
+    uint32_t size, unsigned char *intenc, unsigned char *p, int where, unsigned char **newp)
+{
     unsigned char backlen[LP_MAX_BACKLEN_SIZE];
+    int delete = (enctype == -1); /* enctype set to -1 means deletion */
 
-    uint64_t enclen; /* The length of the encoded element. */
-
-    /* An element pointer set to NULL means deletion, which is conceptually
-     * replacing the element with a zero-length element. So whatever we
-     * get passed as 'where', set it to LP_REPLACE. */
-    if (ele == NULL) where = LP_REPLACE;
+    /* when deletion, it is conceptually replacing the element with a
+     * zero-length element. So whatever we get passed as 'where', set
+     * it to LP_REPLACE. */
+    if (delete) where = LP_REPLACE;
 
     /* If we need to insert after the current element, we just jump to the
      * next element (that could be the EOF one) and handle the case of
@@ -776,26 +785,10 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *ele, uint32_t size, un
      * address again after a reallocation. */
     unsigned long poff = p-lp;
 
-    /* Calling lpEncodeGetType() results into the encoded version of the
-     * element to be stored into 'intenc' in case it is representable as
-     * an integer: in that case, the function returns LP_ENCODING_INT.
-     * Otherwise if LP_ENCODING_STR is returned, we'll have to call
-     * lpEncodeString() to actually write the encoded string on place later.
-     *
-     * Whatever the returned encoding is, 'enclen' is populated with the
-     * length of the encoded element. */
-    int enctype;
-    if (ele) {
-        enctype = lpEncodeGetType(ele,size,intenc,&enclen);
-    } else {
-        enctype = -1;
-        enclen = 0;
-    }
-
     /* We need to also encode the backward-parsable length of the element
      * and append it to the end: this allows to traverse the listpack from
      * the end to the start. */
-    unsigned long backlen_size = ele ? lpEncodeBacklen(backlen,enclen) : 0;
+    unsigned long backlen_size = (!delete) ? lpEncodeBacklen(backlen,enclen) : 0;
     uint64_t old_listpack_bytes = lpGetTotalBytes(lp);
     uint32_t replaced_len  = 0;
     if (where == LP_REPLACE) {
@@ -845,9 +838,9 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *ele, uint32_t size, un
         *newp = dst;
         /* In case of deletion, set 'newp' to NULL if the next element is
          * the EOF element. */
-        if (!ele && dst[0] == LP_EOF) *newp = NULL;
+        if (delete && dst[0] == LP_EOF) *newp = NULL;
     }
-    if (ele) {
+    if (!delete) {
         if (enctype == LP_ENCODING_INT) {
             memcpy(dst,intenc,enclen);
         } else {
@@ -859,10 +852,10 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *ele, uint32_t size, un
     }
 
     /* Update header. */
-    if (where != LP_REPLACE || ele == NULL) {
+    if (where != LP_REPLACE || delete) {
         uint32_t num_elements = lpGetNumElements(lp);
         if (num_elements != LP_HDR_NUMELE_UNKNOWN) {
-            if (ele)
+            if (!delete)
                 lpSetNumElements(lp,num_elements+1);
             else
                 lpSetNumElements(lp,num_elements-1);
@@ -892,11 +885,46 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *ele, uint32_t size, un
     return lp;
 }
 
+/* This is just a wrapper for lpInsert() to insert a string, which is
+ * Possible a integer encoded strings. */
+unsigned char *lpInsertString(unsigned char *lp, unsigned char *ele, uint32_t size, unsigned char *p, int where, unsigned char **newp) {
+    int enctype;
+    uint64_t enclen; /* The length of the encoded element. */
+    unsigned char intenc[LP_MAX_INT_ENCODING_LEN];
+
+    /* Calling lpEncodeGetType() results into the encoded version of the
+     * element to be stored into 'intenc' in case it is representable as
+     * an integer: in that case, the function returns LP_ENCODING_INT.
+     * Otherwise if LP_ENCODING_STR is returned, we'll have to call
+     * lpEncodeString() to actually write the encoded string on place later.
+     *
+     * Whatever the returned encoding is, 'enclen' is populated with the
+     * length of the encoded element. */
+    if (ele) {
+        enctype = lpEncodeGetType(ele,size,intenc,&enclen);
+    } else {
+        enctype = -1;
+        enclen = 0;
+    }
+
+    return lpInsert(lp, enctype, enclen, ele, size, intenc, p, where, newp);
+}
+
+/* This is just a wrapper for lpInsert() to directly use a 64 bit integer
+ * instead of a string. */
+unsigned char *lpInsertInteger(unsigned char *lp, long long lval, unsigned char *p, int where, unsigned char **newp) {
+    uint64_t enclen; /* The length of the encoded element. */
+    unsigned char intenc[LP_MAX_INT_ENCODING_LEN];
+
+    lpEncodeIntegerGetType(lval,intenc,&enclen);
+    return lpInsert(lp, LP_ENCODING_INT, enclen, NULL, 0, intenc, p, where, newp);
+}
+
 /* Append the specified element 's' of length 'slen' at the head of the listpack. */
 unsigned char *lpPrepend(unsigned char *lp, unsigned char *s, uint32_t slen) {
     unsigned char *p = lpFirst(lp);
     if (!p) return lpAppend(lp, s, slen);
-    return lpInsert(lp, s, slen, p, LP_BEFORE, NULL);
+    return lpInsertString(lp, s, slen, p, LP_BEFORE, NULL);
 }
 
 /* Append the specified element 'ele' of length 'len' at the end of the
@@ -905,12 +933,18 @@ unsigned char *lpPrepend(unsigned char *lp, unsigned char *s, uint32_t slen) {
 unsigned char *lpAppend(unsigned char *lp, unsigned char *ele, uint32_t size) {
     uint64_t listpack_bytes = lpGetTotalBytes(lp);
     unsigned char *eofptr = lp + listpack_bytes - 1;
-    return lpInsert(lp,ele,size,eofptr,LP_BEFORE,NULL);
+    return lpInsertString(lp,ele,size,eofptr,LP_BEFORE,NULL);
+}
+
+unsigned char *lpAppendInteger(unsigned char *lp, int64_t lval) {
+    uint64_t listpack_bytes = lpGetTotalBytes(lp);
+    unsigned char *eofptr = lp + listpack_bytes - 1;
+    return lpInsertInteger(lp,lval,eofptr,LP_BEFORE,NULL);
 }
 
 /* Remove the element pointed by 'p'. */
 unsigned char *lpReplace(unsigned char *lp, unsigned char *p, unsigned char *s, uint32_t slen) {
-    return lpInsert(lp, s, slen, p, LP_REPLACE, NULL);
+    return lpInsertString(lp, s, slen, p, LP_REPLACE, NULL);
 }
 
 /* Remove the element pointed by 'p', and return the resulting listpack.
@@ -918,7 +952,7 @@ unsigned char *lpReplace(unsigned char *lp, unsigned char *p, unsigned char *s, 
  * deleted one) is returned by reference. If the deleted element was the
  * last one, '*newp' is set to NULL. */
 unsigned char *lpDelete(unsigned char *lp, unsigned char *p, unsigned char **newp) {
-    return lpInsert(lp,NULL,0,p,LP_REPLACE,newp);
+    return lpInsertString(lp,NULL,0,p,LP_REPLACE,newp);
 }
 
 /* Return the total number of bytes the listpack is composed of. */
@@ -1098,7 +1132,6 @@ static inline void lpSaveValue(unsigned char *val, unsigned int len, int64_t lva
  * 'val' can be NULL if the value is not needed. */
 void lpRandomPair(unsigned char *lp, unsigned long total_count, listpackEntry *key, listpackEntry *val) {
     unsigned char *p;
-    int64_t vlen;
 
     /* Avoid div by zero on corrupt listpack */
     assert(total_count);
@@ -1106,22 +1139,12 @@ void lpRandomPair(unsigned char *lp, unsigned long total_count, listpackEntry *k
     /* Generate even numbers, because listpack saved K-V pair */
     int r = (rand() % total_count) * 2;
     assert((p = lpSeek(lp, r)));
-    key->sval = lpGet(p, &vlen, NULL);
-    if (key->sval) {
-        key->slen = vlen;
-    } else {
-        key->lval = vlen;
-    }
+    key->sval = lpGetValue(p, &(key->slen), &(key->lval));
 
     if (!val)
         return;
     assert((p = lpNext(lp, p)));
-    val->sval = lpGet(p, &vlen, NULL);
-    if (val->sval) {
-        val->slen = vlen;
-    } else {
-        val->lval = vlen;
-    }
+    val->sval = lpGetValue(p, &(val->slen), &(val->lval));
 }
 
 /* Randomly select count of key value pairs and store into 'keys' and
@@ -1184,7 +1207,7 @@ void lpRandomPairs(unsigned char *lp, unsigned int count, listpackEntry *keys, l
 unsigned int lpRandomPairsUnique(unsigned char *lp, unsigned int count, listpackEntry *keys, listpackEntry *vals) {
     unsigned char *p, *key;
     unsigned int klen = 0;
-    int64_t klval = 0, ele_len = 0;
+    long long klval = 0;
     unsigned int total_size = lpLength(lp)/2;
     unsigned int index = 0;
     if (count > total_size)
@@ -1200,21 +1223,11 @@ unsigned int lpRandomPairsUnique(unsigned char *lp, unsigned int count, listpack
         double randomDouble = ((double)rand()) / RAND_MAX;
         double threshold = ((double)remaining) / (total_size - index);
         if (randomDouble <= threshold) {
-            key = lpGet(p, &ele_len, NULL);
-            if (key) {
-                klen = ele_len;
-            } else {
-                klval = ele_len;
-            }
+            key = lpGetValue(p, &klen, &klval);
             lpSaveValue(key, klen, klval, &keys[picked]);
             assert((p = lpNext(lp, p)));
             if (vals) {
-                key = lpGet(p, &ele_len, NULL);
-                if (key) {
-                    klen = ele_len;
-                } else {
-                    klval = ele_len;
-                }
+                key = lpGetValue(p, &klen, &klval);
                 lpSaveValue(key, klen, klval, &vals[picked]);
             }
             remaining--;

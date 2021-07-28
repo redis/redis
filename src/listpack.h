@@ -51,15 +51,17 @@ typedef struct {
     unsigned char *sval;
     uint32_t slen;
     /* When integer is used, 'sval' is NULL, and lval holds the value. */
-    int64_t lval;
+    long long lval;
 } listpackEntry;
 
 unsigned char *lpNew(size_t capacity);
 void lpFree(unsigned char *lp);
 unsigned char* lpShrinkToFit(unsigned char *lp);
-unsigned char *lpInsert(unsigned char *lp, unsigned char *ele, uint32_t size, unsigned char *p, int where, unsigned char **newp);
+unsigned char *lpInsertString(unsigned char *lp, unsigned char *ele, uint32_t size, unsigned char *p, int where, unsigned char **newp);
+unsigned char *lpInsertInteger(unsigned char *lp, long long lval, unsigned char *p, int where, unsigned char **newp);
 unsigned char *lpPrepend(unsigned char *lp, unsigned char *s, uint32_t slen);
 unsigned char *lpAppend(unsigned char *lp, unsigned char *s, uint32_t slen);
+unsigned char *lpAppendInteger(unsigned char *lp, int64_t lval);
 unsigned char *lpReplace(unsigned char *lp, unsigned char *p, unsigned char *s, uint32_t slen);
 unsigned char *lpDelete(unsigned char *lp, unsigned char *p, unsigned char **newp);
 unsigned long lpLength(unsigned char *lp);
