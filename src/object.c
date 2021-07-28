@@ -498,9 +498,18 @@ void dismissStreamObject(robj *o, size_t dump_size) {
     }
 }
 
-/* Because it may cost much time to iterate all node/field/members of complex
- * data type, we decide to iterate and dismiss them only when approximate
- * average node/field/member size is more than page size of OS. 'dump_size'
+/* In redis, to implement rewriting AOF and dumping RDB, the main process
+ * complex a child process, after 'fork', the child has the same and shared
+ * memory with parent, so it can finish the remaining works.
+ * The parent process will trigger CoW when updating keys, and the child
+ * process will have much more private dirty memory and really occupies memory.
+ * But in the child process, the key values are definitely not accessed again
+ * after being serialized. To avoid unnecessary CoW on serialized key values
+ * which causes excessive memory usage, we try to release their memory to OS.
+ *
+ * Because it may cost much time to iterate all node/field/member/entry of
+ * complex data type, we decide to iterate and dismiss them only when approximate
+ * average node/field/member/entry size is more than page size of OS. 'dump_size'
  * is the size of serialized key values. This method is not accurate, but it
  * can avoid unnecessary iteration for complex data type. */
 void dismissObject(robj *o, size_t dump_size) {

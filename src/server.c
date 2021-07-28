@@ -5976,8 +5976,9 @@ void dismissClientMemory(client *c) {
     dismissMemory(c, 0);
 }
 
-/* In child process, we don't need some memory, but it is much possible
- * to change them because clients' heavy requests. We can free them ASAP. */
+/* In the child process, we don't need some memory any more, but it is much
+ * possible to change them because of clients heavy traffic. We should free
+ * them ASAP to avoid CoW which causes excessive memory usage. */
 void dismissMemoryInChild(void) {
     /* Replication backlog. */
     if (server.repl_backlog != NULL) {

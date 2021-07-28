@@ -1,4 +1,15 @@
+# The tests of this file are aim to get coverage on all the "dismiss" methods
+# that include dismiss all data types memory, client query buffer, client
+# output buffer and replication backlog.
+# Actually, we may not have many asserts in the test, since we just check for
+# crashes and the dump file inconsistencies.
+
 start_server {tags {"dismiss external:skip"}} {
+    # In other tests, although we test child process dumping RDB file, but
+    # memory allocations of key/values are usually small, they couldn't cover
+    # the "dismiss" object methods, in this test, we create big size key/values
+    # to satisfy the conditions for release memory pages, especially, we assume
+    # the page size of OS is 4KB in some cases.
     test {dismiss all data types memory} {
         set bigstr [string repeat A 8192]
         set 64bytes [string repeat A 64]
