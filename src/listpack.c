@@ -1084,15 +1084,19 @@ int lpValidateIntegrity(unsigned char *lp, size_t size, int deep,
 
     /* Validate the individual entries. */
     uint32_t count = 0;
-    unsigned char *p = lpFirst(lp);
+    unsigned char *p = lp + LP_HDR_SIZE;
     while(p && p[0] != LP_EOF) {
-        /* Optionally let the caller validate the entry too. */
-        if (entry_cb && !entry_cb(p, cb_userdata))
-            return 0;
+        unsigned char *prev = p;
 
-        /* Move to the next entry */
+        /* Move to the next entry in advance to avoid crash
+         * due to corrupt listpack. */
         if (!lpValidateNext(lp, &p, bytes))
             return 0;
+
+        /* Optionally let the caller validate the entry too. */
+        if (entry_cb && !entry_cb(prev, cb_userdata))
+            return 0;
+
         count++;
     }
 
