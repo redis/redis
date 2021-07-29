@@ -149,7 +149,7 @@ foreach sanitize_dump {no yes} {
                         set by_signal [count_log_message 0 "crashed by signal"]
                         incr stat_terminated_by_signal $by_signal
 
-                        if {$by_signal != 0 || $sanitize_dump == yes } {
+                        if {$by_signal != 0 || $sanitize_dump == yes} {
                             puts "Server crashed (by signal: $by_signal), with payload: $printable_dump"
                             set print_commands true
                         }
