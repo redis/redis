@@ -195,7 +195,7 @@ foreach sanitize_dump {no yes} {
             }
         }
         # if we run sanitization we never expect the server to crash at runtime
-        if { $sanitize_dump == yes } {
+        if {$sanitize_dump == yes} {
             assert_equal $stat_terminated_in_restore 0
             assert_equal $stat_terminated_in_traffic 0
         }
