@@ -1135,7 +1135,6 @@ void migrateDataRdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *
     UNUSED(mask);
     UNUSED(clientData);
     UNUSED(eventLoop);
-    int i;
     if (!server.migrate_data_rdb_pipe_buff)
         server.migrate_data_rdb_pipe_buff = zmalloc(PROTO_IOBUF_LEN);
     serverAssert(server.rdb_pipe_numconns_writing == 0);
@@ -1958,12 +1957,12 @@ void importDataReadSyncBulkPayload(connection *conn) {
              * at the next call. */
             server.import_data_transfer_size = 0;
             serverLog(LL_NOTICE,
-                      "source <-> import sync: receiving streamed RDB from import data");
+                      "EOF: receiving streamed RDB from import data");
         } else {
             importdatausemark = 0;
             server.import_data_transfer_size = strtol(buf + 1, NULL, 10);
             serverLog(LL_NOTICE,
-                      "source <-> import  sync: receiving %lld bytes from source",
+                      "NOT EOF: receiving %lld bytes from source",
                       (long long) server.import_data_transfer_size);
         }
         return;
@@ -2016,7 +2015,7 @@ void importDataReadSyncBulkPayload(connection *conn) {
     server.import_data_transfer_lastio = server.unixtime;
     if ((nwritten = write(server.import_data_transfer_fd, buf, nread)) != nread) {
         serverLog(LL_WARNING,
-                  "Write error or short write writing to the DB dump file needed for source <-> import : %s",
+                  "Write error or short write writing to the DB dump file needed to import data : %s",
                   (nwritten == -1) ? strerror(errno) : "short write");
         goto error;
     }
@@ -2026,7 +2025,7 @@ void importDataReadSyncBulkPayload(connection *conn) {
     if (importdatausemark && eof_reached) {
         if (ftruncate(server.import_data_transfer_fd,
                       server.import_data_transfer_read - CONFIG_RUN_ID_SIZE) == -1) {
-            serverLog(LL_WARNING, "Error truncating the RDB file received from the source <-> import : %s",
+            serverLog(LL_WARNING, "Error truncating the RDB file received from source to import data : %s",
                       strerror(errno));
             goto error;
         }

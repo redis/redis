@@ -2860,8 +2860,9 @@ static void backgroundSaveDoneHandlerSocket(int exitcode, int bysignal) {
         }
     }
     if (server.migrate_data_state == MIGRATE_DATA_FINISH_RDB) {
-        serverLog(LL_NOTICE,
-                  "wait to increment data signal from target");
+        serverLog(LL_NOTICE,"wait to increment data signal from target");
+        server.migrate_data_client = createClient(server.migrate_data_fd);
+        listDelNode(server.clients, server.migrate_data_client->client_list_node);
         connSetReadHandler(server.migrate_data_fd, migrateDataWaitTarget);
     }
 
@@ -3116,7 +3117,8 @@ int migrateDataRdbSaveToTargetSockets(rdbSaveInfo *rsi, connection *conn) {
             server.rdb_save_time_start = time(NULL);
             server.rdb_child_type = RDB_CHILD_TYPE_SOCKET;
             close(rdb_pipe_write); /* close write in parent so that it can detect the close on the child. */
-            serverLog(LL_NOTICE, "Background RDB transfer started by fid %d",conn->fd);
+            serverLog(LL_NOTICE, "Background RDB transfer started by fid %d  cost %ld", conn->fd,
+                      server.rdb_save_time_start);
             if (aeCreateFileEvent(server.el, server.rdb_pipe_read, AE_READABLE, migrateDataRdbPipeReadHandler, NULL) ==
                 AE_ERR) {
                 serverPanic("Unrecoverable error creating server.rdb_pipe_read file event.");

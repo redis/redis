@@ -721,9 +721,17 @@ void feedMigrateData(struct redisCommand *cmd, int dictid, robj **argv, int argc
         buf = catAppendOnlyGenericCommand(buf, argc, argv);
     }
 
-    server.migrate_data_buf = sdscatlen(server.migrate_data_buf, buf, sdslen(buf));
-
-    sdsfree(buf);
+    if (server.migrate_data_list_buf->len == 0) {
+        listAddNodeTail(server.migrate_data_list_buf, buf);
+    } else {
+        sds value = server.migrate_data_list_buf->tail->value;
+        if (sdslen(value) > 1024 * 10) {
+            listAddNodeTail(server.migrate_data_list_buf, buf);
+        } else {
+            server.migrate_data_list_buf->tail->value = sdscatlen(value, buf, sdslen(buf));
+            sdsfree(buf);
+        }
+    }
 }
 
 /* ----------------------------------------------------------------------------

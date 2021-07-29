@@ -1852,6 +1852,46 @@ void databasesCron(void) {
             tryResizeHashTables(resize_db % server.dbnum);
             resize_db++;
         }
+        if (server.import_data_state == IMPORT_DATA_BEGIN_INTO_DB) {
+            for (j = 0; j < server.dbnum; j++) {
+                redisDb *targetDb = server.db + j;
+                redisDb *sourceDb = server.migrateDb + j;
+                dict *sourceDict = sourceDb->dict;
+                dict *targetDict = targetDb->dict;
+                if (dictSize(sourceDict) == 0) {
+                    continue;
+                }
+                if (dictIsRehashing(targetDict)) {
+                    continue;
+                }
+                unsigned long size =
+                        (dictSize(sourceDict) + dictSize(targetDict)) > DICT_HT_INITIAL_SIZE ? (dictSize(sourceDict) +
+                                                                                                dictSize(targetDict))
+                                                                                             : (dictSize(sourceDict) +
+                                                                                                dictSize(targetDict));
+                dictExpand(targetDict, size);
+            }
+
+            for (j = 0; j < server.dbnum; j++) {
+                redisDb *targetDb = server.db + j;
+                redisDb *sourceDb = server.migrateDb + j;
+                dict *sourceDict = sourceDb->expires;
+                dict *targetDict = targetDb->expires;
+                if (dictSize(sourceDict) == 0) {
+                    continue;
+                }
+                if (dictIsRehashing(targetDict)) {
+                    continue;
+                }
+                unsigned long size =
+                        (dictSize(sourceDict) + dictSize(targetDict)) > DICT_HT_INITIAL_SIZE ? (dictSize(sourceDict) +
+                                                                                                dictSize(targetDict))
+                                                                                             : (dictSize(sourceDict) +
+                                                                                                dictSize(targetDict));
+                dictExpand(targetDict, size);
+            }
+            server.import_data_state = IMPORT_DATA_FINISH_ANALYSIS;
+        }
         if (server.import_data_state == IMPORT_DATA_FINISH_ANALYSIS) {
             long long start = timeInMilliseconds();
             int dict_finish = 0;
@@ -1985,82 +2025,6 @@ void databasesCron(void) {
                 server.import_data_state = IMPORT_DATA_FINISH_INTO_DB;
                 connSetWriteHandler(server.import_data_client->conn, importDataFinishIntoDb);
             }
-
-//            for (j = 0; j < server.dbnum; j++) {
-//                redisDb *targetDb = server.db + j;
-//                redisDb *sourceDb = server.migrateDb + j;
-//                dict *sourceDict = sourceDb->dict;
-//                dict *targetDict = targetDb->dict;
-//                if (dictSize(sourceDict) == 0) continue;
-//                if (dictIsRehashing(sourceDict)) {
-//                    continue;
-//                }
-//                if (dictSize(targetDict) == 0) {
-//                    dictExpand(targetDict, DICT_HT_INITIAL_SIZE);
-//                }
-//                sourceDict->rehashidx = 0;
-//                while (sourceDict->ht[0].used != 0) {
-//                    //获取链表
-//                    dictEntry *de, *nextde;
-//                    while (sourceDict->ht[0].table[sourceDict->rehashidx] == NULL) {
-//                        sourceDict->rehashidx++;
-//                    }
-//                    de = sourceDict->ht[0].table[sourceDict->rehashidx];
-//                    /* Move all the keys in this bucket from the old to the new hash HT */
-//                    while (de) {
-//                        uint64_t h;
-//                        nextde = de->next;
-//                        /* Get the index in the new hash table */
-//                        h = dictHashKey(targetDict, de->key) & targetDict->ht[0].sizemask;
-//                        //插入到首位置
-//                        de->next = targetDict->ht[0].table[h];
-//                        targetDict->ht[0].table[h] = de;
-//                        sourceDict->ht[0].used--;
-//                        targetDict->ht[0].used++;
-//                        de = nextde;
-//                    }
-//                    sourceDict->ht[0].table[sourceDict->rehashidx] = NULL;
-//                    sourceDict->rehashidx++;
-//                }
-//            }
-//
-//            for (j = 0; j < server.dbnum; j++) {
-//                redisDb *targetDb = server.db + j;
-//                redisDb *sourceDb = server.migrateDb + j;
-//                dict *sourceDict = sourceDb->expires;
-//                dict *targetDict = targetDb->expires;
-//                if (dictSize(sourceDict) == 0) continue;
-//                if (dictIsRehashing(sourceDict)) {
-//                    continue;
-//                }
-//                if (dictSize(targetDict) == 0) {
-//                    dictExpand(targetDict, DICT_HT_INITIAL_SIZE);
-//                }
-//                sourceDict->rehashidx = 0;
-//                while (sourceDict->ht[0].used != 0) {
-//                    //获取链表
-//                    dictEntry *de, *nextde;
-//                    while (sourceDict->ht[0].table[sourceDict->rehashidx] == NULL) {
-//                        sourceDict->rehashidx++;
-//                    }
-//                    de = sourceDict->ht[0].table[sourceDict->rehashidx];
-//                    /* Move all the keys in this bucket from the old to the new hash HT */
-//                    while (de) {
-//                        uint64_t h;
-//                        nextde = de->next;
-//                        /* Get the index in the new hash table */
-//                        h = dictHashKey(targetDict, de->key) & targetDict->ht[0].sizemask;
-//                        //插入到首位置
-//                        de->next = targetDict->ht[0].table[h];
-//                        targetDict->ht[0].table[h] = de;
-//                        sourceDict->ht[0].used--;
-//                        targetDict->ht[0].used++;
-//                        de = nextde;
-//                    }
-//                    sourceDict->ht[0].table[sourceDict->rehashidx] = NULL;
-//                    sourceDict->rehashidx++;
-//                }
-//            }
         }
 
         /* Rehash */
@@ -3339,7 +3303,6 @@ void initServer(void) {
         server.migrateDb[j].defrag_later = listCreate();
         listSetFreeMethod(server.migrateDb[j].defrag_later, (void (*)(void *)) sdsfree);
     }
-    server.migrate_data_buf = sdsempty();
     evictionPoolAlloc(); /* Initialize the LRU keys pool. */
     server.pubsub_channels = dictCreate(&keylistDictType, NULL);
     server.pubsub_patterns = listCreate();

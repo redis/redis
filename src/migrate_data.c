@@ -5,10 +5,22 @@
 
 #include "server.h"
 
+void migrateDataWaitReadTarget(connection *conn) {
+    long long start = timeInMilliseconds();
+    char buf[1024];
+    read(conn->fd, buf, sizeof(buf));
+    connSetWriteHandler(conn, migrateDataWaitTarget);
+    connSetReadHandler(conn, NULL);
+    long long end = timeInMilliseconds();
+    if (end - start > 100) {
+        serverLog(LL_WARNING, "migrateDataIncrementReadTarget %s cost %lld", buf, (end - start));
+    }
+}
+
+
 void migrateDataWaitTarget(connection *conn) {
     sds reply;
     if (server.migrate_data_state == MIGRATE_DATA_FINISH_RDB) {
-        //之前被设置为非阻塞
         reply = receiveSynchronousResponse(conn, 300);
         if (!strncmp(reply, "+FINISH", 7)) {
             serverLog(LL_WARNING, "target success to finish migrate data");
@@ -18,41 +30,57 @@ void migrateDataWaitTarget(connection *conn) {
             return;
         } else {
             serverLog(LL_WARNING, "target fail to finish migrate data");
-            connSetReadHandler(conn, NULL);
-            connSetWriteHandler(conn, NULL);
-            sdsfree(server.migrate_data_buf);
             server.migrate_data_state = MIGRATE_DATA_FAIL_RECEIVE_ID;
-            connClose(conn);
-            return;
+            goto error;
         }
     }
     if (server.migrate_data_state == MIGRATE_DATA_BEGIN_INCREMENT) {
-        int buflen = sdslen(server.migrate_data_buf);
-        if (buflen == 0) {
-            serverLog(LL_WARNING, "success to send increment data");
-            sdsfree(server.migrate_data_buf);
-            connClose(conn);
+        if (server.migrate_data_list_buf->len == 0) {
+            server.startSlot = -1;
+            server.endSlot = -1;
+            listRelease(server.migrate_data_list_buf);
             server.migrate_data_state = MIGRATE_DATA_INIT;
+            linkClient(server.migrate_data_client);
+            freeClientAsync(server.migrate_data_client);
+            serverLog(LL_WARNING, "success to finish to send increment data cost %lld",
+                      (timeInMilliseconds() - server.migrate_data_begin));
             return;
         }
-        if (connWrite(conn, server.migrate_data_buf, buflen) != buflen) {
-            serverLog(LL_WARNING, "fail to send increment data");
-            sdsfree(server.migrate_data_buf);
-            connClose(conn);
-            server.migrate_data_state = MIGRATE_DATA_FAIL_SEND_DATA;
+        sds buf = server.migrate_data_list_buf->head->value;
+        int buflen = sdslen(buf);
+        if (connWrite(conn, buf, buflen) != buflen) {
+            serverLog(LL_WARNING, "fail to send increment data %s", strerror(errno));
+            server.migrate_data_state = MIGRATE_DATA_FAIL_SEND_INCREMENT_DATA;
+            goto error;
         } else {
-            serverLog(LL_WARNING, "success to send increment data");
-            sdsfree(server.migrate_data_buf);
-            connClose(conn);
-            server.migrate_data_state = MIGRATE_DATA_INIT;
+            listDelNode(server.migrate_data_list_buf, server.migrate_data_list_buf->head);
+            connSetWriteHandler(conn, NULL);
+            connSetReadHandler(conn, migrateDataWaitReadTarget);
+            if (server.migrate_data_list_buf->len == 0) {
+                server.startSlot = -1;
+                server.endSlot = -1;
+                listRelease(server.migrate_data_list_buf);
+                server.migrate_data_state = MIGRATE_DATA_INIT;
+                linkClient(server.migrate_data_client);
+                freeClientAsync(server.migrate_data_client);
+                serverLog(LL_WARNING, "success to finish to send increment data cost %lld",
+                          (timeInMilliseconds() - server.migrate_data_begin));
+                return;
+            }
         }
     }
+    error:
+    server.startSlot = -1;
+    server.endSlot = -1;
+    listRelease(server.migrate_data_list_buf);
+    linkClient(server.migrate_data_client);
+    freeClientAsync(server.migrate_data_client);
+    return;
 }
 
 
 void startMigrateData(connection *conn) {
-    sds reply;
-    char *err = NULL;
+    char *err;
     if (server.migrate_data_state == MIGRATE_DATA_BEGIN) {
         connSetWriteHandler(conn, NULL);
         connSetReadHandler(conn, startMigrateData);
@@ -66,50 +94,66 @@ void startMigrateData(connection *conn) {
             //失败了
             serverLog(LL_WARNING, "fail to notice target for migrate data by rdb");
             server.migrate_data_state = MIGRATE_DATA_FAIL_NOTICE_TARGET;
-            server.startSlot = -1;
-            server.endSlot = -1;
-            connClose(server.migrate_data_fd);
+            goto error;
         } else {
             serverLog(LL_WARNING, "success to notice target to migrate data by rdb");
             server.migrate_data_state = MIGRATE_DATA_NOTICE_TARGET;
+            return;
         }
-        return;
     }
 
     if (server.migrate_data_state == MIGRATE_DATA_NOTICE_TARGET) {
+        sds reply;
         reply = receiveSynchronousResponse(conn, 300);
         if (!strncmp(reply, "+CONTINUE", 9)) {
-            serverLog(LL_WARNING, "target able to continue migrate data by rdb");
+            sdsfree(reply);
+            serverLog(LL_WARNING, "Target able to continue migrate data by rdb");
             server.migrate_data_state = MIGRATE_DATA_BEGIN_RDB;
             rdbSaveInfo rsi, *rsiptr;
             rsiptr = rdbPopulateSaveInfo(&rsi);
             int res = migrateDataRdbSaveToTargetSockets(rsiptr, conn);
             if (res == C_ERR) {
-                serverLog(LL_WARNING, "fail background rdb save to target sockect");
-                server.startSlot = -1;
-                server.endSlot = -1;
-                connClose(server.migrate_data_fd);
+                serverLog(LL_WARNING, "Fail background rdb save to target sockect");
                 server.migrate_data_state = MIGRATE_DATA_FAIL_START_RDB;
+                goto error;
             } else {
                 serverLog(LL_WARNING, "success background rdb save to target sockect");
                 server.migrate_data_state = MIGRATE_DATA_SUCCESS_START_RDB;
-                sdsfree(server.migrate_data_buf);
-                server.migrate_data_buf = sdsempty();
+                server.migrate_data_list_buf = listCreate();
+                listSetFreeMethod(server.migrate_data_list_buf, (void (*)(void *)) sdsfree);
+                return;
             }
         } else {
             //TODO关闭
             serverLog(LL_WARNING, "target unable to continue migrate data by rdb: %s", reply);
-            server.startSlot = -1;
-            server.endSlot = -1;
-            connClose(server.migrate_data_fd);
             server.migrate_data_state = MIGRATE_DATA_TARGET_NOT_INIT;
+            sdsfree(reply);
+            goto error;
         }
     }
+    if (err) {
+        sdsfree(err);
+    }
+    return;
+    error:
+    if (err) {
+        sdsfree(err);
+    }
+    server.startSlot = -1;
+    server.endSlot = -1;
+    connClose(server.migrate_data_fd);
+    return;
 }
 
 void migrateDataCommand(client *c) {
     if (server.migrate_data_state > MIGRATE_DATA_INIT) {
         robj *res = createObject(OBJ_STRING, sdsnew("-can not start\r\n"));
+        addReply(c, res);
+        decrRefCount(res);
+        return;
+    }
+    if (hasActiveChildProcess()) {
+        robj *res = createObject(OBJ_STRING, sdsnew("-can not start has child pid\r\n"));
         addReply(c, res);
         decrRefCount(res);
         return;
@@ -120,25 +164,30 @@ void migrateDataCommand(client *c) {
     getLongLongFromObject(c->argv[2], &port);
     getLongLongFromObject(c->argv[3], &startSlot);
     getLongLongFromObject(c->argv[4], &endSlot);
+    server.migrate_data_begin = timeInMilliseconds();
     server.startSlot = startSlot;
     server.endSlot = endSlot;
 
     server.migrate_data_fd = server.tls_replication ? connCreateTLS() : connCreateSocket();
-    if (connConnect(server.migrate_data_fd, key->ptr, (int)port,NET_FIRST_BIND_ADDR, startMigrateData) == C_ERR) {
+    if (connConnect(server.migrate_data_fd, key->ptr, (int) port, NET_FIRST_BIND_ADDR, startMigrateData) == C_ERR) {
         serverLog(LL_WARNING, "Unable to connect to target to migrate data by rdb");
-        connClose(server.migrate_data_fd);
-        server.startSlot = -1;
-        server.endSlot = -1;
         server.migrate_data_state = MIGRATE_DATA_FAIL_CONNECT_TARGET;
         robj *res = createObject(OBJ_STRING, sdsnew("-Unable to connect to target\r\n"));
         addReply(c, res);
         decrRefCount(res);
-        return;
+        goto error;
     }
 
     server.migrate_data_state = MIGRATE_DATA_BEGIN;
     robj *res = createObject(OBJ_STRING, sdsnew("+try to migrate data by rdb\r\n"));
     addReply(c, res);
     decrRefCount(res);
+    return;
+    error:
+    server.startSlot = -1;
+    server.endSlot = -1;
+    connClose(server.migrate_data_fd);
+    server.migrate_data_begin = 0;
+    return;
 
 }
