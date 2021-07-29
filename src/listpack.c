@@ -1706,7 +1706,7 @@ int listpackTest(int argc, char *argv[], int accurate) {
     TEST("push various encodings") {
         lp = lpNew(0);
 
-        /* integer encode */
+        /* Push integer encode element using lpAppend */
         lp = lpAppend(lp, (unsigned char*)"127", 3);
         assert(LP_ENCODING_IS_7BIT_UINT(lpLast(lp)[0]));
         lp = lpAppend(lp, (unsigned char*)"4095", 4);
@@ -1718,6 +1718,26 @@ int listpackTest(int argc, char *argv[], int accurate) {
         lp = lpAppend(lp, (unsigned char*)"2147483647", 10);
         assert(LP_ENCODING_IS_32BIT_INT(lpLast(lp)[0]));
         lp = lpAppend(lp, (unsigned char*)"9223372036854775807", 19);
+        assert(LP_ENCODING_IS_64BIT_INT(lpLast(lp)[0]));
+
+        /* Push integer encode element using lpAppendInteger */
+        lp = lpAppendInteger(lp, 127);
+        assert(LP_ENCODING_IS_7BIT_UINT(lpLast(lp)[0]));
+        verifyEntry(lpLast(lp), (unsigned char*)"127", 3);
+        lp = lpAppendInteger(lp, 4095);
+        verifyEntry(lpLast(lp), (unsigned char*)"4095", 4);
+        assert(LP_ENCODING_IS_13BIT_INT(lpLast(lp)[0]));
+        lp = lpAppendInteger(lp, 32767);
+        verifyEntry(lpLast(lp), (unsigned char*)"32767", 5);
+        assert(LP_ENCODING_IS_16BIT_INT(lpLast(lp)[0]));
+        lp = lpAppendInteger(lp, 8388607);
+        verifyEntry(lpLast(lp), (unsigned char*)"8388607", 7);
+        assert(LP_ENCODING_IS_24BIT_INT(lpLast(lp)[0]));
+        lp = lpAppendInteger(lp, 2147483647);
+        verifyEntry(lpLast(lp), (unsigned char*)"2147483647", 10);
+        assert(LP_ENCODING_IS_32BIT_INT(lpLast(lp)[0]));
+        lp = lpAppendInteger(lp, 9223372036854775807);
+        verifyEntry(lpLast(lp), (unsigned char*)"9223372036854775807", 19);
         assert(LP_ENCODING_IS_64BIT_INT(lpLast(lp)[0]));
 
         /* string encode */
