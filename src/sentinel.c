@@ -82,7 +82,7 @@ static int sentinel_info_period = 10000;
 static int sentinel_ping_period = 1000;
 static int sentinel_ask_period = 1000;
 static int sentinel_publish_period = 1000;
-
+static int sentinel_default_down_after = 30000;
 static int sentinel_tilt_trigger = 2000;
 static int sentinel_tilt_period = 1000 * 30;
 static int sentinel_slave_reconf_timeout = 10000;
@@ -90,17 +90,13 @@ static int sentinel_min_link_reconnect_period = 15000;
 static int sentinel_election_timeout = 10000;
 static int sentinel_script_max_runtime = 60000;  /* 60 seconds max exec time. */
 static int sentinel_script_retry_delay = 30000;  /* 30 seconds between retries. */
+static int sentinel_default_failover_timeout = 60*3*1000;
 
 
-#define SENTINEL_DEFAUT_DOWN_AFTER 30000
+
 #define SENTINEL_HELLO_CHANNEL "__sentinel__:hello"
-
-
 #define SENTINEL_DEFAULT_SLAVE_PRIORITY 100
-
 #define SENTINEL_DEFAULT_PARALLEL_SYNCS 1
-
-#define SENTINEL_DEFAULT_FAILOVER_TIMEOUT (60*3*1000)
 #define SENTINEL_MAX_PENDING_COMMANDS 100
 
 #define SENTINEL_MAX_DESYNC 1000
@@ -587,10 +583,6 @@ void sentinelIsRunning(void) {
     }
 
     /* Log its ID to make debugging of issues simpler. */
-    serverLog(LL_WARNING,"Sentinel info-period is %d", sentinel_info_period);
-    serverLog(LL_WARNING,"Sentinel ask-period is %d", sentinel_ask_period);
-    serverLog(LL_WARNING,"Sentinel ping-period is %d", sentinel_ping_period);
-    serverLog(LL_WARNING,"Sentinel publish-period is %d", sentinel_publish_period);
     serverLog(LL_WARNING,"Sentinel ID is %s", sentinel.myid);
 
     /* We want to generate a +monitor event for every configured master
@@ -1344,7 +1336,7 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
     ri->s_down_since_time = 0;
     ri->o_down_since_time = 0;
     ri->down_after_period = master ? master->down_after_period :
-                            SENTINEL_DEFAUT_DOWN_AFTER;
+                            sentinel_default_down_after;
     ri->master_link_down_time = 0;
     ri->auth_pass = NULL;
     ri->auth_user = NULL;
@@ -1370,7 +1362,7 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
     ri->failover_state = SENTINEL_FAILOVER_STATE_NONE;
     ri->failover_state_change_time = 0;
     ri->failover_start_time = 0;
-    ri->failover_timeout = SENTINEL_DEFAULT_FAILOVER_TIMEOUT;
+    ri->failover_timeout = sentinel_default_failover_timeout;
     ri->failover_delay_logged = 0;
     ri->promoted_slave = NULL;
     ri->notification_script = NULL;
@@ -2050,42 +2042,72 @@ const char *sentinelHandleConfiguration(char **argv, int argc) {
     } else if (!strcasecmp(argv[0],"info-period") && argc == 2) {
         /* info-period <milliseconds> */
         sentinel_info_period = atoi(argv[1]);
+        if (sentinel_info_period <= 0)
+            return "negative or zero time parameter.";
     } else if (!strcasecmp(argv[0],"ping-period") && argc == 2) {
         /* ping-period <milliseconds> */
         sentinel_ping_period = atoi(argv[1]);
+        if (sentinel_ping_period <= 0)
+            return "negative or zero time parameter.";
     } else if (!strcasecmp(argv[0],"ask-period") && argc == 2) {
         /* ask-period <milliseconds> */
         sentinel_ask_period = atoi(argv[1]);
+        if (sentinel_ask_period <= 0)
+            return "negative or zero time parameter.";
     } else if (!strcasecmp(argv[0],"publish-period") && argc == 2) {
         /* publish-period <milliseconds> */
         sentinel_publish_period = atoi(argv[1]);
+        if (sentinel_publish_period <= 0)
+            return "negative or zero time parameter.";
+    } else if (!strcasecmp(argv[0],"default_down_after") && argc == 2) {
+        /* sentinel_default_down_after <milliseconds> */
+        sentinel_default_down_after = atoi(argv[1]);
+        if (sentinel_default_down_after <= 0)
+            return "negative or zero time parameter.";
     } else if (!strcasecmp(argv[0],"tilt_trigger") && argc == 2) {
         /* tilt_trigger <milliseconds> */
         sentinel_tilt_trigger = atoi(argv[1]);
+        if (sentinel_tilt_trigger <= 0)
+            return "negative or zero time parameter.";
     } else if (!strcasecmp(argv[0],"tilt_period") && argc == 2) {
         /* tilt_period <milliseconds> */
         sentinel_tilt_period = atoi(argv[1]);
+        if (sentinel_tilt_period <= 0)
+            return "negative or zero time parameter.";
     } else if (!strcasecmp(argv[0],"slave_reconf_timeout") && argc == 2) {
         /* slave_reconf_timeout <milliseconds> */
         sentinel_slave_reconf_timeout = atoi(argv[1]);
+        if (sentinel_slave_reconf_timeout <= 0)
+            return "negative or zero time parameter.";
     } else if (!strcasecmp(argv[0],"min_link_reconnect_period") && argc == 2) {
         /* min_link_reconnect_period <milliseconds> */
         sentinel_min_link_reconnect_period = atoi(argv[1]);
+        if (sentinel_min_link_reconnect_period <= 0)
+            return "negative or zero time parameter.";
+    } else if (!strcasecmp(argv[0],"default_failover_timeout") && argc == 2) {
+        /* default_failover_timeout <milliseconds> */
+        sentinel_default_failover_timeout = atoi(argv[1]);
     } else if (!strcasecmp(argv[0],"election_timeout") && argc == 2) {
         /* election_timeout <milliseconds> */
         sentinel_election_timeout = atoi(argv[1]);
+        if (sentinel_election_timeout <= 0)
+            return "negative or zero time parameter.";
     } else if (!strcasecmp(argv[0],"script_max_runtime") && argc == 2) {
         /* script_max_runtime <milliseconds> */
         sentinel_script_max_runtime = atoi(argv[1]);
+        if (sentinel_script_max_runtime <= 0)
+            return "negative or zero time parameter.";
     } else if (!strcasecmp(argv[0],"script_retry_delay") && argc == 2) {
         /* script_retry_delay <milliseconds> */
         sentinel_script_retry_delay = atoi(argv[1]);
+        if (sentinel_script_retry_delay <= 0)
+            return "negative or zero time parameter.";
     } 
     else {
         return "Unrecognized sentinel configuration statement.";
     }
     return NULL;
-    
+    /*#define SENTINEL_DEFAUT_DOWN_AFTER 30000*/
 }
 
 /* Implements CONFIG REWRITE for "sentinel" option.
@@ -2139,7 +2161,7 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
         /* rewriteConfigMarkAsProcessed is handled after the loop */
 
         /* sentinel down-after-milliseconds */
-        if (master->down_after_period != SENTINEL_DEFAUT_DOWN_AFTER) {
+        if (master->down_after_period != sentinel_default_down_after) {
             line = sdscatprintf(sdsempty(),
                 "sentinel down-after-milliseconds %s %ld",
                 master->name, (long) master->down_after_period);
@@ -2148,7 +2170,7 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
         }
 
         /* sentinel failover-timeout */
-        if (master->failover_timeout != SENTINEL_DEFAULT_FAILOVER_TIMEOUT) {
+        if (master->failover_timeout != sentinel_default_failover_timeout) {
             line = sdscatprintf(sdsempty(),
                 "sentinel failover-timeout %s %ld",
                 master->name, (long) master->failover_timeout);
@@ -3489,7 +3511,7 @@ void addReplySentinelRedisInstance(client *c, sentinelRedisInstance *ri) {
     setDeferredMapLen(c,mbl,fields);
 }
 
-void addReplySentinelConfig(client *c) {
+void addReplySentinelDebugInfo(client *c) {
    
     void *mbl;
     int fields = 0;
@@ -3512,6 +3534,14 @@ void addReplySentinelConfig(client *c) {
     addReplyBulkLongLong(c,sentinel_publish_period);
     fields++;
 
+    addReplyBulkCString(c,"SENTINEL_DEFAULT_DOWN_AFTER");
+    addReplyBulkLongLong(c,sentinel_default_down_after);
+    fields++;
+
+    addReplyBulkCString(c,"SENTINEL_DEFAULT_FAILOVER_TIMEOUT");
+    addReplyBulkLongLong(c,sentinel_default_failover_timeout);
+    fields++;
+    
     addReplyBulkCString(c,"SENTINEL_TILT_TRIGGER");
     addReplyBulkLongLong(c,sentinel_tilt_trigger);
     fields++;
@@ -3971,7 +4001,7 @@ NULL
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"debug")) {
         if (c->argc != 2) goto numargserr;
-        addReplySentinelConfig(c);
+        addReplySentinelDebugInfo(c);
     } 
     else {
         addReplySubcommandSyntaxError(c);
