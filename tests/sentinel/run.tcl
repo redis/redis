@@ -7,7 +7,6 @@ source ../instances.tcl
 
 set ::instances_count 5 ; # How many instances we use at max.
 set ::tlsdir "../../tls"
-set ::delay_milliseconds 5000
 
 proc main {} {
     parse_options
