@@ -248,7 +248,7 @@ int Release_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
     RedisModuleString *replystr = argv[1];
     RedisModule_RetainString(ctx, replystr);
-    int err = RedisModule_UnblockClient(blocked_client, replystr);
+    RedisModule_UnblockClient(blocked_client, replystr);
     blocked_client = NULL;
 
     RedisModule_ReplyWithSimpleString(ctx, "OK");
