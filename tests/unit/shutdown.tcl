@@ -1,4 +1,4 @@
-start_server {tags {"shutdown"}} {
+start_server {tags {"shutdown external:skip"}} {
     test {Temp rdb will be deleted if we use bg_unlink when shutdown} {
         for {set i 0} {$i < 20} {incr i} {
             r set $i $i
@@ -25,7 +25,7 @@ start_server {tags {"shutdown"}} {
     }
 }
 
-start_server {tags {"shutdown"}} {
+start_server {tags {"shutdown external:skip"}} {
     test {Temp rdb will be deleted in signal handle} {
         for {set i 0} {$i < 20} {incr i} {
             r set $i $i

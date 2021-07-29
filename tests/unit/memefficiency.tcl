@@ -21,7 +21,7 @@ proc test_memory_efficiency {range} {
     return $efficiency
 }
 
-start_server {tags {"memefficiency"}} {
+start_server {tags {"memefficiency external:skip"}} {
     foreach {size_range expected_min_efficiency} {
         32    0.15
         64    0.25
@@ -37,7 +37,7 @@ start_server {tags {"memefficiency"}} {
 }
 
 run_solo {defrag} {
-start_server {tags {"defrag"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save ""}} {
+start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save ""}} {
     if {[string match {*jemalloc*} [s mem_allocator]] && [r debug mallctl arenas.page] <= 8192} {
         test "Active defrag" {
             r config set hz 100
@@ -393,7 +393,7 @@ start_server {tags {"defrag"} overrides {appendonly yes auto-aof-rewrite-percent
             # there was an edge case in defrag where all the slabs of a certain bin are exact the same
             # % utilization, with the exception of the current slab from which new allocations are made
             # if the current slab is lower in utilization the defragger would have ended up in stagnation,
-            # keept running and not move any allocation.
+            # kept running and not move any allocation.
             # this test is more consistent on a fresh server with no history
             start_server {tags {"defrag"} overrides {save ""}} {
                 r flushdb

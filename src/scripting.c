@@ -748,7 +748,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     /* Convert the result of the Redis command into a suitable Lua type.
      * The first thing we need is to create a single string from the client
      * output buffers. */
-    if (listLength(c->reply) == 0 && c->bufpos < PROTO_REPLY_CHUNK_BYTES) {
+    if (listLength(c->reply) == 0 && (size_t)c->bufpos < c->buf_usable_size) {
         /* This is a fast path for the common case of a reply inside the
          * client static buffer. Don't create an SDS string but just use
          * the client buffer directly. */
@@ -1667,7 +1667,7 @@ void evalGenericCommand(client *c, int evalsha) {
      * To do so we use a cache of SHA1s of scripts that we already propagated
      * as full EVAL, that's called the Replication Script Cache.
      *
-     * For replication, everytime a new slave attaches to the master, we need to
+     * For replication, every time a new slave attaches to the master, we need to
      * flush our cache of scripts that can be replicated as EVALSHA, while
      * for AOF we need to do so every time we rewrite the AOF file. */
     if (evalsha && !server.lua_replicate_commands) {
@@ -2275,7 +2275,7 @@ sds ldbCatStackValue(sds s, lua_State *lua, int idx) {
 }
 
 /* Produce a debugger log entry representing the value of the Lua object
- * currently on the top of the stack. The element is ot popped nor modified.
+ * currently on the top of the stack. The element is not popped nor modified.
  * Check ldbCatStackValue() for the actual implementation. */
 void ldbLogStackValue(lua_State *lua, char *prefix) {
     sds s = sdsnew(prefix);
@@ -2654,11 +2654,11 @@ ldbLog(sdsnew("Redis Lua debugger help:"));
 ldbLog(sdsnew("[h]elp               Show this help."));
 ldbLog(sdsnew("[s]tep               Run current line and stop again."));
 ldbLog(sdsnew("[n]ext               Alias for step."));
-ldbLog(sdsnew("[c]continue          Run till next breakpoint."));
-ldbLog(sdsnew("[l]list              List source code around current line."));
-ldbLog(sdsnew("[l]list [line]       List source code around [line]."));
+ldbLog(sdsnew("[c]ontinue           Run till next breakpoint."));
+ldbLog(sdsnew("[l]ist               List source code around current line."));
+ldbLog(sdsnew("[l]ist [line]        List source code around [line]."));
 ldbLog(sdsnew("                     line = 0 means: current position."));
-ldbLog(sdsnew("[l]list [line] [ctx] In this form [ctx] specifies how many lines"));
+ldbLog(sdsnew("[l]ist [line] [ctx]  In this form [ctx] specifies how many lines"));
 ldbLog(sdsnew("                     to show before/after [line]."));
 ldbLog(sdsnew("[w]hole              List all source code. Alias for 'list 1 1000000'."));
 ldbLog(sdsnew("[p]rint              Show all the local variables."));
@@ -2669,7 +2669,7 @@ ldbLog(sdsnew("[b]reak <line>       Add a breakpoint to the specified line."));
 ldbLog(sdsnew("[b]reak -<line>      Remove breakpoint from the specified line."));
 ldbLog(sdsnew("[b]reak 0            Remove all breakpoints."));
 ldbLog(sdsnew("[t]race              Show a backtrace."));
-ldbLog(sdsnew("[e]eval <code>       Execute some Lua code (in a different callframe)."));
+ldbLog(sdsnew("[e]val <code>        Execute some Lua code (in a different callframe)."));
 ldbLog(sdsnew("[r]edis <cmd>        Execute a Redis command."));
 ldbLog(sdsnew("[m]axlen [len]       Trim logged Redis replies and Lua var dumps to len."));
 ldbLog(sdsnew("                     Specifying zero as <len> means unlimited."));

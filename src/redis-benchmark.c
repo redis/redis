@@ -1466,7 +1466,7 @@ int parseOptions(int argc, const char **argv) {
             config.idlemode = 1;
         } else if (!strcmp(argv[i],"-e")) {
             printf("WARNING: -e option has been deprecated. "
-                   "We now immediatly exit on error to avoid false results.\n");
+                   "We now immediately exit on error to avoid false results.\n");
         } else if (!strcmp(argv[i],"-t")) {
             if (lastarg) goto invalid;
             /* We get the list of tests to run as a string in the form
@@ -1586,11 +1586,11 @@ usage:
 " --insecure         Allow insecure TLS connection by skipping cert validation.\n"
 " --cert <file>      Client certificate to authenticate with.\n"
 " --key <file>       Private key file to authenticate with.\n"
-" --tls-ciphers <list> Sets the list of prefered ciphers (TLSv1.2 and below)\n"
+" --tls-ciphers <list> Sets the list of preferred ciphers (TLSv1.2 and below)\n"
 "                    in order of preference from highest to lowest separated by colon (\":\").\n"
 "                    See the ciphers(1ssl) manpage for more information about the syntax of this string.\n"
 #ifdef TLS1_3_VERSION
-" --tls-ciphersuites <list> Sets the list of prefered ciphersuites (TLSv1.3)\n"
+" --tls-ciphersuites <list> Sets the list of preferred ciphersuites (TLSv1.3)\n"
 "                    in order of preference from highest to lowest separated by colon (\":\").\n"
 "                    See the ciphers(1ssl) manpage for more information about the syntax of this string,\n"
 "                    and specifically for TLSv1.3 ciphersuites.\n"
@@ -1649,6 +1649,7 @@ int showThroughput(struct aeEventLoop *eventLoop, long long id, void *clientData
     const float instantaneous_rps = (float)(requests_finished-previous_requests_finished)/instantaneous_dt;
     config.previous_tick = current_tick;
     atomicSet(config.previous_requests_finished,requests_finished);
+    printf("%*s\r", config.last_printed_bytes, " "); /* ensure there is a clean line */
     int printed_bytes = printf("%s: rps=%.1f (overall: %.1f) avg_msec=%.3f (overall: %.3f)\r", config.title, instantaneous_rps, rps, hdr_mean(config.current_sec_latency_histogram)/1000.0f, hdr_mean(config.latency_histogram)/1000.0f);
     if (printed_bytes > config.last_printed_bytes){
        config.last_printed_bytes = printed_bytes;

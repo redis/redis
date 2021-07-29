@@ -312,7 +312,7 @@ void sortCommand(client *c) {
     if (sortval->type == OBJ_ZSET)
         zsetConvert(sortval, OBJ_ENCODING_SKIPLIST);
 
-    /* Objtain the length of the object to sort. */
+    /* Obtain the length of the object to sort. */
     switch(sortval->type) {
     case OBJ_LIST: vectorlen = listTypeLength(sortval); break;
     case OBJ_SET: vectorlen =  setTypeSize(sortval); break;

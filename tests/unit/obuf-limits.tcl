@@ -1,4 +1,4 @@
-start_server {tags {"obuf-limits"}} {
+start_server {tags {"obuf-limits external:skip"}} {
     test {Client output buffer hard limit is enforced} {
         r config set client-output-buffer-limit {pubsub 100000 0 0}
         set rd1 [redis_deferring_client]
@@ -131,7 +131,7 @@ start_server {tags {"obuf-limits"}} {
         after 100
 
         # Create a pipeline of commands that will be processed in one socket read.
-        # It is important to use one write, in TLS mode independant writes seem
+        # It is important to use one write, in TLS mode independent writes seem
         # to wait for response from the server.
         # Total size should be less than OS socket buffer, redis can
         # execute all commands in this pipeline when it wakes up.

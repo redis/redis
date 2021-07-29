@@ -166,7 +166,7 @@ ssize_t cliWriteConn(redisContext *c, const char *buf, size_t buf_len)
      *
      * Do we still have data that was there prior to our buf? If so,
      * restore buffer to it's original state and report no new data was
-     * writen.
+     * written.
      */
     if (sdslen(c->obuf) > buf_len) {
         sdsrange(c->obuf, 0, -(buf_len+1));

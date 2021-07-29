@@ -266,7 +266,7 @@ static struct pref {
 } pref;
 
 static volatile sig_atomic_t force_cancel_loop = 0;
-static void usage(void);
+static void usage(int err);
 static void slaveMode(void);
 char *redisGitSHA1(void);
 char *redisGitDirty(void);
@@ -1101,7 +1101,7 @@ int isColorTerm(void) {
     return t != NULL && strstr(t,"xterm") != NULL;
 }
 
-/* Helper  function for sdsCatColorizedLdbReply() appending colorize strings
+/* Helper function for sdsCatColorizedLdbReply() appending colorize strings
  * to an SDS string. */
 sds sdscatcolor(sds o, char *s, size_t len, char *color) {
     if (!isColorTerm()) return sdscatlen(o,s,len);
@@ -1183,6 +1183,7 @@ static sds cliFormatReplyRaw(redisReply *r) {
     case REDIS_REPLY_DOUBLE:
         out = sdscatprintf(out,"%s",r->str);
         break;
+    case REDIS_REPLY_SET:
     case REDIS_REPLY_ARRAY:
     case REDIS_REPLY_PUSH:
         for (i = 0; i < r->elements; i++) {
@@ -1241,6 +1242,7 @@ static sds cliFormatReplyCSV(redisReply *r) {
         out = sdscat(out,r->integer ? "true" : "false");
     break;
     case REDIS_REPLY_ARRAY:
+    case REDIS_REPLY_SET:
     case REDIS_REPLY_PUSH:
     case REDIS_REPLY_MAP: /* CSV has no map type, just output flat list. */
         for (i = 0; i < r->elements; i++) {
@@ -1367,6 +1369,7 @@ static int cliReadReply(int output_raw_strings) {
     if (output) {
         out = cliFormatReply(reply, config.output, output_raw_strings);
         fwrite(out,sdslen(out),1,stdout);
+        fflush(stdout);
         sdsfree(out);
     }
     freeReplyObject(reply);
@@ -1462,6 +1465,7 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
 
             while (config.pubsub_mode) {
                 if (cliReadReply(output_raw) != REDIS_OK) exit(1);
+                fflush(stdout); /* Make it grep friendly */
                 if (config.last_cmd_type == REDIS_REPLY_ERROR) {
                     if (config.push_output) {
                         redisSetPushCallback(context, cliPushHandler);
@@ -1512,7 +1516,14 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
                 config.in_multi = 0;
                 config.input_dbnum = config.dbnum = config.pre_multi_dbnum;
                 cliRefreshPrompt();
-            } 
+            } else if (!strcasecmp(command,"reset") && argc == 1 &&
+                                     config.last_cmd_type != REDIS_REPLY_ERROR) {
+                config.in_multi = 0;
+                config.dbnum = 0;
+                config.input_dbnum = 0;
+                config.resp3 = 0;
+                cliRefreshPrompt();
+            }
         }
         if (config.cluster_reissue_command){
             /* If we need to reissue the command, break to prevent a
@@ -1582,9 +1593,9 @@ static int parseOptions(int argc, char **argv) {
             sdsfree(config.hostip);
             config.hostip = sdsnew(argv[++i]);
         } else if (!strcmp(argv[i],"-h") && lastarg) {
-            usage();
+            usage(0);
         } else if (!strcmp(argv[i],"--help")) {
-            usage();
+            usage(0);
         } else if (!strcmp(argv[i],"-x")) {
             config.stdinarg = 1;
         } else if (!strcmp(argv[i],"-p") && !lastarg) {
@@ -1691,7 +1702,7 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"--verbose")) {
             config.verbose = 1;
         } else if (!strcmp(argv[i],"--cluster") && !lastarg) {
-            if (CLUSTER_MANAGER_MODE()) usage();
+            if (CLUSTER_MANAGER_MODE()) usage(1);
             char *cmd = argv[++i];
             int j = i;
             while (j < argc && argv[j][0] != '-') j++;
@@ -1699,7 +1710,7 @@ static int parseOptions(int argc, char **argv) {
             createClusterManagerCommand(cmd, j - i, argv + i + 1);
             i = j;
         } else if (!strcmp(argv[i],"--cluster") && lastarg) {
-            usage();
+            usage(1);
         } else if ((!strcmp(argv[i],"--cluster-only-masters"))) {
             config.cluster_manager_command.flags |=
                     CLUSTER_MANAGER_CMD_FLAG_MASTERS_ONLY;
@@ -1885,9 +1896,10 @@ static sds readArgFromStdin(void) {
     return arg;
 }
 
-static void usage(void) {
+static void usage(int err) {
     sds version = cliVersion();
-    fprintf(stderr,
+    FILE *target = err ? stderr: stdout;
+    fprintf(target,
 "redis-cli %s\n"
 "\n"
 "Usage: redis-cli [OPTIONS] [cmd [arg [arg ...]]]\n"
@@ -1924,11 +1936,11 @@ static void usage(void) {
 "  --insecure         Allow insecure TLS connection by skipping cert validation.\n"
 "  --cert <file>      Client certificate to authenticate with.\n"
 "  --key <file>       Private key file to authenticate with.\n"
-"  --tls-ciphers <list> Sets the list of prefered ciphers (TLSv1.2 and below)\n"
+"  --tls-ciphers <list> Sets the list of preferred ciphers (TLSv1.2 and below)\n"
 "                     in order of preference from highest to lowest separated by colon (\":\").\n"
 "                     See the ciphers(1ssl) manpage for more information about the syntax of this string.\n"
 #ifdef TLS1_3_VERSION
-"  --tls-ciphersuites <list> Sets the list of prefered ciphersuites (TLSv1.3)\n"
+"  --tls-ciphersuites <list> Sets the list of preferred ciphersuites (TLSv1.3)\n"
 "                     in order of preference from highest to lowest separated by colon (\":\").\n"
 "                     See the ciphers(1ssl) manpage for more information about the syntax of this string,\n"
 "                     and specifically for TLSv1.3 ciphersuites.\n"
@@ -1940,7 +1952,7 @@ static void usage(void) {
 "  --quoted-input     Force input to be handled as quoted strings.\n"
 "  --csv              Output in CSV format.\n"
 "  --show-pushes <yn> Whether to print RESP3 PUSH messages.  Enabled by default when\n"
-"                     STDOUT is a tty but can be overriden with --show-pushes no.\n"
+"                     STDOUT is a tty but can be overridden with --show-pushes no.\n"
 "  --stat             Print rolling stats about server: mem, clients, ...\n"
 "  --latency          Enter a special mode continuously sampling latency.\n"
 "                     If you use this mode in an interactive session it runs\n"
@@ -1950,7 +1962,7 @@ static void usage(void) {
 "                     -i to change the interval), then produces a single output\n"
 "                     and exits.\n",version);
 
-    fprintf(stderr,
+    fprintf(target,
 "  --latency-history  Like --latency but tracking latency changes over time.\n"
 "                     Default time interval is 15 sec. Change it using -i.\n"
 "  --latency-dist     Shows latency as a spectrum, requires xterm 256 colors.\n"
@@ -1958,12 +1970,13 @@ static void usage(void) {
 "  --lru-test <keys>  Simulate a cache workload with an 80-20 distribution.\n"
 "  --replica          Simulate a replica showing commands received from the master.\n"
 "  --rdb <filename>   Transfer an RDB dump from remote server to local file.\n"
+"                     Use filename of \"-\" to write to stdout.\n"
 "  --pipe             Transfer raw Redis protocol from stdin to server.\n"
 "  --pipe-timeout <n> In --pipe mode, abort with error if after sending all data.\n"
 "                     no reply is received within <n> seconds.\n"
 "                     Default timeout: %d. Use 0 to wait forever.\n",
     REDIS_CLI_DEFAULT_PIPE_TIMEOUT);
-    fprintf(stderr,
+    fprintf(target,
 "  --bigkeys          Sample Redis keys looking for keys with many elements (complexity).\n"
 "  --memkeys          Sample Redis keys looking for keys consuming a lot of memory.\n"
 "  --memkeys-samples <n> Sample Redis keys looking for keys consuming a lot of memory.\n"
@@ -1991,7 +2004,7 @@ static void usage(void) {
 "  --version          Output version and exit.\n"
 "\n");
     /* Using another fprintf call to avoid -Woverlength-strings compile warning */
-    fprintf(stderr,
+    fprintf(target,
 "Cluster Manager Commands:\n"
 "  Use --cluster help to list all available cluster manager commands.\n"
 "\n"
@@ -2011,7 +2024,7 @@ static void usage(void) {
 "and settings.\n"
 "\n");
     sdsfree(version);
-    exit(1);
+    exit(err);
 }
 
 static int confirmWithYes(char *msg, int ignore_force) {
@@ -2536,7 +2549,7 @@ static void clusterManagerPrintNotClusterNodeError(clusterManagerNode *node,
                                                    char *err);
 static int clusterManagerNodeLoadInfo(clusterManagerNode *node, int opts,
                                       char **err);
-static int clusterManagerLoadInfoFromNode(clusterManagerNode *node, int opts);
+static int clusterManagerLoadInfoFromNode(clusterManagerNode *node);
 static int clusterManagerNodeIsEmpty(clusterManagerNode *node, char **err);
 static int clusterManagerGetAntiAffinityScore(clusterManagerNodeArray *ipnodes,
     int ip_count, clusterManagerNode ***offending, int *offending_len);
@@ -2676,7 +2689,7 @@ static int parseClusterNodeAddress(char *addr, char **ip_ptr, int *port_ptr,
  * been provided it must be in the form of 'ip:port', elsewhere
  * the first argument must be the ip and the second one the port.
  * If host and port can be detected, it returns 1 and it stores host and
- * port into variables referenced by'ip_ptr' and 'port_ptr' pointers,
+ * port into variables referenced by 'ip_ptr' and 'port_ptr' pointers,
  * elsewhere it returns 0. */
 static int getClusterHostFromCmdArgs(int argc, char **argv,
                                      char **ip_ptr, int *port_ptr) {
@@ -3029,7 +3042,7 @@ result:
  * So a greater score means a worse anti-affinity level, while zero
  * means perfect anti-affinity.
  *
- * The anti affinity optimizator will try to get a score as low as
+ * The anti affinity optimization will try to get a score as low as
  * possible. Since we do not want to sacrifice the fact that slaves should
  * not be in the same host as the master, we assign 10000 times the score
  * to this violation, so that we'll optimize for the second factor only
@@ -3462,7 +3475,7 @@ static int clusterManagerAddSlots(clusterManagerNode *node, char**err)
             argv_idx++;
         }
     }
-    if (!argv_idx) {
+    if (argv_idx == 2) {
         success = 0;
         goto cleanup;
     }
@@ -4298,12 +4311,11 @@ cleanup:
  * point. All nodes will be loaded inside the cluster_manager.nodes list.
  * Warning: if something goes wrong, it will free the starting node before
  * returning 0. */
-static int clusterManagerLoadInfoFromNode(clusterManagerNode *node, int opts) {
+static int clusterManagerLoadInfoFromNode(clusterManagerNode *node) {
     if (node->context == NULL && !clusterManagerNodeConnect(node)) {
         freeClusterManagerNode(node);
         return 0;
     }
-    opts |= CLUSTER_MANAGER_OPT_GETFRIENDS;
     char *e = NULL;
     if (!clusterManagerNodeIsCluster(node, &e)) {
         clusterManagerPrintNotClusterNodeError(node, e);
@@ -4312,7 +4324,7 @@ static int clusterManagerLoadInfoFromNode(clusterManagerNode *node, int opts) {
         return 0;
     }
     e = NULL;
-    if (!clusterManagerNodeLoadInfo(node, opts, &e)) {
+    if (!clusterManagerNodeLoadInfo(node, CLUSTER_MANAGER_OPT_GETFRIENDS, &e)) {
         if (e) {
             CLUSTER_MANAGER_PRINT_REPLY_ERROR(node, e);
             zfree(e);
@@ -5028,7 +5040,7 @@ static int clusterManagerFixOpenSlot(int slot) {
                                       "in node %s:%d!\n", slot, n->ip,
                                       n->port);
                 char *sep = (listLength(importing) == 0 ? "" : ",");
-                importing_str = sdscatfmt(importing_str, "%s%S:%u",
+                importing_str = sdscatfmt(importing_str, "%s%s:%u",
                                           sep, n->ip, n->port);
                 listAddNodeTail(importing, n);
             }
@@ -5066,11 +5078,6 @@ static int clusterManagerFixOpenSlot(int slot) {
         /* Since CLUSTER ADDSLOTS succeeded, we also update the slot
          * info into the node struct, in order to keep it synced */
         owner->slots[slot] = 1;
-        /* Make sure this information will propagate. Not strictly needed
-         * since there is no past owner, so all the other nodes will accept
-         * whatever epoch this node will claim the slot with. */
-        success = clusterManagerBumpEpoch(owner);
-        if (!success) goto cleanup;
         /* Remove the owner from the list of migrating/importing
          * nodes. */
         clusterManagerRemoveNodeFromList(migrating, owner);
@@ -5910,7 +5917,7 @@ assign_replicas:
             else freeClusterManagerNode(node);
         }
         listEmpty(cluster_manager.nodes);
-        if (!clusterManagerLoadInfoFromNode(first_node, 0)) {
+        if (!clusterManagerLoadInfoFromNode(first_node)) {
             success = 0;
             goto cleanup;
         }
@@ -5941,7 +5948,7 @@ static int clusterManagerCommandAddNode(int argc, char **argv) {
                           ref_ip, ref_port);
     // Check the existing cluster
     clusterManagerNode *refnode = clusterManagerNewNode(ref_ip, ref_port);
-    if (!clusterManagerLoadInfoFromNode(refnode, 0)) return 0;
+    if (!clusterManagerLoadInfoFromNode(refnode)) return 0;
     if (!clusterManagerCheckCluster(0)) return 0;
 
     /* If --cluster-master-id was specified, try to resolve it now so that we
@@ -6038,7 +6045,7 @@ static int clusterManagerCommandDeleteNode(int argc, char **argv) {
     clusterManagerNode *node = NULL;
 
     // Load cluster information
-    if (!clusterManagerLoadInfoFromNode(ref_node, 0)) return 0;
+    if (!clusterManagerLoadInfoFromNode(ref_node)) return 0;
 
     // Check if the node exists and is not empty
     node = clusterManagerNodeByName(node_id);
@@ -6097,7 +6104,7 @@ static int clusterManagerCommandInfo(int argc, char **argv) {
     char *ip = NULL;
     if (!getClusterHostFromCmdArgs(argc, argv, &ip, &port)) goto invalid_args;
     clusterManagerNode *node = clusterManagerNewNode(ip, port);
-    if (!clusterManagerLoadInfoFromNode(node, 0)) return 0;
+    if (!clusterManagerLoadInfoFromNode(node)) return 0;
     clusterManagerShowClusterInfo();
     return 1;
 invalid_args:
@@ -6110,7 +6117,7 @@ static int clusterManagerCommandCheck(int argc, char **argv) {
     char *ip = NULL;
     if (!getClusterHostFromCmdArgs(argc, argv, &ip, &port)) goto invalid_args;
     clusterManagerNode *node = clusterManagerNewNode(ip, port);
-    if (!clusterManagerLoadInfoFromNode(node, 0)) return 0;
+    if (!clusterManagerLoadInfoFromNode(node)) return 0;
     clusterManagerShowClusterInfo();
     return clusterManagerCheckCluster(0);
 invalid_args:
@@ -6128,7 +6135,7 @@ static int clusterManagerCommandReshard(int argc, char **argv) {
     char *ip = NULL;
     if (!getClusterHostFromCmdArgs(argc, argv, &ip, &port)) goto invalid_args;
     clusterManagerNode *node = clusterManagerNewNode(ip, port);
-    if (!clusterManagerLoadInfoFromNode(node, 0)) return 0;
+    if (!clusterManagerLoadInfoFromNode(node)) return 0;
     clusterManagerCheckCluster(0);
     if (cluster_manager.errors && listLength(cluster_manager.errors) > 0) {
         fflush(stdout);
@@ -6317,7 +6324,7 @@ static int clusterManagerCommandRebalance(int argc, char **argv) {
     list *involved = NULL;
     if (!getClusterHostFromCmdArgs(argc, argv, &ip, &port)) goto invalid_args;
     clusterManagerNode *node = clusterManagerNewNode(ip, port);
-    if (!clusterManagerLoadInfoFromNode(node, 0)) return 0;
+    if (!clusterManagerLoadInfoFromNode(node)) return 0;
     int result = 1, i;
     if (config.cluster_manager_command.weight != NULL) {
         for (i = 0; i < config.cluster_manager_command.weight_argc; i++) {
@@ -6512,7 +6519,7 @@ static int clusterManagerCommandSetTimeout(int argc, char **argv) {
     }
     // Load cluster information
     clusterManagerNode *node = clusterManagerNewNode(ip, port);
-    if (!clusterManagerLoadInfoFromNode(node, 0)) return 0;
+    if (!clusterManagerLoadInfoFromNode(node)) return 0;
     int ok_count = 0, err_count = 0;
 
     clusterManagerLogInfo(">>> Reconfiguring node timeout in every "
@@ -6544,7 +6551,7 @@ reply_err:;
         int need_free = 0;
         if (err == NULL) err = "";
         else need_free = 1;
-        clusterManagerLogErr("ERR setting node-timeot for %s:%d: %s\n", n->ip,
+        clusterManagerLogErr("ERR setting node-timeout for %s:%d: %s\n", n->ip,
                              n->port, err);
         if (need_free) zfree(err);
         err_count++;
@@ -6582,7 +6589,7 @@ static int clusterManagerCommandImport(int argc, char **argv) {
                           src_ip, src_port, ip, port);
 
     clusterManagerNode *refnode = clusterManagerNewNode(ip, port);
-    if (!clusterManagerLoadInfoFromNode(refnode, 0)) return 0;
+    if (!clusterManagerLoadInfoFromNode(refnode)) return 0;
     if (!clusterManagerCheckCluster(0)) return 0;
     char *reply_err = NULL;
     redisReply *src_reply = NULL;
@@ -6651,9 +6658,9 @@ static int clusterManagerCommandImport(int argc, char **argv) {
     }
 
     if (config.cluster_manager_command.flags & CLUSTER_MANAGER_CMD_FLAG_COPY)
-        strcat(cmdfmt, " %s");
+        cmdfmt = sdscat(cmdfmt," COPY");
     if (config.cluster_manager_command.flags & CLUSTER_MANAGER_CMD_FLAG_REPLACE)
-        strcat(cmdfmt, " %s");
+        cmdfmt = sdscat(cmdfmt," REPLACE");
 
     /* Use SCAN to iterate over the keys, migrating to the
      * right node as needed. */
@@ -6685,8 +6692,7 @@ static int clusterManagerCommandImport(int argc, char **argv) {
             printf("Migrating %s to %s:%d: ", key, target->ip, target->port);
             redisReply *r = reconnectingRedisCommand(src_ctx, cmdfmt,
                                                      target->ip, target->port,
-                                                     key, 0, timeout,
-                                                     "COPY", "REPLACE");
+                                                     key, 0, timeout);
             if (!r || r->type == REDIS_REPLY_ERROR) {
                 if (r && r->str) {
                     clusterManagerLogErr("Source %s:%d replied with "
@@ -6718,7 +6724,7 @@ static int clusterManagerCommandCall(int argc, char **argv) {
     char *ip = NULL;
     if (!getClusterHostFromCmdArgs(1, argv, &ip, &port)) goto invalid_args;
     clusterManagerNode *refnode = clusterManagerNewNode(ip, port);
-    if (!clusterManagerLoadInfoFromNode(refnode, 0)) return 0;
+    if (!clusterManagerLoadInfoFromNode(refnode)) return 0;
     argc--;
     argv++;
     size_t *argvlen = zmalloc(argc*sizeof(size_t));
@@ -6763,7 +6769,7 @@ static int clusterManagerCommandBackup(int argc, char **argv) {
     char *ip = NULL;
     if (!getClusterHostFromCmdArgs(1, argv, &ip, &port)) goto invalid_args;
     clusterManagerNode *refnode = clusterManagerNewNode(ip, port);
-    if (!clusterManagerLoadInfoFromNode(refnode, 0)) return 0;
+    if (!clusterManagerLoadInfoFromNode(refnode)) return 0;
     int no_issues = clusterManagerCheckCluster(0);
     int cluster_errors_count = (no_issues ? 0 :
                                 listLength(cluster_manager.errors));
@@ -6855,7 +6861,8 @@ static int clusterManagerCommandHelp(int argc, char **argv) {
             }
         }
     }
-    fprintf(stderr, "\nFor check, fix, reshard, del-node, set-timeout you "
+    fprintf(stderr, "\nFor check, fix, reshard, del-node, set-timeout, "
+                    "info, rebalance, call, import, backup you "
                     "can specify the host and port of any working node in "
                     "the cluster.\n");
 
@@ -7102,7 +7109,7 @@ static void latencyDistMode(void) {
 #define RDB_EOF_MARK_SIZE 40
 
 void sendReplconf(const char* arg1, const char* arg2) {
-    printf("sending REPLCONF %s %s\n", arg1, arg2);
+    fprintf(stderr, "sending REPLCONF %s %s\n", arg1, arg2);
     redisReply *reply = redisCommand(context, "REPLCONF %s %s", arg1, arg2);
 
     /* Handle any error conditions */
@@ -7162,7 +7169,7 @@ unsigned long long sendSync(redisContext *c, char *out_eof) {
     }
     *p = '\0';
     if (buf[0] == '-') {
-        printf("SYNC with master failed: %s\n", buf);
+        fprintf(stderr, "SYNC with master failed: %s\n", buf);
         exit(1);
     }
     if (strncmp(buf+1,"EOF:",4) == 0 && strlen(buf+5) >= RDB_EOF_MARK_SIZE) {
@@ -7267,8 +7274,9 @@ static void getRDB(clusterManagerNode *node) {
             payload, filename);
     }
 
+    int write_to_stdout = !strcmp(filename,"-");
     /* Write to file. */
-    if (!strcmp(filename,"-")) {
+    if (write_to_stdout) {
         fd = STDOUT_FILENO;
     } else {
         fd = open(filename, O_CREAT|O_WRONLY, 0644);
@@ -7310,7 +7318,7 @@ static void getRDB(clusterManagerNode *node) {
     }
     if (usemark) {
         payload = ULLONG_MAX - payload - RDB_EOF_MARK_SIZE;
-        if (ftruncate(fd, payload) == -1)
+        if (!write_to_stdout && ftruncate(fd, payload) == -1)
             fprintf(stderr,"ftruncate failed: %s.\n", strerror(errno));
         fprintf(stderr,"Transfer finished with success after %llu bytes\n", payload);
     } else {
@@ -7319,7 +7327,7 @@ static void getRDB(clusterManagerNode *node) {
     redisFree(s); /* Close the connection ASAP as fsync() may take time. */
     if (node)
         node->context = NULL;
-    if (fsync(fd) == -1) {
+    if (!write_to_stdout && fsync(fd) == -1) {
         fprintf(stderr,"Fail to fsync '%s': %s\n", filename, strerror(errno));
         exit(1);
     }
@@ -8226,7 +8234,7 @@ static void LRUTestMode(void) {
 }
 
 /*------------------------------------------------------------------------------
- * Intrisic latency mode.
+ * Intrinsic latency mode.
  *
  * Measure max latency of a running process that does not result from
  * syscalls. Basically this software should provide a hint about how much

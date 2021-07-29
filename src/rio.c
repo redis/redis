@@ -310,7 +310,7 @@ static size_t rioFdWrite(rio *r, const void *buf, size_t len) {
             if (!doflush)
                 return 1;
         }
-        /* Flusing the buffered data. set 'p' and 'len' accordintly. */
+        /* Flushing the buffered data. set 'p' and 'len' accordingly. */
         p = (unsigned char*) r->io.fd.buf;
         len = sdslen(r->io.fd.buf);
     }

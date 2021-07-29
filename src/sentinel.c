@@ -404,10 +404,6 @@ void sentinelSimFailureCrash(void);
 
 /* ========================= Dictionary types =============================== */
 
-uint64_t dictSdsHash(const void *key);
-uint64_t dictSdsCaseHash(const void *key);
-int dictSdsKeyCompare(void *privdata, const void *key1, const void *key2);
-int dictSdsKeyCaseCompare(void *privdata, const void *key1, const void *key2);
 void releaseSentinelRedisInstance(sentinelRedisInstance *ri);
 
 void dictInstancesValDestructor (void *privdata, void *obj) {
@@ -1422,7 +1418,7 @@ sentinelRedisInstance *sentinelRedisInstanceLookupSlave(
 
     /* We need to handle a slave_addr that is potentially a hostname.
      * If that is the case, depending on configuration we either resolve
-     * it and use the IP addres or fail.
+     * it and use the IP address or fail.
      */
     addr = createSentinelAddr(slave_addr, port);
     if (!addr) return NULL;
@@ -2407,7 +2403,7 @@ void sentinelReconnectInstance(sentinelRedisInstance *ri) {
 
     /* Commands connection. */
     if (link->cc == NULL) {
-        link->cc = redisAsyncConnectBind(ri->addr->ip,ri->addr->port,NET_FIRST_BIND_ADDR);
+        link->cc = redisAsyncConnectBind(ri->addr->ip,ri->addr->port,server.bind_source_addr);
         if (link->cc && !link->cc->err) anetCloexec(link->cc->c.fd);
         if (!link->cc) {
             sentinelEvent(LL_DEBUG,"-cmd-link-reconnection",ri,"%@ #Failed to establish connection");
@@ -2437,7 +2433,7 @@ void sentinelReconnectInstance(sentinelRedisInstance *ri) {
     }
     /* Pub / Sub */
     if ((ri->flags & (SRI_MASTER|SRI_SLAVE)) && link->pc == NULL) {
-        link->pc = redisAsyncConnectBind(ri->addr->ip,ri->addr->port,NET_FIRST_BIND_ADDR);
+        link->pc = redisAsyncConnectBind(ri->addr->ip,ri->addr->port,server.bind_source_addr);
         if (link->pc && !link->pc->err) anetCloexec(link->pc->c.fd);
         if (!link->pc) {
             sentinelEvent(LL_DEBUG,"-pubsub-link-reconnection",ri,"%@ #Failed to establish connection");
@@ -3162,12 +3158,12 @@ void sentinelConfigSetCommand(client *c) {
     } else if (!strcasecmp(o->ptr, "sentinel-user")) {
         sdsfree(sentinel.sentinel_auth_user);
         sentinel.sentinel_auth_user = sdslen(val->ptr) == 0 ?
-            sdsdup(val->ptr) : NULL;
+            NULL : sdsdup(val->ptr);
         drop_conns = 1;
     } else if (!strcasecmp(o->ptr, "sentinel-pass")) {
         sdsfree(sentinel.sentinel_auth_pass);
         sentinel.sentinel_auth_pass = sdslen(val->ptr) == 0 ?
-            sdsdup(val->ptr) : NULL;
+            NULL : sdsdup(val->ptr);
         drop_conns = 1;
     } else {
         addReplyErrorFormat(c, "Invalid argument '%s' to SENTINEL CONFIG SET",
@@ -3550,7 +3546,7 @@ void sentinelCommand(client *c) {
 "SENTINELS <master-name>",
 "    Show a list of Sentinel instances for this master and their state.",
 "SET <master-name> <option> <value>",
-"    Set configuration paramters for certain masters.",
+"    Set configuration parameters for certain masters.",
 "SIMULATE-FAILURE (CRASH-AFTER-ELECTION|CRASH-AFTER-PROMOTION|HELP)",
 "    Simulate a Sentinel crash.",
 NULL
@@ -3767,7 +3763,7 @@ NULL
             addReplySds(c,e);
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"set")) {
-        if (c->argc < 3) goto numargserr;
+        if (c->argc <= 3) goto numargserr;
         sentinelSetCommand(c);
     } else if (!strcasecmp(c->argv[1]->ptr,"config")) {
         if (c->argc < 3) goto numargserr;
@@ -3923,11 +3919,13 @@ void sentinelInfoCommand(client *c) {
             "# Sentinel\r\n"
             "sentinel_masters:%lu\r\n"
             "sentinel_tilt:%d\r\n"
+            "sentinel_tilt_since_seconds:%jd\r\n"
             "sentinel_running_scripts:%d\r\n"
             "sentinel_scripts_queue_length:%ld\r\n"
             "sentinel_simulate_failure_flags:%lu\r\n",
             dictSize(sentinel.masters),
             sentinel.tilt,
+            sentinel.tilt ? (intmax_t)((mstime()-sentinel.tilt_start_time)/1000) : -1,
             sentinel.running_scripts,
             listLength(sentinel.scripts_queue),
             sentinel.simfailure_flags);
@@ -3990,7 +3988,7 @@ void sentinelSetCommand(client *c) {
         int old_j = j; /* Used to know what to log as an event. */
 
         if (!strcasecmp(option,"down-after-milliseconds") && moreargs > 0) {
-            /* down-after-millisecodns <milliseconds> */
+            /* down-after-milliseconds <milliseconds> */
             robj *o = c->argv[++j];
             if (getLongLongFromObject(o,&ll) == C_ERR || ll <= 0) {
                 badarg = j;
