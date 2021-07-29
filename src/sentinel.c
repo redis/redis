@@ -92,8 +92,6 @@ static int sentinel_script_max_runtime = 60000;  /* 60 seconds max exec time. */
 static int sentinel_script_retry_delay = 30000;  /* 30 seconds between retries. */
 static int sentinel_default_failover_timeout = 60*3*1000;
 
-
-
 #define SENTINEL_HELLO_CHANNEL "__sentinel__:hello"
 #define SENTINEL_DEFAULT_SLAVE_PRIORITY 100
 #define SENTINEL_DEFAULT_PARALLEL_SYNCS 1
@@ -130,7 +128,6 @@ static int sentinel_default_failover_timeout = 60*3*1000;
 #define SENTINEL_SCRIPT_MAX_QUEUE 256
 #define SENTINEL_SCRIPT_MAX_RUNNING 16
 #define SENTINEL_SCRIPT_MAX_RETRY 10
-
 
 /* SENTINEL SIMULATE-FAILURE command flags. */
 #define SENTINEL_SIMFAILURE_NONE 0
@@ -2107,7 +2104,6 @@ const char *sentinelHandleConfiguration(char **argv, int argc) {
         return "Unrecognized sentinel configuration statement.";
     }
     return NULL;
-    /*#define SENTINEL_DEFAUT_DOWN_AFTER 30000*/
 }
 
 /* Implements CONFIG REWRITE for "sentinel" option.
