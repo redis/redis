@@ -126,7 +126,7 @@ foreach sanitize_dump {no yes} {
                         set report_and_restart true
                         incr stat_terminated_in_restore
                         write_log_line 0 "corrupt payload: $printable_dump"
-                        if {$sanitize_dump == 1} {
+                        if {$sanitize_dump == yes} {
                             puts "Server crashed in RESTORE with payload: $printable_dump"
                         }
                     }
@@ -149,7 +149,7 @@ foreach sanitize_dump {no yes} {
                         set by_signal [count_log_message 0 "crashed by signal"]
                         incr stat_terminated_by_signal $by_signal
 
-                        if {$by_signal != 0 || $sanitize_dump == 1 } {
+                        if {$by_signal != 0 || $sanitize_dump == yes} {
                             puts "Server crashed (by signal: $by_signal), with payload: $printable_dump"
                             set print_commands true
                         }
@@ -195,7 +195,7 @@ foreach sanitize_dump {no yes} {
             }
         }
         # if we run sanitization we never expect the server to crash at runtime
-        if { $sanitize_dump == 1} {
+        if {$sanitize_dump == yes} {
             assert_equal $stat_terminated_in_restore 0
             assert_equal $stat_terminated_in_traffic 0
         }
