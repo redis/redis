@@ -70,7 +70,7 @@ typedef struct dictType {
 #define DICTHT_SIZE(exp) ((exp) == -1 ? 0 : (unsigned long)1<<(exp))
 #define DICTHT_SIZE_MASK(exp) ((exp) == -1 ? 0 : (DICTHT_SIZE(exp))-1)
 
-typedef struct dict {
+struct dict {
     dictType *type;
 
     dictEntry **ht_table[2];
@@ -81,7 +81,7 @@ typedef struct dict {
     /* Keep small vars at end for optimal (minimal) struct padding */
     int16_t pauserehash; /* If >0 rehashing is paused (<0 indicates coding error) */
     char ht_size_exp[2]; /* exponent of size. (size = 1<<exp) */
-} dict;
+};
 
 /* If safe is set to 1 this is a safe iterator, that means, you can call
  * dictAdd, dictFind, and other functions against the dictionary even while
