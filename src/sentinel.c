@@ -3489,6 +3489,60 @@ void addReplySentinelRedisInstance(client *c, sentinelRedisInstance *ri) {
     setDeferredMapLen(c,mbl,fields);
 }
 
+void addReplySentinelConfig(client *c) {
+   
+    void *mbl;
+    int fields = 0;
+
+    mbl = addReplyDeferredLen(c);
+
+    addReplyBulkCString(c,"SENTINEL_INFO_PERIOD");
+    addReplyBulkLongLong(c,sentinel_info_period);
+    fields++;
+
+    addReplyBulkCString(c,"SENTINEL_PING_PERIOD");
+    addReplyBulkLongLong(c,sentinel_ping_period);
+    fields++;
+
+    addReplyBulkCString(c,"SENTINEL_ASK_PERIOD");
+    addReplyBulkLongLong(c,sentinel_ask_period);
+    fields++;
+
+    addReplyBulkCString(c,"SENTINEL_PUBLISH_PERIOD");
+    addReplyBulkLongLong(c,sentinel_publish_period);
+    fields++;
+
+    addReplyBulkCString(c,"SENTINEL_TILT_TRIGGER");
+    addReplyBulkLongLong(c,sentinel_tilt_trigger);
+    fields++;
+
+    addReplyBulkCString(c,"SENTINEL_TILT_PERIOD");
+    addReplyBulkLongLong(c,sentinel_tilt_period);
+    fields++;
+
+    addReplyBulkCString(c,"SENTINEL_SLAVE_RECONF_TIMEOUT");
+    addReplyBulkLongLong(c,sentinel_slave_reconf_timeout);
+    fields++;
+
+    addReplyBulkCString(c,"SENTINEL_MIN_LINK_RECONNECT_PERIOD");
+    addReplyBulkLongLong(c,sentinel_min_link_reconnect_period);
+    fields++;
+
+    addReplyBulkCString(c,"SENTINEL_ELECTION_TIMEOUT");
+    addReplyBulkLongLong(c,sentinel_election_timeout);
+    fields++;
+
+    addReplyBulkCString(c,"SENTINEL_SCRIPT_MAX_RUNTIME");
+    addReplyBulkLongLong(c,sentinel_script_max_runtime);
+    fields++;
+
+    addReplyBulkCString(c,"SENTINEL_SCRIPT_RETRY_DELAY");
+    addReplyBulkLongLong(c,sentinel_script_retry_delay);
+    fields++;
+
+    setDeferredMapLen(c,mbl,fields);
+}
+
 /* Output a number of instances contained inside a dictionary as
  * Redis protocol. */
 void addReplyDictOfRedisInstances(client *c, dict *instances) {
@@ -3562,6 +3616,8 @@ void sentinelCommand(client *c) {
 "    Set a global Sentinel configuration parameter.",
 "CONFIG GET <param>",
 "    Get global Sentinel configuration parameter.",
+"DEBUG",
+"    Show a list of configurable time parameters and their values (milliseconds).",
 "GET-MASTER-ADDR-BY-NAME <master-name>",
 "    Return the ip and port number of the master with that name.",
 "FAILOVER <master-name>",
@@ -3913,7 +3969,11 @@ NULL
             }
         }
         addReply(c,shared.ok);
-    } else {
+    } else if (!strcasecmp(c->argv[1]->ptr,"debug")) {
+        if (c->argc != 2) goto numargserr;
+        addReplySentinelConfig(c);
+    } 
+    else {
         addReplySubcommandSyntaxError(c);
     }
     return;
