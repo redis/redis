@@ -936,6 +936,7 @@ unsigned char *lpAppend(unsigned char *lp, unsigned char *ele, uint32_t size) {
     return lpInsertString(lp,ele,size,eofptr,LP_BEFORE,NULL);
 }
 
+/* Append the specified integer element 'lval' at the end of the listpack. */
 unsigned char *lpAppendInteger(unsigned char *lp, int64_t lval) {
     uint64_t listpack_bytes = lpGetTotalBytes(lp);
     unsigned char *eofptr = lp + listpack_bytes - 1;
