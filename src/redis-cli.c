@@ -1836,7 +1836,7 @@ static int parseOptions(int argc, char **argv) {
     }
 
     if (config.hostsocket && config.cluster_mode) {
-        fprintf(stderr,"Options -c and -s are mutualluy exclusive.\n");
+        fprintf(stderr,"Options -c and -s are mutually exclusive.\n");
         exit(1);
     }
 
