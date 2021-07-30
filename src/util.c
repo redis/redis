@@ -192,7 +192,7 @@ int stringmatchlen_fuzz_test(void) {
  * On parsing error, if *err is not NULL, it's set to 1, otherwise it's
  * set to 0. On error the function return value is 0, regardless of the
  * fact 'err' is NULL or not. */
-long long memtoll(const char *p, int *err) {
+long long memtoull(const char *p, int *err) {
     const char *u;
     char buf[128];
     long mul; /* unit multiplier */
@@ -252,7 +252,7 @@ long long memtoll(const char *p, int *err) {
  * On parsing error, if *err is not NULL, it's set to 1, otherwise it's
  * set to 0. On error the function return value is 0, regardless of the
  * fact 'err' is NULL or not. */
-unsigned long long memtoull(const char *p, int *err) {
+unsigned long long memtoll(const char *p, int *err) {
     const char *u;
     char buf[128];
     long mul; /* unit multiplier */
