@@ -529,5 +529,17 @@ test {corrupt payload: fuzzer findings - stream with no records} {
     }
 }
 
+test {corrupt payload: fuzzer findings - quicklist ziplist tail followed by extra data which start with 0xff} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload yes
+        r debug set-skip-checksum-validation 1
+        catch {
+            r restore key 0 "\x0E\x01\x11\x11\x00\x00\x00\x0A\x00\x00\x00\x01\x00\x00\xF6\xFF\xB0\x6C\x9C\xFF\x09\x00\x9C\x37\x47\x49\x4D\xDE\x94\xF5" replace
+        } err
+        assert_match "*Bad data format*" $err
+        verify_log_message 0 "*integrity check failed*" 0
+    }
+}
+
 } ;# tags
 
