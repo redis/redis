@@ -1,4 +1,4 @@
-# Tests for many simlutaneous migrations.
+# Tests for many simultaneous migrations.
 
 # TODO: Test is currently disabled until it is stabilized (fixing the test
 # itself or real issues in Redis).
