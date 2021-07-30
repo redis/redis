@@ -1756,10 +1756,10 @@ void readSyncBulkPayload(connection *conn) {
 
         if (rdbLoadRio(&rdb,RDBFLAGS_REPLICATION,&rsi) != C_OK) {
             /* RDB loading failed. */
-            stopLoading(0);
             serverLog(LL_WARNING,
-                "Failed trying to load the MASTER synchronization DB "
-                "from socket");
+                      "Failed trying to load the MASTER synchronization DB "
+                      "from socket: %s", strerror(errno));
+            stopLoading(0);
             cancelReplicationHandshake(1);
             rioFreeConn(&rdb, NULL);
 
