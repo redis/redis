@@ -187,6 +187,14 @@ static size_t rioConnRead(rio *r, void *buf, size_t len) {
         r->io.conn.pos = 0;
     }
 
+    /* Make sure the caller didn't request to read past the limit.
+     * If they didn't we'll buffer till the limit, if they did, we'll
+     * return an error. */
+    if (r->io.conn.read_limit != 0 && r->io.conn.read_limit < r->io.conn.read_so_far + len) {
+        errno = EOVERFLOW;
+        return 0;
+    }
+
     /* If we don't already have all the data in the sds, read more */
     while (len > sdslen(r->io.conn.buf) - r->io.conn.pos) {
         size_t buffered = sdslen(r->io.conn.buf) - r->io.conn.pos;
@@ -198,15 +206,7 @@ static size_t rioConnRead(rio *r, void *buf, size_t len) {
         if (r->io.conn.read_limit != 0 &&
             r->io.conn.read_so_far + buffered + toread > r->io.conn.read_limit)
         {
-            /* Make sure the caller didn't request to read past the limit.
-             * If they didn't we'll buffer till the limit, if they did, we'll
-             * return an error. */
-            if (r->io.conn.read_limit >= r->io.conn.read_so_far + len)
-                toread = r->io.conn.read_limit - r->io.conn.read_so_far - buffered;
-            else {
-                errno = EOVERFLOW;
-                return 0;
-            }
+            toread = r->io.conn.read_limit - r->io.conn.read_so_far - buffered;
         }
         int retval = connRead(r->io.conn.conn,
                           (char*)r->io.conn.buf + sdslen(r->io.conn.buf),
