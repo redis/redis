@@ -532,6 +532,8 @@ void dismissObject(robj *o, size_t size_hint) {
         case OBJ_STREAM: dismissStreamObject(o, size_hint); break;
         default: break;
     }
+#else
+    UNUSED(o); UNUSED(size_hint);
 #endif
 }
 
