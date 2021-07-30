@@ -19,11 +19,12 @@ void migrateDataWaitReadTarget(connection *conn) {
 
 
 void migrateDataWaitTarget(connection *conn) {
+    long long start = timeInMilliseconds();
     sds reply;
     if (server.migrate_data_state == MIGRATE_DATA_FINISH_RDB) {
         reply = receiveSynchronousResponse(conn, 300);
         if (!strncmp(reply, "+FINISH", 7)) {
-            serverLog(LL_WARNING, "target success to finish migrate data");
+            serverLog(LL_WARNING, "target success to finish import rdb data");
             server.migrate_data_state = MIGRATE_DATA_BEGIN_INCREMENT;
             connSetReadHandler(conn, NULL);
             connSetWriteHandler(conn, migrateDataWaitTarget);
@@ -35,6 +36,7 @@ void migrateDataWaitTarget(connection *conn) {
         }
     }
     if (server.migrate_data_state == MIGRATE_DATA_BEGIN_INCREMENT) {
+        serverLog(LL_WARNING, "increment data  %ld",server.migrate_data_list_buf->len);
         if (server.migrate_data_list_buf->len == 0) {
             server.startSlot = -1;
             server.endSlot = -1;
@@ -56,6 +58,10 @@ void migrateDataWaitTarget(connection *conn) {
             listDelNode(server.migrate_data_list_buf, server.migrate_data_list_buf->head);
             connSetWriteHandler(conn, NULL);
             connSetReadHandler(conn, migrateDataWaitReadTarget);
+            long long end = timeInMilliseconds();
+            if (end - start > 100) {
+                serverLog(LL_WARNING, "migrateDataIncrementReadTarget %s cost %lld", buf, (end - start));
+            }
             if (server.migrate_data_list_buf->len == 0) {
                 server.startSlot = -1;
                 server.endSlot = -1;
@@ -67,6 +73,7 @@ void migrateDataWaitTarget(connection *conn) {
                           (timeInMilliseconds() - server.migrate_data_begin));
                 return;
             }
+            return;
         }
     }
     error:

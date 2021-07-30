@@ -1454,7 +1454,7 @@ int migrateDataRdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) 
 int migrateDataRdbSaveRioWithEOFMark(rio *rdb, int *error, rdbSaveInfo *rsi) {
     char eofmark[RDB_EOF_MARK_SIZE];
 
-    startSaving(RDBFLAGS_REPLICATION);
+//    startSaving(RDBFLAGS_REPLICATION);
     getRandomHexChars(eofmark, RDB_EOF_MARK_SIZE);
     if (error) *error = 0;
     if (rioWrite(rdb, "$EOF:", 5) == 0) goto werr;
@@ -1462,7 +1462,7 @@ int migrateDataRdbSaveRioWithEOFMark(rio *rdb, int *error, rdbSaveInfo *rsi) {
     if (rioWrite(rdb, "\r\n", 2) == 0) goto werr;
     if (migrateDataRdbSaveRio(rdb, error, RDBFLAGS_NONE, rsi) == C_ERR) goto werr;
     if (rioWrite(rdb, eofmark, RDB_EOF_MARK_SIZE) == 0) goto werr;
-    stopSaving(1);
+//    stopSaving(1);
     return C_OK;
 
     werr: /* Write error. */
@@ -2871,12 +2871,20 @@ static void backgroundSaveDoneHandlerSocket(int exitcode, int bysignal) {
     close(server.rdb_pipe_read);
     server.rdb_child_exit_pipe = -1;
     server.rdb_pipe_read = -1;
-    zfree(server.rdb_pipe_conns);
-    server.rdb_pipe_conns = NULL;
+    if(server.rdb_pipe_conns){
+        zfree(server.rdb_pipe_conns);
+        server.rdb_pipe_conns = NULL;
+    }
     server.rdb_pipe_numconns = 0;
     server.rdb_pipe_numconns_writing = 0;
-    zfree(server.rdb_pipe_buff);
-    zfree(server.migrate_data_rdb_pipe_buff);
+    if (server.rdb_pipe_buff){
+        zfree(server.rdb_pipe_buff);
+        server.rdb_pipe_buff = NULL;
+    }
+    if (server.migrate_data_rdb_pipe_buff){
+        zfree(server.migrate_data_rdb_pipe_buff);
+        server.migrate_data_rdb_pipe_buff = NULL;
+    }
     server.migrate_data_rdb_pipe_bufflen = 0;
     server.rdb_pipe_buff = NULL;
     server.rdb_pipe_bufflen = 0;
@@ -3237,7 +3245,7 @@ int importDataRdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
     redisDb *db = server.migrateDb + 0;
     char buf[1024];
 
-    rdb->update_cksum = rdbLoadProgressCallback;
+//    rdb->update_cksum = rdbLoadProgressCallback;
     rdb->max_processing_chunk = server.loading_process_events_interval_bytes;
     if (rioRead(rdb, buf, 9) == 0) goto eoferr;
     buf[9] = '\0';
@@ -3503,25 +3511,25 @@ int importDataRdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
         lfu_freq = -1;
         lru_idle = -1;
     }
-    /* Verify the checksum if RDB version is >= 5 */
-    if (rdbver >= 5) {
-        uint64_t cksum, expected = rdb->cksum;
-
-        if (rioRead(rdb, &cksum, 8) == 0) goto eoferr;
-        if (server.rdb_checksum && !server.skip_checksum_validation) {
-            memrev64ifbe(&cksum);
-            if (cksum == 0) {
-                serverLog(LL_WARNING, "RDB file was saved with checksum disabled: no check performed.");
-            } else if (cksum != expected) {
-                serverLog(LL_WARNING, "Wrong RDB checksum expected: (%llx) but "
-                                      "got (%llx). Aborting now.",
-                          (unsigned long long) expected,
-                          (unsigned long long) cksum);
-                rdbReportCorruptRDB("RDB CRC error");
-                return C_ERR;
-            }
-        }
-    }
+//    /* Verify the checksum if RDB version is >= 5 */
+//    if (rdbver >= 5) {
+//        uint64_t cksum, expected = rdb->cksum;
+//
+//        if (rioRead(rdb, &cksum, 8) == 0) goto eoferr;
+//        if (server.rdb_checksum && !server.skip_checksum_validation) {
+//            memrev64ifbe(&cksum);
+//            if (cksum == 0) {
+//                serverLog(LL_WARNING, "RDB file was saved with checksum disabled: no check performed.");
+//            } else if (cksum != expected) {
+//                serverLog(LL_WARNING, "Wrong RDB checksum expected: (%llx) but "
+//                                      "got (%llx). Aborting now.",
+//                          (unsigned long long) expected,
+//                          (unsigned long long) cksum);
+//                rdbReportCorruptRDB("RDB CRC error");
+//                return C_ERR;
+//            }
+//        }
+//    }
     return C_OK;
 
     /* Unexpected end of file is handled here calling rdbReportReadError():
@@ -3554,7 +3562,7 @@ void *importDataBackgroundJobs(void *arg) {
         zfree(server.import_data_transfer_tmpfile);
         unlink(server.import_data_transfer_tmpfile);
         server.import_data_state = IMPORT_DATA_FINISH_ANALYSIS;
-        serverLog(LL_NOTICE, "success finished import data");
+        serverLog(LL_NOTICE, "success finished import rdb data");
     } else {
         zfree(server.import_data_transfer_tmpfile);
         unlink(server.import_data_transfer_tmpfile);

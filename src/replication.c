@@ -1084,28 +1084,6 @@ void rdbPipeWriteHandlerConnRemoved(struct connection *conn) {
     }
 }
 
-/* Called in diskless master during transfer of data from the rdb pipe, when
- * the replica becomes writable again. */
-void migrateDatardbPipeWriteHandler(struct connection *conn) {
-    serverAssert(server.rdb_pipe_bufflen > 0);
-    client *slave = connGetPrivateData(conn);
-    int nwritten;
-    if ((nwritten = connWrite(conn, server.rdb_pipe_buff + slave->repldboff,
-                              server.rdb_pipe_bufflen - slave->repldboff)) == -1) {
-        if (connGetState(conn) == CONN_STATE_CONNECTED)
-            return; /* equivalent to EAGAIN */
-        serverLog(LL_WARNING, "Write error sending DB to replica: %s",
-                  connGetLastError(conn));
-        freeClient(slave);
-        return;
-    } else {
-        slave->repldboff += nwritten;
-        atomicIncr(server.stat_net_output_bytes, nwritten);
-        if (slave->repldboff < server.rdb_pipe_bufflen)
-            return; /* more data to write.. */
-    }
-    rdbPipeWriteHandlerConnRemoved(conn);
-}
 
 /* Called in diskless master during transfer of data from the rdb pipe, when
  * the replica becomes writable again. */
@@ -1160,7 +1138,8 @@ void migrateDataRdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *
             return;
         }
         int nwritten;
-        if ((nwritten = connWrite(server.migrate_data_fd, server.migrate_data_rdb_pipe_buff, server.migrate_data_rdb_pipe_bufflen)) == -1) {
+        if ((nwritten = connWrite(server.migrate_data_fd, server.migrate_data_rdb_pipe_buff,
+                                  server.migrate_data_rdb_pipe_bufflen)) == -1) {
             if (connGetState(server.migrate_data_fd) != CONN_STATE_CONNECTED) {
                 serverLog(LL_WARNING, "Diskless rdb transfer, write error sending DB to replica: %s",
                           connGetLastError(server.migrate_data_fd));
@@ -2052,7 +2031,7 @@ void importDataReadSyncBulkPayload(connection *conn) {
     /* If the transfer is yet not complete, we need to read more, so
      * return ASAP and wait for the handler to be called again. */
     if (!eof_reached) return;
-    serverLog(LL_WARNING, "finish truncating the RDB file received from the source <-> import ");
+    serverLog(LL_WARNING, "finish accept the RDB file received from the source to import data by rdb ");
     rdbSaveInfo rsi = RDB_SAVE_INFO_INIT;
     server.migrateRsi = rsi;
     pthread_t thread;
