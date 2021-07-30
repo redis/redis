@@ -541,5 +541,16 @@ test {corrupt payload: fuzzer findings - quicklist ziplist tail followed by extr
     }
 }
 
+test {corrupt payload: fuzzer findings - quicklist len is 0} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload yes
+        r debug set-skip-checksum-validation 1
+        catch {
+            r restore key 0 "\x0E\xC0\x2B\x15\x00\x00\x00\x0A\x00\x00\x00\x01\x00\x00\xE0\x62\x58\xEA\xDF\x22\x00\x00\x00\xFF\x09\x00\xDF\x35\xD2\x67\xDC\x0E\x89\xAB" replace
+        } err
+        assert_match "*Bad data format*" $err
+    }
+}
+
 } ;# tags
 
