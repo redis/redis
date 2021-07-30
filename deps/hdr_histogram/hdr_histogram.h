@@ -159,10 +159,10 @@ bool hdr_record_values_atomic(struct hdr_histogram* h, int64_t value, int64_t co
  * Record a value in the histogram and backfill based on an expected interval.
  *
  * Records a value in the histogram, will round this value of to a precision at or better
- * than the significant_figure specified at contruction time.  This is specifically used
+ * than the significant_figure specified at construction time.  This is specifically used
  * for recording latency.  If the value is larger than the expected_interval then the
  * latency recording system has experienced co-ordinated omission.  This method fills in the
- * values that would have occured had the client providing the load not been blocked.
+ * values that would have occurred had the client providing the load not been blocked.
 
  * @param h "This" pointer
  * @param value Value to add to the histogram
@@ -176,10 +176,10 @@ bool hdr_record_corrected_value(struct hdr_histogram* h, int64_t value, int64_t 
  * Record a value in the histogram and backfill based on an expected interval.
  *
  * Records a value in the histogram, will round this value of to a precision at or better
- * than the significant_figure specified at contruction time.  This is specifically used
+ * than the significant_figure specified at construction time.  This is specifically used
  * for recording latency.  If the value is larger than the expected_interval then the
  * latency recording system has experienced co-ordinated omission.  This method fills in the
- * values that would have occured had the client providing the load not been blocked.
+ * values that would have occurred had the client providing the load not been blocked.
  *
  * Will record this value atomically, however the whole structure may appear inconsistent
  * when read concurrently with this update.  Do NOT mix calls to this method with calls
@@ -395,7 +395,7 @@ struct hdr_iter
 };
 
 /**
- * Initalises the basic iterator.
+ * Initialises the basic iterator.
  *
  * @param itr 'This' pointer
  * @param h The histogram to iterate over
