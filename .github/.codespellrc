@@ -1,0 +1,5 @@
+[codespell]
+quiet-level = 2
+count =
+skip = ./deps,./src/crc16_slottable.h
+ignore-words = ./.github/wordlist.txt

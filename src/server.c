@@ -173,6 +173,7 @@ struct redisServer server; /* Server global state */
  *
  * The following additional flags are only used in order to put commands
  * in a specific ACL category. Commands can have multiple ACL categories.
+ * See redis.conf for the exact meaning of each.
  *
  * @keyspace, @read, @write, @set, @sortedset, @list, @hash, @string, @bitmap,
  * @hyperloglog, @stream, @admin, @fast, @slow, @pubsub, @blocking, @dangerous,
@@ -652,7 +653,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,0,0,0,0,0,0},
 
     {"select",selectCommand,2,
-     "ok-loading fast ok-stale @keyspace",
+     "ok-loading fast ok-stale @connection",
      0,NULL,0,0,0,0,0,0},
 
     {"swapdb",swapdbCommand,3,
@@ -800,6 +801,14 @@ struct redisCommand redisCommandTable[] = {
      "read-only fast random @keyspace",
      0,NULL,1,1,1,0,0,0},
 
+    {"expiretime",expiretimeCommand,2,
+     "read-only fast random @keyspace",
+     0,NULL,1,1,1,0,0,0},
+
+    {"pexpiretime",pexpiretimeCommand,2,
+     "read-only fast random @keyspace",
+     0,NULL,1,1,1,0,0,0},
+
     {"persist",persistCommand,2,
      "write fast @keyspace",
      0,NULL,1,1,1,0,0,0},
@@ -813,7 +822,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,0,0,0,0,0,0},
 
     {"role",roleCommand,1,
-     "ok-loading ok-stale no-script fast @dangerous",
+     "ok-loading ok-stale no-script fast @admin @dangerous",
      0,NULL,0,0,0,0,0,0},
 
     {"debug",debugCommand,-2,
@@ -873,15 +882,15 @@ struct redisCommand redisCommandTable[] = {
      0,migrateGetKeys,0,0,0,0,0,0},
 
     {"asking",askingCommand,1,
-     "fast @keyspace",
+     "fast @connection",
      0,NULL,0,0,0,0,0,0},
 
     {"readonly",readonlyCommand,1,
-     "fast @keyspace",
+     "fast @connection",
      0,NULL,0,0,0,0,0,0},
 
     {"readwrite",readwriteCommand,1,
-     "fast @keyspace",
+     "fast @connection",
      0,NULL,0,0,0,0,0,0},
 
     {"dump",dumpCommand,2,
@@ -951,7 +960,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,1,1,1,0,0,0},
 
     {"wait",waitCommand,3,
-     "no-script @keyspace",
+     "no-script @connection",
      0,NULL,0,0,0,0,0,0},
 
     {"command",commandCommand,-1,
@@ -1491,31 +1500,6 @@ dictType keylistDictType = {
     NULL                        /* allow to expand */
 };
 
-/* Cluster nodes hash table, mapping nodes addresses 1.2.3.4:6379 to
- * clusterNode structures. */
-dictType clusterNodesDictType = {
-    dictSdsHash,                /* hash function */
-    NULL,                       /* key dup */
-    NULL,                       /* val dup */
-    dictSdsKeyCompare,          /* key compare */
-    dictSdsDestructor,          /* key destructor */
-    NULL,                       /* val destructor */
-    NULL                        /* allow to expand */
-};
-
-/* Cluster re-addition blacklist. This maps node IDs to the time
- * we can re-add this node. The goal is to avoid readding a removed
- * node for some time. */
-dictType clusterNodesBlackListDictType = {
-    dictSdsCaseHash,            /* hash function */
-    NULL,                       /* key dup */
-    NULL,                       /* val dup */
-    dictSdsKeyCaseCompare,      /* key compare */
-    dictSdsDestructor,          /* key destructor */
-    NULL,                       /* val destructor */
-    NULL                        /* allow to expand */
-};
-
 /* Modules system dictionary type. Keys are module name,
  * values are pointer to RedisModule struct. */
 dictType modulesDictType = {
@@ -1682,25 +1666,34 @@ long long getInstantaneousMetric(int metric) {
  *
  * The function always returns 0 as it never terminates the client. */
 int clientsCronResizeQueryBuffer(client *c) {
-    size_t querybuf_size = sdsAllocSize(c->querybuf);
+    size_t querybuf_size = sdsalloc(c->querybuf);
     time_t idletime = server.unixtime - c->lastinteraction;
 
-    /* There are two conditions to resize the query buffer:
-     * 1) Query buffer is > BIG_ARG and too big for latest peak.
-     * 2) Query buffer is > BIG_ARG and client is idle. */
-    if (querybuf_size > PROTO_MBULK_BIG_ARG &&
-         ((querybuf_size/(c->querybuf_peak+1)) > 2 ||
-          idletime > 2))
-    {
-        /* Only resize the query buffer if it is actually wasting
-         * at least a few kbytes. */
-        if (sdsavail(c->querybuf) > 1024*4) {
+    /* Only resize the query buffer if the buffer is bigger than
+     * PROTO_RESIZE_THRESHOLD, and it is actually wasting at least a few kbytes. */
+    if (querybuf_size > PROTO_RESIZE_THRESHOLD && sdsavail(c->querybuf) > 1024*4) {
+        /* There are two conditions to resize the query buffer: */
+        if (idletime > 2) {
+            /* 1) Query is idle for a long time. */
             c->querybuf = sdsRemoveFreeSpace(c->querybuf);
+        } else if (querybuf_size/2 > c->querybuf_peak) {
+            /* 2) Query buffer is too big for latest peak. trim excess space but
+             *    only up to a limit, not below the recent peak and current
+             *    c->querybuf (which will be soon get used). */
+            size_t resize = sdslen(c->querybuf);
+            if (resize < c->querybuf_peak) resize = c->querybuf_peak;
+            if (c->bulklen != -1 && resize < (size_t)c->bulklen) resize = c->bulklen;
+            c->querybuf = sdsResize(c->querybuf, resize);
         }
     }
+
     /* Reset the peak again to capture the peak memory usage in the next
      * cycle. */
-    c->querybuf_peak = 0;
+    c->querybuf_peak = sdslen(c->querybuf);
+    /* We reset to either the current used, or currently processed bulk size,
+     * which ever is bigger. */
+    if (c->bulklen != -1 && (size_t)c->bulklen > c->querybuf_peak)
+        c->querybuf_peak = c->bulklen;
 
     /* Clients representing masters also use a "pending query buffer" that
      * is the yet not applied part of the stream we are reading. Such buffer
@@ -1752,7 +1745,7 @@ int clientsCronTrackExpansiveClients(client *c, int time_idx) {
 /* Iterating all the clients in getMemoryOverheadData() is too slow and
  * in turn would make the INFO command too slow. So we perform this
  * computation incrementally and track the (not instantaneous but updated
- * to the second) total memory used by clients using clinetsCron() in
+ * to the second) total memory used by clients using clientsCron() in
  * a more incremental way (depending on server.hz). */
 int clientsCronTrackClientsMemUsage(client *c) {
     size_t mem = 0;
@@ -2196,7 +2189,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             }
         }
     }
-    /* Just for the sake of defensive programming, to avoid forgeting to
+    /* Just for the sake of defensive programming, to avoid forgetting to
      * call this function when need. */
     updateDictResizePolicy();
 
@@ -2475,7 +2468,7 @@ void afterSleep(struct aeEventLoop *eventLoop) {
 
     /* Do NOT add anything above moduleAcquireGIL !!! */
 
-    /* Aquire the modules GIL so that their threads won't touch anything. */
+    /* Acquire the modules GIL so that their threads won't touch anything. */
     if (!ProcessingEventsWhileBlocked) {
         if (moduleCount()) moduleAcquireGIL();
     }
@@ -2497,7 +2490,6 @@ void createSharedObjects(void) {
     shared.queued = createObject(OBJ_STRING,sdsnew("+QUEUED\r\n"));
     shared.emptyscan = createObject(OBJ_STRING,sdsnew("*2\r\n$1\r\n0\r\n*0\r\n"));
     shared.space = createObject(OBJ_STRING,sdsnew(" "));
-    shared.colon = createObject(OBJ_STRING,sdsnew(":"));
     shared.plus = createObject(OBJ_STRING,sdsnew("+"));
 
     /* Shared command error responses */
@@ -2602,7 +2594,6 @@ void createSharedObjects(void) {
     shared.left = createStringObject("left",4);
     shared.right = createStringObject("right",5);
     shared.pxat = createStringObject("PXAT", 4);
-    shared.px = createStringObject("PX",2);
     shared.time = createStringObject("TIME",4);
     shared.retrycount = createStringObject("RETRYCOUNT",10);
     shared.force = createStringObject("FORCE",5);
@@ -2612,6 +2603,7 @@ void createSharedObjects(void) {
     shared.ping = createStringObject("ping",4);
     shared.setid = createStringObject("SETID",5);
     shared.keepttl = createStringObject("KEEPTTL",7);
+    shared.absttl = createStringObject("ABSTTL",6);
     shared.load = createStringObject("LOAD",4);
     shared.createconsumer = createStringObject("CREATECONSUMER",14);
     shared.getack = createStringObject("GETACK",6);
@@ -2630,7 +2622,7 @@ void createSharedObjects(void) {
         shared.bulkhdr[j] = createObject(OBJ_STRING,
             sdscatprintf(sdsempty(),"$%d\r\n",j));
     }
-    /* The following two shared objects, minstring and maxstrings, are not
+    /* The following two shared objects, minstring and maxstring, are not
      * actually used for their value but as a special object meaning
      * respectively the minimum possible string and the maximum possible
      * string in string comparisons for the ZRANGEBYLEX command. */
@@ -2640,6 +2632,7 @@ void createSharedObjects(void) {
 
 void initServerConfig(void) {
     int j;
+    char *default_bindaddr[CONFIG_DEFAULT_BINDADDR_COUNT] = CONFIG_DEFAULT_BINDADDR;
 
     updateCachedTime(1);
     getRandomHexChars(server.runid,CONFIG_RUN_ID_SIZE);
@@ -2654,7 +2647,10 @@ void initServerConfig(void) {
     server.configfile = NULL;
     server.executable = NULL;
     server.arch_bits = (sizeof(long) == 8) ? 64 : 32;
-    server.bindaddr_count = 0;
+    server.bindaddr_count = CONFIG_DEFAULT_BINDADDR_COUNT;
+    for (j = 0; j < CONFIG_DEFAULT_BINDADDR_COUNT; j++)
+        server.bindaddr[j] = zstrdup(default_bindaddr[j]);
+    server.bind_source_addr = NULL;
     server.unixsocketperm = CONFIG_DEFAULT_UNIX_SOCKET_PERM;
     server.ipfd.count = 0;
     server.tlsfd.count = 0;
@@ -2823,7 +2819,7 @@ int restartServer(int flags, mstime_t delay) {
         return C_ERR;
     }
 
-    /* Close all file descriptors, with the exception of stdin, stdout, strerr
+    /* Close all file descriptors, with the exception of stdin, stdout, stderr
      * which are useful if we restart a Redis server which is not daemonized. */
     for (j = 3; j < (int)server.maxclients + 1024; j++) {
         /* Test the descriptor validity before closing it, otherwise
@@ -3047,16 +3043,11 @@ int createSocketAcceptHandler(socketFds *sfd, aeFileProc *accept_handler) {
 int listenToPort(int port, socketFds *sfd) {
     int j;
     char **bindaddr = server.bindaddr;
-    int bindaddr_count = server.bindaddr_count;
-    char *default_bindaddr[2] = {"*", "-::*"};
 
-    /* Force binding of 0.0.0.0 if no bind address is specified. */
-    if (server.bindaddr_count == 0) {
-        bindaddr_count = 2;
-        bindaddr = default_bindaddr;
-    }
+    /* If we have no bind address, we don't listen on a TCP socket */
+    if (server.bindaddr_count == 0) return C_OK;
 
-    for (j = 0; j < bindaddr_count; j++) {
+    for (j = 0; j < server.bindaddr_count; j++) {
         char* addr = bindaddr[j];
         int optional = *addr == '-';
         if (optional) addr++;
@@ -3103,6 +3094,8 @@ void resetServerStats(void) {
     server.stat_expired_time_cap_reached_count = 0;
     server.stat_expire_cycle_time_used = 0;
     server.stat_evictedkeys = 0;
+    server.stat_total_eviction_exceeded_time = 0;
+    server.stat_last_eviction_exceeded_time = 0;
     server.stat_keyspace_misses = 0;
     server.stat_keyspace_hits = 0;
     server.stat_active_defrag_hits = 0;
@@ -3338,17 +3331,6 @@ void initServer(void) {
     aeSetBeforeSleepProc(server.el,beforeSleep);
     aeSetAfterSleepProc(server.el,afterSleep);
 
-    /* Open the AOF file if needed. */
-    if (server.aof_state == AOF_ON) {
-        server.aof_fd = open(server.aof_filename,
-                               O_WRONLY|O_APPEND|O_CREAT,0644);
-        if (server.aof_fd == -1) {
-            serverLog(LL_WARNING, "Can't open the append-only file: %s",
-                strerror(errno));
-            exit(1);
-        }
-    }
-
     /* 32 bit instances are limited to 4GB of address space, so if there is
      * no explicit limit in the user provided configuration we set a limit
      * at 3 GB using maxmemory with 'noeviction' policy'. This avoids
@@ -3578,6 +3560,8 @@ struct redisCommand *lookupCommandOrOriginal(sds name) {
 void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
                int flags)
 {
+    UNUSED(cmd);
+
     if (!server.replication_allowed)
         return;
 
@@ -3590,11 +3574,11 @@ void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
         execCommandPropagateMulti(dbid);
 
     /* This needs to be unreachable since the dataset should be fixed during 
-     * client pause, otherwise data may be lossed during a failover. */
+     * client pause, otherwise data may be lost during a failover. */
     serverAssert(!(areClientsPaused() && !server.client_pause_in_transaction));
 
     if (server.aof_state != AOF_OFF && flags & PROPAGATE_AOF)
-        feedAppendOnlyFile(cmd,dbid,argv,argc);
+        feedAppendOnlyFile(dbid,argv,argc);
     if (flags & PROPAGATE_REPL)
         replicationFeedSlaves(server.slaves,dbid,argv,argc);
 }
@@ -3710,8 +3694,6 @@ void call(client *c, int flags) {
     struct redisCommand *real_cmd = c->cmd;
     static long long prev_err_count;
 
-    server.fixed_time_expire++;
-
     /* Initialization: clear the flags that must be set by the command on
      * demand, and initialize the array for additional commands propagation. */
     c->flags &= ~(CLIENT_FORCE_AOF|CLIENT_FORCE_REPL|CLIENT_PREVENT_PROP);
@@ -3721,7 +3703,13 @@ void call(client *c, int flags) {
     /* Call the command. */
     dirty = server.dirty;
     prev_err_count = server.stat_total_error_replies;
-    updateCachedTime(0);
+
+    /* Update cache time, in case we have nested calls we want to
+     * update only on the first call*/
+    if (server.fixed_time_expire++ == 0) {
+        updateCachedTime(0);
+    }
+
     elapsedStart(&call_timer);
     c->cmd->proc(c);
     const long duration = elapsedUs(call_timer);
@@ -3906,7 +3894,7 @@ void call(client *c, int flags) {
 }
 
 /* Used when a command that is ready for execution needs to be rejected, due to
- * varios pre-execution checks. it returns the appropriate error to the client.
+ * various pre-execution checks. it returns the appropriate error to the client.
  * If there's a transaction is flags it as dirty, and if the command is EXEC,
  * it aborts the transaction.
  * Note: 'reply' is expected to end with \r\n */
@@ -4224,7 +4212,7 @@ int processCommand(client *c) {
      * The main objective here is to prevent abuse of client pause check
      * from which replicas are exempt. */
     if ((c->flags & CLIENT_SLAVE) && (is_may_replicate_command || is_write_command || is_read_command)) {
-        rejectCommandFormat(c, "Replica can't interract with the keyspace");
+        rejectCommandFormat(c, "Replica can't interact with the keyspace");
         return C_OK;
     }
 
@@ -4316,7 +4304,7 @@ int prepareForShutdown(int flags) {
         /* Note that, in killRDBChild normally has backgroundSaveDoneHandler
          * doing it's cleanup, but in this case this code will not be reached,
          * so we need to call rdbRemoveTempFile which will close fd(in order
-         * to unlink file actully) in background thread.
+         * to unlink file actually) in background thread.
          * The temp rdb file fd may won't be closed when redis exits quickly,
          * but OS will close this fd when process exits. */
         rdbRemoveTempFile(server.child_pid, 0);
@@ -5004,6 +4992,8 @@ sds genRedisInfoString(const char *section) {
     if (allsections || defsections || !strcasecmp(section,"stats")) {
         long long stat_total_reads_processed, stat_total_writes_processed;
         long long stat_net_input_bytes, stat_net_output_bytes;
+        long long current_eviction_exceeded_time = server.stat_last_eviction_exceeded_time ?
+            (long long) elapsedUs(server.stat_last_eviction_exceeded_time): 0;
         atomicGet(server.stat_total_reads_processed, stat_total_reads_processed);
         atomicGet(server.stat_total_writes_processed, stat_total_writes_processed);
         atomicGet(server.stat_net_input_bytes, stat_net_input_bytes);
@@ -5028,6 +5018,8 @@ sds genRedisInfoString(const char *section) {
             "expired_time_cap_reached_count:%lld\r\n"
             "expire_cycle_cpu_milliseconds:%lld\r\n"
             "evicted_keys:%lld\r\n"
+            "total_eviction_exceeded_time:%lld\r\n"
+            "current_eviction_exceeded_time:%lld\r\n"
             "keyspace_hits:%lld\r\n"
             "keyspace_misses:%lld\r\n"
             "pubsub_channels:%ld\r\n"
@@ -5066,6 +5058,8 @@ sds genRedisInfoString(const char *section) {
             server.stat_expired_time_cap_reached_count,
             server.stat_expire_cycle_time_used/1000,
             server.stat_evictedkeys,
+            (server.stat_total_eviction_exceeded_time + current_eviction_exceeded_time) / 1000,
+            current_eviction_exceeded_time / 1000,
             server.stat_keyspace_hits,
             server.stat_keyspace_misses,
             dictSize(server.pubsub_channels),
@@ -5536,7 +5530,7 @@ int linuxMadvFreeForkBugCheck(void) {
 
         if (write(pipefd[1], &bug_found, sizeof(bug_found)) < 0)
             serverLog(LL_WARNING, "Failed to write to parent: %s", strerror(errno));
-        exit(0);
+        exitFromChild(0);
     } else {
         /* Read the result from the child. */
         ret = read(pipefd[0], &bug_found, sizeof(bug_found));
@@ -5692,12 +5686,12 @@ int changeBindAddr(sds *addrlist, int addrlist_len) {
         /* Re-Listen TCP and TLS */
         server.ipfd.count = 0;
         if (server.port != 0 && listenToPort(server.port, &server.ipfd) != C_OK) {
-            serverPanic("Failed to restore old listening sockets.");
+            serverPanic("Failed to restore old listening TCP socket.");
         }
 
         server.tlsfd.count = 0;
         if (server.tls_port != 0 && listenToPort(server.tls_port, &server.tlsfd) != C_OK) {
-            serverPanic("Failed to restore old listening sockets.");
+            serverPanic("Failed to restore old listening TLS socket.");
         }
 
         result = C_ERR;
@@ -6006,12 +6000,11 @@ void dismissMemoryInChild(void) {
 void memtest(size_t megabytes, int passes);
 
 /* Returns 1 if there is --sentinel among the arguments or if
- * argv[0] contains "redis-sentinel". */
-int checkForSentinelMode(int argc, char **argv) {
-    int j;
+ * executable name contains "redis-sentinel". */
+int checkForSentinelMode(int argc, char **argv, char *exec_name) {
+    if (strstr(exec_name,"redis-sentinel") != NULL) return 1;
 
-    if (strstr(argv[0],"redis-sentinel") != NULL) return 1;
-    for (j = 1; j < argc; j++)
+    for (int j = 1; j < argc; j++)
         if (!strcmp(argv[j],"--sentinel")) return 1;
     return 0;
 }
@@ -6020,7 +6013,11 @@ int checkForSentinelMode(int argc, char **argv) {
 void loadDataFromDisk(void) {
     long long start = ustime();
     if (server.aof_state == AOF_ON) {
-        if (loadAppendOnlyFile(server.aof_filename) == C_OK)
+        /* It's not a failure if the file is empty or doesn't exist (later we will create it) */
+        int ret = loadAppendOnlyFile(server.aof_filename);
+        if (ret == AOF_FAILED || ret == AOF_OPEN_ERR)
+            exit(1);
+        if (ret == AOF_OK)
             serverLog(LL_NOTICE,"DB loaded from append only file: %.3f seconds",(float)(ustime()-start)/1000000);
     } else {
         rdbSaveInfo rsi = RDB_SAVE_INFO_INIT;
@@ -6043,7 +6040,7 @@ void loadDataFromDisk(void) {
                 memcpy(server.replid,rsi.repl_id,sizeof(server.replid));
                 server.master_repl_offset = rsi.repl_offset;
                 /* If we are a slave, create a cached master from this
-                 * information, in order to allow partial resynchronizations
+                 * information, in order to allow partial resynchronization
                  * with masters. */
                 replicationCacheMasterUsingMyself();
                 selectDb(server.cached_master,rsi.repl_stream_db);
@@ -6314,7 +6311,10 @@ int main(int argc, char **argv) {
     uint8_t hashseed[16];
     getRandomBytes(hashseed,sizeof(hashseed));
     dictSetHashFunctionSeed(hashseed);
-    server.sentinel_mode = checkForSentinelMode(argc,argv);
+
+    char *exec_name = strrchr(argv[0], '/');
+    if (exec_name == NULL) exec_name = argv[0];
+    server.sentinel_mode = checkForSentinelMode(argc,argv, exec_name);
     initServerConfig();
     ACLInit(); /* The ACL subsystem must be initialized ASAP because the
                   basic networking code and client creation depends on it. */
@@ -6339,9 +6339,9 @@ int main(int argc, char **argv) {
     /* Check if we need to start in redis-check-rdb/aof mode. We just execute
      * the program main. However the program is part of the Redis executable
      * so that we can easily execute an RDB check on loading errors. */
-    if (strstr(argv[0],"redis-check-rdb") != NULL)
+    if (strstr(exec_name,"redis-check-rdb") != NULL)
         redis_check_rdb_main(argc,argv,NULL);
-    else if (strstr(argv[0],"redis-check-aof") != NULL)
+    else if (strstr(exec_name,"redis-check-aof") != NULL)
         redis_check_aof_main(argc,argv);
 
     if (argc >= 2) {
@@ -6454,6 +6454,16 @@ int main(int argc, char **argv) {
         ACLLoadUsersAtStartup();
         InitServerLast();
         loadDataFromDisk();
+        /* Open the AOF file if needed. */
+        if (server.aof_state == AOF_ON) {
+            server.aof_fd = open(server.aof_filename,
+                                 O_WRONLY|O_APPEND|O_CREAT,0644);
+            if (server.aof_fd == -1) {
+                serverLog(LL_WARNING, "Can't open the append-only file: %s",
+                          strerror(errno));
+                exit(1);
+            }
+        }
         if (server.cluster_enabled) {
             if (verifyClusterConfigWithData() == C_ERR) {
                 serverLog(LL_WARNING,

@@ -470,6 +470,9 @@ void hashTypeConvertZiplist(robj *o, int enc) {
         hi = hashTypeInitIterator(o);
         dict = dictCreate(&hashDictType, NULL);
 
+        /* Presize the dict to avoid rehashing */
+        dictExpand(dict,hashTypeLength(o));
+
         while (hashTypeNext(hi) != C_ERR) {
             sds key, value;
 
@@ -553,14 +556,14 @@ static int _hashZiplistEntryValidation(unsigned char *p, void *userdata) {
         dict *fields;
     } *data = userdata;
 
-    /* Odd records are field names, add to dict and check that's not a dup */
+    /* Even records are field names, add to dict and check that's not a dup */
     if (((data->count) & 1) == 0) {
         unsigned char *str;
         unsigned int slen;
         long long vll;
         if (!ziplistGet(p, &str, &slen, &vll))
             return 0;
-        sds field = str? sdsnewlen(str, slen): sdsfromlonglong(vll);;
+        sds field = str? sdsnewlen(str, slen): sdsfromlonglong(vll);
         if (dictAdd(data->fields, field, NULL) != DICT_OK) {
             /* Duplicate, return an error */
             sdsfree(field);
@@ -638,11 +641,11 @@ void hashTypeRandomElement(robj *hashobj, unsigned long hashsize, ziplistEntry *
 void hsetnxCommand(client *c) {
     robj *o;
     if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
-    hashTypeTryConversion(o,c->argv,2,3);
 
     if (hashTypeExists(o, c->argv[2]->ptr)) {
         addReply(c, shared.czero);
     } else {
+        hashTypeTryConversion(o,c->argv,2,3);
         hashTypeSet(o,c->argv[2]->ptr,c->argv[3]->ptr,HASH_SET_COPY);
         addReply(c, shared.cone);
         signalModifiedKey(c,c->db,c->argv[1]);
@@ -986,7 +989,7 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
     int uniq = 1;
     robj *hash;
 
-    if ((hash = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp]))
+    if ((hash = lookupKeyReadOrReply(c,c->argv[1],shared.emptyarray))
         == NULL || checkType(c,hash,OBJ_HASH)) return;
     size = hashTypeLength(hash);
 
@@ -1175,7 +1178,7 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
     }
 }
 
-/* HRANDFIELD [<count> WITHVALUES] */
+/* HRANDFIELD key [<count> [WITHVALUES]] */
 void hrandfieldCommand(client *c) {
     long l;
     int withvalues = 0;

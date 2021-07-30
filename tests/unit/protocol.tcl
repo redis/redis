@@ -102,6 +102,94 @@ start_server {tags {"protocol network"}} {
         } {*Protocol error*}
     }
     unset c
+
+    # recover the broken connection
+    reconnect
+    r ping
+
+    # raw RESP response tests
+    r readraw 1
+
+    test "raw protocol response" {
+        r srandmember nonexisting_key
+    } {*-1}
+
+    r deferred 1
+
+    test "raw protocol response - deferred" {
+        r srandmember nonexisting_key
+        r read
+    } {*-1}
+
+    test "raw protocol response - multiline" {
+        r sadd ss a
+        assert_equal [r read] {:1}
+        r srandmember ss 100
+        assert_equal [r read] {*1}
+        assert_equal [r read] {$1}
+        assert_equal [r read] {a}
+    }
+
+    # restore connection settings
+    r readraw 0
+    r deferred 0
+
+    # check the connection still works
+    assert_equal [r ping] {PONG}
+
+    test {RESP3 attributes} {
+        r hello 3
+        set res [r debug protocol attrib]
+        # currently the parser in redis.tcl ignores the attributes
+
+        # restore state
+        r hello 2
+        set _ $res
+    } {Some real reply following the attribute} {resp3}
+
+    test {RESP3 attributes readraw} {
+        r hello 3
+        r readraw 1
+        r deferred 1
+
+        r debug protocol attrib
+        assert_equal [r read] {|1}
+        assert_equal [r read] {$14}
+        assert_equal [r read] {key-popularity}
+        assert_equal [r read] {*2}
+        assert_equal [r read] {$7}
+        assert_equal [r read] {key:123}
+        assert_equal [r read] {:90}
+        assert_equal [r read] {$39}
+        assert_equal [r read] {Some real reply following the attribute}
+
+        # restore state
+        r readraw 0
+        r deferred 0
+        r hello 2
+        set _ {}
+    } {} {resp3}
+
+    test {RESP3 attributes on RESP2} {
+        r hello 2
+        set res [r debug protocol attrib]
+        set _ $res
+    } {Some real reply following the attribute}
+
+    test "test big number parsing" {
+        r hello 3
+        r debug protocol bignum
+    } {1234567999999999999999999999999999999} {needs:debug resp3}
+
+    test "test bool parsing" {
+        r hello 3
+        assert_equal [r debug protocol true] 1
+        assert_equal [r debug protocol false] 0
+        r hello 2
+        assert_equal [r debug protocol true] 1
+        assert_equal [r debug protocol false] 0
+        set _ {}
+    } {} {needs:debug resp3}
 }
 
 start_server {tags {"regression"}} {

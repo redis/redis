@@ -803,7 +803,7 @@ long defragModule(redisDb *db, dictEntry *kde) {
     serverAssert(obj->type == OBJ_MODULE);
     long defragged = 0;
 
-    if (!moduleDefragValue(dictGetKey(kde), obj, &defragged))
+    if (!moduleDefragValue(dictGetKey(kde), obj, &defragged, db->id))
         defragLater(db, kde);
 
     return defragged;
@@ -843,9 +843,6 @@ long defragKey(redisDb *db, dictEntry *de) {
     } else if (ob->type == OBJ_LIST) {
         if (ob->encoding == OBJ_ENCODING_QUICKLIST) {
             defragged += defragQuicklist(db, de);
-        } else if (ob->encoding == OBJ_ENCODING_ZIPLIST) {
-            if ((newzl = activeDefragAlloc(ob->ptr)))
-                defragged++, ob->ptr = newzl;
         } else {
             serverPanic("Unknown list encoding");
         }
@@ -948,7 +945,7 @@ long defragOtherGlobals() {
 
 /* returns 0 more work may or may not be needed (see non-zero cursor),
  * and 1 if time is up and more work is needed. */
-int defragLaterItem(dictEntry *de, unsigned long *cursor, long long endtime) {
+int defragLaterItem(dictEntry *de, unsigned long *cursor, long long endtime, int dbid) {
     if (de) {
         robj *ob = dictGetVal(de);
         if (ob->type == OBJ_LIST) {
@@ -962,7 +959,7 @@ int defragLaterItem(dictEntry *de, unsigned long *cursor, long long endtime) {
         } else if (ob->type == OBJ_STREAM) {
             return scanLaterStreamListpacks(ob, cursor, endtime, &server.stat_active_defrag_hits);
         } else if (ob->type == OBJ_MODULE) {
-            return moduleLateDefrag(dictGetKey(de), ob, cursor, endtime, &server.stat_active_defrag_hits);
+            return moduleLateDefrag(dictGetKey(de), ob, cursor, endtime, &server.stat_active_defrag_hits, dbid);
         } else {
             *cursor = 0; /* object type may have changed since we schedule it for later */
         }
@@ -1011,7 +1008,7 @@ int defragLaterStep(redisDb *db, long long endtime) {
         key_defragged = server.stat_active_defrag_hits;
         do {
             int quit = 0;
-            if (defragLaterItem(de, &defrag_later_cursor, endtime))
+            if (defragLaterItem(de, &defrag_later_cursor, endtime,db->id))
                 quit = 1; /* time is up, we didn't finish all the work */
 
             /* Once in 16 scan iterations, 512 pointer reallocations, or 64 fields
@@ -1063,9 +1060,7 @@ void computeDefragCycles() {
             server.active_defrag_cycle_max);
      /* We allow increasing the aggressiveness during a scan, but don't
       * reduce it. */
-    if (!server.active_defrag_running ||
-        cpu_pct > server.active_defrag_running)
-    {
+    if (cpu_pct > server.active_defrag_running) {
         server.active_defrag_running = cpu_pct;
         serverLog(LL_VERBOSE,
             "Starting active defrag, frag=%.0f%%, frag_bytes=%zu, cpu=%d%%",

@@ -22,7 +22,7 @@ proc start_server_aof {overrides code} {
     kill_server $srv
 }
 
-tags {"aof"} {
+tags {"aof external:skip"} {
     ## Server can start when aof-load-truncated is set to yes and AOF
     ## is truncated, with an incomplete MULTI block.
     create_aof {
@@ -228,10 +228,10 @@ tags {"aof"} {
         }
     }
 
-    ## Test that EXPIREAT is loaded correctly
+    ## Test that PEXPIREAT is loaded correctly
     create_aof {
         append_to_aof [formatCommand rpush list foo]
-        append_to_aof [formatCommand expireat list 1000]
+        append_to_aof [formatCommand pexpireat list 1000]
         append_to_aof [formatCommand rpush list bar]
     }
 
@@ -293,6 +293,31 @@ tags {"aof"} {
             r getex foo
             set after [file size $aof]
             assert_equal $before $after
+        }
+    }
+
+    ## Test that the server exits when the AOF contains a unknown command
+    create_aof {
+        append_to_aof [formatCommand set foo hello]
+        append_to_aof [formatCommand bla foo hello]
+        append_to_aof [formatCommand set foo hello]
+    }
+
+    start_server_aof [list dir $server_path aof-load-truncated yes] {
+        test "Unknown command: Server should have logged an error" {
+            set pattern "*Unknown command 'bla' reading the append only file*"
+            set retry 10
+            while {$retry} {
+                set result [exec tail -1 < [dict get $srv stdout]]
+                if {[string match $pattern $result]} {
+                    break
+                }
+                incr retry -1
+                after 1000
+            }
+            if {$retry == 0} {
+                error "assertion:expected error not found on config file"
+            }
         }
     }
 }

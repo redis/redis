@@ -85,6 +85,9 @@ proc assert_error {pattern code} {
 }
 
 proc assert_encoding {enc key} {
+    if {$::ignoreencoding} {
+        return
+    }
     set dbg [r debug object $key]
     assert_match "* encoding:$enc *" $dbg
 }
@@ -112,7 +115,7 @@ proc wait_for_condition {maxtries delay e _else_ elsescript} {
     }
 }
 
-proc test {name code {okpattern undefined} {options undefined}} {
+proc test {name code {okpattern undefined} {tags {}}} {
     # abort if test name in skiptests
     if {[lsearch $::skiptests $name] >= 0} {
         incr ::num_skipped
@@ -127,20 +130,11 @@ proc test {name code {okpattern undefined} {options undefined}} {
         return
     }
 
-    # check if tagged with at least 1 tag to allow when there *is* a list
-    # of tags to allow, because default policy is to run everything
-    if {[llength $::allowtags] > 0} {
-        set matched 0
-        foreach tag $::allowtags {
-            if {[lsearch $::tags $tag] >= 0} {
-                incr matched
-            }
-        }
-        if {$matched < 1} {
-            incr ::num_aborted
-            send_data_packet $::test_server_fd ignore $name
-            return
-        }
+    set tags [concat $::tags $tags]
+    if {![tags_acceptable $tags err]} {
+        incr ::num_aborted
+        send_data_packet $::test_server_fd ignore "$name: $err"
+        return
     }
 
     incr ::num_tests

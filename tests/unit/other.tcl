@@ -1,4 +1,4 @@
-start_server {overrides {save ""} tags {"other"}} {
+start_server {tags {"other"}} {
     if {$::force_failure} {
         # This is used just for test suite development purposes.
         test {Failing test} {
@@ -17,7 +17,7 @@ start_server {overrides {save ""} tags {"other"}} {
         r zadd mytestzset 20 b
         r zadd mytestzset 30 c
         r save
-    } {OK}
+    } {OK} {needs:save}
 
     tags {slow} {
         if {$::accurate} {set iterations 10000} else {set iterations 1000}
@@ -47,65 +47,65 @@ start_server {overrides {save ""} tags {"other"}} {
         waitForBgsave r
         r debug reload
         r get x
-    } {10}
+    } {10} {needs:save}
 
     test {SELECT an out of range DB} {
         catch {r select 1000000} err
         set _ $err
-    } {*index is out of range*}
+    } {*index is out of range*} {cluster:skip}
 
     tags {consistency} {
-        if {true} {
-            if {$::accurate} {set numops 10000} else {set numops 1000}
-            test {Check consistency of different data types after a reload} {
-                r flushdb
-                createComplexDataset r $numops
-                set dump [csvdump r]
-                set sha1 [r debug digest]
-                r debug reload
-                set sha1_after [r debug digest]
-                if {$sha1 eq $sha1_after} {
-                    set _ 1
-                } else {
-                    set newdump [csvdump r]
-                    puts "Consistency test failed!"
-                    puts "You can inspect the two dumps in /tmp/repldump*.txt"
+        proc check_consistency {dumpname code} {
+            set dump [csvdump r]
+            set sha1 [r debug digest]
 
-                    set fd [open /tmp/repldump1.txt w]
-                    puts $fd $dump
-                    close $fd
-                    set fd [open /tmp/repldump2.txt w]
-                    puts $fd $newdump
-                    close $fd
+            uplevel 1 $code
 
-                    set _ 0
-                }
-            } {1}
+            set sha1_after [r debug digest]
+            if {$sha1 eq $sha1_after} {
+                return 1
+            }
 
-            test {Same dataset digest if saving/reloading as AOF?} {
-                r config set aof-use-rdb-preamble no
-                r bgrewriteaof
-                waitForBgrewriteaof r
-                r debug loadaof
-                set sha1_after [r debug digest]
-                if {$sha1 eq $sha1_after} {
-                    set _ 1
-                } else {
-                    set newdump [csvdump r]
-                    puts "Consistency test failed!"
-                    puts "You can inspect the two dumps in /tmp/aofdump*.txt"
+            # Failed
+            set newdump [csvdump r]
+            puts "Consistency test failed!"
+            puts "You can inspect the two dumps in /tmp/${dumpname}*.txt"
 
-                    set fd [open /tmp/aofdump1.txt w]
-                    puts $fd $dump
-                    close $fd
-                    set fd [open /tmp/aofdump2.txt w]
-                    puts $fd $newdump
-                    close $fd
+            set fd [open /tmp/${dumpname}1.txt w]
+            puts $fd $dump
+            close $fd
+            set fd [open /tmp/${dumpname}2.txt w]
+            puts $fd $newdump
+            close $fd
 
-                    set _ 0
-                }
-            } {1}
+            return 0
         }
+
+        if {$::accurate} {set numops 10000} else {set numops 1000}
+        test {Check consistency of different data types after a reload} {
+            r flushdb
+            createComplexDataset r $numops usetag
+            if {$::ignoredigest} {
+                set _ 1
+            } else {
+                check_consistency {repldump} {
+                    r debug reload
+                }
+            }
+        } {1}
+
+        test {Same dataset digest if saving/reloading as AOF?} {
+            if {$::ignoredigest} {
+                set _ 1
+            } else {
+                check_consistency {aofdump} {
+                    r config set aof-use-rdb-preamble no
+                    r bgrewriteaof
+                    waitForBgrewriteaof r
+                    r debug loadaof
+                }
+            }
+        } {1} {needs:debug}
     }
 
     test {EXPIRES after a reload (snapshot + append only file rewrite)} {
@@ -122,7 +122,7 @@ start_server {overrides {save ""} tags {"other"}} {
         set ttl [r ttl x]
         set e2 [expr {$ttl > 900 && $ttl <= 1000}]
         list $e1 $e2
-    } {1 1}
+    } {1 1} {needs:debug needs:save}
 
     test {EXPIRES after AOF reload (without rewrite)} {
         r flushdb
@@ -162,7 +162,7 @@ start_server {overrides {save ""} tags {"other"}} {
         set ttl [r ttl pz]
         assert {$ttl > 2900 && $ttl <= 3000}
         r config set appendonly no
-    }
+    } {OK} {needs:debug}
 
     tags {protocol} {
         test {PIPELINING stresser (also a regression for the old epoll bug)} {
@@ -237,18 +237,23 @@ start_server {overrides {save ""} tags {"other"}} {
     # Leave the user with a clean DB before to exit
     test {FLUSHDB} {
         set aux {}
-        r select 9
-        r flushdb
-        lappend aux [r dbsize]
-        r select 10
-        r flushdb
-        lappend aux [r dbsize]
+        if {$::singledb} {
+            r flushdb
+            lappend aux 0 [r dbsize]
+        } else {
+            r select 9
+            r flushdb
+            lappend aux [r dbsize]
+            r select 10
+            r flushdb
+            lappend aux [r dbsize]
+        }
     } {0 0}
 
     test {Perform a final SAVE to leave a clean DB on disk} {
         waitForBgsave r
         r save
-    } {OK}
+    } {OK} {needs:save}
 
     test {RESET clears client state} {
         r client setname test-client
@@ -258,7 +263,7 @@ start_server {overrides {save ""} tags {"other"}} {
         set client [r client list]
         assert_match {*name= *} $client
         assert_match {*flags=N *} $client
-    }
+    } {} {needs:reset}
 
     test {RESET clears MONITOR state} {
         set rd [redis_deferring_client]
@@ -269,7 +274,7 @@ start_server {overrides {save ""} tags {"other"}} {
         assert_equal [$rd read] "RESET"
 
         assert_no_match {*flags=O*} [r client list]
-    }
+    } {} {needs:reset}
 
     test {RESET clears and discards MULTI state} {
         r multi
@@ -278,7 +283,7 @@ start_server {overrides {save ""} tags {"other"}} {
         r reset
         catch {r exec} err
         assert_match {*EXEC without MULTI*} $err
-    }
+    } {} {needs:reset}
 
     test {RESET clears Pub/Sub state} {
         r subscribe channel-1
@@ -286,7 +291,7 @@ start_server {overrides {save ""} tags {"other"}} {
 
         # confirm we're not subscribed by executing another command
         r set key val
-    }
+    } {OK} {needs:reset}
 
     test {RESET clears authenticated state} {
         r acl setuser user1 on >secret +@all
@@ -296,10 +301,10 @@ start_server {overrides {save ""} tags {"other"}} {
         r reset
 
         assert_equal [r acl whoami] default
-    }
+    } {} {needs:reset}
 }
 
-start_server {tags {"other"}} {
+start_server {tags {"other external:skip"}} {
     test {Don't rehash if redis has child proecess} {
         r config set save ""
         r config set rdb-key-save-delay 1000000
@@ -322,7 +327,7 @@ start_server {tags {"other"}} {
         # size is power of two and over 4098, so it is 8192
         r set k3 v3
         assert_match "*table size: 8192*" [r debug HTSTATS 9]
-    }
+    } {} {needs:local-process}
 }
 
 proc read_proc_title {pid} {
@@ -333,7 +338,7 @@ proc read_proc_title {pid} {
     return $cmdline
 }
 
-start_server {tags {"other"}} {
+start_server {tags {"other external:skip"}} {
     test {Process title set as expected} {
         # Test only on Linux where it's easy to get cmdline without relying on tools.
         # Skip valgrind as it messes up the arguments.

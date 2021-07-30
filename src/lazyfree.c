@@ -48,6 +48,7 @@ void lazyFreeTrackingTable(void *args[]) {
     atomicIncr(lazyfreed_objects,len);
 }
 
+/* Release the lua_scripts dict. */
 void lazyFreeLuaScripts(void *args[]) {
     dict *lua_scripts = args[0];
     long long len = dictSize(lua_scripts);
@@ -89,7 +90,7 @@ void lazyfreeResetStats() {
  *
  * For lists the function returns the number of elements in the quicklist
  * representing the list. */
-size_t lazyfreeGetFreeEffort(robj *key, robj *obj) {
+size_t lazyfreeGetFreeEffort(robj *key, robj *obj, int dbid) {
     if (obj->type == OBJ_LIST) {
         quicklist *ql = obj->ptr;
         return ql->len;
@@ -127,16 +128,10 @@ size_t lazyfreeGetFreeEffort(robj *key, robj *obj) {
         }
         return effort;
     } else if (obj->type == OBJ_MODULE) {
-        moduleValue *mv = obj->ptr;
-        moduleType *mt = mv->type;
-        if (mt->free_effort != NULL) {
-            size_t effort  = mt->free_effort(key,mv->value);
-            /* If the module's free_effort returns 0, it will use asynchronous free
-             memory by default */
-            return effort == 0 ? ULONG_MAX : effort;
-        } else {
-            return 1;
-        }
+        size_t effort = moduleGetFreeEffort(key, obj, dbid);
+        /* If the module's free_effort returns 0, we will use asynchronous free
+         * memory by default. */
+        return effort == 0 ? ULONG_MAX : effort;
     } else {
         return 1; /* Everything else is a single allocation. */
     }
@@ -160,9 +155,9 @@ int dbAsyncDelete(redisDb *db, robj *key) {
         robj *val = dictGetVal(de);
 
         /* Tells the module that the key has been unlinked from the database. */
-        moduleNotifyKeyUnlink(key,val);
+        moduleNotifyKeyUnlink(key,val,db->id);
 
-        size_t free_effort = lazyfreeGetFreeEffort(key,val);
+        size_t free_effort = lazyfreeGetFreeEffort(key,val,db->id);
 
         /* If releasing the object is too much work, do it in the background
          * by adding the object to the lazy free list.
@@ -191,8 +186,8 @@ int dbAsyncDelete(redisDb *db, robj *key) {
 }
 
 /* Free an object, if the object is huge enough, free it in async way. */
-void freeObjAsync(robj *key, robj *obj) {
-    size_t free_effort = lazyfreeGetFreeEffort(key,obj);
+void freeObjAsync(robj *key, robj *obj, int dbid) {
+    size_t free_effort = lazyfreeGetFreeEffort(key,obj,dbid);
     if (free_effort > LAZYFREE_THRESHOLD && obj->refcount == 1) {
         atomicIncr(lazyfree_objects,1);
         bioCreateLazyFreeJob(lazyfreeFreeObject,1,obj);
@@ -212,16 +207,28 @@ void emptyDbAsync(redisDb *db) {
     bioCreateLazyFreeJob(lazyfreeFreeDatabase,2,oldht1,oldht2);
 }
 
-/* Release the radix tree mapping Redis Cluster keys to slots asynchronously. */
+/* Release the radix tree mapping Redis Cluster keys to slots.
+ * If the rax is huge enough, free it in async way. */
 void freeSlotsToKeysMapAsync(rax *rt) {
-    atomicIncr(lazyfree_objects,rt->numele);
-    bioCreateLazyFreeJob(lazyfreeFreeSlotsMap,1,rt);
+    /* Because this rax has only keys and no values so we use numnodes. */
+    if (rt->numnodes > LAZYFREE_THRESHOLD) {
+        atomicIncr(lazyfree_objects,rt->numele);
+        bioCreateLazyFreeJob(lazyfreeFreeSlotsMap,1,rt);
+    } else {
+        raxFree(rt);
+    }
 }
 
-/* Free an object, if the object is huge enough, free it in async way. */
+/* Free the key tracking table.
+ * If the table is huge enough, free it in async way. */
 void freeTrackingRadixTreeAsync(rax *tracking) {
-    atomicIncr(lazyfree_objects,tracking->numele);
-    bioCreateLazyFreeJob(lazyFreeTrackingTable,1,tracking);
+    /* Because this rax has only keys and no values so we use numnodes. */
+    if (tracking->numnodes > LAZYFREE_THRESHOLD) {
+        atomicIncr(lazyfree_objects,tracking->numele);
+        bioCreateLazyFreeJob(lazyFreeTrackingTable,1,tracking);
+    } else {
+        freeTrackingRadixTree(tracking);
+    }
 }
 
 /* Free lua_scripts dict, if the dict is huge enough, free it in async way. */

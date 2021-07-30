@@ -47,6 +47,7 @@
 #include <stdio.h>
 
 #include "anet.h"
+#include "config.h"
 
 static void anetSetError(char *err, const char *fmt, ...)
 {
@@ -491,18 +492,39 @@ int anetUnixServer(char *err, char *path, mode_t perm, int backlog)
     return s;
 }
 
+/* Accept a connection and also make sure the socket is non-blocking, and CLOEXEC.
+ * returns the new socket FD, or -1 on error. */
 static int anetGenericAccept(char *err, int s, struct sockaddr *sa, socklen_t *len) {
     int fd;
     do {
+        /* Use the accept4() call on linux to simultaneously accept and
+         * set a socket as non-blocking. */
+#ifdef HAVE_ACCEPT4
+        fd = accept4(s, sa, len,  SOCK_NONBLOCK | SOCK_CLOEXEC);
+#else
         fd = accept(s,sa,len);
+#endif
     } while(fd == -1 && errno == EINTR);
     if (fd == -1) {
         anetSetError(err, "accept: %s", strerror(errno));
         return ANET_ERR;
     }
+#ifndef HAVE_ACCEPT4
+    if (anetCloexec(fd) == -1) {
+        anetSetError(err, "anetCloexec: %s", strerror(errno));
+        close(fd);
+        return ANET_ERR;
+    }
+    if (anetNonBlock(err, fd) != ANET_OK) {
+        close(fd);
+        return ANET_ERR;
+    }
+#endif
     return fd;
 }
 
+/* Accept a connection and also make sure the socket is non-blocking, and CLOEXEC.
+ * returns the new socket FD, or -1 on error. */
 int anetTcpAccept(char *err, int s, char *ip, size_t ip_len, int *port) {
     int fd;
     struct sockaddr_storage sa;
@@ -522,6 +544,8 @@ int anetTcpAccept(char *err, int s, char *ip, size_t ip_len, int *port) {
     return fd;
 }
 
+/* Accept a connection and also make sure the socket is non-blocking, and CLOEXEC.
+ * returns the new socket FD, or -1 on error. */
 int anetUnixAccept(char *err, int s) {
     int fd;
     struct sockaddr_un sa;

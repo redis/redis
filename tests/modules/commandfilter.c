@@ -82,7 +82,7 @@ void CommandFilter_CommandFilter(RedisModuleCommandFilterCtx *filter)
      * - Remove @delme
      * - Replace @replaceme
      * - Append @insertbefore or @insertafter
-     * - Prefix with Log command if @log encounterd
+     * - Prefix with Log command if @log encountered
      */
     int log = 0;
     int pos = 0;

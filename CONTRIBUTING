@@ -18,7 +18,7 @@ all the support in the mailing list.
 
 There is also an active community of Redis users at Stack Overflow:
 
-    http://stackoverflow.com/questions/tagged/redis
+    https://stackoverflow.com/questions/tagged/redis
 
 Issues and pull requests for documentation belong on the redis-doc repo:
 
@@ -38,10 +38,10 @@ Here you'll see if there is consensus about your idea.
 2. If in step 1 you get an acknowledgment from the project leaders, use the
    following procedure to submit a patch:
 
-    a. Fork Redis on github ( http://help.github.com/fork-a-repo/ )
+    a. Fork Redis on github ( https://docs.github.com/en/github/getting-started-with-github/fork-a-repo )
     b. Create a topic branch (git checkout -b my_branch)
     c. Push to your branch (git push origin my_branch)
-    d. Initiate a pull request on github ( https://help.github.com/articles/creating-a-pull-request/ )
+    d. Initiate a pull request on github ( https://docs.github.com/en/github/collaborating-with-issues-and-pull-requests/creating-a-pull-request )
     e. Done :)
 
 3. Keep in mind that we are very overloaded, so issues and PRs sometimes wait

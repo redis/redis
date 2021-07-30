@@ -146,6 +146,8 @@ void tlsInit(void) {
      */
     #if OPENSSL_VERSION_NUMBER < 0x10100000L
     OPENSSL_config(NULL);
+    #elif OPENSSL_VERSION_NUMBER < 0x10101000L
+    OPENSSL_init_crypto(OPENSSL_INIT_LOAD_CONFIG, NULL);
     #else
     OPENSSL_init_crypto(OPENSSL_INIT_LOAD_CONFIG|OPENSSL_INIT_ATFORK, NULL);
     #endif
@@ -475,7 +477,7 @@ static void tlsEventHandler(struct aeEventLoop *el, int fd, void *clientData, in
 
 /* Process the return code received from OpenSSL>
  * Update the want parameter with expected I/O.
- * Update the connection's error state if a real error has occured.
+ * Update the connection's error state if a real error has occurred.
  * Returns an SSL error code, or 0 if no further handling is required.
  */
 static int handleSSLReturnCode(tls_connection *conn, int ret_value, WantIOType *want) {
@@ -759,7 +761,7 @@ static int connTLSWrite(connection *conn_, const void *data, size_t data_len) {
             if (ssl_err == SSL_ERROR_ZERO_RETURN ||
                     ((ssl_err == SSL_ERROR_SYSCALL && !errno))) {
                 conn->c.state = CONN_STATE_CLOSED;
-                return 0;
+                return -1;
             } else {
                 conn->c.state = CONN_STATE_ERROR;
                 return -1;

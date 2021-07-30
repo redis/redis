@@ -1,6 +1,6 @@
 # tests of corrupt ziplist payload with valid CRC
 
-tags {"dump" "corruption"} {
+tags {"dump" "corruption" "external:skip"} {
 
 # catch sigterm so that in case one of the random command hangs the test,
 # usually due to redis not putting a response in the output buffers,
@@ -52,7 +52,7 @@ proc generate_types {} {
     generate_collections big 10
 
     # make sure our big stream also has a listpack record that has different
-    # field names than the master recored
+    # field names than the master recorded
     r xadd streambig * item 1 value 1
     r xadd streambig * item 1 unique value
 }

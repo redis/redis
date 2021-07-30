@@ -15,8 +15,6 @@
  * multiplicators of the node timeout value (when ending with MULT). */
 #define CLUSTER_FAIL_REPORT_VALIDITY_MULT 2 /* Fail report validity. */
 #define CLUSTER_FAIL_UNDO_TIME_MULT 2 /* Undo fail if master is back. */
-#define CLUSTER_FAIL_UNDO_TIME_ADD 10 /* Some additional time. */
-#define CLUSTER_FAILOVER_DELAY 5 /* Seconds */
 #define CLUSTER_MF_TIMEOUT 5000 /* Milliseconds to do a manual failover. */
 #define CLUSTER_MF_PAUSE_MULT 2 /* Master pause manual failover mult. */
 #define CLUSTER_SLAVE_MIGRATION_DELAY 5000 /* Delay for slave migration. */
@@ -288,9 +286,18 @@ typedef struct {
                                             master is up. */
 
 /* ---------------------- API exported outside cluster.c -------------------- */
+void clusterInit(void);
+void clusterCron(void);
+void clusterBeforeSleep(void);
 clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, int *ask);
+clusterNode *clusterLookupNode(const char *name);
 int clusterRedirectBlockedClientIfNeeded(client *c);
 void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_code);
+void migrateCloseTimedoutSockets(void);
+int verifyClusterConfigWithData(void);
 unsigned long getClusterConnectionsCount(void);
+int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uint8_t type, unsigned char *payload, uint32_t len);
+void clusterPropagatePublish(robj *channel, robj *message);
+unsigned int keyHashSlot(char *key, int keylen);
 
 #endif /* __CLUSTER_H */
