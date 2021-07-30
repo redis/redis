@@ -395,7 +395,7 @@ void dismissListObject(robj *o, size_t size_hint) {
         quicklist *ql = o->ptr;
         serverAssert(ql->len != 0);
         /* We iterate all nodes only when average node size is bigger than a
-         * page size, and there's a high chance we'll actually dismiss sometihng. */
+         * page size, and there's a high chance we'll actually dismiss something. */
         if (size_hint / ql->len >= server.page_size) {
             quicklistNode *node = ql->head;
             while (node) {
@@ -416,7 +416,7 @@ void dismissSetObject(robj *o, size_t size_hint) {
         dict *set = o->ptr;
         serverAssert(dictSize(set) != 0);
         /* We iterate all nodes only when average member size is bigger than a
-         * page size, and there's a high chance we'll actually dismiss sometihng. */
+         * page size, and there's a high chance we'll actually dismiss something. */
         if (size_hint / dictSize(set) >= server.page_size) {
             dictEntry *de;
             dictIterator *di = dictGetIterator(set);
@@ -441,7 +441,7 @@ void dismissZsetObject(robj *o, size_t size_hint) {
         zskiplist *zsl = zs->zsl;
         serverAssert(zsl->length != 0);
         /* We iterate all nodes only when average member size is bigger than a
-         * page size, and there's a high chance we'll actually dismiss sometihng. */
+         * page size, and there's a high chance we'll actually dismiss something. */
         if (size_hint / zsl->length >= server.page_size) {
             zskiplistNode *zn = zsl->tail;
             while (zn != NULL) {
@@ -465,7 +465,7 @@ void dismissHashObject(robj *o, size_t size_hint) {
         dict *d = o->ptr;
         serverAssert(dictSize(d) != 0);
         /* We iterate all fields only when average field/value size is bigger than
-         * a page size, and there's a high chance we'll actually dismiss sometihng. */
+         * a page size, and there's a high chance we'll actually dismiss something. */
         if (size_hint / dictSize(d) >= server.page_size) {
             dictEntry *de;
             dictIterator *di = dictGetIterator(d);
