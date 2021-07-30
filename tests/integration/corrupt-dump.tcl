@@ -328,12 +328,12 @@ test {corrupt payload: fuzzer findings - leak in rdbloading due to dup entry in 
     }
 }
 
-test {corrupt payload: fuzzer findings - empty intset div by zero} {
+test {corrupt payload: fuzzer findings - empty intset} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r config set sanitize-dump-payload no
         r debug set-skip-checksum-validation 1
-        r RESTORE _setbig 0 "\x02\xC0\xC0\x06\x02\x5F\x39\xC0\x02\x02\x5F\x33\xC0\x00\x02\x5F\x31\xC0\x04\xC0\x08\x02\x5F\x37\x02\x5F\x35\x09\x00\xC5\xD4\x6D\xBA\xAD\x14\xB7\xE7"
-        catch {r SRANDMEMBER _setbig }
+        catch {r RESTORE _setbig 0 "\x02\xC0\xC0\x06\x02\x5F\x39\xC0\x02\x02\x5F\x33\xC0\x00\x02\x5F\x31\xC0\x04\xC0\x08\x02\x5F\x37\x02\x5F\x35\x09\x00\xC5\xD4\x6D\xBA\xAD\x14\xB7\xE7"} err
+        assert_match "*Bad data format*" $err
     }
 }
 
@@ -541,7 +541,7 @@ test {corrupt payload: fuzzer findings - quicklist ziplist tail followed by extr
     }
 }
 
-test {corrupt payload: fuzzer findings - quicklist len is 0} {
+test {corrupt payload: fuzzer findings - empty quicklist} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r config set sanitize-dump-payload yes
         r debug set-skip-checksum-validation 1

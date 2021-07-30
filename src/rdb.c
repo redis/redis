@@ -1532,7 +1532,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid) {
         o = tryObjectEncoding(o);
     } else if (rdbtype == RDB_TYPE_LIST) {
         /* Read list value */
-        if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
+        if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR || len == 0)
+            return NULL;
 
         o = createQuicklistObject();
         quicklistSetOptions(o->ptr, server.list_max_ziplist_size,
@@ -1552,7 +1553,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid) {
         }
     } else if (rdbtype == RDB_TYPE_SET) {
         /* Read Set value */
-        if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
+        if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR || len == 0)
+            return NULL;
 
         /* Use a regular set when there are too many entries. */
         if (len > server.set_max_intset_entries) {
@@ -1619,7 +1621,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid) {
         size_t maxelelen = 0;
         zset *zs;
 
-        if ((zsetlen = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
+        if ((zsetlen = rdbLoadLen(rdb,NULL)) == RDB_LENERR || zsetlen == 0)
+            return NULL;
         o = createZsetObject();
         zs = o->ptr;
 
