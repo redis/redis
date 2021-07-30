@@ -334,6 +334,7 @@ test {corrupt payload: fuzzer findings - empty intset} {
         r debug set-skip-checksum-validation 1
         catch {r RESTORE _setbig 0 "\x02\xC0\xC0\x06\x02\x5F\x39\xC0\x02\x02\x5F\x33\xC0\x00\x02\x5F\x31\xC0\x04\xC0\x08\x02\x5F\x37\x02\x5F\x35\x09\x00\xC5\xD4\x6D\xBA\xAD\x14\xB7\xE7"} err
         assert_match "*Bad data format*" $err
+        r ping
     }
 }
 
@@ -549,6 +550,7 @@ test {corrupt payload: fuzzer findings - empty quicklist} {
             r restore key 0 "\x0E\xC0\x2B\x15\x00\x00\x00\x0A\x00\x00\x00\x01\x00\x00\xE0\x62\x58\xEA\xDF\x22\x00\x00\x00\xFF\x09\x00\xDF\x35\xD2\x67\xDC\x0E\x89\xAB" replace
         } err
         assert_match "*Bad data format*" $err
+        r ping
     }
 }
 
