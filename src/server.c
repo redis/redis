@@ -58,7 +58,10 @@
 #include <locale.h>
 #include <sys/socket.h>
 #include <sys/resource.h>
+
+#ifdef __linux__
 #include <sys/mman.h>
+#endif
 
 /* Our shared "common" objects */
 
@@ -5931,8 +5934,7 @@ void sendChildInfo(childInfoType info_type, size_t keys, char *pname) {
 void dismissMemory(void* ptr, size_t size_hint) {
     if (ptr == NULL) return;
 
-    /* madvise(MADV_DONTNEED) may not work if we enable
-     * Transparent Huge Pages. */
+    /* madvise(MADV_DONTNEED) may not work if Transparent Huge Pages is enabled. */
     if (server.thp_enabled == 1) return;
 
     /* madvise(MADV_DONTNEED) can not release pages if the size of memory
@@ -5943,20 +5945,20 @@ void dismissMemory(void* ptr, size_t size_hint) {
     zmadvise_dontneed(ptr);
 }
 
+/* Dismiss big chunks of memory inside a client stracture, see dismissMemory() */
 void dismissClientMemory(client *c) {
     /* Dismiss client query buffer. */
     dismissSds(c->querybuf);
     dismissSds(c->pending_querybuf);
+    /* Dismiss argv array only if we estimate it contains a big buffer. */
     if (c->argc && c->argv_len_sum/c->argc >= server.page_size) {
         for (int i = 0; i < c->argc; i++) {
-            /* c->argv[i] always is string object, the argument
-             * 'dump_size' is not used in dismissObject. */
             dismissObject(c->argv[i], 0);
         }
     }
     if (c->argc) dismissMemory(c->argv, c->argc*sizeof(robj*));
 
-    /* Release the reply array only if the average buffer size is bigger
+    /* Dismiss the reply array only if the average buffer size is bigger
      * than a page. */
     if (listLength(c->reply) &&
         c->reply_bytes/listLength(c->reply) >= server.page_size)
@@ -5972,20 +5974,25 @@ void dismissClientMemory(client *c) {
         }
     }
 
-    /* The 'client' is a bit big because it has 16k default reply buffer. */
+    /* The client struct has a big static reply buffer in it. */
     dismissMemory(c, 0);
 }
 
-/* In the child process, we don't need some memory any more, but it is much
- * possible to change them because of clients heavy traffic. We should free
- * them ASAP to avoid CoW which causes excessive memory usage. */
+/* In the child process, we don't need some buffers anymore, and these are
+ * likely to change in the parent when there's heavy write traffic.
+ * We dismis them right away, to avoid CoW.
+ * see dismissMemeory(). */
 void dismissMemoryInChild(void) {
-    /* Replication backlog. */
+    /* Currently we use zmadvise_dontneed only when we use jemalloc.
+     * so we avoid these pointless loops when they're not going to do anything. */
+#if defined(USE_JEMALLOC)
+
+    /* Dismiss replication backlog. */
     if (server.repl_backlog != NULL) {
         dismissMemory(server.repl_backlog, server.repl_backlog_size);
     }
 
-    /* All clients memory. */
+    /* Dismiss all clients memory. */
     listIter li;
     listNode *ln;
     listRewind(server.clients, &li);
@@ -5993,6 +6000,7 @@ void dismissMemoryInChild(void) {
         client *c = listNodeValue(ln);
         dismissClientMemory(c);
     }
+#endif
 }
 
 void memtest(size_t megabytes, int passes);

@@ -69,6 +69,7 @@ void closeChildInfoPipe(void) {
 /* Send save data to parent. */
 void sendChildInfoGeneric(childInfoType info_type, size_t keys, double progress, char *pname) {
     if (server.child_info_pipe[1] == -1) return;
+
     static monotime cow_updated = 0;
     static uint64_t cow_update_cost = 0;
     static size_t cow = 0;

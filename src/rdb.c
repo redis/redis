@@ -1248,15 +1248,16 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
             sds keystr = dictGetKey(de);
             robj key, *o = dictGetVal(de);
             long long expire;
-            size_t before = rdb->processed_bytes;
+            size_t rdb_bytes_before_key = rdb->processed_bytes;
 
             initStaticStringObject(key,keystr);
             expire = getExpire(db,&key);
             if (rdbSaveKeyValuePair(rdb,&key,o,expire) == -1) goto werr;
 
-            /* We can try to release memory quickly to avoid COW
-             * in the child process. */
-            size_t dump_size = rdb->processed_bytes - before;
+            /* In fork child process, we can try to release memory back to the
+             * OS and possibly avoid or decrease COW. We guve the dismiss
+             * mechanism a hint about an estimated size of the object we stored. */
+            size_t dump_size = rdb->processed_bytes - rdb_bytes_before_key;
             if (server.in_fork_child) dismissObject(o, dump_size);
 
             /* When this RDB is produced as part of an AOF rewrite, move

@@ -377,23 +377,26 @@ void decrRefCount(robj *o) {
     }
 }
 
+/* See dismissObject() */
 void dismissSds(sds s) {
     dismissMemory(sdsAllocPtr(s), sdsAllocSize(s));
 }
 
+/* See dismissObject() */
 void dismissStringObject(robj *o) {
     if (o->encoding == OBJ_ENCODING_RAW) {
         dismissSds(o->ptr);
     }
 }
 
-void dismissListObject(robj *o, size_t dump_size) {
+/* See dismissObject() */
+void dismissListObject(robj *o, size_t size_hint) {
     if (o->encoding == OBJ_ENCODING_QUICKLIST) {
         quicklist *ql = o->ptr;
         serverAssert(ql->len != 0);
-        /* We iterate all nodes only when average node size
-         * is more than page size. */
-        if (dump_size / ql->len >= server.page_size) {
+        /* We iterate all nodes only when average node size is bigger than a
+         * page size, and there's a high chance we'll actually dismiss sometihng. */
+        if (size_hint / ql->len >= server.page_size) {
             quicklistNode *node = ql->head;
             while (node) {
                 if (quicklistNodeIsCompressed(node)) {
@@ -407,13 +410,14 @@ void dismissListObject(robj *o, size_t dump_size) {
     }
 }
 
-void dismissSetObject(robj *o, size_t dump_size) {
+/* See dismissObject() */
+void dismissSetObject(robj *o, size_t size_hint) {
     if (o->encoding == OBJ_ENCODING_HT) {
         dict *set = o->ptr;
         serverAssert(dictSize(set) != 0);
-        /* We iterate all members only when average member size
-         * is more than page size. */
-        if (dump_size / dictSize(set) >= server.page_size) {
+        /* We iterate all nodes only when average member size is bigger than a
+         * page size, and there's a high chance we'll actually dismiss sometihng. */
+        if (size_hint / dictSize(set) >= server.page_size) {
             dictEntry *de;
             dictIterator *di = dictGetIterator(set);
             while ((de = dictNext(di)) != NULL) {
@@ -430,14 +434,15 @@ void dismissSetObject(robj *o, size_t dump_size) {
     }
 }
 
-void dismissZsetObject(robj *o, size_t dump_size) {
+/* See dismissObject() */
+void dismissZsetObject(robj *o, size_t size_hint) {
     if (o->encoding == OBJ_ENCODING_SKIPLIST) {
         zset *zs = o->ptr;
         zskiplist *zsl = zs->zsl;
         serverAssert(zsl->length != 0);
-        /* We iterate all members only when average member size
-         * is more than page size. */
-        if (dump_size / zsl->length >= server.page_size) {
+        /* We iterate all nodes only when average member size is bigger than a
+         * page size, and there's a high chance we'll actually dismiss sometihng. */
+        if (size_hint / zsl->length >= server.page_size) {
             zskiplistNode *zn = zsl->tail;
             while (zn != NULL) {
                 dismissSds(zn->ele);
@@ -454,13 +459,14 @@ void dismissZsetObject(robj *o, size_t dump_size) {
     }
 }
 
-void dismissHashObject(robj *o, size_t dump_size) {
+/* See dismissObject() */
+void dismissHashObject(robj *o, size_t size_hint) {
     if (o->encoding == OBJ_ENCODING_HT) {
         dict *d = o->ptr;
         serverAssert(dictSize(d) != 0);
-        /* We iterate all field/values only when average field/values
-         * size is more than page size. */
-        if (dump_size / dictSize(d) >= server.page_size) {
+        /* We iterate all fields only when average field/value size is bigger than
+         * a page size, and there's a high chance we'll actually dismiss sometihng. */
+        if (size_hint / dictSize(d) >= server.page_size) {
             dictEntry *de;
             dictIterator *di = dictGetIterator(d);
             while ((de = dictNext(di)) != NULL) {
@@ -479,15 +485,16 @@ void dismissHashObject(robj *o, size_t dump_size) {
     }
 }
 
-void dismissStreamObject(robj *o, size_t dump_size) {
+/* See dismissObject() */
+void dismissStreamObject(robj *o, size_t size_hint) {
     stream *s = o->ptr;
     rax *rax = s->rax;
     if (raxSize(rax) == 0) return;
 
-    /* Iterate stream entries, although dump_size may include serialized
+    /* Iterate only on stream entries, although size_hint may include serialized
      * consumer groups info, but usually, stream entries take up most of
      * the space. */
-    if (dump_size / raxSize(rax) >= server.page_size) {
+    if (size_hint / raxSize(rax) >= server.page_size) {
         raxIterator ri;
         raxStart(&ri,rax);
         raxSeek(&ri,"^",NULL,0);
@@ -498,31 +505,34 @@ void dismissStreamObject(robj *o, size_t dump_size) {
     }
 }
 
-/* In redis, to implement rewriting AOF and dumping RDB, the main process
- * complex a child process, after 'fork', the child has the same and shared
- * memory with parent, so it can finish the remaining works.
- * The parent process will trigger CoW when updating keys, and the child
- * process will have much more private dirty memory and really occupies memory.
- * But in the child process, the key values are definitely not accessed again
- * after being serialized. To avoid unnecessary CoW on serialized key values
- * which causes excessive memory usage, we try to release their memory to OS.
+/* When creating a snapshot in a fork child process, the main process and child
+ * process share the same physical memory pages, and if / when the parent
+ * modifies any keys due to write traffic, it'll cause CoW which consume
+ * phisical memory. In the child process, after serializing the key and value,
+ * the data is definitely not accessed again, so to avoid unnecessary CoW, we
+ * try to release their memory back to OS. see dismissMemory().
  *
- * Because it may cost much time to iterate all node/field/member/entry of
- * complex data type, we decide to iterate and dismiss them only when approximate
- * average node/field/member/entry size is more than page size of OS. 'dump_size'
- * is the size of serialized key values. This method is not accurate, but it
- * can avoid unnecessary iteration for complex data type. */
-void dismissObject(robj *o, size_t dump_size) {
+ * Because the cost of iterating all node/field/member/entry of complex data
+ * types, we iterate and dismiss them only when approximate average we estimate
+ * the size of an individual allocation is more than a page size of OS.
+ * 'size_hint' is the size of serialized value. This method is not accurate, but
+ * it can reduce unnecessary iteration for complex data types that are probably
+ * not gonna release any memory. */
+void dismissObject(robj *o, size_t size_hint) {
+    /* Currently we use zmadvise_dontneed only when we use jemalloc.
+     * so we avoid these pointless loops when they're not going to do anything. */
+#if defined(USE_JEMALLOC)
     if (o->refcount != 1) return;
     switch(o->type) {
         case OBJ_STRING: dismissStringObject(o); break;
-        case OBJ_LIST: dismissListObject(o, dump_size); break;
-        case OBJ_SET: dismissSetObject(o, dump_size); break;
-        case OBJ_ZSET: dismissZsetObject(o, dump_size); break;
-        case OBJ_HASH: dismissHashObject(o, dump_size); break;
-        case OBJ_STREAM: dismissStreamObject(o, dump_size); break;
+        case OBJ_LIST: dismissListObject(o, size_hint); break;
+        case OBJ_SET: dismissSetObject(o, size_hint); break;
+        case OBJ_ZSET: dismissZsetObject(o, size_hint); break;
+        case OBJ_HASH: dismissHashObject(o, size_hint); break;
+        case OBJ_STREAM: dismissStreamObject(o, size_hint); break;
         default: break;
     }
+#endif
 }
 
 /* This variant of decrRefCount() gets its argument as void, and is useful

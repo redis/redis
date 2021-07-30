@@ -1473,7 +1473,7 @@ int rewriteAppendOnlyFileRio(rio *aof) {
             sds keystr;
             robj key, *o;
             long long expiretime;
-            size_t before = aof->processed_bytes;
+            size_t aof_bytes_before_key = aof->processed_bytes;
 
             keystr = dictGetKey(de);
             o = dictGetVal(de);
@@ -1505,9 +1505,10 @@ int rewriteAppendOnlyFileRio(rio *aof) {
                 serverPanic("Unknown object type");
             }
 
-            /* We can try to release memory quickly to avoid COW
-             * in the child process. */
-            size_t dump_size = aof->processed_bytes - before;
+            /* In fork child process, we can try to release memory back to the
+             * OS and possibly avoid or decrease COW. We guve the dismiss
+             * mechanism a hint about an estimated size of the object we stored. */
+            size_t dump_size = aof->processed_bytes - aof_bytes_before_key;
             if (server.in_fork_child) dismissObject(o, dump_size);
 
             /* Save the expire time */

@@ -1196,7 +1196,7 @@ struct redisServer {
     int propagate_in_transaction;  /* Make sure we don't propagate nested MULTI/EXEC */
     char *ignore_warnings;      /* Config: warnings that should be ignored. */
     int client_pause_in_transaction; /* Was a client pause executed during this Exec? */
-    int thp_enabled;                 /* If true, HTP is enabled. */
+    int thp_enabled;                 /* If true, THP is enabled. */
     size_t page_size;                /* The page size of OS. */
     /* Modules */
     dict *moduleapi;            /* Exported core APIs dictionary for modules. */

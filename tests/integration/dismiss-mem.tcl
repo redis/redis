@@ -1,6 +1,6 @@
-# The tests of this file are aim to get coverage on all the "dismiss" methods
-# that include dismiss all data types memory, client query buffer, client
-# output buffer and replication backlog.
+# The tests of this file aim to get coverage on all the "dismiss" methods
+# that dismiss all data-types memory in the fork child. like client query
+# buffer, client output buffer and replication backlog.
 # Actually, we may not have many asserts in the test, since we just check for
 # crashes and the dump file inconsistencies.
 
