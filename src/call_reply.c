@@ -289,7 +289,7 @@ int callReplyType(CallReply *rep) {
  * The returned value is not NULL terminated and its length is returned by
  * reference through len, which must not be NULL.
  */
-const char *callReplyGetStr(CallReply *rep, size_t *len) {
+const char *callReplyGetString(CallReply *rep, size_t *len) {
     callReplyParse(rep);
     if (rep->type != REDISMODULE_REPLY_STRING &&
         rep->type != REDISMODULE_REPLY_ERROR) return NULL;
@@ -358,7 +358,7 @@ static CallReply *callReplyGetCollectionElement(CallReply *rep, size_t idx, int 
  * The return value is borrowed from CallReply, so it must not be freed
  * explicitly or used after CallReply itself is freed.
  */
-CallReply *callReplyGetArrElement(CallReply *rep, size_t idx) {
+CallReply *callReplyGetArrayElement(CallReply *rep, size_t idx) {
     callReplyParse(rep);
     if (rep->type != REDISMODULE_REPLY_ARRAY) return NULL;
     return callReplyGetCollectionElement(rep, idx, 1);

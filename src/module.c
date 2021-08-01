@@ -3796,7 +3796,20 @@ void RM_FreeCallReply(RedisModuleCallReply *reply) {
     autoMemoryFreed(ctx,REDISMODULE_AM_REPLY,reply);
 }
 
-/* Return the reply type. */
+/* Return the reply type as one of the following:
+ * - REDISMODULE_REPLY_UNKNOWN
+ * - REDISMODULE_REPLY_STRING
+ * - REDISMODULE_REPLY_ERROR
+ * - REDISMODULE_REPLY_INTEGER
+ * - REDISMODULE_REPLY_ARRAY
+ * - REDISMODULE_REPLY_NULL
+ * - REDISMODULE_REPLY_MAP
+ * - REDISMODULE_REPLY_SET
+ * - REDISMODULE_REPLY_BOOL
+ * - REDISMODULE_REPLY_DOUBLE
+ * - REDISMODULE_REPLY_BIG_NUMBER
+ * - REDISMODULE_REPLY_VERBATIM_STRING
+ * - REDISMODULE_REPLY_ATTRIBUTE */
 int RM_CallReplyType(RedisModuleCallReply *reply) {
     return callReplyType(reply);
 }
@@ -3809,7 +3822,7 @@ size_t RM_CallReplyLength(RedisModuleCallReply *reply) {
 /* Return the 'idx'-th nested call reply element of an array reply, or NULL
  * if the reply type is wrong or the index is out of range. */
 RedisModuleCallReply *RM_CallReplyArrayElement(RedisModuleCallReply *reply, size_t idx) {
-    return callReplyGetArrElement(reply, idx);
+    return callReplyGetArrayElement(reply, idx);
 }
 
 /* Return the long long of an integer reply. */
@@ -3883,7 +3896,7 @@ int RM_CallReplyAttributeElement(RedisModuleCallReply *reply, size_t idx, RedisM
 const char *RM_CallReplyStringPtr(RedisModuleCallReply *reply, size_t *len) {
     size_t private_len;
     if (!len) len = &private_len;
-    return callReplyGetStr(reply, len);
+    return callReplyGetString(reply, len);
 }
 
 /* Return a new string object from a call reply of type string, error or
@@ -3895,7 +3908,7 @@ RedisModuleString *RM_CreateStringFromCallReply(RedisModuleCallReply *reply) {
     switch(callReplyType(reply)) {
         case REDISMODULE_REPLY_STRING:
         case REDISMODULE_REPLY_ERROR:
-            str = callReplyGetStr(reply, &len);
+            str = callReplyGetString(reply, &len);
             return RM_CreateString(ctx, str, len);
         case REDISMODULE_REPLY_INTEGER: {
             char buf[64];
