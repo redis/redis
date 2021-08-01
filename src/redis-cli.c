@@ -2074,6 +2074,7 @@ static int issueCommandRepeat(int argc, char **argv, long repeat) {
         {
             if (cliConnect(CC_FORCE) != REDIS_OK) {
                 cliPrintContextError();
+                config.cluster_reissue_command = 0;
                 return REDIS_ERR;
             }
         }
