@@ -2083,7 +2083,6 @@ static int issueCommandRepeat(int argc, char **argv, long repeat) {
                 cliPrintContextError();
                 return REDIS_ERR;
             }
-            config.cluster_send_asking = 0;
         }
         if (cliSendCommand(argc,argv,repeat) != REDIS_OK) {
             cliPrintContextError();
