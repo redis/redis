@@ -1694,8 +1694,7 @@ void rewriteConfigRemoveOrphaned(struct rewriteConfigState *state) {
 }
 
 /* This function returns a string representation of all the config options
- * marked with DEBUG_CONFIG. This list should include extra information
- * to debug certain types of crashes. */
+ * marked with DEBUG_CONFIG, which can be used to help with debugging. */
 sds getConfigDebugInfo() {
     struct rewriteConfigState *state = rewriteConfigCreateState();
     state->force_all = 1; /* Force the output */
