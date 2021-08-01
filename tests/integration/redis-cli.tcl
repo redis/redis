@@ -33,13 +33,14 @@ start_server {tags {"cli"}} {
     proc read_cli {fd} {
         set ret {}
         set empty_reads 0
-        while {$empty_reads < 5 || [string index $ret end] != "\n"} {
+        while {$empty_reads < 5} {
             set buf [read $fd]
             if {[string length $buf] == 0} {
                 after 10
                 incr empty_reads
             } else {
                 append ret $buf
+                set empty_reads 0
             }
         }
         return $ret
