@@ -252,6 +252,7 @@ typedef struct standardConfig {
                              * config, which is mutable. */
 #define IMMUTABLE_CONFIG (1ULL<<0) /* Can this value only be set at startup? */
 #define SENSITIVE_CONFIG (1ULL<<1) /* Does this value contain sensitive information */
+#define DEBUG_CONFIG (1ULL<<2) /* Should this value be logged on engine crash? */
 
 standardConfig configs[];
 
@@ -1139,8 +1140,29 @@ struct rewriteConfigState {
     int has_tail;         /* True if we already added directives that were
                              not present in the original config file. */
     int force_all;        /* True if we want all keywords to be force
-                             written. Currently only used for testing. */
+                             written. Currently only used for testing
+                             and debug information. */
 };
+
+/* Free the configuration rewrite state. */
+void rewriteConfigReleaseState(struct rewriteConfigState *state) {
+    sdsfreesplitres(state->lines,state->numlines);
+    dictRelease(state->option_to_line);
+    dictRelease(state->rewritten);
+    zfree(state);
+}
+
+/* Create the configuration rewrite state */
+struct rewriteConfigState *rewriteConfigCreateState() {
+    struct rewriteConfigState *state = zmalloc(sizeof(*state));
+    state->option_to_line = dictCreate(&optionToLineDictType,NULL);
+    state->rewritten = dictCreate(&optionSetDictType,NULL);
+    state->numlines = 0;
+    state->lines = NULL;
+    state->has_tail = 0;
+    state->force_all = 0;
+    return state;
+}
 
 /* Append the new line to the current configuration state. */
 void rewriteConfigAppendLine(struct rewriteConfigState *state, sds line) {
@@ -1180,13 +1202,8 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
 
     char buf[CONFIG_MAX_LINE+1];
     int linenum = -1;
-    struct rewriteConfigState *state = zmalloc(sizeof(*state));
-    state->option_to_line = dictCreate(&optionToLineDictType,NULL);
-    state->rewritten = dictCreate(&optionSetDictType,NULL);
-    state->numlines = 0;
-    state->lines = NULL;
-    state->has_tail = 0;
-    state->force_all = 0;
+    struct rewriteConfigState *state = rewriteConfigCreateState();
+
     if (fp == NULL) return state;
 
     /* Read the old file line by line, populate the state. */
@@ -1641,14 +1658,6 @@ sds rewriteConfigGetContentFromState(struct rewriteConfigState *state) {
     return content;
 }
 
-/* Free the configuration rewrite state. */
-void rewriteConfigReleaseState(struct rewriteConfigState *state) {
-    sdsfreesplitres(state->lines,state->numlines);
-    dictRelease(state->option_to_line);
-    dictRelease(state->rewritten);
-    zfree(state);
-}
-
 /* At the end of the rewrite process the state contains the remaining
  * map between "option name" => "lines in the original config file".
  * Lines used by the rewrite process were removed by the function
@@ -1682,6 +1691,25 @@ void rewriteConfigRemoveOrphaned(struct rewriteConfigState *state) {
         }
     }
     dictReleaseIterator(di);
+}
+
+/* This function returns a string representation of all the config options
+ * marked with DEBUG_CONFIG. This list should include extra information
+ * to debug certain types of crashes. */
+sds getConfigDebugInfo() {
+    struct rewriteConfigState *state = rewriteConfigCreateState();
+    state->force_all = 1; /* Force the output */
+    state->has_tail = 1; /* Omit the rewrite signature */
+
+    /* Iterate the configs and "rewrite" the ones that have 
+     * the debug flag. */
+    for (standardConfig *config = configs; config->name != NULL; config++) {
+        if (!(config->flags & DEBUG_CONFIG)) continue;
+        config->interface.rewrite(config->data, config->name, state);
+    }
+    sds info = rewriteConfigGetContentFromState(state);
+    rewriteConfigReleaseState(state);
+    return info;
 }
 
 /* This function replaces the old configuration file with the new content
@@ -2479,8 +2507,8 @@ standardConfig configs[] = {
     /* Bool configs */
     createBoolConfig("rdbchecksum", NULL, IMMUTABLE_CONFIG, server.rdb_checksum, 1, NULL, NULL),
     createBoolConfig("daemonize", NULL, IMMUTABLE_CONFIG, server.daemonize, 0, NULL, NULL),
-    createBoolConfig("io-threads-do-reads", NULL, IMMUTABLE_CONFIG, server.io_threads_do_reads, 0,NULL, NULL), /* Read + parse from threads? */
-    createBoolConfig("lua-replicate-commands", NULL, MODIFIABLE_CONFIG, server.lua_always_replicate_commands, 1, NULL, NULL),
+    createBoolConfig("io-threads-do-reads", NULL, DEBUG_CONFIG | IMMUTABLE_CONFIG, server.io_threads_do_reads, 0,NULL, NULL), /* Read + parse from threads? */
+    createBoolConfig("lua-replicate-commands", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, server.lua_always_replicate_commands, 1, NULL, NULL),
     createBoolConfig("always-show-logo", NULL, IMMUTABLE_CONFIG, server.always_show_logo, 0, NULL, NULL),
     createBoolConfig("protected-mode", NULL, MODIFIABLE_CONFIG, server.protected_mode, 1, NULL, NULL),
     createBoolConfig("rdbcompression", NULL, MODIFIABLE_CONFIG, server.rdb_compression, 1, NULL, NULL),
@@ -2495,7 +2523,7 @@ standardConfig configs[] = {
     createBoolConfig("lazyfree-lazy-user-del", NULL, MODIFIABLE_CONFIG, server.lazyfree_lazy_user_del , 0, NULL, NULL),
     createBoolConfig("lazyfree-lazy-user-flush", NULL, MODIFIABLE_CONFIG, server.lazyfree_lazy_user_flush , 0, NULL, NULL),
     createBoolConfig("repl-disable-tcp-nodelay", NULL, MODIFIABLE_CONFIG, server.repl_disable_tcp_nodelay, 0, NULL, NULL),
-    createBoolConfig("repl-diskless-sync", NULL, MODIFIABLE_CONFIG, server.repl_diskless_sync, 0, NULL, NULL),
+    createBoolConfig("repl-diskless-sync", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, server.repl_diskless_sync, 0, NULL, NULL),
     createBoolConfig("aof-rewrite-incremental-fsync", NULL, MODIFIABLE_CONFIG, server.aof_rewrite_incremental_fsync, 1, NULL, NULL),
     createBoolConfig("no-appendfsync-on-rewrite", NULL, MODIFIABLE_CONFIG, server.aof_no_fsync_on_rewrite, 0, NULL, NULL),
     createBoolConfig("cluster-require-full-coverage", NULL, MODIFIABLE_CONFIG, server.cluster_require_full_coverage, 1, NULL, NULL),
@@ -2508,7 +2536,7 @@ standardConfig configs[] = {
     createBoolConfig("replica-read-only", "slave-read-only", MODIFIABLE_CONFIG, server.repl_slave_ro, 1, NULL, NULL),
     createBoolConfig("replica-ignore-maxmemory", "slave-ignore-maxmemory", MODIFIABLE_CONFIG, server.repl_slave_ignore_maxmemory, 1, NULL, NULL),
     createBoolConfig("jemalloc-bg-thread", NULL, MODIFIABLE_CONFIG, server.jemalloc_bg_thread, 1, NULL, updateJemallocBgThread),
-    createBoolConfig("activedefrag", NULL, MODIFIABLE_CONFIG, server.active_defrag_enabled, 0, isValidActiveDefrag, NULL),
+    createBoolConfig("activedefrag", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, server.active_defrag_enabled, 0, isValidActiveDefrag, NULL),
     createBoolConfig("syslog-enabled", NULL, IMMUTABLE_CONFIG, server.syslog_enabled, 0, NULL, NULL),
     createBoolConfig("cluster-enabled", NULL, IMMUTABLE_CONFIG, server.cluster_enabled, 0, NULL, NULL),
     createBoolConfig("appendonly", NULL, MODIFIABLE_CONFIG, server.aof_enabled, 0, NULL, updateAppendonly),
@@ -2545,18 +2573,18 @@ standardConfig configs[] = {
     /* Enum Configs */
     createEnumConfig("supervised", NULL, IMMUTABLE_CONFIG, supervised_mode_enum, server.supervised_mode, SUPERVISED_NONE, NULL, NULL),
     createEnumConfig("syslog-facility", NULL, IMMUTABLE_CONFIG, syslog_facility_enum, server.syslog_facility, LOG_LOCAL0, NULL, NULL),
-    createEnumConfig("repl-diskless-load", NULL, MODIFIABLE_CONFIG, repl_diskless_load_enum, server.repl_diskless_load, REPL_DISKLESS_LOAD_DISABLED, NULL, NULL),
+    createEnumConfig("repl-diskless-load", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, repl_diskless_load_enum, server.repl_diskless_load, REPL_DISKLESS_LOAD_DISABLED, NULL, NULL),
     createEnumConfig("loglevel", NULL, MODIFIABLE_CONFIG, loglevel_enum, server.verbosity, LL_NOTICE, NULL, NULL),
     createEnumConfig("maxmemory-policy", NULL, MODIFIABLE_CONFIG, maxmemory_policy_enum, server.maxmemory_policy, MAXMEMORY_NO_EVICTION, NULL, NULL),
     createEnumConfig("appendfsync", NULL, MODIFIABLE_CONFIG, aof_fsync_enum, server.aof_fsync, AOF_FSYNC_EVERYSEC, NULL, NULL),
     createEnumConfig("oom-score-adj", NULL, MODIFIABLE_CONFIG, oom_score_adj_enum, server.oom_score_adj, OOM_SCORE_ADJ_NO, NULL, updateOOMScoreAdj),
     createEnumConfig("acl-pubsub-default", NULL, MODIFIABLE_CONFIG, acl_pubsub_default_enum, server.acl_pubsub_default, USER_FLAG_ALLCHANNELS, NULL, NULL),
-    createEnumConfig("sanitize-dump-payload", NULL, MODIFIABLE_CONFIG, sanitize_dump_payload_enum, server.sanitize_dump_payload, SANITIZE_DUMP_NO, NULL, NULL),
+    createEnumConfig("sanitize-dump-payload", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, sanitize_dump_payload_enum, server.sanitize_dump_payload, SANITIZE_DUMP_NO, NULL, NULL),
 
     /* Integer configs */
     createIntConfig("databases", NULL, IMMUTABLE_CONFIG, 1, INT_MAX, server.dbnum, 16, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("port", NULL, MODIFIABLE_CONFIG, 0, 65535, server.port, 6379, INTEGER_CONFIG, NULL, updatePort), /* TCP port. */
-    createIntConfig("io-threads", NULL, IMMUTABLE_CONFIG, 1, 128, server.io_threads_num, 1, INTEGER_CONFIG, NULL, NULL), /* Single threaded by default */
+    createIntConfig("io-threads", NULL, DEBUG_CONFIG | IMMUTABLE_CONFIG, 1, 128, server.io_threads_num, 1, INTEGER_CONFIG, NULL, NULL), /* Single threaded by default */
     createIntConfig("auto-aof-rewrite-percentage", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.aof_rewrite_perc, 100, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("cluster-replica-validity-factor", "cluster-slave-validity-factor", MODIFIABLE_CONFIG, 0, INT_MAX, server.cluster_slave_validity_factor, 10, INTEGER_CONFIG, NULL, NULL), /* Slave max data age factor. */
     createIntConfig("list-max-ziplist-size", NULL, MODIFIABLE_CONFIG, INT_MIN, INT_MAX, server.list_max_ziplist_size, -2, INTEGER_CONFIG, NULL, NULL),
