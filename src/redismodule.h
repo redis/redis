@@ -145,7 +145,7 @@ typedef struct RedisModuleStreamID {
 /* The current client does not allow blocking, either called from
  * within multi, lua, or from another module using RM_Call */
 #define REDISMODULE_CTX_FLAGS_DENY_BLOCKING (1<<21)
-/* The current client uses resp3 protocol */
+/* The current client uses RESP3 protocol */
 #define REDISMODULE_CTX_FLAGS_RESP3 (1<<22)
 
 /* Next context flag, must be updated when adding new flags above!

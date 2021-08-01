@@ -2095,6 +2095,9 @@ int RM_GetSelectedDb(RedisModuleCtx *ctx) {
  *
  *  * REDISMODULE_CTX_FLAGS_IS_CHILD: Redis is currently running inside
  *                                    background child process.
+ *
+ *  * REDISMODULE_CTX_FLAGS_RESP3: Indicate the that client attached to this
+ *                                 context is using RESP3.
  */
 int RM_GetContextFlags(RedisModuleCtx *ctx) {
     int flags = 0;
