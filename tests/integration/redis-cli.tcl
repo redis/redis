@@ -31,7 +31,13 @@ start_server {tags {"cli"}} {
     }
 
     proc read_cli {fd} {
-        set ret {}
+        set ret [read $fd]
+        while {[string length $ret] == 0} {
+            after 10
+            set ret [read $fd]
+        }
+
+        # We may have a short read, try to read some more.
         set empty_reads 0
         while {$empty_reads < 5} {
             set buf [read $fd]
