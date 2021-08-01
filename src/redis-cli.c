@@ -703,22 +703,13 @@ static void completionCallback(const char *buf, linenoiseCompletions *lc) {
     }
 }
 
-/* Linenoise hints callback. */
-static char *hintsCallback(const char *buf, int *color, int *bold) {
-    if (!pref.hints) return NULL;
-
-    int i, rawargc, argc, buflen = strlen(buf), matchlen = 0;
-    sds *rawargv, *argv = sdssplitargs(buf,&argc);
-    int endspace = buflen && isspace(buf[buflen-1]);
+/* Search for command with longest matching prefix. */
+static helpEntry *findMatchingCommand(sds *argv, int argc, int *matchlen) {
+    int i, rawargc;
+    sds *rawargv;
     helpEntry *entry = NULL;
+    *matchlen = 0;
 
-    /* Check if the argument list is empty and return ASAP. */
-    if (argc == 0) {
-        sdsfreesplitres(argv,argc);
-        return NULL;
-    }
-
-    /* Search longest matching prefix command */
     for (i = 0; i < helpEntriesLen; i++) {
         if (!(helpEntries[i].type & CLI_HELP_COMMAND)) continue;
 
@@ -730,13 +721,32 @@ static char *hintsCallback(const char *buf, int *color, int *bold) {
                     break;
                 }
             }
-            if (j == rawargc && rawargc > matchlen) {
-                matchlen = rawargc;
+            if (j == rawargc && rawargc > *matchlen) {
+                *matchlen = rawargc;
                 entry = &helpEntries[i];
             }
         }
         sdsfreesplitres(rawargv,rawargc);
     }
+    return entry;
+}
+
+/* Linenoise hints callback. */
+static char *hintsCallback(const char *buf, int *color, int *bold) {
+    if (!pref.hints) return NULL;
+
+    int argc, buflen = strlen(buf), matchlen = 0;
+    sds *argv = sdssplitargs(buf,&argc);
+    int endspace = buflen && isspace(buf[buflen-1]);
+    helpEntry *entry = NULL;
+
+    /* Check if the argument list is empty and return ASAP. */
+    if (argc == 0) {
+        sdsfreesplitres(argv,argc);
+        return NULL;
+    }
+
+    entry = findMatchingCommand(argv, argc, &matchlen);
     sdsfreesplitres(argv,argc);
 
     if (entry) {
