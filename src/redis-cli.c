@@ -755,11 +755,16 @@ static char *hintsCallback(const char *buf, int *color, int *bold) {
         sds hint = sdsnew(entry->org->params);
 
         /* Remove arguments from the returned hint to show only the
-            * ones the user did not yet type. */
+         * ones the user did not yet type. */
         int toremove = argc-matchlen;
+        /* Nesting depth of optional arguments - treat as a single unit. */
+        int optdepth = 0;
         while(toremove > 0 && sdslen(hint)) {
-            if (hint[0] == '[') break;
-            if (hint[0] == ' ') toremove--;
+            if (hint[0] == '[') optdepth++;
+            if (optdepth) {
+                if (hint[0] == ']') optdepth--; 
+            }
+            if (!optdepth && hint[0] == ' ') toremove--;
             sdsrange(hint,1,-1);
         }
 
