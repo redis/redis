@@ -64,8 +64,8 @@ start_server {tags {"cli"}} {
         set _ $tmp
     }
 
-    proc _run_cli {opts args} {
-        set cmd [rediscli [srv host] [srv port] [list -n 9 {*}$args]]
+    proc _run_cli {host port db opts args} {
+        set cmd [rediscli $host $port [list -n $db {*}$args]]
         foreach {key value} $opts {
             if {$key eq "pipe"} {
                 set cmd "sh -c \"$value | $cmd\""
@@ -84,15 +84,19 @@ start_server {tags {"cli"}} {
     }
 
     proc run_cli {args} {
-        _run_cli {} {*}$args
+        _run_cli [srv host] [srv port] 9 {} {*}$args
     }
 
     proc run_cli_with_input_pipe {cmd args} {
-        _run_cli [list pipe $cmd] -x {*}$args
+        _run_cli [srv host] [srv port] 9 [list pipe $cmd] -x {*}$args
     }
 
     proc run_cli_with_input_file {path args} {
-        _run_cli [list path $path] -x {*}$args
+        _run_cli [srv host] [srv port] 9 [list path $path] -x {*}$args
+    }
+
+    proc run_cli_host_port_db {host port db args} {
+        _run_cli $host $port $db {} {*}$args
     }
 
     proc test_nontty_cli {name code} {
@@ -205,6 +209,23 @@ start_server {tags {"cli"}} {
         r rpush list foo
         r rpush list bar
         assert_equal "foo\nbar" [run_cli lrange list 0 -1]
+    }
+
+    test_nontty_cli "ASK redirect test" {
+        # Set up two fake Redis nodes.
+        set tclsh [info nameofexecutable]
+        set script "tests/helpers/fake_redis_node.tcl"
+        set port1 [find_available_port $::baseport $::portcount]
+        set port2 [find_available_port $::baseport $::portcount]
+        set p1 [exec $tclsh $script $port1 \
+                "SET foo bar" "-ASK 12182 127.0.0.1:$port2" &]
+        set p2 [exec $tclsh $script $port2 \
+                "ASKING" "+OK" \
+                "SET foo bar" "+OK" &]
+        # Sleep to make sure both fake nodes have started listening
+        after 100
+        # Run the cli
+        assert_equal "OK" [run_cli_host_port_db "127.0.0.1" $port1 0 -c SET foo bar]
     }
 
     test_nontty_cli "Quoted input arguments" {
