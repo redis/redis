@@ -1106,7 +1106,7 @@ void sendBulkToSlave(connection *conn) {
     if (slave->replpreamble) {
         nwritten = connWrite(conn,slave->replpreamble,sdslen(slave->replpreamble));
         if (nwritten == -1) {
-            serverLog(LL_VERBOSE,
+            serverLog(LL_WARNING,
                 "Write error sending RDB preamble to replica: %s",
                 connGetLastError(conn));
             freeClient(slave);
