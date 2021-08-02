@@ -1330,7 +1330,7 @@ static int cliReadReply(int output_raw_strings) {
     /* Check if we need to connect to a different node and reissue the
      * request. */
     if (config.cluster_mode && reply->type == REDIS_REPLY_ERROR &&
-        (!strncmp(reply->str,"MOVED",5) || !strncmp(reply->str,"ASK",3)))
+        (!strncmp(reply->str,"MOVED ",6) || !strncmp(reply->str,"ASK ",4)))
     {
         char *p = reply->str, *s;
         int slot;
@@ -1354,7 +1354,7 @@ static int cliReadReply(int output_raw_strings) {
             printf("-> Redirected to slot [%d] located at %s:%d\n",
                 slot, config.hostip, config.hostport);
         config.cluster_reissue_command = 1;
-        if (!strncmp(reply->str,"ASK",3)) {
+        if (!strncmp(reply->str,"ASK ",4)) {
             config.cluster_send_asking = 1;
         }
         cliRefreshPrompt();
