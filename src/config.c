@@ -352,7 +352,7 @@ static int updateOOMScoreAdjValues(sds *args, const char **err, int apply) {
 
     if (values[CONFIG_OOM_REPLICA] < values[CONFIG_OOM_MASTER] ||
         values[CONFIG_OOM_BGCHILD] < values[CONFIG_OOM_REPLICA]) {
-            serverLog(LOG_WARNING,
+            serverLog(LL_WARNING,
                     "The oom-score-adj-values configuration may not work for non-privileged processes! "
                     "Please consult the documentation.");
     }
