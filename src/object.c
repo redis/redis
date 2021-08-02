@@ -519,6 +519,9 @@ void dismissStreamObject(robj *o, size_t size_hint) {
  * it can reduce unnecessary iteration for complex data types that are probably
  * not going to release any memory. */
 void dismissObject(robj *o, size_t size_hint) {
+    /* madvise(MADV_DONTNEED) may not work if Transparent Huge Pages is enabled. */
+    if (server.thp_enabled) return;
+
     /* Currently we use zmadvise_dontneed only when we use jemalloc.
      * so we avoid these pointless loops when they're not going to do anything. */
 #if defined(USE_JEMALLOC)

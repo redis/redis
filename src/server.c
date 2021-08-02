@@ -5928,9 +5928,6 @@ void sendChildInfo(childInfoType info_type, size_t keys, char *pname) {
 void dismissMemory(void* ptr, size_t size_hint) {
     if (ptr == NULL) return;
 
-    /* madvise(MADV_DONTNEED) may not work if Transparent Huge Pages is enabled. */
-    if (server.thp_enabled == 1) return;
-
     /* madvise(MADV_DONTNEED) can not release pages if the size of memory
      * is too small, we try to release only for the memory which the size
      * is more than half of page size. */
@@ -5977,6 +5974,9 @@ void dismissClientMemory(client *c) {
  * We dismis them right away, to avoid CoW.
  * see dismissMemeory(). */
 void dismissMemoryInChild(void) {
+    /* madvise(MADV_DONTNEED) may not work if Transparent Huge Pages is enabled. */
+    if (server.thp_enabled) return;
+
     /* Currently we use zmadvise_dontneed only when we use jemalloc.
      * so we avoid these pointless loops when they're not going to do anything. */
 #if defined(USE_JEMALLOC)
