@@ -1590,6 +1590,7 @@ void logServerInfo(void) {
     sdsfree(clients);
 }
 
+/* Log certain config values, which can be used for debuggin */
 void logConfigDebugInfo(void) {
     sds configstring;
     configstring = getConfigDebugInfo();

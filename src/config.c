@@ -252,7 +252,7 @@ typedef struct standardConfig {
                              * config, which is mutable. */
 #define IMMUTABLE_CONFIG (1ULL<<0) /* Can this value only be set at startup? */
 #define SENSITIVE_CONFIG (1ULL<<1) /* Does this value contain sensitive information */
-#define DEBUG_CONFIG (1ULL<<2) /* Should this value be logged on engine crash? */
+#define DEBUG_CONFIG (1ULL<<2) /* Values that are useful for debugging. */
 
 standardConfig configs[];
 
