@@ -3797,6 +3797,7 @@ void RM_FreeCallReply(RedisModuleCallReply *reply) {
 }
 
 /* Return the reply type as one of the following:
+ *
  * - REDISMODULE_REPLY_UNKNOWN
  * - REDISMODULE_REPLY_STRING
  * - REDISMODULE_REPLY_ERROR
