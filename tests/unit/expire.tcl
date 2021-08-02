@@ -601,4 +601,125 @@ start_server {tags {"expire"}} {
            {del foo}
         }
     } {} {needs:repl}
+
+    test {EXPIRE with NX option on a key with ttl} {
+        r SET foo bar EX 100
+        assert_equal [r EXPIRE foo 200 NX] 0
+        assert_range [r TTL foo] 50 100
+    } {}
+
+    test {EXPIRE with NX option on a key without ttl} {
+        r SET foo bar
+        assert_equal [r EXPIRE foo 200 NX] 1
+        assert_range [r TTL foo] 100 200
+    } {}
+
+    test {EXPIRE with XX option on a key with ttl} {
+        r SET foo bar EX 100
+        assert_equal [r EXPIRE foo 200 XX] 1
+        assert_range [r TTL foo] 100 200
+    } {}
+
+    test {EXPIRE with XX option on a key without ttl} {
+        r SET foo bar
+        assert_equal [r EXPIRE foo 200 XX] 0
+        assert_equal [r TTL foo] -1
+    } {}
+
+    test {EXPIRE with GT option on a key with lower ttl} {
+        r SET foo bar EX 100
+        assert_equal [r EXPIRE foo 200 GT] 1
+        assert_range [r TTL foo] 100 200
+    } {}
+
+    test {EXPIRE with GT option on a key with higher ttl} {
+        r SET foo bar EX 200
+        assert_equal [r EXPIRE foo 100 GT] 0
+        assert_range [r TTL foo] 100 200
+    } {}
+
+    test {EXPIRE with GT option on a key without ttl} {
+        r SET foo bar
+        assert_equal [r EXPIRE foo 200 GT] 0
+        assert_equal [r TTL foo] -1
+    } {}
+
+    test {EXPIRE with LT option on a key with higher ttl} {
+        r SET foo bar EX 100
+        assert_equal [r EXPIRE foo 200 LT] 0
+        assert_range [r TTL foo] 50 100
+    } {}
+
+    test {EXPIRE with LT option on a key with lower ttl} {
+        r SET foo bar EX 200
+        assert_equal [r EXPIRE foo 100 LT] 1
+        assert_range [r TTL foo] 50 100
+    } {}
+
+    test {EXPIRE with LT option on a key without ttl} {
+        r SET foo bar
+        assert_equal [r EXPIRE foo 100 LT] 1
+        assert_range [r TTL foo] 50 100
+    } {}
+
+    test {EXPIRE with LT and XX option on a key with ttl} {
+        r SET foo bar EX 200
+        assert_equal [r EXPIRE foo 100 LT XX] 1
+        assert_range [r TTL foo] 50 100
+    } {}
+
+    test {EXPIRE with LT and XX option on a key without ttl} {
+        r SET foo bar
+        assert_equal [r EXPIRE foo 200 LT XX] 0
+        assert_equal [r TTL foo] -1
+    } {}
+
+    test {EXPIRE with conflicting options: LT GT} {
+        catch {r EXPIRE foo 200 LT GT} e
+        set e
+    } {ERR GT and LT options at the same time are not compatible}
+
+    test {EXPIRE with conflicting options: NX GT} {
+        catch {r EXPIRE foo 200 NX GT} e
+        set e
+    } {ERR NX and XX, GT or LT options at the same time are not compatible}
+
+    test {EXPIRE with conflicting options: NX LT} {
+        catch {r EXPIRE foo 200 NX LT} e
+        set e
+    } {ERR NX and XX, GT or LT options at the same time are not compatible}
+
+    test {EXPIRE with conflicting options: NX XX} {
+        catch {r EXPIRE foo 200 NX XX} e
+        set e
+    } {ERR NX and XX, GT or LT options at the same time are not compatible}
+
+    test {EXPIRE with unsupported options} {
+        catch {r EXPIRE foo 200 AB} e
+        set e
+    } {ERR Unsupported option AB}
+
+    test {EXPIRE with unsupported options} {
+        catch {r EXPIRE foo 200 XX AB} e
+        set e
+    } {ERR Unsupported option AB}
+
+    test {EXPIRE with negative expiry} {
+        r SET foo bar EX 100
+        assert_equal [r EXPIRE foo -10 LT] 1
+        assert_equal [r TTL foo] -2
+    } {}
+
+    test {EXPIRE with negative expiry on a non-valitale key} {
+        r SET foo bar
+        assert_equal [r EXPIRE foo -10 LT] 1
+        assert_equal [r TTL foo] -2
+    } {}
+
+    test {EXPIRE with non-existed key} {
+        assert_equal [r EXPIRE none 100 NX] 0
+        assert_equal [r EXPIRE none 100 XX] 0
+        assert_equal [r EXPIRE none 100 GT] 0
+        assert_equal [r EXPIRE none 100 LT] 0
+    } {}
 }

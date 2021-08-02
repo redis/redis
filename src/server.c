@@ -678,19 +678,19 @@ struct redisCommand redisCommandTable[] = {
      "write fast @keyspace",
      0,NULL,1,2,1,0,0,0},
 
-    {"expire",expireCommand,3,
+    {"expire",expireCommand,-3,
      "write fast @keyspace",
      0,NULL,1,1,1,0,0,0},
 
-    {"expireat",expireatCommand,3,
+    {"expireat",expireatCommand,-3,
      "write fast @keyspace",
      0,NULL,1,1,1,0,0,0},
 
-    {"pexpire",pexpireCommand,3,
+    {"pexpire",pexpireCommand,-3,
      "write fast @keyspace",
      0,NULL,1,1,1,0,0,0},
 
-    {"pexpireat",pexpireatCommand,3,
+    {"pexpireat",pexpireatCommand,-3,
      "write fast @keyspace",
      0,NULL,1,1,1,0,0,0},
 
