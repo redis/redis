@@ -11,8 +11,8 @@ static const char retained_command_name[] = "commandfilter.retained";
 static const char unregister_command_name[] = "commandfilter.unregister";
 static int in_log_command = 0;
 
-static RedisModuleCommandFilter *filter = NULL;
-static RedisModuleString *retained = NULL;
+static RedisModuleCommandFilter *filter;
+static RedisModuleString *retained;
 
 int CommandFilter_UnregisterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
@@ -149,6 +149,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     long long noself = 0;
     log_key_name = RedisModule_CreateStringFromString(ctx, argv[0]);
     RedisModule_StringToLongLong(argv[1], &noself);
+    retained = NULL;
 
     if (RedisModule_CreateCommand(ctx,log_command_name,
                 CommandFilter_LogCommand,"write deny-oom",1,1,1) == REDISMODULE_ERR)
@@ -176,5 +177,6 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 int RedisModule_OnUnload(RedisModuleCtx *ctx) {
     RedisModule_FreeString(ctx, log_key_name);
     if (retained) RedisModule_FreeString(NULL, retained);
+
     return REDISMODULE_OK;
 }
