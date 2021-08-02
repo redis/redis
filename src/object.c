@@ -508,16 +508,16 @@ void dismissStreamObject(robj *o, size_t size_hint) {
 /* When creating a snapshot in a fork child process, the main process and child
  * process share the same physical memory pages, and if / when the parent
  * modifies any keys due to write traffic, it'll cause CoW which consume
- * phisical memory. In the child process, after serializing the key and value,
+ * physical memory. In the child process, after serializing the key and value,
  * the data is definitely not accessed again, so to avoid unnecessary CoW, we
  * try to release their memory back to OS. see dismissMemory().
  *
- * Because the cost of iterating all node/field/member/entry of complex data
+ * Because of the cost of iterating all node/field/member/entry of complex data
  * types, we iterate and dismiss them only when approximate average we estimate
  * the size of an individual allocation is more than a page size of OS.
  * 'size_hint' is the size of serialized value. This method is not accurate, but
  * it can reduce unnecessary iteration for complex data types that are probably
- * not gonna release any memory. */
+ * not going to release any memory. */
 void dismissObject(robj *o, size_t size_hint) {
     /* Currently we use zmadvise_dontneed only when we use jemalloc.
      * so we avoid these pointless loops when they're not going to do anything. */

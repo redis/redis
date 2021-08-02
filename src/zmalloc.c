@@ -342,7 +342,7 @@ void zmalloc_set_oom_handler(void (*oom_handler)(size_t)) {
     zmalloc_oom_handler = oom_handler;
 }
 
-/* Use 'MADV_DONTNEED' to release memory to operation system quickly.
+/* Use 'MADV_DONTNEED' to release memory to operating system quickly.
  * We do that in a fork child process to avoid CoW when the parent modifies
  * these shared pages. */
 void zmadvise_dontneed(void *ptr) {

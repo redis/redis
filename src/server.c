@@ -5916,7 +5916,7 @@ void sendChildInfo(childInfoType info_type, size_t keys, char *pname) {
     sendChildInfoGeneric(info_type, keys, -1, pname);
 }
 
-/* Try to release pages back to the OS directly (bypassing the allocatior),
+/* Try to release pages back to the OS directly (bypassing the allocator),
  * in an effort to decrease CoW during fork. For small allocations, we can't
  * release any full page, so in an effort to avoid getting the size of the
  * allocation from the allocator (malloc_size) when we already know it's small,
