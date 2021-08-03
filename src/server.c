@@ -173,6 +173,7 @@ struct redisServer server; /* Server global state */
  *
  * The following additional flags are only used in order to put commands
  * in a specific ACL category. Commands can have multiple ACL categories.
+ * See redis.conf for the exact meaning of each.
  *
  * @keyspace, @read, @write, @set, @sortedset, @list, @hash, @string, @bitmap,
  * @hyperloglog, @stream, @admin, @fast, @slow, @pubsub, @blocking, @dangerous,
@@ -403,6 +404,10 @@ struct redisCommand redisCommandTable[] = {
      "read-only to-sort @set",
      0,NULL,1,-1,1,0,0,0},
 
+    {"sintercard",sinterCardCommand,-2,
+     "read-only @set",
+     0,NULL,1,-1,1,0,0,0},
+
     {"sinterstore",sinterstoreCommand,-3,
      "write use-memory @set",
      0,NULL,1,-1,1,0,0,0},
@@ -472,6 +477,10 @@ struct redisCommand redisCommandTable[] = {
      0,zunionInterDiffGetKeys,0,0,0,0,0,0},
 
     {"zinter",zinterCommand,-3,
+     "read-only @sortedset",
+     0,zunionInterDiffGetKeys,0,0,0,0,0,0},
+
+    {"zintercard",zinterCardCommand,-3,
      "read-only @sortedset",
      0,zunionInterDiffGetKeys,0,0,0,0,0,0},
 
@@ -652,7 +661,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,0,0,0,0,0,0},
 
     {"select",selectCommand,2,
-     "ok-loading fast ok-stale @keyspace",
+     "ok-loading fast ok-stale @connection",
      0,NULL,0,0,0,0,0,0},
 
     {"swapdb",swapdbCommand,3,
@@ -677,19 +686,19 @@ struct redisCommand redisCommandTable[] = {
      "write fast @keyspace",
      0,NULL,1,2,1,0,0,0},
 
-    {"expire",expireCommand,3,
+    {"expire",expireCommand,-3,
      "write fast @keyspace",
      0,NULL,1,1,1,0,0,0},
 
-    {"expireat",expireatCommand,3,
+    {"expireat",expireatCommand,-3,
      "write fast @keyspace",
      0,NULL,1,1,1,0,0,0},
 
-    {"pexpire",pexpireCommand,3,
+    {"pexpire",pexpireCommand,-3,
      "write fast @keyspace",
      0,NULL,1,1,1,0,0,0},
 
-    {"pexpireat",pexpireatCommand,3,
+    {"pexpireat",pexpireatCommand,-3,
      "write fast @keyspace",
      0,NULL,1,1,1,0,0,0},
 
@@ -821,7 +830,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,0,0,0,0,0,0},
 
     {"role",roleCommand,1,
-     "ok-loading ok-stale no-script fast @dangerous",
+     "ok-loading ok-stale no-script fast @admin @dangerous",
      0,NULL,0,0,0,0,0,0},
 
     {"debug",debugCommand,-2,
@@ -881,15 +890,15 @@ struct redisCommand redisCommandTable[] = {
      0,migrateGetKeys,0,0,0,0,0,0},
 
     {"asking",askingCommand,1,
-     "fast @keyspace",
+     "fast @connection",
      0,NULL,0,0,0,0,0,0},
 
     {"readonly",readonlyCommand,1,
-     "fast @keyspace",
+     "fast @connection",
      0,NULL,0,0,0,0,0,0},
 
     {"readwrite",readwriteCommand,1,
-     "fast @keyspace",
+     "fast @connection",
      0,NULL,0,0,0,0,0,0},
 
     {"dump",dumpCommand,2,
@@ -959,7 +968,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,1,1,1,0,0,0},
 
     {"wait",waitCommand,3,
-     "no-script @keyspace",
+     "no-script @connection",
      0,NULL,0,0,0,0,0,0},
 
     {"command",commandCommand,-1,
@@ -1664,25 +1673,34 @@ long long getInstantaneousMetric(int metric) {
  *
  * The function always returns 0 as it never terminates the client. */
 int clientsCronResizeQueryBuffer(client *c) {
-    size_t querybuf_size = sdsAllocSize(c->querybuf);
+    size_t querybuf_size = sdsalloc(c->querybuf);
     time_t idletime = server.unixtime - c->lastinteraction;
 
-    /* There are two conditions to resize the query buffer:
-     * 1) Query buffer is > PROTO_RESIZE_THRESHOLD and too big for latest peak.
-     * 2) Query buffer is > PROTO_RESIZE_THRESHOLD and client is idle. */
-    if (querybuf_size > PROTO_RESIZE_THRESHOLD &&
-         ((querybuf_size/(c->querybuf_peak+1)) > 2 ||
-          idletime > 2))
-    {
-        /* Only resize the query buffer if it is actually wasting
-         * at least a few kbytes. */
-        if (sdsavail(c->querybuf) > 1024*4) {
+    /* Only resize the query buffer if the buffer is bigger than
+     * PROTO_RESIZE_THRESHOLD, and it is actually wasting at least a few kbytes. */
+    if (querybuf_size > PROTO_RESIZE_THRESHOLD && sdsavail(c->querybuf) > 1024*4) {
+        /* There are two conditions to resize the query buffer: */
+        if (idletime > 2) {
+            /* 1) Query is idle for a long time. */
             c->querybuf = sdsRemoveFreeSpace(c->querybuf);
+        } else if (querybuf_size/2 > c->querybuf_peak) {
+            /* 2) Query buffer is too big for latest peak. trim excess space but
+             *    only up to a limit, not below the recent peak and current
+             *    c->querybuf (which will be soon get used). */
+            size_t resize = sdslen(c->querybuf);
+            if (resize < c->querybuf_peak) resize = c->querybuf_peak;
+            if (c->bulklen != -1 && resize < (size_t)c->bulklen) resize = c->bulklen;
+            c->querybuf = sdsResize(c->querybuf, resize);
         }
     }
+
     /* Reset the peak again to capture the peak memory usage in the next
      * cycle. */
-    c->querybuf_peak = 0;
+    c->querybuf_peak = sdslen(c->querybuf);
+    /* We reset to either the current used, or currently processed bulk size,
+     * which ever is bigger. */
+    if (c->bulklen != -1 && (size_t)c->bulklen > c->querybuf_peak)
+        c->querybuf_peak = c->bulklen;
 
     /* Clients representing masters also use a "pending query buffer" that
      * is the yet not applied part of the stream we are reading. Such buffer
@@ -2479,7 +2497,6 @@ void createSharedObjects(void) {
     shared.queued = createObject(OBJ_STRING,sdsnew("+QUEUED\r\n"));
     shared.emptyscan = createObject(OBJ_STRING,sdsnew("*2\r\n$1\r\n0\r\n*0\r\n"));
     shared.space = createObject(OBJ_STRING,sdsnew(" "));
-    shared.colon = createObject(OBJ_STRING,sdsnew(":"));
     shared.plus = createObject(OBJ_STRING,sdsnew("+"));
 
     /* Shared command error responses */
@@ -2640,6 +2657,7 @@ void initServerConfig(void) {
     server.bindaddr_count = CONFIG_DEFAULT_BINDADDR_COUNT;
     for (j = 0; j < CONFIG_DEFAULT_BINDADDR_COUNT; j++)
         server.bindaddr[j] = zstrdup(default_bindaddr[j]);
+    server.bind_source_addr = NULL;
     server.unixsocketperm = CONFIG_DEFAULT_UNIX_SOCKET_PERM;
     server.ipfd.count = 0;
     server.tlsfd.count = 0;
@@ -2869,7 +2887,7 @@ int setOOMScoreAdj(int process_class) {
 
     fd = open("/proc/self/oom_score_adj", O_WRONLY);
     if (fd < 0 || write(fd, buf, strlen(buf)) < 0) {
-        serverLog(LOG_WARNING, "Unable to write oom_score_adj: %s", strerror(errno));
+        serverLog(LL_WARNING, "Unable to write oom_score_adj: %s", strerror(errno));
         if (fd != -1) close(fd);
         return C_ERR;
     }
@@ -3082,6 +3100,8 @@ void resetServerStats(void) {
     server.stat_expired_time_cap_reached_count = 0;
     server.stat_expire_cycle_time_used = 0;
     server.stat_evictedkeys = 0;
+    server.stat_total_eviction_exceeded_time = 0;
+    server.stat_last_eviction_exceeded_time = 0;
     server.stat_keyspace_misses = 0;
     server.stat_keyspace_hits = 0;
     server.stat_active_defrag_hits = 0;
@@ -3678,8 +3698,6 @@ void call(client *c, int flags) {
     struct redisCommand *real_cmd = c->cmd;
     static long long prev_err_count;
 
-    server.fixed_time_expire++;
-
     /* Initialization: clear the flags that must be set by the command on
      * demand, and initialize the array for additional commands propagation. */
     c->flags &= ~(CLIENT_FORCE_AOF|CLIENT_FORCE_REPL|CLIENT_PREVENT_PROP);
@@ -3689,7 +3707,13 @@ void call(client *c, int flags) {
     /* Call the command. */
     dirty = server.dirty;
     prev_err_count = server.stat_total_error_replies;
-    updateCachedTime(0);
+
+    /* Update cache time, in case we have nested calls we want to
+     * update only on the first call*/
+    if (server.fixed_time_expire++ == 0) {
+        updateCachedTime(0);
+    }
+
     elapsedStart(&call_timer);
     c->cmd->proc(c);
     const long duration = elapsedUs(call_timer);
@@ -4970,6 +4994,8 @@ sds genRedisInfoString(const char *section) {
     if (allsections || defsections || !strcasecmp(section,"stats")) {
         long long stat_total_reads_processed, stat_total_writes_processed;
         long long stat_net_input_bytes, stat_net_output_bytes;
+        long long current_eviction_exceeded_time = server.stat_last_eviction_exceeded_time ?
+            (long long) elapsedUs(server.stat_last_eviction_exceeded_time): 0;
         atomicGet(server.stat_total_reads_processed, stat_total_reads_processed);
         atomicGet(server.stat_total_writes_processed, stat_total_writes_processed);
         atomicGet(server.stat_net_input_bytes, stat_net_input_bytes);
@@ -4994,6 +5020,8 @@ sds genRedisInfoString(const char *section) {
             "expired_time_cap_reached_count:%lld\r\n"
             "expire_cycle_cpu_milliseconds:%lld\r\n"
             "evicted_keys:%lld\r\n"
+            "total_eviction_exceeded_time:%lld\r\n"
+            "current_eviction_exceeded_time:%lld\r\n"
             "keyspace_hits:%lld\r\n"
             "keyspace_misses:%lld\r\n"
             "pubsub_channels:%ld\r\n"
@@ -5032,6 +5060,8 @@ sds genRedisInfoString(const char *section) {
             server.stat_expired_time_cap_reached_count,
             server.stat_expire_cycle_time_used/1000,
             server.stat_evictedkeys,
+            (server.stat_total_eviction_exceeded_time + current_eviction_exceeded_time) / 1000,
+            current_eviction_exceeded_time / 1000,
             server.stat_keyspace_hits,
             server.stat_keyspace_misses,
             dictSize(server.pubsub_channels),
@@ -5884,12 +5914,11 @@ void sendChildInfo(childInfoType info_type, size_t keys, char *pname) {
 void memtest(size_t megabytes, int passes);
 
 /* Returns 1 if there is --sentinel among the arguments or if
- * argv[0] contains "redis-sentinel". */
-int checkForSentinelMode(int argc, char **argv) {
-    int j;
+ * executable name contains "redis-sentinel". */
+int checkForSentinelMode(int argc, char **argv, char *exec_name) {
+    if (strstr(exec_name,"redis-sentinel") != NULL) return 1;
 
-    if (strstr(argv[0],"redis-sentinel") != NULL) return 1;
-    for (j = 1; j < argc; j++)
+    for (int j = 1; j < argc; j++)
         if (!strcmp(argv[j],"--sentinel")) return 1;
     return 0;
 }
@@ -6196,7 +6225,10 @@ int main(int argc, char **argv) {
     uint8_t hashseed[16];
     getRandomBytes(hashseed,sizeof(hashseed));
     dictSetHashFunctionSeed(hashseed);
-    server.sentinel_mode = checkForSentinelMode(argc,argv);
+
+    char *exec_name = strrchr(argv[0], '/');
+    if (exec_name == NULL) exec_name = argv[0];
+    server.sentinel_mode = checkForSentinelMode(argc,argv, exec_name);
     initServerConfig();
     ACLInit(); /* The ACL subsystem must be initialized ASAP because the
                   basic networking code and client creation depends on it. */
@@ -6221,9 +6253,9 @@ int main(int argc, char **argv) {
     /* Check if we need to start in redis-check-rdb/aof mode. We just execute
      * the program main. However the program is part of the Redis executable
      * so that we can easily execute an RDB check on loading errors. */
-    if (strstr(argv[0],"redis-check-rdb") != NULL)
+    if (strstr(exec_name,"redis-check-rdb") != NULL)
         redis_check_rdb_main(argc,argv,NULL);
-    else if (strstr(argv[0],"redis-check-aof") != NULL)
+    else if (strstr(exec_name,"redis-check-aof") != NULL)
         redis_check_aof_main(argc,argv);
 
     if (argc >= 2) {

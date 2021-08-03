@@ -880,7 +880,7 @@ size_t objectComputeSize(robj *key, robj *o, size_t sample_size, int dbid) {
         }
     } else if (o->type == OBJ_STREAM) {
         stream *s = o->ptr;
-        asize = sizeof(*o);
+        asize = sizeof(*o)+sizeof(*s);
         asize += streamRadixTreeMemoryUsage(s->rax);
 
         /* Now we have to add the listpacks. The last listpack is often non
@@ -1201,13 +1201,13 @@ int objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
          * below statement will expand to lru_idle*1000/1000. */
         lru_idle = lru_idle*lru_multiplier/LRU_CLOCK_RESOLUTION;
         long lru_abs = lru_clock - lru_idle; /* Absolute access time. */
-        /* If the LRU field underflow (since LRU it is a wrapping
-         * clock), the best we can do is to provide a large enough LRU
-         * that is half-way in the circular LRU clock we use: this way
-         * the computed idle time for this object will stay high for quite
-         * some time. */
+        /* If the LRU field underflows (since lru_clock is a wrapping clock),
+         * we need to make it positive again. This be handled by the unwrapping
+         * code in estimateObjectIdleTime. I.e. imagine a day when lru_clock
+         * wrap arounds (happens once in some 6 months), and becomes a low
+         * value, like 10, an lru_idle of 1000 should be near LRU_CLOCK_MAX. */
         if (lru_abs < 0)
-            lru_abs = (lru_clock+(LRU_CLOCK_MAX/2)) % LRU_CLOCK_MAX;
+            lru_abs += LRU_CLOCK_MAX;
         val->lru = lru_abs;
         return 1;
     }
@@ -1293,7 +1293,7 @@ void memoryCommand(client *c) {
         const char *help[] = {
 "DOCTOR",
 "    Return memory problems reports.",
-"MALLOC-STATS"
+"MALLOC-STATS",
 "    Return internal statistics report from the memory allocator.",
 "PURGE",
 "    Attempt to purge dirty pages for reclamation by the allocator.",

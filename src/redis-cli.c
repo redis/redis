@@ -220,6 +220,7 @@ static struct config {
     long long lru_test_sample_size;
     int cluster_mode;
     int cluster_reissue_command;
+    int cluster_send_asking;
     int slave_mode;
     int pipe_mode;
     int pipe_timeout;
@@ -265,7 +266,7 @@ static struct pref {
 } pref;
 
 static volatile sig_atomic_t force_cancel_loop = 0;
-static void usage(void);
+static void usage(int err);
 static void slaveMode(void);
 char *redisGitSHA1(void);
 char *redisGitDirty(void);
@@ -914,6 +915,29 @@ static int cliConnect(int flags) {
     return REDIS_OK;
 }
 
+/* In cluster, if server replies ASK, we will redirect to a different node.
+ * Before sending the real command, we need to send ASKING command first. */
+static int cliSendAsking() {
+    redisReply *reply;
+
+    config.cluster_send_asking = 0;
+    if (context == NULL) {
+        return REDIS_ERR;
+    }
+    reply = redisCommand(context,"ASKING");
+    if (reply == NULL) {
+        fprintf(stderr, "\nI/O error\n");
+        return REDIS_ERR;
+    }
+    int result = REDIS_OK;
+    if (reply->type == REDIS_REPLY_ERROR) {
+        result = REDIS_ERR;
+        fprintf(stderr,"ASKING failed: %s\n",reply->str);
+    }
+    freeReplyObject(reply);
+    return result;
+}
+
 static void cliPrintContextError(void) {
     if (context == NULL) return;
     fprintf(stderr,"Error: %s\n",context->errstr);
@@ -1289,7 +1313,7 @@ static int cliReadReply(int output_raw_strings) {
     /* Check if we need to connect to a different node and reissue the
      * request. */
     if (config.cluster_mode && reply->type == REDIS_REPLY_ERROR &&
-        (!strncmp(reply->str,"MOVED",5) || !strcmp(reply->str,"ASK")))
+        (!strncmp(reply->str,"MOVED ",6) || !strncmp(reply->str,"ASK ",4)))
     {
         char *p = reply->str, *s;
         int slot;
@@ -1313,6 +1337,9 @@ static int cliReadReply(int output_raw_strings) {
             printf("-> Redirected to slot [%d] located at %s:%d\n",
                 slot, config.hostip, config.hostport);
         config.cluster_reissue_command = 1;
+        if (!strncmp(reply->str,"ASK ",4)) {
+            config.cluster_send_asking = 1;
+        }
         cliRefreshPrompt();
     } else if (!config.interactive && config.set_errcode && 
         reply->type == REDIS_REPLY_ERROR) 
@@ -1325,6 +1352,7 @@ static int cliReadReply(int output_raw_strings) {
     if (output) {
         out = cliFormatReply(reply, config.output, output_raw_strings);
         fwrite(out,sdslen(out),1,stdout);
+        fflush(stdout);
         sdsfree(out);
     }
     freeReplyObject(reply);
@@ -1471,7 +1499,14 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
                 config.in_multi = 0;
                 config.input_dbnum = config.dbnum = config.pre_multi_dbnum;
                 cliRefreshPrompt();
-            } 
+            } else if (!strcasecmp(command,"reset") && argc == 1 &&
+                                     config.last_cmd_type != REDIS_REPLY_ERROR) {
+                config.in_multi = 0;
+                config.dbnum = 0;
+                config.input_dbnum = 0;
+                config.resp3 = 0;
+                cliRefreshPrompt();
+            }
         }
         if (config.cluster_reissue_command){
             /* If we need to reissue the command, break to prevent a
@@ -1541,9 +1576,9 @@ static int parseOptions(int argc, char **argv) {
             sdsfree(config.hostip);
             config.hostip = sdsnew(argv[++i]);
         } else if (!strcmp(argv[i],"-h") && lastarg) {
-            usage();
+            usage(0);
         } else if (!strcmp(argv[i],"--help")) {
-            usage();
+            usage(0);
         } else if (!strcmp(argv[i],"-x")) {
             config.stdinarg = 1;
         } else if (!strcmp(argv[i],"-p") && !lastarg) {
@@ -1650,7 +1685,7 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"--verbose")) {
             config.verbose = 1;
         } else if (!strcmp(argv[i],"--cluster") && !lastarg) {
-            if (CLUSTER_MANAGER_MODE()) usage();
+            if (CLUSTER_MANAGER_MODE()) usage(1);
             char *cmd = argv[++i];
             int j = i;
             while (j < argc && argv[j][0] != '-') j++;
@@ -1658,7 +1693,7 @@ static int parseOptions(int argc, char **argv) {
             createClusterManagerCommand(cmd, j - i, argv + i + 1);
             i = j;
         } else if (!strcmp(argv[i],"--cluster") && lastarg) {
-            usage();
+            usage(1);
         } else if ((!strcmp(argv[i],"--cluster-only-masters"))) {
             config.cluster_manager_command.flags |=
                     CLUSTER_MANAGER_CMD_FLAG_MASTERS_ONLY;
@@ -1794,6 +1829,11 @@ static int parseOptions(int argc, char **argv) {
         }
     }
 
+    if (config.hostsocket && config.cluster_mode) {
+        fprintf(stderr,"Options -c and -s are mutually exclusive.\n");
+        exit(1);
+    }
+
     /* --ldb requires --eval. */
     if (config.eval_ldb && config.eval == NULL) {
         fprintf(stderr,"Options --ldb and --ldb-sync-mode require --eval.\n");
@@ -1822,9 +1862,10 @@ static void parseEnv() {
     }
 }
 
-static void usage(void) {
+static void usage(int err) {
     sds version = cliVersion();
-    fprintf(stderr,
+    FILE *target = err ? stderr: stdout;
+    fprintf(target,
 "redis-cli %s\n"
 "\n"
 "Usage: redis-cli [OPTIONS] [cmd [arg [arg ...]]]\n"
@@ -1887,7 +1928,7 @@ static void usage(void) {
 "                     -i to change the interval), then produces a single output\n"
 "                     and exits.\n",version);
 
-    fprintf(stderr,
+    fprintf(target,
 "  --latency-history  Like --latency but tracking latency changes over time.\n"
 "                     Default time interval is 15 sec. Change it using -i.\n"
 "  --latency-dist     Shows latency as a spectrum, requires xterm 256 colors.\n"
@@ -1895,12 +1936,13 @@ static void usage(void) {
 "  --lru-test <keys>  Simulate a cache workload with an 80-20 distribution.\n"
 "  --replica          Simulate a replica showing commands received from the master.\n"
 "  --rdb <filename>   Transfer an RDB dump from remote server to local file.\n"
+"                     Use filename of \"-\" to write to stdout.\n"
 "  --pipe             Transfer raw Redis protocol from stdin to server.\n"
 "  --pipe-timeout <n> In --pipe mode, abort with error if after sending all data.\n"
 "                     no reply is received within <n> seconds.\n"
 "                     Default timeout: %d. Use 0 to wait forever.\n",
     REDIS_CLI_DEFAULT_PIPE_TIMEOUT);
-    fprintf(stderr,
+    fprintf(target,
 "  --bigkeys          Sample Redis keys looking for keys with many elements (complexity).\n"
 "  --memkeys          Sample Redis keys looking for keys consuming a lot of memory.\n"
 "  --memkeys-samples <n> Sample Redis keys looking for keys consuming a lot of memory.\n"
@@ -1928,7 +1970,7 @@ static void usage(void) {
 "  --version          Output version and exit.\n"
 "\n");
     /* Using another fprintf call to avoid -Woverlength-strings compile warning */
-    fprintf(stderr,
+    fprintf(target,
 "Cluster Manager Commands:\n"
 "  Use --cluster help to list all available cluster manager commands.\n"
 "\n"
@@ -1948,7 +1990,7 @@ static void usage(void) {
 "and settings.\n"
 "\n");
     sdsfree(version);
-    exit(1);
+    exit(err);
 }
 
 static int confirmWithYes(char *msg, int ignore_force) {
@@ -1969,26 +2011,32 @@ static int confirmWithYes(char *msg, int ignore_force) {
 
 static int issueCommandRepeat(int argc, char **argv, long repeat) {
     while (1) {
+        if (config.cluster_reissue_command || context == NULL ||
+            context->err == REDIS_ERR_IO || context->err == REDIS_ERR_EOF)
+        {
+            if (cliConnect(CC_FORCE) != REDIS_OK) {
+                cliPrintContextError();
+                config.cluster_reissue_command = 0;
+                return REDIS_ERR;
+            }
+        }
         config.cluster_reissue_command = 0;
-        if (cliSendCommand(argc,argv,repeat) != REDIS_OK) {
-            cliConnect(CC_FORCE);
-
-            /* If we still cannot send the command print error.
-             * We'll try to reconnect the next time. */
-            if (cliSendCommand(argc,argv,repeat) != REDIS_OK) {
+        if (config.cluster_send_asking) {
+            if (cliSendAsking() != REDIS_OK) {
                 cliPrintContextError();
                 return REDIS_ERR;
             }
         }
+        if (cliSendCommand(argc,argv,repeat) != REDIS_OK) {
+            cliPrintContextError();
+            return REDIS_ERR;
+        }
 
         /* Issue the command again if we got redirected in cluster mode */
         if (config.cluster_mode && config.cluster_reissue_command) {
-            /* If cliConnect fails, sleep for a while and try again. */
-            if (cliConnect(CC_FORCE) != REDIS_OK)
-                sleep(1);
-        } else {
-            break;
+            continue;
         }
+        break;
     }
     return REDIS_OK;
 }
@@ -6445,7 +6493,7 @@ reply_err:;
         int need_free = 0;
         if (err == NULL) err = "";
         else need_free = 1;
-        clusterManagerLogErr("ERR setting node-timeot for %s:%d: %s\n", n->ip,
+        clusterManagerLogErr("ERR setting node-timeout for %s:%d: %s\n", n->ip,
                              n->port, err);
         if (need_free) zfree(err);
         err_count++;
@@ -7003,7 +7051,7 @@ static void latencyDistMode(void) {
 #define RDB_EOF_MARK_SIZE 40
 
 void sendReplconf(const char* arg1, const char* arg2) {
-    printf("sending REPLCONF %s %s\n", arg1, arg2);
+    fprintf(stderr, "sending REPLCONF %s %s\n", arg1, arg2);
     redisReply *reply = redisCommand(context, "REPLCONF %s %s", arg1, arg2);
 
     /* Handle any error conditions */
@@ -7063,7 +7111,7 @@ unsigned long long sendSync(redisContext *c, char *out_eof) {
     }
     *p = '\0';
     if (buf[0] == '-') {
-        printf("SYNC with master failed: %s\n", buf);
+        fprintf(stderr, "SYNC with master failed: %s\n", buf);
         exit(1);
     }
     if (strncmp(buf+1,"EOF:",4) == 0 && strlen(buf+5) >= RDB_EOF_MARK_SIZE) {
@@ -7168,8 +7216,9 @@ static void getRDB(clusterManagerNode *node) {
             payload, filename);
     }
 
+    int write_to_stdout = !strcmp(filename,"-");
     /* Write to file. */
-    if (!strcmp(filename,"-")) {
+    if (write_to_stdout) {
         fd = STDOUT_FILENO;
     } else {
         fd = open(filename, O_CREAT|O_WRONLY, 0644);
@@ -7211,7 +7260,7 @@ static void getRDB(clusterManagerNode *node) {
     }
     if (usemark) {
         payload = ULLONG_MAX - payload - RDB_EOF_MARK_SIZE;
-        if (ftruncate(fd, payload) == -1)
+        if (!write_to_stdout && ftruncate(fd, payload) == -1)
             fprintf(stderr,"ftruncate failed: %s.\n", strerror(errno));
         fprintf(stderr,"Transfer finished with success after %llu bytes\n", payload);
     } else {
@@ -7220,7 +7269,7 @@ static void getRDB(clusterManagerNode *node) {
     redisFree(s); /* Close the connection ASAP as fsync() may take time. */
     if (node)
         node->context = NULL;
-    if (fsync(fd) == -1) {
+    if (!write_to_stdout && fsync(fd) == -1) {
         fprintf(stderr,"Fail to fsync '%s': %s\n", filename, strerror(errno));
         exit(1);
     }
@@ -8232,6 +8281,7 @@ int main(int argc, char **argv) {
     config.lru_test_mode = 0;
     config.lru_test_sample_size = 0;
     config.cluster_mode = 0;
+    config.cluster_send_asking = 0;
     config.slave_mode = 0;
     config.getrdb_mode = 0;
     config.stat_mode = 0;

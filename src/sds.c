@@ -343,6 +343,51 @@ sds sdsRemoveFreeSpace(sds s) {
     return s;
 }
 
+/* Resize the allocation, this can make the allocation bigger or smaller,
+ * if the size is smaller than currently used len, the data will be truncated */
+sds sdsResize(sds s, size_t size) {
+    void *sh, *newsh;
+    char type, oldtype = s[-1] & SDS_TYPE_MASK;
+    int hdrlen, oldhdrlen = sdsHdrSize(oldtype);
+    size_t len = sdslen(s);
+    sh = (char*)s-oldhdrlen;
+
+    /* Return ASAP if the size is already good. */
+    if (sdsalloc(s) == size) return s;
+
+    /* Truncate len if needed. */
+    if (size < len) len = size;
+
+    /* Check what would be the minimum SDS header that is just good enough to
+     * fit this string. */
+    type = sdsReqType(size);
+    /* Don't use type 5, it is not good for strings that are resized. */
+    if (type == SDS_TYPE_5) type = SDS_TYPE_8;
+    hdrlen = sdsHdrSize(type);
+
+    /* If the type is the same, or can hold the size in it with low overhead
+     * (larger than SDS_TYPE_8), we just realloc(), letting the allocator
+     * to do the copy only if really needed. Otherwise if the change is
+     * huge, we manually reallocate the string to use the different header
+     * type. */
+    if (oldtype==type || (type < oldtype && type > SDS_TYPE_8)) {
+        newsh = s_realloc(sh, oldhdrlen+size+1);
+        if (newsh == NULL) return NULL;
+        s = (char*)newsh+oldhdrlen;
+    } else {
+        newsh = s_malloc(hdrlen+size+1);
+        if (newsh == NULL) return NULL;
+        memcpy((char*)newsh+hdrlen, s, len);
+        s_free(sh);
+        s = (char*)newsh+hdrlen;
+        s[-1] = type;
+    }
+    s[len] = 0;
+    sdssetlen(s, len);
+    sdssetalloc(s, size);
+    return s;
+}
+
 /* Return the total size of the allocation of the specified sds string,
  * including:
  * 1) The sds header before the pointer.
@@ -682,6 +727,7 @@ sds sdscatfmt(sds s, char const *fmt, ...) {
         switch(*f) {
         case '%':
             next = *(f+1);
+            if (next == '\0') break;
             f++;
             switch(next) {
             case 's':
@@ -1473,6 +1519,34 @@ int sdsTest(int argc, char **argv, int accurate) {
         x = sdstemplate("v1={{{variable1}} {{} v2={variable2}", sdsTestTemplateCallback, NULL);
         test_cond("sdstemplate() with quoting",
                   memcmp(x,"v1={value1} {} v2=value2",24) == 0);
+        sdsfree(x);
+
+        /* Test sdsresize - extend */
+        x = sdsnew("1234567890123456789012345678901234567890");
+        x = sdsResize(x, 200);
+        test_cond("sdsrezie() expand len", sdslen(x) == 40);
+        test_cond("sdsrezie() expand strlen", strlen(x) == 40);
+        test_cond("sdsrezie() expand alloc", sdsalloc(x) == 200);
+        /* Test sdsresize - trim free space */
+        x = sdsResize(x, 80);
+        test_cond("sdsrezie() shrink len", sdslen(x) == 40);
+        test_cond("sdsrezie() shrink strlen", strlen(x) == 40);
+        test_cond("sdsrezie() shrink alloc", sdsalloc(x) == 80);
+        /* Test sdsresize - crop used space */
+        x = sdsResize(x, 30);
+        test_cond("sdsrezie() crop len", sdslen(x) == 30);
+        test_cond("sdsrezie() crop strlen", strlen(x) == 30);
+        test_cond("sdsrezie() crop alloc", sdsalloc(x) == 30);
+        /* Test sdsresize - extend to different class */
+        x = sdsResize(x, 400);
+        test_cond("sdsrezie() expand len", sdslen(x) == 30);
+        test_cond("sdsrezie() expand strlen", strlen(x) == 30);
+        test_cond("sdsrezie() expand alloc", sdsalloc(x) == 400);
+        /* Test sdsresize - shrink to different class */
+        x = sdsResize(x, 4);
+        test_cond("sdsrezie() crop len", sdslen(x) == 4);
+        test_cond("sdsrezie() crop strlen", strlen(x) == 4);
+        test_cond("sdsrezie() crop alloc", sdsalloc(x) == 4);
         sdsfree(x);
     }
     test_report();

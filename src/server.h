@@ -494,9 +494,6 @@ typedef enum {
 #define NOTIFY_MODULE (1<<13)     /* d, module key space notification */
 #define NOTIFY_ALL (NOTIFY_GENERIC | NOTIFY_STRING | NOTIFY_LIST | NOTIFY_SET | NOTIFY_HASH | NOTIFY_ZSET | NOTIFY_EXPIRED | NOTIFY_EVICTED | NOTIFY_STREAM | NOTIFY_MODULE) /* A flag */
 
-/* Get the first bind addr or NULL */
-#define NET_FIRST_BIND_ADDR (server.bindaddr_count ? server.bindaddr[0] : NULL)
-
 /* Using the following macro you can run code inside serverCron() with the
  * specified period, specified in milliseconds.
  * The actual resolution depends on server.hz. */
@@ -1028,7 +1025,7 @@ struct sentinelConfig {
 
 struct sharedObjectsStruct {
     robj *crlf, *ok, *err, *emptybulk, *czero, *cone, *pong, *space,
-    *colon, *queued, *null[4], *nullarray[4], *emptymap[4], *emptyset[4],
+    *queued, *null[4], *nullarray[4], *emptymap[4], *emptyset[4],
     *emptyarray, *wrongtypeerr, *nokeyerr, *syntaxerr, *sameobjecterr,
     *outofrangeerr, *noscripterr, *loadingerr, *slowscripterr, *bgsaveerr,
     *masterdownerr, *roslaveerr, *execaborterr, *noautherr, *noreplicaserr,
@@ -1265,6 +1262,7 @@ struct redisServer {
     int tcp_backlog;            /* TCP listen() backlog */
     char *bindaddr[CONFIG_BINDADDR_MAX]; /* Addresses we should bind to */
     int bindaddr_count;         /* Number of addresses in server.bindaddr[] */
+    char *bind_source_addr;     /* Source address to bind on for outgoing connections */
     char *unixsocket;           /* UNIX socket path */
     mode_t unixsocketperm;      /* UNIX socket permission */
     socketFds ipfd;             /* TCP socket file descriptors */
@@ -1314,6 +1312,8 @@ struct redisServer {
     long long stat_expired_time_cap_reached_count; /* Early expire cycle stops.*/
     long long stat_expire_cycle_time_used; /* Cumulative microseconds used. */
     long long stat_evictedkeys;     /* Number of evicted keys (maxmemory) */
+    long long stat_total_eviction_exceeded_time;  /* Total time over the memory limit, unit us */
+    monotime stat_last_eviction_exceeded_time;  /* Timestamp of current eviction start, unit us */
     long long stat_keyspace_hits;   /* Number of successful lookups of keys */
     long long stat_keyspace_misses; /* Number of failed lookups of keys */
     long long stat_active_defrag_hits;      /* number of allocations moved */
@@ -1829,6 +1829,7 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data);
 void processModuleLoadingProgressEvent(int is_aof);
 int moduleTryServeClientBlockedOnKey(client *c, robj *key);
 void moduleUnblockClient(client *c);
+int moduleBlockedClientMayTimeout(client *c);
 int moduleClientIsBlockedOnKeys(client *c);
 void moduleNotifyUserChanged(client *c);
 void moduleNotifyKeyUnlink(robj *key, robj *val, int dbid);
@@ -1846,7 +1847,7 @@ void getRandomHexChars(char *p, size_t len);
 void getRandomBytes(unsigned char *p, size_t len);
 uint64_t crc64(uint64_t crc, const unsigned char *s, uint64_t l);
 void exitFromChild(int retcode);
-size_t redisPopcount(void *s, long count);
+long long redisPopcount(void *s, long count);
 int redisSetProcTitle(char *title);
 int validateProcTitleTemplate(const char *template);
 int redisCommunicateSystemd(const char *sd_notify_msg);
@@ -1889,6 +1890,7 @@ void addReplyErrorSds(client *c, sds err);
 void addReplyError(client *c, const char *err);
 void addReplyStatus(client *c, const char *status);
 void addReplyDouble(client *c, double d);
+void addReplyBigNum(client *c, const char* num, size_t len);
 void addReplyHumanLongDouble(client *c, long double d);
 void addReplyLongLong(client *c, long long ll);
 void addReplyArrayLen(client *c, long length);
@@ -1992,6 +1994,7 @@ void initClientMultiState(client *c);
 void freeClientMultiState(client *c);
 void queueMultiCommand(client *c);
 void touchWatchedKey(redisDb *db, robj *key);
+int isWatchedKeyExpired(client *c);
 void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with);
 void discardTransaction(client *c);
 void flagTransaction(client *c);
@@ -2366,6 +2369,7 @@ void initConfigValues();
 /* db.c -- Keyspace access API */
 int removeExpire(redisDb *db, robj *key);
 void propagateExpire(redisDb *db, robj *key, int lazy);
+int keyIsExpired(redisDb *db, robj *key);
 int expireIfNeeded(redisDb *db, robj *key);
 long long getExpire(redisDb *db, robj *key);
 void setExpire(client *c, redisDb *db, robj *key, long long when);
@@ -2579,6 +2583,7 @@ void scardCommand(client *c);
 void spopCommand(client *c);
 void srandmemberCommand(client *c);
 void sinterCommand(client *c);
+void sinterCardCommand(client *c);
 void sinterstoreCommand(client *c);
 void sunionCommand(client *c);
 void sunionstoreCommand(client *c);
@@ -2658,6 +2663,7 @@ void zinterstoreCommand(client *c);
 void zdiffstoreCommand(client *c);
 void zunionCommand(client *c);
 void zinterCommand(client *c);
+void zinterCardCommand(client *c);
 void zrangestoreCommand(client *c);
 void zdiffCommand(client *c);
 void zscanCommand(client *c);

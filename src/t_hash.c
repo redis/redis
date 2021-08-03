@@ -641,11 +641,11 @@ void hashTypeRandomElement(robj *hashobj, unsigned long hashsize, ziplistEntry *
 void hsetnxCommand(client *c) {
     robj *o;
     if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
-    hashTypeTryConversion(o,c->argv,2,3);
 
     if (hashTypeExists(o, c->argv[2]->ptr)) {
         addReply(c, shared.czero);
     } else {
+        hashTypeTryConversion(o,c->argv,2,3);
         hashTypeSet(o,c->argv[2]->ptr,c->argv[3]->ptr,HASH_SET_COPY);
         addReply(c, shared.cone);
         signalModifiedKey(c,c->db,c->argv[1]);
@@ -989,7 +989,7 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
     int uniq = 1;
     robj *hash;
 
-    if ((hash = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp]))
+    if ((hash = lookupKeyReadOrReply(c,c->argv[1],shared.emptyarray))
         == NULL || checkType(c,hash,OBJ_HASH)) return;
     size = hashTypeLength(hash);
 
@@ -1178,7 +1178,7 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
     }
 }
 
-/* HRANDFIELD [<count> WITHVALUES] */
+/* HRANDFIELD key [<count> [WITHVALUES]] */
 void hrandfieldCommand(client *c) {
     long l;
     int withvalues = 0;

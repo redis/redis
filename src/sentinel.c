@@ -1212,6 +1212,10 @@ int sentinelUpdateSentinelAddressInAllMasters(sentinelRedisInstance *ri) {
         if (match->link->pc != NULL)
             instanceLinkCloseConnection(match->link,match->link->pc);
 
+        /* Remove any sentinel with port number set to 0 */
+        if (match->addr->port == 0)
+            dictDelete(master->sentinels,match->name);
+
         if (match == ri) continue; /* Address already updated for it. */
 
         /* Update the address of the matching Sentinel by copying the address
@@ -2403,7 +2407,7 @@ void sentinelReconnectInstance(sentinelRedisInstance *ri) {
 
     /* Commands connection. */
     if (link->cc == NULL) {
-        link->cc = redisAsyncConnectBind(ri->addr->ip,ri->addr->port,NET_FIRST_BIND_ADDR);
+        link->cc = redisAsyncConnectBind(ri->addr->ip,ri->addr->port,server.bind_source_addr);
         if (link->cc && !link->cc->err) anetCloexec(link->cc->c.fd);
         if (!link->cc) {
             sentinelEvent(LL_DEBUG,"-cmd-link-reconnection",ri,"%@ #Failed to establish connection");
@@ -2433,7 +2437,7 @@ void sentinelReconnectInstance(sentinelRedisInstance *ri) {
     }
     /* Pub / Sub */
     if ((ri->flags & (SRI_MASTER|SRI_SLAVE)) && link->pc == NULL) {
-        link->pc = redisAsyncConnectBind(ri->addr->ip,ri->addr->port,NET_FIRST_BIND_ADDR);
+        link->pc = redisAsyncConnectBind(ri->addr->ip,ri->addr->port,server.bind_source_addr);
         if (link->pc && !link->pc->err) anetCloexec(link->pc->c.fd);
         if (!link->pc) {
             sentinelEvent(LL_DEBUG,"-pubsub-link-reconnection",ri,"%@ #Failed to establish connection");

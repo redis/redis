@@ -263,7 +263,7 @@
  * to stay there to signal that a full scan is needed to get the number of
  * items inside the ziplist. */
 #define ZIPLIST_INCR_LENGTH(zl,incr) { \
-    if (ZIPLIST_LENGTH(zl) < UINT16_MAX) \
+    if (intrev16ifbe(ZIPLIST_LENGTH(zl)) < UINT16_MAX) \
         ZIPLIST_LENGTH(zl) = intrev16ifbe(intrev16ifbe(ZIPLIST_LENGTH(zl))+incr); \
 }
 
@@ -2558,6 +2558,60 @@ int ziplistTest(int argc, char **argv, int accurate) {
         zfree(zl);
     }
 
+    printf("__ziplistInsert nextdiff == -4 && reqlen < 4 (issue #7170):\n");
+    {
+        zl = ziplistNew();
+
+        /* We set some values to almost reach the critical point - 254 */
+        char A_252[253] = {0}, A_250[251] = {0};
+        memset(A_252, 'A', 252);
+        memset(A_250, 'A', 250);
+
+        /* After the rpush, the list look like: [one two A_252 A_250 three 10] */
+        zl = ziplistPush(zl, (unsigned char*)"one", 3, ZIPLIST_TAIL);
+        zl = ziplistPush(zl, (unsigned char*)"two", 3, ZIPLIST_TAIL);
+        zl = ziplistPush(zl, (unsigned char*)A_252, strlen(A_252), ZIPLIST_TAIL);
+        zl = ziplistPush(zl, (unsigned char*)A_250, strlen(A_250), ZIPLIST_TAIL);
+        zl = ziplistPush(zl, (unsigned char*)"three", 5, ZIPLIST_TAIL);
+        zl = ziplistPush(zl, (unsigned char*)"10", 2, ZIPLIST_TAIL);
+        ziplistRepr(zl);
+
+        p = ziplistIndex(zl, 2);
+        if (!ziplistCompare(p, (unsigned char*)A_252, strlen(A_252))) {
+            printf("ERROR: not \"A_252\"\n");
+            return 1;
+        }
+
+        /* When we remove A_252, the list became: [one two A_250 three 10]
+         * A_250's prev node became node two, because node two quite small
+         * So A_250's prevlenSize shrink to 1, A_250's total size became 253(1+2+250)
+         * The prev node of node three is still node A_250.
+         * We will not shrink the node three's prevlenSize, keep it at 5 bytes */
+        zl = ziplistDelete(zl, &p);
+        ziplistRepr(zl);
+
+        p = ziplistIndex(zl, 3);
+        if (!ziplistCompare(p, (unsigned char*)"three", 5)) {
+            printf("ERROR: not \"three\"\n");
+            return 1;
+        }
+
+        /* We want to insert a node after A_250, the list became: [one two A_250 10 three 10]
+         * Because the new node is quite small, node three prevlenSize will shrink to 1 */
+        zl = ziplistInsert(zl, p, (unsigned char*)"10", 2);
+        ziplistRepr(zl);
+
+        /* Last element should equal 10 */
+        p = ziplistIndex(zl, -1);
+        if (!ziplistCompare(p, (unsigned char*)"10", 2)) {
+            printf("ERROR: not \"10\"\n");
+            return 1;
+        }
+
+        zfree(zl);
+    }
+
+    printf("ALL TESTS PASSED!\n");
     return 0;
 }
 #endif

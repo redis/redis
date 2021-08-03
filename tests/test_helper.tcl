@@ -70,6 +70,7 @@ set ::all_tests {
     unit/hyperloglog
     unit/lazyfree
     unit/wait
+    unit/pause
     unit/querybuf
     unit/pendingquerybuf
     unit/tls
