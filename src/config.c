@@ -743,7 +743,7 @@ void loadServerConfig(char *filename, char config_from_stdin, char *options) {
 
 #define config_set_memory_field(_name,_var) \
     } else if (!strcasecmp(c->argv[2]->ptr,_name)) { \
-        ll = memtuoll(o->ptr,&err); \
+        ll = memtoull(o->ptr,&err); \
         if (err || ll < 0) goto badfmt; \
         _var = ll;
 
