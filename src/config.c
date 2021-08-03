@@ -2100,33 +2100,46 @@ static int numericBoundaryCheck(typeData data, long long ll, const char **err) {
 }
 
 static int numericConfigSet(typeData data, sds value, int update, const char **err) {
-    unsigned long long ll, prev = 0;
     if (data.numeric.is_memory) {
+        unsigned long long ll, prev = 0;
         int memerr;
         ll = memtoull(value, &memerr);
         if (memerr || ll < 0) {
             *err = "argument must be a memory value";
             return 0;
         }
+        if (!numericBoundaryCheck(data, ll, err))
+            return 0;
+
+        if (data.numeric.is_valid_fn && !data.numeric.is_valid_fn(ll, err))
+            return 0;
+
+        GET_NUMERIC_TYPE(prev)
+        SET_NUMERIC_TYPE(ll)
+
+        if (update && data.numeric.update_fn && !data.numeric.update_fn(ll, prev, err)) {
+            SET_NUMERIC_TYPE(prev)
+            return 0;
+        }
     } else {
-        if (!string2ull(value,&ll)) {
+        long long ll, prev = 0;
+        if (!string2ll(value,&ll)) {
             *err = "argument couldn't be parsed into an integer" ;
             return 0;
         }
-    }
+        if (!numericBoundaryCheck(data, ll, err))
+            return 0;
 
-    if (!numericBoundaryCheck(data, ll, err))
-        return 0;
+        if (data.numeric.is_valid_fn && !data.numeric.is_valid_fn(ll, err))
+            return 0;
 
-    if (data.numeric.is_valid_fn && !data.numeric.is_valid_fn(ll, err))
-        return 0;
+        GET_NUMERIC_TYPE(prev)
+        SET_NUMERIC_TYPE(ll)
 
-    GET_NUMERIC_TYPE(prev)
-    SET_NUMERIC_TYPE(ll)
-
-    if (update && data.numeric.update_fn && !data.numeric.update_fn(ll, prev, err)) {
-        SET_NUMERIC_TYPE(prev)
-        return 0;
+        if (update && data.numeric.update_fn && !data.numeric.update_fn(ll, prev, err)) {
+            SET_NUMERIC_TYPE(prev)
+            return 0;
+        }
     }
     return 1;
 }
