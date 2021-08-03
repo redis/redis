@@ -192,7 +192,7 @@ int stringmatchlen_fuzz_test(void) {
  * On parsing error, if *err is not NULL, it's set to 1, otherwise it's
  * set to 0. On error the function return value is 0, regardless of the
  * fact 'err' is NULL or not. */
-long long memtoull(const char *p, int *err) {
+long long memtoll(const char *p, int *err) {
     const char *u;
     char buf[128];
     long mul; /* unit multiplier */
@@ -252,7 +252,7 @@ long long memtoull(const char *p, int *err) {
  * On parsing error, if *err is not NULL, it's set to 1, otherwise it's
  * set to 0. On error the function return value is 0, regardless of the
  * fact 'err' is NULL or not. */
-unsigned long long memtoll(const char *p, int *err) {
+unsigned long long memtoull(const char *p, int *err) {
     const char *u;
     char buf[128];
     long mul; /* unit multiplier */
@@ -427,6 +427,42 @@ int ll2string(char *dst, size_t dstlen, long long svalue) {
 
     /* Add sign. */
     if (negative) dst[0] = '-';
+    return length;
+}
+
+int ull2string(char *dst, size_t dstlen, unsigned long long value) {
+    static const char digits[201] =
+        "0001020304050607080910111213141516171819"
+        "2021222324252627282930313233343536373839"
+        "4041424344454647484950515253545556575859"
+        "6061626364656667686970717273747576777879"
+        "8081828384858687888990919293949596979899";
+
+    /* Check length. */
+    uint32_t const length = digits10(value);
+    if (length >= dstlen) return 0;
+
+    /* Null term. */
+    uint32_t next = length - 1;
+    dst[next] = '\0';
+    next--;
+    while (value >= 100) {
+        int const i = (value % 100) * 2;
+        value /= 100;
+        dst[next] = digits[i + 1];
+        dst[next - 1] = digits[i];
+        next -= 2;
+    }
+
+    /* Handle last 1-2 digits. */
+    if (value < 10) {
+        dst[next] = '0' + (uint32_t) value;
+    } else {
+        int i = (uint32_t) value * 2;
+        dst[next] = digits[i + 1];
+        dst[next - 1] = digits[i];
+    }
+
     return length;
 }
 

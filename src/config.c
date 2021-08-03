@@ -2100,7 +2100,7 @@ static int numericBoundaryCheck(typeData data, long long ll, const char **err) {
 }
 
 static int numericConfigSet(typeData data, sds value, int update, const char **err) {
-    long long ll, prev = 0;
+    unsigned long long ll, prev = 0;
     if (data.numeric.is_memory) {
         int memerr;
         ll = memtoll(value, &memerr);
@@ -2109,7 +2109,7 @@ static int numericConfigSet(typeData data, sds value, int update, const char **e
             return 0;
         }
     } else {
-        if (!string2ll(value, sdslen(value),&ll)) {
+        if (!string2ull(value, sdslen(value),&ll)) {
             *err = "argument couldn't be parsed into an integer" ;
             return 0;
         }
@@ -2133,11 +2133,11 @@ static int numericConfigSet(typeData data, sds value, int update, const char **e
 
 static void numericConfigGet(client *c, typeData data) {
     char buf[128];
-    long long value = 0;
+    unsigned long long value = 0;
 
     GET_NUMERIC_TYPE(value)
 
-    ll2string(buf, sizeof(buf), value);
+    ull2string(buf, sizeof(buf), value);
     addReplyBulkCString(c, buf);
 }
 
@@ -2330,7 +2330,7 @@ static int updateReplBacklogSize(long long val, long long prev, const char **err
     return 1;
 }
 
-static int updateMaxmemory(long long val, long long prev, const char **err) {
+static int updateMaxmemory(unsigned long long val, unsigned long long prev, const char **err) {
     UNUSED(prev);
     UNUSED(err);
     if (val) {
