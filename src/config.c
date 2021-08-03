@@ -2109,7 +2109,7 @@ static int numericConfigSet(typeData data, sds value, int update, const char **e
             return 0;
         }
     } else {
-        if (!string2ull(value, sdslen(value),&ll)) {
+        if (!string2ull(value,&ll)) {
             *err = "argument couldn't be parsed into an integer" ;
             return 0;
         }
