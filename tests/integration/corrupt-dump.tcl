@@ -541,5 +541,15 @@ test {corrupt payload: fuzzer findings - quicklist ziplist tail followed by extr
     }
 }
 
+test {corrupt payload: fuzzer findings - dict init to huge size} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload no
+        r debug set-skip-checksum-validation 1
+        catch {r restore key 0 "\x02\x81\xC0\x00\x02\x5F\x31\xC0\x02\x09\x00\xB2\x1B\xE5\x17\x2E\x15\xF4\x6C" replace} err
+        assert_match "*Bad data format*" $err
+        r ping
+    }
+}
+
 } ;# tags
 

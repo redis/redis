@@ -152,17 +152,22 @@ int _dictExpand(dict *d, unsigned long size, int* malloc_failed)
     unsigned long new_ht_used;
     char new_ht_size_exp = _dictNextExp(size);
 
+    /* Detect overflows */
+    size_t newsize = 1ul<<new_ht_size_exp;
+    if (newsize < size || newsize * sizeof(dictEntry*) < newsize)
+        return DICT_ERR;
+
     /* Rehashing to the same table size is not useful. */
     if (new_ht_size_exp == d->ht_size_exp[0]) return DICT_ERR;
 
     /* Allocate the new hash table and initialize all pointers to NULL */
     if (malloc_failed) {
-        new_ht_table = ztrycalloc(((unsigned long)1<<new_ht_size_exp)*sizeof(dictEntry*));
+        new_ht_table = ztrycalloc(newsize*sizeof(dictEntry*));
         *malloc_failed = new_ht_table == NULL;
         if (*malloc_failed)
             return DICT_ERR;
     } else
-        new_ht_table = zcalloc(((unsigned long)1<<new_ht_size_exp)*sizeof(dictEntry*));
+        new_ht_table = zcalloc(newsize*sizeof(dictEntry*));
 
     new_ht_used = 0;
 
