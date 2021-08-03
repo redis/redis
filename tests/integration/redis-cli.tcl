@@ -211,6 +211,7 @@ start_server {tags {"cli"}} {
         assert_equal "foo\nbar" [run_cli lrange list 0 -1]
     }
 
+if {!$::tls} { ;# fake_redis_node doesn't support TLS
     test_nontty_cli "ASK redirect test" {
         # Set up two fake Redis nodes.
         set tclsh [info nameofexecutable]
@@ -227,6 +228,7 @@ start_server {tags {"cli"}} {
         # Run the cli
         assert_equal "OK" [run_cli_host_port_db "127.0.0.1" $port1 0 -c SET foo bar]
     }
+}
 
     test_nontty_cli "Quoted input arguments" {
         r set "\x00\x00" "value"
