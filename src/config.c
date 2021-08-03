@@ -558,8 +558,8 @@ void loadServerConfigFromString(char *config) {
                 "an invalid one, or 'master' which has no buffer limits.";
                 goto loaderr;
             }
-            hard = memtoll(argv[2],NULL);
-            soft = memtoll(argv[3],NULL);
+            hard = memtuoll(argv[2],NULL);
+            soft = memtuoll(argv[3],NULL);
             soft_seconds = atoi(argv[4]);
             if (soft_seconds < 0) {
                 err = "Negative number of seconds in soft limit is invalid";
@@ -743,7 +743,7 @@ void loadServerConfig(char *filename, char config_from_stdin, char *options) {
 
 #define config_set_memory_field(_name,_var) \
     } else if (!strcasecmp(c->argv[2]->ptr,_name)) { \
-        ll = memtoll(o->ptr,&err); \
+        ll = memtuoll(o->ptr,&err); \
         if (err || ll < 0) goto badfmt; \
         _var = ll;
 
