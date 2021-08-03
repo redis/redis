@@ -5936,7 +5936,7 @@ void dismissMemory(void* ptr, size_t size_hint) {
     zmadvise_dontneed(ptr);
 }
 
-/* Dismiss big chunks of memory inside a client stracture, see dismissMemory() */
+/* Dismiss big chunks of memory inside a client structure, see dismissMemory() */
 void dismissClientMemory(client *c) {
     /* Dismiss client query buffer. */
     dismissSds(c->querybuf);
