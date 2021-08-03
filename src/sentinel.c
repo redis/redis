@@ -1212,6 +1212,10 @@ int sentinelUpdateSentinelAddressInAllMasters(sentinelRedisInstance *ri) {
         if (match->link->pc != NULL)
             instanceLinkCloseConnection(match->link,match->link->pc);
 
+        /* Remove any sentinel with port number set to 0 */
+        if (match->addr->port == 0)
+            dictDelete(master->sentinels,match->name);
+
         if (match == ri) continue; /* Address already updated for it. */
 
         /* Update the address of the matching Sentinel by copying the address

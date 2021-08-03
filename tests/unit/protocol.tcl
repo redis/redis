@@ -190,6 +190,12 @@ start_server {tags {"protocol network"}} {
         assert_equal [r debug protocol false] 0
         set _ {}
     } {} {needs:debug resp3}
+
+    test "test verbatim str parsing" {
+        r hello 3
+        r debug protocol verbatim
+    } "This is a verbatim\nstring" {needs:debug resp3}
+
 }
 
 start_server {tags {"regression"}} {
