@@ -3475,7 +3475,6 @@ void sentinelSetDebugConfigParameters(client *c){
                 goto badfmt;
             }
             sentinel_ping_period = ll;
-            sentinel_tilt_period = sentinel_ping_period * 30;
            
         } else if (!strcasecmp(option,"ask-period") && moreargs > 0) {
             /* ask-period <milliseconds> */
@@ -3512,6 +3511,15 @@ void sentinelSetDebugConfigParameters(client *c){
                 goto badfmt;
             }
             sentinel_tilt_trigger = ll;
+           
+        } else if (!strcasecmp(option,"tilt_period") && moreargs > 0) {
+            /* tilt-period <milliseconds> */
+            robj *o = c->argv[++j];
+            if (getLongLongFromObject(o,&ll) == C_ERR || ll <= 0) {
+                badarg = j;
+                goto badfmt;
+            }
+            sentinel_tilt_period = ll;
            
         } else if (!strcasecmp(option,"slave_reconf_timeout") && moreargs > 0) {
             /* slave_reconf_timeout <milliseconds> */
