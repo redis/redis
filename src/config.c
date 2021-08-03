@@ -558,8 +558,8 @@ void loadServerConfigFromString(char *config) {
                 "an invalid one, or 'master' which has no buffer limits.";
                 goto loaderr;
             }
-            hard = memtuoll(argv[2],NULL);
-            soft = memtuoll(argv[3],NULL);
+            hard = memtoll(argv[2],NULL);
+            soft = memtoll(argv[3],NULL);
             soft_seconds = atoi(argv[4]);
             if (soft_seconds < 0) {
                 err = "Negative number of seconds in soft limit is invalid";
@@ -2123,7 +2123,7 @@ static int numericConfigSet(typeData data, sds value, int update, const char **e
         }
     } else {
         long long ll, prev = 0;
-        if (!string2ll(value,&ll)) {
+        if (!string2ll(value, sdslen(value), &ll)) {
             *err = "argument couldn't be parsed into an integer" ;
             return 0;
         }
@@ -2146,12 +2146,21 @@ static int numericConfigSet(typeData data, sds value, int update, const char **e
 
 static void numericConfigGet(client *c, typeData data) {
     char buf[128];
-    unsigned long long value = 0;
+    if (data.numeric.is_memory) {
+        unsigned long long value = 0;
+        
+        GET_NUMERIC_TYPE(value)
 
-    GET_NUMERIC_TYPE(value)
+        ull2string(buf, sizeof(buf), value);
+        addReplyBulkCString(c, buf);
+    } else{
+        long long value = 0;
+        
+        GET_NUMERIC_TYPE(value)
 
-    ull2string(buf, sizeof(buf), value);
-    addReplyBulkCString(c, buf);
+        ll2string(buf, sizeof(buf), value);
+        addReplyBulkCString(c, buf);
+    }
 }
 
 static void numericConfigRewrite(typeData data, const char *name, struct rewriteConfigState *state) {
