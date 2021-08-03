@@ -2171,6 +2171,23 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid) {
                     }
                 }
             }
+
+            /* Verify that each PEL eventually got a consumer assigned to it. */
+            if (deep_integrity_validation) {
+                raxIterator ri_cg_pel;
+                raxStart(&ri_cg_pel,cgroup->pel);
+                raxSeek(&ri_cg_pel,"^",NULL,0);
+                while(raxNext(&ri_cg_pel)) {
+                    streamNACK *nack = ri_cg_pel.data;
+                    if (!nack->consumer) {
+                        raxStop(&ri_cg_pel);
+                        rdbReportCorruptRDB("Stream CG PEL entry without consumer");
+                        decrRefCount(o);
+                        return NULL;
+                    }
+                }
+                raxStop(&ri_cg_pel);
+            }
         }
     } else if (rdbtype == RDB_TYPE_MODULE || rdbtype == RDB_TYPE_MODULE_2) {
         uint64_t moduleid = rdbLoadLen(rdb,NULL);
