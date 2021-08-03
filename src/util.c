@@ -444,8 +444,7 @@ int ull2string(char *dst, size_t dstlen, unsigned long long value) {
 
     /* Null term. */
     uint32_t next = length - 1;
-    dst[next] = '\0';
-    next--;
+    dst[next + 1] = '\0';
     while (value >= 100) {
         int const i = (value % 100) * 2;
         value /= 100;

@@ -2103,7 +2103,7 @@ static int numericConfigSet(typeData data, sds value, int update, const char **e
     unsigned long long ll, prev = 0;
     if (data.numeric.is_memory) {
         int memerr;
-        ll = memtoll(value, &memerr);
+        ll = memtuoll(value, &memerr);
         if (memerr || ll < 0) {
             *err = "argument must be a memory value";
             return 0;
