@@ -350,6 +350,7 @@ typedef struct RedisModuleServerInfoData {
 #define REDISMODULE_ARGV_REPLICATE (1<<0)
 #define REDISMODULE_ARGV_NO_AOF (1<<1)
 #define REDISMODULE_ARGV_NO_REPLICAS (1<<2)
+#define REDISMODULE_ARGV_CHECK_ACL (1<<3)
 
 /* Determine whether Redis should signalModifiedKey implicitly.
  * In case 'ctx' has no 'module' member (and therefore no module->options),
@@ -4140,6 +4141,7 @@ RedisModuleString *RM_CreateStringFromCallReply(RedisModuleCallReply *reply) {
  *     "!" -> REDISMODULE_ARGV_REPLICATE
  *     "A" -> REDISMODULE_ARGV_NO_AOF
  *     "R" -> REDISMODULE_ARGV_NO_REPLICAS
+ *     "C" -> REDISMODULE_ARGV_CHECK_ACL
  *
  * On error (format specifier error) NULL is returned and nothing is
  * allocated. On success the argument vector is returned. */
@@ -4198,6 +4200,8 @@ robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int 
             if (flags) (*flags) |= REDISMODULE_ARGV_NO_AOF;
         } else if (*p == 'R') {
             if (flags) (*flags) |= REDISMODULE_ARGV_NO_REPLICAS;
+        } else if (*p == 'C') {
+            if (flags) (*flags) |= REDISMODULE_ARGV_CHECK_ACL;
         } else {
             goto fmterr;
         }
@@ -4230,6 +4234,7 @@ fmterr:
  *     * `!` -- Sends the Redis command and its arguments to replicas and AOF.
  *     * `A` -- Suppress AOF propagation, send only to replicas (requires `!`).
  *     * `R` -- Suppress replicas propagation, send only to AOF (requires `!`).
+ *     * `C` -- Check if command can be executed according to ACL rules.
  * * **...**: The actual arguments to the Redis command.
  *
  * On success a RedisModuleCallReply object is returned, otherwise
@@ -4280,7 +4285,9 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
          * recursive call to this module.) */
         c = createClient(NULL);
     }
-    c->user = NULL; /* Root user. */
+
+    /* Set a root user or the client module user if the module asked to check ACL permissions */
+    c->user = (flags & REDISMODULE_ARGV_CHECK_ACL) ? ctx->client->user : NULL; /* Root user. */
     c->flags = CLIENT_MODULE;
 
     /* We do not want to allow block, the module do not expect it */
@@ -4313,6 +4320,16 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     /* Basic arity checks. */
     if ((cmd->arity > 0 && cmd->arity != argc) || (argc < -cmd->arity)) {
         errno = EINVAL;
+        goto cleanup;
+    }
+
+    /* Check if the user can run this command according to the current
+     * ACLs. */
+    int acl_errpos;
+    int acl_retval = ACLCheckAllPerm(c,&acl_errpos);
+    if (acl_retval != ACL_OK) {
+        addACLLogEntry(c,acl_retval,acl_errpos,NULL);
+        errno = EACCES;
         goto cleanup;
     }
 
@@ -6741,6 +6758,40 @@ int RM_FreeModuleUser(RedisModuleUser *user) {
  * and will set an errno describing why the operation failed. */
 int RM_SetModuleUserACL(RedisModuleUser *user, const char* acl) {
     return ACLSetUser(user->user, acl, -1);
+}
+
+/* Check if the command can be executed by the user created through the redis module
+ * interface, according to the ACLs associated to it.
+ *
+ * If the user can execute the command, REDISMODULE_OK is returned, otherwise
+ * REDISMODULE_ERR is returned. */
+int RM_ACLCheckCommandPerm(RedisModuleCtx *ctx, const char *cmd, const char *subcmd) {
+    struct redisCommand *rcmd;
+    sds sdscmd = sdsnew(cmd);
+    rcmd = lookupCommand(sdscmd);
+    sdsfree(sdscmd);
+    return ACLCheckCommand(ctx->client, rcmd, subcmd) == ACL_OK ? REDISMODULE_OK : REDISMODULE_ERR;
+}
+
+/* Check if the key can be accessed by the user created through the redis module
+ * interface, according to the ACLs associated to it.
+ *
+ * If the user can access the key, REDISMODULE_OK is returned, otherwise
+ * REDISMODULE_ERR is returned. */
+int RM_ACLCheckKeyPerm(RedisModuleCtx *ctx, const char *key, int keylen) {
+    return ACLCheckKey(ctx->client, key, keylen) == ACL_OK ? REDISMODULE_OK : REDISMODULE_ERR;
+}
+
+/* Check if the channel can be accessed by the user created through the redis module
+ * interface, according to the ACLs associated to it.
+ *
+ * If the user can access the key, REDISMODULE_OK is returned, otherwise
+ * REDISMODULE_ERR is returned. */
+int RM_ACLCheckChannelPerm(RedisModuleCtx *ctx, const char *ch, int chlen, int literal) {
+    sds sdsch = sdsnewlen(ch, chlen);
+    int res = ACLCheckPubsubChannelPerm(sdsch, ctx->client->user->channels, literal);
+    sdsfree(sdsch);
+    return res == ACL_OK ? REDISMODULE_OK : REDISMODULE_ERR;
 }
 
 /* Authenticate the client associated with the context with
@@ -9803,6 +9854,9 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ScanKey);
     REGISTER_API(CreateModuleUser);
     REGISTER_API(SetModuleUserACL);
+    REGISTER_API(ACLCheckCommandPerm);
+    REGISTER_API(ACLCheckKeyPerm);
+    REGISTER_API(ACLCheckChannelPerm);
     REGISTER_API(FreeModuleUser);
     REGISTER_API(DeauthenticateAndCloseClient);
     REGISTER_API(AuthenticateClientWithACLUser);

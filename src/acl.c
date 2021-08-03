@@ -1167,31 +1167,27 @@ user *ACLGetUserByName(const char *name, size_t namelen) {
     return myuser;
 }
 
-/* Check if the command is ready to be executed in the client 'c', already
- * referenced by c->cmd, and can be executed by this client according to the
- * ACLs associated to the client user c->user.
+/* Check if the command can be executed by the client according to
+ * the ACLs associated to the client user c->user.
  *
- * If the user can execute the command ACL_OK is returned, otherwise
- * ACL_DENIED_CMD or ACL_DENIED_KEY is returned: the first in case the
- * command cannot be executed because the user is not allowed to run such
- * command, the second if the command is denied because the user is trying
- * to access keys that are not among the specified patterns. */
-int ACLCheckCommandPerm(client *c, int *keyidxptr) {
+ * If the user can execute the command, ACL_OK is returned, otherwise
+ * ACL_DENIED_CMD is returned. */
+int ACLCheckCommand(client *c, struct redisCommand *cmd, const char *subcmd) {
     user *u = c->user;
-    uint64_t id = c->cmd->id;
+    uint64_t id = cmd->id;
 
     /* If there is no associated user, the connection can run anything. */
     if (u == NULL) return ACL_OK;
 
     /* Check if the user can execute this command or if the command
      * doesn't need to be authenticated (hello, auth). */
-    if (!(u->flags & USER_FLAG_ALLCOMMANDS) && !(c->cmd->flags & CMD_NO_AUTH))
+    if (!(u->flags & USER_FLAG_ALLCOMMANDS) && !(cmd->flags & CMD_NO_AUTH))
     {
         /* If the bit is not set we have to check further, in case the
          * command is allowed just with that specific subcommand. */
         if (ACLGetUserCommandBit(u,id) == 0) {
             /* Check if the subcommand matches. */
-            if (c->argc < 2 ||
+            if (subcmd == NULL ||
                 u->allowed_subcommands == NULL ||
                 u->allowed_subcommands[id] == NULL)
             {
@@ -1202,13 +1198,64 @@ int ACLCheckCommandPerm(client *c, int *keyidxptr) {
             while (1) {
                 if (u->allowed_subcommands[id][subid] == NULL)
                     return ACL_DENIED_CMD;
-                if (!strcasecmp(c->argv[1]->ptr,
+                if (!strcasecmp(subcmd,
                                 u->allowed_subcommands[id][subid]))
                     break; /* Subcommand match found. Stop here. */
                 subid++;
             }
         }
     }
+
+    return ACL_OK;
+}
+
+/* Check if the key can be accessed by the client according to
+ * the ACLs associated to the client user c->user.
+ *
+ * If the user can access the key, ACL_OK is returned, otherwise
+ * ACL_DENIED_KEY is returned. */
+int ACLCheckKey(client *c, const char *key, int keylen) {
+    user *u = c->user;
+
+    /* If there is no associated user, the connection can run anything. */
+    if (u == NULL) return ACL_OK;
+
+    /* The user can run any keys */
+    if (c->user->flags & USER_FLAG_ALLKEYS) return ACL_OK;
+
+    listIter li;
+    listNode *ln;
+    listRewind(u->patterns,&li);
+
+    /* Test this key against every pattern. */
+    while((ln = listNext(&li))) {
+        sds pattern = listNodeValue(ln);
+        size_t plen = sdslen(pattern);
+        if (stringmatchlen(pattern,plen,key,keylen,0))
+            return ACL_OK;
+    }
+    return ACL_DENIED_KEY;
+}
+
+/* Check if the command is ready to be executed in the client 'c', already
+ * referenced by c->cmd, and can be executed by this client according to the
+ * ACLs associated to the client user c->user.
+ *
+ * If the user can execute the command ACL_OK is returned, otherwise
+ * ACL_DENIED_CMD or ACL_DENIED_KEY is returned: the first in case the
+ * command cannot be executed because the user is not allowed to run such
+ * command, the second if the command is denied because the user is trying
+ * to access keys that are not among the specified patterns. */
+int ACLCheckCommandPerm(client *c, int *keyidxptr) {
+    int ret;
+    user *u = c->user;
+
+    /* If there is no associated user, the connection can run anything. */
+    if (u == NULL) return ACL_OK;
+
+    /* Check if client can execute the command */
+    if ((ret = ACLCheckCommand(c, c->cmd, c->argc < 2 ? NULL : c->argv[1]->ptr)) != ACL_OK)
+        return ret;
 
     /* Check if the user can execute commands explicitly touching the keys
      * mentioned in the command arguments. */
@@ -1219,27 +1266,12 @@ int ACLCheckCommandPerm(client *c, int *keyidxptr) {
         int numkeys = getKeysFromCommand(c->cmd,c->argv,c->argc,&result);
         int *keyidx = result.keys;
         for (int j = 0; j < numkeys; j++) {
-            listIter li;
-            listNode *ln;
-            listRewind(u->patterns,&li);
-
-            /* Test this key against every pattern. */
-            int match = 0;
-            while((ln = listNext(&li))) {
-                sds pattern = listNodeValue(ln);
-                size_t plen = sdslen(pattern);
-                int idx = keyidx[j];
-                if (stringmatchlen(pattern,plen,c->argv[idx]->ptr,
-                                   sdslen(c->argv[idx]->ptr),0))
-                {
-                    match = 1;
-                    break;
-                }
-            }
-            if (!match) {
+            int idx = keyidx[j];
+            ret = ACLCheckKey(c, c->argv[idx]->ptr, sdslen(c->argv[idx]->ptr));
+            if (ret != ACL_OK) {
                 if (keyidxptr) *keyidxptr = keyidx[j];
                 getKeysFreeResult(&result);
-                return ACL_DENIED_KEY;
+                return ret;
             }
         }
         getKeysFreeResult(&result);
