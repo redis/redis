@@ -538,8 +538,12 @@ void *rdbGenericLoadStringObject(rio *rdb, int flags, size_t *lenptr) {
         }
         return buf;
     } else {
-        robj *o = encode ? createStringObject(SDS_NOINIT,len) :
-                           createRawStringObject(SDS_NOINIT,len);
+        robj *o = encode ? tryCreateStringObject(SDS_NOINIT,len) :
+                           tryCreateRawStringObject(SDS_NOINIT,len);
+        if (!o) {
+            serverLog(server.loading? LL_WARNING: LL_VERBOSE, "rdbGenericLoadStringObject failed allocating %llu bytes", len);
+            return NULL;
+        }
         if (len && rioRead(rdb,o->ptr,len) == 0) {
             decrRefCount(o);
             return NULL;

@@ -551,5 +551,15 @@ test {corrupt payload: fuzzer findings - dict init to huge size} {
     }
 }
 
+test {corrupt payload: fuzzer findings - huge string} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload yes
+        r debug set-skip-checksum-validation 1
+        catch {r restore key 0 "\x00\x81\x01\x09\x00\xF6\x2B\xB6\x7A\x85\x87\x72\x4D"} err
+        assert_match "*Bad data format*" $err
+        r ping
+    }
+}
+
 } ;# tags
 
