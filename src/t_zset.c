@@ -2548,12 +2548,14 @@ dictType setAccumulatorDictType = {
 };
 
 /* The zunionInterDiffGenericCommand() function is called in order to implement the
- * following commands: ZUNION, ZINTER, ZDIFF, ZUNIONSTORE, ZINTERSTORE, ZDIFFSTORE.
+ * following commands: ZUNION, ZINTER, ZDIFF, ZUNIONSTORE, ZINTERSTORE, ZDIFFSTORE,
+ * ZINTERCARD.
  *
  * 'numkeysIndex' parameter position of key number. for ZUNION/ZINTER/ZDIFF command,
  * this value is 1, for ZUNIONSTORE/ZINTERSTORE/ZDIFFSTORE command, this value is 2.
  *
  * 'op' SET_OP_INTER, SET_OP_UNION or SET_OP_DIFF.
+ * 'cardinality_only' is currently only applicable when 'op' is SET_OP_INTER.
  */
 void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, int op,
                                    int cardinality_only) {
