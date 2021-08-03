@@ -78,19 +78,19 @@ typedef struct sentinelAddr {
 #define SRI_SCRIPT_KILL_SENT (1<<12) /* SCRIPT KILL already sent on -BUSY */
 
 /* Note: times are in milliseconds. */
-static int sentinel_info_period = 10000;
-static int sentinel_ping_period = 1000;
-static int sentinel_ask_period = 1000;
-static int sentinel_publish_period = 1000;
-static int sentinel_default_down_after = 30000;
-static int sentinel_tilt_trigger = 2000;
-static int sentinel_tilt_period = 1000 * 30;
-static int sentinel_slave_reconf_timeout = 10000;
-static int sentinel_min_link_reconnect_period = 15000;
-static int sentinel_election_timeout = 10000;
-static int sentinel_script_max_runtime = 60000;  /* 60 seconds max exec time. */
-static int sentinel_script_retry_delay = 30000;  /* 30 seconds between retries. */
-static int sentinel_default_failover_timeout = 60*3*1000;
+static mstime_t sentinel_info_period = 10000;
+static mstime_t sentinel_ping_period = 1000;
+static mstime_t sentinel_ask_period = 1000;
+static mstime_t sentinel_publish_period = 1000;
+static mstime_t sentinel_default_down_after = 30000;
+static mstime_t sentinel_tilt_trigger = 2000;
+static mstime_t sentinel_tilt_period = 1000 * 30;
+static mstime_t sentinel_slave_reconf_timeout = 10000;
+static mstime_t sentinel_min_link_reconnect_period = 15000;
+static mstime_t sentinel_election_timeout = 10000;
+static mstime_t sentinel_script_max_runtime = 60000;  /* 60 seconds max exec time. */
+static mstime_t sentinel_script_retry_delay = 30000;  /* 30 seconds between retries. */
+static mstime_t sentinel_default_failover_timeout = 60*3*1000;
 
 #define SENTINEL_HELLO_CHANNEL "__sentinel__:hello"
 #define SENTINEL_DEFAULT_SLAVE_PRIORITY 100
@@ -2036,69 +2036,6 @@ const char *sentinelHandleConfiguration(char **argv, int argc) {
         if ((sentinel.announce_hostnames = yesnotoi(argv[1])) == -1) {
             return "Please specify yes or no for the announce-hostnames option.";
         }
-    } else if (!strcasecmp(argv[0],"info-period") && argc == 2) {
-        /* info-period <milliseconds> */
-        sentinel_info_period = atoi(argv[1]);
-        if (sentinel_info_period <= 0)
-            return "negative or zero time parameter.";
-    } else if (!strcasecmp(argv[0],"ping-period") && argc == 2) {
-        /* ping-period <milliseconds> */
-        sentinel_ping_period = atoi(argv[1]);
-        if (sentinel_ping_period <= 0)
-            return "negative or zero time parameter.";
-    } else if (!strcasecmp(argv[0],"ask-period") && argc == 2) {
-        /* ask-period <milliseconds> */
-        sentinel_ask_period = atoi(argv[1]);
-        if (sentinel_ask_period <= 0)
-            return "negative or zero time parameter.";
-    } else if (!strcasecmp(argv[0],"publish-period") && argc == 2) {
-        /* publish-period <milliseconds> */
-        sentinel_publish_period = atoi(argv[1]);
-        if (sentinel_publish_period <= 0)
-            return "negative or zero time parameter.";
-    } else if (!strcasecmp(argv[0],"default_down_after") && argc == 2) {
-        /* sentinel_default_down_after <milliseconds> */
-        sentinel_default_down_after = atoi(argv[1]);
-        if (sentinel_default_down_after <= 0)
-            return "negative or zero time parameter.";
-    } else if (!strcasecmp(argv[0],"tilt_trigger") && argc == 2) {
-        /* tilt_trigger <milliseconds> */
-        sentinel_tilt_trigger = atoi(argv[1]);
-        if (sentinel_tilt_trigger <= 0)
-            return "negative or zero time parameter.";
-    } else if (!strcasecmp(argv[0],"tilt_period") && argc == 2) {
-        /* tilt_period <milliseconds> */
-        sentinel_tilt_period = atoi(argv[1]);
-        if (sentinel_tilt_period <= 0)
-            return "negative or zero time parameter.";
-    } else if (!strcasecmp(argv[0],"slave_reconf_timeout") && argc == 2) {
-        /* slave_reconf_timeout <milliseconds> */
-        sentinel_slave_reconf_timeout = atoi(argv[1]);
-        if (sentinel_slave_reconf_timeout <= 0)
-            return "negative or zero time parameter.";
-    } else if (!strcasecmp(argv[0],"min_link_reconnect_period") && argc == 2) {
-        /* min_link_reconnect_period <milliseconds> */
-        sentinel_min_link_reconnect_period = atoi(argv[1]);
-        if (sentinel_min_link_reconnect_period <= 0)
-            return "negative or zero time parameter.";
-    } else if (!strcasecmp(argv[0],"default_failover_timeout") && argc == 2) {
-        /* default_failover_timeout <milliseconds> */
-        sentinel_default_failover_timeout = atoi(argv[1]);
-    } else if (!strcasecmp(argv[0],"election_timeout") && argc == 2) {
-        /* election_timeout <milliseconds> */
-        sentinel_election_timeout = atoi(argv[1]);
-        if (sentinel_election_timeout <= 0)
-            return "negative or zero time parameter.";
-    } else if (!strcasecmp(argv[0],"script_max_runtime") && argc == 2) {
-        /* script_max_runtime <milliseconds> */
-        sentinel_script_max_runtime = atoi(argv[1]);
-        if (sentinel_script_max_runtime <= 0)
-            return "negative or zero time parameter.";
-    } else if (!strcasecmp(argv[0],"script_retry_delay") && argc == 2) {
-        /* script_retry_delay <milliseconds> */
-        sentinel_script_retry_delay = atoi(argv[1]);
-        if (sentinel_script_retry_delay <= 0)
-            return "negative or zero time parameter.";
     } 
     else {
         return "Unrecognized sentinel configuration statement.";
@@ -3507,6 +3444,153 @@ void addReplySentinelRedisInstance(client *c, sentinelRedisInstance *ri) {
     setDeferredMapLen(c,mbl,fields);
 }
 
+void sentinelSetDebugConfigParameters(client *c){
+
+    int j;
+    int badarg = 0; /* Bad argument position for error reporting. */
+    char *option;
+
+    /* Process option - value pairs. */
+    for (j = 2; j < c->argc; j++) {
+        int moreargs = (c->argc-1) - j;
+        option = c->argv[j]->ptr;
+        long long ll;
+
+        if (!strcasecmp(option,"info-period") && moreargs > 0) {
+            /* info-period <milliseconds> */
+            robj *o = c->argv[++j];
+            if (getLongLongFromObject(o,&ll) == C_ERR || ll <= 0) {
+                badarg = j;
+                goto badfmt;
+            }
+            sentinel_info_period = ll;
+            
+        } else if (!strcasecmp(option,"ping-period") && moreargs > 0) {
+            /* ping-period <milliseconds> */
+            robj *o = c->argv[++j];
+            if (getLongLongFromObject(o,&ll) == C_ERR || ll <= 0) {
+                badarg = j;
+                goto badfmt;
+            }
+            sentinel_ping_period = ll;
+           
+        } else if (!strcasecmp(option,"ask-period") && moreargs > 0) {
+            /* ask-period <milliseconds> */
+            robj *o = c->argv[++j];
+            if (getLongLongFromObject(o,&ll) == C_ERR || ll <= 0) {
+                badarg = j;
+                goto badfmt;
+            }
+            sentinel_ask_period = ll;
+           
+        } else if (!strcasecmp(option,"publish-period") && moreargs > 0) {
+            /* publish-period <milliseconds> */
+            robj *o = c->argv[++j];
+            if (getLongLongFromObject(o,&ll) == C_ERR || ll <= 0) {
+                badarg = j;
+                goto badfmt;
+            }
+            sentinel_publish_period = ll;
+           
+        }else if (!strcasecmp(option,"default_down_after") && moreargs > 0) {
+            /* sentinel_default_down_after <milliseconds> */
+            robj *o = c->argv[++j];
+            if (getLongLongFromObject(o,&ll) == C_ERR || ll <= 0) {
+                badarg = j;
+                goto badfmt;
+            }
+            sentinel_default_down_after = ll;
+           
+        } else if (!strcasecmp(option,"tilt_trigger") && moreargs > 0) {
+            /* tilt_trigger <milliseconds> */
+            robj *o = c->argv[++j];
+            if (getLongLongFromObject(o,&ll) == C_ERR || ll <= 0) {
+                badarg = j;
+                goto badfmt;
+            }
+            sentinel_tilt_trigger = ll;
+           
+        } else if (!strcasecmp(option,"tilt_period") && moreargs > 0) {
+            /* tilt-period <milliseconds> */
+            robj *o = c->argv[++j];
+            if (getLongLongFromObject(o,&ll) == C_ERR || ll <= 0) {
+                badarg = j;
+                goto badfmt;
+            }
+            sentinel_tilt_period = ll;
+           
+        } else if (!strcasecmp(option,"slave_reconf_timeout") && moreargs > 0) {
+            /* slave_reconf_timeout <milliseconds> */
+            robj *o = c->argv[++j];
+            if (getLongLongFromObject(o,&ll) == C_ERR || ll <= 0) {
+                badarg = j;
+                goto badfmt;
+            }
+            sentinel_slave_reconf_timeout = ll;
+           
+        } else if (!strcasecmp(option,"min_link_reconnect_period") && moreargs > 0) {
+            /* min_link_reconnect_period <milliseconds> */
+            robj *o = c->argv[++j];
+            if (getLongLongFromObject(o,&ll) == C_ERR || ll <= 0) {
+                badarg = j;
+                goto badfmt;
+            }
+            sentinel_min_link_reconnect_period = ll;
+           
+        } else if (!strcasecmp(option,"default_failover_timeout") && moreargs > 0) {
+            /* default_failover_timeout <milliseconds> */
+            robj *o = c->argv[++j];
+            if (getLongLongFromObject(o,&ll) == C_ERR || ll <= 0) {
+                badarg = j;
+                goto badfmt;
+            }
+            sentinel_default_failover_timeout = ll;
+           
+        } else if (!strcasecmp(option,"election_timeout") && moreargs > 0) {
+            /* election_timeout <milliseconds> */
+            robj *o = c->argv[++j];
+            if (getLongLongFromObject(o,&ll) == C_ERR || ll <= 0) {
+                badarg = j;
+                goto badfmt;
+            }
+            sentinel_election_timeout = ll;
+           
+        } else if (!strcasecmp(option,"script_max_runtime") && moreargs > 0) {
+            /* script_max_runtime <milliseconds> */
+            robj *o = c->argv[++j];
+            if (getLongLongFromObject(o,&ll) == C_ERR || ll <= 0) {
+                badarg = j;
+                goto badfmt;
+            }
+            sentinel_script_max_runtime = ll;
+           
+        } else if (!strcasecmp(option,"script_retry_delay") && moreargs > 0) {
+            /* script_retry_delay <milliseconds> */
+            robj *o = c->argv[++j];
+            if (getLongLongFromObject(o,&ll) == C_ERR || ll <= 0) {
+                badarg = j;
+                goto badfmt;
+            }
+            sentinel_script_retry_delay = ll;
+           
+        } else {
+            addReplyErrorFormat(c,"Unknown option or number of arguments for "
+                                  "SENTINEL SET '%s'", option);            
+        }
+
+    }
+
+    addReply(c,shared.ok);
+    return;
+
+badfmt: /* Bad format errors */
+    addReplyErrorFormat(c,"Invalid argument '%s' for SENTINEL SET '%s'",
+        (char*)c->argv[badarg]->ptr,option);
+
+    return;
+}
+
+
 void addReplySentinelDebugInfo(client *c) {
    
     void *mbl;
@@ -3996,8 +4080,10 @@ NULL
         }
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"debug")) {
-        if (c->argc != 2) goto numargserr;
-        addReplySentinelDebugInfo(c);
+        if(c->argc == 2)
+            addReplySentinelDebugInfo(c);
+        else
+            sentinelSetDebugConfigParameters(c);
     } 
     else {
         addReplySubcommandSyntaxError(c);
