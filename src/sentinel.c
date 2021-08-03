@@ -78,13 +78,15 @@ typedef struct sentinelAddr {
 #define SRI_SCRIPT_KILL_SENT (1<<12) /* SCRIPT KILL already sent on -BUSY */
 
 /* Note: times are in milliseconds. */
+#define SENTINEL_PING_PERIOD 1000
+
 static mstime_t sentinel_info_period = 10000;
-static mstime_t sentinel_ping_period = 1000;
+static mstime_t sentinel_ping_period = SENTINEL_PING_PERIOD;
 static mstime_t sentinel_ask_period = 1000;
 static mstime_t sentinel_publish_period = 1000;
 static mstime_t sentinel_default_down_after = 30000;
 static mstime_t sentinel_tilt_trigger = 2000;
-static mstime_t sentinel_tilt_period = 1000 * 30;
+static mstime_t sentinel_tilt_period = SENTINEL_PING_PERIOD * 30;
 static mstime_t sentinel_slave_reconf_timeout = 10000;
 static mstime_t sentinel_min_link_reconnect_period = 15000;
 static mstime_t sentinel_election_timeout = 10000;
@@ -3473,6 +3475,7 @@ void sentinelSetDebugConfigParameters(client *c){
                 goto badfmt;
             }
             sentinel_ping_period = ll;
+            sentinel_tilt_period = sentinel_ping_period * 30;
            
         } else if (!strcasecmp(option,"ask-period") && moreargs > 0) {
             /* ask-period <milliseconds> */
@@ -3509,15 +3512,6 @@ void sentinelSetDebugConfigParameters(client *c){
                 goto badfmt;
             }
             sentinel_tilt_trigger = ll;
-           
-        } else if (!strcasecmp(option,"tilt_period") && moreargs > 0) {
-            /* tilt-period <milliseconds> */
-            robj *o = c->argv[++j];
-            if (getLongLongFromObject(o,&ll) == C_ERR || ll <= 0) {
-                badarg = j;
-                goto badfmt;
-            }
-            sentinel_tilt_period = ll;
            
         } else if (!strcasecmp(option,"slave_reconf_timeout") && moreargs > 0) {
             /* slave_reconf_timeout <milliseconds> */
