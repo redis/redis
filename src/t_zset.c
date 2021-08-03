@@ -2548,14 +2548,17 @@ dictType setAccumulatorDictType = {
 };
 
 /* The zunionInterDiffGenericCommand() function is called in order to implement the
- * following commands: ZUNION, ZINTER, ZDIFF, ZUNIONSTORE, ZINTERSTORE, ZDIFFSTORE.
+ * following commands: ZUNION, ZINTER, ZDIFF, ZUNIONSTORE, ZINTERSTORE, ZDIFFSTORE,
+ * ZINTERCARD.
  *
  * 'numkeysIndex' parameter position of key number. for ZUNION/ZINTER/ZDIFF command,
  * this value is 1, for ZUNIONSTORE/ZINTERSTORE/ZDIFFSTORE command, this value is 2.
  *
  * 'op' SET_OP_INTER, SET_OP_UNION or SET_OP_DIFF.
+ * 'cardinality_only' is currently only applicable when 'op' is SET_OP_INTER.
  */
-void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, int op) {
+void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, int op,
+                                   int cardinality_only) {
     int i, j;
     long setnum;
     int aggregate = REDIS_AGGR_SUM;
@@ -2567,6 +2570,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
     zset *dstzset;
     zskiplistNode *znode;
     int withscores = 0;
+    unsigned long cardinality = 0;
 
     /* expect setnum input keys to be given */
     if ((getLongFromObjectOrReply(c, c->argv[numkeysIndex], &setnum, NULL) != C_OK))
@@ -2613,7 +2617,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
         int remaining = c->argc - j;
 
         while (remaining) {
-            if (op != SET_OP_DIFF &&
+            if (op != SET_OP_DIFF && !cardinality_only &&
                 remaining >= (setnum + 1) &&
                 !strcasecmp(c->argv[j]->ptr,"weights"))
             {
@@ -2626,7 +2630,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                         return;
                     }
                 }
-            } else if (op != SET_OP_DIFF &&
+            } else if (op != SET_OP_DIFF && !cardinality_only &&
                        remaining >= 2 &&
                        !strcasecmp(c->argv[j]->ptr,"aggregate"))
             {
@@ -2644,7 +2648,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                 }
                 j++; remaining--;
             } else if (remaining >= 1 &&
-                       !dstkey &&
+                       !dstkey && !cardinality_only &&
                        !strcasecmp(c->argv[j]->ptr,"withscores"))
             {
                 j++; remaining--;
@@ -2694,7 +2698,9 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                 }
 
                 /* Only continue when present in every input. */
-                if (j == setnum) {
+                if (j == setnum && cardinality_only) {
+                    cardinality++;
+                } else if (j == setnum) {
                     tmp = zuiNewSdsFromValue(&zval);
                     znode = zslInsert(dstzset->zsl,score,tmp);
                     dictAdd(dstzset->dict,tmp,&znode->score);
@@ -2791,6 +2797,8 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                 server.dirty++;
             }
         }
+    } else if (cardinality_only) {
+        addReplyLongLong(c, cardinality);
     } else {
         unsigned long length = dstzset->zsl->length;
         zskiplist *zsl = dstzset->zsl;
@@ -2815,27 +2823,31 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
 }
 
 void zunionstoreCommand(client *c) {
-    zunionInterDiffGenericCommand(c, c->argv[1], 2, SET_OP_UNION);
+    zunionInterDiffGenericCommand(c, c->argv[1], 2, SET_OP_UNION, 0);
 }
 
 void zinterstoreCommand(client *c) {
-    zunionInterDiffGenericCommand(c, c->argv[1], 2, SET_OP_INTER);
+    zunionInterDiffGenericCommand(c, c->argv[1], 2, SET_OP_INTER, 0);
 }
 
 void zdiffstoreCommand(client *c) {
-    zunionInterDiffGenericCommand(c, c->argv[1], 2, SET_OP_DIFF);
+    zunionInterDiffGenericCommand(c, c->argv[1], 2, SET_OP_DIFF, 0);
 }
 
 void zunionCommand(client *c) {
-    zunionInterDiffGenericCommand(c, NULL, 1, SET_OP_UNION);
+    zunionInterDiffGenericCommand(c, NULL, 1, SET_OP_UNION, 0);
 }
 
 void zinterCommand(client *c) {
-    zunionInterDiffGenericCommand(c, NULL, 1, SET_OP_INTER);
+    zunionInterDiffGenericCommand(c, NULL, 1, SET_OP_INTER, 0);
+}
+
+void zinterCardCommand(client *c) {
+    zunionInterDiffGenericCommand(c, NULL, 1, SET_OP_INTER, 1);
 }
 
 void zdiffCommand(client *c) {
-    zunionInterDiffGenericCommand(c, NULL, 1, SET_OP_DIFF);
+    zunionInterDiffGenericCommand(c, NULL, 1, SET_OP_DIFF, 0);
 }
 
 typedef enum {

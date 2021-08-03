@@ -404,6 +404,10 @@ struct redisCommand redisCommandTable[] = {
      "read-only to-sort @set",
      0,NULL,1,-1,1,0,0,0},
 
+    {"sintercard",sinterCardCommand,-2,
+     "read-only @set",
+     0,NULL,1,-1,1,0,0,0},
+
     {"sinterstore",sinterstoreCommand,-3,
      "write use-memory @set",
      0,NULL,1,-1,1,0,0,0},
@@ -473,6 +477,10 @@ struct redisCommand redisCommandTable[] = {
      0,zunionInterDiffGetKeys,0,0,0,0,0,0},
 
     {"zinter",zinterCommand,-3,
+     "read-only @sortedset",
+     0,zunionInterDiffGetKeys,0,0,0,0,0,0},
+
+    {"zintercard",zinterCardCommand,-3,
      "read-only @sortedset",
      0,zunionInterDiffGetKeys,0,0,0,0,0,0},
 
