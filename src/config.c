@@ -1138,8 +1138,7 @@ struct rewriteConfigState {
     int numlines;         /* Number of lines in current config */
     sds *lines;           /* Current lines as an array of sds strings */
     int needs_signature;  /* True if we need to append the rewrite
-                             signature. This is needed for a normal
-                             rewrite to indicate. */
+                             signature. */
     int force_write;      /* True if we want all keywords to be force
                              written. Currently only used for testing
                              and debug information. */
