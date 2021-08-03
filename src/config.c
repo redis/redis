@@ -744,7 +744,7 @@ void loadServerConfig(char *filename, char config_from_stdin, char *options) {
 #define config_set_memory_field(_name,_var) \
     } else if (!strcasecmp(c->argv[2]->ptr,_name)) { \
         ll = memtoull(o->ptr,&err); \
-        if (err || ll < 0) goto badfmt; \
+        if (err) goto badfmt; \
         _var = ll;
 
 #define config_set_special_field(_name) \
@@ -2104,7 +2104,7 @@ static int numericConfigSet(typeData data, sds value, int update, const char **e
         unsigned long long ll, prev = 0;
         int memerr;
         ll = memtoull(value, &memerr);
-        if (memerr || ll < 0) {
+        if (memerr) {
             *err = "argument must be a memory value";
             return 0;
         }
