@@ -214,8 +214,7 @@ int hashTypeSet(robj *o, sds field, sds value, int flags) {
                 update = 1;
 
                 /* Replace value */
-                zl = lpReplace(zl, vptr, (unsigned char*)value,
-                        sdslen(value));
+                zl = lpReplace(zl, &vptr, (unsigned char*)value, sdslen(value));
             }
         }
 
@@ -542,8 +541,9 @@ robj *hashTypeDup(robj *o) {
     return hobj;
 }
 
-/* callback for to check the ziplist doesn't have duplicate records */
-static int _hashZiplistEntryValidation(unsigned char *p, void *userdata) {
+/* callback for to check the ziplist doesn't have duplicate records.
+ * The ziplist element pointed by 'p' will be converted and stored into listpack. */
+static int _hashZiplistEntryConvertAndValidation(unsigned char *p, void *userdata) {
     unsigned char *str;
     unsigned int slen;
     long long vll;
@@ -615,7 +615,7 @@ int hashZiplistConvertAndValidateIntegrity(unsigned char *zl, size_t size, unsig
         unsigned char **lp;
     } data = {0, dictCreate(&hashDictType, NULL), lp};
 
-    int ret = ziplistValidateIntegrity(zl, size, 1, _hashZiplistEntryValidation, &data);
+    int ret = ziplistValidateIntegrity(zl, size, 1, _hashZiplistEntryConvertAndValidation, &data);
 
     /* make sure we have an even number of records. */
     if (data.count & 1)

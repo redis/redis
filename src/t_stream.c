@@ -241,15 +241,6 @@ robj *streamDup(robj *o) {
     return sobj;
 }
 
-
-/* This is just a wrapper for lpReplace() to directly use a 64 bit integer
- * instead of a string to replace the current element. The function returns
- * the new listpack as return value, and also updates the current cursor
- * by updating '*pos'. */
-unsigned char *lpReplaceInteger(unsigned char *lp, unsigned char **pos, int64_t value) {
-    return lpInsertInteger(lp, value, *pos, LP_REPLACE, pos);
-}
-
 /* This is a wrapper function for lpGet() to directly get an integer value
  * from the listpack (that may store numbers as a string), converting
  * the string if needed.
