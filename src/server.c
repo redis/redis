@@ -1615,6 +1615,7 @@ int hasActiveChildProcess() {
 void resetChildState() {
     server.child_type = CHILD_TYPE_NONE;
     server.child_pid = -1;
+    server.stat_current_cow_peak = 0;
     server.stat_current_cow_bytes = 0;
     server.stat_current_cow_updated = 0;
     server.stat_current_save_keys_processed = 0;
@@ -2693,6 +2694,7 @@ void initServerConfig(void) {
     server.migrate_cached_sockets = dictCreate(&migrateCacheDictType,NULL);
     server.next_client_id = 1; /* Client IDs, start from 1 .*/
     server.loading_process_events_interval_bytes = (1024*1024*2);
+    server.page_size = sysconf(_SC_PAGESIZE);
 
     unsigned int lruclock = getLRUClock();
     atomicSet(server.lruclock,lruclock);
@@ -3186,6 +3188,7 @@ void initServer(void) {
     server.system_memory_size = zmalloc_get_memory_size();
     server.blocked_last_cron = 0;
     server.blocking_op_nesting = 0;
+    server.thp_enabled = 0;
 
     if ((server.tls_port || server.tls_replication || server.tls_cluster)
                 && tlsConfigure(&server.tls_ctx_config) == C_ERR) {
@@ -3281,6 +3284,7 @@ void initServer(void) {
     /* A few stats we don't want to reset: server startup time, and peak mem. */
     server.stat_starttime = time(NULL);
     server.stat_peak_memory = 0;
+    server.stat_current_cow_peak = 0;
     server.stat_current_cow_bytes = 0;
     server.stat_current_cow_updated = 0;
     server.stat_current_save_keys_processed = 0;
@@ -4882,6 +4886,7 @@ sds genRedisInfoString(const char *section) {
         info = sdscatprintf(info,
             "# Persistence\r\n"
             "loading:%d\r\n"
+            "current_cow_peak:%zu\r\n"
             "current_cow_size:%zu\r\n"
             "current_cow_size_age:%lu\r\n"
             "current_fork_perc:%.2f\r\n"
@@ -4905,6 +4910,7 @@ sds genRedisInfoString(const char *section) {
             "module_fork_in_progress:%d\r\n"
             "module_fork_last_cow_size:%zu\r\n",
             (int)server.loading,
+            server.stat_current_cow_peak,
             server.stat_current_cow_bytes,
             server.stat_current_cow_updated ? (unsigned long) elapsedMs(server.stat_current_cow_updated) / 1000 : 0,
             fork_perc,
@@ -5410,7 +5416,12 @@ void linuxMemoryWarnings(void) {
     if (linuxOvercommitMemoryValue() == 0) {
         serverLog(LL_WARNING,"WARNING overcommit_memory is set to 0! Background save may fail under low memory condition. To fix this issue add 'vm.overcommit_memory = 1' to /etc/sysctl.conf and then reboot or run the command 'sysctl vm.overcommit_memory=1' for this to take effect.");
     }
-    if (THPIsEnabled() && THPDisable()) {
+    if (THPIsEnabled()) {
+        server.thp_enabled = 1;
+        if (THPDisable() == 0) {
+            server.thp_enabled = 0;
+            return;
+        }
         serverLog(LL_WARNING,"WARNING you have Transparent Huge Pages (THP) support enabled in your kernel. This will create latency and memory usage issues with Redis. To fix this issue run the command 'echo madvise > /sys/kernel/mm/transparent_hugepage/enabled' as root, and add it to your /etc/rc.local in order to retain the setting after a reboot. Redis must be restarted after THP is disabled (set to 'madvise' or 'never').");
     }
 }
@@ -5864,6 +5875,7 @@ int redisFork(int purpose) {
     if ((childpid = fork()) == 0) {
         /* Child */
         server.in_fork_child = purpose;
+        dismissMemoryInChild();
         setOOMScoreAdj(CONFIG_OOM_BGCHILD);
         setupChildSignalHandlers();
         closeChildUnusedResourceAfterFork();
@@ -5888,6 +5900,7 @@ int redisFork(int purpose) {
         if (isMutuallyExclusiveChildType(purpose)) {
             server.child_pid = childpid;
             server.child_type = purpose;
+            server.stat_current_cow_peak = 0;
             server.stat_current_cow_bytes = 0;
             server.stat_current_cow_updated = 0;
             server.stat_current_save_keys_processed = 0;
@@ -5909,6 +5922,87 @@ void sendChildCowInfo(childInfoType info_type, char *pname) {
 
 void sendChildInfo(childInfoType info_type, size_t keys, char *pname) {
     sendChildInfoGeneric(info_type, keys, -1, pname);
+}
+
+/* Try to release pages back to the OS directly (bypassing the allocator),
+ * in an effort to decrease CoW during fork. For small allocations, we can't
+ * release any full page, so in an effort to avoid getting the size of the
+ * allocation from the allocator (malloc_size) when we already know it's small,
+ * we check the size_hint. If the size is not already known, passing a size_hint
+ * of 0 will lead the checking the real size of the allocation.
+ * Also please note that the size may be not accurate, so in order to make this
+ * solution effective, the judgement for releasing memory pages should not be
+ * too strict. */
+void dismissMemory(void* ptr, size_t size_hint) {
+    if (ptr == NULL) return;
+
+    /* madvise(MADV_DONTNEED) can not release pages if the size of memory
+     * is too small, we try to release only for the memory which the size
+     * is more than half of page size. */
+    if (size_hint && size_hint <= server.page_size/2) return;
+
+    zmadvise_dontneed(ptr);
+}
+
+/* Dismiss big chunks of memory inside a client structure, see dismissMemory() */
+void dismissClientMemory(client *c) {
+    /* Dismiss client query buffer. */
+    dismissSds(c->querybuf);
+    dismissSds(c->pending_querybuf);
+    /* Dismiss argv array only if we estimate it contains a big buffer. */
+    if (c->argc && c->argv_len_sum/c->argc >= server.page_size) {
+        for (int i = 0; i < c->argc; i++) {
+            dismissObject(c->argv[i], 0);
+        }
+    }
+    if (c->argc) dismissMemory(c->argv, c->argc*sizeof(robj*));
+
+    /* Dismiss the reply array only if the average buffer size is bigger
+     * than a page. */
+    if (listLength(c->reply) &&
+        c->reply_bytes/listLength(c->reply) >= server.page_size)
+    {
+        listIter li;
+        listNode *ln;
+        listRewind(c->reply, &li);
+        while ((ln = listNext(&li))) {
+            clientReplyBlock *bulk = listNodeValue(ln);
+            /* Default bulk size is 16k, actually it has extra data, maybe it
+             * occupies 20k according to jemalloc bin size if using jemalloc. */
+            if (bulk) dismissMemory(bulk, bulk->size);
+        }
+    }
+
+    /* The client struct has a big static reply buffer in it. */
+    dismissMemory(c, 0);
+}
+
+/* In the child process, we don't need some buffers anymore, and these are
+ * likely to change in the parent when there's heavy write traffic.
+ * We dismis them right away, to avoid CoW.
+ * see dismissMemeory(). */
+void dismissMemoryInChild(void) {
+    /* madvise(MADV_DONTNEED) may not work if Transparent Huge Pages is enabled. */
+    if (server.thp_enabled) return;
+
+    /* Currently we use zmadvise_dontneed only when we use jemalloc.
+     * so we avoid these pointless loops when they're not going to do anything. */
+#if defined(USE_JEMALLOC)
+
+    /* Dismiss replication backlog. */
+    if (server.repl_backlog != NULL) {
+        dismissMemory(server.repl_backlog, server.repl_backlog_size);
+    }
+
+    /* Dismiss all clients memory. */
+    listIter li;
+    listNode *ln;
+    listRewind(server.clients, &li);
+    while((ln = listNext(&li))) {
+        client *c = listNodeValue(ln);
+        dismissClientMemory(c);
+    }
+#endif
 }
 
 void memtest(size_t megabytes, int passes);
