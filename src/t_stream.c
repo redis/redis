@@ -3583,7 +3583,7 @@ int streamValidateListpackIntegrity(unsigned char *lp, size_t size, int deep) {
     /* In non-deep mode we just validated the listpack header (encoded size) */
     if (!deep) return 1;
 
-    next = p = lpFirst(lp);
+    next = p = lpValidateFirst(lp);
     if (!lpValidateNext(lp, &next, size)) return 0;
     if (!p) return 0;
 
