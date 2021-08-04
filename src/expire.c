@@ -473,7 +473,7 @@ int checkAlreadyExpired(long long when) {
      *
      * Instead we add the already expired key to the database with expire time
      * (possibly in the past) and wait for an explicit DEL from the master. */
-    return (when <= mstime() && !server.loading && !server.masterhost);
+    return (when <= mstime() && !server.loading && !server.async_loading && !server.masterhost);
 }
 
 #define EXPIRE_NX (1<<0)

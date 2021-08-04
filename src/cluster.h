@@ -5,7 +5,6 @@
  * Redis cluster data structures, defines, exported API.
  *----------------------------------------------------------------------------*/
 
-#define CLUSTER_SLOTS 16384
 #define CLUSTER_OK 0          /* Everything looks ok */
 #define CLUSTER_FAIL 1        /* The cluster can't work */
 #define CLUSTER_NAMELEN 40    /* sha1 hex length */
@@ -318,8 +317,6 @@ unsigned int keyHashSlot(char *key, int keylen);
 void slotToKeyAddEntry(dictEntry *entry);
 void slotToKeyDelEntry(dictEntry *entry);
 void slotToKeyReplaceEntry(dictEntry *entry);
-void slotToKeyCopyToBackup(clusterSlotsToKeysData *backup);
-void slotToKeyRestoreBackup(clusterSlotsToKeysData *backup);
 void slotToKeyFlush(void);
 
 #endif /* __CLUSTER_H */

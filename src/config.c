@@ -2691,7 +2691,7 @@ standardConfig configs[] = {
 
 void configCommand(client *c) {
     /* Only allow CONFIG GET while loading. */
-    if (server.loading && strcasecmp(c->argv[1]->ptr,"get")) {
+    if ((server.loading || server.async_loading) && strcasecmp(c->argv[1]->ptr,"get")) {
         addReplyError(c,"Only CONFIG GET is allowed during loading");
         return;
     }

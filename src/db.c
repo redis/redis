@@ -35,12 +35,6 @@
 #include <signal.h>
 #include <ctype.h>
 
-/* Database backup. */
-struct dbBackup {
-    redisDb *dbarray;
-    clusterSlotsToKeysData slots_to_keys;
-};
-
 /*-----------------------------------------------------------------------------
  * C-level DB API
  *----------------------------------------------------------------------------*/
@@ -367,7 +361,7 @@ robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {
 }
 
 /* Remove all keys from the database(s) structure. The dbarray argument
- * may not be the server main DBs (could be a backup).
+ * may not be the server main DBs (could be a temporary DB).
  *
  * The dbnum can be -1 if all the DBs should be emptied, or the specified
  * DB index if we want to empty only a single database.
@@ -454,77 +448,37 @@ long long emptyDb(int dbnum, int flags, void(callback)(dict*)) {
     return removed;
 }
 
-/* Store a backup of the database for later use, and put an empty one
- * instead of it. */
-dbBackup *backupDb(void) {
-    dbBackup *backup = zmalloc(sizeof(dbBackup));
+/* Initialize temporary db on replica for use during diskless replication */
+tempDb *initTempDb(void) {
+    tempDb *tempDb = zmalloc(sizeof(tempDb));
 
-    /* Backup main DBs. */
-    backup->dbarray = zmalloc(sizeof(redisDb)*server.dbnum);
+    tempDb->dbarray = zcalloc(sizeof(redisDb)*server.dbnum);
     for (int i=0; i<server.dbnum; i++) {
-        backup->dbarray[i] = server.db[i];
-        server.db[i].dict = dictCreate(&dbDictType);
-        server.db[i].expires = dictCreate(&dbExpiresDictType);
+        tempDb->dbarray[i].dict = dictCreate(&dbDictType);
+        tempDb->dbarray[i].expires = dictCreate(&dbExpiresDictType);
     }
 
-    /* Backup cluster slots to keys map if enable cluster. */
+    /* Init cluster slots to keys map if enable cluster. */
     if (server.cluster_enabled) {
-        slotToKeyCopyToBackup(&backup->slots_to_keys);
-        slotToKeyFlush();
+        memset(&tempDb->slots_to_keys, 0, sizeof(tempDb->slots_to_keys));
     }
 
-    moduleFireServerEvent(REDISMODULE_EVENT_REPL_BACKUP,
-                          REDISMODULE_SUBEVENT_REPL_BACKUP_CREATE,
-                          NULL);
-
-    return backup;
+    return tempDb;
 }
 
-/* Discard a previously created backup, this can be slow (similar to FLUSHALL)
- * Arguments are similar to the ones of emptyDb, see EMPTYDB_ flags. */
-void discardDbBackup(dbBackup *backup, int flags, void(callback)(dict*)) {
-    int async = (flags & EMPTYDB_ASYNC);
+/* Discard tempDb, this can be slow (similar to FLUSHALL), but it's always async */
+ void discardTempDb(tempDb *tempDb, void(callback)(dict*)) {
+    int async = 1;
 
-    /* Release main DBs backup . */
-    emptyDbStructure(backup->dbarray, -1, async, callback);
+    /* Release temp DBs */
+    emptyDbStructure(tempDb->dbarray, -1, async, callback);
     for (int i=0; i<server.dbnum; i++) {
-        dictRelease(backup->dbarray[i].dict);
-        dictRelease(backup->dbarray[i].expires);
+        dictRelease(tempDb->dbarray[i].dict);
+        dictRelease(tempDb->dbarray[i].expires);
     }
 
-    /* Release backup. */
-    zfree(backup->dbarray);
-    zfree(backup);
-
-    moduleFireServerEvent(REDISMODULE_EVENT_REPL_BACKUP,
-                          REDISMODULE_SUBEVENT_REPL_BACKUP_DISCARD,
-                          NULL);
-}
-
-/* Restore the previously created backup (discarding what currently resides
- * in the db).
- * This function should be called after the current contents of the database
- * was emptied with a previous call to emptyDb (possibly using the async mode). */
-void restoreDbBackup(dbBackup *backup) {
-    /* Restore main DBs. */
-    for (int i=0; i<server.dbnum; i++) {
-        serverAssert(dictSize(server.db[i].dict) == 0);
-        serverAssert(dictSize(server.db[i].expires) == 0);
-        dictRelease(server.db[i].dict);
-        dictRelease(server.db[i].expires);
-        server.db[i] = backup->dbarray[i];
-    }
-
-    /* Restore slots to keys map backup if enable cluster. */
-    if (server.cluster_enabled) slotToKeyRestoreBackup(&backup->slots_to_keys);
-
-    /* Release backup. */
-    zfree(backup->dbarray);
-    zfree(backup);
-
-    moduleFireServerEvent(REDISMODULE_EVENT_REPL_BACKUP,
-                          REDISMODULE_SUBEVENT_REPL_BACKUP_RESTORE,
-                          NULL);
+    zfree(tempDb->dbarray);
+    zfree(tempDb);
 }
 
 int selectDb(client *c, int id) {
@@ -1340,6 +1294,55 @@ int dbSwapDatabases(int id1, int id2) {
     return C_OK;
 }
 
+/* Logically, this discards (flushes) the old main database, and apply the newly loaded
+ * database (temp) as the main (active) database, the actual freeing of old database
+ * (which will now be placed in the temp one) is done later. */
+void swapMainDbWithTempDb(tempDb *tempDb) {
+    for (int i=0; i<server.dbnum; i++) {
+        redisDb aux = server.db[i];
+        redisDb *activedb = &server.db[i], *newdb = &(tempDb->dbarray[i]);
+
+        /* Swap hash tables. Note that we don't swap blocking_keys,
+        * ready_keys and watched_keys, since clients 
+        * remain in the same DB they were. */
+        activedb->dict = newdb->dict;
+        activedb->expires = newdb->expires;
+        activedb->avg_ttl = newdb->avg_ttl;
+        activedb->expires_cursor = newdb->expires_cursor;
+
+        newdb->dict = aux.dict;
+        newdb->expires = aux.expires;
+        newdb->avg_ttl = aux.avg_ttl;
+        newdb->expires_cursor = aux.expires_cursor;
+
+        /* Now we need to handle clients blocked on lists: as an effect
+        * of swapping the two DBs, a client that was waiting for list
+        * X in a given DB, may now actually be unblocked if X happens
+        * to exist in the new version of the DB, after the swap.
+        *
+        * However normally we only do this check for efficiency reasons
+        * in dbAdd() when a list is created. So here we need to rescan
+        * the list of clients blocked on lists and signal lists as ready
+        * if needed.
+        *
+        * Also the swapdb should make transaction fail if there is any
+        * client watching keys */
+        scanDatabaseForReadyLists(activedb);
+        touchAllWatchedKeysInDb(activedb, newdb);
+    }
+
+    /* Restore slots to keys map if enable cluster. */
+    if (server.cluster_enabled) {
+        serverAssert(server.cluster->slots_to_keys->numele == 0);
+        raxFree(server.cluster->slots_to_keys);
+        server.cluster->slots_to_keys = tempDb->slots_to_keys;
+        memcpy(server.cluster->slots_keys_count, tempDb->slots_keys_count,
+                sizeof(server.cluster->slots_keys_count));
+    }
+
+    server.dirty++;
+}
+
 /* SWAPDB db1 db2 */
 void swapdbCommand(client *c) {
     int id1, id2;
@@ -1460,13 +1463,16 @@ void propagateExpire(redisDb *db, robj *key, int lazy) {
 
 /* Check if the key is expired. */
 int keyIsExpired(redisDb *db, robj *key) {
+    /* Don't expire anything while loading. It will be done later. */
+    if (server.loading || server.async_loading) return 0;
+
     mstime_t when = getExpire(db,key);
     mstime_t now;
 
     if (when < 0) return 0; /* No expire for this key */
 
     /* Don't expire anything while loading. It will be done later. */
-    if (server.loading) return 0;
+    if (server.loading || server.async_loading) return 0;
 
     /* If we are in the context of a Lua script, we pretend that time is
      * blocked to when the Lua script started. This way a key can expire

@@ -88,6 +88,8 @@ typedef long long ustime_t; /* microsecond time type. */
 #define C_OK                    0
 #define C_ERR                   -1
 
+#define CLUSTER_SLOTS 16384
+
 /* Static server configuration */
 #define CONFIG_DEFAULT_HZ        10             /* Time interrupt calls/sec. */
 #define CONFIG_MIN_HZ            1
@@ -766,10 +768,12 @@ typedef struct redisDb {
     list *defrag_later;         /* List of key names to attempt to defrag one by one, gradually. */
 } redisDb;
 
-/* Declare database backup that include redis main DBs and slots to keys map.
- * Definition is in db.c. We can't define it here since we define CLUSTER_SLOTS
- * in cluster.h. */
-typedef struct dbBackup dbBackup;
+/* Declare temporary database that include redis main DBs and slots to keys map.
+ * Used during diskless replication to store new data without putting server in LOADING state. */
+typedef struct tempDb {
+    redisDb *dbarray;
+    clusterSlotsToKeysData slots_to_keys;
+} tempDb;
 
 /* Client MULTI/EXEC state */
 typedef struct multiCmd {
@@ -1296,6 +1300,7 @@ struct redisServer {
 
     /* RDB / AOF loading information */
     volatile sig_atomic_t loading; /* We are loading data from disk if true */
+    volatile sig_atomic_t async_loading; /* We are loading data without blocking the db being served */
     off_t loading_total_bytes;
     off_t loading_rdb_used_mem;
     off_t loading_loaded_bytes;
@@ -1832,6 +1837,7 @@ void ModuleForkDoneHandler(int exitcode, int bysignal);
 int TerminateModuleForkChild(int child_pid, int wait);
 ssize_t rdbSaveModulesAux(rio *rdb, int when);
 int moduleAllDatatypesHandleErrors();
+int moduleAllDatatypesHandleReplAsyncLoad();
 sds modulesCollectInfo(sds info, const char *section, int for_crash_report, int sections);
 void moduleFireServerEvent(uint64_t eid, int subid, void *data);
 void processModuleLoadingProgressEvent(int is_aof);
@@ -2114,7 +2120,7 @@ const char *getFailoverStateString();
 
 /* Generic persistence functions */
 void startLoadingFile(FILE* fp, char* filename, int rdbflags);
-void startLoading(size_t size, int rdbflags);
+void startLoading(size_t size, int rdbflags, int async);
 void loadingProgress(off_t pos);
 void stopLoading(int success);
 void startSaving(int rdbflags);
@@ -2420,9 +2426,8 @@ long long emptyDb(int dbnum, int flags, void(callback)(dict*));
 long long emptyDbStructure(redisDb *dbarray, int dbnum, int async, void(callback)(dict*));
 void flushAllDataAndResetRDB(int flags);
 long long dbTotalServerKeyCount();
-dbBackup *backupDb(void);
-void restoreDbBackup(dbBackup *backup);
-void discardDbBackup(dbBackup *backup, int flags, void(callback)(dict*));
+tempDb *initTempDb(void);
+void discardTempDb(tempDb *tempDb, void(callback)(dict*));
 
 
 int selectDb(client *c, int id);
@@ -2792,6 +2797,7 @@ void debugDelay(int usec);
 void killIOThreads(void);
 void killThreads(void);
 void makeThreadKillable(void);
+void swapMainDbWithTempDb(tempDb *tempDb);
 
 /* Use macro for checking log level to avoid evaluating arguments in cases log
  * should be ignored due to low level. */

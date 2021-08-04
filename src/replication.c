@@ -379,7 +379,7 @@ void replicationFeedSlavesFromMasterStream(list *slaves, char *buf, size_t bufle
 }
 
 void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv, int argc) {
-    if (!(listLength(server.monitors) && !server.loading)) return;
+    if (!(listLength(server.monitors) && !server.loading && !server.async_loading)) return;
     listNode *ln;
     listIter li;
     int j;
@@ -1509,36 +1509,35 @@ static int useDisklessLoad() {
     /* compute boolean decision to use diskless load */
     int enabled = server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB ||
            (server.repl_diskless_load == REPL_DISKLESS_LOAD_WHEN_DB_EMPTY && dbTotalServerKeyCount()==0);
-    /* Check all modules handle read errors, otherwise it's not safe to use diskless load. */
-    if (enabled && !moduleAllDatatypesHandleErrors()) {
-        serverLog(LL_WARNING,
-            "Skipping diskless-load because there are modules that don't handle read errors.");
-        enabled = 0;
+
+    if (enabled) {
+        /* Check all modules handle read errors, otherwise it's not safe to use diskless load. */
+        if (!moduleAllDatatypesHandleErrors()) {
+            serverLog(LL_WARNING,
+                "Skipping diskless-load because there are modules that don't handle read errors.");
+            enabled = 0;
+        }
+        /* Check all modules handle async replication, otherwise it's not safe to use diskless load. */
+        else if (server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB && !moduleAllDatatypesHandleReplAsyncLoad()) {
+            serverLog(LL_WARNING,
+                "Skipping diskless-load because there are modules that are not aware of async replication.");
+            enabled = 0;
+        }
     }
     return enabled;
 }
 
-/* Helper function for readSyncBulkPayload() to make backups of the current
- * databases before socket-loading the new ones. The backups may be restored
- * by disklessLoadRestoreBackup or freed by disklessLoadDiscardBackup later. */
-dbBackup *disklessLoadMakeBackup(void) {
-    return backupDb();
+/* Helper function for readSyncBulkPayload() to initialize tempDb
+ * before socket-loading the new db from master. The tempDb may be populated
+ * by swapMainDbWithTempDb or freed by disklessLoadDiscardTempDb later. */
+tempDb *disklessLoadInitTempDb(void) {
+    return initTempDb();
 }
 
-/* Helper function for readSyncBulkPayload(): when replica-side diskless
- * database loading is used, Redis makes a backup of the existing databases
- * before loading the new ones from the socket.
- *
- * If the socket loading went wrong, we want to restore the old backups
- * into the server databases. */
-void disklessLoadRestoreBackup(dbBackup *backup) {
-    restoreDbBackup(backup);
-}
-
-/* Helper function for readSyncBulkPayload() to discard our old backups
+/* Helper function for readSyncBulkPayload() to discard our tempDb
  * when the loading succeeded. */
-void disklessLoadDiscardBackup(dbBackup *backup, int flag) {
-    discardDbBackup(backup, flag, replicationEmptyDbCallback);
+void disklessLoadDiscardTempDb(tempDb *tempDb) {
+    discardTempDb(tempDb, replicationEmptyDbCallback);
 }
 
 /* Asynchronously read the SYNC payload we receive from a master */
@@ -1547,7 +1546,7 @@ void readSyncBulkPayload(connection *conn) {
     char buf[PROTO_IOBUF_LEN];
     ssize_t nread, readlen, nwritten;
     int use_diskless_load = useDisklessLoad();
-    dbBackup *diskless_load_backup = NULL;
+    tempDb *diskless_load_tempDb = NULL;
     int empty_db_flags = server.repl_slave_lazy_flush ? EMPTYDB_ASYNC :
                                                         EMPTYDB_NO_FLAGS;
     off_t left;
@@ -1715,58 +1714,70 @@ void readSyncBulkPayload(connection *conn) {
      *
      * 2. Or when we are done reading from the socket to the RDB file, in
      *    such case we want just to read the RDB file in memory. */
-    serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Flushing old data");
 
     /* We need to stop any AOF rewriting child before flushing and parsing
      * the RDB, otherwise we'll create a copy-on-write disaster. */
     if (server.aof_state != AOF_OFF) stopAppendOnly();
 
-    /* When diskless RDB loading is used by replicas, it may be configured
-     * in order to save the current DB instead of throwing it away,
-     * so that we can restore it in case of failed transfer. */
-    if (use_diskless_load &&
-        server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB)
-    {
-        /* Create a backup of server.db[] and initialize to empty
-         * dictionaries. */
-        diskless_load_backup = disklessLoadMakeBackup();
+    if (use_diskless_load && server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB) {
+        /* Initialize empty tempDb dictionaries. */
+        diskless_load_tempDb = disklessLoadInitTempDb();
+
+        moduleFireServerEvent(REDISMODULE_EVENT_REPL_ASYNC_LOAD,
+                              REDISMODULE_SUBEVENT_REPL_ASYNC_LOAD_STARTED,
+                              NULL);
+    } else {
+        /* Replica starts to apply data from new master, we must discard the cached
+        * master structure. */
+        serverAssert(server.master == NULL);
+        replicationDiscardCachedMaster();
+
+        /* We want our slaves to resync with us as well, if we have any sub-slaves.
+        * The master already transferred us an entirely different data set and we
+        * have no way to incrementally feed our slaves after that. */
+        disconnectSlaves(); /* Force our slaves to resync with us as well. */
+        freeReplicationBacklog(); /* Don't allow our chained slaves to PSYNC. */
+
+        serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Flushing old data");
+        emptyDb(-1,empty_db_flags,replicationEmptyDbCallback);
     }
 
-    /* Replica starts to apply data from new master, we must discard the cached
-     * master structure. */
-    serverAssert(server.master == NULL);
-    replicationDiscardCachedMaster();
-
-    /* We want our slaves to resync with us as well, if we have any sub-slaves.
-     * The master already transferred us an entirely different data set and we
-     * have no way to incrementally feed our slaves after that. */
-    disconnectSlaves(); /* Force our slaves to resync with us as well. */
-    freeReplicationBacklog(); /* Don't allow our chained slaves to PSYNC. */
-
-    /* We call to emptyDb even in case of REPL_DISKLESS_LOAD_SWAPDB
-     * (Where disklessLoadMakeBackup left server.db empty) because we
-     * want to execute all the auxiliary logic of emptyDb (Namely,
-     * fire module events) */
-    emptyDb(-1,empty_db_flags,replicationEmptyDbCallback);
-
     /* Before loading the DB into memory we need to delete the readable
-     * handler, otherwise it will get called recursively since
-     * rdbLoad() will call the event loop to process events from time to
-     * time for non blocking loading. */
+    * handler, otherwise it will get called recursively since
+    * rdbLoad() will call the event loop to process events from time to
+    * time for non blocking loading. */
     connSetReadHandler(conn, NULL);
+    
     serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Loading DB in memory");
     rdbSaveInfo rsi = RDB_SAVE_INFO_INIT;
     if (use_diskless_load) {
         rio rdb;
+        redisDb *dbarray;
+        int asyncLoading = 0;
+
+        if (server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB) {
+            /* Async loading means we continue serving read commands during full resync, and
+             * "swap" the new db with the old db only when loading is done.
+             * It is enabled only on SWAPDB diskless replication when master replication ID hasn't changed,
+             * because in that state the old content of the db represents a different point in time of the same
+             * data set we're currently receiving from the master. */
+            if (memcmp(server.replid, server.master_replid, CONFIG_RUN_ID_SIZE) == 0) {
+                asyncLoading = 1;
+            }
+            dbarray = diskless_load_tempDb->dbarray;
+        } else {
+            dbarray = server.db;
+        }
+
         rioInitWithConn(&rdb,conn,server.repl_transfer_size);
 
         /* Put the socket in blocking mode to simplify RDB transfer.
          * We'll restore it when the RDB is received. */
         connBlock(conn);
         connRecvTimeout(conn, server.repl_timeout*1000);
-        startLoading(server.repl_transfer_size, RDBFLAGS_REPLICATION);
+        startLoading(server.repl_transfer_size, RDBFLAGS_REPLICATION, asyncLoading);
 
-        if (rdbLoadRio(&rdb,RDBFLAGS_REPLICATION,&rsi) != C_OK) {
+        if (rdbLoadRio(&rdb,RDBFLAGS_REPLICATION,&rsi,dbarray) != C_OK) {
             /* RDB loading failed. */
             serverLog(LL_WARNING,
                       "Failed trying to load the MASTER synchronization DB "
@@ -1775,13 +1786,18 @@ void readSyncBulkPayload(connection *conn) {
             cancelReplicationHandshake(1);
             rioFreeConn(&rdb, NULL);
 
-            /* Remove the half-loaded data in case we started with
-             * an empty replica. */
-            emptyDb(-1,empty_db_flags,replicationEmptyDbCallback);
-
             if (server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB) {
-                /* Restore the backed up databases. */
-                disklessLoadRestoreBackup(diskless_load_backup);
+                /* Discard potentially partially loaded tempDb. */
+                disklessLoadDiscardTempDb(diskless_load_tempDb);
+                serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Discarded temporary DB");
+
+                moduleFireServerEvent(REDISMODULE_EVENT_REPL_ASYNC_LOAD,
+                                      REDISMODULE_SUBEVENT_REPL_ASYNC_LOAD_ABORTED,
+                                      NULL);
+            } else {
+                /* Remove the half-loaded data in case we started with
+                * an empty replica. */
+                emptyDb(-1,empty_db_flags,replicationEmptyDbCallback);
             }
 
             /* Note that there's no point in restarting the AOF on SYNC
@@ -1792,10 +1808,27 @@ void readSyncBulkPayload(connection *conn) {
 
         /* RDB loading succeeded if we reach this point. */
         if (server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB) {
-            /* Delete the backup databases we created before starting to load
-             * the new RDB. Now the RDB was loaded with success so the old
-             * data is useless. */
-            disklessLoadDiscardBackup(diskless_load_backup, empty_db_flags);
+            /* Replica starts to apply data from new master, we must discard the cached
+            * master structure. */
+            serverAssert(server.master == NULL);
+            replicationDiscardCachedMaster();
+
+            /* We want our slaves to resync with us as well, if we have any sub-slaves.
+            * The master already transferred us an entirely different data set and we
+            * have no way to incrementally feed our slaves after that. */
+            disconnectSlaves(); /* Force our slaves to resync with us as well. */
+            freeReplicationBacklog(); /* Don't allow our chained slaves to PSYNC. */
+
+            serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Swapping in memory DB");
+            swapMainDbWithTempDb(diskless_load_tempDb);
+
+            /* Delete the tempDb as it's useless now. */
+            disklessLoadDiscardTempDb(diskless_load_tempDb);
+            serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Discarded temporary DB");
+
+            moduleFireServerEvent(REDISMODULE_EVENT_REPL_ASYNC_LOAD,
+                        REDISMODULE_SUBEVENT_REPL_ASYNC_LOAD_COMPLETED,
+                        NULL);
         }
 
         /* Verify the end mark is correct. */

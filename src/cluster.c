@@ -720,7 +720,7 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
 
     /* If the server is starting up, don't accept cluster connections:
      * UPDATE messages may interact with the database content. */
-    if (server.masterhost == NULL && server.loading) return;
+    if (server.masterhost == NULL && (server.loading || server.async_loading)) return;
 
     while(max--) {
         cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
@@ -6159,18 +6159,6 @@ void slotToKeyReplaceEntry(dictEntry *entry) {
         unsigned int hashslot = keyHashSlot(key, sdslen(key));
         server.cluster->slots_to_keys[hashslot].head = entry;
     }
-}
-
-/* Copies the slots-keys map to the specified backup structure. */
-void slotToKeyCopyToBackup(clusterSlotsToKeysData *backup) {
-    memcpy(backup, server.cluster->slots_to_keys,
-           sizeof(server.cluster->slots_to_keys));
-}
-
-/* Overwrites the slots-keys map by copying the provided backup structure. */
-void slotToKeyRestoreBackup(clusterSlotsToKeysData *backup) {
-    memcpy(server.cluster->slots_to_keys, backup,
-           sizeof(server.cluster->slots_to_keys));
 }
 
 /* Empty the slots-keys map of Redis Cluster. */

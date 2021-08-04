@@ -1652,7 +1652,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
     if (server.sanitize_dump_payload == SANITIZE_DUMP_CLIENTS) {
         /* Skip sanitization when loading (an RDB), or getting a RESTORE command
          * from either the master or a client using an ACL user with the skip-sanitize-payload flag. */
-        int skip = server.loading ||
+        int skip = server.loading || server.async_loading ||
             (server.current_client && (server.current_client->flags & CLIENT_MASTER));
         if (!skip && server.current_client && server.current_client->user)
             skip = !!(server.current_client->user->flags & USER_FLAG_SANITIZE_PAYLOAD_SKIP);
@@ -2475,9 +2475,12 @@ emptykey:
 
 /* Mark that we are loading in the global state and setup the fields
  * needed to provide loading stats. */
-void startLoading(size_t size, int rdbflags) {
+void startLoading(size_t size, int rdbflags, int async) {
     /* Load the DB */
-    server.loading = 1;
+    if (async == 0)
+        server.loading = 1;
+    else
+        server.async_loading = 1;
     server.loading_start_time = time(NULL);
     server.loading_loaded_bytes = 0;
     server.loading_total_bytes = size;
@@ -2503,7 +2506,7 @@ void startLoadingFile(FILE *fp, char* filename, int rdbflags) {
     if (fstat(fileno(fp), &sb) == -1)
         sb.st_size = 0;
     rdbFileBeingLoaded = filename;
-    startLoading(sb.st_size, rdbflags);
+    startLoading(sb.st_size, rdbflags, 0);
 }
 
 /* Refresh the loading progress info */
@@ -2516,6 +2519,7 @@ void loadingProgress(off_t pos) {
 /* Loading finished */
 void stopLoading(int success) {
     server.loading = 0;
+    server.async_loading = 0;
     blockingOperationEnds();
     rdbFileBeingLoaded = NULL;
 
@@ -2566,10 +2570,10 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
 
 /* Load an RDB file from the rio stream 'rdb'. On success C_OK is returned,
  * otherwise C_ERR is returned and 'errno' is set accordingly. */
-int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
+int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi, redisDb *dbarray) {
     uint64_t dbid;
     int type, rdbver;
-    redisDb *db = server.db+0;
+    redisDb *db = dbarray+0;
     char buf[1024];
     int error;
     long long empty_keys_skipped = 0, expired_keys_skipped = 0, keys_loaded = 0;
@@ -2641,7 +2645,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
                     "databases. Exiting\n", server.dbnum);
                 exit(1);
             }
-            db = server.db+dbid;
+            db = dbarray+dbid;
             continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_RESIZEDB) {
             /* RESIZEDB: Hint about the size of the keys in the currently
@@ -2905,7 +2909,7 @@ int rdbLoad(char *filename, rdbSaveInfo *rsi, int rdbflags) {
     if ((fp = fopen(filename,"r")) == NULL) return C_ERR;
     startLoadingFile(fp, filename,rdbflags);
     rioInitWithFile(&rdb,fp);
-    retval = rdbLoadRio(&rdb,rdbflags,rsi);
+    retval = rdbLoadRio(&rdb,rdbflags,rsi,server.db);
     fclose(fp);
     stopLoading(retval==C_OK);
     return retval;

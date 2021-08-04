@@ -2356,7 +2356,7 @@ void whileBlockedCron() {
      * server.blocked_last_cron since we have an early exit at the top. */
 
     /* Update memory stats during loading (excluding blocked scripts) */
-    if (server.loading) cronUpdateMemoryStats();
+    if (server.loading || server.async_loading) cronUpdateMemoryStats();
 
     latencyEndMonitor(latency);
     latencyAddSampleIfNeeded("while-blocked-cron",latency);
@@ -2686,6 +2686,7 @@ void initServerConfig(void) {
     server.skip_checksum_validation = 0;
     server.saveparams = NULL;
     server.loading = 0;
+    server.async_loading = 0;
     server.loading_rdb_used_mem = 0;
     server.logfile = zstrdup(CONFIG_DEFAULT_LOGFILE);
     server.aof_state = AOF_OFF;
@@ -3634,7 +3635,7 @@ void alsoPropagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
     robj **argvcopy;
     int j;
 
-    if (server.loading) return; /* No propagation during loading. */
+    if (server.loading || server.async_loading) return; /* No propagation during loading. */
 
     argvcopy = zmalloc(sizeof(robj*)*argc);
     for (j = 0; j < argc; j++) {
@@ -3767,7 +3768,7 @@ void call(client *c, int flags) {
 
     /* When EVAL is called loading the AOF we don't want commands called
      * from Lua to go into the slowlog or to populate statistics. */
-    if (server.loading && c->flags & CLIENT_LUA)
+    if ((server.loading || server.async_loading) && c->flags & CLIENT_LUA)
         flags &= ~(CMD_CALL_SLOWLOG | CMD_CALL_STATS);
 
     /* If the caller is Lua, we want to force the EVAL caller to propagate
@@ -4315,7 +4316,7 @@ int prepareForShutdown(int flags) {
      * with half-read data).
      *
      * Also when in Sentinel mode clear the SAVE flag and force NOSAVE. */
-    if (server.loading || server.sentinel_mode)
+    if (server.loading || server.async_loading || server.sentinel_mode)
         flags = (flags & ~SHUTDOWN_SAVE) | SHUTDOWN_NOSAVE;
 
     int save = flags & SHUTDOWN_SAVE;
@@ -4911,6 +4912,7 @@ sds genRedisInfoString(const char *section) {
         info = sdscatprintf(info,
             "# Persistence\r\n"
             "loading:%d\r\n"
+            "async_loading:%d\r\n"
             "current_cow_peak:%zu\r\n"
             "current_cow_size:%zu\r\n"
             "current_cow_size_age:%lu\r\n"
@@ -4935,6 +4937,7 @@ sds genRedisInfoString(const char *section) {
             "module_fork_in_progress:%d\r\n"
             "module_fork_last_cow_size:%zu\r\n",
             (int)server.loading,
+            (int)server.async_loading,
             server.stat_current_cow_peak,
             server.stat_current_cow_bytes,
             server.stat_current_cow_updated ? (unsigned long) elapsedMs(server.stat_current_cow_updated) / 1000 : 0,
@@ -4980,7 +4983,7 @@ sds genRedisInfoString(const char *section) {
                 server.aof_delayed_fsync);
         }
 
-        if (server.loading) {
+        if (server.loading || server.async_loading) {
             double perc = 0;
             time_t eta, elapsed;
             off_t remaining_bytes = 1;
@@ -5815,7 +5818,7 @@ static void sigShutdownHandler(int sig) {
         serverLogFromHandler(LL_WARNING, "You insist... exiting now.");
         rdbRemoveTempFile(getpid(), 1);
         exit(1); /* Exit with an error since this was not a clean shutdown. */
-    } else if (server.loading) {
+    } else if (server.loading || server.async_loading) {
         serverLogFromHandler(LL_WARNING, "Received shutdown signal during loading, exiting now.");
         exit(0);
     }
