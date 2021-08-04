@@ -2352,7 +2352,7 @@ static int updateReplBacklogSize(long long val, long long prev, const char **err
     return 1;
 }
 
-static int updateMaxmemory(unsigned long long val, unsigned long long prev, const char **err) {
+static int updateMaxmemory(long long val, long long prev, const char **err) {
     UNUSED(prev);
     UNUSED(err);
     if (val) {
