@@ -83,7 +83,7 @@ typedef struct sentinelAddr {
 static mstime_t sentinel_info_period = 10000;
 static mstime_t sentinel_ping_period = SENTINEL_PING_PERIOD;
 static mstime_t sentinel_ask_period = 1000;
-static mstime_t sentinel_publish_period = 1000;
+static mstime_t sentinel_publish_period = 2000;
 static mstime_t sentinel_default_down_after = 30000;
 static mstime_t sentinel_tilt_trigger = 2000;
 static mstime_t sentinel_tilt_period = SENTINEL_PING_PERIOD * 30;
@@ -2008,7 +2008,7 @@ const char *sentinelHandleConfiguration(char **argv, int argc) {
             return "Same command renamed multiple times with rename-command.";
         }
     } else if (!strcasecmp(argv[0],"announce-ip") && argc == 2) {
-        /* announce-ip <ip-address> */  
+        /* announce-ip <ip-address> */
         if (strlen(argv[1]))
             sentinel.announce_ip = sdsnew(argv[1]);
     } else if (!strcasecmp(argv[0],"announce-port") && argc == 2) {
@@ -2038,8 +2038,7 @@ const char *sentinelHandleConfiguration(char **argv, int argc) {
         if ((sentinel.announce_hostnames = yesnotoi(argv[1])) == -1) {
             return "Please specify yes or no for the announce-hostnames option.";
         }
-    } 
-    else {
+    } else {
         return "Unrecognized sentinel configuration statement.";
     }
     return NULL;
@@ -3494,8 +3493,8 @@ void sentinelSetDebugConfigParameters(client *c){
             }
             sentinel_publish_period = ll;
            
-        }else if (!strcasecmp(option,"default_down_after") && moreargs > 0) {
-            /* sentinel_default_down_after <milliseconds> */
+        }else if (!strcasecmp(option,"default-down-after") && moreargs > 0) {
+            /* default-down-after <milliseconds> */
             robj *o = c->argv[++j];
             if (getLongLongFromObject(o,&ll) == C_ERR || ll <= 0) {
                 badarg = j;
@@ -3503,8 +3502,8 @@ void sentinelSetDebugConfigParameters(client *c){
             }
             sentinel_default_down_after = ll;
            
-        } else if (!strcasecmp(option,"tilt_trigger") && moreargs > 0) {
-            /* tilt_trigger <milliseconds> */
+        } else if (!strcasecmp(option,"tilt-trigger") && moreargs > 0) {
+            /* tilt-trigger <milliseconds> */
             robj *o = c->argv[++j];
             if (getLongLongFromObject(o,&ll) == C_ERR || ll <= 0) {
                 badarg = j;
@@ -3512,7 +3511,7 @@ void sentinelSetDebugConfigParameters(client *c){
             }
             sentinel_tilt_trigger = ll;
            
-        } else if (!strcasecmp(option,"tilt_period") && moreargs > 0) {
+        } else if (!strcasecmp(option,"tilt-period") && moreargs > 0) {
             /* tilt-period <milliseconds> */
             robj *o = c->argv[++j];
             if (getLongLongFromObject(o,&ll) == C_ERR || ll <= 0) {
@@ -3521,8 +3520,8 @@ void sentinelSetDebugConfigParameters(client *c){
             }
             sentinel_tilt_period = ll;
            
-        } else if (!strcasecmp(option,"slave_reconf_timeout") && moreargs > 0) {
-            /* slave_reconf_timeout <milliseconds> */
+        } else if (!strcasecmp(option,"slave-reconf-timeout") && moreargs > 0) {
+            /* slave-reconf-timeout <milliseconds> */
             robj *o = c->argv[++j];
             if (getLongLongFromObject(o,&ll) == C_ERR || ll <= 0) {
                 badarg = j;
@@ -3530,8 +3529,8 @@ void sentinelSetDebugConfigParameters(client *c){
             }
             sentinel_slave_reconf_timeout = ll;
            
-        } else if (!strcasecmp(option,"min_link_reconnect_period") && moreargs > 0) {
-            /* min_link_reconnect_period <milliseconds> */
+        } else if (!strcasecmp(option,"min-link-reconnect-period") && moreargs > 0) {
+            /* min-link-reconnect-period <milliseconds> */
             robj *o = c->argv[++j];
             if (getLongLongFromObject(o,&ll) == C_ERR || ll <= 0) {
                 badarg = j;
@@ -3539,8 +3538,8 @@ void sentinelSetDebugConfigParameters(client *c){
             }
             sentinel_min_link_reconnect_period = ll;
            
-        } else if (!strcasecmp(option,"default_failover_timeout") && moreargs > 0) {
-            /* default_failover_timeout <milliseconds> */
+        } else if (!strcasecmp(option,"default-failover-timeout") && moreargs > 0) {
+            /* default-failover-timeout <milliseconds> */
             robj *o = c->argv[++j];
             if (getLongLongFromObject(o,&ll) == C_ERR || ll <= 0) {
                 badarg = j;
@@ -3548,8 +3547,8 @@ void sentinelSetDebugConfigParameters(client *c){
             }
             sentinel_default_failover_timeout = ll;
            
-        } else if (!strcasecmp(option,"election_timeout") && moreargs > 0) {
-            /* election_timeout <milliseconds> */
+        } else if (!strcasecmp(option,"election-timeout") && moreargs > 0) {
+            /* election-timeout <milliseconds> */
             robj *o = c->argv[++j];
             if (getLongLongFromObject(o,&ll) == C_ERR || ll <= 0) {
                 badarg = j;
@@ -3557,8 +3556,8 @@ void sentinelSetDebugConfigParameters(client *c){
             }
             sentinel_election_timeout = ll;
            
-        } else if (!strcasecmp(option,"script_max_runtime") && moreargs > 0) {
-            /* script_max_runtime <milliseconds> */
+        } else if (!strcasecmp(option,"script-max-runtime") && moreargs > 0) {
+            /* script-max-runtime <milliseconds> */
             robj *o = c->argv[++j];
             if (getLongLongFromObject(o,&ll) == C_ERR || ll <= 0) {
                 badarg = j;
@@ -3566,8 +3565,8 @@ void sentinelSetDebugConfigParameters(client *c){
             }
             sentinel_script_max_runtime = ll;
            
-        } else if (!strcasecmp(option,"script_retry_delay") && moreargs > 0) {
-            /* script_retry_delay <milliseconds> */
+        } else if (!strcasecmp(option,"script-retry-delay") && moreargs > 0) {
+            /* script-retry-delay <milliseconds> */
             robj *o = c->argv[++j];
             if (getLongLongFromObject(o,&ll) == C_ERR || ll <= 0) {
                 badarg = j;
@@ -3600,55 +3599,55 @@ void addReplySentinelDebugInfo(client *c) {
 
     mbl = addReplyDeferredLen(c);
 
-    addReplyBulkCString(c,"SENTINEL_INFO_PERIOD");
+    addReplyBulkCString(c,"INFO-PERIOD");
     addReplyBulkLongLong(c,sentinel_info_period);
     fields++;
 
-    addReplyBulkCString(c,"SENTINEL_PING_PERIOD");
+    addReplyBulkCString(c,"PING-PERIOD");
     addReplyBulkLongLong(c,sentinel_ping_period);
     fields++;
 
-    addReplyBulkCString(c,"SENTINEL_ASK_PERIOD");
+    addReplyBulkCString(c,"ASK-PERIOD");
     addReplyBulkLongLong(c,sentinel_ask_period);
     fields++;
 
-    addReplyBulkCString(c,"SENTINEL_PUBLISH_PERIOD");
+    addReplyBulkCString(c,"PUBLISH-PERIOD");
     addReplyBulkLongLong(c,sentinel_publish_period);
     fields++;
 
-    addReplyBulkCString(c,"SENTINEL_DEFAULT_DOWN_AFTER");
+    addReplyBulkCString(c,"DEFAULT-DOWN-AFTER");
     addReplyBulkLongLong(c,sentinel_default_down_after);
     fields++;
 
-    addReplyBulkCString(c,"SENTINEL_DEFAULT_FAILOVER_TIMEOUT");
+    addReplyBulkCString(c,"DEFAULT-FAILOVER-TIMEOUT");
     addReplyBulkLongLong(c,sentinel_default_failover_timeout);
     fields++;
     
-    addReplyBulkCString(c,"SENTINEL_TILT_TRIGGER");
+    addReplyBulkCString(c,"TILT-TRIGGER");
     addReplyBulkLongLong(c,sentinel_tilt_trigger);
     fields++;
 
-    addReplyBulkCString(c,"SENTINEL_TILT_PERIOD");
+    addReplyBulkCString(c,"TILT-PERIOD");
     addReplyBulkLongLong(c,sentinel_tilt_period);
     fields++;
 
-    addReplyBulkCString(c,"SENTINEL_SLAVE_RECONF_TIMEOUT");
+    addReplyBulkCString(c,"SLAVE-RECONF-TIMEOUT");
     addReplyBulkLongLong(c,sentinel_slave_reconf_timeout);
     fields++;
 
-    addReplyBulkCString(c,"SENTINEL_MIN_LINK_RECONNECT_PERIOD");
+    addReplyBulkCString(c,"MIN-LINK-RECONNECT-PERIOD");
     addReplyBulkLongLong(c,sentinel_min_link_reconnect_period);
     fields++;
 
-    addReplyBulkCString(c,"SENTINEL_ELECTION_TIMEOUT");
+    addReplyBulkCString(c,"ELECTION-TIMEOUT");
     addReplyBulkLongLong(c,sentinel_election_timeout);
     fields++;
 
-    addReplyBulkCString(c,"SENTINEL_SCRIPT_MAX_RUNTIME");
+    addReplyBulkCString(c,"SCRIPT-MAX-RUNTIME");
     addReplyBulkLongLong(c,sentinel_script_max_runtime);
     fields++;
 
-    addReplyBulkCString(c,"SENTINEL_SCRIPT_RETRY_DELAY");
+    addReplyBulkCString(c,"SCRIPT-RETRY-DELAY");
     addReplyBulkLongLong(c,sentinel_script_retry_delay);
     fields++;
 
