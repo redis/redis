@@ -858,7 +858,7 @@ REDISMODULE_API size_t (*RedisModule_MallocSize)(void* ptr) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleUser * (*RedisModule_CreateModuleUser)(const char *name) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_FreeModuleUser)(RedisModuleUser *user) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_SetModuleUserACL)(RedisModuleUser *user, const char* acl) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_ACLCheckCommandPerm)(RedisModuleCtx *ctx, const char *cmd, const char *subcmd) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ACLCheckCommandPerm)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ACLCheckKeyPerm)(RedisModuleCtx *ctx, const char *key, int keylen) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ACLCheckChannelPerm)(RedisModuleCtx *ctx, const char *ch, int chlen, int literal) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_AuthenticateClientWithACLUser)(RedisModuleCtx *ctx, const char *name, size_t len, RedisModuleUserChangedFunc callback, void *privdata, uint64_t *client_id) REDISMODULE_ATTR;

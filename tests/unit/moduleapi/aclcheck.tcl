@@ -6,7 +6,7 @@ start_server {tags {"modules acl"}} {
     test {test module check acl for command perm} {
         # block SET command for user
         r acl setuser default -set
-        catch {r set.aclcheck.cmd x 5} e
+        catch {r rm_call.aclcheck.cmd set x 5} e
         set e
     } {*DENIED CMD*}
 

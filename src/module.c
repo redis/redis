@@ -6765,12 +6765,22 @@ int RM_SetModuleUserACL(RedisModuleUser *user, const char* acl) {
  *
  * If the user can execute the command, REDISMODULE_OK is returned, otherwise
  * REDISMODULE_ERR is returned. */
-int RM_ACLCheckCommandPerm(RedisModuleCtx *ctx, const char *cmd, const char *subcmd) {
-    struct redisCommand *rcmd;
-    sds sdscmd = sdsnew(cmd);
-    rcmd = lookupCommand(sdscmd);
-    sdsfree(sdscmd);
-    return ACLCheckCommand(ctx->client, rcmd, subcmd) == ACL_OK ? REDISMODULE_OK : REDISMODULE_ERR;
+int RM_ACLCheckCommandPerm(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    int keyidxptr;
+    struct redisCommand *cmd;
+
+    /* Find command */
+    if ((cmd = lookupCommand(argv[0]->ptr)) == NULL) {
+        errno = ENOENT;
+        return REDISMODULE_ERR;
+    }
+
+    if (ACLCheckAllUserCommandPerm(ctx->client->user, cmd, argv, argc, &keyidxptr) != ACL_OK) {
+        errno = EACCES;
+        return REDISMODULE_ERR;
+    }
+
+    return REDISMODULE_OK;
 }
 
 /* Check if the key can be accessed by the user created through the redis module
@@ -6779,7 +6789,7 @@ int RM_ACLCheckCommandPerm(RedisModuleCtx *ctx, const char *cmd, const char *sub
  * If the user can access the key, REDISMODULE_OK is returned, otherwise
  * REDISMODULE_ERR is returned. */
 int RM_ACLCheckKeyPerm(RedisModuleCtx *ctx, const char *key, int keylen) {
-    return ACLCheckKey(ctx->client, key, keylen) == ACL_OK ? REDISMODULE_OK : REDISMODULE_ERR;
+    return ACLCheckKey(ctx->client->user, key, keylen) == ACL_OK ? REDISMODULE_OK : REDISMODULE_ERR;
 }
 
 /* Check if the channel can be accessed by the user created through the redis module
