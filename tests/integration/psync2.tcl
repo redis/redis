@@ -183,7 +183,10 @@ start_server {} {
                 } else {
                     # In cycle 1, we do not care the order.
                     if {$cycle != 1} {
-                        test "PSYNC2: $slave_id ($root_master($slave_id)) slaveof $mid ($root_master($mid)) continue" {}
+                        # skipping this replica for now to avoid attaching in a bad order
+                        # this is done to avoid an unexpected full sync, when we take a
+                        # replica that already reconnected to the new chain and got a new replid
+                        # and is then set to connect to a master that's still not aware of that new replid
                         continue
                     }
                 }
