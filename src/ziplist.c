@@ -1522,7 +1522,7 @@ int ziplistValidateIntegrity(unsigned char *zl, size_t size, int deep,
         count++;
     }
 
-    /* Make sure 'p' really do point to the end of the ziplist. */
+    /* Make sure 'p' really does point to the end of the ziplist. */
     if (p != zl + bytes - ZIPLIST_END_SIZE)
         return 0;
 
