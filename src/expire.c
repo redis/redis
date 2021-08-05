@@ -53,24 +53,11 @@
  * to the function to avoid too many gettimeofday() syscalls. */
 int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
     long long t = dictGetSignedIntegerVal(de);
-    mstime_t expire_latency;
     if (now > t) {
         sds key = dictGetKey(de);
         robj *keyobj = createStringObject(key,sdslen(key));
-
-        propagateExpire(db,keyobj,server.lazyfree_lazy_expire);
-        latencyStartMonitor(expire_latency);
-        if (server.lazyfree_lazy_expire)
-            dbAsyncDelete(db,keyobj);
-        else
-            dbSyncDelete(db,keyobj);
-        latencyEndMonitor(expire_latency);
-        latencyAddSampleIfNeeded("expire-del",expire_latency);
-        notifyKeyspaceEvent(NOTIFY_EXPIRED,
-            "expired",keyobj,db->id);
-        signalModifiedKey(NULL, db, keyobj);
+        deleteExpiredKeyAndPropagate(db,keyobj);
         decrRefCount(keyobj);
-        server.stat_expiredkeys++;
         return 1;
     } else {
         return 0;
