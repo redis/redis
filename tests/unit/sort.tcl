@@ -267,7 +267,7 @@ start_server {
         r del mylist
         r lpush mylist a
         r set x:a 100
-        r sort mylist by nosort get x:*->
+        r sort_ro mylist by nosort get x:*->
     } {100} {cluster:skip}
 
     test "SORT_RO - Cannot run with STORE arg" {
