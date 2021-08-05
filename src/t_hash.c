@@ -591,7 +591,7 @@ int hashZiplistValidateIntegrity(unsigned char *zl, size_t size, int deep) {
     int ret = ziplistValidateIntegrity(zl, size, 1, _hashZiplistEntryValidation, &data);
 
     /* make sure we have an even number of records. */
-    if (data.count & 1)
+    if (data.count & 1 || data.count == 0)
         ret = 0;
 
     dictRelease(data.fields);

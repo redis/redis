@@ -1680,7 +1680,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid) {
         dict *dupSearchDict = NULL;
 
         len = rdbLoadLen(rdb, NULL);
-        if (len == RDB_LENERR) return NULL;
+        if (len == RDB_LENERR || len == 0) return NULL;
 
         o = createHashObject();
 

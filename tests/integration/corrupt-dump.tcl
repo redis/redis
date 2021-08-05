@@ -508,14 +508,13 @@ test {corrupt payload: fuzzer findings - valgrind invalid read} {
     }
 }
 
-test {corrupt payload: fuzzer findings - HRANDFIELD on bad ziplist} {
+test {corrupt payload: fuzzer findings - empty hash ziplist} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r config set sanitize-dump-payload yes
         r debug set-skip-checksum-validation 1
-        r RESTORE _int 0 "\x04\xC0\x01\x09\x00\xF6\x8A\xB6\x7A\x85\x87\x72\x4D"
-        catch {r HRANDFIELD _int}
-        assert_equal [count_log_message 0 "crashed by signal"] 0
-        assert_equal [count_log_message 0 "ASSERTION FAILED"] 1
+        catch {r RESTORE _int 0 "\x04\xC0\x01\x09\x00\xF6\x8A\xB6\x7A\x85\x87\x72\x4D"} err
+        assert_match "*Bad data format*" $err
+        r ping
     }
 }
 
@@ -549,6 +548,26 @@ test {corrupt payload: fuzzer findings - empty quicklist} {
         catch {
             r restore key 0 "\x0E\xC0\x2B\x15\x00\x00\x00\x0A\x00\x00\x00\x01\x00\x00\xE0\x62\x58\xEA\xDF\x22\x00\x00\x00\xFF\x09\x00\xDF\x35\xD2\x67\xDC\x0E\x89\xAB" replace
         } err
+        assert_match "*Bad data format*" $err
+        r ping
+    }
+}
+
+test {corrupt payload: fuzzer findings - empty zset} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload yes
+        r debug set-skip-checksum-validation 1
+        catch {r restore key 0 "\x05\xC0\x01\x09\x00\xF6\x8A\xB6\x7A\x85\x87\x72\x4D"} err
+        assert_match "*Bad data format*" $err
+        r ping
+    }
+}
+
+test {corrupt payload: fuzzer findings - hash with len of 0} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload yes
+        r debug set-skip-checksum-validation 1
+        catch {r restore key 0 "\x04\xC0\x21\x09\x00\xF6\x8A\xB6\x7A\x85\x87\x72\x4D"} err
         assert_match "*Bad data format*" $err
         r ping
     }
