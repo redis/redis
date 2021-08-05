@@ -143,6 +143,10 @@ start_server {
         r srem myset 1 2 3 4 5 6 7 8
     } {3}
 
+    test "SINTERCARD against non-existing key" {
+        assert_equal 0 [r sintercard non-existing-key]
+    }
+
     foreach {type} {hashtable intset} {
         for {set i 1} {$i <= 5} {incr i} {
             r del [format "set%d{t}" $i]
@@ -182,6 +186,10 @@ start_server {
             assert_equal [list 195 196 197 198 199 $large] [lsort [r sinter set1{t} set2{t}]]
         }
 
+        test "SINTERCARD with two sets - $type" {
+            assert_equal 6 [r sintercard set1{t} set2{t}]
+        }
+
         test "SINTERSTORE with two sets - $type" {
             r sinterstore setres{t} set1{t} set2{t}
             assert_encoding $type setres{t}
@@ -209,6 +217,10 @@ start_server {
 
         test "SINTER against three sets - $type" {
             assert_equal [list 195 199 $large] [lsort [r sinter set1{t} set2{t} set3{t}]]
+        }
+
+        test "SINTERCARD against three sets - $type" {
+            assert_equal 3 [r sintercard set1{t} set2{t} set3{t}]
         }
 
         test "SINTERSTORE with three sets - $type" {
@@ -827,6 +839,28 @@ start_server {
         r smove set{t} set{t} b
         lsort [r smembers set{t}]
     } {a b c}
+
+    test "SMOVE only notify dstset when the addition is successful" {
+        r del srcset{t}
+        r del dstset{t}
+
+        r sadd srcset{t} a b
+        r sadd dstset{t} a
+
+        r watch dstset{t}
+
+        r multi
+        r sadd dstset{t} c
+
+        set r2 [redis_client]
+        $r2 smove srcset{t} dstset{t} a
+
+        # The dstset is actually unchanged, multi should success
+        r exec
+        set res [r scard dstset{t}]
+        assert_equal $res 2
+        $r2 close
+    }
 
     tags {slow} {
         test {intsets implementation stress testing} {

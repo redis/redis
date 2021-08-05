@@ -44,9 +44,6 @@
 #define DICT_OK 0
 #define DICT_ERR 1
 
-/* Unused arguments generate annoying warnings... */
-#define DICT_NOTUSED(V) ((void) V)
-
 typedef struct dictEntry {
     void *key;
     union {
@@ -58,32 +55,33 @@ typedef struct dictEntry {
     struct dictEntry *next;
 } dictEntry;
 
+typedef struct dict dict;
+
 typedef struct dictType {
     uint64_t (*hashFunction)(const void *key);
-    void *(*keyDup)(void *privdata, const void *key);
-    void *(*valDup)(void *privdata, const void *obj);
-    int (*keyCompare)(void *privdata, const void *key1, const void *key2);
-    void (*keyDestructor)(void *privdata, void *key);
-    void (*valDestructor)(void *privdata, void *obj);
+    void *(*keyDup)(dict *d, const void *key);
+    void *(*valDup)(dict *d, const void *obj);
+    int (*keyCompare)(dict *d, const void *key1, const void *key2);
+    void (*keyDestructor)(dict *d, void *key);
+    void (*valDestructor)(dict *d, void *obj);
     int (*expandAllowed)(size_t moreMem, double usedRatio);
 } dictType;
 
-/* This is our hash table structure. Every dictionary has two of this as we
- * implement incremental rehashing, for the old to the new table. */
-typedef struct dictht {
-    dictEntry **table;
-    unsigned long size;
-    unsigned long sizemask;
-    unsigned long used;
-} dictht;
+#define DICTHT_SIZE(exp) ((exp) == -1 ? 0 : (unsigned long)1<<(exp))
+#define DICTHT_SIZE_MASK(exp) ((exp) == -1 ? 0 : (DICTHT_SIZE(exp))-1)
 
-typedef struct dict {
+struct dict {
     dictType *type;
-    void *privdata;
-    dictht ht[2];
+
+    dictEntry **ht_table[2];
+    unsigned long ht_used[2];
+
     long rehashidx; /* rehashing not in progress if rehashidx == -1 */
+
+    /* Keep small vars at end for optimal (minimal) struct padding */
     int16_t pauserehash; /* If >0 rehashing is paused (<0 indicates coding error) */
-} dict;
+    char ht_size_exp[2]; /* exponent of size. (size = 1<<exp) */
+};
 
 /* If safe is set to 1 this is a safe iterator, that means, you can call
  * dictAdd, dictFind, and other functions against the dictionary even while
@@ -102,16 +100,17 @@ typedef void (dictScanFunction)(void *privdata, const dictEntry *de);
 typedef void (dictScanBucketFunction)(void *privdata, dictEntry **bucketref);
 
 /* This is the initial size of every hash table */
-#define DICT_HT_INITIAL_SIZE     4
+#define DICT_HT_INITIAL_EXP      2
+#define DICT_HT_INITIAL_SIZE     (1<<(DICT_HT_INITIAL_EXP))
 
 /* ------------------------------- Macros ------------------------------------*/
 #define dictFreeVal(d, entry) \
     if ((d)->type->valDestructor) \
-        (d)->type->valDestructor((d)->privdata, (entry)->v.val)
+        (d)->type->valDestructor((d), (entry)->v.val)
 
 #define dictSetVal(d, entry, _val_) do { \
     if ((d)->type->valDup) \
-        (entry)->v.val = (d)->type->valDup((d)->privdata, _val_); \
+        (entry)->v.val = (d)->type->valDup((d), _val_); \
     else \
         (entry)->v.val = (_val_); \
 } while(0)
@@ -127,18 +126,18 @@ typedef void (dictScanBucketFunction)(void *privdata, dictEntry **bucketref);
 
 #define dictFreeKey(d, entry) \
     if ((d)->type->keyDestructor) \
-        (d)->type->keyDestructor((d)->privdata, (entry)->key)
+        (d)->type->keyDestructor((d), (entry)->key)
 
 #define dictSetKey(d, entry, _key_) do { \
     if ((d)->type->keyDup) \
-        (entry)->key = (d)->type->keyDup((d)->privdata, _key_); \
+        (entry)->key = (d)->type->keyDup((d), _key_); \
     else \
         (entry)->key = (_key_); \
 } while(0)
 
 #define dictCompareKeys(d, key1, key2) \
     (((d)->type->keyCompare) ? \
-        (d)->type->keyCompare((d)->privdata, key1, key2) : \
+        (d)->type->keyCompare((d), key1, key2) : \
         (key1) == (key2))
 
 #define dictHashKey(d, key) (d)->type->hashFunction(key)
@@ -147,8 +146,8 @@ typedef void (dictScanBucketFunction)(void *privdata, dictEntry **bucketref);
 #define dictGetSignedIntegerVal(he) ((he)->v.s64)
 #define dictGetUnsignedIntegerVal(he) ((he)->v.u64)
 #define dictGetDoubleVal(he) ((he)->v.d)
-#define dictSlots(d) ((d)->ht[0].size+(d)->ht[1].size)
-#define dictSize(d) ((d)->ht[0].used+(d)->ht[1].used)
+#define dictSlots(d) (DICTHT_SIZE((d)->ht_size_exp[0])+DICTHT_SIZE((d)->ht_size_exp[1]))
+#define dictSize(d) ((d)->ht_used[0]+(d)->ht_used[1])
 #define dictIsRehashing(d) ((d)->rehashidx != -1)
 #define dictPauseRehashing(d) (d)->pauserehash++
 #define dictResumeRehashing(d) (d)->pauserehash--
@@ -161,7 +160,7 @@ typedef void (dictScanBucketFunction)(void *privdata, dictEntry **bucketref);
 #endif
 
 /* API */
-dict *dictCreate(dictType *type, void *privDataPtr);
+dict *dictCreate(dictType *type);
 int dictExpand(dict *d, unsigned long size);
 int dictTryExpand(dict *d, unsigned long size);
 int dictAdd(dict *d, void *key, void *val);
@@ -169,7 +168,7 @@ dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing);
 dictEntry *dictAddOrFind(dict *d, void *key);
 int dictReplace(dict *d, void *key, void *val);
 int dictDelete(dict *d, const void *key);
-dictEntry *dictUnlink(dict *ht, const void *key);
+dictEntry *dictUnlink(dict *d, const void *key);
 void dictFreeUnlinkedEntry(dict *d, dictEntry *he);
 void dictRelease(dict *d);
 dictEntry * dictFind(dict *d, const void *key);
@@ -185,7 +184,7 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count);
 void dictGetStats(char *buf, size_t bufsize, dict *d);
 uint64_t dictGenHashFunction(const void *key, int len);
 uint64_t dictGenCaseHashFunction(const unsigned char *buf, int len);
-void dictEmpty(dict *d, void(callback)(void*));
+void dictEmpty(dict *d, void(callback)(dict*));
 void dictEnableResize(void);
 void dictDisableResize(void);
 int dictRehash(dict *d, int n);

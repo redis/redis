@@ -46,9 +46,17 @@
 #define REDISMODULE_REPLY_INTEGER 2
 #define REDISMODULE_REPLY_ARRAY 3
 #define REDISMODULE_REPLY_NULL 4
+#define REDISMODULE_REPLY_MAP 5
+#define REDISMODULE_REPLY_SET 6
+#define REDISMODULE_REPLY_BOOL 7
+#define REDISMODULE_REPLY_DOUBLE 8
+#define REDISMODULE_REPLY_BIG_NUMBER 9
+#define REDISMODULE_REPLY_VERBATIM_STRING 10
+#define REDISMODULE_REPLY_ATTRIBUTE 11
 
 /* Postponed array length. */
-#define REDISMODULE_POSTPONED_ARRAY_LEN -1
+#define REDISMODULE_POSTPONED_ARRAY_LEN -1  /* Deprecated, please use REDISMODULE_POSTPONED_LEN */
+#define REDISMODULE_POSTPONED_LEN -1
 
 /* Expire */
 #define REDISMODULE_NO_EXPIRE -1
@@ -138,11 +146,13 @@ typedef struct RedisModuleStreamID {
 /* The current client does not allow blocking, either called from
  * within multi, lua, or from another module using RM_Call */
 #define REDISMODULE_CTX_FLAGS_DENY_BLOCKING (1<<21)
+/* The current client uses RESP3 protocol */
+#define REDISMODULE_CTX_FLAGS_RESP3 (1<<22)
 
 /* Next context flag, must be updated when adding new flags above!
 This flag should not be used directly by the module.
  * Use RedisModule_GetContextFlagsAll instead. */
-#define _REDISMODULE_CTX_FLAGS_NEXT (1<<22)
+#define _REDISMODULE_CTX_FLAGS_NEXT (1<<23)
 
 /* Keyspace changes notification classes. Every class is associated with a
  * character for configuration purposes.
@@ -609,6 +619,14 @@ REDISMODULE_API const char * (*RedisModule_CallReplyProto)(RedisModuleCallReply 
 REDISMODULE_API void (*RedisModule_FreeCallReply)(RedisModuleCallReply *reply) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_CallReplyType)(RedisModuleCallReply *reply) REDISMODULE_ATTR;
 REDISMODULE_API long long (*RedisModule_CallReplyInteger)(RedisModuleCallReply *reply) REDISMODULE_ATTR;
+REDISMODULE_API double (*RedisModule_CallReplyDouble)(RedisModuleCallReply *reply) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_CallReplyBool)(RedisModuleCallReply *reply) REDISMODULE_ATTR;
+REDISMODULE_API const char* (*RedisModule_CallReplyBigNumber)(RedisModuleCallReply *reply, size_t *len) REDISMODULE_ATTR;
+REDISMODULE_API const char* (*RedisModule_CallReplyVerbatim)(RedisModuleCallReply *reply, size_t *len, const char **format) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleCallReply * (*RedisModule_CallReplySetElement)(RedisModuleCallReply *reply, size_t idx) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_CallReplyMapElement)(RedisModuleCallReply *reply, size_t idx, RedisModuleCallReply **key, RedisModuleCallReply **val) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_CallReplyAttributeElement)(RedisModuleCallReply *reply, size_t idx, RedisModuleCallReply **key, RedisModuleCallReply **val) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleCallReply * (*RedisModule_CallReplyAttribute)(RedisModuleCallReply *reply) REDISMODULE_ATTR;
 REDISMODULE_API size_t (*RedisModule_CallReplyLength)(RedisModuleCallReply *reply) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleCallReply * (*RedisModule_CallReplyArrayElement)(RedisModuleCallReply *reply, size_t idx) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleString * (*RedisModule_CreateString)(RedisModuleCtx *ctx, const char *ptr, size_t len) REDISMODULE_ATTR;
@@ -623,15 +641,24 @@ REDISMODULE_API const char * (*RedisModule_StringPtrLen)(const RedisModuleString
 REDISMODULE_API int (*RedisModule_ReplyWithError)(RedisModuleCtx *ctx, const char *err) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ReplyWithSimpleString)(RedisModuleCtx *ctx, const char *msg) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ReplyWithArray)(RedisModuleCtx *ctx, long len) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ReplyWithMap)(RedisModuleCtx *ctx, long len) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ReplyWithSet)(RedisModuleCtx *ctx, long len) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ReplyWithAttribute)(RedisModuleCtx *ctx, long len) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ReplyWithPush)(RedisModuleCtx *ctx, long len) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ReplyWithNullArray)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ReplyWithEmptyArray)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_ReplySetArrayLength)(RedisModuleCtx *ctx, long len) REDISMODULE_ATTR;
+REDISMODULE_API void (*RedisModule_ReplySetMapLength)(RedisModuleCtx *ctx, long len) REDISMODULE_ATTR;
+REDISMODULE_API void (*RedisModule_ReplySetSetLength)(RedisModuleCtx *ctx, long len) REDISMODULE_ATTR;
+REDISMODULE_API void (*RedisModule_ReplySetAttributeLength)(RedisModuleCtx *ctx, long len) REDISMODULE_ATTR;
+REDISMODULE_API void (*RedisModule_ReplySetPushLength)(RedisModuleCtx *ctx, long len) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ReplyWithStringBuffer)(RedisModuleCtx *ctx, const char *buf, size_t len) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ReplyWithCString)(RedisModuleCtx *ctx, const char *buf) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ReplyWithString)(RedisModuleCtx *ctx, RedisModuleString *str) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ReplyWithEmptyString)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ReplyWithVerbatimString)(RedisModuleCtx *ctx, const char *buf, size_t len) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ReplyWithNull)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ReplyWithBool)(RedisModuleCtx *ctx, int b) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ReplyWithDouble)(RedisModuleCtx *ctx, double d) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ReplyWithLongDouble)(RedisModuleCtx *ctx, long double d) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ReplyWithCallReply)(RedisModuleCtx *ctx, RedisModuleCallReply *reply) REDISMODULE_ATTR;
@@ -835,7 +862,7 @@ REDISMODULE_API void * (*RedisModule_GetSharedAPI)(RedisModuleCtx *ctx, const ch
 REDISMODULE_API RedisModuleCommandFilter * (*RedisModule_RegisterCommandFilter)(RedisModuleCtx *ctx, RedisModuleCommandFilterFunc cb, int flags) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_UnregisterCommandFilter)(RedisModuleCtx *ctx, RedisModuleCommandFilter *filter) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_CommandFilterArgsCount)(RedisModuleCommandFilterCtx *fctx) REDISMODULE_ATTR;
-REDISMODULE_API const RedisModuleString * (*RedisModule_CommandFilterArgGet)(RedisModuleCommandFilterCtx *fctx, int pos) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleString * (*RedisModule_CommandFilterArgGet)(RedisModuleCommandFilterCtx *fctx, int pos) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_CommandFilterArgInsert)(RedisModuleCommandFilterCtx *fctx, int pos, RedisModuleString *arg) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_CommandFilterArgReplace)(RedisModuleCommandFilterCtx *fctx, int pos, RedisModuleString *arg) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_CommandFilterArgDelete)(RedisModuleCommandFilterCtx *fctx, int pos) REDISMODULE_ATTR;
@@ -884,15 +911,24 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(ReplyWithError);
     REDISMODULE_GET_API(ReplyWithSimpleString);
     REDISMODULE_GET_API(ReplyWithArray);
+    REDISMODULE_GET_API(ReplyWithMap);
+    REDISMODULE_GET_API(ReplyWithSet);
+    REDISMODULE_GET_API(ReplyWithAttribute);
+    REDISMODULE_GET_API(ReplyWithPush);
     REDISMODULE_GET_API(ReplyWithNullArray);
     REDISMODULE_GET_API(ReplyWithEmptyArray);
     REDISMODULE_GET_API(ReplySetArrayLength);
+    REDISMODULE_GET_API(ReplySetMapLength);
+    REDISMODULE_GET_API(ReplySetSetLength);
+    REDISMODULE_GET_API(ReplySetAttributeLength);
+    REDISMODULE_GET_API(ReplySetPushLength);
     REDISMODULE_GET_API(ReplyWithStringBuffer);
     REDISMODULE_GET_API(ReplyWithCString);
     REDISMODULE_GET_API(ReplyWithString);
     REDISMODULE_GET_API(ReplyWithEmptyString);
     REDISMODULE_GET_API(ReplyWithVerbatimString);
     REDISMODULE_GET_API(ReplyWithNull);
+    REDISMODULE_GET_API(ReplyWithBool);
     REDISMODULE_GET_API(ReplyWithCallReply);
     REDISMODULE_GET_API(ReplyWithDouble);
     REDISMODULE_GET_API(ReplyWithLongDouble);
@@ -912,6 +948,14 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(CallReplyProto);
     REDISMODULE_GET_API(FreeCallReply);
     REDISMODULE_GET_API(CallReplyInteger);
+    REDISMODULE_GET_API(CallReplyDouble);
+    REDISMODULE_GET_API(CallReplyBool);
+    REDISMODULE_GET_API(CallReplyBigNumber);
+    REDISMODULE_GET_API(CallReplyVerbatim);
+    REDISMODULE_GET_API(CallReplySetElement);
+    REDISMODULE_GET_API(CallReplyMapElement);
+    REDISMODULE_GET_API(CallReplyAttributeElement);
+    REDISMODULE_GET_API(CallReplyAttribute);
     REDISMODULE_GET_API(CallReplyType);
     REDISMODULE_GET_API(CallReplyLength);
     REDISMODULE_GET_API(CallReplyArrayElement);

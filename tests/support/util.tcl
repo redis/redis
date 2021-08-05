@@ -865,7 +865,9 @@ proc config_set {param value {options {}}} {
         }
     }
 }
+
 #delete certain lines in config file matching the pattern
+
 proc delete_lines_with_pattern {filename tmpfilename pattern} {
     set fh_in [open $filename r]
     set fh_out [open $tmpfilename w]
@@ -878,6 +880,7 @@ proc delete_lines_with_pattern {filename tmpfilename pattern} {
     close $fh_out
     file rename -force $tmpfilename $filename
 }
+
 
 #write lines into config file
 proc write_line_into_file {filename line} {

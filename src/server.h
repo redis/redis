@@ -1245,6 +1245,8 @@ struct redisServer {
     int propagate_in_transaction;  /* Make sure we don't propagate nested MULTI/EXEC */
     char *ignore_warnings;      /* Config: warnings that should be ignored. */
     int client_pause_in_transaction; /* Was a client pause executed during this Exec? */
+    int thp_enabled;                 /* If true, THP is enabled. */
+    size_t page_size;                /* The page size of OS. */
     /* Modules */
     dict *moduleapi;            /* Exported core APIs dictionary for modules. */
     dict *sharedapi;            /* Like moduleapi but containing the APIs that
@@ -1312,6 +1314,8 @@ struct redisServer {
     long long stat_expired_time_cap_reached_count; /* Early expire cycle stops.*/
     long long stat_expire_cycle_time_used; /* Cumulative microseconds used. */
     long long stat_evictedkeys;     /* Number of evicted keys (maxmemory) */
+    long long stat_total_eviction_exceeded_time;  /* Total time over the memory limit, unit us */
+    monotime stat_last_eviction_exceeded_time;  /* Timestamp of current eviction start, unit us */
     long long stat_keyspace_hits;   /* Number of successful lookups of keys */
     long long stat_keyspace_misses; /* Number of failed lookups of keys */
     long long stat_active_defrag_hits;      /* number of allocations moved */
@@ -1334,6 +1338,7 @@ struct redisServer {
     struct malloc_stats cron_malloc_stats; /* sampled in serverCron(). */
     redisAtomic long long stat_net_input_bytes; /* Bytes read from network. */
     redisAtomic long long stat_net_output_bytes; /* Bytes written to network. */
+    size_t stat_current_cow_peak;   /* Peak size of copy on write bytes. */
     size_t stat_current_cow_bytes;  /* Copy on write bytes while child is active. */
     monotime stat_current_cow_updated;  /* Last update time of stat_current_cow_bytes */
     size_t stat_current_save_keys_processed;  /* Processed keys while child is active. */
@@ -1633,6 +1638,7 @@ struct redisServer {
     int lua_kill;         /* Kill the script if true. */
     int lua_always_replicate_commands; /* Default replication type. */
     int lua_oom;          /* OOM detected when script start? */
+    int lua_disable_deny_script; /* Allow running commands marked "no-script" inside a script. */
     /* Lazy free */
     int lazyfree_lazy_eviction;
     int lazyfree_lazy_expire;
@@ -1845,7 +1851,7 @@ void getRandomHexChars(char *p, size_t len);
 void getRandomBytes(unsigned char *p, size_t len);
 uint64_t crc64(uint64_t crc, const unsigned char *s, uint64_t l);
 void exitFromChild(int retcode);
-size_t redisPopcount(void *s, long count);
+long long redisPopcount(void *s, long count);
 int redisSetProcTitle(char *title);
 int validateProcTitleTemplate(const char *template);
 int redisCommunicateSystemd(const char *sd_notify_msg);
@@ -1888,6 +1894,8 @@ void addReplyErrorSds(client *c, sds err);
 void addReplyError(client *c, const char *err);
 void addReplyStatus(client *c, const char *status);
 void addReplyDouble(client *c, double d);
+void addReplyLongLongWithPrefix(client *c, long long ll, char prefix);
+void addReplyBigNum(client *c, const char* num, size_t len);
 void addReplyHumanLongDouble(client *c, long double d);
 void addReplyLongLong(client *c, long long ll);
 void addReplyArrayLen(client *c, long length);
@@ -1991,6 +1999,7 @@ void initClientMultiState(client *c);
 void freeClientMultiState(client *c);
 void queueMultiCommand(client *c);
 void touchWatchedKey(redisDb *db, robj *key);
+int isWatchedKeyExpired(client *c);
 void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with);
 void discardTransaction(client *c);
 void flagTransaction(client *c);
@@ -2011,6 +2020,7 @@ void freeListObject(robj *o);
 void freeSetObject(robj *o);
 void freeZsetObject(robj *o);
 void freeHashObject(robj *o);
+void dismissObject(robj *o, size_t dump_size);
 robj *createObject(int type, void *ptr);
 robj *createStringObject(const char *ptr, size_t len);
 robj *createRawStringObject(const char *ptr, size_t len);
@@ -2294,6 +2304,9 @@ int setOOMScoreAdj(int process_class);
 void rejectCommandFormat(client *c, const char *fmt, ...);
 void *activeDefragAlloc(void *ptr);
 robj *activeDefragStringOb(robj* ob, long *defragged);
+void dismissSds(sds s);
+void dismissMemory(void* ptr, size_t size_hint);
+void dismissMemoryInChild(void);
 
 #define RESTART_SERVER_NONE 0
 #define RESTART_SERVER_GRACEFULLY (1<<0)     /* Do proper shutdown. */
@@ -2364,7 +2377,9 @@ void initConfigValues();
 
 /* db.c -- Keyspace access API */
 int removeExpire(redisDb *db, robj *key);
+void deleteExpiredKeyAndPropagate(redisDb *db, robj *keyobj);
 void propagateExpire(redisDb *db, robj *key, int lazy);
+int keyIsExpired(redisDb *db, robj *key);
 int expireIfNeeded(redisDb *db, robj *key);
 long long getExpire(redisDb *db, robj *key);
 void setExpire(client *c, redisDb *db, robj *key, long long when);
@@ -2395,13 +2410,13 @@ robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o);
 
 #define EMPTYDB_NO_FLAGS 0      /* No flags. */
 #define EMPTYDB_ASYNC (1<<0)    /* Reclaim memory in another thread. */
-long long emptyDb(int dbnum, int flags, void(callback)(void*));
-long long emptyDbStructure(redisDb *dbarray, int dbnum, int async, void(callback)(void*));
+long long emptyDb(int dbnum, int flags, void(callback)(dict*));
+long long emptyDbStructure(redisDb *dbarray, int dbnum, int async, void(callback)(dict*));
 void flushAllDataAndResetRDB(int flags);
 long long dbTotalServerKeyCount();
 dbBackup *backupDb(void);
 void restoreDbBackup(dbBackup *backup);
-void discardDbBackup(dbBackup *backup, int flags, void(callback)(void*));
+void discardDbBackup(dbBackup *backup, int flags, void(callback)(dict*));
 
 
 int selectDb(client *c, int id);
@@ -2505,9 +2520,9 @@ int performEvictions(void);
 /* Keys hashing / comparison functions for dict.c hash tables. */
 uint64_t dictSdsHash(const void *key);
 uint64_t dictSdsCaseHash(const void *key);
-int dictSdsKeyCompare(void *privdata, const void *key1, const void *key2);
-int dictSdsKeyCaseCompare(void *privdata, const void *key1, const void *key2);
-void dictSdsDestructor(void *privdata, void *val);
+int dictSdsKeyCompare(dict *d, const void *key1, const void *key2);
+int dictSdsKeyCaseCompare(dict *d, const void *key1, const void *key2);
+void dictSdsDestructor(dict *d, void *val);
 
 /* Git SHA1 */
 char *redisGitSHA1(void);
@@ -2578,6 +2593,7 @@ void scardCommand(client *c);
 void spopCommand(client *c);
 void srandmemberCommand(client *c);
 void sinterCommand(client *c);
+void sinterCardCommand(client *c);
 void sinterstoreCommand(client *c);
 void sunionCommand(client *c);
 void sunionstoreCommand(client *c);
@@ -2657,6 +2673,7 @@ void zinterstoreCommand(client *c);
 void zdiffstoreCommand(client *c);
 void zunionCommand(client *c);
 void zinterCommand(client *c);
+void zinterCardCommand(client *c);
 void zrangestoreCommand(client *c);
 void zdiffCommand(client *c);
 void zscanCommand(client *c);
