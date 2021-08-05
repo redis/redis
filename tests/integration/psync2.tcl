@@ -169,7 +169,7 @@ start_server {} {
         }
 
         # 2) Attach all the slaves to a random instance
-        # Second loop that dose the actual SLAVEOF command and make sure execute it in the right order.
+        # Second loop that does the actual SLAVEOF command and make sure execute it in the right order.
         while {[array size slave_to_master] > 0} {
             foreach slave_id [array names slave_to_master] {
                 set mid $slave_to_master($slave_id)
