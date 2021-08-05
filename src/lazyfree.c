@@ -201,8 +201,8 @@ void freeObjAsync(robj *key, robj *obj, int dbid) {
  * lazy freeing. */
 void emptyDbAsync(redisDb *db) {
     dict *oldht1 = db->dict, *oldht2 = db->expires;
-    db->dict = dictCreate(&dbDictType,NULL);
-    db->expires = dictCreate(&dbExpiresDictType,NULL);
+    db->dict = dictCreate(&dbDictType);
+    db->expires = dictCreate(&dbExpiresDictType);
     atomicIncr(lazyfree_objects,dictSize(oldht1));
     bioCreateLazyFreeJob(lazyfreeFreeDatabase,2,oldht1,oldht2);
 }

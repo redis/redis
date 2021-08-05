@@ -468,7 +468,7 @@ void hashTypeConvertZiplist(robj *o, int enc) {
         int ret;
 
         hi = hashTypeInitIterator(o);
-        dict = dictCreate(&hashDictType, NULL);
+        dict = dictCreate(&hashDictType);
 
         /* Presize the dict to avoid rehashing */
         dictExpand(dict,hashTypeLength(o));
@@ -523,7 +523,7 @@ robj *hashTypeDup(robj *o) {
         hobj = createObject(OBJ_HASH, new_zl);
         hobj->encoding = OBJ_ENCODING_ZIPLIST;
     } else if(o->encoding == OBJ_ENCODING_HT){
-        dict *d = dictCreate(&hashDictType, NULL);
+        dict *d = dictCreate(&hashDictType);
         dictExpand(d, dictSize((const dict*)o->ptr));
 
         hi = hashTypeInitIterator(o);
@@ -586,7 +586,7 @@ int hashZiplistValidateIntegrity(unsigned char *zl, size_t size, int deep) {
     struct {
         long count;
         dict *fields;
-    } data = {0, dictCreate(&hashDictType, NULL)};
+    } data = {0, dictCreate(&hashDictType)};
 
     int ret = ziplistValidateIntegrity(zl, size, 1, _hashZiplistEntryValidation, &data);
 
@@ -1080,7 +1080,7 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
      * a bit less than the number of elements in the hash, the natural approach
      * used into CASE 4 is highly inefficient. */
     if (count*HRANDFIELD_SUB_STRATEGY_MUL > size) {
-        dict *d = dictCreate(&sdsReplyDictType, NULL);
+        dict *d = dictCreate(&sdsReplyDictType);
         dictExpand(d, size);
         hashTypeIterator *hi = hashTypeInitIterator(hash);
 
@@ -1150,7 +1150,7 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
         /* Hashtable encoding (generic implementation) */
         unsigned long added = 0;
         ziplistEntry key, value;
-        dict *d = dictCreate(&hashDictType, NULL);
+        dict *d = dictCreate(&hashDictType);
         dictExpand(d, count);
         while(added < count) {
             hashTypeRandomElement(hash, size, &key, withvalues? &value : NULL);

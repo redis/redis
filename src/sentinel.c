@@ -406,8 +406,8 @@ void sentinelSimFailureCrash(void);
 
 void releaseSentinelRedisInstance(sentinelRedisInstance *ri);
 
-void dictInstancesValDestructor (void *privdata, void *obj) {
-    UNUSED(privdata);
+void dictInstancesValDestructor (dict *d, void *obj) {
+    UNUSED(d);
     releaseSentinelRedisInstance(obj);
 }
 
@@ -527,7 +527,7 @@ void initSentinel(void) {
 
     /* Initialize various data structures. */
     sentinel.current_epoch = 0;
-    sentinel.masters = dictCreate(&instancesDictType,NULL);
+    sentinel.masters = dictCreate(&instancesDictType);
     sentinel.tilt = 0;
     sentinel.tilt_start_time = 0;
     sentinel.previous_time = mstime();
@@ -1346,13 +1346,13 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
     ri->slave_master_port = 0;
     ri->slave_master_link_status = SENTINEL_MASTER_LINK_STATUS_DOWN;
     ri->slave_repl_offset = 0;
-    ri->sentinels = dictCreate(&instancesDictType,NULL);
+    ri->sentinels = dictCreate(&instancesDictType);
     ri->quorum = quorum;
     ri->parallel_syncs = SENTINEL_DEFAULT_PARALLEL_SYNCS;
     ri->master = master;
-    ri->slaves = dictCreate(&instancesDictType,NULL);
+    ri->slaves = dictCreate(&instancesDictType);
     ri->info_refresh = 0;
-    ri->renamed_commands = dictCreate(&renamedCommandsDictType,NULL);
+    ri->renamed_commands = dictCreate(&renamedCommandsDictType);
 
     /* Failover state. */
     ri->leader = NULL;
@@ -1563,10 +1563,10 @@ void sentinelDelFlagsToDictOfRedisInstances(dict *instances, int flags) {
 void sentinelResetMaster(sentinelRedisInstance *ri, int flags) {
     serverAssert(ri->flags & SRI_MASTER);
     dictRelease(ri->slaves);
-    ri->slaves = dictCreate(&instancesDictType,NULL);
+    ri->slaves = dictCreate(&instancesDictType);
     if (!(flags & SENTINEL_RESET_NO_SENTINELS)) {
         dictRelease(ri->sentinels);
-        ri->sentinels = dictCreate(&instancesDictType,NULL);
+        ri->sentinels = dictCreate(&instancesDictType);
     }
     instanceLinkCloseConnection(ri->link,ri->link->cc);
     instanceLinkCloseConnection(ri->link,ri->link->pc);
@@ -3789,7 +3789,7 @@ NULL
         copy_keeper.valDestructor = NULL;
         dict *masters_local = sentinel.masters;
         if (c->argc > 2) {
-            masters_local = dictCreate(&copy_keeper, NULL);
+            masters_local = dictCreate(&copy_keeper);
 
             for (int i = 2; i < c->argc; i++) {
                 sentinelRedisInstance *ri;
@@ -4094,7 +4094,7 @@ void sentinelSetCommand(client *c) {
 
             /* If the target name is the same as the source name there
              * is no need to add an entry mapping to itself. */
-            if (!dictSdsKeyCaseCompare(NULL,oldname,newname)) {
+            if (!dictSdsKeyCaseCompare(ri->renamed_commands,oldname,newname)) {
                 oldname = sdsdup(oldname);
                 newname = sdsdup(newname);
                 dictAdd(ri->renamed_commands,oldname,newname);
@@ -4431,7 +4431,7 @@ char *sentinelGetLeader(sentinelRedisInstance *master, uint64_t epoch) {
     uint64_t max_votes = 0;
 
     serverAssert(master->flags & (SRI_O_DOWN|SRI_FAILOVER_IN_PROGRESS));
-    counters = dictCreate(&leaderVotesDictType,NULL);
+    counters = dictCreate(&leaderVotesDictType);
 
     voters = dictSize(master->sentinels)+1; /* All the other sentinels and me.*/
 
