@@ -2359,6 +2359,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
     redisDb *db = server.db+0;
     char buf[1024];
     int error;
+    long long empty_keys_skipped = 0, expired_keys_skipped = 0, keys_loaded = 0;
 
     rdb->update_cksum = rdbLoadProgressCallback;
     rdb->max_processing_chunk = server.loading_process_events_interval_bytes;
@@ -2576,7 +2577,8 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
              * in an RDB file, instead we will silently discard it and
              * continue loading. */
             if (error == RDB_LOAD_ERR_EMPTY_KEY) {
-                serverLog(LL_WARNING, "rdbLoadObject failed, detect empty key: %s", key);
+                if(empty_keys_skipped++ < 10)
+                    serverLog(LL_WARNING, "rdbLoadObject skipping empty key: %s", key);
                 sdsfree(key);
             } else {
                 sdsfree(key);
@@ -2588,12 +2590,14 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
         {
             sdsfree(key);
             decrRefCount(val);
+            expired_keys_skipped++;
         } else {
             robj keyobj;
             initStaticStringObject(keyobj,key);
 
             /* Add the new object in the hash table */
             int added = dbAddRDBLoad(db,key,val);
+            keys_loaded++;
             if (!added) {
                 if (rdbflags & RDBFLAGS_ALLOW_DUP) {
                     /* This flag is useful for DEBUG RELOAD special modes.
@@ -2649,6 +2653,16 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
                 return C_ERR;
             }
         }
+    }
+
+    if (empty_keys_skipped) {
+        serverLog(LL_WARNING,
+            "Done loading RDB, keys loaded: %lld, keys expired: %lld, empty keys skipped: %lld.",
+                keys_loaded, expired_keys_skipped, empty_keys_skipped);
+    } else {
+        serverLog(LL_WARNING,
+            "Done loading RDB, keys loaded: %lld, keys expired: %lld.",
+                keys_loaded, expired_keys_skipped);
     }
     return C_OK;
 

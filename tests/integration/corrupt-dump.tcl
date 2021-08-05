@@ -155,12 +155,13 @@ test {corrupt payload: load corrupted rdb with empty keys} {
         r select 0
         assert_equal [r dbsize] 0
 
-        verify_log_message 0 "*rdbLoadObject failed, detect empty key: set*" 0
-        verify_log_message 0 "*rdbLoadObject failed, detect empty key: quicklist*" 0
-        verify_log_message 0 "*rdbLoadObject failed, detect empty key: hash*" 0
-        verify_log_message 0 "*rdbLoadObject failed, detect empty key: hash_ziplist*" 0
-        verify_log_message 0 "*rdbLoadObject failed, detect empty key: zset*" 0
-        verify_log_message 0 "*rdbLoadObject failed, detect empty key: zset_ziplist*" 0
+        verify_log_message 0 "*skipping empty key: set*" 0
+        verify_log_message 0 "*skipping empty key: quicklist*" 0
+        verify_log_message 0 "*skipping empty key: hash*" 0
+        verify_log_message 0 "*skipping empty key: hash_ziplist*" 0
+        verify_log_message 0 "*skipping empty key: zset*" 0
+        verify_log_message 0 "*skipping empty key: zset_ziplist*" 0
+        verify_log_message 0 "*empty keys skipped: 6*" 0
     }
 }
 
