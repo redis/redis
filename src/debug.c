@@ -721,7 +721,7 @@ NULL
         } else if (!strcasecmp(name,"double")) {
             addReplyDouble(c,3.14159265359);
         } else if (!strcasecmp(name,"bignum")) {
-            addReplyProto(c,"(1234567999999999999999999999999999999\r\n",40);
+            addReplyBigNum(c,"1234567999999999999999999999999999999",37);
         } else if (!strcasecmp(name,"null")) {
             addReplyNull(c);
         } else if (!strcasecmp(name,"array")) {
@@ -737,11 +737,13 @@ NULL
                 addReplyBool(c, j == 1);
             }
         } else if (!strcasecmp(name,"attrib")) {
-            addReplyAttributeLen(c,1);
-            addReplyBulkCString(c,"key-popularity");
-            addReplyArrayLen(c,2);
-            addReplyBulkCString(c,"key:123");
-            addReplyLongLong(c,90);
+            if (c->resp >= 3) {
+                addReplyAttributeLen(c,1);
+                addReplyBulkCString(c,"key-popularity");
+                addReplyArrayLen(c,2);
+                addReplyBulkCString(c,"key:123");
+                addReplyLongLong(c,90);
+            }
             /* Attributes are not real replies, so a well formed reply should
              * also have a normal reply type after the attribute. */
             addReplyBulkCString(c,"Some real reply following the attribute");
@@ -871,6 +873,10 @@ NULL
     {
         stringmatchlen_fuzz_test();
         addReplyStatus(c,"Apparently Redis did not crash: test passed");
+    } else if (!strcasecmp(c->argv[1]->ptr,"set-disable-deny-scripts") && c->argc == 3)
+    {
+        server.lua_disable_deny_script = atoi(c->argv[2]->ptr);;
+        addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"config-rewrite-force-all") && c->argc == 2)
     {
         if (rewriteConfig(server.configfile, 1) == -1)
@@ -936,8 +942,8 @@ void _serverAssertPrintClientInfo(const client *c) {
 }
 
 void serverLogObjectDebugInfo(const robj *o) {
-    serverLog(LL_WARNING,"Object type: %d", o->type);
-    serverLog(LL_WARNING,"Object encoding: %d", o->encoding);
+    serverLog(LL_WARNING,"Object type: %u", o->type);
+    serverLog(LL_WARNING,"Object encoding: %u", o->encoding);
     serverLog(LL_WARNING,"Object refcount: %d", o->refcount);
 #if UNSAFE_CRASH_REPORT
     /* This code is now disabled. o->ptr may be unreliable to print. in some

@@ -105,10 +105,10 @@ start_server {} {
         if {$debug_msg} {puts "Log file: [srv [expr 0-$j] stdout]"}
     }
 
-    set cycle 1
+    set cycle 0
     while {([clock seconds]-$start_time) < $duration} {
-        test "PSYNC2: --- CYCLE $cycle ---" {}
         incr cycle
+        test "PSYNC2: --- CYCLE $cycle ---" {}
 
         # Create a random replication layout.
         # Start with switching master (this simulates a failover).
@@ -154,7 +154,9 @@ start_server {} {
             fail "Replica did not inherit the new replid."
         }
 
-        # 2) Attach all the slaves to a random instance
+        # Build a lookup with the direct connection master of each replica.
+        # First loop that uses random to decide who replicates from who.
+        array set slave_to_master {}
         while {[llength $used] != 5} {
             while 1 {
                 set slave_id [randomInt 5]
@@ -162,13 +164,52 @@ start_server {} {
             }
             set rand [randomInt [llength $used]]
             set mid [lindex $used $rand]
-            set master_host $R_host($mid)
-            set master_port $R_port($mid)
-
-            test "PSYNC2: Set #$slave_id to replicate from #$mid" {
-                $R($slave_id) slaveof $master_host $master_port
-            }
+            set slave_to_master($slave_id) $mid
             lappend used $slave_id
+        }
+
+        # 2) Attach all the slaves to a random instance
+        # Second loop that does the actual SLAVEOF command and make sure execute it in the right order.
+        while {[array size slave_to_master] > 0} {
+            foreach slave_id [array names slave_to_master] {
+                set mid $slave_to_master($slave_id)
+
+                # We only attach the replica to a random instance that already in the old/new chain.
+                if {$root_master($mid) == $root_master($master_id)} {
+                    # Find a replica that can be attached to the new chain already attached to the new master.
+                    # My new master is in the new chain.
+                } elseif {$root_master($mid) == $root_master($slave_id)} {
+                    # My new master and I are in the old chain.
+                } else {
+                    # In cycle 1, we do not care about the order.
+                    if {$cycle != 1} {
+                        # skipping this replica for now to avoid attaching in a bad order
+                        # this is done to avoid an unexpected full sync, when we take a
+                        # replica that already reconnected to the new chain and got a new replid
+                        # and is then set to connect to a master that's still not aware of that new replid
+                        continue
+                    }
+                }
+
+                set master_host $R_host($master_id)
+                set master_port $R_port($master_id)
+
+                test "PSYNC2: Set #$slave_id to replicate from #$mid" {
+                    $R($slave_id) slaveof $master_host $master_port
+                }
+
+                # Wait for replica to be connected before we proceed.
+                wait_for_condition 50 1000 {
+                    [status $R($slave_id) master_link_status] == "up"
+                } else {
+                    show_cluster_status
+                    fail "Replica not reconnecting."
+                }
+
+                set root_master($slave_id) $root_master($mid)
+                unset slave_to_master($slave_id)
+                break
+            }
         }
 
         # Wait for replicas to sync. so next loop won't get -LOADING error

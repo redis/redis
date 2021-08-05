@@ -187,7 +187,9 @@ void aofRewriteBufferAppend(unsigned char *s, unsigned long len) {
 
     /* Install a file event to send data to the rewrite child if there is
      * not one already. */
-    if (aeGetFileEvents(server.el,server.aof_pipe_write_data_to_child) == 0) {
+    if (!server.aof_stop_sending_diff &&
+        aeGetFileEvents(server.el,server.aof_pipe_write_data_to_child) == 0)
+    {
         aeCreateFileEvent(server.el, server.aof_pipe_write_data_to_child,
             AE_WRITABLE, aofChildWriteDiffData, NULL);
     }
@@ -1438,6 +1440,7 @@ int rewriteAppendOnlyFileRio(rio *aof) {
             sds keystr;
             robj key, *o;
             long long expiretime;
+            size_t aof_bytes_before_key = aof->processed_bytes;
 
             keystr = dictGetKey(de);
             o = dictGetVal(de);
@@ -1468,6 +1471,13 @@ int rewriteAppendOnlyFileRio(rio *aof) {
             } else {
                 serverPanic("Unknown object type");
             }
+
+            /* In fork child process, we can try to release memory back to the
+             * OS and possibly avoid or decrease COW. We guve the dismiss
+             * mechanism a hint about an estimated size of the object we stored. */
+            size_t dump_size = aof->processed_bytes - aof_bytes_before_key;
+            if (server.in_fork_child) dismissObject(o, dump_size);
+
             /* Save the expire time */
             if (expiretime != -1) {
                 char cmd[]="*3\r\n$9\r\nPEXPIREAT\r\n";

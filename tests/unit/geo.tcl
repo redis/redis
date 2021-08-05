@@ -71,6 +71,34 @@ proc pointInRectangle {width_km height_km lon lat search_lon search_lat error} {
     return true
 }
 
+proc verify_geo_edge_response_bylonlat {expected_response expected_store_response} {
+    catch {r georadius src{t} 1 1 1 km} response
+    assert_match $expected_response $response
+
+    catch {r georadius src{t} 1 1 1 km store dest{t}} response
+    assert_match $expected_store_response $response
+
+    catch {r geosearch src{t} fromlonlat 0 0 byradius 1 km} response
+    assert_match $expected_response $response
+
+    catch {r geosearchstore dest{t} src{t} fromlonlat 0 0 byradius 1 km} response
+    assert_match $expected_store_response $response
+}
+
+proc verify_geo_edge_response_bymember {expected_response expected_store_response} {
+    catch {r georadiusbymember src{t} member 1 km} response
+    assert_match $expected_response $response
+
+    catch {r georadiusbymember src{t} member 1 km store dest{t}} response
+    assert_match $expected_store_response $response
+
+    catch {r geosearch src{t} frommember member bybox 1 1 km} response
+    assert_match $expected_response $response
+
+    catch {r geosearchstore dest{t} src{t} frommember member bybox 1 1 m} response
+    assert_match $expected_store_response $response
+}
+
 # The following list represents sets of random seed, search position
 # and radius that caused bugs in the past. It is used by the randomized
 # test later as a starting point. When the regression vectors are scanned
@@ -95,6 +123,34 @@ set regression_vectors {
 set rv_idx 0
 
 start_server {tags {"geo"}} {
+    test {GEO with wrong type src key} {
+        r set src{t} wrong_type
+
+        verify_geo_edge_response_bylonlat "WRONGTYPE*" "WRONGTYPE*"
+        verify_geo_edge_response_bymember "WRONGTYPE*" "WRONGTYPE*"
+    }
+
+    test {GEO with non existing src key} {
+        r del src{t}
+
+        verify_geo_edge_response_bylonlat {} 0
+        verify_geo_edge_response_bymember {} 0
+    }
+
+    test {GEO BYLONLAT with empty search} {
+        r del src{t}
+        r geoadd src{t} 13.361389 38.115556 "Palermo" 15.087269 37.502669 "Catania"
+
+        verify_geo_edge_response_bylonlat {} 0
+    }
+
+    test {GEO BYMEMBER with non existing member} {
+        r del src{t}
+        r geoadd src{t} 13.361389 38.115556 "Palermo" 15.087269 37.502669 "Catania"
+
+        verify_geo_edge_response_bymember "ERR*" "ERR*"
+    }
+
     test {GEOADD create} {
         r geoadd nyc -73.9454966 40.747533 "lic market"
     } {1}
@@ -355,6 +411,21 @@ start_server {tags {"geo"}} {
                            15.087269 37.502669 "Catania"
         r georadius points{t} 13.361389 38.115556 500 km store points2{t}
         assert_equal [r zrange points{t} 0 -1] [r zrange points2{t} 0 -1]
+    }
+
+    test {GEORADIUSBYMEMBER STORE/STOREDIST option: plain usage} {
+        r del points{t}
+        r geoadd points{t} 13.361389 38.115556 "Palermo" 15.087269 37.502669 "Catania"
+
+        r georadiusbymember points{t} Palermo 500 km store points2{t}
+        assert_equal {Palermo Catania} [r zrange points2{t} 0 -1]
+
+        r georadiusbymember points{t} Catania 500 km storedist points2{t}
+        assert_equal {Catania Palermo} [r zrange points2{t} 0 -1]
+
+        set res [r zrange points2{t} 0 -1 withscores]
+        assert {[lindex $res 1] < 1}
+        assert {[lindex $res 3] > 166}
     }
 
     test {GEOSEARCHSTORE STORE option: plain usage} {

@@ -954,7 +954,7 @@ void blpopCommand(client *c) {
     blockingPopGenericCommand(c,LIST_HEAD);
 }
 
-/* BLPOP <key> [<key> ...] <timeout> */
+/* BRPOP <key> [<key> ...] <timeout> */
 void brpopCommand(client *c) {
     blockingPopGenericCommand(c,LIST_TAIL);
 }

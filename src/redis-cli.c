@@ -168,10 +168,10 @@ int spectrum_palette_size;
 /* Dict Helpers */
 
 static uint64_t dictSdsHash(const void *key);
-static int dictSdsKeyCompare(void *privdata, const void *key1,
+static int dictSdsKeyCompare(dict *d, const void *key1,
     const void *key2);
-static void dictSdsDestructor(void *privdata, void *val);
-static void dictListDestructor(void *privdata, void *val);
+static void dictSdsDestructor(dict *d, void *val);
+static void dictListDestructor(dict *d, void *val);
 
 /* Cluster Manager Command Info */
 typedef struct clusterManagerCommand {
@@ -220,6 +220,7 @@ static struct config {
     long long lru_test_sample_size;
     int cluster_mode;
     int cluster_reissue_command;
+    int cluster_send_asking;
     int slave_mode;
     int pipe_mode;
     int pipe_timeout;
@@ -453,11 +454,10 @@ static uint64_t dictSdsHash(const void *key) {
     return dictGenHashFunction((unsigned char*)key, sdslen((char*)key));
 }
 
-static int dictSdsKeyCompare(void *privdata, const void *key1,
-        const void *key2)
+static int dictSdsKeyCompare(dict *d, const void *key1, const void *key2)
 {
     int l1,l2;
-    DICT_NOTUSED(privdata);
+    UNUSED(d);
 
     l1 = sdslen((sds)key1);
     l2 = sdslen((sds)key2);
@@ -465,15 +465,15 @@ static int dictSdsKeyCompare(void *privdata, const void *key1,
     return memcmp(key1, key2, l1) == 0;
 }
 
-static void dictSdsDestructor(void *privdata, void *val)
+static void dictSdsDestructor(dict *d, void *val)
 {
-    DICT_NOTUSED(privdata);
+    UNUSED(d);
     sdsfree(val);
 }
 
-void dictListDestructor(void *privdata, void *val)
+void dictListDestructor(dict *d, void *val)
 {
-    DICT_NOTUSED(privdata);
+    UNUSED(d);
     listRelease((list*)val);
 }
 
@@ -774,23 +774,6 @@ static void freeHintsCallback(void *ptr) {
  * Networking / parsing
  *--------------------------------------------------------------------------- */
 
-/* Unquote a null-terminated string and return it as a binary-safe sds. */
-static sds unquoteCString(char *str) {
-    int count;
-    sds *unquoted = sdssplitargs(str, &count);
-    sds res = NULL;
-
-    if (unquoted && count == 1) {
-        res = unquoted[0];
-        unquoted[0] = NULL;
-    }
-
-    if (unquoted)
-        sdsfreesplitres(unquoted, count);
-
-    return res;
-}
-
 /* Send AUTH command to the server */
 static int cliAuth(redisContext *ctx, char *user, char *auth) {
     redisReply *reply;
@@ -929,6 +912,29 @@ static int cliConnect(int flags) {
     }
 
     return REDIS_OK;
+}
+
+/* In cluster, if server replies ASK, we will redirect to a different node.
+ * Before sending the real command, we need to send ASKING command first. */
+static int cliSendAsking() {
+    redisReply *reply;
+
+    config.cluster_send_asking = 0;
+    if (context == NULL) {
+        return REDIS_ERR;
+    }
+    reply = redisCommand(context,"ASKING");
+    if (reply == NULL) {
+        fprintf(stderr, "\nI/O error\n");
+        return REDIS_ERR;
+    }
+    int result = REDIS_OK;
+    if (reply->type == REDIS_REPLY_ERROR) {
+        result = REDIS_ERR;
+        fprintf(stderr,"ASKING failed: %s\n",reply->str);
+    }
+    freeReplyObject(reply);
+    return result;
 }
 
 static void cliPrintContextError(void) {
@@ -1306,7 +1312,7 @@ static int cliReadReply(int output_raw_strings) {
     /* Check if we need to connect to a different node and reissue the
      * request. */
     if (config.cluster_mode && reply->type == REDIS_REPLY_ERROR &&
-        (!strncmp(reply->str,"MOVED",5) || !strcmp(reply->str,"ASK")))
+        (!strncmp(reply->str,"MOVED ",6) || !strncmp(reply->str,"ASK ",4)))
     {
         char *p = reply->str, *s;
         int slot;
@@ -1330,6 +1336,9 @@ static int cliReadReply(int output_raw_strings) {
             printf("-> Redirected to slot [%d] located at %s:%d\n",
                 slot, config.hostip, config.hostport);
         config.cluster_reissue_command = 1;
+        if (!strncmp(reply->str,"ASK ",4)) {
+            config.cluster_send_asking = 1;
+        }
         cliRefreshPrompt();
     } else if (!config.interactive && config.set_errcode && 
         reply->type == REDIS_REPLY_ERROR) 
@@ -1342,6 +1351,7 @@ static int cliReadReply(int output_raw_strings) {
     if (output) {
         out = cliFormatReply(reply, config.output, output_raw_strings);
         fwrite(out,sdslen(out),1,stdout);
+        fflush(stdout);
         sdsfree(out);
     }
     freeReplyObject(reply);
@@ -1488,7 +1498,14 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
                 config.in_multi = 0;
                 config.input_dbnum = config.dbnum = config.pre_multi_dbnum;
                 cliRefreshPrompt();
-            } 
+            } else if (!strcasecmp(command,"reset") && argc == 1 &&
+                                     config.last_cmd_type != REDIS_REPLY_ERROR) {
+                config.in_multi = 0;
+                config.dbnum = 0;
+                config.input_dbnum = 0;
+                config.resp3 = 0;
+                cliRefreshPrompt();
+            }
         }
         if (config.cluster_reissue_command){
             /* If we need to reissue the command, break to prevent a
@@ -1811,6 +1828,11 @@ static int parseOptions(int argc, char **argv) {
         }
     }
 
+    if (config.hostsocket && config.cluster_mode) {
+        fprintf(stderr,"Options -c and -s are mutually exclusive.\n");
+        exit(1);
+    }
+
     /* --ldb requires --eval. */
     if (config.eval_ldb && config.eval == NULL) {
         fprintf(stderr,"Options --ldb and --ldb-sync-mode require --eval.\n");
@@ -1837,23 +1859,6 @@ static void parseEnv() {
     if (cluster_yes != NULL && !strcmp(cluster_yes, "1")) {
         config.cluster_manager_command.flags |= CLUSTER_MANAGER_CMD_FLAG_YES;
     }
-}
-
-static sds readArgFromStdin(void) {
-    char buf[1024];
-    sds arg = sdsempty();
-
-    while(1) {
-        int nread = read(fileno(stdin),buf,1024);
-
-        if (nread == 0) break;
-        else if (nread == -1) {
-            perror("Reading from standard input");
-            exit(1);
-        }
-        arg = sdscatlen(arg,buf,nread);
-    }
-    return arg;
 }
 
 static void usage(int err) {
@@ -2003,52 +2008,34 @@ static int confirmWithYes(char *msg, int ignore_force) {
     return (nread != 0 && !strcmp("yes", buf));
 }
 
-/* Create an sds array from argv, either as-is or by dequoting every
- * element. When quoted is non-zero, may return a NULL to indicate an
- * invalid quoted string.
- */
-static sds *getSdsArrayFromArgv(int argc, char **argv, int quoted) {
-    sds *res = sds_malloc(sizeof(sds) * argc);
-
-    for (int j = 0; j < argc; j++) {
-        if (quoted) {
-            sds unquoted = unquoteCString(argv[j]);
-            if (!unquoted) {
-                while (--j >= 0) sdsfree(res[j]);
-                sds_free(res);
-                return NULL;
-            }
-            res[j] = unquoted;
-        } else {
-            res[j] = sdsnew(argv[j]);
-        }
-    }
-
-    return res;
-}
-
 static int issueCommandRepeat(int argc, char **argv, long repeat) {
     while (1) {
+        if (config.cluster_reissue_command || context == NULL ||
+            context->err == REDIS_ERR_IO || context->err == REDIS_ERR_EOF)
+        {
+            if (cliConnect(CC_FORCE) != REDIS_OK) {
+                cliPrintContextError();
+                config.cluster_reissue_command = 0;
+                return REDIS_ERR;
+            }
+        }
         config.cluster_reissue_command = 0;
-        if (cliSendCommand(argc,argv,repeat) != REDIS_OK) {
-            cliConnect(CC_FORCE);
-
-            /* If we still cannot send the command print error.
-             * We'll try to reconnect the next time. */
-            if (cliSendCommand(argc,argv,repeat) != REDIS_OK) {
+        if (config.cluster_send_asking) {
+            if (cliSendAsking() != REDIS_OK) {
                 cliPrintContextError();
                 return REDIS_ERR;
             }
         }
+        if (cliSendCommand(argc,argv,repeat) != REDIS_OK) {
+            cliPrintContextError();
+            return REDIS_ERR;
+        }
 
         /* Issue the command again if we got redirected in cluster mode */
         if (config.cluster_mode && config.cluster_reissue_command) {
-            /* If cliConnect fails, sleep for a while and try again. */
-            if (cliConnect(CC_FORCE) != REDIS_OK)
-                sleep(1);
-        } else {
-            break;
+            continue;
         }
+        break;
     }
     return REDIS_OK;
 }
@@ -3024,7 +3011,7 @@ static int clusterManagerGetAntiAffinityScore(clusterManagerNodeArray *ipnodes,
      * replication of each other) */
     for (i = 0; i < ip_count; i++) {
         clusterManagerNodeArray *node_array = &(ipnodes[i]);
-        dict *related = dictCreate(&clusterManagerDictType, NULL);
+        dict *related = dictCreate(&clusterManagerDictType);
         char *ip = NULL;
         for (j = 0; j < node_array->len; j++) {
             clusterManagerNode *node = node_array->nodes[j];
@@ -4531,7 +4518,7 @@ cleanup:
  * node addresses that cannot reach the unreachable node. */
 static dict *clusterManagerGetLinkStatus(void) {
     if (cluster_manager.nodes == NULL) return NULL;
-    dict *status = dictCreate(&clusterManagerLinkDictType, NULL);
+    dict *status = dictCreate(&clusterManagerLinkDictType);
     listIter li;
     listNode *ln;
     listRewind(cluster_manager.nodes, &li);
@@ -5294,7 +5281,7 @@ static int clusterManagerCheckCluster(int quiet) {
         clusterManagerNode *n = ln->value;
         if (n->migrating != NULL) {
             if (open_slots == NULL)
-                open_slots = dictCreate(&clusterManagerDictType, NULL);
+                open_slots = dictCreate(&clusterManagerDictType);
             sds errstr = sdsempty();
             errstr = sdscatprintf(errstr,
                                 "[WARNING] Node %s:%d has slots in "
@@ -5312,7 +5299,7 @@ static int clusterManagerCheckCluster(int quiet) {
         }
         if (n->importing != NULL) {
             if (open_slots == NULL)
-                open_slots = dictCreate(&clusterManagerDictType, NULL);
+                open_slots = dictCreate(&clusterManagerDictType);
             sds errstr = sdsempty();
             errstr = sdscatprintf(errstr,
                                 "[WARNING] Node %s:%d has slots in "
@@ -5373,7 +5360,7 @@ static int clusterManagerCheckCluster(int quiet) {
             dictType dtype = clusterManagerDictType;
             dtype.keyDestructor = dictSdsDestructor;
             dtype.valDestructor = dictListDestructor;
-            clusterManagerUncoveredSlots = dictCreate(&dtype, NULL);
+            clusterManagerUncoveredSlots = dictCreate(&dtype);
             int fixed = clusterManagerFixSlotsCoverage(slots);
             if (fixed > 0) result = 1;
         }
@@ -6505,7 +6492,7 @@ reply_err:;
         int need_free = 0;
         if (err == NULL) err = "";
         else need_free = 1;
-        clusterManagerLogErr("ERR setting node-timeot for %s:%d: %s\n", n->ip,
+        clusterManagerLogErr("ERR setting node-timeout for %s:%d: %s\n", n->ip,
                              n->port, err);
         if (need_free) zfree(err);
         err_count++;
@@ -7063,7 +7050,7 @@ static void latencyDistMode(void) {
 #define RDB_EOF_MARK_SIZE 40
 
 void sendReplconf(const char* arg1, const char* arg2) {
-    printf("sending REPLCONF %s %s\n", arg1, arg2);
+    fprintf(stderr, "sending REPLCONF %s %s\n", arg1, arg2);
     redisReply *reply = redisCommand(context, "REPLCONF %s %s", arg1, arg2);
 
     /* Handle any error conditions */
@@ -7123,7 +7110,7 @@ unsigned long long sendSync(redisContext *c, char *out_eof) {
     }
     *p = '\0';
     if (buf[0] == '-') {
-        printf("SYNC with master failed: %s\n", buf);
+        fprintf(stderr, "SYNC with master failed: %s\n", buf);
         exit(1);
     }
     if (strncmp(buf+1,"EOF:",4) == 0 && strlen(buf+5) >= RDB_EOF_MARK_SIZE) {
@@ -7540,9 +7527,9 @@ static typeinfo* typeinfo_add(dict *types, char* name, typeinfo* type_template) 
     return info;
 }
 
-void type_free(void* priv_data, void* val) {
+void type_free(dict *d, void* val) {
     typeinfo *info = val;
-    UNUSED(priv_data);
+    UNUSED(d);
     if (info->biggest_key)
         sdsfree(info->biggest_key);
     sdsfree(info->name);
@@ -7668,7 +7655,7 @@ static void findBigKeys(int memkeys, unsigned memkeys_samples) {
     typeinfo **types = NULL;
     double pct;
 
-    dict *types_dict = dictCreate(&typeinfoDictType, NULL);
+    dict *types_dict = dictCreate(&typeinfoDictType);
     typeinfo_add(types_dict, "string", &type_string);
     typeinfo_add(types_dict, "list", &type_list);
     typeinfo_add(types_dict, "set", &type_set);
@@ -8293,6 +8280,7 @@ int main(int argc, char **argv) {
     config.lru_test_mode = 0;
     config.lru_test_sample_size = 0;
     config.cluster_mode = 0;
+    config.cluster_send_asking = 0;
     config.slave_mode = 0;
     config.getrdb_mode = 0;
     config.stat_mode = 0;
