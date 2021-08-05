@@ -127,6 +127,11 @@
 #define RDBFLAGS_REPLICATION (1<<1)     /* Load/save for SYNC. */
 #define RDBFLAGS_ALLOW_DUP (1<<2)       /* Allow duplicated keys when loading.*/
 
+/* When rdbLoadObject() returns NULL, the err flag is
+ * set to hold the type of error that occurred */
+#define RDB_LOAD_ERR_EMPTY_KEY  1   /* Error of empty key */
+#define RDB_LOAD_ERR_OTHER      2   /* Any other errors */
+
 int rdbSaveType(rio *rdb, unsigned char type);
 int rdbLoadType(rio *rdb);
 int rdbSaveTime(rio *rdb, time_t t);
@@ -145,7 +150,7 @@ void rdbRemoveTempFile(pid_t childpid, int from_signal);
 int rdbSave(char *filename, rdbSaveInfo *rsi);
 ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid);
 size_t rdbSavedObjectLen(robj *o, robj *key, int dbid);
-robj *rdbLoadObject(int type, rio *rdb, sds key, int dbid);
+robj *rdbLoadObject(int type, rio *rdb, sds key, int dbid, int *error);
 void backgroundSaveDoneHandler(int exitcode, int bysignal);
 int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime,int dbid);
 ssize_t rdbSaveSingleModuleAux(rio *rdb, int when, moduleType *mt);

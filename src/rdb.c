@@ -1509,11 +1509,16 @@ robj *rdbLoadCheckModuleValue(rio *rdb, char *modulename) {
 }
 
 /* Load a Redis object of the specified type from the specified file.
- * On success a newly allocated object is returned, otherwise NULL. */
-robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid) {
+ * On success a newly allocated object is returned, otherwise NULL.
+ * When the function returns NULL and if 'error' is not NULL, the
+ * integer pointed by 'error' is set to the type of error that occurred */
+robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
     robj *o = NULL, *ele, *dec;
     uint64_t len;
     unsigned int i;
+
+    /* Set default error of load object, it will be set to 0 on success. */
+    if (error) *error = RDB_LOAD_ERR_OTHER;
 
     int deep_integrity_validation = server.sanitize_dump_payload == SANITIZE_DUMP_YES;
     if (server.sanitize_dump_payload == SANITIZE_DUMP_CLIENTS) {
@@ -1532,8 +1537,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid) {
         o = tryObjectEncoding(o);
     } else if (rdbtype == RDB_TYPE_LIST) {
         /* Read list value */
-        if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR || len == 0)
-            return NULL;
+        if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
+        if (len == 0) goto emptykey;
 
         o = createQuicklistObject();
         quicklistSetOptions(o->ptr, server.list_max_ziplist_size,
@@ -1553,8 +1558,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid) {
         }
     } else if (rdbtype == RDB_TYPE_SET) {
         /* Read Set value */
-        if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR || len == 0)
-            return NULL;
+        if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
+        if (len == 0) goto emptykey;
 
         /* Use a regular set when there are too many entries. */
         if (len > server.set_max_intset_entries) {
@@ -1621,8 +1626,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid) {
         size_t maxelelen = 0;
         zset *zs;
 
-        if ((zsetlen = rdbLoadLen(rdb,NULL)) == RDB_LENERR || zsetlen == 0)
-            return NULL;
+        if ((zsetlen = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
+        if (zsetlen == 0) goto emptykey;
+
         o = createZsetObject();
         zs = o->ptr;
 
@@ -1680,7 +1686,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid) {
         dict *dupSearchDict = NULL;
 
         len = rdbLoadLen(rdb, NULL);
-        if (len == RDB_LENERR || len == 0) return NULL;
+        if (len == RDB_LENERR) return NULL;
+        if (len == 0) goto emptykey;
 
         o = createHashObject();
 
@@ -1787,8 +1794,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid) {
         /* All pairs should be read by now */
         serverAssert(len == 0);
     } else if (rdbtype == RDB_TYPE_LIST_QUICKLIST) {
-        if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR || len == 0)
-            return NULL;
+        if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
+        if (len == 0) goto emptykey;
+
         o = createQuicklistObject();
         quicklistSetOptions(o->ptr, server.list_max_ziplist_size,
                             server.list_compress_depth);
@@ -1920,6 +1928,13 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid) {
                 }
                 o->type = OBJ_ZSET;
                 o->encoding = OBJ_ENCODING_ZIPLIST;
+                if (zsetLength(o) == 0) {
+                    zfree(encoded);
+                    o->ptr = NULL;
+                    decrRefCount(o);
+                    goto emptykey;
+                }
+
                 if (zsetLength(o) > server.zset_max_ziplist_entries)
                     zsetConvert(o,OBJ_ENCODING_SKIPLIST);
                 break;
@@ -1934,6 +1949,13 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid) {
                 }
                 o->type = OBJ_HASH;
                 o->encoding = OBJ_ENCODING_ZIPLIST;
+                if (hashTypeLength(o) == 0) {
+                    zfree(encoded);
+                    o->ptr = NULL;
+                    decrRefCount(o);
+                    goto emptykey;
+                }
+
                 if (hashTypeLength(o) > server.hash_max_ziplist_entries)
                     hashTypeConvert(o, OBJ_ENCODING_HT);
                 break;
@@ -2230,7 +2252,12 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid) {
         rdbReportReadError("Unknown RDB encoding type %d",rdbtype);
         return NULL;
     }
+    if (error) *error = 0;
     return o;
+
+emptykey:
+    if (error) *error = RDB_LOAD_ERR_EMPTY_KEY;
+    return NULL;
 }
 
 /* Mark that we are loading in the global state and setup the fields
@@ -2532,9 +2559,16 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
         if ((key = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL)) == NULL)
             goto eoferr;
         /* Read value */
-        if ((val = rdbLoadObject(type,rdb,key,db->id)) == NULL) {
+        int error;
+        if ((val = rdbLoadObject(type,rdb,key,db->id,&error)) == NULL) {
             sdsfree(key);
-            goto eoferr;
+
+            /* Don't fail when empty key is encountered, we will
+             * silently discard it and continue loading. */
+            if (error == RDB_LOAD_ERR_EMPTY_KEY)
+                continue;
+            else
+                goto eoferr;
         }
 
         /* Check if the key already expired. This function is used when loading
