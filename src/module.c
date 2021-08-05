@@ -8618,8 +8618,8 @@ uint64_t dictCStringKeyHash(const void *key) {
     return dictGenHashFunction((unsigned char*)key, strlen((char*)key));
 }
 
-int dictCStringKeyCompare(void *privdata, const void *key1, const void *key2) {
-    UNUSED(privdata);
+int dictCStringKeyCompare(dict *d, const void *key1, const void *key2) {
+    UNUSED(d);
     return strcmp(key1,key2) == 0;
 }
 
@@ -8656,7 +8656,7 @@ void moduleInitModulesSystemLast(void) {
 void moduleInitModulesSystem(void) {
     moduleUnblockedClients = listCreate();
     server.loadmodule_queue = listCreate();
-    modules = dictCreate(&modulesDictType,NULL);
+    modules = dictCreate(&modulesDictType);
 
     /* Set up the keyspace notification subscriber list and static client */
     moduleKeyspaceSubscribers = listCreate();
@@ -9503,8 +9503,8 @@ int RM_GetDbIdFromDefragCtx(RedisModuleDefragCtx *ctx) {
 /* Register all the APIs we export. Keep this function at the end of the
  * file so that's easy to seek it to add new entries. */
 void moduleRegisterCoreAPI(void) {
-    server.moduleapi = dictCreate(&moduleAPIDictType,NULL);
-    server.sharedapi = dictCreate(&moduleAPIDictType,NULL);
+    server.moduleapi = dictCreate(&moduleAPIDictType);
+    server.sharedapi = dictCreate(&moduleAPIDictType);
     REGISTER_API(Alloc);
     REGISTER_API(Calloc);
     REGISTER_API(Realloc);

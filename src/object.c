@@ -226,7 +226,7 @@ robj *createZiplistObject(void) {
 }
 
 robj *createSetObject(void) {
-    dict *d = dictCreate(&setDictType,NULL);
+    dict *d = dictCreate(&setDictType);
     robj *o = createObject(OBJ_SET,d);
     o->encoding = OBJ_ENCODING_HT;
     return o;
@@ -250,7 +250,7 @@ robj *createZsetObject(void) {
     zset *zs = zmalloc(sizeof(*zs));
     robj *o;
 
-    zs->dict = dictCreate(&zsetDictType,NULL);
+    zs->dict = dictCreate(&zsetDictType);
     zs->zsl = zslCreate();
     o = createObject(OBJ_ZSET,zs);
     o->encoding = OBJ_ENCODING_SKIPLIST;

@@ -1444,8 +1444,8 @@ void replicationSendNewlineToMaster(void) {
 
 /* Callback used by emptyDb() while flushing away old data to load
  * the new dataset received by the master. */
-void replicationEmptyDbCallback(void *privdata) {
-    UNUSED(privdata);
+void replicationEmptyDbCallback(dict *d) {
+    UNUSED(d);
     if (server.repl_state == REPL_STATE_TRANSFER)
         replicationSendNewlineToMaster();
 }
@@ -3078,7 +3078,7 @@ void refreshGoodSlavesCount(void) {
 /* Initialize the script cache, only called at startup. */
 void replicationScriptCacheInit(void) {
     server.repl_scriptcache_size = 10000;
-    server.repl_scriptcache_dict = dictCreate(&replScriptCacheDictType,NULL);
+    server.repl_scriptcache_dict = dictCreate(&replScriptCacheDictType);
     server.repl_scriptcache_fifo = listCreate();
 }
 

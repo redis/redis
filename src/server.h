@@ -2409,13 +2409,13 @@ robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o);
 
 #define EMPTYDB_NO_FLAGS 0      /* No flags. */
 #define EMPTYDB_ASYNC (1<<0)    /* Reclaim memory in another thread. */
-long long emptyDb(int dbnum, int flags, void(callback)(void*));
-long long emptyDbStructure(redisDb *dbarray, int dbnum, int async, void(callback)(void*));
+long long emptyDb(int dbnum, int flags, void(callback)(dict*));
+long long emptyDbStructure(redisDb *dbarray, int dbnum, int async, void(callback)(dict*));
 void flushAllDataAndResetRDB(int flags);
 long long dbTotalServerKeyCount();
 dbBackup *backupDb(void);
 void restoreDbBackup(dbBackup *backup);
-void discardDbBackup(dbBackup *backup, int flags, void(callback)(void*));
+void discardDbBackup(dbBackup *backup, int flags, void(callback)(dict*));
 
 
 int selectDb(client *c, int id);
@@ -2519,9 +2519,9 @@ int performEvictions(void);
 /* Keys hashing / comparison functions for dict.c hash tables. */
 uint64_t dictSdsHash(const void *key);
 uint64_t dictSdsCaseHash(const void *key);
-int dictSdsKeyCompare(void *privdata, const void *key1, const void *key2);
-int dictSdsKeyCaseCompare(void *privdata, const void *key1, const void *key2);
-void dictSdsDestructor(void *privdata, void *val);
+int dictSdsKeyCompare(dict *d, const void *key1, const void *key2);
+int dictSdsKeyCaseCompare(dict *d, const void *key1, const void *key2);
+void dictSdsDestructor(dict *d, void *val);
 
 /* Git SHA1 */
 char *redisGitSHA1(void);

@@ -165,7 +165,7 @@ client *createClient(connection *conn) {
     listSetDupMethod(c->reply,dupClientReplyValue);
     c->btype = BLOCKED_NONE;
     c->bpop.timeout = 0;
-    c->bpop.keys = dictCreate(&objectKeyHeapPointerValueDictType,NULL);
+    c->bpop.keys = dictCreate(&objectKeyHeapPointerValueDictType);
     c->bpop.target = NULL;
     c->bpop.xread_group = NULL;
     c->bpop.xread_consumer = NULL;
@@ -174,7 +174,7 @@ client *createClient(connection *conn) {
     c->bpop.reploffset = 0;
     c->woff = 0;
     c->watched_keys = listCreate();
-    c->pubsub_channels = dictCreate(&objectKeyPointerValueDictType,NULL);
+    c->pubsub_channels = dictCreate(&objectKeyPointerValueDictType);
     c->pubsub_patterns = listCreate();
     c->peerid = NULL;
     c->sockname = NULL;

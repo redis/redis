@@ -223,8 +223,7 @@ static sds benchmarkVersion(void) {
 
 /* Dict callbacks */
 static uint64_t dictSdsHash(const void *key);
-static int dictSdsKeyCompare(void *privdata, const void *key1,
-    const void *key2);
+static int dictSdsKeyCompare(dict *d, const void *key1, const void *key2);
 
 /* Implementation */
 static long long ustime(void) {
@@ -251,11 +250,10 @@ static uint64_t dictSdsHash(const void *key) {
     return dictGenHashFunction((unsigned char*)key, sdslen((char*)key));
 }
 
-static int dictSdsKeyCompare(void *privdata, const void *key1,
-        const void *key2)
+static int dictSdsKeyCompare(dict *d, const void *key1, const void *key2)
 {
     int l1,l2;
-    DICT_NOTUSED(privdata);
+    UNUSED(d);
 
     l1 = sdslen((sds)key1);
     l2 = sdslen((sds)key2);
@@ -1302,7 +1300,7 @@ static int fetchClusterSlotsConfiguration(client c) {
         NULL                       /* allow to expand */
     };
     /* printf("[%d] fetchClusterSlotsConfiguration\n", c->thread_id); */
-    dict *masters = dictCreate(&dtype, NULL);
+    dict *masters = dictCreate(&dtype);
     redisContext *ctx = NULL;
     for (i = 0; i < (size_t) config.cluster_node_count; i++) {
         clusterNode *node = config.cluster_nodes[i];
