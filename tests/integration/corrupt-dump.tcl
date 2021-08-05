@@ -148,6 +148,23 @@ test {corrupt payload: load corrupted rdb with no CRC - #3505} {
     kill_server $srv ;# let valgrind look for issues
 }
 
+test {corrupt payload: load corrupted rdb with empty keys} {
+    set server_path [tmpdir "server.rdb-corruption-empty-keys-test"]
+    exec cp tests/assets/corrupt_empty_keys.rdb $server_path
+    start_server [list overrides [list "dir" $server_path "dbfilename" "corrupt_empty_keys.rdb"]] {
+        r select 0
+        assert_equal [r dbsize] 0
+
+        verify_log_message 0 "*skipping empty key: set*" 0
+        verify_log_message 0 "*skipping empty key: quicklist*" 0
+        verify_log_message 0 "*skipping empty key: hash*" 0
+        verify_log_message 0 "*skipping empty key: hash_ziplist*" 0
+        verify_log_message 0 "*skipping empty key: zset*" 0
+        verify_log_message 0 "*skipping empty key: zset_ziplist*" 0
+        verify_log_message 0 "*empty keys skipped: 6*" 0
+    }
+}
+
 test {corrupt payload: listpack invalid size header} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r config set sanitize-dump-payload no
@@ -328,12 +345,13 @@ test {corrupt payload: fuzzer findings - leak in rdbloading due to dup entry in 
     }
 }
 
-test {corrupt payload: fuzzer findings - empty intset div by zero} {
+test {corrupt payload: fuzzer findings - empty intset} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r config set sanitize-dump-payload no
         r debug set-skip-checksum-validation 1
-        r RESTORE _setbig 0 "\x02\xC0\xC0\x06\x02\x5F\x39\xC0\x02\x02\x5F\x33\xC0\x00\x02\x5F\x31\xC0\x04\xC0\x08\x02\x5F\x37\x02\x5F\x35\x09\x00\xC5\xD4\x6D\xBA\xAD\x14\xB7\xE7"
-        catch {r SRANDMEMBER _setbig }
+        catch {r RESTORE _setbig 0 "\x02\xC0\xC0\x06\x02\x5F\x39\xC0\x02\x02\x5F\x33\xC0\x00\x02\x5F\x31\xC0\x04\xC0\x08\x02\x5F\x37\x02\x5F\x35\x09\x00\xC5\xD4\x6D\xBA\xAD\x14\xB7\xE7"} err
+        assert_match "*Bad data format*" $err
+        r ping
     }
 }
 
@@ -507,14 +525,13 @@ test {corrupt payload: fuzzer findings - valgrind invalid read} {
     }
 }
 
-test {corrupt payload: fuzzer findings - HRANDFIELD on bad ziplist} {
+test {corrupt payload: fuzzer findings - empty hash ziplist} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r config set sanitize-dump-payload yes
         r debug set-skip-checksum-validation 1
-        r RESTORE _int 0 "\x04\xC0\x01\x09\x00\xF6\x8A\xB6\x7A\x85\x87\x72\x4D"
-        catch {r HRANDFIELD _int}
-        assert_equal [count_log_message 0 "crashed by signal"] 0
-        assert_equal [count_log_message 0 "ASSERTION FAILED"] 1
+        catch {r RESTORE _int 0 "\x04\xC0\x01\x09\x00\xF6\x8A\xB6\x7A\x85\x87\x72\x4D"} err
+        assert_match "*Bad data format*" $err
+        r ping
     }
 }
 
@@ -526,6 +543,38 @@ test {corrupt payload: fuzzer findings - stream with no records} {
         catch {r XREAD STREAMS _stream $}
         assert_equal [count_log_message 0 "crashed by signal"] 0
         assert_equal [count_log_message 0 "Guru Meditation"] 1
+    }
+}
+
+test {corrupt payload: fuzzer findings - empty quicklist} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload yes
+        r debug set-skip-checksum-validation 1
+        catch {
+            r restore key 0 "\x0E\xC0\x2B\x15\x00\x00\x00\x0A\x00\x00\x00\x01\x00\x00\xE0\x62\x58\xEA\xDF\x22\x00\x00\x00\xFF\x09\x00\xDF\x35\xD2\x67\xDC\x0E\x89\xAB" replace
+        } err
+        assert_match "*Bad data format*" $err
+        r ping
+    }
+}
+
+test {corrupt payload: fuzzer findings - empty zset} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload yes
+        r debug set-skip-checksum-validation 1
+        catch {r restore key 0 "\x05\xC0\x01\x09\x00\xF6\x8A\xB6\x7A\x85\x87\x72\x4D"} err
+        assert_match "*Bad data format*" $err
+        r ping
+    }
+}
+
+test {corrupt payload: fuzzer findings - hash with len of 0} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload yes
+        r debug set-skip-checksum-validation 1
+        catch {r restore key 0 "\x04\xC0\x21\x09\x00\xF6\x8A\xB6\x7A\x85\x87\x72\x4D"} err
+        assert_match "*Bad data format*" $err
+        r ping
     }
 }
 
