@@ -545,8 +545,12 @@ void *rdbGenericLoadStringObject(rio *rdb, int flags, size_t *lenptr) {
         }
         return buf;
     } else {
-        robj *o = encode ? createStringObject(SDS_NOINIT,len) :
-                           createRawStringObject(SDS_NOINIT,len);
+        robj *o = encode ? tryCreateStringObject(SDS_NOINIT,len) :
+                           tryCreateRawStringObject(SDS_NOINIT,len);
+        if (!o) {
+            serverLog(server.loading? LL_WARNING: LL_VERBOSE, "rdbGenericLoadStringObject failed allocating %llu bytes", len);
+            return NULL;
+        }
         if (len && rioRead(rdb,o->ptr,len) == 0) {
             decrRefCount(o);
             return NULL;
@@ -2209,6 +2213,23 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int *error) {
                         return NULL;
                     }
                 }
+            }
+
+            /* Verify that each PEL eventually got a consumer assigned to it. */
+            if (deep_integrity_validation) {
+                raxIterator ri_cg_pel;
+                raxStart(&ri_cg_pel,cgroup->pel);
+                raxSeek(&ri_cg_pel,"^",NULL,0);
+                while(raxNext(&ri_cg_pel)) {
+                    streamNACK *nack = ri_cg_pel.data;
+                    if (!nack->consumer) {
+                        raxStop(&ri_cg_pel);
+                        rdbReportCorruptRDB("Stream CG PEL entry without consumer");
+                        decrRefCount(o);
+                        return NULL;
+                    }
+                }
+                raxStop(&ri_cg_pel);
             }
         }
     } else if (rdbtype == RDB_TYPE_MODULE || rdbtype == RDB_TYPE_MODULE_2) {

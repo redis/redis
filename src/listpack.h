@@ -60,6 +60,7 @@ unsigned char *lpPrev(unsigned char *lp, unsigned char *p);
 uint32_t lpBytes(unsigned char *lp);
 unsigned char *lpSeek(unsigned char *lp, long index);
 int lpValidateIntegrity(unsigned char *lp, size_t size, int deep);
+unsigned char *lpValidateFirst(unsigned char *lp);
 int lpValidateNext(unsigned char *lp, unsigned char **pp, size_t lpbytes);
 
 #endif

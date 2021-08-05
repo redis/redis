@@ -154,6 +154,10 @@ int _dictExpand(dict *d, unsigned long size, int* malloc_failed)
     dictht n; /* the new hash table */
     unsigned long realsize = _dictNextPower(size);
 
+    /* Detect overflows */
+    if (realsize < size || realsize * sizeof(dictEntry*) < realsize)
+        return DICT_ERR;
+
     /* Rehashing to the same table size is not useful. */
     if (realsize == d->ht[0].size) return DICT_ERR;
 
