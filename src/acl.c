@@ -376,7 +376,7 @@ int ACLGetCommandBitCoordinates(uint64_t id, uint64_t *word, uint64_t *bit) {
  *
  * If the bit overflows the user internal representation, zero is returned
  * in order to disallow the execution of the command in such edge case. */
-int ACLGetUserCommandBit(user *u, unsigned long id) {
+int ACLGetUserCommandBit(const user *u, unsigned long id) {
     uint64_t word, bit;
     if (ACLGetCommandBitCoordinates(id,&word,&bit) == C_ERR) return 0;
     return (u->allowed_commands[word] & bit) != 0;
@@ -1168,11 +1168,11 @@ user *ACLGetUserByName(const char *name, size_t namelen) {
 }
 
 /* Check if the key can be accessed by the client according to
- * the ACLs associated to the client user c->user.
+ * the ACLs associated with the specified user.
  *
  * If the user can access the key, ACL_OK is returned, otherwise
  * ACL_DENIED_KEY is returned. */
-int ACLCheckKey(user *u, const char *key, int keylen) {
+int ACLCheckKey(const user *u, const char *key, int keylen) {
     /* If there is no associated user, the connection can run anything. */
     if (u == NULL) return ACL_OK;
 
@@ -1194,14 +1194,14 @@ int ACLCheckKey(user *u, const char *key, int keylen) {
 }
 
 /* Check if the command is ready to be executed according to the
- * ACLs associated to a user.
+ * ACLs associated with the specified user.
  *
  * If the user can execute the command ACL_OK is returned, otherwise
  * ACL_DENIED_CMD or ACL_DENIED_KEY is returned: the first in case the
  * command cannot be executed because the user is not allowed to run such
  * command, the second if the command is denied because the user is trying
  * to access keys that are not among the specified patterns. */
-int ACLCheckCommandPerm(user *u, struct redisCommand *cmd, robj **argv, int argc, int *keyidxptr) {
+int ACLCheckCommandPerm(const user *u, struct redisCommand *cmd, robj **argv, int argc, int *keyidxptr) {
     int ret;
     uint64_t id = cmd->id;
 
@@ -1340,7 +1340,7 @@ void ACLKillPubsubClientsIfNeeded(user *u, list *upcoming) {
 }
 
 /* Check if the pub/sub channels of the command, that's ready to be executed
- * according to the ACLs channels associated to the a user.
+ * according to the ACLs channels associated with the specified user.
  * 
  * idx and count are the index and count of channel arguments from the
  * command. The literal argument controls whether the user's ACL channels are 
@@ -1348,7 +1348,7 @@ void ACLKillPubsubClientsIfNeeded(user *u, list *upcoming) {
  *
  * If the user can execute the command ACL_OK is returned, otherwise 
  * ACL_DENIED_CHANNEL. */
-int ACLCheckPubsubPerm(user *u, robj **argv, int idx, int count, int literal, int *idxptr) {
+int ACLCheckPubsubPerm(const user *u, robj **argv, int idx, int count, int literal, int *idxptr) {
     /* If there is no associated user, the connection can run anything. */
     if (u == NULL) return ACL_OK;
 
@@ -1373,7 +1373,7 @@ int ACLCheckPubsubPerm(user *u, robj **argv, int idx, int count, int literal, in
 /* Check whether the command is ready to be executed by ACLCheckCommandPerm.
  * If check passes, then check whether pub/sub channels of the command is
  * ready to be executed by ACLCheckPubsubPerm */
-int ACLCheckAllUserCommandPerm(user *u, struct redisCommand *cmd, robj **argv, int argc, int *idxptr) {
+int ACLCheckAllUserCommandPerm(const user *u, struct redisCommand *cmd, robj **argv, int argc, int *idxptr) {
     int acl_retval = ACLCheckCommandPerm(u,cmd,argv,argc,idxptr);
     if (acl_retval != ACL_OK)
         return acl_retval;

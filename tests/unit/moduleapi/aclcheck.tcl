@@ -4,6 +4,8 @@ start_server {tags {"modules acl"}} {
     r module load $testmodule
 
     test {test module check acl for command perm} {
+        # by default all commands allowed
+        assert_equal [r rm_call.aclcheck.cmd set x 5] OK
         # block SET command for user
         r acl setuser default -set
         catch {r rm_call.aclcheck.cmd set x 5} e
@@ -18,6 +20,11 @@ start_server {tags {"modules acl"}} {
         set e
     } {*DENIED KEY*}
 
+    test {test module check acl for deleted user} {
+        catch {r test.aclcheck.key.user.deleted x} e
+        set e
+    } {*NO ACL USER*}
+
     test {test module check acl for channel perm} {
         # block all channels but ch1
         r acl setuser default resetchannels &ch1
@@ -27,7 +34,9 @@ start_server {tags {"modules acl"}} {
     } {*DENIED CHANNEL*}
 
     test {test module check acl in rm_call} {
-        # rm call check for key permission
+        # rm call check for key permission (x can be accessed)
+        assert_equal [r rm_call.aclcheck set x 5] OK
+        # rm call check for key permission (y can't be accessed)
         catch {r rm_call.aclcheck set y 5} e
         assert_match {*NOPERM*} $e
         # rm call check for command permission
