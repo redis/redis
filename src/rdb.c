@@ -2571,9 +2571,10 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
          * load all the keys as they are, since the log of operations later
          * assume to work in an exact keyspace state. */
         if (val == NULL) {
-            /* Note: Since we used to have bug that could lead to create empty
-             * keys, so don't fail when empty key is encountered, we will
-             * silently discard it and continue loading. See #8453. */
+            /* Since we used to have bug that could lead to empty keys
+             * (See #8453), we rather not fail when empty key is encountered
+             * in an RDB file, instead we will silently discard it and
+             * continue loading. */
             if (error == RDB_LOAD_ERR_EMPTY_KEY) {
                 serverLog(LL_WARNING, "rdbLoadObject failed, detect empty key: %s", key);
                 sdsfree(key);
