@@ -427,8 +427,8 @@ void dismissSetObject(robj *o, size_t size_hint) {
         }
 
         /* Dismiss hash table memory. */
-        dismissMemory(set->ht[0].table, set->ht[0].size*sizeof(dictEntry*));
-        dismissMemory(set->ht[1].table, set->ht[1].size*sizeof(dictEntry*));
+        dismissMemory(set->ht_table[0], DICTHT_SIZE(set->ht_size_exp[0])*sizeof(dictEntry*));
+        dismissMemory(set->ht_table[1], DICTHT_SIZE(set->ht_size_exp[1])*sizeof(dictEntry*));
     } else if (o->encoding == OBJ_ENCODING_INTSET) {
         dismissMemory(o->ptr, intsetBlobLen((intset*)o->ptr));
     }
@@ -452,8 +452,8 @@ void dismissZsetObject(robj *o, size_t size_hint) {
 
         /* Dismiss hash table memory. */
         dict *d = zs->dict;
-        dismissMemory(d->ht[0].table, d->ht[0].size*sizeof(dictEntry*));
-        dismissMemory(d->ht[1].table, d->ht[1].size*sizeof(dictEntry*));
+        dismissMemory(d->ht_table[0], DICTHT_SIZE(d->ht_size_exp[0])*sizeof(dictEntry*));
+        dismissMemory(d->ht_table[1], DICTHT_SIZE(d->ht_size_exp[1])*sizeof(dictEntry*));
     } else if (o->encoding == OBJ_ENCODING_ZIPLIST) {
         dismissMemory(o->ptr, ziplistBlobLen((unsigned char*)o->ptr));
     }
@@ -478,8 +478,8 @@ void dismissHashObject(robj *o, size_t size_hint) {
         }
 
         /* Dismiss hash table memory. */
-        dismissMemory(d->ht[0].table, d->ht[0].size*sizeof(dictEntry*));
-        dismissMemory(d->ht[1].table, d->ht[1].size*sizeof(dictEntry*));
+        dismissMemory(d->ht_table[0], DICTHT_SIZE(d->ht_size_exp[0])*sizeof(dictEntry*));
+        dismissMemory(d->ht_table[1], DICTHT_SIZE(d->ht_size_exp[1])*sizeof(dictEntry*));
     } else if (o->encoding == OBJ_ENCODING_ZIPLIST) {
         dismissMemory(o->ptr, ziplistBlobLen((unsigned char*)o->ptr));
     }
