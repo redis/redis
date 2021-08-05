@@ -181,7 +181,7 @@ start_server {} {
                 } elseif {$root_master($mid) == $root_master($slave_id)} {
                     # My new master and I are in the old chain.
                 } else {
-                    # In cycle 1, we do not care the order.
+                    # In cycle 1, we do not care about the order.
                     if {$cycle != 1} {
                         # skipping this replica for now to avoid attaching in a bad order
                         # this is done to avoid an unexpected full sync, when we take a
