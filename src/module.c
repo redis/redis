@@ -5132,8 +5132,28 @@ void RM_DigestEndSequence(RedisModuleDigest *md) {
     memset(md->o,0,sizeof(md->o));
 }
 
-/* Decode a serialized representation of a module data type 'mt' from string
- * 'str' and return a newly allocated value, or NULL if decoding failed.
+static void *loadDataTypeFromString(const RedisModuleString *str, const moduleType *mt, int encver) {
+    rio payload;
+    RedisModuleIO io;
+    void *ret;
+
+    rioInitWithBuffer(&payload, str->ptr);
+    moduleInitIOContext(io,(moduleType *)mt,&payload,NULL,-1);
+
+    /* All RM_Save*() calls always write a version 2 compatible format, so we
+     * need to make sure we read the same.
+     */
+    io.ver = 2;
+    ret = mt->rdb_load(&io,encver);
+    if (io.ctx) {
+        moduleFreeContext(io.ctx);
+        zfree(io.ctx);
+    }
+    return ret;
+}
+
+/* Decode a serialized representation of a module data type 'mt', in a specific encoding version 'encver'
+ * from string 'str' and return a newly allocated value, or NULL if decoding failed.
  *
  * This call basically reuses the 'rdb_load' callback which module data types
  * implement in order to allow a module to arbitrarily serialize/de-serialize
@@ -5146,24 +5166,15 @@ void RM_DigestEndSequence(RedisModuleDigest *md) {
  * If this is NOT done, Redis will handle corrupted (or just truncated) serialized
  * data by producing an error message and terminating the process.
  */
+void *RM_LoadDataTypeFromStringEncver(const RedisModuleString *str, const moduleType *mt, int encver) {
+    return loadDataTypeFromString(str, mt, encver);
+}
+
+/* Similar to RM_LoadDataTypeFromStringEncver, original version of the API, kept
+   for backward compatibility.
+*/
 void *RM_LoadDataTypeFromString(const RedisModuleString *str, const moduleType *mt) {
-    rio payload;
-    RedisModuleIO io;
-    void *ret;
-
-    rioInitWithBuffer(&payload, str->ptr);
-    moduleInitIOContext(io,(moduleType *)mt,&payload,NULL,-1);
-
-    /* All RM_Save*() calls always write a version 2 compatible format, so we
-     * need to make sure we read the same.
-     */
-    io.ver = 2;
-    ret = mt->rdb_load(&io,0);
-    if (io.ctx) {
-        moduleFreeContext(io.ctx);
-        zfree(io.ctx);
-    }
-    return ret;
+    return loadDataTypeFromString(str, mt, 0);
 }
 
 /* Encode a module data type 'mt' value 'data' into serialized form, and return it
@@ -9643,6 +9654,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(LoadLongDouble);
     REGISTER_API(SaveDataTypeToString);
     REGISTER_API(LoadDataTypeFromString);
+    REGISTER_API(LoadDataTypeFromStringEncver);
     REGISTER_API(EmitAOF);
     REGISTER_API(Log);
     REGISTER_API(LogIOError);

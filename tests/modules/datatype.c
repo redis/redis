@@ -6,6 +6,8 @@
 
 static RedisModuleType *datatype = NULL;
 
+#define DATATYPE_ENC_VER 1
+
 typedef struct {
     long long intval;
     RedisModuleString *strval;
@@ -113,6 +115,27 @@ static int datatype_restore(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     return REDISMODULE_OK;
 }
 
+static int datatype_restore_encver(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+
+    if (argc != 3) {
+        RedisModule_WrongArity(ctx);
+        return REDISMODULE_OK;
+    }
+
+    DataType *dt = RedisModule_LoadDataTypeFromStringEncver(argv[2], datatype, DATATYPE_ENC_VER);
+    if (!dt) {
+        RedisModule_ReplyWithError(ctx, "Invalid data");
+        return REDISMODULE_OK;
+    }
+
+    RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_WRITE);
+    RedisModule_ModuleTypeSetValue(key, datatype, dt);
+    RedisModule_CloseKey(key);
+    RedisModule_ReplyWithSimpleString(ctx, "OK");
+
+    return REDISMODULE_OK;
+}
+
 static int datatype_get(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc != 2) {
         RedisModule_WrongArity(ctx);
@@ -181,7 +204,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
 
-    if (RedisModule_Init(ctx,"datatype",1,REDISMODULE_APIVER_1) == REDISMODULE_ERR)
+    if (RedisModule_Init(ctx,"datatype",DATATYPE_ENC_VER,REDISMODULE_APIVER_1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     RedisModule_SetModuleOptions(ctx, REDISMODULE_OPTIONS_HANDLE_IO_ERRORS);
@@ -205,6 +228,9 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"datatype.restore", datatype_restore,"deny-oom",1,1,1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"datatype.restore_encver", datatype_restore_encver,"deny-oom",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"datatype.dump", datatype_dump,"",1,1,1) == REDISMODULE_ERR)

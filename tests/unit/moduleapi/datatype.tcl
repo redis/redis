@@ -25,6 +25,23 @@ start_server {tags {"modules"}} {
         set e
     } {*Invalid*}
 
+    test {DataType: RM_SaveDataTypeToString(), RM_LoadDataTypeFromStringEncver() work} {
+        r datatype.set dtkey -1111 MyString
+        set encoded [r datatype.dump dtkey]
+
+        r datatype.restore_encver dtkeycopy $encoded
+        assert {[r datatype.get dtkeycopy] eq {-1111 MyString}}
+    }
+
+    test {DataType: Handle truncated RM_LoadDataTypeFromStringEncver()} {
+        r datatype.set dtkey -1111 MyString
+        set encoded [r datatype.dump dtkey]
+        set truncated [string range $encoded 0 end-1]
+
+        catch {r datatype.restore_encver dtkeycopy $truncated} e
+        set e
+    } {*Invalid*}
+
     test {DataType: ModuleTypeReplaceValue() happy path works} {
         r datatype.set key-a 1 AAA
         r datatype.set key-b 2 BBB
