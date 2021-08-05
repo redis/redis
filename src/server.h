@@ -2376,9 +2376,11 @@ void rewriteConfigRewriteLine(struct rewriteConfigState *state, const char *opti
 void rewriteConfigMarkAsProcessed(struct rewriteConfigState *state, const char *option);
 int rewriteConfig(char *path, int force_all);
 void initConfigValues();
+sds getConfigDebugInfo();
 
 /* db.c -- Keyspace access API */
 int removeExpire(redisDb *db, robj *key);
+void deleteExpiredKeyAndPropagate(redisDb *db, robj *keyobj);
 void propagateExpire(redisDb *db, robj *key, int lazy);
 int keyIsExpired(redisDb *db, robj *key);
 int expireIfNeeded(redisDb *db, robj *key);

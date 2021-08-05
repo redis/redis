@@ -252,6 +252,7 @@ typedef struct standardConfig {
                              * config, which is mutable. */
 #define IMMUTABLE_CONFIG (1ULL<<0) /* Can this value only be set at startup? */
 #define SENSITIVE_CONFIG (1ULL<<1) /* Does this value contain sensitive information */
+#define DEBUG_CONFIG (1ULL<<2) /* Values that are useful for debugging. */
 
 standardConfig configs[];
 
@@ -1136,11 +1137,32 @@ struct rewriteConfigState {
     dict *rewritten;      /* Dictionary of already processed options */
     int numlines;         /* Number of lines in current config */
     sds *lines;           /* Current lines as an array of sds strings */
-    int has_tail;         /* True if we already added directives that were
-                             not present in the original config file. */
-    int force_all;        /* True if we want all keywords to be force
-                             written. Currently only used for testing. */
+    int needs_signature;  /* True if we need to append the rewrite
+                             signature. */
+    int force_write;      /* True if we want all keywords to be force
+                             written. Currently only used for testing
+                             and debug information. */
 };
+
+/* Free the configuration rewrite state. */
+void rewriteConfigReleaseState(struct rewriteConfigState *state) {
+    sdsfreesplitres(state->lines,state->numlines);
+    dictRelease(state->option_to_line);
+    dictRelease(state->rewritten);
+    zfree(state);
+}
+
+/* Create the configuration rewrite state */
+struct rewriteConfigState *rewriteConfigCreateState() {
+    struct rewriteConfigState *state = zmalloc(sizeof(*state));
+    state->option_to_line = dictCreate(&optionToLineDictType);
+    state->rewritten = dictCreate(&optionSetDictType);
+    state->numlines = 0;
+    state->lines = NULL;
+    state->needs_signature = 1;
+    state->force_write = 0;
+    return state;
+}
 
 /* Append the new line to the current configuration state. */
 void rewriteConfigAppendLine(struct rewriteConfigState *state, sds line) {
@@ -1180,13 +1202,8 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
 
     char buf[CONFIG_MAX_LINE+1];
     int linenum = -1;
-    struct rewriteConfigState *state = zmalloc(sizeof(*state));
-    state->option_to_line = dictCreate(&optionToLineDictType);
-    state->rewritten = dictCreate(&optionSetDictType);
-    state->numlines = 0;
-    state->lines = NULL;
-    state->has_tail = 0;
-    state->force_all = 0;
+    struct rewriteConfigState *state = rewriteConfigCreateState();
+
     if (fp == NULL) return state;
 
     /* Read the old file line by line, populate the state. */
@@ -1199,8 +1216,8 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
 
         /* Handle comments and empty lines. */
         if (line[0] == '#' || line[0] == '\0') {
-            if (!state->has_tail && !strcmp(line,REDIS_CONFIG_REWRITE_SIGNATURE))
-                state->has_tail = 1;
+            if (state->needs_signature && !strcmp(line,REDIS_CONFIG_REWRITE_SIGNATURE))
+                state->needs_signature = 0;
             rewriteConfigAppendLine(state,line);
             continue;
         }
@@ -1274,7 +1291,7 @@ void rewriteConfigRewriteLine(struct rewriteConfigState *state, const char *opti
 
     rewriteConfigMarkAsProcessed(state,option);
 
-    if (!l && !force && !state->force_all) {
+    if (!l && !force && !state->force_write) {
         /* Option not used previously, and we are not forced to use it. */
         sdsfree(line);
         sdsfree(o);
@@ -1293,10 +1310,10 @@ void rewriteConfigRewriteLine(struct rewriteConfigState *state, const char *opti
         state->lines[linenum] = line;
     } else {
         /* Append a new line. */
-        if (!state->has_tail) {
+        if (state->needs_signature) {
             rewriteConfigAppendLine(state,
                 sdsnew(REDIS_CONFIG_REWRITE_SIGNATURE));
-            state->has_tail = 1;
+            state->needs_signature = 0;
         }
         rewriteConfigAppendLine(state,line);
     }
@@ -1641,14 +1658,6 @@ sds rewriteConfigGetContentFromState(struct rewriteConfigState *state) {
     return content;
 }
 
-/* Free the configuration rewrite state. */
-void rewriteConfigReleaseState(struct rewriteConfigState *state) {
-    sdsfreesplitres(state->lines,state->numlines);
-    dictRelease(state->option_to_line);
-    dictRelease(state->rewritten);
-    zfree(state);
-}
-
 /* At the end of the rewrite process the state contains the remaining
  * map between "option name" => "lines in the original config file".
  * Lines used by the rewrite process were removed by the function
@@ -1682,6 +1691,24 @@ void rewriteConfigRemoveOrphaned(struct rewriteConfigState *state) {
         }
     }
     dictReleaseIterator(di);
+}
+
+/* This function returns a string representation of all the config options
+ * marked with DEBUG_CONFIG, which can be used to help with debugging. */
+sds getConfigDebugInfo() {
+    struct rewriteConfigState *state = rewriteConfigCreateState();
+    state->force_write = 1; /* Force the output */
+    state->needs_signature = 0; /* Omit the rewrite signature */
+
+    /* Iterate the configs and "rewrite" the ones that have 
+     * the debug flag. */
+    for (standardConfig *config = configs; config->name != NULL; config++) {
+        if (!(config->flags & DEBUG_CONFIG)) continue;
+        config->interface.rewrite(config->data, config->name, state);
+    }
+    sds info = rewriteConfigGetContentFromState(state);
+    rewriteConfigReleaseState(state);
+    return info;
 }
 
 /* This function replaces the old configuration file with the new content
@@ -1749,18 +1776,18 @@ cleanup:
  *
  * Configuration parameters that are at their default value, unless already
  * explicitly included in the old configuration file, are not rewritten.
- * The force_all flag overrides this behavior and forces everything to be
+ * The force_write flag overrides this behavior and forces everything to be
  * written. This is currently only used for testing purposes.
  *
  * On error -1 is returned and errno is set accordingly, otherwise 0. */
-int rewriteConfig(char *path, int force_all) {
+int rewriteConfig(char *path, int force_write) {
     struct rewriteConfigState *state;
     sds newcontent;
     int retval;
 
     /* Step 1: read the old config into our rewrite state. */
     if ((state = rewriteConfigReadOldFile(path)) == NULL) return -1;
-    if (force_all) state->force_all = 1;
+    if (force_write) state->force_write = 1;
 
     /* Step 2: rewrite every single option, replacing or appending it inside
      * the rewrite state. */
@@ -2479,8 +2506,8 @@ standardConfig configs[] = {
     /* Bool configs */
     createBoolConfig("rdbchecksum", NULL, IMMUTABLE_CONFIG, server.rdb_checksum, 1, NULL, NULL),
     createBoolConfig("daemonize", NULL, IMMUTABLE_CONFIG, server.daemonize, 0, NULL, NULL),
-    createBoolConfig("io-threads-do-reads", NULL, IMMUTABLE_CONFIG, server.io_threads_do_reads, 0,NULL, NULL), /* Read + parse from threads? */
-    createBoolConfig("lua-replicate-commands", NULL, MODIFIABLE_CONFIG, server.lua_always_replicate_commands, 1, NULL, NULL),
+    createBoolConfig("io-threads-do-reads", NULL, DEBUG_CONFIG | IMMUTABLE_CONFIG, server.io_threads_do_reads, 0,NULL, NULL), /* Read + parse from threads? */
+    createBoolConfig("lua-replicate-commands", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, server.lua_always_replicate_commands, 1, NULL, NULL),
     createBoolConfig("always-show-logo", NULL, IMMUTABLE_CONFIG, server.always_show_logo, 0, NULL, NULL),
     createBoolConfig("protected-mode", NULL, MODIFIABLE_CONFIG, server.protected_mode, 1, NULL, NULL),
     createBoolConfig("rdbcompression", NULL, MODIFIABLE_CONFIG, server.rdb_compression, 1, NULL, NULL),
@@ -2489,13 +2516,13 @@ standardConfig configs[] = {
     createBoolConfig("stop-writes-on-bgsave-error", NULL, MODIFIABLE_CONFIG, server.stop_writes_on_bgsave_err, 1, NULL, NULL),
     createBoolConfig("set-proc-title", NULL, IMMUTABLE_CONFIG, server.set_proc_title, 1, NULL, NULL), /* Should setproctitle be used? */
     createBoolConfig("dynamic-hz", NULL, MODIFIABLE_CONFIG, server.dynamic_hz, 1, NULL, NULL), /* Adapt hz to # of clients.*/
-    createBoolConfig("lazyfree-lazy-eviction", NULL, MODIFIABLE_CONFIG, server.lazyfree_lazy_eviction, 0, NULL, NULL),
-    createBoolConfig("lazyfree-lazy-expire", NULL, MODIFIABLE_CONFIG, server.lazyfree_lazy_expire, 0, NULL, NULL),
-    createBoolConfig("lazyfree-lazy-server-del", NULL, MODIFIABLE_CONFIG, server.lazyfree_lazy_server_del, 0, NULL, NULL),
-    createBoolConfig("lazyfree-lazy-user-del", NULL, MODIFIABLE_CONFIG, server.lazyfree_lazy_user_del , 0, NULL, NULL),
-    createBoolConfig("lazyfree-lazy-user-flush", NULL, MODIFIABLE_CONFIG, server.lazyfree_lazy_user_flush , 0, NULL, NULL),
+    createBoolConfig("lazyfree-lazy-eviction", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, server.lazyfree_lazy_eviction, 0, NULL, NULL),
+    createBoolConfig("lazyfree-lazy-expire", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, server.lazyfree_lazy_expire, 0, NULL, NULL),
+    createBoolConfig("lazyfree-lazy-server-del", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, server.lazyfree_lazy_server_del, 0, NULL, NULL),
+    createBoolConfig("lazyfree-lazy-user-del", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, server.lazyfree_lazy_user_del , 0, NULL, NULL),
+    createBoolConfig("lazyfree-lazy-user-flush", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, server.lazyfree_lazy_user_flush , 0, NULL, NULL),
     createBoolConfig("repl-disable-tcp-nodelay", NULL, MODIFIABLE_CONFIG, server.repl_disable_tcp_nodelay, 0, NULL, NULL),
-    createBoolConfig("repl-diskless-sync", NULL, MODIFIABLE_CONFIG, server.repl_diskless_sync, 0, NULL, NULL),
+    createBoolConfig("repl-diskless-sync", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, server.repl_diskless_sync, 0, NULL, NULL),
     createBoolConfig("aof-rewrite-incremental-fsync", NULL, MODIFIABLE_CONFIG, server.aof_rewrite_incremental_fsync, 1, NULL, NULL),
     createBoolConfig("no-appendfsync-on-rewrite", NULL, MODIFIABLE_CONFIG, server.aof_no_fsync_on_rewrite, 0, NULL, NULL),
     createBoolConfig("cluster-require-full-coverage", NULL, MODIFIABLE_CONFIG, server.cluster_require_full_coverage, 1, NULL, NULL),
@@ -2505,10 +2532,10 @@ standardConfig configs[] = {
     createBoolConfig("cluster-replica-no-failover", "cluster-slave-no-failover", MODIFIABLE_CONFIG, server.cluster_slave_no_failover, 0, NULL, NULL), /* Failover by default. */
     createBoolConfig("replica-lazy-flush", "slave-lazy-flush", MODIFIABLE_CONFIG, server.repl_slave_lazy_flush, 0, NULL, NULL),
     createBoolConfig("replica-serve-stale-data", "slave-serve-stale-data", MODIFIABLE_CONFIG, server.repl_serve_stale_data, 1, NULL, NULL),
-    createBoolConfig("replica-read-only", "slave-read-only", MODIFIABLE_CONFIG, server.repl_slave_ro, 1, NULL, NULL),
+    createBoolConfig("replica-read-only", "slave-read-only", DEBUG_CONFIG | MODIFIABLE_CONFIG, server.repl_slave_ro, 1, NULL, NULL),
     createBoolConfig("replica-ignore-maxmemory", "slave-ignore-maxmemory", MODIFIABLE_CONFIG, server.repl_slave_ignore_maxmemory, 1, NULL, NULL),
     createBoolConfig("jemalloc-bg-thread", NULL, MODIFIABLE_CONFIG, server.jemalloc_bg_thread, 1, NULL, updateJemallocBgThread),
-    createBoolConfig("activedefrag", NULL, MODIFIABLE_CONFIG, server.active_defrag_enabled, 0, isValidActiveDefrag, NULL),
+    createBoolConfig("activedefrag", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, server.active_defrag_enabled, 0, isValidActiveDefrag, NULL),
     createBoolConfig("syslog-enabled", NULL, IMMUTABLE_CONFIG, server.syslog_enabled, 0, NULL, NULL),
     createBoolConfig("cluster-enabled", NULL, IMMUTABLE_CONFIG, server.cluster_enabled, 0, NULL, NULL),
     createBoolConfig("appendonly", NULL, MODIFIABLE_CONFIG, server.aof_enabled, 0, NULL, updateAppendonly),
@@ -2545,18 +2572,18 @@ standardConfig configs[] = {
     /* Enum Configs */
     createEnumConfig("supervised", NULL, IMMUTABLE_CONFIG, supervised_mode_enum, server.supervised_mode, SUPERVISED_NONE, NULL, NULL),
     createEnumConfig("syslog-facility", NULL, IMMUTABLE_CONFIG, syslog_facility_enum, server.syslog_facility, LOG_LOCAL0, NULL, NULL),
-    createEnumConfig("repl-diskless-load", NULL, MODIFIABLE_CONFIG, repl_diskless_load_enum, server.repl_diskless_load, REPL_DISKLESS_LOAD_DISABLED, NULL, NULL),
+    createEnumConfig("repl-diskless-load", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, repl_diskless_load_enum, server.repl_diskless_load, REPL_DISKLESS_LOAD_DISABLED, NULL, NULL),
     createEnumConfig("loglevel", NULL, MODIFIABLE_CONFIG, loglevel_enum, server.verbosity, LL_NOTICE, NULL, NULL),
     createEnumConfig("maxmemory-policy", NULL, MODIFIABLE_CONFIG, maxmemory_policy_enum, server.maxmemory_policy, MAXMEMORY_NO_EVICTION, NULL, NULL),
     createEnumConfig("appendfsync", NULL, MODIFIABLE_CONFIG, aof_fsync_enum, server.aof_fsync, AOF_FSYNC_EVERYSEC, NULL, NULL),
     createEnumConfig("oom-score-adj", NULL, MODIFIABLE_CONFIG, oom_score_adj_enum, server.oom_score_adj, OOM_SCORE_ADJ_NO, NULL, updateOOMScoreAdj),
     createEnumConfig("acl-pubsub-default", NULL, MODIFIABLE_CONFIG, acl_pubsub_default_enum, server.acl_pubsub_default, USER_FLAG_ALLCHANNELS, NULL, NULL),
-    createEnumConfig("sanitize-dump-payload", NULL, MODIFIABLE_CONFIG, sanitize_dump_payload_enum, server.sanitize_dump_payload, SANITIZE_DUMP_NO, NULL, NULL),
+    createEnumConfig("sanitize-dump-payload", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, sanitize_dump_payload_enum, server.sanitize_dump_payload, SANITIZE_DUMP_NO, NULL, NULL),
 
     /* Integer configs */
     createIntConfig("databases", NULL, IMMUTABLE_CONFIG, 1, INT_MAX, server.dbnum, 16, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("port", NULL, MODIFIABLE_CONFIG, 0, 65535, server.port, 6379, INTEGER_CONFIG, NULL, updatePort), /* TCP port. */
-    createIntConfig("io-threads", NULL, IMMUTABLE_CONFIG, 1, 128, server.io_threads_num, 1, INTEGER_CONFIG, NULL, NULL), /* Single threaded by default */
+    createIntConfig("io-threads", NULL, DEBUG_CONFIG | IMMUTABLE_CONFIG, 1, 128, server.io_threads_num, 1, INTEGER_CONFIG, NULL, NULL), /* Single threaded by default */
     createIntConfig("auto-aof-rewrite-percentage", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.aof_rewrite_perc, 100, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("cluster-replica-validity-factor", "cluster-slave-validity-factor", MODIFIABLE_CONFIG, 0, INT_MAX, server.cluster_slave_validity_factor, 10, INTEGER_CONFIG, NULL, NULL), /* Slave max data age factor. */
     createIntConfig("list-max-ziplist-size", NULL, MODIFIABLE_CONFIG, INT_MIN, INT_MAX, server.list_max_ziplist_size, -2, INTEGER_CONFIG, NULL, NULL),
@@ -2580,7 +2607,7 @@ standardConfig configs[] = {
     createIntConfig("cluster-announce-tls-port", NULL, MODIFIABLE_CONFIG, 0, 65535, server.cluster_announce_tls_port, 0, INTEGER_CONFIG, NULL, NULL), /* Use server.tls_port */
     createIntConfig("repl-timeout", NULL, MODIFIABLE_CONFIG, 1, INT_MAX, server.repl_timeout, 60, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("repl-ping-replica-period", "repl-ping-slave-period", MODIFIABLE_CONFIG, 1, INT_MAX, server.repl_ping_slave_period, 10, INTEGER_CONFIG, NULL, NULL),
-    createIntConfig("list-compress-depth", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.list_compress_depth, 0, INTEGER_CONFIG, NULL, NULL),
+    createIntConfig("list-compress-depth", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, 0, INT_MAX, server.list_compress_depth, 0, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("rdb-key-save-delay", NULL, MODIFIABLE_CONFIG, INT_MIN, INT_MAX, server.rdb_key_save_delay, 0, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("key-load-delay", NULL, MODIFIABLE_CONFIG, INT_MIN, INT_MAX, server.key_load_delay, 0, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("active-expire-effort", NULL, MODIFIABLE_CONFIG, 1, 10, server.active_expire_effort, 1, INTEGER_CONFIG, NULL, NULL), /* From 1 to 10. */
@@ -2601,7 +2628,7 @@ standardConfig configs[] = {
     createLongLongConfig("cluster-node-timeout", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.cluster_node_timeout, 15000, INTEGER_CONFIG, NULL, NULL),
     createLongLongConfig("slowlog-log-slower-than", NULL, MODIFIABLE_CONFIG, -1, LLONG_MAX, server.slowlog_log_slower_than, 10000, INTEGER_CONFIG, NULL, NULL),
     createLongLongConfig("latency-monitor-threshold", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.latency_monitor_threshold, 0, INTEGER_CONFIG, NULL, NULL),
-    createLongLongConfig("proto-max-bulk-len", NULL, MODIFIABLE_CONFIG, 1024*1024, LONG_MAX, server.proto_max_bulk_len, 512ll*1024*1024, MEMORY_CONFIG, NULL, NULL), /* Bulk request max size */
+    createLongLongConfig("proto-max-bulk-len", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, 1024*1024, LONG_MAX, server.proto_max_bulk_len, 512ll*1024*1024, MEMORY_CONFIG, NULL, NULL), /* Bulk request max size */
     createLongLongConfig("stream-node-max-entries", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.stream_node_max_entries, 100, INTEGER_CONFIG, NULL, NULL),
     createLongLongConfig("repl-backlog-size", NULL, MODIFIABLE_CONFIG, 1, LLONG_MAX, server.cfg_repl_backlog_size, 1024*1024, MEMORY_CONFIG, NULL, updateReplBacklogSize), /* Default: 1mb */
 
@@ -2618,7 +2645,7 @@ standardConfig configs[] = {
     createSizeTConfig("zset-max-ziplist-value", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.zset_max_ziplist_value, 64, MEMORY_CONFIG, NULL, NULL),
     createSizeTConfig("hll-sparse-max-bytes", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.hll_sparse_max_bytes, 3000, MEMORY_CONFIG, NULL, NULL),
     createSizeTConfig("tracking-table-max-keys", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.tracking_table_max_keys, 1000000, INTEGER_CONFIG, NULL, NULL), /* Default: 1 million keys max. */
-    createSizeTConfig("client-query-buffer-limit", NULL, MODIFIABLE_CONFIG, 1024*1024, LONG_MAX, server.client_max_querybuf_len, 1024*1024*1024, MEMORY_CONFIG, NULL, NULL), /* Default: 1GB max query buffer. */
+    createSizeTConfig("client-query-buffer-limit", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, 1024*1024, LONG_MAX, server.client_max_querybuf_len, 1024*1024*1024, MEMORY_CONFIG, NULL, NULL), /* Default: 1GB max query buffer. */
 
     /* Other configs */
     createTimeTConfig("repl-backlog-ttl", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.repl_backlog_time_limit, 60*60, INTEGER_CONFIG, NULL, NULL), /* Default: 1 hour */
