@@ -246,8 +246,13 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
         set p2 [exec $tclsh $script $port2 \
                 "ASKING" "+OK" \
                 "SET foo bar" "+OK" &]
-        # Sleep to make sure both fake nodes have started listening
-        after 100
+        # Make sure both fake nodes have started listening
+        wait_for_condition 50 50 {
+            [catch {close [socket "127.0.0.1" $port1]}] == 0 && \
+            [catch {close [socket "127.0.0.1" $port2]}] == 0
+        } else {
+            fail "Failed to start fake Redis nodes"
+        }
         # Run the cli
         assert_equal "OK" [run_cli_host_port_db "127.0.0.1" $port1 0 -c SET foo bar]
     }
@@ -261,7 +266,6 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
     test_nontty_cli "No accidental unquoting of input arguments" {
         run_cli --quoted-input set {"\x41\x41"} quoted-val
         run_cli set {"\x41\x41"} unquoted-val
-
         assert_equal "quoted-val" [r get AA]
         assert_equal "unquoted-val" [r get {"\x41\x41"}]
     }
