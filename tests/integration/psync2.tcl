@@ -179,7 +179,7 @@ start_server {} {
                     # Find a replica that can be attached to the new chain already attached to the new master.
                     # My new master is in the new chain.
                 } elseif {$root_master($mid) == $root_master($slave_id)} {
-                    # My new master and i are in the old chain.
+                    # My new master and I are in the old chain.
                 } else {
                     # In cycle 1, we do not care the order.
                     if {$cycle != 1} {
