@@ -148,6 +148,22 @@ test {corrupt payload: load corrupted rdb with no CRC - #3505} {
     kill_server $srv ;# let valgrind look for issues
 }
 
+test {corrupt payload: load corrupted rdb with empty keys} {
+    set server_path [tmpdir "server.rdb-corruption-empty-keys-test"]
+    exec cp tests/assets/corrupt_empty_keys.rdb $server_path
+    start_server [list overrides [list "dir" $server_path "dbfilename" "corrupt_empty_keys.rdb"]] {
+        r select 0
+        assert_equal [r dbsize] 0
+
+        verify_log_message 0 "*rdbLoadObject failed, detect empty key: set*" 0
+        verify_log_message 0 "*rdbLoadObject failed, detect empty key: quicklist*" 0
+        verify_log_message 0 "*rdbLoadObject failed, detect empty key: hash*" 0
+        verify_log_message 0 "*rdbLoadObject failed, detect empty key: hash_ziplist*" 0
+        verify_log_message 0 "*rdbLoadObject failed, detect empty key: zset*" 0
+        verify_log_message 0 "*rdbLoadObject failed, detect empty key: zset_ziplist*" 0
+    }
+}
+
 test {corrupt payload: listpack invalid size header} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r config set sanitize-dump-payload no
@@ -526,18 +542,6 @@ test {corrupt payload: fuzzer findings - stream with no records} {
         catch {r XREAD STREAMS _stream $}
         assert_equal [count_log_message 0 "crashed by signal"] 0
         assert_equal [count_log_message 0 "Guru Meditation"] 1
-    }
-}
-
-test {corrupt payload: fuzzer findings - quicklist ziplist tail followed by extra data which start with 0xff} {
-    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
-        r config set sanitize-dump-payload yes
-        r debug set-skip-checksum-validation 1
-        catch {
-            r restore key 0 "\x0E\x01\x11\x11\x00\x00\x00\x0A\x00\x00\x00\x01\x00\x00\xF6\xFF\xB0\x6C\x9C\xFF\x09\x00\x9C\x37\x47\x49\x4D\xDE\x94\xF5" replace
-        } err
-        assert_match "*Bad data format*" $err
-        verify_log_message 0 "*integrity check failed*" 0
     }
 }
 

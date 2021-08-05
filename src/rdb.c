@@ -2358,6 +2358,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
     int type, rdbver;
     redisDb *db = server.db+0;
     char buf[1024];
+    int error;
 
     rdb->update_cksum = rdbLoadProgressCallback;
     rdb->max_processing_chunk = server.loading_process_events_interval_bytes;
@@ -2559,17 +2560,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
         if ((key = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL)) == NULL)
             goto eoferr;
         /* Read value */
-        int error;
-        if ((val = rdbLoadObject(type,rdb,key,db->id,&error)) == NULL) {
-            sdsfree(key);
-
-            /* Don't fail when empty key is encountered, we will
-             * silently discard it and continue loading. */
-            if (error == RDB_LOAD_ERR_EMPTY_KEY)
-                continue;
-            else
-                goto eoferr;
-        }
+        val = rdbLoadObject(type,rdb,key,db->id,&error);
 
         /* Check if the key already expired. This function is used when loading
          * an RDB file from disk, either at startup, or when an RDB was
@@ -2579,7 +2570,18 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
          * Similarly if the RDB is the preamble of an AOF file, we want to
          * load all the keys as they are, since the log of operations later
          * assume to work in an exact keyspace state. */
-        if (iAmMaster() &&
+        if (val == NULL) {
+            /* Note: Since we used to have bug that could lead to create empty
+             * keys, so don't fail when empty key is encountered, we will
+             * silently discard it and continue loading. See #8453. */
+            if (error == RDB_LOAD_ERR_EMPTY_KEY) {
+                serverLog(LL_WARNING, "rdbLoadObject failed, detect empty key: %s", key);
+                sdsfree(key);
+            } else {
+                sdsfree(key);
+                goto eoferr;
+            }
+        } else if (iAmMaster() &&
             !(rdbflags&RDBFLAGS_AOF_PREAMBLE) &&
             expiretime != -1 && expiretime < now)
         {
