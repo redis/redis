@@ -1596,6 +1596,15 @@ void logServerInfo(void) {
     sdsfree(clients);
 }
 
+/* Log certain config values, which can be used for debuggin */
+void logConfigDebugInfo(void) {
+    sds configstring;
+    configstring = getConfigDebugInfo();
+    serverLogRaw(LL_WARNING|LL_RAW, "\n------ CONFIG DEBUG OUTPUT ------\n");
+    serverLogRaw(LL_WARNING|LL_RAW, configstring);
+    sdsfree(configstring);
+}
+
 /* Log modules info. Something we wanna do last since we fear it may crash. */
 void logModulesInfo(void) {
     serverLogRaw(LL_WARNING|LL_RAW, "\n------ MODULES INFO OUTPUT ------\n");
@@ -1851,6 +1860,10 @@ void printCrashReport(void) {
 
     /* Log modules info. Something we wanna do last since we fear it may crash. */
     logModulesInfo();
+
+    /* Log debug config information, which are some values
+     * which may be useful for debugging crashes. */
+    logConfigDebugInfo();
 
     /* Run memory test in case the crash was triggered by memory corruption. */
     doFastMemoryTest();
