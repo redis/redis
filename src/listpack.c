@@ -131,6 +131,8 @@
     assert((p) >= (lp)+LP_HDR_SIZE && (p)+(len) < (lp)+lpGetTotalBytes((lp))); \
 } while (0)
 
+static inline void lpAssertValidEntry(unsigned char* lp, size_t lpbytes, unsigned char *p);
+
 /* Convert a string into a signed 64 bit integer.
  * The function returns 1 if the string could be parsed into a (non-overflowing)
  * signed 64 bit int, 0 otherwise. The 'value' will be set to the parsed value
@@ -450,8 +452,8 @@ unsigned char *lpSkip(unsigned char *p) {
 unsigned char *lpNext(unsigned char *lp, unsigned char *p) {
     assert(p);
     p = lpSkip(p);
-    ASSERT_INTEGRITY(lp, p);
     if (p[0] == LP_EOF) return NULL;
+    lpAssertValidEntry(lp, lpBytes(lp), p);
     return p;
 }
 
@@ -465,16 +467,17 @@ unsigned char *lpPrev(unsigned char *lp, unsigned char *p) {
     uint64_t prevlen = lpDecodeBacklen(p);
     prevlen += lpEncodeBacklen(NULL,prevlen);
     p -= prevlen-1; /* Seek the first byte of the previous entry. */
-    ASSERT_INTEGRITY(lp, p);
+    lpAssertValidEntry(lp, lpBytes(lp), p);
     return p;
 }
 
 /* Return a pointer to the first element of the listpack, or NULL if the
  * listpack has no elements. */
 unsigned char *lpFirst(unsigned char *lp) {
-    lp += LP_HDR_SIZE; /* Skip the header. */
-    if (lp[0] == LP_EOF) return NULL;
-    return lp;
+    unsigned char *p = lp + LP_HDR_SIZE; /* Skip the header. */
+    if (p[0] == LP_EOF) return NULL;
+    lpAssertValidEntry(lp, lpBytes(lp), p);
+    return p;
 }
 
 /* Return a pointer to the last element of the listpack, or NULL if the
@@ -858,6 +861,13 @@ unsigned char *lpSeek(unsigned char *lp, long index) {
     }
 }
 
+/* Same as lpFirst but without validation assert, to be used right before lpValidateNext. */
+unsigned char *lpValidateFirst(unsigned char *lp) {
+    unsigned char *p = lp + LP_HDR_SIZE; /* Skip the header. */
+    if (p[0] == LP_EOF) return NULL;
+    return p;
+}
+
 /* Validate the integrity of a single listpack entry and move to the next one.
  * The input argument 'pp' is a reference to the current record and is advanced on exit.
  * Returns 1 if valid, 0 if invalid. */
@@ -867,6 +877,10 @@ int lpValidateNext(unsigned char *lp, unsigned char **pp, size_t lpbytes) {
         (p) > lp + lpbytes - 1)
     unsigned char *p = *pp;
     if (!p)
+        return 0;
+
+    /* Before accessing p, make sure it's valid. */
+    if (OUT_OF_RANGE(p))
         return 0;
 
     if (*p == LP_EOF) {
@@ -905,6 +919,11 @@ int lpValidateNext(unsigned char *lp, unsigned char **pp, size_t lpbytes) {
 #undef OUT_OF_RANGE
 }
 
+/* Validate that the entry doesn't reach outside the listpack allocation. */
+static inline void lpAssertValidEntry(unsigned char* lp, size_t lpbytes, unsigned char *p) {
+    assert(lpValidateNext(lp, &p, lpbytes));
+}
+
 /* Validate the integrity of the data structure.
  * when `deep` is 0, only the integrity of the header is validated.
  * when `deep` is 1, we scan all the entries one by one. */
@@ -927,8 +946,8 @@ int lpValidateIntegrity(unsigned char *lp, size_t size, int deep){
 
     /* Validate the individual entries. */
     uint32_t count = 0;
-    unsigned char *p = lpFirst(lp);
-    while(p) {
+    unsigned char *p = lp + LP_HDR_SIZE;
+    while(p && p[0] != LP_EOF) {
         if (!lpValidateNext(lp, &p, bytes))
             return 0;
         count++;

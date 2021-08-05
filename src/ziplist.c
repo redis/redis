@@ -1522,6 +1522,10 @@ int ziplistValidateIntegrity(unsigned char *zl, size_t size, int deep,
         count++;
     }
 
+    /* Make sure 'p' really does point to the end of the ziplist. */
+    if (p != zl + bytes - ZIPLIST_END_SIZE)
+        return 0;
+
     /* Make sure the <zltail> entry really do point to the start of the last entry. */
     if (prev != ZIPLIST_ENTRY_TAIL(zl))
         return 0;

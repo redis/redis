@@ -123,6 +123,21 @@ robj *createStringObject(const char *ptr, size_t len) {
         return createRawStringObject(ptr,len);
 }
 
+/* Same as CreateRawStringObject, can return NULL if allocation fails */
+robj *tryCreateRawStringObject(const char *ptr, size_t len) {
+    sds str = sdstrynewlen(ptr,len);
+    if (!str) return NULL;
+    return createObject(OBJ_STRING, str);
+}
+
+/* Same as createStringObject, can return NULL if allocation fails */
+robj *tryCreateStringObject(const char *ptr, size_t len) {
+    if (len <= OBJ_ENCODING_EMBSTR_SIZE_LIMIT)
+        return createEmbeddedStringObject(ptr,len);
+    else
+        return tryCreateRawStringObject(ptr,len);
+}
+
 /* Create a string object from a long long value. When possible returns a
  * shared integer object, or at least an integer encoded one.
  *
