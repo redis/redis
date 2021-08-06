@@ -619,7 +619,6 @@ start_server [list overrides [list "dir" $server_path "acl-pubsub-default" "rese
     }
 }
 
-
 start_server {overrides {user "default on nopass ~* +@all"} tags {"external:skip"}} {
     test {default: load from config file, can access any channels} {
         r SUBSCRIBE foo
@@ -627,5 +626,25 @@ start_server {overrides {user "default on nopass ~* +@all"} tags {"external:skip
         r UNSUBSCRIBE
         r PUNSUBSCRIBE
         r PUBLISH hello world
+    }
+}
+
+set server_path [tmpdir "malformed.acl"]
+exec cp -f tests/assets/nodefaultuser.acl $server_path
+exec cp -f tests/assets/default.conf $server_path
+start_server [list overrides [list "dir" $server_path "aclfile" "nodefaultuser.acl"] tags [list "external:skip"]] {
+
+    test {Test loading a corrupt ACL file} {
+        # Corrupt the ACL file
+        exec cp -f tests/assets/malformed.acl $server_path/nodefaultuser.acl
+        catch {r ACL LOAD} err
+        assert_match {*Duplicate user 'alice' found*} $err 
+
+        # Verify the previous users still exist
+        # NOTE: A missing user evalutes to an empty
+        # string. 
+        assert {[r ACL GETUSER alice] != ""}
+        assert_equal [dict get [r ACL GETUSER alice] commands] "+@all"
+        assert {[r ACL GETUSER bob] != ""}
     }
 }
