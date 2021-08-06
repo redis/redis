@@ -1223,10 +1223,10 @@ robj *objectCommandLookup(client *c, robj *key) {
     return lookupKeyReadWithFlags(c->db,key,LOOKUP_NOTOUCH|LOOKUP_NONOTIFY);
 }
 
+extern void SentReplyOnKeyMiss();
 robj *objectCommandLookupOrReply(client *c, robj *key, robj *reply) {
     robj *o = objectCommandLookup(c,key);
-
-    if (!o) addReply(c, reply);
+    if (!o) SentReplyOnKeyMiss(c, reply);
     return o;
 }
 
