@@ -1913,10 +1913,12 @@ NULL
             addReplyError(c,"SCRIPT FLUSH only support SYNC|ASYNC option");
             return;
         }
-        scriptingReset(async);
+        if (dictSize(server.lua_scripts)) {
+            scriptingReset(async);
+            replicationScriptCacheFlush();
+            forceCommandPropagation(c,PROPAGATE_REPL|PROPAGATE_AOF);
+        }
         addReply(c,shared.ok);
-        replicationScriptCacheFlush();
-        server.dirty++; /* Propagating this command is a good idea. */
     } else if (c->argc >= 2 && !strcasecmp(c->argv[1]->ptr,"exists")) {
         int j;
 
