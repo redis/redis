@@ -50,6 +50,26 @@ int consumeNewline(char *buf) {
     return 1;
 }
 
+int readAnnotations(FILE *fp) {
+    char buf[AOF_ANNOTATION_LINE_MAX_LEN];
+    while (1) {
+        epos = ftello(fp);
+        if (fgets(buf, sizeof(buf), fp) == NULL) {
+            return 0;
+        }
+        if (buf[0] == '#') {
+            continue;
+        } else {
+            if (fseek(fp, -(ftello(fp)-epos), SEEK_CUR) == -1) {
+                ERROR("Fseek error: %s", strerror(errno));
+                return 0;
+            }
+            return 1;
+        }
+    }
+    return 1;
+}
+
 int readLong(FILE *fp, char prefix, long *target) {
     char buf[128], *eptr;
     epos = ftello(fp);
@@ -107,6 +127,7 @@ off_t process(FILE *fp) {
 
     while(1) {
         if (!multi) pos = ftello(fp);
+        if (!readAnnotations(fp)) break;
         if (!readArgc(fp, &argc)) break;
 
         for (i = 0; i < argc; i++) {
