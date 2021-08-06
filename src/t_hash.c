@@ -541,9 +541,10 @@ robj *hashTypeDup(robj *o) {
     return hobj;
 }
 
-/* callback for to check the ziplist doesn't have duplicate records.
+/* callback for hashZiplistConvertAndValidateIntegrity.
+ * Check that the ziplist doesn't have duplicate hash field names.
  * The ziplist element pointed by 'p' will be converted and stored into listpack. */
-static int _hashZiplistEntryConvertAndValidation(unsigned char *p, void *userdata) {
+static int _hashZiplistEntryValidateAndConvert(unsigned char *p, void *userdata) {
     unsigned char *str;
     unsigned int slen;
     long long vll;
