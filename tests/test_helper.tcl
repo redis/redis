@@ -56,6 +56,7 @@ set ::all_tests {
     integration/failover
     integration/redis-cli
     integration/redis-benchmark
+    integration/dismiss-mem
     unit/pubsub
     unit/slowlog
     unit/scripting

@@ -7,10 +7,12 @@ static RedisModuleString *log_key_name;
 
 static const char log_command_name[] = "commandfilter.log";
 static const char ping_command_name[] = "commandfilter.ping";
+static const char retained_command_name[] = "commandfilter.retained";
 static const char unregister_command_name[] = "commandfilter.unregister";
 static int in_log_command = 0;
 
-static RedisModuleCommandFilter *filter = NULL;
+static RedisModuleCommandFilter *filter;
+static RedisModuleString *retained;
 
 int CommandFilter_UnregisterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
@@ -34,6 +36,20 @@ int CommandFilter_PingCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
         RedisModule_FreeCallReply(reply);
     } else {
         RedisModule_ReplyWithSimpleString(ctx, "Unknown command or invalid arguments");
+    }
+
+    return REDISMODULE_OK;
+}
+
+int CommandFilter_Retained(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    (void) argc;
+    (void) argv;
+
+    if (retained) {
+        RedisModule_ReplyWithString(ctx, retained);
+    } else {
+        RedisModule_ReplyWithNull(ctx);
     }
 
     return REDISMODULE_OK;
@@ -106,6 +122,11 @@ void CommandFilter_CommandFilter(RedisModuleCommandFilterCtx *filter)
             RedisModule_CommandFilterArgInsert(filter, pos + 1,
                     RedisModule_CreateString(NULL, "--inserted-after--", 18));
             pos++;
+        } else if (arg_len == 7 && !memcmp(arg_str, "@retain", 7)) {
+            if (retained) RedisModule_FreeString(NULL, retained);
+            retained = RedisModule_CommandFilterArgGet(filter, pos + 1);
+            RedisModule_RetainString(NULL, retained);
+            pos++;
         } else if (arg_len == 4 && !memcmp(arg_str, "@log", 4)) {
             log = 1;
         }
@@ -128,6 +149,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     long long noself = 0;
     log_key_name = RedisModule_CreateStringFromString(ctx, argv[0]);
     RedisModule_StringToLongLong(argv[1], &noself);
+    retained = NULL;
 
     if (RedisModule_CreateCommand(ctx,log_command_name,
                 CommandFilter_LogCommand,"write deny-oom",1,1,1) == REDISMODULE_ERR)
@@ -135,6 +157,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx,ping_command_name,
                 CommandFilter_PingCommand,"deny-oom",1,1,1) == REDISMODULE_ERR)
+            return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,retained_command_name,
+                CommandFilter_Retained,"readonly",1,1,1) == REDISMODULE_ERR)
             return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,unregister_command_name,
@@ -150,5 +176,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
 int RedisModule_OnUnload(RedisModuleCtx *ctx) {
     RedisModule_FreeString(ctx, log_key_name);
+    if (retained) RedisModule_FreeString(NULL, retained);
+
     return REDISMODULE_OK;
 }

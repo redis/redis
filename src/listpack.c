@@ -1024,6 +1024,13 @@ unsigned char *lpSeek(unsigned char *lp, long index) {
     }
 }
 
+/* Same as lpFirst but without validation assert, to be used right before lpValidateNext. */
+unsigned char *lpValidateFirst(unsigned char *lp) {
+    unsigned char *p = lp + LP_HDR_SIZE; /* Skip the header. */
+    if (p[0] == LP_EOF) return NULL;
+    return p;
+}
+
 /* Validate the integrity of a single listpack entry and move to the next one.
  * The input argument 'pp' is a reference to the current record and is advanced on exit.
  * Returns 1 if valid, 0 if invalid. */
@@ -1033,6 +1040,10 @@ int lpValidateNext(unsigned char *lp, unsigned char **pp, size_t lpbytes) {
         (p) > lp + lpbytes - 1)
     unsigned char *p = *pp;
     if (!p)
+        return 0;
+
+    /* Before accessing p, make sure it's valid. */
+    if (OUT_OF_RANGE(p))
         return 0;
 
     if (*p == LP_EOF) {
