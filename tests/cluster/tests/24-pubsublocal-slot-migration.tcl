@@ -32,7 +32,7 @@ test "Migrate a slot, verify client terminates on primary serving the slot." {
     set msg [$subscribeclient read]
     assert {"unsubscribelocal" eq [lindex $msg 0]}
     assert {$channelname eq [lindex $msg 1]}
-    #assert {"0" eq [lindex $msg 2]}
+    assert {"0" eq [lindex $msg 2]}
 
     assert_equal {OK} [$nodeto(link) cluster setslot $slot node $nodeto(id)]
     
@@ -68,7 +68,7 @@ test "Migrate a slot, verify client terminates on replica serving the slot." {
     set msg [$subscribeclient read]
     assert {"unsubscribelocal" eq [lindex $msg 0]}
     assert {$channelname eq [lindex $msg 1]}
-    #assert {"0" eq [lindex $msg 2]}
+    assert {"0" eq [lindex $msg 2]}
     
     $cluster close
     $subscribeclient close
