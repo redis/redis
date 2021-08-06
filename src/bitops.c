@@ -779,34 +779,53 @@ void bitopCommand(client *c) {
     addReplyLongLong(c,maxlen); /* Return the output string length in bytes. */
 }
 
-/* BITCOUNT key [start end] */
+/* BITCOUNT key [start end [BIT|BYTE]] */
 void bitcountCommand(client *c) {
     robj *o;
-    long start, end, strlen;
+    long long start, end, strlen;
+    long tmplen;
     unsigned char *p;
     char llbuf[LONG_STR_SIZE];
+    int isbit = 0, prefix = 0, postfix = 0;
 
     /* Lookup, check for type, and return 0 for non existing keys. */
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,o,OBJ_STRING)) return;
-    p = getObjectReadOnlyString(o,&strlen,llbuf);
+    p = getObjectReadOnlyString(o,&tmplen,llbuf);
+    strlen = tmplen;
 
     /* Parse start/end range if any. */
-    if (c->argc == 4) {
-        if (getLongFromObjectOrReply(c,c->argv[2],&start,NULL) != C_OK)
+    if (c->argc == 4 || c->argc == 5) {
+        if (getLongLongFromObjectOrReply(c,c->argv[2],&start,NULL) != C_OK)
             return;
-        if (getLongFromObjectOrReply(c,c->argv[3],&end,NULL) != C_OK)
+        if (getLongLongFromObjectOrReply(c,c->argv[3],&end,NULL) != C_OK)
             return;
         /* Convert negative indexes */
         if (start < 0 && end < 0 && start > end) {
             addReply(c,shared.czero);
             return;
         }
+        if (c->argc == 5) {
+            if (!strcasecmp(c->argv[4]->ptr,"bit")) isbit = 1;
+            else if (!strcasecmp(c->argv[4]->ptr,"byte")) isbit = 0;
+            else {
+                addReplyErrorObject(c,shared.syntaxerr);
+                return;
+            }
+        }
+        if (isbit) strlen <<= 3;
         if (start < 0) start = strlen+start;
         if (end < 0) end = strlen+end;
         if (start < 0) start = 0;
         if (end < 0) end = 0;
         if (end >= strlen) end = strlen-1;
+        if (isbit && start <= end) {
+            strlen >>= 3;
+            prefix = start&7;
+            postfix = 7-(end&7);
+            start >>= 3;
+            end >>= 3;
+        }
     } else if (c->argc == 2) {
         /* The whole string. */
         start = 0;
@@ -822,19 +841,32 @@ void bitcountCommand(client *c) {
     if (start > end) {
         addReply(c,shared.czero);
     } else {
-        long bytes = end-start+1;
-
-        addReplyLongLong(c,redisPopcount(p+start,bytes));
+        long bytes = (long)(end-start+1);
+        long long count = redisPopcount(p+start,bytes);
+        if (prefix != 0 || postfix != 0) {
+            unsigned char prepost[2] = {0, 0};
+            /* We may count bits of first byte and last byte which are out of
+            * range. So we need to subtract them. Here we use a trick. We set
+            * bits in the range to zero. So these bit will not be excluded.
+            * For instance if prefix is 3, we count first 3 bits of start byte.
+            * If postfix is 4, we count last 4 bits of end byte */
+            if (prefix != 0) prepost[0] = p[start] & (~((1<<(8-prefix))-1) & 0xFF);
+            if (postfix != 0) prepost[1] = p[end] & ((1<<postfix)-1);
+            count -= redisPopcount(prepost,2);
+        }
+        addReplyLongLong(c,count);
     }
 }
 
-/* BITPOS key bit [start [end]] */
+/* BITPOS key bit [start [end [BIT|BYTE]]] */
 void bitposCommand(client *c) {
     robj *o;
-    long bit, start, end, strlen;
+    long bit, tmplen;
+    long long start, end, strlen;
     unsigned char *p;
     char llbuf[LONG_STR_SIZE];
     int end_given = 0;
+    int isbit = 0, prefix = 0, postfix = 0;
 
     /* Parse the bit argument to understand what we are looking for, set
      * or clear bits. */
@@ -846,32 +878,50 @@ void bitposCommand(client *c) {
     }
 
     /* If the key does not exist, from our point of view it is an infinite
-     * array of 0 bits. If the user is looking for the fist clear bit return 0,
+     * array of 0 bits. If the user is looking for the first clear bit return 0,
      * If the user is looking for the first set bit, return -1. */
     if ((o = lookupKeyRead(c->db,c->argv[1])) == NULL) {
         addReplyLongLong(c, bit ? -1 : 0);
         return;
     }
     if (checkType(c,o,OBJ_STRING)) return;
-    p = getObjectReadOnlyString(o,&strlen,llbuf);
+    p = getObjectReadOnlyString(o,&tmplen,llbuf);
+    strlen = tmplen;
 
     /* Parse start/end range if any. */
-    if (c->argc == 4 || c->argc == 5) {
-        if (getLongFromObjectOrReply(c,c->argv[3],&start,NULL) != C_OK)
+    if (c->argc == 4 || c->argc == 5 || c->argc == 6) {
+        if (getLongLongFromObjectOrReply(c,c->argv[3],&start,NULL) != C_OK)
             return;
-        if (c->argc == 5) {
-            if (getLongFromObjectOrReply(c,c->argv[4],&end,NULL) != C_OK)
+        if (c->argc == 6) {
+            if (!strcasecmp(c->argv[5]->ptr,"bit")) isbit = 1;
+            else if (!strcasecmp(c->argv[5]->ptr,"byte")) isbit = 0;
+            else {
+                addReplyErrorObject(c,shared.syntaxerr);
+                return;
+            }
+        }
+        if (c->argc >= 5) {
+            if (getLongLongFromObjectOrReply(c,c->argv[4],&end,NULL) != C_OK)
                 return;
             end_given = 1;
         } else {
-            end = strlen-1;
+            if (isbit) end = (strlen<<3) + 7;
+            else end = strlen-1;
         }
+        if (isbit) strlen <<= 3;
         /* Convert negative indexes */
         if (start < 0) start = strlen+start;
         if (end < 0) end = strlen+end;
         if (start < 0) start = 0;
         if (end < 0) end = 0;
         if (end >= strlen) end = strlen-1;
+        if (isbit && start <= end) {
+            strlen >>= 3;
+            prefix = start&7;
+            postfix = 7 - (end&7);
+            start >>= 3;
+            end >>= 3;
+        }
     } else if (c->argc == 3) {
         /* The whole string. */
         start = 0;
@@ -888,7 +938,25 @@ void bitposCommand(client *c) {
         addReplyLongLong(c, -1);
     } else {
         long bytes = end-start+1;
+        unsigned char prepost[2] = {p[start], p[end]};
+        /* Here we use a trick. We set bits at first byte and last byte out
+         * of range to ~bit. So these bits will not be included. */
+        if (prefix) {
+            unsigned char op = ((1<<(8-prefix))-1);
+            if (bit) p[start] &= op;
+            else p[start] |= ~op;
+        }
+        if (postfix) {
+            unsigned char op = ((1<<postfix)-1);
+            if (bit) p[end] &= ~op;
+            else p[end] |= op;
+        }
+
         long long pos = redisBitpos(p+start,bytes,bit);
+
+        /* Restore first and last byte */
+        p[start] = prepost[0];
+        p[end] = prepost[1];
 
         /* If we are looking for clear bits, and the user specified an exact
          * range with start-end, we can't consider the right of the range as

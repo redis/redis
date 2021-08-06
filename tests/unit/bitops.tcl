@@ -4,6 +4,12 @@ proc count_bits s {
     string length [regsub -all {0} $bits {}]
 }
 
+# start end are bit index
+proc count_bits_start_end {s start end} {
+    binary scan $s B* bits
+    string length [regsub -all {0} [string range $bits $start $end] {}]
+}
+
 proc simulate_bit_op {op args} {
     set maxlen 0
     set j 0
@@ -40,25 +46,30 @@ proc simulate_bit_op {op args} {
 
 start_server {tags {"bitops"}} {
     test {BITCOUNT returns 0 against non existing key} {
-        r bitcount no-key
-    } 0
+        assert {[r bitcount no-key] == 0}
+        assert {[r bitcount no-key 0 1000 bit] == 0}
+    }
 
     test {BITCOUNT returns 0 with out of range indexes} {
         r set str "xxxx"
-        r bitcount str 4 10
-    } 0
+        assert {[r bitcount str 4 10] == 0}
+        assert {[r bitcount str 32 87 bit] == 0}
+    }
 
     test {BITCOUNT returns 0 with negative indexes where start > end} {
         r set str "xxxx"
-        r bitcount str -6 -7
-    } 0
+        assert {[r bitcount str -6 -7] == 0}
+        assert {[r bitcount str -6 -15 bit] == 0}
+    }
 
     catch {unset num}
     foreach vec [list "" "\xaa" "\x00\x00\xff" "foobar" "123"] {
         incr num
         test "BITCOUNT against test vector #$num" {
             r set str $vec
-            assert {[r bitcount str] == [count_bits $vec]}
+            set count [count_bits $vec]
+            assert {[r bitcount str] == $count}
+            assert {[r bitcount str 0 -1 bit] == $count}
         }
     }
 
@@ -66,7 +77,9 @@ start_server {tags {"bitops"}} {
         for {set j 0} {$j < 100} {incr j} {
             set str [randstring 0 3000]
             r set str $str
-            assert {[r bitcount str] == [count_bits $str]}
+            set count [count_bits $str]
+            assert {[r bitcount str] == $count}
+            assert {[r bitcount str 0 -1 bit] == $count}
         }
     }
 
@@ -82,18 +95,46 @@ start_server {tags {"bitops"}} {
             }
             assert {[r bitcount str $start $end] == [count_bits [string range $str $start $end]]}
         }
+
+        for {set j 0} {$j < 100} {incr j} {
+            set str [randstring 0 3000]
+            r set str $str
+            set l [expr [string length $str] * 8]
+            set start [randomInt $l]
+            set end [randomInt $l]
+            if {$start > $end} {
+                lassign [list $end $start] start end
+            }
+            assert {[r bitcount str $start $end bit] == [count_bits_start_end $str $start $end]}
+        }
     }
 
     test {BITCOUNT with start, end} {
-        r set s "foobar"
+        set s "foobar"
+        r set s $s
         assert_equal [r bitcount s 0 -1] [count_bits "foobar"]
         assert_equal [r bitcount s 1 -2] [count_bits "ooba"]
         assert_equal [r bitcount s -2 1] [count_bits ""]
         assert_equal [r bitcount s 0 1000] [count_bits "foobar"]
+
+        assert_equal [r bitcount s 0 -1 bit] [count_bits $s]
+        assert_equal [r bitcount s 10 14 bit] [count_bits_start_end $s 10 14]
+        assert_equal [r bitcount s 3 14 bit] [count_bits_start_end $s 3 14]
+        assert_equal [r bitcount s 3 29 bit] [count_bits_start_end $s 3 29]
+        assert_equal [r bitcount s 10 -34 bit] [count_bits_start_end $s 10 14]
+        assert_equal [r bitcount s 3 -34 bit] [count_bits_start_end $s 3 14]
+        assert_equal [r bitcount s 3 -19 bit] [count_bits_start_end $s 3 29]
+        assert_equal [r bitcount s -2 1 bit] 0
+        assert_equal [r bitcount s 0 1000 bit] [count_bits $s]
     }
 
     test {BITCOUNT syntax error #1} {
         catch {r bitcount s 0} e
+        set e
+    } {ERR*syntax*}
+
+    test {BITCOUNT syntax error #2} {
+        catch {r bitcount s 0 1 hello} e
         set e
     } {ERR*syntax*}
 
@@ -216,33 +257,39 @@ start_server {tags {"bitops"}} {
 
     test {BITPOS bit=0 with empty key returns 0} {
         r del str
-        r bitpos str 0
-    } {0}
+        assert {[r bitpos str 0] == 0}
+        assert {[r bitpos str 0 0 -1 bit] == 0}
+    }
 
     test {BITPOS bit=1 with empty key returns -1} {
         r del str
-        r bitpos str 1
-    } {-1}
+        assert {[r bitpos str 1] == -1}
+        assert {[r bitpos str 1 0 -1] == -1}
+    }
 
     test {BITPOS bit=0 with string less than 1 word works} {
         r set str "\xff\xf0\x00"
-        r bitpos str 0
-    } {12}
+        assert {[r bitpos str 0] == 12}
+        assert {[r bitpos str 0 0 -1 bit] == 12}
+    }
 
     test {BITPOS bit=1 with string less than 1 word works} {
         r set str "\x00\x0f\x00"
-        r bitpos str 1
-    } {12}
+        assert {[r bitpos str 1] == 12}
+        assert {[r bitpos str 1 0 -1 bit] == 12}
+    }
 
     test {BITPOS bit=0 starting at unaligned address} {
         r set str "\xff\xf0\x00"
-        r bitpos str 0 1
-    } {12}
+        assert {[r bitpos str 0 1] == 12}
+        assert {[r bitpos str 0 1 -1 bit] == 12}
+    }
 
     test {BITPOS bit=1 starting at unaligned address} {
         r set str "\x00\x0f\xff"
-        r bitpos str 1 1
-    } {12}
+        assert {[r bitpos str 1 1] == 12}
+        assert {[r bitpos str 1 1 -1 bit] == 12}
+    }
 
     test {BITPOS bit=0 unaligned+full word+reminder} {
         r del str
@@ -262,6 +309,16 @@ start_server {tags {"bitops"}} {
         assert {[r bitpos str 0 6] == 216}
         assert {[r bitpos str 0 7] == 216}
         assert {[r bitpos str 0 8] == 216}
+
+        assert {[r bitpos str 0 1 -1 bit] == 216}
+        assert {[r bitpos str 0 9 -1 bit] == 216}
+        assert {[r bitpos str 0 17 -1 bit] == 216}
+        assert {[r bitpos str 0 25 -1 bit] == 216}
+        assert {[r bitpos str 0 33 -1 bit] == 216}
+        assert {[r bitpos str 0 41 -1 bit] == 216}
+        assert {[r bitpos str 0 49 -1 bit] == 216}
+        assert {[r bitpos str 0 57 -1 bit] == 216}
+        assert {[r bitpos str 0 65 -1 bit] == 216}
     }
 
     test {BITPOS bit=1 unaligned+full word+reminder} {
@@ -282,12 +339,23 @@ start_server {tags {"bitops"}} {
         assert {[r bitpos str 1 6] == 216}
         assert {[r bitpos str 1 7] == 216}
         assert {[r bitpos str 1 8] == 216}
+
+        assert {[r bitpos str 1 1 -1 bit] == 216}
+        assert {[r bitpos str 1 9 -1 bit] == 216}
+        assert {[r bitpos str 1 17 -1 bit] == 216}
+        assert {[r bitpos str 1 25 -1 bit] == 216}
+        assert {[r bitpos str 1 33 -1 bit] == 216}
+        assert {[r bitpos str 1 41 -1 bit] == 216}
+        assert {[r bitpos str 1 49 -1 bit] == 216}
+        assert {[r bitpos str 1 57 -1 bit] == 216}
+        assert {[r bitpos str 1 65 -1 bit] == 216}
     }
 
     test {BITPOS bit=1 returns -1 if string is all 0 bits} {
         r set str ""
         for {set j 0} {$j < 20} {incr j} {
             assert {[r bitpos str 1] == -1}
+            assert {[r bitpos str 1 0 -1 bit] == -1}
             r append str "\x00"
         }
     }
@@ -299,6 +367,12 @@ start_server {tags {"bitops"}} {
         assert {[r bitpos str 0 2 -1] == 16}
         assert {[r bitpos str 0 2 200] == 16}
         assert {[r bitpos str 0 1 1] == -1}
+
+        assert {[r bitpos str 0 0 -1 bit] == 0}
+        assert {[r bitpos str 0 8 -1 bit] == 16}
+        assert {[r bitpos str 0 16 -1 bit] == 16}
+        assert {[r bitpos str 0 16 200 bit] == 16}
+        assert {[r bitpos str 0 8 8 bit] == -1}
     }
 
     test {BITPOS bit=1 works with intervals} {
@@ -308,6 +382,12 @@ start_server {tags {"bitops"}} {
         assert {[r bitpos str 1 2 -1] == -1}
         assert {[r bitpos str 1 2 200] == -1}
         assert {[r bitpos str 1 1 1] == 8}
+
+        assert {[r bitpos str 1 0 -1 bit] == 8}
+        assert {[r bitpos str 1 8 -1 bit] == 8}
+        assert {[r bitpos str 1 16 -1 bit] == -1}
+        assert {[r bitpos str 1 16 200 bit] == -1}
+        assert {[r bitpos str 1 8 8 bit] == 8}
     }
 
     test {BITPOS bit=0 changes behavior if end is given} {
@@ -315,6 +395,7 @@ start_server {tags {"bitops"}} {
         assert {[r bitpos str 0] == 24}
         assert {[r bitpos str 0 0] == 24}
         assert {[r bitpos str 0 0 -1] == -1}
+        assert {[r bitpos str 0 0 -1 bit] == -1}
     }
 
     test {BITPOS bit=1 fuzzy testing using SETBIT} {
@@ -323,6 +404,7 @@ start_server {tags {"bitops"}} {
         set first_one_pos -1
         for {set j 0} {$j < 1000} {incr j} {
             assert {[r bitpos str 1] == $first_one_pos}
+            assert {[r bitpos str 1 0 -1 bit] == $first_one_pos}
             set pos [randomInt $max]
             r setbit str $pos 1
             if {$first_one_pos == -1 || $first_one_pos > $pos} {
@@ -339,12 +421,69 @@ start_server {tags {"bitops"}} {
         r set str [string repeat "\xff" [expr $max/8]]
         for {set j 0} {$j < 1000} {incr j} {
             assert {[r bitpos str 0] == $first_zero_pos}
+            if {$first_zero_pos == $max} {
+                assert {[r bitpos str 0 0 -1 bit] == -1}
+            } else {
+                assert {[r bitpos str 0 0 -1 bit] == $first_zero_pos}
+            }
             set pos [randomInt $max]
             r setbit str $pos 0
             if {$first_zero_pos > $pos} {
                 # Update the position of the first 0 bit in the array
                 # if the bit we clear is on the left of the previous one.
                 set first_zero_pos $pos
+            }
+        }
+    }
+
+    test {BITPOS fuzzy testing with start/end} {
+        r del str
+        set max 524288; # 64k
+        r setbit str [expr $max - 1] 0
+        set bytes [expr $max >> 3]
+        for {set bit 0} {$bit < 2} {incr bit} {
+            r bitop not str str
+            for {set j 0} {$j < 1000} {incr j} {
+                set start [randomInt $bytes]
+                set end [randomInt $bytes]
+                set pos [randomInt $max]
+                r setbit str $pos $bit
+                set res $pos
+                if {$start > $end} {
+                    if {$pos < [expr $end << 3] || $pos > [expr ($start << 3) + 7]} {
+                        set res -1
+                    }
+                    lassign [list [expr $end - $bytes] [expr $start - $bytes]] start end
+                } else {
+                    if {$pos < [expr $start << 3] || $pos > [expr ($end << 3) + 7]} {
+                        set res -1
+                    }
+                }
+                assert {[r bitpos str $bit $start $end] == $res}
+                r setbit str $pos [expr 1 - $bit]
+            }
+        }
+
+        for {set bit 0} {$bit < 2} {incr bit} {
+            r bitop not str str
+            for {set j 0} {$j < 1000} {incr j} {
+                set start [randomInt $max]
+                set end [randomInt $max]
+                set pos [randomInt $max]
+                r setbit str $pos $bit
+                set res $pos
+                if {$start > $end} {
+                    if {$pos < $end || $pos > $start} {
+                        set res -1
+                    }
+                    lassign [list [expr $end - $max] [expr $start - $max]] start end
+                } else {
+                    if {$pos < $start || $pos > $end} {
+                        set res -1
+                    }
+                }
+                assert {[r bitpos str $bit $start $end bit] == $res}
+                r setbit str $pos [expr 1 - $bit]
             }
         }
     }
