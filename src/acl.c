@@ -1877,11 +1877,11 @@ sds ACLLoadFromFile(const char *filename) {
             continue;
         }
 
-        /* The line should start with the "user" keyword. */
-        if (strcmp(argv[0],"user") || argc < 2) {
+        /* The line should start with the "user" or "role" keyword. */
+        if ((!(strcmp(argv[0],"user")) && !(strcmp(argv[0],"role"))) || argc < 2) {
             errors = sdscatprintf(errors,
-                     "%s:%d should start with user keyword followed "
-                     "by the username. ", server.acl_filename,
+                     "%s:%d should start with user/role keyword followed "
+                     "by the username/rolename. ", server.acl_filename,
                      linenum);
             sdsfreesplitres(argv,argc);
             continue;
@@ -1890,52 +1890,95 @@ sds ACLLoadFromFile(const char *filename) {
         /* Spaces are not allowed in usernames. */
         if (ACLStringHasSpaces(argv[1],sdslen(argv[1]))) {
             errors = sdscatprintf(errors,
-                     "'%s:%d: username '%s' contains invalid characters. ",
+                     "'%s:%d: username/rolename '%s' contains invalid characters. ",
                      server.acl_filename, linenum, argv[1]);
             sdsfreesplitres(argv,argc);
             continue;
         }
 
-        /* Try to process the line using the fake user to validate if
-         * the rules are able to apply cleanly. At this stage we also
-         * trim trailing spaces, so that we don't have to handle that
-         * in ACLSetUser(). */
-        ACLSetUser(fakeuser,"reset",-1);
-        int j;
-        for (j = 2; j < argc; j++) {
-            argv[j] = sdstrim(argv[j],"\t\r\n");
-            if (ACLSetUser(fakeuser,argv[j],sdslen(argv[j])) != C_OK) {
-                const char *errmsg = ACLSetUserStringError();
-                errors = sdscatprintf(errors,
-                         "%s:%d: %s. ",
-                         server.acl_filename, linenum, errmsg);
+        if (!strcmp(argv[0],"user")) {
+            /* Try to process the line using the fake user to validate if
+            * the rules are able to apply cleanly. At this stage we also
+            * trim trailing spaces, so that we don't have to handle that
+            * in ACLSetUser(). */
+            ACLSetUser(fakeuser,"reset",-1);
+            int j;
+            for (j = 2; j < argc; j++) {
+                argv[j] = sdstrim(argv[j],"\t\r\n");
+                if (ACLSetUser(fakeuser,argv[j],sdslen(argv[j])) != C_OK) {
+                    const char *errmsg = ACLSetUserStringError();
+                    errors = sdscatprintf(errors,
+                            "%s:%d: %s. ",
+                            server.acl_filename, linenum, errmsg);
+                    continue;
+                }
+            }
+
+            /* Apply the rule to the new users set only if so far there
+            * are no errors, otherwise it's useless since we are going
+            * to discard the new users set anyway. */
+            if (sdslen(errors) != 0) {
+                sdsfreesplitres(argv,argc);
                 continue;
             }
-        }
 
-        /* Apply the rule to the new users set only if so far there
-         * are no errors, otherwise it's useless since we are going
-         * to discard the new users set anyway. */
-        if (sdslen(errors) != 0) {
+            /* We can finally lookup the user and apply the rule. If the
+            * user already exists we always reset it to start. */
+            user *u = ACLCreateUser(argv[1],sdslen(argv[1]));
+            if (!u) {
+                u = ACLGetUserByName(argv[1],sdslen(argv[1]));
+                serverAssert(u != NULL);
+                ACLSetUser(u,"reset",-1);
+            }
+
+            /* Note that the same rules already applied to the fake user, so
+            * we just assert that everything goes well: it should. */
+            for (j = 2; j < argc; j++)
+                serverAssert(ACLSetUser(u,argv[j],sdslen(argv[j])) == C_OK);
+
             sdsfreesplitres(argv,argc);
-            continue;
+        } else {
+            /* Try to process the line using the fake user to validate if
+            * the rules are able to apply cleanly. At this stage we also
+            * trim trailing spaces, so that we don't have to handle that
+            * in ACLSetUser(). */
+            ACLSetRole(fakeuser,"reset",-1);
+            int j;
+            for (j = 2; j < argc; j++) {
+                argv[j] = sdstrim(argv[j],"\t\r\n");
+                if (ACLSetRole(fakeuser,argv[j],sdslen(argv[j])) != C_OK) {
+                    const char *errmsg = ACLSetUserStringError();
+                    errors = sdscatprintf(errors,
+                            "%s:%d: %s. ",
+                            server.acl_filename, linenum, errmsg);
+                    continue;
+                }
+            }
+
+            /* Apply the rule to the new users set only if so far there
+            * are no errors, otherwise it's useless since we are going
+            * to discard the new users set anyway. */
+            if (sdslen(errors) != 0) {
+                sdsfreesplitres(argv,argc);
+                continue;
+            }
+
+            /* We can finally lookup the user and apply the rule. If the
+            * user already exists we always reset it to start. */
+            user *u = ACLCreateRole(argv[1],sdslen(argv[1]));
+            if (!u) {
+                u = ACLGetRoleByName(argv[1],sdslen(argv[1]));
+                serverAssert(u != NULL);
+                ACLSetRole(u,"reset",-1);
+            }
+
+            /* Note that the same rules already applied to the fake user, so
+            * we just assert that everything goes well: it should. */
+            for (j = 2; j < argc; j++)
+                serverAssert(ACLSetRole(u,argv[j],sdslen(argv[j])) == C_OK);
+
+            sdsfreesplitres(argv,argc);
         }
-
-        /* We can finally lookup the user and apply the rule. If the
-         * user already exists we always reset it to start. */
-        user *u = ACLCreateUser(argv[1],sdslen(argv[1]));
-        if (!u) {
-            u = ACLGetUserByName(argv[1],sdslen(argv[1]));
-            serverAssert(u != NULL);
-            ACLSetUser(u,"reset",-1);
-        }
-
-        /* Note that the same rules already applied to the fake user, so
-         * we just assert that everything goes well: it should. */
-        for (j = 2; j < argc; j++)
-            serverAssert(ACLSetUser(u,argv[j],sdslen(argv[j])) == C_OK);
-
-        sdsfreesplitres(argv,argc);
     }
 
     ACLFreeUser(fakeuser);
@@ -1976,6 +2019,27 @@ int ACLSaveToFile(const char *filename) {
     /* Let's generate an SDS string containing the new version of the
      * ACL file. */
     raxIterator ri;
+
+    /* Iterate over the Roles rax, users might be dependent on the
+    * roles. */
+    raxStart(&ri,Roles);
+    raxSeek(&ri,"^",NULL,0);
+    while(raxNext(&ri)) {
+        user *r = ri.data;
+        /* Return information in the configuration file format. */
+        sds role = sdsnew("role ");
+        role = sdscatsds(role,r->name);
+        role = sdscatlen(role," ",1);
+        sds descr = ACLDescribeRole(r);
+        role = sdscatsds(role,descr);
+        sdsfree(descr);
+        acl = sdscatsds(acl,role);
+        acl = sdscatlen(acl,"\n",1);
+        sdsfree(role);
+    }
+    raxStop(&ri);
+
+    /* Iterate over the Users rax. */
     raxStart(&ri,Users);
     raxSeek(&ri,"^",NULL,0);
     while(raxNext(&ri)) {
