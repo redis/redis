@@ -1040,15 +1040,15 @@ const char *ACLSetUserStringError(void) {
     return errmsg;
 }
 
-/* Initialize the default user, that will always exist for all the process
- * lifetime. */
-void ACLInitDefaultUser(void) {
-    DefaultUser = ACLCreateUser("default",7);
-    ACLSetUser(DefaultUser,"+@all",-1);
-    ACLSetUser(DefaultUser,"~*",-1);
-    ACLSetUser(DefaultUser,"&*",-1);
-    ACLSetUser(DefaultUser,"on",-1);
-    ACLSetUser(DefaultUser,"nopass",-1);
+/* Create the default user, this has special permissions. */
+user *ACLCreateDefaultUser(void) {
+    user *new = ACLCreateUser("default",7);
+    ACLSetUser(new,"+@all",-1);
+    ACLSetUser(new,"~*",-1);
+    ACLSetUser(new,"&*",-1);
+    ACLSetUser(new,"on",-1);
+    ACLSetUser(new,"nopass",-1);
+    return new;
 }
 
 /* Initialization of the ACL subsystem. */
@@ -1056,7 +1056,7 @@ void ACLInit(void) {
     Users = raxNew();
     UsersToLoad = listCreate();
     ACLLog = listCreate();
-    ACLInitDefaultUser();
+    DefaultUser = ACLCreateDefaultUser();
 }
 
 /* Check the username and password pair and return C_OK if they are valid,
@@ -1527,9 +1527,7 @@ sds ACLLoadFromFile(const char *filename) {
      * so if there are errors loading the ACL file we can rollback to the
      * old version. */
     rax *old_users = Users;
-    user *old_default_user = DefaultUser;
     Users = raxNew();
-    ACLInitDefaultUser();
 
     /* Load each line of the file. */
     for (int i = 0; i < totlines; i++) {
@@ -1613,15 +1611,18 @@ sds ACLLoadFromFile(const char *filename) {
     }
 
     sdsfreesplitres(lines,totlines);
-    DefaultUser = old_default_user; /* This pointer must never change. */
 
     /* Check if we found errors and react accordingly. */
     if (sdslen(errors) == 0) {
+        /* Make sure the default user exists */
+        user *new = ACLGetUserByName("default",7);
+        if (!new) {
+            new = ACLCreateDefaultUser();
+        }
+
         /* The default user pointer is referenced in different places: instead
          * of replacing such occurrences it is much simpler to copy the new
          * default user configuration in the old one. */
-        user *new = ACLGetUserByName("default",7);
-        serverAssert(new != NULL);
         ACLCopyUser(DefaultUser,new);
         ACLFreeUser(new);
         raxInsert(Users,(unsigned char*)"default",7,DefaultUser,NULL);

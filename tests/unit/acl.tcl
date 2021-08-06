@@ -630,13 +630,13 @@ start_server {overrides {user "default on nopass ~* +@all"} tags {"external:skip
 }
 
 set server_path [tmpdir "malformed.acl"]
-exec cp -f tests/assets/nodefaultuser.acl $server_path
+exec cp -f tests/assets/user.acl $server_path
 exec cp -f tests/assets/default.conf $server_path
-start_server [list overrides [list "dir" $server_path "aclfile" "nodefaultuser.acl"] tags [list "external:skip"]] {
+start_server [list overrides [list "dir" $server_path "aclfile" "user.acl"] tags [list "external:skip"]] {
 
     test {Test loading a corrupt ACL file} {
         # Corrupt the ACL file
-        exec cp -f tests/assets/malformed.acl $server_path/nodefaultuser.acl
+        exec cp -f tests/assets/malformed.acl $server_path/user.acl
         catch {r ACL LOAD} err
         assert_match {*Duplicate user 'alice' found*} $err 
 
@@ -646,5 +646,7 @@ start_server [list overrides [list "dir" $server_path "aclfile" "nodefaultuser.a
         assert {[r ACL GETUSER alice] != ""}
         assert_equal [dict get [r ACL GETUSER alice] commands] "+@all"
         assert {[r ACL GETUSER bob] != ""}
+        assert {[r ACL GETUSER default] != ""}
+        assert_equal [dict get [r ACL GETUSER alice] commands] "+@all"
     }
 }
