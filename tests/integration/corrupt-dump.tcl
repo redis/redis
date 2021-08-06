@@ -670,5 +670,15 @@ test {corrupt payload: fuzzer findings - hash with len of 0} {
     }
 }
 
+test {corrupt payload: fuzzer findings - hash listpack first element too long entry len} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r debug set-skip-checksum-validation 1
+        r config set sanitize-dump-payload yes
+        catch { r restore _hash 0 "\x10\x15\x15\x00\x00\x00\x06\x00\xF0\x01\x00\x01\x01\x01\x82\x5F\x31\x03\x02\x01\x02\x01\xFF\x0A\x00\x94\x21\x0A\xFA\x06\x52\x9F\x44" replace } err
+        assert_match "*Bad data format*" $err
+        verify_log_message 0 "*integrity check failed*" 0
+    }
+}
+
 } ;# tags
 

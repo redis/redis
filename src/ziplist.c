@@ -1527,7 +1527,7 @@ int ziplistValidateIntegrity(unsigned char *zl, size_t size, int deep,
         return 0;
 
     /* Make sure the <zltail> entry really do point to the start of the last entry. */
-    if (prev != ZIPLIST_ENTRY_TAIL(zl))
+    if (prev != NULL && prev != ZIPLIST_ENTRY_TAIL(zl))
         return 0;
 
     /* Check that the count in the header is correct */

@@ -949,7 +949,9 @@ unsigned char *lpAppendInteger(unsigned char *lp, long long lval) {
     return lpInsertInteger(lp, lval, eofptr, LP_BEFORE, NULL);
 }
 
-/* Remove the element pointed by 'p'. */
+/* This is just a wrapper for lpInsert() to directly use a string to replace
+ * the current element. The function returns the new listpack as return
+ * value, and also updates the current cursor by updating '*p'. */
 unsigned char *lpReplace(unsigned char *lp, unsigned char **p, unsigned char *s, uint32_t slen) {
     return lpInsert(lp, s, NULL, slen, *p, LP_REPLACE, p);
 }
@@ -957,7 +959,7 @@ unsigned char *lpReplace(unsigned char *lp, unsigned char **p, unsigned char *s,
 /* This is just a wrapper for lpInsertInteger() to directly use a 64 bit integer
  * instead of a string to replace the current element. The function returns
  * the new listpack as return value, and also updates the current cursor
- * by updating '*pos'. */
+ * by updating '*p'. */
 unsigned char *lpReplaceInteger(unsigned char *lp, unsigned char **p, long long lval) {
     return lpInsertInteger(lp, lval, *p, LP_REPLACE, p);
 }
@@ -1114,8 +1116,8 @@ int lpValidateIntegrity(unsigned char *lp, size_t size, int deep,
     while(p && p[0] != LP_EOF) {
         unsigned char *prev = p;
 
-        /* Move to the next entry in advance to avoid crash
-         * due to corrupt listpack. */
+        /* Validate this entry and move to the next entry in advance
+         * to avoid callback crash due to corrupt listpack. */
         if (!lpValidateNext(lp, &p, bytes))
             return 0;
 
