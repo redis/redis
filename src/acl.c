@@ -1529,7 +1529,7 @@ sds ACLLoadFromFile(const char *filename) {
     rax *old_users = Users;
     Users = raxNew();
 
-    /* Create the default user which can be overriden */
+    /* Create the default user which can be overridden */
     user *default_user = ACLCreateDefaultUser();
     int is_original_default = 0;
 
