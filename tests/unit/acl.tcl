@@ -658,6 +658,5 @@ start_server [list overrides [list "dir" $server_path "aclfile" "user.acl"] tags
         assert_equal [dict get [r ACL GETUSER alice] commands] "+@all"
         assert {[r ACL GETUSER bob] != ""}
         assert {[r ACL GETUSER default] != ""}
-        assert_equal [dict get [r ACL GETUSER alice] commands] "+@all"
     }
 }
