@@ -164,7 +164,6 @@ robj *lookupKeyWriteWithFlags(redisDb *db, robj *key, int flags) {
 robj *lookupKeyWrite(redisDb *db, robj *key) {
     return lookupKeyWriteWithFlags(db, key, LOOKUP_NONE);
 }
-
 void SentReplyOnKeyMiss(client *c, robj *reply){
     serverAssert(sdsEncodedObject(reply));
     sds rep = reply->ptr;
