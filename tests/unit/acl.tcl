@@ -500,7 +500,7 @@ start_server [list overrides [list "dir" $server_path "aclfile" "user.acl"] tags
         # The default user in weird in that it has a special set of
         # initial permissions that need to be respected
         assert_equal "default" [r acl whoami]
-        r set ket value
+        r set key value
         catch {r ping} err
         assert_match {*NOPERM*} $err
     }
@@ -652,7 +652,7 @@ start_server [list overrides [list "dir" $server_path "aclfile" "user.acl"] tags
         assert_match {*Duplicate user 'alice' found*} $err 
 
         # Verify the previous users still exist
-        # NOTE: A missing user evalutes to an empty
+        # NOTE: A missing user evaluates to an empty
         # string. 
         assert {[r ACL GETUSER alice] != ""}
         assert_equal [dict get [r ACL GETUSER alice] commands] "+@all"
