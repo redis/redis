@@ -629,6 +629,7 @@ start_server [list overrides [list "dir" $server_path "acl-pubsub-default" "rese
     }
 }
 
+
 start_server {overrides {user "default on nopass ~* +@all"} tags {"external:skip"}} {
     test {default: load from config file, can access any channels} {
         r SUBSCRIBE foo
