@@ -1402,8 +1402,7 @@ robj *objectCommandLookup(client *c, robj *key) {
 
 robj *objectCommandLookupOrReply(client *c, robj *key, robj *reply) {
     robj *o = objectCommandLookup(c,key);
-
-    if (!o) addReply(c, reply);
+    if (!o) SentReplyOnKeyMiss(c, reply);
     return o;
 }
 
