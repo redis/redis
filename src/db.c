@@ -174,7 +174,6 @@ void SentReplyOnKeyMiss(client *c, robj *reply){
         addReply(c,reply);
     }
 }
-
 robj *lookupKeyReadOrReply(client *c, robj *key, robj *reply) {
     robj *o = lookupKeyRead(c->db, key);
     if (!o) SentReplyOnKeyMiss(c, reply);
