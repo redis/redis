@@ -179,9 +179,13 @@ void execCommand(client *c) {
      * A failed EXEC in the first case returns a multi bulk nil object
      * (technically it is not an error but a special behavior), while
      * in the second an EXECABORT error is returned. */
-    if (c->flags & (CLIENT_DIRTY_CAS|CLIENT_DIRTY_EXEC)) {
-        addReply(c, c->flags & CLIENT_DIRTY_EXEC ? shared.execaborterr :
-                                                   shared.nullarray[c->resp]);
+    if (c->flags & (CLIENT_DIRTY_CAS | CLIENT_DIRTY_EXEC)) {
+        if (c->flags & CLIENT_DIRTY_EXEC) {
+            addReplyErrorObject(c, shared.execaborterr);
+        } else {
+            addReply(c, shared.nullarray[c->resp]);
+        }
+
         discardTransaction(c);
         return;
     }
