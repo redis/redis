@@ -1529,6 +1529,10 @@ sds ACLLoadFromFile(const char *filename) {
     rax *old_users = Users;
     Users = raxNew();
 
+    /* Create the default user which can be overriden */
+    user *default_user = ACLCreateDefaultUser();
+    int is_original_default = 0;
+
     /* Load each line of the file. */
     for (int i = 0; i < totlines; i++) {
         sds *argv;
@@ -1574,9 +1578,17 @@ sds ACLLoadFromFile(const char *filename) {
             continue;
         }
 
-        /* We can finally create the user and apply the rule. If the
-         * user already exists we assume it's an error and abort. */
-        user *u = ACLCreateUser(argv[1],sdslen(argv[1]));
+        /* Get the user, if the file is trying to update the default user
+         * verify that it's only been passed in once. */
+        user *u;
+        if (!is_original_default && !strcmp(argv[1],"default")) {
+            u = default_user;
+            is_original_default = 1;
+        } else {
+            u = ACLCreateUser(argv[1],sdslen(argv[1]));
+        }
+
+        /* If the user already exists we assume it's an error and abort. */
         if (!u) {
             errors = sdscatprintf(errors,"WARNING: Duplicate user '%s' found on line %d. ", argv[1], linenum);
             sdsfreesplitres(argv,argc);
@@ -1614,17 +1626,8 @@ sds ACLLoadFromFile(const char *filename) {
 
     /* Check if we found errors and react accordingly. */
     if (sdslen(errors) == 0) {
-        /* Make sure the default user exists */
-        user *new = ACLGetUserByName("default",7);
-        if (!new) {
-            new = ACLCreateDefaultUser();
-        }
-
-        /* The default user pointer is referenced in different places: instead
-         * of replacing such occurrences it is much simpler to copy the new
-         * default user configuration in the old one. */
-        ACLCopyUser(DefaultUser,new);
-        ACLFreeUser(new);
+        ACLCopyUser(DefaultUser,default_user);
+        ACLFreeUser(default_user);
         raxInsert(Users,(unsigned char*)"default",7,DefaultUser,NULL);
         raxRemove(old_users,(unsigned char*)"default",7,NULL);
         ACLFreeUsersSet(old_users);
