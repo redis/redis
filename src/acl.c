@@ -1578,8 +1578,8 @@ sds ACLLoadFromFile(const char *filename) {
             continue;
         }
 
-        /* Get the user, if the file is trying to update the default user
-         * verify that it's only been passed in once. */
+        /* Get the user, verifying that the default user has only
+         * been updated once from the original value. */
         user *u;
         if (!is_original_default && !strcmp(argv[1],"default")) {
             u = default_user;
@@ -1626,6 +1626,9 @@ sds ACLLoadFromFile(const char *filename) {
 
     /* Check if we found errors and react accordingly. */
     if (sdslen(errors) == 0) {
+        /* The default user pointer is referenced in different places: instead
+         * of replacing such occurrences it is much simpler to copy the new
+         * default user configuration in the old one. */
         ACLCopyUser(DefaultUser,default_user);
         ACLFreeUser(default_user);
         raxInsert(Users,(unsigned char*)"default",7,DefaultUser,NULL);
