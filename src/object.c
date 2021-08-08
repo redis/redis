@@ -917,7 +917,7 @@ int getPositiveLongFromObjectOrReply(client *c, robj *o, long *target, const cha
  * In any case the given reply is sent, if the reply is also recognize
  * as an error we also perform some post reply operations such as
  * logging and stats update. */
-void senReplyOrError(client *c, robj *reply) {
+void addReplyOrErrorObject(client *c, robj *reply) {
     serverAssert(sdsEncodedObject(reply));
     sds rep = reply->ptr;
     if (sdslen(rep) > 1 && rep[0] == '-') {
@@ -1417,7 +1417,7 @@ robj *objectCommandLookup(client *c, robj *key) {
 
 robj *objectCommandLookupOrReply(client *c, robj *key, robj *reply) {
     robj *o = objectCommandLookup(c,key);
-    if (!o) senReplyOrError(c, reply);
+    if (!o) addReplyOrErrorObject(c, reply);
     return o;
 }
 
