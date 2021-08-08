@@ -56,10 +56,6 @@ static const size_t optimization_level[] = {4096, 8192, 16384, 32768, 65536};
 /* Minimum ziplist size in bytes for attempting compression. */
 #define MIN_COMPRESS_BYTES 48
 
-/* */
-//#define PACKED_THRESHOLD (1<<30)
-#define PACKED_THRESHOLD 10000
-
 /* Minimum size reduction in bytes to store compressed quicklistNode data.
  * This also prevents us from storing compression if the compression
  * resulted in a larger size than the original data. */
@@ -186,7 +182,9 @@ REDIS_STATIC quicklistNode *quicklistCreateNode(void) {
 }
 
 /* Return cached quicklist count */
-unsigned long quicklistCount(const quicklist *ql) { return ql->count; }
+unsigned long quicklistCount(const quicklist *ql) {
+    printf("quicklistCount=%ld\n", ql->count);
+    return ql->count; }
 
 /* Free entire quicklist. */
 void quicklistRelease(quicklist *quicklist) {
@@ -462,7 +460,7 @@ REDIS_STATIC int _quicklistNodeAllowInsert(const quicklistNode *node,
     if (unlikely(!node))
         return 0;
 
-    if(unlikely(node->container == QUICKLIST_NODE_CONTAINER_NONE || sz > PACKED_THRESHOLD))
+    if(unlikely(node->container == QUICKLIST_NODE_CONTAINER_NONE || sz > packed_threshold))
         return 0;
 
     int ziplist_overhead;
@@ -498,7 +496,7 @@ REDIS_STATIC int _quicklistNodeAllowMerge(const quicklistNode *a,
     if (!a || !b)
         return 0;
 
-    if (unlikely(a->container == QUICKLIST_NODE_CONTAINER_NONE || b->container == PACKED_THRESHOLD))
+    if (unlikely(a->container == QUICKLIST_NODE_CONTAINER_NONE || b->container == packed_threshold))
         return 0;
 
     /* approximate merged ziplist size (- 11 to remove one ziplist
@@ -540,7 +538,7 @@ static void __quicklistInsertEntryNode(quicklist *quicklist, quicklistNode *old_
 int quicklistPushHead(quicklist *quicklist, void *value, size_t sz) {
     quicklistNode *orig_head = quicklist->head;
 
-    if(sz > PACKED_THRESHOLD) {
+    if(sz > packed_threshold) {
         __quicklistInsertEntryNode(quicklist, quicklist->head, value, sz, false);
         return true;
     }
@@ -569,7 +567,7 @@ int quicklistPushHead(quicklist *quicklist, void *value, size_t sz) {
 int quicklistPushTail(quicklist *quicklist, void *value, size_t sz) {
     quicklistNode *orig_tail = quicklist->tail;
 
-    if(sz > PACKED_THRESHOLD) {
+    if(sz > packed_threshold) {
         __quicklistInsertEntryNode(quicklist, quicklist->tail, value, sz, true);
         return true;
     }
@@ -945,7 +943,7 @@ REDIS_STATIC void _quicklistInsert(quicklist *quicklist, quicklistEntry *entry,
     quicklistNode *new_node = NULL;
     quicklistNode *entry_node = NULL;
 
-    if (!node && sz <= PACKED_THRESHOLD) {
+    if (!node && sz <= packed_threshold) {
         /* we have no reference node, so let's create only node in the list */
         D("No node given!");
         new_node = quicklistCreateNode();
@@ -1032,7 +1030,7 @@ REDIS_STATIC void _quicklistInsert(quicklist *quicklist, quicklistEntry *entry,
         /* If we are: full, and our prev/next is full, then:
          *   - create new node and attach to quicklist */
         D("\tprovisioning new node...");
-        if(unlikely(sz > PACKED_THRESHOLD)) {
+        if(unlikely(sz > packed_threshold)) {
             __quicklistInsertEntryNode(quicklist, node, value, sz, after);
             return;
         }
@@ -1049,7 +1047,7 @@ REDIS_STATIC void _quicklistInsert(quicklist *quicklist, quicklistEntry *entry,
         quicklistDecompressNodeForUse(node);
         new_node = _quicklistSplitNode(node, entry->offset, after);
 
-        if(unlikely(sz > PACKED_THRESHOLD)) {
+        if(unlikely(sz > packed_threshold)) {
             entry_node = quicklistCreateNode();
             entry_node->entry = zmalloc(sz);
             entry_node->container = QUICKLIST_NODE_CONTAINER_NONE;
@@ -1152,7 +1150,7 @@ int quicklistDelRange(quicklist *quicklist, const long start,
           "node count: %u",
           extent, del, entry.offset, delete_entire_node, node->count);
 
-        if (delete_entire_node || node->sz > PACKED_THRESHOLD) {
+        if (delete_entire_node || node->sz > packed_threshold) {
             __quicklistDelNode(quicklist, node);
         } else {
             quicklistDecompressNodeForUse(node);
@@ -1529,7 +1527,11 @@ int quicklistPopCustom(quicklist *quicklist, int where, unsigned char **data,
     } else {
         return 0;
     }
+
+    printf("quicklistPopCustom1\n");
+
     if(unlikely(node->container == QUICKLIST_NODE_CONTAINER_NONE)) {
+        printf("quicklistPopCustom2\n");
         if (data)
             *data = saver(node->entry, node->sz);
         if (sz)
@@ -1540,14 +1542,23 @@ int quicklistPopCustom(quicklist *quicklist, int where, unsigned char **data,
 
     p = ziplistIndex(node->zl, pos);
     if (ziplistGet(p, &vstr, &vlen, &vlong)) {
+        printf("quicklistPopCustom3\n");
         if (vstr) {
             if (data)
                 *data = saver(vstr, vlen);
+            if (data)
+                printf("*data=%s\n", *data);
+                else
+                    printf("f<fda<fasdf\n");
             if (sz)
                 *sz = vlen;
         } else {
             if (data)
                 *data = NULL;
+            if (data)
+                printf("BEN! *data=%s\n", *data);
+                else
+                    printf("BEN! f<fda<fasdf\n");
             if (sval)
                 *sval = vlong;
         }

@@ -289,6 +289,9 @@ size_t _addReplyToBuffer(client *c, const char *s, size_t len) {
 
     size_t reply_len = len > available ? available : len;
     memcpy(c->buf+c->bufpos,s,reply_len);
+
+    printf("_addReplyToBuffer-s=%s\n", s);
+
     c->bufpos+=reply_len;
     return reply_len;
 }
@@ -297,6 +300,10 @@ size_t _addReplyToBuffer(client *c, const char *s, size_t len) {
  * Note: some edits to this function need to be relayed to AddReplyFromClient. */
 void _addReplyProtoToList(client *c, const char *s, size_t len) {
     listNode *ln = listLast(c->reply);
+
+
+    printf("=========== _addReplyProtoToList =============\n");
+
     clientReplyBlock *tail = ln? listNodeValue(ln): NULL;
 
     /* Note that 'tail' may be NULL even if we have a tail node, because when
@@ -310,6 +317,7 @@ void _addReplyProtoToList(client *c, const char *s, size_t len) {
         size_t avail = tail->size - tail->used;
         size_t copy = avail >= len? len: avail;
         memcpy(tail->buf + tail->used, s, copy);
+        printf("kapara1 - s=%s\n", s);
         tail->used += copy;
         s += copy;
         len -= copy;
@@ -324,6 +332,7 @@ void _addReplyProtoToList(client *c, const char *s, size_t len) {
         tail->size = usable_size - sizeof(clientReplyBlock);
         tail->used = len;
         memcpy(tail->buf, s, len);
+        printf("kapara1 - s=%s\n", s);
         listAddNodeTail(c->reply, tail);
         c->reply_bytes += tail->size;
 
@@ -335,6 +344,7 @@ void _addReplyToBufferOrList(client *c, const char *s, size_t len) {
     if (c->flags & CLIENT_CLOSE_AFTER_REPLY) return;
 
     size_t reply_len = _addReplyToBuffer(c,s,len);
+    printf("AA) _addReplyToBufferOrList reply_len=%ld, len=%ld, s=%s\n", reply_len, len, s);
     if (len > reply_len) _addReplyProtoToList(c,s+reply_len,len-reply_len);
 }
 
@@ -348,6 +358,7 @@ void addReply(client *c, robj *obj) {
     if (prepareClientToWrite(c) != C_OK) return;
 
     if (sdsEncodedObject(obj)) {
+        printf("BB) this is a string - _addReplyToBufferOrList\n");
         _addReplyToBufferOrList(c,obj->ptr,sdslen(obj->ptr));
     } else if (obj->encoding == OBJ_ENCODING_INT) {
         /* For integer encoded strings we just convert it into a string
@@ -355,6 +366,9 @@ void addReply(client *c, robj *obj) {
          * to the output buffer. */
         char buf[32];
         size_t len = ll2string(buf,sizeof(buf),(long)obj->ptr);
+
+        printf("addReply=%s\n", buf);
+
         _addReplyToBufferOrList(c,buf,len);
     } else {
         serverPanic("Wrong obj->encoding in addReply()");
@@ -794,6 +808,8 @@ void addReplyNullArray(client *c) {
 /* Create the length prefix of a bulk reply, example: $2234 */
 void addReplyBulkLen(client *c, robj *obj) {
     size_t len = stringObjectLen(obj);
+
+    printf("addReplyBulkLen - len=%ld\n", len);
 
     addReplyLongLongWithPrefix(c,len,'$');
 }

@@ -32,6 +32,7 @@
 #include "sha1.h"   /* SHA1 is used for DEBUG DIGEST */
 #include "crc64.h"
 #include "bio.h"
+#include "quicklist.h"
 
 #include <arpa/inet.h>
 #include <signal.h>
@@ -57,6 +58,8 @@ typedef ucontext_t sigcontext_t;
 #if defined(__APPLE__) && defined(__arm64__)
 #include <mach/mach.h>
 #endif
+
+
 
 /* Globals */
 static int bug_report_start = 0; /* True if bug report header was already logged. */
@@ -790,6 +793,11 @@ NULL
     {
         server.active_expire_enabled = atoi(c->argv[2]->ptr);
         addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"packed_threshold") &&
+    c->argc == 3)
+    {
+        packed_threshold = atoi(c->argv[2]->ptr);
+        addReply(c,shared.ok); //fridapacked_threshold
     } else if (!strcasecmp(c->argv[1]->ptr,"set-skip-checksum-validation") &&
                c->argc == 3)
     {

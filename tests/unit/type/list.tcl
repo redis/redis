@@ -1,3 +1,43 @@
+set ::str500 [string repeat x 500000000] ;# 500mb
+
+# Utility function to write big argument into redis client connection
+proc write_big_bulk {size} {
+    r write "\$$size\r\n"
+    while {$size >= 500000000} {
+        r write $::str500
+        incr size -500000000
+    }
+    if {$size > 0} {
+    puts "size is $size"
+        r write [string repeat x $size]
+    }
+    r write "\r\n"
+}
+
+# SORT which attempts to store an element larger than 4GB into a list.
+# Currently unsupported and results in an assertion instead of truncation
+start_server [list overrides [list save ""] ] {
+    r config set proto-max-bulk-len 10000000000 ;#10gb
+    r config set client-query-buffer-limit 10000000000 ;#10gb
+    r debug packed_threshold 10
+    test {perry} {
+        r write "*3\r\n\$5\r\nLPUSH\r\n\$3\r\nlst\r\n"
+        write_big_bulk 1 ;#5gb
+        #puts "*** len: [r llen lst]"
+        puts "*** pop: [r lpop lst]"
+        #puts "**** len: [r llen lst]"
+   }
+   test {itay} {
+
+       r lpush lst x
+
+       puts "r pop lst"
+       puts [r lpop lst]
+       #puts "len: [r llen lst]"
+       #puts [r lpop lst]
+  }
+}
+
 start_server {
     tags {"list"}
     overrides {

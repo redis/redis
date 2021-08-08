@@ -63,10 +63,14 @@ robj *listTypePop(robj *subject, int where) {
 
     int ql_where = where == LIST_HEAD ? QUICKLIST_HEAD : QUICKLIST_TAIL;
     if (subject->encoding == OBJ_ENCODING_QUICKLIST) {
+        printf("listTypePop\n");
         if (quicklistPopCustom(subject->ptr, ql_where, (unsigned char **)&value,
                                NULL, &vlong, listPopSaver)) {
             if (!value)
                 value = createStringObjectFromLongLong(vlong);
+
+            printf("kukukukuuk - frida - value = %s\n", (char*)value->ptr);
+
         }
     } else {
         serverPanic("Unknown list encoding");
@@ -76,6 +80,7 @@ robj *listTypePop(robj *subject, int where) {
 
 unsigned long listTypeLength(const robj *subject) {
     if (subject->encoding == OBJ_ENCODING_QUICKLIST) {
+        printf("listTypeLength\n");
         return quicklistCount(subject->ptr);
     } else {
         serverPanic("Unknown list encoding");
@@ -317,6 +322,7 @@ void linsertCommand(client *c) {
 
 /* LLEN <key> */
 void llenCommand(client *c) {
+    printf("llenCommand\n");
     robj *o = lookupKeyReadOrReply(c,c->argv[1],shared.czero);
     if (o == NULL || checkType(c,o,OBJ_LIST)) return;
     addReplyLongLong(c,listTypeLength(o));
@@ -441,13 +447,18 @@ void popGenericCommand(client *c, int where) {
     robj *value;
 
     if (c->argc > 3) {
+        printf("frida400\n");
         addReplyErrorFormat(c,"wrong number of arguments for '%s' command",
                             c->cmd->name);
         return;
     } else if (c->argc == 3) {
+        printf("frida401 count=%ld\n", count);
         /* Parse the optional count argument. */
         if (getPositiveLongFromObjectOrReply(c,c->argv[2],&count,NULL) != C_OK) 
             return;
+
+        printf("frida402 count=%ld\n", count);
+
         if (count == 0) {
             /* Fast exit path. */
             addReplyNullArray(c);
@@ -456,21 +467,48 @@ void popGenericCommand(client *c, int where) {
     }
 
     robj *o = lookupKeyWriteOrReply(c, c->argv[1], shared.null[c->resp]);
+
+    if(o == NULL)
+    {
+        printf("lookupKeyWriteOrReply failed1\n");
+    }
+
+    else if(checkType(c, o, OBJ_LIST))
+    {
+        printf("lookupKeyWriteOrReply failed2\n");
+    }
+
+
     if (o == NULL || checkType(c, o, OBJ_LIST))
         return;
 
+    printf("popGenericCommand4\n");
+
     if (!count) {
+        printf("frida502\n");
         /* Pop a single element. This is POP's original behavior that replies
          * with a bulk string. */
         value = listTypePop(o,where);
+        if(value == NULL) printf("value is NULL");
+        else printf("value not is NULL\n");
+        //printf("frida502 - value=%s\n", (char*)value->ptr);
+
+
+
         serverAssert(value != NULL);
+
+        printf("asserted!!!");
         addReplyBulk(c,value);
         decrRefCount(value);
+        //printf("frida504 - value=%s\n", (char*)value->ptr);
         listElementsRemoved(c,c->argv[1],where,o,1);
+        printf("done\n");
     } else {
+
         /* Pop a range of elements. An addition to the original POP command,
          *  which replies with a multi-bulk. */
         long llen = listTypeLength(o);
+        printf("frida201 - llen=%ld\n", llen);
         long rangelen = (count > llen) ? llen : count;
         long rangestart = (where == LIST_HEAD) ? 0 : -rangelen;
         long rangeend = (where == LIST_HEAD) ? rangelen - 1 : -1;
@@ -480,10 +518,12 @@ void popGenericCommand(client *c, int where) {
         quicklistDelRange(o->ptr,rangestart,rangelen);
         listElementsRemoved(c,c->argv[1],where,o,rangelen);
     }
+    printf("frida503\n");
 }
 
 /* LPOP <key> [count] */
 void lpopCommand(client *c) {
+    printf("lpopCommand\n");
     popGenericCommand(c,LIST_HEAD);
 }
 
