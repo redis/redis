@@ -2196,7 +2196,7 @@ void readQueryFromClient(connection *conn) {
     c->lastinteraction = server.unixtime;
     if (c->flags & CLIENT_MASTER) c->read_reploff += nread;
     atomicIncr(server.stat_net_input_bytes, nread);
-    if (sdslen(c->querybuf) > server.client_max_querybuf_len) {
+    if (!(c->flags & CLIENT_MASTER) && sdslen(c->querybuf) > server.client_max_querybuf_len) {
         sds ci = catClientInfoString(sdsempty(),c), bytes = sdsempty();
 
         bytes = sdscatrepr(bytes,c->querybuf,64);
