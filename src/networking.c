@@ -1184,7 +1184,7 @@ void freeClientOriginalArgv(client *c) {
     c->original_argc = 0;
 }
 
-static void freeClientArgv(client *c) {
+void freeClientArgv(client *c) {
     int j;
     for (j = 0; j < c->argc; j++)
         decrRefCount(c->argv[j]);
