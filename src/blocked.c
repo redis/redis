@@ -65,7 +65,7 @@
 #include "latency.h"
 #include "monotonic.h"
 
-int serveClientBlockedOnList(client *receiver, robj *key, robj *dstkey, redisDb *db, robj *value, int wherefrom, int whereto);
+int serveClientBlockedOnList(client *receiver, robj *o, robj *key, robj *dstkey, redisDb *db, robj *value, int wherefrom, int whereto);
 int getListPositionFromObjectOrReply(client *c, robj *arg, int *position);
 
 /* This structure represents the blocked key information that we store
@@ -281,6 +281,24 @@ void serveClientsBlockedOnListKey(robj *o, readyList *rl) {
             robj *dstkey = receiver->bpop.target;
             int wherefrom = receiver->bpop.listpos.wherefrom;
             int whereto = receiver->bpop.listpos.whereto;
+
+            /* BPOP with count option */
+            if (receiver->bpop.count != 0) {
+                if (listTypeLength(o) == 0) {
+                    /* The list is empty, break the loop */
+                    break;
+                }
+
+                monotime replyTimer;
+                elapsedStart(&replyTimer);
+                serveClientBlockedOnList(receiver, o,
+                                         rl->key, dstkey, rl->db,NULL,
+                                         wherefrom, whereto);
+                updateStatsOnUnblock(receiver, 0, elapsedUs(replyTimer));
+                unblockClient(receiver);
+                continue;
+            }
+
             robj *value = listTypePop(o, wherefrom);
 
             if (value) {
@@ -291,7 +309,7 @@ void serveClientsBlockedOnListKey(robj *o, readyList *rl) {
 
                 monotime replyTimer;
                 elapsedStart(&replyTimer);
-                if (serveClientBlockedOnList(receiver,
+                if (serveClientBlockedOnList(receiver,o,
                     rl->key,dstkey,rl->db,value,
                     wherefrom, whereto) == C_ERR)
                 {
@@ -622,12 +640,16 @@ void handleClientsBlockedOnKeys(void) {
  * for all the 'numkeys' keys as in the 'keys' argument. When we block for
  * stream keys, we also provide an array of streamID structures: clients will
  * be unblocked only when items with an ID greater or equal to the specified
- * one is appended to the stream. */
-void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeout, robj *target, struct listPos *listpos, streamID *ids) {
+ * one is appended to the stream.
+ *
+ * 'count' for those commands that support the optional count argument.
+ * Otherwise the value is 0. */
+void blockForKeys(client *c, int btype, robj **keys, int numkeys, long count, mstime_t timeout, robj *target, struct listPos *listpos, streamID *ids) {
     dictEntry *de;
     list *l;
     int j;
 
+    c->bpop.count = count;
     c->bpop.timeout = timeout;
     c->bpop.target = target;
 
