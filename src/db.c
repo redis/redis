@@ -168,13 +168,13 @@ robj *lookupKeyWrite(redisDb *db, robj *key) {
 
 robj *lookupKeyReadOrReply(client *c, robj *key, robj *reply) {
     robj *o = lookupKeyRead(c->db, key);
-    if (!o) senReplyOrError(c, reply);
+    if (!o) addReplyOrErrorObject(c, reply);
     return o;
 }
 
 robj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply) {
     robj *o = lookupKeyWrite(c->db, key);
-    if (!o) senReplyOrError(c, reply);
+    if (!o) addReplyOrErrorObject(c, reply);
     return o;
 }
 
