@@ -2035,7 +2035,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int rdbver) {
         s->last_id.ms = rdbLoadLen(rdb,NULL);
         s->last_id.seq = rdbLoadLen(rdb,NULL);
         
-        if (rdbver >= RDB_VERSION_STREAM_LAG) {
+        if (rdbver >= RDB_VERSION_STREAM_V2) {
             /* Load the first entry ID. */
             s->first_id.ms = rdbLoadLen(rdb,NULL);
             s->first_id.seq = rdbLoadLen(rdb,NULL);
@@ -2096,7 +2096,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int rdbver) {
             
             /* Load group offset. */
             uint64_t cg_offset;
-            if (rdbver >= RDB_VERSION_STREAM_LAG) {
+            if (rdbver >= RDB_VERSION_STREAM_V2) {
                 cg_offset = rdbLoadLen(rdb,NULL);
                 if (rioGetReadError(rdb)) {
                     rdbReportReadError("Stream cgroup offset loading failed.");

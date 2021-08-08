@@ -41,7 +41,7 @@
 #define RDB_VERSION 10
 
 /* Defines related to features that depend on RDB_VERSION. */
-#define RDB_VERSION_STREAM_LAG 10
+#define RDB_VERSION_STREAM_V2 10
 
 /* Defines related to the dump file format. To store 32 bits lengths for short
  * keys requires a lot of space, so we check the most significant 2 bits of
