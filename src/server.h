@@ -2054,6 +2054,7 @@ int getLongLongFromObject(robj *o, long long *target);
 int getLongDoubleFromObject(robj *o, long double *target);
 int getLongDoubleFromObjectOrReply(client *c, robj *o, long double *target, const char *msg);
 int getIntFromObjectOrReply(client *c, robj *o, int *target, const char *msg);
+void senReplyOrError(client *c, robj *reply);
 char *strEncoding(int encoding);
 int compareStringObjects(robj *a, robj *b);
 int collateStringObjects(robj *a, robj *b);
@@ -2394,7 +2395,6 @@ robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags);
 robj *lookupKeyWriteWithFlags(redisDb *db, robj *key, int flags);
 robj *objectCommandLookup(client *c, robj *key);
 robj *objectCommandLookupOrReply(client *c, robj *key, robj *reply);
-void SentReplyOnKeyMiss(client *c, robj *reply);
 int objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
                        long long lru_clock, int lru_multiplier);
 #define LOOKUP_NONE 0
