@@ -189,7 +189,7 @@ int sortCompare(const void *s1, const void *s2) {
 
 /* The SORT command is the most complex command in Redis. Warning: this code
  * is optimized for speed and a bit less for readability */
-void sortCommandGeneric(client *c, int noStore) {
+void sortCommandGeneric(client *c, int readonly) {
     list *operations;
     unsigned int outputlen = 0;
     int desc = 0, alpha = 0;
@@ -226,7 +226,7 @@ void sortCommandGeneric(client *c, int noStore) {
                 break;
             }
             j+=2;
-        } else if (noStore == 0 && !strcasecmp(c->argv[j]->ptr,"store") && leftargs >= 1) {
+        } else if (readonly == 0 && !strcasecmp(c->argv[j]->ptr,"store") && leftargs >= 1) {
             storekey = c->argv[j+1];
             j++;
         } else if (!strcasecmp(c->argv[j]->ptr,"by") && leftargs >= 1) {
