@@ -1828,8 +1828,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 return NULL;
             }
 
-            /* Just skip empty ziplist, we will returns NULL until
-             * the quicklist is empty. */
+            /* Silently skip empty ziplists, if we'll end up with empty quicklist we'll fail later. */
             if (ziplistLen(zl) == 0) {
                 zfree(zl);
                 continue;
