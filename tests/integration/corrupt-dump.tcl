@@ -118,6 +118,16 @@ test {corrupt payload: #3080 - quicklist} {
     }
 }
 
+test {corrupt payload: quicklist with empty ziplist} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload no
+        r debug set-skip-checksum-validation 1
+        catch {r restore key 0 "\x0E\x01\x0B\x0B\x00\x00\x00\x0A\x00\x00\x00\x00\x00\xFF\x09\x00\xC2\x69\x37\x83\x3C\x7F\xFE\x6F" replace} err
+        assert_match "*Bad data format*" $err
+        r ping
+    }
+}
+
 test {corrupt payload: #3080 - ziplist} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         # shallow sanitization is enough for restore to safely reject the payload with wrong size
@@ -148,20 +158,24 @@ test {corrupt payload: load corrupted rdb with no CRC - #3505} {
     kill_server $srv ;# let valgrind look for issues
 }
 
-test {corrupt payload: load corrupted rdb with empty keys} {
-    set server_path [tmpdir "server.rdb-corruption-empty-keys-test"]
-    exec cp tests/assets/corrupt_empty_keys.rdb $server_path
-    start_server [list overrides [list "dir" $server_path "dbfilename" "corrupt_empty_keys.rdb"]] {
-        r select 0
-        assert_equal [r dbsize] 0
+foreach sanitize_dump {no yes} {
+    test {corrupt payload: load corrupted rdb with empty keys} {
+        set server_path [tmpdir "server.rdb-corruption-empty-keys-test"]
+        exec cp tests/assets/corrupt_empty_keys.rdb $server_path
+        start_server [list overrides [list "dir" $server_path "dbfilename" "corrupt_empty_keys.rdb" "sanitize-dump-payload" $sanitize_dump]] {
+            r select 0
+            assert_equal [r dbsize] 0
 
-        verify_log_message 0 "*skipping empty key: set*" 0
-        verify_log_message 0 "*skipping empty key: quicklist*" 0
-        verify_log_message 0 "*skipping empty key: hash*" 0
-        verify_log_message 0 "*skipping empty key: hash_ziplist*" 0
-        verify_log_message 0 "*skipping empty key: zset*" 0
-        verify_log_message 0 "*skipping empty key: zset_ziplist*" 0
-        verify_log_message 0 "*empty keys skipped: 6*" 0
+            verify_log_message 0 "*skipping empty key: set*" 0
+            verify_log_message 0 "*skipping empty key: list_quicklist*" 0
+            verify_log_message 0 "*skipping empty key: list_quicklist_empty_ziplist*" 0
+            verify_log_message 0 "*skipping empty key: list_ziplist*" 0
+            verify_log_message 0 "*skipping empty key: hash*" 0
+            verify_log_message 0 "*skipping empty key: hash_ziplist*" 0
+            verify_log_message 0 "*skipping empty key: zset*" 0
+            verify_log_message 0 "*skipping empty key: zset_ziplist*" 0
+            verify_log_message 0 "*empty keys skipped: 8*" 0
+        }
     }
 }
 
@@ -238,6 +252,16 @@ test {corrupt payload: hash dupliacte records} {
         r debug set-skip-checksum-validation 1
         catch { r RESTORE _hash 0 "\x04\x02\x01a\x01b\x01a\x01d\t\x00\xc6\x9c\xab\xbc\bk\x0c\x06" } err
         assert_match "*Bad data format*" $err
+    }
+}
+
+test {corrupt payload: hash empty zipmap} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload no
+        r debug set-skip-checksum-validation 1
+        catch { r RESTORE _hash 0 "\x09\x02\x00\xFF\x09\x00\xC0\xF1\xB8\x67\x4C\x16\xAC\xE3" } err
+        assert_match "*Bad data format*" $err
+        verify_log_message 0 "*Zipmap integrity check failed*" 0
     }
 }
 
