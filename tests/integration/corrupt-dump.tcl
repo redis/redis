@@ -158,43 +158,24 @@ test {corrupt payload: load corrupted rdb with no CRC - #3505} {
     kill_server $srv ;# let valgrind look for issues
 }
 
-test {corrupt payload: load corrupted rdb with empty keys - without sanitize} {
-    set server_path [tmpdir "server.rdb-corruption-empty-keys-test"]
-    exec cp tests/assets/corrupt_empty_keys.rdb $server_path
-    start_server [list overrides [list "dir" $server_path "dbfilename" "corrupt_empty_keys.rdb" "sanitize-dump-payload" no]] {
-        r select 0
-        assert_equal [r dbsize] 0
+foreach sanitize_dump {no yes} {
+    test {corrupt payload: load corrupted rdb with empty keys} {
+        set server_path [tmpdir "server.rdb-corruption-empty-keys-test"]
+        exec cp tests/assets/corrupt_empty_keys.rdb $server_path
+        start_server [list overrides [list "dir" $server_path "dbfilename" "corrupt_empty_keys.rdb" "sanitize-dump-payload" $sanitize_dump]] {
+            r select 0
+            assert_equal [r dbsize] 0
 
-        verify_log_message 0 "*skipping empty key: set*" 0
-        verify_log_message 0 "*skipping empty key: list_quicklist*" 0
-        verify_log_message 0 "*skipping empty key: list_quicklist_empty_ziplist*" 0
-        verify_log_message 0 "*skipping empty key: list_ziplist*" 0
-        verify_log_message 0 "*skipping empty key: hash*" 0
-        verify_log_message 0 "*skipping empty key: hash_ziplist*" 0
-        verify_log_message 0 "*skipping empty key: hash_zipmap*" 0
-        verify_log_message 0 "*skipping empty key: zset*" 0
-        verify_log_message 0 "*skipping empty key: zset_ziplist*" 0
-        verify_log_message 0 "*empty keys skipped: 9*" 0
-    }
-}
-
-test {corrupt payload: load corrupted rdb with empty keys - with sanitize} {
-    set server_path [tmpdir "server.rdb-corruption-empty-keys-test"]
-    exec cp tests/assets/corrupt_empty_keys.rdb $server_path
-    start_server [list overrides [list "dir" $server_path "dbfilename" "corrupt_empty_keys.rdb" "sanitize-dump-payload" yes]] {
-        r select 0
-        assert_equal [r dbsize] 0
-
-        verify_log_message 0 "*skipping empty key: set*" 0
-        verify_log_message 0 "*skipping empty key: list_quicklist*" 0
-        verify_log_message 0 "*skipping empty key: list_quicklist_empty_ziplist*" 0
-        verify_log_message 0 "*skipping empty key: list_ziplist*" 0
-        verify_log_message 0 "*skipping empty key: hash*" 0
-        verify_log_message 0 "*skipping empty key: hash_ziplist*" 0
-        verify_log_message 0 "*skipping empty key: hash_zipmap*" 0
-        verify_log_message 0 "*skipping empty key: zset*" 0
-        verify_log_message 0 "*skipping empty key: zset_ziplist*" 0
-        verify_log_message 0 "*empty keys skipped: 9*" 0
+            verify_log_message 0 "*skipping empty key: set*" 0
+            verify_log_message 0 "*skipping empty key: list_quicklist*" 0
+            verify_log_message 0 "*skipping empty key: list_quicklist_empty_ziplist*" 0
+            verify_log_message 0 "*skipping empty key: list_ziplist*" 0
+            verify_log_message 0 "*skipping empty key: hash*" 0
+            verify_log_message 0 "*skipping empty key: hash_ziplist*" 0
+            verify_log_message 0 "*skipping empty key: zset*" 0
+            verify_log_message 0 "*skipping empty key: zset_ziplist*" 0
+            verify_log_message 0 "*empty keys skipped: 8*" 0
+        }
     }
 }
 
@@ -280,6 +261,7 @@ test {corrupt payload: hash empty zipmap} {
         r debug set-skip-checksum-validation 1
         catch { r RESTORE _hash 0 "\x09\x02\x00\xFF\x09\x00\xC0\xF1\xB8\x67\x4C\x16\xAC\xE3" } err
         assert_match "*Bad data format*" $err
+        verify_log_message 0 "*Zipmap integrity check failed*" 0
     }
 }
 

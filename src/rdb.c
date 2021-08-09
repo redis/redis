@@ -1872,14 +1872,6 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                     decrRefCount(o);
                     return NULL;
                 }
-
-                if (zipmapLen(encoded) == 0) {
-                    zfree(encoded);
-                    o->ptr = NULL;
-                    decrRefCount(o);
-                    goto emptykey;
-                }
-
                 /* Convert to ziplist encoded hash. This must be deprecated
                  * when loading dumps created by Redis 2.4 gets deprecated. */
                 {
