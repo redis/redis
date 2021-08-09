@@ -1842,7 +1842,19 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int *error) {
                 zfree(zl);
                 return NULL;
             }
-            quicklistAppendZiplist(o->ptr, zl);
+
+            /* Silently skip empty ziplists, if we'll end up with empty quicklist we'll fail later. */
+            if (ziplistLen(zl) == 0) {
+                zfree(zl);
+                continue;
+            } else {
+                quicklistAppendZiplist(o->ptr, zl);
+            }
+        }
+
+        if (quicklistCount(o->ptr) == 0) {
+            decrRefCount(o);
+            goto emptykey;
         }
     } else if (rdbtype == RDB_TYPE_HASH_ZIPMAP  ||
                rdbtype == RDB_TYPE_LIST_ZIPLIST ||
@@ -1927,6 +1939,14 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int *error) {
                     decrRefCount(o);
                     return NULL;
                 }
+
+                if (ziplistLen(encoded) == 0) {
+                    zfree(encoded);
+                    o->ptr = NULL;
+                    decrRefCount(o);
+                    goto emptykey;
+                }
+
                 o->type = OBJ_LIST;
                 o->encoding = OBJ_ENCODING_ZIPLIST;
                 listTypeConvert(o,OBJ_ENCODING_QUICKLIST);

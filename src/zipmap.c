@@ -430,6 +430,9 @@ int zipmapValidateIntegrity(unsigned char *zm, size_t size, int deep) {
             return 0;
     }
 
+    /* check that the zipmap is not empty. */
+    if (count == 0) return 0;
+
     /* check that the count in the header is correct */
     if (zm[0] != ZIPMAP_BIGLEN && zm[0] != count)
         return 0;
