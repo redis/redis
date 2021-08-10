@@ -539,7 +539,7 @@ void dismissObject(robj *o, size_t size_hint) {
 
     /* Currently we use zmadvise_dontneed only when we use jemalloc.
      * so we avoid these pointless loops when they're not going to do anything. */
-#if defined(USE_JEMALLOC)
+#if defined(USE_JEMALLOC) && defined(__linux__)
     if (o->refcount != 1) return;
     switch(o->type) {
         case OBJ_STRING: dismissStringObject(o); break;
