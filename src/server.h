@@ -1891,6 +1891,7 @@ void addReplySds(client *c, sds s);
 void addReplyBulkSds(client *c, sds s);
 void setDeferredReplyBulkSds(client *c, void *node, sds s);
 void addReplyErrorObject(client *c, robj *err);
+void addReplyOrErrorObject(client *c, robj *reply);
 void addReplyErrorSds(client *c, sds err);
 void addReplyError(client *c, const char *err);
 void addReplyStatus(client *c, const char *status);
@@ -2396,7 +2397,6 @@ robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags);
 robj *lookupKeyWriteWithFlags(redisDb *db, robj *key, int flags);
 robj *objectCommandLookup(client *c, robj *key);
 robj *objectCommandLookupOrReply(client *c, robj *key, robj *reply);
-void SentReplyOnKeyMiss(client *c, robj *reply);
 int objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
                        long long lru_clock, int lru_multiplier);
 #define LOOKUP_NONE 0
