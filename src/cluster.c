@@ -4395,7 +4395,7 @@ static int isReplicaAvailable(clusterNode *node) {
     long long repl_offset = node->repl_offset;
     if (node->flags & CLUSTER_NODE_MYSELF) {
         /* Nodes do not update their own information
-        * in the cluster node list. */
+         * in the cluster node list. */
         repl_offset = replicationGetSlaveOffset();
     }
     return (repl_offset != 0);
