@@ -789,6 +789,10 @@ struct redisCommand redisCommandTable[] = {
      "write use-memory @list @set @sortedset @dangerous",
      0,sortGetKeys,1,1,1,0,0,0},
 
+    {"sort_ro",sortroCommand,-2,
+     "read-only @list @set @sortedset @dangerous",
+     0,NULL,1,1,1,0,0,0},
+
     {"info",infoCommand,-1,
      "ok-loading ok-stale random @dangerous",
      0,NULL,0,0,0,0,0,0},
@@ -1673,17 +1677,19 @@ int clientsCronResizeQueryBuffer(client *c) {
     size_t querybuf_size = sdsalloc(c->querybuf);
     time_t idletime = server.unixtime - c->lastinteraction;
 
-    /* Only resize the query buffer if the buffer is bigger than
-     * PROTO_RESIZE_THRESHOLD, and it is actually wasting at least a few kbytes. */
-    if (querybuf_size > PROTO_RESIZE_THRESHOLD && sdsavail(c->querybuf) > 1024*4) {
+    /* Only resize the query buffer if the buffer is actually wasting at least a
+     * few kbytes */
+    if (sdsavail(c->querybuf) > 1024*4) {
         /* There are two conditions to resize the query buffer: */
         if (idletime > 2) {
             /* 1) Query is idle for a long time. */
             c->querybuf = sdsRemoveFreeSpace(c->querybuf);
-        } else if (querybuf_size/2 > c->querybuf_peak) {
-            /* 2) Query buffer is too big for latest peak. trim excess space but
-             *    only up to a limit, not below the recent peak and current
-             *    c->querybuf (which will be soon get used). */
+        } else if (querybuf_size > PROTO_RESIZE_THRESHOLD && querybuf_size/2 > c->querybuf_peak) {
+            /* 2) Query buffer is too big for latest peak and is larger than
+             *    resize threshold. Trim excess space but only up to a limit,
+             *    not below the recent peak and current c->querybuf (which will
+             *    be soon get used). If we're in the middle of a bulk then make
+             *    sure not to resize to less than the bulk length. */
             size_t resize = sdslen(c->querybuf);
             if (resize < c->querybuf_peak) resize = c->querybuf_peak;
             if (c->bulklen != -1 && resize < (size_t)c->bulklen) resize = c->bulklen;

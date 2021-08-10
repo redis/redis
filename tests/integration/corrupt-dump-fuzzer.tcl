@@ -99,6 +99,7 @@ foreach sanitize_dump {no yes} {
             r debug set-skip-checksum-validation 1
             set start_time [clock seconds]
             generate_types
+            set dbsize [r dbsize]
             r save
             set cycle 0
             set stat_terminated_in_restore 0
@@ -142,6 +143,12 @@ foreach sanitize_dump {no yes} {
                         set sent [generate_fuzzy_traffic_on_key "_$k" 1] ;# traffic for 1 second
                         incr stat_traffic_commands_sent [llength $sent]
                         r del "_$k" ;# in case the server terminated, here's where we'll detect it.
+                        if {$dbsize != [r dbsize]} {
+                            puts "unexpected keys"
+                            puts "keys: [r keys *]"
+                            puts $sent
+                            exit 1
+                        }
                     } err ] } {
                         # if the server terminated update stats and restart it
                         set report_and_restart true
