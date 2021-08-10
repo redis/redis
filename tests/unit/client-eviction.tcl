@@ -54,7 +54,7 @@ start_server {} {
         $rr multi
         $rr set k [string repeat v [expr $maxmemory_clients / 4]]
         $rr set k [string repeat v [expr $maxmemory_clients / 4]]
-        assert_match [$rr exec] {OK OK}
+        assert_equal [$rr exec] {OK OK}
 
         # Attempt a multi-exec where sum of commands is more than maxmemory_clients, causing client eviction
         $rr multi
@@ -163,10 +163,10 @@ start_server {} {
         $rr1 client setname "qbuf-client"
         set rr2 [redis_deferring_client]
         $rr2 client setname "obuf-client1"
-        assert_match [$rr2 read] OK
+        assert_equal [$rr2 read] OK
         set rr3 [redis_deferring_client]
         $rr3 client setname "obuf-client2"
-        assert_match [$rr3 read] OK
+        assert_equal [$rr3 read] OK
 
         # Occupy client's query buff with less than output buffer limit left to exceed maxmemory-clients
         set qbsize [expr {$maxmemory_clients - $obuf_size}]
@@ -181,8 +181,8 @@ start_server {} {
         
         # Make the other two obuf-clients pass obuf limit and also pass maxmemory-clients
         # We use two obuf-clients to make sure that even if client eviction is attempted
-        # btween two command processing (with no sleep) we don't perform any client eviction
-        # because the obuf limit is enforced with precendence.
+        # between two command processing (with no sleep) we don't perform any client eviction
+        # because the obuf limit is enforced with precedence.
         exec kill -SIGSTOP $server_pid
         $rr2 get k
         $rr2 flush
@@ -197,7 +197,7 @@ start_server {} {
         assert_match {no client named obuf-client2 found*} $e
         
         # Validate qbuf-client is still connected and wasn't evicted
-        assert_match [client_field qbuf-client name] {qbuf-client}
+        assert_equal [client_field qbuf-client name] {qbuf-client}
     }
 }
 
@@ -257,14 +257,14 @@ start_server {} {
         set total_client_mem [clients_sum tot-mem]
         set client_actual_mem [expr $total_client_mem / $client_count]
         
-        # Make sure client_acutal_mem is more or equal to what we indended
+        # Make sure client_acutal_mem is more or equal to what we intended
         assert {$client_actual_mem >= $client_mem}
 
         # Make sure all clients are still connected
         set connected_clients [llength [lsearch -all [split [string trim [r client list]] "\r\n"] *name=client*]]
         assert {$connected_clients == $client_count}
 
-        # Set maxmemory-clients to accomodate have our clients (taking into account the control client)
+        # Set maxmemory-clients to accommodate have our clients (taking into account the control client)
         set maxmemory_clients [expr ($client_actual_mem * $client_count) / 2 + [client_field control tot-mem]]
         r config set maxmemory-clients $maxmemory_clients
         

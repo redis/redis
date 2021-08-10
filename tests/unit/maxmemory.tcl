@@ -54,7 +54,7 @@ start_server {tags {"maxmemory"}} {
                 lappend clients $rr
             }
 
-            # Freez the server so output buffers will be filled in one event loop when we un-freez after sending mgets
+            # Freeze the server so output buffers will be filled in one event loop when we un-freeze after sending mgets
             exec kill -SIGSTOP $server_pid
             for {set j 0} {$j < 5} {incr j} {
                 foreach rr $clients {
@@ -62,7 +62,7 @@ start_server {tags {"maxmemory"}} {
                     $rr flush
                 }
             }
-            # Unfreez server
+            # Unfreeze server
             exec kill -SIGCONT $server_pid
             
 

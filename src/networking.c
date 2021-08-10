@@ -1474,8 +1474,8 @@ void freeClientAsync(client *c) {
     pthread_mutex_unlock(&async_free_queue_mutex);
 }
 
-/* Perform procssing of the client before moving on to processing the next client
- * this is usefull for performing operations that affect the global state but can't
+/* Perform processing of the client before moving on to processing the next client
+ * this is useful for performing operations that affect the global state but can't
  * wait until we're done with all clients. In other words can't wait until beforeSleep()
  * return C_ERR in case client is no longer valid after call. */
 int beforeNextClient(client *c) {
