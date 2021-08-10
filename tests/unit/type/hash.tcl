@@ -14,8 +14,8 @@ start_server {tags {"hash"}} {
         list [r hlen smallhash]
     } {8}
 
-    test {Is the small hash encoded with a ziplist?} {
-        assert_encoding ziplist smallhash
+    test {Is the small hash encoded with a listpack?} {
+        assert_encoding listpack smallhash
     }
 
     proc create_hash {key entries} {
@@ -34,11 +34,14 @@ start_server {tags {"hash"}} {
         return $res
     }
 
-    foreach {type contents} "ziplist {{a 1} {b 2} {c 3}} hashtable {{a 1} {b 2} {[randstring 70 90 alpha] 3}}" {
+    foreach {type contents} "listpack {{a 1} {b 2} {c 3}} hashtable {{a 1} {b 2} {[randstring 70 90 alpha] 3}}" {
         set original_max_value [lindex [r config get hash-max-ziplist-value] 1]
         r config set hash-max-ziplist-value 10
         create_hash myhash $contents
         assert_encoding $type myhash
+
+        # coverage for objectComputeSize
+        assert_morethan [r memory usage myhash] 0
 
         test "HRANDFIELD - $type" {
             unset -nocomplain myhash
@@ -87,7 +90,7 @@ start_server {tags {"hash"}} {
 
     foreach {type contents} "
         hashtable {{a 1} {b 2} {c 3} {d 4} {e 5} {6 f} {7 g} {8 h} {9 i} {[randstring 70 90 alpha] 10}}
-        ziplist {{a 1} {b 2} {c 3} {d 4} {e 5} {6 f} {7 g} {8 h} {9 i} {10 j}} " {
+        listpack {{a 1} {b 2} {c 3} {d 4} {e 5} {6 f} {7 g} {8 h} {9 i} {10 j}} " {
         test "HRANDFIELD with <count> - $type" {
             set original_max_value [lindex [r config get hash-max-ziplist-value] 1]
             r config set hash-max-ziplist-value 10

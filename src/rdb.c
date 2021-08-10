@@ -676,8 +676,8 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
         else
             serverPanic("Unknown sorted set encoding");
     case OBJ_HASH:
-        if (o->encoding == OBJ_ENCODING_ZIPLIST)
-            return rdbSaveType(rdb,RDB_TYPE_HASH_ZIPLIST);
+        if (o->encoding == OBJ_ENCODING_LISTPACK)
+            return rdbSaveType(rdb,RDB_TYPE_HASH_LISTPACK);
         else if (o->encoding == OBJ_ENCODING_HT)
             return rdbSaveType(rdb,RDB_TYPE_HASH);
         else
@@ -897,12 +897,11 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
         }
     } else if (o->type == OBJ_HASH) {
         /* Save a hash value */
-        if (o->encoding == OBJ_ENCODING_ZIPLIST) {
-            size_t l = ziplistBlobLen((unsigned char*)o->ptr);
+        if (o->encoding == OBJ_ENCODING_LISTPACK) {
+            size_t l = lpBytes((unsigned char*)o->ptr);
 
             if ((n = rdbSaveRawString(rdb,o->ptr,l)) == -1) return -1;
             nwritten += n;
-
         } else if (o->encoding == OBJ_ENCODING_HT) {
             dictIterator *di = dictGetIterator(o->ptr);
             dictEntry *de;
@@ -1703,7 +1702,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
         o = createHashObject();
 
         /* Too many entries? Use a hash table right from the start. */
-        if (len > server.hash_max_ziplist_entries)
+        if (len > server.hash_max_listpack_entries)
             hashTypeConvert(o, OBJ_ENCODING_HT);
         else if (deep_integrity_validation) {
             /* In this mode, we need to guarantee that the server won't crash
@@ -1715,7 +1714,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
 
 
         /* Load every field and value into the ziplist */
-        while (o->encoding == OBJ_ENCODING_ZIPLIST && len > 0) {
+        while (o->encoding == OBJ_ENCODING_LISTPACK && len > 0) {
             len--;
             /* Load raw strings */
             if ((field = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL)) == NULL) {
@@ -1743,15 +1742,13 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 }
             }
 
-            /* Add pair to ziplist */
-            o->ptr = ziplistPush(o->ptr, (unsigned char*)field,
-                    sdslen(field), ZIPLIST_TAIL);
-            o->ptr = ziplistPush(o->ptr, (unsigned char*)value,
-                    sdslen(value), ZIPLIST_TAIL);
+            /* Add pair to listpack */
+            o->ptr = lpAppend(o->ptr, (unsigned char*)field, sdslen(field));
+            o->ptr = lpAppend(o->ptr, (unsigned char*)value, sdslen(value));
 
             /* Convert to hash table if size threshold is exceeded */
-            if (sdslen(field) > server.hash_max_ziplist_value ||
-                sdslen(value) > server.hash_max_ziplist_value)
+            if (sdslen(field) > server.hash_max_listpack_value ||
+                sdslen(value) > server.hash_max_listpack_value)
             {
                 sdsfree(field);
                 sdsfree(value);
@@ -1845,7 +1842,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                rdbtype == RDB_TYPE_LIST_ZIPLIST ||
                rdbtype == RDB_TYPE_SET_INTSET   ||
                rdbtype == RDB_TYPE_ZSET_ZIPLIST ||
-               rdbtype == RDB_TYPE_HASH_ZIPLIST)
+               rdbtype == RDB_TYPE_HASH_ZIPLIST ||
+               rdbtype == RDB_TYPE_HASH_LISTPACK)
     {
         size_t encoded_len;
         unsigned char *encoded =
@@ -1874,7 +1872,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 /* Convert to ziplist encoded hash. This must be deprecated
                  * when loading dumps created by Redis 2.4 gets deprecated. */
                 {
-                    unsigned char *zl = ziplistNew();
+                    unsigned char *zl = lpNew(0);
                     unsigned char *zi = zipmapRewind(o->ptr);
                     unsigned char *fstr, *vstr;
                     unsigned int flen, vlen;
@@ -1884,8 +1882,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                     while ((zi = zipmapNext(zi, &fstr, &flen, &vstr, &vlen)) != NULL) {
                         if (flen > maxlen) maxlen = flen;
                         if (vlen > maxlen) maxlen = vlen;
-                        zl = ziplistPush(zl, fstr, flen, ZIPLIST_TAIL);
-                        zl = ziplistPush(zl, vstr, vlen, ZIPLIST_TAIL);
+                        zl = lpAppend(zl, fstr, flen);
+                        zl = lpAppend(zl, vstr, vlen);
 
                         /* search for duplicate records */
                         sds field = sdstrynewlen(fstr, flen);
@@ -1904,10 +1902,10 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                     zfree(o->ptr);
                     o->ptr = zl;
                     o->type = OBJ_HASH;
-                    o->encoding = OBJ_ENCODING_ZIPLIST;
+                    o->encoding = OBJ_ENCODING_LISTPACK;
 
-                    if (hashTypeLength(o) > server.hash_max_ziplist_entries ||
-                        maxlen > server.hash_max_ziplist_value)
+                    if (hashTypeLength(o) > server.hash_max_listpack_entries ||
+                        maxlen > server.hash_max_listpack_value)
                     {
                         hashTypeConvert(o, OBJ_ENCODING_HT);
                     }
@@ -1970,16 +1968,44 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                     zsetConvert(o,OBJ_ENCODING_SKIPLIST);
                 break;
             case RDB_TYPE_HASH_ZIPLIST:
+                {
+                    unsigned char *lp = lpNew(encoded_len);
+                    if (!hashZiplistConvertAndValidateIntegrity(encoded, encoded_len, &lp)) {
+                        rdbReportCorruptRDB("Hash ziplist integrity check failed.");
+                        zfree(lp);
+                        zfree(encoded);
+                        o->ptr = NULL;
+                        decrRefCount(o);
+                        return NULL;
+                    }
+
+                    zfree(o->ptr);
+                    o->ptr = lp;
+                    o->type = OBJ_HASH;
+                    o->encoding = OBJ_ENCODING_LISTPACK;
+                    if (hashTypeLength(o) == 0) {
+                        zfree(o->ptr);
+                        o->ptr = NULL;
+                        decrRefCount(o);
+                        goto emptykey;
+                    }
+
+                    if (hashTypeLength(o) > server.hash_max_listpack_entries) {
+                        hashTypeConvert(o, OBJ_ENCODING_HT);
+                    } 
+                    break;
+                }
+            case RDB_TYPE_HASH_LISTPACK:
                 if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
-                if (!hashZiplistValidateIntegrity(encoded, encoded_len, deep_integrity_validation)) {
-                    rdbReportCorruptRDB("Hash ziplist integrity check failed.");
+                if (!hashListpackValidateIntegrity(encoded, encoded_len, deep_integrity_validation)) {
+                    rdbReportCorruptRDB("Hash listpack integrity check failed.");
                     zfree(encoded);
                     o->ptr = NULL;
                     decrRefCount(o);
                     return NULL;
                 }
                 o->type = OBJ_HASH;
-                o->encoding = OBJ_ENCODING_ZIPLIST;
+                o->encoding = OBJ_ENCODING_LISTPACK;
                 if (hashTypeLength(o) == 0) {
                     zfree(encoded);
                     o->ptr = NULL;
@@ -1987,7 +2013,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                     goto emptykey;
                 }
 
-                if (hashTypeLength(o) > server.hash_max_ziplist_entries)
+                if (hashTypeLength(o) > server.hash_max_listpack_entries)
                     hashTypeConvert(o, OBJ_ENCODING_HT);
                 break;
             default:
