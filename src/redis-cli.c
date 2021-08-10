@@ -213,7 +213,7 @@ static struct config {
     int shutdown;
     int monitor_mode;
     int pubsub_mode;
-    int blocking_state_aborted;
+    int blocking_state_aborted; /* used to abort monitor_mode and pubsub_mode. */
     int latency_mode;
     int latency_dist_mode;
     int latency_history;
@@ -8228,7 +8228,7 @@ static void sigIntHandler(int s) {
     if (config.monitor_mode || config.pubsub_mode) {
         close(context->fd);
         context->fd = REDIS_INVALID_FD;
-        config.blocking_state_aborted = 1; /* used to abort monitor_mode and pubsub_mode. */
+        config.blocking_state_aborted = 1;
     } else {
         exit(1);
     }
