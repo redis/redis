@@ -1,17 +1,29 @@
 proc client_field {name f} {
-    set clients [split [r client list] "\r\n"]
+    set clients [split [string trim [r client list]] "\r\n"]
     set c [lsearch -inline $clients *name=$name*]
     if {![regexp $f=(\[a-zA-Z0-9-\]+) $c - res]} {
-        throw no-client "no client named $name found"
+        throw no-client "no client named $name found with field $f"
     }
     return $res
+}
+
+proc clients_sum {f} {
+    set sum 0
+    set clients [split [string trim [r client list]] "\r\n"]
+    foreach c $clients {
+        if {![regexp $f=(\[a-zA-Z0-9-\]+) $c - res]} {
+            throw no-field "field $f not found in $c"
+        }
+        incr sum $res
+    }
+    return $sum
 }
 
 start_server {} {
     set maxmemory_clients 3000000
     r config set maxmemory-clients $maxmemory_clients
     
-    test "client evicted due to query buf" {
+    test "client evicted due to large argv" {
         r flushdb
         set rr [redis_client]
         # Attempt a large multi-bulk command under eviction limit
@@ -20,6 +32,58 @@ start_server {} {
         # Attempt another command, now causing client eviction
         catch { $rr mset k v k2 [string repeat v $maxmemory_clients] } e
         assert_match {*connection reset by peer*} $e
+    }
+
+    test "client evicted due to large query buf" {
+        r flushdb
+        set rr [redis_client]
+        # Attempt to fill the query buff without completing the argument above the limit, causing client eviction
+        catch { 
+            $rr write [join [list "*1\r\n\$$maxmemory_clients\r\n" [string repeat v $maxmemory_clients]] ""]
+            $rr flush
+            $rr read
+        } e
+        assert_match {*connection reset by peer*} $e
+    }
+
+    test "client evicted due to large multi buf" {
+        r flushdb
+        set rr [redis_client]
+        
+        # Attempt a multi-exec where sum of commands is less than maxmemory_clients
+        $rr multi
+        $rr set k [string repeat v [expr $maxmemory_clients / 4]]
+        $rr set k [string repeat v [expr $maxmemory_clients / 4]]
+        assert_match [$rr exec] {OK OK}
+
+        # Attempt a multi-exec where sum of commands is more than maxmemory_clients, causing client eviction
+        $rr multi
+        catch { 
+            for {set j 0} {$j < 5} {incr j} {
+                $rr set k [string repeat v [expr $maxmemory_clients / 4]]
+            }
+        } e
+        assert_match {*broken pipe*} $e
+    }
+
+    test "client evicted due to watched key list" {
+        r flushdb
+        set rr [redis_client]
+        
+        # Since watched key list is a small overheatd this test uses a minimal maxmemory-clients config
+        r config set maxmemory-clients 300000
+        $rr client setname badger
+        
+        # Append watched keys until list maxes out maxmemroy clients and causes client eviction
+        catch { 
+            for {set j 0} {$j < $maxmemory_clients} {incr j} {
+                $rr watch $j
+            }
+        } e
+        assert_match {I/O error reading reply} $e
+        
+        # Restore config for next tests
+        r config set maxmemory-clients $maxmemory_clients
     }
 
     test "client evicted due to output buf" {
@@ -138,7 +202,6 @@ start_server {} {
 }
 
 start_server {} {
-
     test "decrease maxmemory-clients causes client eviction" {
         set maxmemory_clients [mb 4]
         set client_count 10
@@ -146,23 +209,20 @@ start_server {} {
         r config set maxmemory-clients $maxmemory_clients
 
 
+        # Make multiple clients consume together roughly 1mb less than maxmemory_clients
         for {set j 0} {$j < $client_count} {incr j} {
             set rr [redis_client]
             $rr client setname client$j
-            #$rr write [join [list "*2\r\n\$$qbsize\r\n" [string repeat v $qbsize] "\r\n"] ""] ->for TODO below
             $rr write [join [list "*2\r\n\$$qbsize\r\n" [string repeat v $qbsize]] ""]
             $rr flush
-            #TODO: improve test latency - use bigarg instead of qbuf/qbuf-free
-            #after 10
-            #puts [r client list]
             wait_for_condition 200 10 {
-                [client_field client$j qbuf] == $qbsize && [client_field client$j qbuf-free] == 0
+                [client_field client$j qbuf] >= $qbsize
             } else {
                 fail "Failed to fill qbuf for test"
             }
         }
         
-        # Make sure all clients are connected
+        # Make sure all clients are still connected
         set connected_clients [llength [lsearch -all [split [string trim [r client list]] "\r\n"] *name=client*]]
         assert {$connected_clients == $client_count}
         
@@ -171,5 +231,51 @@ start_server {} {
         set connected_clients [llength [lsearch -all [split [string trim [r client list]] "\r\n"] *name=client*]]
         assert {$connected_clients > 0 && $connected_clients < $client_count}
     }
-    
 }
+
+start_server {} {
+    test "evict clients only until below limit" {
+        set client_count 10
+        set client_mem [mb 1]
+        r config set maxmemory-clients 0
+        r client setname control
+        r client no-evict on
+        
+        # Make multiple clients consume together roughly 1mb less than maxmemory_clients
+        for {set j 0} {$j < $client_count} {incr j} {
+            set rr [redis_client]
+            $rr client setname client$j
+            $rr write [join [list "*2\r\n\$$client_mem\r\n" [string repeat v $client_mem]] ""]
+            $rr flush
+            wait_for_condition 200 10 {
+                [client_field client$j tot-mem] >= $client_mem
+            } else {
+                fail "Failed to fill qbuf for test"
+            }
+        }
+
+        set total_client_mem [clients_sum tot-mem]
+        set client_actual_mem [expr $total_client_mem / $client_count]
+        
+        # Make sure client_acutal_mem is more or equal to what we indended
+        assert {$client_actual_mem >= $client_mem}
+
+        # Make sure all clients are still connected
+        set connected_clients [llength [lsearch -all [split [string trim [r client list]] "\r\n"] *name=client*]]
+        assert {$connected_clients == $client_count}
+
+        # Set maxmemory-clients to accomodate have our clients (taking into account the control client)
+        set maxmemory_clients [expr ($client_actual_mem * $client_count) / 2 + [client_field control tot-mem]]
+        r config set maxmemory-clients $maxmemory_clients
+        
+        # Make sure total used memory is below maxmemory_clients
+        set total_client_mem [clients_sum tot-mem]
+        assert {$total_client_mem <= $maxmemory_clients}
+
+        # Make sure we have only half of our clients now
+        set connected_clients [llength [lsearch -all [split [string trim [r client list]] "\r\n"] *name=client*]]
+        assert {$connected_clients == [expr $client_count / 2]}
+    }
+}
+
+
