@@ -212,8 +212,8 @@ static struct config {
     int interactive;
     int shutdown;
     int monitor_mode;
-    int monitor_aborted;
     int pubsub_mode;
+    int block_state_aborted;
     int latency_mode;
     int latency_dist_mode;
     int latency_history;
@@ -1288,9 +1288,10 @@ static int cliReadReply(int output_raw_strings) {
     int output = 1;
 
     if (redisGetReply(context,&_reply) != REDIS_OK) {
-        if (config.monitor_aborted) {
-            config.monitor_aborted = 0;
+        if (config.block_state_aborted) {
+            config.block_state_aborted = 0;
             config.monitor_mode = 0;
+            config.pubsub_mode = 0;
             return cliConnect(CC_FORCE);
         }
 
@@ -1459,7 +1460,7 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
             while (config.pubsub_mode) {
                 if (cliReadReply(output_raw) != REDIS_OK) exit(1);
                 fflush(stdout); /* Make it grep friendly */
-                if (config.last_cmd_type == REDIS_REPLY_ERROR) {
+                if (!config.pubsub_mode || config.last_cmd_type == REDIS_REPLY_ERROR) {
                     if (config.push_output) {
                         redisSetPushCallback(context, cliPushHandler);
                     }
@@ -8224,10 +8225,10 @@ static void intrinsicLatencyModeStop(int s) {
 static void sigIntHandler(int s) {
     UNUSED(s);
 
-    if (config.monitor_mode) {
+    if (config.monitor_mode || config.pubsub_mode) {
         close(context->fd);
         context->fd = REDIS_INVALID_FD;
-        config.monitor_aborted = 1;
+        config.block_state_aborted = 1;
     } else {
         exit(1);
     }
@@ -8296,8 +8297,8 @@ int main(int argc, char **argv) {
     config.interactive = 0;
     config.shutdown = 0;
     config.monitor_mode = 0;
-    config.monitor_aborted = 0;
     config.pubsub_mode = 0;
+    config.block_state_aborted = 0;
     config.latency_mode = 0;
     config.latency_dist_mode = 0;
     config.latency_history = 0;
