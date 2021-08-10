@@ -213,6 +213,7 @@ static struct config {
     int shutdown;
     int monitor_mode;
     int pubsub_mode;
+    int blocking_state_aborted; /* used to abort monitor_mode and pubsub_mode. */
     int latency_mode;
     int latency_dist_mode;
     int latency_history;
@@ -1287,6 +1288,13 @@ static int cliReadReply(int output_raw_strings) {
     int output = 1;
 
     if (redisGetReply(context,&_reply) != REDIS_OK) {
+        if (config.blocking_state_aborted) {
+            config.blocking_state_aborted = 0;
+            config.monitor_mode = 0;
+            config.pubsub_mode = 0;
+            return cliConnect(CC_FORCE);
+        }
+
         if (config.shutdown) {
             redisFree(context);
             context = NULL;
@@ -1433,9 +1441,13 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
        works well with the interval option. */
     while(repeat < 0 || repeat-- > 0) {
         redisAppendCommandArgv(context,argc,(const char**)argv,argvlen);
-        while (config.monitor_mode) {
-            if (cliReadReply(output_raw) != REDIS_OK) exit(1);
-            fflush(stdout);
+        if (config.monitor_mode) {
+            do {
+                if (cliReadReply(output_raw) != REDIS_OK) exit(1);
+                fflush(stdout);
+            } while(config.monitor_mode);
+            zfree(argvlen);
+            return REDIS_OK;
         }
 
         if (config.pubsub_mode) {
@@ -1448,7 +1460,7 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
             while (config.pubsub_mode) {
                 if (cliReadReply(output_raw) != REDIS_OK) exit(1);
                 fflush(stdout); /* Make it grep friendly */
-                if (config.last_cmd_type == REDIS_REPLY_ERROR) {
+                if (!config.pubsub_mode || config.last_cmd_type == REDIS_REPLY_ERROR) {
                     if (config.push_output) {
                         redisSetPushCallback(context, cliPushHandler);
                     }
@@ -8210,6 +8222,18 @@ static void intrinsicLatencyModeStop(int s) {
     force_cancel_loop = 1;
 }
 
+static void sigIntHandler(int s) {
+    UNUSED(s);
+
+    if (config.monitor_mode || config.pubsub_mode) {
+        close(context->fd);
+        context->fd = REDIS_INVALID_FD;
+        config.blocking_state_aborted = 1;
+    } else {
+        exit(1);
+    }
+}
+
 static void intrinsicLatencyMode(void) {
     long long test_end, run_time, max_latency = 0, runs = 0;
 
@@ -8274,6 +8298,7 @@ int main(int argc, char **argv) {
     config.shutdown = 0;
     config.monitor_mode = 0;
     config.pubsub_mode = 0;
+    config.blocking_state_aborted = 0;
     config.latency_mode = 0;
     config.latency_dist_mode = 0;
     config.latency_history = 0;
@@ -8449,6 +8474,7 @@ int main(int argc, char **argv) {
     if (argc == 0 && !config.eval) {
         /* Ignore SIGPIPE in interactive mode to force a reconnect */
         signal(SIGPIPE, SIG_IGN);
+        signal(SIGINT, sigIntHandler);
 
         /* Note that in repl mode we don't abort on connection error.
          * A new attempt will be performed for every command send. */
