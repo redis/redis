@@ -109,7 +109,7 @@ start_server {} {
                 $rr get k
                 $rr flush
                } e]} {
-                assert_match {no client named test_client found} $e
+                assert_match {no client named test_client found*} $e
                 break
             }
         }
@@ -192,9 +192,9 @@ start_server {} {
         
         # Validate obuf-clients were disconnected (because of obuf limit)
         catch {client_field obuf-client1 name} e
-        assert_match $e {no client named obuf-client1 found}
+        assert_match {no client named obuf-client1 found*} $e
         catch {client_field obuf-client2 name} e
-        assert_match $e {no client named obuf-client2 found}
+        assert_match {no client named obuf-client2 found*} $e
         
         # Validate qbuf-client is still connected and wasn't evicted
         assert_match [client_field qbuf-client name] {qbuf-client}
