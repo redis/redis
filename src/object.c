@@ -912,21 +912,6 @@ int getPositiveLongFromObjectOrReply(client *c, robj *o, long *target, const cha
     }
 }
 
-/* Sends either a reply or an error reply by checking the first char.
- * If the first char is '-' the reply is considered an error.
- * In any case the given reply is sent, if the reply is also recognize
- * as an error we also perform some post reply operations such as
- * logging and stats update. */
-void addReplyOrErrorObject(client *c, robj *reply) {
-    serverAssert(sdsEncodedObject(reply));
-    sds rep = reply->ptr;
-    if (sdslen(rep) > 1 && rep[0] == '-') {
-        addReplyErrorObject(c, reply);
-    } else {
-        addReply(c, reply);
-    }
-}
-
 int getIntFromObjectOrReply(client *c, robj *o, int *target, const char *msg) {
     long value;
 
