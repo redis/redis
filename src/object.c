@@ -422,6 +422,8 @@ void dismissListObject(robj *o, size_t size_hint) {
                 node = node->next;
             }
         }
+    } else {
+        serverPanic("Unknown list encoding type");
     }
 }
 
@@ -446,6 +448,8 @@ void dismissSetObject(robj *o, size_t size_hint) {
         dismissMemory(set->ht_table[1], DICTHT_SIZE(set->ht_size_exp[1])*sizeof(dictEntry*));
     } else if (o->encoding == OBJ_ENCODING_INTSET) {
         dismissMemory(o->ptr, intsetBlobLen((intset*)o->ptr));
+    } else {
+        serverPanic("Unknown set encoding type");
     }
 }
 
@@ -471,6 +475,8 @@ void dismissZsetObject(robj *o, size_t size_hint) {
         dismissMemory(d->ht_table[1], DICTHT_SIZE(d->ht_size_exp[1])*sizeof(dictEntry*));
     } else if (o->encoding == OBJ_ENCODING_ZIPLIST) {
         dismissMemory(o->ptr, ziplistBlobLen((unsigned char*)o->ptr));
+    } else {
+        serverPanic("Unknown zset encoding type");
     }
 }
 
@@ -495,8 +501,10 @@ void dismissHashObject(robj *o, size_t size_hint) {
         /* Dismiss hash table memory. */
         dismissMemory(d->ht_table[0], DICTHT_SIZE(d->ht_size_exp[0])*sizeof(dictEntry*));
         dismissMemory(d->ht_table[1], DICTHT_SIZE(d->ht_size_exp[1])*sizeof(dictEntry*));
-    } else if (o->encoding == OBJ_ENCODING_ZIPLIST) {
-        dismissMemory(o->ptr, ziplistBlobLen((unsigned char*)o->ptr));
+    } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
+        dismissMemory(o->ptr, lpBytes((unsigned char*)o->ptr));
+    } else {
+        serverPanic("Unknown hash encoding type");
     }
 }
 
