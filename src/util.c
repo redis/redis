@@ -335,7 +335,7 @@ int ll2string(char *dst, size_t dstlen, long long svalue) {
         negative = 0;
     }
 
-    /* Converts the unsigned long long calue to string*/
+    /* Converts the unsigned long long value to string*/
     uint32_t const length = ull2string(dst, dstlen, value, negative);
 
     /* Add sign. */
