@@ -1,4 +1,0 @@
-user default on -@all
-user alice on nopass ~* -@all
-user alice on nopass ~* -@all
-user alice on notvalid

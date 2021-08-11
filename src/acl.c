@@ -222,6 +222,12 @@ uint64_t ACLGetCommandCategoryFlagByName(const char *name) {
 
 /* Method for passwords/pattern comparison used for the user->passwords list
  * so that we can search for items with listSearchKey(). */
+int ACLListMatchUser(void *a, void *b) {
+    return sdscmp(((sds *) a)[0],((sds *) b)[0]) == 0;
+}
+
+/* Method for passwords/pattern comparison used for the user->passwords list
+ * so that we can search for items with listSearchKey(). */
 int ACLListMatchSds(void *a, void *b) {
     return sdscmp(a,b) == 0;
 }
@@ -1037,6 +1043,8 @@ const char *ACLSetUserStringError(void) {
     else if (errno == EBADMSG)
         errmsg = "The password hash must be exactly 64 characters and contain "
                  "only lowercase hexadecimal characters";
+    else if (errno == EALREADY)
+        errmsg = "Duplicate user. A user can only be defined once.";
     return errmsg;
 }
 
@@ -1055,6 +1063,7 @@ user *ACLCreateDefaultUser(void) {
 void ACLInit(void) {
     Users = raxNew();
     UsersToLoad = listCreate();
+    listSetMatchMethod(UsersToLoad, ACLListMatchUser);
     ACLLog = listCreate();
     DefaultUser = ACLCreateDefaultUser();
 }
@@ -1407,6 +1416,12 @@ int ACLAppendUserForLoading(sds *argv, int argc, int *argc_err) {
         return C_ERR;
     }
 
+    if (listSearchKey(UsersToLoad, argv+1)) {
+        if (argc_err) *argc_err = 1;
+        errno = EALREADY;
+        return C_ERR; 
+    }
+
     /* Try to apply the user rules in a fake user to see if they
      * are actually valid. */
     user *fakeuser = ACLCreateUnlinkedUser();
@@ -1447,11 +1462,8 @@ int ACLLoadConfiguredUsers(void) {
         }
 
         user *u = ACLCreateUser(username,sdslen(username));
-        if (!u) {
-            u = ACLGetUserByName(username,sdslen(username));
-            serverAssert(u != NULL);
-            ACLSetUser(u,"reset",-1);
-        }
+        /* There should be no duplicate users here */
+        serverAssert(u);
 
         /* Load every rule defined for this user. */
         for (int j = 1; aclrules[j]; j++) {
@@ -1529,10 +1541,6 @@ sds ACLLoadFromFile(const char *filename) {
     rax *old_users = Users;
     Users = raxNew();
 
-    /* Create the default user which can be overridden */
-    user *default_user = ACLCreateDefaultUser();
-    int is_original_default = 0;
-
     /* Load each line of the file. */
     for (int i = 0; i < totlines; i++) {
         sds *argv;
@@ -1580,13 +1588,7 @@ sds ACLLoadFromFile(const char *filename) {
 
         /* Get the user, verifying that the default user has only
          * been updated once from the original value. */
-        user *u;
-        if (!is_original_default && !strcmp(argv[1],"default")) {
-            u = default_user;
-            is_original_default = 1;
-        } else {
-            u = ACLCreateUser(argv[1],sdslen(argv[1]));
-        }
+        user *u = ACLCreateUser(argv[1],sdslen(argv[1]));
 
         /* If the user already exists we assume it's an error and abort. */
         if (!u) {
@@ -1629,8 +1631,13 @@ sds ACLLoadFromFile(const char *filename) {
         /* The default user pointer is referenced in different places: instead
          * of replacing such occurrences it is much simpler to copy the new
          * default user configuration in the old one. */
-        ACLCopyUser(DefaultUser,default_user);
-        ACLFreeUser(default_user);
+        user *new_default = ACLGetUserByName("default",7);
+        if (!new_default) {
+            new_default = ACLCreateDefaultUser();
+        }
+
+        ACLCopyUser(DefaultUser,new_default);
+        ACLFreeUser(new_default);
         raxInsert(Users,(unsigned char*)"default",7,DefaultUser,NULL);
         raxRemove(old_users,(unsigned char*)"default",7,NULL);
         ACLFreeUsersSet(old_users);

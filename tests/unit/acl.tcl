@@ -495,16 +495,6 @@ start_server [list overrides [list "dir" $server_path "aclfile" "user.acl"] tags
         r PUBLISH hello world
     }
 
-    test {Default: Can not execute ping from include file} {
-        r AUTH default whatever
-        # The default user in weird in that it has a special set of
-        # initial permissions that need to be respected
-        assert_equal "default" [r acl whoami]
-        r set key value
-        catch {r ping} err
-        assert_match {*NOPERM*} $err
-    }
-
     test {default: with config acl-pubsub-default allchannels after reset, can access any channels} {
         r ACL setuser default reset on nopass ~* +@all
         r SUBSCRIBE foo
@@ -647,7 +637,8 @@ start_server [list overrides [list "dir" $server_path "aclfile" "user.acl"] tags
 
     test {Test loading a corrupt ACL file} {
         # Corrupt the ACL file
-        exec cp -f tests/assets/malformed.acl $server_path/user.acl
+        set corruption "\nuser alice on nopass ~* -@all"
+        exec echo $corruption >> $server_path/user.acl
         catch {r ACL LOAD} err
         assert_match {*Duplicate user 'alice' found*} $err 
 
