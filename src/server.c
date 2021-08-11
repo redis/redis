@@ -1386,10 +1386,10 @@ int dictExpandAllowed(size_t moreMem, double usedRatio) {
 
 /* Returns the size of the DB dict entry metadata in bytes. In cluster mode, the
  * metadata is used for constructing a doubly linked list of the dict entries
- * belonging to the same cluster slot. */
+ * belonging to the same cluster slot. See the Slot to Key API in cluster.c. */
 size_t dictEntryMetadataSize(dict *d) {
     UNUSED(d);
-    return server.cluster_enabled ? sizeof(void*) * 2 : 0;
+    return server.cluster_enabled ? sizeof(clusterDictEntryMetadata) : 0;
 }
 
 /* Generic hash table type where keys are Redis Objects, Values
@@ -1445,7 +1445,8 @@ dictType dbDictType = {
     dictSdsKeyCompare,          /* key compare */
     dictSdsDestructor,          /* key destructor */
     dictObjectDestructor,       /* val destructor */
-    dictExpandAllowed           /* allow to expand */
+    dictExpandAllowed,          /* allow to expand */
+    dictEntryMetadataSize       /* size of entry metadata in bytes */
 };
 
 /* server.lua_scripts sha (as sds string) -> scripts (as robj) cache. */
