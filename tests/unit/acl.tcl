@@ -630,12 +630,12 @@ start_server {overrides {user "default on nopass ~* +@all"} tags {"external:skip
     }
 }
 
-set server_path [tmpdir "malformed.acl"]
+set server_path [tmpdir "duplicate.acl"]
 exec cp -f tests/assets/user.acl $server_path
 exec cp -f tests/assets/default.conf $server_path
 start_server [list overrides [list "dir" $server_path "aclfile" "user.acl"] tags [list "external:skip"]] {
 
-    test {Test loading a corrupt ACL file} {
+    test {Test loading an ACL file with duplicate users} {
         # Corrupt the ACL file
         set corruption "\nuser alice on nopass ~* -@all"
         exec echo $corruption >> $server_path/user.acl
@@ -649,5 +649,12 @@ start_server [list overrides [list "dir" $server_path "aclfile" "user.acl"] tags
         assert_equal [dict get [r ACL GETUSER alice] commands] "+@all"
         assert {[r ACL GETUSER bob] != ""}
         assert {[r ACL GETUSER default] != ""}
+    }
+    
+    # Execute this text in the context of the previous test to 
+    # skip it for the same workloads.
+    test {Test loading duplicate users in config on startup} {
+        catch {exec src/redis-server --user foo --user foo} err
+        assert_match {*Duplicate user*} $err
     }
 }

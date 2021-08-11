@@ -220,10 +220,12 @@ uint64_t ACLGetCommandCategoryFlagByName(const char *name) {
     return 0; /* No match. */
 }
 
-/* Method for passwords/pattern comparison used for the user->passwords list
- * so that we can search for items with listSearchKey(). */
-int ACLListMatchUser(void *a, void *b) {
-    return sdscmp(((sds *) a)[0],((sds *) b)[0]) == 0;
+/* Method for seraching for a user within a list of user definitions. The
+ * first argument is a user defintion, and we compare it against the
+ * actual user that was passed in. */
+int ACLListMatchLoadedUser(void *a, void *b) {
+    sds *user_definition = a;
+    return sdscmp(user_definition[0], b) == 0;
 }
 
 /* Method for passwords/pattern comparison used for the user->passwords list
@@ -1044,7 +1046,8 @@ const char *ACLSetUserStringError(void) {
         errmsg = "The password hash must be exactly 64 characters and contain "
                  "only lowercase hexadecimal characters";
     else if (errno == EALREADY)
-        errmsg = "Duplicate user. A user can only be defined once.";
+        errmsg = "Duplicate user found. A user can only be defined once in "
+                 "config files";
     return errmsg;
 }
 
@@ -1063,7 +1066,7 @@ user *ACLCreateDefaultUser(void) {
 void ACLInit(void) {
     Users = raxNew();
     UsersToLoad = listCreate();
-    listSetMatchMethod(UsersToLoad, ACLListMatchUser);
+    listSetMatchMethod(UsersToLoad, ACLListMatchLoadedUser);
     ACLLog = listCreate();
     DefaultUser = ACLCreateDefaultUser();
 }
