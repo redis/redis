@@ -185,68 +185,9 @@ int stringmatchlen_fuzz_test(void) {
     return total_matches;
 }
 
+
 /* Convert a string representing an amount of memory into the number of
- * bytes, so for instance memtoll("1Gb") will return 1073741824 that is
- * (1024*1024*1024).
- *
- * On parsing error, if *err is not NULL, it's set to 1, otherwise it's
- * set to 0. On error the function return value is 0, regardless of the
- * fact 'err' is NULL or not. */
-long long memtoll(const char *p, int *err) {
-    const char *u;
-    char buf[128];
-    long mul; /* unit multiplier */
-    long long val;
-    unsigned int digits;
-
-    if (err) *err = 0;
-
-    /* Search the first non digit character. */
-    u = p;
-    if (*u == '-') u++;
-    while(*u && isdigit(*u)) u++;
-    if (*u == '\0' || !strcasecmp(u,"b")) {
-        mul = 1;
-    } else if (!strcasecmp(u,"k")) {
-        mul = 1000;
-    } else if (!strcasecmp(u,"kb")) {
-        mul = 1024;
-    } else if (!strcasecmp(u,"m")) {
-        mul = 1000*1000;
-    } else if (!strcasecmp(u,"mb")) {
-        mul = 1024*1024;
-    } else if (!strcasecmp(u,"g")) {
-        mul = 1000L*1000*1000;
-    } else if (!strcasecmp(u,"gb")) {
-        mul = 1024L*1024*1024;
-    } else {
-        if (err) *err = 1;
-        return 0;
-    }
-
-    /* Copy the digits into a buffer, we'll use strtoll() to convert
-     * the digit (without the unit) into a number. */
-    digits = u-p;
-    if (digits >= sizeof(buf)) {
-        if (err) *err = 1;
-        return 0;
-    }
-    memcpy(buf,p,digits);
-    buf[digits] = '\0';
-
-    char *endptr;
-    errno = 0;
-    val = strtoll(buf,&endptr,10);
-    if ((val == 0 && errno == EINVAL) || *endptr != '\0') {
-        if (err) *err = 1;
-        return 0;
-    }
-    return val*mul;
-}
-
-/* Similar to memtoll but this is for unsigned long long
- * Convert a string representing an amount of memory into the number of
- * bytes, so for instance memtoll("1Gb") will return 1073741824 that is
+ * bytes, so for instance memtoull("1Gb") will return 1073741824 that is
  * (1024*1024*1024).
  *
  * On parsing error, if *err is not NULL, it's set to 1, otherwise it's
@@ -377,16 +318,10 @@ uint32_t sdigits10(int64_t v) {
  * Modified in order to handle signed integers since the original code was
  * designed for unsigned integers. */
 int ll2string(char *dst, size_t dstlen, long long svalue) {
-    static const char digits[201] =
-        "0001020304050607080910111213141516171819"
-        "2021222324252627282930313233343536373839"
-        "4041424344454647484950515253545556575859"
-        "6061626364656667686970717273747576777879"
-        "8081828384858687888990919293949596979899";
     int negative;
     unsigned long long value;
 
-    /* The main loop works with 64bit unsigned integers for simplicity, so
+    /* The ull2string function with 64bit unsigned integers for simplicity, so
      * we convert the number here and remember if it is negative. */
     if (svalue < 0) {
         if (svalue != LLONG_MIN) {
@@ -400,37 +335,15 @@ int ll2string(char *dst, size_t dstlen, long long svalue) {
         negative = 0;
     }
 
-    /* Check length. */
-    uint32_t const length = digits10(value)+negative;
-    if (length >= dstlen) return 0;
-
-    /* Null term. */
-    uint32_t next = length;
-    dst[next] = '\0';
-    next--;
-    while (value >= 100) {
-        int const i = (value % 100) * 2;
-        value /= 100;
-        dst[next] = digits[i + 1];
-        dst[next - 1] = digits[i];
-        next -= 2;
-    }
-
-    /* Handle last 1-2 digits. */
-    if (value < 10) {
-        dst[next] = '0' + (uint32_t) value;
-    } else {
-        int i = (uint32_t) value * 2;
-        dst[next] = digits[i + 1];
-        dst[next - 1] = digits[i];
-    }
+    /* Converts the unsigned long long calue to string*/
+    uint32_t const length = ull2string(dst, dstlen, value, negative);
 
     /* Add sign. */
     if (negative) dst[0] = '-';
     return length;
 }
 
-int ull2string(char *dst, size_t dstlen, unsigned long long value) {
+int ull2string(char *dst, size_t dstlen, unsigned long long value, int negative) {
     static const char digits[201] =
         "0001020304050607080910111213141516171819"
         "2021222324252627282930313233343536373839"
@@ -439,7 +352,7 @@ int ull2string(char *dst, size_t dstlen, unsigned long long value) {
         "8081828384858687888990919293949596979899";
 
     /* Check length. */
-    uint32_t const length = digits10(value);
+    uint32_t const length = digits10(value) + negative;
     if (length >= dstlen) return 0;
 
     /* Null term. */

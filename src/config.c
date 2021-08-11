@@ -558,8 +558,8 @@ void loadServerConfigFromString(char *config) {
                 "an invalid one, or 'master' which has no buffer limits.";
                 goto loaderr;
             }
-            hard = memtoll(argv[2],NULL);
-            soft = memtoll(argv[3],NULL);
+            hard = memtoull(argv[2],NULL);
+            soft = memtoull(argv[3],NULL);
             soft_seconds = atoi(argv[4]);
             if (soft_seconds < 0) {
                 err = "Negative number of seconds in soft limit is invalid";
@@ -863,7 +863,7 @@ void configSetCommand(client *c) {
                     goto badfmt;
                 }
             } else {
-                val = memtoll(v[j], &err);
+                val = memtoull(v[j], &err);
                 if (err || val < 0) {
                     sdsfreesplitres(v,vlen);
                     goto badfmt;
@@ -877,8 +877,8 @@ void configSetCommand(client *c) {
             int soft_seconds;
 
             class = getClientTypeByName(v[j]);
-            hard = memtoll(v[j+1],NULL);
-            soft = memtoll(v[j+2],NULL);
+            hard = memtoull(v[j+1],NULL);
+            soft = memtoull(v[j+2],NULL);
             soft_seconds = strtoll(v[j+3],NULL,10);
 
             server.client_obuf_limits[class].hard_limit_bytes = hard;
@@ -2099,6 +2099,20 @@ static int numericBoundaryCheck(typeData data, long long ll, const char **err) {
     return 1;
 }
 
+#define CONFIGSETCOMMON(data, ll, prev, err) \
+    if (!numericBoundaryCheck(data, ll, err)){ \
+        return 0; \
+    } \
+    if (data.numeric.is_valid_fn && !data.numeric.is_valid_fn(ll, err)){ \
+        return 0; \
+    } \
+    GET_NUMERIC_TYPE(prev) \
+    SET_NUMERIC_TYPE(ll) \
+    if (update && data.numeric.update_fn && !data.numeric.update_fn(ll, prev, err)) { \
+        SET_NUMERIC_TYPE(prev) \
+        return 0; \
+    }
+
 static int numericConfigSet(typeData data, sds value, int update, const char **err) {
     if (data.numeric.is_memory) {
         unsigned long long ll, prev = 0;
@@ -2108,38 +2122,14 @@ static int numericConfigSet(typeData data, sds value, int update, const char **e
             *err = "argument must be a memory value";
             return 0;
         }
-        if (!numericBoundaryCheck(data, ll, err))
-            return 0;
-
-        if (data.numeric.is_valid_fn && !data.numeric.is_valid_fn(ll, err))
-            return 0;
-
-        GET_NUMERIC_TYPE(prev)
-        SET_NUMERIC_TYPE(ll)
-
-        if (update && data.numeric.update_fn && !data.numeric.update_fn(ll, prev, err)) {
-            SET_NUMERIC_TYPE(prev)
-            return 0;
-        }
+        CONFIGSETCOMMON(data, ll, prev, err);
     } else {
         long long ll, prev = 0;
         if (!string2ll(value, sdslen(value), &ll)) {
             *err = "argument couldn't be parsed into an integer" ;
             return 0;
         }
-        if (!numericBoundaryCheck(data, ll, err))
-            return 0;
-
-        if (data.numeric.is_valid_fn && !data.numeric.is_valid_fn(ll, err))
-            return 0;
-
-        GET_NUMERIC_TYPE(prev)
-        SET_NUMERIC_TYPE(ll)
-
-        if (update && data.numeric.update_fn && !data.numeric.update_fn(ll, prev, err)) {
-            SET_NUMERIC_TYPE(prev)
-            return 0;
-        }
+        CONFIGSETCOMMON(data, ll, prev, err);
     }
     return 1;
 }
@@ -2151,7 +2141,7 @@ static void numericConfigGet(client *c, typeData data) {
         
         GET_NUMERIC_TYPE(value)
 
-        ull2string(buf, sizeof(buf), value);
+        ull2string(buf, sizeof(buf), value, 0);
         addReplyBulkCString(c, buf);
     } else{
         long long value = 0;
