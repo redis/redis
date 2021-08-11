@@ -1462,6 +1462,13 @@ int ACLLoadConfiguredUsers(void) {
         }
 
         user *u = ACLCreateUser(username,sdslen(username));
+        if (!u) {
+            /* Only valid duplicate user is the default one */
+            serverAssert(!strcmp(username, "default"));
+            u = ACLGetUserByName("default",7);
+            ACLSetUser(u,"reset",-1);
+        }
+        
         /* There should be no duplicate users here */
         serverAssert(u);
 
