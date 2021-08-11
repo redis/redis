@@ -1737,7 +1737,7 @@ typedef struct {
 } keySpec;
 
 /* Number of static key specs */
-#define STATIC_KEYS_SPECS_NUM 4
+#define STATIC_KEY_SPECS_NUM 4
 
 typedef void redisCommandProc(client *c);
 typedef int redisGetKeysProc(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
@@ -1747,7 +1747,7 @@ struct redisCommand {
     redisCommandProc *proc;
     int arity;
     char *sflags;   /* Flags as string representation, one char per flag. */
-    keySpec key_specs_static[STATIC_KEYS_SPECS_NUM];
+    keySpec key_specs_static[STATIC_KEY_SPECS_NUM];
     /* Use a function to determine keys arguments in a command line.
      * Used for Redis Cluster redirect. */
     redisGetKeysProc *getkeys_proc;

@@ -3487,12 +3487,12 @@ int populateSingleCommand(struct redisCommand *c, char *strflags) {
 
     /* Now handle the key arguments spec flags */
 
-    /* Redis commands don't need more args than STATIC_KEYS_SPECS_NUM (Number of keys
-     * specs can be greater than STATIC_KEYS_SPECS_NUM only for module commands) */
+    /* Redis commands don't need more args than STATIC_KEY_SPECS_NUM (Number of keys
+     * specs can be greater than STATIC_KEY_SPECS_NUM only for module commands) */
     c->key_specs = c->key_specs_static;
-    c->key_specs_max = STATIC_KEYS_SPECS_NUM;
+    c->key_specs_max = STATIC_KEY_SPECS_NUM;
 
-    for (int i = 0; i < STATIC_KEYS_SPECS_NUM; i++) {
+    for (int i = 0; i < STATIC_KEY_SPECS_NUM; i++) {
         if (c->key_specs[i].type == KSPEC_INVALID)
             continue;
 
