@@ -1596,14 +1596,16 @@ int getKeysUsingLegacyRangeSpec(struct redisCommand *cmd, robj **argv, int argc,
     int j, i = 0, last, first, step, *keys;
     UNUSED(argv);
 
-    if (cmd->legacy_range_key_spec.type == KSPEC_INVALID) {
+    if (cmd->legacy_range_key_spec.begin_search_type == KSPEC_BS_INVALID) {
         result->numkeys = 0;
         return 0;
     }
 
-    first = cmd->legacy_range_key_spec.u.range.firstkey;
-    last = cmd->legacy_range_key_spec.u.range.lastkey;
-    step = cmd->legacy_range_key_spec.u.range.keystep;
+    first = cmd->legacy_range_key_spec.bs.index.pos;
+    last = cmd->legacy_range_key_spec.fk.range.lastkey;
+    if (last >= 0)
+        last += first;
+    step = cmd->legacy_range_key_spec.fk.range.keystep;
 
     if (last < 0) last = argc+last;
 

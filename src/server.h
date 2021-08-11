@@ -1705,32 +1705,40 @@ typedef struct {
 } getKeysResult;
 #define GETKEYS_RESULT_INIT { {0}, NULL, 0, MAX_KEYS_BUFFER }
 
-#define KSPEC_INVALID   0 /* Must be 0 */
-#define KSPEC_RANGE     1
-#define KSPEC_KEYNUM    2
-#define KSPEC_KEYWORD   3
+#define KSPEC_BS_INVALID   0 /* Must be 0 */
+#define KSPEC_BS_UNKNOWN   1
+#define KSPEC_BS_INDEX     2
+#define KSPEC_BS_KEYWORD   3
+#define KSPEC_FK_INVALID   0 /* Must be 0 */
+#define KSPEC_FK_UNKNOWN   1
+#define KSPEC_FK_RANGE     2
+#define KSPEC_FK_KEYNUM    3
 typedef struct {
     /* Declarative data */
-    int type;
     const char *sflags;
+    int begin_search_type;
     union {
         struct {
-            int firstkey;
-            int lastkey;
-            int keystep;
-        } range;
-        struct {
-            int keynumidx;
-            int firstkey;
-            int keystep;
-        } keynum;
+            int pos;
+        } index;
         struct {
             const char *keyword;
-            int keycount;
             int startfrom;
-            int keystep;
         } keyword;
-    } u;
+    } bs;
+    int find_keys_type;
+    union {
+        struct {
+            int lastkey; /* Relative to what was returned in the begin_search step */
+            int keystep;
+            int limit;
+        } range;
+        struct {
+            int keynumidx; /* Relative to what was returned in the begin_search step */
+            int firstkey; /* Relative to what was returned in the begin_search step */
+            int keystep;
+        } keynum;
+    } fk;
 
     /* Runtime data */
     uint64_t flags;
