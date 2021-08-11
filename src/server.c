@@ -786,7 +786,7 @@ struct redisCommand redisCommandTable[] = {
     {"sort",sortCommand,-2,
      "write use-memory @list @set @sortedset @dangerous",
      {{KSPEC_RANGE,"read",.u.range={1,1,1}},
-      {KSPEC_KEYWORD,"write",.u.keyword={"STORE",1,2,1}}},
+      {KSPEC_KEYWORD,"write incomplete",.u.keyword={"STORE",1,2,1}}},
      sortGetKeys},
 
     {"sort_ro",sortroCommand,-2,
@@ -1112,7 +1112,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"stralgo",stralgoCommand,-2,
      "read-only @string",
-     {{KSPEC_KEYWORD,"read",.u.keyword={"KEYS",2,1,1}}},
+     {{KSPEC_KEYWORD,"read incomplete",.u.keyword={"KEYS",2,1,1}}},
      lcsGetKeys},
 
     {"reset",resetCommand,1,
