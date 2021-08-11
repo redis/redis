@@ -29,7 +29,6 @@
  */
 
 #include <string.h> /* for memcpy */
-//#include <stdio.h>
 #include "quicklist.h"
 #include "zmalloc.h"
 #include "config.h"
@@ -182,9 +181,7 @@ REDIS_STATIC quicklistNode *quicklistCreateNode(void) {
 }
 
 /* Return cached quicklist count */
-unsigned long quicklistCount(const quicklist *ql) {
-    printf("quicklistCount=%ld\n", ql->count);
-    return ql->count; }
+unsigned long quicklistCount(const quicklist *ql) { return ql->count; }
 
 /* Free entire quicklist. */
 void quicklistRelease(quicklist *quicklist) {
@@ -195,9 +192,12 @@ void quicklistRelease(quicklist *quicklist) {
     len = quicklist->len;
     while (len--) {
         next = current->next;
+
         zfree(current->zl);
         quicklist->count -= current->count;
+
         zfree(current);
+
         quicklist->len--;
         current = next;
     }
@@ -216,10 +216,6 @@ REDIS_STATIC int __quicklistCompressNode(quicklistNode *node) {
     /* Don't bother compressing small values */
     if (node->sz < MIN_COMPRESS_BYTES)
         return 0;
-
-    // TBD - is that the expected behavior ?
-    //if(node->container == QUICKLIST_NODE_CONTAINER_NONE)
-    //    return 0;
 
     quicklistLZF *lzf = zmalloc(sizeof(*lzf) + node->sz);
 
@@ -538,7 +534,7 @@ static void __quicklistInsertEntryNode(quicklist *quicklist, quicklistNode *old_
 int quicklistPushHead(quicklist *quicklist, void *value, size_t sz) {
     quicklistNode *orig_head = quicklist->head;
 
-    if(sz > packed_threshold) {
+    if(unlikely(sz > packed_threshold)) {
         __quicklistInsertEntryNode(quicklist, quicklist->head, value, sz, false);
         return true;
     }
@@ -694,7 +690,6 @@ REDIS_STATIC void __quicklistDelNode(quicklist *quicklist,
     __quicklistCompress(quicklist, NULL);
 
     zfree(node->zl);
-
     zfree(node);
 }
 
@@ -709,6 +704,7 @@ REDIS_STATIC void __quicklistDelNode(quicklist *quicklist,
 REDIS_STATIC int quicklistDelIndex(quicklist *quicklist, quicklistNode *node,
                                    unsigned char **p) {
     int gone = 0;
+
     if(unlikely(node->container == QUICKLIST_NODE_CONTAINER_NONE)) {
         __quicklistDelNode(quicklist, node);
         return 1;
@@ -1150,7 +1146,7 @@ int quicklistDelRange(quicklist *quicklist, const long start,
           "node count: %u",
           extent, del, entry.offset, delete_entire_node, node->count);
 
-        if (delete_entire_node || node->sz > packed_threshold) {
+        if (delete_entire_node || node->container == QUICKLIST_NODE_CONTAINER_NONE) {
             __quicklistDelNode(quicklist, node);
         } else {
             quicklistDecompressNodeForUse(node);
@@ -1479,8 +1475,10 @@ void quicklistRotate(quicklist *quicklist) {
     } else {
         value = tmp;
     }
+
     /* Add tail entry to head (must happen before tail is deleted). */
     quicklistPushHead(quicklist, value, sz);
+
     /* If quicklist has only one node, the head ziplist is also the
      * tail ziplist and PushHead() could have reallocated our single ziplist,
      * which would make our pre-existing 'p' unusable. */
@@ -1511,14 +1509,17 @@ int quicklistPopCustom(quicklist *quicklist, int where, unsigned char **data,
     unsigned int vlen;
     long long vlong;
     int pos = (where == QUICKLIST_HEAD) ? 0 : -1;
+
     if (quicklist->count == 0)
         return 0;
+
     if (data)
         *data = NULL;
     if (sz)
         *sz = 0;
     if (sval)
         *sval = -123456789;
+
     quicklistNode *node;
     if (where == QUICKLIST_HEAD && quicklist->head) {
         node = quicklist->head;
@@ -1528,10 +1529,7 @@ int quicklistPopCustom(quicklist *quicklist, int where, unsigned char **data,
         return 0;
     }
 
-    printf("quicklistPopCustom1\n");
-
     if(unlikely(node->container == QUICKLIST_NODE_CONTAINER_NONE)) {
-        printf("quicklistPopCustom2\n");
         if (data)
             *data = saver(node->entry, node->sz);
         if (sz)
@@ -1542,30 +1540,20 @@ int quicklistPopCustom(quicklist *quicklist, int where, unsigned char **data,
 
     p = ziplistIndex(node->zl, pos);
     if (ziplistGet(p, &vstr, &vlen, &vlong)) {
-        printf("quicklistPopCustom3\n");
         if (vstr) {
             if (data)
                 *data = saver(vstr, vlen);
-            if (data)
-                printf("*data=%s\n", *data);
-                else
-                    printf("f<fda<fasdf\n");
             if (sz)
                 *sz = vlen;
         } else {
             if (data)
                 *data = NULL;
-            if (data)
-                printf("BEN! *data=%s\n", *data);
-                else
-                    printf("BEN! f<fda<fasdf\n");
             if (sval)
                 *sval = vlong;
         }
         quicklistDelIndex(quicklist, node, &p);
         return 1;
     }
-
     return 0;
 }
 
@@ -1588,10 +1576,8 @@ int quicklistPop(quicklist *quicklist, int where, unsigned char **data,
     unsigned char *vstr;
     size_t vlen;
     long long vlong;
-
     if (quicklist->count == 0)
         return 0;
-
     int ret = quicklistPopCustom(quicklist, where, &vstr, &vlen, &vlong,
                                  _quicklistSaver);
     if (data)
@@ -1600,7 +1586,6 @@ int quicklistPop(quicklist *quicklist, int where, unsigned char **data,
         *slong = vlong;
     if (sz)
         *sz = vlen;
-
     return ret;
 }
 
@@ -2006,6 +1991,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
                     quicklistPushHead(ql, genstr("hello", i), 64);
                 ql_info(ql);
                 for (int i = 0; i < 5000; i++) {
+                    ql_info(ql);
                     quicklistRotate(ql);
                 }
                 if (fills[f] == 1)
@@ -2014,7 +2000,6 @@ int quicklistTest(int argc, char *argv[], int accurate) {
                     ql_verify(ql, 252, 504, 2, 2);
                 else if (fills[f] == 32)
                     ql_verify(ql, 16, 504, 32, 24);
-                ql_info(ql);
                 quicklistRelease(ql);
             }
         }
@@ -2061,9 +2046,8 @@ int quicklistTest(int argc, char *argv[], int accurate) {
 
         TEST("pop head 500 from 500") {
             quicklist *ql = quicklistNew(-2, options[_i]);
-            for (int i = 0; i < 500; i++) {
+            for (int i = 0; i < 500; i++)
                 quicklistPushHead(ql, genstr("hello", i), 32);
-            }
             ql_info(ql);
             for (int i = 0; i < 500; i++) {
                 unsigned char *data;

@@ -8,34 +8,119 @@ proc write_big_bulk {size} {
         incr size -500000000
     }
     if {$size > 0} {
-    puts "size is $size"
         r write [string repeat x $size]
     }
     r write "\r\n"
+    r flush
+    r read
 }
 
 # SORT which attempts to store an element larger than 4GB into a list.
 # Currently unsupported and results in an assertion instead of truncation
 start_server [list overrides [list save ""] ] {
+
     r config set proto-max-bulk-len 10000000000 ;#10gb
     r config set client-query-buffer-limit 10000000000 ;#10gb
-    r debug packed_threshold 10
-    test {perry} {
+
+    test {4gb check push and pop} {
+        set str_length 1000
+        r debug packed_threshold $str_length-1
+        r lpush lst 9
         r write "*3\r\n\$5\r\nLPUSH\r\n\$3\r\nlst\r\n"
-        write_big_bulk 1 ;#5gb
-        #puts "*** len: [r llen lst]"
-        puts "*** pop: [r lpop lst]"
-        #puts "**** len: [r llen lst]"
+        write_big_bulk $str_length;
+        r write "*3\r\n\$5\r\nLPUSH\r\n\$3\r\nlst\r\n"
+        write_big_bulk $str_length;
+        set s0 [s used_memory]
+        assert {$s0 > $str_length}
+        assert {[r llen lst] == 3}
+        set s0 [r rpop lst]
+        set s1 [r rpop lst]
+        assert {$s0 eq "9"}
+        assert {[r llen lst] == 1}
+        r lpop lst
+        assert {[string length $s1] == $str_length}
    }
-   test {itay} {
 
-       r lpush lst x
+   test {4gb check lindex and linsert} {
+       set str_length 1000
+       r debug packed_threshold $str_length-1
+       r write "*3\r\n\$5\r\nLPUSH\r\n\$3\r\nls1\r\n"
+       write_big_bulk $str_length;
+       r lpush ls1 9
+       r write "*3\r\n\$5\r\nLPUSH\r\n\$3\r\nls1\r\n"
+       write_big_bulk $str_length;
+       r linsert ls1 before "9" "8"
+       set s0 [r lindex ls1 1]
+       assert {$s0 eq "8"}
+       r LINSERT ls1 BEFORE "9" "7"
+       r write "*5\r\n\$7\r\nLINSERT\r\n\$3\r\nls1\r\n\$6\r\nBEFORE\r\n\$3\r\n\"9\"\r\n"
+       write_big_bulk 10;
+       set s0 [s used_memory]
+       assert {$s0 > $str_length}
+   }
 
-       puts "r pop lst"
-       puts [r lpop lst]
-       #puts "len: [r llen lst]"
-       #puts [r lpop lst]
-  }
+   test {4gb check LTRIM} {
+       set str_length 1000
+       r debug packed_threshold $str_length-1
+       r lpush ls2 9
+       r write "*3\r\n\$5\r\nLPUSH\r\n\$3\r\nls2\r\n"
+       write_big_bulk $str_length;
+       r lpush ls2 9
+       r LTRIM ls2 1 -1
+       r llen ls2
+   } {2}
+
+
+   test {4gb check LREM} {
+       set str_length 1000
+       r debug packed_threshold $str_length-1
+       r lpush ls3 one
+       r write "*3\r\n\$5\r\nLPUSH\r\n\$3\r\nls3\r\n"
+       write_big_bulk $str_length;
+       set s0 [s used_memory]
+       assert {$s0 > $str_length}
+       r lpush ls3 9
+       r LREM ls3 -2 "one"
+       r llen ls3
+   } {2}
+
+   test {4gb check LSET} {
+       set str_length 1000
+       r debug packed_threshold $str_length-1
+       r RPUSH ls4 "aa"
+       r RPUSH ls4 "bb"
+       r RPUSH ls4 "cc"
+       r write "*4\r\n\$4\r\nLSET\r\n\$3\r\nls4\r\n\$1\r\n0\r\n"
+       write_big_bulk $str_length;
+       set s0 [s used_memory]
+       assert {$s0 > $str_length}
+   }
+
+   test {4gb check LPOS} {
+       set str_length 1000
+       r debug packed_threshold $str_length-1
+       r RPUSH ls5 "aa"
+       r RPUSH ls5 "bb"
+       r RPUSH ls5 "cc"
+       r write "*4\r\n\$4\r\nLSET\r\n\$3\r\nls5\r\n\$1\r\n0\r\n"
+       write_big_bulk $str_length;
+       r LPOS ls5 cc
+   } {2}
+
+   test {4gb check lmove} {
+       set str_length 2
+       r debug packed_threshold $str_length-1
+       r RPUSH ls6 "aa"
+       r RPUSH ls6 "bb"
+       r write "*4\r\n\$4\r\nLSET\r\n\$3\r\nls6\r\n\$1\r\n0\r\n"
+       write_big_bulk $str_length;
+       r LMOVE ls6 myotherlist RIGHT LEFT
+       r LMOVE ls6 myotherlist LEFT RIGHT
+       r lpop myotherlist
+       r lpop myotherlist
+       r lpop ls6
+       r lpop ls6
+   } {}
 }
 
 start_server {

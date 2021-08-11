@@ -3959,9 +3959,6 @@ int processCommand(client *c) {
     /* Now lookup the command and check ASAP about trivial error conditions
      * such as wrong arity, bad command name and so forth. */
     c->cmd = c->lastcmd = lookupCommand(c->argv[0]->ptr);
-
-
-
     if (!c->cmd) {
         sds args = sdsempty();
         int i;
@@ -3990,6 +3987,7 @@ int processCommand(client *c) {
                                  (c->cmd->proc == execCommand && (c->mstate.cmd_inv_flags & CMD_LOADING));
     int is_may_replicate_command = (c->cmd->flags & (CMD_WRITE | CMD_MAY_REPLICATE)) ||
                                    (c->cmd->proc == execCommand && (c->mstate.cmd_flags & (CMD_WRITE | CMD_MAY_REPLICATE)));
+
     /* Check if the user is authenticated. This check is skipped in case
      * the default user is flagged as "nopass" and is active. */
     int auth_required = (!(DefaultUser->flags & USER_FLAG_NOPASS) ||
@@ -4003,6 +4001,7 @@ int processCommand(client *c) {
             return C_OK;
         }
     }
+
     /* Check if the user can run this command according to the current
      * ACLs. */
     int acl_errpos;
@@ -4031,6 +4030,7 @@ int processCommand(client *c) {
         }
         return C_OK;
     }
+
     /* If cluster is enabled perform the cluster redirection here.
      * However we don't perform the redirection if:
      * 1) The sender of this command is our master.
@@ -4057,6 +4057,7 @@ int processCommand(client *c) {
             return C_OK;
         }
     }
+
     /* Handle the maxmemory directive.
      *
      * Note that we do not want to reclaim memory if we are here re-entering
@@ -4094,6 +4095,7 @@ int processCommand(client *c) {
             server.lua_oom = out_of_memory;
         }
     }
+
     /* Make sure to use a reasonable amount of memory for client side
      * caching metadata. */
     if (server.tracking_clients) trackingLimitUsedSlots();
@@ -4125,6 +4127,7 @@ int processCommand(client *c) {
         rejectCommand(c, shared.noreplicaserr);
         return C_OK;
     }
+
     /* Don't accept write commands if this is a read only slave. But
      * accept write commands if this is our master. */
     if (server.masterhost && server.repl_slave_ro &&
@@ -4161,6 +4164,7 @@ int processCommand(client *c) {
         rejectCommand(c, shared.masterdownerr);
         return C_OK;
     }
+
     /* Loading DB? Return an error if the command has not the
      * CMD_LOADING flag. */
     if (server.loading && is_denyloading_command) {
@@ -4193,6 +4197,7 @@ int processCommand(client *c) {
         rejectCommand(c, shared.slowscripterr);
         return C_OK;
     }
+
     /* Prevent a replica from sending commands that access the keyspace.
      * The main objective here is to prevent abuse of client pause check
      * from which replicas are exempt. */
@@ -4211,6 +4216,7 @@ int processCommand(client *c) {
         blockClient(c,BLOCKED_PAUSE);
         return C_OK;       
     }
+
     /* Exec the command */
     if (c->flags & CLIENT_MULTI &&
         c->cmd->proc != execCommand && c->cmd->proc != discardCommand &&
@@ -4220,12 +4226,12 @@ int processCommand(client *c) {
         queueMultiCommand(c);
         addReply(c,shared.queued);
     } else {
-        printf("================ processCommand - cmd name=%s  ======================================\n", c->cmd->name);
         call(c,CMD_CALL_FULL);
         c->woff = server.master_repl_offset;
         if (listLength(server.ready_keys))
             handleClientsBlockedOnKeys();
     }
+
     return C_OK;
 }
 
