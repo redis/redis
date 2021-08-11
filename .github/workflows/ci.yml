@@ -26,6 +26,16 @@ jobs:
     - name: make
       run: make REDIS_CFLAGS='-Werror'
 
+  build-debian-old:
+    runs-on: ubuntu-latest
+    container: debian:oldoldstable
+    steps:
+    - uses: actions/checkout@v2
+    - name: make
+      run: |
+        apt-get update && apt-get install -y build-essential
+        make REDIS_CFLAGS='-Werror'
+
   build-macos-latest:
     runs-on: macos-latest
     steps:
