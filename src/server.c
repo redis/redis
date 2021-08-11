@@ -3386,27 +3386,27 @@ int populateCommandLegacyRangeSpec(struct redisCommand *c) {
     memset(&c->legacy_range_key_spec, 0, sizeof(c->legacy_range_key_spec));
     c->legacy_range_key_spec.type = KSPEC_INVALID;
 
-    if (c->keys_specs_num == 0)
+    if (c->key_specs_num == 0)
         return C_OK;
 
-    if (c->keys_specs_num == 1 && c->keys_specs[0].type == KSPEC_RANGE) {
+    if (c->key_specs_num == 1 && c->key_specs[0].type == KSPEC_RANGE) {
         /* Quick win */
-        c->legacy_range_key_spec = c->keys_specs[0];
+        c->legacy_range_key_spec = c->key_specs[0];
         return C_OK;
     }
 
     int firstkey = INT_MAX, lastkey = 0;
     int prev_lastkey = 0;
-    for (int i = 0; i < c->keys_specs_num; i++) {
-        if (c->keys_specs[i].type != KSPEC_RANGE)
+    for (int i = 0; i < c->key_specs_num; i++) {
+        if (c->key_specs[i].type != KSPEC_RANGE)
             continue;
-        if (c->keys_specs[i].u.range.keystep != 1)
+        if (c->key_specs[i].u.range.keystep != 1)
             return C_ERR;
-        if (prev_lastkey && prev_lastkey != c->keys_specs[i].u.range.firstkey-1)
+        if (prev_lastkey && prev_lastkey != c->key_specs[i].u.range.firstkey-1)
             return C_ERR;
-        firstkey = min(firstkey, c->keys_specs[i].u.range.firstkey);
+        firstkey = min(firstkey, c->key_specs[i].u.range.firstkey);
         /* For lastkey we use unsigned comparison to handle negative values correctly */
-        lastkey = max((unsigned)lastkey, (unsigned)c->keys_specs[i].u.range.lastkey);
+        lastkey = max((unsigned)lastkey, (unsigned)c->key_specs[i].u.range.lastkey);
     }
 
     if (firstkey == INT_MAX)
@@ -3489,30 +3489,30 @@ int populateSingleCommand(struct redisCommand *c, char *strflags) {
 
     /* Redis commands don't need more args than STATIC_KEYS_SPECS_NUM (Number of keys
      * specs can be greater than STATIC_KEYS_SPECS_NUM only for module commands) */
-    c->keys_specs = c->keys_specs_static;
-    c->keys_specs_max = STATIC_KEYS_SPECS_NUM;
+    c->key_specs = c->key_specs_static;
+    c->key_specs_max = STATIC_KEYS_SPECS_NUM;
 
     for (int i = 0; i < STATIC_KEYS_SPECS_NUM; i++) {
-        if (c->keys_specs[i].type == KSPEC_INVALID)
+        if (c->key_specs[i].type == KSPEC_INVALID)
             continue;
 
         /* Split the line into arguments for processing. */
-        argv = sdssplitargs(c->keys_specs[i].sflags,&argc);
+        argv = sdssplitargs(c->key_specs[i].sflags,&argc);
         if (argv == NULL)
             return C_ERR;
 
         for (int j = 0; j < argc; j++) {
             char *flag = argv[j];
             if (!strcasecmp(flag,"write")) {
-                c->keys_specs[i].flags |= CMD_KEY_WRITE;
+                c->key_specs[i].flags |= CMD_KEY_WRITE;
             } else if (!strcasecmp(flag,"read")) {
-                c->keys_specs[i].flags |= CMD_KEY_READ;
+                c->key_specs[i].flags |= CMD_KEY_READ;
             } else if (!strcasecmp(flag,"incomplete")) {
-                c->keys_specs[i].flags |= CMD_KEY_INCOMPLETE;
+                c->key_specs[i].flags |= CMD_KEY_INCOMPLETE;
             }
         }
 
-        c->keys_specs_num++;
+        c->key_specs_num++;
         sdsfreesplitres(argv,argc);
     }
 
@@ -4037,8 +4037,8 @@ void populateCommandMovableKeys(struct redisCommand *cmd) {
     } else {
         /* Redis command without getkeys proc, but possibly has
          * movable keys because of a keys spec. */
-        for (int i = 0; i < cmd->keys_specs_num; i++) {
-            if (cmd->keys_specs[i].type != KSPEC_RANGE) {
+        for (int i = 0; i < cmd->key_specs_num; i++) {
+            if (cmd->key_specs[i].type != KSPEC_RANGE) {
                 /* If we have a non-range spec it means we have movable keys */
                 movablekeys = 1;
                 break;
@@ -4164,7 +4164,7 @@ int processCommand(client *c) {
         !(c->flags & CLIENT_MASTER) &&
         !(c->flags & CLIENT_LUA &&
           server.lua_caller->flags & CLIENT_MASTER) &&
-        !(!c->cmd->movablekeys && c->cmd->keys_specs_num == 0 &&
+        !(!c->cmd->movablekeys && c->cmd->key_specs_num == 0 &&
           c->cmd->proc != execCommand))
     {
         int hashslot;
@@ -4615,39 +4615,39 @@ void addReplyFlagsForKeyArgs(client *c, int flags) {
 }
 
 void addReplyCommandKeyArgs(client *c, struct redisCommand *cmd) {
-    addReplyArrayLen(c, cmd->keys_specs_num);
-    for (int i = 0; i < cmd->keys_specs_num; i++) {
+    addReplyArrayLen(c, cmd->key_specs_num);
+    for (int i = 0; i < cmd->key_specs_num; i++) {
         addReplyArrayLen(c, 2);
-        addReplyFlagsForKeyArgs(c,cmd->keys_specs[i].flags);
+        addReplyFlagsForKeyArgs(c,cmd->key_specs[i].flags);
         
-        switch (cmd->keys_specs[i].type) {
+        switch (cmd->key_specs[i].type) {
             case KSPEC_RANGE:
                 addReplyArrayLen(c, 2);
                 addReplyBulkCString(c, "range");
                 addReplyArrayLen(c, 3);
-                addReplyLongLong(c, cmd->keys_specs[i].u.range.firstkey);
-                addReplyLongLong(c, cmd->keys_specs[i].u.range.lastkey);
-                addReplyLongLong(c, cmd->keys_specs[i].u.range.keystep);
+                addReplyLongLong(c, cmd->key_specs[i].u.range.firstkey);
+                addReplyLongLong(c, cmd->key_specs[i].u.range.lastkey);
+                addReplyLongLong(c, cmd->key_specs[i].u.range.keystep);
                 break;
             case KSPEC_KEYNUM:
                 addReplyArrayLen(c, 2);
                 addReplyBulkCString(c, "keynum");
                 addReplyArrayLen(c, 3);
-                addReplyLongLong(c, cmd->keys_specs[i].u.keynum.keynumidx);
-                addReplyLongLong(c, cmd->keys_specs[i].u.keynum.firstkey);
-                addReplyLongLong(c, cmd->keys_specs[i].u.keynum.keystep);
+                addReplyLongLong(c, cmd->key_specs[i].u.keynum.keynumidx);
+                addReplyLongLong(c, cmd->key_specs[i].u.keynum.firstkey);
+                addReplyLongLong(c, cmd->key_specs[i].u.keynum.keystep);
                 break;
             case KSPEC_KEYWORD:
                 addReplyArrayLen(c, 2);
                 addReplyBulkCString(c, "keyword");
                 addReplyArrayLen(c, 4);
-                addReplyBulkCString(c, cmd->keys_specs[i].u.keyword.keyword);
-                addReplyLongLong(c, cmd->keys_specs[i].u.keyword.keycount);
-                addReplyLongLong(c, cmd->keys_specs[i].u.keyword.startfrom);
-                addReplyLongLong(c, cmd->keys_specs[i].u.keyword.keystep);
+                addReplyBulkCString(c, cmd->key_specs[i].u.keyword.keyword);
+                addReplyLongLong(c, cmd->key_specs[i].u.keyword.keycount);
+                addReplyLongLong(c, cmd->key_specs[i].u.keyword.startfrom);
+                addReplyLongLong(c, cmd->key_specs[i].u.keyword.keystep);
                 break;
             default:
-                serverPanic("Invalid key spec type %d", cmd->keys_specs[i].type);
+                serverPanic("Invalid key spec type %d", cmd->key_specs[i].type);
         }
     }
 }
@@ -4717,7 +4717,7 @@ NULL
         if (!cmd) {
             addReplyError(c,"Invalid command specified");
             return;
-        } else if (cmd->getkeys_proc == NULL && cmd->keys_specs_num == 0) {
+        } else if (cmd->getkeys_proc == NULL && cmd->key_specs_num == 0) {
             addReplyError(c,"The command has no key arguments");
             return;
         } else if ((cmd->arity > 0 && cmd->arity != c->argc-2) ||

@@ -1734,7 +1734,7 @@ typedef struct {
 
     /* Runtime data */
     uint64_t flags;
-} keysSpec;
+} keySpec;
 
 /* Number of static key specs */
 #define STATIC_KEYS_SPECS_NUM 4
@@ -1747,7 +1747,7 @@ struct redisCommand {
     redisCommandProc *proc;
     int arity;
     char *sflags;   /* Flags as string representation, one char per flag. */
-    keysSpec keys_specs_static[STATIC_KEYS_SPECS_NUM];
+    keySpec key_specs_static[STATIC_KEYS_SPECS_NUM];
     /* Use a function to determine keys arguments in a command line.
      * Used for Redis Cluster redirect. */
     redisGetKeysProc *getkeys_proc;
@@ -1761,13 +1761,13 @@ struct redisCommand {
                    ACLs. A connection is able to execute a given command if
                    the user associated to the connection has this command
                    bit set in the bitmap of allowed commands. */
-    keysSpec *keys_specs;
-    keysSpec legacy_range_key_spec; /* The legacy (first,last,step) key spec is
+    keySpec *key_specs;
+    keySpec legacy_range_key_spec; /* The legacy (first,last,step) key spec is
                                      * still maintained (if applicable) so that
                                      * we can still support the reply format of
                                      * COMMAND INFO and COMMAND GETKEYS */
-    int keys_specs_num;
-    int keys_specs_max;
+    int key_specs_num;
+    int key_specs_max;
     int movablekeys; /* See populateCommandMovableKeys */
 };
 
