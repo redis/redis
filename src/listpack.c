@@ -909,6 +909,13 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *elestr, unsigned char 
     return lp;
 }
 
+/* This is just a wrapper for lpInsert() to directly use a string. */
+unsigned char *lpInsertString(unsigned char *lp, unsigned char *s, uint32_t slen,
+                              unsigned char *p, int where, unsigned char **newp)
+{
+    return lpInsert(lp, s, NULL, slen, p, where, newp);
+}
+
 /* This is just a wrapper for lpInsert() to directly use a 64 bit integer
  * instead of a string. */
 unsigned char *lpInsertInteger(unsigned char *lp, long long lval, unsigned char *p, int where, unsigned char **newp) {
@@ -970,6 +977,46 @@ unsigned char *lpReplaceInteger(unsigned char *lp, unsigned char **p, long long 
  * last one, '*newp' is set to NULL. */
 unsigned char *lpDelete(unsigned char *lp, unsigned char *p, unsigned char **newp) {
     return lpInsert(lp,NULL,NULL,0,p,LP_REPLACE,newp);
+}
+
+/* Delete a range of entries from the listpack. */
+unsigned char *lpDeleteRange(unsigned char *lp, long index, unsigned long num) {
+    unsigned char *p;
+    unsigned long len = lpLength(lp);
+
+    if (num == 0) return lp; /* Nothing to delete, return ASAP. */
+    if ((p = lpSeek(lp, index)) == NULL) return lp;
+
+    /* Note that index could overflow, but we use the value
+     * after seek, so when we use it no overflow happens. */
+    if (index < 0) index = (long)len + index;
+    if ((len - (unsigned long)index) <= num) {
+        /* When deleted num is out of range, we just need
+         * to set LP_EOF, and resize listpack. */
+        p[0] = LP_EOF;
+        lpSetTotalBytes(lp, p - lp + 1);
+        lpSetNumElements(lp, index);
+    } else {
+        size_t bytes = lpBytes(lp);
+        unsigned char *eofptr = lp + bytes - 1;
+        unsigned char *first, *tail;
+        first = tail = p;
+
+        /* Find the next entry to the last entry that needs to be deleted. */
+        unsigned int i = num;
+        while (i--) {
+            tail = lpNext(lp, tail);
+            assert(p != NULL);
+        }
+
+        /* Move tail to the front of the ziplist */
+        memmove(first, tail, eofptr - tail + 1);
+        lpSetTotalBytes(lp, bytes - (tail - first));
+        lpSetNumElements(lp, len - num);
+    }
+
+    lp = lpShrinkToFit(lp);
+    return lp;
 }
 
 /* Return the total number of bytes the listpack is composed of. */
@@ -1535,6 +1582,70 @@ int listpackTest(int argc, char *argv[], int accurate) {
             i--;
         }
         lpFree(lp);
+    }
+
+    TEST("Delete whole listpack when num == -1");
+    {
+        lp = createList();
+        lp = lpDeleteRange(lp, 0, -1);
+        assert(lpLength(lp) == 0);
+        assert(lp[LP_HDR_SIZE] == LP_EOF);
+        assert(lpBytes(lp) == (LP_HDR_SIZE + 1));
+        zfree(lp);
+    }
+
+    TEST("Delete whole listpack with negative index");
+    {
+        lp = createList();
+        lp = lpDeleteRange(lp, -4, 4);
+        assert(lpLength(lp) == 0);
+        assert(lp[LP_HDR_SIZE] == LP_EOF);
+        assert(lpBytes(lp) == (LP_HDR_SIZE + 1));
+        zfree(lp);
+    }
+    
+    TEST("Delete inclusive range 0,0");
+    {
+        lp = createList();
+        lp = lpDeleteRange(lp, 0, 1);
+        assert(lpLength(lp) == 3);
+        assert(lpSkip(lpLast(lp))[0] == LP_EOF); /* check set LP_EOF correctly */
+        zfree(lp);
+    }
+    
+    TEST("Delete inclusive range 0,1");
+    {
+        lp = createList();
+        lp = lpDeleteRange(lp, 0, 2);
+        assert(lpLength(lp) == 2);
+        verifyEntry(lpFirst(lp), (unsigned char*)mixlist[2], strlen(mixlist[2]));
+        zfree(lp);
+    }
+
+    TEST("Delete inclusive range 1,2");
+    {
+        lp = createList();
+        lp = lpDeleteRange(lp, 1, 2);
+        assert(lpLength(lp) == 2);
+        verifyEntry(lpFirst(lp), (unsigned char*)mixlist[0], strlen(mixlist[0]));
+        zfree(lp);
+    }
+    
+    TEST("Delete with start index out of range");
+    {
+        lp = createList();
+        lp = lpDeleteRange(lp, 5, 1);
+        assert(lpLength(lp) == 4);
+        zfree(lp);
+    }
+
+    TEST("Delete with num overflow");
+    {
+        lp = createList();
+        lp = lpDeleteRange(lp, 1, 5);
+        assert(lpLength(lp) == 1);
+        verifyEntry(lpFirst(lp), (unsigned char*)mixlist[0], strlen(mixlist[0]));
+        zfree(lp);
     }
 
     TEST("Delete foo while iterating") {

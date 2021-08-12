@@ -162,7 +162,7 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
     } else if (o->type == OBJ_ZSET) {
         unsigned char eledigest[20];
 
-        if (o->encoding == OBJ_ENCODING_ZIPLIST) {
+        if (o->encoding == OBJ_ENCODING_LISTPACK) {
             unsigned char *zl = o->ptr;
             unsigned char *eptr, *sptr;
             unsigned char *vstr;
@@ -170,13 +170,13 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
             long long vll;
             double score;
 
-            eptr = ziplistIndex(zl,0);
+            eptr = lpSeek(zl,0);
             serverAssert(eptr != NULL);
-            sptr = ziplistNext(zl,eptr);
+            sptr = lpNext(zl,eptr);
             serverAssert(sptr != NULL);
 
             while (eptr != NULL) {
-                serverAssert(ziplistGet(eptr,&vstr,&vlen,&vll));
+                vstr = lpGetValue(eptr,&vlen,&vll);
                 score = zzlGetScore(sptr);
 
                 memset(eledigest,0,20);
