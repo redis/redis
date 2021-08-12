@@ -180,6 +180,7 @@ client *createClient(connection *conn) {
     c->sockname = NULL;
     c->client_list_node = NULL;
     c->paused_list_node = NULL;
+    c->pending_read_list_node = NULL;
     c->client_tracking_redirection = 0;
     c->client_tracking_prefixes = NULL;
     c->last_memory_usage = c->last_memory_usage_on_bucket_update = 0;
@@ -1291,8 +1292,11 @@ void unlinkClient(client *c) {
 
     /* Remove from the list of pending reads if needed. */
     serverAssert(io_threads_op == IO_THREADS_OP_IDLE);
-    ln = listSearchKey(server.clients_pending_read,c);
-    if (ln != NULL) listDelNode(server.clients_pending_read,ln);
+    if (c->pending_read_list_node != NULL) {
+        listDelNode(server.clients_pending_read,c->pending_read_list_node);
+        c->pending_read_list_node = NULL;
+    }
+
 
     /* When client was just unblocked because of a blocking operation,
      * remove it from the list of unblocked clients. */
@@ -3754,6 +3758,7 @@ int postponeClientRead(client *c) {
         io_threads_op == IO_THREADS_OP_IDLE)
     {
         listAddNodeHead(server.clients_pending_read,c);
+        c->pending_read_list_node = listFirst(server.clients_pending_read);
         return 1;
     } else {
         return 0;
@@ -3814,6 +3819,7 @@ int handleClientsWithPendingReadsUsingThreads(void) {
         ln = listFirst(server.clients_pending_read);
         client *c = listNodeValue(ln);
         listDelNode(server.clients_pending_read,ln);
+        c->pending_read_list_node = NULL;
 
         serverAssert(!(c->flags & CLIENT_BLOCKED));
 

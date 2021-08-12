@@ -988,6 +988,7 @@ typedef struct client {
     sds sockname;           /* Cached connection target address. */
     listNode *client_list_node; /* list node in client list */
     listNode *paused_list_node; /* list node within the pause list */
+    listNode *pending_read_list_node; /* list node in clients pending read list */
     RedisModuleUserChangedFunc auth_callback; /* Module callback to execute
                                                * when the authenticated user
                                                * changes. */
