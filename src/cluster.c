@@ -4652,6 +4652,10 @@ NULL
                     (char*)c->argv[4]->ptr);
                 return;
             }
+            if (nodeIsSlave(n)) {
+                addReplyError(c,"Target node is not a master");
+                return;
+            }
             server.cluster->migrating_slots_to[slot] = n;
         } else if (!strcasecmp(c->argv[3]->ptr,"importing") && c->argc == 5) {
             if (server.cluster->slots[slot] == myself) {
@@ -4662,6 +4666,10 @@ NULL
             if ((n = clusterLookupNode(c->argv[4]->ptr)) == NULL) {
                 addReplyErrorFormat(c,"I don't know about node %s",
                     (char*)c->argv[4]->ptr);
+                return;
+            }
+            if (nodeIsSlave(n)) {
+                addReplyError(c,"Target node is not a master");
                 return;
             }
             server.cluster->importing_slots_from[slot] = n;
