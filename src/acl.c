@@ -221,8 +221,8 @@ uint64_t ACLGetCommandCategoryFlagByName(const char *name) {
 }
 
 /* Method for seraching for a user within a list of user definitions. The
- * first argument is a user defintion, and we compare it against the
- * actual user that was passed in. */
+ * list contains an array of user arguments, and we are only
+ * searching the first argument, the username, for a match. */
 int ACLListMatchLoadedUser(void *a, void *b) {
     sds *user_definition = a;
     return sdscmp(user_definition[0], b) == 0;
@@ -1419,7 +1419,7 @@ int ACLAppendUserForLoading(sds *argv, int argc, int *argc_err) {
         return C_ERR;
     }
 
-    if (listSearchKey(UsersToLoad, argv+1)) {
+    if (listSearchKey(UsersToLoad, argv[1])) {
         if (argc_err) *argc_err = 1;
         errno = EALREADY;
         return C_ERR; 
@@ -1471,9 +1471,6 @@ int ACLLoadConfiguredUsers(void) {
             u = ACLGetUserByName("default",7);
             ACLSetUser(u,"reset",-1);
         }
-        
-        /* There should be no duplicate users here */
-        serverAssert(u);
 
         /* Load every rule defined for this user. */
         for (int j = 1; aclrules[j]; j++) {
