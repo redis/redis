@@ -7710,7 +7710,7 @@ static void findBigKeys(int memkeys, unsigned memkeys_samples) {
         getKeySizes(keys, types, sizes, memkeys, memkeys_samples);
 
         /* Now update our stats */
-        for(i=0;i<keys->elements;i++) {
+        for (i=0; i<keys->elements; i++) {
             typeinfo *type = types[i];
             /* Skip keys that disappeared between SCAN and TYPE */
             if(!type)
@@ -7721,12 +7721,12 @@ static void findBigKeys(int memkeys, unsigned memkeys_samples) {
             totlen += keys->element[i]->len;
             sampled++;
 
-            if(type->biggest<sizes[i]) {
+            if (type->biggest<sizes[i]) {
                 /* Keep track of biggest key name for this type */
                 if (type->biggest_key)
                     sdsfree(type->biggest_key);
                 type->biggest_key = sdscatrepr(sdsempty(), keys->element[i]->str, keys->element[i]->len);
-                if(!type->biggest_key) {
+                if (!type->biggest_key) {
                     fprintf(stderr, "Failed to allocate memory for key!\n");
                     exit(1);
                 }
@@ -7741,13 +7741,13 @@ static void findBigKeys(int memkeys, unsigned memkeys_samples) {
             }
 
             /* Update overall progress */
-            if(sampled % 1000000 == 0) {
+            if (sampled % 1000000 == 0) {
                 printf("[%05.2f%%] Sampled %llu keys so far\n", pct, sampled);
             }
         }
 
         /* Sleep if we've been directed to do so */
-        if(sampled && (sampled %100) == 0 && config.interval) {
+        if (sampled && (sampled %100) == 0 && config.interval) {
             usleep(config.interval);
         }
 
