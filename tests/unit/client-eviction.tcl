@@ -71,13 +71,34 @@ start_server {} {
         set rr [redis_client]
         
         # Since watched key list is a small overheatd this test uses a minimal maxmemory-clients config
-        r config set maxmemory-clients 300000
-        $rr client setname badger
+        set temp_maxmemory_clients 200000
+        r config set maxmemory-clients $temp_maxmemory_clients
         
         # Append watched keys until list maxes out maxmemroy clients and causes client eviction
         catch { 
-            for {set j 0} {$j < $maxmemory_clients} {incr j} {
+            for {set j 0} {$j < $temp_maxmemory_clients} {incr j} {
                 $rr watch $j
+            }
+        } e
+        assert_match {I/O error reading reply} $e
+        
+        # Restore config for next tests
+        r config set maxmemory-clients $maxmemory_clients
+    }
+    
+    test "client evicted due to client tracking prefixes" {
+        r flushdb
+        set rr [redis_client]
+        
+        # Since tracking prefixes list is a small overheatd this test uses a minimal maxmemory-clients config
+        set temp_maxmemory_clients 200000
+        r config set maxmemory-clients $temp_maxmemory_clients
+        $rr client setname badger
+        
+        # Append tracking prefixes until list maxes out maxmemroy clients and causes client eviction
+        catch { 
+            for {set j 0} {$j < $temp_maxmemory_clients} {incr j} {
+                $rr client tracking on prefix [format %012s $j] bcast
             }
         } e
         assert_match {I/O error reading reply} $e
@@ -278,4 +299,61 @@ start_server {} {
     }
 }
 
+start_server {} {
+    test "evict clients in right order (large to small)" {
+        # Note that each size step needs to be at least x2 larger than previous step 
+        # because of how the client-eviction size bucktting works
+        set sizes [list 100000 [mb 1] [mb 3]]
+        set clients_per_size 3
+        r client setname control
+        r client no-evict on
+        
+        # Run over all sizes and create some clients using up that size
+        set total_client_mem 0
+        for {set i 0} {$i < [llength $sizes]} {incr i} {
+            set size [lindex $sizes $i]
+
+            for {set j 0} {$j < $clients_per_size} {incr j} {
+                set rr [redis_client]
+                $rr client setname client-$i
+                $rr write [join [list "*2\r\n\$$size\r\n" [string repeat v $size]] ""]
+                $rr flush
+            }
+            set client_mem [client_field client-$i tot-mem]
+    
+            # Update our size list based on actual used up size (this is usually 
+            # slightly more than expected because of allocator bins
+            assert {$client_mem >= $size}
+            set sizes [lreplace $sizes $i $i $client_mem]
+            
+            # Account total client memory usage
+            incr total_mem [expr $clients_per_size * $client_mem]
+        }
+        incr total_mem [client_field control tot-mem]
+        
+        # Make sure all clients are connected
+        set clients [split [string trim [r client list]] "\r\n"]
+        for {set i 0} {$i < [llength $sizes]} {incr i} {
+            assert_equal [llength [lsearch -all $clients "*name=client-$i *"]] $clients_per_size        
+        }
+        
+        # For each size reduce maxmemory-clients so relevant clients should be evicted
+        # do this from largest to smallest
+        foreach size [lreverse $sizes] {
+            set total_mem [expr $total_mem - $clients_per_size * $size]
+            r config set maxmemory-clients $total_mem
+            set clients [split [string trim [r client list]] "\r\n"]
+            # Verify only relevant clients were evicted
+            for {set i 0} {$i < [llength $sizes]} {incr i} {
+                set verify_size [lindex $sizes $i]
+                set count [llength [lsearch -all $clients "*name=client-$i *"]]
+                if {$verify_size < $size} {
+                    assert_equal $count $clients_per_size
+                } else {
+                    assert_equal $count 0
+                }
+            }
+        }
+    }
+}
 

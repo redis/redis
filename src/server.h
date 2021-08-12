@@ -1003,7 +1003,7 @@ typedef struct client {
     uint64_t client_tracking_redirection;
     rax *client_tracking_prefixes; /* A dictionary of prefixes we are already
                                       subscribed to in BCAST mode, in the
-                                      context of client side caching. */ // TODO: add this to memory accounting
+                                      context of client side caching. */
     /* In updateClientMemUsage() we track the memory usage of
      * each client and add it to the sum of all the clients of a given type,
      * however we need to remember what was the old contribution of each
