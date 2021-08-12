@@ -3224,7 +3224,7 @@ size_t getClientMemoryUsage(client *c, size_t *output_buffer_mem_usage) {
     mem += dictSize(c->pubsub_channels) * sizeof(dictEntry) +
            dictSlots(c->pubsub_channels) * sizeof(dictEntry*);
 
-    /* Add memory overhaed of the tracking prefixes, this is an underestimation so we don't need to traverse the entire rax */
+    /* Add memory overhead of the tracking prefixes, this is an underestimation so we don't need to traverse the entire rax */
     if (c->client_tracking_prefixes)
         mem += c->client_tracking_prefixes->numnodes * (sizeof(raxNode) * sizeof(raxNode*));
 
