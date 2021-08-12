@@ -651,10 +651,8 @@ start_server [list overrides [list "dir" $server_path "aclfile" "user.acl"] tags
         assert {[r ACL GETUSER default] != ""}
     }
     
-    # Execute this text in the context of the previous test to 
-    # skip it for the same workloads.
     test {Test loading duplicate users in config on startup} {
         catch {exec src/redis-server --user foo --user foo} err
         assert_match {*Duplicate user*} $err
-    }
+    } {} {external:skip}
 }

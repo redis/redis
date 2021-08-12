@@ -1466,7 +1466,7 @@ int ACLLoadConfiguredUsers(void) {
 
         user *u = ACLCreateUser(username,sdslen(username));
         if (!u) {
-            /* Only valid duplicate user is the default one */
+            /* Only valid duplicate user is the default one. */
             serverAssert(!strcmp(username, "default"));
             u = ACLGetUserByName("default",7);
             ACLSetUser(u,"reset",-1);
@@ -1593,8 +1593,6 @@ sds ACLLoadFromFile(const char *filename) {
             continue;
         }
 
-        /* Get the user, verifying that the default user has only
-         * been updated once from the original value. */
         user *u = ACLCreateUser(argv[1],sdslen(argv[1]));
 
         /* If the user already exists we assume it's an error and abort. */
