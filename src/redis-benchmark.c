@@ -621,26 +621,19 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         c->start = ustime();
         c->latency = -1;
     }
-    const ssize_t buflen = sdslen(c->obuf);
-    const ssize_t writeLen = buflen-c->written;
-    if (writeLen > 0) {
+    if (sdslen(c->obuf) > c->written) {
         void *ptr = c->obuf+c->written;
-        while(1) {
-            /* Optimistically try to write before checking if the file descriptor
-             * is actually writable. At worst we get EAGAIN. */
-            const ssize_t nwritten = cliWriteConn(c->context,ptr,writeLen);
-            if (nwritten != writeLen) {
-                if (nwritten == -1 && errno != EAGAIN) {
-                    if (errno != EPIPE)
-                        fprintf(stderr, "Error writing to the server: %s\n", strerror(errno));
-                    freeClient(c);
-                    return;
-                }
-            } else {
-                aeDeleteFileEvent(el,c->context->fd,AE_WRITABLE);
-                aeCreateFileEvent(el,c->context->fd,AE_READABLE,readHandler,c);
-                return;
-            }
+        ssize_t nwritten = cliWriteConn(c->context,ptr,sdslen(c->obuf)-c->written);
+        if (nwritten == -1) {
+            if (errno != EPIPE)
+                fprintf(stderr, "Writing to socket: %s\n", strerror(errno));
+            freeClient(c);
+            return;
+        }
+        c->written += nwritten;
+        if (sdslen(c->obuf) == c->written) {
+            aeDeleteFileEvent(el,c->context->fd,AE_WRITABLE);
+            aeCreateFileEvent(el,c->context->fd,AE_READABLE,readHandler,c);
         }
     }
 }
