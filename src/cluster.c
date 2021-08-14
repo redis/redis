@@ -1009,9 +1009,10 @@ void clusterDelNode(clusterNode *delnode) {
             server.cluster->importing_slots_from[j] = NULL;
         if (server.cluster->migrating_slots_to[j] == delnode)
             server.cluster->migrating_slots_to[j] = NULL;
-        if (server.cluster->slots[j] == delnode)
+        if (server.cluster->slots[j] == delnode) {
             clusterDelSlot(j);
             removeChannelsInSlot(j);
+        }
     }
 
     /* 2) Remove failure reports. */
