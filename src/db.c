@@ -1656,6 +1656,7 @@ int getKeysFromCommand(struct redisCommand *cmd, robj **argv, int argc, getKeysR
  */
 int genericGetChannels(int first, int last, int step,
                        robj **argv, getKeysResult *result) {
+    UNUSED(argv);
     int cnt = 0;
     int *keys = getKeysPrepareResult(result,last-first+1);
     for (int j = first; j <= last; j += step) {
@@ -1667,7 +1668,7 @@ int genericGetChannels(int first, int last, int step,
 
 /*
  * This method extracts channel(s) from
- * subscribelocal/unsubscribelocal/publishlocal commands. */
+ * subscribelocal/unsubscribelocal/publishlocal commands.
  */
 int getChannelsFromCommand(struct redisCommand *cmd, robj **argv, int argc,
                             getKeysResult *result) {
