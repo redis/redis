@@ -863,8 +863,8 @@ void bitcountCommand(client *c) {
 /* BITPOS key bit [start [end [BIT|BYTE]]] */
 void bitposCommand(client *c) {
     robj *o;
-    long bit, strlen;
     long long start, end;
+    long bit, strlen;
     unsigned char *p;
     char llbuf[LONG_STR_SIZE];
     int isbit = 0, end_given = 0;
@@ -943,24 +943,36 @@ void bitposCommand(client *c) {
         addReplyLongLong(c, -1);
     } else {
         long bytes = end-start+1;
-        unsigned char prepost[2] = {p[start], p[end]};
-        /* Here we use a trick. We set bits at first byte and last byte out
-         * of range to ~bit. So these bits will not be included. */
+        long long pos;
+        unsigned char tmpchar;
         if (first_byte_neg_mask) {
-            if (bit) p[start] &= ~first_byte_neg_mask;
-            else p[start] |= first_byte_neg_mask;
+            if (bit) tmpchar = p[start] & ~first_byte_neg_mask;
+            else tmpchar = p[start] | first_byte_neg_mask;
+            /* Special case, there is only one byte */
+            if (last_byte_neg_mask && bytes == 1) {
+                if (bit) tmpchar = tmpchar & ~last_byte_neg_mask;
+                else tmpchar = tmpchar | last_byte_neg_mask;
+            }
+            pos = redisBitpos(&tmpchar,1,bit);
+            /* If there is no more bytes or we get valid pos, we can exit early */
+            if (bytes == 1 || (pos != -1 && pos != 8)) goto result;
+            start++;
+            bytes--;
         }
-        if (last_byte_neg_mask) {
-            if (bit) p[end] &= ~last_byte_neg_mask;
-            else p[end] |= last_byte_neg_mask;
+        /* If the last byte has bits not in the range, we should exclude it */
+        long curbytes = bytes - (last_byte_neg_mask ? 1 : 0);
+        if (curbytes > 0) {
+            pos = redisBitpos(p+start,curbytes,bit);
+            /* If there is no more bytes or we get valid pos, we can exit early */
+            if (bytes == curbytes || (pos != -1 && pos != (long long)curbytes<<3)) goto result;
+            start += curbytes;
+            bytes -= curbytes;
         }
+        if (bit) tmpchar = p[end] & ~last_byte_neg_mask;
+        else tmpchar = p[end] | last_byte_neg_mask;
+        pos = redisBitpos(&tmpchar,1,bit);
 
-        long long pos = redisBitpos(p+start,bytes,bit);
-
-        /* Restore first and last byte */
-        p[start] = prepost[0];
-        p[end] = prepost[1];
-
+    result:
         /* If we are looking for clear bits, and the user specified an exact
          * range with start-end, we can't consider the right of the range as
          * zero padded (as we do when no explicit end is given).
