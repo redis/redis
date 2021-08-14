@@ -2,8 +2,8 @@
 
 source "../tests/includes/init-tests.tcl"
 
-test "Create a 5 nodes cluster" {
-    create_cluster 5 5
+test "Create a 3 nodes cluster" {
+    create_cluster 3 3
 }
 
 test "Pub/Sub local basics" {
@@ -48,14 +48,22 @@ test "Pub/Sub local basics" {
     $anotherclient close
 }
 
-test "client can't subscribe to multiple local channels across different slots" {
+test "client can't subscribe to multiple local channels across different nodes" {
     set port [get_instance_attrib redis 0 port]
     set cluster [redis_cluster 127.0.0.1:$port]
 
     catch {$cluster subscribelocal channel.0 channel.1} err
 
-    assert_match {CROSSSLOT Channels*} $err
+    assert_match {CROSSNODE Channels*} $err
 }
+
+test "client can subscribe to multiple local channels across different slots in a node" {
+    set port [get_instance_attrib redis 0 port]
+    set cluster [redis_cluster 127.0.0.1:$port]
+
+    $cluster subscribelocal ch3 ch7
+}
+
 
 test "Verify Pub/Sub and Pub/Sub local no overlap" {
 
