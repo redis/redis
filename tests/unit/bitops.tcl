@@ -436,54 +436,66 @@ start_server {tags {"bitops"}} {
         }
     }
 
-    test {BITPOS fuzzy testing with start/end} {
-        r del str
-        set max 524288; # 64k
-        r setbit str [expr $max - 1] 0
-        set bytes [expr $max >> 3]
-        for {set bit 0} {$bit < 2} {incr bit} {
-            r bitop not str str
-            for {set j 0} {$j < 1000} {incr j} {
-                set start [randomInt $bytes]
-                set end [randomInt $bytes]
-                set pos [randomInt $max]
-                r setbit str $pos $bit
-                set res $pos
-                if {$start > $end} {
-                    if {$pos < [expr $end << 3] || $pos > [expr ($start << 3) + 7]} {
-                        set res -1
-                    }
-                    lassign [list [expr $end - $bytes] [expr $start - $bytes]] start end
-                } else {
-                    if {$pos < [expr $start << 3] || $pos > [expr ($end << 3) + 7]} {
-                        set res -1
-                    }
-                }
-                assert {[r bitpos str $bit $start $end] == $res}
-                r setbit str $pos [expr 1 - $bit]
+    # This test creates a string of 10 bytes. It has two iterations. One clears
+    # all the bits and sets just one bit and another set all the bits and clears
+    # just one bit. Each iteration loops from bit offset 0 to 79 and uses SETBIT
+    # to set the bit to 0 or 1, and then use BITPOS and BITCOUNT on a few mutations.
+    test {BITPOS/BITCOUNT fuzzy testing using SETBIT} {
+        proc test_one {start1 end1 start2 end2 pos bit pos_type} {
+            set start [randomRange $start1 $end1]
+            set end [randomRange $start2 $end2]
+            if {$start > $end} {
+                lassign [list $end $start] start end
             }
+            set startbit $start
+            set endbit $end
+            # For byte index, we need to generate the real bit index
+            if {[string equal $pos_type byte]} {
+                lassign [list [expr $start << 3] [expr ($end << 3) + 7]] startbit endbit
+            }
+            # This means whether the test bit index is in the range.
+            set inrange [expr ($pos >= $startbit && $pos <= $endbit) ? 1: 0]
+            # For bitcount, there are four different results.
+            # $inrange == 0 && $bit == 0, all bits in the range are set, so $endbit - $startbit + 1
+            # $inrange == 0 && $bit == 1, all bits in the range are clear, so 0
+            # $inrange == 1 && $bit == 0, all bits in the range are set but one, so $endbit - $startbit
+            # $inrange == 1 && $bit == 1, all bits in the range are clear but one, so 1
+            set res_count [expr ($endbit - $startbit + 1) * (1 - $bit) + $inrange * [expr $bit ? 1 : -1]]
+            assert {[r bitpos str $bit $start $end $pos_type] == [expr $inrange ? $pos : -1]}
+            assert {[r bitcount str $start $end $pos_type] == $res_count}
         }
 
+        r del str
+        set max 80;
+        r setbit str [expr $max - 1] 0
+        set bytes [expr $max >> 3]
+        # First iteration sets all bits to 1, then set bit to 0 from 0 to max - 1
+        # Second iteration sets all bits to 0, then set bit to 1 from 0 to max - 1
         for {set bit 0} {$bit < 2} {incr bit} {
             r bitop not str str
-            for {set j 0} {$j < 1000} {incr j} {
-                set start [randomInt $max]
-                set end [randomInt $max]
-                set pos [randomInt $max]
-                r setbit str $pos $bit
-                set res $pos
-                if {$start > $end} {
-                    if {$pos < $end || $pos > $start} {
-                        set res -1
+            for {set j 0} {$j < $max} {incr j} {
+                r setbit str $j $bit
+
+                # First iteration tests byte index and second iteration tests bit index.
+                foreach {curr end pos_type} [list [expr $j >> 3] $bytes byte $j $max bit] {
+                    # start==end set to bit position
+                    test_one $curr $curr $curr $curr $j $bit $pos_type
+                    # Both start and end are before bit position
+                    if {$curr > 0} {
+                        test_one 0 $curr 0 $curr $j $bit $pos_type
                     }
-                    lassign [list [expr $end - $max] [expr $start - $max]] start end
-                } else {
-                    if {$pos < $start || $pos > $end} {
-                        set res -1
+                    # Both start and end are after bit position
+                    if {$curr < [expr $end - 1]} {
+                        test_one [expr $curr + 1] $end [expr $curr + 1] $end $j $bit $pos_type
+                    }
+                    # start is before and end is after bit position
+                    if {$curr > 0 && $curr < [expr $end - 1]} {
+                        test_one 0 $curr [expr $curr +1] $end $j $bit $pos_type
                     }
                 }
-                assert {[r bitpos str $bit $start $end bit] == $res}
-                r setbit str $pos [expr 1 - $bit]
+
+                # restore bit
+                r setbit str $j [expr 1 - $bit]
             }
         }
     }

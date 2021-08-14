@@ -187,6 +187,11 @@ proc randomInt {max} {
     expr {int(rand()*$max)}
 }
 
+# Random integer between min and max (excluded).
+proc randomRange {min max} {
+    expr {int(rand()*[expr $max - $min]) + $min}
+}
+
 # Random signed integer between -max and max (both extremes excluded).
 proc randomSignedInt {max} {
     set i [randomInt $max]
