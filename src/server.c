@@ -1127,16 +1127,16 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,0,0,0,0,0,0},
 
     {"publishlocal",publishLocalCommand,3,
-    "pub-sub ok-loading ok-stale fast may-replicate",
-    0,NULL,1,1,1,0,0,0},
+     "pub-sub ok-loading ok-stale fast may-replicate",
+     0,NULL,0,0,0,0,0,0},
 
     {"subscribelocal",subscribeLocalCommand,-2,
-    "pub-sub no-script ok-loading ok-stale",
-    0,NULL,1,-1,1,0,0,0},
+     "pub-sub no-script ok-loading ok-stale",
+     0,NULL,0,0,0,0,0,0},
 
     {"unsubscribelocal",unsubscribeLocalCommand,-1,
-    "pub-sub no-script ok-loading ok-stale",
-    0,NULL,1,-1,1,0,0,0}
+     "pub-sub no-script ok-loading ok-stale",
+     0,NULL,0,0,0,0,0,0}
 };
 
 /*============================ Utility functions ============================ */
@@ -4032,6 +4032,10 @@ int processCommand(client *c) {
                                  (c->cmd->proc == execCommand && (c->mstate.cmd_inv_flags & CMD_LOADING));
     int is_may_replicate_command = (c->cmd->flags & (CMD_WRITE | CMD_MAY_REPLICATE)) ||
                                    (c->cmd->proc == execCommand && (c->mstate.cmd_flags & (CMD_WRITE | CMD_MAY_REPLICATE)));
+    int is_pubsublocal_command = c->cmd->proc == subscribeLocalCommand ||
+                                  c->cmd->proc == unsubscribeLocalCommand ||
+                                  c->cmd->proc == publishLocalCommand;
+
 
     /* Check if the user is authenticated. This check is skipped in case
      * the default user is flagged as "nopass" and is active. */
@@ -4079,13 +4083,18 @@ int processCommand(client *c) {
     /* If cluster is enabled perform the cluster redirection here.
      * However we don't perform the redirection if:
      * 1) The sender of this command is our master.
-     * 2) The command has no key arguments. */
+     * 2) The command has no key arguments.
+     *
+     * We however allow pubsublocal commands even though
+     * it doesn't have any keys in it. We let the pubsublocal
+     * commands as it also works on the cluster slot semantics. */
     if (server.cluster_enabled &&
         !(c->flags & CLIENT_MASTER) &&
         !(c->flags & CLIENT_LUA &&
           server.lua_caller->flags & CLIENT_MASTER) &&
-        !(!cmdHasMovableKeys(c->cmd) && c->cmd->firstkey == 0 &&
-          c->cmd->proc != execCommand))
+        (is_pubsublocal_command ||
+          !(!cmdHasMovableKeys(c->cmd) && c->cmd->firstkey == 0 &&
+          c->cmd->proc != execCommand)))
     {
         int hashslot;
         int error_code;

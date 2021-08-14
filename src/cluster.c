@@ -5796,6 +5796,142 @@ void readwriteCommand(client *c) {
     addReply(c,shared.ok);
 }
 
+
+//clusterNode *getNodeByQueryForChannels(client *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, int *error_code) {
+//    clusterNode *n = NULL;
+//    robj *firstchannel = NULL;
+//    int multiple_channels = 0;
+//    multiCmd mc;
+//    int i, slot = 0, migrating_slot = 0, importing_slot = 0, missing_keys = 0;
+//
+//    /* Allow any key to be set if a module disabled cluster redirections. */
+//    if (server.cluster_module_flags & CLUSTER_MODULE_FLAG_NO_REDIRECTION)
+//        return myself;
+//
+//    /* Set error code optimistically for the base case. */
+//    if (error_code) *error_code = CLUSTER_REDIR_NONE;
+//
+//    struct redisCommand *mcmd;
+//    robj **margv;
+//    int margc, *keyindex, numchannels, j;
+//
+//    mcmd = cmd;
+//    margc = argc;
+//    margv = argv;
+//
+//    getKeysResult result = GETKEYS_RESULT_INIT;
+//    numchannels = getKeysFromCommand(mcmd, margv, margc, &result);
+//    keyindex = result.keys;
+//
+//    for (j = 0; j < numchannels; j++) {
+//        robj *thiskey = margv[keyindex[j]];
+//        int thisslot = keyHashSlot((char *) thiskey->ptr,
+//                                   sdslen(thiskey->ptr));
+//
+//        if (firstchannel == NULL) {
+//            /* This is the first key we see. Check what is the slot
+//             * and node. */
+//            firstchannel = thiskey;
+//            slot = thisslot;
+//            n = server.cluster->slots[slot];
+//
+//            /* Error: If a slot is not served, we are in "cluster down"
+//             * state. However the state is yet to be updated, so this was
+//             * not trapped earlier in processCommand(). Report the same
+//             * error to the client. */
+//            if (n == NULL) {
+//                getKeysFreeResult(&result);
+//                if (error_code)
+//                    *error_code = CLUSTER_REDIR_DOWN_UNBOUND;
+//                return NULL;
+//            }
+//
+//            /* If we are migrating or importing this slot, we need to check
+//             * if we have all the keys in the request (the only way we
+//             * can safely serve the request, otherwise we return a TRYAGAIN
+//             * error). To do so we set the importing/migrating state and
+//             * increment a counter for every missing key. */
+//            if (n == myself &&
+//                server.cluster->migrating_slots_to[slot] != NULL) {
+//                migrating_slot = 1;
+//            } else if (server.cluster->importing_slots_from[slot] != NULL) {
+//                importing_slot = 1;
+//            }
+//        } else {
+//            /* If it is not the first channel, make sure it is exactly
+//             * the same channel as the first we saw. */
+//            if (!equalStringObjects(firstkey, thiskey)) {
+//                if (slot != thisslot) {
+//                    /* Error: multiple channels from different slots. */
+//                    getKeysFreeResult(&result);
+//                    if (error_code) {
+//                        *error_code = CLUSTER_REDIR_CROSS_SLOT_CHANNEL;
+//                    }
+//                    return NULL;
+//                } else {
+//                    /* Flag this request as one with multiple different
+//                     * keys. */
+//                    multiple_keys = 1;
+//                }
+//            }
+//        }
+//        getKeysFreeResult(&result);
+//    }
+//
+//    /* No channels at all in command? then we can serve the request
+//    * without redirections or errors in all the cases. */
+//    if (n == NULL) return myself;
+//
+//    /* Return the hashslot by reference. */
+//    if (hashslot) *hashslot = slot;
+//
+//    /* MIGRATE always works in the context of the local node if the slot
+//     * is open (migrating or importing state). We need to be able to freely
+//     * move keys among instances in this case. */
+//    if ((migrating_slot || importing_slot) && cmd->proc == migrateCommand)
+//        return myself;
+//
+//    /* If we don't have all the keys and we are migrating the slot, send
+//     * an ASK redirection. */
+//    if (migrating_slot && missing_keys) {
+//        if (error_code) *error_code = CLUSTER_REDIR_ASK;
+//        return server.cluster->migrating_slots_to[slot];
+//    }
+//
+//    /* If we are receiving the slot, and the client correctly flagged the
+//     * request as "ASKING", we can serve the request. However if the request
+//     * involves multiple keys and we don't have them all, the only option is
+//     * to send a TRYAGAIN error. */
+//    if (importing_slot &&
+//        (c->flags & CLIENT_ASKING || cmd->flags & CMD_ASKING))
+//    {
+//        if (multiple_keys && missing_keys) {
+//            if (error_code) *error_code = CLUSTER_REDIR_UNSTABLE;
+//            return NULL;
+//        } else {
+//            return myself;
+//        }
+//    }
+//
+//    /* Handle the read-only client case reading from a slave: if this
+//     * node is a slave and the request is about a hash slot our master
+//     * is serving, we can reply without redirection. */
+//    int is_write_command = (c->cmd->flags & CMD_WRITE) ||
+//                           (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_WRITE));
+//    if (((c->flags & CLIENT_READONLY) || is_pubsublocal) &&
+//        !is_write_command &&
+//        nodeIsSlave(myself) &&
+//        myself->slaveof == n)
+//    {
+//        return myself;
+//    }
+//
+//    /* Base case: just return the right node. However if this node is not
+//     * myself, set error_code to MOVED since we need to issue a redirection. */
+//    if (n != myself && error_code) *error_code = CLUSTER_REDIR_MOVED;
+//    return n;
+//}
+
 /* Return the pointer to the cluster node that is able to serve the command.
  * For the function to succeed the command should only target either:
  *
@@ -5866,11 +6002,9 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
         mc.cmd = cmd;
     }
 
-
     int is_pubsublocal = cmd->proc == subscribeLocalCommand ||
                          cmd->proc == unsubscribeLocalCommand ||
                          cmd->proc == publishLocalCommand;
-
 
     /* Check that all the keys are in the same hash slot, and obtain this
      * slot and the node associated. */
@@ -5884,13 +6018,18 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
         margv = ms->commands[i].argv;
 
         getKeysResult result = GETKEYS_RESULT_INIT;
-        numkeys = getKeysFromCommand(mcmd,margv,margc,&result);
+        if (is_pubsublocal) {
+            numkeys = getChannelsFromCommand(mcmd,margv,margc,&result);
+        } else {
+            numkeys = getKeysFromCommand(mcmd,margv,margc,&result);
+        }
         keyindex = result.keys;
 
         for (j = 0; j < numkeys; j++) {
             robj *thiskey = margv[keyindex[j]];
             int thisslot = keyHashSlot((char*)thiskey->ptr,
                                        sdslen(thiskey->ptr));
+            clusterNode *thisnode = server.cluster->slots[thisslot];
 
             if (firstkey == NULL) {
                 /* This is the first key we see. Check what is the slot
@@ -5926,15 +6065,21 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
                 /* If it is not the first key, make sure it is exactly
                  * the same key as the first we saw. */
                 if (!equalStringObjects(firstkey,thiskey)) {
-                    if (slot != thisslot) {
+                    /* If the channel exists across different slots, it is still
+                     * valid if they are being served from the same node. */
+                    if (is_pubsublocal) {
+                        if (n != thisnode) {
+                            getKeysFreeResult(&result);
+                            if (error_code) {
+                                *error_code = CLUSTER_REDIR_CROSS_NODE_CHANNEL;
+                            }
+                            return NULL;
+                        }
+                    } else if (slot != thisslot) {
                         /* Error: multiple keys from different slots. */
                         getKeysFreeResult(&result);
                         if (error_code) {
-                            if (is_pubsublocal) {
-                                *error_code = CLUSTER_REDIR_CROSS_SLOT_CHANNEL;
-                            } else {
-                                *error_code = CLUSTER_REDIR_CROSS_SLOT;
-                            }
+                            *error_code = CLUSTER_REDIR_CROSS_SLOT;
                         }
                         return NULL;
                     } else {
@@ -5968,7 +6113,12 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
     /* Cluster is globally down but we got keys? We only serve the request
      * if it is a read command and when allow_reads_when_down is enabled. */
     if (server.cluster->state != CLUSTER_OK) {
-        if (!server.cluster_allow_reads_when_down) {
+        if (is_pubsublocal) {
+            if (!server.cluster_allow_pubsub_when_down) {
+                if (error_code) *error_code = CLUSTER_REDIR_DOWN_STATE;
+                return NULL;
+            }
+        } else if (!server.cluster_allow_reads_when_down) {
             /* The cluster is configured to block commands when the
              * cluster is down. */
             if (error_code) *error_code = CLUSTER_REDIR_DOWN_STATE;
@@ -6044,8 +6194,8 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
 void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_code) {
     if (error_code == CLUSTER_REDIR_CROSS_SLOT) {
         addReplyError(c,"-CROSSSLOT Keys in request don't hash to the same slot");
-    } else if (error_code == CLUSTER_REDIR_CROSS_SLOT_CHANNEL) {
-        addReplyError(c, "-CROSSSLOT Channels in request don't hash to the same slot");
+    } else if (error_code == CLUSTER_REDIR_CROSS_NODE_CHANNEL) {
+        addReplyError(c, "-CROSSNODE Channels in request don't hash to the same node");
     } else if (error_code == CLUSTER_REDIR_UNSTABLE) {
         /* The request spawns multiple keys in the same slot,
          * but the slot is not "stable" currently as there is
