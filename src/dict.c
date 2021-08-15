@@ -61,7 +61,7 @@ static unsigned int dict_force_resize_ratio = 5;
 /* -------------------------- private prototypes ---------------------------- */
 
 static int _dictExpandIfNeeded(dict *d);
-static char _dictNextExp(unsigned long size);
+static signed char _dictNextExp(unsigned long size);
 static long _dictKeyIndex(dict *d, const void *key, uint64_t hash, dictEntry **existing);
 static int _dictInit(dict *d, dictType *type);
 
@@ -150,7 +150,7 @@ int _dictExpand(dict *d, unsigned long size, int* malloc_failed)
     /* the new hash table */
     dictEntry **new_ht_table;
     unsigned long new_ht_used;
-    char new_ht_size_exp = _dictNextExp(size);
+    signed char new_ht_size_exp = _dictNextExp(size);
 
     /* Detect overflows */
     size_t newsize = 1ul<<new_ht_size_exp;
@@ -1009,7 +1009,7 @@ static int _dictExpandIfNeeded(dict *d)
 
 /* TODO: clz optimization */
 /* Our hash table capability is a power of two */
-static char _dictNextExp(unsigned long size)
+static signed char _dictNextExp(unsigned long size)
 {
     unsigned char e = DICT_HT_INITIAL_EXP;
 
