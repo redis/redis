@@ -91,6 +91,7 @@ start_server {tags {"bitops"}} {
             set start [randomInt $l]
             set end [randomInt $l]
             if {$start > $end} {
+                # Swap start and end
                 lassign [list $end $start] start end
             }
             assert {[r bitcount str $start $end] == [count_bits [string range $str $start $end]]}
@@ -103,6 +104,7 @@ start_server {tags {"bitops"}} {
             set start [randomInt $l]
             set end [randomInt $l]
             if {$start > $end} {
+                # Swap start and end
                 lassign [list $end $start] start end
             }
             assert {[r bitcount str $start $end bit] == [count_bits_start_end $str $start $end]}
@@ -441,17 +443,21 @@ start_server {tags {"bitops"}} {
     # just one bit. Each iteration loops from bit offset 0 to 79 and uses SETBIT
     # to set the bit to 0 or 1, and then use BITPOS and BITCOUNT on a few mutations.
     test {BITPOS/BITCOUNT fuzzy testing using SETBIT} {
+        # We have two start and end ranges, each range used to select a random
+        # position, one for start position and one for end position.
         proc test_one {start1 end1 start2 end2 pos bit pos_type} {
             set start [randomRange $start1 $end1]
             set end [randomRange $start2 $end2]
             if {$start > $end} {
+                # Swap start and end
                 lassign [list $end $start] start end
             }
             set startbit $start
             set endbit $end
             # For byte index, we need to generate the real bit index
             if {[string equal $pos_type byte]} {
-                lassign [list [expr $start << 3] [expr ($end << 3) + 7]] startbit endbit
+                set startbit [expr $start << 3]
+                set endbit [expr ($end << 3) + 7]
             }
             # This means whether the test bit index is in the range.
             set inrange [expr ($pos >= $startbit && $pos <= $endbit) ? 1: 0]

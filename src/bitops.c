@@ -954,12 +954,12 @@ void bitposCommand(client *c) {
                 else tmpchar = tmpchar | last_byte_neg_mask;
             }
             pos = redisBitpos(&tmpchar,1,bit);
-            /* If there is no more bytes or we get valid pos, we can exit early */
+            /* If there are no more bytes or we get valid pos, we can exit early */
             if (bytes == 1 || (pos != -1 && pos != 8)) goto result;
             start++;
             bytes--;
         }
-        /* If the last byte has bits not in the range, we should exclude it */
+        /* If the last byte has not bits in the range, we should exclude it */
         long curbytes = bytes - (last_byte_neg_mask ? 1 : 0);
         if (curbytes > 0) {
             pos = redisBitpos(p+start,curbytes,bit);
