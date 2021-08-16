@@ -1324,6 +1324,8 @@ struct redisServer {
     long long stat_active_defrag_key_hits;  /* number of keys with moved allocations */
     long long stat_active_defrag_key_misses;/* number of keys scanned and not moved */
     long long stat_active_defrag_scanned;   /* number of dictEntries scanned */
+    long long stat_total_active_defrag_exceeded_time; /* Total time memory fragmentation over the limit, unit us */
+    monotime stat_last_active_defrag_exceeded_time; /* Timestamp of current active defrag start */
     size_t stat_peak_memory;        /* Max used memory record */
     long long stat_fork_time;       /* Time needed to perform latest fork() */
     double stat_fork_rate;          /* Fork rate in GB/sec. */
