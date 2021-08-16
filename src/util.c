@@ -352,7 +352,7 @@ int ull2string(char *dst, size_t dstlen, unsigned long long value) {
         "8081828384858687888990919293949596979899";
 
     /* Check length. */
-    uint32_t const length = digits10(value) + negative;
+    uint32_t const length = digits10(value);
     if (length >= dstlen) return 0;
 
     /* Null term. */
