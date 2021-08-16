@@ -1023,12 +1023,7 @@ unsigned char *zzlFind(unsigned char *zl, sds ele, double *score) {
 /* Delete (element,score) pair from listpack. Use local copy of eptr because we
  * don't want to modify the one given as argument. */
 unsigned char *zzlDelete(unsigned char *zl, unsigned char *eptr) {
-    unsigned char *p = eptr;
-
-    /* TODO: add function to ziplist API to delete N elements from offset. */
-    zl = lpDelete(zl,p,&p);
-    zl = lpDelete(zl,p,&p);
-    return zl;
+    return lpDeleteRangeWithEntry(zl,&eptr,2);
 }
 
 unsigned char *zzlInsertAt(unsigned char *zl, unsigned char *eptr, sds ele, double score) {
@@ -1101,8 +1096,7 @@ unsigned char *zzlDeleteRangeByScore(unsigned char *zl, zrangespec *range, unsig
         score = zzlGetScore(sptr);
         if (zslValueLteMax(score,range)) {
             /* Delete both the element and the score. */
-            zl = lpDelete(zl,eptr,&eptr);
-            zl = lpDelete(zl,eptr,&eptr);
+            zl = lpDeleteRangeWithEntry(zl,&eptr,2);
             num++;
         } else {
             /* No longer in range. */
@@ -1128,8 +1122,7 @@ unsigned char *zzlDeleteRangeByLex(unsigned char *zl, zlexrangespec *range, unsi
     while (eptr && (sptr = lpNext(zl,eptr)) != NULL) {
         if (zzlLexValueLteMax(eptr,range)) {
             /* Delete both the element and the score. */
-            zl = lpDelete(zl,eptr,&eptr);
-            zl = lpDelete(zl,eptr,&eptr);
+            zl = lpDeleteRangeWithEntry(zl,&eptr,2);
             num++;
         } else {
             /* No longer in range. */

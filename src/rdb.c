@@ -1521,7 +1521,7 @@ robj *rdbLoadCheckModuleValue(rio *rdb, char *modulename) {
 /* callback for hashZiplistConvertAndValidateIntegrity.
  * Check that the ziplist doesn't have duplicate hash field names.
  * The ziplist element pointed by 'p' will be converted and stored into listpack. */
-static int _ziplistEntryConvertAndValidation(unsigned char *p, void *userdata) {
+static int _ziplistPairsEntryConvertAndValidation(unsigned char *p, void *userdata) {
     unsigned char *str;
     unsigned int slen;
     long long vll;
@@ -1559,7 +1559,7 @@ static int _ziplistEntryConvertAndValidation(unsigned char *p, void *userdata) {
  * listpack and storing it at 'lp'.
  * The function is safe to call on non-validated ziplists, it returns 0
  * when encounter an integrity validation issue. */
-int ziplistConvertAndValidateIntegrity(unsigned char *zl, size_t size, unsigned char **lp) {
+int ziplistPairsConvertAndValidateIntegrity(unsigned char *zl, size_t size, unsigned char **lp) {
     /* Keep track of the field names to locate duplicate ones */
     struct {
         long count;
@@ -1567,7 +1567,7 @@ int ziplistConvertAndValidateIntegrity(unsigned char *zl, size_t size, unsigned 
         unsigned char **lp;
     } data = {0, dictCreate(&hashDictType), lp};
 
-    int ret = ziplistValidateIntegrity(zl, size, 1, _ziplistEntryConvertAndValidation, &data);
+    int ret = ziplistValidateIntegrity(zl, size, 1, _ziplistPairsEntryConvertAndValidation, &data);
 
     /* make sure we have an even number of records. */
     if (data.count & 1)
@@ -1578,7 +1578,7 @@ int ziplistConvertAndValidateIntegrity(unsigned char *zl, size_t size, unsigned 
 }
 
 /* callback for to check the listpack doesn't have duplicate records */
-static int _listpackEntryValidation(unsigned char *p, void *userdata) {
+static int _lpPairsEntryValidation(unsigned char *p, void *userdata) {
     struct {
         long count;
         dict *fields;
@@ -1606,7 +1606,7 @@ static int _listpackEntryValidation(unsigned char *p, void *userdata) {
 /* Validate the integrity of the listpack structure.
  * when `deep` is 0, only the integrity of the header is validated.
  * when `deep` is 1, we scan all the entries one by one. */
-int listpackValidateIntegrity(unsigned char *lp, size_t size, int deep) {
+int lpPairsValidateIntegrityAndDups(unsigned char *lp, size_t size, int deep) {
     if (!deep)
         return lpValidateIntegrity(lp, size, 0, NULL, NULL);
 
@@ -1616,7 +1616,7 @@ int listpackValidateIntegrity(unsigned char *lp, size_t size, int deep) {
         dict *fields;
     } data = {0, dictCreate(&hashDictType)};
 
-    int ret = lpValidateIntegrity(lp, size, 1, _listpackEntryValidation, &data);
+    int ret = lpValidateIntegrity(lp, size, 1, _lpPairsEntryValidation, &data);
 
     /* make sure we have an even number of records. */
     if (data.count & 1)
@@ -2058,7 +2058,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
             case RDB_TYPE_ZSET_ZIPLIST:
                 {
                     unsigned char *lp = lpNew(encoded_len);
-                    if (!ziplistConvertAndValidateIntegrity(encoded, encoded_len, &lp)) {
+                    if (!ziplistPairsConvertAndValidateIntegrity(encoded, encoded_len, &lp)) {
                         rdbReportCorruptRDB("Zset ziplist integrity check failed.");
                         zfree(lp);
                         zfree(encoded);
@@ -2082,7 +2082,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 }
             case RDB_TYPE_ZSET_LISTPACK:
                 if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
-                if (!listpackValidateIntegrity(encoded, encoded_len, deep_integrity_validation)) {
+                if (!lpPairsValidateIntegrityAndDups(encoded, encoded_len, deep_integrity_validation)) {
                     rdbReportCorruptRDB("Zset listpack integrity check failed.");
                     zfree(encoded);
                     o->ptr = NULL;
@@ -2102,7 +2102,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
             case RDB_TYPE_HASH_ZIPLIST:
                 {
                     unsigned char *lp = lpNew(encoded_len);
-                    if (!ziplistConvertAndValidateIntegrity(encoded, encoded_len, &lp)) {
+                    if (!ziplistPairsConvertAndValidateIntegrity(encoded, encoded_len, &lp)) {
                         rdbReportCorruptRDB("Hash ziplist integrity check failed.");
                         zfree(lp);
                         zfree(encoded);
@@ -2116,8 +2116,6 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                     o->type = OBJ_HASH;
                     o->encoding = OBJ_ENCODING_LISTPACK;
                     if (hashTypeLength(o) == 0) {
-                        zfree(o->ptr);
-                        o->ptr = NULL;
                         decrRefCount(o);
                         goto emptykey;
                     }
@@ -2129,7 +2127,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 }
             case RDB_TYPE_HASH_LISTPACK:
                 if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
-                if (!listpackValidateIntegrity(encoded, encoded_len, deep_integrity_validation)) {
+                if (!lpPairsValidateIntegrityAndDups(encoded, encoded_len, deep_integrity_validation)) {
                     rdbReportCorruptRDB("Hash listpack integrity check failed.");
                     zfree(encoded);
                     o->ptr = NULL;
@@ -2139,8 +2137,6 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 o->type = OBJ_HASH;
                 o->encoding = OBJ_ENCODING_LISTPACK;
                 if (hashTypeLength(o) == 0) {
-                    zfree(encoded);
-                    o->ptr = NULL;
                     decrRefCount(o);
                     goto emptykey;
                 }

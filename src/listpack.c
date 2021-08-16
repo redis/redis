@@ -979,6 +979,44 @@ unsigned char *lpDelete(unsigned char *lp, unsigned char *p, unsigned char **new
     return lpInsert(lp,NULL,NULL,0,p,LP_REPLACE,newp);
 }
 
+/* Delete a range of entries from the listpack start with the element pointed by 'p'. */
+unsigned char *lpDeleteRangeWithEntry(unsigned char *lp, unsigned char **p, unsigned long num) {
+    size_t bytes = lpBytes(lp);
+    unsigned long deleted = 0;
+    unsigned long len = lpLength(lp);
+    unsigned char *eofptr = lp + bytes - 1;
+    unsigned char *first, *tail;
+    first = tail = *p;
+
+    if (num == 0) return lp;  /* Nothing to delete, return ASAP. */
+
+    /* Find the next entry to the last entry that needs to be deleted.
+     * lpLength may be unreliable due to corrupt data, so we cannot
+     * treat 'num' as the number of elements to be deleted. */
+    while (num--) {
+        deleted++;
+        tail = lpSkip(tail);
+        if (tail[0] == LP_EOF) break;
+        lpAssertValidEntry(lp, bytes, tail);
+    }
+
+    /* Store the offset of the element 'first', so that we can obtain its
+     * address again after a reallocation. */
+    unsigned long poff = first-lp;
+
+    /* Move tail to the front of the ziplist */
+    memmove(first, tail, eofptr - tail + 1);
+    lpSetTotalBytes(lp, bytes - (tail - first));
+    lpSetNumElements(lp, len - deleted);
+    lp = lpShrinkToFit(lp);
+
+    /* Store the entry. */
+    *p = lp+poff;
+    if ((*p)[0] == LP_EOF) *p = NULL;
+
+    return lp;
+}
+
 /* Delete a range of entries from the listpack. */
 unsigned char *lpDeleteRange(unsigned char *lp, long index, unsigned long num) {
     unsigned char *p;
@@ -996,26 +1034,11 @@ unsigned char *lpDeleteRange(unsigned char *lp, long index, unsigned long num) {
         p[0] = LP_EOF;
         lpSetTotalBytes(lp, p - lp + 1);
         lpSetNumElements(lp, index);
+        lp = lpShrinkToFit(lp);
     } else {
-        size_t bytes = lpBytes(lp);
-        unsigned char *eofptr = lp + bytes - 1;
-        unsigned char *first, *tail;
-        first = tail = p;
-
-        /* Find the next entry to the last entry that needs to be deleted. */
-        unsigned int i = num;
-        while (i--) {
-            tail = lpNext(lp, tail);
-            assert(p != NULL);
-        }
-
-        /* Move tail to the front of the ziplist */
-        memmove(first, tail, eofptr - tail + 1);
-        lpSetTotalBytes(lp, bytes - (tail - first));
-        lpSetNumElements(lp, len - num);
+        lp = lpDeleteRangeWithEntry(lp, &p, num);
     }
 
-    lp = lpShrinkToFit(lp);
     return lp;
 }
 
@@ -1592,6 +1615,14 @@ int listpackTest(int argc, char *argv[], int accurate) {
         assert(lp[LP_HDR_SIZE] == LP_EOF);
         assert(lpBytes(lp) == (LP_HDR_SIZE + 1));
         zfree(lp);
+
+        lp = createList();
+        unsigned char *ptr = lpFirst(lp);
+        lp = lpDeleteRangeWithEntry(lp, &ptr, -1);
+        assert(lpLength(lp) == 0);
+        assert(lp[LP_HDR_SIZE] == LP_EOF);
+        assert(lpBytes(lp) == (LP_HDR_SIZE + 1));
+        zfree(lp);
     }
 
     TEST("Delete whole listpack with negative index");
@@ -1602,8 +1633,16 @@ int listpackTest(int argc, char *argv[], int accurate) {
         assert(lp[LP_HDR_SIZE] == LP_EOF);
         assert(lpBytes(lp) == (LP_HDR_SIZE + 1));
         zfree(lp);
+
+        lp = createList();
+        unsigned char *ptr = lpSeek(lp, -4);
+        lp = lpDeleteRangeWithEntry(lp, &ptr, 4);
+        assert(lpLength(lp) == 0);
+        assert(lp[LP_HDR_SIZE] == LP_EOF);
+        assert(lpBytes(lp) == (LP_HDR_SIZE + 1));
+        zfree(lp);
     }
-    
+
     TEST("Delete inclusive range 0,0");
     {
         lp = createList();
@@ -1611,12 +1650,26 @@ int listpackTest(int argc, char *argv[], int accurate) {
         assert(lpLength(lp) == 3);
         assert(lpSkip(lpLast(lp))[0] == LP_EOF); /* check set LP_EOF correctly */
         zfree(lp);
+
+        lp = createList();
+        unsigned char *ptr = lpFirst(lp);
+        lp = lpDeleteRangeWithEntry(lp, &ptr, 1);
+        assert(lpLength(lp) == 3);
+        assert(lpSkip(lpLast(lp))[0] == LP_EOF); /* check set LP_EOF correctly */
+        zfree(lp);
     }
-    
+
     TEST("Delete inclusive range 0,1");
     {
         lp = createList();
         lp = lpDeleteRange(lp, 0, 2);
+        assert(lpLength(lp) == 2);
+        verifyEntry(lpFirst(lp), (unsigned char*)mixlist[2], strlen(mixlist[2]));
+        zfree(lp);
+
+        lp = createList();
+        unsigned char *ptr = lpFirst(lp);
+        lp = lpDeleteRangeWithEntry(lp, &ptr, 2);
         assert(lpLength(lp) == 2);
         verifyEntry(lpFirst(lp), (unsigned char*)mixlist[2], strlen(mixlist[2]));
         zfree(lp);
@@ -1626,6 +1679,13 @@ int listpackTest(int argc, char *argv[], int accurate) {
     {
         lp = createList();
         lp = lpDeleteRange(lp, 1, 2);
+        assert(lpLength(lp) == 2);
+        verifyEntry(lpFirst(lp), (unsigned char*)mixlist[0], strlen(mixlist[0]));
+        zfree(lp);
+
+        lp = createList();
+        unsigned char *ptr = lpSeek(lp, 1);
+        lp = lpDeleteRangeWithEntry(lp, &ptr, 2);
         assert(lpLength(lp) == 2);
         verifyEntry(lpFirst(lp), (unsigned char*)mixlist[0], strlen(mixlist[0]));
         zfree(lp);
@@ -1643,6 +1703,13 @@ int listpackTest(int argc, char *argv[], int accurate) {
     {
         lp = createList();
         lp = lpDeleteRange(lp, 1, 5);
+        assert(lpLength(lp) == 1);
+        verifyEntry(lpFirst(lp), (unsigned char*)mixlist[0], strlen(mixlist[0]));
+        zfree(lp);
+
+        lp = createList();
+        unsigned char *ptr = lpSeek(lp, 1);
+        lp = lpDeleteRangeWithEntry(lp, &ptr, 5);
         assert(lpLength(lp) == 1);
         verifyEntry(lpFirst(lp), (unsigned char*)mixlist[0], strlen(mixlist[0]));
         zfree(lp);

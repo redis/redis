@@ -279,8 +279,8 @@ int hashTypeDelete(robj *o, sds field) {
         if (fptr != NULL) {
             fptr = lpFind(zl, fptr, (unsigned char*)field, sdslen(field), 1);
             if (fptr != NULL) {
-                zl = lpDelete(zl,fptr,&fptr); /* Delete the key. */
-                zl = lpDelete(zl,fptr,&fptr); /* Delete the value. */
+                /* Delete both of the key and the value. */
+                zl = lpDeleteRangeWithEntry(zl,&fptr,2);
                 o->ptr = zl;
                 deleted = 1;
             }
