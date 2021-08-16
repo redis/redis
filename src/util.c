@@ -336,14 +336,14 @@ int ll2string(char *dst, size_t dstlen, long long svalue) {
     }
 
     /* Converts the unsigned long long value to string*/
-    uint32_t const length = ull2string(dst, dstlen, value, negative);
+    uint32_t const length = ull2string(dst, dstlen + negative, value);
 
     /* Add sign. */
     if (negative) dst[0] = '-';
     return length;
 }
 
-int ull2string(char *dst, size_t dstlen, unsigned long long value, int negative) {
+int ull2string(char *dst, size_t dstlen, unsigned long long value) {
     static const char digits[201] =
         "0001020304050607080910111213141516171819"
         "2021222324252627282930313233343536373839"
