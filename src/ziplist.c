@@ -2422,6 +2422,7 @@ int ziplistTest(int argc, char **argv, int accurate) {
     {
         zl = ziplistNew();
         iteration = accurate ? 100000 : 100;
+        unsigned long long start = usec();
         for (int i=0; i<iteration; i++) {
             char buf[4096] = "asdf";
             zl = ziplistPush(zl, (unsigned char*)buf, 4, ZIPLIST_TAIL);
@@ -2435,6 +2436,7 @@ int ziplistTest(int argc, char **argv, int accurate) {
             zl = ziplistPush(zl, (unsigned char*)"10000", 5, ZIPLIST_TAIL);
             zl = ziplistPush(zl, (unsigned char*)"100000", 6, ZIPLIST_TAIL);
         }
+        printf("%lld\n", usec()-start);
 
         printf("Benchmark ziplistFind:\n");
         {
@@ -2462,6 +2464,32 @@ int ziplistTest(int argc, char **argv, int accurate) {
                 ziplistValidateIntegrity(zl, ziplistBlobLen(zl), 1, NULL, NULL);
             }
             printf("%lld\n", usec()-start);
+        }
+
+        printf("Benchmark lpCompare with string\n");
+        {
+            unsigned long long start = usec();
+            for (int i = 0; i < 2000; i++) {
+                unsigned char *eptr = ziplistIndex(zl,0);
+                while (eptr != NULL) {
+                    ziplistCompare(eptr,(unsigned char*)"nothing",7);
+                    eptr = ziplistNext(zl,eptr);
+                }
+            }
+            printf("Done. usec=%lld\n", usec()-start);
+        }
+
+        printf("Benchmark lpCompare with number\n");
+        {
+            unsigned long long start = usec();
+            for (int i = 0; i < 2000; i++) {
+                unsigned char *eptr = ziplistIndex(zl,0);
+                while (eptr != NULL) {
+                    ziplistCompare(eptr,(unsigned char*)"99999",5);
+                    eptr = ziplistNext(zl,eptr);
+                }
+            }
+            printf("Done. usec=%lld\n", usec()-start);
         }
 
         zfree(zl);

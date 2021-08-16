@@ -1001,22 +1001,20 @@ unsigned char *zzlLastInLexRange(unsigned char *zl, zlexrangespec *range) {
     return NULL;
 }
 
-unsigned char *zzlFind(unsigned char *zl, sds ele, double *score) {
-    unsigned char *eptr = lpSeek(zl,0), *sptr;
+unsigned char *zzlFind(unsigned char *lp, sds ele, double *score) {
+    unsigned char *eptr, *sptr;
 
-    while (eptr != NULL) {
-        sptr = lpNext(zl,eptr);
+    if ((eptr = lpFirst(lp)) == NULL) return NULL;
+    eptr = lpFind(lp, eptr, (unsigned char*)ele, sdslen(ele), 1);
+    if (eptr) {
+        sptr = lpNext(lp,eptr);
         serverAssert(sptr != NULL);
 
-        if (lpCompare(eptr,(unsigned char*)ele,sdslen(ele))) {
-            /* Matching element, pull out score. */
-            if (score != NULL) *score = zzlGetScore(sptr);
-            return eptr;
-        }
-
-        /* Move to next element. */
-        eptr = lpNext(zl,sptr);
+        /* Matching element, pull out score. */
+        if (score != NULL) *score = zzlGetScore(sptr);
+        return eptr;
     }
+
     return NULL;
 }
 

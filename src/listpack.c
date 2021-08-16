@@ -1206,14 +1206,23 @@ int lpValidateIntegrity(unsigned char *lp, size_t size, int deep,
     return 1;
 }
 
+/* Compare entry pointer to by 'p' with string 's' of length 'slen'.
+ * Return 1 if equal. */
 unsigned int lpCompare(unsigned char *p, unsigned char *s, uint32_t slen) {
-    unsigned char buf[LP_INTBUF_SIZE];
     unsigned char *value;
     int64_t sz;
-
     if (p[0] == LP_EOF) return 0;
-    value = lpGet(p, &sz, buf);
-    return (slen == sz) && memcmp(value,s,slen) == 0;
+
+    value = lpGet(p, &sz, NULL);
+    if (value) {
+        return (slen == sz) && memcmp(value,s,slen) == 0;
+    } else {
+        int64_t sval;
+        if (lpStringToInt64((const char*)s, slen, &sval))
+            return sz == sval;
+    }
+
+    return 0;
 }
 
 /* uint compare for qsort */
@@ -2125,6 +2134,30 @@ int listpackTest(int argc, char *argv[], int accurate) {
             unsigned long long start = usec();
             for (int i = 0; i < 2000; i++) {
                 lpValidateIntegrity(lp, lpBytes(lp), 1, NULL, NULL);
+            }
+            printf("Done. usec=%lld\n", usec()-start);
+        }
+
+        TEST("Benchmark lpCompare with string") {
+            unsigned long long start = usec();
+            for (int i = 0; i < 2000; i++) {
+                unsigned char *eptr = lpSeek(lp,0);
+                while (eptr != NULL) {
+                    lpCompare(eptr,(unsigned char*)"nothing",7);
+                    eptr = lpNext(lp,eptr);
+                }
+            }
+            printf("Done. usec=%lld\n", usec()-start);
+        }
+
+        TEST("Benchmark lpCompare with number") {
+            unsigned long long start = usec();
+            for (int i = 0; i < 2000; i++) {
+                unsigned char *eptr = lpSeek(lp,0);
+                while (eptr != NULL) {
+                    lpCompare(lp, (unsigned char*)"99999", 5);
+                    eptr = lpNext(lp,eptr);
+                }
             }
             printf("Done. usec=%lld\n", usec()-start);
         }
