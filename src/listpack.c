@@ -983,7 +983,6 @@ unsigned char *lpDelete(unsigned char *lp, unsigned char *p, unsigned char **new
 unsigned char *lpDeleteRangeWithEntry(unsigned char *lp, unsigned char **p, unsigned long num) {
     size_t bytes = lpBytes(lp);
     unsigned long deleted = 0;
-    unsigned long len = lpLength(lp);
     unsigned char *eofptr = lp + bytes - 1;
     unsigned char *first, *tail;
     first = tail = *p;
@@ -1007,7 +1006,9 @@ unsigned char *lpDeleteRangeWithEntry(unsigned char *lp, unsigned char **p, unsi
     /* Move tail to the front of the ziplist */
     memmove(first, tail, eofptr - tail + 1);
     lpSetTotalBytes(lp, bytes - (tail - first));
-    lpSetNumElements(lp, len - deleted);
+    uint32_t numele = lpGetNumElements(lp);
+    if (numele != LP_HDR_NUMELE_UNKNOWN)
+        lpSetNumElements(lp, numele-deleted);
     lp = lpShrinkToFit(lp);
 
     /* Store the entry. */
@@ -1020,23 +1021,29 @@ unsigned char *lpDeleteRangeWithEntry(unsigned char *lp, unsigned char **p, unsi
 /* Delete a range of entries from the listpack. */
 unsigned char *lpDeleteRange(unsigned char *lp, long index, unsigned long num) {
     unsigned char *p;
-    unsigned long len = lpLength(lp);
+    uint32_t numele = lpGetNumElements(lp);
 
     if (num == 0) return lp; /* Nothing to delete, return ASAP. */
     if ((p = lpSeek(lp, index)) == NULL) return lp;
 
-    /* Note that index could overflow, but we use the value
-     * after seek, so when we use it no overflow happens. */
-    if (index < 0) index = (long)len + index;
-    if ((len - (unsigned long)index) <= num) {
-        /* When deleted num is out of range, we just need
-         * to set LP_EOF, and resize listpack. */
-        p[0] = LP_EOF;
-        lpSetTotalBytes(lp, p - lp + 1);
-        lpSetNumElements(lp, index);
-        lp = lpShrinkToFit(lp);
-    } else {
+    if (numele == LP_HDR_NUMELE_UNKNOWN) {
+        /* If the listpack length cannot be obtained in constant time,
+         * using lpDeleteRangeWithEntry will be much faster. */
         lp = lpDeleteRangeWithEntry(lp, &p, num);
+    } else {
+        /* Note that index could overflow, but we use the value
+        * after seek, so when we use it no overflow happens. */
+        if (index < 0) index = (long)numele + index;
+        if ((numele - (unsigned long)index) <= num) {
+            /* When deleted num is out of range, we just need
+             * to set LP_EOF, and resize listpack. */
+            p[0] = LP_EOF;
+            lpSetTotalBytes(lp, p - lp + 1);
+            lpSetNumElements(lp, index);
+            lp = lpShrinkToFit(lp);
+        } else {
+            lp = lpDeleteRangeWithEntry(lp, &p, num);
+        }
     }
 
     return lp;
@@ -2002,6 +2009,20 @@ int listpackTest(int argc, char *argv[], int accurate) {
         long count = 0;
         assert(lpValidateIntegrity(lp, lpBytes(lp), 1, lpValidation, &count) == 1);
         lpFree(lp);
+    }
+
+    TEST("Test number of elements exceeds LP_HDR_NUMELE_UNKNOWN") {
+        lp = lpNew(0);
+        for (int i = 0; i < LP_HDR_NUMELE_UNKNOWN + 1; i++)
+            lp = lpAppend(lp, (unsigned char*)"1", 1);
+
+        assert(lpGetNumElements(lp) == LP_HDR_NUMELE_UNKNOWN);
+        assert(lpLength(lp) == LP_HDR_NUMELE_UNKNOWN+1);
+
+        lpDeleteRange(lp, -2, 2);
+        assert(lpGetNumElements(lp) == LP_HDR_NUMELE_UNKNOWN);
+        assert(lpLength(lp) == LP_HDR_NUMELE_UNKNOWN-1);
+        assert(lpGetNumElements(lp) == LP_HDR_NUMELE_UNKNOWN-1); /* update length after lpLength */
     }
 
     TEST("Stress with random payloads of different encoding") {
