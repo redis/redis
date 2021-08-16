@@ -1143,10 +1143,8 @@ void activeDefragCycle(void) {
                 server.active_defrag_running = 0;
 
                 computeDefragCycles(); /* if another scan is needed, start it right away */
-                if (server.active_defrag_running != 0) {
-                    if (ustime() < endtime) continue;
-                    else quit = 1;
-                }
+                if (server.active_defrag_running != 0 && ustime() < endtime)
+                    continue;
                 break;
             }
             else if (current_db==0) {
@@ -1191,12 +1189,12 @@ void activeDefragCycle(void) {
     latencyAddSampleIfNeeded("active-defrag-cycle",latency);
 
 update_metrics:
-    if (quit == 1) {
-        if (server.stat_last_active_defrag_exceeded_time == 0)
-            elapsedStart(&server.stat_last_active_defrag_exceeded_time);
-    } else if (server.stat_last_active_defrag_exceeded_time != 0) {
-        server.stat_total_active_defrag_exceeded_time += elapsedUs(server.stat_last_active_defrag_exceeded_time);
-        server.stat_last_active_defrag_exceeded_time = 0;
+    if (server.active_defrag_running > 0) {
+        if (server.stat_last_defrag_exceeded_time == 0)
+            elapsedStart(&server.stat_last_defrag_exceeded_time);
+    } else if (server.stat_last_defrag_exceeded_time != 0) {
+        server.stat_total_defrag_exceeded_time += elapsedUs(server.stat_last_defrag_exceeded_time);
+        server.stat_last_defrag_exceeded_time = 0;
     }
 }
 
