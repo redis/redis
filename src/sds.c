@@ -57,6 +57,11 @@ static inline int sdsHdrSize(char type) {
     return 0;
 }
 
+/**
+ * 根据字符串数据长度计算所需要的header类型
+ * @param string_size
+ * @return
+ */
 static inline char sdsReqType(size_t string_size) {
     if (string_size < 1<<5)
         return SDS_TYPE_5;
@@ -101,9 +106,10 @@ static inline size_t sdsTypeMaxSize(char type) {
  * end of the string. However the string is binary safe and can contain
  * \0 characters in the middle, as the length is stored in the sds header. */
 sds _sdsnewlen(const void *init, size_t initlen, int trymalloc) {
-    void *sh;
-    sds s;
-    char type = sdsReqType(initlen);
+    void *sh; // 指向SDS结构体的指针
+    sds s; // sds 类型变量，即 char* 字符数组
+    char type = sdsReqType(initlen); // 根据字符串数据长度计算所需要的header类型
+
     /* Empty strings are usually created in order to append. Use type 8
      * since type 5 is not good at this. */
     if (type == SDS_TYPE_5 && initlen == 0) type = SDS_TYPE_8;
@@ -112,15 +118,17 @@ sds _sdsnewlen(const void *init, size_t initlen, int trymalloc) {
     size_t usable;
 
     assert(initlen + hdrlen + 1 > initlen); /* Catch size_t overflow */
-    sh = trymalloc?
+    sh = trymalloc? //新建SDS结构，并分配内存空间
         s_trymalloc_usable(hdrlen+initlen+1, &usable) :
         s_malloc_usable(hdrlen+initlen+1, &usable);
+
+    // 内存分配失败 return NULL
     if (sh == NULL) return NULL;
     if (init==SDS_NOINIT)
         init = NULL;
     else if (!init)
         memset(sh, 0, hdrlen+initlen+1);
-    s = (char*)sh+hdrlen;
+    s = (char*)sh+hdrlen; //sds类型变量指向SDS结构体中的buf数组，sh指向SDS结构体起始位置，hdrlen是SDS结构体中元数据的长度
     fp = ((unsigned char*)s)-1;
     usable = usable-hdrlen-1;
     if (usable > sdsTypeMaxSize(type))
@@ -160,8 +168,8 @@ sds _sdsnewlen(const void *init, size_t initlen, int trymalloc) {
         }
     }
     if (initlen && init)
-        memcpy(s, init, initlen);
-    s[initlen] = '\0';
+        memcpy(s, init, initlen); //将要传入的字符串拷贝给sds变量s
+    s[initlen] = '\0'; //变量s末尾增加\0，表示字符串结束
     return s;
 }
 
@@ -191,6 +199,10 @@ sds sdsdup(const sds s) {
 }
 
 /* Free an sds string. No operation is performed if 's' is NULL. */
+/**
+ * 内存要整体释放，所以要先计算出header起始指针，把它传给s_free函数。这个指针也正是在sdsnewlen中调用s_malloc返回的那个地址。
+ * @param s
+ */
 void sdsfree(sds s) {
     if (s == NULL) return;
     s_free((char*)s-sdsHdrSize(s[-1]));
@@ -236,6 +248,7 @@ void sdsclear(sds s) {
  *
  * Note: this does not change the *length* of the sds string as returned
  * by sdslen(), but only the free buffer space we have. */
+// 空间检查和扩容封装 并且在涉及字符串空间变化的操作中，如追加、复制等，会直接调用该函数。
 sds _sdsMakeRoomFor(sds s, size_t addlen, int greedy) {
     void *sh, *newsh;
     size_t avail = sdsavail(s);
@@ -494,12 +507,18 @@ sds sdsgrowzero(sds s, size_t len) {
  * After the call, the passed sds string is no longer valid and all the
  * references must be substituted with the new pointer returned by the call. */
 sds sdscatlen(sds s, const void *t, size_t len) {
+    //获取目标字符串s的当前长度
     size_t curlen = sdslen(s);
 
+    //根据要追加的长度len和目标字符串s的现有长度，判断是否要增加新的空间
+    //根据当前长度和要追加的长度，判断是否要给目标字符串新增空间。这一步主要是保证，目标字符串有足够的空间接收追加的字符串。
     s = sdsMakeRoomFor(s,len);
     if (s == NULL) return NULL;
+    //根据要追加的长度len和目标字符串s的现有长度，判断是否要增加新的空间
     memcpy(s+curlen, t, len);
+    //设置目标字符串的最新长度：拷贝前长度curlen加上拷贝长度
     sdssetlen(s, curlen+len);
+    //拷贝后，在目标字符串结尾加上\0
     s[curlen+len] = '\0';
     return s;
 }

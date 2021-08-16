@@ -40,19 +40,31 @@ extern const char *SDS_NOINIT;
 #include <stdarg.h>
 #include <stdint.h>
 
+/**
+ * SDS 结构里包含了一个字符数组 buf[]，用来保存实际数据
+ * SDS 结构里还包含了三个元数据，分别是字符数组现有长度 len、分配给字符数组的空间长度 alloc，以及 SDS 类型 flags
+ * SDS 本质还是字符数，只是在字符数组基础上增加了额外的元数据
+ */
 typedef char *sds;
 
 /* Note: sdshdr5 is never used, we just access the flags byte directly.
  * However is here to document the layout of type 5 SDS strings. */
-struct __attribute__ ((__packed__)) sdshdr5 {
+struct __attribute__ ((__packed__)) sdshdr5 { // 不再使用
     unsigned char flags; /* 3 lsb of type, and 5 msb of string length */
     char buf[];
 };
+
+// 它们数据结构中的字符数组现有长度 len 和分配空间长度 alloc，这两个元数据的数据类型不同。
+// SDS 之所以设计不同的结构头（即不同类型），是为了能灵活保存不同大小的字符串，从而有效节省内存空间
+// 除了设计不同类型的结构头，Redis 在编程上还使用了专门的编译优化来节省内存空间
+//__attribute__ ((__packed__)) 作用就是告诉编译器，在编译 sdshdr8 结构时，不要使用字节对齐的方式，而是采用紧凑的方式分配内存
+//这是因为在默认情况下，编译器会按照 8 字节对齐的方式，给变量分配内存。也就是说，即使一个变量的大小不到 8 个字节，编译器也会给它分配 8 个字节。
+//Redis 采用了__attribute__ ((__packed__))属性定义结构体，这样一来，结构体实际占用多少内存空间，编译器就分配多少空间。
 struct __attribute__ ((__packed__)) sdshdr8 {
-    uint8_t len; /* used */
-    uint8_t alloc; /* excluding the header and null terminator */
-    unsigned char flags; /* 3 lsb of type, 5 unused bits */
-    char buf[];
+    uint8_t len; /* used */ // 字符数组现有长度
+    uint8_t alloc; /* excluding the header and null terminator */ // 字符数组的已分配空间，不包括结构体和\0结束字符
+    unsigned char flags; /* 3 lsb of type, 5 unused bits */ // SDS 类型
+    char buf[]; // 字符数组
 };
 struct __attribute__ ((__packed__)) sdshdr16 {
     uint16_t len; /* used */
@@ -80,16 +92,26 @@ struct __attribute__ ((__packed__)) sdshdr64 {
 #define SDS_TYPE_64 4
 #define SDS_TYPE_MASK 7
 #define SDS_TYPE_BITS 3
+/**
+ * ## 被称为连接符，它是一种预处理运算符，用来把两个语句符号(Token)组合成单个语句符号。比如SDS_HDR(10, s)
+ * 根据宏定义展开是：
+ * ((struct sdshdr10 *)((s)-(sizeof(struct sdshdr10))))
+ */
 #define SDS_HDR_VAR(T,s) struct sdshdr##T *sh = (void*)((s)-(sizeof(struct sdshdr##T)));
 #define SDS_HDR(T,s) ((struct sdshdr##T *)((s)-(sizeof(struct sdshdr##T))))
 #define SDS_TYPE_5_LEN(f) ((f)>>SDS_TYPE_BITS)
 
+/**
+ * 获取sds字符串的长度
+ * @param s
+ * @return
+ */
 static inline size_t sdslen(const sds s) {
     unsigned char flags = s[-1];
-    switch(flags&SDS_TYPE_MASK) {
+    switch(flags&SDS_TYPE_MASK) { // flags属性与SDS_TYPE_MASK做与运算得出具体的header类型
         case SDS_TYPE_5:
             return SDS_TYPE_5_LEN(flags);
-        case SDS_TYPE_8:
+        case SDS_TYPE_8: // 然后根据不同的header类型，调用SDS_HDR得到header起始指针，进而获得len字段。
             return SDS_HDR(8,s)->len;
         case SDS_TYPE_16:
             return SDS_HDR(16,s)->len;
