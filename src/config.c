@@ -2099,37 +2099,33 @@ static int numericBoundaryCheck(typeData data, long long ll, const char **err) {
     return 1;
 }
 
-#define CONFIGSETCOMMON(data, ll, prev, err) \
-    if (!numericBoundaryCheck(data, ll, err)){ \
-        return 0; \
-    } \
-    if (data.numeric.is_valid_fn && !data.numeric.is_valid_fn(ll, err)){ \
-        return 0; \
-    } \
-    GET_NUMERIC_TYPE(prev) \
-    SET_NUMERIC_TYPE(ll) \
-    if (update && data.numeric.update_fn && !data.numeric.update_fn(ll, prev, err)) { \
-        SET_NUMERIC_TYPE(prev) \
-        return 0; \
-    }
 
 static int numericConfigSet(typeData data, sds value, int update, const char **err) {
+    long long ll, prev = 0;
     if (data.numeric.is_memory) {
-        unsigned long long ll, prev = 0;
         int memerr;
         ll = memtoull(value, &memerr);
         if (memerr) {
             *err = "argument must be a memory value";
             return 0;
         }
-        CONFIGSETCOMMON(data, ll, prev, err);
     } else {
-        long long ll, prev = 0;
         if (!string2ll(value, sdslen(value), &ll)) {
             *err = "argument couldn't be parsed into an integer" ;
             return 0;
         }
-        CONFIGSETCOMMON(data, ll, prev, err);
+    }
+    if (!numericBoundaryCheck(data, ll, err)){
+        return 0;
+    }
+    if (data.numeric.is_valid_fn && !data.numeric.is_valid_fn(ll, err)){
+        return 0;
+    }
+    GET_NUMERIC_TYPE(prev)
+    SET_NUMERIC_TYPE(ll)
+    if (update && data.numeric.update_fn && !data.numeric.update_fn(ll, prev, err)) {
+        SET_NUMERIC_TYPE(prev)
+        return 0;
     }
     return 1;
 }
