@@ -2217,8 +2217,8 @@ int updateClientMemUsage(client *c) {
 
 /* Adds the client to the correct memory usage bucket. Each bucket contains
  * all clients with roughly the same amount of memory. This way we group
- * together clients consuming about the same amount of memory and can quicly free
- * them in case we reach maxmemory-clients (client eviction).
+ * together clients consuming about the same amount of memory and can quickly
+ * free them in case we reach maxmemory-clients (client eviction).
  * Note that in case of io-threads enabled we have to call this function only
  * after the fan-in phase (when no io-threads are working) because the bucket
  * lists are global. The io-threads themselves track per-client memory usage in
