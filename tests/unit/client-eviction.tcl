@@ -263,6 +263,7 @@ start_server {} {
         r client no-evict on
         
         # Make multiple clients consume together roughly 1mb less than maxmemory_clients
+        set total_client_mem 0
         for {set j 0} {$j < $client_count} {incr j} {
             set rr [redis_client]
             $rr client setname client$j
@@ -273,9 +274,9 @@ start_server {} {
             } else {
                 fail "Failed to fill qbuf for test"
             }
+            incr total_client_mem [client_field client$j tot-mem]
         }
 
-        set total_client_mem [clients_sum tot-mem]
         set client_actual_mem [expr $total_client_mem / $client_count]
         
         # Make sure client_acutal_mem is more or equal to what we intended
@@ -285,7 +286,7 @@ start_server {} {
         set connected_clients [llength [lsearch -all [split [string trim [r client list]] "\r\n"] *name=client*]]
         assert {$connected_clients == $client_count}
 
-        # Set maxmemory-clients to accommodate have our clients (taking into account the control client)
+        # Set maxmemory-clients to accommodate half our clients (taking into account the control client)
         set maxmemory_clients [expr ($client_actual_mem * $client_count) / 2 + [client_field control tot-mem]]
         r config set maxmemory-clients $maxmemory_clients
         
