@@ -74,6 +74,14 @@ robj *listTypePop(robj *subject, int where) {
     return value;
 }
 
+/* Return 1 if the subject is a LIST, 0 if not */
+int isListType(robj *subject) {
+    if (subject->encoding == OBJ_ENCODING_QUICKLIST) {
+        return 1;
+    }
+    return 0;
+}
+
 unsigned long listTypeLength(const robj *subject) {
     if (subject->encoding == OBJ_ENCODING_QUICKLIST) {
         return quicklistCount(subject->ptr);
@@ -389,9 +397,9 @@ void lsetCommand(client *c) {
  * 2) 1) element1
  *    2) element2
  *
- * 'del': Control whether to delete the list when it is empty.
- * */
-void addListRangeWithKeyReply(client *c, robj *o, robj *key, int where, long count, int del) {
+ * And also actually pop out from the list by calling listElementsRemoved.
+ * We maintain the server.dirty and notifications there. */
+void listPopRangeAndReplyWithKey(client *c, robj *o, robj *key, int where, long count) {
     long llen = listTypeLength(o);
     long rangelen = (count > llen) ? llen : count;
     long rangestart = (where == LIST_HEAD) ? 0 : -rangelen;
@@ -401,10 +409,12 @@ void addListRangeWithKeyReply(client *c, robj *o, robj *key, int where, long cou
     /* We return key-name just once, and an array of elements */
     addReplyArrayLen(c, 2);
     addReplyBulk(c, key);
-
     addListRangeReply(c, o, rangestart, rangeend, reverse);
+
+    /* Pop these elements. */
     listTypeDelRange(o, rangestart, rangelen);
-    listElementsRemoved(c, key, where, o, rangelen, del);
+    /* Maintain the notifications and dirty. */
+    listElementsRemoved(c, key, where, o, rangelen);
 }
 
 /* A helper for replying with a list's range between the inclusive start and end
@@ -452,14 +462,12 @@ void addListRangeReply(client *c, robj *o, long start, long end, int reverse) {
     }
 }
 
-/* A housekeeping helper for list elements popping tasks.
- *
- * 'del': Control whether to delete the list when it is empty. */
-void listElementsRemoved(client *c, robj *key, int where, robj *o, long count, int del) {
+/* A housekeeping helper for list elements popping tasks. */
+void listElementsRemoved(client *c, robj *key, int where, robj *o, long count) {
     char *event = (where == LIST_HEAD) ? "lpop" : "rpop";
 
     notifyKeyspaceEvent(NOTIFY_LIST, event, key, c->db->id);
-    if (del && listTypeLength(o) == 0) {
+    if (listTypeLength(o) == 0) {
         notifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, c->db->id);
         dbDelete(c->db, key);
     }
@@ -501,7 +509,7 @@ void popGenericCommand(client *c, int where) {
         serverAssert(value != NULL);
         addReplyBulk(c,value);
         decrRefCount(value);
-        listElementsRemoved(c,c->argv[1],where,o,1,1);
+        listElementsRemoved(c,c->argv[1],where,o,1);
     } else {
         /* Pop a range of elements. An addition to the original POP command,
          *  which replies with a multi-bulk. */
@@ -513,7 +521,7 @@ void popGenericCommand(client *c, int where) {
 
         addListRangeReply(c,o,rangestart,rangeend,reverse);
         listTypeDelRange(o,rangestart,rangelen);
-        listElementsRemoved(c,c->argv[1],where,o,rangelen,1);
+        listElementsRemoved(c,c->argv[1],where,o,rangelen);
     }
 }
 
@@ -522,7 +530,7 @@ void popGenericCommand(client *c, int where) {
  *
  * 'numkeys' the number of keys.
  *
- * 'count' reply will consist of up to count elements, depending on the list's length. */
+ * 'count' reply will consist of up to count elements, depending on the list length. */
 void mpopGenericCommand(client *c, robj **keys, int numkeys, int where, long count) {
     int j;
     robj *o;
@@ -545,7 +553,7 @@ void mpopGenericCommand(client *c, robj **keys, int numkeys, int where, long cou
             continue;
 
         /* Pop a range of elements in nested array. */
-        addListRangeWithKeyReply(c, o, key, where, count, 1);
+        listPopRangeAndReplyWithKey(c, o, key, where, count);
 
         /* Replicate it as [LR]POP COUNT */
         robj *count_obj = createStringObjectFromLongLong((count > llen) ? llen : count);
@@ -906,10 +914,11 @@ void rpoplpushCommand(client *c) {
  * is to serve a specific client (receiver) that is blocked on 'key'
  * in the context of the specified 'db', doing the following:
  *
- * 1) Provide the client with the 'value' element.
+ * 1) Provide the client with the 'value' element or a range of elements.
+ *    We will do the pop in here and caller does not need to bother the return.
  * 2) If the dstkey is not NULL (we are serving a BLMOVE) also push the
  *    'value' element on the destination list (the "push" side of the command).
- * 3) Propagate the resulting BRPOP, BLPOP and additional xPUSH if any into
+ * 3) Propagate the resulting BRPOP, BLPOP, BLMPOP and additional xPUSH if any into
  *    the AOF and replication channel.
  *
  * The argument 'wherefrom' is LIST_TAIL or LIST_HEAD, and indicates if the
@@ -918,16 +927,11 @@ void rpoplpushCommand(client *c) {
  *
  * The argument 'whereto' is LIST_TAIL or LIST_HEAD, and indicates if the
  * 'value' element is to be pushed to the head or tail so that we can
- * propagate the command properly.
- *
- * The function returns C_OK if we are able to serve the client, otherwise
- * C_ERR is returned to signal the caller that the list POP operation
- * should be undone as the client was not served: This only happens for
- * BLMOVE that fails to push the value to the destination key as it is
- * of the wrong type. */
-int serveClientBlockedOnList(client *receiver, robj *o, robj *key, robj *dstkey, redisDb *db, robj *value, int wherefrom, int whereto)
+ * propagate the command properly. */
+void serveClientBlockedOnList(client *receiver, robj *o, robj *key, robj *dstkey, redisDb *db, int wherefrom, int whereto)
 {
     robj *argv[5];
+    robj *value = NULL;
 
     if (dstkey == NULL) {
         /* Propagate the [LR]POP operation. */
@@ -937,22 +941,26 @@ int serveClientBlockedOnList(client *receiver, robj *o, robj *key, robj *dstkey,
                                              shared.rpop;
         argv[1] = key;
 
-        if (receiver->lastcmd->proc == lmpopCommand) {
-            /* Propagate the [LR]POP count operation. */
+        if (receiver->lastcmd->proc == blmpopCommand) {
+            /* Propagate the [LR]POP COUNT operation. */
             long count = receiver->bpop.count;
+            serverAssert(count > 0);
             long llen = listTypeLength(o);
+            serverAssert(llen > 0);
+
             argv[2] = createStringObjectFromLongLong((count > llen) ? llen : count);
             propagate(cmd, db->id, argv, 3, PROPAGATE_AOF|PROPAGATE_REPL);
 
-            /* If list became empty, we will delete it in serveClientsBlockedOnListKey. */
-            addListRangeWithKeyReply(receiver, o, key, wherefrom, count, 0);
-            return C_OK;
+            listPopRangeAndReplyWithKey(receiver, o, key, wherefrom, count);
+            return;
         }
 
-        propagate(cmd,
-            db->id,argv,2,PROPAGATE_AOF|PROPAGATE_REPL);
+        propagate(cmd, db->id, argv, 2, PROPAGATE_AOF|PROPAGATE_REPL);
 
         /* BRPOP/BLPOP */
+        value = listTypePop(o, wherefrom);
+        serverAssert(value != NULL);
+
         addReplyArrayLen(receiver,2);
         addReplyBulk(receiver,key);
         addReplyBulk(receiver,value);
@@ -967,6 +975,9 @@ int serveClientBlockedOnList(client *receiver, robj *o, robj *key, robj *dstkey,
         if (!(dstobj &&
              checkType(receiver,dstobj,OBJ_LIST)))
         {
+            value = listTypePop(o, wherefrom);
+            serverAssert(value != NULL);
+
             lmoveHandlePush(receiver,dstkey,dstobj,value,whereto);
             /* Propagate the LMOVE/RPOPLPUSH operation. */
             int isbrpoplpush = (receiver->lastcmd->proc == brpoplpushCommand);
@@ -983,35 +994,35 @@ int serveClientBlockedOnList(client *receiver, robj *o, robj *key, robj *dstkey,
             /* Notify event ("lpush" or "rpush" was notified by lmoveHandlePush). */
             notifyKeyspaceEvent(NOTIFY_LIST,wherefrom == LIST_TAIL ? "rpop" : "lpop",
                                 key,receiver->db->id);
-        } else {
-            /* BLMOVE failed because of wrong
-             * destination type. */
-            return C_ERR;
         }
     }
-    return C_OK;
+
+    if (value)
+        decrRefCount(value);
+
+    if (listTypeLength(o) == 0) {
+        dbDelete(receiver->db, key);
+        notifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, receiver->db->id);
+    }
+    /* We don't call signalModifiedKey() as it was already called
+     * when an element was pushed on the list. */
 }
 
 /* Blocking RPOP/LPOP/LMPOP
  *
- * 'numkeys' the number of keys.
- * For BLPOP/BRPOP commands, this value is c->argc-2 (except command/timeout).
- * For BLMPOP command, we are actually not sure, so we need to pass in.
+ * 'numkeys' is the number of keys.
+ * 'count' is the number of elements requested to pop, or 0 for plain single pop.
  *
- * 'timeout_idx' parameter position of BLOCK timeout.
- * For BLPOP/BRPOP commands, this value is c->argc-1 (always the last one).
- * For BLMPOP command, we are actually not sure, so we need to pass in.
- *
- * 'count' reply will consist of up to count elements, depending on the list's length.
- * For BLPOP/BRPOP commands, we don't support count argument, so the value is 0.
- * For BLMPOP command, we now support the optional count argument, default 1. */
-void blockingPopGenericCommand(client *c, robj **keys, int numkeys, int where, int timeout_idx, long count) {
+ * When count is 0, a reply of a single bulk-string will be used.
+ * When count > 0, an array reply will be used. */
+void blockingPopGenericCommand(client *c, robj **keys, int numkeys, int where, long count) {
     robj *o;
     robj *key;
     mstime_t timeout;
     int j;
 
-    if (getTimeoutFromObjectOrReply(c,c->argv[timeout_idx],&timeout,UNIT_SECONDS)
+    /* The block timeout parameter is always the last one. */
+    if (getTimeoutFromObjectOrReply(c,c->argv[c->argc-1],&timeout,UNIT_SECONDS)
         != C_OK) return;
 
     /* Traverse all input keys, we take action only based on one key. */
@@ -1021,7 +1032,7 @@ void blockingPopGenericCommand(client *c, robj **keys, int numkeys, int where, i
         /* Non-existing key, move to next key. */
         if (o == NULL) continue;
 
-        if (checkType(c,o,OBJ_LIST)) return;
+        if (checkType(c, o, OBJ_LIST)) return;
 
         long llen = listTypeLength(o);
         /* Empty list, move to next key. */
@@ -1029,11 +1040,11 @@ void blockingPopGenericCommand(client *c, robj **keys, int numkeys, int where, i
 
         if (count != 0) {
             /* BLMPOP, non empty list, like a normal [LR]POP with count option. */
-            addListRangeWithKeyReply(c, o, key, where, count, 1);
+            listPopRangeAndReplyWithKey(c, o, key, where, count);
 
             /* Replicate it as an [LR]POP COUNT. */
             robj *count_obj = createStringObjectFromLongLong((count > llen) ? llen : count);
-            rewriteClientCommandVector(c,3,
+            rewriteClientCommandVector(c, 3,
                                        (where == LIST_HEAD) ? shared.lpop : shared.rpop,
                                        key, count_obj);
             decrRefCount(count_obj);
@@ -1048,7 +1059,7 @@ void blockingPopGenericCommand(client *c, robj **keys, int numkeys, int where, i
         addReplyBulk(c,key);
         addReplyBulk(c,value);
         decrRefCount(value);
-        listElementsRemoved(c,key,where,o,1,1);
+        listElementsRemoved(c,key,where,o,1);
 
         /* Replicate it as an [LR]POP instead of B[LR]POP. */
         rewriteClientCommandVector(c,2,
@@ -1071,12 +1082,12 @@ void blockingPopGenericCommand(client *c, robj **keys, int numkeys, int where, i
 
 /* BLPOP <key> [<key> ...] <timeout> */
 void blpopCommand(client *c) {
-    blockingPopGenericCommand(c,c->argv+1,c->argc-2,LIST_HEAD,c->argc-1,0);
+    blockingPopGenericCommand(c,c->argv+1,c->argc-2,LIST_HEAD,0);
 }
 
 /* BRPOP <key> [<key> ...] <timeout> */
 void brpopCommand(client *c) {
-    blockingPopGenericCommand(c,c->argv+1,c->argc-2,LIST_TAIL,c->argc-1,0);
+    blockingPopGenericCommand(c,c->argv+1,c->argc-2,LIST_TAIL,0);
 }
 
 void blmoveGenericCommand(client *c, int wherefrom, int whereto, mstime_t timeout) {
@@ -1122,68 +1133,65 @@ void brpoplpushCommand(client *c) {
     blmoveGenericCommand(c, LIST_TAIL, LIST_HEAD, timeout);
 }
 
-/* LPOP takes one key, and can return multiple elements.
- * BLPOP takes multiple keys, but returns one element from just one key.
- * [B]LMPOP can take multiple keys and return multiple elements from just one key.
- *
- * LMPOP numkeys [<key> ...] LEFT|RIGHT [COUNT count] [BLOCK timeout]
- *
- * [B]LMPOP
- * 1) keyname
- * 2) 1) element1
- *    2) element2 */
-void lmpopCommand(client *c) {
-    int j;
+/* LMPOP/BLMPOP */
+void lmpopGenericCommand(client *c, int is_block) {
+    long j;
     int key_start = 2;     /* Skip the command and numkeys. */
     long numkeys = 0;      /* Number of keys. */
-    int where = -1;        /* HEAD for LEFT, TAIL for RIGHT. */
-    int is_left = 0;       /* Pop from the beginning of the list. */
-    int is_right = 0;      /* Pop from the end of the list. */
+    int where = 0;         /* HEAD for LEFT, TAIL for RIGHT. */
     long count = 1;        /* Reply will consist of up to count elements, depending on the list's length. */
-    int is_block = 0;      /* Set to 1 if we are in BLOCK variant. */
-    int timeout_idx = 0;   /* The index of timeout in the c->argv. */
 
-    if (getRangeLongFromObjectOrReply(c, c->argv[1], 1,
-            LONG_MAX, &numkeys, "numkeys should be greater than 0") != C_OK)
+    /* Parse the numkeys. */
+    if (getRangeLongFromObjectOrReply(c, c->argv[1], 1, INT_MAX,
+                                      &numkeys, "numkeys should be greater than 0") != C_OK)
         return;
 
-    /* Parse the optional arguments first. */
-    for (j = key_start + numkeys; j < c->argc; j++) {
+    /* Parse the where. where_idx: the index of where in the c->argv. */
+    long where_idx = key_start + numkeys;
+    if (where_idx >= c->argc) {
+        addReplyErrorObject(c, shared.syntaxerr);
+        return;
+    }
+    if (getListPositionFromObjectOrReply(c, c->argv[where_idx], &where) != C_OK)
+        return;
+
+    /* BLOCK TIMEOUT (always the last one). */
+    long argc_end = is_block ? c->argc - 1 : c->argc;
+
+    /* Parse the optional arguments. */
+    for (j = where_idx + 1; j < argc_end; j++) {
         char *opt = c->argv[j]->ptr;
         int moreargs = (c->argc - 1) - j;
 
-        if (!strcasecmp(opt, "LEFT") && !is_right) {
-            is_left = 1;
-            where = LIST_HEAD;
-        } else if (!strcasecmp(opt, "RIGHT") && !is_left) {
-            is_right = 1;
-            where = LIST_TAIL;
-        } else if (!strcasecmp(opt, "COUNT") && moreargs) {
+        if (!strcasecmp(opt, "COUNT") &&
+            ((!is_block && moreargs == 1) || (is_block && moreargs == 2)))
+        {
             j++;
-            if (getRangeLongFromObjectOrReply(c, c->argv[j], 1,
-                    LONG_MAX, &count,"count should be greater than 0") != C_OK)
+            if (getRangeLongFromObjectOrReply(c, c->argv[j], 1, LONG_MAX,
+                                              &count,"count should be greater than 0") != C_OK)
                 return;
-        } else if (!strcasecmp(opt, "BLOCK") && moreargs) {
-            j++;
-            is_block = 1;
-            /* We will handle the timeout arg in blockingPopGenericCommand. */
-            timeout_idx = j;
         } else {
+
             addReplyErrorObject(c, shared.syntaxerr);
             return;
         }
     }
 
-    if (where == -1) {
-        addReplyError(c, "Missing LEFT|RIGHT parameter.");
-        return;
-    }
-
     if (is_block) {
-        /* BLOCK */
-        blockingPopGenericCommand(c, c->argv+key_start, numkeys, where, timeout_idx, count);
+        /* BLOCK. We will handle CLIENT_DENY_BLOCKING flag in blockingPopGenericCommand. */
+        blockingPopGenericCommand(c, c->argv+key_start, numkeys, where, count);
     } else {
         /* NON-BLOCK */
         mpopGenericCommand(c, c->argv+key_start, numkeys, where, count);
     }
+}
+
+/* LMPOP numkeys [<key> ...] LEFT|RIGHT [COUNT count] */
+void lmpopCommand(client *c) {
+    lmpopGenericCommand(c, 0);
+}
+
+/* BLMPOP numkeys [<key> ...] LEFT|RIGHT [COUNT count] <timeout> */
+void blmpopCommand(client *c) {
+    lmpopGenericCommand(c, 1);
 }

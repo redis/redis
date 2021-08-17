@@ -334,15 +334,15 @@ tags {"aof external:skip"} {
 
             # Pop all elements from mylist.
             $client lmpop 1 mylist left count 1
-            $client lmpop 1 mylist left count 10 block 0
+            $client blmpop 1 mylist left count 10 0
 
             # Pop all elements from mylist2.
             $client lmpop 2 mylist mylist2 right count 2
-            $client lmpop 2 mylist mylist2 right count 10 block 0
+            $client blmpop 2 mylist mylist2 right count 10 0
 
             # Leave two elements in mylist3.
-            $client lmpop 3 mylist mylist2 mylist3 left count 1 block 0
-            $client lmpop 3 mylist mylist2 mylist3 right count 2 block 0
+            $client blmpop 3 mylist mylist2 mylist3 left count 1 0
+            $client blmpop 3 mylist mylist2 mylist3 right count 2 0
         }
     }
 

@@ -15,7 +15,7 @@ start_server {
     # A helper function for BPOP/BLMPOP with one input key.
     proc bpop_command {rd pop key timeout} {
         if {$pop == "BLMPOP"} {
-            $rd lmpop 1 $key left count 1 block $timeout
+            $rd blmpop 1 $key left count 1 $timeout
         } else {
             $rd $pop $key $timeout
         }
@@ -24,7 +24,7 @@ start_server {
     # A helper function for BPOP/BLMPOP with two input keys.
     proc bpop_command_two_key {rd pop key key2 timeout} {
         if {$pop == "BLMPOP"} {
-            $rd lmpop 2 $key $key2 left count 1 block $timeout
+            $rd blmpop 2 $key $key2 left count 1 $timeout
         } else {
             $rd $pop $key $key2 $timeout
         }
@@ -33,26 +33,26 @@ start_server {
     test {LMPOP with illegal argument} {
         assert_error "ERR wrong number of arguments*" {r lmpop}
         assert_error "ERR wrong number of arguments*" {r lmpop 1}
+        assert_error "ERR wrong number of arguments*" {r lmpop 1 mylist{t}}
 
-        assert_error "ERR numkeys*" {r lmpop 0 mylist{t}}
-        assert_error "ERR numkeys*" {r lmpop a mylist{t}}
-        assert_error "ERR numkeys*" {r lmpop -1 mylist{t}}
+        assert_error "ERR numkeys*" {r lmpop 0 mylist{t} LEFT}
+        assert_error "ERR numkeys*" {r lmpop a mylist{t} LEFT}
+        assert_error "ERR numkeys*" {r lmpop -1 mylist{t} RIGHT}
 
-        assert_error "ERR*" {r lmpop 1 mylist{t}}
-        assert_error "ERR*" {r lmpop 1 mylist{t} bad_arg}
-        assert_error "ERR*" {r lmpop 1 mylist{t} RIGHT LEFT}
-        assert_error "ERR*" {r lmpop 1 mylist{t} COUNT}
-        assert_error "ERR*" {r lmpop 1 mylist{t} BLOCK}
-        assert_error "ERR*" {r lmpop 2 mylist{t} mylist2{t} bad_arg}
+        assert_error "ERR syntax error*" {r lmpop 1 mylist{t} bad_where}
+        assert_error "ERR syntax error*" {r lmpop 1 mylist{t} LEFT bar_arg}
+        assert_error "ERR syntax error*" {r lmpop 1 mylist{t} RIGHT LEFT}
+        assert_error "ERR syntax error*" {r lmpop 1 mylist{t} COUNT}
+        assert_error "ERR syntax error*" {r lmpop 2 mylist{t} mylist2{t} bad_arg}
 
-        assert_error "ERR count*" {r lmpop 1 mylist{t} COUNT 0}
-        assert_error "ERR count*" {r lmpop 1 mylist{t} COUNT a}
-        assert_error "ERR count*" {r lmpop 1 mylist{t} COUNT -1}
-        assert_error "ERR count*" {r lmpop 2 mylist{t} mylist2{t} COUNT -1}
+        assert_error "ERR count*" {r lmpop 1 mylist{t} LEFT COUNT 0}
+        assert_error "ERR count*" {r lmpop 1 mylist{t} RIGHT COUNT a}
+        assert_error "ERR count*" {r lmpop 1 mylist{t} LEFT COUNT -1}
+        assert_error "ERR count*" {r lmpop 2 mylist{t} mylist2{t} RIGHT COUNT -1}
 
-        assert_error "ERR timeout*" {r lmpop 1 mylist{t} LEFT COUNT 1 BLOCK a}
-        assert_error "ERR timeout*" {r lmpop 1 mylist{t} RIGHT COUNT 1 BLOCK -1}
-        assert_error "ERR timeout*" {r lmpop 2 mylist{t} mylist2{t} RIGHT COUNT 1 BLOCK -1}
+        #assert_error "ERR timeout*" {r lmpop 1 mylist{t} LEFT COUNT 1 BLOCK a}
+        #assert_error "ERR timeout*" {r lmpop 1 mylist{t} RIGHT COUNT 1 BLOCK -1}
+        #assert_error "ERR timeout*" {r lmpop 2 mylist{t} mylist2{t} RIGHT COUNT 1 BLOCK -1}
     }
 
     test {LMPOP against empty list} {
@@ -83,10 +83,10 @@ start_server {
         assert_equal {mylist{t} a} [r lmpop 2 mylist{t} mylist2{t} left count 1]
         assert_equal 4 [r llen mylist{t}]
         assert_equal {mylist{t} {e d c b}} [r lmpop 2 mylist{t} mylist2{t} right count 10]
-        assert_equal {} [r lmpop 2 mylist{t} mylist2v right count 1]
+        assert_equal {} [r lmpop 2 mylist{t} mylist2{t} right count 1]
 
         # First one does not exist, second one exists.
-        r del mylist
+        r del mylist{t}
         create_list mylist2{t} "1 2 3 4 5"
         assert_equal {mylist2{t} 5} [r lmpop 2 mylist{t} mylist2{t} right count 1]
         assert_equal 4 [r llen mylist2{t}]
@@ -171,16 +171,16 @@ start_server {
         # BLMPOP without block.
         r lpush mylist{t} a b c
         r rpush mylist2{t} 1 2 3
-        r lmpop 1 mylist{t} left count 1 block 0
-        r lmpop 2 mylist{t} mylist2{t} right count 10 block 0
-        r lmpop 2 mylist{t} mylist2{t} right count 10 block 0
+        r blmpop 1 mylist{t} left count 1 0
+        r blmpop 2 mylist{t} mylist2{t} right count 10 0
+        r blmpop 2 mylist{t} mylist2{t} right count 10 0
 
         # BLMPOP with block.
-        $rd lmpop 1 mylist{t} left count 1 block 0
+        $rd blmpop 1 mylist{t} left count 1 0
         r lpush mylist{t} a
-        $rd lmpop 2 mylist{t} mylist2{t} left count 5 block 0
+        $rd blmpop 2 mylist{t} mylist2{t} left count 5 0
         r lpush mylist{t} a b c
-        $rd lmpop 2 mylist{t} mylist2{t} right count 10 block 0
+        $rd blmpop 2 mylist{t} mylist2{t} right count 10 0
         r rpush mylist2{t} a b c
 
         assert_replication_stream $repl {
@@ -353,14 +353,14 @@ start_server {
             set rd [redis_deferring_client]
             create_list blist{t} "a b c $large d e f"
 
-            $rd lmpop 1 blist{t} left count 1 block 1
+            $rd blmpop 1 blist{t} left count 1 1
             assert_equal {blist{t} a} [$rd read]
-            $rd lmpop 1 blist{t} left count 2 block 1
+            $rd blmpop 1 blist{t} left count 2 1
             assert_equal {blist{t} {b c}} [$rd read]
 
-            $rd lmpop 1 blist{t} right count 2 block 1
+            $rd blmpop 1 blist{t} right count 2 1
             assert_equal {blist{t} {f e}} [$rd read]
-            $rd lmpop 1 blist{t} right count 1 block 1
+            $rd blmpop 1 blist{t} right count 1 1
             assert_equal {blist{t} d} [$rd read]
 
             assert_equal 1 [r llen blist{t}]
@@ -392,25 +392,25 @@ start_server {
             create_list blist2{t} "1 2 3 $large 4 5 6"
 
             # BLMPOP: Pop up from the first key.
-            $rd lmpop 2 blist1{t} blist2{t} left count 1 block 1
+            $rd blmpop 2 blist1{t} blist2{t} left count 1 1
             assert_equal {blist1{t} a} [$rd read]
-            $rd lmpop 2 blist1{t} blist2{t} right count 2 block 1
+            $rd blmpop 2 blist1{t} blist2{t} right count 2 1
             assert_equal {blist1{t} {g f}} [$rd read]
             assert_equal 4 [r llen blist1{t}]
             assert_equal 7 [r llen blist2{t}]
 
             # BLMPOP: Pop up from the second key.
-            $rd lmpop 2 blist2{t} blist1{t} left count 2 block 1
+            $rd blmpop 2 blist2{t} blist1{t} left count 2 1
             assert_equal {blist2{t} {1 2}} [$rd read]
-            $rd lmpop 2 blist2{t} blist1{t} right count 1 block 1
+            $rd blmpop 2 blist2{t} blist1{t} right count 1 1
             assert_equal {blist2{t} 6} [$rd read]
             assert_equal 4 [r llen blist1{t}]
             assert_equal 4 [r llen blist2{t}]
 
             # BLMPOP: Pop up all elements.
-            $rd lmpop 2 blist1{t} blist2{t} left count 10 block 1
+            $rd blmpop 2 blist1{t} blist2{t} left count 10 1
             $rd read
-            $rd lmpop 2 blist1{t} blist2{t} right count 10 block 1
+            $rd blmpop 2 blist1{t} blist2{t} right count 10 1
             $rd read
             assert_equal 0 [r exists blist1{t} blist2{t}]
         }
@@ -433,9 +433,9 @@ start_server {
             r del blist1{t}
             create_list blist2{t} "d $large f"
 
-            $rd lmpop 2 blist1{t} blist2{t} left count 1 block 1
+            $rd blmpop 2 blist1{t} blist2{t} left count 1 1
             assert_equal {blist2{t} d} [$rd read]
-            $rd lmpop 2 blist1{t} blist2{t} right count 1 block 1
+            $rd blmpop 2 blist1{t} blist2{t} right count 1 1
             assert_equal {blist2{t} f} [$rd read]
             assert_equal 0 [r llen blist1{t}]
             assert_equal 1 [r llen blist2{t}]
@@ -505,7 +505,7 @@ start_server {
         set rd [redis_deferring_client]
         r del list
 
-        $rd lmpop 1 list left count 10 block 0
+        $rd blmpop 1 list left count 10 0
         after 100 ;# Make sure rd is blocked before MULTI
 
         r multi
@@ -538,7 +538,7 @@ start_server {
         set rd [redis_deferring_client]
         r del list
 
-        $rd lmpop 1 list right count 10 block 0
+        $rd blmpop 1 list right count 10 0
         after 100 ;# Make sure rd is blocked before MULTI
 
         r multi
@@ -577,21 +577,21 @@ start_server {
         r del list1{t} list2{t}
 
         # Data arriving after the BLMPOP - left count 1
-        $rd lmpop 4 list1{t} list2{t} list2{t} list1{t} left count 1 block 0
+        $rd blmpop 4 list1{t} list2{t} list2{t} list1{t} left count 1 0
         r lpush list1{t} a
         assert_equal [$rd read] {list1{t} a}
 
         # Data arriving after the BLMPOP - right count 10
-        $rd lmpop 4 list1{t} list2{t} list2{t} list1{t} right count 10 block 0
+        $rd blmpop 4 list1{t} list2{t} list2{t} list1{t} right count 10 0
         r lpush list2{t} a b c d e
         assert_equal [$rd read] {list2{t} {a b c d e}}
 
         # Data already there.
         r lpush list1{t} a
         r lpush list2{t} a b c d e
-        $rd lmpop 4 list1{t} list2{t} list2{t} list1{t} right count 1 block 0
+        $rd blmpop 4 list1{t} list2{t} list2{t} list1{t} right count 1 0
         assert_equal [$rd read] {list1{t} a}
-        $rd lmpop 4 list1{t} list2{t} list2{t} list1{t} left count 10 block 0
+        $rd blmpop 4 list1{t} list2{t} list2{t} list1{t} left count 10 0
         assert_equal [$rd read] {list2{t} {e d c b a}}
     }
 
@@ -610,7 +610,7 @@ start_server {
     test "MULTI/EXEC is isolated from the point of view of BLMPOP" {
         set rd [redis_deferring_client]
         r del list
-        $rd lmpop 1 list left count 2 block 0
+        $rd blmpop 1 list left count 2 0
         r multi
         r rpush list a
         r rpush list b
@@ -735,10 +735,10 @@ start_server {
         set rd4 [redis_deferring_client]
         r del blist{t} blist2{t}
 
-        $rd1 lmpop 2 blist{t} blist2{t} left count 1 block 0
-        $rd2 lmpop 2 blist{t} blist2{t} right count 10 block 0
-        $rd3 lmpop 2 blist{t} blist2{t} left count 10 block 0
-        $rd4 lmpop 2 blist{t} blist2{t} right count 1 block 0
+        $rd1 blmpop 2 blist{t} blist2{t} left count 1 0
+        $rd2 blmpop 2 blist{t} blist2{t} right count 10 0
+        $rd3 blmpop 2 blist{t} blist2{t} left count 10 0
+        $rd4 blmpop 2 blist{t} blist2{t} right count 1 0
 
         r lpush blist{t} a b c d e
         r lpush blist2{t} 1 2 3 4 5
@@ -879,7 +879,7 @@ start_server {
         set rd [redis_deferring_client]
         r del blist{t} blist2{t}
 
-        $rd lmpop 1 blist{t} left count 1 block 0
+        $rd blmpop 1 blist{t} left count 1 0
         r lpush blist2{t} aaa bbb ccc
         r rename blist2{t} blist{t}
         assert_equal {blist{t} ccc} [$rd read]
@@ -891,7 +891,7 @@ start_server {
         # zero out list from previous test without explicit delete
         r lpop blist{t} 10
 
-        $rd lmpop 1 blist{t} left count 10 block 0
+        $rd blmpop 1 blist{t} left count 10 0
         r lpush blist2{t} hello hola aguacate konichiwa zanzibar
         r sort blist2{t} ALPHA store blist{t}
         assert_equal {blist{t} {aguacate hello hola konichiwa zanzibar}} [$rd read]
@@ -982,9 +982,9 @@ start_server {
         create_list blist2{t} "1 2 3 4 5"
 
         r multi
-        r lmpop 1 blist{t} left count 1 block 0
-        r lmpop 2 blist{t} blist2{t} left count 10 block 0
-        r lmpop 2 blist{t} blist2{t} right count 10 block 0
+        r blmpop 1 blist{t} left count 1 0
+        r blmpop 2 blist{t} blist2{t} left count 10 0
+        r blmpop 2 blist{t} blist2{t} right count 10 0
 
         set res [r exec]
         assert_equal $res {{blist{t} a} {blist{t} {b c d e}} {blist2{t} {5 4 3 2 1}}}

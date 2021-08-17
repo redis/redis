@@ -793,7 +793,7 @@ typedef struct multiState {
  * The fields used depend on client->btype. */
 typedef struct blockingState {
     /* Generic fields. */
-    long count;             /* BPOP count option, set to 0 if the cmd do not support. */
+    long count;             /* Elements to pop if count was specified (BLMPOP), 0 otherwise. */
     mstime_t timeout;       /* Blocking operation timeout. If UNIX current time
                              * is > timeout then the operation timed out. */
 
@@ -1979,6 +1979,7 @@ void trackingBroadcastInvalidationMessages(void);
 int checkPrefixCollisionsOrReply(client *c, robj **prefix, size_t numprefix);
 
 /* List data type */
+int isListType(robj *subject);
 void listTypePush(robj *subject, robj *value, int where);
 robj *listTypePop(robj *subject, int where);
 unsigned long listTypeLength(const robj *subject);
@@ -1994,7 +1995,7 @@ robj *listTypeDup(robj *o);
 int listTypeDelRange(robj *o, long start, long stop);
 void unblockClientWaitingData(client *c);
 void popGenericCommand(client *c, int where);
-void listElementsRemoved(client *c, robj *key, int where, robj *o, long count, int del);
+void listElementsRemoved(client *c, robj *key, int where, robj *o, long count);
 
 /* MULTI/EXEC/WATCH... */
 void unwatchAllKeys(client *c);
@@ -2460,6 +2461,7 @@ int georadiusGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysRes
 int xreadGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int memoryGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int lcsGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
+int lmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 
 unsigned short crc16(const char *buf, int len);
 
@@ -2662,6 +2664,7 @@ void execCommand(client *c);
 void discardCommand(client *c);
 void blpopCommand(client *c);
 void brpopCommand(client *c);
+void blmpopCommand(client *c);
 void brpoplpushCommand(client *c);
 void blmoveCommand(client *c);
 void appendCommand(client *c);

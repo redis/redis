@@ -65,7 +65,7 @@
 #include "latency.h"
 #include "monotonic.h"
 
-int serveClientBlockedOnList(client *receiver, robj *o, robj *key, robj *dstkey, redisDb *db, robj *value, int wherefrom, int whereto);
+void serveClientBlockedOnList(client *receiver, robj *o, robj *key, robj *dstkey, redisDb *db, int wherefrom, int whereto);
 int getListPositionFromObjectOrReply(client *c, robj *arg, int *position);
 
 /* This structure represents the blocked key information that we store
@@ -278,62 +278,48 @@ void serveClientsBlockedOnListKey(robj *o, readyList *rl) {
                 continue;
             }
 
+            /* fixme There is a situation:
+             * blmpop in serveClientBlockedOnList -> listPopRangeAndReplyWithKey
+             * -> listElementsRemoved -> listTypeLength
+             *
+             * listTypeLength(o) == 0, it will call `dbDelete` delete the empty list
+             * and back in here, there will be a extra listTypeLength call.
+             * In cluster mode, there will be a problem since `o` became a string type.
+             *
+             * In here `if (server.cluster_enabled) slotToKeyDel(key->ptr);`
+             * Don't know why, don't know rax too much...
+             *
+             * That will happen in test-external-cluster: `BLMPOP with multiple blocked clients` test case.
+             *
+             * This is the reason why i added a `del = 0` in blocking way before.
+             * Avoid calling listTypeLength after deleting the key (or delete the key in caller)
+             * */
+            //if (listTypeLength(o) == 0) {
+            if (!isListType(o) || listTypeLength(o) == 0) {
+                /* The list is empty, we can't pop any elements, break the loop. */
+                break;
+            }
+
             robj *dstkey = receiver->bpop.target;
             int wherefrom = receiver->bpop.listpos.wherefrom;
             int whereto = receiver->bpop.listpos.whereto;
 
-            /* BPOP with count option */
-            if (receiver->bpop.count != 0) {
-                if (listTypeLength(o) == 0) {
-                    /* The list is empty, break the loop */
-                    break;
-                }
+            /* Protect receiver->bpop.target, that will be
+             * freed by the next unblockClient()
+             * call. */
+            if (dstkey) incrRefCount(dstkey);
 
-                monotime replyTimer;
-                elapsedStart(&replyTimer);
-                serveClientBlockedOnList(receiver, o,
-                                         rl->key, dstkey, rl->db,NULL,
-                                         wherefrom, whereto);
-                updateStatsOnUnblock(receiver, 0, elapsedUs(replyTimer));
-                unblockClient(receiver);
-                continue;
-            }
+            monotime replyTimer;
+            elapsedStart(&replyTimer);
+            serveClientBlockedOnList(receiver, o,
+                                     rl->key, dstkey, rl->db,
+                                     wherefrom, whereto);
+            updateStatsOnUnblock(receiver, 0, elapsedUs(replyTimer));
+            unblockClient(receiver);
 
-            robj *value = listTypePop(o, wherefrom);
-
-            if (value) {
-                /* Protect receiver->bpop.target, that will be
-                 * freed by the next unblockClient()
-                 * call. */
-                if (dstkey) incrRefCount(dstkey);
-
-                monotime replyTimer;
-                elapsedStart(&replyTimer);
-                if (serveClientBlockedOnList(receiver,o,
-                    rl->key,dstkey,rl->db,value,
-                    wherefrom, whereto) == C_ERR)
-                {
-                    /* If we failed serving the client we need
-                     * to also undo the POP operation. */
-                    listTypePush(o,value,wherefrom);
-                }
-                updateStatsOnUnblock(receiver, 0, elapsedUs(replyTimer));
-                unblockClient(receiver);
-
-                if (dstkey) decrRefCount(dstkey);
-                decrRefCount(value);
-            } else {
-                break;
-            }
+            if (dstkey) decrRefCount(dstkey);
         }
     }
-
-    if (listTypeLength(o) == 0) {
-        dbDelete(rl->db,rl->key);
-        notifyKeyspaceEvent(NOTIFY_GENERIC,"del",rl->key,rl->db->id);
-    }
-    /* We don't call signalModifiedKey() as it was already called
-     * when an element was pushed on the list. */
 }
 
 /* Helper function for handleClientsBlockedOnKeys(). This function is called
