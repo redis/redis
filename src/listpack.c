@@ -1171,6 +1171,8 @@ static inline void lpAssertValidEntry(unsigned char* lp, size_t lpbytes, unsigne
  * when `deep` is 1, we scan all the entries one by one. */
 int lpValidateIntegrity(unsigned char *lp, size_t size, int deep, 
                         listpackValidateEntryCB entry_cb, void *cb_userdata) {
+    uint32_t numele = lpGetNumElements(lp);
+
     /* Check that we can actually read the header. (and EOF) */
     if (size < LP_HDR_SIZE + 1)
         return 0;
@@ -1199,14 +1201,13 @@ int lpValidateIntegrity(unsigned char *lp, size_t size, int deep,
             return 0;
 
         /* Optionally let the caller validate the entry too. */
-        if (entry_cb && !entry_cb(prev, cb_userdata))
+        if (entry_cb && !entry_cb(prev, numele, cb_userdata))
             return 0;
 
         count++;
     }
 
     /* Check that the count in the header is correct */
-    uint32_t numele = lpGetNumElements(lp);
     if (numele != LP_HDR_NUMELE_UNKNOWN && numele != count)
         return 0;
 
@@ -1477,8 +1478,9 @@ static void verifyEntry(unsigned char *p, unsigned char *s, size_t slen) {
     assert(lpCompare(p, s, slen));
 }
 
-static int lpValidation(unsigned char *p, void *userdata) {
+static int lpValidation(unsigned char *p, unsigned int head_count, void *userdata) {
     UNUSED(p);
+    UNUSED(head_count);
 
     int ret;
     long *count = userdata;

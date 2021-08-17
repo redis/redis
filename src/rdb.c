@@ -1521,7 +1521,7 @@ robj *rdbLoadCheckModuleValue(rio *rdb, char *modulename) {
 /* callback for hashZiplistConvertAndValidateIntegrity.
  * Check that the ziplist doesn't have duplicate hash field names.
  * The ziplist element pointed by 'p' will be converted and stored into listpack. */
-static int _ziplistPairsEntryConvertAndValidation(unsigned char *p, void *userdata) {
+static int _ziplistPairsEntryConvertAndValidation(unsigned char *p, unsigned int head_count, void *userdata) {
     unsigned char *str;
     unsigned int slen;
     long long vll;
@@ -1531,6 +1531,11 @@ static int _ziplistPairsEntryConvertAndValidation(unsigned char *p, void *userda
         dict *fields;
         unsigned char **lp;
     } *data = userdata;
+
+    if (data->fields == NULL) {
+        data->fields = dictCreate(&hashDictType);
+        dictExpand(data->fields, head_count/2);
+    }
 
     if (!ziplistGet(p, &str, &slen, &vll))
         return 0;
@@ -1563,9 +1568,9 @@ int ziplistPairsConvertAndValidateIntegrity(unsigned char *zl, size_t size, unsi
     /* Keep track of the field names to locate duplicate ones */
     struct {
         long count;
-        dict *fields;
+        dict *fields; /* Initialisation at the first callback. */
         unsigned char **lp;
-    } data = {0, dictCreate(&hashDictType), lp};
+    } data = {0, NULL, lp};
 
     int ret = ziplistValidateIntegrity(zl, size, 1, _ziplistPairsEntryConvertAndValidation, &data);
 
@@ -1573,16 +1578,21 @@ int ziplistPairsConvertAndValidateIntegrity(unsigned char *zl, size_t size, unsi
     if (data.count & 1)
         ret = 0;
 
-    dictRelease(data.fields);
+    if (data.fields) dictRelease(data.fields);
     return ret;
 }
 
 /* callback for to check the listpack doesn't have duplicate records */
-static int _lpPairsEntryValidation(unsigned char *p, void *userdata) {
+static int _lpPairsEntryValidation(unsigned char *p, unsigned int head_count, void *userdata) {
     struct {
         long count;
         dict *fields;
     } *data = userdata;
+
+    if (data->fields == NULL) {
+        data->fields = dictCreate(&hashDictType);
+        dictExpand(data->fields, head_count/2);
+    }
 
     /* Even records are field names, add to dict and check that's not a dup */
     if (((data->count) & 1) == 0) {
@@ -1613,8 +1623,8 @@ int lpPairsValidateIntegrityAndDups(unsigned char *lp, size_t size, int deep) {
     /* Keep track of the field names to locate duplicate ones */
     struct {
         long count;
-        dict *fields;
-    } data = {0, dictCreate(&hashDictType)};
+        dict *fields; /* Initialisation at the first callback. */
+    } data = {0, NULL};
 
     int ret = lpValidateIntegrity(lp, size, 1, _lpPairsEntryValidation, &data);
 
@@ -1622,7 +1632,7 @@ int lpPairsValidateIntegrityAndDups(unsigned char *lp, size_t size, int deep) {
     if (data.count & 1)
         ret = 0;
 
-    dictRelease(data.fields);
+    if (data.fields) dictRelease(data.fields);
     return ret;
 }
 

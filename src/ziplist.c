@@ -1477,6 +1477,8 @@ void ziplistRepr(unsigned char *zl) {
  * when `deep` is 1, we scan all the entries one by one. */
 int ziplistValidateIntegrity(unsigned char *zl, size_t size, int deep,
     ziplistValidateEntryCB entry_cb, void *cb_userdata) {
+    unsigned int header_count = intrev16ifbe(ZIPLIST_LENGTH(zl));
+
     /* check that we can actually read the header. (and ZIP_END) */
     if (size < ZIPLIST_HEADER_SIZE + ZIPLIST_END_SIZE)
         return 0;
@@ -1501,6 +1503,7 @@ int ziplistValidateIntegrity(unsigned char *zl, size_t size, int deep,
     unsigned char *p = ZIPLIST_ENTRY_HEAD(zl);
     unsigned char *prev = NULL;
     size_t prev_raw_size = 0;
+
     while(*p != ZIP_END) {
         struct zlentry e;
         /* Decode the entry headers and fail if invalid or reaches outside the allocation */
@@ -1512,7 +1515,7 @@ int ziplistValidateIntegrity(unsigned char *zl, size_t size, int deep,
             return 0;
 
         /* Optionally let the caller validate the entry too. */
-        if (entry_cb && !entry_cb(p, cb_userdata))
+        if (entry_cb && !entry_cb(p, header_count, cb_userdata))
             return 0;
 
         /* Move to the next entry */
@@ -1531,7 +1534,6 @@ int ziplistValidateIntegrity(unsigned char *zl, size_t size, int deep,
         return 0;
 
     /* Check that the count in the header is correct */
-    unsigned int header_count = intrev16ifbe(ZIPLIST_LENGTH(zl));
     if (header_count != UINT16_MAX && count != header_count)
         return 0;
 
