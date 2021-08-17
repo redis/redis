@@ -253,7 +253,7 @@ sds _sdsMakeRoomFor(sds s, size_t addlen, int greedy) {
     void *sh, *newsh;
     size_t avail = sdsavail(s);
     size_t len, newlen;
-    char type, oldtype = s[-1] & SDS_TYPE_MASK;
+    char type, oldtype = s[-1] & SDS_TYPE_MASK; // 计算类型
     int hdrlen;
     size_t usable;
 
@@ -264,6 +264,8 @@ sds _sdsMakeRoomFor(sds s, size_t addlen, int greedy) {
     sh = (char*)s-sdsHdrSize(oldtype);
     newlen = (len+addlen);
     assert(newlen > len);   /* Catch size_t overflow */
+    // When greedy is 1, enlarge more than needed, to avoid need for future reallocs
+    // on incremental growth.
     if (greedy == 1) {
         if (newlen < SDS_MAX_PREALLOC)
             newlen *= 2;
@@ -271,6 +273,7 @@ sds _sdsMakeRoomFor(sds s, size_t addlen, int greedy) {
             newlen += SDS_MAX_PREALLOC;
     }
 
+    // 根据字符串数据长度计算所需要的header类型
     type = sdsReqType(newlen);
 
     /* Don't use type 5: the user is appending to the string and type 5 is
