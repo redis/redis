@@ -902,6 +902,7 @@ NULL
                 server.client_mem_usage_buckets[j].clients->len);
         }
         addReplyVerbatim(c,bucket_info,sdslen(bucket_info),"txt");
+        sdsfree(bucket_info);
 #ifdef USE_JEMALLOC
     } else if(!strcasecmp(c->argv[1]->ptr,"mallctl") && c->argc >= 3) {
         mallctl_int(c, c->argv+2, c->argc-2);
