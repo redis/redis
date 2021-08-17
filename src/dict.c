@@ -204,48 +204,73 @@ int dictTryExpand(dict *d, unsigned long size) {
  * guaranteed that this function will rehash even a single bucket, since it
  * will visit at max N*10 empty buckets in total, otherwise the amount of
  * work it does would be unbound and the function may block for a long time. */
+/**
+ * 实际执行键拷贝
+ * @param d 全局哈希表（即前面提到的 dict 结构体，包含了 ht[0]和 ht[1]）
+ * @param n 需要进行键拷贝的桶数量（bucket 数量）
+ * @return
+ */
 int dictRehash(dict *d, int n) {
     int empty_visits = n*10; /* Max number of empty buckets to visit. */
     if (!dictIsRehashing(d)) return 0;
 
+    //主循环，根据要拷贝的bucket数量n，循环n次后停止或ht[0]中的数据迁移完停止
     while(n-- && d->ht[0].used != 0) {
         dictEntry *de, *nextde;
 
         /* Note that rehashidx can't overflow as we are sure there are more
          * elements because ht[0].used != 0 */
         assert(d->ht[0].size > (unsigned long)d->rehashidx);
+        //如果当前要迁移的bucket中没有元素
         while(d->ht[0].table[d->rehashidx] == NULL) {
             d->rehashidx++;
             if (--empty_visits == 0) return 1;
         }
+        //获得哈希表中哈希项
         de = d->ht[0].table[d->rehashidx];
         /* Move all the keys in this bucket from the old to the new hash HT */
+        //如果rehashidx指向的bucket不为空
         while(de) {
             uint64_t h;
 
+            //获得同一个bucket中下一个哈希项
             nextde = de->next;
             /* Get the index in the new hash table */
+            //根据扩容后的哈希表ht[1]大小，计算当前哈希项在扩容后哈希表中的bucket位置
             h = dictHashKey(d, de->key) & d->ht[1].sizemask;
+            //将当前哈希项添加到扩容后的哈希表ht[1]中
             de->next = d->ht[1].table[h];
             d->ht[1].table[h] = de;
+            //减少当前哈希表的哈希项个数
             d->ht[0].used--;
+            //增加扩容后哈希表的哈希项个数
             d->ht[1].used++;
+            //指向下一个哈希项
             de = nextde;
         }
+        //如果当前bucket中已经没有哈希项了，将该bucket置为NULL
         d->ht[0].table[d->rehashidx] = NULL;
+        //将rehash加1，下一次将迁移下一个bucket中的元素
         d->rehashidx++;
     }
 
     /* Check if we already rehashed the whole table... */
+    //判断ht[0]的数据是否迁移完成
     if (d->ht[0].used == 0) {
+        //ht[0]迁移完后，释放ht[0]内存空间
         zfree(d->ht[0].table);
+        //ht[0]迁移完后，释放ht[0]内存空间
         d->ht[0] = d->ht[1];
+        //重置ht[1]的大小为0
         _dictReset(&d->ht[1]);
+        //设置全局哈希表的rehashidx标识为-1，表示rehash结束
         d->rehashidx = -1;
+        //返回0，表示ht[0]中所有元素都迁移完
         return 0;
     }
 
     /* More to rehash... */
+    //返回1，表示ht[0]中仍然有元素没有迁移完
     return 1;
 }
 
@@ -978,23 +1003,36 @@ static int dictTypeExpandAllowed(dict *d) {
 }
 
 /* Expand the hash table if needed */
+/**
+ * ht[0]的大小为 0
+ * * * 此时 Hash 表是空的，所以 Redis 就需要将 Hash 表空间设置为初始大小，而这是初始化的工作，并不属于 rehash 操作
+ * ht[0]承载的元素个数已经超过了 ht[0]的大小，同时 Hash 表可以进行扩容
+ * ht[0]承载的元素个数，是 ht[0]的大小的 dict_force_resize_ratio 倍，其中，dict_force_resize_ratio 的默认值是 5。
+ * * * 因为在这两个条件中，都比较了 Hash 表当前承载的元素个数（d->ht[0].used）和 Hash 表当前设定的大小（d->ht[0].size），这两个值的比值一般称为负载因子（load factor）
+ * * * Redis 判断是否进行 rehash 的条件，就是看 load factor 是否大于等于 1 和是否大于 5
+ * @param d
+ * @return
+ */
 static int _dictExpandIfNeeded(dict *d)
 {
     /* Incremental rehashing already in progress. Return. */
     if (dictIsRehashing(d)) return DICT_OK;
 
     /* If the hash table is empty expand it to the initial size. */
+    //如果Hash表为空，将Hash表扩为初始大小
     if (d->ht[0].size == 0) return dictExpand(d, DICT_HT_INITIAL_SIZE);
 
     /* If we reached the 1:1 ratio, and we are allowed to resize the hash
      * table (global setting) or we should avoid it but the ratio between
      * elements/buckets is over the "safe" threshold, we resize doubling
      * the number of buckets. */
+    //如果Hash表承载的元素个数超过其当前大小，并且可以进行扩容，或者Hash表承载的元素个数已是当前大小的5倍
     if (d->ht[0].used >= d->ht[0].size &&
         (dict_can_resize ||
          d->ht[0].used/d->ht[0].size > dict_force_resize_ratio) &&
         dictTypeExpandAllowed(d))
     {
+        // 6.2 之前是扩2倍 现在改了 如果ht[0]已经很大了 ht[1] 再扩大到2被就非常大了
         return dictExpand(d, d->ht[0].used + 1);
     }
     return DICT_OK;
@@ -1003,12 +1041,16 @@ static int _dictExpandIfNeeded(dict *d)
 /* Our hash table capability is a power of two */
 static unsigned long _dictNextPower(unsigned long size)
 {
+    //哈希表的初始大小
     unsigned long i = DICT_HT_INITIAL_SIZE;
-
+    //如果要扩容的大小已经超过最大值，则返回最大值加1
     if (size >= LONG_MAX) return LONG_MAX + 1LU;
+    //扩容大小没有超过最大值
     while(1) {
+        //如果扩容大小大于等于最大值，就返回截至当前扩到的大小
         if (i >= size)
             return i;
+        //每一步扩容都在现有大小基础上乘以2
         i *= 2;
     }
 }
@@ -1052,10 +1094,12 @@ void dictEmpty(dict *d, void(callback)(void*)) {
     d->pauserehash = 0;
 }
 
+// 启用 reHash 功能
 void dictEnableResize(void) {
     dict_can_resize = 1;
 }
 
+// 禁用 reHash 功能
 void dictDisableResize(void) {
     dict_can_resize = 0;
 }

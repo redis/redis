@@ -1580,6 +1580,8 @@ int incrementallyRehash(int dbid) {
  * memory pages are copied). The goal of this function is to update the ability
  * for dict.c to resize the hash tables accordingly to the fact we have an
  * active fork child running. */
+//updateDictResizePolicy 函数是用来启用或禁用 rehash 扩容功能的，
+// 这个函数调用 dictEnableResize 函数启用扩容功能的条件是：当前没有 RDB 子进程，并且也没有 AOF 子进程
 void updateDictResizePolicy(void) {
     if (!hasActiveChildProcess())
         dictEnableResize();

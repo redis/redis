@@ -89,6 +89,12 @@ static int _dictInit(dict *ht, dictType *type, void *privDataPtr) {
 }
 
 /* Expand or create the hashtable */
+/**
+ *
+ * @param ht  要扩充的 Hash 表
+ * @param size 要扩到的容量
+ * @return
+ */
 static int dictExpand(dict *ht, unsigned long size) {
     dict n; /* the new hashtable */
     unsigned long realsize = _dictNextPower(size), i;
@@ -311,6 +317,7 @@ static int _dictExpandIfNeeded(dict *ht) {
      * if the table is "full" double its size. */
     if (ht->size == 0)
         return dictExpand(ht, DICT_HT_INITIAL_SIZE);
+//    如果当前表的已用空间大小为 size，那么就将表扩容到 size*2 的大小
     if (ht->used == ht->size)
         return dictExpand(ht, ht->size*2);
     return DICT_OK;
@@ -318,12 +325,16 @@ static int _dictExpandIfNeeded(dict *ht) {
 
 /* Our hash table capability is a power of two */
 static unsigned long _dictNextPower(unsigned long size) {
+    //哈希表的初始大小
     unsigned long i = DICT_HT_INITIAL_SIZE;
-
+    //如果要扩容的大小已经超过最大值，则返回最大值加1
     if (size >= LONG_MAX) return LONG_MAX;
+    //扩容大小没有超过最大值
     while(1) {
+        //如果扩容大小大于等于最大值，就返回截至当前扩到的大小
         if (i >= size)
             return i;
+        //每一步扩容都在现有大小基础上乘以2
         i *= 2;
     }
 }

@@ -49,13 +49,16 @@
 
 typedef struct dictEntry {
     void *key;
+    //联合体 v 这种实现方法是一种节省内存的开发小技巧
+    //因为当值为整数或双精度浮点数时，由于其本身就是 64 位，就可以不用指针指向了，
+    //而是可以直接存在键值对的结构体中，这样就避免了再用一个指针，从而节省了内存空间。
     union {
-        void *val;
+        void *val; // 指向实际值的指针 *val
         uint64_t u64;
         int64_t s64;
         double d;
     } v;
-    struct dictEntry *next;
+    struct dictEntry *next; // 实现链式hash
 } dictEntry;
 
 typedef struct dictType {
@@ -71,17 +74,18 @@ typedef struct dictType {
 /* This is our hash table structure. Every dictionary has two of this as we
  * implement incremental rehashing, for the old to the new table. */
 typedef struct dictht {
-    dictEntry **table;
-    unsigned long size;
+    dictEntry **table; // 二维数组
+    unsigned long size; // hash 表大小
     unsigned long sizemask;
     unsigned long used;
 } dictht;
 
+// Redis 准备了两个哈希表，用于 rehash 时交替保存数据。
 typedef struct dict {
     dictType *type;
     void *privdata;
-    dictht ht[2];
-    long rehashidx; /* rehashing not in progress if rehashidx == -1 */
+    dictht ht[2];      //两个Hash表，交替使用，用于rehash操作
+    long rehashidx; /* rehashing not in progress if rehashidx == -1 */   //Hash表是否在进行rehash的标识，-1表示没有进行rehash
     int16_t pauserehash; /* If >0 rehashing is paused (<0 indicates coding error) */
 } dict;
 

@@ -266,6 +266,7 @@ sds _sdsMakeRoomFor(sds s, size_t addlen, int greedy) {
     assert(newlen > len);   /* Catch size_t overflow */
     // When greedy is 1, enlarge more than needed, to avoid need for future reallocs
     // on incremental growth.
+    // SDS_MAX_PREALLOC == 1MB，如果修改后的长度小于1M，则分配的空间是原来的2倍，否则增加1MB的空间
     if (greedy == 1) {
         if (newlen < SDS_MAX_PREALLOC)
             newlen *= 2;
@@ -831,16 +832,18 @@ sds sdscatfmt(sds s, char const *fmt, ...) {
  *
  * Output will be just "HelloWorld".
  */
+// 惰性空间释放
 sds sdstrim(sds s, const char *cset) {
     char *end, *sp, *ep;
     size_t len;
 
     sp = s;
     ep = end = s+sdslen(s)-1;
+    /* 从头部和尾部逐个字符遍历往中间靠拢，如果字符在cest中，则继续前进 */
     while(sp <= end && strchr(cset, *sp)) sp++;
     while(ep > sp && strchr(cset, *ep)) ep--;
-    len = (sp > ep) ? 0 : ((ep-sp)+1);
-    if (s != sp) memmove(s, sp, len);
+    len = (sp > ep) ? 0 : ((ep-sp)+1); // 全部被去除了，长度就是0
+    if (s != sp) memmove(s, sp, len); // 拷贝内容
     s[len] = '\0';
     sdssetlen(s,len);
     return s;
