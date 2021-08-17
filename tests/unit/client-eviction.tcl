@@ -1,3 +1,5 @@
+tags {"external:skip"} {
+
 proc client_field {name f} {
     set clients [split [string trim [r client list]] "\r\n"]
     set c [lsearch -inline $clients *name=$name*]
@@ -254,7 +256,7 @@ start_server {} {
     }
 }
 
-start_server {tags {"external:skip"}} {
+start_server {} {
     test "evict clients only until below limit" {
         set client_count 10
         set client_mem [mb 1]
@@ -300,7 +302,7 @@ start_server {tags {"external:skip"}} {
     }
 }
 
-start_server {tags {"external:skip"}} {
+start_server {} {
     test "evict clients in right order (large to small)" {
         # Note that each size step needs to be at least x2 larger than previous step 
         # because of how the client-eviction size bucktting works
@@ -357,5 +359,7 @@ start_server {tags {"external:skip"}} {
             }
         }
     }
+}
+
 }
 
