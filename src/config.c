@@ -2115,14 +2115,15 @@ static int numericConfigSet(typeData data, sds value, int update, const char **e
             return 0;
         }
     }
-    if (!numericBoundaryCheck(data, ll, err)){
+    if (!numericBoundaryCheck(data, ll, err))
         return 0;
-    }
-    if (data.numeric.is_valid_fn && !data.numeric.is_valid_fn(ll, err)){
+
+    if (data.numeric.is_valid_fn && !data.numeric.is_valid_fn(ll, err))
         return 0;
-    }
+
     GET_NUMERIC_TYPE(prev)
     SET_NUMERIC_TYPE(ll)
+
     if (update && data.numeric.update_fn && !data.numeric.update_fn(ll, prev, err)) {
         SET_NUMERIC_TYPE(prev)
         return 0;
