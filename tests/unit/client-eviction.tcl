@@ -254,7 +254,7 @@ start_server {} {
     }
 }
 
-start_server {} {
+start_server {tags {"external:skip"}} {
     test "evict clients only until below limit" {
         set client_count 10
         set client_mem [mb 1]
@@ -300,7 +300,7 @@ start_server {} {
     }
 }
 
-start_server {} {
+start_server {tags {"external:skip"}} {
     test "evict clients in right order (large to small)" {
         # Note that each size step needs to be at least x2 larger than previous step 
         # because of how the client-eviction size bucktting works
@@ -308,6 +308,7 @@ start_server {} {
         set clients_per_size 3
         r client setname control
         r client no-evict on
+        r config set maxmemory-clients 0
         
         # Run over all sizes and create some clients using up that size
         set total_client_mem 0
