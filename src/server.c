@@ -2207,14 +2207,23 @@ int updateClientMemUsage(client *c) {
     c->last_memory_usage = mem;
     c->last_memory_type = type;
 
-    /* Update client mem usage bucket only when we're not in the context of an IO thread */
+    /* Update client mem usage bucket only when we're not in the context of an
+     * IO thread. See updateClientMemUsageBucket() for details. */
     if (io_threads_op == IO_THREADS_OP_IDLE)
-        updateClientMemUsageBucket(c); // do this only when no pending read flag and no write_handler flag - unify?!
+        updateClientMemUsageBucket(c);
 
     return 0;
 }
 
-// TODO: doc!!!
+/* Adds the client to the correct memory usage bucket. Each bucket contains
+ * all clients with roughly the same amount of memory. This way we group
+ * together clients consuming about the same amount of memory and can quicly free
+ * them in case we reach maxmemory-clients (client eviction).
+ * Note that in case of io-threads enabled we have to call this function only
+ * after the fan-in phase (when no io-threads are working) because the bucket
+ * lists are global. The io-threads themselves track per-client memory usage in
+ * updateClientMemUsage(). Here we update the clients to each bucket when all
+ * io-threads are done (both for read and write io-threading). */
 void updateClientMemUsageBucket(client *c) {
     serverAssert(io_threads_op == IO_THREADS_OP_IDLE);
     int allow_eviction =

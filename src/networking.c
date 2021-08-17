@@ -3661,6 +3661,12 @@ int stopThreadedIOIfNeeded(void) {
     }
 }
 
+/* This function achieves thread safety using a fan-out -> fan-in paradigm:
+ * Fan out: The main thread fans out work to the io-threads which block until
+ * setIOPendingCount() is called with a value larger than 0 by the main thread.
+ * Fan in: The main thread waits until getIOPendingCount() returns 0. Then
+ * it can safely perform post-processing and return to normal synchronous
+ * work. */
 int handleClientsWithPendingWritesUsingThreads(void) {
     int processed = listLength(server.clients_pending_write);
     if (processed == 0) return 0; /* Return ASAP if there are no clients. */
@@ -3770,7 +3776,13 @@ int postponeClientRead(client *c) {
  * process (instead of serving them synchronously). This function runs
  * the queue using the I/O threads, and process them in order to accumulate
  * the reads in the buffers, and also parse the first command available
- * rendering it in the client structures. */
+ * rendering it in the client structures.
+ * This function achieves thread safety using a fan-out -> fan-in paradigm:
+ * Fan out: The main thread fans out work to the io-threads which block until
+ * setIOPendingCount() is called with a value larger than 0 by the main thread.
+ * Fan in: The main thread waits until getIOPendingCount() returns 0. Then
+ * it can safely perform post-processing and return to normal synchronous
+ * work. */
 int handleClientsWithPendingReadsUsingThreads(void) {
     if (!server.io_threads_active || !server.io_threads_do_reads) return 0;
     int processed = listLength(server.clients_pending_read);
