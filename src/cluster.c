@@ -227,9 +227,9 @@ int clusterLoadConfig(char *filename) {
         }
         n->port = atoi(port);
         /* In older versions of nodes.conf the "@busport" part is missing.
-         * In this case we set it to the default offset of 10000 from the
+         * In this case we set it to the default offset of server.cluster_port_incr from the
          * base port. */
-        n->cport = busp ? atoi(busp) : n->port + CLUSTER_PORT_INCR;
+        n->cport = busp ? atoi(busp) : n->port + server.cluster_port_incr;
 
         /* The plaintext port for client in a TLS cluster (n->pport) is not
          * stored in nodes.conf. It is received later over the bus protocol. */
@@ -489,7 +489,7 @@ void deriveAnnouncedPorts(int *announced_port, int *announced_pport,
     /* Default announced ports. */
     *announced_port = port;
     *announced_pport = server.tls_cluster ? server.port : 0;
-    *announced_cport = port + CLUSTER_PORT_INCR;
+    *announced_cport = port + server.cluster_port_incr;
     /* Config overriding announced ports. */
     if (server.tls_cluster && server.cluster_announce_tls_port) {
         *announced_port = server.cluster_announce_tls_port;
@@ -566,24 +566,27 @@ void clusterInit(void) {
     /* We need a listening TCP port for our cluster messaging needs. */
     server.cfd.count = 0;
 
+   
+
     /* Port sanity check II
      * The other handshake port check is triggered too late to stop
      * us from trying to use a too-high cluster port number. */
     int port = server.tls_cluster ? server.tls_port : server.port;
-    if (port > (65535-CLUSTER_PORT_INCR)) {
+    if (port > (65535-server.cluster_port_incr)) {
         serverLog(LL_WARNING, "Redis port number too high. "
-                   "Cluster communication port is 10,000 port "
+                   "Cluster communication port is %d port "
                    "numbers higher than your Redis port. "
-                   "Your Redis port number must be 55535 or less.");
+                   "Your Redis port number must be %d or less.", server.cluster_port_incr, 65535-server.cluster_port_incr);
         exit(1);
     }
     if (!server.bindaddr_count) {
         serverLog(LL_WARNING, "No bind address is configured, but it is required for the Cluster bus.");
         exit(1);
     }
-    if (listenToPort(port+CLUSTER_PORT_INCR, &server.cfd) == C_ERR) {
+    if (listenToPort(port+server.cluster_port_incr, &server.cfd) == C_ERR) {
         exit(1);
     }
+    
     if (createSocketAcceptHandler(&server.cfd, clusterAcceptHandler) != C_OK) {
         serverPanic("Unrecoverable error creating Redis Cluster socket accept handler.");
     }
@@ -4574,7 +4577,7 @@ NULL
                 return;
             }
         } else {
-            cport = port + CLUSTER_PORT_INCR;
+            cport = port + server.cluster_port_incr;
         }
 
         if (clusterStartHandshake(c->argv[2]->ptr,port,cport) == 0 &&
