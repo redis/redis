@@ -43,6 +43,7 @@
 #include "listpack.h"
 #include "listpack_malloc.h"
 #include "redisassert.h"
+#include "util.h"
 
 #define LP_HDR_SIZE 6       /* 32 bit total len + 16 bit number of elements. */
 #define LP_HDR_NUMELE_UNKNOWN UINT16_MAX
@@ -642,7 +643,7 @@ static inline unsigned char *lpGetWithSize(unsigned char *p, int64_t *count, uns
     /* Return the string representation of the integer or the value itself
      * depending on intbuf being NULL or not. */
     if (intbuf) {
-        *count = snprintf((char*)intbuf,LP_INTBUF_SIZE,"%lld",(long long)val);
+        *count = ll2string((char*)intbuf,LP_INTBUF_SIZE,(long long)val);
         return intbuf;
     } else {
         *count = val;
@@ -1171,8 +1172,6 @@ static inline void lpAssertValidEntry(unsigned char* lp, size_t lpbytes, unsigne
  * when `deep` is 1, we scan all the entries one by one. */
 int lpValidateIntegrity(unsigned char *lp, size_t size, int deep, 
                         listpackValidateEntryCB entry_cb, void *cb_userdata) {
-    uint32_t numele = lpGetNumElements(lp);
-
     /* Check that we can actually read the header. (and EOF) */
     if (size < LP_HDR_SIZE + 1)
         return 0;
@@ -1191,6 +1190,7 @@ int lpValidateIntegrity(unsigned char *lp, size_t size, int deep,
 
     /* Validate the individual entries. */
     uint32_t count = 0;
+    uint32_t numele = lpGetNumElements(lp);
     unsigned char *p = lp + LP_HDR_SIZE;
     while(p && p[0] != LP_EOF) {
         unsigned char *prev = p;
@@ -1215,7 +1215,12 @@ int lpValidateIntegrity(unsigned char *lp, size_t size, int deep,
 }
 
 /* Compare entry pointer to by 'p' with string 's' of length 'slen'.
- * Return 1 if equal. */
+ * Return 1 if equal.
+ *
+ * Note that the entry 'p' may be integer-encoded. In such a case we
+ * use lpStringToInt64() to get an integer representation of the
+ * string 's' and compare to 'sval', it's much faster than convert
+ * integer to string and comparing. */
 unsigned int lpCompare(unsigned char *p, unsigned char *s, uint32_t slen) {
     unsigned char *value;
     int64_t sz;
