@@ -715,7 +715,7 @@ zskiplistNode *zslLastInLexRange(zskiplist *zsl, zlexrangespec *range) {
 }
 
 /*-----------------------------------------------------------------------------
- * Ziplist-backed sorted set API
+ * Listpack-backed sorted set API
  *----------------------------------------------------------------------------*/
 
 double zzlStrtod(unsigned char *vstr, unsigned int vlen) {
@@ -745,7 +745,7 @@ double zzlGetScore(unsigned char *sptr) {
     return score;
 }
 
-/* Return a ziplist element as an SDS string. */
+/* Return a listpack element as an SDS string. */
 sds lpGetObject(unsigned char *sptr) {
     unsigned char *vstr;
     unsigned int vlen;
@@ -1043,7 +1043,7 @@ unsigned char *zzlInsertAt(unsigned char *zl, unsigned char *eptr, sds ele, doub
     return zl;
 }
 
-/* Insert (element,score) pair in ziplist. This function assumes the element is
+/* Insert (element,score) pair in listpack. This function assumes the element is
  * not yet present in the list. */
 unsigned char *zzlInsert(unsigned char *zl, sds ele, double score) {
     unsigned char *eptr = lpSeek(zl,0), *sptr;
@@ -1088,8 +1088,7 @@ unsigned char *zzlDeleteRangeByScore(unsigned char *zl, zrangespec *range, unsig
     eptr = zzlFirstInRange(zl,range);
     if (eptr == NULL) return zl;
 
-    /* When the tail of the ziplist is deleted, eptr will point to the sentinel
-     * byte and ziplistNext will return NULL. */
+    /* When the tail of the listpack is deleted, eptr will be NULL. */
     while (eptr && (sptr = lpNext(zl,eptr)) != NULL) {
         score = zzlGetScore(sptr);
         if (zslValueLteMax(score,range)) {
@@ -1115,8 +1114,7 @@ unsigned char *zzlDeleteRangeByLex(unsigned char *zl, zlexrangespec *range, unsi
     eptr = zzlFirstInLexRange(zl,range);
     if (eptr == NULL) return zl;
 
-    /* When the tail of the ziplist is deleted, eptr will point to the sentinel
-     * byte and ziplistNext will return NULL. */
+    /* When the tail of the listpack is deleted, eptr will be NULL. */
     while (eptr && (sptr = lpNext(zl,eptr)) != NULL) {
         if (zzlLexValueLteMax(eptr,range)) {
             /* Delete both the element and the score. */
@@ -1206,7 +1204,7 @@ void zsetConvert(robj *zobj, int encoding) {
             serverPanic("Unknown target encoding");
 
         /* Approach similar to zslFree(), since we want to free the skiplist at
-         * the same time as creating the ziplist. */
+         * the same time as creating the listpack. */
         zs = zobj->ptr;
         dictRelease(zs->dict);
         node = zs->zsl->header->level[0].forward;
@@ -1228,15 +1226,15 @@ void zsetConvert(robj *zobj, int encoding) {
     }
 }
 
-/* Convert the sorted set object into a ziplist if it is not already a ziplist
+/* Convert the sorted set object into a listpack if it is not already a listpack
  * and if the number of elements and the maximum element size is within the
  * expected ranges. */
 void zsetConvertToListpackIfNeeded(robj *zobj, size_t maxelelen) {
     if (zobj->encoding == OBJ_ENCODING_LISTPACK) return;
     zset *zset = zobj->ptr;
 
-    if (zset->zsl->length <= server.zset_max_ziplist_entries &&
-        maxelelen <= server.zset_max_ziplist_value)
+    if (zset->zsl->length <= server.zset_max_listpack_entries &&
+        maxelelen <= server.zset_max_listpack_value)
             zsetConvert(zobj,OBJ_ENCODING_LISTPACK);
 }
 
@@ -1299,7 +1297,7 @@ int zsetScore(robj *zobj, sds member, double *score) {
  * start.
  *
  * The command as a side effect of adding a new element may convert the sorted
- * set internal encoding from ziplist to hashtable+skiplist.
+ * set internal encoding from listpack to hashtable+skiplist.
  *
  * Memory management of 'ele':
  *
@@ -1360,8 +1358,8 @@ int zsetAdd(robj *zobj, double score, sds ele, int in_flags, int *out_flags, dou
             /* Optimize: check if the element is too large or the list
              * becomes too long *before* executing zzlInsert. */
             zobj->ptr = zzlInsert(zobj->ptr,ele,score);
-            if (zzlLength(zobj->ptr) > server.zset_max_ziplist_entries ||
-                sdslen(ele) > server.zset_max_ziplist_value)
+            if (zzlLength(zobj->ptr) > server.zset_max_listpack_entries ||
+                sdslen(ele) > server.zset_max_listpack_value)
                 zsetConvert(zobj,OBJ_ENCODING_SKIPLIST);
             if (newscore) *newscore = score;
             *out_flags |= ZADD_OUT_ADDED;
@@ -1602,7 +1600,7 @@ sds zsetSdsFromListpackEntry(listpackEntry *e) {
     return e->sval ? sdsnewlen(e->sval, e->slen) : sdsfromlonglong(e->lval);
 }
 
-/* Reply with bulk string from the ziplist entry. */
+/* Reply with bulk string from the listpack entry. */
 void zsetReplyFromListpackEntry(client *c, listpackEntry *e) {
     if (e->sval)
         addReplyBulkCBuffer(c, e->sval, e->slen);
@@ -1725,8 +1723,8 @@ void zaddGenericCommand(client *c, int flags) {
     if (checkType(c,zobj,OBJ_ZSET)) goto cleanup;
     if (zobj == NULL) {
         if (xx) goto reply_to_client; /* No key + XX option: nothing to do. */
-        if (server.zset_max_ziplist_entries == 0 ||
-            server.zset_max_ziplist_value < sdslen(c->argv[scoreidx+1]->ptr))
+        if (server.zset_max_listpack_entries == 0 ||
+            server.zset_max_listpack_value < sdslen(c->argv[scoreidx+1]->ptr))
         {
             zobj = createZsetObject();
         } else {
@@ -2676,7 +2674,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                 if (!existing) {
                     tmp = zuiNewSdsFromValue(&zval);
                     /* Remember the longest single element encountered,
-                     * to understand if it's possible to convert to ziplist
+                     * to understand if it's possible to convert to listpack
                      * at the end. */
                      if (sdslen(tmp) > maxelelen) maxelelen = sdslen(tmp);
                     /* Update the element with its initial score. */
@@ -3123,10 +3121,7 @@ void genericZrangebyscoreCommand(zrange_result_handler *handler,
                 if (!zslValueLteMax(score,range)) break;
             }
 
-            /* We know the element exists, so ziplistGet should always
-             * succeed */
             vstr = lpGetValue(eptr,&vlen,&vlong);
-
             rangelen++;
             if (vstr == NULL) {
                 handler->emitResultFromLongLong(handler, vlong, score);
@@ -3407,10 +3402,7 @@ void genericZrangebylexCommand(zrange_result_handler *handler,
                 if (!zzlLexValueLteMax(eptr,range)) break;
             }
 
-            /* We know the element exists, so ziplistGet should always
-             * succeed. */
             vstr = lpGetValue(eptr,&vlen,&vlong);
-
             rangelen++;
             if (vstr == NULL) {
                 handler->emitResultFromLongLong(handler, vlong, score);
@@ -4089,7 +4081,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
     else {
         if (zsetobj->encoding == OBJ_ENCODING_LISTPACK) {
             /* it is inefficient to repeatedly pick one random element from a
-             * ziplist. so we use this instead: */
+             * listpack. so we use this instead: */
             listpackEntry *keys, *vals = NULL;
             keys = zmalloc(sizeof(listpackEntry)*count);
             if (withscores)

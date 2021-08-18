@@ -1804,8 +1804,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
         }
 
         /* Convert *after* loading, since sorted sets are not stored ordered. */
-        if (zsetLength(o) <= server.zset_max_ziplist_entries &&
-            maxelelen <= server.zset_max_ziplist_value)
+        if (zsetLength(o) <= server.zset_max_listpack_entries &&
+            maxelelen <= server.zset_max_listpack_value)
                 zsetConvert(o,OBJ_ENCODING_LISTPACK);
     } else if (rdbtype == RDB_TYPE_HASH) {
         uint64_t len;
@@ -2086,7 +2086,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                         goto emptykey;
                     }
 
-                    if (zsetLength(o) > server.zset_max_ziplist_entries)
+                    if (zsetLength(o) > server.zset_max_listpack_entries)
                         zsetConvert(o,OBJ_ENCODING_SKIPLIST);
                     break;
                 }
@@ -2106,7 +2106,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                     goto emptykey;
                 }
 
-                if (zsetLength(o) > server.zset_max_ziplist_entries)
+                if (zsetLength(o) > server.zset_max_listpack_entries)
                     zsetConvert(o,OBJ_ENCODING_SKIPLIST);
                 break;
             case RDB_TYPE_HASH_ZIPLIST:
