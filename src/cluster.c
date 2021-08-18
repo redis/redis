@@ -1642,6 +1642,7 @@ void clusterSetNodeAsMaster(clusterNode *n) {
         if (n != myself) n->flags |= CLUSTER_NODE_MIGRATE_TO;
     }
     n->flags &= ~CLUSTER_NODE_SLAVE;
+    n->flags &= ~CLUSTER_NODE_NOFAILOVER;
     n->flags |= CLUSTER_NODE_MASTER;
     n->slaveof = NULL;
 
