@@ -8,6 +8,14 @@
 
 tags {"dump" "corruption" "external:skip"} {
 
+# We only run OOM related tests on x86_64 and aarch64, as jemalloc on other
+# platforms (notably s390x) may actually succeed very large allocations. As
+# a result the test may hang for a very long time at the cleanup phase,
+# iterating as many as 2^61 hash table slots.
+
+set arch_name [exec uname -m]
+set run_oom_tests [expr {$arch_name == "x86_64" || $arch_name == "aarch64"}]
+
 set corrupt_payload_7445 "\x0E\x01\x1D\x1D\x00\x00\x00\x16\x00\x00\x00\x03\x00\x00\x04\x43\x43\x43\x43\x06\x04\x42\x42\x42\x42\x06\x3F\x41\x41\x41\x41\xFF\x09\x00\x88\xA5\xCA\xA8\xC5\x41\xF4\x35"
 
 test {corrupt payload: #7445 - with sanitize} {
@@ -492,6 +500,8 @@ test {corrupt payload: fuzzer findings - hash ziplist too long entry len} {
     }
 }
 
+if {$run_oom_tests} {
+
 test {corrupt payload: OOM in rdbGenericLoadStringObject} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r config set sanitize-dump-payload no
@@ -509,6 +519,8 @@ test {corrupt payload: fuzzer findings - OOM in dictExpand} {
         assert_match "*Bad data format*" $err
         r ping
     }
+}
+
 }
 
 test {corrupt payload: fuzzer findings - invalid tail offset after removal} {
