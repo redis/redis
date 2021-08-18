@@ -1030,7 +1030,10 @@ unsigned char *lpDeleteRange(unsigned char *lp, long index, unsigned long num) {
     /* If we know we're gonna delete beyond the end of the listpack, we can just move
      * the EOF marker, and there's no need to iterate through the entries,
      * but if we can't be sure how many entries there are, we rather avoid calling lpLength
-     * since that means an additional iteration on all elements. */
+     * since that means an additional iteration on all elements.
+     *
+     * Note that index could overflow, but we use the value after seek, so when we
+     * use it no overflow happens. */
     if (num != LP_HDR_NUMELE_UNKNOWN && index < 0) index = (long)numele + index;
     if (num != LP_HDR_NUMELE_UNKNOWN && (numele - (unsigned long)index) <= num) {
         p[0] = LP_EOF;
