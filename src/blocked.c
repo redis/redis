@@ -345,15 +345,10 @@ void serveClientsBlockedOnSortedSetKey(robj *o, readyList *rl) {
 
             /* Replicate the command. */
             robj *argv[2];
-            struct redisCommand *cmd = where == ZSET_MIN ?
-                                       server.zpopminCommand :
-                                       server.zpopmaxCommand;
-            argv[0] = createStringObject(cmd->name,strlen(cmd->name));
+            argv[0] = where == ZSET_MIN ? shared.zpopmin : shared.zpopmax;
             argv[1] = rl->key;
             incrRefCount(rl->key);
-            propagate(cmd,receiver->db->id,
-                      argv,2,PROPAGATE_AOF|PROPAGATE_REPL);
-            decrRefCount(argv[0]);
+            propagate(receiver->db->id,argv,2,PROPAGATE_AOF|PROPAGATE_REPL);
             decrRefCount(argv[1]);
         }
     }
