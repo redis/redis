@@ -1028,7 +1028,7 @@ int RM_AddCommandKeySpecBeginSearchIndex(RedisModuleCtx *ctx, const char *name, 
     return moduleAddCommandKeySpecBeginSearch(ctx, name, specflags, &spec, spec_id);
 }
 
-/* Add a "keyowrd" key arguments spec to a command (begin_search step).
+/* Add a "keyword" key arguments spec to a command (begin_search step).
  * Returns REDISMODULE_OK */
 int RM_AddCommandKeySpecBeginSearchKeyword(RedisModuleCtx *ctx, const char *name, const char *specflags, const char *keyword, int startfrom, int *spec_id) {
     keySpec spec;
