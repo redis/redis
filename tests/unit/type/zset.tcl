@@ -1444,7 +1444,7 @@ start_server {tags {"zset"}} {
             assert_equal {} $err
         }
 
-        test "BZPOPMIN, ZADD + DEL should not awake blocked client" {
+        test "BZPOPMIN, ZADD DEL should not awake blocked client" {
             set rd [redis_deferring_client]
             r del zset
 
@@ -1458,7 +1458,7 @@ start_server {tags {"zset"}} {
             $rd read
         } {zset bar 1}
 
-        test "BZPOPMIN, ZADD + DEL + SET should not awake blocked client" {
+        test "BZPOPMIN, ZADD DEL SET should not awake blocked client" {
             set rd [redis_deferring_client]
             r del list
 

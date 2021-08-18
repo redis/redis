@@ -171,6 +171,9 @@ struct redisServer server; /* Server global state */
  *                or may just execute read commands. A command can not be marked 
  *                both "write" and "may-replicate"
  *
+ * container: This command is a container of (sub)commands that share the same
+ *            theme (Example: CONFIG).
+ *
  * The following additional flags are only used in order to put commands
  * in a specific ACL category. Commands can have multiple ACL categories.
  * See redis.conf for the exact meaning of each.
@@ -193,10 +196,511 @@ struct redisServer server; /* Server global state */
  *    TYPE, EXPIRE*, PEXPIRE*, TTL, PTTL, ...
  */
 
+struct redisCommand configSubcommands[] = {
+    {"set",configSetCommand,4,
+     "admin no-script"},
+
+    {"get",configGetCommand,3,
+     "admin ok-loading ok-stale no-script"},
+
+    {"resetstat",configResetStatCommand,2,
+     "admin no-script"},
+
+    {"rewrite",configRewriteCommand,2,
+     "admin no-script"},
+
+    {"help",configHelpCommand,2,
+     ""},
+
+    {NULL},
+};
+
+struct redisCommand xinfoSubcommands[] = {
+    {"consumers",xinfoCommand,4,
+     "read-only random @stream",
+     {{"read",
+       KSPEC_BS_INDEX,.bs.index={2},
+       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+
+    {"groups",xinfoCommand,3,
+     "read-only @stream",
+     {{"read",
+       KSPEC_BS_INDEX,.bs.index={2},
+       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+
+    {"stream",xinfoCommand,-3,
+     "read-only @stream",
+     {{"read",
+       KSPEC_BS_INDEX,.bs.index={2},
+       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+
+    {"help",xinfoCommand,2,
+     "@stream"},
+
+    {NULL},
+};
+
+struct redisCommand xgroupSubcommands[] = {
+    {"create",xgroupCommand,-5,
+     "write use-memory @stream",
+     {{"write",
+       KSPEC_BS_INDEX,.bs.index={2},
+       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+
+    {"setid",xgroupCommand,5,
+     "write @stream",
+     {{"write",
+       KSPEC_BS_INDEX,.bs.index={2},
+       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+
+    {"destroy",xgroupCommand,4,
+     "write @stream",
+     {{"write",
+       KSPEC_BS_INDEX,.bs.index={2},
+       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+
+    {"createconsumer",xgroupCommand,5,
+     "write use-memory @stream",
+     {{"write",
+       KSPEC_BS_INDEX,.bs.index={2},
+       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+
+    {"delconsumer",xgroupCommand,5,
+     "write @stream",
+     {{"write",
+       KSPEC_BS_INDEX,.bs.index={2},
+       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+
+    {"help",xgroupCommand,2,
+     "@stream"},
+
+    {NULL},
+};
+
+struct redisCommand commandSubcommands[] = {
+    {"count",commandCommand,2,
+     "ok-loading ok-stale @connection"},
+
+    {"info",commandCommand,-3,
+     "ok-loading ok-stale @connection"},
+
+    {"getkeys",commandCommand,-4,
+     "ok-loading ok-stale @connection"},
+
+    {"help",commandCommand,2,
+     ""},
+
+    {NULL},
+};
+
+struct redisCommand commandsSubcommands[] = {
+    {"count",commandsCommand,2,
+     "ok-loading ok-stale @connection"},
+
+    {"list",commandsCommand,2,
+     "ok-loading ok-stale @connection"},
+
+    {"info",commandsCommand,-2,
+     "ok-loading ok-stale @connection"},
+
+    {"getkeys",commandCommand,-4,
+     "ok-loading ok-stale @connection"},
+
+    {"help",commandsCommand,2,
+     ""},
+
+    {NULL},
+};
+
+struct redisCommand memorySubcommands[] = {
+    {"doctor",memoryCommand,2,
+     "random"},
+
+    {"stats",memoryCommand,2,
+     "random"},
+
+    {"malloc-stats",memoryCommand,2,
+     "random"},
+
+    {"purge",memoryCommand,2,
+     "random"},
+
+    {"usage",memoryCommand,-3,
+     "read-only",
+     {{"read",
+       KSPEC_BS_KEYWORD,.bs.index={2},
+       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+
+    {"help",memoryCommand,2,
+     ""},
+
+    {NULL},
+};
+
+struct redisCommand aclSubcommands[] = {
+    {"cat",aclCommand,-2,
+     "admin no-script ok-loading ok-stale"},
+
+    {"deluser",aclCommand,-3,
+     "admin no-script ok-loading ok-stale"},
+
+    {"genpass",aclCommand,-2,
+     "admin no-script ok-loading ok-stale"},
+
+    {"getuser",aclCommand,3,
+     "admin no-script ok-loading ok-stale"},
+
+    {"list",aclCommand,2,
+     "admin no-script ok-loading ok-stale"},
+
+    {"load",aclCommand,2,
+     "admin no-script ok-loading ok-stale"},
+
+    {"log",aclCommand,-2,
+     "admin no-script ok-loading ok-stale"},
+
+    {"save",aclCommand,2,
+     "admin no-script ok-loading ok-stale"},
+
+    {"setuser",aclCommand,-3,
+     "admin no-script ok-loading ok-stale"},
+
+    {"users",aclCommand,2,
+     "admin no-script ok-loading ok-stale"},
+
+    {"whoami",aclCommand,2,
+     "admin no-script ok-loading ok-stale"},
+
+    {"help",aclCommand,2,
+     ""},
+
+    {NULL},
+};
+
+struct redisCommand latencySubcommands[] = {
+    {"doctor",latencyCommand,2,
+     "admin no-script ok-loading ok-stale"},
+
+    {"graph",latencyCommand,3,
+     "admin no-script ok-loading ok-stale"},
+
+    {"history",latencyCommand,3,
+     "admin no-script ok-loading ok-stale"},
+
+    {"latest",latencyCommand,2,
+     "admin no-script ok-loading ok-stale"},
+
+    {"reset",latencyCommand,-2,
+     "admin no-script ok-loading ok-stale"},
+
+    {"help",latencyCommand,2,
+     ""},
+
+    {NULL},
+};
+
+struct redisCommand moduleSubcommands[] = {
+    {"list",moduleCommand,2,
+     "admin no-script"},
+
+    {"load",moduleCommand,-3,
+     "admin no-script"},
+
+    {"unload",moduleCommand,3,
+     "admin no-script"},
+
+    {"help",moduleCommand,2,
+     ""},
+
+    {NULL},
+};
+
+struct redisCommand slowlogSubcommands[] = {
+    {"get",slowlogCommand,-2,
+     "admin random ok-loading ok-stale"},
+
+    {"len",slowlogCommand,2,
+     "admin ok-loading ok-stale"},
+
+    {"reset",slowlogCommand,2,
+     "admin ok-loading ok-stale"},
+
+    {"help",slowlogCommand,2,
+     ""},
+
+    {NULL},
+};
+
+struct redisCommand objectSubcommands[] = {
+    {"encoding",objectCommand,3,
+     "read-only @keyspace",
+     {{"read",
+       KSPEC_BS_INDEX,.bs.index={2},
+       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+
+    {"freq",objectCommand,3,
+     "read-only @keyspace",
+     {{"read",
+       KSPEC_BS_INDEX,.bs.index={2},
+       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+
+    {"idletime",objectCommand,3,
+     "read-only random @keyspace",
+     {{"read",
+       KSPEC_BS_INDEX,.bs.index={2},
+       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+
+    {"refcount",objectCommand,3,
+     "read-only @keyspace",
+     {{"read",
+       KSPEC_BS_INDEX,.bs.index={2},
+       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+
+    {"help",objectCommand,2,
+     ""},
+
+    {NULL},
+};
+
+struct redisCommand scriptSubcommands[] = {
+    {"debug",scriptCommand,3,
+     "no-script @scripting"},
+
+    {"exists",scriptCommand,-3,
+     "no-script @scripting"},
+
+    {"flush",scriptCommand,-2,
+     "may-replicate no-script @scripting"},
+
+    {"kill",scriptCommand,2,
+     "no-script @scripting"},
+
+    {"load",scriptCommand,3,
+     "may-replicate no-script @scripting"},
+
+    {"help",scriptCommand,2,
+     ""},
+
+    {NULL},
+};
+
+struct redisCommand clientSubcommands[] = {
+    {"caching",clientCommand,3,
+     "admin no-script random ok-loading ok-stale @connection"},
+
+    {"getredir",clientCommand,2,
+     "admin no-script random ok-loading ok-stale @connection"},
+
+    {"id",clientCommand,2,
+     "admin no-script random ok-loading ok-stale @connection"},
+
+    {"info",clientCommand,2,
+     "admin no-script random ok-loading ok-stale @connection"},
+
+    {"kill",clientCommand,-3,
+     "admin no-script random ok-loading ok-stale @connection"},
+
+    {"list",clientCommand,-2,
+     "admin no-script random ok-loading ok-stale @connection"},
+
+    {"unpause",clientCommand,2,
+     "admin no-script random ok-loading ok-stale @connection"},
+
+    {"pause",clientCommand,-3,
+     "admin no-script random ok-loading ok-stale @connection"},
+
+    {"reply",clientCommand,3,
+     "admin no-script random ok-loading ok-stale @connection"},
+
+    {"setname",clientCommand,3,
+     "admin no-script random ok-loading ok-stale @connection"},
+
+    {"getname",clientCommand,2,
+     "admin no-script random ok-loading ok-stale @connection"},
+
+    {"unblock",clientCommand,-3,
+     "admin no-script random ok-loading ok-stale @connection"},
+
+    {"tracking",clientCommand,-3,
+     "admin no-script random ok-loading ok-stale @connection"},
+
+    {"trackinginfo",clientCommand,2,
+     "admin no-script random ok-loading ok-stale @connection"},
+
+    {"help",clientCommand,2,
+     ""},
+
+    {NULL},
+};
+
+struct redisCommand stralgoSubcommands[] = {
+    {"lcs",stralgoCommand,-5,
+     "read-only @string",
+      {{"read incomplete", /* We can't use "keyword" here because we may give false information. */
+        KSPEC_BS_UNKNOWN,{{0}},
+        KSPEC_FK_UNKNOWN,{{0}}}},
+     lcsGetKeys},
+
+    {"help",stralgoCommand,2,
+     ""},
+
+    {NULL},
+};
+
+struct redisCommand pubsubSubcommands[] = {
+    {"channels",pubsubCommand,-2,
+     "pub-sub ok-loading ok-stale"},
+
+    {"numpat",pubsubCommand,2,
+     "pub-sub ok-loading ok-stale"},
+
+    {"numsub",pubsubCommand,-2,
+     "pub-sub ok-loading ok-stale"},
+
+    {"help",pubsubCommand,2,
+     ""},
+
+    {NULL},
+};
+
+struct redisCommand clusterSubcommands[] = {
+    {"addslots",clusterCommand,-3,
+     "admin ok-stale random"},
+
+    {"bumpepoch",clusterCommand,2,
+     "admin ok-stale random"},
+
+    {"count-failure-reports",clusterCommand,3,
+     "admin ok-stale random"},
+
+    {"countkeysinslots",clusterCommand,3,
+     "admin ok-stale random"},
+
+    {"delslots",clusterCommand,-3,
+     "admin ok-stale random"},
+
+    {"failover",clusterCommand,-2,
+     "admin ok-stale random"},
+
+    {"forget",clusterCommand,3,
+     "admin ok-stale random"},
+
+    {"getkeysinslot",clusterCommand,4,
+     "admin ok-stale random"},
+
+    {"flushslots",clusterCommand,2,
+     "admin ok-stale random"},
+
+    {"info",clusterCommand,2,
+     "admin ok-stale random"},
+
+    {"keyslot",clusterCommand,3,
+     "admin ok-stale random"},
+
+    {"meet",clusterCommand,-4,
+     "admin ok-stale random"},
+
+    {"myid",clusterCommand,2,
+     "admin ok-stale random"},
+
+    {"nodes",clusterCommand,2,
+     "admin ok-stale random"},
+
+    {"replicate",clusterCommand,3,
+     "admin ok-stale random"},
+
+    {"reset",clusterCommand,3,
+     "admin ok-stale random"},
+
+    {"set-config-epoch",clusterCommand,3,
+     "admin ok-stale random"},
+
+    {"setslot",clusterCommand,-4,
+     "admin ok-stale random"},
+
+    {"replicas",clusterCommand,3,
+     "admin ok-stale random"},
+
+    {"saveconfig",clusterCommand,2,
+     "admin ok-stale random"},
+
+    {"slots",clusterCommand,2,
+     "admin ok-stale random"},
+
+    {"help",clusterCommand,2,
+     ""},
+
+    {NULL},
+};
+
+struct redisCommand sentinelSubcommands[] = {
+    {"ckquorum",sentinelCommand,3,
+     "admin only-sentinel"},
+
+    {"config",sentinelCommand,-3,
+     "admin only-sentinel"},
+
+    {"debug",sentinelCommand,2,
+     "admin only-sentinel"},
+
+    {"get-master-addr-by-name",sentinelCommand,3,
+     "admin only-sentinel"},
+
+    {"failover",sentinelCommand,3,
+     "admin only-sentinel"},
+
+    {"flushconfig",sentinelCommand,2,
+     "admin only-sentinel"},
+
+    {"info-cache",sentinelCommand,3,
+     "admin only-sentinel"},
+
+    {"is-master-down-by-addr",sentinelCommand,6,
+     "admin only-sentinel"},
+
+    {"master",sentinelCommand,3,
+     "admin only-sentinel"},
+
+    {"masters",sentinelCommand,2,
+     "admin only-sentinel"},
+
+    {"monitor",sentinelCommand,6,
+     "admin only-sentinel"},
+
+    {"myid",sentinelCommand,2,
+     "admin only-sentinel"},
+
+    {"pending-scripts",sentinelCommand,2,
+     "admin only-sentinel"},
+
+    {"remove",sentinelCommand,3,
+     "admin only-sentinel"},
+
+    {"replicas",sentinelCommand,3,
+     "admin only-sentinel"},
+
+    {"reset",sentinelCommand,3,
+     "admin only-sentinel"},
+
+    {"sentinels",sentinelCommand,3,
+     "admin only-sentinel"},
+
+    {"set",sentinelCommand,5,
+     "admin only-sentinel"},
+
+    {"simulate-failure",sentinelCommand,3,
+     "admin only-sentinel"},
+
+    {"help",sentinelCommand,2,
+     ""},
+
+    {NULL},
+};
 
 struct redisCommand redisCommandTable[] = {
-    {"module",moduleCommand,-2,
-     "admin no-script"},
+    {"module",NULL,-2,
+     "container",
+     .subcommands=moduleSubcommands},
 
     {"get",getCommand,2,
      "read-only fast @string",
@@ -1013,13 +1517,17 @@ struct redisCommand redisCommandTable[] = {
      "read-only fast @keyspace"},
 
     {"auth",authCommand,-2,
-     "no-auth no-script ok-loading ok-stale fast @connection"},
+     "no-auth no-script ok-loading ok-stale fast sentinel @connection"},
 
     /* We don't allow PING during loading since in Redis PING is used as
      * failure detection, and a loading server is considered to be
      * not available. */
     {"ping",pingCommand,-1,
-     "ok-stale fast @connection"},
+     "ok-stale fast sentinel @connection"},
+
+    {"sentinel",NULL,-2,
+     "admin only-sentinel",
+     .subcommands=sentinelSubcommands},
 
     {"echo",echoCommand,2,
      "fast @connection"},
@@ -1034,7 +1542,7 @@ struct redisCommand redisCommandTable[] = {
      "admin no-script"},
 
     {"shutdown",shutdownCommand,-1,
-     "admin no-script ok-loading ok-stale"},
+     "admin no-script ok-loading ok-stale sentinel"},
 
     {"lastsave",lastsaveCommand,1,
      "random fast ok-loading ok-stale @admin @dangerous"},
@@ -1086,7 +1594,7 @@ struct redisCommand redisCommandTable[] = {
        KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 
     {"info",infoCommand,-1,
-     "ok-loading ok-stale random @dangerous"},
+     "ok-loading ok-stale random sentinel @dangerous"},
 
     {"monitor",monitorCommand,1,
      "admin no-script ok-loading ok-stale"},
@@ -1134,31 +1642,33 @@ struct redisCommand redisCommandTable[] = {
      "admin no-script ok-stale"},
 
     {"role",roleCommand,1,
-     "ok-loading ok-stale no-script fast @admin @dangerous"},
+     "ok-loading ok-stale no-script fast sentinel @admin @dangerous"},
 
     {"debug",debugCommand,-2,
      "admin no-script ok-loading ok-stale"},
 
-    {"config",configCommand,-2,
-     "admin ok-loading ok-stale no-script"},
+    {"config",NULL,-2,
+     "container",
+     .subcommands=configSubcommands},
 
     {"subscribe",subscribeCommand,-2,
-     "pub-sub no-script ok-loading ok-stale"},
+     "pub-sub no-script ok-loading ok-stale sentinel"},
 
     {"unsubscribe",unsubscribeCommand,-1,
-     "pub-sub no-script ok-loading ok-stale"},
+     "pub-sub no-script ok-loading ok-stale sentinel"},
 
     {"psubscribe",psubscribeCommand,-2,
-     "pub-sub no-script ok-loading ok-stale"},
+     "pub-sub no-script ok-loading ok-stale sentinel"},
 
     {"punsubscribe",punsubscribeCommand,-1,
-     "pub-sub no-script ok-loading ok-stale"},
+     "pub-sub no-script ok-loading ok-stale sentinel"},
 
     {"publish",publishCommand,3,
-     "pub-sub ok-loading ok-stale fast may-replicate"},
+     "pub-sub ok-loading ok-stale fast may-replicate sentinel"},
 
-    {"pubsub",pubsubCommand,-2,
-     "pub-sub ok-loading ok-stale random"},
+    {"pubsub",NULL,-2,
+     "container",
+     .subcommands=pubsubSubcommands},
 
     {"watch",watchCommand,-2,
      "no-script fast ok-loading ok-stale @transaction",
@@ -1169,8 +1679,9 @@ struct redisCommand redisCommandTable[] = {
     {"unwatch",unwatchCommand,1,
      "no-script fast ok-loading ok-stale @transaction"},
 
-    {"cluster",clusterCommand,-2,
-     "admin ok-stale random"},
+    {"cluster",NULL,-2,
+     "container",
+     .subcommands=clusterSubcommands},
 
     {"restore",restoreCommand,-4,
      "write use-memory @keyspace @dangerous",
@@ -1209,24 +1720,20 @@ struct redisCommand redisCommandTable[] = {
        KSPEC_BS_INDEX,.bs.index={1},
        KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 
-    {"object",objectCommand,-2,
-     "read-only random @keyspace",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={2},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+    {"object",NULL,-2,
+     "container",
+    .subcommands=objectSubcommands},
 
-    {"memory",memoryCommand,-2,
-     "random read-only",
-     {{"read",
-       KSPEC_BS_KEYWORD,.bs.keyword={"USAGE",1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}},
-     memoryGetKeys},
+    {"memory",NULL,-2,
+     "container",
+     .subcommands=memorySubcommands},
 
-    {"client",clientCommand,-2,
-     "admin no-script random ok-loading ok-stale @connection"},
+    {"client",NULL,-2,
+     "container sentinel",
+     .subcommands=clientSubcommands},
 
     {"hello",helloCommand,-1,
-     "no-auth no-script fast ok-loading ok-stale @connection"},
+     "no-auth no-script fast ok-loading ok-stale sentinel @connection"},
 
     /* EVAL can modify the dataset, however it is not flagged as a write
      * command since we do the check while running commands from Lua.
@@ -1262,11 +1769,13 @@ struct redisCommand redisCommandTable[] = {
        KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},
      evalGetKeys},
 
-    {"slowlog",slowlogCommand,-2,
-     "admin random ok-loading ok-stale"},
+    {"slowlog",NULL,-2,
+     "container",
+     .subcommands=slowlogSubcommands},
 
-    {"script",scriptCommand,-2,
-     "no-script may-replicate @scripting"},
+    {"script",NULL,-2,
+     "container",
+     .subcommands=scriptSubcommands},
 
     {"time",timeCommand,1,
      "random fast ok-loading ok-stale"},
@@ -1296,7 +1805,12 @@ struct redisCommand redisCommandTable[] = {
      "no-script @connection"},
 
     {"command",commandCommand,-1,
-     "ok-loading ok-stale random @connection"},
+     "container ok-loading ok-stale random sentinel @connection",
+     .subcommands=commandSubcommands},
+
+    {"commands",NULL,-2,
+     "container sentinel",
+     .subcommands=commandsSubcommands},
 
     {"geoadd",geoaddCommand,-5,
      "write use-memory @geo",
@@ -1450,11 +1964,9 @@ struct redisCommand redisCommandTable[] = {
        KSPEC_FK_RANGE,.fk.range={-1,1,2}}},
      xreadGetKeys},
 
-    {"xgroup",xgroupCommand,-2,
-     "write use-memory @stream",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={2},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+    {"xgroup",NULL,-2,
+     "container",
+     .subcommands=xgroupSubcommands},
 
     {"xsetid",xsetidCommand,3,
      "write use-memory fast @stream",
@@ -1486,11 +1998,9 @@ struct redisCommand redisCommandTable[] = {
        KSPEC_BS_INDEX,.bs.index={1},
        KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 
-    {"xinfo",xinfoCommand,-2,
-     "read-only random @stream",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={2},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+    {"xinfo",NULL,-2,
+     "container",
+     .subcommands=xinfoSubcommands},
 
     {"xdel",xdelCommand,-3,
      "write fast @stream",
@@ -1510,21 +2020,19 @@ struct redisCommand redisCommandTable[] = {
     {"host:",securityWarningCommand,-1,
      "ok-loading ok-stale read-only"},
 
-    {"latency",latencyCommand,-2,
-     "admin no-script ok-loading ok-stale"},
+    {"latency",NULL,-2,
+     "container",
+     .subcommands=latencySubcommands},
 
     {"lolwut",lolwutCommand,-1,
      "read-only fast"},
 
     {"acl",aclCommand,-2,
-     "admin no-script ok-loading ok-stale"},
+     "admin no-script ok-loading ok-stale sentinel"},
 
-    {"stralgo",stralgoCommand,-2,
-     "read-only @string",
-      {{"read incomplete", /* We can't use "keyword" here because we may give false information. */
-        KSPEC_BS_UNKNOWN,{{0}},
-        KSPEC_FK_UNKNOWN,{{0}}}},
-     lcsGetKeys},
+    {"stralgo",NULL,-2,
+     "container",
+     .subcommands=stralgoSubcommands},
 
     {"reset",resetCommand,1,
      "no-script ok-stale ok-loading fast @connection"},
@@ -3890,6 +4398,12 @@ int populateSingleCommand(struct redisCommand *c, char *strflags) {
             c->flags |= CMD_NO_AUTH;
         } else if (!strcasecmp(flag,"may-replicate")) {
             c->flags |= CMD_MAY_REPLICATE;
+        } else if (!strcasecmp(flag,"container")) {
+            c->flags |= CMD_CONTAINER;
+        } else if (!strcasecmp(flag,"sentinel")) {
+            c->flags |= CMD_SENTINEL;
+        } else if (!strcasecmp(flag,"only-sentinel")) {
+            c->flags |= CMD_ONLY_SENTINEL;
         } else {
             /* Parse ACL categories here if the flag name starts with @. */
             uint64_t catflag;
@@ -3944,6 +4458,25 @@ int populateSingleCommand(struct redisCommand *c, char *strflags) {
     /* Handle the "movablekeys" flag (must be done after populating all key specs). */
     populateCommandMovableKeys(c);
 
+    /* Handle subcommands */
+    if (c->subcommands) {
+        c->subcommands_dict = dictCreate(&commandTableDictType);
+
+        for (int j = 0; c->subcommands[j].name; j++) {
+            struct redisCommand *sub = c->subcommands+j;
+
+            sub->id = c->id; /* Assign the ID used for ACL (same as parent command). */
+            sub->parent = c; /* Assign the parent command */
+
+            /* Translate the command string flags description into an actual
+             * set of flags. */
+            if (populateSingleCommand(sub,sub->sflags) == C_ERR)
+                serverPanic("Unsupported command flag or key spec flag");
+
+            serverAssert(dictAdd(c->subcommands_dict, sdsnew(sub->name), sub) == DICT_OK);
+        }
+    }
+
     return C_OK;
 }
 
@@ -3955,14 +4488,23 @@ void populateCommandTable(void) {
 
     for (j = 0; j < numcommands; j++) {
         struct redisCommand *c = redisCommandTable+j;
+
+        if (!(c->flags & CMD_SENTINEL) && server.sentinel_mode)
+            continue;
+
+        if (c->flags & CMD_ONLY_SENTINEL && !server.sentinel_mode)
+            continue;
+
         int retval1, retval2;
+
+        /* Assign the ID used for ACL (must be done before populateSingleCommand). */
+        c->id = ACLGetCommandID(c->name);
 
         /* Translate the command string flags description into an actual
          * set of flags. */
         if (populateSingleCommand(c,c->sflags) == C_ERR)
             serverPanic("Unsupported command flag or key spec flag");
 
-        c->id = ACLGetCommandID(c->name); /* Assign the ID used for ACL. */
         retval1 = dictAdd(server.commands, sdsnew(c->name), c);
         /* Populate an additional dictionary that will be unaffected
          * by rename-command statements in redis.conf. */
@@ -3971,18 +4513,20 @@ void populateCommandTable(void) {
     }
 }
 
-void resetCommandTableStats(void) {
+void resetCommandTableStats(dict* commands) {
     struct redisCommand *c;
     dictEntry *de;
     dictIterator *di;
 
-    di = dictGetSafeIterator(server.commands);
+    di = dictGetSafeIterator(commands);
     while((de = dictNext(di)) != NULL) {
         c = (struct redisCommand *) dictGetVal(de);
         c->microseconds = 0;
         c->calls = 0;
         c->rejected_calls = 0;
         c->failed_calls = 0;
+        if (c->subcommands_dict)
+            resetCommandTableStats(c->subcommands_dict);
     }
     dictReleaseIterator(di);
 
@@ -4030,15 +4574,50 @@ void redisOpArrayFree(redisOpArray *oa) {
 
 /* ====================== Commands lookup and execution ===================== */
 
-struct redisCommand *lookupCommand(sds name) {
-    return dictFetchValue(server.commands, name);
+struct redisCommand *lookupCommandLogic(dict *commands, robj **argv, int argc) {
+    struct redisCommand *base_cmd = dictFetchValue(commands, argv[0]->ptr);
+    int has_subcommands = base_cmd && base_cmd->subcommands_dict;
+    if (argc == 1 || !has_subcommands) {
+        /* Note: It is possible that base_cmd->proc==NULL (e.g. CONFIG) */
+        return base_cmd;
+    } else {
+        /* Note: Currently we support just one level of subcommands */
+        return dictFetchValue(base_cmd->subcommands_dict, argv[1]->ptr);
+    }
+}
+
+struct redisCommand *lookupCommand(robj **argv, int argc) {
+    return lookupCommandLogic(server.commands,argv,argc);
+}
+
+struct redisCommand *lookupCommandBySds(sds s) {
+    int argc, j;
+    sds *strings = sdssplitlen(s,sdslen(s),"|",1,&argc);
+    if (strings == NULL)
+        return NULL;
+    if (argc > 2) {
+        /* Currently we support just one level of subcommands */
+        sdsfreesplitres(strings,argc);
+        return NULL;
+    }
+
+    robj objects[argc];
+    robj *argv[argc];
+    for (j = 0; j < argc; j++) {
+        initStaticStringObject(objects[j],strings[j]);
+        argv[j] = &objects[j];
+    }
+
+    struct redisCommand *cmd = lookupCommand(argv,argc);
+    sdsfreesplitres(strings,argc);
+    return cmd;
 }
 
 struct redisCommand *lookupCommandByCString(const char *s) {
     struct redisCommand *cmd;
     sds name = sdsnew(s);
 
-    cmd = dictFetchValue(server.commands, name);
+    cmd = lookupCommandBySds(name);
     sdsfree(name);
     return cmd;
 }
@@ -4050,10 +4629,10 @@ struct redisCommand *lookupCommandByCString(const char *s) {
  * This is used by functions rewriting the argument vector such as
  * rewriteClientCommandVector() in order to set client->cmd pointer
  * correctly even if the command was renamed. */
-struct redisCommand *lookupCommandOrOriginal(sds name) {
-    struct redisCommand *cmd = dictFetchValue(server.commands, name);
+struct redisCommand *lookupCommandOrOriginal(robj **argv ,int argc) {
+    struct redisCommand *cmd = lookupCommandLogic(server.commands, argv, argc);
 
-    if (!cmd) cmd = dictFetchValue(server.orig_commands,name);
+    if (!cmd) cmd = lookupCommandLogic(server.orig_commands, argv, argc);
     return cmd;
 }
 
@@ -4497,19 +5076,26 @@ int processCommand(client *c) {
 
     /* Now lookup the command and check ASAP about trivial error conditions
      * such as wrong arity, bad command name and so forth. */
-    c->cmd = c->lastcmd = lookupCommand(c->argv[0]->ptr);
+    c->cmd = c->lastcmd = lookupCommand(c->argv,c->argc);
     if (!c->cmd) {
-        sds args = sdsempty();
-        int i;
-        for (i=1; i < c->argc && sdslen(args) < 128; i++)
-            args = sdscatprintf(args, "`%.*s`, ", 128-(int)sdslen(args), (char*)c->argv[i]->ptr);
-        rejectCommandFormat(c,"unknown command `%s`, with args beginning with: %s",
-            (char*)c->argv[0]->ptr, args);
-        sdsfree(args);
+        if (lookupCommandBySds(c->argv[0]->ptr)) {
+            /* If we can't find the command but argv[0] by itself is a command
+             * it means we're dealing with an invalid subcommand. Print Help. */
+            addReplySubcommandSyntaxError(c);
+        } else {
+            sds args = sdsempty();
+            int i;
+            for (i=1; i < c->argc && sdslen(args) < 128; i++)
+                args = sdscatprintf(args, "'%.*s' ", 128-(int)sdslen(args), (char*)c->argv[i]->ptr);
+            rejectCommandFormat(c,"unknown command '%s', with args beginning with: %s",
+                (char*)c->argv[0]->ptr, args);
+            sdsfree(args);
+        }
         return C_OK;
     } else if ((c->cmd->arity > 0 && c->cmd->arity != c->argc) ||
-               (c->argc < -c->cmd->arity)) {
-        rejectCommandFormat(c,"wrong number of arguments for '%s' command",
+               (c->argc < -c->cmd->arity))
+    {
+        rejectCommandFormat(c,"wrong number of arguments for '%s' command or subcommand",
             c->cmd->name);
         return C_OK;
     }
@@ -5012,6 +5598,9 @@ void addReplyFlagsForCommand(client *c, struct redisCommand *cmd) {
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_FAST, "fast");
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_NO_AUTH, "no_auth");
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_MAY_REPLICATE, "may_replicate");
+    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_CONTAINER, "container");
+    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_SENTINEL, "sentinel");
+    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_ONLY_SENTINEL, "only-sentinel");
     if (cmd->movablekeys) {
         addReplyStatus(c, "movablekeys");
         flagcount += 1;
@@ -5116,8 +5705,26 @@ void addReplyCommandKeyArgs(client *c, struct redisCommand *cmd) {
     }
 }
 
+void addReplyCommand(client *c, struct redisCommand *cmd);
+
+void addReplyCommandSubCommands(client *c, struct redisCommand *cmd) {
+    if (!cmd->subcommands_dict) {
+        addReplySetLen(c, 0);
+        return;
+    }
+
+    addReplySetLen(c, dictSize(cmd->subcommands_dict));
+    dictEntry *de;
+    dictIterator *di = dictGetSafeIterator(cmd->subcommands_dict);
+    while((de = dictNext(di)) != NULL) {
+        struct redisCommand *sub = (struct redisCommand *)dictGetVal(de);
+        addReplyCommand(c,sub);
+    }
+    dictReleaseIterator(di);
+}
+
 /* Output the representation of a Redis command. Used by the COMMAND command. */
-void addReplyCommand(client *c, struct redisCommand *cmd) {
+void addReplyCommandLegacy(client *c, struct redisCommand *cmd) {
     if (!cmd) {
         addReplyNull(c);
     } else {
@@ -5129,8 +5736,8 @@ void addReplyCommand(client *c, struct redisCommand *cmd) {
                 lastkey += firstkey;
             keystep = cmd->legacy_range_key_spec.fk.range.keystep;
         }
-        /* We are adding: command name, arg count, flags, first, last, offset, categories, key args */
-        addReplyArrayLen(c, 8);
+        /* We are adding: command name, arg count, flags, first, last, offset, categories, key args, subcommands */
+        addReplyArrayLen(c, 7);
         addReplyBulkCString(c, cmd->name);
         addReplyLongLong(c, cmd->arity);
         addReplyFlagsForCommand(c, cmd);
@@ -5138,7 +5745,27 @@ void addReplyCommand(client *c, struct redisCommand *cmd) {
         addReplyLongLong(c, lastkey);
         addReplyLongLong(c, keystep);
         addReplyCommandCategories(c,cmd);
+    }
+}
+
+/* Output the representation of a Redis command. Used by the COMMANDS command. */
+void addReplyCommand(client *c, struct redisCommand *cmd) {
+    if (!cmd) {
+        addReplyNull(c);
+    } else {
+        addReplyMapLen(c, 6);
+        addReplyBulkCString(c, "name");
+        addReplyBulkCString(c, cmd->name);
+        addReplyBulkCString(c, "arity");
+        addReplyLongLong(c, cmd->arity);
+        addReplyBulkCString(c, "flags");
+        addReplyFlagsForCommand(c, cmd);
+        addReplyBulkCString(c, "acl");
+        addReplyCommandCategories(c,cmd);
+        addReplyBulkCString(c, "keys");
         addReplyCommandKeyArgs(c,cmd);
+        addReplyBulkCString(c, "subcommands");
+        addReplyCommandSubCommands(c,cmd);
     }
 }
 
@@ -5164,19 +5791,91 @@ NULL
         addReplyArrayLen(c, dictSize(server.commands));
         di = dictGetIterator(server.commands);
         while ((de = dictNext(di)) != NULL) {
-            addReplyCommand(c, dictGetVal(de));
+            addReplyCommandLegacy(c, dictGetVal(de));
         }
         dictReleaseIterator(di);
     } else if (!strcasecmp(c->argv[1]->ptr, "info")) {
         int i;
         addReplyArrayLen(c, c->argc-2);
         for (i = 2; i < c->argc; i++) {
-            addReplyCommand(c, dictFetchValue(server.commands, c->argv[i]->ptr));
+            addReplyCommandLegacy(c, lookupCommandBySds(c->argv[i]->ptr));
         }
     } else if (!strcasecmp(c->argv[1]->ptr, "count") && c->argc == 2) {
         addReplyLongLong(c, dictSize(server.commands));
     } else if (!strcasecmp(c->argv[1]->ptr,"getkeys") && c->argc >= 3) {
-        struct redisCommand *cmd = lookupCommand(c->argv[2]->ptr);
+        struct redisCommand *cmd = lookupCommand(c->argv+2,c->argc-2);
+        getKeysResult result = GETKEYS_RESULT_INIT;
+        int j;
+
+        if (!cmd) {
+            addReplyError(c,"Invalid command specified");
+            return;
+        } else if (cmd->getkeys_proc == NULL && cmd->key_specs_num == 0) {
+            addReplyError(c,"The command has no key arguments");
+            return;
+        } else if ((cmd->arity > 0 && cmd->arity != c->argc-2) ||
+                   ((c->argc-2) < -cmd->arity))
+        {
+            addReplyError(c,"Invalid number of arguments specified for command");
+            return;
+        }
+
+        if (!getKeysFromCommand(cmd,c->argv+2,c->argc-2,&result)) {
+            addReplyError(c,"Invalid arguments specified for command");
+        } else {
+            addReplyArrayLen(c,result.numkeys);
+            for (j = 0; j < result.numkeys; j++) addReplyBulk(c,c->argv[result.keys[j]+2]);
+        }
+        getKeysFreeResult(&result);
+    } else {
+        addReplySubcommandSyntaxError(c);
+    }
+}
+
+/* COMMANDS <subcommand> <args> */
+void commandsCommand(client *c) {
+    dictIterator *di;
+    dictEntry *de;
+
+    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
+        const char *help[] = {
+"COUNT",
+"    Return the total number of commands in this Redis server.",
+"LIST",
+"    Return a list of all commands in this Redis server.",
+"INFO [<command-name> ...]",
+"    Return details about multiple Redis commands. If no specific commands were given, information about all commands will be provided.",
+"GETKEYS <full-command>",
+"    Return the keys from a full Redis command.",
+NULL
+        };
+        addReplyHelp(c, help);
+    } else if (!strcasecmp(c->argv[1]->ptr, "info")) {
+        if (c->argc > 2) {
+            addReplyArrayLen(c, c->argc-2);
+            for (int i = 2; i < c->argc; i++) {
+                addReplyCommand(c, lookupCommandBySds(c->argv[i]->ptr));
+            }
+        } else {
+            addReplyArrayLen(c, dictSize(server.commands));
+            di = dictGetIterator(server.commands);
+            while ((de = dictNext(di)) != NULL) {
+                addReplyCommand(c, dictGetVal(de));
+            }
+            dictReleaseIterator(di);
+        }
+    } else if (!strcasecmp(c->argv[1]->ptr, "count") && c->argc == 2) {
+        addReplyLongLong(c, dictSize(server.commands));
+    } else if (!strcasecmp(c->argv[1]->ptr, "list") && c->argc == 2) {
+        addReplyArrayLen(c, dictSize(server.commands));
+        di = dictGetIterator(server.commands);
+        while ((de = dictNext(di)) != NULL) {
+            struct redisCommand *cmd = dictGetVal(de);
+            addReplyBulkCString(c,cmd->name);
+        }
+        dictReleaseIterator(di);
+    } else if (!strcasecmp(c->argv[1]->ptr,"getkeys") && c->argc >= 3) {
+        struct redisCommand *cmd = lookupCommand(c->argv+2,c->argc-2);
         getKeysResult result = GETKEYS_RESULT_INIT;
         int j;
 
@@ -5234,6 +5933,14 @@ void bytesToHuman(char *s, unsigned long long n) {
     }
 }
 
+sds getFullCommandName(struct redisCommand *cmd) {
+    if (!cmd->parent) {
+        return sdsnew(cmd->name);
+    } else {
+        return sdscatfmt(sdsempty(),"%s|%s",cmd->parent->name,cmd->name);
+    }
+}
+
 /* Characters we sanitize on INFO output to maintain expected format. */
 static char unsafe_info_chars[] = "#:\n\r";
 static char unsafe_info_chars_substs[] = "____";   /* Must be same length as above */
@@ -5251,6 +5958,39 @@ const char *getSafeInfoString(const char *s, size_t len, char **tmp) {
     new[len] = '\0';
     return memmapchars(new, len, unsafe_info_chars, unsafe_info_chars_substs,
                        sizeof(unsafe_info_chars)-1);
+}
+
+sds genRedisInfoStringCommandStats(dict *commands) {
+    sds info = sdsempty();
+
+    struct redisCommand *c;
+    dictEntry *de;
+    dictIterator *di;
+    di = dictGetSafeIterator(commands);
+    while((de = dictNext(di)) != NULL) {
+        char *tmpsafe;
+        c = (struct redisCommand *) dictGetVal(de);
+        if (c->calls || c->failed_calls || c->rejected_calls) {
+            sds cmdnamesds = getFullCommandName(c);
+
+            info = sdscatprintf(info,
+                "cmdstat_%s:calls=%lld,usec=%lld,usec_per_call=%.2f"
+                ",rejected_calls=%lld,failed_calls=%lld\r\n",
+                getSafeInfoString(cmdnamesds, sdslen(cmdnamesds), &tmpsafe), c->calls, c->microseconds,
+                (c->calls == 0) ? 0 : ((float)c->microseconds/c->calls),
+                c->rejected_calls, c->failed_calls);
+            if (tmpsafe != NULL) zfree(tmpsafe);
+            sdsfree(cmdnamesds);
+        }
+        if (c->subcommands_dict) {
+            sds subinfo = genRedisInfoStringCommandStats(c->subcommands_dict);
+            info = sdscatsds(info,subinfo);
+            sdsfree(subinfo);
+        }
+    }
+    dictReleaseIterator(di);
+
+    return info;
 }
 
 /* Create the string returned by the INFO command. This is decoupled
@@ -5917,25 +6657,9 @@ sds genRedisInfoString(const char *section) {
     if (allsections || !strcasecmp(section,"commandstats")) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Commandstats\r\n");
-
-        struct redisCommand *c;
-        dictEntry *de;
-        dictIterator *di;
-        di = dictGetSafeIterator(server.commands);
-        while((de = dictNext(di)) != NULL) {
-            char *tmpsafe;
-            c = (struct redisCommand *) dictGetVal(de);
-            if (!c->calls && !c->failed_calls && !c->rejected_calls)
-                continue;
-            info = sdscatprintf(info,
-                "cmdstat_%s:calls=%lld,usec=%lld,usec_per_call=%.2f"
-                ",rejected_calls=%lld,failed_calls=%lld\r\n",
-                getSafeInfoString(c->name, strlen(c->name), &tmpsafe), c->calls, c->microseconds,
-                (c->calls == 0) ? 0 : ((float)c->microseconds/c->calls),
-                c->rejected_calls, c->failed_calls);
-            if (tmpsafe != NULL) zfree(tmpsafe);
-        }
-        dictReleaseIterator(di);
+        sds cmdstats = genRedisInfoStringCommandStats(server.commands);
+        info = sdscatsds(info,cmdstats);
+        sdsfree(cmdstats);
     }
     /* Error statistics */
     if (allsections || defsections || !strcasecmp(section,"errorstats")) {
@@ -5996,6 +6720,11 @@ sds genRedisInfoString(const char *section) {
 }
 
 void infoCommand(client *c) {
+    if (server.sentinel_mode) {
+        sentinelInfoCommand(c);
+        return;
+    }
+
     char *section = c->argc == 2 ? c->argv[1]->ptr : "default";
 
     if (c->argc > 2) {

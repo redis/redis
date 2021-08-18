@@ -459,7 +459,7 @@ start_server {tags {"acl external:skip"}} {
 
     test {ACL HELP should not have unexpected options} {
         catch {r ACL help xxx} e
-        assert_match "*Unknown subcommand or wrong number of arguments*" $e
+        assert_match "*wrong number of arguments*" $e
     }
 
     test {Delete a user that the client doesn't use} {
