@@ -1093,6 +1093,7 @@ static void *getMcontextEip(ucontext_t *uc) {
 #else
     NOT_SUPPORTED();
 #endif
+#undef NOT_SUPPORTED
 }
 
 void logStackContent(void **sp) {
@@ -1341,7 +1342,7 @@ void logRegisters(ucontext_t *uc) {
 		      );
 	      logStackContent((void**)uc->uc_mcontext.arm_sp);
     #else
-	NOT_SUPPRTED();
+	NOT_SUPPORTED();
     #endif
 #elif defined(__FreeBSD__)
     #if defined(__x86_64__)
@@ -1398,7 +1399,7 @@ void logRegisters(ucontext_t *uc) {
     );
     logStackContent((void**)uc->uc_mcontext.mc_esp);
     #else
-    NOT_SUPPRTED();
+    NOT_SUPPORTED();
     #endif
 #elif defined(__OpenBSD__)
     #if defined(__x86_64__)
@@ -1455,7 +1456,7 @@ void logRegisters(ucontext_t *uc) {
     );
     logStackContent((void**)uc->sc_esp);
     #else
-    NOT_SUPPRTED();
+    NOT_SUPPORTED();
     #endif
 #elif defined(__NetBSD__)
     #if defined(__x86_64__)
@@ -1510,7 +1511,7 @@ void logRegisters(ucontext_t *uc) {
         (unsigned long) uc->uc_mcontext.__gregs[_REG_GS]
     );
     #else
-    NOT_SUPPRTED();
+    NOT_SUPPORTED();
     #endif
 #elif defined(__DragonFly__)
     serverLog(LL_WARNING,
@@ -1542,8 +1543,9 @@ void logRegisters(ucontext_t *uc) {
     );
     logStackContent((void**)uc->uc_mcontext.mc_rsp);
 #else
-    NOT_SUPPRTED();
+    NOT_SUPPORTED();
 #endif
+#undef NOT_SUPPORTED
 }
 
 #endif /* HAVE_BACKTRACE */
