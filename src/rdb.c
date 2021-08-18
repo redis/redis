@@ -1521,7 +1521,7 @@ robj *rdbLoadCheckModuleValue(rio *rdb, char *modulename) {
 /* callback for hashZiplistConvertAndValidateIntegrity.
  * Check that the ziplist doesn't have duplicate hash field names.
  * The ziplist element pointed by 'p' will be converted and stored into listpack. */
-static int _ziplistPairsEntryConvertAndValidation(unsigned char *p, unsigned int head_count, void *userdata) {
+static int _ziplistPairsEntryConvertAndValidate(unsigned char *p, unsigned int head_count, void *userdata) {
     unsigned char *str;
     unsigned int slen;
     long long vll;
@@ -1572,7 +1572,7 @@ int ziplistPairsConvertAndValidateIntegrity(unsigned char *zl, size_t size, unsi
         unsigned char **lp;
     } data = {0, NULL, lp};
 
-    int ret = ziplistValidateIntegrity(zl, size, 1, _ziplistPairsEntryConvertAndValidation, &data);
+    int ret = ziplistValidateIntegrity(zl, size, 1, _ziplistPairsEntryConvertAndValidate, &data);
 
     /* make sure we have an even number of records. */
     if (data.count & 1)
