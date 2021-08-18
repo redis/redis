@@ -2654,7 +2654,6 @@ void initServerConfig(void) {
     server.tlsfd.count = 0;
     server.sofd = -1;
     server.active_expire_enabled = 1;
-    packed_threshold = 1 << 30;
     server.skip_checksum_validation = 0;
     server.saveparams = NULL;
     server.loading = 0;
@@ -2768,6 +2767,7 @@ void initServerConfig(void) {
      * Redis 5. However it is possible to revert it via redis.conf. */
     server.lua_always_replicate_commands = 1;
 
+    quicklistisSetPackedThreshold(1 << 30);
     initConfigValues();
 }
 

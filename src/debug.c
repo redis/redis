@@ -460,6 +460,10 @@ void debugCommand(client *c) {
 "    Setting it to 0 disables expiring keys in background when they are not",
 "    accessed (otherwise the Redis behavior). Setting it to 1 reenables back the",
 "    default.",
+"QUICKLIST_PACKED_THRESHOLD <size>",
+"    Setting the size of elements that will be insertes as large element",
+"    Default value is 4gb, allowed value is smaller then that",
+"    For example 1Gb",
 "SET-SKIP-CHECKSUM-VALIDATION <0|1>",
 "    Enables or disables checksum checks for RDB files and RESTORE's payload.",
 "SLEEP <seconds>",
@@ -791,11 +795,46 @@ NULL
     {
         server.active_expire_enabled = atoi(c->argv[2]->ptr);
         addReply(c,shared.ok);
-    } else if (!strcasecmp(c->argv[1]->ptr,"packed_threshold") &&
+    } else if (!strcasecmp(c->argv[1]->ptr,"quicklist_packed_threshold") &&
     c->argc == 3)
     {
-        packed_threshold = atoi(c->argv[2]->ptr);
-        addReply(c,shared.ok); //fridapacked_threshold
+        int memerr;
+        printf("itay1 - c->argv[2]->ptr=%s\n", (char*)c->argv[2]->ptr);
+        long long int sz = memtoll(c->argv[2]->ptr, &memerr);
+
+        size_t sz2 = 1 << 30;
+
+        printf("itay2 memerr=%d sz=%lld sz2=%ld\n", memerr, sz, sz2);
+        if (memerr || sz < 0 || sz > 4294967296) {
+            //printf("itay3\n");
+            //sds errstr = sdsnewlen("-",1);
+            //printf("itay4\n");
+            //errstr = sdscatsds(errstr,c->argv[2]->ptr);
+            //printf("itay5\n");
+            //errstr = sdscatsds(errstr,"argument must be a memory value bigger then 1 and smaller then 4gb");
+            //printf("itay6\n");
+
+
+            //sds errstr = sdsnewlen("-",1);
+            //errstr = sdscatsds(errstr,c->argv[2]->ptr);
+            //errstr = sdscatsds(errstr,"argument must be a memory value bigger then 1 and smaller then 4gb");
+            //errstr = sdsmapchars(errstr,"\n\r","  ",2); /* no newlines in errors. */
+            //errstr = sdscatlen(errstr,"\r\n",2);
+            //addReplySds(c,errstr);
+
+            //addReplySds(c,errstr);
+
+
+
+            sds errstr = sdsempty();
+
+            errstr = sdscatprintf(errstr, "argument must be a memory value bigger then 1 and smaller then 4gb");
+            addReplyBulkSds(c,errstr);
+
+        } else {
+            quicklistisSetPackedThreshold(sz);
+            addReply(c,shared.ok);
+        }
     } else if (!strcasecmp(c->argv[1]->ptr,"set-skip-checksum-validation") &&
                c->argc == 3)
     {
