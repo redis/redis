@@ -54,9 +54,9 @@ void rdbCheckError(const char *fmt, ...);
 void rdbCheckSetError(const char *fmt, ...);
 
 #ifdef __GNUC__
-void rdbReportError(int corruption_error, int linenum, char *reason, ...) __attribute__ ((format (printf, 3, 4)));
+void rdbReportError(int corruption_error, int linenum, const char *reason, ...) __attribute__ ((format (printf, 3, 4)));
 #endif
-void rdbReportError(int corruption_error, int linenum, char *reason, ...) {
+void rdbReportError(int corruption_error, int linenum, const char *reason, ...) {
     va_list ap;
     char msg[1024];
     int len;
@@ -79,7 +79,7 @@ void rdbReportError(int corruption_error, int linenum, char *reason, ...) {
     } else if (rdbFileBeingLoaded) {
         /* If we're loading an rdb file form disk, run rdb check (and exit) */
         serverLog(LL_WARNING, "%s", msg);
-        char *argv[2] = {"",rdbFileBeingLoaded};
+        const char *argv[2] = {"",rdbFileBeingLoaded};
         redis_check_rdb_main(2,argv,NULL);
     } else if (corruption_error) {
         /* In diskless loading, in case of corrupt file, log and exit. */
@@ -422,14 +422,14 @@ err:
 
 /* Save a string object as [len][data] on disk. If the object is a string
  * representation of an integer value we try to save it in a special form */
-ssize_t rdbSaveRawString(rio *rdb, unsigned char *s, size_t len) {
+ssize_t rdbSaveRawString(rio *rdb, unsigned const char *s, size_t len) {
     int enclen;
     ssize_t n, nwritten = 0;
 
     /* Try integer encoding */
     if (len <= 11) {
         unsigned char buf[5];
-        if ((enclen = rdbTryIntegerEncoding((char*)s,len,buf)) > 0) {
+        if ((enclen = rdbTryIntegerEncoding((const char*)s,len,buf)) > 0) {
             if (rdbWriteRaw(rdb,buf,enclen) == -1) return -1;
             return enclen;
         }
@@ -1113,7 +1113,7 @@ int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime, in
 }
 
 /* Save an AUX field. */
-ssize_t rdbSaveAuxField(rio *rdb, void *key, size_t keylen, void *val, size_t vallen) {
+ssize_t rdbSaveAuxField(rio *rdb, const void *key, size_t keylen, void *val, size_t vallen) {
     ssize_t ret, len = 0;
     if ((ret = rdbSaveType(rdb,RDB_OPCODE_AUX)) == -1) return -1;
     len += ret;
@@ -1126,12 +1126,12 @@ ssize_t rdbSaveAuxField(rio *rdb, void *key, size_t keylen, void *val, size_t va
 
 /* Wrapper for rdbSaveAuxField() used when key/val length can be obtained
  * with strlen(). */
-ssize_t rdbSaveAuxFieldStrStr(rio *rdb, char *key, char *val) {
+ssize_t rdbSaveAuxFieldStrStr(rio *rdb, const char *key, char *val) {
     return rdbSaveAuxField(rdb,key,strlen(key),val,strlen(val));
 }
 
 /* Wrapper for strlen(key) + integer type (up to long long range). */
-ssize_t rdbSaveAuxFieldStrInt(rio *rdb, char *key, long long val) {
+ssize_t rdbSaveAuxFieldStrInt(rio *rdb, const char *key, long long val) {
     char buf[LONG_STR_SIZE];
     int vlen = ll2string(buf,sizeof(buf),val);
     return rdbSaveAuxField(rdb,key,strlen(key),buf,vlen);
@@ -1219,7 +1219,7 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
     int j;
     long key_count = 0;
     long long info_updated_time = 0;
-    char *pname = (rdbflags & RDBFLAGS_AOF_PREAMBLE) ? "AOF rewrite" :  "RDB";
+    const char *pname = (rdbflags & RDBFLAGS_AOF_PREAMBLE) ? "AOF rewrite" :  "RDB";
 
     if (server.rdb_checksum)
         rdb->update_cksum = rioGenericUpdateChecksum;

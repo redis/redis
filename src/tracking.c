@@ -152,7 +152,7 @@ int checkPrefixCollisionsOrReply(client *c, robj **prefixes, size_t numprefix) {
 
 /* Set the client 'c' to track the prefix 'prefix'. If the client 'c' is
  * already registered for the specified prefix, no operation is performed. */
-void enableBcastTrackingForPrefix(client *c, char *prefix, size_t plen) {
+void enableBcastTrackingForPrefix(client *c, const char *prefix, size_t plen) {
     bcastState *bs = raxFind(PrefixTable,(unsigned char*)prefix,plen);
     /* If this is the first client subscribing to such prefix, create
      * the prefix in the table. */

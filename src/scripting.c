@@ -101,7 +101,7 @@ struct ldbState {
 void sha1hex(char *digest, char *script, size_t len) {
     SHA1_CTX ctx;
     unsigned char hash[20];
-    char *cset = "0123456789abcdef";
+    const char *cset = "0123456789abcdef";
     int j;
 
     SHA1Init(&ctx);
@@ -375,7 +375,7 @@ static void redisProtocolToLuaType_Double(void *ctx, double d, const char *proto
  * with a single "err" field set to the error string. Note that this
  * table is never a valid reply by proper commands, since the returned
  * tables are otherwise always indexed by integers, never by strings. */
-void luaPushError(lua_State *lua, char *error) {
+void luaPushError(lua_State *lua, const char *error) {
     lua_Debug dbg;
 
     /* If debugging is active and in step mode, log errors resulting from
@@ -632,7 +632,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
      * To make this function reentrant is futile and makes it slower, but
      * we should at least detect such a misuse, and abort. */
     if (inuse) {
-        char *recursion_warning =
+        const char *recursion_warning =
             "luaRedisGenericCommand() recursive call detected. "
             "Are you doing funny stuff with Lua debug hooks?";
         serverLog(LL_WARNING,"%s",recursion_warning);
@@ -1005,7 +1005,7 @@ int luaRedisSha1hexCommand(lua_State *lua) {
  * return redis.error_reply("ERR Some Error")
  * return redis.status_reply("ERR Some Error")
  */
-int luaRedisReturnSingleFieldTable(lua_State *lua, char *field) {
+int luaRedisReturnSingleFieldTable(lua_State *lua, const char *field) {
     if (lua_gettop(lua) != 1 || lua_type(lua,-1) != LUA_TSTRING) {
         luaPushError(lua, "wrong number or type of arguments");
         return 1;
@@ -1208,7 +1208,7 @@ void luaRemoveUnsupportedFunctions(lua_State *lua) {
  * It should be the last to be called in the scripting engine initialization
  * sequence, because it may interact with creation of globals. */
 void scriptingEnableGlobalsProtection(lua_State *lua) {
-    char *s[32];
+    const char *s[32];
     sds code = sdsempty();
     int j = 0;
 
@@ -1383,7 +1383,7 @@ void scriptingInit(int setup) {
     /* Add a helper function that we use to sort the multi bulk output of non
      * deterministic commands, when containing 'false' elements. */
     {
-        char *compare_func =    "function __redis__compare_helper(a,b)\n"
+        const char *compare_func =    "function __redis__compare_helper(a,b)\n"
                                 "  if a == false then a = '' end\n"
                                 "  if b == false then b = '' end\n"
                                 "  return a<b\n"
@@ -1397,7 +1397,7 @@ void scriptingInit(int setup) {
      * information about the caller, that's what makes sense from the point
      * of view of the user debugging a script. */
     {
-        char *errh_func =       "local dbg = debug\n"
+        const char *errh_func = "local dbg = debug\n"
                                 "function __redis__err__handler(err)\n"
                                 "  local i = dbg.getinfo(2,'nSl')\n"
                                 "  if i and i.what == 'C' then\n"
@@ -1451,7 +1451,7 @@ void scriptingReset(int async) {
 
 /* Set an array of Redis String Objects as a Lua array (table) stored into a
  * global variable. */
-void luaSetGlobalArray(lua_State *lua, char *var, robj **elev, int elec) {
+void luaSetGlobalArray(lua_State *lua, const char *var, robj **elev, int elec) {
     int j;
 
     lua_newtable(lua);
@@ -2198,7 +2198,7 @@ void evalGenericCommandWithDebugging(client *c, int evalsha) {
 
 /* Return a pointer to ldb.src source code line, considering line to be
  * one-based, and returning a special string for out of range lines. */
-char *ldbGetSourceLine(int line) {
+const char *ldbGetSourceLine(int line) {
     int idx = line-1;
     if (idx < 0 || idx >= ldb.lines) return "<out of range source code line>";
     return ldb.src[idx];
@@ -2291,8 +2291,8 @@ protoerr:
 
 /* Log the specified line in the Lua debugger output. */
 void ldbLogSourceLine(int lnum) {
-    char *line = ldbGetSourceLine(lnum);
-    char *prefix;
+    const char *line = ldbGetSourceLine(lnum);
+    const char *prefix;
     int bp = ldbIsBreakpoint(lnum);
     int current = ldb.currentline == lnum;
 
@@ -2398,7 +2398,7 @@ sds ldbCatStackValueRec(sds s, lua_State *lua, int idx, int level) {
     case LUA_TLIGHTUSERDATA:
         {
         const void *p = lua_topointer(lua,idx);
-        char *typename = "unknown";
+        const char *typename = "unknown";
         if (t == LUA_TFUNCTION) typename = "function";
         else if (t == LUA_TUSERDATA) typename = "userdata";
         else if (t == LUA_TTHREAD) typename = "thread";
@@ -2422,7 +2422,7 @@ sds ldbCatStackValue(sds s, lua_State *lua, int idx) {
 /* Produce a debugger log entry representing the value of the Lua object
  * currently on the top of the stack. The element is not popped nor modified.
  * Check ldbCatStackValue() for the actual implementation. */
-void ldbLogStackValue(lua_State *lua, char *prefix) {
+void ldbLogStackValue(lua_State *lua, const char *prefix) {
     sds s = sdsnew(prefix);
     s = ldbCatStackValue(s,lua,-1);
     ldbLogWithMaxLen(s);
@@ -2911,7 +2911,7 @@ void luaLdbLineHook(lua_State *lua, lua_Debug *ar) {
     }
 
     if (ldb.step || bp) {
-        char *reason = "step over";
+        const char *reason = "step over";
         if (bp) reason = ldb.luabp ? "redis.breakpoint() called" :
                                      "break point";
         else if (timeout) reason = "timeout reached, infinite loop?";

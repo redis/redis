@@ -274,7 +274,7 @@ char *redisGitDirty(void);
 static int cliConnect(int force);
 
 static char *getInfoField(char *info, char *field);
-static long getLongInfoField(char *info, char *field);
+static long getLongInfoField(char *info, const char *field);
 
 /*------------------------------------------------------------------------------
  * Utility functions
@@ -332,7 +332,7 @@ static void cliRefreshPrompt(void) {
  * The function returns NULL (if the file is /dev/null or cannot be
  * obtained for some error), or an SDS string that must be freed by
  * the user. */
-static sds getDotfilePath(char *envoverride, char *dotfilename) {
+static sds getDotfilePath(const char *envoverride, const char *dotfilename) {
     char *path = NULL;
     sds dotPath = NULL;
 
@@ -1108,7 +1108,7 @@ sds sdscatcolor(sds o, char *s, size_t len, char *color) {
 /* Colorize Lua debugger status replies according to the prefix they
  * have. */
 sds sdsCatColorizedLdbReply(sds o, char *s, size_t len) {
-    char *color = "white";
+    const char *color = "white";
 
     if (strstr(s,"<debug>")) color = "bold";
     if (strstr(s,"<redis>")) color = "green";
@@ -2004,7 +2004,7 @@ static void usage(int err) {
     exit(err);
 }
 
-static int confirmWithYes(char *msg, int ignore_force) {
+static int confirmWithYes(const char *msg, int ignore_force) {
     /* if --cluster-yes option is set and ignore_force is false,
      * do not prompt for an answer */
     if (!ignore_force &&
@@ -2543,11 +2543,11 @@ static int clusterManagerCommandHelp(int argc, char **argv);
 static int clusterManagerCommandBackup(int argc, char **argv);
 
 typedef struct clusterManagerCommandDef {
-    char *name;
+    const char *name;
     clusterManagerCommandProc *proc;
     int arity;
-    char *args;
-    char *options;
+    const char *args;
+    const char *options;
 } clusterManagerCommandDef;
 
 clusterManagerCommandDef clusterManagerCommands[] = {
@@ -2579,8 +2579,8 @@ clusterManagerCommandDef clusterManagerCommands[] = {
 };
 
 typedef struct clusterManagerOptionDef {
-    char *name;
-    char *desc;
+    const char *name;
+    const char *desc;
 } clusterManagerOptionDef;
 
 clusterManagerOptionDef clusterManagerOptions[] = {
@@ -3143,7 +3143,7 @@ static void clusterManagerOptimizeAntiAffinity(clusterManagerNodeArray *ipnodes,
         maxiter--;
     }
     score = clusterManagerGetAntiAffinityScore(ipnodes, ip_count, NULL, NULL);
-    char *msg;
+    const char *msg;
     int perfect = (score == 0);
     int log_level = (perfect ? CLUSTER_MANAGER_LOG_LVL_SUCCESS :
                                CLUSTER_MANAGER_LOG_LVL_WARN);
@@ -3319,7 +3319,7 @@ static sds clusterManagerNodeInfo(clusterManagerNode *node, int indent) {
     for (i = 0; i < indent; i++) spaces = sdscat(spaces, " ");
     if (indent) info = sdscat(info, spaces);
     int is_master = !(node->flags & CLUSTER_MANAGER_FLAG_SLAVE);
-    char *role = (is_master ? "M" : "S");
+    const char *role = (is_master ? "M" : "S");
     sds slots = NULL;
     if (node->dirty && node->replicate != NULL)
         info = sdscatfmt(info, "S: %S %s:%u", node->name, node->ip, node->port);
@@ -3384,7 +3384,7 @@ static void clusterManagerShowClusterInfo(void) {
             if (reply != NULL && reply->type == REDIS_REPLY_INTEGER)
                 dbsize = reply->integer;
             if (dbsize < 0) {
-                char *err = "";
+                const char *err = "";
                 if (reply != NULL && reply->type == REDIS_REPLY_ERROR)
                     err = reply->str;
                 CLUSTER_MANAGER_PRINT_REPLY_ERROR(node, err);
@@ -3626,7 +3626,7 @@ static int clusterManagerCompareKeysValues(clusterManagerNode *n1,
 {
     size_t i, argc = keys_reply->elements + 2;
     static const char *hash_zero = "0000000000000000000000000000000000000000";
-    char **argv = zcalloc(argc * sizeof(char *));
+    const char **argv = zcalloc(argc * sizeof(char *));
     size_t  *argv_len = zcalloc(argc * sizeof(size_t));
     argv[0] = "DEBUG";
     argv_len[0] = 5;
@@ -3688,7 +3688,7 @@ static redisReply *clusterManagerMigrateKeysInReply(clusterManagerNode *source,
                                                     char *dots)
 {
     redisReply *migrate_reply = NULL;
-    char **argv = NULL;
+    const char **argv = NULL;
     size_t *argv_len = NULL;
     int c = (replace ? 8 : 7);
     if (config.auth) c += 2;
@@ -4958,7 +4958,7 @@ static int clusterManagerFixOpenSlot(int slot) {
             for (int i = 0; i < n->migrating_count; i += 2) {
                 sds migrating_slot = n->migrating[i];
                 if (atoi(migrating_slot) == slot) {
-                    char *sep = (listLength(migrating) == 0 ? "" : ",");
+                    const char *sep = (listLength(migrating) == 0 ? "" : ",");
                     migrating_str = sdscatfmt(migrating_str, "%s%s:%u",
                                               sep, n->ip, n->port);
                     listAddNodeTail(migrating, n);
@@ -4971,7 +4971,7 @@ static int clusterManagerFixOpenSlot(int slot) {
             for (int i = 0; i < n->importing_count; i += 2) {
                 sds importing_slot = n->importing[i];
                 if (atoi(importing_slot) == slot) {
-                    char *sep = (listLength(importing) == 0 ? "" : ",");
+                    const char *sep = (listLength(importing) == 0 ? "" : ",");
                     importing_str = sdscatfmt(importing_str, "%s%s:%u",
                                               sep, n->ip, n->port);
                     listAddNodeTail(importing, n);
@@ -4992,7 +4992,7 @@ static int clusterManagerFixOpenSlot(int slot) {
                 clusterManagerLogWarn("*** Found keys about slot %d "
                                       "in node %s:%d!\n", slot, n->ip,
                                       n->port);
-                char *sep = (listLength(importing) == 0 ? "" : ",");
+                const char *sep = (listLength(importing) == 0 ? "" : ",");
                 importing_str = sdscatfmt(importing_str, "%s%s:%u",
                                           sep, n->ip, n->port);
                 listAddNodeTail(importing, n);
@@ -5303,7 +5303,7 @@ static int clusterManagerCheckCluster(int quiet) {
             for (i = 0; i < n->migrating_count; i += 2) {
                 sds slot = n->migrating[i];
                 dictReplace(open_slots, slot, sdsdup(n->migrating[i + 1]));
-                char *fmt = (i > 0 ? ",%S" : "%S");
+                const char *fmt = (i > 0 ? ",%S" : "%S");
                 errstr = sdscatfmt(errstr, fmt, slot);
             }
             errstr = sdscat(errstr, ".");
@@ -5321,7 +5321,7 @@ static int clusterManagerCheckCluster(int quiet) {
             for (i = 0; i < n->importing_count; i += 2) {
                 sds slot = n->importing[i];
                 dictReplace(open_slots, slot, sdsdup(n->importing[i + 1]));
-                char *fmt = (i > 0 ? ",%S" : "%S");
+                const char *fmt = (i > 0 ? ",%S" : "%S");
                 errstr = sdscatfmt(errstr, fmt, slot);
             }
             errstr = sdscat(errstr, ".");
@@ -5336,7 +5336,7 @@ static int clusterManagerCheckCluster(int quiet) {
         i = 0;
         while ((entry = dictNext(iter)) != NULL) {
             sds slot = (sds) dictGetKey(entry);
-            char *fmt = (i++ > 0 ? ",%S" : "%S");
+            const char *fmt = (i++ > 0 ? ",%S" : "%S");
             errstr = sdscatfmt(errstr, fmt, slot);
         }
         clusterManagerLogErr("%s.\n", (char *) errstr);
@@ -5580,7 +5580,7 @@ static void clusterManagerNodeArrayAdd(clusterManagerNodeArray *array,
 static void clusterManagerPrintNotEmptyNodeError(clusterManagerNode *node,
                                                  char *err)
 {
-    char *msg;
+    const char *msg;
     if (err) msg = err;
     else {
         msg = "is not empty. Either the node already knows other "
@@ -5593,7 +5593,7 @@ static void clusterManagerPrintNotEmptyNodeError(clusterManagerNode *node,
 static void clusterManagerPrintNotClusterNodeError(clusterManagerNode *node,
                                                    char *err)
 {
-    char *msg = (err ? err : "is not configured as a cluster node.");
+    const char *msg = (err ? err : "is not configured as a cluster node.");
     clusterManagerLogErr("[ERR] Node %s:%d %s\n", node->ip, node->port, msg);
 }
 
@@ -6482,7 +6482,7 @@ static int clusterManagerCommandSetTimeout(int argc, char **argv) {
     listRewind(cluster_manager.nodes, &li);
     while ((ln = listNext(&li)) != NULL) {
         clusterManagerNode *n = ln->value;
-        char *err = NULL;
+        const char *err = NULL;
         redisReply *reply = CLUSTER_MANAGER_COMMAND(n, "CONFIG %s %s %d",
                                                     "SET",
                                                     "cluster-node-timeout",
@@ -6521,7 +6521,7 @@ static int clusterManagerCommandImport(int argc, char **argv) {
     int success = 1;
     int port = 0, src_port = 0;
     char *ip = NULL, *src_ip = NULL;
-    char *invalid_args_msg = NULL;
+    const char *invalid_args_msg = NULL;
     sds cmdfmt = NULL;
     if (!getClusterHostFromCmdArgs(argc, argv, &ip, &port)) {
         invalid_args_msg = CLUSTER_MANAGER_INVALID_HOST_ARG;
@@ -6796,7 +6796,7 @@ static int clusterManagerCommandHelp(int argc, char **argv) {
         fprintf(stderr, "%s\n", (def->args ? def->args : ""));
         if (def->options != NULL) {
             int optslen = strlen(def->options);
-            char *p = def->options, *eos = p + optslen;
+            const char *p = def->options, *eos = p + optslen;
             char *comma = NULL;
             while ((comma = strchr(p, ',')) != NULL) {
                 int deflen = (int)(comma - p);
@@ -7514,9 +7514,9 @@ static int getDbSize(void) {
 }
 
 typedef struct {
-    char *name;
-    char *sizecmd;
-    char *sizeunit;
+    const char *name;
+    const char *sizecmd;
+    const char *sizeunit;
     unsigned long long biggest;
     unsigned long long count;
     unsigned long long totalsize;
@@ -7531,7 +7531,7 @@ typeinfo type_zset = { "zset", "ZCARD", "members" };
 typeinfo type_stream = { "stream", "XLEN", "entries" };
 typeinfo type_other = { "other", NULL, "?" };
 
-static typeinfo* typeinfo_add(dict *types, char* name, typeinfo* type_template) {
+static typeinfo* typeinfo_add(dict *types, const char* name, typeinfo* type_template) {
     typeinfo *info = zmalloc(sizeof(typeinfo));
     *info = *type_template;
     info->name = sdsnew(name);
@@ -7947,7 +7947,7 @@ static char *getInfoField(char *info, char *field) {
 
 /* Like the above function but automatically convert the result into
  * a long. On error (missing field) LONG_MIN is returned. */
-static long getLongInfoField(char *info, char *field) {
+static long getLongInfoField(char *info, const char *field) {
     char *value = getInfoField(info,field);
     long l;
 

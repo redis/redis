@@ -982,7 +982,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         /* Filter an element if it isn't the type we want. */
         if (!filter && o == NULL && typename){
             robj* typecheck = lookupKeyReadWithFlags(c->db, kobj, LOOKUP_NOTOUCH);
-            char* type = getObjectTypeName(typecheck);
+            const char* type = getObjectTypeName(typecheck);
             if (strcasecmp((char*) typename, type)) filter = 1;
         }
 
@@ -1043,8 +1043,8 @@ void lastsaveCommand(client *c) {
     addReplyLongLong(c,server.lastsave);
 }
 
-char* getObjectTypeName(robj *o) {
-    char* type;
+const char* getObjectTypeName(robj *o) {
+    const char* type;
     if (o == NULL) {
         type = "none";
     } else {
@@ -1737,7 +1737,7 @@ int sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *
      * next. However there are options with 1 or 2 arguments, so we
      * provide a list here in order to skip the right number of args. */
     struct {
-        char *name;
+        const char *name;
         int skip;
     } skiplist[] = {
         {"limit", 2},

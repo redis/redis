@@ -49,7 +49,7 @@ static sds renderCanvas(lwCanvas *canvas) {
     for (int y = 0; y < canvas->height; y++) {
         for (int x = 0; x < canvas->width; x++) {
             int color = lwGetPixel(canvas,x,y);
-            char *ce; /* Color escape sequence. */
+            const char *ce; /* Color escape sequence. */
 
             /* Note that we set both the foreground and background color.
              * This way we are able to get a more consistent result among

@@ -76,9 +76,10 @@ void logStackTrace(void *eip, int uplevel);
  * "add" digests relative to unordered elements.
  *
  * So digest(a,b,c,d) will be the same of digest(b,a,c,d) */
-void xorDigest(unsigned char *digest, void *ptr, size_t len) {
+void xorDigest(unsigned char *digest, const void *ptr, size_t len) {
     SHA1_CTX ctx;
-    unsigned char hash[20], *s = ptr;
+    unsigned char hash[20];
+    const unsigned char *s = ptr;
     int j;
 
     SHA1Init(&ctx);
@@ -562,7 +563,7 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"object") && c->argc == 3) {
         dictEntry *de;
         robj *val;
-        char *strenc;
+        const char *strenc;
 
         if ((de = dictFind(c->db->dict,c->argv[2]->ptr)) == NULL) {
             addReplyErrorObject(c,shared.nokeyerr);
@@ -1554,7 +1555,7 @@ void closeDirectLogFiledes(int fd) {
 void logStackTrace(void *eip, int uplevel) {
     void *trace[100];
     int trace_size = 0, fd = openDirectLogFiledes();
-    char *msg;
+    const char *msg;
     uplevel++; /* skip this function */
 
     if (fd == -1) return; /* If we can't log there is anything to do. */
@@ -1899,7 +1900,7 @@ void bugReportEnd(int killViaSignal, int sig) {
 
 /* ==================== Logging functions for debugging ===================== */
 
-void serverLogHexDump(int level, char *descr, void *value, size_t len) {
+void serverLogHexDump(int level, const char *descr, void *value, size_t len) {
     char buf[65], *b;
     unsigned char *v = value;
     char charset[] = "0123456789abcdef";

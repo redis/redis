@@ -1846,7 +1846,7 @@ void raxRecursiveShow(int level, int lpad, raxNode *n) {
     }
     raxNode **cp = raxNodeFirstChildPtr(n);
     for (int i = 0; i < numchildren; i++) {
-        char *branch = " `-(%c) ";
+        const char *branch = " `-(%c) ";
         if (numchildren > 1) {
             printf("\n");
             for (int j = 0; j < lpad; j++) putchar(' ');

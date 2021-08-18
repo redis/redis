@@ -3376,7 +3376,7 @@ void InitServerLast() {
 /* Parse the flags string description 'strflags' and set them to the
  * command 'c'. If the flags are all valid C_OK is returned, otherwise
  * C_ERR is returned (yet the recognized flags are set in the command). */
-int populateCommandTableParseFlags(struct redisCommand *c, char *strflags) {
+int populateCommandTableParseFlags(struct redisCommand *c, const char *strflags) {
     int argc;
     sds *argv;
 
@@ -3765,7 +3765,7 @@ void call(client *c, int flags) {
      * unless instructed by the caller not to log. (happens when processing
      * a MULTI-EXEC from inside an AOF). */
     if (flags & CMD_CALL_SLOWLOG) {
-        char *latency_event = (real_cmd->flags & CMD_FAST) ?
+        const char *latency_event = (real_cmd->flags & CMD_FAST) ?
                                "fast-command" : "command";
         latencyAddSampleIfNeeded(latency_event,duration/1000);
     }
@@ -4466,7 +4466,7 @@ void timeCommand(client *c) {
 }
 
 /* Helper function for addReplyCommand() to output flags. */
-int addReplyCommandFlag(client *c, struct redisCommand *cmd, int f, char *reply) {
+int addReplyCommandFlag(client *c, struct redisCommand *cmd, int f, const char *reply) {
     if (cmd->flags & f) {
         addReplyStatus(c, reply);
         return 1;
@@ -4648,8 +4648,8 @@ sds genRedisInfoString(const char *section) {
     if (allsections || defsections || !strcasecmp(section,"server")) {
         static int call_uname = 1;
         static struct utsname name;
-        char *mode;
-        char *supervised;
+        const char *mode;
+        const char *supervised;
 
         if (server.cluster_enabled) mode = "cluster";
         else if (server.sentinel_mode) mode = "sentinel";
@@ -5181,7 +5181,7 @@ sds genRedisInfoString(const char *section) {
             listRewind(server.slaves,&li);
             while((ln = listNext(&li))) {
                 client *slave = listNodeValue(ln);
-                char *state = NULL;
+                const char *state = NULL;
                 char ip[NET_IP_STR_LEN], *slaveip = slave->slave_addr;
                 int port;
                 long lag = 0;
@@ -5354,7 +5354,7 @@ sds genRedisInfoString(const char *section) {
 }
 
 void infoCommand(client *c) {
-    char *section = c->argc == 2 ? c->argv[1]->ptr : "default";
+    const char *section = c->argc == 2 ? c->argv[1]->ptr : "default";
 
     if (c->argc > 2) {
         addReplyErrorObject(c,shared.syntaxerr);
@@ -5626,7 +5626,7 @@ void usage(void) {
 void redisAsciiArt(void) {
 #include "asciilogo.h"
     char *buf = zmalloc(1024*16);
-    char *mode;
+    const char *mode;
 
     if (server.cluster_enabled) mode = "cluster";
     else if (server.sentinel_mode) mode = "sentinel";
@@ -5759,7 +5759,7 @@ int changeListenPort(int port, socketFds *sfd, aeFileProc *accept_handler) {
 }
 
 static void sigShutdownHandler(int sig) {
-    char *msg;
+    const char *msg;
 
     switch (sig) {
     case SIGINT:
@@ -5923,11 +5923,11 @@ int redisFork(int purpose) {
     return childpid;
 }
 
-void sendChildCowInfo(childInfoType info_type, char *pname) {
+void sendChildCowInfo(childInfoType info_type, const char *pname) {
     sendChildInfoGeneric(info_type, 0, -1, pname);
 }
 
-void sendChildInfo(childInfoType info_type, size_t keys, char *pname) {
+void sendChildInfo(childInfoType info_type, size_t keys, const char *pname) {
     sendChildInfoGeneric(info_type, keys, -1, pname);
 }
 
@@ -6123,7 +6123,7 @@ int validateProcTitleTemplate(const char *template) {
     return ok;
 }
 
-int redisSetProcTitle(char *title) {
+int redisSetProcTitle(const char *title) {
 #ifdef USE_SETPROCTITLE
     if (!title) title = server.exec_argv[0];
     sds proc_title = expandProcTitleTemplate(server.proc_title_template, title);

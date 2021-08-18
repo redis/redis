@@ -435,7 +435,7 @@ void afterErrorReply(client *c, const char *s, size_t len) {
      * they are rare and may hint at errors in a script or a bug in Redis. */
     int ctype = getClientType(c);
     if (ctype == CLIENT_TYPE_MASTER || ctype == CLIENT_TYPE_SLAVE || c->id == CLIENT_ID_AOF) {
-        char *to, *from;
+        const char *to, *from;
 
         if (c->id == CLIENT_ID_AOF) {
             to = "AOF-loading-client";
@@ -449,7 +449,7 @@ void afterErrorReply(client *c, const char *s, size_t len) {
         }
 
         if (len > 4096) len = 4096;
-        char *cmdname = c->lastcmd ? c->lastcmd->name : "<unknown>";
+        const char *cmdname = c->lastcmd ? c->lastcmd->name : "<unknown>";
         serverLog(LL_WARNING,"== CRITICAL == This %s is sending an error "
                              "to its %s: '%.*s' after processing the command "
                              "'%s'", from, to, (int)len, s, cmdname);
@@ -1021,7 +1021,7 @@ void clientAcceptHandler(connection *conn) {
         connPeerToString(conn, cip, sizeof(cip)-1, NULL);
 
         if (strcmp(cip,"127.0.0.1") && strcmp(cip,"::1")) {
-            char *err =
+            const char *err =
                 "-DENIED Redis is running in protected mode because protected "
                 "mode is enabled and no password is set for the default user. "
                 "In this mode connections are only accepted from the loopback interface. "
@@ -1079,7 +1079,7 @@ static void acceptCommonHandler(connection *conn, int flags, char *ip) {
     if (listLength(server.clients) + getClusterConnectionsCount()
         >= server.maxclients)
     {
-        char *err;
+        const char *err;
         if (server.cluster_enabled)
             err = "-ERR max number of clients + cluster "
                   "connections reached\r\n";
@@ -3182,7 +3182,7 @@ int getClientTypeByName(char *name) {
     else return -1;
 }
 
-char *getClientTypeName(int class) {
+const char *getClientTypeName(int class) {
     switch(class) {
     case CLIENT_TYPE_NORMAL: return "normal";
     case CLIENT_TYPE_SLAVE:  return "slave";

@@ -3076,7 +3076,7 @@ int clusterGetSlaveRank(void) {
  *
  * The function is guaranteed to be called only if 'myself' is a slave. */
 void clusterLogCantFailover(int reason) {
-    char *msg;
+    const char *msg;
     static time_t lastlog_time = 0;
     mstime_t nolog_fail_time = server.cluster_node_timeout + 5000;
 
@@ -4184,7 +4184,7 @@ void clusterSetMaster(clusterNode *n) {
 
 struct redisNodeFlags {
     uint16_t flag;
-    char *name;
+    const char *name;
 };
 
 static struct redisNodeFlags redisNodeFlagsTable[] = {
@@ -4745,7 +4745,7 @@ NULL
         addReplySds(c,reply);
     } else if (!strcasecmp(c->argv[1]->ptr,"info") && c->argc == 2) {
         /* CLUSTER INFO */
-        char *statestr[] = {"ok","fail","needhelp"};
+        const char *statestr[] = {"ok","fail","needhelp"};
         int slots_assigned = 0, slots_ok = 0, slots_pfail = 0, slots_fail = 0;
         uint64_t myepoch;
         int j;

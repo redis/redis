@@ -205,7 +205,7 @@ struct hllhdr {
 #define HLL_RAW 255 /* Only used internally, never exposed. */
 #define HLL_MAX_ENCODING 1
 
-static char *invalid_hll_err = "-INVALIDOBJ Corrupted HLL object detected";
+static const char *invalid_hll_err = "-INVALIDOBJ Corrupted HLL object detected";
 
 /* =========================== Low level bit macros ========================= */
 
@@ -1564,7 +1564,7 @@ void pfdebugCommand(client *c) {
     }
     /* PFDEBUG ENCODING <key> */
     else if (!strcasecmp(cmd,"encoding")) {
-        char *encodingstr[2] = {"dense","sparse"};
+        const char *encodingstr[2] = {"dense","sparse"};
         if (c->argc != 3) goto arityerr;
 
         addReplyStatus(c,encodingstr[hdr->encoding]);

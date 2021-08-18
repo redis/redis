@@ -868,7 +868,7 @@ void geosearchstoreCommand(client *c) {
  * Returns an array with an 11 characters geohash representation of the
  * position of the specified elements. */
 void geohashCommand(client *c) {
-    char *geoalphabet= "0123456789bcdefghjkmnpqrstuvwxyz";
+    const char *geoalphabet= "0123456789bcdefghjkmnpqrstuvwxyz";
     int j;
 
     /* Look up the requested zset */

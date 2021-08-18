@@ -214,7 +214,7 @@ void execCommand(client *c) {
         int acl_errpos;
         int acl_retval = ACLCheckAllPerm(c,&acl_errpos);
         if (acl_retval != ACL_OK) {
-            char *reason;
+            const char *reason;
             switch (acl_retval) {
             case ACL_DENIED_CMD:
                 reason = "no permission to execute the command or subcommand";
@@ -267,7 +267,7 @@ void execCommand(client *c) {
          * rest was not. We need to make sure to at least terminate the
          * backlog with the final EXEC. */
         if (server.repl_backlog && was_master && !is_master) {
-            char *execcmd = "*1\r\n$4\r\nEXEC\r\n";
+            const char *execcmd = "*1\r\n$4\r\nEXEC\r\n";
             feedReplicationBacklog(execcmd,strlen(execcmd));
         }
         afterPropagateExec();

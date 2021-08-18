@@ -63,7 +63,7 @@ struct {
 #define RDB_CHECK_DOING_READ_AUX 7
 #define RDB_CHECK_DOING_READ_MODULE_AUX 8
 
-char *rdb_check_doing_string[] = {
+const char *rdb_check_doing_string[] = {
     "start",
     "read-type",
     "read-expire",
@@ -75,7 +75,7 @@ char *rdb_check_doing_string[] = {
     "read-module-aux"
 };
 
-char *rdb_type_string[] = {
+const char *rdb_type_string[] = {
     "string",
     "list-linked",
     "set-hashtable",

@@ -1707,7 +1707,7 @@ void zsetTypeRandomElement(robj *zsetobj, unsigned long zsetsize, ziplistEntry *
 
 /* This generic command implements both ZADD and ZINCRBY. */
 void zaddGenericCommand(client *c, int flags) {
-    static char *nanerr = "resulting score is not a number (NaN)";
+    static const char *nanerr = "resulting score is not a number (NaN)";
     robj *key = c->argv[1];
     robj *zobj;
     sds ele;
@@ -1885,7 +1885,7 @@ void zremrangeGenericCommand(client *c, zrange_type rangetype) {
     zrangespec range;
     zlexrangespec lexrange;
     long start, end, llen;
-    char *notify_type = NULL;
+    const char *notify_type = NULL;
 
     /* Step 1: Parse the range. */
     if (rangetype == ZRANGE_RANK) {
@@ -3887,7 +3887,7 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
         server.dirty++;
 
         if (result_count == 0) { /* Do this only for the first iteration. */
-            char *events[2] = {"zpopmin","zpopmax"};
+            const char *events[2] = {"zpopmin","zpopmax"};
             notifyKeyspaceEvent(NOTIFY_ZSET,events[where],key,c->db->id);
             signalModifiedKey(c,c->db,key);
         }

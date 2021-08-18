@@ -713,7 +713,7 @@ void getRandomBytes(unsigned char *p, size_t len) {
  * having run_id == A, and you reconnect and it has run_id == B, you can be
  * sure that it is either a different instance or it was restarted. */
 void getRandomHexChars(char *p, size_t len) {
-    char *charset = "0123456789abcdef";
+    const char *charset = "0123456789abcdef";
     size_t j;
 
     getRandomBytes((unsigned char*)p,len);

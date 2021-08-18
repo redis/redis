@@ -2667,12 +2667,12 @@ int RM_StringSet(RedisModuleKey *key, RedisModuleString *str) {
  * so a RM_StringTruncate() call should be used if there is to enlarge
  * the string, and later call StringDMA() again to get the pointer.
  */
-char *RM_StringDMA(RedisModuleKey *key, size_t *len, int mode) {
+const char *RM_StringDMA(RedisModuleKey *key, size_t *len, int mode) {
     /* We need to return *some* pointer for empty keys, we just return
      * a string literal pointer, that is the advantage to be mapped into
      * a read only memory page, so the module will segfault if a write
      * attempt is performed. */
-    char *emptystring = "<dma-empty-string>";
+    const char *emptystring = "<dma-empty-string>";
     if (key->value == NULL) {
         *len = 0;
         return emptystring;
@@ -8908,7 +8908,7 @@ int moduleUnload(sds name) {
 
     /* Unload the dynamic library. */
     if (dlclose(module->handle) == -1) {
-        char *error = dlerror();
+        const char *error = dlerror();
         if (error == NULL) error = "Unknown error";
         serverLog(LL_WARNING,"Error when trying to close the %s module: %s",
             module->name, error);
@@ -9051,7 +9051,7 @@ NULL
         if (moduleUnload(c->argv[2]->ptr) == C_OK)
             addReply(c,shared.ok);
         else {
-            char *errmsg;
+            const char *errmsg;
             switch(errno) {
             case ENOENT:
                 errmsg = "no such module with that name";

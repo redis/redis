@@ -412,7 +412,7 @@ void printBits(unsigned char *p, unsigned long count) {
  * is multiplied by 'bits'. This is useful for the BITFIELD command. */
 int getBitOffsetFromArgument(client *c, robj *o, uint64_t *offset, int hash, int bits) {
     long long loffset;
-    char *err = "bit offset is not an integer or out of range";
+    const char *err = "bit offset is not an integer or out of range";
     char *p = o->ptr;
     size_t plen = sdslen(p);
     int usehash = 0;
@@ -448,7 +448,7 @@ int getBitOffsetFromArgument(client *c, robj *o, uint64_t *offset, int hash, int
  * On error C_ERR is returned and an error is sent to the client. */
 int getBitfieldTypeFromArgument(client *c, robj *o, int *sign, int *bits) {
     char *p = o->ptr;
-    char *err = "Invalid bitfield type. Use something like i16 u8. Note that u64 is not supported but i64 is.";
+    const char *err = "Invalid bitfield type. Use something like i16 u8. Note that u64 is not supported but i64 is.";
     long long llbits;
 
     if (p[0] == 'i') {
@@ -526,7 +526,7 @@ unsigned char *getObjectReadOnlyString(robj *o, long *len, char *llbuf) {
 /* SETBIT key offset bitvalue */
 void setbitCommand(client *c) {
     robj *o;
-    char *err = "bit is not an integer or out of range";
+    const char *err = "bit is not an integer or out of range";
     uint64_t bitoffset;
     ssize_t byte, bit;
     int byteval, bitval;

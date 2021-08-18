@@ -1048,7 +1048,7 @@ void configGetCommand(client *c) {
     if (stringmatch(pattern,"slaveof",1) ||
         stringmatch(pattern,"replicaof",1))
     {
-        char *optname = stringmatch(pattern,"slaveof",1) ?
+        const char *optname = stringmatch(pattern,"slaveof",1) ?
                         "slaveof" : "replicaof";
         char buf[256];
 
@@ -1411,7 +1411,7 @@ void rewriteConfigNumericalOption(struct rewriteConfigState *state, const char *
 }
 
 /* Rewrite an octal option. */
-void rewriteConfigOctalOption(struct rewriteConfigState *state, char *option, int value, int defvalue) {
+void rewriteConfigOctalOption(struct rewriteConfigState *state, const char *option, int value, int defvalue) {
     int force = value != defvalue;
     sds line = sdscatprintf(sdsempty(),"%s %o",option,value);
 
@@ -1502,7 +1502,7 @@ void rewriteConfigDirOption(struct rewriteConfigState *state) {
 }
 
 /* Rewrite the slaveof option. */
-void rewriteConfigSlaveofOption(struct rewriteConfigState *state, char *option) {
+void rewriteConfigSlaveofOption(struct rewriteConfigState *state, const char *option) {
     sds line;
 
     /* If this is a master, we want all the slaveof config options
@@ -1520,7 +1520,7 @@ void rewriteConfigSlaveofOption(struct rewriteConfigState *state, char *option) 
 /* Rewrite the notify-keyspace-events option. */
 void rewriteConfigNotifykeyspaceeventsOption(struct rewriteConfigState *state) {
     int force = server.notify_keyspace_events != 0;
-    char *option = "notify-keyspace-events";
+    const char *option = "notify-keyspace-events";
     sds line, flags;
 
     flags = keyspaceEventsFlagsToString(server.notify_keyspace_events);
@@ -1534,7 +1534,7 @@ void rewriteConfigNotifykeyspaceeventsOption(struct rewriteConfigState *state) {
 /* Rewrite the client-output-buffer-limit option. */
 void rewriteConfigClientoutputbufferlimitOption(struct rewriteConfigState *state) {
     int j;
-    char *option = "client-output-buffer-limit";
+    const char *option = "client-output-buffer-limit";
 
     for (j = 0; j < CLIENT_TYPE_OBUF_COUNT; j++) {
         int force = (server.client_obuf_limits[j].hard_limit_bytes !=
@@ -1551,7 +1551,7 @@ void rewriteConfigClientoutputbufferlimitOption(struct rewriteConfigState *state
         rewriteConfigFormatMemory(soft,sizeof(soft),
                 server.client_obuf_limits[j].soft_limit_bytes);
 
-        char *typename = getClientTypeName(j);
+        const char *typename = getClientTypeName(j);
         if (!strcmp(typename,"slave")) typename = "replica";
         line = sdscatprintf(sdsempty(),"%s %s %s %s %ld",
                 option, typename, hard, soft,
@@ -1564,7 +1564,7 @@ void rewriteConfigClientoutputbufferlimitOption(struct rewriteConfigState *state
 void rewriteConfigOOMScoreAdjValuesOption(struct rewriteConfigState *state) {
     int force = 0;
     int j;
-    char *option = "oom-score-adj-values";
+    const char *option = "oom-score-adj-values";
     sds line;
 
     line = sdsnew(option);
@@ -1584,7 +1584,7 @@ void rewriteConfigOOMScoreAdjValuesOption(struct rewriteConfigState *state) {
 void rewriteConfigBindOption(struct rewriteConfigState *state) {
     int force = 1;
     sds line, addresses;
-    char *option = "bind";
+    const char *option = "bind";
     int is_default = 0;
 
     /* Compare server.bindaddr with CONFIG_DEFAULT_BINDADDR */

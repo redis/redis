@@ -245,7 +245,7 @@ void pushGenericCommand(client *c, int where, int xx) {
 
     addReplyLongLong(c, listTypeLength(lobj));
 
-    char *event = (where == LIST_HEAD) ? "lpush" : "rpush";
+    const char *event = (where == LIST_HEAD) ? "lpush" : "rpush";
     signalModifiedKey(c,c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_LIST,event,c->argv[1],c->db->id);
 }
@@ -421,7 +421,7 @@ void addListRangeReply(client *c, robj *o, long start, long end, int reverse) {
 
 /* A housekeeping helper for list elements popping tasks. */
 void listElementsRemoved(client *c, robj *key, int where, robj *o, long count) {
-    char *event = (where == LIST_HEAD) ? "lpop" : "rpop";
+    const char *event = (where == LIST_HEAD) ? "lpop" : "rpop";
 
     notifyKeyspaceEvent(NOTIFY_LIST, event, key, c->db->id);
     if (listTypeLength(o) == 0) {
@@ -867,7 +867,7 @@ int serveClientBlockedOnList(client *receiver, robj *key, robj *dstkey, redisDb 
         addReplyBulk(receiver,value);
 
         /* Notify event. */
-        char *event = (wherefrom == LIST_HEAD) ? "lpop" : "rpop";
+        const char *event = (wherefrom == LIST_HEAD) ? "lpop" : "rpop";
         notifyKeyspaceEvent(NOTIFY_LIST,event,key,receiver->db->id);
     } else {
         /* BLMOVE */

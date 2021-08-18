@@ -161,7 +161,7 @@ sds ACLHashPassword(unsigned char *cleartext, size_t len) {
     SHA256_CTX ctx;
     unsigned char hash[SHA256_BLOCK_SIZE];
     char hex[HASH_PASSWORD_LEN];
-    char *cset = "0123456789abcdef";
+    const char *cset = "0123456789abcdef";
 
     sha256_init(&ctx);
     sha256_update(&ctx,(unsigned char*)cleartext,len);
@@ -2160,7 +2160,7 @@ void aclCommand(client *c) {
             addReplyLongLong(c,le->count);
 
             addReplyBulkCString(c,"reason");
-            char *reasonstr;
+            const char *reasonstr;
             switch(le->reason) {
             case ACL_DENIED_CMD: reasonstr="command"; break;
             case ACL_DENIED_KEY: reasonstr="key"; break;
@@ -2171,7 +2171,7 @@ void aclCommand(client *c) {
             addReplyBulkCString(c,reasonstr);
 
             addReplyBulkCString(c,"context");
-            char *ctxstr;
+            const char *ctxstr;
             switch(le->context) {
             case ACL_LOG_CTX_TOPLEVEL: ctxstr="toplevel"; break;
             case ACL_LOG_CTX_MULTI: ctxstr="multi"; break;

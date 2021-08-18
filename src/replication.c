@@ -2061,7 +2061,7 @@ char *sendCommandArgv(connection *conn, int argc, char **argv, size_t *argv_lens
 #define PSYNC_NOT_SUPPORTED 4
 #define PSYNC_TRY_LATER 5
 int slaveTryPartialResynchronization(connection *conn, int read_reply) {
-    char *psync_replid;
+    const char *psync_replid;
     char psync_offset[32];
     sds reply;
 
@@ -2291,7 +2291,7 @@ void syncWithMaster(connection *conn) {
     if (server.repl_state == REPL_STATE_SEND_HANDSHAKE) {
         /* AUTH with the master if required. */
         if (server.masterauth) {
-            char *args[3] = {"AUTH",NULL,NULL};
+            const char *args[3] = {"AUTH",NULL,NULL};
             size_t lens[3] = {4,0,0};
             int argc = 1;
             if (server.masteruser) {
@@ -2835,7 +2835,7 @@ void roleCommand(client *c) {
         }
         setDeferredArrayLen(c,mbcount,slaves);
     } else {
-        char *slavestate = NULL;
+        const char *slavestate = NULL;
 
         addReplyArrayLen(c,5);
         addReplyBulkCBuffer(c,"slave",5);

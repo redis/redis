@@ -290,7 +290,7 @@ sds createLatencyReport(void) {
 
         /* Fork */
         if (!strcasecmp(event,"fork")) {
-            char *fork_quality;
+            const char *fork_quality;
             if (server.stat_fork_rate < 10) {
                 fork_quality = "terrible";
                 advise_better_vm = 1;

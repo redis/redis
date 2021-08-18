@@ -272,7 +272,7 @@ static redisContext *getRedisContext(const char *ip, int port,
         ctx = redisConnectUnix(hostsocket);
     if (ctx == NULL || ctx->err) {
         fprintf(stderr,"Could not connect to Redis at ");
-        char *err = (ctx != NULL ? ctx->errstr : "");
+        const char *err = (ctx != NULL ? ctx->errstr : "");
         if (hostsocket == NULL)
             fprintf(stderr,"%s:%d: %s\n",ip,port,err);
         else
@@ -345,7 +345,7 @@ static redisConfig *getRedisConfig(const char *ip, int port,
         }
         if (reply->type != REDIS_REPLY_ARRAY || reply->elements < 2) goto fail;
         sub_reply = reply->element[1];
-        char *value = sub_reply->str;
+        const char *value = sub_reply->str;
         if (!value) value = "";
         switch (i) {
         case 0: cfg->save = sdsnew(value); break;
@@ -666,7 +666,7 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
  *    for arguments randomization.
  *
  * Even when cloning another client, prefix commands are applied if needed.*/
-static client createClient(char *cmd, size_t len, client from, int thread_id) {
+static client createClient(const char *cmd, size_t len, client from, int thread_id) {
     int j;
     int is_cluster_client = (config.cluster_mode && thread_id >= 0);
     client c = zmalloc(sizeof(struct _client));
@@ -974,7 +974,7 @@ static void startBenchmarkThreads() {
         pthread_join(config.threads[i]->thread, NULL);
 }
 
-static void benchmark(char *title, char *cmd, int len) {
+static void benchmark(const char *title, const char *cmd, int len) {
     client c;
 
     config.title = title;
@@ -1663,7 +1663,7 @@ int showThroughput(struct aeEventLoop *eventLoop, long long id, void *clientData
 
 /* Return true if the named test was selected using the -t command line
  * switch, or if all the tests are selected (no -t passed by user). */
-int test_is_selected(char *name) {
+int test_is_selected(const char *name) {
     char buf[256];
     int l = strlen(name);
 
@@ -1677,7 +1677,8 @@ int test_is_selected(char *name) {
 
 int main(int argc, char **argv) {
     int i;
-    char *data, *cmd, *tag;
+    char *data, *cmd;
+    const char *tag;
     int len;
 
     client c;
@@ -1916,7 +1917,7 @@ int main(int argc, char **argv) {
         }
 
         if (test_is_selected("zadd")) {
-            char *score = "0";
+            const char *score = "0";
             if (config.randomkeys) score = "__rand_int__";
             len = redisFormatCommand(&cmd,
                 "ZADD myzset%s %s element:__rand_int__",tag,score);

@@ -392,7 +392,7 @@ int yesnotoi(char *s);
 void instanceLinkConnectionError(const redisAsyncContext *c);
 const char *sentinelRedisInstanceTypeStr(sentinelRedisInstance *ri);
 void sentinelAbortFailover(sentinelRedisInstance *ri);
-void sentinelEvent(int level, char *type, sentinelRedisInstance *ri, const char *fmt, ...);
+void sentinelEvent(int level, const char *type, sentinelRedisInstance *ri, const char *fmt, ...);
 sentinelRedisInstance *sentinelSelectSlave(sentinelRedisInstance *master);
 void sentinelScheduleScriptExecution(char *path, ...);
 void sentinelStartFailover(sentinelRedisInstance *master);
@@ -691,7 +691,7 @@ sds announceSentinelAddrAndPort(const sentinelAddr *a) {
  *
  *  Any other specifier after "%@" is processed by printf itself.
  */
-void sentinelEvent(int level, char *type, sentinelRedisInstance *ri,
+void sentinelEvent(int level, const char *type, sentinelRedisInstance *ri,
                    const char *fmt, ...) {
     va_list ap;
     char msg[LOG_MAX_LEN];
@@ -1024,7 +1024,7 @@ void sentinelPendingScriptsCommand(client *c) {
  *
  * from/to fields are respectively master -> promoted slave addresses for
  * "start" and "end". */
-void sentinelCallClientReconfScript(sentinelRedisInstance *master, int role, char *state, sentinelAddr *from, sentinelAddr *to) {
+void sentinelCallClientReconfScript(sentinelRedisInstance *master, int role, const char *state, sentinelAddr *from, sentinelAddr *to) {
     char fromport[32], toport[32];
 
     if (master->client_reconfig_script == NULL) return;
@@ -1737,7 +1737,7 @@ void sentinelPropagateDownAfterPeriod(sentinelRedisInstance *master) {
  * we check the one of the master), and map the command that we should send
  * to the set of renamed commands. However, if the command was not renamed,
  * we just return "command" itself. */
-char *sentinelInstanceMapCommand(sentinelRedisInstance *ri, char *command) {
+const char *sentinelInstanceMapCommand(sentinelRedisInstance *ri, const char *command) {
     sds sc = sdsnew(command);
     if (ri->master) ri = ri->master;
     char *retval = dictFetchValue(ri->renamed_commands, sc);
@@ -2371,7 +2371,7 @@ void sentinelSendAuthIfNeeded(sentinelRedisInstance *ri, redisAsyncContext *c) {
  *
  * This makes it possible to list all the sentinel instances connected
  * to a Redis server with CLIENT LIST, grepping for a specific name format. */
-void sentinelSetClientName(sentinelRedisInstance *ri, redisAsyncContext *c, char *type) {
+void sentinelSetClientName(sentinelRedisInstance *ri, redisAsyncContext *c, const char *type) {
     char name[64];
 
     snprintf(name,sizeof(name),"sentinel-%.8s-%s",sentinel.myid,type);
@@ -4158,7 +4158,7 @@ void sentinelInfoCommand(client *c) {
         di = dictGetIterator(sentinel.masters);
         while((de = dictNext(di)) != NULL) {
             sentinelRedisInstance *ri = dictGetVal(de);
-            char *status = "ok";
+            const char *status = "ok";
 
             if (ri->flags & SRI_O_DOWN) status = "odown";
             else if (ri->flags & SRI_S_DOWN) status = "sdown";
