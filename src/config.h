@@ -36,6 +36,7 @@
 
 #ifdef __linux__
 #include <features.h>
+#include <fcntl.h>
 #endif
 
 /* Define redis_fstat to fstat or fstat64() */

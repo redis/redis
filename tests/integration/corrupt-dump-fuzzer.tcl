@@ -99,6 +99,7 @@ foreach sanitize_dump {no yes} {
             r debug set-skip-checksum-validation 1
             set start_time [clock seconds]
             generate_types
+            set dbsize [r dbsize]
             r save
             set cycle 0
             set stat_terminated_in_restore 0
@@ -126,7 +127,7 @@ foreach sanitize_dump {no yes} {
                         set report_and_restart true
                         incr stat_terminated_in_restore
                         write_log_line 0 "corrupt payload: $printable_dump"
-                        if {$sanitize_dump == 1} {
+                        if {$sanitize_dump == yes} {
                             puts "Server crashed in RESTORE with payload: $printable_dump"
                         }
                     }
@@ -142,6 +143,12 @@ foreach sanitize_dump {no yes} {
                         set sent [generate_fuzzy_traffic_on_key "_$k" 1] ;# traffic for 1 second
                         incr stat_traffic_commands_sent [llength $sent]
                         r del "_$k" ;# in case the server terminated, here's where we'll detect it.
+                        if {$dbsize != [r dbsize]} {
+                            puts "unexpected keys"
+                            puts "keys: [r keys *]"
+                            puts $sent
+                            exit 1
+                        }
                     } err ] } {
                         # if the server terminated update stats and restart it
                         set report_and_restart true
@@ -149,7 +156,7 @@ foreach sanitize_dump {no yes} {
                         set by_signal [count_log_message 0 "crashed by signal"]
                         incr stat_terminated_by_signal $by_signal
 
-                        if {$by_signal != 0 || $sanitize_dump == 1 } {
+                        if {$by_signal != 0 || $sanitize_dump == yes} {
                             puts "Server crashed (by signal: $by_signal), with payload: $printable_dump"
                             set print_commands true
                         }
@@ -195,7 +202,7 @@ foreach sanitize_dump {no yes} {
             }
         }
         # if we run sanitization we never expect the server to crash at runtime
-        if { $sanitize_dump == 1} {
+        if {$sanitize_dump == yes} {
             assert_equal $stat_terminated_in_restore 0
             assert_equal $stat_terminated_in_traffic 0
         }

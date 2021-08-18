@@ -30,6 +30,7 @@
 #include "server.h"
 #include "cluster.h"
 #include "atomicvar.h"
+#include "latency.h"
 
 #include <signal.h>
 #include <ctype.h>
@@ -164,24 +165,16 @@ robj *lookupKeyWriteWithFlags(redisDb *db, robj *key, int flags) {
 robj *lookupKeyWrite(redisDb *db, robj *key) {
     return lookupKeyWriteWithFlags(db, key, LOOKUP_NONE);
 }
-static void SentReplyOnKeyMiss(client *c, robj *reply){
-    serverAssert(sdsEncodedObject(reply));
-    sds rep = reply->ptr;
-    if (sdslen(rep) > 1 && rep[0] == '-'){
-        addReplyErrorObject(c, reply);
-    } else {
-        addReply(c,reply);
-    }
-}
+
 robj *lookupKeyReadOrReply(client *c, robj *key, robj *reply) {
     robj *o = lookupKeyRead(c->db, key);
-    if (!o) SentReplyOnKeyMiss(c, reply);
+    if (!o) addReplyOrErrorObject(c, reply);
     return o;
 }
 
 robj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply) {
     robj *o = lookupKeyWrite(c->db, key);
-    if (!o) SentReplyOnKeyMiss(c, reply);
+    if (!o) addReplyOrErrorObject(c, reply);
     return o;
 }
 
@@ -380,7 +373,7 @@ robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {
  * DB index if we want to empty only a single database.
  * The function returns the number of keys removed from the database(s). */
 long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
-                           void(callback)(void*))
+                           void(callback)(dict*))
 {
     long long removed = 0;
     int startdb, enddb;
@@ -422,7 +415,7 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
  * On success the function returns the number of keys removed from the
  * database(s). Otherwise -1 is returned in the specific case the
  * DB number is out of range, and errno is set to EINVAL. */
-long long emptyDb(int dbnum, int flags, void(callback)(void*)) {
+long long emptyDb(int dbnum, int flags, void(callback)(dict*)) {
     int async = (flags & EMPTYDB_ASYNC);
     RedisModuleFlushInfoV1 fi = {REDISMODULE_FLUSHINFO_VERSION,!async,dbnum};
     long long removed = 0;
@@ -470,8 +463,8 @@ dbBackup *backupDb(void) {
     backup->dbarray = zmalloc(sizeof(redisDb)*server.dbnum);
     for (int i=0; i<server.dbnum; i++) {
         backup->dbarray[i] = server.db[i];
-        server.db[i].dict = dictCreate(&dbDictType,NULL);
-        server.db[i].expires = dictCreate(&dbExpiresDictType,NULL);
+        server.db[i].dict = dictCreate(&dbDictType);
+        server.db[i].expires = dictCreate(&dbExpiresDictType);
     }
 
     /* Backup cluster slots to keys map if enable cluster. */
@@ -493,7 +486,7 @@ dbBackup *backupDb(void) {
 
 /* Discard a previously created backup, this can be slow (similar to FLUSHALL)
  * Arguments are similar to the ones of emptyDb, see EMPTYDB_ flags. */
-void discardDbBackup(dbBackup *backup, int flags, void(callback)(void*)) {
+void discardDbBackup(dbBackup *backup, int flags, void(callback)(dict*)) {
     int async = (flags & EMPTYDB_ASYNC);
 
     /* Release main DBs backup . */
@@ -934,7 +927,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         while(intsetGet(o->ptr,pos++,&ll))
             listAddNodeTail(keys,createStringObjectFromLongLong(ll));
         cursor = 0;
-    } else if (o->type == OBJ_HASH || o->type == OBJ_ZSET) {
+    } else if (o->type == OBJ_ZSET) {
         unsigned char *p = ziplistIndex(o->ptr,0);
         unsigned char *vstr;
         unsigned int vlen;
@@ -946,6 +939,18 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
                 (vstr != NULL) ? createStringObject((char*)vstr,vlen) :
                                  createStringObjectFromLongLong(vll));
             p = ziplistNext(o->ptr,p);
+        }
+        cursor = 0;
+    } else if (o->type == OBJ_HASH) {
+        unsigned char *p = lpFirst(o->ptr);
+        unsigned char *vstr;
+        int64_t vlen;
+        unsigned char intbuf[LP_INTBUF_SIZE];
+
+        while(p) {
+            vstr = lpGet(p,&vlen,intbuf);
+            listAddNodeTail(keys, createStringObject((char*)vstr,vlen));
+            p = lpNext(o->ptr,p);
         }
         cursor = 0;
     } else {
@@ -1437,6 +1442,22 @@ long long getExpire(redisDb *db, robj *key) {
     return dictGetSignedIntegerVal(de);
 }
 
+/* Delete the specified expired key and propagate expire. */
+void deleteExpiredKeyAndPropagate(redisDb *db, robj *keyobj) {
+    mstime_t expire_latency;
+    latencyStartMonitor(expire_latency);
+    if (server.lazyfree_lazy_expire)
+        dbAsyncDelete(db,keyobj);
+    else
+        dbSyncDelete(db,keyobj);
+    latencyEndMonitor(expire_latency);
+    latencyAddSampleIfNeeded("expire-del",expire_latency);
+    notifyKeyspaceEvent(NOTIFY_EXPIRED,"expired",keyobj,db->id);
+    signalModifiedKey(NULL, db, keyobj);
+    propagateExpire(db,keyobj,server.lazyfree_lazy_expire);
+    server.stat_expiredkeys++;
+}
+
 /* Propagate expires into slaves and the AOF file.
  * When a key expires in the master, a DEL operation for this key is sent
  * to all the slaves and the AOF file if enabled.
@@ -1541,16 +1562,7 @@ int expireIfNeeded(redisDb *db, robj *key) {
     if (checkClientPauseTimeoutAndReturnIfPaused()) return 1;
 
     /* Delete the key */
-    if (server.lazyfree_lazy_expire) {
-        dbAsyncDelete(db,key);
-    } else {
-        dbSyncDelete(db,key);
-    }
-    server.stat_expiredkeys++;
-    propagateExpire(db,key,server.lazyfree_lazy_expire);
-    notifyKeyspaceEvent(NOTIFY_EXPIRED,
-        "expired",key,db->id);
-    signalModifiedKey(NULL,db,key);
+    deleteExpiredKeyAndPropagate(db,key);
     return 1;
 }
 

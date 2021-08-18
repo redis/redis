@@ -32,6 +32,7 @@
 #include "rand.h"
 #include "cluster.h"
 #include "monotonic.h"
+#include "resp_parser.h"
 
 #include <lua.h>
 #include <lauxlib.h>
@@ -39,14 +40,21 @@
 #include <ctype.h>
 #include <math.h>
 
-char *redisProtocolToLuaType_Int(lua_State *lua, char *reply);
-char *redisProtocolToLuaType_Bulk(lua_State *lua, char *reply);
-char *redisProtocolToLuaType_Status(lua_State *lua, char *reply);
-char *redisProtocolToLuaType_Error(lua_State *lua, char *reply);
-char *redisProtocolToLuaType_Aggregate(lua_State *lua, char *reply, int atype);
-char *redisProtocolToLuaType_Null(lua_State *lua, char *reply);
-char *redisProtocolToLuaType_Bool(lua_State *lua, char *reply, int tf);
-char *redisProtocolToLuaType_Double(lua_State *lua, char *reply);
+static void redisProtocolToLuaType_Int(void *ctx, long long val, const char *proto, size_t proto_len);
+static void redisProtocolToLuaType_BulkString(void *ctx, const char *str, size_t len, const char *proto, size_t proto_len);
+static void redisProtocolToLuaType_NullBulkString(void *ctx, const char *proto, size_t proto_len);
+static void redisProtocolToLuaType_NullArray(void *ctx, const char *proto, size_t proto_len);
+static void redisProtocolToLuaType_Status(void *ctx, const char *str, size_t len, const char *proto, size_t proto_len);
+static void redisProtocolToLuaType_Error(void *ctx, const char *str, size_t len, const char *proto, size_t proto_len);
+static void redisProtocolToLuaType_Array(struct ReplyParser *parser, void *ctx, size_t len, const char *proto);
+static void redisProtocolToLuaType_Map(struct ReplyParser *parser, void *ctx, size_t len, const char *proto);
+static void redisProtocolToLuaType_Set(struct ReplyParser *parser, void *ctx, size_t len, const char *proto);
+static void redisProtocolToLuaType_Null(void *ctx, const char *proto, size_t proto_len);
+static void redisProtocolToLuaType_Bool(void *ctx, int val, const char *proto, size_t proto_len);
+static void redisProtocolToLuaType_Double(void *ctx, double d, const char *proto, size_t proto_len);
+static void redisProtocolToLuaType_BigNumber(void *ctx, const char *str, size_t len, const char *proto, size_t proto_len);
+static void redisProtocolToLuaType_VerbatimString(void *ctx, const char *format, const char *str, size_t len, const char *proto, size_t proto_len);
+static void redisProtocolToLuaType_Attribute(struct ReplyParser *parser, void *ctx, size_t len, const char *proto);
 int redis_math_random (lua_State *L);
 int redis_math_randomseed (lua_State *L);
 void ldbInit(void);
@@ -128,139 +136,238 @@ void sha1hex(char *digest, char *script, size_t len) {
  * error string.
  */
 
-char *redisProtocolToLuaType(lua_State *lua, char* reply) {
-    char *p = reply;
+static const ReplyParserCallbacks DefaultLuaTypeParserCallbacks = {
+    .null_array_callback = redisProtocolToLuaType_NullArray,
+    .bulk_string_callback = redisProtocolToLuaType_BulkString,
+    .null_bulk_string_callback = redisProtocolToLuaType_NullBulkString,
+    .error_callback = redisProtocolToLuaType_Error,
+    .simple_str_callback = redisProtocolToLuaType_Status,
+    .long_callback = redisProtocolToLuaType_Int,
+    .array_callback = redisProtocolToLuaType_Array,
+    .set_callback = redisProtocolToLuaType_Set,
+    .map_callback = redisProtocolToLuaType_Map,
+    .bool_callback = redisProtocolToLuaType_Bool,
+    .double_callback = redisProtocolToLuaType_Double,
+    .null_callback = redisProtocolToLuaType_Null,
+    .big_number_callback = redisProtocolToLuaType_BigNumber,
+    .verbatim_string_callback = redisProtocolToLuaType_VerbatimString,
+    .attribute_callback = redisProtocolToLuaType_Attribute,
+    .error = NULL,
+};
 
-    switch(*p) {
-    case ':': p = redisProtocolToLuaType_Int(lua,reply); break;
-    case '$': p = redisProtocolToLuaType_Bulk(lua,reply); break;
-    case '+': p = redisProtocolToLuaType_Status(lua,reply); break;
-    case '-': p = redisProtocolToLuaType_Error(lua,reply); break;
-    case '*': p = redisProtocolToLuaType_Aggregate(lua,reply,*p); break;
-    case '%': p = redisProtocolToLuaType_Aggregate(lua,reply,*p); break;
-    case '~': p = redisProtocolToLuaType_Aggregate(lua,reply,*p); break;
-    case '_': p = redisProtocolToLuaType_Null(lua,reply); break;
-    case '#': p = redisProtocolToLuaType_Bool(lua,reply,p[1]); break;
-    case ',': p = redisProtocolToLuaType_Double(lua,reply); break;
+void redisProtocolToLuaType(lua_State *lua, char* reply) {
+    ReplyParser parser = {.curr_location = reply, .callbacks = DefaultLuaTypeParserCallbacks};
+
+    parseReply(&parser, lua);
+}
+
+static void redisProtocolToLuaType_Int(void *ctx, long long val, const char *proto, size_t proto_len) {
+    UNUSED(proto);
+    UNUSED(proto_len);
+    if (!ctx) {
+        return;
     }
-    return p;
+
+    lua_State *lua = ctx;
+    lua_pushnumber(lua,(lua_Number)val);
 }
 
-char *redisProtocolToLuaType_Int(lua_State *lua, char *reply) {
-    char *p = strchr(reply+1,'\r');
-    long long value;
-
-    string2ll(reply+1,p-reply-1,&value);
-    lua_pushnumber(lua,(lua_Number)value);
-    return p+2;
-}
-
-char *redisProtocolToLuaType_Bulk(lua_State *lua, char *reply) {
-    char *p = strchr(reply+1,'\r');
-    long long bulklen;
-
-    string2ll(reply+1,p-reply-1,&bulklen);
-    if (bulklen == -1) {
-        lua_pushboolean(lua,0);
-        return p+2;
-    } else {
-        lua_pushlstring(lua,p+2,bulklen);
-        return p+2+bulklen+2;
+static void redisProtocolToLuaType_NullBulkString(void *ctx, const char *proto, size_t proto_len) {
+    UNUSED(proto);
+    UNUSED(proto_len);
+    if (!ctx) {
+        return;
     }
+
+    lua_State *lua = ctx;
+    lua_pushboolean(lua,0);
 }
 
-char *redisProtocolToLuaType_Status(lua_State *lua, char *reply) {
-    char *p = strchr(reply+1,'\r');
+static void redisProtocolToLuaType_NullArray(void *ctx, const char *proto, size_t proto_len) {
+    UNUSED(proto);
+    UNUSED(proto_len);
+    if (!ctx) {
+        return;
+    }
+    lua_State *lua = ctx;
+    lua_pushboolean(lua,0);
+}
+
+
+static void redisProtocolToLuaType_BulkString(void *ctx, const char *str, size_t len, const char *proto, size_t proto_len) {
+    UNUSED(proto);
+    UNUSED(proto_len);
+    if (!ctx) {
+        return;
+    }
+
+    lua_State *lua = ctx;
+    lua_pushlstring(lua,str,len);
+}
+
+static void redisProtocolToLuaType_Status(void *ctx, const char *str, size_t len, const char *proto, size_t proto_len) {
+    UNUSED(proto);
+    UNUSED(proto_len);
+    if (!ctx) {
+        return;
+    }
+
+    lua_State *lua = ctx;
 
     lua_newtable(lua);
     lua_pushstring(lua,"ok");
-    lua_pushlstring(lua,reply+1,p-reply-1);
+    lua_pushlstring(lua,str,len);
     lua_settable(lua,-3);
-    return p+2;
 }
 
-char *redisProtocolToLuaType_Error(lua_State *lua, char *reply) {
-    char *p = strchr(reply+1,'\r');
+static void redisProtocolToLuaType_Error(void *ctx, const char *str, size_t len, const char *proto, size_t proto_len) {
+    UNUSED(proto);
+    UNUSED(proto_len);
+    if (!ctx) {
+        return;
+    }
+
+    lua_State *lua = ctx;
 
     lua_newtable(lua);
     lua_pushstring(lua,"err");
-    lua_pushlstring(lua,reply+1,p-reply-1);
+    lua_pushlstring(lua,str,len);
     lua_settable(lua,-3);
-    return p+2;
 }
 
-char *redisProtocolToLuaType_Aggregate(lua_State *lua, char *reply, int atype) {
-    char *p = strchr(reply+1,'\r');
-    long long mbulklen;
-    int j = 0;
-
-    string2ll(reply+1,p-reply-1,&mbulklen);
-    if (server.lua_client->resp == 2 || atype == '*') {
-        p += 2;
-        if (mbulklen == -1) {
-            lua_pushboolean(lua,0);
-            return p;
-        }
+static void redisProtocolToLuaType_Map(struct ReplyParser *parser, void *ctx, size_t len, const char *proto) {
+    UNUSED(proto);
+    lua_State *lua = ctx;
+    if (lua) {
         lua_newtable(lua);
-        for (j = 0; j < mbulklen; j++) {
-            lua_pushnumber(lua,j+1);
-            p = redisProtocolToLuaType(lua,p);
-            lua_settable(lua,-3);
-        }
-    } else if (server.lua_client->resp == 3) {
-        /* Here we handle only Set and Map replies in RESP3 mode, since arrays
-         * follow the above RESP2 code path. Note that those are represented
-         * as a table with the "map" or "set" field populated with the actual
-         * table representing the set or the map type. */
-        p += 2;
+        lua_pushstring(lua, "map");
         lua_newtable(lua);
-        lua_pushstring(lua,atype == '%' ? "map" : "set");
-        lua_newtable(lua);
-        for (j = 0; j < mbulklen; j++) {
-            p = redisProtocolToLuaType(lua,p);
-            if (atype == '%') {
-                p = redisProtocolToLuaType(lua,p);
-            } else {
-                lua_pushboolean(lua,1);
-            }
-            lua_settable(lua,-3);
-        }
-        lua_settable(lua,-3);
     }
-    return p;
+    for (size_t j = 0; j < len; j++) {
+        parseReply(parser,lua);
+        parseReply(parser,lua);
+        if (lua) lua_settable(lua,-3);
+    }
+    if (lua) lua_settable(lua,-3);
 }
 
-char *redisProtocolToLuaType_Null(lua_State *lua, char *reply) {
-    char *p = strchr(reply+1,'\r');
+static void redisProtocolToLuaType_Set(struct ReplyParser *parser, void *ctx, size_t len, const char *proto) {
+    UNUSED(proto);
+
+    lua_State *lua = ctx;
+    if (lua) {
+        lua_newtable(lua);
+        lua_pushstring(lua, "set");
+        lua_newtable(lua);
+    }
+    for (size_t j = 0; j < len; j++) {
+        parseReply(parser,lua);
+        if (lua) {
+            lua_pushboolean(lua,1);
+            lua_settable(lua,-3);
+        }
+    }
+    if (lua) lua_settable(lua,-3);
+}
+
+static void redisProtocolToLuaType_Array(struct ReplyParser *parser, void *ctx, size_t len, const char *proto) {
+    UNUSED(proto);
+
+    lua_State *lua = ctx;
+    if (lua) lua_newtable(lua);
+    for (size_t j = 0; j < len; j++) {
+        if (lua) lua_pushnumber(lua,j+1);
+        parseReply(parser,lua);
+        if (lua) lua_settable(lua,-3);
+    }
+}
+
+static void redisProtocolToLuaType_Attribute(struct ReplyParser *parser, void *ctx, size_t len, const char *proto) {
+    UNUSED(proto);
+
+    /* Parse the attribute reply.
+     * Currently, we do not expose the attribute to the Lua script so
+     * we just need to continue parsing and ignore it (the NULL ensures that the
+     * reply will be ignored). */
+    for (size_t j = 0; j < len; j++) {
+        parseReply(parser,NULL);
+        parseReply(parser,NULL);
+    }
+
+    /* Parse the reply itself. */
+    parseReply(parser,ctx);
+}
+
+static void redisProtocolToLuaType_VerbatimString(void *ctx, const char *format, const char *str, size_t len, const char *proto, size_t proto_len) {
+    UNUSED(proto);
+    UNUSED(proto_len);
+    if (!ctx) {
+        return;
+    }
+
+    lua_State *lua = ctx;
+
+    lua_newtable(lua);
+    lua_pushstring(lua,"verbatim_string");
+    lua_newtable(lua);
+    lua_pushstring(lua,"string");
+    lua_pushlstring(lua,str,len);
+    lua_settable(lua,-3);
+    lua_pushstring(lua,"format");
+    lua_pushlstring(lua,format,3);
+    lua_settable(lua,-3);
+    lua_settable(lua,-3);
+}
+
+static void redisProtocolToLuaType_BigNumber(void *ctx, const char *str, size_t len, const char *proto, size_t proto_len) {
+    UNUSED(proto);
+    UNUSED(proto_len);
+    if (!ctx) {
+        return;
+    }
+
+    lua_State *lua = ctx;
+
+    lua_newtable(lua);
+    lua_pushstring(lua,"big_number");
+    lua_pushlstring(lua,str,len);
+    lua_settable(lua,-3);
+}
+
+static void redisProtocolToLuaType_Null(void *ctx, const char *proto, size_t proto_len) {
+    UNUSED(proto);
+    UNUSED(proto_len);
+    if (!ctx) {
+        return;
+    }
+
+    lua_State *lua = ctx;
     lua_pushnil(lua);
-    return p+2;
 }
 
-char *redisProtocolToLuaType_Bool(lua_State *lua, char *reply, int tf) {
-    char *p = strchr(reply+1,'\r');
-    lua_pushboolean(lua,tf == 't');
-    return p+2;
-}
-
-char *redisProtocolToLuaType_Double(lua_State *lua, char *reply) {
-    char *p = strchr(reply+1,'\r');
-    char buf[MAX_LONG_DOUBLE_CHARS+1];
-    size_t len = p-reply-1;
-    double d;
-
-    if (len <= MAX_LONG_DOUBLE_CHARS) {
-        memcpy(buf,reply+1,len);
-        buf[len] = '\0';
-        d = strtod(buf,NULL); /* We expect a valid representation. */
-    } else {
-        d = 0;
+static void redisProtocolToLuaType_Bool(void *ctx, int val, const char *proto, size_t proto_len) {
+    UNUSED(proto);
+    UNUSED(proto_len);
+    if (!ctx) {
+        return;
     }
 
+    lua_State *lua = ctx;
+    lua_pushboolean(lua,val);
+}
+
+static void redisProtocolToLuaType_Double(void *ctx, double d, const char *proto, size_t proto_len) {
+    UNUSED(proto);
+    UNUSED(proto_len);
+    if (!ctx) {
+        return;
+    }
+
+    lua_State *lua = ctx;
     lua_newtable(lua);
     lua_pushstring(lua,"double");
     lua_pushnumber(lua,d);
     lua_settable(lua,-3);
-    return p+2;
 }
 
 /* This function is used in order to push an error on the Lua stack in the
@@ -395,6 +502,43 @@ void luaReplyToRedisReply(client *c, lua_State *lua) {
             addReplyDouble(c,lua_tonumber(lua,-1));
             lua_pop(lua,2);
             return;
+        }
+        lua_pop(lua,1); /* Discard field name pushed before. */
+
+        /* Handle big number reply. */
+        lua_pushstring(lua,"big_number");
+        lua_gettable(lua,-2);
+        t = lua_type(lua,-1);
+        if (t == LUA_TSTRING) {
+            addReplyBigNum(c,(char*)lua_tostring(lua,-1),lua_strlen(lua,-1));
+            lua_pop(lua,2);
+            return;
+        }
+        lua_pop(lua,1); /* Discard field name pushed before. */
+
+        /* Handle verbatim reply. */
+        lua_pushstring(lua,"verbatim_string");
+        lua_gettable(lua,-2);
+        t = lua_type(lua,-1);
+        if (t == LUA_TTABLE) {
+            lua_pushstring(lua,"format");
+            lua_gettable(lua,-2);
+            t = lua_type(lua,-1);
+            if (t == LUA_TSTRING){
+                char* format = (char*)lua_tostring(lua,-1);
+                lua_pushstring(lua,"string");
+                lua_gettable(lua,-3);
+                t = lua_type(lua,-1);
+                if (t == LUA_TSTRING){
+                    size_t len;
+                    char* str = (char*)lua_tolstring(lua,-1,&len);
+                    addReplyVerbatim(c, str, len, format);
+                    lua_pop(lua,4);
+                    return;
+                }
+                lua_pop(lua,1);
+            }
+            lua_pop(lua,1);
         }
         lua_pop(lua,1); /* Discard field name pushed before. */
 
@@ -598,7 +742,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     c->cmd = c->lastcmd = cmd;
 
     /* There are commands that are not allowed inside scripts. */
-    if (cmd->flags & CMD_NOSCRIPT) {
+    if (!server.lua_disable_deny_script && (cmd->flags & CMD_NOSCRIPT)) {
         luaPushError(lua, "This Redis command is not allowed from scripts");
         goto cleanup;
     }
@@ -1115,6 +1259,7 @@ void scriptingInit(int setup) {
         server.lua_caller = NULL;
         server.lua_cur_script = NULL;
         server.lua_timedout = 0;
+        server.lua_disable_deny_script = 0;
         ldbInit();
     }
 
@@ -1124,7 +1269,7 @@ void scriptingInit(int setup) {
     /* Initialize a dictionary we use to map SHAs to scripts.
      * This is useful for replication, as we need to replicate EVALSHA
      * as EVAL, so we need to remember the associated script. */
-    server.lua_scripts = dictCreate(&shaScriptObjectDictType,NULL);
+    server.lua_scripts = dictCreate(&shaScriptObjectDictType);
     server.lua_scripts_mem = 0;
 
     /* Register the redis commands table and fields */

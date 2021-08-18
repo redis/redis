@@ -123,6 +123,21 @@ robj *createStringObject(const char *ptr, size_t len) {
         return createRawStringObject(ptr,len);
 }
 
+/* Same as CreateRawStringObject, can return NULL if allocation fails */
+robj *tryCreateRawStringObject(const char *ptr, size_t len) {
+    sds str = sdstrynewlen(ptr,len);
+    if (!str) return NULL;
+    return createObject(OBJ_STRING, str);
+}
+
+/* Same as createStringObject, can return NULL if allocation fails */
+robj *tryCreateStringObject(const char *ptr, size_t len) {
+    if (len <= OBJ_ENCODING_EMBSTR_SIZE_LIMIT)
+        return createEmbeddedStringObject(ptr,len);
+    else
+        return tryCreateRawStringObject(ptr,len);
+}
+
 /* Create a string object from a long long value. When possible returns a
  * shared integer object, or at least an integer encoded one.
  *
@@ -226,7 +241,7 @@ robj *createZiplistObject(void) {
 }
 
 robj *createSetObject(void) {
-    dict *d = dictCreate(&setDictType,NULL);
+    dict *d = dictCreate(&setDictType);
     robj *o = createObject(OBJ_SET,d);
     o->encoding = OBJ_ENCODING_HT;
     return o;
@@ -240,9 +255,9 @@ robj *createIntsetObject(void) {
 }
 
 robj *createHashObject(void) {
-    unsigned char *zl = ziplistNew();
+    unsigned char *zl = lpNew(0);
     robj *o = createObject(OBJ_HASH, zl);
-    o->encoding = OBJ_ENCODING_ZIPLIST;
+    o->encoding = OBJ_ENCODING_LISTPACK;
     return o;
 }
 
@@ -250,7 +265,7 @@ robj *createZsetObject(void) {
     zset *zs = zmalloc(sizeof(*zs));
     robj *o;
 
-    zs->dict = dictCreate(&zsetDictType,NULL);
+    zs->dict = dictCreate(&zsetDictType);
     zs->zsl = zslCreate();
     o = createObject(OBJ_ZSET,zs);
     o->encoding = OBJ_ENCODING_SKIPLIST;
@@ -327,8 +342,8 @@ void freeHashObject(robj *o) {
     case OBJ_ENCODING_HT:
         dictRelease((dict*) o->ptr);
         break;
-    case OBJ_ENCODING_ZIPLIST:
-        zfree(o->ptr);
+    case OBJ_ENCODING_LISTPACK:
+        lpFree(o->ptr);
         break;
     default:
         serverPanic("Unknown hash encoding type");
@@ -375,6 +390,177 @@ void decrRefCount(robj *o) {
         if (o->refcount <= 0) serverPanic("decrRefCount against refcount <= 0");
         if (o->refcount != OBJ_SHARED_REFCOUNT) o->refcount--;
     }
+}
+
+/* See dismissObject() */
+void dismissSds(sds s) {
+    dismissMemory(sdsAllocPtr(s), sdsAllocSize(s));
+}
+
+/* See dismissObject() */
+void dismissStringObject(robj *o) {
+    if (o->encoding == OBJ_ENCODING_RAW) {
+        dismissSds(o->ptr);
+    }
+}
+
+/* See dismissObject() */
+void dismissListObject(robj *o, size_t size_hint) {
+    if (o->encoding == OBJ_ENCODING_QUICKLIST) {
+        quicklist *ql = o->ptr;
+        serverAssert(ql->len != 0);
+        /* We iterate all nodes only when average node size is bigger than a
+         * page size, and there's a high chance we'll actually dismiss something. */
+        if (size_hint / ql->len >= server.page_size) {
+            quicklistNode *node = ql->head;
+            while (node) {
+                if (quicklistNodeIsCompressed(node)) {
+                    dismissMemory(node->zl, ((quicklistLZF*)node->zl)->sz);
+                } else {
+                    dismissMemory(node->zl, node->sz);
+                }
+                node = node->next;
+            }
+        }
+    } else {
+        serverPanic("Unknown list encoding type");
+    }
+}
+
+/* See dismissObject() */
+void dismissSetObject(robj *o, size_t size_hint) {
+    if (o->encoding == OBJ_ENCODING_HT) {
+        dict *set = o->ptr;
+        serverAssert(dictSize(set) != 0);
+        /* We iterate all nodes only when average member size is bigger than a
+         * page size, and there's a high chance we'll actually dismiss something. */
+        if (size_hint / dictSize(set) >= server.page_size) {
+            dictEntry *de;
+            dictIterator *di = dictGetIterator(set);
+            while ((de = dictNext(di)) != NULL) {
+                dismissSds(dictGetKey(de));
+            }
+            dictReleaseIterator(di);
+        }
+
+        /* Dismiss hash table memory. */
+        dismissMemory(set->ht_table[0], DICTHT_SIZE(set->ht_size_exp[0])*sizeof(dictEntry*));
+        dismissMemory(set->ht_table[1], DICTHT_SIZE(set->ht_size_exp[1])*sizeof(dictEntry*));
+    } else if (o->encoding == OBJ_ENCODING_INTSET) {
+        dismissMemory(o->ptr, intsetBlobLen((intset*)o->ptr));
+    } else {
+        serverPanic("Unknown set encoding type");
+    }
+}
+
+/* See dismissObject() */
+void dismissZsetObject(robj *o, size_t size_hint) {
+    if (o->encoding == OBJ_ENCODING_SKIPLIST) {
+        zset *zs = o->ptr;
+        zskiplist *zsl = zs->zsl;
+        serverAssert(zsl->length != 0);
+        /* We iterate all nodes only when average member size is bigger than a
+         * page size, and there's a high chance we'll actually dismiss something. */
+        if (size_hint / zsl->length >= server.page_size) {
+            zskiplistNode *zn = zsl->tail;
+            while (zn != NULL) {
+                dismissSds(zn->ele);
+                zn = zn->backward;
+            }
+        }
+
+        /* Dismiss hash table memory. */
+        dict *d = zs->dict;
+        dismissMemory(d->ht_table[0], DICTHT_SIZE(d->ht_size_exp[0])*sizeof(dictEntry*));
+        dismissMemory(d->ht_table[1], DICTHT_SIZE(d->ht_size_exp[1])*sizeof(dictEntry*));
+    } else if (o->encoding == OBJ_ENCODING_ZIPLIST) {
+        dismissMemory(o->ptr, ziplistBlobLen((unsigned char*)o->ptr));
+    } else {
+        serverPanic("Unknown zset encoding type");
+    }
+}
+
+/* See dismissObject() */
+void dismissHashObject(robj *o, size_t size_hint) {
+    if (o->encoding == OBJ_ENCODING_HT) {
+        dict *d = o->ptr;
+        serverAssert(dictSize(d) != 0);
+        /* We iterate all fields only when average field/value size is bigger than
+         * a page size, and there's a high chance we'll actually dismiss something. */
+        if (size_hint / dictSize(d) >= server.page_size) {
+            dictEntry *de;
+            dictIterator *di = dictGetIterator(d);
+            while ((de = dictNext(di)) != NULL) {
+                /* Only dismiss values memory since the field size
+                 * usually is small. */
+                dismissSds(dictGetVal(de));
+            }
+            dictReleaseIterator(di);
+        }
+
+        /* Dismiss hash table memory. */
+        dismissMemory(d->ht_table[0], DICTHT_SIZE(d->ht_size_exp[0])*sizeof(dictEntry*));
+        dismissMemory(d->ht_table[1], DICTHT_SIZE(d->ht_size_exp[1])*sizeof(dictEntry*));
+    } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
+        dismissMemory(o->ptr, lpBytes((unsigned char*)o->ptr));
+    } else {
+        serverPanic("Unknown hash encoding type");
+    }
+}
+
+/* See dismissObject() */
+void dismissStreamObject(robj *o, size_t size_hint) {
+    stream *s = o->ptr;
+    rax *rax = s->rax;
+    if (raxSize(rax) == 0) return;
+
+    /* Iterate only on stream entries, although size_hint may include serialized
+     * consumer groups info, but usually, stream entries take up most of
+     * the space. */
+    if (size_hint / raxSize(rax) >= server.page_size) {
+        raxIterator ri;
+        raxStart(&ri,rax);
+        raxSeek(&ri,"^",NULL,0);
+        while (raxNext(&ri)) {
+            dismissMemory(ri.data, lpBytes(ri.data));
+        }
+        raxStop(&ri);
+    }
+}
+
+/* When creating a snapshot in a fork child process, the main process and child
+ * process share the same physical memory pages, and if / when the parent
+ * modifies any keys due to write traffic, it'll cause CoW which consume
+ * physical memory. In the child process, after serializing the key and value,
+ * the data is definitely not accessed again, so to avoid unnecessary CoW, we
+ * try to release their memory back to OS. see dismissMemory().
+ *
+ * Because of the cost of iterating all node/field/member/entry of complex data
+ * types, we iterate and dismiss them only when approximate average we estimate
+ * the size of an individual allocation is more than a page size of OS.
+ * 'size_hint' is the size of serialized value. This method is not accurate, but
+ * it can reduce unnecessary iteration for complex data types that are probably
+ * not going to release any memory. */
+void dismissObject(robj *o, size_t size_hint) {
+    /* madvise(MADV_DONTNEED) may not work if Transparent Huge Pages is enabled. */
+    if (server.thp_enabled) return;
+
+    /* Currently we use zmadvise_dontneed only when we use jemalloc with Linux.
+     * so we avoid these pointless loops when they're not going to do anything. */
+#if defined(USE_JEMALLOC) && defined(__linux__)
+    if (o->refcount != 1) return;
+    switch(o->type) {
+        case OBJ_STRING: dismissStringObject(o); break;
+        case OBJ_LIST: dismissListObject(o, size_hint); break;
+        case OBJ_SET: dismissSetObject(o, size_hint); break;
+        case OBJ_ZSET: dismissZsetObject(o, size_hint); break;
+        case OBJ_HASH: dismissHashObject(o, size_hint); break;
+        case OBJ_STREAM: dismissStreamObject(o, size_hint); break;
+        default: break;
+    }
+#else
+    UNUSED(o); UNUSED(size_hint);
+#endif
 }
 
 /* This variant of decrRefCount() gets its argument as void, and is useful
@@ -751,6 +937,7 @@ char *strEncoding(int encoding) {
     case OBJ_ENCODING_HT: return "hashtable";
     case OBJ_ENCODING_QUICKLIST: return "quicklist";
     case OBJ_ENCODING_ZIPLIST: return "ziplist";
+    case OBJ_ENCODING_LISTPACK: return "listpack";
     case OBJ_ENCODING_INTSET: return "intset";
     case OBJ_ENCODING_SKIPLIST: return "skiplist";
     case OBJ_ENCODING_EMBSTR: return "embstr";
@@ -860,7 +1047,7 @@ size_t objectComputeSize(robj *key, robj *o, size_t sample_size, int dbid) {
             serverPanic("Unknown sorted set encoding");
         }
     } else if (o->type == OBJ_HASH) {
-        if (o->encoding == OBJ_ENCODING_ZIPLIST) {
+        if (o->encoding == OBJ_ENCODING_LISTPACK) {
             asize = sizeof(*o)+zmalloc_size(o->ptr);
         } else if (o->encoding == OBJ_ENCODING_HT) {
             d = o->ptr;
@@ -1201,13 +1388,13 @@ int objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
          * below statement will expand to lru_idle*1000/1000. */
         lru_idle = lru_idle*lru_multiplier/LRU_CLOCK_RESOLUTION;
         long lru_abs = lru_clock - lru_idle; /* Absolute access time. */
-        /* If the LRU field underflow (since LRU it is a wrapping
-         * clock), the best we can do is to provide a large enough LRU
-         * that is half-way in the circular LRU clock we use: this way
-         * the computed idle time for this object will stay high for quite
-         * some time. */
+        /* If the LRU field underflows (since lru_clock is a wrapping clock),
+         * we need to make it positive again. This be handled by the unwrapping
+         * code in estimateObjectIdleTime. I.e. imagine a day when lru_clock
+         * wrap arounds (happens once in some 6 months), and becomes a low
+         * value, like 10, an lru_idle of 1000 should be near LRU_CLOCK_MAX. */
         if (lru_abs < 0)
-            lru_abs = (lru_clock+(LRU_CLOCK_MAX/2)) % LRU_CLOCK_MAX;
+            lru_abs += LRU_CLOCK_MAX;
         val->lru = lru_abs;
         return 1;
     }
@@ -1224,8 +1411,7 @@ robj *objectCommandLookup(client *c, robj *key) {
 
 robj *objectCommandLookupOrReply(client *c, robj *key, robj *reply) {
     robj *o = objectCommandLookup(c,key);
-
-    if (!o) addReply(c, reply);
+    if (!o) addReplyOrErrorObject(c, reply);
     return o;
 }
 
