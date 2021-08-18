@@ -1027,24 +1027,18 @@ unsigned char *lpDeleteRange(unsigned char *lp, long index, unsigned long num) {
     if (num == 0) return lp; /* Nothing to delete, return ASAP. */
     if ((p = lpSeek(lp, index)) == NULL) return lp;
 
-    if (numele == LP_HDR_NUMELE_UNKNOWN) {
-        /* If the listpack length cannot be obtained in constant time,
-         * using lpDeleteRangeWithEntry will be much faster. */
-        lp = lpDeleteRangeWithEntry(lp, &p, num);
+    /* If we know we're gonna delete beyond the end of the listpack, we can just move
+     * the EOF marker, and there's no need to iterate through the entries,
+     * but if we can't be sure how many entries there are, we rather avoid calling lpLength
+     * since that means an additional iteration on all elements. */
+    if (num != LP_HDR_NUMELE_UNKNOWN && index < 0) index = (long)numele + index;
+    if (num != LP_HDR_NUMELE_UNKNOWN && (numele - (unsigned long)index) <= num) {
+        p[0] = LP_EOF;
+        lpSetTotalBytes(lp, p - lp + 1);
+        lpSetNumElements(lp, index);
+        lp = lpShrinkToFit(lp);
     } else {
-        /* Note that index could overflow, but we use the value
-        * after seek, so when we use it no overflow happens. */
-        if (index < 0) index = (long)numele + index;
-        if ((numele - (unsigned long)index) <= num) {
-            /* When deleted num is out of range, we just need
-             * to set LP_EOF, and resize listpack. */
-            p[0] = LP_EOF;
-            lpSetTotalBytes(lp, p - lp + 1);
-            lpSetNumElements(lp, index);
-            lp = lpShrinkToFit(lp);
-        } else {
-            lp = lpDeleteRangeWithEntry(lp, &p, num);
-        }
+        lp = lpDeleteRangeWithEntry(lp, &p, num);
     }
 
     return lp;
@@ -1215,12 +1209,7 @@ int lpValidateIntegrity(unsigned char *lp, size_t size, int deep,
 }
 
 /* Compare entry pointer to by 'p' with string 's' of length 'slen'.
- * Return 1 if equal.
- *
- * Note that the entry 'p' may be integer-encoded. In such a case we
- * use lpStringToInt64() to get an integer representation of the
- * string 's' and compare to 'sval', it's much faster than convert
- * integer to string and comparing. */
+ * Return 1 if equal. */
 unsigned int lpCompare(unsigned char *p, unsigned char *s, uint32_t slen) {
     unsigned char *value;
     int64_t sz;
@@ -1230,6 +1219,9 @@ unsigned int lpCompare(unsigned char *p, unsigned char *s, uint32_t slen) {
     if (value) {
         return (slen == sz) && memcmp(value,s,slen) == 0;
     } else {
+        /* We use lpStringToInt64() to get an integer representation of the
+         * string 's' and compare it to 'sval', it's much faster than convert
+         * integer to string and comparing. */
         int64_t sval;
         if (lpStringToInt64((const char*)s, slen, &sval))
             return sz == sval;
