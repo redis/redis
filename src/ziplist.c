@@ -1477,7 +1477,6 @@ void ziplistRepr(unsigned char *zl) {
  * when `deep` is 1, we scan all the entries one by one. */
 int ziplistValidateIntegrity(unsigned char *zl, size_t size, int deep,
     ziplistValidateEntryCB entry_cb, void *cb_userdata) {
-
     /* check that we can actually read the header. (and ZIP_END) */
     if (size < ZIPLIST_HEADER_SIZE + ZIPLIST_END_SIZE)
         return 0;
@@ -1503,7 +1502,6 @@ int ziplistValidateIntegrity(unsigned char *zl, size_t size, int deep,
     unsigned char *p = ZIPLIST_ENTRY_HEAD(zl);
     unsigned char *prev = NULL;
     size_t prev_raw_size = 0;
-
     while(*p != ZIP_END) {
         struct zlentry e;
         /* Decode the entry headers and fail if invalid or reaches outside the allocation */
@@ -2424,7 +2422,6 @@ int ziplistTest(int argc, char **argv, int accurate) {
     {
         zl = ziplistNew();
         iteration = accurate ? 100000 : 100;
-        unsigned long long start = usec();
         for (int i=0; i<iteration; i++) {
             char buf[4096] = "asdf";
             zl = ziplistPush(zl, (unsigned char*)buf, 4, ZIPLIST_TAIL);
@@ -2438,7 +2435,6 @@ int ziplistTest(int argc, char **argv, int accurate) {
             zl = ziplistPush(zl, (unsigned char*)"10000", 5, ZIPLIST_TAIL);
             zl = ziplistPush(zl, (unsigned char*)"100000", 6, ZIPLIST_TAIL);
         }
-        printf("%lld\n", usec()-start);
 
         printf("Benchmark ziplistFind:\n");
         {
