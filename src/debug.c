@@ -1027,7 +1027,7 @@ static void *getMcontextEip(ucontext_t *uc) {
 #define NOT_SUPPORTED() do {\
     UNUSED(uc);\
     return NULL;\
-}
+} while(0)
 #if defined(__APPLE__) && !defined(MAC_OS_X_VERSION_10_6)
     /* OSX < 10.6 */
     #if defined(__x86_64__)
@@ -1115,7 +1115,7 @@ void logRegisters(ucontext_t *uc) {
     UNUSED(uc);\
     serverLog(LL_WARNING,\
               "  Dumping of registers not supported for this OS/arch");\
-}
+} while(0)
 
 /* OSX */
 #if defined(__APPLE__) && defined(MAC_OS_X_VERSION_10_6)
