@@ -161,7 +161,7 @@ int quicklistPushTail(quicklist *quicklist, void *value, const size_t sz);
 void quicklistPush(quicklist *quicklist, void *value, const size_t sz,
                    int where);
 void quicklistAppendZiplist(quicklist *quicklist, unsigned char *zl);
-void quicklistAppendEntry(quicklist *quicklist, unsigned char *zl, size_t sz);
+void quicklistAppendPlainNode(quicklist *quicklist, unsigned char *zl, size_t sz);
 quicklist *quicklistAppendValuesFromZiplist(quicklist *quicklist,
                                             unsigned char *zl);
 quicklist *quicklistCreateFromZiplist(int fill, int compress,
@@ -193,6 +193,7 @@ int quicklistCompare(quicklistEntry* entry, unsigned char *p2, const size_t p2_l
 size_t quicklistGetLzf(const quicklistNode *node, void **data);
 
 void quicklistRepr(unsigned char *zl);
+void quicklistReprLight(unsigned char *zl);
 
 /* bookmarks */
 int quicklistBookmarkCreate(quicklist **ql_ref, const char *name, quicklistNode *node);

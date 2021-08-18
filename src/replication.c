@@ -1106,7 +1106,7 @@ void sendBulkToSlave(connection *conn) {
     if (slave->replpreamble) {
         nwritten = connWrite(conn,slave->replpreamble,sdslen(slave->replpreamble));
         if (nwritten == -1) {
-            serverLog(LL_VERBOSE,
+            serverLog(LL_WARNING,
                 "Write error sending RDB preamble to replica: %s",
                 connGetLastError(conn));
             freeClient(slave);
@@ -1444,8 +1444,8 @@ void replicationSendNewlineToMaster(void) {
 
 /* Callback used by emptyDb() while flushing away old data to load
  * the new dataset received by the master. */
-void replicationEmptyDbCallback(void *privdata) {
-    UNUSED(privdata);
+void replicationEmptyDbCallback(dict *d) {
+    UNUSED(d);
     if (server.repl_state == REPL_STATE_TRANSFER)
         replicationSendNewlineToMaster();
 }
@@ -1756,10 +1756,10 @@ void readSyncBulkPayload(connection *conn) {
 
         if (rdbLoadRio(&rdb,RDBFLAGS_REPLICATION,&rsi) != C_OK) {
             /* RDB loading failed. */
-            stopLoading(0);
             serverLog(LL_WARNING,
-                "Failed trying to load the MASTER synchronization DB "
-                "from socket");
+                      "Failed trying to load the MASTER synchronization DB "
+                      "from socket: %s", strerror(errno));
+            stopLoading(0);
             cancelReplicationHandshake(1);
             rioFreeConn(&rdb, NULL);
 
@@ -2777,7 +2777,8 @@ void replicaofCommand(client *c) {
             return;
         }
 
-        if ((getLongFromObjectOrReply(c, c->argv[2], &port, NULL) != C_OK))
+        if (getRangeLongFromObjectOrReply(c, c->argv[2], 0, 65535, &port,
+                                          "Invalid master port") != C_OK)
             return;
 
         /* Check if we are already attached to the specified master */
@@ -3077,7 +3078,7 @@ void refreshGoodSlavesCount(void) {
 /* Initialize the script cache, only called at startup. */
 void replicationScriptCacheInit(void) {
     server.repl_scriptcache_size = 10000;
-    server.repl_scriptcache_dict = dictCreate(&replScriptCacheDictType,NULL);
+    server.repl_scriptcache_dict = dictCreate(&replScriptCacheDictType);
     server.repl_scriptcache_fifo = listCreate();
 }
 

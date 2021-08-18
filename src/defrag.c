@@ -134,7 +134,6 @@ long dictIterDefragEntry(dictIterator *iter) {
      * of the dict and it's iterator, but the benefit is that it is very easy
      * to use, and require no other changes in the dict. */
     long defragged = 0;
-    dictht *ht;
     /* Handle the next entry (if there is one), and update the pointer in the
      * current entry. */
     if (iter->nextEntry) {
@@ -146,12 +145,11 @@ long dictIterDefragEntry(dictIterator *iter) {
         }
     }
     /* handle the case of the first entry in the hash bucket. */
-    ht = &iter->d->ht[iter->table];
-    if (ht->table[iter->index] == iter->entry) {
+    if (iter->d->ht_table[iter->table][iter->index] == iter->entry) {
         dictEntry *newde = activeDefragAlloc(iter->entry);
         if (newde) {
             iter->entry = newde;
-            ht->table[iter->index] = newde;
+            iter->d->ht_table[iter->table][iter->index] = newde;
             defragged++;
         }
     }
@@ -165,14 +163,14 @@ long dictDefragTables(dict* d) {
     dictEntry **newtable;
     long defragged = 0;
     /* handle the first hash table */
-    newtable = activeDefragAlloc(d->ht[0].table);
+    newtable = activeDefragAlloc(d->ht_table[0]);
     if (newtable)
-        defragged++, d->ht[0].table = newtable;
+        defragged++, d->ht_table[0] = newtable;
     /* handle the second hash table */
-    if (d->ht[1].table) {
-        newtable = activeDefragAlloc(d->ht[1].table);
+    if (d->ht_table[1]) {
+        newtable = activeDefragAlloc(d->ht_table[1]);
         if (newtable)
-            defragged++, d->ht[1].table = newtable;
+            defragged++, d->ht_table[1] = newtable;
     }
     return defragged;
 }
@@ -446,7 +444,7 @@ long scanLaterList(robj *ob, unsigned long *cursor, long long endtime, long long
     quicklistNode *node;
     long iterations = 0;
     int bookmark_failed = 0;
-    if (ob->type != OBJ_LIST || ob->encoding != OBJ_ENCODING_QUICKLIST)
+    if (ob->type != OBJ_LIST || (ob->encoding != OBJ_ENCODING_QUICKLIST && ob->encoding != OBJ_ENCODING_QUICKLIST_UNPACK))
         return 0;
 
     if (*cursor == 0) {
@@ -549,7 +547,7 @@ long defragQuicklist(redisDb *db, dictEntry *kde) {
     robj *ob = dictGetVal(kde);
     long defragged = 0;
     quicklist *ql = ob->ptr, *newql;
-    serverAssert(ob->type == OBJ_LIST && ob->encoding == OBJ_ENCODING_QUICKLIST);
+    serverAssert(ob->type == OBJ_LIST && (ob->encoding == OBJ_ENCODING_QUICKLIST || ob->encoding == OBJ_ENCODING_QUICKLIST_UNPACK));
     if ((newql = activeDefragAlloc(ql)))
         defragged++, ob->ptr = ql = newql;
     if (ql->len > server.active_defrag_max_scan_fields)
@@ -841,7 +839,7 @@ long defragKey(redisDb *db, dictEntry *de) {
     if (ob->type == OBJ_STRING) {
         /* Already handled in activeDefragStringOb. */
     } else if (ob->type == OBJ_LIST) {
-        if (ob->encoding == OBJ_ENCODING_QUICKLIST) {
+        if (ob->encoding == OBJ_ENCODING_QUICKLIST || ob->encoding == OBJ_ENCODING_QUICKLIST_UNPACK) {
             defragged += defragQuicklist(db, de);
         } else {
             serverPanic("Unknown list encoding");
@@ -866,7 +864,7 @@ long defragKey(redisDb *db, dictEntry *de) {
             serverPanic("Unknown sorted set encoding");
         }
     } else if (ob->type == OBJ_HASH) {
-        if (ob->encoding == OBJ_ENCODING_ZIPLIST) {
+        if (ob->encoding == OBJ_ENCODING_LISTPACK) {
             if ((newzl = activeDefragAlloc(ob->ptr)))
                 defragged++, ob->ptr = newzl;
         } else if (ob->encoding == OBJ_ENCODING_HT) {

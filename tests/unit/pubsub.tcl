@@ -297,6 +297,30 @@ start_server {tags {"pubsub network"}} {
         $rd1 close
     }
 
+    test "Keyspace notifications: stream events test" {
+        r config set notify-keyspace-events Kt
+        r del mystream
+        set rd1 [redis_deferring_client]
+        assert_equal {1} [psubscribe $rd1 *]
+        r xgroup create mystream mygroup $ mkstream
+        r xgroup createconsumer mystream mygroup Bob
+        set id [r xadd mystream 1 field1 A]
+        r xreadgroup group mygroup Alice STREAMS mystream >
+        r xclaim mystream mygroup Mike 0 $id force
+        # Not notify because of "Lee" not exists.
+        r xgroup delconsumer mystream mygroup Lee
+        # Not notify because of "Bob" exists.
+        r xautoclaim mystream mygroup Bob 0 $id
+        r xgroup delconsumer mystream mygroup Bob
+        assert_equal "pmessage * __keyspace@${db}__:mystream xgroup-create" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:mystream xgroup-createconsumer" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:mystream xadd" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:mystream xgroup-createconsumer" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:mystream xgroup-createconsumer" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:mystream xgroup-delconsumer" [$rd1 read]
+        $rd1 close
+    }
+
     test "Keyspace notifications: expired events (triggered expire)" {
         r config set notify-keyspace-events Ex
         r del foo

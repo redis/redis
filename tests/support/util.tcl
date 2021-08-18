@@ -623,6 +623,7 @@ proc generate_fuzzy_traffic_on_key {key duration} {
         set arity [lindex $cmd_info 1]
         set arity [expr $arity < 0 ? - $arity: $arity]
         set firstkey [lindex $cmd_info 3]
+        set lastkey [lindex $cmd_info 4]
         set i 1
         if {$cmd == "XINFO"} {
             lappend cmd "STREAM"
@@ -652,7 +653,7 @@ proc generate_fuzzy_traffic_on_key {key duration} {
             incr i 4
         }
         for {} {$i < $arity} {incr i} {
-            if {$i == $firstkey} {
+            if {$i == $firstkey || $i == $lastkey} {
                 lappend cmd $key
             } else {
                 lappend cmd [randomValue]
@@ -864,4 +865,17 @@ proc config_set {param value {options {}}} {
             }
         }
     }
+}
+
+proc delete_lines_with_pattern {filename tmpfilename pattern} {
+    set fh_in [open $filename r]
+    set fh_out [open $tmpfilename w]
+    while {[gets $fh_in line] != -1} {
+        if {![regexp $pattern $line]} {
+            puts $fh_out $line
+        }
+    }
+    close $fh_in
+    close $fh_out
+    file rename -force $tmpfilename $filename
 }

@@ -579,7 +579,7 @@ NULL
         strenc = strEncoding(val->encoding);
 
         char extra[138] = {0};
-        if (val->encoding == OBJ_ENCODING_QUICKLIST) {
+        if (val->encoding == OBJ_ENCODING_QUICKLIST || val->encoding == OBJ_ENCODING_QUICKLIST_UNPACK) {
             char *nextra = extra;
             int remaining = sizeof(extra);
             quicklist *ql = val->ptr;
@@ -655,16 +655,28 @@ NULL
             ziplistRepr(o->ptr);
             addReplyStatus(c,"Ziplist structure printed on stdout");
         }
-    } else if (!strcasecmp(c->argv[1]->ptr,"quicklist") && c->argc == 3) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"quicklist") && (c->argc == 3 || c->argc == 4)) {
         robj *o;
 
         if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nokeyerr))
             == NULL) return;
 
-        if (o->encoding != OBJ_ENCODING_QUICKLIST) {
+        int enabled = false;
+        if (c->argc == 4) {
+            enabled = !strcasecmp(c->argv[3]->ptr,"1");
+            if(!enabled && strcasecmp(c->argv[3]->ptr,"1")) {
+                addReplyError(c,"only 1 or 0 is allowed");
+                return;
+            }
+        }
+        if (o->encoding != OBJ_ENCODING_QUICKLIST && o->encoding != OBJ_ENCODING_QUICKLIST_UNPACK) {
             addReplyError(c,"Not a quicklist encoded object.");
         } else {
-            quicklistRepr(o->ptr);
+            if (enabled) {
+                quicklistReprLight(o->ptr);
+            } else {
+                quicklistRepr(o->ptr);
+            }
             addReplyStatus(c,"Quicklist structure printed on stdout");
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"populate") &&
@@ -740,7 +752,7 @@ NULL
         } else if (!strcasecmp(name,"double")) {
             addReplyDouble(c,3.14159265359);
         } else if (!strcasecmp(name,"bignum")) {
-            addReplyProto(c,"(1234567999999999999999999999999999999\r\n",40);
+            addReplyBigNum(c,"1234567999999999999999999999999999999",37);
         } else if (!strcasecmp(name,"null")) {
             addReplyNull(c);
         } else if (!strcasecmp(name,"array")) {
@@ -756,11 +768,13 @@ NULL
                 addReplyBool(c, j == 1);
             }
         } else if (!strcasecmp(name,"attrib")) {
-            addReplyAttributeLen(c,1);
-            addReplyBulkCString(c,"key-popularity");
-            addReplyArrayLen(c,2);
-            addReplyBulkCString(c,"key:123");
-            addReplyLongLong(c,90);
+            if (c->resp >= 3) {
+                addReplyAttributeLen(c,1);
+                addReplyBulkCString(c,"key-popularity");
+                addReplyArrayLen(c,2);
+                addReplyBulkCString(c,"key:123");
+                addReplyLongLong(c,90);
+            }
             /* Attributes are not real replies, so a well formed reply should
              * also have a normal reply type after the attribute. */
             addReplyBulkCString(c,"Some real reply following the attribute");
@@ -799,38 +813,11 @@ NULL
     c->argc == 3)
     {
         int memerr;
-        printf("itay1 - c->argv[2]->ptr=%s\n", (char*)c->argv[2]->ptr);
         long long int sz = memtoll(c->argv[2]->ptr, &memerr);
-
-        size_t sz2 = 1 << 30;
-
-        printf("itay2 memerr=%d sz=%lld sz2=%ld\n", memerr, sz, sz2);
         if (memerr || sz < 0 || sz > 4294967296) {
-            //printf("itay3\n");
-            //sds errstr = sdsnewlen("-",1);
-            //printf("itay4\n");
-            //errstr = sdscatsds(errstr,c->argv[2]->ptr);
-            //printf("itay5\n");
-            //errstr = sdscatsds(errstr,"argument must be a memory value bigger then 1 and smaller then 4gb");
-            //printf("itay6\n");
-
-
-            //sds errstr = sdsnewlen("-",1);
-            //errstr = sdscatsds(errstr,c->argv[2]->ptr);
-            //errstr = sdscatsds(errstr,"argument must be a memory value bigger then 1 and smaller then 4gb");
-            //errstr = sdsmapchars(errstr,"\n\r","  ",2); /* no newlines in errors. */
-            //errstr = sdscatlen(errstr,"\r\n",2);
-            //addReplySds(c,errstr);
-
-            //addReplySds(c,errstr);
-
-
-
             sds errstr = sdsempty();
-
             errstr = sdscatprintf(errstr, "argument must be a memory value bigger then 1 and smaller then 4gb");
             addReplyBulkSds(c,errstr);
-
         } else {
             quicklistisSetPackedThreshold(sz);
             addReply(c,shared.ok);
@@ -930,6 +917,10 @@ NULL
     {
         stringmatchlen_fuzz_test();
         addReplyStatus(c,"Apparently Redis did not crash: test passed");
+    } else if (!strcasecmp(c->argv[1]->ptr,"set-disable-deny-scripts") && c->argc == 3)
+    {
+        server.lua_disable_deny_script = atoi(c->argv[2]->ptr);;
+        addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"config-rewrite-force-all") && c->argc == 2)
     {
         if (rewriteConfig(server.configfile, 1) == -1)
@@ -995,8 +986,8 @@ void _serverAssertPrintClientInfo(const client *c) {
 }
 
 void serverLogObjectDebugInfo(const robj *o) {
-    serverLog(LL_WARNING,"Object type: %d", o->type);
-    serverLog(LL_WARNING,"Object encoding: %d", o->encoding);
+    serverLog(LL_WARNING,"Object type: %u", o->type);
+    serverLog(LL_WARNING,"Object encoding: %u", o->encoding);
     serverLog(LL_WARNING,"Object refcount: %d", o->refcount);
 #if UNSAFE_CRASH_REPORT
     /* This code is now disabled. o->ptr may be unreliable to print. in some
@@ -1649,6 +1640,15 @@ void logServerInfo(void) {
     sdsfree(clients);
 }
 
+/* Log certain config values, which can be used for debuggin */
+void logConfigDebugInfo(void) {
+    sds configstring;
+    configstring = getConfigDebugInfo();
+    serverLogRaw(LL_WARNING|LL_RAW, "\n------ CONFIG DEBUG OUTPUT ------\n");
+    serverLogRaw(LL_WARNING|LL_RAW, configstring);
+    sdsfree(configstring);
+}
+
 /* Log modules info. Something we wanna do last since we fear it may crash. */
 void logModulesInfo(void) {
     serverLogRaw(LL_WARNING|LL_RAW, "\n------ MODULES INFO OUTPUT ------\n");
@@ -1904,6 +1904,10 @@ void printCrashReport(void) {
 
     /* Log modules info. Something we wanna do last since we fear it may crash. */
     logModulesInfo();
+
+    /* Log debug config information, which are some values
+     * which may be useful for debugging crashes. */
+    logConfigDebugInfo();
 
     /* Run memory test in case the crash was triggered by memory corruption. */
     doFastMemoryTest();

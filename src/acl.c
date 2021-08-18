@@ -60,7 +60,7 @@ static unsigned long nextid = 0; /* Next command id that has not been assigned *
 struct ACLCategoryItem {
     const char *name;
     uint64_t flag;
-} ACLCommandCategories[] = {
+} ACLCommandCategories[] = { /* See redis.conf for details on each category. */
     {"keyspace", CMD_CATEGORY_KEYSPACE},
     {"read", CMD_CATEGORY_READ},
     {"write", CMD_CATEGORY_WRITE},
