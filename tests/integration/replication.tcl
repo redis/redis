@@ -926,3 +926,46 @@ test {Kill rdb child process if its dumping RDB is not useful} {
         }
     }
 } {} {external:skip}
+
+test {delay to discard cache master when full sync} {
+    start_server {tags {"repl"}} {
+        set master1 [srv 0 client]
+        set master1_host [srv 0 host]
+        set master1_port [srv 0 port]
+        $master1 set a b
+
+        start_server {} {
+            set master2 [srv 0 client]
+            set master2_host [srv 0 host]
+            set master2_port [srv 0 port]
+            # Take 10s for dumping RDB
+            $master2 debug populate 10 master2 10
+            $master2 config set rdb-key-save-delay 1000000
+
+            start_server {} {
+                # Full sync with master1
+                r slaveof $master1_host $master1_port
+                wait_for_sync r
+                assert_equal "b" [r get a]
+
+                # Full sync with master2, and then kill master2
+                r slaveof $master2_host $master2_port
+                wait_for_condition 50 100 {
+                    ([s -1 rdb_bgsave_in_progress] == 1) &&
+                    ([string match "*wait_bgsave*" [s -1 slave0]])
+                } else {
+                    fail "full sync didn't start"
+                }
+                catch {$master2 shutdown nosave}
+
+                # Partial sync with master1
+                r slaveof $master1_host $master1_port
+                wait_for_condition 50 100 {
+                    [log_file_matches [srv 0 stdout] "*Successful partial resynchronization*"]
+                } else {
+                    fail "slave cant't be allowed to start partial resynchronization"
+                }
+            }
+        }
+    }
+} {} {external:skip}

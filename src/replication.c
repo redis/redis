@@ -1731,6 +1731,14 @@ void readSyncBulkPayload(connection *conn) {
          * dictionaries. */
         diskless_load_backup = disklessLoadMakeBackup();
     }
+
+    /* Replica starts to appply data of new master, we must discard the cached
+     * master structure. And before this, make sure there is no master client,
+     * since replica's data would be changed and cached master is exactly wrong
+     * once creating master client. */
+    serverAssert(server.master == NULL);
+    replicationDiscardCachedMaster();
+
     /* We call to emptyDb even in case of REPL_DISKLESS_LOAD_SWAPDB
      * (Where disklessLoadMakeBackup left server.db empty) because we
      * want to execute all the auxiliary logic of emptyDb (Namely,
@@ -2140,8 +2148,6 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
                 server.master_replid,
                 server.master_initial_offset);
         }
-        /* We are going to full resync, discard the cached master structure. */
-        replicationDiscardCachedMaster();
         sdsfree(reply);
         return PSYNC_FULLRESYNC;
     }
@@ -2221,7 +2227,6 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
             "error state (reply: %s)", reply);
     }
     sdsfree(reply);
-    replicationDiscardCachedMaster();
     return PSYNC_NOT_SUPPORTED;
 }
 
