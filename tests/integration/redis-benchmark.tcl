@@ -124,6 +124,25 @@ start_server {tags {"benchmark network external:skip"}} {
             assert_match  {50} [scan [regexp -inline {keys\=([\d]*)} [r info keyspace]] keys=%d]
         }
 
+        test {benchmark: key size} {
+            r flushall
+            r config resetstat
+            set cmd [redisbenchmark $master_host $master_port "-r 2 -y 25 -t set -n 1000 -d 1"]
+            if {[catch { exec {*}$cmd } error]} {
+                set first_line [lindex [split $error "\n"] 0]
+                puts [colorstr red "redis-benchmark non zero code. first line: $first_line"]
+                fail "redis-benchmark non zero code. first line: $first_line"
+            }
+            assert_match  {*calls=1000,*} [cmdstat set]
+            # assert one of the non benchmarked commands is not present
+            assert_match  {} [cmdstat get]
+
+            set r [redis $master_host $master_port 0 0]
+            # ensure the key has the desired size
+            assert_equal 2 [llength [$r keys *]]
+            assert_equal 2 [llength [$r keys key:00000000000?abcdefghi]]
+        }
+
         # tls specific tests
         if {$::tls} {
             test {benchmark: specific tls-ciphers} {
