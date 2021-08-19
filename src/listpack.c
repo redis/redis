@@ -1034,8 +1034,8 @@ unsigned char *lpDeleteRange(unsigned char *lp, long index, unsigned long num) {
      *
      * Note that index could overflow, but we use the value after seek, so when we
      * use it no overflow happens. */
-    if (num != LP_HDR_NUMELE_UNKNOWN && index < 0) index = (long)numele + index;
-    if (num != LP_HDR_NUMELE_UNKNOWN && (numele - (unsigned long)index) <= num) {
+    if (numele != LP_HDR_NUMELE_UNKNOWN && index < 0) index = (long)numele + index;
+    if (numele != LP_HDR_NUMELE_UNKNOWN && (numele - (unsigned long)index) <= num) {
         p[0] = LP_EOF;
         lpSetTotalBytes(lp, p - lp + 1);
         lpSetNumElements(lp, index);
@@ -2021,10 +2021,11 @@ int listpackTest(int argc, char *argv[], int accurate) {
         assert(lpGetNumElements(lp) == LP_HDR_NUMELE_UNKNOWN);
         assert(lpLength(lp) == LP_HDR_NUMELE_UNKNOWN+1);
 
-        lpDeleteRange(lp, -2, 2);
+        lp = lpDeleteRange(lp, -2, 2);
         assert(lpGetNumElements(lp) == LP_HDR_NUMELE_UNKNOWN);
         assert(lpLength(lp) == LP_HDR_NUMELE_UNKNOWN-1);
         assert(lpGetNumElements(lp) == LP_HDR_NUMELE_UNKNOWN-1); /* update length after lpLength */
+        lpFree(lp);
     }
 
     TEST("Stress with random payloads of different encoding") {
