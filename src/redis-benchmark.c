@@ -874,6 +874,7 @@ static void showLatencyReport(void) {
         printf("  %d requests completed in %.2f seconds\n", config.requests_finished,
             (float)config.totlatency/1000);
         printf("  %d parallel clients\n", config.numclients);
+        printf("  %d bytes key\n", config.keysize);
         printf("  %d bytes payload\n", config.datasize);
         printf("  keep alive: %d\n", config.keepalive);
         if (config.cluster_mode) {
@@ -1437,6 +1438,11 @@ int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"--user")) {
             if (lastarg) goto invalid;
             config.user = argv[++i];
+        } else if (!strcmp(argv[i],"-y")) {
+            if (lastarg) goto invalid;
+            config.keysize = atoi(argv[++i]);
+            if (config.keysize < 16) config.keysize=16; // 'key:' + 12 digits
+            if (config.keysize > 1024*1024*1024) config.keysize = 1024*1024*1024;
         } else if (!strcmp(argv[i],"-d")) {
             if (lastarg) goto invalid;
             config.datasize = atoi(argv[++i]);
@@ -1556,6 +1562,7 @@ usage:
 " --user <username>  Used to send ACL style 'AUTH username pass'. Needs -a.\n"
 " -c <clients>       Number of parallel connections (default 50)\n"
 " -n <requests>      Total number of requests (default 100000)\n"
+" -y <size>          Key size of SET/GET value in bytes (default 16)\n"
 " -d <size>          Data size of SET/GET value in bytes (default 3)\n"
 " --dbnum <db>       SELECT the specified db number (default 0)\n"
 " --threads <num>    Enable multi-thread mode.\n"
@@ -1694,6 +1701,7 @@ int main(int argc, char **argv) {
     config.el = aeCreateEventLoop(1024*10);
     aeCreateTimeEvent(config.el,1,showThroughput,NULL,NULL);
     config.keepalive = 1;
+    config.keysize = 16;
     config.datasize = 3;
     config.pipeline = 1;
     config.randomkeys = 0;
@@ -1838,6 +1846,16 @@ int main(int argc, char **argv) {
         return 0;
     }
 
+    size_t suffix_size = 0;
+    if (config.keysize > 0 && config.keysize > 16) {
+        suffix_size = config.keysize - 16;
+    }
+    char *suffix = zmalloc(suffix_size + 1);
+    suffix[suffix_size] = 0;
+    for (size_t j = 0; j < suffix_size; ++j) {
+        suffix[j] = 'a' + (j%26);
+    }
+
     /* Run default benchmark suite. */
     data = zmalloc(config.datasize+1);
     do {
@@ -1854,19 +1872,19 @@ int main(int argc, char **argv) {
         }
 
         if (test_is_selected("set")) {
-            len = redisFormatCommand(&cmd,"SET key%s:__rand_int__ %s",tag,data);
+            len = redisFormatCommand(&cmd,"SET key%s:__rand_int__%s %s",tag,suffix,data);
             benchmark("SET",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("get")) {
-            len = redisFormatCommand(&cmd,"GET key%s:__rand_int__",tag);
+            len = redisFormatCommand(&cmd,"GET key%s:__rand_int__$s",tag,suffix);
             benchmark("GET",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("incr")) {
-            len = redisFormatCommand(&cmd,"INCR counter%s:__rand_int__",tag);
+            len = redisFormatCommand(&cmd,"INCR counter%s:__rand_int__%s",tag,suffix);
             benchmark("INCR",cmd,len);
             free(cmd);
         }
@@ -1897,14 +1915,14 @@ int main(int argc, char **argv) {
 
         if (test_is_selected("sadd")) {
             len = redisFormatCommand(&cmd,
-                "SADD myset%s element:__rand_int__",tag);
+                "SADD myset%s element:__rand_int__%s",tag,suffix);
             benchmark("SADD",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("hset")) {
             len = redisFormatCommand(&cmd,
-                "HSET myhash%s element:__rand_int__ %s",tag,data);
+                "HSET myhash%s element:__rand_int__%s %s",tag,suffix,data);
             benchmark("HSET",cmd,len);
             free(cmd);
         }
@@ -1919,7 +1937,7 @@ int main(int argc, char **argv) {
             char *score = "0";
             if (config.randomkeys) score = "__rand_int__";
             len = redisFormatCommand(&cmd,
-                "ZADD myzset%s %s element:__rand_int__",tag,score);
+                "ZADD myzset%s %s element:__rand_int__%s",tag,score,suffix);
             benchmark("ZADD",cmd,len);
             free(cmd);
         }
@@ -1968,7 +1986,7 @@ int main(int argc, char **argv) {
         if (test_is_selected("mset")) {
             const char *cmd_argv[21];
             cmd_argv[0] = "MSET";
-            sds key_placeholder = sdscatprintf(sdsnew(""),"key%s:__rand_int__",tag);
+            sds key_placeholder = sdscatprintf(sdsnew(""),"key%s:__rand_int__%s",tag,suffix);
             for (i = 1; i < 21; i += 2) {
                 cmd_argv[i] = key_placeholder;
                 cmd_argv[i+1] = data;
@@ -1983,6 +2001,7 @@ int main(int argc, char **argv) {
     } while(config.loop);
 
     zfree(data);
+    zfree(suffix);
     if (config.redis_config != NULL) freeRedisConfig(config.redis_config);
 
     return 0;
