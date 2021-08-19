@@ -280,7 +280,6 @@ int geoGetPointsInRange(robj *zobj, double min, double max, GeoShape *shape, geo
             if (!zslValueLteMax(score, &range))
                 break;
 
-            /* We know the element exists. ziplistGet should always succeed */
             vstr = lpGetValue(eptr, &vlen, &vlong);
             member = (vstr == NULL) ? sdsfromlonglong(vlong) :
                                       sdsnewlen(vstr,vlen);
