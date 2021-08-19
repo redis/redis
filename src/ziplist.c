@@ -2464,7 +2464,7 @@ int ziplistTest(int argc, char **argv, int accurate) {
             printf("%lld\n", usec()-start);
         }
 
-        printf("Benchmark lpCompare with string\n");
+        printf("Benchmark ziplistCompare with string\n");
         {
             unsigned long long start = usec();
             for (int i = 0; i < 2000; i++) {
@@ -2477,7 +2477,7 @@ int ziplistTest(int argc, char **argv, int accurate) {
             printf("Done. usec=%lld\n", usec()-start);
         }
 
-        printf("Benchmark lpCompare with number\n");
+        printf("Benchmark ziplistCompare with number\n");
         {
             unsigned long long start = usec();
             for (int i = 0; i < 2000; i++) {
