@@ -5845,7 +5845,6 @@ void setupChildSignalHandlers(void) {
     act.sa_flags = 0;
     act.sa_handler = sigKillChildHandler;
     sigaction(SIGUSR1, &act, NULL);
-    return;
 }
 
 /* After fork, the child process will inherit the resources
@@ -5875,11 +5874,17 @@ int redisFork(int purpose) {
     int childpid;
     long long start = ustime();
     if ((childpid = fork()) == 0) {
-        /* Child */
+        /* Child.
+         *
+         * The order of setting things up follows some reasoning:
+         * Setup signal handlers first because a signal could fire at any time.
+         * Adjust OOM score before everything else to assist the OOM killer if
+         * memory resources are low.
+         */
         server.in_fork_child = purpose;
-        dismissMemoryInChild();
-        setOOMScoreAdj(CONFIG_OOM_BGCHILD);
         setupChildSignalHandlers();
+        setOOMScoreAdj(CONFIG_OOM_BGCHILD);
+        dismissMemoryInChild();
         closeChildUnusedResourceAfterFork();
     } else {
         /* Parent */

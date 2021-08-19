@@ -1786,8 +1786,8 @@ int clusterProcessPacket(clusterLink *link) {
 
     if (type < CLUSTERMSG_TYPE_COUNT)
         server.cluster->stats_bus_messages_received[type]++;
-    serverLog(LL_DEBUG,"--- Processing packet of type %d, %lu bytes",
-        type, (unsigned long) totlen);
+    serverLog(LL_DEBUG,"--- Processing packet of type %s, %lu bytes",
+        clusterGetMessageTypeString(type), (unsigned long) totlen);
 
     /* Perform sanity checks */
     if (totlen < 16) return 1; /* At least signature, version, totlen, count. */
@@ -4652,6 +4652,10 @@ NULL
                     (char*)c->argv[4]->ptr);
                 return;
             }
+            if (nodeIsSlave(n)) {
+                addReplyError(c,"Target node is not a master");
+                return;
+            }
             server.cluster->migrating_slots_to[slot] = n;
         } else if (!strcasecmp(c->argv[3]->ptr,"importing") && c->argc == 5) {
             if (server.cluster->slots[slot] == myself) {
@@ -4662,6 +4666,10 @@ NULL
             if ((n = clusterLookupNode(c->argv[4]->ptr)) == NULL) {
                 addReplyErrorFormat(c,"I don't know about node %s",
                     (char*)c->argv[4]->ptr);
+                return;
+            }
+            if (nodeIsSlave(n)) {
+                addReplyError(c,"Target node is not a master");
                 return;
             }
             server.cluster->importing_slots_from[slot] = n;
