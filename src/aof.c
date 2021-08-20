@@ -608,11 +608,11 @@ sds catAppendOnlyGenericCommand(sds dst, int argc, robj **argv) {
  * Timestamp annotation format is "#TS:${timestamp}\r\n". "TS" is short of
  * timestamp and this method could save extra bytes in AOF. */
 sds genAofTimestampAnnotationIfNeeded(int force) {
-    sds ts = sdsempty();
+    sds ts = NULL;
 
     if (force || server.aof_cur_timestamp < server.unixtime) {
         server.aof_cur_timestamp = force ? time(NULL) : server.unixtime;
-        ts = sdscatfmt(ts, "#TS:%I\r\n", server.aof_cur_timestamp);
+        ts = sdscatfmt(sdsempty(), "#TS:%I\r\n", server.aof_cur_timestamp);
         serverAssert(sdslen(ts) <= AOF_ANNOTATION_LINE_MAX_LEN);
     }
     return ts;
@@ -621,11 +621,13 @@ sds genAofTimestampAnnotationIfNeeded(int force) {
 void feedAppendOnlyFile(int dictid, robj **argv, int argc) {
     sds buf = sdsempty();
 
-    /* Feed Timestamp if needed */
+    /* Feed timestamp if needed */
     if (server.aof_timestamp_enabled) {
         sds ts = genAofTimestampAnnotationIfNeeded(0);
-        buf = sdscatsds(buf, ts);
-        sdsfree(ts);
+        if (ts != NULL) {
+            buf = sdscatsds(buf, ts);
+            sdsfree(ts);
+        }
     }
 
     /* The DB this command was targeting is not the same as the last command
