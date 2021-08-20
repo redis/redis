@@ -318,7 +318,6 @@ uint32_t sdigits10(int64_t v) {
  * Modified in order to handle signed integers since the original code was
  * designed for unsigned integers. */
 int ll2string(char *dst, size_t dstlen, long long svalue) {
-    int negative;
     unsigned long long value;
 
     /* The ull2string function with 64bit unsigned integers for simplicity, so
@@ -329,21 +328,18 @@ int ll2string(char *dst, size_t dstlen, long long svalue) {
         } else {
             value = ((unsigned long long) LLONG_MAX)+1;
         }
-        negative = 1;
+        dst[0] = '-';
     } else {
         value = svalue;
-        negative = 0;
+        dst[0] = ' '; // This will be overwritten in ullstring
     }
 
     /* Converts the unsigned long long value to string*/
-    uint32_t const length = ull2string(dst, dstlen, value, negative);
-
-    /* Add sign. */
-    if (negative) dst[0] = '-';
+    uint32_t const length = ull2string(dst, dstlen, value);
     return length;
 }
 
-int ull2string(char *dst, size_t dstlen, unsigned long long value, int negative) {
+int ull2string(char *dst, size_t dstlen, unsigned long long value) {
     static const char digits[201] =
         "0001020304050607080910111213141516171819"
         "2021222324252627282930313233343536373839"
@@ -352,7 +348,10 @@ int ull2string(char *dst, size_t dstlen, unsigned long long value, int negative)
         "8081828384858687888990919293949596979899";
 
     /* Check length. */
-    uint32_t const length = digits10(value) + negative;
+    uint32_t length = digits10(value);
+    if (dst[0] == '-'){
+        length = length + 1;
+    }
     if (length >= dstlen) return 0;
 
     /* Null term. */

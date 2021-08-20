@@ -2138,7 +2138,7 @@ static void numericConfigGet(client *c, typeData data) {
         
         GET_NUMERIC_TYPE(value)
 
-        ull2string(buf, sizeof(buf), value, 0);
+        ull2string(buf, sizeof(buf), value);
         addReplyBulkCString(c, buf);
     } else{
         long long value = 0;
