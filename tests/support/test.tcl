@@ -115,6 +115,17 @@ proc wait_for_condition {maxtries delay e _else_ elsescript} {
     }
 }
 
+proc search_pattern_list {value pattern_list} {
+    set n 0
+    foreach el $pattern_list {
+        if {[regexp -- $el $value]} {
+            return $n
+        }
+        incr n
+    }
+    return -1
+}
+
 proc test {name code {okpattern undefined} {tags {}}} {
     # abort if test name in skiptests
     if {[lsearch $::skiptests $name] >= 0} {
@@ -124,7 +135,7 @@ proc test {name code {okpattern undefined} {tags {}}} {
     }
 
     # abort if only_tests was set but test name is not included
-    if {[llength $::only_tests] > 0 && [lsearch $::only_tests $name] < 0} {
+    if {[llength $::only_tests] > 0 && [search_pattern_list $name $::only_tests] < 0} {
         incr ::num_skipped
         send_data_packet $::test_server_fd skip $name
         return

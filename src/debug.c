@@ -389,14 +389,14 @@ void debugCommand(client *c) {
 "    Server will sleep before flushing the AOF, this is used for testing.",
 "ASSERT",
 "    Crash by assertion failed.",
-"CHANGE-REPL-ID"
+"CHANGE-REPL-ID",
 "    Change the replication IDs of the instance.",
 "    Dangerous: should be used only for testing the replication subsystem.",
 "CONFIG-REWRITE-FORCE-ALL",
 "    Like CONFIG REWRITE but writes all configuration options, including",
 "    keywords not listed in original configuration file or default values.",
-"CRASH-AND-RECOVER <milliseconds>",
-"    Hard crash and restart after a <milliseconds> delay.",
+"CRASH-AND-RECOVER [<milliseconds>]",
+"    Hard crash and restart after a <milliseconds> delay (default 0).",
 "DIGEST",
 "    Output a hex signature representing the current DB content.",
 "DIGEST-VALUE <key> [<key> ...]",
@@ -404,6 +404,8 @@ void debugCommand(client *c) {
 "ERROR <string>",
 "    Return a Redis protocol error with <string> as message. Useful for clients",
 "    unit tests to simulate Redis errors.",
+"LEAK <string>",
+"    Create a memory leak of the input string.",
 "LOG <message>",
 "    Write <message> to the server log.",
 "HTSTATS <dbid>",
@@ -430,7 +432,7 @@ void debugCommand(client *c) {
 "POPULATE <count> [<prefix>] [<size>]",
 "    Create <count> string keys named key:<num>. If <prefix> is specified then",
 "    it is used instead of the 'key' prefix.",
-"DEBUG PROTOCOL <type>",
+"PROTOCOL <type>",
 "    Reply with a test value of the specified type. <type> can be: string,",
 "    integer, double, bignum, null, array, set, map, attrib, push, verbatim,",
 "    true, false.",
@@ -438,7 +440,7 @@ void debugCommand(client *c) {
 "    Save the RDB on disk and reload it back to memory. Valid <option> values:",
 "    * MERGE: conflicting keys will be loaded from RDB.",
 "    * NOFLUSH: the existing database will not be removed before load, but",
-"      conflicting keys will generate an exception and kill the server."
+"      conflicting keys will generate an exception and kill the server.",
 "    * NOSAVE: the database will be loaded from an existing RDB file.",
 "    Examples:",
 "    * DEBUG RELOAD: verify that the server is able to persist, flush and reload",
@@ -447,8 +449,8 @@ void debugCommand(client *c) {
 "      existing RDB file.",
 "    * DEBUG RELOAD NOSAVE NOFLUSH MERGE: add the contents of an existing RDB",
 "      file to the database.",
-"RESTART",
-"    Graceful restart: save config, db, restart.",
+"RESTART [<milliseconds>]",
+"    Graceful restart: save config, db, restart after a <milliseconds> delay (default 0).",
 "SDSLEN <key>",
 "    Show low level SDS string info representing `key` and value.",
 "SEGFAULT",
@@ -719,7 +721,7 @@ NULL
         } else if (!strcasecmp(name,"double")) {
             addReplyDouble(c,3.14159265359);
         } else if (!strcasecmp(name,"bignum")) {
-            addReplyProto(c,"(1234567999999999999999999999999999999\r\n",40);
+            addReplyBigNum(c,"1234567999999999999999999999999999999",37);
         } else if (!strcasecmp(name,"null")) {
             addReplyNull(c);
         } else if (!strcasecmp(name,"array")) {
@@ -735,11 +737,13 @@ NULL
                 addReplyBool(c, j == 1);
             }
         } else if (!strcasecmp(name,"attrib")) {
-            addReplyAttributeLen(c,1);
-            addReplyBulkCString(c,"key-popularity");
-            addReplyArrayLen(c,2);
-            addReplyBulkCString(c,"key:123");
-            addReplyLongLong(c,90);
+            if (c->resp >= 3) {
+                addReplyAttributeLen(c,1);
+                addReplyBulkCString(c,"key-popularity");
+                addReplyArrayLen(c,2);
+                addReplyBulkCString(c,"key:123");
+                addReplyLongLong(c,90);
+            }
             /* Attributes are not real replies, so a well formed reply should
              * also have a normal reply type after the attribute. */
             addReplyBulkCString(c,"Some real reply following the attribute");
@@ -869,6 +873,10 @@ NULL
     {
         stringmatchlen_fuzz_test();
         addReplyStatus(c,"Apparently Redis did not crash: test passed");
+    } else if (!strcasecmp(c->argv[1]->ptr,"set-disable-deny-scripts") && c->argc == 3)
+    {
+        server.lua_disable_deny_script = atoi(c->argv[2]->ptr);;
+        addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"config-rewrite-force-all") && c->argc == 2)
     {
         if (rewriteConfig(server.configfile, 1) == -1)
@@ -934,8 +942,8 @@ void _serverAssertPrintClientInfo(const client *c) {
 }
 
 void serverLogObjectDebugInfo(const robj *o) {
-    serverLog(LL_WARNING,"Object type: %d", o->type);
-    serverLog(LL_WARNING,"Object encoding: %d", o->encoding);
+    serverLog(LL_WARNING,"Object type: %u", o->type);
+    serverLog(LL_WARNING,"Object encoding: %u", o->encoding);
     serverLog(LL_WARNING,"Object refcount: %d", o->refcount);
 #if UNSAFE_CRASH_REPORT
     /* This code is now disabled. o->ptr may be unreliable to print. in some
@@ -1016,6 +1024,10 @@ void bugReportStart(void) {
 
 #ifdef HAVE_BACKTRACE
 static void *getMcontextEip(ucontext_t *uc) {
+#define NOT_SUPPORTED() do {\
+    UNUSED(uc);\
+    return NULL;\
+} while(0)
 #if defined(__APPLE__) && !defined(MAC_OS_X_VERSION_10_6)
     /* OSX < 10.6 */
     #if defined(__x86_64__)
@@ -1047,6 +1059,8 @@ static void *getMcontextEip(ucontext_t *uc) {
     return (void*) uc->uc_mcontext.arm_pc;
     #elif defined(__aarch64__) /* Linux AArch64 */
     return (void*) uc->uc_mcontext.pc;
+    #else
+    NOT_SUPPORTED();
     #endif
 #elif defined(__FreeBSD__)
     /* FreeBSD */
@@ -1054,6 +1068,8 @@ static void *getMcontextEip(ucontext_t *uc) {
     return (void*) uc->uc_mcontext.mc_eip;
     #elif defined(__x86_64__)
     return (void*) uc->uc_mcontext.mc_rip;
+    #else
+    NOT_SUPPORTED();
     #endif
 #elif defined(__OpenBSD__)
     /* OpenBSD */
@@ -1061,18 +1077,23 @@ static void *getMcontextEip(ucontext_t *uc) {
     return (void*) uc->sc_eip;
     #elif defined(__x86_64__)
     return (void*) uc->sc_rip;
+    #else
+    NOT_SUPPORTED();
     #endif
 #elif defined(__NetBSD__)
     #if defined(__i386__)
     return (void*) uc->uc_mcontext.__gregs[_REG_EIP];
     #elif defined(__x86_64__)
     return (void*) uc->uc_mcontext.__gregs[_REG_RIP];
+    #else
+    NOT_SUPPORTED();
     #endif
 #elif defined(__DragonFly__)
     return (void*) uc->uc_mcontext.mc_rip;
 #else
-    return NULL;
+    NOT_SUPPORTED();
 #endif
+#undef NOT_SUPPORTED
 }
 
 void logStackContent(void **sp) {
@@ -1091,6 +1112,11 @@ void logStackContent(void **sp) {
 /* Log dump of processor registers */
 void logRegisters(ucontext_t *uc) {
     serverLog(LL_WARNING|LL_RAW, "\n------ REGISTERS ------\n");
+#define NOT_SUPPORTED() do {\
+    UNUSED(uc);\
+    serverLog(LL_WARNING,\
+              "  Dumping of registers not supported for this OS/arch");\
+} while(0)
 
 /* OSX */
 #if defined(__APPLE__) && defined(MAC_OS_X_VERSION_10_6)
@@ -1315,6 +1341,8 @@ void logRegisters(ucontext_t *uc) {
 	      (unsigned long) uc->uc_mcontext.fault_address
 		      );
 	      logStackContent((void**)uc->uc_mcontext.arm_sp);
+    #else
+	NOT_SUPPORTED();
     #endif
 #elif defined(__FreeBSD__)
     #if defined(__x86_64__)
@@ -1370,6 +1398,8 @@ void logRegisters(ucontext_t *uc) {
         (unsigned long) uc->uc_mcontext.mc_gs
     );
     logStackContent((void**)uc->uc_mcontext.mc_esp);
+    #else
+    NOT_SUPPORTED();
     #endif
 #elif defined(__OpenBSD__)
     #if defined(__x86_64__)
@@ -1425,6 +1455,8 @@ void logRegisters(ucontext_t *uc) {
         (unsigned long) uc->sc_gs
     );
     logStackContent((void**)uc->sc_esp);
+    #else
+    NOT_SUPPORTED();
     #endif
 #elif defined(__NetBSD__)
     #if defined(__x86_64__)
@@ -1478,6 +1510,8 @@ void logRegisters(ucontext_t *uc) {
         (unsigned long) uc->uc_mcontext.__gregs[_REG_FS],
         (unsigned long) uc->uc_mcontext.__gregs[_REG_GS]
     );
+    #else
+    NOT_SUPPORTED();
     #endif
 #elif defined(__DragonFly__)
     serverLog(LL_WARNING,
@@ -1509,9 +1543,9 @@ void logRegisters(ucontext_t *uc) {
     );
     logStackContent((void**)uc->uc_mcontext.mc_rsp);
 #else
-    serverLog(LL_WARNING,
-        "  Dumping of registers not supported for this OS/arch");
+    NOT_SUPPORTED();
 #endif
+#undef NOT_SUPPORTED
 }
 
 #endif /* HAVE_BACKTRACE */
@@ -1586,6 +1620,15 @@ void logServerInfo(void) {
     serverLogRaw(LL_WARNING|LL_RAW, clients);
     sdsfree(infostring);
     sdsfree(clients);
+}
+
+/* Log certain config values, which can be used for debuggin */
+void logConfigDebugInfo(void) {
+    sds configstring;
+    configstring = getConfigDebugInfo();
+    serverLogRaw(LL_WARNING|LL_RAW, "\n------ CONFIG DEBUG OUTPUT ------\n");
+    serverLogRaw(LL_WARNING|LL_RAW, configstring);
+    sdsfree(configstring);
 }
 
 /* Log modules info. Something we wanna do last since we fear it may crash. */
@@ -1843,6 +1886,10 @@ void printCrashReport(void) {
 
     /* Log modules info. Something we wanna do last since we fear it may crash. */
     logModulesInfo();
+
+    /* Log debug config information, which are some values
+     * which may be useful for debugging crashes. */
+    logConfigDebugInfo();
 
     /* Run memory test in case the crash was triggered by memory corruption. */
     doFastMemoryTest();

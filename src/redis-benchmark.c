@@ -110,6 +110,7 @@ static struct config {
     int dbnum;
     sds dbnumstr;
     char *tests;
+    int stdinarg; /* get last arg from stdin. (-x option) */
     char *auth;
     const char *user;
     int precision;
@@ -222,8 +223,7 @@ static sds benchmarkVersion(void) {
 
 /* Dict callbacks */
 static uint64_t dictSdsHash(const void *key);
-static int dictSdsKeyCompare(void *privdata, const void *key1,
-    const void *key2);
+static int dictSdsKeyCompare(dict *d, const void *key1, const void *key2);
 
 /* Implementation */
 static long long ustime(void) {
@@ -250,11 +250,10 @@ static uint64_t dictSdsHash(const void *key) {
     return dictGenHashFunction((unsigned char*)key, sdslen((char*)key));
 }
 
-static int dictSdsKeyCompare(void *privdata, const void *key1,
-        const void *key2)
+static int dictSdsKeyCompare(dict *d, const void *key1, const void *key2)
 {
     int l1,l2;
-    DICT_NOTUSED(privdata);
+    UNUSED(d);
 
     l1 = sdslen((sds)key1);
     l2 = sdslen((sds)key2);
@@ -1301,7 +1300,7 @@ static int fetchClusterSlotsConfiguration(client c) {
         NULL                       /* allow to expand */
     };
     /* printf("[%d] fetchClusterSlotsConfiguration\n", c->thread_id); */
-    dict *masters = dictCreate(&dtype, NULL);
+    dict *masters = dictCreate(&dtype);
     redisContext *ctx = NULL;
     for (i = 0; i < (size_t) config.cluster_node_count; i++) {
         clusterNode *node = config.cluster_nodes[i];
@@ -1399,7 +1398,7 @@ static void genBenchmarkRandomData(char *data, int count) {
 }
 
 /* Returns number of consumed options. */
-int parseOptions(int argc, const char **argv) {
+int parseOptions(int argc, char **argv) {
     int i;
     int lastarg;
     int exit_status = 1;
@@ -1430,6 +1429,8 @@ int parseOptions(int argc, const char **argv) {
         } else if (!strcmp(argv[i],"-s")) {
             if (lastarg) goto invalid;
             config.hostsocket = strdup(argv[++i]);
+        } else if (!strcmp(argv[i],"-x")) {
+            config.stdinarg = 1;
         } else if (!strcmp(argv[i],"-a") ) {
             if (lastarg) goto invalid;
             config.auth = strdup(argv[++i]);
@@ -1576,6 +1577,7 @@ usage:
 " -t <tests>         Only run the comma separated list of tests. The test\n"
 "                    names are the same as the ones produced as output.\n"
 " -I                 Idle mode. Just open N idle connections and wait.\n"
+" -x                 Read last argument from STDIN.\n"
 #ifdef USE_OPENSSL
 " --tls              Establish a secure TLS connection.\n"
 " --sni <host>       Server name indication for TLS.\n"
@@ -1649,6 +1651,7 @@ int showThroughput(struct aeEventLoop *eventLoop, long long id, void *clientData
     const float instantaneous_rps = (float)(requests_finished-previous_requests_finished)/instantaneous_dt;
     config.previous_tick = current_tick;
     atomicSet(config.previous_requests_finished,requests_finished);
+    printf("%*s\r", config.last_printed_bytes, " "); /* ensure there is a clean line */
     int printed_bytes = printf("%s: rps=%.1f (overall: %.1f) avg_msec=%.3f (overall: %.3f)\r", config.title, instantaneous_rps, rps, hdr_mean(config.current_sec_latency_histogram)/1000.0f, hdr_mean(config.latency_histogram)/1000.0f);
     if (printed_bytes > config.last_printed_bytes){
        config.last_printed_bytes = printed_bytes;
@@ -1672,7 +1675,7 @@ int test_is_selected(char *name) {
     return strstr(config.tests,buf) != NULL;
 }
 
-int main(int argc, const char **argv) {
+int main(int argc, char **argv) {
     int i;
     char *data, *cmd, *tag;
     int len;
@@ -1705,6 +1708,7 @@ int main(int argc, const char **argv) {
     config.hostsocket = NULL;
     config.tests = NULL;
     config.dbnum = 0;
+    config.stdinarg = 0;
     config.auth = NULL;
     config.precision = DEFAULT_LATENCY_PRECISION;
     config.num_threads = 0;
@@ -1811,14 +1815,24 @@ int main(int argc, const char **argv) {
             title = sdscatlen(title, " ", 1);
             title = sdscatlen(title, (char*)argv[i], strlen(argv[i]));
         }
-
+        sds *sds_args = getSdsArrayFromArgv(argc, argv, 0);
+        if (!sds_args) {
+            printf("Invalid quoted string\n");
+            return 1;
+        }
+        if (config.stdinarg) {
+            sds_args = sds_realloc(sds_args,(argc + 1) * sizeof(sds));
+            sds_args[argc] = readArgFromStdin();
+            argc++;
+        }
         do {
-            len = redisFormatCommandArgv(&cmd,argc,argv,NULL);
+            len = redisFormatCommandArgv(&cmd,argc,(const char**)sds_args,NULL);
             // adjust the datasize to the parsed command
             config.datasize = len;
             benchmark(title,cmd,len);
             free(cmd);
         } while(config.loop);
+        sdsfreesplitres(sds_args, argc);
 
         if (config.redis_config != NULL) freeRedisConfig(config.redis_config);
         return 0;
