@@ -715,14 +715,17 @@ typedef struct RedisModuleDigest {
 #define OBJ_SHARED_REFCOUNT INT_MAX     /* Global object never destroyed. */
 #define OBJ_STATIC_REFCOUNT (INT_MAX-1) /* Object allocated in the stack. */
 #define OBJ_FIRST_SPECIAL_REFCOUNT OBJ_STATIC_REFCOUNT
+// 变量后使用冒号和数值的定义方法 C 语言中的位域定义方法，可以用来有效地节省内存开销
 typedef struct redisObject {
-    unsigned type:4;
-    unsigned encoding:4;
+    // 三个变量后面都有一个冒号，并紧跟着一个数值，表示该元数据占用的比特数
+    unsigned type:4; // redisObject 的数据类型，是应用程序在 Redis 中保存的数据类型 4个bits
+    unsigned encoding:4; // redisObject 的编码类型，是 Redis 内部实现各种数据类型所用的数据结构
+                         // 可以对应不同的底层数据结构来实现（SDS/ziplist/intset/hashtable/skiplist等）
     unsigned lru:LRU_BITS; /* LRU time (relative to global lru_clock) or
                             * LFU data (least significant 8 bits frequency
                             * and most significant 16 bits access time). */
-    int refcount;
-    void *ptr;
+    int refcount; // redisObject 的引用计 4个字节
+    void *ptr; // 指向值的指针 8个字节
 } robj;
 
 /* The a string name for an object's type as listed above

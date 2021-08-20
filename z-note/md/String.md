@@ -69,10 +69,17 @@ SDS 的优势：
 
 这个内存预分配策略，详细逻辑可以看 sds.c 的 sdsMakeRoomFor 函数。
 
-课后题：SDS 字符串在 Redis 内部模块实现中也被广泛使用，你能在 Redis server 和客户端的实现中，找到使用 SDS 字符串的地方么？
+
+***SDS 字符串在 Redis 内部模块实现中也被广泛使用，你能在 Redis server 和客户端的实现中，找到使用 SDS 字符串的地方么？***
 
 1、Redis 中所有 key 的类型就是 SDS（详见 db.c 的 dbAdd 函数）
 
 2、Redis Server 在读取 Client 发来的请求时，会先读到一个缓冲区中，这个缓冲区也是 SDS（详见 server.h 中 struct client 的 querybuf 字段）
 
 3、写操作追加到 AOF 时，也会先写到 AOF 缓冲区，这个缓冲区也是 SDS （详见 server.h 中 struct client 的 aof_buf 字段）
+
+
+***SDS 判断是否使用嵌入式字符串的条件是 44 字节，你知道为什么是 44 字节吗？***
+1. Redis 规定嵌入式字符串最大以 64 字节存储，所以 N = 64 - 16(redisObject) - 3(sdshr8) - 1(\0)， N = 44 字节。
+2. 因为在目前的x86体系下，一般的缓存行大小是64字节，redis为了一次能加载完成，因此采用64自己作为embstr类型(保存redisObject)的最大长度。
+

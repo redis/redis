@@ -32,6 +32,9 @@
 #define __INTSET_H
 #include <stdint.h>
 
+/**
+ * 整数集合 作为底层结构来实现 Set 数据类型的
+ */
 typedef struct intset {
     uint32_t encoding;
     uint32_t length;

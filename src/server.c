@@ -2476,6 +2476,9 @@ void afterSleep(struct aeEventLoop *eventLoop) {
 
 /* =========================== Server initialization ======================== */
 
+/**
+ * 避免在内存中反复创建这些经常被访问的数据，Redis 就采用了共享对象的设计思想
+ */
 void createSharedObjects(void) {
     int j;
 
@@ -2611,6 +2614,7 @@ void createSharedObjects(void) {
     shared.special_equals = createStringObject("=",1);
     shared.redacted = makeObjectShared(createStringObject("(redacted)",10));
 
+    //0到9999的整数
     for (j = 0; j < OBJ_SHARED_INTEGERS; j++) {
         shared.integers[j] =
             makeObjectShared(createObject(OBJ_STRING,(void*)(long)j));
