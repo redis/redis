@@ -308,17 +308,10 @@ uint32_t sdigits10(int64_t v) {
 
 /* Convert a long long into a string. Returns the number of
  * characters needed to represent the number.
- * If the buffer is not big enough to store the string, 0 is returned.
- *
- * Based on the following article (that apparently does not provide a
- * novel approach but only publicizes an already used technique):
- *
- * https://www.facebook.com/notes/facebook-engineering/three-optimization-tips-for-c/10151361643253920
- *
- * Modified in order to handle signed integers since the original code was
- * designed for unsigned integers. */
-int ll2string(char *dst, size_t dstlen, long long svalue) {
+ * If the buffer is not big enough to store the string, 0 is returned. */
+ int ll2string(char *dst, size_t dstlen, long long svalue) {
     unsigned long long value;
+    int negative = 0;
 
     /* The ull2string function with 64bit unsigned integers for simplicity, so
      * we convert the number here and remember if it is negative. */
@@ -328,17 +321,30 @@ int ll2string(char *dst, size_t dstlen, long long svalue) {
         } else {
             value = ((unsigned long long) LLONG_MAX)+1;
         }
+        if (dstlen < 2)
+            return 0;
+        negative = 1;
         dst[0] = '-';
+        dst++;
+        dstlen--;
     } else {
         value = svalue;
-        dst[0] = ' '; // This will be overwritten in ullstring
     }
 
     /* Converts the unsigned long long value to string*/
-    uint32_t const length = ull2string(dst, dstlen, value);
-    return length;
+    int length = ull2string(dst, dstlen, value);
+    if (length == 0) return 0;
+    return length + negative;
 }
 
+/* Convert a unsigned long long into a string. Returns the number of
+ * characters needed to represent the number.
+ * If the buffer is not big enough to store the string, 0 is returned.
+ *
+ * Based on the following article (that apparently does not provide a
+ * novel approach but only publicizes an already used technique):
+ *
+ * https://www.facebook.com/notes/facebook-engineering/three-optimization-tips-for-c/10151361643253920 */
 int ull2string(char *dst, size_t dstlen, unsigned long long value) {
     static const char digits[201] =
         "0001020304050607080910111213141516171819"
@@ -349,9 +355,6 @@ int ull2string(char *dst, size_t dstlen, unsigned long long value) {
 
     /* Check length. */
     uint32_t length = digits10(value);
-    if (dst[0] == '-'){
-        length = length + 1;
-    }
     if (length >= dstlen) return 0;
 
     /* Null term. */
