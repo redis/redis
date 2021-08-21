@@ -321,7 +321,7 @@ start_server {tags {"bitops"}} {
         r del foo{t} foo2{t} foo3{t}
         set dirty [s rdb_changes_since_last_save]
 
-        # Create a new key.
+        # Create a new key, always increase the dirty.
         r setbit foo{t} 0 0
         r bitfield foo2{t} set i5 0 0
         set dirty2 [s rdb_changes_since_last_save]
@@ -333,10 +333,14 @@ start_server {tags {"bitops"}} {
         set dirty3 [s rdb_changes_since_last_save]
         assert {$dirty3 == $dirty2}
 
-        # Do the change.
+        # Do a change and a no change.
+        r setbit foo{t} 0 1
         r setbit foo{t} 0 1
         r setbit foo{t} 0 0
+        r setbit foo{t} 0 0
         r bitfield foo2{t} set i5 0 1
+        r bitfield foo2{t} set i5 0 1
+        r bitfield foo2{t} set i5 0 0
         r bitfield foo2{t} set i5 0 0
         set dirty4 [s rdb_changes_since_last_save]
         assert {$dirty4 == $dirty3 + 4}

@@ -555,7 +555,9 @@ void setbitCommand(client *c) {
     bit = 7 - (bitoffset & 0x7);
     bitval = byteval & (1 << bit);
 
-    /* Either it is newly created, or the bit changes before and after. */
+    /* Either it is newly created, or the bit changes before and after.
+     * Note that the bitval here is actually a decimal number.
+     * So we need to use `!!` to convert it to 0 or 1 for comparison. */
     if (created || (!!bitval != on)) {
         /* Update byte with new bit value. */
         byteval &= ~(1 << bit);
