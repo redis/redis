@@ -9,8 +9,14 @@ start_server {tags {"modules acl"}} {
         # block SET command for user
         r acl setuser default -set
         catch {r rm_call.aclcheck.cmd set x 5} e
-        set e
-    } {*DENIED CMD*}
+        assert_match {*DENIED CMD*} $e
+
+        # verify that new log entry added
+        set entry [lindex [r ACL LOG] 0]
+        assert {[dict get $entry username] eq {default}}
+        assert {[dict get $entry context] eq {toplevel}}
+        assert {[dict get $entry object] eq {set}}
+    }
 
     test {test module check acl for key perm} {
         # give permission for SET and block all keys but x
@@ -39,6 +45,13 @@ start_server {tags {"modules acl"}} {
         # rm call check for key permission (y can't be accessed)
         catch {r rm_call.aclcheck set y 5} e
         assert_match {*NOPERM*} $e
+
+        # verify that new log entry added
+        set entry [lindex [r ACL LOG] 0]
+        assert {[dict get $entry username] eq {default}}
+        assert {[dict get $entry context] eq {toplevel}}
+        assert {[dict get $entry object] eq {y}}
+
         # rm call check for command permission
         r acl setuser default -set
         catch {r rm_call.aclcheck set x 5} e

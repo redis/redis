@@ -1114,7 +1114,7 @@ int ACLAuthenticateUser(client *c, robj *username, robj *password) {
         moduleNotifyUserChanged(c);
         return C_OK;
     } else {
-        addACLLogEntry(c,ACL_DENIED_AUTH,0,username->ptr);
+        addACLLogEntry(c,ACL_DENIED_AUTH,0,NULL,username->ptr);
         return C_ERR;
     }
 }
@@ -1807,24 +1807,28 @@ void ACLFreeLogEntry(void *leptr) {
  *
  * The argpos argument is used when the reason is ACL_DENIED_KEY or 
  * ACL_DENIED_CHANNEL, since it allows the function to log the key or channel
- * name that caused the problem. Similarly the username is only passed when we
- * failed to authenticate the user with AUTH or HELLO, for the ACL_DENIED_AUTH
- * reason. Otherwise it will just be NULL.
+ * name that caused the problem. If this argument is equal to -1, the function will log the value stored in object.
+ * Similarly, if the username argument is provided (not NULL), it will be logged, otherwise the value will be
+ * extracted from c->user->name.
  */
-void addACLLogEntry(client *c, int reason, int argpos, sds username) {
+void addACLLogEntry(client *c, int reason, int argpos, sds object, sds username) {
     /* Create a new entry. */
     struct ACLLogEntry *le = zmalloc(sizeof(*le));
     le->count = 1;
     le->reason = reason;
-    le->username = sdsdup(reason == ACL_DENIED_AUTH ? username : c->user->name);
+    le->username = sdsdup(username ? username : c->user->name);
     le->ctime = mstime();
 
-    switch(reason) {
-    case ACL_DENIED_CMD: le->object = sdsnew(c->cmd->name); break;
-    case ACL_DENIED_KEY: le->object = sdsdup(c->argv[argpos]->ptr); break;
-    case ACL_DENIED_CHANNEL: le->object = sdsdup(c->argv[argpos]->ptr); break;
-    case ACL_DENIED_AUTH: le->object = sdsdup(c->argv[0]->ptr); break;
-    default: le->object = sdsempty();
+    if (argpos == -1) {
+        le->object = sdsnew(object);
+    } else {
+        switch(reason) {
+            case ACL_DENIED_CMD: le->object = sdsnew(c->cmd->name); break;
+            case ACL_DENIED_KEY: le->object = sdsdup(c->argv[argpos]->ptr); break;
+            case ACL_DENIED_CHANNEL: le->object = sdsdup(c->argv[argpos]->ptr); break;
+            case ACL_DENIED_AUTH: le->object = sdsdup(c->argv[0]->ptr); break;
+            default: le->object = sdsempty();
+        }
     }
 
     client *realclient = c;

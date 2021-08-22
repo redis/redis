@@ -226,7 +226,7 @@ void execCommand(client *c) {
                 reason = "no permission";
                 break;
             }
-            addACLLogEntry(c,acl_retval,acl_errpos,NULL);
+            addACLLogEntry(c,acl_retval,acl_errpos,NULL,NULL);
             addReplyErrorFormat(c,
                 "-NOPERM ACLs rules changed between the moment the "
                 "transaction was accumulated and the EXEC call. "

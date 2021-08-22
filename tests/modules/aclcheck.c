@@ -11,11 +11,11 @@ int set_aclcheck_key(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
 
     /* Check that the key can be accessed */
-    RedisModuleUserID * userid = RedisModule_CreateModuleUserID(ctx);
+    RedisModuleUserID * userid = RedisModule_GetCurrentUserID(ctx);
     int ret = RedisModule_ACLCheckKeyPermissions(userid, argv[1]);
     if (ret != 0) {
         RedisModule_ReplyWithError(ctx, "DENIED KEY");
-        RedisModule_FreeModuleUserID(userid);
+        RedisModule_FreeUserID(userid);
         return REDISMODULE_OK;
     }
 
@@ -27,7 +27,7 @@ int set_aclcheck_key(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         RedisModule_FreeCallReply(rep);
     }
 
-    RedisModule_FreeModuleUserID(userid);
+    RedisModule_FreeUserID(userid);
     return REDISMODULE_OK;
 }
 
@@ -43,19 +43,18 @@ int test_aclcheck_key_user_deleted(RedisModuleCtx *ctx, RedisModuleString **argv
     RedisModule_SetModuleUserACL(testuser, "on");
     RedisModule_AuthenticateClientWithUser(ctx, testuser, NULL, NULL, NULL);
 
-    /* Check that the key can be accessed */
-    RedisModuleUserID * testuserid = RedisModule_CreateModuleUserID(ctx);
+    RedisModuleUserID * testuserid = RedisModule_GetCurrentUserID(ctx);
 
     /* authenticated back to "default" user (so once we free testuser1 we will not disconnected */
     RedisModule_AuthenticateClientWithACLUser(ctx, "default", 7, NULL, NULL, NULL);
     RedisModule_FreeModuleUser(testuser);
 
-    /* verify that using the UserID of deleted user, fails*/
+    /* verify that using the user ID of deleted user, fails*/
     int ret = RedisModule_ACLCheckKeyPermissions(testuserid, argv[1]);
     assert(ret != REDISMODULE_OK);
     assert(errno == ENOTSUP);
     RedisModule_ReplyWithError(ctx, "NO ACL USER");
-    RedisModule_FreeModuleUserID(testuserid);
+    RedisModule_FreeUserID(testuserid);
     return REDISMODULE_OK;
 }
 
@@ -65,12 +64,12 @@ int publish_aclcheck_channel(RedisModuleCtx *ctx, RedisModuleString **argv, int 
         return RedisModule_WrongArity(ctx);
     }
 
-    /* Check that the key can be accessed */
-    RedisModuleUserID * userid = RedisModule_CreateModuleUserID(ctx);
+    /* Check that the channel can be accessed */
+    RedisModuleUserID * userid = RedisModule_GetCurrentUserID(ctx);
     int ret = RedisModule_ACLCheckChannelPermissions(userid, argv[1], 1);
     if (ret != 0) {
         RedisModule_ReplyWithError(ctx, "DENIED CHANNEL");
-        RedisModule_FreeModuleUserID(userid);
+        RedisModule_FreeUserID(userid);
         return REDISMODULE_OK;
     }
 
@@ -82,7 +81,7 @@ int publish_aclcheck_channel(RedisModuleCtx *ctx, RedisModuleString **argv, int 
         RedisModule_FreeCallReply(rep);
     }
 
-    RedisModule_FreeModuleUserID(userid);
+    RedisModule_FreeUserID(userid);
     return REDISMODULE_OK;
 }
 
@@ -93,11 +92,13 @@ int rm_call_aclcheck_cmd(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     }
 
     /* Check that the command can be executed */
-    RedisModuleUserID * userid = RedisModule_CreateModuleUserID(ctx);
+    RedisModuleUserID * userid = RedisModule_GetCurrentUserID(ctx);
     int ret = RedisModule_ACLCheckCommandPermissions(userid, argv + 1, argc - 1);
     if (ret != 0) {
         RedisModule_ReplyWithError(ctx, "DENIED CMD");
-        RedisModule_FreeModuleUserID(userid);
+        RedisModule_FreeUserID(userid);
+        /* Add entry to ACL log */
+        RedisModule_ACLAddLogEntry(ctx, userid, argv[1]);
         return REDISMODULE_OK;
     }
 
@@ -111,7 +112,7 @@ int rm_call_aclcheck_cmd(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
         RedisModule_FreeCallReply(rep);
     }
 
-    RedisModule_FreeModuleUserID(userid);
+    RedisModule_FreeUserID(userid);
     return REDISMODULE_OK;
 }
 

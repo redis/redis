@@ -4302,6 +4302,8 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         }
         acl_retval = ACLCheckAllUserCommandPerm(ctx->client->user,c->cmd,c->argv,c->argc,&acl_errpos);
         if (acl_retval != ACL_OK) {
+            sds object = (acl_retval == ACL_DENIED_CMD) ? c->cmd->name : c->argv[acl_errpos]->ptr;
+            addACLLogEntry(ctx->client, acl_retval, -1, object, ctx->client->user->name);
             errno = EACCES;
             goto cleanup;
         }
@@ -6733,16 +6735,15 @@ int RM_SetModuleUserACL(RedisModuleUser *user, const char* acl) {
     return ACLSetUser(user->user, acl, -1);
 }
 
-/* Creates a user ID from the user created through the redis module interface.
+/* Retrieve the user ID of the client connection behind the current context.
  * The user ID can be used later, in order to check if command, key or channel
  * can be executed or accessed according to the ACLs rules associated with that user.
- * The caller can later free the user ID using the function RM_FreeModuleUserID
+ * The caller can later free the user ID using the function RM_FreeUserID
  *
  * On success a RedisModuleUserID object is returned, otherwise
- * NULL is returned and errno is set to ENOENT. */
- RedisModuleUserID *RM_CreateModuleUserID(RedisModuleCtx *ctx) {
+ * NULL is returned. */
+ RedisModuleUserID *RM_GetCurrentUserID(RedisModuleCtx *ctx) {
     if (ctx->client->user == NULL) {
-        errno = ENOENT;
         return NULL;
     }
 
@@ -6752,7 +6753,7 @@ int RM_SetModuleUserACL(RedisModuleUser *user, const char* acl) {
 }
 
 /* Frees a given user ID .*/
-void RM_FreeModuleUserID(RedisModuleUserID *userid) {
+void RM_FreeUserID(RedisModuleUserID *userid) {
     decrRefCount(userid->id);
     zfree(userid);
 }
@@ -6816,7 +6817,7 @@ int RM_ACLCheckKeyPermissions(RedisModuleUserID *userid, RedisModuleString *key)
     return REDISMODULE_OK;
 }
 
-/* Check if the channel can be accessed by the user, identified by the specified user ID,
+/* Check if the pubsub channel can be accessed by the user, identified by the specified user ID,
  * according to the ACLs associated with it.
  * Glob-style pattern matching is employed, unless the literal flag is
  * set.
@@ -6838,6 +6839,20 @@ int RM_ACLCheckChannelPermissions(RedisModuleUserID *userid, RedisModuleString *
         errno = EACCES;
         return REDISMODULE_ERR;
     }
+
+    return REDISMODULE_OK;
+}
+
+/* Adds a new entry in the ACL log.
+ * Returns REDISMODULE_OK on success and REDISMODULE_ERR on error. */
+int RM_ACLAddLogEntry(RedisModuleCtx *ctx, RedisModuleUserID *userid, RedisModuleString *object) {
+    /* Get ACL user from RedisModuleUserID */
+    user *acl_user = ACLGetUserByName(userid->id->ptr, sdslen(userid->id->ptr));
+    if (acl_user == NULL) {
+        return REDISMODULE_ERR;
+    }
+
+    addACLLogEntry(ctx->client, 0, -1, object->ptr, acl_user->name);
 
     return REDISMODULE_OK;
 }
@@ -9910,11 +9925,12 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ScanKey);
     REGISTER_API(CreateModuleUser);
     REGISTER_API(SetModuleUserACL);
-    REGISTER_API(CreateModuleUserID);
-    REGISTER_API(FreeModuleUserID);
+    REGISTER_API(GetCurrentUserID);
+    REGISTER_API(FreeUserID);
     REGISTER_API(ACLCheckCommandPermissions);
     REGISTER_API(ACLCheckKeyPermissions);
     REGISTER_API(ACLCheckChannelPermissions);
+    REGISTER_API(ACLAddLogEntry);
     REGISTER_API(FreeModuleUser);
     REGISTER_API(DeauthenticateAndCloseClient);
     REGISTER_API(AuthenticateClientWithACLUser);
