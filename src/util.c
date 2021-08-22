@@ -309,7 +309,7 @@ uint32_t sdigits10(int64_t v) {
 /* Convert a long long into a string. Returns the number of
  * characters needed to represent the number.
  * If the buffer is not big enough to store the string, 0 is returned. */
- int ll2string(char *dst, size_t dstlen, long long svalue) {
+int ll2string(char *dst, size_t dstlen, long long svalue) {
     unsigned long long value;
     int negative = 0;
 
