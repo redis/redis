@@ -854,22 +854,28 @@ void configSetCommand(client *c) {
          * whole configuration string or accept it all, even if a single
          * error in a single client class is present. */
         for (j = 0; j < vlen; j++) {
-            long val;
+            unsigned long long val;
 
             if ((j % 4) == 0) {
                 int class = getClientTypeByName(v[j]);
-                if (class == -1 || class == CLIENT_TYPE_MASTER) {
-                    sdsfreesplitres(v,vlen);
-                    goto badfmt;
-                }
+                if (class == -1 || class == CLIENT_TYPE_MASTER)
+                    break;
+            } else if ((j % 4) == 3) {
+                char *endptr;
+                long l = strtoll(v[j],endptr,10);
+                if (val < 0 || *endptr != '\0')
+                    break;
             } else {
                 val = memtoull(v[j], &err);
-                if (err || val < 0) {
-                    sdsfreesplitres(v,vlen);
-                    goto badfmt;
-                }
+                if (err)
+                    break;
             }
         }
+        if (j <= vlen) {
+            sdsfreesplitres(v,vlen);
+            goto badfmt;
+        }
+        
         /* Finally set the new config */
         for (j = 0; j < vlen; j += 4) {
             int class;
