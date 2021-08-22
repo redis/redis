@@ -885,8 +885,7 @@ NULL
             addReplyError(c, "CONFIG-REWRITE-FORCE-ALL failed");
         else
             addReply(c, shared.ok);
-    } else if(!strcasecmp(c->argv[1]->ptr,"client-eviction") && c->argc == 2)
-    {
+    } else if(!strcasecmp(c->argv[1]->ptr,"client-eviction") && c->argc == 2) {
         sds bucket_info = sdsempty();
         for (int j = 0; j < CLIENT_MEM_USAGE_BUCKETS; j++) {
             if (j == 0)
