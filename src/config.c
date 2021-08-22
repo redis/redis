@@ -863,7 +863,7 @@ void configSetCommand(client *c) {
             } else if ((j % 4) == 3) {
                 char *endptr;
                 long l = strtoll(v[j],&endptr,10);
-                if (val < 0 || *endptr != '\0')
+                if (l < 0 || *endptr != '\0')
                     break;
             } else {
                 val = memtoull(v[j], &err);
