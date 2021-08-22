@@ -120,6 +120,43 @@ start_server {} {
         r config set maxmemory-clients $maxmemory_clients
     }
     
+    test "client evicted due to tracking redirection" {
+        r flushdb
+        # Use slow hz to avoid clientsCron from updating memory usage frequently since 
+        # we're testing the update logic when writing tracking redirection output
+        set backup_hz [lindex [r config get hz] 1]
+        r config set hz 1
+
+        set rr [redis_client]
+        set redirected_c [redis_client] 
+        $redirected_c client setname redirected_client
+        set redir_id [$redirected_c client id]
+        $redirected_c SUBSCRIBE __redis__:invalidate
+        $rr client tracking on redirect $redir_id bcast
+        # Use a big key name to fill the redirected tracking client's buffer quickly
+        set key_length [expr 1024*10]
+        set long_key [string repeat k $key_length]
+        # Use a script so we won't need to pass the long key name when dirtying it in the loop
+        set script_sha [$rr script load "redis.call('incr', '$long_key')"]
+        # Read and write to same (long) key until redirected_client's buffers cause it to be evicted
+        set t [clock milliseconds]
+        catch {
+            while true {
+                set mem [client_field redirected_client tot-mem]
+                assert {$mem < $maxmemory_clients}
+                $rr evalsha $script_sha 0
+            }
+        } e
+        assert_match {no client named redirected_client found*} $e
+        
+        # Make sure eviction happened in less than 1sec, this means, statistically eviction
+        # wasn't caused by clientCron accounting
+        set t [expr [clock milliseconds] - $t]
+        assert {$t < 1000}
+
+        r config set hz $backup_hz
+    }
+
     test "client evicted due to client tracking prefixes" {
         r flushdb
         set rr [redis_client]
