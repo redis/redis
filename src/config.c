@@ -862,7 +862,7 @@ void configSetCommand(client *c) {
                     break;
             } else if ((j % 4) == 3) {
                 char *endptr;
-                long l = strtoll(v[j],endptr,10);
+                long l = strtoll(v[j],&endptr,10);
                 if (val < 0 || *endptr != '\0')
                     break;
             } else {
