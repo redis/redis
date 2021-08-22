@@ -854,8 +854,6 @@ void configSetCommand(client *c) {
          * whole configuration string or accept it all, even if a single
          * error in a single client class is present. */
         for (j = 0; j < vlen; j++) {
-            unsigned long long val;
-
             if ((j % 4) == 0) {
                 int class = getClientTypeByName(v[j]);
                 if (class == -1 || class == CLIENT_TYPE_MASTER)
@@ -866,7 +864,7 @@ void configSetCommand(client *c) {
                 if (l < 0 || *endptr != '\0')
                     break;
             } else {
-                val = memtoull(v[j], &err);
+                memtoull(v[j], &err);
                 if (err)
                     break;
             }
