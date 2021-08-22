@@ -869,7 +869,7 @@ void configSetCommand(client *c) {
                     break;
             }
         }
-        if (j <= vlen) {
+        if (j < vlen) {
             sdsfreesplitres(v,vlen);
             goto badfmt;
         }
