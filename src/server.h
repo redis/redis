@@ -982,8 +982,8 @@ typedef struct client {
     blockingState bpop;     /* blocking state */
     long long woff;         /* Last write global replication offset. */
     list *watched_keys;     /* Keys WATCHED for MULTI/EXEC CAS */
-    dict *pubsub_channels;  /* channels a client is interested in (SUBSCRIBE) */ // TODO: add this to memory accounting
-    list *pubsub_patterns;  /* patterns a client is interested in (SUBSCRIBE) */ // TODO: add this to memory accounting
+    dict *pubsub_channels;  /* channels a client is interested in (SUBSCRIBE) */
+    list *pubsub_patterns;  /* patterns a client is interested in (SUBSCRIBE) */
     sds peerid;             /* Cached peer ID. */
     sds sockname;           /* Cached connection target address. */
     listNode *client_list_node; /* list node in client list */

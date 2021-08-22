@@ -87,6 +87,38 @@ start_server {} {
         # Restore config for next tests
         r config set maxmemory-clients $maxmemory_clients
     }
+
+    test "client evicted due to pubsub subscriptions" {
+        r flushdb
+        
+        # Since pubsub subscriptions cause a small overheatd this test uses a minimal maxmemory-clients config
+        set temp_maxmemory_clients 200000
+        r config set maxmemory-clients $temp_maxmemory_clients
+
+        # Test eviction due to pubsub patterns
+        set rr [redis_client]
+        # Add patterns until list maxes out maxmemroy clients and causes client eviction
+        catch { 
+            for {set j 0} {$j < $temp_maxmemory_clients} {incr j} {
+                $rr psubscribe $j
+            }
+        } e
+        assert_match {I/O error reading reply} $e
+
+        # Test eviction due to pubsub channels
+        set rr [redis_client]
+        # Add patterns until list maxes out maxmemroy clients and causes client eviction
+        catch { 
+            for {set j 0} {$j < $temp_maxmemory_clients} {incr j} {
+                $rr subscribe $j
+            }
+        } e
+        assert_match {I/O error reading reply} $e
+
+       
+        # Restore config for next tests
+        r config set maxmemory-clients $maxmemory_clients
+    }
     
     test "client evicted due to client tracking prefixes" {
         r flushdb
@@ -95,7 +127,6 @@ start_server {} {
         # Since tracking prefixes list is a small overheatd this test uses a minimal maxmemory-clients config
         set temp_maxmemory_clients 200000
         r config set maxmemory-clients $temp_maxmemory_clients
-        $rr client setname badger
         
         # Append tracking prefixes until list maxes out maxmemroy clients and causes client eviction
         catch { 
