@@ -477,15 +477,17 @@ int getBitfieldTypeFromArgument(client *c, robj *o, int *sign, int *bits) {
  * so that the 'maxbit' bit can be addressed. The object is finally
  * returned. Otherwise if the key holds a wrong type NULL is returned and
  * an error is sent to the client. */
-robj *lookupStringForBitCommand(client *c, uint64_t maxbit) {
+robj *lookupStringForBitCommand(client *c, uint64_t maxbit, int *created) {
     size_t byte = maxbit >> 3;
     robj *o = lookupKeyWrite(c->db,c->argv[1]);
     if (checkType(c,o,OBJ_STRING)) return NULL;
 
     if (o == NULL) {
+        if (created) *created = 1;
         o = createObject(OBJ_STRING,sdsnewlen(NULL, byte+1));
         dbAdd(c->db,c->argv[1],o);
     } else {
+        if (created) *created = 0;
         o = dbUnshareStringValue(c->db,c->argv[1],o);
         o->ptr = sdsgrowzero(o->ptr,byte+1);
     }
@@ -544,7 +546,8 @@ void setbitCommand(client *c) {
         return;
     }
 
-    if ((o = lookupStringForBitCommand(c,bitoffset)) == NULL) return;
+    int created;
+    if ((o = lookupStringForBitCommand(c,bitoffset,&created)) == NULL) return;
 
     /* Get current values */
     byte = bitoffset >> 3;
@@ -552,13 +555,20 @@ void setbitCommand(client *c) {
     bit = 7 - (bitoffset & 0x7);
     bitval = byteval & (1 << bit);
 
-    /* Update byte with new bit value and return original value */
-    byteval &= ~(1 << bit);
-    byteval |= ((on & 0x1) << bit);
-    ((uint8_t*)o->ptr)[byte] = byteval;
-    signalModifiedKey(c,c->db,c->argv[1]);
-    notifyKeyspaceEvent(NOTIFY_STRING,"setbit",c->argv[1],c->db->id);
-    server.dirty++;
+    /* Either it is newly created, or the bit changes before and after.
+     * Note that the bitval here is actually a decimal number.
+     * So we need to use `!!` to convert it to 0 or 1 for comparison. */
+    if (created || (!!bitval != on)) {
+        /* Update byte with new bit value. */
+        byteval &= ~(1 << bit);
+        byteval |= ((on & 0x1) << bit);
+        ((uint8_t*)o->ptr)[byte] = byteval;
+        signalModifiedKey(c,c->db,c->argv[1]);
+        notifyKeyspaceEvent(NOTIFY_STRING,"setbit",c->argv[1],c->db->id);
+        server.dirty++;
+    }
+
+    /* Return original value. */
     addReply(c, bitval ? shared.cone : shared.czero);
 }
 
@@ -934,7 +944,7 @@ struct bitfieldOp {
 void bitfieldGeneric(client *c, int flags) {
     robj *o;
     uint64_t bitoffset;
-    int j, numops = 0, changes = 0;
+    int j, numops = 0, changes = 0, created = 0;
     struct bitfieldOp *ops = NULL; /* Array of ops to execute at end. */
     int owtype = BFOVERFLOW_WRAP; /* Overflow type. */
     int readonly = 1;
@@ -1028,7 +1038,7 @@ void bitfieldGeneric(client *c, int flags) {
         /* Lookup by making room up to the farthest bit reached by
          * this operation. */
         if ((o = lookupStringForBitCommand(c,
-            highest_write_offset)) == NULL) {
+            highest_write_offset,&created)) == NULL) {
             zfree(ops);
             return;
         }
@@ -1078,6 +1088,9 @@ void bitfieldGeneric(client *c, int flags) {
                     addReplyLongLong(c,retval);
                     setSignedBitfield(o->ptr,thisop->offset,
                                       thisop->bits,newval);
+
+                    if (created || (oldval != newval))
+                        changes++;
                 } else {
                     addReplyNull(c);
                 }
@@ -1107,11 +1120,13 @@ void bitfieldGeneric(client *c, int flags) {
                     addReplyLongLong(c,retval);
                     setUnsignedBitfield(o->ptr,thisop->offset,
                                         thisop->bits,newval);
+
+                    if (created || (oldval != newval))
+                        changes++;
                 } else {
                     addReplyNull(c);
                 }
             }
-            changes++;
         } else {
             /* GET */
             unsigned char buf[9];
