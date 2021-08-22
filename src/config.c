@@ -1045,13 +1045,10 @@ void configGetCommand(client *c) {
         addReplyBulkCString(c,buf);
         matches++;
     }
-    if (stringmatch(pattern,"slaveof",1) ||
-        stringmatch(pattern,"replicaof",1))
-    {
-        char *optname = stringmatch(pattern,"slaveof",1) ?
-                        "slaveof" : "replicaof";
+    for (int i = 0; i < 2; i++) {
+        char *optname = i == 0 ? "replicaof" : "slaveof";
+        if (!stringmatch(pattern, optname, 1)) continue;
         char buf[256];
-
         addReplyBulkCString(c,optname);
         if (server.masterhost)
             snprintf(buf,sizeof(buf),"%s %d",
