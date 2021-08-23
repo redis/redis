@@ -6065,6 +6065,8 @@ void moduleReleaseGIL(void) {
  *                               Notice, when this event fires, the given key
  *                               can not be retained, use RM_CreateStringFromString
  *                               instead.
+ *  - REDISMODULE_NOTIFY_UNLINK: A special notification available only for modules,
+ *                               indicates that the key was unlink from keyspace.
  *
  * We do not distinguish between key events and keyspace events, and it is up
  * to the module to filter the actions taken based on the key.
@@ -8589,6 +8591,7 @@ void moduleNotifyKeyUnlink(robj *key, robj *val, int dbid) {
             mt->unlink(key,mv->value);
         } 
     }
+    moduleNotifyKeyspaceEvent(NOTIFY_UNLINK,"unlink",key,dbid);
 }
 
 /* Return the free_effort of the module, it will automatically choose to call 
