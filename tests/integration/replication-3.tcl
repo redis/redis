@@ -1,4 +1,4 @@
-start_server {tags {"repl"}} {
+start_server {tags {"repl external:skip"}} {
     start_server {} {
         test {First server should have role slave after SLAVEOF} {
             r -1 slaveof [srv 0 host] [srv 0 port]
@@ -31,6 +31,19 @@ start_server {tags {"repl"}} {
             assert_equal [r debug digest] [r -1 debug digest]
         }
 
+        test {Master can replicate command longer than client-query-buffer-limit on replica} {
+            # Configure the master to have a bigger query buffer limit
+            r config set client-query-buffer-limit 2000000
+            r -1 config set client-query-buffer-limit 1048576
+            # Write a very large command onto the master
+            r set key [string repeat "x" 1100000]
+            wait_for_condition 300 100 {
+                [r -1 get key] eq [string repeat "x" 1100000]
+            } else {
+                fail "Unable to replicate command longer than client-query-buffer-limit"
+            }
+        }
+
         test {Slave is able to evict keys created in writable slaves} {
             r -1 select 5
             assert {[r -1 dbsize] == 0}
@@ -45,7 +58,7 @@ start_server {tags {"repl"}} {
     }
 }
 
-start_server {tags {"repl"}} {
+start_server {tags {"repl external:skip"}} {
     start_server {} {
         test {First server should have role slave after SLAVEOF} {
             r -1 slaveof [srv 0 host] [srv 0 port]
@@ -118,7 +131,7 @@ start_server {tags {"repl"}} {
             # correctly the RDB file: such file will contain "lua" AUX
             # sections with scripts already in the memory of the master.
 
-            wait_for_condition 50 100 {
+            wait_for_condition 1000 100 {
                 [s -1 master_link_status] eq {up}
             } else {
                 fail "Replication not started."

@@ -53,6 +53,7 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
         zfree(state);
         return -1;
     }
+    anetCloexec(state->kqfd);
     eventLoop->apidata = state;
     return 0;
 }
@@ -129,7 +130,10 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
             eventLoop->fired[j].fd = e->ident;
             eventLoop->fired[j].mask = mask;
         }
+    } else if (retval == -1 && errno != EINTR) {
+        panic("aeApiPoll: kevent, %s", strerror(errno));
     }
+
     return numevents;
 }
 

@@ -4,7 +4,7 @@
 # Software Watchdog, which provides a similar functionality but in
 # a more reliable / easy to use way.
 #
-# Check http://redis.io/topics/latency for more information.
+# Check https://redis.io/topics/latency for more information.
 
 #!/bin/bash
 nsamples=1
