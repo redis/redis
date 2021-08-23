@@ -559,8 +559,8 @@ void loadServerConfigFromString(char *config) {
                 "an invalid one, or 'master' which has no buffer limits.";
                 goto loaderr;
             }
-            hard = memtoll(argv[2],NULL);
-            soft = memtoll(argv[3],NULL);
+            hard = memtoull(argv[2],NULL);
+            soft = memtoull(argv[3],NULL);
             soft_seconds = atoi(argv[4]);
             if (soft_seconds < 0) {
                 err = "Negative number of seconds in soft limit is invalid";
@@ -744,8 +744,8 @@ void loadServerConfig(char *filename, char config_from_stdin, char *options) {
 
 #define config_set_memory_field(_name,_var) \
     } else if (!strcasecmp(c->argv[2]->ptr,_name)) { \
-        ll = memtoll(o->ptr,&err); \
-        if (err || ll < 0) goto badfmt; \
+        ll = memtoull(o->ptr,&err); \
+        if (err) goto badfmt; \
         _var = ll;
 
 #define config_set_special_field(_name) \
@@ -855,22 +855,26 @@ void configSetCommand(client *c) {
          * whole configuration string or accept it all, even if a single
          * error in a single client class is present. */
         for (j = 0; j < vlen; j++) {
-            long val;
-
             if ((j % 4) == 0) {
                 int class = getClientTypeByName(v[j]);
-                if (class == -1 || class == CLIENT_TYPE_MASTER) {
-                    sdsfreesplitres(v,vlen);
-                    goto badfmt;
-                }
+                if (class == -1 || class == CLIENT_TYPE_MASTER)
+                    break;
+            } else if ((j % 4) == 3) {
+                char *endptr;
+                long l = strtoll(v[j],&endptr,10);
+                if (l < 0 || *endptr != '\0')
+                    break;
             } else {
-                val = memtoll(v[j], &err);
-                if (err || val < 0) {
-                    sdsfreesplitres(v,vlen);
-                    goto badfmt;
-                }
+                memtoull(v[j], &err);
+                if (err)
+                    break;
             }
         }
+        if (j < vlen) {
+            sdsfreesplitres(v,vlen);
+            goto badfmt;
+        }
+        
         /* Finally set the new config */
         for (j = 0; j < vlen; j += 4) {
             int class;
@@ -878,8 +882,8 @@ void configSetCommand(client *c) {
             int soft_seconds;
 
             class = getClientTypeByName(v[j]);
-            hard = memtoll(v[j+1],NULL);
-            soft = memtoll(v[j+2],NULL);
+            hard = memtoull(v[j+1],NULL);
+            soft = memtoull(v[j+2],NULL);
             soft_seconds = strtoll(v[j+3],NULL,10);
 
             server.client_obuf_limits[class].hard_limit_bytes = hard;
@@ -2123,22 +2127,22 @@ static int numericBoundaryCheck(typeData data, long long ll, const char **err) {
     return 1;
 }
 
+
 static int numericConfigSet(typeData data, sds value, int update, const char **err) {
     long long ll, prev = 0;
     if (data.numeric.is_memory) {
         int memerr;
-        ll = memtoll(value, &memerr);
-        if (memerr || ll < 0) {
+        ll = memtoull(value, &memerr);
+        if (memerr) {
             *err = "argument must be a memory value";
             return 0;
         }
     } else {
-        if (!string2ll(value, sdslen(value),&ll)) {
+        if (!string2ll(value, sdslen(value), &ll)) {
             *err = "argument couldn't be parsed into an integer" ;
             return 0;
         }
     }
-
     if (!numericBoundaryCheck(data, ll, err))
         return 0;
 
@@ -2157,12 +2161,21 @@ static int numericConfigSet(typeData data, sds value, int update, const char **e
 
 static void numericConfigGet(client *c, typeData data) {
     char buf[128];
-    long long value = 0;
+    if (data.numeric.is_memory) {
+        unsigned long long value = 0;
+        
+        GET_NUMERIC_TYPE(value)
 
-    GET_NUMERIC_TYPE(value)
+        ull2string(buf, sizeof(buf), value);
+        addReplyBulkCString(c, buf);
+    } else{
+        long long value = 0;
+        
+        GET_NUMERIC_TYPE(value)
 
-    ll2string(buf, sizeof(buf), value);
-    addReplyBulkCString(c, buf);
+        ll2string(buf, sizeof(buf), value);
+        addReplyBulkCString(c, buf);
+    }
 }
 
 static void numericConfigRewrite(typeData data, const char *name, struct rewriteConfigState *state) {
