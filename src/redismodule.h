@@ -171,7 +171,7 @@ This flag should not be used directly by the module.
 #define REDISMODULE_NOTIFY_KEY_MISS (1<<11)   /* m (Note: This one is excluded from REDISMODULE_NOTIFY_ALL on purpose) */
 #define REDISMODULE_NOTIFY_LOADED (1<<12)     /* module only key space notification, indicate a key loaded from rdb */
 #define REDISMODULE_NOTIFY_MODULE (1<<13)     /* d, module key space notification */
-#define REDISMODULE_NOTIFY_UNLINK (1<<14)     /* module only key space notification, indicate a key released from db */
+#define REDISMODULE_NOTIFY_REMOVED (1<<14)    /* module only key space notification, indicate a key is being removed from the db */
 
 /* Next notification flag, must be updated when adding new flags above!
 This flag should not be used directly by the module.

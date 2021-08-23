@@ -83,7 +83,7 @@ tags "modules" {
             $rd1 close
         }
 
-        test {Test unlink key space event} {
+        test {Test removed key space event} {
             r set a 1
             r hset b f v
             r lpush c 1
@@ -97,18 +97,18 @@ tags "modules" {
             r zpopmin e
             r xdel f 1-1
             r set g 1 px 1
-            assert_equal {1 a} [r keyspace.is_key_unlink a]
-            assert_equal {1 b} [r keyspace.is_key_unlink b]
-            assert_equal {1 c} [r keyspace.is_key_unlink c]
-            assert_equal {1 d} [r keyspace.is_key_unlink d]
-            assert_equal {1 e} [r keyspace.is_key_unlink e]
-            assert_equal {0 {}} [r keyspace.is_key_unlink f]
+            assert_equal {1 a} [r keyspace.is_key_removed a]
+            assert_equal {1 b} [r keyspace.is_key_removed b]
+            assert_equal {1 c} [r keyspace.is_key_removed c]
+            assert_equal {1 d} [r keyspace.is_key_removed d]
+            assert_equal {1 e} [r keyspace.is_key_removed e]
+            assert_equal {0 {}} [r keyspace.is_key_removed f]
             r del f
-            assert_equal {1 f} [r keyspace.is_key_unlink f]
+            assert_equal {1 f} [r keyspace.is_key_removed f]
             # ensure expire
             after 10
             r get g
-            assert_equal {1 g} [r keyspace.is_key_unlink g]
+            assert_equal {1 g} [r keyspace.is_key_removed g]
         }
 	}
 }

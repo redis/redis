@@ -6065,8 +6065,8 @@ void moduleReleaseGIL(void) {
  *                               Notice, when this event fires, the given key
  *                               can not be retained, use RM_CreateStringFromString
  *                               instead.
- *  - REDISMODULE_NOTIFY_UNLINK: A special notification available only for modules,
- *                               indicates that the key was unlink from keyspace.
+ *  - REDISMODULE_NOTIFY_REMOVED: A special notification available only for modules,
+ *                                indicates that the key is removed from the keyspace.
  *
  * We do not distinguish between key events and keyspace events, and it is up
  * to the module to filter the actions taken based on the key.
@@ -8577,9 +8577,10 @@ void processModuleLoadingProgressEvent(int is_aof) {
     }
 }
 
-/* When a module key is deleted (in dbAsyncDelete/dbSyncDelete/dbOverwrite), it 
+/* When a key is deleted (in dbAsyncDelete/dbSyncDelete/dbOverwrite), it 
 *  will be called to tell the module which key is about to be released. */
 void moduleNotifyKeyUnlink(robj *key, robj *val, int dbid) {
+    moduleNotifyKeyspaceEvent(NOTIFY_REMOVED,"removed",key,dbid);
     if (val->type == OBJ_MODULE) {
         moduleValue *mv = val->ptr;
         moduleType *mt = mv->type;
@@ -8591,7 +8592,6 @@ void moduleNotifyKeyUnlink(robj *key, robj *val, int dbid) {
             mt->unlink(key,mv->value);
         } 
     }
-    moduleNotifyKeyspaceEvent(NOTIFY_UNLINK,"unlink",key,dbid);
 }
 
 /* Return the free_effort of the module, it will automatically choose to call 
