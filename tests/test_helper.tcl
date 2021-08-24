@@ -82,6 +82,7 @@ set ::all_tests {
     unit/oom-score-adj
     unit/shutdown
     unit/networking
+    unit/client-eviction
 }
 # Index to the next test to run in the ::all_tests list.
 set ::next_test 0
