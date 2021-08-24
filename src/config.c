@@ -384,6 +384,43 @@ static int updateOOMScoreAdjValues(sds *args, const char **err, int apply) {
     return C_OK;
 }
 
+/* Parse an array of sds strings, validate and populate server.client_obuf_limits
+ * if valid. Used in CONFIG SET and configuration file parsing.
+ * args: <class> <hard limit> <soft limit> <soft seconds> */
+static int updateClientOutputBufferLimit(sds *args, const char **err, int apply) {
+    int class = getClientTypeByName(args[0]);
+    unsigned long long hard, soft;
+    int hard_err, soft_err;
+    int soft_seconds;
+    char *soft_seconds_eptr;
+
+    if (class == -1 || class == CLIENT_TYPE_MASTER) {
+        if (err) *err = "Unrecognized client limit class: the user specified "
+                        "an invalid one, or 'master' which has no buffer limits.";
+        return C_ERR;
+    }
+
+    hard = memtoull(args[1], &hard_err);
+    soft = memtoull(args[2], &soft_err);
+    soft_seconds = strtoll(args[3], &soft_seconds_eptr, 10);
+    if (hard_err || soft_err ||
+        soft_seconds < 0 || *soft_seconds_eptr != '\0')
+    {
+        if (err) *err = "hard, soft or soft_seconds value error.";
+        return C_ERR;
+    }
+
+    /* When dealing with CONFIG SET, we want to apply only when all is correct. */
+    if (!apply)
+        return C_OK;
+
+    server.client_obuf_limits[class].hard_limit_bytes = hard;
+    server.client_obuf_limits[class].soft_limit_bytes = soft;
+    server.client_obuf_limits[class].soft_limit_seconds = soft_seconds;
+
+    return C_OK;
+}
+
 void initConfigValues() {
     for (standardConfig *config = configs; config->name != NULL; config++) {
         config->interface.init(config->data);
@@ -550,25 +587,7 @@ void loadServerConfigFromString(char *config) {
         } else if (!strcasecmp(argv[0],"client-output-buffer-limit") &&
                    argc == 5)
         {
-            int class = getClientTypeByName(argv[1]);
-            unsigned long long hard, soft;
-            int soft_seconds;
-
-            if (class == -1 || class == CLIENT_TYPE_MASTER) {
-                err = "Unrecognized client limit class: the user specified "
-                "an invalid one, or 'master' which has no buffer limits.";
-                goto loaderr;
-            }
-            hard = memtoull(argv[2],NULL);
-            soft = memtoull(argv[3],NULL);
-            soft_seconds = atoi(argv[4]);
-            if (soft_seconds < 0) {
-                err = "Negative number of seconds in soft limit is invalid";
-                goto loaderr;
-            }
-            server.client_obuf_limits[class].hard_limit_bytes = hard;
-            server.client_obuf_limits[class].soft_limit_bytes = soft;
-            server.client_obuf_limits[class].soft_limit_seconds = soft_seconds;
+            if (updateClientOutputBufferLimit(&argv[1], &err, 1) == C_ERR) goto loaderr;
         } else if (!strcasecmp(argv[0],"oom-score-adj-values") && argc == 1 + CONFIG_OOM_COUNT) {
             if (updateOOMScoreAdjValues(&argv[1], &err, 0) == C_ERR) goto loaderr;
         } else if (!strcasecmp(argv[0],"notify-keyspace-events") && argc == 2) {
@@ -760,7 +779,6 @@ void loadServerConfig(char *filename, char config_from_stdin, char *options) {
 void configSetCommand(client *c) {
     robj *o;
     long long ll;
-    int err;
     const char *errstr = NULL;
     serverAssertWithInfo(c,c->argv[2],sdsEncodedObject(c->argv[2]));
     serverAssertWithInfo(c,c->argv[3],sdsEncodedObject(c->argv[3]));
@@ -854,41 +872,19 @@ void configSetCommand(client *c) {
         /* Sanity check of single arguments, so that we either refuse the
          * whole configuration string or accept it all, even if a single
          * error in a single client class is present. */
-        for (j = 0; j < vlen; j++) {
-            if ((j % 4) == 0) {
-                int class = getClientTypeByName(v[j]);
-                if (class == -1 || class == CLIENT_TYPE_MASTER)
-                    break;
-            } else if ((j % 4) == 3) {
-                char *endptr;
-                long l = strtoll(v[j],&endptr,10);
-                if (l < 0 || *endptr != '\0')
-                    break;
-            } else {
-                memtoull(v[j], &err);
-                if (err)
-                    break;
+        for (j = 0; j < vlen; j += 4) {
+            if (updateClientOutputBufferLimit(&v[j], &errstr, 0) == C_ERR) {
+                sdsfreesplitres(v, vlen);
+                goto badfmt;
             }
         }
-        if (j < vlen) {
-            sdsfreesplitres(v,vlen);
-            goto badfmt;
-        }
-        
         /* Finally set the new config */
         for (j = 0; j < vlen; j += 4) {
-            int class;
-            unsigned long long hard, soft;
-            int soft_seconds;
-
-            class = getClientTypeByName(v[j]);
-            hard = memtoull(v[j+1],NULL);
-            soft = memtoull(v[j+2],NULL);
-            soft_seconds = strtoll(v[j+3],NULL,10);
-
-            server.client_obuf_limits[class].hard_limit_bytes = hard;
-            server.client_obuf_limits[class].soft_limit_bytes = soft;
-            server.client_obuf_limits[class].soft_limit_seconds = soft_seconds;
+            if (updateClientOutputBufferLimit(&v[j], &errstr, 1) == C_ERR) {
+                /* Never reached. */
+                sdsfreesplitres(v, vlen);
+                goto badfmt;
+            }
         }
         sdsfreesplitres(v,vlen);
     } config_set_special_field("oom-score-adj-values") {
