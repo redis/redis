@@ -1,4 +1,32 @@
 start_server {tags {"obuf-limits external:skip"}} {
+    test {CONFIG SET client-output-buffer-limit} {
+        set oldval [lindex [r config get client-output-buffer-limit] 1]
+
+        catch {r config set client-output-buffer-limit "wrong number"} e
+        assert_match {*Wrong*arguments*} $e
+
+        catch {r config set client-output-buffer-limit "invalid_class 10mb 10mb 60"} e
+        assert_match {*Invalid*client*class*} $e
+        catch {r config set client-output-buffer-limit "master 10mb 10mb 60"} e
+        assert_match {*Invalid*client*class*} $e
+
+        catch {r config set client-output-buffer-limit "normal 10mbs 10mb 60"} e
+        assert_match {*Error*hard*} $e
+
+        catch {r config set client-output-buffer-limit "replica 10mb 10mbs 60"} e
+        assert_match {*Error*soft*} $e
+
+        catch {r config set client-output-buffer-limit "pubsub 10mb 10mb 60s"} e
+        assert_match {*Error*soft_seconds*} $e
+
+        r config set client-output-buffer-limit "normal 1mb 2mb 60 replica 3mb 4mb 70 pubsub 5mb 6mb 80"
+        set res [lindex [r config get client-output-buffer-limit] 1]
+        assert_equal $res "normal 1048576 2097152 60 slave 3145728 4194304 70 pubsub 5242880 6291456 80"
+
+        # Set back to the original value.
+        r config set client-output-buffer-limit $oldval
+    }
+
     test {Client output buffer hard limit is enforced} {
         r config set client-output-buffer-limit {pubsub 100000 0 0}
         set rd1 [redis_deferring_client]
