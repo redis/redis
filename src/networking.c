@@ -1488,7 +1488,10 @@ int beforeNextClient(client *c) {
     if (io_threads_op != IO_THREADS_OP_IDLE)
         return C_OK;
     /* Handle async frees */
-    /* TODO: check if we even need freeClientsInAsyncFreeQueue() anymore... */
+    /* Note: this doesn't make the server.clients_to_close list redundant because of
+     * cases where we want an async free of a client other than myself. For example
+     * in ACL modifications we disconnect clients authenticated to non-existent
+     * users (see ACL LOAD). */
     if (c->flags & CLIENT_CLOSE_ASAP) {
         freeClient(c);
         return C_ERR;
