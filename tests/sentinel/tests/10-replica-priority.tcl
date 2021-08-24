@@ -34,6 +34,9 @@ proc 10_test_number_of_replicas {n_replicas_expected} {
         # ensure sentinels replies with the right number of replicas
         foreach_sentinel_id id {
             # retries 40 x 500ms = 20s as SENTINEL_INFO_PERIOD = 10s
+            S $id sentinel debug info-period 100
+            S $id sentinel debug default-down-after 1000
+            S $id sentinel debug publish-period 100
             set len [llength [S $id SENTINEL REPLICAS mymaster]]
             wait_for_condition 40 500 {
                 [llength [S $id SENTINEL REPLICAS mymaster]] == $n_replicas_expected
@@ -71,3 +74,4 @@ proc 10_set_replica_announced {master_id announced n_replicas} {
 10_set_replica_announced $master_id "yes" "all"
 # ensure all replicas are not announced by sentinels
 10_test_number_of_replicas 4
+
