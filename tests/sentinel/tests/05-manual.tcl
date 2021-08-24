@@ -41,7 +41,7 @@ test "All the other slaves now point to the new master" {
     }
 }
 
-        test "The old master eventually gets reconfigured as a slave" {
+test "The old master eventually gets reconfigured as a slave" {
     wait_for_condition 1000 50 {
         [RI 0 master_port] == [lindex $addr 1]
     } else {
