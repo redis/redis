@@ -21,6 +21,10 @@ proc clients_sum {f} {
     return $sum
 }
 
+proc write_err_exception {e} {
+    return [regexp {(.*connection reset by peer.*|.*broken pipe.*)} $e]
+}
+
 start_server {} {
     set maxmemory_clients 3000000
     r config set maxmemory-clients $maxmemory_clients
@@ -33,7 +37,7 @@ start_server {} {
         assert_equal [$rr get k] v
         # Attempt another command, now causing client eviction
         catch { $rr mset k v k2 [string repeat v $maxmemory_clients] } e
-        assert_match {*connection reset by peer*} $e
+        assert {[write_err_exception $e]}
     }
 
     test "client evicted due to large query buf" {
@@ -45,7 +49,7 @@ start_server {} {
             $rr flush
             $rr read
         } e
-        assert_match {*connection reset by peer*} $e
+        assert {[write_err_exception $e]}
     }
 
     test "client evicted due to large multi buf" {
@@ -65,7 +69,7 @@ start_server {} {
                 $rr set k [string repeat v [expr $maxmemory_clients / 4]]
             }
         } e
-        assert_match {*broken pipe*} $e
+        assert {[write_err_exception $e]}
     }
 
     test "client evicted due to watched key list" {
@@ -226,7 +230,7 @@ start_server {} {
                     fail "Failed to fill qbuf for test"
                 }
             } e] && $no_evict == off} {
-                assert_match {*connection reset by peer*} $e
+                assert {[write_err_exception $e]}
             } elseif {$no_evict == on} {
                 assert {[client_field test_client tot-mem] > $maxmemory_clients}
                 $rr close
