@@ -33,12 +33,11 @@ proc 10_test_number_of_replicas {n_replicas_expected} {
     test "Check sentinel replies with $n_replicas_expected replicas" {
         # ensure sentinels replies with the right number of replicas
         foreach_sentinel_id id {
-            # retries 40 x 500ms = 20s as SENTINEL_INFO_PERIOD = 10s
             S $id sentinel debug info-period 100
             S $id sentinel debug default-down-after 1000
             S $id sentinel debug publish-period 100
             set len [llength [S $id SENTINEL REPLICAS mymaster]]
-            wait_for_condition 40 500 {
+            wait_for_condition 200 100 {
                 [llength [S $id SENTINEL REPLICAS mymaster]] == $n_replicas_expected
             } else {
                 fail "Sentinel replies with a wrong number of replicas with replica-announced=yes (expected $n_replicas_expected but got $len) on sentinel $id"
