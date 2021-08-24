@@ -2942,7 +2942,10 @@ void adjustOpenFilesLimit(void) {
 
                 /* We failed to set file limit to 'bestlimit'. Try with a
                  * smaller limit decrementing by a few FDs per iteration. */
-                if (bestlimit < decr_step) break;
+                if (bestlimit < decr_step) {
+                    bestlimit = oldlimit;
+                    break;
+                }
                 bestlimit -= decr_step;
             }
 
