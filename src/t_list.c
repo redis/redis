@@ -82,36 +82,6 @@ unsigned long listTypeLength(const robj *subject) {
     }
 }
 
-/* Returns an allocated copy of the element at index, or NULL if out of
- * range. */
-robj *listTypeIndex(robj *o, long index) {
-    if (o->encoding == OBJ_ENCODING_QUICKLIST) {
-        quicklistEntry entry;
-        if (quicklistIndex(o->ptr, index, &entry)) {
-            if (entry.value) {
-                return createStringObject((char*)entry.value,entry.sz);
-            } else {
-                return createStringObjectFromLongLong(entry.longval);
-            }
-        } else {
-            return NULL;
-        }
-    } else {
-        serverPanic("Unknown list encoding");
-    }
-}
-
-/* Replaces the value at index. Returns 1 on success, 0 on failure. */
-int listTypeSet(robj *o, long index, robj *value) {
-    if (o->encoding == OBJ_ENCODING_QUICKLIST) {
-        quicklist *ql = o->ptr;
-        return quicklistReplaceAtIndex(ql, index,
-                                       value->ptr, sdslen(value->ptr));
-    } else {
-        serverPanic("Unknown list encoding");
-    }
-}
-
 /* Initialize an iterator at the specified index. */
 listTypeIterator *listTypeInitIterator(robj *subject, long index,
                                        unsigned char direction) {
@@ -133,25 +103,17 @@ listTypeIterator *listTypeInitIterator(robj *subject, long index,
     return li;
 }
 
+/* Sets the direction of an iterator. */
+void listTypeSetIteratorDirection(listTypeIterator *li, unsigned char direction) {
+    li->direction = direction;
+    int dir = direction == LIST_HEAD ? AL_START_TAIL : AL_START_HEAD;
+    quicklistSetDirection(li->iter, dir);
+}
+
 /* Clean up the iterator. */
 void listTypeReleaseIterator(listTypeIterator *li) {
     zfree(li->iter);
     zfree(li);
-}
-
-/* After listTypeInsert(), the iterator is invalid. This function fixes it. */
-void listTypeReseekIterator(listTypeIterator *li, long index) {
-    zfree(li->iter);
-    /* LIST_HEAD means start at TAIL and move *towards* head.
-     * LIST_TAIL means start at HEAD and move *towards* tail. */
-    int iter_direction =
-        li->direction == LIST_HEAD ? AL_START_TAIL : AL_START_HEAD;
-    if (li->encoding == OBJ_ENCODING_QUICKLIST) {
-        li->iter = quicklistGetIteratorAtIdx(li->subject->ptr,
-                                             iter_direction, index);
-    } else {
-        serverPanic("Unknown list encoding");
-    }
 }
 
 /* Stores pointer to current the entry in the provided entry structure
@@ -198,6 +160,20 @@ void listTypeInsert(listTypeEntry *entry, robj *value, int where) {
             quicklistInsertBefore((quicklist *)entry->entry.quicklist,
                                   &entry->entry, str, len);
         }
+        decrRefCount(value);
+    } else {
+        serverPanic("Unknown list encoding");
+    }
+}
+
+/* Replaces entry at the current position of the iterator. */
+void listTypeReplace(listTypeEntry *entry, robj *value) {
+    if (entry->li->encoding == OBJ_ENCODING_QUICKLIST) {
+        value = getDecodedObject(value);
+        sds str = value->ptr;
+        size_t len = sdslen(str);
+        quicklistReplaceEntry((quicklist *)entry->entry.quicklist,
+                              &entry->entry, str, len);
         decrRefCount(value);
     } else {
         serverPanic("Unknown list encoding");
@@ -402,14 +378,20 @@ void lsetCommand(client *c) {
     if ((getLongFromObjectOrReply(c, c->argv[2], &index, NULL) != C_OK))
         return;
 
-    int replaced = listTypeSet(o, index, value);
-    if (!replaced) {
-        addReplyErrorObject(c,shared.outofrangeerr);
+    if (o->encoding == OBJ_ENCODING_QUICKLIST) {
+        quicklist *ql = o->ptr;
+        int replaced = quicklistReplaceAtIndex(ql, index,
+                                               value->ptr, sdslen(value->ptr));
+        if (!replaced) {
+            addReplyErrorObject(c,shared.outofrangeerr);
+        } else {
+            addReply(c,shared.ok);
+            signalModifiedKey(c,c->db,c->argv[1]);
+            notifyKeyspaceEvent(NOTIFY_LIST,"lset",c->argv[1],c->db->id);
+            server.dirty++;
+        }
     } else {
-        addReply(c,shared.ok);
-        signalModifiedKey(c,c->db,c->argv[1]);
-        notifyKeyspaceEvent(NOTIFY_LIST,"lset",c->argv[1],c->db->id);
-        server.dirty++;
+        serverPanic("Unknown list encoding");
     }
 }
 

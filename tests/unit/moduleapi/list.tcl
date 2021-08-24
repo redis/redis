@@ -29,30 +29,38 @@ start_server {tags {"modules"}} {
         assert_equal 0 [r exists k]
     }
 
-    test {Module list iterator} {
+    test {Module list iteration} {
         r del k
         r rpush k x y z
-        r list.getall k
-    } {x y z}
+        assert_equal {x y z} [r list.getall k]
+        assert_equal {z y x} [r list.getall k REVERSE]
+    }
 
-    test {Module list iterator insert & delete} {
+    test {Module list insert & delete} {
         r del k
         r rpush k x y z
         r list.edit k ikikdi foo bar baz
         r list.getall k
     } {foo x bar y baz}
 
-    test {Module list iterator reverse insert & delete} {
+    test {Module list insert & delete, neg index} {
         r del k
         r rpush k x y z
         r list.edit k REVERSE ikikdi foo bar baz
         r list.getall k
     } {baz y bar z foo}
 
-    test {Module list iterator delete all} {
+    test {Module list set while iterating} {
         r del k
-        r rpush k foo
-        r list.edit k d
-        r exists k
-    } 0
+        r rpush k x y z
+        r list.edit k rkr foo bar
+        r list.getall k
+    } {foo y bar}
+
+    test {Module list set while iterating, neg index} {
+        r del k
+        r rpush k x y z
+        r list.edit k reverse rkr foo bar
+        r list.getall k
+    } {bar y foo}
 }
