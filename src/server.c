@@ -2780,7 +2780,6 @@ void initServerConfig(void) {
      * Redis 5. However it is possible to revert it via redis.conf. */
     server.lua_always_replicate_commands = 1;
 
-    quicklistisSetPackedThreshold(1 << 30);
     initConfigValues();
 }
 

@@ -1480,18 +1480,23 @@ int ziplistValidateIntegrity(unsigned char *zl, size_t size, int deep,
     /* check that we can actually read the header. (and ZIP_END) */
     if (size < ZIPLIST_HEADER_SIZE + ZIPLIST_END_SIZE)
         return 0;
+
     /* check that the encoded size in the header must match the allocated size. */
     size_t bytes = intrev32ifbe(ZIPLIST_BYTES(zl));
     if (bytes != size)
         return 0;
+
     /* the last byte must be the terminator. */
     if (zl[size - ZIPLIST_END_SIZE] != ZIP_END)
         return 0;
+
     /* make sure the tail offset isn't reaching outside the allocation. */
     if (intrev32ifbe(ZIPLIST_TAIL_OFFSET(zl)) > size - ZIPLIST_END_SIZE)
         return 0;
+
     if (!deep)
         return 1;
+
     unsigned int count = 0;
     unsigned char *p = ZIPLIST_ENTRY_HEAD(zl);
     unsigned char *prev = NULL;
@@ -1501,12 +1506,15 @@ int ziplistValidateIntegrity(unsigned char *zl, size_t size, int deep,
         /* Decode the entry headers and fail if invalid or reaches outside the allocation */
         if (!zipEntrySafe(zl, size, p, &e, 1))
             return 0;
+
         /* Make sure the record stating the prev entry size is correct. */
         if (e.prevrawlen != prev_raw_size)
             return 0;
+
         /* Optionally let the caller validate the entry too. */
         if (entry_cb && !entry_cb(p, cb_userdata))
             return 0;
+
         /* Move to the next entry */
         prev_raw_size = e.headersize + e.len;
         prev = p;
@@ -1517,13 +1525,16 @@ int ziplistValidateIntegrity(unsigned char *zl, size_t size, int deep,
     /* Make sure 'p' really does point to the end of the ziplist. */
     if (p != zl + bytes - ZIPLIST_END_SIZE)
         return 0;
+
     /* Make sure the <zltail> entry really do point to the start of the last entry. */
     if (prev != NULL && prev != ZIPLIST_ENTRY_TAIL(zl))
         return 0;
+
     /* Check that the count in the header is correct */
     unsigned int header_count = intrev16ifbe(ZIPLIST_LENGTH(zl));
     if (header_count != UINT16_MAX && count != header_count)
         return 0;
+
     return 1;
 }
 

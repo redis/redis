@@ -229,7 +229,7 @@ robj *dupStringObject(const robj *o) {
 robj *createQuicklistObject(void) {
     quicklist *l = quicklistCreate();
     robj *o = createObject(OBJ_LIST,l);
-    o->encoding = OBJ_ENCODING_QUICKLIST_UNPACK;
+    o->encoding = OBJ_ENCODING_QUICKLIST;
     return o;
 }
 
@@ -936,7 +936,6 @@ char *strEncoding(int encoding) {
     case OBJ_ENCODING_INT: return "int";
     case OBJ_ENCODING_HT: return "hashtable";
     case OBJ_ENCODING_QUICKLIST: return "quicklist";
-    case OBJ_ENCODING_QUICKLIST_UNPACK: return "quicklist_unpacked";
     case OBJ_ENCODING_ZIPLIST: return "ziplist";
     case OBJ_ENCODING_LISTPACK: return "listpack";
     case OBJ_ENCODING_INTSET: return "intset";

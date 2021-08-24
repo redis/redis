@@ -460,7 +460,7 @@ void debugCommand(client *c) {
 "    Setting it to 0 disables expiring keys in background when they are not",
 "    accessed (otherwise the Redis behavior). Setting it to 1 reenables back the",
 "    default.",
-"QUICKLIST_PACKED_THRESHOLD <size>",
+"QUICKLIST-PACKED-THRESHOLD <size>",
 "    Setting the size of elements that will be insertes as large element",
 "    Default value is 4gb, allowed value is smaller then that",
 "    For example 1Gb",
@@ -579,7 +579,7 @@ NULL
         strenc = strEncoding(val->encoding);
 
         char extra[138] = {0};
-        if (val->encoding == OBJ_ENCODING_QUICKLIST || val->encoding == OBJ_ENCODING_QUICKLIST_UNPACK) {
+        if (val->encoding == OBJ_ENCODING_QUICKLIST) {
             char *nextra = extra;
             int remaining = sizeof(extra);
             quicklist *ql = val->ptr;
@@ -669,7 +669,7 @@ NULL
                 return;
             }
         }
-        if (o->encoding != OBJ_ENCODING_QUICKLIST && o->encoding != OBJ_ENCODING_QUICKLIST_UNPACK) {
+        if (o->encoding != OBJ_ENCODING_QUICKLIST) {
             addReplyError(c,"Not a quicklist encoded object.");
         } else {
             if (enabled) {
@@ -809,17 +809,16 @@ NULL
     {
         server.active_expire_enabled = atoi(c->argv[2]->ptr);
         addReply(c,shared.ok);
-    } else if (!strcasecmp(c->argv[1]->ptr,"quicklist_packed_threshold") &&
+    } else if (!strcasecmp(c->argv[1]->ptr,"quicklist-packed-threshold") &&
     c->argc == 3)
     {
         int memerr;
-        long long int sz = memtoll(c->argv[2]->ptr, &memerr);
-        if (memerr || sz < 0 || sz > 4294967296) {
+        long long sz = memtoll(c->argv[2]->ptr, &memerr);
+        if (memerr || !quicklistisSetPackedThreshold(sz)) {
             sds errstr = sdsempty();
             errstr = sdscatprintf(errstr, "argument must be a memory value bigger then 1 and smaller then 4gb");
             addReplyBulkSds(c,errstr);
         } else {
-            quicklistisSetPackedThreshold(sz);
             addReply(c,shared.ok);
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"set-skip-checksum-validation") &&

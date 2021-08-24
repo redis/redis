@@ -922,7 +922,7 @@ int rioWriteBulkObject(rio *r, robj *obj) {
 int rewriteListObject(rio *r, robj *key, robj *o) {
     long long count = 0, items = listTypeLength(o);
 
-    if (o->encoding == OBJ_ENCODING_QUICKLIST || o->encoding == OBJ_ENCODING_QUICKLIST_UNPACK) {
+    if (o->encoding == OBJ_ENCODING_QUICKLIST) {
         quicklist *list = o->ptr;
         quicklistIter *li = quicklistGetIterator(list, AL_START_HEAD);
         quicklistEntry entry;

@@ -200,8 +200,7 @@ int quicklistBookmarkCreate(quicklist **ql_ref, const char *name, quicklistNode 
 int quicklistBookmarkDelete(quicklist *ql, const char *name);
 quicklistNode *quicklistBookmarkFind(quicklist *ql, const char *name);
 void quicklistBookmarksClear(quicklist *ql);
-int quicklistisLargeElement(size_t size);
-void quicklistisSetPackedThreshold(size_t size);
+int quicklistisSetPackedThreshold(size_t sz);
 
 #ifdef REDIS_TEST
 int quicklistTest(int argc, char *argv[], int accurate);

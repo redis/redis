@@ -444,7 +444,7 @@ long scanLaterList(robj *ob, unsigned long *cursor, long long endtime, long long
     quicklistNode *node;
     long iterations = 0;
     int bookmark_failed = 0;
-    if (ob->type != OBJ_LIST || (ob->encoding != OBJ_ENCODING_QUICKLIST && ob->encoding != OBJ_ENCODING_QUICKLIST_UNPACK))
+    if (ob->type != OBJ_LIST || ob->encoding != OBJ_ENCODING_QUICKLIST)
         return 0;
 
     if (*cursor == 0) {
@@ -547,7 +547,7 @@ long defragQuicklist(redisDb *db, dictEntry *kde) {
     robj *ob = dictGetVal(kde);
     long defragged = 0;
     quicklist *ql = ob->ptr, *newql;
-    serverAssert(ob->type == OBJ_LIST && (ob->encoding == OBJ_ENCODING_QUICKLIST || ob->encoding == OBJ_ENCODING_QUICKLIST_UNPACK));
+    serverAssert(ob->type == OBJ_LIST && ob->encoding == OBJ_ENCODING_QUICKLIST);
     if ((newql = activeDefragAlloc(ql)))
         defragged++, ob->ptr = ql = newql;
     if (ql->len > server.active_defrag_max_scan_fields)
@@ -839,7 +839,7 @@ long defragKey(redisDb *db, dictEntry *de) {
     if (ob->type == OBJ_STRING) {
         /* Already handled in activeDefragStringOb. */
     } else if (ob->type == OBJ_LIST) {
-        if (ob->encoding == OBJ_ENCODING_QUICKLIST || ob->encoding == OBJ_ENCODING_QUICKLIST_UNPACK) {
+        if (ob->encoding == OBJ_ENCODING_QUICKLIST) {
             defragged += defragQuicklist(db, de);
         } else {
             serverPanic("Unknown list encoding");
