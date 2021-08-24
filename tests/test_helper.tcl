@@ -12,74 +12,7 @@ source tests/support/test.tcl
 source tests/support/util.tcl
 
 set ::all_tests {
-    unit/printver
-    unit/dump
-    unit/auth
-    unit/protocol
-    unit/keyspace
-    unit/scan
-    unit/info
-    unit/type/string
-    unit/type/incr
     unit/type/list
-    unit/type/list-2
-    unit/type/list-3
-    unit/type/set
-    unit/type/zset
-    unit/type/hash
-    unit/type/stream
-    unit/type/stream-cgroups
-    unit/sort
-    unit/expire
-    unit/other
-    unit/multi
-    unit/quit
-    unit/aofrw
-    unit/acl
-    unit/latency-monitor
-    integration/block-repl
-    integration/replication
-    integration/replication-2
-    integration/replication-3
-    integration/replication-4
-    integration/replication-psync
-    integration/aof
-    integration/rdb
-    integration/corrupt-dump
-    integration/corrupt-dump-fuzzer
-    integration/convert-zipmap-hash-on-load
-    integration/convert-ziplist-hash-on-load
-    integration/logging
-    integration/psync2
-    integration/psync2-reg
-    integration/psync2-pingoff
-    integration/failover
-    integration/redis-cli
-    integration/redis-benchmark
-    integration/dismiss-mem
-    unit/pubsub
-    unit/slowlog
-    unit/scripting
-    unit/maxmemory
-    unit/introspection
-    unit/introspection-2
-    unit/limits
-    unit/obuf-limits
-    unit/bitops
-    unit/bitfield
-    unit/geo
-    unit/memefficiency
-    unit/hyperloglog
-    unit/lazyfree
-    unit/wait
-    unit/pause
-    unit/querybuf
-    unit/pendingquerybuf
-    unit/tls
-    unit/tracking
-    unit/oom-score-adj
-    unit/shutdown
-    unit/networking
 }
 # Index to the next test to run in the ::all_tests list.
 set ::next_test 0

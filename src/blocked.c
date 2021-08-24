@@ -294,8 +294,8 @@ void serveClientsBlockedOnListKey(robj *o, readyList *rl) {
              * This is the reason why i added a `del = 0` in blocking way before.
              * Avoid calling listTypeLength after deleting the key (or delete the key in caller)
              * */
-            //if (listTypeLength(o) == 0) {
-            if (!isListType(o) || listTypeLength(o) == 0) {
+            if (listTypeLength(o) == 0) {
+            // if (!isListType(o) || listTypeLength(o) == 0) {
                 /* The list is empty, we can't pop any elements, break the loop. */
                 break;
             }
