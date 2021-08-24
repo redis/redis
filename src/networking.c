@@ -1817,7 +1817,7 @@ int processInlineBuffer(client *c) {
     if (argc) {
         if (c->argv) zfree(c->argv);
         c->argv = zmalloc(sizeof(robj*)*argc);
-        c->argv_len_sum = sizeof(robj*)*argc;
+        c->argv_len_sum = 0;
     }
 
     /* Create redis objects for all arguments. */
@@ -1916,7 +1916,7 @@ int processMultibulkBuffer(client *c) {
         /* Setup argv array on client structure */
         if (c->argv) zfree(c->argv);
         c->argv = zmalloc(sizeof(robj*)*c->multibulklen);
-        c->argv_len_sum = sizeof(robj*)*c->multibulklen;
+        c->argv_len_sum = 0;
     }
 
     serverAssertWithInfo(c,NULL,c->multibulklen > 0);
@@ -3219,7 +3219,7 @@ size_t getClientMemoryUsage(client *c, size_t *output_buffer_mem_usage) {
     /* For efficiency (less work keeping track of the argv memory), it doesn't include the used memory
      * i.e. unused sds space and internal fragmentation, just the string length. but this is enough to
      * spot problematic clients. */
-    mem += c->argv_len_sum;
+    mem += c->argv_len_sum + sizeof(robj*)*c->argc;
     mem += multiStateMemOverhead(c);
 
     /* Add memory overhead of pubsub channels and patterns. Note: this is just the overhead of the robj pointers

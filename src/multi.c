@@ -79,7 +79,7 @@ void queueMultiCommand(client *c) {
     c->mstate.count++;
     c->mstate.cmd_flags |= c->cmd->flags;
     c->mstate.cmd_inv_flags |= ~c->cmd->flags;
-    c->mstate.argv_len_sums += c->argv_len_sum;
+    c->mstate.argv_len_sums += c->argv_len_sum + sizeof(robj*)*c->argc;
 }
 
 void discardTransaction(client *c) {
