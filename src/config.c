@@ -395,8 +395,7 @@ static int updateClientOutputBufferLimit(sds *args, const char **err, int apply)
     char *soft_seconds_eptr;
 
     if (class == -1 || class == CLIENT_TYPE_MASTER) {
-        if (err) *err = "Unrecognized client limit class: the user specified "
-                        "an invalid one, or 'master' which has no buffer limits.";
+        if (err) *err = "Invalid client class specified in buffer limit configuration.";
         return C_ERR;
     }
 
