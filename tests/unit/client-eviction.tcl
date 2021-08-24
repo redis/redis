@@ -1,5 +1,8 @@
 tags {"external:skip"} {
 
+# Get info about a redis client connection:
+# name - name of client we want to query
+# f - field name from "CLIENT LIST" we want to get
 proc client_field {name f} {
     set clients [split [string trim [r client list]] "\r\n"]
     set c [lsearch -inline $clients *name=$name*]
@@ -9,6 +12,8 @@ proc client_field {name f} {
     return $res
 }
 
+# Sum a value across all redis client connections:
+# f - the field name from "CLIENT LIST" we want to sum
 proc clients_sum {f} {
     set sum 0
     set clients [split [string trim [r client list]] "\r\n"]
