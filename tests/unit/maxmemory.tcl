@@ -37,7 +37,6 @@ start_server {tags {"maxmemory" "external:skip"}} {
             assert_equal $evicted_keys 0
             assert_equal $dbsize 50
         } else {
-            assert {$evicted_clients == 0 && $evicted_keys > 0 && $dbsize < 50}
             assert_equal $evicted_clients 0
             assert_morethan $evicted_keys 0
             assert_lessthan $dbsize 50
