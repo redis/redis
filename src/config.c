@@ -406,7 +406,7 @@ static int updateClientOutputBufferLimit(sds *args, const char **err, int apply)
     if (hard_err || soft_err ||
         soft_seconds < 0 || *soft_seconds_eptr != '\0')
     {
-        if (err) *err = "hard, soft or soft_seconds value error.";
+        if (err) *err = "Error in hard, soft or soft_seconds setting in buffer limit configuration.";
         return C_ERR;
     }
 
