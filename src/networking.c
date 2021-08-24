@@ -1484,7 +1484,7 @@ void freeClientAsync(client *c) {
  * return C_ERR in case client is no longer valid after call. */
 int beforeNextClient(client *c) {
     /* Skip the client processing if we're in an IO thread, in that case we'll perform
-       this operation later in the fan-in stage of the threading mechanism */
+       this operation later (this function is called again) in the fan-in stage of the threading mechanism */
     if (io_threads_op != IO_THREADS_OP_IDLE)
         return C_OK;
     /* Handle async frees */
