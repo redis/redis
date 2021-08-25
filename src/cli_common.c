@@ -264,8 +264,8 @@ sds unquoteCString(char *str) {
 
 
 /* URL-style percent decoding. */
-#define isHexChar(c) (isdigit(c) || (c >= 'a' && c <= 'f'))
-#define decodeHexChar(c) (isdigit(c) ? c - '0' : c - 'a' + 10)
+#define isHexChar(c) (isdigit(c) || ((c) >= 'a' && (c) <= 'f'))
+#define decodeHexChar(c) (isdigit(c) ? (c) - '0' : (c) - 'a' + 10)
 #define decodeHex(h, l) ((decodeHexChar(h) << 4) + decodeHexChar(l))
 
 static sds percentDecode(const char *pe, size_t len) {
