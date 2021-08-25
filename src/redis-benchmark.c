@@ -1021,7 +1021,7 @@ static benchmarkThread *createBenchmarkThread(int index) {
     if (thread == NULL) return NULL;
     thread->index = index;
     thread->el = aeCreateEventLoop(1024*10);
-    aeCreateTimeEvent(thread->el,1,showThroughput,(void *)(intptr_t)index,NULL);
+    aeCreateTimeEvent(thread->el,1,showThroughput,(void *)thread,NULL);
     return thread;
 }
 
@@ -1621,7 +1621,7 @@ usage:
 int showThroughput(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     UNUSED(eventLoop);
     UNUSED(id);
-    intptr_t index = (intptr_t)clientData;
+    benchmarkThread *thread = (benchmarkThread *)clientData;
     int liveclients = 0;
     int requests_finished = 0;
     int previous_requests_finished = 0;
@@ -1640,7 +1640,7 @@ int showThroughput(struct aeEventLoop *eventLoop, long long id, void *clientData
     }
     if (config.csv) return SHOW_THROUGHPUT_INTERVAL;
     /* only first thread output throughput */
-    if (index != 0) {
+    if (thread != NULL && thread->index != 0) {
         return SHOW_THROUGHPUT_INTERVAL;
     }
     if (config.idlemode == 1) {
@@ -1655,7 +1655,8 @@ int showThroughput(struct aeEventLoop *eventLoop, long long id, void *clientData
     config.previous_tick = current_tick;
     atomicSet(config.previous_requests_finished,requests_finished);
     printf("%*s\r", config.last_printed_bytes, " "); /* ensure there is a clean line */
-    config.last_printed_bytes = printf("%s: rps=%.1f (overall: %.1f) avg_msec=%.3f (overall: %.3f)\r", config.title, instantaneous_rps, rps, hdr_mean(config.current_sec_latency_histogram)/1000.0f, hdr_mean(config.latency_histogram)/1000.0f);
+    int printed_bytes = printf("%s: rps=%.1f (overall: %.1f) avg_msec=%.3f (overall: %.3f)\r", config.title, instantaneous_rps, rps, hdr_mean(config.current_sec_latency_histogram)/1000.0f, hdr_mean(config.latency_histogram)/1000.0f);
+    config.last_printed_bytes = printed_bytes;
     hdr_reset(config.current_sec_latency_histogram);
     fflush(stdout);
     return SHOW_THROUGHPUT_INTERVAL;
@@ -1692,7 +1693,7 @@ int main(int argc, const char **argv) {
     config.requests = 100000;
     config.liveclients = 0;
     config.el = aeCreateEventLoop(1024*10);
-    aeCreateTimeEvent(config.el,1,showThroughput,(void *)0,NULL);
+    aeCreateTimeEvent(config.el,1,showThroughput,NULL,NULL);
     config.keepalive = 1;
     config.datasize = 3;
     config.pipeline = 1;
