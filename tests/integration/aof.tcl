@@ -321,6 +321,7 @@ tags {"aof external:skip"} {
         }
     }
 
+    # Test that LMPOP/BLMPOP work fine with AOF.
     create_aof {
         append_to_aof [formatCommand lpush mylist a b c]
         append_to_aof [formatCommand rpush mylist2 1 2 3]
@@ -328,7 +329,7 @@ tags {"aof external:skip"} {
     }
 
     start_server_aof [list dir $server_path aof-load-truncated no] {
-        test "AOF+LMPOP: pop elements from the list" {
+        test "AOF+LMPOP/BLMPOP: pop elements from the list" {
             set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
             wait_done_loading $client
 
@@ -347,7 +348,7 @@ tags {"aof external:skip"} {
     }
 
     start_server_aof [list dir $server_path aof-load-truncated no] {
-        test "AOF+LMPOP: after pop elements from the list" {
+        test "AOF+LMPOP/BLMPOP: after pop elements from the list" {
             set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
             wait_done_loading $client
 
