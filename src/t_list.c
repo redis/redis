@@ -392,7 +392,8 @@ void lsetCommand(client *c) {
  * And also actually pop out from the list by calling listElementsRemoved.
  * We maintain the server.dirty and notifications there.
  *
- * The 'deleted' is an optional argument to get an indication if the key got deleted. */
+ * 'deleted' is an optional output argument to get an indication
+ * if the key got deleted by this function. */
 void listPopRangeAndReplyWithKey(client *c, robj *o, robj *key, int where, long count, int *deleted) {
     long llen = listTypeLength(o);
     long rangelen = (count > llen) ? llen : count;
@@ -458,7 +459,8 @@ void addListRangeReply(client *c, robj *o, long start, long end, int reverse) {
 
 /* A housekeeping helper for list elements popping tasks.
  *
- * The 'deleted' is an optional argument to get an indication if the key got deleted. */
+ * 'deleted' is an optional output argument to get an indication
+ * if the key got deleted by this function. */
 void listElementsRemoved(client *c, robj *key, int where, robj *o, long count, int *deleted) {
     char *event = (where == LIST_HEAD) ? "lpop" : "rpop";
 
@@ -919,15 +921,16 @@ void rpoplpushCommand(client *c) {
  * 3) Propagate the resulting BRPOP, BLPOP, BLMPOP and additional xPUSH if any into
  *    the AOF and replication channel.
  *
- * The 'deleted' is an optional argument to get an indication if the key got deleted.
- *
  * The argument 'wherefrom' is LIST_TAIL or LIST_HEAD, and indicates if the
  * 'value' element was popped from the head (BLPOP) or tail (BRPOP) so that
  * we can propagate the command properly.
  *
  * The argument 'whereto' is LIST_TAIL or LIST_HEAD, and indicates if the
  * 'value' element is to be pushed to the head or tail so that we can
- * propagate the command properly. */
+ * propagate the command properly.
+ *
+ * 'deleted' is an optional output argument to get an indication
+ * if the key got deleted by this function. */
 void serveClientBlockedOnList(client *receiver, robj *o, robj *key, robj *dstkey, redisDb *db, int wherefrom, int whereto, int *deleted)
 {
     robj *argv[5];
