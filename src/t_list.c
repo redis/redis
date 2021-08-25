@@ -74,14 +74,6 @@ robj *listTypePop(robj *subject, int where) {
     return value;
 }
 
-/* Return 1 if the subject is a LIST, 0 if not */
-int isListType(robj *subject) {
-    if (subject->encoding == OBJ_ENCODING_QUICKLIST) {
-        return 1;
-    }
-    return 0;
-}
-
 unsigned long listTypeLength(const robj *subject) {
     if (subject->encoding == OBJ_ENCODING_QUICKLIST) {
         return quicklistCount(subject->ptr);

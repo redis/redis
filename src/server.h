@@ -1979,7 +1979,6 @@ void trackingBroadcastInvalidationMessages(void);
 int checkPrefixCollisionsOrReply(client *c, robj **prefix, size_t numprefix);
 
 /* List data type */
-int isListType(robj *subject);
 void listTypePush(robj *subject, robj *value, int where);
 robj *listTypePop(robj *subject, int where);
 unsigned long listTypeLength(const robj *subject);

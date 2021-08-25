@@ -551,7 +551,7 @@ start_server {
         assert_equal {list {f e d c b}} [$rd read]
     }
 
-    test "BLPOP with same key multiple times should work" {
+    test "BLPOP with same key multiple times should work (issue #801)" {
         set rd [redis_deferring_client]
         r del list1{t} list2{t}
 
@@ -1459,7 +1459,7 @@ start_server {
             catch {[r client unblock $myid]} e
             assert_equal $e {invalid command name "0"}
 
-            # finally, see the this client and list are still functionals
+            # finally, see the this client and list are still functional
             bpop_command $rd $pop l 0
             wait_for_blocked_client
             r lpush l foo
