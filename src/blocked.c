@@ -65,7 +65,7 @@
 #include "latency.h"
 #include "monotonic.h"
 
-void serveClientBlockedOnList(client *receiver, robj *o, robj *key, robj *dstkey, redisDb *db, int *deleted, int wherefrom, int whereto);
+void serveClientBlockedOnList(client *receiver, robj *o, robj *key, robj *dstkey, redisDb *db, int wherefrom, int whereto, int *deleted);
 int getListPositionFromObjectOrReply(client *c, robj *arg, int *position);
 
 /* This structure represents the blocked key information that we store
@@ -292,8 +292,8 @@ void serveClientsBlockedOnListKey(robj *o, readyList *rl) {
             elapsedStart(&replyTimer);
             serveClientBlockedOnList(receiver, o,
                                      rl->key, dstkey, rl->db,
-                                     &deleted,
-                                     wherefrom, whereto);
+                                     wherefrom, whereto,
+                                     &deleted);
             updateStatsOnUnblock(receiver, 0, elapsedUs(replyTimer));
             unblockClient(receiver);
 

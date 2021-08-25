@@ -390,7 +390,9 @@ void lsetCommand(client *c) {
  *    2) element2
  *
  * And also actually pop out from the list by calling listElementsRemoved.
- * We maintain the server.dirty and notifications there. */
+ * We maintain the server.dirty and notifications there.
+ *
+ * The 'deleted' is an optional argument to get an indication if the key got deleted. */
 void listPopRangeAndReplyWithKey(client *c, robj *o, robj *key, int where, long count, int *deleted) {
     long llen = listTypeLength(o);
     long rangelen = (count > llen) ? llen : count;
@@ -455,7 +457,8 @@ void addListRangeReply(client *c, robj *o, long start, long end, int reverse) {
 }
 
 /* A housekeeping helper for list elements popping tasks.
- * The argument 'deleted' indicates whether the list is deleted. */
+ *
+ * The 'deleted' is an optional argument to get an indication if the key got deleted. */
 void listElementsRemoved(client *c, robj *key, int where, robj *o, long count, int *deleted) {
     char *event = (where == LIST_HEAD) ? "lpop" : "rpop";
 
@@ -539,23 +542,20 @@ void mpopGenericCommand(client *c, robj **keys, int numkeys, int where, long cou
         o = lookupKeyWrite(c->db, key);
 
         /* Non-existing key, move to next key. */
-        if (o == NULL)
-            continue;
+        if (o == NULL) continue;
 
-        if (checkType(c,o,OBJ_LIST))
-            return;
+        if (checkType(c,o,OBJ_LIST)) return;
 
         long llen = listTypeLength(o);
         /* Empty list, move to next key. */
-        if (llen == 0)
-            continue;
+        if (llen == 0) continue;
 
         /* Pop a range of elements in nested array. */
         listPopRangeAndReplyWithKey(c, o, key, where, count, NULL);
 
         /* Replicate it as [LR]POP COUNT */
         robj *count_obj = createStringObjectFromLongLong((count > llen) ? llen : count);
-        rewriteClientCommandVector(c,3,
+        rewriteClientCommandVector(c, 3,
                                    (where == LIST_HEAD) ? shared.lpop : shared.rpop,
                                    key, count_obj);
         return;
@@ -919,7 +919,7 @@ void rpoplpushCommand(client *c) {
  * 3) Propagate the resulting BRPOP, BLPOP, BLMPOP and additional xPUSH if any into
  *    the AOF and replication channel.
  *
- * The argument 'deleted' indicates whether the list is deleted.
+ * The 'deleted' is an optional argument to get an indication if the key got deleted.
  *
  * The argument 'wherefrom' is LIST_TAIL or LIST_HEAD, and indicates if the
  * 'value' element was popped from the head (BLPOP) or tail (BRPOP) so that
@@ -928,7 +928,7 @@ void rpoplpushCommand(client *c) {
  * The argument 'whereto' is LIST_TAIL or LIST_HEAD, and indicates if the
  * 'value' element is to be pushed to the head or tail so that we can
  * propagate the command properly. */
-void serveClientBlockedOnList(client *receiver, robj *o, robj *key, robj *dstkey, redisDb *db, int *deleted, int wherefrom, int whereto)
+void serveClientBlockedOnList(client *receiver, robj *o, robj *key, robj *dstkey, redisDb *db, int wherefrom, int whereto, int *deleted)
 {
     robj *argv[5];
     robj *value = NULL;
@@ -999,8 +999,7 @@ void serveClientBlockedOnList(client *receiver, robj *o, robj *key, robj *dstkey
         }
     }
 
-    if (value)
-        decrRefCount(value);
+    if (value) decrRefCount(value);
 
     if (listTypeLength(o) == 0) {
         if (deleted) *deleted = 1;
@@ -1033,6 +1032,7 @@ void blockingPopGenericCommand(client *c, robj **keys, int numkeys, int where, l
     for (j = 0; j < numkeys; j++) {
         key = keys[j];
         o = lookupKeyWrite(c->db,key);
+
         /* Non-existing key, move to next key. */
         if (o == NULL) continue;
 
@@ -1175,7 +1175,6 @@ void lmpopGenericCommand(client *c, int is_block) {
                                               &count,"count should be greater than 0") != C_OK)
                 return;
         } else {
-
             addReplyErrorObject(c, shared.syntaxerr);
             return;
         }
