@@ -927,20 +927,21 @@ test {Kill rdb child process if its dumping RDB is not useful} {
     }
 } {} {external:skip}
 
-test {delay to discard cache master when full sync} {
-    start_server {tags {"repl"}} {
-        set master1 [srv 0 client]
-        set master1_host [srv 0 host]
-        set master1_port [srv 0 port]
-        $master1 set a b
+start_server {tags {"repl external:skip"}} {
+    set master1_host [srv 0 host]
+    set master1_port [srv 0 port]
+    r set a b
+
+    start_server {} {
+        set master2 [srv 0 client]
+        set master2_host [srv 0 host]
+        set master2_port [srv 0 port]
+        # Take 10s for dumping RDB
+        $master2 debug populate 10 master2 10
+        $master2 config set rdb-key-save-delay 1000000
 
         start_server {} {
-            set master2 [srv 0 client]
-            set master2_host [srv 0 host]
-            set master2_port [srv 0 port]
-            # Take 10s for dumping RDB
-            $master2 debug populate 10 master2 10
-            $master2 config set rdb-key-save-delay 1000000
+            set sub_replica [srv 0 client]
 
             start_server {} {
                 # Full sync with master1
@@ -948,24 +949,38 @@ test {delay to discard cache master when full sync} {
                 wait_for_sync r
                 assert_equal "b" [r get a]
 
-                # Full sync with master2, and then kill master2
+                # Let sub replicas sync with me
+                $sub_replica slaveof [srv 0 host] [srv 0 port]
+                wait_for_sync $sub_replica
+                assert_equal "b" [$sub_replica get a]
+
+                # Full sync with master2, and then kill master2 before finishing dumping RDB
                 r slaveof $master2_host $master2_port
                 wait_for_condition 50 100 {
-                    ([s -1 rdb_bgsave_in_progress] == 1) &&
-                    ([string match "*wait_bgsave*" [s -1 slave0]])
+                    ([s -2 rdb_bgsave_in_progress] == 1) &&
+                    ([string match "*wait_bgsave*" [s -2 slave0]])
                 } else {
                     fail "full sync didn't start"
                 }
                 catch {$master2 shutdown nosave}
 
-                # Partial sync with master1
-                r slaveof $master1_host $master1_port
-                wait_for_condition 50 100 {
-                    [log_file_matches [srv 0 stdout] "*Successful partial resynchronization*"]
-                } else {
-                    fail "slave cant't be allowed to start partial resynchronization"
+                test {Don't disconnect with replicas before loading transferred RDB when full sync} {
+                    assert ![log_file_matches [srv -1 stdout] "*Connection with master lost*"]
+                    # The replication id is not changed in entire replication chain
+                    assert_equal [s master_replid] [s -3 master_replid]
+                    assert_equal [s master_replid] [s -1 master_replid]
+                }
+
+                test {Discard cache master before loading transferred RDB when full sync} {
+                    # Partial sync with master1
+                    r slaveof $master1_host $master1_port
+                    wait_for_condition 50 100 {
+                        [log_file_matches [srv 0 stdout] "*Successful partial resynchronization*"]
+                    } else {
+                        fail "slave cant't be allowed to start partial resynchronization"
+                    }
                 }
             }
         }
     }
-} {} {external:skip}
+}

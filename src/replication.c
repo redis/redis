@@ -1732,12 +1732,18 @@ void readSyncBulkPayload(connection *conn) {
         diskless_load_backup = disklessLoadMakeBackup();
     }
 
-    /* Replica starts to appply data of new master, we must discard the cached
+    /* Replica starts to appply data from new master, we must discard the cached
      * master structure. And before this, make sure there is no master client,
      * since replica's data would be changed and cached master is exactly wrong
      * once creating master client. */
     serverAssert(server.master == NULL);
     replicationDiscardCachedMaster();
+
+    /* We want our slaves to resync with us as well, if we have any sub-slaves.
+     * The master already transferred us an entirely different data set and we
+     * have no way to incrementally feed our slaves after that. */
+    disconnectSlaves(); /* Force our slaves to resync with us as well. */
+    freeReplicationBacklog(); /* Don't allow our chained slaves to PSYNC. */
 
     /* We call to emptyDb even in case of REPL_DISKLESS_LOAD_SWAPDB
      * (Where disklessLoadMakeBackup left server.db empty) because we
@@ -2468,13 +2474,6 @@ void syncWithMaster(connection *conn) {
         return;
     }
 
-    /* PSYNC failed or is not supported: we want our slaves to resync with us
-     * as well, if we have any sub-slaves. The master may transfer us an
-     * entirely different data set and we have no way to incrementally feed
-     * our slaves after that. */
-    disconnectSlaves(); /* Force our slaves to resync with us as well. */
-    freeReplicationBacklog(); /* Don't allow our chained slaves to PSYNC. */
-
     /* Fall back to SYNC if needed. Otherwise psync_result == PSYNC_FULLRESYNC
      * and the server.master_replid and master_initial_offset are
      * already populated. */
@@ -2636,9 +2635,12 @@ void replicationSetMaster(char *ip, int port) {
     /* Update oom_score_adj */
     setOOMScoreAdj(-1);
 
-    /* Force our slaves to resync with us as well. They may hopefully be able
-     * to partially resync with us, but we can notify the replid change. */
-    disconnectSlaves();
+    /* Here we don't disconnect with replicas, since they may hopefully be able
+     * to partially resync with us. We will disconnect with replicas and force
+     * them resync with us when changing replid on partially resync with new
+     * master, or finishing transferring RDB and preparing loading DB on full
+     * sync with new master. */
+
     cancelReplicationHandshake(0);
     /* Before destroying our master state, create a cached master using
      * our own parameters, to later PSYNC with the new master. */
