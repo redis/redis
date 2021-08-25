@@ -169,7 +169,7 @@ Hiredis also supports every new `RESP3` data type which are as follows.  For mor
 
 * **`REDIS_REPLY_MAP`**:
     * An array with the added invariant that there will always be an even number of elements.
-      The MAP is functionally equivelant to `REDIS_REPLY_ARRAY` except for the previously mentioned invariant.
+      The MAP is functionally equivalent to `REDIS_REPLY_ARRAY` except for the previously mentioned invariant.
 
 * **`REDIS_REPLY_SET`**:
     * An array response where each entry is unique.
@@ -189,7 +189,7 @@ Hiredis also supports every new `RESP3` data type which are as follows.  For mor
 
 * **`REDIS_REPLY_VERB`**:
     * A verbatim string, intended to be presented to the user without modification.
-      The string payload is stored in the `str` memeber, and type data is stored in the `vtype` member (e.g. `txt` for raw text or `md` for markdown).
+      The string payload is stored in the `str` member, and type data is stored in the `vtype` member (e.g. `txt` for raw text or `md` for markdown).
 
 Replies should be freed using the `freeReplyObject()` function.
 Note that this function will take care of freeing sub-reply objects
