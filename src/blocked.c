@@ -65,7 +65,7 @@
 #include "latency.h"
 #include "monotonic.h"
 
-void serveClientBlockedOnList(client *receiver, robj *o, robj *key, robj *dstkey, redisDb *db, int wherefrom, int whereto);
+void serveClientBlockedOnList(client *receiver, robj *o, robj *key, robj *dstkey, redisDb *db, int *deleted, int wherefrom, int whereto);
 int getListPositionFromObjectOrReply(client *c, robj *arg, int *position);
 
 /* This structure represents the blocked key information that we store
@@ -266,6 +266,7 @@ void serveClientsBlockedOnListKey(robj *o, readyList *rl) {
     if (de) {
         list *clients = dictGetVal(de);
         int numclients = listLength(clients);
+        int deleted = 0;
 
         while(numclients--) {
             listNode *clientnode = listFirst(clients);
@@ -276,28 +277,6 @@ void serveClientsBlockedOnListKey(robj *o, readyList *rl) {
                  * we'll not run into it again. */
                 listRotateHeadToTail(clients);
                 continue;
-            }
-
-            /* fixme There is a situation:
-             * blmpop in serveClientBlockedOnList -> listPopRangeAndReplyWithKey
-             * -> listElementsRemoved -> listTypeLength
-             *
-             * listTypeLength(o) == 0, it will call `dbDelete` delete the empty list
-             * and back in here, there will be a extra listTypeLength call.
-             * In cluster mode, there will be a problem since `o` became a string type.
-             *
-             * In here `if (server.cluster_enabled) slotToKeyDel(key->ptr);`
-             * Don't know why, don't know rax too much...
-             *
-             * That will happen in test-external-cluster: `BLMPOP with multiple blocked clients` test case.
-             *
-             * This is the reason why i added a `del = 0` in blocking way before.
-             * Avoid calling listTypeLength after deleting the key (or delete the key in caller)
-             * */
-            if (listTypeLength(o) == 0) {
-            // if (!isListType(o) || listTypeLength(o) == 0) {
-                /* The list is empty, we can't pop any elements, break the loop. */
-                break;
             }
 
             robj *dstkey = receiver->bpop.target;
@@ -313,11 +292,15 @@ void serveClientsBlockedOnListKey(robj *o, readyList *rl) {
             elapsedStart(&replyTimer);
             serveClientBlockedOnList(receiver, o,
                                      rl->key, dstkey, rl->db,
+                                     &deleted,
                                      wherefrom, whereto);
             updateStatsOnUnblock(receiver, 0, elapsedUs(replyTimer));
             unblockClient(receiver);
 
             if (dstkey) decrRefCount(dstkey);
+
+            /* The list is empty and has been deleted. */
+            if (deleted) break;
         }
     }
 }

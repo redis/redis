@@ -399,7 +399,7 @@ void lsetCommand(client *c) {
  *
  * And also actually pop out from the list by calling listElementsRemoved.
  * We maintain the server.dirty and notifications there. */
-void listPopRangeAndReplyWithKey(client *c, robj *o, robj *key, int where, long count) {
+void listPopRangeAndReplyWithKey(client *c, robj *o, robj *key, int where, long count, int *deleted) {
     long llen = listTypeLength(o);
     long rangelen = (count > llen) ? llen : count;
     long rangestart = (where == LIST_HEAD) ? 0 : -rangelen;
@@ -414,7 +414,7 @@ void listPopRangeAndReplyWithKey(client *c, robj *o, robj *key, int where, long 
     /* Pop these elements. */
     listTypeDelRange(o, rangestart, rangelen);
     /* Maintain the notifications and dirty. */
-    listElementsRemoved(c, key, where, o, rangelen);
+    listElementsRemoved(c, key, where, o, rangelen, deleted);
 }
 
 /* A helper for replying with a list's range between the inclusive start and end
@@ -462,14 +462,19 @@ void addListRangeReply(client *c, robj *o, long start, long end, int reverse) {
     }
 }
 
-/* A housekeeping helper for list elements popping tasks. */
-void listElementsRemoved(client *c, robj *key, int where, robj *o, long count) {
+/* A housekeeping helper for list elements popping tasks.
+ * The argument 'deleted' indicates whether the list is deleted. */
+void listElementsRemoved(client *c, robj *key, int where, robj *o, long count, int *deleted) {
     char *event = (where == LIST_HEAD) ? "lpop" : "rpop";
 
     notifyKeyspaceEvent(NOTIFY_LIST, event, key, c->db->id);
     if (listTypeLength(o) == 0) {
-        notifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, c->db->id);
+        if (deleted) *deleted = 1;
+
         dbDelete(c->db, key);
+        notifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, c->db->id);
+    } else {
+        if (deleted) *deleted = 0;
     }
     signalModifiedKey(c, c->db, key);
     server.dirty += count;
@@ -509,7 +514,7 @@ void popGenericCommand(client *c, int where) {
         serverAssert(value != NULL);
         addReplyBulk(c,value);
         decrRefCount(value);
-        listElementsRemoved(c,c->argv[1],where,o,1);
+        listElementsRemoved(c,c->argv[1],where,o,1,NULL);
     } else {
         /* Pop a range of elements. An addition to the original POP command,
          *  which replies with a multi-bulk. */
@@ -521,7 +526,7 @@ void popGenericCommand(client *c, int where) {
 
         addListRangeReply(c,o,rangestart,rangeend,reverse);
         listTypeDelRange(o,rangestart,rangelen);
-        listElementsRemoved(c,c->argv[1],where,o,rangelen);
+        listElementsRemoved(c,c->argv[1],where,o,rangelen,NULL);
     }
 }
 
@@ -529,8 +534,9 @@ void popGenericCommand(client *c, int where) {
  * Take multiple keys and return multiple elements from just one key.
  *
  * 'numkeys' the number of keys.
+ * 'count' is the number of elements requested to pop.
  *
- * 'count' reply will consist of up to count elements, depending on the list length. */
+ * Always reply with array. */
 void mpopGenericCommand(client *c, robj **keys, int numkeys, int where, long count) {
     int j;
     robj *o;
@@ -553,7 +559,7 @@ void mpopGenericCommand(client *c, robj **keys, int numkeys, int where, long cou
             continue;
 
         /* Pop a range of elements in nested array. */
-        listPopRangeAndReplyWithKey(c, o, key, where, count);
+        listPopRangeAndReplyWithKey(c, o, key, where, count, NULL);
 
         /* Replicate it as [LR]POP COUNT */
         robj *count_obj = createStringObjectFromLongLong((count > llen) ? llen : count);
@@ -921,6 +927,8 @@ void rpoplpushCommand(client *c) {
  * 3) Propagate the resulting BRPOP, BLPOP, BLMPOP and additional xPUSH if any into
  *    the AOF and replication channel.
  *
+ * The argument 'deleted' indicates whether the list is deleted.
+ *
  * The argument 'wherefrom' is LIST_TAIL or LIST_HEAD, and indicates if the
  * 'value' element was popped from the head (BLPOP) or tail (BRPOP) so that
  * we can propagate the command properly.
@@ -928,10 +936,12 @@ void rpoplpushCommand(client *c) {
  * The argument 'whereto' is LIST_TAIL or LIST_HEAD, and indicates if the
  * 'value' element is to be pushed to the head or tail so that we can
  * propagate the command properly. */
-void serveClientBlockedOnList(client *receiver, robj *o, robj *key, robj *dstkey, redisDb *db, int wherefrom, int whereto)
+void serveClientBlockedOnList(client *receiver, robj *o, robj *key, robj *dstkey, redisDb *db, int *deleted, int wherefrom, int whereto)
 {
     robj *argv[5];
     robj *value = NULL;
+
+    if (deleted) *deleted = 0;
 
     if (dstkey == NULL) {
         /* Propagate the [LR]POP operation. */
@@ -951,7 +961,7 @@ void serveClientBlockedOnList(client *receiver, robj *o, robj *key, robj *dstkey
             argv[2] = createStringObjectFromLongLong((count > llen) ? llen : count);
             propagate(cmd, db->id, argv, 3, PROPAGATE_AOF|PROPAGATE_REPL);
 
-            listPopRangeAndReplyWithKey(receiver, o, key, wherefrom, count);
+            listPopRangeAndReplyWithKey(receiver, o, key, wherefrom, count, deleted);
             return;
         }
 
@@ -1001,6 +1011,8 @@ void serveClientBlockedOnList(client *receiver, robj *o, robj *key, robj *dstkey
         decrRefCount(value);
 
     if (listTypeLength(o) == 0) {
+        if (deleted) *deleted = 1;
+
         dbDelete(receiver->db, key);
         notifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, receiver->db->id);
     }
@@ -1040,7 +1052,7 @@ void blockingPopGenericCommand(client *c, robj **keys, int numkeys, int where, l
 
         if (count != 0) {
             /* BLMPOP, non empty list, like a normal [LR]POP with count option. */
-            listPopRangeAndReplyWithKey(c, o, key, where, count);
+            listPopRangeAndReplyWithKey(c, o, key, where, count, NULL);
 
             /* Replicate it as an [LR]POP COUNT. */
             robj *count_obj = createStringObjectFromLongLong((count > llen) ? llen : count);
@@ -1059,7 +1071,7 @@ void blockingPopGenericCommand(client *c, robj **keys, int numkeys, int where, l
         addReplyBulk(c,key);
         addReplyBulk(c,value);
         decrRefCount(value);
-        listElementsRemoved(c,key,where,o,1);
+        listElementsRemoved(c,key,where,o,1,NULL);
 
         /* Replicate it as an [LR]POP instead of B[LR]POP. */
         rewriteClientCommandVector(c,2,
