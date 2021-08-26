@@ -750,8 +750,19 @@ start_server {tags {"zset"}} {
             assert_equal {b 3 c 5} [r zinter 2 zseta{t} zsetb{t} withscores]
         }
 
+        test "ZINTERCARD with illegal arguments" {
+            assert_error "ERR syntax error*" {r zintercard 1 zseta{t} zseta{t}}
+            assert_error "ERR syntax error*" {r zintercard 1 zseta{t} bar_arg}
+            assert_error "ERR syntax error*" {r zintercard 1 zseta{t} LIMIT}
+
+            assert_error "ERR limit*" {r zintercard 1 myset{t} LIMIT 0}
+            assert_error "ERR limit*" {r zintercard 1 myset{t} LIMIT a}
+        }
+
         test "ZINTERCARD basics - $encoding" {
             assert_equal 2 [r zintercard 2 zseta{t} zsetb{t}]
+            assert_equal 1 [r zintercard 2 zseta{t} zsetb{t} limit 1]
+            assert_equal 2 [r zintercard 2 zseta{t} zsetb{t} limit 10]
         }
 
         test "ZINTER RESP3 - $encoding" {
