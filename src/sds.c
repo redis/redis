@@ -258,7 +258,7 @@ sds _sdsMakeRoomFor(sds s, size_t addlen, int greedy) {
     size_t usable;
 
     /* Return ASAP if there is enough space left. */
-    if (avail >= addlen) return s;
+    if (avail >= addlen) return s; // SDS 缩容，不释放多余的内存，下次使用可直接复用这些内存
 
     len = sdslen(s);
     sh = (char*)s-sdsHdrSize(oldtype);

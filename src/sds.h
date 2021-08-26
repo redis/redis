@@ -124,7 +124,7 @@ static inline size_t sdslen(const sds s) {
 }
 
 /**
- * 计算
+ * 获取sds字符串空余空间
  * @param s
  * @return
  */

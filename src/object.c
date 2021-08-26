@@ -39,6 +39,9 @@
 /* ===================== Creation and parsing of objects ==================== */
 /**
  * 函数主要是用来创建 Redis 的数据对象的
+ * createObject 函数主要是用来创建 Redis 的数据对象的。
+ * 因为 Redis 的数据对象有很多类型，比如 String、List、Hash 等，
+ * 所以在 createObject 函数的两个参数中，有一个就是用来表示所要创建的数据对象类型，而另一个是指向数据对象的指针。
  * @param type 创建的数据类型
  * @param ptr 指向数据对象的指针
  * @return
