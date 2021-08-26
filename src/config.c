@@ -394,7 +394,8 @@ static int updateClientOutputBufferLimit(sds *args, int arg_len, const char **er
     int hard_err, soft_err;
     int soft_seconds;
     char *soft_seconds_eptr;
-    unsigned long long values[arg_len];
+    clientBufferLimitsConfig values[CLIENT_TYPE_OBUF_COUNT];
+    int classes[CLIENT_TYPE_OBUF_COUNT] = {0};
 
     /* We need a multiple of 4: <class> <hard> <soft> <soft_seconds> */
     if (arg_len % 4) {
@@ -425,18 +426,15 @@ static int updateClientOutputBufferLimit(sds *args, int arg_len, const char **er
             return C_ERR;
         }
 
-        values[j] = class;
-        values[j+1] = hard;
-        values[j+2] = soft;
-        values[j+3] = soft_seconds;
+        values[class].hard_limit_bytes = hard;
+        values[class].soft_limit_bytes = soft;
+        values[class].soft_limit_seconds = soft_seconds;
+        classes[class] = 1;
     }
 
     /* Finally set the new config. */
-    for (j = 0; j < arg_len; j += 4) {
-        class = values[j];
-        server.client_obuf_limits[class].hard_limit_bytes = values[j+1];
-        server.client_obuf_limits[class].soft_limit_bytes = values[j+2];
-        server.client_obuf_limits[class].soft_limit_seconds = values[j+3];
+    for (j = 0; j < CLIENT_TYPE_OBUF_COUNT; j++) {
+        if (classes[j]) server.client_obuf_limits[j] = values[j];
     }
 
     return C_OK;
