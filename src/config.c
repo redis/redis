@@ -882,7 +882,7 @@ void configSetCommand(client *c) {
         int vlen;
         sds *v = sdssplitlen(o->ptr,sdslen(o->ptr)," ",1,&vlen);
 
-        if (updateClientOutputBufferLimit(&v[0], vlen, &errstr) == C_ERR) {
+        if (updateClientOutputBufferLimit(v, vlen, &errstr) == C_ERR) {
             sdsfreesplitres(v, vlen);
             goto badfmt;
         }
