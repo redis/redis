@@ -36,6 +36,7 @@
 
 #ifdef __linux__
 #include <features.h>
+#include <fcntl.h>
 #endif
 
 /* Define redis_fstat to fstat or fstat64() */
@@ -76,6 +77,11 @@
 /* Test for polling API */
 #ifdef __linux__
 #define HAVE_EPOLL 1
+#endif
+
+/* Test for accept4() */
+#ifdef __linux__
+#define HAVE_ACCEPT4 1
 #endif
 
 #if (defined(__APPLE__) && defined(MAC_OS_X_VERSION_10_6)) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined (__NetBSD__)

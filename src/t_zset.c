@@ -131,7 +131,7 @@ int zslRandomLevel(void) {
  * of the passed SDS string 'ele'. */
 zskiplistNode *zslInsert(zskiplist *zsl, double score, sds ele) {
     zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;
-    unsigned int rank[ZSKIPLIST_MAXLEVEL];
+    unsigned long rank[ZSKIPLIST_MAXLEVEL];
     int i, level;
 
     serverAssert(!isnan(score));
@@ -388,9 +388,8 @@ unsigned long zslDeleteRangeByScore(zskiplist *zsl, zrangespec *range, dict *dic
 
     x = zsl->header;
     for (i = zsl->level-1; i >= 0; i--) {
-        while (x->level[i].forward && (range->minex ?
-            x->level[i].forward->score <= range->min :
-            x->level[i].forward->score < range->min))
+        while (x->level[i].forward &&
+            !zslValueGteMin(x->level[i].forward->score, range))
                 x = x->level[i].forward;
         update[i] = x;
     }
@@ -399,9 +398,7 @@ unsigned long zslDeleteRangeByScore(zskiplist *zsl, zrangespec *range, dict *dic
     x = x->level[0].forward;
 
     /* Delete nodes while in range. */
-    while (x &&
-           (range->maxex ? x->score < range->max : x->score <= range->max))
-    {
+    while (x && zslValueLteMax(x->score, range)) {
         zskiplistNode *next = x->level[0].forward;
         zslDeleteNode(zsl,x,update);
         dictDelete(dict,x->ele);
@@ -491,7 +488,7 @@ unsigned long zslGetRank(zskiplist *zsl, double score, sds ele) {
         }
 
         /* x might be equal to zsl->header, so test if obj is non-NULL */
-        if (x->ele && sdscmp(x->ele,ele) == 0) {
+        if (x->ele && x->score == score && sdscmp(x->ele,ele) == 0) {
             return rank;
         }
     }
@@ -597,7 +594,7 @@ int zslParseLexRangeItem(robj *item, sds *dest, int *ex) {
     }
 }
 
-/* Free a lex range structure, must be called only after zelParseLexRange()
+/* Free a lex range structure, must be called only after zslParseLexRange()
  * populated the structure with success (C_OK returned). */
 void zslFreeLexRange(zlexrangespec *spec) {
     if (spec->min != shared.minstring &&
@@ -809,7 +806,7 @@ void zzlNext(unsigned char *zl, unsigned char **eptr, unsigned char **sptr) {
 }
 
 /* Move to the previous entry based on the values in eptr and sptr. Both are
- * set to NULL when there is no next entry. */
+ * set to NULL when there is no prev entry. */
 void zzlPrev(unsigned char *zl, unsigned char **eptr, unsigned char **sptr) {
     unsigned char *_eptr, *_sptr;
     serverAssert(*eptr != NULL && *sptr != NULL);
@@ -1191,7 +1188,7 @@ void zsetConvert(robj *zobj, int encoding) {
             serverPanic("Unknown target encoding");
 
         zs = zmalloc(sizeof(*zs));
-        zs->dict = dictCreate(&zsetDictType,NULL);
+        zs->dict = dictCreate(&zsetDictType);
         zs->zsl = zslCreate();
 
         eptr = ziplistIndex(zl,0);
@@ -1355,16 +1352,18 @@ int zsetAdd(robj *zobj, double score, sds ele, int in_flags, int *out_flags, dou
                     *out_flags |= ZADD_OUT_NAN;
                     return 0;
                 }
-                if (newscore) *newscore = score;
             }
 
+            /* GT/LT? Only update if score is greater/less than current. */
+            if ((lt && score >= curscore) || (gt && score <= curscore)) {
+                *out_flags |= ZADD_OUT_NOP;
+                return 1;
+            }
+
+            if (newscore) *newscore = score;
+
             /* Remove and re-insert when score changed. */
-            if (score != curscore &&  
-                /* LT? Only update if score is less than current. */
-                (!lt || score < curscore) &&
-                /* GT? Only update if score is greater than current. */
-                (!gt || score > curscore)) 
-            {
+            if (score != curscore) {
                 zobj->ptr = zzlDelete(zobj->ptr,eptr);
                 zobj->ptr = zzlInsert(zobj->ptr,ele,score);
                 *out_flags |= ZADD_OUT_UPDATED;
@@ -1396,6 +1395,7 @@ int zsetAdd(robj *zobj, double score, sds ele, int in_flags, int *out_flags, dou
                 *out_flags |= ZADD_OUT_NOP;
                 return 1;
             }
+
             curscore = *(double*)dictGetVal(de);
 
             /* Prepare the score for the increment if needed. */
@@ -1405,16 +1405,18 @@ int zsetAdd(robj *zobj, double score, sds ele, int in_flags, int *out_flags, dou
                     *out_flags |= ZADD_OUT_NAN;
                     return 0;
                 }
-                if (newscore) *newscore = score;
             }
 
+            /* GT/LT? Only update if score is greater/less than current. */
+            if ((lt && score >= curscore) || (gt && score <= curscore)) {
+                *out_flags |= ZADD_OUT_NOP;
+                return 1;
+            }
+
+            if (newscore) *newscore = score;
+
             /* Remove and re-insert when score changes. */
-            if (score != curscore &&  
-                /* LT? Only update if score is less than current. */
-                (!lt || score < curscore) &&
-                /* GT? Only update if score is greater than current. */
-                (!gt || score > curscore)) 
-            {
+            if (score != curscore) {
                 znode = zslUpdateScore(zs->zsl,curscore,ele,score);
                 /* Note that we did not removed the original element from
                  * the hash table representing the sorted set, so we just
@@ -1608,7 +1610,7 @@ robj *zsetDup(robj *o) {
     return zobj;
 }
 
-/* callback for to check the ziplist doesn't have duplicate recoreds */
+/* callback for to check the ziplist doesn't have duplicate records */
 static int _zsetZiplistValidateIntegrity(unsigned char *p, void *userdata) {
     struct {
         long count;
@@ -1622,7 +1624,7 @@ static int _zsetZiplistValidateIntegrity(unsigned char *p, void *userdata) {
         long long vll;
         if (!ziplistGet(p, &str, &slen, &vll))
             return 0;
-        sds field = str? sdsnewlen(str, slen): sdsfromlonglong(vll);;
+        sds field = str? sdsnewlen(str, slen): sdsfromlonglong(vll);
         if (dictAdd(data->fields, field, NULL) != DICT_OK) {
             /* Duplicate, return an error */
             sdsfree(field);
@@ -1634,7 +1636,7 @@ static int _zsetZiplistValidateIntegrity(unsigned char *p, void *userdata) {
     return 1;
 }
 
-/* Validate the integrity of the data stracture.
+/* Validate the integrity of the data structure.
  * when `deep` is 0, only the integrity of the header is validated.
  * when `deep` is 1, we scan all the entries one by one. */
 int zsetZiplistValidateIntegrity(unsigned char *zl, size_t size, int deep) {
@@ -1645,7 +1647,7 @@ int zsetZiplistValidateIntegrity(unsigned char *zl, size_t size, int deep) {
     struct {
         long count;
         dict *fields;
-    } data = {0, dictCreate(&hashDictType, NULL)};
+    } data = {0, dictCreate(&hashDictType)};
 
     int ret = ziplistValidateIntegrity(zl, size, 1, _zsetZiplistValidateIntegrity, &data);
 
@@ -2479,7 +2481,7 @@ static void zdiffAlgorithm2(zsetopsrc *src, long setnum, zset *dstzset, size_t *
         if (cardinality == 0) break;
     }
 
-    /* Redize dict if needed after removing multiple elements */
+    /* Resize dict if needed after removing multiple elements */
     if (htNeedsResize(dstzset->dict)) dictResize(dstzset->dict);
 
     /* Using this algorithm, we can't calculate the max element as we go,
@@ -2535,9 +2537,6 @@ static void zdiff(zsetopsrc *src, long setnum, zset *dstzset, size_t *maxelelen)
     }
 }
 
-uint64_t dictSdsHash(const void *key);
-int dictSdsKeyCompare(void *privdata, const void *key1, const void *key2);
-
 dictType setAccumulatorDictType = {
     dictSdsHash,               /* hash function */
     NULL,                      /* key dup */
@@ -2549,14 +2548,17 @@ dictType setAccumulatorDictType = {
 };
 
 /* The zunionInterDiffGenericCommand() function is called in order to implement the
- * following commands: ZUNION, ZINTER, ZDIFF, ZUNIONSTORE, ZINTERSTORE, ZDIFFSTORE.
+ * following commands: ZUNION, ZINTER, ZDIFF, ZUNIONSTORE, ZINTERSTORE, ZDIFFSTORE,
+ * ZINTERCARD.
  *
  * 'numkeysIndex' parameter position of key number. for ZUNION/ZINTER/ZDIFF command,
  * this value is 1, for ZUNIONSTORE/ZINTERSTORE/ZDIFFSTORE command, this value is 2.
  *
  * 'op' SET_OP_INTER, SET_OP_UNION or SET_OP_DIFF.
+ * 'cardinality_only' is currently only applicable when 'op' is SET_OP_INTER.
  */
-void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, int op) {
+void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, int op,
+                                   int cardinality_only) {
     int i, j;
     long setnum;
     int aggregate = REDIS_AGGR_SUM;
@@ -2568,14 +2570,15 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
     zset *dstzset;
     zskiplistNode *znode;
     int withscores = 0;
+    unsigned long cardinality = 0;
 
     /* expect setnum input keys to be given */
     if ((getLongFromObjectOrReply(c, c->argv[numkeysIndex], &setnum, NULL) != C_OK))
         return;
 
     if (setnum < 1) {
-        addReplyError(c,
-            "at least 1 input key is needed for ZUNIONSTORE/ZINTERSTORE/ZDIFFSTORE");
+        addReplyErrorFormat(c,
+            "at least 1 input key is needed for %s", c->cmd->name);
         return;
     }
 
@@ -2614,7 +2617,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
         int remaining = c->argc - j;
 
         while (remaining) {
-            if (op != SET_OP_DIFF &&
+            if (op != SET_OP_DIFF && !cardinality_only &&
                 remaining >= (setnum + 1) &&
                 !strcasecmp(c->argv[j]->ptr,"weights"))
             {
@@ -2627,7 +2630,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                         return;
                     }
                 }
-            } else if (op != SET_OP_DIFF &&
+            } else if (op != SET_OP_DIFF && !cardinality_only &&
                        remaining >= 2 &&
                        !strcasecmp(c->argv[j]->ptr,"aggregate"))
             {
@@ -2645,7 +2648,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                 }
                 j++; remaining--;
             } else if (remaining >= 1 &&
-                       !dstkey &&
+                       !dstkey && !cardinality_only &&
                        !strcasecmp(c->argv[j]->ptr,"withscores"))
             {
                 j++; remaining--;
@@ -2695,7 +2698,9 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                 }
 
                 /* Only continue when present in every input. */
-                if (j == setnum) {
+                if (j == setnum && cardinality_only) {
+                    cardinality++;
+                } else if (j == setnum) {
                     tmp = zuiNewSdsFromValue(&zval);
                     znode = zslInsert(dstzset->zsl,score,tmp);
                     dictAdd(dstzset->dict,tmp,&znode->score);
@@ -2705,7 +2710,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
             zuiClearIterator(&src[0]);
         }
     } else if (op == SET_OP_UNION) {
-        dict *accumulator = dictCreate(&setAccumulatorDictType,NULL);
+        dict *accumulator = dictCreate(&setAccumulatorDictType);
         dictIterator *di;
         dictEntry *de, *existing;
         double score;
@@ -2792,6 +2797,8 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                 server.dirty++;
             }
         }
+    } else if (cardinality_only) {
+        addReplyLongLong(c, cardinality);
     } else {
         unsigned long length = dstzset->zsl->length;
         zskiplist *zsl = dstzset->zsl;
@@ -2816,27 +2823,31 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
 }
 
 void zunionstoreCommand(client *c) {
-    zunionInterDiffGenericCommand(c, c->argv[1], 2, SET_OP_UNION);
+    zunionInterDiffGenericCommand(c, c->argv[1], 2, SET_OP_UNION, 0);
 }
 
 void zinterstoreCommand(client *c) {
-    zunionInterDiffGenericCommand(c, c->argv[1], 2, SET_OP_INTER);
+    zunionInterDiffGenericCommand(c, c->argv[1], 2, SET_OP_INTER, 0);
 }
 
 void zdiffstoreCommand(client *c) {
-    zunionInterDiffGenericCommand(c, c->argv[1], 2, SET_OP_DIFF);
+    zunionInterDiffGenericCommand(c, c->argv[1], 2, SET_OP_DIFF, 0);
 }
 
 void zunionCommand(client *c) {
-    zunionInterDiffGenericCommand(c, NULL, 1, SET_OP_UNION);
+    zunionInterDiffGenericCommand(c, NULL, 1, SET_OP_UNION, 0);
 }
 
 void zinterCommand(client *c) {
-    zunionInterDiffGenericCommand(c, NULL, 1, SET_OP_INTER);
+    zunionInterDiffGenericCommand(c, NULL, 1, SET_OP_INTER, 0);
+}
+
+void zinterCardCommand(client *c) {
+    zunionInterDiffGenericCommand(c, NULL, 1, SET_OP_INTER, 1);
 }
 
 void zdiffCommand(client *c) {
-    zunionInterDiffGenericCommand(c, NULL, 1, SET_OP_DIFF);
+    zunionInterDiffGenericCommand(c, NULL, 1, SET_OP_DIFF, 0);
 }
 
 typedef enum {
@@ -3598,7 +3609,7 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start, int st
         }
     }
 
-    /* Use defaults if not overriden by arguments. */
+    /* Use defaults if not overridden by arguments. */
     if (direction == ZRANGE_DIRECTION_AUTO)
         direction = ZRANGE_DIRECTION_FORWARD;
     if (rangetype == ZRANGE_AUTO)
@@ -3661,7 +3672,12 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start, int st
         lookupKeyWrite(c->db,key) :
         lookupKeyRead(c->db,key);
     if (zobj == NULL) {
-        addReply(c,shared.emptyarray);
+        if (store) {
+            handler->beginResultEmission(handler);
+            handler->finalizeResultEmission(handler, 0);
+        } else {
+            addReply(c, shared.emptyarray);
+        }
         goto cleanup;
     }
 
@@ -3818,10 +3834,15 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
     }
 
     void *arraylen_ptr = addReplyDeferredLen(c);
-    long arraylen = 0;
+    long result_count = 0;
 
     /* We emit the key only for the blocking variant. */
     if (emitkey) addReplyBulk(c,key);
+
+    /* Respond with a single (flat) array in RESP2 or if countarg is not
+     * provided (returning a single element). In RESP3, when countarg is
+     * provided, use nested array.  */
+    int use_nested_array = c->resp > 2 && countarg != NULL;
 
     /* Remove the element. */
     do {
@@ -3865,16 +3886,19 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
         serverAssertWithInfo(c,zobj,zsetDel(zobj,ele));
         server.dirty++;
 
-        if (arraylen == 0) { /* Do this only for the first iteration. */
+        if (result_count == 0) { /* Do this only for the first iteration. */
             char *events[2] = {"zpopmin","zpopmax"};
             notifyKeyspaceEvent(NOTIFY_ZSET,events[where],key,c->db->id);
             signalModifiedKey(c,c->db,key);
         }
 
+        if (use_nested_array) {
+            addReplyArrayLen(c,2);
+        }
         addReplyBulkCBuffer(c,ele,sdslen(ele));
         addReplyDouble(c,score);
         sdsfree(ele);
-        arraylen += 2;
+        ++result_count;
 
         /* Remove the key, if indeed needed. */
         if (zsetLength(zobj) == 0) {
@@ -3884,7 +3908,10 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
         }
     } while(--count);
 
-    setDeferredArrayLen(c,arraylen_ptr,arraylen + (emitkey != 0));
+    if (!use_nested_array) {
+        result_count *= 2;
+    }
+    setDeferredArrayLen(c,arraylen_ptr,result_count + (emitkey != 0));
 }
 
 /* ZPOPMIN key [<count>] */
@@ -3985,7 +4012,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
     int uniq = 1;
     robj *zsetobj;
 
-    if ((zsetobj = lookupKeyReadOrReply(c, c->argv[1], shared.null[c->resp]))
+    if ((zsetobj = lookupKeyReadOrReply(c, c->argv[1], shared.emptyarray))
         == NULL || checkType(c, zsetobj, OBJ_ZSET)) return;
     size = zsetLength(zsetobj);
 
@@ -4021,7 +4048,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
                     addReplyArrayLen(c,2);
                 addReplyBulkCBuffer(c, key, sdslen(key));
                 if (withscores)
-                    addReplyDouble(c, dictGetDoubleVal(de));
+                    addReplyDouble(c, *(double*)dictGetVal(de));
             }
         } else if (zsetobj->encoding == OBJ_ENCODING_ZIPLIST) {
             ziplistEntry *keys, *vals = NULL;
@@ -4068,6 +4095,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
             if (withscores)
                 addReplyDouble(c, zval.score);
         }
+        zuiClearIterator(&src);
         return;
     }
 
@@ -4081,7 +4109,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
      * a bit less than the number of elements in the set, the natural approach
      * used into CASE 4 is highly inefficient. */
     if (count*ZRANDMEMBER_SUB_STRATEGY_MUL > size) {
-        dict *d = dictCreate(&sdsReplyDictType, NULL);
+        dict *d = dictCreate(&sdsReplyDictType);
         dictExpand(d, size);
         /* Add all the elements into the temporary dictionary. */
         while (zuiNext(&src, &zval)) {
@@ -4135,12 +4163,13 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
             zarndmemberReplyWithZiplist(c, count, keys, vals);
             zfree(keys);
             zfree(vals);
+            zuiClearIterator(&src);
             return;
         }
 
         /* Hashtable encoding (generic implementation) */
         unsigned long added = 0;
-        dict *d = dictCreate(&hashDictType, NULL);
+        dict *d = dictCreate(&hashDictType);
         dictExpand(d, count);
 
         while (added < count) {
@@ -4168,9 +4197,10 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
         /* Release memory */
         dictRelease(d);
     }
+    zuiClearIterator(&src);
 }
 
-/* ZRANDMEMBER [<count> WITHSCORES] */
+/* ZRANDMEMBER key [<count> [WITHSCORES]] */
 void zrandmemberCommand(client *c) {
     long l;
     int withscores = 0;

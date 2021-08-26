@@ -130,7 +130,10 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
             eventLoop->fired[j].fd = e->ident;
             eventLoop->fired[j].mask = mask;
         }
+    } else if (retval == -1 && errno != EINTR) {
+        panic("aeApiPoll: kevent, %s", strerror(errno));
     }
+
     return numevents;
 }
 

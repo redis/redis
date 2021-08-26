@@ -64,6 +64,8 @@ proc exec_instance {type dirname cfgfile} {
 proc spawn_instance {type base_port count {conf {}} {base_conf_file ""}} {
     for {set j 0} {$j < $count} {incr j} {
         set port [find_available_port $base_port $::redis_port_count]
+        # plaintext port (only used for TLS cluster)
+        set pport 0
         # Create a directory for this instance.
         set dirname "${type}_${j}"
         lappend ::dirs $dirname
@@ -83,7 +85,9 @@ proc spawn_instance {type base_port count {conf {}} {base_conf_file ""}} {
             puts $cfg "tls-port $port"
             puts $cfg "tls-replication yes"
             puts $cfg "tls-cluster yes"
-            puts $cfg "port 0"
+            # plaintext port, only used by plaintext clients in a TLS cluster
+            set pport [find_available_port $base_port $::redis_port_count]
+            puts $cfg "port $pport"
             puts $cfg [format "tls-cert-file %s/../../tls/server.crt" [pwd]]
             puts $cfg [format "tls-key-file %s/../../tls/server.key" [pwd]]
             puts $cfg [format "tls-client-cert-file %s/../../tls/client.crt" [pwd]]
@@ -118,6 +122,8 @@ proc spawn_instance {type base_port count {conf {}} {base_conf_file ""}} {
                 set cfg [open $cfgfile a+]
                 if {$::tls} {
                     puts $cfg "tls-port $port"
+                    set pport [find_available_port $base_port $::redis_port_count]
+                    puts $cfg "port $pport"
                 } else {
                     puts $cfg "port $port"
                 }
@@ -143,6 +149,7 @@ proc spawn_instance {type base_port count {conf {}} {base_conf_file ""}} {
             pid $pid \
             host $::host \
             port $port \
+            plaintext-port $pport \
             link $link \
         ]
     }
@@ -490,6 +497,14 @@ proc SI {n field} {
 
 proc RI {n field} {
     get_info_field [R $n info] $field
+}
+
+proc RPort {n} {
+    if {$::tls} {
+        return [lindex [R $n config get tls-port] 1]
+    } else {
+        return [lindex [R $n config get port] 1]
+    }
 }
 
 # Iterate over IDs of sentinel or redis instances.

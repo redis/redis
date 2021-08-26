@@ -1,11 +1,11 @@
-start_server {tags {"auth"}} {
+start_server {tags {"auth external:skip"}} {
     test {AUTH fails if there is no password configured server side} {
         catch {r auth foo} err
         set _ $err
     } {ERR*any password*}
 }
 
-start_server {tags {"auth"} overrides {requirepass foobar}} {
+start_server {tags {"auth external:skip"} overrides {requirepass foobar}} {
     test {AUTH fails when a wrong password is given} {
         catch {r auth wrong!} err
         set _ $err
@@ -26,7 +26,7 @@ start_server {tags {"auth"} overrides {requirepass foobar}} {
     } {101}
 }
 
-start_server {tags {"auth_binary_password"}} {
+start_server {tags {"auth_binary_password external:skip"}} {
     test {AUTH fails when binary password is wrong} {
         r config set requirepass "abc\x00def"
         catch {r auth abc} err

@@ -60,7 +60,7 @@ static unsigned long nextid = 0; /* Next command id that has not been assigned *
 struct ACLCategoryItem {
     const char *name;
     uint64_t flag;
-} ACLCommandCategories[] = {
+} ACLCommandCategories[] = { /* See redis.conf for details on each category. */
     {"keyspace", CMD_CATEGORY_KEYSPACE},
     {"read", CMD_CATEGORY_READ},
     {"write", CMD_CATEGORY_WRITE},
@@ -245,7 +245,7 @@ user *ACLCreateUser(const char *name, size_t namelen) {
     if (raxFind(Users,(unsigned char*)name,namelen) != raxNotFound) return NULL;
     user *u = zmalloc(sizeof(*u));
     u->name = sdsnewlen(name,namelen);
-    u->flags = USER_FLAG_DISABLED | server.acl_pubusub_default;
+    u->flags = USER_FLAG_DISABLED | server.acl_pubsub_default;
     u->allowed_subcommands = NULL;
     u->passwords = listCreate();
     u->patterns = listCreate();
@@ -652,6 +652,7 @@ sds ACLDescribeUser(user *u) {
     if (u->flags & USER_FLAG_ALLCHANNELS) {
         res = sdscatlen(res,"&* ",3);
     } else {
+        res = sdscatlen(res,"resetchannels ",14);
         listRewind(u->channels,&li);
         while((ln = listNext(&li))) {
             sds thispat = listNodeValue(ln);
@@ -1000,6 +1001,8 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
         serverAssert(ACLSetUser(u,"resetpass",-1) == C_OK);
         serverAssert(ACLSetUser(u,"resetkeys",-1) == C_OK);
         serverAssert(ACLSetUser(u,"resetchannels",-1) == C_OK);
+        if (server.acl_pubsub_default & USER_FLAG_ALLCHANNELS)
+            serverAssert(ACLSetUser(u,"allchannels",-1) == C_OK);
         serverAssert(ACLSetUser(u,"off",-1) == C_OK);
         serverAssert(ACLSetUser(u,"sanitize-payload",-1) == C_OK);
         serverAssert(ACLSetUser(u,"-@all",-1) == C_OK);
@@ -1360,7 +1363,7 @@ int ACLCheckPubsubPerm(client *c, int idx, int count, int literal, int *idxptr) 
 
 }
 
-/* Check whether the command is ready to be exceuted by ACLCheckCommandPerm.
+/* Check whether the command is ready to be executed by ACLCheckCommandPerm.
  * If check passes, then check whether pub/sub channels of the command is
  * ready to be executed by ACLCheckPubsubPerm */
 int ACLCheckAllPerm(client *c, int *idxptr) {
@@ -1889,10 +1892,6 @@ void addACLLogEntry(client *c, int reason, int argpos, sds username) {
 void aclCommand(client *c) {
     char *sub = c->argv[1]->ptr;
     if (!strcasecmp(sub,"setuser") && c->argc >= 3) {
-        /* Consider information about passwords or permissions
-         * to be sensitive, which will be the arguments for this
-         * subcommand. */
-        preventCommandLogging(c); 
         sds username = c->argv[2]->ptr;
         /* Check username validity. */
         if (ACLStringHasSpaces(username,sdslen(username))) {
@@ -1908,6 +1907,12 @@ void aclCommand(client *c) {
         user *tempu = ACLCreateUnlinkedUser();
         user *u = ACLGetUserByName(username,sdslen(username));
         if (u) ACLCopyUser(tempu, u);
+
+        /* Initially redact all of the arguments to not leak any information
+         * about the user. */
+        for (int j = 2; j < c->argc; j++) {
+            redactClientCommandArgument(c, j);
+        }
 
         for (int j = 3; j < c->argc; j++) {
             if (ACLSetUser(tempu,c->argv[j]->ptr,sdslen(c->argv[j]->ptr)) != C_OK) {
@@ -2242,13 +2247,15 @@ void authCommand(client *c) {
         addReplyErrorObject(c,shared.syntaxerr);
         return;
     }
+    /* Always redact the second argument */
+    redactClientCommandArgument(c, 1);
 
     /* Handle the two different forms here. The form with two arguments
      * will just use "default" as username. */
     robj *username, *password;
     if (c->argc == 2) {
-        /* Mimic the old behavior of giving an error for the two commands
-         * from if no password is configured. */
+        /* Mimic the old behavior of giving an error for the two argument
+         * form if no password is configured. */
         if (DefaultUser->flags & USER_FLAG_NOPASS) {
             addReplyError(c,"AUTH <password> called without any password "
                             "configured for the default user. Are you sure "
@@ -2261,6 +2268,7 @@ void authCommand(client *c) {
     } else {
         username = c->argv[1];
         password = c->argv[2];
+        redactClientCommandArgument(c, 2);
     }
 
     if (ACLAuthenticateUser(c,username,password) == C_OK) {

@@ -424,17 +424,17 @@ void serveClientsBlockedOnStreamKey(robj *o, readyList *rl) {
                 int noack = 0;
 
                 if (group) {
-                    int created = 0;
-                    consumer =
-                        streamLookupConsumer(group,
-                                             receiver->bpop.xread_consumer->ptr,
-                                             SLC_NONE,
-                                             &created);
                     noack = receiver->bpop.xread_group_noack;
-                    if (created && noack) {
-                        streamPropagateConsumerCreation(receiver,rl->key,
-                                                        receiver->bpop.xread_group,
-                                                        consumer->name);
+                    sds name = receiver->bpop.xread_consumer->ptr;
+                    consumer = streamLookupConsumer(group,name,SLC_DEFAULT);
+                    if (consumer == NULL) {
+                        consumer = streamCreateConsumer(group,name,rl->key,
+                                                        rl->db->id,SCC_DEFAULT);
+                        if (noack) {
+                            streamPropagateConsumerCreation(receiver,rl->key,
+                                                            receiver->bpop.xread_group,
+                                                            consumer->name);
+                        }
                     }
                 }
 
@@ -566,7 +566,7 @@ void handleClientsBlockedOnKeys(void) {
              * way we can lookup an object multiple times (BLMOVE does
              * that) without the risk of it being freed in the second
              * lookup, invalidating the first one.
-             * See https://github.com/antirez/redis/pull/6554. */
+             * See https://github.com/redis/redis/pull/6554. */
             server.fixed_time_expire++;
             updateCachedTime(0);
 

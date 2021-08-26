@@ -84,7 +84,7 @@ void lolwutCommand(client *c) {
     }
 }
 
-/* ========================== LOLWUT Canvase ===============================
+/* ========================== LOLWUT Canvas ===============================
  * Many LOLWUT versions will likely print some computer art to the screen.
  * This is the case with LOLWUT 5 and LOLWUT 6, so here there is a generic
  * canvas implementation that can be reused.  */
@@ -94,8 +94,8 @@ lwCanvas *lwCreateCanvas(int width, int height, int bgcolor) {
     lwCanvas *canvas = zmalloc(sizeof(*canvas));
     canvas->width = width;
     canvas->height = height;
-    canvas->pixels = zmalloc(width*height);
-    memset(canvas->pixels,bgcolor,width*height);
+    canvas->pixels = zmalloc((size_t)width*height);
+    memset(canvas->pixels,bgcolor,(size_t)width*height);
     return canvas;
 }
 

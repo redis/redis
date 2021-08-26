@@ -3,6 +3,7 @@
 
 #define REDISMODULE_EXPERIMENTAL_API
 #include "redismodule.h"
+#include <stdlib.h>
 
 static RedisModuleType *FragType;
 
@@ -146,6 +147,9 @@ int FragDefrag(RedisModuleDefragCtx *ctx, RedisModuleString *key, void **value) 
     REDISMODULE_NOT_USED(key);
     unsigned long i = 0;
     int steps = 0;
+
+    int dbid = RedisModule_GetDbIdFromDefragCtx(ctx);
+    RedisModule_Assert(dbid != -1);
 
     /* Attempt to get cursor, validate it's what we're exepcting */
     if (RedisModule_DefragCursorGet(ctx, &i) == REDISMODULE_OK) {

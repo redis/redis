@@ -14,7 +14,7 @@ Paste the complete crash log between the quotes below. Please include a few line
 ```
 ```
 
-**Aditional information**
+**Additional information**
 
 1. OS distribution and version
 2. Steps to reproduce (if any)
