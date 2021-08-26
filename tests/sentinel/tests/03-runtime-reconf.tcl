@@ -88,6 +88,7 @@ test "All servers have non-empty requirepass before monitored" {
     re_monitor_mymaster
     foreach_sentinel_id id {
         assert {[S $id sentinel master mymaster] ne {}}
+        assert_equal {OK} [S $id SENTINEL DEBUG min-link-reconnect-period 2000]
         assert_equal {OK} [S $id SENTINEL SET mymaster down-after-milliseconds 2200]
         assert_equal {OK} [S $id SENTINEL SET mymaster auth-pass $::password]
     }
@@ -102,6 +103,7 @@ test "Only replicas have non-empty requirepass before monitored" {
     assert_equal {OK} [R $master_id CONFIG SET requirepass $::password]
     foreach_sentinel_id id {
         assert {[S $id sentinel master mymaster] ne {}}
+        assert_equal {OK} [S $id SENTINEL DEBUG min-link-reconnect-period 2000]
         assert_equal {OK} [S $id SENTINEL SET mymaster down-after-milliseconds 2200]
         assert_equal {OK} [S $id SENTINEL SET mymaster auth-pass $::password]
     }
@@ -125,6 +127,7 @@ test "All servers have ACL configuration before monitored" {
     re_monitor_mymaster
     foreach_sentinel_id id {
         assert {[S $id sentinel master mymaster] ne {}}
+        assert_equal {OK} [S $id SENTINEL DEBUG min-link-reconnect-period 2000]
         assert_equal {OK} [S $id SENTINEL SET mymaster down-after-milliseconds 2200]
         assert_equal {OK} [S $id SENTINEL SET mymaster auth-user $::user]
         assert_equal {OK} [S $id SENTINEL SET mymaster auth-pass $::password]
@@ -140,6 +143,7 @@ test "Only replicas have ACL configuration before monitored" {
     setup_server_acl $master_id
     foreach_sentinel_id id {
         assert {[S $id sentinel master mymaster] ne {}}
+        assert_equal {OK} [S $id SENTINEL DEBUG min-link-reconnect-period 2000]
         assert_equal {OK} [S $id SENTINEL SET mymaster down-after-milliseconds 2200]
         assert_equal {OK} [S $id SENTINEL SET mymaster auth-user $::user]
         assert_equal {OK} [S $id SENTINEL SET mymaster auth-pass $::password]
