@@ -85,11 +85,11 @@
 
 #define CLUSTER_MANAGER_INVALID_HOST_ARG \
     "[ERR] Invalid arguments: you need to pass either a valid " \
-    "address (ie. 120.0.0.1:7000) or space separated IP " \
-    "and port (ie. 120.0.0.1 7000)\n"
+    "address (e.g. 120.0.0.1:7000) or space separated IP " \
+    "and port (e.g. 120.0.0.1 7000)\n"
 #define CLUSTER_MANAGER_INVALID_HOST_ARG_NEW \
     "[ERR] Invalid arguments: you need to pass a valid " \
-    "address (ie. 120.0.0.1:7000)\n"
+    "address (e.g. 120.0.0.1:7000)\n"
 #define CLUSTER_MANAGER_MODE() (config.cluster_manager_command.name != NULL)
 #define CLUSTER_MANAGER_MASTERS_COUNT(nodes, replicas) (nodes/(replicas + 1))
 #define CLUSTER_MANAGER_COMMAND(n,...) \
