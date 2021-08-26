@@ -133,7 +133,7 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
             if (e->filter == EVFILT_READ) mask |= AE_READABLE;
             if (e->filter == EVFILT_WRITE) mask |= AE_WRITABLE;
 
-            /* Normally we execute the write event first and then the read event.
+            /* Normally we execute the read event first and then the write event.
              * When the barrier is set, we will do it reverse.
              * 
              * However, under kqueue, read and write events would be separate
