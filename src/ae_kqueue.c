@@ -36,6 +36,7 @@
 typedef struct aeApiState {
     int kqfd;
     struct kevent *events;
+    aeFiredEvent **eventsCache; /* events cache for merge read and write event. */
 } aeApiState;
 
 static int aeApiCreate(aeEventLoop *eventLoop) {
@@ -54,6 +55,7 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
         return -1;
     }
     anetCloexec(state->kqfd);
+    state->eventsCache = zmalloc(sizeof(aeFiredEvent*)*eventLoop->setsize);
     eventLoop->apidata = state;
     return 0;
 }
@@ -62,6 +64,7 @@ static int aeApiResize(aeEventLoop *eventLoop, int setsize) {
     aeApiState *state = eventLoop->apidata;
 
     state->events = zrealloc(state->events, sizeof(struct kevent)*setsize);
+    state->eventsCache = zrealloc(state->eventsCache, sizeof(aeFiredEvent*)*setsize);
     return 0;
 }
 
@@ -70,6 +73,7 @@ static void aeApiFree(aeEventLoop *eventLoop) {
 
     close(state->kqfd);
     zfree(state->events);
+    zfree(state->eventsCache);
     zfree(state);
 }
 
@@ -120,15 +124,31 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
     if (retval > 0) {
         int j;
 
-        numevents = retval;
-        for(j = 0; j < numevents; j++) {
+        numevents = 0;
+        memset(state->eventsCache, 0, sizeof(aeFiredEvent*)*eventLoop->setsize);
+        for(j = 0; j < retval; j++) {
             int mask = 0;
             struct kevent *e = state->events+j;
 
             if (e->filter == EVFILT_READ) mask |= AE_READABLE;
             if (e->filter == EVFILT_WRITE) mask |= AE_WRITABLE;
-            eventLoop->fired[j].fd = e->ident;
-            eventLoop->fired[j].mask = mask;
+
+            /* Normally we execute the write event first and then the read event.
+             * When the barrier is set, we will do it reverse.
+             * 
+             * However, under kqueue, read and write events would be separate
+             * events, which would make it impossible to control the order of
+             * reads and writes. So we cache the events we've got and merge
+             * the same fd events later. */
+            aeFiredEvent *event = state->eventsCache[e->ident];
+            if (event) {
+                event->mask |= mask;
+            } else {
+                eventLoop->fired[numevents].fd = e->ident;
+                eventLoop->fired[numevents].mask = mask;
+                state->eventsCache[e->ident] = &eventLoop->fired[numevents];
+                numevents++;
+            }
         }
     } else if (retval == -1 && errno != EINTR) {
         panic("aeApiPoll: kevent, %s", strerror(errno));
