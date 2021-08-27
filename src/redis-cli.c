@@ -4679,6 +4679,7 @@ static clusterManagerNode *clusterManagerNodeMasterRandom() {
         master_count++;
     }
 
+    assert(master_count > 0);
     srand(time(NULL));
     idx = rand() % master_count;
     listRewind(cluster_manager.nodes, &li);
@@ -4690,7 +4691,7 @@ static clusterManagerNode *clusterManagerNodeMasterRandom() {
         }
     }
     /* Can not be reached */
-    return NULL;
+    assert(0);
 }
 
 static int clusterManagerFixSlotsCoverage(char *all_slots) {
