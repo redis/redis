@@ -1256,8 +1256,9 @@ static int fetchClusterConfiguration() {
             }
         }
         if (node->slots_count == 0) {
-            printf("WARNING: master node %s:%d has no slots, skipping...\n",
-                   node->ip, node->port);
+            fprintf(stderr,
+                    "WARNING: Master node %s:%d has no slots, skipping...\n",
+                    node->ip, node->port);
             continue;
         }
         if (!addClusterNode(node)) {
@@ -1289,7 +1290,8 @@ static int fetchClusterSlotsConfiguration(client c) {
     atomicGetIncr(config.is_fetching_slots, is_fetching_slots, 1);
     if (is_fetching_slots) return -1; //TODO: use other codes || errno ?
     atomicSet(config.is_fetching_slots, 1);
-    printf("WARNING: Cluster slots configuration changed, fetching new one...\n");
+    fprintf(stderr,
+            "WARNING: Cluster slots configuration changed, fetching new one...\n");
     const char *errmsg = "Failed to update cluster slots configuration";
     static dictType dtype = {
         dictSdsHash,               /* hash function */
@@ -1467,8 +1469,9 @@ int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"-I")) {
             config.idlemode = 1;
         } else if (!strcmp(argv[i],"-e")) {
-            printf("WARNING: -e option has been deprecated. "
-                   "We now immediately exit on error to avoid false results.\n");
+            fprintf(stderr,
+                    "WARNING: -e option has no effect. "
+                    "We now immediately exit on error to avoid false results.\n");
         } else if (!strcmp(argv[i],"-t")) {
             if (lastarg) goto invalid;
             /* We get the list of tests to run as a string in the form
@@ -1493,8 +1496,9 @@ int parseOptions(int argc, char **argv) {
              if (lastarg) goto invalid;
              config.num_threads = atoi(argv[++i]);
              if (config.num_threads > MAX_THREADS) {
-                printf("WARNING: too many threads, limiting threads to %d.\n",
-                       MAX_THREADS);
+                 fprintf(stderr,
+                         "WARNING: Too many threads, limiting threads to %d.\n",
+                         MAX_THREADS);
                 config.num_threads = MAX_THREADS;
              } else if (config.num_threads < 0) config.num_threads = 0;
         } else if (!strcmp(argv[i],"--cluster")) {
@@ -1549,7 +1553,9 @@ invalid:
 
 usage:
     printf(
-"Usage: redis-benchmark [-h <host>] [-p <port>] [-c <clients>] [-n <requests>] [-k <boolean>]\n\n"
+"%s%s", /* Split to avoid strings longer than 4095 (-Woverlength-strings). */
+"Usage: redis-benchmark [OPTIONS] [COMMAND ARGS...]\n\n"
+"Options:\n"
 " -h <hostname>      Server hostname (default 127.0.0.1)\n"
 " -p <port>          Server port (default 6379)\n"
 " -s <socket>        Server socket (overrides host and port)\n"
@@ -1561,15 +1567,21 @@ usage:
 " --dbnum <db>       SELECT the specified db number (default 0)\n"
 " --threads <num>    Enable multi-thread mode.\n"
 " --cluster          Enable cluster mode.\n"
+"                    If the command is supplied on the command line in cluster\n"
+"                    mode, the key must contain \"{tag}\". Otherwise, the\n"
+"                    command will not be sent to the right cluster node.\n"
 " --enable-tracking  Send CLIENT TRACKING on before starting benchmark.\n"
 " -k <boolean>       1=keep alive 0=reconnect (default 1)\n"
 " -r <keyspacelen>   Use random keys for SET/GET/INCR, random values for SADD,\n"
 "                    random members and scores for ZADD.\n"
-"  Using this option the benchmark will expand the string __rand_int__\n"
-"  inside an argument with a 12 digits number in the specified range\n"
-"  from 0 to keyspacelen-1. The substitution changes every time a command\n"
-"  is executed. Default tests use this to hit random keys in the\n"
-"  specified range.\n"
+"                    Using this option the benchmark will expand the string\n"
+"                    __rand_int__ inside an argument with a 12 digits number in\n"
+"                    the specified range from 0 to keyspacelen-1. The\n"
+"                    substitution changes every time a command is executed.\n"
+"                    Default tests use this to hit random keys in the specified\n"
+"                    range.\n"
+"                    Note: If -r is omitted, all commands in a benchmark will\n"
+"                    use the same key.\n"
 " -P <numreq>        Pipeline <numreq> requests. Default 1 (no pipeline).\n"
 " -q                 Quiet. Just show query/sec values\n"
 " --precision        Number of decimal places to display in latency output (default 0)\n"
@@ -1577,6 +1589,8 @@ usage:
 " -l                 Loop. Run the tests forever\n"
 " -t <tests>         Only run the comma separated list of tests. The test\n"
 "                    names are the same as the ones produced as output.\n"
+"                    The -t option is ignored if a specific command is supplied\n"
+"                    on the command line.\n"
 " -I                 Idle mode. Just open N idle connections and wait.\n"
 " -x                 Read last argument from STDIN.\n"
 #ifdef USE_OPENSSL
@@ -1600,7 +1614,7 @@ usage:
 #endif
 #endif
 " --help             Output this help and exit.\n"
-" --version          Output version and exit.\n\n"
+" --version          Output version and exit.\n\n",
 "Examples:\n\n"
 " Run the benchmark with the default configuration against 127.0.0.1:6379:\n"
 "   $ redis-benchmark\n\n"
@@ -1770,7 +1784,7 @@ int main(int argc, char **argv) {
             printf("%s:%d\n", node->ip, node->port);
             node->redis_config = getRedisConfig(node->ip, node->port, NULL);
             if (node->redis_config == NULL) {
-                fprintf(stderr, "WARN: could not fetch node CONFIG %s:%d\n",
+                fprintf(stderr, "WARNING: Could not fetch node CONFIG %s:%d\n",
                         node->ip, node->port);
             }
         }
@@ -1783,7 +1797,7 @@ int main(int argc, char **argv) {
         config.redis_config =
             getRedisConfig(config.hostip, config.hostport, config.hostsocket);
         if (config.redis_config == NULL) {
-            fprintf(stderr, "WARN: could not fetch server CONFIG\n");
+            fprintf(stderr, "WARNING: Could not fetch server CONFIG\n");
         }
     }
     if (config.num_threads > 0) {
@@ -1792,7 +1806,14 @@ int main(int argc, char **argv) {
     }
 
     if (config.keepalive == 0) {
-        printf("WARNING: keepalive disabled, you probably need 'echo 1 > /proc/sys/net/ipv4/tcp_tw_reuse' for Linux and 'sudo sysctl -w net.inet.tcp.msl=1000' for Mac OS X in order to use a lot of clients/requests\n");
+        fprintf(stderr,
+                "WARNING: Keepalive disabled. You probably need "
+                "'echo 1 > /proc/sys/net/ipv4/tcp_tw_reuse' for Linux and "
+                "'sudo sysctl -w net.inet.tcp.msl=1000' for Mac OS X in order "
+                "to use a lot of clients/requests\n");
+    }
+    if (argc > 0 && config.tests != NULL) {
+        fprintf(stderr, "WARNING: Option -t is ignored.\n");
     }
 
     if (config.idlemode) {
@@ -1820,7 +1841,7 @@ int main(int argc, char **argv) {
         }
         sds *sds_args = getSdsArrayFromArgv(argc, argv, 0);
         if (!sds_args) {
-            printf("Invalid quoted string\n");
+            fprintf(stderr, "Invalid quoted string\n");
             return 1;
         }
         if (config.stdinarg) {
