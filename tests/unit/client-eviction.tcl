@@ -30,6 +30,10 @@ proc write_err_exception {e} {
     return [regexp {(.*connection reset by peer.*|.*broken pipe.*)} $e]
 }
 
+proc mb {v} {
+    return [expr $v * 1024 * 1024]
+}
+
 start_server {} {
     set maxmemory_clients 3000000
     r config set maxmemory-clients $maxmemory_clients
@@ -55,6 +59,39 @@ start_server {} {
             $rr read
         } e
         assert {[write_err_exception $e]}
+    }
+
+    test "client evicted due to percentage of maxmemory" {
+        set maxmemory [mb 6]
+        r config set maxmemory $maxmemory
+        # Set client eviction threshold to 7% of maxmemory        
+        set maxmemory_clients_p 7
+        r config set maxmemory-clients -$maxmemory_clients_p
+        r flushdb
+        
+        set maxmemory_clients_actual [expr $maxmemory * $maxmemory_clients_p / 100]
+
+        set rr [redis_client]
+        $rr client setname test_client
+        # Attempt to fill the query buff with only half the percentage threshold verify we're not disconnected
+        set n [expr $maxmemory_clients_actual / 2]
+        $rr write [join [list "*1\r\n\$$n\r\n" [string repeat v $n]] ""]
+        $rr flush
+        set tot_mem [client_field test_client tot-mem]
+        assert {$tot_mem >= $n && $tot_mem < $maxmemory_clients_actual}
+        
+        # Attempt to fill the query buff with the percentage threshold of maxmemory and verify we're evicted
+        $rr close
+        set rr [redis_client]
+        catch { 
+            $rr write [join [list "*1\r\n\$$maxmemory_clients_actual\r\n" [string repeat v $maxmemory_clients_actual]] ""]
+            $rr flush
+        } e
+        assert {[write_err_exception $e]}
+        
+        # Restore settings
+        r config set maxmemory 0
+        r config set maxmemory-clients $maxmemory_clients
     }
 
     test "client evicted due to large multi buf" {
@@ -242,10 +279,6 @@ start_server {} {
             }            
         }
     }
-}
-
-proc mb {v} {
-    return [expr $v * 1024 * 1024]
 }
 
 start_server {} {

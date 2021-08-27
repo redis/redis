@@ -3872,9 +3872,23 @@ int handleClientsWithPendingReadsUsingThreads(void) {
 
 /* Returns true if client memory limit was reached */
 int clientEvictionCheckLimit() {
-    if (server.maxmemory_clients == 0 ||
-        server.stat_clients_type_memory[CLIENT_TYPE_NORMAL] +
-        server.stat_clients_type_memory[CLIENT_TYPE_PUBSUB] < server.maxmemory_clients) {
+    size_t maxmemory_clients_actual = SIZE_MAX;
+
+    /* Handle percentage of maxmemory*/
+    if (server.maxmemory_clients < 0 && server.maxmemory > 0)
+        maxmemory_clients_actual = (size_t)((double)server.maxmemory * -(double)server.maxmemory_clients / 100);
+    else if (server.maxmemory_clients > 0)
+        maxmemory_clients_actual = server.maxmemory_clients;
+    else
+        return 0;
+
+    /* Don't allow a too small maxmemory-clients to avoid cases where we can't communicate
+     * at all with the server because of bad configuration */
+    if (maxmemory_clients_actual < 1024*128)
+        maxmemory_clients_actual = 1024*128; //TODO: Warn here??
+
+    if (server.stat_clients_type_memory[CLIENT_TYPE_NORMAL] +
+        server.stat_clients_type_memory[CLIENT_TYPE_PUBSUB] < maxmemory_clients_actual) {
         return 0;
     }
     return 1;
