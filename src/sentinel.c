@@ -76,6 +76,7 @@ typedef struct sentinelAddr {
 #define SRI_RECONF_DONE (1<<10)     /* Slave synchronized with new master. */
 #define SRI_FORCE_FAILOVER (1<<11)  /* Force failover with master up. */
 #define SRI_SCRIPT_KILL_SENT (1<<12) /* SCRIPT KILL already sent on -BUSY */
+#define SRI_MASTER_REBOOT  (1<<13)
 
 /* Note: times are in milliseconds. */
 #define SENTINEL_PING_PERIOD 1000
@@ -193,6 +194,8 @@ typedef struct sentinelRedisInstance {
     mstime_t s_down_since_time; /* Subjectively down since time. */
     mstime_t o_down_since_time; /* Objectively down since time. */
     mstime_t down_after_period; /* Consider it down after that period. */
+    mstime_t master_reboot_down_after_period; /* Consider master down after that period. */
+    mstime_t master_reboot_since_time; /* master reboot time since time. */
     mstime_t info_refresh;  /* Time at which we received INFO output from it. */
     dict *renamed_commands;     /* Commands renamed in this instance:
                                    Sentinel will use the alternative commands
@@ -520,6 +523,21 @@ void sentinelCheckConfigFile(void) {
     }
 }
 
+void sentinelInitialMasterRebootDownAfterPeriod(void) {
+    dictIterator *di;
+    dictEntry *de;
+
+    di = dictGetIterator(sentinel.masters);
+    while((de = dictNext(di)) != NULL) {
+        sentinelRedisInstance *ri = dictGetVal(de);
+        if(ri->down_after_period > SENTINEL_PING_PERIOD)
+            ri->master_reboot_down_after_period = SENTINEL_PING_PERIOD * 10;
+        else
+            ri->master_reboot_down_after_period = ri->down_after_period * 10;
+    }
+    dictReleaseIterator(di);
+}
+
 /* This function gets called when the server is in Sentinel mode, started,
  * loaded the configuration, and is ready for normal operations. */
 void sentinelIsRunning(void) {
@@ -539,6 +557,8 @@ void sentinelIsRunning(void) {
 
     /* Log its ID to make debugging of issues simpler. */
     serverLog(LL_WARNING,"Sentinel ID is %s", sentinel.myid);
+
+    sentinelInitialMasterRebootDownAfterPeriod();
 
     /* We want to generate a +monitor event for every configured master
      * at startup. */
@@ -1296,6 +1316,9 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
     ri->o_down_since_time = 0;
     ri->down_after_period = master ? master->down_after_period :
                             sentinel_default_down_after;
+    if(ri->flags & SRI_SLAVE){
+        ri->master_reboot_down_after_period = master ? master->master_reboot_down_after_period :SENTINEL_PING_PERIOD*10;
+    }                        
     ri->master_link_down_time = 0;
     ri->auth_pass = NULL;
     ri->auth_user = NULL;
@@ -2483,6 +2506,12 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
             } else {
                 if (strncmp(ri->runid,l+7,40) != 0) {
                     sentinelEvent(LL_NOTICE,"+reboot",ri,"%@");
+
+                    if(ri->flags & SRI_MASTER) {
+                        ri->flags |= SRI_MASTER_REBOOT;
+                        ri->master_reboot_since_time = mstime();
+                    }
+
                     sdsfree(ri->runid);
                     ri->runid = sdsnewlen(l+7,40);
                 }
@@ -2750,6 +2779,10 @@ void sentinelPingReplyCallback(redisAsyncContext *c, void *reply, void *privdata
         {
             link->last_avail_time = mstime();
             link->act_ping_time = 0; /* Flag the pong as received. */
+            
+            if (ri->flags & SRI_MASTER_REBOOT && strncmp(r->str,"PONG",4) == 0)
+                ri->flags &= ~SRI_MASTER_REBOOT;
+
         } else {
             /* Send a SCRIPT KILL command if the instance appears to be
              * down because of a busy script. */
@@ -4385,7 +4418,9 @@ void sentinelCheckSubjectivelyDown(sentinelRedisInstance *ri) {
         (ri->flags & SRI_MASTER &&
          ri->role_reported == SRI_SLAVE &&
          mstime() - ri->role_reported_time >
-          (ri->down_after_period+sentinel_info_period*2)))
+          (ri->down_after_period+sentinel_info_period*2)) ||
+          (ri->flags & SRI_MASTER_REBOOT && 
+           mstime()-ri->master_reboot_since_time > ri->master_reboot_down_after_period))
     {
         /* Is subjectively down */
         if ((ri->flags & SRI_S_DOWN) == 0) {
