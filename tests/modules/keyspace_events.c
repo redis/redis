@@ -100,13 +100,16 @@ static int KeySpace_NotificationRemoved(RedisModuleCtx *ctx, int type, const cha
     REDISMODULE_NOT_USED(ctx);
     REDISMODULE_NOT_USED(type);
 
-    if(strcmp(event, "removed") == 0){
+    /* Open Key to check key exists */
+    RedisModuleKey *kp = RedisModule_OpenKey(ctx, key, REDISMODULE_READ);
+    if(strcmp(event, "removed") == 0 && kp != NULL) {
         const char* keyName = RedisModule_StringPtrLen(key, NULL);
         int nokey;
         RedisModule_DictGetC(removed_event_log, (void*)keyName, strlen(keyName), &nokey);
         if(nokey){
             RedisModule_DictSetC(removed_event_log, (void*)keyName, strlen(keyName), RedisModule_HoldString(ctx, key));
         }
+        RedisModule_CloseKey(kp);
     }
 
     return REDISMODULE_OK;

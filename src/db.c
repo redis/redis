@@ -305,16 +305,18 @@ robj *dbRandomKey(redisDb *db) {
 
 /* Delete a key, value, and associated expiration entry if any, from the DB */
 int dbSyncDelete(redisDb *db, robj *key) {
+    dictEntry **plink;
+    int table;
     /* Deleting an entry from the expires dict will not free the sds of
      * the key, because it is shared with the main dictionary. */
     if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
-    dictEntry *de = dictUnlink(db->dict,key->ptr);
+    dictEntry *de = dictFindWithPlink(db->dict,key->ptr,&plink,&table);
     if (de) {
         robj *val = dictGetVal(de);
         /* Tells the module that the key has been unlinked from the database. */
         moduleNotifyKeyUnlink(key,val,db->id);
         if (server.cluster_enabled) slotToKeyDelEntry(de);
-        dictFreeUnlinkedEntry(db->dict,de);
+        dictFreePlinkEntry(db->dict,de,plink,table);
         return 1;
     } else {
         return 0;

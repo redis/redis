@@ -535,6 +535,55 @@ void *dictFetchValue(dict *d, const void *key) {
     return he ? dictGetVal(he) : NULL;
 }
 
+/* Find an element from the table, also get the plink of the entry. The entry
+ * is returned if the element is found, and the user should later call
+ * `dictFreePlinkEntry` with it in order to unlink and release it. Otherwise if
+ * the key is not found, NULL is returned.
+ *
+ * We can use like this:
+ *
+ * dictEntry *de = dictFindWithPlink(db->dict,key->ptr,&plink, &table);
+ * // Do something, but we can modify the dict
+ * dictFreePlinkEntry(db->dict,de,plink,table); // We don't need to lookup again
+ */
+dictEntry *dictFindWithPlink(dict *d, const void *key, dictEntry ***plink, int *table_index)
+{
+    dictEntry *he, *prevHe;
+    uint64_t h, idx, table;
+
+    if (dictSize(d) == 0) return NULL; /* dict is empty */
+    if (dictIsRehashing(d)) _dictRehashStep(d);
+    h = dictHashKey(d, key);
+
+    for (table = 0; table <= 1; table++) {
+        idx = h & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
+        he = d->ht_table[table][idx];
+        prevHe = NULL;
+        while(he) {
+            if (key==he->key || dictCompareKeys(d, key, he->key)) {
+                if (prevHe) *plink = &prevHe->next;
+                else *plink = &d->ht_table[table][idx];
+                *table_index = table;
+                return he;
+            }
+            prevHe = he;
+            he = he->next;
+        }
+        if (!dictIsRehashing(d)) return NULL;
+    }
+    return NULL;
+}
+
+void dictFreePlinkEntry(dict *d, dictEntry *he, dictEntry **plink, int table_index)
+{
+    if (he == NULL) return;
+    d->ht_used[table_index]--;
+    *plink = he->next;
+    dictFreeKey(d, he);
+    dictFreeVal(d, he);
+    zfree(he);
+}
+
 /* A fingerprint is a 64 bit number that represents the state of the dictionary
  * at a given time, it's just a few dict properties xored together.
  * When an unsafe iterator is initialized, we get the dict fingerprint, and check
