@@ -3515,6 +3515,7 @@ void initThreadedIO(void) {
         pthread_mutex_lock(&io_threads_mutex[i]); /* Thread will be stopped. */
         if (pthread_create(&tid,NULL,IOThreadMain,(void*)(long)i) != 0) {
             serverLog(LL_WARNING,"Fatal: Can't initialize IO thread.");
+            pthread_mutex_unlock(&io_threads_mutex[i]);
             exit(1);
         }
         io_threads[i] = tid;
