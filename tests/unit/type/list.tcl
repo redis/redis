@@ -9,9 +9,9 @@ start_server {
     # A helper function for BPOP/BLMPOP with one input key.
     proc bpop_command {rd pop key timeout} {
         if {$pop == "BLMPOP_LEFT"} {
-            $rd blmpop 1 $key left count 1 $timeout
+            $rd blmpop $timeout 1 $key left count 1
         } elseif {$pop == "BLMPOP_RIGHT"} {
-            $rd blmpop 1 $key right count 1 $timeout
+            $rd blmpop $timeout 1 $key right count 1
         } else {
             $rd $pop $key $timeout
         }
@@ -20,9 +20,9 @@ start_server {
     # A helper function for BPOP/BLMPOP with two input keys.
     proc bpop_command_two_key {rd pop key key2 timeout} {
         if {$pop == "BLMPOP_LEFT"} {
-            $rd blmpop 2 $key $key2 left count 1 $timeout
+            $rd blmpop $timeout 2 $key $key2 left count 1
         } elseif {$pop == "BLMPOP_RIGHT"} {
-            $rd blmpop 2 $key $key2 right count 1 $timeout
+            $rd blmpop $timeout 2 $key $key2 right count 1
         } else {
             $rd $pop $key $key2 $timeout
         }
@@ -288,6 +288,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
 
         bpop_command $rd $pop list 0
         after 100 ;# Make sure rd is blocked before MULTI
+        wait_for_blocked_client
 
         r multi
         r lpush list a
@@ -304,6 +305,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
 
         bpop_command $rd $pop list 0
         after 100 ;# Make sure rd is blocked before MULTI
+        wait_for_blocked_client
 
         r multi
         r lpush list a
@@ -344,6 +346,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
 
         bpop_command $rd $pop list 0
         after 100 ;# Make sure rd is blocked before MULTI
+        wait_for_blocked_client
 
         r multi
         r lpush list a
@@ -359,6 +362,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         if {$::valgrind} {after 100}
         bpop_command $rd $pop blist 0
         if {$::valgrind} {after 100}
+        wait_for_blocked_client
         assert_equal 2 [r lpush blist foo bar]
         if {$::valgrind} {after 100}
         assert_equal {blist bar} [$rd read]
@@ -470,13 +474,16 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         set rd4 [redis_deferring_client]
         r del blist{t} blist2{t}
 
-        $rd1 blmpop 2 blist{t} blist2{t} left count 1 0
-        $rd2 blmpop 2 blist{t} blist2{t} right count 10 0
-        $rd3 blmpop 2 blist{t} blist2{t} left count 10 0
-        $rd4 blmpop 2 blist{t} blist2{t} right count 1 0
+        $rd1 blmpop 0 2 blist{t} blist2{t} left count 1
+        $rd2 blmpop 0 2 blist{t} blist2{t} right count 10
+        $rd3 blmpop 0 2 blist{t} blist2{t} left count 10
+        $rd4 blmpop 0 2 blist{t} blist2{t} right count 1
+        wait_for_blocked_clients_count 4
 
+        r multi
         r lpush blist{t} a b c d e
         r lpush blist2{t} 1 2 3 4 5
+        r exec
 
         assert_equal {blist{t} e} [$rd1 read]
         assert_equal {blist{t} {a b c d}} [$rd2 read]
@@ -494,6 +501,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
 
       $rd1 blmove list1{t} list2{t} right left 0
       $rd2 blmove list2{t} list3{t} left right 0
+      wait_for_blocked_clients_count 2
 
       r rpush list1{t} foo
 
@@ -510,6 +518,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
 
       $rd1 brpoplpush list1{t} list2{t} 0
       $rd2 brpoplpush list2{t} list1{t} 0
+      wait_for_blocked_clients_count 2
 
       r rpush list1{t} foo
 
@@ -523,6 +532,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
       r del blist{t}
 
       $rd brpoplpush blist{t} blist{t} 0
+      wait_for_blocked_client
 
       r rpush blist{t} foo
 
@@ -549,6 +559,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         r del srclist{t} dstlist{t} somekey{t}
         r set somekey{t} somevalue
         $blocked_client brpoplpush srclist{t} dstlist{t} 0
+        wait_for_blocked_client
         $watching_client watch dstlist{t}
         $watching_client read
         $watching_client multi
@@ -566,6 +577,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         r del srclist{t} dstlist{t} somekey{t}
         r set somekey{t} somevalue
         $blocked_client brpoplpush srclist{t} dstlist{t} 0
+        wait_for_blocked_client
         $watching_client watch dstlist{t}
         $watching_client read
         $watching_client multi
@@ -593,6 +605,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         r del foo{t}
 
         bpop_command $rd $pop foo{t} 0
+        wait_for_blocked_client
         r lpush bob{t} abc def hij
         r rename bob{t} foo{t}
         $rd read
@@ -607,6 +620,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         r lpop foo{t}
 
         bpop_command $rd $pop foo{t} 5
+        wait_for_blocked_client
         r lpush notfoo{t} hello hola aguacate konichiwa zanzibar
         r sort notfoo{t} ALPHA store foo{t}
         $rd read
@@ -618,6 +632,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
             set rd [redis_deferring_client]
             r del blist1
             bpop_command $rd $pop blist1 1
+            wait_for_blocked_client
             r rpush blist1 foo
             assert_equal {blist1 foo} [$rd read]
             assert_equal 0 [r exists blist1]
@@ -643,6 +658,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
             # The blocking pop should still be waiting for a push.
             set rd [redis_deferring_client]
             bpop_command $rd $pop blist1 0
+            wait_for_blocked_client
             after 1000
             r rpush blist1 foo
             assert_equal {blist1 foo} [$rd read]
@@ -661,6 +677,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
             set rd [redis_deferring_client]
             r del blist1{t} blist2{t}
             bpop_command_two_key $rd $pop blist1{t} blist2{t} 1
+            wait_for_blocked_client
             assert_equal {} [$rd read]
         }
 
@@ -669,12 +686,14 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
             r del blist1{t} blist2{t}
 
             bpop_command_two_key $rd $pop blist1{t} blist2{t} 1
+            wait_for_blocked_client
             r rpush blist1{t} foo
             assert_equal {blist1{t} foo} [$rd read]
             assert_equal 0 [r exists blist1{t}]
             assert_equal 0 [r exists blist2{t}]
 
             bpop_command_two_key $rd $pop blist1{t} blist2{t} 1
+            wait_for_blocked_client
             r rpush blist2{t} foo
             assert_equal {blist2{t} foo} [$rd read]
             assert_equal 0 [r exists blist1{t}]
@@ -683,7 +702,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
     }
 
 foreach {pop} {BLPOP BLMPOP_LEFT} {
-    test {$pop inside a transaction} {
+    test "$pop inside a transaction" {
         r del xlist
         r lpush xlist foo
         r lpush xlist bar
@@ -703,16 +722,19 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         # BLMPOP without block.
         r lpush mylist{t} a b c
         r rpush mylist2{t} 1 2 3
-        r blmpop 1 mylist{t} left count 1 0
-        r blmpop 2 mylist{t} mylist2{t} right count 10 0
-        r blmpop 2 mylist{t} mylist2{t} right count 10 0
+        r blmpop 0 1 mylist{t} left count 1
+        r blmpop 0 2 mylist{t} mylist2{t} right count 10
+        r blmpop 0 2 mylist{t} mylist2{t} right count 10
 
         # BLMPOP with block.
-        $rd blmpop 1 mylist{t} left count 1 0
+        $rd blmpop 0 1 mylist{t} left count 1
+        wait_for_blocked_client
         r lpush mylist{t} a
-        $rd blmpop 2 mylist{t} mylist2{t} left count 5 0
+        $rd blmpop 0 2 mylist{t} mylist2{t} left count 5
+        wait_for_blocked_client
         r lpush mylist{t} a b c
-        $rd blmpop 2 mylist{t} mylist2{t} right count 10 0
+        $rd blmpop 0 2 mylist{t} mylist2{t} right count 10
+        wait_for_blocked_client
         r rpush mylist2{t} a b c
 
         assert_replication_stream $repl {
@@ -1001,17 +1023,21 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         assert_equal {} [r lmpop 2 non-existing-list{t} non-existing-list2{t} right count 10]
     }
 
-    test {LPOP/RPOP/LMPOP against non list value} {
+    test {LPOP/RPOP/LMPOP NON-BLOCK or BLOCK against non list value} {
         r set notalist{t} foo
         assert_error WRONGTYPE* {r lpop notalist{t}}
+        assert_error WRONGTYPE* {r blpop notalist{t} 0}
         assert_error WRONGTYPE* {r rpop notalist{t}}
+        assert_error WRONGTYPE* {r brpop notalist{t} 0}
 
         r del notalist2{t}
         assert_error "WRONGTYPE*" {r lmpop 2 notalist{t} notalist2{t} left count 1}
+        assert_error "WRONGTYPE*" {r blmpop 0 2 notalist{t} notalist2{t} left count 1}
 
         r del notalist{t}
         r set notalist2{t} nolist
         assert_error "WRONGTYPE*" {r lmpop 2 notalist{t} notalist2{t} right count 10}
+        assert_error "WRONGTYPE*" {r blmpop 0 2 notalist{t} notalist2{t} left count 1}
     }
 
     foreach {type num} {quicklist 250 quicklist 500} {

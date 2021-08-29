@@ -338,7 +338,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"blmpop",blmpopCommand,-5,
      "write @list @blocking",
-     0,lmpopGetKeys,0,0,0,0,0,0},
+     0,blmpopGetKeys,0,0,0,0,0,0},
 
     {"llen",llenCommand,2,
      "read-only fast @list",

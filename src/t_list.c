@@ -1017,18 +1017,19 @@ void serveClientBlockedOnList(client *receiver, robj *o, robj *key, robj *dstkey
 /* Blocking RPOP/LPOP/LMPOP
  *
  * 'numkeys' is the number of keys.
+ * 'timeout_idx' parameter position of block timeout.
+ * 'where' LIST_HEAD for LEFT, LIST_TAIL for RIGHT.
  * 'count' is the number of elements requested to pop, or 0 for plain single pop.
  *
  * When count is 0, a reply of a single bulk-string will be used.
  * When count > 0, an array reply will be used. */
-void blockingPopGenericCommand(client *c, robj **keys, int numkeys, int where, long count) {
+void blockingPopGenericCommand(client *c, robj **keys, int numkeys, int where, int timeout_idx, long count) {
     robj *o;
     robj *key;
     mstime_t timeout;
     int j;
 
-    /* The block timeout parameter is always the last one. */
-    if (getTimeoutFromObjectOrReply(c,c->argv[c->argc-1],&timeout,UNIT_SECONDS)
+    if (getTimeoutFromObjectOrReply(c,c->argv[timeout_idx],&timeout,UNIT_SECONDS)
         != C_OK) return;
 
     /* Traverse all input keys, we take action only based on one key. */
@@ -1089,12 +1090,12 @@ void blockingPopGenericCommand(client *c, robj **keys, int numkeys, int where, l
 
 /* BLPOP <key> [<key> ...] <timeout> */
 void blpopCommand(client *c) {
-    blockingPopGenericCommand(c,c->argv+1,c->argc-2,LIST_HEAD,0);
+    blockingPopGenericCommand(c,c->argv+1,c->argc-2,LIST_HEAD,c->argc-1,0);
 }
 
 /* BRPOP <key> [<key> ...] <timeout> */
 void brpopCommand(client *c) {
-    blockingPopGenericCommand(c,c->argv+1,c->argc-2,LIST_TAIL,0);
+    blockingPopGenericCommand(c,c->argv+1,c->argc-2,LIST_TAIL,c->argc-1,0);
 }
 
 void blmoveGenericCommand(client *c, int wherefrom, int whereto, mstime_t timeout) {
@@ -1140,21 +1141,23 @@ void brpoplpushCommand(client *c) {
     blmoveGenericCommand(c, LIST_TAIL, LIST_HEAD, timeout);
 }
 
-/* LMPOP/BLMPOP */
-void lmpopGenericCommand(client *c, int is_block) {
+/* LMPOP/BLMPOP
+ *
+ * 'numkeys_idx' parameter position of key number.
+ * 'is_block' this indicates whether it is a blocking variant. */
+void lmpopGenericCommand(client *c, int numkeys_idx, int is_block) {
     long j;
-    int key_start = 2;     /* Skip the command and numkeys. */
     long numkeys = 0;      /* Number of keys. */
     int where = 0;         /* HEAD for LEFT, TAIL for RIGHT. */
     long count = 1;        /* Reply will consist of up to count elements, depending on the list's length. */
 
     /* Parse the numkeys. */
-    if (getRangeLongFromObjectOrReply(c, c->argv[1], 1, INT_MAX,
+    if (getRangeLongFromObjectOrReply(c, c->argv[numkeys_idx], 1, LONG_MAX,
                                       &numkeys, "numkeys should be greater than 0") != C_OK)
         return;
 
     /* Parse the where. where_idx: the index of where in the c->argv. */
-    long where_idx = key_start + numkeys;
+    long where_idx = numkeys_idx + numkeys + 1;
     if (where_idx >= c->argc) {
         addReplyErrorObject(c, shared.syntaxerr);
         return;
@@ -1162,17 +1165,12 @@ void lmpopGenericCommand(client *c, int is_block) {
     if (getListPositionFromObjectOrReply(c, c->argv[where_idx], &where) != C_OK)
         return;
 
-    /* BLOCK TIMEOUT (always the last one). */
-    long argc_end = is_block ? c->argc - 1 : c->argc;
-
     /* Parse the optional arguments. */
-    for (j = where_idx + 1; j < argc_end; j++) {
+    for (j = where_idx + 1; j < c->argc; j++) {
         char *opt = c->argv[j]->ptr;
         int moreargs = (c->argc - 1) - j;
 
-        if (!strcasecmp(opt, "COUNT") &&
-            ((!is_block && moreargs == 1) || (is_block && moreargs == 2)))
-        {
+        if (!strcasecmp(opt, "COUNT") && moreargs) {
             j++;
             if (getRangeLongFromObjectOrReply(c, c->argv[j], 1, LONG_MAX,
                                               &count,"count should be greater than 0") != C_OK)
@@ -1185,19 +1183,19 @@ void lmpopGenericCommand(client *c, int is_block) {
 
     if (is_block) {
         /* BLOCK. We will handle CLIENT_DENY_BLOCKING flag in blockingPopGenericCommand. */
-        blockingPopGenericCommand(c, c->argv+key_start, numkeys, where, count);
+        blockingPopGenericCommand(c, c->argv+numkeys_idx+1, numkeys, where, 1, count);
     } else {
         /* NON-BLOCK */
-        mpopGenericCommand(c, c->argv+key_start, numkeys, where, count);
+        mpopGenericCommand(c, c->argv+numkeys_idx+1, numkeys, where, count);
     }
 }
 
 /* LMPOP numkeys [<key> ...] LEFT|RIGHT [COUNT count] */
 void lmpopCommand(client *c) {
-    lmpopGenericCommand(c, 0);
+    lmpopGenericCommand(c, 1, 0);
 }
 
-/* BLMPOP numkeys [<key> ...] LEFT|RIGHT [COUNT count] <timeout> */
+/* BLMPOP timeout numkeys [<key> ...] LEFT|RIGHT [COUNT count] */
 void blmpopCommand(client *c) {
-    lmpopGenericCommand(c, 1);
+    lmpopGenericCommand(c, 2, 1);
 }
