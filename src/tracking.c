@@ -58,6 +58,12 @@ typedef struct bcastState {
                        prefix. */
 } bcastState;
 
+/* This is used to store an invalidation key pending to flush */
+typedef struct invalidateKey {
+    uint64_t client_id;
+    robj *key;
+} invalidateKey;
+
 /* Remove the tracking state from the client 'c'. Note that there is not much
  * to do for us here, if not to decrement the counter of the clients in
  * tracking mode, because we just store the ID of the client in the tracking
@@ -347,13 +353,16 @@ void trackingRememberKeyToBroadcast(client *c, char *keyname, size_t keylen) {
  * of memory pressure: in that case the key didn't really change, so we want
  * just to notify the clients that are in the table for this key, that would
  * otherwise miss the fact we are no longer tracking the key for them. */
-void trackingInvalidateKeyRaw(client *c, char *key, size_t keylen, int bcast) {
+void trackingInvalidateKey(client *c, robj *keyobj, int bcast) {
     if (TrackingTable == NULL) return;
 
-    if (bcast && raxSize(PrefixTable) > 0)
-        trackingRememberKeyToBroadcast(c,key,keylen);
+    unsigned char *key = (unsigned char*)keyobj->ptr;
+    size_t keylen = sdslen(keyobj->ptr);
 
-    rax *ids = raxFind(TrackingTable,(unsigned char*)key,keylen);
+    if (bcast && raxSize(PrefixTable) > 0)
+        trackingRememberKeyToBroadcast(c,(char *)key,keylen);
+
+    rax *ids = raxFind(TrackingTable,key,keylen);
     if (ids == raxNotFound) return;
 
     raxIterator ri;
@@ -383,7 +392,8 @@ void trackingInvalidateKeyRaw(client *c, char *key, size_t keylen, int bcast) {
             continue;
         }
 
-        sendTrackingMessage(target,key,keylen,0);
+        /* We need to use id as client may be freed */
+        trackingScheduleKey(id,keyobj);
     }
     raxStop(&ri);
 
@@ -394,10 +404,31 @@ void trackingInvalidateKeyRaw(client *c, char *key, size_t keylen, int bcast) {
     raxRemove(TrackingTable,(unsigned char*)key,keylen,NULL);
 }
 
-/* Wrapper (the one actually called across the core) to pass the key
- * as object. */
-void trackingInvalidateKey(client *c, robj *keyobj) {
-    trackingInvalidateKeyRaw(c,keyobj->ptr,sdslen(keyobj->ptr),1);
+void trackingScheduleKey(uint64_t client_id, robj *keyobj) {
+    invalidateKey *ik = zmalloc(sizeof(invalidateKey));
+
+    ik->client_id = client_id;
+    ik->key = keyobj;
+    incrRefCount(keyobj);
+    listAddNodeTail(server.tracking_pending_keys, ik);
+}
+
+void trackingHandlePendingKeys() {
+    if (!listLength(server.tracking_pending_keys)) return;
+
+    listNode *ln;
+    listIter li;
+
+    listRewind(server.tracking_pending_keys,&li);
+    while ((ln = listNext(&li)) != NULL) {
+        invalidateKey *ik = listNodeValue(ln);
+        client *target = lookupClientByID(ik->client_id);
+        if (target != NULL)
+            sendTrackingMessage(target,(char *)ik->key->ptr,sdslen(ik->key->ptr),0);
+        decrRefCount(ik->key);
+        zfree(ik);
+    }
+    listEmpty(server.tracking_pending_keys);
 }
 
 /* This function is called when one or all the Redis databases are
@@ -474,7 +505,9 @@ void trackingLimitUsedSlots(void) {
         raxSeek(&ri,"^",NULL,0);
         raxRandomWalk(&ri,0);
         if (raxEOF(&ri)) break;
-        trackingInvalidateKeyRaw(NULL,(char*)ri.key,ri.key_len,0);
+        robj *keyobj = createStringObject((char*)ri.key,ri.key_len);
+        trackingInvalidateKey(NULL,keyobj,0);
+        decrRefCount(keyobj);
         if (raxSize(TrackingTable) <= max_keys) {
             timeout_counter = 0;
             raxStop(&ri);

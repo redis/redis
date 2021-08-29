@@ -369,6 +369,54 @@ start_server {tags {"tracking network"}} {
         $r CLIENT TRACKING OFF
     }
 
+    test {hdel deliver invlidate message after response in the same connection} {
+        r CLIENT TRACKING off
+        r HELLO 3
+        r CLIENT TRACKING on
+        r HSET myhash f 1
+        r HGET myhash f
+        set res [r HDEL myhash f]
+        assert_equal $res 1
+        set res [r read]
+        assert_equal $res {invalidate myhash}
+    }
+
+    test {Tracking invalidation message is not interleaved with multiple keys response} {
+        r CLIENT TRACKING off
+        r HELLO 3
+        r CLIENT TRACKING on
+        # We need disable active expire, so we can trigger lazy expire
+        r DEBUG SET-ACTIVE-EXPIRE 0
+        r MSET x{t} 1 y{t} 2
+        r PEXPIRE y{t} 100
+        r GET y{t}
+        after 110
+        # Read expired key y{t}, generate invalidate message about this key
+        set res [r MGET x{t} y{t}]
+        assert_equal $res {1 {}}
+        # Consume the invalidate message which is after command response
+        set res [r read]
+        assert_equal $res {invalidate y{t}}
+        r DEBUG SET-ACTIVE-EXPIRE 1
+    }
+
+    test {Tracking invalidation message is not interleaved with transaction response} {
+        r CLIENT TRACKING off
+        r HELLO 3
+        r CLIENT TRACKING on
+        r MSET a{t} 1 b{t} 2
+        r GET a{t}
+        # Start a transaction, make a{t} generate an invalidate message
+        r MULTI
+        r INCR a{t}
+        r GET b{t}
+        set res [r EXEC]
+        assert_equal $res {2 2}
+        set res [r read]
+        # Consume the invalidate message which is after command response
+        assert_equal $res {invalidate a{t}}
+    }
+
     test {Tracking gets notification on tracking table key eviction} {
         r CLIENT TRACKING off
         r CLIENT TRACKING on REDIRECT $redir_id NOLOOP
