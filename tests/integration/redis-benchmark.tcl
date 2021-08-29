@@ -13,7 +13,7 @@ start_server {tags {"benchmark network external:skip"}} {
         test {benchmark: set,get} {
             r config resetstat
             r flushall
-            set cmd [redisbenchmark $master_host $master_port "-c 5 -n 10 -e -t set,get"]
+            set cmd [redisbenchmark $master_host $master_port "-c 5 -n 10 -t set,get"]
             if {[catch { exec {*}$cmd } error]} {
                 set first_line [lindex [split $error "\n"] 0]
                 puts [colorstr red "redis-benchmark non zero code. first line: $first_line"]
@@ -27,7 +27,7 @@ start_server {tags {"benchmark network external:skip"}} {
 
         test {benchmark: full test suite} {
             r config resetstat
-            set cmd [redisbenchmark $master_host $master_port "-c 10 -n 100 -e"]
+            set cmd [redisbenchmark $master_host $master_port "-c 10 -n 100"]
             if {[catch { exec {*}$cmd } error]} {
                 set first_line [lindex [split $error "\n"] 0]
                 puts [colorstr red "redis-benchmark non zero code. first line: $first_line"]
@@ -57,7 +57,7 @@ start_server {tags {"benchmark network external:skip"}} {
         test {benchmark: multi-thread set,get} {
             r config resetstat
             r flushall
-            set cmd [redisbenchmark $master_host $master_port "--threads 10 -c 5 -n 10 -e -t set,get"]
+            set cmd [redisbenchmark $master_host $master_port "--threads 10 -c 5 -n 10 -t set,get"]
             if {[catch { exec {*}$cmd } error]} {
                 set first_line [lindex [split $error "\n"] 0]
                 puts [colorstr red "redis-benchmark non zero code. first line: $first_line"]
@@ -75,7 +75,7 @@ start_server {tags {"benchmark network external:skip"}} {
         test {benchmark: pipelined full set,get} {
             r config resetstat
             r flushall
-            set cmd [redisbenchmark $master_host $master_port "-P 5 -c 10 -n 10010 -e -t set,get"]
+            set cmd [redisbenchmark $master_host $master_port "-P 5 -c 10 -n 10010 -t set,get"]
             if {[catch { exec {*}$cmd } error]} {
                 set first_line [lindex [split $error "\n"] 0]
                 puts [colorstr red "redis-benchmark non zero code. first line: $first_line"]
@@ -93,7 +93,7 @@ start_server {tags {"benchmark network external:skip"}} {
         test {benchmark: arbitrary command} {
             r config resetstat
             r flushall
-            set cmd [redisbenchmark $master_host $master_port "-c 5 -n 150 -e INCRBYFLOAT mykey 10.0"]
+            set cmd [redisbenchmark $master_host $master_port "-c 5 -n 150 INCRBYFLOAT mykey 10.0"]
             if {[catch { exec {*}$cmd } error]} {
                 set first_line [lindex [split $error "\n"] 0]
                 puts [colorstr red "redis-benchmark non zero code. first line: $first_line"]
