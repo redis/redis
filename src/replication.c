@@ -1732,10 +1732,10 @@ void readSyncBulkPayload(connection *conn) {
         diskless_load_backup = disklessLoadMakeBackup();
     }
 
-    /* Replica starts to appply data from new master, we must discard the cached
+    /* Replica starts to apply data from new master, we must discard the cached
      * master structure. And before this, make sure there is no master client,
      * since replica's data would be changed and cached master is exactly wrong
-     * once creating master client. */
+     * once the master client is created. */
     serverAssert(server.master == NULL);
     replicationDiscardCachedMaster();
 
@@ -2637,7 +2637,7 @@ void replicationSetMaster(char *ip, int port) {
 
     /* Here we don't disconnect with replicas, since they may hopefully be able
      * to partially resync with us. We will disconnect with replicas and force
-     * them resync with us when changing replid on partially resync with new
+     * them to resync with us when changing replid on partially resync with new
      * master, or finishing transferring RDB and preparing loading DB on full
      * sync with new master. */
 

@@ -972,13 +972,20 @@ start_server {tags {"repl external:skip"}} {
                 }
 
                 test {Discard cache master before loading transferred RDB when full sync} {
+                    set full_sync [s -3 sync_full]
+                    set partial_sync [s -3 sync_partial_ok]
                     # Partial sync with master1
                     r slaveof $master1_host $master1_port
-                    wait_for_condition 50 100 {
-                        [log_file_matches [srv 0 stdout] "*Successful partial resynchronization*"]
-                    } else {
-                        fail "slave cant't be allowed to start partial resynchronization"
-                    }
+                    wait_for_sync r
+                    # master1 accepts partial sync instead of full sync
+                    assert_equal $full_sync [s -3 sync_full]
+                    assert_equal [expr $partial_sync+1] [s -3 sync_partial_ok]
+
+                    # Since master only partially sync replica, and repl id is not changed,
+                    # the replica doesn't disconnect with its sub-replicas
+                    assert_equal [s master_replid] [s -3 master_replid]
+                    assert_equal [s master_replid] [s -1 master_replid]
+                    assert ![log_file_matches [srv -1 stdout] "*Connection with master lost*"]
                 }
             }
         }
