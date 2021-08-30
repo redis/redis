@@ -220,12 +220,12 @@ uint64_t ACLGetCommandCategoryFlagByName(const char *name) {
     return 0; /* No match. */
 }
 
-/* Method for seraching for a user within a list of user definitions. The
+/* Method for searching for a user within a list of user definitions. The
  * list contains an array of user arguments, and we are only
  * searching the first argument, the username, for a match. */
-int ACLListMatchLoadedUser(void *a, void *b) {
-    sds *user_definition = a;
-    return sdscmp(user_definition[0], b) == 0;
+int ACLListMatchLoadedUser(void *definition, void *user) {
+    sds *user_definition = definition;
+    return sdscmp(user_definition[0], user) == 0;
 }
 
 /* Method for passwords/pattern comparison used for the user->passwords list
