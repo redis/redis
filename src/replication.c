@@ -1733,9 +1733,7 @@ void readSyncBulkPayload(connection *conn) {
     }
 
     /* Replica starts to apply data from new master, we must discard the cached
-     * master structure. And before this, make sure there is no master client,
-     * since replica's data would be changed and cached master is exactly wrong
-     * once the master client is created. */
+     * master structure. */
     serverAssert(server.master == NULL);
     replicationDiscardCachedMaster();
 
