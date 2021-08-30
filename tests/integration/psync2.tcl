@@ -438,6 +438,123 @@ start_server {} {
         }
     }
 
+    test "PSYNC2: Partial resync after Master restart using RDB aux fields" {
+        wait_for_condition 500 100 {
+            [status $R($master_id) master_repl_offset] == [status $R(0) master_repl_offset] &&
+            [status $R($master_id) master_repl_offset] == [status $R(1) master_repl_offset] &&
+            [status $R($master_id) master_repl_offset] == [status $R(2) master_repl_offset] &&
+            [status $R($master_id) master_repl_offset] == [status $R(3) master_repl_offset] &&
+            [status $R($master_id) master_repl_offset] == [status $R(4) master_repl_offset]
+        } else {
+            show_cluster_status
+            fail "Replicas and master offsets were unable to match *exactly*."
+        }
+
+        catch {
+            restart_server [expr {0-$master_id}] true false
+            set R($master_id) [srv [expr {0-$master_id}] client]
+        }
+        wait_for_condition 50 1000 {
+            ([status $R($master_id) connected_slaves] == 4) &&
+            ([status $R($master_id) sync_partial_ok] == 4)
+        } else {
+            puts [$R($master_id) info stats]
+            show_cluster_status
+            fail "Master didn't partial sync after restart"
+        }
+    }
+
+    test "PSYNC2: Partial resync after Master restart using RDB aux fields with expire" {
+        $R($master_id) debug set-active-expire 0
+        for {set j 0} {$j < 1024} {incr j} {
+            $R($master_id) select [expr $j%16]
+            $R($master_id) setex $j 1 somevalue
+        }
+
+        after 1100
+
+        wait_for_condition 500 100 {
+            [status $R($master_id) master_repl_offset] == [status $R(0) master_repl_offset] &&
+            [status $R($master_id) master_repl_offset] == [status $R(1) master_repl_offset] &&
+            [status $R($master_id) master_repl_offset] == [status $R(2) master_repl_offset] &&
+            [status $R($master_id) master_repl_offset] == [status $R(3) master_repl_offset] &&
+            [status $R($master_id) master_repl_offset] == [status $R(4) master_repl_offset]
+        } else {
+            show_cluster_status
+            fail "Replicas and master offsets were unable to match *exactly*."
+        }
+
+        catch {
+            restart_server [expr {0-$master_id}] true false
+            set R($master_id) [srv [expr {0-$master_id}] client]
+        }
+        wait_for_condition 50 1000 {
+            ([status $R($master_id) connected_slaves] == 4) &&
+            ([status $R($master_id) sync_partial_ok] == 4) &&
+            ([status $R($master_id) rdb_expired_keys_last_load] == 1024)
+        } else {
+            puts [$R($master_id) info stats]
+            show_cluster_status
+            fail "Master didn't partial sync after restart"
+        }
+
+        wait_for_condition 500 100 {
+            [status $R($master_id) master_repl_offset] == [status $R(0) master_repl_offset] &&
+            [status $R($master_id) master_repl_offset] == [status $R(1) master_repl_offset] &&
+            [status $R($master_id) master_repl_offset] == [status $R(2) master_repl_offset] &&
+            [status $R($master_id) master_repl_offset] == [status $R(3) master_repl_offset] &&
+            [status $R($master_id) master_repl_offset] == [status $R(4) master_repl_offset]
+        } else {
+            show_cluster_status
+            fail "Replicas and master offsets were unable to match *exactly* after restart."
+        }
+
+        set digest [$R($master_id) debug digest]
+        assert {$digest eq [$R(0) debug digest]}
+        assert {$digest eq [$R(1) debug digest]}
+        assert {$digest eq [$R(2) debug digest]}
+        assert {$digest eq [$R(3) debug digest]}
+        assert {$digest eq [$R(4) debug digest]}
+    }
+
+    test "PSYNC2: Full resync after Master restart when too many key expired" {
+        $R($master_id) config set repl-backlog-size 16384
+        $R($master_id) config rewrite
+
+        $R($master_id) debug set-active-expire 0
+        for {set j 0} {$j < 1024} {incr j} {
+            $R($master_id) select [expr $j%16]
+            $R($master_id) setex $j 1 somevalue
+        }
+
+        after 1100
+
+        wait_for_condition 500 100 {
+            [status $R($master_id) master_repl_offset] == [status $R(0) master_repl_offset] &&
+            [status $R($master_id) master_repl_offset] == [status $R(1) master_repl_offset] &&
+            [status $R($master_id) master_repl_offset] == [status $R(2) master_repl_offset] &&
+            [status $R($master_id) master_repl_offset] == [status $R(3) master_repl_offset] &&
+            [status $R($master_id) master_repl_offset] == [status $R(4) master_repl_offset]
+        } else {
+            show_cluster_status
+            fail "Replicas and master offsets were unable to match *exactly*."
+        }
+
+        catch {
+            restart_server [expr {0-$master_id}] true false
+            set R($master_id) [srv [expr {0-$master_id}] client]
+        }
+        wait_for_condition 50 1000 {
+            ([status $R($master_id) connected_slaves] == 4) &&
+            ([status $R($master_id) sync_full] == 4) &&
+            ([status $R($master_id) rdb_expired_keys_last_load] == 1024)
+        } else {
+            puts [$R($master_id) info stats]
+            show_cluster_status
+            fail "Master didn't partial sync after restart"
+        }
+    }
+
     if {$no_exit} {
         while 1 { puts -nonewline .; flush stdout; after 1000}
     }
