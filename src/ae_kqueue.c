@@ -36,7 +36,7 @@
 typedef struct aeApiState {
     int kqfd;
     struct kevent *events;
-    aeFiredEvent **eventsCache; /* events cache for merge read and write event. */
+    char *eventsMask; /* events mask for merge read and write event. */
 } aeApiState;
 
 static int aeApiCreate(aeEventLoop *eventLoop) {
@@ -55,7 +55,7 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
         return -1;
     }
     anetCloexec(state->kqfd);
-    state->eventsCache = zmalloc(sizeof(aeFiredEvent*)*eventLoop->setsize);
+    state->eventsMask = zmalloc(eventLoop->setsize);
     eventLoop->apidata = state;
     return 0;
 }
@@ -64,7 +64,7 @@ static int aeApiResize(aeEventLoop *eventLoop, int setsize) {
     aeApiState *state = eventLoop->apidata;
 
     state->events = zrealloc(state->events, sizeof(struct kevent)*setsize);
-    state->eventsCache = zrealloc(state->eventsCache, sizeof(aeFiredEvent*)*setsize);
+    state->eventsMask = zrealloc(state->eventsMask, setsize);
     return 0;
 }
 
@@ -73,7 +73,7 @@ static void aeApiFree(aeEventLoop *eventLoop) {
 
     close(state->kqfd);
     zfree(state->events);
-    zfree(state->eventsCache);
+    zfree(state->eventsMask);
     zfree(state);
 }
 
@@ -124,29 +124,31 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
     if (retval > 0) {
         int j;
 
-        numevents = 0;
-        memset(state->eventsCache, 0, sizeof(aeFiredEvent*)*eventLoop->setsize);
-        for(j = 0; j < retval; j++) {
-            int mask = 0;
+        /* Normally we execute the read event first and then the write event.
+         * When the barrier is set, we will do it reverse.
+         * 
+         * However, under kqueue, read and write events would be separate
+         * events, which would make it impossible to control the order of
+         * reads and writes. So we store the event's mask we've got and merge
+         * the same fd events later. */
+        for (j = 0; j < retval; j++) {
             struct kevent *e = state->events+j;
 
-            if (e->filter == EVFILT_READ) mask |= AE_READABLE;
-            if (e->filter == EVFILT_WRITE) mask |= AE_WRITABLE;
+            if (e->filter == EVFILT_READ) state->eventsMask[e->ident] |= AE_READABLE;
+            else if (e->filter == EVFILT_WRITE) state->eventsMask[e->ident] |= AE_WRITABLE;
+        }
 
-            /* Normally we execute the read event first and then the write event.
-             * When the barrier is set, we will do it reverse.
-             * 
-             * However, under kqueue, read and write events would be separate
-             * events, which would make it impossible to control the order of
-             * reads and writes. So we cache the events we've got and merge
-             * the same fd events later. */
-            aeFiredEvent *event = state->eventsCache[e->ident];
-            if (event) {
-                event->mask |= mask;
-            } else {
+        /* Re-traversal to merge read and write events, and set the fd's mask to
+         * 0 so that events are not added again when the fd is encountered again. */
+        numevents = 0;
+        for (j = 0; j < retval; j++) {
+            struct kevent *e = state->events+j;
+            int mask = state->eventsMask[e->ident];
+
+            if (mask) {
                 eventLoop->fired[numevents].fd = e->ident;
                 eventLoop->fired[numevents].mask = mask;
-                state->eventsCache[e->ident] = &eventLoop->fired[numevents];
+                state->eventsMask[e->ident] = 0;
                 numevents++;
             }
         }
