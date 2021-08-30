@@ -108,19 +108,52 @@ void rioInitWithBuffer(rio *r, sds s) {
 
 /* Returns 1 or 0 for success/failure. */
 static size_t rioFileWrite(rio *r, const void *buf, size_t len) {
-    size_t retval;
+    if (!r->io.file.autosync) return fwrite(buf,len,1,r->io.file.fp);
 
-    retval = fwrite(buf,len,1,r->io.file.fp);
-    r->io.file.buffered += len;
+    size_t nwritten = 0;
+    /* Incrementally write data to the file, avoid a single write larger than
+     * the autosync threshold (so that the kernel's buffer cache never has too
+     * many dirty pages at once). */
+    while (len != nwritten) {
+        serverAssert(r->io.file.autosync > r->io.file.buffered);
+        size_t nalign = (size_t)(r->io.file.autosync - r->io.file.buffered);
+        size_t towrite = nalign > len-nwritten ? len-nwritten : nalign;
 
-    if (r->io.file.autosync &&
-        r->io.file.buffered >= r->io.file.autosync)
-    {
-        fflush(r->io.file.fp);
-        if (redis_fsync(fileno(r->io.file.fp)) == -1) return 0;
-        r->io.file.buffered = 0;
+        if (fwrite((char*)buf+nwritten,towrite,1,r->io.file.fp) == 0) return 0;
+        nwritten += towrite;
+        r->io.file.buffered += towrite;
+
+        if (r->io.file.buffered >= r->io.file.autosync) {
+            fflush(r->io.file.fp);
+
+            size_t processed = r->processed_bytes + nwritten;
+            serverAssert(processed % r->io.file.autosync == 0);
+            serverAssert(r->io.file.buffered == r->io.file.autosync);
+
+#if HAVE_SYNC_FILE_RANGE
+            /* Start writeout asynchronously. */
+            if (sync_file_range(fileno(r->io.file.fp),
+                    processed - r->io.file.autosync, r->io.file.autosync,
+                    SYNC_FILE_RANGE_WRITE) == -1)
+                return 0;
+
+            if (processed >= (size_t)r->io.file.autosync * 2) {
+                /* To keep the promise to 'autosync', we should make sure last
+                 * asynchronous writeout persists into disk. This call may block
+                 * if last writeout is not finished since disk is slow. */
+                if (sync_file_range(fileno(r->io.file.fp),
+                        processed - r->io.file.autosync*2,
+                        r->io.file.autosync, SYNC_FILE_RANGE_WAIT_BEFORE|
+                        SYNC_FILE_RANGE_WRITE|SYNC_FILE_RANGE_WAIT_AFTER) == -1)
+                    return 0;
+            }
+#else
+            if (redis_fsync(fileno(r->io.file.fp)) == -1) return 0;
+#endif
+            r->io.file.buffered = 0;
+        }
     }
-    return retval;
+    return 1;
 }
 
 /* Returns 1 or 0 for success/failure. */
