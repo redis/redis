@@ -46,7 +46,6 @@
 
 
 #include "fmacros.h"
-#include "redisassert.h"
 #include <string.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -115,7 +114,7 @@ static size_t rioFileWrite(rio *r, const void *buf, size_t len) {
     /* Incrementally write data to the file, avoid a single write larger than the autosync
        threshold (so that the kernel's buffer cache never has too many dirty pages at once). */
     while (len != nwritten) {
-        assert(r->io.file.autosync > r->io.file.buffered);
+        serverAssert(r->io.file.autosync > r->io.file.buffered);
         size_t nalign = (size_t)(r->io.file.autosync - r->io.file.buffered);
         size_t towrite = nalign > len-nwritten ? len-nwritten : nalign;
 
@@ -127,8 +126,8 @@ static size_t rioFileWrite(rio *r, const void *buf, size_t len) {
             fflush(r->io.file.fp);
 
             size_t processed = r->processed_bytes + nwritten;
-            assert(processed % r->io.file.autosync == 0);
-            assert(r->io.file.buffered == r->io.file.autosync);
+            serverAssert(processed % r->io.file.autosync == 0);
+            serverAssert(r->io.file.buffered == r->io.file.autosync);
 
 #if HAVE_SYNC_FILE_RANGE
             /* Start writeout asynchronously. */
