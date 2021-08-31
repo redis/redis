@@ -29,16 +29,6 @@ void lazyfreeFreeDatabase(void *args[]) {
     atomicIncr(lazyfreed_objects,numkeys);
 }
 
-/* Release the skiplist mapping Redis Cluster keys to slots in the
- * lazyfree thread. */
-void lazyfreeFreeSlotsMap(void *args[]) {
-    rax *rt = args[0];
-    size_t len = rt->numele;
-    raxFree(rt);
-    atomicDecr(lazyfree_objects,len);
-    atomicIncr(lazyfreed_objects,len);
-}
-
 /* Release the key tracking table. */
 void lazyFreeTrackingTable(void *args[]) {
     rax *rt = args[0];
@@ -177,8 +167,8 @@ int dbAsyncDelete(redisDb *db, robj *key) {
     /* Release the key-val pair, or just the key if we set the val
      * field to NULL in order to lazy free it later. */
     if (de) {
+        if (server.cluster_enabled) slotToKeyDelEntry(de);
         dictFreeUnlinkedEntry(db->dict,de);
-        if (server.cluster_enabled) slotToKeyDel(key->ptr);
         return 1;
     } else {
         return 0;
@@ -205,18 +195,6 @@ void emptyDbAsync(redisDb *db) {
     db->expires = dictCreate(&dbExpiresDictType);
     atomicIncr(lazyfree_objects,dictSize(oldht1));
     bioCreateLazyFreeJob(lazyfreeFreeDatabase,2,oldht1,oldht2);
-}
-
-/* Release the radix tree mapping Redis Cluster keys to slots.
- * If the rax is huge enough, free it in async way. */
-void freeSlotsToKeysMapAsync(rax *rt) {
-    /* Because this rax has only keys and no values so we use numnodes. */
-    if (rt->numnodes > LAZYFREE_THRESHOLD) {
-        atomicIncr(lazyfree_objects,rt->numele);
-        bioCreateLazyFreeJob(lazyfreeFreeSlotsMap,1,rt);
-    } else {
-        raxFree(rt);
-    }
 }
 
 /* Free the key tracking table.
