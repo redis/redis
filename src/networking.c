@@ -124,6 +124,7 @@ client *createClient(connection *conn) {
 #if defined(HAVE_IO_URING)
         /* Do not create poll event */
         conn->read_handler = readDoneFromClient;
+        conn->write_handler = writeDoneToClient;
 #else
         connSetReadHandler(conn, readQueryFromClient);
 #endif
@@ -155,6 +156,7 @@ client *createClient(connection *conn) {
     c->multibulklen = 0;
     c->bulklen = -1;
     c->sentlen = 0;
+    c->totwritten = 0;
     c->flags = 0;
     c->ctime = c->lastinteraction = server.unixtime;
     clientSetDefaultAuth(c);
@@ -1547,12 +1549,21 @@ int writeToClient(client *c, int handler_installed) {
     /* Update total number of writes on server */
     atomicIncr(server.stat_total_writes_processed, 1);
 
-    ssize_t nwritten = 0, totwritten = 0;
     size_t objlen;
     clientReplyBlock *o;
 
+#if defined(HAVE_IO_URING)
+    (void)handler_installed;
+    if (clientHasPendingReplies(c)) {
+#else
+    ssize_t nwritten = 0, totwritten = 0;
     while(clientHasPendingReplies(c)) {
+#endif
         if (c->bufpos > 0) {
+#if defined(HAVE_IO_URING)
+            c->wiov.iov_len = c->bufpos-c->sentlen;
+            c->wiov.iov_base = c->buf+c->sentlen;
+#else
             nwritten = connWrite(c->conn,c->buf+c->sentlen,c->bufpos-c->sentlen);
             if (nwritten <= 0) break;
             c->sentlen += nwritten;
@@ -1564,6 +1575,7 @@ int writeToClient(client *c, int handler_installed) {
                 c->bufpos = 0;
                 c->sentlen = 0;
             }
+#endif
         } else {
             o = listNodeValue(listFirst(c->reply));
             objlen = o->used;
@@ -1571,9 +1583,15 @@ int writeToClient(client *c, int handler_installed) {
             if (objlen == 0) {
                 c->reply_bytes -= o->size;
                 listDelNode(c->reply,listFirst(c->reply));
-                continue;
+#if defined(HAVE_IO_URING)
+                return C_OK;
             }
 
+            c->wiov.iov_len = objlen - c->sentlen;
+            c->wiov.iov_base = o->buf + c->sentlen;
+#else
+                continue;
+            }
             nwritten = connWrite(c->conn, o->buf + c->sentlen, objlen - c->sentlen);
             if (nwritten <= 0) break;
             c->sentlen += nwritten;
@@ -1589,7 +1607,18 @@ int writeToClient(client *c, int handler_installed) {
                 if (listLength(c->reply) == 0)
                     serverAssert(c->reply_bytes == 0);
             }
+#endif
         }
+#if defined(HAVE_IO_URING)
+        if (aeCreateFileEventWithBuf(server.el, c->conn->fd, AE_WRITABLE,
+                                     c->conn->type->ae_handler, c->conn, &(c->wiov)) == AE_ERR)
+        {
+            serverPanic("Unrecoverable error creating WRITABLE file event.");
+        }
+    }
+
+#else
+
         /* Note that we avoid to send more than NET_MAX_WRITES_PER_EVENT
          * bytes, in a single threaded server it's a good idea to serve
          * other clients as well, even if a very large request comes from
@@ -1607,6 +1636,7 @@ int writeToClient(client *c, int handler_installed) {
              zmalloc_used_memory() < server.maxmemory) &&
             !(c->flags & CLIENT_SLAVE)) break;
     }
+
     atomicIncr(server.stat_net_output_bytes, totwritten);
     if (nwritten == -1) {
         if (connGetState(c->conn) != CONN_STATE_CONNECTED) {
@@ -1637,8 +1667,87 @@ int writeToClient(client *c, int handler_installed) {
             return C_ERR;
         }
     }
+#endif
     return C_OK;
 }
+
+#if defined(HAVE_IO_URING)
+void writeDoneToClient(connection *conn) {
+    client *c = connGetPrivateData(conn);
+    ssize_t nwritten = conn->cqe_res;
+    if (nwritten < 0) {
+        if (connGetState(conn) == CONN_STATE_CONNECTED) {
+            nwritten = 0;
+        } else {
+            serverLog(LL_VERBOSE,
+                "Error writing to client: %s", connGetLastError(c->conn));
+            freeClientAsync(c);
+            return;
+	}
+    }
+    if (nwritten <= 0) return;
+    c->sentlen += nwritten; 
+    c->totwritten += nwritten;
+    size_t objlen;
+    clientReplyBlock *o;
+    if (c->bufpos > 0) {
+        /* If the buffer was sent, set bufpos to zero to continue with
+         * the remainder of the reply. */
+        if ((int)c->sentlen == c->bufpos) {
+            c->bufpos = 0;
+            c->sentlen = 0;
+        }
+    } else {
+        o = listNodeValue(listFirst(c->reply));
+        objlen = o->used;
+        /* If we fully sent the object on head go to the next one */
+        if (c->sentlen == objlen) {
+            c->reply_bytes -= o->size;
+            listDelNode(c->reply,listFirst(c->reply));
+            c->sentlen = 0;
+            /* If there are no longer objects in the list, we expect
+                * the count of reply bytes to be exactly zero. */
+            if (listLength(c->reply) == 0)
+                serverAssert(c->reply_bytes == 0);
+        }
+    }
+   /* Note that we avoid to send more than NET_MAX_WRITES_PER_EVENT
+    * bytes, in a single threaded server it's a good idea to serve
+    * other clients as well, even if a very large request comes from
+    * super fast link that is always able to accept data (in real world
+    * scenario think about 'KEYS *' against the loopback interface).
+    *
+    * However if we are over the maxmemory limit we ignore that and
+    * just deliver as much data as it is possible to deliver.
+    *
+    * Moreover, we also send as much as possible if the client is
+    * a slave or a monitor (otherwise, on high-speed traffic, the
+    * replication/output buffer will grow indefinitely) */
+    if (c->totwritten > NET_MAX_WRITES_PER_EVENT && (server.maxmemory == 0
+        || zmalloc_used_memory() < server.maxmemory) && !(c->flags & CLIENT_SLAVE))
+        return;
+    if (clientHasPendingReplies(c)) {
+        writeToClient(c, 0);
+    } else {
+        server.stat_net_output_bytes += c->totwritten;
+        if (c->totwritten > 0) {
+            /* For clients representing masters we don't count sending data
+            * as an interaction, since we always send REPLCONF ACK commands
+            * that take some time to just fill the socket output buffer.
+            * We just rely on data / pings received for timeout detection. */
+            if (!(c->flags & CLIENT_MASTER)) c->lastinteraction = server.unixtime;
+        }
+        c->sentlen = 0;
+        c->totwritten = 0;
+        /* Close connection after entire reply has been sent. */
+        if (c->flags & CLIENT_CLOSE_AFTER_REPLY) {
+            freeClientAsync(c);
+        }
+        if (c->flags & CLIENT_CLOSE_AFTER_REPLY) return;
+        readQueryFromClient(conn);
+    }
+}
+#endif
 
 /* Write event handler. Just send data to the client. */
 void sendReplyToClient(connection *conn) {
@@ -1671,6 +1780,9 @@ int handleClientsWithPendingWrites(void) {
         /* Try to write buffers to the client socket. */
         if (writeToClient(c,0) == C_ERR) continue;
 
+        /* writeToClient always prepare a writev request, so clientHasPendingReplies
+        * is always true, need not add event */
+#if !defined(HAVE_IO_URING)
         /* If after the synchronous writes above we still have data to
          * output to the client, we need to install the writable handler. */
         if (clientHasPendingReplies(c)) {
@@ -1689,6 +1801,7 @@ int handleClientsWithPendingWrites(void) {
                 freeClientAsync(c);
             }
         }
+#endif
     }
     return processed;
 }
@@ -2313,8 +2426,6 @@ void readDoneFromClient(connection *conn) {
      * in case to check if there is a full command to execute. */
     processInputBuffer(c);
     c->submitted_query--;
-    if (c->flags & CLIENT_CLOSE_AFTER_REPLY) return;
-    readQueryFromClient(conn);
 }
 #endif
 

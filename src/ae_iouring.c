@@ -124,6 +124,7 @@ static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask,
     ev->type = mask;
     if (!iovecs)
         ev->type |= AE_POLLABLE;
+
     io_uring_sqe_set_data(sqe, (void *)ev);
     io_uring_submit(state->ring);
     

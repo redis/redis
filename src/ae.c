@@ -453,6 +453,12 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 
             /* Fire the writable event. */
             if (fe->mask & mask & AE_WRITABLE) {
+#if defined(HAVE_IO_URING)
+                    if (!(mask & AE_POLLABLE)) {
+                        connection *conn = fe->clientData;
+                        conn->cqe_res = eventLoop->fired[j].res;
+                    }
+#endif
                 if (!fired || fe->wfileProc != fe->rfileProc) {
                     fe->wfileProc(eventLoop,fd,fe->clientData,mask);
                     fired++;
