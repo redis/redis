@@ -1190,11 +1190,11 @@ void activeDefragCycle(void) {
 
 update_metrics:
     if (server.active_defrag_running > 0) {
-        if (server.stat_last_defrag_exceeded_time == 0)
-            elapsedStart(&server.stat_last_defrag_exceeded_time);
-    } else if (server.stat_last_defrag_exceeded_time != 0) {
-        server.stat_total_defrag_exceeded_time += elapsedUs(server.stat_last_defrag_exceeded_time);
-        server.stat_last_defrag_exceeded_time = 0;
+        if (server.stat_last_active_defrag_time == 0)
+            elapsedStart(&server.stat_last_active_defrag_time);
+    } else if (server.stat_last_active_defrag_time != 0) {
+        server.stat_total_active_defrag_time += elapsedUs(server.stat_last_active_defrag_time);
+        server.stat_last_active_defrag_time = 0;
     }
 }
 
