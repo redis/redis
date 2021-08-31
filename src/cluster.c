@@ -4410,6 +4410,43 @@ int getSlotOrReply(client *c, robj *o) {
     return (int) slot;
 }
 
+int getSlotStatus(client *c, unsigned char *slots, int del, int start_slot, int end_slot) {
+    int slot;
+    for(slot = start_slot; slot <= end_slot; slot++){
+        if (del && server.cluster->slots[slot] == NULL) {
+            addReplyErrorFormat(c,"Slot %d is already unassigned", slot);
+            return C_ERR;
+        } else if (!del && server.cluster->slots[slot]) {
+            addReplyErrorFormat(c,"Slot %d is already busy", slot);
+            return C_ERR;
+        }
+        if (slots[slot]++ == 1) {
+            addReplyErrorFormat(c,"Slot %d specified multiple times",(int)slot);
+            return C_ERR;
+        }
+    }
+    return C_OK;
+}
+
+void addAndDelSlotOperation(client *c, unsigned char *slots, int del){
+    int j;
+    for (j = 0; j < CLUSTER_SLOTS; j++) {
+        if (slots[j]) {
+            int retval;
+                
+            /* If this slot was set as importing we can clear this
+            * state as now we are the real owner of the slot. */
+            if (server.cluster->importing_slots_from[j])
+                server.cluster->importing_slots_from[j] = NULL;
+
+            retval = del ? clusterDelSlot(j) :
+                            clusterAddSlot(myself,j);
+            serverAssertWithInfo(c,NULL,retval == C_OK);
+        }
+    }
+}
+
+
 void addNodeReplyForClusterSlot(client *c, clusterNode *node, int start_slot, int end_slot) {
     int i, nested_elements = 3; /* slots (2) + master addr (1) */
     void *nested_replylen = addReplyDeferredLen(c);
@@ -4476,6 +4513,7 @@ void clusterReplyMultiBulkSlots(client * c) {
     }
     setDeferredArrayLen(c, slot_replylen, num_masters);
 }
+
 
 void clusterCommand(client *c) {
     if (server.cluster_enabled == 0) {
@@ -4601,40 +4639,16 @@ NULL
         /* Check that all the arguments are parseable and that all the
          * slots are not already busy. */
         for (j = 2; j < c->argc; j++) {
-            if ((slot = getSlotOrReply(c,c->argv[j])) == -1) {
+            if ((slot = getSlotOrReply(c,c->argv[j])) == C_ERR) {
                 zfree(slots);
                 return;
             }
-            if (del && server.cluster->slots[slot] == NULL) {
-                addReplyErrorFormat(c,"Slot %d is already unassigned", slot);
-                zfree(slots);
-                return;
-            } else if (!del && server.cluster->slots[slot]) {
-                addReplyErrorFormat(c,"Slot %d is already busy", slot);
-                zfree(slots);
-                return;
-            }
-            if (slots[slot]++ == 1) {
-                addReplyErrorFormat(c,"Slot %d specified multiple times",
-                    (int)slot);
+            if(getSlotStatus(c, slots, del, slot, slot) == C_ERR){
                 zfree(slots);
                 return;
             }
         }
-        for (j = 0; j < CLUSTER_SLOTS; j++) {
-            if (slots[j]) {
-                int retval;
-
-                /* If this slot was set as importing we can clear this
-                 * state as now we are the real owner of the slot. */
-                if (server.cluster->importing_slots_from[j])
-                    server.cluster->importing_slots_from[j] = NULL;
-
-                retval = del ? clusterDelSlot(j) :
-                               clusterAddSlot(myself,j);
-                serverAssertWithInfo(c,NULL,retval == C_OK);
-            }
-        }
+        addAndDelSlotOperation(c, slots, del);    
         zfree(slots);
         clusterDoBeforeSleep(CLUSTER_TODO_UPDATE_STATE|CLUSTER_TODO_SAVE_CONFIG);
         addReply(c,shared.ok);
@@ -4647,7 +4661,7 @@ NULL
         }
         /* CLUSTER ADDSLOTSRANGE <start slot> <end slot> [start slot end slot] ... */
         /* CLUSTER DELSLOTSRANGE <start slot> <end slot> [start slot end slot] ... */
-        int j, slot, startslot, endslot;
+        int j, startslot, endslot;
         unsigned char *slots = zmalloc(CLUSTER_SLOTS);
         int del = !strcasecmp(c->argv[1]->ptr,"delslotsrange");
 
@@ -4655,11 +4669,11 @@ NULL
         /* Check that all the arguments are parseable and that all the
          * slots are not already busy. */
         for (j = 2; j < c->argc; j += 2){
-            if ((startslot = getSlotOrReply(c,c->argv[j])) == -1) {
+            if ((startslot = getSlotOrReply(c,c->argv[j])) == C_ERR) {
                 zfree(slots);
                 return;
             }
-            if ((endslot = getSlotOrReply(c,c->argv[j+1])) == -1) {
+            if ((endslot = getSlotOrReply(c,c->argv[j+1])) == C_ERR) {
                 zfree(slots);
                 return;
             }
@@ -4669,38 +4683,12 @@ NULL
                 return;
             }
 
-            for(slot = startslot; slot <= endslot; slot++){
-                if (del && server.cluster->slots[slot] == NULL) {
-                    addReplyErrorFormat(c,"Slot %d is already unassigned", slot);
-                    zfree(slots);
-                    return;
-                } else if (!del && server.cluster->slots[slot]) {
-                    addReplyErrorFormat(c,"Slot %d is already busy", slot);
-                    zfree(slots);
-                    return;
-                }
-                if (slots[slot]++ == 1) {
-                    addReplyErrorFormat(c,"Slot %d specified multiple times",
-                        (int)slot);
-                    zfree(slots);
-                    return;
-                }
+            if(getSlotStatus(c, slots, del, startslot, endslot) == C_ERR){
+                zfree(slots);
+                return;
             }
         }
-        for (j = 0; j < CLUSTER_SLOTS; j++) {
-            if (slots[j]) {
-                int retval;
-                
-                 /* If this slot was set as importing we can clear this
-                 * state as now we are the real owner of the slot. */
-                if (server.cluster->importing_slots_from[j])
-                    server.cluster->importing_slots_from[j] = NULL;
-
-                retval = del ? clusterDelSlot(j) :
-                               clusterAddSlot(myself,j);
-                serverAssertWithInfo(c,NULL,retval == C_OK);
-            }
-        }
+        addAndDelSlotOperation(c, slots, del);
         zfree(slots);
         clusterDoBeforeSleep(CLUSTER_TODO_UPDATE_STATE|CLUSTER_TODO_SAVE_CONFIG);
         addReply(c,shared.ok);
