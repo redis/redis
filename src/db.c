@@ -38,8 +38,7 @@
 /* Database backup. */
 struct dbBackup {
     redisDb *dbarray;
-    rax *slots_to_keys;
-    uint64_t slots_keys_count[CLUSTER_SLOTS];
+    clusterSlotsToKeysData slots_to_keys;
 };
 
 /*-----------------------------------------------------------------------------
@@ -184,11 +183,11 @@ robj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply) {
  * The program is aborted if the key already exists. */
 void dbAdd(redisDb *db, robj *key, robj *val) {
     sds copy = sdsdup(key->ptr);
-    int retval = dictAdd(db->dict, copy, val);
-
-    serverAssertWithInfo(NULL,key,retval == DICT_OK);
+    dictEntry *de = dictAddRaw(db->dict, copy, NULL);
+    serverAssertWithInfo(NULL, key, de != NULL);
+    dictSetVal(db->dict, de, val);
     signalKeyAsReady(db, key, val->type);
-    if (server.cluster_enabled) slotToKeyAdd(key->ptr);
+    if (server.cluster_enabled) slotToKeyAddEntry(de);
 }
 
 /* This is a special version of dbAdd() that is used only when loading
@@ -203,9 +202,10 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
  * ownership of the SDS string, otherwise 0 is returned, and is up to the
  * caller to free the SDS string. */
 int dbAddRDBLoad(redisDb *db, sds key, robj *val) {
-    int retval = dictAdd(db->dict, key, val);
-    if (retval != DICT_OK) return 0;
-    if (server.cluster_enabled) slotToKeyAdd(key);
+    dictEntry *de = dictAddRaw(db->dict, key, NULL);
+    if (de == NULL) return 0;
+    dictSetVal(db->dict, de, val);
+    if (server.cluster_enabled) slotToKeyAddEntry(de);
     return 1;
 }
 
@@ -313,8 +313,8 @@ int dbSyncDelete(redisDb *db, robj *key) {
         robj *val = dictGetVal(de);
         /* Tells the module that the key has been unlinked from the database. */
         moduleNotifyKeyUnlink(key,val,db->id);
+        if (server.cluster_enabled) slotToKeyDelEntry(de);
         dictFreeUnlinkedEntry(db->dict,de);
-        if (server.cluster_enabled) slotToKeyDel(key->ptr);
         return 1;
     } else {
         return 0;
@@ -441,7 +441,7 @@ long long emptyDb(int dbnum, int flags, void(callback)(dict*)) {
     /* Flush slots to keys map if enable cluster, we can flush entire
      * slots to keys map whatever dbnum because only support one DB
      * in cluster mode. */
-    if (server.cluster_enabled) slotToKeyFlush(async);
+    if (server.cluster_enabled) slotToKeyFlush();
 
     if (dbnum == -1) flushSlaveKeysWithExpireList();
 
@@ -469,12 +469,8 @@ dbBackup *backupDb(void) {
 
     /* Backup cluster slots to keys map if enable cluster. */
     if (server.cluster_enabled) {
-        backup->slots_to_keys = server.cluster->slots_to_keys;
-        memcpy(backup->slots_keys_count, server.cluster->slots_keys_count,
-            sizeof(server.cluster->slots_keys_count));
-        server.cluster->slots_to_keys = raxNew();
-        memset(server.cluster->slots_keys_count, 0,
-            sizeof(server.cluster->slots_keys_count));
+        slotToKeyCopyToBackup(&backup->slots_to_keys);
+        slotToKeyFlush();
     }
 
     moduleFireServerEvent(REDISMODULE_EVENT_REPL_BACKUP,
@@ -495,9 +491,6 @@ void discardDbBackup(dbBackup *backup, int flags, void(callback)(dict*)) {
         dictRelease(backup->dbarray[i].dict);
         dictRelease(backup->dbarray[i].expires);
     }
-
-    /* Release slots to keys map backup if enable cluster. */
-    if (server.cluster_enabled) freeSlotsToKeysMap(backup->slots_to_keys, async);
 
     /* Release backup. */
     zfree(backup->dbarray);
@@ -523,13 +516,7 @@ void restoreDbBackup(dbBackup *backup) {
     }
 
     /* Restore slots to keys map backup if enable cluster. */
-    if (server.cluster_enabled) {
-        serverAssert(server.cluster->slots_to_keys->numele == 0);
-        raxFree(server.cluster->slots_to_keys);
-        server.cluster->slots_to_keys = backup->slots_to_keys;
-        memcpy(server.cluster->slots_keys_count, backup->slots_keys_count,
-                sizeof(server.cluster->slots_keys_count));
-    }
+    if (server.cluster_enabled) slotToKeyRestoreBackup(&backup->slots_to_keys);
 
     /* Release backup. */
     zfree(backup->dbarray);
@@ -1912,103 +1899,4 @@ int xreadGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult 
     for (i = streams_pos+1; i < argc-num; i++) keys[i-streams_pos-1] = i;
     result->numkeys = num;
     return num;
-}
-
-/* Slot to Key API. This is used by Redis Cluster in order to obtain in
- * a fast way a key that belongs to a specified hash slot. This is useful
- * while rehashing the cluster and in other conditions when we need to
- * understand if we have keys for a given hash slot. */
-void slotToKeyUpdateKey(sds key, int add) {
-    size_t keylen = sdslen(key);
-    unsigned int hashslot = keyHashSlot(key,keylen);
-    unsigned char buf[64];
-    unsigned char *indexed = buf;
-
-    server.cluster->slots_keys_count[hashslot] += add ? 1 : -1;
-    if (keylen+2 > 64) indexed = zmalloc(keylen+2);
-    indexed[0] = (hashslot >> 8) & 0xff;
-    indexed[1] = hashslot & 0xff;
-    memcpy(indexed+2,key,keylen);
-    if (add) {
-        raxInsert(server.cluster->slots_to_keys,indexed,keylen+2,NULL,NULL);
-    } else {
-        raxRemove(server.cluster->slots_to_keys,indexed,keylen+2,NULL);
-    }
-    if (indexed != buf) zfree(indexed);
-}
-
-void slotToKeyAdd(sds key) {
-    slotToKeyUpdateKey(key,1);
-}
-
-void slotToKeyDel(sds key) {
-    slotToKeyUpdateKey(key,0);
-}
-
-/* Release the radix tree mapping Redis Cluster keys to slots. If 'async'
- * is true, we release it asynchronously. */
-void freeSlotsToKeysMap(rax *rt, int async) {
-    if (async) {
-        freeSlotsToKeysMapAsync(rt);
-    } else {
-        raxFree(rt);
-    }
-}
-
-/* Empty the slots-keys map of Redis CLuster by creating a new empty one and
- * freeing the old one. */
-void slotToKeyFlush(int async) {
-    rax *old = server.cluster->slots_to_keys;
-
-    server.cluster->slots_to_keys = raxNew();
-    memset(server.cluster->slots_keys_count,0,
-           sizeof(server.cluster->slots_keys_count));
-    freeSlotsToKeysMap(old, async);
-}
-
-/* Populate the specified array of objects with keys in the specified slot.
- * New objects are returned to represent keys, it's up to the caller to
- * decrement the reference count to release the keys names. */
-unsigned int getKeysInSlot(unsigned int hashslot, robj **keys, unsigned int count) {
-    raxIterator iter;
-    int j = 0;
-    unsigned char indexed[2];
-
-    indexed[0] = (hashslot >> 8) & 0xff;
-    indexed[1] = hashslot & 0xff;
-    raxStart(&iter,server.cluster->slots_to_keys);
-    raxSeek(&iter,">=",indexed,2);
-    while(count-- && raxNext(&iter)) {
-        if (iter.key[0] != indexed[0] || iter.key[1] != indexed[1]) break;
-        keys[j++] = createStringObject((char*)iter.key+2,iter.key_len-2);
-    }
-    raxStop(&iter);
-    return j;
-}
-
-/* Remove all the keys in the specified hash slot.
- * The number of removed items is returned. */
-unsigned int delKeysInSlot(unsigned int hashslot) {
-    raxIterator iter;
-    int j = 0;
-    unsigned char indexed[2];
-
-    indexed[0] = (hashslot >> 8) & 0xff;
-    indexed[1] = hashslot & 0xff;
-    raxStart(&iter,server.cluster->slots_to_keys);
-    while(server.cluster->slots_keys_count[hashslot]) {
-        raxSeek(&iter,">=",indexed,2);
-        raxNext(&iter);
-
-        robj *key = createStringObject((char*)iter.key+2,iter.key_len-2);
-        dbDelete(&server.db[0],key);
-        decrRefCount(key);
-        j++;
-    }
-    raxStop(&iter);
-    return j;
-}
-
-unsigned int countKeysInSlot(unsigned int hashslot) {
-    return server.cluster->slots_keys_count[hashslot];
 }

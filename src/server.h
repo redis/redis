@@ -151,7 +151,7 @@ typedef long long ustime_t; /* microsecond time type. */
 #define PROTO_MBULK_BIG_ARG     (1024*32)
 #define PROTO_RESIZE_THRESHOLD  (1024*32) /* Threshold for determining whether to resize query buffer */
 #define LONG_STR_SIZE      21          /* Bytes needed for long -> str + '\0' */
-#define REDIS_AUTOSYNC_BYTES (1024*1024*32) /* fdatasync every 32MB */
+#define REDIS_AUTOSYNC_BYTES (1024*1024*4) /* Sync file every 4MB. */
 
 #define LIMIT_PENDING_QUERYBUF (4*1024*1024) /* 4mb */
 
@@ -2426,22 +2426,14 @@ void discardDbBackup(dbBackup *backup, int flags, void(callback)(dict*));
 int selectDb(client *c, int id);
 void signalModifiedKey(client *c, redisDb *db, robj *key);
 void signalFlushedDb(int dbid, int async);
-unsigned int getKeysInSlot(unsigned int hashslot, robj **keys, unsigned int count);
-unsigned int countKeysInSlot(unsigned int hashslot);
-unsigned int delKeysInSlot(unsigned int hashslot);
 void scanGenericCommand(client *c, robj *o, unsigned long cursor);
 int parseScanCursorOrReply(client *c, robj *o, unsigned long *cursor);
-void slotToKeyAdd(sds key);
-void slotToKeyDel(sds key);
 int dbAsyncDelete(redisDb *db, robj *key);
 void emptyDbAsync(redisDb *db);
-void slotToKeyFlush(int async);
 size_t lazyfreeGetPendingObjectsCount(void);
 size_t lazyfreeGetFreedObjectsCount(void);
 void lazyfreeResetStats(void);
 void freeObjAsync(robj *key, robj *obj, int dbid);
-void freeSlotsToKeysMapAsync(rax *rt);
-void freeSlotsToKeysMap(rax *rt, int async);
 
 
 /* API to get key arguments from commands */
