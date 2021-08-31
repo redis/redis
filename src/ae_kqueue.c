@@ -43,6 +43,22 @@ typedef struct aeApiState {
     char *eventsMask; 
 } aeApiState;
 
+#define EVENT_MASK_MALLOC_SIZE(sz) (((sz) + 3) / 4)
+#define EVENT_MASK_OFFSET(fd) (6 - (fd) % 4 * 2)
+#define EVENT_MASK_ENCODE(fd, mask) (((mask) & 0x3) << EVENT_MASK_OFFSET(fd))
+
+static inline int getEventMask(const char *eventsMask, int fd) {
+    return (eventsMask[fd/4] >> EVENT_MASK_OFFSET(fd)) & 0x3;
+}
+
+static inline void addEventMask(char *eventsMask, int fd, int mask) {
+    eventsMask[fd/4] |= EVENT_MASK_ENCODE(fd, mask);
+}
+
+static inline void resetEventMask(char *eventsMask, int fd) {
+    eventsMask[fd/4] &= ~EVENT_MASK_ENCODE(fd, 0x3);
+}
+
 static int aeApiCreate(aeEventLoop *eventLoop) {
     aeApiState *state = zmalloc(sizeof(aeApiState));
 
@@ -59,7 +75,8 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
         return -1;
     }
     anetCloexec(state->kqfd);
-    state->eventsMask = zmalloc((eventLoop->setsize+3)/4);
+    state->eventsMask = zmalloc(EVENT_MASK_MALLOC_SIZE(eventLoop->setsize));
+    memset(state->eventsMask, 0, EVENT_MASK_MALLOC_SIZE(eventLoop->setsize));
     eventLoop->apidata = state;
     return 0;
 }
@@ -68,7 +85,8 @@ static int aeApiResize(aeEventLoop *eventLoop, int setsize) {
     aeApiState *state = eventLoop->apidata;
 
     state->events = zrealloc(state->events, sizeof(struct kevent)*setsize);
-    state->eventsMask = zrealloc(state->eventsMask, (setsize+3)/4);
+    state->eventsMask = zrealloc(state->eventsMask, EVENT_MASK_MALLOC_SIZE(setsize));
+    memset(state->eventsMask, 0, EVENT_MASK_MALLOC_SIZE(eventLoop->setsize));
     return 0;
 }
 
@@ -110,9 +128,6 @@ static void aeApiDelEvent(aeEventLoop *eventLoop, int fd, int mask) {
     }
 }
 
-#define EVENT_MASK_OFFSET(fd) (6 - (fd) % 4 * 2)
-#define EVENT_MASK_ENCODE(fd, mask) (((mask) & 0x3) << EVENT_MASK_OFFSET(fd))
-#define EVENT_MASK_DECODE(fd, mask) (((mask) >> EVENT_MASK_OFFSET(fd)) & 0x3);
 static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
     aeApiState *state = eventLoop->apidata;
     int retval, numevents = 0;
@@ -145,7 +160,7 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
 
             if (e->filter == EVFILT_READ) mask = AE_READABLE;
             else if (e->filter == EVFILT_WRITE) mask = AE_WRITABLE;
-            state->eventsMask[fd/4] |= EVENT_MASK_ENCODE(fd, mask);
+            addEventMask(state->eventsMask, fd, mask);
         }
 
         /* Re-traversal to merge read and write events, and set the fd's mask to
@@ -154,12 +169,12 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
         for (j = 0; j < retval; j++) {
             struct kevent *e = state->events+j;
             int fd = e->ident;
-            int mask = EVENT_MASK_DECODE(fd, state->eventsMask[fd/4]);
+            int mask = getEventMask(state->eventsMask, fd);
 
             if (mask) {
                 eventLoop->fired[numevents].fd = fd;
                 eventLoop->fired[numevents].mask = mask;
-                state->eventsMask[fd/4] &= ~EVENT_MASK_ENCODE(fd, AE_READABLE|AE_WRITABLE);
+                resetEventMask(state->eventsMask, fd);
                 numevents++;
             }
         }
