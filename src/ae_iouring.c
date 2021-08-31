@@ -128,7 +128,7 @@ static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask,
         unsigned int poll_mask = 0;
         if (mask == AE_READABLE) poll_mask |= EPOLLIN;
         if (mask == AE_WRITABLE) poll_mask |= EPOLLOUT;
-        io_uring_prep_poll_add(sqe, fd, EPOLLIN);
+        io_uring_prep_poll_add(sqe, fd, poll_mask);
     } else {
         if (mask & AE_READABLE)
             io_uring_prep_readv(sqe, fd, iovecs, 1, 0);
