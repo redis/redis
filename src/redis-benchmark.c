@@ -710,6 +710,7 @@ static client createClient(char *cmd, size_t len, client from, int thread_id) {
             exit(1);
         }
     }
+    aeRegisterFile(config.el, c->context->fd);
     c->thread_id = thread_id;
     /* Suppress hiredis cleanup of unused buffers for max speed. */
     c->context->reader->maxbuf = 0;
