@@ -115,10 +115,18 @@ client *createClient(connection *conn) {
      * in the context of a client. When commands are executed in other
      * contexts (for instance a Lua script) we need a non connected client. */
     if (conn) {
+#if !defined(HAVE_IO_URING)
         connEnableTcpNoDelay(conn);
+#endif
         if (server.tcpkeepalive)
             connKeepAlive(conn,server.tcpkeepalive);
+
+#if defined(HAVE_IO_URING)
+        /* Do not create poll event */
+        conn->read_handler = readDoneFromClient;
+#else
         connSetReadHandler(conn, readQueryFromClient);
+#endif
         connSetPrivateData(conn, c);
     }
 
@@ -130,9 +138,11 @@ client *createClient(connection *conn) {
     c->conn = conn;
     c->name = NULL;
     c->bufpos = 0;
+    c->qblen = 0;
     c->buf_usable_size = zmalloc_usable_size(c)-offsetof(client,buf);
     c->qb_pos = 0;
     c->querybuf = sdsempty();
+    c->submitted_query = 0;
     c->pending_querybuf = sdsempty();
     c->querybuf_peak = 0;
     c->reqtype = 0;
@@ -1127,6 +1137,10 @@ static void acceptCommonHandler(connection *conn, int flags, char *ip) {
         freeClient(connGetPrivateData(conn));
         return;
     }
+
+#ifdef HAVE_IO_URING
+    readQueryFromClient(conn);
+#endif
 }
 
 void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
@@ -2158,7 +2172,7 @@ void processInputBuffer(client *c) {
 
 void readQueryFromClient(connection *conn) {
     client *c = connGetPrivateData(conn);
-    int nread, big_arg = 0;
+    int big_arg = 0;
     size_t qblen, readlen;
 
     /* Check if we want to read from the client later when exiting from
@@ -2186,7 +2200,7 @@ void readQueryFromClient(connection *conn) {
         if (remaining > 0) readlen = remaining;
     }
 
-    qblen = sdslen(c->querybuf);
+    qblen = c->qblen = sdslen(c->querybuf);
     if (big_arg || sdsalloc(c->querybuf) < PROTO_IOBUF_LEN) {
         /* When reading a BIG_ARG we won't be reading more than that one arg
          * into the query buffer, so we don't need to pre-allocate more than we
@@ -2200,7 +2214,9 @@ void readQueryFromClient(connection *conn) {
         /* Read as much as possible from the socket to save read(2) system calls. */
         readlen = sdsavail(c->querybuf);
     }
-    nread = connRead(c->conn, c->querybuf+qblen, readlen);
+
+#if !defined(HAVE_IO_URING)
+    int nread = connRead(c->conn, c->querybuf+qblen, readlen);
     if (nread == -1) {
         if (connGetState(conn) == CONN_STATE_CONNECTED) {
             return;
@@ -2247,14 +2263,60 @@ void readQueryFromClient(connection *conn) {
      * in case to check if there is a full command to execute. */
      processInputBuffer(c);
 
-     if (c->flags & CLIENT_CLOSE_AFTER_REPLY) return;
-
-#ifdef HAVE_IO_URING
-     if (aeCreateFileEvent(server.el, conn->fd, AE_READABLE, conn->type->ae_handler, conn) == AE_ERR) {
-         serverPanic("Unrecoverable error creating conn.fd file event.");
-     }
+#else
+    c->riov.iov_len = readlen;
+    c->riov.iov_base = c->querybuf+qblen;
+    c->submitted_query++;
+    if (aeCreateFileEventWithBuf(server.el, conn->fd, AE_READABLE, conn->type->ae_handler, conn, &c->riov) == AE_ERR) {
+        serverPanic("Unrecoverable error creating file event.");
+    }
 #endif
 }
+
+#if defined(HAVE_IO_URING)
+void readDoneFromClient(connection *conn) {
+    client *c = connGetPrivateData(conn);
+    int nread = conn->cqe_res;
+    if (nread < 0) {
+        if (connGetState(conn) == CONN_STATE_CONNECTED) {
+            return;
+        } else {
+            serverLog(LL_VERBOSE, "Reading from client: %s",connGetLastError(c->conn));
+            freeClientAsync(c);
+            return;
+        }
+    } else if (nread == 0) {
+        serverLog(LL_VERBOSE, "Client closed connection");
+        freeClientAsync(c);
+        return;
+    } else if (c->flags & CLIENT_MASTER) {
+        /* Append the query buffer to the pending (not applied) buffer
+         * of the master. We'll use this buffer later in order to have a
+         * copy of the string applied by the last command executed. */
+        c->pending_querybuf = sdscatlen(c->pending_querybuf,
+                                        c->querybuf+c->qblen,nread);
+    }
+    sdsIncrLen(c->querybuf,nread);
+    c->lastinteraction = server.unixtime;
+    if (c->flags & CLIENT_MASTER) c->read_reploff += nread;
+    server.stat_net_input_bytes += nread;
+    if (sdslen(c->querybuf) > server.client_max_querybuf_len) {
+        sds ci = catClientInfoString(sdsempty(),c), bytes = sdsempty();
+        bytes = sdscatrepr(bytes,c->querybuf,64);
+        serverLog(LL_WARNING,"Closing client that reached max query buffer length: %s (qbuf initial bytes: %s)", ci, bytes);
+        sdsfree(ci);
+        sdsfree(bytes);
+        freeClientAsync(c);
+        return;
+    }
+    /* There is more data in the client input buffer, continue parsing it
+     * in case to check if there is a full command to execute. */
+    processInputBuffer(c);
+    c->submitted_query--;
+    if (c->flags & CLIENT_CLOSE_AFTER_REPLY) return;
+    readQueryFromClient(conn);
+}
+#endif
 
 /* A Redis "Address String" is a colon separated ip:port pair.
  * For IPv4 it's in the form x.y.z.k:port, example: "127.0.0.1:1234".

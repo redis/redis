@@ -46,6 +46,7 @@
 
 #include "zmalloc.h"
 #include "config.h"
+#include "connection.h"
 
 /* Include the best multiplexing layer supported by this system.
  * The following should be ordered by performances, descending. */
@@ -162,13 +163,23 @@ void aeStop(aeEventLoop *eventLoop) {
 int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
         aeFileProc *proc, void *clientData)
 {
+    return aeCreateFileEventWithBuf(eventLoop, fd, mask, proc, clientData, NULL);
+}
+
+int aeCreateFileEventWithBuf(aeEventLoop *eventLoop, int fd, int mask,
+                             aeFileProc *proc, void *clientData, struct iovec *iovec)
+{
     if (fd >= eventLoop->setsize) {
         errno = ERANGE;
         return AE_ERR;
     }
     aeFileEvent *fe = &eventLoop->events[fd];
 
+#if defined(HAVE_IO_URING)
+    if (aeApiAddEvent(eventLoop, fd, mask, iovec) == -1)
+#else
     if (aeApiAddEvent(eventLoop, fd, mask) == -1)
+#endif
         return AE_ERR;
     fe->mask |= mask;
     if (mask & AE_READABLE) fe->rfileProc = proc;
@@ -429,6 +440,12 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
              * Fire the readable event if the call sequence is not
              * inverted. */
             if (!invert && fe->mask & mask & AE_READABLE) {
+#if defined(HAVE_IO_URING)
+                if (!(mask & AE_POLLABLE)) {
+                    connection *conn = fe->clientData;
+                    conn->cqe_res = eventLoop->fired[j].res;
+                }
+#endif
                 fe->rfileProc(eventLoop,fd,fe->clientData,mask);
                 fired++;
                 fe = &eventLoop->events[fd]; /* Refresh in case of resize. */
@@ -449,6 +466,12 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
                 if ((fe->mask & mask & AE_READABLE) &&
                     (!fired || fe->wfileProc != fe->rfileProc))
                 {
+#if defined(HAVE_IO_URING)
+                    if (!(mask & AE_POLLABLE)) {
+                        connection *conn = fe->clientData;
+                        conn->cqe_res = eventLoop->fired[j].res;
+                    }
+#endif
                     fe->rfileProc(eventLoop,fd,fe->clientData,mask);
                     fired++;
                 }

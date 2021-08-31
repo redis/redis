@@ -32,7 +32,7 @@
 #include <sys/epoll.h> //used for define EPOLLIN and EPOLLOUT
 #include "liburing.h"
 
-#define BACKLOG 4096
+#define BACKLOG 8192
 #define MAX_ENTRIES 16384 /* entries should be configured by users */
 
 typedef struct uring_event {
@@ -63,13 +63,23 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
         return -1;
     }
     
-    state->urfd = io_uring_queue_init(MAX_ENTRIES, state->ring, 0);
+    struct io_uring_params params;
+    memset(&params, 0, sizeof(params));
+    state->urfd = io_uring_queue_init_params(MAX_ENTRIES, state->ring, &params);
     if (state->urfd == -1) {
         zfree(state->ring);
         zfree(state->events);
         zfree(state);
         return -1;
     }
+    if (!(params.features & IORING_FEAT_FAST_POLL)) {
+        io_uring_queue_exit(state->ring);
+        zfree(state->ring);
+        zfree(state->events);
+        zfree(state);
+        return -1;
+    }
+
     eventLoop->apidata = state;
     return 0;
 }
@@ -89,21 +99,31 @@ static void aeApiFree(aeEventLoop *eventLoop) {
     zfree(state);
 }
 
-static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {
+static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask,
+                         struct iovec *iovecs) {
     aeApiState *state = eventLoop->apidata;
 
     struct io_uring_sqe *sqe = io_uring_get_sqe(state->ring);
     if (!sqe) return -1;
     
-    int poll_mask = 0;
-    /* io_uring only support onshot epoll */
-    if (mask == AE_READABLE) poll_mask |= EPOLLIN;
-    if (mask == AE_WRITABLE) poll_mask |= EPOLLOUT;
-    io_uring_prep_poll_add(sqe, fd, poll_mask);
+    /* NULL iovec means doing poll_add behavior */
+    if (!iovecs) {
+        unsigned int poll_mask = 0;
+        if (mask == AE_READABLE) poll_mask |= EPOLLIN;
+        if (mask == AE_WRITABLE) poll_mask |= EPOLLOUT;
+        io_uring_prep_poll_add(sqe, fd, EPOLLIN);
+    } else {
+        if (mask & AE_READABLE)
+            io_uring_prep_readv(sqe, fd, iovecs, 1, 0);
+        if (mask & AE_WRITABLE)
+            io_uring_prep_writev(sqe, fd, iovecs, 1, 0);
+    }
     
     uring_event *ev = &state->events[fd];
     ev->fd = fd;
     ev->type = mask;
+    if (!iovecs)
+        ev->type |= AE_POLLABLE;
     io_uring_sqe_set_data(sqe, (void *)ev);
     io_uring_submit(state->ring);
     
@@ -147,16 +167,22 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
             io_uring_cqe_seen(state->ring, cqe);
             continue;
         }
-    
-        if (cqe->res < 0) {
-            io_uring_cqe_seen(state->ring, cqe);
-            continue;
+
+        if (ev->type & AE_POLLABLE) {
+            if (cqe->res < 0) {
+                io_uring_cqe_seen(state->ring, cqe);
+                continue;
+            }
+
+            if (cqe->res & EPOLLIN) mask |= AE_READABLE | AE_POLLABLE;
+            if (cqe->res & EPOLLOUT) mask |= AE_WRITABLE | AE_POLLABLE;
+            if (cqe->res & EPOLLERR) mask |= AE_WRITABLE | AE_READABLE | AE_POLLABLE;
+            if (cqe->res & EPOLLHUP) mask |= AE_WRITABLE | AE_READABLE | AE_POLLABLE;
+        } else {
+            mask = ev->type;
+            eventLoop->fired[numevents].res = cqe->res;
         }
-        
-        if (cqe->res & EPOLLIN) mask |= AE_READABLE;
-        if (cqe->res & EPOLLOUT) mask |= AE_WRITABLE;
-        if (cqe->res & EPOLLERR) mask |= AE_WRITABLE|AE_READABLE;
-        if (cqe->res & EPOLLHUP) mask |= AE_WRITABLE|AE_READABLE;
+
         eventLoop->fired[numevents].fd = ev->fd;
         eventLoop->fired[numevents].mask = mask;
         

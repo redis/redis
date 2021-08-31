@@ -1688,7 +1688,7 @@ int clientsCronResizeQueryBuffer(client *c) {
 
     /* Only resize the query buffer if the buffer is actually wasting at least a
      * few kbytes */
-    if (sdsavail(c->querybuf) > 1024*4) {
+    if (sdsavail(c->querybuf) > 1024*4 && !c->submitted_query) {
         /* There are two conditions to resize the query buffer: */
         if (idletime > 2) {
             /* 1) Query is idle for a long time. */
