@@ -535,3 +535,9 @@ void aeSetBeforeSleepProc(aeEventLoop *eventLoop, aeBeforeSleepProc *beforesleep
 void aeSetAfterSleepProc(aeEventLoop *eventLoop, aeBeforeSleepProc *aftersleep) {
     eventLoop->aftersleep = aftersleep;
 }
+
+void aeRegisterFile(aeEventLoop *eventLoop, int fd) {
+#if defined(HAVE_IO_URING)
+    aeApiRegisterFile(eventLoop, fd);
+#endif
+}

@@ -35,6 +35,8 @@
 #define BACKLOG 8192
 #define MAX_ENTRIES 16384 /* entries should be configured by users */
 
+static int register_files = 1;
+
 typedef struct uring_event {
     int fd;
     int type;
@@ -81,6 +83,21 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
     }
 
     eventLoop->apidata = state;
+
+    if (register_files) {
+        int *files = malloc(MAX_ENTRIES * sizeof(int));
+        if (!files) {
+            register_files = 0;
+            return 0;
+        }
+        for (int i = 0; i < MAX_ENTRIES; i++)
+            files[i] = -1;
+        int ret = io_uring_register_files(state->ring, files, MAX_ENTRIES);
+        if (ret < 0) {
+            fprintf(stderr, "error register_files %d\n", ret);
+            register_files = 0;
+        }
+    }
     return 0;
 }
 
@@ -124,7 +141,8 @@ static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask,
     ev->type = mask;
     if (!iovecs)
         ev->type |= AE_POLLABLE;
-
+    if (register_files)
+        sqe->flags |= IOSQE_FIXED_FILE;
     io_uring_sqe_set_data(sqe, (void *)ev);
     
     return 0;
@@ -189,6 +207,17 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
     }
 
     return numevents;
+}
+
+void aeApiRegisterFile(aeEventLoop *eventLoop, int fd){
+    aeApiState *state = eventLoop->apidata;
+    if (register_files) {
+        int ret = io_uring_register_files_update(state->ring, fd, &fd, 1);
+        if (ret < 0) {
+               fprintf(stderr, "lege io_uring_register_files_update failed: %d %d\n", fd, ret);
+               register_files = 0;
+        }
+    }
 }
 
 static char *aeApiName(void) {
