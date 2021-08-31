@@ -4487,6 +4487,8 @@ void clusterCommand(client *c) {
         const char *help[] = {
 "ADDSLOTS <slot> [<slot> ...]",
 "    Assign slots to current node.",
+"ADDSLOTSRANGE <start slot> <end slot> [<start slot> <end slot> ...]",
+"    Assign slots which are between start slot and end slot to current node.",
 "BUMPEPOCH",
 "    Advance the cluster config epoch.",
 "COUNT-FAILURE-REPORTS <node-id>",
@@ -4495,6 +4497,8 @@ void clusterCommand(client *c) {
 "    Return the number of keys in <slot>.",
 "DELSLOTS <slot> [<slot> ...]",
 "    Delete slots information from current node.",
+"DELSLOTSRANGE <start slot> <end slot> [<start slot> <end slot> ...]",
+"    Delete slots information which are between start slot and end slot from current node.",
 "FAILOVER [FORCE|TAKEOVER]",
 "    Promote current replica node to being a master.",
 "FORGET <node-id>",
@@ -4634,7 +4638,73 @@ NULL
         zfree(slots);
         clusterDoBeforeSleep(CLUSTER_TODO_UPDATE_STATE|CLUSTER_TODO_SAVE_CONFIG);
         addReply(c,shared.ok);
-    } else if (!strcasecmp(c->argv[1]->ptr,"setslot") && c->argc >= 4) {
+    } else if ((!strcasecmp(c->argv[1]->ptr,"addslotsrange") ||
+               !strcasecmp(c->argv[1]->ptr,"delslotsrange")) && c->argc >= 4)
+    {
+        if(c->argc % 2 == 1){
+            addReplyErrorFormat(c,"Missed one endslot");
+            return;
+        }
+        /* CLUSTER ADDSLOTSRANGE <start slot> <end slot> [start slot end slot] ... */
+        /* CLUSTER DELSLOTSRANGE <start slot> <end slot> [start slot end slot] ... */
+        int j, slot, startslot, endslot;
+        unsigned char *slots = zmalloc(CLUSTER_SLOTS);
+        int del = !strcasecmp(c->argv[1]->ptr,"delslotsrange");
+
+        memset(slots,0,CLUSTER_SLOTS);
+        /* Check that all the arguments are parseable and that all the
+         * slots are not already busy. */
+        for (j = 2; j < c->argc; j += 2){
+            if ((startslot = getSlotOrReply(c,c->argv[j])) == -1) {
+                zfree(slots);
+                return;
+            }
+            if ((endslot = getSlotOrReply(c,c->argv[j+1])) == -1) {
+                zfree(slots);
+                return;
+            }
+            if(startslot > endslot){
+                addReplyErrorFormat(c,"start slot number %d is greater than end slot number %d", startslot, endslot);
+                zfree(slots);
+                return;
+            }
+
+            for(slot = startslot; slot <= endslot; slot++){
+                if (del && server.cluster->slots[slot] == NULL) {
+                    addReplyErrorFormat(c,"Slot %d is already unassigned", slot);
+                    zfree(slots);
+                    return;
+                } else if (!del && server.cluster->slots[slot]) {
+                    addReplyErrorFormat(c,"Slot %d is already busy", slot);
+                    zfree(slots);
+                    return;
+                }
+                if (slots[slot]++ == 1) {
+                    addReplyErrorFormat(c,"Slot %d specified multiple times",
+                        (int)slot);
+                    zfree(slots);
+                    return;
+                }
+            }
+        }
+        for (j = 0; j < CLUSTER_SLOTS; j++) {
+            if (slots[j]) {
+                int retval;
+                
+                 /* If this slot was set as importing we can clear this
+                 * state as now we are the real owner of the slot. */
+                if (server.cluster->importing_slots_from[j])
+                    server.cluster->importing_slots_from[j] = NULL;
+
+                retval = del ? clusterDelSlot(j) :
+                               clusterAddSlot(myself,j);
+                serverAssertWithInfo(c,NULL,retval == C_OK);
+            }
+        }
+        zfree(slots);
+        clusterDoBeforeSleep(CLUSTER_TODO_UPDATE_STATE|CLUSTER_TODO_SAVE_CONFIG);
+        addReply(c,shared.ok);
+    }else if (!strcasecmp(c->argv[1]->ptr,"setslot") && c->argc >= 4) {
         /* SETSLOT 10 MIGRATING <node ID> */
         /* SETSLOT 10 IMPORTING <node ID> */
         /* SETSLOT 10 STABLE */
