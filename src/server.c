@@ -3161,8 +3161,11 @@ void makeThreadKillable(void) {
     pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
 }
 
+#define ENABLE_SQPOLL 1
+
 void initServer(void) {
     int j;
+    int extflags = 0;
 
     signal(SIGHUP, SIG_IGN);
     signal(SIGPIPE, SIG_IGN);
@@ -3215,7 +3218,13 @@ void initServer(void) {
     adjustOpenFilesLimit();
     const char *clk_msg = monotonicInit();
     serverLog(LL_NOTICE, "monotonic clock: %s", clk_msg);
-    server.el = aeCreateEventLoop(server.maxclients+CONFIG_FDSET_INCR);
+
+#ifdef HAVE_IO_URING
+    if (server.sqpoll)
+        extflags |= ENABLE_SQPOLL;
+#endif
+
+    server.el = aeCreateEventLoop(server.maxclients + CONFIG_FDSET_INCR, extflags);
     if (server.el == NULL) {
         serverLog(LL_WARNING,
             "Failed creating the event loop. Error message: '%s'",

@@ -34,6 +34,7 @@
 
 #define BACKLOG 8192
 #define MAX_ENTRIES 16384 /* entries should be configured by users */
+#define ENABLE_SQPOLL 1
 
 static int register_files = 1;
 
@@ -67,6 +68,8 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
     
     struct io_uring_params params;
     memset(&params, 0, sizeof(params));
+    if (eventLoop->extflags & ENABLE_SQPOLL)
+        params.flags |= IORING_SETUP_SQPOLL;
     state->urfd = io_uring_queue_init_params(MAX_ENTRIES, state->ring, &params);
     if (state->urfd == -1) {
         zfree(state->ring);
