@@ -76,7 +76,7 @@ typedef struct sentinelAddr {
 #define SRI_RECONF_DONE (1<<10)     /* Slave synchronized with new master. */
 #define SRI_FORCE_FAILOVER (1<<11)  /* Force failover with master up. */
 #define SRI_SCRIPT_KILL_SENT (1<<12) /* SCRIPT KILL already sent on -BUSY */
-#define SRI_MASTER_REBOOT  (1<<13)
+#define SRI_MASTER_REBOOT  (1<<13)   /* this flag set thinks that master is rebooted in very shot time*/
 
 /* Note: times are in milliseconds. */
 #define SENTINEL_PING_PERIOD 1000
