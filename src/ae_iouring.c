@@ -126,7 +126,6 @@ static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask,
         ev->type |= AE_POLLABLE;
 
     io_uring_sqe_set_data(sqe, (void *)ev);
-    io_uring_submit(state->ring);
     
     return 0;
 }
@@ -140,7 +139,6 @@ static void aeApiDelEvent(aeEventLoop *eventLoop, int fd, int delmask) {
     
     uring_event *ev = &state->events[fd];
     io_uring_prep_poll_remove(sqe, (void *)ev);
-    io_uring_submit(state->ring);
 }
 
 static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
@@ -150,8 +148,7 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
     /* TODO: handle timeout */
     (void)tvp;
     
-    struct io_uring_cqe *cqe;
-    retval = io_uring_wait_cqe(state->ring, &cqe);
+    retval = io_uring_submit_and_wait(state->ring, 1);
     if (retval < 0) {
         return numevents;
     }
