@@ -3885,7 +3885,7 @@ int clientEvictionCheckLimit() {
     /* Don't allow a too small maxmemory-clients to avoid cases where we can't communicate
      * at all with the server because of bad configuration */
     if (maxmemory_clients_actual < 1024*128)
-        maxmemory_clients_actual = 1024*128; //TODO: Warn here??
+        maxmemory_clients_actual = 1024*128;
 
     if (server.stat_clients_type_memory[CLIENT_TYPE_NORMAL] +
         server.stat_clients_type_memory[CLIENT_TYPE_PUBSUB] < maxmemory_clients_actual) {
