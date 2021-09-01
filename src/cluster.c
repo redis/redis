@@ -4419,7 +4419,7 @@ int getSlotStatus(client *c, unsigned char *slots, int del, int start_slot, int 
         } 
         if (!del && server.cluster->slots[slot]) {
             addReplyErrorFormat(c,"Slot %d is already busy", slot);
-            return C_ERR;
+            return C_ERR; 
         }
         if (slots[slot]++ == 1) {
             addReplyErrorFormat(c,"Slot %d specified multiple times",(int)slot);
