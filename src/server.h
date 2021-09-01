@@ -1705,7 +1705,7 @@ typedef struct {
 } getKeysResult;
 #define GETKEYS_RESULT_INIT { {0}, NULL, 0, MAX_KEYS_BUFFER }
 
-/* Key specs defintions.
+/* Key specs definitions.
  *
  * Brief: This is a scheme that tries to describe the location
  * of key arguments better than the old [first,last,step] scheme
@@ -2521,7 +2521,6 @@ void freeObjAsync(robj *key, robj *obj, int dbid);
 /* API to get key arguments from commands */
 int *getKeysPrepareResult(getKeysResult *result, int numkeys);
 int getKeysFromCommand(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
-int getKeysFromCommandWithSpecs(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result); // TODO:GUYBE revert
 void getKeysFreeResult(getKeysResult *result);
 int zunionInterDiffGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
 int zunionInterDiffStoreGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
