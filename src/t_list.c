@@ -546,16 +546,16 @@ void mpopGenericCommand(client *c, robj **keys, int numkeys, int where, long cou
         /* Non-existing key, move to next key. */
         if (o == NULL) continue;
 
-        if (checkType(c,o,OBJ_LIST)) return;
+        if (checkType(c, o, OBJ_LIST)) return;
 
         long llen = listTypeLength(o);
         /* Empty list, move to next key. */
         if (llen == 0) continue;
 
-        /* Pop a range of elements in nested array. */
+        /* Pop a range of elements in a nested arrays way. */
         listPopRangeAndReplyWithKey(c, o, key, where, count, NULL);
 
-        /* Replicate it as [LR]POP COUNT */
+        /* Replicate it as [LR]POP COUNT. */
         robj *count_obj = createStringObjectFromLongLong((count > llen) ? llen : count);
         rewriteClientCommandVector(c, 3,
                                    (where == LIST_HEAD) ? shared.lpop : shared.rpop,
@@ -957,6 +957,7 @@ void serveClientBlockedOnList(client *receiver, robj *o, robj *key, robj *dstkey
             argv[2] = createStringObjectFromLongLong((count > llen) ? llen : count);
             propagate(cmd, db->id, argv, 3, PROPAGATE_AOF|PROPAGATE_REPL);
 
+            /* Pop a range of elements in a nested arrays way. */
             listPopRangeAndReplyWithKey(receiver, o, key, wherefrom, count, deleted);
             return;
         }
@@ -1036,7 +1037,7 @@ void blockingPopGenericCommand(client *c, robj **keys, int numkeys, int where, i
     /* Traverse all input keys, we take action only based on one key. */
     for (j = 0; j < numkeys; j++) {
         key = keys[j];
-        o = lookupKeyWrite(c->db,key);
+        o = lookupKeyWrite(c->db, key);
 
         /* Non-existing key, move to next key. */
         if (o == NULL) continue;
@@ -1048,10 +1049,11 @@ void blockingPopGenericCommand(client *c, robj **keys, int numkeys, int where, i
         if (llen == 0) continue;
 
         if (count != 0) {
-            /* BLMPOP, non empty list, like a normal [LR]POP with count option. */
+            /* BLMPOP, non empty list, like a normal [LR]POP with count option.
+             * The difference here we pop a range of elements in a nested arrays way. */
             listPopRangeAndReplyWithKey(c, o, key, where, count, NULL);
 
-            /* Replicate it as an [LR]POP COUNT. */
+            /* Replicate it as [LR]POP COUNT. */
             robj *count_obj = createStringObjectFromLongLong((count > llen) ? llen : count);
             rewriteClientCommandVector(c, 3,
                                        (where == LIST_HEAD) ? shared.lpop : shared.rpop,
