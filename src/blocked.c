@@ -285,8 +285,8 @@ void serveClientsBlockedOnListKey(robj *o, readyList *rl) {
             }
 
             robj *dstkey = receiver->bpop.target;
-            int wherefrom = receiver->bpop.listpos.wherefrom;
-            int whereto = receiver->bpop.listpos.whereto;
+            int wherefrom = receiver->bpop.blockpos.wherefrom;
+            int whereto = receiver->bpop.blockpos.whereto;
 
             /* Protect receiver->bpop.target, that will be
              * freed by the next unblockClient()
@@ -320,9 +320,9 @@ void serveClientsBlockedOnSortedSetKey(robj *o, readyList *rl) {
     if (de) {
         list *clients = dictGetVal(de);
         int numclients = listLength(clients);
-        unsigned long zcard = zsetLength(o);
+        int deleted = 0;
 
-        while(numclients-- && zcard) {
+        while(numclients--) {
             listNode *clientnode = listFirst(clients);
             client *receiver = clientnode->value;
 
@@ -333,28 +333,42 @@ void serveClientsBlockedOnSortedSetKey(robj *o, readyList *rl) {
                 continue;
             }
 
-            int where = (receiver->lastcmd &&
-                         receiver->lastcmd->proc == bzpopminCommand)
-                         ? ZSET_MIN : ZSET_MAX;
+            long llen = zsetLength(o);
+            long count = receiver->bpop.count;
+            int where = receiver->bpop.blockpos.wherefrom;
+            int use_nested_array_with_key = (receiver->lastcmd &&
+                                             receiver->lastcmd->proc == bzmpopCommand)
+                                             ? 1 : 0;
+
             monotime replyTimer;
             elapsedStart(&replyTimer);
-            genericZpopCommand(receiver,&rl->key,1,where,1,NULL);
+            genericZpopCommand(receiver,&rl->key,1,where,1,count,use_nested_array_with_key,&deleted);
             updateStatsOnUnblock(receiver, 0, elapsedUs(replyTimer));
             unblockClient(receiver);
-            zcard--;
 
             /* Replicate the command. */
-            robj *argv[2];
+            int argc = 2;
+            robj *argv[3];
             struct redisCommand *cmd = where == ZSET_MIN ?
                                        server.zpopminCommand :
                                        server.zpopmaxCommand;
             argv[0] = createStringObject(cmd->name,strlen(cmd->name));
             argv[1] = rl->key;
+            if (count != 0) {
+                /* Replicate it as command with COUNT. */
+                robj *count_obj = createStringObjectFromLongLong((count > llen) ? llen : count);
+                argv[2] = count_obj;
+                argc++;
+            }
             incrRefCount(rl->key);
             propagate(cmd,receiver->db->id,
-                      argv,2,PROPAGATE_AOF|PROPAGATE_REPL);
+                      argv,argc,PROPAGATE_AOF|PROPAGATE_REPL);
             decrRefCount(argv[0]);
             decrRefCount(argv[1]);
+            if (count != 0) decrRefCount(argv[2]);
+
+            /* The zset is empty and has been deleted. */
+            if (deleted) break;
         }
     }
 }
@@ -618,7 +632,7 @@ void handleClientsBlockedOnKeys(void) {
  *
  * 'count' for those commands that support the optional count argument.
  * Otherwise the value is 0. */
-void blockForKeys(client *c, int btype, robj **keys, int numkeys, long count, mstime_t timeout, robj *target, struct listPos *listpos, streamID *ids) {
+void blockForKeys(client *c, int btype, robj **keys, int numkeys, long count, mstime_t timeout, robj *target, struct blockPos *blockpos, streamID *ids) {
     dictEntry *de;
     list *l;
     int j;
@@ -627,7 +641,7 @@ void blockForKeys(client *c, int btype, robj **keys, int numkeys, long count, ms
     c->bpop.timeout = timeout;
     c->bpop.target = target;
 
-    if (listpos != NULL) c->bpop.listpos = *listpos;
+    if (blockpos != NULL) c->bpop.blockpos = *blockpos;
 
     if (target != NULL) incrRefCount(target);
 

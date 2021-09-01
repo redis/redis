@@ -564,6 +564,10 @@ struct redisCommand redisCommandTable[] = {
      "write fast @sortedset",
      0,NULL,1,1,1,0,0,0},
 
+    {"zmpop", zmpopCommand,-4,
+     "write @sortedset",
+     0,zmpopGetKeys,0,0,0,0,0,0},
+
     {"bzpopmin",bzpopminCommand,-3,
      "write no-script fast @sortedset @blocking",
      0,NULL,1,-2,1,0,0,0},
@@ -571,6 +575,10 @@ struct redisCommand redisCommandTable[] = {
     {"bzpopmax",bzpopmaxCommand,-3,
      "write no-script fast @sortedset @blocking",
      0,NULL,1,-2,1,0,0,0},
+
+    {"bzmpop",bzmpopCommand,-5,
+     "write @sortedset @blocking",
+     0,bzmpopGetKeys,0,0,0,0,0,0},
 
     {"zrandmember",zrandmemberCommand,-2,
      "read-only random @sortedset",
