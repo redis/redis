@@ -4505,35 +4505,6 @@ int processCommand(client *c) {
         return C_OK;
     }
 
-    /************** TESTING *******************/ // TODO:GUYBE revert
-
-    sds args = sdsempty();
-    int i;
-    for (i=0; i < c->argc && sdslen(args) < 128; i++)
-        args = sdscatprintf(args, "\"%.*s\" ", 128-(int)sdslen(args), (char*)c->argv[i]->ptr);
-    serverLog(LL_WARNING, "cmd: %s", args);
-    sdsfree(args);
-
-    getKeysResult result = GETKEYS_RESULT_INIT, result_specs = GETKEYS_RESULT_INIT;
-    int numkeys = getKeysFromCommand(c->cmd,c->argv,c->argc,&result);
-    int numkeys_specs = getKeysFromCommandWithSpecs(c->cmd,c->argv,c->argc,&result_specs);
-    if (numkeys != numkeys_specs) {
-        serverLog(LL_WARNING, "numkeys != numkeys_specs (%d != %d)", numkeys, numkeys_specs);
-        serverPanic("death1");
-    }
-
-    for(int j = 0; j < numkeys; j++) {
-        if (result.keys[j] != result_specs.keys[j]) {
-            serverLog(LL_WARNING, "index %d keys != keys_specs (%d != %d)", j, result.keys[j], result_specs.keys[j]);
-            serverPanic("death2");
-        }
-    }
-
-    getKeysFreeResult(&result);
-    getKeysFreeResult(&result_specs);
-
-    /************** /TESTING *******************/
-
     int is_read_command = (c->cmd->flags & CMD_READONLY) ||
                            (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_READONLY));
     int is_write_command = (c->cmd->flags & CMD_WRITE) ||

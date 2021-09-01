@@ -1654,106 +1654,6 @@ int getKeysFromCommand(struct redisCommand *cmd, robj **argv, int argc, getKeysR
     }
 }
 
-// TODO:GUYBE revert
-
-int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
-    int j, i, k = 0, last, first, step, *keys;
-
-    for (j = 0; j < cmd->key_specs_num; j++) {
-        keySpec *spec = cmd->key_specs+j;
-        serverAssert(spec->begin_search_type!=KSPEC_BS_INVALID);
-        if (spec->flags & CMD_KEY_INCOMPLETE) {
-            result->numkeys = 0;
-            return 0;
-        }
-
-        first = 0;
-        if (spec->begin_search_type == KSPEC_BS_INDEX) {
-            first = spec->bs.index.pos;
-        } else { /* KSPEC_BS_IKEYWORD */
-            int start_index = spec->bs.keyword.startfrom > 0 ? spec->bs.keyword.startfrom : argc+spec->bs.keyword.startfrom;
-            int end_index = spec->bs.keyword.startfrom > 0 ? argc-1: 0;
-            for (i = start_index; i != end_index; i = start_index <= end_index ? i + 1 : i - 1) {
-                if (i >= argc)
-                    break;
-                if (!strcasecmp((char*)argv[i]->ptr,spec->bs.keyword.keyword)) {
-                    first = i+1;
-                    break;
-                }
-            }
-        }
-
-        if (!first) {
-            result->numkeys = 0;
-            return 0;
-        }
-
-        if (spec->find_keys_type == KSPEC_FK_RANGE) {
-            step = spec->fk.range.keystep;
-            if (spec->fk.range.lastkey >= 0) {
-                last = first + spec->fk.range.lastkey;
-            } else {
-                if (!spec->fk.range.limit) {
-                    last = argc + spec->fk.range.lastkey;
-                } else {
-                    serverAssert(spec->fk.range.lastkey == -1);
-                    last = first + ((argc-first)/spec->fk.range.limit + spec->fk.range.lastkey);
-                }
-            }
-        } else {
-            step = spec->fk.keynum.keystep;
-            long long numkeys;
-
-            if (!string2ll(argv[first+spec->fk.keynum.keynumidx]->ptr,sdslen(argv[first+spec->fk.keynum.keynumidx]->ptr),&numkeys)) {
-                result->numkeys = 0;
-                return 0;
-            }
-
-            first += spec->fk.keynum.firstkey;
-            last = first + (int)numkeys-1;
-        }
-
-        int count = ((last - first)+1);
-        keys = getKeysPrepareResult(result, count);
-
-        for (i = first; i <= last; i += step) {
-            if (i >= argc) {
-                /* Modules commands, and standard commands with a not fixed number
-                 * of arguments (negative arity parameter) do not have dispatch
-                 * time arity checks, so we need to handle the case where the user
-                 * passed an invalid number of arguments here. In this case we
-                 * return no keys and expect the command implementation to report
-                 * an arity or syntax error. */
-                if (cmd->flags & CMD_MODULE || cmd->arity < 0) {
-                    result->numkeys = 0;
-                    return 0;
-                } else {
-                    serverPanic("Redis built-in command declared keys positions not matching the arity requirements.");
-                }
-            }
-            keys[k++] = i;
-        }
-    }
-
-    result->numkeys = k;
-    return k;
-}
-
-int getKeysFromCommandWithSpecs(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
-    if (cmd->flags & CMD_MODULE_GETKEYS) {
-        return moduleGetCommandKeysViaAPI(cmd,argv,argc,result);
-    } else {
-        int ret = getKeysUsingKeySpecs(cmd,argv,argc,result);
-        if (ret) {
-            return ret;
-        } else if (!(cmd->flags & CMD_MODULE) && cmd->getkeys_proc) {
-            return cmd->getkeys_proc(cmd,argv,argc,result);
-        } else {
-            return 0;
-        }
-    }
-}
-
 /* Free the result of getKeysFromCommand. */
 void getKeysFreeResult(getKeysResult *result) {
     if (result && result->keys != result->keysbuf)
@@ -1788,17 +1688,10 @@ int genericGetKeys(int storeKeyOfs, int keyCountOfs, int firstKeyOfs, int keySte
     keys = getKeysPrepareResult(result, numkeys);
     result->numkeys = numkeys;
 
-    // TODO:GUYBE revert
-
-    if (storeKeyOfs) {
-        keys[0] = storeKeyOfs;
-        keys++;
-    }
-
     /* Add all key positions for argv[firstKeyOfs...n] to keys[] */
     for (i = 0; i < num; i++) keys[i] = firstKeyOfs+(i*keyStep);
 
-    //if (storeKeyOfs) keys[num] = storeKeyOfs;
+    if (storeKeyOfs) keys[num] = storeKeyOfs;
     return result->numkeys;
 }
 
