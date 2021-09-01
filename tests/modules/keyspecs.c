@@ -35,53 +35,83 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     /* Test legacy range "gluing" */
     if (RedisModule_CreateCommand(ctx,"kspec.legacy",kspec_legacy,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-    if (RedisModule_AddCommandKeySpecBeginSearchIndex(ctx,"kspec.legacy","read",1,&spec_id) == REDISMODULE_ERR)
+
+    if (RedisModule_AddCommandKeySpec(ctx,"kspec.legacy","read",&spec_id) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-    if (RedisModule_AddCommandKeySpecFindKeysRange(ctx,"kspec.legacy",spec_id,0,1,0) == REDISMODULE_ERR)
+    if (RedisModule_SetCommandKeySpecBeginSearchIndex(ctx,"kspec.legacy",spec_id,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-    if (RedisModule_AddCommandKeySpecBeginSearchIndex(ctx,"kspec.legacy","write",2,&spec_id) == REDISMODULE_ERR)
+    if (RedisModule_SetCommandKeySpecFindKeysRange(ctx,"kspec.legacy",spec_id,0,1,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-    if (RedisModule_AddCommandKeySpecFindKeysRange(ctx,"kspec.legacy",spec_id,0,1,0) == REDISMODULE_ERR)
+
+    if (RedisModule_AddCommandKeySpec(ctx,"kspec.legacy","write",&spec_id) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_SetCommandKeySpecBeginSearchIndex(ctx,"kspec.legacy",spec_id,2) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_SetCommandKeySpecFindKeysRange(ctx,"kspec.legacy",spec_id,0,1,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     /* First is legacy, rest are new specs */
     if (RedisModule_CreateCommand(ctx,"kspec.complex1",kspec_complex1,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-    if (RedisModule_AddCommandKeySpecBeginSearchIndex(ctx,"kspec.complex1","read",1,&spec_id) == REDISMODULE_ERR)
+
+    if (RedisModule_AddCommandKeySpec(ctx,"kspec.complex1","read",&spec_id) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-    if (RedisModule_AddCommandKeySpecFindKeysRange(ctx,"kspec.complex1",spec_id,0,1,0) == REDISMODULE_ERR)
+    if (RedisModule_SetCommandKeySpecBeginSearchIndex(ctx,"kspec.complex1",spec_id,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-    if (RedisModule_AddCommandKeySpecBeginSearchKeyword(ctx,"kspec.complex1","write","STORE",2,&spec_id) == REDISMODULE_ERR)
+    if (RedisModule_SetCommandKeySpecFindKeysRange(ctx,"kspec.complex1",spec_id,0,1,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-    if (RedisModule_AddCommandKeySpecFindKeysRange(ctx,"kspec.complex1",spec_id,0,1,0) == REDISMODULE_ERR)
+
+    if (RedisModule_AddCommandKeySpec(ctx,"kspec.complex1","write",&spec_id) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-    if (RedisModule_AddCommandKeySpecBeginSearchKeyword(ctx,"kspec.complex1","read","KEYS",2,&spec_id) == REDISMODULE_ERR)
+    if (RedisModule_SetCommandKeySpecBeginSearchKeyword(ctx,"kspec.complex1",spec_id,"STORE",2) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-    if (RedisModule_AddCommandKeySpecFindKeysKeynum(ctx,"kspec.complex1",spec_id,0,1,1) == REDISMODULE_ERR)
+    if (RedisModule_SetCommandKeySpecFindKeysRange(ctx,"kspec.complex1",spec_id,0,1,0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_AddCommandKeySpec(ctx,"kspec.complex1","read",&spec_id) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_SetCommandKeySpecBeginSearchKeyword(ctx,"kspec.complex1",spec_id,"KEYS",2) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_SetCommandKeySpecFindKeysKeynum(ctx,"kspec.complex1",spec_id,0,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     /* First is not legacy, more than STATIC_KEYS_SPECS_NUM specs */
     if (RedisModule_CreateCommand(ctx,"kspec.complex2",kspec_complex2,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-    if (RedisModule_AddCommandKeySpecBeginSearchKeyword(ctx,"kspec.complex2","write","STORE",5,&spec_id) == REDISMODULE_ERR)
+
+    if (RedisModule_AddCommandKeySpec(ctx,"kspec.complex2","write",&spec_id) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-    if (RedisModule_AddCommandKeySpecFindKeysRange(ctx,"kspec.complex2",spec_id,0,1,0) == REDISMODULE_ERR)
+    if (RedisModule_SetCommandKeySpecBeginSearchKeyword(ctx,"kspec.complex2",spec_id,"STORE",5) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-    if (RedisModule_AddCommandKeySpecBeginSearchIndex(ctx,"kspec.complex2","read",1,&spec_id) == REDISMODULE_ERR)
+    if (RedisModule_SetCommandKeySpecFindKeysRange(ctx,"kspec.complex2",spec_id,0,1,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-    if (RedisModule_AddCommandKeySpecFindKeysRange(ctx,"kspec.complex2",spec_id,0,1,0) == REDISMODULE_ERR)
+
+    if (RedisModule_AddCommandKeySpec(ctx,"kspec.complex2","read",&spec_id) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-    if (RedisModule_AddCommandKeySpecBeginSearchIndex(ctx,"kspec.complex2","read",2,&spec_id) == REDISMODULE_ERR)
+    if (RedisModule_SetCommandKeySpecBeginSearchIndex(ctx,"kspec.complex2",spec_id,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-    if (RedisModule_AddCommandKeySpecFindKeysRange(ctx,"kspec.complex2",spec_id,0,1,0) == REDISMODULE_ERR)
+    if (RedisModule_SetCommandKeySpecFindKeysRange(ctx,"kspec.complex2",spec_id,0,1,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-    if (RedisModule_AddCommandKeySpecBeginSearchIndex(ctx,"kspec.complex2","write",3,&spec_id) == REDISMODULE_ERR)
+
+    if (RedisModule_AddCommandKeySpec(ctx,"kspec.complex2","read",&spec_id) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-    if (RedisModule_AddCommandKeySpecFindKeysKeynum(ctx,"kspec.complex2",spec_id,0,1,1) == REDISMODULE_ERR)
+    if (RedisModule_SetCommandKeySpecBeginSearchIndex(ctx,"kspec.complex2",spec_id,2) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-    if (RedisModule_AddCommandKeySpecBeginSearchKeyword(ctx,"kspec.complex2","write","MOREKEYS",5,&spec_id) == REDISMODULE_ERR)
+    if (RedisModule_SetCommandKeySpecFindKeysRange(ctx,"kspec.complex2",spec_id,0,1,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-    if (RedisModule_AddCommandKeySpecFindKeysRange(ctx,"kspec.complex2",spec_id,-1,1,0) == REDISMODULE_ERR)
+
+    if (RedisModule_AddCommandKeySpec(ctx,"kspec.complex2","write",&spec_id) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_SetCommandKeySpecBeginSearchIndex(ctx,"kspec.complex2",spec_id,3) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_SetCommandKeySpecFindKeysKeynum(ctx,"kspec.complex2",spec_id,0,1,1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_AddCommandKeySpec(ctx,"kspec.complex2","write",&spec_id) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_SetCommandKeySpecBeginSearchKeyword(ctx,"kspec.complex2",spec_id,"MOREKEYS",5) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_SetCommandKeySpecFindKeysRange(ctx,"kspec.complex2",spec_id,-1,1,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;

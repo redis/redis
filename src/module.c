@@ -874,6 +874,12 @@ int64_t commandKeySpecsFlagsFromString(const char *s) {
  * The last three parameters specify which arguments of the new command are
  * Redis keys. See https://redis.io/commands/command for more information.
  *
+ * !!! DEPRECATED !!!
+ * One should pass 0,0,0 and use RedisModule_AddCommandKeySpec.
+ * Note that if the command's keys are indeed a simple "range"
+ * it will be reflected in COMMAND (and others) despite passing
+ * 0,0,0 to RedisModule_CreateCommand.
+ *
  * * 'firstkey': One-based index of the first argument that's a key.
  *               Position 0 is always the command name itself.
  *               0 for commands with no keys.
@@ -963,7 +969,7 @@ void extendKeySpecsIfNeeded(struct redisCommand *cmd) {
     }
 }
 
-int moduleAddCommandKeySpecBeginSearch(RedisModuleCtx *ctx, const char *name, const char *specflags, keySpec *spec, int *index) {
+int moduleAddCommandKeySpec(RedisModuleCtx *ctx, const char *name, const char *specflags, int *index) {
     int64_t flags = specflags ? commandKeySpecsFlagsFromString(specflags) : 0;
     if (flags == -1)
         return REDISMODULE_ERR;
@@ -983,15 +989,37 @@ int moduleAddCommandKeySpecBeginSearch(RedisModuleCtx *ctx, const char *name, co
     extendKeySpecsIfNeeded(cmd);
 
     *index = cmd->key_specs_num;
-    cmd->key_specs[cmd->key_specs_num].begin_search_type = spec->begin_search_type;
-    cmd->key_specs[cmd->key_specs_num].bs = spec->bs;
+    cmd->key_specs[cmd->key_specs_num].begin_search_type = KSPEC_BS_INVALID;
+    cmd->key_specs[cmd->key_specs_num].find_keys_type = KSPEC_FK_INVALID;
     cmd->key_specs[cmd->key_specs_num].flags = flags;
     cmd->key_specs_num++;
 
     return REDISMODULE_OK;
 }
 
-int moduleAddCommandKeySpecFindKeys(RedisModuleCtx *ctx, const char *name, int index, keySpec *spec) {
+int moduleSetCommandKeySpecBeginSearch(RedisModuleCtx *ctx, const char *name, int index, keySpec *spec) {
+    struct redisCommand *cmd = lookupCommandByCString(name);
+
+    if (cmd == NULL)
+        return REDISMODULE_ERR;
+
+    if (!(cmd->flags & CMD_MODULE))
+        return REDISMODULE_ERR;
+
+    RedisModuleCommandProxy *cp = (RedisModuleCommandProxy*)(unsigned long)cmd->getkeys_proc;
+    if (cp->module != ctx->module)
+        return REDISMODULE_ERR;
+
+    if (index >= cmd->key_specs_num)
+        return REDISMODULE_ERR;
+
+    cmd->key_specs[index].begin_search_type = spec->begin_search_type;
+    cmd->key_specs[index].bs = spec->bs;
+
+    return REDISMODULE_OK;
+}
+
+int moduleSetCommandKeySpecFindKeys(RedisModuleCtx *ctx, const char *name, int index, keySpec *spec) {
     struct redisCommand *cmd = lookupCommandByCString(name);
 
     if (cmd == NULL)
@@ -1018,49 +1046,100 @@ int moduleAddCommandKeySpecFindKeys(RedisModuleCtx *ctx, const char *name, int i
     return REDISMODULE_OK;
 }
 
-/* Add a "index" key arguments spec to a command (begin_search step).
+/* Key specs is a scheme that tries to describe the location
+ * of key arguments better than the old [first,last,step] scheme
+ * which is limited and doesn't fit many commands.
+ *
+ * There are two steps:
+ * 1. begin_search (BS): in which index should we start seacrhing for keys?
+ * 2. find_keys (FK): relative to the output of BS, how can we will which args are keys?
+ *
+ * There are two types of BS:
+ * 1. index: key args start at a constant index
+ * 2. keyword: key args start just after a specific keyword
+ *
+ * There are two kinds of FK:
+ * 1. range: keys end at a specific index (or relative to the last argument)
+ * 2. keynum: there's an arg that contains the number of key args somewhere before the keys themselves
+ *
+ * This function adds a new key spec to a command, returning a unique id in `spec_id`.
+ * The caller must then call one of the RedisModule_SetCommandKeySpecBeginSearch* APIs
+ * followed by one of the RedisModule_SetCommandKeySpecFindKeys* APIs.
+ *
+ * It should be called just after RedisModule_CreateCommand.
+ *
+ * Example:
+ *
+ * if (RedisModule_CreateCommand(ctx,"kspec.legacy",kspec_legacy,"",0,0,0) == REDISMODULE_ERR)
+ *      return REDISMODULE_ERR;
+ *
+ *  if (RedisModule_AddCommandKeySpec(ctx,"kspec.legacy","read",&spec_id) == REDISMODULE_ERR)
+ *      return REDISMODULE_ERR;
+ *  if (RedisModule_SetCommandKeySpecBeginSearchIndex(ctx,"kspec.legacy",spec_id,1) == REDISMODULE_ERR)
+ *      return REDISMODULE_ERR;
+ *  if (RedisModule_SetCommandKeySpecFindKeysRange(ctx,"kspec.legacy",spec_id,0,1,0) == REDISMODULE_ERR)
+ *      return REDISMODULE_ERR;
+ *
+ *  if (RedisModule_AddCommandKeySpec(ctx,"kspec.legacy","write",&spec_id) == REDISMODULE_ERR)
+ *      return REDISMODULE_ERR;
+ *  if (RedisModule_SetCommandKeySpecBeginSearchIndex(ctx,"kspec.legacy",spec_id,2) == REDISMODULE_ERR)
+ *      return REDISMODULE_ERR;
+ *  if (RedisModule_SetCommandKeySpecFindKeysRange(ctx,"kspec.legacy",spec_id,0,1,0) == REDISMODULE_ERR)
+ *      return REDISMODULE_ERR;
+ *
+ * Returns REDISMODULE_OK on success
+ */
+int RM_AddCommandKeySpec(RedisModuleCtx *ctx, const char *name, const char *specflags, int *spec_id) {
+    return moduleAddCommandKeySpec(ctx, name, specflags, spec_id);
+}
+
+/* Set a "index" key arguments spec to a command (begin_search step).
+ * See RedisModule_AddCommandKeySpec's doc.
  * Returns REDISMODULE_OK */
-int RM_AddCommandKeySpecBeginSearchIndex(RedisModuleCtx *ctx, const char *name, const char *specflags, int index, int *spec_id) {
+int RM_SetCommandKeySpecBeginSearchIndex(RedisModuleCtx *ctx, const char *name, int spec_id, int index) {
     keySpec spec;
     spec.begin_search_type = KSPEC_BS_INDEX;
     spec.bs.index.pos = index;
 
-    return moduleAddCommandKeySpecBeginSearch(ctx, name, specflags, &spec, spec_id);
+    return moduleSetCommandKeySpecBeginSearch(ctx, name, spec_id, &spec);
 }
 
-/* Add a "keyword" key arguments spec to a command (begin_search step).
+/* Set a "keyword" key arguments spec to a command (begin_search step).
+ * See RedisModule_AddCommandKeySpec's doc.
  * Returns REDISMODULE_OK */
-int RM_AddCommandKeySpecBeginSearchKeyword(RedisModuleCtx *ctx, const char *name, const char *specflags, const char *keyword, int startfrom, int *spec_id) {
+int RM_SetCommandKeySpecBeginSearchKeyword(RedisModuleCtx *ctx, const char *name, int spec_id, const char *keyword, int startfrom) {
     keySpec spec;
     spec.begin_search_type = KSPEC_BS_KEYWORD;
     spec.bs.keyword.keyword = keyword;
     spec.bs.keyword.startfrom = startfrom;
 
-    return moduleAddCommandKeySpecBeginSearch(ctx, name, specflags, &spec, spec_id);
+    return moduleSetCommandKeySpecBeginSearch(ctx, name, spec_id, &spec);
 }
 
-/* Add a "range" key arguments spec to a command (find_keys step).
+/* Set a "range" key arguments spec to a command (find_keys step).
+ * See RedisModule_AddCommandKeySpec's doc.
  * Returns REDISMODULE_OK */
-int RM_AddCommandKeySpecFindKeysRange(RedisModuleCtx *ctx, const char *name, int spec_id, int lastkey, int keystep, int limit) {
+int RM_SetCommandKeySpecFindKeysRange(RedisModuleCtx *ctx, const char *name, int spec_id, int lastkey, int keystep, int limit) {
     keySpec spec;
     spec.find_keys_type = KSPEC_FK_RANGE;
     spec.fk.range.lastkey = lastkey;
     spec.fk.range.keystep = keystep;
     spec.fk.range.limit = limit;
 
-    return moduleAddCommandKeySpecFindKeys(ctx, name, spec_id, &spec);
+    return moduleSetCommandKeySpecFindKeys(ctx, name, spec_id, &spec);
 }
 
-/* Add a "keynum" key arguments spec to a command (find_keys step).
+/* Set a "keynum" key arguments spec to a command (find_keys step).
+ * See RedisModule_AddCommandKeySpec's doc.
  * Returns REDISMODULE_OK */
-int RM_AddCommandKeySpecFindKeysKeynum(RedisModuleCtx *ctx, const char *name, int spec_id, int keynumidx, int firstkey, int keystep) {
+int RM_SetCommandKeySpecFindKeysKeynum(RedisModuleCtx *ctx, const char *name, int spec_id, int keynumidx, int firstkey, int keystep) {
     keySpec spec;
     spec.find_keys_type = KSPEC_FK_KEYNUM;
     spec.fk.keynum.keynumidx = keynumidx;
     spec.fk.keynum.firstkey = firstkey;
     spec.fk.keynum.keystep = keystep;
 
-    return moduleAddCommandKeySpecFindKeys(ctx, name, spec_id, &spec);
+    return moduleSetCommandKeySpecFindKeys(ctx, name, spec_id, &spec);
 }
 
 /* --------------------------------------------------------------------------
@@ -9963,8 +10042,9 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(DefragShouldStop);
     REGISTER_API(DefragCursorSet);
     REGISTER_API(DefragCursorGet);
-    REGISTER_API(AddCommandKeySpecBeginSearchIndex);
-    REGISTER_API(AddCommandKeySpecBeginSearchKeyword);
-    REGISTER_API(AddCommandKeySpecFindKeysRange);
-    REGISTER_API(AddCommandKeySpecFindKeysKeynum);
+    REGISTER_API(AddCommandKeySpec);
+    REGISTER_API(SetCommandKeySpecBeginSearchIndex);
+    REGISTER_API(SetCommandKeySpecBeginSearchKeyword);
+    REGISTER_API(SetCommandKeySpecFindKeysRange);
+    REGISTER_API(SetCommandKeySpecFindKeysKeynum);
 }

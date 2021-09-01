@@ -1705,6 +1705,24 @@ typedef struct {
 } getKeysResult;
 #define GETKEYS_RESULT_INIT { {0}, NULL, 0, MAX_KEYS_BUFFER }
 
+/* Key specs defintions.
+ *
+ * Brief: This is a scheme that tries to describe the location
+ * of key arguments better than the old [first,last,step] scheme
+ * which is limited and doesn't fit many commands.
+ *
+ * There are two steps:
+ * 1. begin_search (BS): in which index should we start seacrhing for keys?
+ * 2. find_keys (FK): relative to the output of BS, how can we will which args are keys?
+ *
+ * There are two types of BS:
+ * 1. index: key args start at a constant index
+ * 2. keyword: key args start just after a specific keyword
+ *
+ * There are two kinds of FK:
+ * 1. range: keys end at a specific index (or relative to the last argument)
+ * 2. keynum: there's an arg that contains the number of key args somewhere before the keys themselves
+ */
 #define KSPEC_BS_INVALID   0 /* Must be 0 */
 #define KSPEC_BS_UNKNOWN   1
 #define KSPEC_BS_INDEX     2
@@ -1867,7 +1885,7 @@ extern dict *modules;
  *----------------------------------------------------------------------------*/
 
 /* Key arguments specs */
-int populateCommandLegacyRangeSpec(struct redisCommand *c);
+void populateCommandLegacyRangeSpec(struct redisCommand *c);
 
 /* Modules */
 void moduleInitModulesSystem(void);
@@ -2503,6 +2521,7 @@ void freeObjAsync(robj *key, robj *obj, int dbid);
 /* API to get key arguments from commands */
 int *getKeysPrepareResult(getKeysResult *result, int numkeys);
 int getKeysFromCommand(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
+int getKeysFromCommandWithSpecs(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result); // TODO:GUYBE revert
 void getKeysFreeResult(getKeysResult *result);
 int zunionInterDiffGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
 int zunionInterDiffStoreGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);

@@ -220,7 +220,7 @@ struct redisCommand redisCommandTable[] = {
      * implicit DEL of a large key. */
     {"set",setCommand,-3,
      "write use-memory @string",
-     {{"read write",
+     {{"read write", /* "read" because of the GET token */
        KSPEC_BS_INDEX,.bs.index={1},
        KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 
@@ -1204,7 +1204,7 @@ struct redisCommand redisCommandTable[] = {
     {"memory",memoryCommand,-2,
      "random read-only",
      {{"read",
-       KSPEC_BS_KEYWORD,.bs.keyword={"USGAE",1},
+       KSPEC_BS_KEYWORD,.bs.keyword={"USAGE",1},
        KSPEC_FK_RANGE,.fk.range={0,1,0}}},
      memoryGetKeys},
 
@@ -1222,30 +1222,30 @@ struct redisCommand redisCommandTable[] = {
       */
     {"eval",evalCommand,-3,
      "no-script no-monitor may-replicate @scripting",
-     {{"",
+     {{"read write", /* We pass both read and write because these flag are worst-case-scenario */
        KSPEC_BS_INDEX,.bs.index={2},
-       KSPEC_FK_KEYNUM,.fk.keynum={0,1,0}}},
+       KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},
      evalGetKeys},
 
     {"eval_ro",evalRoCommand,-3,
      "no-script no-monitor @scripting",
      {{"read",
        KSPEC_BS_INDEX,.bs.index={2},
-       KSPEC_FK_KEYNUM,.fk.keynum={0,1,0}}},
+       KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},
      evalGetKeys},
 
     {"evalsha",evalShaCommand,-3,
      "no-script no-monitor may-replicate @scripting",
-     {{"",
+     {{"read write", /* We pass both read and write because these flag are worst-case-scenario */
        KSPEC_BS_INDEX,.bs.index={2},
-       KSPEC_FK_KEYNUM,.fk.keynum={0,1,0}}},
+       KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},
      evalGetKeys},
 
     {"evalsha_ro",evalShaRoCommand,-3,
      "no-script no-monitor @scripting",
      {{"read",
        KSPEC_BS_INDEX,.bs.index={2},
-       KSPEC_FK_KEYNUM,.fk.keynum={0,1,0}}},
+       KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},
      evalGetKeys},
 
     {"slowlog",slowlogCommand,-2,
@@ -3777,13 +3777,12 @@ void InitServerLast() {
  * 2. Only range specs with keystep of 1 are considered
  * 3. The order of the range specs must be ascending (i.e.
  *    lastkey of spec[i] == firstkey-1 of spec[i+1])
- *
- * Returns C_OK on success*/
-int populateCommandLegacyRangeSpec(struct redisCommand *c) {
+ */
+void populateCommandLegacyRangeSpec(struct redisCommand *c) {
     memset(&c->legacy_range_key_spec, 0, sizeof(c->legacy_range_key_spec));
 
     if (c->key_specs_num == 0)
-        return C_OK;
+        return;
 
     if (c->key_specs_num == 1 &&
         c->key_specs[0].begin_search_type == KSPEC_BS_INDEX &&
@@ -3791,7 +3790,7 @@ int populateCommandLegacyRangeSpec(struct redisCommand *c) {
     {
         /* Quick win */
         c->legacy_range_key_spec = c->key_specs[0];
-        return C_OK;
+        return;
     }
 
     int firstkey = INT_MAX, lastkey = 0;
@@ -3801,11 +3800,11 @@ int populateCommandLegacyRangeSpec(struct redisCommand *c) {
             c->key_specs[i].find_keys_type != KSPEC_FK_RANGE)
             continue;
         if (c->key_specs[i].fk.range.keystep != 1)
-            return C_ERR;
+            return;
         if (prev_lastkey && prev_lastkey != c->key_specs[i].bs.index.pos-1)
-            return C_ERR;
+            return;
         firstkey = min(firstkey, c->key_specs[i].bs.index.pos);
-        /* Get the absolute index for lastkey */
+        /* Get the absolute index for lastkey (in the "range" spec, lastkey is relative to firstkey) */
         int lastkey_abs_index = c->key_specs[i].fk.range.lastkey;
         if (lastkey_abs_index >= 0)
             lastkey_abs_index += c->key_specs[i].bs.index.pos;
@@ -3814,7 +3813,7 @@ int populateCommandLegacyRangeSpec(struct redisCommand *c) {
     }
 
     if (firstkey == INT_MAX)
-        return C_ERR;
+        return;
 
     serverAssert(firstkey != 0);
     serverAssert(lastkey != 0);
@@ -3822,10 +3821,9 @@ int populateCommandLegacyRangeSpec(struct redisCommand *c) {
     c->legacy_range_key_spec.begin_search_type = KSPEC_BS_INDEX;
     c->legacy_range_key_spec.bs.index.pos = firstkey;
     c->legacy_range_key_spec.find_keys_type = KSPEC_FK_RANGE;
-    c->legacy_range_key_spec.fk.range.lastkey = lastkey < 0 ? lastkey : (lastkey-firstkey);
+    c->legacy_range_key_spec.fk.range.lastkey = lastkey < 0 ? lastkey : (lastkey-firstkey); /* in the "range" spec, lastkey is relative to firstkey */
     c->legacy_range_key_spec.fk.range.keystep = 1;
     c->legacy_range_key_spec.fk.range.limit = 0;
-    return C_OK;
 }
 
 /* Parse the flags string description 'strflags' and set them to the
@@ -4506,6 +4504,35 @@ int processCommand(client *c) {
             c->cmd->name);
         return C_OK;
     }
+
+    /************** TESTING *******************/ // TODO:GUYBE revert
+
+    sds args = sdsempty();
+    int i;
+    for (i=0; i < c->argc && sdslen(args) < 128; i++)
+        args = sdscatprintf(args, "\"%.*s\" ", 128-(int)sdslen(args), (char*)c->argv[i]->ptr);
+    serverLog(LL_WARNING, "cmd: %s", args);
+    sdsfree(args);
+
+    getKeysResult result = GETKEYS_RESULT_INIT, result_specs = GETKEYS_RESULT_INIT;
+    int numkeys = getKeysFromCommand(c->cmd,c->argv,c->argc,&result);
+    int numkeys_specs = getKeysFromCommandWithSpecs(c->cmd,c->argv,c->argc,&result_specs);
+    if (numkeys != numkeys_specs) {
+        serverLog(LL_WARNING, "numkeys != numkeys_specs (%d != %d)", numkeys, numkeys_specs);
+        serverPanic("death1");
+    }
+
+    for(int j = 0; j < numkeys; j++) {
+        if (result.keys[j] != result_specs.keys[j]) {
+            serverLog(LL_WARNING, "index %d keys != keys_specs (%d != %d)", j, result.keys[j], result_specs.keys[j]);
+            serverPanic("death2");
+        }
+    }
+
+    getKeysFreeResult(&result);
+    getKeysFreeResult(&result_specs);
+
+    /************** /TESTING *******************/
 
     int is_read_command = (c->cmd->flags & CMD_READONLY) ||
                            (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_READONLY));
