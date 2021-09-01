@@ -560,6 +560,7 @@ void mpopGenericCommand(client *c, robj **keys, int numkeys, int where, long cou
         rewriteClientCommandVector(c, 3,
                                    (where == LIST_HEAD) ? shared.lpop : shared.rpop,
                                    key, count_obj);
+        decrRefCount(count_obj);
         return;
     }
 
