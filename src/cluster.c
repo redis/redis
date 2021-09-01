@@ -4416,7 +4416,8 @@ int getSlotStatus(client *c, unsigned char *slots, int del, int start_slot, int 
         if (del && server.cluster->slots[slot] == NULL) {
             addReplyErrorFormat(c,"Slot %d is already unassigned", slot);
             return C_ERR;
-        } else if (!del && server.cluster->slots[slot]) {
+        } 
+        if (!del && server.cluster->slots[slot]) {
             addReplyErrorFormat(c,"Slot %d is already busy", slot);
             return C_ERR;
         }
