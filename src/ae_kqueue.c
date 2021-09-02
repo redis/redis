@@ -44,7 +44,7 @@ typedef struct aeApiState {
 } aeApiState;
 
 #define EVENT_MASK_MALLOC_SIZE(sz) (((sz) + 3) / 4)
-#define EVENT_MASK_OFFSET(fd) (6 - (fd) % 4 * 2)
+#define EVENT_MASK_OFFSET(fd) ((fd) % 4 * 2)
 #define EVENT_MASK_ENCODE(fd, mask) (((mask) & 0x3) << EVENT_MASK_OFFSET(fd))
 
 static inline int getEventMask(const char *eventsMask, int fd) {
