@@ -1244,17 +1244,17 @@ int quicklistIndex(const quicklist *quicklist, const long long idx,
     initEntry(entry);
     entry->quicklist = quicklist;
 
-    if (!forward) {
-        index = (-idx) - 1;
-        n = quicklist->tail;
-    } else {
-        index = idx;
-        n = quicklist->head;
-    }
-
+    index = forward ? idx : (-idx) - 1;
     if (index >= quicklist->count)
         return 0;
 
+    /* Change direction if the other way is shorter. */
+    if (index > (quicklist->count - 1) / 2) {
+        forward = !forward;
+        index = quicklist->count - 1 - index;
+    }
+
+    n = forward ? quicklist->head : quicklist->tail;
     while (likely(n)) {
         if ((accum + n->count) > index) {
             break;
