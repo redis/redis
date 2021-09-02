@@ -1760,7 +1760,7 @@ int clientsCronTrackExpansiveClients(client *c, int time_idx) {
 int clientsCronTrackClientsMemUsage(client *c) {
     size_t mem = 0;
     int type = getClientType(c);
-    mem += getClientPrivateOutputBufferMemoryUsage(c);
+    mem += getClientOutputBufferMemoryUsage(c);
     mem += sdsZmallocSize(c->querybuf);
     mem += zmalloc_size(c);
     mem += c->argv_len_sum;
@@ -2724,7 +2724,6 @@ void initServerConfig(void) {
     /* Replication partial resync backlog */
     server.repl_backlog = NULL;
     server.repl_backlog_histlen = 0;
-    server.repl_backlog_idx = 0;
     server.repl_backlog_off = 0;
     server.repl_no_slaves_since = time(NULL);
 
@@ -6000,15 +5999,17 @@ void dismissMemoryInChild(void) {
     /* Currently we use zmadvise_dontneed only when we use jemalloc with Linux.
      * so we avoid these pointless loops when they're not going to do anything. */
 #if defined(USE_JEMALLOC) && defined(__linux__)
+    listIter li;
+    listNode *ln;
 
-    /* Dismiss replication backlog. */
-    if (server.repl_backlog != NULL) {
-        dismissMemory(server.repl_backlog, server.repl_backlog_size);
+    /* Dismiss replication buffer. */
+    listRewind(server.repl_buffer_blocks, &li);
+    while((ln = listNext(&li))) {
+        replBufBlock *o = listNodeValue(ln);
+        dismissClientMemory(o, o->size);
     }
 
     /* Dismiss all clients memory. */
-    listIter li;
-    listNode *ln;
     listRewind(server.clients, &li);
     while((ln = listNext(&li))) {
         client *c = listNodeValue(ln);

@@ -131,10 +131,10 @@ client *createClient(connection *conn) {
     c->name = NULL;
     c->bufpos = 0;
     c->buf_usable_size = zmalloc_usable_size(c)-offsetof(client,buf);
-    c->start_buf_node = NULL;
-    c->start_buf_block_pos = 0;
-    c->used_repl_buf_blocks = 0;
-    c->used_repl_buf_size = 0;
+    c->ref_repl_buf_node = NULL;
+    c->ref_block_pos = 0;
+    c->used_blocks_of_repl_buf = 0;
+    c->used_size_of_repl_buf = 0;
     c->qb_pos = 0;
     c->querybuf = sdsempty();
     c->pending_querybuf = sdsempty();
@@ -976,35 +976,36 @@ void AddReplyFromClient(client *dst, client *src) {
     closeClientOnOutputBufferLimitReached(dst, 1);
 }
 
-/* Copy 'src' replica replication buffers info to 'dst' replica,
- * mainly increase buffer block node reference. The 'src' replica
- * is in full synchronization state. */
-void copyWaitBgsaveReplicaReplBuffer(client *dst, client *src) {
-    /* The 'src' replica can't incremental synchronization, so its
-     * static buffer and reply list must be empty. */
+/* Copy 'src' slave replication buffers info to 'dst' slave,
+ * mainly increase referenced buffer block node reference count. */
+void copySlaveOutputBuffer(client *dst, client *src) {
     serverAssert(src->bufpos == 0 && listLength(src->reply) == 0);
 
-    if (src->start_buf_node == NULL) return;
-    dst->start_buf_node = src->start_buf_node;
-    dst->start_buf_block_pos = src->start_buf_block_pos;
-    dst->used_repl_buf_blocks = src->used_repl_buf_blocks;
-    dst->used_repl_buf_size = src->used_repl_buf_size;
-    ((replBufBlock *)listNodeValue(dst->start_buf_node))->refcount++;
+    if (src->ref_repl_buf_node == NULL) return;
+    dst->ref_repl_buf_node = src->ref_repl_buf_node;
+    dst->ref_block_pos = src->ref_block_pos;
+    dst->used_blocks_of_repl_buf = src->used_blocks_of_repl_buf;
+    dst->used_size_of_repl_buf = src->used_size_of_repl_buf;
+    ((replBufBlock *)listNodeValue(dst->ref_repl_buf_node))->refcount++;
 }
 
 /* Return true if the specified client has pending reply buffers to write to
  * the socket. */
 int clientHasPendingReplies(client *c) {
-    if (c->flags & CLIENT_SLAVE && !(c->flags & CLIENT_MONITOR)) {
-        if (c->bufpos || listLength(c->reply)) return 1;
-        if (c->start_buf_node == NULL) return 0;
+    if (getClientType(c) == CLIENT_TYPE_SLAVE) {
+        /* Replicas use global shared replication buffer instead of
+         * private output buffer. */
+        serverAssert(c->bufpos == 0 && listLength(c->reply) == 0);
+        if (c->ref_repl_buf_node == NULL) return 0;
 
+        /* If the last replication buffer block content is totally sent,
+         * we have nothing to send. */
         listNode *ln = listLast(server.repl_buffer_blocks);
         replBufBlock *tail = ln ? listNodeValue(ln) : NULL;
         serverAssert(tail != NULL);
-        if (ln == c->start_buf_node && c->start_buf_block_pos == tail->used) {
-            return 0;
-        }
+        if (ln == c->ref_repl_buf_node &&
+            c->ref_block_pos == tail->used) return 0;
+
         return 1;
     } else {
         return c->bufpos || listLength(c->reply);
@@ -1392,7 +1393,7 @@ void freeClient(client *c) {
 
     /* Free data structures. */
     listRelease(c->reply);
-    freeReplicaReplBuffer(c);
+    freeSlaveReferencedReplBuffer(c);
     freeClientArgv(c);
     freeClientOriginalArgv(c);
 
@@ -1516,48 +1517,29 @@ client *lookupClientByID(uint64_t id) {
 
 int _writeToClient(client *c, ssize_t *nwritten) {
     *nwritten = 0;
-    /* For Replica, we need to send static buffer and reply list, these
-     * are copied from replication backlog and must be sent firstly. */
-    if (c->flags & CLIENT_SLAVE && !(c->flags & CLIENT_MONITOR) &&
-        c->bufpos == 0 && listLength(c->reply) == 0)
-    {
-        replBufBlock *o = listNodeValue(c->start_buf_node);
-        serverAssert(o->used >= c->start_buf_block_pos);
+    if (getClientType(c) == CLIENT_TYPE_SLAVE) {
+        serverAssert(c->bufpos == 0 && listLength(c->reply) == 0);
+
+        replBufBlock *o = listNodeValue(c->ref_repl_buf_node);
+        serverAssert(o->used >= c->ref_block_pos);
         /* Send current block if it is not fully sent. */
-        if (o->used > c->start_buf_block_pos) {
-            *nwritten = connWrite(c->conn, o->buf + c->start_buf_block_pos,
-                            o->used - c->start_buf_block_pos);
+        if (o->used > c->ref_block_pos) {
+            *nwritten = connWrite(c->conn, o->buf+c->ref_block_pos,
+                                  o->used-c->ref_block_pos);
             if (*nwritten <= 0) return C_ERR;
-            c->start_buf_block_pos += *nwritten;
+            c->ref_block_pos += *nwritten;
         }
 
-        listNode *next = listNextNode(c->start_buf_node);
-        if (next == NULL) {
-            /* The replica must always keep the last buffer block. */
-            serverAssert(c->used_repl_buf_size == o->size +
-                sizeof(listNode) + sizeof(replBufBlock));
-            serverAssert(c->used_repl_buf_blocks == 1);
-        }
-
-        /* If we fully sent the object on head go to the next one */
-        if (next && c->start_buf_block_pos == o->used) {
-            serverAssert(o->size == o->used);
-            c->used_repl_buf_blocks--;
-            c->used_repl_buf_size -= (o->size + sizeof(listNode) +
-                               sizeof(replBufBlock));
+        /* If we fully sent the object on head, go to the next one. */
+        listNode *next = listNextNode(c->ref_repl_buf_node);
+        if (next && c->ref_block_pos == o->used) {
+            c->used_blocks_of_repl_buf--;
+            c->used_size_of_repl_buf -= o->size;
             o->refcount--;
-            /* Only can free the first node and its refcount is 0 */
-            if (o->refcount == 0 &&
-                listFirst(server.repl_buffer_blocks) == c->start_buf_node)
-            {
-                server.repl_buffer_size -= (o->size +
-                    sizeof(listNode) + sizeof(replBufBlock));
-                listDelNode(server.repl_buffer_blocks, c->start_buf_node);
-            }
-            /* Incr the block reference count. */
             ((replBufBlock *)(listNodeValue(next)))->refcount++;
-            c->start_buf_node = next;
-            c->start_buf_block_pos = 0;
+            c->ref_repl_buf_node = next;
+            c->ref_block_pos = 0;
+            trimReplicationBacklog();
         }
         return C_OK;
     }
@@ -2406,7 +2388,7 @@ sds catClientInfoString(sds s, client *client) {
         (unsigned long long) sdsavail(client->querybuf),
         (unsigned long long) client->argv_len_sum,
         (unsigned long long) client->bufpos,
-        (unsigned long long) listLength(client->reply) + client->used_repl_buf_blocks,
+        (unsigned long long) listLength(client->reply) + client->used_blocks_of_repl_buf,
         (unsigned long long) obufmem, /* should not include client->buf since we want to see 0 for static clients. */
         (unsigned long long) total_mem,
         events,
@@ -3215,20 +3197,25 @@ void rewriteClientCommandArgument(client *c, int i, robj *newval) {
  * enforcing the client output length limits. */
 unsigned long getClientOutputBufferMemoryUsage(client *c) {
     unsigned long list_item_size = sizeof(listNode) + sizeof(clientReplyBlock);
-    return c->used_repl_buf_size + c->reply_bytes +
-           (list_item_size*listLength(c->reply));
+    unsigned long repl_node_size = sizeof(listNode) + sizeof(replBufBlock);
+
+    return c->used_size_of_repl_buf + (repl_node_size*c->used_blocks_of_repl_buf) +
+           c->reply_bytes + (list_item_size*listLength(c->reply));
 }
 
-/* For normal clients, actually there is no difference with the function
- * getClientOutputBufferMemoryUsage .
- * For replica clients, We use one global shared replication buffer to store
- * all replicas output buffer, and there may be some buffer in reply list
- * because we will add replication backlog into replicas' output buffer when
- * replicas can start incremental synchronization, currently only this memory
- * is private. */
-unsigned long getClientPrivateOutputBufferMemoryUsage(client *c) {
-    unsigned long list_item_size = sizeof(listNode) + sizeof(clientReplyBlock);
-    return c->reply_bytes + (list_item_size*listLength(c->reply));
+/* Since all slaves share one global replication buffer, we only count
+ * the max output buffer memory usage of all slaves. */
+size_t getSlavesOutputBufferMemoryUsage(void) {
+    size_t max_slave_mem = 0;
+    listNode *ln;
+    listIter li;
+    listRewind(server.slaves,&li);
+    while((ln = listNext(&li))) {
+        client *slave = ln->value;
+        size_t mem = getClientOutputBufferMemoryUsage(slave);
+        if (mem > max_slave_mem) max_slave_mem = mem;
+    }
+    return max_slave_mem;
 }
 
 /* Get the class of a client, used in order to enforce limits to different
@@ -3681,6 +3668,15 @@ int handleClientsWithPendingWritesUsingThreads(void) {
          * they are going to be closed ASAP. */
         if (c->flags & CLIENT_CLOSE_ASAP) {
             listDelNode(server.clients_pending_write, ln);
+            continue;
+        }
+
+        /* Since all slaves and replication backlog use global replication
+         * buffer, to guarantee data accessing thread safe, we must put all
+         * slaves client into io_threads_list[0] i.e. main thread handle
+         * sending the output buffer of all slaves. */
+        if (getClientType(c) == CLIENT_TYPE_SLAVE) {
+            listAddNodeTail(io_threads_list[0],c);
             continue;
         }
 

@@ -751,11 +751,13 @@ typedef struct clientReplyBlock {
     char buf[];
 } clientReplyBlock;
 
-/* Similar with 'clientReplyBlock', and we add refcount field, because we
- * want to all replicas to share global replication buffer, we increase
- * reference count when one replica uses it, decrease when we already send
- * this block to one replica. */
+/* Similar with 'clientReplyBlock', id is the unique incremental number for
+ * identify replBufBlock, repl_offset is the start replication offest of the
+ * block, and we add refcount field, because we want to replication backlog
+ * all replicas to use the global replication buffer, increase reference count
+ * when one of them starts uses it, decrease when they want to dismiss it. */
 typedef struct replBufBlock {
+    long long id, repl_offset;
     size_t size, used, refcount;
     char buf[];
 } replBufBlock;
@@ -910,6 +912,21 @@ typedef struct {
                                       need more reserved IDs use UINT64_MAX-1,
                                       -2, ... and so forth. */
 
+/* Replication backlog is not separate memory now, it just is one consumer of
+ * the global replication buffer. This structure records the reference of
+ * replication buffer. Since the replication buffer blocks may be very long,
+ * it would cost much time when we search replication offset on partial resync,
+ * so we use one list to rerord one node every creating 1000 new nodes to make
+ * searching offset from replication buffer blocks list faster. */
+typedef struct replBacklogRefReplBuf {
+    listNode *ref_repl_buf_node;   /* Referenced node of replication buffer blocks. */
+    size_t blocks;                 /* Used block number of replication buffer blocks. */
+    size_t size;                   /* Used size of replication buffer. */
+    size_t unrecorded_count;       /* Unrecorded block count currently. */
+    list *recorded_blocks;         /* Recorded blocks of replication buffer for quickly
+                                    * searching replication offset on partial resync. */
+} replBacklogRefReplBuf;
+
 typedef struct client {
     uint64_t id;            /* Client incremental unique ID. */
     connection *conn;
@@ -999,10 +1016,10 @@ typedef struct client {
     uint64_t client_cron_last_memory_usage;
     int      client_cron_last_memory_type;
 
-    listNode *start_buf_node;    /* Start node of replication buffer blocks. */
-    size_t start_buf_block_pos;  /* Start position of start node. */
-    size_t used_repl_buf_blocks; /* Replication buffer block number. */
-    size_t used_repl_buf_size;   /* Used size of replication buffer. */
+    listNode *ref_repl_buf_node;     /* Referenced node of replication buffer blocks. */
+    size_t ref_block_pos;            /* Access position of referenced buffer block. */
+    size_t used_blocks_of_repl_buf;  /* Used block number of replication buffer blocks. */
+    size_t used_size_of_repl_buf;    /* Used size of replication buffer. */
 
     /* Response buffer */
     int bufpos;
@@ -1499,12 +1516,9 @@ struct redisServer {
     long long second_replid_offset; /* Accept offsets up to this for replid2. */
     int slaveseldb;                 /* Last SELECTed DB in replication output */
     int repl_ping_slave_period;     /* Master pings the slave every N seconds */
-    char *repl_backlog;             /* Replication backlog for partial syncs */
+    struct replBacklogRefReplBuf *repl_backlog; /* Replication backlog for partial syncs */
     long long repl_backlog_size;    /* Backlog circular buffer size */
-    long long cfg_repl_backlog_size;/* Backlog circular buffer size in config */
     long long repl_backlog_histlen; /* Backlog actual data length */
-    long long repl_backlog_idx;     /* Backlog circular buffer current offset,
-                                       that is the next byte will'll write to.*/
     long long repl_backlog_off;     /* Replication "master offset" of first
                                        byte in the replication backlog buffer.*/
     time_t repl_backlog_time_limit; /* Time without slaves after the backlog
@@ -1893,6 +1907,7 @@ void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 void acceptTLSHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 void acceptUnixHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 void readQueryFromClient(connection *conn);
+int prepareClientToWrite(client *c);
 void addReplyNull(client *c);
 void addReplyNullArray(client *c);
 void addReplyBool(client *c, int b);
@@ -1925,7 +1940,7 @@ void addReplyPushLen(client *c, long length);
 void addReplyHelp(client *c, const char **help);
 void addReplySubcommandSyntaxError(client *c);
 void addReplyLoadedModules(client *c);
-int prepareClientToWrite(client *c);
+void copySlaveOutputBuffer(client *dst, client *src);
 size_t sdsZmallocSize(sds s);
 size_t getStringObjectSdsUsedMemory(robj *o);
 void freeClientReplyValue(void *o);
@@ -1939,7 +1954,7 @@ void rewriteClientCommandArgument(client *c, int i, robj *newval);
 void replaceClientCommandVector(client *c, int argc, robj **argv);
 void redactClientCommandArgument(client *c, int argc);
 unsigned long getClientOutputBufferMemoryUsage(client *c);
-unsigned long getClientPrivateOutputBufferMemoryUsage(client *c);
+size_t getSlavesOutputBufferMemoryUsage(void);
 int freeClientsInAsyncFreeQueue(void);
 int closeClientOnOutputBufferLimitReached(client *c, int async);
 int getClientType(client *c);
@@ -2090,6 +2105,8 @@ ssize_t syncReadLine(int fd, char *ptr, ssize_t size, long long timeout);
 /* Replication */
 void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc);
 void replicationFeedSlavesFromMasterStream(list *slaves, char *buf, size_t buflen);
+void feedReplicationBuffer(char *buf, size_t len);
+void freeSlaveReferencedReplBuffer(client *replica);
 void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv, int argc);
 void updateSlavesWaitingBgsave(int bgsaveerr, int type);
 void replicationCron(void);
@@ -2114,9 +2131,11 @@ long long getPsyncInitialOffset(void);
 int replicationSetupSlaveForFullResync(client *slave, long long offset);
 void changeReplicationId(void);
 void clearReplicationId2(void);
-void chopReplicationBacklog(void);
 void replicationCacheMasterUsingMyself(void);
 void feedReplicationBacklog(void *ptr, size_t len);
+void trimReplicationBacklog(void);
+void trimReplicationBuffer(void);
+int canFeedReplicaReplBuffer(client *replica);
 void showLatestBacklog(void);
 void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData, int mask);
 void rdbPipeWriteHandlerConnRemoved(struct connection *conn);

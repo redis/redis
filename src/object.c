@@ -1174,15 +1174,16 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
 
     mem = 0;
     if (server.repl_backlog)
-        mem += zmalloc_size(server.repl_backlog);
+        mem += server.repl_backlog->size +
+               server.repl_backlog->blocks * (sizeof(replBufBlock)+sizeof(listNode)) +
+               listLength(server.repl_backlog->recorded_blocks) * sizeof(listNode);
     mh->repl_backlog = mem;
     mem_total += mem;
 
+    mh->clients_slaves = getSlavesOutputBufferMemoryUsage();
     /* Computing the memory used by the clients would be O(N) if done
      * here online. We use our values computed incrementally by
      * clientsCronTrackClientsMemUsage(). */
-    mh->clients_slaves = server.stat_clients_type_memory[CLIENT_TYPE_SLAVE]+
-                         server.repl_buffer_size;
     mh->clients_normal = server.stat_clients_type_memory[CLIENT_TYPE_MASTER]+
                          server.stat_clients_type_memory[CLIENT_TYPE_PUBSUB]+
                          server.stat_clients_type_memory[CLIENT_TYPE_NORMAL];
@@ -1313,7 +1314,7 @@ sds getMemoryDoctorReport(void) {
         }
 
         /* Slaves using more than 10 MB each? */
-        if (numslaves > 0 && mh->clients_slaves / numslaves > (1024*1024*10)) {
+        if (numslaves > 0 && mh->clients_slaves > (1024*1024*10)) {
             big_slave_buf = 1;
             num_reports++;
         }

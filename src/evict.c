@@ -329,19 +329,13 @@ unsigned long LFUDecrAndReturn(robj *o) {
  * returns the sum of AOF and slaves buffer. */
 size_t freeMemoryGetNotCountedMemory(void) {
     size_t overhead = 0;
-    int slaves = listLength(server.slaves);
 
-    if (slaves) {
-        listIter li;
-        listNode *ln;
-
-        listRewind(server.slaves,&li);
-        while((ln = listNext(&li))) {
-            client *slave = listNodeValue(ln);
-            overhead += getClientPrivateOutputBufferMemoryUsage(slave);
-        }
+    /* We may create more record blocks when feed more replication stream
+     * into replication buffer, so we should not count it. */
+    if (server.repl_backlog) {
+        overhead += sizeof(listNode)*listLength(server.repl_backlog->recorded_blocks);
     }
-    overhead += server.repl_buffer_size;
+    overhead += getSlavesOutputBufferMemoryUsage();
     if (server.aof_state != AOF_OFF) {
         overhead += sdsAllocSize(server.aof_buf)+aofRewriteBufferMemoryUsage();
     }

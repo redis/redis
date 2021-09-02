@@ -110,11 +110,14 @@ int bg_unlink(const char *filename) {
 
 void createReplicationBacklog(void) {
     serverAssert(server.repl_backlog == NULL);
-    server.repl_backlog = zmalloc(server.cfg_repl_backlog_size);
-    server.repl_backlog_size = zmalloc_usable_size(server.repl_backlog);
-    server.repl_backlog_histlen = 0;
-    server.repl_backlog_idx = 0;
+    server.repl_backlog = zmalloc(sizeof(replBacklogRefReplBuf));
+    server.repl_backlog->ref_repl_buf_node = NULL;
+    server.repl_backlog->size = 0;
+    server.repl_backlog->blocks = 0;
+    server.repl_backlog->unrecorded_count = 0;
+    server.repl_backlog->recorded_blocks = listCreate();
 
+    server.repl_backlog_histlen = 0;
     /* We don't have any data inside our buffer, but virtually the first
      * byte we have is the next byte that will be generated for the
      * replication stream. */
@@ -123,82 +126,36 @@ void createReplicationBacklog(void) {
 
 /* This function is called when the user modifies the replication backlog
  * size at runtime. It is up to the function to both update the
- * server.cfg_repl_backlog_size and to resize the buffer and setup it so that
+ * server.repl_backlog_size and to resize the buffer and setup it so that
  * it contains the same data as the previous one (possibly less data, but
  * the most recent bytes, or the same data and more free space in case the
  * buffer is enlarged). */
 void resizeReplicationBacklog(long long newsize) {
     if (newsize < CONFIG_REPL_BACKLOG_MIN_SIZE)
         newsize = CONFIG_REPL_BACKLOG_MIN_SIZE;
-    if (server.cfg_repl_backlog_size == newsize) return;
+    if (server.repl_backlog_size == newsize) return;
 
-    server.cfg_repl_backlog_size = newsize;
-    if (server.repl_backlog != NULL) {
-        /* What we actually do is to flush the old buffer and realloc a new
-         * empty one. It will refill with new data incrementally.
-         * The reason is that copying a few gigabytes adds latency and even
-         * worse often we need to alloc additional space before freeing the
-         * old buffer. */
-        zfree(server.repl_backlog);
-        server.repl_backlog = zmalloc(server.cfg_repl_backlog_size);
-        server.repl_backlog_size = zmalloc_usable_size(server.repl_backlog);
-        server.repl_backlog_histlen = 0;
-        server.repl_backlog_idx = 0;
-        /* Next byte we have is... the next since the buffer is empty. */
-        server.repl_backlog_off = server.master_repl_offset+1;
-    }
+    server.repl_backlog_size = newsize;
+    if (server.repl_backlog) trimReplicationBacklog();
 }
 
 void freeReplicationBacklog(void) {
     serverAssert(listLength(server.slaves) == 0);
+    if (server.repl_backlog == NULL) return;
+
+    /* Increase the start buffer node reference count. */
+    if (server.repl_backlog->ref_repl_buf_node) {
+        replBufBlock *o = listNodeValue(
+            server.repl_backlog->ref_repl_buf_node);
+        serverAssert(o->refcount > 0);
+        o->refcount--;
+    }
+    trimReplicationBuffer();
+    serverAssert(server.repl_buffer_size == 0);
+    serverAssert(listLength(server.repl_buffer_blocks) == 0);
+    listRelease(server.repl_backlog->recorded_blocks);
     zfree(server.repl_backlog);
     server.repl_backlog = NULL;
-}
-
-/* Add data to the replication backlog.
- * This function also increments the global replication offset stored at
- * server.master_repl_offset, because there is no case where we want to feed
- * the backlog without incrementing the offset. */
-void feedReplicationBacklog(void *ptr, size_t len) {
-    unsigned char *p = ptr;
-
-    server.master_repl_offset += len;
-
-    /* This is a circular buffer, so write as much data we can at every
-     * iteration and rewind the "idx" index if we reach the limit. */
-    while(len) {
-        size_t thislen = server.repl_backlog_size - server.repl_backlog_idx;
-        if (thislen > len) thislen = len;
-        memcpy(server.repl_backlog+server.repl_backlog_idx,p,thislen);
-        server.repl_backlog_idx += thislen;
-        if (server.repl_backlog_idx == server.repl_backlog_size)
-            server.repl_backlog_idx = 0;
-        len -= thislen;
-        p += thislen;
-        server.repl_backlog_histlen += thislen;
-    }
-    if (server.repl_backlog_histlen > server.repl_backlog_size)
-        server.repl_backlog_histlen = server.repl_backlog_size;
-    /* Set the offset of the first byte we have in the backlog. */
-    server.repl_backlog_off = server.master_repl_offset -
-                              server.repl_backlog_histlen + 1;
-}
-
-/* Wrapper for feedReplicationBacklog() that takes Redis string objects
- * as input. */
-void feedReplicationBacklogWithObject(robj *o) {
-    char llstr[LONG_STR_SIZE];
-    void *p;
-    size_t len;
-
-    if (o->encoding == OBJ_ENCODING_INT) {
-        len = ll2string(llstr,sizeof(llstr),(long)o->ptr);
-        p = llstr;
-    } else {
-        len = sdslen(o->ptr);
-        p = o->ptr;
-    }
-    feedReplicationBacklog(p,len);
 }
 
 int canFeedReplicaReplBuffer(client *replica) {
@@ -211,22 +168,10 @@ int canFeedReplicaReplBuffer(client *replica) {
     return 1;
 }
 
-/* Because we put replication buffer together, we need to check very
- * replica when we want to send replication buffer to replicas. */
-int canFeedReplicationBuffer(void) {
-    listNode *ln;
-    listIter li;
-    listRewind(server.slaves,&li);
-    while((ln = listNext(&li))) {
-        client *slave = ln->value;
-        if (canFeedReplicaReplBuffer(slave)) return 1;
-    }
-    return 0;
-}
-
-/* Similar with 'prepareClientToWrite', we apply to evey replica,
- * we can add replication buffer only when not less one replica
- * is prepared to write. */
+/* Similar with 'prepareClientToWrite', note that we must call this function
+ * before feeding replication stream into global replication buffer, since
+ * clientHasPendingReplies in prepareClientToWrite will access the global
+ * replication buffer to make judgements. */
 int prepareReplicasToWrite(void) {
     listIter li;
     listNode *ln;
@@ -243,7 +188,7 @@ int prepareReplicasToWrite(void) {
     return prepared;
 }
 
-/* Wrapper for canFeedReplicationBuffer() that takes Redis string objects
+/* Wrapper for feedReplicationBuffer() that takes Redis string objects
  * as input. */
 void feedReplicationBufferWithObject(robj *o) {
     char llstr[LONG_STR_SIZE];
@@ -257,16 +202,79 @@ void feedReplicationBufferWithObject(robj *o) {
         len = sdslen(o->ptr);
         p = o->ptr;
     }
-    feedReplicationBuffer(p,len);
+    feedReplicationBuffer(p, len);
 }
 
-/* Add one buffer into the global replication buffer, all replicas use
- * replication buffer collectively, this function replace 'addReply*'
- * for replicas client, at the first, we prepare replicas to write, then
- * add buffer to a global buffer block list, update replica referred block
- * node position info and check output buffer limit. */
+void trimReplicationBacklog(void) {
+    serverAssert(server.repl_backlog != NULL);
+
+    size_t ntrim = 0;
+    while (server.repl_backlog_histlen > server.repl_backlog_size) {
+        /* We never trim backlog if only one block. */
+        if (listLength(server.repl_buffer_blocks) <= 1) break;
+
+        /* Replicas still keep the first replication buffer block, we don't
+         * trim replication log even backlog_histlen exceeds backlog_size,
+         * this implicitly makes backlog bigger than our setting, but make
+         * master accept partial resync as much as possible. So that backlog
+         * must be the last reference of replication buffer blocks. */
+        listNode *first = listFirst(server.repl_buffer_blocks);
+        serverAssert(first == server.repl_backlog->ref_repl_buf_node);
+        replBufBlock *fo = listNodeValue(first);
+        if (fo->refcount != 1) break;
+
+        /* We don't try trim backlog if backlog valid size will be lessen than
+         * setting backlog size once we release the first repl buffer block. */
+        replBufBlock *lo = listNodeValue(listLast(server.repl_buffer_blocks));
+        size_t unused = lo->size - lo->used;
+        if (server.repl_backlog->size - unused - fo->size <=
+            (size_t)server.repl_backlog_size) break;
+
+        /* Desr refcount and release the first block. */
+        fo->refcount--;
+        server.repl_backlog->blocks--;
+        server.repl_backlog->size -= fo->size;
+        ntrim += fo->size;
+
+        /* Go to use next replication buffer block node. */
+        listNode *next = listNextNode(first);
+        server.repl_backlog->ref_repl_buf_node = next;
+        serverAssert(server.repl_backlog->ref_repl_buf_node != NULL);
+        /* Incr reference count to keep new start node. */
+        ((replBufBlock *)listNodeValue(next))->refcount++;
+
+        /* Remove first node in recorded blocks if needed */
+        listNode *record = listFirst(server.repl_backlog->recorded_blocks);
+        if (record != NULL && listNodeValue(record) == first)
+            listDelNode(server.repl_backlog->recorded_blocks, record);
+
+        /* Delete first node from global replication buffer. */
+        serverAssert(fo->refcount == 0 && fo->used == fo->size);
+        server.repl_buffer_size -= (fo->size +
+            sizeof(listNode) + sizeof(replBufBlock));
+        listDelNode(server.repl_buffer_blocks, first);
+    }
+
+    server.repl_backlog_histlen -= ntrim;
+    /* Set the offset of the first byte we have in the backlog. */
+    server.repl_backlog_off = server.master_repl_offset -
+                              server.repl_backlog_histlen + 1;
+}
+
+/* Add one buffer into the global replication buffer, replication backlog and
+ * all slaves use replication buffer collectively, this function replace
+ * 'addReply*', 'feedReplicationBacklog' for slaves and replication backlog,
+ * First we add buffer into global replication buffer block list, and then
+ * update slaves/replication-backlog referenced node and block position. */
 void feedReplicationBuffer(char *s, size_t len) {
-    if (prepareReplicasToWrite() == 0) return;
+    static long long repl_block_id = 0;
+
+    if (server.repl_backlog == NULL) return;
+    server.master_repl_offset += len;
+    server.repl_backlog_histlen += len;
+
+    /* Install write handler for all replicas. */
+    prepareReplicasToWrite();
 
     size_t start_pos = 0;
     listNode *start_node = NULL;
@@ -299,6 +307,8 @@ void feedReplicationBuffer(char *s, size_t len) {
         tail->size = usable_size - sizeof(replBufBlock);
         tail->used = len;
         tail->refcount = 0;
+        tail->repl_offset = server.master_repl_offset - tail->used + 1;
+        tail->id = repl_block_id++;
         memcpy(tail->buf, s, len);
         listAddNodeTail(server.repl_buffer_blocks, tail);
         server.repl_buffer_size += (usable_size + sizeof(listNode));
@@ -309,6 +319,7 @@ void feedReplicationBuffer(char *s, size_t len) {
         }
     }
 
+    /* For output buffer of replicas. */
     listIter li;
     listRewind(server.slaves,&li);
     while((ln = listNext(&li))) {
@@ -316,68 +327,94 @@ void feedReplicationBuffer(char *s, size_t len) {
         if (!canFeedReplicaReplBuffer(slave)) continue;
 
         /* Update shared replication buffer start position. */
-        if (slave->start_buf_node == NULL) {
-            slave->start_buf_node = start_node;
-            slave->start_buf_block_pos = start_pos;
+        if (slave->ref_repl_buf_node == NULL) {
+            slave->ref_repl_buf_node = start_node;
+            slave->ref_block_pos = start_pos;
             /* Only increase the start block reference count. */
             ((replBufBlock *)listNodeValue(start_node))->refcount++;
-
-            /* Use the before existed last node. */
+            /* Use last not full block. */
             if (used_last_block) {
-                slave->used_repl_buf_blocks++;
-                /* To easily calculate output buffer size of slave, we add repl
-                 * block size and list node size into used_repl_buf_size. */
-                slave->used_repl_buf_size += (used_last_block->size +
-                            sizeof(listNode) + sizeof(replBufBlock));
+                slave->used_blocks_of_repl_buf++;
+                slave->used_size_of_repl_buf += used_last_block->size;
             }
         }
 
+        /* Incr used replication buffer size, check output buffer limit
+         * only when add new block. */
         if (add_new_block) {
-            slave->used_repl_buf_blocks++;
-            slave->used_repl_buf_size += (tail->size + sizeof(listNode) +
-                                          sizeof(replBufBlock));
+            slave->used_blocks_of_repl_buf++;
+            slave->used_size_of_repl_buf += tail->size;
             closeClientOnOutputBufferLimitReached(slave, 1);
         }
     }
+
+    /* For replication backlog */
+    if (server.repl_backlog->ref_repl_buf_node == NULL) {
+        server.repl_backlog->ref_repl_buf_node = start_node;
+        /* Only increase the start block reference count. */
+        ((replBufBlock *)listNodeValue(start_node))->refcount++;
+
+        /* Replication buffer must be empty before adding replication stream
+         * into replication backlog. */
+        serverAssert(used_last_block == NULL);
+    }
+    if (add_new_block) {
+        server.repl_backlog->blocks++;
+        server.repl_backlog->size += tail->size;
+        /* To make search offset from replication buffer blocks quickly
+         * when replicas ask partial resynchronization, we record one block
+         * every 1000 blocks. */
+        server.repl_backlog->unrecorded_count++;
+        if (server.repl_backlog->unrecorded_count >= 1000) {
+            listAddNodeTail(server.repl_backlog->recorded_blocks,
+                            listLast(server.repl_buffer_blocks));
+            server.repl_backlog->unrecorded_count = 0;
+        }
+    }
+    /* Trim replication backlog. */
+    trimReplicationBacklog();
 }
 
-/* Free replication buffer blocks that are referred by this client. */
-void freeReplicaReplBuffer(client *replica) {
-    /* Increase the start buffer node reference count. */
-    if (replica->start_buf_node) {
-        replBufBlock *o = listNodeValue(replica->start_buf_node);
-        serverAssert(o->refcount > 0);
-        o->refcount--;
-    }
-
+void trimReplicationBuffer(void) {
     listIter li;
     listNode *ln;
-    /* Free replication buffer blocks whose refcount is 0. */
     listRewind(server.repl_buffer_blocks, &li);
     while ((ln = listNext(&li))) {
         replBufBlock *o = listNodeValue(ln);
+        /* Free replication buffer blocks whose refcount is 0. */
         if (o->refcount == 0) {
             server.repl_buffer_size -= (o->size +
                 sizeof(listNode) + sizeof(replBufBlock));
             listDelNode(server.repl_buffer_blocks, ln);
         } else {
-            /* Can't continue to iterate, because other clients may
-             * refer the remaining buffer blocks even their reference
-             * count is 0. */
             break;
         }
     }
-    replica->start_buf_node = NULL;
-    replica->start_buf_block_pos = 0;
-    replica->used_repl_buf_blocks = 0;
-    replica->used_repl_buf_size = 0;
 }
 
-/* Propagate write commands to slaves, and populate the replication backlog
- * as well. This function is used if the instance is a master: we use
- * the commands received by our clients in order to create the replication
- * stream. Instead if the instance is a slave and has sub-slaves attached,
- * we use replicationFeedSlavesFromMasterStream() */
+/* Free replication buffer blocks that are referenced by this client. */
+void freeSlaveReferencedReplBuffer(client *replica) {
+    if (replica->ref_repl_buf_node != NULL) {
+        /* Decrease the start buffer node reference count. */
+        replBufBlock *o = listNodeValue(replica->ref_repl_buf_node);
+        serverAssert(o->refcount > 0);
+        o->refcount--;
+        trimReplicationBacklog();
+    }
+    replica->ref_repl_buf_node = NULL;
+    replica->ref_block_pos = 0;
+    replica->used_blocks_of_repl_buf = 0;
+    replica->used_size_of_repl_buf = 0;
+}
+
+/* Propagate write commands to replication buffer. Now, we uniform slaves's
+ * output buffer and replication backlog into one shared replication buffer.
+ * Replication backlog just is logical.
+ *
+ * This function is used if the instance is a master: we use the commands
+ * received by our clients in order to create the replication stream.
+ * Instead if the instance is a slave and has sub-slaves attached, we use
+ * replicationFeedSlavesFromMasterStream() */
 void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
     int j, len;
     char llstr[LONG_STR_SIZE];
@@ -396,8 +433,6 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
     /* We can't have slaves attached and no backlog. */
     serverAssert(!(listLength(slaves) != 0 && server.repl_backlog == NULL));
 
-    int can_feed_repl_buf = canFeedReplicationBuffer();
-
     /* Send SELECT command to every slave if needed. */
     if (server.slaveseldb != dictid) {
         robj *selectcmd;
@@ -415,48 +450,36 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
                 dictid_len, llstr));
         }
 
-        /* Add the SELECT command into the backlog. */
-        if (server.repl_backlog) feedReplicationBacklogWithObject(selectcmd);
-        if (can_feed_repl_buf) feedReplicationBufferWithObject(selectcmd);
+        feedReplicationBufferWithObject(selectcmd);
 
         if (dictid < 0 || dictid >= PROTO_SHARED_SELECT_CMDS)
             decrRefCount(selectcmd);
     }
     server.slaveseldb = dictid;
 
-    /* Write the command to the replication backlog if any. */
-    if (server.repl_backlog || can_feed_repl_buf) {
-        char aux[LONG_STR_SIZE+3];
+    /* Write the command to the replication buffer if any. */
+    char aux[LONG_STR_SIZE+3];
 
-        /* Add the multi bulk reply length. */
-        aux[0] = '*';
-        len = ll2string(aux+1,sizeof(aux)-1,argc);
+    /* Add the multi bulk reply length. */
+    aux[0] = '*';
+    len = ll2string(aux+1,sizeof(aux)-1,argc);
+    aux[len+1] = '\r';
+    aux[len+2] = '\n';
+    feedReplicationBuffer(aux,len+3);
+
+    for (j = 0; j < argc; j++) {
+        long objlen = stringObjectLen(argv[j]);
+
+        /* We need to feed the buffer with the object as a bulk reply
+         * not just as a plain string, so create the $..CRLF payload len
+         * and add the final CRLF */
+        aux[0] = '$';
+        len = ll2string(aux+1,sizeof(aux)-1,objlen);
         aux[len+1] = '\r';
         aux[len+2] = '\n';
-        if (server.repl_backlog) feedReplicationBacklog(aux,len+3);
-        if (can_feed_repl_buf) feedReplicationBuffer(aux,len+3);
-
-        for (j = 0; j < argc; j++) {
-            long objlen = stringObjectLen(argv[j]);
-
-            /* We need to feed the buffer with the object as a bulk reply
-             * not just as a plain string, so create the $..CRLF payload len
-             * and add the final CRLF */
-            aux[0] = '$';
-            len = ll2string(aux+1,sizeof(aux)-1,objlen);
-            aux[len+1] = '\r';
-            aux[len+2] = '\n';
-            if (server.repl_backlog) {
-                feedReplicationBacklog(aux,len+3);
-                feedReplicationBacklogWithObject(argv[j]);
-                feedReplicationBacklog(aux+len+1,2);
-            }
-            if (can_feed_repl_buf) {
-                feedReplicationBuffer(aux,len+3);
-                feedReplicationBufferWithObject(argv[j]);
-                feedReplicationBuffer(aux+len+1,2);
-            }
-        }
+        feedReplicationBuffer(aux,len+3);
+        feedReplicationBufferWithObject(argv[j]);
+        feedReplicationBuffer(aux+len+1,2);
     }
 }
 
@@ -466,26 +489,22 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
  * guess what kind of bug it could be. */
 void showLatestBacklog(void) {
     if (server.repl_backlog == NULL) return;
+    if (listLength(server.repl_buffer_blocks) == 0) return;
 
-    long long dumplen = 256;
-    if (server.repl_backlog_histlen < dumplen)
+    size_t dumplen = 256;
+    if (server.repl_backlog_histlen < (long long)dumplen)
         dumplen = server.repl_backlog_histlen;
 
-    /* Identify the first byte to dump. */
-    long long idx =
-      (server.repl_backlog_idx + (server.repl_backlog_size - dumplen)) %
-       server.repl_backlog_size;
-
-    /* Scan the circular buffer to collect 'dumplen' bytes. */
     sds dump = sdsempty();
+    listNode *node = listLast(server.repl_buffer_blocks);
     while(dumplen) {
-        long long thislen =
-            ((server.repl_backlog_size - idx) < dumplen) ?
-            (server.repl_backlog_size - idx) : dumplen;
-
-        dump = sdscatrepr(dump,server.repl_backlog+idx,thislen);
+        if (node == NULL) break;
+        replBufBlock *o = listNodeValue(node);
+        size_t thislen = o->used >= dumplen ? dumplen : o->used;
+        sds head = sdscatrepr(sdsempty(), o->buf+o->used-thislen, thislen);
+        dump = sdscatsds(head, dump);
         dumplen -= thislen;
-        idx = 0;
+        node = listPrevNode(node);
     }
 
     /* Finally log such bytes: this is vital debugging info to
@@ -510,8 +529,9 @@ void replicationFeedSlavesFromMasterStream(list *slaves, char *buf, size_t bufle
         printf("\n");
     }
 
-    if (server.repl_backlog) feedReplicationBacklog(buf,buflen);
-    if (canFeedReplicationBuffer()) feedReplicationBuffer(buf,buflen);
+    /* There must be replication backlog if having attached slaves. */
+    if (listLength(server.slaves)) serverAssert(server.repl_backlog != NULL);
+    if (server.repl_backlog) feedReplicationBuffer(buf,buflen);
 }
 
 void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv, int argc) {
@@ -557,7 +577,7 @@ void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv,
 /* Feed the slave 'c' with the replication backlog starting from the
  * specified 'offset' up to the end of the backlog. */
 long long addReplyReplicationBacklog(client *c, long long offset) {
-    long long j, skip, len;
+    long long skip;
 
     serverLog(LL_DEBUG, "[PSYNC] Replica request offset: %lld", offset);
 
@@ -572,37 +592,58 @@ long long addReplyReplicationBacklog(client *c, long long offset) {
              server.repl_backlog_off);
     serverLog(LL_DEBUG, "[PSYNC] History len: %lld",
              server.repl_backlog_histlen);
-    serverLog(LL_DEBUG, "[PSYNC] Current index: %lld",
-             server.repl_backlog_idx);
 
     /* Compute the amount of bytes we need to discard. */
     skip = offset - server.repl_backlog_off;
     serverLog(LL_DEBUG, "[PSYNC] Skipping: %lld", skip);
 
-    /* Point j to the oldest byte, that is actually our
-     * server.repl_backlog_off byte. */
-    j = (server.repl_backlog_idx +
-        (server.repl_backlog_size-server.repl_backlog_histlen)) %
-        server.repl_backlog_size;
-    serverLog(LL_DEBUG, "[PSYNC] Index of first byte: %lld", j);
-
-    /* Discard the amount of data to seek to the specified 'offset'. */
-    j = (j + skip) % server.repl_backlog_size;
-
-    /* Feed slave with data. Since it is a circular buffer we have to
-     * split the reply in two parts if we are cross-boundary. */
-    len = server.repl_backlog_histlen - skip;
-    serverLog(LL_DEBUG, "[PSYNC] Reply total length: %lld", len);
-    while(len) {
-        long long thislen =
-            ((server.repl_backlog_size - j) < len) ?
-            (server.repl_backlog_size - j) : len;
-
-        serverLog(LL_DEBUG, "[PSYNC] addReply() length: %lld", thislen);
-        addReplyProto(c,server.repl_backlog + j, thislen);
-        len -= thislen;
-        j = 0;
+    /* Iterate recorded blocks, quickly search the approximate node. */
+    listNode *node = NULL;
+    if (listLength(server.repl_backlog->recorded_blocks) > 0) {
+        listNode *ln = listFirst(server.repl_backlog->recorded_blocks);
+        while (ln != NULL) {
+            replBufBlock *o = listNodeValue((listNode*)listNodeValue(ln));
+            if (o->repl_offset > offset) {
+                listNode *pre_node = listPrevNode(ln);
+                if (pre_node != NULL)
+                    node = listNodeValue(pre_node);
+                else
+                    node = server.repl_backlog->ref_repl_buf_node;
+                break;
+            }
+            ln = listNextNode(ln);
+        }
+        /* Not found, iterate from the last recorded blocks. */
+        if (ln == NULL) node = listNodeValue(listLast(
+                                server.repl_backlog->recorded_blocks));
+    } else {
+        /* No recorded blocks, just from start node to search. */
+        node = server.repl_backlog->ref_repl_buf_node;
     }
+
+    /* Search the exact node. */
+    while (node != NULL) {
+        replBufBlock *o = listNodeValue(node);
+        if (o->repl_offset + (long long)o->used >= offset) break;
+        node = listNextNode(node);
+    }
+    serverAssert(node != NULL);
+
+    /* Install a writer handler first.*/
+    prepareClientToWrite(c);
+    /* Setting output buffer of the replica. */
+    replBufBlock *o = listNodeValue(node);
+    o->refcount++;
+    c->ref_repl_buf_node = node;
+    c->ref_block_pos = offset - o->repl_offset;
+    replBufBlock *last = listNodeValue(listLast(server.repl_buffer_blocks));
+    c->used_blocks_of_repl_buf = last->id - o->id + 1;
+    c->used_size_of_repl_buf = last->repl_offset + last->size - o->repl_offset;
+    /* The bytes of slave client used replication buffer should be equal to
+     * the bytes of sending to slave from asking offset. */
+    serverAssert((long long)(c->used_size_of_repl_buf - c->ref_block_pos -
+            (last->size-last->used)) == server.repl_backlog_histlen - skip);
+
     return server.repl_backlog_histlen - skip;
 }
 
@@ -737,10 +778,6 @@ int masterTryPartialResynchronization(client *c) {
         freeClientAsync(c);
         return C_OK;
     }
-    /* Replication backlog is added to client static buffer or reply list
-     * instead of global repl buffer because it may already has this content,
-     * And this content is always the first reply to send replicas, so we must
-     * send this content firstly and then send replication buffer. */
     psync_len = addReplyReplicationBacklog(c,psync_offset);
     serverLog(LL_NOTICE,
         "Partial resynchronization request from %s accepted. Sending %lld bytes of backlog starting from offset %lld.",
@@ -993,7 +1030,7 @@ void syncCommand(client *c) {
              * another slave. Set the right state, and copy the buffer.
              * We don't copy buffer if clients don't want. */
             if (!(c->flags & CLIENT_REPL_RDBONLY))
-                copyWaitBgsaveReplicaReplBuffer(c,slave);
+                copySlaveOutputBuffer(c,slave);
             replicationSetupSlaveForFullResync(c,slave->psync_initial_offset);
             serverLog(LL_NOTICE,"Waiting for end of BGSAVE for SYNC");
         } else {
@@ -3051,7 +3088,7 @@ void replicationCacheMaster(client *c) {
     server.master->read_reploff = server.master->reploff;
     if (c->flags & CLIENT_MULTI) discardTransaction(c);
     listEmpty(c->reply);
-    freeReplicaReplBuffer(c);
+    freeSlaveReferencedReplBuffer(c);
     c->sentlen = 0;
     c->reply_bytes = 0;
     c->bufpos = 0;
@@ -3619,6 +3656,19 @@ void replicationCron(void) {
      * with any persistence. */
     removeRDBUsedToSyncReplicas();
 
+    /* Check replication buffer, the first block of replication buffer blocks
+     * must be referenced by some one, because it will be freed if no reference,
+     * otherwise, server will be OOM, and its refcount must not be more than
+     * replicas number + 1(replication backlog). */
+    if (listLength(server.repl_buffer_blocks) > 0) {
+        replBufBlock *o = listNodeValue(listFirst(server.repl_buffer_blocks));
+        serverAssert(o->refcount > 0 &&
+            o->refcount <= (size_t)listLength(server.slaves)+1);
+    }
+
+    /* Trim replication backlog. */
+    if (server.repl_backlog) trimReplicationBacklog();
+
     /* Refresh the number of slaves with lag <= min-slaves-max-lag. */
     refreshGoodSlavesCount();
     replication_cron_loops++; /* Incremented with frequency 1 HZ. */
@@ -3927,13 +3977,5 @@ void updateFailoverStatus(void) {
         /* Designated replica is caught up, failover to it. */
         replicationSetMaster(server.target_replica_host,
             server.target_replica_port);
-    }
-
-    /* Check replication buffer, the first block of replication buffer blocks must be
-     * referred by some one replica, because it will be freed if no reference, otherwise,
-     * server will be OOM, and its refcount must not be more than replicas number. */
-    if (listLength(server.repl_buffer_blocks)) {
-       replBufBlock *o = listNodeValue(listFirst(server.repl_buffer_blocks));
-       serverAssert(o->refcount > 0 && o->refcount <= listLength(server.slaves));
     }
 }
