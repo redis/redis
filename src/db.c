@@ -1614,7 +1614,6 @@ int getKeysUsingCommandTable(struct redisCommand *cmd,robj **argv, int argc, get
              * return no keys and expect the command implementation to report
              * an arity or syntax error. */
             if (cmd->flags & CMD_MODULE || cmd->arity < 0) {
-                getKeysFreeResult(result);
                 result->numkeys = 0;
                 return 0;
             } else {
