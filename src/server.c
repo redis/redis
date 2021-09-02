@@ -6006,7 +6006,7 @@ void dismissMemoryInChild(void) {
     listRewind(server.repl_buffer_blocks, &li);
     while((ln = listNext(&li))) {
         replBufBlock *o = listNodeValue(ln);
-        dismissClientMemory(o, o->size);
+        dismissMemory(o, o->size);
     }
 
     /* Dismiss all clients memory. */

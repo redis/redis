@@ -752,7 +752,7 @@ typedef struct clientReplyBlock {
 } clientReplyBlock;
 
 /* Similar with 'clientReplyBlock', id is the unique incremental number for
- * identify replBufBlock, repl_offset is the start replication offest of the
+ * identify replBufBlock, repl_offset is the start replication offset of the
  * block, and we add refcount field, because we want to replication backlog
  * all replicas to use the global replication buffer, increase reference count
  * when one of them starts uses it, decrease when they want to dismiss it. */

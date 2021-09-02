@@ -115,7 +115,7 @@ start_server {} {
         assert {[s mem_replication_backlog] >= [s mem_clients_slaves]}
     }
 
-    # Wating slave1 catch up with the master
+    # Wait slave1 catch up with the master
     wait_for_condition 1000 100 {
         [s -2 master_repl_offset] eq [s master_repl_offset]
     } else {
