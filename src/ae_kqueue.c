@@ -86,7 +86,7 @@ static int aeApiResize(aeEventLoop *eventLoop, int setsize) {
 
     state->events = zrealloc(state->events, sizeof(struct kevent)*setsize);
     state->eventsMask = zrealloc(state->eventsMask, EVENT_MASK_MALLOC_SIZE(setsize));
-    memset(state->eventsMask, 0, EVENT_MASK_MALLOC_SIZE(eventLoop->setsize));
+    memset(state->eventsMask, 0, EVENT_MASK_MALLOC_SIZE(setsize));
     return 0;
 }
 
