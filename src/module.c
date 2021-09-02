@@ -1098,7 +1098,7 @@ int RM_AddCommandKeySpec(RedisModuleCtx *ctx, const char *name, const char *spec
 /* Set a "index" key arguments spec to a command (begin_search step).
  * See RedisModule_AddCommandKeySpec's doc.
  *
- * index - The index from which we start the serach for keys
+ * index - The index from which we start the search for keys
  *
  * Returns REDISMODULE_OK */
 int RM_SetCommandKeySpecBeginSearchIndex(RedisModuleCtx *ctx, const char *name, int spec_id, int index) {
@@ -1114,7 +1114,7 @@ int RM_SetCommandKeySpecBeginSearchIndex(RedisModuleCtx *ctx, const char *name, 
  *
  * keyword - The keyword that indicates the beginning of key args
  * startfrom - An index in argv from which to start searching.
- *             Can be negative, which means start search fromthe end, in reverse
+ *             Can be negative, which means start search from the end, in reverse
  *             (Example: -2 means to start in reverse from the panultimate arg)
  * Returns REDISMODULE_OK */
 int RM_SetCommandKeySpecBeginSearchKeyword(RedisModuleCtx *ctx, const char *name, int spec_id, const char *keyword, int startfrom) {
@@ -1150,7 +1150,7 @@ int RM_SetCommandKeySpecFindKeysRange(RedisModuleCtx *ctx, const char *name, int
  * See RedisModule_AddCommandKeySpec's doc.
  *
  * keynumidx - Relative index (to the result of the begin_search step) where the arguments that
- *             contians the number of keys is.
+ *             contains the number of keys is.
  * firstkey - Relative index (to the result of the begin_search step) where the first key is
  *            found (Usually it's just after keynumidx, so it should be keynumidx+1)
  * keystep - How many args should we skip after finding a key, in order to find the next one.

@@ -1744,14 +1744,14 @@ typedef struct {
     kspec_bs_type begin_search_type;
     union {
         struct {
-            /* The index from which we start the serach for keys */
+            /* The index from which we start the search for keys */
             int pos;
         } index;
         struct {
             /* The keyword that indicates the beginning of key args */
             const char *keyword;
             /* An index in argv from which to start searching.
-             * Can be negative, which means start search fromthe end, in reverse
+             * Can be negative, which means start search from the end, in reverse
              * (Example: -2 means to start in reverse from the panultimate arg) */
             int startfrom;
         } keyword;
