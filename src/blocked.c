@@ -87,6 +87,11 @@ typedef struct bkinfo {
  * flag is set client query buffer is not longer processed, but accumulated,
  * and will be processed when the client is unblocked. */
 void blockClient(client *c, int btype) {
+    /* Master client should never be blocked unless pause or module */
+    serverAssert(!(c->flags & CLIENT_MASTER &&
+                   btype != BLOCKED_MODULE &&
+                   btype != BLOCKED_PAUSE));
+
     c->flags |= CLIENT_BLOCKED;
     c->btype = btype;
     server.blocked_clients++;
