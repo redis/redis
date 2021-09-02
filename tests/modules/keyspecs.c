@@ -51,14 +51,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
 
     /* First is legacy, rest are new specs */
-    if (RedisModule_CreateCommand(ctx,"kspec.complex1",kspec_complex1,"",0,0,0) == REDISMODULE_ERR)
-        return REDISMODULE_ERR;
-
-    if (RedisModule_AddCommandKeySpec(ctx,"kspec.complex1","read",&spec_id) == REDISMODULE_ERR)
-        return REDISMODULE_ERR;
-    if (RedisModule_SetCommandKeySpecBeginSearchIndex(ctx,"kspec.complex1",spec_id,1) == REDISMODULE_ERR)
-        return REDISMODULE_ERR;
-    if (RedisModule_SetCommandKeySpecFindKeysRange(ctx,"kspec.complex1",spec_id,0,1,0) == REDISMODULE_ERR)
+    if (RedisModule_CreateCommand(ctx,"kspec.complex1",kspec_complex1,"",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_AddCommandKeySpec(ctx,"kspec.complex1","write",&spec_id) == REDISMODULE_ERR)

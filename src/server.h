@@ -1723,37 +1723,61 @@ typedef struct {
  * 1. range: keys end at a specific index (or relative to the last argument)
  * 2. keynum: there's an arg that contains the number of key args somewhere before the keys themselves
  */
-#define KSPEC_BS_INVALID   0 /* Must be 0 */
-#define KSPEC_BS_UNKNOWN   1
-#define KSPEC_BS_INDEX     2
-#define KSPEC_BS_KEYWORD   3
-#define KSPEC_FK_INVALID   0 /* Must be 0 */
-#define KSPEC_FK_UNKNOWN   1
-#define KSPEC_FK_RANGE     2
-#define KSPEC_FK_KEYNUM    3
+
+typedef enum {
+    KSPEC_BS_INVALID = 0, /* Must be 0 */
+    KSPEC_BS_UNKNOWN,
+    KSPEC_BS_INDEX,
+    KSPEC_BS_KEYWORD
+} kspec_bs_type;
+
+typedef enum {
+    KSPEC_FK_INVALID = 0, /* Must be 0 */
+    KSPEC_FK_UNKNOWN,
+    KSPEC_FK_RANGE,
+    KSPEC_FK_KEYNUM
+} kspec_fk_type;
+
 typedef struct {
     /* Declarative data */
     const char *sflags;
-    int begin_search_type;
+    kspec_bs_type begin_search_type;
     union {
         struct {
+            /* The index from which we start the serach for keys */
             int pos;
         } index;
         struct {
+            /* The keyword that indicates the beginning of key args */
             const char *keyword;
+            /* An index in argv from which to start searching.
+             * Can be negative, which means start search fromthe end, in reverse
+             * (Example: -2 means to start in reverse from the panultimate arg) */
             int startfrom;
         } keyword;
     } bs;
-    int find_keys_type;
+    kspec_fk_type find_keys_type;
     union {
+        /* NOTE: Indices in this struct are relative to the result of the begin_search step!
+         * These are: range.lastkey, keynum.keynumidx, keynum.firstkey */
         struct {
-            int lastkey; /* Relative to what was returned in the begin_search step */
+            /* Index of the last key.
+             * Can be negative, in which case it's not relative. -1 indicating till the last argument,
+             * -2 one before the last and so on. */
+            int lastkey;
+            /* How many args should we skip after finding a key, in order to find the next one. */
             int keystep;
+            /* If lastkey is -1, we use limit to stop the search by a factor. 0 and 1 mean no limit.
+             * 2 means 1/2 of the remaining args, 3 means 1/3, and so on. */
             int limit;
         } range;
         struct {
-            int keynumidx; /* Relative to what was returned in the begin_search step */
-            int firstkey; /* Relative to what was returned in the begin_search step */
+            /* Index of the argument containing the number of keys to come */
+            int keynumidx;
+            /* Index of the fist key (Usually it's just after keynumidx, in
+             * which case it should be set to keynumidx+1). */
+            int firstkey;
+            /* How many args should we skip after finding a key, in order to find the next one. */
             int keystep;
         } keynum;
     } fk;
