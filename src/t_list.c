@@ -956,6 +956,7 @@ void serveClientBlockedOnList(client *receiver, robj *o, robj *key, robj *dstkey
 
             argv[2] = createStringObjectFromLongLong((count > llen) ? llen : count);
             propagate(cmd, db->id, argv, 3, PROPAGATE_AOF|PROPAGATE_REPL);
+            decrRefCount(argv[2]);
 
             /* Pop a range of elements in a nested arrays way. */
             listPopRangeAndReplyWithKey(receiver, o, key, wherefrom, count, deleted);
