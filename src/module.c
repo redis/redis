@@ -2773,6 +2773,10 @@ int RM_StringTruncate(RedisModuleKey *key, size_t newlen) {
  *         // Do stuff...
  *     }
  *
+ * Note that after modifying a list using RM_ListPop, RM_ListSet or
+ * RM_ListInsert, the internal iterator is invalidated so the next operation
+ * will require a linear seek.
+ *
  * See also RM_ValueLength(), which returns the length of a list.
  * -------------------------------------------------------------------------- */
 
