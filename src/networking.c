@@ -3875,8 +3875,11 @@ int clientEvictionCheckLimit() {
     size_t maxmemory_clients_actual = SIZE_MAX;
 
     /* Handle percentage of maxmemory*/
-    if (server.maxmemory_clients < 0 && server.maxmemory > 0)
-        maxmemory_clients_actual = (size_t)((double)server.maxmemory * -(double)server.maxmemory_clients / 100);
+    if (server.maxmemory_clients < 0 && server.maxmemory > 0) {
+        unsigned long long maxmemory_clients_bytes = (unsigned long long)((double)server.maxmemory * -(double) server.maxmemory_clients / 100);
+        if (maxmemory_clients_bytes <= SIZE_MAX)
+            maxmemory_clients_actual = maxmemory_clients_bytes;
+    }
     else if (server.maxmemory_clients > 0)
         maxmemory_clients_actual = server.maxmemory_clients;
     else
