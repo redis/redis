@@ -66,7 +66,7 @@ start_server {} {
         r config set maxmemory $maxmemory
         # Set client eviction threshold to 7% of maxmemory        
         set maxmemory_clients_p 7
-        r config set maxmemory-clients -$maxmemory_clients_p
+        r config set maxmemory-clients $maxmemory_clients_p%
         r flushdb
         
         set maxmemory_clients_actual [expr $maxmemory * $maxmemory_clients_p / 100]

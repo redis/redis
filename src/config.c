@@ -198,8 +198,8 @@ typedef enum numericType {
     NUMERIC_TYPE_TIME_T,
 } numericType;
 
-#define NUM_CONF_FLAG_MEMORY (1<<0) /* Indicates if this value can be loaded as a memory value */
-#define NUM_CONF_FLAG_PERCENT (1<<1) /* Indicates if this value can be loaded as a percent (and stored as a negative int) */
+#define NUM_CONF_MEMORY (1<<0) /* Indicates if this value can be loaded as a memory value */
+#define NUM_CONF_PERCENT (1<<1) /* Indicates if this value can be loaded as a percent (and stored as a negative int) */
 
 typedef struct numericConfigData {
     union {
@@ -1350,6 +1350,14 @@ void rewriteConfigBytesOption(struct rewriteConfigState *state, const char *opti
     rewriteConfigRewriteLine(state,option,line,force);
 }
 
+/* Rewrite a simple "option-name n%" configuration option. */
+void rewriteConfigPercentOption(struct rewriteConfigState *state, const char *option, long long value, long long defvalue) {
+    int force = value != defvalue;
+    sds line = sdscatprintf(sdsempty(),"%s %lld%%",option,value);
+
+    rewriteConfigRewriteLine(state,option,line,force);
+}
+
 /* Rewrite a yes/no option. */
 void rewriteConfigYesNoOption(struct rewriteConfigState *state, const char *option, int value, int defvalue) {
     int force = value != defvalue;
@@ -2114,8 +2122,18 @@ static int numericBoundaryCheck(typeData data, long long ll, const char **err) {
             return 0;
         }
     } else {
+        /* Boundary check for percentages */
+        if (data.numeric.flags & NUM_CONF_PERCENT && ll < 0) {
+            if (ll < data.numeric.lower_bound) {
+                snprintf(loadbuf, LOADBUF_SIZE,
+                         "percentage argument must be less or equal to %lld",
+                         -data.numeric.lower_bound);
+                *err = loadbuf;
+                return 0;
+            }
+        }
         /* Boundary check for signed types */
-        if (ll > data.numeric.upper_bound || ll < data.numeric.lower_bound) {
+        else if (ll > data.numeric.upper_bound || ll < data.numeric.lower_bound) {
             snprintf(loadbuf, LOADBUF_SIZE,
                 "argument must be between %lld and %lld inclusive",
                 data.numeric.lower_bound,
@@ -2127,22 +2145,46 @@ static int numericBoundaryCheck(typeData data, long long ll, const char **err) {
     return 1;
 }
 
+static int numericParseString(typeData data, sds value, const char **err, long long *res) {
+    /* First try to parse as memory */
+    if (data.numeric.flags & NUM_CONF_MEMORY) {
+        int memerr;
+        *res = memtoull(value, &memerr);
+        if (!memerr)
+            return 1;
+    }
+
+    /* Attempt to parse as percent */
+    if (data.numeric.flags & NUM_CONF_PERCENT &&
+        sdslen(value) > 1 && value[sdslen(value)-1] == '%' &&
+        string2ll(value, sdslen(value)-1, res) &&
+        *res >= 0) {
+            /* We store percentage as negative value */
+            *res = -*res;
+            return 1;
+    }
+
+    /* Attempt a simple number (no special flags set) */
+    if (!data.numeric.flags && string2ll(value, sdslen(value), res))
+        return 1;
+
+    /* Select appropriate error string */
+    if (data.numeric.flags & NUM_CONF_MEMORY &&
+        data.numeric.flags & NUM_CONF_PERCENT)
+        *err = "argument must be a memory or percent value" ;
+    else if (data.numeric.flags & NUM_CONF_MEMORY)
+        *err = "argument must be a memory value";
+    else
+        *err = "argument couldn't be parsed into an integer";
+    return 0;
+}
 
 static int numericConfigSet(typeData data, sds value, int update, const char **err) {
     long long ll, prev = 0;
-    if (data.numeric.flags & NUM_CONF_FLAG_MEMORY) {
-        int memerr;
-        ll = memtoull(value, &memerr);
-        if (memerr) {
-            *err = "argument must be a memory value";
-            return 0;
-        }
-    } else {
-        if (!string2ll(value, sdslen(value), &ll)) {
-            *err = "argument couldn't be parsed into an integer" ;
-            return 0;
-        }
-    }
+
+    if (!numericParseString(data, value, err, &ll))
+        return 0;
+
     if (!numericBoundaryCheck(data, ll, err))
         return 0;
 
@@ -2161,21 +2203,21 @@ static int numericConfigSet(typeData data, sds value, int update, const char **e
 
 static void numericConfigGet(client *c, typeData data) {
     char buf[128];
-    if (data.numeric.is_memory) {
-        unsigned long long value = 0;
-        
-        GET_NUMERIC_TYPE(value)
 
-        ull2string(buf, sizeof(buf), value);
-        addReplyBulkCString(c, buf);
-    } else{
-        long long value = 0;
-        
-        GET_NUMERIC_TYPE(value)
+    long long value = 0;
+    GET_NUMERIC_TYPE(value)
 
-        ll2string(buf, sizeof(buf), value);
-        addReplyBulkCString(c, buf);
+    if (data.numeric.flags & NUM_CONF_PERCENT && value < 0) {
+        int len = ll2string(buf, sizeof(buf), -value);
+        buf[len] = '%';
+        buf[len+1] = '\0';
     }
+    else if (data.numeric.flags & NUM_CONF_MEMORY) {
+        ull2string(buf, sizeof(buf), value);
+    } else {
+        ll2string(buf, sizeof(buf), value);
+    }
+    addReplyBulkCString(c, buf);
 }
 
 static void numericConfigRewrite(typeData data, const char *name, struct rewriteConfigState *state) {
@@ -2183,7 +2225,9 @@ static void numericConfigRewrite(typeData data, const char *name, struct rewrite
 
     GET_NUMERIC_TYPE(value)
 
-    if (data.numeric.flags & NUM_CONF_FLAG_MEMORY) {
+    if (data.numeric.flags & NUM_CONF_PERCENT && value < 0) {
+        rewriteConfigPercentOption(state, name, -value, data.numeric.default_value);
+    } else if (data.numeric.flags & NUM_CONF_MEMORY) {
         rewriteConfigBytesOption(state, name, value, data.numeric.default_value);
     } else {
         rewriteConfigNumericalOption(state, name, value, data.numeric.default_value);
@@ -2635,29 +2679,29 @@ standardConfig configs[] = {
     createLongLongConfig("cluster-node-timeout", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.cluster_node_timeout, 15000, 0, NULL, NULL),
     createLongLongConfig("slowlog-log-slower-than", NULL, MODIFIABLE_CONFIG, -1, LLONG_MAX, server.slowlog_log_slower_than, 10000, 0, NULL, NULL),
     createLongLongConfig("latency-monitor-threshold", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.latency_monitor_threshold, 0, 0, NULL, NULL),
-    createLongLongConfig("proto-max-bulk-len", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, 1024*1024, LONG_MAX, server.proto_max_bulk_len, 512ll*1024*1024, NUM_CONF_FLAG_MEMORY, NULL, NULL), /* Bulk request max size */
+    createLongLongConfig("proto-max-bulk-len", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, 1024*1024, LONG_MAX, server.proto_max_bulk_len, 512ll*1024*1024, NUM_CONF_MEMORY, NULL, NULL), /* Bulk request max size */
     createLongLongConfig("stream-node-max-entries", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.stream_node_max_entries, 100, 0, NULL, NULL),
-    createLongLongConfig("repl-backlog-size", NULL, MODIFIABLE_CONFIG, 1, LLONG_MAX, server.cfg_repl_backlog_size, 1024*1024, NUM_CONF_FLAG_MEMORY, NULL, updateReplBacklogSize), /* Default: 1mb */
+    createLongLongConfig("repl-backlog-size", NULL, MODIFIABLE_CONFIG, 1, LLONG_MAX, server.cfg_repl_backlog_size, 1024*1024, NUM_CONF_MEMORY, NULL, updateReplBacklogSize), /* Default: 1mb */
 
     /* Unsigned Long Long configs */
-    createULongLongConfig("maxmemory", NULL, MODIFIABLE_CONFIG, 0, ULLONG_MAX, server.maxmemory, 0, NUM_CONF_FLAG_MEMORY, NULL, updateMaxmemory),
+    createULongLongConfig("maxmemory", NULL, MODIFIABLE_CONFIG, 0, ULLONG_MAX, server.maxmemory, 0, NUM_CONF_MEMORY, NULL, updateMaxmemory),
 
     /* Size_t configs */
-    createSizeTConfig("hash-max-listpack-entries", "hash-max-ziplist-entries", MODIFIABLE_CONFIG, 0, LONG_MAX, server.hash_max_listpack_entries, 512, INTEGER_CONFIG, NULL, NULL),
-    createSizeTConfig("set-max-intset-entries", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.set_max_intset_entries, 512, INTEGER_CONFIG, NULL, NULL),
-    createSizeTConfig("zset-max-listpack-entries", "zset-max-ziplist-entries", MODIFIABLE_CONFIG, 0, LONG_MAX, server.zset_max_listpack_entries, 128, INTEGER_CONFIG, NULL, NULL),
-    createSizeTConfig("active-defrag-ignore-bytes", NULL, MODIFIABLE_CONFIG, 1, LLONG_MAX, server.active_defrag_ignore_bytes, 100<<20, MEMORY_CONFIG, NULL, NULL), /* Default: don't defrag if frag overhead is below 100mb */
-    createSizeTConfig("hash-max-listpack-value", "hash-max-ziplist-value", MODIFIABLE_CONFIG, 0, LONG_MAX, server.hash_max_listpack_value, 64, MEMORY_CONFIG, NULL, NULL),
-    createSizeTConfig("stream-node-max-bytes", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.stream_node_max_bytes, 4096, MEMORY_CONFIG, NULL, NULL),
-    createSizeTConfig("zset-max-listpack-value", "zset-max-ziplist-value", MODIFIABLE_CONFIG, 0, LONG_MAX, server.zset_max_listpack_value, 64, MEMORY_CONFIG, NULL, NULL),
-    createSizeTConfig("hll-sparse-max-bytes", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.hll_sparse_max_bytes, 3000, MEMORY_CONFIG, NULL, NULL),
-    createSizeTConfig("tracking-table-max-keys", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.tracking_table_max_keys, 1000000, INTEGER_CONFIG, NULL, NULL), /* Default: 1 million keys max. */
-    createSizeTConfig("client-query-buffer-limit", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, 1024*1024, LONG_MAX, server.client_max_querybuf_len, 1024*1024*1024, MEMORY_CONFIG, NULL, NULL), /* Default: 1GB max query buffer. */
-    createSSizeTConfig("maxmemory-clients", NULL, MODIFIABLE_CONFIG, -100, SSIZE_MAX, server.maxmemory_clients, 0, MEMORY_CONFIG, NULL, NULL),
+    createSizeTConfig("hash-max-listpack-entries", "hash-max-ziplist-entries", MODIFIABLE_CONFIG, 0, LONG_MAX, server.hash_max_listpack_entries, 512, 0, NULL, NULL),
+    createSizeTConfig("set-max-intset-entries", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.set_max_intset_entries, 512, 0, NULL, NULL),
+    createSizeTConfig("zset-max-listpack-entries", "zset-max-ziplist-entries", MODIFIABLE_CONFIG, 0, LONG_MAX, server.zset_max_listpack_entries, 128, 0, NULL, NULL),
+    createSizeTConfig("active-defrag-ignore-bytes", NULL, MODIFIABLE_CONFIG, 1, LLONG_MAX, server.active_defrag_ignore_bytes, 100<<20, NUM_CONF_MEMORY, NULL, NULL), /* Default: don't defrag if frag overhead is below 100mb */
+    createSizeTConfig("hash-max-listpack-value", "hash-max-ziplist-value", MODIFIABLE_CONFIG, 0, LONG_MAX, server.hash_max_listpack_value, 64, NUM_CONF_MEMORY, NULL, NULL),
+    createSizeTConfig("stream-node-max-bytes", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.stream_node_max_bytes, 4096, NUM_CONF_MEMORY, NULL, NULL),
+    createSizeTConfig("zset-max-listpack-value", "zset-max-ziplist-value", MODIFIABLE_CONFIG, 0, LONG_MAX, server.zset_max_listpack_value, 64, NUM_CONF_MEMORY, NULL, NULL),
+    createSizeTConfig("hll-sparse-max-bytes", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.hll_sparse_max_bytes, 3000, NUM_CONF_MEMORY, NULL, NULL),
+    createSizeTConfig("tracking-table-max-keys", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.tracking_table_max_keys, 1000000, 0, NULL, NULL), /* Default: 1 million keys max. */
+    createSizeTConfig("client-query-buffer-limit", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, 1024*1024, LONG_MAX, server.client_max_querybuf_len, 1024*1024*1024, NUM_CONF_MEMORY, NULL, NULL), /* Default: 1GB max query buffer. */
+    createSSizeTConfig("maxmemory-clients", NULL, MODIFIABLE_CONFIG, -100, SSIZE_MAX, server.maxmemory_clients, 0, NUM_CONF_MEMORY | NUM_CONF_PERCENT, NULL, NULL),
 
     /* Other configs */
     createTimeTConfig("repl-backlog-ttl", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.repl_backlog_time_limit, 60*60, 0, NULL, NULL), /* Default: 1 hour */
-    createOffTConfig("auto-aof-rewrite-min-size", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.aof_rewrite_min_size, 64*1024*1024, NUM_CONF_FLAG_MEMORY, NULL, NULL),
+    createOffTConfig("auto-aof-rewrite-min-size", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.aof_rewrite_min_size, 64*1024*1024, NUM_CONF_MEMORY, NULL, NULL),
 
 #ifdef USE_OPENSSL
     createIntConfig("tls-port", NULL, MODIFIABLE_CONFIG, 0, 65535, server.tls_port, 0, 0, NULL, updateTLSPort), /* TCP port. */
