@@ -3773,10 +3773,23 @@ void InitServerLast() {
  * first key is "read write", second key is "write").
  *
  * This functions uses very basic heuristics and is "best effort":
- * 1. Only commands which have only "range" specs are considered
- * 2. Only range specs with keystep of 1 are considered
+ * 1. Only commands which have only "range" specs are considered.
+ * 2. Only range specs with keystep of 1 are considered.
  * 3. The order of the range specs must be ascending (i.e.
- *    lastkey of spec[i] == firstkey-1 of spec[i+1])
+ *    lastkey of spec[i] == firstkey-1 of spec[i+1]).
+ *
+ * This function will succeed on all native Redis commands and may
+ * fail on module commands, even if it only has "range" specs that
+ * could actually be "glued", in the following cases:
+ * 1. The order of "range" specs is not ascending (e.g. the spec for
+ *    the key at index 2 was added before the spec of the key at
+ *    index 1).
+ * 2. The "range" specs have keystep >1.
+ *
+ * If this functions fails it means that the legacy (first,last,step)
+ * spec used by COMMAND will show 0,0,0. This is not a dire situation
+ * because anyway the legacy (first,last,step) spec is to be dperecated
+ * and one should use the new key specs scheme.
  */
 void populateCommandLegacyRangeSpec(struct redisCommand *c) {
     memset(&c->legacy_range_key_spec, 0, sizeof(c->legacy_range_key_spec));
@@ -3922,7 +3935,7 @@ int populateSingleCommand(struct redisCommand *c, char *strflags) {
 
     populateCommandLegacyRangeSpec(c);
 
-    /* Handle the "movablekeys" flag (must be done after populating all keys specs). */
+    /* Handle the "movablekeys" flag (must be done after populating all key specs). */
     populateCommandMovableKeys(c);
 
     return C_OK;

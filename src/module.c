@@ -874,12 +874,6 @@ int64_t commandKeySpecsFlagsFromString(const char *s) {
  * The last three parameters specify which arguments of the new command are
  * Redis keys. See https://redis.io/commands/command for more information.
  *
- * !!! DEPRECATED !!!
- * One should pass 0,0,0 and use RedisModule_AddCommandKeySpec.
- * Note that if the command's keys are indeed a simple "range"
- * it will be reflected in COMMAND (and others) despite passing
- * 0,0,0 to RedisModule_CreateCommand.
- *
  * * 'firstkey': One-based index of the first argument that's a key.
  *               Position 0 is always the command name itself.
  *               0 for commands with no keys.
@@ -891,6 +885,12 @@ int64_t commandKeySpecsFlagsFromString(const char *s) {
  *               0 for commands with no keys.
  *
  * This information is used by ACL, Cluster and the 'COMMAND' command.
+ *
+ * NOTE: The scheme descibed above serves a limited purpose and can
+ * only be used to find keys that exist at constant indices.
+ * For non-trivial key arguments, you may pass 0,0,0 and use
+ * RedisModule_AddCommandKeySpec (see documentation).
+ *
  */
 int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep) {
     int64_t flags = strflags ? commandFlagsFromString((char*)strflags) : 0;
