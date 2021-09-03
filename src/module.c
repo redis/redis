@@ -886,7 +886,7 @@ int64_t commandKeySpecsFlagsFromString(const char *s) {
  *
  * This information is used by ACL, Cluster and the 'COMMAND' command.
  *
- * NOTE: The scheme descibed above serves a limited purpose and can
+ * NOTE: The scheme described above serves a limited purpose and can
  * only be used to find keys that exist at constant indices.
  * For non-trivial key arguments, you may pass 0,0,0 and use
  * RedisModule_AddCommandKeySpec (see documentation).
