@@ -1,5 +1,5 @@
 start_server {tags {"maxmemory" "external:skip"}} {
-    r config set maxmemory 10mb
+    r config set maxmemory 11mb
     r config set maxmemory-policy allkeys-lru
     set server_pid [s process_id]
 
