@@ -861,7 +861,7 @@ REDIS_STATIC void _quicklistInsert(quicklist *quicklist, quicklistEntry *entry,
 
     /* Populate accounting flags for easier boolean checks later */
     if (!_quicklistNodeAllowInsert(node, fill, sz)) {
-        D("Current node is full with count %d with requested fill %lu",
+        D("Current node is full with count %d with requested fill %d",
           node->count, fill);
         full = 1;
     }
@@ -1248,13 +1248,14 @@ int quicklistIndex(const quicklist *quicklist, const long long idx,
     if (index >= quicklist->count)
         return 0;
 
-    /* Change direction if the other way is shorter. */
+    /* Seek in the other direction if that way is shorter. */
+    int seek_forward = forward;
     if (index > (quicklist->count - 1) / 2) {
-        forward = !forward;
+        seek_forward = !forward;
         index = quicklist->count - 1 - index;
     }
 
-    n = forward ? quicklist->head : quicklist->tail;
+    n = seek_forward ? quicklist->head : quicklist->tail;
     while (likely(n)) {
         if ((accum + n->count) > index) {
             break;
@@ -1262,7 +1263,7 @@ int quicklistIndex(const quicklist *quicklist, const long long idx,
             D("Skipping over (%p) %u at accum %lld", (void *)n, n->count,
               accum);
             accum += n->count;
-            n = forward ? n->next : n->prev;
+            n = seek_forward ? n->next : n->prev;
         }
     }
 
@@ -1273,12 +1274,17 @@ int quicklistIndex(const quicklist *quicklist, const long long idx,
       accum, index, index - accum, (-index) - 1 + accum);
 
     entry->node = n;
+    if (seek_forward != forward) {
+        /* Pretend that we seeked in the requested direction. */
+        index = quicklist->count - 1 - index;
+        accum = quicklist->count - n->count - accum;
+    }
     if (forward) {
         /* forward = normal head-to-tail offset. */
         entry->offset = index - accum;
     } else {
         /* reverse = need negative offset for tail-to-head, so undo
-         * the result of the original if (index < 0) above. */
+         * the result of the original index = (-idx) - 1 above. */
         entry->offset = (-index) - 1 + accum;
     }
 
@@ -1852,7 +1858,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
             unsigned int sz;
             long long lv;
             ql_info(ql);
-            quicklistPop(ql, QUICKLIST_HEAD, &data, &sz, &lv);
+            assert(quicklistPop(ql, QUICKLIST_HEAD, &data, &sz, &lv));
             assert(data != NULL);
             assert(sz == 32);
             if (strcmp(populate, (char *)data))
@@ -1870,7 +1876,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
             unsigned int sz;
             long long lv;
             ql_info(ql);
-            quicklistPop(ql, QUICKLIST_HEAD, &data, &sz, &lv);
+            assert(quicklistPop(ql, QUICKLIST_HEAD, &data, &sz, &lv));
             assert(data == NULL);
             assert(lv == 55513);
             ql_verify(ql, 0, 0, 0, 0);
@@ -2735,9 +2741,11 @@ int quicklistTest(int argc, char *argv[], int accurate) {
                         if (step == 1) {
                             for (int i = 0; i < list_sizes[list] / 2; i++) {
                                 unsigned char *data;
-                                quicklistPop(ql, QUICKLIST_HEAD, &data, NULL, NULL);
+                                assert(quicklistPop(ql, QUICKLIST_HEAD, &data,
+                                                    NULL, NULL));
                                 zfree(data);
-                                quicklistPop(ql, QUICKLIST_TAIL, &data, NULL, NULL);
+                                assert(quicklistPop(ql, QUICKLIST_TAIL, &data,
+                                                    NULL, NULL));
                                 zfree(data);
                             }
                         }
