@@ -1250,14 +1250,15 @@ int quicklistIndex(const quicklist *quicklist, const long long idx,
 
     /* Seek in the other direction if that way is shorter. */
     int seek_forward = forward;
+    unsigned long long seek_index = index;
     if (index > (quicklist->count - 1) / 2) {
         seek_forward = !forward;
-        index = quicklist->count - 1 - index;
+        seek_index = quicklist->count - 1 - index;
     }
 
     n = seek_forward ? quicklist->head : quicklist->tail;
     while (likely(n)) {
-        if ((accum + n->count) > index) {
+        if ((accum + n->count) > seek_index) {
             break;
         } else {
             D("Skipping over (%p) %u at accum %lld", (void *)n, n->count,
@@ -1270,15 +1271,13 @@ int quicklistIndex(const quicklist *quicklist, const long long idx,
     if (!n)
         return 0;
 
+    /* Fix accum so it looks like we seeked in the other direction. */
+    if (seek_forward != forward) accum = quicklist->count - n->count - accum;
+
     D("Found node: %p at accum %llu, idx %llu, sub+ %llu, sub- %llu", (void *)n,
       accum, index, index - accum, (-index) - 1 + accum);
 
     entry->node = n;
-    if (seek_forward != forward) {
-        /* Pretend that we seeked in the requested direction. */
-        index = quicklist->count - 1 - index;
-        accum = quicklist->count - n->count - accum;
-    }
     if (forward) {
         /* forward = normal head-to-tail offset. */
         entry->offset = index - accum;
