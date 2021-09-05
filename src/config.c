@@ -384,6 +384,62 @@ static int updateOOMScoreAdjValues(sds *args, const char **err, int apply) {
     return C_OK;
 }
 
+/* Parse an array of `arg_len` sds strings, validate and populate
+ * server.client_obuf_limits if valid.
+ * Used in CONFIG SET and configuration file parsing. */
+static int updateClientOutputBufferLimit(sds *args, int arg_len, const char **err) {
+    int j;
+    int class;
+    unsigned long long hard, soft;
+    int hard_err, soft_err;
+    int soft_seconds;
+    char *soft_seconds_eptr;
+    clientBufferLimitsConfig values[CLIENT_TYPE_OBUF_COUNT];
+    int classes[CLIENT_TYPE_OBUF_COUNT] = {0};
+
+    /* We need a multiple of 4: <class> <hard> <soft> <soft_seconds> */
+    if (arg_len % 4) {
+        if (err) *err = "Wrong number of arguments in "
+                        "buffer limit configuration.";
+        return C_ERR;
+    }
+
+    /* Sanity check of single arguments, so that we either refuse the
+     * whole configuration string or accept it all, even if a single
+     * error in a single client class is present. */
+    for (j = 0; j < arg_len; j += 4) {
+        class = getClientTypeByName(args[j]);
+        if (class == -1 || class == CLIENT_TYPE_MASTER) {
+            if (err) *err = "Invalid client class specified in "
+                            "buffer limit configuration.";
+            return C_ERR;
+        }
+
+        hard = memtoull(args[j+1], &hard_err);
+        soft = memtoull(args[j+2], &soft_err);
+        soft_seconds = strtoll(args[j+3], &soft_seconds_eptr, 10);
+        if (hard_err || soft_err ||
+            soft_seconds < 0 || *soft_seconds_eptr != '\0')
+        {
+            if (err) *err = "Error in hard, soft or soft_seconds setting in "
+                            "buffer limit configuration.";
+            return C_ERR;
+        }
+
+        values[class].hard_limit_bytes = hard;
+        values[class].soft_limit_bytes = soft;
+        values[class].soft_limit_seconds = soft_seconds;
+        classes[class] = 1;
+    }
+
+    /* Finally set the new config. */
+    for (j = 0; j < CLIENT_TYPE_OBUF_COUNT; j++) {
+        if (classes[j]) server.client_obuf_limits[j] = values[j];
+    }
+
+    return C_OK;
+}
+
 void initConfigValues() {
     for (standardConfig *config = configs; config->name != NULL; config++) {
         config->interface.init(config->data);
@@ -550,25 +606,7 @@ void loadServerConfigFromString(char *config) {
         } else if (!strcasecmp(argv[0],"client-output-buffer-limit") &&
                    argc == 5)
         {
-            int class = getClientTypeByName(argv[1]);
-            unsigned long long hard, soft;
-            int soft_seconds;
-
-            if (class == -1 || class == CLIENT_TYPE_MASTER) {
-                err = "Unrecognized client limit class: the user specified "
-                "an invalid one, or 'master' which has no buffer limits.";
-                goto loaderr;
-            }
-            hard = memtoll(argv[2],NULL);
-            soft = memtoll(argv[3],NULL);
-            soft_seconds = atoi(argv[4]);
-            if (soft_seconds < 0) {
-                err = "Negative number of seconds in soft limit is invalid";
-                goto loaderr;
-            }
-            server.client_obuf_limits[class].hard_limit_bytes = hard;
-            server.client_obuf_limits[class].soft_limit_bytes = soft;
-            server.client_obuf_limits[class].soft_limit_seconds = soft_seconds;
+            if (updateClientOutputBufferLimit(&argv[1], 4, &err) == C_ERR) goto loaderr;
         } else if (!strcasecmp(argv[0],"oom-score-adj-values") && argc == 1 + CONFIG_OOM_COUNT) {
             if (updateOOMScoreAdjValues(&argv[1], &err, 0) == C_ERR) goto loaderr;
         } else if (!strcasecmp(argv[0],"notify-keyspace-events") && argc == 2) {
@@ -744,8 +782,8 @@ void loadServerConfig(char *filename, char config_from_stdin, char *options) {
 
 #define config_set_memory_field(_name,_var) \
     } else if (!strcasecmp(c->argv[2]->ptr,_name)) { \
-        ll = memtoll(o->ptr,&err); \
-        if (err || ll < 0) goto badfmt; \
+        ll = memtoull(o->ptr,&err); \
+        if (err) goto badfmt; \
         _var = ll;
 
 #define config_set_special_field(_name) \
@@ -760,7 +798,6 @@ void loadServerConfig(char *filename, char config_from_stdin, char *options) {
 void configSetCommand(client *c) {
     robj *o;
     long long ll;
-    int err;
     const char *errstr = NULL;
     serverAssertWithInfo(c,c->argv[2],sdsEncodedObject(c->argv[2]));
     serverAssertWithInfo(c,c->argv[3],sdsEncodedObject(c->argv[3]));
@@ -842,50 +879,14 @@ void configSetCommand(client *c) {
             return;
         }
     } config_set_special_field("client-output-buffer-limit") {
-        int vlen, j;
+        int vlen;
         sds *v = sdssplitlen(o->ptr,sdslen(o->ptr)," ",1,&vlen);
 
-        /* We need a multiple of 4: <class> <hard> <soft> <soft_seconds> */
-        if (vlen % 4) {
-            sdsfreesplitres(v,vlen);
+        if (updateClientOutputBufferLimit(v, vlen, &errstr) == C_ERR) {
+            sdsfreesplitres(v, vlen);
             goto badfmt;
         }
 
-        /* Sanity check of single arguments, so that we either refuse the
-         * whole configuration string or accept it all, even if a single
-         * error in a single client class is present. */
-        for (j = 0; j < vlen; j++) {
-            long val;
-
-            if ((j % 4) == 0) {
-                int class = getClientTypeByName(v[j]);
-                if (class == -1 || class == CLIENT_TYPE_MASTER) {
-                    sdsfreesplitres(v,vlen);
-                    goto badfmt;
-                }
-            } else {
-                val = memtoll(v[j], &err);
-                if (err || val < 0) {
-                    sdsfreesplitres(v,vlen);
-                    goto badfmt;
-                }
-            }
-        }
-        /* Finally set the new config */
-        for (j = 0; j < vlen; j += 4) {
-            int class;
-            unsigned long long hard, soft;
-            int soft_seconds;
-
-            class = getClientTypeByName(v[j]);
-            hard = memtoll(v[j+1],NULL);
-            soft = memtoll(v[j+2],NULL);
-            soft_seconds = strtoll(v[j+3],NULL,10);
-
-            server.client_obuf_limits[class].hard_limit_bytes = hard;
-            server.client_obuf_limits[class].soft_limit_bytes = soft;
-            server.client_obuf_limits[class].soft_limit_seconds = soft_seconds;
-        }
         sdsfreesplitres(v,vlen);
     } config_set_special_field("oom-score-adj-values") {
         int vlen;
@@ -1045,13 +1046,10 @@ void configGetCommand(client *c) {
         addReplyBulkCString(c,buf);
         matches++;
     }
-    if (stringmatch(pattern,"slaveof",1) ||
-        stringmatch(pattern,"replicaof",1))
-    {
-        char *optname = stringmatch(pattern,"slaveof",1) ?
-                        "slaveof" : "replicaof";
+    for (int i = 0; i < 2; i++) {
+        char *optname = i == 0 ? "replicaof" : "slaveof";
+        if (!stringmatch(pattern, optname, 1)) continue;
         char buf[256];
-
         addReplyBulkCString(c,optname);
         if (server.masterhost)
             snprintf(buf,sizeof(buf),"%s %d",
@@ -2126,22 +2124,22 @@ static int numericBoundaryCheck(typeData data, long long ll, const char **err) {
     return 1;
 }
 
+
 static int numericConfigSet(typeData data, sds value, int update, const char **err) {
     long long ll, prev = 0;
     if (data.numeric.is_memory) {
         int memerr;
-        ll = memtoll(value, &memerr);
-        if (memerr || ll < 0) {
+        ll = memtoull(value, &memerr);
+        if (memerr) {
             *err = "argument must be a memory value";
             return 0;
         }
     } else {
-        if (!string2ll(value, sdslen(value),&ll)) {
+        if (!string2ll(value, sdslen(value), &ll)) {
             *err = "argument couldn't be parsed into an integer" ;
             return 0;
         }
     }
-
     if (!numericBoundaryCheck(data, ll, err))
         return 0;
 
@@ -2160,12 +2158,21 @@ static int numericConfigSet(typeData data, sds value, int update, const char **e
 
 static void numericConfigGet(client *c, typeData data) {
     char buf[128];
-    long long value = 0;
+    if (data.numeric.is_memory) {
+        unsigned long long value = 0;
+        
+        GET_NUMERIC_TYPE(value)
 
-    GET_NUMERIC_TYPE(value)
+        ull2string(buf, sizeof(buf), value);
+        addReplyBulkCString(c, buf);
+    } else{
+        long long value = 0;
+        
+        GET_NUMERIC_TYPE(value)
 
-    ll2string(buf, sizeof(buf), value);
-    addReplyBulkCString(c, buf);
+        ll2string(buf, sizeof(buf), value);
+        addReplyBulkCString(c, buf);
+    }
 }
 
 static void numericConfigRewrite(typeData data, const char *name, struct rewriteConfigState *state) {

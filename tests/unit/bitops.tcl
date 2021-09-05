@@ -317,6 +317,41 @@ start_server {tags {"bitops"}} {
         assert {[r bitpos str 0 0 -1] == -1}
     }
 
+    test {SETBIT/BITFIELD only increase dirty when the value changed} {
+        r del foo{t} foo2{t} foo3{t}
+        set dirty [s rdb_changes_since_last_save]
+
+        # Create a new key, always increase the dirty.
+        r setbit foo{t} 0 0
+        r bitfield foo2{t} set i5 0 0
+        set dirty2 [s rdb_changes_since_last_save]
+        assert {$dirty2 == $dirty + 2}
+
+        # No change.
+        r setbit foo{t} 0 0
+        r bitfield foo2{t} set i5 0 0
+        set dirty3 [s rdb_changes_since_last_save]
+        assert {$dirty3 == $dirty2}
+
+        # Do a change and a no change.
+        r setbit foo{t} 0 1
+        r setbit foo{t} 0 1
+        r setbit foo{t} 0 0
+        r setbit foo{t} 0 0
+        r bitfield foo2{t} set i5 0 1
+        r bitfield foo2{t} set i5 0 1
+        r bitfield foo2{t} set i5 0 0
+        r bitfield foo2{t} set i5 0 0
+        set dirty4 [s rdb_changes_since_last_save]
+        assert {$dirty4 == $dirty3 + 4}
+
+        # BITFIELD INCRBY always increase dirty.
+        r bitfield foo3{t} incrby i5 0 1
+        r bitfield foo3{t} incrby i5 0 1
+        set dirty5 [s rdb_changes_since_last_save]
+        assert {$dirty5 == $dirty4 + 2}
+    }
+
     test {BITPOS bit=1 fuzzy testing using SETBIT} {
         r del str
         set max 524288; # 64k

@@ -2093,7 +2093,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
             }
 
             /* Insert the key in the radix tree. */
-            int retval = raxInsert(s->rax,
+            int retval = raxTryInsert(s->rax,
                 (unsigned char*)nodekey,sizeof(streamID),lp,NULL);
             sdsfree(nodekey);
             if (!retval) {
@@ -2182,7 +2182,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                     streamFreeNACK(nack);
                     return NULL;
                 }
-                if (!raxInsert(cgroup->pel,rawid,sizeof(rawid),nack,NULL)) {
+                if (!raxTryInsert(cgroup->pel,rawid,sizeof(rawid),nack,NULL)) {
                     rdbReportCorruptRDB("Duplicated global PEL entry "
                                             "loading stream consumer group");
                     decrRefCount(o);
@@ -2246,11 +2246,12 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                      * loading the global PEL. Then set the same shared
                      * NACK structure also in the consumer-specific PEL. */
                     nack->consumer = consumer;
-                    if (!raxInsert(consumer->pel,rawid,sizeof(rawid),nack,NULL)) {
+                    if (!raxTryInsert(consumer->pel,rawid,sizeof(rawid),nack,NULL)) {
                         rdbReportCorruptRDB("Duplicated consumer PEL entry "
                                                 " loading a stream consumer "
                                                 "group");
                         decrRefCount(o);
+                        streamFreeNACK(nack);
                         return NULL;
                     }
                 }

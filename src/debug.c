@@ -1068,6 +1068,10 @@ void bugReportStart(void) {
 
 #ifdef HAVE_BACKTRACE
 static void *getMcontextEip(ucontext_t *uc) {
+#define NOT_SUPPORTED() do {\
+    UNUSED(uc);\
+    return NULL;\
+} while(0)
 #if defined(__APPLE__) && !defined(MAC_OS_X_VERSION_10_6)
     /* OSX < 10.6 */
     #if defined(__x86_64__)
@@ -1099,6 +1103,8 @@ static void *getMcontextEip(ucontext_t *uc) {
     return (void*) uc->uc_mcontext.arm_pc;
     #elif defined(__aarch64__) /* Linux AArch64 */
     return (void*) uc->uc_mcontext.pc;
+    #else
+    NOT_SUPPORTED();
     #endif
 #elif defined(__FreeBSD__)
     /* FreeBSD */
@@ -1106,6 +1112,8 @@ static void *getMcontextEip(ucontext_t *uc) {
     return (void*) uc->uc_mcontext.mc_eip;
     #elif defined(__x86_64__)
     return (void*) uc->uc_mcontext.mc_rip;
+    #else
+    NOT_SUPPORTED();
     #endif
 #elif defined(__OpenBSD__)
     /* OpenBSD */
@@ -1113,18 +1121,23 @@ static void *getMcontextEip(ucontext_t *uc) {
     return (void*) uc->sc_eip;
     #elif defined(__x86_64__)
     return (void*) uc->sc_rip;
+    #else
+    NOT_SUPPORTED();
     #endif
 #elif defined(__NetBSD__)
     #if defined(__i386__)
     return (void*) uc->uc_mcontext.__gregs[_REG_EIP];
     #elif defined(__x86_64__)
     return (void*) uc->uc_mcontext.__gregs[_REG_RIP];
+    #else
+    NOT_SUPPORTED();
     #endif
 #elif defined(__DragonFly__)
     return (void*) uc->uc_mcontext.mc_rip;
 #else
-    return NULL;
+    NOT_SUPPORTED();
 #endif
+#undef NOT_SUPPORTED
 }
 
 void logStackContent(void **sp) {
@@ -1143,6 +1156,11 @@ void logStackContent(void **sp) {
 /* Log dump of processor registers */
 void logRegisters(ucontext_t *uc) {
     serverLog(LL_WARNING|LL_RAW, "\n------ REGISTERS ------\n");
+#define NOT_SUPPORTED() do {\
+    UNUSED(uc);\
+    serverLog(LL_WARNING,\
+              "  Dumping of registers not supported for this OS/arch");\
+} while(0)
 
 /* OSX */
 #if defined(__APPLE__) && defined(MAC_OS_X_VERSION_10_6)
@@ -1367,6 +1385,8 @@ void logRegisters(ucontext_t *uc) {
 	      (unsigned long) uc->uc_mcontext.fault_address
 		      );
 	      logStackContent((void**)uc->uc_mcontext.arm_sp);
+    #else
+	NOT_SUPPORTED();
     #endif
 #elif defined(__FreeBSD__)
     #if defined(__x86_64__)
@@ -1422,6 +1442,8 @@ void logRegisters(ucontext_t *uc) {
         (unsigned long) uc->uc_mcontext.mc_gs
     );
     logStackContent((void**)uc->uc_mcontext.mc_esp);
+    #else
+    NOT_SUPPORTED();
     #endif
 #elif defined(__OpenBSD__)
     #if defined(__x86_64__)
@@ -1477,6 +1499,8 @@ void logRegisters(ucontext_t *uc) {
         (unsigned long) uc->sc_gs
     );
     logStackContent((void**)uc->sc_esp);
+    #else
+    NOT_SUPPORTED();
     #endif
 #elif defined(__NetBSD__)
     #if defined(__x86_64__)
@@ -1530,6 +1554,8 @@ void logRegisters(ucontext_t *uc) {
         (unsigned long) uc->uc_mcontext.__gregs[_REG_FS],
         (unsigned long) uc->uc_mcontext.__gregs[_REG_GS]
     );
+    #else
+    NOT_SUPPORTED();
     #endif
 #elif defined(__DragonFly__)
     serverLog(LL_WARNING,
@@ -1561,9 +1587,9 @@ void logRegisters(ucontext_t *uc) {
     );
     logStackContent((void**)uc->uc_mcontext.mc_rsp);
 #else
-    serverLog(LL_WARNING,
-        "  Dumping of registers not supported for this OS/arch");
+    NOT_SUPPORTED();
 #endif
+#undef NOT_SUPPORTED
 }
 
 #endif /* HAVE_BACKTRACE */
