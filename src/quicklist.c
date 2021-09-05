@@ -36,10 +36,8 @@
 #include "util.h" /* for ll2string */
 #include "lzf.h"
 #include "redisassert.h"
-
-#if defined(REDIS_TEST) || defined(REDIS_TEST_VERBOSE)
 #include <stdio.h> /* for printf (debug printing), snprintf (genstr) */
-#endif
+
 
 #ifndef REDIS_STATIC
 #define REDIS_STATIC static
@@ -55,7 +53,8 @@ static size_t packed_threshold = (1 << 30);
 #define isLargeElement(size) ((size) >= packed_threshold)
 
 int quicklistisSetPackedThreshold(size_t sz) {
-    if (sz > ((1ull<<32) - (1<<20))) {
+    /* Don't allow threshold to be set above or even slightly below 4GB */
+    if (sz > (1ull<<32) - (1<<20)) {
         return 0;
     }
     packed_threshold = sz;
@@ -563,7 +562,7 @@ int quicklistPushHead(quicklist *quicklist, void *value, size_t sz) {
 
     if(unlikely(isLargeElement(sz))) {
         __quicklistInsertPlainNode(quicklist, quicklist->head, value, sz, false);
-        return true;
+        return 1;
     }
 
     if (likely(
@@ -592,7 +591,7 @@ int quicklistPushTail(quicklist *quicklist, void *value, size_t sz) {
 
     if(unlikely(isLargeElement(sz))) {
         __quicklistInsertPlainNode(quicklist, quicklist->tail, value, sz, true);
-        return true;
+        return 1;
     }
 
     if (likely(
