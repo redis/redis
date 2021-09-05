@@ -662,7 +662,7 @@ NULL
         if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nokeyerr))
             == NULL) return;
 
-        int enabled = false;
+        int enabled = 0;
         if (c->argc == 4) {
             enabled = !strcasecmp(c->argv[3]->ptr,"1");
             if(!enabled && strcasecmp(c->argv[3]->ptr,"1")) {

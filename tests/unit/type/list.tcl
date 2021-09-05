@@ -171,15 +171,15 @@ start_server [list overrides [list save ""] ] {
     } {2}
 
     test {plain node check lmove} {
-        r RPUSH ls6 "aa"
-        r RPUSH ls6 "bb"
-        r LSET ls6 0 xxxxxxxxxxx
-        r LMOVE ls6 myotherlist RIGHT LEFT
-        r LMOVE ls6 myotherlist LEFT RIGHT
+        r RPUSH mylist "aa"
+        r RPUSH mylist "bb"
+        r LSET mylist 0 xxxxxxxxxxx
+        r LMOVE mylist myotherlist RIGHT LEFT
+        r LMOVE mylist myotherlist LEFT RIGHT
         r lpop myotherlist
         r lpop myotherlist
-        r lpop ls6
-        r lpop ls6
+        r lpop mylist
+        r lpop mylist
     } {}
 }
 
