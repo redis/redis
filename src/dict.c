@@ -548,7 +548,6 @@ void *dictFetchValue(dict *d, const void *key) {
  */
 dictEntry *dictFindWithPlink(dict *d, const void *key, dictEntry ***plink, int *table_index)
 {
-    dictEntry *he, *prevHe;
     uint64_t h, idx, table;
 
     if (dictSize(d) == 0) return NULL; /* dict is empty */
@@ -557,17 +556,14 @@ dictEntry *dictFindWithPlink(dict *d, const void *key, dictEntry ***plink, int *
 
     for (table = 0; table <= 1; table++) {
         idx = h & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
-        he = d->ht_table[table][idx];
-        prevHe = NULL;
-        while(he) {
-            if (key==he->key || dictCompareKeys(d, key, he->key)) {
-                if (prevHe) *plink = &prevHe->next;
-                else *plink = &d->ht_table[table][idx];
+        dictEntry **ref = &d->ht_table[table][idx];
+        while(*ref) {
+            if (key==(*ref)->key || dictCompareKeys(d, key, (*ref)->key)) {
                 *table_index = table;
-                return he;
+                *plink = ref;
+                return *ref;
             }
-            prevHe = he;
-            he = he->next;
+            ref = &(*ref)->next;
         }
         if (!dictIsRehashing(d)) return NULL;
     }
