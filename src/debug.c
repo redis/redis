@@ -29,6 +29,7 @@
  */
 
 #include "server.h"
+#include "util.h"
 #include "sha1.h"   /* SHA1 is used for DEBUG DIGEST */
 #include "crc64.h"
 #include "bio.h"
@@ -813,7 +814,7 @@ NULL
     c->argc == 3)
     {
         int memerr;
-        long long sz = memtoll((const char *)c->argv[2]->ptr, &memerr);
+        unsigned long long sz = memtoll((const char *)c->argv[2]->ptr, &memerr);
         if (memerr || !quicklistisSetPackedThreshold(sz)) {
             sds errstr = sdsempty();
             errstr = sdscatprintf(errstr, "argument must be a memory value bigger then 1 and smaller then 4gb");
