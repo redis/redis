@@ -4647,8 +4647,8 @@ void bytesToHuman(char *s, unsigned long long n) {
  * Empty buckets are not printed.
  * Everything above 1sec is considered +Inf. */
 sds fillCumulativeDistributionLatencies(sds info, const char* histogram_name, struct hdr_histogram* histogram){
-    info = sdscatprintf(info, "latencyhist_%s:calls=%ld,histogram=[",
-        histogram_name, histogram->total_count);
+    info = sdscatprintf(info, "latencyhist_%s:calls=%lld,histogram=[",
+        histogram_name, (long long) histogram->total_count);
     struct hdr_iter iter;
     hdr_iter_log_init(&iter, histogram, 2,2);
     size_t bucket_pos = 0;
@@ -4660,7 +4660,7 @@ sds fillCumulativeDistributionLatencies(sds info, const char* histogram_name, st
         if(cumulative_count > previous_count){
             if (bucket_pos>0)
                 info = sdscatprintf(info,";");
-            info = sdscatprintf(info,"(%ld:%ld)",micros, cumulative_count);
+            info = sdscatprintf(info,"(%lld:%lld)", (long long) micros, (long long) cumulative_count);
             bucket_pos++;
         }
         previous_count = cumulative_count;
