@@ -68,7 +68,6 @@ void bugReportStart(void);
 void printCrashReport(void);
 void bugReportEnd(int killViaSignal, int sig);
 void logStackTrace(void *eip, int uplevel);
-long long memtoll(const char *p, int *err);
 
 /* ================================= Debugging ============================== */
 
@@ -814,7 +813,7 @@ NULL
     c->argc == 3)
     {
         int memerr;
-        long long sz = memtoll(c->argv[2]->ptr, &memerr);
+        long long sz = memtoll((const char *)c->argv[2]->ptr, &memerr);
         if (memerr || !quicklistisSetPackedThreshold(sz)) {
             sds errstr = sdsempty();
             errstr = sdscatprintf(errstr, "argument must be a memory value bigger then 1 and smaller then 4gb");
