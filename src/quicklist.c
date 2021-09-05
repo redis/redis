@@ -561,7 +561,7 @@ int quicklistPushHead(quicklist *quicklist, void *value, size_t sz) {
     quicklistNode *orig_head = quicklist->head;
 
     if(unlikely(isLargeElement(sz))) {
-        __quicklistInsertPlainNode(quicklist, quicklist->head, value, sz, false);
+        __quicklistInsertPlainNode(quicklist, quicklist->head, value, sz, 0);
         return 1;
     }
 
@@ -590,7 +590,7 @@ int quicklistPushTail(quicklist *quicklist, void *value, size_t sz) {
     quicklistNode *orig_tail = quicklist->tail;
 
     if(unlikely(isLargeElement(sz))) {
-        __quicklistInsertPlainNode(quicklist, quicklist->tail, value, sz, true);
+        __quicklistInsertPlainNode(quicklist, quicklist->tail, value, sz, 1);
         return 1;
     }
 

@@ -68,6 +68,7 @@ void bugReportStart(void);
 void printCrashReport(void);
 void bugReportEnd(int killViaSignal, int sig);
 void logStackTrace(void *eip, int uplevel);
+long long memtoll(const char *p, int *err);
 
 /* ================================= Debugging ============================== */
 
