@@ -171,15 +171,15 @@ start_server [list overrides [list save ""] ] {
     } {2}
 
     test {plain node check lmove} {
-        r RPUSH mylist "aa"
-        r RPUSH mylist "bb"
-        r LSET mylist 0 xxxxxxxxxxx
-        r LMOVE mylist myotherlist RIGHT LEFT
-        r LMOVE mylist myotherlist LEFT RIGHT
-        r lpop myotherlist
-        r lpop myotherlist
+        r RPUSH {mylist} "aa"
+        r RPUSH {mylist} "bb"
+        r LSET {mylist} 0 xxxxxxxxxxx
+        r LMOVE {mylist} mylist RIGHT LEFT
+        r LMOVE {mylist} mylist LEFT RIGHT
         r lpop mylist
         r lpop mylist
+        r lpop {mylist}
+        r lpop {mylist}
     } {}
 }
 
@@ -261,17 +261,17 @@ start_server [list overrides [list save ""] ] {
    }
 
    test {4gb check lmove} {
-       r RPUSH ls6 "aa"
-       r RPUSH ls6 "bb"
-       r write "*4\r\n\$4\r\nLSET\r\n\$3\r\nls6\r\n\$1\r\n0\r\n"
+       r RPUSH mylist "aa"
+       r RPUSH mylist "bb"
+       r write "*4\r\n\$4\r\nLSET\r\n\$6\r\nmylist\r\n\$1\r\n0\r\n"
        write_big_bulk $str_length;
-       r LMOVE ls6 myotherlist RIGHT LEFT
-       r LMOVE ls6 myotherlist LEFT RIGHT
-       r lpop myotherlist
-       r lpop myotherlist
-       r lpop ls6
-       r lpop ls6
-   }
+       r LMOVE mylist {mylist} RIGHT LEFT
+       r LMOVE mylist {mylist} LEFT RIGHT
+       r lpop mylist
+       r lpop mylist
+       r lpop {mylist}
+       r lpop {mylist}
+   } {}
 }
 
 start_server {
