@@ -2649,6 +2649,7 @@ void createSharedObjects(void) {
     shared.maxstring = sdsnew("maxstring");
 }
 
+
 void initServerConfig(void) {
     int j;
     char *default_bindaddr[CONFIG_DEFAULT_BINDADDR_COUNT] = CONFIG_DEFAULT_BINDADDR;
@@ -3455,7 +3456,6 @@ int populateCommandTableParseFlags(struct redisCommand *c, char *strflags) {
 void populateCommandTable(void) {
     int j;
     int numcommands = sizeof(redisCommandTable)/sizeof(struct redisCommand);
-
     for (j = 0; j < numcommands; j++) {
         struct redisCommand *c = redisCommandTable+j;
         int retval1, retval2;
@@ -3466,6 +3466,10 @@ void populateCommandTable(void) {
             serverPanic("Unsupported command flag");
 
         c->id = ACLGetCommandID(c->name); /* Assign the ID used for ACL. */
+
+        c->latency_histogram = NULL; /* We start with an unallocated histogram
+                                      * and only allocate memory when a command
+                                      * has been issued for the first time */
         retval1 = dictAdd(server.commands, sdsnew(c->name), c);
         /* Populate an additional dictionary that will be unaffected
          * by rename-command statements in redis.conf. */
@@ -3486,6 +3490,9 @@ void resetCommandTableStats(void) {
         c->calls = 0;
         c->rejected_calls = 0;
         c->failed_calls = 0;
+        if(c->latency_histogram) {
+            hdr_reset(c->latency_histogram);
+        }
     }
     dictReleaseIterator(di);
 
@@ -3672,6 +3679,18 @@ void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t dur
     slowlogPushEntryIfNeeded(c,argv,argc,duration);
 }
 
+/* This function is called in order to update the total command histogram duration.
+ * If needed it will allocate the histogram memory and trim the duration to the upper/lower tracking limits*/
+void updateCommandLatencyHistogram(struct hdr_histogram** latency_histogram, int64_t duration_hist){
+    if(unlikely(duration_hist<LATENCY_HISTOGRAM_MIN_VALUE))
+        duration_hist=LATENCY_HISTOGRAM_MIN_VALUE;
+    if(unlikely(duration_hist>LATENCY_HISTOGRAM_MAX_VALUE))
+        duration_hist=LATENCY_HISTOGRAM_MAX_VALUE;
+    if(unlikely(*latency_histogram==NULL))
+        hdr_init(LATENCY_HISTOGRAM_MIN_VALUE,LATENCY_HISTOGRAM_MAX_VALUE,LATENCY_HISTOGRAM_PRECISION,latency_histogram);
+    hdr_record_value(*latency_histogram,duration_hist);
+}
+
 /* Call() is the core of Redis execution of a command.
  *
  * The following flags can be passed:
@@ -3804,6 +3823,7 @@ void call(client *c, int flags) {
     if (flags & CMD_CALL_STATS) {
         real_cmd->microseconds += duration;
         real_cmd->calls++;
+        updateCommandLatencyHistogram(&(c->lastcmd->latency_histogram), duration);
     }
 
     /* Propagate the command into the AOF and replication link */
@@ -4620,6 +4640,51 @@ void bytesToHuman(char *s, unsigned long long n) {
     }
 }
 
+
+/* An array of time buckets, each representing a latency range,
+ * between 1 microsecond and roughly 1 second.
+ * Each bucket covers twice the previous bucket’s range.
+ * Empty buckets are not printed.
+ * Everything above 1sec is considered +Inf. */
+sds fillCumulativeDistributionLatencies(sds info, const char* histogram_name, struct hdr_histogram* histogram){
+    info = sdscatprintf(info, "latencyhist_%s:calls=%lld,histogram=[",
+        histogram_name, histogram->total_count);
+    struct hdr_iter iter;
+    hdr_iter_log_init(&iter, histogram, 2,2);
+    size_t bucket_pos = 0;
+    int64_t previous_count = 0;
+    while (hdr_iter_next(&iter))
+    {
+        const int64_t micros = iter.highest_equivalent_value;
+        const int64_t cumulative_count = iter.cumulative_count;
+        if(cumulative_count > previous_count){
+            if (bucket_pos>0)
+                info = sdscatprintf(info,";");
+            info = sdscatprintf(info,"(%lld:%lld)",micros, cumulative_count);
+            bucket_pos++;
+        }
+        previous_count = cumulative_count;
+
+    }
+    info = sdscatprintf(info,"]\r\n");
+    return info;
+}
+
+/* Fill percentile distribution of latencies. */
+sds fillPercentileDistributionLatencies(sds info, const char* histogram_name, struct hdr_histogram* histogram){
+    info = sdscatprintf(info, "latencypercentiles_%s:p0=%.3f,p50=%.3f,p75=%.3f,p90=%.3f,p95=%.3f,p99=%.3f,p999=%.3f,p100=%.3f\r\n",
+        histogram_name,
+        ((double)hdr_min(histogram))/1.0f,
+        ((double)hdr_value_at_percentile(histogram,50.0))/1.0f,
+        ((double)hdr_value_at_percentile(histogram,75.0))/1.0f,
+        ((double)hdr_value_at_percentile(histogram,90.0))/1.0f,
+        ((double)hdr_value_at_percentile(histogram,95.0))/1.0f,
+        ((double)hdr_value_at_percentile(histogram,99.0))/1.0f,
+        ((double)hdr_value_at_percentile(histogram,99.9))/1.0f,
+        ((double)hdr_max(histogram))/1.0f);
+    return info;
+}
+
 /* Characters we sanitize on INFO output to maintain expected format. */
 static char unsafe_info_chars[] = "#:\n\r";
 static char unsafe_info_chars_substs[] = "____";   /* Must be same length as above */
@@ -5324,6 +5389,38 @@ sds genRedisInfoString(const char *section) {
             if (tmpsafe != NULL) zfree(tmpsafe);
         }
         raxStop(&ri);
+    }
+
+    if (allsections || !strcasecmp(section,"latencystats")) {
+        /* Latency by percentile distribution per command category */
+        info = sdscatprintf(info, "# Latencystats - latency by percentile distribution\r\n");
+        struct redisCommand *c;
+        dictEntry *de;
+        dictIterator *di;
+        di = dictGetSafeIterator(server.commands);
+        while((de = dictNext(di)) != NULL) {
+            char *tmpsafe;
+            c = (struct redisCommand *) dictGetVal(de);
+            if (!c->calls || !c->latency_histogram)
+                continue;
+            info = fillPercentileDistributionLatencies(info,getSafeInfoString(c->name, strlen(c->name), &tmpsafe),c->latency_histogram);
+            if (tmpsafe != NULL) zfree(tmpsafe);
+        }
+        dictReleaseIterator(di);
+
+        /* Per command category cumulative distribution of latencies */
+        if (sections++) info = sdscat(info,"\r\n");
+        info = sdscatprintf(info, "# Latencystats - cumulative distribution of latencies\r\n");
+        di = dictGetSafeIterator(server.commands);
+        while((de = dictNext(di)) != NULL) {
+            char *tmpsafe;
+            c = (struct redisCommand *) dictGetVal(de);
+            if (!c->calls || !c->latency_histogram)
+                continue;
+            info = fillCumulativeDistributionLatencies(info,getSafeInfoString(c->name, strlen(c->name), &tmpsafe),c->latency_histogram);
+            if (tmpsafe != NULL) zfree(tmpsafe);
+        }
+        dictReleaseIterator(di);
     }
 
     /* Cluster */

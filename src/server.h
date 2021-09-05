@@ -50,6 +50,7 @@
 #include <sys/socket.h>
 #include <lua.h>
 #include <signal.h>
+#include "hdr_histogram.h"
 
 #ifdef HAVE_LIBSYSTEMD
 #include <systemd/sd-daemon.h>
@@ -503,6 +504,13 @@ typedef enum {
 #define serverAssertWithInfo(_c,_o,_e) ((_e)?(void)0 : (_serverAssertWithInfo(_c,_o,#_e,__FILE__,__LINE__),redis_unreachable()))
 #define serverAssert(_e) ((_e)?(void)0 : (_serverAssert(#_e,__FILE__,__LINE__),redis_unreachable()))
 #define serverPanic(...) _serverPanic(__FILE__,__LINE__,__VA_ARGS__),redis_unreachable()
+
+/* latency histogram per command init settings */
+#define LATENCY_HISTOGRAM_MIN_VALUE 1L        /* >= 1 usecs */
+#define LATENCY_HISTOGRAM_MAX_VALUE 1000000L  /* <= 1 secs */
+#define LATENCY_HISTOGRAM_PRECISION 3  /* Maintain a value precision of 3 significant digits across LATENCY_HISTOGRAM_MIN_VALUE and LATENCY_HISTOGRAM_MAX_VALUE range.
+                                        * Value quantization within the range will thus be no larger than 1/1,000th (or 0.1%) of any value.
+                                        * The total size per histogram should sit around 104 Bytes. */
 
 /*-----------------------------------------------------------------------------
  * Data types
@@ -1716,6 +1724,7 @@ struct redisCommand {
                    ACLs. A connection is able to execute a given command if
                    the user associated to the connection has this command
                    bit set in the bitmap of allowed commands. */
+    struct hdr_histogram* latency_histogram; /*points to the command latency command histogram (unit of time microsecond) */
 };
 
 struct redisError {
@@ -2275,6 +2284,7 @@ void preventCommandPropagation(client *c);
 void preventCommandAOF(client *c);
 void preventCommandReplication(client *c);
 void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t duration);
+void updateCommandLatencyHistogram(struct hdr_histogram** latency_histogram, int64_t duration_hist);
 int prepareForShutdown(int flags);
 #ifdef __GNUC__
 void _serverLog(int level, const char *fmt, ...)
