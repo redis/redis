@@ -47,4 +47,3 @@ test "SENTINEL CONFIG SET handles on-the-fly credentials reconfiguration" {
 test "(post-cleanup) Tear down ACL configuration" {
     teardown_acl
 }
-
