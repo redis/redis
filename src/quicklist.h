@@ -46,7 +46,7 @@
 typedef struct quicklistNode {
     struct quicklistNode *prev;
     struct quicklistNode *next;
-    union {unsigned char *zl; unsigned char *entry;};
+    unsigned char *entry;
     size_t sz;             /* entry size in bytes */
     unsigned int count : 16;     /* count of items in ziplist */
     unsigned int encoding : 2;   /* RAW==1 or LZF==2 */

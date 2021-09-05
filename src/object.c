@@ -415,9 +415,9 @@ void dismissListObject(robj *o, size_t size_hint) {
             quicklistNode *node = ql->head;
             while (node) {
                 if (quicklistNodeIsCompressed(node)) {
-                    dismissMemory(node->zl, ((quicklistLZF*)node->zl)->sz);
+                    dismissMemory(node->entry, ((quicklistLZF*)node->entry)->sz);
                 } else {
-                    dismissMemory(node->zl, node->sz);
+                    dismissMemory(node->entry, node->sz);
                 }
                 node = node->next;
             }
@@ -1000,7 +1000,7 @@ size_t objectComputeSize(robj *key, robj *o, size_t sample_size, int dbid) {
             quicklistNode *node = ql->head;
             asize = sizeof(*o)+sizeof(quicklist);
             do {
-                elesize += sizeof(quicklistNode)+zmalloc_size(node->zl);
+                elesize += sizeof(quicklistNode)+zmalloc_size(node->entry);
                 samples++;
             } while ((node = node->next) && samples < sample_size);
             asize += (double)elesize/samples*ql->len;
