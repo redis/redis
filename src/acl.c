@@ -1114,7 +1114,7 @@ int ACLAuthenticateUser(client *c, robj *username, robj *password) {
         moduleNotifyUserChanged(c);
         return C_OK;
     } else {
-        addACLLogEntry(c,ACL_DENIED_AUTH,0,NULL,username->ptr);
+        addACLLogEntry(c,ACL_DENIED_AUTH,0,username->ptr,NULL,-1);
         return C_ERR;
     }
 }
@@ -1760,9 +1760,6 @@ void ACLLoadUsersAtStartup(void) {
  * ACL log
  * ==========================================================================*/
 
-#define ACL_LOG_CTX_TOPLEVEL 0
-#define ACL_LOG_CTX_LUA 1
-#define ACL_LOG_CTX_MULTI 2
 #define ACL_LOG_GROUPING_MAX_TIME_DELTA 60000
 
 /* This structure defines an entry inside the ACL log. */
@@ -1807,11 +1804,12 @@ void ACLFreeLogEntry(void *leptr) {
  *
  * The argpos argument is used when the reason is ACL_DENIED_KEY or 
  * ACL_DENIED_CHANNEL, since it allows the function to log the key or channel
- * name that caused the problem. If this argument is equal to -1, the function will log the value stored in object.
- * Similarly, if the username argument is provided (not NULL), it will be logged, otherwise the value will be
- * extracted from c->user->name.
+ * name that caused the problem.
+ *
+ * The last 3 arguments are a manual override to be used, instead of any of the automatic ones which
+ * depend on the c and reason arguments.
  */
-void addACLLogEntry(client *c, int reason, int argpos, sds object, sds username) {
+void addACLLogEntry(client *c, int reason, int argpos, sds username, sds object, int context) {
     /* Create a new entry. */
     struct ACLLogEntry *le = zmalloc(sizeof(*le));
     le->count = 1;
@@ -1819,7 +1817,7 @@ void addACLLogEntry(client *c, int reason, int argpos, sds object, sds username)
     le->username = sdsdup(username ? username : c->user->name);
     le->ctime = mstime();
 
-    if (argpos == -1) {
+    if (object) {
         le->object = sdsnew(object);
     } else {
         switch(reason) {
@@ -1835,12 +1833,17 @@ void addACLLogEntry(client *c, int reason, int argpos, sds object, sds username)
     if (realclient->flags & CLIENT_LUA) realclient = server.lua_caller;
 
     le->cinfo = catClientInfoString(sdsempty(),realclient);
-    if (c->flags & CLIENT_MULTI) {
-        le->context = ACL_LOG_CTX_MULTI;
-    } else if (c->flags & CLIENT_LUA) {
-        le->context = ACL_LOG_CTX_LUA;
+
+    if (context != -1) {
+        le->context = context;
     } else {
-        le->context = ACL_LOG_CTX_TOPLEVEL;
+        if (c->flags & CLIENT_MULTI) {
+            le->context = ACL_LOG_CTX_MULTI;
+        } else if (c->flags & CLIENT_LUA) {
+            le->context = ACL_LOG_CTX_LUA;
+        } else {
+            le->context = ACL_LOG_CTX_TOPLEVEL;
+        }
     }
 
     /* Try to match this entry with past ones, to see if we can just
@@ -2191,6 +2194,7 @@ void aclCommand(client *c) {
             case ACL_LOG_CTX_TOPLEVEL: ctxstr="toplevel"; break;
             case ACL_LOG_CTX_MULTI: ctxstr="multi"; break;
             case ACL_LOG_CTX_LUA: ctxstr="lua"; break;
+            case ACL_LOG_CTX_MODULE: ctxstr="module"; break;
             default: ctxstr="unknown";
             }
             addReplyBulkCString(c,ctxstr);

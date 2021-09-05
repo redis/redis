@@ -14,7 +14,7 @@ start_server {tags {"modules acl"}} {
         # verify that new log entry added
         set entry [lindex [r ACL LOG] 0]
         assert {[dict get $entry username] eq {default}}
-        assert {[dict get $entry context] eq {toplevel}}
+        assert {[dict get $entry context] eq {module}}
         assert {[dict get $entry object] eq {set}}
     }
 
@@ -49,12 +49,18 @@ start_server {tags {"modules acl"}} {
         # verify that new log entry added
         set entry [lindex [r ACL LOG] 0]
         assert {[dict get $entry username] eq {default}}
-        assert {[dict get $entry context] eq {toplevel}}
+        assert {[dict get $entry context] eq {module}}
         assert {[dict get $entry object] eq {y}}
 
         # rm call check for command permission
         r acl setuser default -set
         catch {r rm_call.aclcheck set x 5} e
-        set e
-    } {*NOPERM*}
+        assert_match {*NOPERM*} $e
+
+        # verify that new log entry added
+        set entry [lindex [r ACL LOG] 0]
+        assert {[dict get $entry username] eq {default}}
+        assert {[dict get $entry context] eq {module}}
+        assert {[dict get $entry object] eq {set}}
+    }
 }

@@ -4303,7 +4303,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         acl_retval = ACLCheckAllUserCommandPerm(ctx->client->user,c->cmd,c->argv,c->argc,&acl_errpos);
         if (acl_retval != ACL_OK) {
             sds object = (acl_retval == ACL_DENIED_CMD) ? c->cmd->name : c->argv[acl_errpos]->ptr;
-            addACLLogEntry(ctx->client, acl_retval, -1, object, ctx->client->user->name);
+            addACLLogEntry(ctx->client, acl_retval, -1, ctx->client->user->name, object, ACL_LOG_CTX_MODULE);
             errno = EACCES;
             goto cleanup;
         }
@@ -6844,7 +6844,9 @@ int RM_ACLCheckChannelPermissions(RedisModuleUserID *userid, RedisModuleString *
 }
 
 /* Adds a new entry in the ACL log.
- * Returns REDISMODULE_OK on success and REDISMODULE_ERR on error. */
+ * Returns REDISMODULE_OK on success and REDISMODULE_ERR on error.
+ *
+ * For more information about ACL log, please refer to https://redis.io/commands/acl-log */
 int RM_ACLAddLogEntry(RedisModuleCtx *ctx, RedisModuleUserID *userid, RedisModuleString *object) {
     /* Get ACL user from RedisModuleUserID */
     user *acl_user = ACLGetUserByName(userid->id->ptr, sdslen(userid->id->ptr));
@@ -6852,7 +6854,7 @@ int RM_ACLAddLogEntry(RedisModuleCtx *ctx, RedisModuleUserID *userid, RedisModul
         return REDISMODULE_ERR;
     }
 
-    addACLLogEntry(ctx->client, 0, -1, object->ptr, acl_user->name);
+    addACLLogEntry(ctx->client, 0, -1, acl_user->name, object->ptr, ACL_LOG_CTX_MODULE);
 
     return REDISMODULE_OK;
 }

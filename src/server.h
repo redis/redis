@@ -2164,6 +2164,13 @@ void ACLInit(void);
 #define ACL_DENIED_KEY 2
 #define ACL_DENIED_AUTH 3 /* Only used for ACL LOG entries. */
 #define ACL_DENIED_CHANNEL 4 /* Only used for pub/sub commands */
+
+/* Context values for addACLLogEntry(). */
+#define ACL_LOG_CTX_TOPLEVEL 0
+#define ACL_LOG_CTX_LUA 1
+#define ACL_LOG_CTX_MULTI 2
+#define ACL_LOG_CTX_MODULE 3
+
 int ACLCheckUserCredentials(robj *username, robj *password);
 int ACLAuthenticateUser(client *c, robj *username, robj *password);
 unsigned long ACLGetCommandID(const char *cmdname);
@@ -2184,7 +2191,7 @@ void ACLLoadUsersAtStartup(void);
 void addReplyCommandCategories(client *c, struct redisCommand *cmd);
 user *ACLCreateUnlinkedUser();
 void ACLFreeUserAndKillClients(user *u);
-void addACLLogEntry(client *c, int reason, int argpos, sds object, sds username);
+void addACLLogEntry(client *c, int reason, int argpos, sds username, sds object, int context);
 void ACLUpdateDefaultUserPassword(sds password);
 
 /* Sorted sets data type */
