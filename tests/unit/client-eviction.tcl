@@ -7,7 +7,7 @@ proc client_field {name f} {
     set clients [split [string trim [r client list]] "\r\n"]
     set c [lsearch -inline $clients *name=$name*]
     if {![regexp $f=(\[a-zA-Z0-9-\]+) $c - res]} {
-        throw no-client "no client named $name found with field $f"
+        error "no client named $name found with field $f"
     }
     return $res
 }
@@ -19,7 +19,7 @@ proc clients_sum {f} {
     set clients [split [string trim [r client list]] "\r\n"]
     foreach c $clients {
         if {![regexp $f=(\[a-zA-Z0-9-\]+) $c - res]} {
-            throw no-field "field $f not found in $c"
+            error "field $f not found in $c"
         }
         incr sum $res
     }
