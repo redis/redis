@@ -1,7 +1,6 @@
 #include "server.h"
 #include "bio.h"
 #include "atomicvar.h"
-#include "cluster.h"
 
 static redisAtomic size_t lazyfree_objects = 0;
 static redisAtomic size_t lazyfreed_objects = 0;
@@ -167,7 +166,6 @@ int dbAsyncDelete(redisDb *db, robj *key) {
     /* Release the key-val pair, or just the key if we set the val
      * field to NULL in order to lazy free it later. */
     if (de) {
-        if (server.cluster_enabled) slotToKeyDelEntry(de);
         dictFreeUnlinkedEntry(db->dict,de);
         return 1;
     } else {
