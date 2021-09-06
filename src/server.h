@@ -361,6 +361,9 @@ typedef enum {
 /* Synchronous read timeout - slave side */
 #define CONFIG_REPL_SYNCIO_TIMEOUT 5
 
+/* The default block number of trimming replication backlog per call. */
+#define TRIM_REPL_BUF_BLOCKS_PER 64
+
 /* List related stuff */
 #define LIST_HEAD 0
 #define LIST_TAIL 1
@@ -920,11 +923,10 @@ typedef struct {
  * searching offset from replication buffer blocks list faster. */
 typedef struct replBacklogRefReplBuf {
     listNode *ref_repl_buf_node;   /* Referenced node of replication buffer blocks. */
-    size_t blocks;                 /* Used block number of replication buffer blocks. */
-    size_t size;                   /* Used size of replication buffer. */
     size_t unrecorded_count;       /* Unrecorded block count currently. */
-    list *recorded_blocks;         /* Recorded blocks of replication buffer for quickly
-                                    * searching replication offset on partial resync. */
+    rax *blocks_index;             /* The index of reocrded blocks of replication
+                                    * buffer for quickly searching replication offset
+                                    * on partial resync. */
 } replBacklogRefReplBuf;
 
 typedef struct client {
@@ -2133,8 +2135,7 @@ void changeReplicationId(void);
 void clearReplicationId2(void);
 void replicationCacheMasterUsingMyself(void);
 void feedReplicationBacklog(void *ptr, size_t len);
-void trimReplicationBacklog(void);
-void trimReplicationBuffer(void);
+void incrementalTrimReplicationBacklog(size_t blocks);
 int canFeedReplicaReplBuffer(client *replica);
 void showLatestBacklog(void);
 void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData, int mask);
@@ -2143,9 +2144,6 @@ void clearFailoverState(void);
 void updateFailoverStatus(void);
 void abortFailover(const char *err);
 const char *getFailoverStateString();
-void freeReplicaReplBuffer(client *replica);
-void feedReplicationBuffer(char *buf, size_t len);
-void copyWaitBgsaveReplicaReplBuffer(client *dst, client *src);
 
 /* Generic persistence functions */
 void startLoadingFile(FILE* fp, char* filename, int rdbflags);
@@ -2482,6 +2480,7 @@ void lazyfreeResetStats(void);
 void freeObjAsync(robj *key, robj *obj, int dbid);
 void freeSlotsToKeysMapAsync(rax *rt);
 void freeSlotsToKeysMap(rax *rt, int async);
+void freeReplicationBacklogRefMemAsync(list *blocks, rax *index);
 
 
 /* API to get key arguments from commands */

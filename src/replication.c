@@ -112,10 +112,8 @@ void createReplicationBacklog(void) {
     serverAssert(server.repl_backlog == NULL);
     server.repl_backlog = zmalloc(sizeof(replBacklogRefReplBuf));
     server.repl_backlog->ref_repl_buf_node = NULL;
-    server.repl_backlog->size = 0;
-    server.repl_backlog->blocks = 0;
     server.repl_backlog->unrecorded_count = 0;
-    server.repl_backlog->recorded_blocks = listCreate();
+    server.repl_backlog->blocks_index = raxNew();
 
     server.repl_backlog_histlen = 0;
     /* We don't have any data inside our buffer, but virtually the first
@@ -136,24 +134,26 @@ void resizeReplicationBacklog(long long newsize) {
     if (server.repl_backlog_size == newsize) return;
 
     server.repl_backlog_size = newsize;
-    if (server.repl_backlog) trimReplicationBacklog();
+    if (server.repl_backlog)
+        incrementalTrimReplicationBacklog(TRIM_REPL_BUF_BLOCKS_PER);
 }
 
 void freeReplicationBacklog(void) {
     serverAssert(listLength(server.slaves) == 0);
     if (server.repl_backlog == NULL) return;
 
-    /* Increase the start buffer node reference count. */
+    /* Decrease the start buffer node reference count. */
     if (server.repl_backlog->ref_repl_buf_node) {
         replBufBlock *o = listNodeValue(
             server.repl_backlog->ref_repl_buf_node);
-        serverAssert(o->refcount > 0);
+        serverAssert(o->refcount == 1); /* Last reference. */
         o->refcount--;
     }
-    trimReplicationBuffer();
-    serverAssert(server.repl_buffer_size == 0);
-    serverAssert(listLength(server.repl_buffer_blocks) == 0);
-    listRelease(server.repl_backlog->recorded_blocks);
+    freeReplicationBacklogRefMemAsync(server.repl_buffer_blocks,
+                           server.repl_backlog->blocks_index);
+    server.repl_buffer_size = 0;
+    server.repl_buffer_blocks = listCreate();
+    listSetFreeMethod(server.repl_buffer_blocks, (void (*)(void*))zfree);
     zfree(server.repl_backlog);
     server.repl_backlog = NULL;
 }
@@ -205,11 +205,17 @@ void feedReplicationBufferWithObject(robj *o) {
     feedReplicationBuffer(p, len);
 }
 
-void trimReplicationBacklog(void) {
+/* Generally, we only one replication buffer block when replication backlog
+ * size exceeds our setting and no slave reference it. But if slaves clients
+ * disconnect, we need to free the replication buffer blocks that are referenced,
+ * but it would cost much time if there are a lots blocks to free, that will
+ * freeze server, so we trim replication backlog incrementally. */
+void incrementalTrimReplicationBacklog(size_t max_blocks) {
     serverAssert(server.repl_backlog != NULL);
 
-    size_t ntrim = 0;
-    while (server.repl_backlog_histlen > server.repl_backlog_size) {
+    size_t trimmed_blocks = 0, trimmed_bytes = 0;
+    while (server.repl_backlog_histlen > server.repl_backlog_size &&
+           trimmed_blocks < max_blocks) {
         /* We never trim backlog if only one block. */
         if (listLength(server.repl_buffer_blocks) <= 1) break;
 
@@ -225,42 +231,40 @@ void trimReplicationBacklog(void) {
 
         /* We don't try trim backlog if backlog valid size will be lessen than
          * setting backlog size once we release the first repl buffer block. */
-        replBufBlock *lo = listNodeValue(listLast(server.repl_buffer_blocks));
-        size_t unused = lo->size - lo->used;
-        if (server.repl_backlog->size - unused - fo->size <=
-            (size_t)server.repl_backlog_size) break;
+        if (server.repl_backlog_histlen - (long long)fo->size <=
+            server.repl_backlog_size) break;
 
-        /* Desr refcount and release the first block. */
+        /* Decr refcount and release the first block later. */
         fo->refcount--;
-        server.repl_backlog->blocks--;
-        server.repl_backlog->size -= fo->size;
-        ntrim += fo->size;
+        trimmed_bytes += fo->size;
+        trimmed_blocks++;
 
         /* Go to use next replication buffer block node. */
         listNode *next = listNextNode(first);
         server.repl_backlog->ref_repl_buf_node = next;
         serverAssert(server.repl_backlog->ref_repl_buf_node != NULL);
-        /* Incr reference count to keep new start node. */
+        /* Incr reference count to keep the new head node. */
         ((replBufBlock *)listNodeValue(next))->refcount++;
 
-        /* Remove first node in recorded blocks if needed */
-        listNode *record = listFirst(server.repl_backlog->recorded_blocks);
-        if (record != NULL && listNodeValue(record) == first)
-            listDelNode(server.repl_backlog->recorded_blocks, record);
+        /* Remove the node in recorded blocks. */
+        uint64_t encoded_offset = htonu64(fo->repl_offset);
+        raxRemove(server.repl_backlog->blocks_index,
+            (unsigned char*)&encoded_offset, sizeof(uint64_t), NULL);
 
-        /* Delete first node from global replication buffer. */
+        /* Delete the first node from global replication buffer. */
         serverAssert(fo->refcount == 0 && fo->used == fo->size);
         server.repl_buffer_size -= (fo->size +
             sizeof(listNode) + sizeof(replBufBlock));
         listDelNode(server.repl_buffer_blocks, first);
     }
 
-    server.repl_backlog_histlen -= ntrim;
+    server.repl_backlog_histlen -= trimmed_bytes;
     /* Set the offset of the first byte we have in the backlog. */
     server.repl_backlog_off = server.master_repl_offset -
                               server.repl_backlog_histlen + 1;
 }
 
+#define RECORD_ONE_EVERY_BLOCKS 64
 /* Add one buffer into the global replication buffer, replication backlog and
  * all slaves use replication buffer collectively, this function replace
  * 'addReply*', 'feedReplicationBacklog' for slaves and replication backlog,
@@ -359,37 +363,20 @@ void feedReplicationBuffer(char *s, size_t len) {
         serverAssert(used_last_block == NULL);
     }
     if (add_new_block) {
-        server.repl_backlog->blocks++;
-        server.repl_backlog->size += tail->size;
         /* To make search offset from replication buffer blocks quickly
          * when replicas ask partial resynchronization, we record one block
-         * every 1000 blocks. */
+         * every 64 blocks. */
         server.repl_backlog->unrecorded_count++;
-        if (server.repl_backlog->unrecorded_count >= 1000) {
-            listAddNodeTail(server.repl_backlog->recorded_blocks,
-                            listLast(server.repl_buffer_blocks));
+        if (server.repl_backlog->unrecorded_count >= RECORD_ONE_EVERY_BLOCKS) {
+            uint64_t encoded_offset = htonu64(tail->repl_offset);
+            raxInsert(server.repl_backlog->blocks_index,
+                (unsigned char*)&encoded_offset, sizeof(uint64_t),
+                listLast(server.repl_buffer_blocks), NULL);
             server.repl_backlog->unrecorded_count = 0;
         }
     }
     /* Trim replication backlog. */
-    trimReplicationBacklog();
-}
-
-void trimReplicationBuffer(void) {
-    listIter li;
-    listNode *ln;
-    listRewind(server.repl_buffer_blocks, &li);
-    while ((ln = listNext(&li))) {
-        replBufBlock *o = listNodeValue(ln);
-        /* Free replication buffer blocks whose refcount is 0. */
-        if (o->refcount == 0) {
-            server.repl_buffer_size -= (o->size +
-                sizeof(listNode) + sizeof(replBufBlock));
-            listDelNode(server.repl_buffer_blocks, ln);
-        } else {
-            break;
-        }
-    }
+    incrementalTrimReplicationBacklog(TRIM_REPL_BUF_BLOCKS_PER);
 }
 
 /* Free replication buffer blocks that are referenced by this client. */
@@ -399,7 +386,7 @@ void freeSlaveReferencedReplBuffer(client *replica) {
         replBufBlock *o = listNodeValue(replica->ref_repl_buf_node);
         serverAssert(o->refcount > 0);
         o->refcount--;
-        trimReplicationBacklog();
+        incrementalTrimReplicationBacklog(TRIM_REPL_BUF_BLOCKS_PER);
     }
     replica->ref_repl_buf_node = NULL;
     replica->ref_block_pos = 0;
@@ -599,25 +586,28 @@ long long addReplyReplicationBacklog(client *c, long long offset) {
 
     /* Iterate recorded blocks, quickly search the approximate node. */
     listNode *node = NULL;
-    if (listLength(server.repl_backlog->recorded_blocks) > 0) {
-        listNode *ln = listFirst(server.repl_backlog->recorded_blocks);
-        while (ln != NULL) {
-            replBufBlock *o = listNodeValue((listNode*)listNodeValue(ln));
-            if (o->repl_offset > offset) {
-                listNode *pre_node = listPrevNode(ln);
-                if (pre_node != NULL)
-                    node = listNodeValue(pre_node);
-                else
-                    node = server.repl_backlog->ref_repl_buf_node;
-                break;
-            }
-            ln = listNextNode(ln);
+    if (raxSize(server.repl_backlog->blocks_index) > 0) {
+        uint64_t encoded_offset = htonu64(offset);
+        raxIterator ri;
+        raxStart(&ri, server.repl_backlog->blocks_index);
+        raxSeek(&ri, ">", (unsigned char*)&encoded_offset, sizeof(uint64_t));
+        if (raxEOF(&ri)) {
+            /* No found, so search from the last recorded node. */
+            raxSeek(&ri, "$", NULL, 0);
+            raxNext(&ri);
+            node = (listNode *)ri.data;
+        } else {
+            raxPrev(&ri); /* Skip the sought node. */
+            /* We should search from the prev node since the offset of current
+             * sought node exceeds searching offset. */
+            if (raxPrev(&ri))
+                node = (listNode *)ri.data;
+            else
+                node = server.repl_backlog->ref_repl_buf_node;
         }
-        /* Not found, iterate from the last recorded blocks. */
-        if (ln == NULL) node = listNodeValue(listLast(
-                                server.repl_backlog->recorded_blocks));
+        raxStop(&ri);
     } else {
-        /* No recorded blocks, just from start node to search. */
+        /* No recorded blocks, just from the start node to search. */
         node = server.repl_backlog->ref_repl_buf_node;
     }
 
@@ -3665,9 +3655,6 @@ void replicationCron(void) {
         serverAssert(o->refcount > 0 &&
             o->refcount <= (size_t)listLength(server.slaves)+1);
     }
-
-    /* Trim replication backlog. */
-    if (server.repl_backlog) trimReplicationBacklog();
 
     /* Refresh the number of slaves with lag <= min-slaves-max-lag. */
     refreshGoodSlavesCount();

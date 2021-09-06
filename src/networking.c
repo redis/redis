@@ -1539,7 +1539,7 @@ int _writeToClient(client *c, ssize_t *nwritten) {
             ((replBufBlock *)(listNodeValue(next)))->refcount++;
             c->ref_repl_buf_node = next;
             c->ref_block_pos = 0;
-            trimReplicationBacklog();
+            incrementalTrimReplicationBacklog(TRIM_REPL_BUF_BLOCKS_PER);
         }
         return C_OK;
     }

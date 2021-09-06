@@ -1173,10 +1173,14 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     mem_total += server.initial_memory_usage;
 
     mem = 0;
-    if (server.repl_backlog)
-        mem += server.repl_backlog->size +
-               server.repl_backlog->blocks * (sizeof(replBufBlock)+sizeof(listNode)) +
-               listLength(server.repl_backlog->recorded_blocks) * sizeof(listNode);
+    if (server.repl_backlog && server.repl_backlog->ref_repl_buf_node) {
+        replBufBlock *head = listNodeValue(server.repl_backlog->ref_repl_buf_node);
+        replBufBlock *last = listNodeValue(listLast(server.repl_buffer_blocks));
+        mem += server.repl_backlog_histlen + (last->size - last->used) +
+               (last->id - head->id + 1) * (sizeof(replBufBlock)+sizeof(listNode)) +
+               server.repl_backlog->blocks_index->numnodes * sizeof(raxNode) +
+               raxSize(server.repl_backlog->blocks_index) * sizeof(void*);
+    }
     mh->repl_backlog = mem;
     mem_total += mem;
 

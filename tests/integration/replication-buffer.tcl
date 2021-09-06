@@ -112,7 +112,7 @@ start_server {} {
         populate 10000 master 10000
         assert {[s mem_replication_backlog] > [expr 10000*10000]}
         assert {[s mem_clients_slaves] > [expr 10000*10000]}
-        assert {[s mem_replication_backlog] >= [s mem_clients_slaves]}
+        assert {[s mem_replication_backlog] > [s mem_clients_slaves]}
     }
 
     # Wait slave1 catch up with the master
@@ -152,7 +152,14 @@ start_server {} {
             fail "Slave2 didn't disconnect with master"
         }
         assert {[s mem_clients_slaves] < [expr 64*1024]}
-        assert {[s mem_replication_backlog] < [expr 64*1024]}
+
+        # Since we trim replication backlog inrementally, replication backlog
+        # memory may not decrease much quickly.
+        wait_for_condition 1000 100 {
+            [s mem_replication_backlog] < [expr 10000*10000]
+        } else {
+            fail "Replication backlog memory is not smaller"
+        }
     }
 }
 }

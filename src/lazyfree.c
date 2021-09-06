@@ -57,6 +57,18 @@ void lazyFreeLuaScripts(void *args[]) {
     atomicIncr(lazyfreed_objects,len);
 }
 
+/* Release replication backlog referencing memory. */
+void lazyFreeReplicationBackogRefMem(void *args[]) {
+    list *blocks = args[0];
+    rax *index = args[1];
+    long long len = listLength(blocks);
+    len += raxSize(index);
+    listRelease(blocks);
+    raxFree(index);
+    atomicDecr(lazyfree_objects,len);
+    atomicIncr(lazyfreed_objects,len);
+}
+
 /* Return the number of currently pending objects to free. */
 size_t lazyfreeGetPendingObjectsCount(void) {
     size_t aux;
@@ -238,5 +250,19 @@ void freeLuaScriptsAsync(dict *lua_scripts) {
         bioCreateLazyFreeJob(lazyFreeLuaScripts,1,lua_scripts);
     } else {
         dictRelease(lua_scripts);
+    }
+}
+
+/* Free replication backlog referencing buffer blocks and rax index. */
+void freeReplicationBacklogRefMemAsync(list *blocks, rax *index) {
+    if (listLength(blocks) > LAZYFREE_THRESHOLD ||
+        raxSize(index) > LAZYFREE_THRESHOLD)
+    {
+        atomicIncr(lazyfree_objects,listLength(blocks));
+        atomicIncr(lazyfree_objects,raxSize(index));
+        bioCreateLazyFreeJob(lazyFreeReplicationBackogRefMem,2,blocks,index);
+    } else {
+        listRelease(blocks);
+        raxFree(index);
     }
 }

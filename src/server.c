@@ -2457,6 +2457,11 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     /* Close clients that need to be closed asynchronous */
     freeClientsInAsyncFreeQueue();
 
+    /* Incrementally trim replication backlog, 10 times the normal speed is
+     * to free replication backlog as much as possible. */
+    if (server.repl_backlog)
+        incrementalTrimReplicationBacklog(10*TRIM_REPL_BUF_BLOCKS_PER);
+
     /* Try to process blocked clients every once in while. Example: A module
      * calls RM_SignalKeyAsReady from within a timer callback (So we don't
      * visit processCommand() at all). */
