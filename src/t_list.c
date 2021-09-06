@@ -405,7 +405,7 @@ void addListRangeReply(client *c, robj *o, long start, long end, int reverse) {
 
         while(rangelen--) {
             listTypeEntry entry;
-            listTypeNext(iter, &entry);
+            serverAssert(listTypeNext(iter, &entry)); /* fail on corrupt data */
             quicklistEntry *qe = &entry.entry;
             if (qe->value) {
                 addReplyBulkCBuffer(c,qe->value,qe->sz);
