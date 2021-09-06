@@ -27,7 +27,7 @@ proc clients_sum {f} {
 }
 
 proc write_err_exception {e} {
-    return [regexp {(.*connection reset by peer.*|.*broken pipe.*)} $e]
+    return [regexp {(.*connection reset by peer.*|.*broken pipe.*|error writing .*: protocol wrong type for socket)} $e]
 }
 
 proc mb {v} {
