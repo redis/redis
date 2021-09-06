@@ -543,7 +543,7 @@ void *dictFetchValue(dict *d, const void *key) {
  * We can use like this:
  *
  * dictEntry *de = dictFindWithPlink(db->dict,key->ptr,&plink, &table);
- * // Do something, but we can modify the dict
+ * // Do something, but we can't modify the dict
  * dictFreePlinkEntry(db->dict,de,plink,table); // We don't need to lookup again
  */
 dictEntry *dictFindWithPlink(dict *d, const void *key, dictEntry ***plink, int *table_index)

@@ -135,9 +135,6 @@ size_t lazyfreeGetFreeEffort(robj *key, robj *obj, int dbid) {
 int dbAsyncDelete(redisDb *db, robj *key) {
     dictEntry **plink;
     int table;
-    /* Deleting an entry from the expires dict will not free the sds of
-     * the key, because it is shared with the main dictionary. */
-    if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
 
     /* If the value is composed of a few allocations, to free in a lazy way
      * is actually just slower... So under a certain limit we just free
@@ -164,13 +161,15 @@ int dbAsyncDelete(redisDb *db, robj *key) {
             bioCreateLazyFreeJob(lazyfreeFreeObject,1, val);
             dictSetVal(db->dict,de,NULL);
         }
-    }
 
-    /* Release the key-val pair, or just the key if we set the val
-     * field to NULL in order to lazy free it later. */
-    if (de) {
+        /* Release the key-val pair, or just the key if we set the val
+        * field to NULL in order to lazy free it later. */
         if (server.cluster_enabled) slotToKeyDelEntry(de);
         dictFreePlinkEntry(db->dict,de,plink,table);
+
+        /* Deleting an entry from the expires dict will not free the sds of
+        * the key, because it is shared with the main dictionary. */
+        if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
         return 1;
     } else {
         return 0;

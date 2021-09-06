@@ -6066,7 +6066,8 @@ void moduleReleaseGIL(void) {
  *                               can not be retained, use RM_CreateStringFromString
  *                               instead.
  *  - REDISMODULE_NOTIFY_REMOVED: A special notification available only for modules,
- *                                indicates that the key is removed from the keyspace.
+ *                                indicates that the key is about to be removed from
+ *                                the keyspace.
  *
  * We do not distinguish between key events and keyspace events, and it is up
  * to the module to filter the actions taken based on the key.
