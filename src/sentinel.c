@@ -410,8 +410,9 @@ void sentinelSimFailureCrash(void);
 
 void releaseSentinelRedisInstance(sentinelRedisInstance *ri);
 
-void dictInstancesValDestructor (dict *d, void *obj) {
+void dictInstancesValDestructor (dict *d, dictEntry *de, void *obj) {
     UNUSED(d);
+    UNUSED(de);
     releaseSentinelRedisInstance(obj);
 }
 

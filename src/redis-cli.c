@@ -170,8 +170,8 @@ int spectrum_palette_size;
 static uint64_t dictSdsHash(const void *key);
 static int dictSdsKeyCompare(dict *d, const void *key1,
     const void *key2);
-static void dictSdsDestructor(dict *d, void *val);
-static void dictListDestructor(dict *d, void *val);
+static void dictSdsDestructor(dict *d, dictEntry *de, void *val);
+static void dictListDestructor(dict *d, dictEntry *de, void *val);
 
 /* Cluster Manager Command Info */
 typedef struct clusterManagerCommand {
@@ -466,15 +466,17 @@ static int dictSdsKeyCompare(dict *d, const void *key1, const void *key2)
     return memcmp(key1, key2, l1) == 0;
 }
 
-static void dictSdsDestructor(dict *d, void *val)
+static void dictSdsDestructor(dict *d, dictEntry *de, void *val)
 {
     UNUSED(d);
+    UNUSED(de);
     sdsfree(val);
 }
 
-void dictListDestructor(dict *d, void *val)
+void dictListDestructor(dict *d, dictEntry *de, void *val)
 {
     UNUSED(d);
+    UNUSED(de);
     listRelease((list*)val);
 }
 
@@ -7540,9 +7542,10 @@ static typeinfo* typeinfo_add(dict *types, char* name, typeinfo* type_template) 
     return info;
 }
 
-void type_free(dict *d, void* val) {
+void type_free(dict *d, dictEntry *de, void* val) {
     typeinfo *info = val;
     UNUSED(d);
+    UNUSED(de);
     if (info->biggest_key)
         sdsfree(info->biggest_key);
     sdsfree(info->name);

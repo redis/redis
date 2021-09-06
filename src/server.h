@@ -2518,7 +2518,7 @@ uint64_t dictSdsHash(const void *key);
 uint64_t dictSdsCaseHash(const void *key);
 int dictSdsKeyCompare(dict *d, const void *key1, const void *key2);
 int dictSdsKeyCaseCompare(dict *d, const void *key1, const void *key2);
-void dictSdsDestructor(dict *d, void *val);
+void dictSdsDestructor(dict *d, dictEntry *de, void *val);
 
 /* Git SHA1 */
 char *redisGitSHA1(void);

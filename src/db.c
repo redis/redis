@@ -182,12 +182,13 @@ robj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply) {
  *
  * The program is aborted if the key already exists. */
 void dbAdd(redisDb *db, robj *key, robj *val) {
-    sds copy = sdsdup(key->ptr);
-    dictEntry *de = dictAddRaw(db->dict, copy, NULL);
+    dictEntry *de = dictAddRaw(db->dict, key->ptr, NULL);
     serverAssertWithInfo(NULL, key, de != NULL);
+    /* If the key was not already copied (and embedded in the dict) by
+     * dictAddRaw, we need to copy it here. */
+    if (de->key == key->ptr) de->key = sdsdup(key->ptr);
     dictSetVal(db->dict, de, val);
     signalKeyAsReady(db, key, val->type);
-    if (server.cluster_enabled) slotToKeyAddEntry(de);
 }
 
 /* This is a special version of dbAdd() that is used only when loading
@@ -204,8 +205,8 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
 int dbAddRDBLoad(redisDb *db, sds key, robj *val) {
     dictEntry *de = dictAddRaw(db->dict, key, NULL);
     if (de == NULL) return 0;
+    if (de->key != key) sdsfree(key); /* Free it if the dict copied it. */
     dictSetVal(db->dict, de, val);
-    if (server.cluster_enabled) slotToKeyAddEntry(de);
     return 1;
 }
 
@@ -313,7 +314,6 @@ int dbSyncDelete(redisDb *db, robj *key) {
         robj *val = dictGetVal(de);
         /* Tells the module that the key has been unlinked from the database. */
         moduleNotifyKeyUnlink(key,val,db->id);
-        if (server.cluster_enabled) slotToKeyDelEntry(de);
         dictFreeUnlinkedEntry(db->dict,de);
         return 1;
     } else {

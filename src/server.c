@@ -1267,15 +1267,17 @@ void exitFromChild(int retcode) {
  * keys and redis objects as values (objects can hold SDS strings,
  * lists, sets). */
 
-void dictVanillaFree(dict *d, void *val)
+void dictVanillaFree(dict *d, dictEntry *de, void *val)
 {
     UNUSED(d);
+    UNUSED(de);
     zfree(val);
 }
 
-void dictListDestructor(dict *d, void *val)
+void dictListDestructor(dict *d, dictEntry *de, void *val)
 {
     UNUSED(d);
+    UNUSED(de);
     listRelease((list*)val);
 }
 
@@ -1300,16 +1302,18 @@ int dictSdsKeyCaseCompare(dict *d, const void *key1,
     return strcasecmp(key1, key2) == 0;
 }
 
-void dictObjectDestructor(dict *d, void *val)
+void dictObjectDestructor(dict *d, dictEntry *de, void *val)
 {
     UNUSED(d);
+    UNUSED(de);
     if (val == NULL) return; /* Lazy freeing will set value to NULL. */
     decrRefCount(val);
 }
 
-void dictSdsDestructor(dict *d, void *val)
+void dictSdsDestructor(dict *d, dictEntry *de, void *val)
 {
     UNUSED(d);
+    UNUSED(de);
     sdsfree(val);
 }
 
@@ -1384,12 +1388,67 @@ int dictExpandAllowed(size_t moreMem, double usedRatio) {
     }
 }
 
-/* Returns the size of the DB dict entry metadata in bytes. In cluster mode, the
- * metadata is used for constructing a doubly linked list of the dict entries
- * belonging to the same cluster slot. See the Slot to Key API in cluster.c. */
-size_t dictEntryMetadataSize(dict *d) {
+/* Allocates an entry for the DB dict and sets the key and cluster metadata.
+ *
+ * For small keys, a copy of the key is embedded in the entry, but otherwise the
+ * dict takes a pointer to the key without copying it, so the caller needs to
+ * check if entry->key is the same as the supplied key to know if it was copied
+ * or not.
+ *
+ * In cluster mode, extra memory is allocated for constructing a doubly linked
+ * list of the dict entries belonging to the same cluster slot. See the Slot to
+ * Key API in cluster.c. */
+dictEntry *dictDbCreateEntry(dict *d, void *key) {
     UNUSED(d);
-    return server.cluster_enabled ? sizeof(clusterDictEntryMetadata) : 0;
+    /* Compute sizes of metadata. */
+    size_t meta_sz = 0;
+    if (server.cluster_enabled) meta_sz += sizeof(clusterDictEntryMetadata);
+    size_t total_sz = sizeof(dictEntry) + meta_sz;
+
+    /* Embed the key if it can be represented as SDS_TYPE_5 and the dictEntry
+     * still fits within 64 bytes. */
+    sds sdskey = (sds)key;
+    size_t keylen = sdslen(sdskey);
+    int use_embedded_key = (keylen < (1<<5) &&
+                            total_sz + keylen + 2 <= 64);
+    if (use_embedded_key) total_sz += keylen + 2;
+
+    dictEntry *entry = zmalloc(total_sz);
+    if (meta_sz) memset(entry->metadata, 0, meta_sz);
+    if (use_embedded_key) {
+        char *embedded_key = (char *)entry->metadata + meta_sz + 1;
+        embedded_key[-1] = SDS_TYPE_5 | (keylen << SDS_TYPE_BITS);
+        memcpy(embedded_key, sdskey, keylen);
+        embedded_key[keylen] = '\0';
+        entry->key = embedded_key;
+    } else {
+        entry->key = sdskey;
+    }
+    if (server.cluster_enabled) slotToKeyAddEntry(entry);
+    return entry;
+}
+
+/* The key destructor also cleans up dictEntry metadata. */
+void dictDbKeyDestructor(dict *d, dictEntry *de, void *key) {
+    UNUSED(d);
+    if (server.cluster_enabled) slotToKeyDelEntry(de);
+    /* Only free key if it's not embedded within the entry. */
+    if ((uintptr_t)key < (uintptr_t)de ||
+        (uintptr_t)key >= (uintptr_t)de + zmalloc_usable_size(de)) sdsfree(key);
+}
+
+/* Called after reallocation of a dict entry. The pointer oldde is already
+ * freed, so we can only compare its address but not dereference it. */
+void dictDbRepairEntry(dict *d, dictEntry *newde, dictEntry *oldde) {
+    UNUSED(d);
+    if (server.cluster_enabled) slotToKeyReplaceEntry(newde);
+    if ((uintptr_t)newde->key > (uintptr_t)oldde &&
+        (uintptr_t)newde->key < (uintptr_t)oldde + zmalloc_usable_size(newde)) {
+        /* The key is embedded in the entry, but the key pointer points inside
+         * oldde. Update it to the corresponding offset within newde. */
+        uintptr_t k = (uintptr_t)newde->key + (uintptr_t)newde - (uintptr_t)oldde;
+        newde->key = (void *)k;
+    }
 }
 
 /* Generic hash table type where keys are Redis Objects, Values
@@ -1443,10 +1502,11 @@ dictType dbDictType = {
     NULL,                       /* key dup */
     NULL,                       /* val dup */
     dictSdsKeyCompare,          /* key compare */
-    dictSdsDestructor,          /* key destructor */
+    dictDbKeyDestructor,        /* key destructor */
     dictObjectDestructor,       /* val destructor */
     dictExpandAllowed,          /* allow to expand */
-    dictEntryMetadataSize       /* size of entry metadata in bytes */
+    dictDbCreateEntry,          /* special alloc+init entry */
+    dictDbRepairEntry           /* repair entry after realloc */
 };
 
 /* server.lua_scripts sha (as sds string) -> scripts (as robj) cache. */

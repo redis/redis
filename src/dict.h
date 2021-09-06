@@ -65,12 +65,15 @@ typedef struct dictType {
     void *(*keyDup)(dict *d, const void *key);
     void *(*valDup)(dict *d, const void *obj);
     int (*keyCompare)(dict *d, const void *key1, const void *key2);
-    void (*keyDestructor)(dict *d, void *key);
-    void (*valDestructor)(dict *d, void *obj);
+    void (*keyDestructor)(dict *d, dictEntry* de, void *key);
+    void (*valDestructor)(dict *d, dictEntry* de, void *obj);
     int (*expandAllowed)(size_t moreMem, double usedRatio);
-    /* Allow a dictEntry to carry extra caller-defined metadata.  The
-     * extra memory is initialized to 0 when a dictEntry is allocated. */
-    size_t (*dictEntryMetadataBytes)(dict *d);
+    /* Override creation of dictEntry. If defined, it must allocate an entry and
+     * set the key. */
+    dictEntry *(*createEntry)(dict *d, void *key);
+    /* Repair is called after a dictEntry has been reallocated. The pointer
+     * 'oldde' has already been freed so it must not be dereferenced. */
+    void (*repairEntry)(dict *d, dictEntry *newde, dictEntry *oldde);
 } dictType;
 
 #define DICTHT_SIZE(exp) ((exp) == -1 ? 0 : (unsigned long)1<<(exp))
@@ -112,7 +115,7 @@ typedef void (dictScanBucketFunction)(dict *d, dictEntry **bucketref);
 /* ------------------------------- Macros ------------------------------------*/
 #define dictFreeVal(d, entry) \
     if ((d)->type->valDestructor) \
-        (d)->type->valDestructor((d), (entry)->v.val)
+        (d)->type->valDestructor((d), (entry), (entry)->v.val)
 
 #define dictSetVal(d, entry, _val_) do { \
     if ((d)->type->valDup) \
@@ -132,7 +135,7 @@ typedef void (dictScanBucketFunction)(dict *d, dictEntry **bucketref);
 
 #define dictFreeKey(d, entry) \
     if ((d)->type->keyDestructor) \
-        (d)->type->keyDestructor((d), (entry)->key)
+        (d)->type->keyDestructor((d), (entry), (entry)->key)
 
 #define dictSetKey(d, entry, _key_) do { \
     if ((d)->type->keyDup) \
@@ -146,9 +149,10 @@ typedef void (dictScanBucketFunction)(dict *d, dictEntry **bucketref);
         (d)->type->keyCompare((d), key1, key2) : \
         (key1) == (key2))
 
+#define dictRepairEntry(d, newde, oldde) \
+    if ((d)->type->repairEntry) \
+        (d)->type->repairEntry((d), (newde), (oldde))
 #define dictMetadata(entry) (&(entry)->metadata)
-#define dictMetadataSize(d) ((d)->type->dictEntryMetadataBytes \
-                             ? (d)->type->dictEntryMetadataBytes(d) : 0)
 
 #define dictHashKey(d, key) (d)->type->hashFunction(key)
 #define dictGetKey(he) ((he)->key)

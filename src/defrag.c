@@ -816,12 +816,15 @@ long defragKey(redisDb *db, dictEntry *de) {
     robj *newob, *ob;
     unsigned char *newzl;
     long defragged = 0;
-    sds newsds;
+    sds newsds = NULL;
 
-    /* Try to defrag the key name. */
-    newsds = activeDefragSds(keysds);
-    if (newsds)
-        defragged++, de->key = newsds;
+    /* Try to defrag the key, if it's not embedded in the dict entry. */
+    if ((uintptr_t)de->key < (uintptr_t)de ||
+        (uintptr_t)de->key >= (uintptr_t)de + zmalloc_usable_size(de)) {
+        newsds = activeDefragSds(keysds);
+        if (newsds)
+            defragged++, de->key = newsds;
+    }
     if (dictSize(db->expires)) {
          /* Dirty code:
           * I can't search in db->expires for that key after i already released
@@ -900,11 +903,8 @@ void defragDictBucketCallback(dict *d, dictEntry **bucketref) {
     while(*bucketref) {
         dictEntry *de = *bucketref, *newde;
         if ((newde = activeDefragAlloc(de))) {
+            dictRepairEntry(d, newde, de);
             *bucketref = newde;
-            if (server.cluster_enabled && d == server.db[0].dict) {
-                /* Cluster keyspace dict. Update slot-to-entries mapping. */
-                slotToKeyReplaceEntry(newde);
-            }
         }
         bucketref = &(*bucketref)->next;
     }

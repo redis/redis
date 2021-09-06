@@ -1103,7 +1103,7 @@ void configGetCommand(client *c) {
 /* We use the following dictionary type to store where a configuration
  * option is mentioned in the old configuration file, so it's
  * like "maxmemory" -> list of line numbers (first line is zero). */
-void dictListDestructor(dict *d, void *val);
+void dictListDestructor(dict *d, dictEntry *de, void *val);
 
 /* Sentinel config rewriting is implemented inside sentinel.c by
  * rewriteConfigSentinelOption(). */

@@ -338,17 +338,16 @@ dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing)
      * system it is more likely that recently added entries are accessed
      * more frequently. */
     htidx = dictIsRehashing(d) ? 1 : 0;
-    size_t metasize = dictMetadataSize(d);
-    entry = zmalloc(sizeof(*entry) + metasize);
-    if (metasize > 0) {
-        memset(dictMetadata(entry), 0, metasize);
+    if (d->type->createEntry) {
+        entry = d->type->createEntry(d, key);
+    } else {
+        entry = zmalloc(sizeof(*entry));
+        dictSetKey(d, entry, key);
     }
     entry->next = d->ht_table[htidx][index];
     d->ht_table[htidx][index] = entry;
     d->ht_used[htidx]++;
 
-    /* Set the hash entry fields. */
-    dictSetKey(d, entry, key);
     return entry;
 }
 
@@ -1200,9 +1199,9 @@ int compareCallback(dict *d, const void *key1, const void *key2) {
     return memcmp(key1, key2, l1) == 0;
 }
 
-void freeCallback(dict *d, void *val) {
+void freeCallback(dict *d, dictEntry *de, void *val) {
     UNUSED(d);
-
+    UNUSED(de);
     zfree(val);
 }
 
