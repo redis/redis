@@ -630,15 +630,7 @@ void quicklistAppendZiplist(quicklist *quicklist, unsigned char *zl) {
  * to be retrieved later.
  * zl - the data to add (pointer becomes the responsibility of quicklist) */
 void quicklistAppendPlainNode(quicklist *quicklist, unsigned char *zl, size_t sz) {
-    quicklistNode *node = quicklistCreateNode();
-
-    node->entry = zl;
-    node->count = 1;
-    node->sz = sz;
-    node->container = QUICKLIST_NODE_CONTAINER_NONE;
-
-    _quicklistInsertNodeAfter(quicklist, quicklist->tail, node);
-    quicklist->count++;
+    __quicklistInsertPlainNode(quicklist, quicklist->tail, zl, sz, 1);
 }
 
 /* Append all values of ziplist 'zl' individually into 'quicklist'.
@@ -1486,11 +1478,12 @@ void quicklistRotate(quicklist *quicklist) {
     if(unlikely(quicklist->tail->container == QUICKLIST_NODE_CONTAINER_NONE)) {
         quicklistNode *new_head = quicklist->tail;
         quicklistNode *new_tail = quicklist->tail->prev;
+        quicklist->head->prev = new_head;
         new_tail->next = NULL;
-        new_head->next = quicklist->head->next;
+        new_head->next = quicklist->head;
         new_head->prev = NULL;
-        quicklist->head->next->prev = new_head;
         quicklist->head = new_head;
+        quicklist->tail = new_tail;
         return;
     }
 
@@ -2005,13 +1998,11 @@ int quicklistTest(int argc, char *argv[], int accurate) {
             quicklistRelease(ql);
         }
 
-        //TEST("rotate plain node ") {
-/*
+        TEST("rotate plain node ") {
             unsigned char *data;
             size_t sz;
             long long lv;
             int i =0;
-
             packed_threshold = 5;
             quicklist *ql = quicklistNew(-2, options[_i]);
             quicklistPushHead(ql, "hello1", 6);
@@ -2020,18 +2011,15 @@ int quicklistTest(int argc, char *argv[], int accurate) {
             quicklistPushHead(ql, "hello2", 6);
 
             quicklistRotate(ql);
-*/
-            //for(i = 1 ; i < 5; i++) {
-            //    quicklistPop(ql, QUICKLIST_HEAD, &data, &sz, &lv);
-                //assert(data[5] == i);
-            //}
 
-
-            //ql_verify(ql, 0, 0, 0, 0);
-            //quicklistRelease(ql);
-
-            //packed_threshold = (1 << 30);
-       // }
+            for(i = 1 ; i < 5; i++) {
+                quicklistPop(ql, QUICKLIST_HEAD, &data, &sz, &lv);
+                assert(data[5] != i);
+            }
+            ql_verify(ql, 0, 0, 0, 0);
+            quicklistRelease(ql);
+            packed_threshold = (1 << 30);
+        }
 
         TEST("rotate one val once") {
             for (int f = 0; f < fill_count; f++) {
