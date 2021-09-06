@@ -82,7 +82,7 @@ test {corrupt payload: valid zipped hash header, dup records} {
 test {corrupt payload: quicklist big ziplist prev len} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r config set sanitize-dump-payload no
-        r restore key 0 "\x0E\x01\x13\x13\x00\x00\x00\x0E\x00\x00\x00\x02\x00\x00\x02\x61\x00\x0E\x02\x62\x00\xFF\x09\x00\x49\x97\x30\xB2\x0D\xA1\xED\xAA"
+        r restore key 0 "\x0e\x01\x1b\x1b\x00\x00\x00\x16\x00\x00\x00\x04\x00\x00\x02\x61\x00\x04\x02\x62\x00\x04\x02\x63\x00\x19\x02\x64\x00\xff\x09\x00\xec\x42\xe9\xf5\xd6\x19\x9e\xbd"
         catch {r lindex key -2}
         assert_equal [count_log_message 0 "crashed by signal"] 0
         assert_equal [count_log_message 0 "ASSERTION FAILED"] 1
@@ -107,7 +107,7 @@ test {corrupt payload: quicklist ziplist wrong count} {
         # we'll be able to push, but iterating on the list will assert
         r lpush key header
         r rpush key footer
-        catch { [r lrange key -1 -1] }
+        catch { [r lrange key 0 -1] }
         assert_equal [count_log_message 0 "crashed by signal"] 0
         assert_equal [count_log_message 0 "ASSERTION FAILED"] 1
     }
