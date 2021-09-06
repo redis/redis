@@ -658,7 +658,7 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
         return rdbSaveType(rdb,RDB_TYPE_STRING);
     case OBJ_LIST:
         if (o->encoding == OBJ_ENCODING_QUICKLIST)
-            return rdbSaveType(rdb, RDB_TYPE_LIST_QUICKLIST2);
+            return rdbSaveType(rdb, RDB_TYPE_LIST_QUICKLIST_2);
         else
             serverPanic("Unknown list encoding");
     case OBJ_SET:
@@ -1804,7 +1804,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
 
         /* All pairs should be read by now */
         serverAssert(len == 0);
-    } else if (rdbtype == RDB_TYPE_LIST_QUICKLIST || rdbtype == RDB_TYPE_LIST_QUICKLIST2) {
+    } else if (rdbtype == RDB_TYPE_LIST_QUICKLIST || rdbtype == RDB_TYPE_LIST_QUICKLIST_2) {
         if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
         if (len == 0) goto emptykey;
 
@@ -1815,7 +1815,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
         while (len--) {
             size_t encoded_len;
 
-            if (rdbtype == RDB_TYPE_LIST_QUICKLIST2) {
+            if (rdbtype == RDB_TYPE_LIST_QUICKLIST_2) {
                 if ((container = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
             }
 

@@ -791,18 +791,17 @@ int quicklistReplaceAtIndex(quicklist *quicklist, long index, void *data,
     quicklistEntry entry;
     if (likely(quicklistIndex(quicklist, index, &entry))) {
 
-        int isCurrentplain = (entry.node->container == QUICKLIST_NODE_CONTAINER_NONE);
+        int isCurrentPlain = (entry.node->container == QUICKLIST_NODE_CONTAINER_NONE);
         int isNewPlain = isLargeElement(sz);
 
-        if (isNewPlain && isCurrentplain) {
-            zfree(entry.node->entry);
-            entry.node->entry = zmalloc(sz);
+        if (isNewPlain && isCurrentPlain) {
+            entry.node->entry = zrealloc(entry.node->entry, sz);
             memcpy(entry.node->entry, data, sz);
             entry.node->sz = sz;
             return 1;
         }
 
-        if (isNewPlain || isCurrentplain) {
+        if (isNewPlain || isCurrentPlain) {
             quicklistInsertAfter(quicklist, &entry , data, sz);
             quicklistDelRange(quicklist, index, 1);
             return 1;
@@ -1485,19 +1484,13 @@ void quicklistRotate(quicklist *quicklist) {
     char longstr[32] = {0};
 
     if(unlikely(quicklist->tail->container == QUICKLIST_NODE_CONTAINER_NONE)) {
-
-        quicklistNode *head = quicklist->tail;
-        quicklistNode *tail = quicklist->head;
-
-        head->next = quicklist->head->next;
-        head->prev = NULL;
-
-        tail->next = NULL;
-        tail->prev = quicklist->tail->prev;
-
-        quicklist->head = head;
-        quicklist->tail = tail;
-
+        quicklistNode *new_head = quicklist->tail;
+        quicklistNode *new_tail = quicklist->tail->prev;
+        new_tail->next = NULL;
+        new_head->next = quicklist->head->next;
+        new_head->prev = NULL;
+        quicklist->head->next->prev = new_head;
+        quicklist->head = new_head;
         return;
     }
 
@@ -2011,6 +2004,34 @@ int quicklistTest(int argc, char *argv[], int accurate) {
             ql_verify(ql, 0, 0, 0, 0);
             quicklistRelease(ql);
         }
+
+        //TEST("rotate plain node ") {
+/*
+            unsigned char *data;
+            size_t sz;
+            long long lv;
+            int i =0;
+
+            packed_threshold = 5;
+            quicklist *ql = quicklistNew(-2, options[_i]);
+            quicklistPushHead(ql, "hello1", 6);
+            quicklistPushHead(ql, "hello4", 6);
+            quicklistPushHead(ql, "hello3", 6);
+            quicklistPushHead(ql, "hello2", 6);
+
+            quicklistRotate(ql);
+*/
+            //for(i = 1 ; i < 5; i++) {
+            //    quicklistPop(ql, QUICKLIST_HEAD, &data, &sz, &lv);
+                //assert(data[5] == i);
+            //}
+
+
+            //ql_verify(ql, 0, 0, 0, 0);
+            //quicklistRelease(ql);
+
+            //packed_threshold = (1 << 30);
+       // }
 
         TEST("rotate one val once") {
             for (int f = 0; f < fill_count; f++) {

@@ -4,9 +4,9 @@ set server_path [tmpdir "server.rdb-encoding-test"]
 
 # Copy RDB with different encodings in server path
 exec cp tests/assets/encodings.rdb $server_path
-exec cp tests/assets/old_ver.rdb $server_path
+exec cp tests/assets/list-quicklist-2.rdb $server_path
 
-start_server [list overrides [list "dir" $server_path "dbfilename" "old_ver.rdb"]] {
+start_server [list overrides [list "dir" $server_path "dbfilename" "list-quicklist-2.rdb"]] {
     test "test old version rdb file" {
         r select 0
         assert_equal [r get x] 7
