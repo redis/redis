@@ -76,7 +76,7 @@ typedef struct sentinelAddr {
 #define SRI_RECONF_DONE (1<<10)     /* Slave synchronized with new master. */
 #define SRI_FORCE_FAILOVER (1<<11)  /* Force failover with master up. */
 #define SRI_SCRIPT_KILL_SENT (1<<12) /* SCRIPT KILL already sent on -BUSY */
-#define SRI_MASTER_REBOOT  (1<<13)   /* this flag set thinks that master is rebooted in very shot time*/
+#define SRI_MASTER_REBOOT  (1<<13)   /* Master was detected as rebooting*/
 
 /* Note: times are in milliseconds. */
 #define SENTINEL_PING_PERIOD 1000
@@ -1316,7 +1316,7 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
     ri->o_down_since_time = 0;
     ri->down_after_period = master ? master->down_after_period :
                             sentinel_default_down_after;
-    if(ri->flags & SRI_SLAVE){
+    if (ri->flags & SRI_SLAVE) {
         ri->master_reboot_down_after_period = master ? master->master_reboot_down_after_period :SENTINEL_PING_PERIOD*10;
     }                        
     ri->master_link_down_time = 0;
@@ -2507,7 +2507,7 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
                 if (strncmp(ri->runid,l+7,40) != 0) {
                     sentinelEvent(LL_NOTICE,"+reboot",ri,"%@");
 
-                    if(ri->flags & SRI_MASTER) {
+                    if (ri->flags & SRI_MASTER) {
                         ri->flags |= SRI_MASTER_REBOOT;
                         ri->master_reboot_since_time = mstime();
                     }
