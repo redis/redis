@@ -647,10 +647,11 @@ start_server {tags {"zset"}} {
             assert_equal 0 [r exists dst_key{t}]
         }
 
-        test "ZUNION/ZINTER/ZDIFF against non-existing key - $encoding" {
+        test "ZUNION/ZINTER/ZINTERCARD/ZDIFF against non-existing key - $encoding" {
             r del zseta
             assert_equal {} [r zunion 1 zseta]
             assert_equal {} [r zinter 1 zseta]
+            assert_equal 0 [r zintercard 1 zseta]
             assert_equal {} [r zdiff 1 zseta]
         }
 
@@ -662,12 +663,13 @@ start_server {tags {"zset"}} {
             r zrange zsetc{t} 0 -1 withscores
         } {a 1 b 2}
 
-        test "ZUNION/ZINTER/ZDIFF with empty set - $encoding" {
+        test "ZUNION/ZINTER/ZINTERCARD/ZDIFF with empty set - $encoding" {
             r del zseta{t} zsetb{t}
             r zadd zseta{t} 1 a
             r zadd zseta{t} 2 b
             assert_equal {a 1 b 2} [r zunion 2 zseta{t} zsetb{t} withscores]
             assert_equal {} [r zinter 2 zseta{t} zsetb{t} withscores]
+            assert_equal 0 [r zintercard 2 zseta{t} zsetb{t}]
             assert_equal {a 1 b 2} [r zdiff 2 zseta{t} zsetb{t} withscores]
         }
 
@@ -684,7 +686,7 @@ start_server {tags {"zset"}} {
             assert_equal {a 1 b 3 d 3 c 5} [r zrange zsetc{t} 0 -1 withscores]
         }
 
-        test "ZUNION/ZINTER/ZDIFF with integer members - $encoding" {
+        test "ZUNION/ZINTER/ZINTERCARD/ZDIFF with integer members - $encoding" {
             r del zsetd{t} zsetf{t}
             r zadd zsetd{t} 1 1
             r zadd zsetd{t} 2 2
@@ -695,6 +697,7 @@ start_server {tags {"zset"}} {
 
             assert_equal {1 2 2 2 4 4 3 6} [r zunion 2 zsetd{t} zsetf{t} withscores]
             assert_equal {1 2 3 6} [r zinter 2 zsetd{t} zsetf{t} withscores]
+            assert_equal 2 [r zintercard 2 zsetd{t} zsetf{t}]
             assert_equal {2 2} [r zdiff 2 zsetd{t} zsetf{t} withscores]
         }
 
@@ -745,6 +748,10 @@ start_server {tags {"zset"}} {
 
         test "ZINTER basics - $encoding" {
             assert_equal {b 3 c 5} [r zinter 2 zseta{t} zsetb{t} withscores]
+        }
+
+        test "ZINTERCARD basics - $encoding" {
+            assert_equal 2 [r zintercard 2 zseta{t} zsetb{t}]
         }
 
         test "ZINTER RESP3 - $encoding" {
@@ -1604,6 +1611,19 @@ start_server {tags {"zset"}} {
         r zrange z1{t} 5 0 BYSCORE REV LIMIT 0 2 WITHSCORES
     } {d 4 c 3}
 
+    test {ZRANGESTORE - src key missing} {
+        set res [r zrangestore z2{t} missing{t} 0 -1]
+        assert_equal $res 0
+        r exists z2{t}
+    } {0}
+
+    test {ZRANGESTORE - src key wrong type} {
+        r zadd z2{t} 1 a
+        r set foo{t} bar
+        assert_error "*WRONGTYPE*" {r zrangestore z2{t} foo{t} 0 -1}
+        r zrange z2{t} 0 -1
+    } {a}
+
     test {ZRANGESTORE - empty range} {
         set res [r zrangestore z2{t} z1{t} 5 6]
         assert_equal $res 0
@@ -1652,6 +1672,20 @@ start_server {tags {"zset"}} {
         return $res
     }
 
+    # Check whether the zset members belong to the zset
+    proc check_member {mydict res} {
+        foreach ele $res {
+            assert {[dict exists $mydict $ele]}
+        }
+    }
+
+    # Check whether the zset members and score belong to the zset
+    proc check_member_and_score {mydict res} {
+       foreach {key val} $res {
+            assert_equal $val [dict get $mydict $key]
+        }
+    }
+
     foreach {type contents} "ziplist {1 a 2 b 3 c} skiplist {1 a 2 b 3 [randstring 70 90 alpha]}" {
         set original_max_value [lindex [r config get zset-max-ziplist-value] 1]
         r config set zset-max-ziplist-value 10
@@ -1690,6 +1724,19 @@ start_server {tags {"zset"}} {
         r zrandmember nonexisting_key 100
     } {}
 
+    # Make sure we can distinguish between an empty array and a null response
+    r readraw 1
+
+    test "ZRANDMEMBER count of 0 is handled correctly - emptyarray" {
+        r zrandmember myzset 0
+    } {*0}
+
+    test "ZRANDMEMBER with <count> against non existing key - emptyarray" {
+        r zrandmember nonexisting_key 100
+    } {*0}
+
+    r readraw 0
+
     foreach {type contents} "
         skiplist {1 a 2 b 3 c 4 d 5 e 6 f 7 g 7 h 9 i 10 [randstring 70 90 alpha]}
         ziplist {1 a 2 b 3 c 4 d 5 e 6 f 7 g 7 h 9 i 10 j} " {
@@ -1712,25 +1759,29 @@ start_server {tags {"zset"}} {
             # PATH 1: Use negative count.
 
             # 1) Check that it returns repeated elements with and without values.
+            # 2) Check that all the elements actually belong to the original zset.
             set res [r zrandmember myzset -20]
             assert_equal [llength $res] 20
+            check_member $mydict $res
+
             set res [r zrandmember myzset -1001]
             assert_equal [llength $res] 1001
+            check_member $mydict $res
+
             # again with WITHSCORES
             set res [r zrandmember myzset -20 withscores]
             assert_equal [llength $res] 40
+            check_member_and_score $mydict $res
+
             set res [r zrandmember myzset -1001 withscores]
             assert_equal [llength $res] 2002
+            check_member_and_score $mydict $res
 
             # Test random uniform distribution
             # df = 9, 40 means 0.00001 probability
             set res [r zrandmember myzset -1000]
             assert_lessthan [chi_square_value $res] 40
-
-            # 2) Check that all the elements actually belong to the original zset.
-            foreach {key val} $res {
-                assert {[dict exists $mydict $key]}
-            }
+            check_member $mydict $res
 
             # 3) Check that eventually all the elements are returned.
             #    Use both WITHSCORES and without
@@ -1746,7 +1797,7 @@ start_server {tags {"zset"}} {
                 } else {
                     set res [r zrandmember myzset -3]
                     foreach key $res {
-                        dict append auxset $key $val
+                        dict append auxset $key
                     }
                 }
                 if {[lsort [dict keys $mydict]] eq
@@ -1762,11 +1813,13 @@ start_server {tags {"zset"}} {
                 set res [r zrandmember myzset $size]
                 assert_equal [llength $res] 10
                 assert_equal [lsort $res] [lsort [dict keys $mydict]]
+                check_member $mydict $res
 
                 # again with WITHSCORES
                 set res [r zrandmember myzset $size withscores]
                 assert_equal [llength $res] 20
                 assert_equal [lsort $res] [lsort $mydict]
+                check_member_and_score $mydict $res
             }
 
             # PATH 3: Ask almost as elements as there are in the set.
@@ -1778,18 +1831,17 @@ start_server {tags {"zset"}} {
             #
             # We can test both the code paths just changing the size but
             # using the same code.
-            foreach size {8 2} {
+            foreach size {1 2 8} {
+                # 1) Check that all the elements actually belong to the
+                # original set.
                 set res [r zrandmember myzset $size]
                 assert_equal [llength $res] $size
+                check_member $mydict $res
+
                 # again with WITHSCORES
                 set res [r zrandmember myzset $size withscores]
                 assert_equal [llength $res] [expr {$size * 2}]
-
-                # 1) Check that all the elements actually belong to the
-                # original set.
-                foreach ele [dict keys $res] {
-                    assert {[dict exists $mydict $ele]}
-                }
+                check_member_and_score $mydict $res
 
                 # 2) Check that eventually all the elements are returned.
                 #    Use both WITHSCORES and without

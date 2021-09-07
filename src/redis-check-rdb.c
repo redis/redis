@@ -90,7 +90,8 @@ char *rdb_type_string[] = {
     "zset-ziplist",
     "hash-ziplist",
     "quicklist",
-    "stream"
+    "stream",
+    "hash-listpack"
 };
 
 /* Show a few stats collected into 'rdbstate' */
@@ -310,7 +311,7 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
         rdbstate.keys++;
         /* Read value */
         rdbstate.doing = RDB_CHECK_DOING_READ_OBJECT_VALUE;
-        if ((val = rdbLoadObject(type,&rdb,key->ptr,selected_dbid,rdbver)) == NULL) goto eoferr;
+        if ((val = rdbLoadObject(type,&rdb,key->ptr,selected_dbid,rdbver,NULL)) == NULL) goto eoferr;
         /* Check if the key already expired. */
         if (expiretime != -1 && expiretime < now)
             rdbstate.already_expired++;

@@ -31,6 +31,19 @@ start_server {tags {"repl external:skip"}} {
             assert_equal [r debug digest] [r -1 debug digest]
         }
 
+        test {Master can replicate command longer than client-query-buffer-limit on replica} {
+            # Configure the master to have a bigger query buffer limit
+            r config set client-query-buffer-limit 2000000
+            r -1 config set client-query-buffer-limit 1048576
+            # Write a very large command onto the master
+            r set key [string repeat "x" 1100000]
+            wait_for_condition 300 100 {
+                [r -1 get key] eq [string repeat "x" 1100000]
+            } else {
+                fail "Unable to replicate command longer than client-query-buffer-limit"
+            }
+        }
+
         test {Slave is able to evict keys created in writable slaves} {
             r -1 select 5
             assert {[r -1 dbsize] == 0}

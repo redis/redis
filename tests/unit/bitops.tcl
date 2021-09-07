@@ -317,6 +317,41 @@ start_server {tags {"bitops"}} {
         assert {[r bitpos str 0 0 -1] == -1}
     }
 
+    test {SETBIT/BITFIELD only increase dirty when the value changed} {
+        r del foo{t} foo2{t} foo3{t}
+        set dirty [s rdb_changes_since_last_save]
+
+        # Create a new key, always increase the dirty.
+        r setbit foo{t} 0 0
+        r bitfield foo2{t} set i5 0 0
+        set dirty2 [s rdb_changes_since_last_save]
+        assert {$dirty2 == $dirty + 2}
+
+        # No change.
+        r setbit foo{t} 0 0
+        r bitfield foo2{t} set i5 0 0
+        set dirty3 [s rdb_changes_since_last_save]
+        assert {$dirty3 == $dirty2}
+
+        # Do a change and a no change.
+        r setbit foo{t} 0 1
+        r setbit foo{t} 0 1
+        r setbit foo{t} 0 0
+        r setbit foo{t} 0 0
+        r bitfield foo2{t} set i5 0 1
+        r bitfield foo2{t} set i5 0 1
+        r bitfield foo2{t} set i5 0 0
+        r bitfield foo2{t} set i5 0 0
+        set dirty4 [s rdb_changes_since_last_save]
+        assert {$dirty4 == $dirty3 + 4}
+
+        # BITFIELD INCRBY always increase dirty.
+        r bitfield foo3{t} incrby i5 0 1
+        r bitfield foo3{t} incrby i5 0 1
+        set dirty5 [s rdb_changes_since_last_save]
+        assert {$dirty5 == $dirty4 + 2}
+    }
+
     test {BITPOS bit=1 fuzzy testing using SETBIT} {
         r del str
         set max 524288; # 64k
@@ -348,4 +383,30 @@ start_server {tags {"bitops"}} {
             }
         }
     }
+
+    test "BIT pos larger than UINT_MAX" {
+        set bytes [expr (1 << 29) + 1]
+        set bitpos [expr (1 << 32)]
+        set oldval [lindex [r config get proto-max-bulk-len] 1]
+        r config set proto-max-bulk-len $bytes
+        r setbit mykey $bitpos 1
+        assert_equal $bytes [r strlen mykey]
+        assert_equal 1 [r getbit mykey $bitpos]
+        assert_equal [list 128 128 -1] [r bitfield mykey get u8 $bitpos set u8 $bitpos 255 get i8 $bitpos]
+        assert_equal $bitpos [r bitpos mykey 1]
+        assert_equal $bitpos [r bitpos mykey 1 [expr $bytes - 1]]
+        if {$::accurate} {
+            # set all bits to 1
+            set mega [expr (1 << 23)]
+            set part [string repeat "\xFF" $mega]
+            for {set i 0} {$i < 64} {incr i} {
+                r setrange mykey [expr $i * $mega] $part
+            }
+            r setrange mykey [expr $bytes - 1] "\xFF"
+            assert_equal [expr $bitpos + 8] [r bitcount mykey]
+            assert_equal -1 [r bitpos mykey 0 0 [expr $bytes - 1]]
+        }
+        r config set proto-max-bulk-len $oldval
+        r del mykey
+    } {1} {large-memory}
 }

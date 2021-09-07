@@ -42,6 +42,7 @@
 
 void aofUpdateCurrentSize(void);
 void aofClosePipes(void);
+void freeClientArgv(client *c);
 
 /* ----------------------------------------------------------------------------
  * AOF rewrite buffer implementation.
@@ -187,7 +188,9 @@ void aofRewriteBufferAppend(unsigned char *s, unsigned long len) {
 
     /* Install a file event to send data to the rewrite child if there is
      * not one already. */
-    if (aeGetFileEvents(server.el,server.aof_pipe_write_data_to_child) == 0) {
+    if (!server.aof_stop_sending_diff &&
+        aeGetFileEvents(server.el,server.aof_pipe_write_data_to_child) == 0)
+    {
         aeCreateFileEvent(server.el, server.aof_pipe_write_data_to_child,
             AE_WRITABLE, aofChildWriteDiffData, NULL);
     }
@@ -637,21 +640,9 @@ void feedAppendOnlyFile(int dictid, robj **argv, int argc) {
 /* In Redis commands are always executed in the context of a client, so in
  * order to load the append only file we need to create a fake client. */
 struct client *createAOFClient(void) {
-    struct client *c = zmalloc(sizeof(*c));
+    struct client *c = createClient(NULL);
 
-    selectDb(c,0);
     c->id = CLIENT_ID_AOF; /* So modules can identify it's the AOF client. */
-    c->conn = NULL;
-    c->name = NULL;
-    c->querybuf = sdsempty();
-    c->querybuf_peak = 0;
-    c->argc = 0;
-    c->argv = NULL;
-    c->original_argc = 0;
-    c->original_argv = NULL;
-    c->argv_len_sum = 0;
-    c->bufpos = 0;
-    c->buf_usable_size = zmalloc_usable_size(c)-offsetof(client,buf);
 
     /*
      * The AOF client should never be blocked (unlike master
@@ -664,40 +655,10 @@ struct client *createAOFClient(void) {
      */
     c->flags = CLIENT_DENY_BLOCKING;
 
-    c->btype = BLOCKED_NONE;
     /* We set the fake client as a slave waiting for the synchronization
      * so that Redis will not try to send replies to this client. */
     c->replstate = SLAVE_STATE_WAIT_BGSAVE_START;
-    c->reply = listCreate();
-    c->reply_bytes = 0;
-    c->obuf_soft_limit_reached_time = 0;
-    c->watched_keys = listCreate();
-    c->peerid = NULL;
-    c->sockname = NULL;
-    c->resp = 2;
-    c->user = NULL;
-    listSetFreeMethod(c->reply,freeClientReplyValue);
-    listSetDupMethod(c->reply,dupClientReplyValue);
-    initClientMultiState(c);
     return c;
-}
-
-void freeFakeClientArgv(struct client *c) {
-    int j;
-
-    for (j = 0; j < c->argc; j++)
-        decrRefCount(c->argv[j]);
-    zfree(c->argv);
-    c->argv_len_sum = 0;
-}
-
-void freeFakeClient(struct client *c) {
-    sdsfree(c->querybuf);
-    listRelease(c->reply);
-    listRelease(c->watched_keys);
-    freeClientMultiState(c);
-    freeClientOriginalArgv(c);
-    zfree(c);
 }
 
 /* Replay the append log file. On success AOF_OK is returned,
@@ -804,7 +765,7 @@ int loadAppendOnlyFile(char *filename) {
             char *readres = fgets(buf,sizeof(buf),fp);
             if (readres == NULL || buf[0] != '$') {
                 fakeClient->argc = j; /* Free up to j-1. */
-                freeFakeClientArgv(fakeClient);
+                freeClientArgv(fakeClient);
                 if (readres == NULL)
                     goto readerr;
                 else
@@ -817,7 +778,7 @@ int loadAppendOnlyFile(char *filename) {
             if (len && fread(argsds,len,1,fp) == 0) {
                 sdsfree(argsds);
                 fakeClient->argc = j; /* Free up to j-1. */
-                freeFakeClientArgv(fakeClient);
+                freeClientArgv(fakeClient);
                 goto readerr;
             }
             argv[j] = createObject(OBJ_STRING,argsds);
@@ -825,7 +786,7 @@ int loadAppendOnlyFile(char *filename) {
             /* Discard CRLF. */
             if (fread(buf,2,1,fp) == 0) {
                 fakeClient->argc = j+1; /* Free up to j. */
-                freeFakeClientArgv(fakeClient);
+                freeClientArgv(fakeClient);
                 goto readerr;
             }
         }
@@ -836,7 +797,7 @@ int loadAppendOnlyFile(char *filename) {
             serverLog(LL_WARNING,
                 "Unknown command '%s' reading the append only file",
                 (char*)argv[0]->ptr);
-            freeFakeClientArgv(fakeClient);
+            freeClientArgv(fakeClient);
             ret = AOF_FAILED;
             goto cleanup;
         }
@@ -862,7 +823,9 @@ int loadAppendOnlyFile(char *filename) {
 
         /* Clean up. Command code may have changed argv/argc so we use the
          * argv/argc of the client instead of the local variables. */
-        freeFakeClientArgv(fakeClient);
+        freeClientArgv(fakeClient);
+        zfree(fakeClient->argv);
+        fakeClient->argv = NULL;
         fakeClient->cmd = NULL;
         if (server.aof_load_truncated) valid_up_to = ftello(fp);
         if (server.key_load_delay)
@@ -930,7 +893,7 @@ fmterr: /* Format error. */
     /* fall through to cleanup. */
 
 cleanup:
-    if (fakeClient) freeFakeClient(fakeClient); /* avoid valgrind warning */
+    if (fakeClient) freeClient(fakeClient); /* avoid valgrind warning */
     fclose(fp);
     stopLoading(ret == AOF_OK);
     return ret;
@@ -1142,12 +1105,12 @@ int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
  *
  * The function returns 0 on error, non-zero on success. */
 static int rioWriteHashIteratorCursor(rio *r, hashTypeIterator *hi, int what) {
-    if (hi->encoding == OBJ_ENCODING_ZIPLIST) {
+    if (hi->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *vstr = NULL;
         unsigned int vlen = UINT_MAX;
         long long vll = LLONG_MAX;
 
-        hashTypeCurrentFromZiplist(hi, what, &vstr, &vlen, &vll);
+        hashTypeCurrentFromListpack(hi, what, &vstr, &vlen, &vll);
         if (vstr)
             return rioWriteBulkString(r, (char*)vstr, vlen);
         else
@@ -1442,6 +1405,7 @@ int rewriteAppendOnlyFileRio(rio *aof) {
             sds keystr;
             robj key, *o;
             long long expiretime;
+            size_t aof_bytes_before_key = aof->processed_bytes;
 
             keystr = dictGetKey(de);
             o = dictGetVal(de);
@@ -1472,6 +1436,13 @@ int rewriteAppendOnlyFileRio(rio *aof) {
             } else {
                 serverPanic("Unknown object type");
             }
+
+            /* In fork child process, we can try to release memory back to the
+             * OS and possibly avoid or decrease COW. We guve the dismiss
+             * mechanism a hint about an estimated size of the object we stored. */
+            size_t dump_size = aof->processed_bytes - aof_bytes_before_key;
+            if (server.in_fork_child) dismissObject(o, dump_size);
+
             /* Save the expire time */
             if (expiretime != -1) {
                 char cmd[]="*3\r\n$9\r\nPEXPIREAT\r\n";

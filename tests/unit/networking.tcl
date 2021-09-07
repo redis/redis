@@ -37,6 +37,64 @@ test {CONFIG SET bind address} {
     }
 } {} {external:skip}
 
+# Attempt to connect to host using a client bound to bindaddr,
+# and return a non-zero value if successful within specified
+# millisecond timeout, or zero otherwise.
+proc test_loopback {host bindaddr timeout} {
+    if {[exec uname] != {Linux}} {
+        return 0
+    }
+
+    after $timeout set ::test_loopback_state timeout
+    if {[catch {
+        set server_sock [socket -server accept 0]
+        set port [lindex [fconfigure $server_sock -sockname] 2] } err]} {
+            return 0
+    }
+
+    proc accept {channel clientaddr clientport} {
+        set ::test_loopback_state "connected"
+        close $channel
+    }
+
+    if {[catch {set client_sock [socket -async -myaddr $bindaddr $host $port]} err]} {
+        puts "test_loopback: Client connect failed: $err"
+    } else {
+        close $client_sock
+    }
+
+    vwait ::test_loopback_state
+    close $server_sock
+
+    return [expr {$::test_loopback_state == {connected}}]
+}
+
+test {CONFIG SET bind-source-addr} {
+    if {[test_loopback 127.0.0.1 127.0.0.2 1000]} {
+        start_server {} {
+            start_server {} {
+                set replica [srv 0 client]
+                set master [srv -1 client]
+
+                $master config set protected-mode no
+
+                $replica config set bind-source-addr 127.0.0.2
+                $replica replicaof [srv -1 host] [srv -1 port]
+
+                wait_for_condition 50 100 {
+                    [s 0 master_link_status] eq {up}
+                } else {
+                    fail "Replication not started."
+                }
+
+                assert_match {*ip=127.0.0.2*} [s -1 slave0]
+            }
+        }
+    } else {
+        if {$::verbose} { puts "Skipping bind-source-addr test." }
+    }
+} {} {external:skip}
+
 start_server {config "minimal.conf" tags {"external:skip"}} {
     test {Default bind address configuration handling} {
         # Default is explicit and sane

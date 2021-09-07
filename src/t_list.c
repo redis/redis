@@ -405,7 +405,7 @@ void addListRangeReply(client *c, robj *o, long start, long end, int reverse) {
 
         while(rangelen--) {
             listTypeEntry entry;
-            listTypeNext(iter, &entry);
+            serverAssert(listTypeNext(iter, &entry)); /* fail on corrupt data */
             quicklistEntry *qe = &entry.entry;
             if (qe->value) {
                 addReplyBulkCBuffer(c,qe->value,qe->sz);
@@ -954,7 +954,7 @@ void blpopCommand(client *c) {
     blockingPopGenericCommand(c,LIST_HEAD);
 }
 
-/* BLPOP <key> [<key> ...] <timeout> */
+/* BRPOP <key> [<key> ...] <timeout> */
 void brpopCommand(client *c) {
     blockingPopGenericCommand(c,LIST_TAIL);
 }

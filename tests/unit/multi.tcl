@@ -131,6 +131,22 @@ start_server {tags {"multi"}} {
         r exec
     } {} {cluster:skip}
 
+    test {EXEC fail on lazy expired WATCHed key} {
+        r flushall
+        r debug set-active-expire 0
+
+        r del key
+        r set key 1 px 2
+        r watch key
+
+        after 100
+
+        r multi
+        r incr key
+        assert_equal [r exec] {}
+        r debug set-active-expire 1
+    } {OK} {needs:debug}
+
     test {After successful EXEC key is no longer watched} {
         r set x 30
         r watch x

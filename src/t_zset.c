@@ -131,7 +131,7 @@ int zslRandomLevel(void) {
  * of the passed SDS string 'ele'. */
 zskiplistNode *zslInsert(zskiplist *zsl, double score, sds ele) {
     zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;
-    unsigned int rank[ZSKIPLIST_MAXLEVEL];
+    unsigned long rank[ZSKIPLIST_MAXLEVEL];
     int i, level;
 
     serverAssert(!isnan(score));
@@ -488,7 +488,7 @@ unsigned long zslGetRank(zskiplist *zsl, double score, sds ele) {
         }
 
         /* x might be equal to zsl->header, so test if obj is non-NULL */
-        if (x->ele && sdscmp(x->ele,ele) == 0) {
+        if (x->ele && x->score == score && sdscmp(x->ele,ele) == 0) {
             return rank;
         }
     }
@@ -1188,7 +1188,7 @@ void zsetConvert(robj *zobj, int encoding) {
             serverPanic("Unknown target encoding");
 
         zs = zmalloc(sizeof(*zs));
-        zs->dict = dictCreate(&zsetDictType,NULL);
+        zs->dict = dictCreate(&zsetDictType);
         zs->zsl = zslCreate();
 
         eptr = ziplistIndex(zl,0);
@@ -1647,7 +1647,7 @@ int zsetZiplistValidateIntegrity(unsigned char *zl, size_t size, int deep) {
     struct {
         long count;
         dict *fields;
-    } data = {0, dictCreate(&hashDictType, NULL)};
+    } data = {0, dictCreate(&hashDictType)};
 
     int ret = ziplistValidateIntegrity(zl, size, 1, _zsetZiplistValidateIntegrity, &data);
 
@@ -2548,14 +2548,17 @@ dictType setAccumulatorDictType = {
 };
 
 /* The zunionInterDiffGenericCommand() function is called in order to implement the
- * following commands: ZUNION, ZINTER, ZDIFF, ZUNIONSTORE, ZINTERSTORE, ZDIFFSTORE.
+ * following commands: ZUNION, ZINTER, ZDIFF, ZUNIONSTORE, ZINTERSTORE, ZDIFFSTORE,
+ * ZINTERCARD.
  *
  * 'numkeysIndex' parameter position of key number. for ZUNION/ZINTER/ZDIFF command,
  * this value is 1, for ZUNIONSTORE/ZINTERSTORE/ZDIFFSTORE command, this value is 2.
  *
  * 'op' SET_OP_INTER, SET_OP_UNION or SET_OP_DIFF.
+ * 'cardinality_only' is currently only applicable when 'op' is SET_OP_INTER.
  */
-void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, int op) {
+void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, int op,
+                                   int cardinality_only) {
     int i, j;
     long setnum;
     int aggregate = REDIS_AGGR_SUM;
@@ -2567,6 +2570,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
     zset *dstzset;
     zskiplistNode *znode;
     int withscores = 0;
+    unsigned long cardinality = 0;
 
     /* expect setnum input keys to be given */
     if ((getLongFromObjectOrReply(c, c->argv[numkeysIndex], &setnum, NULL) != C_OK))
@@ -2613,7 +2617,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
         int remaining = c->argc - j;
 
         while (remaining) {
-            if (op != SET_OP_DIFF &&
+            if (op != SET_OP_DIFF && !cardinality_only &&
                 remaining >= (setnum + 1) &&
                 !strcasecmp(c->argv[j]->ptr,"weights"))
             {
@@ -2626,7 +2630,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                         return;
                     }
                 }
-            } else if (op != SET_OP_DIFF &&
+            } else if (op != SET_OP_DIFF && !cardinality_only &&
                        remaining >= 2 &&
                        !strcasecmp(c->argv[j]->ptr,"aggregate"))
             {
@@ -2644,7 +2648,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                 }
                 j++; remaining--;
             } else if (remaining >= 1 &&
-                       !dstkey &&
+                       !dstkey && !cardinality_only &&
                        !strcasecmp(c->argv[j]->ptr,"withscores"))
             {
                 j++; remaining--;
@@ -2694,7 +2698,9 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                 }
 
                 /* Only continue when present in every input. */
-                if (j == setnum) {
+                if (j == setnum && cardinality_only) {
+                    cardinality++;
+                } else if (j == setnum) {
                     tmp = zuiNewSdsFromValue(&zval);
                     znode = zslInsert(dstzset->zsl,score,tmp);
                     dictAdd(dstzset->dict,tmp,&znode->score);
@@ -2704,7 +2710,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
             zuiClearIterator(&src[0]);
         }
     } else if (op == SET_OP_UNION) {
-        dict *accumulator = dictCreate(&setAccumulatorDictType,NULL);
+        dict *accumulator = dictCreate(&setAccumulatorDictType);
         dictIterator *di;
         dictEntry *de, *existing;
         double score;
@@ -2791,6 +2797,8 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                 server.dirty++;
             }
         }
+    } else if (cardinality_only) {
+        addReplyLongLong(c, cardinality);
     } else {
         unsigned long length = dstzset->zsl->length;
         zskiplist *zsl = dstzset->zsl;
@@ -2815,27 +2823,31 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
 }
 
 void zunionstoreCommand(client *c) {
-    zunionInterDiffGenericCommand(c, c->argv[1], 2, SET_OP_UNION);
+    zunionInterDiffGenericCommand(c, c->argv[1], 2, SET_OP_UNION, 0);
 }
 
 void zinterstoreCommand(client *c) {
-    zunionInterDiffGenericCommand(c, c->argv[1], 2, SET_OP_INTER);
+    zunionInterDiffGenericCommand(c, c->argv[1], 2, SET_OP_INTER, 0);
 }
 
 void zdiffstoreCommand(client *c) {
-    zunionInterDiffGenericCommand(c, c->argv[1], 2, SET_OP_DIFF);
+    zunionInterDiffGenericCommand(c, c->argv[1], 2, SET_OP_DIFF, 0);
 }
 
 void zunionCommand(client *c) {
-    zunionInterDiffGenericCommand(c, NULL, 1, SET_OP_UNION);
+    zunionInterDiffGenericCommand(c, NULL, 1, SET_OP_UNION, 0);
 }
 
 void zinterCommand(client *c) {
-    zunionInterDiffGenericCommand(c, NULL, 1, SET_OP_INTER);
+    zunionInterDiffGenericCommand(c, NULL, 1, SET_OP_INTER, 0);
+}
+
+void zinterCardCommand(client *c) {
+    zunionInterDiffGenericCommand(c, NULL, 1, SET_OP_INTER, 1);
 }
 
 void zdiffCommand(client *c) {
-    zunionInterDiffGenericCommand(c, NULL, 1, SET_OP_DIFF);
+    zunionInterDiffGenericCommand(c, NULL, 1, SET_OP_DIFF, 0);
 }
 
 typedef enum {
@@ -3660,7 +3672,12 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start, int st
         lookupKeyWrite(c->db,key) :
         lookupKeyRead(c->db,key);
     if (zobj == NULL) {
-        addReply(c,shared.emptyarray);
+        if (store) {
+            handler->beginResultEmission(handler);
+            handler->finalizeResultEmission(handler, 0);
+        } else {
+            addReply(c, shared.emptyarray);
+        }
         goto cleanup;
     }
 
@@ -3995,7 +4012,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
     int uniq = 1;
     robj *zsetobj;
 
-    if ((zsetobj = lookupKeyReadOrReply(c, c->argv[1], shared.null[c->resp]))
+    if ((zsetobj = lookupKeyReadOrReply(c, c->argv[1], shared.emptyarray))
         == NULL || checkType(c, zsetobj, OBJ_ZSET)) return;
     size = zsetLength(zsetobj);
 
@@ -4031,7 +4048,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
                     addReplyArrayLen(c,2);
                 addReplyBulkCBuffer(c, key, sdslen(key));
                 if (withscores)
-                    addReplyDouble(c, dictGetDoubleVal(de));
+                    addReplyDouble(c, *(double*)dictGetVal(de));
             }
         } else if (zsetobj->encoding == OBJ_ENCODING_ZIPLIST) {
             ziplistEntry *keys, *vals = NULL;
@@ -4092,7 +4109,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
      * a bit less than the number of elements in the set, the natural approach
      * used into CASE 4 is highly inefficient. */
     if (count*ZRANDMEMBER_SUB_STRATEGY_MUL > size) {
-        dict *d = dictCreate(&sdsReplyDictType, NULL);
+        dict *d = dictCreate(&sdsReplyDictType);
         dictExpand(d, size);
         /* Add all the elements into the temporary dictionary. */
         while (zuiNext(&src, &zval)) {
@@ -4152,7 +4169,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
 
         /* Hashtable encoding (generic implementation) */
         unsigned long added = 0;
-        dict *d = dictCreate(&hashDictType, NULL);
+        dict *d = dictCreate(&hashDictType);
         dictExpand(d, count);
 
         while (added < count) {
@@ -4183,7 +4200,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
     zuiClearIterator(&src);
 }
 
-/* ZRANDMEMBER [<count> WITHSCORES] */
+/* ZRANDMEMBER key [<count> [WITHSCORES]] */
 void zrandmemberCommand(client *c) {
     long l;
     int withscores = 0;

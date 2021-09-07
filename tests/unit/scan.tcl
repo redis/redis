@@ -132,11 +132,11 @@ start_server {tags {"scan network"}} {
         }
     }
 
-    foreach enc {ziplist hashtable} {
+    foreach enc {listpack hashtable} {
         test "HSCAN with encoding $enc" {
             # Create the Hash
             r del hash
-            if {$enc eq {ziplist}} {
+            if {$enc eq {listpack}} {
                 set count 30
             } else {
                 set count 1000

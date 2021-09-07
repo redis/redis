@@ -250,24 +250,6 @@ robj *streamDup(robj *o) {
     return sobj;
 }
 
-/* This is just a wrapper for lpAppend() to directly use a 64 bit integer
- * instead of a string. */
-unsigned char *lpAppendInteger(unsigned char *lp, int64_t value) {
-    char buf[LONG_STR_SIZE];
-    int slen = ll2string(buf,sizeof(buf),value);
-    return lpAppend(lp,(unsigned char*)buf,slen);
-}
-
-/* This is just a wrapper for lpReplace() to directly use a 64 bit integer
- * instead of a string to replace the current element. The function returns
- * the new listpack as return value, and also updates the current cursor
- * by updating '*pos'. */
-unsigned char *lpReplaceInteger(unsigned char *lp, unsigned char **pos, int64_t value) {
-    char buf[LONG_STR_SIZE];
-    int slen = ll2string(buf,sizeof(buf),value);
-    return lpInsert(lp, (unsigned char*)buf, slen, *pos, LP_REPLACE, pos);
-}
-
 /* This is a wrapper function for lpGet() to directly get an integer value
  * from the listpack (that may store numbers as a string), converting
  * the string if needed.
@@ -464,8 +446,8 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
     size_t lp_bytes = 0;        /* Total bytes in the tail listpack. */
     unsigned char *lp = NULL;   /* Tail listpack pointer. */
 
-    /* Get a reference to the tail node listpack. */
-    if (raxNext(&ri)) {
+    if (!raxEOF(&ri)) {
+        /* Get a reference to the tail node listpack. */
         lp = ri.data;
         lp_bytes = lpBytes(lp);
     }
@@ -998,11 +980,15 @@ static int streamParseAddOrTrimArgsOrReply(client *c, streamAddTrimArgs *args, i
             }
         } else {
             /* User didn't provide LIMIT, we must set it. */
-
             if (args->approx_trim) {
-                /* In order to prevent from trimming to do too much work and cause
-                 * latency spikes we limit the amount of work it can do */
+                /* In order to prevent from trimming to do too much work and 
+                 * cause latency spikes we limit the amount of work it can do.
+                 * We have to cap args->limit from both sides in case 
+                 * stream_node_max_entries is 0 or too big (could cause overflow)
+                 */
                 args->limit = 100 * server.stream_node_max_entries; /* Maximum 100 rax nodes. */
+                if (args->limit <= 0) args->limit = 10000;
+                if (args->limit > 1000000) args->limit = 1000000;
             } else {
                 /* No LIMIT for exact trimming */
                 args->limit = 0;
@@ -2267,17 +2253,20 @@ void xreadCommand(client *c) {
              * of the stream and the data we extracted from it. */
             if (c->resp == 2) addReplyArrayLen(c,2);
             addReplyBulk(c,c->argv[streams_arg+i]);
-            int created = 0;
             streamConsumer *consumer = NULL;
-            if (groups) consumer = streamLookupConsumer(groups[i],
-                                                        consumername->ptr,
-                                                        SLC_NONE,
-                                                        &created);
             streamPropInfo spi = {c->argv[i+streams_arg],groupname};
-            if (created && noack)
-                streamPropagateConsumerCreation(c,spi.keyname,
-                                                spi.groupname,
-                                                consumer->name);
+            if (groups) {
+                consumer = streamLookupConsumer(groups[i],consumername->ptr,SLC_DEFAULT);
+                if (consumer == NULL) {
+                    consumer = streamCreateConsumer(groups[i],consumername->ptr,
+                                                    c->argv[streams_arg+i],
+                                                    c->db->id,SCC_DEFAULT);
+                    if (noack)
+                        streamPropagateConsumerCreation(c,spi.keyname,
+                                                        spi.groupname,
+                                                        consumer->name);
+                }
+            }
             int flags = 0;
             if (noack) flags |= STREAM_RWR_NOACK;
             if (serve_history) flags |= STREAM_RWR_HISTORY;
@@ -2409,39 +2398,43 @@ streamCG *streamLookupCG(stream *s, sds groupname) {
     return (cg == raxNotFound) ? NULL : cg;
 }
 
-/* Lookup the consumer with the specified name in the group 'cg': if the
- * consumer does not exist it is created unless SLC_NOCREAT flag was specified.
- * Its last seen time is updated unless SLC_NOREFRESH flag was specified. */
-streamConsumer *streamLookupConsumer(streamCG *cg, sds name, int flags, int *created) {
-    if (created) *created = 0;
-    int create = !(flags & SLC_NOCREAT);
-    int refresh = !(flags & SLC_NOREFRESH);
-    streamConsumer *consumer = raxFind(cg->consumers,(unsigned char*)name,
-                               sdslen(name));
-    if (consumer == raxNotFound) {
-        if (!create) return NULL;
-        consumer = zmalloc(sizeof(*consumer));
-        consumer->name = sdsdup(name);
-        consumer->pel = raxNew();
-        raxInsert(cg->consumers,(unsigned char*)name,sdslen(name),
-                  consumer,NULL);
-        consumer->seen_time = mstime();
-        if (created) *created = 1;
-    } else if (refresh)
-        consumer->seen_time = mstime();
+/* Create a consumer with the specified name in the group 'cg' and return.
+ * If the consumer exists, return NULL. As a side effect, when the consumer
+ * is successfully created, the key space will be notified and dirty++ unless
+ * the SCC_NO_NOTIFY or SCC_NO_DIRTIFY flags is specified. */
+streamConsumer *streamCreateConsumer(streamCG *cg, sds name, robj *key, int dbid, int flags) {
+    if (cg == NULL) return NULL;
+    int notify = !(flags & SCC_NO_NOTIFY);
+    int dirty = !(flags & SCC_NO_DIRTIFY);
+    streamConsumer *consumer = zmalloc(sizeof(*consumer));
+    int success = raxTryInsert(cg->consumers,(unsigned char*)name,
+                               sdslen(name),consumer,NULL);
+    if (!success) {
+        zfree(consumer);
+        return NULL;
+    }
+    consumer->name = sdsdup(name);
+    consumer->pel = raxNew();
+    consumer->seen_time = mstime();
+    if (dirty) server.dirty++;
+    if (notify) notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-createconsumer",key,dbid);
     return consumer;
 }
 
-/* Delete the consumer specified in the consumer group 'cg'. The consumer
- * may have pending messages: they are removed from the PEL, and the number
- * of pending messages "lost" is returned. */
-uint64_t streamDelConsumer(streamCG *cg, sds name) {
-    streamConsumer *consumer =
-        streamLookupConsumer(cg,name,SLC_NOCREAT|SLC_NOREFRESH,NULL);
-    if (consumer == NULL) return 0;
+/* Lookup the consumer with the specified name in the group 'cg'. Its last 
+ * seen time is updated unless the SLC_NO_REFRESH flag is specified. */
+streamConsumer *streamLookupConsumer(streamCG *cg, sds name, int flags) {
+    if (cg == NULL) return NULL;
+    int refresh = !(flags & SLC_NO_REFRESH);
+    streamConsumer *consumer = raxFind(cg->consumers,(unsigned char*)name,
+                                       sdslen(name));
+    if (consumer == raxNotFound) return NULL;
+    if (refresh) consumer->seen_time = mstime();
+    return consumer;
+}
 
-    uint64_t retval = raxSize(consumer->pel);
-
+/* Delete the consumer specified in the consumer group 'cg'. */
+void streamDelConsumer(streamCG *cg, streamConsumer *consumer) {
     /* Iterate all the consumer pending messages, deleting every corresponding
      * entry from the global entry. */
     raxIterator ri;
@@ -2455,9 +2448,9 @@ uint64_t streamDelConsumer(streamCG *cg, sds name) {
     raxStop(&ri);
 
     /* Deallocate the consumer. */
-    raxRemove(cg->consumers,(unsigned char*)name,sdslen(name),NULL);
+    raxRemove(cg->consumers,(unsigned char*)consumer->name,
+              sdslen(consumer->name),NULL);
     streamFreeConsumer(consumer);
-    return retval;
 }
 
 /* -----------------------------------------------------------------------
@@ -2550,7 +2543,7 @@ void xgroupCommand(client *c) {
 "    Create a new consumer in the specified group.",
 "DELCONSUMER <key> <groupname> <consumer>",
 "    Remove the specified consumer.",
-"DESTROY <key> <groupname>"
+"DESTROY <key> <groupname>",
 "    Remove the specified group.",
 "SETID <key> <groupname> <id|$> [offset]",
 "    Set the current group ID and offset.",
@@ -2630,22 +2623,22 @@ NULL
             addReply(c,shared.czero);
         }
     } else if (!strcasecmp(opt,"CREATECONSUMER") && c->argc == 5) {
-        int created = 0;
-        streamLookupConsumer(cg,c->argv[4]->ptr,SLC_NOREFRESH,&created);
-        if (created) {
+        streamConsumer *created = streamCreateConsumer(cg,c->argv[4]->ptr,c->argv[2],
+                                                       c->db->id,SCC_DEFAULT);
+        addReplyLongLong(c,created ? 1 : 0);
+    } else if (!strcasecmp(opt,"DELCONSUMER") && c->argc == 5) {
+        long long pending = 0;
+        streamConsumer *consumer = streamLookupConsumer(cg,c->argv[4]->ptr,SLC_NO_REFRESH);
+        if (consumer) {
+            /* Delete the consumer and returns the number of pending messages
+             * that were yet associated with such a consumer. */
+            pending = raxSize(consumer->pel);
+            streamDelConsumer(cg,consumer);
             server.dirty++;
-            notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-createconsumer",
+            notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-delconsumer",
                                 c->argv[2],c->db->id);
         }
-        addReplyLongLong(c,created);
-    } else if (!strcasecmp(opt,"DELCONSUMER") && c->argc == 5) {
-        /* Delete the consumer and returns the number of pending messages
-         * that were yet associated with such a consumer. */
-        long long pending = streamDelConsumer(cg,c->argv[4]->ptr);
         addReplyLongLong(c,pending);
-        server.dirty++;
-        notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-delconsumer",
-                            c->argv[2],c->db->id);
     } else {
         addReplySubcommandSyntaxError(c);
     }
@@ -2905,10 +2898,7 @@ void xpendingCommand(client *c) {
     } else { /* <start>, <stop> and <count> provided, return actual pending entries (not just info) */
         streamConsumer *consumer = NULL;
         if (consumername) {
-            consumer = streamLookupConsumer(group,
-                                            consumername->ptr,
-                                            SLC_NOCREAT|SLC_NOREFRESH,
-                                            NULL);
+            consumer = streamLookupConsumer(group,consumername->ptr,SLC_NO_REFRESH);
 
             /* If a consumer name was mentioned but it does not exist, we can
              * just return an empty array. */
@@ -3136,6 +3126,7 @@ void xclaimCommand(client *c) {
     streamConsumer *consumer = NULL;
     void *arraylenptr = addReplyDeferredLen(c);
     size_t arraylen = 0;
+    sds name = c->argv[3]->ptr;
     for (int j = 5; j <= last_id_arg; j++) {
         streamID id = ids[j-5];
         unsigned char buf[sizeof(streamID)];
@@ -3177,8 +3168,11 @@ void xclaimCommand(client *c) {
                 mstime_t this_idle = now - nack->delivery_time;
                 if (this_idle < minidle) continue;
             }
-            if (consumer == NULL)
-                consumer = streamLookupConsumer(group,c->argv[3]->ptr,SLC_NONE,NULL);
+            if (consumer == NULL &&
+                (consumer = streamLookupConsumer(group,name,SLC_DEFAULT)) == NULL)
+            {
+                consumer = streamCreateConsumer(group,name,c->argv[1],c->db->id,SCC_DEFAULT);
+            }
             if (nack->consumer != consumer) {
                 /* Remove the entry from the old consumer.
                  * Note that nack->consumer is NULL if we created the
@@ -3310,6 +3304,7 @@ void xautoclaimCommand(client *c) {
     raxSeek(&ri,">=",startkey,sizeof(startkey));
     size_t arraylen = 0;
     mstime_t now = mstime();
+    sds name = c->argv[3]->ptr;
     while (attempts-- && count && raxNext(&ri)) {
         streamNACK *nack = ri.data;
 
@@ -3322,8 +3317,11 @@ void xautoclaimCommand(client *c) {
         streamID id;
         streamDecodeID(ri.key, &id);
 
-        if (consumer == NULL)
-            consumer = streamLookupConsumer(group,c->argv[3]->ptr,SLC_NONE,NULL);
+        if (consumer == NULL &&
+            (consumer = streamLookupConsumer(group,name,SLC_DEFAULT)) == NULL)
+        {
+            consumer = streamCreateConsumer(group,name,c->argv[1],c->db->id,SCC_DEFAULT);
+        }
         if (nack->consumer != consumer) {
             /* Remove the entry from the old consumer.
              * Note that nack->consumer is NULL if we created the
@@ -3845,13 +3843,13 @@ int streamValidateListpackIntegrity(unsigned char *lp, size_t size, int deep) {
 
     /* Since we don't want to run validation of all records twice, we'll
      * run the listpack validation of just the header and do the rest here. */
-    if (!lpValidateIntegrity(lp, size, 0))
+    if (!lpValidateIntegrity(lp, size, 0, NULL, NULL))
         return 0;
 
     /* In non-deep mode we just validated the listpack header (encoded size) */
     if (!deep) return 1;
 
-    next = p = lpFirst(lp);
+    next = p = lpValidateFirst(lp);
     if (!lpValidateNext(lp, &next, size)) return 0;
     if (!p) return 0;
 
@@ -3890,7 +3888,11 @@ int streamValidateListpackIntegrity(unsigned char *lp, size_t size, int deep) {
 
         /* entry id */
         p = next; if (!lpValidateNext(lp, &next, size)) return 0;
+        lpGetIntegerIfValid(p, &valid_record);
+        if (!valid_record) return 0;
         p = next; if (!lpValidateNext(lp, &next, size)) return 0;
+        lpGetIntegerIfValid(p, &valid_record);
+        if (!valid_record) return 0;
 
         if (!(flags & STREAM_ITEM_FLAG_SAMEFIELDS)) {
             /* num-of-fields */
