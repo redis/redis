@@ -3320,16 +3320,14 @@ void flushSlavesOutputBuffers(void) {
  * failover procedure implemented by CLUSTER FAILOVER.
  *
  * The function always succeed, even if there is already a pause in progress.
- * In such a case, the duration is set to the maximum and new end time and the
- * type is set to the more restrictive type of pause. */
+ * In such a case, the duration is set to the new time and the new type is
+ * set to the more restrictive type of pause. */
 void pauseClients(mstime_t end, pause_type type) {
     if (type > server.client_pause_type) {
         server.client_pause_type = type;
     }
 
-    if (end > server.client_pause_end_time) {
-        server.client_pause_end_time = end;
-    }
+    server.client_pause_end_time = end;
 
     /* We allow write commands that were queued
      * up before and after to execute. We need

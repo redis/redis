@@ -93,6 +93,30 @@ start_server {tags {"pause network"}} {
         $rd close
     }
 
+    test "Test write commands are paused until timeout, many times" {
+        # Write commands are paused until timeout
+        r client pause 100 write
+        set rd [redis_deferring_client]
+        $rd SET FOO BAR
+        wait_for_blocked_clients_count 0 50 100
+        assert_match "OK" [$rd read]
+
+        # Write commands are paused for a long time until unpause
+        r client pause 100000000 write
+        $rd SET FOO BAR
+        wait_for_blocked_clients_count 1 50 100
+        r client unpause
+        assert_match "OK" [$rd read]
+
+        # Write commands are paused until timeout
+        r client pause 100 write
+        $rd SET FOO BAR
+        wait_for_blocked_clients_count 0 50 100
+        assert_match "OK" [$rd read]
+
+        $rd close
+    }
+
     test "Test multiple clients can be queued up and unblocked" {
         r client PAUSE 100000000 WRITE
         set clients [list [redis_deferring_client] [redis_deferring_client] [redis_deferring_client]]
