@@ -46,7 +46,7 @@
 int je_get_defrag_hint(void* ptr);
 
 /* forward declarations*/
-void defragDictBucketCallback(dict *d, dictEntry **bucketref);
+void defragDictBucketCallback(void *privdata, dict *d, dictEntry **bucketref);
 dictEntry* replaceSatelliteDictKeyPtrAndOrDefragDictEntry(dict *d, sds oldkey, sds newkey, uint64_t hash, long *defragged);
 
 /* Defrag helper for generic allocations.
@@ -380,7 +380,7 @@ long activeDefragSdsListAndDict(list *l, dict *d, int dict_val_type) {
 /* Utility function that replaces an old key pointer in the dictionary with a
  * new pointer. Additionally, we try to defrag the dictEntry in that dict.
  * Oldkey mey be a dead pointer and should not be accessed (we get a
- * pre-calculated hash value). Newkey may be null if the key pointer wasn't
+ * pre-calculated hash value). Newkey == oldkey if the key pointer wasn't
  * moved. Return value is the the dictEntry if found, or NULL if not found.
  * NOTE: this is very ugly code, but it let's us avoid the complication of
  * doing a scan on another dict. */
@@ -393,7 +393,7 @@ dictEntry* replaceSatelliteDictKeyPtrAndOrDefragDictEntry(dict *d, sds oldkey, s
             de = *deref = newde;
             (*defragged)++;
         }
-        if (newkey)
+        if (newkey != oldkey)
             de->key = newkey;
         return de;
     }
@@ -810,27 +810,28 @@ long defragModule(redisDb *db, dictEntry *kde) {
 
 /* for each key we scan in the main dict, this function will attempt to defrag
  * all the various pointers it has. Returns a stat of how many pointers were
- * moved. */
-long defragKey(redisDb *db, dictEntry *de) {
+ * moved. 'oldkey' may already be released and must not be dereferenced. */
+long defragKey(redisDb *db, dictEntry *de, void *oldkey) {
     sds keysds = dictGetKey(de);
     robj *newob, *ob;
     unsigned char *newzl;
     long defragged = 0;
-    sds newsds = NULL;
 
     /* Try to defrag the key, if it's not embedded in the dict entry. */
     if ((uintptr_t)de->key < (uintptr_t)de ||
         (uintptr_t)de->key >= (uintptr_t)de + zmalloc_usable_size(de)) {
-        newsds = activeDefragSds(keysds);
+        sds newsds = activeDefragSds(keysds);
         if (newsds)
-            defragged++, de->key = newsds;
+            defragged++, de->key = keysds = newsds;
     }
     if (dictSize(db->expires)) {
          /* Dirty code:
           * I can't search in db->expires for that key after i already released
           * the pointer it holds it won't be able to do the string compare */
         uint64_t hash = dictGetHash(db->dict, de->key);
-        replaceSatelliteDictKeyPtrAndOrDefragDictEntry(db->expires, keysds, newsds, hash, &defragged);
+        replaceSatelliteDictKeyPtrAndOrDefragDictEntry(db->expires, oldkey,
+                                                       keysds, hash,
+                                                       &defragged);
     }
 
     /* Try to defrag robj and / or string value. */
@@ -888,18 +889,36 @@ long defragKey(redisDb *db, dictEntry *de) {
 
 /* Defrag scan callback for the main db dictionary. */
 void defragScanCallback(void *privdata, const dictEntry *de) {
-    long defragged = defragKey((redisDb*)privdata, (dictEntry*)de);
-    server.stat_active_defrag_hits += defragged;
-    if(defragged)
-        server.stat_active_defrag_key_hits++;
-    else
-        server.stat_active_defrag_key_misses++;
-    server.stat_active_defrag_scanned++;
+    UNUSED(privdata);
+    UNUSED(de);
+    /* The work is done in defragDbDictBucketCallback() instead of here. */
+}
+
+/* Defrag scan callback for each hash table bucket in the main DB dict,
+ * used in order to defrag the dictEntry allocations. */
+void defragDbDictBucketCallback(void *privdata, dict *d, dictEntry **bucketref) {
+    while(*bucketref) {
+        dictEntry *de = *bucketref, *newde;
+        void *oldkey = de->key;
+        if ((newde = activeDefragAlloc(de))) {
+            dictRepairEntry(d, newde, de);
+            *bucketref = de = newde;
+        }
+        long defragged = defragKey((redisDb *)privdata, de, oldkey);
+        server.stat_active_defrag_hits += defragged;
+        if (defragged)
+            server.stat_active_defrag_key_hits++;
+        else
+            server.stat_active_defrag_key_misses++;
+        server.stat_active_defrag_scanned++;
+        bucketref = &(*bucketref)->next;
+    }
 }
 
 /* Defrag scan callback for each hash table bucket,
  * used in order to defrag the dictEntry allocations. */
-void defragDictBucketCallback(dict *d, dictEntry **bucketref) {
+void defragDictBucketCallback(void *privdata, dict *d, dictEntry **bucketref) {
+    UNUSED(privdata);
     while(*bucketref) {
         dictEntry *de = *bucketref, *newde;
         if ((newde = activeDefragAlloc(de))) {
@@ -1167,7 +1186,7 @@ void activeDefragCycle(void) {
                 break; /* this will exit the function and we'll continue on the next cycle */
             }
 
-            cursor = dictScan(db->dict, cursor, defragScanCallback, defragDictBucketCallback, db);
+            cursor = dictScan(db->dict, cursor, defragScanCallback, defragDbDictBucketCallback, db);
 
             /* Once in 16 scan iterations, 512 pointer reallocations. or 64 keys
              * (if we have a lot of pointers in one hash bucket or rehasing),

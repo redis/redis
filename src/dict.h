@@ -106,7 +106,8 @@ typedef struct dictIterator {
 } dictIterator;
 
 typedef void (dictScanFunction)(void *privdata, const dictEntry *de);
-typedef void (dictScanBucketFunction)(dict *d, dictEntry **bucketref);
+typedef void (dictScanBucketFunction)(void *privdata, dict *d,
+                                      dictEntry **bucketref);
 
 /* This is the initial size of every hash table */
 #define DICT_HT_INITIAL_EXP      2
