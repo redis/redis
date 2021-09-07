@@ -6119,7 +6119,7 @@ void slotToKeyAddEntry(dictEntry *entry) {
         serverAssert(dictEntryPrevInSlot(first) == NULL);
         dictEntryPrevInSlot(first) = entry;
     }
-    serverAssert(dictEntryPrevInSlot(entry) == NULL);
+    dictEntryPrevInSlot(entry) = NULL;
     server.cluster->slots_to_keys[hashslot].head = entry;
 }
 

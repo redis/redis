@@ -1399,7 +1399,6 @@ int dictExpandAllowed(size_t moreMem, double usedRatio) {
  * list of the dict entries belonging to the same cluster slot. See the Slot to
  * Key API in cluster.c. */
 dictEntry *dictDbCreateEntry(dict *d, void *key) {
-    UNUSED(d);
     /* Compute sizes of metadata. */
     size_t meta_sz = 0;
     if (server.cluster_enabled) meta_sz += sizeof(clusterDictEntryMetadata);
@@ -1414,7 +1413,6 @@ dictEntry *dictDbCreateEntry(dict *d, void *key) {
     if (use_embedded_key) total_sz += keylen + 2;
 
     dictEntry *entry = zmalloc(total_sz);
-    if (meta_sz) memset(entry->metadata, 0, meta_sz);
     if (use_embedded_key) {
         char *embedded_key = (char *)entry->metadata + meta_sz + 1;
         embedded_key[-1] = SDS_TYPE_5 | (keylen << SDS_TYPE_BITS);
@@ -1424,14 +1422,16 @@ dictEntry *dictDbCreateEntry(dict *d, void *key) {
     } else {
         entry->key = sdskey;
     }
-    if (server.cluster_enabled) slotToKeyAddEntry(entry);
+    if (server.cluster_enabled) {
+        serverAssert(d == server.db[0].dict);
+        slotToKeyAddEntry(entry);
+    }
     return entry;
 }
 
 /* The key destructor also cleans up dictEntry metadata. */
 void dictDbKeyDestructor(dict *d, dictEntry *de, void *key) {
-    UNUSED(d);
-    if (server.cluster_enabled) slotToKeyDelEntry(de);
+    if (server.cluster_enabled && d == server.db[0].dict) slotToKeyDelEntry(de);
     /* Only free key if it's not embedded within the entry. */
     if ((uintptr_t)key < (uintptr_t)de ||
         (uintptr_t)key >= (uintptr_t)de + zmalloc_usable_size(de)) sdsfree(key);
