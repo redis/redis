@@ -489,7 +489,9 @@ void showLatestBacklog(void) {
         replBufBlock *o = listNodeValue(node);
         size_t thislen = o->used >= dumplen ? dumplen : o->used;
         sds head = sdscatrepr(sdsempty(), o->buf+o->used-thislen, thislen);
-        dump = sdscatsds(head, dump);
+        sds tmp = sdscatsds(head, dump);
+        sdsfree(dump);
+        dump = tmp;
         dumplen -= thislen;
         node = listPrevNode(node);
     }
