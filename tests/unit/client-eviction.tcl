@@ -12,6 +12,21 @@ proc client_field {name f} {
     return $res
 }
 
+proc client_exists {name} {
+    if {[catch { client_field $name tot-mem } e]} {
+        return false
+    }
+    return true
+}
+
+proc gen_client {} {
+    set rr [redis_client]
+    set name "tst_[randstring 4 4 alpha]"
+    $rr client setname $name
+    assert {[client_exists $name]}
+    return [list $rr $name]
+}
+
 # Sum a value across all redis client connections:
 # f - the field name from "CLIENT LIST" we want to sum
 proc clients_sum {f} {
@@ -26,10 +41,6 @@ proc clients_sum {f} {
     return $sum
 }
 
-proc write_err_exception {e} {
-    return [regexp {(.*connection reset by peer.*|.*broken pipe.*|error writing .*: protocol wrong type for socket)} $e]
-}
-
 proc mb {v} {
     return [expr $v * 1024 * 1024]
 }
@@ -40,25 +51,25 @@ start_server {} {
     
     test "client evicted due to large argv" {
         r flushdb
-        set rr [redis_client]
+        lassign [gen_client] rr cname
         # Attempt a large multi-bulk command under eviction limit
         $rr mset k v k2 [string repeat v 1000000]
         assert_equal [$rr get k] v
         # Attempt another command, now causing client eviction
         catch { $rr mset k v k2 [string repeat v $maxmemory_clients] } e
-        assert {[write_err_exception $e]}
+        assert {![client_exists $cname]}
     }
 
     test "client evicted due to large query buf" {
         r flushdb
-        set rr [redis_client]
+        lassign [gen_client] rr cname
         # Attempt to fill the query buff without completing the argument above the limit, causing client eviction
         catch { 
             $rr write [join [list "*1\r\n\$$maxmemory_clients\r\n" [string repeat v $maxmemory_clients]] ""]
             $rr flush
             $rr read
         } e
-        assert {[write_err_exception $e]}
+        assert {![client_exists $cname]}
     }
 
     test "client evicted due to percentage of maxmemory" {
@@ -71,23 +82,22 @@ start_server {} {
         
         set maxmemory_clients_actual [expr $maxmemory * $maxmemory_clients_p / 100]
 
-        set rr [redis_client]
-        $rr client setname test_client
+        lassign [gen_client] rr cname
         # Attempt to fill the query buff with only half the percentage threshold verify we're not disconnected
         set n [expr $maxmemory_clients_actual / 2]
         $rr write [join [list "*1\r\n\$$n\r\n" [string repeat v $n]] ""]
         $rr flush
-        set tot_mem [client_field test_client tot-mem]
+        set tot_mem [client_field $cname tot-mem]
         assert {$tot_mem >= $n && $tot_mem < $maxmemory_clients_actual}
         
         # Attempt to fill the query buff with the percentage threshold of maxmemory and verify we're evicted
         $rr close
-        set rr [redis_client]
+        lassign [gen_client] rr cname
         catch { 
             $rr write [join [list "*1\r\n\$$maxmemory_clients_actual\r\n" [string repeat v $maxmemory_clients_actual]] ""]
             $rr flush
         } e
-        assert {[write_err_exception $e]}
+        assert {![client_exists $cname]}
         
         # Restore settings
         r config set maxmemory 0
@@ -96,7 +106,7 @@ start_server {} {
 
     test "client evicted due to large multi buf" {
         r flushdb
-        set rr [redis_client]
+        lassign [gen_client] rr cname
         
         # Attempt a multi-exec where sum of commands is less than maxmemory_clients
         $rr multi
@@ -111,7 +121,7 @@ start_server {} {
                 $rr set k [string repeat v [expr $maxmemory_clients / 4]]
             }
         } e
-        assert {[write_err_exception $e]}
+        assert {![client_exists $cname]}
     }
 
     test "client evicted due to watched key list" {
@@ -246,7 +256,7 @@ start_server {} {
                 $rr get k
                 $rr flush
                } e]} {
-                assert_match {no client named test_client found*} $e
+                assert {![client_exists test_client]}
                 break
             }
         }
@@ -257,9 +267,8 @@ start_server {} {
             r flushdb
             r client setname control
             r client no-evict on ;# Avoid evicting the main connection
-            set rr [redis_client]
+            lassign [gen_client] rr cname
             $rr client no-evict $no_evict
-            $rr client setname test_client
         
             # Overflow maxmemory-clients
             set qbsize [expr {$maxmemory_clients + 1}]
@@ -267,14 +276,14 @@ start_server {} {
                 $rr write [join [list "*1\r\n\$$qbsize\r\n" [string repeat v $qbsize]] ""]
                 $rr flush
                 wait_for_condition 200 10 {
-                    [client_field test_client qbuf] == $qbsize
+                    [client_field $cname qbuf] == $qbsize
                 } else {
                     fail "Failed to fill qbuf for test"
                 }
             } e] && $no_evict == off} {
-                assert {[write_err_exception $e]}
+                assert {![client_exists $cname]}
             } elseif {$no_evict == on} {
-                assert {[client_field test_client tot-mem] > $maxmemory_clients}
+                assert {[client_field $cname tot-mem] > $maxmemory_clients}
                 $rr close
             }            
         }
