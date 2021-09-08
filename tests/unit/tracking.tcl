@@ -387,9 +387,11 @@ start_server {tags {"tracking network"}} {
         r CLIENT TRACKING on
         # We need disable active expire, so we can trigger lazy expire
         r DEBUG SET-ACTIVE-EXPIRE 0
+        r MULTI
         r MSET x{t} 1 y{t} 2
         r PEXPIRE y{t} 100
         r GET y{t}
+        r EXEC
         after 110
         # Read expired key y{t}, generate invalidate message about this key
         set res [r MGET x{t} y{t}]
@@ -398,7 +400,7 @@ start_server {tags {"tracking network"}} {
         set res [r read]
         assert_equal $res {invalidate y{t}}
         r DEBUG SET-ACTIVE-EXPIRE 1
-    }
+    } {OK} {needs:debug}
 
     test {Tracking invalidation message is not interleaved with transaction response} {
         r CLIENT TRACKING off
