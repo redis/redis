@@ -467,7 +467,7 @@ int TestNestedCallReplyArrayElement(RedisModuleCtx *ctx, RedisModuleString **arg
     RedisModule_SelectDb(ctx, 1);
     RedisModule_Call(ctx, "LPUSH", "sc", expect_key, "myvalue");
 
-    RedisModuleCallReply *scan_reply = RedisModule_Call(ctx, "SCAN", "l", 0);
+    RedisModuleCallReply *scan_reply = RedisModule_Call(ctx, "SCAN", "l", (long long)0);
     RedisModule_Assert(scan_reply != NULL && RedisModule_CallReplyType(scan_reply) == REDISMODULE_REPLY_ARRAY);
     RedisModule_Assert(RedisModule_CallReplyLength(scan_reply) == 2);
 
