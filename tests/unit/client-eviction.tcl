@@ -21,7 +21,7 @@ proc client_exists {name} {
 
 proc gen_client {} {
     set rr [redis_client]
-    set name "tst_[randstring 4 4 alpha]"
+    set name "tst_[randstring 4 4 simplealpha]"
     $rr client setname $name
     assert {[client_exists $name]}
     return [list $rr $name]
