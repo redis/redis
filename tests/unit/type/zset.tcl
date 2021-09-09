@@ -9,7 +9,7 @@ start_server {tags {"zset"}} {
     proc basics {encoding} {
         set original_max_entries [lindex [r config get zset-max-ziplist-entries] 1]
         set original_max_value [lindex [r config get zset-max-ziplist-value] 1]
-        if {$encoding == "ziplist"} {
+        if {$encoding == "listpack"} {
             r config set zset-max-ziplist-entries 128
             r config set zset-max-ziplist-value 64
         } elseif {$encoding == "skiplist"} {
@@ -1007,7 +1007,7 @@ start_server {tags {"zset"}} {
         r config set zset-max-ziplist-value $original_max_value
     }
 
-    basics ziplist
+    basics listpack
     basics skiplist
 
     test {ZINTERSTORE regression with two sets, intset+hashtable} {
@@ -1104,7 +1104,7 @@ start_server {tags {"zset"}} {
     proc stressers {encoding} {
         set original_max_entries [lindex [r config get zset-max-ziplist-entries] 1]
         set original_max_value [lindex [r config get zset-max-ziplist-value] 1]
-        if {$encoding == "ziplist"} {
+        if {$encoding == "listpack"} {
             # Little extra to allow proper fuzzing in the sorting stresser
             r config set zset-max-ziplist-entries 256
             r config set zset-max-ziplist-value 64
@@ -1533,7 +1533,7 @@ start_server {tags {"zset"}} {
     }
 
     tags {"slow"} {
-        stressers ziplist
+        stressers listpack
         stressers skiplist
     }
 
@@ -1686,7 +1686,7 @@ start_server {tags {"zset"}} {
         }
     }
 
-    foreach {type contents} "ziplist {1 a 2 b 3 c} skiplist {1 a 2 b 3 [randstring 70 90 alpha]}" {
+    foreach {type contents} "listpack {1 a 2 b 3 c} skiplist {1 a 2 b 3 [randstring 70 90 alpha]}" {
         set original_max_value [lindex [r config get zset-max-ziplist-value] 1]
         r config set zset-max-ziplist-value 10
         create_zset myzset $contents
@@ -1739,7 +1739,7 @@ start_server {tags {"zset"}} {
 
     foreach {type contents} "
         skiplist {1 a 2 b 3 c 4 d 5 e 6 f 7 g 7 h 9 i 10 [randstring 70 90 alpha]}
-        ziplist {1 a 2 b 3 c 4 d 5 e 6 f 7 g 7 h 9 i 10 j} " {
+        listpack {1 a 2 b 3 c 4 d 5 e 6 f 7 g 7 h 9 i 10 j} " {
         test "ZRANDMEMBER with <count> - $type" {
             set original_max_value [lindex [r config get zset-max-ziplist-value] 1]
             r config set zset-max-ziplist-value 10

@@ -522,7 +522,7 @@ int moduleCreateEmptyKey(RedisModuleKey *key, int type) {
                             server.list_compress_depth);
         break;
     case REDISMODULE_KEYTYPE_ZSET:
-        obj = createZsetZiplistObject();
+        obj = createZsetListpackObject();
         break;
     case REDISMODULE_KEYTYPE_HASH:
         obj = createHashObject();
@@ -2966,7 +2966,7 @@ int zsetInitScoreRange(RedisModuleKey *key, double min, double max, int minex, i
     zrs->minex = minex;
     zrs->maxex = maxex;
 
-    if (key->value->encoding == OBJ_ENCODING_ZIPLIST) {
+    if (key->value->encoding == OBJ_ENCODING_LISTPACK) {
         key->u.zset.current = first ? zzlFirstInRange(key->value->ptr,zrs) :
                                       zzlLastInRange(key->value->ptr,zrs);
     } else if (key->value->encoding == OBJ_ENCODING_SKIPLIST) {
@@ -3030,7 +3030,7 @@ int zsetInitLexRange(RedisModuleKey *key, RedisModuleString *min, RedisModuleStr
      * otherwise we don't want the zlexrangespec to be freed. */
     key->u.zset.type = REDISMODULE_ZSET_RANGE_LEX;
 
-    if (key->value->encoding == OBJ_ENCODING_ZIPLIST) {
+    if (key->value->encoding == OBJ_ENCODING_LISTPACK) {
         key->u.zset.current = first ? zzlFirstInLexRange(key->value->ptr,zlrs) :
                                       zzlLastInLexRange(key->value->ptr,zlrs);
     } else if (key->value->encoding == OBJ_ENCODING_SKIPLIST) {
@@ -3076,12 +3076,12 @@ RedisModuleString *RM_ZsetRangeCurrentElement(RedisModuleKey *key, double *score
 
     if (!key->value || key->value->type != OBJ_ZSET) return NULL;
     if (key->u.zset.current == NULL) return NULL;
-    if (key->value->encoding == OBJ_ENCODING_ZIPLIST) {
+    if (key->value->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *eptr, *sptr;
         eptr = key->u.zset.current;
-        sds ele = ziplistGetObject(eptr);
+        sds ele = lpGetObject(eptr);
         if (score) {
-            sptr = ziplistNext(key->value->ptr,eptr);
+            sptr = lpNext(key->value->ptr,eptr);
             *score = zzlGetScore(sptr);
         }
         str = createObject(OBJ_STRING,ele);
@@ -3103,12 +3103,12 @@ int RM_ZsetRangeNext(RedisModuleKey *key) {
     if (!key->value || key->value->type != OBJ_ZSET) return 0;
     if (!key->u.zset.type || !key->u.zset.current) return 0; /* No active iterator. */
 
-    if (key->value->encoding == OBJ_ENCODING_ZIPLIST) {
+    if (key->value->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *zl = key->value->ptr;
         unsigned char *eptr = key->u.zset.current;
         unsigned char *next;
-        next = ziplistNext(zl,eptr); /* Skip element. */
-        if (next) next = ziplistNext(zl,next); /* Skip score. */
+        next = lpNext(zl,eptr); /* Skip element. */
+        if (next) next = lpNext(zl,next); /* Skip score. */
         if (next == NULL) {
             key->u.zset.er = 1;
             return 0;
@@ -3118,7 +3118,7 @@ int RM_ZsetRangeNext(RedisModuleKey *key) {
                 /* Fetch the next element score for the
                  * range check. */
                 unsigned char *saved_next = next;
-                next = ziplistNext(zl,next); /* Skip next element. */
+                next = lpNext(zl,next); /* Skip next element. */
                 double score = zzlGetScore(next); /* Obtain the next score. */
                 if (!zslValueLteMax(score,&key->u.zset.rs)) {
                     key->u.zset.er = 1;
@@ -3167,12 +3167,12 @@ int RM_ZsetRangePrev(RedisModuleKey *key) {
     if (!key->value || key->value->type != OBJ_ZSET) return 0;
     if (!key->u.zset.type || !key->u.zset.current) return 0; /* No active iterator. */
 
-    if (key->value->encoding == OBJ_ENCODING_ZIPLIST) {
+    if (key->value->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *zl = key->value->ptr;
         unsigned char *eptr = key->u.zset.current;
         unsigned char *prev;
-        prev = ziplistPrev(zl,eptr); /* Go back to previous score. */
-        if (prev) prev = ziplistPrev(zl,prev); /* Back to previous ele. */
+        prev = lpPrev(zl,eptr); /* Go back to previous score. */
+        if (prev) prev = lpPrev(zl,prev); /* Back to previous ele. */
         if (prev == NULL) {
             key->u.zset.er = 1;
             return 0;
@@ -3182,7 +3182,7 @@ int RM_ZsetRangePrev(RedisModuleKey *key) {
                 /* Fetch the previous element score for the
                  * range check. */
                 unsigned char *saved_prev = prev;
-                prev = ziplistNext(zl,prev); /* Skip element to get the score.*/
+                prev = lpNext(zl,prev); /* Skip element to get the score.*/
                 double score = zzlGetScore(prev); /* Obtain the prev score. */
                 if (!zslValueGteMin(score,&key->u.zset.rs)) {
                     key->u.zset.er = 1;
@@ -7991,22 +7991,22 @@ int RM_ScanKey(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleSc
         cursor->done = 1;
         ret = 0;
     } else if (o->type == OBJ_ZSET) {
-        unsigned char *p = ziplistIndex(o->ptr,0);
+        unsigned char *p = lpSeek(o->ptr,0);
         unsigned char *vstr;
         unsigned int vlen;
         long long vll;
         while(p) {
-            ziplistGet(p,&vstr,&vlen,&vll);
+            vstr = lpGetValue(p,&vlen,&vll);
             robj *field = (vstr != NULL) ?
                 createStringObject((char*)vstr,vlen) :
                 createObject(OBJ_STRING,sdsfromlonglong(vll));
-            p = ziplistNext(o->ptr,p);
-            ziplistGet(p,&vstr,&vlen,&vll);
+            p = lpNext(o->ptr,p);
+            vstr = lpGetValue(p,&vlen,&vll);
             robj *value = (vstr != NULL) ?
                 createStringObject((char*)vstr,vlen) :
                 createObject(OBJ_STRING,sdsfromlonglong(vll));
             fn(key, field, value, privdata);
-            p = ziplistNext(o->ptr,p);
+            p = lpNext(o->ptr,p);
             decrRefCount(field);
             decrRefCount(value);
         }
