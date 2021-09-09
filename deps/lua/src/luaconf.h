@@ -1,108 +1,234 @@
 /*
-** $Id: luaconf.h,v 1.82.1.7 2008/02/11 16:25:08 roberto Exp $
+** $Id: luaconf.h $
 ** Configuration file for Lua
 ** See Copyright Notice in lua.h
 */
 
 
-#ifndef lconfig_h
-#define lconfig_h
+#ifndef luaconf_h
+#define luaconf_h
 
 #include <limits.h>
 #include <stddef.h>
 
 
 /*
-** ==================================================================
+** ===================================================================
+** General Configuration File for Lua
+**
+** Some definitions here can be changed externally, through the
+** compiler (e.g., with '-D' options). Those are protected by
+** '#if !defined' guards. However, several other definitions should
+** be changed directly here, either because they affect the Lua
+** ABI (by making the changes here, you ensure that all software
+** connected to Lua, such as C libraries, will be compiled with the
+** same configuration); or because they are seldom changed.
+**
 ** Search for "@@" to find all configurable definitions.
 ** ===================================================================
 */
 
 
 /*
-@@ LUA_ANSI controls the use of non-ansi features.
-** CHANGE it (define it) if you want Lua to avoid the use of any
-** non-ansi feature or library.
+** {====================================================================
+** System Configuration: macros to adapt (if needed) Lua to some
+** particular platform, for instance restricting it to C89.
+** =====================================================================
 */
-#if defined(__STRICT_ANSI__)
-#define LUA_ANSI
+
+/*
+@@ LUA_USE_C89 controls the use of non-ISO-C89 features.
+** Define it if you want Lua to avoid the use of a few C99 features
+** or Windows-specific features on Windows.
+*/
+/* #define LUA_USE_C89 */
+
+
+/*
+** By default, Lua on Windows use (some) specific Windows features
+*/
+#if !defined(LUA_USE_C89) && defined(_WIN32) && !defined(_WIN32_WCE)
+#define LUA_USE_WINDOWS  /* enable goodies for regular Windows */
 #endif
 
 
-#if !defined(LUA_ANSI) && defined(_WIN32)
-#define LUA_WIN
+#if defined(LUA_USE_WINDOWS)
+#define LUA_DL_DLL	/* enable support for DLL */
+#define LUA_USE_C89	/* broadly, Windows is C89 */
 #endif
+
 
 #if defined(LUA_USE_LINUX)
 #define LUA_USE_POSIX
 #define LUA_USE_DLOPEN		/* needs an extra library: -ldl */
-#define LUA_USE_READLINE	/* needs some extra libraries */
 #endif
+
 
 #if defined(LUA_USE_MACOSX)
 #define LUA_USE_POSIX
-#define LUA_DL_DYLD		/* does not need extra library */
-#endif
-
-
-
-/*
-@@ LUA_USE_POSIX includes all functionallity listed as X/Open System
-@* Interfaces Extension (XSI).
-** CHANGE it (define it) if your system is XSI compatible.
-*/
-#if defined(LUA_USE_POSIX)
-#define LUA_USE_MKSTEMP
-#define LUA_USE_ISATTY
-#define LUA_USE_POPEN
-#define LUA_USE_ULONGJMP
+#define LUA_USE_DLOPEN		/* MacOS does not need -ldl */
 #endif
 
 
 /*
-@@ LUA_PATH and LUA_CPATH are the names of the environment variables that
-@* Lua check to set its paths.
-@@ LUA_INIT is the name of the environment variable that Lua
-@* checks for initialization code.
-** CHANGE them if you want different names.
+@@ LUAI_IS32INT is true iff 'int' has (at least) 32 bits.
 */
-#define LUA_PATH        "LUA_PATH"
-#define LUA_CPATH       "LUA_CPATH"
-#define LUA_INIT	"LUA_INIT"
+#define LUAI_IS32INT	((UINT_MAX >> 30) >= 3)
+
+/* }================================================================== */
+
+
+
+/*
+** {==================================================================
+** Configuration for Number types.
+** ===================================================================
+*/
+
+/*
+@@ LUA_32BITS enables Lua with 32-bit integers and 32-bit floats.
+*/
+/* #define LUA_32BITS */
+
+
+/*
+@@ LUA_C89_NUMBERS ensures that Lua uses the largest types available for
+** C89 ('long' and 'double'); Windows always has '__int64', so it does
+** not need to use this case.
+*/
+#if defined(LUA_USE_C89) && !defined(LUA_USE_WINDOWS)
+#define LUA_C89_NUMBERS
+#endif
+
+
+/*
+@@ LUA_INT_TYPE defines the type for Lua integers.
+@@ LUA_FLOAT_TYPE defines the type for Lua floats.
+** Lua should work fine with any mix of these options supported
+** by your C compiler. The usual configurations are 64-bit integers
+** and 'double' (the default), 32-bit integers and 'float' (for
+** restricted platforms), and 'long'/'double' (for C compilers not
+** compliant with C99, which may not have support for 'long long').
+*/
+
+/* predefined options for LUA_INT_TYPE */
+#define LUA_INT_INT		1
+#define LUA_INT_LONG		2
+#define LUA_INT_LONGLONG	3
+
+/* predefined options for LUA_FLOAT_TYPE */
+#define LUA_FLOAT_FLOAT		1
+#define LUA_FLOAT_DOUBLE	2
+#define LUA_FLOAT_LONGDOUBLE	3
+
+#if defined(LUA_32BITS)		/* { */
+/*
+** 32-bit integers and 'float'
+*/
+#if LUAI_IS32INT  /* use 'int' if big enough */
+#define LUA_INT_TYPE	LUA_INT_INT
+#else  /* otherwise use 'long' */
+#define LUA_INT_TYPE	LUA_INT_LONG
+#endif
+#define LUA_FLOAT_TYPE	LUA_FLOAT_FLOAT
+
+#elif defined(LUA_C89_NUMBERS)	/* }{ */
+/*
+** largest types available for C89 ('long' and 'double')
+*/
+#define LUA_INT_TYPE	LUA_INT_LONG
+#define LUA_FLOAT_TYPE	LUA_FLOAT_DOUBLE
+
+#endif				/* } */
+
+
+/*
+** default configuration for 64-bit Lua ('long long' and 'double')
+*/
+#if !defined(LUA_INT_TYPE)
+#define LUA_INT_TYPE	LUA_INT_LONGLONG
+#endif
+
+#if !defined(LUA_FLOAT_TYPE)
+#define LUA_FLOAT_TYPE	LUA_FLOAT_DOUBLE
+#endif
+
+/* }================================================================== */
+
+
+
+/*
+** {==================================================================
+** Configuration for Paths.
+** ===================================================================
+*/
+
+/*
+** LUA_PATH_SEP is the character that separates templates in a path.
+** LUA_PATH_MARK is the string that marks the substitution points in a
+** template.
+** LUA_EXEC_DIR in a Windows path is replaced by the executable's
+** directory.
+*/
+#define LUA_PATH_SEP            ";"
+#define LUA_PATH_MARK           "?"
+#define LUA_EXEC_DIR            "!"
 
 
 /*
 @@ LUA_PATH_DEFAULT is the default path that Lua uses to look for
-@* Lua libraries.
+** Lua libraries.
 @@ LUA_CPATH_DEFAULT is the default path that Lua uses to look for
-@* C libraries.
+** C libraries.
 ** CHANGE them if your machine has a non-conventional directory
 ** hierarchy or if you want to install your libraries in
 ** non-conventional directories.
 */
-#if defined(_WIN32)
+
+#define LUA_VDIR	LUA_VERSION_MAJOR "." LUA_VERSION_MINOR
+#if defined(_WIN32)	/* { */
 /*
 ** In Windows, any exclamation mark ('!') in the path is replaced by the
 ** path of the directory of the executable file of the current process.
 */
 #define LUA_LDIR	"!\\lua\\"
 #define LUA_CDIR	"!\\"
-#define LUA_PATH_DEFAULT  \
-		".\\?.lua;"  LUA_LDIR"?.lua;"  LUA_LDIR"?\\init.lua;" \
-		             LUA_CDIR"?.lua;"  LUA_CDIR"?\\init.lua"
-#define LUA_CPATH_DEFAULT \
-	".\\?.dll;"  LUA_CDIR"?.dll;" LUA_CDIR"loadall.dll"
+#define LUA_SHRDIR	"!\\..\\share\\lua\\" LUA_VDIR "\\"
 
-#else
-#define LUA_ROOT	"/usr/local/"
-#define LUA_LDIR	LUA_ROOT "share/lua/5.1/"
-#define LUA_CDIR	LUA_ROOT "lib/lua/5.1/"
+#if !defined(LUA_PATH_DEFAULT)
 #define LUA_PATH_DEFAULT  \
-		"./?.lua;"  LUA_LDIR"?.lua;"  LUA_LDIR"?/init.lua;" \
-		            LUA_CDIR"?.lua;"  LUA_CDIR"?/init.lua"
-#define LUA_CPATH_DEFAULT \
-	"./?.so;"  LUA_CDIR"?.so;" LUA_CDIR"loadall.so"
+		LUA_LDIR"?.lua;"  LUA_LDIR"?\\init.lua;" \
+		LUA_CDIR"?.lua;"  LUA_CDIR"?\\init.lua;" \
+		LUA_SHRDIR"?.lua;" LUA_SHRDIR"?\\init.lua;" \
+		".\\?.lua;" ".\\?\\init.lua"
 #endif
+
+#if !defined(LUA_CPATH_DEFAULT)
+#define LUA_CPATH_DEFAULT \
+		LUA_CDIR"?.dll;" \
+		LUA_CDIR"..\\lib\\lua\\" LUA_VDIR "\\?.dll;" \
+		LUA_CDIR"loadall.dll;" ".\\?.dll"
+#endif
+
+#else			/* }{ */
+
+#define LUA_ROOT	"/usr/local/"
+#define LUA_LDIR	LUA_ROOT "share/lua/" LUA_VDIR "/"
+#define LUA_CDIR	LUA_ROOT "lib/lua/" LUA_VDIR "/"
+
+#if !defined(LUA_PATH_DEFAULT)
+#define LUA_PATH_DEFAULT  \
+		LUA_LDIR"?.lua;"  LUA_LDIR"?/init.lua;" \
+		LUA_CDIR"?.lua;"  LUA_CDIR"?/init.lua;" \
+		"./?.lua;" "./?/init.lua"
+#endif
+
+#if !defined(LUA_CPATH_DEFAULT)
+#define LUA_CPATH_DEFAULT \
+		LUA_CDIR"?.so;" LUA_CDIR"loadall.so;" "./?.so"
+#endif
+
+#endif			/* } */
 
 
 /*
@@ -110,643 +236,513 @@
 ** CHANGE it if your machine does not use "/" as the directory separator
 ** and is not Windows. (On Windows Lua automatically uses "\".)
 */
+#if !defined(LUA_DIRSEP)
+
 #if defined(_WIN32)
 #define LUA_DIRSEP	"\\"
 #else
 #define LUA_DIRSEP	"/"
 #endif
 
+#endif
 
-/*
-@@ LUA_PATHSEP is the character that separates templates in a path.
-@@ LUA_PATH_MARK is the string that marks the substitution points in a
-@* template.
-@@ LUA_EXECDIR in a Windows path is replaced by the executable's
-@* directory.
-@@ LUA_IGMARK is a mark to ignore all before it when bulding the
-@* luaopen_ function name.
-** CHANGE them if for some reason your system cannot use those
-** characters. (E.g., if one of those characters is a common character
-** in file/directory names.) Probably you do not need to change them.
-*/
-#define LUA_PATHSEP	";"
-#define LUA_PATH_MARK	"?"
-#define LUA_EXECDIR	"!"
-#define LUA_IGMARK	"-"
+/* }================================================================== */
 
 
 /*
-@@ LUA_INTEGER is the integral type used by lua_pushinteger/lua_tointeger.
-** CHANGE that if ptrdiff_t is not adequate on your machine. (On most
-** machines, ptrdiff_t gives a good choice between int or long.)
+** {==================================================================
+** Marks for exported symbols in the C code
+** ===================================================================
 */
-#define LUA_INTEGER	ptrdiff_t
-
 
 /*
 @@ LUA_API is a mark for all core API functions.
-@@ LUALIB_API is a mark for all standard library functions.
+@@ LUALIB_API is a mark for all auxiliary library functions.
+@@ LUAMOD_API is a mark for all standard library opening functions.
 ** CHANGE them if you need to define those functions in some special way.
 ** For instance, if you want to create one Windows DLL with the core and
 ** the libraries, you may want to use the following definition (define
 ** LUA_BUILD_AS_DLL to get it).
 */
-#if defined(LUA_BUILD_AS_DLL)
+#if defined(LUA_BUILD_AS_DLL)	/* { */
 
-#if defined(LUA_CORE) || defined(LUA_LIB)
+#if defined(LUA_CORE) || defined(LUA_LIB)	/* { */
 #define LUA_API __declspec(dllexport)
-#else
+#else						/* }{ */
 #define LUA_API __declspec(dllimport)
-#endif
+#endif						/* } */
 
-#else
+#else				/* }{ */
 
 #define LUA_API		extern
 
-#endif
+#endif				/* } */
 
-/* more often than not the libs go together with the core */
+
+/*
+** More often than not the libs go together with the core.
+*/
 #define LUALIB_API	LUA_API
+#define LUAMOD_API	LUA_API
 
 
 /*
 @@ LUAI_FUNC is a mark for all extern functions that are not to be
-@* exported to outside modules.
-@@ LUAI_DATA is a mark for all extern (const) variables that are not to
-@* be exported to outside modules.
+** exported to outside modules.
+@@ LUAI_DDEF and LUAI_DDEC are marks for all extern (const) variables,
+** none of which to be exported to outside modules (LUAI_DDEF for
+** definitions and LUAI_DDEC for declarations).
 ** CHANGE them if you need to mark them in some special way. Elf/gcc
 ** (versions 3.2 and later) mark them as "hidden" to optimize access
-** when Lua is compiled as a shared library.
+** when Lua is compiled as a shared library. Not all elf targets support
+** this attribute. Unfortunately, gcc does not offer a way to check
+** whether the target offers that support, and those without support
+** give a warning about it. To avoid these warnings, change to the
+** default definition.
 */
-#if defined(luaall_c)
-#define LUAI_FUNC	static
-#define LUAI_DATA	/* empty */
-
-#elif defined(__GNUC__) && ((__GNUC__*100 + __GNUC_MINOR__) >= 302) && \
-      defined(__ELF__)
-#define LUAI_FUNC	__attribute__((visibility("hidden"))) extern
-#define LUAI_DATA	LUAI_FUNC
-
-#else
+#if defined(__GNUC__) && ((__GNUC__*100 + __GNUC_MINOR__) >= 302) && \
+    defined(__ELF__)		/* { */
+#define LUAI_FUNC	__attribute__((visibility("internal"))) extern
+#else				/* }{ */
 #define LUAI_FUNC	extern
-#define LUAI_DATA	extern
-#endif
+#endif				/* } */
+
+#define LUAI_DDEC(dec)	LUAI_FUNC dec
+#define LUAI_DDEF	/* empty */
+
+/* }================================================================== */
+
+
+/*
+** {==================================================================
+** Compatibility with previous versions
+** ===================================================================
+*/
+
+/*
+@@ LUA_COMPAT_5_3 controls other macros for compatibility with Lua 5.3.
+** You can define it to get all options, or change specific options
+** to fit your specific needs.
+*/
+#if defined(LUA_COMPAT_5_3)	/* { */
+
+/*
+@@ LUA_COMPAT_MATHLIB controls the presence of several deprecated
+** functions in the mathematical library.
+** (These functions were already officially removed in 5.3;
+** nevertheless they are still available here.)
+*/
+#define LUA_COMPAT_MATHLIB
+
+/*
+@@ LUA_COMPAT_APIINTCASTS controls the presence of macros for
+** manipulating other integer types (lua_pushunsigned, lua_tounsigned,
+** luaL_checkint, luaL_checklong, etc.)
+** (These macros were also officially removed in 5.3, but they are still
+** available here.)
+*/
+#define LUA_COMPAT_APIINTCASTS
+
+
+/*
+@@ LUA_COMPAT_LT_LE controls the emulation of the '__le' metamethod
+** using '__lt'.
+*/
+#define LUA_COMPAT_LT_LE
+
+
+/*
+@@ The following macros supply trivial compatibility for some
+** changes in the API. The macros themselves document how to
+** change your code to avoid using them.
+** (Once more, these macros were officially removed in 5.3, but they are
+** still available here.)
+*/
+#define lua_strlen(L,i)		lua_rawlen(L, (i))
+
+#define lua_objlen(L,i)		lua_rawlen(L, (i))
+
+#define lua_equal(L,idx1,idx2)		lua_compare(L,(idx1),(idx2),LUA_OPEQ)
+#define lua_lessthan(L,idx1,idx2)	lua_compare(L,(idx1),(idx2),LUA_OPLT)
+
+#endif				/* } */
+
+/* }================================================================== */
 
 
 
 /*
-@@ LUA_QL describes how error messages quote program elements.
-** CHANGE it if you want a different appearance.
+** {==================================================================
+** Configuration for Numbers.
+** Change these definitions if no predefined LUA_FLOAT_* / LUA_INT_*
+** satisfy your needs.
+** ===================================================================
 */
-#define LUA_QL(x)	"'" x "'"
-#define LUA_QS		LUA_QL("%s")
+
+/*
+@@ LUA_NUMBER is the floating-point type used by Lua.
+@@ LUAI_UACNUMBER is the result of a 'default argument promotion'
+@@ over a floating number.
+@@ l_floatatt(x) corrects float attribute 'x' to the proper float type
+** by prefixing it with one of FLT/DBL/LDBL.
+@@ LUA_NUMBER_FRMLEN is the length modifier for writing floats.
+@@ LUA_NUMBER_FMT is the format for writing floats.
+@@ lua_number2str converts a float to a string.
+@@ l_mathop allows the addition of an 'l' or 'f' to all math operations.
+@@ l_floor takes the floor of a float.
+@@ lua_str2number converts a decimal numeral to a number.
+*/
+
+
+/* The following definitions are good for most cases here */
+
+#define l_floor(x)		(l_mathop(floor)(x))
+
+#define lua_number2str(s,sz,n)  \
+	l_sprintf((s), sz, LUA_NUMBER_FMT, (LUAI_UACNUMBER)(n))
+
+/*
+@@ lua_numbertointeger converts a float number with an integral value
+** to an integer, or returns 0 if float is not within the range of
+** a lua_Integer.  (The range comparisons are tricky because of
+** rounding. The tests here assume a two-complement representation,
+** where MININTEGER always has an exact representation as a float;
+** MAXINTEGER may not have one, and therefore its conversion to float
+** may have an ill-defined value.)
+*/
+#define lua_numbertointeger(n,p) \
+  ((n) >= (LUA_NUMBER)(LUA_MININTEGER) && \
+   (n) < -(LUA_NUMBER)(LUA_MININTEGER) && \
+      (*(p) = (LUA_INTEGER)(n), 1))
+
+
+/* now the variable definitions */
+
+#if LUA_FLOAT_TYPE == LUA_FLOAT_FLOAT		/* { single float */
+
+#define LUA_NUMBER	float
+
+#define l_floatatt(n)		(FLT_##n)
+
+#define LUAI_UACNUMBER	double
+
+#define LUA_NUMBER_FRMLEN	""
+#define LUA_NUMBER_FMT		"%.7g"
+
+#define l_mathop(op)		op##f
+
+#define lua_str2number(s,p)	strtof((s), (p))
+
+
+#elif LUA_FLOAT_TYPE == LUA_FLOAT_LONGDOUBLE	/* }{ long double */
+
+#define LUA_NUMBER	long double
+
+#define l_floatatt(n)		(LDBL_##n)
+
+#define LUAI_UACNUMBER	long double
+
+#define LUA_NUMBER_FRMLEN	"L"
+#define LUA_NUMBER_FMT		"%.19Lg"
+
+#define l_mathop(op)		op##l
+
+#define lua_str2number(s,p)	strtold((s), (p))
+
+#elif LUA_FLOAT_TYPE == LUA_FLOAT_DOUBLE	/* }{ double */
+
+#define LUA_NUMBER	double
+
+#define l_floatatt(n)		(DBL_##n)
+
+#define LUAI_UACNUMBER	double
+
+#define LUA_NUMBER_FRMLEN	""
+#define LUA_NUMBER_FMT		"%.14g"
+
+#define l_mathop(op)		op
+
+#define lua_str2number(s,p)	strtod((s), (p))
+
+#else						/* }{ */
+
+#error "numeric float type not defined"
+
+#endif					/* } */
+
+
+
+/*
+@@ LUA_INTEGER is the integer type used by Lua.
+**
+@@ LUA_UNSIGNED is the unsigned version of LUA_INTEGER.
+**
+@@ LUAI_UACINT is the result of a 'default argument promotion'
+@@ over a LUA_INTEGER.
+@@ LUA_INTEGER_FRMLEN is the length modifier for reading/writing integers.
+@@ LUA_INTEGER_FMT is the format for writing integers.
+@@ LUA_MAXINTEGER is the maximum value for a LUA_INTEGER.
+@@ LUA_MININTEGER is the minimum value for a LUA_INTEGER.
+@@ LUA_MAXUNSIGNED is the maximum value for a LUA_UNSIGNED.
+@@ LUA_UNSIGNEDBITS is the number of bits in a LUA_UNSIGNED.
+@@ lua_integer2str converts an integer to a string.
+*/
+
+
+/* The following definitions are good for most cases here */
+
+#define LUA_INTEGER_FMT		"%" LUA_INTEGER_FRMLEN "d"
+
+#define LUAI_UACINT		LUA_INTEGER
+
+#define lua_integer2str(s,sz,n)  \
+	l_sprintf((s), sz, LUA_INTEGER_FMT, (LUAI_UACINT)(n))
+
+/*
+** use LUAI_UACINT here to avoid problems with promotions (which
+** can turn a comparison between unsigneds into a signed comparison)
+*/
+#define LUA_UNSIGNED		unsigned LUAI_UACINT
+
+
+#define LUA_UNSIGNEDBITS	(sizeof(LUA_UNSIGNED) * CHAR_BIT)
+
+
+/* now the variable definitions */
+
+#if LUA_INT_TYPE == LUA_INT_INT		/* { int */
+
+#define LUA_INTEGER		int
+#define LUA_INTEGER_FRMLEN	""
+
+#define LUA_MAXINTEGER		INT_MAX
+#define LUA_MININTEGER		INT_MIN
+
+#define LUA_MAXUNSIGNED		UINT_MAX
+
+#elif LUA_INT_TYPE == LUA_INT_LONG	/* }{ long */
+
+#define LUA_INTEGER		long
+#define LUA_INTEGER_FRMLEN	"l"
+
+#define LUA_MAXINTEGER		LONG_MAX
+#define LUA_MININTEGER		LONG_MIN
+
+#define LUA_MAXUNSIGNED		ULONG_MAX
+
+#elif LUA_INT_TYPE == LUA_INT_LONGLONG	/* }{ long long */
+
+/* use presence of macro LLONG_MAX as proxy for C99 compliance */
+#if defined(LLONG_MAX)		/* { */
+/* use ISO C99 stuff */
+
+#define LUA_INTEGER		long long
+#define LUA_INTEGER_FRMLEN	"ll"
+
+#define LUA_MAXINTEGER		LLONG_MAX
+#define LUA_MININTEGER		LLONG_MIN
+
+#define LUA_MAXUNSIGNED		ULLONG_MAX
+
+#elif defined(LUA_USE_WINDOWS) /* }{ */
+/* in Windows, can use specific Windows types */
+
+#define LUA_INTEGER		__int64
+#define LUA_INTEGER_FRMLEN	"I64"
+
+#define LUA_MAXINTEGER		_I64_MAX
+#define LUA_MININTEGER		_I64_MIN
+
+#define LUA_MAXUNSIGNED		_UI64_MAX
+
+#else				/* }{ */
+
+#error "Compiler does not support 'long long'. Use option '-DLUA_32BITS' \
+  or '-DLUA_C89_NUMBERS' (see file 'luaconf.h' for details)"
+
+#endif				/* } */
+
+#else				/* }{ */
+
+#error "numeric integer type not defined"
+
+#endif				/* } */
+
+/* }================================================================== */
+
+
+/*
+** {==================================================================
+** Dependencies with C99 and other C details
+** ===================================================================
+*/
+
+/*
+@@ l_sprintf is equivalent to 'snprintf' or 'sprintf' in C89.
+** (All uses in Lua have only one format item.)
+*/
+#if !defined(LUA_USE_C89)
+#define l_sprintf(s,sz,f,i)	snprintf(s,sz,f,i)
+#else
+#define l_sprintf(s,sz,f,i)	((void)(sz), sprintf(s,f,i))
+#endif
+
+
+/*
+@@ lua_strx2number converts a hexadecimal numeral to a number.
+** In C99, 'strtod' does that conversion. Otherwise, you can
+** leave 'lua_strx2number' undefined and Lua will provide its own
+** implementation.
+*/
+#if !defined(LUA_USE_C89)
+#define lua_strx2number(s,p)		lua_str2number(s,p)
+#endif
+
+
+/*
+@@ lua_pointer2str converts a pointer to a readable string in a
+** non-specified way.
+*/
+#define lua_pointer2str(buff,sz,p)	l_sprintf(buff,sz,"%p",p)
+
+
+/*
+@@ lua_number2strx converts a float to a hexadecimal numeral.
+** In C99, 'sprintf' (with format specifiers '%a'/'%A') does that.
+** Otherwise, you can leave 'lua_number2strx' undefined and Lua will
+** provide its own implementation.
+*/
+#if !defined(LUA_USE_C89)
+#define lua_number2strx(L,b,sz,f,n)  \
+	((void)L, l_sprintf(b,sz,f,(LUAI_UACNUMBER)(n)))
+#endif
+
+
+/*
+** 'strtof' and 'opf' variants for math functions are not valid in
+** C89. Otherwise, the macro 'HUGE_VALF' is a good proxy for testing the
+** availability of these variants. ('math.h' is already included in
+** all files that use these macros.)
+*/
+#if defined(LUA_USE_C89) || (defined(HUGE_VAL) && !defined(HUGE_VALF))
+#undef l_mathop  /* variants not available */
+#undef lua_str2number
+#define l_mathop(op)		(lua_Number)op  /* no variant */
+#define lua_str2number(s,p)	((lua_Number)strtod((s), (p)))
+#endif
+
+
+/*
+@@ LUA_KCONTEXT is the type of the context ('ctx') for continuation
+** functions.  It must be a numerical type; Lua will use 'intptr_t' if
+** available, otherwise it will use 'ptrdiff_t' (the nearest thing to
+** 'intptr_t' in C89)
+*/
+#define LUA_KCONTEXT	ptrdiff_t
+
+#if !defined(LUA_USE_C89) && defined(__STDC_VERSION__) && \
+    __STDC_VERSION__ >= 199901L
+#include <stdint.h>
+#if defined(INTPTR_MAX)  /* even in C99 this type is optional */
+#undef LUA_KCONTEXT
+#define LUA_KCONTEXT	intptr_t
+#endif
+#endif
+
+
+/*
+@@ lua_getlocaledecpoint gets the locale "radix character" (decimal point).
+** Change that if you do not want to use C locales. (Code using this
+** macro must include the header 'locale.h'.)
+*/
+#if !defined(lua_getlocaledecpoint)
+#define lua_getlocaledecpoint()		(localeconv()->decimal_point[0])
+#endif
+
+/* }================================================================== */
+
+
+/*
+** {==================================================================
+** Language Variations
+** =====================================================================
+*/
+
+/*
+@@ LUA_NOCVTN2S/LUA_NOCVTS2N control how Lua performs some
+** coercions. Define LUA_NOCVTN2S to turn off automatic coercion from
+** numbers to strings. Define LUA_NOCVTS2N to turn off automatic
+** coercion from strings to numbers.
+*/
+/* #define LUA_NOCVTN2S */
+/* #define LUA_NOCVTS2N */
+
+
+/*
+@@ LUA_USE_APICHECK turns on several consistency checks on the C API.
+** Define it as a help when debugging C code.
+*/
+#if defined(LUA_USE_APICHECK)
+#include <assert.h>
+#define luai_apicheck(l,e)	assert(e)
+#endif
+
+/* }================================================================== */
+
+
+/*
+** {==================================================================
+** Macros that affect the API and must be stable (that is, must be the
+** same when you compile Lua and when you compile code that links to
+** Lua).
+** =====================================================================
+*/
+
+/*
+@@ LUAI_MAXSTACK limits the size of the Lua stack.
+** CHANGE it if you need a different limit. This limit is arbitrary;
+** its only purpose is to stop Lua from consuming unlimited stack
+** space (and to reserve some numbers for pseudo-indices).
+** (It must fit into max(size_t)/32.)
+*/
+#if LUAI_IS32INT
+#define LUAI_MAXSTACK		1000000
+#else
+#define LUAI_MAXSTACK		15000
+#endif
+
+
+/*
+@@ LUA_EXTRASPACE defines the size of a raw memory area associated with
+** a Lua state with very fast access.
+** CHANGE it if you need a different size.
+*/
+#define LUA_EXTRASPACE		(sizeof(void *))
 
 
 /*
 @@ LUA_IDSIZE gives the maximum size for the description of the source
-@* of a function in debug information.
+@@ of a function in debug information.
 ** CHANGE it if you want a different size.
 */
 #define LUA_IDSIZE	60
 
 
 /*
-** {==================================================================
-** Stand-alone configuration
-** ===================================================================
-*/
-
-#if defined(lua_c) || defined(luaall_c)
-
-/*
-@@ lua_stdin_is_tty detects whether the standard input is a 'tty' (that
-@* is, whether we're running lua interactively).
-** CHANGE it if you have a better definition for non-POSIX/non-Windows
-** systems.
-*/
-#if defined(LUA_USE_ISATTY)
-#include <unistd.h>
-#define lua_stdin_is_tty()	isatty(0)
-#elif defined(LUA_WIN)
-#include <io.h>
-#include <stdio.h>
-#define lua_stdin_is_tty()	_isatty(_fileno(stdin))
-#else
-#define lua_stdin_is_tty()	1  /* assume stdin is a tty */
-#endif
-
-
-/*
-@@ LUA_PROMPT is the default prompt used by stand-alone Lua.
-@@ LUA_PROMPT2 is the default continuation prompt used by stand-alone Lua.
-** CHANGE them if you want different prompts. (You can also change the
-** prompts dynamically, assigning to globals _PROMPT/_PROMPT2.)
-*/
-#define LUA_PROMPT		"> "
-#define LUA_PROMPT2		">> "
-
-
-/*
-@@ LUA_PROGNAME is the default name for the stand-alone Lua program.
-** CHANGE it if your stand-alone interpreter has a different name and
-** your system is not able to detect that name automatically.
-*/
-#define LUA_PROGNAME		"lua"
-
-
-/*
-@@ LUA_MAXINPUT is the maximum length for an input line in the
-@* stand-alone interpreter.
-** CHANGE it if you need longer lines.
-*/
-#define LUA_MAXINPUT	512
-
-
-/*
-@@ lua_readline defines how to show a prompt and then read a line from
-@* the standard input.
-@@ lua_saveline defines how to "save" a read line in a "history".
-@@ lua_freeline defines how to free a line read by lua_readline.
-** CHANGE them if you want to improve this functionality (e.g., by using
-** GNU readline and history facilities).
-*/
-#if defined(LUA_USE_READLINE)
-#include <stdio.h>
-#include <readline/readline.h>
-#include <readline/history.h>
-#define lua_readline(L,b,p)	((void)L, ((b)=readline(p)) != NULL)
-#define lua_saveline(L,idx) \
-	if (lua_strlen(L,idx) > 0)  /* non-empty line? */ \
-	  add_history(lua_tostring(L, idx));  /* add it to history */
-#define lua_freeline(L,b)	((void)L, free(b))
-#else
-#define lua_readline(L,b,p)	\
-	((void)L, fputs(p, stdout), fflush(stdout),  /* show prompt */ \
-	fgets(b, LUA_MAXINPUT, stdin) != NULL)  /* get line */
-#define lua_saveline(L,idx)	{ (void)L; (void)idx; }
-#define lua_freeline(L,b)	{ (void)L; (void)b; }
-#endif
-
-#endif
-
-/* }================================================================== */
-
-
-/*
-@@ LUAI_GCPAUSE defines the default pause between garbage-collector cycles
-@* as a percentage.
-** CHANGE it if you want the GC to run faster or slower (higher values
-** mean larger pauses which mean slower collection.) You can also change
-** this value dynamically.
-*/
-#define LUAI_GCPAUSE	200  /* 200% (wait memory to double before next GC) */
-
-
-/*
-@@ LUAI_GCMUL defines the default speed of garbage collection relative to
-@* memory allocation as a percentage.
-** CHANGE it if you want to change the granularity of the garbage
-** collection. (Higher values mean coarser collections. 0 represents
-** infinity, where each step performs a full collection.) You can also
-** change this value dynamically.
-*/
-#define LUAI_GCMUL	200 /* GC runs 'twice the speed' of memory allocation */
-
-
-
-/*
-@@ LUA_COMPAT_GETN controls compatibility with old getn behavior.
-** CHANGE it (define it) if you want exact compatibility with the
-** behavior of setn/getn in Lua 5.0.
-*/
-#undef LUA_COMPAT_GETN
-
-/*
-@@ LUA_COMPAT_LOADLIB controls compatibility about global loadlib.
-** CHANGE it to undefined as soon as you do not need a global 'loadlib'
-** function (the function is still available as 'package.loadlib').
-*/
-#undef LUA_COMPAT_LOADLIB
-
-/*
-@@ LUA_COMPAT_VARARG controls compatibility with old vararg feature.
-** CHANGE it to undefined as soon as your programs use only '...' to
-** access vararg parameters (instead of the old 'arg' table).
-*/
-#define LUA_COMPAT_VARARG
-
-/*
-@@ LUA_COMPAT_MOD controls compatibility with old math.mod function.
-** CHANGE it to undefined as soon as your programs use 'math.fmod' or
-** the new '%' operator instead of 'math.mod'.
-*/
-#define LUA_COMPAT_MOD
-
-/*
-@@ LUA_COMPAT_LSTR controls compatibility with old long string nesting
-@* facility.
-** CHANGE it to 2 if you want the old behaviour, or undefine it to turn
-** off the advisory error when nesting [[...]].
-*/
-#define LUA_COMPAT_LSTR		1
-
-/*
-@@ LUA_COMPAT_GFIND controls compatibility with old 'string.gfind' name.
-** CHANGE it to undefined as soon as you rename 'string.gfind' to
-** 'string.gmatch'.
-*/
-#define LUA_COMPAT_GFIND
-
-/*
-@@ LUA_COMPAT_OPENLIB controls compatibility with old 'luaL_openlib'
-@* behavior.
-** CHANGE it to undefined as soon as you replace to 'luaL_register'
-** your uses of 'luaL_openlib'
-*/
-#define LUA_COMPAT_OPENLIB
-
-
-
-/*
-@@ luai_apicheck is the assert macro used by the Lua-C API.
-** CHANGE luai_apicheck if you want Lua to perform some checks in the
-** parameters it gets from API calls. This may slow down the interpreter
-** a bit, but may be quite useful when debugging C code that interfaces
-** with Lua. A useful redefinition is to use assert.h.
-*/
-#if defined(LUA_USE_APICHECK)
-#include <assert.h>
-#define luai_apicheck(L,o)	{ (void)L; assert(o); }
-#else
-#define luai_apicheck(L,o)	{ (void)L; }
-#endif
-
-
-/*
-@@ LUAI_BITSINT defines the number of bits in an int.
-** CHANGE here if Lua cannot automatically detect the number of bits of
-** your machine. Probably you do not need to change this.
-*/
-/* avoid overflows in comparison */
-#if INT_MAX-20 < 32760
-#define LUAI_BITSINT	16
-#elif INT_MAX > 2147483640L
-/* int has at least 32 bits */
-#define LUAI_BITSINT	32
-#else
-#error "you must define LUA_BITSINT with number of bits in an integer"
-#endif
-
-
-/*
-@@ LUAI_UINT32 is an unsigned integer with at least 32 bits.
-@@ LUAI_INT32 is an signed integer with at least 32 bits.
-@@ LUAI_UMEM is an unsigned integer big enough to count the total
-@* memory used by Lua.
-@@ LUAI_MEM is a signed integer big enough to count the total memory
-@* used by Lua.
-** CHANGE here if for some weird reason the default definitions are not
-** good enough for your machine. (The definitions in the 'else'
-** part always works, but may waste space on machines with 64-bit
-** longs.) Probably you do not need to change this.
-*/
-#if LUAI_BITSINT >= 32
-#define LUAI_UINT32	unsigned int
-#define LUAI_INT32	int
-#define LUAI_MAXINT32	INT_MAX
-#define LUAI_UMEM	size_t
-#define LUAI_MEM	ptrdiff_t
-#else
-/* 16-bit ints */
-#define LUAI_UINT32	unsigned long
-#define LUAI_INT32	long
-#define LUAI_MAXINT32	LONG_MAX
-#define LUAI_UMEM	unsigned long
-#define LUAI_MEM	long
-#endif
-
-
-/*
-@@ LUAI_MAXCALLS limits the number of nested calls.
-** CHANGE it if you need really deep recursive calls. This limit is
-** arbitrary; its only purpose is to stop infinite recursion before
-** exhausting memory.
-*/
-#define LUAI_MAXCALLS	20000
-
-
-/*
-@@ LUAI_MAXCSTACK limits the number of Lua stack slots that a C function
-@* can use.
-** CHANGE it if you need lots of (Lua) stack space for your C
-** functions. This limit is arbitrary; its only purpose is to stop C
-** functions to consume unlimited stack space. (must be smaller than
-** -LUA_REGISTRYINDEX)
-*/
-#define LUAI_MAXCSTACK	8000
-
-
-
-/*
-** {==================================================================
-** CHANGE (to smaller values) the following definitions if your system
-** has a small C stack. (Or you may want to change them to larger
-** values if your system has a large C stack and these limits are
-** too rigid for you.) Some of these constants control the size of
-** stack-allocated arrays used by the compiler or the interpreter, while
-** others limit the maximum number of recursive calls that the compiler
-** or the interpreter can perform. Values too large may cause a C stack
-** overflow for some forms of deep constructs.
-** ===================================================================
-*/
-
-
-/*
-@@ LUAI_MAXCCALLS is the maximum depth for nested C calls (short) and
-@* syntactical nested non-terminals in a program.
-*/
-#define LUAI_MAXCCALLS		200
-
-
-/*
-@@ LUAI_MAXVARS is the maximum number of local variables per function
-@* (must be smaller than 250).
-*/
-#define LUAI_MAXVARS		200
-
-
-/*
-@@ LUAI_MAXUPVALUES is the maximum number of upvalues per function
-@* (must be smaller than 250).
-*/
-#define LUAI_MAXUPVALUES	60
-
-
-/*
 @@ LUAL_BUFFERSIZE is the buffer size used by the lauxlib buffer system.
 */
-#define LUAL_BUFFERSIZE		BUFSIZ
+#define LUAL_BUFFERSIZE   ((int)(16 * sizeof(void*) * sizeof(lua_Number)))
+
+
+/*
+@@ LUAI_MAXALIGN defines fields that, when used in a union, ensure
+** maximum alignment for the other items in that union.
+*/
+#define LUAI_MAXALIGN  lua_Number n; double u; void *s; lua_Integer i; long l
 
 /* }================================================================== */
 
 
-
-
-/*
-** {==================================================================
-@@ LUA_NUMBER is the type of numbers in Lua.
-** CHANGE the following definitions only if you want to build Lua
-** with a number type different from double. You may also need to
-** change lua_number2int & lua_number2integer.
-** ===================================================================
-*/
-
-#define LUA_NUMBER_DOUBLE
-#define LUA_NUMBER	double
-
-/*
-@@ LUAI_UACNUMBER is the result of an 'usual argument conversion'
-@* over a number.
-*/
-#define LUAI_UACNUMBER	double
-
-
-/*
-@@ LUA_NUMBER_SCAN is the format for reading numbers.
-@@ LUA_NUMBER_FMT is the format for writing numbers.
-@@ lua_number2str converts a number to a string.
-@@ LUAI_MAXNUMBER2STR is maximum size of previous conversion.
-@@ lua_str2number converts a string to a number.
-*/
-#define LUA_NUMBER_SCAN		"%lf"
-#define LUA_NUMBER_FMT		"%.14g"
-#define lua_number2str(s,n)	sprintf((s), LUA_NUMBER_FMT, (n))
-#define LUAI_MAXNUMBER2STR	32 /* 16 digits, sign, point, and \0 */
-#define lua_str2number(s,p)	strtod((s), (p))
-
-
-/*
-@@ The luai_num* macros define the primitive operations over numbers.
-*/
-#if defined(LUA_CORE)
-#include <math.h>
-#define luai_numadd(a,b)	((a)+(b))
-#define luai_numsub(a,b)	((a)-(b))
-#define luai_nummul(a,b)	((a)*(b))
-#define luai_numdiv(a,b)	((a)/(b))
-#define luai_nummod(a,b)	((a) - floor((a)/(b))*(b))
-#define luai_numpow(a,b)	(pow(a,b))
-#define luai_numunm(a)		(-(a))
-#define luai_numeq(a,b)		((a)==(b))
-#define luai_numlt(a,b)		((a)<(b))
-#define luai_numle(a,b)		((a)<=(b))
-#define luai_numisnan(a)	(!luai_numeq((a), (a)))
-#endif
-
-
-/*
-@@ lua_number2int is a macro to convert lua_Number to int.
-@@ lua_number2integer is a macro to convert lua_Number to lua_Integer.
-** CHANGE them if you know a faster way to convert a lua_Number to
-** int (with any rounding method and without throwing errors) in your
-** system. In Pentium machines, a naive typecast from double to int
-** in C is extremely slow, so any alternative is worth trying.
-*/
-
-/* On a Pentium, resort to a trick */
-#if defined(LUA_NUMBER_DOUBLE) && !defined(LUA_ANSI) && !defined(__SSE2__) && \
-    (defined(__i386) || defined (_M_IX86) || defined(__i386__))
-
-/* On a Microsoft compiler, use assembler */
-#if defined(_MSC_VER)
-
-#define lua_number2int(i,d)   __asm fld d   __asm fistp i
-#define lua_number2integer(i,n)		lua_number2int(i, n)
-
-/* the next trick should work on any Pentium, but sometimes clashes
-   with a DirectX idiosyncrasy */
-#else
-
-union luai_Cast { double l_d; long l_l; };
-#define lua_number2int(i,d) \
-  { volatile union luai_Cast u; u.l_d = (d) + 6755399441055744.0; (i) = u.l_l; }
-#define lua_number2integer(i,n)		lua_number2int(i, n)
-
-#endif
-
-
-/* this option always works, but may be slow */
-#else
-#define lua_number2int(i,d)	((i)=(int)(d))
-#define lua_number2integer(i,d)	((i)=(lua_Integer)(d))
-
-#endif
-
-/* }================================================================== */
-
-
-/*
-@@ LUAI_USER_ALIGNMENT_T is a type that requires maximum alignment.
-** CHANGE it if your system requires alignments larger than double. (For
-** instance, if your system supports long doubles and they must be
-** aligned in 16-byte boundaries, then you should add long double in the
-** union.) Probably you do not need to change this.
-*/
-#define LUAI_USER_ALIGNMENT_T	union { double u; void *s; long l; }
-
-
-/*
-@@ LUAI_THROW/LUAI_TRY define how Lua does exception handling.
-** CHANGE them if you prefer to use longjmp/setjmp even with C++
-** or if want/don't to use _longjmp/_setjmp instead of regular
-** longjmp/setjmp. By default, Lua handles errors with exceptions when
-** compiling as C++ code, with _longjmp/_setjmp when asked to use them,
-** and with longjmp/setjmp otherwise.
-*/
-#if defined(__cplusplus)
-/* C++ exceptions */
-#define LUAI_THROW(L,c)	throw(c)
-#define LUAI_TRY(L,c,a)	try { a } catch(...) \
-	{ if ((c)->status == 0) (c)->status = -1; }
-#define luai_jmpbuf	int  /* dummy variable */
-
-#elif defined(LUA_USE_ULONGJMP)
-/* in Unix, try _longjmp/_setjmp (more efficient) */
-#define LUAI_THROW(L,c)	_longjmp((c)->b, 1)
-#define LUAI_TRY(L,c,a)	if (_setjmp((c)->b) == 0) { a }
-#define luai_jmpbuf	jmp_buf
-
-#else
-/* default handling with long jumps */
-#define LUAI_THROW(L,c)	longjmp((c)->b, 1)
-#define LUAI_TRY(L,c,a)	if (setjmp((c)->b) == 0) { a }
-#define luai_jmpbuf	jmp_buf
-
-#endif
-
-
-/*
-@@ LUA_MAXCAPTURES is the maximum number of captures that a pattern
-@* can do during pattern-matching.
-** CHANGE it if you need more captures. This limit is arbitrary.
-*/
-#define LUA_MAXCAPTURES		32
-
-
-/*
-@@ lua_tmpnam is the function that the OS library uses to create a
-@* temporary name.
-@@ LUA_TMPNAMBUFSIZE is the maximum size of a name created by lua_tmpnam.
-** CHANGE them if you have an alternative to tmpnam (which is considered
-** insecure) or if you want the original tmpnam anyway.  By default, Lua
-** uses tmpnam except when POSIX is available, where it uses mkstemp.
-*/
-#if defined(loslib_c) || defined(luaall_c)
-
-#if defined(LUA_USE_MKSTEMP)
-#include <unistd.h>
-#define LUA_TMPNAMBUFSIZE	32
-#define lua_tmpnam(b,e)	{ \
-	strcpy(b, "/tmp/lua_XXXXXX"); \
-	e = mkstemp(b); \
-	if (e != -1) close(e); \
-	e = (e == -1); }
-
-#else
-#define LUA_TMPNAMBUFSIZE	L_tmpnam
-#define lua_tmpnam(b,e)		{ e = (tmpnam(b) == NULL); }
-#endif
-
-#endif
-
-
-/*
-@@ lua_popen spawns a new process connected to the current one through
-@* the file streams.
-** CHANGE it if you have a way to implement it in your system.
-*/
-#if defined(LUA_USE_POPEN)
-
-#define lua_popen(L,c,m)	((void)L, fflush(NULL), popen(c,m))
-#define lua_pclose(L,file)	((void)L, (pclose(file) != -1))
-
-#elif defined(LUA_WIN)
-
-#define lua_popen(L,c,m)	((void)L, _popen(c,m))
-#define lua_pclose(L,file)	((void)L, (_pclose(file) != -1))
-
-#else
-
-#define lua_popen(L,c,m)	((void)((void)c, m),  \
-		luaL_error(L, LUA_QL("popen") " not supported"), (FILE*)0)
-#define lua_pclose(L,file)		((void)((void)L, file), 0)
-
-#endif
-
-/*
-@@ LUA_DL_* define which dynamic-library system Lua should use.
-** CHANGE here if Lua has problems choosing the appropriate
-** dynamic-library system for your platform (either Windows' DLL, Mac's
-** dyld, or Unix's dlopen). If your system is some kind of Unix, there
-** is a good chance that it has dlopen, so LUA_DL_DLOPEN will work for
-** it.  To use dlopen you also need to adapt the src/Makefile (probably
-** adding -ldl to the linker options), so Lua does not select it
-** automatically.  (When you change the makefile to add -ldl, you must
-** also add -DLUA_USE_DLOPEN.)
-** If you do not want any kind of dynamic library, undefine all these
-** options.
-** By default, _WIN32 gets LUA_DL_DLL and MAC OS X gets LUA_DL_DYLD.
-*/
-#if defined(LUA_USE_DLOPEN)
-#define LUA_DL_DLOPEN
-#endif
-
-#if defined(LUA_WIN)
-#define LUA_DL_DLL
-#endif
-
-
-/*
-@@ LUAI_EXTRASPACE allows you to add user-specific data in a lua_State
-@* (the data goes just *before* the lua_State pointer).
-** CHANGE (define) this if you really need that. This value must be
-** a multiple of the maximum alignment required for your machine.
-*/
-#define LUAI_EXTRASPACE		0
-
-
-/*
-@@ luai_userstate* allow user-specific actions on threads.
-** CHANGE them if you defined LUAI_EXTRASPACE and need to do something
-** extra when a thread is created/deleted/resumed/yielded.
-*/
-#define luai_userstateopen(L)		((void)L)
-#define luai_userstateclose(L)		((void)L)
-#define luai_userstatethread(L,L1)	((void)L)
-#define luai_userstatefree(L)		((void)L)
-#define luai_userstateresume(L,n)	((void)L)
-#define luai_userstateyield(L,n)	((void)L)
-
-
-/*
-@@ LUA_INTFRMLEN is the length modifier for integer conversions
-@* in 'string.format'.
-@@ LUA_INTFRM_T is the integer type correspoding to the previous length
-@* modifier.
-** CHANGE them if your system supports long long or does not support long.
-*/
-
-#if defined(LUA_USELONGLONG)
-
-#define LUA_INTFRMLEN		"ll"
-#define LUA_INTFRM_T		long long
-
-#else
-
-#define LUA_INTFRMLEN		"l"
-#define LUA_INTFRM_T		long
-
-#endif
 
 
 
@@ -756,6 +752,8 @@ union luai_Cast { double l_d; long l_l; };
 ** Local configuration. You can use this space to add your redefinitions
 ** without modifying the main part of the file.
 */
+
+
 
 
 
