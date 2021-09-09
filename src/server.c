@@ -3125,6 +3125,8 @@ void resetServerStats(void) {
     server.stat_active_defrag_key_hits = 0;
     server.stat_active_defrag_key_misses = 0;
     server.stat_active_defrag_scanned = 0;
+    server.stat_total_active_defrag_time = 0;
+    server.stat_last_active_defrag_time = 0;
     server.stat_fork_time = 0;
     server.stat_fork_rate = 0;
     server.stat_total_forks = 0;
@@ -5016,6 +5018,8 @@ sds genRedisInfoString(const char *section) {
         long long stat_net_input_bytes, stat_net_output_bytes;
         long long current_eviction_exceeded_time = server.stat_last_eviction_exceeded_time ?
             (long long) elapsedUs(server.stat_last_eviction_exceeded_time): 0;
+        long long current_active_defrag_time = server.stat_last_active_defrag_time ?
+            (long long) elapsedUs(server.stat_last_active_defrag_time): 0;
         atomicGet(server.stat_total_reads_processed, stat_total_reads_processed);
         atomicGet(server.stat_total_writes_processed, stat_total_writes_processed);
         atomicGet(server.stat_net_input_bytes, stat_net_input_bytes);
@@ -5054,6 +5058,8 @@ sds genRedisInfoString(const char *section) {
             "active_defrag_misses:%lld\r\n"
             "active_defrag_key_hits:%lld\r\n"
             "active_defrag_key_misses:%lld\r\n"
+            "total_active_defrag_time:%lld\r\n"
+            "current_active_defrag_time:%lld\r\n"
             "tracking_total_keys:%lld\r\n"
             "tracking_total_items:%lld\r\n"
             "tracking_total_prefixes:%lld\r\n"
@@ -5094,6 +5100,8 @@ sds genRedisInfoString(const char *section) {
             server.stat_active_defrag_misses,
             server.stat_active_defrag_key_hits,
             server.stat_active_defrag_key_misses,
+            (server.stat_total_active_defrag_time + current_active_defrag_time) / 1000,
+            current_active_defrag_time / 1000,
             (unsigned long long) trackingGetTotalKeys(),
             (unsigned long long) trackingGetTotalItems(),
             (unsigned long long) trackingGetTotalPrefixes(),
