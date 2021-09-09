@@ -58,6 +58,7 @@ start_server {} {
         # Attempt another command, now causing client eviction
         catch { $rr mset k v k2 [string repeat v $maxmemory_clients] } e
         assert {![client_exists $cname]}
+        $rr close
     }
 
     test "client evicted due to large query buf" {
@@ -70,6 +71,7 @@ start_server {} {
             $rr read
         } e
         assert {![client_exists $cname]}
+        $rr close
     }
 
     test "client evicted due to percentage of maxmemory" {
@@ -98,6 +100,7 @@ start_server {} {
             $rr flush
         } e
         assert {![client_exists $cname]}
+        $rr close
         
         # Restore settings
         r config set maxmemory 0
@@ -122,6 +125,7 @@ start_server {} {
             }
         } e
         assert {![client_exists $cname]}
+        $rr close
     }
 
     test "client evicted due to watched key list" {
@@ -139,6 +143,7 @@ start_server {} {
             }
         } e
         assert_match {I/O error reading reply} $e
+        $rr close
         
         # Restore config for next tests
         r config set maxmemory-clients $maxmemory_clients
@@ -160,6 +165,7 @@ start_server {} {
             }
         } e
         assert_match {I/O error reading reply} $e
+        $rr close
 
         # Test eviction due to pubsub channels
         set rr [redis_client]
@@ -170,7 +176,7 @@ start_server {} {
             }
         } e
         assert_match {I/O error reading reply} $e
-
+        $rr close
        
         # Restore config for next tests
         r config set maxmemory-clients $maxmemory_clients
@@ -211,6 +217,7 @@ start_server {} {
         assert {$t < 1000}
 
         r config set hz $backup_hz
+        $rr close
     }
 
     test "client evicted due to client tracking prefixes" {
@@ -228,7 +235,8 @@ start_server {} {
             }
         } e
         assert_match {I/O error reading reply} $e
-        
+        $rr close
+
         # Restore config for next tests
         r config set maxmemory-clients $maxmemory_clients
     }
@@ -260,6 +268,7 @@ start_server {} {
                 break
             }
         }
+        $rr close
     }
 
     foreach {no_evict} {on off} {
@@ -284,8 +293,8 @@ start_server {} {
                 assert {![client_exists $cname]}
             } elseif {$no_evict == on} {
                 assert {[client_field $cname tot-mem] > $maxmemory_clients}
-                $rr close
             }            
+            $rr close
         }
     }
 }
@@ -340,6 +349,10 @@ start_server {} {
         
         # Validate qbuf-client is still connected and wasn't evicted
         assert_equal [client_field qbuf-client name] {qbuf-client}
+
+        $rr1 close
+        $rr2 close
+        $rr3 close
     }
 }
 
@@ -352,8 +365,10 @@ start_server {} {
 
 
         # Make multiple clients consume together roughly 1mb less than maxmemory_clients
+        set rrs {}
         for {set j 0} {$j < $client_count} {incr j} {
             set rr [redis_client]
+            lappend rrs $rr
             $rr client setname client$j
             $rr write [join [list "*2\r\n\$$qbsize\r\n" [string repeat v $qbsize]] ""]
             $rr flush
@@ -372,6 +387,8 @@ start_server {} {
         r config set maxmemory-clients [expr $maxmemory_clients / 2]
         set connected_clients [llength [lsearch -all [split [string trim [r client list]] "\r\n"] *name=client*]]
         assert {$connected_clients > 0 && $connected_clients < $client_count}
+        
+        foreach rr $rrs {$rr close}
     }
 }
 
@@ -385,8 +402,10 @@ start_server {} {
         
         # Make multiple clients consume together roughly 1mb less than maxmemory_clients
         set total_client_mem 0
+        set rrs {}
         for {set j 0} {$j < $client_count} {incr j} {
             set rr [redis_client]
+            lappend rrs $rr
             $rr client setname client$j
             $rr write [join [list "*2\r\n\$$client_mem\r\n" [string repeat v $client_mem]] ""]
             $rr flush
@@ -418,6 +437,8 @@ start_server {} {
         # Make sure we have only half of our clients now
         set connected_clients [llength [lsearch -all [split [string trim [r client list]] "\r\n"] *name=client*]]
         assert {$connected_clients == [expr $client_count / 2]}
+
+        foreach rr $rrs {$rr close}
     }
 }
 
@@ -433,11 +454,13 @@ start_server {} {
         
         # Run over all sizes and create some clients using up that size
         set total_client_mem 0
+        set rrs {}
         for {set i 0} {$i < [llength $sizes]} {incr i} {
             set size [lindex $sizes $i]
 
             for {set j 0} {$j < $clients_per_size} {incr j} {
                 set rr [redis_client]
+                lappend rrs $rr
                 $rr client setname client-$i
                 $rr write [join [list "*2\r\n\$$size\r\n" [string repeat v $size]] ""]
                 $rr flush
@@ -477,6 +500,7 @@ start_server {} {
                 }
             }
         }
+        foreach rr $rrs {$rr close}
     }
 }
 
