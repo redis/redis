@@ -2764,6 +2764,10 @@ void initServerConfig(void) {
      * Redis 5. However it is possible to revert it via redis.conf. */
     server.lua_always_replicate_commands = 1;
 
+    /* Client Pause related */
+    server.client_pause_type = CLIENT_PAUSE_OFF;
+    server.client_pause_end_time = 0;   
+
     initConfigValues();
 }
 
