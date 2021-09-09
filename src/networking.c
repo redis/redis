@@ -3364,6 +3364,7 @@ void unpauseClients(void) {
     client *c;
     
     server.client_pause_type = CLIENT_PAUSE_OFF;
+    server.client_pause_end_time = 0;
 
     /* Unblock all of the clients so they are reprocessed. */
     listRewind(server.paused_clients,&li);
