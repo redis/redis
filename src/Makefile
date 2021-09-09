@@ -393,7 +393,7 @@ test-sentinel: $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME)
 	@(cd ..; ./runtest-sentinel)
 
 test-cluster: $(REDIS_SERVER_NAME) $(REDIS_CLI_NAME)
-        @(cd ..; ./runtest-cluster)
+	@(cd ..; ./runtest-cluster)
 
 check: test
 
