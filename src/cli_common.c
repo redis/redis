@@ -46,6 +46,7 @@
 #include <hiredis_ssl.h>
 #endif
 
+#define UNUSED(V) ((void) V)
 
 /* Wrapper around redisSecureConnection to avoid hiredis_ssl dependencies if
  * not building with TLS support.
@@ -305,7 +306,7 @@ static sds percentDecode(const char *pe, size_t len) {
  *   path:      ["/" [<db>]]
  *
  *  [1]: https://www.iana.org/assignments/uri-schemes/prov/redis */
-void parseRedisUri(const char *uri, const char* tool_name, cliConnInfo *connInfo) {
+void parseRedisUri(const char *uri, const char* tool_name, cliConnInfo *connInfo, int *tls_flag) {
 
     const char *scheme = "redis://";
     const char *tlsscheme = "rediss://";
@@ -316,7 +317,8 @@ void parseRedisUri(const char *uri, const char* tool_name, cliConnInfo *connInfo
     /* URI must start with a valid scheme. */
     if (!strncasecmp(tlsscheme, curr, strlen(tlsscheme))) {
 #ifdef USE_OPENSSL
-        config.tls = 1;
+        UNUSED(tool_name);
+        *tls_flag = 1;
         curr += strlen(tlsscheme);
 #else
         fprintf(stderr,"rediss:// is only supported when %s is compiled with OpenSSL\n", tool_name);

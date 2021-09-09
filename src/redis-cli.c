@@ -1503,7 +1503,7 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"--user") && !lastarg) {
             config.conn_info.user = argv[++i];
         } else if (!strcmp(argv[i],"-u") && !lastarg) {
-            parseRedisUri(argv[++i],"redis-cli",&config.conn_info);
+            parseRedisUri(argv[++i],"redis-cli",&config.conn_info,&config.tls);
         } else if (!strcmp(argv[i],"--raw")) {
             config.output = OUTPUT_RAW;
         } else if (!strcmp(argv[i],"--no-raw")) {

@@ -25,6 +25,37 @@ start_server {tags {"benchmark network external:skip"}} {
             assert_match  {} [cmdstat lrange]
         }
 
+        test {benchmark: connecting using URI set,get} {
+            r config resetstat
+            r flushall
+            set cmd [redisbenchmarkuri $master_host $master_port "-c 5 -n 10 -t set,get"]
+            if {[catch { exec {*}$cmd } error]} {
+                set first_line [lindex [split $error "\n"] 0]
+                puts [colorstr red "redis-benchmark non zero code. first line: $first_line"]
+                fail "redis-benchmark non zero code. first line: $first_line"
+            }
+            assert_match  {*calls=10,*} [cmdstat set]
+            assert_match  {*calls=10,*} [cmdstat get]
+            # assert one of the non benchmarked commands is not present
+            assert_match  {} [cmdstat lrange]
+        }
+
+        test {benchmark: connecting using URI with authentication set,get} {
+            r config resetstat
+            r config set masterauth pass
+            r flushall
+            set cmd [redisbenchmarkuriuserpass $master_host $master_port "default" pass "-c 5 -n 10 -t set,get"]
+            if {[catch { exec {*}$cmd } error]} {
+                set first_line [lindex [split $error "\n"] 0]
+                puts [colorstr red "redis-benchmark non zero code. first line: $first_line"]
+                fail "redis-benchmark non zero code. first line: $first_line"
+            }
+            assert_match  {*calls=10,*} [cmdstat set]
+            assert_match  {*calls=10,*} [cmdstat get]
+            # assert one of the non benchmarked commands is not present
+            assert_match  {} [cmdstat lrange]
+        }
+
         test {benchmark: full test suite} {
             r config resetstat
             set cmd [redisbenchmark $master_host $master_port "-c 10 -n 100 -e"]
@@ -138,6 +169,22 @@ start_server {tags {"benchmark network external:skip"}} {
                 assert_match  {*calls=1000,*} [cmdstat set]
                 # assert one of the non benchmarked commands is not present
                 assert_match  {} [cmdstat get]
+            }
+
+            test {benchmark: tls connecting using URI with authentication set,get} {
+                r config resetstat
+                r config set masterauth pass
+                r flushall
+                set cmd [redisbenchmarkuriuserpass $master_host $master_port "default" pass "-c 5 -n 10 -t set,get"]
+                if {[catch { exec {*}$cmd } error]} {
+                    set first_line [lindex [split $error "\n"] 0]
+                    puts [colorstr red "redis-benchmark non zero code. first line: $first_line"]
+                    fail "redis-benchmark non zero code. first line: $first_line"
+                }
+                assert_match  {*calls=10,*} [cmdstat set]
+                assert_match  {*calls=10,*} [cmdstat get]
+                # assert one of the non benchmarked commands is not present
+                assert_match  {} [cmdstat lrange]
             }
 
             test {benchmark: specific tls-ciphersuites} {

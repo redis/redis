@@ -1436,7 +1436,7 @@ int parseOptions(int argc, char **argv) {
             if (lastarg) goto invalid;
             config.conn_info.user = argv[++i];
         } else if (!strcmp(argv[i],"-u") && !lastarg) {
-            parseRedisUri(argv[++i],"redis-benchmark",&config.conn_info);
+            parseRedisUri(argv[++i],"redis-benchmark",&config.conn_info,&config.tls);
             config.input_dbnumstr = sdsfromlonglong(config.conn_info.input_dbnum);
         } else if (!strcmp(argv[i],"-d")) {
             if (lastarg) goto invalid;
