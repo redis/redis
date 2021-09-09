@@ -793,6 +793,7 @@ typedef struct multiState {
  * The fields used depend on client->btype. */
 typedef struct blockingState {
     /* Generic fields. */
+    long count;             /* Elements to pop if count was specified (BLMPOP), 0 otherwise. */
     mstime_t timeout;       /* Blocking operation timeout. If UNIX current time
                              * is > timeout then the operation timed out. */
 
@@ -1910,6 +1911,7 @@ void addReplyPushLen(client *c, long length);
 void addReplyHelp(client *c, const char **help);
 void addReplySubcommandSyntaxError(client *c);
 void addReplyLoadedModules(client *c);
+void addListRangeReply(client *c, robj *o, long start, long end, int reverse);
 void copyClientOutputBuffer(client *dst, client *src);
 size_t sdsZmallocSize(sds s);
 size_t getStringObjectSdsUsedMemory(robj *o);
@@ -1991,9 +1993,10 @@ int listTypeEqual(listTypeEntry *entry, robj *o);
 void listTypeDelete(listTypeIterator *iter, listTypeEntry *entry);
 void listTypeConvert(robj *subject, int enc);
 robj *listTypeDup(robj *o);
+int listTypeDelRange(robj *o, long start, long stop);
 void unblockClientWaitingData(client *c);
 void popGenericCommand(client *c, int where);
-void listElementsRemoved(client *c, robj *key, int where, robj *o, long count);
+void listElementsRemoved(client *c, robj *key, int where, robj *o, long count, int *deleted);
 
 /* MULTI/EXEC/WATCH... */
 void unwatchAllKeys(client *c);
@@ -2451,6 +2454,8 @@ int georadiusGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysRes
 int xreadGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int memoryGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int lcsGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
+int lmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
+int blmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 
 unsigned short crc16(const char *buf, int len);
 
@@ -2487,7 +2492,7 @@ int getTimeoutFromObjectOrReply(client *c, robj *object, mstime_t *timeout, int 
 void disconnectAllBlockedClients(void);
 void handleClientsBlockedOnKeys(void);
 void signalKeyAsReady(redisDb *db, robj *key, int type);
-void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeout, robj *target, struct listPos *listpos, streamID *ids);
+void blockForKeys(client *c, int btype, robj **keys, int numkeys, long count, mstime_t timeout, robj *target, struct listPos *listpos, streamID *ids);
 void updateStatsOnUnblock(client *c, long blocked_us, long reply_us);
 
 /* timeout.c -- Blocked clients timeout and connections timeout. */
@@ -2576,6 +2581,7 @@ void rpushxCommand(client *c);
 void linsertCommand(client *c);
 void lpopCommand(client *c);
 void rpopCommand(client *c);
+void lmpopCommand(client *c);
 void llenCommand(client *c);
 void lindexCommand(client *c);
 void lrangeCommand(client *c);
@@ -2652,6 +2658,7 @@ void execCommand(client *c);
 void discardCommand(client *c);
 void blpopCommand(client *c);
 void brpopCommand(client *c);
+void blmpopCommand(client *c);
 void brpoplpushCommand(client *c);
 void blmoveCommand(client *c);
 void appendCommand(client *c);
