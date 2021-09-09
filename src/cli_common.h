@@ -47,4 +47,5 @@ sds unquoteCString(char *str);
 
 void parseRedisUri(const char *uri, const char* tool_name, cliConnInfo *connInfo, int *tls_flag);
 
+void freeCliConnInfo(cliConnInfo connInfo);
 #endif /* __CLICOMMON_H */

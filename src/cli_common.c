@@ -360,3 +360,9 @@ void parseRedisUri(const char *uri, const char* tool_name, cliConnInfo *connInfo
     /* Extract database number. */
     connInfo->input_dbnum = atoi(curr);
 }
+
+void freeCliConnInfo(cliConnInfo connInfo){
+    if (connInfo.hostip) sdsfree(connInfo.hostip);
+    if (connInfo.auth) sdsfree(connInfo.auth);
+    if (connInfo.user) sdsfree(connInfo.user);
+}

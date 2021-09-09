@@ -1420,7 +1420,7 @@ int parseOptions(int argc, char **argv) {
             config.keepalive = atoi(argv[++i]);
         } else if (!strcmp(argv[i],"-h")) {
             if (lastarg) goto invalid;
-            config.conn_info.hostip = strdup(argv[++i]);
+            config.conn_info.hostip = sdsnew(argv[++i]);
         } else if (!strcmp(argv[i],"-p")) {
             if (lastarg) goto invalid;
             config.conn_info.hostport = atoi(argv[++i]);
@@ -1431,10 +1431,10 @@ int parseOptions(int argc, char **argv) {
             config.stdinarg = 1;
         } else if (!strcmp(argv[i],"-a") ) {
             if (lastarg) goto invalid;
-            config.conn_info.auth = strdup(argv[++i]);
+            config.conn_info.auth = sdsnew(argv[++i]);
         } else if (!strcmp(argv[i],"--user")) {
             if (lastarg) goto invalid;
-            config.conn_info.user = argv[++i];
+            config.conn_info.user = sdsnew(argv[++i]);
         } else if (!strcmp(argv[i],"-u") && !lastarg) {
             parseRedisUri(argv[++i],"redis-benchmark",&config.conn_info,&config.tls);
             config.input_dbnumstr = sdsfromlonglong(config.conn_info.input_dbnum);
@@ -1985,6 +1985,7 @@ int main(int argc, char **argv) {
     } while(config.loop);
 
     zfree(data);
+    freeCliConnInfo(config.conn_info);
     if (config.redis_config != NULL) freeRedisConfig(config.redis_config);
 
     return 0;
