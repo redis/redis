@@ -1674,8 +1674,10 @@ int getChannelsFromCommand(struct redisCommand *cmd, robj **argv, int argc,
                             getKeysResult *result) {
     if (cmd->proc == subscribeLocalCommand || cmd->proc == unsubscribeLocalCommand) {
         return genericGetChannels(1,argc-1,1,argv,result);
-    } else {
+    } else if (cmd->proc == publishLocalCommand) {
         return genericGetChannels(1,1,1,argv,result);
+    } else {
+        return 0;
     }
 }
 

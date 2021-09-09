@@ -4086,8 +4086,8 @@ int processCommand(client *c) {
      * 2) The command has no key arguments.
      *
      * We however allow pubsublocal commands even though
-     * it doesn't have any keys in it. We let the pubsublocal
-     * commands as it also works on the cluster slot semantics. */
+     * it doesn't have any keys in it.The pubsublocal
+     * commands also works on the cluster slot semantics. */
     if (server.cluster_enabled &&
         !(c->flags & CLIENT_MASTER) &&
         !(c->flags & CLIENT_LUA &&

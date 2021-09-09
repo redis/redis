@@ -5110,7 +5110,7 @@ void removeChannelsInSlot(unsigned int slot) {
     if (channelcount != 0) {
         robj **channels = zmalloc(sizeof(robj*)*channelcount);
         getChannelsInSlot(slot,channels);
-        pubsubUnsubscribeLocalAllChannelsInSlot(channels,channelcount);
+        pubsubUnsubscribeLocalChannels(channels,channelcount);
         zfree(channels);
     }
 }

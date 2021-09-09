@@ -2314,7 +2314,7 @@ int hashZiplistValidateIntegrity(unsigned char *zl, size_t size, int deep);
 /* Pub / Sub */
 int pubsubUnsubscribeAllChannels(client *c, int notify);
 int pubsubUnsubscribeLocalAllChannels(client *c, int notify);
-void pubsubUnsubscribeLocalAllChannelsInSlot(robj **channels, unsigned int count);
+void pubsubUnsubscribeLocalChannels(robj **channels, unsigned int count);
 int pubsubUnsubscribeAllPatterns(client *c, int notify);
 int pubsubPublishMessage(robj *channel, robj *message);
 int pubsubPublishMessageLocal(robj *channel, robj *message);
