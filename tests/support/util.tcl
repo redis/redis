@@ -13,7 +13,7 @@ proc randstring {min max {type binary}} {
     }
     while {$len} {
         set rr [format "%c" [expr {$minval+int(rand()*($maxval-$minval+1))}]]
-        if {![string is alnum $rr]} {continue}
+        if {$type eq {alpha} && ![string is alnum $rr]} {continue}
         append output $rr
         incr len -1
     }
