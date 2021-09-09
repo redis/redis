@@ -218,6 +218,7 @@ start_server {} {
 
         r config set hz $backup_hz
         $rr close
+        $redirected_c close
     }
 
     test "client evicted due to client tracking prefixes" {
