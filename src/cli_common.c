@@ -307,6 +307,11 @@ static sds percentDecode(const char *pe, size_t len) {
  *
  *  [1]: https://www.iana.org/assignments/uri-schemes/prov/redis */
 void parseRedisUri(const char *uri, const char* tool_name, cliConnInfo *connInfo, int *tls_flag) {
+#ifdef USE_OPENSSL
+    UNUSED(tool_name);
+#else
+    UNUSED(tls_flag);
+#endif
 
     const char *scheme = "redis://";
     const char *tlsscheme = "rediss://";
@@ -317,7 +322,6 @@ void parseRedisUri(const char *uri, const char* tool_name, cliConnInfo *connInfo
     /* URI must start with a valid scheme. */
     if (!strncasecmp(tlsscheme, curr, strlen(tlsscheme))) {
 #ifdef USE_OPENSSL
-        UNUSED(tool_name);
         *tls_flag = 1;
         curr += strlen(tlsscheme);
 #else
