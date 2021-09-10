@@ -181,7 +181,8 @@ foreach sanitize_dump {no yes} {
             verify_log_message 0 "*skipping empty key: hash_ziplist*" 0
             verify_log_message 0 "*skipping empty key: zset*" 0
             verify_log_message 0 "*skipping empty key: zset_ziplist*" 0
-            verify_log_message 0 "*empty keys skipped: 8*" 0
+            verify_log_message 0 "*skipping empty key: zset_listpack*" 0
+            verify_log_message 0 "*empty keys skipped: 9*" 0
         }
     }
 }
@@ -394,14 +395,13 @@ test {corrupt payload: fuzzer findings - empty intset} {
     }
 }
 
-test {corrupt payload: fuzzer findings - valgrind ziplist - crash report prints freed memory} {
+test {corrupt payload: fuzzer findings - zset ziplist entry lensize is 0} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r config set sanitize-dump-payload no
         r debug set-skip-checksum-validation 1
-        r RESTORE _zsetbig 0 "\x0C\x3D\x3D\x00\x00\x00\x3A\x00\x00\x00\x14\x00\x00\xF1\x02\xF1\x02\x02\x5F\x31\x04\xF2\x02\xF3\x02\xF3\x02\x02\x5F\x33\x04\xF4\x02\xEE\x02\xF5\x02\x02\x5F\x35\x04\xF6\x02\xF7\x02\xF7\x02\x02\x5F\x37\x04\xF8\x02\xF9\x02\xF9\x02\x02\x5F\x39\x04\xFA\xFF\x09\x00\xAE\xF9\x77\x2A\x47\x24\x33\xF6"
-        catch { r ZREMRANGEBYSCORE _zsetbig -1050966020 724 }
-        assert_equal [count_log_message 0 "crashed by signal"] 0
-        assert_equal [count_log_message 0 "ASSERTION FAILED"] 1
+        catch {r RESTORE _zsetbig 0 "\x0C\x3D\x3D\x00\x00\x00\x3A\x00\x00\x00\x14\x00\x00\xF1\x02\xF1\x02\x02\x5F\x31\x04\xF2\x02\xF3\x02\xF3\x02\x02\x5F\x33\x04\xF4\x02\xEE\x02\xF5\x02\x02\x5F\x35\x04\xF6\x02\xF7\x02\xF7\x02\x02\x5F\x37\x04\xF8\x02\xF9\x02\xF9\x02\x02\x5F\x39\x04\xFA\xFF\x09\x00\xAE\xF9\x77\x2A\x47\x24\x33\xF6"} err
+        assert_match "*Bad data format*" $err
+        verify_log_message 0 "*Zset ziplist integrity check failed*" 0
     }
 }
 
@@ -523,15 +523,13 @@ test {corrupt payload: fuzzer findings - OOM in dictExpand} {
 
 }
 
-test {corrupt payload: fuzzer findings - invalid tail offset after removal} {
+test {corrupt payload: fuzzer findings - zset ziplist invalid tail offset} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r config set sanitize-dump-payload no
         r debug set-skip-checksum-validation 1
-        r RESTORE _zset 0 "\x0C\x19\x19\x00\x00\x00\x02\x00\x00\x00\x06\x00\x00\xF1\x02\xF1\x02\x02\x5F\x31\x04\xF2\x02\xF3\x02\xF3\xFF\x09\x00\x4D\x72\x7B\x97\xCD\x9A\x70\xC1"
-        catch {r ZPOPMIN _zset}
-        catch {r ZPOPMAX _zset}
-        assert_equal [count_log_message 0 "crashed by signal"] 0
-        assert_equal [count_log_message 0 "ASSERTION FAILED"] 1
+        catch {r RESTORE _zset 0 "\x0C\x19\x19\x00\x00\x00\x02\x00\x00\x00\x06\x00\x00\xF1\x02\xF1\x02\x02\x5F\x31\x04\xF2\x02\xF3\x02\xF3\xFF\x09\x00\x4D\x72\x7B\x97\xCD\x9A\x70\xC1"} err
+        assert_match "*Bad data format*" $err
+        verify_log_message 0 "*Zset ziplist integrity check failed*" 0
     }
 }
 

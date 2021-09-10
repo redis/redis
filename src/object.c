@@ -272,10 +272,10 @@ robj *createZsetObject(void) {
     return o;
 }
 
-robj *createZsetZiplistObject(void) {
-    unsigned char *zl = ziplistNew();
-    robj *o = createObject(OBJ_ZSET,zl);
-    o->encoding = OBJ_ENCODING_ZIPLIST;
+robj *createZsetListpackObject(void) {
+    unsigned char *lp = lpNew(0);
+    robj *o = createObject(OBJ_ZSET,lp);
+    o->encoding = OBJ_ENCODING_LISTPACK;
     return o;
 }
 
@@ -329,7 +329,7 @@ void freeZsetObject(robj *o) {
         zslFree(zs->zsl);
         zfree(zs);
         break;
-    case OBJ_ENCODING_ZIPLIST:
+    case OBJ_ENCODING_LISTPACK:
         zfree(o->ptr);
         break;
     default:
@@ -473,8 +473,8 @@ void dismissZsetObject(robj *o, size_t size_hint) {
         dict *d = zs->dict;
         dismissMemory(d->ht_table[0], DICTHT_SIZE(d->ht_size_exp[0])*sizeof(dictEntry*));
         dismissMemory(d->ht_table[1], DICTHT_SIZE(d->ht_size_exp[1])*sizeof(dictEntry*));
-    } else if (o->encoding == OBJ_ENCODING_ZIPLIST) {
-        dismissMemory(o->ptr, ziplistBlobLen((unsigned char*)o->ptr));
+    } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
+        dismissMemory(o->ptr, lpBytes((unsigned char*)o->ptr));
     } else {
         serverPanic("Unknown zset encoding type");
     }
@@ -1027,7 +1027,7 @@ size_t objectComputeSize(robj *key, robj *o, size_t sample_size, int dbid) {
             serverPanic("Unknown set encoding");
         }
     } else if (o->type == OBJ_ZSET) {
-        if (o->encoding == OBJ_ENCODING_ZIPLIST) {
+        if (o->encoding == OBJ_ENCODING_LISTPACK) {
             asize = sizeof(*o)+zmalloc_size(o->ptr);
         } else if (o->encoding == OBJ_ENCODING_SKIPLIST) {
             d = ((zset*)o->ptr)->dict;

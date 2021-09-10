@@ -4,6 +4,7 @@
 #include <sys/types.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 /* ---------------- Defines common between core and modules --------------- */
 

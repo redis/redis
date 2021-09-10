@@ -914,21 +914,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         while(intsetGet(o->ptr,pos++,&ll))
             listAddNodeTail(keys,createStringObjectFromLongLong(ll));
         cursor = 0;
-    } else if (o->type == OBJ_ZSET) {
-        unsigned char *p = ziplistIndex(o->ptr,0);
-        unsigned char *vstr;
-        unsigned int vlen;
-        long long vll;
-
-        while(p) {
-            ziplistGet(p,&vstr,&vlen,&vll);
-            listAddNodeTail(keys,
-                (vstr != NULL) ? createStringObject((char*)vstr,vlen) :
-                                 createStringObjectFromLongLong(vll));
-            p = ziplistNext(o->ptr,p);
-        }
-        cursor = 0;
-    } else if (o->type == OBJ_HASH) {
+    } else if (o->type == OBJ_HASH || o->type == OBJ_ZSET) {
         unsigned char *p = lpFirst(o->ptr);
         unsigned char *vstr;
         int64_t vlen;
@@ -1699,6 +1685,16 @@ int zunionInterDiffGetKeys(struct redisCommand *cmd, robj **argv, int argc, getK
 }
 
 int evalGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+    UNUSED(cmd);
+    return genericGetKeys(0, 2, 3, 1, argv, argc, result);
+}
+
+int lmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+    UNUSED(cmd);
+    return genericGetKeys(0, 1, 2, 1, argv, argc, result);
+}
+
+int blmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     UNUSED(cmd);
     return genericGetKeys(0, 2, 3, 1, argv, argc, result);
 }
