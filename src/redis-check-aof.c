@@ -62,6 +62,12 @@ int readAnnotations(FILE *fp) {
             if (to_timestamp && strncmp(buf, "#TS:", 4) == 0) {
                 time_t ts = strtol(buf+4, NULL, 10);
                 if (ts <= to_timestamp) continue;
+                if (epos == 0) {
+                    printf("AOF has nothing before timestamp %ld, "
+                           "aborting...\n", to_timestamp);
+                    fclose(fp);
+                    exit(1);
+                }
                 /* Truncate remaining AOF if exceeding 'to_timestamp' */
                 if (ftruncate(fileno(fp), epos) == -1) {
                     printf("Failed to truncate AOF to timestamp %ld\n",
