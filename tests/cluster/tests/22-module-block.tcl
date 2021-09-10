@@ -54,7 +54,7 @@ test "Check block node before resharding" {
     }
 }
 
-test "Performe a Resharding" {
+test "Perform a Resharding" {
 
     set dstid [expr ($srcid+1)%5]
     set dst [dict get [get_myself $dstid] id]
