@@ -61,7 +61,7 @@ static unsigned int dict_force_resize_ratio = 5;
 /* -------------------------- private prototypes ---------------------------- */
 
 static int _dictExpandIfNeeded(dict *d);
-static char _dictNextExp(unsigned long size);
+static signed char _dictNextExp(unsigned long size);
 static long _dictKeyIndex(dict *d, const void *key, uint64_t hash, dictEntry **existing);
 static int _dictInit(dict *d, dictType *type);
 
@@ -150,7 +150,7 @@ int _dictExpand(dict *d, unsigned long size, int* malloc_failed)
     /* the new hash table */
     dictEntry **new_ht_table;
     unsigned long new_ht_used;
-    char new_ht_size_exp = _dictNextExp(size);
+    signed char new_ht_size_exp = _dictNextExp(size);
 
     /* Detect overflows */
     size_t newsize = 1ul<<new_ht_size_exp;
@@ -338,7 +338,11 @@ dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing)
      * system it is more likely that recently added entries are accessed
      * more frequently. */
     htidx = dictIsRehashing(d) ? 1 : 0;
-    entry = zmalloc(sizeof(*entry));
+    size_t metasize = dictMetadataSize(d);
+    entry = zmalloc(sizeof(*entry) + metasize);
+    if (metasize > 0) {
+        memset(dictMetadata(entry), 0, metasize);
+    }
     entry->next = d->ht_table[htidx][index];
     d->ht_table[htidx][index] = entry;
     d->ht_used[htidx]++;
@@ -906,7 +910,7 @@ unsigned long dictScan(dict *d,
         m0 = DICTHT_SIZE_MASK(d->ht_size_exp[htidx0]);
 
         /* Emit entries at cursor */
-        if (bucketfn) bucketfn(privdata, &d->ht_table[htidx0][v & m0]);
+        if (bucketfn) bucketfn(d, &d->ht_table[htidx0][v & m0]);
         de = d->ht_table[htidx0][v & m0];
         while (de) {
             next = de->next;
@@ -937,7 +941,7 @@ unsigned long dictScan(dict *d,
         m1 = DICTHT_SIZE_MASK(d->ht_size_exp[htidx1]);
 
         /* Emit entries at cursor */
-        if (bucketfn) bucketfn(privdata, &d->ht_table[htidx0][v & m0]);
+        if (bucketfn) bucketfn(d, &d->ht_table[htidx0][v & m0]);
         de = d->ht_table[htidx0][v & m0];
         while (de) {
             next = de->next;
@@ -949,7 +953,7 @@ unsigned long dictScan(dict *d,
          * of the index pointed to by the cursor in the smaller table */
         do {
             /* Emit entries at cursor */
-            if (bucketfn) bucketfn(privdata, &d->ht_table[htidx1][v & m1]);
+            if (bucketfn) bucketfn(d, &d->ht_table[htidx1][v & m1]);
             de = d->ht_table[htidx1][v & m1];
             while (de) {
                 next = de->next;
@@ -1009,7 +1013,7 @@ static int _dictExpandIfNeeded(dict *d)
 
 /* TODO: clz optimization */
 /* Our hash table capability is a power of two */
-static char _dictNextExp(unsigned long size)
+static signed char _dictNextExp(unsigned long size)
 {
     unsigned char e = DICT_HT_INITIAL_EXP;
 

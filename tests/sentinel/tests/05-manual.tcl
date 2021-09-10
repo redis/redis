@@ -2,6 +2,12 @@
 
 source "../tests/includes/init-tests.tcl"
 
+foreach_sentinel_id id {
+    S $id sentinel debug info-period 1000
+    S $id sentinel debug default-down-after 3000
+    S $id sentinel debug publish-period 500
+}
+
 test "Manual failover works" {
     set old_port [RPort $master_id]
     set addr [S 0 SENTINEL GET-MASTER-ADDR-BY-NAME mymaster]
@@ -42,4 +48,3 @@ test "The old master eventually gets reconfigured as a slave" {
         fail "Old master not reconfigured as slave of new master"
     }
 }
-

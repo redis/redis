@@ -149,6 +149,7 @@ start_server {tags {"introspection"}} {
             io-threads
             logfile
             unixsocketperm
+            replicaof
             slaveof
             requirepass
             server_cpulist
