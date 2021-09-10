@@ -3137,7 +3137,6 @@ void resetServerStats(void) {
     server.stat_total_error_replies = 0;
     server.stat_dump_payload_sanitizations = 0;
     server.aof_delayed_fsync = 0;
-    server.rdb_expired_keys_last_load = 0;
     lazyfreeResetStats();
 }
 
@@ -3282,6 +3281,8 @@ void initServer(void) {
     server.lastbgsave_try = 0;    /* At startup we never tried to BGSAVE. */
     server.rdb_save_time_last = -1;
     server.rdb_save_time_start = -1;
+    server.rdb_last_load_keys_expired = 0;
+    server.rdb_last_load_keys_loaded = 0;
     server.dirty = 0;
     resetServerStats();
     /* A few stats we don't want to reset: server startup time, and peak mem. */
@@ -4902,7 +4903,8 @@ sds genRedisInfoString(const char *section) {
             "rdb_last_bgsave_time_sec:%jd\r\n"
             "rdb_current_bgsave_time_sec:%jd\r\n"
             "rdb_last_cow_size:%zu\r\n"
-            "rdb_expired_keys_last_load:%lld\r\n"
+            "rdb_last_load_keys_expired:%lld\r\n"
+            "rdb_last_load_keys_loaded:%lld\r\n"
             "aof_enabled:%d\r\n"
             "aof_rewrite_in_progress:%d\r\n"
             "aof_rewrite_scheduled:%d\r\n"
@@ -4928,7 +4930,8 @@ sds genRedisInfoString(const char *section) {
             (intmax_t)((server.child_type != CHILD_TYPE_RDB) ?
                 -1 : time(NULL)-server.rdb_save_time_start),
             server.stat_rdb_cow_bytes,
-            server.rdb_expired_keys_last_load,
+            server.rdb_last_load_keys_expired,
+            server.rdb_last_load_keys_loaded,
             server.aof_state != AOF_OFF,
             server.child_type == CHILD_TYPE_AOF,
             server.aof_rewrite_scheduled,

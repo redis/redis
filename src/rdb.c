@@ -2343,6 +2343,8 @@ void startLoading(size_t size, int rdbflags) {
     server.loading_loaded_bytes = 0;
     server.loading_total_bytes = size;
     server.loading_rdb_used_mem = 0;
+    server.rdb_last_load_keys_expired = 0;
+    server.rdb_last_load_keys_loaded = 0;
     blockingOperationStarts();
 
     /* Fire the loading modules start event. */
@@ -2433,7 +2435,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
     redisDb *db = server.db+0;
     char buf[1024];
     int error;
-    long long empty_keys_skipped = 0, expired_keys_skipped = 0, keys_loaded = 0;
+    long long empty_keys_skipped = 0;
 
     rdb->update_cksum = rdbLoadProgressCallback;
     rdb->max_processing_chunk = server.loading_process_events_interval_bytes;
@@ -2676,15 +2678,14 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
             }
             sdsfree(key);
             decrRefCount(val);
-            expired_keys_skipped++;
-            server.rdb_expired_keys_last_load++;
+            server.rdb_last_load_keys_expired++;
         } else {
             robj keyobj;
             initStaticStringObject(keyobj,key);
 
             /* Add the new object in the hash table */
             int added = dbAddRDBLoad(db,key,val);
-            keys_loaded++;
+            server.rdb_last_load_keys_loaded++;
             if (!added) {
                 if (rdbflags & RDBFLAGS_ALLOW_DUP) {
                     /* This flag is useful for DEBUG RELOAD special modes.
@@ -2745,11 +2746,11 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
     if (empty_keys_skipped) {
         serverLog(LL_WARNING,
             "Done loading RDB, keys loaded: %lld, keys expired: %lld, empty keys skipped: %lld.",
-                keys_loaded, expired_keys_skipped, empty_keys_skipped);
+                server.rdb_last_load_keys_loaded, server.rdb_last_load_keys_expired, empty_keys_skipped);
     } else {
-        serverLog(LL_WARNING,
+        serverLog(LL_NOTICE,
             "Done loading RDB, keys loaded: %lld, keys expired: %lld.",
-                keys_loaded, expired_keys_skipped);
+                server.rdb_last_load_keys_loaded, server.rdb_last_load_keys_expired);
     }
     return C_OK;
 

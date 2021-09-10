@@ -101,7 +101,7 @@ start_server {} {
 
         set expired_offset [status $master repl_backlog_histlen]
         # Stale keys expired and master_repl_offset grows correctly
-        assert {[status $master rdb_expired_keys_last_load] == 1024}
+        assert {[status $master rdb_last_load_keys_expired] == 1024}
         assert {[status $master master_repl_offset] == [expr $offset+$expired_offset]}
 
         # Partial resync after Master restart
@@ -149,7 +149,7 @@ start_server {} {
         assert {[status $master repl_backlog_first_byte_offset] > [status $master second_repl_offset]}
         assert {[status $master sync_partial_ok] == 0}
         assert {[status $master sync_full] == 1}
-        assert {[status $master rdb_expired_keys_last_load] == 1024}
+        assert {[status $master rdb_last_load_keys_expired] == 1024}
         assert {[status $replica sync_full] == 1}
 
         set digest [$master debug digest]
