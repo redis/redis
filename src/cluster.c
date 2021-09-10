@@ -6050,7 +6050,8 @@ int clusterRedirectBlockedClientIfNeeded(client *c) {
     if (c->flags & CLIENT_BLOCKED &&
         (c->btype == BLOCKED_LIST ||
          c->btype == BLOCKED_ZSET ||
-         c->btype == BLOCKED_STREAM))
+         c->btype == BLOCKED_STREAM ||
+         c->btype == BLOCKED_MODULE))
     {
         dictEntry *de;
         dictIterator *di;
