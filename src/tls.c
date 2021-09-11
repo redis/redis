@@ -176,7 +176,8 @@ void tlsCleanup(void) {
         redis_tls_client_ctx = NULL;
     }
 
-    #if OPENSSL_VERSION_NUMBER >= 0x10100000L
+    #if OPENSSL_VERSION_NUMBER >= 0x10100000L && !defined(LIBRESSL_VERSION_NUMBER)
+    // unavailable on LibreSSL
     OPENSSL_cleanup();
     #endif
 }
