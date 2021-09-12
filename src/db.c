@@ -361,7 +361,14 @@ robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {
         robj *decoded = getDecodedObject(o);
         o = createRawStringObject(decoded->ptr, sdslen(decoded->ptr));
         decrRefCount(decoded);
-        dbOverwrite(db,key,o);
+        dictEntry *de = dictFind(db->dict, key->ptr);
+        dictEntry auxentry = *de;
+        if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
+            robj *old = dictGetVal(de);
+            o->lru = old->lru;
+        }
+        dictSetVal(db->dict, de, o);
+        dictFreeVal(db->dict, &auxentry);
     }
     return o;
 }
