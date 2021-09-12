@@ -2263,7 +2263,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     }
 
     /* Adjust the number of active I/O threads based on pending work. */
-    adjustingActiveThreadedIO();
+    adjustActiveThreadedIO();
 
     /* Resize tracking keys table if needed. This is also done at every
      * command execution, but we want to be sure that if the last command

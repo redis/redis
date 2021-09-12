@@ -3547,7 +3547,7 @@ void killIOThreads(void) {
 
 /* This function automatically adjusts the number of io threads based
  * on the number of pending write requests from the client. */
-void adjustingActiveThreadedIO(void) {
+void adjustActiveThreadedIO(void) {
     /* Return ASAP if IO threads are disabled (single threaded mode). */
     if (server.io_threads_num == 1) return;
 
@@ -3584,7 +3584,7 @@ int handleClientsWithPendingWritesUsingThreads(void) {
     if (processed == 0) return 0; /* Return ASAP if there are no clients. */
 
     /* Automatic adjustment of active IO threads based on pending writes. */
-    adjustingActiveThreadedIO();
+    adjustActiveThreadedIO();
 
     /* If only need one active IO thread serve，use synchronous code. */
     if (server.io_threads_active_num == 1) {

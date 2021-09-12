@@ -1945,7 +1945,7 @@ void blockingOperationEnds();
 int handleClientsWithPendingWrites(void);
 int handleClientsWithPendingWritesUsingThreads(void);
 int handleClientsWithPendingReadsUsingThreads(void);
-void adjustingActiveThreadedIO(void);
+void adjustActiveThreadedIO(void);
 int clientHasPendingReplies(client *c);
 void unlinkClient(client *c);
 int writeToClient(client *c, int handler_installed);
