@@ -1289,9 +1289,9 @@ struct redisServer {
     dict *migrate_cached_sockets;/* MIGRATE cached sockets */
     redisAtomic uint64_t next_client_id; /* Next client unique ID. Incremental. */
     int protected_mode;         /* Don't accept external connections. */
-    int io_threads_num;         /* Number of IO threads to use. */
+    int io_threads_num;         /* Max number of IO threads to use. */
     int io_threads_do_reads;    /* Read and parse from IO threads? */
-    int io_threads_active;      /* Is IO threads currently active? */
+    int io_threads_active_num;      /* Number of IO threads currently active. */
     long long events_processed_while_blocked; /* processEventsWhileBlocked() */
 
     /* RDB / AOF loading information */
@@ -1945,7 +1945,7 @@ void blockingOperationEnds();
 int handleClientsWithPendingWrites(void);
 int handleClientsWithPendingWritesUsingThreads(void);
 int handleClientsWithPendingReadsUsingThreads(void);
-int stopThreadedIOIfNeeded(void);
+void adjustingActiveThreadedIO(void);
 int clientHasPendingReplies(client *c);
 void unlinkClient(client *c);
 int writeToClient(client *c, int handler_installed);

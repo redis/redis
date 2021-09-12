@@ -2262,8 +2262,8 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         migrateCloseTimedoutSockets();
     }
 
-    /* Stop the I/O threads if we don't have enough pending work. */
-    stopThreadedIOIfNeeded();
+    /* Adjust the number of active I/O threads based on pending work. */
+    adjustingActiveThreadedIO();
 
     /* Resize tracking keys table if needed. This is also done at every
      * command execution, but we want to be sure that if the last command
@@ -4723,7 +4723,7 @@ sds genRedisInfoString(const char *section) {
             "lru_clock:%u\r\n"
             "executable:%s\r\n"
             "config_file:%s\r\n"
-            "io_threads_active:%i\r\n",
+            "io_threads_active_num:%i\r\n",
             REDIS_VERSION,
             redisGitSHA1(),
             strtol(redisGitDirty(),NULL,10) > 0,
@@ -4750,7 +4750,7 @@ sds genRedisInfoString(const char *section) {
             lruclock,
             server.executable ? server.executable : "",
             server.configfile ? server.configfile : "",
-            server.io_threads_active);
+            server.io_threads_active_num);
     }
 
     /* Clients */
