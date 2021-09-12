@@ -2461,7 +2461,7 @@ static void moduleCloseKey(RedisModuleKey *key) {
             break;
         case OBJ_STREAM:
             if (key->u.stream.signalready)
-                /* One of more RM_StreamAdd() have been done. */
+                /* One or more RM_StreamAdd() have been done. */
                 signalKeyAsReady(key->db, key->key, OBJ_STREAM);
             break;
         }
