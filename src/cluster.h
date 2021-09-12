@@ -140,14 +140,6 @@ typedef struct clusterNode {
     list *fail_reports;         /* List of nodes signaling this as failing */
 } clusterNode;
 
-/* State for the Slot to Key API, for a single slot. The keys in the same slot
- * are linked together using dictEntry metadata. See also "Slot to Key API" in
- * cluster.c. */
-struct clusterSlotToKeys {
-    uint64_t count;             /* Number of keys in the slot. */
-    dictEntry *head;            /* The first key-value entry in the slot. */
-};
-typedef struct clusterSlotToKeys clusterSlotsToKeysData[CLUSTER_SLOTS];
 
 /* Dict entry metadata for cluster mode, used for the Slot to Key API to form a
  * linked list of the entries belonging to the same slot. */

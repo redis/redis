@@ -1333,11 +1333,7 @@ void swapMainDbWithTempDb(tempDb *tempDb) {
 
     /* Restore slots to keys map if enable cluster. */
     if (server.cluster_enabled) {
-        serverAssert(server.cluster->slots_to_keys->numele == 0);
-        raxFree(server.cluster->slots_to_keys);
-        server.cluster->slots_to_keys = tempDb->slots_to_keys;
-        memcpy(server.cluster->slots_keys_count, tempDb->slots_keys_count,
-                sizeof(server.cluster->slots_keys_count));
+        memcpy(server.cluster->slots_to_keys, tempDb->slots_to_keys, sizeof(server.cluster->slots_to_keys));
     }
 
     server.dirty++;

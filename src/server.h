@@ -768,6 +768,15 @@ typedef struct redisDb {
     list *defrag_later;         /* List of key names to attempt to defrag one by one, gradually. */
 } redisDb;
 
+/* State for the Slot to Key API, for a single slot. The keys in the same slot
+ * are linked together using dictEntry metadata. See also "Slot to Key API" in
+ * cluster.c. */
+struct clusterSlotToKeys {
+    uint64_t count;             /* Number of keys in the slot. */
+    dictEntry *head;            /* The first key-value entry in the slot. */
+};
+typedef struct clusterSlotToKeys clusterSlotsToKeysData[CLUSTER_SLOTS];
+
 /* Declare temporary database that include redis main DBs and slots to keys map.
  * Used during diskless replication to store new data without putting server in LOADING state. */
 typedef struct tempDb {
