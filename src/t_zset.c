@@ -2574,7 +2574,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
     int withscores = 0;
     unsigned long cardinality = 0;
     long tmp_limit = 0;      /* In order to do type conversion. */
-    unsigned long limit = 0; /* Stop searching after reaching the limit. 0 means not limit. */
+    unsigned long limit = 0; /* Stop searching after reaching the limit. 0 means unlimited. */
 
     /* expect setnum input keys to be given */
     if ((getLongFromObjectOrReply(c, c->argv[numkeysIndex], &setnum, NULL) != C_OK))
@@ -2661,8 +2661,8 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                        !strcasecmp(c->argv[j]->ptr, "limit"))
             {
                 j++; remaining--;
-                if (getRangeLongFromObjectOrReply(c, c->argv[j], 1, LONG_MAX,
-                                                  &tmp_limit, "limit should be greater than 0") != C_OK)
+                if (getPositiveLongFromObjectOrReply(c, c->argv[j], &tmp_limit,
+                                                     "LIMIT can't be negative") != C_OK)
                 {
                     zfree(src);
                     return;

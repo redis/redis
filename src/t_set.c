@@ -855,7 +855,7 @@ int qsortCompareSetsByRevCardinality(const void *s1, const void *s2) {
  * with minimum processing and memory overheads.
  *
  * 'limit' work for SINTERCARD, stop searching after reaching the limit.
- * Passing a 0 means not limit.
+ * Passing a 0 means unlimited.
  */
 void sinterGenericCommand(client *c, robj **setkeys,
                           unsigned long setnum, robj *dstkey, int cardinality_only,
@@ -1021,6 +1021,10 @@ void sinterCardCommand(client *c) {
     if (getRangeLongFromObjectOrReply(c, c->argv[1], 1, LONG_MAX,
                                       &numkeys, "numkeys should be greater than 0") != C_OK)
         return;
+    if (numkeys > (c->argc - 2)) {
+        addReplyError(c, "Number of keys can't be greater than number of args");
+        return;
+    }
 
     for (j = 2 + numkeys; j < c->argc; j++) {
         char *opt = c->argv[j]->ptr;
@@ -1028,8 +1032,8 @@ void sinterCardCommand(client *c) {
 
         if (!strcasecmp(opt, "LIMIT") && moreargs) {
             j++;
-            if (getRangeLongFromObjectOrReply(c, c->argv[j], 1, LONG_MAX,
-                                              &limit, "limit should be greater than 0") != C_OK)
+            if (getPositiveLongFromObjectOrReply(c, c->argv[j], &limit,
+                                                 "LIMIT can't be negative") != C_OK)
                 return;
         } else {
             addReplyErrorObject(c, shared.syntaxerr);

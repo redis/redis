@@ -150,12 +150,15 @@ start_server {
         assert_error "ERR numkeys*" {r sintercard 0 myset{t}}
         assert_error "ERR numkeys*" {r sintercard a myset{t}}
 
+        assert_error "ERR Number of keys*" {r sintercard 2 myset{t}}
+        assert_error "ERR Number of keys*" {r sintercard 3 myset{t} myset2{t}}
+
         assert_error "ERR syntax error*" {r sintercard 1 myset{t} myset2{t}}
         assert_error "ERR syntax error*" {r sintercard 1 myset{t} bar_arg}
         assert_error "ERR syntax error*" {r sintercard 1 myset{t} LIMIT}
 
-        assert_error "ERR limit*" {r sintercard 1 myset{t} LIMIT 0}
-        assert_error "ERR limit*" {r sintercard 1 myset{t} LIMIT a}
+        assert_error "ERR LIMIT*" {r sintercard 1 myset{t} LIMIT -1}
+        assert_error "ERR LIMIT*" {r sintercard 1 myset{t} LIMIT a}
     }
 
     test "SINTERCARD against non-set should throw error" {
@@ -170,6 +173,7 @@ start_server {
 
     test "SINTERCARD against non-existing key" {
         assert_equal 0 [r sintercard 1 non-existing-key]
+        assert_equal 0 [r sintercard 1 non-existing-key limit 0]
         assert_equal 0 [r sintercard 1 non-existing-key limit 10]
     }
 
@@ -214,6 +218,7 @@ start_server {
 
         test "SINTERCARD with two sets - $type" {
             assert_equal 6 [r sintercard 2 set1{t} set2{t}]
+            assert_equal 6 [r sintercard 2 set1{t} set2{t} limit 0]
             assert_equal 3 [r sintercard 2 set1{t} set2{t} limit 3]
             assert_equal 6 [r sintercard 2 set1{t} set2{t} limit 10]
         }
@@ -249,6 +254,7 @@ start_server {
 
         test "SINTERCARD against three sets - $type" {
             assert_equal 3 [r sintercard 3 set1{t} set2{t} set3{t}]
+            assert_equal 3 [r sintercard 3 set1{t} set2{t} set3{t} limit 0]
             assert_equal 2 [r sintercard 3 set1{t} set2{t} set3{t} limit 2]
             assert_equal 3 [r sintercard 3 set1{t} set2{t} set3{t} limit 10]
         }
