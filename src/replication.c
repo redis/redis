@@ -1540,6 +1540,20 @@ void disklessLoadDiscardTempDb(tempDb *tempDb) {
     discardTempDb(tempDb, replicationEmptyDbCallback);
 }
 
+/* If we know we got an entirely different data set from our master
+ * we have no way to incrementally feed our replicas after that.
+ * We want our replicas to resync with us as well, if we have any sub-replicas.
+ * This is useful on readSyncBulkPayload in places where we just finished transferring db. */
+void replicationAttachToNewMaster() { 
+    /* Replica starts to apply data from new master, we must discard the cached
+     * master structure. */
+    serverAssert(server.master == NULL);
+    replicationDiscardCachedMaster();
+
+    disconnectSlaves(); /* Force our replicas to resync with us as well. */
+    freeReplicationBacklog(); /* Don't allow our chained replicas to PSYNC. */
+}
+
 /* Asynchronously read the SYNC payload we receive from a master */
 #define REPL_MAX_WRITTEN_BEFORE_FSYNC (1024*1024*8) /* 8 MB */
 void readSyncBulkPayload(connection *conn) {
@@ -1727,16 +1741,7 @@ void readSyncBulkPayload(connection *conn) {
                               REDISMODULE_SUBEVENT_REPL_ASYNC_LOAD_STARTED,
                               NULL);
     } else {
-        /* Replica starts to apply data from new master, we must discard the cached
-         * master structure. */
-        serverAssert(server.master == NULL);
-        replicationDiscardCachedMaster();
-
-        /* We want our slaves to resync with us as well, if we have any sub-slaves.
-         * The master already transferred us an entirely different data set and we
-         * have no way to incrementally feed our slaves after that. */
-        disconnectSlaves(); /* Force our slaves to resync with us as well. */
-        freeReplicationBacklog(); /* Don't allow our chained slaves to PSYNC. */
+        replicationAttachToNewMaster();
 
         serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Flushing old data");
         emptyDb(-1,empty_db_flags,replicationEmptyDbCallback);
@@ -1808,16 +1813,13 @@ void readSyncBulkPayload(connection *conn) {
 
         /* RDB loading succeeded if we reach this point. */
         if (server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB) {
-            /* Replica starts to apply data from new master, we must discard the cached
-             * master structure. */
-            serverAssert(server.master == NULL);
-            replicationDiscardCachedMaster();
-
-            /* We want our slaves to resync with us as well, if we have any sub-slaves.
-             * The master already transferred us an entirely different data set and we
-             * have no way to incrementally feed our slaves after that. */
-            disconnectSlaves(); /* Force our slaves to resync with us as well. */
-            freeReplicationBacklog(); /* Don't allow our chained slaves to PSYNC. */
+            if (asyncLoading == 0) {
+                /* If asyncLoading is 0, it's because replication ID on master changed.
+                 * We will soon swap main db with tempDb and replicas will start
+                 * to apply data from new master, we must discard the cached
+                 * master structure. */
+                replicationAttachToNewMaster();
+            }
 
             serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Swapping in memory DB");
             swapMainDbWithTempDb(diskless_load_tempDb);
