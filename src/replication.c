@@ -1518,7 +1518,7 @@ static int useDisklessLoad() {
             enabled = 0;
         }
         /* Check all modules handle async replication, otherwise it's not safe to use diskless load. */
-        else if (server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB && !moduleAllDatatypesHandleReplAsyncLoad()) {
+        else if (server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB && !moduleHandleReplAsyncLoad()) {
             serverLog(LL_WARNING,
                 "Skipping diskless-load because there are modules that are not aware of async replication.");
             enabled = 0;
@@ -1728,13 +1728,13 @@ void readSyncBulkPayload(connection *conn) {
                               NULL);
     } else {
         /* Replica starts to apply data from new master, we must discard the cached
-        * master structure. */
+         * master structure. */
         serverAssert(server.master == NULL);
         replicationDiscardCachedMaster();
 
         /* We want our slaves to resync with us as well, if we have any sub-slaves.
-        * The master already transferred us an entirely different data set and we
-        * have no way to incrementally feed our slaves after that. */
+         * The master already transferred us an entirely different data set and we
+         * have no way to incrementally feed our slaves after that. */
         disconnectSlaves(); /* Force our slaves to resync with us as well. */
         freeReplicationBacklog(); /* Don't allow our chained slaves to PSYNC. */
 
@@ -1788,12 +1788,12 @@ void readSyncBulkPayload(connection *conn) {
 
             if (server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB) {
                 /* Discard potentially partially loaded tempDb. */
-                disklessLoadDiscardTempDb(diskless_load_tempDb);
-                serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Discarded temporary DB");
-
                 moduleFireServerEvent(REDISMODULE_EVENT_REPL_ASYNC_LOAD,
                                       REDISMODULE_SUBEVENT_REPL_ASYNC_LOAD_ABORTED,
                                       NULL);
+
+                disklessLoadDiscardTempDb(diskless_load_tempDb);
+                serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Discarded temporary DB");
             } else {
                 /* Remove the half-loaded data in case we started with
                 * an empty replica. */
@@ -1809,26 +1809,26 @@ void readSyncBulkPayload(connection *conn) {
         /* RDB loading succeeded if we reach this point. */
         if (server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB) {
             /* Replica starts to apply data from new master, we must discard the cached
-            * master structure. */
+             * master structure. */
             serverAssert(server.master == NULL);
             replicationDiscardCachedMaster();
 
             /* We want our slaves to resync with us as well, if we have any sub-slaves.
-            * The master already transferred us an entirely different data set and we
-            * have no way to incrementally feed our slaves after that. */
+             * The master already transferred us an entirely different data set and we
+             * have no way to incrementally feed our slaves after that. */
             disconnectSlaves(); /* Force our slaves to resync with us as well. */
             freeReplicationBacklog(); /* Don't allow our chained slaves to PSYNC. */
 
             serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Swapping in memory DB");
             swapMainDbWithTempDb(diskless_load_tempDb);
 
-            /* Delete the tempDb as it's useless now. */
-            disklessLoadDiscardTempDb(diskless_load_tempDb);
-            serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Discarded temporary DB");
-
             moduleFireServerEvent(REDISMODULE_EVENT_REPL_ASYNC_LOAD,
                         REDISMODULE_SUBEVENT_REPL_ASYNC_LOAD_COMPLETED,
                         NULL);
+
+            /* Delete the tempDb as it's useless now. */
+            disklessLoadDiscardTempDb(diskless_load_tempDb);
+            serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Discarded temporary DB");
         }
 
         /* Verify the end mark is correct. */

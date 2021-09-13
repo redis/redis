@@ -4807,17 +4807,16 @@ int moduleAllDatatypesHandleErrors() {
     return 1;
 }
 
-/* Returns 0 if there's at least one registered data type that did not declare
- * REDISMODULE_OPTIONS_HANDLE_REPL_ASYNC_LOAD, in which case diskless async loading should be avoided
- * because module doesn't know there can be traffic during database full resynchronization. */
-int moduleAllDatatypesHandleReplAsyncLoad() {
+/* Returns 0 if module did not declare REDISMODULE_OPTIONS_HANDLE_REPL_ASYNC_LOAD, in which case
+ * diskless async loading should be avoided because module doesn't know there can be traffic during
+ * database full resynchronization. */
+int moduleHandleReplAsyncLoad() {
     dictIterator *di = dictGetIterator(modules);
     dictEntry *de;
 
     while ((de = dictNext(di)) != NULL) {
         struct RedisModule *module = dictGetVal(de);
-        if (listLength(module->types) &&
-            !(module->options & REDISMODULE_OPTIONS_HANDLE_REPL_ASYNC_LOAD))
+        if (!(module->options & REDISMODULE_OPTIONS_HANDLE_REPL_ASYNC_LOAD))
         {
             dictReleaseIterator(di);
             return 0;
