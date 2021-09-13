@@ -861,12 +861,12 @@ REDIS_STATIC void _quicklistInsert(quicklist *quicklist, quicklistEntry *entry,
 
     /* Populate accounting flags for easier boolean checks later */
     if (!_quicklistNodeAllowInsert(node, fill, sz)) {
-        D("Current node is full with count %d with requested fill %lu",
+        D("Current node is full with count %d with requested fill %d",
           node->count, fill);
         full = 1;
     }
 
-    if (after && (entry->offset == node->count)) {
+    if (after && (entry->offset == node->count - 1 || entry->offset == -1)) {
         D("At Tail of current ziplist");
         at_tail = 1;
         if (_quicklistNodeAllowInsert(node->next, fill, sz)) {
@@ -875,7 +875,7 @@ REDIS_STATIC void _quicklistInsert(quicklist *quicklist, quicklistEntry *entry,
         }
     }
 
-    if (!after && (entry->offset == 0)) {
+    if (!after && (entry->offset == 0 || entry->offset == -(node->count))) {
         D("At Head");
         at_head = 1;
         if (_quicklistNodeAllowInsert(node->prev, fill, sz)) {
@@ -1244,30 +1244,35 @@ int quicklistIndex(const quicklist *quicklist, const long long idx,
     initEntry(entry);
     entry->quicklist = quicklist;
 
-    if (!forward) {
-        index = (-idx) - 1;
-        n = quicklist->tail;
-    } else {
-        index = idx;
-        n = quicklist->head;
-    }
-
+    index = forward ? idx : (-idx) - 1;
     if (index >= quicklist->count)
         return 0;
 
+    /* Seek in the other direction if that way is shorter. */
+    int seek_forward = forward;
+    unsigned long long seek_index = index;
+    if (index > (quicklist->count - 1) / 2) {
+        seek_forward = !forward;
+        seek_index = quicklist->count - 1 - index;
+    }
+
+    n = seek_forward ? quicklist->head : quicklist->tail;
     while (likely(n)) {
-        if ((accum + n->count) > index) {
+        if ((accum + n->count) > seek_index) {
             break;
         } else {
             D("Skipping over (%p) %u at accum %lld", (void *)n, n->count,
               accum);
             accum += n->count;
-            n = forward ? n->next : n->prev;
+            n = seek_forward ? n->next : n->prev;
         }
     }
 
     if (!n)
         return 0;
+
+    /* Fix accum so it looks like we seeked in the other direction. */
+    if (seek_forward != forward) accum = quicklist->count - n->count - accum;
 
     D("Found node: %p at accum %llu, idx %llu, sub+ %llu, sub- %llu", (void *)n,
       accum, index, index - accum, (-index) - 1 + accum);
@@ -1278,7 +1283,7 @@ int quicklistIndex(const quicklist *quicklist, const long long idx,
         entry->offset = index - accum;
     } else {
         /* reverse = need negative offset for tail-to-head, so undo
-         * the result of the original if (index < 0) above. */
+         * the result of the original index = (-idx) - 1 above. */
         entry->offset = (-index) - 1 + accum;
     }
 
@@ -1852,7 +1857,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
             unsigned int sz;
             long long lv;
             ql_info(ql);
-            quicklistPop(ql, QUICKLIST_HEAD, &data, &sz, &lv);
+            assert(quicklistPop(ql, QUICKLIST_HEAD, &data, &sz, &lv));
             assert(data != NULL);
             assert(sz == 32);
             if (strcmp(populate, (char *)data))
@@ -1870,7 +1875,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
             unsigned int sz;
             long long lv;
             ql_info(ql);
-            quicklistPop(ql, QUICKLIST_HEAD, &data, &sz, &lv);
+            assert(quicklistPop(ql, QUICKLIST_HEAD, &data, &sz, &lv));
             assert(data == NULL);
             assert(lv == 55513);
             ql_verify(ql, 0, 0, 0, 0);
@@ -1976,6 +1981,13 @@ int quicklistTest(int argc, char *argv[], int accurate) {
             quicklistIndex(ql, 0, &entry);
             quicklistInsertBefore(ql, &entry, "abc", 4);
             ql_verify(ql, 1, 1, 1, 1);
+
+            /* verify results */
+            quicklistIndex(ql, 0, &entry);
+            if (strncmp((char *)entry.value, "abc", 3)) {
+                ERR("Value 0 didn't match, instead got: %.*s", entry.sz,
+                    entry.value);
+            }
             quicklistRelease(ql);
         }
 
@@ -1985,6 +1997,13 @@ int quicklistTest(int argc, char *argv[], int accurate) {
             quicklistIndex(ql, 0, &entry);
             quicklistInsertAfter(ql, &entry, "abc", 4);
             ql_verify(ql, 1, 1, 1, 1);
+
+            /* verify results */
+            quicklistIndex(ql, 0, &entry);
+            if (strncmp((char *)entry.value, "abc", 3)) {
+                ERR("Value 0 didn't match, instead got: %.*s", entry.sz,
+                    entry.value);
+            }
             quicklistRelease(ql);
         }
 
@@ -1995,6 +2014,19 @@ int quicklistTest(int argc, char *argv[], int accurate) {
             quicklistIndex(ql, 0, &entry);
             quicklistInsertAfter(ql, &entry, "abc", 4);
             ql_verify(ql, 1, 2, 2, 2);
+
+            /* verify results */
+            quicklistIndex(ql, 0, &entry);
+            if (strncmp((char *)entry.value, "hello", 5)) {
+                ERR("Value 0 didn't match, instead got: %.*s", entry.sz,
+                    entry.value);
+            }
+            quicklistIndex(ql, 1, &entry);
+            if (strncmp((char *)entry.value, "abc", 3)) {
+                ERR("Value 1 didn't match, instead got: %.*s", entry.sz,
+                    entry.value);
+            }
+
             quicklistRelease(ql);
         }
 
@@ -2003,8 +2035,21 @@ int quicklistTest(int argc, char *argv[], int accurate) {
             quicklistPushHead(ql, "hello", 6);
             quicklistEntry entry;
             quicklistIndex(ql, 0, &entry);
-            quicklistInsertAfter(ql, &entry, "abc", 4);
+            quicklistInsertBefore(ql, &entry, "abc", 4);
             ql_verify(ql, 1, 2, 2, 2);
+
+            /* verify results */
+            quicklistIndex(ql, 0, &entry);
+            if (strncmp((char *)entry.value, "abc", 3)) {
+                ERR("Value 0 didn't match, instead got: %.*s", entry.sz,
+                    entry.value);
+            }
+            quicklistIndex(ql, 1, &entry);
+            if (strncmp((char *)entry.value, "hello", 5)) {
+                ERR("Value 1 didn't match, instead got: %.*s", entry.sz,
+                    entry.value);
+            }
+
             quicklistRelease(ql);
         }
 
@@ -2014,7 +2059,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
                 quicklistPushTail(ql, genstr("hello", i), 6);
             quicklistSetFill(ql, -1);
             quicklistEntry entry;
-            quicklistIndex(ql, 0, &entry);
+            quicklistIndex(ql, -10, &entry);
             char buf[4096] = {0};
             quicklistInsertBefore(ql, &entry, buf, 4096);
             ql_verify(ql, 4, 11, 1, 2);
@@ -2695,9 +2740,11 @@ int quicklistTest(int argc, char *argv[], int accurate) {
                         if (step == 1) {
                             for (int i = 0; i < list_sizes[list] / 2; i++) {
                                 unsigned char *data;
-                                quicklistPop(ql, QUICKLIST_HEAD, &data, NULL, NULL);
+                                assert(quicklistPop(ql, QUICKLIST_HEAD, &data,
+                                                    NULL, NULL));
                                 zfree(data);
-                                quicklistPop(ql, QUICKLIST_TAIL, &data, NULL, NULL);
+                                assert(quicklistPop(ql, QUICKLIST_TAIL, &data,
+                                                    NULL, NULL));
                                 zfree(data);
                             }
                         }

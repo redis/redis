@@ -168,10 +168,10 @@ int spectrum_palette_size;
 /* Dict Helpers */
 
 static uint64_t dictSdsHash(const void *key);
-static int dictSdsKeyCompare(void *privdata, const void *key1,
+static int dictSdsKeyCompare(dict *d, const void *key1,
     const void *key2);
-static void dictSdsDestructor(void *privdata, void *val);
-static void dictListDestructor(void *privdata, void *val);
+static void dictSdsDestructor(dict *d, void *val);
+static void dictListDestructor(dict *d, void *val);
 
 /* Cluster Manager Command Info */
 typedef struct clusterManagerCommand {
@@ -211,6 +211,7 @@ static struct config {
     int shutdown;
     int monitor_mode;
     int pubsub_mode;
+    int blocking_state_aborted; /* used to abort monitor_mode and pubsub_mode. */
     int latency_mode;
     int latency_dist_mode;
     int latency_history;
@@ -354,11 +355,10 @@ static uint64_t dictSdsHash(const void *key) {
     return dictGenHashFunction((unsigned char*)key, sdslen((char*)key));
 }
 
-static int dictSdsKeyCompare(void *privdata, const void *key1,
-        const void *key2)
+static int dictSdsKeyCompare(dict *d, const void *key1, const void *key2)
 {
     int l1,l2;
-    DICT_NOTUSED(privdata);
+    UNUSED(d);
 
     l1 = sdslen((sds)key1);
     l2 = sdslen((sds)key2);
@@ -366,15 +366,15 @@ static int dictSdsKeyCompare(void *privdata, const void *key1,
     return memcmp(key1, key2, l1) == 0;
 }
 
-static void dictSdsDestructor(void *privdata, void *val)
+static void dictSdsDestructor(dict *d, void *val)
 {
-    DICT_NOTUSED(privdata);
+    UNUSED(d);
     sdsfree(val);
 }
 
-void dictListDestructor(void *privdata, void *val)
+void dictListDestructor(dict *d, void *val)
 {
-    DICT_NOTUSED(privdata);
+    UNUSED(d);
     listRelease((list*)val);
 }
 
@@ -1188,6 +1188,13 @@ static int cliReadReply(int output_raw_strings) {
     int output = 1;
 
     if (redisGetReply(context,&_reply) != REDIS_OK) {
+        if (config.blocking_state_aborted) {
+            config.blocking_state_aborted = 0;
+            config.monitor_mode = 0;
+            config.pubsub_mode = 0;
+            return cliConnect(CC_FORCE);
+        }
+
         if (config.shutdown) {
             redisFree(context);
             context = NULL;
@@ -1334,9 +1341,13 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
        works well with the interval option. */
     while(repeat < 0 || repeat-- > 0) {
         redisAppendCommandArgv(context,argc,(const char**)argv,argvlen);
-        while (config.monitor_mode) {
-            if (cliReadReply(output_raw) != REDIS_OK) exit(1);
-            fflush(stdout);
+        if (config.monitor_mode) {
+            do {
+                if (cliReadReply(output_raw) != REDIS_OK) exit(1);
+                fflush(stdout);
+            } while(config.monitor_mode);
+            zfree(argvlen);
+            return REDIS_OK;
         }
 
         if (config.pubsub_mode) {
@@ -1349,7 +1360,7 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
             while (config.pubsub_mode) {
                 if (cliReadReply(output_raw) != REDIS_OK) exit(1);
                 fflush(stdout); /* Make it grep friendly */
-                if (config.last_cmd_type == REDIS_REPLY_ERROR) {
+                if (!config.pubsub_mode || config.last_cmd_type == REDIS_REPLY_ERROR) {
                     if (config.push_output) {
                         redisSetPushCallback(context, cliPushHandler);
                     }
@@ -2912,7 +2923,7 @@ static int clusterManagerGetAntiAffinityScore(clusterManagerNodeArray *ipnodes,
      * replication of each other) */
     for (i = 0; i < ip_count; i++) {
         clusterManagerNodeArray *node_array = &(ipnodes[i]);
-        dict *related = dictCreate(&clusterManagerDictType, NULL);
+        dict *related = dictCreate(&clusterManagerDictType);
         char *ip = NULL;
         for (j = 0; j < node_array->len; j++) {
             clusterManagerNode *node = node_array->nodes[j];
@@ -4419,7 +4430,7 @@ cleanup:
  * node addresses that cannot reach the unreachable node. */
 static dict *clusterManagerGetLinkStatus(void) {
     if (cluster_manager.nodes == NULL) return NULL;
-    dict *status = dictCreate(&clusterManagerLinkDictType, NULL);
+    dict *status = dictCreate(&clusterManagerLinkDictType);
     listIter li;
     listNode *ln;
     listRewind(cluster_manager.nodes, &li);
@@ -4568,6 +4579,7 @@ static clusterManagerNode *clusterManagerNodeMasterRandom() {
         master_count++;
     }
 
+    assert(master_count > 0);
     srand(time(NULL));
     idx = rand() % master_count;
     listRewind(cluster_manager.nodes, &li);
@@ -4579,7 +4591,7 @@ static clusterManagerNode *clusterManagerNodeMasterRandom() {
         }
     }
     /* Can not be reached */
-    return NULL;
+    assert(0);
 }
 
 static int clusterManagerFixSlotsCoverage(char *all_slots) {
@@ -5182,7 +5194,7 @@ static int clusterManagerCheckCluster(int quiet) {
         clusterManagerNode *n = ln->value;
         if (n->migrating != NULL) {
             if (open_slots == NULL)
-                open_slots = dictCreate(&clusterManagerDictType, NULL);
+                open_slots = dictCreate(&clusterManagerDictType);
             sds errstr = sdsempty();
             errstr = sdscatprintf(errstr,
                                 "[WARNING] Node %s:%d has slots in "
@@ -5200,7 +5212,7 @@ static int clusterManagerCheckCluster(int quiet) {
         }
         if (n->importing != NULL) {
             if (open_slots == NULL)
-                open_slots = dictCreate(&clusterManagerDictType, NULL);
+                open_slots = dictCreate(&clusterManagerDictType);
             sds errstr = sdsempty();
             errstr = sdscatprintf(errstr,
                                 "[WARNING] Node %s:%d has slots in "
@@ -5261,7 +5273,7 @@ static int clusterManagerCheckCluster(int quiet) {
             dictType dtype = clusterManagerDictType;
             dtype.keyDestructor = dictSdsDestructor;
             dtype.valDestructor = dictListDestructor;
-            clusterManagerUncoveredSlots = dictCreate(&dtype, NULL);
+            clusterManagerUncoveredSlots = dictCreate(&dtype);
             int fixed = clusterManagerFixSlotsCoverage(slots);
             if (fixed > 0) result = 1;
         }
@@ -7428,9 +7440,9 @@ static typeinfo* typeinfo_add(dict *types, char* name, typeinfo* type_template) 
     return info;
 }
 
-void type_free(void* priv_data, void* val) {
+void type_free(dict *d, void* val) {
     typeinfo *info = val;
-    UNUSED(priv_data);
+    UNUSED(d);
     if (info->biggest_key)
         sdsfree(info->biggest_key);
     sdsfree(info->name);
@@ -7556,7 +7568,7 @@ static void findBigKeys(int memkeys, unsigned memkeys_samples) {
     typeinfo **types = NULL;
     double pct;
 
-    dict *types_dict = dictCreate(&typeinfoDictType, NULL);
+    dict *types_dict = dictCreate(&typeinfoDictType);
     typeinfo_add(types_dict, "string", &type_string);
     typeinfo_add(types_dict, "list", &type_list);
     typeinfo_add(types_dict, "set", &type_set);
@@ -8111,6 +8123,18 @@ static void intrinsicLatencyModeStop(int s) {
     force_cancel_loop = 1;
 }
 
+static void sigIntHandler(int s) {
+    UNUSED(s);
+
+    if (config.monitor_mode || config.pubsub_mode) {
+        close(context->fd);
+        context->fd = REDIS_INVALID_FD;
+        config.blocking_state_aborted = 1;
+    } else {
+        exit(1);
+    }
+}
+
 static void intrinsicLatencyMode(void) {
     long long test_end, run_time, max_latency = 0, runs = 0;
 
@@ -8175,6 +8199,7 @@ int main(int argc, char **argv) {
     config.shutdown = 0;
     config.monitor_mode = 0;
     config.pubsub_mode = 0;
+    config.blocking_state_aborted = 0;
     config.latency_mode = 0;
     config.latency_dist_mode = 0;
     config.latency_history = 0;
@@ -8350,6 +8375,7 @@ int main(int argc, char **argv) {
     if (argc == 0 && !config.eval) {
         /* Ignore SIGPIPE in interactive mode to force a reconnect */
         signal(SIGPIPE, SIG_IGN);
+        signal(SIGINT, sigIntHandler);
 
         /* Note that in repl mode we don't abort on connection error.
          * A new attempt will be performed for every command send. */

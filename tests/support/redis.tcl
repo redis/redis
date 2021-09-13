@@ -324,6 +324,7 @@ proc ::redis::redis_readable {fd id} {
             : -
             + {redis_call_callback $id reply [string range $line 1 end-1]}
             - {redis_call_callback $id err [string range $line 1 end-1]}
+            ( {redis_call_callback $id reply [string range $line 1 end-1]}
             $ {
                 dict set ::redis::state($id) bulk \
                     [expr [string range $line 1 end-1]+2]

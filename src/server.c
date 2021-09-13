@@ -316,6 +316,10 @@ struct redisCommand redisCommandTable[] = {
      "write fast @list",
      0,NULL,1,1,1,0,0,0},
 
+    {"lmpop",lmpopCommand,-4,
+     "write @list",
+     0,lmpopGetKeys,0,0,0,0,0,0},
+
     {"brpop",brpopCommand,-3,
      "write no-script @list @blocking",
      0,NULL,1,-2,1,0,0,0},
@@ -331,6 +335,10 @@ struct redisCommand redisCommandTable[] = {
     {"blpop",blpopCommand,-3,
      "write no-script @list @blocking",
      0,NULL,1,-2,1,0,0,0},
+
+    {"blmpop",blmpopCommand,-5,
+     "write @list @blocking",
+     0,blmpopGetKeys,0,0,0,0,0,0},
 
     {"llen",llenCommand,2,
      "read-only fast @list",
@@ -789,6 +797,10 @@ struct redisCommand redisCommandTable[] = {
      "write use-memory @list @set @sortedset @dangerous",
      0,sortGetKeys,1,1,1,0,0,0},
 
+    {"sort_ro",sortroCommand,-2,
+     "read-only @list @set @sortedset @dangerous",
+     0,NULL,1,1,1,0,0,0},
+
     {"info",infoCommand,-1,
      "ok-loading ok-stale random @dangerous",
      0,NULL,0,0,0,0,0,0},
@@ -887,7 +899,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"migrate",migrateCommand,-6,
      "write random @keyspace @dangerous",
-     0,migrateGetKeys,0,0,0,0,0,0},
+     0,migrateGetKeys,3,3,1,0,0,0},
 
     {"asking",askingCommand,1,
      "fast @connection",
@@ -1263,23 +1275,23 @@ void exitFromChild(int retcode) {
  * keys and redis objects as values (objects can hold SDS strings,
  * lists, sets). */
 
-void dictVanillaFree(void *privdata, void *val)
+void dictVanillaFree(dict *d, void *val)
 {
-    DICT_NOTUSED(privdata);
+    UNUSED(d);
     zfree(val);
 }
 
-void dictListDestructor(void *privdata, void *val)
+void dictListDestructor(dict *d, void *val)
 {
-    DICT_NOTUSED(privdata);
+    UNUSED(d);
     listRelease((list*)val);
 }
 
-int dictSdsKeyCompare(void *privdata, const void *key1,
+int dictSdsKeyCompare(dict *d, const void *key1,
         const void *key2)
 {
     int l1,l2;
-    DICT_NOTUSED(privdata);
+    UNUSED(d);
 
     l1 = sdslen((sds)key1);
     l2 = sdslen((sds)key2);
@@ -1289,34 +1301,31 @@ int dictSdsKeyCompare(void *privdata, const void *key1,
 
 /* A case insensitive version used for the command lookup table and other
  * places where case insensitive non binary-safe comparison is needed. */
-int dictSdsKeyCaseCompare(void *privdata, const void *key1,
+int dictSdsKeyCaseCompare(dict *d, const void *key1,
         const void *key2)
 {
-    DICT_NOTUSED(privdata);
-
+    UNUSED(d);
     return strcasecmp(key1, key2) == 0;
 }
 
-void dictObjectDestructor(void *privdata, void *val)
+void dictObjectDestructor(dict *d, void *val)
 {
-    DICT_NOTUSED(privdata);
-
+    UNUSED(d);
     if (val == NULL) return; /* Lazy freeing will set value to NULL. */
     decrRefCount(val);
 }
 
-void dictSdsDestructor(void *privdata, void *val)
+void dictSdsDestructor(dict *d, void *val)
 {
-    DICT_NOTUSED(privdata);
-
+    UNUSED(d);
     sdsfree(val);
 }
 
-int dictObjKeyCompare(void *privdata, const void *key1,
+int dictObjKeyCompare(dict *d, const void *key1,
         const void *key2)
 {
     const robj *o1 = key1, *o2 = key2;
-    return dictSdsKeyCompare(privdata,o1->ptr,o2->ptr);
+    return dictSdsKeyCompare(d, o1->ptr,o2->ptr);
 }
 
 uint64_t dictObjHash(const void *key) {
@@ -1332,8 +1341,7 @@ uint64_t dictSdsCaseHash(const void *key) {
     return dictGenCaseHashFunction((unsigned char*)key, sdslen((char*)key));
 }
 
-int dictEncObjKeyCompare(void *privdata, const void *key1,
-        const void *key2)
+int dictEncObjKeyCompare(dict *d, const void *key1, const void *key2)
 {
     robj *o1 = (robj*) key1, *o2 = (robj*) key2;
     int cmp;
@@ -1348,7 +1356,7 @@ int dictEncObjKeyCompare(void *privdata, const void *key1,
      * objects as well. */
     if (o1->refcount != OBJ_STATIC_REFCOUNT) o1 = getDecodedObject(o1);
     if (o2->refcount != OBJ_STATIC_REFCOUNT) o2 = getDecodedObject(o2);
-    cmp = dictSdsKeyCompare(privdata,o1->ptr,o2->ptr);
+    cmp = dictSdsKeyCompare(d,o1->ptr,o2->ptr);
     if (o1->refcount != OBJ_STATIC_REFCOUNT) decrRefCount(o1);
     if (o2->refcount != OBJ_STATIC_REFCOUNT) decrRefCount(o2);
     return cmp;
@@ -1382,6 +1390,14 @@ int dictExpandAllowed(size_t moreMem, double usedRatio) {
     } else {
         return 1;
     }
+}
+
+/* Returns the size of the DB dict entry metadata in bytes. In cluster mode, the
+ * metadata is used for constructing a doubly linked list of the dict entries
+ * belonging to the same cluster slot. See the Slot to Key API in cluster.c. */
+size_t dictEntryMetadataSize(dict *d) {
+    UNUSED(d);
+    return server.cluster_enabled ? sizeof(clusterDictEntryMetadata) : 0;
 }
 
 /* Generic hash table type where keys are Redis Objects, Values
@@ -1437,7 +1453,8 @@ dictType dbDictType = {
     dictSdsKeyCompare,          /* key compare */
     dictSdsDestructor,          /* key destructor */
     dictObjectDestructor,       /* val destructor */
-    dictExpandAllowed           /* allow to expand */
+    dictExpandAllowed,          /* allow to expand */
+    dictEntryMetadataSize       /* size of entry metadata in bytes */
 };
 
 /* server.lua_scripts sha (as sds string) -> scripts (as robj) cache. */
@@ -1615,6 +1632,7 @@ int hasActiveChildProcess() {
 void resetChildState() {
     server.child_type = CHILD_TYPE_NONE;
     server.child_pid = -1;
+    server.stat_current_cow_peak = 0;
     server.stat_current_cow_bytes = 0;
     server.stat_current_cow_updated = 0;
     server.stat_current_save_keys_processed = 0;
@@ -1676,17 +1694,19 @@ int clientsCronResizeQueryBuffer(client *c) {
     size_t querybuf_size = sdsalloc(c->querybuf);
     time_t idletime = server.unixtime - c->lastinteraction;
 
-    /* Only resize the query buffer if the buffer is bigger than
-     * PROTO_RESIZE_THRESHOLD, and it is actually wasting at least a few kbytes. */
-    if (querybuf_size > PROTO_RESIZE_THRESHOLD && sdsavail(c->querybuf) > 1024*4) {
+    /* Only resize the query buffer if the buffer is actually wasting at least a
+     * few kbytes */
+    if (sdsavail(c->querybuf) > 1024*4) {
         /* There are two conditions to resize the query buffer: */
         if (idletime > 2) {
             /* 1) Query is idle for a long time. */
             c->querybuf = sdsRemoveFreeSpace(c->querybuf);
-        } else if (querybuf_size/2 > c->querybuf_peak) {
-            /* 2) Query buffer is too big for latest peak. trim excess space but
-             *    only up to a limit, not below the recent peak and current
-             *    c->querybuf (which will be soon get used). */
+        } else if (querybuf_size > PROTO_RESIZE_THRESHOLD && querybuf_size/2 > c->querybuf_peak) {
+            /* 2) Query buffer is too big for latest peak and is larger than
+             *    resize threshold. Trim excess space but only up to a limit,
+             *    not below the recent peak and current c->querybuf (which will
+             *    be soon get used). If we're in the middle of a bulk then make
+             *    sure not to resize to less than the bulk length. */
             size_t resize = sdslen(c->querybuf);
             if (resize < c->querybuf_peak) resize = c->querybuf_peak;
             if (c->bulklen != -1 && resize < (size_t)c->bulklen) resize = c->bulklen;
@@ -2690,9 +2710,10 @@ void initServerConfig(void) {
     server.shutdown_asap = 0;
     server.cluster_configfile = zstrdup(CONFIG_DEFAULT_CLUSTER_CONFIG_FILE);
     server.cluster_module_flags = CLUSTER_MODULE_FLAG_NONE;
-    server.migrate_cached_sockets = dictCreate(&migrateCacheDictType,NULL);
+    server.migrate_cached_sockets = dictCreate(&migrateCacheDictType);
     server.next_client_id = 1; /* Client IDs, start from 1 .*/
     server.loading_process_events_interval_bytes = (1024*1024*2);
+    server.page_size = sysconf(_SC_PAGESIZE);
 
     unsigned int lruclock = getLRUClock();
     atomicSet(server.lruclock,lruclock);
@@ -2748,8 +2769,8 @@ void initServerConfig(void) {
     /* Command table -- we initialize it here as it is part of the
      * initial configuration, since command names may be changed via
      * redis.conf using the rename-command directive. */
-    server.commands = dictCreate(&commandTableDictType,NULL);
-    server.orig_commands = dictCreate(&commandTableDictType,NULL);
+    server.commands = dictCreate(&commandTableDictType);
+    server.orig_commands = dictCreate(&commandTableDictType);
     populateCommandTable();
     server.delCommand = lookupCommandByCString("del");
     server.multiCommand = lookupCommandByCString("multi");
@@ -2938,7 +2959,10 @@ void adjustOpenFilesLimit(void) {
 
                 /* We failed to set file limit to 'bestlimit'. Try with a
                  * smaller limit decrementing by a few FDs per iteration. */
-                if (bestlimit < decr_step) break;
+                if (bestlimit < decr_step) {
+                    bestlimit = oldlimit;
+                    break;
+                }
                 bestlimit -= decr_step;
             }
 
@@ -3109,6 +3133,8 @@ void resetServerStats(void) {
     server.stat_active_defrag_key_hits = 0;
     server.stat_active_defrag_key_misses = 0;
     server.stat_active_defrag_scanned = 0;
+    server.stat_total_active_defrag_time = 0;
+    server.stat_last_active_defrag_time = 0;
     server.stat_fork_time = 0;
     server.stat_fork_rate = 0;
     server.stat_total_forks = 0;
@@ -3180,12 +3206,14 @@ void initServer(void) {
     server.ready_keys = listCreate();
     server.clients_waiting_acks = listCreate();
     server.get_ack_from_slaves = 0;
-    server.client_pause_type = 0;
+    server.client_pause_type = CLIENT_PAUSE_OFF;
+    server.client_pause_end_time = 0;
     server.paused_clients = listCreate();
     server.events_processed_while_blocked = 0;
     server.system_memory_size = zmalloc_get_memory_size();
     server.blocked_last_cron = 0;
     server.blocking_op_nesting = 0;
+    server.thp_enabled = 0;
 
     if ((server.tls_port || server.tls_replication || server.tls_cluster)
                 && tlsConfigure(&server.tls_ctx_config) == C_ERR) {
@@ -3239,20 +3267,20 @@ void initServer(void) {
 
     /* Create the Redis databases, and initialize other internal state. */
     for (j = 0; j < server.dbnum; j++) {
-        server.db[j].dict = dictCreate(&dbDictType,NULL);
-        server.db[j].expires = dictCreate(&dbExpiresDictType,NULL);
+        server.db[j].dict = dictCreate(&dbDictType);
+        server.db[j].expires = dictCreate(&dbExpiresDictType);
         server.db[j].expires_cursor = 0;
-        server.db[j].blocking_keys = dictCreate(&keylistDictType,NULL);
-        server.db[j].ready_keys = dictCreate(&objectKeyPointerValueDictType,NULL);
-        server.db[j].watched_keys = dictCreate(&keylistDictType,NULL);
+        server.db[j].blocking_keys = dictCreate(&keylistDictType);
+        server.db[j].ready_keys = dictCreate(&objectKeyPointerValueDictType);
+        server.db[j].watched_keys = dictCreate(&keylistDictType);
         server.db[j].id = j;
         server.db[j].avg_ttl = 0;
         server.db[j].defrag_later = listCreate();
         listSetFreeMethod(server.db[j].defrag_later,(void (*)(void*))sdsfree);
     }
     evictionPoolAlloc(); /* Initialize the LRU keys pool. */
-    server.pubsub_channels = dictCreate(&keylistDictType,NULL);
-    server.pubsub_patterns = dictCreate(&keylistDictType,NULL);
+    server.pubsub_channels = dictCreate(&keylistDictType);
+    server.pubsub_patterns = dictCreate(&keylistDictType);
     server.cronloops = 0;
     server.in_eval = 0;
     server.in_exec = 0;
@@ -3276,11 +3304,14 @@ void initServer(void) {
     server.lastbgsave_try = 0;    /* At startup we never tried to BGSAVE. */
     server.rdb_save_time_last = -1;
     server.rdb_save_time_start = -1;
+    server.rdb_last_load_keys_expired = 0;
+    server.rdb_last_load_keys_loaded = 0;
     server.dirty = 0;
     resetServerStats();
     /* A few stats we don't want to reset: server startup time, and peak mem. */
     server.stat_starttime = time(NULL);
     server.stat_peak_memory = 0;
+    server.stat_current_cow_peak = 0;
     server.stat_current_cow_bytes = 0;
     server.stat_current_cow_updated = 0;
     server.stat_current_save_keys_processed = 0;
@@ -4882,6 +4913,7 @@ sds genRedisInfoString(const char *section) {
         info = sdscatprintf(info,
             "# Persistence\r\n"
             "loading:%d\r\n"
+            "current_cow_peak:%zu\r\n"
             "current_cow_size:%zu\r\n"
             "current_cow_size_age:%lu\r\n"
             "current_fork_perc:%.2f\r\n"
@@ -4894,6 +4926,8 @@ sds genRedisInfoString(const char *section) {
             "rdb_last_bgsave_time_sec:%jd\r\n"
             "rdb_current_bgsave_time_sec:%jd\r\n"
             "rdb_last_cow_size:%zu\r\n"
+            "rdb_last_load_keys_expired:%lld\r\n"
+            "rdb_last_load_keys_loaded:%lld\r\n"
             "aof_enabled:%d\r\n"
             "aof_rewrite_in_progress:%d\r\n"
             "aof_rewrite_scheduled:%d\r\n"
@@ -4905,6 +4939,7 @@ sds genRedisInfoString(const char *section) {
             "module_fork_in_progress:%d\r\n"
             "module_fork_last_cow_size:%zu\r\n",
             (int)server.loading,
+            server.stat_current_cow_peak,
             server.stat_current_cow_bytes,
             server.stat_current_cow_updated ? (unsigned long) elapsedMs(server.stat_current_cow_updated) / 1000 : 0,
             fork_perc,
@@ -4918,6 +4953,8 @@ sds genRedisInfoString(const char *section) {
             (intmax_t)((server.child_type != CHILD_TYPE_RDB) ?
                 -1 : time(NULL)-server.rdb_save_time_start),
             server.stat_rdb_cow_bytes,
+            server.rdb_last_load_keys_expired,
+            server.rdb_last_load_keys_loaded,
             server.aof_state != AOF_OFF,
             server.child_type == CHILD_TYPE_AOF,
             server.aof_rewrite_scheduled,
@@ -4996,6 +5033,8 @@ sds genRedisInfoString(const char *section) {
         long long stat_net_input_bytes, stat_net_output_bytes;
         long long current_eviction_exceeded_time = server.stat_last_eviction_exceeded_time ?
             (long long) elapsedUs(server.stat_last_eviction_exceeded_time): 0;
+        long long current_active_defrag_time = server.stat_last_active_defrag_time ?
+            (long long) elapsedUs(server.stat_last_active_defrag_time): 0;
         atomicGet(server.stat_total_reads_processed, stat_total_reads_processed);
         atomicGet(server.stat_total_writes_processed, stat_total_writes_processed);
         atomicGet(server.stat_net_input_bytes, stat_net_input_bytes);
@@ -5034,6 +5073,8 @@ sds genRedisInfoString(const char *section) {
             "active_defrag_misses:%lld\r\n"
             "active_defrag_key_hits:%lld\r\n"
             "active_defrag_key_misses:%lld\r\n"
+            "total_active_defrag_time:%lld\r\n"
+            "current_active_defrag_time:%lld\r\n"
             "tracking_total_keys:%lld\r\n"
             "tracking_total_items:%lld\r\n"
             "tracking_total_prefixes:%lld\r\n"
@@ -5074,6 +5115,8 @@ sds genRedisInfoString(const char *section) {
             server.stat_active_defrag_misses,
             server.stat_active_defrag_key_hits,
             server.stat_active_defrag_key_misses,
+            (server.stat_total_active_defrag_time + current_active_defrag_time) / 1000,
+            current_active_defrag_time / 1000,
             (unsigned long long) trackingGetTotalKeys(),
             (unsigned long long) trackingGetTotalItems(),
             (unsigned long long) trackingGetTotalPrefixes(),
@@ -5095,11 +5138,15 @@ sds genRedisInfoString(const char *section) {
             server.masterhost == NULL ? "master" : "slave");
         if (server.masterhost) {
             long long slave_repl_offset = 1;
+            long long slave_read_repl_offset = 1;
 
-            if (server.master)
+            if (server.master) {
                 slave_repl_offset = server.master->reploff;
-            else if (server.cached_master)
+                slave_read_repl_offset = server.master->read_reploff;
+            } else if (server.cached_master) {
                 slave_repl_offset = server.cached_master->reploff;
+                slave_read_repl_offset = server.cached_master->read_reploff;
+            }
 
             info = sdscatprintf(info,
                 "master_host:%s\r\n"
@@ -5107,6 +5154,7 @@ sds genRedisInfoString(const char *section) {
                 "master_link_status:%s\r\n"
                 "master_last_io_seconds_ago:%d\r\n"
                 "master_sync_in_progress:%d\r\n"
+                "slave_read_repl_offset:%lld\r\n"
                 "slave_repl_offset:%lld\r\n"
                 ,server.masterhost,
                 server.masterport,
@@ -5115,6 +5163,7 @@ sds genRedisInfoString(const char *section) {
                 server.master ?
                 ((int)(server.unixtime-server.master->lastinteraction)) : -1,
                 server.repl_state == REPL_STATE_TRANSFER,
+                slave_read_repl_offset,
                 slave_repl_offset
             );
 
@@ -5410,7 +5459,12 @@ void linuxMemoryWarnings(void) {
     if (linuxOvercommitMemoryValue() == 0) {
         serverLog(LL_WARNING,"WARNING overcommit_memory is set to 0! Background save may fail under low memory condition. To fix this issue add 'vm.overcommit_memory = 1' to /etc/sysctl.conf and then reboot or run the command 'sysctl vm.overcommit_memory=1' for this to take effect.");
     }
-    if (THPIsEnabled() && THPDisable()) {
+    if (THPIsEnabled()) {
+        server.thp_enabled = 1;
+        if (THPDisable() == 0) {
+            server.thp_enabled = 0;
+            return;
+        }
         serverLog(LL_WARNING,"WARNING you have Transparent Huge Pages (THP) support enabled in your kernel. This will create latency and memory usage issues with Redis. To fix this issue run the command 'echo madvise > /sys/kernel/mm/transparent_hugepage/enabled' as root, and add it to your /etc/rc.local in order to retain the setting after a reboot. Redis must be restarted after THP is disabled (set to 'madvise' or 'never').");
     }
 }
@@ -5832,7 +5886,6 @@ void setupChildSignalHandlers(void) {
     act.sa_flags = 0;
     act.sa_handler = sigKillChildHandler;
     sigaction(SIGUSR1, &act, NULL);
-    return;
 }
 
 /* After fork, the child process will inherit the resources
@@ -5862,10 +5915,17 @@ int redisFork(int purpose) {
     int childpid;
     long long start = ustime();
     if ((childpid = fork()) == 0) {
-        /* Child */
+        /* Child.
+         *
+         * The order of setting things up follows some reasoning:
+         * Setup signal handlers first because a signal could fire at any time.
+         * Adjust OOM score before everything else to assist the OOM killer if
+         * memory resources are low.
+         */
         server.in_fork_child = purpose;
-        setOOMScoreAdj(CONFIG_OOM_BGCHILD);
         setupChildSignalHandlers();
+        setOOMScoreAdj(CONFIG_OOM_BGCHILD);
+        dismissMemoryInChild();
         closeChildUnusedResourceAfterFork();
     } else {
         /* Parent */
@@ -5888,6 +5948,7 @@ int redisFork(int purpose) {
         if (isMutuallyExclusiveChildType(purpose)) {
             server.child_pid = childpid;
             server.child_type = purpose;
+            server.stat_current_cow_peak = 0;
             server.stat_current_cow_bytes = 0;
             server.stat_current_cow_updated = 0;
             server.stat_current_save_keys_processed = 0;
@@ -5909,6 +5970,87 @@ void sendChildCowInfo(childInfoType info_type, char *pname) {
 
 void sendChildInfo(childInfoType info_type, size_t keys, char *pname) {
     sendChildInfoGeneric(info_type, keys, -1, pname);
+}
+
+/* Try to release pages back to the OS directly (bypassing the allocator),
+ * in an effort to decrease CoW during fork. For small allocations, we can't
+ * release any full page, so in an effort to avoid getting the size of the
+ * allocation from the allocator (malloc_size) when we already know it's small,
+ * we check the size_hint. If the size is not already known, passing a size_hint
+ * of 0 will lead the checking the real size of the allocation.
+ * Also please note that the size may be not accurate, so in order to make this
+ * solution effective, the judgement for releasing memory pages should not be
+ * too strict. */
+void dismissMemory(void* ptr, size_t size_hint) {
+    if (ptr == NULL) return;
+
+    /* madvise(MADV_DONTNEED) can not release pages if the size of memory
+     * is too small, we try to release only for the memory which the size
+     * is more than half of page size. */
+    if (size_hint && size_hint <= server.page_size/2) return;
+
+    zmadvise_dontneed(ptr);
+}
+
+/* Dismiss big chunks of memory inside a client structure, see dismissMemory() */
+void dismissClientMemory(client *c) {
+    /* Dismiss client query buffer. */
+    dismissSds(c->querybuf);
+    dismissSds(c->pending_querybuf);
+    /* Dismiss argv array only if we estimate it contains a big buffer. */
+    if (c->argc && c->argv_len_sum/c->argc >= server.page_size) {
+        for (int i = 0; i < c->argc; i++) {
+            dismissObject(c->argv[i], 0);
+        }
+    }
+    if (c->argc) dismissMemory(c->argv, c->argc*sizeof(robj*));
+
+    /* Dismiss the reply array only if the average buffer size is bigger
+     * than a page. */
+    if (listLength(c->reply) &&
+        c->reply_bytes/listLength(c->reply) >= server.page_size)
+    {
+        listIter li;
+        listNode *ln;
+        listRewind(c->reply, &li);
+        while ((ln = listNext(&li))) {
+            clientReplyBlock *bulk = listNodeValue(ln);
+            /* Default bulk size is 16k, actually it has extra data, maybe it
+             * occupies 20k according to jemalloc bin size if using jemalloc. */
+            if (bulk) dismissMemory(bulk, bulk->size);
+        }
+    }
+
+    /* The client struct has a big static reply buffer in it. */
+    dismissMemory(c, 0);
+}
+
+/* In the child process, we don't need some buffers anymore, and these are
+ * likely to change in the parent when there's heavy write traffic.
+ * We dismis them right away, to avoid CoW.
+ * see dismissMemeory(). */
+void dismissMemoryInChild(void) {
+    /* madvise(MADV_DONTNEED) may not work if Transparent Huge Pages is enabled. */
+    if (server.thp_enabled) return;
+
+    /* Currently we use zmadvise_dontneed only when we use jemalloc with Linux.
+     * so we avoid these pointless loops when they're not going to do anything. */
+#if defined(USE_JEMALLOC) && defined(__linux__)
+
+    /* Dismiss replication backlog. */
+    if (server.repl_backlog != NULL) {
+        dismissMemory(server.repl_backlog, server.repl_backlog_size);
+    }
+
+    /* Dismiss all clients memory. */
+    listIter li;
+    listNode *ln;
+    listRewind(server.clients, &li);
+    while((ln = listNext(&li))) {
+        client *c = listNodeValue(ln);
+        dismissClientMemory(c);
+    }
+#endif
 }
 
 void memtest(size_t megabytes, int passes);
@@ -5936,28 +6078,45 @@ void loadDataFromDisk(void) {
     } else {
         rdbSaveInfo rsi = RDB_SAVE_INFO_INIT;
         errno = 0; /* Prevent a stale value from affecting error checking */
-        if (rdbLoad(server.rdb_filename,&rsi,RDBFLAGS_NONE) == C_OK) {
+        int rdb_flags = RDBFLAGS_NONE;
+        if (iAmMaster()) {
+            /* Master may delete expired keys when loading, we should
+             * propagate expire to replication backlog. */
+            createReplicationBacklog();
+            rdb_flags |= RDBFLAGS_FEED_REPL;
+        }
+        if (rdbLoad(server.rdb_filename,&rsi,rdb_flags) == C_OK) {
             serverLog(LL_NOTICE,"DB loaded from disk: %.3f seconds",
                 (float)(ustime()-start)/1000000);
 
             /* Restore the replication ID / offset from the RDB file. */
-            if ((server.masterhost ||
-                (server.cluster_enabled &&
-                nodeIsSlave(server.cluster->myself))) &&
-                rsi.repl_id_is_set &&
+            if (rsi.repl_id_is_set &&
                 rsi.repl_offset != -1 &&
                 /* Note that older implementations may save a repl_stream_db
                  * of -1 inside the RDB file in a wrong way, see more
                  * information in function rdbPopulateSaveInfo. */
                 rsi.repl_stream_db != -1)
             {
-                memcpy(server.replid,rsi.repl_id,sizeof(server.replid));
-                server.master_repl_offset = rsi.repl_offset;
-                /* If we are a slave, create a cached master from this
-                 * information, in order to allow partial resynchronization
-                 * with masters. */
-                replicationCacheMasterUsingMyself();
-                selectDb(server.cached_master,rsi.repl_stream_db);
+                if (!iAmMaster()) {
+                    memcpy(server.replid,rsi.repl_id,sizeof(server.replid));
+                    server.master_repl_offset = rsi.repl_offset;
+                    /* If this is a replica, create a cached master from this
+                     * information, in order to allow partial resynchronizations
+                     * with masters. */
+                    replicationCacheMasterUsingMyself();
+                    selectDb(server.cached_master,rsi.repl_stream_db);
+                } else {
+                    /* If this is a master, we can save the replication info
+                     * as secondary ID and offset, in order to allow replicas
+                     * to partial resynchronizations with masters. */
+                    memcpy(server.replid2,rsi.repl_id,sizeof(server.replid));
+                    server.second_replid_offset = rsi.repl_offset+1;
+                    /* Rebase master_repl_offset from rsi.repl_offset. */
+                    server.master_repl_offset += rsi.repl_offset;
+                    server.repl_backlog_off = server.master_repl_offset -
+                              server.repl_backlog_histlen + 1;
+                    server.repl_no_slaves_since = time(NULL);
+                }
             }
         } else if (errno != ENOENT) {
             serverLog(LL_WARNING,"Fatal error loading the DB: %s. Exiting.",strerror(errno));
@@ -6145,7 +6304,8 @@ struct redisTest {
     {"crc64", crc64Test},
     {"zmalloc", zmalloc_test},
     {"sds", sdsTest},
-    {"dict", dictTest}
+    {"dict", dictTest},
+    {"listpack", listpackTest}
 };
 redisTestProc *getTestProcByName(const char *name) {
     int numtests = sizeof(redisTests)/sizeof(struct redisTest);

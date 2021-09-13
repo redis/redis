@@ -1444,8 +1444,8 @@ void replicationSendNewlineToMaster(void) {
 
 /* Callback used by emptyDb() while flushing away old data to load
  * the new dataset received by the master. */
-void replicationEmptyDbCallback(void *privdata) {
-    UNUSED(privdata);
+void replicationEmptyDbCallback(dict *d) {
+    UNUSED(d);
     if (server.repl_state == REPL_STATE_TRANSFER)
         replicationSendNewlineToMaster();
 }
@@ -1731,6 +1731,18 @@ void readSyncBulkPayload(connection *conn) {
          * dictionaries. */
         diskless_load_backup = disklessLoadMakeBackup();
     }
+
+    /* Replica starts to apply data from new master, we must discard the cached
+     * master structure. */
+    serverAssert(server.master == NULL);
+    replicationDiscardCachedMaster();
+
+    /* We want our slaves to resync with us as well, if we have any sub-slaves.
+     * The master already transferred us an entirely different data set and we
+     * have no way to incrementally feed our slaves after that. */
+    disconnectSlaves(); /* Force our slaves to resync with us as well. */
+    freeReplicationBacklog(); /* Don't allow our chained slaves to PSYNC. */
+
     /* We call to emptyDb even in case of REPL_DISKLESS_LOAD_SWAPDB
      * (Where disklessLoadMakeBackup left server.db empty) because we
      * want to execute all the auxiliary logic of emptyDb (Namely,
@@ -2140,8 +2152,6 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
                 server.master_replid,
                 server.master_initial_offset);
         }
-        /* We are going to full resync, discard the cached master structure. */
-        replicationDiscardCachedMaster();
         sdsfree(reply);
         return PSYNC_FULLRESYNC;
     }
@@ -2221,7 +2231,6 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
             "error state (reply: %s)", reply);
     }
     sdsfree(reply);
-    replicationDiscardCachedMaster();
     return PSYNC_NOT_SUPPORTED;
 }
 
@@ -2463,13 +2472,6 @@ void syncWithMaster(connection *conn) {
         return;
     }
 
-    /* PSYNC failed or is not supported: we want our slaves to resync with us
-     * as well, if we have any sub-slaves. The master may transfer us an
-     * entirely different data set and we have no way to incrementally feed
-     * our slaves after that. */
-    disconnectSlaves(); /* Force our slaves to resync with us as well. */
-    freeReplicationBacklog(); /* Don't allow our chained slaves to PSYNC. */
-
     /* Fall back to SYNC if needed. Otherwise psync_result == PSYNC_FULLRESYNC
      * and the server.master_replid and master_initial_offset are
      * already populated. */
@@ -2631,9 +2633,12 @@ void replicationSetMaster(char *ip, int port) {
     /* Update oom_score_adj */
     setOOMScoreAdj(-1);
 
-    /* Force our slaves to resync with us as well. They may hopefully be able
-     * to partially resync with us, but we can notify the replid change. */
-    disconnectSlaves();
+    /* Here we don't disconnect with replicas, since they may hopefully be able
+     * to partially resync with us. We will disconnect with replicas and force
+     * them to resync with us when changing replid on partially resync with new
+     * master, or finishing transferring RDB and preparing loading DB on full
+     * sync with new master. */
+
     cancelReplicationHandshake(0);
     /* Before destroying our master state, create a cached master using
      * our own parameters, to later PSYNC with the new master. */
@@ -3078,7 +3083,7 @@ void refreshGoodSlavesCount(void) {
 /* Initialize the script cache, only called at startup. */
 void replicationScriptCacheInit(void) {
     server.repl_scriptcache_size = 10000;
-    server.repl_scriptcache_dict = dictCreate(&replScriptCacheDictType,NULL);
+    server.repl_scriptcache_dict = dictCreate(&replScriptCacheDictType);
     server.repl_scriptcache_fifo = listCreate();
 }
 
