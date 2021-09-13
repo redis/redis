@@ -2121,6 +2121,11 @@ void zuiClearIterator(zsetopsrc *op) {
     }
 }
 
+void zuiDiscardDirtyValue(zsetopval *val) {
+    if (val->flags & OPVAL_DIRTY_SDS)
+        sdsfree(val->ele);
+}
+
 unsigned long zuiLength(zsetopsrc *op) {
     if (op->subject == NULL)
         return 0;
@@ -2155,8 +2160,7 @@ int zuiNext(zsetopsrc *op, zsetopval *val) {
     if (op->subject == NULL)
         return 0;
 
-    if (val->flags & OPVAL_DIRTY_SDS)
-        sdsfree(val->ele);
+    zuiDiscardDirtyValue(val);
 
     memset(val,0,sizeof(zsetopval));
 
@@ -2720,9 +2724,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                     /* We stop the searching after reaching the limit. */
                     if (limit && cardinality >= limit) {
                         /* Cleanup before we break the zuiNext loop. */
-                        if (zval.flags & OPVAL_DIRTY_SDS)
-                            sdsfree(zval.ele);
-
+                        zuiDiscardDirtyValue(&zval);
                         break;
                     }
                 } else if (j == setnum) {
