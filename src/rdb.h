@@ -128,6 +128,7 @@
 #define RDBFLAGS_AOF_PREAMBLE (1<<0)    /* Load/save the RDB as AOF preamble. */
 #define RDBFLAGS_REPLICATION (1<<1)     /* Load/save for SYNC. */
 #define RDBFLAGS_ALLOW_DUP (1<<2)       /* Allow duplicated keys when loading.*/
+#define RDBFLAGS_FEED_REPL (1<<3)       /* Feed replication stream when loading.*/
 
 /* When rdbLoadObject() returns NULL, the err flag is
  * set to hold the type of error that occurred */
