@@ -54,6 +54,7 @@ set ::all_tests {
     integration/psync2
     integration/psync2-reg
     integration/psync2-pingoff
+    integration/psync2-master-restart
     integration/failover
     integration/redis-cli
     integration/redis-benchmark
