@@ -362,6 +362,7 @@ robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {
         o = createRawStringObject(decoded->ptr, sdslen(decoded->ptr));
         decrRefCount(decoded);
         dictEntry *de = dictFind(db->dict, key->ptr);
+        serverAssertWithInfo(NULL,key,de != NULL);
         dictEntry auxentry = *de;
         if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
             robj *old = dictGetVal(de);
