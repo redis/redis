@@ -72,10 +72,10 @@ start_server {} {
         $master debug set-active-expire 0
         for {set j 0} {$j < 1024} {incr j} {
             $master select [expr $j%16]
-            $master setex $j 1 somevalue
+            $master set $j somevalue px 10
         }
 
-        after 1100
+        after 20
 
         wait_for_condition 500 100 {
             [status $master master_repl_offset] == [status $replica master_repl_offset] &&
@@ -120,10 +120,10 @@ start_server {} {
         $master debug set-active-expire 0
         for {set j 0} {$j < 1024} {incr j} {
             $master select [expr $j%16]
-            $master setex $j 1 somevalue
+            $master set $j somevalue px 10
         }
 
-        after 1100
+        after 20
 
         wait_for_condition 500 100 {
             [status $master master_repl_offset] == [status $replica master_repl_offset] &&

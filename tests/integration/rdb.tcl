@@ -214,9 +214,9 @@ start_server {} {
         r debug set-active-expire 0
         for {set j 0} {$j < 1024} {incr j} {
             r select [expr $j%16]
-            r setex $j 1 somevalue
+            r set $j somevalue px 10
         }
-        after 1100
+        after 20
 
         r save
         restart_server 0 true false
