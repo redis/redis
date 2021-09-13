@@ -4810,7 +4810,7 @@ int moduleAllDatatypesHandleErrors() {
 /* Returns 0 if module did not declare REDISMODULE_OPTIONS_HANDLE_REPL_ASYNC_LOAD, in which case
  * diskless async loading should be avoided because module doesn't know there can be traffic during
  * database full resynchronization. */
-int moduleHandleReplAsyncLoad() {
+int moduleAllModulesHandleReplAsyncLoad() {
     dictIterator *di = dictGetIterator(modules);
     dictEntry *de;
 

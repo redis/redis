@@ -1846,7 +1846,7 @@ void ModuleForkDoneHandler(int exitcode, int bysignal);
 int TerminateModuleForkChild(int child_pid, int wait);
 ssize_t rdbSaveModulesAux(rio *rdb, int when);
 int moduleAllDatatypesHandleErrors();
-int moduleHandleReplAsyncLoad();
+int moduleAllModulesHandleReplAsyncLoad();
 sds modulesCollectInfo(sds info, const char *section, int for_crash_report, int sections);
 void moduleFireServerEvent(uint64_t eid, int subid, void *data);
 void processModuleLoadingProgressEvent(int is_aof);

@@ -1518,7 +1518,7 @@ static int useDisklessLoad() {
             enabled = 0;
         }
         /* Check all modules handle async replication, otherwise it's not safe to use diskless load. */
-        else if (server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB && !moduleHandleReplAsyncLoad()) {
+        else if (server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB && !moduleAllModulesHandleReplAsyncLoad()) {
             serverLog(LL_WARNING,
                 "Skipping diskless-load because there are modules that are not aware of async replication.");
             enabled = 0;
@@ -1748,9 +1748,9 @@ void readSyncBulkPayload(connection *conn) {
     }
 
     /* Before loading the DB into memory we need to delete the readable
-    * handler, otherwise it will get called recursively since
-    * rdbLoad() will call the event loop to process events from time to
-    * time for non blocking loading. */
+     * handler, otherwise it will get called recursively since
+     * rdbLoad() will call the event loop to process events from time to
+     * time for non blocking loading. */
     connSetReadHandler(conn, NULL);
     
     serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Loading DB in memory");
