@@ -13,10 +13,6 @@ foreach_sentinel_id id {
 
 set ::alive_sentinel [expr {$::instances_count/2+2}]
 proc ensure_master_up {} {
-    S $::alive_sentinel sentinel debug info-period 1000
-    S $::alive_sentinel sentinel debug ping-period 100
-    S $::alive_sentinel sentinel debug ask-period 100
-    S $::alive_sentinel sentinel debug publish-period 100
     wait_for_condition 1000 50 {
         [dict get [S $::alive_sentinel sentinel master mymaster] flags] eq "master"
     } else {
@@ -24,12 +20,7 @@ proc ensure_master_up {} {
     }
 }
 
-
 proc ensure_master_down {} {
-    S $::alive_sentinel sentinel debug info-period 1000
-    S $::alive_sentinel sentinel debug ping-period 100
-    S $::alive_sentinel sentinel debug ask-period 100
-    S $::alive_sentinel sentinel debug publish-period 100
     wait_for_condition 1000 50 {
         [string match *down* \
             [dict get [S $::alive_sentinel sentinel master mymaster] flags]]
