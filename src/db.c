@@ -1459,9 +1459,6 @@ void propagateExpire(redisDb *db, robj *key, int lazy) {
 
 /* Check if the key is expired. */
 int keyIsExpired(redisDb *db, robj *key) {
-    /* Don't expire anything while loading. It will be done later. */
-    if (server.loading || server.async_loading) return 0;
-
     mstime_t when = getExpire(db,key);
     mstime_t now;
 
