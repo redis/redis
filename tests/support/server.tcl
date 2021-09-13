@@ -33,6 +33,11 @@ proc kill_server config {
     # nothing to kill when running against external server
     if {$::external} return
 
+    # Close client connection if exists
+    if {[dict exists $config "client"]} {
+        [dict get $config "client"] close
+    }
+
     # nevermind if its already dead
     if {![is_alive $config]} {
         # Check valgrind errors if needed
@@ -629,6 +634,8 @@ proc start_server {options {code undefined}} {
 proc restart_server {level wait_ready rotate_logs {reconnect 1}} {
     set srv [lindex $::servers end+$level]
     kill_server $srv
+    # Remove the default client from the server
+    dict unset srv "client"
 
     set pid [dict get $srv "pid"]
     set stdout [dict get $srv "stdout"]
