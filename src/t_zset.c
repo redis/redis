@@ -3718,30 +3718,23 @@ void zscanCommand(client *c) {
 }
 
 /* This command implements the generic zpop operation, used by:
- * ZPOPMIN, ZPOPMAX, BZPOPMIN and BZPOPMAX. This function is also used
- * inside blocked.c in the unblocking stage of BZPOPMIN and BZPOPMAX.
+ * ZPOPMIN, ZPOPMAX, BZPOPMIN, BZPOPMAX and ZMPOP. This function is also used
+ * inside blocked.c in the unblocking stage of BZPOPMIN, BZPOPMAX and BZMPOP.
  *
  * If 'emitkey' is true also the key name is emitted, useful for the blocking
  * behavior of BZPOP[MIN|MAX], since we can block into multiple keys.
- * Or in ZMPOP, because we also can take multiple keys.
+ * Or in ZMPOP/BZMPOP, because we also can take multiple keys.
  *
  * 'count' is the number of elements requested to pop, or 0 for plain single pop.
- * The synchronous version instead does not need to emit the key, but may
- * use the 'count' argument to return multiple items if available.
  *
- * todo: use_nested_array_with_key need a better name and a comment
- * should we document the response here?
- * [B]ZMPOP
- *  1) keyname
- *  2) 1) 1) element1
- *        2) score1
- *     2) 1) element2
- *        2) score2
+ * 'use_nested_array' when false it generates a flat array (with or without key name).
+ * When true, it generates a nested 2 level array of field + score pairs, or 3 level when emitkey is set.
  *
  * 'deleted' is an optional output argument to get an indication
- * if the key got deleted by this function. */
+ * if the key got deleted by this function.
+ * */
 void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey,
-                        long count, int use_nested_array_with_key, int *deleted) {
+                        long count, int use_nested_array, int *deleted) {
     int idx;
     robj *key = NULL;
     robj *zobj = NULL;
@@ -3760,17 +3753,19 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
         break;
     }
 
-    /* No candidate for zpopping, return empty. */
     if (!zobj) {
+        /* No candidate for zpopping, return NIL in ZMPOP. */
+        if (c->cmd->proc == zmpopCommand) {
+            addReplyNullArray(c);
+            return;
+        }
+
+        /* No candidate for zpopping, return empty. */
         addReply(c,shared.emptyarray);
         return;
     }
 
     long result_count = 0;
-
-    /* Respond with a single (flat) array in RESP2 or if count is 0
-     * (returning a single element). In RESP3, when count > 0 use nested array. */
-    int use_nested_array = (c->resp > 2 && count != 0);
 
     /* When count is 0, we need to correct it to 1 for plain single pop. */
     if (count == 0) count = 1;
@@ -3778,24 +3773,22 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
     long llen = zsetLength(zobj);
     long rangelen = (count > llen) ? llen : count;
 
-    /* need a comment... */
-    if (use_nested_array_with_key) {
+    if (!use_nested_array && !emitkey) {
+        /* ZPOPMIN/ZPOPMAX with or without COUNT option in RESP2. */
+        addReplyArrayLen(c, rangelen * 2);
+    } else if (use_nested_array && !emitkey) {
+        /* ZPOPMIN/ZPOPMAX with COUNT option in RESP3. */
+        addReplyArrayLen(c, rangelen);
+    } else if (!use_nested_array && emitkey) {
+        /* BZPOPMIN/BZPOPMAX in RESP2 and RESP3. */
+        addReplyArrayLen(c, rangelen * 2 + 1);
+        addReplyBulk(c, key);
+    } else if (use_nested_array && emitkey) {
         /* ZMPOP/BZMPOP in RESP2 and RESP3. */
         addReplyArrayLen(c, 2);
-    } else {
-        if (use_nested_array) {
-            /* ZPOPMIN/ZPOPMAX with COUNT option in RESP3. */
-            addReplyArrayLen(c, rangelen + (emitkey != 0));
-        } else {
-            /* BZPOPMIN/BZPOPMAX in RESP2 and RESP3 or ZPOPMIN/ZPOPMAX in RESP2. */
-            addReplyArrayLen(c, rangelen * 2 + (emitkey != 0));
-        }
+        addReplyBulk(c, key);
+        addReplyArrayLen(c, rangelen);
     }
-
-    /* We emit the key only for the blocking variant or in ZMPOP/BZMPOP. */
-    if (emitkey || use_nested_array_with_key) addReplyBulk(c,key);
-
-    if (use_nested_array_with_key) addReplyArrayLen(c, rangelen);
 
     /* Remove the element. */
     do {
@@ -3845,7 +3838,7 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
             signalModifiedKey(c,c->db,key);
         }
 
-        if (use_nested_array || use_nested_array_with_key) {
+        if (use_nested_array) {
             addReplyArrayLen(c,2);
         }
         addReplyBulkCBuffer(c,ele,sdslen(ele));
@@ -3881,8 +3874,12 @@ void zpopMinMaxCommand(client *c, int where) {
         }
     }
 
+    /* Respond with a single (flat) array in RESP2 or if count is 0
+     * (returning a single element). In RESP3, when count > 0 use nested array. */
+    int use_nested_array = (c->resp > 2 && count != 0);
+
     genericZpopCommand(c, &c->argv[1], 1, where, 0,
-                       count, 0, NULL);
+                       count, use_nested_array, NULL);
 }
 
 /* ZPOPMIN key [<count>] */
@@ -3898,12 +3895,18 @@ void zpopmaxCommand(client *c) {
 /* BZPOPMIN, BZPOPMAX, BZMPOP actual implementation.
  *
  * 'numkeys' is the number of keys.
+ *
  * 'timeout_idx' parameter position of block timeout.
+ *
  * 'where' ZSET_MIN or ZSET_MAX.
+ *
  * 'count' is the number of elements requested to pop, or 0 for plain single pop.
- * 'use_nested_array_with_key' todo need a comment and a new name */
+ *
+ * 'use_nested_array' when false it generates a flat array (with or without key name).
+ * When true, it generates a nested 3 level array of keyname, field + score pairs.
+ * */
 void blockingGenericZpopCommand(client *c, robj **keys, int numkeys, int where,
-                                int timeout_idx, long count, int use_nested_array_with_key) {
+                                int timeout_idx, long count, int use_nested_array) {
     robj *o;
     robj *key;
     mstime_t timeout;
@@ -3924,28 +3927,24 @@ void blockingGenericZpopCommand(client *c, robj **keys, int numkeys, int where,
         /* Empty zset, move to next key. */
         if (llen == 0) continue;
 
-        if (count != 0) {
-            /* BZMPOP, non empty zset, like a normal ZPOP[MIN|MAX] with count option.
-             * The difference here we pop a range of elements in a nested arrays way. */
-            genericZpopCommand(c, &key, 1, where, 1, count,
-                               use_nested_array_with_key, NULL);
+        /* Non empty zset, this is like a normal ZPOP[MIN|MAX]. */
+        genericZpopCommand(c, &key, 1, where, 1, count,
+                           use_nested_array, NULL);
 
-            /* Replicate it as ZPOP[MIN|MAX] COUNT. */
+        if (count == 0) {
+            /* Replicate it as ZPOP[MIN|MAX] instead of BZPOP[MIN|MAX]. */
+            rewriteClientCommandVector(c,2,
+                                       (where == ZSET_MAX) ? shared.zpopmax : shared.zpopmin,
+                                       key);
+        } else {
+            /* Replicate it as ZPOP[MIN|MAX] with COUNT option. */
             robj *count_obj = createStringObjectFromLongLong((count > llen) ? llen : count);
             rewriteClientCommandVector(c, 3,
                                        (where == ZSET_MAX) ? shared.zpopmax : shared.zpopmin,
                                        key, count_obj);
             decrRefCount(count_obj);
-            return;
         }
 
-        /* Non empty zset, this is like a normal ZPOP[MIN|MAX]. */
-        genericZpopCommand(c, &key, 1, where, 1, count,
-                           use_nested_array_with_key, NULL);
-        /* Replicate it as an ZPOP[MIN|MAX] instead of BZPOP[MIN|MAX]. */
-        rewriteClientCommandVector(c,2,
-            where == ZSET_MAX ? shared.zpopmax : shared.zpopmin,
-            key);
         return;
     }
 
@@ -3963,12 +3962,14 @@ void blockingGenericZpopCommand(client *c, robj **keys, int numkeys, int where,
 
 // BZPOPMIN key [key ...] timeout
 void bzpopminCommand(client *c) {
-    blockingGenericZpopCommand(c,c->argv+1,c->argc-2,ZSET_MIN,c->argc-1,0,0);
+    blockingGenericZpopCommand(c, c->argv+1, c->argc-2, ZSET_MIN,
+                               c->argc-1, 0, 0);
 }
 
 // BZPOPMAX key [key ...] timeout
 void bzpopmaxCommand(client *c) {
-    blockingGenericZpopCommand(c,c->argv+1,c->argc-2,ZSET_MAX,c->argc-1,0,0);
+    blockingGenericZpopCommand(c, c->argv+1, c->argc-2, ZSET_MAX,
+                               c->argc-1, 0, 0);
 }
 
 static void zarndmemberReplyWithListpack(client *c, unsigned int count, listpackEntry *keys, listpackEntry *vals) {
@@ -4267,10 +4268,12 @@ void zmpopGenericCommand(client *c, int numkeys_idx, int is_block) {
 
     if (is_block) {
         /* BLOCK. We will handle CLIENT_DENY_BLOCKING flag in blockingGenericZpopCommand. */
-        blockingGenericZpopCommand(c, c->argv+numkeys_idx+1, numkeys, where, 1, count, 1);
+        blockingGenericZpopCommand(c, c->argv+numkeys_idx+1, numkeys, where,
+                                   1, count, 1);
     } else {
         /* NON-BLOCK */
-        genericZpopCommand(c, c->argv+numkeys_idx+1, numkeys, where, 1, count, 1, NULL);
+        genericZpopCommand(c, c->argv+numkeys_idx+1, numkeys, where, 1,
+                           count, 1, NULL);
     }
 }
 

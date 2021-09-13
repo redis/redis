@@ -322,7 +322,7 @@ void serveClientsBlockedOnSortedSetKey(robj *o, readyList *rl) {
         int numclients = listLength(clients);
         int deleted = 0;
 
-        while(numclients--) {
+        while (numclients--) {
             listNode *clientnode = listFirst(clients);
             client *receiver = clientnode->value;
 
@@ -336,13 +336,13 @@ void serveClientsBlockedOnSortedSetKey(robj *o, readyList *rl) {
             long llen = zsetLength(o);
             long count = receiver->bpop.count;
             int where = receiver->bpop.blockpos.wherefrom;
-            int use_nested_array_with_key = (receiver->lastcmd &&
-                                             receiver->lastcmd->proc == bzmpopCommand)
-                                             ? 1 : 0;
+            int use_nested_array = (receiver->lastcmd &&
+                                    receiver->lastcmd->proc == bzmpopCommand)
+                                    ? 1 : 0;
 
             monotime replyTimer;
             elapsedStart(&replyTimer);
-            genericZpopCommand(receiver,&rl->key,1,where,1,count,use_nested_array_with_key,&deleted);
+            genericZpopCommand(receiver, &rl->key, 1, where, 1, count, use_nested_array, &deleted);
             updateStatsOnUnblock(receiver, 0, elapsedUs(replyTimer));
             unblockClient(receiver);
 
@@ -354,13 +354,13 @@ void serveClientsBlockedOnSortedSetKey(robj *o, readyList *rl) {
                                        server.zpopmaxCommand;
             argv[0] = createStringObject(cmd->name,strlen(cmd->name));
             argv[1] = rl->key;
+            incrRefCount(rl->key);
             if (count != 0) {
                 /* Replicate it as command with COUNT. */
                 robj *count_obj = createStringObjectFromLongLong((count > llen) ? llen : count);
                 argv[2] = count_obj;
                 argc++;
             }
-            incrRefCount(rl->key);
             propagate(cmd,receiver->db->id,
                       argv,argc,PROPAGATE_AOF|PROPAGATE_REPL);
             decrRefCount(argv[0]);
