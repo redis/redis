@@ -1215,7 +1215,6 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
     dictEntry *de;
     char magic[10];
     uint64_t cksum;
-    size_t processed = 0;
     int j;
     long key_count = 0;
     long long info_updated_time = 0;
@@ -1262,16 +1261,6 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
              * mechanism a hint about an estimated size of the object we stored. */
             size_t dump_size = rdb->processed_bytes - rdb_bytes_before_key;
             if (server.in_fork_child) dismissObject(o, dump_size);
-
-            /* When this RDB is produced as part of an AOF rewrite, move
-             * accumulated diff from parent to child while rewriting in
-             * order to have a smaller final write. */
-            if (rdbflags & RDBFLAGS_AOF_PREAMBLE &&
-                rdb->processed_bytes > processed+AOF_READ_DIFF_INTERVAL_BYTES)
-            {
-                processed = rdb->processed_bytes;
-                aofReadDiffFromParent();
-            }
 
             /* Update child info every 1 second (approximately).
              * in order to avoid calling mstime() on each iteration, we will

@@ -284,14 +284,14 @@ start_server {tags {"expire"}} {
     } {-2}
 
     # Start a new server with empty data and AOF file.
-    start_server {overrides {appendonly {yes} appendfilename {appendonly.aof} appendfsync always} tags {external:skip}} {
+    start_server {overrides {appendonly {yes} aof-ping-filename {appendonly.ping} appendfsync always} tags {external:skip}} {
         test {All time-to-live(TTL) in commands are propagated as absolute timestamp in milliseconds in AOF} {
             # This test makes sure that expire times are propagated as absolute
             # times to the AOF file and not as relative time, so that when the AOF
             # is reloaded the TTLs are not being shifted forward to the future.
             # We want the time to logically pass when the server is restarted!
 
-            set aof [file join [lindex [r config get dir] 1] [lindex [r config get appendfilename] 1]]
+            set aof [file join [lindex [r config get dir] 1] [lindex [r config get aof-ping-filename] 1]]
 
             # Apply each TTL-related command to a unique key
             # SET commands

@@ -556,9 +556,16 @@ NULL
         if (server.aof_state != AOF_OFF) flushAppendOnlyFile(1);
         emptyDb(-1,EMPTYDB_NO_FLAGS,NULL);
         protectClient(c);
-        int ret = loadAppendOnlyFile(server.aof_filename);
-        if (ret != AOF_OK && ret != AOF_EMPTY)
-            exit(1);
+        for (int type = AOF_TYPE_BASE; type < AOF_TYPE_TEMP; type++) {
+            int ret = loadAppendOnlyFile(type);
+            if (ret == AOF_FAILED || ret == AOF_OPEN_ERR)
+                exit(1);
+
+            if (ret == AOF_OK) {
+                server.aof_current_type = type;
+            }
+        }
+
         unprotectClient(c);
         server.dirty = 0; /* Prevent AOF / replication */
         serverLog(LL_WARNING,"Append Only File loaded by DEBUG LOADAOF");

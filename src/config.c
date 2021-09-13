@@ -2345,6 +2345,79 @@ static int isValidAOFfilename(char *val, const char **err) {
         *err = "appendfilename can't be a path, just a filename";
         return 0;
     }
+
+    char *temp_filename = aofGetFileNameByType(AOF_TYPE_TEMP);
+    if (temp_filename && !memcmp(val, temp_filename, strlen(val))) {
+        *err = "appendfilename can't be equal to TEMP filename";
+        return 0;
+    }
+
+    char *ping_filename = aofGetFileNameByType(AOF_TYPE_PING);
+    if (ping_filename && !memcmp(val, ping_filename, strlen(val))) {
+        *err = "appendfilename can't be equal to PING filename";
+        return 0;
+    }
+
+    char *pong_filename = aofGetFileNameByType(AOF_TYPE_PONG);
+    if (ping_filename && !memcmp(val, pong_filename, strlen(val))) {
+        *err = "appendfilename can't be equal to PONG filename";
+        return 0;
+    }
+
+    return 1;
+}
+
+static int isValidPingAOFfilename(char *val, const char **err) {
+    if (!pathIsBaseName(val)) {
+        *err = "aof-ping-filename can't be a path, just a filename";
+        return 0;
+    }
+
+    char *temp_filename = aofGetFileNameByType(AOF_TYPE_TEMP);
+    if (temp_filename && !memcmp(val, temp_filename, strlen(val))) {
+        *err = "aof-ping-filename can't be equal to TEMP filename";
+        return 0;
+    }
+
+    char *base_filename = aofGetFileNameByType(AOF_TYPE_BASE);
+    if (base_filename && !memcmp(val, base_filename, strlen(val))) {
+        *err = "aof-ping-filename can't be equal to BASE filename";
+        return 0;
+    }
+
+    char *pong_filename = aofGetFileNameByType(AOF_TYPE_PONG);
+    if (pong_filename && !memcmp(val, pong_filename, strlen(val))) {
+        *err = "aof-ping-filename can't be equal to PONG filename";
+        return 0;
+    }
+
+    return 1;
+}
+
+static int isValidPongAOFfilename(char *val, const char **err) {
+    if (!pathIsBaseName(val)) {
+        *err = "aof-pong-filename can't be a path, just a filename";
+        return 0;
+    }
+
+    char *temp_filename = aofGetFileNameByType(AOF_TYPE_TEMP);
+    if (temp_filename && !memcmp(val, temp_filename, strlen(val))) {
+        *err = "aof-pong-filename can't be equal to TEMP filename";
+        return 0;
+    }
+
+    char *ping_filename = aofGetFileNameByType(AOF_TYPE_PING);
+    if (ping_filename && !memcmp(val, ping_filename, strlen(val))) {
+        *err = "aof-pong-filename can't be equal to PING filename";
+        return 0;
+    }
+
+    char *base_filename = aofGetFileNameByType(AOF_TYPE_BASE);
+    if (base_filename && !memcmp(val, base_filename, strlen(val))) {
+        *err = "aof-pong-filename can't be equal to BASE filename";
+        return 0;
+    }
+
     return 1;
 }
 
@@ -2609,6 +2682,8 @@ standardConfig configs[] = {
     createStringConfig("syslog-ident", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.syslog_ident, "redis", NULL, NULL),
     createStringConfig("dbfilename", NULL, MODIFIABLE_CONFIG, ALLOW_EMPTY_STRING, server.rdb_filename, "dump.rdb", isValidDBfilename, NULL),
     createStringConfig("appendfilename", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.aof_filename, "appendonly.aof", isValidAOFfilename, NULL),
+    createStringConfig("aof-ping-filename", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.aof_ping_filename, "appendonly.ping", isValidPingAOFfilename, NULL),
+    createStringConfig("aof-pong-filename", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.aof_pong_filename, "appendonly.pong", isValidPongAOFfilename, NULL),
     createStringConfig("server_cpulist", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.server_cpulist, NULL, NULL, NULL),
     createStringConfig("bio_cpulist", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.bio_cpulist, NULL, NULL, NULL),
     createStringConfig("aof_rewrite_cpulist", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.aof_rewrite_cpulist, NULL, NULL, NULL),

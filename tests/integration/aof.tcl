@@ -1,6 +1,6 @@
-set defaults { appendonly {yes} appendfilename {appendonly.aof} }
+set defaults { appendonly {yes} aof-ping-filename {appendonly.ping} }
 set server_path [tmpdir server.aof]
-set aof_path "$server_path/appendonly.aof"
+set aof_path "$server_path/appendonly.ping"
 
 proc append_to_aof {str} {
     upvar fp fp
@@ -247,14 +247,14 @@ tags {"aof external:skip"} {
         }
     }
 
-    start_server {overrides {appendonly {yes} appendfilename {appendonly.aof}}} {
+    start_server {overrides {appendonly {yes} aof-ping-filename {appendonly.ping}}} {
         test {Redis should not try to convert DEL into EXPIREAT for EXPIRE -1} {
             r set x 10
             r expire x -1
         }
     }
 
-    start_server {overrides {appendonly {yes} appendfilename {appendonly.aof} appendfsync always}} {
+    start_server {overrides {appendonly {yes} aof-ping-filename {appendonly.ping} appendfsync always}} {
         test {AOF fsync always barrier issue} {
             set rd [redis_deferring_client]
             # Set a sleep when aof is flushed, so that we have a chance to look
@@ -272,7 +272,7 @@ tags {"aof external:skip"} {
                 r del x
                 r setrange x [expr {int(rand()*5000000)+10000000}] x
                 r debug aof-flush-sleep 500000
-                set aof [file join [lindex [r config get dir] 1] appendonly.aof]
+                set aof [file join [lindex [r config get dir] 1] appendonly.ping]
                 set size1 [file size $aof]
                 $rd get x
                 after [expr {int(rand()*30)}]
@@ -285,9 +285,9 @@ tags {"aof external:skip"} {
         }
     }
 
-    start_server {overrides {appendonly {yes} appendfilename {appendonly.aof}}} {
+    start_server {overrides {appendonly {yes} aof-ping-filename {appendonly.ping}}} {
         test {GETEX should not append to AOF} {
-            set aof [file join [lindex [r config get dir] 1] appendonly.aof]
+            set aof [file join [lindex [r config get dir] 1] appendonly.ping]
             r set foo bar
             set before [file size $aof]
             r getex foo

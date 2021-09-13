@@ -24,9 +24,13 @@ proc clean_persistence config {
     # files right away, since they can accumulate and take up a lot of space
     set config [dict get $config "config"]
     set rdb [format "%s/%s" [dict get $config "dir"] "dump.rdb"]
-    set aof [format "%s/%s" [dict get $config "dir"] "appendonly.aof"]
+    set aof_base [format "%s/%s" [dict get $config "dir"] "appendonly.aof"]
+    set aof_ping [format "%s/%s" [dict get $config "dir"] "appendonly.ping"]
+    set aof_pong [format "%s/%s" [dict get $config "dir"] "appendonly.pong"]
     catch {exec rm -rf $rdb}
-    catch {exec rm -rf $aof}
+    catch {exec rm -rf $aof_base}
+    catch {exec rm -rf $aof_ping}
+    catch {exec rm -rf $aof_pong}
 }
 
 proc kill_server config {

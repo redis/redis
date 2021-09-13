@@ -248,6 +248,13 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define AOF_OPEN_ERR 3
 #define AOF_FAILED 4
 
+/* AOF type definitions */
+#define AOF_TYPE_NONE 0
+#define AOF_TYPE_BASE 1
+#define AOF_TYPE_PING 2
+#define AOF_TYPE_PONG 3
+#define AOF_TYPE_TEMP 4
+
 /* Client flags */
 #define CLIENT_SLAVE (1<<0)   /* This client is a replica */
 #define CLIENT_MASTER (1<<1)  /* This client is a master */
@@ -1423,17 +1430,23 @@ struct redisServer {
     int aof_state;                  /* AOF_(ON|OFF|WAIT_REWRITE) */
     int aof_fsync;                  /* Kind of fsync() policy */
     char *aof_filename;             /* Name of the AOF file */
+    char *aof_ping_filename;        /* Name of the first aof incremental file  */
+    char *aof_pong_filename;        /* Name of the second aof incremental file */
+    int aof_current_type;           /* AOF current type AOF_TYPE_BASE/AOF_TYPE_PING/AOF_TYPE_PONG */
     int aof_no_fsync_on_rewrite;    /* Don't fsync if a rewrite is in prog. */
     int aof_rewrite_perc;           /* Rewrite AOF if % growth is > M and... */
     off_t aof_rewrite_min_size;     /* the AOF file is at least N bytes. */
     off_t aof_rewrite_base_size;    /* AOF size on latest startup or rewrite. */
-    off_t aof_current_size;         /* AOF current size. */
+    off_t aof_current_size;         /* AOF current size. include AOF_TYPE_BASE/AOF_TYPE_PING/AOF_TYPE_PONG. */
+    off_t aof_working_size;         /* AOF current working size. maybe AOF_TYPE_PING or AOF_TYPE_PONG. */
     off_t aof_fsync_offset;         /* AOF offset which is already synced to disk. */
     int aof_flush_sleep;            /* Micros to sleep before flush. (used by tests) */
     int aof_rewrite_scheduled;      /* Rewrite once BGSAVE terminates. */
     list *aof_rewrite_buf_blocks;   /* Hold changes during an AOF rewrite. */
     sds aof_buf;      /* AOF buffer, written before entering the event loop */
+    int aof_last_ping_fd;
     int aof_fd;       /* File descriptor of currently selected AOF file */
+    int aof_dwtemp_fd;  /* File descriptor of temp AOF file, used when rewrite fails. */
     int aof_selected_db; /* Currently selected DB in AOF */
     time_t aof_flush_postponed_start; /* UNIX time of postponed AOF flush */
     time_t aof_last_fsync;            /* UNIX time of last fsync() */
@@ -1449,16 +1462,7 @@ struct redisServer {
     int aof_use_rdb_preamble;       /* Use RDB preamble on AOF rewrites. */
     redisAtomic int aof_bio_fsync_status; /* Status of AOF fsync in bio job. */
     redisAtomic int aof_bio_fsync_errno;  /* Errno of AOF fsync in bio job. */
-    /* AOF pipes used to communicate between parent and child during rewrite. */
-    int aof_pipe_write_data_to_child;
-    int aof_pipe_read_data_from_parent;
-    int aof_pipe_write_ack_to_parent;
-    int aof_pipe_read_ack_from_child;
-    int aof_pipe_write_ack_to_child;
-    int aof_pipe_read_ack_from_parent;
-    int aof_stop_sending_diff;     /* If true stop sending accumulated diffs
-                                      to child process. */
-    sds aof_child_diff;             /* AOF diff accumulator child side. */
+   
     /* RDB persistence */
     long long dirty;                /* Changes to DB from the last save */
     long long dirty_before_bgsave;  /* Used to restore dirty on failed BGSAVE */
@@ -2274,17 +2278,16 @@ int bg_unlink(const char *filename);
 void flushAppendOnlyFile(int force);
 void feedAppendOnlyFile(int dictid, robj **argv, int argc);
 void aofRemoveTempFile(pid_t childpid);
-int rewriteAppendOnlyFileBackground(void);
-int loadAppendOnlyFile(char *filename);
+int rewriteAppendOnlyFileBackground();
+int loadAppendOnlyFile(int type);
 void stopAppendOnly(void);
 int startAppendOnly(void);
 void backgroundRewriteDoneHandler(int exitcode, int bysignal);
-void aofRewriteBufferReset(void);
-unsigned long aofRewriteBufferSize(void);
-unsigned long aofRewriteBufferMemoryUsage(void);
-ssize_t aofReadDiffFromParent(void);
 void killAppendOnlyChild(void);
 void restartAOFAfterSYNC();
+char *aofGetFileNameByType(int type);
+char *aofGetTypeDescriptionName(int type);
+void aofUpdateCurrentSize(void);
 
 /* Child info */
 void openChildInfoPipe(void);

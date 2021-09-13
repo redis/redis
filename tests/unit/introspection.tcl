@@ -143,6 +143,8 @@ start_server {tags {"introspection"}} {
             pidfile
             syslog-ident
             appendfilename
+            aof-ping-filename
+            aof-pong-filename
             supervised
             syslog-facility
             databases

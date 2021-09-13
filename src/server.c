@@ -3175,8 +3175,11 @@ void initServerConfig(void) {
     server.aof_lastbgrewrite_status = C_OK;
     server.aof_delayed_fsync = 0;
     server.aof_fd = -1;
+    server.aof_dwtemp_fd = -1;
+    server.aof_last_ping_fd = -1;
     server.aof_selected_db = -1; /* Make sure the first time will not match */
     server.aof_flush_postponed_start = 0;
+    server.aof_current_type = AOF_TYPE_NONE;
     server.pidfile = NULL;
     server.active_defrag_running = 0;
     server.notify_keyspace_events = 0;
@@ -3766,7 +3769,6 @@ void initServer(void) {
     server.child_info_pipe[0] = -1;
     server.child_info_pipe[1] = -1;
     server.child_info_nread = 0;
-    aofRewriteBufferReset();
     server.aof_buf = sdsempty();
     server.lastsave = time(NULL); /* At startup we consider the DB saved. */
     server.lastbgsave_try = 0;    /* At startup we never tried to BGSAVE. */
@@ -5687,7 +5689,7 @@ sds genRedisInfoString(const char *section) {
                 (long long) server.aof_rewrite_base_size,
                 server.aof_rewrite_scheduled,
                 sdslen(server.aof_buf),
-                aofRewriteBufferSize(),
+                0L,
                 bioPendingJobsOfType(BIO_AOF_FSYNC),
                 server.aof_delayed_fsync);
         }
@@ -6777,12 +6779,25 @@ int checkForSentinelMode(int argc, char **argv, char *exec_name) {
 void loadDataFromDisk(void) {
     long long start = ustime();
     if (server.aof_state == AOF_ON) {
-        /* It's not a failure if the file is empty or doesn't exist (later we will create it) */
-        int ret = loadAppendOnlyFile(server.aof_filename);
-        if (ret == AOF_FAILED || ret == AOF_OPEN_ERR)
-            exit(1);
-        if (ret == AOF_OK)
-            serverLog(LL_NOTICE,"DB loaded from append only file: %.3f seconds",(float)(ustime()-start)/1000000);
+        /* Try to load AOF_TYPE_BASE, AOF_TYPE_PING and AOF_TYPE_PONG type AOF files in turn, they 
+         * together constitute the current full amount of data.
+         *  
+         * It's not a failure if the file is empty or doesn't exist (later we will create it). 
+         */
+        for (int type = AOF_TYPE_BASE; type < AOF_TYPE_TEMP; type++) {
+            int ret = loadAppendOnlyFile(type);
+            if (ret == AOF_FAILED || ret == AOF_OPEN_ERR)
+                exit(1);
+
+            if (ret == AOF_OK) {
+                server.aof_current_type = type;
+                serverLog(LL_NOTICE,"DB loaded from %s append only file: %.3f seconds",aofGetTypeDescriptionName(type),(float)(ustime()-start)/1000000);
+            }
+        }
+        
+        aofUpdateCurrentSize();
+        server.aof_rewrite_base_size = server.aof_current_size;
+        server.aof_fsync_offset = server.aof_current_size;
     } else {
         rdbSaveInfo rsi = RDB_SAVE_INFO_INIT;
         errno = 0; /* Prevent a stale value from affecting error checking */
@@ -7238,11 +7253,15 @@ int main(int argc, char **argv) {
         loadDataFromDisk();
         /* Open the AOF file if needed. */
         if (server.aof_state == AOF_ON) {
-            server.aof_fd = open(server.aof_filename,
-                                 O_WRONLY|O_APPEND|O_CREAT,0644);
+            if (server.aof_current_type == AOF_TYPE_NONE || 
+                server.aof_current_type == AOF_TYPE_BASE) {
+                server.aof_current_type = AOF_TYPE_PING;
+            }
+            char *aof_filename = aofGetFileNameByType(server.aof_current_type);
+            server.aof_fd = open(aof_filename,O_WRONLY|O_APPEND|O_CREAT,0644);
             if (server.aof_fd == -1) {
-                serverLog(LL_WARNING, "Can't open the append-only file: %s",
-                          strerror(errno));
+                serverLog(LL_WARNING, "Can't open the %s append-only file: %s",
+                          aofGetTypeDescriptionName(server.aof_current_type),strerror(errno));
                 exit(1);
             }
         }
