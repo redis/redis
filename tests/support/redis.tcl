@@ -84,7 +84,7 @@ proc ::redis::__dispatch__raw__ {id method argv} {
     set fd $::redis::fd($id)
 
     # Reconnect the link if needed.
-    if {$fd eq {}} {
+    if {$fd eq {} && $method ne {close}} {
         lassign $::redis::addr($id) host port
         if {$::redis::tls($id)} {
             set ::redis::fd($id) [::tls::socket $host $port]
