@@ -4816,8 +4816,7 @@ int moduleAllModulesHandleReplAsyncLoad() {
 
     while ((de = dictNext(di)) != NULL) {
         struct RedisModule *module = dictGetVal(de);
-        if (!(module->options & REDISMODULE_OPTIONS_HANDLE_REPL_ASYNC_LOAD))
-        {
+        if (!(module->options & REDISMODULE_OPTIONS_HANDLE_REPL_ASYNC_LOAD)) {
             dictReleaseIterator(di);
             return 0;
         }

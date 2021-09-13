@@ -1813,13 +1813,10 @@ void readSyncBulkPayload(connection *conn) {
 
         /* RDB loading succeeded if we reach this point. */
         if (server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB) {
-            if (asyncLoading == 0) {
-                /* If asyncLoading is 0, it's because replication ID on master changed.
-                 * We will soon swap main db with tempDb and replicas will start
-                 * to apply data from new master, we must discard the cached
-                 * master structure. */
-                replicationAttachToNewMaster();
-            }
+            /* We will soon swap main db with tempDb and replicas will start
+             * to apply data from new master, we must discard the cached
+             * master structure and force resync of sub-replicas. */
+            replicationAttachToNewMaster();
 
             serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Swapping in memory DB");
             swapMainDbWithTempDb(diskless_load_tempDb);
