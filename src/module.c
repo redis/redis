@@ -2777,6 +2777,10 @@ int RM_StringTruncate(RedisModuleKey *key, size_t newlen) {
  * RM_ListInsert, the internal iterator is invalidated so the next operation
  * will require a linear seek.
  *
+ * Modifying a list in any another way, for examle using RM_Call(), while a key
+ * is open will confuse the internal iterator and may cause trouble if the key
+ * is used after such modifications. The key must be reopened in this case.
+ *
  * See also RM_ValueLength(), which returns the length of a list.
  * -------------------------------------------------------------------------- */
 
