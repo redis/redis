@@ -339,10 +339,11 @@ void serveClientsBlockedOnSortedSetKey(robj *o, readyList *rl) {
             int use_nested_array = (receiver->lastcmd &&
                                     receiver->lastcmd->proc == bzmpopCommand)
                                     ? 1 : 0;
+            int reply_nil_when_empty = use_nested_array;
 
             monotime replyTimer;
             elapsedStart(&replyTimer);
-            genericZpopCommand(receiver, &rl->key, 1, where, 1, count, use_nested_array, &deleted);
+            genericZpopCommand(receiver, &rl->key, 1, where, 1, count, use_nested_array, reply_nil_when_empty, &deleted);
             updateStatsOnUnblock(receiver, 0, elapsedUs(replyTimer));
             unblockClient(receiver);
 

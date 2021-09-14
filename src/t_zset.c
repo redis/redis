@@ -3730,11 +3730,16 @@ void zscanCommand(client *c) {
  * 'use_nested_array' when false it generates a flat array (with or without key name).
  * When true, it generates a nested 2 level array of field + score pairs, or 3 level when emitkey is set.
  *
+ * 'reply_nil_when_empty' when true we reply a NIL if we are not able to pop up any elements.
+ * Like in ZMPOP/BZMPOP we reply with a structured nested array containing key name
+ * and member + score pairs. In these commands, we reply with null when we have no result.
+ * Otherwise we reply an empty array by default.
+ *
  * 'deleted' is an optional output argument to get an indication
  * if the key got deleted by this function.
  * */
 void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey,
-                        long count, int use_nested_array, int *deleted) {
+                        long count, int use_nested_array, int reply_nil_when_empty, int *deleted) {
     int idx;
     robj *key = NULL;
     robj *zobj = NULL;
@@ -3753,15 +3758,13 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
         break;
     }
 
+    /* No candidate for zpopping, return empty. */
     if (!zobj) {
-        /* No candidate for zpopping, return NIL in ZMPOP. */
-        if (c->cmd->proc == zmpopCommand) {
+        if (reply_nil_when_empty) {
             addReplyNullArray(c);
-            return;
+        } else {
+            addReply(c,shared.emptyarray);
         }
-
-        /* No candidate for zpopping, return empty. */
-        addReply(c,shared.emptyarray);
         return;
     }
 
@@ -3878,8 +3881,7 @@ void zpopMinMaxCommand(client *c, int where) {
      * (returning a single element). In RESP3, when count > 0 use nested array. */
     int use_nested_array = (c->resp > 2 && count != 0);
 
-    genericZpopCommand(c, &c->argv[1], 1, where, 0,
-                       count, use_nested_array, NULL);
+    genericZpopCommand(c, &c->argv[1], 1, where, 0, count, use_nested_array, 0, NULL);
 }
 
 /* ZPOPMIN key [<count>] */
@@ -3906,7 +3908,7 @@ void zpopmaxCommand(client *c) {
  * When true, it generates a nested 3 level array of keyname, field + score pairs.
  * */
 void blockingGenericZpopCommand(client *c, robj **keys, int numkeys, int where,
-                                int timeout_idx, long count, int use_nested_array) {
+                                int timeout_idx, long count, int use_nested_array, int reply_nil_when_empty) {
     robj *o;
     robj *key;
     mstime_t timeout;
@@ -3928,8 +3930,7 @@ void blockingGenericZpopCommand(client *c, robj **keys, int numkeys, int where,
         if (llen == 0) continue;
 
         /* Non empty zset, this is like a normal ZPOP[MIN|MAX]. */
-        genericZpopCommand(c, &key, 1, where, 1, count,
-                           use_nested_array, NULL);
+        genericZpopCommand(c, &key, 1, where, 1, count, use_nested_array, reply_nil_when_empty, NULL);
 
         if (count == 0) {
             /* Replicate it as ZPOP[MIN|MAX] instead of BZPOP[MIN|MAX]. */
@@ -3962,14 +3963,12 @@ void blockingGenericZpopCommand(client *c, robj **keys, int numkeys, int where,
 
 // BZPOPMIN key [key ...] timeout
 void bzpopminCommand(client *c) {
-    blockingGenericZpopCommand(c, c->argv+1, c->argc-2, ZSET_MIN,
-                               c->argc-1, 0, 0);
+    blockingGenericZpopCommand(c, c->argv+1, c->argc-2, ZSET_MIN, c->argc-1, 0, 0, 0);
 }
 
 // BZPOPMAX key [key ...] timeout
 void bzpopmaxCommand(client *c) {
-    blockingGenericZpopCommand(c, c->argv+1, c->argc-2, ZSET_MAX,
-                               c->argc-1, 0, 0);
+    blockingGenericZpopCommand(c, c->argv+1, c->argc-2, ZSET_MAX, c->argc-1, 0, 0, 0);
 }
 
 static void zarndmemberReplyWithListpack(client *c, unsigned int count, listpackEntry *keys, listpackEntry *vals) {
@@ -4268,12 +4267,10 @@ void zmpopGenericCommand(client *c, int numkeys_idx, int is_block) {
 
     if (is_block) {
         /* BLOCK. We will handle CLIENT_DENY_BLOCKING flag in blockingGenericZpopCommand. */
-        blockingGenericZpopCommand(c, c->argv+numkeys_idx+1, numkeys, where,
-                                   1, count, 1);
+        blockingGenericZpopCommand(c, c->argv+numkeys_idx+1, numkeys, where, 1, count, 1, 1);
     } else {
         /* NON-BLOCK */
-        genericZpopCommand(c, c->argv+numkeys_idx+1, numkeys, where, 1,
-                           count, 1, NULL);
+        genericZpopCommand(c, c->argv+numkeys_idx+1, numkeys, where, 1, count, 1, 1, NULL);
     }
 }
 
