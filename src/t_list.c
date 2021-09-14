@@ -103,6 +103,13 @@ listTypeIterator *listTypeInitIterator(robj *subject, long index,
     return li;
 }
 
+/* Sets the direction of an iterator. */
+void listTypeSetIteratorDirection(listTypeIterator *li, unsigned char direction) {
+    li->direction = direction;
+    int dir = direction == LIST_HEAD ? AL_START_TAIL : AL_START_HEAD;
+    quicklistSetDirection(li->iter, dir);
+}
+
 /* Clean up the iterator. */
 void listTypeReleaseIterator(listTypeIterator *li) {
     zfree(li->iter);
@@ -153,6 +160,20 @@ void listTypeInsert(listTypeEntry *entry, robj *value, int where) {
             quicklistInsertBefore((quicklist *)entry->entry.quicklist,
                                   &entry->entry, str, len);
         }
+        decrRefCount(value);
+    } else {
+        serverPanic("Unknown list encoding");
+    }
+}
+
+/* Replaces entry at the current position of the iterator. */
+void listTypeReplace(listTypeEntry *entry, robj *value) {
+    if (entry->li->encoding == OBJ_ENCODING_QUICKLIST) {
+        value = getDecodedObject(value);
+        sds str = value->ptr;
+        size_t len = sdslen(str);
+        quicklistReplaceEntry((quicklist *)entry->entry.quicklist,
+                              &entry->entry, str, len);
         decrRefCount(value);
     } else {
         serverPanic("Unknown list encoding");

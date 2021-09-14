@@ -673,6 +673,15 @@ void quicklistDelEntry(quicklistIter *iter, quicklistEntry *entry) {
      *  quicklistNext() will jump to the next node. */
 }
 
+/* Replace quicklist entry by 'data' with length 'sz'. */
+void quicklistReplaceEntry(quicklist *quicklist, quicklistEntry *entry,
+                           void *data, int sz) {
+    /* quicklistNext() and quicklistIndex() provide an uncompressed node */
+    entry->node->zl = ziplistReplace(entry->node->zl, entry->zi, data, sz);
+    quicklistNodeUpdateSz(entry->node);
+    quicklistCompress(quicklist, entry->node);
+}
+
 /* Replace quicklist entry at offset 'index' by 'data' with length 'sz'.
  *
  * Returns 1 if replace happened.
@@ -681,10 +690,7 @@ int quicklistReplaceAtIndex(quicklist *quicklist, long index, void *data,
                             int sz) {
     quicklistEntry entry;
     if (likely(quicklistIndex(quicklist, index, &entry))) {
-        /* quicklistIndex provides an uncompressed node */
-        entry.node->zl = ziplistReplace(entry.node->zl, entry.zi, data, sz);
-        quicklistNodeUpdateSz(entry.node);
-        quicklistCompress(quicklist, entry.node);
+        quicklistReplaceEntry(quicklist, &entry, data, sz);
         return 1;
     } else {
         return 0;
@@ -1187,6 +1193,11 @@ int quicklistNext(quicklistIter *iter, quicklistEntry *entry) {
         iter->zi = NULL;
         return quicklistNext(iter, entry);
     }
+}
+
+/* Sets the direction of a quicklist iterator. */
+void quicklistSetDirection(quicklistIter *iter, int direction) {
+    iter->direction = direction;
 }
 
 /* Duplicate the quicklist.
