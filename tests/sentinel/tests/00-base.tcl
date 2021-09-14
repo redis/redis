@@ -19,6 +19,7 @@ test "Basic failover works if the master is down" {
     kill_instance redis $master_id
     foreach_sentinel_id id {
 <<<<<<< HEAD
+<<<<<<< HEAD
         S $id sentinel debug ping-period 500
         S $id sentinel debug ask-period 500  
         wait_for_condition 1000 100 {
@@ -27,6 +28,12 @@ test "Basic failover works if the master is down" {
         S $id sentinel debug ask-period 100
         wait_for_condition 1000 50 {
 >>>>>>> Update test cases for sentinel (#12)
+=======
+        S $id sentinel debug ping-period 500
+        S $id sentinel debug ask-period 500
+        
+        wait_for_condition 1000 100 {
+>>>>>>> Update 00-base.tcl
             [lindex [S $id SENTINEL GET-MASTER-ADDR-BY-NAME mymaster] 1] != $old_port
         } else {
             fail "At least one Sentinel did not receive failover info"
