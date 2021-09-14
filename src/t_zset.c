@@ -3857,6 +3857,15 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
         dbDelete(c->db,key);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key,c->db->id);
     }
+
+    if (c->cmd->proc == zmpopCommand) {
+        /* Always replicate it as ZPOP[MIN|MAX] with COUNT option instead of ZMPOP. */
+        robj *count_obj = createStringObjectFromLongLong((count > llen) ? llen : count);
+        rewriteClientCommandVector(c, 3,
+                                   (where == ZSET_MAX) ? shared.zpopmax : shared.zpopmin,
+                                   key, count_obj);
+        decrRefCount(count_obj);
+    }
 }
 
 /* ZPOPMIN/ZPOPMAX key [<count>] */
