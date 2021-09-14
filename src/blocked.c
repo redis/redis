@@ -301,6 +301,7 @@ void serveClientsBlockedOnListKey(robj *o, readyList *rl) {
                                      &deleted);
             updateStatsOnUnblock(receiver, 0, elapsedUs(replyTimer));
             unblockClient(receiver);
+            afterCommand(receiver);
 
             if (dstkey) decrRefCount(dstkey);
 
@@ -341,6 +342,7 @@ void serveClientsBlockedOnSortedSetKey(robj *o, readyList *rl) {
             genericZpopCommand(receiver,&rl->key,1,where,1,NULL);
             updateStatsOnUnblock(receiver, 0, elapsedUs(replyTimer));
             unblockClient(receiver);
+            afterCommand(receiver);
             zcard--;
 
             /* Replicate the command. */
@@ -458,6 +460,7 @@ void serveClientsBlockedOnStreamKey(robj *o, readyList *rl) {
                  * valid, so we must do the setup above before
                  * this call. */
                 unblockClient(receiver);
+                afterCommand(receiver);
             }
         }
     }
@@ -508,6 +511,7 @@ void serveClientsBlockedOnKeyByModule(readyList *rl) {
             updateStatsOnUnblock(receiver, 0, elapsedUs(replyTimer));
 
             moduleUnblockClient(receiver);
+            afterCommand(receiver);
         }
     }
 }
