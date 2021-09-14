@@ -307,15 +307,16 @@ robj *dbRandomKey(redisDb *db) {
 int dbSyncDelete(redisDb *db, robj *key) {
     dictEntry **plink;
     int table;
-    /* Deleting an entry from the expires dict will not free the sds of
-     * the key, because it is shared with the main dictionary. */
-    if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
     dictEntry *de = dictFindWithPlink(db->dict,key->ptr,&plink,&table);
     if (de) {
         robj *val = dictGetVal(de);
         /* Tells the module that the key has been unlinked from the database. */
         moduleNotifyKeyUnlink(key,val,db->id);
         if (server.cluster_enabled) slotToKeyDelEntry(de);
+
+        /* Deleting an entry from the expires dict will not free the sds of
+        * the key, because it is shared with the main dictionary. */
+        if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
         dictFreePlinkEntry(db->dict,de,plink,table);
         return 1;
     } else {
@@ -1540,6 +1541,8 @@ int keyIsExpired(redisDb *db, robj *key) {
  * The return value of the function is 0 if the key is still valid,
  * otherwise the function returns 1 if the key is expired. */
 int expireIfNeeded(redisDb *db, robj *key) {
+    if (server.stop_lazy_expire) return 0;
+
     if (!keyIsExpired(db,key)) return 0;
 
     /* If we are running in the context of a slave, instead of

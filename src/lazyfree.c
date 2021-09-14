@@ -165,11 +165,11 @@ int dbAsyncDelete(redisDb *db, robj *key) {
         /* Release the key-val pair, or just the key if we set the val
         * field to NULL in order to lazy free it later. */
         if (server.cluster_enabled) slotToKeyDelEntry(de);
-        dictFreePlinkEntry(db->dict,de,plink,table);
 
         /* Deleting an entry from the expires dict will not free the sds of
         * the key, because it is shared with the main dictionary. */
         if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
+        dictFreePlinkEntry(db->dict,de,plink,table);
         return 1;
     } else {
         return 0;

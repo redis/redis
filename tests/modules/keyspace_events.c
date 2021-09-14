@@ -107,7 +107,15 @@ static int KeySpace_NotificationRemoved(RedisModuleCtx *ctx, int type, const cha
         int nokey;
         RedisModule_DictGetC(removed_event_log, (void*)keyName, strlen(keyName), &nokey);
         if(nokey){
-            RedisModule_DictSetC(removed_event_log, (void*)keyName, strlen(keyName), RedisModule_HoldString(ctx, key));
+            RedisModuleString *v = RedisModule_HoldString(ctx, key);
+            /* For string type, we keep value instead of key */
+            if (RedisModule_KeyType(kp) == REDISMODULE_KEYTYPE_STRING) {
+                RedisModule_FreeString(ctx, v);
+                size_t len;
+                char *s = RedisModule_StringDMA(kp, &len, REDISMODULE_READ);
+                v = RedisModule_CreateString(ctx, s, len);
+            }
+            RedisModule_DictSetC(removed_event_log, (void*)keyName, strlen(keyName), v);
         }
         RedisModule_CloseKey(kp);
     }

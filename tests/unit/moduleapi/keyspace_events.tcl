@@ -84,31 +84,52 @@ tags "modules" {
         }
 
         test {Test removed key space event} {
-            r set a 1
-            r hset b f v
-            r lpush c 1
-            r sadd d 1
-            r zadd e 1 f
-            r xadd f 1-1 f v
+            r set a abcd
             r del a
+            # For String Type value is returned
+            assert_equal {1 abcd} [r keyspace.is_key_removed a]
+
+            r hset b f v
             r hdel b f
-            r lpop c
-            r spop d
-            r zpopmin e
-            r xdel f 1-1
-            r set g 1 px 1
-            assert_equal {1 a} [r keyspace.is_key_removed a]
             assert_equal {1 b} [r keyspace.is_key_removed b]
+
+            r lpush c 1
+            r lpop c
             assert_equal {1 c} [r keyspace.is_key_removed c]
+
+            r sadd d 1
+            r spop d
             assert_equal {1 d} [r keyspace.is_key_removed d]
+
+            r zadd e 1 f
+            r zpopmin e
             assert_equal {1 e} [r keyspace.is_key_removed e]
+
+            r xadd f 1-1 f v
+            r xdel f 1-1
+            # Stream does not delete object when del entry
             assert_equal {0 {}} [r keyspace.is_key_removed f]
             r del f
             assert_equal {1 f} [r keyspace.is_key_removed f]
-            # ensure expire
+
+            # delete key because of active expire
+            r set g abcd px 1
+            #ensure active expire
+            after 100
+            assert_equal {1 abcd} [r keyspace.is_key_removed g]
+
+            # delete key because of lazy expire
+            r debug set-active-expire 0
+            r set h abcd px 1
             after 10
-            r get g
-            assert_equal {1 g} [r keyspace.is_key_removed g]
-        }
+            r get h
+            assert_equal {1 abcd} [r keyspace.is_key_removed h]
+            r debug set-active-expire 1
+
+            # delete key not yet expired
+            r set i abcd ex 100
+            r del i
+            assert_equal {1 abcd} [r keyspace.is_key_removed i]
+        } {} {needs:debug}
 	}
 }
