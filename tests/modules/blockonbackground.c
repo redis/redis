@@ -31,6 +31,11 @@ void HelloBlock_FreeData(RedisModuleCtx *ctx, void *privdata) {
     RedisModule_Free(privdata);
 }
 
+/* Private data freeing callback for BLOCK.BLOCK command. */
+void HelloBlock_FreeStringData(RedisModuleCtx *ctx, void *privdata) {
+    RedisModule_FreeString(ctx, (RedisModuleString*)privdata);
+}
+
 /* The thread entry point that actually executes the blocking part
  * of the command BLOCK.DEBUG. */
 void *BlockDebug_ThreadMain(void *arg) {
@@ -225,7 +230,7 @@ int Block_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
      * callback and differentiate the different code flows above.
      */
     blocked_client = RedisModule_BlockClient(ctx, Block_RedisCommand,
-            timeout > 0 ? Block_RedisCommand : NULL, NULL, timeout);
+            timeout > 0 ? Block_RedisCommand : NULL, HelloBlock_FreeStringData, timeout);
     return REDISMODULE_OK;
 }
 

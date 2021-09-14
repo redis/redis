@@ -282,10 +282,10 @@ start_server {tags {"keyspace"}} {
         assert_equal $digest [debug_digest_value newset2{t}]
     }
 
-    test {COPY basic usage for ziplist sorted set} {
+    test {COPY basic usage for listpack sorted set} {
         r del zset1{t} newzset1{t}
         r zadd zset1{t} 123 foobar
-        assert_encoding ziplist zset1{t}
+        assert_encoding listpack zset1{t}
         r copy zset1{t} newzset1{t}
         set digest [debug_digest_value zset1{t}]
         assert_equal $digest [debug_digest_value newzset1{t}]

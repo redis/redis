@@ -19,8 +19,7 @@ test "Basic failover works if the master is down" {
     kill_instance redis $master_id
     foreach_sentinel_id id {
         S $id sentinel debug ping-period 500
-        S $id sentinel debug ask-period 500
-        
+        S $id sentinel debug ask-period 500  
         wait_for_condition 1000 100 {
             [lindex [S $id SENTINEL GET-MASTER-ADDR-BY-NAME mymaster] 1] != $old_port
         } else {

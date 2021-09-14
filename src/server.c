@@ -316,6 +316,10 @@ struct redisCommand redisCommandTable[] = {
      "write fast @list",
      0,NULL,1,1,1,0,0,0},
 
+    {"lmpop",lmpopCommand,-4,
+     "write @list",
+     0,lmpopGetKeys,0,0,0,0,0,0},
+
     {"brpop",brpopCommand,-3,
      "write no-script @list @blocking",
      0,NULL,1,-2,1,0,0,0},
@@ -331,6 +335,10 @@ struct redisCommand redisCommandTable[] = {
     {"blpop",blpopCommand,-3,
      "write no-script @list @blocking",
      0,NULL,1,-2,1,0,0,0},
+
+    {"blmpop",blmpopCommand,-5,
+     "write @list @blocking",
+     0,blmpopGetKeys,0,0,0,0,0,0},
 
     {"llen",llenCommand,2,
      "read-only fast @list",
@@ -891,7 +899,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"migrate",migrateCommand,-6,
      "write random @keyspace @dangerous",
-     0,migrateGetKeys,0,0,0,0,0,0},
+     0,migrateGetKeys,3,3,1,0,0,0},
 
     {"asking",askingCommand,1,
      "fast @connection",
@@ -3125,6 +3133,8 @@ void resetServerStats(void) {
     server.stat_active_defrag_key_hits = 0;
     server.stat_active_defrag_key_misses = 0;
     server.stat_active_defrag_scanned = 0;
+    server.stat_total_active_defrag_time = 0;
+    server.stat_last_active_defrag_time = 0;
     server.stat_fork_time = 0;
     server.stat_fork_rate = 0;
     server.stat_total_forks = 0;
@@ -3196,7 +3206,8 @@ void initServer(void) {
     server.ready_keys = listCreate();
     server.clients_waiting_acks = listCreate();
     server.get_ack_from_slaves = 0;
-    server.client_pause_type = 0;
+    server.client_pause_type = CLIENT_PAUSE_OFF;
+    server.client_pause_end_time = 0;
     server.paused_clients = listCreate();
     server.events_processed_while_blocked = 0;
     server.system_memory_size = zmalloc_get_memory_size();
@@ -3293,6 +3304,8 @@ void initServer(void) {
     server.lastbgsave_try = 0;    /* At startup we never tried to BGSAVE. */
     server.rdb_save_time_last = -1;
     server.rdb_save_time_start = -1;
+    server.rdb_last_load_keys_expired = 0;
+    server.rdb_last_load_keys_loaded = 0;
     server.dirty = 0;
     resetServerStats();
     /* A few stats we don't want to reset: server startup time, and peak mem. */
@@ -4913,6 +4926,8 @@ sds genRedisInfoString(const char *section) {
             "rdb_last_bgsave_time_sec:%jd\r\n"
             "rdb_current_bgsave_time_sec:%jd\r\n"
             "rdb_last_cow_size:%zu\r\n"
+            "rdb_last_load_keys_expired:%lld\r\n"
+            "rdb_last_load_keys_loaded:%lld\r\n"
             "aof_enabled:%d\r\n"
             "aof_rewrite_in_progress:%d\r\n"
             "aof_rewrite_scheduled:%d\r\n"
@@ -4938,6 +4953,8 @@ sds genRedisInfoString(const char *section) {
             (intmax_t)((server.child_type != CHILD_TYPE_RDB) ?
                 -1 : time(NULL)-server.rdb_save_time_start),
             server.stat_rdb_cow_bytes,
+            server.rdb_last_load_keys_expired,
+            server.rdb_last_load_keys_loaded,
             server.aof_state != AOF_OFF,
             server.child_type == CHILD_TYPE_AOF,
             server.aof_rewrite_scheduled,
@@ -5016,6 +5033,8 @@ sds genRedisInfoString(const char *section) {
         long long stat_net_input_bytes, stat_net_output_bytes;
         long long current_eviction_exceeded_time = server.stat_last_eviction_exceeded_time ?
             (long long) elapsedUs(server.stat_last_eviction_exceeded_time): 0;
+        long long current_active_defrag_time = server.stat_last_active_defrag_time ?
+            (long long) elapsedUs(server.stat_last_active_defrag_time): 0;
         atomicGet(server.stat_total_reads_processed, stat_total_reads_processed);
         atomicGet(server.stat_total_writes_processed, stat_total_writes_processed);
         atomicGet(server.stat_net_input_bytes, stat_net_input_bytes);
@@ -5054,6 +5073,8 @@ sds genRedisInfoString(const char *section) {
             "active_defrag_misses:%lld\r\n"
             "active_defrag_key_hits:%lld\r\n"
             "active_defrag_key_misses:%lld\r\n"
+            "total_active_defrag_time:%lld\r\n"
+            "current_active_defrag_time:%lld\r\n"
             "tracking_total_keys:%lld\r\n"
             "tracking_total_items:%lld\r\n"
             "tracking_total_prefixes:%lld\r\n"
@@ -5094,6 +5115,8 @@ sds genRedisInfoString(const char *section) {
             server.stat_active_defrag_misses,
             server.stat_active_defrag_key_hits,
             server.stat_active_defrag_key_misses,
+            (server.stat_total_active_defrag_time + current_active_defrag_time) / 1000,
+            current_active_defrag_time / 1000,
             (unsigned long long) trackingGetTotalKeys(),
             (unsigned long long) trackingGetTotalItems(),
             (unsigned long long) trackingGetTotalPrefixes(),
@@ -5115,11 +5138,15 @@ sds genRedisInfoString(const char *section) {
             server.masterhost == NULL ? "master" : "slave");
         if (server.masterhost) {
             long long slave_repl_offset = 1;
+            long long slave_read_repl_offset = 1;
 
-            if (server.master)
+            if (server.master) {
                 slave_repl_offset = server.master->reploff;
-            else if (server.cached_master)
+                slave_read_repl_offset = server.master->read_reploff;
+            } else if (server.cached_master) {
                 slave_repl_offset = server.cached_master->reploff;
+                slave_read_repl_offset = server.cached_master->read_reploff;
+            }
 
             info = sdscatprintf(info,
                 "master_host:%s\r\n"
@@ -5127,6 +5154,7 @@ sds genRedisInfoString(const char *section) {
                 "master_link_status:%s\r\n"
                 "master_last_io_seconds_ago:%d\r\n"
                 "master_sync_in_progress:%d\r\n"
+                "slave_read_repl_offset:%lld\r\n"
                 "slave_repl_offset:%lld\r\n"
                 ,server.masterhost,
                 server.masterport,
@@ -5135,6 +5163,7 @@ sds genRedisInfoString(const char *section) {
                 server.master ?
                 ((int)(server.unixtime-server.master->lastinteraction)) : -1,
                 server.repl_state == REPL_STATE_TRANSFER,
+                slave_read_repl_offset,
                 slave_repl_offset
             );
 
@@ -6049,28 +6078,45 @@ void loadDataFromDisk(void) {
     } else {
         rdbSaveInfo rsi = RDB_SAVE_INFO_INIT;
         errno = 0; /* Prevent a stale value from affecting error checking */
-        if (rdbLoad(server.rdb_filename,&rsi,RDBFLAGS_NONE) == C_OK) {
+        int rdb_flags = RDBFLAGS_NONE;
+        if (iAmMaster()) {
+            /* Master may delete expired keys when loading, we should
+             * propagate expire to replication backlog. */
+            createReplicationBacklog();
+            rdb_flags |= RDBFLAGS_FEED_REPL;
+        }
+        if (rdbLoad(server.rdb_filename,&rsi,rdb_flags) == C_OK) {
             serverLog(LL_NOTICE,"DB loaded from disk: %.3f seconds",
                 (float)(ustime()-start)/1000000);
 
             /* Restore the replication ID / offset from the RDB file. */
-            if ((server.masterhost ||
-                (server.cluster_enabled &&
-                nodeIsSlave(server.cluster->myself))) &&
-                rsi.repl_id_is_set &&
+            if (rsi.repl_id_is_set &&
                 rsi.repl_offset != -1 &&
                 /* Note that older implementations may save a repl_stream_db
                  * of -1 inside the RDB file in a wrong way, see more
                  * information in function rdbPopulateSaveInfo. */
                 rsi.repl_stream_db != -1)
             {
-                memcpy(server.replid,rsi.repl_id,sizeof(server.replid));
-                server.master_repl_offset = rsi.repl_offset;
-                /* If we are a slave, create a cached master from this
-                 * information, in order to allow partial resynchronization
-                 * with masters. */
-                replicationCacheMasterUsingMyself();
-                selectDb(server.cached_master,rsi.repl_stream_db);
+                if (!iAmMaster()) {
+                    memcpy(server.replid,rsi.repl_id,sizeof(server.replid));
+                    server.master_repl_offset = rsi.repl_offset;
+                    /* If this is a replica, create a cached master from this
+                     * information, in order to allow partial resynchronizations
+                     * with masters. */
+                    replicationCacheMasterUsingMyself();
+                    selectDb(server.cached_master,rsi.repl_stream_db);
+                } else {
+                    /* If this is a master, we can save the replication info
+                     * as secondary ID and offset, in order to allow replicas
+                     * to partial resynchronizations with masters. */
+                    memcpy(server.replid2,rsi.repl_id,sizeof(server.replid));
+                    server.second_replid_offset = rsi.repl_offset+1;
+                    /* Rebase master_repl_offset from rsi.repl_offset. */
+                    server.master_repl_offset += rsi.repl_offset;
+                    server.repl_backlog_off = server.master_repl_offset -
+                              server.repl_backlog_histlen + 1;
+                    server.repl_no_slaves_since = time(NULL);
+                }
             }
         } else if (errno != ENOENT) {
             serverLog(LL_WARNING,"Fatal error loading the DB: %s. Exiting.",strerror(errno));
