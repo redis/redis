@@ -200,15 +200,13 @@ static void createClusterManagerCommand(char *cmdname, int argc, char **argv);
 
 static redisContext *context;
 static struct config {
-    char *hostip;
-    int hostport;
+    cliConnInfo conn_info;
     char *hostsocket;
     int tls;
     cliSSLconfig sslconfig;
     long repeat;
     long interval;
     int dbnum; /* db num currently selected */
-    int input_dbnum; /* db num user input */
     int interactive;
     int shutdown;
     int monitor_mode;
@@ -237,9 +235,7 @@ static struct config {
     unsigned memkeys_samples;
     int hotkeys;
     int stdinarg; /* get last arg from stdin. (-x option) */
-    char *auth;
     int askpass;
-    char *user;
     int quoted_input;   /* Force input args to be treated as quoted strings */
     int output; /* output mode, see OUTPUT_* defines */
     int push_output; /* Should we display spontaneous PUSH replies */
@@ -306,7 +302,7 @@ static void cliRefreshPrompt(void) {
         prompt = sdscatfmt(prompt,"redis %s",config.hostsocket);
     } else {
         char addr[256];
-        anetFormatAddr(addr, sizeof(addr), config.hostip, config.hostport);
+        anetFormatAddr(addr, sizeof(addr), config.conn_info.hostip, config.conn_info.hostport);
         prompt = sdscatlen(prompt,addr,strlen(addr));
     }
 
@@ -353,102 +349,6 @@ static sds getDotfilePath(char *envoverride, char *dotfilename) {
         }
     }
     return dotPath;
-}
-
-/* URL-style percent decoding. */
-#define isHexChar(c) (isdigit(c) || (c >= 'a' && c <= 'f'))
-#define decodeHexChar(c) (isdigit(c) ? c - '0' : c - 'a' + 10)
-#define decodeHex(h, l) ((decodeHexChar(h) << 4) + decodeHexChar(l))
-
-static sds percentDecode(const char *pe, size_t len) {
-    const char *end = pe + len;
-    sds ret = sdsempty();
-    const char *curr = pe;
-
-    while (curr < end) {
-        if (*curr == '%') {
-            if ((end - curr) < 2) {
-                fprintf(stderr, "Incomplete URI encoding\n");
-                exit(1);
-            }
-
-            char h = tolower(*(++curr));
-            char l = tolower(*(++curr));
-            if (!isHexChar(h) || !isHexChar(l)) {
-                fprintf(stderr, "Illegal character in URI encoding\n");
-                exit(1);
-            }
-            char c = decodeHex(h, l);
-            ret = sdscatlen(ret, &c, 1);
-            curr++;
-        } else {
-            ret = sdscatlen(ret, curr++, 1);
-        }
-    }
-
-    return ret;
-}
-
-/* Parse a URI and extract the server connection information.
- * URI scheme is based on the the provisional specification[1] excluding support
- * for query parameters. Valid URIs are:
- *   scheme:    "redis://"
- *   authority: [[<username> ":"] <password> "@"] [<hostname> [":" <port>]]
- *   path:      ["/" [<db>]]
- *
- *  [1]: https://www.iana.org/assignments/uri-schemes/prov/redis */
-static void parseRedisUri(const char *uri) {
-
-    const char *scheme = "redis://";
-    const char *tlsscheme = "rediss://";
-    const char *curr = uri;
-    const char *end = uri + strlen(uri);
-    const char *userinfo, *username, *port, *host, *path;
-
-    /* URI must start with a valid scheme. */
-    if (!strncasecmp(tlsscheme, curr, strlen(tlsscheme))) {
-#ifdef USE_OPENSSL
-        config.tls = 1;
-        curr += strlen(tlsscheme);
-#else
-        fprintf(stderr,"rediss:// is only supported when redis-cli is compiled with OpenSSL\n");
-        exit(1);
-#endif
-    } else if (!strncasecmp(scheme, curr, strlen(scheme))) {
-        curr += strlen(scheme);
-    } else {
-        fprintf(stderr,"Invalid URI scheme\n");
-        exit(1);
-    }
-    if (curr == end) return;
-
-    /* Extract user info. */
-    if ((userinfo = strchr(curr,'@'))) {
-        if ((username = strchr(curr, ':')) && username < userinfo) {
-            config.user = percentDecode(curr, username - curr);
-            curr = username + 1;
-        }
-
-        config.auth = percentDecode(curr, userinfo - curr);
-        curr = userinfo + 1;
-    }
-    if (curr == end) return;
-
-    /* Extract host and port. */
-    path = strchr(curr, '/');
-    if (*curr != '/') {
-        host = path ? path - 1 : end;
-        if ((port = strchr(curr, ':'))) {
-            config.hostport = atoi(port + 1);
-            host = port - 1;
-        }
-        config.hostip = sdsnewlen(curr, host - curr + 1);
-    }
-    curr = path ? path + 1 : end;
-    if (curr == end) return;
-
-    /* Extract database number. */
-    config.input_dbnum = atoi(curr);
 }
 
 static uint64_t dictSdsHash(const void *key) {
@@ -802,9 +702,9 @@ static int cliAuth(redisContext *ctx, char *user, char *auth) {
 /* Send SELECT input_dbnum to the server */
 static int cliSelect(void) {
     redisReply *reply;
-    if (config.input_dbnum == config.dbnum) return REDIS_OK;
+    if (config.conn_info.input_dbnum == config.dbnum) return REDIS_OK;
 
-    reply = redisCommand(context,"SELECT %d",config.input_dbnum);
+    reply = redisCommand(context,"SELECT %d",config.conn_info.input_dbnum);
     if (reply == NULL) {
         fprintf(stderr, "\nI/O error\n");
         return REDIS_ERR;
@@ -813,9 +713,9 @@ static int cliSelect(void) {
     int result = REDIS_OK;
     if (reply->type == REDIS_REPLY_ERROR) {
         result = REDIS_ERR;
-        fprintf(stderr,"SELECT %d failed: %s\n",config.input_dbnum,reply->str);
+        fprintf(stderr,"SELECT %d failed: %s\n",config.conn_info.input_dbnum,reply->str);
     } else {
-        config.dbnum = config.input_dbnum;
+        config.dbnum = config.conn_info.input_dbnum;
         cliRefreshPrompt();
     }
     freeReplyObject(reply);
@@ -858,7 +758,7 @@ static int cliConnect(int flags) {
         /* Do not use hostsocket when we got redirected in cluster mode */
         if (config.hostsocket == NULL ||
             (config.cluster_mode && config.cluster_reissue_command)) {
-            context = redisConnect(config.hostip,config.hostport);
+            context = redisConnect(config.conn_info.hostip,config.conn_info.hostport);
         } else {
             context = redisConnectUnix(config.hostsocket);
         }
@@ -880,7 +780,7 @@ static int cliConnect(int flags) {
                     (config.cluster_mode && config.cluster_reissue_command))
                 {
                     fprintf(stderr, "%s:%d: %s\n",
-                        config.hostip,config.hostport,context->errstr);
+                        config.conn_info.hostip,config.conn_info.hostport,context->errstr);
                 } else {
                     fprintf(stderr,"%s: %s\n",
                         config.hostsocket,context->errstr);
@@ -899,7 +799,7 @@ static int cliConnect(int flags) {
         anetKeepAlive(NULL, context->fd, REDIS_CLI_KEEPALIVE_INTERVAL);
 
         /* Do AUTH, select the right DB, switch to RESP3 if needed. */
-        if (cliAuth(context, config.user, config.auth) != REDIS_OK)
+        if (cliAuth(context, config.conn_info.user, config.conn_info.auth) != REDIS_OK)
             return REDIS_ERR;
         if (cliSelect() != REDIS_OK)
             return REDIS_ERR;
@@ -1337,12 +1237,12 @@ static int cliReadReply(int output_raw_strings) {
         slot = atoi(s+1);
         s = strrchr(p+1,':');    /* MOVED 3999[P]127.0.0.1[S]6381 */
         *s = '\0';
-        sdsfree(config.hostip);
-        config.hostip = sdsnew(p+1);
-        config.hostport = atoi(s+1);
+        sdsfree(config.conn_info.hostip);
+        config.conn_info.hostip = sdsnew(p+1);
+        config.conn_info.hostport = atoi(s+1);
         if (config.interactive)
             printf("-> Redirected to slot [%d] located at %s:%d\n",
-                slot, config.hostip, config.hostport);
+                slot, config.conn_info.hostip, config.conn_info.hostport);
         config.cluster_reissue_command = 1;
         if (!strncmp(reply->str,"ASK ",4)) {
             config.cluster_send_asking = 1;
@@ -1486,7 +1386,7 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
             if (!strcasecmp(command,"select") && argc == 2 && 
                 config.last_cmd_type != REDIS_REPLY_ERROR) 
             {
-                config.input_dbnum = config.dbnum = atoi(argv[1]);
+                config.conn_info.input_dbnum = config.dbnum = atoi(argv[1]);
                 cliRefreshPrompt();
             } else if (!strcasecmp(command,"auth") && (argc == 2 || argc == 3)) {
                 cliSelect();
@@ -1501,20 +1401,20 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
                 if (config.last_cmd_type == REDIS_REPLY_ERROR ||
                     config.last_cmd_type == REDIS_REPLY_NIL)
                 {
-                    config.input_dbnum = config.dbnum = config.pre_multi_dbnum;
+                    config.conn_info.input_dbnum = config.dbnum = config.pre_multi_dbnum;
                 }
                 cliRefreshPrompt();
             } else if (!strcasecmp(command,"discard") && argc == 1 && 
                 config.last_cmd_type != REDIS_REPLY_ERROR) 
             {
                 config.in_multi = 0;
-                config.input_dbnum = config.dbnum = config.pre_multi_dbnum;
+                config.conn_info.input_dbnum = config.dbnum = config.pre_multi_dbnum;
                 cliRefreshPrompt();
             } else if (!strcasecmp(command,"reset") && argc == 1 &&
                                      config.last_cmd_type != REDIS_REPLY_ERROR) {
                 config.in_multi = 0;
                 config.dbnum = 0;
-                config.input_dbnum = 0;
+                config.conn_info.input_dbnum = 0;
                 config.resp3 = 0;
                 cliRefreshPrompt();
             }
@@ -1546,7 +1446,7 @@ static redisReply *reconnectingRedisCommand(redisContext *c, const char *fmt, ..
             fflush(stdout);
 
             redisFree(c);
-            c = redisConnect(config.hostip,config.hostport);
+            c = redisConnect(config.conn_info.hostip,config.conn_info.hostport);
             if (!c->err && config.tls) {
                 const char *err = NULL;
                 if (cliSecureConnection(c, config.sslconfig, &err) == REDIS_ERR && err) {
@@ -1584,8 +1484,8 @@ static int parseOptions(int argc, char **argv) {
         int lastarg = i==argc-1;
 
         if (!strcmp(argv[i],"-h") && !lastarg) {
-            sdsfree(config.hostip);
-            config.hostip = sdsnew(argv[++i]);
+            sdsfree(config.conn_info.hostip);
+            config.conn_info.hostip = sdsnew(argv[++i]);
         } else if (!strcmp(argv[i],"-h") && lastarg) {
             usage(0);
         } else if (!strcmp(argv[i],"--help")) {
@@ -1593,7 +1493,7 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"-x")) {
             config.stdinarg = 1;
         } else if (!strcmp(argv[i],"-p") && !lastarg) {
-            config.hostport = atoi(argv[++i]);
+            config.conn_info.hostport = atoi(argv[++i]);
         } else if (!strcmp(argv[i],"-s") && !lastarg) {
             config.hostsocket = argv[++i];
         } else if (!strcmp(argv[i],"-r") && !lastarg) {
@@ -1602,7 +1502,7 @@ static int parseOptions(int argc, char **argv) {
             double seconds = atof(argv[++i]);
             config.interval = seconds*1000000;
         } else if (!strcmp(argv[i],"-n") && !lastarg) {
-            config.input_dbnum = atoi(argv[++i]);
+            config.conn_info.input_dbnum = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--no-auth-warning")) {
             config.no_auth_warning = 1;
         } else if (!strcmp(argv[i], "--askpass")) {
@@ -1610,11 +1510,11 @@ static int parseOptions(int argc, char **argv) {
         } else if ((!strcmp(argv[i],"-a") || !strcmp(argv[i],"--pass"))
                    && !lastarg)
         {
-            config.auth = argv[++i];
+            config.conn_info.auth = sdsnew(argv[++i]);
         } else if (!strcmp(argv[i],"--user") && !lastarg) {
-            config.user = argv[++i];
+            config.conn_info.user = sdsnew(argv[++i]);
         } else if (!strcmp(argv[i],"-u") && !lastarg) {
-            parseRedisUri(argv[++i]);
+            parseRedisUri(argv[++i],"redis-cli",&config.conn_info,&config.tls);
         } else if (!strcmp(argv[i],"--raw")) {
             config.output = OUTPUT_RAW;
         } else if (!strcmp(argv[i],"--no-raw")) {
@@ -1852,7 +1752,7 @@ static int parseOptions(int argc, char **argv) {
         exit(1);
     }
 
-    if (!config.no_auth_warning && config.auth != NULL) {
+    if (!config.no_auth_warning && config.conn_info.auth != NULL) {
         fputs("Warning: Using a password with '-a' or '-u' option on the command"
               " line interface may not be safe.\n", stderr);
     }
@@ -1863,8 +1763,8 @@ static int parseOptions(int argc, char **argv) {
 static void parseEnv() {
     /* Set auth from env, but do not overwrite CLI arguments if passed */
     char *auth = getenv(REDIS_CLI_AUTH_ENV);
-    if (auth != NULL && config.auth == NULL) {
-        config.auth = auth;
+    if (auth != NULL && config.conn_info.auth == NULL) {
+        config.conn_info.auth = auth;
     }
 
     char *cluster_yes = getenv(REDIS_CLI_CLUSTER_YES_ENV);
@@ -2261,9 +2161,9 @@ static void repl(void) {
                     printf("Use 'restart' only in Lua debugging mode.");
                 }
             } else if (argc == 3 && !strcasecmp(argv[0],"connect")) {
-                sdsfree(config.hostip);
-                config.hostip = sdsnew(argv[1]);
-                config.hostport = atoi(argv[2]);
+                sdsfree(config.conn_info.hostip);
+                config.conn_info.hostip = sdsnew(argv[1]);
+                config.conn_info.hostport = atoi(argv[2]);
                 cliRefreshPrompt();
                 cliConnect(CC_FORCE);
             } else if (argc == 1 && !strcasecmp(argv[0],"clear")) {
@@ -2850,13 +2750,13 @@ static int clusterManagerNodeConnect(clusterManagerNode *node) {
      * commands. At the same time this improves the detection of real
      * errors. */
     anetKeepAlive(NULL, node->context->fd, REDIS_CLI_KEEPALIVE_INTERVAL);
-    if (config.auth) {
+    if (config.conn_info.auth) {
         redisReply *reply;
-        if (config.user == NULL)
-            reply = redisCommand(node->context,"AUTH %s", config.auth);
+        if (config.conn_info.user == NULL)
+            reply = redisCommand(node->context,"AUTH %s", config.conn_info.auth);
         else
             reply = redisCommand(node->context,"AUTH %s %s",
-                                 config.user,config.auth);
+                                 config.conn_info.user,config.conn_info.auth);
         int ok = clusterManagerCheckRedisReply(node, reply, NULL);
         if (reply != NULL) freeReplyObject(reply);
         if (!ok) return 0;
@@ -3691,8 +3591,8 @@ static redisReply *clusterManagerMigrateKeysInReply(clusterManagerNode *source,
     char **argv = NULL;
     size_t *argv_len = NULL;
     int c = (replace ? 8 : 7);
-    if (config.auth) c += 2;
-    if (config.user) c += 1;
+    if (config.conn_info.auth) c += 2;
+    if (config.conn_info.user) c += 1;
     size_t argc = c + reply->elements;
     size_t i, offset = 6; // Keys Offset
     argv = zcalloc(argc * sizeof(char *));
@@ -3718,23 +3618,23 @@ static redisReply *clusterManagerMigrateKeysInReply(clusterManagerNode *source,
         argv_len[offset] = 7;
         offset++;
     }
-    if (config.auth) {
-        if (config.user) {
+    if (config.conn_info.auth) {
+        if (config.conn_info.user) {
             argv[offset] = "AUTH2";
             argv_len[offset] = 5;
             offset++;
-            argv[offset] = config.user;
-            argv_len[offset] = strlen(config.user);
+            argv[offset] = config.conn_info.user;
+            argv_len[offset] = strlen(config.conn_info.user);
             offset++;
-            argv[offset] = config.auth;
-            argv_len[offset] = strlen(config.auth);
+            argv[offset] = config.conn_info.auth;
+            argv_len[offset] = strlen(config.conn_info.auth);
             offset++;
         } else {
             argv[offset] = "AUTH";
             argv_len[offset] = 4;
             offset++;
-            argv[offset] = config.auth;
-            argv_len[offset] = strlen(config.auth);
+            argv[offset] = config.conn_info.auth;
+            argv_len[offset] = strlen(config.conn_info.auth);
             offset++;
         }
     }
@@ -6603,11 +6503,11 @@ static int clusterManagerCommandImport(int argc, char **argv) {
         }
     }
     cmdfmt = sdsnew("MIGRATE %s %d %s %d %d");
-    if (config.auth) {
-        if (config.user) {
-            cmdfmt = sdscatfmt(cmdfmt," AUTH2 %s %s", config.user, config.auth); 
+    if (config.conn_info.auth) {
+        if (config.conn_info.user) {
+            cmdfmt = sdscatfmt(cmdfmt," AUTH2 %s %s", config.conn_info.user, config.conn_info.auth); 
         } else {
-            cmdfmt = sdscatfmt(cmdfmt," AUTH %s", config.auth);
+            cmdfmt = sdscatfmt(cmdfmt," AUTH %s", config.conn_info.auth);
         }
     }
 
@@ -8288,13 +8188,13 @@ int main(int argc, char **argv) {
     struct timeval tv;
 
     memset(&config.sslconfig, 0, sizeof(config.sslconfig));
-    config.hostip = sdsnew("127.0.0.1");
-    config.hostport = 6379;
+    config.conn_info.hostip = sdsnew("127.0.0.1");
+    config.conn_info.hostport = 6379;
     config.hostsocket = NULL;
     config.repeat = 1;
     config.interval = 0;
     config.dbnum = 0;
-    config.input_dbnum = 0;
+    config.conn_info.input_dbnum = 0;
     config.interactive = 0;
     config.shutdown = 0;
     config.monitor_mode = 0;
@@ -8319,9 +8219,9 @@ int main(int argc, char **argv) {
     config.bigkeys = 0;
     config.hotkeys = 0;
     config.stdinarg = 0;
-    config.auth = NULL;
+    config.conn_info.auth = NULL;
     config.askpass = 0;
-    config.user = NULL;
+    config.conn_info.user = NULL;
     config.eval = NULL;
     config.eval_ldb = 0;
     config.eval_ldb_end = 0;
@@ -8372,7 +8272,7 @@ int main(int argc, char **argv) {
     parseEnv();
 
     if (config.askpass) {
-        config.auth = askPassword("Please input password: ");
+        config.conn_info.auth = askPassword("Please input password: ");
     }
 
     if (config.cluster_manager_command.from_askpass) {
