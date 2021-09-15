@@ -803,6 +803,7 @@ typedef struct multiState {
  * The fields used depend on client->btype. */
 typedef struct blockingState {
     /* Generic fields. */
+    long count;             /* Elements to pop if count was specified (BLMPOP), 0 otherwise. */
     mstime_t timeout;       /* Blocking operation timeout. If UNIX current time
                              * is > timeout then the operation timed out. */
 
@@ -1334,6 +1335,8 @@ struct redisServer {
     long long stat_active_defrag_key_hits;  /* number of keys with moved allocations */
     long long stat_active_defrag_key_misses;/* number of keys scanned and not moved */
     long long stat_active_defrag_scanned;   /* number of dictEntries scanned */
+    long long stat_total_active_defrag_time; /* Total time memory fragmentation over the limit, unit us */
+    monotime stat_last_active_defrag_time; /* Timestamp of current active defrag start */
     size_t stat_peak_memory;        /* Max used memory record */
     long long stat_fork_time;       /* Time needed to perform latest fork() */
     double stat_fork_rate;          /* Fork rate in GB/sec. */
@@ -1442,6 +1445,8 @@ struct redisServer {
     /* RDB persistence */
     long long dirty;                /* Changes to DB from the last save */
     long long dirty_before_bgsave;  /* Used to restore dirty on failed BGSAVE */
+    long long rdb_last_load_keys_expired;  /* number of expired keys when loading RDB */
+    long long rdb_last_load_keys_loaded;   /* number of loaded keys when loading RDB */
     struct saveparam *saveparams;   /* Save points array for RDB */
     int saveparamslen;              /* Number of saving points */
     char *rdb_filename;             /* Name of RDB file */
@@ -1583,8 +1588,8 @@ struct redisServer {
     size_t hash_max_listpack_entries;
     size_t hash_max_listpack_value;
     size_t set_max_intset_entries;
-    size_t zset_max_ziplist_entries;
-    size_t zset_max_ziplist_value;
+    size_t zset_max_listpack_entries;
+    size_t zset_max_listpack_value;
     size_t hll_sparse_max_bytes;
     size_t stream_node_max_bytes;
     long long stream_node_max_entries;
@@ -2014,6 +2019,7 @@ void addReplyPushLen(client *c, long length);
 void addReplyHelp(client *c, const char **help);
 void addReplySubcommandSyntaxError(client *c);
 void addReplyLoadedModules(client *c);
+void addListRangeReply(client *c, robj *o, long start, long end, int reverse);
 void copyClientOutputBuffer(client *dst, client *src);
 size_t sdsZmallocSize(sds s);
 size_t getStringObjectSdsUsedMemory(robj *o);
@@ -2088,16 +2094,19 @@ robj *listTypePop(robj *subject, int where);
 unsigned long listTypeLength(const robj *subject);
 listTypeIterator *listTypeInitIterator(robj *subject, long index, unsigned char direction);
 void listTypeReleaseIterator(listTypeIterator *li);
+void listTypeSetIteratorDirection(listTypeIterator *li, unsigned char direction);
 int listTypeNext(listTypeIterator *li, listTypeEntry *entry);
 robj *listTypeGet(listTypeEntry *entry);
 void listTypeInsert(listTypeEntry *entry, robj *value, int where);
+void listTypeReplace(listTypeEntry *entry, robj *value);
 int listTypeEqual(listTypeEntry *entry, robj *o);
 void listTypeDelete(listTypeIterator *iter, listTypeEntry *entry);
 void listTypeConvert(robj *subject, int enc);
 robj *listTypeDup(robj *o);
+int listTypeDelRange(robj *o, long start, long stop);
 void unblockClientWaitingData(client *c);
 void popGenericCommand(client *c, int where);
-void listElementsRemoved(client *c, robj *key, int where, robj *o, long count);
+void listElementsRemoved(client *c, robj *key, int where, robj *o, long count, int *deleted);
 
 /* MULTI/EXEC/WATCH... */
 void unwatchAllKeys(client *c);
@@ -2148,7 +2157,7 @@ robj *createSetObject(void);
 robj *createIntsetObject(void);
 robj *createHashObject(void);
 robj *createZsetObject(void);
-robj *createZsetZiplistObject(void);
+robj *createZsetListpackObject(void);
 robj *createStreamObject(void);
 robj *createModuleObject(moduleType *mt, void *value);
 int getLongFromObjectOrReply(client *c, robj *o, long *target, const char *msg);
@@ -2202,7 +2211,7 @@ long long getPsyncInitialOffset(void);
 int replicationSetupSlaveForFullResync(client *slave, long long offset);
 void changeReplicationId(void);
 void clearReplicationId2(void);
-void chopReplicationBacklog(void);
+void createReplicationBacklog(void);
 void replicationCacheMasterUsingMyself(void);
 void feedReplicationBacklog(void *ptr, size_t len);
 void showLatestBacklog(void);
@@ -2334,16 +2343,15 @@ unsigned char *zzlFirstInRange(unsigned char *zl, zrangespec *range);
 unsigned char *zzlLastInRange(unsigned char *zl, zrangespec *range);
 unsigned long zsetLength(const robj *zobj);
 void zsetConvert(robj *zobj, int encoding);
-void zsetConvertToZiplistIfNeeded(robj *zobj, size_t maxelelen);
+void zsetConvertToListpackIfNeeded(robj *zobj, size_t maxelelen);
 int zsetScore(robj *zobj, sds member, double *score);
 unsigned long zslGetRank(zskiplist *zsl, double score, sds o);
 int zsetAdd(robj *zobj, double score, sds ele, int in_flags, int *out_flags, double *newscore);
 long zsetRank(robj *zobj, sds ele, int reverse);
 int zsetDel(robj *zobj, sds ele);
 robj *zsetDup(robj *o);
-int zsetZiplistValidateIntegrity(unsigned char *zl, size_t size, int deep);
 void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey, robj *countarg);
-sds ziplistGetObject(unsigned char *sptr);
+sds lpGetObject(unsigned char *sptr);
 int zslValueGteMin(double value, zrangespec *spec);
 int zslValueLteMax(double value, zrangespec *spec);
 void zslFreeLexRange(zlexrangespec *spec);
@@ -2460,8 +2468,6 @@ robj *hashTypeLookupWriteOrCreate(client *c, robj *key);
 robj *hashTypeGetValueObject(robj *o, sds field);
 int hashTypeSet(robj *o, sds field, sds value, int flags);
 robj *hashTypeDup(robj *o);
-int hashZiplistConvertAndValidateIntegrity(unsigned char *zl, size_t size, unsigned char **lp);
-int hashListpackValidateIntegrity(unsigned char *lp, size_t size, int deep);
 
 /* Pub / Sub */
 int pubsubUnsubscribeAllChannels(client *c, int notify);
@@ -2555,6 +2561,8 @@ int georadiusGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysRes
 int xreadGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int memoryGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int lcsGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
+int lmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
+int blmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 
 unsigned short crc16(const char *buf, int len);
 
@@ -2591,7 +2599,7 @@ int getTimeoutFromObjectOrReply(client *c, robj *object, mstime_t *timeout, int 
 void disconnectAllBlockedClients(void);
 void handleClientsBlockedOnKeys(void);
 void signalKeyAsReady(redisDb *db, robj *key, int type);
-void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeout, robj *target, struct listPos *listpos, streamID *ids);
+void blockForKeys(client *c, int btype, robj **keys, int numkeys, long count, mstime_t timeout, robj *target, struct listPos *listpos, streamID *ids);
 void updateStatsOnUnblock(client *c, long blocked_us, long reply_us);
 
 /* timeout.c -- Blocked clients timeout and connections timeout. */
@@ -2680,6 +2688,7 @@ void rpushxCommand(client *c);
 void linsertCommand(client *c);
 void lpopCommand(client *c);
 void rpopCommand(client *c);
+void lmpopCommand(client *c);
 void llenCommand(client *c);
 void lindexCommand(client *c);
 void lrangeCommand(client *c);
@@ -2756,6 +2765,7 @@ void execCommand(client *c);
 void discardCommand(client *c);
 void blpopCommand(client *c);
 void brpopCommand(client *c);
+void blmpopCommand(client *c);
 void brpoplpushCommand(client *c);
 void blmoveCommand(client *c);
 void appendCommand(client *c);

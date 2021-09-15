@@ -1498,6 +1498,7 @@ int ziplistValidateIntegrity(unsigned char *zl, size_t size, int deep,
         return 1;
 
     unsigned int count = 0;
+    unsigned int header_count = intrev16ifbe(ZIPLIST_LENGTH(zl));
     unsigned char *p = ZIPLIST_ENTRY_HEAD(zl);
     unsigned char *prev = NULL;
     size_t prev_raw_size = 0;
@@ -1512,7 +1513,7 @@ int ziplistValidateIntegrity(unsigned char *zl, size_t size, int deep,
             return 0;
 
         /* Optionally let the caller validate the entry too. */
-        if (entry_cb && !entry_cb(p, cb_userdata))
+        if (entry_cb && !entry_cb(p, header_count, cb_userdata))
             return 0;
 
         /* Move to the next entry */
@@ -1531,7 +1532,6 @@ int ziplistValidateIntegrity(unsigned char *zl, size_t size, int deep,
         return 0;
 
     /* Check that the count in the header is correct */
-    unsigned int header_count = intrev16ifbe(ZIPLIST_LENGTH(zl));
     if (header_count != UINT16_MAX && count != header_count)
         return 0;
 
@@ -2462,6 +2462,32 @@ int ziplistTest(int argc, char **argv, int accurate) {
                 ziplistValidateIntegrity(zl, ziplistBlobLen(zl), 1, NULL, NULL);
             }
             printf("%lld\n", usec()-start);
+        }
+
+        printf("Benchmark ziplistCompare with string\n");
+        {
+            unsigned long long start = usec();
+            for (int i = 0; i < 2000; i++) {
+                unsigned char *eptr = ziplistIndex(zl,0);
+                while (eptr != NULL) {
+                    ziplistCompare(eptr,(unsigned char*)"nothing",7);
+                    eptr = ziplistNext(zl,eptr);
+                }
+            }
+            printf("Done. usec=%lld\n", usec()-start);
+        }
+
+        printf("Benchmark ziplistCompare with number\n");
+        {
+            unsigned long long start = usec();
+            for (int i = 0; i < 2000; i++) {
+                unsigned char *eptr = ziplistIndex(zl,0);
+                while (eptr != NULL) {
+                    ziplistCompare(eptr,(unsigned char*)"99999",5);
+                    eptr = ziplistNext(zl,eptr);
+                }
+            }
+            printf("Done. usec=%lld\n", usec()-start);
         }
 
         zfree(zl);

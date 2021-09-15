@@ -17,3 +17,17 @@ proc redisbenchmark {host port {opts {}}} {
     lappend cmd {*}$opts
     return $cmd
 }
+
+proc redisbenchmarkuri {host port {opts {}}} {
+    set cmd [list src/redis-benchmark -u redis://$host:$port]
+    lappend cmd {*}[redisbenchmark_tls_config "tests"]
+    lappend cmd {*}$opts
+    return $cmd
+}
+
+proc redisbenchmarkuriuserpass {host port user pass {opts {}}} {
+    set cmd [list src/redis-benchmark -u redis://$user:$pass@$host:$port]
+    lappend cmd {*}[redisbenchmark_tls_config "tests"]
+    lappend cmd {*}$opts
+    return $cmd
+}

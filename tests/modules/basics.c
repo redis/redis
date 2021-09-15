@@ -33,6 +33,7 @@
 #define REDISMODULE_EXPERIMENTAL_API
 #include "redismodule.h"
 #include <string.h>
+#include <stdlib.h>
 
 /* --------------------------------- Helpers -------------------------------- */
 
@@ -457,6 +458,38 @@ int TestUnlink(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
+int TestNestedCallReplyArrayElement(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    RedisModule_AutoMemory(ctx);
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+
+    RedisModuleString *expect_key = RedisModule_CreateString(ctx, "mykey", strlen("mykey"));
+    RedisModule_SelectDb(ctx, 1);
+    RedisModule_Call(ctx, "LPUSH", "sc", expect_key, "myvalue");
+
+    RedisModuleCallReply *scan_reply = RedisModule_Call(ctx, "SCAN", "l", (long long)0);
+    RedisModule_Assert(scan_reply != NULL && RedisModule_CallReplyType(scan_reply) == REDISMODULE_REPLY_ARRAY);
+    RedisModule_Assert(RedisModule_CallReplyLength(scan_reply) == 2);
+
+    long long scan_cursor;
+    RedisModuleCallReply *cursor_reply = RedisModule_CallReplyArrayElement(scan_reply, 0);
+    RedisModule_Assert(RedisModule_CallReplyType(cursor_reply) == REDISMODULE_REPLY_STRING);
+    RedisModule_Assert(RedisModule_StringToLongLong(RedisModule_CreateStringFromCallReply(cursor_reply), &scan_cursor) == REDISMODULE_OK);
+    RedisModule_Assert(scan_cursor == 0);
+
+    RedisModuleCallReply *keys_reply = RedisModule_CallReplyArrayElement(scan_reply, 1);
+    RedisModule_Assert(RedisModule_CallReplyType(keys_reply) == REDISMODULE_REPLY_ARRAY);
+    RedisModule_Assert( RedisModule_CallReplyLength(keys_reply) == 1);
+ 
+    RedisModuleCallReply *key_reply = RedisModule_CallReplyArrayElement(keys_reply, 0);
+    RedisModule_Assert(RedisModule_CallReplyType(key_reply) == REDISMODULE_REPLY_STRING);
+    RedisModuleString *key = RedisModule_CreateStringFromCallReply(key_reply);
+    RedisModule_Assert(RedisModule_StringCompare(key, expect_key) == 0);
+
+    RedisModule_ReplyWithSimpleString(ctx, "OK");
+    return REDISMODULE_OK;
+}
+
 /* TEST.STRING.TRUNCATE -- Test truncating an existing string object. */
 int TestStringTruncate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_AutoMemory(ctx);
@@ -795,6 +828,9 @@ int TestBasics(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     T("test.unlink","");
     if (!TestAssertStringReply(ctx,reply,"OK",2)) goto fail;
 
+    T("test.nestedcallreplyarray","");
+    if (!TestAssertStringReply(ctx,reply,"OK",2)) goto fail;
+
     T("test.string.append.am","");
     if (!TestAssertStringReply(ctx,reply,"foobar",6)) goto fail;
 
@@ -892,6 +928,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx,"test.unlink",
         TestUnlink,"write deny-oom",1,1,1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"test.nestedcallreplyarray",
+        TestNestedCallReplyArrayElement,"write deny-oom",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"test.basics",
