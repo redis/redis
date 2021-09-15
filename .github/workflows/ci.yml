@@ -201,45 +201,7 @@ jobs:
       run: ./runtest --config io-threads 4 --config io-threads-do-reads yes --accurate --verbose --tags network --dump-logs
     - name: cluster tests
       run: ./runtest-cluster --config io-threads 4 --config io-threads-do-reads yes
-      
-  test-valgrind:
-    runs-on: ubuntu-latest
-    if: github.repository == 'hwware/redis'
-    timeout-minutes: 14400
-    steps:
-    - uses: actions/checkout@v2
-    - name: make
-      run: make valgrind REDIS_CFLAGS='-Werror -DREDIS_TEST'
-    - name: testprep
-      run: |
-        sudo apt-get update
-        sudo apt-get install tcl8.6 tclx valgrind -y
-    - name: test
-      run: ./runtest --valgrind --verbose --clients 1 --tags -large-memory --dump-logs
-    - name: module api test
-      run: ./runtest-moduleapi --valgrind --no-latency --verbose --clients 1
-    - name: unittest
-      run: |
-        valgrind --track-origins=yes --suppressions=./src/valgrind.sup --show-reachable=no --show-possibly-lost=no --leak-check=full --log-file=err.txt ./src/redis-server test all
-        if grep -q 0x err.txt; then cat err.txt; exit 1; fi  
-        
-  test-valgrind-no-malloc-usable-size:
-    runs-on: ubuntu-latest
-    if: github.repository == 'hwware/redis'
-    timeout-minutes: 14400
-    steps:
-    - uses: actions/checkout@v2
-    - name: make
-      run: make valgrind CFLAGS="-DNO_MALLOC_USABLE_SIZE"
-    - name: testprep
-      run: |
-        sudo apt-get update
-        sudo apt-get install tcl8.6 tclx valgrind -y
-    - name: test
-      run: ./runtest --valgrind --verbose --clients 1 --tags -large-memory --dump-logs
-    - name: module api test
-      run: ./runtest-moduleapi --valgrind --no-latency --verbose --clients 1
-   
+       
   test-centos7-jemalloc:
     runs-on: ubuntu-latest
     if: github.repository == 'hwware/redis'
@@ -311,24 +273,6 @@ jobs:
     - name: cluster tests
       run: ./runtest-cluster
 
-  test-freebsd:
-    runs-on: macos-latest
-    if: github.repository == 'hwware/redis'
-    timeout-minutes: 14400
-    steps:
-    - uses: actions/checkout@v2
-    - name: test
-      uses: vmactions/freebsd-vm@v0.1.4
-      with:
-        usesh: true
-        sync: rsync
-        prepare: pkg install -y bash gmake lang/tcl86 lang/tclx
-        run: >
-          gmake || exit 1 ;
-          if true ; then ./runtest --accurate --verbose --no-latency --tags -large-memory --dump-logs || exit 1 ; fi ;
-          if true ; then MAKE=gmake ./runtest-moduleapi --verbose  || exit 1 ; fi ;
-          if true ; then ./runtest-sentinel  || exit 1 ; fi ;
-          if true ; then ./runtest-cluster || exit 1 ; fi ;
   test-alpine-jemalloc:
     runs-on: ubuntu-latest
     if: github.repository == 'hwware/redis'
