@@ -3001,8 +3001,6 @@ void createSharedObjects(void) {
     shared.persist = createStringObject("PERSIST",7);
     shared.set = createStringObject("SET",3);
     shared.eval = createStringObject("EVAL",4);
-    shared.zpopmin = createStringObject("ZPOPMIN",7);
-    shared.zpopmax = createStringObject("ZPOPMAX",7);
 
     /* Shared command argument */
     shared.left = createStringObject("left",4);
