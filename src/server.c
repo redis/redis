@@ -174,6 +174,10 @@ struct redisServer server; /* Server global state */
  * container: This command is a container of (sub)commands that share the same
  *            theme (Example: CONFIG).
  *
+ * sentinel: This command is present in sentinel mode too.
+ *
+ * sentinel-only: This command is present only when in sentinel mode.
+ *
  * The following additional flags are only used in order to put commands
  * in a specific ACL category. Commands can have multiple ACL categories.
  * See redis.conf for the exact meaning of each.
@@ -198,16 +202,16 @@ struct redisServer server; /* Server global state */
 
 struct redisCommand configSubcommands[] = {
     {"set",configSetCommand,4,
-     "admin no-script"},
+     "admin ok-stale no-script"},
 
     {"get",configGetCommand,3,
      "admin ok-loading ok-stale no-script"},
 
     {"resetstat",configResetStatCommand,2,
-     "admin no-script"},
+     "admin ok-stale no-script"},
 
     {"rewrite",configRewriteCommand,2,
-     "admin no-script"},
+     "admin ok-stale no-script"},
 
     {"help",configHelpCommand,2,
      ""},
@@ -323,12 +327,12 @@ struct redisCommand memorySubcommands[] = {
      "random"},
 
     {"purge",memoryCommand,2,
-     "random"},
+     ""},
 
     {"usage",memoryCommand,-3,
      "read-only",
      {{"read",
-       KSPEC_BS_KEYWORD,.bs.index={2},
+       KSPEC_BS_INDEX,.bs.index={2},
        KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 
     {"help",memoryCommand,2,
@@ -369,7 +373,7 @@ struct redisCommand aclSubcommands[] = {
      "admin no-script ok-loading ok-stale"},
 
     {"whoami",aclCommand,2,
-     "admin no-script ok-loading ok-stale"},
+     "no-script ok-loading ok-stale"},
 
     {"help",aclCommand,2,
      ""},
@@ -420,7 +424,7 @@ struct redisCommand slowlogSubcommands[] = {
      "admin random ok-loading ok-stale"},
 
     {"len",slowlogCommand,2,
-     "admin ok-loading ok-stale"},
+     "admin random ok-loading ok-stale"},
 
     {"reset",slowlogCommand,2,
      "admin ok-loading ok-stale"},
@@ -439,7 +443,7 @@ struct redisCommand objectSubcommands[] = {
        KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 
     {"freq",objectCommand,3,
-     "read-only @keyspace",
+     "read-only random @keyspace",
      {{"read",
        KSPEC_BS_INDEX,.bs.index={2},
        KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
@@ -486,46 +490,46 @@ struct redisCommand scriptSubcommands[] = {
 
 struct redisCommand clientSubcommands[] = {
     {"caching",clientCommand,3,
-     "admin no-script random ok-loading ok-stale @connection"},
+     "admin no-script ok-loading ok-stale @connection"},
 
     {"getredir",clientCommand,2,
-     "admin no-script random ok-loading ok-stale @connection"},
+     "admin no-script ok-loading ok-stale @connection"},
 
     {"id",clientCommand,2,
-     "admin no-script random ok-loading ok-stale @connection"},
+     "admin no-script ok-loading ok-stale @connection"},
 
     {"info",clientCommand,2,
      "admin no-script random ok-loading ok-stale @connection"},
 
     {"kill",clientCommand,-3,
-     "admin no-script random ok-loading ok-stale @connection"},
+     "admin no-script ok-loading ok-stale @connection"},
 
     {"list",clientCommand,-2,
      "admin no-script random ok-loading ok-stale @connection"},
 
     {"unpause",clientCommand,2,
-     "admin no-script random ok-loading ok-stale @connection"},
+     "admin no-script ok-loading ok-stale @connection"},
 
     {"pause",clientCommand,-3,
-     "admin no-script random ok-loading ok-stale @connection"},
+     "admin no-script ok-loading ok-stale @connection"},
 
     {"reply",clientCommand,3,
-     "admin no-script random ok-loading ok-stale @connection"},
+     "no-script ok-loading ok-stale @connection"},
 
     {"setname",clientCommand,3,
-     "admin no-script random ok-loading ok-stale @connection"},
+     "no-script ok-loading ok-stale @connection"},
 
     {"getname",clientCommand,2,
-     "admin no-script random ok-loading ok-stale @connection"},
+     "no-script ok-loading ok-stale @connection"},
 
     {"unblock",clientCommand,-3,
-     "admin no-script random ok-loading ok-stale @connection"},
+     "admin no-script ok-loading ok-stale @connection"},
 
     {"tracking",clientCommand,-3,
-     "admin no-script random ok-loading ok-stale @connection"},
+     "admin no-script ok-loading ok-stale @connection"},
 
     {"trackinginfo",clientCommand,2,
-     "admin no-script random ok-loading ok-stale @connection"},
+     "admin no-script ok-loading ok-stale @connection"},
 
     {"help",clientCommand,2,
      ""},
@@ -1526,7 +1530,7 @@ struct redisCommand redisCommandTable[] = {
      "ok-stale fast sentinel @connection"},
 
     {"sentinel",NULL,-2,
-     "admin only-sentinel",
+     "container admin only-sentinel",
      .subcommands=sentinelSubcommands},
 
     {"echo",echoCommand,2,
@@ -5082,15 +5086,15 @@ int processCommand(client *c) {
             /* If we can't find the command but argv[0] by itself is a command
              * it means we're dealing with an invalid subcommand. Print Help. */
             addReplySubcommandSyntaxError(c);
-        } else {
-            sds args = sdsempty();
-            int i;
-            for (i=1; i < c->argc && sdslen(args) < 128; i++)
-                args = sdscatprintf(args, "'%.*s' ", 128-(int)sdslen(args), (char*)c->argv[i]->ptr);
-            rejectCommandFormat(c,"unknown command '%s', with args beginning with: %s",
-                (char*)c->argv[0]->ptr, args);
-            sdsfree(args);
+            return C_OK;
         }
+        sds args = sdsempty();
+        int i;
+        for (i=1; i < c->argc && sdslen(args) < 128; i++)
+            args = sdscatprintf(args, "'%.*s' ", 128-(int)sdslen(args), (char*)c->argv[i]->ptr);
+        rejectCommandFormat(c,"unknown command '%s', with args beginning with: %s",
+            (char*)c->argv[0]->ptr, args);
+        sdsfree(args);
         return C_OK;
     } else if ((c->cmd->arity > 0 && c->cmd->arity != c->argc) ||
                (c->argc < -c->cmd->arity))
@@ -5736,7 +5740,7 @@ void addReplyCommandLegacy(client *c, struct redisCommand *cmd) {
                 lastkey += firstkey;
             keystep = cmd->legacy_range_key_spec.fk.range.keystep;
         }
-        /* We are adding: command name, arg count, flags, first, last, offset, categories, key args, subcommands */
+        /* We are adding: command name, arg count, flags, first, last, offset, categories */
         addReplyArrayLen(c, 7);
         addReplyBulkCString(c, cmd->name);
         addReplyLongLong(c, cmd->arity);
@@ -5767,6 +5771,36 @@ void addReplyCommand(client *c, struct redisCommand *cmd) {
         addReplyBulkCString(c, "subcommands");
         addReplyCommandSubCommands(c,cmd);
     }
+}
+
+/* Helper for COMMAND(S) command
+ *
+ * COMMAND(S) GETKEYS arg0 arg1 arg2 ... */
+void getKeysSubcommand(client *c) {
+    struct redisCommand *cmd = lookupCommand(c->argv+2,c->argc-2);
+    getKeysResult result = GETKEYS_RESULT_INIT;
+    int j;
+
+    if (!cmd) {
+        addReplyError(c,"Invalid command specified");
+        return;
+    } else if (cmd->getkeys_proc == NULL && cmd->key_specs_num == 0) {
+        addReplyError(c,"The command has no key arguments");
+        return;
+    } else if ((cmd->arity > 0 && cmd->arity != c->argc-2) ||
+               ((c->argc-2) < -cmd->arity))
+    {
+        addReplyError(c,"Invalid number of arguments specified for command");
+        return;
+    }
+
+    if (!getKeysFromCommand(cmd,c->argv+2,c->argc-2,&result)) {
+        addReplyError(c,"Invalid arguments specified for command");
+    } else {
+        addReplyArrayLen(c,result.numkeys);
+        for (j = 0; j < result.numkeys; j++) addReplyBulk(c,c->argv[result.keys[j]+2]);
+    }
+    getKeysFreeResult(&result);
 }
 
 /* COMMAND <subcommand> <args> */
@@ -5803,30 +5837,7 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr, "count") && c->argc == 2) {
         addReplyLongLong(c, dictSize(server.commands));
     } else if (!strcasecmp(c->argv[1]->ptr,"getkeys") && c->argc >= 3) {
-        struct redisCommand *cmd = lookupCommand(c->argv+2,c->argc-2);
-        getKeysResult result = GETKEYS_RESULT_INIT;
-        int j;
-
-        if (!cmd) {
-            addReplyError(c,"Invalid command specified");
-            return;
-        } else if (cmd->getkeys_proc == NULL && cmd->key_specs_num == 0) {
-            addReplyError(c,"The command has no key arguments");
-            return;
-        } else if ((cmd->arity > 0 && cmd->arity != c->argc-2) ||
-                   ((c->argc-2) < -cmd->arity))
-        {
-            addReplyError(c,"Invalid number of arguments specified for command");
-            return;
-        }
-
-        if (!getKeysFromCommand(cmd,c->argv+2,c->argc-2,&result)) {
-            addReplyError(c,"Invalid arguments specified for command");
-        } else {
-            addReplyArrayLen(c,result.numkeys);
-            for (j = 0; j < result.numkeys; j++) addReplyBulk(c,c->argv[result.keys[j]+2]);
-        }
-        getKeysFreeResult(&result);
+        getKeysSubcommand(c);
     } else {
         addReplySubcommandSyntaxError(c);
     }
@@ -5867,7 +5878,7 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr, "count") && c->argc == 2) {
         addReplyLongLong(c, dictSize(server.commands));
     } else if (!strcasecmp(c->argv[1]->ptr, "list") && c->argc == 2) {
-        addReplyArrayLen(c, dictSize(server.commands));
+        addReplySetLen(c, dictSize(server.commands));
         di = dictGetIterator(server.commands);
         while ((de = dictNext(di)) != NULL) {
             struct redisCommand *cmd = dictGetVal(de);
@@ -5875,30 +5886,7 @@ NULL
         }
         dictReleaseIterator(di);
     } else if (!strcasecmp(c->argv[1]->ptr,"getkeys") && c->argc >= 3) {
-        struct redisCommand *cmd = lookupCommand(c->argv+2,c->argc-2);
-        getKeysResult result = GETKEYS_RESULT_INIT;
-        int j;
-
-        if (!cmd) {
-            addReplyError(c,"Invalid command specified");
-            return;
-        } else if (cmd->getkeys_proc == NULL && cmd->key_specs_num == 0) {
-            addReplyError(c,"The command has no key arguments");
-            return;
-        } else if ((cmd->arity > 0 && cmd->arity != c->argc-2) ||
-                   ((c->argc-2) < -cmd->arity))
-        {
-            addReplyError(c,"Invalid number of arguments specified for command");
-            return;
-        }
-
-        if (!getKeysFromCommand(cmd,c->argv+2,c->argc-2,&result)) {
-            addReplyError(c,"Invalid arguments specified for command");
-        } else {
-            addReplyArrayLen(c,result.numkeys);
-            for (j = 0; j < result.numkeys; j++) addReplyBulk(c,c->argv[result.keys[j]+2]);
-        }
-        getKeysFreeResult(&result);
+        getKeysSubcommand(c);
     } else {
         addReplySubcommandSyntaxError(c);
     }
@@ -5960,9 +5948,7 @@ const char *getSafeInfoString(const char *s, size_t len, char **tmp) {
                        sizeof(unsafe_info_chars)-1);
 }
 
-sds genRedisInfoStringCommandStats(dict *commands) {
-    sds info = sdsempty();
-
+sds genRedisInfoStringCommandStats(sds info, dict *commands) {
     struct redisCommand *c;
     dictEntry *de;
     dictIterator *di;
@@ -5983,9 +5969,7 @@ sds genRedisInfoStringCommandStats(dict *commands) {
             sdsfree(cmdnamesds);
         }
         if (c->subcommands_dict) {
-            sds subinfo = genRedisInfoStringCommandStats(c->subcommands_dict);
-            info = sdscatsds(info,subinfo);
-            sdsfree(subinfo);
+            info = genRedisInfoStringCommandStats(info, c->subcommands_dict);
         }
     }
     dictReleaseIterator(di);
@@ -6657,9 +6641,7 @@ sds genRedisInfoString(const char *section) {
     if (allsections || !strcasecmp(section,"commandstats")) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Commandstats\r\n");
-        sds cmdstats = genRedisInfoStringCommandStats(server.commands);
-        info = sdscatsds(info,cmdstats);
-        sdsfree(cmdstats);
+        info = genRedisInfoStringCommandStats(info, server.commands);
     }
     /* Error statistics */
     if (allsections || defsections || !strcasecmp(section,"errorstats")) {

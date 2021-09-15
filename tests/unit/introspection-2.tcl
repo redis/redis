@@ -76,4 +76,9 @@ start_server {tags {"introspection"}} {
         assert_match {*calls=1,*} [cmdstat expire]
         assert_match {*calls=1,*} [cmdstat geoadd]
     } {} {needs:config-resetstat}
+
+    test {COMMAND GETKEYS MEMORY USAGE} {
+        assert_equal {key} [r command getkeys memory usage key]
+        assert_equal {key} [r commands getkeys memory usage key]
+    }
 }

@@ -2686,6 +2686,26 @@ standardConfig configs[] = {
 };
 
 /*-----------------------------------------------------------------------------
+ * CONFIG HELP
+ *----------------------------------------------------------------------------*/
+
+void configHelpCommand(client *c) {
+    const char *help[] = {
+"GET <pattern>",
+"    Return parameters matching the glob-like <pattern> and their values.",
+"SET <directive> <value>",
+"    Set the configuration <directive> to <value>.",
+"RESETSTAT",
+"    Reset statistics reported by the INFO command.",
+"REWRITE",
+"    Rewrite the configuration file.",
+NULL
+    };
+
+    addReplyHelp(c, help);
+}
+
+/*-----------------------------------------------------------------------------
  * CONFIG RESETSTAT
  *----------------------------------------------------------------------------*/
 
@@ -2712,25 +2732,4 @@ void configRewriteCommand(client *c) {
         serverLog(LL_WARNING,"CONFIG REWRITE executed with success.");
         addReply(c,shared.ok);
     }
-}
-
-
-/*-----------------------------------------------------------------------------
- * CONFIG HELP
- *----------------------------------------------------------------------------*/
-
-void configHelpCommand(client *c) {
-    const char *help[] = {
-"GET <pattern>",
-"    Return parameters matching the glob-like <pattern> and their values.",
-"SET <directive> <value>",
-"    Set the configuration <directive> to <value>.",
-"RESETSTAT",
-"    Reset statistics reported by the INFO command.",
-"REWRITE",
-"    Rewrite the configuration file.",
-NULL
-    };
-
-    addReplyHelp(c, help);
 }
