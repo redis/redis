@@ -113,9 +113,14 @@ tags "modules" {
             assert_equal {1 f} [r keyspace.is_key_removed f]
 
             # delete key because of active expire
+            set size [r dbsize]
             r set g abcd px 1
             #ensure active expire
-            after 100
+            wait_for_condition 50 100 {
+                [r dbsize] == $size
+            } else {
+                fail "Active expire not trigger"
+            }
             assert_equal {1 abcd} [r keyspace.is_key_removed g]
 
             # delete key because of lazy expire

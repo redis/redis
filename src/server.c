@@ -2675,6 +2675,7 @@ void initServerConfig(void) {
     server.tlsfd.count = 0;
     server.sofd = -1;
     server.active_expire_enabled = 1;
+    server.lazy_expire_disabled = 0;
     server.skip_checksum_validation = 0;
     server.saveparams = NULL;
     server.loading = 0;
@@ -3182,7 +3183,6 @@ void initServer(void) {
     server.current_client = NULL;
     server.errors = raxNew();
     server.fixed_time_expire = 0;
-    server.stop_lazy_expire = 0;
     server.clients = listCreate();
     server.clients_index = raxNew();
     server.clients_to_close = listCreate();

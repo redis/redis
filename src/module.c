@@ -8582,9 +8582,9 @@ void processModuleLoadingProgressEvent(int is_aof) {
 *  will be called to tell the module which key is about to be released. */
 void moduleNotifyKeyUnlink(robj *key, robj *val, int dbid) {
     dictPauseRehashing(server.db[dbid].dict);
-    server.stop_lazy_expire++;
+    server.lazy_expire_disabled++;
     moduleNotifyKeyspaceEvent(NOTIFY_REMOVED,"removed",key,dbid);
-    server.stop_lazy_expire--;
+    server.lazy_expire_disabled--;
     if (val->type == OBJ_MODULE) {
         moduleValue *mv = val->ptr;
         moduleType *mt = mv->type;
