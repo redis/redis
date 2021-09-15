@@ -31,7 +31,6 @@ test "Basic failover works if the master is down" {
 =======
         S $id sentinel debug ping-period 500
         S $id sentinel debug ask-period 500
-        
         wait_for_condition 1000 100 {
 >>>>>>> Update 00-base.tcl
             [lindex [S $id SENTINEL GET-MASTER-ADDR-BY-NAME mymaster] 1] != $old_port
