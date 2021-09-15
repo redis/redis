@@ -37,6 +37,7 @@ TEST_MODULES = \
     test_lazyfree.so \
     timer.so \
     defragtest.so \
+    keyspecs.so \
     hash.so \
     zset.so \
     stream.so \

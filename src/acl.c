@@ -1225,7 +1225,7 @@ int ACLCheckCommandPerm(client *c, int *keyidxptr) {
     /* Check if the user can execute commands explicitly touching the keys
      * mentioned in the command arguments. */
     if (!(c->user->flags & USER_FLAG_ALLKEYS) &&
-        (c->cmd->getkeys_proc || c->cmd->firstkey))
+        (c->cmd->getkeys_proc || c->cmd->key_specs_num))
     {
         getKeysResult result = GETKEYS_RESULT_INIT;
         int numkeys = getKeysFromCommand(c->cmd,c->argv,c->argc,&result);
