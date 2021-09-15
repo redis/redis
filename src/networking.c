@@ -2329,7 +2329,7 @@ sds catClientInfoString(sds s, client *client) {
         total_mem += zmalloc_size(client->argv);
 
     return sdscatfmt(s,
-        "id=%U addr=%s laddr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i multi=%i qbuf=%U qbuf-free=%U argv-mem=%U obl=%U oll=%U omem=%U tot-mem=%U events=%s cmd=%s user=%s redir=%I",
+        "id=%U addr=%s laddr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i multi=%i qbuf=%U qbuf-free=%U argv-mem=%U obl=%U oll=%U omem=%U tot-mem=%U events=%s cmd=%s user=%s redir=%I resp=%i",
         (unsigned long long) client->id,
         getClientPeerId(client),
         getClientSockname(client),
@@ -2352,7 +2352,8 @@ sds catClientInfoString(sds s, client *client) {
         events,
         client->lastcmd ? client->lastcmd->name : "NULL",
         client->user ? client->user->name : "(superuser)",
-        (client->flags & CLIENT_TRACKING) ? (long long) client->client_tracking_redirection : -1);
+        (client->flags & CLIENT_TRACKING) ? (long long) client->client_tracking_redirection : -1,
+        client->resp);
 }
 
 sds getAllClientsInfoString(int type) {
