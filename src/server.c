@@ -171,9 +171,6 @@ struct redisServer server; /* Server global state */
  *                or may just execute read commands. A command can not be marked 
  *                both "write" and "may-replicate"
  *
- * container: This command is a container of (sub)commands that share the same
- *            theme (Example: CONFIG).
- *
  * sentinel: This command is present in sentinel mode too.
  *
  * sentinel-only: This command is present only when in sentinel mode.
@@ -703,7 +700,7 @@ struct redisCommand sentinelSubcommands[] = {
 
 struct redisCommand redisCommandTable[] = {
     {"module",NULL,-2,
-     "container",
+     "",
      .subcommands=moduleSubcommands},
 
     {"get",getCommand,2,
@@ -1530,7 +1527,7 @@ struct redisCommand redisCommandTable[] = {
      "ok-stale fast sentinel @connection"},
 
     {"sentinel",NULL,-2,
-     "container admin only-sentinel",
+     "admin only-sentinel",
      .subcommands=sentinelSubcommands},
 
     {"echo",echoCommand,2,
@@ -1652,7 +1649,7 @@ struct redisCommand redisCommandTable[] = {
      "admin no-script ok-loading ok-stale"},
 
     {"config",NULL,-2,
-     "container",
+     "",
      .subcommands=configSubcommands},
 
     {"subscribe",subscribeCommand,-2,
@@ -1671,7 +1668,7 @@ struct redisCommand redisCommandTable[] = {
      "pub-sub ok-loading ok-stale fast may-replicate sentinel"},
 
     {"pubsub",NULL,-2,
-     "container",
+     "",
      .subcommands=pubsubSubcommands},
 
     {"watch",watchCommand,-2,
@@ -1684,7 +1681,7 @@ struct redisCommand redisCommandTable[] = {
      "no-script fast ok-loading ok-stale @transaction"},
 
     {"cluster",NULL,-2,
-     "container",
+     "",
      .subcommands=clusterSubcommands},
 
     {"restore",restoreCommand,-4,
@@ -1725,15 +1722,15 @@ struct redisCommand redisCommandTable[] = {
        KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 
     {"object",NULL,-2,
-     "container",
+     "",
     .subcommands=objectSubcommands},
 
     {"memory",NULL,-2,
-     "container",
+     "",
      .subcommands=memorySubcommands},
 
     {"client",NULL,-2,
-     "container sentinel",
+     "sentinel",
      .subcommands=clientSubcommands},
 
     {"hello",helloCommand,-1,
@@ -1774,11 +1771,11 @@ struct redisCommand redisCommandTable[] = {
      evalGetKeys},
 
     {"slowlog",NULL,-2,
-     "container",
+     "",
      .subcommands=slowlogSubcommands},
 
     {"script",NULL,-2,
-     "container",
+     "",
      .subcommands=scriptSubcommands},
 
     {"time",timeCommand,1,
@@ -1809,11 +1806,11 @@ struct redisCommand redisCommandTable[] = {
      "no-script @connection"},
 
     {"command",commandCommand,-1,
-     "container ok-loading ok-stale random sentinel @connection",
+     "ok-loading ok-stale random sentinel @connection",
      .subcommands=commandSubcommands},
 
     {"commands",NULL,-2,
-     "container sentinel",
+     "sentinel",
      .subcommands=commandsSubcommands},
 
     {"geoadd",geoaddCommand,-5,
@@ -1969,7 +1966,7 @@ struct redisCommand redisCommandTable[] = {
      xreadGetKeys},
 
     {"xgroup",NULL,-2,
-     "container",
+     "",
      .subcommands=xgroupSubcommands},
 
     {"xsetid",xsetidCommand,3,
@@ -2003,7 +2000,7 @@ struct redisCommand redisCommandTable[] = {
        KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 
     {"xinfo",NULL,-2,
-     "container",
+     "",
      .subcommands=xinfoSubcommands},
 
     {"xdel",xdelCommand,-3,
@@ -2025,7 +2022,7 @@ struct redisCommand redisCommandTable[] = {
      "ok-loading ok-stale read-only"},
 
     {"latency",NULL,-2,
-     "container",
+     "",
      .subcommands=latencySubcommands},
 
     {"lolwut",lolwutCommand,-1,
@@ -2035,7 +2032,7 @@ struct redisCommand redisCommandTable[] = {
      "admin no-script ok-loading ok-stale sentinel"},
 
     {"stralgo",NULL,-2,
-     "container",
+     "",
      .subcommands=stralgoSubcommands},
 
     {"reset",resetCommand,1,
@@ -4402,8 +4399,6 @@ int populateSingleCommand(struct redisCommand *c, char *strflags) {
             c->flags |= CMD_NO_AUTH;
         } else if (!strcasecmp(flag,"may-replicate")) {
             c->flags |= CMD_MAY_REPLICATE;
-        } else if (!strcasecmp(flag,"container")) {
-            c->flags |= CMD_CONTAINER;
         } else if (!strcasecmp(flag,"sentinel")) {
             c->flags |= CMD_SENTINEL;
         } else if (!strcasecmp(flag,"only-sentinel")) {
@@ -5602,7 +5597,6 @@ void addReplyFlagsForCommand(client *c, struct redisCommand *cmd) {
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_FAST, "fast");
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_NO_AUTH, "no_auth");
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_MAY_REPLICATE, "may_replicate");
-    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_CONTAINER, "container");
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_SENTINEL, "sentinel");
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_ONLY_SENTINEL, "only-sentinel");
     if (cmd->movablekeys) {

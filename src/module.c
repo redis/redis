@@ -798,7 +798,6 @@ int64_t commandFlagsFromString(char *s) {
         else if (!strcasecmp(t,"fast")) flags |= CMD_FAST;
         else if (!strcasecmp(t,"no-auth")) flags |= CMD_NO_AUTH;
         else if (!strcasecmp(t,"may-replicate")) flags |= CMD_MAY_REPLICATE;
-        else if (!strcasecmp(t,"container")) flags |= CMD_CONTAINER;
         else if (!strcasecmp(t,"getkeys-api")) flags |= CMD_MODULE_GETKEYS;
         else if (!strcasecmp(t,"no-cluster")) flags |= CMD_MODULE_NO_CLUSTER;
         else break;
@@ -887,8 +886,6 @@ int64_t commandKeySpecsFlagsFromString(const char *s) {
  *                     to authenticate a client.
  * * **"may-replicate"**: This command may generate replication traffic, even
  *                        though it's not a write command.
- * * **"container"**: This command is a container of (sub)commands that share the same
- *                    theme (Example: CONFIG).
  *
  * The last three parameters specify which arguments of the new command are
  * Redis keys. See https://redis.io/commands/command for more information.

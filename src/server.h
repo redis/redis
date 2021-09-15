@@ -230,9 +230,8 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CMD_CATEGORY_TRANSACTION (1ULL<<38)
 #define CMD_CATEGORY_SCRIPTING (1ULL<<39)
 
-#define CMD_CONTAINER (1ULL<<40)       /* "container" flag */
-#define CMD_SENTINEL (1ULL<<41)        /* "sentinel" flag */
-#define CMD_ONLY_SENTINEL (1ULL<<42)   /* "only-sentinel" flag */
+#define CMD_SENTINEL (1ULL<<40)        /* "sentinel" flag */
+#define CMD_ONLY_SENTINEL (1ULL<<41)   /* "only-sentinel" flag */
 
 /* AOF states */
 #define AOF_OFF 0             /* AOF is off */
