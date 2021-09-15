@@ -1303,8 +1303,8 @@ void swapMainDbWithTempDb(tempDb *tempDb) {
         redisDb *activedb = &server.db[i], *newdb = &(tempDb->dbarray[i]);
 
         /* Swap hash tables. Note that we don't swap blocking_keys,
-        * ready_keys and watched_keys, since clients 
-        * remain in the same DB they were. */
+         * ready_keys and watched_keys, since clients 
+         * remain in the same DB they were. */
         activedb->dict = newdb->dict;
         activedb->expires = newdb->expires;
         activedb->avg_ttl = newdb->avg_ttl;
@@ -1316,17 +1316,17 @@ void swapMainDbWithTempDb(tempDb *tempDb) {
         newdb->expires_cursor = aux.expires_cursor;
 
         /* Now we need to handle clients blocked on lists: as an effect
-        * of swapping the two DBs, a client that was waiting for list
-        * X in a given DB, may now actually be unblocked if X happens
-        * to exist in the new version of the DB, after the swap.
-        *
-        * However normally we only do this check for efficiency reasons
-        * in dbAdd() when a list is created. So here we need to rescan
-        * the list of clients blocked on lists and signal lists as ready
-        * if needed.
-        *
-        * Also the swapdb should make transaction fail if there is any
-        * client watching keys */
+         * of swapping the two DBs, a client that was waiting for list
+         * X in a given DB, may now actually be unblocked if X happens
+         * to exist in the new version of the DB, after the swap.
+         *
+         * However normally we only do this check for efficiency reasons
+         * in dbAdd() when a list is created. So here we need to rescan
+         * the list of clients blocked on lists and signal lists as ready
+         * if needed.
+         *
+         * Also the swapdb should make transaction fail if there is any
+         * client watching keys */
         scanDatabaseForReadyLists(activedb);
         touchAllWatchedKeysInDb(activedb, newdb);
     }
@@ -1335,8 +1335,6 @@ void swapMainDbWithTempDb(tempDb *tempDb) {
     if (server.cluster_enabled) {
         memcpy(server.cluster->slots_to_keys, tempDb->slots_to_keys, sizeof(server.cluster->slots_to_keys));
     }
-
-    server.dirty++;
 }
 
 /* SWAPDB db1 db2 */

@@ -1829,6 +1829,9 @@ void readSyncBulkPayload(connection *conn) {
             serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Discarded temporary DB");
         }
 
+        /* Inform about db change, as replication was diskless and didn't cause a save. */
+        server.dirty++;
+
         /* Verify the end mark is correct. */
         if (usemark) {
             if (!rioRead(&rdb,buf,CONFIG_RUN_ID_SIZE) ||
