@@ -376,7 +376,10 @@ struct redisCommand redisCommandTable[] = {
 
     {"lmpop",lmpopCommand,-4,
      "write @list",
-     0,lmpopGetKeys,0,0,0,0,0,0},
+     {{"write",
+       KSPEC_BS_INDEX,.bs.index={1},
+       KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},
+     lmpopGetKeys},
 
     {"brpop",brpopCommand,-3,
      "write no-script @list @blocking",
@@ -410,7 +413,10 @@ struct redisCommand redisCommandTable[] = {
 
     {"blmpop",blmpopCommand,-5,
      "write @list @blocking",
-     0,blmpopGetKeys,0,0,0,0,0,0},
+     {{"write",
+       KSPEC_BS_INDEX,.bs.index={2},
+       KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},
+     blmpopGetKeys},
 
     {"llen",llenCommand,2,
      "read-only fast @list",
