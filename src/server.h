@@ -1826,11 +1826,28 @@ typedef struct {
 /* Number of static key specs */
 #define STATIC_KEY_SPECS_NUM 4
 
+typedef struct {
+    char *type;
+    char *summary;
+} commandReturnType;
+
+typedef struct {
+    char *since;
+    char *summary;
+} commandHistory;
+
 typedef void redisCommandProc(client *c);
 typedef int redisGetKeysProc(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 struct redisCommand {
     /* Declarative data */
     char *name;
+    char *summary;
+    char *since;
+    char *group;
+    char *return_summary;
+    commandReturnType *return_types_resp2;
+    commandReturnType *return_types_resp3;
+    commandHistory *history;
     redisCommandProc *proc;
     int arity;
     char *sflags;   /* Flags as string representation, one char per flag. */

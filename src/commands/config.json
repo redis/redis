@@ -1,0 +1,9 @@
+{
+    "CONFIG":{
+        "group":"generic",
+        "arity":-2,
+        "subcommands":[
+            "SET"
+        ]
+    }
+}
