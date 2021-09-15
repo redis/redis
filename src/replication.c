@@ -379,7 +379,7 @@ void replicationFeedSlavesFromMasterStream(list *slaves, char *buf, size_t bufle
 }
 
 void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv, int argc) {
-    if (!(listLength(server.monitors) && !server.loading && !server.async_loading)) return;
+    if (!(listLength(server.monitors) && !server.loading)) return;
     listNode *ln;
     listIter li;
     int j;
@@ -1800,8 +1800,7 @@ void readSyncBulkPayload(connection *conn) {
                 disklessLoadDiscardTempDb(diskless_load_tempDb);
                 serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Discarded temporary DB");
             } else {
-                /* Remove the half-loaded data in case we started with
-                * an empty replica. */
+                /* Remove the half-loaded data in case we started with an empty replica. */
                 emptyDb(-1,empty_db_flags,replicationEmptyDbCallback);
             }
 

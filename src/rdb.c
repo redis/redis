@@ -1652,7 +1652,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
     if (server.sanitize_dump_payload == SANITIZE_DUMP_CLIENTS) {
         /* Skip sanitization when loading (an RDB), or getting a RESTORE command
          * from either the master or a client using an ACL user with the skip-sanitize-payload flag. */
-        int skip = server.loading || server.async_loading ||
+        int skip = server.loading ||
             (server.current_client && (server.current_client->flags & CLIENT_MASTER));
         if (!skip && server.current_client && server.current_client->user)
             skip = !!(server.current_client->user->flags & USER_FLAG_SANITIZE_PAYLOAD_SKIP);
@@ -2477,10 +2477,8 @@ emptykey:
  * needed to provide loading stats. */
 void startLoading(size_t size, int rdbflags, int async) {
     /* Load the DB */
-    if (async == 0)
-        server.loading = 1;
-    else
-        server.async_loading = 1;
+    server.loading = 1;
+    if (async == 1) server.async_loading = 1;
     server.loading_start_time = time(NULL);
     server.loading_loaded_bytes = 0;
     server.loading_total_bytes = size;
