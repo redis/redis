@@ -4989,7 +4989,7 @@ void timeCommand(client *c) {
 }
 
 /* Helper function for addReplyCommand() to output flags. */
-int addReplyCommandFlag(client *c, int flags, int f, char *reply) {
+int addReplyCommandFlag(client *c, uint64_t flags, uint64_t f, char *reply) {
     if (flags & f) {
         addReplyStatus(c, reply);
         return 1;
@@ -5023,7 +5023,7 @@ void addReplyFlagsForCommand(client *c, struct redisCommand *cmd) {
     setDeferredSetLen(c, flaglen, flagcount);
 }
 
-void addReplyFlagsForKeyArgs(client *c, int flags) {
+void addReplyFlagsForKeyArgs(client *c, uint64_t flags) {
     int flagcount = 0;
     void *flaglen = addReplyDeferredLen(c);
     flagcount += addReplyCommandFlag(c,flags,CMD_KEY_WRITE, "write");
