@@ -5717,11 +5717,12 @@ void addReplyCommandSubCommands(client *c, struct redisCommand *cmd) {
         return;
     }
 
-    addReplySetLen(c, dictSize(cmd->subcommands_dict));
+    addReplyMapLen(c, dictSize(cmd->subcommands_dict));
     dictEntry *de;
     dictIterator *di = dictGetSafeIterator(cmd->subcommands_dict);
     while((de = dictNext(di)) != NULL) {
         struct redisCommand *sub = (struct redisCommand *)dictGetVal(de);
+        addReplyBulkCString(c,sub->name);
         addReplyCommand(c,sub);
     }
     dictReleaseIterator(di);
@@ -5754,23 +5755,17 @@ void addReplyCommandLegacy(client *c, struct redisCommand *cmd) {
 
 /* Output the representation of a Redis command. Used by the COMMANDS command. */
 void addReplyCommand(client *c, struct redisCommand *cmd) {
-    if (!cmd) {
-        addReplyNull(c);
-    } else {
-        addReplyMapLen(c, 6);
-        addReplyBulkCString(c, "name");
-        addReplyBulkCString(c, cmd->name);
-        addReplyBulkCString(c, "arity");
-        addReplyLongLong(c, cmd->arity);
-        addReplyBulkCString(c, "flags");
-        addReplyFlagsForCommand(c, cmd);
-        addReplyBulkCString(c, "acl");
-        addReplyCommandCategories(c,cmd);
-        addReplyBulkCString(c, "keys");
-        addReplyCommandKeyArgs(c,cmd);
-        addReplyBulkCString(c, "subcommands");
-        addReplyCommandSubCommands(c,cmd);
-    }
+    addReplyMapLen(c, 5);
+    addReplyBulkCString(c, "arity");
+    addReplyLongLong(c, cmd->arity);
+    addReplyBulkCString(c, "flags");
+    addReplyFlagsForCommand(c, cmd);
+    addReplyBulkCString(c, "acl");
+    addReplyCommandCategories(c,cmd);
+    addReplyBulkCString(c, "keys");
+    addReplyCommandKeyArgs(c,cmd);
+    addReplyBulkCString(c, "subcommands");
+    addReplyCommandSubCommands(c,cmd);
 }
 
 /* Helper for COMMAND(S) command
@@ -5865,18 +5860,27 @@ void commandsListCommand(client *c) {
 /* COMMANDS INFO [<command-name> ...] */
 void commandsInfoCommand(client *c) {
     if (c->argc > 2) {
-        addReplyArrayLen(c, c->argc-2);
+        addReplyMapLen(c, c->argc-2);
         for (int i = 2; i < c->argc; i++) {
-            addReplyCommand(c, lookupCommandBySds(c->argv[i]->ptr));
+            struct redisCommand *cmd = lookupCommandBySds(c->argv[i]->ptr);
+            if (cmd) {
+                addReplyBulkCString(c,cmd->name);
+                addReplyCommand(c,cmd);
+            } else {
+                addReplyNull(c);
+                addReplyNull(c);
+            }
         }
     } else {
         dictIterator *di;
         dictEntry *de;
 
-        addReplyArrayLen(c, dictSize(server.commands));
+        addReplyMapLen(c, dictSize(server.commands));
         di = dictGetIterator(server.commands);
         while ((de = dictNext(di)) != NULL) {
-            addReplyCommand(c, dictGetVal(de));
+            struct redisCommand *cmd = dictGetVal(de);
+            addReplyBulkCString(c,cmd->name);
+            addReplyCommand(c,cmd);
         }
         dictReleaseIterator(di);
     }
