@@ -298,19 +298,19 @@ struct redisCommand commandSubcommands[] = {
 };
 
 struct redisCommand commandsSubcommands[] = {
-    {"count",commandsCommand,2,
+    {"count",commandsCountCommand,2,
      "ok-loading ok-stale @connection"},
 
-    {"list",commandsCommand,2,
+    {"list",commandsListCommand,2,
      "ok-loading ok-stale @connection"},
 
-    {"info",commandsCommand,-2,
+    {"info",commandsInfoCommand,-2,
      "ok-loading ok-stale @connection"},
 
-    {"getkeys",commandCommand,-4,
+    {"getkeys",commandsGetKeysCommand,-4,
      "ok-loading ok-stale @connection"},
 
-    {"help",commandsCommand,2,
+    {"help",commandsHelpCommand,2,
      ""},
 
     {NULL},
@@ -5843,13 +5843,53 @@ NULL
     }
 }
 
-/* COMMANDS <subcommand> <args> */
-void commandsCommand(client *c) {
+/* COMMANDS COUNT */
+void commandsCountCommand(client *c) {
+    addReplyLongLong(c, dictSize(server.commands));
+}
+
+/* COMMANDS LIST */
+void commandsListCommand(client *c) {
     dictIterator *di;
     dictEntry *de;
 
-    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
-        const char *help[] = {
+    addReplySetLen(c, dictSize(server.commands));
+    di = dictGetIterator(server.commands);
+    while ((de = dictNext(di)) != NULL) {
+        struct redisCommand *cmd = dictGetVal(de);
+        addReplyBulkCString(c,cmd->name);
+    }
+    dictReleaseIterator(di);
+}
+
+/* COMMANDS INFO [<command-name> ...] */
+void commandsInfoCommand(client *c) {
+    if (c->argc > 2) {
+        addReplyArrayLen(c, c->argc-2);
+        for (int i = 2; i < c->argc; i++) {
+            addReplyCommand(c, lookupCommandBySds(c->argv[i]->ptr));
+        }
+    } else {
+        dictIterator *di;
+        dictEntry *de;
+
+        addReplyArrayLen(c, dictSize(server.commands));
+        di = dictGetIterator(server.commands);
+        while ((de = dictNext(di)) != NULL) {
+            addReplyCommand(c, dictGetVal(de));
+        }
+        dictReleaseIterator(di);
+    }
+}
+
+/* COMMANDS GETKEYS arg0 arg1 arg2 ... */
+void commandsGetKeysCommand(client *c) {
+    getKeysSubcommand(c);
+}
+
+/* COMMANDS HELP */
+void commandsHelpCommand(client *c) {
+    const char *help[] = {
 "COUNT",
 "    Return the total number of commands in this Redis server.",
 "LIST",
@@ -5859,37 +5899,9 @@ void commandsCommand(client *c) {
 "GETKEYS <full-command>",
 "    Return the keys from a full Redis command.",
 NULL
-        };
-        addReplyHelp(c, help);
-    } else if (!strcasecmp(c->argv[1]->ptr, "info")) {
-        if (c->argc > 2) {
-            addReplyArrayLen(c, c->argc-2);
-            for (int i = 2; i < c->argc; i++) {
-                addReplyCommand(c, lookupCommandBySds(c->argv[i]->ptr));
-            }
-        } else {
-            addReplyArrayLen(c, dictSize(server.commands));
-            di = dictGetIterator(server.commands);
-            while ((de = dictNext(di)) != NULL) {
-                addReplyCommand(c, dictGetVal(de));
-            }
-            dictReleaseIterator(di);
-        }
-    } else if (!strcasecmp(c->argv[1]->ptr, "count") && c->argc == 2) {
-        addReplyLongLong(c, dictSize(server.commands));
-    } else if (!strcasecmp(c->argv[1]->ptr, "list") && c->argc == 2) {
-        addReplySetLen(c, dictSize(server.commands));
-        di = dictGetIterator(server.commands);
-        while ((de = dictNext(di)) != NULL) {
-            struct redisCommand *cmd = dictGetVal(de);
-            addReplyBulkCString(c,cmd->name);
-        }
-        dictReleaseIterator(di);
-    } else if (!strcasecmp(c->argv[1]->ptr,"getkeys") && c->argc >= 3) {
-        getKeysSubcommand(c);
-    } else {
-        addReplySubcommandSyntaxError(c);
-    }
+    };
+
+    addReplyHelp(c, help);
 }
 
 /* Convert an amount of bytes into a human readable string in the form
