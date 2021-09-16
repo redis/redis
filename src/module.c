@@ -9206,21 +9206,17 @@ void moduleInitModulesSystem(void) {
     server.module_client = NULL;
 
     moduleRegisterCoreAPI();
-    if (pipe(server.module_blocked_pipe) == -1) {
+
+    /* Make the pipe non blocking. This is just a best effort aware mechanism
+     * and we do not want to block not in the read nor in the write half.
+     * Enable close-on-exec flag on pipes in case of the fork-exec system calls in
+     * sentinels or redis servers. */
+    if (createPipe(server.module_blocked_pipe, REDIS_DEFAULT_PIPE, REDIS_DEFAULT_PIPE) == -1) {
         serverLog(LL_WARNING,
             "Can't create the pipe for module blocking commands: %s",
             strerror(errno));
         exit(1);
     }
-    /* Make the pipe non blocking. This is just a best effort aware mechanism
-     * and we do not want to block not in the read nor in the write half. */
-    anetNonBlock(NULL,server.module_blocked_pipe[0]);
-    anetNonBlock(NULL,server.module_blocked_pipe[1]);
-
-    /* Enable close-on-exec flag on pipes in case of the fork-exec system calls in
-     * sentinels or redis servers. */
-    anetCloexec(server.module_blocked_pipe[0]);
-    anetCloexec(server.module_blocked_pipe[1]);
 
     /* Create the timers radix tree. */
     Timers = raxNew();
