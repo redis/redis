@@ -458,11 +458,6 @@ tempDb *initTempDb(void) {
         tempDb->dbarray[i].expires = dictCreate(&dbExpiresDictType);
     }
 
-    /* Init cluster slots to keys map if enable cluster. */
-    if (server.cluster_enabled) {
-        memset(&tempDb->slots_to_keys, 0, sizeof(tempDb->slots_to_keys));
-    }
-
     return tempDb;
 }
 
@@ -1298,6 +1293,11 @@ int dbSwapDatabases(int id1, int id2) {
  * database (temp) as the main (active) database, the actual freeing of old database
  * (which will now be placed in the temp one) is done later. */
 void swapMainDbWithTempDb(tempDb *tempDb) {
+    /* Clear slots to keys map if cluster enabled. */
+    if (server.cluster_enabled) {
+        slotToKeyFlush();
+    }
+
     for (int i=0; i<server.dbnum; i++) {
         redisDb aux = server.db[i];
         redisDb *activedb = &server.db[i], *newdb = &(tempDb->dbarray[i]);
@@ -1329,11 +1329,6 @@ void swapMainDbWithTempDb(tempDb *tempDb) {
          * client watching keys */
         scanDatabaseForReadyLists(activedb);
         touchAllWatchedKeysInDb(activedb, newdb);
-    }
-
-    /* Restore slots to keys map if enable cluster. */
-    if (server.cluster_enabled) {
-        memcpy(server.cluster->slots_to_keys, tempDb->slots_to_keys, sizeof(server.cluster->slots_to_keys));
     }
 }
 

@@ -14,7 +14,7 @@ test "Cluster is writable" {
     cluster_write_test 0
 }
 
-test "Right to restore backups when fail to diskless load " {
+test "Main db not affected when fail to diskless load " {
     set master [Rn 0]
     set replica [Rn 1]
     set master_id 0
@@ -65,7 +65,7 @@ test "Right to restore backups when fail to diskless load " {
 
     # Start full sync, wait till after db is flushed (backed up)
     wait_for_condition 500 10 {
-        [s $replica_id loading] eq 1
+        [s $replica_id async_loading] eq 1
     } else {
         fail "Fail to full sync"
     }
@@ -75,7 +75,7 @@ test "Right to restore backups when fail to diskless load " {
 
     # Start full sync, wait till the replica detects the disconnection
     wait_for_condition 500 10 {
-        [s $replica_id loading] eq 0
+        [s $replica_id async_loading] eq 0
     } else {
         fail "Fail to full sync"
     }

@@ -781,7 +781,6 @@ typedef struct clusterSlotToKeys clusterSlotsToKeysData[CLUSTER_SLOTS];
  * Used during diskless replication to store new data without putting server in LOADING state. */
 typedef struct tempDb {
     redisDb *dbarray;
-    clusterSlotsToKeysData slots_to_keys;
 } tempDb;
 
 /* Client MULTI/EXEC state */
