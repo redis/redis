@@ -539,7 +539,7 @@ struct redisCommand redisCommandTable[] = {
      "read-only @set",
      {{"read",
        KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,1}}},
+       KSPEC_FK_KEYNUM,.fk.range={0,1,1}}},
      sintercardGetKeys},
 
     {"sinterstore",sinterstoreCommand,-3,
