@@ -858,8 +858,8 @@ int qsortCompareSetsByRevCardinality(const void *s1, const void *s2) {
  * Passing a 0 means unlimited.
  */
 void sinterGenericCommand(client *c, robj **setkeys,
-                          unsigned long setnum, robj *dstkey, int cardinality_only,
-                          unsigned long limit) {
+                          unsigned long setnum, robj *dstkey,
+                          int cardinality_only, unsigned long limit) {
     robj **sets = zmalloc(sizeof(robj*)*setnum);
     setTypeIterator *si;
     robj *dstset = NULL;
@@ -959,9 +959,8 @@ void sinterGenericCommand(client *c, robj **setkeys,
                 cardinality++;
 
                 /* We stop the searching after reaching the limit. */
-                if (limit && cardinality >= limit) {
+                if (limit && cardinality >= limit)
                     break;
-                }
             } else if (!dstkey) {
                 if (encoding == OBJ_ENCODING_HT)
                     addReplyBulkCBuffer(c,elesds,sdslen(elesds));

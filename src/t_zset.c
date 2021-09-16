@@ -2122,8 +2122,11 @@ void zuiClearIterator(zsetopsrc *op) {
 }
 
 void zuiDiscardDirtyValue(zsetopval *val) {
-    if (val->flags & OPVAL_DIRTY_SDS)
+    if (val->flags & OPVAL_DIRTY_SDS) {
         sdsfree(val->ele);
+        val->ele = NULL;
+        val->flags &= ~OPVAL_DIRTY_SDS;
+    }
 }
 
 unsigned long zuiLength(zsetopsrc *op) {
@@ -2577,8 +2580,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
     zskiplistNode *znode;
     int withscores = 0;
     unsigned long cardinality = 0;
-    long tmp_limit = 0;      /* In order to do type conversion. */
-    unsigned long limit = 0; /* Stop searching after reaching the limit. 0 means unlimited. */
+    long limit = 0; /* Stop searching after reaching the limit. 0 means unlimited. */
 
     /* expect setnum input keys to be given */
     if ((getLongFromObjectOrReply(c, c->argv[numkeysIndex], &setnum, NULL) != C_OK))
@@ -2665,14 +2667,13 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                        !strcasecmp(c->argv[j]->ptr, "limit"))
             {
                 j++; remaining--;
-                if (getPositiveLongFromObjectOrReply(c, c->argv[j], &tmp_limit,
+                if (getPositiveLongFromObjectOrReply(c, c->argv[j], &limit,
                                                      "LIMIT can't be negative") != C_OK)
                 {
                     zfree(src);
                     return;
                 }
                 j++; remaining--;
-                limit = (unsigned long)tmp_limit;
             } else {
                 zfree(src);
                 addReplyErrorObject(c,shared.syntaxerr);
@@ -2722,7 +2723,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                     cardinality++;
 
                     /* We stop the searching after reaching the limit. */
-                    if (limit && cardinality >= limit) {
+                    if (limit && cardinality >= (unsigned long)limit) {
                         /* Cleanup before we break the zuiNext loop. */
                         zuiDiscardDirtyValue(&zval);
                         break;
