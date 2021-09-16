@@ -971,7 +971,7 @@ static void startBenchmarkThreads() {
         pthread_join(config.threads[i]->thread, NULL);
 }
 
-static void benchmark(char *title, char *cmd, int len) {
+static void benchmark(const char *title, char *cmd, int len) {
     client c;
 
     config.title = title;
@@ -1680,7 +1680,7 @@ int showThroughput(struct aeEventLoop *eventLoop, long long id, void *clientData
 
 /* Return true if the named test was selected using the -t command line
  * switch, or if all the tests are selected (no -t passed by user). */
-int test_is_selected(char *name) {
+int test_is_selected(const char *name) {
     char buf[256];
     int l = strlen(name);
 
