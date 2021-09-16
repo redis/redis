@@ -535,11 +535,12 @@ struct redisCommand redisCommandTable[] = {
        KSPEC_BS_INDEX,.bs.index={1},
        KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
 
-    {"sintercard",sinterCardCommand,-2,
+    {"sintercard",sinterCardCommand,-3,
      "read-only @set",
      {{"read",
        KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
+       KSPEC_FK_KEYNUM,.fk.range={0,1,1}}},
+     sintercardGetKeys},
 
     {"sinterstore",sinterstoreCommand,-3,
      "write use-memory @set",
