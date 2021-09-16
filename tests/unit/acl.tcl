@@ -629,3 +629,53 @@ start_server {overrides {user "default on nopass ~* +@all"} tags {"external:skip
         r PUBLISH hello world
     }
 }
+
+set server_path [tmpdir "duplicate.acl"]
+exec cp -f tests/assets/user.acl $server_path
+exec cp -f tests/assets/default.conf $server_path
+start_server [list overrides [list "dir" $server_path "aclfile" "user.acl"] tags [list "external:skip"]] {
+
+    test {Test loading an ACL file with duplicate users} {
+        exec cp -f tests/assets/user.acl $server_path
+
+        # Corrupt the ACL file
+        set corruption "\nuser alice on nopass ~* -@all"
+        exec echo $corruption >> $server_path/user.acl
+        catch {r ACL LOAD} err
+        assert_match {*Duplicate user 'alice' found*} $err 
+
+        # Verify the previous users still exist
+        # NOTE: A missing user evaluates to an empty
+        # string. 
+        assert {[r ACL GETUSER alice] != ""}
+        assert_equal [dict get [r ACL GETUSER alice] commands] "+@all"
+        assert {[r ACL GETUSER bob] != ""}
+        assert {[r ACL GETUSER default] != ""}
+    }
+
+    test {Test loading an ACL file with duplicate default user} {
+        exec cp -f tests/assets/user.acl $server_path
+
+        # Corrupt the ACL file
+        set corruption "\nuser default on nopass ~* -@all"
+        exec echo $corruption >> $server_path/user.acl
+        catch {r ACL LOAD} err
+        assert_match {*Duplicate user 'default' found*} $err 
+
+        # Verify the previous users still exist
+        # NOTE: A missing user evaluates to an empty
+        # string. 
+        assert {[r ACL GETUSER alice] != ""}
+        assert_equal [dict get [r ACL GETUSER alice] commands] "+@all"
+        assert {[r ACL GETUSER bob] != ""}
+        assert {[r ACL GETUSER default] != ""}
+    }
+    
+    test {Test loading duplicate users in config on startup} {
+        catch {exec src/redis-server --user foo --user foo} err
+        assert_match {*Duplicate user*} $err
+
+        catch {exec src/redis-server --user default --user default} err
+        assert_match {*Duplicate user*} $err
+    } {} {external:skip}
+}

@@ -81,8 +81,7 @@ struct redisConfig;
 
 static struct config {
     aeEventLoop *el;
-    const char *hostip;
-    int hostport;
+    cliConnInfo conn_info;
     const char *hostsocket;
     int tls;
     struct cliSSLconfig sslconfig;
@@ -108,12 +107,9 @@ static struct config {
     int csv;
     int loop;
     int idlemode;
-    int dbnum;
-    sds dbnumstr;
+    sds input_dbnumstr;
     char *tests;
     int stdinarg; /* get last arg from stdin. (-x option) */
-    char *auth;
-    const char *user;
     int precision;
     int num_threads;
     struct benchmarkThread **threads;
@@ -287,12 +283,12 @@ static redisContext *getRedisContext(const char *ip, int port,
             goto cleanup;
         }
     }
-    if (config.auth == NULL)
+    if (config.conn_info.auth == NULL)
         return ctx;
-    if (config.user == NULL)
-        reply = redisCommand(ctx,"AUTH %s", config.auth);
+    if (config.conn_info.user == NULL)
+        reply = redisCommand(ctx,"AUTH %s", config.conn_info.auth);
     else
-        reply = redisCommand(ctx,"AUTH %s %s", config.user, config.auth);
+        reply = redisCommand(ctx,"AUTH %s %s", config.conn_info.user, config.conn_info.auth);
     if (reply != NULL) {
         if (reply->type == REDIS_REPLY_ERROR) {
             if (hostsocket == NULL)
@@ -677,8 +673,8 @@ static client createClient(char *cmd, size_t len, client from, int thread_id) {
     c->cluster_node = NULL;
     if (config.hostsocket == NULL || is_cluster_client) {
         if (!is_cluster_client) {
-            ip = config.hostip;
-            port = config.hostport;
+            ip = config.conn_info.hostip;
+            port = config.conn_info.hostport;
         } else {
             int node_idx = 0;
             if (config.num_threads < config.cluster_node_count)
@@ -722,14 +718,14 @@ static client createClient(char *cmd, size_t len, client from, int thread_id) {
      * These commands are discarded after the first response, so if the client is
      * reused the commands will not be used again. */
     c->prefix_pending = 0;
-    if (config.auth) {
+    if (config.conn_info.auth) {
         char *buf = NULL;
         int len;
-        if (config.user == NULL)
-            len = redisFormatCommand(&buf, "AUTH %s", config.auth);
+        if (config.conn_info.user == NULL)
+            len = redisFormatCommand(&buf, "AUTH %s", config.conn_info.auth);
         else
             len = redisFormatCommand(&buf, "AUTH %s %s",
-                                     config.user, config.auth);
+                                     config.conn_info.user, config.conn_info.auth);
         c->obuf = sdscatlen(c->obuf, buf, len);
         free(buf);
         c->prefix_pending++;
@@ -747,9 +743,9 @@ static client createClient(char *cmd, size_t len, client from, int thread_id) {
      * buffer with the SELECT command, that will be discarded the first
      * time the replies are received, so if the client is reused the
      * SELECT command will not be used again. */
-    if (config.dbnum != 0 && !is_cluster_client) {
+    if (config.conn_info.input_dbnum != 0 && !is_cluster_client) {
         c->obuf = sdscatprintf(c->obuf,"*2\r\n$6\r\nSELECT\r\n$%d\r\n%s\r\n",
-            (int)sdslen(config.dbnumstr),config.dbnumstr);
+            (int)sdslen(config.input_dbnumstr),config.input_dbnumstr);
         c->prefix_pending++;
     }
     c->prefixlen = sdslen(c->obuf);
@@ -1082,9 +1078,9 @@ static void freeClusterNode(clusterNode *node) {
         zfree(node->importing);
     }
     /* If the node is not the reference node, that uses the address from
-     * config.hostip and config.hostport, then the node ip has been
+     * config.conn_info.hostip and config.conn_info.hostport, then the node ip has been
      * allocated by fetchClusterConfiguration, so it must be freed. */
-    if (node->ip && strcmp(node->ip, config.hostip) != 0) sdsfree(node->ip);
+    if (node->ip && strcmp(node->ip, config.conn_info.hostip) != 0) sdsfree(node->ip);
     if (node->redis_config != NULL) freeRedisConfig(node->redis_config);
     zfree(node->slots);
     zfree(node);
@@ -1113,12 +1109,12 @@ static int fetchClusterConfiguration() {
     int success = 1;
     redisContext *ctx = NULL;
     redisReply *reply =  NULL;
-    ctx = getRedisContext(config.hostip, config.hostport, config.hostsocket);
+    ctx = getRedisContext(config.conn_info.hostip, config.conn_info.hostport, config.hostsocket);
     if (ctx == NULL) {
         exit(1);
     }
-    clusterNode *firstNode = createClusterNode((char *) config.hostip,
-                                               config.hostport);
+    clusterNode *firstNode = createClusterNode((char *) config.conn_info.hostip,
+                                               config.conn_info.hostport);
     if (!firstNode) {success = 0; goto cleanup;}
     reply = redisCommand(ctx, "CLUSTER NODES");
     success = (reply != NULL);
@@ -1127,7 +1123,7 @@ static int fetchClusterConfiguration() {
     if (!success) {
         if (config.hostsocket == NULL) {
             fprintf(stderr, "Cluster node %s:%d replied with error:\n%s\n",
-                    config.hostip, config.hostport, reply->str);
+                    config.conn_info.hostip, config.conn_info.hostport, reply->str);
         } else {
             fprintf(stderr, "Cluster node %s replied with error:\n%s\n",
                     config.hostsocket, reply->str);
@@ -1425,10 +1421,10 @@ int parseOptions(int argc, char **argv) {
             config.keepalive = atoi(argv[++i]);
         } else if (!strcmp(argv[i],"-h")) {
             if (lastarg) goto invalid;
-            config.hostip = strdup(argv[++i]);
+            config.conn_info.hostip = sdsnew(argv[++i]);
         } else if (!strcmp(argv[i],"-p")) {
             if (lastarg) goto invalid;
-            config.hostport = atoi(argv[++i]);
+            config.conn_info.hostport = atoi(argv[++i]);
         } else if (!strcmp(argv[i],"-s")) {
             if (lastarg) goto invalid;
             config.hostsocket = strdup(argv[++i]);
@@ -1436,10 +1432,13 @@ int parseOptions(int argc, char **argv) {
             config.stdinarg = 1;
         } else if (!strcmp(argv[i],"-a") ) {
             if (lastarg) goto invalid;
-            config.auth = strdup(argv[++i]);
+            config.conn_info.auth = sdsnew(argv[++i]);
         } else if (!strcmp(argv[i],"--user")) {
             if (lastarg) goto invalid;
-            config.user = argv[++i];
+            config.conn_info.user = sdsnew(argv[++i]);
+        } else if (!strcmp(argv[i],"-u") && !lastarg) {
+            parseRedisUri(argv[++i],"redis-benchmark",&config.conn_info,&config.tls);
+            config.input_dbnumstr = sdsfromlonglong(config.conn_info.input_dbnum);
         } else if (!strcmp(argv[i],"-d")) {
             if (lastarg) goto invalid;
             config.datasize = atoi(argv[++i]);
@@ -1485,8 +1484,8 @@ int parseOptions(int argc, char **argv) {
             sdstolower(config.tests);
         } else if (!strcmp(argv[i],"--dbnum")) {
             if (lastarg) goto invalid;
-            config.dbnum = atoi(argv[++i]);
-            config.dbnumstr = sdsfromlonglong(config.dbnum);
+            config.conn_info.input_dbnum = atoi(argv[++i]);
+            config.input_dbnumstr = sdsfromlonglong(config.conn_info.input_dbnum);
         } else if (!strcmp(argv[i],"--precision")) {
             if (lastarg) goto invalid;
             config.precision = atoi(argv[++i]);
@@ -1561,6 +1560,7 @@ usage:
 " -s <socket>        Server socket (overrides host and port)\n"
 " -a <password>      Password for Redis Auth\n"
 " --user <username>  Used to send ACL style 'AUTH username pass'. Needs -a.\n"
+" -u <uri>           Server URI.\n"
 " -c <clients>       Number of parallel connections (default 50)\n"
 " -n <requests>      Total number of requests (default 100000)\n"
 " -d <size>          Data size of SET/GET value in bytes (default 3)\n"
@@ -1720,13 +1720,13 @@ int main(int argc, char **argv) {
     config.loop = 0;
     config.idlemode = 0;
     config.clients = listCreate();
-    config.hostip = "127.0.0.1";
-    config.hostport = 6379;
+    config.conn_info.hostip = "127.0.0.1";
+    config.conn_info.hostport = 6379;
     config.hostsocket = NULL;
     config.tests = NULL;
-    config.dbnum = 0;
+    config.conn_info.input_dbnum = 0;
     config.stdinarg = 0;
-    config.auth = NULL;
+    config.conn_info.auth = NULL;
     config.precision = DEFAULT_LATENCY_PRECISION;
     config.num_threads = 0;
     config.threads = NULL;
@@ -1759,7 +1759,7 @@ int main(int argc, char **argv) {
         if (!fetchClusterConfiguration() || !config.cluster_nodes) {
             if (!config.hostsocket) {
                 fprintf(stderr, "Failed to fetch cluster configuration from "
-                                "%s:%d\n", config.hostip, config.hostport);
+                                "%s:%d\n", config.conn_info.hostip, config.conn_info.hostport);
             } else {
                 fprintf(stderr, "Failed to fetch cluster configuration from "
                                 "%s\n", config.hostsocket);
@@ -1795,7 +1795,7 @@ int main(int argc, char **argv) {
             config.num_threads = config.cluster_node_count;
     } else {
         config.redis_config =
-            getRedisConfig(config.hostip, config.hostport, config.hostsocket);
+            getRedisConfig(config.conn_info.hostip, config.conn_info.hostport, config.hostsocket);
         if (config.redis_config == NULL) {
             fprintf(stderr, "WARNING: Could not fetch server CONFIG\n");
         }
@@ -2007,6 +2007,7 @@ int main(int argc, char **argv) {
     } while(config.loop);
 
     zfree(data);
+    freeCliConnInfo(config.conn_info);
     if (config.redis_config != NULL) freeRedisConfig(config.redis_config);
 
     return 0;

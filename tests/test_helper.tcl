@@ -49,10 +49,12 @@ set ::all_tests {
     integration/corrupt-dump-fuzzer
     integration/convert-zipmap-hash-on-load
     integration/convert-ziplist-hash-on-load
+    integration/convert-ziplist-zset-on-load
     integration/logging
     integration/psync2
     integration/psync2-reg
     integration/psync2-pingoff
+    integration/psync2-master-restart
     integration/failover
     integration/redis-cli
     integration/redis-benchmark
