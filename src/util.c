@@ -40,7 +40,6 @@
 #include <stdint.h>
 #include <errno.h>
 #include <time.h>
-#include <fcntl.h>
 
 #include "util.h"
 #include "sha256.h"

@@ -30,6 +30,7 @@
 #ifndef __REDIS_UTIL_H
 #define __REDIS_UTIL_H
 
+#include <fcntl.h>
 #include <stdint.h>
 #include "sds.h"
 
