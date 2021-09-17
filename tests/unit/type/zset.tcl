@@ -652,6 +652,7 @@ start_server {tags {"zset"}} {
             assert_equal {} [r zunion 1 zseta]
             assert_equal {} [r zinter 1 zseta]
             assert_equal 0 [r zintercard 1 zseta]
+            assert_equal 0 [r zintercard 1 zseta limit 0]
             assert_equal {} [r zdiff 1 zseta]
         }
 
@@ -670,6 +671,7 @@ start_server {tags {"zset"}} {
             assert_equal {a 1 b 2} [r zunion 2 zseta{t} zsetb{t} withscores]
             assert_equal {} [r zinter 2 zseta{t} zsetb{t} withscores]
             assert_equal 0 [r zintercard 2 zseta{t} zsetb{t}]
+            assert_equal 0 [r zintercard 2 zseta{t} zsetb{t} limit 0]
             assert_equal {a 1 b 2} [r zdiff 2 zseta{t} zsetb{t} withscores]
         }
 
@@ -698,6 +700,7 @@ start_server {tags {"zset"}} {
             assert_equal {1 2 2 2 4 4 3 6} [r zunion 2 zsetd{t} zsetf{t} withscores]
             assert_equal {1 2 3 6} [r zinter 2 zsetd{t} zsetf{t} withscores]
             assert_equal 2 [r zintercard 2 zsetd{t} zsetf{t}]
+            assert_equal 2 [r zintercard 2 zsetd{t} zsetf{t} limit 0]
             assert_equal {2 2} [r zdiff 2 zsetd{t} zsetf{t} withscores]
         }
 
@@ -750,8 +753,20 @@ start_server {tags {"zset"}} {
             assert_equal {b 3 c 5} [r zinter 2 zseta{t} zsetb{t} withscores]
         }
 
+        test "ZINTERCARD with illegal arguments" {
+            assert_error "ERR syntax error*" {r zintercard 1 zseta{t} zseta{t}}
+            assert_error "ERR syntax error*" {r zintercard 1 zseta{t} bar_arg}
+            assert_error "ERR syntax error*" {r zintercard 1 zseta{t} LIMIT}
+
+            assert_error "ERR LIMIT*" {r zintercard 1 myset{t} LIMIT -1}
+            assert_error "ERR LIMIT*" {r zintercard 1 myset{t} LIMIT a}
+        }
+
         test "ZINTERCARD basics - $encoding" {
             assert_equal 2 [r zintercard 2 zseta{t} zsetb{t}]
+            assert_equal 2 [r zintercard 2 zseta{t} zsetb{t} limit 0]
+            assert_equal 1 [r zintercard 2 zseta{t} zsetb{t} limit 1]
+            assert_equal 2 [r zintercard 2 zseta{t} zsetb{t} limit 10]
         }
 
         test "ZINTER RESP3 - $encoding" {

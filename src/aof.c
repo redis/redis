@@ -802,7 +802,7 @@ int loadAppendOnlyFile(char *filename) {
             goto cleanup;
         }
 
-        if (cmd == server.multiCommand) valid_before_multi = valid_up_to;
+        if (cmd->proc == multiCommand) valid_before_multi = valid_up_to;
 
         /* Run the command in the context of a fake client */
         fakeClient->cmd = fakeClient->lastcmd = cmd;

@@ -129,13 +129,11 @@ void afterPropagateExec() {
  * implementation for more information. */
 void execCommandPropagateMulti(int dbid) {
     beforePropagateMulti();
-    propagate(server.multiCommand,dbid,&shared.multi,1,
-              PROPAGATE_AOF|PROPAGATE_REPL);
+    propagate(dbid,&shared.multi,1,PROPAGATE_AOF|PROPAGATE_REPL);
 }
 
 void execCommandPropagateExec(int dbid) {
-    propagate(server.execCommand,dbid,&shared.exec,1,
-              PROPAGATE_AOF|PROPAGATE_REPL);
+    propagate(dbid,&shared.exec,1,PROPAGATE_AOF|PROPAGATE_REPL);
     afterPropagateExec();
 }
 
