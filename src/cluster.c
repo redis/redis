@@ -6102,6 +6102,26 @@ int clusterRedirectBlockedClientIfNeeded(client *c) {
     return 0;
 }
 
+/* server.cluster->slots_to_keys
+ *     Represents the slots to keys map of current database being served.
+ *     We add/remove/read from it when there's no replication in progress or when
+ *     the replication is not async.
+ * 
+ * server.cluster->slots_to_keys_tempdb
+ *     Is only relevant when there's an async diskless replication in progress.
+ *     During async loading that is where we write before it eventually becomes the
+ *     main slots_to_keys.
+ *
+ * The purpose of this method is to facilitate correct selection of slots to keys object.
+ * When we simply need to read it with the purpose of serving data and not changing it,
+ * server.cluster->slots_to_keys must be accessed instead of calling this method. */
+clusterSlotsToKeysData *slotToKeyGetForChanging(void) {
+    if (server.async_loading == 1)
+        return &server.cluster->slots_to_keys_tempdb;
+    else
+        return &server.cluster->slots_to_keys;
+}
+
 /* Slot to Key API. This is used by Redis Cluster in order to obtain in
  * a fast way a key that belongs to a specified hash slot. This is useful
  * while rehashing the cluster and in other conditions when we need to
@@ -6110,23 +6130,25 @@ int clusterRedirectBlockedClientIfNeeded(client *c) {
 void slotToKeyAddEntry(dictEntry *entry) {
     sds key = entry->key;
     unsigned int hashslot = keyHashSlot(key, sdslen(key));
-    server.cluster->slots_to_keys[hashslot].count++;
+    clusterSlotsToKeysData *slots_to_keys = slotToKeyGetForChanging();
+    (*slots_to_keys)[hashslot].count++;
 
     /* Insert entry before the first element in the list. */
-    dictEntry *first = server.cluster->slots_to_keys[hashslot].head;
+    dictEntry *first = (*slots_to_keys)[hashslot].head;
     dictEntryNextInSlot(entry) = first;
     if (first != NULL) {
         serverAssert(dictEntryPrevInSlot(first) == NULL);
         dictEntryPrevInSlot(first) = entry;
     }
     serverAssert(dictEntryPrevInSlot(entry) == NULL);
-    server.cluster->slots_to_keys[hashslot].head = entry;
+    (*slots_to_keys)[hashslot].head = entry;
 }
 
 void slotToKeyDelEntry(dictEntry *entry) {
     sds key = entry->key;
     unsigned int hashslot = keyHashSlot(key, sdslen(key));
-    server.cluster->slots_to_keys[hashslot].count--;
+    clusterSlotsToKeysData *slots_to_keys = slotToKeyGetForChanging();
+    (*slots_to_keys)[hashslot].count--;
 
     /* Connect previous and next entries to each other. */
     dictEntry *next = dictEntryNextInSlot(entry);
@@ -6138,8 +6160,8 @@ void slotToKeyDelEntry(dictEntry *entry) {
         dictEntryNextInSlot(prev) = next;
     } else {
         /* The removed entry was the first in the list. */
-        serverAssert(server.cluster->slots_to_keys[hashslot].head == entry);
-        server.cluster->slots_to_keys[hashslot].head = next;
+        serverAssert((*slots_to_keys)[hashslot].head == entry);
+        (*slots_to_keys)[hashslot].head = next;
     }
 }
 
@@ -6157,7 +6179,8 @@ void slotToKeyReplaceEntry(dictEntry *entry) {
         /* The replaced entry was the first in the list. */
         sds key = entry->key;
         unsigned int hashslot = keyHashSlot(key, sdslen(key));
-        server.cluster->slots_to_keys[hashslot].head = entry;
+        clusterSlotsToKeysData *slots_to_keys = slotToKeyGetForChanging();
+        (*slots_to_keys)[hashslot].head = entry;
     }
 }
 
@@ -6165,6 +6188,12 @@ void slotToKeyReplaceEntry(dictEntry *entry) {
 void slotToKeyFlush(void) {
     memset(&server.cluster->slots_to_keys, 0,
            sizeof(server.cluster->slots_to_keys));
+}
+
+/* Empty the slots-keys map linked to tempDb being asynchronously loaded. */
+void slotToKeyTempDbFlush(void) {
+    memset(&server.cluster->slots_to_keys_tempdb, 0,
+           sizeof(server.cluster->slots_to_keys_tempdb));
 }
 
 /* Remove all the keys in the specified hash slot.

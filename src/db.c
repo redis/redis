@@ -448,7 +448,7 @@ long long emptyDb(int dbnum, int flags, void(callback)(dict*)) {
     return removed;
 }
 
-/* Initialize temporary db on replica for use during diskless replication */
+/* Initialize temporary db on replica for use during diskless replication. */
 tempDb *initTempDb(void) {
     tempDb *tempDb = zmalloc(sizeof(tempDb));
 
@@ -456,6 +456,11 @@ tempDb *initTempDb(void) {
     for (int i=0; i<server.dbnum; i++) {
         tempDb->dbarray[i].dict = dictCreate(&dbDictType);
         tempDb->dbarray[i].expires = dictCreate(&dbExpiresDictType);
+    }
+
+    if (server.cluster_enabled) {
+        /* Prepare temp slots_to_keys to be written during async diskless replication. */
+        slotToKeyTempDbFlush();
     }
 
     return tempDb;
@@ -474,6 +479,11 @@ tempDb *initTempDb(void) {
 
     zfree(tempDb->dbarray);
     zfree(tempDb);
+
+    if (server.cluster_enabled) {
+        /* Flush temp slots_to_keys. */
+        slotToKeyTempDbFlush();
+    }
 }
 
 int selectDb(client *c, int id) {
@@ -1293,9 +1303,10 @@ int dbSwapDatabases(int id1, int id2) {
  * database (temp) as the main (active) database, the actual freeing of old database
  * (which will now be placed in the temp one) is done later. */
 void swapMainDbWithTempDb(tempDb *tempDb) {
-    /* Clear slots to keys map if cluster enabled. */
     if (server.cluster_enabled) {
-        slotToKeyFlush();
+        /* Copy slots_to_keys from tempdb just loaded to main slots_to_keys. */
+        memcpy(server.cluster->slots_to_keys, server.cluster->slots_to_keys_tempdb,
+           sizeof(server.cluster->slots_to_keys_tempdb));
     }
 
     for (int i=0; i<server.dbnum; i++) {
