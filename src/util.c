@@ -1000,7 +1000,6 @@ int createPipe(int fds[2], int read_flags, int write_flags) {
     if (read_flags & O_CLOEXEC)
         if ((anetCloexec(fds[0]) != ANET_OK))
             goto error;
-
     if (write_flags & O_CLOEXEC)
         if ((anetCloexec(fds[1]) != ANET_OK))
             goto error;
@@ -1009,7 +1008,6 @@ int createPipe(int fds[2], int read_flags, int write_flags) {
     if (read_flags & O_NONBLOCK)
         if ((anetNonBlock(NULL, fds[0]) != ANET_OK))
             goto error;
-
     if (write_flags & O_NONBLOCK)
         if ((anetNonBlock(NULL, fds[1]) != ANET_OK))
             goto error;
