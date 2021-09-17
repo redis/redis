@@ -1646,7 +1646,7 @@ int aofCreatePipes(void) {
     int fds[6] = {-1, -1, -1, -1, -1, -1};
     int j;
 
-    if (createPipe(fds, REDIS_NONBLOCK_PIPE, REDIS_NONBLOCK_PIPE) == -1) goto error; /* parent -> children data, non blocking pipe */
+    if (createPipe(fds, O_NONBLOCK, O_NONBLOCK) == -1) goto error; /* parent -> children data, non blocking pipe */
     if (createPipe(fds+2, 0, 0) == -1) goto error; /* children -> parent ack. */
     if (createPipe(fds+4, 0, 0) == -1) goto error; /* parent -> children ack. */
     if (aeCreateFileEvent(server.el, fds[2], AE_READABLE, aofChildPipeReadable, NULL) == AE_ERR) goto error;

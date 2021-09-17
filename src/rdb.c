@@ -3035,7 +3035,7 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
      * the parent, we can't let it write directly to the sockets, since in case
      * of TLS we must let the parent handle a continuous TLS state when the
      * child terminates and parent takes over. */
-    if (createPipe(pipefds, REDIS_NONBLOCK_PIPE, 0) == -1) return C_ERR;
+    if (createPipe(pipefds, O_NONBLOCK, 0) == -1) return C_ERR;
     server.rdb_pipe_read = pipefds[0]; /* read end */
     rdb_pipe_write = pipefds[1]; /* write end */
 

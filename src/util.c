@@ -40,6 +40,7 @@
 #include <stdint.h>
 #include <errno.h>
 #include <time.h>
+#include <fcntl.h>
 
 #include "util.h"
 #include "sha256.h"
@@ -971,6 +972,8 @@ int utilTest(int argc, char **argv, int accurate) {
 
 int createPipe(int fds[2], int read_flags, int write_flags) {
 #if defined(__linux__) || defined(__FreeBSD__) 
+    /* When it leverages the pipe2() to create pipe, 
+    there is no harm to set O_CLOEXEC to prevent fd leaks. */
     int flags = O_CLOEXEC;
 
     if ((read_flags & O_NONBLOCK) && (write_flags & O_NONBLOCK))
@@ -982,20 +985,25 @@ int createPipe(int fds[2], int read_flags, int write_flags) {
     } else if (ret) {
         if (pipe(fds))
             return -1;
-        anetCloexec(fds[0]);
-        anetCloexec(fds[1]);
     }
 
-    if (!ret && (flags & O_NONBLOCK)) {
+    if (!ret && (flags & O_NONBLOCK))
         return 0;
-    }
+    else if (!ret)
+        goto nonblock;
 #else
     if (pipe(fds))
         return -1;
-    anetCloexec(fds[0]);
-    anetCloexec(fds[1]);
 #endif
 
+    if (read_flags & O_CLOEXEC)
+        if ((anetCloexec(fds[0]) != ANET_OK))
+            goto error;
+
+    if (write_flags & O_CLOEXEC)
+        if ((anetCloexec(fds[1]) != ANET_OK))
+            goto error;
+nonblock:
     if (read_flags & O_NONBLOCK)
         if ((anetNonBlock(NULL, fds[0]) != ANET_OK))
             goto error;

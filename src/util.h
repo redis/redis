@@ -32,16 +32,11 @@
 
 #include <stdint.h>
 #include "sds.h"
-#include <fcntl.h>
 
 /* The maximum number of characters needed to represent a long double
  * as a string (long double has a huge range).
  * This should be the size of the buffer given to ld2string */
 #define MAX_LONG_DOUBLE_CHARS 5*1024
-
-#define REDIS_NONBLOCK_PIPE O_NONBLOCK
-#define REDIS_CLOEXEC_PIPE O_CLOEXEC
-#define REDIS_DEFAULT_PIPE O_CLOEXEC|O_NONBLOCK
 
 /* long double to string conversion options */
 typedef enum {
