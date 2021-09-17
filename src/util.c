@@ -972,7 +972,7 @@ int utilTest(int argc, char **argv, int accurate) {
 int createPipe(int fds[2], int read_flags, int write_flags) {
 #if defined(__linux__) || defined(__FreeBSD__) 
     /* When it leverages the pipe2() to create pipe, 
-    there is no harm to set O_CLOEXEC to prevent fd leaks. */
+     * there is no harm to set O_CLOEXEC to prevent fd leaks. */
     int flags = O_CLOEXEC;
 
     if ((read_flags & O_NONBLOCK) && (write_flags & O_NONBLOCK))
