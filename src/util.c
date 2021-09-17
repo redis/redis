@@ -985,17 +985,19 @@ int createPipe(int fds[2], int read_flags, int write_flags) {
     } else if (ret) {
         if (pipe(fds))
             return -1;
-    }
+        if (read_flags & O_CLOEXEC)
+            if ((anetCloexec(fds[0]) != ANET_OK))
+                goto error;
+        if (write_flags & O_CLOEXEC)
+            if ((anetCloexec(fds[1]) != ANET_OK))
+                goto error;
+        }
 
     if (!ret && (flags & O_NONBLOCK))
         return 0;
-    else if (!ret)
-        goto nonblock;
 #else
     if (pipe(fds))
         return -1;
-#endif
-
     if (read_flags & O_CLOEXEC)
         if ((anetCloexec(fds[0]) != ANET_OK))
             goto error;
@@ -1003,7 +1005,8 @@ int createPipe(int fds[2], int read_flags, int write_flags) {
     if (write_flags & O_CLOEXEC)
         if ((anetCloexec(fds[1]) != ANET_OK))
             goto error;
-nonblock:
+#endif
+
     if (read_flags & O_NONBLOCK)
         if ((anetNonBlock(NULL, fds[0]) != ANET_OK))
             goto error;
