@@ -2482,6 +2482,8 @@ void startLoading(size_t size, int rdbflags) {
     server.loading_loaded_bytes = 0;
     server.loading_total_bytes = size;
     server.loading_rdb_used_mem = 0;
+    server.rdb_last_load_keys_expired = 0;
+    server.rdb_last_load_keys_loaded = 0;
     blockingOperationStarts();
 
     /* Fire the loading modules start event. */
@@ -2567,12 +2569,12 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
 /* Load an RDB file from the rio stream 'rdb'. On success C_OK is returned,
  * otherwise C_ERR is returned and 'errno' is set accordingly. */
 int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
-    uint64_t dbid;
+    uint64_t dbid = 0;
     int type, rdbver;
     redisDb *db = server.db+0;
     char buf[1024];
     int error;
-    long long empty_keys_skipped = 0, expired_keys_skipped = 0, keys_loaded = 0;
+    long long empty_keys_skipped = 0;
 
     rdb->update_cksum = rdbLoadProgressCallback;
     rdb->max_processing_chunk = server.loading_process_events_interval_bytes;
@@ -2801,16 +2803,28 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
             !(rdbflags&RDBFLAGS_AOF_PREAMBLE) &&
             expiretime != -1 && expiretime < now)
         {
+            if (rdbflags & RDBFLAGS_FEED_REPL) {
+                /* Caller should have created replication backlog,
+                 * and now this path only works when rebooting,
+                 * so we don't have replicas yet. */
+                serverAssert(server.repl_backlog != NULL && listLength(server.slaves) == 0);
+                robj keyobj;
+                initStaticStringObject(keyobj,key);
+                robj *argv[2];
+                argv[0] = server.lazyfree_lazy_expire ? shared.unlink : shared.del;
+                argv[1] = &keyobj;
+                replicationFeedSlaves(server.slaves,dbid,argv,2);
+            }
             sdsfree(key);
             decrRefCount(val);
-            expired_keys_skipped++;
+            server.rdb_last_load_keys_expired++;
         } else {
             robj keyobj;
             initStaticStringObject(keyobj,key);
 
             /* Add the new object in the hash table */
             int added = dbAddRDBLoad(db,key,val);
-            keys_loaded++;
+            server.rdb_last_load_keys_loaded++;
             if (!added) {
                 if (rdbflags & RDBFLAGS_ALLOW_DUP) {
                     /* This flag is useful for DEBUG RELOAD special modes.
@@ -2871,11 +2885,11 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
     if (empty_keys_skipped) {
         serverLog(LL_WARNING,
             "Done loading RDB, keys loaded: %lld, keys expired: %lld, empty keys skipped: %lld.",
-                keys_loaded, expired_keys_skipped, empty_keys_skipped);
+                server.rdb_last_load_keys_loaded, server.rdb_last_load_keys_expired, empty_keys_skipped);
     } else {
-        serverLog(LL_WARNING,
+        serverLog(LL_NOTICE,
             "Done loading RDB, keys loaded: %lld, keys expired: %lld.",
-                keys_loaded, expired_keys_skipped);
+                server.rdb_last_load_keys_loaded, server.rdb_last_load_keys_expired);
     }
     return C_OK;
 

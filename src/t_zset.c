@@ -2057,6 +2057,14 @@ void zuiClearIterator(zsetopsrc *op) {
     }
 }
 
+void zuiDiscardDirtyValue(zsetopval *val) {
+    if (val->flags & OPVAL_DIRTY_SDS) {
+        sdsfree(val->ele);
+        val->ele = NULL;
+        val->flags &= ~OPVAL_DIRTY_SDS;
+    }
+}
+
 unsigned long zuiLength(zsetopsrc *op) {
     if (op->subject == NULL)
         return 0;
@@ -2091,8 +2099,7 @@ int zuiNext(zsetopsrc *op, zsetopval *val) {
     if (op->subject == NULL)
         return 0;
 
-    if (val->flags & OPVAL_DIRTY_SDS)
-        sdsfree(val->ele);
+    zuiDiscardDirtyValue(val);
 
     memset(val,0,sizeof(zsetopval));
 
@@ -2491,7 +2498,9 @@ dictType setAccumulatorDictType = {
  * this value is 1, for ZUNIONSTORE/ZINTERSTORE/ZDIFFSTORE command, this value is 2.
  *
  * 'op' SET_OP_INTER, SET_OP_UNION or SET_OP_DIFF.
+ *
  * 'cardinality_only' is currently only applicable when 'op' is SET_OP_INTER.
+ * Work for SINTERCARD, only return the cardinality with minimum processing and memory overheads.
  */
 void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, int op,
                                    int cardinality_only) {
@@ -2507,6 +2516,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
     zskiplistNode *znode;
     int withscores = 0;
     unsigned long cardinality = 0;
+    long limit = 0; /* Stop searching after reaching the limit. 0 means unlimited. */
 
     /* expect setnum input keys to be given */
     if ((getLongFromObjectOrReply(c, c->argv[numkeysIndex], &setnum, NULL) != C_OK))
@@ -2589,6 +2599,17 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
             {
                 j++; remaining--;
                 withscores = 1;
+            } else if (cardinality_only && remaining >= 2 &&
+                       !strcasecmp(c->argv[j]->ptr, "limit"))
+            {
+                j++; remaining--;
+                if (getPositiveLongFromObjectOrReply(c, c->argv[j], &limit,
+                                                     "LIMIT can't be negative") != C_OK)
+                {
+                    zfree(src);
+                    return;
+                }
+                j++; remaining--;
             } else {
                 zfree(src);
                 addReplyErrorObject(c,shared.syntaxerr);
@@ -2636,6 +2657,13 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                 /* Only continue when present in every input. */
                 if (j == setnum && cardinality_only) {
                     cardinality++;
+
+                    /* We stop the searching after reaching the limit. */
+                    if (limit && cardinality >= (unsigned long)limit) {
+                        /* Cleanup before we break the zuiNext loop. */
+                        zuiDiscardDirtyValue(&zval);
+                        break;
+                    }
                 } else if (j == setnum) {
                     tmp = zuiNewSdsFromValue(&zval);
                     znode = zslInsert(dstzset->zsl,score,tmp);
@@ -2758,30 +2786,37 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
     zfree(src);
 }
 
+/* ZUNIONSTORE destination numkeys key [key ...] [WEIGHTS weight] [AGGREGATE SUM|MIN|MAX] */
 void zunionstoreCommand(client *c) {
     zunionInterDiffGenericCommand(c, c->argv[1], 2, SET_OP_UNION, 0);
 }
 
+/* ZINTERSTORE destination numkeys key [key ...] [WEIGHTS weight] [AGGREGATE SUM|MIN|MAX] */
 void zinterstoreCommand(client *c) {
     zunionInterDiffGenericCommand(c, c->argv[1], 2, SET_OP_INTER, 0);
 }
 
+/* ZDIFFSTORE destination numkeys key [key ...] */
 void zdiffstoreCommand(client *c) {
     zunionInterDiffGenericCommand(c, c->argv[1], 2, SET_OP_DIFF, 0);
 }
 
+/* ZUNION numkeys key [key ...] [WEIGHTS weight] [AGGREGATE SUM|MIN|MAX] [WITHSCORES] */
 void zunionCommand(client *c) {
     zunionInterDiffGenericCommand(c, NULL, 1, SET_OP_UNION, 0);
 }
 
+/* ZINTER numkeys key [key ...] [WEIGHTS weight] [AGGREGATE SUM|MIN|MAX] [WITHSCORES] */
 void zinterCommand(client *c) {
     zunionInterDiffGenericCommand(c, NULL, 1, SET_OP_INTER, 0);
 }
 
+/* ZINTERCARD numkeys key [key ...] [LIMIT limit] */
 void zinterCardCommand(client *c) {
     zunionInterDiffGenericCommand(c, NULL, 1, SET_OP_INTER, 1);
 }
 
+/* ZDIFF numkeys key [key ...] [WITHSCORES] */
 void zdiffCommand(client *c) {
     zunionInterDiffGenericCommand(c, NULL, 1, SET_OP_DIFF, 0);
 }

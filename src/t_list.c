@@ -103,6 +103,13 @@ listTypeIterator *listTypeInitIterator(robj *subject, long index,
     return li;
 }
 
+/* Sets the direction of an iterator. */
+void listTypeSetIteratorDirection(listTypeIterator *li, unsigned char direction) {
+    li->direction = direction;
+    int dir = direction == LIST_HEAD ? AL_START_TAIL : AL_START_HEAD;
+    quicklistSetDirection(li->iter, dir);
+}
+
 /* Clean up the iterator. */
 void listTypeReleaseIterator(listTypeIterator *li) {
     zfree(li->iter);
@@ -153,6 +160,20 @@ void listTypeInsert(listTypeEntry *entry, robj *value, int where) {
             quicklistInsertBefore((quicklist *)entry->entry.quicklist,
                                   &entry->entry, str, len);
         }
+        decrRefCount(value);
+    } else {
+        serverPanic("Unknown list encoding");
+    }
+}
+
+/* Replaces entry at the current position of the iterator. */
+void listTypeReplace(listTypeEntry *entry, robj *value) {
+    if (entry->li->encoding == OBJ_ENCODING_QUICKLIST) {
+        value = getDecodedObject(value);
+        sds str = value->ptr;
+        size_t len = sdslen(str);
+        quicklistReplaceEntry((quicklist *)entry->entry.quicklist,
+                              &entry->entry, str, len);
         decrRefCount(value);
     } else {
         serverPanic("Unknown list encoding");
@@ -941,8 +962,6 @@ void serveClientBlockedOnList(client *receiver, robj *o, robj *key, robj *dstkey
 
     if (dstkey == NULL) {
         /* Propagate the [LR]POP operation. */
-        struct redisCommand *cmd = (wherefrom == LIST_HEAD) ?
-                                   server.lpopCommand : server.rpopCommand;
         argv[0] = (wherefrom == LIST_HEAD) ? shared.lpop :
                                              shared.rpop;
         argv[1] = key;
@@ -955,7 +974,7 @@ void serveClientBlockedOnList(client *receiver, robj *o, robj *key, robj *dstkey
             serverAssert(llen > 0);
 
             argv[2] = createStringObjectFromLongLong((count > llen) ? llen : count);
-            propagate(cmd, db->id, argv, 3, PROPAGATE_AOF|PROPAGATE_REPL);
+            propagate(db->id, argv, 3, PROPAGATE_AOF|PROPAGATE_REPL);
             decrRefCount(argv[2]);
 
             /* Pop a range of elements in a nested arrays way. */
@@ -963,7 +982,7 @@ void serveClientBlockedOnList(client *receiver, robj *o, robj *key, robj *dstkey
             return;
         }
 
-        propagate(cmd, db->id, argv, 2, PROPAGATE_AOF|PROPAGATE_REPL);
+        propagate(db->id, argv, 2, PROPAGATE_AOF|PROPAGATE_REPL);
 
         /* BRPOP/BLPOP */
         value = listTypePop(o, wherefrom);
@@ -994,10 +1013,7 @@ void serveClientBlockedOnList(client *receiver, robj *o, robj *key, robj *dstkey
             argv[2] = dstkey;
             argv[3] = getStringObjectFromListPosition(wherefrom);
             argv[4] = getStringObjectFromListPosition(whereto);
-            propagate(isbrpoplpush ? server.rpoplpushCommand : server.lmoveCommand,
-                db->id,argv,(isbrpoplpush ? 3 : 5),
-                PROPAGATE_AOF|
-                PROPAGATE_REPL);
+            propagate(db->id,argv,(isbrpoplpush ? 3 : 5),PROPAGATE_AOF|PROPAGATE_REPL);
 
             /* Notify event ("lpush" or "rpush" was notified by lmoveHandlePush). */
             notifyKeyspaceEvent(NOTIFY_LIST,wherefrom == LIST_TAIL ? "rpop" : "lpop",

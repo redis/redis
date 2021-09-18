@@ -185,6 +185,11 @@ struct RedisModuleKey {
 
     union {
         struct {
+            /* List, use only if value->type == OBJ_LIST */
+            listTypeEntry entry;   /* Current entry in iteration. */
+            long index;            /* Current 0-based index in iteration. */
+        } list;
+        struct {
             /* Zset iterator, use only if value->type == OBJ_ZSET */
             uint32_t type;         /* REDISMODULE_ZSET_RANGE_* */
             zrangespec rs;         /* Score range. */
@@ -538,6 +543,17 @@ int moduleCreateEmptyKey(RedisModuleKey *key, int type) {
     return REDISMODULE_OK;
 }
 
+/* Frees key->iter and sets it to NULL. */
+static void moduleFreeKeyIterator(RedisModuleKey *key) {
+    serverAssert(key->iter != NULL);
+    switch (key->value->type) {
+    case OBJ_LIST: listTypeReleaseIterator(key->iter); break;
+    case OBJ_STREAM: zfree(key->iter); break;
+    default: serverAssert(0); /* No key->iter for other types. */
+    }
+    key->iter = NULL;
+}
+
 /* This function is called in low-level API implementation functions in order
  * to check if the value associated with the key remained empty after an
  * operation that removed elements from an aggregate data type.
@@ -563,6 +579,7 @@ int moduleDelKeyIfEmpty(RedisModuleKey *key) {
     }
 
     if (isempty) {
+        if (key->iter) moduleFreeKeyIterator(key);
         dbDelete(key->db,key->key);
         key->value = NULL;
         return 1;
@@ -613,8 +630,7 @@ void moduleHandlePropagationAfterCommandCallback(RedisModuleCtx *ctx) {
 
     /* Handle the replication of the final EXEC, since whatever a command
      * emits is always wrapped around MULTI/EXEC. */
-    alsoPropagate(server.execCommand,c->db->id,&shared.exec,1,
-        PROPAGATE_AOF|PROPAGATE_REPL);
+    alsoPropagate(c->db->id,&shared.exec,1,PROPAGATE_AOF|PROPAGATE_REPL);
     afterPropagateExec();
 
     /* If this is not a module command context (but is instead a simple
@@ -628,7 +644,7 @@ void moduleHandlePropagationAfterCommandCallback(RedisModuleCtx *ctx) {
             redisOp *rop = &server.also_propagate.ops[j];
             int target = rop->target;
             if (target)
-                propagate(rop->cmd,rop->dbid,rop->argv,rop->argc,target);
+                propagate(rop->dbid,rop->argv,rop->argc,target);
         }
         redisOpArrayFree(&server.also_propagate);
         /* Restore the previous oparray in case of nexted use of the API. */
@@ -791,6 +807,26 @@ int64_t commandFlagsFromString(char *s) {
     return flags;
 }
 
+/* Helper for RM_CreateCommand(). Turns a string representing keys spec
+ * flags into the keys spec flags used by the Redis core.
+ *
+ * It returns the set of flags, or -1 if unknown flags are found. */
+int64_t commandKeySpecsFlagsFromString(const char *s) {
+    int count, j;
+    int64_t flags = 0;
+    sds *tokens = sdssplitlen(s,strlen(s)," ",1,&count);
+    for (j = 0; j < count; j++) {
+        char *t = tokens[j];
+        if (!strcasecmp(t,"write")) flags |= CMD_KEY_WRITE;
+        else if (!strcasecmp(t,"read")) flags |= CMD_KEY_READ;
+        else if (!strcasecmp(t,"incomplete")) flags |= CMD_KEY_INCOMPLETE;
+        else break;
+    }
+    sdsfreesplitres(tokens,count);
+    if (j != count) return -1; /* Some token not processed correctly. */
+    return flags;
+}
+
 /* Register a new command in the Redis server, that will be handled by
  * calling the function pointer 'cmdfunc' using the RedisModule calling
  * convention. The function returns REDISMODULE_ERR if the specified command
@@ -865,6 +901,12 @@ int64_t commandFlagsFromString(char *s) {
  *               0 for commands with no keys.
  *
  * This information is used by ACL, Cluster and the 'COMMAND' command.
+ *
+ * NOTE: The scheme described above serves a limited purpose and can
+ * only be used to find keys that exist at constant indices.
+ * For non-trivial key arguments, you may pass 0,0,0 and use
+ * RedisModule_AddCommandKeySpec (see documentation).
+ *
  */
 int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep) {
     int64_t flags = strflags ? commandFlagsFromString((char*)strflags) : 0;
@@ -898,9 +940,26 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
     cp->rediscmd->arity = -1;
     cp->rediscmd->flags = flags | CMD_MODULE;
     cp->rediscmd->getkeys_proc = (redisGetKeysProc*)(unsigned long)cp;
-    cp->rediscmd->firstkey = firstkey;
-    cp->rediscmd->lastkey = lastkey;
-    cp->rediscmd->keystep = keystep;
+    cp->rediscmd->key_specs_max = STATIC_KEY_SPECS_NUM;
+    cp->rediscmd->key_specs = cp->rediscmd->key_specs_static;
+    if (firstkey != 0) {
+        cp->rediscmd->key_specs_num = 1;
+        cp->rediscmd->key_specs[0].flags = 0;
+        cp->rediscmd->key_specs[0].begin_search_type = KSPEC_BS_INDEX;
+        cp->rediscmd->key_specs[0].bs.index.pos = firstkey;
+        cp->rediscmd->key_specs[0].find_keys_type = KSPEC_FK_RANGE;
+        cp->rediscmd->key_specs[0].fk.range.lastkey = lastkey < 0 ? lastkey : (lastkey-firstkey);
+        cp->rediscmd->key_specs[0].fk.range.keystep = keystep;
+        cp->rediscmd->key_specs[0].fk.range.limit = 0;
+
+        /* Copy the default range to legacy_range_key_spec */
+        cp->rediscmd->legacy_range_key_spec = cp->rediscmd->key_specs[0];
+    } else {
+        cp->rediscmd->key_specs_num = 0;
+        cp->rediscmd->legacy_range_key_spec.begin_search_type = KSPEC_BS_INVALID;
+        cp->rediscmd->legacy_range_key_spec.find_keys_type = KSPEC_FK_INVALID;
+    }
+    populateCommandMovableKeys(cp->rediscmd);
     cp->rediscmd->microseconds = 0;
     cp->rediscmd->calls = 0;
     cp->rediscmd->rejected_calls = 0;
@@ -909,6 +968,224 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
     dictAdd(server.orig_commands,sdsdup(cmdname),cp->rediscmd);
     cp->rediscmd->id = ACLGetCommandID(cmdname); /* ID used for ACL. */
     return REDISMODULE_OK;
+}
+
+void extendKeySpecsIfNeeded(struct redisCommand *cmd) {
+    /* We extend even if key_specs_num == key_specs_max because
+     * this function is called prior to adding a new spec */
+    if (cmd->key_specs_num < cmd->key_specs_max)
+        return;
+
+    cmd->key_specs_max++;
+
+    if (cmd->key_specs == cmd->key_specs_static) {
+        cmd->key_specs = zmalloc(sizeof(keySpec) * cmd->key_specs_max);
+        memcpy(cmd->key_specs, cmd->key_specs_static, sizeof(keySpec) * cmd->key_specs_num);
+    } else {
+        cmd->key_specs = zrealloc(cmd->key_specs, sizeof(keySpec) * cmd->key_specs_max);
+    }
+}
+
+int moduleAddCommandKeySpec(RedisModuleCtx *ctx, const char *name, const char *specflags, int *index) {
+    int64_t flags = specflags ? commandKeySpecsFlagsFromString(specflags) : 0;
+    if (flags == -1)
+        return REDISMODULE_ERR;
+
+    struct redisCommand *cmd = lookupCommandByCString(name);
+
+    if (cmd == NULL)
+        return REDISMODULE_ERR;
+
+    if (!(cmd->flags & CMD_MODULE))
+        return REDISMODULE_ERR;
+
+    RedisModuleCommandProxy *cp = (RedisModuleCommandProxy*)(unsigned long)cmd->getkeys_proc;
+    if (cp->module != ctx->module)
+        return REDISMODULE_ERR;
+
+    extendKeySpecsIfNeeded(cmd);
+
+    *index = cmd->key_specs_num;
+    cmd->key_specs[cmd->key_specs_num].begin_search_type = KSPEC_BS_INVALID;
+    cmd->key_specs[cmd->key_specs_num].find_keys_type = KSPEC_FK_INVALID;
+    cmd->key_specs[cmd->key_specs_num].flags = flags;
+    cmd->key_specs_num++;
+
+    return REDISMODULE_OK;
+}
+
+int moduleSetCommandKeySpecBeginSearch(RedisModuleCtx *ctx, const char *name, int index, keySpec *spec) {
+    struct redisCommand *cmd = lookupCommandByCString(name);
+
+    if (cmd == NULL)
+        return REDISMODULE_ERR;
+
+    if (!(cmd->flags & CMD_MODULE))
+        return REDISMODULE_ERR;
+
+    RedisModuleCommandProxy *cp = (RedisModuleCommandProxy*)(unsigned long)cmd->getkeys_proc;
+    if (cp->module != ctx->module)
+        return REDISMODULE_ERR;
+
+    if (index >= cmd->key_specs_num)
+        return REDISMODULE_ERR;
+
+    cmd->key_specs[index].begin_search_type = spec->begin_search_type;
+    cmd->key_specs[index].bs = spec->bs;
+
+    return REDISMODULE_OK;
+}
+
+int moduleSetCommandKeySpecFindKeys(RedisModuleCtx *ctx, const char *name, int index, keySpec *spec) {
+    struct redisCommand *cmd = lookupCommandByCString(name);
+
+    if (cmd == NULL)
+        return REDISMODULE_ERR;
+
+    if (!(cmd->flags & CMD_MODULE))
+        return REDISMODULE_ERR;
+
+    RedisModuleCommandProxy *cp = (RedisModuleCommandProxy*)(unsigned long)cmd->getkeys_proc;
+    if (cp->module != ctx->module)
+        return REDISMODULE_ERR;
+
+    if (index >= cmd->key_specs_num)
+        return REDISMODULE_ERR;
+
+    cmd->key_specs[index].find_keys_type = spec->find_keys_type;
+    cmd->key_specs[index].fk = spec->fk;
+
+    /* Refresh legacy range */
+    populateCommandLegacyRangeSpec(cmd);
+    /* Refresh movablekeys flag */
+    populateCommandMovableKeys(cmd);
+
+    return REDISMODULE_OK;
+}
+
+/* Key specs is a scheme that tries to describe the location
+ * of key arguments better than the old [first,last,step] scheme
+ * which is limited and doesn't fit many commands.
+ *
+ * This information is used by ACL, Cluster and the 'COMMAND' command.
+ *
+ * There are two steps to retrieve the key arguments:
+ *
+ * - begin_search (BS): in which index should we start seacrhing for keys?
+ * - find_keys (FK): relative to the output of BS, how can we will which args are keys?
+ *
+ * There are two types of BS:
+ *
+ * - index: key args start at a constant index
+ * - keyword: key args start just after a specific keyword
+ *
+ * There are two kinds of FK:
+ *
+ * - range: keys end at a specific index (or relative to the last argument)
+ * - keynum: there's an arg that contains the number of key args somewhere before the keys themselves
+ *
+ * This function adds a new key spec to a command, returning a unique id in `spec_id`.
+ * The caller must then call one of the RedisModule_SetCommandKeySpecBeginSearch* APIs
+ * followed by one of the RedisModule_SetCommandKeySpecFindKeys* APIs.
+ *
+ * It should be called just after RedisModule_CreateCommand.
+ *
+ * Example:
+ *
+ * if (RedisModule_CreateCommand(ctx,"kspec.smove",kspec_legacy,"",0,0,0) == REDISMODULE_ERR)
+ *      return REDISMODULE_ERR;
+ *
+ *  if (RedisModule_AddCommandKeySpec(ctx,"kspec.smove","read write",&spec_id) == REDISMODULE_ERR)
+ *      return REDISMODULE_ERR;
+ *  if (RedisModule_SetCommandKeySpecBeginSearchIndex(ctx,"kspec.smove",spec_id,1) == REDISMODULE_ERR)
+ *      return REDISMODULE_ERR;
+ *  if (RedisModule_SetCommandKeySpecFindKeysRange(ctx,"kspec.smove",spec_id,0,1,0) == REDISMODULE_ERR)
+ *      return REDISMODULE_ERR;
+ *
+ *  if (RedisModule_AddCommandKeySpec(ctx,"kspec.smove","write",&spec_id) == REDISMODULE_ERR)
+ *      return REDISMODULE_ERR;
+ *  if (RedisModule_SetCommandKeySpecBeginSearchIndex(ctx,"kspec.smove",spec_id,2) == REDISMODULE_ERR)
+ *      return REDISMODULE_ERR;
+ *  if (RedisModule_SetCommandKeySpecFindKeysRange(ctx,"kspec.smove",spec_id,0,1,0) == REDISMODULE_ERR)
+ *      return REDISMODULE_ERR;
+ *
+ * Returns REDISMODULE_OK on success
+ */
+int RM_AddCommandKeySpec(RedisModuleCtx *ctx, const char *name, const char *specflags, int *spec_id) {
+    return moduleAddCommandKeySpec(ctx, name, specflags, spec_id);
+}
+
+/* Set a "index" key arguments spec to a command (begin_search step).
+ * See RedisModule_AddCommandKeySpec's doc.
+ *
+ * - `index`: The index from which we start the search for keys
+ *
+ * Returns REDISMODULE_OK */
+int RM_SetCommandKeySpecBeginSearchIndex(RedisModuleCtx *ctx, const char *name, int spec_id, int index) {
+    keySpec spec;
+    spec.begin_search_type = KSPEC_BS_INDEX;
+    spec.bs.index.pos = index;
+
+    return moduleSetCommandKeySpecBeginSearch(ctx, name, spec_id, &spec);
+}
+
+/* Set a "keyword" key arguments spec to a command (begin_search step).
+ * See RedisModule_AddCommandKeySpec's doc.
+ *
+ * - `keyword`: The keyword that indicates the beginning of key args
+ * - `startfrom`: An index in argv from which to start searching.
+ *                Can be negative, which means start search from the end, in reverse
+ *                (Example: -2 means to start in reverse from the panultimate arg)
+ *
+ * Returns REDISMODULE_OK */
+int RM_SetCommandKeySpecBeginSearchKeyword(RedisModuleCtx *ctx, const char *name, int spec_id, const char *keyword, int startfrom) {
+    keySpec spec;
+    spec.begin_search_type = KSPEC_BS_KEYWORD;
+    spec.bs.keyword.keyword = keyword;
+    spec.bs.keyword.startfrom = startfrom;
+
+    return moduleSetCommandKeySpecBeginSearch(ctx, name, spec_id, &spec);
+}
+
+/* Set a "range" key arguments spec to a command (find_keys step).
+ * See RedisModule_AddCommandKeySpec's doc.
+ *
+ * - `lastkey`: Relative index (to the result of the begin_search step) where the last key is.
+ *              Can be negative, in which case it's not relative. -1 indicating till the last argument,
+ *              -2 one before the last and so on.
+ * - `keystep`: How many args should we skip after finding a key, in order to find the next one.
+ * - `limit`: If lastkey is -1, we use limit to stop the search by a factor. 0 and 1 mean no limit.
+ *            2 means 1/2 of the remaining args, 3 means 1/3, and so on.
+ *
+ * Returns REDISMODULE_OK */
+int RM_SetCommandKeySpecFindKeysRange(RedisModuleCtx *ctx, const char *name, int spec_id, int lastkey, int keystep, int limit) {
+    keySpec spec;
+    spec.find_keys_type = KSPEC_FK_RANGE;
+    spec.fk.range.lastkey = lastkey;
+    spec.fk.range.keystep = keystep;
+    spec.fk.range.limit = limit;
+
+    return moduleSetCommandKeySpecFindKeys(ctx, name, spec_id, &spec);
+}
+
+/* Set a "keynum" key arguments spec to a command (find_keys step).
+ * See RedisModule_AddCommandKeySpec's doc.
+ *
+ * - `keynumidx`: Relative index (to the result of the begin_search step) where the arguments that
+ *                contains the number of keys is.
+ * - `firstkey`: Relative index (to the result of the begin_search step) where the first key is
+ *               found (Usually it's just after keynumidx, so it should be keynumidx+1)
+ * - `keystep`: How many args should we skip after finding a key, in order to find the next one.
+ *
+ * Returns REDISMODULE_OK */
+int RM_SetCommandKeySpecFindKeysKeynum(RedisModuleCtx *ctx, const char *name, int spec_id, int keynumidx, int firstkey, int keystep) {
+    keySpec spec;
+    spec.find_keys_type = KSPEC_FK_KEYNUM;
+    spec.fk.keynum.keynumidx = keynumidx;
+    spec.fk.keynum.firstkey = firstkey;
+    spec.fk.keynum.keystep = keystep;
+
+    return moduleSetCommandKeySpecFindKeys(ctx, name, spec_id, &spec);
 }
 
 /* --------------------------------------------------------------------------
@@ -1982,10 +2259,10 @@ int RM_Replicate(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...)
      * will stop being used, so accumulating stuff does not make much sense,
      * nor we could easily use the alsoPropagate() API from threads. */
     if (ctx->flags & REDISMODULE_CTX_THREAD_SAFE) {
-        propagate(cmd,ctx->client->db->id,argv,argc,target);
+        propagate(ctx->client->db->id,argv,argc,target);
     } else {
         moduleReplicateMultiIfNeeded(ctx);
-        alsoPropagate(cmd,ctx->client->db->id,argv,argc,target);
+        alsoPropagate(ctx->client->db->id,argv,argc,target);
     }
 
     /* Release the argv. */
@@ -2007,7 +2284,7 @@ int RM_Replicate(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...)
  *
  * The function always returns REDISMODULE_OK. */
 int RM_ReplicateVerbatim(RedisModuleCtx *ctx) {
-    alsoPropagate(ctx->client->cmd,ctx->client->db->id,
+    alsoPropagate(ctx->client->db->id,
         ctx->client->argv,ctx->client->argc,
         PROPAGATE_AOF|PROPAGATE_REPL);
     server.dirty++;
@@ -2436,13 +2713,20 @@ static void moduleCloseKey(RedisModuleKey *key) {
     int signal = SHOULD_SIGNAL_MODIFIED_KEYS(key->ctx);
     if ((key->mode & REDISMODULE_WRITE) && signal)
         signalModifiedKey(key->ctx->client,key->db,key->key);
-    if (key->iter) zfree(key->iter);
-    RM_ZsetRangeStop(key);
-    if (key && key->value && key->value->type == OBJ_STREAM &&
-        key->u.stream.signalready) {
-        /* One of more RM_StreamAdd() have been done. */
-        signalKeyAsReady(key->db, key->key, OBJ_STREAM);
+    if (key->value) {
+        if (key->iter) moduleFreeKeyIterator(key);
+        switch (key->value->type) {
+        case OBJ_ZSET:
+            RM_ZsetRangeStop(key);
+            break;
+        case OBJ_STREAM:
+            if (key->u.stream.signalready)
+                /* One or more RM_StreamAdd() have been done. */
+                signalKeyAsReady(key->db, key->key, OBJ_STREAM);
+            break;
+        }
     }
+    serverAssert(key->iter == NULL);
     decrRefCount(key->key);
 }
 
@@ -2735,16 +3019,108 @@ int RM_StringTruncate(RedisModuleKey *key, size_t newlen) {
 /* --------------------------------------------------------------------------
  * ## Key API for List type
  *
+ * Many of the list functions access elements by index. Since a list is in
+ * essence a doubly-linked list, accessing elements by index is generally an
+ * O(N) operation. However, if elements are accessed sequentially or with
+ * indices close together, the functions are optimized to seek the index from
+ * the previous index, rather than seeking from the ends of the list.
+ *
+ * This enables iteration to be done efficiently using a simple for loop:
+ *
+ *     long n = RM_ValueLength(key);
+ *     for (long i = 0; i < n; i++) {
+ *         RedisModuleString *elem = RedisModule_ListGet(key, i);
+ *         // Do stuff...
+ *     }
+ *
+ * Note that after modifying a list using RM_ListPop, RM_ListSet or
+ * RM_ListInsert, the internal iterator is invalidated so the next operation
+ * will require a linear seek.
+ *
+ * Modifying a list in any another way, for examle using RM_Call(), while a key
+ * is open will confuse the internal iterator and may cause trouble if the key
+ * is used after such modifications. The key must be reopened in this case.
+ *
  * See also RM_ValueLength(), which returns the length of a list.
  * -------------------------------------------------------------------------- */
 
-/* Push an element into a list, on head or tail depending on 'where' argument.
- * If the key pointer is about an empty key opened for writing, the key
- * is created. On error (key opened for read-only operations or of the wrong
- * type) REDISMODULE_ERR is returned, otherwise REDISMODULE_OK is returned. */
+/* Seeks the key's internal list iterator to the given index. On success, 1 is
+ * returned and key->iter, key->u.list.entry and key->u.list.index are set. On
+ * failure, 0 is returned and errno is set as required by the list API
+ * functions. */
+int moduleListIteratorSeek(RedisModuleKey *key, long index, int mode) {
+    if (!key) {
+        errno = EINVAL;
+        return 0;
+    } else if (!key->value || key->value->type != OBJ_LIST) {
+        errno = ENOTSUP;
+        return 0;
+    } if (!(key->mode & mode)) {
+        errno = EBADF;
+        return 0;
+    }
+
+    long length = listTypeLength(key->value);
+    if (index < -length || index >= length) {
+        errno = EDOM; /* Invalid index */
+        return 0;
+    }
+
+    if (key->iter == NULL) {
+        /* No existing iterator. Create one. */
+        key->iter = listTypeInitIterator(key->value, index, LIST_TAIL);
+        serverAssert(key->iter != NULL);
+        serverAssert(listTypeNext(key->iter, &key->u.list.entry));
+        key->u.list.index = index;
+        return 1;
+    }
+
+    /* There's an existing iterator. Make sure the requested index has the same
+     * sign as the iterator's index. */
+    if      (index < 0 && key->u.list.index >= 0) index += length;
+    else if (index >= 0 && key->u.list.index < 0) index -= length;
+
+    if (index == key->u.list.index) return 1; /* We're done. */
+
+    /* Seek the iterator to the requested index. */
+    unsigned char dir = key->u.list.index < index ? LIST_TAIL : LIST_HEAD;
+    listTypeSetIteratorDirection(key->iter, dir);
+    while (key->u.list.index != index) {
+        serverAssert(listTypeNext(key->iter, &key->u.list.entry));
+        key->u.list.index += dir == LIST_HEAD ? -1 : 1;
+    }
+    return 1;
+}
+
+/* Push an element into a list, on head or tail depending on 'where' argument
+ * (REDISMODULE_LIST_HEAD or REDISMODULE_LIST_TAIL). If the key refers to an
+ * empty key opened for writing, the key is created. On success, REDISMODULE_OK
+ * is returned. On failure, REDISMODULE_ERR is returned and `errno` is set as
+ * follows:
+ *
+ * - EINVAL if key or ele is NULL.
+ * - ENOTSUP if the key is of another type than list.
+ * - EBADF if the key is not opened for writing.
+ *
+ * Note: Before Redis 7.0, `errno` was not set by this function. */
 int RM_ListPush(RedisModuleKey *key, int where, RedisModuleString *ele) {
+    if (!key || !ele) {
+        errno = EINVAL;
+        return REDISMODULE_ERR;
+    } else if (key->value != NULL && key->value->type != OBJ_LIST) {
+        errno = ENOTSUP;
+        return REDISMODULE_ERR;
+    } if (!(key->mode & REDISMODULE_WRITE)) {
+        errno = EBADF;
+        return REDISMODULE_ERR;
+    }
+
     if (!(key->mode & REDISMODULE_WRITE)) return REDISMODULE_ERR;
     if (key->value && key->value->type != OBJ_LIST) return REDISMODULE_ERR;
+    if (key->iter) {
+        listTypeReleaseIterator(key->iter);
+        key->iter = NULL;
+    }
     if (key->value == NULL) moduleCreateEmptyKey(key,REDISMODULE_KEYTYPE_LIST);
     listTypePush(key->value, ele,
         (where == REDISMODULE_LIST_HEAD) ? LIST_HEAD : LIST_TAIL);
@@ -2753,16 +3129,31 @@ int RM_ListPush(RedisModuleKey *key, int where, RedisModuleString *ele) {
 
 /* Pop an element from the list, and returns it as a module string object
  * that the user should be free with RM_FreeString() or by enabling
- * automatic memory. 'where' specifies if the element should be popped from
- * head or tail. The command returns NULL if:
+ * automatic memory. The `where` argument specifies if the element should be
+ * popped from the beginning or the end of the list (REDISMODULE_LIST_HEAD or
+ * REDISMODULE_LIST_TAIL). On failure, the command returns NULL and sets
+ * `errno` as follows:
  *
- * 1. The list is empty.
- * 2. The key was not open for writing.
- * 3. The key is not a list. */
+ * - EINVAL if key is NULL.
+ * - ENOTSUP if the key is empty or of another type than list.
+ * - EBADF if the key is not opened for writing.
+ *
+ * Note: Before Redis 7.0, `errno` was not set by this function. */
 RedisModuleString *RM_ListPop(RedisModuleKey *key, int where) {
-    if (!(key->mode & REDISMODULE_WRITE) ||
-        key->value == NULL ||
-        key->value->type != OBJ_LIST) return NULL;
+    if (!key) {
+        errno = EINVAL;
+        return NULL;
+    } else if (key->value == NULL || key->value->type != OBJ_LIST) {
+        errno = ENOTSUP;
+        return NULL;
+    } else if (!(key->mode & REDISMODULE_WRITE)) {
+        errno = EBADF;
+        return NULL;
+    }
+    if (key->iter) {
+        listTypeReleaseIterator(key->iter);
+        key->iter = NULL;
+    }
     robj *ele = listTypePop(key->value,
         (where == REDISMODULE_LIST_HEAD) ? LIST_HEAD : LIST_TAIL);
     robj *decoded = getDecodedObject(ele);
@@ -2770,6 +3161,134 @@ RedisModuleString *RM_ListPop(RedisModuleKey *key, int where) {
     moduleDelKeyIfEmpty(key);
     autoMemoryAdd(key->ctx,REDISMODULE_AM_STRING,decoded);
     return decoded;
+}
+
+/* Returns the element at index `index` in the list stored at `key`, like the
+ * LINDEX command. The element should be free'd using RM_FreeString() or using
+ * automatic memory management.
+ *
+ * The index is zero-based, so 0 means the first element, 1 the second element
+ * and so on. Negative indices can be used to designate elements starting at the
+ * tail of the list. Here, -1 means the last element, -2 means the penultimate
+ * and so forth.
+ *
+ * When no value is found at the given key and index, NULL is returned and
+ * `errno` is set as follows:
+ *
+ * - EINVAL if key is NULL.
+ * - ENOTSUP if the key is not a list.
+ * - EBADF if the key is not opened for reading.
+ * - EDOM if the index is not a valid index in the list.
+ */
+RedisModuleString *RM_ListGet(RedisModuleKey *key, long index) {
+    if (moduleListIteratorSeek(key, index, REDISMODULE_READ)) {
+        robj *elem = listTypeGet(&key->u.list.entry);
+        robj *decoded = getDecodedObject(elem);
+        decrRefCount(elem);
+        autoMemoryAdd(key->ctx, REDISMODULE_AM_STRING, decoded);
+        return decoded;
+    } else {
+        return NULL;
+    }
+}
+
+/* Replaces the element at index `index` in the list stored at `key`.
+ *
+ * The index is zero-based, so 0 means the first element, 1 the second element
+ * and so on. Negative indices can be used to designate elements starting at the
+ * tail of the list. Here, -1 means the last element, -2 means the penultimate
+ * and so forth.
+ *
+ * On success, REDISMODULE_OK is returned. On failure, REDISMODULE_ERR is
+ * returned and `errno` is set as follows:
+ *
+ * - EINVAL if key or value is NULL.
+ * - ENOTSUP if the key is not a list.
+ * - EBADF if the key is not opened for writing.
+ * - EDOM if the index is not a valid index in the list.
+ */
+int RM_ListSet(RedisModuleKey *key, long index, RedisModuleString *value) {
+    if (!value) {
+        errno = EINVAL;
+        return REDISMODULE_ERR;
+    }
+    if (moduleListIteratorSeek(key, index, REDISMODULE_WRITE)) {
+        listTypeReplace(&key->u.list.entry, value);
+        /* A note in quicklist.c forbids use of iterator after insert, so
+         * probably also after replace. */
+        listTypeReleaseIterator(key->iter);
+        key->iter = NULL;
+        return REDISMODULE_OK;
+    } else {
+        return REDISMODULE_ERR;
+    }
+}
+
+/* Inserts an element at the given index.
+ *
+ * The index is zero-based, so 0 means the first element, 1 the second element
+ * and so on. Negative indices can be used to designate elements starting at the
+ * tail of the list. Here, -1 means the last element, -2 means the penultimate
+ * and so forth. The index is the element's index after inserting it.
+ *
+ * On success, REDISMODULE_OK is returned. On failure, REDISMODULE_ERR is
+ * returned and `errno` is set as follows:
+ *
+ * - EINVAL if key or value is NULL.
+ * - ENOTSUP if the key of another type than list.
+ * - EBADF if the key is not opened for writing.
+ * - EDOM if the index is not a valid index in the list.
+ */
+int RM_ListInsert(RedisModuleKey *key, long index, RedisModuleString *value) {
+    if (!value) {
+        errno = EINVAL;
+        return REDISMODULE_ERR;
+    } else if (key != NULL && key->value == NULL &&
+               (index == 0 || index == -1)) {
+        /* Insert in empty key => push. */
+        return RM_ListPush(key, REDISMODULE_LIST_TAIL, value);
+    } else if (key != NULL && key->value != NULL &&
+               key->value->type == OBJ_LIST &&
+               (index == (long)listTypeLength(key->value) || index == -1)) {
+        /* Insert after the last element => push tail. */
+        return RM_ListPush(key, REDISMODULE_LIST_TAIL, value);
+    } else if (key != NULL && key->value != NULL &&
+               key->value->type == OBJ_LIST &&
+               (index == 0 || index == -(long)listTypeLength(key->value) - 1)) {
+        /* Insert before the first element => push head. */
+        return RM_ListPush(key, REDISMODULE_LIST_HEAD, value);
+    }
+    if (moduleListIteratorSeek(key, index, REDISMODULE_WRITE)) {
+        int where = index < 0 ? LIST_TAIL : LIST_HEAD;
+        listTypeInsert(&key->u.list.entry, value, where);
+        /* A note in quicklist.c forbids use of iterator after insert. */
+        listTypeReleaseIterator(key->iter);
+        key->iter = NULL;
+        return REDISMODULE_OK;
+    } else {
+        return REDISMODULE_ERR;
+    }
+}
+
+/* Removes an element at the given index. The index is 0-based. A negative index
+ * can also be used, counting from the end of the list.
+ *
+ * On success, REDISMODULE_OK is returned. On failure, REDISMODULE_ERR is
+ * returned and `errno` is set as follows:
+ *
+ * - EINVAL if key or value is NULL.
+ * - ENOTSUP if the key is not a list.
+ * - EBADF if the key is not opened for writing.
+ * - EDOM if the index is not a valid index in the list.
+ */
+int RM_ListDelete(RedisModuleKey *key, long index) {
+    if (moduleListIteratorSeek(key, index, REDISMODULE_WRITE)) {
+        listTypeDelete(key->iter, &key->u.list.entry);
+        moduleDelKeyIfEmpty(key);
+        return REDISMODULE_OK;
+    } else {
+        return REDISMODULE_ERR;
+    }
 }
 
 /* --------------------------------------------------------------------------
@@ -8774,6 +9293,8 @@ void moduleUnregisterCommands(struct RedisModule *module) {
                 (void*)(unsigned long)cmd->getkeys_proc;
             sds cmdname = cp->rediscmd->name;
             if (cp->module == module) {
+                if (cp->rediscmd->key_specs != cp->rediscmd->key_specs_static)
+                    zfree(cp->rediscmd->key_specs);
                 dictDelete(server.commands,cmdname);
                 dictDelete(server.orig_commands,cmdname);
                 sdsfree(cmdname);
@@ -9257,7 +9778,7 @@ int *RM_GetCommandKeys(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, 
     }
 
     /* Bail out if command has no keys */
-    if (cmd->getkeys_proc == NULL && cmd->firstkey == 0) {
+    if (cmd->getkeys_proc == NULL && cmd->key_specs_num == 0) {
         errno = 0;
         return NULL;
     }
@@ -9564,6 +10085,10 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ValueLength);
     REGISTER_API(ListPush);
     REGISTER_API(ListPop);
+    REGISTER_API(ListGet);
+    REGISTER_API(ListSet);
+    REGISTER_API(ListInsert);
+    REGISTER_API(ListDelete);
     REGISTER_API(StringToLongLong);
     REGISTER_API(StringToDouble);
     REGISTER_API(StringToLongDouble);
@@ -9809,4 +10334,9 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(DefragShouldStop);
     REGISTER_API(DefragCursorSet);
     REGISTER_API(DefragCursorGet);
+    REGISTER_API(AddCommandKeySpec);
+    REGISTER_API(SetCommandKeySpecBeginSearchIndex);
+    REGISTER_API(SetCommandKeySpecBeginSearchKeyword);
+    REGISTER_API(SetCommandKeySpecFindKeysRange);
+    REGISTER_API(SetCommandKeySpecFindKeysKeynum);
 }
