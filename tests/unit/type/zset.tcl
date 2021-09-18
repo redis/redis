@@ -6,7 +6,7 @@ start_server {tags {"zset"}} {
         }
     }
 
-    # A helper function to help us assert.
+    # A helper function to verify either ZPOP* or ZMPOP* response.
     proc verify_pop_response {pop res zpop_expected_response zmpop_expected_response} {
         if {[string match "*ZM*" $pop]} {
             assert_equal $res $zmpop_expected_response
@@ -15,7 +15,7 @@ start_server {tags {"zset"}} {
         }
     }
 
-    # A helper function for ZPOP/ZMPOP with one input key and do the assert.
+    # A helper function to verify either ZPOP* or ZMPOP* response when given one input key.
     proc verify_zpop_response {rd pop key count zpop_expected_response zmpop_expected_response} {
         if {[string match "ZM*" $pop]} {
             lassign [split $pop "_"] pop where
@@ -35,7 +35,7 @@ start_server {tags {"zset"}} {
         verify_pop_response $pop $res $zpop_expected_response $zmpop_expected_response
     }
 
-    # A helper function for BZPOP/BZMPOP with one input key and do the assert.
+    # A helper function to verify either BZPOP* or BZMPOP* response when given one input key.
     proc verify_bzpop_response {rd pop key timeout count bzpop_expected_response bzmpop_expected_response} {
         if {[string match "BZM*" $pop]} {
             lassign [split $pop "_"] pop where
@@ -51,7 +51,7 @@ start_server {tags {"zset"}} {
         verify_pop_response $pop [$rd read] $bzpop_expected_response $bzmpop_expected_response
     }
 
-    # A helper function for BZPOP/BZMPOP with two input keys and do the assert.
+    # A helper function to verify either ZPOP* or ZMPOP* response when given two input keys.
     proc verify_bzpop_two_key_response {rd pop key key2 timeout count bzpop_expected_response bzmpop_expected_response} {
         if {[string match "BZM*" $pop]} {
             lassign [split $pop "_"] pop where
@@ -67,13 +67,32 @@ start_server {tags {"zset"}} {
         verify_pop_response $pop [$rd read] $bzpop_expected_response $bzmpop_expected_response
     }
 
-    # A helper function for BZPOP/BZMPOP with one input key
+    # A helper function to execute either BZPOP* or BZMPOP* with one input key in a differing way.
     proc bzpop_command {rd pop key timeout} {
         if {[string match "BZM*" $pop]} {
             lassign [split $pop "_"] pop where
             $rd $pop $timeout 1 $key $where COUNT 1
         } else {
             $rd $pop $key $timeout
+        }
+    }
+
+    # A helper function to verify nil response in readraw base on RESP version.
+    proc verify_nil_response {resp nil_response} {
+        if {$resp == 2} {
+            assert_equal $nil_response {*-1}
+        } elseif {$resp == 3} {
+            assert_equal $nil_response {_}
+        }
+    }
+
+    # A helper function to verify zset score response in readraw base on RESP version.
+    proc verify_score_response {rd resp score} {
+        if {$resp == 2} {
+            assert_equal [$rd read] {$1}
+            assert_equal [$rd read] $score
+        } elseif {$resp == 3} {
+            assert_equal [$rd read] ",$score"
         }
     }
 
@@ -984,98 +1003,98 @@ start_server {tags {"zset"}} {
             }
         }
 
-    foreach {pop other_pop} {ZPOPMIN ZPOPMAX ZMPOP_MIN ZMPOP_MAX} {
-        test "Basic $pop/$other_pop with a single key - $encoding" {
+    foreach {popmin popmax} {ZPOPMIN ZPOPMAX ZMPOP_MIN ZMPOP_MAX} {
+        test "Basic $popmin/$popmax with a single key - $encoding" {
             r del zset
-            verify_zpop_response r $pop zset 0 {} {}
+            verify_zpop_response r $popmin zset 0 {} {}
 
             create_zset zset {-1 a 1 b 2 c 3 d 4 e}
-            verify_zpop_response r $pop zset 0 {a -1} {zset {{a -1}}}
-            verify_zpop_response r $pop zset 0 {b 1} {zset {{b 1}}}
-            verify_zpop_response r $other_pop zset 0 {e 4} {zset {{e 4}}}
-            verify_zpop_response r $other_pop zset 0 {d 3} {zset {{d 3}}}
-            verify_zpop_response r $pop zset 0 {c 2} {zset {{c 2}}}
+            verify_zpop_response r $popmin zset 0 {a -1} {zset {{a -1}}}
+            verify_zpop_response r $popmin zset 0 {b 1} {zset {{b 1}}}
+            verify_zpop_response r $popmax zset 0 {e 4} {zset {{e 4}}}
+            verify_zpop_response r $popmax zset 0 {d 3} {zset {{d 3}}}
+            verify_zpop_response r $popmin zset 0 {c 2} {zset {{c 2}}}
             assert_equal 0 [r exists zset]
         }
 
-        test "$pop/$other_pop with count - $encoding" {
+        test "$popmin/$popmax with count - $encoding" {
             r del z1
-            verify_zpop_response r $pop z1 2 {} {}
+            verify_zpop_response r $popmin z1 2 {} {}
 
             create_zset z1 {0 a 1 b 2 c 3 d}
-            verify_zpop_response r $pop z1 2 {a 0 b 1} {z1 {{a 0} {b 1}}}
-            verify_zpop_response r $other_pop z1 2 {d 3 c 2} {z1 {{d 3} {c 2}}}
+            verify_zpop_response r $popmin z1 2 {a 0 b 1} {z1 {{a 0} {b 1}}}
+            verify_zpop_response r $popmax z1 2 {d 3 c 2} {z1 {{d 3} {c 2}}}
         }
     }
 
-    foreach {pop other_pop} {BZPOPMIN BZPOPMAX BZMPOP_MIN BZMPOP_MAX} {
-        test "$pop/$other_pop with a single existing sorted set - $encoding" {
+    foreach {popmin popmax} {BZPOPMIN BZPOPMAX BZMPOP_MIN BZMPOP_MAX} {
+        test "$popmin/$popmax with a single existing sorted set - $encoding" {
             set rd [redis_deferring_client]
             create_zset zset {0 a 1 b 2 c 3 d}
 
-            verify_bzpop_response $rd $pop zset 5 0 {zset a 0} {zset {{a 0}}}
-            verify_bzpop_response $rd $other_pop zset 5 0 {zset d 3} {zset {{d 3}}}
-            verify_bzpop_response $rd $pop zset 5 0 {zset b 1} {zset {{b 1}}}
-            verify_bzpop_response $rd $other_pop zset 5 0 {zset c 2} {zset {{c 2}}}
+            verify_bzpop_response $rd $popmin zset 5 0 {zset a 0} {zset {{a 0}}}
+            verify_bzpop_response $rd $popmax zset 5 0 {zset d 3} {zset {{d 3}}}
+            verify_bzpop_response $rd $popmin zset 5 0 {zset b 1} {zset {{b 1}}}
+            verify_bzpop_response $rd $popmax zset 5 0 {zset c 2} {zset {{c 2}}}
             assert_equal 0 [r exists zset]
         }
 
-        test "$pop/$other_pop with multiple existing sorted sets - $encoding" {
+        test "$popmin/$popmax with multiple existing sorted sets - $encoding" {
             set rd [redis_deferring_client]
             create_zset z1{t} {0 a 1 b 2 c}
             create_zset z2{t} {3 d 4 e 5 f}
 
-            verify_bzpop_two_key_response $rd $pop z1{t} z2{t} 5 0 {z1{t} a 0} {z1{t} {{a 0}}}
-            verify_bzpop_two_key_response $rd $other_pop z1{t} z2{t} 5 0 {z1{t} c 2} {z1{t} {{c 2}}}
+            verify_bzpop_two_key_response $rd $popmin z1{t} z2{t} 5 0 {z1{t} a 0} {z1{t} {{a 0}}}
+            verify_bzpop_two_key_response $rd $popmax z1{t} z2{t} 5 0 {z1{t} c 2} {z1{t} {{c 2}}}
             assert_equal 1 [r zcard z1{t}]
             assert_equal 3 [r zcard z2{t}]
 
-            verify_bzpop_two_key_response $rd $other_pop z2{t} z1{t} 5 0 {z2{t} f 5} {z2{t} {{f 5}}}
-            verify_bzpop_two_key_response $rd $pop z2{t} z1{t} 5 0 {z2{t} d 3} {z2{t} {{d 3}}}
+            verify_bzpop_two_key_response $rd $popmax z2{t} z1{t} 5 0 {z2{t} f 5} {z2{t} {{f 5}}}
+            verify_bzpop_two_key_response $rd $popmin z2{t} z1{t} 5 0 {z2{t} d 3} {z2{t} {{d 3}}}
             assert_equal 1 [r zcard z1{t}]
             assert_equal 1 [r zcard z2{t}]
         }
 
-        test "$pop/$other_pop second sorted set has members - $encoding" {
+        test "$popmin/$popmax second sorted set has members - $encoding" {
             set rd [redis_deferring_client]
             r del z1{t}
             create_zset z2{t} {3 d 4 e 5 f}
 
-            verify_bzpop_two_key_response $rd $other_pop z1{t} z2{t} 5 0 {z2{t} f 5} {z2{t} {{f 5}}}
-            verify_bzpop_two_key_response $rd $pop z1{t} z2{t} 5 0 {z2{t} d 3} {z2{t} {{d 3}}}
+            verify_bzpop_two_key_response $rd $popmax z1{t} z2{t} 5 0 {z2{t} f 5} {z2{t} {{f 5}}}
+            verify_bzpop_two_key_response $rd $popmin z1{t} z2{t} 5 0 {z2{t} d 3} {z2{t} {{d 3}}}
             assert_equal 0 [r zcard z1{t}]
             assert_equal 1 [r zcard z2{t}]
         }
     }
 
-    foreach {pop other_pop} {ZPOPMIN ZPOPMAX ZMPOP_MIN ZMPOP_MAX} {
-        test "Basic $pop/$other_pop - $encoding RESP3" {
+    foreach {popmin popmax} {ZPOPMIN ZPOPMAX ZMPOP_MIN ZMPOP_MAX} {
+        test "Basic $popmin/$popmax - $encoding RESP3" {
             r hello 3
             create_zset z1 {0 a 1 b 2 c 3 d}
-            verify_zpop_response r $pop z1 0 {a 0.0} {z1 {{a 0.0}}}
-            verify_zpop_response r $other_pop z1 0 {d 3.0} {z1 {{d 3.0}}}
+            verify_zpop_response r $popmin z1 0 {a 0.0} {z1 {{a 0.0}}}
+            verify_zpop_response r $popmax z1 0 {d 3.0} {z1 {{d 3.0}}}
             r hello 2
         }
 
-        test "$pop/$other_pop with count - $encoding RESP3" {
+        test "$popmin/$popmax with count - $encoding RESP3" {
             r hello 3
             create_zset z1 {0 a 1 b 2 c 3 d}
-            verify_zpop_response r $pop z1 2 {{a 0.0} {b 1.0}} {z1 {{a 0.0} {b 1.0}}}
-            verify_zpop_response r $other_pop z1 2 {{d 3.0} {c 2.0}} {z1 {{d 3.0} {c 2.0}}}
+            verify_zpop_response r $popmin z1 2 {{a 0.0} {b 1.0}} {z1 {{a 0.0} {b 1.0}}}
+            verify_zpop_response r $popmax z1 2 {{d 3.0} {c 2.0}} {z1 {{d 3.0} {c 2.0}}}
             r hello 2
         }
     }
 
-    foreach {pop other_pop} {BZPOPMIN BZPOPMAX BZMPOP_MIN BZMPOP_MAX} {
-        test "$pop/$other_pop - $encoding RESP3" {
+    foreach {popmin popmax} {BZPOPMIN BZPOPMAX BZMPOP_MIN BZMPOP_MAX} {
+        test "$popmin/$popmax - $encoding RESP3" {
             r hello 3
             set rd [redis_deferring_client]
             create_zset zset {0 a 1 b 2 c 3 d}
 
-            verify_bzpop_response $rd $pop zset 5 0 {zset a 0} {zset {{a 0}}}
-            verify_bzpop_response $rd $other_pop zset 5 0 {zset d 3} {zset {{d 3}}}
-            verify_bzpop_response $rd $pop zset 5 0 {zset b 1} {zset {{b 1}}}
-            verify_bzpop_response $rd $other_pop zset 5 0 {zset c 2} {zset {{c 2}}}
+            verify_bzpop_response $rd $popmin zset 5 0 {zset a 0} {zset {{a 0}}}
+            verify_bzpop_response $rd $popmax zset 5 0 {zset d 3} {zset {{d 3}}}
+            verify_bzpop_response $rd $popmin zset 5 0 {zset b 1} {zset {{b 1}}}
+            verify_bzpop_response $rd $popmax zset 5 0 {zset c 2} {zset {{c 2}}}
 
             assert_equal 0 [r exists zset]
             r hello 2
@@ -1126,37 +1145,11 @@ start_server {tags {"zset"}} {
         assert_error "ERR count*" {r zmpop 2 myzset{t} myzset2{t} MAX COUNT -1}
     }
 
-    test "ZMPOP against non existing key - nil" {
-        r del zset{t} zset2{t}
-
-        assert_equal {} [r zmpop 1 zset{t} min]
-        assert_equal {} [r zmpop 1 zset{t} max count 1]
-        assert_equal {} [r zmpop 2 zset{t} zset2{t} min]
-        assert_equal {} [r zmpop 2 zset{t} zset2{t} max count 1]
-
-        # Make sure we will reply a NIL.
-        r readraw 1
-        assert_equal {*-1} [r zmpop 1 zset{t} min]
-        assert_equal {*-1} [r zmpop 1 zset{t} max count 1]
-        assert_equal {*-1} [r zmpop 2 zset{t} zset2{t} min]
-        assert_equal {*-1} [r zmpop 2 zset{t} zset2{t} max count 1]
-        r readraw 0
-
-        r hello 3
-        r readraw 1
-        assert_equal {_} [r zmpop 1 zset{t} min]
-        assert_equal {_} [r zmpop 1 zset{t} max count 1]
-        assert_equal {_} [r zmpop 2 zset{t} zset2{t} min]
-        assert_equal {_} [r zmpop 2 zset{t} zset2{t} max count 1]
-        r readraw 0
-        r hello 2
-    }
-
     test "ZMPOP propagate as pop with count command to replica" {
         set repl [attach_to_replication_stream]
 
         # ZMPOP min/max propagate as ZPOPMIN/ZPOPMAX with count
-        r zadd myzset{t} 1 one 2 tow 3 three
+        r zadd myzset{t} 1 one 2 two 3 three
 
         # Pop elements from one zset.
         r zmpop 1 myzset{t} min
@@ -1169,31 +1162,193 @@ start_server {tags {"zset"}} {
         r zmpop 2 myzset{t} myzset2{t} max count 10
 
         # Pop elements from the second zset.
-        r zadd myzset2{t} 1 one 2 tow 3 three
+        r zadd myzset2{t} 1 one 2 two 3 three
         r zmpop 2 myzset{t} myzset2{t} min count 2
         r zmpop 2 myzset{t} myzset2{t} max count 1
 
         # Pop all elements.
-        r zadd myzset{t} 1 one 2 tow 3 three
+        r zadd myzset{t} 1 one 2 two 3 three
         r zadd myzset2{t} 4 four 5 five 6 six
         r zmpop 2 myzset{t} myzset2{t} min count 10
         r zmpop 2 myzset{t} myzset2{t} max count 10
 
         assert_replication_stream $repl {
             {select *}
-            {zadd myzset{t} 1 one 2 tow 3 three}
+            {zadd myzset{t} 1 one 2 two 3 three}
             {zpopmin myzset{t} 1}
             {zpopmax myzset{t} 1}
             {zpopmin myzset{t} 1}
-            {zadd myzset2{t} 1 one 2 tow 3 three}
+            {zadd myzset2{t} 1 one 2 two 3 three}
             {zpopmin myzset2{t} 2}
             {zpopmax myzset2{t} 1}
-            {zadd myzset{t} 1 one 2 tow 3 three}
+            {zadd myzset{t} 1 one 2 two 3 three}
             {zadd myzset2{t} 4 four 5 five 6 six}
             {zpopmin myzset{t} 3}
             {zpopmax myzset2{t} 3}
         }
     } {} {needs:repl}
+
+    foreach resp {3 2} {
+        test "ZPOPMIN/ZPOPMAX readraw in RESP$resp" {
+            r del zset{t}
+            create_zset zset2{t} {1 a 2 b 3 c 4 d 5 e}
+
+            r hello $resp
+            r readraw 1
+
+            # ZPOP against non existing key.
+            assert_equal {*0} [r zpopmin zset{t}]
+            assert_equal {*0} [r zpopmin zset{t} 1]
+
+            # ZPOP without COUNT option.
+            assert_equal {*2} [r zpopmin zset2{t}]
+            assert_equal [r read] {$1}
+            assert_equal [r read] {a}
+            verify_score_response r $resp 1
+
+            # ZPOP with COUNT option.
+            if {$resp == 2} {
+                assert_equal {*2} [r zpopmax zset2{t} 1]
+                assert_equal [r read] {$1}
+                assert_equal [r read] {e}
+            } elseif {$resp == 3} {
+                assert_equal {*1} [r zpopmax zset2{t} 1]
+                assert_equal [r read] {*2}
+                assert_equal [r read] {$1}
+                assert_equal [r read] {e}
+            }
+            verify_score_response r $resp 5
+
+            r readraw 0
+        }
+
+        test "BZPOPMIN/BZPOPMAX readraw in RESP$resp" {
+            r del zset{t}
+            create_zset zset2{t} {1 a 2 b 3 c 4 d 5 e}
+
+            set rd [redis_deferring_client]
+            $rd hello $resp
+            $rd read
+            $rd readraw 1
+
+            # BZPOP released on timeout.
+            $rd bzpopmin zset{t} 0.1
+            verify_nil_response $resp [$rd read]
+            $rd bzpopmax zset{t} 0.1
+            verify_nil_response $resp [$rd read]
+
+            # BZPOP non-blocking path.
+            $rd bzpopmin zset1{t} zset2{t} 0.1
+            assert_equal [$rd read] {*3}
+            assert_equal [$rd read] {$8}
+            assert_equal [$rd read] {zset2{t}}
+            assert_equal [$rd read] {$1}
+            assert_equal [$rd read] {a}
+            verify_score_response $rd $resp 1
+
+            # BZPOP blocking path.
+            $rd bzpopmin zset{t} 5
+            wait_for_blocked_client
+            r zadd zset{t} 1 a
+            assert_equal [$rd read] {*3}
+            assert_equal [$rd read] {$7}
+            assert_equal [$rd read] {zset{t}}
+            assert_equal [$rd read] {$1}
+            assert_equal [$rd read] {a}
+            verify_score_response $rd $resp 1
+
+            $rd readraw 0
+        }
+
+        test "ZMPOP readraw in RESP$resp" {
+            r del zset{t} zset2{t}
+            create_zset zset3{t} {1 a}
+            create_zset zset4{t} {1 a 2 b 3 c 4 d 5 e}
+
+            r hello $resp
+            r readraw 1
+
+            # ZMPOP against non existing key.
+            verify_nil_response $resp [r zmpop 1 zset{t} min]
+            verify_nil_response $resp [r zmpop 1 zset{t} max count 1]
+            verify_nil_response $resp [r zmpop 2 zset{t} zset2{t} min]
+            verify_nil_response $resp [r zmpop 2 zset{t} zset2{t} max count 1]
+
+            # ZMPOP with one input key.
+            assert_equal {*2} [r zmpop 1 zset3{t} max]
+            assert_equal [r read] {$8}
+            assert_equal [r read] {zset3{t}}
+            assert_equal [r read] {*1}
+            assert_equal [r read] {*2}
+            assert_equal [r read] {$1}
+            assert_equal [r read] {a}
+            verify_score_response r $resp 1
+
+            # ZMPOP with COUNT option.
+            assert_equal {*2} [r zmpop 2 zset3{t} zset4{t} min count 2]
+            assert_equal [r read] {$8}
+            assert_equal [r read] {zset4{t}}
+            assert_equal [r read] {*2}
+            assert_equal [r read] {*2}
+            assert_equal [r read] {$1}
+            assert_equal [r read] {a}
+            verify_score_response r $resp 1
+            assert_equal [r read] {*2}
+            assert_equal [r read] {$1}
+            assert_equal [r read] {b}
+            verify_score_response r $resp 2
+
+            r readraw 0
+        }
+
+        test "BZMPOP readraw in RESP$resp" {
+            r del zset{t} zset2{t}
+            create_zset zset3{t} {1 a 2 b 3 c 4 d 5 e}
+
+            set rd [redis_deferring_client]
+            $rd hello $resp
+            $rd read
+            $rd readraw 1
+
+            # BZMPOP released on timeout.
+            $rd bzmpop 0.1 1 zset{t} min
+            verify_nil_response $resp [$rd read]
+            $rd bzmpop 0.1 2 zset{t} zset2{t} max
+            verify_nil_response $resp [$rd read]
+
+            # BZMPOP non-blocking path.
+            $rd bzmpop 0.1 2 zset3{t} zset4{t} min
+
+            assert_equal [$rd read] {*2}
+            assert_equal [$rd read] {$8}
+            assert_equal [$rd read] {zset3{t}}
+            assert_equal [$rd read] {*1}
+            assert_equal [$rd read] {*2}
+            assert_equal [$rd read] {$1}
+            assert_equal [$rd read] {a}
+            verify_score_response $rd $resp 1
+
+            # BZMPOP blocking path with COUNT option.
+            $rd bzmpop 5 2 zset{t} zset2{t} max count 2
+            wait_for_blocked_client
+            r zadd zset2{t} 1 a 2 b 3 c
+
+            assert_equal [$rd read] {*2}
+            assert_equal [$rd read] {$8}
+            assert_equal [$rd read] {zset2{t}}
+            assert_equal [$rd read] {*2}
+            assert_equal [$rd read] {*2}
+            assert_equal [$rd read] {$1}
+            assert_equal [$rd read] {c}
+            verify_score_response $rd $resp 3
+            assert_equal [$rd read] {*2}
+            assert_equal [$rd read] {$1}
+            assert_equal [$rd read] {b}
+            verify_score_response $rd $resp 2
+
+            $rd readraw 0
+        }
+    }
 
     test {ZINTERSTORE regression with two sets, intset+hashtable} {
         r del seta{t} setb{t} setc{t}
@@ -1807,37 +1962,43 @@ start_server {tags {"zset"}} {
         set rd [redis_deferring_client]
         set repl [attach_to_replication_stream]
 
-        # BZMPOP without block.
-        r zadd myzset{t} 1 one 2 tow 3 three
+        # BZMPOP without being blocked.
+        r zadd myzset{t} 1 one 2 two 3 three
         r zadd myzset2{t} 4 four 5 five 6 six
-        r BZMPOP 0 1 myzset{t} min
-        r BZMPOP 0 2 myzset{t} myzset2{t} max count 10
-        r BZMPOP 0 2 myzset{t} myzset2{t} max count 10
+        r bzmpop 0 1 myzset{t} min
+        r bzmpop 0 2 myzset{t} myzset2{t} max count 10
+        r bzmpop 0 2 myzset{t} myzset2{t} max count 10
 
-        # BZMPOP with block.
-        $rd BZMPOP 0 1 myzset{t} min count 1
+        # BZMPOP that gets blocked.
+        $rd bzmpop 0 1 myzset{t} min count 1
         wait_for_blocked_client
         r zadd myzset{t} 1 one
-        $rd BZMPOP 0 2 myzset{t} myzset2{t} min count 5
+        $rd bzmpop 0 2 myzset{t} myzset2{t} min count 5
         wait_for_blocked_client
-        r zadd myzset{t} 1 one 2 tow 3 three
-        $rd BZMPOP 0 2 myzset{t} myzset2{t} max count 10
+        r zadd myzset{t} 1 one 2 two 3 three
+        $rd bzmpop 0 2 myzset{t} myzset2{t} max count 10
         wait_for_blocked_client
         r zadd myzset2{t} 4 four 5 five 6 six
+
+        # Released on timeout.
+        $rd bzmpop 0.1 1 myzset{t} max count 10
+        after 150
+        r set foo{t} bar
 
         assert_replication_stream $repl {
             {select *}
-            {zadd myzset{t} 1 one 2 tow 3 three}
+            {zadd myzset{t} 1 one 2 two 3 three}
             {zadd myzset2{t} 4 four 5 five 6 six}
             {zpopmin myzset{t} 1}
             {zpopmax myzset{t} 2}
             {zpopmax myzset2{t} 3}
             {zadd myzset{t} 1 one}
             {zpopmin myzset{t} 1}
-            {zadd myzset{t} 1 one 2 tow 3 three}
+            {zadd myzset{t} 1 one 2 two 3 three}
             {zpopmin myzset{t} 3}
             {zadd myzset2{t} 4 four 5 five 6 six}
             {zpopmax myzset2{t} 3}
+            {set foo{t} bar}
         }
     } {} {needs:repl}
 

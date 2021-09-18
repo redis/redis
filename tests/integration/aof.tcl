@@ -333,7 +333,6 @@ tags {"aof external:skip"} {
             set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
             set client2 [redis [dict get $srv host] [dict get $srv port] 1 $::tls]
             wait_done_loading $client
-            wait_done_loading $client2
 
             # Pop all elements from mylist, should be blmpop delete mylist.
             $client lmpop 1 mylist left count 1
@@ -381,7 +380,6 @@ tags {"aof external:skip"} {
             set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
             set client2 [redis [dict get $srv host] [dict get $srv port] 1 $::tls]
             wait_done_loading $client
-            wait_done_loading $client2
 
             # Pop all elements from myzset, should be bzmpop delete myzset.
             $client zmpop 1 myzset min count 1

@@ -3768,7 +3768,7 @@ void zscanCommand(client *c) {
  * 'reply_nil_when_empty' when true we reply a NIL if we are not able to pop up any elements.
  * Like in ZMPOP/BZMPOP we reply with a structured nested array containing key name
  * and member + score pairs. In these commands, we reply with null when we have no result.
- * Otherwise we reply an empty array by default.
+ * Otherwise in ZPOPMIN/ZPOPMAX we reply an empty array by default.
  *
  * 'deleted' is an optional output argument to get an indication
  * if the key got deleted by this function.
