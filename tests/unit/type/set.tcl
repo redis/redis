@@ -143,8 +143,38 @@ start_server {
         r srem myset 1 2 3 4 5 6 7 8
     } {3}
 
+    test "SINTERCARD with illegal arguments" {
+        assert_error "ERR wrong number of arguments*" {r sintercard}
+        assert_error "ERR wrong number of arguments*" {r sintercard 1}
+
+        assert_error "ERR numkeys*" {r sintercard 0 myset{t}}
+        assert_error "ERR numkeys*" {r sintercard a myset{t}}
+
+        assert_error "ERR Number of keys*" {r sintercard 2 myset{t}}
+        assert_error "ERR Number of keys*" {r sintercard 3 myset{t} myset2{t}}
+
+        assert_error "ERR syntax error*" {r sintercard 1 myset{t} myset2{t}}
+        assert_error "ERR syntax error*" {r sintercard 1 myset{t} bar_arg}
+        assert_error "ERR syntax error*" {r sintercard 1 myset{t} LIMIT}
+
+        assert_error "ERR LIMIT*" {r sintercard 1 myset{t} LIMIT -1}
+        assert_error "ERR LIMIT*" {r sintercard 1 myset{t} LIMIT a}
+    }
+
+    test "SINTERCARD against non-set should throw error" {
+        r del set{t}
+        r sadd set{t} a b c
+        r set key1{t} x
+
+        assert_error "WRONGTYPE*" {r sintercard 1 key1{t}}
+        assert_error "WRONGTYPE*" {r sintercard 2 set{t} key1{t}}
+        assert_error "WRONGTYPE*" {r sintercard 2 key1{t} noset{t}}
+    }
+
     test "SINTERCARD against non-existing key" {
-        assert_equal 0 [r sintercard non-existing-key]
+        assert_equal 0 [r sintercard 1 non-existing-key]
+        assert_equal 0 [r sintercard 1 non-existing-key limit 0]
+        assert_equal 0 [r sintercard 1 non-existing-key limit 10]
     }
 
     foreach {type} {hashtable intset} {
@@ -187,7 +217,10 @@ start_server {
         }
 
         test "SINTERCARD with two sets - $type" {
-            assert_equal 6 [r sintercard set1{t} set2{t}]
+            assert_equal 6 [r sintercard 2 set1{t} set2{t}]
+            assert_equal 6 [r sintercard 2 set1{t} set2{t} limit 0]
+            assert_equal 3 [r sintercard 2 set1{t} set2{t} limit 3]
+            assert_equal 6 [r sintercard 2 set1{t} set2{t} limit 10]
         }
 
         test "SINTERSTORE with two sets - $type" {
@@ -220,7 +253,10 @@ start_server {
         }
 
         test "SINTERCARD against three sets - $type" {
-            assert_equal 3 [r sintercard set1{t} set2{t} set3{t}]
+            assert_equal 3 [r sintercard 3 set1{t} set2{t} set3{t}]
+            assert_equal 3 [r sintercard 3 set1{t} set2{t} set3{t} limit 0]
+            assert_equal 2 [r sintercard 3 set1{t} set2{t} set3{t} limit 2]
+            assert_equal 3 [r sintercard 3 set1{t} set2{t} set3{t} limit 10]
         }
 
         test "SINTERSTORE with three sets - $type" {

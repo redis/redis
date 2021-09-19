@@ -84,6 +84,10 @@ typedef long long ustime_t; /* microsecond time type. */
 #include "endianconv.h"
 #include "crc64.h"
 
+/* min/max */
+#define min(a, b) ((a) < (b) ? (a) : (b))
+#define max(a, b) ((a) > (b) ? (a) : (b))
+
 /* Error codes */
 #define C_OK                    0
 #define C_ERR                   -1
@@ -192,6 +196,12 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CMD_FAST (1ULL<<14)            /* "fast" flag */
 #define CMD_NO_AUTH (1ULL<<15)         /* "no-auth" flag */
 #define CMD_MAY_REPLICATE (1ULL<<16)   /* "may-replicate" flag */
+
+/* Key argument flags. Please check the command table defined in the server.c file
+ * for more information about the meaning of every flag. */
+#define CMD_KEY_WRITE (1ULL<<0)        /* "write" flag */
+#define CMD_KEY_READ (1ULL<<1)         /* "read" flag */
+#define CMD_KEY_INCOMPLETE (1ULL<<2)   /* "incomplete" flag (meaning that the keyspec might not point out to all keys it should cover) */
 
 /* Command flags used by the module system. */
 #define CMD_MODULE_GETKEYS (1ULL<<17)  /* Use the modules getkeys interface. */
@@ -1085,7 +1095,6 @@ extern clientBufferLimitsConfig clientBufferLimitsDefaults[CLIENT_TYPE_OBUF_COUN
 typedef struct redisOp {
     robj **argv;
     int argc, dbid, target;
-    struct redisCommand *cmd;
 } redisOp;
 
 /* Defines an array of Redis operations. There is an API to add to this
@@ -1301,12 +1310,6 @@ struct redisServer {
     off_t loading_loaded_bytes;
     time_t loading_start_time;
     off_t loading_process_events_interval_bytes;
-    /* Fast pointers to often looked up command */
-    struct redisCommand *delCommand, *multiCommand, *lpushCommand,
-                        *lpopCommand, *rpopCommand, *zpopminCommand,
-                        *zpopmaxCommand, *sremCommand, *execCommand,
-                        *expireCommand, *pexpireCommand, *xclaimCommand,
-                        *xgroupCommand, *rpoplpushCommand, *lmoveCommand;
     /* Fields used only for stats */
     time_t stat_starttime;          /* Server start time */
     long long stat_numcommands;     /* Number of processed commands */
@@ -1701,27 +1704,120 @@ typedef struct {
 } getKeysResult;
 #define GETKEYS_RESULT_INIT { {0}, NULL, 0, MAX_KEYS_BUFFER }
 
+/* Key specs definitions.
+ *
+ * Brief: This is a scheme that tries to describe the location
+ * of key arguments better than the old [first,last,step] scheme
+ * which is limited and doesn't fit many commands.
+ *
+ * There are two steps:
+ * 1. begin_search (BS): in which index should we start seacrhing for keys?
+ * 2. find_keys (FK): relative to the output of BS, how can we will which args are keys?
+ *
+ * There are two types of BS:
+ * 1. index: key args start at a constant index
+ * 2. keyword: key args start just after a specific keyword
+ *
+ * There are two kinds of FK:
+ * 1. range: keys end at a specific index (or relative to the last argument)
+ * 2. keynum: there's an arg that contains the number of key args somewhere before the keys themselves
+ */
+
+typedef enum {
+    KSPEC_BS_INVALID = 0, /* Must be 0 */
+    KSPEC_BS_UNKNOWN,
+    KSPEC_BS_INDEX,
+    KSPEC_BS_KEYWORD
+} kspec_bs_type;
+
+typedef enum {
+    KSPEC_FK_INVALID = 0, /* Must be 0 */
+    KSPEC_FK_UNKNOWN,
+    KSPEC_FK_RANGE,
+    KSPEC_FK_KEYNUM
+} kspec_fk_type;
+
+typedef struct {
+    /* Declarative data */
+    const char *sflags;
+    kspec_bs_type begin_search_type;
+    union {
+        struct {
+            /* The index from which we start the search for keys */
+            int pos;
+        } index;
+        struct {
+            /* The keyword that indicates the beginning of key args */
+            const char *keyword;
+            /* An index in argv from which to start searching.
+             * Can be negative, which means start search from the end, in reverse
+             * (Example: -2 means to start in reverse from the panultimate arg) */
+            int startfrom;
+        } keyword;
+    } bs;
+    kspec_fk_type find_keys_type;
+    union {
+        /* NOTE: Indices in this struct are relative to the result of the begin_search step!
+         * These are: range.lastkey, keynum.keynumidx, keynum.firstkey */
+        struct {
+            /* Index of the last key.
+             * Can be negative, in which case it's not relative. -1 indicating till the last argument,
+             * -2 one before the last and so on. */
+            int lastkey;
+            /* How many args should we skip after finding a key, in order to find the next one. */
+            int keystep;
+            /* If lastkey is -1, we use limit to stop the search by a factor. 0 and 1 mean no limit.
+             * 2 means 1/2 of the remaining args, 3 means 1/3, and so on. */
+            int limit;
+        } range;
+        struct {
+            /* Index of the argument containing the number of keys to come */
+            int keynumidx;
+            /* Index of the fist key (Usually it's just after keynumidx, in
+             * which case it should be set to keynumidx+1). */
+            int firstkey;
+            /* How many args should we skip after finding a key, in order to find the next one. */
+            int keystep;
+        } keynum;
+    } fk;
+
+    /* Runtime data */
+    uint64_t flags;
+} keySpec;
+
+/* Number of static key specs */
+#define STATIC_KEY_SPECS_NUM 4
+
 typedef void redisCommandProc(client *c);
 typedef int redisGetKeysProc(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 struct redisCommand {
+    /* Declarative data */
     char *name;
     redisCommandProc *proc;
     int arity;
     char *sflags;   /* Flags as string representation, one char per flag. */
-    uint64_t flags; /* The actual flags, obtained from the 'sflags' field. */
+    keySpec key_specs_static[STATIC_KEY_SPECS_NUM];
     /* Use a function to determine keys arguments in a command line.
      * Used for Redis Cluster redirect. */
     redisGetKeysProc *getkeys_proc;
+
+    /* Runtime data */
+    uint64_t flags; /* The actual flags, obtained from the 'sflags' field. */
     /* What keys should be loaded in background when calling this command? */
-    int firstkey; /* The first argument that's a key (0 = no keys) */
-    int lastkey;  /* The last argument that's a key */
-    int keystep;  /* The step between first and last key */
     long long microseconds, calls, rejected_calls, failed_calls;
     int id;     /* Command ID. This is a progressive ID starting from 0 that
                    is assigned at runtime, and is used in order to check
                    ACLs. A connection is able to execute a given command if
                    the user associated to the connection has this command
                    bit set in the bitmap of allowed commands. */
+    keySpec *key_specs;
+    keySpec legacy_range_key_spec; /* The legacy (first,last,step) key spec is
+                                     * still maintained (if applicable) so that
+                                     * we can still support the reply format of
+                                     * COMMAND INFO and COMMAND GETKEYS */
+    int key_specs_num;
+    int key_specs_max;
+    int movablekeys; /* See populateCommandMovableKeys */
 };
 
 struct redisError {
@@ -1810,6 +1906,9 @@ extern dict *modules;
 /*-----------------------------------------------------------------------------
  * Functions prototypes
  *----------------------------------------------------------------------------*/
+
+/* Key arguments specs */
+void populateCommandLegacyRangeSpec(struct redisCommand *c);
 
 /* Modules */
 void moduleInitModulesSystem(void);
@@ -1991,9 +2090,11 @@ robj *listTypePop(robj *subject, int where);
 unsigned long listTypeLength(const robj *subject);
 listTypeIterator *listTypeInitIterator(robj *subject, long index, unsigned char direction);
 void listTypeReleaseIterator(listTypeIterator *li);
+void listTypeSetIteratorDirection(listTypeIterator *li, unsigned char direction);
 int listTypeNext(listTypeIterator *li, listTypeEntry *entry);
 robj *listTypeGet(listTypeEntry *entry);
 void listTypeInsert(listTypeEntry *entry, robj *value, int where);
+void listTypeReplace(listTypeEntry *entry, robj *value);
 int listTypeEqual(listTypeEntry *entry, robj *o);
 void listTypeDelete(listTypeIterator *iter, listTypeEntry *entry);
 void listTypeConvert(robj *subject, int enc);
@@ -2275,8 +2376,8 @@ struct redisCommand *lookupCommand(sds name);
 struct redisCommand *lookupCommandByCString(const char *s);
 struct redisCommand *lookupCommandOrOriginal(sds name);
 void call(client *c, int flags);
-void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc, int flags);
-void alsoPropagate(struct redisCommand *cmd, int dbid, robj **argv, int argc, int target);
+void propagate(int dbid, robj **argv, int argc, int flags);
+void alsoPropagate(int dbid, robj **argv, int argc, int target);
 void redisOpArrayInit(redisOpArray *oa);
 void redisOpArrayFree(redisOpArray *oa);
 void forceCommandPropagation(client *c, int flags);
@@ -2448,6 +2549,7 @@ void freeObjAsync(robj *key, robj *obj, int dbid);
 int *getKeysPrepareResult(getKeysResult *result, int numkeys);
 int getKeysFromCommand(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 void getKeysFreeResult(getKeysResult *result);
+int sintercardGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
 int zunionInterDiffGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
 int zunionInterDiffStoreGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
 int evalGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
@@ -2793,7 +2895,8 @@ void serverLogHexDump(int level, char *descr, void *value, size_t len);
 int memtest_preserving_test(unsigned long *m, size_t bytes, int passes);
 void mixDigest(unsigned char *digest, void *ptr, size_t len);
 void xorDigest(unsigned char *digest, void *ptr, size_t len);
-int populateCommandTableParseFlags(struct redisCommand *c, char *strflags);
+int populateSingleCommand(struct redisCommand *c, char *strflags);
+void populateCommandMovableKeys(struct redisCommand *cmd);
 void debugDelay(int usec);
 void killIOThreads(void);
 void killThreads(void);

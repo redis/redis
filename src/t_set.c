@@ -533,8 +533,7 @@ void spopWithCountCommand(client *c) {
 
             /* Replicate/AOF this command as an SREM operation */
             propargv[2] = objele;
-            alsoPropagate(server.sremCommand,c->db->id,propargv,3,
-                PROPAGATE_AOF|PROPAGATE_REPL);
+            alsoPropagate(c->db->id,propargv,3,PROPAGATE_AOF|PROPAGATE_REPL);
             decrRefCount(objele);
         }
     } else {
@@ -576,8 +575,7 @@ void spopWithCountCommand(client *c) {
 
             /* Replicate/AOF this command as an SREM operation */
             propargv[2] = objele;
-            alsoPropagate(server.sremCommand,c->db->id,propargv,3,
-                PROPAGATE_AOF|PROPAGATE_REPL);
+            alsoPropagate(c->db->id,propargv,3,PROPAGATE_AOF|PROPAGATE_REPL);
             decrRefCount(objele);
         }
         setTypeReleaseIterator(si);
@@ -849,8 +847,17 @@ int qsortCompareSetsByRevCardinality(const void *s1, const void *s2) {
     return 0;
 }
 
+/* SINTER / SINTERSTORE / SINTERCARD
+ *
+ * 'cardinality_only' work for SINTERCARD, only return the cardinality
+ * with minimum processing and memory overheads.
+ *
+ * 'limit' work for SINTERCARD, stop searching after reaching the limit.
+ * Passing a 0 means unlimited.
+ */
 void sinterGenericCommand(client *c, robj **setkeys,
-                          unsigned long setnum, robj *dstkey, int cardinality_only) {
+                          unsigned long setnum, robj *dstkey,
+                          int cardinality_only, unsigned long limit) {
     robj **sets = zmalloc(sizeof(robj*)*setnum);
     setTypeIterator *si;
     robj *dstset = NULL;
@@ -948,6 +955,10 @@ void sinterGenericCommand(client *c, robj **setkeys,
         if (j == setnum) {
             if (cardinality_only) {
                 cardinality++;
+
+                /* We stop the searching after reaching the limit. */
+                if (limit && cardinality >= limit)
+                    break;
             } else if (!dstkey) {
                 if (encoding == OBJ_ENCODING_HT)
                     addReplyBulkCBuffer(c,elesds,sdslen(elesds));
@@ -995,16 +1006,44 @@ void sinterGenericCommand(client *c, robj **setkeys,
 
 /* SINTER key [key ...] */
 void sinterCommand(client *c) {
-    sinterGenericCommand(c,c->argv+1,c->argc-1,NULL,0);
+    sinterGenericCommand(c, c->argv+1,  c->argc-1, NULL, 0, 0);
 }
 
+/* SINTERCARD numkeys key [key ...] [LIMIT limit] */
 void sinterCardCommand(client *c) {
-    sinterGenericCommand(c,c->argv+1,c->argc-1,NULL,1);
+    long j;
+    long numkeys = 0; /* Number of keys. */
+    long limit = 0;   /* 0 means not limit. */
+
+    if (getRangeLongFromObjectOrReply(c, c->argv[1], 1, LONG_MAX,
+                                      &numkeys, "numkeys should be greater than 0") != C_OK)
+        return;
+    if (numkeys > (c->argc - 2)) {
+        addReplyError(c, "Number of keys can't be greater than number of args");
+        return;
+    }
+
+    for (j = 2 + numkeys; j < c->argc; j++) {
+        char *opt = c->argv[j]->ptr;
+        int moreargs = (c->argc - 1) - j;
+
+        if (!strcasecmp(opt, "LIMIT") && moreargs) {
+            j++;
+            if (getPositiveLongFromObjectOrReply(c, c->argv[j], &limit,
+                                                 "LIMIT can't be negative") != C_OK)
+                return;
+        } else {
+            addReplyErrorObject(c, shared.syntaxerr);
+            return;
+        }
+    }
+
+    sinterGenericCommand(c, c->argv+2, numkeys, NULL, 1, limit);
 }
 
 /* SINTERSTORE destination key [key ...] */
 void sinterstoreCommand(client *c) {
-    sinterGenericCommand(c,c->argv+2,c->argc-2,c->argv[1],0);
+    sinterGenericCommand(c, c->argv+2, c->argc-2, c->argv[1], 0, 0);
 }
 
 #define SET_OP_UNION 0
