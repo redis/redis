@@ -620,3 +620,44 @@ int anetFormatFdAddr(int fd, char *buf, size_t buf_len, int fd_to_str_type) {
     anetFdToString(fd,ip,sizeof(ip),&port,fd_to_str_type);
     return anetFormatAddr(buf, buf_len, ip, port);
 }
+
+int anetPipe(int fds[2], int read_flags, int write_flags) {
+    /* When it leverages the pipe2() to create pipe,
+     * there is no harm to set O_CLOEXEC to prevent fd leaks. */
+    int pipe_flags = O_CLOEXEC | (read_flags & write_flags);
+#if defined(__linux__) || defined(__FreeBSD__)
+    if (pipe2(fds, pipe_flags)) {
+        if (errno != ENOSYS) {
+            return -1;
+        }
+        pipe_flags = 0;
+    } else {
+        if (!(read_flags | write_flags) || (pipe_flags & O_NONBLOCK))
+            return 0;
+    }
+#endif
+
+    if (pipe_flags == 0 && pipe(fds))
+        return -1;
+
+    if (pipe_flags == 0 && (read_flags & O_CLOEXEC))
+        if (fcntl(fds[0], F_SETFD, O_CLOEXEC))
+            goto error;
+    if (pipe_flags == 0 && (write_flags & O_CLOEXEC))
+        if (fcntl(fds[1], F_SETFD, O_CLOEXEC))
+            goto error;
+
+    if (read_flags & O_NONBLOCK)
+        if (fcntl(fds[0], F_SETFL, O_NONBLOCK))
+            goto error;
+    if (write_flags & O_NONBLOCK)
+        if (fcntl(fds[1], F_SETFL, O_NONBLOCK))
+            goto error;
+
+    return 0;
+
+error:
+    close(fds[0]);
+    close(fds[1]);
+    return -1;
+}

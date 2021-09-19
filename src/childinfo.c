@@ -29,6 +29,7 @@
 
 #include "server.h"
 #include <unistd.h>
+#include <fcntl.h>
 
 typedef struct {
     size_t keys;
@@ -42,7 +43,7 @@ typedef struct {
  * RDB / AOF saving process from the child to the parent (for instance
  * the amount of copy on write memory used) */
 void openChildInfoPipe(void) {
-    if (createPipe(server.child_info_pipe, O_NONBLOCK, 0) == -1) {
+    if (anetPipe(server.child_info_pipe, O_NONBLOCK, 0) == -1) {
         /* On error our two file descriptors should be still set to -1,
          * but we call anyway closeChildInfoPipe() since can't hurt. */
         closeChildInfoPipe();

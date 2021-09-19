@@ -30,7 +30,6 @@
 #ifndef __REDIS_UTIL_H
 #define __REDIS_UTIL_H
 
-#include <fcntl.h>
 #include <stdint.h>
 #include "sds.h"
 
@@ -66,7 +65,6 @@ int ld2string(char *buf, size_t len, long double value, ld2string_mode mode);
 sds getAbsolutePath(char *filename);
 long getTimeZone(void);
 int pathIsBaseName(char *path);
-int createPipe(int fds[2], int read_flags, int write_flags);
 
 #ifdef REDIS_TEST
 int utilTest(int argc, char **argv, int accurate);

@@ -1646,9 +1646,9 @@ int aofCreatePipes(void) {
     int fds[6] = {-1, -1, -1, -1, -1, -1};
     int j;
 
-    if (createPipe(fds, O_NONBLOCK, O_NONBLOCK) == -1) goto error; /* parent -> children data, non blocking pipe */
-    if (createPipe(fds+2, 0, 0) == -1) goto error; /* children -> parent ack. */
-    if (createPipe(fds+4, 0, 0) == -1) goto error; /* parent -> children ack. */
+    if (anetPipe(fds, O_NONBLOCK, O_NONBLOCK) == -1) goto error; /* parent -> children data, non blocking pipe */
+    if (anetPipe(fds+2, 0, 0) == -1) goto error; /* children -> parent ack. */
+    if (anetPipe(fds+4, 0, 0) == -1) goto error; /* parent -> children ack. */
     if (aeCreateFileEvent(server.el, fds[2], AE_READABLE, aofChildPipeReadable, NULL) == AE_ERR) goto error;
 
     server.aof_pipe_write_data_to_child = fds[1];

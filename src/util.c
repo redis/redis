@@ -43,7 +43,6 @@
 
 #include "util.h"
 #include "sha256.h"
-#include "anet.h"
 
 /* Glob-style pattern matching. */
 int stringmatchlen(const char *pattern, int patternLen,
@@ -968,54 +967,3 @@ int utilTest(int argc, char **argv, int accurate) {
     return 0;
 }
 #endif
-
-int createPipe(int fds[2], int read_flags, int write_flags) {
-#if defined(__linux__) || defined(__FreeBSD__) 
-    /* When it leverages the pipe2() to create pipe, 
-     * there is no harm to set O_CLOEXEC to prevent fd leaks. */
-    int flags = O_CLOEXEC;
-
-    if ((read_flags & O_NONBLOCK) && (write_flags & O_NONBLOCK))
-        flags |= O_NONBLOCK;
-
-    int ret = pipe2(fds, flags);
-    if (ret && errno != ENOSYS) {
-        return -1;
-    } else if (ret) {
-        if (pipe(fds))
-            return -1;
-        if (read_flags & O_CLOEXEC)
-            if ((anetCloexec(fds[0]) != ANET_OK))
-                goto error;
-        if (write_flags & O_CLOEXEC)
-            if ((anetCloexec(fds[1]) != ANET_OK))
-                goto error;
-        }
-
-    if (!ret && (flags & O_NONBLOCK))
-        return 0;
-#else
-    if (pipe(fds))
-        return -1;
-    if (read_flags & O_CLOEXEC)
-        if ((anetCloexec(fds[0]) != ANET_OK))
-            goto error;
-    if (write_flags & O_CLOEXEC)
-        if ((anetCloexec(fds[1]) != ANET_OK))
-            goto error;
-#endif
-
-    if (read_flags & O_NONBLOCK)
-        if ((anetNonBlock(NULL, fds[0]) != ANET_OK))
-            goto error;
-    if (write_flags & O_NONBLOCK)
-        if ((anetNonBlock(NULL, fds[1]) != ANET_OK))
-            goto error;
-
-    return 0;
-
-error:
-    close(fds[0]);
-    close(fds[1]);
-    return -1;
-}

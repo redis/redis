@@ -3035,13 +3035,13 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
      * the parent, we can't let it write directly to the sockets, since in case
      * of TLS we must let the parent handle a continuous TLS state when the
      * child terminates and parent takes over. */
-    if (createPipe(pipefds, O_NONBLOCK, 0) == -1) return C_ERR;
+    if (anetPipe(pipefds, O_NONBLOCK, 0) == -1) return C_ERR;
     server.rdb_pipe_read = pipefds[0]; /* read end */
     rdb_pipe_write = pipefds[1]; /* write end */
 
     /* create another pipe that is used by the parent to signal to the child
      * that it can exit. */
-    if (createPipe(pipefds, 0, 0) == -1) {
+    if (anetPipe(pipefds, 0, 0) == -1) {
         close(rdb_pipe_write);
         close(server.rdb_pipe_read);
         return C_ERR;
