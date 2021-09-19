@@ -1981,7 +1981,7 @@ start_server {tags {"zset"}} {
         r zadd myzset2{t} 4 four 5 five 6 six
 
         # Released on timeout.
-        assert_equal {} [$rd bzmpop 0.01 1 myzset{t} max count 10]
+        assert_equal {} [r bzmpop 0.01 1 myzset{t} max count 10]
         r set foo{t} bar ;# something else to propagate after, so we can make sure the above pop didn't.
 
         assert_replication_stream $repl {
