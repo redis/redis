@@ -738,11 +738,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         r rpush mylist2{t} a b c
 
         # Released on timeout.
-        $rd blmpop 0.01 1 mylist{t} left count 10
-        $rd flush
-        r ping ;# just to make sure redis got CPU time.
-        after 10
-        wait_for_blocked_clients_count 0
+        assert_equal {} [$rd blmpop 0.01 1 mylist{t} left count 10]
         r set foo{t} bar ;# something else to propagate after, so we can make sure the above pop didn't.
 
         assert_replication_stream $repl {
