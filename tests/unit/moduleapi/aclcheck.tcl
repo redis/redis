@@ -26,10 +26,10 @@ start_server {tags {"modules acl"}} {
         set e
     } {*DENIED KEY*}
 
-    test {test module check acl for deleted user} {
-        catch {r test.aclcheck.key.user.deleted x} e
-        set e
-    } {*NO ACL USER*}
+    test {test module check acl for module user} {
+        # the module user has access to all keys
+        assert_equal [r rm_call.aclcheck.cmd.module.user set y 5] OK
+    }
 
     test {test module check acl for channel perm} {
         # block all channels but ch1

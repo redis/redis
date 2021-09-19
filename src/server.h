@@ -2191,7 +2191,7 @@ void ACLLoadUsersAtStartup(void);
 void addReplyCommandCategories(client *c, struct redisCommand *cmd);
 user *ACLCreateUnlinkedUser();
 void ACLFreeUserAndKillClients(user *u);
-void addACLLogEntry(client *c, int reason, int argpos, sds username, sds object, int context);
+void addACLLogEntry(client *c, int reason, int context, int argpos, sds username, sds object);
 void ACLUpdateDefaultUserPassword(sds password);
 
 /* Sorted sets data type */

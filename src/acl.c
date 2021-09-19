@@ -1114,7 +1114,7 @@ int ACLAuthenticateUser(client *c, robj *username, robj *password) {
         moduleNotifyUserChanged(c);
         return C_OK;
     } else {
-        addACLLogEntry(c,ACL_DENIED_AUTH,0,username->ptr,NULL,-1);
+        addACLLogEntry(c,ACL_DENIED_AUTH,(c->flags & CLIENT_MULTI) ? ACL_LOG_CTX_MULTI : ACL_LOG_CTX_TOPLEVEL,0,username->ptr,NULL);
         return C_ERR;
     }
 }
@@ -1806,10 +1806,10 @@ void ACLFreeLogEntry(void *leptr) {
  * ACL_DENIED_CHANNEL, since it allows the function to log the key or channel
  * name that caused the problem.
  *
- * The last 3 arguments are a manual override to be used, instead of any of the automatic ones which
- * depend on the c and reason arguments.
+ * The last 2 arguments are a manual override to be used, instead of any of the automatic
+ * ones which depend on the client and reason arguments (use NULL for default).
  */
-void addACLLogEntry(client *c, int reason, int argpos, sds username, sds object, int context) {
+void addACLLogEntry(client *c, int reason, int context, int argpos, sds username, sds object) {
     /* Create a new entry. */
     struct ACLLogEntry *le = zmalloc(sizeof(*le));
     le->count = 1;
@@ -1833,18 +1833,7 @@ void addACLLogEntry(client *c, int reason, int argpos, sds username, sds object,
     if (realclient->flags & CLIENT_LUA) realclient = server.lua_caller;
 
     le->cinfo = catClientInfoString(sdsempty(),realclient);
-
-    if (context != -1) {
-        le->context = context;
-    } else {
-        if (c->flags & CLIENT_MULTI) {
-            le->context = ACL_LOG_CTX_MULTI;
-        } else if (c->flags & CLIENT_LUA) {
-            le->context = ACL_LOG_CTX_LUA;
-        } else {
-            le->context = ACL_LOG_CTX_TOPLEVEL;
-        }
-    }
+    le->context = context;
 
     /* Try to match this entry with past ones, to see if we can just
      * update an existing entry instead of creating a new one. */
