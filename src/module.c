@@ -7265,15 +7265,15 @@ RedisModuleString *RM_GetCurrentUserName(RedisModuleCtx *ctx) {
 
 /* A RedisModuleUser can be used to check if command, key or channel can be executed or
  * accessed according to the ACLs rules associated with that user.
- * When a Module wants to do acl checks on a general acl user (not created by RM_CreateModuleUser),
- * he can get the RedisModuleUser from this API, based on the user name retrieved by RM_GetCurrentUserName.
+ * When a Module wants to do ACL checks on a general ACL user (not created by RM_CreateModuleUser),
+ * it can get the RedisModuleUser from this API, based on the user name retrieved by RM_GetCurrentUserName.
  *
- * Since a general acl user can be deleted at any time, this RedisModuleUser should be used only in the context
+ * Since a general ACL user can be deleted at any time, this RedisModuleUser should be used only in the context
  * where this function was called. In order to do ACL checks out of that context, the Module can store the user name,
  * and call this API at any other context.
  *
  * Returns NULL if the user is disabled or the user does not exist.
- * The caller can later free the user using the function RM_FreeModuleUser().*/
+ * The caller should later free the user using the function RM_FreeModuleUser().*/
 RedisModuleUser *RM_GetModuleUserFromUserName(RedisModuleString *name) {
     /* First, verfify that the user exist */
     user *acl_user = ACLGetUserByName(name->ptr, sdslen(name->ptr));
