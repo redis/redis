@@ -7313,8 +7313,7 @@ int RM_ACLCheckCommandPermissions(RedisModuleUser *user, RedisModuleString **arg
     return REDISMODULE_OK;
 }
 
-/* Check if the key can be accessed by the user, identified by the specified user ID,
- * according to the ACLs associated with it.
+/* Check if the key can be accessed by the user, according to the ACLs associated with it.
  *
  * If the user can access the key, REDISMODULE_OK is returned, otherwise
  * REDISMODULE_ERR is returned. */
@@ -7325,8 +7324,7 @@ int RM_ACLCheckKeyPermissions(RedisModuleUser *user, RedisModuleString *key) {
     return REDISMODULE_OK;
 }
 
-/* Check if the pubsub channel can be accessed by the user, identified by the specified user ID,
- * according to the ACLs associated with it.
+/* Check if the pubsub channel can be accessed by the user, according to the ACLs associated with it.
  * Glob-style pattern matching is employed, unless the literal flag is
  * set.
  *
