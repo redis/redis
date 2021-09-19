@@ -621,20 +621,19 @@ int anetFormatFdAddr(int fd, char *buf, size_t buf_len, int fd_to_str_type) {
     return anetFormatAddr(buf, buf_len, ip, port);
 }
 
+/* Create a pipe buffer with given flags for read end and write end. */
 int anetPipe(int fds[2], int read_flags, int write_flags) {
+    int pipe_flags = 0;
+#if defined(__linux__) || defined(__FreeBSD__)
     /* When it leverages the pipe2() to create pipe,
      * there is no harm to set O_CLOEXEC to prevent fd leaks. */
-    int pipe_flags = O_CLOEXEC | (read_flags & write_flags);
-#if defined(__linux__) || defined(__FreeBSD__)
+    pipe_flags = O_CLOEXEC | (read_flags & write_flags);
     if (pipe2(fds, pipe_flags)) {
-        if (errno != ENOSYS) {
+        if (errno != ENOSYS)
             return -1;
-        }
         pipe_flags = 0;
-    } else {
-        if (!(read_flags | write_flags) || (pipe_flags & O_NONBLOCK))
-            return 0;
-    }
+    } else if (read_flags == write_flags)
+        return 0;
 #endif
 
     if (pipe_flags == 0 && pipe(fds))
