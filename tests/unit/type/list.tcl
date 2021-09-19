@@ -6,7 +6,7 @@ start_server {
 } {
     source "tests/unit/type/list-common.tcl"
 
-    # A helper function to execute either BPOP* or BLMPOP* with one input key in a differing way.
+    # A helper function to execute either B*POP or BLMPOP* with one input key.
     proc bpop_command {rd pop key timeout} {
         if {$pop == "BLMPOP_LEFT"} {
             $rd blmpop $timeout 1 $key left count 1
@@ -17,7 +17,7 @@ start_server {
         }
     }
 
-    # A helper function to execute either BPOP* or BLMPOP* with two input keys in a differing way.
+    # A helper function to execute either B*POP or BLMPOP* with two input keys.
     proc bpop_command_two_key {rd pop key key2 timeout} {
         if {$pop == "BLMPOP_LEFT"} {
             $rd blmpop $timeout 2 $key $key2 left count 1
@@ -738,9 +738,12 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         r rpush mylist2{t} a b c
 
         # Released on timeout.
-        $rd blmpop 0.1 1 mylist{t} left count 10
-        after 150
-        r set foo{t} bar
+        $rd blmpop 0.01 1 mylist{t} left count 10
+        $rd flush
+        r ping ;# just to make sure redis got CPU time.
+        after 10
+        wait_for_blocked_clients_count 0
+        r set foo{t} bar ;# something else to propagate after, so we can make sure the above pop didn't.
 
         assert_replication_stream $repl {
             {select *}

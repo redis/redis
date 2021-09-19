@@ -67,7 +67,7 @@ start_server {tags {"zset"}} {
         verify_pop_response $pop [$rd read] $bzpop_expected_response $bzmpop_expected_response
     }
 
-    # A helper function to execute either BZPOP* or BZMPOP* with one input key in a differing way.
+    # A helper function to execute either BZPOP* or BZMPOP* with one input key.
     proc bzpop_command {rd pop key timeout} {
         if {[string match "BZM*" $pop]} {
             lassign [split $pop "_"] pop where
@@ -1232,9 +1232,9 @@ start_server {tags {"zset"}} {
             $rd readraw 1
 
             # BZPOP released on timeout.
-            $rd bzpopmin zset{t} 0.1
+            $rd bzpopmin zset{t} 0.01
             verify_nil_response $resp [$rd read]
-            $rd bzpopmax zset{t} 0.1
+            $rd bzpopmax zset{t} 0.01
             verify_nil_response $resp [$rd read]
 
             # BZPOP non-blocking path.
@@ -1311,9 +1311,9 @@ start_server {tags {"zset"}} {
             $rd readraw 1
 
             # BZMPOP released on timeout.
-            $rd bzmpop 0.1 1 zset{t} min
+            $rd bzmpop 0.01 1 zset{t} min
             verify_nil_response $resp [$rd read]
-            $rd bzmpop 0.1 2 zset{t} zset2{t} max
+            $rd bzmpop 0.01 2 zset{t} zset2{t} max
             verify_nil_response $resp [$rd read]
 
             # BZMPOP non-blocking path.
@@ -1981,9 +1981,12 @@ start_server {tags {"zset"}} {
         r zadd myzset2{t} 4 four 5 five 6 six
 
         # Released on timeout.
-        $rd bzmpop 0.1 1 myzset{t} max count 10
-        after 150
-        r set foo{t} bar
+        $rd bzmpop 0.01 1 myzset{t} max count 10
+        $rd flush
+        r ping ;# just to make sure redis got CPU time.
+        after 10
+        wait_for_blocked_clients_count 0
+        r set foo{t} bar ;# something else to propagate after, so we can make sure the above pop didn't.
 
         assert_replication_stream $repl {
             {select *}
