@@ -202,6 +202,30 @@ test {client freed during loading} {
     }
 }
 
+start_server {} {
+    test {Test RDB load info} {
+        r debug populate 1000
+        r save
+        restart_server 0 true false
+        wait_done_loading r
+        assert {[s rdb_last_load_keys_expired] == 0}
+        assert {[s rdb_last_load_keys_loaded] == 1000}
+
+        r debug set-active-expire 0
+        for {set j 0} {$j < 1024} {incr j} {
+            r select [expr $j%16]
+            r set $j somevalue px 10
+        }
+        after 20
+
+        r save
+        restart_server 0 true false
+        wait_done_loading r
+        assert {[s rdb_last_load_keys_expired] == 1024}
+        assert {[s rdb_last_load_keys_loaded] == 1000}
+    }
+}
+
 # Our COW metrics (Private_Dirty) work only on Linux
 set system_name [string tolower [exec uname -s]]
 if {$system_name eq {linux}} {

@@ -9,7 +9,7 @@ start_server {tags {"zset"}} {
     proc basics {encoding} {
         set original_max_entries [lindex [r config get zset-max-ziplist-entries] 1]
         set original_max_value [lindex [r config get zset-max-ziplist-value] 1]
-        if {$encoding == "ziplist"} {
+        if {$encoding == "listpack"} {
             r config set zset-max-ziplist-entries 128
             r config set zset-max-ziplist-value 64
         } elseif {$encoding == "skiplist"} {
@@ -652,6 +652,7 @@ start_server {tags {"zset"}} {
             assert_equal {} [r zunion 1 zseta]
             assert_equal {} [r zinter 1 zseta]
             assert_equal 0 [r zintercard 1 zseta]
+            assert_equal 0 [r zintercard 1 zseta limit 0]
             assert_equal {} [r zdiff 1 zseta]
         }
 
@@ -670,6 +671,7 @@ start_server {tags {"zset"}} {
             assert_equal {a 1 b 2} [r zunion 2 zseta{t} zsetb{t} withscores]
             assert_equal {} [r zinter 2 zseta{t} zsetb{t} withscores]
             assert_equal 0 [r zintercard 2 zseta{t} zsetb{t}]
+            assert_equal 0 [r zintercard 2 zseta{t} zsetb{t} limit 0]
             assert_equal {a 1 b 2} [r zdiff 2 zseta{t} zsetb{t} withscores]
         }
 
@@ -698,6 +700,7 @@ start_server {tags {"zset"}} {
             assert_equal {1 2 2 2 4 4 3 6} [r zunion 2 zsetd{t} zsetf{t} withscores]
             assert_equal {1 2 3 6} [r zinter 2 zsetd{t} zsetf{t} withscores]
             assert_equal 2 [r zintercard 2 zsetd{t} zsetf{t}]
+            assert_equal 2 [r zintercard 2 zsetd{t} zsetf{t} limit 0]
             assert_equal {2 2} [r zdiff 2 zsetd{t} zsetf{t} withscores]
         }
 
@@ -750,8 +753,20 @@ start_server {tags {"zset"}} {
             assert_equal {b 3 c 5} [r zinter 2 zseta{t} zsetb{t} withscores]
         }
 
+        test "ZINTERCARD with illegal arguments" {
+            assert_error "ERR syntax error*" {r zintercard 1 zseta{t} zseta{t}}
+            assert_error "ERR syntax error*" {r zintercard 1 zseta{t} bar_arg}
+            assert_error "ERR syntax error*" {r zintercard 1 zseta{t} LIMIT}
+
+            assert_error "ERR LIMIT*" {r zintercard 1 myset{t} LIMIT -1}
+            assert_error "ERR LIMIT*" {r zintercard 1 myset{t} LIMIT a}
+        }
+
         test "ZINTERCARD basics - $encoding" {
             assert_equal 2 [r zintercard 2 zseta{t} zsetb{t}]
+            assert_equal 2 [r zintercard 2 zseta{t} zsetb{t} limit 0]
+            assert_equal 1 [r zintercard 2 zseta{t} zsetb{t} limit 1]
+            assert_equal 2 [r zintercard 2 zseta{t} zsetb{t} limit 10]
         }
 
         test "ZINTER RESP3 - $encoding" {
@@ -1007,7 +1022,7 @@ start_server {tags {"zset"}} {
         r config set zset-max-ziplist-value $original_max_value
     }
 
-    basics ziplist
+    basics listpack
     basics skiplist
 
     test {ZINTERSTORE regression with two sets, intset+hashtable} {
@@ -1104,7 +1119,7 @@ start_server {tags {"zset"}} {
     proc stressers {encoding} {
         set original_max_entries [lindex [r config get zset-max-ziplist-entries] 1]
         set original_max_value [lindex [r config get zset-max-ziplist-value] 1]
-        if {$encoding == "ziplist"} {
+        if {$encoding == "listpack"} {
             # Little extra to allow proper fuzzing in the sorting stresser
             r config set zset-max-ziplist-entries 256
             r config set zset-max-ziplist-value 64
@@ -1533,7 +1548,7 @@ start_server {tags {"zset"}} {
     }
 
     tags {"slow"} {
-        stressers ziplist
+        stressers listpack
         stressers skiplist
     }
 
@@ -1686,7 +1701,7 @@ start_server {tags {"zset"}} {
         }
     }
 
-    foreach {type contents} "ziplist {1 a 2 b 3 c} skiplist {1 a 2 b 3 [randstring 70 90 alpha]}" {
+    foreach {type contents} "listpack {1 a 2 b 3 c} skiplist {1 a 2 b 3 [randstring 70 90 alpha]}" {
         set original_max_value [lindex [r config get zset-max-ziplist-value] 1]
         r config set zset-max-ziplist-value 10
         create_zset myzset $contents
@@ -1739,7 +1754,7 @@ start_server {tags {"zset"}} {
 
     foreach {type contents} "
         skiplist {1 a 2 b 3 c 4 d 5 e 6 f 7 g 7 h 9 i 10 [randstring 70 90 alpha]}
-        ziplist {1 a 2 b 3 c 4 d 5 e 6 f 7 g 7 h 9 i 10 j} " {
+        listpack {1 a 2 b 3 c 4 d 5 e 6 f 7 g 7 h 9 i 10 j} " {
         test "ZRANDMEMBER with <count> - $type" {
             set original_max_value [lindex [r config get zset-max-ziplist-value] 1]
             r config set zset-max-ziplist-value 10

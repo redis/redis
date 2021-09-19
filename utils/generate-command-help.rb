@@ -15,7 +15,8 @@ GROUPS = [
   "hyperloglog",
   "cluster",
   "geo",
-  "stream"
+  "stream",
+  "bitmap"
 ].freeze
 
 GROUPS_BY_NAME = Hash[*

@@ -48,10 +48,13 @@ set ::all_tests {
     integration/corrupt-dump
     integration/corrupt-dump-fuzzer
     integration/convert-zipmap-hash-on-load
+    integration/convert-ziplist-hash-on-load
+    integration/convert-ziplist-zset-on-load
     integration/logging
     integration/psync2
     integration/psync2-reg
     integration/psync2-pingoff
+    integration/psync2-master-restart
     integration/failover
     integration/redis-cli
     integration/redis-benchmark
@@ -561,7 +564,7 @@ proc print_help_screen {} {
         "--single <unit>    Just execute the specified unit (see next option). This option can be repeated."
         "--verbose          Increases verbosity."
         "--list-tests       List all the available test units."
-        "--only <test>      Just execute the specified test by test name. This option can be repeated."
+        "--only <test>      Just execute tests that match <test> regexp. This option can be repeated."
         "--skip-till <unit> Skip all units until (and including) the specified one."
         "--skipunit <unit>  Skip one unit."
         "--clients <num>    Number of test clients (default 16)."

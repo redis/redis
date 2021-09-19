@@ -110,11 +110,12 @@ start_server {tags {"info" "external:skip"}} {
             catch {r exec} e
             assert_match {EXECABORT*} $e
             assert_match {*count=1*} [errorstat ERR]
-            assert_equal [s total_error_replies] 1
+            assert_match {*count=1*} [errorstat EXECABORT]
+            assert_equal [s total_error_replies] 2
             assert_match {*calls=0,*,rejected_calls=1,failed_calls=0} [cmdstat set]
             assert_match {*calls=1,*,rejected_calls=0,failed_calls=0} [cmdstat multi]
-            assert_match {*calls=1,*,rejected_calls=0,failed_calls=0} [cmdstat exec]
-            assert_equal [s total_error_replies] 1
+            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat exec]
+            assert_equal [s total_error_replies] 2
             r config resetstat
             assert_match {} [errorstat ERR]
         }

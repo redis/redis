@@ -163,6 +163,57 @@ start_server {tags {"pause network"}} {
         $rd close
     }
 
+    start_server {tags {needs:repl external:skip}} {
+        set master [srv -1 client]
+        set master_host [srv -1 host]
+        set master_port [srv -1 port]
+
+        # Avoid PINGs
+        $master config set repl-ping-replica-period 3600
+        r replicaof $master_host $master_port
+
+        wait_for_condition 50 100 {
+            [s master_link_status] eq {up}
+        } else {
+            fail "Replication not started."
+        }
+
+        test "Test when replica paused, offset would not grow" {
+            $master set foo bar
+            set old_master_offset [status $master master_repl_offset]
+
+            wait_for_condition 50 100 {
+                [s slave_repl_offset] == [status $master master_repl_offset]
+            } else {
+                fail "Replication offset not matched."
+            }
+
+            r client pause 100000 write
+            $master set foo2 bar2
+
+            # Make sure replica received data from master
+            wait_for_condition 50 100 {
+                [s slave_read_repl_offset] == [status $master master_repl_offset]
+            } else {
+                fail "Replication not work."
+            }
+
+            # Replica would not apply the write command
+            assert {[s slave_repl_offset] == $old_master_offset}
+            r get foo2
+        } {}
+
+        test "Test replica offset would grow after unpause" {
+            r client unpause
+            wait_for_condition 50 100 {
+                [s slave_repl_offset] == [status $master master_repl_offset]
+            } else {
+                fail "Replication not continue."
+            }
+            r get foo2
+        } {bar2}
+    }
+
     # Make sure we unpause at the end
     r client unpause
 }

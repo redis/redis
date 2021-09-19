@@ -320,4 +320,52 @@ tags {"aof external:skip"} {
             }
         }
     }
+
+    # Test that LMPOP/BLMPOP work fine with AOF.
+    create_aof {
+        append_to_aof [formatCommand lpush mylist a b c]
+        append_to_aof [formatCommand rpush mylist2 1 2 3]
+        append_to_aof [formatCommand lpush mylist3 a b c d e]
+    }
+
+    start_server_aof [list dir $server_path aof-load-truncated no] {
+        test "AOF+LMPOP/BLMPOP: pop elements from the list" {
+            set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+            set client2 [redis [dict get $srv host] [dict get $srv port] 1 $::tls]
+            wait_done_loading $client
+            wait_done_loading $client2
+
+            # Pop all elements from mylist, should be blmpop delete mylist.
+            $client lmpop 1 mylist left count 1
+            $client blmpop 0 1 mylist left count 10
+
+            # Pop all elements from mylist2, should be lmpop delete mylist2.
+            $client blmpop 0 2 mylist mylist2 right count 10
+            $client lmpop 2 mylist mylist2 right count 2
+
+            # Blocking path, be blocked and then released.
+            $client2 blmpop 0 2 mylist mylist2 left count 2
+            after 100
+            $client lpush mylist2 a b c
+
+            # Pop up the last element in mylist2
+            $client blmpop 0 3 mylist mylist2 mylist3 left count 1
+
+            # Leave two elements in mylist3.
+            $client blmpop 0 3 mylist mylist2 mylist3 right count 3
+        }
+    }
+
+    start_server_aof [list dir $server_path aof-load-truncated no] {
+        test "AOF+LMPOP/BLMPOP: after pop elements from the list" {
+            set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+            wait_done_loading $client
+
+            # mylist and mylist2 no longer exist.
+            assert_equal 0 [$client exists mylist mylist2]
+
+            # Length of mylist3 is two.
+            assert_equal 2 [$client llen mylist3]
+        }
+    }
 }

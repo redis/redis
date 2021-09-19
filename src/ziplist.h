@@ -59,7 +59,7 @@ unsigned char *ziplistFind(unsigned char *zl, unsigned char *p, unsigned char *v
 unsigned int ziplistLen(unsigned char *zl);
 size_t ziplistBlobLen(unsigned char *zl);
 void ziplistRepr(unsigned char *zl);
-typedef int (*ziplistValidateEntryCB)(unsigned char* p, void* userdata);
+typedef int (*ziplistValidateEntryCB)(unsigned char* p, unsigned int head_count, void* userdata);
 int ziplistValidateIntegrity(unsigned char *zl, size_t size, int deep,
                              ziplistValidateEntryCB entry_cb, void *cb_userdata);
 void ziplistRandomPair(unsigned char *zl, unsigned long total_count, ziplistEntry *key, ziplistEntry *val);

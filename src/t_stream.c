@@ -241,24 +241,6 @@ robj *streamDup(robj *o) {
     return sobj;
 }
 
-/* This is just a wrapper for lpAppend() to directly use a 64 bit integer
- * instead of a string. */
-unsigned char *lpAppendInteger(unsigned char *lp, int64_t value) {
-    char buf[LONG_STR_SIZE];
-    int slen = ll2string(buf,sizeof(buf),value);
-    return lpAppend(lp,(unsigned char*)buf,slen);
-}
-
-/* This is just a wrapper for lpReplace() to directly use a 64 bit integer
- * instead of a string to replace the current element. The function returns
- * the new listpack as return value, and also updates the current cursor
- * by updating '*pos'. */
-unsigned char *lpReplaceInteger(unsigned char *lp, unsigned char **pos, int64_t value) {
-    char buf[LONG_STR_SIZE];
-    int slen = ll2string(buf,sizeof(buf),value);
-    return lpInsert(lp, (unsigned char*)buf, slen, *pos, LP_REPLACE, pos);
-}
-
 /* This is a wrapper function for lpGet() to directly get an integer value
  * from the listpack (that may store numbers as a string), converting
  * the string if needed.
@@ -1373,7 +1355,7 @@ void streamPropagateXCLAIM(client *c, robj *key, streamCG *group, robj *groupnam
      * the command execution context. Moreover this will just alter the
      * consumer group state, and we don't need MULTI/EXEC wrapping because
      * there is no message state cross-message atomicity required. */
-    propagate(server.xclaimCommand,c->db->id,argv,14,PROPAGATE_AOF|PROPAGATE_REPL);
+    propagate(c->db->id,argv,14,PROPAGATE_AOF|PROPAGATE_REPL);
     decrRefCount(argv[3]);
     decrRefCount(argv[7]);
     decrRefCount(argv[9]);
@@ -1398,7 +1380,7 @@ void streamPropagateGroupID(client *c, robj *key, streamCG *group, robj *groupna
      * the command execution context. Moreover this will just alter the
      * consumer group state, and we don't need MULTI/EXEC wrapping because
      * there is no message state cross-message atomicity required. */
-    propagate(server.xgroupCommand,c->db->id,argv,5,PROPAGATE_AOF|PROPAGATE_REPL);
+    propagate(c->db->id,argv,5,PROPAGATE_AOF|PROPAGATE_REPL);
     decrRefCount(argv[4]);
 }
 
@@ -1420,7 +1402,7 @@ void streamPropagateConsumerCreation(client *c, robj *key, robj *groupname, sds 
      * the command execution context. Moreover this will just alter the
      * consumer group state, and we don't need MULTI/EXEC wrapping because
      * there is no message state cross-message atomicity required. */
-    propagate(server.xgroupCommand,c->db->id,argv,5,PROPAGATE_AOF|PROPAGATE_REPL);
+    propagate(c->db->id,argv,5,PROPAGATE_AOF|PROPAGATE_REPL);
     decrRefCount(argv[4]);
 }
 
@@ -2170,7 +2152,7 @@ void xreadCommand(client *c) {
             goto cleanup;
         }
         blockForKeys(c, BLOCKED_STREAM, c->argv+streams_arg, streams_count,
-                     timeout, NULL, NULL, ids);
+                     0, timeout, NULL, NULL, ids);
         /* If no COUNT is given and we block, set a relatively small count:
          * in case the ID provided is too low, we do not want the server to
          * block just to serve this client a huge stream of messages. */
@@ -3577,13 +3559,13 @@ int streamValidateListpackIntegrity(unsigned char *lp, size_t size, int deep) {
 
     /* Since we don't want to run validation of all records twice, we'll
      * run the listpack validation of just the header and do the rest here. */
-    if (!lpValidateIntegrity(lp, size, 0))
+    if (!lpValidateIntegrity(lp, size, 0, NULL, NULL))
         return 0;
 
     /* In non-deep mode we just validated the listpack header (encoded size) */
     if (!deep) return 1;
 
-    next = p = lpFirst(lp);
+    next = p = lpValidateFirst(lp);
     if (!lpValidateNext(lp, &next, size)) return 0;
     if (!p) return 0;
 
@@ -3622,7 +3604,11 @@ int streamValidateListpackIntegrity(unsigned char *lp, size_t size, int deep) {
 
         /* entry id */
         p = next; if (!lpValidateNext(lp, &next, size)) return 0;
+        lpGetIntegerIfValid(p, &valid_record);
+        if (!valid_record) return 0;
         p = next; if (!lpValidateNext(lp, &next, size)) return 0;
+        lpGetIntegerIfValid(p, &valid_record);
+        if (!valid_record) return 0;
 
         if (!(flags & STREAM_ITEM_FLAG_SAMEFIELDS)) {
             /* num-of-fields */

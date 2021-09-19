@@ -346,7 +346,7 @@ void zmalloc_set_oom_handler(void (*oom_handler)(size_t)) {
  * We do that in a fork child process to avoid CoW when the parent modifies
  * these shared pages. */
 void zmadvise_dontneed(void *ptr) {
-#if defined(USE_JEMALLOC)
+#if defined(USE_JEMALLOC) && defined(__linux__)
     static size_t page_size = 0;
     if (page_size == 0) page_size = sysconf(_SC_PAGESIZE);
     size_t page_size_mask = page_size - 1;
