@@ -755,7 +755,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
             {lpop mylist{t} 3}
             {rpush mylist2{t} a b c}
             {rpop mylist2{t} 3}
-            {set foot{t} bar}
+            {set foo{t} bar}
         }
     } {} {needs:repl}
 
