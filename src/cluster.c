@@ -89,6 +89,8 @@ unsigned int delKeysInSlot(unsigned int hashslot);
 
 #define RCVBUF_INIT_LEN 1024
 #define RCVBUF_MAX_PREALLOC (1<<20) /* 1MB */
+#define CLUSTER_DEFAULT_RESOLVE_HOSTNAMES 0
+#define CLUSTER_DEFAULT_ANNOUNCE_HOSTNAMES 0
 
 /* Cluster nodes hash table, mapping nodes addresses 1.2.3.4:6379 to
  * clusterNode structures. */
@@ -212,7 +214,19 @@ int clusterLoadConfig(char *filename) {
             goto fmterr;
         }
         *p = '\0';
-        memcpy(n->ip,argv[1],strlen(argv[1])+1);
+
+        char* hostname = argv[1];
+        char ip[NET_IP_STR_LEN];
+
+        if (anetResolve(NULL,hostname,ip,sizeof(ip),
+            server.cluster->resolve_hostnames ? ANET_NONE : ANET_IP_ONLY) == ANET_ERR) {
+            errno = ENOENT;
+            return errno;
+        }
+
+        memcpy(n->ip,ip,sizeof(n->ip));
+        n->hostname = sdsnew(hostname);
+
         char *port = p+1;
         char *busp = strchr(port,'@');
         if (busp) {
@@ -529,6 +543,8 @@ void clusterInit(void) {
     server.cluster->failover_auth_epoch = 0;
     server.cluster->cant_failover_reason = CLUSTER_CANT_FAILOVER_NONE;
     server.cluster->lastVoteEpoch = 0;
+    server.cluster->resolve_hostnames = CLUSTER_DEFAULT_RESOLVE_HOSTNAMES;
+    server.cluster->announce_hostnames = CLUSTER_DEFAULT_ANNOUNCE_HOSTNAMES;
     for (int i = 0; i < CLUSTERMSG_TYPE_COUNT; i++) {
         server.cluster->stats_bus_messages_sent[i] = 0;
         server.cluster->stats_bus_messages_received[i] = 0;
@@ -1407,10 +1423,17 @@ int clusterHandshakeInProgress(char *ip, int port, int cport) {
  *
  * EAGAIN - There is already a handshake in progress for this address.
  * EINVAL - IP or port are not valid. */
-int clusterStartHandshake(char *ip, int port, int cport) {
+int clusterStartHandshake(char *hostname, int port, int cport) {
     clusterNode *n;
     char norm_ip[NET_IP_STR_LEN];
+    char ip[NET_IP_STR_LEN];
     struct sockaddr_storage sa;
+
+    if (anetResolve(NULL,hostname,ip,sizeof(ip),
+        server.cluster->resolve_hostnames ? ANET_NONE : ANET_IP_ONLY) == ANET_ERR) {
+        errno = ENOENT;
+        return 0;
+    }
 
     /* IP sanity check */
     if (inet_pton(AF_INET,ip,
