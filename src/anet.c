@@ -653,13 +653,12 @@ int anetPipe(int fds[2], int read_flags, int write_flags) {
         if (fcntl(fds[1], F_SETFD, O_CLOEXEC))
             goto error;
 
-    /* File status flags after clearing the file descriptor flag O_CLOEXEC,
-     * and the file status flags which have already been set */
-    read_flags &= ~O_CLOEXEC & ~pipe_flags;
+    /* File status flags after clearing the file descriptor flag O_CLOEXEC. */
+    read_flags &= ~O_CLOEXEC;
     if (read_flags)
         if (fcntl(fds[0], F_SETFL, read_flags))
             goto error;
-    write_flags &= ~O_CLOEXEC & ~pipe_flags;
+    write_flags &= ~O_CLOEXEC;
     if (write_flags)
         if (fcntl(fds[1], F_SETFL, write_flags))
             goto error;
