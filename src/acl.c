@@ -413,6 +413,37 @@ void ACLSetUserCommandBit(user *u, unsigned long id, int value) {
     }
 }
 
+void ACLChangeCommandPerm(user *u, struct redisCommand *cmd, int allow) {
+    unsigned long id = cmd->id;
+    ACLSetUserCommandBit(u,id,allow);
+    ACLResetSubcommandsForCommand(u,id);
+    /* By default we inherit `allow` for all subcommands */
+    if (cmd->subcommands_dict) {
+        dictEntry *de;
+        dictIterator *di = dictGetSafeIterator(cmd->subcommands_dict);
+        while((de = dictNext(di)) != NULL) {
+            struct redisCommand *sub = (struct redisCommand *)dictGetVal(de);
+            ACLSetUserCommandBit(u,sub->id,allow);
+        }
+    }
+}
+
+void ACLSetUserCommandBitsForCategoryLogic(dict *commands, user *u, uint64_t cflag, int value) {
+    dictIterator *di = dictGetIterator(commands);
+    dictEntry *de;
+    while ((de = dictNext(di)) != NULL) {
+        struct redisCommand *cmd = dictGetVal(de);
+        if (cmd->flags & CMD_MODULE) continue; /* Ignore modules commands. */
+        if (cmd->flags & cflag) {
+            ACLChangeCommandPerm(u,cmd,value);
+        }
+        if (cmd->subcommands_dict) {
+            ACLSetUserCommandBitsForCategoryLogic(cmd->subcommands_dict, u, cflag, value);
+        }
+    }
+    dictReleaseIterator(di);
+}
+
 /* This is like ACLSetUserCommandBit(), but instead of setting the specified
  * ID, it will check all the commands in the category specified as argument,
  * and will set all the bits corresponding to such commands to the specified
@@ -422,18 +453,26 @@ void ACLSetUserCommandBit(user *u, unsigned long id, int value) {
 int ACLSetUserCommandBitsForCategory(user *u, const char *category, int value) {
     uint64_t cflag = ACLGetCommandCategoryFlagByName(category);
     if (!cflag) return C_ERR;
-    dictIterator *di = dictGetIterator(server.orig_commands);
+    ACLSetUserCommandBitsForCategoryLogic(server.orig_commands, u, cflag, value);
+    return C_OK;
+}
+
+void ACLCountCategoryBitsForUserLogic(dict *commands, user *u, unsigned long *on, unsigned long *off, uint64_t cflag) {
+    dictIterator *di = dictGetIterator(commands);
     dictEntry *de;
     while ((de = dictNext(di)) != NULL) {
         struct redisCommand *cmd = dictGetVal(de);
-        if (cmd->flags & CMD_MODULE) continue; /* Ignore modules commands. */
         if (cmd->flags & cflag) {
-            ACLSetUserCommandBit(u,cmd->id,value);
-            ACLResetSubcommandsForCommand(u,cmd->id);
+            if (ACLGetUserCommandBit(u,cmd->id))
+                (*on)++;
+            else
+                (*off)++;
+        }
+        if (cmd->subcommands_dict) {
+            ACLCountCategoryBitsForUserLogic(cmd->subcommands_dict, u, on, off, cflag);
         }
     }
     dictReleaseIterator(di);
-    return C_OK;
 }
 
 /* Return the number of commands allowed (on) and denied (off) for the user 'u'
@@ -447,19 +486,45 @@ int ACLCountCategoryBitsForUser(user *u, unsigned long *on, unsigned long *off,
     if (!cflag) return C_ERR;
 
     *on = *off = 0;
-    dictIterator *di = dictGetIterator(server.orig_commands);
+    ACLCountCategoryBitsForUserLogic(server.orig_commands, u, on, off, cflag);
+    return C_OK;
+}
+
+sds ACLDescribeUserCommandRulesSingleCommands(user *u, user *fakeuser, sds rules, dict *commands) {
+    /* Fix the final ACLs with single commands differences. */
+    dictIterator *di = dictGetIterator(commands);
     dictEntry *de;
     while ((de = dictNext(di)) != NULL) {
         struct redisCommand *cmd = dictGetVal(de);
-        if (cmd->flags & cflag) {
-            if (ACLGetUserCommandBit(u,cmd->id))
-                (*on)++;
-            else
-                (*off)++;
+        int userbit = ACLGetUserCommandBit(u,cmd->id);
+        int fakebit = ACLGetUserCommandBit(fakeuser,cmd->id);
+        if (userbit != fakebit) {
+            rules = sdscatlen(rules, userbit ? "+" : "-", 1);
+            sds fullname = getFullCommandName(cmd);
+            rules = sdscat(rules,fullname);
+            sdsfree(fullname);
+            rules = sdscatlen(rules," ",1);
+            ACLChangeCommandPerm(fakeuser,cmd,userbit);
+        }
+
+        if (cmd->subcommands_dict)
+            rules = ACLDescribeUserCommandRulesSingleCommands(u,fakeuser,rules,cmd->subcommands_dict);
+
+        /* Emit the subcommands if there are any. */
+        if (userbit == 0 && u->allowed_subcommands &&
+            u->allowed_subcommands[cmd->id])
+        {
+            for (int j = 0; u->allowed_subcommands[cmd->id][j]; j++) {
+                rules = sdscatlen(rules,"+",1);
+                rules = sdscat(rules,cmd->name);
+                rules = sdscatlen(rules,"|",1);
+                rules = sdscatsds(rules,u->allowed_subcommands[cmd->id][j]);
+                rules = sdscatlen(rules," ",1);
+            }
         }
     }
     dictReleaseIterator(di);
-    return C_OK;
+    return rules;
 }
 
 /* This function returns an SDS string representing the specified user ACL
@@ -563,33 +628,7 @@ sds ACLDescribeUserCommandRules(user *u) {
     }
 
     /* Fix the final ACLs with single commands differences. */
-    dictIterator *di = dictGetIterator(server.orig_commands);
-    dictEntry *de;
-    while ((de = dictNext(di)) != NULL) {
-        struct redisCommand *cmd = dictGetVal(de);
-        int userbit = ACLGetUserCommandBit(u,cmd->id);
-        int fakebit = ACLGetUserCommandBit(fakeuser,cmd->id);
-        if (userbit != fakebit) {
-            rules = sdscatlen(rules, userbit ? "+" : "-", 1);
-            rules = sdscat(rules,cmd->name);
-            rules = sdscatlen(rules," ",1);
-            ACLSetUserCommandBit(fakeuser,cmd->id,userbit);
-        }
-
-        /* Emit the subcommands if there are any. */
-        if (userbit == 0 && u->allowed_subcommands &&
-            u->allowed_subcommands[cmd->id])
-        {
-            for (int j = 0; u->allowed_subcommands[cmd->id][j]; j++) {
-                rules = sdscatlen(rules,"+",1);
-                rules = sdscat(rules,cmd->name);
-                rules = sdscatlen(rules,"|",1);
-                rules = sdscatsds(rules,u->allowed_subcommands[cmd->id][j]);
-                rules = sdscatlen(rules," ",1);
-            }
-        }
-    }
-    dictReleaseIterator(di);
+    rules = ACLDescribeUserCommandRulesSingleCommands(u,fakeuser,rules,server.orig_commands);
 
     /* Trim the final useless space. */
     sdsrange(rules,0,-2);
@@ -683,7 +722,7 @@ sds ACLDescribeUser(user *u) {
 struct redisCommand *ACLLookupCommand(const char *name) {
     struct redisCommand *cmd;
     sds sdsname = sdsnew(name);
-    cmd = dictFetchValue(server.orig_commands, sdsname);
+    cmd = lookupCommandBySdsLogic(server.orig_commands,sdsname);
     sdsfree(sdsname);
     return cmd;
 }
@@ -952,24 +991,25 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
             sdsfree(newpat);
         u->flags &= ~USER_FLAG_ALLCHANNELS;
     } else if (op[0] == '+' && op[1] != '@') {
-        if (strchr(op,'|') == NULL) {
-            if (ACLLookupCommand(op+1) == NULL) {
+        if (strrchr(op,'|') == NULL) {
+            struct redisCommand *cmd = ACLLookupCommand(op+1);
+            if (cmd == NULL) {
                 errno = ENOENT;
                 return C_ERR;
             }
-            unsigned long id = ACLGetCommandID(op+1);
-            ACLSetUserCommandBit(u,id,1);
-            ACLResetSubcommandsForCommand(u,id);
+            ACLChangeCommandPerm(u,cmd,1);
         } else {
             /* Split the command and subcommand parts. */
             char *copy = zstrdup(op+1);
-            char *sub = strchr(copy,'|');
+            char *sub = strrchr(copy,'|');
             sub[0] = '\0';
             sub++;
 
+            struct redisCommand *cmd = ACLLookupCommand(copy);
+
             /* Check if the command exists. We can't check the
              * subcommand to see if it is valid. */
-            if (ACLLookupCommand(copy) == NULL) {
+            if (cmd == NULL) {
                 zfree(copy);
                 errno = ENOENT;
                 return C_ERR;
@@ -983,22 +1023,35 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
                 return C_ERR;
             }
 
-            unsigned long id = ACLGetCommandID(copy);
-            /* Add the subcommand to the list of valid ones, if the command is not set. */
-            if (ACLGetUserCommandBit(u,id) == 0) {
-                ACLAddAllowedSubcommand(u,id,sub);
+            if (cmd->subcommands_dict) {
+                /* If user is trying to allow a valid subcommand we can just add its unique ID */
+                struct redisCommand *cmd = ACLLookupCommand(op+1);
+                if (cmd == NULL) {
+                    errno = ENOENT;
+                    return C_ERR;
+                }
+                ACLChangeCommandPerm(u,cmd,1);
+            } else {
+                /* If user is trying to abuse the ACL mech to block SELECT 0 and alike we use the
+                 * allowed_subcommands mechanism with the "subcommand" name */
+                struct redisCommand *cmd = ACLLookupCommand(copy);
+                if (cmd == NULL) {
+                    errno = ENOENT;
+                    return C_ERR;
+                }
+                /* Add the subcommand to the list of valid ones. */
+                ACLAddAllowedSubcommand(u,cmd->id,sub);
             }
 
             zfree(copy);
         }
     } else if (op[0] == '-' && op[1] != '@') {
-        if (ACLLookupCommand(op+1) == NULL) {
+        struct redisCommand *cmd = ACLLookupCommand(op+1);
+        if (cmd == NULL) {
             errno = ENOENT;
             return C_ERR;
         }
-        unsigned long id = ACLGetCommandID(op+1);
-        ACLSetUserCommandBit(u,id,0);
-        ACLResetSubcommandsForCommand(u,id);
+        ACLChangeCommandPerm(u,cmd,0);
     } else if ((op[0] == '+' || op[0] == '-') && op[1] == '@') {
         int bitval = op[0] == '+' ? 1 : 0;
         if (ACLSetUserCommandBitsForCategory(u,op+2,bitval) == C_ERR) {
@@ -1138,7 +1191,6 @@ int ACLAuthenticateUser(client *c, robj *username, robj *password) {
  * command name, so that a command retains the same ID in case of modules that
  * are unloaded and later reloaded. */
 unsigned long ACLGetCommandID(const char *cmdname) {
-
     sds lowername = sdsnew(cmdname);
     sdstolower(lowername);
     if (commandId == NULL) commandId = raxNew();
@@ -1214,7 +1266,8 @@ int ACLCheckCommandPerm(client *c, int *keyidxptr) {
             while (1) {
                 if (u->allowed_subcommands[id][subid] == NULL)
                     return ACL_DENIED_CMD;
-                if (!strcasecmp(c->argv[1]->ptr,
+                int idx = c->cmd->parent ? 2 : 1;
+                if (!strcasecmp(c->argv[idx]->ptr,
                                 u->allowed_subcommands[id][subid]))
                     break; /* Subcommand match found. Stop here. */
                 subid++;

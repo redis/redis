@@ -257,6 +257,28 @@ start_server {tags {"acl external:skip"}} {
         set e
     } {*NOPERM*}
 
+    test {ACLs can exclude single subcommands} {
+        r ACL setuser newuser +@all -client|kill
+        r CLIENT ID; # Should not fail
+        r CLIENT SETNAME foo ; # Should not fail
+        catch {r CLIENT KILL type master} e
+        set e
+    } {*NOPERM*}
+
+    test {ACLs can include a subcommand with a specific arg} {
+        r ACL setuser newuser +@all -config|get
+        r ACL setuser newuser +config|get|appendonly
+        r CONFIG GET appendonly; # Should not fail
+        catch {r CONFIG GET loglevel} e
+        set e
+    } {*NOPERM*}
+
+    test {ACLs including of a type includes also subcommands} {
+        r ACL setuser newuser -@all +acl +@stream
+        r XADD key * field value
+        r XINFO STREAM key
+    }
+
     test {ACLs set can include subcommands, if already full command exists} {
         r ACL setuser bob +memory|doctor
         set cmdstr [dict get [r ACL getuser bob] commands]
@@ -272,6 +294,9 @@ start_server {tags {"acl external:skip"}} {
         # Validate the new commands has got engulfed to +@all.
         set cmdstr [dict get [r ACL getuser bob] commands]
         assert_equal {+@all} $cmdstr
+
+        r ACL setuser bob >passwd1 on
+        r AUTH bob passwd1
         r CLIENT ID; # Should not fail
         r MEMORY DOCTOR; # Should not fail
     }

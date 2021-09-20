@@ -2377,6 +2377,7 @@ int createSocketAcceptHandler(socketFds *sfd, aeFileProc *accept_handler);
 int changeListenPort(int port, socketFds *sfd, aeFileProc *accept_handler);
 int changeBindAddr(sds *addrlist, int addrlist_len);
 struct redisCommand *lookupCommand(robj **argv ,int argc);
+struct redisCommand *lookupCommandBySdsLogic(dict *commands, sds s);
 struct redisCommand *lookupCommandBySds(sds s);
 struct redisCommand *lookupCommandByCString(const char *s);
 struct redisCommand *lookupCommandOrOriginal(robj **argv ,int argc);

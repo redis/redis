@@ -211,7 +211,7 @@ struct redisCommand configSubcommands[] = {
      "admin ok-stale no-script"},
 
     {"help",configHelpCommand,2,
-     ""},
+     "ok-stale ok-loading"},
 
     {NULL},
 };
@@ -236,7 +236,7 @@ struct redisCommand xinfoSubcommands[] = {
        KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 
     {"help",xinfoCommand,2,
-     "@stream"},
+     "ok-stale ok-loading @stream"},
 
     {NULL},
 };
@@ -273,7 +273,7 @@ struct redisCommand xgroupSubcommands[] = {
        KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 
     {"help",xgroupCommand,2,
-     "@stream"},
+     "ok-stale ok-loading @stream"},
 
     {NULL},
 };
@@ -289,7 +289,7 @@ struct redisCommand commandSubcommands[] = {
      "ok-loading ok-stale @connection"},
 
     {"help",commandCommand,2,
-     ""},
+     "ok-loading ok-stale @connection"},
 
     {NULL},
 };
@@ -308,7 +308,7 @@ struct redisCommand commandsSubcommands[] = {
      "ok-loading ok-stale @connection"},
 
     {"help",commandsHelpCommand,2,
-     ""},
+     "ok-loading ok-stale @connection"},
 
     {NULL},
 };
@@ -333,47 +333,47 @@ struct redisCommand memorySubcommands[] = {
        KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 
     {"help",memoryCommand,2,
-     ""},
+     "ok-stale ok-loading"},
 
     {NULL},
 };
 
 struct redisCommand aclSubcommands[] = {
     {"cat",aclCommand,-2,
-     "admin no-script ok-loading ok-stale"},
+     "admin no-script ok-loading ok-stale sentinel"},
 
     {"deluser",aclCommand,-3,
-     "admin no-script ok-loading ok-stale"},
+     "admin no-script ok-loading ok-stale sentinel"},
 
     {"genpass",aclCommand,-2,
-     "admin no-script ok-loading ok-stale"},
+     "admin no-script ok-loading ok-stale sentinel"},
 
     {"getuser",aclCommand,3,
-     "admin no-script ok-loading ok-stale"},
+     "admin no-script ok-loading ok-stale sentinel"},
 
     {"list",aclCommand,2,
-     "admin no-script ok-loading ok-stale"},
+     "admin no-script ok-loading ok-stale sentinel"},
 
     {"load",aclCommand,2,
-     "admin no-script ok-loading ok-stale"},
+     "admin no-script ok-loading ok-stale sentinel"},
 
     {"log",aclCommand,-2,
-     "admin no-script ok-loading ok-stale"},
+     "admin no-script ok-loading ok-stale sentinel"},
 
     {"save",aclCommand,2,
-     "admin no-script ok-loading ok-stale"},
+     "admin no-script ok-loading ok-stale sentinel"},
 
     {"setuser",aclCommand,-3,
-     "admin no-script ok-loading ok-stale"},
+     "admin no-script ok-loading ok-stale sentinel"},
 
     {"users",aclCommand,2,
-     "admin no-script ok-loading ok-stale"},
+     "admin no-script ok-loading ok-stale sentinel"},
 
     {"whoami",aclCommand,2,
-     "no-script ok-loading ok-stale"},
+     "no-script ok-loading ok-stale sentinel"},
 
     {"help",aclCommand,2,
-     ""},
+     "ok-stale ok-loading sentinel"},
 
     {NULL},
 };
@@ -395,7 +395,7 @@ struct redisCommand latencySubcommands[] = {
      "admin no-script ok-loading ok-stale"},
 
     {"help",latencyCommand,2,
-     ""},
+     "ok-stale ok-loading"},
 
     {NULL},
 };
@@ -411,7 +411,7 @@ struct redisCommand moduleSubcommands[] = {
      "admin no-script"},
 
     {"help",moduleCommand,2,
-     ""},
+     "ok-stale ok-loading"},
 
     {NULL},
 };
@@ -427,7 +427,7 @@ struct redisCommand slowlogSubcommands[] = {
      "admin ok-loading ok-stale"},
 
     {"help",slowlogCommand,2,
-     ""},
+     "ok-stale ok-loading"},
 
     {NULL},
 };
@@ -458,7 +458,7 @@ struct redisCommand objectSubcommands[] = {
        KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 
     {"help",objectCommand,2,
-     ""},
+     "ok-stale ok-loading @keyspace"},
 
     {NULL},
 };
@@ -480,7 +480,7 @@ struct redisCommand scriptSubcommands[] = {
      "may-replicate no-script @scripting"},
 
     {"help",scriptCommand,2,
-     ""},
+     "ok-loading ok-stale @scripting"},
 
     {NULL},
 };
@@ -529,7 +529,7 @@ struct redisCommand clientSubcommands[] = {
      "admin no-script ok-loading ok-stale @connection"},
 
     {"help",clientCommand,2,
-     ""},
+     "ok-loading ok-stale @connection"},
 
     {NULL},
 };
@@ -543,7 +543,7 @@ struct redisCommand stralgoSubcommands[] = {
      lcsGetKeys},
 
     {"help",stralgoCommand,2,
-     ""},
+     "ok-loading ok-stale @string"},
 
     {NULL},
 };
@@ -559,7 +559,7 @@ struct redisCommand pubsubSubcommands[] = {
      "pub-sub ok-loading ok-stale"},
 
     {"help",pubsubCommand,2,
-     ""},
+     "ok-loading ok-stale"},
 
     {NULL},
 };
@@ -629,7 +629,7 @@ struct redisCommand clusterSubcommands[] = {
      "admin ok-stale random"},
 
     {"help",clusterCommand,2,
-     ""},
+     "ok-loading ok-stale"},
 
     {NULL},
 };
@@ -693,7 +693,7 @@ struct redisCommand sentinelSubcommands[] = {
      "admin only-sentinel"},
 
     {"help",sentinelCommand,2,
-     ""},
+     "ok-loading ok-stale only-sentinel"},
 
     {NULL},
 };
@@ -2028,8 +2028,9 @@ struct redisCommand redisCommandTable[] = {
     {"lolwut",lolwutCommand,-1,
      "read-only fast"},
 
-    {"acl",aclCommand,-2,
-     "admin no-script ok-loading ok-stale sentinel"},
+    {"acl",NULL,-2,
+     "",
+     .subcommands=aclSubcommands},
 
     {"stralgo",NULL,-2,
      "",
@@ -4464,8 +4465,10 @@ int populateSingleCommand(struct redisCommand *c, char *strflags) {
         for (int j = 0; c->subcommands[j].name; j++) {
             struct redisCommand *sub = c->subcommands+j;
 
-            sub->id = c->id; /* Assign the ID used for ACL (same as parent command). */
             sub->parent = c; /* Assign the parent command */
+            sds fullname = getFullCommandName(sub);
+            sub->id = ACLGetCommandID(fullname); /* Assign the ID used for ACL. */
+            sdsfree(fullname);
 
             /* Translate the command string flags description into an actual
              * set of flags. */
@@ -4496,7 +4499,7 @@ void populateCommandTable(void) {
 
         int retval1, retval2;
 
-        /* Assign the ID used for ACL (must be done before populateSingleCommand). */
+        /* Assign the ID used for ACL. */
         c->id = ACLGetCommandID(c->name);
 
         /* Translate the command string flags description into an actual
@@ -4589,7 +4592,7 @@ struct redisCommand *lookupCommand(robj **argv, int argc) {
     return lookupCommandLogic(server.commands,argv,argc);
 }
 
-struct redisCommand *lookupCommandBySds(sds s) {
+struct redisCommand *lookupCommandBySdsLogic(dict *commands, sds s) {
     int argc, j;
     sds *strings = sdssplitlen(s,sdslen(s),"|",1,&argc);
     if (strings == NULL)
@@ -4607,9 +4610,13 @@ struct redisCommand *lookupCommandBySds(sds s) {
         argv[j] = &objects[j];
     }
 
-    struct redisCommand *cmd = lookupCommand(argv,argc);
+    struct redisCommand *cmd = lookupCommandLogic(commands,argv,argc);
     sdsfreesplitres(strings,argc);
     return cmd;
+}
+
+struct redisCommand *lookupCommandBySds(sds s) {
+    return lookupCommandBySdsLogic(server.commands,s);
 }
 
 struct redisCommand *lookupCommandByCString(const char *s) {
