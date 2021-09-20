@@ -227,9 +227,9 @@ int clusterLoadConfig(char *filename) {
         }
         n->port = atoi(port);
         /* In older versions of nodes.conf the "@busport" part is missing.
-         * In this case we set it to the default offset of server.cluster_port_incr from the
+         * In this case we set it to the default offset of 10000 from the
          * base port. */
-        n->cport = busp ? atoi(busp) : n->port + server.cluster_port_incr;
+        n->cport = busp ? atoi(busp) : n->port + CLUSTER_PORT_INCR;
 
         /* The plaintext port for client in a TLS cluster (n->pport) is not
          * stored in nodes.conf. It is received later over the bus protocol. */
@@ -489,7 +489,8 @@ void deriveAnnouncedPorts(int *announced_port, int *announced_pport,
     /* Default announced ports. */
     *announced_port = port;
     *announced_pport = server.tls_cluster ? server.port : 0;
-    *announced_cport = port + server.cluster_port_incr;
+    *announced_cport = server.cluster_port ? server.cluster_port : port + CLUSTER_PORT_INCR;
+    
     /* Config overriding announced ports. */
     if (server.tls_cluster && server.cluster_announce_tls_port) {
         *announced_port = server.cluster_announce_tls_port;
@@ -558,6 +559,7 @@ void clusterInit(void) {
             createClusterNode(NULL,CLUSTER_NODE_MYSELF|CLUSTER_NODE_MASTER);
         serverLog(LL_NOTICE,"No cluster configuration found, I'm %.40s",
             myself->name);
+        serverLog(LL_NOTICE,"I will create a config file");
         clusterAddNode(myself);
         saveconf = 1;
     }
@@ -567,23 +569,28 @@ void clusterInit(void) {
     server.cfd.count = 0;
 
    
+    
+    serverLog(LL_WARNING, "-------------------------------");
+    serverLog(LL_WARNING, "cluster port is %d", server.cluster_port);
+    serverLog(LL_WARNING, "-------------------------------");
 
     /* Port sanity check II
      * The other handshake port check is triggered too late to stop
      * us from trying to use a too-high cluster port number. */
     int port = server.tls_cluster ? server.tls_port : server.port;
-    if (port > (65535-server.cluster_port_incr)) {
+    if (!server.cluster_port && port > (65535-CLUSTER_PORT_INCR)) {
         serverLog(LL_WARNING, "Redis port number too high. "
-                   "Cluster communication port is %d port "
+                   "Cluster communication port is 10,000 port "
                    "numbers higher than your Redis port. "
-                   "Your Redis port number must be %d or less.", server.cluster_port_incr, 65535-server.cluster_port_incr);
+                   "Your Redis port number must be 55535 or less.");
         exit(1);
     }
     if (!server.bindaddr_count) {
         serverLog(LL_WARNING, "No bind address is configured, but it is required for the Cluster bus.");
         exit(1);
     }
-    if (listenToPort(port+server.cluster_port_incr, &server.cfd) == C_ERR) {
+    if ((server.cluster_port && (listenToPort(server.cluster_port, &server.cfd) == C_ERR)) ||
+        listenToPort(port+CLUSTER_PORT_INCR, &server.cfd) == C_ERR ) {
         exit(1);
     }
     
@@ -1421,6 +1428,11 @@ int clusterStartHandshake(char *ip, int port, int cport) {
     clusterNode *n;
     char norm_ip[NET_IP_STR_LEN];
     struct sockaddr_storage sa;
+
+    serverLog(LL_NOTICE,"---------------------------");
+    serverLog(LL_NOTICE,"The handshake ip is %s", ip);
+    serverLog(LL_NOTICE,"The handshake port is %d", port);
+    serverLog(LL_NOTICE,"The handshake cport is %d", cport);
 
     /* IP sanity check */
     if (inet_pton(AF_INET,ip,
@@ -4560,8 +4572,8 @@ void clusterCommand(client *c) {
 NULL
         };
         addReplyHelp(c, help);
-    } else if (!strcasecmp(c->argv[1]->ptr,"meet") && (c->argc == 4 || c->argc == 5)) {
-        /* CLUSTER MEET <ip> <port> [cport] */
+    } else if (!strcasecmp(c->argv[1]->ptr,"meet") && (c->argc == 4 || c->argc == 5 || c->argc == 6)) {
+        /* CLUSTER MEET <ip> <port> [cport] [cluster-port]*/
         long long port, cport;
 
         if (getLongLongFromObject(c->argv[3], &port) != C_OK) {
@@ -4576,8 +4588,14 @@ NULL
                                     (char*)c->argv[4]->ptr);
                 return;
             }
+        } else if (c->argc == 6) {
+            if (getLongLongFromObject(c->argv[5], &cport) != C_OK) {
+                addReplyErrorFormat(c,"Invalid TCP bus port specified: %s",
+                                    (char*)c->argv[5]->ptr);
+                return;
+            }
         } else {
-            cport = port + server.cluster_port_incr;
+            cport = port + CLUSTER_PORT_INCR;
         }
 
         if (clusterStartHandshake(c->argv[2]->ptr,port,cport) == 0 &&
