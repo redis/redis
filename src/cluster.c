@@ -5814,7 +5814,8 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
     int multiple_keys = 0;
     multiState *ms, _ms;
     multiCmd mc;
-    int i, slot = 0, migrating_slot = 0, importing_slot = 0, missing_keys = 0;
+    int i, slot = 0, migrating_slot = 0, importing_slot = 0, missing_keys = 0,
+        existing_keys = 0;
 
     /* Allow any key to be set if a module disabled cluster redirections. */
     if (server.cluster_module_flags & CLUSTER_MODULE_FLAG_NO_REDIRECTION)
@@ -5915,10 +5916,12 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
             }
 
             /* Migrating / Importing slot? Count keys we don't have. */
-            if ((migrating_slot || importing_slot) &&
-                lookupKeyRead(&server.db[0],thiskey) == NULL)
-            {
-                missing_keys++;
+            if (migrating_slot || importing_slot) {
+                if (lookupKeyRead(&server.db[0],thiskey) == NULL) {
+                    missing_keys++;
+                } else {
+                    existing_keys++;
+                }
             }
         }
         getKeysFreeResult(&result);
@@ -5959,7 +5962,13 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
     /* If we don't have all the keys and we are migrating the slot, send
      * an ASK redirection. */
     if (migrating_slot && missing_keys) {
-        if (error_code) *error_code = CLUSTER_REDIR_ASK;
+        if (error_code) {
+            if (existing_keys) {
+                *error_code = CLUSTER_REDIR_UNSTABLE;
+            } else {
+                *error_code = CLUSTER_REDIR_ASK;
+            }
+        }
         return server.cluster->migrating_slots_to[slot];
     }
 
