@@ -632,17 +632,22 @@ int anetPipe(int fds[2], int read_flags, int write_flags) {
         if (errno != ENOSYS)
             return -1;
         pipe_flags = 0;
-    } else if (read_flags == write_flags)
-        return 0;
+    } else {
+        if (read_flags == write_flags)
+            return 0;
+        /* Clear the flags which we have already set using pipe2. */
+        read_flags &= ~pipe_flags;
+        write_flags &= ~pipe_flags;
+    }
 #endif
 
     if (pipe_flags == 0 && pipe(fds))
         return -1;
 
-    if (pipe_flags == 0 && (read_flags & O_CLOEXEC))
+    if (read_flags & O_CLOEXEC)
         if (fcntl(fds[0], F_SETFD, O_CLOEXEC))
             goto error;
-    if (pipe_flags == 0 && (write_flags & O_CLOEXEC))
+    if (write_flags & O_CLOEXEC)
         if (fcntl(fds[1], F_SETFD, O_CLOEXEC))
             goto error;
 
