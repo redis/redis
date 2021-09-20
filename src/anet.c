@@ -629,13 +629,13 @@ int anetPipe(int fds[2], int read_flags, int write_flags) {
      * there is no harm to set O_CLOEXEC to prevent fd leaks. */
     pipe_flags = O_CLOEXEC | (read_flags & write_flags);
     if (pipe2(fds, pipe_flags)) {
-        if (errno != ENOSYS)
+        if (errno != ENOSYS && errno != EINVAL)
             return -1;
         pipe_flags = 0;
     } else {
-        if (read_flags == write_flags)
+        if ((O_CLOEXEC | read_flags) == (O_CLOEXEC | write_flags))
             return 0;
-        /* Clear the flags which we have already set using pipe2. */
+        /* Clear the flags which have already been set using pipe2. */
         read_flags &= ~pipe_flags;
         write_flags &= ~pipe_flags;
     }
@@ -644,6 +644,8 @@ int anetPipe(int fds[2], int read_flags, int write_flags) {
     if (pipe_flags == 0 && pipe(fds))
         return -1;
 
+    /* File descriptor flags.
+     * Currently, only one such flag is defined: FD_CLOEXEC, the close-on-exec flag. */
     if (read_flags & O_CLOEXEC)
         if (fcntl(fds[0], F_SETFD, O_CLOEXEC))
             goto error;
@@ -651,11 +653,15 @@ int anetPipe(int fds[2], int read_flags, int write_flags) {
         if (fcntl(fds[1], F_SETFD, O_CLOEXEC))
             goto error;
 
-    if (read_flags & O_NONBLOCK)
-        if (fcntl(fds[0], F_SETFL, O_NONBLOCK))
+    /* File status flags.
+     * Clear the file descriptor flag O_CLOEXEC, and file status flags which have already been set */
+    read_flags &= ~O_CLOEXEC & ~pipe_flags;
+    if (read_flags)
+        if (fcntl(fds[0], F_SETFL, read_flags))
             goto error;
-    if (write_flags & O_NONBLOCK)
-        if (fcntl(fds[1], F_SETFL, O_NONBLOCK))
+    write_flags &= ~O_CLOEXEC & ~pipe_flags;
+    if (write_flags)
+        if (fcntl(fds[1], F_SETFL, write_flags))
             goto error;
 
     return 0;
