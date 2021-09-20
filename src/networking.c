@@ -138,6 +138,7 @@ client *createClient(connection *conn) {
     c->reqtype = 0;
     c->argc = 0;
     c->argv = NULL;
+    c->argv_len = 0;
     c->argv_len_sum = 0;
     c->original_argc = 0;
     c->original_argv = NULL;
@@ -1206,6 +1207,9 @@ void freeClientArgv(client *c) {
     c->argc = 0;
     c->cmd = NULL;
     c->argv_len_sum = 0;
+    c->argv_len = 0;
+    zfree(c->argv);
+    c->argv = NULL;
 }
 
 /* Close all the slaves connections. This is useful in chained replication
@@ -1438,8 +1442,6 @@ void freeClient(client *c) {
     /* Release other dynamically allocated client structure fields,
      * and finally release the client structure itself. */
     if (c->name) decrRefCount(c->name);
-    zfree(c->argv);
-    c->argv_len_sum = 0;
     freeClientMultiState(c);
     sdsfree(c->peerid);
     sdsfree(c->sockname);
@@ -1786,7 +1788,8 @@ int processInlineBuffer(client *c) {
     /* Setup argv array on client structure */
     if (argc) {
         if (c->argv) zfree(c->argv);
-        c->argv = zmalloc(sizeof(robj*)*argc);
+        c->argv_len = argc;
+        c->argv = zmalloc(sizeof(robj*)*c->argv_len);
         c->argv_len_sum = 0;
     }
 
@@ -1871,7 +1874,7 @@ int processMultibulkBuffer(client *c) {
          * so go ahead and find out the multi bulk length. */
         serverAssertWithInfo(c,NULL,c->querybuf[c->qb_pos] == '*');
         ok = string2ll(c->querybuf+1+c->qb_pos,newline-(c->querybuf+1+c->qb_pos),&ll);
-        if (!ok || ll > 1024*1024) {
+        if (!ok || ll > INT_MAX) {
             addReplyError(c,"Protocol error: invalid multibulk length");
             setProtocolError("invalid mbulk count",c);
             return C_ERR;
@@ -1885,7 +1888,8 @@ int processMultibulkBuffer(client *c) {
 
         /* Setup argv array on client structure */
         if (c->argv) zfree(c->argv);
-        c->argv = zmalloc(sizeof(robj*)*c->multibulklen);
+        c->argv_len = min(c->multibulklen, 1024);
+        c->argv = zmalloc(sizeof(robj*)*c->argv_len);
         c->argv_len_sum = 0;
     }
 
@@ -1951,6 +1955,12 @@ int processMultibulkBuffer(client *c) {
             /* Not enough data (+2 == trailing \r\n) */
             break;
         } else {
+            /* Check if we have space in argv, grow if needed */
+            if (c->argc >= c->argv_len) {
+                c->argv_len *= 2;
+                c->argv  = zrealloc(c->argv, sizeof(robj*)*c->argv_len);
+            }
+
             /* Optimization: if the buffer contains JUST our bulk element
              * instead of creating a new object by *copying* the sds we
              * just use the current sds string. */
@@ -3129,9 +3139,9 @@ void replaceClientCommandVector(client *c, int argc, robj **argv) {
 void rewriteClientCommandArgument(client *c, int i, robj *newval) {
     robj *oldval;
     retainOriginalCommandVector(c);
-    if (i >= c->argc) {
+    if (i >= c->argv_len) {
         c->argv = zrealloc(c->argv,sizeof(robj*)*(i+1));
-        c->argc = i+1;
+        c->argc = c->argv_len = i+1;
         c->argv[i] = NULL;
     }
     oldval = c->argv[i];
