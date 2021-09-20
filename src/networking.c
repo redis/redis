@@ -1958,7 +1958,7 @@ int processMultibulkBuffer(client *c) {
             /* Check if we have space in argv, grow if needed */
             if (c->argc >= c->argv_len) {
                 c->argv_len = min(c->argv_len*2, c->argc+c->multibulklen);
-                c->argv  = zrealloc(c->argv, sizeof(robj*)*c->argv_len);
+                c->argv = zrealloc(c->argv, sizeof(robj*)*c->argv_len);
             }
 
             /* Optimization: if the buffer contains JUST our bulk element
