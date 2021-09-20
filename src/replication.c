@@ -384,7 +384,7 @@ void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv,
     listIter li;
     int j;
     sds cmdrepr = sdsnew("+");
-    robj *cmdobj;
+    robj *cmdobj, *cmdobj3;
     struct timeval tv;
 
     gettimeofday(&tv,NULL);
@@ -408,14 +408,24 @@ void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv,
             cmdrepr = sdscatlen(cmdrepr," ",1);
     }
     cmdrepr = sdscatlen(cmdrepr,"\r\n",2);
+
+    sds cmdrepr3 = sdsnew(">2\r\n+monitor\r\n");
+    cmdrepr3 = sdscatsds(cmdrepr3, cmdrepr);
+
     cmdobj = createObject(OBJ_STRING,cmdrepr);
+    cmdobj3 = createObject(OBJ_STRING,cmdrepr3);
 
     listRewind(monitors,&li);
     while((ln = listNext(&li))) {
         client *monitor = ln->value;
-        addReply(monitor,cmdobj);
+        if(monitor->resp > 2) {
+            addReply(monitor,cmdobj3);
+        } else {
+            addReply(monitor,cmdobj);
+        }
     }
     decrRefCount(cmdobj);
+    decrRefCount(cmdobj3);
 }
 
 /* Feed the slave 'c' with the replication backlog starting from the
