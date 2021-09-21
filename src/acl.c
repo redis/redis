@@ -492,7 +492,6 @@ int ACLCountCategoryBitsForUser(user *u, unsigned long *on, unsigned long *off,
 }
 
 sds ACLDescribeUserCommandRulesSingleCommands(user *u, user *fakeuser, sds rules, dict *commands) {
-    /* Fix the final ACLs with single commands differences. */
     dictIterator *di = dictGetIterator(commands);
     dictEntry *de;
     while ((de = dictNext(di)) != NULL) {
@@ -1034,8 +1033,9 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
                 }
                 ACLChangeCommandPerm(u,cmd,1);
             } else {
-                /* If user is trying to abuse the ACL mech to block SELECT 0 and alike we use the
-                 * allowed_firstargs mechanism. */
+                /* If user is trying to use the ACL mech to block SELECT except SELECT 0 or
+                 * block DEBUG except DEBUG OBJECT (DEBUG subcommands are not considred
+                 * subcommands for now) we use the allowed_firstargs mechanism. */
                 struct redisCommand *cmd = ACLLookupCommand(copy);
                 if (cmd == NULL) {
                     errno = ENOENT;

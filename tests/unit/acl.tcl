@@ -279,6 +279,21 @@ start_server {tags {"acl external:skip"}} {
         r XINFO STREAM key
     }
 
+    test {ACLs can block SELECT of all but a specific DB} {
+        r ACL setuser newuser -@all +acl +select|0
+        r SELECT 0
+        catch {r SELECT 1} e
+        set e
+    } {*NOPERM*}
+
+    test {ACLs can block all DEBUG subcommands except one} {
+        r ACL setuser newuser -@all +acl +incr +debug|object
+        r INCR key
+        r DEBUG OBJECT key
+        catch {r DEBUG SEGFAULT} e
+        set e
+    } {*NOPERM*}
+
     test {ACLs set can include subcommands, if already full command exists} {
         r ACL setuser bob +memory|doctor
         set cmdstr [dict get [r ACL getuser bob] commands]
