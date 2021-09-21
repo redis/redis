@@ -897,7 +897,7 @@ typedef struct {
      * We had to keep allowed_firstargs (previously called allowed_subcommands)
      * in order to support the widespread abuse of ACL rules to block a command
      * with a specific argv[1] (which is not a subcommand at all).
-     * For exmaple, a user can use the rule "-select +select|0" to block all
+     * For example, a user can use the rule "-select +select|0" to block all
      * SELECT commands, except "SELECT 0".
      *
      * This array points, for each command ID (corresponding to the command
