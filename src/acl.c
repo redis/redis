@@ -101,9 +101,9 @@ struct ACLUserFlag {
     {NULL,0} /* Terminator. */
 };
 
-void ACLResetSubcommandsForCommand(user *u, unsigned long id);
-void ACLResetSubcommands(user *u);
-void ACLAddAllowedSubcommand(user *u, unsigned long id, const char *sub);
+void ACLResetFirstArgsForCommand(user *u, unsigned long id);
+void ACLResetFirstArgs(user *u);
+void ACLAddAllowedFirstArg(user *u, unsigned long id, const char *sub);
 void ACLFreeLogEntry(void *le);
 
 /* The length of the string representation of a hashed password. */
@@ -254,7 +254,7 @@ user *ACLCreateUser(const char *name, size_t namelen) {
     user *u = zmalloc(sizeof(*u));
     u->name = sdsnewlen(name,namelen);
     u->flags = USER_FLAG_DISABLED | server.acl_pubsub_default;
-    u->allowed_subcommands = NULL;
+    u->allowed_firstargs = NULL;
     u->passwords = listCreate();
     u->patterns = listCreate();
     u->channels = listCreate();
@@ -296,7 +296,7 @@ void ACLFreeUser(user *u) {
     listRelease(u->passwords);
     listRelease(u->patterns);
     listRelease(u->channels);
-    ACLResetSubcommands(u);
+    ACLResetFirstArgs(u);
     zfree(u);
 }
 
@@ -343,15 +343,15 @@ void ACLCopyUser(user *dst, user *src) {
     memcpy(dst->allowed_commands,src->allowed_commands,
            sizeof(dst->allowed_commands));
     dst->flags = src->flags;
-    ACLResetSubcommands(dst);
-    /* Copy the allowed subcommands array of array of SDS strings. */
-    if (src->allowed_subcommands) {
+    ACLResetFirstArgs(dst);
+    /* Copy the allowed first-args array of array of SDS strings. */
+    if (src->allowed_firstargs) {
         for (int j = 0; j < USER_COMMAND_BITS_COUNT; j++) {
-            if (src->allowed_subcommands[j]) {
-                for (int i = 0; src->allowed_subcommands[j][i]; i++)
+            if (src->allowed_firstargs[j]) {
+                for (int i = 0; src->allowed_firstargs[j][i]; i++)
                 {
-                    ACLAddAllowedSubcommand(dst, j,
-                        src->allowed_subcommands[j][i]);
+                    ACLAddAllowedFirstArg(dst, j,
+                        src->allowed_firstargs[j][i]);
                 }
             }
         }
@@ -416,8 +416,9 @@ void ACLSetUserCommandBit(user *u, unsigned long id, int value) {
 void ACLChangeCommandPerm(user *u, struct redisCommand *cmd, int allow) {
     unsigned long id = cmd->id;
     ACLSetUserCommandBit(u,id,allow);
-    ACLResetSubcommandsForCommand(u,id);
-    /* By default we inherit `allow` for all subcommands */
+    ACLResetFirstArgsForCommand(u,id);
+    /* By default we inherit `allow` for all subcommands.
+     * e.g. "+client" will add all of CLIENT's subcommands to allowed_commands. */
     if (cmd->subcommands_dict) {
         dictEntry *de;
         dictIterator *di = dictGetSafeIterator(cmd->subcommands_dict);
@@ -510,15 +511,15 @@ sds ACLDescribeUserCommandRulesSingleCommands(user *u, user *fakeuser, sds rules
         if (cmd->subcommands_dict)
             rules = ACLDescribeUserCommandRulesSingleCommands(u,fakeuser,rules,cmd->subcommands_dict);
 
-        /* Emit the subcommands if there are any. */
-        if (userbit == 0 && u->allowed_subcommands &&
-            u->allowed_subcommands[cmd->id])
+        /* Emit the first-args if there are any. */
+        if (userbit == 0 && u->allowed_firstargs &&
+            u->allowed_firstargs[cmd->id])
         {
-            for (int j = 0; u->allowed_subcommands[cmd->id][j]; j++) {
+            for (int j = 0; u->allowed_firstargs[cmd->id][j]; j++) {
                 rules = sdscatlen(rules,"+",1);
                 rules = sdscat(rules,cmd->name);
                 rules = sdscatlen(rules,"|",1);
-                rules = sdscatsds(rules,u->allowed_subcommands[cmd->id][j]);
+                rules = sdscatsds(rules,u->allowed_firstargs[cmd->id][j]);
                 rules = sdscatlen(rules," ",1);
             }
         }
@@ -727,62 +728,61 @@ struct redisCommand *ACLLookupCommand(const char *name) {
     return cmd;
 }
 
-/* Flush the array of allowed subcommands for the specified user
+/* Flush the array of allowed first-args for the specified user
  * and command ID. */
-void ACLResetSubcommandsForCommand(user *u, unsigned long id) {
-    if (u->allowed_subcommands && u->allowed_subcommands[id]) {
-        for (int i = 0; u->allowed_subcommands[id][i]; i++)
-            sdsfree(u->allowed_subcommands[id][i]);
-        zfree(u->allowed_subcommands[id]);
-        u->allowed_subcommands[id] = NULL;
+void ACLResetFirstArgsForCommand(user *u, unsigned long id) {
+    if (u->allowed_firstargs && u->allowed_firstargs[id]) {
+        for (int i = 0; u->allowed_firstargs[id][i]; i++)
+            sdsfree(u->allowed_firstargs[id][i]);
+        zfree(u->allowed_firstargs[id]);
+        u->allowed_firstargs[id] = NULL;
     }
 }
 
-/* Flush the entire table of subcommands. This is useful on +@all, -@all
+/* Flush the entire table of first-args. This is useful on +@all, -@all
  * or similar to return back to the minimal memory usage (and checks to do)
  * for the user. */
-void ACLResetSubcommands(user *u) {
-    if (u->allowed_subcommands == NULL) return;
+void ACLResetFirstArgs(user *u) {
+    if (u->allowed_firstargs == NULL) return;
     for (int j = 0; j < USER_COMMAND_BITS_COUNT; j++) {
-        if (u->allowed_subcommands[j]) {
-            for (int i = 0; u->allowed_subcommands[j][i]; i++)
-                sdsfree(u->allowed_subcommands[j][i]);
-            zfree(u->allowed_subcommands[j]);
+        if (u->allowed_firstargs[j]) {
+            for (int i = 0; u->allowed_firstargs[j][i]; i++)
+                sdsfree(u->allowed_firstargs[j][i]);
+            zfree(u->allowed_firstargs[j]);
         }
     }
-    zfree(u->allowed_subcommands);
-    u->allowed_subcommands = NULL;
+    zfree(u->allowed_firstargs);
+    u->allowed_firstargs = NULL;
 }
 
-/* Add a subcommand to the list of subcommands for the user 'u' and
+/* Add a first-arh to the list of subcommands for the user 'u' and
  * the command id specified. */
-void ACLAddAllowedSubcommand(user *u, unsigned long id, const char *sub) {
-    /* If this is the first subcommand to be configured for
-     * this user, we have to allocate the subcommands array. */
-    if (u->allowed_subcommands == NULL) {
-        u->allowed_subcommands = zcalloc(USER_COMMAND_BITS_COUNT *
-                                 sizeof(sds*));
+void ACLAddAllowedFirstArg(user *u, unsigned long id, const char *sub) {
+    /* If this is the first first-arg to be configured for
+     * this user, we have to allocate the first-args array. */
+    if (u->allowed_firstargs == NULL) {
+        u->allowed_firstargs = zcalloc(USER_COMMAND_BITS_COUNT * sizeof(sds*));
     }
 
     /* We also need to enlarge the allocation pointing to the
      * null terminated SDS array, to make space for this one.
      * To start check the current size, and while we are here
-     * make sure the subcommand is not already specified inside. */
+     * make sure the first-arg is not already specified inside. */
     long items = 0;
-    if (u->allowed_subcommands[id]) {
-        while(u->allowed_subcommands[id][items]) {
+    if (u->allowed_firstargs[id]) {
+        while(u->allowed_firstargs[id][items]) {
             /* If it's already here do not add it again. */
-            if (!strcasecmp(u->allowed_subcommands[id][items],sub)) return;
+            if (!strcasecmp(u->allowed_firstargs[id][items],sub))
+                return;
             items++;
         }
     }
 
     /* Now we can make space for the new item (and the null term). */
     items += 2;
-    u->allowed_subcommands[id] = zrealloc(u->allowed_subcommands[id],
-                                 sizeof(sds)*items);
-    u->allowed_subcommands[id][items-2] = sdsnew(sub);
-    u->allowed_subcommands[id][items-1] = NULL;
+    u->allowed_firstargs[id] = zrealloc(u->allowed_firstargs[id], sizeof(sds)*items);
+    u->allowed_firstargs[id][items-2] = sdsnew(sub);
+    u->allowed_firstargs[id][items-1] = NULL;
 }
 
 /* Set user properties according to the string "op". The following
@@ -792,8 +792,10 @@ void ACLAddAllowedSubcommand(user *u, unsigned long id, const char *sub) {
  * off          Disable the user: it's no longer possible to authenticate
  *              with this user, however the already authenticated connections
  *              will still work.
- * +<command>   Allow the execution of that command
- * -<command>   Disallow the execution of that command
+ * +<command>   Allow the execution of that command.
+ *              May be used with `|` for allowing subcommands (e.g "+config|get")
+ * -<command>   Disallow the execution of that command.
+ *              May be used with `|` for blocking subcommands (e.g "-config|set")
  * +@<category> Allow the execution of all the commands in such category
  *              with valid categories are like @admin, @set, @sortedset, ...
  *              and so forth, see the full list in the server.c file where
@@ -801,10 +803,10 @@ void ACLAddAllowedSubcommand(user *u, unsigned long id, const char *sub) {
  *              The special category @all means all the commands, but currently
  *              present in the server, and that will be loaded in the future
  *              via modules.
- * +<command>|subcommand    Allow a specific subcommand of an otherwise
- *                          disabled command. Note that this form is not
- *                          allowed as negative like -DEBUG|SEGFAULT, but
- *                          only additive starting with "+".
+ * +<command>|first-arg    Allow a specific first argument of an otherwise
+ *                         disabled command. Note that this form is not
+ *                         allowed as negative like -SELECT|1, but
+ *                         only additive starting with "+".
  * allcommands  Alias for +@all. Note that it implies the ability to execute
  *              all the future commands loaded via the modules system.
  * nocommands   Alias for -@all.
@@ -905,13 +907,13 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
     {
         memset(u->allowed_commands,255,sizeof(u->allowed_commands));
         u->flags |= USER_FLAG_ALLCOMMANDS;
-        ACLResetSubcommands(u);
+        ACLResetFirstArgs(u);
     } else if (!strcasecmp(op,"nocommands") ||
                !strcasecmp(op,"-@all"))
     {
         memset(u->allowed_commands,0,sizeof(u->allowed_commands));
         u->flags &= ~USER_FLAG_ALLCOMMANDS;
-        ACLResetSubcommands(u);
+        ACLResetFirstArgs(u);
     } else if (!strcasecmp(op,"nopass")) {
         u->flags |= USER_FLAG_NOPASS;
         listEmpty(u->passwords);
@@ -1033,14 +1035,14 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
                 ACLChangeCommandPerm(u,cmd,1);
             } else {
                 /* If user is trying to abuse the ACL mech to block SELECT 0 and alike we use the
-                 * allowed_subcommands mechanism with the "subcommand" name */
+                 * allowed_firstargs mechanism. */
                 struct redisCommand *cmd = ACLLookupCommand(copy);
                 if (cmd == NULL) {
                     errno = ENOENT;
                     return C_ERR;
                 }
-                /* Add the subcommand to the list of valid ones. */
-                ACLAddAllowedSubcommand(u,cmd->id,sub);
+                /* Add the first-arg to the list of valid ones. */
+                ACLAddAllowedFirstArg(u,cmd->id,sub);
             }
 
             zfree(copy);
@@ -1252,24 +1254,23 @@ int ACLCheckCommandPerm(client *c, int *keyidxptr) {
     if (!(u->flags & USER_FLAG_ALLCOMMANDS) && !(c->cmd->flags & CMD_NO_AUTH))
     {
         /* If the bit is not set we have to check further, in case the
-         * command is allowed just with that specific subcommand. */
+         * command is allowed just with that specific first argument. */
         if (ACLGetUserCommandBit(u,id) == 0) {
-            /* Check if the subcommand matches. */
+            /* Check if the first argument matches. */
             if (c->argc < 2 ||
-                u->allowed_subcommands == NULL ||
-                u->allowed_subcommands[id] == NULL)
+                u->allowed_firstargs == NULL ||
+                u->allowed_firstargs[id] == NULL)
             {
                 return ACL_DENIED_CMD;
             }
 
             long subid = 0;
             while (1) {
-                if (u->allowed_subcommands[id][subid] == NULL)
+                if (u->allowed_firstargs[id][subid] == NULL)
                     return ACL_DENIED_CMD;
                 int idx = c->cmd->parent ? 2 : 1;
-                if (!strcasecmp(c->argv[idx]->ptr,
-                                u->allowed_subcommands[id][subid]))
-                    break; /* Subcommand match found. Stop here. */
+                if (!strcasecmp(c->argv[idx]->ptr,u->allowed_firstargs[id][subid]))
+                    break; /* First argument match found. Stop here. */
                 subid++;
             }
         }

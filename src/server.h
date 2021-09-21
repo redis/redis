@@ -884,20 +884,28 @@ typedef struct {
     uint64_t flags; /* See USER_FLAG_* */
 
     /* The bit in allowed_commands is set if this user has the right to
-     * execute this command. In commands having subcommands, if this bit is
-     * set, then all the subcommands are also available.
+     * execute this command.
      *
      * If the bit for a given command is NOT set and the command has
-     * subcommands, Redis will also check allowed_subcommands in order to
+     * allowed first-args, Redis will also check allowed_firstargs in order to
      * understand if the command can be executed. */
     uint64_t allowed_commands[USER_COMMAND_BITS_COUNT/64];
 
-    /* This array points, for each command ID (corresponding to the command
+    /* NOTE: allowed_firstargs is a relic of the old mechanism for allowing
+     * subcommands (now, subcommands are actually commands, with their own
+     * ACL ID)
+     * We had to keep allowed_firstargs (previously called allowed_subcommands)
+     * in order to support the widespread abuse of ACL rules to block a command
+     * with a specific argv[1] (which is not a subcommand at all).
+     * For exmaple, a user can use the rule "-select +select|0" to block all
+     * SELECT commands, except "SELECT 0".
+     *
+     * This array points, for each command ID (corresponding to the command
      * bit set in allowed_commands), to an array of SDS strings, terminated by
-     * a NULL pointer, with all the sub commands that can be executed for
-     * this command. When no subcommands matching is used, the field is just
+     * a NULL pointer, with all the first-args that are allowed for
+     * this command. When no first-arg matching is used, the field is just
      * set to NULL to avoid allocating USER_COMMAND_BITS_COUNT pointers. */
-    sds **allowed_subcommands;
+    sds **allowed_firstargs;
     list *passwords; /* A list of SDS valid passwords for this user. */
     list *patterns;  /* A list of allowed key patterns. If this field is NULL
                         the user cannot mention any key in a command, unless
