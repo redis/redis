@@ -1034,7 +1034,7 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
                 ACLChangeCommandPerm(u,cmd,1);
             } else {
                 /* If user is trying to use the ACL mech to block SELECT except SELECT 0 or
-                 * block DEBUG except DEBUG OBJECT (DEBUG subcommands are not considred
+                 * block DEBUG except DEBUG OBJECT (DEBUG subcommands are not considered
                  * subcommands for now) we use the allowed_firstargs mechanism. */
                 struct redisCommand *cmd = ACLLookupCommand(copy);
                 if (cmd == NULL) {
