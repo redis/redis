@@ -5915,13 +5915,10 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
                 }
             }
 
-            /* Migrating / Importing slot? Count keys we don't have. */
+            /* Migrating / Importing slot? Count keys we have and we don't have. */
             if (migrating_slot || importing_slot) {
-                if (lookupKeyRead(&server.db[0],thiskey) == NULL) {
-                    missing_keys++;
-                } else {
-                    existing_keys++;
-                }
+                if (lookupKeyRead(&server.db[0],thiskey) == NULL) missing_keys++;
+                else existing_keys++;
             }
         }
         getKeysFreeResult(&result);
@@ -5960,16 +5957,16 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
         return myself;
 
     /* If we don't have all the keys and we are migrating the slot, send
-     * an ASK redirection. */
+     * an ASK redirection or TRYAGAIN. */
     if (migrating_slot && missing_keys) {
-        if (error_code) {
-            if (existing_keys) {
-                *error_code = CLUSTER_REDIR_UNSTABLE;
-            } else {
-                *error_code = CLUSTER_REDIR_ASK;
-            }
+        /* If we have keys but we don't have all keys, we return TRYAGAIN */
+        if (existing_keys) {
+            if (error_code) *error_code = CLUSTER_REDIR_UNSTABLE;
+            return NULL;
+        } else {
+            if (error_code) *error_code = CLUSTER_REDIR_ASK;
+            return server.cluster->migrating_slots_to[slot];
         }
-        return server.cluster->migrating_slots_to[slot];
     }
 
     /* If we are receiving the slot, and the client correctly flagged the
