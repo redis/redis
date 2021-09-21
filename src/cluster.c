@@ -4572,8 +4572,8 @@ void clusterCommand(client *c) {
 NULL
         };
         addReplyHelp(c, help);
-    } else if (!strcasecmp(c->argv[1]->ptr,"meet") && (c->argc == 4 || c->argc == 5 || c->argc == 6)) {
-        /* CLUSTER MEET <ip> <port> [cport] [cluster-port]*/
+    } else if (!strcasecmp(c->argv[1]->ptr,"meet") && (c->argc == 4 || c->argc == 5)) {
+        /* CLUSTER MEET <ip> <port> [cport ] */
         long long port, cport;
 
         if (getLongLongFromObject(c->argv[3], &port) != C_OK) {
@@ -4584,14 +4584,8 @@ NULL
 
         if (c->argc == 5) {
             if (getLongLongFromObject(c->argv[4], &cport) != C_OK) {
-                addReplyErrorFormat(c,"Invalid TCP bus port specified: %s",
+                addReplyErrorFormat(c,"Invalid TCP bus port or cluster port specified: %s",
                                     (char*)c->argv[4]->ptr);
-                return;
-            }
-        } else if (c->argc == 6) {
-            if (getLongLongFromObject(c->argv[5], &cport) != C_OK) {
-                addReplyErrorFormat(c,"Invalid TCP bus port specified: %s",
-                                    (char*)c->argv[5]->ptr);
                 return;
             }
         } else {
