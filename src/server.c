@@ -1040,11 +1040,12 @@ struct redisCommand redisCommandTable[] = {
        KSPEC_BS_INDEX,.bs.index={1},
        KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
 
-    {"sintercard",sinterCardCommand,-2,
+    {"sintercard",sinterCardCommand,-3,
      "read-only @set",
      {{"read",
        KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
+       KSPEC_FK_KEYNUM,.fk.range={0,1,1}}},
+     sintercardGetKeys},
 
     {"sinterstore",sinterstoreCommand,-3,
      "write use-memory @set",
@@ -3511,8 +3512,6 @@ void createSharedObjects(void) {
     shared.persist = createStringObject("PERSIST",7);
     shared.set = createStringObject("SET",3);
     shared.eval = createStringObject("EVAL",4);
-    shared.zpopmin = createStringObject("ZPOPMIN",7);
-    shared.zpopmax = createStringObject("ZPOPMAX",7);
 
     /* Shared command argument */
     shared.left = createStringObject("left",4);

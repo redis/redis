@@ -797,7 +797,7 @@ test "diskless replication read pipe cleanup" {
             # wait for the replicas to start reading the rdb
             wait_for_log_messages 0 {"*Loading DB in memory*"} $loglines 800 10
 
-            set loglines [count_log_lines 0]
+            set loglines [count_log_lines -1]
             # send FLUSHALL so the RDB child will be killed
             $master flushall
 
