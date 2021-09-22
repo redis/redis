@@ -2263,10 +2263,7 @@ long long getPsyncInitialOffset(void);
 int replicationSetupSlaveForFullResync(client *slave, long long offset);
 void changeReplicationId(void);
 void clearReplicationId2(void);
-<<<<<<< HEAD
-=======
 void createReplicationBacklog(void);
->>>>>>> unstable
 void replicationCacheMasterUsingMyself(void);
 void feedReplicationBacklog(void *ptr, size_t len);
 void incrementalTrimReplicationBacklog(size_t blocks);
