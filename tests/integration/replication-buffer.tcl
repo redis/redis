@@ -20,7 +20,7 @@ start_server {} {
         fail "fail to sync with slaves"
     }
 
-    # Generating RDB will cost several seconds
+    # Generating RDB will take some 10 seconds
     $master config set rdb-key-save-delay 1000000
     $master config set save ""
     populate 10 "" 16
@@ -96,8 +96,8 @@ start_server {} {
     $slave1 slaveof $master_host $master_port
     wait_for_sync $slave1
 
-    test {Replication backlog memory could be far more than setting} {
-         # Generating RDB will cost several seconds
+    test {Replication backlog size can outgrow the backlog limit config} {
+         # Generating RDB will take 1000 seconds
         $master config set rdb-key-save-delay 10000000
         populate 100 master 10000
         $slave2 slaveof $master_host $master_port
@@ -122,7 +122,7 @@ start_server {} {
         fail "Replica offset didn't catch up with the master after too long time"
     }
 
-    test {Slvae could use replication buffer for partial resynchronization} {
+    test {Replica could use replication buffer (beyond backlog config) for partial re-synchronization} {
         # slave1 disconnects with master
         $slave1 slaveof [srv -1 host] [srv -1 port]
         # Write a mass of data that exceeds repl-backlog-size
@@ -154,7 +154,7 @@ start_server {} {
         assert {[s mem_clients_slaves] < [expr 64*1024]}
 
         # Since we trim replication backlog inrementally, replication backlog
-        # memory may not decrease much quickly.
+        # memory may take time to be reclaimed.
         wait_for_condition 1000 100 {
             [s mem_replication_backlog] < [expr 10000*10000]
         } else {

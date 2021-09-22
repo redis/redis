@@ -205,25 +205,27 @@ void feedReplicationBufferWithObject(robj *o) {
     feedReplicationBuffer(p, len);
 }
 
-/* Generally, we only one replication buffer block when replication backlog
- * size exceeds our setting and no slave reference it. But if slaves clients
- * disconnect, we need to free the replication buffer blocks that are referenced,
- * but it would cost much time if there are a lots blocks to free, that will
+/* Generally, we only have one replication buffer block to trim when replication backlog
+ * size exceeds our setting and no replica reference it. But if replica clients
+ * disconnect, we need to free many replication buffer blocks that are referenced.
+ * It would cost much time if there are a lots blocks to free, that will
  * freeze server, so we trim replication backlog incrementally. */
 void incrementalTrimReplicationBacklog(size_t max_blocks) {
     serverAssert(server.repl_backlog != NULL);
 
     size_t trimmed_blocks = 0, trimmed_bytes = 0;
     while (server.repl_backlog_histlen > server.repl_backlog_size &&
-           trimmed_blocks < max_blocks) {
-        /* We never trim backlog if only one block. */
+           trimmed_blocks < max_blocks)
+       {
+        /* We never trim backlog to less than one block. */
         if (listLength(server.repl_buffer_blocks) <= 1) break;
 
-        /* Replicas still keep the first replication buffer block, we don't
-         * trim replication log even backlog_histlen exceeds backlog_size,
-         * this implicitly makes backlog bigger than our setting, but make
-         * master accept partial resync as much as possible. So that backlog
-         * must be the last reference of replication buffer blocks. */
+        /* Replicas increment the refcount of the first replication buffer block
+         * they refer to, in that case, we don't trim the backlog even if
+         * backlog_histlen exceeds backlog_size. This implicitly makes backlog
+         * bigger than our setting, but makes the master accept partial resync as
+         * much as possible. So that backlog must be the last reference of
+         * replication buffer blocks. */
         listNode *first = listFirst(server.repl_buffer_blocks);
         serverAssert(first == server.repl_backlog->ref_repl_buf_node);
         replBufBlock *fo = listNodeValue(first);
@@ -264,12 +266,15 @@ void incrementalTrimReplicationBacklog(size_t max_blocks) {
                               server.repl_backlog_histlen + 1;
 }
 
-#define RECORD_ONE_EVERY_BLOCKS 64
-/* Add one buffer into the global replication buffer, replication backlog and
- * all slaves use replication buffer collectively, this function replace
- * 'addReply*', 'feedReplicationBacklog' for slaves and replication backlog,
+/* In order to quickly find the requested offset for PSYNC requests,
+ * we index some nodes in the replication buffer linked list into a rax. */
+#define REPL_BACKLOG_INDEX_PER_BLOCKS 64
+
+/* Append bytes into the global replication buffer list, replication backlog and
+ * all replica clients use replication buffers collectively, this function replace
+ * 'addReply*', 'feedReplicationBacklog' for replicas and replication backlog,
  * First we add buffer into global replication buffer block list, and then
- * update slaves/replication-backlog referenced node and block position. */
+ * update replica / replication-backlog referenced node and block position. */
 void feedReplicationBuffer(char *s, size_t len) {
     static long long repl_block_id = 0;
 
@@ -394,13 +399,11 @@ void freeSlaveReferencedReplBuffer(client *replica) {
     replica->used_size_of_repl_buf = 0;
 }
 
-/* Propagate write commands to replication buffer. Now, we uniform slaves's
- * output buffer and replication backlog into one shared replication buffer.
- * Replication backlog just is logical.
+/* Propagate write commands to replication stream.
  *
  * This function is used if the instance is a master: we use the commands
  * received by our clients in order to create the replication stream.
- * Instead if the instance is a slave and has sub-slaves attached, we use
+ * Instead if the instance is a replica and has sub-replicas attached, we use
  * replicationFeedSlavesFromMasterStream() */
 void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
     int j, len;
@@ -3648,9 +3651,9 @@ void replicationCron(void) {
      * with any persistence. */
     removeRDBUsedToSyncReplicas();
 
-    /* Check replication buffer, the first block of replication buffer blocks
-     * must be referenced by some one, because it will be freed if no reference,
-     * otherwise, server will be OOM, and its refcount must not be more than
+    /* Sanity check replication buffer, the first block of replication buffer blocks
+     * must be referenced by someone, since it will be freed when not referenced,
+     * otherwise, server will OOM. also, its refcount must not be more than
      * replicas number + 1(replication backlog). */
     if (listLength(server.repl_buffer_blocks) > 0) {
         replBufBlock *o = listNodeValue(listFirst(server.repl_buffer_blocks));

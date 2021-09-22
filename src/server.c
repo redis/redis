@@ -4837,7 +4837,7 @@ sds genRedisInfoString(const char *section) {
             "mem_fragmentation_bytes:%zd\r\n"
             "mem_not_counted_for_evict:%zu\r\n"
             "mem_replication_backlog:%zu\r\n"
-            "mem_replication_buffer:%zu\r\n"
+            "mem_total_replication_buffers:%zu\r\n"
             "mem_clients_slaves:%zu\r\n"
             "mem_clients_normal:%zu\r\n"
             "mem_aof_buffer:%zu\r\n"

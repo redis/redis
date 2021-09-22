@@ -976,8 +976,8 @@ void AddReplyFromClient(client *dst, client *src) {
     closeClientOnOutputBufferLimitReached(dst, 1);
 }
 
-/* Copy 'src' slave replication buffers info to 'dst' slave,
- * mainly increase referenced buffer block node reference count. */
+/* Logically copy 'src' slave replication buffers info to 'dst' slave.
+ * Basically increase referenced buffer block node reference count. */
 void copySlaveOutputBuffer(client *dst, client *src) {
     serverAssert(src->bufpos == 0 && listLength(src->reply) == 0);
 

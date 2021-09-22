@@ -361,8 +361,8 @@ typedef enum {
 /* Synchronous read timeout - slave side */
 #define CONFIG_REPL_SYNCIO_TIMEOUT 5
 
-/* The default block number of trimming replication backlog per call. */
-#define TRIM_REPL_BUF_BLOCKS_PER 64
+/* The default number of replication backlog blocks to trim per call. */
+#define REPL_BACKLOG_TRIM_BLOCKS_PER_CALL 64
 
 /* List related stuff */
 #define LIST_HEAD 0
@@ -915,11 +915,11 @@ typedef struct {
                                       need more reserved IDs use UINT64_MAX-1,
                                       -2, ... and so forth. */
 
-/* Replication backlog is not separate memory now, it just is one consumer of
+/* Replication backlog is not separate memory, it just is one consumer of
  * the global replication buffer. This structure records the reference of
- * replication buffer. Since the replication buffer blocks may be very long,
- * it would cost much time when we search replication offset on partial resync,
- * so we use one list to rerord one node every creating 1000 new nodes to make
+ * replication buffers. Since the replication buffer blocks may be very long,
+ * it would cost too much to search replication offset on partial resync,
+ * so we use one list to rerord one node every 1000 nodes to make
  * searching offset from replication buffer blocks list faster. */
 typedef struct replBacklogRefReplBuf {
     listNode *ref_repl_buf_node;   /* Referenced node of replication buffer blocks. */
@@ -1019,7 +1019,7 @@ typedef struct client {
     int      client_cron_last_memory_type;
 
     listNode *ref_repl_buf_node;     /* Referenced node of replication buffer blocks. */
-    size_t ref_block_pos;            /* Access position of referenced buffer block. */
+    size_t ref_block_pos;            /* Access position of referenced buffer block. (next offset to send) */
     size_t used_blocks_of_repl_buf;  /* Used block number of replication buffer blocks. */
     size_t used_size_of_repl_buf;    /* Used size of replication buffer. */
 
