@@ -333,7 +333,7 @@ size_t freeMemoryGetNotCountedMemory(void) {
     /* Since all replicas and replication backlog share global replication
      * buffer, we think only the part of exceeding backlog size is the extra
      * separate consumption of replicas. */
-    if ((long long)server.repl_buffer_size > server.repl_backlog_size) {
+    if ((long long)server.repl_buffer_mem > server.repl_backlog_size) {
         /* We use list structure to manage replication buffer blocks, so backlog
          * also occupies some extra memory, we can't know exact blocks numbers,
          * we only get approximate size according to per block size. */
@@ -341,8 +341,8 @@ size_t freeMemoryGetNotCountedMemory(void) {
             (server.repl_backlog_size/PROTO_REPLY_CHUNK_BYTES + 1) *
             (sizeof(replBufBlock)+sizeof(listNode));
         size_t counted_size = server.repl_backlog_size + extra_approx_size;
-        if (server.repl_buffer_size > counted_size) {
-            overhead += (server.repl_buffer_size - counted_size);
+        if (server.repl_buffer_mem > counted_size) {
+            overhead += (server.repl_buffer_mem - counted_size);
         }
     }
 

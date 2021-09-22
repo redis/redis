@@ -2469,7 +2469,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     /* Incrementally trim replication backlog, 10 times the normal speed is
      * to free replication backlog as much as possible. */
     if (server.repl_backlog)
-        incrementalTrimReplicationBacklog(10*TRIM_REPL_BUF_BLOCKS_PER);
+        incrementalTrimReplicationBacklog(10*REPL_BACKLOG_TRIM_BLOCKS_PER_CALL);
 
     /* Try to process blocked clients every once in while. Example: A module
      * calls RM_SignalKeyAsReady from within a timer callback (So we don't
@@ -3207,7 +3207,7 @@ void initServer(void) {
     server.blocked_last_cron = 0;
     server.blocking_op_nesting = 0;
     server.thp_enabled = 0;
-    server.repl_buffer_size = 0;
+    server.repl_buffer_mem = 0;
     server.repl_buffer_blocks = listCreate();
     listSetFreeMethod(server.repl_buffer_blocks,(void (*)(void*))zfree);
 
@@ -4882,7 +4882,7 @@ sds genRedisInfoString(const char *section) {
             mh->total_frag_bytes,
             freeMemoryGetNotCountedMemory(),
             mh->repl_backlog,
-            server.repl_buffer_size,
+            server.repl_buffer_mem,
             mh->clients_slaves,
             mh->clients_normal,
             mh->aof_buffer,

@@ -133,8 +133,6 @@ client *createClient(connection *conn) {
     c->buf_usable_size = zmalloc_usable_size(c)-offsetof(client,buf);
     c->ref_repl_buf_node = NULL;
     c->ref_block_pos = 0;
-    c->used_blocks_of_repl_buf = 0;
-    c->used_size_of_repl_buf = 0;
     c->qb_pos = 0;
     c->querybuf = sdsempty();
     c->pending_querybuf = sdsempty();
@@ -976,16 +974,14 @@ void AddReplyFromClient(client *dst, client *src) {
     closeClientOnOutputBufferLimitReached(dst, 1);
 }
 
-/* Logically copy 'src' slave replication buffers info to 'dst' slave.
+/* Logically copy 'src' replica client buffers info to 'dst' replica.
  * Basically increase referenced buffer block node reference count. */
-void copySlaveOutputBuffer(client *dst, client *src) {
+void copyReplicaOutputBuffer(client *dst, client *src) {
     serverAssert(src->bufpos == 0 && listLength(src->reply) == 0);
 
     if (src->ref_repl_buf_node == NULL) return;
     dst->ref_repl_buf_node = src->ref_repl_buf_node;
     dst->ref_block_pos = src->ref_block_pos;
-    dst->used_blocks_of_repl_buf = src->used_blocks_of_repl_buf;
-    dst->used_size_of_repl_buf = src->used_size_of_repl_buf;
     ((replBufBlock *)listNodeValue(dst->ref_repl_buf_node))->refcount++;
 }
 
@@ -1393,7 +1389,7 @@ void freeClient(client *c) {
 
     /* Free data structures. */
     listRelease(c->reply);
-    freeSlaveReferencedReplBuffer(c);
+    freeReplicaReferencedReplBuffer(c);
     freeClientArgv(c);
     freeClientOriginalArgv(c);
 
@@ -1533,13 +1529,11 @@ int _writeToClient(client *c, ssize_t *nwritten) {
         /* If we fully sent the object on head, go to the next one. */
         listNode *next = listNextNode(c->ref_repl_buf_node);
         if (next && c->ref_block_pos == o->used) {
-            c->used_blocks_of_repl_buf--;
-            c->used_size_of_repl_buf -= o->size;
             o->refcount--;
             ((replBufBlock *)(listNodeValue(next)))->refcount++;
             c->ref_repl_buf_node = next;
             c->ref_block_pos = 0;
-            incrementalTrimReplicationBacklog(TRIM_REPL_BUF_BLOCKS_PER);
+            incrementalTrimReplicationBacklog(REPL_BACKLOG_TRIM_BLOCKS_PER_CALL);
         }
         return C_OK;
     }
@@ -2057,8 +2051,7 @@ void commandProcessed(client *c) {
     if (c->flags & CLIENT_MASTER) {
         long long applied = c->reploff - prev_offset;
         if (applied) {
-            replicationFeedSlavesFromMasterStream(server.slaves,
-                    c->pending_querybuf, applied);
+            replicationFeedStreamFromMasterStream(c->pending_querybuf,applied);
             sdsrange(c->pending_querybuf,applied,-1);
         }
     }
@@ -2370,6 +2363,13 @@ sds catClientInfoString(sds s, client *client) {
     if (client->argv)
         total_mem += zmalloc_size(client->argv);
 
+    size_t used_blocks_of_repl_buf = 0;
+    if (client->ref_repl_buf_node) {
+        replBufBlock *last = listNodeValue(listLast(server.repl_buffer_blocks));
+        replBufBlock *cur = listNodeValue(client->ref_repl_buf_node);
+        used_blocks_of_repl_buf = last->id - cur->id + 1;
+    }
+
     return sdscatfmt(s,
         "id=%U addr=%s laddr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i multi=%i qbuf=%U qbuf-free=%U argv-mem=%U obl=%U oll=%U omem=%U tot-mem=%U events=%s cmd=%s user=%s redir=%I",
         (unsigned long long) client->id,
@@ -2388,7 +2388,7 @@ sds catClientInfoString(sds s, client *client) {
         (unsigned long long) sdsavail(client->querybuf),
         (unsigned long long) client->argv_len_sum,
         (unsigned long long) client->bufpos,
-        (unsigned long long) listLength(client->reply) + client->used_blocks_of_repl_buf,
+        (unsigned long long) listLength(client->reply) + used_blocks_of_repl_buf,
         (unsigned long long) obufmem, /* should not include client->buf since we want to see 0 for static clients. */
         (unsigned long long) total_mem,
         events,
@@ -3196,11 +3196,21 @@ void rewriteClientCommandArgument(client *c, int i, robj *newval) {
  * the caller wishes. The main usage of this function currently is
  * enforcing the client output length limits. */
 unsigned long getClientOutputBufferMemoryUsage(client *c) {
-    unsigned long list_item_size = sizeof(listNode) + sizeof(clientReplyBlock);
-    unsigned long repl_node_size = sizeof(listNode) + sizeof(replBufBlock);
-
-    return c->used_size_of_repl_buf + (repl_node_size*c->used_blocks_of_repl_buf) +
-           c->reply_bytes + (list_item_size*listLength(c->reply));
+    if (getClientType(c) == CLIENT_TYPE_SLAVE) {
+        size_t repl_buf_size = 0;
+        size_t repl_node_num = 0;
+        size_t repl_node_size = sizeof(listNode) + sizeof(replBufBlock);
+        if (c->ref_repl_buf_node) {
+            replBufBlock *last = listNodeValue(listLast(server.repl_buffer_blocks));
+            replBufBlock *cur = listNodeValue(c->ref_repl_buf_node);
+            repl_buf_size = last->repl_offset + last->size - cur->repl_offset;
+            repl_node_num = last->id - cur->id + 1;
+        }
+        return repl_buf_size + (repl_node_size*repl_node_num);
+    } else { 
+        size_t list_item_size = sizeof(listNode) + sizeof(clientReplyBlock);
+        return c->reply_bytes + (list_item_size*listLength(c->reply));
+    }
 }
 
 /* Since all slaves share one global replication buffer, we only count

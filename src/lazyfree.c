@@ -236,8 +236,7 @@ void freeReplicationBacklogRefMemAsync(list *blocks, rax *index) {
     if (listLength(blocks) > LAZYFREE_THRESHOLD ||
         raxSize(index) > LAZYFREE_THRESHOLD)
     {
-        atomicIncr(lazyfree_objects,listLength(blocks));
-        atomicIncr(lazyfree_objects,raxSize(index));
+        atomicIncr(lazyfree_objects,listLength(blocks)+raxSize(index));
         bioCreateLazyFreeJob(lazyFreeReplicationBackogRefMem,2,blocks,index);
     } else {
         listRelease(blocks);

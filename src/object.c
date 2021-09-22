@@ -1176,9 +1176,19 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     if (server.repl_backlog && server.repl_backlog->ref_repl_buf_node) {
         replBufBlock *head = listNodeValue(server.repl_backlog->ref_repl_buf_node);
         replBufBlock *last = listNodeValue(listLast(server.repl_buffer_blocks));
-        mem += server.repl_backlog_histlen + (last->size - last->used) +
-               (last->id - head->id + 1) * (sizeof(replBufBlock)+sizeof(listNode)) +
-               server.repl_backlog->blocks_index->numnodes * sizeof(raxNode) +
+        // TODO COMMENTS
+        /*
+        maybe split this into several mem+= lines each with a comment.
+i understand the last two compute the rax,
+the second one the linked list (shared with replicas, right?).
+and the first one computes the actual bytes.
+and since the histlen counts the used portion, we need to explicitly add the unused portion..
+        */
+        mem += server.repl_backlog_histlen + (last->size - last->used);
+
+        mem += (last->id - head->id + 1) * (sizeof(replBufBlock)+sizeof(listNode));
+
+        mem += server.repl_backlog->blocks_index->numnodes * sizeof(raxNode) +
                raxSize(server.repl_backlog->blocks_index) * sizeof(void*);
     }
     mh->repl_backlog = mem;
