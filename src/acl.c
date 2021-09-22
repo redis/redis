@@ -220,6 +220,14 @@ uint64_t ACLGetCommandCategoryFlagByName(const char *name) {
     return 0; /* No match. */
 }
 
+/* Method for searching for a user within a list of user definitions. The
+ * list contains an array of user arguments, and we are only
+ * searching the first argument, the username, for a match. */
+int ACLListMatchLoadedUser(void *definition, void *user) {
+    sds *user_definition = definition;
+    return sdscmp(user_definition[0], user) == 0;
+}
+
 /* Method for passwords/pattern comparison used for the user->passwords list
  * so that we can search for items with listSearchKey(). */
 int ACLListMatchSds(void *a, void *b) {
@@ -1037,26 +1045,30 @@ const char *ACLSetUserStringError(void) {
     else if (errno == EBADMSG)
         errmsg = "The password hash must be exactly 64 characters and contain "
                  "only lowercase hexadecimal characters";
+    else if (errno == EALREADY)
+        errmsg = "Duplicate user found. A user can only be defined once in "
+                 "config files";
     return errmsg;
 }
 
-/* Initialize the default user, that will always exist for all the process
- * lifetime. */
-void ACLInitDefaultUser(void) {
-    DefaultUser = ACLCreateUser("default",7);
-    ACLSetUser(DefaultUser,"+@all",-1);
-    ACLSetUser(DefaultUser,"~*",-1);
-    ACLSetUser(DefaultUser,"&*",-1);
-    ACLSetUser(DefaultUser,"on",-1);
-    ACLSetUser(DefaultUser,"nopass",-1);
+/* Create the default user, this has special permissions. */
+user *ACLCreateDefaultUser(void) {
+    user *new = ACLCreateUser("default",7);
+    ACLSetUser(new,"+@all",-1);
+    ACLSetUser(new,"~*",-1);
+    ACLSetUser(new,"&*",-1);
+    ACLSetUser(new,"on",-1);
+    ACLSetUser(new,"nopass",-1);
+    return new;
 }
 
 /* Initialization of the ACL subsystem. */
 void ACLInit(void) {
     Users = raxNew();
     UsersToLoad = listCreate();
+    listSetMatchMethod(UsersToLoad, ACLListMatchLoadedUser);
     ACLLog = listCreate();
-    ACLInitDefaultUser();
+    DefaultUser = ACLCreateDefaultUser();
 }
 
 /* Check the username and password pair and return C_OK if they are valid,
@@ -1213,7 +1225,7 @@ int ACLCheckCommandPerm(client *c, int *keyidxptr) {
     /* Check if the user can execute commands explicitly touching the keys
      * mentioned in the command arguments. */
     if (!(c->user->flags & USER_FLAG_ALLKEYS) &&
-        (c->cmd->getkeys_proc || c->cmd->firstkey))
+        (c->cmd->getkeys_proc || c->cmd->key_specs_num))
     {
         getKeysResult result = GETKEYS_RESULT_INIT;
         int numkeys = getKeysFromCommand(c->cmd,c->argv,c->argc,&result);
@@ -1407,6 +1419,12 @@ int ACLAppendUserForLoading(sds *argv, int argc, int *argc_err) {
         return C_ERR;
     }
 
+    if (listSearchKey(UsersToLoad, argv[1])) {
+        if (argc_err) *argc_err = 1;
+        errno = EALREADY;
+        return C_ERR; 
+    }
+
     /* Try to apply the user rules in a fake user to see if they
      * are actually valid. */
     user *fakeuser = ACLCreateUnlinkedUser();
@@ -1448,8 +1466,9 @@ int ACLLoadConfiguredUsers(void) {
 
         user *u = ACLCreateUser(username,sdslen(username));
         if (!u) {
-            u = ACLGetUserByName(username,sdslen(username));
-            serverAssert(u != NULL);
+            /* Only valid duplicate user is the default one. */
+            serverAssert(!strcmp(username, "default"));
+            u = ACLGetUserByName("default",7);
             ACLSetUser(u,"reset",-1);
         }
 
@@ -1523,17 +1542,11 @@ sds ACLLoadFromFile(const char *filename) {
     lines = sdssplitlen(acls,strlen(acls),"\n",1,&totlines);
     sdsfree(acls);
 
-    /* We need a fake user to validate the rules before making changes
-     * to the real user mentioned in the ACL line. */
-    user *fakeuser = ACLCreateUnlinkedUser();
-
     /* We do all the loading in a fresh instance of the Users radix tree,
      * so if there are errors loading the ACL file we can rollback to the
      * old version. */
     rax *old_users = Users;
-    user *old_default_user = DefaultUser;
     Users = raxNew();
-    ACLInitDefaultUser();
 
     /* Load each line of the file. */
     for (int i = 0; i < totlines; i++) {
@@ -1580,15 +1593,23 @@ sds ACLLoadFromFile(const char *filename) {
             continue;
         }
 
-        /* Try to process the line using the fake user to validate if
-         * the rules are able to apply cleanly. At this stage we also
-         * trim trailing spaces, so that we don't have to handle that
-         * in ACLSetUser(). */
-        ACLSetUser(fakeuser,"reset",-1);
+        user *u = ACLCreateUser(argv[1],sdslen(argv[1]));
+
+        /* If the user already exists we assume it's an error and abort. */
+        if (!u) {
+            errors = sdscatprintf(errors,"WARNING: Duplicate user '%s' found on line %d. ", argv[1], linenum);
+            sdsfreesplitres(argv,argc);
+            continue;
+        }
+
+        /* Finally process the options and validate they can
+         * be cleanly applied to the user. If any option fails
+         * to apply, the other values won't be applied since
+         * all the pending changes will get dropped. */
         int j;
         for (j = 2; j < argc; j++) {
             argv[j] = sdstrim(argv[j],"\t\r\n");
-            if (ACLSetUser(fakeuser,argv[j],sdslen(argv[j])) != C_OK) {
+            if (ACLSetUser(u,argv[j],sdslen(argv[j])) != C_OK) {
                 const char *errmsg = ACLSetUserStringError();
                 errors = sdscatprintf(errors,
                          "%s:%d: %s. ",
@@ -1605,36 +1626,23 @@ sds ACLLoadFromFile(const char *filename) {
             continue;
         }
 
-        /* We can finally lookup the user and apply the rule. If the
-         * user already exists we always reset it to start. */
-        user *u = ACLCreateUser(argv[1],sdslen(argv[1]));
-        if (!u) {
-            u = ACLGetUserByName(argv[1],sdslen(argv[1]));
-            serverAssert(u != NULL);
-            ACLSetUser(u,"reset",-1);
-        }
-
-        /* Note that the same rules already applied to the fake user, so
-         * we just assert that everything goes well: it should. */
-        for (j = 2; j < argc; j++)
-            serverAssert(ACLSetUser(u,argv[j],sdslen(argv[j])) == C_OK);
-
         sdsfreesplitres(argv,argc);
     }
 
-    ACLFreeUser(fakeuser);
     sdsfreesplitres(lines,totlines);
-    DefaultUser = old_default_user; /* This pointer must never change. */
 
     /* Check if we found errors and react accordingly. */
     if (sdslen(errors) == 0) {
         /* The default user pointer is referenced in different places: instead
          * of replacing such occurrences it is much simpler to copy the new
          * default user configuration in the old one. */
-        user *new = ACLGetUserByName("default",7);
-        serverAssert(new != NULL);
-        ACLCopyUser(DefaultUser,new);
-        ACLFreeUser(new);
+        user *new_default = ACLGetUserByName("default",7);
+        if (!new_default) {
+            new_default = ACLCreateDefaultUser();
+        }
+
+        ACLCopyUser(DefaultUser,new_default);
+        ACLFreeUser(new_default);
         raxInsert(Users,(unsigned char*)"default",7,DefaultUser,NULL);
         raxRemove(old_users,(unsigned char*)"default",7,NULL);
         ACLFreeUsersSet(old_users);

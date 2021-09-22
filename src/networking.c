@@ -2029,17 +2029,21 @@ int processMultibulkBuffer(client *c) {
  * 2. In the case of master clients, the replication offset is updated.
  * 3. Propagate commands we got from our master to replicas down the line. */
 void commandProcessed(client *c) {
+    /* If client is blocked(including paused), just return avoid reset and replicate.
+     *
+     * 1. Don't reset the client structure for blocked clients, so that the reply
+     *    callback will still be able to access the client argv and argc fields.
+     *    The client will be reset in unblockClient().
+     * 2. Don't update replication offset or propagate commands to replicas,
+     *    since we have not applied the command. */
+    if (c->flags & CLIENT_BLOCKED) return;
+
+    resetClient(c);
+
     long long prev_offset = c->reploff;
     if (c->flags & CLIENT_MASTER && !(c->flags & CLIENT_MULTI)) {
         /* Update the applied replication offset of our master. */
         c->reploff = c->read_reploff - sdslen(c->querybuf) + c->qb_pos;
-    }
-
-    /* Don't reset the client structure for blocked clients, so that the reply
-     * callback will still be able to access the client argv and argc fields.
-     * The client will be reset in unblockClient(). */
-    if (!(c->flags & CLIENT_BLOCKED)) {
-        resetClient(c);
     }
 
     /* If the client is a master we need to compute the difference
@@ -2371,7 +2375,7 @@ sds catClientInfoString(sds s, client *client) {
     }
 
     return sdscatfmt(s,
-        "id=%U addr=%s laddr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i multi=%i qbuf=%U qbuf-free=%U argv-mem=%U obl=%U oll=%U omem=%U tot-mem=%U events=%s cmd=%s user=%s redir=%I",
+        "id=%U addr=%s laddr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i multi=%i qbuf=%U qbuf-free=%U argv-mem=%U obl=%U oll=%U omem=%U tot-mem=%U events=%s cmd=%s user=%s redir=%I resp=%i",
         (unsigned long long) client->id,
         getClientPeerId(client),
         getClientSockname(client),
@@ -2394,7 +2398,8 @@ sds catClientInfoString(sds s, client *client) {
         events,
         client->lastcmd ? client->lastcmd->name : "NULL",
         client->user ? client->user->name : "(superuser)",
-        (client->flags & CLIENT_TRACKING) ? (long long) client->client_tracking_redirection : -1);
+        (client->flags & CLIENT_TRACKING) ? (long long) client->client_tracking_redirection : -1,
+        client->resp);
 }
 
 sds getAllClientsInfoString(int type) {
@@ -3421,6 +3426,7 @@ void unpauseClients(void) {
     client *c;
     
     server.client_pause_type = CLIENT_PAUSE_OFF;
+    server.client_pause_end_time = 0;
 
     /* Unblock all of the clients so they are reprocessed. */
     listRewind(server.paused_clients,&li);
