@@ -15,7 +15,7 @@ start_server {tags {"protocol network"}} {
 
     test "Out of range multibulk length" {
         reconnect
-        r write "*20000000\r\n"
+        r write "*3000000000\r\n"
         r flush
         assert_error "*invalid multibulk length*" {r read}
     }
@@ -195,6 +195,14 @@ start_server {tags {"protocol network"}} {
         r hello 3
         r debug protocol verbatim
     } "This is a verbatim\nstring" {needs:debug resp3}
+
+    test "test large number of args" {
+        r flushdb
+        set args [split [string trim [string repeat "k v " 10000]]]
+        lappend args k2 v2
+        r mset {*}$args
+        assert_equal [r get k2] v2
+    }
 
 }
 
