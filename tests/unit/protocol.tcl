@@ -199,9 +199,9 @@ start_server {tags {"protocol network"}} {
     test "test large number of args" {
         r flushdb
         set args [split [string trim [string repeat "k v " 10000]]]
-        lappend args k2 v2
+        lappend args "{k}2" v2
         r mset {*}$args
-        assert_equal [r get k2] v2
+        assert_equal [r get "{k}2"] v2
     }
 
 }
