@@ -319,7 +319,7 @@ void feedReplicationBuffer(char *s, size_t len) {
         tail->id = repl_block_id++;
         memcpy(tail->buf, s, len);
         listAddNodeTail(server.repl_buffer_blocks, tail);
-        /* We also count the list node memory into replication buffer memroy. */
+        /* We also count the list node memory into replication buffer memory. */
         server.repl_buffer_mem += (usable_size + sizeof(listNode));
         add_new_block = 1;
         if (start_node == NULL) {
