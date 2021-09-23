@@ -1104,7 +1104,7 @@ void blockingPopGenericCommand(client *c, robj **keys, int numkeys, int where, i
     }
 
     /* If the keys do not exist we must block */
-    struct listPos pos = {where};
+    struct blockPos pos = {where};
     blockForKeys(c,BLOCKED_LIST,keys,numkeys,count,timeout,NULL,&pos,NULL);
 }
 
@@ -1129,7 +1129,7 @@ void blmoveGenericCommand(client *c, int wherefrom, int whereto, mstime_t timeou
             addReplyNull(c);
         } else {
             /* The list is empty and the client blocks. */
-            struct listPos pos = {wherefrom, whereto};
+            struct blockPos pos = {wherefrom, whereto};
             blockForKeys(c,BLOCKED_LIST,c->argv + 1,1,0,timeout,c->argv[2],&pos,NULL);
         }
     } else {

@@ -198,6 +198,10 @@ typedef enum numericType {
     NUMERIC_TYPE_TIME_T,
 } numericType;
 
+#define INTEGER_CONFIG 0 /* No flags means a simple integer configuration */
+#define MEMORY_CONFIG (1<<0) /* Indicates if this value can be loaded as a memory value */
+#define PERCENT_CONFIG (1<<1) /* Indicates if this value can be loaded as a percent (and stored as a negative int) */
+
 typedef struct numericConfigData {
     union {
         int *i;
@@ -211,7 +215,7 @@ typedef struct numericConfigData {
         off_t *ot;
         time_t *tt;
     } config; /* The pointer to the numeric config this value is stored in */
-    int is_memory; /* Indicates if this value can be loaded as a memory value */
+    unsigned int flags;
     numericType numeric_type; /* An enum indicating the type of this value */
     long long lower_bound; /* The lower bound of this numeric value */
     long long upper_bound; /* The upper bound of this numeric value */
@@ -1347,6 +1351,14 @@ void rewriteConfigBytesOption(struct rewriteConfigState *state, const char *opti
     rewriteConfigRewriteLine(state,option,line,force);
 }
 
+/* Rewrite a simple "option-name n%" configuration option. */
+void rewriteConfigPercentOption(struct rewriteConfigState *state, const char *option, long long value, long long defvalue) {
+    int force = value != defvalue;
+    sds line = sdscatprintf(sdsempty(),"%s %lld%%",option,value);
+
+    rewriteConfigRewriteLine(state,option,line,force);
+}
+
 /* Rewrite a yes/no option. */
 void rewriteConfigYesNoOption(struct rewriteConfigState *state, const char *option, int value, int defvalue) {
     int force = value != defvalue;
@@ -2111,8 +2123,18 @@ static int numericBoundaryCheck(typeData data, long long ll, const char **err) {
             return 0;
         }
     } else {
+        /* Boundary check for percentages */
+        if (data.numeric.flags & PERCENT_CONFIG && ll < 0) {
+            if (ll < data.numeric.lower_bound) {
+                snprintf(loadbuf, LOADBUF_SIZE,
+                         "percentage argument must be less or equal to %lld",
+                         -data.numeric.lower_bound);
+                *err = loadbuf;
+                return 0;
+            }
+        }
         /* Boundary check for signed types */
-        if (ll > data.numeric.upper_bound || ll < data.numeric.lower_bound) {
+        else if (ll > data.numeric.upper_bound || ll < data.numeric.lower_bound) {
             snprintf(loadbuf, LOADBUF_SIZE,
                 "argument must be between %lld and %lld inclusive",
                 data.numeric.lower_bound,
@@ -2124,22 +2146,46 @@ static int numericBoundaryCheck(typeData data, long long ll, const char **err) {
     return 1;
 }
 
+static int numericParseString(typeData data, sds value, const char **err, long long *res) {
+    /* First try to parse as memory */
+    if (data.numeric.flags & MEMORY_CONFIG) {
+        int memerr;
+        *res = memtoull(value, &memerr);
+        if (!memerr)
+            return 1;
+    }
+
+    /* Attempt to parse as percent */
+    if (data.numeric.flags & PERCENT_CONFIG &&
+        sdslen(value) > 1 && value[sdslen(value)-1] == '%' &&
+        string2ll(value, sdslen(value)-1, res) &&
+        *res >= 0) {
+            /* We store percentage as negative value */
+            *res = -*res;
+            return 1;
+    }
+
+    /* Attempt a simple number (no special flags set) */
+    if (!data.numeric.flags && string2ll(value, sdslen(value), res))
+        return 1;
+
+    /* Select appropriate error string */
+    if (data.numeric.flags & MEMORY_CONFIG &&
+        data.numeric.flags & PERCENT_CONFIG)
+        *err = "argument must be a memory or percent value" ;
+    else if (data.numeric.flags & MEMORY_CONFIG)
+        *err = "argument must be a memory value";
+    else
+        *err = "argument couldn't be parsed into an integer";
+    return 0;
+}
 
 static int numericConfigSet(typeData data, sds value, int update, const char **err) {
     long long ll, prev = 0;
-    if (data.numeric.is_memory) {
-        int memerr;
-        ll = memtoull(value, &memerr);
-        if (memerr) {
-            *err = "argument must be a memory value";
-            return 0;
-        }
-    } else {
-        if (!string2ll(value, sdslen(value), &ll)) {
-            *err = "argument couldn't be parsed into an integer" ;
-            return 0;
-        }
-    }
+
+    if (!numericParseString(data, value, err, &ll))
+        return 0;
+
     if (!numericBoundaryCheck(data, ll, err))
         return 0;
 
@@ -2158,21 +2204,21 @@ static int numericConfigSet(typeData data, sds value, int update, const char **e
 
 static void numericConfigGet(client *c, typeData data) {
     char buf[128];
-    if (data.numeric.is_memory) {
-        unsigned long long value = 0;
-        
-        GET_NUMERIC_TYPE(value)
 
-        ull2string(buf, sizeof(buf), value);
-        addReplyBulkCString(c, buf);
-    } else{
-        long long value = 0;
-        
-        GET_NUMERIC_TYPE(value)
+    long long value = 0;
+    GET_NUMERIC_TYPE(value)
 
-        ll2string(buf, sizeof(buf), value);
-        addReplyBulkCString(c, buf);
+    if (data.numeric.flags & PERCENT_CONFIG && value < 0) {
+        int len = ll2string(buf, sizeof(buf), -value);
+        buf[len] = '%';
+        buf[len+1] = '\0';
     }
+    else if (data.numeric.flags & MEMORY_CONFIG) {
+        ull2string(buf, sizeof(buf), value);
+    } else {
+        ll2string(buf, sizeof(buf), value);
+    }
+    addReplyBulkCString(c, buf);
 }
 
 static void numericConfigRewrite(typeData data, const char *name, struct rewriteConfigState *state) {
@@ -2180,18 +2226,17 @@ static void numericConfigRewrite(typeData data, const char *name, struct rewrite
 
     GET_NUMERIC_TYPE(value)
 
-    if (data.numeric.is_memory) {
+    if (data.numeric.flags & PERCENT_CONFIG && value < 0) {
+        rewriteConfigPercentOption(state, name, -value, data.numeric.default_value);
+    } else if (data.numeric.flags & MEMORY_CONFIG) {
         rewriteConfigBytesOption(state, name, value, data.numeric.default_value);
     } else {
         rewriteConfigNumericalOption(state, name, value, data.numeric.default_value);
     }
 }
 
-#define INTEGER_CONFIG 0
-#define MEMORY_CONFIG 1
-
-#define embedCommonNumericalConfig(name, alias, flags, lower, upper, config_addr, default, memory, is_valid, update) { \
-    embedCommonConfig(name, alias, flags) \
+#define embedCommonNumericalConfig(name, alias, _flags, lower, upper, config_addr, default, num_conf_flags, is_valid, update) { \
+    embedCommonConfig(name, alias, _flags) \
     embedConfigInterface(numericConfigInit, numericConfigSet, numericConfigGet, numericConfigRewrite) \
     .data.numeric = { \
         .lower_bound = (lower), \
@@ -2199,73 +2244,73 @@ static void numericConfigRewrite(typeData data, const char *name, struct rewrite
         .default_value = (default), \
         .is_valid_fn = (is_valid), \
         .update_fn = (update), \
-        .is_memory = (memory),
+        .flags = (num_conf_flags),
 
-#define createIntConfig(name, alias, flags, lower, upper, config_addr, default, memory, is_valid, update) \
-    embedCommonNumericalConfig(name, alias, flags, lower, upper, config_addr, default, memory, is_valid, update) \
+#define createIntConfig(name, alias, flags, lower, upper, config_addr, default, num_conf_flags, is_valid, update) \
+    embedCommonNumericalConfig(name, alias, flags, lower, upper, config_addr, default, num_conf_flags, is_valid, update) \
         .numeric_type = NUMERIC_TYPE_INT, \
         .config.i = &(config_addr) \
     } \
 }
 
-#define createUIntConfig(name, alias, flags, lower, upper, config_addr, default, memory, is_valid, update) \
-    embedCommonNumericalConfig(name, alias, flags, lower, upper, config_addr, default, memory, is_valid, update) \
+#define createUIntConfig(name, alias, flags, lower, upper, config_addr, default, num_conf_flags, is_valid, update) \
+    embedCommonNumericalConfig(name, alias, flags, lower, upper, config_addr, default, num_conf_flags, is_valid, update) \
         .numeric_type = NUMERIC_TYPE_UINT, \
         .config.ui = &(config_addr) \
     } \
 }
 
-#define createLongConfig(name, alias, flags, lower, upper, config_addr, default, memory, is_valid, update) \
-    embedCommonNumericalConfig(name, alias, flags, lower, upper, config_addr, default, memory, is_valid, update) \
+#define createLongConfig(name, alias, flags, lower, upper, config_addr, default, num_conf_flags, is_valid, update) \
+    embedCommonNumericalConfig(name, alias, flags, lower, upper, config_addr, default, num_conf_flags, is_valid, update) \
         .numeric_type = NUMERIC_TYPE_LONG, \
         .config.l = &(config_addr) \
     } \
 }
 
-#define createULongConfig(name, alias, flags, lower, upper, config_addr, default, memory, is_valid, update) \
-    embedCommonNumericalConfig(name, alias, flags, lower, upper, config_addr, default, memory, is_valid, update) \
+#define createULongConfig(name, alias, flags, lower, upper, config_addr, default, num_conf_flags, is_valid, update) \
+    embedCommonNumericalConfig(name, alias, flags, lower, upper, config_addr, default, num_conf_flags, is_valid, update) \
         .numeric_type = NUMERIC_TYPE_ULONG, \
         .config.ul = &(config_addr) \
     } \
 }
 
-#define createLongLongConfig(name, alias, flags, lower, upper, config_addr, default, memory, is_valid, update) \
-    embedCommonNumericalConfig(name, alias, flags, lower, upper, config_addr, default, memory, is_valid, update) \
+#define createLongLongConfig(name, alias, flags, lower, upper, config_addr, default, num_conf_flags, is_valid, update) \
+    embedCommonNumericalConfig(name, alias, flags, lower, upper, config_addr, default, num_conf_flags, is_valid, update) \
         .numeric_type = NUMERIC_TYPE_LONG_LONG, \
         .config.ll = &(config_addr) \
     } \
 }
 
-#define createULongLongConfig(name, alias, flags, lower, upper, config_addr, default, memory, is_valid, update) \
-    embedCommonNumericalConfig(name, alias, flags, lower, upper, config_addr, default, memory, is_valid, update) \
+#define createULongLongConfig(name, alias, flags, lower, upper, config_addr, default, num_conf_flags, is_valid, update) \
+    embedCommonNumericalConfig(name, alias, flags, lower, upper, config_addr, default, num_conf_flags, is_valid, update) \
         .numeric_type = NUMERIC_TYPE_ULONG_LONG, \
         .config.ull = &(config_addr) \
     } \
 }
 
-#define createSizeTConfig(name, alias, flags, lower, upper, config_addr, default, memory, is_valid, update) \
-    embedCommonNumericalConfig(name, alias, flags, lower, upper, config_addr, default, memory, is_valid, update) \
+#define createSizeTConfig(name, alias, flags, lower, upper, config_addr, default, num_conf_flags, is_valid, update) \
+    embedCommonNumericalConfig(name, alias, flags, lower, upper, config_addr, default, num_conf_flags, is_valid, update) \
         .numeric_type = NUMERIC_TYPE_SIZE_T, \
         .config.st = &(config_addr) \
     } \
 }
 
-#define createSSizeTConfig(name, alias, flags, lower, upper, config_addr, default, memory, is_valid, update) \
-    embedCommonNumericalConfig(name, alias, flags, lower, upper, config_addr, default, memory, is_valid, update) \
+#define createSSizeTConfig(name, alias, flags, lower, upper, config_addr, default, num_conf_flags, is_valid, update) \
+    embedCommonNumericalConfig(name, alias, flags, lower, upper, config_addr, default, num_conf_flags, is_valid, update) \
         .numeric_type = NUMERIC_TYPE_SSIZE_T, \
         .config.sst = &(config_addr) \
     } \
 }
 
-#define createTimeTConfig(name, alias, flags, lower, upper, config_addr, default, memory, is_valid, update) \
-    embedCommonNumericalConfig(name, alias, flags, lower, upper, config_addr, default, memory, is_valid, update) \
+#define createTimeTConfig(name, alias, flags, lower, upper, config_addr, default, num_conf_flags, is_valid, update) \
+    embedCommonNumericalConfig(name, alias, flags, lower, upper, config_addr, default, num_conf_flags, is_valid, update) \
         .numeric_type = NUMERIC_TYPE_TIME_T, \
         .config.tt = &(config_addr) \
     } \
 }
 
-#define createOffTConfig(name, alias, flags, lower, upper, config_addr, default, memory, is_valid, update) \
-    embedCommonNumericalConfig(name, alias, flags, lower, upper, config_addr, default, memory, is_valid, update) \
+#define createOffTConfig(name, alias, flags, lower, upper, config_addr, default, num_conf_flags, is_valid, update) \
+    embedCommonNumericalConfig(name, alias, flags, lower, upper, config_addr, default, num_conf_flags, is_valid, update) \
         .numeric_type = NUMERIC_TYPE_OFF_T, \
         .config.ot = &(config_addr) \
     } \
@@ -2653,6 +2698,7 @@ standardConfig configs[] = {
     createSizeTConfig("hll-sparse-max-bytes", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.hll_sparse_max_bytes, 3000, MEMORY_CONFIG, NULL, NULL),
     createSizeTConfig("tracking-table-max-keys", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.tracking_table_max_keys, 1000000, INTEGER_CONFIG, NULL, NULL), /* Default: 1 million keys max. */
     createSizeTConfig("client-query-buffer-limit", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, 1024*1024, LONG_MAX, server.client_max_querybuf_len, 1024*1024*1024, MEMORY_CONFIG, NULL, NULL), /* Default: 1GB max query buffer. */
+    createSSizeTConfig("maxmemory-clients", NULL, MODIFIABLE_CONFIG, -100, SSIZE_MAX, server.maxmemory_clients, 0, MEMORY_CONFIG | PERCENT_CONFIG, NULL, NULL),
 
     /* Other configs */
     createTimeTConfig("repl-backlog-ttl", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.repl_backlog_time_limit, 60*60, INTEGER_CONFIG, NULL, NULL), /* Default: 1 hour */

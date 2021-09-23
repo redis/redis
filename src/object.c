@@ -1197,7 +1197,7 @@ and since the histlen counts the used portion, we need to explicitly add the unu
     mh->clients_slaves = getSlavesOutputBufferMemoryUsage();
     /* Computing the memory used by the clients would be O(N) if done
      * here online. We use our values computed incrementally by
-     * clientsCronTrackClientsMemUsage(). */
+     * updateClientMemUsage(). */
     mh->clients_normal = server.stat_clients_type_memory[CLIENT_TYPE_MASTER]+
                          server.stat_clients_type_memory[CLIENT_TYPE_PUBSUB]+
                          server.stat_clients_type_memory[CLIENT_TYPE_NORMAL];
