@@ -2096,7 +2096,7 @@ int clientsCronResizeQueryBuffer(client *c) {
 
     /* Only resize the query buffer if the buffer is actually wasting at least a
      * few kbytes */
-    if (sdsavail(c->querybuf) > 1024*4) {
+    if (sdsavail(c->querybuf) > 1024*4 && !c->submitted_query) {
         /* There are two conditions to resize the query buffer: */
         if (idletime > 2) {
             /* 1) Query is idle for a long time. */
@@ -3428,6 +3428,7 @@ int createSocketAcceptHandler(socketFds *sfd, aeFileProc *accept_handler) {
     int j;
 
     for (j = 0; j < sfd->count; j++) {
+        aeRegisterFile(server.el, sfd->fd[j]);
         if (aeCreateFileEvent(server.el, sfd->fd[j], AE_READABLE, accept_handler,NULL) == AE_ERR) {
             /* Rollback */
             for (j = j-1; j >= 0; j--) aeDeleteFileEvent(server.el, sfd->fd[j], AE_READABLE);
@@ -3555,8 +3556,11 @@ void makeThreadKillable(void) {
     pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
 }
 
+#define ENABLE_SQPOLL 1
+
 void initServer(void) {
     int j;
+    int extflags = 0;
 
     signal(SIGHUP, SIG_IGN);
     signal(SIGPIPE, SIG_IGN);
@@ -3610,7 +3614,13 @@ void initServer(void) {
     adjustOpenFilesLimit();
     const char *clk_msg = monotonicInit();
     serverLog(LL_NOTICE, "monotonic clock: %s", clk_msg);
-    server.el = aeCreateEventLoop(server.maxclients+CONFIG_FDSET_INCR);
+
+#ifdef HAVE_IO_URING
+    if (server.sqpoll)
+        extflags |= ENABLE_SQPOLL;
+#endif
+
+    server.el = aeCreateEventLoop(server.maxclients + CONFIG_FDSET_INCR, extflags);
     if (server.el == NULL) {
         serverLog(LL_WARNING,
             "Failed creating the event loop. Error message: '%s'",
@@ -3739,6 +3749,7 @@ void initServer(void) {
 
     /* Register a readable event for the pipe used to awake the event loop
      * when a blocked client in a module needs attention. */
+    aeRegisterFile(server.el, server.module_blocked_pipe[0]);
     if (aeCreateFileEvent(server.el, server.module_blocked_pipe[0], AE_READABLE,
         moduleBlockedClientPipeReadable,NULL) == AE_ERR) {
             serverPanic(

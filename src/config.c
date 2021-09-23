@@ -313,6 +313,10 @@ void resetServerSaveParams(void) {
     server.saveparamslen = 0;
 }
 
+void setServerSqpoll() {
+    server.sqpoll = 1;
+}
+
 void queueLoadModule(sds path, sds *argv, int argc) {
     int i;
     struct moduleLoadQueueEntry *loadmod;
@@ -639,6 +643,8 @@ void loadServerConfigFromString(char *config) {
                 }
                 queueSentinelConfig(argv+1,argc-1,linenum,lines[i]);
             }
+        } else if (!strcasecmp(argv[0], "sqpoll")) {
+            setServerSqpoll();
         } else {
             err = "Bad directive or wrong number of arguments"; goto loaderr;
         }

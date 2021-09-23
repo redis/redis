@@ -115,10 +115,19 @@ client *createClient(connection *conn) {
      * in the context of a client. When commands are executed in other
      * contexts (for instance a Lua script) we need a non connected client. */
     if (conn) {
+#if !defined(HAVE_IO_URING)
         connEnableTcpNoDelay(conn);
+#endif
         if (server.tcpkeepalive)
             connKeepAlive(conn,server.tcpkeepalive);
+
+#if defined(HAVE_IO_URING)
+        /* Do not create poll event */
+        conn->read_handler = readDoneFromClient;
+        conn->write_handler = writeDoneToClient;
+#else
         connSetReadHandler(conn, readQueryFromClient);
+#endif
         connSetPrivateData(conn, c);
     }
 
@@ -130,9 +139,11 @@ client *createClient(connection *conn) {
     c->conn = conn;
     c->name = NULL;
     c->bufpos = 0;
+    c->qblen = 0;
     c->buf_usable_size = zmalloc_usable_size(c)-offsetof(client,buf);
     c->qb_pos = 0;
     c->querybuf = sdsempty();
+    c->submitted_query = 0;
     c->pending_querybuf = sdsempty();
     c->querybuf_peak = 0;
     c->reqtype = 0;
@@ -145,6 +156,7 @@ client *createClient(connection *conn) {
     c->multibulklen = 0;
     c->bulklen = -1;
     c->sentlen = 0;
+    c->totwritten = 0;
     c->flags = 0;
     c->ctime = c->lastinteraction = server.unixtime;
     clientSetDefaultAuth(c);
@@ -1127,6 +1139,10 @@ static void acceptCommonHandler(connection *conn, int flags, char *ip) {
         freeClient(connGetPrivateData(conn));
         return;
     }
+
+#ifdef HAVE_IO_URING
+    readQueryFromClient(conn);
+#endif
 }
 
 void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
@@ -1142,9 +1158,17 @@ void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
             if (errno != EWOULDBLOCK)
                 serverLog(LL_WARNING,
                     "Accepting client connection: %s", server.neterr);
+
+#ifdef HAVE_IO_URING
+            if (aeCreateFileEvent(el, fd, AE_READABLE, acceptTcpHandler, NULL) == AE_ERR) {
+                serverPanic("Unrecoverable error creating server.ipfd file event.");
+            }
+#endif
+
             return;
         }
         serverLog(LL_VERBOSE,"Accepted %s:%d", cip, cport);
+        aeRegisterFile(el, cfd);
         acceptCommonHandler(connCreateAcceptedSocket(cfd),0,cip);
     }
 }
@@ -1162,9 +1186,17 @@ void acceptTLSHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
             if (errno != EWOULDBLOCK)
                 serverLog(LL_WARNING,
                     "Accepting client connection: %s", server.neterr);
+
+#ifdef HAVE_IO_URING
+            if (aeCreateFileEvent(el, fd, AE_READABLE, acceptTcpHandler, NULL) == AE_ERR) {
+                serverPanic("Unrecoverable error creating server.ipfd file event.");
+            }
+#endif
+
             return;
         }
         serverLog(LL_VERBOSE,"Accepted %s:%d", cip, cport);
+        aeRegisterFile(el, cfd);
         acceptCommonHandler(connCreateAcceptedTLS(cfd, server.tls_auth_clients),0,cip);
     }
 }
@@ -1181,9 +1213,17 @@ void acceptUnixHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
             if (errno != EWOULDBLOCK)
                 serverLog(LL_WARNING,
                     "Accepting client connection: %s", server.neterr);
+
+#ifdef HAVE_IO_URING
+            if (aeCreateFileEvent(el, fd, AE_READABLE, acceptTcpHandler, NULL) == AE_ERR) {
+                serverPanic("Unrecoverable error creating server.ipfd file event.");
+            }
+#endif
+
             return;
         }
         serverLog(LL_VERBOSE,"Accepted connection to %s", server.unixsocket);
+        aeRegisterFile(el, cfd);
         acceptCommonHandler(connCreateAcceptedSocket(cfd),CLIENT_UNIX_SOCKET,NULL);
     }
 }
@@ -1512,12 +1552,21 @@ int writeToClient(client *c, int handler_installed) {
     /* Update total number of writes on server */
     atomicIncr(server.stat_total_writes_processed, 1);
 
-    ssize_t nwritten = 0, totwritten = 0;
     size_t objlen;
     clientReplyBlock *o;
 
+#if defined(HAVE_IO_URING)
+    (void)handler_installed;
+    if (clientHasPendingReplies(c)) {
+#else
+    ssize_t nwritten = 0, totwritten = 0;
     while(clientHasPendingReplies(c)) {
+#endif
         if (c->bufpos > 0) {
+#if defined(HAVE_IO_URING)
+            c->wiov.iov_len = c->bufpos-c->sentlen;
+            c->wiov.iov_base = c->buf+c->sentlen;
+#else
             nwritten = connWrite(c->conn,c->buf+c->sentlen,c->bufpos-c->sentlen);
             if (nwritten <= 0) break;
             c->sentlen += nwritten;
@@ -1529,6 +1578,7 @@ int writeToClient(client *c, int handler_installed) {
                 c->bufpos = 0;
                 c->sentlen = 0;
             }
+#endif
         } else {
             o = listNodeValue(listFirst(c->reply));
             objlen = o->used;
@@ -1536,9 +1586,15 @@ int writeToClient(client *c, int handler_installed) {
             if (objlen == 0) {
                 c->reply_bytes -= o->size;
                 listDelNode(c->reply,listFirst(c->reply));
-                continue;
+#if defined(HAVE_IO_URING)
+                return C_OK;
             }
 
+            c->wiov.iov_len = objlen - c->sentlen;
+            c->wiov.iov_base = o->buf + c->sentlen;
+#else
+                continue;
+            }
             nwritten = connWrite(c->conn, o->buf + c->sentlen, objlen - c->sentlen);
             if (nwritten <= 0) break;
             c->sentlen += nwritten;
@@ -1554,7 +1610,18 @@ int writeToClient(client *c, int handler_installed) {
                 if (listLength(c->reply) == 0)
                     serverAssert(c->reply_bytes == 0);
             }
+#endif
         }
+#if defined(HAVE_IO_URING)
+        if (aeCreateFileEventWithBuf(server.el, c->conn->fd, AE_WRITABLE,
+                                     c->conn->type->ae_handler, c->conn, &(c->wiov)) == AE_ERR)
+        {
+            serverPanic("Unrecoverable error creating WRITABLE file event.");
+        }
+    }
+
+#else
+
         /* Note that we avoid to send more than NET_MAX_WRITES_PER_EVENT
          * bytes, in a single threaded server it's a good idea to serve
          * other clients as well, even if a very large request comes from
@@ -1572,6 +1639,7 @@ int writeToClient(client *c, int handler_installed) {
              zmalloc_used_memory() < server.maxmemory) &&
             !(c->flags & CLIENT_SLAVE)) break;
     }
+
     atomicIncr(server.stat_net_output_bytes, totwritten);
     if (nwritten == -1) {
         if (connGetState(c->conn) != CONN_STATE_CONNECTED) {
@@ -1602,8 +1670,87 @@ int writeToClient(client *c, int handler_installed) {
             return C_ERR;
         }
     }
+#endif
     return C_OK;
 }
+
+#if defined(HAVE_IO_URING)
+void writeDoneToClient(connection *conn) {
+    client *c = connGetPrivateData(conn);
+    ssize_t nwritten = conn->cqe_res;
+    if (nwritten < 0) {
+        if (connGetState(conn) == CONN_STATE_CONNECTED) {
+            nwritten = 0;
+        } else {
+            serverLog(LL_VERBOSE,
+                "Error writing to client: %s", connGetLastError(c->conn));
+            freeClientAsync(c);
+            return;
+	}
+    }
+    if (nwritten <= 0) return;
+    c->sentlen += nwritten; 
+    c->totwritten += nwritten;
+    size_t objlen;
+    clientReplyBlock *o;
+    if (c->bufpos > 0) {
+        /* If the buffer was sent, set bufpos to zero to continue with
+         * the remainder of the reply. */
+        if ((int)c->sentlen == c->bufpos) {
+            c->bufpos = 0;
+            c->sentlen = 0;
+        }
+    } else {
+        o = listNodeValue(listFirst(c->reply));
+        objlen = o->used;
+        /* If we fully sent the object on head go to the next one */
+        if (c->sentlen == objlen) {
+            c->reply_bytes -= o->size;
+            listDelNode(c->reply,listFirst(c->reply));
+            c->sentlen = 0;
+            /* If there are no longer objects in the list, we expect
+                * the count of reply bytes to be exactly zero. */
+            if (listLength(c->reply) == 0)
+                serverAssert(c->reply_bytes == 0);
+        }
+    }
+   /* Note that we avoid to send more than NET_MAX_WRITES_PER_EVENT
+    * bytes, in a single threaded server it's a good idea to serve
+    * other clients as well, even if a very large request comes from
+    * super fast link that is always able to accept data (in real world
+    * scenario think about 'KEYS *' against the loopback interface).
+    *
+    * However if we are over the maxmemory limit we ignore that and
+    * just deliver as much data as it is possible to deliver.
+    *
+    * Moreover, we also send as much as possible if the client is
+    * a slave or a monitor (otherwise, on high-speed traffic, the
+    * replication/output buffer will grow indefinitely) */
+    if (c->totwritten > NET_MAX_WRITES_PER_EVENT && (server.maxmemory == 0
+        || zmalloc_used_memory() < server.maxmemory) && !(c->flags & CLIENT_SLAVE))
+        return;
+    if (clientHasPendingReplies(c)) {
+        writeToClient(c, 0);
+    } else {
+        server.stat_net_output_bytes += c->totwritten;
+        if (c->totwritten > 0) {
+            /* For clients representing masters we don't count sending data
+            * as an interaction, since we always send REPLCONF ACK commands
+            * that take some time to just fill the socket output buffer.
+            * We just rely on data / pings received for timeout detection. */
+            if (!(c->flags & CLIENT_MASTER)) c->lastinteraction = server.unixtime;
+        }
+        c->sentlen = 0;
+        c->totwritten = 0;
+        /* Close connection after entire reply has been sent. */
+        if (c->flags & CLIENT_CLOSE_AFTER_REPLY) {
+            freeClientAsync(c);
+        }
+        if (c->flags & CLIENT_CLOSE_AFTER_REPLY) return;
+        readQueryFromClient(conn);
+    }
+}
+#endif
 
 /* Write event handler. Just send data to the client. */
 void sendReplyToClient(connection *conn) {
@@ -1636,6 +1783,9 @@ int handleClientsWithPendingWrites(void) {
         /* Try to write buffers to the client socket. */
         if (writeToClient(c,0) == C_ERR) continue;
 
+        /* writeToClient always prepare a writev request, so clientHasPendingReplies
+        * is always true, need not add event */
+#if !defined(HAVE_IO_URING)
         /* If after the synchronous writes above we still have data to
          * output to the client, we need to install the writable handler. */
         if (clientHasPendingReplies(c)) {
@@ -1654,6 +1804,7 @@ int handleClientsWithPendingWrites(void) {
                 freeClientAsync(c);
             }
         }
+#endif
     }
     return processed;
 }
@@ -2141,7 +2292,7 @@ void processInputBuffer(client *c) {
 
 void readQueryFromClient(connection *conn) {
     client *c = connGetPrivateData(conn);
-    int nread, big_arg = 0;
+    int big_arg = 0;
     size_t qblen, readlen;
 
     /* Check if we want to read from the client later when exiting from
@@ -2169,7 +2320,7 @@ void readQueryFromClient(connection *conn) {
         if (remaining > 0) readlen = remaining;
     }
 
-    qblen = sdslen(c->querybuf);
+    qblen = c->qblen = sdslen(c->querybuf);
     if (big_arg || sdsalloc(c->querybuf) < PROTO_IOBUF_LEN) {
         /* When reading a BIG_ARG we won't be reading more than that one arg
          * into the query buffer, so we don't need to pre-allocate more than we
@@ -2183,7 +2334,9 @@ void readQueryFromClient(connection *conn) {
         /* Read as much as possible from the socket to save read(2) system calls. */
         readlen = sdsavail(c->querybuf);
     }
-    nread = connRead(c->conn, c->querybuf+qblen, readlen);
+
+#if !defined(HAVE_IO_URING)
+    int nread = connRead(c->conn, c->querybuf+qblen, readlen);
     if (nread == -1) {
         if (connGetState(conn) == CONN_STATE_CONNECTED) {
             return;
@@ -2229,7 +2382,59 @@ void readQueryFromClient(connection *conn) {
     /* There is more data in the client input buffer, continue parsing it
      * in case to check if there is a full command to execute. */
      processInputBuffer(c);
+
+#else
+    c->riov.iov_len = readlen;
+    c->riov.iov_base = c->querybuf+qblen;
+    c->submitted_query++;
+    if (aeCreateFileEventWithBuf(server.el, conn->fd, AE_READABLE, conn->type->ae_handler, conn, &c->riov) == AE_ERR) {
+        serverPanic("Unrecoverable error creating file event.");
+    }
+#endif
 }
+
+#if defined(HAVE_IO_URING)
+void readDoneFromClient(connection *conn) {
+    client *c = connGetPrivateData(conn);
+    int nread = conn->cqe_res;
+    if (nread < 0) {
+        if (connGetState(conn) == CONN_STATE_CONNECTED) {
+            return;
+        } else {
+            serverLog(LL_VERBOSE, "Reading from client: %s",connGetLastError(c->conn));
+            freeClientAsync(c);
+            return;
+        }
+    } else if (nread == 0) {
+        serverLog(LL_VERBOSE, "Client closed connection");
+        freeClientAsync(c);
+        return;
+    } else if (c->flags & CLIENT_MASTER) {
+        /* Append the query buffer to the pending (not applied) buffer
+         * of the master. We'll use this buffer later in order to have a
+         * copy of the string applied by the last command executed. */
+        c->pending_querybuf = sdscatlen(c->pending_querybuf,
+                                        c->querybuf+c->qblen,nread);
+    }
+    sdsIncrLen(c->querybuf,nread);
+    c->lastinteraction = server.unixtime;
+    if (c->flags & CLIENT_MASTER) c->read_reploff += nread;
+    server.stat_net_input_bytes += nread;
+    if (sdslen(c->querybuf) > server.client_max_querybuf_len) {
+        sds ci = catClientInfoString(sdsempty(),c), bytes = sdsempty();
+        bytes = sdscatrepr(bytes,c->querybuf,64);
+        serverLog(LL_WARNING,"Closing client that reached max query buffer length: %s (qbuf initial bytes: %s)", ci, bytes);
+        sdsfree(ci);
+        sdsfree(bytes);
+        freeClientAsync(c);
+        return;
+    }
+    /* There is more data in the client input buffer, continue parsing it
+     * in case to check if there is a full command to execute. */
+    processInputBuffer(c);
+    c->submitted_query--;
+}
+#endif
 
 /* A Redis "Address String" is a colon separated ip:port pair.
  * For IPv4 it's in the form x.y.z.k:port, example: "127.0.0.1:1234".

@@ -79,6 +79,11 @@
 #define HAVE_EPOLL 1
 #endif
 
+/* Test for io uring API */
+#ifdef __linux__
+#define HAVE_IO_URING 1
+#endif
+
 /* Test for accept4() */
 #ifdef __linux__
 #define HAVE_ACCEPT4 1

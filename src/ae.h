@@ -46,6 +46,7 @@
                            loop iteration. Useful when you want to persist
                            things to disk before sending replies, and want
                            to do that in a group fashion. */
+#define AE_POLLABLE 8   /* Especially for io_uring */
 
 #define AE_FILE_EVENTS (1<<0)
 #define AE_TIME_EVENTS (1<<1)
@@ -61,6 +62,7 @@
 #define AE_NOTUSED(V) ((void) V)
 
 struct aeEventLoop;
+struct iovec;
 
 /* Types and data structures */
 typedef void aeFileProc(struct aeEventLoop *eventLoop, int fd, void *clientData, int mask);
@@ -93,6 +95,7 @@ typedef struct aeTimeEvent {
 typedef struct aeFiredEvent {
     int fd;
     int mask;
+    int res;
 } aeFiredEvent;
 
 /* State of an event based program */
@@ -108,14 +111,17 @@ typedef struct aeEventLoop {
     aeBeforeSleepProc *beforesleep;
     aeBeforeSleepProc *aftersleep;
     int flags;
+    int extflags;
 } aeEventLoop;
 
 /* Prototypes */
-aeEventLoop *aeCreateEventLoop(int setsize);
+aeEventLoop *aeCreateEventLoop(int setsize, int extflags);
 void aeDeleteEventLoop(aeEventLoop *eventLoop);
 void aeStop(aeEventLoop *eventLoop);
 int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
         aeFileProc *proc, void *clientData);
+int aeCreateFileEventWithBuf(aeEventLoop *eventLoop, int fd, int mask,
+                             aeFileProc *proc, void *clientData, struct iovec *iovecs);
 void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask);
 int aeGetFileEvents(aeEventLoop *eventLoop, int fd);
 long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
@@ -131,5 +137,6 @@ void aeSetAfterSleepProc(aeEventLoop *eventLoop, aeBeforeSleepProc *aftersleep);
 int aeGetSetSize(aeEventLoop *eventLoop);
 int aeResizeSetSize(aeEventLoop *eventLoop, int setsize);
 void aeSetDontWait(aeEventLoop *eventLoop, int noWait);
+void aeRegisterFile(aeEventLoop *eventLoop, int fd);
 
 #endif

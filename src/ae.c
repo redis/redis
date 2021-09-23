@@ -46,25 +46,30 @@
 
 #include "zmalloc.h"
 #include "config.h"
+#include "connection.h"
 
 /* Include the best multiplexing layer supported by this system.
  * The following should be ordered by performances, descending. */
 #ifdef HAVE_EVPORT
 #include "ae_evport.c"
 #else
-    #ifdef HAVE_EPOLL
-    #include "ae_epoll.c"
+    #ifdef HAVE_IO_URING
+    #include "ae_iouring.c"
     #else
-        #ifdef HAVE_KQUEUE
-        #include "ae_kqueue.c"
+        #ifdef HAVE_EPOLL
+        #include "ae_epoll.c"
         #else
-        #include "ae_select.c"
+            #ifdef HAVE_KQUEUE
+            #include "ae_kqueue.c"
+            #else
+            #include "ae_select.c"
+            #endif
         #endif
     #endif
 #endif
 
 
-aeEventLoop *aeCreateEventLoop(int setsize) {
+aeEventLoop *aeCreateEventLoop(int setsize, int extflags) {
     aeEventLoop *eventLoop;
     int i;
 
@@ -82,6 +87,7 @@ aeEventLoop *aeCreateEventLoop(int setsize) {
     eventLoop->beforesleep = NULL;
     eventLoop->aftersleep = NULL;
     eventLoop->flags = 0;
+    eventLoop->extflags = extflags;
     if (aeApiCreate(eventLoop) == -1) goto err;
     /* Events with mask == AE_NONE are not set. So let's initialize the
      * vector with it. */
@@ -158,13 +164,23 @@ void aeStop(aeEventLoop *eventLoop) {
 int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
         aeFileProc *proc, void *clientData)
 {
+    return aeCreateFileEventWithBuf(eventLoop, fd, mask, proc, clientData, NULL);
+}
+
+int aeCreateFileEventWithBuf(aeEventLoop *eventLoop, int fd, int mask,
+                             aeFileProc *proc, void *clientData, struct iovec *iovec)
+{
     if (fd >= eventLoop->setsize) {
         errno = ERANGE;
         return AE_ERR;
     }
     aeFileEvent *fe = &eventLoop->events[fd];
 
+#if defined(HAVE_IO_URING)
+    if (aeApiAddEvent(eventLoop, fd, mask, iovec) == -1)
+#else
     if (aeApiAddEvent(eventLoop, fd, mask) == -1)
+#endif
         return AE_ERR;
     fe->mask |= mask;
     if (mask & AE_READABLE) fe->rfileProc = proc;
@@ -425,6 +441,12 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
              * Fire the readable event if the call sequence is not
              * inverted. */
             if (!invert && fe->mask & mask & AE_READABLE) {
+#if defined(HAVE_IO_URING)
+                if (!(mask & AE_POLLABLE)) {
+                    connection *conn = fe->clientData;
+                    conn->cqe_res = eventLoop->fired[j].res;
+                }
+#endif
                 fe->rfileProc(eventLoop,fd,fe->clientData,mask);
                 fired++;
                 fe = &eventLoop->events[fd]; /* Refresh in case of resize. */
@@ -432,6 +454,12 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 
             /* Fire the writable event. */
             if (fe->mask & mask & AE_WRITABLE) {
+#if defined(HAVE_IO_URING)
+                    if (!(mask & AE_POLLABLE)) {
+                        connection *conn = fe->clientData;
+                        conn->cqe_res = eventLoop->fired[j].res;
+                    }
+#endif
                 if (!fired || fe->wfileProc != fe->rfileProc) {
                     fe->wfileProc(eventLoop,fd,fe->clientData,mask);
                     fired++;
@@ -445,6 +473,12 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
                 if ((fe->mask & mask & AE_READABLE) &&
                     (!fired || fe->wfileProc != fe->rfileProc))
                 {
+#if defined(HAVE_IO_URING)
+                    if (!(mask & AE_POLLABLE)) {
+                        connection *conn = fe->clientData;
+                        conn->cqe_res = eventLoop->fired[j].res;
+                    }
+#endif
                     fe->rfileProc(eventLoop,fd,fe->clientData,mask);
                     fired++;
                 }
@@ -501,4 +535,10 @@ void aeSetBeforeSleepProc(aeEventLoop *eventLoop, aeBeforeSleepProc *beforesleep
 
 void aeSetAfterSleepProc(aeEventLoop *eventLoop, aeBeforeSleepProc *aftersleep) {
     eventLoop->aftersleep = aftersleep;
+}
+
+void aeRegisterFile(aeEventLoop *eventLoop, int fd) {
+#if defined(HAVE_IO_URING)
+    aeApiRegisterFile(eventLoop, fd);
+#endif
 }

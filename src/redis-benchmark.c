@@ -706,6 +706,7 @@ static client createClient(char *cmd, size_t len, client from, int thread_id) {
             exit(1);
         }
     }
+    aeRegisterFile(config.el, c->context->fd);
     c->thread_id = thread_id;
     /* Suppress hiredis cleanup of unused buffers for max speed. */
     c->context->reader->maxbuf = 0;
@@ -1015,7 +1016,7 @@ static benchmarkThread *createBenchmarkThread(int index) {
     benchmarkThread *thread = zmalloc(sizeof(*thread));
     if (thread == NULL) return NULL;
     thread->index = index;
-    thread->el = aeCreateEventLoop(1024*10);
+    thread->el = aeCreateEventLoop(1024*10, 0);
     aeCreateTimeEvent(thread->el,1,showThroughput,(void *)thread,NULL);
     return thread;
 }
@@ -1708,7 +1709,7 @@ int main(int argc, char **argv) {
     config.numclients = 50;
     config.requests = 100000;
     config.liveclients = 0;
-    config.el = aeCreateEventLoop(1024*10);
+    config.el = aeCreateEventLoop(1024*10, 0);
     aeCreateTimeEvent(config.el,1,showThroughput,NULL,NULL);
     config.keepalive = 1;
     config.datasize = 3;
