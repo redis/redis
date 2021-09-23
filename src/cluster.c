@@ -1230,7 +1230,7 @@ void clusterHandleConfigEpochCollision(clusterNode *sender) {
  * about the node we want to remove, we don't re-add it before some time.
  *
  * Currently the CLUSTER_BLACKLIST_TTL is set to 1 minute, this means
- * that redis-trib has 60 seconds to send CLUSTER FORGET messages to nodes
+ * that redis-cli has 60 seconds to send CLUSTER FORGET messages to nodes
  * in the cluster without dealing with the problem of other nodes re-adding
  * back the node to nodes we already sent the FORGET command to.
  *
@@ -1705,7 +1705,7 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
             if (server.cluster->slots[j] == sender) continue;
 
             /* The slot is in importing state, it should be modified only
-             * manually via redis-trib (example: a resharding is in progress
+             * manually via redis-cli (example: a resharding is in progress
              * and the migrating side slot was already closed and is advertising
              * a new config. We still want the slot to be closed manually). */
             if (server.cluster->importing_slots_from[j]) continue;
@@ -4100,7 +4100,7 @@ void clusterUpdateState(void) {
  *    B) If according to our config other nodes are already in charge for
  *       this slots, we set the slots as IMPORTING from our point of view
  *       in order to justify we have those slots, and in order to make
- *       redis-trib aware of the issue, so that it can try to fix it.
+ *       redis-cli aware of the issue, so that it can try to fix it.
  * 2) If we find data in a DB different than DB0 we return C_ERR to
  *    signal the caller it should quit the server with an error message
  *    or take other actions.

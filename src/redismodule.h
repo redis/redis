@@ -4,6 +4,7 @@
 #include <sys/types.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 /* ---------------- Defines common between core and modules --------------- */
 
@@ -26,6 +27,7 @@
  * Avoid touching the LRU/LFU of the key when opened. */
 #define REDISMODULE_OPEN_KEY_NOTOUCH (1<<16)
 
+/* List push and pop */
 #define REDISMODULE_LIST_HEAD 0
 #define REDISMODULE_LIST_TAIL 1
 
@@ -614,6 +616,10 @@ REDISMODULE_API int (*RedisModule_KeyType)(RedisModuleKey *kp) REDISMODULE_ATTR;
 REDISMODULE_API size_t (*RedisModule_ValueLength)(RedisModuleKey *kp) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ListPush)(RedisModuleKey *kp, int where, RedisModuleString *ele) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleString * (*RedisModule_ListPop)(RedisModuleKey *key, int where) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleString * (*RedisModule_ListGet)(RedisModuleKey *key, long index) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ListSet)(RedisModuleKey *key, long index, RedisModuleString *value) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ListInsert)(RedisModuleKey *key, long index, RedisModuleString *value) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ListDelete)(RedisModuleKey *key, long index) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleCallReply * (*RedisModule_Call)(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...) REDISMODULE_ATTR;
 REDISMODULE_API const char * (*RedisModule_CallReplyProto)(RedisModuleCallReply *reply, size_t *len) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_FreeCallReply)(RedisModuleCallReply *reply) REDISMODULE_ATTR;
@@ -746,6 +752,7 @@ REDISMODULE_API void (*RedisModule_LogIOError)(RedisModuleIO *io, const char *le
 REDISMODULE_API void (*RedisModule__Assert)(const char *estr, const char *file, int line) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_LatencyAddSample)(const char *event, mstime_t latency) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_StringAppendBuffer)(RedisModuleCtx *ctx, RedisModuleString *str, const char *buf, size_t len) REDISMODULE_ATTR;
+REDISMODULE_API void (*RedisModule_TrimStringAllocation)(RedisModuleString *str) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_RetainString)(RedisModuleCtx *ctx, RedisModuleString *str) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleString * (*RedisModule_HoldString)(RedisModuleCtx *ctx, RedisModuleString *str) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_StringCompare)(RedisModuleString *a, RedisModuleString *b) REDISMODULE_ATTR;
@@ -820,6 +827,11 @@ REDISMODULE_API int (*RedisModule_GetKeyspaceNotificationFlagsAll)() REDISMODULE
 REDISMODULE_API int (*RedisModule_IsSubEventSupported)(RedisModuleEvent event, uint64_t subevent) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetServerVersion)() REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetTypeMethodVersion)() REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_AddCommandKeySpec)(RedisModuleCtx *ctx, const char *name, const char *specflags, int *spec_id) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_SetCommandKeySpecBeginSearchIndex)(RedisModuleCtx *ctx, const char *name, int spec_id, int index) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_SetCommandKeySpecBeginSearchKeyword)(RedisModuleCtx *ctx, const char *name, int spec_id, const char *keyword, int startfrom) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_SetCommandKeySpecFindKeysRange)(RedisModuleCtx *ctx, const char *name, int spec_id, int lastkey, int keystep, int limit) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_SetCommandKeySpecFindKeysKeynum)(RedisModuleCtx *ctx, const char *name, int spec_id, int keynumidx, int firstkey, int keystep) REDISMODULE_ATTR;
 
 /* Experimental APIs */
 #ifdef REDISMODULE_EXPERIMENTAL_API
@@ -875,6 +887,12 @@ REDISMODULE_API size_t (*RedisModule_MallocSize)(void* ptr) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleUser * (*RedisModule_CreateModuleUser)(const char *name) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_FreeModuleUser)(RedisModuleUser *user) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_SetModuleUserACL)(RedisModuleUser *user, const char* acl) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleString * (*RedisModule_GetCurrentUserName)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleUser * (*RedisModule_GetModuleUserFromUserName)(RedisModuleString *name) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ACLCheckCommandPermissions)(RedisModuleUser *user, RedisModuleString **argv, int argc) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ACLCheckKeyPermissions)(RedisModuleUser *user, RedisModuleString *key) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ACLCheckChannelPermissions)(RedisModuleUser *user, RedisModuleString *ch, int literal) REDISMODULE_ATTR;
+REDISMODULE_API void (*RedisModule_ACLAddLogEntry)(RedisModuleCtx *ctx, RedisModuleUser *user, RedisModuleString *object) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_AuthenticateClientWithACLUser)(RedisModuleCtx *ctx, const char *name, size_t len, RedisModuleUserChangedFunc callback, void *privdata, uint64_t *client_id) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_AuthenticateClientWithUser)(RedisModuleCtx *ctx, RedisModuleUser *user, RedisModuleUserChangedFunc callback, void *privdata, uint64_t *client_id) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_DeauthenticateAndCloseClient)(RedisModuleCtx *ctx, uint64_t client_id) REDISMODULE_ATTR;
@@ -940,6 +958,10 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(ValueLength);
     REDISMODULE_GET_API(ListPush);
     REDISMODULE_GET_API(ListPop);
+    REDISMODULE_GET_API(ListGet);
+    REDISMODULE_GET_API(ListSet);
+    REDISMODULE_GET_API(ListInsert);
+    REDISMODULE_GET_API(ListDelete);
     REDISMODULE_GET_API(StringToLongLong);
     REDISMODULE_GET_API(StringToDouble);
     REDISMODULE_GET_API(StringToLongDouble);
@@ -1046,6 +1068,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(_Assert);
     REDISMODULE_GET_API(LatencyAddSample);
     REDISMODULE_GET_API(StringAppendBuffer);
+    REDISMODULE_GET_API(TrimStringAllocation);
     REDISMODULE_GET_API(RetainString);
     REDISMODULE_GET_API(HoldString);
     REDISMODULE_GET_API(StringCompare);
@@ -1122,6 +1145,11 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(IsSubEventSupported);
     REDISMODULE_GET_API(GetServerVersion);
     REDISMODULE_GET_API(GetTypeMethodVersion);
+    REDISMODULE_GET_API(AddCommandKeySpec);
+    REDISMODULE_GET_API(SetCommandKeySpecBeginSearchIndex);
+    REDISMODULE_GET_API(SetCommandKeySpecBeginSearchKeyword);
+    REDISMODULE_GET_API(SetCommandKeySpecFindKeysRange);
+    REDISMODULE_GET_API(SetCommandKeySpecFindKeysKeynum);
 
 #ifdef REDISMODULE_EXPERIMENTAL_API
     REDISMODULE_GET_API(GetThreadSafeContext);
@@ -1175,6 +1203,12 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(CreateModuleUser);
     REDISMODULE_GET_API(FreeModuleUser);
     REDISMODULE_GET_API(SetModuleUserACL);
+    REDISMODULE_GET_API(GetCurrentUserName);
+    REDISMODULE_GET_API(GetModuleUserFromUserName);
+    REDISMODULE_GET_API(ACLCheckCommandPermissions);
+    REDISMODULE_GET_API(ACLCheckKeyPermissions);
+    REDISMODULE_GET_API(ACLCheckChannelPermissions);
+    REDISMODULE_GET_API(ACLAddLogEntry);
     REDISMODULE_GET_API(DeauthenticateAndCloseClient);
     REDISMODULE_GET_API(AuthenticateClientWithACLUser);
     REDISMODULE_GET_API(AuthenticateClientWithUser);

@@ -169,6 +169,8 @@ void quicklistInsertAfter(quicklist *quicklist, quicklistEntry *entry,
 void quicklistInsertBefore(quicklist *quicklist, quicklistEntry *entry,
                            void *value, const size_t sz);
 void quicklistDelEntry(quicklistIter *iter, quicklistEntry *entry);
+void quicklistReplaceEntry(quicklist *quicklist, quicklistEntry *entry,
+                           void *data, int sz);
 int quicklistReplaceAtIndex(quicklist *quicklist, long index, void *data,
                             int sz);
 int quicklistDelRange(quicklist *quicklist, const long start, const long stop);
@@ -176,6 +178,7 @@ quicklistIter *quicklistGetIterator(const quicklist *quicklist, int direction);
 quicklistIter *quicklistGetIteratorAtIdx(const quicklist *quicklist,
                                          int direction, const long long idx);
 int quicklistNext(quicklistIter *iter, quicklistEntry *entry);
+void quicklistSetDirection(quicklistIter *iter, int direction);
 void quicklistReleaseIterator(quicklistIter *iter);
 quicklist *quicklistDup(quicklist *orig);
 int quicklistIndex(const quicklist *quicklist, const long long index,

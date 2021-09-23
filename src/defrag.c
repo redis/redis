@@ -856,7 +856,7 @@ long defragKey(redisDb *db, dictEntry *de) {
             serverPanic("Unknown set encoding");
         }
     } else if (ob->type == OBJ_ZSET) {
-        if (ob->encoding == OBJ_ENCODING_ZIPLIST) {
+        if (ob->encoding == OBJ_ENCODING_LISTPACK) {
             if ((newzl = activeDefragAlloc(ob->ptr)))
                 defragged++, ob->ptr = newzl;
         } else if (ob->encoding == OBJ_ENCODING_SKIPLIST) {
@@ -1096,6 +1096,7 @@ void activeDefragCycle(void) {
             current_db = -1;
             cursor = 0;
             db = NULL;
+            goto update_metrics;
         }
         return;
     }
@@ -1190,6 +1191,15 @@ void activeDefragCycle(void) {
 
     latencyEndMonitor(latency);
     latencyAddSampleIfNeeded("active-defrag-cycle",latency);
+
+update_metrics:
+    if (server.active_defrag_running > 0) {
+        if (server.stat_last_active_defrag_time == 0)
+            elapsedStart(&server.stat_last_active_defrag_time);
+    } else if (server.stat_last_active_defrag_time != 0) {
+        server.stat_total_active_defrag_time += elapsedUs(server.stat_last_active_defrag_time);
+        server.stat_last_active_defrag_time = 0;
+    }
 }
 
 #else /* HAVE_DEFRAG */

@@ -172,11 +172,11 @@ start_server {tags {"scan network"}} {
         }
     }
 
-    foreach enc {ziplist skiplist} {
+    foreach enc {listpack skiplist} {
         test "ZSCAN with encoding $enc" {
             # Create the Sorted Set
             r del zset
-            if {$enc eq {ziplist}} {
+            if {$enc eq {listpack}} {
                 set count 30
             } else {
                 set count 1000
