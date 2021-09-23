@@ -3872,7 +3872,7 @@ int handleClientsWithPendingReadsUsingThreads(void) {
 
 /* Returns the actual client eviction limit based on current configuration or
  * 0 if no limit. */
-size_t getClientEvictionLimit() {
+size_t getClientEvictionLimit(void) {
     size_t maxmemory_clients_actual = SIZE_MAX;
 
     /* Handle percentage of maxmemory*/
@@ -3894,7 +3894,7 @@ size_t getClientEvictionLimit() {
     return maxmemory_clients_actual;
 }
 
-void evictClients() {
+void evictClients(void) {
     /* Start eviction from topmost bucket (largest clients) */
     int curr_bucket = CLIENT_MEM_USAGE_BUCKETS-1;
     listIter bucket_iter;
