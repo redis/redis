@@ -1,3 +1,4 @@
+# TODO top comments for these tests
 start_server {tags {"repl external:skip"}} {
 start_server {} {
 start_server {} {
@@ -80,6 +81,7 @@ start_server {} {
 }
 }
 
+# TODO top comments for these tests
 start_server {tags {"repl external:skip"}} {
 start_server {} {
 start_server {} {

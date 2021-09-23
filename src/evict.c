@@ -340,9 +340,9 @@ size_t freeMemoryGetNotCountedMemory(void) {
         size_t extra_approx_size =
             (server.repl_backlog_size/PROTO_REPLY_CHUNK_BYTES + 1) *
             (sizeof(replBufBlock)+sizeof(listNode));
-        size_t counted_size = server.repl_backlog_size + extra_approx_size;
-        if (server.repl_buffer_mem > counted_size) {
-            overhead += (server.repl_buffer_mem - counted_size);
+        size_t counted_mem = server.repl_backlog_size + extra_approx_size;
+        if (server.repl_buffer_mem > counted_mem) {
+            overhead += (server.repl_buffer_mem - counted_mem);
         }
     }
 

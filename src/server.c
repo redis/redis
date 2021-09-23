@@ -6690,7 +6690,7 @@ void loadDataFromDisk(void) {
         rdbSaveInfo rsi = RDB_SAVE_INFO_INIT;
         errno = 0; /* Prevent a stale value from affecting error checking */
         int rdb_flags = RDBFLAGS_NONE;
-        if (iAmMaster()) {
+        if (iAmMaster() && access(server.rdb_filename, F_OK) == 0) {
             /* Master may delete expired keys when loading, we should
              * propagate expire to replication backlog. */
             createReplicationBacklog();
@@ -6727,6 +6727,16 @@ void loadDataFromDisk(void) {
                     server.repl_backlog_off = server.master_repl_offset -
                               server.repl_backlog_histlen + 1;
                     server.repl_no_slaves_since = time(NULL);
+
+                    /* Rebase replication buffer blocks' offset since the previous
+                     * setting offset starts from 0. */
+                    listIter li;
+                    listNode *ln;
+                    listRewind(server.repl_buffer_blocks, &li);
+                    while ((ln = listNext(&li))) {
+                        replBufBlock *o = listNodeValue(ln);
+                        o->repl_offset += rsi.repl_offset;
+                    }
                 }
             }
         } else if (errno != ENOENT) {

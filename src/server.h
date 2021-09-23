@@ -1564,7 +1564,7 @@ struct redisServer {
                                      * see REPL_DISKLESS_LOAD_* enum */
     int repl_diskless_sync_delay;   /* Delay to start a diskless repl BGSAVE. */
     size_t repl_buffer_mem;         /* The memory of replication buffer. */
-	list *repl_buffer_blocks;       /* Replication buffers blocks list
+    list *repl_buffer_blocks;       /* Replication buffers blocks list
                                      * (serving replica clients and repl backlog) */
     /* Replication (slave) */
     char *masteruser;               /* AUTH with this user and masterauth with master */
