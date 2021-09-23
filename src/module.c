@@ -5132,7 +5132,21 @@ void RM_DigestEndSequence(RedisModuleDigest *md) {
     memset(md->o,0,sizeof(md->o));
 }
 
-static void *loadDataTypeFromString(const RedisModuleString *str, const moduleType *mt, int encver) {
+/* Decode a serialized representation of a module data type 'mt', in a specific encoding version 'encver'
+ * from string 'str' and return a newly allocated value, or NULL if decoding failed.
+ *
+ * This call basically reuses the 'rdb_load' callback which module data types
+ * implement in order to allow a module to arbitrarily serialize/de-serialize
+ * keys, similar to how the Redis 'DUMP' and 'RESTORE' commands are implemented.
+ *
+ * Modules should generally use the REDISMODULE_OPTIONS_HANDLE_IO_ERRORS flag and
+ * make sure the de-serialization code properly checks and handles IO errors
+ * (freeing allocated buffers and returning a NULL).
+ *
+ * If this is NOT done, Redis will handle corrupted (or just truncated) serialized
+ * data by producing an error message and terminating the process.
+ */
+void *RM_LoadDataTypeFromStringEncver(const RedisModuleString *str, const moduleType *mt, int encver) {
     rio payload;
     RedisModuleIO io;
     void *ret;
@@ -5152,29 +5166,11 @@ static void *loadDataTypeFromString(const RedisModuleString *str, const moduleTy
     return ret;
 }
 
-/* Decode a serialized representation of a module data type 'mt', in a specific encoding version 'encver'
- * from string 'str' and return a newly allocated value, or NULL if decoding failed.
- *
- * This call basically reuses the 'rdb_load' callback which module data types
- * implement in order to allow a module to arbitrarily serialize/de-serialize
- * keys, similar to how the Redis 'DUMP' and 'RESTORE' commands are implemented.
- *
- * Modules should generally use the REDISMODULE_OPTIONS_HANDLE_IO_ERRORS flag and
- * make sure the de-serialization code properly checks and handles IO errors
- * (freeing allocated buffers and returning a NULL).
- *
- * If this is NOT done, Redis will handle corrupted (or just truncated) serialized
- * data by producing an error message and terminating the process.
- */
-void *RM_LoadDataTypeFromStringEncver(const RedisModuleString *str, const moduleType *mt, int encver) {
-    return loadDataTypeFromString(str, mt, encver);
-}
-
 /* Similar to RM_LoadDataTypeFromStringEncver, original version of the API, kept
    for backward compatibility.
 */
 void *RM_LoadDataTypeFromString(const RedisModuleString *str, const moduleType *mt) {
-    return loadDataTypeFromString(str, mt, 0);
+    return RM_LoadDataTypeFromStringEncver(str, mt, 0);
 }
 
 /* Encode a module data type 'mt' value 'data' into serialized form, and return it
