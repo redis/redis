@@ -506,7 +506,7 @@ typedef long long mstime_t;
 #endif
 
 #ifndef REDISMODULE_ATTR_COMMON
-#    if defined(__GNUC__) && !defined(__clang__)
+#    if defined(__GNUC__) && !(defined(__clang__) && defined(__cplusplus))
 #        define REDISMODULE_ATTR_COMMON __attribute__((__common__))
 #    else
 #        define REDISMODULE_ATTR_COMMON
