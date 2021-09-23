@@ -792,6 +792,13 @@ struct redisCommand redisCommandTable[] = {
        KSPEC_BS_INDEX,.bs.index={1},
        KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 
+    {"zmpop", zmpopCommand,-4,
+     "write @sortedset",
+     {{"write",
+       KSPEC_BS_INDEX,.bs.index={1},
+       KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},
+     zmpopGetKeys},
+
     {"bzpopmin",bzpopminCommand,-3,
      "write no-script fast @sortedset @blocking",
      {{"write",
@@ -803,6 +810,13 @@ struct redisCommand redisCommandTable[] = {
      {{"write",
        KSPEC_BS_INDEX,.bs.index={1},
        KSPEC_FK_RANGE,.fk.range={-2,1,0}}}},
+
+    {"bzmpop",bzmpopCommand,-5,
+     "write @sortedset @blocking",
+     {{"write",
+       KSPEC_BS_INDEX,.bs.index={2},
+       KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},
+     blmpopGetKeys},
 
     {"zrandmember",zrandmemberCommand,-2,
      "read-only random @sortedset",

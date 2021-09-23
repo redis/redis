@@ -812,12 +812,12 @@ typedef struct blockingState {
                              * operation such as BLPOP or XREAD. Or NULL. */
     robj *target;           /* The key that should receive the element,
                              * for BLMOVE. */
-    struct listPos {
+    struct blockPos {
         int wherefrom;      /* Where to pop from */
         int whereto;        /* Where to push to */
-    } listpos;              /* The positions in the src/dst lists
+    } blockpos;              /* The positions in the src/dst lists/zsets
                              * where we want to pop/push an element
-                             * for BLPOP, BRPOP and BLMOVE. */
+                             * for BLPOP, BRPOP, BLMOVE and BZMPOP. */
 
     /* BLOCK_STREAM */
     size_t xread_count;     /* XREAD COUNT option. */
@@ -2343,7 +2343,7 @@ int zsetAdd(robj *zobj, double score, sds ele, int in_flags, int *out_flags, dou
 long zsetRank(robj *zobj, sds ele, int reverse);
 int zsetDel(robj *zobj, sds ele);
 robj *zsetDup(robj *o);
-void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey, robj *countarg);
+void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey, long count, int use_nested_array, int reply_nil_when_empty, int *deleted);
 sds lpGetObject(unsigned char *sptr);
 int zslValueGteMin(double value, zrangespec *spec);
 int zslValueLteMax(double value, zrangespec *spec);
@@ -2557,6 +2557,8 @@ int memoryGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult
 int lcsGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int lmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int blmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
+int zmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
+int bzmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 
 unsigned short crc16(const char *buf, int len);
 
@@ -2593,7 +2595,7 @@ int getTimeoutFromObjectOrReply(client *c, robj *object, mstime_t *timeout, int 
 void disconnectAllBlockedClients(void);
 void handleClientsBlockedOnKeys(void);
 void signalKeyAsReady(redisDb *db, robj *key, int type);
-void blockForKeys(client *c, int btype, robj **keys, int numkeys, long count, mstime_t timeout, robj *target, struct listPos *listpos, streamID *ids);
+void blockForKeys(client *c, int btype, robj **keys, int numkeys, long count, mstime_t timeout, robj *target, struct blockPos *blockpos, streamID *ids);
 void updateStatsOnUnblock(client *c, long blocked_us, long reply_us);
 
 /* timeout.c -- Blocked clients timeout and connections timeout. */
@@ -2751,8 +2753,10 @@ void zremrangebyscoreCommand(client *c);
 void zremrangebylexCommand(client *c);
 void zpopminCommand(client *c);
 void zpopmaxCommand(client *c);
+void zmpopCommand(client *c);
 void bzpopminCommand(client *c);
 void bzpopmaxCommand(client *c);
+void bzmpopCommand(client *c);
 void zrandmemberCommand(client *c);
 void multiCommand(client *c);
 void execCommand(client *c);

@@ -1711,6 +1711,16 @@ int blmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult
     return genericGetKeys(0, 2, 3, 1, argv, argc, result);
 }
 
+int zmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+    UNUSED(cmd);
+    return genericGetKeys(0, 1, 2, 1, argv, argc, result);
+}
+
+int bzmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+    UNUSED(cmd);
+    return genericGetKeys(0, 2, 3, 1, argv, argc, result);
+}
+
 /* Helper function to extract keys from the SORT command.
  *
  * SORT <sort-key> ... STORE <store-key> ...
