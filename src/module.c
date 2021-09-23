@@ -1531,7 +1531,15 @@ void RM_FreeString(RedisModuleCtx *ctx, RedisModuleString *str) {
  * into a string that lives after the callback function returns, if
  * no FreeString() call is performed.
  *
- * It is possible to call this function with a NULL context. */
+ * It is possible to call this function with a NULL context.
+ *
+ * When strings are going to be retained for an extended duration, it is good
+ * practice to also call RedisModule_TrimStringAllocation() in order to
+ * optimize memory usage.
+ *
+ * Threaded modules that reference retained strings from other threads *must*
+ * explicitly trim the allocation as soon as the string is retained. Not doing
+ * so may result with automatic trimming which is not thread safe. */
 void RM_RetainString(RedisModuleCtx *ctx, RedisModuleString *str) {
     if (ctx == NULL || !autoMemoryFreed(ctx,REDISMODULE_AM_STRING,str)) {
         /* Increment the string reference counting only if we can't
@@ -1566,7 +1574,14 @@ void RM_RetainString(RedisModuleCtx *ctx, RedisModuleString *str) {
 * returned RedisModuleString.
 *
 * It is possible to call this function with a NULL context.
-*/
+*
+ * When strings are going to be held for an extended duration, it is good
+ * practice to also call RedisModule_TrimStringAllocation() in order to
+ * optimize memory usage.
+ *
+ * Threaded modules that reference held strings from other threads *must*
+ * explicitly trim the allocation as soon as the string is held. Not doing
+ * so may result with automatic trimming which is not thread safe. */
 RedisModuleString* RM_HoldString(RedisModuleCtx *ctx, RedisModuleString *str) {
     if (str->refcount == OBJ_STATIC_REFCOUNT) {
         return RM_CreateStringFromString(ctx, str);
@@ -1703,6 +1718,34 @@ int RM_StringAppendBuffer(RedisModuleCtx *ctx, RedisModuleString *str, const cha
     if (str == NULL) return REDISMODULE_ERR;
     str->ptr = sdscatlen(str->ptr,buf,len);
     return REDISMODULE_OK;
+}
+
+/* Trim possible excess memory allocated for a RedisModuleString.
+ *
+ * Sometimes a RedisModuleString may have more memory allocated for
+ * it than required, typically for argv arguments that were constructed
+ * from network buffers. This function optimizes such strings by reallocating
+ * their memory, which is useful for strings that are not short lived but
+ * retained for an extended duration.
+ *
+ * This operation is *not thread safe* and should only be called when
+ * no concurrent access to the string is guaranteed. Using it for an argv
+ * string in a module command before the string is potentially available
+ * to other threads is generally safe.
+ *
+ * Currently, Redis may also automatically trim retained strings when a
+ * module command returns. However, doing this explicitly should still be
+ * a preferred option:
+ *
+ * 1. Future versions of Redis may abandon auto-trimming.
+ * 2. Auto-trimming as currently implemented is *not thread safe*.
+ *    A background thread manipulating a recently retained string may end up
+ *    in a race condition with the auto-trim, which could result with
+ *    data corruption.
+ */
+void RM_TrimStringAllocation(RedisModuleString *str) {
+    if (!str) return;
+    trimStringObjectIfNeeded(str);
 }
 
 /* --------------------------------------------------------------------------
@@ -10315,6 +10358,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(_Assert);
     REGISTER_API(LatencyAddSample);
     REGISTER_API(StringAppendBuffer);
+    REGISTER_API(TrimStringAllocation);
     REGISTER_API(RetainString);
     REGISTER_API(HoldString);
     REGISTER_API(StringCompare);
