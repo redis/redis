@@ -1,3 +1,140 @@
+start_server {tags {"maxmemory" "external:skip"}} {
+    r config set maxmemory 11mb
+    r config set maxmemory-policy allkeys-lru
+    set server_pid [s process_id]
+
+    proc init_test {client_eviction} {
+        r flushdb
+
+        set prev_maxmemory_clients [r config get maxmemory-clients]
+        if $client_eviction {
+            r config set maxmemory-clients 3mb
+        } else {
+            r config set maxmemory-clients 0
+        }
+
+        r config resetstat
+        # fill 5mb using 50 keys of 100kb
+        for {set j 0} {$j < 50} {incr j} {
+            r setrange $j 100000 x
+        }
+        assert_equal [r dbsize] 50
+    }
+    
+    proc verify_test {client_eviction} {
+        set evicted_keys [s evicted_keys]
+        set evicted_clients [s evicted_clients]
+        set dbsize [r dbsize]
+        
+        if $::verbose {
+            puts "evicted keys: $evicted_keys"
+            puts "evicted clients: $evicted_clients"
+            puts "dbsize: $dbsize"
+        }
+
+        if $client_eviction {
+            assert_morethan $evicted_clients 0
+            assert_equal $evicted_keys 0
+            assert_equal $dbsize 50
+        } else {
+            assert_equal $evicted_clients 0
+            assert_morethan $evicted_keys 0
+            assert_lessthan $dbsize 50
+        }
+    }
+
+    foreach {client_eviction} {false true} {
+        set clients {}
+        test "eviction due to output buffers of many MGET clients, client eviction: $client_eviction" {
+            init_test $client_eviction
+
+            for {set j 0} {$j < 20} {incr j} {
+                set rr [redis_deferring_client]
+                lappend clients $rr
+            }
+
+            # Freeze the server so output buffers will be filled in one event loop when we un-freeze after sending mgets
+            exec kill -SIGSTOP $server_pid
+            for {set j 0} {$j < 5} {incr j} {
+                foreach rr $clients {
+                    $rr mget 1
+                    $rr flush
+                }
+            }
+            # Unfreeze server
+            exec kill -SIGCONT $server_pid
+            
+
+            for {set j 0} {$j < 5} {incr j} {
+                foreach rr $clients {
+                    if {[catch { $rr read } err]} {
+                        lremove clients $rr
+                    }
+                }
+            }
+
+            verify_test $client_eviction
+        }
+        foreach rr $clients {
+            $rr close
+        }
+
+        set clients {}
+        test "eviction due to input buffer of a dead client, client eviction: $client_eviction" {
+            init_test $client_eviction
+            
+            for {set j 0} {$j < 30} {incr j} {
+                set rr [redis_deferring_client]
+                lappend clients $rr
+            }
+
+            foreach rr $clients {
+                if {[catch {
+                    $rr write "*250\r\n"
+                    for {set j 0} {$j < 249} {incr j} {
+                        $rr write "\$1000\r\n"
+                        $rr write [string repeat x 1000]
+                        $rr write "\r\n"
+                        $rr flush
+                    }
+                }]} {
+                    lremove clients $rr
+                }
+            }
+
+            verify_test $client_eviction
+        }
+        foreach rr $clients {
+            $rr close
+        }
+
+        set clients {}
+        test "eviction due to output buffers of pubsub, client eviction: $client_eviction" {
+            init_test $client_eviction
+
+            for {set j 0} {$j < 10} {incr j} {
+                set rr [redis_deferring_client]
+                lappend clients $rr
+            }
+
+            foreach rr $clients {
+                $rr subscribe bla
+                $rr flush
+            }
+
+            for {set j 0} {$j < 40} {incr j} {
+                catch {r publish bla [string repeat x 100000]} err
+            }
+
+            verify_test $client_eviction
+        }
+        foreach rr $clients {
+            $rr close
+        }
+    }
+
+}
+
 start_server {tags {"maxmemory external:skip"}} {
     test "Without maxmemory small integers are shared" {
         r config set maxmemory 0

@@ -469,6 +469,8 @@ void debugCommand(client *c) {
 "    Return the size of different Redis core C structures.",
 "ZIPLIST <key>",
 "    Show low level info about the ziplist encoding of <key>.",
+"CLIENT-EVICTION",
+"    Show low level client eviction pools info (maxmemory-clients).",
 NULL
         };
         addReplyHelp(c, help);
@@ -883,6 +885,23 @@ NULL
             addReplyError(c, "CONFIG-REWRITE-FORCE-ALL failed");
         else
             addReply(c, shared.ok);
+    } else if(!strcasecmp(c->argv[1]->ptr,"client-eviction") && c->argc == 2) {
+        sds bucket_info = sdsempty();
+        for (int j = 0; j < CLIENT_MEM_USAGE_BUCKETS; j++) {
+            if (j == 0)
+                bucket_info = sdscatprintf(bucket_info, "bucket          0");
+            else
+                bucket_info = sdscatprintf(bucket_info, "bucket %10zu", (size_t)1<<(j-1+CLIENT_MEM_USAGE_BUCKET_MIN_LOG));
+            if (j == CLIENT_MEM_USAGE_BUCKETS-1)
+                bucket_info = sdscatprintf(bucket_info, "+            : ");
+            else
+                bucket_info = sdscatprintf(bucket_info, " - %10zu: ", ((size_t)1<<(j+CLIENT_MEM_USAGE_BUCKET_MIN_LOG))-1);
+            bucket_info = sdscatprintf(bucket_info, "tot-mem: %10zu, clients: %lu\n",
+                server.client_mem_usage_buckets[j].mem_usage_sum,
+                server.client_mem_usage_buckets[j].clients->len);
+        }
+        addReplyVerbatim(c,bucket_info,sdslen(bucket_info),"txt");
+        sdsfree(bucket_info);
 #ifdef USE_JEMALLOC
     } else if(!strcasecmp(c->argv[1]->ptr,"mallctl") && c->argc >= 3) {
         mallctl_int(c, c->argv+2, c->argc-2);

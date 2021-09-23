@@ -204,7 +204,10 @@ unsigned long long memtoull(const char *p, int *err) {
 
     /* Search the first non digit character. */
     u = p;
-    if (*u == '-') u++;
+    if (*u == '-') {
+        if (err) *err = 1;
+        return 0;
+    }
     while(*u && isdigit(*u)) u++;
     if (*u == '\0' || !strcasecmp(u,"b")) {
         mul = 1;
