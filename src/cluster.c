@@ -559,7 +559,6 @@ void clusterInit(void) {
             createClusterNode(NULL,CLUSTER_NODE_MYSELF|CLUSTER_NODE_MASTER);
         serverLog(LL_NOTICE,"No cluster configuration found, I'm %.40s",
             myself->name);
-        serverLog(LL_NOTICE,"I will create a config file");
         clusterAddNode(myself);
         saveconf = 1;
     }
@@ -567,12 +566,6 @@ void clusterInit(void) {
 
     /* We need a listening TCP port for our cluster messaging needs. */
     server.cfd.count = 0;
-
-   
-    
-    serverLog(LL_WARNING, "-------------------------------");
-    serverLog(LL_WARNING, "cluster port is %d", server.cluster_port);
-    serverLog(LL_WARNING, "-------------------------------");
 
     /* Port sanity check II
      * The other handshake port check is triggered too late to stop
@@ -1428,11 +1421,6 @@ int clusterStartHandshake(char *ip, int port, int cport) {
     clusterNode *n;
     char norm_ip[NET_IP_STR_LEN];
     struct sockaddr_storage sa;
-
-    serverLog(LL_NOTICE,"---------------------------");
-    serverLog(LL_NOTICE,"The handshake ip is %s", ip);
-    serverLog(LL_NOTICE,"The handshake port is %d", port);
-    serverLog(LL_NOTICE,"The handshake cport is %d", cport);
 
     /* IP sanity check */
     if (inet_pton(AF_INET,ip,
@@ -4573,7 +4561,7 @@ NULL
         };
         addReplyHelp(c, help);
     } else if (!strcasecmp(c->argv[1]->ptr,"meet") && (c->argc == 4 || c->argc == 5)) {
-        /* CLUSTER MEET <ip> <port> [cport ] */
+        /* CLUSTER MEET <ip> <port> [cport] */
         long long port, cport;
 
         if (getLongLongFromObject(c->argv[3], &port) != C_OK) {
