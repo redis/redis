@@ -22,10 +22,10 @@ start_server {} {
         fail "fail to sync with replicas"
     }
 
-    # Generating RDB will take some 10 seconds
+    # Generating RDB will take some 100 seconds
     $master config set rdb-key-save-delay 1000000
     $master config set save ""
-    populate 10 "" 16
+    populate 100 "" 16
 
     # Make sure replica1 and replica2 are waiting bgsave
     $replica1 replicaof $master_host $master_port
@@ -100,9 +100,9 @@ start_server {} {
     wait_for_sync $replica1
 
     test {Replication backlog size can outgrow the backlog limit config} {
-        # Generating RDB will take 10 seconds
+        # Generating RDB will take 100 seconds
         $master config set rdb-key-save-delay 1000000
-        populate 10 master 10000
+        populate 100 master 10000
         $replica2 replicaof $master_host $master_port
         # Make sure replica2 is waiting bgsave
         wait_for_condition 5000 100 {
