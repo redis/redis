@@ -49,7 +49,6 @@
 #include <string.h>
 #include <stdio.h>
 #include <unistd.h>
-#include <fcntl.h>
 #include "rio.h"
 #include "util.h"
 #include "crc64.h"

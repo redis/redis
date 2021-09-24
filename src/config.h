@@ -31,6 +31,7 @@
 #define __CONFIG_H
 
 #ifdef __APPLE__
+#include <fcntl.h> // for fcntl(fd, F_FULLFSYNC)
 #include <AvailabilityMacros.h>
 #endif
 
