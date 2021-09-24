@@ -41,11 +41,18 @@ struct dbBackup {
     clusterSlotsToKeysData slots_to_keys;
 };
 
+/* Local prototypes and macros. */
+
+int expireIfNeeded(redisDb *db, robj *key);
+
+/* return value of expireIfNeeded() */
+#define NOT_EXPIRED 0
+#define EXPIRED_AND_DELETED 1
+#define EXPIRED_AND_KEPT 2
+
 /*-----------------------------------------------------------------------------
  * C-level DB API
  *----------------------------------------------------------------------------*/
-
-int keyIsExpired(redisDb *db, robj *key);
 
 /* Update LFU when an object is accessed.
  * Firstly, decrement the counter if the decrement time is reached.
@@ -63,6 +70,34 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
     dictEntry *de = dictFind(db->dict,key->ptr);
     if (de) {
         robj *val = dictGetVal(de);
+        if (val->hasexpire && !(flags & LOOKUP_IGNOREEXPIRE)) {
+            switch (expireIfNeeded(db, key)) {
+            case EXPIRED_AND_DELETED:
+                return NULL;
+            case EXPIRED_AND_KEPT:
+                /* If we are in the context of a replica, expireIfNeeded() will
+                 * not delete the key, it only returns information about the
+                 * "logical" state of the key. Deleting expired keys is up to
+                 * the master in order to have a consistent view of master's
+                 * data set.
+                 *
+                 * However, if the command caller is not the master, and as
+                 * additional safety measure, the command invoked is a read-only
+                 * command, we can safely return NULL here, and provide a more
+                 * consistent behavior to clients accessing expired values in a
+                 * read-only fashion, that will say the key as non existing.
+                 *
+                 * Notably this covers GETs when slaves are used to scale reads. */
+                if (server.current_client &&
+                    server.current_client != server.master &&
+                    server.current_client->cmd &&
+                    server.current_client->cmd->flags & CMD_READONLY)
+                    {
+                        return NULL;
+                    }
+                break;
+            }
+        }
 
         /* Update the access time for the ageing algorithm.
          * Don't do it if we have a saving child, as this will trigger
@@ -96,6 +131,7 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
  *
  *  LOOKUP_NONE (or zero): no special flags are passed.
  *  LOOKUP_NOTOUCH: don't alter the last access time of the key.
+ *  LOOKUP_IGNOREEXPIRE: don't check if the key has expired.
  *
  * Note: this function also returns NULL if the key is logically expired
  * but still existing, in case this is a slave, since this API is called only
@@ -105,39 +141,12 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
 robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
     robj *val;
 
-    if (expireIfNeeded(db,key) == 1) {
-        /* If we are in the context of a master, expireIfNeeded() returns 1
-         * when the key is no longer valid, so we can return NULL ASAP. */
-        if (server.masterhost == NULL)
-            goto keymiss;
-
-        /* However if we are in the context of a slave, expireIfNeeded() will
-         * not really try to expire the key, it only returns information
-         * about the "logical" status of the key: key expiring is up to the
-         * master in order to have a consistent view of master's data set.
-         *
-         * However, if the command caller is not the master, and as additional
-         * safety measure, the command invoked is a read-only command, we can
-         * safely return NULL here, and provide a more consistent behavior
-         * to clients accessing expired values in a read-only fashion, that
-         * will say the key as non existing.
-         *
-         * Notably this covers GETs when slaves are used to scale reads. */
-        if (server.current_client &&
-            server.current_client != server.master &&
-            server.current_client->cmd &&
-            server.current_client->cmd->flags & CMD_READONLY)
-        {
-            goto keymiss;
-        }
-    }
     val = lookupKey(db,key,flags);
-    if (val == NULL)
-        goto keymiss;
-    server.stat_keyspace_hits++;
-    return val;
+    if (val != NULL) {
+        server.stat_keyspace_hits++;
+        return val;
+    }
 
-keymiss:
     if (!(flags & LOOKUP_NONOTIFY)) {
         notifyKeyspaceEvent(NOTIFY_KEY_MISS, "keymiss", key, db->id);
     }
@@ -157,7 +166,6 @@ robj *lookupKeyRead(redisDb *db, robj *key) {
  * Returns the linked value object if the key exists or NULL if the key
  * does not exist in the specified DB. */
 robj *lookupKeyWriteWithFlags(redisDb *db, robj *key, int flags) {
-    expireIfNeeded(db,key);
     return lookupKey(db,key,flags);
 }
 
@@ -282,7 +290,7 @@ robj *dbRandomKey(redisDb *db) {
 
         key = dictGetKey(de);
         keyobj = createStringObject(key,sdslen(key));
-        if (dictFind(db->expires,key)) {
+        if (((robj*)dictGetVal(de))->hasexpire && dictFind(db->expires,key)) {
             if (allvolatile && server.masterhost && --maxtries == 0) {
                 /* If the DB is composed only of keys with an expire set,
                  * it could happen that all the keys are already logically
@@ -305,12 +313,12 @@ robj *dbRandomKey(redisDb *db) {
 
 /* Delete a key, value, and associated expiration entry if any, from the DB */
 int dbSyncDelete(redisDb *db, robj *key) {
-    /* Deleting an entry from the expires dict will not free the sds of
-     * the key, because it is shared with the main dictionary. */
-    if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
     dictEntry *de = dictUnlink(db->dict,key->ptr);
     if (de) {
         robj *val = dictGetVal(de);
+        /* Deleting an entry from the expires dict will not free the sds of
+         * the key, because it is shared with the main dictionary. */
+        if (val->hasexpire) dictDelete(db->expires,key->ptr);
         /* Tells the module that the key has been unlinked from the database. */
         moduleNotifyKeyUnlink(key,val,db->id);
         if (server.cluster_enabled) slotToKeyDelEntry(de);
@@ -662,16 +670,19 @@ void delGenericCommand(client *c, int lazy) {
     int numdel = 0, j;
 
     for (j = 1; j < c->argc; j++) {
-        expireIfNeeded(c->db,c->argv[j]);
+        robj *key = c->argv[j];
+        /* Lookup will check if it's expired and delete it, while avoiding
+         * memory access to the expire dict by checking the hasexpire flag. */
+        if (lookupKeyWriteWithFlags(c->db, key, LOOKUP_NOTOUCH) == NULL)
+            continue;
         int deleted  = lazy ? dbAsyncDelete(c->db,c->argv[j]) :
                               dbSyncDelete(c->db,c->argv[j]);
-        if (deleted) {
-            signalModifiedKey(c,c->db,c->argv[j]);
-            notifyKeyspaceEvent(NOTIFY_GENERIC,
-                "del",c->argv[j],c->db->id);
-            server.dirty++;
-            numdel++;
-        }
+        serverAssert(deleted);
+        signalModifiedKey(c,c->db,c->argv[j]);
+        notifyKeyspaceEvent(NOTIFY_GENERIC,
+                            "del",c->argv[j],c->db->id);
+        server.dirty++;
+        numdel++;
     }
     addReplyLongLong(c,numdel);
 }
@@ -952,15 +963,15 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
             }
         }
 
-        /* Filter an element if it isn't the type we want. */
+        /* Filter an element if it isn't the type we want or if it's expired. */
         if (!filter && o == NULL && typename){
-            robj* typecheck = lookupKeyReadWithFlags(c->db, kobj, LOOKUP_NOTOUCH);
-            char* type = getObjectTypeName(typecheck);
+            robj* object = lookupKeyReadWithFlags(c->db, kobj, LOOKUP_NOTOUCH);
+            char* type = getObjectTypeName(object);
             if (strcasecmp((char*) typename, type)) filter = 1;
+            if (object->hasexpire && expireIfNeeded(c->db, kobj)) filter = 1;
+        } else if (!filter && o == NULL && expireIfNeeded(c->db, kobj)) {
+            filter = 1;
         }
-
-        /* Filter element if it is an expired key. */
-        if (!filter && o == NULL && expireIfNeeded(c->db, kobj)) filter = 1;
 
         /* Remove the element and its associated value if needed. */
         if (filter) {
@@ -1082,7 +1093,7 @@ void renameGenericCommand(client *c, int nx) {
     }
 
     incrRefCount(o);
-    expire = getExpire(c->db,c->argv[1]);
+    expire = o->hasexpire ? getExpire(c->db,c->argv[1]) : -1;
     if (lookupKeyWrite(c->db,c->argv[2]) != NULL) {
         if (nx) {
             decrRefCount(o);
@@ -1152,7 +1163,7 @@ void moveCommand(client *c) {
         addReply(c,shared.czero);
         return;
     }
-    expire = getExpire(c->db,c->argv[1]);
+    expire = o->hasexpire ? getExpire(c->db,c->argv[1]) : -1;
 
     /* Return zero if the key already exists in the target DB */
     if (lookupKeyWrite(dst,c->argv[1]) != NULL) {
@@ -1232,7 +1243,7 @@ void copyCommand(client *c) {
         addReply(c,shared.czero);
         return;
     }
-    expire = getExpire(c->db,key);
+    expire = o->hasexpire ? getExpire(c->db,key) : -1;
 
     /* Return zero if the key already exists in the target DB. 
      * If REPLACE option is selected, delete newkey from targetDB. */
@@ -1287,7 +1298,7 @@ void scanDatabaseForReadyLists(redisDb *db) {
     dictIterator *di = dictGetSafeIterator(db->blocking_keys);
     while((de = dictNext(di)) != NULL) {
         robj *key = dictGetKey(de);
-        robj *value = lookupKey(db,key,LOOKUP_NOTOUCH);
+        robj *value = lookupKey(db, key, LOOKUP_NOTOUCH | LOOKUP_IGNOREEXPIRE);
         if (value) signalKeyAsReady(db, key, value->type);
     }
     dictReleaseIterator(di);
@@ -1378,7 +1389,10 @@ void swapdbCommand(client *c) {
 int removeExpire(redisDb *db, robj *key) {
     /* An expire may only be removed if there is a corresponding entry in the
      * main dict. Otherwise, the key will never be freed. */
-    serverAssertWithInfo(NULL,key,dictFind(db->dict,key->ptr) != NULL);
+    dictEntry *de = dictFind(db->dict, key->ptr);
+    serverAssertWithInfo(NULL, key, de != NULL);
+    robj *val = dictGetVal(de);
+    val->hasexpire = 0;
     return dictDelete(db->expires,key->ptr) == DICT_OK;
 }
 
@@ -1392,6 +1406,8 @@ void setExpire(client *c, redisDb *db, robj *key, long long when) {
     /* Reuse the sds from the main dict in the expire dict */
     kde = dictFind(db->dict,key->ptr);
     serverAssertWithInfo(NULL,key,kde != NULL);
+    robj *val = dictGetVal(kde);
+    val->hasexpire = 1;
     de = dictAddOrFind(db->expires,dictGetKey(kde));
     dictSetSignedIntegerVal(de,when);
 
@@ -1513,10 +1529,10 @@ int keyIsExpired(redisDb *db, robj *key) {
  * key will be evicted from the database. Also this may trigger the
  * propagation of a DEL/UNLINK command in AOF / replication stream.
  *
- * The return value of the function is 0 if the key is still valid,
- * otherwise the function returns 1 if the key is expired. */
+ * The return value of the function is NOT_EXPIRED, EXPIRED_AND_DELETED or
+ * EXPIRED_AND_KEPT. */
 int expireIfNeeded(redisDb *db, robj *key) {
-    if (!keyIsExpired(db,key)) return 0;
+    if (!keyIsExpired(db,key)) return NOT_EXPIRED;
 
     /* If we are running in the context of a slave, instead of
      * evicting the expired key from the database, we return ASAP:
@@ -1526,17 +1542,17 @@ int expireIfNeeded(redisDb *db, robj *key) {
      * Still we try to return the right information to the caller,
      * that is, 0 if we think the key should be still valid, 1 if
      * we think the key is expired at this time. */
-    if (server.masterhost != NULL) return 1;
+    if (server.masterhost != NULL) return EXPIRED_AND_KEPT;
 
     /* If clients are paused, we keep the current dataset constant,
      * but return to the client what we believe is the right state. Typically,
      * at the end of the pause we will properly expire the key OR we will
      * have failed over and the new primary will send us the expire. */
-    if (checkClientPauseTimeoutAndReturnIfPaused()) return 1;
+    if (checkClientPauseTimeoutAndReturnIfPaused()) return EXPIRED_AND_KEPT;
 
     /* Delete the key */
     deleteExpiredKeyAndPropagate(db,key);
-    return 1;
+    return EXPIRED_AND_DELETED;
 }
 
 /* -----------------------------------------------------------------------------
