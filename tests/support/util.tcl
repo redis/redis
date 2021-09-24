@@ -12,9 +12,10 @@ proc randstring {min max {type binary}} {
         set maxval 52
     }
     while {$len} {
-        set rr [format "%c" [expr {$minval+int(rand()*($maxval-$minval+1))}]]
+        set num [expr {$minval+int(rand()*($maxval-$minval+1))}]
+        set rr [format "%c" $num]
         if {$type eq {simplealpha} && ![string is alnum $rr]} {continue}
-        if {$type eq {alpha} && $rr eq 92} {continue} ;# avoid putting '\' char in the string, it can mess up TCL processing
+        if {$type eq {alpha} && $num eq 92} {continue} ;# avoid putting '\' char in the string, it can mess up TCL processing
         append output $rr
         incr len -1
     }
