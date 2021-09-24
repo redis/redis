@@ -3677,9 +3677,7 @@ void initServer(void) {
     server.blocked_last_cron = 0;
     server.blocking_op_nesting = 0;
     server.thp_enabled = 0;
-    server.repl_buffer_mem = 0;
-    server.repl_buffer_blocks = listCreate();
-    listSetFreeMethod(server.repl_buffer_blocks,(void (*)(void*))zfree);
+    resetReplicationBuffer();
 
     if ((server.tls_port || server.tls_replication || server.tls_cluster)
                 && tlsConfigure(&server.tls_ctx_config) == C_ERR) {
@@ -6794,7 +6792,7 @@ void loadDataFromDisk(void) {
         rdbSaveInfo rsi = RDB_SAVE_INFO_INIT;
         errno = 0; /* Prevent a stale value from affecting error checking */
         int rdb_flags = RDBFLAGS_NONE;
-        if (iAmMaster() && access(server.rdb_filename, F_OK) == 0) {
+        if (iAmMaster()) {
             /* Master may delete expired keys when loading, we should
              * propagate expire to replication backlog. */
             createReplicationBacklog();
@@ -6843,7 +6841,12 @@ void loadDataFromDisk(void) {
                     }
                 }
             }
-        } else if (errno != ENOENT) {
+        } else if (errno == ENOENT) {
+            /* We always create replication backlog if server is a master, we
+             * need it because we put DELs in it when loading expired keys in
+             * RDB, we don't need to keep it if there acutally is no RDB. */
+            if (server.repl_backlog) freeReplicationBacklog();
+        } else {
             serverLog(LL_WARNING,"Fatal error loading the DB: %s. Exiting.",strerror(errno));
             exit(1);
         }

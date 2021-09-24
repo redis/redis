@@ -1000,8 +1000,7 @@ int clientHasPendingReplies(client *c) {
         /* If the last replication buffer block content is totally sent,
          * we have nothing to send. */
         listNode *ln = listLast(server.repl_buffer_blocks);
-        replBufBlock *tail = ln ? listNodeValue(ln) : NULL;
-        serverAssert(tail != NULL);
+        replBufBlock *tail = listNodeValue(ln);
         if (ln == c->ref_repl_buf_node &&
             c->ref_block_pos == tail->used) return 0;
 
@@ -1540,6 +1539,11 @@ client *lookupClientByID(uint64_t id) {
     return (c == raxNotFound) ? NULL : c;
 }
 
+/* This function does actual writing output buffers to different types of
+ * clients, it is called by writeToClient.
+ * If we write successfullly, it return C_OK, otherwise, C_ERR is returned,
+ * And 'nwritten' is a output parameter, it means how many bytes server write
+ * to client. */
 int _writeToClient(client *c, ssize_t *nwritten) {
     *nwritten = 0;
     if (getClientType(c) == CLIENT_TYPE_SLAVE) {

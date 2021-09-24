@@ -325,14 +325,26 @@ unsigned long LFUDecrAndReturn(robj *o) {
 }
 
 /* We don't want to count AOF buffers and slaves output buffers as
- * used memory: the eviction should use mostly data size. This function
- * returns the sum of AOF and slaves buffer. */
+ * used memory: the eviction should use mostly data size, because
+ * it can cause feedback-loop when we push DELs into them, putting
+ * more and more DELs will make them bigger, if we count them, we
+ * need to evict more keys, and then generate more DELs, maybe cause
+ * massive eviction loop, even all keys evicted.
+ *
+ * This function returns the sum of AOF and slaves buffer. */
 size_t freeMemoryGetNotCountedMemory(void) {
     size_t overhead = 0;
 
     /* Since all replicas and replication backlog share global replication
      * buffer, we think only the part of exceeding backlog size is the extra
-     * separate consumption of replicas. */
+     * separate consumption of replicas.
+     *
+     * Note that, because we trim backlog incrementally in the background,
+     * backlog size may exceeds our setting if slow replcas that reference
+     * vast replication buffer blocks disconnect. To avoid massive eviction
+     * loop, we don't count the delayed freed replication backlog into used
+     * memory even if there are no replicas, i.e. we also regard this memory
+     * as replicas. */
     if ((long long)server.repl_buffer_mem > server.repl_backlog_size) {
         /* We use list structure to manage replication buffer blocks, so backlog
          * also occupies some extra memory, we can't know exact blocks numbers,

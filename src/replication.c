@@ -149,16 +149,21 @@ void freeReplicationBacklog(void) {
         serverAssert(o->refcount == 1); /* Last reference. */
         o->refcount--;
     }
+
+    /* Replication buffer blocks are completely released when we free the
+     * backlog, since the backlog is released only when there are no replicas
+     * and the backlog keeps the last reference of all blocks. */
     freeReplicationBacklogRefMemAsync(server.repl_buffer_blocks,
                             server.repl_backlog->blocks_index);
+    resetReplicationBuffer();
+    zfree(server.repl_backlog);
+    server.repl_backlog = NULL;
+}
 
-    /* Replication buffer blocks are total released when we free replication
-     * backlog, since now it keeps the last reference of all blocks. */
+void resetReplicationBuffer(void) {
     server.repl_buffer_mem = 0;
     server.repl_buffer_blocks = listCreate();
     listSetFreeMethod(server.repl_buffer_blocks, (void (*)(void*))zfree);
-    zfree(server.repl_backlog);
-    server.repl_backlog = NULL;
 }
 
 int canFeedReplicaReplBuffer(client *replica) {
@@ -269,6 +274,19 @@ void incrementalTrimReplicationBacklog(size_t max_blocks) {
                               server.repl_backlog_histlen + 1;
 }
 
+/* Free replication buffer blocks that are referenced by this client. */
+void freeReplicaReferencedReplBuffer(client *replica) {
+    if (replica->ref_repl_buf_node != NULL) {
+        /* Decrease the start buffer node reference count. */
+        replBufBlock *o = listNodeValue(replica->ref_repl_buf_node);
+        serverAssert(o->refcount > 0);
+        o->refcount--;
+        incrementalTrimReplicationBacklog(REPL_BACKLOG_TRIM_BLOCKS_PER_CALL);
+    }
+    replica->ref_repl_buf_node = NULL;
+    replica->ref_block_pos = 0;
+}
+
 /* Append bytes into the global replication buffer list, replication backlog and
  * all replica clients use replication buffers collectively, this function replace
  * 'addReply*', 'feedReplicationBacklog' for replicas and replication backlog,
@@ -284,10 +302,9 @@ void feedReplicationBuffer(char *s, size_t len) {
     /* Install write handler for all replicas. */
     prepareReplicasToWrite();
 
-    size_t start_pos = 0;
-    listNode *start_node = NULL;
-    int add_new_block = 0;
-    replBufBlock *used_last_block = NULL;
+    size_t start_pos = 0; /* The position of referenced blok to start sending. */
+    listNode *start_node = NULL; /* Replica/backlog starts referenced node. */
+    int add_new_block = 0; /* Create new block if current block is total used. */
     listNode *ln = listLast(server.repl_buffer_blocks);
     replBufBlock *tail = ln? listNodeValue(ln): NULL;
 
@@ -295,7 +312,6 @@ void feedReplicationBuffer(char *s, size_t len) {
     if (tail && tail->size > tail->used) {
         start_node = listLast(server.repl_buffer_blocks);
         start_pos = tail->used;
-        used_last_block = tail;
         /* Copy the part we can fit into the tail, and leave the rest for a
          * new node */
         size_t avail = tail->size - tail->used;
@@ -355,7 +371,7 @@ void feedReplicationBuffer(char *s, size_t len) {
 
         /* Replication buffer must be empty before adding replication stream
          * into replication backlog. */
-        serverAssert(used_last_block == NULL);
+        serverAssert(add_new_block == 1 && start_pos == 0);
     }
     if (add_new_block) {
         /* To make search offset from replication buffer blocks quickly
@@ -370,21 +386,9 @@ void feedReplicationBuffer(char *s, size_t len) {
             server.repl_backlog->unindexed_count = 0;
         }
     }
-    /* Trim replication backlog. */
+    /* Try to trim replication backlog since replication backlog may exceed
+     * our setting when we add replication stream. */
     incrementalTrimReplicationBacklog(REPL_BACKLOG_TRIM_BLOCKS_PER_CALL);
-}
-
-/* Free replication buffer blocks that are referenced by this client. */
-void freeReplicaReferencedReplBuffer(client *replica) {
-    if (replica->ref_repl_buf_node != NULL) {
-        /* Decrease the start buffer node reference count. */
-        replBufBlock *o = listNodeValue(replica->ref_repl_buf_node);
-        serverAssert(o->refcount > 0);
-        o->refcount--;
-        incrementalTrimReplicationBacklog(REPL_BACKLOG_TRIM_BLOCKS_PER_CALL);
-    }
-    replica->ref_repl_buf_node = NULL;
-    replica->ref_block_pos = 0;
 }
 
 /* Propagate write commands to replication stream.

@@ -1,4 +1,6 @@
-# TODO top comments for these tests
+# This test group aims to test all replicas share one global replication buffer,
+# two replicas don't make replication buffer double, and only there is no replica,
+# replica buffer can become small.
 start_server {tags {"repl external:skip"}} {
 start_server {} {
 start_server {} {
@@ -81,7 +83,11 @@ start_server {} {
 }
 }
 
-# TODO top comments for these tests
+# This test group aims to test replication backlog size can outgrow the backlog
+#　limit config if there is a slow replica which keep massive replication buffers,
+# and replicas could use this replication buffer (beyond backlog config) for
+# partial re-synchronization. Of course, replication backlog memory also can
+# become smaller if slow replicas disconnect.
 start_server {tags {"repl external:skip"}} {
 start_server {} {
 start_server {} {
