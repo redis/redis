@@ -6844,7 +6844,7 @@ void loadDataFromDisk(void) {
         } else if (errno == ENOENT) {
             /* We always create replication backlog if server is a master, we
              * need it because we put DELs in it when loading expired keys in
-             * RDB, we don't need to keep it if there acutally is no RDB. */
+             * RDB, we don't need to keep it if there actually is no RDB. */
             if (server.repl_backlog) freeReplicationBacklog();
         } else {
             serverLog(LL_WARNING,"Fatal error loading the DB: %s. Exiting.",strerror(errno));

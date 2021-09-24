@@ -1541,7 +1541,7 @@ client *lookupClientByID(uint64_t id) {
 
 /* This function does actual writing output buffers to different types of
  * clients, it is called by writeToClient.
- * If we write successfullly, it return C_OK, otherwise, C_ERR is returned,
+ * If we write successfully, it return C_OK, otherwise, C_ERR is returned,
  * And 'nwritten' is a output parameter, it means how many bytes server write
  * to client. */
 int _writeToClient(client *c, ssize_t *nwritten) {
