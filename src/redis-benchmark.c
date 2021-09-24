@@ -1421,6 +1421,7 @@ int parseOptions(int argc, char **argv) {
             config.keepalive = atoi(argv[++i]);
         } else if (!strcmp(argv[i],"-h")) {
             if (lastarg) goto invalid;
+            sdsfree(config.conn_info.hostip);
             config.conn_info.hostip = sdsnew(argv[++i]);
         } else if (!strcmp(argv[i],"-p")) {
             if (lastarg) goto invalid;
@@ -1720,7 +1721,7 @@ int main(int argc, char **argv) {
     config.loop = 0;
     config.idlemode = 0;
     config.clients = listCreate();
-    config.conn_info.hostip = "127.0.0.1";
+    config.conn_info.hostip = sdsnew("127.0.0.1");
     config.conn_info.hostport = 6379;
     config.hostsocket = NULL;
     config.tests = NULL;
