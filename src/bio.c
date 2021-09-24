@@ -61,6 +61,8 @@
 #include "server.h"
 #include "bio.h"
 
+#include <fcntl.h>
+
 static pthread_t bio_threads[BIO_NUM_OPS];
 static pthread_mutex_t bio_mutex[BIO_NUM_OPS];
 static pthread_cond_t bio_newjob_cond[BIO_NUM_OPS];

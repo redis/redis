@@ -97,10 +97,12 @@
 #endif
 
 /* Define redis_fsync to fdatasync() in Linux and fsync() for all the rest */
-#ifdef __linux__
-#define redis_fsync fdatasync
+#if defined(__linux__)
+#define redis_fsync(fd) fdatasync(fd)
+#elif defined(__APPLE__)
+#define redis_fsync(fd) fcntl(fd, F_FULLFSYNC)
 #else
-#define redis_fsync fsync
+#define redis_fsync(fd) fsync(fd)
 #endif
 
 #if __GNUC__ >= 4
@@ -122,6 +124,8 @@
 #if (defined(__linux__) && defined(SYNC_FILE_RANGE_WAIT_BEFORE))
 #define HAVE_SYNC_FILE_RANGE 1
 #define rdb_fsync_range(fd,off,size) sync_file_range(fd,off,size,SYNC_FILE_RANGE_WAIT_BEFORE|SYNC_FILE_RANGE_WRITE)
+#elif defined(__APPLE__)
+#define rdb_fsync_range(fd,off,size) fcntl(fd, F_FULLFSYNC)
 #else
 #define rdb_fsync_range(fd,off,size) fsync(fd)
 #endif
