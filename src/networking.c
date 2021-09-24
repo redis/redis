@@ -459,7 +459,7 @@ void afterErrorReply(client *c, const char *s, size_t len) {
                              "to its %s: '%.*s' after processing the command "
                              "'%s'", from, to, (int)len, s, cmdname);
         if (ctype == CLIENT_TYPE_MASTER && server.repl_backlog &&
-            server.repl_backlog_histlen > 0)
+            server.repl_backlog->histlen > 0)
         {
             showLatestBacklog();
         }

@@ -110,16 +110,15 @@ int bg_unlink(const char *filename) {
 
 void createReplicationBacklog(void) {
     serverAssert(server.repl_backlog == NULL);
-    server.repl_backlog = zmalloc(sizeof(replBacklogRefReplBuf));
+    server.repl_backlog = zmalloc(sizeof(replBacklog));
     server.repl_backlog->ref_repl_buf_node = NULL;
     server.repl_backlog->unindexed_count = 0;
     server.repl_backlog->blocks_index = raxNew();
-
-    server.repl_backlog_histlen = 0;
+    server.repl_backlog->histlen = 0;
     /* We don't have any data inside our buffer, but virtually the first
      * byte we have is the next byte that will be generated for the
      * replication stream. */
-    server.repl_backlog_off = server.master_repl_offset+1;
+    server.repl_backlog->offset = server.master_repl_offset+1;
 }
 
 /* This function is called when the user modifies the replication backlog
@@ -222,7 +221,7 @@ void incrementalTrimReplicationBacklog(size_t max_blocks) {
     serverAssert(server.repl_backlog != NULL);
 
     size_t trimmed_blocks = 0, trimmed_bytes = 0;
-    while (server.repl_backlog_histlen > server.repl_backlog_size &&
+    while (server.repl_backlog->histlen > server.repl_backlog_size &&
            trimmed_blocks < max_blocks)
     {
         /* We never trim backlog to less than one block. */
@@ -241,7 +240,7 @@ void incrementalTrimReplicationBacklog(size_t max_blocks) {
 
         /* We don't try trim backlog if backlog valid size will be lessen than
          * setting backlog size once we release the first repl buffer block. */
-        if (server.repl_backlog_histlen - (long long)fo->size <=
+        if (server.repl_backlog->histlen - (long long)fo->size <=
             server.repl_backlog_size) break;
 
         /* Decr refcount and release the first block later. */
@@ -268,10 +267,10 @@ void incrementalTrimReplicationBacklog(size_t max_blocks) {
         listDelNode(server.repl_buffer_blocks, first);
     }
 
-    server.repl_backlog_histlen -= trimmed_bytes;
+    server.repl_backlog->histlen -= trimmed_bytes;
     /* Set the offset of the first byte we have in the backlog. */
-    server.repl_backlog_off = server.master_repl_offset -
-                              server.repl_backlog_histlen + 1;
+    server.repl_backlog->offset = server.master_repl_offset -
+                              server.repl_backlog->histlen + 1;
 }
 
 /* Free replication buffer blocks that are referenced by this client. */
@@ -297,7 +296,7 @@ void feedReplicationBuffer(char *s, size_t len) {
 
     if (server.repl_backlog == NULL) return;
     server.master_repl_offset += len;
-    server.repl_backlog_histlen += len;
+    server.repl_backlog->histlen += len;
 
     /* Install write handler for all replicas. */
     prepareReplicasToWrite();
@@ -474,8 +473,8 @@ void showLatestBacklog(void) {
     if (listLength(server.repl_buffer_blocks) == 0) return;
 
     size_t dumplen = 256;
-    if (server.repl_backlog_histlen < (long long)dumplen)
-        dumplen = server.repl_backlog_histlen;
+    if (server.repl_backlog->histlen < (long long)dumplen)
+        dumplen = server.repl_backlog->histlen;
 
     sds dump = sdsempty();
     listNode *node = listLast(server.repl_buffer_blocks);
@@ -564,7 +563,7 @@ long long addReplyReplicationBacklog(client *c, long long offset) {
 
     serverLog(LL_DEBUG, "[PSYNC] Replica request offset: %lld", offset);
 
-    if (server.repl_backlog_histlen == 0) {
+    if (server.repl_backlog->histlen == 0) {
         serverLog(LL_DEBUG, "[PSYNC] Backlog history len is zero");
         return 0;
     }
@@ -572,12 +571,12 @@ long long addReplyReplicationBacklog(client *c, long long offset) {
     serverLog(LL_DEBUG, "[PSYNC] Backlog size: %lld",
              server.repl_backlog_size);
     serverLog(LL_DEBUG, "[PSYNC] First byte: %lld",
-             server.repl_backlog_off);
+             server.repl_backlog->offset);
     serverLog(LL_DEBUG, "[PSYNC] History len: %lld",
-             server.repl_backlog_histlen);
+             server.repl_backlog->histlen);
 
     /* Compute the amount of bytes we need to discard. */
-    skip = offset - server.repl_backlog_off;
+    skip = offset - server.repl_backlog->offset;
     serverLog(LL_DEBUG, "[PSYNC] Skipping: %lld", skip);
 
     /* Iterate recorded blocks, quickly search the approximate node. */
@@ -623,7 +622,7 @@ long long addReplyReplicationBacklog(client *c, long long offset) {
     c->ref_repl_buf_node = node;
     c->ref_block_pos = offset - o->repl_offset;
 
-    return server.repl_backlog_histlen - skip;
+    return server.repl_backlog->histlen - skip;
 }
 
 /* Return the offset to provide as reply to the PSYNC command received
@@ -724,8 +723,8 @@ int masterTryPartialResynchronization(client *c) {
 
     /* We still have the data our slave is asking for? */
     if (!server.repl_backlog ||
-        psync_offset < server.repl_backlog_off ||
-        psync_offset > (server.repl_backlog_off + server.repl_backlog_histlen))
+        psync_offset < server.repl_backlog->offset ||
+        psync_offset > (server.repl_backlog->offset + server.repl_backlog->histlen))
     {
         serverLog(LL_NOTICE,
             "Unable to partial resync with replica %s for lack of backlog (Replica request was: %lld).", replicationGetSlaveName(c), psync_offset);

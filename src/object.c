@@ -1177,7 +1177,7 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
         replBufBlock *head = listNodeValue(server.repl_backlog->ref_repl_buf_node);
         replBufBlock *last = listNodeValue(listLast(server.repl_buffer_blocks));
         /* The memory of referenced replication buffer blocks. */
-        mem += server.repl_backlog_histlen + (last->size - last->used);
+        mem += server.repl_backlog->histlen + (last->size - last->used);
         /* The linked list node memory and replBufBlock struct memory. */
         mem += (last->id - head->id + 1) * (sizeof(replBufBlock)+sizeof(listNode));
         /* The approximate memory of rax tree for indexed blocks. */

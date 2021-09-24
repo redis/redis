@@ -3218,8 +3218,6 @@ void initServerConfig(void) {
 
     /* Replication partial resync backlog */
     server.repl_backlog = NULL;
-    server.repl_backlog_histlen = 0;
-    server.repl_backlog_off = 0;
     server.repl_no_slaves_since = time(NULL);
 
     /* Failover related */
@@ -5984,8 +5982,8 @@ sds genRedisInfoString(const char *section) {
             server.second_replid_offset,
             server.repl_backlog != NULL,
             server.repl_backlog_size,
-            server.repl_backlog_off,
-            server.repl_backlog_histlen);
+            server.repl_backlog ? server.repl_backlog->offset : 0,
+            server.repl_backlog ? server.repl_backlog->histlen : 0);
     }
 
     /* CPU */
@@ -6826,8 +6824,9 @@ void loadDataFromDisk(void) {
                     server.second_replid_offset = rsi.repl_offset+1;
                     /* Rebase master_repl_offset from rsi.repl_offset. */
                     server.master_repl_offset += rsi.repl_offset;
-                    server.repl_backlog_off = server.master_repl_offset -
-                              server.repl_backlog_histlen + 1;
+                    serverAssert(server.repl_backlog);
+                    server.repl_backlog->offset = server.master_repl_offset -
+                              server.repl_backlog->histlen + 1;
                     server.repl_no_slaves_since = time(NULL);
 
                     /* Rebase replication buffer blocks' offset since the previous

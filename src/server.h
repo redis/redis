@@ -959,14 +959,17 @@ typedef struct {
  * it would cost too much to search replication offset on partial resync, so
  * we use one rax tree to index some blocks every REPL_BACKLOG_INDEX_PER_BLOCKS
  * to make searching offset from replication buffer blocks list faster. */
-typedef struct replBacklogRefReplBuf {
+typedef struct replBacklog {
     listNode *ref_repl_buf_node; /* Referenced node of replication buffer blocks,
                                   * see the definition of replBufBlock. */
     size_t unindexed_count;      /* The count from last creating index block. */
     rax *blocks_index;           /* The index of reocrded blocks of replication
                                   * buffer for quickly searching replication
                                   * offset on partial resynchronization. */
-} replBacklogRefReplBuf;
+    long long histlen;           /* Backlog actual data length */
+    long long offset;            /* Replication "master offset" of first
+                                  * byte in the replication backlog buffer.*/
+} replBacklog;
 
 typedef struct {
     list *clients;
@@ -1572,11 +1575,8 @@ struct redisServer {
     long long second_replid_offset; /* Accept offsets up to this for replid2. */
     int slaveseldb;                 /* Last SELECTed DB in replication output */
     int repl_ping_slave_period;     /* Master pings the slave every N seconds */
-    struct replBacklogRefReplBuf *repl_backlog; /* Replication backlog for partial syncs */
+    replBacklog *repl_backlog;      /* Replication backlog for partial syncs */
     long long repl_backlog_size;    /* Backlog circular buffer size */
-    long long repl_backlog_histlen; /* Backlog actual data length */
-    long long repl_backlog_off;     /* Replication "master offset" of first
-                                       byte in the replication backlog buffer.*/
     time_t repl_backlog_time_limit; /* Time without slaves after the backlog
                                        gets released. */
     time_t repl_no_slaves_since;    /* We have no slaves since that time.
