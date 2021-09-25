@@ -257,13 +257,14 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
  * The client 'c' argument may be set to NULL if the operation is performed
  * in a context where there is no clear client performing the operation. */
 void genericSetKey(client *c, redisDb *db, robj *key, robj *val, int keepttl, int signal) {
-    if (lookupKeyWrite(db,key) == NULL) {
+    robj *oldval = lookupKeyWrite(db,key);
+    if (oldval == NULL) {
         dbAdd(db,key,val);
     } else {
+        if (!keepttl && oldval->hasexpire) removeExpire(db,key);
         dbOverwrite(db,key,val);
     }
     incrRefCount(val);
-    if (!keepttl) removeExpire(db,key);
     if (signal) signalModifiedKey(c,db,key);
 }
 
