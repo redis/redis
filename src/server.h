@@ -2899,6 +2899,7 @@ void zscoreCommand(client *c);
 void zmscoreCommand(client *c);
 void zremrangebyscoreCommand(client *c);
 void zremrangebylexCommand(client *c);
+void zremrangeCommand(client *c);
 void zpopminCommand(client *c);
 void zpopmaxCommand(client *c);
 void zmpopCommand(client *c);
