@@ -79,6 +79,10 @@ void moduleCallClusterReceivers(const char *sender_id, uint64_t module_id, uint8
 const char *clusterGetMessageTypeString(int type);
 unsigned int countKeysInSlot(unsigned int hashslot);
 unsigned int delKeysInSlot(unsigned int hashslot);
+void clusterBroadcastPong(int target);
+
+#define CLUSTER_BROADCAST_ALL 0
+#define CLUSTER_BROADCAST_LOCAL_SLAVES 1
 
 /* Links to the next and previous entries for keys in the same slot are stored
  * in the dict entry metadata. See Slot to Key API below. */
@@ -1215,6 +1219,9 @@ void clusterHandleConfigEpochCollision(clusterNode *sender) {
         " configEpoch set to %llu",
         sender->name,
         (unsigned long long) myself->configEpoch);
+    /* After a master's configEpoch bumped, notify the replicas to
+     * synchronize the relevant slots' configEpoch to the latest. */
+    clusterBroadcastPong(CLUSTER_BROADCAST_LOCAL_SLAVES);
 }
 
 /* -----------------------------------------------------------------------------
@@ -2712,8 +2719,6 @@ void clusterSendPing(clusterLink *link, int type) {
  * CLUSTER_BROADCAST_ALL -> All known instances.
  * CLUSTER_BROADCAST_LOCAL_SLAVES -> All slaves in my master-slaves ring.
  */
-#define CLUSTER_BROADCAST_ALL 0
-#define CLUSTER_BROADCAST_LOCAL_SLAVES 1
 void clusterBroadcastPong(int target) {
     dictIterator *di;
     dictEntry *de;
@@ -4749,6 +4754,12 @@ NULL
         sds reply = sdscatprintf(sdsempty(),"+%s %llu\r\n",
                 (retval == C_OK) ? "BUMPED" : "STILL",
                 (unsigned long long) myself->configEpoch);
+        if (retval == C_OK && nodeIsMaster(myself)) {
+            /* If a master's configEpoch bumped, notify the replicas to
+             * synchronize the relevant slots' configEpoch to the latest. */
+            clusterBroadcastPong(CLUSTER_BROADCAST_LOCAL_SLAVES);
+        }
+
         addReplySds(c,reply);
     } else if (!strcasecmp(c->argv[1]->ptr,"info") && c->argc == 2) {
         /* CLUSTER INFO */
