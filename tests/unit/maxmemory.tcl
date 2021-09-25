@@ -74,7 +74,7 @@ start_server {tags {"maxmemory" "external:skip"}} {
             }
 
             verify_test $client_eviction
-        }
+        } {} {tls:skip}
         foreach rr $clients {
             $rr close
         }
