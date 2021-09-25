@@ -196,7 +196,7 @@ start_server {} {
         $redirected_c SUBSCRIBE __redis__:invalidate
         $rr client tracking on redirect $redir_id bcast
         # Use a big key name to fill the redirected tracking client's buffer quickly
-        set key_length [expr 1024*10]
+        set key_length [expr 1024*200]
         set long_key [string repeat k $key_length]
         # Use a script so we won't need to pass the long key name when dirtying it in the loop
         set script_sha [$rr script load "redis.call('incr', '$long_key')"]
