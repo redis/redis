@@ -1481,7 +1481,9 @@ void freeClientAsync(client *c) {
 /* Perform processing of the client before moving on to processing the next client
  * this is useful for performing operations that affect the global state but can't
  * wait until we're done with all clients. In other words can't wait until beforeSleep()
- * return C_ERR in case client is no longer valid after call. */
+ * return C_ERR in case client is no longer valid after call.
+ * The input client argument: c, may be NULL in case the previous client was
+ * freed before the call. */
 int beforeNextClient(client *c) {
     /* Skip the client processing if we're in an IO thread, in that case we'll perform
        this operation later (this function is called again) in the fan-in stage of the threading mechanism */
@@ -1492,7 +1494,7 @@ int beforeNextClient(client *c) {
      * cases where we want an async free of a client other than myself. For example
      * in ACL modifications we disconnect clients authenticated to non-existent
      * users (see ACL LOAD). */
-    if (c->flags & CLIENT_CLOSE_ASAP) {
+    if (c && (c->flags & CLIENT_CLOSE_ASAP)) {
         freeClient(c);
         return C_ERR;
     }
@@ -2106,8 +2108,9 @@ int processPendingCommandsAndResetClient(client *c) {
 /* This function is called every time, in the client structure 'c', there is
  * more query buffer to process, because we read more data from the socket
  * or because a client was blocked and later reactivated, so there could be
- * pending query buffer, already representing a full command, to process. */
-void processInputBuffer(client *c) {
+ * pending query buffer, already representing a full command, to process.
+ * return C_ERR in case the client was freed during the processing */
+int processInputBuffer(client *c) {
     /* Keep processing while there is something in the input buffer */
     while(c->qb_pos < sdslen(c->querybuf)) {
         /* Immediately abort if the client is in the middle of something. */
@@ -2165,7 +2168,7 @@ void processInputBuffer(client *c) {
                 /* If the client is no longer valid, we avoid exiting this
                  * loop and trimming the client buffer later. So we return
                  * ASAP in that case. */
-                return;
+                return C_ERR;
             }
         }
     }
@@ -2180,6 +2183,8 @@ void processInputBuffer(client *c) {
      * important in case the query buffer is big and wasn't drained during
      * the above loop (because of partially sent big commands). */
     updateClientMemUsage(c);
+
+    return C_OK;
 }
 
 void readQueryFromClient(connection *conn) {
@@ -2270,8 +2275,9 @@ void readQueryFromClient(connection *conn) {
     }
 
     /* There is more data in the client input buffer, continue parsing it
-     * in case to check if there is a full command to execute. */
-     processInputBuffer(c);
+     * and check if there is a full command to execute. */
+     if (processInputBuffer(c) == C_ERR)
+         c = NULL;
 
 done:
     beforeNextClient(c);
@@ -3855,7 +3861,12 @@ int handleClientsWithPendingReadsUsingThreads(void) {
             continue;
         }
 
-        processInputBuffer(c);
+        if (processInputBuffer(c) == C_ERR) {
+            /* If the client is no longer valid, we avoid
+             * processing the client later. So we just go
+             * to the next. */
+            continue;
+        }
 
         /* We may have pending replies if a thread readQueryFromClient() produced
          * replies and did not install a write handler (it can't).

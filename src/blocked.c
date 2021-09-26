@@ -141,8 +141,10 @@ void processUnblockedClients(void) {
             if (processPendingCommandsAndResetClient(c) == C_OK) {
                 /* Now process client if it has more data in it's buffer. */
                 if (c->querybuf && sdslen(c->querybuf) > 0) {
-                    processInputBuffer(c);
+                    if (processInputBuffer(c) == C_ERR) c = NULL;
                 }
+            } else {
+                c = NULL;
             }
         }
         beforeNextClient(c);
