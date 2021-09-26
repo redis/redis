@@ -74,6 +74,10 @@ start_server {tags {"maxmemory" "external:skip"}} {
             }
 
             verify_test $client_eviction
+
+        # This test relies on SIGSTOP/CONT to handle all sent commands in a single event loop. 
+        # In TLS multiple event loops are needed to receive all sent commands, so the test breaks.
+        # Mark it to be skipped when running with in TLS mode.
         } {} {tls:skip}
         foreach rr $clients {
             $rr close
