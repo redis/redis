@@ -317,6 +317,7 @@ static const RedisModuleEvent
         1
     },
     /* Deprecated since Redis 7.0, not used anymore. */
+    __attribute__ ((deprecated))
     RedisModuleEvent_ReplBackup = {
         REDISMODULE_EVENT_REPL_BACKUP, 
         1
@@ -373,7 +374,7 @@ static const RedisModuleEvent
 #define REDISMODULE_SUBEVENT_LOADING_PROGRESS_AOF 1
 #define _REDISMODULE_SUBEVENT_LOADING_PROGRESS_NEXT 2
 
-/* Replication Backup events are deprecated and never fired */
+/* Replication Backup events are deprecated since Redis 7.0 and are never fired */
 #define REDISMODULE_SUBEVENT_REPL_BACKUP_CREATE 0
 #define REDISMODULE_SUBEVENT_REPL_BACKUP_RESTORE 1
 #define REDISMODULE_SUBEVENT_REPL_BACKUP_DISCARD 2

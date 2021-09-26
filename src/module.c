@@ -8887,6 +8887,23 @@ void ModuleForkDoneHandler(int exitcode, int bysignal) {
  *         int32_t dbnum_first;    // Swap Db first dbnum
  *         int32_t dbnum_second;   // Swap Db second dbnum
  *
+ * * RedisModuleEvent_ReplBackup
+ * 
+ *     WARNING: Replication Backup events are deprecated since Redis 7.0 and are never fired.
+ *     See RedisModuleEvent_ReplAsyncLoad for understanding how Async Replication Loading events
+ *     are now triggered when diskless-repl-load is set to swapdb.
+ *
+ *     Called when diskless-repl-load config is set to swapdb,
+ *     And redis needs to backup the the current database for the
+ *     possibility to be restored later. A module with global data and
+ *     maybe with aux_load and aux_save callbacks may need to use this
+ *     notification to backup / restore / discard its globals.
+ *     The following sub events are available:
+ *
+ *     * `REDISMODULE_SUBEVENT_REPL_BACKUP_CREATE`
+ *     * `REDISMODULE_SUBEVENT_REPL_BACKUP_RESTORE`
+ *     * `REDISMODULE_SUBEVENT_REPL_BACKUP_DISCARD`
+ * 
  * * RedisModuleEvent_ReplAsyncLoad
  *
  *     Called when repl-diskless-load config is set to swapdb and a replication with a master of same
