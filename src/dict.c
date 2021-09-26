@@ -537,16 +537,17 @@ void *dictFetchValue(dict *d, const void *key) {
 
 /* Find an element from the table, also get the plink of the entry. The entry
  * is returned if the element is found, and the user should later call
- * `dictFreePlinkEntry` with it in order to unlink and release it. Otherwise if
- * the key is not found, NULL is returned.
+ * `dictTwoPhaseUnlinkFree` with it in order to unlink and release it. Otherwise if
+ * the key is not found, NULL is returned. These two functions should be used in pair.
+ * `dictTwoPhaseUnlinkFind` pauses rehash and `dictTwoPhaseUnlinkFree` resumes rehash.
  *
  * We can use like this:
  *
- * dictEntry *de = dictFindWithPlink(db->dict,key->ptr,&plink, &table);
+ * dictEntry *de = dictTwoPhaseUnlinkFind(db->dict,key->ptr,&plink, &table);
  * // Do something, but we can't modify the dict
- * dictFreePlinkEntry(db->dict,de,plink,table); // We don't need to lookup again
+ * dictTwoPhaseUnlinkFree(db->dict,de,plink,table); // We don't need to lookup again
  */
-dictEntry *dictFindWithPlink(dict *d, const void *key, dictEntry ***plink, int *table_index)
+dictEntry *dictTwoPhaseUnlinkFind(dict *d, const void *key, dictEntry ***plink, int *table_index)
 {
     uint64_t h, idx, table;
 
@@ -561,6 +562,7 @@ dictEntry *dictFindWithPlink(dict *d, const void *key, dictEntry ***plink, int *
             if (key==(*ref)->key || dictCompareKeys(d, key, (*ref)->key)) {
                 *table_index = table;
                 *plink = ref;
+                dictPauseRehashing(d);
                 return *ref;
             }
             ref = &(*ref)->next;
@@ -570,7 +572,7 @@ dictEntry *dictFindWithPlink(dict *d, const void *key, dictEntry ***plink, int *
     return NULL;
 }
 
-void dictFreePlinkEntry(dict *d, dictEntry *he, dictEntry **plink, int table_index)
+void dictTwoPhaseUnlinkFree(dict *d, dictEntry *he, dictEntry **plink, int table_index)
 {
     if (he == NULL) return;
     d->ht_used[table_index]--;
@@ -578,6 +580,7 @@ void dictFreePlinkEntry(dict *d, dictEntry *he, dictEntry **plink, int table_ind
     dictFreeKey(d, he);
     dictFreeVal(d, he);
     zfree(he);
+    dictResumeRehashing(d);
 }
 
 /* A fingerprint is a 64 bit number that represents the state of the dictionary

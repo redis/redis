@@ -8581,7 +8581,6 @@ void processModuleLoadingProgressEvent(int is_aof) {
 /* When a key is deleted (in dbAsyncDelete/dbSyncDelete/dbOverwrite), it 
 *  will be called to tell the module which key is about to be released. */
 void moduleNotifyKeyUnlink(robj *key, robj *val, int dbid) {
-    dictPauseRehashing(server.db[dbid].dict);
     server.lazy_expire_disabled++;
     moduleNotifyKeyspaceEvent(NOTIFY_REMOVED,"removed",key,dbid);
     server.lazy_expire_disabled--;
@@ -8594,9 +8593,8 @@ void moduleNotifyKeyUnlink(robj *key, robj *val, int dbid) {
             mt->unlink2(&ctx,mv->value);
         } else if (mt->unlink != NULL) {
             mt->unlink(key,mv->value);
-        } 
+        }
     }
-    dictResumeRehashing(server.db[dbid].dict);
 }
 
 /* Return the free_effort of the module, it will automatically choose to call 

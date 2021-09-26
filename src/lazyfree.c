@@ -139,7 +139,7 @@ int dbAsyncDelete(redisDb *db, robj *key) {
     /* If the value is composed of a few allocations, to free in a lazy way
      * is actually just slower... So under a certain limit we just free
      * the object synchronously. */
-    dictEntry *de = dictFindWithPlink(db->dict,key->ptr,&plink,&table);
+    dictEntry *de = dictTwoPhaseUnlinkFind(db->dict,key->ptr,&plink,&table);
     if (de) {
         robj *val = dictGetVal(de);
 
@@ -169,7 +169,7 @@ int dbAsyncDelete(redisDb *db, robj *key) {
         /* Deleting an entry from the expires dict will not free the sds of
         * the key, because it is shared with the main dictionary. */
         if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
-        dictFreePlinkEntry(db->dict,de,plink,table);
+        dictTwoPhaseUnlinkFree(db->dict,de,plink,table);
         return 1;
     } else {
         return 0;
