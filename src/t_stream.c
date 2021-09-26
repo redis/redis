@@ -3603,12 +3603,12 @@ int streamValidateListpackIntegrity(unsigned char *lp, size_t size, int deep) {
         p = next; if (!lpValidateNext(lp, &next, size)) return 0;
 
         /* entry id */
-        p = next; if (!lpValidateNext(lp, &next, size)) return 0;
         lpGetIntegerIfValid(p, &valid_record);
         if (!valid_record) return 0;
         p = next; if (!lpValidateNext(lp, &next, size)) return 0;
         lpGetIntegerIfValid(p, &valid_record);
         if (!valid_record) return 0;
+        p = next; if (!lpValidateNext(lp, &next, size)) return 0;
 
         if (!(flags & STREAM_ITEM_FLAG_SAMEFIELDS)) {
             /* num-of-fields */
