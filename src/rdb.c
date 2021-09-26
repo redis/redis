@@ -1518,7 +1518,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key) {
         if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
 
         /* Use a regular set when there are too many entries. */
-        if (len > server.set_max_intset_entries) {
+        size_t max_entries = server.set_max_intset_entries;
+        if (max_entries >= 1<<30) max_entries = 1<<30;
+        if (len > max_entries) {
             o = createSetObject();
             /* It's faster to expand the dict to the right size asap in order
              * to avoid rehashing */
