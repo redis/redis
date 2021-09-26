@@ -339,6 +339,11 @@ size_t freeMemoryGetNotCountedMemory(void) {
      * buffer, we think only the part of exceeding backlog size is the extra
      * separate consumption of replicas.
      *
+     * Note that although the backlog is also initially incrementally grown
+     * (pushing DELs consumes memory), It'll eventually stop growing and
+     * remain constant in size, so even if its creation will cause some
+     * eviction, it's capped, and also here to stay (no resonance effect)
+     *
      * Note that, because we trim backlog incrementally in the background,
      * backlog size may exceeds our setting if slow replcas that reference
      * vast replication buffer blocks disconnect. To avoid massive eviction
