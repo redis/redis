@@ -45,7 +45,7 @@ start_server [list overrides [list "dir" $server_path] keep_persistence true] {
     test {Test RDB stream encoding} {
         for {set j 0} {$j < 1000} {incr j} {
             if {rand() < 0.9} {
-                r xadd stream * foo $j
+                r xadd stream * foo abc
             } else {
                 r xadd stream * bar $j
             }
