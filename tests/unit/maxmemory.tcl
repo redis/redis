@@ -117,13 +117,12 @@ start_server {tags {"maxmemory" "external:skip"}} {
             init_test $client_eviction
 
             for {set j 0} {$j < 10} {incr j} {
-                set rr [redis_deferring_client]
+                set rr [redis_client]
                 lappend clients $rr
             }
 
             foreach rr $clients {
                 $rr subscribe bla
-                $rr flush
             }
 
             for {set j 0} {$j < 40} {incr j} {
