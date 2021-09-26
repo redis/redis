@@ -1771,21 +1771,13 @@ void aofRemoveTempFile(pid_t childpid) {
 void aofUpdateCurrentSize(void) {
     struct redis_stat sb;
     mstime_t latency;
-    int aof_fd = server.aof_fd;
 
     latencyStartMonitor(latency);
-    if (aof_fd == -1) {
-        /* Don't care if this fails: aof_fd will be -1 and redis_fstat handle that. */
-        aof_fd = open(server.aof_filename,O_RDONLY|O_NONBLOCK);
-    } 
-    if (redis_fstat(aof_fd,&sb) == -1) {
+    if (redis_stat(server.aof_filename,&sb) == -1) {
         serverLog(LL_WARNING,"Unable to obtain the AOF file length. stat: %s",
             strerror(errno));
     } else {
         server.aof_current_size = sb.st_size;
-    }
-    if (server.aof_fd == -1 && aof_fd != -1) {
-        close(aof_fd);
     }
     latencyEndMonitor(latency);
     latencyAddSampleIfNeeded("aof-fstat",latency);
