@@ -305,7 +305,7 @@ void feedReplicationBuffer(char *s, size_t len) {
     listNode *start_node = NULL; /* Replica/backlog starts referenced node. */
     int add_new_block = 0; /* Create new block if current block is total used. */
     listNode *ln = listLast(server.repl_buffer_blocks);
-    replBufBlock *tail = ln? listNodeValue(ln): NULL;
+    replBufBlock *tail = ln ? listNodeValue(ln) : NULL;
 
     /* Append to tail string when possible. */
     if (tail && tail->size > tail->used) {
@@ -314,7 +314,7 @@ void feedReplicationBuffer(char *s, size_t len) {
         /* Copy the part we can fit into the tail, and leave the rest for a
          * new node */
         size_t avail = tail->size - tail->used;
-        size_t copy = avail >= len? len: avail;
+        size_t copy = (avail >= len) ? len : avail;
         memcpy(tail->buf + tail->used, s, copy);
         tail->used += copy;
         s += copy;
@@ -324,7 +324,7 @@ void feedReplicationBuffer(char *s, size_t len) {
         /* Create a new node, make sure it is allocated to at
          * least PROTO_REPLY_CHUNK_BYTES */
         size_t usable_size;
-        size_t size = len < PROTO_REPLY_CHUNK_BYTES? PROTO_REPLY_CHUNK_BYTES: len;
+        size_t size = (len < PROTO_REPLY_CHUNK_BYTES) ? PROTO_REPLY_CHUNK_BYTES : len;
         tail = zmalloc_usable(size + sizeof(replBufBlock), &usable_size);
         /* Take over the allocation's internal fragmentation */
         tail->size = usable_size - sizeof(replBufBlock);
