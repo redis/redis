@@ -254,8 +254,10 @@ sds _sdsMakeRoomFor(sds s, size_t addlen, int greedy) {
     if (greedy == 1) {
         if (newlen < SDS_MAX_PREALLOC)
             newlen *= 2;
-        else
+        else {
+            assert (newlen + SDS_MAX_PREALLOC > newlen);  /* Catch size_t overflow */
             newlen += SDS_MAX_PREALLOC;
+        }
     }
 
     type = sdsReqType(newlen);
@@ -266,7 +268,7 @@ sds _sdsMakeRoomFor(sds s, size_t addlen, int greedy) {
     if (type == SDS_TYPE_5) type = SDS_TYPE_8;
 
     hdrlen = sdsHdrSize(type);
-    assert(hdrlen + newlen + 1 > len);  /* Catch size_t overflow */
+    assert(hdrlen + newlen + 1 > newlen);  /* Catch size_t overflow */
     if (oldtype==type) {
         newsh = s_realloc_usable(sh, hdrlen+newlen+1, &usable);
         if (newsh == NULL) return NULL;
