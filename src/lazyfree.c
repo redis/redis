@@ -126,7 +126,7 @@ size_t lazyfreeGetFreeEffort(robj *key, robj *obj, int dbid) {
     }
 }
 
-/* If there are enough allocations to free the value object asyncronously, it
+/* If there are enough allocations to free the value object asynchronously, it
  * may be put into a lazy free list instead of being freed synchronously. The
  * lazy free list will be reclaimed in a different bio.c thread. If the value is
  * composed of a few allocations, to free in a lazy way is actually just

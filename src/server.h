@@ -739,7 +739,7 @@ typedef struct redisObject {
     unsigned lru:LRU_BITS; /* LRU time (relative to global lru_clock) or
                             * LFU data (least significant 8 bits frequency
                             * and most significant 16 bits access time). */
-    unsigned hasexpire:1;  /* Redundat flag indicating that the key exists
+    unsigned hasexpire:1;  /* Redundant flag indicating that the key exists
                             * in the expire dict. */
     unsigned refcount:31;
     void *ptr;
