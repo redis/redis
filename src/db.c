@@ -1095,7 +1095,7 @@ void renameGenericCommand(client *c, int nx) {
     }
 
     incrRefCount(o);
-    expire = o->hasexpire ? getExpire(c->db,c->argv[1]) : -1;
+    expire = getExpire(c->db,c->argv[1]);
     if (lookupKeyWrite(c->db,c->argv[2]) != NULL) {
         if (nx) {
             decrRefCount(o);
@@ -1165,7 +1165,7 @@ void moveCommand(client *c) {
         addReply(c,shared.czero);
         return;
     }
-    expire = o->hasexpire ? getExpire(c->db,c->argv[1]) : -1;
+    expire = getExpire(c->db,c->argv[1]);
 
     /* Return zero if the key already exists in the target DB */
     if (lookupKeyWrite(dst,c->argv[1]) != NULL) {
@@ -1245,7 +1245,7 @@ void copyCommand(client *c) {
         addReply(c,shared.czero);
         return;
     }
-    expire = o->hasexpire ? getExpire(c->db,key) : -1;
+    expire = getExpire(c->db,key);
 
     /* Return zero if the key already exists in the target DB. 
      * If REPLACE option is selected, delete newkey from targetDB. */
@@ -1421,15 +1421,14 @@ void setExpire(client *c, redisDb *db, robj *key, long long when) {
 /* Return the expire time of the specified key, or -1 if no expire
  * is associated with this key (i.e. the key is non volatile) */
 long long getExpire(redisDb *db, robj *key) {
-    dictEntry *de;
+    dictEntry *de, *kde;
 
-    /* No expire? return ASAP */
+    /* No expire? Return ASAP, preferably without accessing the expires dict. */
+    if ((kde = dictFind(db->dict, key->ptr)) == NULL) return -1;
+    if (!((robj*)dictGetVal(kde))->hasexpire) return -1;
     if (dictSize(db->expires) == 0 ||
        (de = dictFind(db->expires,key->ptr)) == NULL) return -1;
 
-    /* The entry was found in the expire dict, this means it should also
-     * be present in the main dict (safety check). */
-    serverAssertWithInfo(NULL,key,dictFind(db->dict,key->ptr) != NULL);
     return dictGetSignedIntegerVal(de);
 }
 
