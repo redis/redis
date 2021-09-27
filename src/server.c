@@ -6839,20 +6839,19 @@ void loadDataFromDisk(void) {
                         o->repl_offset += rsi.repl_offset;
                     }
                 }
-            } else {
-               /* We always create replication backlog if server is a master, we
-                * need it because we put DELs in it when loading expired keys in
-                * RDB, but if RDB doesn't have replication info, it is not possible
-                * to support partial resynchronization, so we drop it. */
-                if (iAmMaster() && server.repl_backlog) freeReplicationBacklog();
             }
-        } else if (errno == ENOENT) {
-            /* If there actually is no RDB, we don't need to keep it. */
-            if (iAmMaster() && server.repl_backlog) freeReplicationBacklog();
-        } else {
+        } else if (errno != ENOENT) {
             serverLog(LL_WARNING,"Fatal error loading the DB: %s. Exiting.",strerror(errno));
             exit(1);
         }
+
+        /* We always create replication backlog if server is a master, we need
+         * it because we put DELs in it when loading expired keys in RDB, but
+         * if RDB doesn't have replication info or there is no rdb, it is not
+         * possible to support partial resynchronization, to avoid extra memory
+         * of replication backlog, we drop it. */
+        if (server.master_repl_offset == 0 && server.repl_backlog)
+            freeReplicationBacklog();
     }
 }
 
