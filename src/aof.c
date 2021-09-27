@@ -1591,7 +1591,7 @@ void aofRemoveTempFile(pid_t childpid) {
  * a restart, normally the size is updated just adding the write length
  * to the current length, that is much faster. */
 void aofUpdateCurrentSize() {
-    off_t size, base_size, pong_size = 0, ping_size = 0;
+    off_t base_size, pong_size = 0, ping_size = 0;
     mstime_t latency;
 
     if (server.aof_current_type == AOF_TYPE_NONE) {
@@ -1601,18 +1601,13 @@ void aofUpdateCurrentSize() {
     latencyStartMonitor(latency)
 
     if (server.aof_current_type == AOF_TYPE_PONG) {
-        size = aofGetTypeSize(AOF_TYPE_PONG);
-        pong_size = size > 0 ? size : 0;
-
-        size = aofGetTypeSize(AOF_TYPE_PING);
-        ping_size = size > 0 ? size : 0;
+        pong_size = aofGetTypeSize(AOF_TYPE_PONG);
+        pong_size = aofGetTypeSize(AOF_TYPE_PING);
     } else if (server.aof_current_type == AOF_TYPE_PING ) {
-        size = aofGetTypeSize(AOF_TYPE_PING);
-        ping_size = size > 0 ? size : 0;
+        ping_size = aofGetTypeSize(AOF_TYPE_PING);
     }
 
-    size = aofGetTypeSize(AOF_TYPE_BASE);
-    base_size = size > 0 ? size : 0;
+    base_size = aofGetTypeSize(AOF_TYPE_BASE);
 
     server.aof_current_size = base_size + ping_size + pong_size;
     server.aof_working_size = server.aof_current_type == AOF_TYPE_PONG ? 
