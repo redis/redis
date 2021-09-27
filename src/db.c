@@ -681,24 +681,21 @@ void flushallCommand(client *c) {
     addReply(c,shared.ok);
 }
 
-/* This command implements DEL and LAZYDEL. */
+/* This function implements the DEL and UNLINK commands. */
 void delGenericCommand(client *c, int lazy) {
     int numdel = 0, j;
 
     for (j = 1; j < c->argc; j++) {
-        robj *key = c->argv[j];
-        /* Lookup will check if it's expired and delete it, while avoiding
-         * memory access to the expire dict by checking the hasexpire flag. */
-        if (lookupKeyWriteWithFlags(c->db, key, LOOKUP_NOTOUCH) == NULL)
-            continue;
+        if (expireIfNeeded(c->db,c->argv[j]) == EXPIRED_AND_DELETED) continue;
         int deleted  = lazy ? dbAsyncDelete(c->db,c->argv[j]) :
                               dbSyncDelete(c->db,c->argv[j]);
-        serverAssert(deleted);
-        signalModifiedKey(c,c->db,c->argv[j]);
-        notifyKeyspaceEvent(NOTIFY_GENERIC,
-                            "del",c->argv[j],c->db->id);
-        server.dirty++;
-        numdel++;
+        if (deleted) {
+            signalModifiedKey(c,c->db,c->argv[j]);
+            notifyKeyspaceEvent(NOTIFY_GENERIC,
+                "del",c->argv[j],c->db->id);
+            server.dirty++;
+            numdel++;
+        }
     }
     addReplyLongLong(c,numdel);
 }
