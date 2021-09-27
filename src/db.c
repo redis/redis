@@ -229,6 +229,7 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
     serverAssertWithInfo(NULL,key,de != NULL);
     dictEntry auxentry = *de;
     robj *old = dictGetVal(de);
+    val->hasexpire = old->hasexpire;
     if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
         val->lru = old->lru;
     }
@@ -262,11 +263,8 @@ void genericSetKey(client *c, redisDb *db, robj *key, robj *val, int keepttl, in
     if (oldval == NULL) {
         dbAdd(db,key,val);
     } else {
-        if (oldval->hasexpire) {
-            if (keepttl) val->hasexpire = 1;
-            else removeExpire(db,key);
-        }
         dbOverwrite(db,key,val);
+        if (!keepttl) removeExpire(db,key);
     }
     incrRefCount(val);
     if (signal) signalModifiedKey(c,db,key);
@@ -1408,6 +1406,7 @@ int removeExpire(redisDb *db, robj *key) {
     dictEntry *de = dictFind(db->dict, key->ptr);
     serverAssertWithInfo(NULL, key, de != NULL);
     robj *val = dictGetVal(de);
+    if (!val->hasexpire) return 1;
     val->hasexpire = 0;
     return dictDelete(db->expires,key->ptr) == DICT_OK;
 }
