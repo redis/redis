@@ -85,16 +85,17 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
                  * additional safety measure, the command invoked is a read-only
                  * command, we can safely return NULL here, and provide a more
                  * consistent behavior to clients accessing expired values in a
-                 * read-only fashion, that will say the key as non existing.
+                 * read-only fashion, that will say the key is nonexistent.
                  *
-                 * Notably this covers GETs when slaves are used to scale reads. */
+                 * Notably this covers GETs when replicas are used to scale
+                 * reads. */
                 if (server.current_client &&
                     server.current_client != server.master &&
                     server.current_client->cmd &&
                     server.current_client->cmd->flags & CMD_READONLY)
-                    {
-                        return NULL;
-                    }
+                {
+                    return NULL;
+                }
                 break;
             }
         }
