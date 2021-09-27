@@ -239,7 +239,7 @@ void sdsclear(sds s) {
 sds _sdsMakeRoomFor(sds s, size_t addlen, int greedy) {
     void *sh, *newsh;
     size_t avail = sdsavail(s);
-    size_t len, newlen;
+    size_t len, newlen, alloclen;
     char type, oldtype = s[-1] & SDS_TYPE_MASK;
     int hdrlen;
     size_t usable;
@@ -249,15 +249,13 @@ sds _sdsMakeRoomFor(sds s, size_t addlen, int greedy) {
 
     len = sdslen(s);
     sh = (char*)s-sdsHdrSize(oldtype);
-    newlen = (len+addlen);
+    alloclen = newlen = (len+addlen);
     assert(newlen > len);   /* Catch size_t overflow */
     if (greedy == 1) {
         if (newlen < SDS_MAX_PREALLOC)
             newlen *= 2;
-        else {
-            assert (newlen + SDS_MAX_PREALLOC > newlen);  /* Catch size_t overflow */
+        else
             newlen += SDS_MAX_PREALLOC;
-        }
     }
 
     type = sdsReqType(newlen);
@@ -268,7 +266,7 @@ sds _sdsMakeRoomFor(sds s, size_t addlen, int greedy) {
     if (type == SDS_TYPE_5) type = SDS_TYPE_8;
 
     hdrlen = sdsHdrSize(type);
-    assert(hdrlen + newlen + 1 > newlen);  /* Catch size_t overflow */
+    assert(hdrlen + newlen + 1 > alloclen);  /* Catch size_t overflow */
     if (oldtype==type) {
         newsh = s_realloc_usable(sh, hdrlen+newlen+1, &usable);
         if (newsh == NULL) return NULL;
