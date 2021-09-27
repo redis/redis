@@ -262,7 +262,10 @@ void genericSetKey(client *c, redisDb *db, robj *key, robj *val, int keepttl, in
     if (oldval == NULL) {
         dbAdd(db,key,val);
     } else {
-        if (!keepttl && oldval->hasexpire) removeExpire(db,key);
+        if (oldval->hasexpire) {
+            if (keepttl) val->hasexpire = 1;
+            else removeExpire(db,key);
+        }
         dbOverwrite(db,key,val);
     }
     incrRefCount(val);
