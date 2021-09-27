@@ -1508,7 +1508,7 @@ void streamPropagateGroupID(client *c, robj *key, streamCG *group, robj *groupna
      * the command execution context. Moreover this will just alter the
      * consumer group state, and we don't need MULTI/EXEC wrapping because
      * there is no message state cross-message atomicity required. */
-    propagate(c->db->id,argv,5,PROPAGATE_AOF|PROPAGATE_REPL);
+    propagate(c->db->id,argv,6,PROPAGATE_AOF|PROPAGATE_REPL);
     decrRefCount(argv[4]);
     decrRefCount(argv[5]);
 }
