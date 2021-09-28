@@ -4418,6 +4418,7 @@ int getSlotOrReply(client *c, robj *o) {
 }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 /* Returns an indication if the replica node is fully available
  * and should be listed in CLUSTER SLOTS response.
  * Returns 1 for available nodes, 0 for nodes that have 
@@ -4438,8 +4439,11 @@ static int isReplicaAvailable(clusterNode *node) {
 
 =======
 int getSlotStatus(client *c, unsigned char *slots, int del, int start_slot, int end_slot) {
+=======
+int checkSlotAssignmentsOrReply(client *c, unsigned char *slots, int del, int start_slot, int end_slot) {
+>>>>>>> Formatting changes to cluster.c
     int slot;
-    for(slot = start_slot; slot <= end_slot; slot++){
+    for (slot = start_slot; slot <= end_slot; slot++) {
         if (del && server.cluster->slots[slot] == NULL) {
             addReplyErrorFormat(c,"Slot %d is already unassigned", slot);
             return C_ERR;
@@ -4455,14 +4459,14 @@ int getSlotStatus(client *c, unsigned char *slots, int del, int start_slot, int 
     return C_OK;
 }
 
-void addAndDelSlotOperation(client *c, unsigned char *slots, int del){
+void clusterUpdateSlots(client *c, unsigned char *slots, int del) {
     int j;
     for (j = 0; j < CLUSTER_SLOTS; j++) {
         if (slots[j]) {
             int retval;
                 
             /* If this slot was set as importing we can clear this
-            * state as now we are the real owner of the slot. */
+            *  state as now we are the real owner of the slot. */
             if (server.cluster->importing_slots_from[j])
                 server.cluster->importing_slots_from[j] = NULL;
 
@@ -4553,7 +4557,7 @@ void clusterCommand(client *c) {
 "ADDSLOTS <slot> [<slot> ...]",
 "    Assign slots to current node.",
 "ADDSLOTSRANGE <start slot> <end slot> [<start slot> <end slot> ...]",
-"    Assign slots which are between start slot and end slot to current node.",
+"    Assign slots which are between <start-slot> and <end-slot> to current node.",
 "BUMPEPOCH",
 "    Advance the cluster config epoch.",
 "COUNT-FAILURE-REPORTS <node-id>",
@@ -4563,7 +4567,7 @@ void clusterCommand(client *c) {
 "DELSLOTS <slot> [<slot> ...]",
 "    Delete slots information from current node.",
 "DELSLOTSRANGE <start slot> <end slot> [<start slot> <end slot> ...]",
-"    Delete slots information which are between start slot and end slot from current node.",
+"    Delete slots information which are between <start-slot> and <end-slot> from current node.",
 "FAILOVER [FORCE|TAKEOVER]",
 "    Promote current replica node to being a master.",
 "FORGET <node-id>",
@@ -4669,23 +4673,23 @@ NULL
                 zfree(slots);
                 return;
             }
-            if(getSlotStatus(c, slots, del, slot, slot) == C_ERR){
+            if (checkSlotAssignmentsOrReply(c, slots, del, slot, slot) == C_ERR) {
                 zfree(slots);
                 return;
             }
         }
-        addAndDelSlotOperation(c, slots, del);    
+        clusterUpdateSlots(c, slots, del);    
         zfree(slots);
         clusterDoBeforeSleep(CLUSTER_TODO_UPDATE_STATE|CLUSTER_TODO_SAVE_CONFIG);
         addReply(c,shared.ok);
     } else if ((!strcasecmp(c->argv[1]->ptr,"addslotsrange") ||
                !strcasecmp(c->argv[1]->ptr,"delslotsrange")) && c->argc >= 4) {
-        if(c->argc % 2 == 1){
+        if(c->argc % 2 == 1) {
             addReplyErrorFormat(c,"Missed one endslot");
             return;
         }
-        /* CLUSTER ADDSLOTSRANGE <start slot> <end slot> [start slot end slot] ... */
-        /* CLUSTER DELSLOTSRANGE <start slot> <end slot> [start slot end slot] ... */
+        /* CLUSTER ADDSLOTSRANGE <start slot> <end slot> [<start slot> <end slot> ...] */
+        /* CLUSTER DELSLOTSRANGE <start slot> <end slot> [<start slot> <end slot> ...] */
         int j, startslot, endslot;
         unsigned char *slots = zmalloc(CLUSTER_SLOTS);
         int del = !strcasecmp(c->argv[1]->ptr,"delslotsrange");
@@ -4693,7 +4697,7 @@ NULL
         memset(slots,0,CLUSTER_SLOTS);
         /* Check that all the arguments are parseable and that all the
          * slots are not already busy. */
-        for (j = 2; j < c->argc; j += 2){
+        for (j = 2; j < c->argc; j += 2) {
             if ((startslot = getSlotOrReply(c,c->argv[j])) == C_ERR) {
                 zfree(slots);
                 return;
@@ -4702,18 +4706,18 @@ NULL
                 zfree(slots);
                 return;
             }
-            if(startslot > endslot){
+            if (startslot > endslot) {
                 addReplyErrorFormat(c,"start slot number %d is greater than end slot number %d", startslot, endslot);
                 zfree(slots);
                 return;
             }
 
-            if(getSlotStatus(c, slots, del, startslot, endslot) == C_ERR){
+            if (checkSlotAssignmentsOrReply(c, slots, del, startslot, endslot) == C_ERR) {
                 zfree(slots);
                 return;
             }
         }
-        addAndDelSlotOperation(c, slots, del);
+        clusterUpdateSlots(c, slots, del);
         zfree(slots);
         clusterDoBeforeSleep(CLUSTER_TODO_UPDATE_STATE|CLUSTER_TODO_SAVE_CONFIG);
         addReply(c,shared.ok);
