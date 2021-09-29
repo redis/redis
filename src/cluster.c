@@ -582,8 +582,8 @@ void clusterInit(void) {
         serverLog(LL_WARNING, "No bind address is configured, but it is required for the Cluster bus.");
         exit(1);
     }
-    if ((server.cluster_port && (listenToPort(server.cluster_port, &server.cfd) == C_ERR)) ||
-        listenToPort(port+CLUSTER_PORT_INCR, &server.cfd) == C_ERR ) {
+    int cport = server.cluster_port ? server.cluster_port : port + CLUSTER_PORT_INCR;
+    if (listenToPort(cport, &server.cfd) == C_ERR ) {
         exit(1);
     }
     
@@ -4572,7 +4572,7 @@ NULL
 
         if (c->argc == 5) {
             if (getLongLongFromObject(c->argv[4], &cport) != C_OK) {
-                addReplyErrorFormat(c,"Invalid TCP bus port or cluster port specified: %s",
+                addReplyErrorFormat(c,"Invalid TCP bus port specified: %s",
                                     (char*)c->argv[4]->ptr);
                 return;
             }
