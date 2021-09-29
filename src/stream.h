@@ -21,6 +21,8 @@ typedef struct stream {
     streamID xdel_max_id;   /* The maximal ID that was deleted. */
     uint64_t offset;        /* All time number of elements in this stream. */
     rax *cgroups;           /* Consumer groups dictionary: name -> streamCG */
+    dict *hash;             /* Primary field value -> stream ID */
+    uint64_t hash_tombs;    /* Number of tombstones in the hash. */
 } stream;
 
 /* We define an iterator to iterate stream items in an abstract way, without

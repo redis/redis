@@ -1930,6 +1930,7 @@ extern dictType replScriptCacheDictType;
 extern dictType dbExpiresDictType;
 extern dictType modulesDictType;
 extern dictType sdsReplyDictType;
+extern dictType streamHashDictType;
 extern dict *modules;
 
 /*-----------------------------------------------------------------------------
@@ -2907,6 +2908,12 @@ void xautoclaimCommand(client *c);
 void xinfoCommand(client *c);
 void xdelCommand(client *c);
 void xtrimCommand(client *c);
+void xhashCommand(client *c);
+void xhlenCommand(client *c);
+void xhgetCommand(client *c);
+void xhgetidCommand(client *c);
+void xhscanCommand(client *c);
+void xhcompactCommand(client *c);
 void lolwutCommand(client *c);
 void aclCommand(client *c);
 void stralgoCommand(client *c);

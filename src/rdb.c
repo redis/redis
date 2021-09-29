@@ -988,6 +988,45 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
         if ((n = rdbSaveLen(rdb,s->offset)) == -1) return -1;
         nwritten += n;
 
+        /* Save the hash. The first value is a flag that, when non-zero, signals
+         * that a hash exists for the stream. */
+        if (s->hash == NULL) {
+            if ((n = rdbSaveLen(rdb,0)) == -1) return -1;
+            nwritten += n;
+        } else {
+            if ((n = rdbSaveLen(rdb,1)) == -1) return -1;
+            nwritten += n;
+            /* Save the number of tombstones in the hash. */
+            if ((n = rdbSaveLen(rdb,s->hash_tombs)) == -1) return -1;
+            nwritten += n;
+            /* Save the number of entries in the hash's dict. */
+            if ((n = rdbSaveLen(rdb,dictSize(s->hash))) == -1) return -1;
+            nwritten += n;
+            /* Save the entries as key, ms, seq. */
+            dictIterator *di = dictGetIterator(s->hash);
+            dictEntry *de;
+            while((de = dictNext(di)) != NULL) {
+                sds key = dictGetKey(de);
+                streamID *value = dictGetVal(de);
+                if ((n = rdbSaveRawString(rdb,(unsigned char*)key,sdslen(key))) == -1) {
+                    dictReleaseIterator(di);
+                    return -1;
+                }
+                nwritten += n;
+                if ((n = rdbSaveLen(rdb,value->ms)) == -1) {
+                    dictReleaseIterator(di);
+                    return -1;
+                }
+                nwritten += n;
+                if ((n = rdbSaveLen(rdb,value->seq)) == -1) {
+                    dictReleaseIterator(di);
+                    return -1;
+                }
+                nwritten += n;
+            }
+            dictReleaseIterator(di);
+        }
+
         /* The consumer groups and their clients are part of the stream
          * type, so serialize every consumer group. */
 
@@ -2267,6 +2306,31 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int rdbver, int *e
 
             /* Load the offset. */
             s->offset = rdbLoadLen(rdb,NULL);
+
+            /* Load the hash, if it exists. */
+            uint64_t hlen, hexists = rdbLoadLen(rdb,NULL);
+            if (hexists) {
+                s->hash_tombs = rdbLoadLen(rdb,NULL);
+                s->hash = dictCreate(&streamHashDictType);
+                hlen = rdbLoadLen(rdb,NULL);
+                while (hlen--) {
+                    sds key = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL);
+                    if (key == NULL) {
+                        decrRefCount(o);
+                        return NULL;
+                    }
+                    streamID *value = zmalloc(sizeof(streamID));
+                    value->ms = rdbLoadLen(rdb,NULL);
+                    value->seq = rdbLoadLen(rdb,NULL);
+                    if (dictAdd(s->hash,key,value) == DICT_ERR) {
+                        rdbReportCorruptRDB("Duplicate stream hash fields detected");
+                        zfree(value);
+                        sdsfree(key);
+                        decrRefCount(o);
+                        return NULL;
+                    }
+                }
+            }
         } else {
             /* During migration the offset can be initialized to the stream's
              * length. At this point, we also don't care about tombstones

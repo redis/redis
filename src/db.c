@@ -775,6 +775,14 @@ void scanCallback(void *privdata, const dictEntry *de) {
         sds sdskey = dictGetKey(de);
         key = createStringObject(sdskey,sdslen(sdskey));
         val = createStringObjectFromLongDouble(*(double*)dictGetVal(de),0);
+    } else if (o->type == OBJ_STREAM) {
+        sds sdskey = dictGetKey(de);
+        streamID *id = dictGetVal(de);
+        /* TBD: can we skip creating this sds? */
+        sds sdsval = sdscatfmt(sdsempty(),"%U-%U",id->ms,id->seq);
+        key = createStringObject(sdskey,sdslen(sdskey));
+        val = createStringObject(sdsval,sdslen(sdsval));
+        sdsfree(sdsval);
     } else {
         serverPanic("Type not handled in SCAN callback.");
     }
@@ -802,17 +810,18 @@ int parseScanCursorOrReply(client *c, robj *o, unsigned long *cursor) {
     return C_OK;
 }
 
-/* This command implements SCAN, HSCAN and SSCAN commands.
- * If object 'o' is passed, then it must be a Hash, Set or Zset object, otherwise
- * if 'o' is NULL the command will operate on the dictionary associated with
- * the current database.
+/* This command implements SCAN, HSCAN, SSCAN, ZSCAN and XHSCAN commands.
+ * If object 'o' is passed, then it must be a Hash, Set, Zset or Stream object,
+ * otherwise if 'o' is NULL the command will operate on the dictionary
+ * associated with the current database.
  *
  * When 'o' is not NULL the function assumes that the first argument in
  * the client arguments vector is a key so it skips it before iterating
  * in order to parse options.
  *
  * In the case of a Hash object the function returns both the field and value
- * of every element on the Hash. */
+ * of every element in the Hash. For Stream objects with hashes, the function
+ * returns the primary field value and entry ID of every element. */
 void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
     int i, j;
     list *keys = listCreate();
@@ -826,7 +835,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
     /* Object must be NULL (to iterate keys names), or the type of the object
      * must be Set, Sorted Set, or Hash. */
     serverAssert(o == NULL || o->type == OBJ_SET || o->type == OBJ_HASH ||
-                o->type == OBJ_ZSET);
+                 o->type == OBJ_ZSET || o->type == OBJ_STREAM);
 
     /* Set i to the first option argument. The previous one is the cursor. */
     i = (o == NULL) ? 2 : 3; /* Skip the key argument if needed. */
@@ -887,6 +896,10 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         zset *zs = o->ptr;
         ht = zs->dict;
         count *= 2; /* We return key / value for this type. */
+    } else if (o->type == OBJ_STREAM) {
+        stream *s = o->ptr;
+        ht = s->hash;
+        count *= 2; /* We return key / ID for this type. */
     }
 
     if (ht) {
@@ -968,10 +981,10 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
             listDelNode(keys, node);
         }
 
-        /* If this is a hash or a sorted set, we have a flat list of
-         * key-value elements, so if this element was filtered, remove the
+        /* If this is a hash, sorted set or a stream hash, we have a flat list
+         * of key-value elements, so if this element was filtered, remove the
          * value, or skip it if it was not filtered: we only match keys. */
-        if (o && (o->type == OBJ_ZSET || o->type == OBJ_HASH)) {
+        if (o && (o->type == OBJ_ZSET || o->type == OBJ_HASH || o->type == OBJ_STREAM)) {
             node = nextnode;
             serverAssert(node); /* assertion for valgrind (avoid NPD) */
             nextnode = listNextNode(node);

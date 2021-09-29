@@ -52,6 +52,10 @@ void streamFreeNACK(streamNACK *na);
 size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start, streamID *end, size_t count, streamConsumer *consumer);
 int streamParseStrictIDOrReply(client *c, robj *o, streamID *id, uint64_t missing_seq);
 int streamParseIDOrReply(client *c, robj *o, streamID *id, uint64_t missing_seq);
+void streamHashCreate(stream *s);
+void streamHashDestroy(stream *s);
+void streamHashSet(stream *s, unsigned char *field, size_t field_len, streamID *id);
+void streamHashSetTombstone(stream *s, unsigned char *primary, int64_t primary_len, streamID *id);
 
 /* -----------------------------------------------------------------------
  * Low level stream encoding: a radix tree of listpacks.
@@ -70,6 +74,8 @@ stream *streamNew(void) {
     s->xdel_max_id.ms = 0;
     s->offset = 0;
     s->cgroups = NULL; /* Created on demand to save memory when not used. */
+    s->hash = NULL;
+    s->hash_tombs = 0;
     return s;
 }
 
@@ -78,6 +84,9 @@ void freeStream(stream *s) {
     raxFreeWithCallback(s->rax,(void(*)(void*))lpFree);
     if (s->cgroups)
         raxFreeWithCallback(s->cgroups,(void(*)(void*))streamFreeCG);
+    if (s->hash) {
+        streamHashDestroy(s);
+    }
     zfree(s);
 }
 
@@ -142,62 +151,19 @@ void streamNextID(streamID *last_id, streamID *new_id) {
     }
 }
 
-/* This is a helper function for the COPY command.
- * Duplicate a Stream object, with the guarantee that the returned object
- * has the same encoding as the original one.
- *
- * The resulting object always has refcount set to 1 */
-robj *streamDup(robj *o) {
-    robj *sobj;
-
-    serverAssert(o->type == OBJ_STREAM);
-
-    switch (o->encoding) {
-        case OBJ_ENCODING_STREAM:
-            sobj = createStreamObject();
-            break;
-        default:
-            serverPanic("Wrong encoding.");
-            break;
+/* Copy the consumer groups from one stream to another.
+ * This is a helper function for streamDup and xhcompactCommand. */
+void streamDupConsumerGroups(stream *src, stream *dst) {
+    if (src->cgroups == NULL) {
+        return;
     }
 
-    stream *s;
-    stream *new_s;
-    s = o->ptr;
-    new_s = sobj->ptr;
-
-    raxIterator ri;
-    uint64_t rax_key[2];
-    raxStart(&ri, s->rax);
-    raxSeek(&ri, "^", NULL, 0);
-    size_t lp_bytes = 0;      /* Total bytes in the listpack. */
-    unsigned char *lp = NULL; /* listpack pointer. */
-    /* Get a reference to the listpack node. */
-    while (raxNext(&ri)) {
-        lp = ri.data;
-        lp_bytes = lpBytes(lp);
-        unsigned char *new_lp = zmalloc(lp_bytes);
-        memcpy(new_lp, lp, lp_bytes);
-        memcpy(rax_key, ri.key, sizeof(rax_key));
-        raxInsert(new_s->rax, (unsigned char *)&rax_key, sizeof(rax_key),
-                  new_lp, NULL);
-    }
-    new_s->length = s->length;
-    new_s->first_id = s->first_id;
-    new_s->last_id = s->last_id;
-    new_s->xdel_max_id = s->xdel_max_id;
-    new_s->offset = s->offset;
-    raxStop(&ri);
-
-    if (s->cgroups == NULL) return sobj;
-
-    /* Consumer Groups */
     raxIterator ri_cgroups;
-    raxStart(&ri_cgroups, s->cgroups);
+    raxStart(&ri_cgroups, src->cgroups);
     raxSeek(&ri_cgroups, "^", NULL, 0);
     while (raxNext(&ri_cgroups)) {
         streamCG *cg = ri_cgroups.data;
-        streamCG *new_cg = streamCreateCG(new_s, (char *)ri_cgroups.key,
+        streamCG *new_cg = streamCreateCG(dst, (char *)ri_cgroups.key,
                                           ri_cgroups.key_len, &cg->last_id,
                                           cg->offset);
 
@@ -247,6 +213,69 @@ robj *streamDup(robj *o) {
         raxStop(&ri_consumers);
     }
     raxStop(&ri_cgroups);
+}
+
+/* This is a helper function for the COPY command.
+ * Duplicate a Stream object, with the guarantee that the returned object
+ * has the same encoding as the original one.
+ *
+ * The resulting object always has refcount set to 1 */
+robj *streamDup(robj *o) {
+    robj *sobj;
+
+    serverAssert(o->type == OBJ_STREAM);
+
+    switch (o->encoding) {
+        case OBJ_ENCODING_STREAM:
+            sobj = createStreamObject();
+            break;
+        default:
+            serverPanic("Wrong encoding.");
+            break;
+    }
+
+    stream *s;
+    stream *new_s;
+    s = o->ptr;
+    new_s = sobj->ptr;
+
+    raxIterator ri;
+    uint64_t rax_key[2];
+    raxStart(&ri, s->rax);
+    raxSeek(&ri, "^", NULL, 0);
+    size_t lp_bytes = 0;      /* Total bytes in the listpack. */
+    unsigned char *lp = NULL; /* listpack pointer. */
+    /* Get a reference to the listpack node. */
+    while (raxNext(&ri)) {
+        lp = ri.data;
+        lp_bytes = lpBytes(lp);
+        unsigned char *new_lp = zmalloc(lp_bytes);
+        memcpy(new_lp, lp, lp_bytes);
+        memcpy(rax_key, ri.key, sizeof(rax_key));
+        raxInsert(new_s->rax, (unsigned char *)&rax_key, sizeof(rax_key),
+                  new_lp, NULL);
+    }
+    new_s->length = s->length;
+    new_s->first_id = s->first_id;
+    new_s->last_id = s->last_id;
+    new_s->xdel_max_id = s->xdel_max_id;
+    new_s->offset = s->offset;
+    raxStop(&ri);
+
+    /* Consumer Groups */
+    streamDupConsumerGroups(s,new_s);
+
+    /* Stream hash. */
+    if (s->hash) {
+        streamHashCreate(new_s);
+        dictIterator *di = dictGetIterator(s->hash);
+        dictEntry *de;
+        while((de = dictNext(di)) != NULL) {
+            sds key = dictGetKey(de);
+            streamID *value = dictGetVal(de);
+            streamHashSet(new_s,(unsigned char*)key,sdslen(key),value);
+        }
+    }
     return sobj;
 }
 
@@ -622,6 +651,12 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
     /* Insert back into the tree in order to update the listpack pointer. */
     if (ri.data != lp)
         raxInsert(s->rax,(unsigned char*)&rax_key,sizeof(rax_key),lp,NULL);
+
+    /* Store the primary field's value in the stream's hash. */
+    if (s->hash) {
+        streamHashSet(s,argv[1]->ptr,sdslen(argv[1]->ptr),&id);
+    }
+
     s->length++;
     s->offset++;
     s->last_id = id;
@@ -1302,11 +1337,20 @@ int streamDeleteItem(stream *s, streamID *id) {
     streamIteratorStart(&si,s,id,id,0);
     streamID myid;
     int64_t numfields;
+    unsigned char *key, *value;
+    int64_t key_len, value_len;
+
     if (streamIteratorGetID(&si,&myid,&numfields)) {
+        streamIteratorGetField(&si,&key,&value,&key_len,&value_len);
         streamIteratorRemoveEntry(&si,&myid);
         deleted = 1;
     }
     streamIteratorStop(&si);
+
+    if (deleted && s->hash) {
+        streamHashSetTombstone(s,value,value_len,id);
+    }
+
     return deleted;
 }
 
@@ -2330,6 +2374,662 @@ cleanup: /* Cleanup. */
     preventCommandPropagation(c);
     if (ids != static_ids) zfree(ids);
     zfree(groups);
+}
+
+/* Returns non-zero if an ID exists in the stream and isn't a tombstone. */
+int streamIDExists(stream *s, streamID *id) {
+    streamIterator si;
+    int64_t numfields;
+    streamID tempID;
+    int reply;
+
+    /* Fast break path. */
+    if (s->length == 0 ||
+        streamCompareID(id,&s->first_id) == -1 ||
+        streamCompareID(id,&s->last_id) == 1) {
+        return 0;
+    }
+
+    streamIteratorStart(&si,s,id,id,0);
+    reply = streamIteratorGetID(&si,&tempID,&numfields);
+    streamIteratorStop(&si);
+    return reply;
+}
+
+/* Create a stream hash dict. */
+void streamHashCreate(stream *s) {
+    if (s->hash == NULL) {
+        s->hash = dictCreate(&streamHashDictType);
+        s->hash_tombs = 0;
+    }
+}
+
+/* Destroy a stream hash dict. */
+void streamHashDestroy(stream *s) {
+    if (s && s->hash) {
+        dictRelease(s->hash);
+        s->hash = NULL;
+        s->hash_tombs = 0;
+    }
+}
+
+/* Stream hash value destructor. */
+void streamHashValDestructor(dict *d, void *val) {
+    UNUSED(d);
+    if (val != NULL) {
+        zfree(val);
+    }
+}
+
+/* Sets a primary field value as a key in the stream hash, with its ID.
+ * A new key is always added. Updates happen only if the new ID is larger
+ * than the current ID associated with the key, or when the zero ID (0-0)
+ * is given. */
+void streamHashSet(stream *s, unsigned char *field, size_t field_len, streamID *id) {
+    serverAssert(s->hash != NULL);
+    sds primary = sdsnewlen(field,field_len);
+    dictEntry *de = dictFind(s->hash,primary);
+    streamID *currID = NULL;
+
+    if (de) {
+        currID = dictGetVal(de);
+        serverAssert(currID != NULL);
+        if (streamCompareID(id,currID) == 1) {
+            /* Update the entry if the current is lower. */
+            memcpy(currID,id,sizeof(streamID));
+            if (streamIDEqZero(currID)) {
+                /* Check for tombstone accounting. */
+                s->hash_tombs--;
+            }
+        }
+        sdsfree(primary);
+    } else {
+        /* Add the entry. */
+        currID = zmalloc(sizeof(streamID));
+        memcpy(currID,id,sizeof(streamID));
+        dictAdd(s->hash,primary,currID);
+        if (streamIDEqZero(currID)) {
+            /* Check for tombstone accounting. */
+            s->hash_tombs++;
+        }
+    }
+}
+
+/* Iterate the stream in reverse from the start ID until min ID, and add each
+ * entry in the range to the hash. A negative 'count' value means unlimited,
+ * otherwise it is the maximal number of entries to process. Returns the total
+ * number of entries processed and sets 'last' to the next ID, or "0-0" if
+ * there are no more entries. */
+uint64_t streamHashAddRange(stream *s, long long count, streamID *start, streamID *min, streamID *last) {
+    serverAssert(s->hash != NULL);
+    streamIterator si;
+    int64_t numfields;
+    uint64_t total = 0;
+    streamID id, zeroId;
+
+    zeroId.ms = 0;
+    zeroId.seq = 0;
+
+    /* Fast exit path. */
+    if (count == 0 && last != NULL) {
+        memcpy(last,start,sizeof(streamID));
+        return 0;
+    }
+
+    /* We iterate the stream in reverse from the start until the minimal ID. */
+    streamIteratorStart(&si,s,min,start,1);
+    int more = streamIteratorGetID(&si,&id,&numfields);
+    while(more && count) {
+        unsigned char *key, *value;
+        int64_t key_len, value_len;
+
+        /* Get the entry's first field value and set it in the hash. */
+        streamIteratorGetField(&si,&key,&value,&key_len,&value_len);
+        streamHashSet(s,value,value_len,&id);
+        total++;
+
+        while(--numfields) {
+            /* Advance the field iterator to the end of the entry. */
+            streamIteratorGetField(&si,&key,&value,&key_len,&value_len);
+        }
+
+        count--;
+        more = streamIteratorGetID(&si,&id,&numfields);
+    }
+    streamIteratorStop(&si);
+
+    /* Set the last entry ID if there're more in range, or signal to stop. */
+    if (last != NULL) {
+        if (!more) {
+            /* No more entries in range - signal to stop. */
+            memcpy(last,&zeroId,sizeof(streamID));
+        } else if (streamCompareID(&id,min) == -1) {
+            /* No more entries before MINID in the range - signal to stop. */
+            memcpy(last,&zeroId,sizeof(streamID));
+        } else {
+            /* COUNT exhausted - provide the next ID to continue from. */
+            memcpy(last,&id,sizeof(streamID));
+        }
+    }
+    return total;
+}
+
+/* A helper for setting a tombstone in the stream hash. Hash tombstones are keys
+ * with a value of the "0-0" ID. */
+void streamHashSetTombstone(stream *s, unsigned char *primary, int64_t primary_len, streamID *id) {
+    serverAssert(s->hash != NULL);
+    sds sdsPrimary = sdsnewlen(primary,primary_len);
+    dictEntry *de = dictFind(s->hash,sdsPrimary);
+    if (de) {
+        streamID *currID = dictGetVal(de);
+        if (currID && streamCompareID(currID,id) == 0) {
+            /* A hash tombstone is set if and only if the deleted ID is the same
+             * as the one currently in the hash. */
+            serverAssert(streamCompareID(currID,id) != 1);
+            currID->ms = 0;
+            currID->seq = 0;
+            s->hash_tombs++;
+        }
+    }
+    sdsfree(sdsPrimary);
+}
+
+/* Deletes a key from the stream hash. Returns non-zero on success. */
+int streamHashDelete(stream *s, sds primary) {
+    serverAssert(s->hash != NULL);
+    dictEntry *de = dictUnlink(s->hash,primary);
+    if (de) {
+        streamID *id = dictGetVal(de);
+        if (streamIDEqZero(id)) {
+            serverAssert(s->hash_tombs > 0);
+            s->hash_tombs--;
+        }
+        dictFreeUnlinkedEntry(s->hash,de);
+        return 1;
+    }
+    return 0;
+}
+
+/* XHASH CREATE <key> [MKSTREAM] */
+void xhashCreateCommand(client *c) {
+    stream *s = NULL;
+    robj *o = NULL;
+    int mkstream = 0;
+
+    /* Parse the command's options. */
+    if (c->argc == 4 && !strcasecmp(c->argv[3]->ptr,"MKSTREAM")) {
+        mkstream = 1;
+    } else if (c->argc > 3) {
+        addReplySubcommandSyntaxError(c);
+        return;
+    }
+
+    o = lookupKeyWrite(c->db,c->argv[2]);
+    if (o) {
+        if (checkType(c,o,OBJ_STREAM)) return;
+        s = o->ptr;
+    }
+
+    /* Create stream if it doesn't exist and the MKSTREAM option was given. */
+    if (s == NULL) {
+        if (!mkstream) {
+            addReplyError(c, 
+                "The XHASH CREATE subcommand requires the key to exist. "
+                "Note that you can use the MKSTREAM option to create an "
+                "empty stream automatically.");
+            return;
+        }
+        o = createStreamObject();
+        dbAdd(c->db,c->argv[2],o);
+        s = o->ptr;
+    }
+
+    streamHashCreate(s);
+    addReplyStreamID(c,&s->last_id);
+
+    signalModifiedKey(c,c->db,c->argv[2]);
+    notifyKeyspaceEvent(NOTIFY_STREAM,"xhash-create", c->argv[2],c->db->id);
+    server.dirty++;
+
+}
+
+/* XHASH DESTROY <key> */
+void xhashDestroyCommand(client *c) {
+    stream *s = NULL;
+    robj *o = NULL;
+
+    o = lookupKeyWrite(c->db,c->argv[2]);
+    if (o) {
+        if (checkType(c,o,OBJ_STREAM)) return;
+        s = o->ptr;
+    } else {
+        addReplyNull(c);
+        return;
+    }
+
+    if (s->hash == NULL) {
+        addReplyLongLong(c,0);
+        return;
+    }
+
+    streamHashDestroy(s);
+    addReplyLongLong(c,1);
+
+    signalModifiedKey(c,c->db,c->argv[2]);
+    notifyKeyspaceEvent(NOTIFY_STREAM,"xhash-destroy", c->argv[2],c->db->id);
+    server.dirty++;
+}
+
+/* XHASH MAKE <key> <$|id> [COUNT n] [MINID id]
+ * Implicitly creates the stream hash
+ */
+void xhashMakeCommand(client *c) {
+    stream *s = NULL;
+    robj *o = NULL;
+    robj *minIdArg = NULL;
+    streamID startId, minId, nextId;
+    long long count = 1000;
+    int modified = 0;
+
+    minId.ms = 0;
+    minId.seq = 0;
+
+    /* Parse the command's options. */
+    for (int i = 4; i < c->argc; ) {
+        int moreargs = c->argc-i-1;
+        if (moreargs && !strcasecmp(c->argv[i]->ptr,"COUNT")) {
+            i++;
+            if (getLongLongFromObjectOrReply(c,c->argv[i],&count,NULL) != C_OK) {
+                return;
+            }
+            i++;
+        } else if (moreargs && !strcasecmp(c->argv[i]->ptr,"MINID")) {
+            i++;
+            minIdArg = c->argv[i];
+            i++;
+        } else {
+            addReplySubcommandSyntaxError(c);
+            return;
+        }
+    }
+
+    o = lookupKeyWrite(c->db,c->argv[2]);
+    if (o) {
+        if (checkType(c,o,OBJ_STREAM)) return;
+        s = o->ptr;
+    } else {
+        addReplyNull(c);
+        return;
+    }
+
+    /* Parse the start ID. */
+    if (!strcmp(c->argv[3]->ptr,"$")) {
+        startId = s->last_id;
+    } else if (streamParseStrictIDOrReply(c,c->argv[3],&startId,UINT64_MAX) != C_OK) {
+        return;
+    }
+
+    /* Parse the MINID if given. */
+    if (minIdArg && (streamParseStrictIDOrReply(c,minIdArg,&minId,0) != C_OK)) {
+        return;
+    } else if (streamCompareID(&minId,&startId) == 1) {
+        addReplyError(c,"MINID must be equal to or lower than ID");
+        return;
+    }
+
+    if (s->hash == NULL) {
+        streamHashCreate(s);
+        modified = 1;
+    }
+
+    if (streamHashAddRange(s,count,&startId,&minId,&nextId)) {
+        modified = 1;
+    };
+
+    addReplyStreamID(c,&nextId);
+
+    if (modified) {
+        signalModifiedKey(c,c->db,c->argv[2]);
+        notifyKeyspaceEvent(NOTIFY_STREAM,"xhash-make", c->argv[2],c->db->id);
+        server.dirty++;
+    }
+}
+
+/* XHASH VACUUM <key>
+ * TBD: scan-like?
+ */
+void xhashVacuumCommand(client *c) {
+    stream *s = NULL;
+    robj *o = NULL;
+    uint64_t total = 0;
+
+    o = lookupKeyWrite(c->db,c->argv[2]);
+    if (o) {
+        if (checkType(c,o,OBJ_STREAM)) return;
+        s = o->ptr;
+    } else {
+        addReplyNull(c);
+        return;
+    }
+
+    if (s->hash == NULL) {
+        addReplyNull(c);
+        return;
+    }
+
+    dictIterator *di = dictGetSafeIterator(s->hash);
+    dictEntry *de;
+    while ((de = dictNext(di)) != NULL) {
+        sds primary = dictGetKey(de);
+        streamID *id = dictGetVal(de);
+        if (streamIDEqZero(id)) {
+            total += streamHashDelete(s,primary);
+        }
+    }
+    dictReleaseIterator(di);
+
+    addReplyLongLong(c,total);
+    signalModifiedKey(c,c->db,c->argv[2]);
+    notifyKeyspaceEvent(NOTIFY_STREAM,"xhash-vacuum", c->argv[2],c->db->id);
+    server.dirty++;
+}
+
+/* XHASH HELP */
+void xhashHelpCommand(client *c) {
+    /* TBD. */
+    const char *help[] = {
+"CREATE <key> [option]",
+"    Create a stream hash. Options are:",
+"    * MKSTREAM",
+"      Create the empty stream if it does not exist.",
+"MAKE <key> <$|id> [COUNT n] [MINID id]",
+"    Populate the hash from the stream.",
+"DESTROY <key>",
+"    Destroy the stream's hash."
+"VACUUM <key>",
+"    Clean the hash of keys that refer to the zero ID.",
+NULL
+    };
+    addReplyHelp(c,help);
+}
+
+/* XHASH subcommand dispatcher. */
+void xhashCommand(client *c) {
+    if (!strcasecmp(c->argv[1]->ptr,"CREATE") && c->argc >= 3) {
+        xhashCreateCommand(c);
+    } else if (!strcasecmp(c->argv[1]->ptr,"DESTROY") && c->argc == 3) {
+        xhashDestroyCommand(c);
+    } else if (!strcasecmp(c->argv[1]->ptr,"MAKE") && c->argc >= 4) {
+        xhashMakeCommand(c);
+    } else if (!strcasecmp(c->argv[1]->ptr,"VACUUM") && c->argc == 3) {
+        xhashVacuumCommand(c);
+    } else if (!strcasecmp(c->argv[1]->ptr,"HELP") && c->argc == 2) {
+        xhashHelpCommand(c);
+    } else {
+        addReplyOrErrorObject(c,shared.syntaxerr);
+    }
+}
+
+/* XHLEN <key> */
+void xhlenCommand(client *c) {
+    stream *s = NULL;
+    robj *o = NULL;
+
+    o = lookupKeyRead(c->db,c->argv[1]);
+    if (o) {
+        if (checkType(c,o,OBJ_STREAM)) return;
+        s = o->ptr;
+    } else {
+        addReplyNull(c);
+        return;
+    }
+
+    if (s->hash == NULL) {
+        /* The stream doesn't have a hash. */
+        addReplyNull(c);
+        return;
+    }
+
+    addReplyLongLong(c,dictSize(s->hash));
+}
+
+/* Reply with the value of one or more keys from the stream hash. Setting the
+ * 'payload' to non-zero means the reply will include all fields and values
+ * from the stream entry. */
+void xhgetGenericCommand(client *c, int payload) {
+    stream *s = NULL;
+    robj *o = NULL;
+
+    o = lookupKeyRead(c->db,c->argv[1]);
+    if (o) {
+        if (checkType(c,o,OBJ_STREAM)) return;
+        s = o->ptr;
+    } else {
+        addReplyNull(c);
+        return;
+    }
+
+    if (s->hash == NULL) {
+        /* The stream doesn't have a hash. */
+        addReplyNull(c);
+        return;
+    }
+
+    addReplyArrayLen(c,c->argc-2);
+    for (long i = 2; i < c->argc; i++) {
+        sds k = c->argv[i]->ptr;
+        dictEntry *de = dictFind(s->hash,k);
+        streamID *id = NULL;
+        
+        if (payload) {
+            addReplyMapLen(c,2);
+            addReplyBulkCString(c,"id");
+        }
+
+        if (de) {
+            id = dictGetVal(de);
+            serverAssert(id != NULL);
+            addReplyStreamID(c,id);
+        } else {
+            addReplyNull(c);
+        }
+
+        if (payload) {
+            addReplyBulkCString(c,"payload");
+            if (id && !streamIDEqZero(id)) {
+                streamIterator si;
+                int64_t numfields;
+                unsigned char *key, *value;
+                int64_t key_len, value_len;
+
+                streamIteratorStart(&si,s,id,id,0);
+                serverAssert(streamIteratorGetID(&si,id,&numfields) == 1);
+                addReplyArrayLen(c,numfields*2);
+                while(numfields--) {
+                    streamIteratorGetField(&si,&key,&value,&key_len,&value_len);
+                    addReplyBulkCBuffer(c,key,key_len);
+                    addReplyBulkCBuffer(c,value,value_len);
+                }
+                streamIteratorStop(&si);
+            } else {
+                addReplyNullArray(c);
+            }
+        }
+    }
+}
+
+/* XHGET <key> <primary> [...] */
+void xhgetCommand(client *c) {
+    xhgetGenericCommand(c,1);
+}
+
+/* XHGETID <key> <primary> [...] */
+void xhgetidCommand(client *c) {
+    xhgetGenericCommand(c,0);
+}
+
+/* XHSCAN <key> <cursor> [MATCH pattern] [COUNT count] */
+/* TBD: WITHPAYLOAD? */
+void xhscanCommand(client *c) {
+    robj *o;
+    stream *s;
+    unsigned long cursor;
+
+    if (parseScanCursorOrReply(c,c->argv[2],&cursor) == C_ERR) return;
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptyscan)) == NULL ||
+        checkType(c,o,OBJ_STREAM)) return;
+
+    s = o->ptr;
+    if (s->hash == NULL) {
+        addReplyOrErrorObject(c,shared.emptyscan);
+    } else {
+        scanGenericCommand(c,o,cursor);
+    }
+}
+
+/* XHCOMPACT <dst> <src> [WITHNULLS] [NOHASH] */
+void xhcompactCommand(client *c) {
+    stream *src, *dst;
+    streamID zeroId;
+    robj *srcobj, *dstobj;
+    int withnulls = 0;
+    int nohash = 0;
+    zeroId.ms = 0;
+    zeroId.seq = 0;
+
+    /* Parse the command's options. */
+    for (int i = 3; i < c->argc; ) {
+        if (!strcasecmp(c->argv[i]->ptr,"WITHNULLS")) {
+            withnulls = 1;
+            i++;
+        } else if (!strcasecmp(c->argv[i]->ptr,"NOHASH")) {
+            nohash = 1;
+            i++;
+        } else {
+            addReplyErrorObject(c,shared.syntaxerr);
+            return;
+        }
+    }
+
+    if (withnulls && nohash) {
+        addReplyError(c,"WITHNULLS and NOHASH can't be used together");
+        return;
+    }
+
+    srcobj = lookupKeyWrite(c->db,c->argv[2]);
+    if (srcobj) {
+        if (checkType(c,srcobj,OBJ_STREAM)) return;
+        src = srcobj->ptr;
+    } else {
+        addReplyNull(c);
+        return;
+    }
+
+    if (src->hash == NULL) {
+        addReplyNull(c);
+        return;
+    }
+
+    dstobj = createStreamObject();
+    dst = dstobj->ptr;
+    if (!nohash) {
+        streamHashCreate(dst);
+    }
+
+    streamDupConsumerGroups(src,dst);
+    /* TBD: preserve all entries in the pels. */
+    /* TBD: preserve all entries geq the minimal last_delivered. */
+
+    /* Step 1: collect the IDs from the hash and store them in order. */
+    rax *ids = raxNew();
+    dictIterator *di = dictGetIterator(src->hash);
+    dictEntry *de;
+    while ((de = dictNext(di)) != NULL) {
+        sds primary = dictGetKey(de);
+        streamID *id = dictGetVal(de);
+        if (streamIDEqZero(id)) {
+            if (withnulls) {
+                streamHashSet(dst,(unsigned char *)primary,sdslen(primary),&zeroId);
+            }
+        } else {
+            unsigned char buf[sizeof(streamID)];
+            streamEncodeID(buf,id);
+            raxInsert(ids,buf,sizeof(streamID),NULL,NULL);
+        }
+    }
+    dictReleaseIterator(di);
+
+    /* Step 2: iterate the sorted IDs and append their respective entries to
+     * the new stream. */
+    if (raxSize(ids)) {
+        raxIterator ri;
+        streamIterator si;
+
+        raxStart(&ri,ids);
+        raxSeek(&ri,"^",NULL,0);
+        while(raxNext(&ri)) {
+            streamID id;
+            int64_t numfields;
+
+            streamDecodeID(ri.key,&id);
+            streamIteratorStart(&si,src,&id,&id,0);
+            streamIteratorGetID(&si,&id,&numfields);
+
+            /* TBD: optimize via vector/stack allocation/refactor streamAppendItem */
+            int64_t argc = 0;
+            robj **argv = zmalloc(numfields*2*sizeof(robj *));
+            while(numfields) {
+                unsigned char *key, *value;
+                int64_t key_len, value_len;
+                streamIteratorGetField(&si,&key,&value,&key_len,&value_len);                
+                argv[argc*2] = createStringObject((const char *)key,key_len);
+                argv[argc*2+1] = createStringObject((const char *)value,value_len);
+                argc++;
+                numfields--;
+            }
+
+            streamAppendItem(dst,argv,argc,&id,&id);
+
+            for (int64_t i = 0; i < argc; i++) {
+                freeStringObject(argv[i*2]);
+                freeStringObject(argv[i*2+1]);
+                zfree(argv[i*2]);
+                zfree(argv[i*2+1]);
+            }
+            zfree(argv);
+            streamIteratorStop(&si);
+        }
+        raxStop(&ri);
+    }
+    raxFree(ids);
+
+    unsigned long slen = streamLength(srcobj);
+    unsigned long hlen = dictSize(src->hash);
+    uint64_t tombs = src->hash_tombs;
+
+    if (dbDelete(c->db,c->argv[1])) {
+        signalModifiedKey(c,c->db,c->argv[1]);
+        notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
+        server.dirty++;
+    }
+
+    setKey(c,c->db,c->argv[1],dstobj);
+    decrRefCount(dstobj);
+
+    addReplyArrayLen(c,6);
+    addReplyLongLong(c,slen);
+    addReplyLongLong(c,hlen);
+    addReplyLongLong(c,tombs);
+    addReplyLongLong(c,streamLength(dstobj));
+    if (dst->hash) {
+        addReplyLongLong(c,dictSize(dst->hash));
+        addReplyLongLong(c,dst->hash_tombs);
+    } else {
+        addReplyNull(c);
+        addReplyNull(c);
+    }
+    notifyKeyspaceEvent(NOTIFY_SET,"xhcompact",c->argv[1],c->db->id);
+    server.dirty++;
 }
 
 /* -----------------------------------------------------------------------
@@ -3537,7 +4237,7 @@ void xinfoReplyWithStreamInfo(client *c, stream *s) {
         }
     }
 
-    addReplyMapLen(c,full ? 8 : 9);
+    addReplyMapLen(c,full ? 9 : 10);
     addReplyBulkCString(c,"length");
     addReplyLongLong(c,s->length);
     addReplyBulkCString(c,"radix-tree-keys");
@@ -3550,6 +4250,12 @@ void xinfoReplyWithStreamInfo(client *c, stream *s) {
     addReplyStreamID(c,&s->xdel_max_id);
     addReplyBulkCString(c,"last-offset");
     addReplyLongLong(c,s->offset);
+    addReplyBulkCString(c,"hash-length");
+    if (s->hash == NULL) {
+        addReplyNull(c);
+    } else {
+        addReplyLongLong(c,dictSize(s->hash));
+    }
 
     if (!full) {
         /* XINFO STREAM <key> */
@@ -3730,8 +4436,26 @@ void xinfoReplyWithStreamInfo(client *c, stream *s) {
     }
 }
 
+/* A helper for replying with a stream's hash information. */
+void xinfoReplyWithHashInfo(client *c, stream *s) {
+    addReplyMapLen(c,2);
+    addReplyBulkCString(c,"length");
+    if (s->hash == NULL) {
+        addReplyNull(c);
+    } else {
+        addReplyLongLong(c,dictSize(s->hash));
+    }
+    addReplyBulkCString(c,"tombstones");
+    if (s->hash == NULL) {
+        addReplyNull(c);
+    } else {
+        addReplyLongLong(c,s->hash_tombs);
+    }
+}
+
 /* XINFO CONSUMERS <key> <group>
  * XINFO GROUPS <key>
+ * XINFO HASH <key>
  * XINFO STREAM <key> [FULL [COUNT <count>]]
  * XINFO HELP. */
 void xinfoCommand(client *c) {
@@ -3751,6 +4475,8 @@ void xinfoCommand(client *c) {
 "    Show consumers of <groupname>.",
 "GROUPS <key>",
 "    Show the stream consumer groups.",
+"HASH <key",
+"    Show information about the stream hash."
 "STREAM <key> [FULL [COUNT <count>]",
 "    Show information about the stream.",
 NULL
@@ -3826,6 +4552,9 @@ NULL
             addReplyStreamID(c,&cg->last_id);
         }
         raxStop(&ri);
+    } else if (!strcasecmp(opt,"HASH")) {
+        /* XINFO HASH <key> */
+        xinfoReplyWithHashInfo(c,s);
     } else if (!strcasecmp(opt,"STREAM")) {
         /* XINFO STREAM <key> [FULL [COUNT <count>]]. */
         xinfoReplyWithStreamInfo(c,s);

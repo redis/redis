@@ -1126,6 +1126,24 @@ size_t objectComputeSize(robj *key, robj *o, size_t sample_size, int dbid) {
             }
             raxStop(&ri);
         }
+
+        /* The stream's hash, if it exists, should also be accounted for.
+         * While the values (IDs) are of fixed size, we take samples to guage
+         * the keys (primaryfield values) themselves. */
+        if (s->hash) {
+            d = s->hash;
+            asize += sizeof(dict)+(sizeof(struct dictEntry*)*dictSlots(d));
+            asize += dictSize(d)*sizeof(streamID);
+            di = dictGetIterator(d);
+            while((de = dictNext(di)) != NULL && samples < sample_size) {
+                ele = dictGetKey(de);
+                elesize += sdsZmallocSize(ele);
+                elesize += sizeof(struct dictEntry);
+                samples++;
+            }
+            dictReleaseIterator(di);
+            if (samples) asize += (double)elesize/samples*dictSize(d);
+        }
     } else if (o->type == OBJ_MODULE) {
         asize = moduleGetMemUsage(key, o, dbid);
     } else {
