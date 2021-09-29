@@ -384,7 +384,7 @@ int ACLGetCommandBitCoordinates(uint64_t id, uint64_t *word, uint64_t *bit) {
  *
  * If the bit overflows the user internal representation, zero is returned
  * in order to disallow the execution of the command in such edge case. */
-int ACLGetUserCommandBit(user *u, unsigned long id) {
+int ACLGetUserCommandBit(const user *u, unsigned long id) {
     uint64_t word, bit;
     if (ACLGetCommandBitCoordinates(id,&word,&bit) == C_ERR) return 0;
     return (u->allowed_commands[word] & bit) != 0;
@@ -1126,7 +1126,7 @@ int ACLAuthenticateUser(client *c, robj *username, robj *password) {
         moduleNotifyUserChanged(c);
         return C_OK;
     } else {
-        addACLLogEntry(c,ACL_DENIED_AUTH,0,username->ptr);
+        addACLLogEntry(c,ACL_DENIED_AUTH,(c->flags & CLIENT_MULTI) ? ACL_LOG_CTX_MULTI : ACL_LOG_CTX_TOPLEVEL,0,username->ptr,NULL);
         return C_ERR;
     }
 }
@@ -1179,31 +1179,56 @@ user *ACLGetUserByName(const char *name, size_t namelen) {
     return myuser;
 }
 
-/* Check if the command is ready to be executed in the client 'c', already
- * referenced by c->cmd, and can be executed by this client according to the
- * ACLs associated to the client user c->user.
+/* Check if the key can be accessed by the client according to
+ * the ACLs associated with the specified user.
+ *
+ * If the user can access the key, ACL_OK is returned, otherwise
+ * ACL_DENIED_KEY is returned. */
+int ACLCheckKey(const user *u, const char *key, int keylen) {
+    /* If there is no associated user, the connection can run anything. */
+    if (u == NULL) return ACL_OK;
+
+    /* The user can run any keys */
+    if (u->flags & USER_FLAG_ALLKEYS) return ACL_OK;
+
+    listIter li;
+    listNode *ln;
+    listRewind(u->patterns,&li);
+
+    /* Test this key against every pattern. */
+    while((ln = listNext(&li))) {
+        sds pattern = listNodeValue(ln);
+        size_t plen = sdslen(pattern);
+        if (stringmatchlen(pattern,plen,key,keylen,0))
+            return ACL_OK;
+    }
+    return ACL_DENIED_KEY;
+}
+
+/* Check if the command is ready to be executed according to the
+ * ACLs associated with the specified user.
  *
  * If the user can execute the command ACL_OK is returned, otherwise
  * ACL_DENIED_CMD or ACL_DENIED_KEY is returned: the first in case the
  * command cannot be executed because the user is not allowed to run such
  * command, the second if the command is denied because the user is trying
  * to access keys that are not among the specified patterns. */
-int ACLCheckCommandPerm(client *c, int *keyidxptr) {
-    user *u = c->user;
-    uint64_t id = c->cmd->id;
+int ACLCheckCommandPerm(const user *u, struct redisCommand *cmd, robj **argv, int argc, int *keyidxptr) {
+    int ret;
+    uint64_t id = cmd->id;
 
     /* If there is no associated user, the connection can run anything. */
     if (u == NULL) return ACL_OK;
 
     /* Check if the user can execute this command or if the command
      * doesn't need to be authenticated (hello, auth). */
-    if (!(u->flags & USER_FLAG_ALLCOMMANDS) && !(c->cmd->flags & CMD_NO_AUTH))
+    if (!(u->flags & USER_FLAG_ALLCOMMANDS) && !(cmd->flags & CMD_NO_AUTH))
     {
         /* If the bit is not set we have to check further, in case the
          * command is allowed just with that specific subcommand. */
         if (ACLGetUserCommandBit(u,id) == 0) {
             /* Check if the subcommand matches. */
-            if (c->argc < 2 ||
+            if (argc < 2 ||
                 u->allowed_subcommands == NULL ||
                 u->allowed_subcommands[id] == NULL)
             {
@@ -1214,7 +1239,7 @@ int ACLCheckCommandPerm(client *c, int *keyidxptr) {
             while (1) {
                 if (u->allowed_subcommands[id][subid] == NULL)
                     return ACL_DENIED_CMD;
-                if (!strcasecmp(c->argv[1]->ptr,
+                if (!strcasecmp(argv[1]->ptr,
                                 u->allowed_subcommands[id][subid]))
                     break; /* Subcommand match found. Stop here. */
                 subid++;
@@ -1224,34 +1249,19 @@ int ACLCheckCommandPerm(client *c, int *keyidxptr) {
 
     /* Check if the user can execute commands explicitly touching the keys
      * mentioned in the command arguments. */
-    if (!(c->user->flags & USER_FLAG_ALLKEYS) &&
-        (c->cmd->getkeys_proc || c->cmd->key_specs_num))
+    if (!(u->flags & USER_FLAG_ALLKEYS) &&
+        (cmd->getkeys_proc || cmd->key_specs_num))
     {
         getKeysResult result = GETKEYS_RESULT_INIT;
-        int numkeys = getKeysFromCommand(c->cmd,c->argv,c->argc,&result);
+        int numkeys = getKeysFromCommand(cmd,argv,argc,&result);
         int *keyidx = result.keys;
         for (int j = 0; j < numkeys; j++) {
-            listIter li;
-            listNode *ln;
-            listRewind(u->patterns,&li);
-
-            /* Test this key against every pattern. */
-            int match = 0;
-            while((ln = listNext(&li))) {
-                sds pattern = listNodeValue(ln);
-                size_t plen = sdslen(pattern);
-                int idx = keyidx[j];
-                if (stringmatchlen(pattern,plen,c->argv[idx]->ptr,
-                                   sdslen(c->argv[idx]->ptr),0))
-                {
-                    match = 1;
-                    break;
-                }
-            }
-            if (!match) {
+            int idx = keyidx[j];
+            ret = ACLCheckKey(u, argv[idx]->ptr, sdslen(argv[idx]->ptr));
+            if (ret != ACL_OK) {
                 if (keyidxptr) *keyidxptr = keyidx[j];
                 getKeysFreeResult(&result);
-                return ACL_DENIED_KEY;
+                return ret;
             }
         }
         getKeysFreeResult(&result);
@@ -1341,9 +1351,8 @@ void ACLKillPubsubClientsIfNeeded(user *u, list *upcoming) {
     }
 }
 
-/* Check if the pub/sub channels of the command, that's ready to be executed in
- * the client 'c', can be executed by this client according to the ACLs channels
- * associated to the client user c->user.
+/* Check if the pub/sub channels of the command, that's ready to be executed
+ * according to the ACLs channels associated with the specified user.
  * 
  * idx and count are the index and count of channel arguments from the
  * command. The literal argument controls whether the user's ACL channels are 
@@ -1351,17 +1360,15 @@ void ACLKillPubsubClientsIfNeeded(user *u, list *upcoming) {
  *
  * If the user can execute the command ACL_OK is returned, otherwise 
  * ACL_DENIED_CHANNEL. */
-int ACLCheckPubsubPerm(client *c, int idx, int count, int literal, int *idxptr) {
-    user *u = c->user;
-
+int ACLCheckPubsubPerm(const user *u, robj **argv, int idx, int count, int literal, int *idxptr) {
     /* If there is no associated user, the connection can run anything. */
     if (u == NULL) return ACL_OK;
 
     /* Check if the user can access the channels mentioned in the command's
      * arguments. */
-    if (!(c->user->flags & USER_FLAG_ALLCHANNELS)) {
+    if (!(u->flags & USER_FLAG_ALLCHANNELS)) {
         for (int j = idx; j < idx+count; j++) {
-            if (ACLCheckPubsubChannelPerm(c->argv[j]->ptr,u->channels,literal)
+            if (ACLCheckPubsubChannelPerm(argv[j]->ptr,u->channels,literal)
                 != ACL_OK) {
                 if (idxptr) *idxptr = j;
                 return ACL_DENIED_CHANNEL;
@@ -1378,17 +1385,21 @@ int ACLCheckPubsubPerm(client *c, int idx, int count, int literal, int *idxptr) 
 /* Check whether the command is ready to be executed by ACLCheckCommandPerm.
  * If check passes, then check whether pub/sub channels of the command is
  * ready to be executed by ACLCheckPubsubPerm */
-int ACLCheckAllPerm(client *c, int *idxptr) {
-    int acl_retval = ACLCheckCommandPerm(c,idxptr);
+int ACLCheckAllUserCommandPerm(const user *u, struct redisCommand *cmd, robj **argv, int argc, int *idxptr) {
+    int acl_retval = ACLCheckCommandPerm(u,cmd,argv,argc,idxptr);
     if (acl_retval != ACL_OK)
         return acl_retval;
-    if (c->cmd->proc == publishCommand)
-        acl_retval = ACLCheckPubsubPerm(c,1,1,0,idxptr);
-    else if (c->cmd->proc == subscribeCommand)
-        acl_retval = ACLCheckPubsubPerm(c,1,c->argc-1,0,idxptr);
-    else if (c->cmd->proc == psubscribeCommand)
-        acl_retval = ACLCheckPubsubPerm(c,1,c->argc-1,1,idxptr);
+    if (cmd->proc == publishCommand)
+        acl_retval = ACLCheckPubsubPerm(u,argv,1,1,0,idxptr);
+    else if (cmd->proc == subscribeCommand)
+        acl_retval = ACLCheckPubsubPerm(u,argv,1,argc-1,0,idxptr);
+    else if (cmd->proc == psubscribeCommand)
+        acl_retval = ACLCheckPubsubPerm(u,argv,1,argc-1,1,idxptr);
     return acl_retval;
+}
+
+int ACLCheckAllPerm(client *c, int *idxptr) {
+    return ACLCheckAllUserCommandPerm(c->user, c->cmd, c->argv, c->argc, idxptr);
 }
 
 /* =============================================================================
@@ -1757,9 +1768,6 @@ void ACLLoadUsersAtStartup(void) {
  * ACL log
  * ==========================================================================*/
 
-#define ACL_LOG_CTX_TOPLEVEL 0
-#define ACL_LOG_CTX_LUA 1
-#define ACL_LOG_CTX_MULTI 2
 #define ACL_LOG_GROUPING_MAX_TIME_DELTA 60000
 
 /* This structure defines an entry inside the ACL log. */
@@ -1804,37 +1812,36 @@ void ACLFreeLogEntry(void *leptr) {
  *
  * The argpos argument is used when the reason is ACL_DENIED_KEY or 
  * ACL_DENIED_CHANNEL, since it allows the function to log the key or channel
- * name that caused the problem. Similarly the username is only passed when we
- * failed to authenticate the user with AUTH or HELLO, for the ACL_DENIED_AUTH
- * reason. Otherwise it will just be NULL.
+ * name that caused the problem.
+ *
+ * The last 2 arguments are a manual override to be used, instead of any of the automatic
+ * ones which depend on the client and reason arguments (use NULL for default).
  */
-void addACLLogEntry(client *c, int reason, int argpos, sds username) {
+void addACLLogEntry(client *c, int reason, int context, int argpos, sds username, sds object) {
     /* Create a new entry. */
     struct ACLLogEntry *le = zmalloc(sizeof(*le));
     le->count = 1;
     le->reason = reason;
-    le->username = sdsdup(reason == ACL_DENIED_AUTH ? username : c->user->name);
+    le->username = sdsdup(username ? username : c->user->name);
     le->ctime = mstime();
 
-    switch(reason) {
-    case ACL_DENIED_CMD: le->object = sdsnew(c->cmd->name); break;
-    case ACL_DENIED_KEY: le->object = sdsdup(c->argv[argpos]->ptr); break;
-    case ACL_DENIED_CHANNEL: le->object = sdsdup(c->argv[argpos]->ptr); break;
-    case ACL_DENIED_AUTH: le->object = sdsdup(c->argv[0]->ptr); break;
-    default: le->object = sdsempty();
+    if (object) {
+        le->object = sdsnew(object);
+    } else {
+        switch(reason) {
+            case ACL_DENIED_CMD: le->object = sdsnew(c->cmd->name); break;
+            case ACL_DENIED_KEY: le->object = sdsdup(c->argv[argpos]->ptr); break;
+            case ACL_DENIED_CHANNEL: le->object = sdsdup(c->argv[argpos]->ptr); break;
+            case ACL_DENIED_AUTH: le->object = sdsdup(c->argv[0]->ptr); break;
+            default: le->object = sdsempty();
+        }
     }
 
     client *realclient = c;
     if (realclient->flags & CLIENT_LUA) realclient = server.lua_caller;
 
     le->cinfo = catClientInfoString(sdsempty(),realclient);
-    if (c->flags & CLIENT_MULTI) {
-        le->context = ACL_LOG_CTX_MULTI;
-    } else if (c->flags & CLIENT_LUA) {
-        le->context = ACL_LOG_CTX_LUA;
-    } else {
-        le->context = ACL_LOG_CTX_TOPLEVEL;
-    }
+    le->context = context;
 
     /* Try to match this entry with past ones, to see if we can just
      * update an existing entry instead of creating a new one. */
@@ -2184,6 +2191,7 @@ void aclCommand(client *c) {
             case ACL_LOG_CTX_TOPLEVEL: ctxstr="toplevel"; break;
             case ACL_LOG_CTX_MULTI: ctxstr="multi"; break;
             case ACL_LOG_CTX_LUA: ctxstr="lua"; break;
+            case ACL_LOG_CTX_MODULE: ctxstr="module"; break;
             default: ctxstr="unknown";
             }
             addReplyBulkCString(c,ctxstr);

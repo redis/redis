@@ -37,6 +37,7 @@ void initClientMultiState(client *c) {
     c->mstate.count = 0;
     c->mstate.cmd_flags = 0;
     c->mstate.cmd_inv_flags = 0;
+    c->mstate.argv_len_sums = 0;
 }
 
 /* Release all the resources associated with MULTI/EXEC state */
@@ -78,6 +79,7 @@ void queueMultiCommand(client *c) {
     c->mstate.count++;
     c->mstate.cmd_flags |= c->cmd->flags;
     c->mstate.cmd_inv_flags |= ~c->cmd->flags;
+    c->mstate.argv_len_sums += c->argv_len_sum + sizeof(robj*)*c->argc;
 }
 
 void discardTransaction(client *c) {
@@ -228,7 +230,7 @@ void execCommand(client *c) {
                 reason = "no permission";
                 break;
             }
-            addACLLogEntry(c,acl_retval,acl_errpos,NULL);
+            addACLLogEntry(c,acl_retval,ACL_LOG_CTX_MULTI,acl_errpos,NULL,NULL);
             addReplyErrorFormat(c,
                 "-NOPERM ACLs rules changed between the moment the "
                 "transaction was accumulated and the EXEC call. "
@@ -434,4 +436,11 @@ void unwatchCommand(client *c) {
     unwatchAllKeys(c);
     c->flags &= (~CLIENT_DIRTY_CAS);
     addReply(c,shared.ok);
+}
+
+size_t multiStateMemOverhead(client *c) {
+    size_t mem = c->mstate.argv_len_sums;
+    /* Add watched keys overhead, Note: this doesn't take into account the watched keys themselves, because they aren't managed per-client. */
+    mem += listLength(c->watched_keys) * (sizeof(listNode) + sizeof(watchedKey));
+    return mem;
 }

@@ -333,7 +333,6 @@ tags {"aof external:skip"} {
             set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
             set client2 [redis [dict get $srv host] [dict get $srv port] 1 $::tls]
             wait_done_loading $client
-            wait_done_loading $client2
 
             # Pop all elements from mylist, should be blmpop delete mylist.
             $client lmpop 1 mylist left count 1
@@ -366,6 +365,53 @@ tags {"aof external:skip"} {
 
             # Length of mylist3 is two.
             assert_equal 2 [$client llen mylist3]
+        }
+    }
+
+    # Test that ZMPOP/BZMPOP work fine with AOF.
+    create_aof {
+        append_to_aof [formatCommand zadd myzset 1 one 2 two 3 three]
+        append_to_aof [formatCommand zadd myzset2 4 four 5 five 6 six]
+        append_to_aof [formatCommand zadd myzset3 1 one 2 two 3 three 4 four 5 five]
+    }
+
+    start_server_aof [list dir $server_path aof-load-truncated no] {
+        test "AOF+ZMPOP/BZMPOP: pop elements from the zset" {
+            set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+            set client2 [redis [dict get $srv host] [dict get $srv port] 1 $::tls]
+            wait_done_loading $client
+
+            # Pop all elements from myzset, should be bzmpop delete myzset.
+            $client zmpop 1 myzset min count 1
+            $client bzmpop 0 1 myzset min count 10
+
+            # Pop all elements from myzset2, should be zmpop delete myzset2.
+            $client bzmpop 0 2 myzset myzset2 max count 10
+            $client zmpop 2 myzset myzset2 max count 2
+
+            # Blocking path, be blocked and then released.
+            $client2 bzmpop 0 2 myzset myzset2 min count 2
+            after 100
+            $client zadd myzset2 1 one 2 two 3 three
+
+            # Pop up the last element in myzset2
+            $client bzmpop 0 3 myzset myzset2 myzset3 min count 1
+
+            # Leave two elements in myzset3.
+            $client bzmpop 0 3 myzset myzset2 myzset3 max count 3
+        }
+    }
+
+    start_server_aof [list dir $server_path aof-load-truncated no] {
+        test "AOF+ZMPOP/BZMPOP: after pop elements from the zset" {
+            set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+            wait_done_loading $client
+
+            # myzset and myzset2 no longer exist.
+            assert_equal 0 [$client exists myzset myzset2]
+
+            # Length of myzset3 is two.
+            assert_equal 2 [$client zcard myzset3]
         }
     }
 }
