@@ -126,7 +126,11 @@ start_server {tags {"maxmemory" "external:skip"}} {
             }
 
             for {set j 0} {$j < 40} {incr j} {
-                catch {r publish bla [string repeat x 100000]} err
+                if {[catch {r publish bla [string repeat x 100000]} err]} {
+                    if $::verbose {
+                        puts "Error publishing: $err"
+                    }
+                }
             }
 
             verify_test $client_eviction
