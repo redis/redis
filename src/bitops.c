@@ -504,9 +504,7 @@ robj *lookupStringForBitCommand(client *c, size_t maxbit) {
  * If the source object is NULL the function is guaranteed to return NULL
  * and set 'len' to 0. */
 unsigned char *getObjectReadOnlyString(robj *o, long *len, char *llbuf) {
-    if (o) {
-        serverAssert(o->type == OBJ_STRING);
-    }
+    serverAssert(!o || o->type == OBJ_STRING);
     unsigned char *p = NULL;
 
     /* Set the 'p' pointer to the string, that can be just a stack allocated
