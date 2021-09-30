@@ -195,8 +195,7 @@ unsigned long quicklistCount(const quicklist *ql);
 int quicklistCompare(quicklistEntry* entry, unsigned char *p2, const size_t p2_len);
 size_t quicklistGetLzf(const quicklistNode *node, void **data);
 
-void quicklistRepr(unsigned char *ql);
-void quicklistReprLight(unsigned char *ql);
+void quicklistRepr(unsigned char *ql, int light);
 
 /* bookmarks */
 int quicklistBookmarkCreate(quicklist **ql_ref, const char *name, quicklistNode *node);

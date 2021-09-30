@@ -664,22 +664,15 @@ NULL
         if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nokeyerr))
             == NULL) return;
 
-        int enabled = 0;
+        int light = 0;
         if (c->argc == 4) {
-            enabled = !strcasecmp(c->argv[3]->ptr,"1");
-            if(!enabled && strcasecmp(c->argv[3]->ptr,"1")) {
-                addReplyError(c,"only 1 or 0 is allowed");
-                return;
-            }
+            light = atoi(c->argv[3]->ptr);;
+            addReply(c,shared.ok);
         }
         if (o->encoding != OBJ_ENCODING_QUICKLIST) {
             addReplyError(c,"Not a quicklist encoded object.");
         } else {
-            if (enabled) {
-                quicklistReprLight(o->ptr);
-            } else {
-                quicklistRepr(o->ptr);
-            }
+            quicklistRepr(o->ptr, light);
             addReplyStatus(c,"Quicklist structure printed on stdout");
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"populate") &&
@@ -818,9 +811,7 @@ NULL
         int memerr;
         unsigned long long sz = memtoull((const char *)c->argv[2]->ptr, &memerr);
         if (memerr || !quicklistisSetPackedThreshold(sz)) {
-            sds errstr = sdsempty();
-            errstr = sdscatprintf(errstr, "argument must be a memory value bigger then 1 and smaller then 4gb");
-            addReplyBulkSds(c,errstr);
+            addReplyError(c, "argument must be a memory value bigger then 1 and smaller then 4gb");
         } else {
             addReply(c,shared.ok);
         }

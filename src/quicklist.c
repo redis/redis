@@ -149,7 +149,7 @@ quicklist *quicklistNew(int fill, int compress) {
     return quicklist;
 }
 
-void quicklistRepr(unsigned char *ql) {
+void quicklistRepr(unsigned char *ql, int light) {
     int i=0;
     quicklist *quicklist  = (struct quicklist*) ql;
     printf("{count : %ld}\n", quicklist->count);
@@ -158,36 +158,23 @@ void quicklistRepr(unsigned char *ql) {
     printf("{compress : %d}\n", quicklist->compress);
     printf("{bookmark_count : %d}\n", quicklist->bookmark_count);
     quicklistNode* node = quicklist->head;
-    while(node != NULL) {
-        printf("{quicklist node(%d)\n", i++);
-        printf("{container : %d}\n", node->container);
-        if (node->container == QUICKLIST_NODE_CONTAINER_ZIPLIST) {
-            printf("{ ziplist:\n");
-            ziplistRepr(node->entry);
-            printf("}\n");
 
-        }
-        else if (QL_NODE_IS_PLAIN(node)) {
-            printf("{ entry : %s }\n", node->entry);
-        }
-        printf("}\n");
-        node = node->next;
-    }
-}
-
-void quicklistReprLight(unsigned char *ql) {
-    int i=0;
-    quicklist *quicklist  = (struct quicklist*) ql;
-    printf("{count : %ld}\n", quicklist->count);
-    printf("{len : %ld}\n", quicklist->len);
-    printf("{fill : %d}\n", quicklist->fill);
-    printf("{compress : %d}\n", quicklist->compress);
-    printf("{bookmark_count : %d}\n", quicklist->bookmark_count);
-    quicklistNode* node = quicklist->head;
     while(node != NULL) {
         printf("{quicklist node(%d)\n", i++);
         printf("{container : %s, encoding: %s, size: %zu}\n", QL_NODE_IS_PLAIN(node) ? "PLAIN": "PACKED",
                (node->encoding == QUICKLIST_NODE_ENCODING_RAW) ? "RAW": "LZF", node->sz);
+
+        if (light == false) {
+            if (node->container == QUICKLIST_NODE_CONTAINER_ZIPLIST) {
+                printf("{ ziplist:\n");
+                ziplistRepr(node->entry);
+                printf("}\n");
+
+            } else if (QL_NODE_IS_PLAIN(node)) {
+                printf("{ entry : %s }\n", node->entry);
+            }
+            printf("}\n");
+        }
         node = node->next;
     }
 }
