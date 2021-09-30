@@ -1218,6 +1218,112 @@ char *stringFromLongLong(long long value) {
     return s;
 }
 
+/* Evolving dict into dictX. */
+dictX *dictEvolution(dict *d) {
+    dictX *dx = zmalloc(sizeof(*dx));
+
+    /* Copy the internal constants from dict to dictX. */
+    dx->type = d->type;
+    dx->rehashidx = 0;  /* when relocating elements using. */
+    dx->pauserehash = 0;
+    dx->ht_used[0] = 0;
+    signed char new_ht_size_exp = _dictNextExp(d->ht_used[0] + 1);
+    dx->ht_size_exp[0] = new_ht_size_exp;
+
+    /* Additional memory needed to calculate evolution. */
+    unsigned long tableusednum;
+    tableusednum = DICTHT_SIZE(dx->ht_size_exp[0]) >> DICTHT_MAX_CAPACITY_EXP;
+    if (tableusednum == 0) tableusednum = 1;
+
+    /* Initialize the hash table and allocate space. */
+    dictEntry ***ht_table;
+    ht_table = zcalloc(tableusednum * sizeof(dictEntry**));
+
+    for (int htidx = 0; htidx < (int)tableusednum; htidx++) {
+        dictEntry **new_ht_table;
+        new_ht_table = zcalloc(DICTHT_MAX_CAPACITY_SIZE * sizeof(dictEntry*));
+        ht_table[htidx] = new_ht_table;
+    }
+
+    dx->ht_table = ht_table;
+    dx->maximum_ht_num = tableusednum;
+
+    /* migrate all the elements in dict to dictX. */
+    while(d->ht_used[0] != 0) {
+        dictEntry **srche, **dsthe;
+        dictEntry *de, *nextde;
+
+        srche = d->ht_table[0];
+        while(srche[dx->rehashidx] == NULL) {
+            dx->rehashidx++;
+        }
+
+        de = srche[dx->rehashidx];
+        /* move all the keys in this bucket from the dict to the dictX,
+         * This can be replaced by the memcpy function, but it makes sense
+         * to demonstrate the migration process. */
+        while(de) {
+            uint64_t h;
+
+            nextde = de->next;
+            /* Get the index in the new hash table */
+            h = dictHashKey(d, de->key) & DICTHT_SIZE_MASK(dx->ht_size_exp[0]);
+            dsthe = dx->ht_table[h >> DICTHT_MAX_CAPACITY_EXP];
+            de->next = dsthe[h & DICTHT_MAX_CAPACITY_MASK];
+            dsthe[h & DICTHT_MAX_CAPACITY_MASK] = de;
+            d->ht_used[0]--;
+            dx->ht_used[0]++;
+            de = nextde;
+        }
+        srche[dx->rehashidx] = NULL;
+        dx->rehashidx++;
+    }
+    dx->rehashidx = -1;
+    d->ht_used[0] = dx->ht_used[0];
+
+    return dx;
+}
+
+/* For the most realistic simulation of the dictFind function, dictXFind
+ * retains the relevant use of dict. */
+dictEntry *dictXFind(dictX *dx, const void *key) {
+    dictEntry **he;
+    dictEntry *de;
+    uint64_t h, idx, table;
+
+    if (dictSize(dx) == 0) return NULL; /* dict is empty */
+    if (dictIsRehashing(dx)) return NULL;
+    h = dictHashKey(dx, key);
+    for (table = 0; table <= 1; table++) {
+        idx = h & DICTHT_SIZE_MASK(dx->ht_size_exp[table]);
+        he = dx->ht_table[idx >> DICTHT_MAX_CAPACITY_EXP];
+        de = he[idx & DICTHT_MAX_CAPACITY_MASK];
+        while(de) {
+            if (key==de->key || dictCompareKeys(dx, key, de->key))
+                return de;
+            de = de->next;
+        }
+        if (!dictIsRehashing(dx)) return NULL;
+    }
+    return NULL;
+}
+
+/* Convert dictX to dict, then release dictX. */
+void dictRewind(dict *d, dictX *dx) {
+    uint32_t copy_offset = 0;
+    uint32_t copy_len = DICTHT_MAX_CAPACITY_SIZE;
+    if (dx->maximum_ht_num == 1) copy_len = DICTHT_SIZE(dx->ht_size_exp[0]);
+
+    for (int htidx = 0; htidx < (int)dx->maximum_ht_num; htidx++) {
+        memcpy(d->ht_table[0] + copy_offset, dx->ht_table[htidx],
+                copy_len * sizeof(dx->ht_table[htidx]));
+        zfree(dx->ht_table[htidx]);
+        copy_offset += copy_len;
+    }
+    zfree(dx->ht_table);
+    zfree(dx);
+}
+
 dictType BenchmarkDictType = {
     hashCallback,
     NULL,
@@ -1308,6 +1414,45 @@ int dictTest(int argc, char **argv, int accurate) {
     }
     end_benchmark("Accessing missing");
 
+    dictX *dictX = dictEvolution(dict);
+    start_benchmark();
+    for (j = 0; j < count; j++) {
+        char *key = stringFromLongLong(j);
+        dictEntry *de = dictXFind(dictX, key);
+        assert(de != NULL);
+        zfree(key);
+    }
+    end_benchmark("Linear access of existing elements in dictX");
+
+    start_benchmark();
+    for (j = 0; j < count; j++) {
+        char *key = stringFromLongLong(j);
+        dictEntry *de = dictXFind(dictX, key);
+        assert(de != NULL);
+        zfree(key);
+    }
+    end_benchmark("Linear access of existing elements (2nd round) in dictX");
+
+    start_benchmark();
+    for (j = 0; j < count; j++) {
+        char *key = stringFromLongLong(rand() % count);
+        dictEntry *de = dictXFind(dictX, key);
+        assert(de != NULL);
+        zfree(key);
+    }
+    end_benchmark("Random access of existing elements in dictX");
+
+    start_benchmark();
+    for (j = 0; j < count; j++) {
+        char *key = stringFromLongLong(rand() % count);
+        key[0] = 'X';
+        dictEntry *de = dictXFind(dictX, key);
+        assert(de == NULL);
+        zfree(key);
+    }
+    end_benchmark("Accessing missing in dictX");
+
+    dictRewind(dict, dictX);
     start_benchmark();
     for (j = 0; j < count; j++) {
         char *key = stringFromLongLong(j);
