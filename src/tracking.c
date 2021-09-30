@@ -59,10 +59,10 @@ typedef struct bcastState {
 } bcastState;
 
 /* This is used to store an invalidation key pending to flush */
-typedef struct invalidateKey {
+typedef struct invalidatedKey {
     uint64_t client_id;
     robj *key;
-} invalidateKey;
+} invalidatedKey;
 
 /* Remove the tracking state from the client 'c'. Note that there is not much
  * to do for us here, if not to decrement the counter of the clients in
@@ -394,7 +394,7 @@ void trackingInvalidateKey(client *c, robj *keyobj, int bcast) {
         }
 
         /* We need to use id as client may be freed */
-        trackingScheduleKey(id,keyobj);
+        trackingScheduleKeyInvalidation(id,keyobj);
     }
     raxStop(&ri);
 
@@ -405,8 +405,8 @@ void trackingInvalidateKey(client *c, robj *keyobj, int bcast) {
     raxRemove(TrackingTable,(unsigned char*)key,keylen,NULL);
 }
 
-void trackingScheduleKey(uint64_t client_id, robj *keyobj) {
-    invalidateKey *ik = zmalloc(sizeof(invalidateKey));
+void trackingScheduleKeyInvalidation(uint64_t client_id, robj *keyobj) {
+    invalidatedKey *ik = zmalloc(sizeof(invalidatedKey));
 
     ik->client_id = client_id;
     ik->key = keyobj;
@@ -414,7 +414,7 @@ void trackingScheduleKey(uint64_t client_id, robj *keyobj) {
     listAddNodeTail(server.tracking_pending_keys, ik);
 }
 
-void trackingHandlePendingKeys() {
+void trackingHandlePendingKeyInvalidations() {
     if (!listLength(server.tracking_pending_keys)) return;
 
     listNode *ln;
@@ -422,7 +422,7 @@ void trackingHandlePendingKeys() {
 
     listRewind(server.tracking_pending_keys,&li);
     while ((ln = listNext(&li)) != NULL) {
-        invalidateKey *ik = listNodeValue(ln);
+        invalidatedKey *ik = listNodeValue(ln);
         client *target = lookupClientByID(ik->client_id);
         if (target != NULL)
             sendTrackingMessage(target,(char *)ik->key->ptr,sdslen(ik->key->ptr),0);

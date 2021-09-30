@@ -2107,8 +2107,8 @@ void enableTracking(client *c, uint64_t redirect_to, uint64_t options, robj **pr
 void disableTracking(client *c);
 void trackingRememberKeys(client *c);
 void trackingInvalidateKey(client *c, robj *keyobj, int bcast);
-void trackingScheduleKey(uint64_t client_id, robj *keyobj);
-void trackingHandlePendingKeys(void);
+void trackingScheduleKeyInvalidation(uint64_t client_id, robj *keyobj);
+void trackingHandlePendingKeyInvalidations(void);
 void trackingInvalidateKeysOnFlush(int async);
 void freeTrackingRadixTree(rax *rt);
 void freeTrackingRadixTreeAsync(rax *rt);
@@ -2433,6 +2433,7 @@ void preventCommandReplication(client *c);
 void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t duration);
 int prepareForShutdown(int flags);
 void afterCommand(client *c);
+int inNestedCall(void);
 #ifdef __GNUC__
 void _serverLog(int level, const char *fmt, ...)
     __attribute__((format(printf, 2, 3)));

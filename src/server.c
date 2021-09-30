@@ -2935,7 +2935,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
 
     /* Flush the pending invalidation messages to clients participating to the
      * client side caching protocol in general mode */
-    trackingHandlePendingKeys();
+    trackingHandlePendingKeyInvalidations();
 
     /* Send the invalidation messages to clients participating to the
      * client side caching protocol in broadcasting (BCAST) mode. */
@@ -4546,7 +4546,12 @@ void afterCommand(client *c) {
     UNUSED(c);
     /* Flush pending invalidation messages only when we are not in nested call.
      * So the messages are not interleaved with transaction response. */
-    if (!server.fixed_time_expire) trackingHandlePendingKeys();
+    if (!server.fixed_time_expire) trackingHandlePendingKeyInvalidations();
+}
+
+/* This means we are in a nested call of a call*/
+int inNestedCall(void) {
+    return !server.fixed_time_expire;
 }
 
 /* Returns 1 for commands that may have key names in their arguments, but the legacy range
@@ -4728,8 +4733,10 @@ int processCommand(client *c) {
         int out_of_memory = (performEvictions() == EVICT_FAIL);
 
         /* performEvictions may evict keys, so we need flush pending tracking
-         * invalidation keys */
-        trackingHandlePendingKeys();
+         * invalidation keys. If we don't do this, we may get an invalidation
+         * message after we perform operation on the key, where in fact this
+         * message belongs to the old value of the key before it gets evicted.*/
+        trackingHandlePendingKeyInvalidations();
 
         /* performEvictions may flush slave output buffers. This may result
          * in a slave, that may be the active client, to be freed. */
