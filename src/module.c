@@ -5167,7 +5167,7 @@ void *RM_LoadDataTypeFromStringEncver(const RedisModuleString *str, const module
 }
 
 /* Similar to RM_LoadDataTypeFromStringEncver, original version of the API, kept
-   for backward compatibility.
+  * for backward compatibility.
 */
 void *RM_LoadDataTypeFromString(const RedisModuleString *str, const moduleType *mt) {
     return RM_LoadDataTypeFromStringEncver(str, mt, 0);
