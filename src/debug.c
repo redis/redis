@@ -475,8 +475,10 @@ void debugCommand(client *c) {
 "    Return the size of different Redis core C structures.",
 "ZIPLIST <key>",
 "    Show low level info about the ziplist encoding of <key>.",
-"QUICKLIST <key>",
-"    Show low level info about the quicklist encoding of <key>.",
+"QUICKLIST <key> <light-enabled>",
+"    Show low level info about the quicklist encoding of <key>."
+"    <light-enabled> is optional, 0 by default, "
+"    1 for enabling light version of the log",
 NULL
         };
         addReplyHelp(c, help);

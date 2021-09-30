@@ -15,10 +15,15 @@ proc write_big_bulk {size} {
     r read
 }
 
+
+# check functionality of plain nodes
 start_server [list overrides [list save ""] ] {
 
     r config set list-compress-depth 2
-    test {reg node check compression} {
+    r config set list-max-ziplist-size 1
+
+    # check compression with ziplist nodes
+    test {reg node check compression with insert and pop} {
         r lpush list1 [string repeat a 500]
         r lpush list1 [string repeat b 500]
         r lpush list1 [string repeat c 500]
@@ -37,7 +42,7 @@ start_server [list overrides [list save ""] ] {
         assert_equal [r lpop list1] [string repeat a 500]
     };
 
-    test {reg node check compression2} {
+    test {reg node check compression combined with trim} {
         r lpush list2 [string repeat a 500]
         r linsert list2 after  [string repeat a 500] [string repeat b 500]
         r rpush list2 [string repeat c 500]
@@ -46,7 +51,7 @@ start_server [list overrides [list save ""] ] {
         r llen list2
     } {2}
 
-    test {reg node check compression3} {
+    test {reg node check compression with lset} {
         r lpush list3 [string repeat a 500]
         r LSET list3 0 [string repeat b 500]
         assert_equal [string repeat b 500] [r lindex list3 0]
@@ -76,7 +81,7 @@ start_server [list overrides [list save ""] ] {
         assert_equal [r lpop list4] [string repeat a 500]
     };
 
-    test {plain node check compression2} {
+    test {plain node check compression with ltrim} {
         r lpush list5 [string repeat a 500]
         r linsert list5 after  [string repeat a 500] [string repeat b 500]
         r rpush list5 [string repeat c 500]
@@ -86,7 +91,7 @@ start_server [list overrides [list save ""] ] {
     } {2}
 
 
-    test {plain node check compression3} {
+    test {plain node check compression using lset} {
         r lpush list6 [string repeat a 500]
         r LSET list6 0 [string repeat b 500]
         assert_equal [string repeat b 500] [r lindex list6 0]
@@ -177,6 +182,7 @@ start_server [list overrides [list save ""] ] {
 start_server [list overrides [list save ""] ] {
     r config set proto-max-bulk-len 10000000000 ;#10gb
     r config set client-query-buffer-limit 10000000000 ;#10gb
+    # this is temporary in order to run in regulat env should be 5gb
     set str_length 1000
 
     test {4gb check push and pop} {

@@ -143,8 +143,11 @@ typedef struct quicklistEntry {
 #define QUICKLIST_NOCOMPRESS 0
 
 /* quicklist container formats */
-#define QUICKLIST_NODE_CONTAINER_NONE 1
+#define QUICKLIST_NODE_CONTAINER_PLAIN 1
 #define QUICKLIST_NODE_CONTAINER_ZIPLIST 2
+#define QUICKLIST_NODE_CONTAINER_MAX 3
+
+#define QL_NODE_IS_PLAIN(node) (node->container ==  QUICKLIST_NODE_CONTAINER_PLAIN)
 
 #define quicklistNodeIsCompressed(node)                                        \
     ((node)->encoding == QUICKLIST_NODE_ENCODING_LZF)
@@ -161,7 +164,7 @@ int quicklistPushTail(quicklist *quicklist, void *value, const size_t sz);
 void quicklistPush(quicklist *quicklist, void *value, const size_t sz,
                    int where);
 void quicklistAppendZiplist(quicklist *quicklist, unsigned char *zl);
-void quicklistAppendPlainNode(quicklist *quicklist, unsigned char *zl, size_t sz);
+void quicklistAppendPlainNode(quicklist *quicklist, unsigned char *data, size_t sz);
 quicklist *quicklistAppendValuesFromZiplist(quicklist *quicklist,
                                             unsigned char *zl);
 quicklist *quicklistCreateFromZiplist(int fill, int compress,
@@ -192,8 +195,8 @@ unsigned long quicklistCount(const quicklist *ql);
 int quicklistCompare(quicklistEntry* entry, unsigned char *p2, const size_t p2_len);
 size_t quicklistGetLzf(const quicklistNode *node, void **data);
 
-void quicklistRepr(unsigned char *zl);
-void quicklistReprLight(unsigned char *zl);
+void quicklistRepr(unsigned char *ql);
+void quicklistReprLight(unsigned char *ql);
 
 /* bookmarks */
 int quicklistBookmarkCreate(quicklist **ql_ref, const char *name, quicklistNode *node);
