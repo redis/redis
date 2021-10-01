@@ -46,6 +46,7 @@
 #include <limits.h>
 #include <math.h>
 #include "custom_hash.c"
+#include "server.h"
 
 #include <hiredis.h>
 #ifdef USE_OPENSSL
@@ -3192,8 +3193,10 @@ static sds clusterManagerNodeGetJSON(clusterManagerNode *node,
  * { and } is hashed. This may be useful in the future to force certain
  * keys to be in the same node (assuming no resharding is in progress). */
 static unsigned int clusterManagerKeyHashSlot(char *key, int keylen) {
-    unsigned int custom_hash = CustomkeyHashSlot(key,keylen);
-    if (custom_hash == 0xFFFF) {
+    if (server.cluster_custom_hash) {
+        return CustomkeyHashSlot(key,keylen);
+    }
+    else {
         int s, e; /* start-end indexes of { and } */
 
         for (s = 0; s < keylen; s++)
@@ -3213,7 +3216,6 @@ static unsigned int clusterManagerKeyHashSlot(char *key, int keylen) {
          * what is in the middle between { and }. */
         return crc16(key+s+1,e-s-1) & 0x3FFF;
     }
-    return custom_hash;
 }
 
 /* Return a string representation of the cluster node. */

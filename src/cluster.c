@@ -784,8 +784,10 @@ unsigned long getClusterConnectionsCount(void) {
  * { and } is hashed. This may be useful in the future to force certain
  * keys to be in the same node (assuming no resharding is in progress). */
 unsigned int keyHashSlot(char *key, int keylen) {
-    unsigned int custom_hash = CustomkeyHashSlot(key,keylen);
-    if (custom_hash == 0xFFFF) {
+    if (server.cluster_custom_hash) {
+        return CustomkeyHashSlot(key,keylen);
+    }
+    else {
         int s, e; /* start-end indexes of { and } */
 
         for (s = 0; s < keylen; s++)
@@ -805,7 +807,6 @@ unsigned int keyHashSlot(char *key, int keylen) {
          * what is in the middle between { and }. */
         return crc16(key+s+1,e-s-1) & 0x3FFF;
     }
-    return custom_hash;
 }
 
 /* -----------------------------------------------------------------------------
