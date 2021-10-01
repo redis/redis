@@ -303,8 +303,8 @@ robj *dbRandomKey(redisDb *db) {
     }
 }
 
-/* Delete a key, value, and associated expiration entry if any, from the DB */
-int dbSyncDelete(redisDb *db, robj *key) {
+/* Helper for sync and async delete. */
+static int dbGenericDelete(redisDb *db, robj *key, int async) {
     /* Deleting an entry from the expires dict will not free the sds of
      * the key, because it is shared with the main dictionary. */
     if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
@@ -313,6 +313,10 @@ int dbSyncDelete(redisDb *db, robj *key) {
         robj *val = dictGetVal(de);
         /* Tells the module that the key has been unlinked from the database. */
         moduleNotifyKeyUnlink(key,val,db->id);
+        if (async) {
+            freeObjAsync(key, val, db->id);
+            dictSetVal(db->dict, de, NULL);
+        }
         if (server.cluster_enabled) slotToKeyDelEntry(de);
         dictFreeUnlinkedEntry(db->dict,de);
         return 1;
@@ -321,11 +325,21 @@ int dbSyncDelete(redisDb *db, robj *key) {
     }
 }
 
+/* Delete a key, value, and associated expiration entry if any, from the DB */
+int dbSyncDelete(redisDb *db, robj *key) {
+    return dbGenericDelete(db, key, 0);
+}
+
+/* Delete a key, value, and associated expiration entry if any, from the DB. If
+ * the value consists of many allocations, it may be freed asynchronously. */
+int dbAsyncDelete(redisDb *db, robj *key) {
+    return dbGenericDelete(db, key, 1);
+}
+
 /* This is a wrapper whose behavior depends on the Redis lazy free
  * configuration. Deletes the key synchronously or asynchronously. */
 int dbDelete(redisDb *db, robj *key) {
-    return server.lazyfree_lazy_server_del ? dbAsyncDelete(db,key) :
-                                             dbSyncDelete(db,key);
+    return dbGenericDelete(db, key, server.lazyfree_lazy_server_del);
 }
 
 /* Prepare the string object stored at 'key' to be modified destructively
