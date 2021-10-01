@@ -45,6 +45,7 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <math.h>
+#include "custom_hash.c"
 
 #include <hiredis.h>
 #ifdef USE_OPENSSL
@@ -3191,24 +3192,28 @@ static sds clusterManagerNodeGetJSON(clusterManagerNode *node,
  * { and } is hashed. This may be useful in the future to force certain
  * keys to be in the same node (assuming no resharding is in progress). */
 static unsigned int clusterManagerKeyHashSlot(char *key, int keylen) {
-    int s, e; /* start-end indexes of { and } */
+    unsigned int custom_hash = CustomkeyHashSlot(key,keylen);
+    if (custom_hash == 0xFFFF) {
+        int s, e; /* start-end indexes of { and } */
 
-    for (s = 0; s < keylen; s++)
-        if (key[s] == '{') break;
+        for (s = 0; s < keylen; s++)
+            if (key[s] == '{') break;
 
-    /* No '{' ? Hash the whole key. This is the base case. */
-    if (s == keylen) return crc16(key,keylen) & 0x3FFF;
+        /* No '{' ? Hash the whole key. This is the base case. */
+        if (s == keylen) return crc16(key,keylen) & 0x3FFF;
 
-    /* '{' found? Check if we have the corresponding '}'. */
-    for (e = s+1; e < keylen; e++)
-        if (key[e] == '}') break;
+        /* '{' found? Check if we have the corresponding '}'. */
+        for (e = s+1; e < keylen; e++)
+            if (key[e] == '}') break;
 
-    /* No '}' or nothing between {} ? Hash the whole key. */
-    if (e == keylen || e == s+1) return crc16(key,keylen) & 0x3FFF;
+        /* No '}' or nothing between {} ? Hash the whole key. */
+        if (e == keylen || e == s+1) return crc16(key,keylen) & 0x3FFF;
 
-    /* If we are here there is both a { and a } on its right. Hash
-     * what is in the middle between { and }. */
-    return crc16(key+s+1,e-s-1) & 0x3FFF;
+        /* If we are here there is both a { and a } on its right. Hash
+         * what is in the middle between { and }. */
+        return crc16(key+s+1,e-s-1) & 0x3FFF;
+    }
+    return custom_hash;
 }
 
 /* Return a string representation of the cluster node. */

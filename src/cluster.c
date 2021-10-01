@@ -805,9 +805,7 @@ unsigned int keyHashSlot(char *key, int keylen) {
          * what is in the middle between { and }. */
         return crc16(key+s+1,e-s-1) & 0x3FFF;
     }
-    else {
-        return custom_hash;
-    }
+    return custom_hash;
 }
 
 /* -----------------------------------------------------------------------------
