@@ -46,7 +46,6 @@
 #include <limits.h>
 #include <math.h>
 #include "custom_hash.c"
-#include "server.h"
 
 #include <hiredis.h>
 #ifdef USE_OPENSSL
