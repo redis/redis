@@ -785,7 +785,7 @@ unsigned long getClusterConnectionsCount(void) {
  * keys to be in the same node (assuming no resharding is in progress). */
 unsigned int keyHashSlot(char *key, int keylen) {
     unsigned int custom_hash = CustomkeyHashSlot(key,keylen);
-    if (custom_hash == 0xFFFF){
+    if (custom_hash == 0xFFFF) {
         int s, e; /* start-end indexes of { and } */
 
         for (s = 0; s < keylen; s++)
