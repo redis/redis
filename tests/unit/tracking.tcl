@@ -419,6 +419,33 @@ start_server {tags {"tracking network"}} {
         assert_equal $res {invalidate a{t}}
     }
 
+    test {Tracking invalidation message of eviction keys should be before response} {
+        # Get the current memory limit and calculate a new limit.
+        r CLIENT TRACKING off
+        r HELLO 3
+        r CLIENT TRACKING on
+        set used [s used_memory]
+        set limit [expr {$used+100*1024}]
+        set old_policy [lindex [r config get maxmemory-policy] 1]
+        r config set maxmemory $limit
+        # We set policy volatile-random, so only keys with ttl will be evicted
+        r config set maxmemory-policy volatile-random
+        # Add a volatile key and tracking it.
+        r setex volatile-key 10000 x
+        r get volatile-key
+        # We use SETBIT here, so we can set a big key and get the used_memory
+        # bigger than maxmemory. Next command will evict volatile keys. We
+        # can't use SET, as SET uses big input buffer, so it will fail.
+        r setbit big-key 1000000 0
+        # volatile-key is evicted before response.
+        set res [r getbit big-key 0]
+        assert_equal $res {invalidate volatile-key}
+        set res [r read]
+        assert_equal $res 0
+        r config set maxmemory-policy $old_policy
+        r config set maxmemory 0
+    }
+
     test {Tracking gets notification on tracking table key eviction} {
         r CLIENT TRACKING off
         r CLIENT TRACKING on REDIRECT $redir_id NOLOOP
