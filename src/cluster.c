@@ -4666,13 +4666,16 @@ NULL
         int del = !strcasecmp(c->argv[1]->ptr,"delslots");
 
         memset(slots,0,CLUSTER_SLOTS);
-        /* Check that all the arguments are parseable and that all the
-         * slots are not already busy. */
+        /* Check that all the arguments are parseable.*/
         for (j = 2; j < c->argc; j++) {
             if ((slot = getSlotOrReply(c,c->argv[j])) == C_ERR) {
                 zfree(slots);
                 return;
             }
+        }
+        /* Check that the slots are not already busy. */
+        for (j = 2; j < c->argc; j++) {
+            slot = getSlotOrReply(c,c->argv[j]);
             if (checkSlotAssignmentsOrReply(c, slots, del, slot, slot) == C_ERR) {
                 zfree(slots);
                 return;
