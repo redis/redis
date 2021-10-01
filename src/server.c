@@ -4546,12 +4546,12 @@ void afterCommand(client *c) {
     UNUSED(c);
     /* Flush pending invalidation messages only when we are not in nested call.
      * So the messages are not interleaved with transaction response. */
-    if (!server.fixed_time_expire) trackingHandlePendingKeyInvalidations();
+    if (!inNestedCall()) trackingHandlePendingKeyInvalidations();
 }
 
-/* This means we are in a nested call of a call*/
+/* This means we are in a nested call of a call */
 int inNestedCall(void) {
-    return !server.fixed_time_expire;
+    return server.fixed_time_expire;
 }
 
 /* Returns 1 for commands that may have key names in their arguments, but the legacy range
