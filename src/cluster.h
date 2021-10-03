@@ -322,5 +322,6 @@ void slotToKeyCopyToBackup(clusterSlotsToKeysData *backup);
 void slotToKeyRestoreBackup(clusterSlotsToKeysData *backup);
 void slotToKeyFlush(void);
 void clusterUpdateMyselfFlags(void);
+void clusterUpdateMyselfIp(void);
 
 #endif /* __CLUSTER_H */

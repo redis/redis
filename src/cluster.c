@@ -519,6 +519,36 @@ void clusterUpdateMyselfFlags(void) {
     }
 }
 
+
+/* We want to take myself->ip in sync with the cluster-announce-ip option.
+* The option can be set at runtime via CONFIG SET. */
+void clusterUpdateMyselfIp(void) {
+    if (!myself) return;
+    static char *prev_ip = NULL;
+    char *curr_ip = server.cluster_announce_ip;
+    int changed = 0;
+
+    if (prev_ip == NULL && curr_ip != NULL) changed = 1;
+    else if (prev_ip != NULL && curr_ip == NULL) changed = 1;
+    else if (prev_ip && curr_ip && strcmp(prev_ip,curr_ip)) changed = 1;
+
+    if (changed) {
+        if (prev_ip) zfree(prev_ip);
+        prev_ip = curr_ip;
+
+        if (curr_ip) {
+            /* We always take a copy of the previous IP address, by
+            * duplicating the string. This way later we can check if
+            * the address really changed. */
+            prev_ip = zstrdup(prev_ip);
+            strncpy(myself->ip,server.cluster_announce_ip,NET_IP_STR_LEN);
+            myself->ip[NET_IP_STR_LEN-1] = '\0';
+        } else {
+            myself->ip[0] = '\0'; /* Force autodetection. */
+        }
+    }
+}
+
 void clusterInit(void) {
     int saveconf = 0;
 
@@ -599,6 +629,7 @@ void clusterInit(void) {
     server.cluster->mf_end = 0;
     resetManualFailover();
     clusterUpdateMyselfFlags();
+    clusterUpdateMyselfIp();
 }
 
 /* Reset a node performing a soft or hard reset:
@@ -3607,35 +3638,6 @@ void clusterCron(void) {
     mstime_t handshake_timeout;
 
     iteration++; /* Number of times this function was called so far. */
-
-    /* We want to take myself->ip in sync with the cluster-announce-ip option.
-     * The option can be set at runtime via CONFIG SET, so we periodically check
-     * if the option changed to reflect this into myself->ip. */
-    {
-        static char *prev_ip = NULL;
-        char *curr_ip = server.cluster_announce_ip;
-        int changed = 0;
-
-        if (prev_ip == NULL && curr_ip != NULL) changed = 1;
-        else if (prev_ip != NULL && curr_ip == NULL) changed = 1;
-        else if (prev_ip && curr_ip && strcmp(prev_ip,curr_ip)) changed = 1;
-
-        if (changed) {
-            if (prev_ip) zfree(prev_ip);
-            prev_ip = curr_ip;
-
-            if (curr_ip) {
-                /* We always take a copy of the previous IP address, by
-                 * duplicating the string. This way later we can check if
-                 * the address really changed. */
-                prev_ip = zstrdup(prev_ip);
-                strncpy(myself->ip,server.cluster_announce_ip,NET_IP_STR_LEN);
-                myself->ip[NET_IP_STR_LEN-1] = '\0';
-            } else {
-                myself->ip[0] = '\0'; /* Force autodetection. */
-            }
-        }
-    }
 
     /* The handshake timeout is the time after which a handshake node that was
      * not turned into a normal node is removed from the nodes. Usually it is
