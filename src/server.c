@@ -2933,8 +2933,9 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
      * our clients. */
     updateFailoverStatus();
 
-    /* We can't have pending invalidation messages to clients participating
-     * to the client side caching protocol in general mode */
+    /* Since we rely on current_client to send scheduled invalidation messages
+     * we have to flush them after each command, so when we get here, the list
+     * must be empty. */
     serverAssert(listLength(server.tracking_pending_keys) == 0);
 
     /* Send the invalidation messages to clients participating to the
