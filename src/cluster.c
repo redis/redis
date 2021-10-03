@@ -507,6 +507,7 @@ void deriveAnnouncedPorts(int *announced_port, int *announced_pport,
  * that may change at runtime via CONFIG SET. This function changes the
  * set of flags in myself->flags accordingly. */
 void clusterUpdateMyselfFlags(void) {
+    if (!myself) return;
     int oldflags = myself->flags;
     int nofailover = server.cluster_slave_no_failover ?
                      CLUSTER_NODE_NOFAILOVER : 0;
@@ -3642,9 +3643,6 @@ void clusterCron(void) {
      * the value of 1 second. */
     handshake_timeout = server.cluster_node_timeout;
     if (handshake_timeout < 1000) handshake_timeout = 1000;
-
-    /* Update myself flags. */
-    clusterUpdateMyselfFlags();
 
     /* Clear so clusterNodeCronHandleReconnect can count the number of nodes in PFAIL. */
     server.cluster->stats_pfail_nodes = 0;

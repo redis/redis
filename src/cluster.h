@@ -321,5 +321,6 @@ void slotToKeyReplaceEntry(dictEntry *entry);
 void slotToKeyCopyToBackup(clusterSlotsToKeysData *backup);
 void slotToKeyRestoreBackup(clusterSlotsToKeysData *backup);
 void slotToKeyFlush(void);
+void clusterUpdateMyselfFlags(void);
 
 #endif /* __CLUSTER_H */
