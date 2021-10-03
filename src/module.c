@@ -343,6 +343,7 @@ typedef struct RedisModuleServerInfoData {
 #define REDISMODULE_ARGV_NO_REPLICAS (1<<2)
 #define REDISMODULE_ARGV_RESP_3 (1<<3)
 #define REDISMODULE_ARGV_RESP_AUTO (1<<4)
+#define REDISMODULE_ARGV_CHECK_ACL (1<<5)
 
 /* Determine whether Redis should signalModifiedKey implicitly.
  * In case 'ctx' has no 'module' member (and therefore no module->options),
@@ -373,6 +374,7 @@ unsigned long long ModulesInHooks = 0; /* Total number of modules in hooks
  * clients using such newly created users. */
 typedef struct RedisModuleUser {
     user *user; /* Reference to the real redis user */
+    int free_user; /* Indicates that user should also be freed when this object is freed */
 } RedisModuleUser;
 
 /* This is a structure used to export some meta-information such as dbid to the module. */
@@ -1533,7 +1535,15 @@ void RM_FreeString(RedisModuleCtx *ctx, RedisModuleString *str) {
  * into a string that lives after the callback function returns, if
  * no FreeString() call is performed.
  *
- * It is possible to call this function with a NULL context. */
+ * It is possible to call this function with a NULL context.
+ *
+ * When strings are going to be retained for an extended duration, it is good
+ * practice to also call RedisModule_TrimStringAllocation() in order to
+ * optimize memory usage.
+ *
+ * Threaded modules that reference retained strings from other threads *must*
+ * explicitly trim the allocation as soon as the string is retained. Not doing
+ * so may result with automatic trimming which is not thread safe. */
 void RM_RetainString(RedisModuleCtx *ctx, RedisModuleString *str) {
     if (ctx == NULL || !autoMemoryFreed(ctx,REDISMODULE_AM_STRING,str)) {
         /* Increment the string reference counting only if we can't
@@ -1568,7 +1578,14 @@ void RM_RetainString(RedisModuleCtx *ctx, RedisModuleString *str) {
 * returned RedisModuleString.
 *
 * It is possible to call this function with a NULL context.
-*/
+*
+ * When strings are going to be held for an extended duration, it is good
+ * practice to also call RedisModule_TrimStringAllocation() in order to
+ * optimize memory usage.
+ *
+ * Threaded modules that reference held strings from other threads *must*
+ * explicitly trim the allocation as soon as the string is held. Not doing
+ * so may result with automatic trimming which is not thread safe. */
 RedisModuleString* RM_HoldString(RedisModuleCtx *ctx, RedisModuleString *str) {
     if (str->refcount == OBJ_STATIC_REFCOUNT) {
         return RM_CreateStringFromString(ctx, str);
@@ -1705,6 +1722,34 @@ int RM_StringAppendBuffer(RedisModuleCtx *ctx, RedisModuleString *str, const cha
     if (str == NULL) return REDISMODULE_ERR;
     str->ptr = sdscatlen(str->ptr,buf,len);
     return REDISMODULE_OK;
+}
+
+/* Trim possible excess memory allocated for a RedisModuleString.
+ *
+ * Sometimes a RedisModuleString may have more memory allocated for
+ * it than required, typically for argv arguments that were constructed
+ * from network buffers. This function optimizes such strings by reallocating
+ * their memory, which is useful for strings that are not short lived but
+ * retained for an extended duration.
+ *
+ * This operation is *not thread safe* and should only be called when
+ * no concurrent access to the string is guaranteed. Using it for an argv
+ * string in a module command before the string is potentially available
+ * to other threads is generally safe.
+ *
+ * Currently, Redis may also automatically trim retained strings when a
+ * module command returns. However, doing this explicitly should still be
+ * a preferred option:
+ *
+ * 1. Future versions of Redis may abandon auto-trimming.
+ * 2. Auto-trimming as currently implemented is *not thread safe*.
+ *    A background thread manipulating a recently retained string may end up
+ *    in a race condition with the auto-trim, which could result with
+ *    data corruption.
+ */
+void RM_TrimStringAllocation(RedisModuleString *str) {
+    if (!str) return;
+    trimStringObjectIfNeeded(str);
 }
 
 /* --------------------------------------------------------------------------
@@ -4609,6 +4654,7 @@ RedisModuleString *RM_CreateStringFromCallReply(RedisModuleCallReply *reply) {
  *     "R" -> REDISMODULE_ARGV_NO_REPLICAS
  *     "3" -> REDISMODULE_ARGV_RESP_3
  *     "0" -> REDISMODULE_ARGV_RESP_AUTO
+ *     "C" -> REDISMODULE_ARGV_CHECK_ACL
  *
  * On error (format specifier error) NULL is returned and nothing is
  * allocated. On success the argument vector is returned. */
@@ -4671,6 +4717,8 @@ robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int 
             if (flags) (*flags) |= REDISMODULE_ARGV_RESP_3;
         } else if (*p == '0') {
             if (flags) (*flags) |= REDISMODULE_ARGV_RESP_AUTO;
+        } else if (*p == 'C') {
+            if (flags) (*flags) |= REDISMODULE_ARGV_CHECK_ACL;
         } else {
             goto fmterr;
         }
@@ -4708,6 +4756,7 @@ fmterr:
  *     * `0` -- Return the reply in auto mode, i.e. the reply format will be the
  *              same as the client attached to the given RedisModuleCtx. This will
  *              probably used when you want to pass the reply directly to the client.
+ *     * `C` -- Check if command can be executed according to ACL rules.
  * * **...**: The actual arguments to the Redis command.
  *
  * On success a RedisModuleCallReply object is returned, otherwise
@@ -4720,6 +4769,8 @@ fmterr:
  * * EROFS: operation in Cluster instance when a write command is sent
  *          in a readonly state.
  * * ENETDOWN: operation in Cluster instance when cluster is down.
+ * * ENOTSUP: No ACL user for the specified module context
+ * * EACCES: Command cannot be executed, according to ACL rules
  *
  * Example code fragment:
  * 
@@ -4758,6 +4809,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
          * recursive call to this module.) */
         c = createClient(NULL);
     }
+
     c->user = NULL; /* Root user. */
     c->flags = CLIENT_MODULE;
 
@@ -4799,6 +4851,25 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     if ((cmd->arity > 0 && cmd->arity != argc) || (argc < -cmd->arity)) {
         errno = EINVAL;
         goto cleanup;
+    }
+
+    /* Check if the user can run this command according to the current
+     * ACLs. */
+    if (flags & REDISMODULE_ARGV_CHECK_ACL) {
+        int acl_errpos;
+        int acl_retval;
+
+        if (ctx->client->user == NULL) {
+            errno = ENOTSUP;
+            goto cleanup;
+        }
+        acl_retval = ACLCheckAllUserCommandPerm(ctx->client->user,c->cmd,c->argv,c->argc,&acl_errpos);
+        if (acl_retval != ACL_OK) {
+            sds object = (acl_retval == ACL_DENIED_CMD) ? c->cmd->name : c->argv[acl_errpos]->ptr;
+            addACLLogEntry(ctx->client, acl_retval, ACL_LOG_CTX_MODULE, -1, ctx->client->user->name, object);
+            errno = EACCES;
+            goto cleanup;
+        }
     }
 
     /* If this is a Redis Cluster node, we need to make sure the module is not
@@ -5673,8 +5744,8 @@ void RM_DigestEndSequence(RedisModuleDigest *md) {
     memset(md->o,0,sizeof(md->o));
 }
 
-/* Decode a serialized representation of a module data type 'mt' from string
- * 'str' and return a newly allocated value, or NULL if decoding failed.
+/* Decode a serialized representation of a module data type 'mt', in a specific encoding version 'encver'
+ * from string 'str' and return a newly allocated value, or NULL if decoding failed.
  *
  * This call basically reuses the 'rdb_load' callback which module data types
  * implement in order to allow a module to arbitrarily serialize/de-serialize
@@ -5687,7 +5758,7 @@ void RM_DigestEndSequence(RedisModuleDigest *md) {
  * If this is NOT done, Redis will handle corrupted (or just truncated) serialized
  * data by producing an error message and terminating the process.
  */
-void *RM_LoadDataTypeFromString(const RedisModuleString *str, const moduleType *mt) {
+void *RM_LoadDataTypeFromStringEncver(const RedisModuleString *str, const moduleType *mt, int encver) {
     rio payload;
     RedisModuleIO io;
     void *ret;
@@ -5699,12 +5770,19 @@ void *RM_LoadDataTypeFromString(const RedisModuleString *str, const moduleType *
      * need to make sure we read the same.
      */
     io.ver = 2;
-    ret = mt->rdb_load(&io,0);
+    ret = mt->rdb_load(&io,encver);
     if (io.ctx) {
         moduleFreeContext(io.ctx);
         zfree(io.ctx);
     }
     return ret;
+}
+
+/* Similar to RM_LoadDataTypeFromStringEncver, original version of the API, kept
+ * for backward compatibility. 
+ */
+void *RM_LoadDataTypeFromString(const RedisModuleString *str, const moduleType *mt) {
+    return RM_LoadDataTypeFromStringEncver(str, mt, 0);
 }
 
 /* Encode a module data type 'mt' value 'data' into serialized form, and return it
@@ -7219,6 +7297,7 @@ static void moduleFreeAuthenticatedClients(RedisModule *module) {
 RedisModuleUser *RM_CreateModuleUser(const char *name) {
     RedisModuleUser *new_user = zmalloc(sizeof(RedisModuleUser));
     new_user->user = ACLCreateUnlinkedUser();
+    new_user->free_user = 1;
 
     /* Free the previous temporarily assigned name to assign the new one */
     sdsfree(new_user->user->name);
@@ -7229,7 +7308,8 @@ RedisModuleUser *RM_CreateModuleUser(const char *name) {
 /* Frees a given user and disconnects all of the clients that have been
  * authenticated with it. See RM_CreateModuleUser for detailed usage.*/
 int RM_FreeModuleUser(RedisModuleUser *user) {
-    ACLFreeUserAndKillClients(user->user);
+    if (user->free_user)
+        ACLFreeUserAndKillClients(user->user);
     zfree(user);
     return REDISMODULE_OK;
 }
@@ -7243,6 +7323,98 @@ int RM_FreeModuleUser(RedisModuleUser *user) {
  * and will set an errno describing why the operation failed. */
 int RM_SetModuleUserACL(RedisModuleUser *user, const char* acl) {
     return ACLSetUser(user->user, acl, -1);
+}
+
+/* Retrieve the user name of the client connection behind the current context.
+ * The user name can be used later, in order to get a RedisModuleUser.
+ * See more information in RM_GetModuleUserFromUserName.
+ *
+ * The returned string must be released with RedisModule_FreeString() or by
+ * enabling automatic memory management. */
+RedisModuleString *RM_GetCurrentUserName(RedisModuleCtx *ctx) {
+    return RM_CreateString(ctx,ctx->client->user->name,sdslen(ctx->client->user->name));
+}
+
+/* A RedisModuleUser can be used to check if command, key or channel can be executed or
+ * accessed according to the ACLs rules associated with that user.
+ * When a Module wants to do ACL checks on a general ACL user (not created by RM_CreateModuleUser),
+ * it can get the RedisModuleUser from this API, based on the user name retrieved by RM_GetCurrentUserName.
+ *
+ * Since a general ACL user can be deleted at any time, this RedisModuleUser should be used only in the context
+ * where this function was called. In order to do ACL checks out of that context, the Module can store the user name,
+ * and call this API at any other context.
+ *
+ * Returns NULL if the user is disabled or the user does not exist.
+ * The caller should later free the user using the function RM_FreeModuleUser().*/
+RedisModuleUser *RM_GetModuleUserFromUserName(RedisModuleString *name) {
+    /* First, verfify that the user exist */
+    user *acl_user = ACLGetUserByName(name->ptr, sdslen(name->ptr));
+    if (acl_user == NULL) {
+        return NULL;
+    }
+
+    RedisModuleUser *new_user = zmalloc(sizeof(RedisModuleUser));
+    new_user->user = acl_user;
+    new_user->free_user = 0;
+    return new_user;
+}
+
+/* Checks if the command can be executed by the user, according to the ACLs associated with it.
+ *
+ * On success a REDISMODULE_OK is returned, otherwise
+ * REDISMODULE_ERR is returned and errno is set to the following values:
+ *
+ * * ENOENT: Specified command does not exist.
+ * * EACCES: Command cannot be executed, according to ACL rules
+ */
+int RM_ACLCheckCommandPermissions(RedisModuleUser *user, RedisModuleString **argv, int argc) {
+    int keyidxptr;
+    struct redisCommand *cmd;
+
+    /* Find command */
+    if ((cmd = lookupCommand(argv[0]->ptr)) == NULL) {
+        errno = ENOENT;
+        return REDISMODULE_ERR;
+    }
+
+    if (ACLCheckAllUserCommandPerm(user->user, cmd, argv, argc, &keyidxptr) != ACL_OK) {
+        errno = EACCES;
+        return REDISMODULE_ERR;
+    }
+
+    return REDISMODULE_OK;
+}
+
+/* Check if the key can be accessed by the user, according to the ACLs associated with it.
+ *
+ * If the user can access the key, REDISMODULE_OK is returned, otherwise
+ * REDISMODULE_ERR is returned. */
+int RM_ACLCheckKeyPermissions(RedisModuleUser *user, RedisModuleString *key) {
+    if (ACLCheckKey(user->user, key->ptr, sdslen(key->ptr)) != ACL_OK)
+        return REDISMODULE_ERR;
+
+    return REDISMODULE_OK;
+}
+
+/* Check if the pubsub channel can be accessed by the user, according to the ACLs associated with it.
+ * Glob-style pattern matching is employed, unless the literal flag is
+ * set.
+ *
+ * If the user can access the pubsub channel, REDISMODULE_OK is returned, otherwise
+ * REDISMODULE_ERR is returned. */
+int RM_ACLCheckChannelPermissions(RedisModuleUser *user, RedisModuleString *ch, int literal) {
+    if (ACLCheckPubsubChannelPerm(ch->ptr, user->user->channels, literal) != ACL_OK)
+        return REDISMODULE_ERR;
+
+    return REDISMODULE_OK;
+}
+
+/* Adds a new entry in the ACL log.
+ * Returns REDISMODULE_OK on success and REDISMODULE_ERR on error.
+ *
+ * For more information about ACL log, please refer to https://redis.io/commands/acl-log */
+void RM_ACLAddLogEntry(RedisModuleCtx *ctx, RedisModuleUser *user, RedisModuleString *object) {
+    addACLLogEntry(ctx->client, 0, ACL_LOG_CTX_MODULE, -1, user->user->name, object->ptr);
 }
 
 /* Authenticate the client associated with the context with
@@ -10228,12 +10400,14 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(LoadLongDouble);
     REGISTER_API(SaveDataTypeToString);
     REGISTER_API(LoadDataTypeFromString);
+    REGISTER_API(LoadDataTypeFromStringEncver);
     REGISTER_API(EmitAOF);
     REGISTER_API(Log);
     REGISTER_API(LogIOError);
     REGISTER_API(_Assert);
     REGISTER_API(LatencyAddSample);
     REGISTER_API(StringAppendBuffer);
+    REGISTER_API(TrimStringAllocation);
     REGISTER_API(RetainString);
     REGISTER_API(HoldString);
     REGISTER_API(StringCompare);
@@ -10357,6 +10531,12 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ScanKey);
     REGISTER_API(CreateModuleUser);
     REGISTER_API(SetModuleUserACL);
+    REGISTER_API(GetCurrentUserName);
+    REGISTER_API(GetModuleUserFromUserName);
+    REGISTER_API(ACLCheckCommandPermissions);
+    REGISTER_API(ACLCheckKeyPermissions);
+    REGISTER_API(ACLCheckChannelPermissions);
+    REGISTER_API(ACLAddLogEntry);
     REGISTER_API(FreeModuleUser);
     REGISTER_API(DeauthenticateAndCloseClient);
     REGISTER_API(AuthenticateClientWithACLUser);

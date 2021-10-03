@@ -68,7 +68,7 @@
 #define MAX_THREADS 500
 #define CLUSTER_SLOTS 16384
 #define CONFIG_LATENCY_HISTOGRAM_MIN_VALUE 10L          /* >= 10 usecs */
-#define CONFIG_LATENCY_HISTOGRAM_MAX_VALUE 3000000L          /* <= 30 secs(us precision) */
+#define CONFIG_LATENCY_HISTOGRAM_MAX_VALUE 3000000L          /* <= 3 secs(us precision) */
 #define CONFIG_LATENCY_HISTOGRAM_INSTANT_MAX_VALUE 3000000L   /* <= 3 secs(us precision) */
 #define SHOW_THROUGHPUT_INTERVAL 250  /* 250ms */
 
@@ -971,7 +971,7 @@ static void startBenchmarkThreads() {
         pthread_join(config.threads[i]->thread, NULL);
 }
 
-static void benchmark(char *title, char *cmd, int len) {
+static void benchmark(const char *title, char *cmd, int len) {
     client c;
 
     config.title = title;
@@ -1421,6 +1421,7 @@ int parseOptions(int argc, char **argv) {
             config.keepalive = atoi(argv[++i]);
         } else if (!strcmp(argv[i],"-h")) {
             if (lastarg) goto invalid;
+            sdsfree(config.conn_info.hostip);
             config.conn_info.hostip = sdsnew(argv[++i]);
         } else if (!strcmp(argv[i],"-p")) {
             if (lastarg) goto invalid;
@@ -1680,7 +1681,7 @@ int showThroughput(struct aeEventLoop *eventLoop, long long id, void *clientData
 
 /* Return true if the named test was selected using the -t command line
  * switch, or if all the tests are selected (no -t passed by user). */
-int test_is_selected(char *name) {
+int test_is_selected(const char *name) {
     char buf[256];
     int l = strlen(name);
 
@@ -1720,7 +1721,7 @@ int main(int argc, char **argv) {
     config.loop = 0;
     config.idlemode = 0;
     config.clients = listCreate();
-    config.conn_info.hostip = "127.0.0.1";
+    config.conn_info.hostip = sdsnew("127.0.0.1");
     config.conn_info.hostport = 6379;
     config.hostsocket = NULL;
     config.tests = NULL;
@@ -1858,6 +1859,7 @@ int main(int argc, char **argv) {
         } while(config.loop);
         sdsfreesplitres(sds_args, argc);
 
+        sdsfree(title);
         if (config.redis_config != NULL) freeRedisConfig(config.redis_config);
         return 0;
     }
