@@ -2394,7 +2394,7 @@ void syncWithMaster(connection *conn) {
     if (server.repl_state == REPL_STATE_RECEIVE_IP_REPLY) {
         err = receiveSynchronousResponse(conn);
         /* Ignore the error if any, not all the Redis versions support
-         * REPLCONF listening-port. */
+         * REPLCONF ip-address. */
         if (err[0] == '-') {
             serverLog(LL_NOTICE,"(Non critical) Master does not understand "
                                 "REPLCONF ip-address: %s", err);
