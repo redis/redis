@@ -3,8 +3,20 @@
 source "../tests/includes/init-tests.tcl"
 source "../../../tests/support/cli.tcl"
 
+foreach_sentinel_id id {
+    S $id sentinel debug info-period 1000
+    S $id sentinel debug ask-period 100
+    S $id sentinel debug default-down-after 3000
+    S $id sentinel debug publish-period 200
+    S $id sentinel debug ping-period 100
+}
+
 set ::alive_sentinel [expr {$::instances_count/2+2}]
 proc ensure_master_up {} {
+    S $::alive_sentinel sentinel debug info-period 1000
+    S $::alive_sentinel sentinel debug ping-period 100
+    S $::alive_sentinel sentinel debug ask-period 100
+    S $::alive_sentinel sentinel debug publish-period 100
     wait_for_condition 1000 50 {
         [dict get [S $::alive_sentinel sentinel master mymaster] flags] eq "master"
     } else {
@@ -12,7 +24,12 @@ proc ensure_master_up {} {
     }
 }
 
+
 proc ensure_master_down {} {
+    S $::alive_sentinel sentinel debug info-period 1000
+    S $::alive_sentinel sentinel debug ping-period 100
+    S $::alive_sentinel sentinel debug ask-period 100
+    S $::alive_sentinel sentinel debug publish-period 100
     wait_for_condition 1000 50 {
         [string match *down* \
             [dict get [S $::alive_sentinel sentinel master mymaster] flags]]
@@ -30,7 +47,7 @@ test "Crash the majority of Sentinels to prevent failovers for this unit" {
 test "SDOWN is triggered by non-responding but not crashed instance" {
     lassign [S $::alive_sentinel SENTINEL GET-MASTER-ADDR-BY-NAME mymaster] host port
     ensure_master_up
-    exec ../../../src/redis-cli -h $host -p $port {*}[rediscli_tls_config "../../../tests"] debug sleep 10 > /dev/null &
+    exec ../../../src/redis-cli -h $host -p $port {*}[rediscli_tls_config "../../../tests"] debug sleep 3 > /dev/null &
     ensure_master_down
     ensure_master_up
 }
@@ -60,7 +77,9 @@ test "SDOWN is triggered by misconfigured instance replying with errors" {
     R 0 config set dir /
     R 0 config set dbfilename tmp
     R 0 config set save "1000000 1000000"
+    after 5000
     R 0 bgsave
+    after 5000
     ensure_master_down
     R 0 config set save $orig_save
     R 0 config set dir $orig_dir

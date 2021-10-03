@@ -145,9 +145,9 @@ static void callReplyParseCollection(ReplyParser *parser, CallReply *rep, size_t
     rep->val.array = zcalloc(elements_per_entry * len * sizeof(CallReply));
     for (size_t i = 0; i < len * elements_per_entry; i += elements_per_entry) {
         for (size_t j = 0 ; j < elements_per_entry ; ++j) {
+            rep->val.array[i + j].private_data = rep->private_data;
             parseReply(parser, rep->val.array + i + j);
             rep->val.array[i + j].flags |= REPLY_FLAG_PARSED;
-            rep->val.array[i + j].private_data = rep->private_data;
             if (rep->val.array[i + j].flags & REPLY_FLAG_RESP3) {
                 /* If one of the sub-replies is RESP3, then the current reply is also RESP3. */
                 rep->flags |= REPLY_FLAG_RESP3;

@@ -33,6 +33,11 @@ proc kill_server config {
     # nothing to kill when running against external server
     if {$::external} return
 
+    # Close client connection if exists
+    if {[dict exists $config "client"]} {
+        [dict get $config "client"] close
+    }
+
     # nevermind if its already dead
     if {![is_alive $config]} {
         # Check valgrind errors if needed
@@ -194,6 +199,11 @@ proc tags_acceptable {tags err_return} {
 
     if {$::cluster_mode && [lsearch $tags "cluster:skip"] >= 0} {
         set err "Not supported in cluster mode"
+        return 0
+    }
+
+    if {$::tls && [lsearch $tags "tls:skip"] >= 0} {
+        set err "Not supported in tls mode"
         return 0
     }
 
@@ -629,6 +639,8 @@ proc start_server {options {code undefined}} {
 proc restart_server {level wait_ready rotate_logs {reconnect 1}} {
     set srv [lindex $::servers end+$level]
     kill_server $srv
+    # Remove the default client from the server
+    dict unset srv "client"
 
     set pid [dict get $srv "pid"]
     set stdout [dict get $srv "stdout"]

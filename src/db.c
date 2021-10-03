@@ -303,8 +303,8 @@ robj *dbRandomKey(redisDb *db) {
     }
 }
 
-/* Delete a key, value, and associated expiration entry if any, from the DB */
-int dbSyncDelete(redisDb *db, robj *key) {
+/* Helper for sync and async delete. */
+static int dbGenericDelete(redisDb *db, robj *key, int async) {
     dictEntry **plink;
     int table;
     dictEntry *de = dictTwoPhaseUnlinkFind(db->dict,key->ptr,&plink,&table);
@@ -312,6 +312,10 @@ int dbSyncDelete(redisDb *db, robj *key) {
         robj *val = dictGetVal(de);
         /* Tells the module that the key has been unlinked from the database. */
         moduleNotifyKeyUnlink(key,val,db->id);
+        if (async) {
+            freeObjAsync(key, val, db->id);
+            dictSetVal(db->dict, de, NULL);
+        }
         if (server.cluster_enabled) slotToKeyDelEntry(de);
 
         /* Deleting an entry from the expires dict will not free the sds of
@@ -324,11 +328,21 @@ int dbSyncDelete(redisDb *db, robj *key) {
     }
 }
 
+/* Delete a key, value, and associated expiration entry if any, from the DB */
+int dbSyncDelete(redisDb *db, robj *key) {
+    return dbGenericDelete(db, key, 0);
+}
+
+/* Delete a key, value, and associated expiration entry if any, from the DB. If
+ * the value consists of many allocations, it may be freed asynchronously. */
+int dbAsyncDelete(redisDb *db, robj *key) {
+    return dbGenericDelete(db, key, 1);
+}
+
 /* This is a wrapper whose behavior depends on the Redis lazy free
  * configuration. Deletes the key synchronously or asynchronously. */
 int dbDelete(redisDb *db, robj *key) {
-    return server.lazyfree_lazy_server_del ? dbAsyncDelete(db,key) :
-                                             dbSyncDelete(db,key);
+    return dbGenericDelete(db, key, server.lazyfree_lazy_server_del);
 }
 
 /* Prepare the string object stored at 'key' to be modified destructively
@@ -925,21 +939,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         while(intsetGet(o->ptr,pos++,&ll))
             listAddNodeTail(keys,createStringObjectFromLongLong(ll));
         cursor = 0;
-    } else if (o->type == OBJ_ZSET) {
-        unsigned char *p = ziplistIndex(o->ptr,0);
-        unsigned char *vstr;
-        unsigned int vlen;
-        long long vll;
-
-        while(p) {
-            ziplistGet(p,&vstr,&vlen,&vll);
-            listAddNodeTail(keys,
-                (vstr != NULL) ? createStringObject((char*)vstr,vlen) :
-                                 createStringObjectFromLongLong(vll));
-            p = ziplistNext(o->ptr,p);
-        }
-        cursor = 0;
-    } else if (o->type == OBJ_HASH) {
+    } else if (o->type == OBJ_HASH || o->type == OBJ_ZSET) {
         unsigned char *p = lpFirst(o->ptr);
         unsigned char *vstr;
         int64_t vlen;
@@ -1476,7 +1476,7 @@ void propagateExpire(redisDb *db, robj *key, int lazy) {
      * Even if module executed a command without asking for propagation. */
     int prev_replication_allowed = server.replication_allowed;
     server.replication_allowed = 1;
-    propagate(server.delCommand,db->id,argv,2,PROPAGATE_AOF|PROPAGATE_REPL);
+    propagate(db->id,argv,2,PROPAGATE_AOF|PROPAGATE_REPL);
     server.replication_allowed = prev_replication_allowed;
 
     decrRefCount(argv[0]);
@@ -1602,23 +1602,30 @@ int *getKeysPrepareResult(getKeysResult *result, int numkeys) {
 }
 
 /* The base case is to use the keys position as given in the command table
- * (firstkey, lastkey, step). */
-int getKeysUsingCommandTable(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result) {
-    int j, i = 0, last, *keys;
+ * (firstkey, lastkey, step).
+ * This function works only on command with the legacy_range_key_spec,
+ * all other commands should be handled by getkeys_proc. */
+int getKeysUsingLegacyRangeSpec(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+    int j, i = 0, last, first, step, *keys;
     UNUSED(argv);
 
-    if (cmd->firstkey == 0) {
+    if (cmd->legacy_range_key_spec.begin_search_type == KSPEC_BS_INVALID) {
         result->numkeys = 0;
         return 0;
     }
 
-    last = cmd->lastkey;
+    first = cmd->legacy_range_key_spec.bs.index.pos;
+    last = cmd->legacy_range_key_spec.fk.range.lastkey;
+    if (last >= 0)
+        last += first;
+    step = cmd->legacy_range_key_spec.fk.range.keystep;
+
     if (last < 0) last = argc+last;
 
-    int count = ((last - cmd->firstkey)+1);
+    int count = ((last - first)+1);
     keys = getKeysPrepareResult(result, count);
 
-    for (j = cmd->firstkey; j <= last; j += cmd->keystep) {
+    for (j = first; j <= last; j += step) {
         if (j >= argc) {
             /* Modules commands, and standard commands with a not fixed number
              * of arguments (negative arity parameter) do not have dispatch
@@ -1656,7 +1663,7 @@ int getKeysFromCommand(struct redisCommand *cmd, robj **argv, int argc, getKeysR
     } else if (!(cmd->flags & CMD_MODULE) && cmd->getkeys_proc) {
         return cmd->getkeys_proc(cmd,argv,argc,result);
     } else {
-        return getKeysUsingCommandTable(cmd,argv,argc,result);
+        return getKeysUsingLegacyRangeSpec(cmd,argv,argc,result);
     }
 }
 
@@ -1701,6 +1708,11 @@ int genericGetKeys(int storeKeyOfs, int keyCountOfs, int firstKeyOfs, int keySte
     return result->numkeys;
 }
 
+int sintercardGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+    UNUSED(cmd);
+    return genericGetKeys(0, 1, 2, 1, argv, argc, result);
+}
+
 int zunionInterDiffStoreGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     UNUSED(cmd);
     return genericGetKeys(1, 2, 3, 1, argv, argc, result);
@@ -1712,6 +1724,26 @@ int zunionInterDiffGetKeys(struct redisCommand *cmd, robj **argv, int argc, getK
 }
 
 int evalGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+    UNUSED(cmd);
+    return genericGetKeys(0, 2, 3, 1, argv, argc, result);
+}
+
+int lmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+    UNUSED(cmd);
+    return genericGetKeys(0, 1, 2, 1, argv, argc, result);
+}
+
+int blmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+    UNUSED(cmd);
+    return genericGetKeys(0, 2, 3, 1, argv, argc, result);
+}
+
+int zmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+    UNUSED(cmd);
+    return genericGetKeys(0, 1, 2, 1, argv, argc, result);
+}
+
+int bzmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     UNUSED(cmd);
     return genericGetKeys(0, 2, 3, 1, argv, argc, result);
 }

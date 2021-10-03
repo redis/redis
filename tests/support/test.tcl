@@ -118,7 +118,7 @@ proc wait_for_condition {maxtries delay e _else_ elsescript} {
 proc search_pattern_list {value pattern_list} {
     set n 0
     foreach el $pattern_list {
-        if {[regexp -- $el $value]} {
+        if {[string length $el] > 0 && [regexp -- $el $value]} {
             return $n
         }
         incr n
@@ -128,7 +128,7 @@ proc search_pattern_list {value pattern_list} {
 
 proc test {name code {okpattern undefined} {tags {}}} {
     # abort if test name in skiptests
-    if {[lsearch $::skiptests $name] >= 0} {
+    if {[search_pattern_list $name $::skiptests] >= 0} {
         incr ::num_skipped
         send_data_packet $::test_server_fd skip $name
         return

@@ -45,7 +45,7 @@ start_server [list overrides [list "dir" $server_path] keep_persistence true] {
     test {Test RDB stream encoding} {
         for {set j 0} {$j < 1000} {incr j} {
             if {rand() < 0.9} {
-                r xadd stream * foo $j
+                r xadd stream * foo abc
             } else {
                 r xadd stream * bar $j
             }
@@ -199,6 +199,30 @@ test {client freed during loading} {
 
         # no need to keep waiting for loading to complete
         exec kill [srv 0 pid]
+    }
+}
+
+start_server {} {
+    test {Test RDB load info} {
+        r debug populate 1000
+        r save
+        restart_server 0 true false
+        wait_done_loading r
+        assert {[s rdb_last_load_keys_expired] == 0}
+        assert {[s rdb_last_load_keys_loaded] == 1000}
+
+        r debug set-active-expire 0
+        for {set j 0} {$j < 1024} {incr j} {
+            r select [expr $j%16]
+            r set $j somevalue px 10
+        }
+        after 20
+
+        r save
+        restart_server 0 true false
+        wait_done_loading r
+        assert {[s rdb_last_load_keys_expired] == 1024}
+        assert {[s rdb_last_load_keys_loaded] == 1000}
     }
 }
 

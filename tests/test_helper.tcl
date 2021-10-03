@@ -49,10 +49,12 @@ set ::all_tests {
     integration/corrupt-dump-fuzzer
     integration/convert-zipmap-hash-on-load
     integration/convert-ziplist-hash-on-load
+    integration/convert-ziplist-zset-on-load
     integration/logging
     integration/psync2
     integration/psync2-reg
     integration/psync2-pingoff
+    integration/psync2-master-restart
     integration/failover
     integration/redis-cli
     integration/redis-benchmark
@@ -80,6 +82,7 @@ set ::all_tests {
     unit/oom-score-adj
     unit/shutdown
     unit/networking
+    unit/client-eviction
 }
 # Index to the next test to run in the ::all_tests list.
 set ::next_test 0
@@ -569,8 +572,8 @@ proc print_help_screen {} {
         "--timeout <sec>    Test timeout in seconds (default 10 min)."
         "--force-failure    Force the execution of a test that always fails."
         "--config <k> <v>   Extra config file argument."
-        "--skipfile <file>  Name of a file containing test names that should be skipped (one per line)."
-        "--skiptest <name>  Name of a file containing test names that should be skipped (one per line)."
+        "--skipfile <file>  Name of a file containing test names or regexp patterns that should be skipped (one per line)."
+        "--skiptest <test>  Test name or regexp pattern to skip. This option can be repeated."
         "--tags <tags>      Run only tests having specified tags or not having '-' prefixed tags."
         "--dont-clean       Don't delete redis log files after the run."
         "--no-latency       Skip latency measurements and validation by some tests."
