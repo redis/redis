@@ -393,8 +393,15 @@ void trackingInvalidateKey(client *c, robj *keyobj, int bcast) {
             continue;
         }
 
-        /* We need to use id as client may be freed */
-        trackingScheduleKeyInvalidation(id,keyobj);
+        /* If target is current client, we need schedule key invalidation.
+         * As the invalidation messages may be interleaved with command
+         * response and should after command response */
+        if (target == server.current_client){
+            /* We need to use id as client may be freed */
+            trackingScheduleKeyInvalidation(id,keyobj);
+        } else {
+            sendTrackingMessage(target,(char *)keyobj->ptr,sdslen(keyobj->ptr),0);
+        }
     }
     raxStop(&ri);
 

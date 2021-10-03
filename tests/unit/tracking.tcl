@@ -446,6 +446,24 @@ start_server {tags {"tracking network"}} {
         r config set maxmemory 0
     }
 
+    test {Unblocked BLMOVE gets notification after response} {
+        r RPUSH list2{t} a
+        $rd HELLO 3
+        $rd read
+        $rd CLIENT TRACKING on
+        $rd read
+        # Tracking key list2{t}
+        $rd LRANGE list2{t} 0 -1
+        $rd read
+        # We block on list1{t}
+        $rd BLMOVE list1{t} list2{t} left left 0
+        wait_for_blocked_clients_count 1
+        # unblock $rd, list2{t} gets element and generate invalidation message
+        r rpush list1{t} foo
+        assert_equal [$rd read] {foo}
+        assert_equal [$rd read] {invalidate list2{t}}
+    }
+
     test {Tracking gets notification on tracking table key eviction} {
         r CLIENT TRACKING off
         r CLIENT TRACKING on REDIRECT $redir_id NOLOOP
