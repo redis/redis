@@ -58,12 +58,6 @@ typedef struct bcastState {
                        prefix. */
 } bcastState;
 
-/* This is used to store an invalidation key pending to flush */
-typedef struct invalidatedKey {
-    uint64_t client_id;
-    robj *key;
-} invalidatedKey;
-
 /* Remove the tracking state from the client 'c'. Note that there is not much
  * to do for us here, if not to decrement the counter of the clients in
  * tracking mode, because we just store the ID of the client in the tracking
@@ -397,8 +391,8 @@ void trackingInvalidateKey(client *c, robj *keyobj, int bcast) {
          * As the invalidation messages may be interleaved with command
          * response and should after command response */
         if (target == server.current_client){
-            /* We need to use id as client may be freed */
-            trackingScheduleKeyInvalidation(id,keyobj);
+            incrRefCount(keyobj);
+            listAddNodeTail(server.tracking_pending_keys, keyobj);
         } else {
             sendTrackingMessage(target,(char *)keyobj->ptr,sdslen(keyobj->ptr),0);
         }
@@ -412,15 +406,6 @@ void trackingInvalidateKey(client *c, robj *keyobj, int bcast) {
     raxRemove(TrackingTable,(unsigned char*)key,keylen,NULL);
 }
 
-void trackingScheduleKeyInvalidation(uint64_t client_id, robj *keyobj) {
-    invalidatedKey *ik = zmalloc(sizeof(invalidatedKey));
-
-    ik->client_id = client_id;
-    ik->key = keyobj;
-    incrRefCount(keyobj);
-    listAddNodeTail(server.tracking_pending_keys, ik);
-}
-
 void trackingHandlePendingKeyInvalidations() {
     if (!listLength(server.tracking_pending_keys)) return;
 
@@ -429,12 +414,10 @@ void trackingHandlePendingKeyInvalidations() {
 
     listRewind(server.tracking_pending_keys,&li);
     while ((ln = listNext(&li)) != NULL) {
-        invalidatedKey *ik = listNodeValue(ln);
-        client *target = lookupClientByID(ik->client_id);
-        if (target != NULL)
-            sendTrackingMessage(target,(char *)ik->key->ptr,sdslen(ik->key->ptr),0);
-        decrRefCount(ik->key);
-        zfree(ik);
+        robj *key = listNodeValue(ln);
+        if (server.current_client != NULL)
+            sendTrackingMessage(server.current_client,(char *)key->ptr,sdslen(key->ptr),0);
+        decrRefCount(key);
     }
     listEmpty(server.tracking_pending_keys);
 }

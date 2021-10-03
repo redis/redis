@@ -2933,9 +2933,9 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
      * our clients. */
     updateFailoverStatus();
 
-    /* Flush the pending invalidation messages to clients participating to the
-     * client side caching protocol in general mode */
-    trackingHandlePendingKeyInvalidations();
+    /* We can't have pending invalidation messages to clients participating
+     * to the client side caching protocol in general mode */
+    serverAssert(listLength(server.tracking_pending_keys) == 0);
 
     /* Send the invalidation messages to clients participating to the
      * client side caching protocol in broadcasting (BCAST) mode. */
@@ -3659,6 +3659,7 @@ void initServer(void) {
     server.current_client = NULL;
     server.errors = raxNew();
     server.fixed_time_expire = 0;
+    server.in_nested_call = 0;
     server.clients = listCreate();
     server.clients_index = raxNew();
     server.clients_to_close = listCreate();
@@ -4319,6 +4320,7 @@ void call(client *c, int flags) {
     if (server.fixed_time_expire++ == 0) {
         updateCachedTime(0);
     }
+    server.in_nested_call++;
 
     elapsedStart(&call_timer);
     c->cmd->proc(c);
@@ -4326,6 +4328,8 @@ void call(client *c, int flags) {
     c->duration = duration;
     dirty = server.dirty-dirty;
     if (dirty < 0) dirty = 0;
+
+    server.in_nested_call--;
 
     /* Update failed command calls if required.
      * We leverage a static variable (prev_err_count) to retain
@@ -4546,12 +4550,7 @@ void afterCommand(client *c) {
     UNUSED(c);
     /* Flush pending invalidation messages only when we are not in nested call.
      * So the messages are not interleaved with transaction response. */
-    if (!inNestedCall()) trackingHandlePendingKeyInvalidations();
-}
-
-/* This means we are in a nested call of a call */
-int inNestedCall(void) {
-    return server.fixed_time_expire;
+    if (!server.in_nested_call) trackingHandlePendingKeyInvalidations();
 }
 
 /* Returns 1 for commands that may have key names in their arguments, but the legacy range
