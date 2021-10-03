@@ -150,11 +150,13 @@ typedef struct RedisModuleStreamID {
 #define REDISMODULE_CTX_FLAGS_DENY_BLOCKING (1<<21)
 /* The current client uses RESP3 protocol */
 #define REDISMODULE_CTX_FLAGS_RESP3 (1<<22)
+/* Redis is currently async loading database for diskless replication. */
+#define REDISMODULE_CTX_FLAGS_ASYNC_LOADING (1<<23)
 
 /* Next context flag, must be updated when adding new flags above!
 This flag should not be used directly by the module.
  * Use RedisModule_GetContextFlagsAll instead. */
-#define _REDISMODULE_CTX_FLAGS_NEXT (1<<23)
+#define _REDISMODULE_CTX_FLAGS_NEXT (1<<24)
 
 /* Keyspace changes notification classes. Every class is associated with a
  * character for configuration purposes.

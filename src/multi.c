@@ -237,7 +237,11 @@ void execCommand(client *c) {
                 "This command is no longer allowed for the "
                 "following reason: %s", reason);
         } else {
-            call(c,server.loading ? CMD_CALL_NONE : CMD_CALL_FULL);
+            if (c->id == CLIENT_ID_AOF)
+                call(c,CMD_CALL_NONE);
+            else
+                call(c,CMD_CALL_FULL);
+
             serverAssert((c->flags & CLIENT_BLOCKED) == 0);
         }
 
