@@ -169,6 +169,11 @@ static void redisProtocolToLuaType_Int(void *ctx, long long val, const char *pro
     }
 
     lua_State *lua = ctx;
+    if (!lua_checkstack(lua, 1)) {
+        /* Increase the Lua stack if needed, to make sure there is enough room
+         * to push elements to the stack. On failure, exit with panic. */
+        serverPanic("lua stack limit reach when parsing redis.call reply");
+    }
     lua_pushnumber(lua,(lua_Number)val);
 }
 
@@ -180,6 +185,11 @@ static void redisProtocolToLuaType_NullBulkString(void *ctx, const char *proto, 
     }
 
     lua_State *lua = ctx;
+    if (!lua_checkstack(lua, 1)) {
+        /* Increase the Lua stack if needed, to make sure there is enough room
+         * to push elements to the stack. On failure, exit with panic. */
+        serverPanic("lua stack limit reach when parsing redis.call reply");
+    }
     lua_pushboolean(lua,0);
 }
 
@@ -190,6 +200,11 @@ static void redisProtocolToLuaType_NullArray(void *ctx, const char *proto, size_
         return;
     }
     lua_State *lua = ctx;
+    if (!lua_checkstack(lua, 1)) {
+        /* Increase the Lua stack if needed, to make sure there is enough room
+         * to push elements to the stack. On failure, exit with panic. */
+        serverPanic("lua stack limit reach when parsing redis.call reply");
+    }
     lua_pushboolean(lua,0);
 }
 
@@ -202,6 +217,11 @@ static void redisProtocolToLuaType_BulkString(void *ctx, const char *str, size_t
     }
 
     lua_State *lua = ctx;
+    if (!lua_checkstack(lua, 1)) {
+        /* Increase the Lua stack if needed, to make sure there is enough room
+         * to push elements to the stack. On failure, exit with panic. */
+        serverPanic("lua stack limit reach when parsing redis.call reply");
+    }
     lua_pushlstring(lua,str,len);
 }
 
@@ -213,7 +233,11 @@ static void redisProtocolToLuaType_Status(void *ctx, const char *str, size_t len
     }
 
     lua_State *lua = ctx;
-
+    if (!lua_checkstack(lua, 3)) {
+        /* Increase the Lua stack if needed, to make sure there is enough room
+         * to push elements to the stack. On failure, exit with panic. */
+        serverPanic("lua stack limit reach when parsing redis.call reply");
+    }
     lua_newtable(lua);
     lua_pushstring(lua,"ok");
     lua_pushlstring(lua,str,len);
@@ -228,7 +252,11 @@ static void redisProtocolToLuaType_Error(void *ctx, const char *str, size_t len,
     }
 
     lua_State *lua = ctx;
-
+    if (!lua_checkstack(lua, 3)) {
+        /* Increase the Lua stack if needed, to make sure there is enough room
+         * to push elements to the stack. On failure, exit with panic. */
+        serverPanic("lua stack limit reach when parsing redis.call reply");
+    }
     lua_newtable(lua);
     lua_pushstring(lua,"err");
     lua_pushlstring(lua,str,len);
@@ -239,6 +267,11 @@ static void redisProtocolToLuaType_Map(struct ReplyParser *parser, void *ctx, si
     UNUSED(proto);
     lua_State *lua = ctx;
     if (lua) {
+        if (!lua_checkstack(lua, 3)) {
+            /* Increase the Lua stack if needed, to make sure there is enough room
+             * to push elements to the stack. On failure, exit with panic. */
+            serverPanic("lua stack limit reach when parsing redis.call reply");
+        }
         lua_newtable(lua);
         lua_pushstring(lua, "map");
         lua_newtable(lua);
@@ -256,6 +289,11 @@ static void redisProtocolToLuaType_Set(struct ReplyParser *parser, void *ctx, si
 
     lua_State *lua = ctx;
     if (lua) {
+        if (!lua_checkstack(lua, 3)) {
+            /* Increase the Lua stack if needed, to make sure there is enough room
+             * to push elements to the stack. On failure, exit with panic. */
+            serverPanic("lua stack limit reach when parsing redis.call reply");
+        }
         lua_newtable(lua);
         lua_pushstring(lua, "set");
         lua_newtable(lua);
@@ -263,6 +301,13 @@ static void redisProtocolToLuaType_Set(struct ReplyParser *parser, void *ctx, si
     for (size_t j = 0; j < len; j++) {
         parseReply(parser,lua);
         if (lua) {
+            if (!lua_checkstack(lua, 1)) {
+                /* Increase the Lua stack if needed, to make sure there is enough room
+                 * to push elements to the stack. On failure, exit with panic.
+                 * Notice that here we need to check the stack again because the recursive
+                 * call to redisProtocolToLuaType might have use the room allocated in the stack*/
+                serverPanic("lua stack limit reach when parsing redis.call reply");
+            }
             lua_pushboolean(lua,1);
             lua_settable(lua,-3);
         }
@@ -274,7 +319,14 @@ static void redisProtocolToLuaType_Array(struct ReplyParser *parser, void *ctx, 
     UNUSED(proto);
 
     lua_State *lua = ctx;
-    if (lua) lua_newtable(lua);
+    if (lua){
+        if (!lua_checkstack(lua, 2)) {
+            /* Increase the Lua stack if needed, to make sure there is enough room
+             * to push elements to the stack. On failure, exit with panic. */
+            serverPanic("lua stack limit reach when parsing redis.call reply");
+        }
+        lua_newtable(lua);
+    }
     for (size_t j = 0; j < len; j++) {
         if (lua) lua_pushnumber(lua,j+1);
         parseReply(parser,lua);
@@ -306,7 +358,11 @@ static void redisProtocolToLuaType_VerbatimString(void *ctx, const char *format,
     }
 
     lua_State *lua = ctx;
-
+    if (!lua_checkstack(lua, 5)) {
+        /* Increase the Lua stack if needed, to make sure there is enough room
+         * to push elements to the stack. On failure, exit with panic. */
+        serverPanic("lua stack limit reach when parsing redis.call reply");
+    }
     lua_newtable(lua);
     lua_pushstring(lua,"verbatim_string");
     lua_newtable(lua);
@@ -327,7 +383,11 @@ static void redisProtocolToLuaType_BigNumber(void *ctx, const char *str, size_t 
     }
 
     lua_State *lua = ctx;
-
+    if (!lua_checkstack(lua, 3)) {
+        /* Increase the Lua stack if needed, to make sure there is enough room
+         * to push elements to the stack. On failure, exit with panic. */
+        serverPanic("lua stack limit reach when parsing redis.call reply");
+    }
     lua_newtable(lua);
     lua_pushstring(lua,"big_number");
     lua_pushlstring(lua,str,len);
@@ -342,6 +402,11 @@ static void redisProtocolToLuaType_Null(void *ctx, const char *proto, size_t pro
     }
 
     lua_State *lua = ctx;
+    if (!lua_checkstack(lua, 1)) {
+        /* Increase the Lua stack if needed, to make sure there is enough room
+         * to push elements to the stack. On failure, exit with panic. */
+        serverPanic("lua stack limit reach when parsing redis.call reply");
+    }
     lua_pushnil(lua);
 }
 
@@ -353,6 +418,11 @@ static void redisProtocolToLuaType_Bool(void *ctx, int val, const char *proto, s
     }
 
     lua_State *lua = ctx;
+    if (!lua_checkstack(lua, 1)) {
+        /* Increase the Lua stack if needed, to make sure there is enough room
+         * to push elements to the stack. On failure, exit with panic. */
+        serverPanic("lua stack limit reach when parsing redis.call reply");
+    }
     lua_pushboolean(lua,val);
 }
 
@@ -364,6 +434,11 @@ static void redisProtocolToLuaType_Double(void *ctx, double d, const char *proto
     }
 
     lua_State *lua = ctx;
+    if (!lua_checkstack(lua, 3)) {
+        /* Increase the Lua stack if needed, to make sure there is enough room
+         * to push elements to the stack. On failure, exit with panic. */
+        serverPanic("lua stack limit reach when parsing redis.call reply");
+    }
     lua_newtable(lua);
     lua_pushstring(lua,"double");
     lua_pushnumber(lua,d);
@@ -449,6 +524,16 @@ void luaSortArray(lua_State *lua) {
 void luaReplyToRedisReply(client *c, lua_State *lua) {
     int t = lua_type(lua,-1);
 
+    if (!lua_checkstack(lua, 4)) {
+        /* Increase the Lua stack if needed to make sure there is enough room
+         * to push 4 elements to the stack. On failure, return error.
+         * Notice that we need, in the worst case, 4 elements because returning a map might
+         * require push 4 elements to the Lua stack.*/
+        addReplyErrorFormat(c, "reached lua stack limit");
+        lua_pop(lua,1); /* pop the element from the stack */
+        return;
+    }
+
     switch(t) {
     case LUA_TSTRING:
         addReplyBulkCBuffer(c,(char*)lua_tostring(lua,-1),lua_strlen(lua,-1));
@@ -470,6 +555,7 @@ void luaReplyToRedisReply(client *c, lua_State *lua) {
          * field. */
 
         /* Handle error reply. */
+        /* we took care of the stack size on function start */
         lua_pushstring(lua,"err");
         lua_gettable(lua,-2);
         t = lua_type(lua,-1);
@@ -549,6 +635,7 @@ void luaReplyToRedisReply(client *c, lua_State *lua) {
         if (t == LUA_TTABLE) {
             int maplen = 0;
             void *replylen = addReplyDeferredLen(c);
+            /* we took care of the stack size on function start */
             lua_pushnil(lua); /* Use nil to start iteration. */
             while (lua_next(lua,-2)) {
                 /* Stack now: table, key, value */
@@ -571,6 +658,7 @@ void luaReplyToRedisReply(client *c, lua_State *lua) {
         if (t == LUA_TTABLE) {
             int setlen = 0;
             void *replylen = addReplyDeferredLen(c);
+            /* we took care of the stack size on function start */
             lua_pushnil(lua); /* Use nil to start iteration. */
             while (lua_next(lua,-2)) {
                 /* Stack now: table, key, true */
@@ -590,6 +678,7 @@ void luaReplyToRedisReply(client *c, lua_State *lua) {
         void *replylen = addReplyDeferredLen(c);
         int j = 1, mbulklen = 0;
         while(1) {
+            /* we took care of the stack size on function start */
             lua_pushnumber(lua,j++);
             lua_gettable(lua,-2);
             t = lua_type(lua,-1);
@@ -2270,7 +2359,7 @@ sds *ldbReplParseCommand(int *argcp, char** err) {
     argv = zmalloc(sizeof(sds)*(*argcp));
     argc = 0;
     while(argc < *argcp) {
-        // reached the end but there should be more data to read
+        /* reached the end but there should be more data to read */
         if (*p == '\0') goto keep_reading;
 
         if (*p != '$') goto protoerr;
@@ -2722,6 +2811,17 @@ void ldbEval(lua_State *lua, sds *argv, int argc) {
  * and its reply are logged. */
 void ldbRedis(lua_State *lua, sds *argv, int argc) {
     int j, saved_rc = server.lua_replicate_commands;
+
+    if (!lua_checkstack(lua, argc + 1)) {
+        /* Increase the Lua stack if needed to make sure there is enough room
+         * to push 'argc + 1' elements to the stack. On failure, return error.
+         * Notice that we need, in worst case, 'argc + 1' elements because we push all the arguments
+         * given by the user (without the first argument) and we also push the 'redis' global table and
+         * 'redis.call' function so:
+         * (1 (redis table)) + (1 (redis.call function)) + (argc - 1 (all arguments without the first)) = argc + 1*/
+        ldbLogRedisReply("max lua stack reached");
+        return;
+    }
 
     lua_getglobal(lua,"redis");
     lua_pushstring(lua,"call");
