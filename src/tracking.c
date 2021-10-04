@@ -415,6 +415,8 @@ void trackingHandlePendingKeyInvalidations() {
     listRewind(server.tracking_pending_keys,&li);
     while ((ln = listNext(&li)) != NULL) {
         robj *key = listNodeValue(ln);
+        /* current_client maybe freed, so we need to send invalidation
+         * message only when current_client is still alive */
         if (server.current_client != NULL)
             sendTrackingMessage(server.current_client,(char *)key->ptr,sdslen(key->ptr),0);
         decrRefCount(key);
