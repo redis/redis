@@ -609,8 +609,18 @@ start_server {tags {"scripting"}} {
 
     test {Script return recursive object} {
         r readraw 1
-        r eval {local a = {}; local b = {a}; a[1] = b; return a} 0
+        set res [r eval {local a = {}; local b = {a}; a[1] = b; return a} 0]
+        # drain the response
+        while {true} {
+            if {$res == "-ERR reached lua stack limit"} {
+                break
+            }
+            assert_equal $res "*1"
+            set res [r read]
+        }
         r readraw 0
+        # make sure the connection is still valid
+        assert_equal [r ping] {PONG}
     }
 }
 
@@ -963,6 +973,10 @@ start_server {tags {"scripting needs:debug external:skip"}} {
         r write $cmd
         r flush
         set ret [r read]
+        assert_match {*Unknown Redis command called from Lua script*} $ret
+        # make sure the server is still ok
+        reconnect
+        assert_equal [r ping] {PONG}
     }
 }
 

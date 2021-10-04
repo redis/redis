@@ -530,7 +530,7 @@ void luaReplyToRedisReply(client *c, lua_State *lua) {
          * Notice that we need, in the worst case, 4 elements because returning a map might
          * require push 4 elements to the Lua stack.*/
         addReplyErrorFormat(c, "reached lua stack limit");
-        lua_pop(lua,1); // pop the element from the stack
+        lua_pop(lua,1); /* pop the element from the stack */
         return;
     }
 
@@ -555,6 +555,7 @@ void luaReplyToRedisReply(client *c, lua_State *lua) {
          * field. */
 
         /* Handle error reply. */
+        /* we took care of the stack size on function start */
         lua_pushstring(lua,"err");
         lua_gettable(lua,-2);
         t = lua_type(lua,-1);
@@ -634,6 +635,7 @@ void luaReplyToRedisReply(client *c, lua_State *lua) {
         if (t == LUA_TTABLE) {
             int maplen = 0;
             void *replylen = addReplyDeferredLen(c);
+            /* we took care of the stack size on function start */
             lua_pushnil(lua); /* Use nil to start iteration. */
             while (lua_next(lua,-2)) {
                 /* Stack now: table, key, value */
@@ -656,6 +658,7 @@ void luaReplyToRedisReply(client *c, lua_State *lua) {
         if (t == LUA_TTABLE) {
             int setlen = 0;
             void *replylen = addReplyDeferredLen(c);
+            /* we took care of the stack size on function start */
             lua_pushnil(lua); /* Use nil to start iteration. */
             while (lua_next(lua,-2)) {
                 /* Stack now: table, key, true */
@@ -675,6 +678,7 @@ void luaReplyToRedisReply(client *c, lua_State *lua) {
         void *replylen = addReplyDeferredLen(c);
         int j = 1, mbulklen = 0;
         while(1) {
+            /* we took care of the stack size on function start */
             lua_pushnumber(lua,j++);
             lua_gettable(lua,-2);
             t = lua_type(lua,-1);
@@ -2355,7 +2359,7 @@ sds *ldbReplParseCommand(int *argcp, char** err) {
     argv = zmalloc(sizeof(sds)*(*argcp));
     argc = 0;
     while(argc < *argcp) {
-        // reached the end but there should be more data to read
+        /* reached the end but there should be more data to read */
         if (*p == '\0') goto keep_reading;
 
         if (*p != '$') goto protoerr;
