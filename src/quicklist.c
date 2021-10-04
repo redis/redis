@@ -149,7 +149,7 @@ quicklist *quicklistNew(int fill, int compress) {
     return quicklist;
 }
 
-void quicklistRepr(unsigned char *ql, int light) {
+void quicklistRepr(unsigned char *ql, int full) {
     int i=0;
     quicklist *quicklist  = (struct quicklist*) ql;
     printf("{count : %ld}\n", quicklist->count);
@@ -164,7 +164,7 @@ void quicklistRepr(unsigned char *ql, int light) {
         printf("{container : %s, encoding: %s, size: %zu}\n", QL_NODE_IS_PLAIN(node) ? "PLAIN": "PACKED",
                (node->encoding == QUICKLIST_NODE_ENCODING_RAW) ? "RAW": "LZF", node->sz);
 
-        if (light == false) {
+        if (full) {
             if (node->container == QUICKLIST_NODE_CONTAINER_ZIPLIST) {
                 printf("{ ziplist:\n");
                 ziplistRepr(node->entry);
@@ -956,14 +956,13 @@ REDIS_STATIC void _quicklistInsert(quicklist *quicklist, quicklistEntry *entry,
     quicklistNode *new_node = NULL;
     quicklistNode *entry_node = NULL;
 
-    if(!node && unlikely(isLargeElement(sz)) ) {
-        __quicklistInsertPlainNode(quicklist, quicklist->tail, value, sz, after);
-        return;
-    }
-
     if (!node) {
         /* we have no reference node, so let's create only node in the list */
         D("No node given!");
+        if (unlikely(isLargeElement(sz))) {
+            __quicklistInsertPlainNode(quicklist, quicklist->tail, value, sz, after);
+            return;
+        }
         new_node = quicklistCreateNode();
         new_node->entry = ziplistPush(ziplistNew(), value, sz, ZIPLIST_HEAD);
         __quicklistInsertNode(quicklist, NULL, new_node, after);
@@ -1000,7 +999,7 @@ REDIS_STATIC void _quicklistInsert(quicklist *quicklist, quicklistEntry *entry,
     if(unlikely(isLargeElement(sz))) {
         if (QL_NODE_IS_PLAIN(node)) {
             __quicklistInsertPlainNode(quicklist, node, value, sz, after);
-        } else if (full) {
+        } else {
             quicklistDecompressNodeForUse(node);
             new_node = _quicklistSplitNode(node, entry->offset, after);
             entry_node = __quicklistCreatePlainNode(value, sz);
@@ -1067,15 +1066,6 @@ REDIS_STATIC void _quicklistInsert(quicklist *quicklist, quicklistEntry *entry,
         D("\tsplitting node...");
         quicklistDecompressNodeForUse(node);
         new_node = _quicklistSplitNode(node, entry->offset, after);
-
-        if(unlikely(isLargeElement(sz))) {
-            entry_node = __quicklistCreatePlainNode(value, sz);
-            __quicklistInsertNode(quicklist, node, entry_node, after);
-            __quicklistInsertNode(quicklist, entry_node, new_node, after);
-            quicklist->count++;
-            return;
-        }
-
         new_node->entry = ziplistPush(new_node->entry, value, sz,
                                    after ? ZIPLIST_HEAD : ZIPLIST_TAIL);
         new_node->count++;

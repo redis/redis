@@ -475,10 +475,9 @@ void debugCommand(client *c) {
 "    Return the size of different Redis core C structures.",
 "ZIPLIST <key>",
 "    Show low level info about the ziplist encoding of <key>.",
-"QUICKLIST <key> <light-enabled>",
+"QUICKLIST <key> [<0|1>]",
 "    Show low level info about the quicklist encoding of <key>."
-"    <light-enabled> is optional, 0 by default, "
-"    1 for enabling light version of the log",
+"    The optional argument (0 by default) sets the level of detail",
 NULL
         };
         addReplyHelp(c, help);
@@ -664,15 +663,14 @@ NULL
         if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nokeyerr))
             == NULL) return;
 
-        int light = 0;
+        int full = 0;
         if (c->argc == 4) {
-            light = atoi(c->argv[3]->ptr);;
-            addReply(c,shared.ok);
+            full = atoi(c->argv[3]->ptr);;
         }
         if (o->encoding != OBJ_ENCODING_QUICKLIST) {
             addReplyError(c,"Not a quicklist encoded object.");
         } else {
-            quicklistRepr(o->ptr, light);
+            quicklistRepr(o->ptr, full);
             addReplyStatus(c,"Quicklist structure printed on stdout");
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"populate") &&
@@ -815,9 +813,7 @@ NULL
         } else {
             addReply(c,shared.ok);
         }
-    } else if (!strcasecmp(c->argv[1]->ptr,"set-skip-checksum-validation") &&
-               c->argc == 3)
-    {
+    } else if (!strcasecmp(c->argv[1]->ptr,"set-skip-checksum-validation") && c->argc == 3) {
         server.skip_checksum_validation = atoi(c->argv[2]->ptr);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"aof-flush-sleep") &&

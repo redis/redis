@@ -145,7 +145,6 @@ typedef struct quicklistEntry {
 /* quicklist container formats */
 #define QUICKLIST_NODE_CONTAINER_PLAIN 1
 #define QUICKLIST_NODE_CONTAINER_ZIPLIST 2
-#define QUICKLIST_NODE_CONTAINER_MAX 3
 
 #define QL_NODE_IS_PLAIN(node) (node->container ==  QUICKLIST_NODE_CONTAINER_PLAIN)
 
@@ -195,7 +194,7 @@ unsigned long quicklistCount(const quicklist *ql);
 int quicklistCompare(quicklistEntry* entry, unsigned char *p2, const size_t p2_len);
 size_t quicklistGetLzf(const quicklistNode *node, void **data);
 
-void quicklistRepr(unsigned char *ql, int light);
+void quicklistRepr(unsigned char *ql, int full);
 
 /* bookmarks */
 int quicklistBookmarkCreate(quicklist **ql_ref, const char *name, quicklistNode *node);

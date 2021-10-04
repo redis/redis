@@ -1816,10 +1816,15 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
             size_t encoded_len;
 
             if (rdbtype == RDB_TYPE_LIST_QUICKLIST_2) {
-                if ((container = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
+                if ((container = rdbLoadLen(rdb,NULL)) == RDB_LENERR) {
+                    decrRefCount(o);
+                    return NULL;
+                }
 
-                if(container >= QUICKLIST_NODE_CONTAINER_MAX) {
+                if(container != QUICKLIST_NODE_CONTAINER_ZIPLIST && container != QUICKLIST_NODE_CONTAINER_PLAIN) {
                     rdbReportCorruptRDB("Quicklist integrity check failed.");
+                    decrRefCount(o);
+                    return NULL;
                 }
             }
 
