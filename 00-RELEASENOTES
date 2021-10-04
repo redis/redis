@@ -12,6 +12,36 @@ SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 5.0.14 Released Mon Oct 4 12:00:00 IDT 2021
+================================================================================
+
+Upgrade urgency: SECURITY, contains fixes to security issues.
+
+Security Fixes:
+* (CVE-2021-41099) Integer to heap buffer overflow handling certain string
+  commands and network payloads, when proto-max-bulk-len is manually configured
+  to a non-default, very large value [reported by yiyuaner].
+* (CVE-2021-32762) Integer to heap buffer overflow issue in redis-cli and
+  redis-sentinel parsing large multi-bulk replies on some older and less common
+  platforms [reported by Microsoft Vulnerability Research].
+* (CVE-2021-32687) Integer to heap buffer overflow with intsets, when
+  set-max-intset-entries is manually configured to a non-default, very large
+  value [reported by Pawel Wieczorkiewicz, AWS].
+* (CVE-2021-32675) Denial Of Service when processing RESP request payloads with
+  a large number of elements on many connections.
+* (CVE-2021-32672) Random heap reading issue with Lua Debugger [reported by
+  Meir Shpilraien].
+* (CVE-2021-32628) Integer to heap buffer overflow handling ziplist-encoded
+  data types, when configuring a large, non-default value for
+  hash-max-ziplist-entries, hash-max-ziplist-value, zset-max-ziplist-entries
+  or zset-max-ziplist-value [reported by sundb].
+* (CVE-2021-32627) Integer to heap buffer overflow issue with streams, when
+  configuring a non-default, large value for proto-max-bulk-len and
+  client-query-buffer-limit [reported by sundb].
+* (CVE-2021-32626) Specially crafted Lua scripts may result with Heap buffer
+  overflow [reported by Meir Shpilraien].
+
+================================================================================
 Redis 5.0.13 Released Wed Jul 21 16:32:19 IDT 2021
 ================================================================================
 
