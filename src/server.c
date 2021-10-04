@@ -3145,6 +3145,7 @@ void initServerConfig(void) {
     int j;
     char *default_bindaddr[CONFIG_DEFAULT_BINDADDR_COUNT] = CONFIG_DEFAULT_BINDADDR;
 
+    initConfigValues();
     updateCachedTime(1);
     getRandomHexChars(server.runid,CONFIG_RUN_ID_SIZE);
     server.runid[CONFIG_RUN_ID_SIZE] = '\0';
@@ -3171,7 +3172,6 @@ void initServerConfig(void) {
     server.saveparams = NULL;
     server.loading = 0;
     server.loading_rdb_used_mem = 0;
-    server.logfile = zstrdup(CONFIG_DEFAULT_LOGFILE);
     server.aof_state = AOF_OFF;
     server.aof_rewrite_base_size = 0;
     server.aof_rewrite_scheduled = 0;
@@ -3266,8 +3266,6 @@ void initServerConfig(void) {
      * script to the slave / AOF. This is the new way starting from
      * Redis 5. However it is possible to revert it via redis.conf. */
     server.lua_always_replicate_commands = 1;
-
-    initConfigValues();
 }
 
 extern char **environ;
