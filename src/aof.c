@@ -759,6 +759,7 @@ int loadAppendOnlyFile(char *filename) {
         argv = zmalloc(sizeof(robj*)*argc);
         fakeClient->argc = argc;
         fakeClient->argv = argv;
+        fakeClient->argv_len = argc;
 
         for (j = 0; j < argc; j++) {
             /* Parse the argument len. */
@@ -893,7 +894,10 @@ fmterr: /* Format error. */
     /* fall through to cleanup. */
 
 cleanup:
-    if (fakeClient) freeClient(fakeClient); /* avoid valgrind warning */
+    if (fakeClient) {
+        freeClientArgv(fakeClient);
+        freeClient(fakeClient);
+    }
     fclose(fp);
     stopLoading(ret == AOF_OK);
     return ret;
