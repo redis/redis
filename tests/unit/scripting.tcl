@@ -606,6 +606,12 @@ start_server {tags {"scripting"}} {
         set res [r eval {redis.setresp(2); return redis.call('hgetall', KEYS[1])} 1 hash]
         assert_equal $res $expected_list
     }
+
+    test {Script return recursive object} {
+        r readraw 1
+        r eval {local a = {}; local b = {a}; a[1] = b; return a} 0
+        r readraw 0
+    }
 }
 
 # Start a new server since the last test in this stanza will kill the
@@ -947,6 +953,16 @@ start_server {tags {"scripting needs:debug external:skip"}} {
         assert_match {*Unknown Redis Lua debugger command*} $e
         catch {r '\0hello\0'} e
         assert_match {*Unknown Redis Lua debugger command*} $e
+    }
+
+    test {Test scripting debug lua stack overflow} {
+        r script debug sync
+        r eval {return 'hello'} 0
+        set cmd "*101\r\n\$5\r\nredis\r\n"
+        append cmd [string repeat "\$4\r\ntest\r\n" 100]
+        r write $cmd
+        r flush
+        set ret [r read]
     }
 }
 
