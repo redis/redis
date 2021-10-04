@@ -228,10 +228,10 @@ start_server {} {
 
 # Our COW metrics (Private_Dirty) work only on Linux
 set system_name [string tolower [exec uname -s]]
-if {$system_name eq {linux}} {
+set page_size [exec getconf PAGESIZE]
+if {$system_name eq {linux} && $page_size == 4096} {
 
 start_server {overrides {save ""}} {
-    if {[r debug mallctl arenas.page] == 4096} {
     test {Test child sending info} {
         # make sure that rdb_last_cow_size and current_cow_size are zero (the test using new server),
         # so that the comparisons during the test will be valid
@@ -250,7 +250,7 @@ start_server {overrides {save ""}} {
         # changing some keys and read the reported COW size, we are using small key size to prevent from
         # the "dismiss mechanism" free memory and reduce the COW size)
         set rd [redis_deferring_client 0]
-        set size 512
+        set size 500 ;# aim for the 512 bin (sds overhead)
         set cmd_count 10000
         for {set k 0} {$k < $cmd_count} {incr k} {
             $rd set key$k [string repeat A $size]
@@ -287,15 +287,15 @@ start_server {overrides {save ""}} {
             }
 
             # trigger copy-on-write
-            set modified_keys 10
+            set modified_keys 16
             for {set k 0} {$k < $modified_keys} {incr k} {
                 r setrange key$key_idx 0 [string repeat B $size]
                 incr key_idx 1
             }
 
-            # we expects for only 50% change in the COW size, since we are using small keys size (less than a page), and
-            # some keys may fall into the same page and will not create copy-on-write
-            set exp_cow [expr $cow_size + (0.5 * $modified_keys * $size)]
+            # changing 16 keys (512B each) will create at least 8192 COW (2 pages), but we don't want the test
+            # to be too strict, so we check for a change of at least 4096 bytes
+            set exp_cow [expr $cow_size + 4096]
             # wait to see that current_cow_size value updated (as long as the child is in progress)
             wait_for_condition 80 100 {
                 [s rdb_bgsave_in_progress] == 0 ||
@@ -343,7 +343,6 @@ start_server {overrides {save ""}} {
             assert_morethan_equal $final_cow $cow_size
         }
     }
-    } ;# page size
 }
 } ;# system_name
 
