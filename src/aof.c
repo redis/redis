@@ -759,6 +759,7 @@ int loadAppendOnlyFile(char *filename) {
         argv = zmalloc(sizeof(robj*)*argc);
         fakeClient->argc = argc;
         fakeClient->argv = argv;
+        fakeClient->argv_len = argc;
 
         for (j = 0; j < argc; j++) {
             /* Parse the argument len. */
@@ -824,9 +825,6 @@ int loadAppendOnlyFile(char *filename) {
         /* Clean up. Command code may have changed argv/argc so we use the
          * argv/argc of the client instead of the local variables. */
         freeClientArgv(fakeClient);
-        zfree(fakeClient->argv);
-        fakeClient->argv = NULL;
-        fakeClient->cmd = NULL;
         if (server.aof_load_truncated) valid_up_to = ftello(fp);
         if (server.key_load_delay)
             debugDelay(server.key_load_delay);
@@ -893,7 +891,7 @@ fmterr: /* Format error. */
     /* fall through to cleanup. */
 
 cleanup:
-    if (fakeClient) freeClient(fakeClient); /* avoid valgrind warning */
+    if (fakeClient) freeClient(fakeClient);
     fclose(fp);
     stopLoading(ret == AOF_OK);
     return ret;
