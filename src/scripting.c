@@ -817,7 +817,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
      * first write in the context of this script, otherwise we can't stop
      * in the middle. */
     if (server.maxmemory &&                        /* Maxmemory is actually enabled. */
-        server.lua_caller->id != CLIENT_ID_AOF &&  /* Don't care about mem if loading. */
+        server.lua_caller->id != CLIENT_ID_AOF &&  /* Don't care about mem if loading from AOF. */
         !server.masterhost &&                      /* Slave must execute the script. */
         server.lua_write_dirty == 0 &&             /* Script had no side effects so far. */
         server.lua_oom &&                          /* Detected OOM when script start. */
