@@ -1753,7 +1753,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
     } else if (rdbtype == RDB_TYPE_ZSET_2 || rdbtype == RDB_TYPE_ZSET) {
         /* Read sorted set value. */
         uint64_t zsetlen;
-        size_t maxelelen = 0;
+        size_t maxelelen = 0, totelelen = 0;
         zset *zs;
 
         if ((zsetlen = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
@@ -1795,6 +1795,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
 
             /* Don't care about integer-encoded strings. */
             if (sdslen(sdsele) > maxelelen) maxelelen = sdslen(sdsele);
+            totelelen += sdslen(sdsele);
 
             znode = zslInsert(zs->zsl,score,sdsele);
             if (dictAdd(zs->dict,sdsele,&znode->score) != DICT_OK) {
@@ -1807,8 +1808,11 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
 
         /* Convert *after* loading, since sorted sets are not stored ordered. */
         if (zsetLength(o) <= server.zset_max_listpack_entries &&
-            maxelelen <= server.zset_max_listpack_value)
-                zsetConvert(o,OBJ_ENCODING_LISTPACK);
+            maxelelen <= server.zset_max_listpack_value &&
+            lpSafeToAdd(NULL, totelelen))
+        {
+            zsetConvert(o,OBJ_ENCODING_LISTPACK);
+        }
     } else if (rdbtype == RDB_TYPE_HASH) {
         uint64_t len;
         int ret;
@@ -1862,19 +1866,28 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 }
             }
 
+            /* Convert to hash table if size threshold is exceeded */
+            if (sdslen(field) > server.hash_max_listpack_value ||
+                sdslen(value) > server.hash_max_listpack_value ||
+                !lpSafeToAdd(o->ptr, sdslen(field)+sdslen(value)))
+            {
+                hashTypeConvert(o, OBJ_ENCODING_HT);
+                ret = dictAdd((dict*)o->ptr, field, value);
+                if (ret == DICT_ERR) {
+                    rdbReportCorruptRDB("Duplicate hash fields detected");
+                    if (dupSearchDict) dictRelease(dupSearchDict);
+                    sdsfree(value);
+                    sdsfree(field);
+                    decrRefCount(o);
+                    return NULL;
+                }
+                break;
+            }
+
             /* Add pair to listpack */
             o->ptr = lpAppend(o->ptr, (unsigned char*)field, sdslen(field));
             o->ptr = lpAppend(o->ptr, (unsigned char*)value, sdslen(value));
 
-            /* Convert to hash table if size threshold is exceeded */
-            if (sdslen(field) > server.hash_max_listpack_value ||
-                sdslen(value) > server.hash_max_listpack_value)
-            {
-                sdsfree(field);
-                sdsfree(value);
-                hashTypeConvert(o, OBJ_ENCODING_HT);
-                break;
-            }
             sdsfree(field);
             sdsfree(value);
         }
@@ -1993,7 +2006,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 /* Convert to ziplist encoded hash. This must be deprecated
                  * when loading dumps created by Redis 2.4 gets deprecated. */
                 {
-                    unsigned char *zl = lpNew(0);
+                    unsigned char *lp = lpNew(0);
                     unsigned char *zi = zipmapRewind(o->ptr);
                     unsigned char *fstr, *vstr;
                     unsigned int flen, vlen;
@@ -2003,12 +2016,11 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                     while ((zi = zipmapNext(zi, &fstr, &flen, &vstr, &vlen)) != NULL) {
                         if (flen > maxlen) maxlen = flen;
                         if (vlen > maxlen) maxlen = vlen;
-                        zl = lpAppend(zl, fstr, flen);
-                        zl = lpAppend(zl, vstr, vlen);
 
                         /* search for duplicate records */
                         sds field = sdstrynewlen(fstr, flen);
-                        if (!field || dictAdd(dupSearchDict, field, NULL) != DICT_OK) {
+                        if (!field || dictAdd(dupSearchDict, field, NULL) != DICT_OK ||
+                            !lpSafeToAdd(lp, (size_t)flen + vlen)) {
                             rdbReportCorruptRDB("Hash zipmap with dup elements, or big length (%u)", flen);
                             dictRelease(dupSearchDict);
                             sdsfree(field);
@@ -2017,11 +2029,14 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                             decrRefCount(o);
                             return NULL;
                         }
+
+                        lp = lpAppend(lp, fstr, flen);
+                        lp = lpAppend(lp, vstr, vlen);
                     }
 
                     dictRelease(dupSearchDict);
                     zfree(o->ptr);
-                    o->ptr = zl;
+                    o->ptr = lp;
                     o->type = OBJ_HASH;
                     o->encoding = OBJ_ENCODING_LISTPACK;
 
