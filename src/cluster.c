@@ -4688,7 +4688,8 @@ NULL
     } else if ((!strcasecmp(c->argv[1]->ptr,"addslotsrange") ||
                !strcasecmp(c->argv[1]->ptr,"delslotsrange")) && c->argc >= 4) {
         if(c->argc % 2 == 1) {
-            addReplyErrorFormat(c,"Missed one endslot");
+            addReplyErrorFormat(c,"wrong number of arguments for '%s' command",
+                            c->cmd->name);
             return;
         }
         /* CLUSTER ADDSLOTSRANGE <start slot> <end slot> [<start slot> <end slot> ...] */
