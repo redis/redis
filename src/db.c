@@ -31,6 +31,7 @@
 #include "cluster.h"
 #include "atomicvar.h"
 #include "latency.h"
+#include "script.h"
 
 #include <signal.h>
 #include <ctype.h>
@@ -88,7 +89,7 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
              * commands is to make writable replicas behave consistently. It
              * shall not be used in readonly commands. Modules are accepted so
              * that we don't break old modules. */
-            client *c = server.in_eval ? server.lua_client : server.current_client;
+            client *c = server.in_script ? scriptGetClient() : server.current_client;
             serverAssert(!c || !c->cmd || (c->cmd->flags & (CMD_WRITE|CMD_MODULE)));
         }
         if (expireIfNeeded(db, key, force_delete_expired)) {

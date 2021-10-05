@@ -1998,7 +1998,7 @@ void xreadCommand(client *c) {
         int moreargs = c->argc-i-1;
         char *o = c->argv[i]->ptr;
         if (!strcasecmp(o,"BLOCK") && moreargs) {
-            if (c->flags & CLIENT_LUA) {
+            if (c->flags & CLIENT_SCRIPT) {
                 /*
                  * Although the CLIENT_DENY_BLOCKING flag should protect from blocking the client
                  * on Lua/MULTI/RM_Call we want special treatment for Lua to keep backward compatibility.

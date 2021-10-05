@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009-2021, Redis Labs Ltd.
+ * Copyright (c) 2009-2021, Redis Ltd.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -30,35 +30,39 @@
 #ifndef __SCRIPT_LUA_H_
 #define __SCRIPT_LUA_H_
 
+/*
+ * script_lua.c unit provides shared functionality between
+ * eval.c and function_lua.c. Functionality provided:
+ *
+ * * Execute Lua code, assuming that the code is located on
+ *   the top of the Lua stack. In addition, parsing the execution
+ *   result and convert it to the resp and reply ot the client.
+ *
+ * * Run Redis commands from within the Lua code (Including
+ *   parsing the reply and create a Lua object out of it).
+ *
+ * * Register Redis API to the Lua interpreter. Only shared
+ *   API are registered (API that is only relevant on eval.c
+ *   (like debugging) are registered on eval.c).
+ *
+ * Uses script.c for interaction back with Redis.
+ */
+
 #include "server.h"
 #include "script.h"
 #include <lua.h>
 #include <lauxlib.h>
 #include <lualib.h>
 
-typedef struct luaCtx {
-    lua_State *lua; /* The Lua interpreter. We use just one for all clients */
-    client *lua_client;   /* The "fake client" to query Redis from Lua */
-    char *lua_cur_script; /* SHA1 of the script currently running, or NULL */
-    dict *lua_scripts;         /* A dictionary of SHA1 -> Lua scripts */
-    unsigned long long lua_scripts_mem;  /* Cached scripts' memory + oh */
-    int lua_replicate_commands; /* True if we are doing single commands repl. */
-    int lua_write_dirty;
-    int lua_random_dirty;
-    int lua_multi_emitted;
-    int lua_repl;
-    int lua_kill;
-    monotime lua_time_start;  /* monotonic timer to detect timed-out script */
-    mstime_t lua_time_snapshot; /* Snapshot of mstime when script is started */
-} luaCtx;
+#define REGISTRY_RUN_CTX_NAME "__RUN_CTX__"
 
-extern luaCtx lctx;
-
-void luaEngineRegisterRedisAPI(lua_State* lua);
-void scriptingEnableGlobalsProtection(lua_State *lua);
+void luaRegisterRedisAPI(lua_State* lua);
+void luaEnableGlobalsProtection(lua_State *lua);
 void luaSetGlobalArray(lua_State *lua, char *var, robj **elev, int elec);
 void luaMaskCountHook(lua_State *lua, lua_Debug *ar);
-void luaReplyToRedisReply(client *c, lua_State *lua);
+void luaReplyToRedisReply(client *c, client* script_client, lua_State *lua);
+void luaSaveOnRegistry(lua_State* lua, const char* name, void* ptr);
+void* luaGetFromRegistry(lua_State* lua, const char* name);
 
 
 

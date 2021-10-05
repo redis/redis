@@ -984,7 +984,7 @@ start_server {tags {"scripting needs:debug external:skip"}} {
         r write $cmd
         r flush
         set ret [r read]
-        assert_match {*Unknown Redis command called from Lua script*} $ret
+        assert_match {*Unknown Redis command called from*} $ret
         # make sure the server is still ok
         reconnect
         assert_equal [r ping] {PONG}

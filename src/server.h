@@ -260,7 +260,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CLIENT_CLOSE_AFTER_REPLY (1<<6) /* Close after writing entire reply. */
 #define CLIENT_UNBLOCKED (1<<7) /* This client was unblocked and is stored in
                                   server.unblocked_clients */
-#define CLIENT_LUA (1<<8) /* This is a non connected client used by Lua */
+#define CLIENT_SCRIPT (1<<8) /* This is a non connected client used by Lua */
 #define CLIENT_ASKING (1<<9)     /* Client issued the ASKING command */
 #define CLIENT_CLOSE_ASAP (1<<10)/* Close this client ASAP */
 #define CLIENT_UNIX_SOCKET (1<<11) /* Client connected via Unix domain socket */
@@ -1721,8 +1721,6 @@ struct redisServer {
     /* Scripting */
     client *script_caller;       /* The client running script right now, or NULL */
     mstime_t script_time_limit;  /* Script timeout in milliseconds */
-    int script_timedout;         /* True if we reached the time limit for script
-                                    execution. */
     int lua_always_replicate_commands; /* Default replication type. */
     int script_oom;                    /* OOM detected when script start */
     int script_disable_deny_script;    /* Allow running commands marked "no-script" inside a script. */

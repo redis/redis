@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009-2021, Redis Labs Ltd.
+ * Copyright (c) 2009-2021, Redis Ltd.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -39,10 +39,9 @@
 #include <lualib.h>
 #include <ctype.h>
 #include <math.h>
-#include "functions.h"
 
-int redis_math_random (lua_State *L);
-int redis_math_randomseed (lua_State *L);
+static int redis_math_random (lua_State *L);
+static int redis_math_randomseed (lua_State *L);
 static void redisProtocolToLuaType_Int(void *ctx, long long val, const char *proto, size_t proto_len);
 static void redisProtocolToLuaType_BulkString(void *ctx, const char *str, size_t len, const char *proto, size_t proto_len);
 static void redisProtocolToLuaType_NullBulkString(void *ctx, const char *proto, size_t proto_len);
@@ -58,6 +57,39 @@ static void redisProtocolToLuaType_Double(void *ctx, double d, const char *proto
 static void redisProtocolToLuaType_BigNumber(void *ctx, const char *str, size_t len, const char *proto, size_t proto_len);
 static void redisProtocolToLuaType_VerbatimString(void *ctx, const char *format, const char *str, size_t len, const char *proto, size_t proto_len);
 static void redisProtocolToLuaType_Attribute(struct ReplyParser *parser, void *ctx, size_t len, const char *proto);
+
+/*
+ * Save the give pointer on Lua registry, used to save the Lua context and
+ * function context so we can retrieve them from lua_State.
+ */
+void luaSaveOnRegistry(lua_State* lua, const char* name, void* ptr) {
+    lua_pushstring(lua, name);
+    if (ptr) {
+        lua_pushlightuserdata(lua, ptr);
+    } else {
+        lua_pushnil(lua);
+    }
+    lua_settable(lua, LUA_REGISTRYINDEX);
+}
+
+/*
+ * Get a saved pointer from registry
+ */
+void* luaGetFromRegistry(lua_State* lua, const char* name) {
+    lua_pushstring(lua, name);
+    lua_gettable(lua, LUA_REGISTRYINDEX);
+
+    /* must be light user data */
+    serverAssert(lua_islightuserdata(lua, -1));
+
+    void* ptr = (void*) lua_topointer(lua, -1);
+    serverAssert(ptr);
+
+    /* pops the value */
+    lua_pop(lua, 1);
+
+    return ptr;
+}
 
 /* ---------------------------------------------------------------------------
  * Redis reply to Lua type conversion functions.
@@ -99,7 +131,7 @@ static const ReplyParserCallbacks DefaultLuaTypeParserCallbacks = {
     .error = NULL,
 };
 
-void redisProtocolToLuaType(lua_State *lua, char* reply) {
+static void redisProtocolToLuaType(lua_State *lua, char* reply) {
     ReplyParser parser = {.curr_location = reply, .callbacks = DefaultLuaTypeParserCallbacks};
 
     parseReply(&parser, lua);
@@ -394,7 +426,7 @@ static void redisProtocolToLuaType_Double(void *ctx, double d, const char *proto
  * with a single "err" field set to the error string. Note that this
  * table is never a valid reply by proper commands, since the returned
  * tables are otherwise always indexed by integers, never by strings. */
-void luaPushError(lua_State *lua, char *error) {
+static void luaPushError(lua_State *lua, char *error) {
     lua_Debug dbg;
 
     /* If debugging is active and in step mode, log errors resulting from
@@ -422,7 +454,7 @@ void luaPushError(lua_State *lua, char *error) {
  * by the non-error-trapping version of redis.pcall(), which is redis.call(),
  * this function will raise the Lua error so that the execution of the
  * script will be halted. */
-int luaRaiseError(lua_State *lua) {
+static int luaRaiseError(lua_State *lua) {
     lua_pushstring(lua,"err");
     lua_gettable(lua,-2);
     return lua_error(lua);
@@ -434,7 +466,7 @@ int luaRaiseError(lua_State *lua) {
  *
  * The array is sorted using table.sort itself, and assuming all the
  * list elements are strings. */
-void luaSortArray(lua_State *lua) {
+static void luaSortArray(lua_State *lua) {
     /* Initial Stack: array */
     lua_getglobal(lua,"table");
     lua_pushstring(lua,"sort");
@@ -465,7 +497,7 @@ void luaSortArray(lua_State *lua) {
 
 /* Reply to client 'c' converting the top element in the Lua stack to a
  * Redis reply. As a side effect the element is consumed from the stack.  */
-void luaReplyToRedisReply(client *c, lua_State *lua) {
+void luaReplyToRedisReply(client *c, client* script_client, lua_State *lua) {
     int t = lua_type(lua,-1);
 
     if (!lua_checkstack(lua, 4)) {
@@ -483,7 +515,7 @@ void luaReplyToRedisReply(client *c, lua_State *lua) {
         addReplyBulkCBuffer(c,(char*)lua_tostring(lua,-1),lua_strlen(lua,-1));
         break;
     case LUA_TBOOLEAN:
-        if (lctx.lua_client->resp == 2)
+        if (script_client->resp == 2)
             addReply(c,lua_toboolean(lua,-1) ? shared.cone :
                                                shared.null[c->resp]);
         else
@@ -587,8 +619,8 @@ void luaReplyToRedisReply(client *c, lua_State *lua) {
             while (lua_next(lua,-2)) {
                 /* Stack now: table, key, value */
                 lua_pushvalue(lua,-2);        /* Dup key before consuming. */
-                luaReplyToRedisReply(c, lua); /* Return key. */
-                luaReplyToRedisReply(c, lua); /* Return value. */
+                luaReplyToRedisReply(c, script_client, lua); /* Return key. */
+                luaReplyToRedisReply(c, script_client, lua); /* Return value. */
                 /* Stack now: table, key. */
                 maplen++;
             }
@@ -611,7 +643,7 @@ void luaReplyToRedisReply(client *c, lua_State *lua) {
                 /* Stack now: table, key, true */
                 lua_pop(lua,1);               /* Discard the boolean value. */
                 lua_pushvalue(lua,-1);        /* Dup key before consuming. */
-                luaReplyToRedisReply(c, lua); /* Return key. */
+                luaReplyToRedisReply(c, script_client, lua); /* Return key. */
                 /* Stack now: table, key. */
                 setlen++;
             }
@@ -633,7 +665,7 @@ void luaReplyToRedisReply(client *c, lua_State *lua) {
                 lua_pop(lua,1);
                 break;
             }
-            luaReplyToRedisReply(c, lua);
+            luaReplyToRedisReply(c, script_client, lua);
             mbulklen++;
         }
         setDeferredArrayLen(c,replylen,mbulklen);
@@ -650,10 +682,11 @@ void luaReplyToRedisReply(client *c, lua_State *lua) {
 
 #define LUA_CMD_OBJCACHE_SIZE 32
 #define LUA_CMD_OBJCACHE_MAX_LEN 64
-int luaRedisGenericCommand(lua_State *lua, int raise_error) {
+static int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     int j, argc = lua_gettop(lua);
-    struct redisCommand *cmd;
-    client *c = lctx.lua_client;
+    scriptRunCtx* rctx = luaGetFromRegistry(lua, REGISTRY_RUN_CTX_NAME);
+    sds err = NULL;
+    client* c = rctx->c;
     sds reply;
 
     /* Cached across calls. */
@@ -741,16 +774,6 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
      * and this way we guaranty we will have room on the stack for the result. */
     lua_pop(lua, argc);
 
-    /* Setup our fake client for command execution */
-    c->argv = argv;
-    c->argc = argc;
-    c->user = server.script_caller->user;
-
-    /* Process module hooks */
-    moduleCallCommandFilters(c);
-    argv = c->argv;
-    argc = c->argc;
-
     /* Log the command if debugging is active. */
     if (ldbIsEnabled()) {
         sds cmdlog = sdsnew("<redis>");
@@ -767,167 +790,13 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
         ldbLog(cmdlog);
     }
 
-    /* Command lookup */
-    cmd = lookupCommand(argv[0]->ptr);
-    if (!cmd || ((cmd->arity > 0 && cmd->arity != argc) ||
-                   (argc < -cmd->arity)))
-    {
-        if (cmd)
-            luaPushError(lua,
-                "Wrong number of args calling Redis command From Lua script");
-        else
-            luaPushError(lua,"Unknown Redis command called from Lua script");
+
+    scriptCall(rctx, argv, argc, &err);
+    if (err) {
+        luaPushError(lua, err);
+        sdsfree(err);
         goto cleanup;
     }
-    c->cmd = c->lastcmd = cmd;
-
-    /* There are commands that are not allowed inside scripts. */
-    if (!server.script_disable_deny_script && (cmd->flags & CMD_NOSCRIPT)) {
-        luaPushError(lua, "This Redis command is not allowed from scripts");
-        goto cleanup;
-    }
-
-    /* This check is for EVAL_RO, EVALSHA_RO. We want to allow only read only commands */
-    if ((server.script_caller->cmd->proc == evalRoCommand ||
-         server.script_caller->cmd->proc == evalShaRoCommand) &&
-         (cmd->flags & CMD_WRITE))
-    {
-        luaPushError(lua, "Write commands are not allowed from read-only scripts");
-        goto cleanup;
-    }
-
-    /* Check the ACLs. */
-    int acl_errpos;
-    int acl_retval = ACLCheckAllPerm(c,&acl_errpos);
-    if (acl_retval != ACL_OK) {
-        addACLLogEntry(c,acl_retval,ACL_LOG_CTX_LUA,acl_errpos,NULL,NULL);
-        switch (acl_retval) {
-        case ACL_DENIED_CMD:
-            luaPushError(lua, "The user executing the script can't run this "
-                              "command or subcommand");
-            break;
-        case ACL_DENIED_KEY:
-            luaPushError(lua, "The user executing the script can't access "
-                              "at least one of the keys mentioned in the "
-                              "command arguments");
-            break;
-        case ACL_DENIED_CHANNEL:
-            luaPushError(lua, "The user executing the script can't publish "
-                              "to the channel mentioned in the command");
-            break;
-        default:
-            luaPushError(lua, "The user executing the script is lacking the "
-                              "permissions for the command");
-            break;
-        }
-        goto cleanup;
-    }
-
-    /* Write commands are forbidden against read-only slaves, or if a
-     * command marked as non-deterministic was already called in the context
-     * of this script. */
-    if (cmd->flags & CMD_WRITE) {
-        int deny_write_type = writeCommandsDeniedByDiskError();
-        if (lctx.lua_random_dirty && !lctx.lua_replicate_commands) {
-            luaPushError(lua,
-                "Write commands not allowed after non deterministic commands. Call redis.replicate_commands() at the start of your script in order to switch to single commands replication mode.");
-            goto cleanup;
-        } else if (server.masterhost && server.repl_slave_ro &&
-                   server.script_caller->id != CLIENT_ID_AOF &&
-                   !(server.script_caller->flags & CLIENT_MASTER))
-        {
-            luaPushError(lua, shared.roslaveerr->ptr);
-            goto cleanup;
-        } else if (deny_write_type != DISK_ERROR_TYPE_NONE) {
-            if (deny_write_type == DISK_ERROR_TYPE_RDB) {
-                luaPushError(lua, shared.bgsaveerr->ptr);
-            } else {
-                sds aof_write_err = sdscatfmt(sdsempty(),
-                    "-MISCONF Errors writing to the AOF file: %s\r\n",
-                    strerror(server.aof_last_write_errno));
-                luaPushError(lua, aof_write_err);
-                sdsfree(aof_write_err);
-            }
-            goto cleanup;
-        }
-    }
-
-    /* If we reached the memory limit configured via maxmemory, commands that
-     * could enlarge the memory usage are not allowed, but only if this is the
-     * first write in the context of this script, otherwise we can't stop
-     * in the middle. */
-    if (server.maxmemory &&                        /* Maxmemory is actually enabled. */
-        server.script_caller->id != CLIENT_ID_AOF &&  /* Don't care about mem if loading from AOF. */
-        !server.masterhost &&                      /* Slave must execute the script. */
-        lctx.lua_write_dirty == 0 &&               /* Script had no side effects so far. */
-        server.script_oom &&                       /* Detected OOM when script start. */
-        (cmd->flags & CMD_DENYOOM))
-    {
-        luaPushError(lua, shared.oomerr->ptr);
-        goto cleanup;
-    }
-
-    if (cmd->flags & CMD_RANDOM) lctx.lua_random_dirty = 1;
-    if (cmd->flags & CMD_WRITE) lctx.lua_write_dirty = 1;
-
-    /* If this is a Redis Cluster node, we need to make sure Lua is not
-     * trying to access non-local keys, with the exception of commands
-     * received from our master or when loading the AOF back in memory. */
-    if (server.cluster_enabled && server.script_caller->id != CLIENT_ID_AOF &&
-        !(server.script_caller->flags & CLIENT_MASTER))
-    {
-        int error_code;
-        /* Duplicate relevant flags in the lua client. */
-        c->flags &= ~(CLIENT_READONLY|CLIENT_ASKING);
-        c->flags |= server.script_caller->flags & (CLIENT_READONLY|CLIENT_ASKING);
-        if (getNodeByQuery(c,c->cmd,c->argv,c->argc,NULL,&error_code) !=
-                           server.cluster->myself)
-        {
-            if (error_code == CLUSTER_REDIR_DOWN_RO_STATE) {
-                luaPushError(lua,
-                    "Lua script attempted to execute a write command while the "
-                    "cluster is down and readonly");
-            } else if (error_code == CLUSTER_REDIR_DOWN_STATE) {
-                luaPushError(lua,
-                    "Lua script attempted to execute a command while the "
-                    "cluster is down");
-            } else {
-                luaPushError(lua,
-                    "Lua script attempted to access a non local key in a "
-                    "cluster node");
-            }
-
-            goto cleanup;
-        }
-    }
-
-    /* If we are using single commands replication, we need to wrap what
-     * we propagate into a MULTI/EXEC block, so that it will be atomic like
-     * a Lua script in the context of AOF and slaves. */
-    if (lctx.lua_replicate_commands &&
-        !lctx.lua_multi_emitted &&
-        !(server.script_caller->flags & CLIENT_MULTI) &&
-        lctx.lua_write_dirty &&
-        lctx.lua_repl != PROPAGATE_NONE)
-    {
-        execCommandPropagateMulti(server.script_caller->db->id);
-        lctx.lua_multi_emitted = 1;
-        /* Now we are in the MULTI context, the lua_client should be
-         * flag as CLIENT_MULTI. */
-        c->flags |= CLIENT_MULTI;
-    }
-
-    /* Run the command */
-    int call_flags = CMD_CALL_SLOWLOG | CMD_CALL_STATS;
-    if (lctx.lua_replicate_commands) {
-        /* Set flags according to redis.set_repl() settings. */
-        if (lctx.lua_repl & PROPAGATE_AOF)
-            call_flags |= CMD_CALL_PROPAGATE_AOF;
-        if (lctx.lua_repl & PROPAGATE_REPL)
-            call_flags |= CMD_CALL_PROPAGATE_REPL;
-    }
-    call(c,call_flags);
-    serverAssert((c->flags & CLIENT_BLOCKED) == 0);
 
     /* Convert the result of the Redis command into a suitable Lua type.
      * The first thing we need is to create a single string from the client
@@ -958,8 +827,8 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
 
     /* Sort the output array if needed, assuming it is a non-null multi bulk
      * reply as expected. */
-    if ((cmd->flags & CMD_SORT_FOR_SCRIPT) &&
-        (lctx.lua_replicate_commands == 0) &&
+    if ((c->cmd->flags & CMD_SORT_FOR_SCRIPT) &&
+        (rctx->flags & SCRIPT_EVAL_REPLICATION) &&
         (reply[0] == '*' && reply[1] != '-')) {
             luaSortArray(lua);
     }
@@ -1010,18 +879,18 @@ cleanup:
 }
 
 /* redis.call() */
-int luaRedisCallCommand(lua_State *lua) {
+static int luaRedisCallCommand(lua_State *lua) {
     return luaRedisGenericCommand(lua,1);
 }
 
 /* redis.pcall() */
-int luaRedisPCallCommand(lua_State *lua) {
+static int luaRedisPCallCommand(lua_State *lua) {
     return luaRedisGenericCommand(lua,0);
 }
 
 /* This adds redis.sha1hex(string) to Lua scripts using the same hashing
  * function used for sha1ing lua scripts. */
-int luaRedisSha1hexCommand(lua_State *lua) {
+static int luaRedisSha1hexCommand(lua_State *lua) {
     int argc = lua_gettop(lua);
     char digest[41];
     size_t len;
@@ -1045,7 +914,7 @@ int luaRedisSha1hexCommand(lua_State *lua) {
  * return redis.error_reply("ERR Some Error")
  * return redis.status_reply("ERR Some Error")
  */
-int luaRedisReturnSingleFieldTable(lua_State *lua, char *field) {
+static int luaRedisReturnSingleFieldTable(lua_State *lua, char *field) {
     if (lua_gettop(lua) != 1 || lua_type(lua,-1) != LUA_TSTRING) {
         luaPushError(lua, "wrong number or type of arguments");
         return 1;
@@ -1059,12 +928,12 @@ int luaRedisReturnSingleFieldTable(lua_State *lua, char *field) {
 }
 
 /* redis.error_reply() */
-int luaRedisErrorReplyCommand(lua_State *lua) {
+static int luaRedisErrorReplyCommand(lua_State *lua) {
     return luaRedisReturnSingleFieldTable(lua,"err");
 }
 
 /* redis.status_reply() */
-int luaRedisStatusReplyCommand(lua_State *lua) {
+static int luaRedisStatusReplyCommand(lua_State *lua) {
     return luaRedisReturnSingleFieldTable(lua,"ok");
 }
 
@@ -1072,11 +941,13 @@ int luaRedisStatusReplyCommand(lua_State *lua) {
  *
  * Set the propagation of write commands executed in the context of the
  * script to on/off for AOF and slaves. */
-int luaRedisSetReplCommand(lua_State *lua) {
+static int luaRedisSetReplCommand(lua_State *lua) {
     int argc = lua_gettop(lua);
     int flags;
 
-    if (lctx.lua_replicate_commands == 0) {
+    scriptRunCtx* rctx = luaGetFromRegistry(lua, REGISTRY_RUN_CTX_NAME);
+
+    if (rctx->flags & SCRIPT_EVAL_REPLICATION) {
         lua_pushstring(lua, "You can set the replication behavior only after turning on single commands replication with redis.replicate_commands().");
         return lua_error(lua);
     } else if (argc != 1) {
@@ -1089,12 +960,13 @@ int luaRedisSetReplCommand(lua_State *lua) {
         lua_pushstring(lua, "Invalid replication flags. Use REPL_AOF, REPL_REPLICA, REPL_ALL or REPL_NONE.");
         return lua_error(lua);
     }
-    lctx.lua_repl = flags;
+
+    scriptSetRepl(rctx, flags);
     return 0;
 }
 
 /* redis.log() */
-int luaLogCommand(lua_State *lua) {
+static int luaLogCommand(lua_State *lua) {
     int j, argc = lua_gettop(lua);
     int level;
     sds log;
@@ -1131,7 +1003,7 @@ int luaLogCommand(lua_State *lua) {
 }
 
 /* redis.setresp() */
-int luaSetResp(lua_State *lua) {
+static int luaSetResp(lua_State *lua) {
     int argc = lua_gettop(lua);
 
     if (argc != 1) {
@@ -1144,8 +1016,8 @@ int luaSetResp(lua_State *lua) {
         lua_pushstring(lua, "RESP version must be 2 or 3.");
         return lua_error(lua);
     }
-
-    lctx.lua_client->resp = resp;
+    scriptRunCtx* rctx = luaGetFromRegistry(lua, REGISTRY_RUN_CTX_NAME);
+    scriptSetResp(rctx, resp);
     return 0;
 }
 
@@ -1153,7 +1025,7 @@ int luaSetResp(lua_State *lua) {
  * Lua engine initialization and reset.
  * ------------------------------------------------------------------------- */
 
-void luaLoadLib(lua_State *lua, const char *libname, lua_CFunction luafunc) {
+static void luaLoadLib(lua_State *lua, const char *libname, lua_CFunction luafunc) {
   lua_pushcfunction(lua, luafunc);
   lua_pushstring(lua, libname);
   lua_call(lua, 1, 0);
@@ -1164,7 +1036,7 @@ LUALIB_API int (luaopen_struct) (lua_State *L);
 LUALIB_API int (luaopen_cmsgpack) (lua_State *L);
 LUALIB_API int (luaopen_bit) (lua_State *L);
 
-void luaLoadLibraries(lua_State *lua) {
+static void luaLoadLibraries(lua_State *lua) {
     luaLoadLib(lua, "", luaopen_base);
     luaLoadLib(lua, LUA_TABLIBNAME, luaopen_table);
     luaLoadLib(lua, LUA_STRLIBNAME, luaopen_string);
@@ -1183,7 +1055,7 @@ void luaLoadLibraries(lua_State *lua) {
 
 /* Remove a functions that we don't want to expose to the Redis scripting
  * environment. */
-void luaRemoveUnsupportedFunctions(lua_State *lua) {
+static void luaRemoveUnsupportedFunctions(lua_State *lua) {
     lua_pushnil(lua);
     lua_setglobal(lua,"loadfile");
     lua_pushnil(lua);
@@ -1195,7 +1067,7 @@ void luaRemoveUnsupportedFunctions(lua_State *lua) {
  *
  * It should be the last to be called in the scripting engine initialization
  * sequence, because it may interact with creation of globals. */
-void scriptingEnableGlobalsProtection(lua_State *lua) {
+void luaEnableGlobalsProtection(lua_State *lua) {
     char *s[32];
     sds code = sdsempty();
     int j = 0;
@@ -1229,7 +1101,7 @@ void scriptingEnableGlobalsProtection(lua_State *lua) {
     sdsfree(code);
 }
 
-void luaEngineRegisterRedisAPI(lua_State* lua) {
+void luaRegisterRedisAPI(lua_State* lua) {
     luaLoadLibraries(lua);
     luaRemoveUnsupportedFunctions(lua);
 
@@ -1350,7 +1222,7 @@ void luaSetGlobalArray(lua_State *lua, char *var, robj **elev, int elec) {
 
 /* The following implementation is the one shipped with Lua itself but with
  * rand() replaced by redisLrand48(). */
-int redis_math_random (lua_State *L) {
+static int redis_math_random (lua_State *L) {
   /* the `%' avoids the (rare) case of r==1, and is needed also because on
      some systems (SunOS!) `rand()' may return a value larger than RAND_MAX */
   lua_Number r = (lua_Number)(redisLrand48()%REDIS_LRAND48_MAX) /
@@ -1378,36 +1250,16 @@ int redis_math_random (lua_State *L) {
   return 1;
 }
 
-int redis_math_randomseed (lua_State *L) {
+static int redis_math_randomseed (lua_State *L) {
   redisSrand48(luaL_checkint(L, 1));
   return 0;
 }
 
 /* This is the Lua script "count" hook that we use to detect scripts timeout. */
 void luaMaskCountHook(lua_State *lua, lua_Debug *ar) {
-    long long elapsed = elapsedMs(lctx.lua_time_start);
     UNUSED(ar);
-    UNUSED(lua);
-
-    /* Set the timeout condition if not already set and the maximum
-     * execution time was reached. */
-    if (elapsed >= server.script_time_limit && server.script_timedout == 0) {
-        serverLog(LL_WARNING,
-            "Lua slow script detected: still in execution after %lld milliseconds. "
-            "You can try killing the script using the SCRIPT KILL command. "
-            "Script SHA1 is: %s",
-            elapsed, lctx.lua_cur_script);
-        server.script_timedout = 1;
-        blockingOperationStarts();
-        /* Once the script timeouts we reenter the event loop to permit others
-         * to call SCRIPT KILL or SHUTDOWN NOSAVE if needed. For this reason
-         * we need to mask the client executing the script from the event loop.
-         * If we don't do that the client may disconnect and could no longer be
-         * here when the EVAL command will return. */
-        protectClient(server.script_caller);
-    }
-    if (server.script_timedout) processEventsWhileBlocked();
-    if (lctx.lua_kill) {
+    scriptRunCtx* rctx = luaGetFromRegistry(lua, REGISTRY_RUN_CTX_NAME);
+    if (scriptInterrupt(rctx) == SCRIPT_KILL) {
         serverLog(LL_WARNING,"Lua script killed by user with SCRIPT KILL.");
 
         /*
