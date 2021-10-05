@@ -204,7 +204,7 @@ start_server {tags {"protocol network"}} {
         assert_equal [r get "{k}2"] v2
     }
     
-    test "test argument rewriting - issue XXX" {
+    test "test argument rewriting - issue 9598" {
         # INCRBYFLOAT uses argument rewriting for correct float value propogation.
         # We use it to make sure argument rewriting works properly. It's important 
         # this test is run under valgrind to verify there are no memory leaks in 
