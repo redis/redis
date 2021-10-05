@@ -50,6 +50,9 @@ void ldbLog(sds entry);
 void ldbLogRedisReply(char *reply);
 sds ldbCatStackValue(sds s, lua_State *lua, int idx);
 
+/* Lua context */
+luaCtx lctx;
+
 /* Debugger shared state is stored inside this global structure. */
 #define LDB_BREAKPOINTS_MAX 64  /* Max number of breakpoints. */
 #define LDB_MAX_LEN_DEFAULT 256 /* Default len limit for replies / var dumps. */
@@ -138,10 +141,10 @@ int luaRedisDebugCommand(lua_State *lua) {
  * already started to write, returns false and stick to whole scripts
  * replication, which is our default. */
 int luaRedisReplicateCommandsCommand(lua_State *lua) {
-    if (server.lua_write_dirty) {
+    if (lctx.lua_write_dirty) {
         lua_pushboolean(lua,0);
     } else {
-        server.lua_replicate_commands = 1;
+        lctx.lua_replicate_commands = 1;
         /* When we switch to single commands replication, we can provide
          * different math.random() sequences at every call, which is what
          * the user normally expects. */
@@ -165,19 +168,19 @@ void scriptingInit(int setup) {
     lua_State *lua = lua_open();
 
     if (setup) {
-        server.lua_client = NULL;
-        server.lua_caller = NULL;
-        server.lua_cur_script = NULL;
-        server.lua_timedout = 0;
-        server.lua_disable_deny_script = 0;
+        lctx.lua_client = NULL;
+        server.script_caller = NULL;
+        lctx.lua_cur_script = NULL;
+        server.script_timedout = 0;
+        server.script_disable_deny_script = 0;
         ldbInit();
     }
 
     /* Initialize a dictionary we use to map SHAs to scripts.
      * This is useful for replication, as we need to replicate EVALSHA
      * as EVAL, so we need to remember the associated script. */
-    server.lua_scripts = dictCreate(&shaScriptObjectDictType);
-    server.lua_scripts_mem = 0;
+    lctx.lua_scripts = dictCreate(&shaScriptObjectDictType);
+    lctx.lua_scripts_mem = 0;
 
     luaEngineRegisterRedisAPI(lua);
 
@@ -238,12 +241,12 @@ void scriptingInit(int setup) {
      * inside the Lua interpreter.
      * Note: there is no need to create it again when this function is called
      * by scriptingReset(). */
-    if (server.lua_client == NULL) {
-        server.lua_client = createClient(NULL);
-        server.lua_client->flags |= CLIENT_LUA;
+    if (lctx.lua_client == NULL) {
+        lctx.lua_client = createClient(NULL);
+        lctx.lua_client->flags |= CLIENT_LUA;
 
         /* We do not want to allow blocking commands inside Lua */
-        server.lua_client->flags |= CLIENT_DENY_BLOCKING;
+        lctx.lua_client->flags |= CLIENT_DENY_BLOCKING;
     }
 
     /* Lua beginners often don't use "local", this is likely to introduce
@@ -251,18 +254,18 @@ void scriptingInit(int setup) {
      * to global variables. */
     scriptingEnableGlobalsProtection(lua);
 
-    server.lua = lua;
+    lctx.lua = lua;
 }
 
 /* Release resources related to Lua scripting.
  * This function is used in order to reset the scripting environment. */
 void scriptingRelease(int async) {
     if (async)
-        freeLuaScriptsAsync(server.lua_scripts);
+        freeLuaScriptsAsync(lctx.lua_scripts);
     else
-        dictRelease(server.lua_scripts);
-    server.lua_scripts_mem = 0;
-    lua_close(server.lua);
+        dictRelease(lctx.lua_scripts);
+    lctx.lua_scripts_mem = 0;
+    lua_close(lctx.lua);
 }
 
 void scriptingReset(int async) {
@@ -291,7 +294,7 @@ void scriptingReset(int async) {
  *
  * If 'c' is not NULL, on error the client is informed with an appropriate
  * error describing the nature of the problem and the Lua interpreter error. */
-sds luaCreateFunction(client *c, lua_State *lua, robj *body) {
+sds luaCreateFunction(client *c, robj *body) {
     char funcname[43];
     dictEntry *de;
 
@@ -300,7 +303,7 @@ sds luaCreateFunction(client *c, lua_State *lua, robj *body) {
     sha1hex(funcname+2,body->ptr,sdslen(body->ptr));
 
     sds sha = sdsnewlen(funcname+2,40);
-    if ((de = dictFind(server.lua_scripts,sha)) != NULL) {
+    if ((de = dictFind(lctx.lua_scripts,sha)) != NULL) {
         sdsfree(sha);
         return dictGetKey(de);
     }
@@ -312,25 +315,25 @@ sds luaCreateFunction(client *c, lua_State *lua, robj *body) {
     funcdef = sdscatlen(funcdef,body->ptr,sdslen(body->ptr));
     funcdef = sdscatlen(funcdef,"\nend",4);
 
-    if (luaL_loadbuffer(lua,funcdef,sdslen(funcdef),"@user_script")) {
+    if (luaL_loadbuffer(lctx.lua,funcdef,sdslen(funcdef),"@user_script")) {
         if (c != NULL) {
             addReplyErrorFormat(c,
                 "Error compiling script (new function): %s\n",
-                lua_tostring(lua,-1));
+                lua_tostring(lctx.lua,-1));
         }
-        lua_pop(lua,1);
+        lua_pop(lctx.lua,1);
         sdsfree(sha);
         sdsfree(funcdef);
         return NULL;
     }
     sdsfree(funcdef);
 
-    if (lua_pcall(lua,0,0,0)) {
+    if (lua_pcall(lctx.lua,0,0,0)) {
         if (c != NULL) {
             addReplyErrorFormat(c,"Error running script (new function): %s\n",
-                lua_tostring(lua,-1));
+                lua_tostring(lctx.lua,-1));
         }
-        lua_pop(lua,1);
+        lua_pop(lctx.lua,1);
         sdsfree(sha);
         return NULL;
     }
@@ -338,31 +341,31 @@ sds luaCreateFunction(client *c, lua_State *lua, robj *body) {
     /* We also save a SHA1 -> Original script map in a dictionary
      * so that we can replicate / write in the AOF all the
      * EVALSHA commands as EVAL using the original script. */
-    int retval = dictAdd(server.lua_scripts,sha,body);
-    serverAssertWithInfo(c ? c : server.lua_client,NULL,retval == DICT_OK);
-    server.lua_scripts_mem += sdsZmallocSize(sha) + getStringObjectSdsUsedMemory(body);
+    int retval = dictAdd(lctx.lua_scripts,sha,body);
+    serverAssertWithInfo(c ? c : lctx.lua_client,NULL,retval == DICT_OK);
+    lctx.lua_scripts_mem += sdsZmallocSize(sha) + getStringObjectSdsUsedMemory(body);
     incrRefCount(body);
     return sha;
 }
 
 void prepareLuaClient(void) {
     /* Select the right DB in the context of the Lua client */
-    selectDb(server.lua_client,server.lua_caller->db->id);
-    server.lua_client->resp = 2; /* Default is RESP2, scripts can change it. */
+    selectDb(lctx.lua_client,server.script_caller->db->id);
+    lctx.lua_client->resp = 2; /* Default is RESP2, scripts can change it. */
 
     /* If we are in MULTI context, flag Lua client as CLIENT_MULTI. */
-    if (server.lua_caller->flags & CLIENT_MULTI) {
-        server.lua_client->flags |= CLIENT_MULTI;
+    if (server.script_caller->flags & CLIENT_MULTI) {
+        lctx.lua_client->flags |= CLIENT_MULTI;
     }
 }
 
 void resetLuaClient(void) {
     /* After the script done, remove the MULTI state. */
-    server.lua_client->flags &= ~CLIENT_MULTI;
+    lctx.lua_client->flags &= ~CLIENT_MULTI;
 }
 
 void evalGenericCommand(client *c, int evalsha) {
-    lua_State *lua = server.lua;
+    lua_State *lua = lctx.lua;
     char funcname[43];
     long long numkeys;
     long long initial_server_dirty = server.dirty;
@@ -380,11 +383,11 @@ void evalGenericCommand(client *c, int evalsha) {
      *
      * Thanks to this flag we'll raise an error every time a write command
      * is called after a random command was used. */
-    server.lua_random_dirty = 0;
-    server.lua_write_dirty = 0;
-    server.lua_replicate_commands = server.lua_always_replicate_commands;
-    server.lua_multi_emitted = 0;
-    server.lua_repl = PROPAGATE_AOF|PROPAGATE_REPL;
+    lctx.lua_random_dirty = 0;
+    lctx.lua_write_dirty = 0;
+    lctx.lua_replicate_commands = server.lua_always_replicate_commands;
+    lctx.lua_multi_emitted = 0;
+    lctx.lua_repl = PROPAGATE_AOF|PROPAGATE_REPL;
 
     /* Get the number of arguments that are keys */
     if (getLongLongFromObjectOrReply(c,c->argv[2],&numkeys,NULL) != C_OK)
@@ -433,7 +436,7 @@ void evalGenericCommand(client *c, int evalsha) {
             addReplyErrorObject(c, shared.noscripterr);
             return;
         }
-        if (luaCreateFunction(c,lua,c->argv[1]) == NULL) {
+        if (luaCreateFunction(c,c->argv[1]) == NULL) {
             lua_pop(lua,1); /* remove the error handler from the stack. */
             /* The error is sent to the client by luaCreateFunction()
              * itself when it returns NULL. */
@@ -456,17 +459,17 @@ void evalGenericCommand(client *c, int evalsha) {
      *
      * If we are debugging, we set instead a "line" hook so that the
      * debugger is call-back at every line executed by the script. */
-    server.in_eval = 1;
-    server.lua_caller = c;
-    server.lua_cur_script = funcname + 2;
-    server.lua_time_start = getMonotonicUs();
-    server.lua_time_snapshot = mstime();
-    server.lua_kill = 0;
-    if (server.lua_time_limit > 0 && ldb.active == 0) {
+    server.in_script = 1;
+    server.script_caller = c;
+    lctx.lua_cur_script = funcname + 2;
+    lctx.lua_time_start = getMonotonicUs();
+    lctx.lua_time_snapshot = mstime();
+    lctx.lua_kill = 0;
+    if (server.script_time_limit > 0 && ldb.active == 0) {
         lua_sethook(lua,luaMaskCountHook,LUA_MASKCOUNT,100000);
         delhook = 1;
     } else if (ldb.active) {
-        lua_sethook(server.lua,luaLdbLineHook,LUA_MASKLINE|LUA_MASKCOUNT,100000);
+        lua_sethook(lctx.lua,luaLdbLineHook,LUA_MASKLINE|LUA_MASKCOUNT,100000);
         delhook = 1;
     }
 
@@ -481,8 +484,8 @@ void evalGenericCommand(client *c, int evalsha) {
 
     /* Perform some cleanup that we need to do both on error and success. */
     if (delhook) lua_sethook(lua,NULL,0,0); /* Disable hook */
-    if (server.lua_timedout) {
-        server.lua_timedout = 0;
+    if (server.script_timedout) {
+        server.script_timedout = 0;
         blockingOperationEnds();
         /* Restore the client that was protected when the script timeout
          * was detected. */
@@ -490,9 +493,9 @@ void evalGenericCommand(client *c, int evalsha) {
         if (server.masterhost && server.master)
             queueClientForReprocessing(server.master);
     }
-    server.in_eval = 0;
-    server.lua_caller = NULL;
-    server.lua_cur_script = NULL;
+    server.in_script = 0;
+    server.script_caller = NULL;
+    lctx.lua_cur_script = NULL;
 
     /* Call the Lua garbage collector from time to time to avoid a
      * full cycle performed by Lua, which adds too latency.
@@ -524,9 +527,9 @@ void evalGenericCommand(client *c, int evalsha) {
 
     /* If we are using single commands replication, emit EXEC if there
      * was at least a write. */
-    if (server.lua_replicate_commands) {
+    if (lctx.lua_replicate_commands) {
         preventCommandPropagation(c);
-        if (server.lua_multi_emitted) {
+        if (lctx.lua_multi_emitted) {
             execCommandPropagateExec(c->db->id);
         }
     }
@@ -541,12 +544,12 @@ void evalGenericCommand(client *c, int evalsha) {
      * For replication, every time a new slave attaches to the master, we need to
      * flush our cache of scripts that can be replicated as EVALSHA, while
      * for AOF we need to do so every time we rewrite the AOF file. */
-    if (evalsha && !server.lua_replicate_commands) {
+    if (evalsha && !lctx.lua_replicate_commands) {
         if (!replicationScriptCacheExists(c->argv[1]->ptr)) {
             /* This script is not in our script cache, replicate it as
              * EVAL, then add it into the script cache, as from now on
              * slaves and AOF know about it. */
-            robj *script = dictFetchValue(server.lua_scripts,c->argv[1]->ptr);
+            robj *script = dictFetchValue(lctx.lua_scripts,c->argv[1]->ptr);
 
             replicationScriptCacheAdd(c->argv[1]->ptr);
             serverAssertWithInfo(c,NULL,script != NULL);
@@ -648,25 +651,25 @@ NULL
 
         addReplyArrayLen(c, c->argc-2);
         for (j = 2; j < c->argc; j++) {
-            if (dictFind(server.lua_scripts,c->argv[j]->ptr))
+            if (dictFind(lctx.lua_scripts,c->argv[j]->ptr))
                 addReply(c,shared.cone);
             else
                 addReply(c,shared.czero);
         }
     } else if (c->argc == 3 && !strcasecmp(c->argv[1]->ptr,"load")) {
-        sds sha = luaCreateFunction(c,server.lua,c->argv[2]);
+        sds sha = luaCreateFunction(c,c->argv[2]);
         if (sha == NULL) return; /* The error was sent by luaCreateFunction(). */
         addReplyBulkCBuffer(c,sha,40);
         forceCommandPropagation(c,PROPAGATE_REPL|PROPAGATE_AOF);
     } else if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"kill")) {
-        if (server.lua_caller == NULL) {
+        if (server.script_caller == NULL) {
             addReplyError(c,"-NOTBUSY No scripts in execution right now.");
-        } else if (server.lua_caller->flags & CLIENT_MASTER) {
+        } else if (server.script_caller->flags & CLIENT_MASTER) {
             addReplyError(c,"-UNKILLABLE The busy script was sent by a master instance in the context of replication and cannot be killed.");
-        } else if (server.lua_write_dirty) {
+        } else if (lctx.lua_write_dirty) {
             addReplyError(c,"-UNKILLABLE Sorry the script already executed write commands against the dataset. You can either wait the script termination or kill the server in a hard way using the SHUTDOWN NOSAVE command.");
         } else {
-            server.lua_kill = 1;
+            lctx.lua_kill = 1;
             addReply(c,shared.ok);
         }
     } else if (c->argc == 3 && !strcasecmp(c->argv[1]->ptr,"debug")) {
@@ -693,6 +696,26 @@ NULL
     }
 }
 
+unsigned long evalMemory() {
+    return lua_gc(lctx.lua, LUA_GCCOUNT, 0) * 1024LL;
+}
+
+dict* evalScriptsDict() {
+    return lctx.lua_scripts;
+}
+
+unsigned long evalScriptsMemory() {
+    return lctx.lua_scripts_mem +
+            dictSize(lctx.lua_scripts) * sizeof(dictEntry) +
+            dictSlots(lctx.lua_scripts) * sizeof(dictEntry*);
+}
+
+/* Returns the time when the script invocation started */
+mstime_t evalTimeSnapshot() {
+    return lctx.lua_time_snapshot;
+}
+
+
 /* ---------------------------------------------------------------------------
  * LDB: Redis Lua debugging facilities
  * ------------------------------------------------------------------------- */
@@ -715,6 +738,10 @@ void ldbFlushLog(list *log) {
 
     while((ln = listFirst(log)) != NULL)
         listDelNode(log,ln);
+}
+
+int ldbIsEnabled(){
+    return ldb.active && ldb.step;
 }
 
 /* Enable debug mode of Lua scripts for this client. */
@@ -1447,7 +1474,7 @@ void ldbEval(lua_State *lua, sds *argv, int argc) {
  * implementation, with ldb.step enabled, so as a side effect the Redis command
  * and its reply are logged. */
 void ldbRedis(lua_State *lua, sds *argv, int argc) {
-    int j, saved_rc = server.lua_replicate_commands;
+    int j, saved_rc = lctx.lua_replicate_commands;
 
     if (!lua_checkstack(lua, argc + 1)) {
         /* Increase the Lua stack if needed to make sure there is enough room
@@ -1466,10 +1493,10 @@ void ldbRedis(lua_State *lua, sds *argv, int argc) {
     for (j = 1; j < argc; j++)
         lua_pushlstring(lua,argv[j],sdslen(argv[j]));
     ldb.step = 1;               /* Force redis.call() to log. */
-    server.lua_replicate_commands = 1;
+    lctx.lua_replicate_commands = 1;
     lua_pcall(lua,argc-1,1,0);  /* Stack: redis, result */
     ldb.step = 0;               /* Disable logging. */
-    server.lua_replicate_commands = saved_rc;
+    lctx.lua_replicate_commands = saved_rc;
     lua_pop(lua,2);             /* Discard the result and clean the stack. */
 }
 
@@ -1657,9 +1684,9 @@ void luaLdbLineHook(lua_State *lua, lua_Debug *ar) {
 
     /* Check if a timeout occurred. */
     if (ar->event == LUA_HOOKCOUNT && ldb.step == 0 && bp == 0) {
-        mstime_t elapsed = elapsedMs(server.lua_time_start);
-        mstime_t timelimit = server.lua_time_limit ?
-                             server.lua_time_limit : 5000;
+        mstime_t elapsed = elapsedMs(server.script_time_limit);
+        mstime_t timelimit = server.script_time_limit ?
+                             server.script_time_limit : 5000;
         if (elapsed >= timelimit) {
             timeout = 1;
             ldb.step = 1;
@@ -1687,7 +1714,7 @@ void luaLdbLineHook(lua_State *lua, lua_Debug *ar) {
             lua_pushstring(lua, "timeout during Lua debugging with client closing connection");
             lua_error(lua);
         }
-        server.lua_time_start = getMonotonicUs();
-        server.lua_time_snapshot = mstime();
+        lctx.lua_time_start = getMonotonicUs();
+        lctx.lua_time_snapshot = mstime();
     }
 }

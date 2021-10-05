@@ -1334,7 +1334,7 @@ struct redisServer {
     int sentinel_mode;          /* True if this instance is a Sentinel. */
     size_t initial_memory_usage; /* Bytes used after initialization. */
     int always_show_logo;       /* Show logo even for non-stdout logging. */
-    int in_eval;                /* Are we inside EVAL? */
+    int in_script;                /* Are we inside EVAL? */
     int in_exec;                /* Are we inside EXEC? */
     int propagate_in_transaction;  /* Make sure we don't propagate nested MULTI/EXEC */
     char *ignore_warnings;      /* Config: warnings that should be ignored. */
@@ -1719,28 +1719,13 @@ struct redisServer {
                                         is down? */
     int cluster_config_file_lock_fd;   /* cluster config fd, will be flock */
     /* Scripting */
-    lua_State *lua; /* The Lua interpreter. We use just one for all clients */
-    client *lua_client;   /* The "fake client" to query Redis from Lua */
-    client *lua_caller;   /* The client running EVAL right now, or NULL */
-    char* lua_cur_script; /* SHA1 of the script currently running, or NULL */
-    dict *lua_scripts;         /* A dictionary of SHA1 -> Lua scripts */
-    unsigned long long lua_scripts_mem;  /* Cached scripts' memory + oh */
-    mstime_t lua_time_limit;  /* Script timeout in milliseconds */
-    monotime lua_time_start;  /* monotonic timer to detect timed-out script */
-    mstime_t lua_time_snapshot; /* Snapshot of mstime when script is started */
-    int lua_write_dirty;  /* True if a write command was called during the
-                             execution of the current script. */
-    int lua_random_dirty; /* True if a random command was called during the
-                             execution of the current script. */
-    int lua_replicate_commands; /* True if we are doing single commands repl. */
-    int lua_multi_emitted;/* True if we already propagated MULTI. */
-    int lua_repl;         /* Script replication flags for redis.set_repl(). */
-    int lua_timedout;     /* True if we reached the time limit for script
-                             execution. */
-    int lua_kill;         /* Kill the script if true. */
+    client *script_caller;       /* The client running script right now, or NULL */
+    mstime_t script_time_limit;  /* Script timeout in milliseconds */
+    int script_timedout;         /* True if we reached the time limit for script
+                                    execution. */
     int lua_always_replicate_commands; /* Default replication type. */
-    int lua_oom;          /* OOM detected when script start? */
-    int lua_disable_deny_script; /* Allow running commands marked "no-script" inside a script. */
+    int script_oom;                    /* OOM detected when script start */
+    int script_disable_deny_script;    /* Allow running commands marked "no-script" inside a script. */
     /* Lazy free */
     int lazyfree_lazy_eviction;
     int lazyfree_lazy_expire;
@@ -2722,8 +2707,16 @@ void scriptingInit(int setup);
 int ldbRemoveChild(pid_t pid);
 void ldbKillForkedSessions(void);
 int ldbPendingChildren(void);
-sds luaCreateFunction(client *c, lua_State *lua, robj *body);
+sds luaCreateFunction(client *c, robj *body);
 void freeLuaScriptsAsync(dict *lua_scripts);
+int ldbIsEnabled();
+void ldbLog(sds entry);
+void ldbLogRedisReply(char *reply);
+void sha1hex(char *digest, char *script, size_t len);
+unsigned long evalMemory();
+dict* evalScriptsDict();
+unsigned long evalScriptsMemory();
+mstime_t evalTimeSnapshot();
 
 /* Blocked clients */
 void processUnblockedClients(void);

@@ -2994,7 +2994,7 @@ void cronUpdateMemoryStats() {
             /* LUA memory isn't part of zmalloc_used, but it is part of the process RSS,
              * so we must deduct it in order to be able to calculate correct
              * "allocator fragmentation" ratio */
-            size_t lua_memory = lua_gc(server.lua,LUA_GCCOUNT,0)*1024LL;
+            size_t lua_memory = evalMemory();
             server.cron_malloc_stats.allocator_resident = server.cron_malloc_stats.process_rss - lua_memory;
         }
         if (!server.cron_malloc_stats.allocator_active)
@@ -4247,7 +4247,7 @@ void initServer(void) {
     server.pubsub_channels = dictCreate(&keylistDictType);
     server.pubsub_patterns = dictCreate(&keylistDictType);
     server.cronloops = 0;
-    server.in_eval = 0;
+    server.in_script = 0;
     server.in_exec = 0;
     server.propagate_in_transaction = 0;
     server.client_pause_in_transaction = 0;
@@ -4937,11 +4937,11 @@ void call(client *c, int flags) {
     /* If the caller is Lua, we want to force the EVAL caller to propagate
      * the script if the command flag or client flag are forcing the
      * propagation. */
-    if (c->flags & CLIENT_LUA && server.lua_caller) {
+    if (c->flags & CLIENT_LUA && server.script_caller) {
         if (c->flags & CLIENT_FORCE_REPL)
-            server.lua_caller->flags |= CLIENT_FORCE_REPL;
+            server.script_caller->flags |= CLIENT_FORCE_REPL;
         if (c->flags & CLIENT_FORCE_AOF)
-            server.lua_caller->flags |= CLIENT_FORCE_AOF;
+            server.script_caller->flags |= CLIENT_FORCE_AOF;
     }
 
     /* Note: the code below uses the real command that was executed
@@ -5070,8 +5070,8 @@ void call(client *c, int flags) {
     /* If the client has keys tracking enabled for client side caching,
      * make sure to remember the keys it fetched via this command. */
     if (c->cmd->flags & CMD_READONLY) {
-        client *caller = (c->flags & CLIENT_LUA && server.lua_caller) ?
-                            server.lua_caller : c;
+        client *caller = (c->flags & CLIENT_LUA && server.script_caller) ?
+                            server.script_caller : c;
         if (caller->flags & CLIENT_TRACKING &&
             !(caller->flags & CLIENT_TRACKING_BCAST))
         {
@@ -5172,14 +5172,14 @@ void populateCommandMovableKeys(struct redisCommand *cmd) {
  * other operations can be performed by the caller. Otherwise
  * if C_ERR is returned the client was destroyed (i.e. after QUIT). */
 int processCommand(client *c) {
-    if (!server.lua_timedout) {
+    if (!server.script_timedout) {
         /* Both EXEC and EVAL call call() directly so there should be
          * no way in_exec or in_eval or propagate_in_transaction is 1.
          * That is unless lua_timedout, in which case client may run
          * some commands. */
         serverAssert(!server.propagate_in_transaction);
         serverAssert(!server.in_exec);
-        serverAssert(!server.in_eval);
+        serverAssert(!server.in_script);
     }
 
     moduleCallCommandFilters(c);
@@ -5274,7 +5274,7 @@ int processCommand(client *c) {
     if (server.cluster_enabled &&
         !(c->flags & CLIENT_MASTER) &&
         !(c->flags & CLIENT_LUA &&
-          server.lua_caller->flags & CLIENT_MASTER) &&
+          server.script_caller->flags & CLIENT_MASTER) &&
         !(!c->cmd->movablekeys && c->cmd->key_specs_num == 0 &&
           c->cmd->proc != execCommand))
     {
@@ -5309,7 +5309,7 @@ int processCommand(client *c) {
      * the event loop since there is a busy Lua script running in timeout
      * condition, to avoid mixing the propagation of scripts with the
      * propagation of DELs due to eviction. */
-    if (server.maxmemory && !server.lua_timedout) {
+    if (server.maxmemory && !server.script_timedout) {
         int out_of_memory = (performEvictions() == EVICT_FAIL);
 
         /* performEvictions may evict keys, so we need flush pending tracking
@@ -5345,7 +5345,7 @@ int processCommand(client *c) {
          * until first write within script, memory used by lua stack and
          * arguments might interfere. */
         if (c->cmd->proc == evalCommand || c->cmd->proc == evalShaCommand) {
-            server.lua_oom = out_of_memory;
+            server.script_oom = out_of_memory;
         }
     }
 
@@ -5432,7 +5432,7 @@ int processCommand(client *c) {
      * the MULTI plus a few initial commands refused, then the timeout
      * condition resolves, and the bottom-half of the transaction gets
      * executed, see Github PR #7022. */
-    if (server.lua_timedout &&
+    if (server.script_timedout &&
           c->cmd->proc != authCommand &&
           c->cmd->proc != helloCommand &&
           c->cmd->proc != replconfCommand &&
@@ -6286,7 +6286,7 @@ sds genRedisInfoString(const char *section) {
         size_t zmalloc_used = zmalloc_used_memory();
         size_t total_system_mem = server.system_memory_size;
         const char *evict_policy = evictPolicyToString();
-        long long memory_lua = server.lua ? (long long)lua_gc(server.lua,LUA_GCCOUNT,0)*1024 : 0;
+        long long memory_lua = evalMemory();
         struct redisMemOverhead *mh = getMemoryOverheadData();
 
         /* Peak memory is updated from time to time by serverCron() so it
@@ -6369,7 +6369,7 @@ sds genRedisInfoString(const char *section) {
             used_memory_lua_hmem,
             (long long) mh->lua_caches,
             used_memory_scripts_hmem,
-            dictSize(server.lua_scripts),
+            dictSize(evalScriptsDict()),
             server.maxmemory,
             maxmemory_hmem,
             evict_policy,
