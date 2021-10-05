@@ -256,6 +256,7 @@ static struct config {
     int resp3;
     int in_multi;
     int pre_multi_dbnum;
+    int cluster_custom_hash; /* Custom hash in custom_hash.c is used if this is set to 1. */
 } config;
 
 /* User preferences. */
