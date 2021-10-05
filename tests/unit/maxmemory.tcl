@@ -9,6 +9,7 @@ start_server {tags {"maxmemory" "external:skip"}} {
         set prev_maxmemory_clients [r config get maxmemory-clients]
         if $client_eviction {
             r config set maxmemory-clients 3mb
+            r client no-evict on
         } else {
             r config set maxmemory-clients 0
         }
@@ -116,7 +117,7 @@ start_server {tags {"maxmemory" "external:skip"}} {
         test "eviction due to output buffers of pubsub, client eviction: $client_eviction" {
             init_test $client_eviction
 
-            for {set j 0} {$j < 10} {incr j} {
+            for {set j 0} {$j < 20} {incr j} {
                 set rr [redis_client]
                 lappend clients $rr
             }
@@ -125,8 +126,9 @@ start_server {tags {"maxmemory" "external:skip"}} {
                 $rr subscribe bla
             }
 
+            set bigstr [string repeat x 100000]
             for {set j 0} {$j < 40} {incr j} {
-                if {[catch {r publish bla [string repeat x 100000]} err]} {
+                if {[catch {r publish bla $bigstr} err]} {
                     if $::verbose {
                         puts "Error publishing: $err"
                     }
