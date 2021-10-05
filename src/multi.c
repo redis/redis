@@ -159,7 +159,7 @@ void execCommandAbort(client *c, sds error) {
 void execCommand(client *c) {
     int j;
     robj **orig_argv;
-    int orig_argc;
+    int orig_argc, orig_argv_len;
     struct redisCommand *orig_cmd;
     int was_master = server.masterhost == NULL;
 
@@ -201,11 +201,12 @@ void execCommand(client *c) {
     server.in_exec = 1;
 
     orig_argv = c->argv;
+    orig_argv_len = c->argv_len;
     orig_argc = c->argc;
     orig_cmd = c->cmd;
     addReplyArrayLen(c,c->mstate.count);
     for (j = 0; j < c->mstate.count; j++) {
-        c->argc = c->mstate.commands[j].argc;
+        c->argv_len = c->argc = c->mstate.commands[j].argc;
         c->argv = c->mstate.commands[j].argv;
         c->cmd = c->mstate.commands[j].cmd;
 
@@ -252,6 +253,7 @@ void execCommand(client *c) {
         c->flags &= ~CLIENT_DENY_BLOCKING;
 
     c->argv = orig_argv;
+    c->argv_len = orig_argv_len;
     c->argc = orig_argc;
     c->cmd = orig_cmd;
     discardTransaction(c);
