@@ -790,6 +790,7 @@ typedef struct dbBackup dbBackup;
 /* Client MULTI/EXEC state */
 typedef struct multiCmd {
     robj **argv;
+    int argv_len;
     int argc;
     struct redisCommand *cmd;
 } multiCmd;

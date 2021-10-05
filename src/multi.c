@@ -58,7 +58,6 @@ void freeClientMultiState(client *c) {
 /* Add a new command into the MULTI commands queue */
 void queueMultiCommand(client *c) {
     multiCmd *mc;
-    int j;
 
     /* No sense to waste memory if the transaction is already aborted.
      * this is useful in case client sends these in a pipeline, or doesn't
@@ -72,14 +71,20 @@ void queueMultiCommand(client *c) {
     mc = c->mstate.commands+c->mstate.count;
     mc->cmd = c->cmd;
     mc->argc = c->argc;
-    mc->argv = zmalloc(sizeof(robj*)*c->argc);
-    memcpy(mc->argv,c->argv,sizeof(robj*)*c->argc);
-    for (j = 0; j < c->argc; j++)
-        incrRefCount(mc->argv[j]);
+    mc->argv = c->argv;
+    mc->argv_len = c->argv_len;
+
     c->mstate.count++;
     c->mstate.cmd_flags |= c->cmd->flags;
     c->mstate.cmd_inv_flags |= ~c->cmd->flags;
     c->mstate.argv_len_sums += c->argv_len_sum + sizeof(robj*)*c->argc;
+
+    /* Reset the client's args since we copied them into the mstate and shouldn't
+     * reference them from c anymore. */
+    c->argv = NULL;
+    c->argc = 0;
+    c->argv_len_sum = 0;
+    c->argv_len = 0;
 }
 
 void discardTransaction(client *c) {
@@ -206,8 +211,9 @@ void execCommand(client *c) {
     orig_cmd = c->cmd;
     addReplyArrayLen(c,c->mstate.count);
     for (j = 0; j < c->mstate.count; j++) {
-        c->argv_len = c->argc = c->mstate.commands[j].argc;
+        c->argc = c->mstate.commands[j].argc;
         c->argv = c->mstate.commands[j].argv;
+        c->argv_len = c->mstate.commands[j].argv_len;
         c->cmd = c->mstate.commands[j].cmd;
 
         /* ACL permissions are also checked at the time of execution in case
