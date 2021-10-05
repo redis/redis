@@ -48,6 +48,10 @@
 /* This macro is called when RDB read failed (possibly a short read) */
 #define rdbReportReadError(...) rdbReportError(0, __LINE__,__VA_ARGS__)
 
+/* This macro tells if we are in the context of a RESTORE command, and not loading an RDB or AOF. */
+#define isRestoreContext() \
+    (server.current_client == NULL || server.current_client->id == CLIENT_ID_AOF) ? 0 : 1
+
 char* rdbFileBeingLoaded = NULL; /* used for rdb checking on read error */
 extern int rdbCheckMode;
 void rdbCheckError(const char *fmt, ...);
@@ -68,7 +72,7 @@ void rdbReportError(int corruption_error, int linenum, char *reason, ...) {
     vsnprintf(msg+len,sizeof(msg)-len,reason,ap);
     va_end(ap);
 
-    if (!server.loading) {
+    if (isRestoreContext()) {
         /* If we're in the context of a RESTORE command, just propagate the error. */
         /* log in VERBOSE, and return (don't exit). */
         serverLog(LL_VERBOSE, "%s", msg);
@@ -381,7 +385,7 @@ void *rdbLoadLzfStringObject(rio *rdb, int flags, size_t *lenptr) {
     if ((clen = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
     if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
     if ((c = ztrymalloc(clen)) == NULL) {
-        serverLog(server.loading? LL_WARNING: LL_VERBOSE, "rdbLoadLzfStringObject failed allocating %llu bytes", (unsigned long long)clen);
+        serverLog(isRestoreContext()? LL_VERBOSE: LL_WARNING, "rdbLoadLzfStringObject failed allocating %llu bytes", (unsigned long long)clen);
         goto err;
     }
 
@@ -392,7 +396,7 @@ void *rdbLoadLzfStringObject(rio *rdb, int flags, size_t *lenptr) {
         val = sdstrynewlen(SDS_NOINIT,len);
     }
     if (!val) {
-        serverLog(server.loading? LL_WARNING: LL_VERBOSE, "rdbLoadLzfStringObject failed allocating %llu bytes", (unsigned long long)len);
+        serverLog(isRestoreContext()? LL_VERBOSE: LL_WARNING, "rdbLoadLzfStringObject failed allocating %llu bytes", (unsigned long long)len);
         goto err;
     }
 
@@ -525,7 +529,7 @@ void *rdbGenericLoadStringObject(rio *rdb, int flags, size_t *lenptr) {
     if (plain || sds) {
         void *buf = plain ? ztrymalloc(len) : sdstrynewlen(SDS_NOINIT,len);
         if (!buf) {
-            serverLog(server.loading? LL_WARNING: LL_VERBOSE, "rdbGenericLoadStringObject failed allocating %llu bytes", len);
+            serverLog(isRestoreContext()? LL_VERBOSE: LL_WARNING, "rdbGenericLoadStringObject failed allocating %llu bytes", len);
             return NULL;
         }
         if (lenptr) *lenptr = len;
@@ -541,7 +545,7 @@ void *rdbGenericLoadStringObject(rio *rdb, int flags, size_t *lenptr) {
         robj *o = encode ? tryCreateStringObject(SDS_NOINIT,len) :
                            tryCreateRawStringObject(SDS_NOINIT,len);
         if (!o) {
-            serverLog(server.loading? LL_WARNING: LL_VERBOSE, "rdbGenericLoadStringObject failed allocating %llu bytes", len);
+            serverLog(isRestoreContext()? LL_VERBOSE: LL_WARNING, "rdbGenericLoadStringObject failed allocating %llu bytes", len);
             return NULL;
         }
         if (len && rioRead(rdb,o->ptr,len) == 0) {
