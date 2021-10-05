@@ -256,7 +256,7 @@ static struct config {
     int resp3;
     int in_multi;
     int pre_multi_dbnum;
-    int cluster_custom_hash; /* Custom hash in custom_hash.c is used if this is set to 1. */
+    int cluster_custom_hash_enable; /* Custom hash in custom_hash.c is used if this is set to 1. */
 } config;
 
 /* User preferences. */
@@ -1539,7 +1539,7 @@ static int parseOptions(int argc, char **argv) {
             config.lru_test_mode = 1;
             config.lru_test_sample_size = strtoll(argv[++i],NULL,10);
         } else if (!strcmp(argv[i],"--custom-hash")) {
-            config.cluster_custom_hash = 1;
+            config.cluster_custom_hash_enable = 1;
         } else if (!strcmp(argv[i],"--slave")) {
             config.slave_mode = 1;
         } else if (!strcmp(argv[i],"--replica")) {
@@ -3195,7 +3195,7 @@ static sds clusterManagerNodeGetJSON(clusterManagerNode *node,
  * { and } is hashed. This may be useful in the future to force certain
  * keys to be in the same node (assuming no resharding is in progress). */
 static unsigned int clusterManagerKeyHashSlot(char *key, int keylen) {
-    if (config.cluster_custom_hash) {
+    if (config.cluster_custom_hash_enable) {
         return CustomkeyHashSlot(key,keylen);
     }
     else {
@@ -8215,7 +8215,7 @@ int main(int argc, char **argv) {
     config.lru_test_mode = 0;
     config.lru_test_sample_size = 0;
     config.cluster_mode = 0;
-    config.cluster_custom_hash = 0;
+    config.cluster_custom_hash_enable = 0;
     config.cluster_send_asking = 0;
     config.slave_mode = 0;
     config.getrdb_mode = 0;

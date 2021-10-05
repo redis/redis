@@ -1625,7 +1625,7 @@ struct redisServer {
     int cluster_allow_reads_when_down; /* Are reads allowed when the cluster
                                         is down? */
     int cluster_config_file_lock_fd;   /* cluster config fd, will be flock */
-    int cluster_custom_hash;           /* Enable using custom hash function */
+    int cluster_custom_hash_enable;    /* Enable using custom hash function */
     /* Scripting */
     lua_State *lua; /* The Lua interpreter. We use just one for all clients */
     client *lua_client;   /* The "fake client" to query Redis from Lua */
