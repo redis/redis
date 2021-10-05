@@ -205,7 +205,7 @@ start_server {tags {"protocol network"}} {
     }
     
     test "test argument rewriting - issue 9598" {
-        # INCRBYFLOAT uses argument rewriting for correct float value propogation.
+        # INCRBYFLOAT uses argument rewriting for correct float value propagation.
         # We use it to make sure argument rewriting works properly. It's important 
         # this test is run under valgrind to verify there are no memory leaks in 
         # arg buffer handling.
