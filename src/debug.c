@@ -485,7 +485,7 @@ NULL
         };
         addReplyHelp(c, help);
     } else if (!strcasecmp(c->argv[1]->ptr,"segfault")) {
-        *((char*)-1) = 'x';
+        raise(SIGSEGV);
     } else if (!strcasecmp(c->argv[1]->ptr,"panic")) {
         serverPanic("DEBUG PANIC called at Unix time %lld", (long long)time(NULL));
     } else if (!strcasecmp(c->argv[1]->ptr,"restart") ||
@@ -1856,7 +1856,9 @@ void dumpX86Calls(void *addr, size_t len) {
     for (j = 0; j < len-4; j++) {
         if (p[j] != 0xE8) continue; /* Not an E8 CALL opcode. */
         unsigned long target = (unsigned long)addr+j+5;
-        target += *((int32_t*)(p+j+1));
+        uint32_t tmp;
+        memcpy(&tmp, p+j+1, sizeof(tmp));
+        target += tmp;
         if (dladdr((void*)target, &info) != 0 && info.dli_sname != NULL) {
             if (ht[target&0xff] != target) {
                 printf("Function at 0x%lx is %s\n",target,info.dli_sname);

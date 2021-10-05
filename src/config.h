@@ -241,10 +241,6 @@ void setproctitle(const char *fmt, ...);
 #define __sparc__
 #endif
 
-#if defined(__sparc__) || defined(__arm__)
-#define USE_ALIGNED_ACCESS
-#endif
-
 /* Define for redis_set_thread_title */
 #ifdef __linux__
 #define redis_set_thread_title(name) pthread_setname_np(pthread_self(), name)

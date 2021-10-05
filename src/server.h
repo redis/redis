@@ -2704,6 +2704,7 @@ unsigned short crc16(const char *buf, int len);
 /* Sentinel */
 void initSentinelConfig(void);
 void initSentinel(void);
+void freeSentinel(void);
 void sentinelTimer(void);
 const char *sentinelHandleConfiguration(char **argv, int argc);
 void queueSentinelConfig(sds *argv, int argc, int linenum, sds line);

@@ -326,14 +326,7 @@ int checkSignedBitfieldOverflow(int64_t value, int64_t incr, uint64_t bits, int 
     int64_t max = (bits == 64) ? INT64_MAX : (((int64_t)1<<(bits-1))-1);
     int64_t min = (-max)-1;
 
-    /* Note that maxincr and minincr could overflow, but we use the values
-     * only after checking 'value' range, so when we use it no overflow
-     * happens. */
-    int64_t maxincr = max-value;
-    int64_t minincr = min-value;
-
-    if (value > max || (bits != 64 && incr > maxincr) || (value >= 0 && incr > 0 && incr > maxincr))
-    {
+    if ((value > 0 && incr > max-value) || (bits != 64 && incr > 0 && incr > max-value)) {
         if (limit) {
             if (owtype == BFOVERFLOW_WRAP) {
                 goto handle_wrap;
@@ -342,7 +335,7 @@ int checkSignedBitfieldOverflow(int64_t value, int64_t incr, uint64_t bits, int 
             }
         }
         return 1;
-    } else if (value < min || (bits != 64 && incr < minincr) || (value < 0 && incr < 0 && incr < minincr)) {
+    } else if ((value < 0 && incr < min-value) || (bits != 64 && incr < min-value)) {
         if (limit) {
             if (owtype == BFOVERFLOW_WRAP) {
                 goto handle_wrap;
@@ -669,15 +662,10 @@ void bitopCommand(client *c) {
     if (maxlen) {
         res = (unsigned char*) sdsnewlen(NULL,maxlen);
         unsigned char output, byte;
+        unsigned long srcbuf[4], dstbuf[4];
         unsigned long i;
 
-        /* Fast path: as far as we have data for all the input bitmaps we
-         * can take a fast path that performs much better than the
-         * vanilla algorithm. On ARM we skip the fast path since it will
-         * result in GCC compiling the code using multiple-words load/store
-         * operations that are not supported even in ARM >= v6. */
         j = 0;
-        #ifndef USE_ALIGNED_ACCESS
         if (minlen >= sizeof(unsigned long)*4 && numkeys <= 16) {
             unsigned long *lp[16];
             unsigned long *lres = (unsigned long*) res;
@@ -689,56 +677,66 @@ void bitopCommand(client *c) {
             /* Different branches per different operations for speed (sorry). */
             if (op == BITOP_AND) {
                 while(minlen >= sizeof(unsigned long)*4) {
+                    memcpy(dstbuf, lres, sizeof(dstbuf));
                     for (i = 1; i < numkeys; i++) {
-                        lres[0] &= lp[i][0];
-                        lres[1] &= lp[i][1];
-                        lres[2] &= lp[i][2];
-                        lres[3] &= lp[i][3];
+                        memcpy(srcbuf, lp[i], sizeof(srcbuf));
+                        dstbuf[0] &= srcbuf[0];
+                        dstbuf[1] &= srcbuf[1];
+                        dstbuf[2] &= srcbuf[2];
+                        dstbuf[3] &= srcbuf[3];
                         lp[i]+=4;
                     }
+                    memcpy(lres, dstbuf, sizeof(dstbuf));
                     lres+=4;
                     j += sizeof(unsigned long)*4;
                     minlen -= sizeof(unsigned long)*4;
                 }
             } else if (op == BITOP_OR) {
                 while(minlen >= sizeof(unsigned long)*4) {
+                    memcpy(dstbuf, lres, sizeof(dstbuf));
                     for (i = 1; i < numkeys; i++) {
-                        lres[0] |= lp[i][0];
-                        lres[1] |= lp[i][1];
-                        lres[2] |= lp[i][2];
-                        lres[3] |= lp[i][3];
+                        memcpy(srcbuf, lp[i], sizeof(srcbuf));
+                        dstbuf[0] |= srcbuf[0];
+                        dstbuf[1] |= srcbuf[1];
+                        dstbuf[2] |= srcbuf[2];
+                        dstbuf[3] |= srcbuf[3];
                         lp[i]+=4;
                     }
+                    memcpy(lres, dstbuf, sizeof(dstbuf));
                     lres+=4;
                     j += sizeof(unsigned long)*4;
                     minlen -= sizeof(unsigned long)*4;
                 }
             } else if (op == BITOP_XOR) {
                 while(minlen >= sizeof(unsigned long)*4) {
+                    memcpy(dstbuf, lres, sizeof(dstbuf));
                     for (i = 1; i < numkeys; i++) {
-                        lres[0] ^= lp[i][0];
-                        lres[1] ^= lp[i][1];
-                        lres[2] ^= lp[i][2];
-                        lres[3] ^= lp[i][3];
+                        memcpy(srcbuf, lp[i], sizeof(srcbuf));
+                        dstbuf[0] ^= srcbuf[0];
+                        dstbuf[1] ^= srcbuf[1];
+                        dstbuf[2] ^= srcbuf[2];
+                        dstbuf[3] ^= srcbuf[3];
                         lp[i]+=4;
                     }
+                    memcpy(lres, dstbuf, sizeof(dstbuf));
                     lres+=4;
                     j += sizeof(unsigned long)*4;
                     minlen -= sizeof(unsigned long)*4;
                 }
             } else if (op == BITOP_NOT) {
                 while(minlen >= sizeof(unsigned long)*4) {
-                    lres[0] = ~lres[0];
-                    lres[1] = ~lres[1];
-                    lres[2] = ~lres[2];
-                    lres[3] = ~lres[3];
+                    memcpy(dstbuf, lres, sizeof(dstbuf));
+                    dstbuf[0] = ~dstbuf[0];
+                    dstbuf[1] = ~dstbuf[1];
+                    dstbuf[2] = ~dstbuf[2];
+                    dstbuf[3] = ~dstbuf[3];
+                    memcpy(lres, dstbuf, sizeof(dstbuf));
                     lres+=4;
                     j += sizeof(unsigned long)*4;
                     minlen -= sizeof(unsigned long)*4;
                 }
             }
         }
-        #endif
 
         /* j is set to the next byte to process by the previous loop. */
         for (; j < maxlen; j++) {

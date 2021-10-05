@@ -292,12 +292,16 @@ void *rdbLoadIntegerObject(rio *rdb, int enctype, int flags, size_t *lenptr) {
     } else if (enctype == RDB_ENC_INT16) {
         uint16_t v;
         if (rioRead(rdb,enc,2) == 0) return NULL;
-        v = enc[0]|(enc[1]<<8);
+        v = ((uint32_t)enc[0])|
+            ((uint32_t)enc[1]<<8);
         val = (int16_t)v;
     } else if (enctype == RDB_ENC_INT32) {
         uint32_t v;
         if (rioRead(rdb,enc,4) == 0) return NULL;
-        v = enc[0]|(enc[1]<<8)|(enc[2]<<16)|(enc[3]<<24);
+        v = ((uint32_t)enc[0])|
+            ((uint32_t)enc[1]<<8)|
+            ((uint32_t)enc[2]<<16)|
+            ((uint32_t)enc[3]<<24);
         val = (int32_t)v;
     } else {
         rdbReportCorruptRDB("Unknown RDB integer encoding type %d",enctype);

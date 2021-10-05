@@ -403,13 +403,6 @@ uint64_t MurmurHash64A (const void * key, int len, unsigned int seed) {
     while(data != end) {
         uint64_t k;
 
-#if (BYTE_ORDER == LITTLE_ENDIAN)
-    #ifdef USE_ALIGNED_ACCESS
-        memcpy(&k,data,sizeof(uint64_t));
-    #else
-        k = *((uint64_t*)data);
-    #endif
-#else
         k = (uint64_t) data[0];
         k |= (uint64_t) data[1] << 8;
         k |= (uint64_t) data[2] << 16;
@@ -418,7 +411,6 @@ uint64_t MurmurHash64A (const void * key, int len, unsigned int seed) {
         k |= (uint64_t) data[5] << 40;
         k |= (uint64_t) data[6] << 48;
         k |= (uint64_t) data[7] << 56;
-#endif
 
         k *= m;
         k ^= k >> r;
