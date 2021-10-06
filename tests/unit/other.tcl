@@ -39,8 +39,8 @@ start_server {tags {"other"}} {
     }
 
     test {BGSAVE} {
-        waitForBgsave r
         r flushdb
+        waitForBgsave r
         r save
         r set x 10
         r bgsave
