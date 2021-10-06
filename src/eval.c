@@ -45,9 +45,6 @@ void ldbInit(void);
 void ldbDisable(client *c);
 void ldbEnable(client *c);
 void evalGenericCommandWithDebugging(client *c, int evalsha);
-void luaLdbLineHook(lua_State *lua, lua_Debug *ar);
-void ldbLog(sds entry);
-void ldbLogRedisReply(char *reply);
 sds ldbCatStackValue(sds s, lua_State *lua, int idx);
 
 /* Lua context */
@@ -377,7 +374,6 @@ void evalGenericCommand(client *c, int evalsha) {
     char funcname[43];
     long long numkeys;
     long long initial_server_dirty = server.dirty;
-    int delhook = 0, err;
 
     /* When we replicate whole scripts, we want the same PRNG sequence at
      * every call so that our PRNG is not affected by external state. */
@@ -443,22 +439,10 @@ void evalGenericCommand(client *c, int evalsha) {
         serverAssert(!lua_isnil(lua,-1));
     }
 
-    /* Populate the argv and keys table accordingly to the arguments that
-     * EVAL received. */
-    luaSetGlobalArray(lua,"KEYS",c->argv+3,numkeys);
-    luaSetGlobalArray(lua,"ARGV",c->argv+3+numkeys,c->argc-3-numkeys);
-
     lctx.lua_cur_script = funcname + 2;
 
     scriptRunCtx rctx;
     scriptPrepareForRun(&rctx, lctx.lua_client, c, lctx.lua_cur_script);
-
-    /* We must set it before we set the Lua hook, theoretically the
-     * Lua hook might be called wheneven we run any Lua instruction
-     * such as 'luaSetGlobalArray' and we want the rctx to be available
-     * each time the Lua hook is invoked. */
-    luaSaveOnRegistry(lua, REGISTRY_RUN_CTX_NAME, &rctx);
-
     if (!lctx.lua_replicate_commands) rctx.flags |= SCRIPT_EVAL_REPLICATION;
     /* This check is for EVAL_RO, EVALSHA_RO. We want to allow only read only commands */
     if ((server.script_caller->cmd->proc == evalRoCommand ||
@@ -466,53 +450,11 @@ void evalGenericCommand(client *c, int evalsha) {
         rctx.flags |= SCRIPT_READ_ONLY;
     }
 
-    if (server.script_time_limit > 0 && ldb.active == 0) {
-        lua_sethook(lua,luaMaskCountHook,LUA_MASKCOUNT,100000);
-        delhook = 1;
-    } else if (ldb.active) {
-        lua_sethook(lctx.lua,luaLdbLineHook,LUA_MASKLINE|LUA_MASKCOUNT,100000);
-        delhook = 1;
-    }
-
-    /* At this point whether this script was never seen before or if it was
-     * already defined, we can call it. We have zero arguments and expect
-     * a single return value. */
-    err = lua_pcall(lua,0,1,-2);
-
+    luaCallFunction(&rctx, lua, c->argv+3, numkeys, c->argv+3+numkeys, c->argc-3-numkeys, ldb.active);
+    lua_pop(lua,1); /* Remove the error handler. */
     scriptResetRun(&rctx);
 
-    /* Perform some cleanup that we need to do both on error and success. */
-    if (delhook) lua_sethook(lua,NULL,0,0); /* Disable hook */
     lctx.lua_cur_script = NULL;
-    luaSaveOnRegistry(lua, REGISTRY_RUN_CTX_NAME, NULL);
-
-    /* Call the Lua garbage collector from time to time to avoid a
-     * full cycle performed by Lua, which adds too latency.
-     *
-     * The call is performed every LUA_GC_CYCLE_PERIOD executed commands
-     * (and for LUA_GC_CYCLE_PERIOD collection steps) because calling it
-     * for every command uses too much CPU. */
-    #define LUA_GC_CYCLE_PERIOD 50
-    {
-        static long gc_count = 0;
-
-        gc_count++;
-        if (gc_count == LUA_GC_CYCLE_PERIOD) {
-            lua_gc(lua,LUA_GCSTEP,LUA_GC_CYCLE_PERIOD);
-            gc_count = 0;
-        }
-    }
-
-    if (err) {
-        addReplyErrorFormat(c,"Error running script (call to %s): %s\n",
-            funcname, lua_tostring(lua,-1));
-        lua_pop(lua,2); /* Consume the Lua reply and remove error handler. */
-    } else {
-        /* On success convert the Lua return value into Redis protocol, and
-         * send it to * the client. */
-        luaReplyToRedisReply(c,rctx.c,lua); /* Convert and consume the reply. */
-        lua_pop(lua,1); /* Remove the error handler. */
-    }
 
     /* EVALSHA should be propagated to Slave and AOF file as full EVAL, unless
      * we are sure that the script was already in the context of all the

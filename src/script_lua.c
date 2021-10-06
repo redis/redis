@@ -57,6 +57,7 @@ static void redisProtocolToLuaType_Double(void *ctx, double d, const char *proto
 static void redisProtocolToLuaType_BigNumber(void *ctx, const char *str, size_t len, const char *proto, size_t proto_len);
 static void redisProtocolToLuaType_VerbatimString(void *ctx, const char *format, const char *str, size_t len, const char *proto, size_t proto_len);
 static void redisProtocolToLuaType_Attribute(struct ReplyParser *parser, void *ctx, size_t len, const char *proto);
+static void luaReplyToRedisReply(client *c, client* script_client, lua_State *lua);
 
 /*
  * Save the give pointer on Lua registry, used to save the Lua context and
@@ -497,7 +498,7 @@ static void luaSortArray(lua_State *lua) {
 
 /* Reply to client 'c' converting the top element in the Lua stack to a
  * Redis reply. As a side effect the element is consumed from the stack.  */
-void luaReplyToRedisReply(client *c, client* script_client, lua_State *lua) {
+static void luaReplyToRedisReply(client *c, client* script_client, lua_State *lua) {
     int t = lua_type(lua,-1);
 
     if (!lua_checkstack(lua, 4)) {
@@ -1201,7 +1202,7 @@ void luaRegisterRedisAPI(lua_State* lua) {
 
 /* Set an array of Redis String Objects as a Lua array (table) stored into a
  * global variable. */
-void luaSetGlobalArray(lua_State *lua, char *var, robj **elev, int elec) {
+static void luaSetGlobalArray(lua_State *lua, char *var, robj **elev, int elec) {
     int j;
 
     lua_newtable(lua);
@@ -1256,7 +1257,7 @@ static int redis_math_randomseed (lua_State *L) {
 }
 
 /* This is the Lua script "count" hook that we use to detect scripts timeout. */
-void luaMaskCountHook(lua_State *lua, lua_Debug *ar) {
+static void luaMaskCountHook(lua_State *lua, lua_Debug *ar) {
     UNUSED(ar);
     scriptRunCtx* rctx = luaGetFromRegistry(lua, REGISTRY_RUN_CTX_NAME);
     if (scriptInterrupt(rctx) == SCRIPT_KILL) {
@@ -1272,4 +1273,66 @@ void luaMaskCountHook(lua_State *lua, lua_Debug *ar) {
         lua_pushstring(lua,"Script killed by user with SCRIPT KILL...");
         lua_error(lua);
     }
+}
+
+void luaCallFunction(scriptRunCtx* run_ctx, lua_State *lua, robj** keys, size_t nkeys, robj** args, size_t nargs, int debug_enabled) {
+    client* c = run_ctx->original_client;
+    int delhook = 0;
+
+    /* We must set it before we set the Lua hook, theoretically the
+     * Lua hook might be called wheneven we run any Lua instruction
+     * such as 'luaSetGlobalArray' and we want the run_ctx to be available
+     * each time the Lua hook is invoked. */
+    luaSaveOnRegistry(lua, REGISTRY_RUN_CTX_NAME, run_ctx);
+
+    if (server.script_time_limit > 0 && !debug_enabled) {
+        lua_sethook(lua,luaMaskCountHook,LUA_MASKCOUNT,100000);
+        delhook = 1;
+    } else if (debug_enabled) {
+        lua_sethook(lua,luaLdbLineHook,LUA_MASKLINE|LUA_MASKCOUNT,100000);
+        delhook = 1;
+    }
+
+    /* Populate the argv and keys table accordingly to the arguments that
+     * EVAL received. */
+    luaSetGlobalArray(lua,"KEYS",keys,nkeys);
+    luaSetGlobalArray(lua,"ARGV",args,nargs);
+
+    /* At this point whether this script was never seen before or if it was
+     * already defined, we can call it. We have zero arguments and expect
+     * a single return value. */
+    int err = lua_pcall(lua,0,1,-2);
+
+    /* Call the Lua garbage collector from time to time to avoid a
+     * full cycle performed by Lua, which adds too latency.
+     *
+     * The call is performed every LUA_GC_CYCLE_PERIOD executed commands
+     * (and for LUA_GC_CYCLE_PERIOD collection steps) because calling it
+     * for every command uses too much CPU. */
+    #define LUA_GC_CYCLE_PERIOD 50
+    {
+        static long gc_count = 0;
+
+        gc_count++;
+        if (gc_count == LUA_GC_CYCLE_PERIOD) {
+            lua_gc(lua,LUA_GCSTEP,LUA_GC_CYCLE_PERIOD);
+            gc_count = 0;
+        }
+    }
+
+    if (err) {
+        addReplyErrorFormat(c,"Error running script (call to %s): %s\n",
+                run_ctx->funcname, lua_tostring(lua,-1));
+        lua_pop(lua,1); /* Consume the Lua reply and remove error handler. */
+    } else {
+        /* On success convert the Lua return value into Redis protocol, and
+         * send it to * the client. */
+        luaReplyToRedisReply(c, run_ctx->c, lua); /* Convert and consume the reply. */
+    }
+
+    /* Perform some cleanup that we need to do both on error and success. */
+    if (delhook) lua_sethook(lua,NULL,0,0); /* Disable hook */
+
+    /* remove run_ctx from registry, its only applicable for the current script. */
+    luaSaveOnRegistry(lua, REGISTRY_RUN_CTX_NAME, NULL);
 }

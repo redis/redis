@@ -2706,6 +2706,7 @@ int ldbRemoveChild(pid_t pid);
 void ldbKillForkedSessions(void);
 int ldbPendingChildren(void);
 sds luaCreateFunction(client *c, robj *body);
+void luaLdbLineHook(lua_State *lua, lua_Debug *ar);
 void freeLuaScriptsAsync(dict *lua_scripts);
 int ldbIsEnabled();
 void ldbLog(sds entry);

@@ -58,12 +58,9 @@
 
 void luaRegisterRedisAPI(lua_State* lua);
 void luaEnableGlobalsProtection(lua_State *lua);
-void luaSetGlobalArray(lua_State *lua, char *var, robj **elev, int elec);
-void luaMaskCountHook(lua_State *lua, lua_Debug *ar);
-void luaReplyToRedisReply(client *c, client* script_client, lua_State *lua);
 void luaSaveOnRegistry(lua_State* lua, const char* name, void* ptr);
 void* luaGetFromRegistry(lua_State* lua, const char* name);
-
+void luaCallFunction(scriptRunCtx* r_ctx, lua_State *lua, robj** keys, size_t nkeys, robj** args, size_t nargs, int debug_enabled);
 
 
 #endif /* __SCRIPT_LUA_H_ */
