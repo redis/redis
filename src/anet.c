@@ -621,7 +621,9 @@ int anetFormatFdAddr(int fd, char *buf, size_t buf_len, int fd_to_str_type) {
     return anetFormatAddr(buf, buf_len, ip, port);
 }
 
-/* Create a pipe buffer with given flags for read end and write end. */
+/* Create a pipe buffer with given flags for read end and write end.
+ * Note that it supports the file flags defined by pipe2() and fcntl(F_SETFL),
+ * and one of the use cases is O_CLOEXEC|O_NONBLOCK. */
 int anetPipe(int fds[2], int read_flags, int write_flags) {
     int pipe_flags = 0;
 #if defined(__linux__) || defined(__FreeBSD__)
