@@ -644,17 +644,17 @@ int anetPipe(int fds[2], int read_flags, int write_flags) {
 #endif
 
     /* When we reach here with pipe_flags of 0, it means pipe2 failed (or was not attempted),
-     * so we try to use pipe. Otherwise we skip and proceed to set specific flags below. */
+     * so we try to use pipe. Otherwise, we skip and proceed to set specific flags below. */
     if (pipe_flags == 0 && pipe(fds))
         return -1;
 
     /* File descriptor flags.
-     * Currently, only one such flag is supported: FD_CLOEXEC, the close-on-exec flag. */
+     * Currently, only one such flag is defined: FD_CLOEXEC, the close-on-exec flag. */
     if (read_flags & O_CLOEXEC)
-        if (fcntl(fds[0], F_SETFD, O_CLOEXEC))
+        if (fcntl(fds[0], F_SETFD, FD_CLOEXEC))
             goto error;
     if (write_flags & O_CLOEXEC)
-        if (fcntl(fds[1], F_SETFD, O_CLOEXEC))
+        if (fcntl(fds[1], F_SETFD, FD_CLOEXEC))
             goto error;
 
     /* File status flags after clearing the file descriptor flag O_CLOEXEC. */
