@@ -625,14 +625,16 @@ int anetFormatFdAddr(int fd, char *buf, size_t buf_len, int fd_to_str_type) {
 int anetPipe(int fds[2], int read_flags, int write_flags) {
     int pipe_flags = 0;
 #if defined(__linux__) || defined(__FreeBSD__)
-    /* When it leverages the pipe2() to create pipe,
-     * there is no harm to set O_CLOEXEC to prevent fd leaks. */
+    /* When possible, try to leverage pipe2() to apply flags that are common to both ends.
+     * There is no harm to set O_CLOEXEC to prevent fd leaks. */
     pipe_flags = O_CLOEXEC | (read_flags & write_flags);
     if (pipe2(fds, pipe_flags)) {
+        /* Fail on real failures, and fallback to simple pipe if pipe2 is unsupported. */
         if (errno != ENOSYS && errno != EINVAL)
             return -1;
         pipe_flags = 0;
     } else {
+        /* If the flags on both ends are identical, no need to do anything else. */
         if ((O_CLOEXEC | read_flags) == (O_CLOEXEC | write_flags))
             return 0;
         /* Clear the flags which have already been set using pipe2. */
@@ -641,11 +643,13 @@ int anetPipe(int fds[2], int read_flags, int write_flags) {
     }
 #endif
 
+    /* When we reach here with pipe_flags of 0, it means pipe2 failed (or was not attempted),
+     * so we try to use pipe. Otherwise we skip and proceed to set specific flags below. */
     if (pipe_flags == 0 && pipe(fds))
         return -1;
 
     /* File descriptor flags.
-     * Currently, only one such flag is defined: FD_CLOEXEC, the close-on-exec flag. */
+     * Currently, only one such flag is supported: FD_CLOEXEC, the close-on-exec flag. */
     if (read_flags & O_CLOEXEC)
         if (fcntl(fds[0], F_SETFD, O_CLOEXEC))
             goto error;

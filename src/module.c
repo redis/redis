@@ -9208,7 +9208,8 @@ void moduleInitModulesSystem(void) {
 
     moduleRegisterCoreAPI();
 
-    /* Make the pipe non blocking. This is just a best effort aware mechanism
+    /* Create a pipe for module threads to be able to wake up the redis main thread.
+     * Make the pipe non blocking. This is just a best effort aware mechanism
      * and we do not want to block not in the read nor in the write half.
      * Enable close-on-exec flag on pipes in case of the fork-exec system calls in
      * sentinels or redis servers. */
