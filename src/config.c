@@ -201,6 +201,7 @@ typedef enum numericType {
 #define INTEGER_CONFIG 0 /* No flags means a simple integer configuration */
 #define MEMORY_CONFIG (1<<0) /* Indicates if this value can be loaded as a memory value */
 #define PERCENT_CONFIG (1<<1) /* Indicates if this value can be loaded as a percent (and stored as a negative int) */
+#define OCTAL_CONFIG (1<<2) /* This value uses octal representation */
 
 typedef struct numericConfigData {
     union {
@@ -525,12 +526,6 @@ void loadServerConfigFromString(char *config) {
             for (j = 0; j < addresses; j++)
                 server.bindaddr[j] = zstrdup(argv[j+1]);
             server.bindaddr_count = addresses;
-        } else if (!strcasecmp(argv[0],"unixsocketperm") && argc == 2) {
-            errno = 0;
-            server.unixsocketperm = (mode_t)strtol(argv[1], NULL, 8);
-            if (errno || server.unixsocketperm > 0777) {
-                err = "Invalid socket file permissions"; goto loaderr;
-            }
         } else if (!strcasecmp(argv[0],"save")) {
             /* We don't reset save params before loading, because if they're not part
              * of the file the defaults should be used.
@@ -1034,13 +1029,6 @@ void configGetCommand(client *c) {
         sdsfree(buf);
         matches++;
     }
-    if (stringmatch(pattern,"unixsocketperm",1)) {
-        char buf[32];
-        snprintf(buf,sizeof(buf),"%lo",(unsigned long) server.unixsocketperm);
-        addReplyBulkCString(c,"unixsocketperm");
-        addReplyBulkCString(c,buf);
-        matches++;
-    }
     for (int i = 0; i < 2; i++) {
         char *optname = i == 0 ? "replicaof" : "slaveof";
         if (!stringmatch(pattern, optname, 1)) continue;
@@ -1412,9 +1400,9 @@ void rewriteConfigNumericalOption(struct rewriteConfigState *state, const char *
 }
 
 /* Rewrite an octal option. */
-void rewriteConfigOctalOption(struct rewriteConfigState *state, char *option, int value, int defvalue) {
+void rewriteConfigOctalOption(struct rewriteConfigState *state, const char *option, long long value, long long defvalue) {
     int force = value != defvalue;
-    sds line = sdscatprintf(sdsempty(),"%s %o",option,value);
+    sds line = sdscatprintf(sdsempty(),"%s %llo",option,value);
 
     rewriteConfigRewriteLine(state,option,line,force);
 }
@@ -1799,7 +1787,6 @@ int rewriteConfig(char *path, int force_write) {
     }
 
     rewriteConfigBindOption(state);
-    rewriteConfigOctalOption(state,"unixsocketperm",server.unixsocketperm,CONFIG_DEFAULT_UNIX_SOCKET_PERM);
     rewriteConfigSaveOption(state);
     rewriteConfigUserOption(state);
     rewriteConfigDirOption(state);
@@ -2104,10 +2091,17 @@ static int numericBoundaryCheck(typeData data, long long ll, const char **err) {
         unsigned long long upper_bound = data.numeric.upper_bound;
         unsigned long long lower_bound = data.numeric.lower_bound;
         if (ull > upper_bound || ull < lower_bound) {
-            snprintf(loadbuf, LOADBUF_SIZE,
-                "argument must be between %llu and %llu inclusive",
-                lower_bound,
-                upper_bound);
+            if (data.numeric.flags & OCTAL_CONFIG) {
+                snprintf(loadbuf, LOADBUF_SIZE,
+                    "argument must be between %llo and %llo inclusive",
+                    lower_bound,
+                    upper_bound);
+            } else {
+                snprintf(loadbuf, LOADBUF_SIZE,
+                    "argument must be between %llu and %llu inclusive",
+                    lower_bound,
+                    upper_bound);
+            }
             *err = loadbuf;
             return 0;
         }
@@ -2154,6 +2148,15 @@ static int numericParseString(typeData data, sds value, const char **err, long l
             return 1;
     }
 
+    /* Attempt to parse as an octal number */
+    if (data.numeric.flags & OCTAL_CONFIG) {
+        char *endptr;
+        errno = 0;
+        *res = strtoll(value, &endptr, 8);
+        if (errno == 0 && *endptr == '\0')
+            return 1; /* No overflow or invalid characters */
+    }
+
     /* Attempt a simple number (no special flags set) */
     if (!data.numeric.flags && string2ll(value, sdslen(value), res))
         return 1;
@@ -2164,6 +2167,8 @@ static int numericParseString(typeData data, sds value, const char **err, long l
         *err = "argument must be a memory or percent value" ;
     else if (data.numeric.flags & MEMORY_CONFIG)
         *err = "argument must be a memory value";
+    else if (data.numeric.flags & OCTAL_CONFIG)
+        *err = "argument couldn't be parsed as an octal number";
     else
         *err = "argument couldn't be parsed into an integer";
     return 0;
@@ -2204,6 +2209,8 @@ static void numericConfigGet(client *c, typeData data) {
     }
     else if (data.numeric.flags & MEMORY_CONFIG) {
         ull2string(buf, sizeof(buf), value);
+    } else if (data.numeric.flags & OCTAL_CONFIG) {
+        snprintf(buf, sizeof(buf), "%llo", value);
     } else {
         ll2string(buf, sizeof(buf), value);
     }
@@ -2219,6 +2226,8 @@ static void numericConfigRewrite(typeData data, const char *name, struct rewrite
         rewriteConfigPercentOption(state, name, -value, data.numeric.default_value);
     } else if (data.numeric.flags & MEMORY_CONFIG) {
         rewriteConfigBytesOption(state, name, value, data.numeric.default_value);
+    } else if (data.numeric.flags & OCTAL_CONFIG) {
+        rewriteConfigOctalOption(state, name, value, data.numeric.default_value);
     } else {
         rewriteConfigNumericalOption(state, name, value, data.numeric.default_value);
     }
@@ -2660,6 +2669,7 @@ standardConfig configs[] = {
 
     /* Unsigned int configs */
     createUIntConfig("maxclients", NULL, MODIFIABLE_CONFIG, 1, UINT_MAX, server.maxclients, 10000, INTEGER_CONFIG, NULL, updateMaxclients),
+    createUIntConfig("unixsocketperm", NULL, IMMUTABLE_CONFIG, 0, 0777, server.unixsocketperm, 0, OCTAL_CONFIG, NULL, NULL),
 
     /* Unsigned Long configs */
     createULongConfig("active-defrag-max-scan-fields", NULL, MODIFIABLE_CONFIG, 1, LONG_MAX, server.active_defrag_max_scan_fields, 1000, INTEGER_CONFIG, NULL, NULL), /* Default: keys with more than 1000 fields will be processed separately */
