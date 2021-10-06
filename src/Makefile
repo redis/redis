@@ -87,15 +87,15 @@ endif
 
 ifdef SANITIZER
 ifeq ($(SANITIZER),address)
-	CFLAGS+=-fsanitize=address -fno-sanitize-recover=all
+	CFLAGS+=-fsanitize=address -fno-sanitize-recover=all -fno-omit-frame-pointer
 	LDFLAGS+=-fsanitize=address
 else
 ifeq ($(SANITIZER),undefined)
-	CFLAGS+=-fsanitize=undefined -fno-sanitize-recover=all
+	CFLAGS+=-fsanitize=undefined -fno-sanitize-recover=all -fno-omit-frame-pointer
 	LDFLAGS+=-fsanitize=undefined
 else
 ifeq ($(SANITIZER),thread)
-	CFLAGS+=-fsanitize=thread -fno-sanitize-recover=all
+	CFLAGS+=-fsanitize=thread -fno-sanitize-recover=all -fno-omit-frame-pointer
 	LDFLAGS+=-fsanitize=thread
 else
     $(error "unknown sanitizer=${SANITIZER}")
