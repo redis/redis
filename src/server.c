@@ -6268,7 +6268,7 @@ int linuxMadvFreeForkBugCheck(void) {
     *(volatile char*)q = 0;
 
     /* Create a pipe for the child to return the info to the parent. */
-    ret = pipe(pipefd);
+    ret = anetPipe(pipefd, 0, 0);
     if (ret < 0) {
         serverLog(LL_WARNING, "Failed to create pipe: %s", strerror(errno));
         bug_found = -1;

@@ -1644,12 +1644,9 @@ int aofCreatePipes(void) {
     int fds[6] = {-1, -1, -1, -1, -1, -1};
     int j;
 
-    if (pipe(fds) == -1) goto error; /* parent -> children data. */
-    if (pipe(fds+2) == -1) goto error; /* children -> parent ack. */
-    if (pipe(fds+4) == -1) goto error; /* parent -> children ack. */
-    /* Parent -> children data is non blocking. */
-    if (anetNonBlock(NULL,fds[0]) != ANET_OK) goto error;
-    if (anetNonBlock(NULL,fds[1]) != ANET_OK) goto error;
+    if (anetPipe(fds, O_NONBLOCK, O_NONBLOCK) == -1) goto error; /* parent -> children data, non blocking pipe */
+    if (anetPipe(fds+2, 0, 0) == -1) goto error; /* children -> parent ack. */
+    if (anetPipe(fds+4, 0, 0) == -1) goto error; /* parent -> children ack. */
     if (aeCreateFileEvent(server.el, fds[2], AE_READABLE, aofChildPipeReadable, NULL) == AE_ERR) goto error;
 
     server.aof_pipe_write_data_to_child = fds[1];

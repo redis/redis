@@ -620,3 +620,59 @@ int anetFormatFdAddr(int fd, char *buf, size_t buf_len, int fd_to_str_type) {
     anetFdToString(fd,ip,sizeof(ip),&port,fd_to_str_type);
     return anetFormatAddr(buf, buf_len, ip, port);
 }
+
+/* Create a pipe buffer with given flags for read end and write end.
+ * Note that it supports the file flags defined by pipe2() and fcntl(F_SETFL),
+ * and one of the use cases is O_CLOEXEC|O_NONBLOCK. */
+int anetPipe(int fds[2], int read_flags, int write_flags) {
+    int pipe_flags = 0;
+#if defined(__linux__) || defined(__FreeBSD__)
+    /* When possible, try to leverage pipe2() to apply flags that are common to both ends.
+     * There is no harm to set O_CLOEXEC to prevent fd leaks. */
+    pipe_flags = O_CLOEXEC | (read_flags & write_flags);
+    if (pipe2(fds, pipe_flags)) {
+        /* Fail on real failures, and fallback to simple pipe if pipe2 is unsupported. */
+        if (errno != ENOSYS && errno != EINVAL)
+            return -1;
+        pipe_flags = 0;
+    } else {
+        /* If the flags on both ends are identical, no need to do anything else. */
+        if ((O_CLOEXEC | read_flags) == (O_CLOEXEC | write_flags))
+            return 0;
+        /* Clear the flags which have already been set using pipe2. */
+        read_flags &= ~pipe_flags;
+        write_flags &= ~pipe_flags;
+    }
+#endif
+
+    /* When we reach here with pipe_flags of 0, it means pipe2 failed (or was not attempted),
+     * so we try to use pipe. Otherwise, we skip and proceed to set specific flags below. */
+    if (pipe_flags == 0 && pipe(fds))
+        return -1;
+
+    /* File descriptor flags.
+     * Currently, only one such flag is defined: FD_CLOEXEC, the close-on-exec flag. */
+    if (read_flags & O_CLOEXEC)
+        if (fcntl(fds[0], F_SETFD, FD_CLOEXEC))
+            goto error;
+    if (write_flags & O_CLOEXEC)
+        if (fcntl(fds[1], F_SETFD, FD_CLOEXEC))
+            goto error;
+
+    /* File status flags after clearing the file descriptor flag O_CLOEXEC. */
+    read_flags &= ~O_CLOEXEC;
+    if (read_flags)
+        if (fcntl(fds[0], F_SETFL, read_flags))
+            goto error;
+    write_flags &= ~O_CLOEXEC;
+    if (write_flags)
+        if (fcntl(fds[1], F_SETFL, write_flags))
+            goto error;
+
+    return 0;
+
+error:
+    close(fds[0]);
+    close(fds[1]);
+    return -1;
+}
