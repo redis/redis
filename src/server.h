@@ -1518,7 +1518,7 @@ struct redisServer {
     long long master_repl_offset;   /* My current replication offset */
     long long second_replid_offset; /* Accept offsets up to this for replid2. */
     int slaveseldb;                 /* Last SELECTed DB in replication output */
-    int repl_ping_slave_period;     /* Master pings the slave every N seconds */
+    int repl_ping_replica_period;   /* Master pings the replica every N seconds */
     char *repl_backlog;             /* Replication backlog for partial syncs */
     long long repl_backlog_size;    /* Backlog circular buffer size */
     long long cfg_repl_backlog_size;/* Backlog circular buffer size in config */
@@ -1531,8 +1531,8 @@ struct redisServer {
                                        gets released. */
     time_t repl_no_slaves_since;    /* We have no slaves since that time.
                                        Only valid if server.slaves len is 0. */
-    int repl_min_slaves_to_write;   /* Min number of slaves to write. */
-    int repl_min_slaves_max_lag;    /* Max lag of <count> slaves to write. */
+    int min_replicas_to_write;      /* Min number of replicas to write. */
+    int min_replicas_max_lag;       /* Max lag of <count> replicas to write. */
     int repl_good_slaves_count;     /* Number of slaves with lag <= max_lag. */
     int repl_diskless_sync;         /* Master send RDB to slaves sockets directly. */
     int repl_diskless_load;         /* Slave parse RDB directly from the socket.
@@ -1555,21 +1555,21 @@ struct redisServer {
     int repl_transfer_fd;    /* Slave -> Master SYNC temp file descriptor */
     char *repl_transfer_tmpfile; /* Slave-> master SYNC temp file name */
     time_t repl_transfer_lastio; /* Unix time of the latest read, for timeout */
-    int repl_serve_stale_data; /* Serve stale data when link is down? */
-    int repl_slave_ro;          /* Slave is read only? */
-    int repl_slave_ignore_maxmemory;    /* If true slaves do not evict. */
+    int replica_serve_stale_data; /* Serve stale data when link is down? */
+    int replica_read_only;          /* Replica is read only? */
+    int replica_ignore_maxmemory;    /* If true replicas do not evict. */
     time_t repl_down_since; /* Unix time at which link with master went down */
     int repl_disable_tcp_nodelay;   /* Disable TCP_NODELAY after SYNC? */
-    int slave_priority;             /* Reported in INFO and used by Sentinel. */
+    int replica_priority;           /* Reported in INFO and used by Sentinel. */
     int replica_announced;          /* If true, replica is announced by Sentinel */
-    int slave_announce_port;        /* Give the master this listening port. */
-    char *slave_announce_ip;        /* Give the master this ip address. */
+    int replica_announce_port;        /* Give the master this listening port. */
+    char *replica_announce_ip;        /* Give the master this ip address. */
     /* The following two fields is where we store master PSYNC replid/offset
      * while the PSYNC is in progress. At the end we'll copy the fields into
      * the server->master client structure. */
     char master_replid[CONFIG_RUN_ID_SIZE+1];  /* Master PSYNC runid. */
     long long master_initial_offset;           /* Master PSYNC offset. */
-    int repl_slave_lazy_flush;          /* Lazy FLUSHALL before loading DB? */
+    int replica_lazy_flush;          /* Lazy FLUSHALL before loading DB? */
     /* Replication script cache. */
     dict *repl_scriptcache_dict;        /* SHA1 all slaves are aware of. */
     list *repl_scriptcache_fifo;        /* First in, first out LRU eviction. */
@@ -1638,10 +1638,10 @@ struct redisServer {
     struct clusterState *cluster;  /* State of the cluster */
     int cluster_migration_barrier; /* Cluster replicas migration barrier. */
     int cluster_allow_replica_migration; /* Automatic replica migrations to orphaned masters and from empty masters */
-    int cluster_slave_validity_factor; /* Slave max data age for failover. */
+    int cluster_replica_validity_factor; /* Replica max data age for failover. */
     int cluster_require_full_coverage; /* If true, put the cluster down if
                                           there is at least an uncovered slot.*/
-    int cluster_slave_no_failover;  /* Prevent slave from starting a failover
+    int cluster_replica_no_failover;  /* Prevent replica from starting a failover
                                        if the master is in failure state. */
     char *cluster_announce_ip;  /* IP address to announce on cluster bus. */
     int cluster_announce_port;     /* base port to announce on cluster bus. */

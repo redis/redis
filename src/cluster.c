@@ -508,7 +508,7 @@ void deriveAnnouncedPorts(int *announced_port, int *announced_pport,
  * set of flags in myself->flags accordingly. */
 void clusterUpdateMyselfFlags(void) {
     int oldflags = myself->flags;
-    int nofailover = server.cluster_slave_no_failover ?
+    int nofailover = server.cluster_replica_no_failover ?
                      CLUSTER_NODE_NOFAILOVER : 0;
     myself->flags &= ~CLUSTER_NODE_NOFAILOVER;
     myself->flags |= nofailover;
@@ -3198,7 +3198,7 @@ void clusterHandleSlaveFailover(void) {
 
     /* Pre conditions to run the function, that must be met both in case
      * of an automatic or manual failover:
-     * 1) We are a slave.
+     * 1) We are a replica.
      * 2) Our master is flagged as FAIL, or this is a manual failover.
      * 3) We don't have the no failover configuration set, and this is
      *    not a manual failover.
@@ -3206,7 +3206,7 @@ void clusterHandleSlaveFailover(void) {
     if (nodeIsMaster(myself) ||
         myself->slaveof == NULL ||
         (!nodeFailed(myself->slaveof) && !manual_failover) ||
-        (server.cluster_slave_no_failover && !manual_failover) ||
+        (server.cluster_replica_no_failover && !manual_failover) ||
         myself->slaveof->numslots == 0)
     {
         /* There are no reasons to failover, so we set the reason why we
@@ -3230,14 +3230,14 @@ void clusterHandleSlaveFailover(void) {
     if (data_age > server.cluster_node_timeout)
         data_age -= server.cluster_node_timeout;
 
-    /* Check if our data is recent enough according to the slave validity
+    /* Check if our data is recent enough according to the replica validity
      * factor configured by the user.
      *
      * Check bypassed for manual failovers. */
-    if (server.cluster_slave_validity_factor &&
+    if (server.cluster_replica_validity_factor &&
         data_age >
-        (((mstime_t)server.repl_ping_slave_period * 1000) +
-         (server.cluster_node_timeout * server.cluster_slave_validity_factor)))
+        (((mstime_t)server.repl_ping_replica_period * 1000) +
+         (server.cluster_node_timeout * server.cluster_replica_validity_factor)))
     {
         if (!manual_failover) {
             clusterLogCantFailover(CLUSTER_CANT_FAILOVER_DATA_AGE);

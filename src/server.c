@@ -4791,21 +4791,21 @@ int processCommand(client *c) {
         return C_OK;
     }
 
-    /* Don't accept write commands if there are not enough good slaves and
-     * user configured the min-slaves-to-write option. */
+    /* Don't accept write commands if there are not enough good replicas and
+     * user configured the min-replicas-to-write option. */
     if (server.masterhost == NULL &&
-        server.repl_min_slaves_to_write &&
-        server.repl_min_slaves_max_lag &&
+        server.min_replicas_to_write &&
+        server.min_replicas_max_lag &&
         is_write_command &&
-        server.repl_good_slaves_count < server.repl_min_slaves_to_write)
+        server.repl_good_slaves_count < server.min_replicas_to_write)
     {
         rejectCommand(c, shared.noreplicaserr);
         return C_OK;
     }
 
-    /* Don't accept write commands if this is a read only slave. But
+    /* Don't accept write commands if this is a read only replica. But
      * accept write commands if this is our master. */
-    if (server.masterhost && server.repl_slave_ro &&
+    if (server.masterhost && server.replica_read_only &&
         !(c->flags & CLIENT_MASTER) &&
         is_write_command)
     {
@@ -4830,10 +4830,10 @@ int processCommand(client *c) {
     }
 
     /* Only allow commands with flag "t", such as INFO, SLAVEOF and so on,
-     * when slave-serve-stale-data is no and we are a slave with a broken
+     * when replica_serve_stale_data is no and we are a replica with a broken
      * link with master. */
     if (server.masterhost && server.repl_state != REPL_STATE_CONNECTED &&
-        server.repl_serve_stale_data == 0 &&
+        server.replica_serve_stale_data == 0 &&
         is_denystale_command)
     {
         rejectCommand(c, shared.masterdownerr);
@@ -5932,11 +5932,11 @@ sds genRedisInfoString(const char *section) {
                     (intmax_t)(server.unixtime-server.repl_down_since) : -1);
             }
             info = sdscatprintf(info,
-                "slave_priority:%d\r\n"
-                "slave_read_only:%d\r\n"
+                "replica_priority:%d\r\n"
+                "replica_read_only:%d\r\n"
                 "replica_announced:%d\r\n",
-                server.slave_priority,
-                server.repl_slave_ro,
+                server.replica_priority,
+                server.replica_read_only,
                 server.replica_announced);
         }
 
@@ -5944,10 +5944,10 @@ sds genRedisInfoString(const char *section) {
             "connected_slaves:%lu\r\n",
             listLength(server.slaves));
 
-        /* If min-slaves-to-write is active, write the number of slaves
+        /* If min-replicas-to-write is active, write the number of replicas
          * currently considered 'good'. */
-        if (server.repl_min_slaves_to_write &&
-            server.repl_min_slaves_max_lag) {
+        if (server.min_replicas_to_write &&
+            server.min_replicas_max_lag) {
             info = sdscatprintf(info,
                 "min_slaves_good_slaves:%d\r\n",
                 server.repl_good_slaves_count);

@@ -872,7 +872,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
         goto cleanup;
     }
 
-    /* Write commands are forbidden against read-only slaves, or if a
+    /* Write commands are forbidden against read-only replicas, or if a
      * command marked as non-deterministic was already called in the context
      * of this script. */
     if (cmd->flags & CMD_WRITE) {
@@ -881,7 +881,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
             luaPushError(lua,
                 "Write commands not allowed after non deterministic commands. Call redis.replicate_commands() at the start of your script in order to switch to single commands replication mode.");
             goto cleanup;
-        } else if (server.masterhost && server.repl_slave_ro &&
+        } else if (server.masterhost && server.replica_read_only &&
                    !server.loading &&
                    !(server.lua_caller->flags & CLIENT_MASTER))
         {

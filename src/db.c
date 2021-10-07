@@ -1409,7 +1409,7 @@ void setExpire(client *c, redisDb *db, robj *key, long long when) {
     de = dictAddOrFind(db->expires,dictGetKey(kde));
     dictSetSignedIntegerVal(de,when);
 
-    int writable_slave = server.masterhost && server.repl_slave_ro == 0;
+    int writable_slave = server.masterhost && server.replica_read_only == 0;
     if (c && writable_slave && !(c->flags & CLIENT_MASTER))
         rememberSlaveKeyWithExpire(db,key);
 }

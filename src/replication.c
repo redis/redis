@@ -1549,7 +1549,7 @@ void readSyncBulkPayload(connection *conn) {
     ssize_t nread, readlen, nwritten;
     int use_diskless_load = useDisklessLoad();
     dbBackup *diskless_load_backup = NULL;
-    int empty_db_flags = server.repl_slave_lazy_flush ? EMPTYDB_ASYNC :
+    int empty_db_flags = server.replica_lazy_flush ? EMPTYDB_ASYNC :
                                                         EMPTYDB_NO_FLAGS;
     off_t left;
 
@@ -2316,12 +2316,12 @@ void syncWithMaster(connection *conn) {
             if (err) goto write_error;
         }
 
-        /* Set the slave port, so that Master's INFO command can list the
-         * slave listening port correctly. */
+        /* Set the replica port, so that Master's INFO command can list the
+         * replica listening port correctly. */
         {
             int port;
-            if (server.slave_announce_port)
-                port = server.slave_announce_port;
+            if (server.replica_announce_port)
+                port = server.replica_announce_port;
             else if (server.tls_replication && server.tls_port)
                 port = server.tls_port;
             else
@@ -2333,12 +2333,12 @@ void syncWithMaster(connection *conn) {
             if (err) goto write_error;
         }
 
-        /* Set the slave ip, so that Master's INFO command can list the
-         * slave IP address port correctly in case of port forwarding or NAT.
-         * Skip REPLCONF ip-address if there is no slave-announce-ip option set. */
-        if (server.slave_announce_ip) {
+        /* Set the replica ip, so that Master's INFO command can list the
+         * replica IP address port correctly in case of port forwarding or NAT.
+         * Skip REPLCONF ip-address if there is no replica-announce-ip option set. */
+        if (server.replica_announce_ip) {
             err = sendCommand(conn,"REPLCONF",
-                    "ip-address",server.slave_announce_ip, NULL);
+                    "ip-address",server.replica_announce_ip, NULL);
             if (err) goto write_error;
         }
 
@@ -2387,7 +2387,7 @@ void syncWithMaster(connection *conn) {
         return;
     }
 
-    if (server.repl_state == REPL_STATE_RECEIVE_IP_REPLY && !server.slave_announce_ip)
+    if (server.repl_state == REPL_STATE_RECEIVE_IP_REPLY && !server.replica_announce_ip)
         server.repl_state = REPL_STATE_RECEIVE_CAPA_REPLY;
 
     /* Receive REPLCONF ip-address reply. */
@@ -3026,18 +3026,18 @@ void replicationResurrectCachedMaster(connection *conn) {
     }
 }
 
-/* ------------------------- MIN-SLAVES-TO-WRITE  --------------------------- */
+/* ------------------------- MIN-REPLICAS-TO-WRITE  --------------------------- */
 
-/* This function counts the number of slaves with lag <= min-slaves-max-lag.
+/* This function counts the number of replicas with lag <= min-replicas-max-lag.
  * If the option is active, the server will prevent writes if there are not
- * enough connected slaves with the specified lag (or less). */
+ * enough connected replicas with the specified lag (or less). */
 void refreshGoodSlavesCount(void) {
     listIter li;
     listNode *ln;
     int good = 0;
 
-    if (!server.repl_min_slaves_to_write ||
-        !server.repl_min_slaves_max_lag) return;
+    if (!server.min_replicas_to_write ||
+        !server.min_replicas_max_lag) return;
 
     listRewind(server.slaves,&li);
     while((ln = listNext(&li))) {
@@ -3045,7 +3045,7 @@ void refreshGoodSlavesCount(void) {
         time_t lag = server.unixtime - slave->repl_ack_time;
 
         if (slave->replstate == SLAVE_STATE_ONLINE &&
-            lag <= server.repl_min_slaves_max_lag) good++;
+            lag <= server.min_replicas_max_lag) good++;
     }
     server.repl_good_slaves_count = good;
 }
@@ -3346,8 +3346,8 @@ void replicationCron(void) {
     listNode *ln;
     robj *ping_argv[1];
 
-    /* First, send PING according to ping_slave_period. */
-    if ((replication_cron_loops % server.repl_ping_slave_period) == 0 &&
+    /* First, send PING according to ping_replica_period. */
+    if ((replication_cron_loops % server.repl_ping_replica_period) == 0 &&
         listLength(server.slaves))
     {
         /* Note that we don't send the PING if the clients are paused during
@@ -3483,7 +3483,7 @@ void replicationCron(void) {
      * with any persistence. */
     removeRDBUsedToSyncReplicas();
 
-    /* Refresh the number of slaves with lag <= min-slaves-max-lag. */
+    /* Refresh the number of slaves with lag <= min-replicas-max-lag. */
     refreshGoodSlavesCount();
     replication_cron_loops++; /* Incremented with frequency 1 HZ. */
 }

@@ -454,7 +454,7 @@ static int isSafeToPerformEvictions(void) {
 
     /* By default replicas should ignore maxmemory
      * and just be masters exact copies. */
-    if (server.masterhost && server.repl_slave_ignore_maxmemory) return 0;
+    if (server.masterhost && server.replica_ignore_maxmemory) return 0;
 
     /* When clients are paused the dataset should be static not just from the
      * POV of clients not being able to write, but also from the POV of

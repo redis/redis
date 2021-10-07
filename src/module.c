@@ -2611,7 +2611,7 @@ int RM_GetContextFlags(RedisModuleCtx *ctx) {
         flags |= REDISMODULE_CTX_FLAGS_LOADING;
 
     /* Maxmemory and eviction policy */
-    if (server.maxmemory > 0 && (!server.masterhost || !server.repl_slave_ignore_maxmemory)) {
+    if (server.maxmemory > 0 && (!server.masterhost || !server.replica_ignore_maxmemory)) {
         flags |= REDISMODULE_CTX_FLAGS_MAXMEMORY;
 
         if (server.maxmemory_policy != MAXMEMORY_NO_EVICTION)
@@ -2629,7 +2629,7 @@ int RM_GetContextFlags(RedisModuleCtx *ctx) {
         flags |= REDISMODULE_CTX_FLAGS_MASTER;
     } else {
         flags |= REDISMODULE_CTX_FLAGS_SLAVE;
-        if (server.repl_slave_ro)
+        if (server.replica_read_only)
             flags |= REDISMODULE_CTX_FLAGS_READONLY;
 
         /* Replica state flags. */
