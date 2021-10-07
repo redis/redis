@@ -1508,7 +1508,7 @@ int keyIsExpired(redisDb *db, robj *key) {
  * from the master for consistency matters. The exception is write
  * operations to writable replicas. However, even read-only replicas
  * will try to have a coherent return value of the function, so that
- * read commands executed on the replica will be able to behave like if
+ * read commands executed on the replica will be able to behave as if
  * the key is expired even if still present (because the master has yet
  * to propagate the DEL).
  *
