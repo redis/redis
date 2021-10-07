@@ -4417,6 +4417,24 @@ int getSlotOrReply(client *c, robj *o) {
     return (int) slot;
 }
 
+/* Returns an indication if the replica node is fully available
+ * and should be listed in CLUSTER SLOTS response.
+ * Returns 1 for available nodes, 0 for nodes that have 
+ * not finished their initial sync, in failed state, or are 
+ * otherwise considered not available to serve read commands. */
+static int isReplicaAvailable(clusterNode *node) {
+    if (nodeFailed(node)) {
+        return 0;
+    }
+    long long repl_offset = node->repl_offset;
+    if (node->flags & CLUSTER_NODE_MYSELF) {
+        /* Nodes do not update their own information
+         * in the cluster node list. */
+        repl_offset = replicationGetSlaveOffset();
+    }
+    return (repl_offset != 0);
+}
+
 void addNodeReplyForClusterSlot(client *c, clusterNode *node, int start_slot, int end_slot) {
     int i, nested_elements = 3; /* slots (2) + master addr (1) */
     void *nested_replylen = addReplyDeferredLen(c);
@@ -4434,7 +4452,7 @@ void addNodeReplyForClusterSlot(client *c, clusterNode *node, int start_slot, in
     for (i = 0; i < node->numslaves; i++) {
         /* This loop is copy/pasted from clusterGenNodeDescription()
          * with modifications for per-slot node aggregation. */
-        if (nodeFailed(node->slaves[i])) continue;
+        if (!isReplicaAvailable(node->slaves[i])) continue;
         addReplyArrayLen(c, 3);
         addReplyBulkCString(c, node->slaves[i]->ip);
         /* Report slave's non-TLS port to non-TLS client in TLS cluster */
