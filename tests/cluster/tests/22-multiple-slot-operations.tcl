@@ -1,4 +1,4 @@
-# Check the basic monitoring and failover capabilities.
+# Check the mutli-slot add and remove commands
 
 source "../tests/includes/init-tests.tcl"
 
