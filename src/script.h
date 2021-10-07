@@ -69,6 +69,7 @@
 #define SCRIPT_READ_ONLY              (1ULL<<5) /* indicate that the current script should only perform read commands */
 #define SCRIPT_EVAL_REPLICATION       (1ULL<<6) /* mode for eval, indicate that we replicate the
                                                    script invocation and not the effects */
+#define SCRIPT_EVAL_MODE              (1ULL<<7) /* Indicate that the current script called from legacy Lua */
 typedef struct scriptRunCtx scriptRunCtx;
 
 struct scriptRunCtx {
@@ -87,10 +88,14 @@ int scriptSetResp(scriptRunCtx *r_ctx, int resp);
 int scriptSetRepl(scriptRunCtx *r_ctx, int repl);
 void scriptCall(scriptRunCtx *r_ctx, robj **argv, int argc, sds *err);
 int scriptInterrupt(scriptRunCtx *r_ctx);
-void scriptKill(client *c);
+void scriptKill(client *c, int is_eval);
 int scriptIsRunning();
+const char* scriptCurrFunction();
+int scriptIsEval();
 int scriptIsTimedout();
 client* scriptGetClient();
+client* scriptGetCaller();
 mstime_t scriptTimeSnapshot();
+long long scriptRunDuration();
 
 #endif /* __SCRIPT_H_ */

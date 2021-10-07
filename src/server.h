@@ -822,6 +822,19 @@ typedef struct redisDb {
     clusterSlotToKeyMapping *slots_to_keys; /* Array of slots to keys. Only used in cluster mode (db 0). */
 } redisDb;
 
+/* forward declaration for functions ctx */
+typedef struct functionsCtx functionsCtx;
+
+/* Holding object that need to be populated during
+ * rdb loading. On loading end it is possible to decide
+ * whether not to set those objects on their rightful place.
+ * For example: dbarray need to be set as main database on
+ *              successful loading and dropped on failure. */
+typedef struct rdbLoadingCtx {
+    redisDb* dbarray;
+    functionsCtx* functions_ctx;
+}rdbLoadingCtx;
+
 /* Client MULTI/EXEC state */
 typedef struct multiCmd {
     robj **argv;
@@ -1122,7 +1135,7 @@ struct sharedObjectsStruct {
     robj *crlf, *ok, *err, *emptybulk, *czero, *cone, *pong, *space,
     *queued, *null[4], *nullarray[4], *emptymap[4], *emptyset[4],
     *emptyarray, *wrongtypeerr, *nokeyerr, *syntaxerr, *sameobjecterr,
-    *outofrangeerr, *noscripterr, *loadingerr, *slowscripterr, *bgsaveerr,
+    *outofrangeerr, *noscripterr, *loadingerr, *slowevalerr, *slowscripterr, *bgsaveerr,
     *masterdownerr, *roslaveerr, *execaborterr, *noautherr, *noreplicaserr,
     *busykeyerr, *oomerr, *plus, *messagebulk, *pmessagebulk, *subscribebulk,
     *unsubscribebulk, *psubscribebulk, *punsubscribebulk, *del, *unlink,
@@ -1203,6 +1216,7 @@ struct redisMemOverhead {
     size_t clients_normal;
     size_t aof_buffer;
     size_t lua_caches;
+    size_t functions_caches;
     size_t overhead_total;
     size_t dataset;
     size_t total_keys;
@@ -2670,6 +2684,7 @@ int sintercardGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysRes
 int zunionInterDiffGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
 int zunionInterDiffStoreGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
 int evalGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
+int functionGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int georadiusGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
@@ -2761,6 +2776,7 @@ uint64_t dictSdsCaseHash(const void *key);
 int dictSdsKeyCompare(dict *d, const void *key1, const void *key2);
 int dictSdsKeyCaseCompare(dict *d, const void *key1, const void *key2);
 void dictSdsDestructor(dict *d, void *val);
+void *dictSdsDup(dict *d, const void *key);
 
 /* Git SHA1 */
 char *redisGitSHA1(void);

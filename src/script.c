@@ -60,6 +60,11 @@ client* scriptGetClient() {
     return curr_run_ctx->c;
 }
 
+client* scriptGetCaller() {
+    serverAssert(scriptIsRunning());
+    return curr_run_ctx->original_client;
+}
+
 /* interrupt function for scripts, should be call
  * from time to time to reply some special command (like ping)
  * and also check if the run should be terminated. */
@@ -78,8 +83,8 @@ int scriptInterrupt(scriptRunCtx *run_ctx) {
 
     serverLog(LL_WARNING,
             "Slow script detected: still in execution after %lld milliseconds. "
-                    "You can try killing the script using the SCRIPT KILL command.",
-            elapsed);
+                    "You can try killing the script using the %s command.",
+            elapsed, (run_ctx->flags & SCRIPT_EVAL_MODE) ? "SCRIPT KILL" : "FUNCTION KILL");
 
     enterScriptTimedoutMode(run_ctx);
     /* Once the script timeouts we reenter the event loop to permit others
@@ -159,8 +164,18 @@ int scriptIsRunning() {
     return curr_run_ctx != NULL;
 }
 
+const char* scriptCurrFunction() {
+    serverAssert(scriptIsRunning());
+    return curr_run_ctx->funcname;
+}
+
+int scriptIsEval() {
+    serverAssert(scriptIsRunning());
+    return curr_run_ctx->flags & SCRIPT_EVAL_MODE;
+}
+
 /* Kill the current running script */
-void scriptKill(client *c) {
+void scriptKill(client *c, int is_eval) {
     if (!curr_run_ctx) {
         addReplyError(c, "-NOTBUSY No scripts in execution right now.");
         return;
@@ -175,6 +190,16 @@ void scriptKill(client *c) {
                         "commands against the dataset. You can either wait the "
                         "script termination or kill the server in a hard way "
                         "using the SHUTDOWN NOSAVE command.");
+        return;
+    }
+    if (is_eval && !(curr_run_ctx->flags & SCRIPT_EVAL_MODE)) {
+        /* Kill a function with 'SCRIPT KILL' is not allow */
+        addReplyErrorObject(c, shared.slowscripterr);
+        return;
+    }
+    if (!is_eval && (curr_run_ctx->flags & SCRIPT_EVAL_MODE)) {
+        /* Kill an eval with 'FUNCTION KILL' is not allow */
+        addReplyErrorObject(c, shared.slowevalerr);
         return;
     }
     curr_run_ctx->flags |= SCRIPT_KILLED;
@@ -430,3 +455,10 @@ mstime_t scriptTimeSnapshot() {
     serverAssert(!curr_run_ctx);
     return curr_run_ctx->snapshot_time;
 }
+
+long long scriptRunDuration() {
+    serverAssert(scriptIsRunning());
+    return elapsedMs(curr_run_ctx->start_time);
+}
+
+

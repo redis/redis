@@ -257,7 +257,7 @@ void scriptingInit(int setup) {
     /* Lua beginners often don't use "local", this is likely to introduce
      * subtle bugs in their code. To prevent problems we protect accesses
      * to global variables. */
-    luaEnableGlobalsProtection(lua);
+    luaEnableGlobalsProtection(lua, 1);
 
     lctx.lua = lua;
 }
@@ -443,6 +443,8 @@ void evalGenericCommand(client *c, int evalsha) {
 
     scriptRunCtx rctx;
     scriptPrepareForRun(&rctx, lctx.lua_client, c, lctx.lua_cur_script);
+    rctx.flags |= SCRIPT_EVAL_MODE; /* mark the current run as legacy so we
+                                    will get legacy error messages and logs */
     if (!lctx.lua_replicate_commands) rctx.flags |= SCRIPT_EVAL_REPLICATION;
     /* This check is for EVAL_RO, EVALSHA_RO. We want to allow only read only commands */
     if ((server.script_caller->cmd->proc == evalRoCommand ||
@@ -584,7 +586,7 @@ NULL
         addReplyBulkCBuffer(c,sha,40);
         forceCommandPropagation(c,PROPAGATE_REPL|PROPAGATE_AOF);
     } else if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"kill")) {
-        scriptKill(c);
+        scriptKill(c, 1);
     } else if (c->argc == 3 && !strcasecmp(c->argv[1]->ptr,"debug")) {
         if (clientHasPendingReplies(c)) {
             addReplyError(c,"SCRIPT DEBUG must be called outside a pipeline");
@@ -610,7 +612,7 @@ NULL
 }
 
 unsigned long evalMemory() {
-    return lua_gc(lctx.lua, LUA_GCCOUNT, 0) * 1024LL;
+    return luaMemory(lctx.lua);
 }
 
 dict* evalScriptsDict() {

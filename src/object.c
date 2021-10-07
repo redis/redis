@@ -29,6 +29,7 @@
  */
 
 #include "server.h"
+#include "functions.h"
 #include <math.h>
 #include <ctype.h>
 
@@ -1212,6 +1213,8 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     }
     mh->lua_caches = mem;
     mem_total+=mem;
+    mh->functions_caches = functionsMemoryOverhead();
+    mem_total+=mh->functions_caches;
 
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
@@ -1527,7 +1530,7 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"stats") && c->argc == 2) {
         struct redisMemOverhead *mh = getMemoryOverheadData();
 
-        addReplyMapLen(c,25+mh->num_dbs);
+        addReplyMapLen(c,26+mh->num_dbs);
 
         addReplyBulkCString(c,"peak.allocated");
         addReplyLongLong(c,mh->peak_allocated);
@@ -1552,6 +1555,9 @@ NULL
 
         addReplyBulkCString(c,"lua.caches");
         addReplyLongLong(c,mh->lua_caches);
+
+        addReplyBulkCString(c,"functions.caches");
+        addReplyLongLong(c,mh->functions_caches);
 
         for (size_t j = 0; j < mh->num_dbs; j++) {
             char dbname[32];

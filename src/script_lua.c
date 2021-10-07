@@ -867,6 +867,8 @@ cleanup:
     }
 
     c->user = NULL;
+    c->argv = NULL;
+    c->argc = 0;
 
     if (raise_error) {
         /* If we are here we should have an error in the stack, in the
@@ -1067,8 +1069,12 @@ static void luaRemoveUnsupportedFunctions(lua_State *lua) {
  * the creation of globals accidentally.
  *
  * It should be the last to be called in the scripting engine initialization
- * sequence, because it may interact with creation of globals. */
-void luaEnableGlobalsProtection(lua_State *lua) {
+ * sequence, because it may interact with creation of globals.
+ *
+ * On Legacy Lua (eval) we need to check 'w ~= \"main\"' otherwise we will not be able
+ * to create the global 'function <sha> ()' variable. On Lua engine we do not use this trick
+ * so its not needed. */
+void luaEnableGlobalsProtection(lua_State *lua, int is_eval) {
     char *s[32];
     sds code = sdsempty();
     int j = 0;
@@ -1081,7 +1087,7 @@ void luaEnableGlobalsProtection(lua_State *lua) {
     s[j++]="mt.__newindex = function (t, n, v)\n";
     s[j++]="  if dbg.getinfo(2) then\n";
     s[j++]="    local w = dbg.getinfo(2, \"S\").what\n";
-    s[j++]="    if w ~= \"main\" and w ~= \"C\" then\n";
+    s[j++]=     is_eval ? "    if w ~= \"main\" and w ~= \"C\" then\n" : "    if w ~= \"C\" then\n";
     s[j++]="      error(\"Script attempted to create global variable '\"..tostring(n)..\"'\", 2)\n";
     s[j++]="    end\n";
     s[j++]="  end\n";
@@ -1335,4 +1341,8 @@ void luaCallFunction(scriptRunCtx* run_ctx, lua_State *lua, robj** keys, size_t 
 
     /* remove run_ctx from registry, its only applicable for the current script. */
     luaSaveOnRegistry(lua, REGISTRY_RUN_CTX_NAME, NULL);
+}
+
+unsigned long luaMemory(lua_State *lua) {
+    return lua_gc(lua, LUA_GCCOUNT, 0) * 1024LL;
 }

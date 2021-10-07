@@ -35,7 +35,7 @@
 #include "latency.h"
 #include "atomicvar.h"
 #include "mt19937-64.h"
-#include "script.h"
+#include "functions.h"
 
 #include <time.h>
 #include <signal.h>
@@ -467,6 +467,31 @@ struct redisCommand scriptSubcommands[] = {
      "may-replicate no-script @scripting"},
 
     {"help",scriptCommand,2,
+     "ok-loading ok-stale @scripting"},
+
+    {NULL},
+};
+
+struct redisCommand functionSubcommands[] = {
+    {"create",functionsCreateCommand,-5,
+     "may-replicate no-script @scripting"},
+
+    {"delete",functionsDeleteCommand,3,
+     "may-replicate no-script @scripting"},
+
+    {"kill",functionsKillCommand,2,
+     "no-script @scripting"},
+
+    {"info",functionsInfoCommand,-3,
+     "no-script @scripting"},
+
+    {"list",functionsListCommand,2,
+     "no-script @scripting"},
+
+    {"stats",functionsStatsCommand,2,
+     "no-script @scripting"},
+
+    {"help",functionsHelpCommand,2,
      "ok-loading ok-stale @scripting"},
 
     {NULL},
@@ -2033,7 +2058,25 @@ struct redisCommand redisCommandTable[] = {
      "no-auth no-script ok-stale ok-loading fast @connection"},
 
     {"failover",failoverCommand,-1,
-     "admin no-script ok-stale"}
+     "admin no-script ok-stale"},
+
+    {"function",NULL,-2,
+        "",
+        .subcommands=functionSubcommands},
+
+    {"fcall",fcallCommand,-3,
+     "no-script no-monitor may-replicate no-mandatory-keys @scripting",
+     {{"read write", /* We pass both read and write because these flag are worst-case-scenario */
+       KSPEC_BS_INDEX,.bs.index={2},
+       KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},
+     functionGetKeys},
+
+    {"fcall_ro",fcallCommandReadOnly,-3,
+     "no-script no-monitor no-mandatory-keys @scripting",
+     {{"read",
+       KSPEC_BS_INDEX,.bs.index={2},
+       KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},
+     functionGetKeys},
 };
 
 /*============================ Utility functions ============================ */
@@ -2207,6 +2250,11 @@ void dictSdsDestructor(dict *d, void *val)
 {
     UNUSED(d);
     sdsfree(val);
+}
+
+void *dictSdsDup(dict *d, const void *key) {
+    UNUSED(d);
+    return sdsdup((const sds) key);
 }
 
 int dictObjKeyCompare(dict *d, const void *key1,
@@ -3517,8 +3565,10 @@ void createSharedObjects(void) {
         "-NOSCRIPT No matching script. Please use EVAL.\r\n"));
     shared.loadingerr = createObject(OBJ_STRING,sdsnew(
         "-LOADING Redis is loading the dataset in memory\r\n"));
-    shared.slowscripterr = createObject(OBJ_STRING,sdsnew(
+    shared.slowevalerr = createObject(OBJ_STRING,sdsnew(
         "-BUSY Redis is busy running a script. You can only call SCRIPT KILL or SHUTDOWN NOSAVE.\r\n"));
+    shared.slowscripterr = createObject(OBJ_STRING,sdsnew(
+        "-BUSY Redis is busy running a script. You can only call FUNCTION KILL or SHUTDOWN NOSAVE.\r\n"));
     shared.masterdownerr = createObject(OBJ_STRING,sdsnew(
         "-MASTERDOWN Link with MASTER is down and replica-serve-stale-data is set to 'no'.\r\n"));
     shared.bgsaveerr = createObject(OBJ_STRING,sdsnew(
@@ -4345,6 +4395,7 @@ void initServer(void) {
     if (server.cluster_enabled) clusterInit();
     replicationScriptCacheInit();
     scriptingInit(1);
+    functionsInit();
     slowlogInit();
     latencyMonitorInit();
     
@@ -5448,9 +5499,15 @@ int processCommand(client *c) {
           tolower(((char*)c->argv[1]->ptr)[0]) == 'n') &&
         !(c->cmd->proc == scriptCommand &&
           c->argc == 2 &&
-          tolower(((char*)c->argv[1]->ptr)[0]) == 'k'))
+          tolower(((char*)c->argv[1]->ptr)[0]) == 'k') &&
+        !(c->cmd->proc == functionsKillCommand) &&
+        !(c->cmd->proc == functionsStatsCommand))
     {
-        rejectCommand(c, shared.slowscripterr);
+        if (scriptIsEval()) {
+            rejectCommand(c, shared.slowevalerr);
+        } else {
+            rejectCommand(c, shared.slowscripterr);
+        }
         return C_OK;
     }
 
@@ -6281,6 +6338,7 @@ sds genRedisInfoString(const char *section) {
         char peak_hmem[64];
         char total_system_hmem[64];
         char used_memory_lua_hmem[64];
+        char used_memory_vm_total_hmem[64];
         char used_memory_scripts_hmem[64];
         char used_memory_rss_hmem[64];
         char maxmemory_hmem[64];
@@ -6288,6 +6346,7 @@ sds genRedisInfoString(const char *section) {
         size_t total_system_mem = server.system_memory_size;
         const char *evict_policy = evictPolicyToString();
         long long memory_lua = evalMemory();
+        long long memory_functions = functionsMemory();
         struct redisMemOverhead *mh = getMemoryOverheadData();
 
         /* Peak memory is updated from time to time by serverCron() so it
@@ -6301,7 +6360,8 @@ sds genRedisInfoString(const char *section) {
         bytesToHuman(peak_hmem,server.stat_peak_memory);
         bytesToHuman(total_system_hmem,total_system_mem);
         bytesToHuman(used_memory_lua_hmem,memory_lua);
-        bytesToHuman(used_memory_scripts_hmem,mh->lua_caches);
+        bytesToHuman(used_memory_vm_total_hmem,memory_functions + memory_lua);
+        bytesToHuman(used_memory_scripts_hmem,mh->lua_caches + mh->functions_caches);
         bytesToHuman(used_memory_rss_hmem,server.cron_malloc_stats.process_rss);
         bytesToHuman(maxmemory_hmem,server.maxmemory);
 
@@ -6324,11 +6384,18 @@ sds genRedisInfoString(const char *section) {
             "allocator_resident:%zu\r\n"
             "total_system_memory:%lu\r\n"
             "total_system_memory_human:%s\r\n"
-            "used_memory_lua:%lld\r\n"
-            "used_memory_lua_human:%s\r\n"
+            "used_memory_lua:%lld\r\n" /* deprecated, renamed to used_memory_vm_eval */
+            "used_memory_vm_eval:%lld\r\n"
+            "used_memory_lua_human:%s\r\n" /* deprecated */
+            "used_memory_scripts_eval:%lld\r\n"
+            "number_of_cached_scripts:%lu\r\n"
+            "number_of_functions:%lu\r\n"
+            "used_memory_vm_functions:%lld\r\n"
+            "used_memory_vm_total:%lld\r\n"
+            "used_memory_vm_total_human:%s\r\n"
+            "used_memory_functions:%lld\r\n"
             "used_memory_scripts:%lld\r\n"
             "used_memory_scripts_human:%s\r\n"
-            "number_of_cached_scripts:%lu\r\n"
             "maxmemory:%lld\r\n"
             "maxmemory_human:%s\r\n"
             "maxmemory_policy:%s\r\n"
@@ -6367,10 +6434,17 @@ sds genRedisInfoString(const char *section) {
             (unsigned long)total_system_mem,
             total_system_hmem,
             memory_lua,
+            memory_lua,
             used_memory_lua_hmem,
             (long long) mh->lua_caches,
-            used_memory_scripts_hmem,
             dictSize(evalScriptsDict()),
+            functionsNum(),
+            memory_functions,
+            memory_functions + memory_lua,
+            used_memory_vm_total_hmem,
+            (long long) mh->functions_caches,
+            (long long) mh->lua_caches + (long long) mh->functions_caches,
+            used_memory_scripts_hmem,
             server.maxmemory,
             maxmemory_hmem,
             evict_policy,
