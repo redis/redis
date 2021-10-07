@@ -4466,19 +4466,22 @@ void clusterUpdateSlots(client *c, unsigned char *slots, int del) {
             int retval;
                 
             /* If this slot was set as importing we can clear this
-            *  state as now we are the real owner of the slot. */
+             * state as now we are the real owner of the slot. */
             if (server.cluster->importing_slots_from[j])
                 server.cluster->importing_slots_from[j] = NULL;
 
             retval = del ? clusterDelSlot(j) :
-                            clusterAddSlot(myself,j);
+                           clusterAddSlot(myself,j);
             serverAssertWithInfo(c,NULL,retval == C_OK);
         }
     }
 }
 
+<<<<<<< HEAD
 
 >>>>>>> new codes
+=======
+>>>>>>> Fix minor spacing issues
 void addNodeReplyForClusterSlot(client *c, clusterNode *node, int start_slot, int end_slot) {
     int i, nested_elements = 3; /* slots (2) + master addr (1) */
     void *nested_replylen = addReplyDeferredLen(c);
@@ -4725,7 +4728,7 @@ NULL
         zfree(slots);
         clusterDoBeforeSleep(CLUSTER_TODO_UPDATE_STATE|CLUSTER_TODO_SAVE_CONFIG);
         addReply(c,shared.ok);
-    }else if (!strcasecmp(c->argv[1]->ptr,"setslot") && c->argc >= 4) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"setslot") && c->argc >= 4) {
         /* SETSLOT 10 MIGRATING <node ID> */
         /* SETSLOT 10 IMPORTING <node ID> */
         /* SETSLOT 10 STABLE */
