@@ -570,7 +570,7 @@ long long dbTotalServerKeyCount() {
  * a context of a client. */
 void signalModifiedKey(client *c, redisDb *db, robj *key) {
     touchWatchedKey(db,key);
-    trackingInvalidateKey(c,key);
+    trackingInvalidateKey(c,key,1);
 }
 
 void signalFlushedDb(int dbid, int async) {
