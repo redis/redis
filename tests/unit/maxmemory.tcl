@@ -22,7 +22,7 @@ start_server {tags {"maxmemory" "external:skip"}} {
         assert_equal [r dbsize] 50
     }
     
-    # Return true if the eviction occured (client or key) based on argument
+    # Return true if the eviction occurred (client or key) based on argument
     proc check_eviction_test {client_eviction} {
         set evicted_keys [s evicted_keys]
         set evicted_clients [s evicted_clients]
