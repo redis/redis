@@ -79,7 +79,7 @@ typedef struct dictType {
 struct dict {
     dictType *type;
 
-    dictEntry **ht_table[2];
+    void *ht_table[2];  /* dictEntry** or dictEntry*** */
     unsigned long ht_used[2];
 
     long rehashidx; /* rehashing not in progress if rehashidx == -1 */
