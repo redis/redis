@@ -22,7 +22,21 @@ start_server {tags {"maxmemory" "external:skip"}} {
         assert_equal [r dbsize] 50
     }
     
-    proc verify_test {client_eviction} {
+    # Return true if the eviction occurred (client or key) based on argument
+    proc check_eviction_test {client_eviction} {
+        set evicted_keys [s evicted_keys]
+        set evicted_clients [s evicted_clients]
+        set dbsize [r dbsize]
+        
+        if $client_eviction {
+            return [expr $evicted_clients > 0 && $evicted_keys == 0 && $dbsize == 50]
+        } else {
+            return [expr $evicted_clients == 0 && $evicted_keys > 0 && $dbsize < 50]
+        }
+    }
+
+    # Assert the eviction test passed (and prints some debug info on verbose)
+    proc verify_eviction_test {client_eviction} {
         set evicted_keys [s evicted_keys]
         set evicted_clients [s evicted_clients]
         set dbsize [r dbsize]
@@ -33,15 +47,7 @@ start_server {tags {"maxmemory" "external:skip"}} {
             puts "dbsize: $dbsize"
         }
 
-        if $client_eviction {
-            assert_morethan $evicted_clients 0
-            assert_equal $evicted_keys 0
-            assert_equal $dbsize 50
-        } else {
-            assert_equal $evicted_clients 0
-            assert_morethan $evicted_keys 0
-            assert_lessthan $dbsize 50
-        }
+        assert [check_eviction_test $client_eviction]
     }
 
     foreach {client_eviction} {false true} {
@@ -53,33 +59,23 @@ start_server {tags {"maxmemory" "external:skip"}} {
                 set rr [redis_deferring_client]
                 lappend clients $rr
             }
-
-            # Freeze the server so output buffers will be filled in one event loop when we un-freeze after sending mgets
-            exec kill -SIGSTOP $server_pid
-            for {set j 0} {$j < 5} {incr j} {
-                foreach rr $clients {
-                    $rr mget 1
-                    $rr flush
-                }
-            }
-            # Unfreeze server
-            exec kill -SIGCONT $server_pid
             
-
-            for {set j 0} {$j < 5} {incr j} {
+            # Generate client output buffers via MGET until we can observe some effect on 
+            # keys / client eviction, or we time out.
+            set t [clock seconds]
+            while {![check_eviction_test $client_eviction] && [expr [clock seconds] - $t] < 20} {
                 foreach rr $clients {
-                    if {[catch { $rr read } err]} {
+                    if {[catch {
+                        $rr mget 1
+                        $rr flush
+                    } err]} {
                         lremove clients $rr
                     }
                 }
             }
 
-            verify_test $client_eviction
-
-        # This test relies on SIGSTOP/CONT to handle all sent commands in a single event loop. 
-        # In TLS multiple event loops are needed to receive all sent commands, so the test breaks.
-        # Mark it to be skipped when running in TLS mode.
-        } {} {tls:skip}
+            verify_eviction_test $client_eviction
+        }
         foreach rr $clients {
             $rr close
         }
@@ -107,7 +103,7 @@ start_server {tags {"maxmemory" "external:skip"}} {
                 }
             }
 
-            verify_test $client_eviction
+            verify_eviction_test $client_eviction
         }
         foreach rr $clients {
             $rr close
@@ -126,16 +122,19 @@ start_server {tags {"maxmemory" "external:skip"}} {
                 $rr subscribe bla
             }
 
+            # Generate client output buffers via PUBLISH until we can observe some effect on 
+            # keys / client eviction, or we time out.
             set bigstr [string repeat x 100000]
-            for {set j 0} {$j < 40} {incr j} {
-                if {[catch {r publish bla $bigstr} err]} {
+            set t [clock seconds]
+            while {![check_eviction_test $client_eviction] && [expr [clock seconds] - $t] < 20} {
+                if {[catch { r publish bla $bigstr } err]} {
                     if $::verbose {
                         puts "Error publishing: $err"
                     }
                 }
             }
 
-            verify_test $client_eviction
+            verify_eviction_test $client_eviction
         }
         foreach rr $clients {
             $rr close
