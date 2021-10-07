@@ -4661,7 +4661,8 @@ NULL
         clusterDoBeforeSleep(CLUSTER_TODO_UPDATE_STATE|CLUSTER_TODO_SAVE_CONFIG);
         addReply(c,shared.ok);
     } else if ((!strcasecmp(c->argv[1]->ptr,"addslots") ||
-               !strcasecmp(c->argv[1]->ptr,"delslots")) && c->argc >= 3) {
+               !strcasecmp(c->argv[1]->ptr,"delslots")) && c->argc >= 3)
+    {
         /* CLUSTER ADDSLOTS <slot> [slot] ... */
         /* CLUSTER DELSLOTS <slot> [slot] ... */
         int j, slot;
@@ -4690,7 +4691,7 @@ NULL
         addReply(c,shared.ok);
     } else if ((!strcasecmp(c->argv[1]->ptr,"addslotsrange") ||
                !strcasecmp(c->argv[1]->ptr,"delslotsrange")) && c->argc >= 4) {
-        if(c->argc % 2 == 1) {
+        if (c->argc % 2 == 1) {
             addReplyErrorFormat(c,"wrong number of arguments for '%s' command",
                             c->cmd->name);
             return;
