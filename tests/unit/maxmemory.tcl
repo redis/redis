@@ -22,7 +22,8 @@ start_server {tags {"maxmemory" "external:skip"}} {
         assert_equal [r dbsize] 50
     }
     
-    proc check_test {client_eviction} {
+    # Return true if the eviction occured (client or key) based on argument
+    proc check_eviction_test {client_eviction} {
         set evicted_keys [s evicted_keys]
         set evicted_clients [s evicted_clients]
         set dbsize [r dbsize]
@@ -34,7 +35,8 @@ start_server {tags {"maxmemory" "external:skip"}} {
         }
     }
 
-    proc verify_test {client_eviction} {
+    # Assert the eviction test passed (and prints some debug info on verbose)
+    proc verify_eviction_test {client_eviction} {
         set evicted_keys [s evicted_keys]
         set evicted_clients [s evicted_clients]
         set dbsize [r dbsize]
@@ -45,7 +47,7 @@ start_server {tags {"maxmemory" "external:skip"}} {
             puts "dbsize: $dbsize"
         }
 
-        assert [check_test $client_eviction]
+        assert [check_eviction_test $client_eviction]
     }
 
     foreach {client_eviction} {false true} {
@@ -58,8 +60,10 @@ start_server {tags {"maxmemory" "external:skip"}} {
                 lappend clients $rr
             }
             
+            # Generate client output buffers via MGET until we can observe some effect on 
+            # keys / client eviction, or we time out.
             set t [clock seconds]
-            while {![check_test $client_eviction] && [expr [clock seconds] - $t] < 20} {
+            while {![check_eviction_test $client_eviction] && [expr [clock seconds] - $t] < 20} {
                 foreach rr $clients {
                     if {[catch {
                         $rr mget 1
@@ -70,7 +74,7 @@ start_server {tags {"maxmemory" "external:skip"}} {
                 }
             }
 
-            verify_test $client_eviction
+            verify_eviction_test $client_eviction
         }
         foreach rr $clients {
             $rr close
@@ -99,7 +103,7 @@ start_server {tags {"maxmemory" "external:skip"}} {
                 }
             }
 
-            verify_test $client_eviction
+            verify_eviction_test $client_eviction
         }
         foreach rr $clients {
             $rr close
@@ -118,9 +122,11 @@ start_server {tags {"maxmemory" "external:skip"}} {
                 $rr subscribe bla
             }
 
+            # Generate client output buffers via PUBLISH until we can observe some effect on 
+            # keys / client eviction, or we time out.
             set bigstr [string repeat x 100000]
             set t [clock seconds]
-            while {![check_test $client_eviction] && [expr [clock seconds] - $t] < 20} {
+            while {![check_eviction_test $client_eviction] && [expr [clock seconds] - $t] < 20} {
                 if {[catch { r publish bla $bigstr } err]} {
                     if $::verbose {
                         puts "Error publishing: $err"
@@ -128,7 +134,7 @@ start_server {tags {"maxmemory" "external:skip"}} {
                 }
             }
 
-            verify_test $client_eviction
+            verify_eviction_test $client_eviction
         }
         foreach rr $clients {
             $rr close
