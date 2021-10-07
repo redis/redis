@@ -1,4 +1,4 @@
-# Check the mutli-slot add and remove commands
+# Check the multiple slot add and remove commands
 
 source "../tests/includes/init-tests.tcl"
 
