@@ -107,6 +107,15 @@ static void clientSetDefaultAuth(client *c) {
                        !(c->user->flags & USER_FLAG_DISABLED);
 }
 
+int authRequired(client *c) {
+    /* Check if the user is authenticated. This check is skipped in case
+     * the default user is flagged as "nopass" and is active. */
+    int auth_required = (!(DefaultUser->flags & USER_FLAG_NOPASS) ||
+                          (DefaultUser->flags & USER_FLAG_DISABLED)) &&
+                        !c->authenticated;
+    return auth_required;
+}
+
 client *createClient(connection *conn) {
     client *c = zmalloc(sizeof(client));
 
@@ -140,6 +149,7 @@ client *createClient(connection *conn) {
     c->reqtype = 0;
     c->argc = 0;
     c->argv = NULL;
+    c->argv_len = 0;
     c->argv_len_sum = 0;
     c->original_argc = 0;
     c->original_argv = NULL;
@@ -1218,6 +1228,9 @@ void freeClientArgv(client *c) {
     c->argc = 0;
     c->cmd = NULL;
     c->argv_len_sum = 0;
+    c->argv_len = 0;
+    zfree(c->argv);
+    c->argv = NULL;
 }
 
 /* Close all the slaves connections. This is useful in chained replication
@@ -1456,8 +1469,6 @@ void freeClient(client *c) {
     /* Release other dynamically allocated client structure fields,
      * and finally release the client structure itself. */
     if (c->name) decrRefCount(c->name);
-    zfree(c->argv);
-    c->argv_len_sum = 0;
     freeClientMultiState(c);
     sdsfree(c->peerid);
     sdsfree(c->sockname);
@@ -1491,7 +1502,9 @@ void freeClientAsync(client *c) {
 /* Perform processing of the client before moving on to processing the next client
  * this is useful for performing operations that affect the global state but can't
  * wait until we're done with all clients. In other words can't wait until beforeSleep()
- * return C_ERR in case client is no longer valid after call. */
+ * return C_ERR in case client is no longer valid after call.
+ * The input client argument: c, may be NULL in case the previous client was
+ * freed before the call. */
 int beforeNextClient(client *c) {
     /* Skip the client processing if we're in an IO thread, in that case we'll perform
        this operation later (this function is called again) in the fan-in stage of the threading mechanism */
@@ -1502,7 +1515,7 @@ int beforeNextClient(client *c) {
      * cases where we want an async free of a client other than myself. For example
      * in ACL modifications we disconnect clients authenticated to non-existent
      * users (see ACL LOAD). */
-    if (c->flags & CLIENT_CLOSE_ASAP) {
+    if (c && (c->flags & CLIENT_CLOSE_ASAP)) {
         freeClient(c);
         return C_ERR;
     }
@@ -1863,7 +1876,8 @@ int processInlineBuffer(client *c) {
     /* Setup argv array on client structure */
     if (argc) {
         if (c->argv) zfree(c->argv);
-        c->argv = zmalloc(sizeof(robj*)*argc);
+        c->argv_len = argc;
+        c->argv = zmalloc(sizeof(robj*)*c->argv_len);
         c->argv_len_sum = 0;
     }
 
@@ -1948,9 +1962,13 @@ int processMultibulkBuffer(client *c) {
          * so go ahead and find out the multi bulk length. */
         serverAssertWithInfo(c,NULL,c->querybuf[c->qb_pos] == '*');
         ok = string2ll(c->querybuf+1+c->qb_pos,newline-(c->querybuf+1+c->qb_pos),&ll);
-        if (!ok || ll > 1024*1024) {
+        if (!ok || ll > INT_MAX) {
             addReplyError(c,"Protocol error: invalid multibulk length");
             setProtocolError("invalid mbulk count",c);
+            return C_ERR;
+        } else if (ll > 10 && authRequired(c)) {
+            addReplyError(c, "Protocol error: unauthenticated multibulk length");
+            setProtocolError("unauth mbulk count", c);
             return C_ERR;
         }
 
@@ -1962,7 +1980,8 @@ int processMultibulkBuffer(client *c) {
 
         /* Setup argv array on client structure */
         if (c->argv) zfree(c->argv);
-        c->argv = zmalloc(sizeof(robj*)*c->multibulklen);
+        c->argv_len = min(c->multibulklen, 1024);
+        c->argv = zmalloc(sizeof(robj*)*c->argv_len);
         c->argv_len_sum = 0;
     }
 
@@ -1999,6 +2018,10 @@ int processMultibulkBuffer(client *c) {
                 addReplyError(c,"Protocol error: invalid bulk length");
                 setProtocolError("invalid bulk length",c);
                 return C_ERR;
+            } else if (ll > 16384 && authRequired(c)) {
+                addReplyError(c, "Protocol error: unauthenticated bulk length");
+                setProtocolError("unauth bulk length", c);
+                return C_ERR;
             }
 
             c->qb_pos = newline-c->querybuf+2;
@@ -2028,6 +2051,12 @@ int processMultibulkBuffer(client *c) {
             /* Not enough data (+2 == trailing \r\n) */
             break;
         } else {
+            /* Check if we have space in argv, grow if needed */
+            if (c->argc >= c->argv_len) {
+                c->argv_len = min(c->argv_len < INT_MAX/2 ? c->argv_len*2 : INT_MAX, c->argc+c->multibulklen);
+                c->argv = zrealloc(c->argv, sizeof(robj*)*c->argv_len);
+            }
+
             /* Optimization: if the buffer contains JUST our bulk element
              * instead of creating a new object by *copying* the sds we
              * just use the current sds string. */
@@ -2149,8 +2178,9 @@ int processPendingCommandsAndResetClient(client *c) {
 /* This function is called every time, in the client structure 'c', there is
  * more query buffer to process, because we read more data from the socket
  * or because a client was blocked and later reactivated, so there could be
- * pending query buffer, already representing a full command, to process. */
-void processInputBuffer(client *c) {
+ * pending query buffer, already representing a full command, to process.
+ * return C_ERR in case the client was freed during the processing */
+int processInputBuffer(client *c) {
     /* Keep processing while there is something in the input buffer */
     while(c->qb_pos < sdslen(c->querybuf)) {
         /* Immediately abort if the client is in the middle of something. */
@@ -2208,7 +2238,7 @@ void processInputBuffer(client *c) {
                 /* If the client is no longer valid, we avoid exiting this
                  * loop and trimming the client buffer later. So we return
                  * ASAP in that case. */
-                return;
+                return C_ERR;
             }
         }
     }
@@ -2223,6 +2253,8 @@ void processInputBuffer(client *c) {
      * important in case the query buffer is big and wasn't drained during
      * the above loop (because of partially sent big commands). */
     updateClientMemUsage(c);
+
+    return C_OK;
 }
 
 void readQueryFromClient(connection *conn) {
@@ -2313,8 +2345,9 @@ void readQueryFromClient(connection *conn) {
     }
 
     /* There is more data in the client input buffer, continue parsing it
-     * in case to check if there is a full command to execute. */
-     processInputBuffer(c);
+     * and check if there is a full command to execute. */
+     if (processInputBuffer(c) == C_ERR)
+         c = NULL;
 
 done:
     beforeNextClient(c);
@@ -3230,9 +3263,9 @@ void replaceClientCommandVector(client *c, int argc, robj **argv) {
 void rewriteClientCommandArgument(client *c, int i, robj *newval) {
     robj *oldval;
     retainOriginalCommandVector(c);
-    if (i >= c->argc) {
+    if (i >= c->argv_len) {
         c->argv = zrealloc(c->argv,sizeof(robj*)*(i+1));
-        c->argc = i+1;
+        c->argc = c->argv_len = i+1;
         c->argv[i] = NULL;
     }
     oldval = c->argv[i];
@@ -3942,7 +3975,12 @@ int handleClientsWithPendingReadsUsingThreads(void) {
             continue;
         }
 
-        processInputBuffer(c);
+        if (processInputBuffer(c) == C_ERR) {
+            /* If the client is no longer valid, we avoid
+             * processing the client later. So we just go
+             * to the next. */
+            continue;
+        }
 
         /* We may have pending replies if a thread readQueryFromClient() produced
          * replies and did not install a write handler (it can't).

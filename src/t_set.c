@@ -66,7 +66,10 @@ int setTypeAdd(robj *subject, sds value) {
             if (success) {
                 /* Convert to regular set when the intset contains
                  * too many entries. */
-                if (intsetLen(subject->ptr) > server.set_max_intset_entries)
+                size_t max_entries = server.set_max_intset_entries;
+                /* limit to 1G entries due to intset internals. */
+                if (max_entries >= 1<<30) max_entries = 1<<30;
+                if (intsetLen(subject->ptr) > max_entries)
                     setTypeConvert(subject,OBJ_ENCODING_HT);
                 return 1;
             }
@@ -754,7 +757,7 @@ void srandmemberWithCountCommand(client *c) {
         /* Remove random elements to reach the right count. */
         while (size > count) {
             dictEntry *de;
-            de = dictGetRandomKey(d);
+            de = dictGetFairRandomKey(d);
             dictUnlink(d,dictGetKey(de));
             sdsfree(dictGetKey(de));
             dictFreeUnlinkedEntry(d,de);

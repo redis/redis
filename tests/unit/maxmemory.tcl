@@ -9,6 +9,7 @@ start_server {tags {"maxmemory" "external:skip"}} {
         set prev_maxmemory_clients [r config get maxmemory-clients]
         if $client_eviction {
             r config set maxmemory-clients 3mb
+            r client no-evict on
         } else {
             r config set maxmemory-clients 0
         }
@@ -21,7 +22,21 @@ start_server {tags {"maxmemory" "external:skip"}} {
         assert_equal [r dbsize] 50
     }
     
-    proc verify_test {client_eviction} {
+    # Return true if the eviction occurred (client or key) based on argument
+    proc check_eviction_test {client_eviction} {
+        set evicted_keys [s evicted_keys]
+        set evicted_clients [s evicted_clients]
+        set dbsize [r dbsize]
+        
+        if $client_eviction {
+            return [expr $evicted_clients > 0 && $evicted_keys == 0 && $dbsize == 50]
+        } else {
+            return [expr $evicted_clients == 0 && $evicted_keys > 0 && $dbsize < 50]
+        }
+    }
+
+    # Assert the eviction test passed (and prints some debug info on verbose)
+    proc verify_eviction_test {client_eviction} {
         set evicted_keys [s evicted_keys]
         set evicted_clients [s evicted_clients]
         set dbsize [r dbsize]
@@ -32,15 +47,7 @@ start_server {tags {"maxmemory" "external:skip"}} {
             puts "dbsize: $dbsize"
         }
 
-        if $client_eviction {
-            assert_morethan $evicted_clients 0
-            assert_equal $evicted_keys 0
-            assert_equal $dbsize 50
-        } else {
-            assert_equal $evicted_clients 0
-            assert_morethan $evicted_keys 0
-            assert_lessthan $dbsize 50
-        }
+        assert [check_eviction_test $client_eviction]
     }
 
     foreach {client_eviction} {false true} {
@@ -52,28 +59,22 @@ start_server {tags {"maxmemory" "external:skip"}} {
                 set rr [redis_deferring_client]
                 lappend clients $rr
             }
-
-            # Freeze the server so output buffers will be filled in one event loop when we un-freeze after sending mgets
-            exec kill -SIGSTOP $server_pid
-            for {set j 0} {$j < 5} {incr j} {
-                foreach rr $clients {
-                    $rr mget 1
-                    $rr flush
-                }
-            }
-            # Unfreeze server
-            exec kill -SIGCONT $server_pid
             
-
-            for {set j 0} {$j < 5} {incr j} {
+            # Generate client output buffers via MGET until we can observe some effect on 
+            # keys / client eviction, or we time out.
+            set t [clock seconds]
+            while {![check_eviction_test $client_eviction] && [expr [clock seconds] - $t] < 20} {
                 foreach rr $clients {
-                    if {[catch { $rr read } err]} {
+                    if {[catch {
+                        $rr mget 1
+                        $rr flush
+                    } err]} {
                         lremove clients $rr
                     }
                 }
             }
 
-            verify_test $client_eviction
+            verify_eviction_test $client_eviction
         }
         foreach rr $clients {
             $rr close
@@ -102,7 +103,7 @@ start_server {tags {"maxmemory" "external:skip"}} {
                 }
             }
 
-            verify_test $client_eviction
+            verify_eviction_test $client_eviction
         }
         foreach rr $clients {
             $rr close
@@ -112,21 +113,28 @@ start_server {tags {"maxmemory" "external:skip"}} {
         test "eviction due to output buffers of pubsub, client eviction: $client_eviction" {
             init_test $client_eviction
 
-            for {set j 0} {$j < 10} {incr j} {
-                set rr [redis_deferring_client]
+            for {set j 0} {$j < 20} {incr j} {
+                set rr [redis_client]
                 lappend clients $rr
             }
 
             foreach rr $clients {
                 $rr subscribe bla
-                $rr flush
             }
 
-            for {set j 0} {$j < 40} {incr j} {
-                catch {r publish bla [string repeat x 100000]} err
+            # Generate client output buffers via PUBLISH until we can observe some effect on 
+            # keys / client eviction, or we time out.
+            set bigstr [string repeat x 100000]
+            set t [clock seconds]
+            while {![check_eviction_test $client_eviction] && [expr [clock seconds] - $t] < 20} {
+                if {[catch { r publish bla $bigstr } err]} {
+                    if $::verbose {
+                        puts "Error publishing: $err"
+                    }
+                }
             }
 
-            verify_test $client_eviction
+            verify_eviction_test $client_eviction
         }
         foreach rr $clients {
             $rr close

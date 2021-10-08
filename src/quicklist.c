@@ -45,11 +45,16 @@
 #define REDIS_STATIC static
 #endif
 
-/* Optimization levels for size-based filling */
+/* Optimization levels for size-based filling.
+ * Note that the largest possible limit is 16k, so even if each record takes
+ * just one byte, it still won't overflow the 16 bit count field. */
 static const size_t optimization_level[] = {4096, 8192, 16384, 32768, 65536};
 
 /* Maximum size in bytes of any multi-element ziplist.
- * Larger values will live in their own isolated ziplists. */
+ * Larger values will live in their own isolated ziplists.
+ * This is used only if we're limited by record count. when we're limited by
+ * size, the maximum limit is bigger, but still safe.
+ * 8k is a recommended / default size limit */
 #define SIZE_SAFETY_LIMIT 8192
 
 /* Minimum ziplist size in bytes for attempting compression. */
@@ -444,6 +449,8 @@ REDIS_STATIC int _quicklistNodeAllowInsert(const quicklistNode *node,
     unsigned int new_sz = node->sz + sz + ziplist_overhead;
     if (likely(_quicklistNodeSizeMeetsOptimizationRequirement(new_sz, fill)))
         return 1;
+    /* when we return 1 above we know that the limit is a size limit (which is
+     * safe, see comments next to optimization_level and SIZE_SAFETY_LIMIT) */
     else if (!sizeMeetsSafetyLimit(new_sz))
         return 0;
     else if ((int)node->count < fill)
@@ -463,6 +470,8 @@ REDIS_STATIC int _quicklistNodeAllowMerge(const quicklistNode *a,
     unsigned int merge_sz = a->sz + b->sz - 11;
     if (likely(_quicklistNodeSizeMeetsOptimizationRequirement(merge_sz, fill)))
         return 1;
+    /* when we return 1 above we know that the limit is a size limit (which is
+     * safe, see comments next to optimization_level and SIZE_SAFETY_LIMIT) */
     else if (!sizeMeetsSafetyLimit(merge_sz))
         return 0;
     else if ((int)(a->count + b->count) <= fill)
@@ -482,6 +491,7 @@ REDIS_STATIC int _quicklistNodeAllowMerge(const quicklistNode *a,
  * Returns 1 if new head created. */
 int quicklistPushHead(quicklist *quicklist, void *value, size_t sz) {
     quicklistNode *orig_head = quicklist->head;
+    assert(sz < UINT32_MAX); /* TODO: add support for quicklist nodes that are sds encoded (not zipped) */
     if (likely(
             _quicklistNodeAllowInsert(quicklist->head, quicklist->fill, sz))) {
         quicklist->head->zl =
@@ -505,6 +515,7 @@ int quicklistPushHead(quicklist *quicklist, void *value, size_t sz) {
  * Returns 1 if new tail created. */
 int quicklistPushTail(quicklist *quicklist, void *value, size_t sz) {
     quicklistNode *orig_tail = quicklist->tail;
+    assert(sz < UINT32_MAX); /* TODO: add support for quicklist nodes that are sds encoded (not zipped) */
     if (likely(
             _quicklistNodeAllowInsert(quicklist->tail, quicklist->fill, sz))) {
         quicklist->tail->zl =
@@ -853,6 +864,7 @@ REDIS_STATIC void _quicklistInsert(quicklist *quicklist, quicklistEntry *entry,
     int fill = quicklist->fill;
     quicklistNode *node = entry->node;
     quicklistNode *new_node = NULL;
+    assert(sz < UINT32_MAX); /* TODO: add support for quicklist nodes that are sds encoded (not zipped) */
 
     if (!node) {
         /* we have no reference node, so let's create only node in the list */

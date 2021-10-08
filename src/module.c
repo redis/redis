@@ -60,6 +60,7 @@
 #include <dlfcn.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <fcntl.h>
 
 /* --------------------------------------------------------------------------
  * Private data structures used by the modules system. Those are data
@@ -1531,7 +1532,15 @@ void RM_FreeString(RedisModuleCtx *ctx, RedisModuleString *str) {
  * into a string that lives after the callback function returns, if
  * no FreeString() call is performed.
  *
- * It is possible to call this function with a NULL context. */
+ * It is possible to call this function with a NULL context.
+ *
+ * When strings are going to be retained for an extended duration, it is good
+ * practice to also call RedisModule_TrimStringAllocation() in order to
+ * optimize memory usage.
+ *
+ * Threaded modules that reference retained strings from other threads *must*
+ * explicitly trim the allocation as soon as the string is retained. Not doing
+ * so may result with automatic trimming which is not thread safe. */
 void RM_RetainString(RedisModuleCtx *ctx, RedisModuleString *str) {
     if (ctx == NULL || !autoMemoryFreed(ctx,REDISMODULE_AM_STRING,str)) {
         /* Increment the string reference counting only if we can't
@@ -1566,7 +1575,14 @@ void RM_RetainString(RedisModuleCtx *ctx, RedisModuleString *str) {
 * returned RedisModuleString.
 *
 * It is possible to call this function with a NULL context.
-*/
+*
+ * When strings are going to be held for an extended duration, it is good
+ * practice to also call RedisModule_TrimStringAllocation() in order to
+ * optimize memory usage.
+ *
+ * Threaded modules that reference held strings from other threads *must*
+ * explicitly trim the allocation as soon as the string is held. Not doing
+ * so may result with automatic trimming which is not thread safe. */
 RedisModuleString* RM_HoldString(RedisModuleCtx *ctx, RedisModuleString *str) {
     if (str->refcount == OBJ_STATIC_REFCOUNT) {
         return RM_CreateStringFromString(ctx, str);
@@ -1703,6 +1719,34 @@ int RM_StringAppendBuffer(RedisModuleCtx *ctx, RedisModuleString *str, const cha
     if (str == NULL) return REDISMODULE_ERR;
     str->ptr = sdscatlen(str->ptr,buf,len);
     return REDISMODULE_OK;
+}
+
+/* Trim possible excess memory allocated for a RedisModuleString.
+ *
+ * Sometimes a RedisModuleString may have more memory allocated for
+ * it than required, typically for argv arguments that were constructed
+ * from network buffers. This function optimizes such strings by reallocating
+ * their memory, which is useful for strings that are not short lived but
+ * retained for an extended duration.
+ *
+ * This operation is *not thread safe* and should only be called when
+ * no concurrent access to the string is guaranteed. Using it for an argv
+ * string in a module command before the string is potentially available
+ * to other threads is generally safe.
+ *
+ * Currently, Redis may also automatically trim retained strings when a
+ * module command returns. However, doing this explicitly should still be
+ * a preferred option:
+ *
+ * 1. Future versions of Redis may abandon auto-trimming.
+ * 2. Auto-trimming as currently implemented is *not thread safe*.
+ *    A background thread manipulating a recently retained string may end up
+ *    in a race condition with the auto-trim, which could result with
+ *    data corruption.
+ */
+void RM_TrimStringAllocation(RedisModuleString *str) {
+    if (!str) return;
+    trimStringObjectIfNeeded(str);
 }
 
 /* --------------------------------------------------------------------------
@@ -4021,6 +4065,7 @@ int RM_HashGet(RedisModuleKey *key, int flags, ...) {
  * - EDOM if the given ID was 0-0 or not greater than all other IDs in the
  *   stream (only if the AUTOID flag is unset)
  * - EFBIG if the stream has reached the last possible ID
+ * - ERANGE if the elements are too large to be stored.
  */
 int RM_StreamAdd(RedisModuleKey *key, int flags, RedisModuleStreamID *id, RedisModuleString **argv, long numfields) {
     /* Validate args */
@@ -4064,8 +4109,9 @@ int RM_StreamAdd(RedisModuleKey *key, int flags, RedisModuleStreamID *id, RedisM
         use_id_ptr = &use_id;
     }
     if (streamAppendItem(s, argv, numfields, &added_id, use_id_ptr) == C_ERR) {
-        /* ID not greater than all existing IDs in the stream */
-        errno = EDOM;
+        /* Either the ID not greater than all existing IDs in the stream, or
+         * the elements are too large to be stored. either way, errno is already
+         * set by streamAppendItem. */
         return REDISMODULE_ERR;
     }
     /* Postponed signalKeyAsReady(). Done implicitly by moduleCreateEmptyKey()
@@ -5679,8 +5725,8 @@ void RM_DigestEndSequence(RedisModuleDigest *md) {
     memset(md->o,0,sizeof(md->o));
 }
 
-/* Decode a serialized representation of a module data type 'mt' from string
- * 'str' and return a newly allocated value, or NULL if decoding failed.
+/* Decode a serialized representation of a module data type 'mt', in a specific encoding version 'encver'
+ * from string 'str' and return a newly allocated value, or NULL if decoding failed.
  *
  * This call basically reuses the 'rdb_load' callback which module data types
  * implement in order to allow a module to arbitrarily serialize/de-serialize
@@ -5693,7 +5739,7 @@ void RM_DigestEndSequence(RedisModuleDigest *md) {
  * If this is NOT done, Redis will handle corrupted (or just truncated) serialized
  * data by producing an error message and terminating the process.
  */
-void *RM_LoadDataTypeFromString(const RedisModuleString *str, const moduleType *mt) {
+void *RM_LoadDataTypeFromStringEncver(const RedisModuleString *str, const moduleType *mt, int encver) {
     rio payload;
     RedisModuleIO io;
     void *ret;
@@ -5705,12 +5751,19 @@ void *RM_LoadDataTypeFromString(const RedisModuleString *str, const moduleType *
      * need to make sure we read the same.
      */
     io.ver = 2;
-    ret = mt->rdb_load(&io,0);
+    ret = mt->rdb_load(&io,encver);
     if (io.ctx) {
         moduleFreeContext(io.ctx);
         zfree(io.ctx);
     }
     return ret;
+}
+
+/* Similar to RM_LoadDataTypeFromStringEncver, original version of the API, kept
+ * for backward compatibility. 
+ */
+void *RM_LoadDataTypeFromString(const RedisModuleString *str, const moduleType *mt) {
+    return RM_LoadDataTypeFromStringEncver(str, mt, 0);
 }
 
 /* Encode a module data type 'mt' value 'data' into serialized form, and return it
@@ -9328,21 +9381,18 @@ void moduleInitModulesSystem(void) {
     server.module_client = NULL;
 
     moduleRegisterCoreAPI();
-    if (pipe(server.module_blocked_pipe) == -1) {
+
+    /* Create a pipe for module threads to be able to wake up the redis main thread.
+     * Make the pipe non blocking. This is just a best effort aware mechanism
+     * and we do not want to block not in the read nor in the write half.
+     * Enable close-on-exec flag on pipes in case of the fork-exec system calls in
+     * sentinels or redis servers. */
+    if (anetPipe(server.module_blocked_pipe, O_CLOEXEC|O_NONBLOCK, O_CLOEXEC|O_NONBLOCK) == -1) {
         serverLog(LL_WARNING,
             "Can't create the pipe for module blocking commands: %s",
             strerror(errno));
         exit(1);
     }
-    /* Make the pipe non blocking. This is just a best effort aware mechanism
-     * and we do not want to block not in the read nor in the write half. */
-    anetNonBlock(NULL,server.module_blocked_pipe[0]);
-    anetNonBlock(NULL,server.module_blocked_pipe[1]);
-
-    /* Enable close-on-exec flag on pipes in case of the fork-exec system calls in
-     * sentinels or redis servers. */
-    anetCloexec(server.module_blocked_pipe[0]);
-    anetCloexec(server.module_blocked_pipe[1]);
 
     /* Create the timers radix tree. */
     Timers = raxNew();
@@ -10309,12 +10359,14 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(LoadLongDouble);
     REGISTER_API(SaveDataTypeToString);
     REGISTER_API(LoadDataTypeFromString);
+    REGISTER_API(LoadDataTypeFromStringEncver);
     REGISTER_API(EmitAOF);
     REGISTER_API(Log);
     REGISTER_API(LogIOError);
     REGISTER_API(_Assert);
     REGISTER_API(LatencyAddSample);
     REGISTER_API(StringAppendBuffer);
+    REGISTER_API(TrimStringAllocation);
     REGISTER_API(RetainString);
     REGISTER_API(HoldString);
     REGISTER_API(StringCompare);
