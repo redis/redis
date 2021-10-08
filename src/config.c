@@ -556,9 +556,6 @@ void loadServerConfigFromString(char *config) {
                                    argv[1], strerror(errno));
                 goto loaderr;
             }
-        } else if (!strcasecmp(argv[0],"logfile") && argc == 2) {
-            zfree(server.logfile);
-            server.logfile = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"include") && argc == 2) {
             loadServerConfig(argv[1], 0, NULL);
         } else if ((!strcasecmp(argv[0],"slaveof") ||
@@ -987,9 +984,6 @@ void configGetCommand(client *c) {
             matches++;
         }
     }
-
-    /* String values */
-    config_get_string_field("logfile",server.logfile);
 
     /* Numerical values */
     config_get_numerical_field("watchdog-period",server.watchdog_period);
@@ -1806,7 +1800,6 @@ int rewriteConfig(char *path, int force_write) {
 
     rewriteConfigBindOption(state);
     rewriteConfigOctalOption(state,"unixsocketperm",server.unixsocketperm,CONFIG_DEFAULT_UNIX_SOCKET_PERM);
-    rewriteConfigStringOption(state,"logfile",server.logfile,CONFIG_DEFAULT_LOGFILE);
     rewriteConfigSaveOption(state);
     rewriteConfigUserOption(state);
     rewriteConfigDirOption(state);
@@ -2613,6 +2606,7 @@ standardConfig configs[] = {
     createStringConfig("ignore-warnings", NULL, MODIFIABLE_CONFIG, ALLOW_EMPTY_STRING, server.ignore_warnings, "", NULL, NULL),
     createStringConfig("proc-title-template", NULL, MODIFIABLE_CONFIG, ALLOW_EMPTY_STRING, server.proc_title_template, CONFIG_DEFAULT_PROC_TITLE_TEMPLATE, isValidProcTitleTemplate, updateProcTitleTemplate),
     createStringConfig("bind-source-addr", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.bind_source_addr, NULL, NULL, NULL),
+    createStringConfig("logfile", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.logfile, "", NULL, NULL),
 
     /* SDS Configs */
     createSDSConfig("masterauth", NULL, MODIFIABLE_CONFIG | SENSITIVE_CONFIG, EMPTY_STRING_IS_NULL, server.masterauth, NULL, NULL, NULL),
