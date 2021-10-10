@@ -181,7 +181,7 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
     serverAssertWithInfo(NULL, key, de != NULL);
     dictSetVal(db->dict, de, val);
     signalKeyAsReady(db, key, val->type);
-    if (server.cluster_enabled) slotToKeyAddEntry(de);
+    if (server.cluster_enabled) slotToKeyAddEntry(de, db);
 }
 
 /* This is a special version of dbAdd() that is used only when loading
@@ -199,7 +199,7 @@ int dbAddRDBLoad(redisDb *db, sds key, robj *val) {
     dictEntry *de = dictAddRaw(db->dict, key, NULL);
     if (de == NULL) return 0;
     dictSetVal(db->dict, de, val);
-    if (server.cluster_enabled) slotToKeyAddEntry(de);
+    if (server.cluster_enabled) slotToKeyAddEntry(de, db);
     return 1;
 }
 
@@ -311,7 +311,7 @@ static int dbGenericDelete(redisDb *db, robj *key, int async) {
             freeObjAsync(key, val, db->id);
             dictSetVal(db->dict, de, NULL);
         }
-        if (server.cluster_enabled) slotToKeyDelEntry(de);
+        if (server.cluster_enabled) slotToKeyDelEntry(de, db);
         dictFreeUnlinkedEntry(db->dict,de);
         return 1;
     } else {
@@ -449,7 +449,7 @@ long long emptyDb(int dbnum, int flags, void(callback)(dict*)) {
     /* Flush slots to keys map if enable cluster, we can flush entire
      * slots to keys map whatever dbnum because only support one DB
      * in cluster mode. */
-    if (server.cluster_enabled) slotToKeyFlush();
+    if (server.cluster_enabled) slotToKeyFlush(server.db);
 
     if (dbnum == -1) flushSlaveKeysWithExpireList();
 
@@ -463,41 +463,40 @@ long long emptyDb(int dbnum, int flags, void(callback)(dict*)) {
 }
 
 /* Initialize temporary db on replica for use during diskless replication. */
-tempDb *initTempDb(void) {
-    tempDb *tempDb = zmalloc(sizeof(tempDb));
-
-    tempDb->dbarray = zcalloc(sizeof(redisDb)*server.dbnum);
+redisDb *initTempDb(void) {
+    redisDb *tempDb = zcalloc(sizeof(redisDb)*server.dbnum);
     for (int i=0; i<server.dbnum; i++) {
-        tempDb->dbarray[i].dict = dictCreate(&dbDictType);
-        tempDb->dbarray[i].expires = dictCreate(&dbExpiresDictType);
+        tempDb[i].dict = dictCreate(&dbDictType);
+        tempDb[i].expires = dictCreate(&dbExpiresDictType);
+        tempDb[i].slots_to_keys = NULL;
     }
 
     if (server.cluster_enabled) {
-        /* Prepare temp slots_to_keys to be written during async diskless replication. */
-        slotToKeyTempDbFlush();
+        /* Prepare temp slots to keys map to be written during async diskless replication. */
+        tempDb->slots_to_keys = zmalloc(sizeof(*tempDb->slots_to_keys));
+        slotToKeyFlush(tempDb);
     }
 
     return tempDb;
 }
 
 /* Discard tempDb, this can be slow (similar to FLUSHALL), but it's always async */
- void discardTempDb(tempDb *tempDb, void(callback)(dict*)) {
+ void discardTempDb(redisDb *tempDb, void(callback)(dict*)) {
     int async = 1;
 
     /* Release temp DBs */
-    emptyDbStructure(tempDb->dbarray, -1, async, callback);
+    emptyDbStructure(tempDb, -1, async, callback);
     for (int i=0; i<server.dbnum; i++) {
-        dictRelease(tempDb->dbarray[i].dict);
-        dictRelease(tempDb->dbarray[i].expires);
+        dictRelease(tempDb[i].dict);
+        dictRelease(tempDb[i].expires);
     }
-
-    zfree(tempDb->dbarray);
-    zfree(tempDb);
 
     if (server.cluster_enabled) {
-        /* Flush temp slots_to_keys. */
-        slotToKeyTempDbFlush();
+        /* Flush temp slots to keys map. */
+        slotToKeyFlush(tempDb);
     }
+
+    zfree(tempDb);
 }
 
 int selectDb(client *c, int id) {
@@ -1316,16 +1315,16 @@ int dbSwapDatabases(int id1, int id2) {
 /* Logically, this discards (flushes) the old main database, and apply the newly loaded
  * database (temp) as the main (active) database, the actual freeing of old database
  * (which will now be placed in the temp one) is done later. */
-void swapMainDbWithTempDb(tempDb *tempDb) {
+void swapMainDbWithTempDb(redisDb *tempDb) {
     if (server.cluster_enabled) {
         /* Copy slots_to_keys from tempdb just loaded to main slots_to_keys. */
-        memcpy(server.cluster->slots_to_keys, server.cluster->slots_to_keys_tempdb,
-           sizeof(server.cluster->slots_to_keys_tempdb));
+        memcpy(*server.db->slots_to_keys, *tempDb->slots_to_keys,
+           sizeof(*tempDb->slots_to_keys));
     }
 
     for (int i=0; i<server.dbnum; i++) {
         redisDb aux = server.db[i];
-        redisDb *activedb = &server.db[i], *newdb = &(tempDb->dbarray[i]);
+        redisDb *activedb = &server.db[i], *newdb = &tempDb[i];
 
         /* Swap hash tables. Note that we don't swap blocking_keys,
          * ready_keys and watched_keys, since clients 

@@ -588,8 +588,10 @@ void clusterInit(void) {
         serverPanic("Unrecoverable error creating Redis Cluster socket accept handler.");
     }
 
+    server.db->slots_to_keys = zmalloc(sizeof(*server.db->slots_to_keys));
+
     /* Reset data for the Slot to key API. */
-    slotToKeyFlush();
+    slotToKeyFlush(server.db);
 
     /* Set myself->port/cport/pport to my listening ports, we'll just need to
      * discover the IP address via MEET messages. */
@@ -4872,7 +4874,7 @@ NULL
         unsigned int keys_in_slot = countKeysInSlot(slot);
         unsigned int numkeys = maxkeys > keys_in_slot ? keys_in_slot : maxkeys;
         addReplyArrayLen(c,numkeys);
-        dictEntry *de = server.cluster->slots_to_keys[slot].head;
+        dictEntry *de = (*server.db->slots_to_keys)[slot].head;
         for (unsigned int j = 0; j < numkeys; j++) {
             serverAssert(de != NULL);
             sds sdskey = dictGetKey(de);
@@ -6109,53 +6111,31 @@ int clusterRedirectBlockedClientIfNeeded(client *c) {
     return 0;
 }
 
-/* server.cluster->slots_to_keys
- *     Represents the slots to keys map of current database being served.
- *     We add/remove/read from it when there's no replication in progress or when
- *     the replication is not async.
- * 
- * server.cluster->slots_to_keys_tempdb
- *     Is only relevant when there's an async diskless replication in progress.
- *     During async loading that is where we write before it eventually becomes the
- *     main slots_to_keys.
- *
- * The purpose of this method is to facilitate correct selection of slots to keys object.
- * When we simply need to read it with the purpose of serving data and not changing it,
- * server.cluster->slots_to_keys must be accessed instead of calling this method. */
-clusterSlotsToKeysData *slotToKeyGetForChanging(void) {
-    if (server.async_loading == 1)
-        return &server.cluster->slots_to_keys_tempdb;
-    else
-        return &server.cluster->slots_to_keys;
-}
-
 /* Slot to Key API. This is used by Redis Cluster in order to obtain in
  * a fast way a key that belongs to a specified hash slot. This is useful
  * while rehashing the cluster and in other conditions when we need to
  * understand if we have keys for a given hash slot. */
 
-void slotToKeyAddEntry(dictEntry *entry) {
+void slotToKeyAddEntry(dictEntry *entry, redisDb *db) {
     sds key = entry->key;
     unsigned int hashslot = keyHashSlot(key, sdslen(key));
-    clusterSlotsToKeysData *slots_to_keys = slotToKeyGetForChanging();
-    (*slots_to_keys)[hashslot].count++;
+    (*db->slots_to_keys)[hashslot].count++;
 
     /* Insert entry before the first element in the list. */
-    dictEntry *first = (*slots_to_keys)[hashslot].head;
+    dictEntry *first = (*db->slots_to_keys)[hashslot].head;
     dictEntryNextInSlot(entry) = first;
     if (first != NULL) {
         serverAssert(dictEntryPrevInSlot(first) == NULL);
         dictEntryPrevInSlot(first) = entry;
     }
     serverAssert(dictEntryPrevInSlot(entry) == NULL);
-    (*slots_to_keys)[hashslot].head = entry;
+    (*db->slots_to_keys)[hashslot].head = entry;
 }
 
-void slotToKeyDelEntry(dictEntry *entry) {
+void slotToKeyDelEntry(dictEntry *entry, redisDb *db) {
     sds key = entry->key;
     unsigned int hashslot = keyHashSlot(key, sdslen(key));
-    clusterSlotsToKeysData *slots_to_keys = slotToKeyGetForChanging();
-    (*slots_to_keys)[hashslot].count--;
+    (*db->slots_to_keys)[hashslot].count--;
 
     /* Connect previous and next entries to each other. */
     dictEntry *next = dictEntryNextInSlot(entry);
@@ -6167,14 +6147,14 @@ void slotToKeyDelEntry(dictEntry *entry) {
         dictEntryNextInSlot(prev) = next;
     } else {
         /* The removed entry was the first in the list. */
-        serverAssert((*slots_to_keys)[hashslot].head == entry);
-        (*slots_to_keys)[hashslot].head = next;
+        serverAssert((*db->slots_to_keys)[hashslot].head == entry);
+        (*db->slots_to_keys)[hashslot].head = next;
     }
 }
 
 /* Updates neighbour entries when an entry has been replaced (e.g. reallocated
  * during active defrag). */
-void slotToKeyReplaceEntry(dictEntry *entry) {
+void slotToKeyReplaceEntry(dictEntry *entry, redisDb *db) {
     dictEntry *next = dictEntryNextInSlot(entry);
     dictEntry *prev = dictEntryPrevInSlot(entry);
     if (next != NULL) {
@@ -6186,28 +6166,21 @@ void slotToKeyReplaceEntry(dictEntry *entry) {
         /* The replaced entry was the first in the list. */
         sds key = entry->key;
         unsigned int hashslot = keyHashSlot(key, sdslen(key));
-        clusterSlotsToKeysData *slots_to_keys = slotToKeyGetForChanging();
-        (*slots_to_keys)[hashslot].head = entry;
+        (*db->slots_to_keys)[hashslot].head = entry;
     }
 }
 
 /* Empty the slots-keys map of Redis Cluster. */
-void slotToKeyFlush(void) {
-    memset(&server.cluster->slots_to_keys, 0,
-           sizeof(server.cluster->slots_to_keys));
-}
-
-/* Empty the slots-keys map linked to tempDb being asynchronously loaded. */
-void slotToKeyTempDbFlush(void) {
-    memset(&server.cluster->slots_to_keys_tempdb, 0,
-           sizeof(server.cluster->slots_to_keys_tempdb));
+void slotToKeyFlush(redisDb *db) {
+    memset(*db->slots_to_keys, 0,
+           sizeof(*db->slots_to_keys));
 }
 
 /* Remove all the keys in the specified hash slot.
  * The number of removed items is returned. */
 unsigned int delKeysInSlot(unsigned int hashslot) {
     unsigned int j = 0;
-    dictEntry *de = server.cluster->slots_to_keys[hashslot].head;
+    dictEntry *de = (*server.db->slots_to_keys)[hashslot].head;
     while (de != NULL) {
         sds sdskey = dictGetKey(de);
         de = dictEntryNextInSlot(de);
@@ -6220,5 +6193,5 @@ unsigned int delKeysInSlot(unsigned int hashslot) {
 }
 
 unsigned int countKeysInSlot(unsigned int hashslot) {
-    return server.cluster->slots_to_keys[hashslot].count;
+    return (*server.db->slots_to_keys)[hashslot].count;
 }

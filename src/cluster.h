@@ -159,8 +159,6 @@ typedef struct clusterState {
     clusterNode *migrating_slots_to[CLUSTER_SLOTS];
     clusterNode *importing_slots_from[CLUSTER_SLOTS];
     clusterNode *slots[CLUSTER_SLOTS];
-    clusterSlotsToKeysData slots_to_keys;
-    clusterSlotsToKeysData slots_to_keys_tempdb; /* Slots to keys written during async loading */
     /* The following fields are used to take the slave state on elections. */
     mstime_t failover_auth_time; /* Time of previous or next election. */
     int failover_auth_count;    /* Number of votes received so far. */
@@ -307,11 +305,9 @@ unsigned long getClusterConnectionsCount(void);
 int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uint8_t type, unsigned char *payload, uint32_t len);
 void clusterPropagatePublish(robj *channel, robj *message);
 unsigned int keyHashSlot(char *key, int keylen);
-clusterSlotsToKeysData *slotToKeyGetForChanging(void);
-void slotToKeyAddEntry(dictEntry *entry);
-void slotToKeyDelEntry(dictEntry *entry);
-void slotToKeyReplaceEntry(dictEntry *entry);
-void slotToKeyFlush(void);
-void slotToKeyTempDbFlush(void);
+void slotToKeyAddEntry(dictEntry *entry, redisDb *db);
+void slotToKeyDelEntry(dictEntry *entry, redisDb *db);
+void slotToKeyReplaceEntry(dictEntry *entry, redisDb *db);
+void slotToKeyFlush(redisDb *db);
 
 #endif /* __CLUSTER_H */

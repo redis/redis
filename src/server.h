@@ -769,6 +769,15 @@ typedef struct clientReplyBlock {
     char buf[];
 } clientReplyBlock;
 
+/* State for the Slot to Key API, for a single slot. The keys in the same slot
+ * are linked together using dictEntry metadata. See also "Slot to Key API" in
+ * cluster.c. */
+struct clusterSlotToKeys {
+    uint64_t count;             /* Number of keys in the slot. */
+    dictEntry *head;            /* The first key-value entry in the slot. */
+};
+typedef struct clusterSlotToKeys clusterSlotsToKeysData[CLUSTER_SLOTS];
+
 /* Redis database representation. There are multiple databases identified
  * by integers from 0 (the default database) up to the max configured
  * database. The database number is the 'id' field in the structure. */
@@ -782,22 +791,8 @@ typedef struct redisDb {
     long long avg_ttl;          /* Average TTL, just for stats */
     unsigned long expires_cursor; /* Cursor of the active expire cycle. */
     list *defrag_later;         /* List of key names to attempt to defrag one by one, gradually. */
+    clusterSlotsToKeysData *slots_to_keys; /* Array of slots to keys. Only used in cluster mode (db 0). */
 } redisDb;
-
-/* State for the Slot to Key API, for a single slot. The keys in the same slot
- * are linked together using dictEntry metadata. See also "Slot to Key API" in
- * cluster.c. */
-struct clusterSlotToKeys {
-    uint64_t count;             /* Number of keys in the slot. */
-    dictEntry *head;            /* The first key-value entry in the slot. */
-};
-typedef struct clusterSlotToKeys clusterSlotsToKeysData[CLUSTER_SLOTS];
-
-/* Declare temporary database that include redis main DBs and slots to keys map.
- * Used during diskless replication to store new data without putting server in LOADING state. */
-typedef struct tempDb {
-    redisDb *dbarray;
-} tempDb;
 
 /* Client MULTI/EXEC state */
 typedef struct multiCmd {
@@ -2584,8 +2579,8 @@ long long emptyDb(int dbnum, int flags, void(callback)(dict*));
 long long emptyDbStructure(redisDb *dbarray, int dbnum, int async, void(callback)(dict*));
 void flushAllDataAndResetRDB(int flags);
 long long dbTotalServerKeyCount();
-tempDb *initTempDb(void);
-void discardTempDb(tempDb *tempDb, void(callback)(dict*));
+redisDb *initTempDb(void);
+void discardTempDb(redisDb *tempDb, void(callback)(dict*));
 
 
 int selectDb(client *c, int id);
@@ -2960,7 +2955,7 @@ void debugDelay(int usec);
 void killIOThreads(void);
 void killThreads(void);
 void makeThreadKillable(void);
-void swapMainDbWithTempDb(tempDb *tempDb);
+void swapMainDbWithTempDb(redisDb *tempDb);
 
 /* Use macro for checking log level to avoid evaluating arguments in cases log
  * should be ignored due to low level. */
