@@ -7562,7 +7562,7 @@ static void getKeySizes(redisReply *keys, typeinfo **types,
 }
 
 static void findBigKeys(int memkeys, unsigned memkeys_samples) {
-    unsigned long long sampled = 0, total_keys, totlen=0, *sizes=NULL, it=0;
+    unsigned long long sampled = 0, total_keys, totlen=0, *sizes=NULL, it=0, scan_loops = 0;
     redisReply *reply, *keys;
     unsigned int arrsize=0, i;
     dictIterator *di;
@@ -7593,6 +7593,7 @@ static void findBigKeys(int memkeys, unsigned memkeys_samples) {
 
         /* Grab some keys and point to the keys array */
         reply = sendScan(&it);
+        scan_loops++;
         keys  = reply->element[1];
 
         /* Reallocate our type and size array if we need to */
@@ -7650,7 +7651,7 @@ static void findBigKeys(int memkeys, unsigned memkeys_samples) {
         }
 
         /* Sleep if we've been directed to do so */
-        if(sampled && (sampled %100) == 0 && config.interval) {
+        if (config.interval && (scan_loops % 100) == 0) {
             usleep(config.interval);
         }
 
@@ -7737,7 +7738,7 @@ static void findHotKeys(void) {
     redisReply *keys, *reply;
     unsigned long long counters[HOTKEYS_SAMPLE] = {0};
     sds hotkeys[HOTKEYS_SAMPLE] = {NULL};
-    unsigned long long sampled = 0, total_keys, *freqs = NULL, it = 0;
+    unsigned long long sampled = 0, total_keys, *freqs = NULL, it = 0, scan_loops = 0;
     unsigned int arrsize = 0, i, k;
     double pct;
 
@@ -7756,6 +7757,7 @@ static void findHotKeys(void) {
 
         /* Grab some keys and point to the keys array */
         reply = sendScan(&it);
+        scan_loops++;
         keys  = reply->element[1];
 
         /* Reallocate our freqs array if we need to */
@@ -7800,7 +7802,7 @@ static void findHotKeys(void) {
         }
 
         /* Sleep if we've been directed to do so */
-        if(sampled && (sampled %100) == 0 && config.interval) {
+        if (config.interval && (scan_loops % 100) == 0) {
             usleep(config.interval);
         }
 
