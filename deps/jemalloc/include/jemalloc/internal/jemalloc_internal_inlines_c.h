@@ -232,7 +232,8 @@ iget_defrag_hint(tsdn_t *tsdn, void* ptr, int *bin_util, int *run_util) {
 		extent_t *slab = iealloc(tsdn, ptr);
 		arena_t *arena = extent_arena_get(slab);
 		szind_t binind = extent_szind_get(slab);
-		bin_t *bin = &arena->bins[binind];
+		unsigned binshard = extent_binshard_get(slab);
+		bin_t *bin = &arena->bins[binind].bin_shards[binshard];
 		malloc_mutex_lock(tsdn, &bin->lock);
 		/* don't bother moving allocations from the slab currently used for new allocations */
 		if (slab != bin->slabcur) {
