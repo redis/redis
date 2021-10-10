@@ -149,36 +149,6 @@ quicklist *quicklistNew(int fill, int compress) {
     return quicklist;
 }
 
-void quicklistRepr(unsigned char *ql, int full) {
-    int i=0;
-    quicklist *quicklist  = (struct quicklist*) ql;
-    printf("{count : %ld}\n", quicklist->count);
-    printf("{len : %ld}\n", quicklist->len);
-    printf("{fill : %d}\n", quicklist->fill);
-    printf("{compress : %d}\n", quicklist->compress);
-    printf("{bookmark_count : %d}\n", quicklist->bookmark_count);
-    quicklistNode* node = quicklist->head;
-
-    while(node != NULL) {
-        printf("{quicklist node(%d)\n", i++);
-        printf("{container : %s, encoding: %s, size: %zu}\n", QL_NODE_IS_PLAIN(node) ? "PLAIN": "PACKED",
-               (node->encoding == QUICKLIST_NODE_ENCODING_RAW) ? "RAW": "LZF", node->sz);
-
-        if (full) {
-            if (node->container == QUICKLIST_NODE_CONTAINER_ZIPLIST) {
-                printf("{ ziplist:\n");
-                ziplistRepr(node->entry);
-                printf("}\n");
-
-            } else if (QL_NODE_IS_PLAIN(node)) {
-                printf("{ entry : %s }\n", node->entry);
-            }
-            printf("}\n");
-        }
-        node = node->next;
-    }
-}
-
 REDIS_STATIC quicklistNode *quicklistCreateNode(void) {
     quicklistNode *node;
     node = zmalloc(sizeof(*node));
@@ -299,6 +269,36 @@ size_t quicklistGetLzf(const quicklistNode *node, void **data) {
     quicklistLZF *lzf = (quicklistLZF *)node->entry;
     *data = lzf->compressed;
     return lzf->sz;
+}
+
+void quicklistRepr(unsigned char *ql, int full) {
+    int i=0;
+    quicklist *quicklist  = (struct quicklist*) ql;
+    printf("{count : %ld}\n", quicklist->count);
+    printf("{len : %ld}\n", quicklist->len);
+    printf("{fill : %d}\n", quicklist->fill);
+    printf("{compress : %d}\n", quicklist->compress);
+    printf("{bookmark_count : %d}\n", quicklist->bookmark_count);
+    quicklistNode* node = quicklist->head;
+
+    while(node != NULL) {
+        printf("{quicklist node(%d)\n", i++);
+        printf("{container : %s, encoding: %s, size: %zu}\n", QL_NODE_IS_PLAIN(node) ? "PLAIN": "PACKED",
+               (node->encoding == QUICKLIST_NODE_ENCODING_RAW) ? "RAW": "LZF", node->sz);
+
+        if (full) {
+            if (node->container == QUICKLIST_NODE_CONTAINER_ZIPLIST) {
+                printf("{ ziplist:\n");
+                ziplistRepr(node->entry);
+                printf("}\n");
+
+            } else if (QL_NODE_IS_PLAIN(node)) {
+                printf("{ entry : %s }\n", node->entry);
+            }
+            printf("}\n");
+        }
+        node = node->next;
+    }
 }
 
 #define quicklistAllowsCompression(_ql) ((_ql)->compress != 0)
@@ -714,6 +714,7 @@ REDIS_STATIC int quicklistDelIndex(quicklist *quicklist, quicklistNode *node,
 
     if(unlikely(QL_NODE_IS_PLAIN(node))) {
         __quicklistDelNode(quicklist, node);
+        quicklist->count--;
         return 1;
     }
     node->entry = ziplistDelete(node->entry, p);
@@ -779,12 +780,14 @@ int quicklistReplaceAtIndex(quicklist *quicklist, long index, void *data,
             entry.node->entry = zmalloc(sz);
             memcpy(entry.node->entry, data, sz);
             entry.node->sz = sz;
+            quicklistCompress(quicklist, entry.node);
             return 1;
         }
 
         if (isNewPlain || isCurrentPlain) {
-            quicklistInsertAfter(quicklist, &entry , data, sz);
+            quicklistInsertAfter(quicklist, &entry, data, sz);
             quicklistDelRange(quicklist, index, 1);
+            quicklistCompress(quicklist, entry.node);
             return 1;
         }
 

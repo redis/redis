@@ -664,9 +664,8 @@ NULL
             == NULL) return;
 
         int full = 0;
-        if (c->argc == 4) {
-            full = atoi(c->argv[3]->ptr);;
-        }
+        if (c->argc == 4)
+            full = atoi(c->argv[3]->ptr);
         if (o->encoding != OBJ_ENCODING_QUICKLIST) {
             addReplyError(c,"Not a quicklist encoded object.");
         } else {
@@ -804,7 +803,7 @@ NULL
         server.active_expire_enabled = atoi(c->argv[2]->ptr);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"quicklist-packed-threshold") &&
-    c->argc == 3)
+               c->argc == 3)
     {
         int memerr;
         unsigned long long sz = memtoull((const char *)c->argv[2]->ptr, &memerr);

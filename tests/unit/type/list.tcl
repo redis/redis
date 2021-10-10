@@ -183,7 +183,7 @@ start_server [list overrides [list save ""] ] {
     r config set proto-max-bulk-len 10000000000 ;#10gb
     r config set client-query-buffer-limit 10000000000 ;#10gb
     # this is temporary in order to run in regulat env should be 5gb
-    set str_length 1000
+    set str_length 5000000000
 
     test {4gb check push and pop} {
         r lpush lst 9

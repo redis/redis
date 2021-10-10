@@ -1835,7 +1835,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 return NULL;
             }
             if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
-            if (container == QUICKLIST_NODE_CONTAINER_PLAIN ) {
+            if (container == QUICKLIST_NODE_CONTAINER_PLAIN) {
                 quicklistAppendPlainNode(o->ptr, data, encoded_len);
                 continue;
             }

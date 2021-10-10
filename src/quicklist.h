@@ -146,7 +146,7 @@ typedef struct quicklistEntry {
 #define QUICKLIST_NODE_CONTAINER_PLAIN 1
 #define QUICKLIST_NODE_CONTAINER_ZIPLIST 2
 
-#define QL_NODE_IS_PLAIN(node) (node->container ==  QUICKLIST_NODE_CONTAINER_PLAIN)
+#define QL_NODE_IS_PLAIN(node) ((node)->container ==  QUICKLIST_NODE_CONTAINER_PLAIN)
 
 #define quicklistNodeIsCompressed(node)                                        \
     ((node)->encoding == QUICKLIST_NODE_ENCODING_LZF)
@@ -193,7 +193,6 @@ int quicklistPop(quicklist *quicklist, int where, unsigned char **data,
 unsigned long quicklistCount(const quicklist *ql);
 int quicklistCompare(quicklistEntry* entry, unsigned char *p2, const size_t p2_len);
 size_t quicklistGetLzf(const quicklistNode *node, void **data);
-
 void quicklistRepr(unsigned char *ql, int full);
 
 /* bookmarks */
