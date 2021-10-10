@@ -5146,8 +5146,9 @@ robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, int todb, robj
  *   pointer if the top-level value pointer is defragmented and consequently changes.
  *
  * * **mem_usage2**: Similar to `mem_usage`, but provides the `RedisModuleKeyOptCtx` parameter 
- *   so that meta information such as key name and db id can be obtained, and the `sample_size` for size estimation
- *   (see `memoryCommand` and `objectComputeSize` for more details)
+================================================================================
+ *   so that meta information such as key name and db id can be obtained, and
+ *   the`sample_size` for size estimation (see MEMORY USAGE command).
  * * **free_effort2**: Similar to `free_effort`, but provides the `RedisModuleKeyOptCtx` parameter 
  *   so that meta information such as key name and db id can be obtained.
  * * **unlink2**: Similar to `unlink`, but provides the `RedisModuleKeyOptCtx` parameter 
