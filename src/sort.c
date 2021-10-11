@@ -58,7 +58,7 @@ redisSortOperation *createSortOperation(int type, robj *pattern) {
  *
  * The returned object will always have its refcount increased by 1
  * when it is non-NULL. */
-robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst, int writeflag) {
+robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst) {
     char *p, *f, *k;
     sds spat, ssub;
     robj *keyobj, *fieldobj = NULL, *o;
@@ -106,8 +106,7 @@ robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst, int writeflag)
     decrRefCount(subst); /* Incremented by decodeObject() */
 
     /* Lookup substituted key */
-    int readflags = writeflag ? LOOKUP_NOSTATS | LOOKUP_NONOTIFY : LOOKUP_NONE;
-    o = lookupKeyReadWithFlags(db, keyobj, readflags);
+    o = lookupKeyRead(db, keyobj);
     if (o == NULL) goto noobj;
 
     if (fieldobj) {
@@ -268,8 +267,7 @@ void sortCommandGeneric(client *c, int readonly) {
     }
 
     /* Lookup the key to sort. It must be of the right types */
-    int readflags = storekey ? LOOKUP_NOSTATS | LOOKUP_NONOTIFY : LOOKUP_NONE;
-    sortval = lookupKeyReadWithFlags(c->db, c->argv[1], readflags);
+    sortval = lookupKeyRead(c->db, c->argv[1]);
     if (sortval && sortval->type != OBJ_SET &&
                    sortval->type != OBJ_LIST &&
                    sortval->type != OBJ_ZSET)
@@ -455,7 +453,7 @@ void sortCommandGeneric(client *c, int readonly) {
             robj *byval;
             if (sortby) {
                 /* lookup value to sort by */
-                byval = lookupKeyByPattern(c->db,sortby,vector[j].obj,storekey!=NULL);
+                byval = lookupKeyByPattern(c->db,sortby,vector[j].obj);
                 if (!byval) continue;
             } else {
                 /* use object itself to sort by */
@@ -518,7 +516,7 @@ void sortCommandGeneric(client *c, int readonly) {
             while((ln = listNext(&li))) {
                 redisSortOperation *sop = ln->value;
                 robj *val = lookupKeyByPattern(c->db,sop->pattern,
-                    vector[j].obj,storekey!=NULL);
+                                               vector[j].obj);
 
                 if (sop->type == SORT_OP_GET) {
                     if (!val) {
@@ -548,7 +546,7 @@ void sortCommandGeneric(client *c, int readonly) {
                 while((ln = listNext(&li))) {
                     redisSortOperation *sop = ln->value;
                     robj *val = lookupKeyByPattern(c->db,sop->pattern,
-                        vector[j].obj,storekey!=NULL);
+                                                   vector[j].obj);
 
                     if (sop->type == SORT_OP_GET) {
                         if (!val) val = createStringObject("",0);

@@ -2550,9 +2550,8 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
 
     /* read keys to be used for input */
     src = zcalloc(sizeof(zsetopsrc) * setnum);
-    int readflags = dstkey ? LOOKUP_NOSTATS | LOOKUP_NONOTIFY : LOOKUP_NONE;
     for (i = 0, j = numkeysIndex+1; i < setnum; i++, j++) {
-        robj *obj = lookupKeyReadWithFlags(c->db, c->argv[j], readflags);
+        robj *obj = lookupKeyRead(c->db, c->argv[j]);
         if (obj != NULL) {
             if (obj->type != OBJ_ZSET && obj->type != OBJ_SET) {
                 zfree(src);
@@ -3645,10 +3644,7 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start, int st
     }
 
     /* Step 3: Lookup the key and get the range. */
-    int readflags = handler->dstkey ?
-        LOOKUP_NOSTATS | LOOKUP_NONOTIFY :
-        LOOKUP_NONE;
-    zobj = lookupKeyReadWithFlags(c->db, key, readflags);
+    zobj = lookupKeyRead(c->db, key);
     if (zobj == NULL) {
         if (store) {
             handler->beginResultEmission(handler);

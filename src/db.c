@@ -57,9 +57,32 @@ void updateLFU(robj *val) {
     val->lru = (LFUGetTimeInMinutes()<<8) | counter;
 }
 
-/* Low level key lookup API, not actually called directly from commands
- * implementations that should instead rely on lookupKeyRead(),
- * lookupKeyWrite() and lookupKeyReadWithFlags(). */
+/* Lookup a key for read or write operations, or return NULL if the key is not
+ * found in the specified DB. This function implements the functionality of
+ * lookupKeyRead(), lookupKeyWrite() and their ...WithFlags() variants.
+ *
+ * Side-effects of calling this function:
+ *
+ * 1. A key gets expired if it reached it's TTL.
+ * 2. The key's last access time is updated.
+ * 3. The global keys hits/misses stats are updated (reported in INFO).
+ * 4. If keyspace notifications are enabled, a "keymiss" notification is fired.
+ *
+ * Flags change the behavior of this command:
+ *
+ *  LOOKUP_NONE (or zero): No special flags are passed.
+ *  LOOKUP_NOTOUCH: Don't alter the last access time of the key.
+ *  LOOKUP_NONOTIFY: Don't trigger keyspace event on key miss.
+ *  LOOKUP_NOSTATS: Don't increment key hits/misses couters.
+ *  LOOKUP_NOEXPIRE: Don't check if the key has expired.
+ *  LOOKUP_WRITE: Prepare the key for writing (delete expired keys even on
+ *                replicas, use separate keyspace stats and events (TODO)).
+ *
+ * Note: this function also returns NULL if the key is logically expired but
+ * still existing, in case this is a replica and the LOOKUP_WRITE is not set.
+ * Even if the key expiry is master-driven, we can correctly report a key is
+ * expired on replicas even if the master is lagging expiring our key via DELs
+ * in the replication link. */
 robj *lookupKey(redisDb *db, robj *key, int flags) {
     dictEntry *de = dictFind(db->dict,key->ptr);
     robj *val = NULL;
@@ -85,13 +108,15 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
             }
         }
 
-        if (!(flags & LOOKUP_NOSTATS))
+        if (!(flags & (LOOKUP_NOSTATS | LOOKUP_WRITE)))
             server.stat_keyspace_hits++;
+        /* TODO: Use separate hits stats for WRITE */
     } else {
-        if (!(flags & LOOKUP_NONOTIFY))
+        if (!(flags & (LOOKUP_NONOTIFY | LOOKUP_WRITE)))
             notifyKeyspaceEvent(NOTIFY_KEY_MISS, "keymiss", key, db->id);
-        if (!(flags & LOOKUP_NOSTATS))
+        if (!(flags & (LOOKUP_NOSTATS | LOOKUP_WRITE)))
             server.stat_keyspace_misses++;
+        /* TODO: Use separate misses stats and notify event for WRITE */
     }
 
     return val;
@@ -100,28 +125,12 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
 /* Lookup a key for read operations, or return NULL if the key is not found
  * in the specified DB.
  *
- * As a side effect of calling this function:
- * 1. A key gets expired if it reached it's TTL.
- * 2. The key last access time is updated.
- * 3. The global keys hits/misses stats are updated (reported in INFO).
- * 4. If keyspace notifications are enabled, a "keymiss" notification is fired.
- *
  * This API should not be used when we write to the key after obtaining
  * the object linked to the key, but only for read only operations.
  *
- * Flags change the behavior of this command:
- *
- *  LOOKUP_NONE (or zero): no special flags are passed.
- *  LOOKUP_NOTOUCH: don't alter the last access time of the key.
- *  LOOKUP_NONOTIFY: don't trigger keyspace event on key miss.
- *  LOOKUP_NOSTATS: don't increment key hits/misses couters.
- *  LOOKUP_NOEXPIRE: don't check if the key has expired.
- *
- * Note: this function also returns NULL if the key is logically expired
- * but still existing, in case this is a slave, since this API is called only
- * for read operations. Even if the key expiry is master-driven, we can
- * correctly report a key is expired on slaves even if the master is lagging
- * expiring our key via DELs in the replication link. */
+ * This function is equivalent to lookupKey(). The point of using this function
+ * rather than lookupKey() direcly is to indicate that the purpose is to read
+ * the key. */
 robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
     return lookupKey(db, key, flags);
 }
@@ -133,19 +142,13 @@ robj *lookupKeyRead(redisDb *db, robj *key) {
 }
 
 /* Lookup a key for write operations, and as a side effect, if needed, expires
- * the key if its TTL is reached.
- *
- * Flags change the behavior of this command:
- *
- *  LOOKUP_NONE (or zero): no special flags are passed.
- *  LOOKUP_NOTOUCH: don't alter the last access time of the key.
- *  LOOKUP_NOEXPIRE: don't check if the key has expired.
+ * the key if its TTL is reached. It's equivalent to lookupKey() with the
+ * LOOKUP_WRITE flag added.
  *
  * Returns the linked value object if the key exists or NULL if the key
  * does not exist in the specified DB. */
 robj *lookupKeyWriteWithFlags(redisDb *db, robj *key, int flags) {
-    flags |= LOOKUP_WRITE | LOOKUP_NOSTATS | LOOKUP_NONOTIFY;
-    return lookupKey(db, key, flags);
+    return lookupKey(db, key, flags | LOOKUP_WRITE);
 }
 
 robj *lookupKeyWrite(redisDb *db, robj *key) {
