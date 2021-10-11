@@ -762,13 +762,13 @@ struct redisCommand redisCommandTable[] = {
        KSPEC_BS_INDEX,.bs.index={1},
        KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 
-    {"zrank",zrankCommand,3,
+    {"zrank",zrankCommand,-3,
      "read-only fast @sortedset",
      {{"read",
        KSPEC_BS_INDEX,.bs.index={1},
        KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 
-    {"zrevrank",zrevrankCommand,3,
+    {"zrevrank",zrevrankCommand,-3,
      "read-only fast @sortedset",
      {{"read",
        KSPEC_BS_INDEX,.bs.index={1},

@@ -451,6 +451,64 @@ start_server {tags {"zset"}} {
             assert_equal 1 [r zrank zranktmp z]
         }
 
+        test "ZRANK/ZREVRANK unique - $encoding" {
+            r del zranktmp
+            r zadd zranktmp -10 y
+            r zadd zranktmp -10 z
+            assert_equal 0 [r zrank zranktmp y unique]
+            assert_equal 0 [r zrevrank zranktmp y unique]
+            r zadd zranktmp -20 x
+            assert_equal 0 [r zrank zranktmp x unique]
+            assert_equal 2 [r zrevrank zranktmp x unique]
+            assert_equal 1 [r zrank zranktmp z unique]
+            assert_equal 0 [r zrevrank zranktmp z unique]
+            r zadd zranktmp 0 a
+            r zadd zranktmp 0 b
+            r zadd zranktmp 30 c
+            r zadd zranktmp 30 d
+            r zadd zranktmp 40 e
+            assert_equal 3 [r zrank zranktmp a unique]
+            assert_equal 3 [r zrank zranktmp b unique]
+            assert_equal 5 [r zrank zranktmp c unique]
+            assert_equal 5 [r zrank zranktmp d unique]
+            assert_equal 7 [r zrank zranktmp e unique]
+            assert_equal "" [r zrank zranktmp foo unique]
+            assert_equal 3 [r zrevrank zranktmp a unique]
+            assert_equal 3 [r zrevrank zranktmp b unique]
+            assert_equal 1 [r zrevrank zranktmp c unique]
+            assert_equal 1 [r zrevrank zranktmp d unique]
+            assert_equal 0 [r zrevrank zranktmp e unique]
+            assert_equal "" [r zrevrank zranktmp foo unique]
+        }
+
+        test "ZRANK/ZREVRANK fuzzy test - $encoding" {
+            # We test zrank and zrevrank. When test zrank, we insert small
+            # element first. When test zrevrank, we isnert big element first.
+            # So we can record the rank of the elements.
+            foreach {sign command} {1 zrank -1 zrevrank} {
+                r del zranktmp
+                # This is the init score
+                set score [expr -200 * $sign]
+                set rank 0
+                for {set j 0} {$j < 128} {incr j} {
+                    # We make element always be three digits, so they are ordered.
+                    set ele [expr 300 + $sign * $j]
+                    if {[randomInt 3] == 0} {
+                        set score [expr $score + ($sign * 10)]
+                        set rank [expr $j]
+                    }
+                    r zadd zranktmp $score $ele
+                    set elements($ele) $rank
+                }
+
+                for {set j 0} {$j < 128} {incr j} {
+                    set ele [expr 300 + $sign * $j]
+                    assert_equal $j [r $command zranktmp $ele]
+                    assert_equal $elements($ele) [r $command zranktmp $ele unique]
+                }
+            }
+        }
+
         test "ZINCRBY - can create a new sorted set - $encoding" {
             r del zset
             r zincrby zset 1 foo
