@@ -60,7 +60,6 @@ typedef struct quicklistNode {
  * 'sz' is byte length of 'compressed' field.
  * 'compressed' is LZF data with total (compressed) length 'sz'
  * NOTE: uncompressed length is stored in quicklistNode->sz.
- * When quicklistNode->zl is compressed, node->zl points to a quicklistLZF
  * When quicklistNode->entry is compressed, node->entry points to a quicklistLZF */
 typedef struct quicklistLZF {
     size_t sz; /* LZF size in bytes*/

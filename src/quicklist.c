@@ -726,7 +726,6 @@ REDIS_STATIC int quicklistDelIndex(quicklist *quicklist, quicklistNode *node,
 
     if(unlikely(QL_NODE_IS_PLAIN(node))) {
         __quicklistDelNode(quicklist, node);
-        quicklist->count--;
         return 1;
     }
     node->entry = ziplistDelete(node->entry, p);
@@ -812,14 +811,6 @@ int quicklistReplaceAtIndex(quicklist *quicklist, long index, void *data,
             return 1;
         }
 
-        /* quicklistIndex provides an uncompressed node */
-        entry.node->entry = ziplistReplace(entry.node->entry, entry.zi, data, sz);
-        quicklistNodeUpdateSz(entry.node);
-        quicklistCompress(quicklist, entry.node);
-        /* quicklistIndex provides an uncompressed node */
-        entry.node->entry = ziplistReplace(entry.node->entry, entry.zi, data, sz);
-        quicklistNodeUpdateSz(entry.node);
-        quicklistCompress(quicklist, entry.node);
         quicklistReplaceEntry(quicklist, &entry, data, sz);
         return 1;
     } else {
