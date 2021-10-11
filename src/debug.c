@@ -164,7 +164,7 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
     } else if (o->type == OBJ_ZSET) {
         unsigned char eledigest[20];
 
-        if (o->encoding == OBJ_ENCODING_ZIPLIST) {
+        if (o->encoding == OBJ_ENCODING_LISTPACK) {
             unsigned char *zl = o->ptr;
             unsigned char *eptr, *sptr;
             unsigned char *vstr;
@@ -172,13 +172,13 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
             long long vll;
             double score;
 
-            eptr = ziplistIndex(zl,0);
+            eptr = lpSeek(zl,0);
             serverAssert(eptr != NULL);
-            sptr = ziplistNext(zl,eptr);
+            sptr = lpNext(zl,eptr);
             serverAssert(sptr != NULL);
 
             while (eptr != NULL) {
-                serverAssert(ziplistGet(eptr,&vstr,&vlen,&vll));
+                vstr = lpGetValue(eptr,&vlen,&vll);
                 score = zzlGetScore(sptr);
 
                 memset(eledigest,0,20);
@@ -478,6 +478,10 @@ void debugCommand(client *c) {
 "QUICKLIST <key> [<0|1>]",
 "    Show low level info about the quicklist encoding of <key>."
 "    The optional argument (0 by default) sets the level of detail",
+"CLIENT-EVICTION",
+"    Show low level client eviction pools info (maxmemory-clients).",
+"PAUSE-CRON <0|1>",
+"    Stop periodic cron job processing.",
 NULL
         };
         addReplyHelp(c, help);
@@ -915,6 +919,23 @@ NULL
             addReplyError(c, "CONFIG-REWRITE-FORCE-ALL failed");
         else
             addReply(c, shared.ok);
+    } else if(!strcasecmp(c->argv[1]->ptr,"client-eviction") && c->argc == 2) {
+        sds bucket_info = sdsempty();
+        for (int j = 0; j < CLIENT_MEM_USAGE_BUCKETS; j++) {
+            if (j == 0)
+                bucket_info = sdscatprintf(bucket_info, "bucket          0");
+            else
+                bucket_info = sdscatprintf(bucket_info, "bucket %10zu", (size_t)1<<(j-1+CLIENT_MEM_USAGE_BUCKET_MIN_LOG));
+            if (j == CLIENT_MEM_USAGE_BUCKETS-1)
+                bucket_info = sdscatprintf(bucket_info, "+            : ");
+            else
+                bucket_info = sdscatprintf(bucket_info, " - %10zu: ", ((size_t)1<<(j+CLIENT_MEM_USAGE_BUCKET_MIN_LOG))-1);
+            bucket_info = sdscatprintf(bucket_info, "tot-mem: %10zu, clients: %lu\n",
+                server.client_mem_usage_buckets[j].mem_usage_sum,
+                server.client_mem_usage_buckets[j].clients->len);
+        }
+        addReplyVerbatim(c,bucket_info,sdslen(bucket_info),"txt");
+        sdsfree(bucket_info);
 #ifdef USE_JEMALLOC
     } else if(!strcasecmp(c->argv[1]->ptr,"mallctl") && c->argc >= 3) {
         mallctl_int(c, c->argv+2, c->argc-2);
@@ -923,6 +944,10 @@ NULL
         mallctl_string(c, c->argv+2, c->argc-2);
         return;
 #endif
+    } else if (!strcasecmp(c->argv[1]->ptr,"pause-cron") && c->argc == 3)
+    {
+        server.pause_cron = atoi(c->argv[2]->ptr);
+        addReply(c,shared.ok);
     } else {
         addReplySubcommandSyntaxError(c);
         return;

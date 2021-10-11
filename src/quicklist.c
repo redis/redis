@@ -43,7 +43,9 @@
 #define REDIS_STATIC static
 #endif
 
-/* Optimization levels for size-based filling */
+/* Optimization levels for size-based filling.
+ * Note that the largest possible limit is 16k, so even if each record takes
+ * just one byte, it still won't overflow the 16 bit count field. */
 static const size_t optimization_level[] = {4096, 8192, 16384, 32768, 65536};
 
 /* packed_threshold is initialized to 1gb*/
@@ -62,7 +64,10 @@ int quicklistisSetPackedThreshold(size_t sz) {
 }
 
 /* Maximum size in bytes of any multi-element ziplist.
- * Larger values will live in their own isolated ziplists. */
+ * Larger values will live in their own isolated ziplists.
+ * This is used only if we're limited by record count. when we're limited by
+ * size, the maximum limit is bigger, but still safe.
+ * 8k is a recommended / default size limit */
 #define SIZE_SAFETY_LIMIT 8192
 
 /* Minimum ziplist size in bytes for attempting compression. */
@@ -490,6 +495,8 @@ REDIS_STATIC int _quicklistNodeAllowInsert(const quicklistNode *node,
     unsigned int new_sz = node->sz + sz + ziplist_overhead;
     if (likely(_quicklistNodeSizeMeetsOptimizationRequirement(new_sz, fill)))
         return 1;
+    /* when we return 1 above we know that the limit is a size limit (which is
+     * safe, see comments next to optimization_level and SIZE_SAFETY_LIMIT) */
     else if (!sizeMeetsSafetyLimit(new_sz))
         return 0;
     else if ((int)node->count < fill)
@@ -512,6 +519,8 @@ REDIS_STATIC int _quicklistNodeAllowMerge(const quicklistNode *a,
     unsigned int merge_sz = a->sz + b->sz - 11;
     if (likely(_quicklistNodeSizeMeetsOptimizationRequirement(merge_sz, fill)))
         return 1;
+    /* when we return 1 above we know that the limit is a size limit (which is
+     * safe, see comments next to optimization_level and SIZE_SAFETY_LIMIT) */
     else if (!sizeMeetsSafetyLimit(merge_sz))
         return 0;
     else if ((int)(a->count + b->count) <= fill)
@@ -553,6 +562,7 @@ int quicklistPushHead(quicklist *quicklist, void *value, size_t sz) {
         return 1;
     }
 
+    assert(sz < UINT32_MAX); /* TODO: add support for quicklist nodes that are sds encoded (not zipped) */
     if (likely(
             _quicklistNodeAllowInsert(quicklist->head, quicklist->fill, sz))) {
         quicklist->head->entry =
@@ -581,6 +591,8 @@ int quicklistPushTail(quicklist *quicklist, void *value, size_t sz) {
         __quicklistInsertPlainNode(quicklist, quicklist->tail, value, sz, 1);
         return 1;
     }
+
+    assert(sz < UINT32_MAX); /* TODO: add support for quicklist nodes that are sds encoded (not zipped) */
 
     if (likely(
             _quicklistNodeAllowInsert(quicklist->tail, quicklist->fill, sz))) {
@@ -763,6 +775,15 @@ void quicklistDelEntry(quicklistIter *iter, quicklistEntry *entry) {
      *  quicklistNext() will jump to the next node. */
 }
 
+/* Replace quicklist entry by 'data' with length 'sz'. */
+void quicklistReplaceEntry(quicklist *quicklist, quicklistEntry *entry,
+                           void *data, int sz) {
+    /* quicklistNext() and quicklistIndex() provide an uncompressed node */
+    entry->node->entry = ziplistReplace(entry->node->entry, entry->zi, data, sz);
+    quicklistNodeUpdateSz(entry->node);
+    quicklistCompress(quicklist, entry->node);
+}
+
 /* Replace quicklist entry at offset 'index' by 'data' with length 'sz'.
  *
  * Returns 1 if replace happened.
@@ -795,6 +816,11 @@ int quicklistReplaceAtIndex(quicklist *quicklist, long index, void *data,
         entry.node->entry = ziplistReplace(entry.node->entry, entry.zi, data, sz);
         quicklistNodeUpdateSz(entry.node);
         quicklistCompress(quicklist, entry.node);
+        /* quicklistIndex provides an uncompressed node */
+        entry.node->entry = ziplistReplace(entry.node->entry, entry.zi, data, sz);
+        quicklistNodeUpdateSz(entry.node);
+        quicklistCompress(quicklist, entry.node);
+        quicklistReplaceEntry(quicklist, &entry, data, sz);
         return 1;
     } else {
         return 0;
@@ -959,6 +985,8 @@ REDIS_STATIC void _quicklistInsert(quicklist *quicklist, quicklistEntry *entry,
     quicklistNode *new_node = NULL;
     quicklistNode *entry_node = NULL;
 
+    assert(sz < UINT32_MAX); /* TODO: add support for quicklist nodes that are sds encoded (not zipped) */
+
     if (!node) {
         /* we have no reference node, so let's create only node in the list */
         D("No node given!");
@@ -976,7 +1004,7 @@ REDIS_STATIC void _quicklistInsert(quicklist *quicklist, quicklistEntry *entry,
 
     /* Populate accounting flags for easier boolean checks later */
     if (!_quicklistNodeAllowInsert(node, fill, sz)) {
-        D("Current node is full with count %d with requested fill %lu",
+        D("Current node is full with count %d with requested fill %d",
           node->count, fill);
         full = 1;
     }
@@ -1344,6 +1372,11 @@ int quicklistNext(quicklistIter *iter, quicklistEntry *entry) {
     }
 }
 
+/* Sets the direction of a quicklist iterator. */
+void quicklistSetDirection(quicklistIter *iter, int direction) {
+    iter->direction = direction;
+}
+
 /* Duplicate the quicklist.
  * On success a copy of the original quicklist is returned.
  *
@@ -1399,30 +1432,35 @@ int quicklistIndex(const quicklist *quicklist, const long long idx,
     initEntry(entry);
     entry->quicklist = quicklist;
 
-    if (!forward) {
-        index = (-idx) - 1;
-        n = quicklist->tail;
-    } else {
-        index = idx;
-        n = quicklist->head;
-    }
-
+    index = forward ? idx : (-idx) - 1;
     if (index >= quicklist->count)
         return 0;
 
+    /* Seek in the other direction if that way is shorter. */
+    int seek_forward = forward;
+    unsigned long long seek_index = index;
+    if (index > (quicklist->count - 1) / 2) {
+        seek_forward = !forward;
+        seek_index = quicklist->count - 1 - index;
+    }
+
+    n = seek_forward ? quicklist->head : quicklist->tail;
     while (likely(n)) {
-        if ((accum + n->count) > index) {
+        if ((accum + n->count) > seek_index) {
             break;
         } else {
             D("Skipping over (%p) %u at accum %lld", (void *)n, n->count,
               accum);
             accum += n->count;
-            n = forward ? n->next : n->prev;
+            n = seek_forward ? n->next : n->prev;
         }
     }
 
     if (!n)
         return 0;
+
+    /* Fix accum so it looks like we seeked in the other direction. */
+    if (seek_forward != forward) accum = quicklist->count - n->count - accum;
 
     D("Found node: %p at accum %llu, idx %llu, sub+ %llu, sub- %llu", (void *)n,
       accum, index, index - accum, (-index) - 1 + accum);
@@ -1433,7 +1471,7 @@ int quicklistIndex(const quicklist *quicklist, const long long idx,
         entry->offset = index - accum;
     } else {
         /* reverse = need negative offset for tail-to-head, so undo
-         * the result of the original if (index < 0) above. */
+         * the result of the original index = (-idx) - 1 above. */
         entry->offset = (-index) - 1 + accum;
     }
 
@@ -2087,7 +2125,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
             size_t sz;
             long long lv;
             ql_info(ql);
-            quicklistPop(ql, QUICKLIST_HEAD, &data, &sz, &lv);
+            assert(quicklistPop(ql, QUICKLIST_HEAD, &data, &sz, &lv));
             assert(data != NULL);
             assert(sz == 32);
             if (strcmp(populate, (char *)data)) {
@@ -2107,7 +2145,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
             size_t sz;
             long long lv;
             ql_info(ql);
-            quicklistPop(ql, QUICKLIST_HEAD, &data, &sz, &lv);
+            assert(quicklistPop(ql, QUICKLIST_HEAD, &data, &sz, &lv));
             assert(data == NULL);
             assert(lv == 55513);
             ql_verify(ql, 0, 0, 0, 0);
@@ -2988,9 +3026,11 @@ int quicklistTest(int argc, char *argv[], int accurate) {
                         if (step == 1) {
                             for (int i = 0; i < list_sizes[list] / 2; i++) {
                                 unsigned char *data;
-                                quicklistPop(ql, QUICKLIST_HEAD, &data, NULL, NULL);
+                                assert(quicklistPop(ql, QUICKLIST_HEAD, &data,
+                                                    NULL, NULL));
                                 zfree(data);
-                                quicklistPop(ql, QUICKLIST_TAIL, &data, NULL, NULL);
+                                assert(quicklistPop(ql, QUICKLIST_TAIL, &data,
+                                                    NULL, NULL));
                                 zfree(data);
                             }
                         }

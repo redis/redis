@@ -157,6 +157,7 @@ start_server {tags {"introspection"}} {
             aof_rewrite_cpulist
             bgsave_cpulist
             set-proc-title
+            cluster-config-file
         }
 
         if {!$::tls} {
