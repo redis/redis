@@ -1231,7 +1231,7 @@ void copyCommand(client *c) {
     }
 
     /* Check if the element exists and get a reference */
-    o = lookupKeyReadWithFlags(c->db, key, LOOKUP_NOSTATS | LOOKUP_NONOTIFY);
+    o = lookupKeyRead(c->db, key);
     if (!o) {
         addReply(c,shared.czero);
         return;
