@@ -1258,7 +1258,7 @@ void pfcountCommand(client *c) {
      *
      * The user specified a single key. Either return the cached value
      * or compute one and update the cache. */
-    o = lookupKeyWrite(c->db,c->argv[1]);
+    o = lookupKeyRead(c->db,c->argv[1]);
     if (o == NULL) {
         /* No key? Cardinality is zero since no element was added, otherwise
          * we would have a key as HLLADD creates it as a side effect. */

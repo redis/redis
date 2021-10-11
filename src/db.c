@@ -1522,6 +1522,16 @@ int keyIsExpired(redisDb *db, robj *key) {
  * The return value of the function is 0 if the key is still valid,
  * otherwise the function returns 1 if the key is expired. */
 int expireIfNeeded(redisDb *db, robj *key, int expire_on_replica) {
+
+    /* Deleting expired keys on a replica makes the replica inconsistent with
+     * the master. It's only allowed for write commands to make writable
+     * replicas behave consistently. It shall not be used in readonly
+     * commands. */
+    serverAssert(!expire_on_replica ||
+                 !server.current_client ||
+                 !server.current_client->cmd ||
+                 !(server.current_client->cmd->flags & CMD_READONLY));
+
     if (!keyIsExpired(db,key)) return 0;
 
     /* If we are running in the context of a replica, instead of
