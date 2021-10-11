@@ -429,7 +429,8 @@ int getBitOffsetFromArgument(client *c, robj *o, uint64_t *offset, int hash, int
     if (usehash) loffset *= bits;
 
     /* Limit offset to server.proto_max_bulk_len (512MB in bytes by default) */
-    if ((loffset < 0) || (loffset >> 3) >= server.proto_max_bulk_len)
+    if (!(c->flags & CLIENT_MASTER) &&
+        ((loffset < 0) || (loffset >> 3) >= server.proto_max_bulk_len))
     {
         addReplyError(c,err);
         return C_ERR;
