@@ -129,7 +129,7 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
  * the object linked to the key, but only for read only operations.
  *
  * This function is equivalent to lookupKey(). The point of using this function
- * rather than lookupKey() direcly is to indicate that the purpose is to read
+ * rather than lookupKey() directly is to indicate that the purpose is to read
  * the key. */
 robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
     return lookupKey(db, key, flags);
