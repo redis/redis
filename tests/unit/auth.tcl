@@ -24,6 +24,22 @@ start_server {tags {"auth external:skip"} overrides {requirepass foobar}} {
         r set foo 100
         r incr foo
     } {101}
+
+    test {For unauthenticated clients multibulk and bulk length are limited} {
+        set rr [redis [srv "host"] [srv "port"] 0 $::tls]
+        $rr write "*100\r\n"
+        $rr flush
+        catch {[$rr read]} e
+        assert_match {*unauthenticated multibulk length*} $e
+        $rr close
+
+        set rr [redis [srv "host"] [srv "port"] 0 $::tls]
+        $rr write "*1\r\n\$100000000\r\n"
+        $rr flush
+        catch {[$rr read]} e
+        assert_match {*unauthenticated bulk length*} $e
+        $rr close
+    }
 }
 
 start_server {tags {"auth_binary_password external:skip"}} {

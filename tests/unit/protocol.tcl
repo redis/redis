@@ -15,7 +15,7 @@ start_server {tags {"protocol network"}} {
 
     test "Out of range multibulk length" {
         reconnect
-        r write "*20000000\r\n"
+        r write "*3000000000\r\n"
         r flush
         assert_error "*invalid multibulk length*" {r read}
     }
@@ -195,6 +195,31 @@ start_server {tags {"protocol network"}} {
         r hello 3
         r debug protocol verbatim
     } "This is a verbatim\nstring" {needs:debug resp3}
+
+    test "test large number of args" {
+        r flushdb
+        set args [split [string trim [string repeat "k v " 10000]]]
+        lappend args "{k}2" v2
+        r mset {*}$args
+        assert_equal [r get "{k}2"] v2
+    }
+    
+    test "test argument rewriting - issue 9598" {
+        # INCRBYFLOAT uses argument rewriting for correct float value propagation.
+        # We use it to make sure argument rewriting works properly. It's important 
+        # this test is run under valgrind to verify there are no memory leaks in 
+        # arg buffer handling.
+        r flushdb
+
+        # Test normal argument handling
+        r set k 0
+        assert_equal [r incrbyfloat k 1.0] 1
+        
+        # Test argument handing in multi-state buffers
+        r multi
+        r incrbyfloat k 1.0
+        assert_equal [r exec] 2
+    }
 
 }
 

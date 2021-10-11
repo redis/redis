@@ -6,7 +6,7 @@ start_server {
 } {
     source "tests/unit/type/list-common.tcl"
 
-    # A helper function for BPOP/BLMPOP with one input key.
+    # A helper function to execute either B*POP or BLMPOP* with one input key.
     proc bpop_command {rd pop key timeout} {
         if {$pop == "BLMPOP_LEFT"} {
             $rd blmpop $timeout 1 $key left count 1
@@ -17,7 +17,7 @@ start_server {
         }
     }
 
-    # A helper function for BPOP/BLMPOP with two input keys.
+    # A helper function to execute either B*POP or BLMPOP* with two input keys.
     proc bpop_command_two_key {rd pop key key2 timeout} {
         if {$pop == "BLMPOP_LEFT"} {
             $rd blmpop $timeout 2 $key $key2 left count 1
@@ -719,14 +719,14 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         set rd [redis_deferring_client]
         set repl [attach_to_replication_stream]
 
-        # BLMPOP without block.
+        # BLMPOP without being blocked.
         r lpush mylist{t} a b c
         r rpush mylist2{t} 1 2 3
         r blmpop 0 1 mylist{t} left count 1
         r blmpop 0 2 mylist{t} mylist2{t} right count 10
         r blmpop 0 2 mylist{t} mylist2{t} right count 10
 
-        # BLMPOP with block.
+        # BLMPOP that gets blocked.
         $rd blmpop 0 1 mylist{t} left count 1
         wait_for_blocked_client
         r lpush mylist{t} a
@@ -736,6 +736,10 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         $rd blmpop 0 2 mylist{t} mylist2{t} right count 10
         wait_for_blocked_client
         r rpush mylist2{t} a b c
+
+        # Released on timeout.
+        assert_equal {} [r blmpop 0.01 1 mylist{t} left count 10]
+        r set foo{t} bar ;# something else to propagate after, so we can make sure the above pop didn't.
 
         assert_replication_stream $repl {
             {select *}
@@ -750,6 +754,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
             {lpop mylist{t} 3}
             {rpush mylist2{t} a b c}
             {rpop mylist2{t} 3}
+            {set foo{t} bar}
         }
     } {} {needs:repl}
 
