@@ -8,9 +8,9 @@ set testmodule [file normalize tests/modules/blockonkeys.so]
 set ::singledb 1
 
 # start three servers
-start_server {overrides {cluster-enabled yes} tags {"cluster:skip modules"}} {
-start_server {overrides {cluster-enabled yes} tags {"cluster:skip modules"}} {
-start_server {overrides {cluster-enabled yes} tags {"cluster:skip modules"}} {
+start_server {overrides {cluster-enabled yes} tags {"external:skip cluster modules"}} {
+start_server {overrides {cluster-enabled yes} tags {"external:skip cluster modules"}} {
+start_server {overrides {cluster-enabled yes} tags {"external:skip cluster modules"}} {
 
     set node1 [srv 0 client]
     set node2 [srv -1 client]

@@ -8,9 +8,9 @@ set ::singledb 1
 set conf {cluster-enabled yes}
 
 # start three servers
-start_server {overrides {cluster-enabled yes} tags {"cluster:skip"}} {
-start_server {overrides {cluster-enabled yes} tags {"cluster:skip"}} {
-start_server {overrides {cluster-enabled yes} tags {"cluster:skip"}} {
+start_server {overrides {cluster-enabled yes} tags {"external:skip cluster"}} {
+start_server {overrides {cluster-enabled yes} tags {"external:skip cluster"}} {
+start_server {overrides {cluster-enabled yes} tags {"external:skip cluster"}} {
 
     set node1 [srv 0 client]
     set node2 [srv -1 client]
