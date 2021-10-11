@@ -1841,9 +1841,11 @@ void xaddCommand(client *c) {
 
     /* Let's rewrite the ID argument with the one actually generated for
      * AOF/replication propagation. */
-    robj *idarg = createObjectFromStreamID(&id);
-    rewriteClientCommandArgument(c,idpos,idarg);
-    decrRefCount(idarg);
+    if (!parsed_args.id_given) {
+        robj *idarg = createObjectFromStreamID(&id);
+        rewriteClientCommandArgument(c, idpos, idarg);
+        decrRefCount(idarg);
+    }
 
     /* We need to signal to blocked clients that there is new data on this
      * stream. */
