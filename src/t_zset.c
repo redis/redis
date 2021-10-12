@@ -468,8 +468,13 @@ unsigned long zslDeleteRangeByRank(zskiplist *zsl, unsigned int start, unsigned 
     return removed;
 }
 
-#define zsl_is_first_entry_same_score(x, score) ((!x->backward) || (x->backward->score < score))
-#define zsl_is_last_entry_same_score(x, score) ((!x->level[0].forward) || (x->level[0].forward->score > score))
+#define zsl_is_first_entry_same_score(x, score) ( \
+    (!(x)->backward) || \
+    ((x)->backward->score < (score)))
+
+#define zsl_is_last_entry_same_score(x, score) ( \
+    (!(x)->level[0].forward) || \
+    ((x)->level[0].forward->score > (score)))
 
 /* Find the rank for an element by both score and key.
  * Returns 0 when the element cannot be found, rank otherwise.
