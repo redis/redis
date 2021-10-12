@@ -468,8 +468,8 @@ unsigned long zslDeleteRangeByRank(zskiplist *zsl, unsigned int start, unsigned 
     return removed;
 }
 
-#define zset_is_first_entry_same_score(x, score) ((!x->backward) || (x->backward->score < score))
-#define zset_is_last_entry_same_score(x, score) ((!x->level[0].forward) || (x->level[0].forward->score > score))
+#define zsl_is_first_entry_same_score(x, score) ((!x->backward) || (x->backward->score < score))
+#define zsl_is_last_entry_same_score(x, score) ((!x->level[0].forward) || (x->level[0].forward->score > score))
 
 /* Find the rank for an element by both score and key.
  * Returns 0 when the element cannot be found, rank otherwise.
@@ -487,7 +487,7 @@ unsigned long _zslGetRank(zskiplist *zsl, double score, sds ele, int last, int u
             (next->score < score ||
                 (next->score == score &&
                     ((!unique && sdscmp(next->ele,ele) <= 0) ||
-                     (unique && (last || zset_is_first_entry_same_score(next,score))))))) {
+                     (unique && (last || zsl_is_first_entry_same_score(next,score))))))) {
             rank += x->level[i].span;
             x = next;
             next = x->level[i].forward;
@@ -496,8 +496,8 @@ unsigned long _zslGetRank(zskiplist *zsl, double score, sds ele, int last, int u
         /* x might be equal to zsl->header, so test if obj is non-NULL */
         if (x->ele && x->score == score &&
             ((!unique && sdscmp(x->ele,ele) == 0) ||
-                (unique && ((!last && zset_is_first_entry_same_score(x,score)) ||
-                    (last && zset_is_last_entry_same_score(x,score)))))) {
+                (unique && ((!last && zsl_is_first_entry_same_score(x,score)) ||
+                    (last && zsl_is_last_entry_same_score(x,score)))))) {
             return rank;
         }
     }
@@ -1530,14 +1530,9 @@ long zsetRank(robj *zobj, sds ele, int reverse, int unique) {
         unsigned long index = 1;
         double curr, prev = 0;
 
-        if (!reverse) {
-            eptr = lpSeek(zl,0);
-            sptr = lpNext(zl,eptr);
-        } else {
-            sptr = lpSeek(zl,-1);
-            eptr = lpPrev(zl,sptr);
-        }
+        eptr = lpSeek(zl,reverse ? -2 : 0);
         serverAssert(eptr != NULL);
+        sptr = lpNext(zl,eptr);
         serverAssert(sptr != NULL);
 
         rank = 1;
