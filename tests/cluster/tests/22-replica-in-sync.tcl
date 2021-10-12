@@ -63,7 +63,7 @@ test "Replica in loading state is hidden" {
     R $replica_id config set key-load-delay 2000
 
     # Trigger event loop processing every 1024 bytes, this trigger
-    # allows us to send and recieve cluster messages, so we are setting
+    # allows us to send and receive cluster messages, so we are setting
     # it low so that the cluster messages are sent more frequently.
     R $replica_id config set loading-process-events-interval-bytes 1024
 
@@ -92,7 +92,7 @@ test "Replica in loading state is hidden" {
     wait_for_condition 100 50 {
         [s $replica_id master_sync_in_progress] eq 0
     } else {
-        fail "Replica didn't enter loading state"
+        fail "Replica didn't finish loading"
     }
 
     # Return configs to default values
@@ -105,6 +105,7 @@ test "Replica in loading state is hidden" {
     } else {
         fail "Replica is not back to slots"
     }
+    assert_equal 1 [is_in_slots $replica_id $replica] 
 }
 
 test "Check disconnected replica not hidden from slots" {
