@@ -68,6 +68,10 @@ void *hi_malloc(size_t size) {
 }
 
 void *hi_calloc(size_t nmemb, size_t size) {
+    /* Overflow check as the user can specify any arbitrary allocator */
+    if (SIZE_MAX / size < nmemb)
+        return NULL;
+
     return hiredisAllocFns.callocFn(nmemb, size);
 }
 
