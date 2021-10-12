@@ -1085,7 +1085,7 @@ static int parseOptions(int argc, char **argv) {
 
 static sds readArgFromStdin(void) {
     char buf[1024];
-    sds arg = sdsempty();
+    sds arg = sdsempty();, 
 
     while(1) {
         int nread = read(fileno(stdin),buf,1024);
@@ -1113,6 +1113,8 @@ static void usage(void) {
 "  -r <repeat>        Execute specified command N times.\n"
 "  -i <interval>      When -r is used, waits <interval> seconds per command.\n"
 "                     It is possible to specify sub-second times like -i 0.1.\n"
+"                     This interval is also used in --scan and --stat per cycle.\n
+"                     and in --bigkeys, --memkeys, and --hotkeys per 100 cycles.\n
 "  -n <db>            Database number.\n"
 "  -x                 Read last argument from STDIN.\n"
 "  -d <delimiter>     Multi-bulk delimiter in for raw formatting (default: \\n).\n"
