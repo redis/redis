@@ -5148,7 +5148,7 @@ robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, int todb, robj
  * * **mem_usage2**: Similar to `mem_usage`, but provides the `RedisModuleKeyOptCtx` parameter 
 ================================================================================
  *   so that meta information such as key name and db id can be obtained, and
- *   the`sample_size` for size estimation (see MEMORY USAGE command).
+ *   the `sample_size` for size estimation (see MEMORY USAGE command).
  * * **free_effort2**: Similar to `free_effort`, but provides the `RedisModuleKeyOptCtx` parameter 
  *   so that meta information such as key name and db id can be obtained.
  * * **unlink2**: Similar to `unlink`, but provides the `RedisModuleKeyOptCtx` parameter 
