@@ -62,9 +62,11 @@ test "Replica in loading state is hidden" {
     # 2 seconds to fully load the data.
     R $replica_id config set key-load-delay 2000
 
-    # Trigger event loop processing every 1000 bytes, so that
-    # we send out the information that the replica is loading quickly.
+    # Trigger event loop processing every 1024 bytes, this trigger
+    # allows us to send and recieve cluster messages, so we are setting
+    # it low so that the cluster messages are sent more frequently.
     R $replica_id config set loading-process-events-interval-bytes 1024
+
     R $master_id multi
     R $master_id client kill type replica
     set num 100
