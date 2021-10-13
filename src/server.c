@@ -282,7 +282,7 @@ struct redisCommand commandSubcommands[] = {
     {"count",commandCountCommand,2,
      "ok-loading ok-stale @connection"},
 
-    {"list",commandListCommand,2,
+    {"list",commandListCommand,-2,
      "ok-loading ok-stale @connection"},
 
     {"info",commandInfoCommand,-3,
@@ -5909,16 +5909,87 @@ void commandCountCommand(client *c) {
     addReplyLongLong(c, dictSize(server.commands));
 }
 
-/* COMMAND LIST */
+typedef enum {
+    COMMAND_LIST_FILTER_MODULE,
+    COMMAND_LIST_FILTER_ACLCAT,
+    COMMAND_LIST_FILTER_PATTERN,
+} commandListFilterType;
+
+typedef struct {
+    commandListFilterType type;
+    sds arg;
+} commandListFilter;
+
+int shouldFilterFromCommandList(struct redisCommand *cmd, commandListFilter *filter) {
+    switch (filter->type) {
+        case (COMMAND_LIST_FILTER_MODULE):
+            return !moduleIsModuleCommand(cmd, filter->arg);
+        case (COMMAND_LIST_FILTER_ACLCAT): {
+            uint64_t cat = ACLGetCommandCategoryFlagByName(filter->arg);
+            if (cat == 0)
+                return 1; /* Invalid ACL category */
+            return (!(cmd->flags & cat));
+            break;
+        }
+        case (COMMAND_LIST_FILTER_PATTERN):
+            return !stringmatchlen(filter->arg, sdslen(filter->arg), cmd->name, strlen(cmd->name), 1);
+        default:
+            serverPanic("Invalid filter type %d", filter->type);
+
+    }
+}
+
+/* COMMAND LIST [FILTERBY (MODULE <module-name>|ACLCAT <cat>|PATTERN <pattern>)] */
 void commandListCommand(client *c) {
+
+    /* Parse options. */
+    int i = 2, got_filter = 0;
+    commandListFilter filter = {0};
+    for (; i < c->argc; i++) {
+        int moreargs = (c->argc-1) - i; /* Number of additional arguments. */
+        char *opt = c->argv[i]->ptr;
+        if (!strcasecmp(opt,"filterby") && moreargs == 2) {
+            char *filtertype = c->argv[i+1]->ptr;
+            if (!strcasecmp(filtertype,"module")) {
+                filter.type = COMMAND_LIST_FILTER_MODULE;
+            } else if (!strcasecmp(filtertype,"aclcat")) {
+                filter.type = COMMAND_LIST_FILTER_ACLCAT;
+            } else if (!strcasecmp(filtertype,"pattern")) {
+                filter.type = COMMAND_LIST_FILTER_PATTERN;
+            } else {
+                addReplyErrorObject(c,shared.syntaxerr);
+                return;
+            }
+            got_filter = 1;
+            filter.arg = c->argv[i+2]->ptr;
+            i += 2;
+        } else {
+            addReplyErrorObject(c,shared.syntaxerr);
+            return;
+        }
+    }
+
     dictIterator *di;
     dictEntry *de;
 
-    addReplySetLen(c, dictSize(server.commands));
     di = dictGetIterator(server.commands);
-    while ((de = dictNext(di)) != NULL) {
-        struct redisCommand *cmd = dictGetVal(de);
-        addReplyBulkCString(c,cmd->name);
+    if (!got_filter) {
+        addReplySetLen(c, dictSize(server.commands));
+        while ((de = dictNext(di)) != NULL) {
+            struct redisCommand *cmd = dictGetVal(de);
+            addReplyBulkCString(c,cmd->name);
+        }
+    } else {
+        int numcmds = 0;
+        void *replylen = addReplyDeferredLen(c);
+        while ((de = dictNext(di)) != NULL) {
+            struct redisCommand *cmd = dictGetVal(de);
+            if (!shouldFilterFromCommandList(cmd,&filter)) {
+                addReplyBulkCString(c,cmd->name);
+                numcmds++;
+            }
+        }
+        setDeferredArrayLen(c,replylen,numcmds);
     }
     dictReleaseIterator(di);
 }

@@ -971,6 +971,17 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
     return REDISMODULE_OK;
 }
 
+int moduleIsModuleCommand(struct redisCommand *cmd, char *modulename) {
+    // TODO:GUYBE inefficient because we call this function in a loop and call dictFetchValue every time.
+    struct RedisModule *module = dictFetchValue(modules,modulename);
+    if (module == NULL)
+        return 0;
+    if (cmd->proc != RedisModuleCommandDispatcher)
+        return 0;
+    RedisModuleCommandProxy *cp = (void*)(unsigned long)cmd->getkeys_proc;
+    return (cp->module == module);
+}
+
 void extendKeySpecsIfNeeded(struct redisCommand *cmd) {
     /* We extend even if key_specs_num == key_specs_max because
      * this function is called prior to adding a new spec */

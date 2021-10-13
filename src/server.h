@@ -1995,6 +1995,7 @@ robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, int todb, robj
 int moduleDefragValue(robj *key, robj *obj, long *defragged, int dbid);
 int moduleLateDefrag(robj *key, robj *value, unsigned long *cursor, long long endtime, long long *defragged, int dbid);
 long moduleDefragGlobals(void);
+int moduleIsModuleCommand(struct redisCommand *cmd, char *modulename);
 
 /* Utils */
 long long ustime(void);

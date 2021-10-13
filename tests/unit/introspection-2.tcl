@@ -80,4 +80,14 @@ start_server {tags {"introspection"}} {
     test {COMMAND GETKEYS MEMORY USAGE} {
         assert_equal {key} [r command getkeys memory usage key]
     }
+
+    test "COMMAND LIST FILTERBY ACLCAT" {
+        set reply [r command list filterby aclcat blocking]
+        assert_equal [lsort $reply] {blmove blmpop blpop brpop brpoplpush bzmpop bzpopmax bzpopmin xread xreadgroup}
+    }
+
+    test "COMMAND LIST FILTERBY PATTERN" {
+        set reply [r command list filterby pattern *get*]
+        assert_equal [lsort $reply] {get getbit getdel getex getrange getset hget hgetall hmget mget}
+    }
 }
