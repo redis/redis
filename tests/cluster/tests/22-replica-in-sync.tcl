@@ -60,7 +60,7 @@ test "Replica in loading state is hidden" {
 
     # Set the key load delay so that it will take at least
     # 2 seconds to fully load the data.
-    R $replica_id config set key-load-delay 2000
+    R $replica_id config set key-load-delay 4000
 
     # Trigger event loop processing every 1024 bytes, this trigger
     # allows us to send and receive cluster messages, so we are setting
@@ -88,9 +88,9 @@ test "Replica in loading state is hidden" {
     }
     assert_equal 1 [s $replica_id loading]
 
-    # Check that replica finished loading
-    wait_for_condition 100 50 {
-        [s $replica_id master_sync_in_progress] eq 0
+    # Wait for the replica to finish full-sync and become online
+    wait_for_condition 200 50 {
+        [s $replica_id master_link_status] eq "up"
     } else {
         fail "Replica didn't finish loading"
     }
