@@ -117,11 +117,10 @@ start_server {} {
         } else {
             fail "fail to sync with replicas"
         }
-        # Accumulate big replication backlog since replica2 kept replication buffer
+        # Replication actual backlog grow more than backlog setting since
+        # the slow replica2 kept replication buffer.
         populate 10000 master 10000
-        assert {[s mem_replication_backlog] > [expr 10000*10000]}
-        assert {[s mem_clients_slaves] > [expr 10000*10000]}
-        assert {[s mem_replication_backlog] > [s mem_clients_slaves]}
+        assert {[s repl_backlog_histlen] > [expr 10000*10000]}
     }
 
     # Wait replica1 catch up with the master
@@ -152,7 +151,7 @@ start_server {} {
     }
 
     test {Replication backlog memory will become smaller if replicas disconnect} {
-        assert {[s mem_replication_backlog] > [expr 2*10000*10000]}
+        assert {[s repl_backlog_histlen] > [expr 2*10000*10000]}
         assert_equal [s connected_slaves] {2}
         catch {$replica2 shutdown nosave}
         wait_for_condition 100 10 {
@@ -160,12 +159,11 @@ start_server {} {
         } else {
             fail "replica2 didn't disconnect with master"
         }
-        assert {[s mem_clients_slaves] < [expr 64*1024]}
 
         # Since we trim replication backlog inrementally, replication backlog
         # memory may take time to be reclaimed.
         wait_for_condition 1000 100 {
-            [s mem_replication_backlog] < [expr 10000*10000]
+            [s repl_backlog_histlen] < [expr 10000*10000]
         } else {
             fail "Replication backlog memory is not smaller"
         }
