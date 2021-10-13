@@ -1798,6 +1798,8 @@ static void usage(int err) {
 "  -r <repeat>        Execute specified command N times.\n"
 "  -i <interval>      When -r is used, waits <interval> seconds per command.\n"
 "                     It is possible to specify sub-second times like -i 0.1.\n"
+"                     This interval is also used in --scan and --stat per cycle.\n"
+"                     and in --bigkeys, --memkeys, and --hotkeys per 100 cycles.\n"
 "  -n <db>            Database number.\n"
 "  -3                 Start session in RESP3 protocol mode.\n"
 "  -x                 Read last argument from STDIN.\n"
@@ -7995,6 +7997,7 @@ static void scanMode(void) {
             }
         }
         freeReplyObject(reply);
+        if (config.interval) usleep(config.interval);
     } while(cur != 0);
 
     exit(0);
