@@ -1177,7 +1177,7 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
      * we consider the excess as replicas' memory. Otherwise, replication buffer
      * memory is the consumption of repl backlog. */
     if (listLength(server.slaves) &&
-        server.repl_buffer_mem > server.repl_backlog_size)
+        (long long)server.repl_buffer_mem > server.repl_backlog_size)
     {
         mh->clients_slaves = server.repl_buffer_mem - server.repl_backlog_size;
         mh->repl_backlog = server.repl_backlog_size;

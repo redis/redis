@@ -1063,20 +1063,17 @@ typedef struct client {
      * however we need to remember what was the old contribution of each
      * client, and in which category the client was, in order to remove it
      * before adding it the new value. */
-    uint64_t client_cron_last_memory_usage;
-    int      client_cron_last_memory_type;
-
-    listNode *ref_repl_buf_node; /* Referenced node of replication buffer blocks,
-                                  * see the definition of replBufBlock. */
-    size_t ref_block_pos;        /* Access position of referenced buffer block,
-                                  * i.e. the next offset to send. */
-
     size_t last_memory_usage;
     int last_memory_type;
 
     size_t last_memory_usage_on_bucket_update;
     listNode *mem_usage_bucket_node;
     clientMemUsageBucket *mem_usage_bucket;
+
+    listNode *ref_repl_buf_node; /* Referenced node of replication buffer blocks,
+                                  * see the definition of replBufBlock. */
+    size_t ref_block_pos;        /* Access position of referenced buffer block,
+                                  * i.e. the next offset to send. */
 
     /* Response buffer */
     int bufpos;
