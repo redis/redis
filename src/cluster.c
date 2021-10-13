@@ -6076,7 +6076,7 @@ int clusterRedirectBlockedClientIfNeeded(client *c) {
         (c->btype == BLOCKED_LIST ||
          c->btype == BLOCKED_ZSET ||
          c->btype == BLOCKED_STREAM ||
-         c->btype == BLOCKED_MODULE))
+         (c->btype == BLOCKED_MODULE && moduleClientIsBlockedOnKeys(c))))
     {
         dictEntry *de;
         dictIterator *di;
