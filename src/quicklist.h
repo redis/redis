@@ -173,7 +173,7 @@ void quicklistInsertBefore(quicklist *quicklist, quicklistEntry *entry,
                            void *value, const size_t sz);
 void quicklistDelEntry(quicklistIter *iter, quicklistEntry *entry);
 void quicklistReplaceEntry(quicklist *quicklist, quicklistEntry *entry,
-                           void *data, int sz);
+                           void *data, size_t sz);
 int quicklistReplaceAtIndex(quicklist *quicklist, long index, void *data,
                             const size_t sz);
 int quicklistDelRange(quicklist *quicklist, const long start, const long stop);

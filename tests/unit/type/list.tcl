@@ -60,7 +60,54 @@ start_server [list overrides [list save ""] ] {
         assert_equal [string repeat d 500] [r lindex list3 0]
     }
 
+    r debug quicklist-packed-threshold 5b
+
+    test {plain check LSET with combinations} {
+        r RPUSH lst "aa"
+        r RPUSH lst "bb"
+        r lset lst 0 [string repeat d 50001]
+        set s1 [r lpop lst]
+        assert_equal $s1 [string repeat d 50001]
+        r RPUSH lst [string repeat f 50001]
+        r lset lst 0 [string repeat e 50001]
+        set s1 [r lpop lst]
+        assert_equal $s1 [string repeat e 50001]
+        r RPUSH lst [string repeat m 50001]
+        r lset lst 0 "bb"
+        set s1 [r lpop lst]
+        assert_equal $s1 "bb"
+        r RPUSH lst "bb"
+        r lset lst 0 "cc"
+        set s1 [r lpop lst]
+        assert_equal $s1 "cc"
+        r flushdb
+    }
+
+r config set list-max-ziplist-size 1
+
     r debug quicklist-packed-threshold 1b
+
+
+    test {plain check LSET with combinations ziplist maxsize 1} {
+        r RPUSH lst "aa"
+        r RPUSH lst "bb"
+        r lset lst 0 [string repeat d 50001]
+        set s1 [r lpop lst]
+        assert_equal $s1 [string repeat d 50001]
+        r RPUSH lst [string repeat f 50001]
+        r lset lst 0 [string repeat e 50001]
+        set s1 [r lpop lst]
+        assert_equal $s1 [string repeat e 50001]
+        r RPUSH lst [string repeat m 50001]
+        r lset lst 0 "bb"
+        set s1 [r lpop lst]
+        assert_equal $s1 "bb"
+        r RPUSH lst "bb"
+        r lset lst 0 "cc"
+        set s1 [r lpop lst]
+        assert_equal $s1 "cc"
+        r flushdb
+    }
 
     test {plain node check compression} {
         r lpush list4 [string repeat a 500]
@@ -182,9 +229,9 @@ start_server [list overrides [list save ""] ] {
 start_server [list overrides [list save ""] ] {
     r config set proto-max-bulk-len 10000000000 ;#10gb
     r config set client-query-buffer-limit 10000000000 ;#10gb
-    # this is temporary in order to run in regulat env should be 5gb
-    set str_length 5000000000
 
+    #set str_length 5000000000
+set str_length 5000
     test {4gb check push and pop} {
         r lpush lst 9
         r write "*3\r\n\$5\r\nLPUSH\r\n\$3\r\nlst\r\n"
