@@ -2130,10 +2130,10 @@ int RM_ReplyWithEmptyString(RedisModuleCtx *ctx) {
  * taking in input a C buffer pointer and length.
  *
  * The function always returns REDISMODULE_OK. */
-int RM_ReplyWithVerbatimString(RedisModuleCtx *ctx, const char *buf, size_t len) {
+int RM_ReplyWithVerbatimString(RedisModuleCtx *ctx, const char *buf, size_t len, const char *ext) {
     client *c = moduleGetReplyClient(ctx);
     if (c == NULL) return REDISMODULE_OK;
-    addReplyVerbatim(c, buf, len, "txt");
+    addReplyVerbatim(c, buf, len, ext);
     return REDISMODULE_OK;
 }
 
