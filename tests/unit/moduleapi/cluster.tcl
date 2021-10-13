@@ -2,6 +2,22 @@
 
 source tests/support/cli.tcl
 
+proc cluster_info {r field} {
+    if {[regexp "^$field:(.*?)\r\n" [$r cluster info] _ value]} {
+        set _ $value
+    }
+}
+
+# Provide easy access to CLUSTER INFO properties. Same semantic as "proc s".
+proc csi {args} {
+    set level 0
+    if {[string is integer [lindex $args 0]]} {
+        set level [lindex $args 0]
+        set args [lrange $args 1 end]
+    }
+    cluster_info [srv $level "client"] [lindex $args 0]
+}
+
 set testmodule [file normalize tests/modules/blockonkeys.so]
 
 # make sure the test infra won't use SELECT
@@ -25,17 +41,18 @@ start_server {overrides {cluster-enabled yes} tags {"external:skip cluster modul
                            127.0.0.1:[srv 0 port] \
                            127.0.0.1:[srv -1 port] \
                            127.0.0.1:[srv -2 port]
+
+        wait_for_condition 1000 50 {
+            [csi 0 cluster_state] eq {ok} &&
+            [csi -1 cluster_state] eq {ok} &&
+            [csi -2 cluster_state] eq {ok}
+        } else {
+            fail "Cluster doesn't stabilize"
+        }
     }
 
     test "Run blocking command on cluster node3" {
         # key9184688 is mapped to slot 10923 (first slot of node 3)
-        # use DEL command to wait for the cluster to be stable
-        wait_for_condition 1000 50 {
-            ![catch {$node3 del key9184688}]
-        } else {
-            fail "Cluster doesn't stabilize"
-        }
-
         set node3_rd [redis_deferring_client -2]
         $node3_rd fsl.bpop key9184688 0
         $node3_rd flush
@@ -65,9 +82,10 @@ start_server {overrides {cluster-enabled yes} tags {"external:skip cluster modul
     }
 
     test "wait for cluster to be stable" {
-        # use EXISTS command to wait for the cluster to be stable
         wait_for_condition 1000 50 {
-            ![catch {$node1 exists key9184688}]
+            [csi 0 cluster_state] eq {ok} &&
+            [csi -1 cluster_state] eq {ok} &&
+            [csi -2 cluster_state] eq {ok}
         } else {
             fail "Cluster doesn't stabilize"
         }
