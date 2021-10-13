@@ -995,7 +995,7 @@ int RM_CreateSubcommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFun
     if (parent_cp->module != ctx->module)
         return REDISMODULE_ERR;
 
-    /* Check if the command name is busy withing the parent command. */
+    /* Check if the command name is busy within the parent command. */
     if (parent_cmd->subcommands_dict && lookupCommandByCStringLogic(parent_cmd->subcommands_dict, name) != NULL)
         return REDISMODULE_ERR;
 
