@@ -4471,11 +4471,6 @@ void clusterUpdateSlots(client *c, unsigned char *slots, int del) {
     }
 }
 
-<<<<<<< HEAD
-
->>>>>>> new codes
-=======
->>>>>>> Fix minor spacing issues
 void addNodeReplyForClusterSlot(client *c, clusterNode *node, int start_slot, int end_slot) {
     int i, nested_elements = 3; /* slots (2) + master addr (1) */
     void *nested_replylen = addReplyDeferredLen(c);
