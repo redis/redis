@@ -1297,6 +1297,13 @@ struct redisCommand redisCommandTable[] = {
        KSPEC_BS_INDEX,.bs.index={1},
        KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 
+    {"zmpop", zmpopCommand,-4,
+     "write @sortedset",
+     {{"write",
+       KSPEC_BS_INDEX,.bs.index={1},
+       KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},
+     zmpopGetKeys},
+
     {"bzpopmin",bzpopminCommand,-3,
      "write no-script fast @sortedset @blocking",
      {{"write",
@@ -1308,6 +1315,13 @@ struct redisCommand redisCommandTable[] = {
      {{"write",
        KSPEC_BS_INDEX,.bs.index={1},
        KSPEC_FK_RANGE,.fk.range={-2,1,0}}}},
+
+    {"bzmpop",bzmpopCommand,-5,
+     "write @sortedset @blocking",
+     {{"write",
+       KSPEC_BS_INDEX,.bs.index={2},
+       KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},
+     blmpopGetKeys},
 
     {"zrandmember",zrandmemberCommand,-2,
      "read-only random @sortedset",
@@ -2665,28 +2679,92 @@ int clientsCronTrackExpansiveClients(client *c, int time_idx) {
     return 0; /* This function never terminates the client. */
 }
 
-/* Iterating all the clients in getMemoryOverheadData() is too slow and
- * in turn would make the INFO command too slow. So we perform this
- * computation incrementally and track the (not instantaneous but updated
- * to the second) total memory used by clients using clientsCron() in
- * a more incremental way (depending on server.hz). */
-int clientsCronTrackClientsMemUsage(client *c) {
-    size_t mem = 0;
+/* All normal clients are placed in one of the "mem usage buckets" according
+ * to how much memory they currently use. We use this function to find the
+ * appropriate bucket based on a given memory usage value. The algorithm simply
+ * does a log2(mem) to ge the bucket. This means, for examples, that if a
+ * client's memory usage doubles it's moved up to the next bucket, if it's
+ * halved we move it down a bucket.
+ * For more details see CLIENT_MEM_USAGE_BUCKETS documentation in server.h. */
+clientMemUsageBucket *getMemUsageBucket(size_t mem) {
+    int size_in_bits = 8*(int)sizeof(mem);
+    int clz = mem > 0 ? __builtin_clzl(mem) : size_in_bits;
+    int bucket_idx = size_in_bits - clz;
+    if (bucket_idx > CLIENT_MEM_USAGE_BUCKET_MAX_LOG)
+        bucket_idx = CLIENT_MEM_USAGE_BUCKET_MAX_LOG;
+    else if (bucket_idx < CLIENT_MEM_USAGE_BUCKET_MIN_LOG)
+        bucket_idx = CLIENT_MEM_USAGE_BUCKET_MIN_LOG;
+    bucket_idx -= CLIENT_MEM_USAGE_BUCKET_MIN_LOG;
+    return &server.client_mem_usage_buckets[bucket_idx];
+}
+
+/* This is called both on explicit clients when something changed their buffers,
+ * so we can track clients' memory and enforce clients' maxmemory in real time,
+ * and also from the clientsCron. We call it from the cron so we have updated
+ * stats for non CLIENT_TYPE_NORMAL/PUBSUB clients and in case a configuration
+ * change requires us to evict a non-active client.
+ */
+int updateClientMemUsage(client *c) {
+    size_t mem = getClientMemoryUsage(c, NULL);
     int type = getClientType(c);
-    mem += getClientOutputBufferMemoryUsage(c);
-    mem += sdsZmallocSize(c->querybuf);
-    mem += zmalloc_size(c);
-    mem += c->argv_len_sum;
-    if (c->argv) mem += zmalloc_size(c->argv);
-    /* Now that we have the memory used by the client, remove the old
-     * value from the old category, and add it back. */
-    server.stat_clients_type_memory[c->client_cron_last_memory_type] -=
-        c->client_cron_last_memory_usage;
-    server.stat_clients_type_memory[type] += mem;
+
+    /* Remove the old value of the memory used by the client from the old
+     * category, and add it back. */
+    atomicDecr(server.stat_clients_type_memory[c->last_memory_type], c->last_memory_usage);
+    atomicIncr(server.stat_clients_type_memory[type], mem);
+
     /* Remember what we added and where, to remove it next time. */
-    c->client_cron_last_memory_usage = mem;
-    c->client_cron_last_memory_type = type;
+    c->last_memory_usage = mem;
+    c->last_memory_type = type;
+
+    /* Update client mem usage bucket only when we're not in the context of an
+     * IO thread. See updateClientMemUsageBucket() for details. */
+    if (io_threads_op == IO_THREADS_OP_IDLE)
+        updateClientMemUsageBucket(c);
+
     return 0;
+}
+
+/* Adds the client to the correct memory usage bucket. Each bucket contains
+ * all clients with roughly the same amount of memory. This way we group
+ * together clients consuming about the same amount of memory and can quickly
+ * free them in case we reach maxmemory-clients (client eviction).
+ * Note that in case of io-threads enabled we have to call this function only
+ * after the fan-in phase (when no io-threads are working) because the bucket
+ * lists are global. The io-threads themselves track per-client memory usage in
+ * updateClientMemUsage(). Here we update the clients to each bucket when all
+ * io-threads are done (both for read and write io-threading). */
+void updateClientMemUsageBucket(client *c) {
+    serverAssert(io_threads_op == IO_THREADS_OP_IDLE);
+    int allow_eviction =
+            (c->last_memory_type == CLIENT_TYPE_NORMAL || c->last_memory_type == CLIENT_TYPE_PUBSUB) &&
+            !(c->flags & CLIENT_NO_EVICT);
+
+    /* Update the client in the mem usage buckets */
+    if (c->mem_usage_bucket) {
+        c->mem_usage_bucket->mem_usage_sum -= c->last_memory_usage_on_bucket_update;
+        /* If this client can't be evicted then remove it from the mem usage
+         * buckets */
+        if (!allow_eviction) {
+            listDelNode(c->mem_usage_bucket->clients, c->mem_usage_bucket_node);
+            c->mem_usage_bucket = NULL;
+            c->mem_usage_bucket_node = NULL;
+        }
+    }
+    if (allow_eviction) {
+        clientMemUsageBucket *bucket = getMemUsageBucket(c->last_memory_usage);
+        bucket->mem_usage_sum += c->last_memory_usage;
+        if (bucket != c->mem_usage_bucket) {
+            if (c->mem_usage_bucket)
+                listDelNode(c->mem_usage_bucket->clients,
+                            c->mem_usage_bucket_node);
+            c->mem_usage_bucket = bucket;
+            listAddNodeTail(bucket->clients, c);
+            c->mem_usage_bucket_node = listLast(bucket->clients);
+        }
+    }
+
+    c->last_memory_usage_on_bucket_update = c->last_memory_usage;
 }
 
 /* Return the max samples in the memory usage of clients tracked by
@@ -2767,7 +2845,13 @@ void clientsCron(void) {
         if (clientsCronHandleTimeout(c,now)) continue;
         if (clientsCronResizeQueryBuffer(c)) continue;
         if (clientsCronTrackExpansiveClients(c, curr_peak_mem_usage_slot)) continue;
-        if (clientsCronTrackClientsMemUsage(c)) continue;
+
+        /* Iterating all the clients in getMemoryOverheadData() is too slow and
+         * in turn would make the INFO command too slow. So we perform this
+         * computation incrementally and track the (not instantaneous but updated
+         * to the second) total memory used by clients using clientsCron() in
+         * a more incremental way (depending on server.hz). */
+        if (updateClientMemUsage(c)) continue;
         if (closeClientOnOutputBufferLimitReached(c, 0)) continue;
     }
 }
@@ -2989,6 +3073,9 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             }
         }
     }
+
+    /* for debug purposes: skip actual cron work if pause_cron is on */
+    if (server.pause_cron) return 1000/server.hz;
 
     run_with_period(100) {
         long long stat_net_input_bytes, stat_net_output_bytes;
@@ -3356,6 +3443,11 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
      * our clients. */
     updateFailoverStatus();
 
+    /* Since we rely on current_client to send scheduled invalidation messages
+     * we have to flush them after each command, so when we get here, the list
+     * must be empty. */
+    serverAssert(listLength(server.tracking_pending_keys) == 0);
+
     /* Send the invalidation messages to clients participating to the
      * client side caching protocol in broadcasting (BCAST) mode. */
     trackingBroadcastInvalidationMessages();
@@ -3364,16 +3456,19 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     if (server.aof_state == AOF_ON)
         flushAppendOnlyFile(0);
 
+    /* Try to process blocked clients every once in while. Example: A module
+     * calls RM_SignalKeyAsReady from within a timer callback (So we don't
+     * visit processCommand() at all). */
+    handleClientsBlockedOnKeys();
+
     /* Handle writes with pending output buffers. */
     handleClientsWithPendingWritesUsingThreads();
 
     /* Close clients that need to be closed asynchronous */
     freeClientsInAsyncFreeQueue();
 
-    /* Try to process blocked clients every once in while. Example: A module
-     * calls RM_SignalKeyAsReady from within a timer callback (So we don't
-     * visit processCommand() at all). */
-    handleClientsBlockedOnKeys();
+    /* Disconnect some clients if they are consuming too much memory. */
+    evictClients();
 
     /* Before we are going to sleep, let the threads access the dataset by
      * releasing the GIL. Redis main thread will not touch anything at this
@@ -3393,7 +3488,15 @@ void afterSleep(struct aeEventLoop *eventLoop) {
 
     /* Acquire the modules GIL so that their threads won't touch anything. */
     if (!ProcessingEventsWhileBlocked) {
-        if (moduleCount()) moduleAcquireGIL();
+        if (moduleCount()) {
+            mstime_t latency;
+            latencyStartMonitor(latency);
+
+            moduleAcquireGIL();
+
+            latencyEndMonitor(latency);
+            latencyAddSampleIfNeeded("module-acquire-GIL",latency);
+        }
     }
 }
 
@@ -3557,6 +3660,7 @@ void initServerConfig(void) {
     int j;
     char *default_bindaddr[CONFIG_DEFAULT_BINDADDR_COUNT] = CONFIG_DEFAULT_BINDADDR;
 
+    initConfigValues();
     updateCachedTime(1);
     getRandomHexChars(server.runid,CONFIG_RUN_ID_SIZE);
     server.runid[CONFIG_RUN_ID_SIZE] = '\0';
@@ -3573,7 +3677,6 @@ void initServerConfig(void) {
     server.bindaddr_count = CONFIG_DEFAULT_BINDADDR_COUNT;
     for (j = 0; j < CONFIG_DEFAULT_BINDADDR_COUNT; j++)
         server.bindaddr[j] = zstrdup(default_bindaddr[j]);
-    server.bind_source_addr = NULL;
     server.unixsocketperm = CONFIG_DEFAULT_UNIX_SOCKET_PERM;
     server.ipfd.count = 0;
     server.tlsfd.count = 0;
@@ -3583,7 +3686,6 @@ void initServerConfig(void) {
     server.saveparams = NULL;
     server.loading = 0;
     server.loading_rdb_used_mem = 0;
-    server.logfile = zstrdup(CONFIG_DEFAULT_LOGFILE);
     server.aof_state = AOF_OFF;
     server.aof_rewrite_base_size = 0;
     server.aof_rewrite_scheduled = 0;
@@ -3597,19 +3699,17 @@ void initServerConfig(void) {
     server.aof_fd = -1;
     server.aof_selected_db = -1; /* Make sure the first time will not match */
     server.aof_flush_postponed_start = 0;
-    server.pidfile = NULL;
     server.active_defrag_running = 0;
     server.notify_keyspace_events = 0;
     server.blocked_clients = 0;
     memset(server.blocked_clients_by_type,0,
            sizeof(server.blocked_clients_by_type));
     server.shutdown_asap = 0;
-    server.cluster_configfile = zstrdup(CONFIG_DEFAULT_CLUSTER_CONFIG_FILE);
     server.cluster_module_flags = CLUSTER_MODULE_FLAG_NONE;
     server.migrate_cached_sockets = dictCreate(&migrateCacheDictType);
     server.next_client_id = 1; /* Client IDs, start from 1 .*/
-    server.loading_process_events_interval_bytes = (1024*1024*2);
     server.page_size = sysconf(_SC_PAGESIZE);
+    server.pause_cron = 0;
 
     unsigned int lruclock = getLRUClock();
     atomicSet(server.lruclock,lruclock);
@@ -3620,7 +3720,6 @@ void initServerConfig(void) {
     appendServerSaveParams(60,10000); /* save after 1 minute and 10000 changes */
 
     /* Replication related */
-    server.masterauth = NULL;
     server.masterhost = NULL;
     server.masterport = 6379;
     server.master = NULL;
@@ -3671,14 +3770,6 @@ void initServerConfig(void) {
 
     /* Debugging */
     server.watchdog_period = 0;
-
-    /* By default we want scripts to be always replicated by effects
-     * (single commands executed by the script), and not by sending the
-     * script to the slave / AOF. This is the new way starting from
-     * Redis 5. However it is possible to revert it via redis.conf. */
-    server.lua_always_replicate_commands = 1;
-
-    initConfigValues();
 }
 
 extern char **environ;
@@ -4005,6 +4096,7 @@ void resetServerStats(void) {
     server.stat_expired_time_cap_reached_count = 0;
     server.stat_expire_cycle_time_used = 0;
     server.stat_evictedkeys = 0;
+    server.stat_evictedclients = 0;
     server.stat_total_eviction_exceeded_time = 0;
     server.stat_last_eviction_exceeded_time = 0;
     server.stat_keyspace_misses = 0;
@@ -4073,6 +4165,7 @@ void initServer(void) {
     server.current_client = NULL;
     server.errors = raxNew();
     server.fixed_time_expire = 0;
+    server.in_nested_call = 0;
     server.clients = listCreate();
     server.clients_index = raxNew();
     server.clients_to_close = listCreate();
@@ -4085,6 +4178,7 @@ void initServer(void) {
     server.slaveseldb = -1; /* Force to emit the first SELECT command. */
     server.unblocked_clients = listCreate();
     server.ready_keys = listCreate();
+    server.tracking_pending_keys = listCreate();
     server.clients_waiting_acks = listCreate();
     server.get_ack_from_slaves = 0;
     server.client_pause_type = CLIENT_PAUSE_OFF;
@@ -4100,6 +4194,11 @@ void initServer(void) {
                 && tlsConfigure(&server.tls_ctx_config) == C_ERR) {
         serverLog(LL_WARNING, "Failed to configure TLS. Check logs for more info.");
         exit(1);
+    }
+
+    for (j = 0; j < CLIENT_MEM_USAGE_BUCKETS; j++) {
+        server.client_mem_usage_buckets[j].mem_usage_sum = 0;
+        server.client_mem_usage_buckets[j].clients = listCreate();
     }
 
     createSharedObjects();
@@ -4802,6 +4901,7 @@ void call(client *c, int flags) {
     if (server.fixed_time_expire++ == 0) {
         updateCachedTime(0);
     }
+    server.in_nested_call++;
 
     elapsedStart(&call_timer);
     c->cmd->proc(c);
@@ -4809,6 +4909,8 @@ void call(client *c, int flags) {
     c->duration = duration;
     dirty = server.dirty-dirty;
     if (dirty < 0) dirty = 0;
+
+    server.in_nested_call--;
 
     /* Update failed command calls if required.
      * We leverage a static variable (prev_err_count) to retain
@@ -4984,6 +5086,9 @@ void call(client *c, int flags) {
     size_t zmalloc_used = zmalloc_used_memory();
     if (zmalloc_used > server.stat_peak_memory)
         server.stat_peak_memory = zmalloc_used;
+
+    /* Do some maintenance job and cleanup */
+    afterCommand(c);
 }
 
 /* Used when a command that is ready for execution needs to be rejected, due to
@@ -5019,6 +5124,14 @@ void rejectCommandFormat(client *c, const char *fmt, ...) {
         /* The following frees 's'. */
         addReplyErrorSds(c, s);
     }
+}
+
+/* This is called after a command in call, we can do some maintenance job in it. */
+void afterCommand(client *c) {
+    UNUSED(c);
+    /* Flush pending invalidation messages only when we are not in nested call.
+     * So the messages are not interleaved with transaction response. */
+    if (!server.in_nested_call) trackingHandlePendingKeyInvalidations();
 }
 
 /* Returns 1 for commands that may have key names in their arguments, but the legacy range
@@ -5118,13 +5231,8 @@ int processCommand(client *c) {
     int is_may_replicate_command = (c->cmd->flags & (CMD_WRITE | CMD_MAY_REPLICATE)) ||
                                    (c->cmd->proc == execCommand && (c->mstate.cmd_flags & (CMD_WRITE | CMD_MAY_REPLICATE)));
 
-    /* Check if the user is authenticated. This check is skipped in case
-     * the default user is flagged as "nopass" and is active. */
-    int auth_required = (!(DefaultUser->flags & USER_FLAG_NOPASS) ||
-                          (DefaultUser->flags & USER_FLAG_DISABLED)) &&
-                        !c->authenticated;
-    if (auth_required) {
-        /* AUTH and HELLO and no auth modules are valid even in
+    if (authRequired(c)) {
+        /* AUTH and HELLO and no auth commands are valid even in
          * non-authenticated state. */
         if (!(c->cmd->flags & CMD_NO_AUTH)) {
             rejectCommand(c,shared.noautherr);
@@ -5137,7 +5245,7 @@ int processCommand(client *c) {
     int acl_errpos;
     int acl_retval = ACLCheckAllPerm(c,&acl_errpos);
     if (acl_retval != ACL_OK) {
-        addACLLogEntry(c,acl_retval,acl_errpos,NULL);
+        addACLLogEntry(c,acl_retval,(c->flags & CLIENT_MULTI) ? ACL_LOG_CTX_MULTI : ACL_LOG_CTX_TOPLEVEL,acl_errpos,NULL,NULL);
         switch (acl_retval) {
         case ACL_DENIED_CMD:
             rejectCommandFormat(c,
@@ -5188,6 +5296,15 @@ int processCommand(client *c) {
         }
     }
 
+    /* Disconnect some clients if total clients memory is too high. We do this
+     * before key eviction, after the last command was executed and consumed
+     * some client output buffer memory. */
+    evictClients();
+    if (server.current_client == NULL) {
+        /* If we evicted ourself then abort processing the command */
+        return C_ERR;
+    }
+
     /* Handle the maxmemory directive.
      *
      * Note that we do not want to reclaim memory if we are here re-entering
@@ -5196,6 +5313,13 @@ int processCommand(client *c) {
      * propagation of DELs due to eviction. */
     if (server.maxmemory && !server.lua_timedout) {
         int out_of_memory = (performEvictions() == EVICT_FAIL);
+
+        /* performEvictions may evict keys, so we need flush pending tracking
+         * invalidation keys. If we don't do this, we may get an invalidation
+         * message after we perform operation on the key, where in fact this
+         * message belongs to the old value of the key before it gets evicted.*/
+        trackingHandlePendingKeyInvalidations();
+
         /* performEvictions may flush slave output buffers. This may result
          * in a slave, that may be the active client, to be freed. */
         if (server.current_client == NULL) return C_ERR;
@@ -6400,6 +6524,7 @@ sds genRedisInfoString(const char *section) {
             "expired_time_cap_reached_count:%lld\r\n"
             "expire_cycle_cpu_milliseconds:%lld\r\n"
             "evicted_keys:%lld\r\n"
+            "evicted_clients:%lld\r\n"
             "total_eviction_exceeded_time:%lld\r\n"
             "current_eviction_exceeded_time:%lld\r\n"
             "keyspace_hits:%lld\r\n"
@@ -6442,6 +6567,7 @@ sds genRedisInfoString(const char *section) {
             server.stat_expired_time_cap_reached_count,
             server.stat_expire_cycle_time_used/1000,
             server.stat_evictedkeys,
+            server.stat_evictedclients,
             (server.stat_total_eviction_exceeded_time + current_eviction_exceeded_time) / 1000,
             current_eviction_exceeded_time / 1000,
             server.stat_keyspace_hits,
@@ -6885,7 +7011,7 @@ int linuxMadvFreeForkBugCheck(void) {
     *(volatile char*)q = 0;
 
     /* Create a pipe for the child to return the info to the parent. */
-    ret = pipe(pipefd);
+    ret = anetPipe(pipefd, 0, 0);
     if (ret < 0) {
         serverLog(LL_WARNING, "Failed to create pipe: %s", strerror(errno));
         bug_found = -1;

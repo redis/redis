@@ -1227,15 +1227,18 @@ void zsetConvert(robj *zobj, int encoding) {
 }
 
 /* Convert the sorted set object into a listpack if it is not already a listpack
- * and if the number of elements and the maximum element size is within the
- * expected ranges. */
-void zsetConvertToListpackIfNeeded(robj *zobj, size_t maxelelen) {
+ * and if the number of elements and the maximum element size and total elements size
+ * are within the expected ranges. */
+void zsetConvertToListpackIfNeeded(robj *zobj, size_t maxelelen, size_t totelelen) {
     if (zobj->encoding == OBJ_ENCODING_LISTPACK) return;
     zset *zset = zobj->ptr;
 
     if (zset->zsl->length <= server.zset_max_listpack_entries &&
-        maxelelen <= server.zset_max_listpack_value)
-            zsetConvert(zobj,OBJ_ENCODING_LISTPACK);
+        maxelelen <= server.zset_max_listpack_value &&
+        lpSafeToAdd(NULL, totelelen))
+    {
+        zsetConvert(zobj,OBJ_ENCODING_LISTPACK);
+    }
 }
 
 /* Return (by reference) the score of the specified member of the sorted set
@@ -1355,20 +1358,28 @@ int zsetAdd(robj *zobj, double score, sds ele, int in_flags, int *out_flags, dou
             }
             return 1;
         } else if (!xx) {
-            /* Optimize: check if the element is too large or the list
+            /* check if the element is too large or the list
              * becomes too long *before* executing zzlInsert. */
-            zobj->ptr = zzlInsert(zobj->ptr,ele,score);
-            if (zzlLength(zobj->ptr) > server.zset_max_listpack_entries ||
-                sdslen(ele) > server.zset_max_listpack_value)
+            if (zzlLength(zobj->ptr)+1 > server.zset_max_listpack_entries ||
+                sdslen(ele) > server.zset_max_listpack_value ||
+                !lpSafeToAdd(zobj->ptr, sdslen(ele)))
+            {
                 zsetConvert(zobj,OBJ_ENCODING_SKIPLIST);
-            if (newscore) *newscore = score;
-            *out_flags |= ZADD_OUT_ADDED;
-            return 1;
+            } else {
+                zobj->ptr = zzlInsert(zobj->ptr,ele,score);
+                if (newscore) *newscore = score;
+                *out_flags |= ZADD_OUT_ADDED;
+                return 1;
+            }
         } else {
             *out_flags |= ZADD_OUT_NOP;
             return 1;
         }
-    } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
+    }
+
+    /* Note that the above block handling ziplist would have either returned or
+     * converted the key to skiplist. */
+    if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
         zset *zs = zobj->ptr;
         zskiplistNode *znode;
         dictEntry *de;
@@ -2304,7 +2315,7 @@ inline static void zunionInterAggregate(double *target, double val, int aggregat
     }
 }
 
-static int zsetDictGetMaxElementLength(dict *d) {
+static size_t zsetDictGetMaxElementLength(dict *d, size_t *totallen) {
     dictIterator *di;
     dictEntry *de;
     size_t maxelelen = 0;
@@ -2314,6 +2325,8 @@ static int zsetDictGetMaxElementLength(dict *d) {
     while((de = dictNext(di)) != NULL) {
         sds ele = dictGetKey(de);
         if (sdslen(ele) > maxelelen) maxelelen = sdslen(ele);
+        if (totallen)
+            (*totallen) += sdslen(ele);
     }
 
     dictReleaseIterator(di);
@@ -2321,7 +2334,7 @@ static int zsetDictGetMaxElementLength(dict *d) {
     return maxelelen;
 }
 
-static void zdiffAlgorithm1(zsetopsrc *src, long setnum, zset *dstzset, size_t *maxelelen) {
+static void zdiffAlgorithm1(zsetopsrc *src, long setnum, zset *dstzset, size_t *maxelelen, size_t *totelelen) {
     /* DIFF Algorithm 1:
      *
      * We perform the diff by iterating all the elements of the first set,
@@ -2369,13 +2382,14 @@ static void zdiffAlgorithm1(zsetopsrc *src, long setnum, zset *dstzset, size_t *
             znode = zslInsert(dstzset->zsl,zval.score,tmp);
             dictAdd(dstzset->dict,tmp,&znode->score);
             if (sdslen(tmp) > *maxelelen) *maxelelen = sdslen(tmp);
+            (*totelelen) += sdslen(tmp);
         }
     }
     zuiClearIterator(&src[0]);
 }
 
 
-static void zdiffAlgorithm2(zsetopsrc *src, long setnum, zset *dstzset, size_t *maxelelen) {
+static void zdiffAlgorithm2(zsetopsrc *src, long setnum, zset *dstzset, size_t *maxelelen, size_t *totelelen) {
     /* DIFF Algorithm 2:
      *
      * Add all the elements of the first set to the auxiliary set.
@@ -2429,7 +2443,7 @@ static void zdiffAlgorithm2(zsetopsrc *src, long setnum, zset *dstzset, size_t *
 
     /* Using this algorithm, we can't calculate the max element as we go,
      * we have to iterate through all elements to find the max one after. */
-    *maxelelen = zsetDictGetMaxElementLength(dstzset->dict);
+    *maxelelen = zsetDictGetMaxElementLength(dstzset->dict, totelelen);
 }
 
 static int zsetChooseDiffAlgorithm(zsetopsrc *src, long setnum) {
@@ -2466,14 +2480,14 @@ static int zsetChooseDiffAlgorithm(zsetopsrc *src, long setnum) {
     return (algo_one_work <= algo_two_work) ? 1 : 2;
 }
 
-static void zdiff(zsetopsrc *src, long setnum, zset *dstzset, size_t *maxelelen) {
+static void zdiff(zsetopsrc *src, long setnum, zset *dstzset, size_t *maxelelen, size_t *totelelen) {
     /* Skip everything if the smallest input is empty. */
     if (zuiLength(&src[0]) > 0) {
         int diff_algo = zsetChooseDiffAlgorithm(src, setnum);
         if (diff_algo == 1) {
-            zdiffAlgorithm1(src, setnum, dstzset, maxelelen);
+            zdiffAlgorithm1(src, setnum, dstzset, maxelelen, totelelen);
         } else if (diff_algo == 2) {
-            zdiffAlgorithm2(src, setnum, dstzset, maxelelen);
+            zdiffAlgorithm2(src, setnum, dstzset, maxelelen, totelelen);
         } else if (diff_algo != 0) {
             serverPanic("Unknown algorithm");
         }
@@ -2510,7 +2524,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
     zsetopsrc *src;
     zsetopval zval;
     sds tmp;
-    size_t maxelelen = 0;
+    size_t maxelelen = 0, totelelen = 0;
     robj *dstobj;
     zset *dstzset;
     zskiplistNode *znode;
@@ -2668,6 +2682,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                     tmp = zuiNewSdsFromValue(&zval);
                     znode = zslInsert(dstzset->zsl,score,tmp);
                     dictAdd(dstzset->dict,tmp,&znode->score);
+                    totelelen += sdslen(tmp);
                     if (sdslen(tmp) > maxelelen) maxelelen = sdslen(tmp);
                 }
             }
@@ -2704,6 +2719,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                     /* Remember the longest single element encountered,
                      * to understand if it's possible to convert to listpack
                      * at the end. */
+                     totelelen += sdslen(tmp);
                      if (sdslen(tmp) > maxelelen) maxelelen = sdslen(tmp);
                     /* Update the element with its initial score. */
                     dictSetKey(accumulator, de, tmp);
@@ -2738,14 +2754,14 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
         dictReleaseIterator(di);
         dictRelease(accumulator);
     } else if (op == SET_OP_DIFF) {
-        zdiff(src, setnum, dstzset, &maxelelen);
+        zdiff(src, setnum, dstzset, &maxelelen, &totelelen);
     } else {
         serverPanic("Unknown operator");
     }
 
     if (dstkey) {
         if (dstzset->zsl->length) {
-            zsetConvertToListpackIfNeeded(dstobj, maxelelen);
+            zsetConvertToListpackIfNeeded(dstobj, maxelelen, totelelen);
             setKey(c, c->db, dstkey, dstobj);
             addReplyLongLong(c, zsetLength(dstobj));
             notifyKeyspaceEvent(NOTIFY_ZSET,
@@ -3097,7 +3113,7 @@ void zrangeCommand(client *c) {
     zrangeGenericCommand(&handler, 1, 0, ZRANGE_AUTO, ZRANGE_DIRECTION_AUTO);
 }
 
-/* ZREVRANGE <key> <min> <max> [WITHSCORES] */
+/* ZREVRANGE <key> <start> <stop> [WITHSCORES] */
 void zrevrangeCommand(client *c) {
     zrange_result_handler handler;
     zrangeResultHandlerInit(&handler, c, ZRANGE_CONSUMER_TYPE_CLIENT);
@@ -3225,7 +3241,7 @@ void zrangebyscoreCommand(client *c) {
     zrangeGenericCommand(&handler, 1, 0, ZRANGE_SCORE, ZRANGE_DIRECTION_FORWARD);
 }
 
-/* ZREVRANGEBYSCORE <key> <min> <max> [WITHSCORES] [LIMIT offset count] */
+/* ZREVRANGEBYSCORE <key> <max> <min> [WITHSCORES] [LIMIT offset count] */
 void zrevrangebyscoreCommand(client *c) {
     zrange_result_handler handler;
     zrangeResultHandlerInit(&handler, c, ZRANGE_CONSUMER_TYPE_CLIENT);
@@ -3506,7 +3522,7 @@ void zrangebylexCommand(client *c) {
     zrangeGenericCommand(&handler, 1, 0, ZRANGE_LEX, ZRANGE_DIRECTION_FORWARD);
 }
 
-/* ZREVRANGEBYLEX <key> <min> <max> [LIMIT offset count] */
+/* ZREVRANGEBYLEX <key> <max> <min> [LIMIT offset count] */
 void zrevrangebylexCommand(client *c) {
     zrange_result_handler handler;
     zrangeResultHandlerInit(&handler, c, ZRANGE_CONSUMER_TYPE_CLIENT);
@@ -3753,31 +3769,35 @@ void zscanCommand(client *c) {
 }
 
 /* This command implements the generic zpop operation, used by:
- * ZPOPMIN, ZPOPMAX, BZPOPMIN and BZPOPMAX. This function is also used
- * inside blocked.c in the unblocking stage of BZPOPMIN and BZPOPMAX.
+ * ZPOPMIN, ZPOPMAX, BZPOPMIN, BZPOPMAX and ZMPOP. This function is also used
+ * inside blocked.c in the unblocking stage of BZPOPMIN, BZPOPMAX and BZMPOP.
  *
  * If 'emitkey' is true also the key name is emitted, useful for the blocking
  * behavior of BZPOP[MIN|MAX], since we can block into multiple keys.
+ * Or in ZMPOP/BZMPOP, because we also can take multiple keys.
  *
- * The synchronous version instead does not need to emit the key, but may
- * use the 'count' argument to return multiple items if available. */
-void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey, robj *countarg) {
+ * 'count' is the number of elements requested to pop, or 0 for plain single pop.
+ *
+ * 'use_nested_array' when false it generates a flat array (with or without key name).
+ * When true, it generates a nested 2 level array of field + score pairs, or 3 level when emitkey is set.
+ *
+ * 'reply_nil_when_empty' when true we reply a NIL if we are not able to pop up any elements.
+ * Like in ZMPOP/BZMPOP we reply with a structured nested array containing key name
+ * and member + score pairs. In these commands, we reply with null when we have no result.
+ * Otherwise in ZPOPMIN/ZPOPMAX we reply an empty array by default.
+ *
+ * 'deleted' is an optional output argument to get an indication
+ * if the key got deleted by this function.
+ * */
+void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey,
+                        long count, int use_nested_array, int reply_nil_when_empty, int *deleted) {
     int idx;
     robj *key = NULL;
     robj *zobj = NULL;
     sds ele;
     double score;
-    long count = 1;
 
-    /* If a count argument as passed, parse it or return an error. */
-    if (countarg) {
-        if (getLongFromObjectOrReply(c,countarg,&count,NULL) != C_OK)
-            return;
-        if (count <= 0) {
-            addReply(c,shared.emptyarray);
-            return;
-        }
-    }
+    if (deleted) *deleted = 0;
 
     /* Check type and break on the first error, otherwise identify candidate. */
     idx = 0;
@@ -3791,20 +3811,38 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
 
     /* No candidate for zpopping, return empty. */
     if (!zobj) {
-        addReply(c,shared.emptyarray);
+        if (reply_nil_when_empty) {
+            addReplyNullArray(c);
+        } else {
+            addReply(c,shared.emptyarray);
+        }
         return;
     }
 
-    void *arraylen_ptr = addReplyDeferredLen(c);
     long result_count = 0;
 
-    /* We emit the key only for the blocking variant. */
-    if (emitkey) addReplyBulk(c,key);
+    /* When count is 0, we need to correct it to 1 for plain single pop. */
+    if (count == 0) count = 1;
 
-    /* Respond with a single (flat) array in RESP2 or if countarg is not
-     * provided (returning a single element). In RESP3, when countarg is
-     * provided, use nested array.  */
-    int use_nested_array = c->resp > 2 && countarg != NULL;
+    long llen = zsetLength(zobj);
+    long rangelen = (count > llen) ? llen : count;
+
+    if (!use_nested_array && !emitkey) {
+        /* ZPOPMIN/ZPOPMAX with or without COUNT option in RESP2. */
+        addReplyArrayLen(c, rangelen * 2);
+    } else if (use_nested_array && !emitkey) {
+        /* ZPOPMIN/ZPOPMAX with COUNT option in RESP3. */
+        addReplyArrayLen(c, rangelen);
+    } else if (!use_nested_array && emitkey) {
+        /* BZPOPMIN/BZPOPMAX in RESP2 and RESP3. */
+        addReplyArrayLen(c, rangelen * 2 + 1);
+        addReplyBulk(c, key);
+    } else if (use_nested_array && emitkey) {
+        /* ZMPOP/BZMPOP in RESP2 and RESP3. */
+        addReplyArrayLen(c, 2);
+        addReplyBulk(c, key);
+        addReplyArrayLen(c, rangelen);
+    }
 
     /* Remove the element. */
     do {
@@ -3861,64 +3899,114 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
         addReplyDouble(c,score);
         sdsfree(ele);
         ++result_count;
+    } while(--rangelen);
 
-        /* Remove the key, if indeed needed. */
-        if (zsetLength(zobj) == 0) {
-            dbDelete(c->db,key);
-            notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key,c->db->id);
-            break;
-        }
-    } while(--count);
+    /* Remove the key, if indeed needed. */
+    if (zsetLength(zobj) == 0) {
+        if (deleted) *deleted = 1;
 
-    if (!use_nested_array) {
-        result_count *= 2;
+        dbDelete(c->db,key);
+        notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key,c->db->id);
     }
-    setDeferredArrayLen(c,arraylen_ptr,result_count + (emitkey != 0));
+
+    if (c->cmd->proc == zmpopCommand) {
+        /* Always replicate it as ZPOP[MIN|MAX] with COUNT option instead of ZMPOP. */
+        robj *count_obj = createStringObjectFromLongLong((count > llen) ? llen : count);
+        rewriteClientCommandVector(c, 3,
+                                   (where == ZSET_MAX) ? shared.zpopmax : shared.zpopmin,
+                                   key, count_obj);
+        decrRefCount(count_obj);
+    }
+}
+
+/* ZPOPMIN/ZPOPMAX key [<count>] */
+void zpopMinMaxCommand(client *c, int where) {
+    if (c->argc > 3) {
+        addReplyErrorObject(c,shared.syntaxerr);
+        return;
+    }
+
+    long count = 0; /* 0 for plain single pop. */
+    if (c->argc == 3) {
+        if (getLongFromObjectOrReply(c, c->argv[2], &count, NULL) != C_OK)
+            return;
+
+        if (count <= 0) {
+            addReply(c, shared.emptyarray);
+            return;
+        }
+    }
+
+    /* Respond with a single (flat) array in RESP2 or if count is 0
+     * (returning a single element). In RESP3, when count > 0 use nested array. */
+    int use_nested_array = (c->resp > 2 && count != 0);
+
+    genericZpopCommand(c, &c->argv[1], 1, where, 0, count, use_nested_array, 0, NULL);
 }
 
 /* ZPOPMIN key [<count>] */
 void zpopminCommand(client *c) {
-    if (c->argc > 3) {
-        addReplyErrorObject(c,shared.syntaxerr);
-        return;
-    }
-    genericZpopCommand(c,&c->argv[1],1,ZSET_MIN,0,
-        c->argc == 3 ? c->argv[2] : NULL);
+    zpopMinMaxCommand(c, ZSET_MIN);
 }
 
 /* ZMAXPOP key [<count>] */
 void zpopmaxCommand(client *c) {
-    if (c->argc > 3) {
-        addReplyErrorObject(c,shared.syntaxerr);
-        return;
-    }
-    genericZpopCommand(c,&c->argv[1],1,ZSET_MAX,0,
-        c->argc == 3 ? c->argv[2] : NULL);
+    zpopMinMaxCommand(c, ZSET_MAX);
 }
 
-/* BZPOPMIN / BZPOPMAX actual implementation. */
-void blockingGenericZpopCommand(client *c, int where) {
+/* BZPOPMIN, BZPOPMAX, BZMPOP actual implementation.
+ *
+ * 'numkeys' is the number of keys.
+ *
+ * 'timeout_idx' parameter position of block timeout.
+ *
+ * 'where' ZSET_MIN or ZSET_MAX.
+ *
+ * 'count' is the number of elements requested to pop, or 0 for plain single pop.
+ *
+ * 'use_nested_array' when false it generates a flat array (with or without key name).
+ * When true, it generates a nested 3 level array of keyname, field + score pairs.
+ * */
+void blockingGenericZpopCommand(client *c, robj **keys, int numkeys, int where,
+                                int timeout_idx, long count, int use_nested_array, int reply_nil_when_empty) {
     robj *o;
+    robj *key;
     mstime_t timeout;
     int j;
 
-    if (getTimeoutFromObjectOrReply(c,c->argv[c->argc-1],&timeout,UNIT_SECONDS)
+    if (getTimeoutFromObjectOrReply(c,c->argv[timeout_idx],&timeout,UNIT_SECONDS)
         != C_OK) return;
 
-    for (j = 1; j < c->argc-1; j++) {
-        o = lookupKeyWrite(c->db,c->argv[j]);
+    for (j = 0; j < numkeys; j++) {
+        key = keys[j];
+        o = lookupKeyWrite(c->db,key);
+        /* Non-existing key, move to next key. */
+        if (o == NULL) continue;
+
         if (checkType(c,o,OBJ_ZSET)) return;
-        if (o != NULL) {
-            if (zsetLength(o) != 0) {
-                /* Non empty zset, this is like a normal ZPOP[MIN|MAX]. */
-                genericZpopCommand(c,&c->argv[j],1,where,1,NULL);
-                /* Replicate it as an ZPOP[MIN|MAX] instead of BZPOP[MIN|MAX]. */
-                rewriteClientCommandVector(c,2,
-                    where == ZSET_MAX ? shared.zpopmax : shared.zpopmin,
-                    c->argv[j]);
-                return;
-            }
+
+        long llen = zsetLength(o);
+        /* Empty zset, move to next key. */
+        if (llen == 0) continue;
+
+        /* Non empty zset, this is like a normal ZPOP[MIN|MAX]. */
+        genericZpopCommand(c, &key, 1, where, 1, count, use_nested_array, reply_nil_when_empty, NULL);
+
+        if (count == 0) {
+            /* Replicate it as ZPOP[MIN|MAX] instead of BZPOP[MIN|MAX]. */
+            rewriteClientCommandVector(c,2,
+                                       (where == ZSET_MAX) ? shared.zpopmax : shared.zpopmin,
+                                       key);
+        } else {
+            /* Replicate it as ZPOP[MIN|MAX] with COUNT option. */
+            robj *count_obj = createStringObjectFromLongLong((count > llen) ? llen : count);
+            rewriteClientCommandVector(c, 3,
+                                       (where == ZSET_MAX) ? shared.zpopmax : shared.zpopmin,
+                                       key, count_obj);
+            decrRefCount(count_obj);
         }
+
+        return;
     }
 
     /* If we are not allowed to block the client and the zset is empty the only thing
@@ -3929,17 +4017,18 @@ void blockingGenericZpopCommand(client *c, int where) {
     }
 
     /* If the keys do not exist we must block */
-    blockForKeys(c,BLOCKED_ZSET,c->argv + 1,c->argc - 2,0,timeout,NULL,NULL,NULL);
+    struct blockPos pos = {where};
+    blockForKeys(c,BLOCKED_ZSET,c->argv+1,c->argc-2,count,timeout,NULL,&pos,NULL);
 }
 
 // BZPOPMIN key [key ...] timeout
 void bzpopminCommand(client *c) {
-    blockingGenericZpopCommand(c,ZSET_MIN);
+    blockingGenericZpopCommand(c, c->argv+1, c->argc-2, ZSET_MIN, c->argc-1, 0, 0, 0);
 }
 
 // BZPOPMAX key [key ...] timeout
 void bzpopmaxCommand(client *c) {
-    blockingGenericZpopCommand(c,ZSET_MAX);
+    blockingGenericZpopCommand(c, c->argv+1, c->argc-2, ZSET_MAX, c->argc-1, 0, 0, 0);
 }
 
 static void zarndmemberReplyWithListpack(client *c, unsigned int count, listpackEntry *keys, listpackEntry *vals) {
@@ -4086,7 +4175,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
         /* Remove random elements to reach the right count. */
         while (size > count) {
             dictEntry *de;
-            de = dictGetRandomKey(d);
+            de = dictGetFairRandomKey(d);
             dictUnlink(d,dictGetKey(de));
             sdsfree(dictGetKey(de));
             dictFreeUnlinkedEntry(d,de);
@@ -4188,4 +4277,69 @@ void zrandmemberCommand(client *c) {
 
     zsetTypeRandomElement(zset, zsetLength(zset), &ele,NULL);
     zsetReplyFromListpackEntry(c,&ele);
+}
+
+/* ZMPOP/BZMPOP
+ *
+ * 'numkeys_idx' parameter position of key number.
+ * 'is_block' this indicates whether it is a blocking variant. */
+void zmpopGenericCommand(client *c, int numkeys_idx, int is_block) {
+    long j;
+    long numkeys = 0;      /* Number of keys. */
+    int where = 0;         /* ZSET_MIN or ZSET_MAX. */
+    long count = 1;        /* Reply will consist of up to count elements, depending on the zset's length. */
+
+    /* Parse the numkeys. */
+    if (getRangeLongFromObjectOrReply(c, c->argv[numkeys_idx], 1, LONG_MAX,
+                                      &numkeys, "numkeys should be greater than 0") != C_OK)
+        return;
+
+    /* Parse the where. where_idx: the index of where in the c->argv. */
+    long where_idx = numkeys_idx + numkeys + 1;
+    if (where_idx >= c->argc) {
+        addReplyErrorObject(c, shared.syntaxerr);
+        return;
+    }
+    if (!strcasecmp(c->argv[where_idx]->ptr, "MIN")) {
+        where = ZSET_MIN;
+    } else if (!strcasecmp(c->argv[where_idx]->ptr, "MAX")) {
+        where = ZSET_MAX;
+    } else {
+        addReplyErrorObject(c, shared.syntaxerr);
+        return;
+    }
+
+    /* Parse the optional arguments. */
+    for (j = where_idx + 1; j < c->argc; j++) {
+        char *opt = c->argv[j]->ptr;
+        int moreargs = (c->argc - 1) - j;
+
+        if (!strcasecmp(opt, "COUNT") && moreargs) {
+            j++;
+            if (getRangeLongFromObjectOrReply(c, c->argv[j], 1, LONG_MAX,
+                                              &count,"count should be greater than 0") != C_OK)
+                return;
+        } else {
+            addReplyErrorObject(c, shared.syntaxerr);
+            return;
+        }
+    }
+
+    if (is_block) {
+        /* BLOCK. We will handle CLIENT_DENY_BLOCKING flag in blockingGenericZpopCommand. */
+        blockingGenericZpopCommand(c, c->argv+numkeys_idx+1, numkeys, where, 1, count, 1, 1);
+    } else {
+        /* NON-BLOCK */
+        genericZpopCommand(c, c->argv+numkeys_idx+1, numkeys, where, 1, count, 1, 1, NULL);
+    }
+}
+
+/* ZMPOP numkeys [<key> ...] MIN|MAX [COUNT count] */
+void zmpopCommand(client *c) {
+    zmpopGenericCommand(c, 1, 0);
+}
+
+/* BZMPOP timeout numkeys [<key> ...] MIN|MAX [COUNT count] */
+void bzmpopCommand(client *c) {
+    zmpopGenericCommand(c, 2, 1);
 }

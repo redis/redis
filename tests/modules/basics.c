@@ -401,6 +401,7 @@ int TestStringAppendAM(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     RedisModule_AutoMemory(ctx);
     RedisModuleString *s = RedisModule_CreateString(ctx,"foo",3);
     RedisModule_RetainString(ctx,s);
+    RedisModule_TrimStringAllocation(s);    /* Mostly NOP, but exercises the API function */
     RedisModule_StringAppendBuffer(ctx,s,"bar",3);
     RedisModule_ReplyWithString(ctx,s);
     RedisModule_FreeString(ctx,s);
