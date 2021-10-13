@@ -7351,7 +7351,7 @@ int RM_ACLCheckCommandPermissions(RedisModuleUser *user, RedisModuleString **arg
     struct redisCommand *cmd;
 
     /* Find command */
-    if ((cmd = lookupCommand(argv[0]->ptr)) == NULL) {
+    if ((cmd = lookupCommand(argv, argc)) == NULL) {
         errno = ENOENT;
         return REDISMODULE_ERR;
     }

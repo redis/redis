@@ -2581,6 +2581,8 @@ void clientCommand(client *c) {
 "    Control server assisted client side caching.",
 "TRACKINGINFO",
 "    Report tracking status for the current connection.",
+"NO-EVICT (ON|OFF)",
+"    Protect current client connection from eviction.",
 NULL
         };
         addReplyHelp(c, help);
@@ -2644,7 +2646,7 @@ NULL
             return;
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"no-evict") && c->argc == 3) {
-        /* CLIENT PROTECT ON|OFF */
+        /* CLIENT NO-EVICT ON|OFF */
         if (!strcasecmp(c->argv[2]->ptr,"on")) {
             c->flags |= CLIENT_NO_EVICT;
             addReply(c,shared.ok);

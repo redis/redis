@@ -279,35 +279,19 @@ struct redisCommand xgroupSubcommands[] = {
 };
 
 struct redisCommand commandSubcommands[] = {
-    {"count",commandCommand,2,
+    {"count",commandCountCommand,2,
      "ok-loading ok-stale @connection"},
 
-    {"info",commandCommand,-3,
+    {"list",commandListCommand,2,
      "ok-loading ok-stale @connection"},
 
-    {"getkeys",commandCommand,-4,
+    {"info",commandInfoCommand,-3,
      "ok-loading ok-stale @connection"},
 
-    {"help",commandCommand,2,
+    {"getkeys",commandGetKeysCommand,-4,
      "ok-loading ok-stale @connection"},
 
-    {NULL},
-};
-
-struct redisCommand commandsSubcommands[] = {
-    {"count",commandsCountCommand,2,
-     "ok-loading ok-stale @connection"},
-
-    {"list",commandsListCommand,2,
-     "ok-loading ok-stale @connection"},
-
-    {"info",commandsInfoCommand,-2,
-     "ok-loading ok-stale @connection"},
-
-    {"getkeys",commandsGetKeysCommand,-4,
-     "ok-loading ok-stale @connection"},
-
-    {"help",commandsHelpCommand,2,
+    {"help",commandHelpCommand,2,
      "ok-loading ok-stale @connection"},
 
     {NULL},
@@ -526,6 +510,9 @@ struct redisCommand clientSubcommands[] = {
      "admin no-script ok-loading ok-stale @connection"},
 
     {"trackinginfo",clientCommand,2,
+     "admin no-script ok-loading ok-stale @connection"},
+
+    {"no-evict",clientCommand,3,
      "admin no-script ok-loading ok-stale @connection"},
 
     {"help",clientCommand,2,
@@ -1823,10 +1810,6 @@ struct redisCommand redisCommandTable[] = {
     {"command",commandCommand,-1,
      "ok-loading ok-stale random sentinel @connection",
      .subcommands=commandSubcommands},
-
-    {"commands",NULL,-2,
-     "sentinel",
-     .subcommands=commandsSubcommands},
 
     {"geoadd",geoaddCommand,-5,
      "write use-memory @geo",
@@ -5841,19 +5824,18 @@ void addReplyCommandSubCommands(client *c, struct redisCommand *cmd) {
         return;
     }
 
-    addReplyMapLen(c, dictSize(cmd->subcommands_dict));
+    addReplyArrayLen(c, dictSize(cmd->subcommands_dict));
     dictEntry *de;
     dictIterator *di = dictGetSafeIterator(cmd->subcommands_dict);
     while((de = dictNext(di)) != NULL) {
         struct redisCommand *sub = (struct redisCommand *)dictGetVal(de);
-        addReplyBulkCString(c,sub->name);
         addReplyCommand(c,sub);
     }
     dictReleaseIterator(di);
 }
 
 /* Output the representation of a Redis command. Used by the COMMAND command. */
-void addReplyCommandLegacy(client *c, struct redisCommand *cmd) {
+void addReplyCommand(client *c, struct redisCommand *cmd) {
     if (!cmd) {
         addReplyNull(c);
     } else {
@@ -5865,8 +5847,8 @@ void addReplyCommandLegacy(client *c, struct redisCommand *cmd) {
                 lastkey += firstkey;
             keystep = cmd->legacy_range_key_spec.fk.range.keystep;
         }
-        /* We are adding: command name, arg count, flags, first, last, offset, categories */
-        addReplyArrayLen(c, 7);
+        /* We are adding: command name, arg count, flags, first, last, offset, categories, key args, subcommands */
+        addReplyArrayLen(c, 9);
         addReplyBulkCString(c, cmd->name);
         addReplyLongLong(c, cmd->arity);
         addReplyFlagsForCommand(c, cmd);
@@ -5874,22 +5856,9 @@ void addReplyCommandLegacy(client *c, struct redisCommand *cmd) {
         addReplyLongLong(c, lastkey);
         addReplyLongLong(c, keystep);
         addReplyCommandCategories(c,cmd);
+        addReplyCommandKeyArgs(c,cmd);
+        addReplyCommandSubCommands(c,cmd);
     }
-}
-
-/* Output the representation of a Redis command. Used by the COMMANDS command. */
-void addReplyCommand(client *c, struct redisCommand *cmd) {
-    addReplyMapLen(c, 5);
-    addReplyBulkCString(c, "arity");
-    addReplyLongLong(c, cmd->arity);
-    addReplyBulkCString(c, "flags");
-    addReplyFlagsForCommand(c, cmd);
-    addReplyBulkCString(c, "acl");
-    addReplyCommandCategories(c,cmd);
-    addReplyBulkCString(c, "keys");
-    addReplyCommandKeyArgs(c,cmd);
-    addReplyBulkCString(c, "subcommands");
-    addReplyCommandSubCommands(c,cmd);
 }
 
 /* Helper for COMMAND(S) command
@@ -5922,53 +5891,26 @@ void getKeysSubcommand(client *c) {
     getKeysFreeResult(&result);
 }
 
-/* COMMAND <subcommand> <args> */
+/* COMMAND (no args) */
 void commandCommand(client *c) {
     dictIterator *di;
     dictEntry *de;
 
-    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
-        const char *help[] = {
-"(no subcommand)",
-"    Return details about all Redis commands.",
-"COUNT",
-"    Return the total number of commands in this Redis server.",
-"GETKEYS <full-command>",
-"    Return the keys from a full Redis command.",
-"INFO [<command-name> ...]",
-"    Return details about multiple Redis commands.",
-NULL
-        };
-        addReplyHelp(c, help);
-    } else if (c->argc == 1) {
-        addReplyArrayLen(c, dictSize(server.commands));
-        di = dictGetIterator(server.commands);
-        while ((de = dictNext(di)) != NULL) {
-            addReplyCommandLegacy(c, dictGetVal(de));
-        }
-        dictReleaseIterator(di);
-    } else if (!strcasecmp(c->argv[1]->ptr, "info")) {
-        int i;
-        addReplyArrayLen(c, c->argc-2);
-        for (i = 2; i < c->argc; i++) {
-            addReplyCommandLegacy(c, lookupCommandBySds(c->argv[i]->ptr));
-        }
-    } else if (!strcasecmp(c->argv[1]->ptr, "count") && c->argc == 2) {
-        addReplyLongLong(c, dictSize(server.commands));
-    } else if (!strcasecmp(c->argv[1]->ptr,"getkeys") && c->argc >= 3) {
-        getKeysSubcommand(c);
-    } else {
-        addReplySubcommandSyntaxError(c);
+    addReplyArrayLen(c, dictSize(server.commands));
+    di = dictGetIterator(server.commands);
+    while ((de = dictNext(di)) != NULL) {
+        addReplyCommand(c, dictGetVal(de));
     }
+    dictReleaseIterator(di);
 }
 
-/* COMMANDS COUNT */
-void commandsCountCommand(client *c) {
+/* COMMAND COUNT */
+void commandCountCommand(client *c) {
     addReplyLongLong(c, dictSize(server.commands));
 }
 
-/* COMMANDS LIST */
-void commandsListCommand(client *c) {
+/* COMMAND LIST */
+void commandListCommand(client *c) {
     dictIterator *di;
     dictEntry *de;
 
@@ -5981,49 +5923,31 @@ void commandsListCommand(client *c) {
     dictReleaseIterator(di);
 }
 
-/* COMMANDS INFO [<command-name> ...] */
-void commandsInfoCommand(client *c) {
-    if (c->argc > 2) {
-        addReplyMapLen(c, c->argc-2);
-        for (int i = 2; i < c->argc; i++) {
-            struct redisCommand *cmd = lookupCommandBySds(c->argv[i]->ptr);
-            if (cmd) {
-                addReplyBulkCString(c,cmd->name);
-                addReplyCommand(c,cmd);
-            } else {
-                addReplyNull(c);
-                addReplyNull(c);
-            }
-        }
-    } else {
-        dictIterator *di;
-        dictEntry *de;
-
-        addReplyMapLen(c, dictSize(server.commands));
-        di = dictGetIterator(server.commands);
-        while ((de = dictNext(di)) != NULL) {
-            struct redisCommand *cmd = dictGetVal(de);
-            addReplyBulkCString(c,cmd->name);
-            addReplyCommand(c,cmd);
-        }
-        dictReleaseIterator(di);
+/* COMMAND INFO <command-name> [<command-name> ...] */
+void commandInfoCommand(client *c) {
+    int i;
+    addReplyArrayLen(c, c->argc-2);
+    for (i = 2; i < c->argc; i++) {
+        addReplyCommand(c, lookupCommandBySds(c->argv[i]->ptr));
     }
 }
 
-/* COMMANDS GETKEYS arg0 arg1 arg2 ... */
-void commandsGetKeysCommand(client *c) {
+/* COMMAND GETKEYS arg0 arg1 arg2 ... */
+void commandGetKeysCommand(client *c) {
     getKeysSubcommand(c);
 }
 
-/* COMMANDS HELP */
-void commandsHelpCommand(client *c) {
+/* COMMAND HELP */
+void commandHelpCommand(client *c) {
     const char *help[] = {
+"(no subcommand)",
+"    Return details about all Redis commands.",
 "COUNT",
 "    Return the total number of commands in this Redis server.",
 "LIST",
 "    Return a list of all commands in this Redis server.",
-"INFO [<command-name> ...]",
-"    Return details about multiple Redis commands. If no specific commands were given, information about all commands will be provided.",
+"INFO <command-name> [<command-name> ...]",
+"    Return details about multiple Redis commands.",
 "GETKEYS <full-command>",
 "    Return the keys from a full Redis command.",
 NULL
