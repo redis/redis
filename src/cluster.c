@@ -4417,8 +4417,6 @@ int getSlotOrReply(client *c, robj *o) {
     return (int) slot;
 }
 
-<<<<<<< HEAD
-<<<<<<< HEAD
 /* Returns an indication if the replica node is fully available
  * and should be listed in CLUSTER SLOTS response.
  * Returns 1 for available nodes, 0 for nodes that have 
@@ -4437,11 +4435,7 @@ static int isReplicaAvailable(clusterNode *node) {
     return (repl_offset != 0);
 }
 
-=======
-int getSlotStatus(client *c, unsigned char *slots, int del, int start_slot, int end_slot) {
-=======
 int checkSlotAssignmentsOrReply(client *c, unsigned char *slots, int del, int start_slot, int end_slot) {
->>>>>>> Formatting changes to cluster.c
     int slot;
     for (slot = start_slot; slot <= end_slot; slot++) {
         if (del && server.cluster->slots[slot] == NULL) {
