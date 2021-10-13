@@ -4436,6 +4436,18 @@ void populateCommandLegacyRangeSpec(struct redisCommand *c) {
     c->legacy_range_key_spec.fk.range.limit = 0;
 }
 
+void commandAddSubcommand(struct redisCommand *parent, struct redisCommand *subcommand) {
+    if (!parent->subcommands_dict)
+        parent->subcommands_dict = dictCreate(&commandTableDictType);
+
+    subcommand->parent = parent; /* Assign the parent command */
+    sds fullname = getFullCommandName(subcommand);
+    subcommand->id = ACLGetCommandID(fullname); /* Assign the ID used for ACL. */
+    sdsfree(fullname);
+
+    serverAssert(dictAdd(parent->subcommands_dict, sdsnew(subcommand->name), subcommand) == DICT_OK);
+}
+
 /* Parse the flags string description 'strflags' and set them to the
  * command 'c'. If the flags are all valid C_OK is returned, otherwise
  * C_ERR is returned (yet the recognized flags are set in the command). */
@@ -4541,22 +4553,15 @@ int populateSingleCommand(struct redisCommand *c, char *strflags) {
 
     /* Handle subcommands */
     if (c->subcommands) {
-        c->subcommands_dict = dictCreate(&commandTableDictType);
-
         for (int j = 0; c->subcommands[j].name; j++) {
             struct redisCommand *sub = c->subcommands+j;
-
-            sub->parent = c; /* Assign the parent command */
-            sds fullname = getFullCommandName(sub);
-            sub->id = ACLGetCommandID(fullname); /* Assign the ID used for ACL. */
-            sdsfree(fullname);
 
             /* Translate the command string flags description into an actual
              * set of flags. */
             if (populateSingleCommand(sub,sub->sflags) == C_ERR)
                 serverPanic("Unsupported command flag or key spec flag");
 
-            serverAssert(dictAdd(c->subcommands_dict, sdsnew(sub->name), sub) == DICT_OK);
+            commandAddSubcommand(c,sub);
         }
     }
 
@@ -4700,13 +4705,17 @@ struct redisCommand *lookupCommandBySds(sds s) {
     return lookupCommandBySdsLogic(server.commands,s);
 }
 
-struct redisCommand *lookupCommandByCString(const char *s) {
+struct redisCommand *lookupCommandByCStringLogic(dict *commands, const char *s) {
     struct redisCommand *cmd;
     sds name = sdsnew(s);
 
-    cmd = lookupCommandBySds(name);
+    cmd = lookupCommandBySdsLogic(commands,name);
     sdsfree(name);
     return cmd;
+}
+
+struct redisCommand *lookupCommandByCString(const char *s) {
+    return lookupCommandByCStringLogic(server.commands,s);
 }
 
 /* Lookup the command in the current table, if not found also check in
