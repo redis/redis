@@ -3306,21 +3306,6 @@ size_t getClientOutputBufferMemoryUsage(client *c) {
     }
 }
 
-/* Since all slaves share one global replication buffer, we only count
- * the max output buffer memory usage of all slaves. */
-size_t getSlavesOutputBufferMemoryUsage(void) {
-    size_t max_slave_mem = 0;
-    listNode *ln;
-    listIter li;
-    listRewind(server.slaves,&li);
-    while((ln = listNext(&li))) {
-        client *slave = ln->value;
-        size_t mem = getClientOutputBufferMemoryUsage(slave);
-        if (mem > max_slave_mem) max_slave_mem = mem;
-    }
-    return max_slave_mem;
-}
-
 /* Returns the total client's memory usage.
  * Optionally, if output_buffer_mem_usage is not NULL, it fills it with
  * the client output buffer memory usage portion of the total. */

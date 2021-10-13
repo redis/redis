@@ -1172,32 +1172,27 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
 
     mem_total += server.initial_memory_usage;
 
-    mem = 0;
-    if (server.repl_backlog && server.repl_backlog->ref_repl_buf_node) {
-        replBufBlock *head = listNodeValue(server.repl_backlog->ref_repl_buf_node);
-        replBufBlock *last = listNodeValue(listLast(server.repl_buffer_blocks));
-        /* The memory of referenced replication buffer blocks. */
-        mem += server.repl_backlog->histlen + (last->size - last->used);
-        /* The linked list node memory and replBufBlock struct memory. */
-        mem += (last->id - head->id + 1) * (sizeof(replBufBlock)+sizeof(listNode));
-        /* The approximate memory of rax tree for indexed blocks. */
-        mem += server.repl_backlog->blocks_index->numnodes * sizeof(raxNode) +
-               raxSize(server.repl_backlog->blocks_index) * sizeof(void*);
+    /* Replication backlog and replicas share one global replication buffer,
+     * only if replication buffer memory is more than the repl backlog setting,
+     * we consider the excess as replicas' memory. Otherwise, replication buffer
+     * memory is the consumption of repl backlog. */
+    if (listLength(server.slaves) &&
+        server.repl_buffer_mem > server.repl_backlog_size)
+    {
+        mh->clients_slaves = server.repl_buffer_mem - server.repl_backlog_size;
+        mh->repl_backlog = server.repl_backlog_size;
+    } else {
+        mh->clients_slaves = 0;
+        mh->repl_backlog =  server.repl_buffer_mem;
     }
-    mh->repl_backlog = mem;
-    mem_total += mem;
+    mem_total += server.repl_buffer_mem;
 
-    /* TODO: discuss what is replicas memory
-     * p.s. i will change the name(slave word) when we reach an aggrement since
-     * we may don't this function. */
-    mh->clients_slaves = getSlavesOutputBufferMemoryUsage();
     /* Computing the memory used by the clients would be O(N) if done
      * here online. We use our values computed incrementally by
      * updateClientMemUsage(). */
     mh->clients_normal = server.stat_clients_type_memory[CLIENT_TYPE_MASTER]+
                          server.stat_clients_type_memory[CLIENT_TYPE_PUBSUB]+
                          server.stat_clients_type_memory[CLIENT_TYPE_NORMAL];
-    mem_total += mh->clients_slaves;
     mem_total += mh->clients_normal;
 
     mem = 0;
