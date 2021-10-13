@@ -5494,13 +5494,11 @@ void infoCommand(client *c) {
     int defsections = 0, allsections = 0;
     // first time find all/default flag
     for (int i = 1; i < c->argc; i++) {
-
         defsections = !strcasecmp(c->argv[i]->ptr,"default");
         allsections = !strcasecmp(c->argv[i]->ptr,"all");
     }
 
     if (defsections || allsections) {
-
         sds info = allsections ? genRedisInfoString("all") : genRedisInfoString("default");
 >>>>>>> initial commit for sentinel info command change
         addReplyVerbatim(c,info,sdslen(info),"txt");
@@ -5567,8 +5565,11 @@ void infoCommand(client *c) {
     int lastValid = 0; 
     // second time parse specific section flag
     for (int i = 1; i < c->argc; i++) {
+<<<<<<< HEAD
 >>>>>>> initial commit for sentinel info command change
 
+=======
+>>>>>>> Rebase and remove extra lines
         if (lastValid) {
             info = sdscat(info,"\r\n");
         }
