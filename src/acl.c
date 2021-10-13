@@ -413,12 +413,12 @@ void ACLSetUserCommandBit(user *u, unsigned long id, int value) {
     }
 }
 
+/* This function is used to allow/block a specific command.
+ * Allowing/blocking a container command also applies for its subcommands */
 void ACLChangeCommandPerm(user *u, struct redisCommand *cmd, int allow) {
     unsigned long id = cmd->id;
     ACLSetUserCommandBit(u,id,allow);
     ACLResetFirstArgsForCommand(u,id);
-    /* By default we inherit `allow` for all subcommands.
-     * e.g. "+client" will add all of CLIENT's subcommands to allowed_commands. */
     if (cmd->subcommands_dict) {
         dictEntry *de;
         dictIterator *di = dictGetSafeIterator(cmd->subcommands_dict);
@@ -458,7 +458,7 @@ int ACLSetUserCommandBitsForCategory(user *u, const char *category, int value) {
     return C_OK;
 }
 
-void ACLCountCategoryBitsForUserLogic(dict *commands, user *u, unsigned long *on, unsigned long *off, uint64_t cflag) {
+void ACLCountCategoryBitsForCommands(dict *commands, user *u, unsigned long *on, unsigned long *off, uint64_t cflag) {
     dictIterator *di = dictGetIterator(commands);
     dictEntry *de;
     while ((de = dictNext(di)) != NULL) {
@@ -470,7 +470,7 @@ void ACLCountCategoryBitsForUserLogic(dict *commands, user *u, unsigned long *on
                 (*off)++;
         }
         if (cmd->subcommands_dict) {
-            ACLCountCategoryBitsForUserLogic(cmd->subcommands_dict, u, on, off, cflag);
+            ACLCountCategoryBitsForCommands(cmd->subcommands_dict, u, on, off, cflag);
         }
     }
     dictReleaseIterator(di);
@@ -487,7 +487,7 @@ int ACLCountCategoryBitsForUser(user *u, unsigned long *on, unsigned long *off,
     if (!cflag) return C_ERR;
 
     *on = *off = 0;
-    ACLCountCategoryBitsForUserLogic(server.orig_commands, u, on, off, cflag);
+    ACLCountCategoryBitsForCommands(server.orig_commands, u, on, off, cflag);
     return C_OK;
 }
 
@@ -516,7 +516,9 @@ sds ACLDescribeUserCommandRulesSingleCommands(user *u, user *fakeuser, sds rules
         {
             for (int j = 0; u->allowed_firstargs[cmd->id][j]; j++) {
                 rules = sdscatlen(rules,"+",1);
-                rules = sdscat(rules,cmd->name);
+                sds fullname = getFullCommandName(cmd);
+                rules = sdscat(rules,fullname);
+                sdsfree(fullname);
                 rules = sdscatlen(rules,"|",1);
                 rules = sdscatsds(rules,u->allowed_firstargs[cmd->id][j]);
                 rules = sdscatlen(rules," ",1);

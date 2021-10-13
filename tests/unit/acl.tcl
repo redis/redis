@@ -251,23 +251,38 @@ start_server {tags {"acl external:skip"}} {
     test {ACLs can include single subcommands} {
         r ACL setuser newuser +@all -client
         r ACL setuser newuser +client|id +client|setname
+        set cmdstr [dict get [r ACL getuser newuser] commands]
+        assert_equal {+@all +client|id +client|setname -client} [lsort $cmdstr]
         r CLIENT ID; # Should not fail
         r CLIENT SETNAME foo ; # Should not fail
         catch {r CLIENT KILL type master} e
         set e
     } {*NOPERM*}
 
-    test {ACLs can exclude single subcommands} {
+    test {ACLs can exclude single subcommands, case 1} {
         r ACL setuser newuser +@all -client|kill
+        set cmdstr [dict get [r ACL getuser newuser] commands]
+        assert_equal {+@all -client|kill} [lsort $cmdstr]
         r CLIENT ID; # Should not fail
         r CLIENT SETNAME foo ; # Should not fail
         catch {r CLIENT KILL type master} e
+        set e
+    } {*NOPERM*}
+
+    test {ACLs can exclude single subcommands, case 2} {
+        r ACL setuser newuser -@all +acl +config -config|set
+        set cmdstr [dict get [r ACL getuser newuser] commands]
+        assert_equal {+acl +config -@all -config|set} [lsort $cmdstr]
+        r CONFIG GET loglevel; # Should not fail
+        catch {r CONFIG SET loglevel debug} e
         set e
     } {*NOPERM*}
 
     test {ACLs can include a subcommand with a specific arg} {
         r ACL setuser newuser +@all -config|get
         r ACL setuser newuser +config|get|appendonly
+        set cmdstr [dict get [r ACL getuser newuser] commands]
+        assert_equal {+@all +config|get|appendonly -config|get} [lsort $cmdstr]
         r CONFIG GET appendonly; # Should not fail
         catch {r CONFIG GET loglevel} e
         set e
@@ -281,6 +296,8 @@ start_server {tags {"acl external:skip"}} {
 
     test {ACLs can block SELECT of all but a specific DB} {
         r ACL setuser newuser -@all +acl +select|0
+        set cmdstr [dict get [r ACL getuser newuser] commands]
+        assert_equal {+acl +select|0 -@all} [lsort $cmdstr]
         r SELECT 0
         catch {r SELECT 1} e
         set e
@@ -288,6 +305,8 @@ start_server {tags {"acl external:skip"}} {
 
     test {ACLs can block all DEBUG subcommands except one} {
         r ACL setuser newuser -@all +acl +incr +debug|object
+        set cmdstr [dict get [r ACL getuser newuser] commands]
+        assert_equal {+acl +debug|object +incr -@all} [lsort $cmdstr]
         r INCR key
         r DEBUG OBJECT key
         catch {r DEBUG SEGFAULT} e
@@ -314,6 +333,23 @@ start_server {tags {"acl external:skip"}} {
         r AUTH bob passwd1
         r CLIENT ID; # Should not fail
         r MEMORY DOCTOR; # Should not fail
+    }
+
+    test {ACLs set can exclude subcommands, if already full command exists} {
+        r ACL setuser alice +@all -memory|doctor
+        set cmdstr [dict get [r ACL getuser alice] commands]
+        assert_equal {+@all -memory|doctor} $cmdstr
+
+        # Validate the commands have got engulfed to -memory.
+        r ACL setuser alice +@all -memory
+        set cmdstr [dict get [r ACL getuser alice] commands]
+        assert_equal {+@all -memory} $cmdstr
+
+        # Appending to the existing access string of alice.
+        r ACL setuser alice -@all
+        # Validate the new commands has got engulfed to -@all.
+        set cmdstr [dict get [r ACL getuser alice] commands]
+        assert_equal {-@all} $cmdstr
     }
 
     # Note that the order of the generated ACL rules is not stable in Redis
