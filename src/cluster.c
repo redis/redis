@@ -5940,8 +5940,9 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
             }
 
             /* Migrating / Importing slot? Count keys we don't have. */
+            int flags = LOOKUP_NOTOUCH | LOOKUP_NOSTATS | LOOKUP_NONOTIFY;
             if ((migrating_slot || importing_slot) &&
-                lookupKeyRead(&server.db[0],thiskey) == NULL)
+                lookupKeyReadWithFlags(&server.db[0], thiskey, flags) == NULL)
             {
                 missing_keys++;
             }

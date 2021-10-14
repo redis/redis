@@ -1295,8 +1295,7 @@ void pfcountCommand(client *c) {
             hdr->card[5] = (card >> 40) & 0xff;
             hdr->card[6] = (card >> 48) & 0xff;
             hdr->card[7] = (card >> 56) & 0xff;
-            /* This is not considered a read-only command even if the
-             * data structure is not modified, since the cached value
+            /* This is considered a read-only command even if the cached value
              * may be modified and given that the HLL is a Redis string
              * we need to propagate the change. */
             signalModifiedKey(c,c->db,c->argv[1]);

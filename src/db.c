@@ -132,6 +132,7 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
  * rather than lookupKey() directly is to indicate that the purpose is to read
  * the key. */
 robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
+    serverAssert(!(flags & LOOKUP_WRITE));
     return lookupKey(db, key, flags);
 }
 
@@ -1524,13 +1525,13 @@ int keyIsExpired(redisDb *db, robj *key) {
 int expireIfNeeded(redisDb *db, robj *key, int expire_on_replica) {
 
     /* Deleting expired keys on a replica makes the replica inconsistent with
-     * the master. It's only allowed for write commands to make writable
-     * replicas behave consistently. It shall not be used in readonly
+     * the master. The reason it's allowed for write commands is to make
+     * writable replicas behave consistently. It shall not be used in readonly
      * commands. */
-    serverAssert(!expire_on_replica ||
-                 !server.current_client ||
-                 !server.current_client->cmd ||
-                 !(server.current_client->cmd->flags & CMD_READONLY));
+    if (expire_on_replica) {
+        client *c = server.in_eval ? server.lua_client : server.current_client;
+        serverAssert(!c || !c->cmd || (c->cmd->flags & CMD_WRITE));
+    }
 
     if (!keyIsExpired(db,key)) return 0;
 
