@@ -3075,7 +3075,7 @@ static void clusterManagerOptimizeAntiAffinity(clusterManagerNodeArray *ipnodes,
     int score = clusterManagerGetAntiAffinityScore(ipnodes, ip_count,
                                                    NULL, NULL);
     if (score == 0) goto cleanup;
-    clusterManagerLogInfo(">>> Trying to optimize slaves allocation "
+    clusterManagerLogInfo(">>> Trying to optimize replicas allocation "
                           "for anti-affinity\n");
     int node_len = cluster_manager.nodes->len;
     int maxiter = 500 * node_len; // Effort is proportional to cluster size...
@@ -3138,9 +3138,9 @@ static void clusterManagerOptimizeAntiAffinity(clusterManagerNodeArray *ipnodes,
                                CLUSTER_MANAGER_LOG_LVL_WARN);
     if (perfect) msg = "[OK] Perfect anti-affinity obtained!";
     else if (score >= 10000)
-        msg = ("[WARNING] Some slaves are in the same host as their master");
+        msg = ("[WARNING] Some replicas are in the same host as their master");
     else
-        msg=("[WARNING] Some slaves of the same master are in the same host");
+        msg=("[WARNING] Some replicas of the same master are in the same host");
     clusterManagerLog(log_level, "%s\n", msg);
 cleanup:
     zfree(offenders);
