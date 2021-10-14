@@ -773,7 +773,10 @@ void quicklistDelEntry(quicklistIter *iter, quicklistEntry *entry) {
 /* Replace quicklist entry by 'data' with length 'sz'. */
 void quicklistReplaceEntry(quicklist *quicklist, quicklistEntry *entry,
                            void *data, size_t sz) {
-    if(QL_NODE_IS_PLAIN(entry->node)) {
+    if (likely(!QL_NODE_IS_PLAIN(entry->node)) && likely(!isLargeElement(sz))) {
+        entry->node->entry = ziplistReplace(entry->node->entry, entry->zi, data, sz);
+        quicklistNodeUpdateSz(entry->node);
+    } else if(QL_NODE_IS_PLAIN(entry->node)) {
         if(isLargeElement(sz)) {
             zfree(entry->node->entry);
             entry->node->entry = zmalloc(sz);
@@ -785,20 +788,15 @@ void quicklistReplaceEntry(quicklist *quicklist, quicklistEntry *entry,
         }
     } else if(isLargeElement(sz)) {
         quicklistInsertAfter(quicklist, entry, data, sz);
-
         if(entry->node->count == 1)
             __quicklistDelNode(quicklist, entry->node);
-        else
-            ziplistDelete(entry->node->entry, &entry->zi);
+        else {
+            unsigned char* p = ziplistIndex(entry->node->entry, -1);
+            quicklistDelIndex(quicklist, entry->node, &p);
+        }
     }
 
     /* quicklistNext() and quicklistIndex() provide an uncompressed node */
-    if(QL_NODE_IS_PLAIN(entry->node) || isLargeElement(sz)) {
-        quicklistCompress(quicklist, entry->node);
-        return;
-    }
-    entry->node->entry = ziplistReplace(entry->node->entry, entry->zi, data, sz);
-    quicklistNodeUpdateSz(entry->node);
     quicklistCompress(quicklist, entry->node);
 }
 
@@ -1016,8 +1014,7 @@ REDIS_STATIC void _quicklistInsert(quicklist *quicklist, quicklistEntry *entry,
     }
 
     if(unlikely(isLargeElement(sz))) {
-        if (QL_NODE_IS_PLAIN(node) || (full && ((at_tail && !avail_next && after) ||
-                                               (at_head && !avail_prev && !after)))) {
+        if (QL_NODE_IS_PLAIN(node) || (at_tail && after) || (at_head && !after)) {
             __quicklistInsertPlainNode(quicklist, node, value, sz, after);
         } else {
             quicklistDecompressNodeForUse(node);
