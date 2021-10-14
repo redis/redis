@@ -82,12 +82,12 @@ start_server {tags {"introspection"}} {
     }
 
     test "COMMAND LIST FILTERBY ACLCAT" {
-        set reply [r command list filterby aclcat blocking]
-        assert_equal [lsort $reply] {blmove blmpop blpop brpop brpoplpush bzmpop bzpopmax bzpopmin xread xreadgroup}
+        set reply [r command list filterby aclcat hyperloglog]
+        assert_equal [lsort $reply] {pfadd pfcount pfdebug pfmerge pfselftest}
     }
 
     test "COMMAND LIST FILTERBY PATTERN" {
-        set reply [r command list filterby pattern *get*]
-        assert_equal [lsort $reply] {get getbit getdel getex getrange getset hget hgetall hmget mget}
+        set reply [r command list filterby pattern pf*]
+        assert_equal [lsort $reply] {pfadd pfcount pfdebug pfmerge pfselftest}
     }
 }

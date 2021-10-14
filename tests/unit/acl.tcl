@@ -252,9 +252,8 @@ start_server {tags {"acl external:skip"}} {
         r ACL setuser newuser +@all -client
         r ACL setuser newuser +client|id +client|setname
         set cmdstr [dict get [r ACL getuser newuser] commands]
-        assert_match {*-client*} $cmdstr
-        assert_match {*+client|id*} $cmdstr
-        assert_match {*+client|setname*} $cmdstr
+        assert_match {+@all*-client*+client|id*} $cmdstr
+        assert_match {+@all*-client*+client|setname*} $cmdstr
         r CLIENT ID; # Should not fail
         r CLIENT SETNAME foo ; # Should not fail
         catch {r CLIENT KILL type master} e
@@ -264,7 +263,7 @@ start_server {tags {"acl external:skip"}} {
     test {ACLs can exclude single subcommands, case 1} {
         r ACL setuser newuser +@all -client|kill
         set cmdstr [dict get [r ACL getuser newuser] commands]
-        assert_equal {+@all -client|kill} [lsort $cmdstr]
+        assert_equal {+@all -client|kill} $cmdstr
         r CLIENT ID; # Should not fail
         r CLIENT SETNAME foo ; # Should not fail
         catch {r CLIENT KILL type master} e
@@ -301,7 +300,6 @@ start_server {tags {"acl external:skip"}} {
     test {ACLs can block SELECT of all but a specific DB} {
         r ACL setuser newuser -@all +acl +select|0
         set cmdstr [dict get [r ACL getuser newuser] commands]
-        assert_equal {+acl +select|0 -@all} [lsort $cmdstr]
         assert_match {*+select|0*} $cmdstr
         r SELECT 0
         catch {r SELECT 1} e
@@ -311,7 +309,7 @@ start_server {tags {"acl external:skip"}} {
     test {ACLs can block all DEBUG subcommands except one} {
         r ACL setuser newuser -@all +acl +incr +debug|object
         set cmdstr [dict get [r ACL getuser newuser] commands]
-        assert_equal {+acl +debug|object +incr -@all} [lsort $cmdstr]
+        assert_match {*+debug|object*} $cmdstr
         r INCR key
         r DEBUG OBJECT key
         catch {r DEBUG SEGFAULT} e
@@ -345,16 +343,42 @@ start_server {tags {"acl external:skip"}} {
         set cmdstr [dict get [r ACL getuser alice] commands]
         assert_equal {+@all -memory|doctor} $cmdstr
 
+        r ACL setuser alice >passwd1 on
+        r AUTH alice passwd1
+
+        catch {r MEMORY DOCTOR} e
+        assert_match {*NOPERM*} $e
+        r MEMORY STATS ;# should work
+
         # Validate the commands have got engulfed to -memory.
         r ACL setuser alice +@all -memory
         set cmdstr [dict get [r ACL getuser alice] commands]
         assert_equal {+@all -memory} $cmdstr
 
+        catch {r MEMORY DOCTOR} e
+        assert_match {*NOPERM*} $e
+        catch {r MEMORY STATS} e
+        assert_match {*NOPERM*} $e
+
         # Appending to the existing access string of alice.
         r ACL setuser alice -@all
+
+        # Now, alice can't do anything, we need to auth newuser to execute ACL GETUSER
+        r AUTH newuser passwd1
+
         # Validate the new commands has got engulfed to -@all.
         set cmdstr [dict get [r ACL getuser alice] commands]
         assert_equal {-@all} $cmdstr
+
+        r AUTH alice passwd1
+
+        catch {r GET key} e
+        assert_match {*NOPERM*} $e
+        catch {r MEMORY STATS} e
+        assert_match {*NOPERM*} $e
+
+        # Auth newuser before the next test
+        r AUTH newuser passwd1
     }
 
     # Note that the order of the generated ACL rules is not stable in Redis

@@ -987,14 +987,14 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
  * if (RedisModule_CreateCommand(ctx,"module.config",NULL,"",0,0,0) == REDISMODULE_ERR)
  *     return REDISMODULE_ERR;
  *
- *  if (RedisModule_CreateSubcommand(ctx,"set",cmd_config_set,"",0,0,0,"container.config") == REDISMODULE_ERR)
+ *  if (RedisModule_CreateSubcommand(ctx,"container.config","set",cmd_config_set,"",0,0,0) == REDISMODULE_ERR)
  *     return REDISMODULE_ERR;
  *
- *  if (RedisModule_CreateSubcommand(ctx,"get",cmd_config_get,"",0,0,0,"container.config") == REDISMODULE_ERR)
+ *  if (RedisModule_CreateSubcommand(ctx,"container.config","get",cmd_config_get,"",0,0,0) == REDISMODULE_ERR)
  *     return REDISMODULE_ERR;
  *
  */
-int RM_CreateSubcommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep, const char *parent_name) {
+int RM_CreateSubcommand(RedisModuleCtx *ctx, const char *parent_name, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep) {
     int64_t flags = strflags ? commandFlagsFromString((char*)strflags) : 0;
     if (flags == -1) return REDISMODULE_ERR;
     if ((flags & CMD_MODULE_NO_CLUSTER) && server.cluster_enabled)
@@ -1023,11 +1023,19 @@ int RM_CreateSubcommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFun
     return REDISMODULE_OK;
 }
 
+/* Returns 1 if `cmd` is a command of the module `modulename`. 0 otherwise. */
 int moduleIsModuleCommand(struct redisCommand *cmd, char *modulename) {
+    /* We do some very smple aching to save repeated calls to dictFetchValue
+     * (in case this function is called in a loop, with same `modulename` each time). */
+    static char *cached_modulename = NULL;
+    static struct RedisModule *cached_module = NULL;
     if (cmd->proc != RedisModuleCommandDispatcher)
         return 0;
-    // TODO:GUYBE inefficient because we call this function in a loop and call dictFetchValue every time.
-    struct RedisModule *module = dictFetchValue(modules,modulename);
+    if (modulename != cached_modulename) {
+        cached_module = dictFetchValue(modules,modulename);
+        cached_modulename = modulename;
+    }
+    struct RedisModule *module = cached_module;
     if (module == NULL)
         return 0;
     RedisModuleCommandProxy *cp = (void*)(unsigned long)cmd->getkeys_proc;
@@ -1156,7 +1164,7 @@ int moduleSetCommandKeySpecFindKeys(RedisModuleCtx *ctx, const char *name, int i
  *
  * Example:
  *
- * if (RedisModule_CreateCommand(ctx,"kspec.smove",kspec_legacy,"",0,0,0) == REDISMODULE_ERR)
+ *  if (RedisModule_CreateCommand(ctx,"kspec.smove",kspec_legacy,"",0,0,0) == REDISMODULE_ERR)
  *      return REDISMODULE_ERR;
  *
  *  if (RedisModule_AddCommandKeySpec(ctx,"kspec.smove","read write",&spec_id) == REDISMODULE_ERR)
@@ -1172,6 +1180,11 @@ int moduleSetCommandKeySpecFindKeys(RedisModuleCtx *ctx, const char *name, int i
  *      return REDISMODULE_ERR;
  *  if (RedisModule_SetCommandKeySpecFindKeysRange(ctx,"kspec.smove",spec_id,0,1,0) == REDISMODULE_ERR)
  *      return REDISMODULE_ERR;
+ *
+ * It is also possible to use this API on subcommands (See RedisModule_CreateSubcommand).
+ * The name of the subcommand should be the name of the parent command + "|" + name of subcommand.
+ * Example:
+ *   RedisModule_AddCommandKeySpec(ctx,"module.config|get","read",&spec_id)
  *
  * Returns REDISMODULE_OK on success
  */

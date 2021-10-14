@@ -5944,7 +5944,6 @@ int shouldFilterFromCommandList(struct redisCommand *cmd, commandListFilter *fil
             return !stringmatchlen(filter->arg, sdslen(filter->arg), cmd->name, strlen(cmd->name), 1);
         default:
             serverPanic("Invalid filter type %d", filter->type);
-
     }
 }
 

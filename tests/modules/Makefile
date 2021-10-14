@@ -43,7 +43,7 @@ TEST_MODULES = \
     stream.so \
     aclcheck.so \
     list.so \
-    container.so
+    subcommands.so
 
 
 .PHONY: all
