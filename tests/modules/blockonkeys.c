@@ -470,35 +470,39 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (fsltype == NULL)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx,"fsl.push",fsl_push,"",0,0,0) == REDISMODULE_ERR)
+    if (RedisModule_CreateCommand(ctx, "fsl.push", fsl_push,
+                                  "write", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx,"fsl.bpop",fsl_bpop,"",0,0,0) == REDISMODULE_ERR)
+    if (RedisModule_CreateCommand(ctx, "fsl.bpop", fsl_bpop,
+                                  "write", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx,"fsl.bpopgt",fsl_bpopgt,"",0,0,0) == REDISMODULE_ERR)
+    if (RedisModule_CreateCommand(ctx, "fsl.bpopgt", fsl_bpopgt,
+                                  "write", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx,"fsl.bpoppush",fsl_bpoppush,"",0,0,0) == REDISMODULE_ERR)
+    if (RedisModule_CreateCommand(ctx, "fsl.bpoppush", fsl_bpoppush,
+                                  "write", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"fsl.getall",fsl_getall,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx, "blockonkeys.popall", blockonkeys_popall,
-                                  "", 1, 1, 1) == REDISMODULE_ERR)
+                                  "write", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx, "blockonkeys.lpush", blockonkeys_lpush,
-                                  "", 1, 1, 1) == REDISMODULE_ERR)
+                                  "write", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx, "blockonkeys.lpush_unblock", blockonkeys_lpush,
-                                  "", 1, 1, 1) == REDISMODULE_ERR)
+                                  "write", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx, "blockonkeys.blpopn", blockonkeys_blpopn,
-                                  "", 1, 1, 1) == REDISMODULE_ERR)
+                                  "write", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;
