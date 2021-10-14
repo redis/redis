@@ -1183,9 +1183,16 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
         mh->repl_backlog = server.repl_backlog_size;
     } else {
         mh->clients_slaves = 0;
-        mh->repl_backlog =  server.repl_buffer_mem;
+        mh->repl_backlog = server.repl_buffer_mem;
     }
-    mem_total += server.repl_buffer_mem;
+    if (server.repl_backlog) {
+        /* The approximate memory of rax tree for indexed blocks. */
+        mh->repl_backlog +=
+            server.repl_backlog->blocks_index->numnodes * sizeof(raxNode) +
+            raxSize(server.repl_backlog->blocks_index) * sizeof(void*);
+    }
+    mem_total += mh->repl_backlog;
+    mem_total += mh->clients_slaves;
 
     /* Computing the memory used by the clients would be O(N) if done
      * here online. We use our values computed incrementally by
