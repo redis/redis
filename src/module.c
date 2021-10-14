@@ -2127,9 +2127,9 @@ int RM_ReplyWithEmptyString(RedisModuleCtx *ctx) {
 }
 
 /* Reply with a binary safe string, which should not be escaped or filtered
- * taking in input a C buffer pointer, length and a 3 character type/extension
+ * taking in input a C buffer pointer, length and a 3 character type/extension.
  *
- * the function always returns REDISMODULE_OK. */
+ * The function always returns REDISMODULE_OK. */
 int RM_ReplyWithVerbatimStringType(RedisModuleCtx *ctx, const char *buf, size_t len, const char *ext) {
     client *c = moduleGetReplyClient(ctx);
     if (c == NULL) return REDISMODULE_OK;
