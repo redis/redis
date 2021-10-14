@@ -3308,10 +3308,10 @@ static sds clusterManagerNodeInfo(clusterManagerNode *node, int indent) {
     for (i = 0; i < indent; i++) spaces = sdscat(spaces, " ");
     if (indent) info = sdscat(info, spaces);
     int is_master = !(node->flags & CLUSTER_MANAGER_FLAG_SLAVE);
-    char *role = (is_master ? "M" : "R");
+    char *role = (is_master ? "M" : "S");
     sds slots = NULL;
     if (node->dirty && node->replicate != NULL)
-        info = sdscatfmt(info, "R: %S %s:%u", node->name, node->ip, node->port);
+        info = sdscatfmt(info, "S: %S %s:%u", node->name, node->ip, node->port);
     else {
         slots = clusterManagerNodeSlotsString(node);
         sds flags = clusterManagerNodeFlagString(node);
