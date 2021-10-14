@@ -830,52 +830,7 @@ int64_t commandKeySpecsFlagsFromString(const char *s) {
     return flags;
 }
 
-RedisModuleCommandProxy *moduleCreateCommandProxy(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc cmdfunc, int64_t flags, int firstkey, int lastkey, int keystep) {
-    struct redisCommand *rediscmd;
-    RedisModuleCommandProxy *cp;
-    sds cmdname = sdsnew(name);
-
-    /* Create a command "proxy", which is a structure that is referenced
-     * in the command table, so that the generic command that works as
-     * binding between modules and Redis, can know what function to call
-     * and what the module is.
-     *
-     * Note that we use the Redis command table 'getkeys_proc' in order to
-     * pass a reference to the command proxy structure. */
-    cp = zmalloc(sizeof(*cp));
-    cp->module = ctx->module;
-    cp->func = cmdfunc;
-    cp->rediscmd = zmalloc(sizeof(*rediscmd));
-    cp->rediscmd->name = cmdname;
-    cp->rediscmd->proc = RedisModuleCommandDispatcher;
-    cp->rediscmd->flags = flags | CMD_MODULE;
-    cp->rediscmd->getkeys_proc = (redisGetKeysProc*)(unsigned long)cp;
-    cp->rediscmd->key_specs_max = STATIC_KEY_SPECS_NUM;
-    cp->rediscmd->key_specs = cp->rediscmd->key_specs_static;
-    if (firstkey != 0) {
-        cp->rediscmd->key_specs_num = 1;
-        cp->rediscmd->key_specs[0].flags = 0;
-        cp->rediscmd->key_specs[0].begin_search_type = KSPEC_BS_INDEX;
-        cp->rediscmd->key_specs[0].bs.index.pos = firstkey;
-        cp->rediscmd->key_specs[0].find_keys_type = KSPEC_FK_RANGE;
-        cp->rediscmd->key_specs[0].fk.range.lastkey = lastkey < 0 ? lastkey : (lastkey-firstkey);
-        cp->rediscmd->key_specs[0].fk.range.keystep = keystep;
-        cp->rediscmd->key_specs[0].fk.range.limit = 0;
-
-        /* Copy the default range to legacy_range_key_spec */
-        cp->rediscmd->legacy_range_key_spec = cp->rediscmd->key_specs[0];
-    } else {
-        cp->rediscmd->key_specs_num = 0;
-        cp->rediscmd->legacy_range_key_spec.begin_search_type = KSPEC_BS_INVALID;
-        cp->rediscmd->legacy_range_key_spec.find_keys_type = KSPEC_FK_INVALID;
-    }
-    populateCommandMovableKeys(cp->rediscmd);
-    cp->rediscmd->microseconds = 0;
-    cp->rediscmd->calls = 0;
-    cp->rediscmd->rejected_calls = 0;
-    cp->rediscmd->failed_calls = 0;
-    return cp;
-}
+RedisModuleCommandProxy *moduleCreateCommandProxy(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc cmdfunc, int64_t flags, int firstkey, int lastkey, int keystep);
 
 /* Register a new command in the Redis server, that will be handled by
  * calling the function pointer 'cmdfunc' using the RedisModule calling
@@ -977,6 +932,53 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
     return REDISMODULE_OK;
 }
 
+RedisModuleCommandProxy *moduleCreateCommandProxy(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc cmdfunc, int64_t flags, int firstkey, int lastkey, int keystep) {
+    struct redisCommand *rediscmd;
+    RedisModuleCommandProxy *cp;
+    sds cmdname = sdsnew(name);
+
+    /* Create a command "proxy", which is a structure that is referenced
+     * in the command table, so that the generic command that works as
+     * binding between modules and Redis, can know what function to call
+     * and what the module is.
+     *
+     * Note that we use the Redis command table 'getkeys_proc' in order to
+     * pass a reference to the command proxy structure. */
+    cp = zmalloc(sizeof(*cp));
+    cp->module = ctx->module;
+    cp->func = cmdfunc;
+    cp->rediscmd = zmalloc(sizeof(*rediscmd));
+    cp->rediscmd->name = cmdname;
+    cp->rediscmd->proc = RedisModuleCommandDispatcher;
+    cp->rediscmd->flags = flags | CMD_MODULE;
+    cp->rediscmd->getkeys_proc = (redisGetKeysProc*)(unsigned long)cp;
+    cp->rediscmd->key_specs_max = STATIC_KEY_SPECS_NUM;
+    cp->rediscmd->key_specs = cp->rediscmd->key_specs_static;
+    if (firstkey != 0) {
+        cp->rediscmd->key_specs_num = 1;
+        cp->rediscmd->key_specs[0].flags = 0;
+        cp->rediscmd->key_specs[0].begin_search_type = KSPEC_BS_INDEX;
+        cp->rediscmd->key_specs[0].bs.index.pos = firstkey;
+        cp->rediscmd->key_specs[0].find_keys_type = KSPEC_FK_RANGE;
+        cp->rediscmd->key_specs[0].fk.range.lastkey = lastkey < 0 ? lastkey : (lastkey-firstkey);
+        cp->rediscmd->key_specs[0].fk.range.keystep = keystep;
+        cp->rediscmd->key_specs[0].fk.range.limit = 0;
+
+        /* Copy the default range to legacy_range_key_spec */
+        cp->rediscmd->legacy_range_key_spec = cp->rediscmd->key_specs[0];
+    } else {
+        cp->rediscmd->key_specs_num = 0;
+        cp->rediscmd->legacy_range_key_spec.begin_search_type = KSPEC_BS_INVALID;
+        cp->rediscmd->legacy_range_key_spec.find_keys_type = KSPEC_FK_INVALID;
+    }
+    populateCommandMovableKeys(cp->rediscmd);
+    cp->rediscmd->microseconds = 0;
+    cp->rediscmd->calls = 0;
+    cp->rediscmd->rejected_calls = 0;
+    cp->rediscmd->failed_calls = 0;
+    return cp;
+}
+
 /* Very similar to RedisModule_CreateCommand except that it is used to create
  * a subcommand, associated with another, container, command.
  *
@@ -1023,23 +1025,19 @@ int RM_CreateSubcommand(RedisModuleCtx *ctx, const char *parent_name, const char
     return REDISMODULE_OK;
 }
 
+/* Return `struct RedisModule *` as `void *` to avoid exposing it outside of module.c. */
+void *moduleGetHandleByName(char *modulename) {
+    return dictFetchValue(modules,modulename);
+}
+
 /* Returns 1 if `cmd` is a command of the module `modulename`. 0 otherwise. */
-int moduleIsModuleCommand(struct redisCommand *cmd, char *modulename) {
-    /* We do some very smple aching to save repeated calls to dictFetchValue
-     * (in case this function is called in a loop, with same `modulename` each time). */
-    static char *cached_modulename = NULL;
-    static struct RedisModule *cached_module = NULL;
+int moduleIsModuleCommand(void *module_handle, struct redisCommand *cmd) {
     if (cmd->proc != RedisModuleCommandDispatcher)
         return 0;
-    if (modulename != cached_modulename) {
-        cached_module = dictFetchValue(modules,modulename);
-        cached_modulename = modulename;
-    }
-    struct RedisModule *module = cached_module;
-    if (module == NULL)
+    if (module_handle == NULL)
         return 0;
     RedisModuleCommandProxy *cp = (void*)(unsigned long)cmd->getkeys_proc;
-    return (cp->module == module);
+    return (cp->module == module_handle);
 }
 
 void extendKeySpecsIfNeeded(struct redisCommand *cmd) {

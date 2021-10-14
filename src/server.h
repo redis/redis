@@ -897,7 +897,7 @@ typedef struct {
      * understand if the command can be executed. */
     uint64_t allowed_commands[USER_COMMAND_BITS_COUNT/64];
 
-    /* NOTE: allowed_firstargs is a relic of the old mechanism for allowing
+    /* NOTE: allowed_firstargs is a transformation of the old mechanism for allowing
      * subcommands (now, subcommands are actually commands, with their own
      * ACL ID)
      * We had to keep allowed_firstargs (previously called allowed_subcommands)
@@ -905,6 +905,7 @@ typedef struct {
      * with a specific argv[1] (which is not a subcommand at all).
      * For example, a user can use the rule "-select +select|0" to block all
      * SELECT commands, except "SELECT 0".
+     * It can also be applied for subcommands: "+config -config|set +config|set|loglevel"
      *
      * This array points, for each command ID (corresponding to the command
      * bit set in allowed_commands), to an array of SDS strings, terminated by
@@ -1995,7 +1996,8 @@ robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, int todb, robj
 int moduleDefragValue(robj *key, robj *obj, long *defragged, int dbid);
 int moduleLateDefrag(robj *key, robj *value, unsigned long *cursor, long long endtime, long long *defragged, int dbid);
 long moduleDefragGlobals(void);
-int moduleIsModuleCommand(struct redisCommand *cmd, char *modulename);
+void *moduleGetHandleByName(char *modulename);
+int moduleIsModuleCommand(void *module_handle, struct redisCommand *cmd);
 
 /* Utils */
 long long ustime(void);

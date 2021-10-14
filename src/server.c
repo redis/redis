@@ -5719,8 +5719,7 @@ void addReplyFlagsForCommand(client *c, struct redisCommand *cmd) {
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_FAST, "fast");
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_NO_AUTH, "no_auth");
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_MAY_REPLICATE, "may_replicate");
-    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_SENTINEL, "sentinel");
-    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_ONLY_SENTINEL, "only-sentinel");
+    /* "sentinel" and "only-sentinel" are hidden on purpose. */
     if (cmd->movablekeys) {
         addReplyStatus(c, "movablekeys");
         flagcount += 1;
@@ -5927,14 +5926,29 @@ typedef enum {
 typedef struct {
     commandListFilterType type;
     sds arg;
+    struct {
+        int valid;
+        union {
+            uint64_t aclcat;
+            void *module_handle;
+        } u;
+    } cache;
 } commandListFilter;
 
 int shouldFilterFromCommandList(struct redisCommand *cmd, commandListFilter *filter) {
     switch (filter->type) {
         case (COMMAND_LIST_FILTER_MODULE):
-            return !moduleIsModuleCommand(cmd, filter->arg);
+            if (!filter->cache.valid) {
+                filter->cache.u.module_handle = moduleGetHandleByName(filter->arg);
+                filter->cache.valid = 1;
+            }
+            return !moduleIsModuleCommand(filter->cache.u.module_handle, cmd);
         case (COMMAND_LIST_FILTER_ACLCAT): {
-            uint64_t cat = ACLGetCommandCategoryFlagByName(filter->arg);
+            if (!filter->cache.valid) {
+                filter->cache.u.aclcat = ACLGetCommandCategoryFlagByName(filter->arg);
+                filter->cache.valid = 1;
+            }
+            uint64_t cat = filter->cache.u.aclcat;
             if (cat == 0)
                 return 1; /* Invalid ACL category */
             return (!(cmd->flags & cat));

@@ -77,8 +77,16 @@ start_server {tags {"introspection"}} {
         assert_match {*calls=1,*} [cmdstat geoadd]
     } {} {needs:config-resetstat}
 
+    test {COMMAND GETKEYS GET} {
+        assert_equal {key} [r command getkeys get key]
+    }
+
     test {COMMAND GETKEYS MEMORY USAGE} {
         assert_equal {key} [r command getkeys memory usage key]
+    }
+
+    test {COMMAND GETKEYS XGROUP} {
+        assert_equal {key} [r command getkeys xgroup create key groupname $]
     }
 
     test "COMMAND LIST FILTERBY ACLCAT" {
