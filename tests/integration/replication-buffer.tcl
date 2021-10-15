@@ -87,6 +87,7 @@ start_server {} {
     set replica1 [srv -2 client]
     set replica1_pid [s -2 process_id]
     set replica2 [srv -1 client]
+    set replica2_pid [s -1 process_id]
 
     set master [srv 0 client]
     set master_host [srv 0 host]
@@ -123,7 +124,7 @@ start_server {} {
         fail "Replica offset didn't catch up with the master after too long time"
     }
 
-    test {Replica could use replication buffer (beyond backlog config) for partial re-synchronization} {
+    test {Replica could use replication buffer (beyond backlog config) for partial resynchronization} {
         # replica1 disconnects with master
         $replica1 replicaof [srv -1 host] [srv -1 port]
         # Write a mass of data that exceeds repl-backlog-size
@@ -147,10 +148,12 @@ start_server {} {
         assert {[s repl_backlog_histlen] > [expr 2*10000*10000]}
         assert_equal [s connected_slaves] {2}
 
+        exec kill -SIGSTOP $replica2_pid
         r config set client-output-buffer-limit "replica 128k 0 0"
-        r set key [string repeat A [expr 64*1024]] ;# trigger output buffer limit check
-
-        # Disconnect with replica2 since output buffer limit is reached.
+        # trigger output buffer limit check
+        r set key [string repeat A [expr 64*1024]]
+        # master will close replica2's connection since replica2's output
+        # buffer limit is reached, so there only is replica1.
         wait_for_condition 100 100 {
             [s connected_slaves] eq {1}
         } else {
@@ -164,6 +167,7 @@ start_server {} {
         } else {
             fail "Replication backlog memory is not smaller"
         }
+        exec kill -SIGCONT $replica2_pid
     }
 }
 }
