@@ -12,21 +12,17 @@ start_server {} {
     set master [srv 0 client]
     set master_host [srv 0 host]
     set master_port [srv 0 port]
-    # Make sure replication backlog not influence calculating for
-    # replicas' output buffer later.
+
+    $master config set save ""
     $master config set repl-backlog-size 16384
+    $master config set client-output-buffer-limit "replica 0 0 0"
 
     # Make sure replica3 is synchronized with master
     $replica3 replicaof $master_host $master_port
-    wait_for_condition 50 100 {
-        [lindex [$replica3 role] 3] eq {connected}
-    } else {
-        fail "fail to sync with replicas"
-    }
+    wait_for_sync $replica3
 
     # Generating RDB will take some 100 seconds
     $master config set rdb-key-save-delay 1000000
-    $master config set save ""
     populate 100 "" 16
 
     # Make sure replica1 and replica2 are waiting bgsave
@@ -61,12 +57,8 @@ start_server {} {
     }
 
     test {Replication buffer will become smaller when no replica uses} {
-        # Wait replica3 catch up with the master
-        wait_for_condition 500 10 {
-            [s master_repl_offset] eq [s -1 master_repl_offset]
-        } else {
-            fail "replica3's offset is not the same as master"
-        }
+        # Make sure replica3 catch up with the master
+        wait_for_ofs_sync $master $replica3
 
         set repl_buf_mem [s mem_total_replication_buffers]
         # Kill replica2, replication_buffer will become smaller
@@ -87,7 +79,8 @@ start_server {} {
 # limit config if there is a slow replica which keep massive replication buffers,
 # and replicas could use this replication buffer (beyond backlog config) for
 # partial re-synchronization. Of course, replication backlog memory also can
-# become smaller if slow replicas disconnect.
+# become smaller when master disconnects with slow replicas since output buffer
+# limit is reached.
 start_server {tags {"repl external:skip"}} {
 start_server {} {
 start_server {} {
@@ -106,9 +99,9 @@ start_server {} {
     wait_for_sync $replica1
 
     test {Replication backlog size can outgrow the backlog limit config} {
-        # Generating RDB will take 100 seconds
+        # Generating RDB will take 1000 seconds
         $master config set rdb-key-save-delay 1000000
-        populate 100 master 10000
+        populate 1000 master 10000
         $replica2 replicaof $master_host $master_port
         # Make sure replica2 is waiting bgsave
         wait_for_condition 5000 100 {
@@ -150,14 +143,18 @@ start_server {} {
         assert_equal [$master debug digest] [$replica1 debug digest]
     }
 
-    test {Replication backlog memory will become smaller if replicas disconnect} {
+    test {Replication backlog memory will become smaller if disconnecting with replica} {
         assert {[s repl_backlog_histlen] > [expr 2*10000*10000]}
         assert_equal [s connected_slaves] {2}
-        catch {$replica2 shutdown nosave}
-        wait_for_condition 100 10 {
+
+        r config set client-output-buffer-limit "replica 128k 0 0"
+        r set key [string repeat A [expr 64*1024]] ;# trigger output buffer limit check
+
+        # Disconnect with replica2 since output buffer limit is reached.
+        wait_for_condition 100 100 {
             [s connected_slaves] eq {1}
         } else {
-            fail "replica2 didn't disconnect with master"
+            fail "master didn't disconnect with replica2"
         }
 
         # Since we trim replication backlog inrementally, replication backlog
@@ -170,4 +167,48 @@ start_server {} {
     }
 }
 }
+}
+
+test {Partial resynchronization is successful even client-output-buffer-limit is less than repl-backlog-size} {
+    start_server {tags {"repl external:skip"}} {
+        start_server {} {
+            r config set save ""
+            r config set repl-backlog-size 100mb
+            r config set client-output-buffer-limit "replica 512k 0 0"
+
+            set replica [srv -1 client]
+            $replica replicaof [srv 0 host] [srv 0 port]
+            wait_for_sync $replica
+
+            set big_str [string repeat A [expr 10*1024*1024]] ;# 10mb big string
+            r multi
+            r client kill type replica
+            r set key $big_str
+            r set key $big_str
+            r debug sleep 2 ;# wait for replica reconnecting
+            r exec
+            # When replica reconnects with master, master accepts partial resync,
+            # and don't close replica client even client output buffer limit is
+            # reached.
+            r set key $big_str ;# trigger output buffer limit check
+            wait_for_ofs_sync r $replica
+            # master accepted replica partial resync
+            assert_equal [s sync_full] {1}
+            assert_equal [s sync_partial_ok] {1}
+
+            r multi
+            r set key $big_str
+            r set key $big_str
+            r exec
+            # replica's reply buffer size is more than client-output-buffer-limit but
+            # doesn't exceed repl-backlog-size, we don't close replica client.
+            wait_for_condition 1000 100 {
+                [s -1 master_repl_offset] eq [s master_repl_offset]
+            } else {
+                fail "Replica offset didn't catch up with the master after too long time"
+            }
+            assert_equal [s sync_full] {1}
+            assert_equal [s sync_partial_ok] {1}
+        }
+    }
 }

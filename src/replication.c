@@ -212,11 +212,11 @@ void feedReplicationBufferWithObject(robj *o) {
     feedReplicationBuffer(p,len);
 }
 
-/* Generally, we only have one replication buffer block to trim when replication backlog
- * size exceeds our setting and no replica reference it. But if replica clients
- * disconnect, we need to free many replication buffer blocks that are referenced.
- * It would cost much time if there are a lots blocks to free, that will
- * freeze server, so we trim replication backlog incrementally. */
+/* Generally, we only have one replication buffer block to trim when replication
+ * backlog size exceeds our setting and no replica reference it. But if replica
+ * clients disconnect, we need to free many replication buffer blocks that are
+ * referenced. It would cost much time if there are a lots blocks to free, that
+ * will freeze server, so we trim replication backlog incrementally. */
 void incrementalTrimReplicationBacklog(size_t max_blocks) {
     serverAssert(server.repl_backlog != NULL);
 

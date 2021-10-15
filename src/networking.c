@@ -3390,6 +3390,21 @@ int checkClientOutputBufferLimits(client *c) {
     if (server.client_obuf_limits[class].hard_limit_bytes &&
         used_mem >= server.client_obuf_limits[class].hard_limit_bytes)
         hard = 1;
+    /* Since master may copy almost whole replication backlog to replica's
+     * output buffer if it is able to perform a partial resynchronization,
+     * but we wiil close replica client and resynchronization is failed if
+     * output buffer limit is reached. This situation might continue until
+     * replication backlog start offset is out of the PSYNC offset, and
+     * causes full synchronization.
+     * To avoid above bad situation, if the replica output buffer size is not
+     * more than replication backlog size but already exceeds output buffer
+     * hard limit, we don't think hard limit is reached and don't close replica
+     * client. This method doesn't cost more memory since replication backlog
+     * and replicas share one global replication buffer. */
+    if (hard == 1 && class == CLIENT_TYPE_SLAVE &&
+        used_mem <= (unsigned long)server.repl_backlog_size)
+        hard = 0;
+
     if (server.client_obuf_limits[class].soft_limit_bytes &&
         used_mem >= server.client_obuf_limits[class].soft_limit_bytes)
         soft = 1;
@@ -3430,7 +3445,11 @@ int checkClientOutputBufferLimits(client *c) {
 int closeClientOnOutputBufferLimitReached(client *c, int async) {
     if (!c->conn) return 0; /* It is unsafe to free fake clients. */
     serverAssert(c->reply_bytes < SIZE_MAX-(1024*64));
-    if (c->reply_bytes == 0 || c->flags & CLIENT_CLOSE_ASAP) return 0;
+    /* Since replica clients use global replication buffer and don't use
+     * private reply list, its reply_bytes always is 0, so we should not
+     * just it for replica clients. */
+    if ((c->reply_bytes == 0 && getClientType(c) != CLIENT_TYPE_SLAVE) ||
+        c->flags & CLIENT_CLOSE_ASAP) return 0;
     if (checkClientOutputBufferLimits(c)) {
         sds client = catClientInfoString(sdsempty(),c);
 
@@ -3795,10 +3814,10 @@ int handleClientsWithPendingWritesUsingThreads(void) {
             continue;
         }
 
-        /* Since all slaves and replication backlog use global replication
+        /* Since all replicas and replication backlog use global replication
          * buffer, to guarantee data accessing thread safe, we must put all
-         * slaves client into io_threads_list[0] i.e. main thread handle
-         * sending the output buffer of all slaves. */
+         * replicas client into io_threads_list[0] i.e. main thread handles
+         * sending the output buffer of all replicas. */
         if (getClientType(c) == CLIENT_TYPE_SLAVE) {
             listAddNodeTail(io_threads_list[0],c);
             continue;

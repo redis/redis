@@ -6771,7 +6771,9 @@ void dismissMemoryInChild(void) {
     listIter li;
     listNode *ln;
 
-    /* Dismiss replication buffer. */
+    /* Dismiss replication buffer. We don't need to separately dismiss replication
+     * backlog and replica' output buffer, because they just reference the global
+     * replication buffer but don't cost real memory. */
     listRewind(server.repl_buffer_blocks, &li);
     while((ln = listNext(&li))) {
         replBufBlock *o = listNodeValue(ln);
