@@ -388,8 +388,7 @@ void feedReplicationBuffer(char *s, size_t len) {
     /* Try to trim replication backlog since replication backlog may exceed
      * our setting when we add replication stream. Note that it is important to
      * try to trim at least one node since in the common case this is where one
-     * new backlog node is added and one should be removed. see also
-     * freeMemoryGetNotCountedMemory. */
+     * new backlog node is added and one should be removed. */
     incrementalTrimReplicationBacklog(REPL_BACKLOG_TRIM_BLOCKS_PER_CALL);
 }
 

@@ -3447,7 +3447,7 @@ int closeClientOnOutputBufferLimitReached(client *c, int async) {
     serverAssert(c->reply_bytes < SIZE_MAX-(1024*64));
     /* Since replica clients use global replication buffer and don't use
      * private reply list, its reply_bytes always is 0, so we should not
-     * just it for replica clients. */
+     * judge it for replica clients. */
     if ((c->reply_bytes == 0 && getClientType(c) != CLIENT_TYPE_SLAVE) ||
         c->flags & CLIENT_CLOSE_ASAP) return 0;
     if (checkClientOutputBufferLimits(c)) {

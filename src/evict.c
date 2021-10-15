@@ -329,9 +329,9 @@ unsigned long LFUDecrAndReturn(robj *o) {
  * it can cause feedback-loop when we push DELs into them, putting
  * more and more DELs will make them bigger, if we count them, we
  * need to evict more keys, and then generate more DELs, maybe cause
- * massive eviction loop, even all keys evicted.
+ * massive eviction loop, even all keys are evicted.
  *
- * This function returns the sum of AOF and slaves buffer. */
+ * This function returns the sum of AOF and replication buffer. */
 size_t freeMemoryGetNotCountedMemory(void) {
     size_t overhead = 0;
 
@@ -348,8 +348,8 @@ size_t freeMemoryGetNotCountedMemory(void) {
      * backlog size may exceeds our setting if slow replcas that reference
      * vast replication buffer blocks disconnect. To avoid massive eviction
      * loop, we don't count the delayed freed replication backlog into used
-     * memory even if there are no replicas, i.e. we also regard this memory
-     * as replicas. */
+     * memory even if there are no replicas, i.e. we still regard this memory
+     * as replicas'. */
     if ((long long)server.repl_buffer_mem > server.repl_backlog_size) {
         /* We use list structure to manage replication buffer blocks, so backlog
          * also occupies some extra memory, we can't know exact blocks numbers,

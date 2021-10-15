@@ -954,8 +954,8 @@ typedef struct {
 
 /* Replication backlog is not separate memory, it just is one consumer of
  * the global replication buffer. This structure records the reference of
- * replication buffers. Since the replication buffer blocks may be very long,
- * it would cost too much to search replication offset on partial resync, so
+ * replication buffers. Since the replication buffer block list may be very long,
+ * it would cost much time to search replication offset on partial resync, so
  * we use one rax tree to index some blocks every REPL_BACKLOG_INDEX_PER_BLOCKS
  * to make searching offset from replication buffer blocks list faster. */
 typedef struct replBacklog {
