@@ -994,3 +994,37 @@ start_server {tags {"repl external:skip"}} {
         }
     }
 }
+
+test {replica can handle EINTR if use diskless load} {
+    start_server {tags {"repl"}} {
+        set slave [srv 0 client]
+        set slave_log [srv 0 stdout]
+        start_server {} {
+            set master [srv 0 client]
+            set master_host [srv 0 host]
+            set master_port [srv 0 port]
+
+            $master debug populate 5 master 100000
+            $master config set rdbcompression no
+            $master config set repl-diskless-sync yes
+            $master config set repl-diskless-sync-delay 0
+            $slave config set repl-diskless-load on-empty-db
+            # Construct EINTR error
+            $slave config set watchdog-period 200
+            # Block slave in read()
+            $master config set rdb-key-save-delay 1000000
+            # Start the replication process...
+            $slave slaveof $master_host $master_port
+
+            # wait for the slave to start reading the rdb
+            wait_for_condition 50 100 {
+                [s -1 master_link_status] eq {up}
+            } else {
+                fail "Replication not started."
+            }
+            assert [log_file_matches $slave_log "*WATCHDOG TIMER EXPIRED*"]
+            assert ![log_file_matches $slave_log "*Reconnecting to MASTER*"]
+            assert_equal 1 [s 0 sync_full]
+        }
+    }
+} {} {external:skip}

@@ -935,7 +935,7 @@ ConnectionType CT_TLS = {
     .sync_write = connTLSSyncWrite,
     .sync_read = connTLSSyncRead,
     .sync_readline = connTLSSyncReadLine,
-    .get_type = connTLSGetType
+    .get_type = connTLSGetType,
 };
 
 int tlsHasPendingData() {
