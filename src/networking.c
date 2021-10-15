@@ -3392,7 +3392,7 @@ int checkClientOutputBufferLimits(client *c) {
         hard = 1;
     /* Since master may copy almost whole replication backlog to replica's
      * output buffer if it is able to perform a partial resynchronization,
-     * but we wiil close replica client and resynchronization is failed if
+     * but we will close replica client and resynchronization is failed if
      * output buffer limit is reached. This situation might continue until
      * replication backlog start offset is out of the PSYNC offset, and
      * causes full synchronization.
