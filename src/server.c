@@ -3203,7 +3203,6 @@ void initServerConfig(void) {
     server.cluster_module_flags = CLUSTER_MODULE_FLAG_NONE;
     server.migrate_cached_sockets = dictCreate(&migrateCacheDictType);
     server.next_client_id = 1; /* Client IDs, start from 1 .*/
-    server.loading_process_events_interval_bytes = (1024*1024*2);
     server.page_size = sysconf(_SC_PAGESIZE);
     server.pause_cron = 0;
 
