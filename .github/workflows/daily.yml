@@ -247,7 +247,7 @@ jobs:
       run: ./runtest-cluster
 
   test-freebsd:
-    runs-on: macos-10.15
+    runs-on: macos-12
     if: github.repository == 'redis/redis'
     timeout-minutes: 14400
     steps:
