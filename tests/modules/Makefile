@@ -11,8 +11,9 @@ else	# Linux, others
 endif
 
 # Needed to satisfy __stack_chk_fail_local on Linux with -m32, due to gcc
-# -fstack-protector by default. Breaks on FreeBSD so we exclude it.
-ifneq ($(uname_S),FreeBSD)
+# -fstack-protector by default. Breaks on FreeBSD and macOS 11 so needs
+# to be Linux specific.
+ifeq ($(uname_S),Linux)
     LIBS = -lc
 endif
 
