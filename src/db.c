@@ -1651,12 +1651,10 @@ int getKeysFromCommand(struct redisCommand *cmd, robj **argv, int argc, getKeysR
 
 /* The method is to extract the channels based on the values in the
  * pubsublocal related commands.
- * (first, last, step) - First channel occurence, last channel occurence,
+ * (first, last, step) - First channel occurrence, last channel occurrence,
  * steps between each key.
  */
-int genericGetChannels(int first, int last, int step,
-                       robj **argv, getKeysResult *result) {
-    UNUSED(argv);
+int genericGetChannels(int first, int last, int step, getKeysResult *result) {
     int cnt = 0;
     int *keys = getKeysPrepareResult(result,last-first+1);
     for (int j = first; j <= last; j += step) {
@@ -1670,12 +1668,11 @@ int genericGetChannels(int first, int last, int step,
  * This method extracts channel(s) from
  * subscribelocal/unsubscribelocal/publishlocal commands.
  */
-int getChannelsFromCommand(struct redisCommand *cmd, robj **argv, int argc,
-                            getKeysResult *result) {
+int getChannelsFromCommand(struct redisCommand *cmd, int argc, getKeysResult *result) {
     if (cmd->proc == subscribeLocalCommand || cmd->proc == unsubscribeLocalCommand) {
-        return genericGetChannels(1,argc-1,1,argv,result);
+        return genericGetChannels(1,argc-1,1,result);
     } else if (cmd->proc == publishLocalCommand) {
-        return genericGetChannels(1,1,1,argv,result);
+        return genericGetChannels(1,1,1,result);
     } else {
         return 0;
     }

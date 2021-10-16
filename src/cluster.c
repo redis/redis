@@ -57,7 +57,7 @@ void clusterUpdateState(void);
 int clusterNodeGetSlotBit(clusterNode *n, int slot);
 sds clusterGenNodesDescription(int filter, int use_pport);
 clusterNode *clusterLookupNode(const char *name);
-list *clusterGetNodesForSlot(clusterNode *node);
+list *clusterGetNodesServingMySlots(clusterNode *node);
 int clusterNodeAddSlave(clusterNode *master, clusterNode *slave);
 int clusterAddSlot(clusterNode *n, int slot);
 int clusterDelSlot(int slot);
@@ -1041,23 +1041,14 @@ clusterNode *clusterLookupNode(const char *name) {
 }
 
 /* Get all the nodes serving this slot. */
-list *clusterGetNodesForSlot(clusterNode *node) {
-    list *nodesForSlot = listCreate();
-    if (node->slaves) {
-        for (int i=0; i < node->numslaves; i++) {
-            listAddNodeTail(nodesForSlot, node->slaves[i]);
-        }
-    } else if (node->slaveof) {
-        clusterNode *master = node->slaveof;
-        listAddNodeTail(nodesForSlot, master);
-        for (int i=0; i < master->numslaves; i++) {
-            if (master->slaves[i] == node) {
-                continue;
-            }
-            listAddNodeTail(nodesForSlot, master->slaves[i]);
-        }
+list *clusterGetNodesServingMySlots(clusterNode *node) {
+    list *nodes_for_slot = listCreate();
+    clusterNode *my_primary = nodeIsMaster(node) ? node : node->slaveof;
+    listAddNodeTail(nodes_for_slot, my_primary);
+    for (int i=0; i < my_primary->numslaves; i++) {
+        listAddNodeTail(nodes_for_slot, my_primary->slaves[i]);
     }
-    return nodesForSlot;
+    return nodes_for_slot;
 }
 
 /* This is only used after the handshake. When we connect a given IP/PORT
@@ -1724,7 +1715,6 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
                     newmaster = sender;
                     migrated_our_slots++;
                 }
-                removeChannelsInSlot(j);
                 clusterDelSlot(j);
                 clusterAddSlot(sender,j);
                 clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
@@ -2207,8 +2197,7 @@ int clusterProcessPacket(clusterLink *link) {
 
         /* Don't bother creating useless objects if there are no
          * Pub/Sub subscribers. */
-        if (dictSize(server.pubsublocal_channels))
-        {
+        if (dictSize(server.pubsublocal_channels)) {
             channel_len = ntohl(hdr->data.publish.msg.channel_len);
             message_len = ntohl(hdr->data.publish.msg.message_len);
             channel = createStringObject(
@@ -2897,17 +2886,17 @@ void clusterPropagatePublish(robj *channel, robj *message) {
  * Publish this message across the slot (primary/replica).
  * -------------------------------------------------------------------------- */
 void clusterPropagatePublishLocal(robj *channel, robj *message) {
-    list *nodesForSlot = clusterGetNodesForSlot(server.cluster->myself);
-    if (listLength(nodesForSlot) != 0) {
+    list *nodes_for_slot = clusterGetNodesServingMySlots(server.cluster->myself);
+    if (listLength(nodes_for_slot) != 0) {
         listIter li;
         listNode *ln;
-        listRewind(nodesForSlot,&li);
+        listRewind(nodes_for_slot, &li);
         while((ln = listNext(&li))) {
             clusterNode *node = listNodeValue(ln);
             clusterSendPublish(node->link, channel, message, CLUSTERMSG_TYPE_PUBLISHLOCAL);
         }
     }
-    listRelease(nodesForSlot);
+    listRelease(nodes_for_slot);
 }
 
 /* -----------------------------------------------------------------------------
@@ -5107,12 +5096,12 @@ NULL
 
 void removeChannelsInSlot(unsigned int slot) {
     unsigned int channelcount = countChannelsInSlot(slot);
-    if (channelcount != 0) {
-        robj **channels = zmalloc(sizeof(robj*)*channelcount);
-        getChannelsInSlot(slot,channels);
-        pubsubUnsubscribeLocalChannels(channels,channelcount);
-        zfree(channels);
-    }
+    if (channelcount != 0) return;
+
+    robj **channels = zmalloc(sizeof(robj*)*channelcount);
+    getChannelsInSlot(slot,channels);
+    pubsubUnsubscribeLocalChannels(channels,channelcount);
+    zfree(channels);
 }
 
 /* -----------------------------------------------------------------------------
@@ -5797,142 +5786,6 @@ void readwriteCommand(client *c) {
     addReply(c,shared.ok);
 }
 
-
-//clusterNode *getNodeByQueryForChannels(client *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, int *error_code) {
-//    clusterNode *n = NULL;
-//    robj *firstchannel = NULL;
-//    int multiple_channels = 0;
-//    multiCmd mc;
-//    int i, slot = 0, migrating_slot = 0, importing_slot = 0, missing_keys = 0;
-//
-//    /* Allow any key to be set if a module disabled cluster redirections. */
-//    if (server.cluster_module_flags & CLUSTER_MODULE_FLAG_NO_REDIRECTION)
-//        return myself;
-//
-//    /* Set error code optimistically for the base case. */
-//    if (error_code) *error_code = CLUSTER_REDIR_NONE;
-//
-//    struct redisCommand *mcmd;
-//    robj **margv;
-//    int margc, *keyindex, numchannels, j;
-//
-//    mcmd = cmd;
-//    margc = argc;
-//    margv = argv;
-//
-//    getKeysResult result = GETKEYS_RESULT_INIT;
-//    numchannels = getKeysFromCommand(mcmd, margv, margc, &result);
-//    keyindex = result.keys;
-//
-//    for (j = 0; j < numchannels; j++) {
-//        robj *thiskey = margv[keyindex[j]];
-//        int thisslot = keyHashSlot((char *) thiskey->ptr,
-//                                   sdslen(thiskey->ptr));
-//
-//        if (firstchannel == NULL) {
-//            /* This is the first key we see. Check what is the slot
-//             * and node. */
-//            firstchannel = thiskey;
-//            slot = thisslot;
-//            n = server.cluster->slots[slot];
-//
-//            /* Error: If a slot is not served, we are in "cluster down"
-//             * state. However the state is yet to be updated, so this was
-//             * not trapped earlier in processCommand(). Report the same
-//             * error to the client. */
-//            if (n == NULL) {
-//                getKeysFreeResult(&result);
-//                if (error_code)
-//                    *error_code = CLUSTER_REDIR_DOWN_UNBOUND;
-//                return NULL;
-//            }
-//
-//            /* If we are migrating or importing this slot, we need to check
-//             * if we have all the keys in the request (the only way we
-//             * can safely serve the request, otherwise we return a TRYAGAIN
-//             * error). To do so we set the importing/migrating state and
-//             * increment a counter for every missing key. */
-//            if (n == myself &&
-//                server.cluster->migrating_slots_to[slot] != NULL) {
-//                migrating_slot = 1;
-//            } else if (server.cluster->importing_slots_from[slot] != NULL) {
-//                importing_slot = 1;
-//            }
-//        } else {
-//            /* If it is not the first channel, make sure it is exactly
-//             * the same channel as the first we saw. */
-//            if (!equalStringObjects(firstkey, thiskey)) {
-//                if (slot != thisslot) {
-//                    /* Error: multiple channels from different slots. */
-//                    getKeysFreeResult(&result);
-//                    if (error_code) {
-//                        *error_code = CLUSTER_REDIR_CROSS_SLOT_CHANNEL;
-//                    }
-//                    return NULL;
-//                } else {
-//                    /* Flag this request as one with multiple different
-//                     * keys. */
-//                    multiple_keys = 1;
-//                }
-//            }
-//        }
-//        getKeysFreeResult(&result);
-//    }
-//
-//    /* No channels at all in command? then we can serve the request
-//    * without redirections or errors in all the cases. */
-//    if (n == NULL) return myself;
-//
-//    /* Return the hashslot by reference. */
-//    if (hashslot) *hashslot = slot;
-//
-//    /* MIGRATE always works in the context of the local node if the slot
-//     * is open (migrating or importing state). We need to be able to freely
-//     * move keys among instances in this case. */
-//    if ((migrating_slot || importing_slot) && cmd->proc == migrateCommand)
-//        return myself;
-//
-//    /* If we don't have all the keys and we are migrating the slot, send
-//     * an ASK redirection. */
-//    if (migrating_slot && missing_keys) {
-//        if (error_code) *error_code = CLUSTER_REDIR_ASK;
-//        return server.cluster->migrating_slots_to[slot];
-//    }
-//
-//    /* If we are receiving the slot, and the client correctly flagged the
-//     * request as "ASKING", we can serve the request. However if the request
-//     * involves multiple keys and we don't have them all, the only option is
-//     * to send a TRYAGAIN error. */
-//    if (importing_slot &&
-//        (c->flags & CLIENT_ASKING || cmd->flags & CMD_ASKING))
-//    {
-//        if (multiple_keys && missing_keys) {
-//            if (error_code) *error_code = CLUSTER_REDIR_UNSTABLE;
-//            return NULL;
-//        } else {
-//            return myself;
-//        }
-//    }
-//
-//    /* Handle the read-only client case reading from a slave: if this
-//     * node is a slave and the request is about a hash slot our master
-//     * is serving, we can reply without redirection. */
-//    int is_write_command = (c->cmd->flags & CMD_WRITE) ||
-//                           (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_WRITE));
-//    if (((c->flags & CLIENT_READONLY) || is_pubsublocal) &&
-//        !is_write_command &&
-//        nodeIsSlave(myself) &&
-//        myself->slaveof == n)
-//    {
-//        return myself;
-//    }
-//
-//    /* Base case: just return the right node. However if this node is not
-//     * myself, set error_code to MOVED since we need to issue a redirection. */
-//    if (n != myself && error_code) *error_code = CLUSTER_REDIR_MOVED;
-//    return n;
-//}
-
 /* Return the pointer to the cluster node that is able to serve the command.
  * For the function to succeed the command should only target either:
  *
@@ -6020,7 +5873,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
 
         getKeysResult result = GETKEYS_RESULT_INIT;
         if (is_pubsublocal) {
-            numkeys = getChannelsFromCommand(mcmd,margv,margc,&result);
+            numkeys = getChannelsFromCommand(mcmd,margc,&result);
         } else {
             numkeys = getKeysFromCommand(mcmd,margv,margc,&result);
         }
@@ -6062,30 +5915,37 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
                 } else if (server.cluster->importing_slots_from[slot] != NULL) {
                     importing_slot = 1;
                 }
-            } else {
+            } else if (!is_pubsublocal) {
                 /* If it is not the first key, make sure it is exactly
-                 * the same key as the first we saw. */
+                     * the same key as the first we saw. */
                 if (!equalStringObjects(firstkey,thiskey)) {
-                    /* If the channel exists across different slots, it is still
-                     * valid if they are being served from the same node. */
-                    if (is_pubsublocal) {
-                        if (n != thisnode) {
-                            getKeysFreeResult(&result);
-                            if (error_code) {
-                                *error_code = CLUSTER_REDIR_CROSS_NODE_CHANNEL;
-                            }
-                            return NULL;
-                        }
-                    } else if (slot != thisslot) {
+                    if (slot != thisslot) {
                         /* Error: multiple keys from different slots. */
                         getKeysFreeResult(&result);
-                        if (error_code) {
+                        if (error_code)
                             *error_code = CLUSTER_REDIR_CROSS_SLOT;
-                        }
                         return NULL;
                     } else {
                         /* Flag this request as one with multiple different
                          * keys. */
+                        multiple_keys = 1;
+                    }
+                }
+            } else {
+                /* If it is not the first channel, make sure it is exactly
+                 * the same channel as the first we saw. */
+                if (!equalStringObjects(firstkey,thiskey)) {
+                    /* If the channel exists across different slots, it is still
+                     * valid if they are being served from the same node. */
+                    if (n != thisnode) {
+                        getKeysFreeResult(&result);
+                        if (error_code) {
+                            *error_code = CLUSTER_REDIR_CROSS_NODE_CHANNEL;
+                        }
+                        return NULL;
+                    } else {
+                        /* Flag this request as one with multiple different
+                         * channels. */
                         multiple_keys = 1;
                     }
                 }

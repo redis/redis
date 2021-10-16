@@ -207,12 +207,6 @@ start_server {} {
         assert_equal {message chan1 world} [$rd0 read]
     }
 
-    test {setup reverse replication for following tests} {
-        $node_1 replicaof no one
-        $node_0 replicaof $node_1_host $node_1_port
-        wait_for_sync $node_0
-    }
-
     test {publish message to master and receive on replica} {
         set rd0 [redis_deferring_client node_0_host node_0_port]
         set rd1 [redis_deferring_client node_1_host node_1_port]

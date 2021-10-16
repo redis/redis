@@ -30,7 +30,6 @@ test "Pub/Sub local basics" {
 
     catch {$anotherclient subscribelocal channel.0} err
     puts [string range $err 0 4]
-    #assert {[string range $err 0 4] eq {MOVED}}
 
     set data [randomValue]
     $publishclient publishlocal channel.0 $data
@@ -87,10 +86,10 @@ test "Verify Pub/Sub and Pub/Sub local no overlap" {
     $subscribeclient subscribe channel.0
     $subscribeclient read
 
-    set localdata "inGodWeTrust"
+    set localdata "testingpubsubdata"
     $publishlocalclient publishlocal channel.0 $localdata
 
-    set data "restBringData"
+    set data "somemoredata"
     $publishclient publish channel.0 $data
 
     set msg [$subscribeclientlocal read]

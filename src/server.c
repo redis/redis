@@ -3904,10 +3904,8 @@ void call(client *c, int flags) {
     }
 
     /* If the client has keys tracking enabled for client side caching,
-     * make sure to remember the keys it fetched via this command.
-     * Don't track the channel names faked as keys in the pub/sub local
-     * commands. */
-    if (c->cmd->flags & CMD_READONLY && !(c->cmd->flags & CMD_PUBSUB)) {
+     * make sure to remember the keys it fetched via this command. */
+    if (c->cmd->flags & CMD_READONLY) {
         client *caller = (c->flags & CLIENT_LUA && server.lua_caller) ?
                             server.lua_caller : c;
         if (caller->flags & CLIENT_TRACKING &&

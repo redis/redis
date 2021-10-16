@@ -69,3 +69,23 @@ test "Discontinuous slots distribution" {
     assert_match "* 8192-12283 12285 12287 12289-16379 16381*" [$master2 CLUSTER NODES]
     assert_match "*8192 12283*12285 12285*12287 12287*12289 16379*16381 16381*" [$master2 CLUSTER SLOTS]
 }
+
+# Check pubsublocal data broadcast across master/replica for a slot.
+test "Subscribe to replica, publish from primary" {
+
+    set primary [Rn 1]
+    set replica [Rn 3]
+
+    $replica deferred 1
+    $replica SUBSCRIBELOCAL ch1
+    $replica read
+
+    set localdata "testingpubsublocal"
+    $primary PUBLISHLOCAL ch1 $localdata
+
+    set msg [$replica read]
+    assert {$localdata eq [lindex $msg 2]}
+
+    $replica deferred 0
+    $replica UNSUBSCRIBELOCAL ch1
+}

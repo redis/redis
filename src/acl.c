@@ -1211,10 +1211,8 @@ int ACLCheckCommandPerm(client *c, int *keyidxptr) {
     }
 
     /* Check if the user can execute commands explicitly touching the keys
-     * mentioned in the command arguments. The channels provided as fake keys
-     * part of pub/sub local commands doesn't required to be checked. */
+     * mentioned in the command arguments. */
     if (!(c->user->flags & USER_FLAG_ALLKEYS) &&
-        !(c->cmd->flags & CMD_PUBSUB) &&
         (c->cmd->getkeys_proc || c->cmd->firstkey))
     {
         getKeysResult result = GETKEYS_RESULT_INIT;

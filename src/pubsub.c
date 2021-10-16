@@ -29,6 +29,17 @@
 
 #include "server.h"
 
+/* Structure to hold the pubsub related metadata. Currently used
+ * for pubsub and pubsublocal feature. */
+typedef struct pubsubtype {
+    int local;
+    dict *(*serverPubSubChannels)();
+    dict *(*clientPubSubChannels)(client*);
+    int (*subscriptionCount)(client*);
+    robj *(*subscribeMsg)();
+    robj *(*unsubscribeMsg)();
+}pubsubtype;
+
 /*
  * Get client's local Pub/Sub channels subscription count.
  */
@@ -263,10 +274,10 @@ int pubsubSubscribeChannel(client *c, robj *channel, pubsubtype type) {
         retval = 1;
         incrRefCount(channel);
         /* Add the client to the channel -> list of clients hash table */
-        de = dictFind(type.serverPubSubChannels(),channel);
+        de = dictFind(type.serverPubSubChannels(), channel);
         if (de == NULL) {
             clients = listCreate();
-            dictAdd(type.serverPubSubChannels(),channel,clients);
+            dictAdd(type.serverPubSubChannels(), channel, clients);
             incrRefCount(channel);
         } else {
             clients = dictGetVal(de);
@@ -292,7 +303,7 @@ int pubsubUnsubscribeChannel(client *c, robj *channel, int notify, pubsubtype ty
     if (dictDelete(type.clientPubSubChannels(c),channel) == DICT_OK) {
         retval = 1;
         /* Remove the client from the channel -> clients list hash table */
-        de = dictFind(type.serverPubSubChannels(),channel);
+        de = dictFind(type.serverPubSubChannels(), channel);
         serverAssertWithInfo(c,NULL,de != NULL);
         clients = dictGetVal(de);
         ln = listSearchKey(clients,c);
@@ -302,7 +313,7 @@ int pubsubUnsubscribeChannel(client *c, robj *channel, int notify, pubsubtype ty
             /* Free the list and associated hash entry at all if this was
              * the latest client, so that it will be possible to abuse
              * Redis PUBSUB creating millions of channels. */
-            dictDelete(type.serverPubSubChannels(),channel);
+            dictDelete(type.serverPubSubChannels(), channel);
             /* As this channel isn't subscribed by anyone, it's safe
              * to remove the channel from the slot. */
             if (server.cluster_enabled & type.local) {
@@ -483,7 +494,7 @@ int pubsubPublishMessageInternal(robj *channel, robj *message, pubsubtype type) 
     listIter li;
 
     /* Send to clients listening for that channel */
-    de = dictFind(type.serverPubSubChannels(),channel);
+    de = dictFind(type.serverPubSubChannels(), channel);
     if (de) {
         list *list = dictGetVal(de);
         listNode *ln;
@@ -657,7 +668,7 @@ NULL
         /* PUBSUB NUMPAT */
         addReplyLongLong(c,dictSize(server.pubsub_patterns));
     } else if (!strcasecmp(c->argv[1]->ptr,"local") && c->argc >= 2) {
-        /* PUBSUB LOCAL CHANNELS [PATTERN] */
+        /* PUBSUB LOCAL CHANNELS */
         if (!strcasecmp(c->argv[2]->ptr,"channels")) {
             sds pat = (c->argc == 3) ? NULL : c->argv[3]->ptr;
             channelList(c,pat,server.pubsublocal_channels);

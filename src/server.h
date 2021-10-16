@@ -1727,18 +1727,6 @@ typedef struct {
     dictEntry *de;
 } hashTypeIterator;
 
-/* Structure to hold the pubsub related metadata. Currently used
- * for pubsub and pubsublocal feature. */
-typedef struct pubsubtype {
-    int local;
-    dict *(*serverPubSubChannels)();
-    dict *(*clientPubSubChannels)(client*);
-    int (*subscriptionCount)(client*);
-    robj *(*subscribeMsg)();
-    robj *(*unsubscribeMsg)();
-}pubsubtype;
-
-
 #include "stream.h"  /* Stream data type header file. */
 
 #define OBJ_HASH_KEY 1
@@ -2409,7 +2397,7 @@ void freeSlotsToChannelsMap(rax *rt, int async);
 /* API to get key arguments from commands */
 int *getKeysPrepareResult(getKeysResult *result, int numkeys);
 int getKeysFromCommand(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
-int getChannelsFromCommand(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
+int getChannelsFromCommand(struct redisCommand *cmd, int argc, getKeysResult *result);
 void getKeysFreeResult(getKeysResult *result);
 int zunionInterDiffGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
 int zunionInterDiffStoreGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
