@@ -449,7 +449,7 @@ long long emptyDb(int dbnum, int flags, void(callback)(dict*)) {
     /* Flush slots to keys map if enable cluster, we can flush entire
      * slots to keys map whatever dbnum because only support one DB
      * in cluster mode. */
-    if (server.cluster_enabled) slotToKeyFlush(server.db);
+    if (server.cluster_enabled) slotToKeyInit(server.db);
 
     if (dbnum == -1) flushSlaveKeysWithExpireList();
 
@@ -473,8 +473,7 @@ redisDb *initTempDb(void) {
 
     if (server.cluster_enabled) {
         /* Prepare temp slots to keys map to be written during async diskless replication. */
-        tempDb->slots_to_keys = zmalloc(sizeof(*tempDb->slots_to_keys));
-        slotToKeyFlush(tempDb);
+        slotToKeyInit(tempDb);
     }
 
     return tempDb;
@@ -492,8 +491,8 @@ redisDb *initTempDb(void) {
     }
 
     if (server.cluster_enabled) {
-        /* Flush temp slots to keys map. */
-        slotToKeyFlush(tempDb);
+        /* Release temp slots to keys map. */
+        slotToKeyDestroy(tempDb);
     }
 
     zfree(tempDb);
@@ -1317,9 +1316,10 @@ int dbSwapDatabases(int id1, int id2) {
  * (which will now be placed in the temp one) is done later. */
 void swapMainDbWithTempDb(redisDb *tempDb) {
     if (server.cluster_enabled) {
-        /* Copy slots_to_keys from tempdb just loaded to main slots_to_keys. */
-        memcpy(*server.db->slots_to_keys, *tempDb->slots_to_keys,
-           sizeof(*tempDb->slots_to_keys));
+        /* Swap slots_to_keys from tempdb just loaded with main db slots_to_keys. */
+        clusterSlotsToKeysData *aux = server.db->slots_to_keys;
+        server.db->slots_to_keys = tempDb->slots_to_keys;
+        tempDb->slots_to_keys = aux;
     }
 
     for (int i=0; i<server.dbnum; i++) {

@@ -308,6 +308,7 @@ unsigned int keyHashSlot(char *key, int keylen);
 void slotToKeyAddEntry(dictEntry *entry, redisDb *db);
 void slotToKeyDelEntry(dictEntry *entry, redisDb *db);
 void slotToKeyReplaceEntry(dictEntry *entry, redisDb *db);
-void slotToKeyFlush(redisDb *db);
+void slotToKeyInit(redisDb *db);
+void slotToKeyDestroy(redisDb *db);
 
 #endif /* __CLUSTER_H */

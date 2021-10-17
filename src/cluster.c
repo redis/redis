@@ -588,10 +588,8 @@ void clusterInit(void) {
         serverPanic("Unrecoverable error creating Redis Cluster socket accept handler.");
     }
 
-    server.db->slots_to_keys = zmalloc(sizeof(*server.db->slots_to_keys));
-
-    /* Reset data for the Slot to key API. */
-    slotToKeyFlush(server.db);
+    /* Initialize data for the Slot to key API. */
+    slotToKeyInit(server.db);
 
     /* Set myself->port/cport/pport to my listening ports, we'll just need to
      * discover the IP address via MEET messages. */
@@ -6188,10 +6186,17 @@ void slotToKeyReplaceEntry(dictEntry *entry, redisDb *db) {
     }
 }
 
-/* Empty the slots-keys map of Redis Cluster. */
-void slotToKeyFlush(redisDb *db) {
+/* Initialize slots-keys map of given db. */
+void slotToKeyInit(redisDb *db) {
+    db->slots_to_keys = zmalloc(sizeof(*db->slots_to_keys));
     memset(*db->slots_to_keys, 0,
            sizeof(*db->slots_to_keys));
+}
+
+/* Free slots-keys map of given db. */
+void slotToKeyDestroy(redisDb *db) {
+    zfree(*db->slots_to_keys);
+    db->slots_to_keys = NULL;
 }
 
 /* Remove all the keys in the specified hash slot.
