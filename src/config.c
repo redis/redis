@@ -505,24 +505,7 @@ void loadServerConfigFromString(char *config) {
         }
 
         /* Execute config directives */
-        if (!strcasecmp(argv[0],"bind") && argc >= 2) {
-            int j, addresses = argc-1;
-
-            if (addresses > CONFIG_BINDADDR_MAX) {
-                err = "Too many bind addresses specified"; goto loaderr;
-            }
-
-            /* A single empty argument is treated as a zero bindaddr count */
-            if (addresses == 1 && sdslen(argv[1]) == 0) addresses = 0;
-
-            /* Free old bind addresses */
-            for (j = 0; j < server.bindaddr_count; j++) {
-                zfree(server.bindaddr[j]);
-            }
-            for (j = 0; j < addresses; j++)
-                server.bindaddr[j] = zstrdup(argv[j+1]);
-            server.bindaddr_count = addresses;
-        } else if (!strcasecmp(argv[0],"include") && argc == 2) {
+        if (!strcasecmp(argv[0],"include") && argc == 2) {
             loadServerConfig(argv[1], 0, NULL);
         } else if ((!strcasecmp(argv[0],"slaveof") ||
                     !strcasecmp(argv[0],"replicaof")) && argc == 3) {
@@ -716,11 +699,6 @@ void loadServerConfig(char *filename, char config_from_stdin, char *options) {
 /*-----------------------------------------------------------------------------
  * CONFIG SET implementation
  *----------------------------------------------------------------------------*/
-#define config_set_special_field(_name) \
-    } else if (!strcasecmp(c->argv[2]->ptr,_name)) {
-
-#define config_set_else } else
-
 void configSetCommand(client *c) {
     robj *o;
     const char *errstr = NULL;
@@ -746,33 +724,8 @@ void configSetCommand(client *c) {
         }
     }
 
-    if (0) { /* this starts the config_set macros else-if chain. */
-
-    /* Special fields that can't be handled with general macros. */
-    config_set_special_field("bind") {
-        int vlen;
-        sds *v = sdssplitlen(o->ptr,sdslen(o->ptr)," ",1,&vlen);
-
-        if (vlen > CONFIG_BINDADDR_MAX) {
-            addReplyError(c, "Too many bind addresses specified.");
-            sdsfreesplitres(v, vlen);
-            return;
-        }
-
-        if (changeBindAddr(v, vlen) == C_ERR) {
-            addReplyError(c, "Failed to bind to specified addresses.");
-            sdsfreesplitres(v, vlen);
-            return;
-        }
-        sdsfreesplitres(v, vlen);
-    } config_set_else {
-        addReplyErrorFormat(c,"Unsupported CONFIG parameter: %s",
-            (char*)c->argv[2]->ptr);
-        return;
-    }
-
-    /* On success we just return a generic OK for all the options. */
-    addReply(c,shared.ok);
+    addReplyErrorFormat(c,"Unsupported CONFIG parameter: %s",
+        (char*)c->argv[2]->ptr);
     return;
 
 badfmt: /* Bad format errors */
@@ -834,14 +787,6 @@ void configGetCommand(client *c) {
         else
             buf[0] = '\0';
         addReplyBulkCString(c,buf);
-        matches++;
-    }
-    if (stringmatch(pattern,"bind",1)) {
-        sds aux = sdsjoin(server.bindaddr,server.bindaddr_count," ");
-
-        addReplyBulkCString(c,"bind");
-        addReplyBulkCString(c,aux);
-        sdsfree(aux);
         matches++;
     }
 
@@ -1342,10 +1287,10 @@ void rewriteConfigOOMScoreAdjValuesOption(typeData data, const char *name, struc
 }
 
 /* Rewrite the bind option. */
-void rewriteConfigBindOption(struct rewriteConfigState *state) {
+void rewriteConfigBindOption(typeData data, const char *name, struct rewriteConfigState *state) {
+    UNUSED(data);
     int force = 1;
     sds line, addresses;
-    char *option = "bind";
     int is_default = 0;
 
     /* Compare server.bindaddr with CONFIG_DEFAULT_BINDADDR */
@@ -1361,7 +1306,7 @@ void rewriteConfigBindOption(struct rewriteConfigState *state) {
     }
 
     if (is_default) {
-        rewriteConfigMarkAsProcessed(state,option);
+        rewriteConfigMarkAsProcessed(state,name);
         return;
     }
 
@@ -1370,12 +1315,12 @@ void rewriteConfigBindOption(struct rewriteConfigState *state) {
         addresses = sdsjoin(server.bindaddr,server.bindaddr_count," ");
     else
         addresses = sdsnew("\"\"");
-    line = sdsnew(option);
+    line = sdsnew(name);
     line = sdscatlen(line, " ", 1);
     line = sdscatsds(line, addresses);
     sdsfree(addresses);
 
-    rewriteConfigRewriteLine(state,option,line,force);
+    rewriteConfigRewriteLine(state,name,line,force);
 }
 
 /* Rewrite the loadmodule option. */
@@ -1558,7 +1503,6 @@ int rewriteConfig(char *path, int force_write) {
         if (config->interface.rewrite) config->interface.rewrite(config->data, config->name, state);
     }
 
-    rewriteConfigBindOption(state);
     rewriteConfigUserOption(state);
     rewriteConfigSlaveofOption(state,"replicaof");
     rewriteConfigLoadmoduleOption(state);
@@ -2575,6 +2519,44 @@ static void getConfigNotifyKeyspaceEventsOption(client *c, typeData data) {
     addReplyBulkSds(c,flags);
 }
 
+static int setConfigBindOption(typeData data, sds* argv, int argc, int update, const char **err) {
+    UNUSED(data);
+
+    if (argc > CONFIG_BINDADDR_MAX) {
+        *err = "Too many bind addresses specified.";
+        return 0;
+    }
+
+    if (update) {
+        if (changeBindAddr(argv, argc) == C_ERR) {
+            *err = "Failed to bind to specified addresses.";
+            return 0;
+        }
+    } else {
+        int j;
+
+        /* A single empty argument is treated as a zero bindaddr count */
+        if (argc == 1 && sdslen(argv[0]) == 0) argc = 0;
+
+        /* Free old bind addresses */
+        for (j = 0; j < server.bindaddr_count; j++) {
+            zfree(server.bindaddr[j]);
+        }
+        for (j = 0; j < argc; j++)
+            server.bindaddr[j] = zstrdup(argv[j]);
+        server.bindaddr_count = argc;
+    }
+
+    return 1;
+}
+
+static void getConfigBindOption(client *c, typeData data) {
+    UNUSED(data);
+    sds aux = sdsjoin(server.bindaddr,server.bindaddr_count," ");
+    addReplyBulkCString(c,aux);
+    sdsfree(aux);
+}
+
 standardConfig configs[] = {
     /* Bool configs */
     createBoolConfig("rdbchecksum", NULL, IMMUTABLE_CONFIG, server.rdb_checksum, 1, NULL, NULL),
@@ -2761,6 +2743,7 @@ standardConfig configs[] = {
     createSpecialConfig("client-output-buffer-limit", NULL, MODIFIABLE_CONFIG, setConfigClientOutputBufferLimitOption, getConfigClientOutputBufferLimitOption, rewriteConfigClientOutputBufferLimitOption),
     createSpecialConfig("oom-score-adj-values", NULL, MODIFIABLE_CONFIG, setConfigOOMScoreAdjValuesOption, getConfigOOMScoreAdjValuesOption, rewriteConfigOOMScoreAdjValuesOption),
     createSpecialConfig("notify-keyspace-events", NULL, MODIFIABLE_CONFIG, setConfigNotifyKeyspaceEventsOption, getConfigNotifyKeyspaceEventsOption, rewriteConfigNotifyKeyspaceEventsOption),
+    createSpecialConfig("bind", NULL, MODIFIABLE_CONFIG, setConfigBindOption, getConfigBindOption, rewriteConfigBindOption),
 
     /* NULL Terminator */
     {NULL}
