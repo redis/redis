@@ -3387,24 +3387,19 @@ int checkClientOutputBufferLimits(client *c) {
      * like normal clients. */
     if (class == CLIENT_TYPE_MASTER) class = CLIENT_TYPE_NORMAL;
 
+    /* Note that it doesn't make sense to set the replica clients output buffer
+     * limit lower than the repl-backlog-size config (partial sync will succeed
+     * and then replica will get disconnected).
+     * Such a configuration is ignored (the size of repl-backlog-size will be used).
+     * This doesn't have memory consumption implications since the replica client
+     * will share the backlog buffers memory. */
+    size_t hard_limit_bytes = server.client_obuf_limits[class].hard_limit_bytes;
+    if (class == CLIENT_TYPE_SLAVE && hard_limit_bytes &&
+        (long long)hard_limit_bytes < server.repl_backlog_size)
+        hard_limit_bytes = server.repl_backlog_size;
     if (server.client_obuf_limits[class].hard_limit_bytes &&
-        used_mem >= server.client_obuf_limits[class].hard_limit_bytes)
+        used_mem >= hard_limit_bytes)
         hard = 1;
-    /* Since master may copy almost whole replication backlog to replica's
-     * output buffer if it is able to perform a partial resynchronization,
-     * but we will close replica client and resynchronization is failed if
-     * output buffer limit is reached. This situation might continue until
-     * replication backlog start offset is out of the PSYNC offset, and
-     * causes full synchronization.
-     * To avoid above bad situation, if the replica output buffer size is not
-     * more than replication backlog size but already exceeds output buffer
-     * hard limit, we don't think hard limit is reached and don't close replica
-     * client. This method doesn't cost more memory since replication backlog
-     * and replicas share one global replication buffer. */
-    if (hard == 1 && class == CLIENT_TYPE_SLAVE &&
-        used_mem <= (unsigned long)server.repl_backlog_size)
-        hard = 0;
-
     if (server.client_obuf_limits[class].soft_limit_bytes &&
         used_mem >= server.client_obuf_limits[class].soft_limit_bytes)
         soft = 1;
@@ -3445,7 +3440,8 @@ int checkClientOutputBufferLimits(client *c) {
 int closeClientOnOutputBufferLimitReached(client *c, int async) {
     if (!c->conn) return 0; /* It is unsafe to free fake clients. */
     serverAssert(c->reply_bytes < SIZE_MAX-(1024*64));
-    /* Note that c->reply_bytes is irrelevant for replica clients (they use the global repl buffers). */
+    /* Note that c->reply_bytes is irrelevant for replica clients
+     * (they use the global repl buffers). */
     if ((c->reply_bytes == 0 && getClientType(c) != CLIENT_TYPE_SLAVE) ||
         c->flags & CLIENT_CLOSE_ASAP) return 0;
     if (checkClientOutputBufferLimits(c)) {
