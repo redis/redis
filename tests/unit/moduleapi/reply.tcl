@@ -17,6 +17,11 @@ start_server {tags {"modules"}} {
             assert_equal "A simple string" $string
         }
 
+        test {RM_ReplyWithBigNumber: an string reply} {
+            set bignumber [r rw.bignumber "123456778901234567890"
+            asset_equal "123456778901234567890" $bignumber
+        }
+
         test {RM_ReplyWithInt: an integer reply} {
             assert_equal 42 [r rw.int 42]
         }

@@ -47,6 +47,12 @@ int rw_longdouble(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithLongDouble(ctx, longdbl);
 }
 
+int rw_bignumber(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 1) return RedisModule_WrongArity(ctx);
+
+     return RedisModule_ReplyWithBigNumber(ctx, "12345678901234567890");
+}
+
 int rw_array(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc != 2) return RedisModule_WrongArity(ctx);
 
@@ -150,6 +156,8 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx,"rw.string",rw_string,"",0,0,0) != REDISMODULE_OK)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"rw.cstring",rw_cstring,"",0,0,0) != REDISMODULE_OK)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx,"rw.bignumber",rw_bignumber,"",0,0,0) != REDISMODULE_OK)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"rw.int",rw_int,"",0,0,0) != REDISMODULE_OK)
         return REDISMODULE_ERR;
