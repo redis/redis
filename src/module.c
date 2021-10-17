@@ -2277,6 +2277,14 @@ int RM_ReplyWithDouble(RedisModuleCtx *ctx, double d) {
     return REDISMODULE_OK;
 }
 
+/* Send a BigNumber reply */
+int RM_ReplyWithBigNumber(RedisModuleCtx *ctx, const char* bignum, size_t len) {
+    client *c = moduleGetReplyClient(ctx);
+    if (c == NULL) return REDISMODULE_OK;
+    addReplyBigNum(c, bignum, len);
+    return REDISMODULE_OK;
+}
+
 /* Send a string reply obtained converting the long double 'ld' into a bulk
  * string. This function is basically equivalent to converting a long double
  * into a string into a C buffer, and then calling the function
@@ -10341,6 +10349,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ReplyWithBool);
     REGISTER_API(ReplyWithCallReply);
     REGISTER_API(ReplyWithDouble);
+    REGISTER_API(ReplyWithBigNumber);
     REGISTER_API(ReplyWithLongDouble);
     REGISTER_API(GetSelectedDb);
     REGISTER_API(SelectDb);
