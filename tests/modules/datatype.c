@@ -5,6 +5,9 @@
 #include "redismodule.h"
 
 static RedisModuleType *datatype = NULL;
+static int load_encver = 0;
+
+#define DATATYPE_ENC_VER 1
 
 typedef struct {
     long long intval;
@@ -12,8 +15,7 @@ typedef struct {
 } DataType;
 
 static void *datatype_load(RedisModuleIO *io, int encver) {
-    (void) encver;
-
+    load_encver = encver;
     int intval = RedisModule_LoadSigned(io);
     if (RedisModule_IsIOError(io)) return NULL;
 
@@ -76,7 +78,7 @@ static int datatype_set(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     long long intval;
 
     if (RedisModule_StringToLongLong(argv[2], &intval) != REDISMODULE_OK) {
-        RedisModule_ReplyWithError(ctx, "Invalid integr value");
+        RedisModule_ReplyWithError(ctx, "Invalid integer value");
         return REDISMODULE_OK;
     }
 
@@ -94,12 +96,18 @@ static int datatype_set(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 }
 
 static int datatype_restore(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    if (argc != 3) {
+    if (argc != 4) {
         RedisModule_WrongArity(ctx);
         return REDISMODULE_OK;
     }
 
-    DataType *dt = RedisModule_LoadDataTypeFromString(argv[2], datatype);
+    long long encver;
+    if (RedisModule_StringToLongLong(argv[3], &encver) != REDISMODULE_OK) {
+        RedisModule_ReplyWithError(ctx, "Invalid integer value");
+        return REDISMODULE_OK;
+    }
+
+    DataType *dt = RedisModule_LoadDataTypeFromStringEncver(argv[2], datatype, encver);
     if (!dt) {
         RedisModule_ReplyWithError(ctx, "Invalid data");
         return REDISMODULE_OK;
@@ -108,7 +116,7 @@ static int datatype_restore(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_WRITE);
     RedisModule_ModuleTypeSetValue(key, datatype, dt);
     RedisModule_CloseKey(key);
-    RedisModule_ReplyWithSimpleString(ctx, "OK");
+    RedisModule_ReplyWithLongLong(ctx, load_encver);
 
     return REDISMODULE_OK;
 }
@@ -181,7 +189,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
 
-    if (RedisModule_Init(ctx,"datatype",1,REDISMODULE_APIVER_1) == REDISMODULE_ERR)
+    if (RedisModule_Init(ctx,"datatype",DATATYPE_ENC_VER,REDISMODULE_APIVER_1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     RedisModule_SetModuleOptions(ctx, REDISMODULE_OPTIONS_HANDLE_IO_ERRORS);

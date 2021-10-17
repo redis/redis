@@ -91,7 +91,7 @@ char *rdb_type_string[] = {
     "hash-ziplist",
     "quicklist",
     "stream",
-    "hash-listpack"
+    "hash-listpack",
     "zset-listpack"
 };
 

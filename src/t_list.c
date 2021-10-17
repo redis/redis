@@ -29,6 +29,8 @@
 
 #include "server.h"
 
+#define LIST_MAX_ITEM_SIZE ((1ull<<32)-1024)
+
 /*-----------------------------------------------------------------------------
  * List API
  *----------------------------------------------------------------------------*/
@@ -103,6 +105,13 @@ listTypeIterator *listTypeInitIterator(robj *subject, long index,
     return li;
 }
 
+/* Sets the direction of an iterator. */
+void listTypeSetIteratorDirection(listTypeIterator *li, unsigned char direction) {
+    li->direction = direction;
+    int dir = direction == LIST_HEAD ? AL_START_TAIL : AL_START_HEAD;
+    quicklistSetDirection(li->iter, dir);
+}
+
 /* Clean up the iterator. */
 void listTypeReleaseIterator(listTypeIterator *li) {
     zfree(li->iter);
@@ -153,6 +162,20 @@ void listTypeInsert(listTypeEntry *entry, robj *value, int where) {
             quicklistInsertBefore((quicklist *)entry->entry.quicklist,
                                   &entry->entry, str, len);
         }
+        decrRefCount(value);
+    } else {
+        serverPanic("Unknown list encoding");
+    }
+}
+
+/* Replaces entry at the current position of the iterator. */
+void listTypeReplace(listTypeEntry *entry, robj *value) {
+    if (entry->li->encoding == OBJ_ENCODING_QUICKLIST) {
+        value = getDecodedObject(value);
+        sds str = value->ptr;
+        size_t len = sdslen(str);
+        quicklistReplaceEntry((quicklist *)entry->entry.quicklist,
+                              &entry->entry, str, len);
         decrRefCount(value);
     } else {
         serverPanic("Unknown list encoding");
@@ -233,6 +256,13 @@ int listTypeDelRange(robj *subject, long start, long count) {
 void pushGenericCommand(client *c, int where, int xx) {
     int j;
 
+    for (j = 2; j < c->argc; j++) {
+        if (sdslen(c->argv[j]->ptr) > LIST_MAX_ITEM_SIZE) {
+            addReplyError(c, "Element too large");
+            return;
+        }
+    }
+
     robj *lobj = lookupKeyWrite(c->db, c->argv[1]);
     if (checkType(c,lobj,OBJ_LIST)) return;
     if (!lobj) {
@@ -293,6 +323,11 @@ void linsertCommand(client *c) {
         where = LIST_HEAD;
     } else {
         addReplyErrorObject(c,shared.syntaxerr);
+        return;
+    }
+
+    if (sdslen(c->argv[4]->ptr) > LIST_MAX_ITEM_SIZE) {
+        addReplyError(c, "Element too large");
         return;
     }
 
@@ -362,6 +397,11 @@ void lsetCommand(client *c) {
     if (o == NULL || checkType(c,o,OBJ_LIST)) return;
     long index;
     robj *value = c->argv[3];
+
+    if (sdslen(value->ptr) > LIST_MAX_ITEM_SIZE) {
+        addReplyError(c, "Element too large");
+        return;
+    }
 
     if ((getLongFromObjectOrReply(c, c->argv[2], &index, NULL) != C_OK))
         return;
@@ -662,6 +702,11 @@ void lposCommand(client *c) {
     int direction = LIST_TAIL;
     long rank = 1, count = -1, maxlen = 0; /* Count -1: option not given. */
 
+    if (sdslen(ele->ptr) > LIST_MAX_ITEM_SIZE) {
+        addReplyError(c, "Element too large");
+        return;
+    }
+
     /* Parse the optional arguments. */
     for (int j = 3; j < c->argc; j++) {
         char *opt = c->argv[j]->ptr;
@@ -756,6 +801,11 @@ void lremCommand(client *c) {
     obj = c->argv[3];
     long toremove;
     long removed = 0;
+
+    if (sdslen(obj->ptr) > LIST_MAX_ITEM_SIZE) {
+        addReplyError(c, "Element too large");
+        return;
+    }
 
     if ((getLongFromObjectOrReply(c, c->argv[2], &toremove, NULL) != C_OK))
         return;
@@ -941,8 +991,6 @@ void serveClientBlockedOnList(client *receiver, robj *o, robj *key, robj *dstkey
 
     if (dstkey == NULL) {
         /* Propagate the [LR]POP operation. */
-        struct redisCommand *cmd = (wherefrom == LIST_HEAD) ?
-                                   server.lpopCommand : server.rpopCommand;
         argv[0] = (wherefrom == LIST_HEAD) ? shared.lpop :
                                              shared.rpop;
         argv[1] = key;
@@ -955,7 +1003,7 @@ void serveClientBlockedOnList(client *receiver, robj *o, robj *key, robj *dstkey
             serverAssert(llen > 0);
 
             argv[2] = createStringObjectFromLongLong((count > llen) ? llen : count);
-            propagate(cmd, db->id, argv, 3, PROPAGATE_AOF|PROPAGATE_REPL);
+            propagate(db->id, argv, 3, PROPAGATE_AOF|PROPAGATE_REPL);
             decrRefCount(argv[2]);
 
             /* Pop a range of elements in a nested arrays way. */
@@ -963,7 +1011,7 @@ void serveClientBlockedOnList(client *receiver, robj *o, robj *key, robj *dstkey
             return;
         }
 
-        propagate(cmd, db->id, argv, 2, PROPAGATE_AOF|PROPAGATE_REPL);
+        propagate(db->id, argv, 2, PROPAGATE_AOF|PROPAGATE_REPL);
 
         /* BRPOP/BLPOP */
         value = listTypePop(o, wherefrom);
@@ -994,10 +1042,7 @@ void serveClientBlockedOnList(client *receiver, robj *o, robj *key, robj *dstkey
             argv[2] = dstkey;
             argv[3] = getStringObjectFromListPosition(wherefrom);
             argv[4] = getStringObjectFromListPosition(whereto);
-            propagate(isbrpoplpush ? server.rpoplpushCommand : server.lmoveCommand,
-                db->id,argv,(isbrpoplpush ? 3 : 5),
-                PROPAGATE_AOF|
-                PROPAGATE_REPL);
+            propagate(db->id,argv,(isbrpoplpush ? 3 : 5),PROPAGATE_AOF|PROPAGATE_REPL);
 
             /* Notify event ("lpush" or "rpush" was notified by lmoveHandlePush). */
             notifyKeyspaceEvent(NOTIFY_LIST,wherefrom == LIST_TAIL ? "rpop" : "lpop",
@@ -1088,7 +1133,7 @@ void blockingPopGenericCommand(client *c, robj **keys, int numkeys, int where, i
     }
 
     /* If the keys do not exist we must block */
-    struct listPos pos = {where};
+    struct blockPos pos = {where};
     blockForKeys(c,BLOCKED_LIST,keys,numkeys,count,timeout,NULL,&pos,NULL);
 }
 
@@ -1113,7 +1158,7 @@ void blmoveGenericCommand(client *c, int wherefrom, int whereto, mstime_t timeou
             addReplyNull(c);
         } else {
             /* The list is empty and the client blocks. */
-            struct listPos pos = {wherefrom, whereto};
+            struct blockPos pos = {wherefrom, whereto};
             blockForKeys(c,BLOCKED_LIST,c->argv + 1,1,0,timeout,c->argv[2],&pos,NULL);
         }
     } else {

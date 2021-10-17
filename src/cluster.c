@@ -142,9 +142,15 @@ int clusterLoadConfig(char *filename) {
         }
     }
 
+    if (redis_fstat(fileno(fp),&sb) == -1) {
+        serverLog(LL_WARNING,
+            "Unable to obtain the cluster node config file stat %s: %s",
+            filename, strerror(errno));
+        exit(1);
+    }
     /* Check if the file is zero-length: if so return C_ERR to signal
      * we have to write the config. */
-    if (fstat(fileno(fp),&sb) != -1 && sb.st_size == 0) {
+    if (sb.st_size == 0) {
         fclose(fp);
         return C_ERR;
     }
@@ -383,13 +389,14 @@ int clusterSaveConfig(int do_fsync) {
     if ((fd = open(server.cluster_configfile,O_WRONLY|O_CREAT,0644))
         == -1) goto err;
 
+    if (redis_fstat(fd,&sb) == -1) goto err;
+
     /* Pad the new payload if the existing file length is greater. */
-    if (fstat(fd,&sb) != -1) {
-        if (sb.st_size > (off_t)content_size) {
-            ci = sdsgrowzero(ci,sb.st_size);
-            memset(ci+content_size,'\n',sb.st_size-content_size);
-        }
+    if (sb.st_size > (off_t)content_size) {
+        ci = sdsgrowzero(ci,sb.st_size);
+        memset(ci+content_size,'\n',sb.st_size-content_size);
     }
+    
     if (write(fd,ci,sdslen(ci)) != (ssize_t)sdslen(ci)) goto err;
     if (do_fsync) {
         server.cluster->todo_before_sleep &= ~CLUSTER_TODO_FSYNC_CONFIG;
@@ -1230,7 +1237,7 @@ void clusterHandleConfigEpochCollision(clusterNode *sender) {
  * about the node we want to remove, we don't re-add it before some time.
  *
  * Currently the CLUSTER_BLACKLIST_TTL is set to 1 minute, this means
- * that redis-trib has 60 seconds to send CLUSTER FORGET messages to nodes
+ * that redis-cli has 60 seconds to send CLUSTER FORGET messages to nodes
  * in the cluster without dealing with the problem of other nodes re-adding
  * back the node to nodes we already sent the FORGET command to.
  *
@@ -1705,7 +1712,7 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
             if (server.cluster->slots[j] == sender) continue;
 
             /* The slot is in importing state, it should be modified only
-             * manually via redis-trib (example: a resharding is in progress
+             * manually via redis-cli (example: a resharding is in progress
              * and the migrating side slot was already closed and is advertising
              * a new config. We still want the slot to be closed manually). */
             if (server.cluster->importing_slots_from[j]) continue;
@@ -4100,7 +4107,7 @@ void clusterUpdateState(void) {
  *    B) If according to our config other nodes are already in charge for
  *       this slots, we set the slots as IMPORTING from our point of view
  *       in order to justify we have those slots, and in order to make
- *       redis-trib aware of the issue, so that it can try to fix it.
+ *       redis-cli aware of the issue, so that it can try to fix it.
  * 2) If we find data in a DB different than DB0 we return C_ERR to
  *    signal the caller it should quit the server with an error message
  *    or take other actions.
@@ -4410,6 +4417,24 @@ int getSlotOrReply(client *c, robj *o) {
     return (int) slot;
 }
 
+/* Returns an indication if the replica node is fully available
+ * and should be listed in CLUSTER SLOTS response.
+ * Returns 1 for available nodes, 0 for nodes that have 
+ * not finished their initial sync, in failed state, or are 
+ * otherwise considered not available to serve read commands. */
+static int isReplicaAvailable(clusterNode *node) {
+    if (nodeFailed(node)) {
+        return 0;
+    }
+    long long repl_offset = node->repl_offset;
+    if (node->flags & CLUSTER_NODE_MYSELF) {
+        /* Nodes do not update their own information
+         * in the cluster node list. */
+        repl_offset = replicationGetSlaveOffset();
+    }
+    return (repl_offset != 0);
+}
+
 void addNodeReplyForClusterSlot(client *c, clusterNode *node, int start_slot, int end_slot) {
     int i, nested_elements = 3; /* slots (2) + master addr (1) */
     void *nested_replylen = addReplyDeferredLen(c);
@@ -4427,7 +4452,7 @@ void addNodeReplyForClusterSlot(client *c, clusterNode *node, int start_slot, in
     for (i = 0; i < node->numslaves; i++) {
         /* This loop is copy/pasted from clusterGenNodeDescription()
          * with modifications for per-slot node aggregation. */
-        if (nodeFailed(node->slaves[i])) continue;
+        if (!isReplicaAvailable(node->slaves[i])) continue;
         addReplyArrayLen(c, 3);
         addReplyBulkCString(c, node->slaves[i]->ip);
         /* Report slave's non-TLS port to non-TLS client in TLS cluster */

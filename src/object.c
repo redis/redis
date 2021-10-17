@@ -1127,7 +1127,7 @@ size_t objectComputeSize(robj *key, robj *o, size_t sample_size, int dbid) {
             raxStop(&ri);
         }
     } else if (o->type == OBJ_MODULE) {
-        asize = moduleGetMemUsage(key, o, dbid);
+        asize = moduleGetMemUsage(key, o, sample_size, dbid);
     } else {
         serverPanic("Unknown object type");
     }
@@ -1180,7 +1180,7 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
 
     /* Computing the memory used by the clients would be O(N) if done
      * here online. We use our values computed incrementally by
-     * clientsCronTrackClientsMemUsage(). */
+     * updateClientMemUsage(). */
     mh->clients_slaves = server.stat_clients_type_memory[CLIENT_TYPE_SLAVE];
     mh->clients_normal = server.stat_clients_type_memory[CLIENT_TYPE_MASTER]+
                          server.stat_clients_type_memory[CLIENT_TYPE_PUBSUB]+
@@ -1487,7 +1487,7 @@ void memoryCommand(client *c) {
 "    Return information about the memory usage of the server.",
 "USAGE <key> [SAMPLES <count>]",
 "    Return memory in bytes used by <key> and its value. Nested values are",
-"    sampled up to <count> times (default: 5).",
+"    sampled up to <count> times (default: 5, 0 means sample all).",
 NULL
         };
         addReplyHelp(c, help);

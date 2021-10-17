@@ -380,8 +380,11 @@ int getMaxmemoryState(size_t *total, size_t *logical, size_t *tofree, float *lev
     if (total) *total = mem_reported;
 
     /* We may return ASAP if there is no need to compute the level. */
-    int return_ok_asap = !server.maxmemory || mem_reported <= server.maxmemory;
-    if (return_ok_asap && !level) return C_OK;
+    if (!server.maxmemory) {
+        if (level) *level = 0;
+        return C_OK;
+    }
+    if (mem_reported <= server.maxmemory && !level) return C_OK;
 
     /* Remove the size of slaves output buffers and AOF buffer from the
      * count of used memory. */
@@ -390,15 +393,9 @@ int getMaxmemoryState(size_t *total, size_t *logical, size_t *tofree, float *lev
     mem_used = (mem_used > overhead) ? mem_used-overhead : 0;
 
     /* Compute the ratio of memory usage. */
-    if (level) {
-        if (!server.maxmemory) {
-            *level = 0;
-        } else {
-            *level = (float)mem_used / (float)server.maxmemory;
-        }
-    }
+    if (level) *level = (float)mem_used / (float)server.maxmemory;
 
-    if (return_ok_asap) return C_OK;
+    if (mem_reported <= server.maxmemory) return C_OK;
 
     /* Check if we are still over the memory limit. */
     if (mem_used <= server.maxmemory) return C_OK;

@@ -637,6 +637,11 @@ void decrbyCommand(client *c) {
     long long incr;
 
     if (getLongLongFromObjectOrReply(c, c->argv[2], &incr, NULL) != C_OK) return;
+    /* Overflow check: negating LLONG_MIN will cause an overflow */
+    if (incr == LLONG_MIN) {
+        addReplyError(c, "decrement would overflow");
+        return;
+    }
     incrDecrCommand(c,-incr);
 }
 
