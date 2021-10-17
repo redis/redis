@@ -3445,9 +3445,7 @@ int checkClientOutputBufferLimits(client *c) {
 int closeClientOnOutputBufferLimitReached(client *c, int async) {
     if (!c->conn) return 0; /* It is unsafe to free fake clients. */
     serverAssert(c->reply_bytes < SIZE_MAX-(1024*64));
-    /* Since replica clients use global replication buffer and don't use
-     * private reply list, its reply_bytes always is 0, so we should not
-     * judge it for replica clients. */
+    /* Note that c->reply_bytes is irrelevant for replica clients (they use the global repl buffers). */
     if ((c->reply_bytes == 0 && getClientType(c) != CLIENT_TYPE_SLAVE) ||
         c->flags & CLIENT_CLOSE_ASAP) return 0;
     if (checkClientOutputBufferLimits(c)) {
