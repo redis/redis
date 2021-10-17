@@ -2131,14 +2131,22 @@ int RM_ReplyWithEmptyString(RedisModuleCtx *ctx) {
 }
 
 /* Reply with a binary safe string, which should not be escaped or filtered
+ * taking in input a C buffer pointer, length and a 3 character type/extension.
+ *
+ * The function always returns REDISMODULE_OK. */
+int RM_ReplyWithVerbatimStringType(RedisModuleCtx *ctx, const char *buf, size_t len, const char *ext) {
+    client *c = moduleGetReplyClient(ctx);
+    if (c == NULL) return REDISMODULE_OK;
+    addReplyVerbatim(c, buf, len, ext);
+    return REDISMODULE_OK;
+}
+
+/* Reply with a binary safe string, which should not be escaped or filtered
  * taking in input a C buffer pointer and length.
  *
  * The function always returns REDISMODULE_OK. */
 int RM_ReplyWithVerbatimString(RedisModuleCtx *ctx, const char *buf, size_t len) {
-    client *c = moduleGetReplyClient(ctx);
-    if (c == NULL) return REDISMODULE_OK;
-    addReplyVerbatim(c, buf, len, "txt");
-    return REDISMODULE_OK;
+	return RM_ReplyWithVerbatimStringType(ctx, buf, len, "txt");
 }
 
 /* Reply to the client with a NULL.
@@ -3025,7 +3033,7 @@ char *RM_StringDMA(RedisModuleKey *key, size_t *len, int mode) {
     return key->value->ptr;
 }
 
-/* If the string is open for writing and is of string type, resize it, padding
+/* If the key is open for writing and is of string type, resize it, padding
  * with zero bytes if the new length is greater than the old one.
  *
  * After this call, RM_StringDMA() must be called again to continue
@@ -5225,13 +5233,14 @@ robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, int todb, robj
  *   NOTE: The value is passed as a `void**` and the function is expected to update the
  *   pointer if the top-level value pointer is defragmented and consequently changes.
  *
- * * **mem_usage2**: Similar to `mem_usage`, but provides the `RedisModuleKeyOptCtx` parameter 
+ * * **mem_usage2**: Similar to `mem_usage`, but provides the `RedisModuleKeyOptCtx` parameter
+ *   so that meta information such as key name and db id can be obtained, and
+ *   the `sample_size` for size estimation (see MEMORY USAGE command).
+ * * **free_effort2**: Similar to `free_effort`, but provides the `RedisModuleKeyOptCtx` parameter
  *   so that meta information such as key name and db id can be obtained.
- * * **free_effort2**: Similar to `free_effort`, but provides the `RedisModuleKeyOptCtx` parameter 
+ * * **unlink2**: Similar to `unlink`, but provides the `RedisModuleKeyOptCtx` parameter
  *   so that meta information such as key name and db id can be obtained.
- * * **unlink2**: Similar to `unlink`, but provides the `RedisModuleKeyOptCtx` parameter 
- *   so that meta information such as key name and db id can be obtained.
- * * **copy2**: Similar to `copy`, but provides the `RedisModuleKeyOptCtx` parameter 
+ * * **copy2**: Similar to `copy`, but provides the `RedisModuleKeyOptCtx` parameter
  *   so that meta information such as key names and db ids can be obtained.
  * 
  * Note: the module name "AAAAAAAAA" is reserved and produces an error, it
@@ -9346,14 +9355,14 @@ size_t moduleGetFreeEffort(robj *key, robj *val, int dbid) {
 
 /* Return the memory usage of the module, it will automatically choose to call 
  * `mem_usage` or `mem_usage2`, and the default return value is 0. */
-size_t moduleGetMemUsage(robj *key, robj *val, int dbid) {
+size_t moduleGetMemUsage(robj *key, robj *val, size_t sample_size, int dbid) {
     moduleValue *mv = val->ptr;
     moduleType *mt = mv->type;
     size_t size = 0;
     /* We prefer to use the enhanced version. */
     if (mt->mem_usage2 != NULL) {
         RedisModuleKeyOptCtx ctx = {key, NULL, dbid, -1};
-        size = mt->mem_usage2(&ctx,mv->value);
+        size = mt->mem_usage2(&ctx, mv->value, sample_size);
     } else if (mt->mem_usage != NULL) {
         size = mt->mem_usage(mv->value);
     } 
@@ -10285,6 +10294,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ReplyWithString);
     REGISTER_API(ReplyWithEmptyString);
     REGISTER_API(ReplyWithVerbatimString);
+    REGISTER_API(ReplyWithVerbatimStringType);
     REGISTER_API(ReplyWithStringBuffer);
     REGISTER_API(ReplyWithCString);
     REGISTER_API(ReplyWithNull);
