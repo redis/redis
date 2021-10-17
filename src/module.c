@@ -5227,13 +5227,14 @@ robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, int todb, robj
  *   NOTE: The value is passed as a `void**` and the function is expected to update the
  *   pointer if the top-level value pointer is defragmented and consequently changes.
  *
- * * **mem_usage2**: Similar to `mem_usage`, but provides the `RedisModuleKeyOptCtx` parameter 
+ * * **mem_usage2**: Similar to `mem_usage`, but provides the `RedisModuleKeyOptCtx` parameter
+ *   so that meta information such as key name and db id can be obtained, and
+ *   the `sample_size` for size estimation (see MEMORY USAGE command).
+ * * **free_effort2**: Similar to `free_effort`, but provides the `RedisModuleKeyOptCtx` parameter
  *   so that meta information such as key name and db id can be obtained.
- * * **free_effort2**: Similar to `free_effort`, but provides the `RedisModuleKeyOptCtx` parameter 
+ * * **unlink2**: Similar to `unlink`, but provides the `RedisModuleKeyOptCtx` parameter
  *   so that meta information such as key name and db id can be obtained.
- * * **unlink2**: Similar to `unlink`, but provides the `RedisModuleKeyOptCtx` parameter 
- *   so that meta information such as key name and db id can be obtained.
- * * **copy2**: Similar to `copy`, but provides the `RedisModuleKeyOptCtx` parameter 
+ * * **copy2**: Similar to `copy`, but provides the `RedisModuleKeyOptCtx` parameter
  *   so that meta information such as key names and db ids can be obtained.
  * 
  * Note: the module name "AAAAAAAAA" is reserved and produces an error, it
@@ -9313,14 +9314,14 @@ size_t moduleGetFreeEffort(robj *key, robj *val, int dbid) {
 
 /* Return the memory usage of the module, it will automatically choose to call 
  * `mem_usage` or `mem_usage2`, and the default return value is 0. */
-size_t moduleGetMemUsage(robj *key, robj *val, int dbid) {
+size_t moduleGetMemUsage(robj *key, robj *val, size_t sample_size, int dbid) {
     moduleValue *mv = val->ptr;
     moduleType *mt = mv->type;
     size_t size = 0;
     /* We prefer to use the enhanced version. */
     if (mt->mem_usage2 != NULL) {
         RedisModuleKeyOptCtx ctx = {key, NULL, dbid, -1};
-        size = mt->mem_usage2(&ctx,mv->value);
+        size = mt->mem_usage2(&ctx, mv->value, sample_size);
     } else if (mt->mem_usage != NULL) {
         size = mt->mem_usage(mv->value);
     } 
