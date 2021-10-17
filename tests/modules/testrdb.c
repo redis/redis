@@ -122,8 +122,7 @@ int testrdb_aux_load(RedisModuleIO *rdb, int encver, int when) {
                 return REDISMODULE_ERR;
             if (count)
                 before_str = RedisModule_LoadString(rdb);
-        }
-        else {
+        } else {
             if (before_str_temp)
                 RedisModule_FreeString(ctx, before_str_temp);
             before_str_temp = NULL;
@@ -143,8 +142,7 @@ int testrdb_aux_load(RedisModuleIO *rdb, int encver, int when) {
                 return REDISMODULE_ERR;
             if (count)
                 after_str = RedisModule_LoadString(rdb);
-        }
-        else {
+        } else {
             if (after_str_temp)
                 RedisModule_FreeString(ctx, after_str_temp);
             after_str_temp = NULL;
@@ -259,7 +257,6 @@ int testrdb_get_key(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
-   
     if (RedisModule_Init(ctx,"testrdb",1,REDISMODULE_APIVER_1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
