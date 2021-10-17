@@ -5,6 +5,7 @@
  * Redis cluster data structures, defines, exported API.
  *----------------------------------------------------------------------------*/
 
+#define CLUSTER_SLOTS 16384
 #define CLUSTER_OK 0          /* Everything looks ok */
 #define CLUSTER_FAIL 1        /* The cluster can't work */
 #define CLUSTER_NAMELEN 40    /* sha1 hex length */
@@ -140,6 +141,17 @@ typedef struct clusterNode {
     list *fail_reports;         /* List of nodes signaling this as failing */
 } clusterNode;
 
+/* Slot to keys for a single slot. The keys in the same slot are linked together
+ * using dictEntry metadata. */
+typedef struct slotToKeys {
+    uint64_t count;             /* Number of keys in the slot. */
+    dictEntry *head;            /* The first key-value entry in the slot. */
+} slotToKeys;
+
+/* Slot to keys mapping for all slots, opaque outside this file. */
+struct clusterSlotToKeyMapping {
+    slotToKeys by_slot[CLUSTER_SLOTS];
+};
 
 /* Dict entry metadata for cluster mode, used for the Slot to Key API to form a
  * linked list of the entries belonging to the same slot. */
@@ -309,6 +321,7 @@ void slotToKeyAddEntry(dictEntry *entry, redisDb *db);
 void slotToKeyDelEntry(dictEntry *entry, redisDb *db);
 void slotToKeyReplaceEntry(dictEntry *entry, redisDb *db);
 void slotToKeyInit(redisDb *db);
+void slotToKeyFlush(redisDb *db);
 void slotToKeyDestroy(redisDb *db);
 
 #endif /* __CLUSTER_H */

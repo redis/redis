@@ -4890,7 +4890,7 @@ NULL
         unsigned int keys_in_slot = countKeysInSlot(slot);
         unsigned int numkeys = maxkeys > keys_in_slot ? keys_in_slot : maxkeys;
         addReplyArrayLen(c,numkeys);
-        dictEntry *de = (*server.db->slots_to_keys)[slot].head;
+        dictEntry *de = (*server.db->slots_to_keys).by_slot[slot].head;
         for (unsigned int j = 0; j < numkeys; j++) {
             serverAssert(de != NULL);
             sds sdskey = dictGetKey(de);
@@ -6135,23 +6135,25 @@ int clusterRedirectBlockedClientIfNeeded(client *c) {
 void slotToKeyAddEntry(dictEntry *entry, redisDb *db) {
     sds key = entry->key;
     unsigned int hashslot = keyHashSlot(key, sdslen(key));
-    (*db->slots_to_keys)[hashslot].count++;
+    slotToKeys *slot_to_keys = &(*db->slots_to_keys).by_slot[hashslot];
+    slot_to_keys->count++;
 
     /* Insert entry before the first element in the list. */
-    dictEntry *first = (*db->slots_to_keys)[hashslot].head;
+    dictEntry *first = slot_to_keys->head;
     dictEntryNextInSlot(entry) = first;
     if (first != NULL) {
         serverAssert(dictEntryPrevInSlot(first) == NULL);
         dictEntryPrevInSlot(first) = entry;
     }
     serverAssert(dictEntryPrevInSlot(entry) == NULL);
-    (*db->slots_to_keys)[hashslot].head = entry;
+    slot_to_keys->head = entry;
 }
 
 void slotToKeyDelEntry(dictEntry *entry, redisDb *db) {
     sds key = entry->key;
     unsigned int hashslot = keyHashSlot(key, sdslen(key));
-    (*db->slots_to_keys)[hashslot].count--;
+    slotToKeys *slot_to_keys = &(*db->slots_to_keys).by_slot[hashslot];
+    slot_to_keys->count--;
 
     /* Connect previous and next entries to each other. */
     dictEntry *next = dictEntryNextInSlot(entry);
@@ -6163,8 +6165,8 @@ void slotToKeyDelEntry(dictEntry *entry, redisDb *db) {
         dictEntryNextInSlot(prev) = next;
     } else {
         /* The removed entry was the first in the list. */
-        serverAssert((*db->slots_to_keys)[hashslot].head == entry);
-        (*db->slots_to_keys)[hashslot].head = next;
+        serverAssert(slot_to_keys->head == entry);
+        slot_to_keys->head = next;
     }
 }
 
@@ -6182,20 +6184,25 @@ void slotToKeyReplaceEntry(dictEntry *entry, redisDb *db) {
         /* The replaced entry was the first in the list. */
         sds key = entry->key;
         unsigned int hashslot = keyHashSlot(key, sdslen(key));
-        (*db->slots_to_keys)[hashslot].head = entry;
+        slotToKeys *slot_to_keys = &(*db->slots_to_keys).by_slot[hashslot];
+        slot_to_keys->head = entry;
     }
 }
 
 /* Initialize slots-keys map of given db. */
 void slotToKeyInit(redisDb *db) {
-    db->slots_to_keys = zmalloc(sizeof(*db->slots_to_keys));
-    memset(*db->slots_to_keys, 0,
-           sizeof(*db->slots_to_keys));
+    db->slots_to_keys = zcalloc(sizeof(clusterSlotToKeyMapping));
+}
+
+/* Empty slots-keys map of given db. */
+void slotToKeyFlush(redisDb *db) {
+    memset(db->slots_to_keys, 0,
+        sizeof(clusterSlotToKeyMapping));
 }
 
 /* Free slots-keys map of given db. */
 void slotToKeyDestroy(redisDb *db) {
-    zfree(*db->slots_to_keys);
+    zfree(db->slots_to_keys);
     db->slots_to_keys = NULL;
 }
 
@@ -6203,7 +6210,7 @@ void slotToKeyDestroy(redisDb *db) {
  * The number of removed items is returned. */
 unsigned int delKeysInSlot(unsigned int hashslot) {
     unsigned int j = 0;
-    dictEntry *de = (*server.db->slots_to_keys)[hashslot].head;
+    dictEntry *de = (*server.db->slots_to_keys).by_slot[hashslot].head;
     while (de != NULL) {
         sds sdskey = dictGetKey(de);
         de = dictEntryNextInSlot(de);
@@ -6216,5 +6223,5 @@ unsigned int delKeysInSlot(unsigned int hashslot) {
 }
 
 unsigned int countKeysInSlot(unsigned int hashslot) {
-    return (*server.db->slots_to_keys)[hashslot].count;
+    return (*server.db->slots_to_keys).by_slot[hashslot].count;
 }

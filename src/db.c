@@ -449,7 +449,7 @@ long long emptyDb(int dbnum, int flags, void(callback)(dict*)) {
     /* Flush slots to keys map if enable cluster, we can flush entire
      * slots to keys map whatever dbnum because only support one DB
      * in cluster mode. */
-    if (server.cluster_enabled) slotToKeyInit(server.db);
+    if (server.cluster_enabled) slotToKeyFlush(server.db);
 
     if (dbnum == -1) flushSlaveKeysWithExpireList();
 
@@ -1317,7 +1317,7 @@ int dbSwapDatabases(int id1, int id2) {
 void swapMainDbWithTempDb(redisDb *tempDb) {
     if (server.cluster_enabled) {
         /* Swap slots_to_keys from tempdb just loaded with main db slots_to_keys. */
-        clusterSlotsToKeysData *aux = server.db->slots_to_keys;
+        clusterSlotToKeyMapping *aux = server.db->slots_to_keys;
         server.db->slots_to_keys = tempDb->slots_to_keys;
         tempDb->slots_to_keys = aux;
     }

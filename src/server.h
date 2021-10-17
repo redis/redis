@@ -92,8 +92,6 @@ typedef long long ustime_t; /* microsecond time type. */
 #define C_OK                    0
 #define C_ERR                   -1
 
-#define CLUSTER_SLOTS 16384
-
 /* Static server configuration */
 #define CONFIG_DEFAULT_HZ        10             /* Time interrupt calls/sec. */
 #define CONFIG_MIN_HZ            1
@@ -767,14 +765,8 @@ typedef struct clientReplyBlock {
     char buf[];
 } clientReplyBlock;
 
-/* State for the Slot to Key API, for a single slot. The keys in the same slot
- * are linked together using dictEntry metadata. See also "Slot to Key API" in
- * cluster.c. */
-struct clusterSlotToKeys {
-    uint64_t count;             /* Number of keys in the slot. */
-    dictEntry *head;            /* The first key-value entry in the slot. */
-};
-typedef struct clusterSlotToKeys clusterSlotsToKeysData[CLUSTER_SLOTS];
+/* Opaque type for the Slot to Key API. */
+typedef struct clusterSlotToKeyMapping clusterSlotToKeyMapping;
 
 /* Redis database representation. There are multiple databases identified
  * by integers from 0 (the default database) up to the max configured
@@ -789,7 +781,7 @@ typedef struct redisDb {
     long long avg_ttl;          /* Average TTL, just for stats */
     unsigned long expires_cursor; /* Cursor of the active expire cycle. */
     list *defrag_later;         /* List of key names to attempt to defrag one by one, gradually. */
-    clusterSlotsToKeysData *slots_to_keys; /* Array of slots to keys. Only used in cluster mode (db 0). */
+    clusterSlotToKeyMapping *slots_to_keys; /* Array of slots to keys. Only used in cluster mode (db 0). */
 } redisDb;
 
 /* Client MULTI/EXEC state */
