@@ -406,7 +406,7 @@ static int updateClientOutputBufferLimit(sds *args, int arg_len, const char **er
     if (arg_len % 4) {
         if (err) *err = "Wrong number of arguments in "
                         "buffer limit configuration.";
-        return C_ERR;
+        return 0;
     }
 
     /* Sanity check of single arguments, so that we either refuse the
@@ -417,7 +417,7 @@ static int updateClientOutputBufferLimit(sds *args, int arg_len, const char **er
         if (class == -1 || class == CLIENT_TYPE_MASTER) {
             if (err) *err = "Invalid client class specified in "
                             "buffer limit configuration.";
-            return C_ERR;
+            return 0;
         }
 
         hard = memtoull(args[j+1], &hard_err);
@@ -428,7 +428,7 @@ static int updateClientOutputBufferLimit(sds *args, int arg_len, const char **er
         {
             if (err) *err = "Error in hard, soft or soft_seconds setting in "
                             "buffer limit configuration.";
-            return C_ERR;
+            return 0;
         }
 
         values[class].hard_limit_bytes = hard;
@@ -442,7 +442,7 @@ static int updateClientOutputBufferLimit(sds *args, int arg_len, const char **er
         if (classes[j]) server.client_obuf_limits[j] = values[j];
     }
 
-    return C_OK;
+    return 1;
 }
 
 void initConfigValues() {
@@ -716,6 +716,11 @@ void loadServerConfig(char *filename, char config_from_stdin, char *options) {
 /*-----------------------------------------------------------------------------
  * CONFIG SET implementation
  *----------------------------------------------------------------------------*/
+#define config_set_special_field(_name) \
+    } else if (!strcasecmp(c->argv[2]->ptr,_name)) {
+
+#define config_set_else } else
+
 void configSetCommand(client *c) {
     robj *o;
     const char *errstr = NULL;
@@ -760,16 +765,6 @@ void configSetCommand(client *c) {
             return;
         }
         sdsfreesplitres(v, vlen);
-    } config_set_special_field("client-output-buffer-limit") {
-        int vlen, j;
-        sds *v = sdssplitlen(o->ptr,sdslen(o->ptr)," ",1,&vlen);
-
-        if (updateClientOutputBufferLimit(v, vlen, &errstr) == C_ERR) {
-            sdsfreesplitres(v, vlen);
-            goto badfmt;
-        }
-
-        sdsfreesplitres(v,vlen);
     } config_set_else {
         addReplyErrorFormat(c,"Unsupported CONFIG parameter: %s",
             (char*)c->argv[2]->ptr);
@@ -1402,27 +1397,6 @@ void rewriteConfigLoadmoduleOption(struct rewriteConfigState *state) {
     dictReleaseIterator(di);
     /* Mark "loadmodule" as processed in case modules is empty. */
     rewriteConfigMarkAsProcessed(state,"loadmodule");
-}
-
-/* Rewrite the requirepass option. */
-static void rewriteConfigRequirepassOption(typeData data, const char *name, struct rewriteConfigState *state) {
-    UNUSED(data);
-    int force = 1;
-    sds line;
-    sds password = server.requirepass;
-
-    /* If there is no password set, we don't want the requirepass option
-     * to be present in the configuration at all. */
-    if (password == NULL) {
-        rewriteConfigMarkAsProcessed(state,name);
-        return;
-    }
-
-    line = sdsnew(name);
-    line = sdscatlen(line, " ", 1);
-    line = sdscatsds(line, password);
-
-    rewriteConfigRewriteLine(state,name,line,force);
 }
 
 /* Glue together the configuration lines in the current configuration
@@ -2371,44 +2345,6 @@ static int updateTLSPort(long long val, long long prev, const char **err) {
 
 #endif  /* USE_OPENSSL */
 
-static int setConfigRequirepassOption(typeData data, sds *argv, int argc, int update, const char **err) {
-    UNUSED(data);
-    if (argc != 1) {
-        *err = "wrong number of arguments";
-        return 0;
-    }
-    if (sdslen(argv[0]) > CONFIG_AUTHPASS_MAX_LEN) {
-        if (!update) *err = "Password is longer than CONFIG_AUTHPASS_MAX_LEN";
-        return 0;
-    }
-    /* The old "requirepass" directive just translates to setting
-     * a password to the default user. The only thing we do
-     * additionally is to remember the cleartext password in this
-     * case, for backward compatibility with Redis <= 5. */
-    ACLSetUser(DefaultUser,"resetpass",-1);
-    sdsfree(server.requirepass);
-    server.requirepass = NULL;
-    if (sdslen(argv[0])) {
-        sds aclop = sdscatlen(sdsnew(">"), argv[0], sdslen(argv[0]));
-        ACLSetUser(DefaultUser,aclop,sdslen(aclop));
-        sdsfree(aclop);
-        server.requirepass = sdsdup(argv[0]);
-    } else {
-        ACLSetUser(DefaultUser,"nopass",-1);
-    }
-    return 1;
-}
-
-static void getConfigRequirepassOption(client *c, typeData data) {
-    UNUSED(data);
-    sds password = server.requirepass;
-    if (password) {
-        addReplyBulkCBuffer(c,password,sdslen(password));
-    } else {
-        addReplyBulkCString(c,"");
-    }
-}
-
 static int setConfigDirOption(typeData data, sds *argv, int argc, int update, const char **err) {
     UNUSED(data);
     if (argc != 1) {
@@ -2435,28 +2371,6 @@ static void getConfigDirOption(client *c, typeData data) {
     if (getcwd(buf,sizeof(buf)) == NULL)
         buf[0] = '\0';
 
-    addReplyBulkCString(c,buf);
-}
-
-static int setConfigClientQueryBufferLimitOption(typeData data, sds *argv, int argc, int update, const char **err) {
-    UNUSED(data);
-    if (argc != 1) {
-        *err = "wrong number of arguments";
-        return 0;
-    }
-    int failed;
-    long long ll = memtoll(argv[0],&failed);
-    if (update && (failed || ll < 0))
-        return 0;
-
-    server.client_max_querybuf_len = ll;
-    return 1;
-}
-
-static void getConfigClientQueryBufferLimitOption(client *c, typeData data) {
-    UNUSED(data);
-    char buf[128];
-    ll2string(buf,sizeof(buf),server.client_max_querybuf_len);
     addReplyBulkCString(c,buf);
 }
 
@@ -2574,94 +2488,16 @@ static void getConfigSaveOption(client *c, typeData data) {
     sdsfree(buf);
 }
 
-static int setConfigClientOutputBufferLimitOptionLoad(sds *argv, int argc, const char **err) {
-    if (argc != 4) {
-        *err = "wrong number of arguments";
-        return 0;
-    }
-    int class = getClientTypeByName(argv[0]);
-    unsigned long long hard, soft;
-    int soft_seconds;
-
-    if (class == -1 || class == CLIENT_TYPE_MASTER) {
-        *err = "Unrecognized client limit class: the user specified "
-            "an invalid one, or 'master' which has no buffer limits.";
-        return 0;
-    }
-    hard = memtoll(argv[1],NULL);
-    soft = memtoll(argv[2],NULL);
-    soft_seconds = atoi(argv[3]);
-    if (soft_seconds < 0) {
-        *err = "Negative number of seconds in soft limit is invalid";
-        return 0;
-    }
-    server.client_obuf_limits[class].hard_limit_bytes = hard;
-    server.client_obuf_limits[class].soft_limit_bytes = soft;
-    server.client_obuf_limits[class].soft_limit_seconds = soft_seconds;
-    return 1;
-}
-
-static int setConfigClientOutputBufferLimitOptionUpdate(sds *argv, int argc, const char **err) {
-    if (argc != 1) {
-        *err = "wrong number of arguments";
-        return 0;
-    }
-
-    int vlen, j;
-    sds *v = sdssplitlen(argv[0],sdslen(argv[0])," ",1,&vlen);
-
-    /* We need a multiple of 4: <class> <hard> <soft> <soft_seconds> */
-    if (vlen % 4) {
-        sdsfreesplitres(v,vlen);
-        return 0;
-    }
-
-    /* Sanity check of single arguments, so that we either refuse the
-     * whole configuration string or accept it all, even if a single
-     * error in a single client class is present. */
-    for (j = 0; j < vlen; j++) {
-        long val;
-
-        if ((j % 4) == 0) {
-            int class = getClientTypeByName(v[j]);
-            if (class == -1 || class == CLIENT_TYPE_MASTER) {
-                sdsfreesplitres(v,vlen);
-                return 0;
-            }
-        } else {
-            int failed;
-            val = memtoll(v[j], &failed);
-            if (failed || val < 0) {
-                sdsfreesplitres(v,vlen);
-                return 0;
-            }
-        }
-    }
-    /* Finally set the new config */
-    for (j = 0; j < vlen; j += 4) {
-        int class;
-        unsigned long long hard, soft;
-        int soft_seconds;
-
-        class = getClientTypeByName(v[j]);
-        hard = memtoll(v[j+1],NULL);
-        soft = memtoll(v[j+2],NULL);
-        soft_seconds = strtoll(v[j+3],NULL,10);
-
-        server.client_obuf_limits[class].hard_limit_bytes = hard;
-        server.client_obuf_limits[class].soft_limit_bytes = soft;
-        server.client_obuf_limits[class].soft_limit_seconds = soft_seconds;
-    }
-    sdsfreesplitres(v,vlen);
-    return 1;
-}
-
 static int setConfigClientOutputBufferLimitOption(typeData data, sds *argv, int argc, int update, const char **err) {
     UNUSED(data);
-    if (update)
-        return setConfigClientOutputBufferLimitOptionUpdate(argv,argc,err);
-    else
-        return setConfigClientOutputBufferLimitOptionLoad(argv,argc,err);
+    if (update) {
+        int res;
+        argv = sdssplitargs(argv[0], &argc);
+        res = updateClientOutputBufferLimit(argv, argc, err);
+        sdsfreesplitres(argv, argc);
+        return res;
+    } else
+        return updateClientOutputBufferLimit(argv, argc, err);
 }
 
 static void getConfigClientOutputBufferLimitOption(client *c, typeData data) {
@@ -2919,9 +2755,7 @@ standardConfig configs[] = {
 #endif
 
     /* Special configs */
-    createSpecialConfig("requirepass", NULL, MODIFIABLE_CONFIG, setConfigRequirepassOption, getConfigRequirepassOption, rewriteConfigRequirepassOption),
     createSpecialConfig("dir", NULL, MODIFIABLE_CONFIG, setConfigDirOption, getConfigDirOption, rewriteConfigDirOption),
-    createSpecialConfig("client-query-buffer-limit", NULL, MODIFIABLE_CONFIG, setConfigClientQueryBufferLimitOption, getConfigClientQueryBufferLimitOption, rewriteConfigClientQueryBufferLimitOption),
     createSpecialConfig("watchdog-period", NULL, MODIFIABLE_CONFIG, setConfigWatchdogPeriodOption, getConfigWatchdogPeriodOption, NULL),
     createSpecialConfig("save", NULL, MODIFIABLE_CONFIG, setConfigSaveOption, getConfigSaveOption, rewriteConfigSaveOption),
     createSpecialConfig("client-output-buffer-limit", NULL, MODIFIABLE_CONFIG, setConfigClientOutputBufferLimitOption, getConfigClientOutputBufferLimitOption, rewriteConfigClientOutputBufferLimitOption),
