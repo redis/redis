@@ -2528,10 +2528,14 @@ static int setConfigBindOption(typeData data, sds* argv, int argc, int update, c
     }
 
     if (update) {
+        int res = 1;
+        argv = sdssplitargs(argv[0], &argc);
         if (changeBindAddr(argv, argc) == C_ERR) {
             *err = "Failed to bind to specified addresses.";
-            return 0;
+            res = 0;
         }
+        sdsfreesplitres(argv, argc);
+        return res;
     } else {
         int j;
 
