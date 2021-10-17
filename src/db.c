@@ -248,8 +248,9 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
  * All the new keys in the database should be created via this interface.
  * The client 'c' argument may be set to NULL if the operation is performed
  * in a context where there is no clear client performing the operation. */
-void genericSetKey(client *c, redisDb *db, robj *key, robj *val, int keepttl, int signal) {
-    if (lookupKeyWrite(db,key) == NULL) {
+void genericSetKeyLookup(client *c, redisDb *db, robj *key, robj *val,int keepttl,
+                         int signal, int keyLooked, int keyFound) {
+    if ((!keyLooked || !keyFound) && lookupKeyWrite(db,key) == NULL) {
         dbAdd(db,key,val);
     } else {
         dbOverwrite(db,key,val);
@@ -257,6 +258,10 @@ void genericSetKey(client *c, redisDb *db, robj *key, robj *val, int keepttl, in
     incrRefCount(val);
     if (!keepttl) removeExpire(db,key);
     if (signal) signalModifiedKey(c,db,key);
+}
+void genericSetKey(client *c, redisDb *db, robj *key, robj *val,int keepttl,
+                         int signal) {
+    genericSetKeyLookup(c, db, key, val, keepttl, signal, 0, 0);
 }
 
 /* Common case for genericSetKey() where the TTL is not retained. */
