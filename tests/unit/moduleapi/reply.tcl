@@ -18,7 +18,7 @@ start_server {tags {"modules"}} {
         }
 
         test {RM_ReplyWithBigNumber: an string reply} {
-            set bignumber [r rw.bignumber "123456778901234567890"
+            set bignumber [r rw.bignumber "123456778901234567890"]
             asset_equal "123456778901234567890" $bignumber
         }
 

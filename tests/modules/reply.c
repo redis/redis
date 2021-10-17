@@ -50,7 +50,7 @@ int rw_longdouble(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 int rw_bignumber(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc != 1) return RedisModule_WrongArity(ctx);
 
-     return RedisModule_ReplyWithBigNumber(ctx, "12345678901234567890");
+    return RedisModule_ReplyWithBigNumber(ctx, "12345678901234567890");
 }
 
 int rw_array(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {

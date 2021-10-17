@@ -2278,7 +2278,7 @@ int RM_ReplyWithDouble(RedisModuleCtx *ctx, double d) {
 }
 
 /* Send a BigNumber reply */
-int RM_ReplyWithBigNumber(RedisModuleCtx *ctx, const char* bignum, size_t len) {
+int RM_ReplyWithBigNumber(RedisModuleCtx *ctx, const char *bignum, size_t len) {
     client *c = moduleGetReplyClient(ctx);
     if (c == NULL) return REDISMODULE_OK;
     addReplyBigNum(c, bignum, len);
