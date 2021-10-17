@@ -1341,6 +1341,8 @@ struct redisServer {
     double stat_expired_stale_perc; /* Percentage of keys probably expired */
     long long stat_expired_time_cap_reached_count; /* Early expire cycle stops.*/
     long long stat_expire_cycle_time_used; /* Cumulative microseconds used. */
+    long long stat_total_expire_timelimit_time; /* Total time expired keys over the threshold, unit us */
+    monotime stat_last_expire_timelimit_time; /* Timestamp of expired keys over the threshold */
     long long stat_evictedkeys;     /* Number of evicted keys (maxmemory) */
     long long stat_evictedclients;  /* Number of evicted clients */
     long long stat_total_eviction_exceeded_time;  /* Total time over the memory limit, unit us */

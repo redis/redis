@@ -3585,6 +3585,8 @@ void resetServerStats(void) {
     server.stat_expired_stale_perc = 0;
     server.stat_expired_time_cap_reached_count = 0;
     server.stat_expire_cycle_time_used = 0;
+    server.stat_total_expire_timelimit_time = 0;
+    server.stat_last_expire_timelimit_time = 0;
     server.stat_evictedkeys = 0;
     server.stat_evictedclients = 0;
     server.stat_total_eviction_exceeded_time = 0;
@@ -5759,6 +5761,8 @@ sds genRedisInfoString(const char *section) {
             (long long) elapsedUs(server.stat_last_eviction_exceeded_time): 0;
         long long current_active_defrag_time = server.stat_last_active_defrag_time ?
             (long long) elapsedUs(server.stat_last_active_defrag_time): 0;
+        long long current_expire_timelimit_time = server.stat_last_expire_timelimit_time ?
+            (long long) elapsedUs(server.stat_last_expire_timelimit_time) : 0;
         atomicGet(server.stat_total_reads_processed, stat_total_reads_processed);
         atomicGet(server.stat_total_writes_processed, stat_total_writes_processed);
         atomicGet(server.stat_net_input_bytes, stat_net_input_bytes);
@@ -5782,6 +5786,8 @@ sds genRedisInfoString(const char *section) {
             "expired_stale_perc:%.2f\r\n"
             "expired_time_cap_reached_count:%lld\r\n"
             "expire_cycle_cpu_milliseconds:%lld\r\n"
+            "total_expire_timelimit_time:%lld\r\n"
+            "current_expire_timelimit_time:%lld\r\n"
             "evicted_keys:%lld\r\n"
             "evicted_clients:%lld\r\n"
             "total_eviction_exceeded_time:%lld\r\n"
@@ -5825,6 +5831,8 @@ sds genRedisInfoString(const char *section) {
             server.stat_expired_stale_perc*100,
             server.stat_expired_time_cap_reached_count,
             server.stat_expire_cycle_time_used/1000,
+            (server.stat_total_expire_timelimit_time + current_expire_timelimit_time) / 1000,
+            current_expire_timelimit_time / 1000,
             server.stat_evictedkeys,
             server.stat_evictedclients,
             (server.stat_total_eviction_exceeded_time + current_eviction_exceeded_time) / 1000,

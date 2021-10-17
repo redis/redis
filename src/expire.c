@@ -315,6 +315,14 @@ void activeExpireCycle(int type) {
         current_perc = 0;
     server.stat_expired_stale_perc = (current_perc*0.05)+
                                      (server.stat_expired_stale_perc*0.95);
+
+    if (timelimit_exit) {
+        if (server.stat_last_expire_timelimit_time == 0)
+            elapsedStart(&server.stat_last_expire_timelimit_time);
+    } else if (server.stat_last_expire_timelimit_time != 0) {
+        server.stat_total_expire_timelimit_time += elapsedUs(server.stat_last_expire_timelimit_time);
+        server.stat_last_expire_timelimit_time = 0;
+    }
 }
 
 /*-----------------------------------------------------------------------------
