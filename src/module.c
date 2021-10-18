@@ -6097,6 +6097,8 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
     bc->free_privdata = free_privdata;
     bc->privdata = privdata;
     bc->reply_client = createClient(NULL);
+    if (bc->client)
+        bc->reply_client->resp = bc->client->resp;
     bc->reply_client->flags |= CLIENT_MODULE;
     bc->dbid = c->db->id;
     bc->blocked_on_keys = keys != NULL;
