@@ -5755,10 +5755,9 @@ socket_err:
 
     /* Cleanup we want to do if no retry is attempted. */
     zfree(ov); zfree(kv);
-    addReplySds(c,
-        sdscatprintf(sdsempty(),
-            "-IOERR error or timeout %s to target instance\r\n",
-            write_error ? "writing" : "reading"));
+    addReplyErrorSds(c, sdscatprintf(sdsempty(),
+                                  "-IOERR error or timeout %s to target instance",
+                                  write_error ? "writing" : "reading"));
     return;
 }
 

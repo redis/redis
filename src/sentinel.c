@@ -3885,11 +3885,11 @@ NULL
         if ((ri = sentinelGetMasterByNameOrReplyError(c,c->argv[2])) == NULL)
             return;
         if (ri->flags & SRI_FAILOVER_IN_PROGRESS) {
-            addReplySds(c,sdsnew("-INPROG Failover already in progress\r\n"));
+            addReplyError(c,"-INPROG Failover already in progress");
             return;
         }
         if (sentinelSelectSlave(ri) == NULL) {
-            addReplySds(c,sdsnew("-NOGOODSLAVE No suitable replica to promote\r\n"));
+            addReplyError(c,"-NOGOODSLAVE No suitable replica to promote");
             return;
         }
         serverLog(LL_WARNING,"Executing user requested FAILOVER of '%s'",
@@ -3978,8 +3978,7 @@ NULL
                 e = sdscat(e, "Not enough available Sentinels to reach the"
                               " majority and authorize a failover");
             }
-            e = sdscat(e,"\r\n");
-            addReplySds(c,e);
+            addReplyErrorSds(c,e);
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"set")) {
         if (c->argc <= 3) goto numargserr;
