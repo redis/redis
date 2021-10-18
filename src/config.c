@@ -2361,6 +2361,10 @@ static int setConfigSaveOption(typeData data, sds *argv, int argc, int update, c
     UNUSED(data);
     int j;
 
+    /* Special case: treat single arg "" as zero args indicating empty save configuration */
+    if (argc == 1 && !strcasecmp(argv[0],""))
+        argc = 0;
+
     /* Perform sanity check before setting the new config:
     * - Even number of args
     * - Seconds >= 1, changes >= 0 */
