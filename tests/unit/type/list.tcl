@@ -15,6 +15,24 @@ proc write_big_bulk {size} {
     r read
 }
 
+# Utility to read big bulk response (work around Tcl limitations)
+proc read_big_bulk {code} {
+    r readraw 1
+    set resp_len [uplevel 1 $code] ;# get the first line of the RESP response
+    assert_equal [string range $resp_len 0 0] "$"
+    set resp_len [string range $resp_len 1 end]
+    set remaining $resp_len
+    while {$remaining > 0} {
+        set l $remaining
+        if {$l > 2147483647} {set l 2147483647}
+        set nbytes [string length [r rawread $l]]
+        incr remaining [expr {- $nbytes}]
+    }
+    assert_equal [r rawread 2] "\r\n"
+    r readraw 0
+    return $resp_len
+}
+
 # check functionality compression of plain and zipped nodes
 start_server [list overrides [list save ""] ] {
     r config set list-compress-depth 2
@@ -288,11 +306,10 @@ start_server [list overrides [list save ""] ] {
         assert {$s0 > $str_length}
         assert {[r llen lst] == 3}
         set s0 [r rpop lst]
-        set s1 [r rpop lst]
+        assert_equal [read_big_bulk {r rpop lst}] $str_length
         assert {$s0 eq "9"}
         assert {[r llen lst] == 1}
-        r lpop lst
-        assert {[string length $s1] == $str_length}
+        assert_equal [read_big_bulk {r rpop lst}] $str_length
    }
 
    test {4gb check lindex and linsert} {
