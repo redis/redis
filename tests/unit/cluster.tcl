@@ -76,10 +76,10 @@ start_server {overrides {cluster-enabled yes} tags {"external:skip cluster"}} {
     }
 
     test "wait for cluster to be stable" {
-        wait_for_condition 1000 50 {
-            [csi 0 cluster_state] eq {ok} &&
-            [csi -1 cluster_state] eq {ok} &&
-            [csi -2 cluster_state] eq {ok}
+       wait_for_condition 1000 50 {
+            [catch {exec src/redis-cli --cluster \
+            check 127.0.0.1:[srv 0 port] \
+            }] == 0
         } else {
             fail "Cluster doesn't stabilize"
         }
@@ -106,6 +106,43 @@ start_server {overrides {cluster-enabled yes} tags {"external:skip cluster"}} {
 
     $node1_rd close
     $node3_rd close
+    
+    test "Run blocking command again on cluster node1" {
+        $node1 del key9184688
+        # key9184688 is mapped to slot 10923 which has been moved to node1
+        set node1_rd [redis_deferring_client 0]
+        $node1_rd brpop key9184688 0
+        $node1_rd flush
+
+        wait_for_condition 50 100 {
+            [s 0 blocked_clients] eq {1}
+        } else {
+            fail "Client not blocked"
+        }
+    }
+    
+     test "Waiting for cluster to be failed" {
+
+        #kill node3 in cluster 
+        exec kill -9 [srv -2 pid]
+
+        wait_for_condition 1000 50 {
+            [csi 0 cluster_state] eq {fail} &&
+            [csi -1 cluster_state] eq {fail}
+        } else {
+            fail "Cluster doesn't fail"
+        }
+    }
+    
+     test "Verify command got unblocked after cluster failure" {
+        assert_error {*CLUSTERDOWN*} {$node1_rd read}
+
+        # verify there are no blocked clients
+        assert_equal [s 0 blocked_clients]  {0}
+        assert_equal [s -1 blocked_clients]  {0}
+    }
+
+    $node1_rd close
 
 # stop three servers
 }
