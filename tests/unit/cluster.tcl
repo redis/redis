@@ -75,7 +75,7 @@ start_server {overrides {cluster-enabled yes} tags {"external:skip cluster"}} {
         assert_equal [s -2 blocked_clients]  {0}
     }
 
-    test "wait for cluster to be stable" {
+    test "Wait for cluster to be stable" {
        wait_for_condition 1000 50 {
             [catch {exec src/redis-cli --cluster \
             check 127.0.0.1:[srv 0 port] \
@@ -121,7 +121,7 @@ start_server {overrides {cluster-enabled yes} tags {"external:skip cluster"}} {
         }
     }
     
-     test "Waiting for cluster to be failed" {
+     test "Wait for cluster to be failed" {
 
         #kill node3 in cluster 
         exec kill -9 [srv -2 pid]
