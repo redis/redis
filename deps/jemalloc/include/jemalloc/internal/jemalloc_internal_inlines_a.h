@@ -4,13 +4,15 @@
 #include "jemalloc/internal/atomic.h"
 #include "jemalloc/internal/bit_util.h"
 #include "jemalloc/internal/jemalloc_internal_types.h"
-#include "jemalloc/internal/size_classes.h"
+#include "jemalloc/internal/sc.h"
 #include "jemalloc/internal/ticker.h"
 
 JEMALLOC_ALWAYS_INLINE malloc_cpuid_t
 malloc_getcpu(void) {
 	assert(have_percpu_arena);
-#if defined(JEMALLOC_HAVE_SCHED_GETCPU)
+#if defined(_WIN32)
+	return GetCurrentProcessorNumber();
+#elif defined(JEMALLOC_HAVE_SCHED_GETCPU)
 	return (malloc_cpuid_t)sched_getcpu();
 #else
 	not_reached();
@@ -108,14 +110,14 @@ decay_ticker_get(tsd_t *tsd, unsigned ind) {
 
 JEMALLOC_ALWAYS_INLINE cache_bin_t *
 tcache_small_bin_get(tcache_t *tcache, szind_t binind) {
-	assert(binind < NBINS);
+	assert(binind < SC_NBINS);
 	return &tcache->bins_small[binind];
 }
 
 JEMALLOC_ALWAYS_INLINE cache_bin_t *
 tcache_large_bin_get(tcache_t *tcache, szind_t binind) {
-	assert(binind >= NBINS &&binind < nhbins);
-	return &tcache->bins_large[binind - NBINS];
+	assert(binind >= SC_NBINS &&binind < nhbins);
+	return &tcache->bins_large[binind - SC_NBINS];
 }
 
 JEMALLOC_ALWAYS_INLINE bool
@@ -156,7 +158,7 @@ pre_reentrancy(tsd_t *tsd, arena_t *arena) {
 	if (fast) {
 		/* Prepare slow path for reentrancy. */
 		tsd_slow_update(tsd);
-		assert(tsd->state == tsd_state_nominal_slow);
+		assert(tsd_state_get(tsd) == tsd_state_nominal_slow);
 	}
 }
 
