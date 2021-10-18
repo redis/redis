@@ -25,13 +25,14 @@ set testmodule_nokey [file normalize tests/modules/blockonbackground.so]
 set ::singledb 1
 
 # start three servers
-start_server {overrides {cluster-enabled yes} tags {"external:skip cluster modules"}} {
-start_server {overrides {cluster-enabled yes} tags {"external:skip cluster modules"}} {
-start_server {overrides {cluster-enabled yes} tags {"external:skip cluster modules"}} {
+start_server {overrides {cluster-enabled yes cluster-node-timeout 1} tags {"external:skip cluster modules"}} {
+start_server {overrides {cluster-enabled yes cluster-node-timeout 1} tags {"external:skip cluster modules"}} {
+start_server {overrides {cluster-enabled yes cluster-node-timeout 1} tags {"external:skip cluster modules"}} {
 
     set node1 [srv 0 client]
     set node2 [srv -1 client]
     set node3 [srv -2 client]
+    set node3_pid [srv -2 pid]
 
     $node1 module load $testmodule
     $node2 module load $testmodule
@@ -56,7 +57,7 @@ start_server {overrides {cluster-enabled yes} tags {"external:skip cluster modul
         }
     }
 
-    test "Run blocking command (including keys) on cluster node3" {
+    test "Run blocking command (blocked on key) on cluster node3" {
         # key9184688 is mapped to slot 10923 (first slot of node 3)
         set node3_rd [redis_deferring_client -2]
         $node3_rd fsl.bpop key9184688 0
@@ -65,12 +66,11 @@ start_server {overrides {cluster-enabled yes} tags {"external:skip cluster modul
         wait_for_condition 50 100 {
             [s -2 blocked_clients] eq {1}
         } else {
-            fail "Client executing blocking command (including keys) not blocked"
+            fail "Client executing blocking command (blocked on key) not blocked"
         }
     }
 
     test "Run blocking command (no keys) on cluster node2" {
-
         set node2_rd [redis_deferring_client -1]
         $node2_rd block.block 0
         $node2_rd flush
@@ -91,7 +91,6 @@ start_server {overrides {cluster-enabled yes} tags {"external:skip cluster modul
     }
 
     test "Verify command (no keys) is unaffected after resharding" {
-
         # verify there are blocked clients on node2
         assert_equal [s -1 blocked_clients]  {1}
 
@@ -99,7 +98,7 @@ start_server {overrides {cluster-enabled yes} tags {"external:skip cluster modul
         $node2 block.release 0
     }
 
-    test "Verify command (including keys) got unblocked after resharding" {
+    test "Verify command (blocked on key) got unblocked after resharding" {
         # this (read) will wait for the node3 to realize the new topology
         assert_error {*MOVED*} {$node3_rd read}
 
@@ -142,7 +141,7 @@ start_server {overrides {cluster-enabled yes} tags {"external:skip cluster modul
     $node2_rd close
     $node3_rd close
 
-    test "Run blocking command (including keys) again on cluster node1" {
+    test "Run blocking command (blocked on key) again on cluster node1" {
         $node1 del key9184688
         # key9184688 is mapped to slot 10923 which has been moved to node1
         set node1_rd [redis_deferring_client 0]
@@ -152,12 +151,11 @@ start_server {overrides {cluster-enabled yes} tags {"external:skip cluster modul
         wait_for_condition 50 100 {
             [s 0 blocked_clients] eq {1}
         } else {
-            fail "Client executing blocking command (including keys) again not blocked"
+            fail "Client executing blocking command (blocked on key) again not blocked"
         }
     }
 
     test "Run blocking command (no keys) again on cluster node2" {
-
         set node2_rd [redis_deferring_client -1]
 
         $node2_rd block.block 0
@@ -170,10 +168,9 @@ start_server {overrides {cluster-enabled yes} tags {"external:skip cluster modul
         }
     }
 
-    test "Wait for cluster to be failed" {
-
-        #kill node3 in cluster 
-        exec kill -9 [srv -2 pid]
+    test "Kill a cluster node and wait for fail state" {
+        # kill node3 in cluster
+        exec kill -SIGSTOP $node3_pid
 
         wait_for_condition 1000 50 {
             [csi 0 cluster_state] eq {fail} &&
@@ -183,7 +180,7 @@ start_server {overrides {cluster-enabled yes} tags {"external:skip cluster modul
         }
     }
 
-    test "Verify command (including keys) got unblocked after cluster failure" {
+    test "Verify command (blocked on key) got unblocked after cluster failure" {
         assert_error {*CLUSTERDOWN*} {$node1_rd read}
     }
 
@@ -195,7 +192,7 @@ start_server {overrides {cluster-enabled yes} tags {"external:skip cluster modul
         assert_equal [s -1 blocked_clients]  {0}
     }
 
-
+    exec kill -SIGCONT $node3_pid
     $node1_rd close
     $node2_rd close
 

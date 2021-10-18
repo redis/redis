@@ -22,13 +22,14 @@ proc csi {args} {
 set ::singledb 1
 
 # start three servers
-start_server {overrides {cluster-enabled yes} tags {"external:skip cluster"}} {
-start_server {overrides {cluster-enabled yes} tags {"external:skip cluster"}} {
-start_server {overrides {cluster-enabled yes} tags {"external:skip cluster"}} {
+start_server {overrides {cluster-enabled yes cluster-node-timeout 1} tags {"external:skip cluster"}} {
+start_server {overrides {cluster-enabled yes cluster-node-timeout 1} tags {"external:skip cluster"}} {
+start_server {overrides {cluster-enabled yes cluster-node-timeout 1} tags {"external:skip cluster"}} {
 
     set node1 [srv 0 client]
     set node2 [srv -1 client]
     set node3 [srv -2 client]
+    set node3_pid [srv -2 pid]
 
     test {Create 3 node cluster} {
         exec src/redis-cli --cluster-yes --cluster create \
@@ -121,10 +122,9 @@ start_server {overrides {cluster-enabled yes} tags {"external:skip cluster"}} {
         }
     }
     
-     test "Wait for cluster to be failed" {
-
-        #kill node3 in cluster 
-        exec kill -9 [srv -2 pid]
+     test "Kill a cluster node and wait for fail state" {
+        # kill node3 in cluster 
+        exec kill -SIGSTOP $node3_pid
 
         wait_for_condition 1000 50 {
             [csi 0 cluster_state] eq {fail} &&
@@ -142,6 +142,7 @@ start_server {overrides {cluster-enabled yes} tags {"external:skip cluster"}} {
         assert_equal [s -1 blocked_clients]  {0}
     }
 
+    exec kill -SIGCONT $node3_pid
     $node1_rd close
 
 # stop three servers
