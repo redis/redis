@@ -2707,6 +2707,17 @@ int RM_SelectDb(RedisModuleCtx *ctx, int newid) {
     return (retval == C_OK) ? REDISMODULE_OK : REDISMODULE_ERR;
 }
 
+/* Check if a key exists, without affecting its last access time.
+ *
+ * This is equivalent to calling RM_OpenKey with the mode REDISMODULE_READ |
+ * REDISMODULE_OPEN_KEY_NOTOUCH, then checking if NULL was returned and, if not,
+ * calling RM_CloseKey on the opened key.
+ */
+int RM_KeyExists(RedisModuleCtx *ctx, robj *keyname) {
+    robj *value = lookupKeyReadWithFlags(ctx->client->db, keyname, LOOKUP_NOTOUCH);
+    return (value != NULL);
+}
+
 /* Initialize a RedisModuleKey struct */
 static void moduleInitKey(RedisModuleKey *kp, RedisModuleCtx *ctx, robj *keyname, robj *value, int mode){
     kp->ctx = ctx;
@@ -10261,6 +10272,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ReplyWithLongDouble);
     REGISTER_API(GetSelectedDb);
     REGISTER_API(SelectDb);
+    REGISTER_API(KeyExists);
     REGISTER_API(OpenKey);
     REGISTER_API(CloseKey);
     REGISTER_API(KeyType);
