@@ -3978,7 +3978,7 @@ NULL
                 e = sdscat(e, "Not enough available Sentinels to reach the"
                               " majority and authorize a failover");
             }
-            addReplyError(c,e);
+            addReplyErrorSds(c,e);
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"set")) {
         if (c->argc <= 3) goto numargserr;
