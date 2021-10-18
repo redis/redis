@@ -115,9 +115,9 @@ int rw_attribute(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
     for (int i = 0; i < integer; ++i) {
         RedisModule_ReplyWithLongLong(ctx, i);
+        RedisModule_ReplyWithDouble(ctx, i * 1.5);
     }
 
-    RedisModule_ReplyWithSimpleString(ctx, "OK");
     return REDISMODULE_OK;
 }
 

@@ -45,7 +45,7 @@ start_server {tags {"modules"}} {
         test {RM_ReplyWithMap: an map reply} {
             set res [r rw.map 3]
             if {$proto == 2} {
-                assert_equal {0 0.0 1 1.5 2 3.0} $res
+                assert_equal {0 0 1 1.5 2 3} $res
             } else {
                 assert_equal [dict create 0 0.0 1 1.5 2 3.0] $res
             }
@@ -56,14 +56,13 @@ start_server {tags {"modules"}} {
         }
 
         test {RM_ReplyWithAttribute: an set reply} {
-            set res [r rw.attribute 3]
             if {$proto == 2} {
-                catch {r rw.error} e
+                catch {[r rw.attribute 3]} e
                 assert_match "Attributes aren't supported by RESP 2" $e
             } else {
+                set res [r rw.attribute 3]
                 assert_equal [dict create 0 0.0 1 1.5 2 3.0] $res
             }
-            assert_equal "OK" $res
         }
 
         test {RM_ReplyWithBool: a boolean reply} {
