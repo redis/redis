@@ -77,8 +77,7 @@ static int getExpireMillisecondsOrReply(client *c, robj *expire, int flags, int 
 
 void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
     long long milliseconds = 0; /* initialized to avoid any harmness warning */
-    int keyFound = false;
-    int keyLooked = false;
+    robj *keyFound = NULL;
 
     if (expire && getExpireMillisecondsOrReply(c, expire, flags, unit, &milliseconds) != C_OK) {
         return;
@@ -88,14 +87,10 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
         if (getGenericCommand(c) == C_ERR) return;
     }
 
-    if(flags & OBJ_SET_NX || flags & OBJ_SET_XX) {
-        if (lookupKeyWrite(c->db,key) != NULL)
-            keyFound = true;
-        keyLooked = true;
-    }
+    keyFound = lookupKeyWrite(c->db,key);
 
-    if ((flags & OBJ_SET_NX && keyFound) ||
-        (flags & OBJ_SET_XX && !keyFound))
+    if ((flags & OBJ_SET_NX && keyFound != NULL) ||
+        (flags & OBJ_SET_XX && keyFound == NULL))
     {
         if (!(flags & OBJ_SET_GET)) {
             addReply(c, abort_reply ? abort_reply : shared.null[c->resp]);
@@ -103,7 +98,7 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
         return;
     }
 
-    genericSetKeyLookup(c,c->db,key, val,flags & OBJ_KEEPTTL,1, keyLooked, keyFound);
+    genericSetKeyLookup(c,c->db,key, val,flags & OBJ_KEEPTTL,1, keyFound);
     server.dirty++;
     notifyKeyspaceEvent(NOTIFY_STRING,"set",key,c->db->id);
 

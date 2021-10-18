@@ -2564,7 +2564,7 @@ void dbAdd(redisDb *db, robj *key, robj *val);
 int dbAddRDBLoad(redisDb *db, sds key, robj *val);
 void dbOverwrite(redisDb *db, robj *key, robj *val);
 void genericSetKey(client *c, redisDb *db, robj *key, robj *val, int keepttl, int signal);
-void genericSetKeyLookup(client *c, redisDb *db, robj *key, robj *val, int keepttl, int signal, int keyLooked, int keyFound);
+void genericSetKeyLookup(client *c, redisDb *db, robj *key, robj *val, int keepttl, int signal, robj* keyFound);
 void setKey(client *c, redisDb *db, robj *key, robj *val);
 robj *dbRandomKey(redisDb *db);
 int dbSyncDelete(redisDb *db, robj *key);

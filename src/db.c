@@ -249,8 +249,8 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
  * The client 'c' argument may be set to NULL if the operation is performed
  * in a context where there is no clear client performing the operation. */
 void genericSetKeyLookup(client *c, redisDb *db, robj *key, robj *val,int keepttl,
-                         int signal, int keyLooked, int keyFound) {
-    if ((!keyLooked || !keyFound) && lookupKeyWrite(db,key) == NULL) {
+                         int signal, robj* keyFound) {
+    if (keyFound == NULL) {
         dbAdd(db,key,val);
     } else {
         dbOverwrite(db,key,val);
@@ -261,7 +261,7 @@ void genericSetKeyLookup(client *c, redisDb *db, robj *key, robj *val,int keeptt
 }
 void genericSetKey(client *c, redisDb *db, robj *key, robj *val,int keepttl,
                          int signal) {
-    genericSetKeyLookup(c, db, key, val, keepttl, signal, 0, 0);
+    genericSetKeyLookup(c, db, key, val, keepttl, signal, lookupKeyWrite(db,key));
 }
 
 /* Common case for genericSetKey() where the TTL is not retained. */
