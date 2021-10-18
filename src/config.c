@@ -258,6 +258,7 @@ typedef struct standardConfig {
 #define IMMUTABLE_CONFIG (1ULL<<0) /* Can this value only be set at startup? */
 #define SENSITIVE_CONFIG (1ULL<<1) /* Does this value contain sensitive information */
 #define DEBUG_CONFIG (1ULL<<2) /* Values that are useful for debugging. */
+#define MULTI_ARG_CONFIG (1ULL<<3) /* This config receives multiple arguments. */
 
 standardConfig configs[];
 
@@ -701,6 +702,8 @@ void loadServerConfig(char *filename, char config_from_stdin, char *options) {
  *----------------------------------------------------------------------------*/
 void configSetCommand(client *c) {
     robj *o;
+    sds *argv;
+    int argc;
     const char *errstr = NULL;
     serverAssertWithInfo(c,c->argv[2],sdsEncodedObject(c->argv[2]));
     serverAssertWithInfo(c,c->argv[3],sdsEncodedObject(c->argv[3]));
@@ -715,10 +718,22 @@ void configSetCommand(client *c) {
             if (config->flags & SENSITIVE_CONFIG) {
                 redactClientCommandArgument(c,3);
             }
-            /* Set config using the always single argument in CONFIG SET */
-            if (!config->interface.set(config->data,(char**)&o->ptr /*argv*/, 1 /*argc*/, 1, &errstr)) {
+
+            if (config->flags & MULTI_ARG_CONFIG) {
+                argv = sdssplitlen(o->ptr, sdslen(o->ptr), " ", 1, &argc);
+                if (argv == NULL) {
+                    goto badfmt;
+                }
+            } else {
+               argv = (char**)&o->ptr;
+               argc = 1;
+            }
+
+            if (!config->interface.set(config->data, argv, argc, 1, &errstr)) {
+                if (config->flags & MULTI_ARG_CONFIG) sdsfreesplitres(argv, argc);
                 goto badfmt;
             }
+            if (config->flags & MULTI_ARG_CONFIG) sdsfreesplitres(argv, argc);
             addReply(c,shared.ok);
             return;
         }
@@ -2342,77 +2357,53 @@ static void getConfigWatchdogPeriodOption(client *c, typeData data) {
     addReplyBulkCString(c,buf);
 }
 
-static int setConfigSaveOptionLoad(sds *argv, int argc, const char **err) {
-    /* We don't reset save params before loading, because if they're not part
-     * of the file the defaults should be used.
-     */
-    static int save_loaded = 0;
-    if (!save_loaded) {
-        save_loaded = 1;
-        resetServerSaveParams();
-    }
-
-    if (argc == 2) {
-        int seconds = atoi(argv[0]);
-        int changes = atoi(argv[1]);
-        if (seconds < 1 || changes < 0) {
-            *err = "Invalid save parameters"; return 0;
-        }
-        appendServerSaveParams(seconds,changes);
-    } else if (argc == 1 && !strcasecmp(argv[0],"")) {
-        resetServerSaveParams();
-    }
-    return 1;
-}
-
-static int setConfigSaveOptionUpdate(sds *argv, int argc, const char **err) {
-    if (argc != 1) {
-        *err = "wrong number of arguments";
-        return 0;
-    }
-
-    int vlen, j;
-    sds *v = sdssplitlen(argv[0],sdslen(argv[0])," ",1,&vlen);
+static int setConfigSaveOption(typeData data, sds *argv, int argc, int update, const char **err) {
+    UNUSED(data);
+    int j;
 
     /* Perform sanity check before setting the new config:
-     * - Even number of args
-     * - Seconds >= 1, changes >= 0 */
-    if (vlen & 1) {
-        sdsfreesplitres(v,vlen);
+    * - Even number of args
+    * - Seconds >= 1, changes >= 0 */
+    if (argc & 1) {
+        *err = "Invalid save parameters";
         return 0;
     }
-    for (j = 0; j < vlen; j++) {
+    for (j = 0; j < argc; j++) {
         char *eptr;
         long val;
 
-        val = strtoll(v[j], &eptr, 10);
+        val = strtoll(argv[j], &eptr, 10);
         if (eptr[0] != '\0' ||
             ((j & 1) == 0 && val < 1) ||
             ((j & 1) == 1 && val < 0)) {
-            sdsfreesplitres(v,vlen);
+            *err = "Invalid save parameters";
             return 0;
         }
     }
     /* Finally set the new config */
-    resetServerSaveParams();
-    for (j = 0; j < vlen; j += 2) {
+    if (update) {
+        resetServerSaveParams();
+    } else {
+        /* We don't reset save params before loading, because if they're not part
+         * of the file the defaults should be used.
+         */
+        static int save_loaded = 0;
+        if (!save_loaded) {
+            save_loaded = 1;
+            resetServerSaveParams();
+        }
+    }
+
+    for (j = 0; j < argc; j += 2) {
         time_t seconds;
         int changes;
 
-        seconds = strtoll(v[j],NULL,10);
-        changes = strtoll(v[j+1],NULL,10);
+        seconds = strtoll(argv[j],NULL,10);
+        changes = strtoll(argv[j+1],NULL,10);
         appendServerSaveParams(seconds, changes);
     }
-    sdsfreesplitres(v,vlen);
-    return 1;
-}
 
-static int setConfigSaveOption(typeData data, sds *argv, int argc, int update, const char **err) {
-    UNUSED(data);
-    if (update)
-        return setConfigSaveOptionUpdate(argv,argc,err);
-    else
-        return setConfigSaveOptionLoad(argv,argc,err);
+    return 1;
 }
 
 static void getConfigSaveOption(client *c, typeData data) {
@@ -2434,14 +2425,8 @@ static void getConfigSaveOption(client *c, typeData data) {
 
 static int setConfigClientOutputBufferLimitOption(typeData data, sds *argv, int argc, int update, const char **err) {
     UNUSED(data);
-    if (update) {
-        int res;
-        argv = sdssplitargs(argv[0], &argc);
-        res = updateClientOutputBufferLimit(argv, argc, err);
-        sdsfreesplitres(argv, argc);
-        return res;
-    } else
-        return updateClientOutputBufferLimit(argv, argc, err);
+    UNUSED(update);
+    return updateClientOutputBufferLimit(argv, argc, err);
 }
 
 static void getConfigClientOutputBufferLimitOption(client *c, typeData data) {
@@ -2463,23 +2448,11 @@ static void getConfigClientOutputBufferLimitOption(client *c, typeData data) {
 
 static int setConfigOOMScoreAdjValuesOption(typeData data, sds *argv, int argc, int update, const char **err) {
     UNUSED(data);
-    if (update) {
-        int vlen;
-        int success = 1;
-
-        sds *v = sdssplitlen(argv[0], sdslen(argv[0]), " ", 1, &vlen);
-        if (vlen != CONFIG_OOM_COUNT || updateOOMScoreAdjValues(v,err,1) == C_ERR)
-            success = 0;
-
-        sdsfreesplitres(v, vlen);
-        return success;
-    }
-
     if (argc != CONFIG_OOM_COUNT) {
         *err = "wrong number of arguments";
         return 0;
     }
-    if (updateOOMScoreAdjValues(&argv[0],err,0) == C_ERR) return 0;
+    if (updateOOMScoreAdjValues(argv,err,update) == C_ERR) return 0;
     return 1;
 }
 
@@ -2528,14 +2501,10 @@ static int setConfigBindOption(typeData data, sds* argv, int argc, int update, c
     }
 
     if (update) {
-        int res = 1;
-        argv = sdssplitargs(argv[0], &argc);
         if (changeBindAddr(argv, argc) == C_ERR) {
             *err = "Failed to bind to specified addresses.";
-            res = 0;
+            return 0;
         }
-        sdsfreesplitres(argv, argc);
-        return res;
     } else {
         int j;
 
@@ -2743,11 +2712,11 @@ standardConfig configs[] = {
     /* Special configs */
     createSpecialConfig("dir", NULL, MODIFIABLE_CONFIG, setConfigDirOption, getConfigDirOption, rewriteConfigDirOption),
     createSpecialConfig("watchdog-period", NULL, MODIFIABLE_CONFIG, setConfigWatchdogPeriodOption, getConfigWatchdogPeriodOption, NULL),
-    createSpecialConfig("save", NULL, MODIFIABLE_CONFIG, setConfigSaveOption, getConfigSaveOption, rewriteConfigSaveOption),
-    createSpecialConfig("client-output-buffer-limit", NULL, MODIFIABLE_CONFIG, setConfigClientOutputBufferLimitOption, getConfigClientOutputBufferLimitOption, rewriteConfigClientOutputBufferLimitOption),
-    createSpecialConfig("oom-score-adj-values", NULL, MODIFIABLE_CONFIG, setConfigOOMScoreAdjValuesOption, getConfigOOMScoreAdjValuesOption, rewriteConfigOOMScoreAdjValuesOption),
+    createSpecialConfig("save", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigSaveOption, getConfigSaveOption, rewriteConfigSaveOption),
+    createSpecialConfig("client-output-buffer-limit", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigClientOutputBufferLimitOption, getConfigClientOutputBufferLimitOption, rewriteConfigClientOutputBufferLimitOption),
+    createSpecialConfig("oom-score-adj-values", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigOOMScoreAdjValuesOption, getConfigOOMScoreAdjValuesOption, rewriteConfigOOMScoreAdjValuesOption),
     createSpecialConfig("notify-keyspace-events", NULL, MODIFIABLE_CONFIG, setConfigNotifyKeyspaceEventsOption, getConfigNotifyKeyspaceEventsOption, rewriteConfigNotifyKeyspaceEventsOption),
-    createSpecialConfig("bind", NULL, MODIFIABLE_CONFIG, setConfigBindOption, getConfigBindOption, rewriteConfigBindOption),
+    createSpecialConfig("bind", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigBindOption, getConfigBindOption, rewriteConfigBindOption),
 
     /* NULL Terminator */
     {NULL}
