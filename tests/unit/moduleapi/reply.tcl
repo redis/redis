@@ -42,29 +42,29 @@ start_server {tags {"modules"}} {
             assert_equal {0 1 2 3 4} [r rw.array 5]
         }
 
-#        test {RM_ReplyWithMap: an map reply} {
-#            set res [r rw.map 3]
-#            if {$proto == 2} {
-#                assert_equal {0 0.0 1 1.5 2 3.0} $res
-#            } else {
-#                assert_equal [dict create 0 0.0 1 1.5 2 3.0] $res
-#            }
-#        }
+        test {RM_ReplyWithMap: an map reply} {
+            set res [r rw.map 3]
+            if {$proto == 2} {
+                assert_equal {0 0.0 1 1.5 2 3.0} $res
+            } else {
+                assert_equal [dict create 0 0.0 1 1.5 2 3.0] $res
+            }
+        }
 
         test {RM_ReplyWithSet: an set reply} {
             assert_equal {0 1 2} [r rw.set 3]
         }
 
-#        test {RM_ReplyWithAttribute: an set reply} {
-#            set res [r rw.attribute 3]
-#            if {$proto == 2} {
-#                catch {r rw.error} e
-#                assert_match "Attributes aren't supported by RESP 2" $e
-#            } else {
-#                assert_equal [dict create 0 0.0 1 1.5 2 3.0] $res
-#            }
-#            assert_equal "OK" $res
-#        }
+        test {RM_ReplyWithAttribute: an set reply} {
+            set res [r rw.attribute 3]
+            if {$proto == 2} {
+                catch {r rw.error} e
+                assert_match "Attributes aren't supported by RESP 2" $e
+            } else {
+                assert_equal [dict create 0 0.0 1 1.5 2 3.0] $res
+            }
+            assert_equal "OK" $res
+        }
 
         test {RM_ReplyWithBool: a boolean reply} {
             assert_equal {0 1} [r rw.bool]
