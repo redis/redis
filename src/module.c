@@ -2276,6 +2276,7 @@ int RM_ReplyWithDouble(RedisModuleCtx *ctx, double d) {
     addReplyDouble(c,d);
     return REDISMODULE_OK;
 }
+
 /* Send a string as a BigNumber reply.  
  * It does not appear that any verification is done on this string to ensure
  * it is a valid BigNumber.  should it?
