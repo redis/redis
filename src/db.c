@@ -259,6 +259,8 @@ void genericSetKeyLookup(client *c, redisDb *db, robj *key, robj *val,int keeptt
     if (!keepttl) removeExpire(db,key);
     if (signal) signalModifiedKey(c,db,key);
 }
+
+/* Wrapper for genericSetKeyLookup. */
 void genericSetKey(client *c, redisDb *db, robj *key, robj *val,int keepttl,
                          int signal) {
     genericSetKeyLookup(c, db, key, val, keepttl, signal, lookupKeyWrite(db,key));
