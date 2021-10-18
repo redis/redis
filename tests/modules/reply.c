@@ -48,9 +48,12 @@ int rw_longdouble(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 }
 
 int rw_bignumber(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    if (argc != 1) return RedisModule_WrongArity(ctx);
+    if (argc != 2) return RedisModule_WrongArity(ctx);
 
-    return RedisModule_ReplyWithBigNumber(ctx, "12345678901234567890");
+    size_t bignum_len;
+    const char *bignum_str = RedisModule_StringPtrLen(argv[1], &bignum_len);
+
+    return RedisModule_ReplyWithBigNumber(ctx, bignum_str, bignum_len);
 }
 
 int rw_array(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -142,9 +145,12 @@ int rw_error(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 }
 
 int rw_verbatim(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    if (argc != 1) return RedisModule_WrongArity(ctx);
+    if (argc != 2) return RedisModule_WrongArity(ctx);
 
-    return RedisModule_ReplyWithVerbatimString(ctx, argv[1]);
+    size_t verbatim_len;
+    const char *verbatim_str = RedisModule_StringPtrLen(argv[1], &verbatim_len);
+
+    return RedisModule_ReplyWithVerbatimString(ctx, verbatim_str, verbatim_len);
 }
 
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
