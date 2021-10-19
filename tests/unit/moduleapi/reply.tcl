@@ -1,11 +1,9 @@
-
-
 set testmodule [file normalize tests/modules/reply.so]
 
 start_server {tags {"modules"}} {
     r module load $testmodule
     
-#   test all with hello 2/3
+    #   test all with hello 2/3
     for {set proto 2} {$proto <= 3} {incr proto} {
         r hello $proto
 

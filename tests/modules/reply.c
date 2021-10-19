@@ -119,7 +119,6 @@ int rw_attribute(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
 
     RedisModule_ReplyWithSimpleString(ctx, "OK");
-
     return REDISMODULE_OK;
 }
 
