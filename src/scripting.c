@@ -2164,7 +2164,7 @@ int ldbStartSession(client *c) {
     if (ldb.forked) {
         pid_t cp = redisFork(CHILD_TYPE_LDB);
         if (cp == -1) {
-            addReplyError(c,"Fork() failed: can't run EVAL in debugging mode.");
+            addReplyErrorFormat(c,"Fork() failed: can't run EVAL in debugging mode: %s", strerror(errno));
             return 0;
         } else if (cp == 0) {
             /* Child. Let's ignore important signals handled by the parent. */

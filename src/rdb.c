@@ -3110,7 +3110,6 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
         exitFromChild((retval == C_OK) ? 0 : 1);
     } else {
         /* Parent */
-        close(safe_to_exit_pipe);
         if (childpid == -1) {
             serverLog(LL_WARNING,"Can't save in background: fork: %s",
                 strerror(errno));
@@ -3141,6 +3140,7 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
                 serverPanic("Unrecoverable error creating server.rdb_pipe_read file event.");
             }
         }
+        close(safe_to_exit_pipe);
         return (childpid == -1) ? C_ERR : C_OK;
     }
     return C_OK; /* Unreached. */

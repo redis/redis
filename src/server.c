@@ -6655,14 +6655,17 @@ int redisFork(int purpose) {
         closeChildUnusedResourceAfterFork();
     } else {
         /* Parent */
+        if (childpid == -1) {
+            int fork_errno = errno;
+            if (isMutuallyExclusiveChildType(purpose)) closeChildInfoPipe();
+            errno = fork_errno;
+            return -1;
+        }
+
         server.stat_total_forks++;
         server.stat_fork_time = ustime()-start;
         server.stat_fork_rate = (double) zmalloc_used_memory() * 1000000 / server.stat_fork_time / (1024*1024*1024); /* GB per second. */
         latencyAddSampleIfNeeded("fork",server.stat_fork_time/1000);
-        if (childpid == -1) {
-            if (isMutuallyExclusiveChildType(purpose)) closeChildInfoPipe();
-            return -1;
-        }
 
         /* The child_pid and child_type are only for mutual exclusive children.
          * other child types should handle and store their pid's in dedicated variables.
