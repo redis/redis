@@ -2268,10 +2268,16 @@ int RM_ReplyWithCallReply(RedisModuleCtx *ctx, RedisModuleCallReply *reply) {
     return REDISMODULE_OK;
 }
 
-/* Send a string reply obtained converting the double 'd' into a bulk string.
+/* Reply with a RESP3 Double type.
+ * Visit https://github.com/antirez/RESP3/blob/master/spec.md for more info about RESP3.
+ *
+ * Send a string reply obtained converting the double 'd' into a bulk string.
  * This function is basically equivalent to converting a double into
  * a string into a C buffer, and then calling the function
  * RedisModule_ReplyWithStringBuffer() with the buffer and length.
+ *
+ * In RESP3 the string is tagged as a double, while in RESP2 its just a plain string 
+ * that the user will have to parse.
  *
  * The function always returns REDISMODULE_OK. */
 int RM_ReplyWithDouble(RedisModuleCtx *ctx, double d) {
