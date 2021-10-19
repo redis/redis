@@ -1223,6 +1223,12 @@ void rewriteConfigDirOption(typeData data, const char *name, struct rewriteConfi
     rewriteConfigStringOption(state,name,cwd,NULL);
 }
 
+/* Rewrite the watchdog-period option.*/
+void rewriteConfigWatchdogPeriodOption(typeData data, const char *name, struct rewriteConfigState *state) {
+    UNUSED(data);
+    rewriteConfigNumericalOption(state,name,server.watchdog_period,0);
+}
+
 /* Rewrite the slaveof option. */
 void rewriteConfigSlaveofOption(struct rewriteConfigState *state, char *option) {
     sds line;
@@ -2337,7 +2343,7 @@ static int setConfigWatchdogPeriodOption(typeData data, sds *argv, int argc, int
     UNUSED(data);
     UNUSED(argc);
     UNUSED(err);
-    if (!update) return 0;
+    UNUSED(update);
 
     long long ll;
     if (string2ll(argv[0],sdslen(argv[0]),&ll) == 0) return 0;
@@ -2715,7 +2721,7 @@ standardConfig configs[] = {
 
     /* Special configs */
     createSpecialConfig("dir", NULL, MODIFIABLE_CONFIG, setConfigDirOption, getConfigDirOption, rewriteConfigDirOption),
-    createSpecialConfig("watchdog-period", NULL, MODIFIABLE_CONFIG, setConfigWatchdogPeriodOption, getConfigWatchdogPeriodOption, NULL),
+    createSpecialConfig("watchdog-period", NULL, MODIFIABLE_CONFIG, setConfigWatchdogPeriodOption, getConfigWatchdogPeriodOption, rewriteConfigWatchdogPeriodOption),
     createSpecialConfig("save", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigSaveOption, getConfigSaveOption, rewriteConfigSaveOption),
     createSpecialConfig("client-output-buffer-limit", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigClientOutputBufferLimitOption, getConfigClientOutputBufferLimitOption, rewriteConfigClientOutputBufferLimitOption),
     createSpecialConfig("oom-score-adj-values", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigOOMScoreAdjValuesOption, getConfigOOMScoreAdjValuesOption, rewriteConfigOOMScoreAdjValuesOption),
