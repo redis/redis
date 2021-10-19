@@ -281,7 +281,11 @@ proc ::redis::redis_read_reply {id fd} {
             ~ -
             * {return [redis_multi_bulk_read $id $fd]}
             % {return [redis_read_map $id $fd]}
-            | {return [redis_read_map $id $fd]}
+            | {
+                # ignore attributes for now (nowhere to store them)
+                redis_read_map $id $fd
+                continue
+            }
             default {
                 if {$type eq {}} {
                     catch {close $fd}
