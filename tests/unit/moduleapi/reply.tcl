@@ -60,16 +60,16 @@ start_server {tags {"modules"}} {
                 catch {[r rw.attribute 3]} e
                 assert_match "Attributes aren't supported by RESP 2" $e
             } else {
-		r readraw 1
+                r readraw 1
                 set res [r rw.attribute 3]
-		assert_equal [r read] {:0}
-		assert_equal [r read] {,0}
-		assert_equal [r read] {:1}
-		assert_equal [r read] {,1.5}
-		assert_equal [r read] {:2}
-		assert_equal [r read] {,3}
-		assert_equal [r read] {+OK}
-		r readraw 0
+                assert_equal [r read] {:0}
+                assert_equal [r read] {,0}
+                assert_equal [r read] {:1}
+                assert_equal [r read] {,1.5}
+                assert_equal [r read] {:2}
+                assert_equal [r read] {,3}
+                assert_equal [r read] {+OK}
+                r readraw 0
             }
         }
 
