@@ -62,6 +62,9 @@ start_server {tags {"modules"}} {
             } else {
                 set res [r rw.attribute 3]
                 assert_equal [dict create 0 0.0 1 1.5 2 3.0] $res
+		r readraw 1
+		assert_equal [r read] {+OK}
+		r readraw 0
             }
         }
 

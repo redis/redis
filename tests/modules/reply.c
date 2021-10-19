@@ -118,6 +118,8 @@ int rw_attribute(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         RedisModule_ReplyWithDouble(ctx, i * 1.5);
     }
 
+    RedisModule_ReplyWithSimpleString(ctx, "OK");
+
     return REDISMODULE_OK;
 }
 
