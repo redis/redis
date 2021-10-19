@@ -2312,19 +2312,14 @@ static int updateTLSPort(long long val, long long prev, const char **err) {
 
 static int setConfigDirOption(typeData data, sds *argv, int argc, int update, const char **err) {
     UNUSED(data);
+    UNUSED(update);
     if (argc != 1) {
         *err = "wrong number of arguments";
         return 0;
     }
     if (chdir(argv[0]) == -1) {
-        if (update) {
-            *err = sdscatprintf(sdsempty(),"Changing directory: %s", strerror(errno));
-            return 0;
-        }
-
-        serverLog(LL_WARNING,"Can't chdir to '%s': %s",
-                  argv[0], strerror(errno));
-        exit(1);
+        *err = strerror(errno);
+        return 0;
     }
     return 1;
 }
