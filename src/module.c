@@ -2227,7 +2227,11 @@ int RM_ReplyWithNull(RedisModuleCtx *ctx) {
     return REDISMODULE_OK;
 }
 
-/* Reply to the client with a boolean value.
+/* Reply with a RESP3 Boolean type.
+ * Visit https://github.com/antirez/RESP3/blob/master/spec.md for more info about RESP3.
+ *
+ * In RESP3, this is boolean type
+ * In RESP2, its a string response of "1" and "0" for true and false respectively
  *
  * The function always returns REDISMODULE_OK. */
 int RM_ReplyWithBool(RedisModuleCtx *ctx, int b) {
@@ -2277,9 +2281,12 @@ int RM_ReplyWithDouble(RedisModuleCtx *ctx, double d) {
     return REDISMODULE_OK;
 }
 
-/* Send a string as a BigNumber reply.  
- * It does not appear that any verification is done on this string to ensure
- * it is a valid BigNumber.  should it?
+/* Reply with a RESP3 BigNumber type.
+ * Visit https://github.com/antirez/RESP3/blob/master/spec.md for more info about RESP3.
+ *
+ * In RESP3, this is a string of length lenthat is tagged as a BigNumber, 
+ * however, its up to the caller to ensure that its a valid BigNumber
+ * In RESP2, this is just a plain bulk string response.
  * 
  * The function always returns REDISMODULE_OK. */
 int RM_ReplyWithBigNumber(RedisModuleCtx *ctx, const char *bignum, size_t len) {
