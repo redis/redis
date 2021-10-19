@@ -2293,7 +2293,7 @@ int RM_ReplyWithDouble(RedisModuleCtx *ctx, double d) {
  * In RESP3, this is a string of length `len` that is tagged as a BigNumber, 
  * however, it's up to the caller to ensure that it's a valid BigNumber.
  * In RESP2, this is just a plain bulk string response.
- * 
+ *
  * The function always returns REDISMODULE_OK. */
 int RM_ReplyWithBigNumber(RedisModuleCtx *ctx, const char *bignum, size_t len) {
     client *c = moduleGetReplyClient(ctx);
@@ -6472,7 +6472,7 @@ void moduleHandleBlockedClients(void) {
 
     pthread_mutex_lock(&moduleUnblockedClientsMutex);
     /* Here we unblock all the pending clients blocked in modules operations
-     e so we can read every pending "awake byte" in the pipe. */
+     * so we can read every pending "awake byte" in the pipe. */
     char buf[1];
     while (read(server.module_blocked_pipe[0],buf,1) == 1);
     while (listLength(moduleUnblockedClients)) {
