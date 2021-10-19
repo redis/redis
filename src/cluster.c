@@ -489,7 +489,8 @@ void deriveAnnouncedPorts(int *announced_port, int *announced_pport,
     /* Default announced ports. */
     *announced_port = port;
     *announced_pport = server.tls_cluster ? server.port : 0;
-    *announced_cport = port + CLUSTER_PORT_INCR;
+    *announced_cport = server.cluster_port ? server.cluster_port : port + CLUSTER_PORT_INCR;
+    
     /* Config overriding announced ports. */
     if (server.tls_cluster && server.cluster_announce_tls_port) {
         *announced_port = server.cluster_announce_tls_port;
@@ -570,7 +571,7 @@ void clusterInit(void) {
      * The other handshake port check is triggered too late to stop
      * us from trying to use a too-high cluster port number. */
     int port = server.tls_cluster ? server.tls_port : server.port;
-    if (port > (65535-CLUSTER_PORT_INCR)) {
+    if (!server.cluster_port && port > (65535-CLUSTER_PORT_INCR)) {
         serverLog(LL_WARNING, "Redis port number too high. "
                    "Cluster communication port is 10,000 port "
                    "numbers higher than your Redis port. "
@@ -581,9 +582,11 @@ void clusterInit(void) {
         serverLog(LL_WARNING, "No bind address is configured, but it is required for the Cluster bus.");
         exit(1);
     }
-    if (listenToPort(port+CLUSTER_PORT_INCR, &server.cfd) == C_ERR) {
+    int cport = server.cluster_port ? server.cluster_port : port + CLUSTER_PORT_INCR;
+    if (listenToPort(cport, &server.cfd) == C_ERR ) {
         exit(1);
     }
+    
     if (createSocketAcceptHandler(&server.cfd, clusterAcceptHandler) != C_OK) {
         serverPanic("Unrecoverable error creating Redis Cluster socket accept handler.");
     }
