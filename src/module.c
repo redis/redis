@@ -2231,7 +2231,7 @@ int RM_ReplyWithNull(RedisModuleCtx *ctx) {
  * Visit https://github.com/antirez/RESP3/blob/master/spec.md for more info about RESP3.
  *
  * In RESP3, this is boolean type
- * In RESP2, it's a string response of "1" and "0" for true and false respectively
+ * In RESP2, it's a string response of "1" and "0" for true and false respectively.
  *
  * The function always returns REDISMODULE_OK. */
 int RM_ReplyWithBool(RedisModuleCtx *ctx, int b) {
@@ -2291,7 +2291,7 @@ int RM_ReplyWithDouble(RedisModuleCtx *ctx, double d) {
  * Visit https://github.com/antirez/RESP3/blob/master/spec.md for more info about RESP3.
  *
  * In RESP3, this is a string of length `len` that is tagged as a BigNumber, 
- * however, it's up to the caller to ensure that it's a valid BigNumber
+ * however, it's up to the caller to ensure that it's a valid BigNumber.
  * In RESP2, this is just a plain bulk string response.
  * 
  * The function always returns REDISMODULE_OK. */
@@ -6472,7 +6472,7 @@ void moduleHandleBlockedClients(void) {
 
     pthread_mutex_lock(&moduleUnblockedClientsMutex);
     /* Here we unblock all the pending clients blocked in modules operations
-     * so we can read every pending "awake byte" in the pipe. */
+     e so we can read every pending "awake byte" in the pipe. */
     char buf[1];
     while (read(server.module_blocked_pipe[0],buf,1) == 1);
     while (listLength(moduleUnblockedClients)) {
