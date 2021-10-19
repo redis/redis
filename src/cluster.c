@@ -5978,7 +5978,8 @@ int clusterRedirectBlockedClientIfNeeded(client *c) {
     if (c->flags & CLIENT_BLOCKED &&
         (c->btype == BLOCKED_LIST ||
          c->btype == BLOCKED_ZSET ||
-         c->btype == BLOCKED_STREAM))
+         c->btype == BLOCKED_STREAM ||
+         c->btype == BLOCKED_MODULE))
     {
         dictEntry *de;
         dictIterator *di;
@@ -5991,6 +5992,11 @@ int clusterRedirectBlockedClientIfNeeded(client *c) {
             clusterRedirectClient(c,NULL,0,CLUSTER_REDIR_DOWN_STATE);
             return 1;
         }
+
+        /* If the client is blocked on module, but ont on a specific key,
+         * don't unblock it (except for the CLSUTER_FAIL case above). */
+        if (c->btype == BLOCKED_MODULE && !moduleClientIsBlockedOnKeys(c))
+            return 0;
 
         /* All keys must belong to the same slot, so check first key only. */
         di = dictGetIterator(c->bpop.keys);
