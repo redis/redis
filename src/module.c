@@ -2231,7 +2231,7 @@ int RM_ReplyWithNull(RedisModuleCtx *ctx) {
  * Visit https://github.com/antirez/RESP3/blob/master/spec.md for more info about RESP3.
  *
  * In RESP3, this is boolean type
- * In RESP2, its a string response of "1" and "0" for true and false respectively
+ * In RESP2, it's a string response of "1" and "0" for true and false respectively
  *
  * The function always returns REDISMODULE_OK. */
 int RM_ReplyWithBool(RedisModuleCtx *ctx, int b) {
@@ -2290,8 +2290,8 @@ int RM_ReplyWithDouble(RedisModuleCtx *ctx, double d) {
 /* Reply with a RESP3 BigNumber type.
  * Visit https://github.com/antirez/RESP3/blob/master/spec.md for more info about RESP3.
  *
- * In RESP3, this is a string of length lenthat is tagged as a BigNumber, 
- * however, its up to the caller to ensure that its a valid BigNumber
+ * In RESP3, this is a string of length `len` that is tagged as a BigNumber, 
+ * however, it's up to the caller to ensure that it's a valid BigNumber
  * In RESP2, this is just a plain bulk string response.
  * 
  * The function always returns REDISMODULE_OK. */
