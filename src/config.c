@@ -490,6 +490,12 @@ void loadServerConfigFromString(char *config) {
             if ((!strcasecmp(argv[0],config->name) ||
                 (config->alias && !strcasecmp(argv[0],config->alias))))
             {
+                /* For normal single arg configs enforce we have a single argument.
+                 * Note that MULTI_ARG_CONFIGs need to validate arg count on their own */
+                if (!(config->flags & MULTI_ARG_CONFIG) && argc != 2) {
+                    err = "wrong number of arguments";
+                    goto loaderr;
+                }
                 /* Set config using all arguments that follows */
                 if (!config->interface.set(config->data, &argv[1], argc-1, 0, &err)) {
                     goto loaderr;
@@ -1576,10 +1582,7 @@ static void boolConfigInit(typeData data) {
 }
 
 static int boolConfigSet(typeData data, sds *argv, int argc, int update, const char **err) {
-    if (argc != 1) {
-        *err = "wrong number of arguments";
-        return 0;
-    }
+    UNUSED(argc);
     int yn = yesnotoi(argv[0]);
     if (yn == -1) {
         *err = "argument must be 'yes' or 'no'";
@@ -1621,10 +1624,7 @@ static void stringConfigInit(typeData data) {
 }
 
 static int stringConfigSet(typeData data, sds *argv, int argc, int update, const char **err) {
-    if (argc != 1) {
-        *err = "wrong number of arguments";
-        return 0;
-    }
+    UNUSED(argc);
     if (data.string.is_valid_fn && !data.string.is_valid_fn(argv[0], err))
         return 0;
     char *prev = *data.string.config;
@@ -1652,10 +1652,7 @@ static void sdsConfigInit(typeData data) {
 }
 
 static int sdsConfigSet(typeData data, sds *argv, int argc, int update, const char **err) {
-    if (argc != 1) {
-        *err = "wrong number of arguments";
-        return 0;
-    }
+    UNUSED(argc);
     if (data.sds.is_valid_fn && !data.sds.is_valid_fn(argv[0], err))
         return 0;
     sds prev = *data.sds.config;
@@ -1715,10 +1712,7 @@ static void enumConfigInit(typeData data) {
 }
 
 static int enumConfigSet(typeData data, sds *argv, int argc, int update, const char **err) {
-    if (argc != 1) {
-        *err = "wrong number of arguments";
-        return 0;
-    }
+    UNUSED(argc);
     int enumval = configEnumGetValue(data.enumd.enum_value, argv[0]);
     if (enumval == INT_MIN) {
         sds enumerr = sdsnew("argument must be one of the following: ");
@@ -1917,12 +1911,8 @@ static int numericParseString(typeData data, sds value, const char **err, long l
 }
 
 static int numericConfigSet(typeData data, sds *argv, int argc, int update, const char **err) {
+    UNUSED(argc);
     long long ll, prev = 0;
-
-    if (argc != 1) {
-        *err = "wrong number of arguments";
-        return 0;
-    }
 
     if (!numericParseString(data, argv[0], err, &ll))
         return 0;
