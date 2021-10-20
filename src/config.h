@@ -120,6 +120,15 @@
 #define unlikely(x) (x)
 #endif
 
+#if defined(__has_attribute)
+#if __has_attribute(no_sanitize)
+#define REDIS_NO_SANITIZE(sanitizer) __attribute__((no_sanitize(sanitizer)))
+#endif
+#endif
+#if !defined(REDIS_NO_SANITIZE)
+#define REDIS_NO_SANITIZE(sanitizer)
+#endif
+
 /* Define rdb_fsync_range to sync_file_range() on Linux, otherwise we use
  * the plain fsync() call. */
 #if (defined(__linux__) && defined(SYNC_FILE_RANGE_WAIT_BEFORE))
@@ -239,6 +248,10 @@ void setproctitle(const char *fmt, ...);
 /* Make sure we can test for SPARC just checking for __sparc__. */
 #if defined(__sparc) && !defined(__sparc__)
 #define __sparc__
+#endif
+
+#if defined(__sparc__) || defined(__arm__)
+#define USE_ALIGNED_ACCESS
 #endif
 
 /* Define for redis_set_thread_title */

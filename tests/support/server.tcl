@@ -299,6 +299,10 @@ proc dump_server_log {srv} {
     puts "\n===== Start of server log (pid $pid) =====\n"
     puts [exec cat [dict get $srv "stdout"]]
     puts "===== End of server log (pid $pid) =====\n"
+
+    puts "\n===== Start of server stderr log (pid $pid) =====\n"
+    puts [exec cat [dict get $srv "stderr"]]
+    puts "===== End of server stderr log (pid $pid) =====\n"
 }
 
 proc run_external_server_test {code overrides} {
@@ -597,6 +601,13 @@ proc start_server {options {code undefined}} {
                 if {[string length $crashlog] > 0} {
                     puts [format "\nLogged crash report (pid %d):" [dict get $srv "pid"]]
                     puts "$crashlog"
+                    puts ""
+                }
+
+                set stderrlog [crashlog_from_file [dict get $srv "stderr"]]
+                if {[string length $stderrlog] > 0} {
+                    puts [format "\nLogged crash report (stderr) (pid %d):" [dict get $srv "pid"]]
+                    puts "$stderrlog"
                     puts ""
                 }
             }

@@ -294,6 +294,12 @@ jobs:
     runs-on: ubuntu-latest
     if: github.repository == 'redis/redis' && !contains(github.event.inputs.skipjobs, 'sanitizer')
     timeout-minutes: 14400
+    strategy:
+      matrix:
+        compiler: [ gcc, clang ]
+    env:
+      CC: ${{ matrix.compiler }}
+      ASAN_OPTIONS: allocator_may_return_null=1
     steps:
       - name: prep
         if: github.event_name == 'workflow_dispatch'

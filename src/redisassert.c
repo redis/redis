@@ -37,12 +37,11 @@
 
 #include <stdio.h> 
 #include <stdlib.h>
-#include <signal.h>
 
 void _serverAssert(const char *estr, const char *file, int line) {
     fprintf(stderr, "=== ASSERTION FAILED ===");
     fprintf(stderr, "==> %s:%d '%s' is not true",file,line,estr);
-    raise(SIGSEGV);
+    *((char*)-1) = 'x';
 }
 
 void _serverPanic(const char *file, int line, const char *msg, ...) {

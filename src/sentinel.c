@@ -386,6 +386,8 @@ void sentinelLinkEstablishedCallback(const redisAsyncContext *c, int status);
 void sentinelDisconnectCallback(const redisAsyncContext *c, int status);
 void sentinelReceiveHelloMessages(redisAsyncContext *c, void *reply, void *privdata);
 sentinelRedisInstance *sentinelGetMasterByName(char *name);
+char *sentinelGetSubjectiveLeader(sentinelRedisInstance *master);
+char *sentinelGetObjectiveLeader(sentinelRedisInstance *master);
 int yesnotoi(char *s);
 void instanceLinkConnectionError(const redisAsyncContext *c);
 const char *sentinelRedisInstanceTypeStr(sentinelRedisInstance *ri);
@@ -401,7 +403,7 @@ void sentinelFlushConfig(void);
 void sentinelGenerateInitialMonitorEvents(void);
 int sentinelSendPing(sentinelRedisInstance *ri);
 int sentinelForceHelloUpdateForMaster(sentinelRedisInstance *master);
-sentinelRedisInstance *getSentinelRedisInstanceByAddrAndRunID(dict *instances, char *addr, int port, char *runid);
+sentinelRedisInstance *getSentinelRedisInstanceByAddrAndRunID(dict *instances, char *ip, int port, char *runid);
 void sentinelSimFailureCrash(void);
 
 /* ========================= Dictionary types =============================== */
@@ -501,26 +503,6 @@ void initSentinel(void) {
     sentinel.announce_hostnames = SENTINEL_DEFAULT_ANNOUNCE_HOSTNAMES;
     memset(sentinel.myid,0,sizeof(sentinel.myid));
     server.sentinel_config = NULL;
-}
-
-void sentinelReleaseScriptJob(sentinelScriptJob *sj);
-
-void freeSentinel(void) {
-    listNode *ln;
-    listIter li;
-
-    dictRelease(sentinel.masters);
-
-    listRewind(sentinel.scripts_queue,&li);
-    while ((ln = listNext(&li)) != NULL) {
-        sentinelScriptJob *sj = ln->value;
-
-        if (sj->flags & SENTINEL_SCRIPT_RUNNING) {
-            kill(sj->pid,SIGKILL);
-        }
-        sentinelReleaseScriptJob(sj);
-    }
-    listRelease(sentinel.scripts_queue);
 }
 
 /* This function is for checking whether sentinel config file has been set,
