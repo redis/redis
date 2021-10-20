@@ -2032,7 +2032,7 @@ void applyWatchdogPeriod() {
         /* If the configured period is smaller than twice the timer period, it is
          * too short for the software watchdog to work reliably. Fix it now
          * if needed. */
-        min_period = (1000/server.hz)*2;
+        int min_period = (1000/server.hz)*2;
         if (server.watchdog_period < min_period) server.watchdog_period = min_period;
         watchdogScheduleSignal(server.watchdog_period); /* Adjust the current timer. */
     }
