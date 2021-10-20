@@ -1510,9 +1510,11 @@ void rdbRemoveTempFile(pid_t childpid, int from_signal) {
 
     /* Generate temp rdb file name using async-signal safe functions. */
     int pid_len = ll2string(pid, sizeof(pid), childpid);
-    strcpy(tmpfile, "temp-");
-    strncpy(tmpfile+5, pid, pid_len);
-    strcpy(tmpfile+5+pid_len, ".rdb");
+    if (pid_len > 0) {
+        snprintf(tmpfile,sizeof(tmpfile),"temp-%s.rdb",pid);
+    } else {
+        strlcpy(tmpfile,"temp.rdb",sizeof(tmpfile));
+    }
 
     if (from_signal) {
         /* bg_unlink is not async-signal-safe, but in this case we don't really

@@ -283,8 +283,8 @@ int TestCallResp3Double(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     double d = RedisModule_CallReplyDouble(reply);
     /* we compare strings, since comparing doubles directly can fail in various architectures, e.g. 32bit */
     char got[30], expected[30];
-    sprintf(got, "%.17g", d);
-    sprintf(expected, "%.17g", 3.141);
+    snprintf(got, sizeof(got), "%.17g", d);
+    snprintf(expected, sizeof(expected), "%.17g", 3.141);
     if (strcmp(got, expected) != 0) goto fail;
     RedisModule_ReplyWithSimpleString(ctx,"OK");
     return REDISMODULE_OK;
