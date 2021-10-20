@@ -254,16 +254,16 @@ void setKey(client *c, redisDb *db, robj *key, robj *val, int flags) {
     if (flags & SETKEY_ALREADY_EXIST)
         keyfound = 1;
     else if (!(flags & SETKEY_DOESNT_EXIST))
-        keyfound = (lookupKeyWrite(db, key) != NULL);
+        keyfound = (lookupKeyWrite(db,key) != NULL);
 
     if (!keyfound) {
-        dbAdd(db, key, val);
+        dbAdd(db,key,val);
     } else {
-        dbOverwrite(db, key, val);
+        dbOverwrite(db,key,val);
     }
     incrRefCount(val);
-    if (!(flags & SETKEY_KEEPTTL)) removeExpire(db, key);
-    if (flags & SETKEY_SIGNAL) signalModifiedKey(c, db, key);
+    if (!(flags & SETKEY_KEEPTTL)) removeExpire(db,key);
+    if (flags & SETKEY_SIGNAL) signalModifiedKey(c,db,key);
 }
 
 /* Return a random key, in form of a Redis object.

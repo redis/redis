@@ -103,7 +103,7 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
     setkey_flags = found ? setkey_flags | SETKEY_ALREADY_EXIST : setkey_flags | SETKEY_DOESNT_EXIST;
     setkey_flags |= SETKEY_SIGNAL;
 
-    setKey(c,c->db,key, val, setkey_flags);
+    setKey(c,c->db,key,val,setkey_flags);
     server.dirty++;
     notifyKeyspaceEvent(NOTIFY_STRING,"set",key,c->db->id);
 
@@ -427,7 +427,7 @@ void getdelCommand(client *c) {
 void getsetCommand(client *c) {
     if (getGenericCommand(c) == C_ERR) return;
     c->argv[2] = tryObjectEncoding(c->argv[2]);
-    setKey(c,c->db,c->argv[1],c->argv[2], SETKEY_SIGNAL);
+    setKey(c,c->db,c->argv[1],c->argv[2],SETKEY_SIGNAL);
     notifyKeyspaceEvent(NOTIFY_STRING,"set",c->argv[1],c->db->id);
     server.dirty++;
 
@@ -576,7 +576,7 @@ void msetGenericCommand(client *c, int nx) {
 
     for (j = 1; j < c->argc; j += 2) {
         c->argv[j+1] = tryObjectEncoding(c->argv[j+1]);
-        setKey(c,c->db,c->argv[j],c->argv[j+1], SETKEY_SIGNAL);
+        setKey(c,c->db,c->argv[j],c->argv[j+1],SETKEY_SIGNAL);
         notifyKeyspaceEvent(NOTIFY_STRING,"set",c->argv[j],c->db->id);
     }
     server.dirty += (c->argc-1)/2;
