@@ -24,20 +24,21 @@ set testmodule_nokey [file normalize tests/modules/blockonbackground.so]
 # make sure the test infra won't use SELECT
 set ::singledb 1
 
+# cluster creation is complicated with TLS, and the current tests don't really need that coverage
+tags {tls:skip external:skip cluster modules} {
+
 # start three servers
-start_server {overrides {cluster-enabled yes cluster-node-timeout 1} tags {"external:skip cluster modules"}} {
-start_server {overrides {cluster-enabled yes cluster-node-timeout 1} tags {"external:skip cluster modules"}} {
-start_server {overrides {cluster-enabled yes cluster-node-timeout 1} tags {"external:skip cluster modules"}} {
+set base_conf [list cluster-enabled yes cluster-node-timeout 1 loadmodule $testmodule]
+start_server [list overrides $base_conf] {
+start_server [list overrides $base_conf] {
+start_server [list overrides $base_conf] {
 
     set node1 [srv 0 client]
     set node2 [srv -1 client]
     set node3 [srv -2 client]
     set node3_pid [srv -2 pid]
 
-    $node1 module load $testmodule
-    $node2 module load $testmodule
-    $node3 module load $testmodule
-
+    # the "overrides" mechanism can only support one "loadmodule" directive
     $node1 module load $testmodule_nokey
     $node2 module load $testmodule_nokey
     $node3 module load $testmodule_nokey
@@ -200,3 +201,5 @@ start_server {overrides {cluster-enabled yes cluster-node-timeout 1} tags {"exte
 }
 }
 }
+
+} ;# tags
