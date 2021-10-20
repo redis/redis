@@ -2009,7 +2009,6 @@ void watchdogScheduleSignal(int period) {
 }
 void applyWatchdogPeriod() {
     struct sigaction act;
-    int min_period;
 
     /* Disable watchdog when period is 0 */
     if (server.watchdog_period == 0) {
