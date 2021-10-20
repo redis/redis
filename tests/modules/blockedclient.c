@@ -191,7 +191,7 @@ int do_rm_call(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
 /* simulate a blocked client replying to a thread safe context without creating a thread */
 int do_fake_bg_true(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     UNUSED(argv);
-r    UNUSED(argc);
+    UNUSED(argc);
 
     RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
     RedisModuleCtx *bctx = RedisModule_GetThreadSafeContext(bc);
