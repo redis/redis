@@ -2276,7 +2276,7 @@ int RM_ReplyWithCallReply(RedisModuleCtx *ctx, RedisModuleCallReply *reply) {
  * a string into a C buffer, and then calling the function
  * RedisModule_ReplyWithStringBuffer() with the buffer and length.
  *
- * In RESP3 the string is tagged as a double, while in RESP2 its just a plain string 
+ * In RESP3 the string is tagged as a double, while in RESP2 it's just a plain string 
  * that the user will have to parse.
  *
  * The function always returns REDISMODULE_OK. */
