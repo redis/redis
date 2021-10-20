@@ -42,4 +42,5 @@ $TCLSH tests/test_helper.tcl \
 --single unit/moduleapi/datatype2 \
 --single unit/moduleapi/cluster \
 --single unit/moduleapi/aclcheck \
+--single unit/moduleapi/subcommands \
 "${@}"

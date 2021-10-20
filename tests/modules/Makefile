@@ -43,7 +43,8 @@ TEST_MODULES = \
     zset.so \
     stream.so \
     aclcheck.so \
-    list.so
+    list.so \
+    subcommands.so
 
 
 .PHONY: all

@@ -817,7 +817,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     }
 
     /* Command lookup */
-    cmd = lookupCommand(argv[0]->ptr);
+    cmd = lookupCommand(argv,argc);
     if (!cmd || ((cmd->arity > 0 && cmd->arity != argc) ||
                    (argc < -cmd->arity)))
     {

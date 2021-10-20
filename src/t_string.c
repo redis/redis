@@ -724,11 +724,20 @@ void strlenCommand(client *c) {
  * STRALGO <algorithm> ... arguments ... */
 void stralgoLCS(client *c);     /* This implements the LCS algorithm. */
 void stralgoCommand(client *c) {
-    /* Select the algorithm. */
-    if (!strcasecmp(c->argv[1]->ptr,"lcs")) {
+    char *subcmd = c->argv[1]->ptr;
+
+    if (c->argc == 2 && !strcasecmp(subcmd,"help")) {
+        const char *help[] = {
+"LCS",
+"    Run the longest common subsequence algorithm.",
+NULL
+        };
+        addReplyHelp(c, help);
+    } else if (!strcasecmp(subcmd,"lcs")) {
         stralgoLCS(c);
     } else {
-        addReplyErrorObject(c,shared.syntaxerr);
+        addReplySubcommandSyntaxError(c);
+        return;
     }
 }
 

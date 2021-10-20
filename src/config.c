@@ -573,7 +573,7 @@ void loadServerConfigFromString(char *config) {
         } else if (!strcasecmp(argv[0],"list-max-ziplist-value") && argc == 2) {
             /* DEAD OPTION */
         } else if (!strcasecmp(argv[0],"rename-command") && argc == 3) {
-            struct redisCommand *cmd = lookupCommand(argv[1]);
+            struct redisCommand *cmd = lookupCommandBySds(argv[1]);
             int retval;
 
             if (!cmd) {
@@ -2735,18 +2735,11 @@ standardConfig configs[] = {
 };
 
 /*-----------------------------------------------------------------------------
- * CONFIG command entry point
+ * CONFIG HELP
  *----------------------------------------------------------------------------*/
 
-void configCommand(client *c) {
-    /* Only allow CONFIG GET while loading. */
-    if (server.loading && strcasecmp(c->argv[1]->ptr,"get")) {
-        addReplyError(c,"Only CONFIG GET is allowed during loading");
-        return;
-    }
-
-    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
-        const char *help[] = {
+void configHelpCommand(client *c) {
+    const char *help[] = {
 "GET <pattern>",
 "    Return parameters matching the glob-like <pattern> and their values.",
 "SET <directive> <value>",
@@ -2756,32 +2749,36 @@ void configCommand(client *c) {
 "REWRITE",
 "    Rewrite the configuration file.",
 NULL
-        };
+    };
 
-        addReplyHelp(c, help);
-    } else if (!strcasecmp(c->argv[1]->ptr,"set") && c->argc == 4) {
-        configSetCommand(c);
-    } else if (!strcasecmp(c->argv[1]->ptr,"get") && c->argc == 3) {
-        configGetCommand(c);
-    } else if (!strcasecmp(c->argv[1]->ptr,"resetstat") && c->argc == 2) {
-        resetServerStats();
-        resetCommandTableStats();
-        resetErrorTableStats();
-        addReply(c,shared.ok);
-    } else if (!strcasecmp(c->argv[1]->ptr,"rewrite") && c->argc == 2) {
-        if (server.configfile == NULL) {
-            addReplyError(c,"The server is running without a config file");
-            return;
-        }
-        if (rewriteConfig(server.configfile, 0) == -1) {
-            serverLog(LL_WARNING,"CONFIG REWRITE failed: %s", strerror(errno));
-            addReplyErrorFormat(c,"Rewriting config file: %s", strerror(errno));
-        } else {
-            serverLog(LL_WARNING,"CONFIG REWRITE executed with success.");
-            addReply(c,shared.ok);
-        }
-    } else {
-        addReplySubcommandSyntaxError(c);
+    addReplyHelp(c, help);
+}
+
+/*-----------------------------------------------------------------------------
+ * CONFIG RESETSTAT
+ *----------------------------------------------------------------------------*/
+
+void configResetStatCommand(client *c) {
+    resetServerStats();
+    resetCommandTableStats(server.commands);
+    resetErrorTableStats();
+    addReply(c,shared.ok);
+}
+
+/*-----------------------------------------------------------------------------
+ * CONFIG REWRITE
+ *----------------------------------------------------------------------------*/
+
+void configRewriteCommand(client *c) {
+    if (server.configfile == NULL) {
+        addReplyError(c,"The server is running without a config file");
         return;
+    }
+    if (rewriteConfig(server.configfile, 0) == -1) {
+        serverLog(LL_WARNING,"CONFIG REWRITE failed: %s", strerror(errno));
+        addReplyErrorFormat(c,"Rewriting config file: %s", strerror(errno));
+    } else {
+        serverLog(LL_WARNING,"CONFIG REWRITE executed with success.");
+        addReply(c,shared.ok);
     }
 }

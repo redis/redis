@@ -456,31 +456,9 @@ dictType renamedCommandsDictType = {
 
 /* =========================== Initialization =============================== */
 
-void sentinelCommand(client *c);
-void sentinelInfoCommand(client *c);
 void sentinelSetCommand(client *c);
-void sentinelPublishCommand(client *c);
-void sentinelRoleCommand(client *c);
 void sentinelConfigGetCommand(client *c);
 void sentinelConfigSetCommand(client *c);
-
-struct redisCommand sentinelcmds[] = {
-    {"ping",pingCommand,1,"fast @connection"},
-    {"sentinel",sentinelCommand,-2,"admin"},
-    {"subscribe",subscribeCommand,-2,"pub-sub"},
-    {"unsubscribe",unsubscribeCommand,-1,"pub-sub"},
-    {"psubscribe",psubscribeCommand,-2,"pub-sub"},
-    {"punsubscribe",punsubscribeCommand,-1,"pub-sub"},
-    {"publish",sentinelPublishCommand,3,"pub-sub fast"},
-    {"info",sentinelInfoCommand,-1,"random @dangerous"},
-    {"role",sentinelRoleCommand,1,"fast read-only @dangerous"},
-    {"client",clientCommand,-2,"admin random @connection"},
-    {"shutdown",shutdownCommand,-1,"admin"},
-    {"auth",authCommand,-2,"no-auth fast @connection"},
-    {"hello",helloCommand,-1,"no-auth fast @connection"},
-    {"acl",aclCommand,-2,"admin"},
-    {"command",commandCommand,-1, "random @connection"}
-};
 
 /* this array is used for sentinel config lookup, which need to be loaded
  * before monitoring masters config to avoid dependency issues */
@@ -507,28 +485,6 @@ void freeSentinelLoadQueueEntry(void *item);
 
 /* Perform the Sentinel mode initialization. */
 void initSentinel(void) {
-    unsigned int j;
-
-    /* Remove usual Redis commands from the command table, then just add
-     * the SENTINEL command. */
-    dictEmpty(server.commands,NULL);
-    dictEmpty(server.orig_commands,NULL);
-    ACLClearCommandID();
-    for (j = 0; j < sizeof(sentinelcmds)/sizeof(sentinelcmds[0]); j++) {
-        int retval;
-        struct redisCommand *cmd = sentinelcmds+j;
-        cmd->id = ACLGetCommandID(cmd->name); /* Assign the ID used for ACL. */
-        retval = dictAdd(server.commands, sdsnew(cmd->name), cmd);
-        serverAssert(retval == DICT_OK);
-        retval = dictAdd(server.orig_commands, sdsnew(cmd->name), cmd);
-        serverAssert(retval == DICT_OK);
-
-        /* Translate the command string flags description into an actual
-         * set of flags. */
-        if (populateSingleCommand(cmd,cmd->sflags) == C_ERR)
-            serverPanic("Unsupported command flag");
-    }
-
     /* Initialize various data structures. */
     sentinel.current_epoch = 0;
     sentinel.masters = dictCreate(&instancesDictType);
