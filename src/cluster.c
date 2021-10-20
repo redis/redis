@@ -584,6 +584,8 @@ void clusterInit(void) {
     }
     int cport = server.cluster_port ? server.cluster_port : port + CLUSTER_PORT_INCR;
     if (listenToPort(cport, &server.cfd) == C_ERR ) {
+        /* Note: the following log text is matched by the test suite. */
+        serverLog(LL_WARNING, "Failed listening on port %u (cluster), aborting.", cport);
         exit(1);
     }
     
