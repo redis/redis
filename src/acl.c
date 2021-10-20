@@ -1030,6 +1030,7 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
                 /* If user is trying to allow a valid subcommand we can just add its unique ID */
                 struct redisCommand *cmd = ACLLookupCommand(op+1);
                 if (cmd == NULL) {
+                    zfree(copy);
                     errno = ENOENT;
                     return C_ERR;
                 }
@@ -1040,6 +1041,7 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
                  * subcommands for now) we use the allowed_firstargs mechanism. */
                 struct redisCommand *cmd = ACLLookupCommand(copy);
                 if (cmd == NULL) {
+                    zfree(copy);
                     errno = ENOENT;
                     return C_ERR;
                 }

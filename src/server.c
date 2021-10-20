@@ -324,13 +324,13 @@ struct redisCommand memorySubcommands[] = {
 
 struct redisCommand aclSubcommands[] = {
     {"cat",aclCommand,-2,
-     "admin no-script ok-loading ok-stale sentinel"},
+     "no-script ok-loading ok-stale sentinel"},
 
     {"deluser",aclCommand,-3,
      "admin no-script ok-loading ok-stale sentinel"},
 
     {"genpass",aclCommand,-2,
-     "admin no-script ok-loading ok-stale sentinel"},
+     "no-script ok-loading ok-stale sentinel"},
 
     {"getuser",aclCommand,3,
      "admin no-script ok-loading ok-stale sentinel"},
@@ -471,16 +471,16 @@ struct redisCommand scriptSubcommands[] = {
 
 struct redisCommand clientSubcommands[] = {
     {"caching",clientCommand,3,
-     "admin no-script ok-loading ok-stale @connection"},
+     "no-script ok-loading ok-stale @connection"},
 
     {"getredir",clientCommand,2,
-     "admin no-script ok-loading ok-stale @connection"},
+     "no-script ok-loading ok-stale @connection"},
 
     {"id",clientCommand,2,
-     "admin no-script ok-loading ok-stale @connection"},
+     "no-script ok-loading ok-stale @connection"},
 
     {"info",clientCommand,2,
-     "admin no-script random ok-loading ok-stale @connection"},
+     "no-script random ok-loading ok-stale @connection"},
 
     {"kill",clientCommand,-3,
      "admin no-script ok-loading ok-stale @connection"},
@@ -507,7 +507,7 @@ struct redisCommand clientSubcommands[] = {
      "admin no-script ok-loading ok-stale @connection"},
 
     {"tracking",clientCommand,-3,
-     "admin no-script ok-loading ok-stale @connection"},
+     "no-script ok-loading ok-stale @connection"},
 
     {"trackinginfo",clientCommand,2,
      "admin no-script ok-loading ok-stale @connection"},
@@ -562,7 +562,7 @@ struct redisCommand clusterSubcommands[] = {
      "admin ok-stale random"},
 
     {"countkeysinslots",clusterCommand,3,
-     "admin ok-stale random"},
+     "ok-stale random"},
 
     {"delslots",clusterCommand,-3,
      "admin ok-stale random"},
@@ -574,25 +574,25 @@ struct redisCommand clusterSubcommands[] = {
      "admin ok-stale random"},
 
     {"getkeysinslot",clusterCommand,4,
-     "admin ok-stale random"},
+     "ok-stale random"},
 
     {"flushslots",clusterCommand,2,
      "admin ok-stale random"},
 
     {"info",clusterCommand,2,
-     "admin ok-stale random"},
+     "ok-stale random"},
 
     {"keyslot",clusterCommand,3,
-     "admin ok-stale random"},
+     "ok-stale random"},
 
     {"meet",clusterCommand,-4,
      "admin ok-stale random"},
 
     {"myid",clusterCommand,2,
-     "admin ok-stale random"},
+     "ok-stale random"},
 
     {"nodes",clusterCommand,2,
-     "admin ok-stale random"},
+     "ok-stale random"},
 
     {"replicate",clusterCommand,3,
      "admin ok-stale random"},
@@ -613,7 +613,7 @@ struct redisCommand clusterSubcommands[] = {
      "admin ok-stale random"},
 
     {"slots",clusterCommand,2,
-     "admin ok-stale random"},
+     "ok-stale random"},
 
     {"help",clusterCommand,2,
      "ok-loading ok-stale"},
