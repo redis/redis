@@ -2563,9 +2563,11 @@ int objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
 void dbAdd(redisDb *db, robj *key, robj *val);
 int dbAddRDBLoad(redisDb *db, sds key, robj *val);
 void dbOverwrite(redisDb *db, robj *key, robj *val);
-void genericSetKey(client *c, redisDb *db, robj *key, robj *val, int keepttl, int signal);
-void genericSetKeyLookup(client *c, redisDb *db, robj *key, robj *val, int keepttl, int signal, robj* keyFound);
-void setKey(client *c, redisDb *db, robj *key, robj *val);
+#define SETKEY_KEEPTTL 1
+#define SETKEY_SIGNAL 2
+#define SETKEY_ALREADY_EXIST 4
+#define SETKEY_DOESNT_EXIST 8
+void setKey(client *c, redisDb *db, robj *key, robj *val, int flags);
 robj *dbRandomKey(redisDb *db);
 int dbSyncDelete(redisDb *db, robj *key);
 int dbDelete(redisDb *db, robj *key);
