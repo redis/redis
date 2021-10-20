@@ -126,9 +126,95 @@ start_server [list overrides [list save ""] ] {
 
 # check functionality of plain nodes using low packed-threshold
 start_server [list overrides [list save ""] ] {
-    # testing lset with combiniations
-    # plain->zip , zip->plain, plain->plain, zip->zip
-    test {plain check LSET with combinations} {
+    # basic command check for plain nodes - "LPUSH & LPOP"
+    test {Test LPUSH and LPOP on plain nodes} {
+        r flushdb
+        r debug quicklist-packed-threshold 1b
+        r lpush lst 9
+        r lpush lst xxxxxxxxxx
+        r lpush lst xxxxxxxxxx
+        set s0 [s used_memory]
+        assert {$s0 > 10}
+        assert {[r llen lst] == 3}
+        set s0 [r rpop lst]
+        set s1 [r rpop lst]
+        assert {$s0 eq "9"}
+        assert {[r llen lst] == 1}
+        r lpop lst
+        assert {[string length $s1] == 10}
+    } {} {needs:debug}
+
+    # basic command check for plain nodes - "LINDEX & LINSERT"
+    test {Test LINDEX and LINSERT on plain nodes} {
+        r flushdb
+        r debug quicklist-packed-threshold 1b
+        r lpush lst xxxxxxxxxxx
+        r lpush lst 9
+        r lpush lst xxxxxxxxxxx
+        r linsert lst before "9" "8"
+        assert {[r lindex lst 1] eq "8"}
+        r linsert lst BEFORE "9" "7"
+        r linsert lst BEFORE "9" "xxxxxxxxxxx"
+        assert {[r lindex lst 3] eq "xxxxxxxxxxx"}
+    } {} {needs:debug}
+
+    # basic command check for plain nodes - "LTRIM"
+    test {Test LTRIM on plain nodes} {
+        r flushdb
+        r debug quicklist-packed-threshold 1b
+        r lpush lst1 9
+        r lpush lst1 xxxxxxxxxxx
+        r lpush lst1 9
+        r LTRIM lst1 1 -1
+        assert_equal [r llen lst1] 2
+    } {} {needs:debug}
+
+    # basic command check for plain nodes - "LREM"
+    test {Test LREM on plain nodes} {
+        r flushdb
+        r debug quicklist-packed-threshold 1b
+        r lpush lst one
+        r lpush lst xxxxxxxxxxx
+        set s0 [s used_memory]
+        assert {$s0 > 10}
+        r lpush lst 9
+        r LREM lst -2 "one"
+        assert_equal [r llen lst] 2
+    } {} {needs:debug}
+
+    # basic command check for plain nodes - "LPOS"
+    test {Test LPOS on plain nodes} {
+        r flushdb
+        r debug quicklist-packed-threshold 1b
+        r RPUSH lst "aa"
+        r RPUSH lst "bb"
+        r RPUSH lst "cc"
+        r LSET lst 0 "xxxxxxxxxxx"
+        assert_equal [r LPOS lst "xxxxxxxxxxx"] 0
+    } {} {needs:debug}
+
+    # basic command check for plain nodes - "LMOVE"
+    test {Test LMOVE on plain nodes} {
+        r flushdb
+        r debug quicklist-packed-threshold 1b
+        r RPUSH lst2{t} "aa"
+        r RPUSH lst2{t} "bb"
+        r LSET lst2{t} 0 xxxxxxxxxxx
+        r RPUSH lst2{t} "cc"
+        r RPUSH lst2{t} "dd"
+        r LMOVE lst2{t} lst{t} RIGHT LEFT
+        r LMOVE lst2{t} lst{t} LEFT RIGHT
+        assert_equal [r llen lst{t}] 2
+        assert_equal [r llen lst2{t}] 2
+        assert_equal [r lpop lst2{t}] "bb"
+        assert_equal [r lpop lst2{t}] "cc"
+        assert_equal [r lpop lst{t}] "dd"
+        assert_equal [r lpop lst{t}] "xxxxxxxxxxx"
+    } {} {needs:debug}
+
+    # testing LSET with combinations of node types
+    # plain->packed , packed->plain, plain->plain, packed->packed
+    test {Test LSET with packed / plain combinations} {
         r debug quicklist-packed-threshold 5b
         r RPUSH lst "aa"
         r RPUSH lst "bb"
@@ -150,7 +236,7 @@ start_server [list overrides [list save ""] ] {
     } {} {needs:debug}
 
     # checking LSET in case ziplist needs to be split
-    test {plain check LSET with combinations with multiple elements} {
+    test {Test LSET with packed is split in the middle} {
         r flushdb
         r debug quicklist-packed-threshold 5b
         r RPUSH lst "aa"
@@ -166,107 +252,10 @@ start_server [list overrides [list save ""] ] {
         assert_equal [r lpop lst] "ee"
     } {} {needs:debug}
 
-    # basic command check for plain nodes - "LPUSH & LPOP"
-    test {plain node check push and pop} {
-        r flushdb
-        r debug quicklist-packed-threshold 1b
-        r lpush lst 9
-        r lpush lst xxxxxxxxxx
-        r lpush lst xxxxxxxxxx
-        set s0 [s used_memory]
-        assert {$s0 > 10}
-        assert {[r llen lst] == 3}
-        set s0 [r rpop lst]
-        set s1 [r rpop lst]
-        assert {$s0 eq "9"}
-        assert {[r llen lst] == 1}
-        r lpop lst
-        assert {[string length $s1] == 10}
-    } {} {needs:debug}
-
-    # basic command check for plain nodes - "LINDEX & LINSERT"
-    test {plain node check lindex and linsert} {
-        r flushdb
-        r debug quicklist-packed-threshold 1b
-        r lpush lst xxxxxxxxxxx
-        r lpush lst 9
-        r lpush lst xxxxxxxxxxx
-        r linsert lst before "9" "8"
-        assert {[r lindex lst 1] eq "8"}
-        r linsert lst BEFORE "9" "7"
-        r linsert lst BEFORE "9" "xxxxxxxxxxx"
-        assert {[r lindex lst 3] eq "xxxxxxxxxxx"}
-    } {} {needs:debug}
-
-    # basic command check for plain nodes - "LTRIM"
-    test {plain node check LTRIM} {
-        r flushdb
-        r debug quicklist-packed-threshold 1b
-        r lpush lst1 9
-        r lpush lst1 xxxxxxxxxxx
-        r lpush lst1 9
-        r LTRIM lst1 1 -1
-        assert_equal [r llen lst1] 2
-    } {} {needs:debug}
-
-    # basic command check for plain nodes - "LREM"
-    test {plain node check LREM} {
-        r flushdb
-        r debug quicklist-packed-threshold 1b
-        r lpush lst one
-        r lpush lst xxxxxxxxxxx
-        set s0 [s used_memory]
-        assert {$s0 > 10}
-        r lpush lst 9
-        r LREM lst -2 "one"
-        assert_equal [r llen lst] 2
-    } {} {needs:debug}
-
-    # basic command check for plain nodes - "LSET"
-    test {plain node check LSET} {
-        r flushdb
-        r debug quicklist-packed-threshold 1b
-        r RPUSH lst "aa"
-        r RPUSH lst "bb"
-        r RPUSH lst "cc"
-        r LSET lst 0 "xxxxxxxxxxx"
-        set s0 [s used_memory]
-        assert {$s0 > 10}
-    } {} {needs:debug}
-
-    # basic command check for plain nodes - "LPOS"
-    test {plain node check LPOS} {
-        r flushdb
-        r debug quicklist-packed-threshold 1b
-        r RPUSH lst "aa"
-        r RPUSH lst "bb"
-        r RPUSH lst "cc"
-        r LSET lst 0 "xxxxxxxxxxx"
-        assert_equal [r LPOS lst "xxxxxxxxxxx"] 0
-    } {} {needs:debug}
-
-    # basic command check for plain nodes - "LMOVE"
-    test {plain node check lmove} {
-        r flushdb
-        r debug quicklist-packed-threshold 1b
-        r RPUSH lst2 "aa"
-        r RPUSH lst2 "bb"
-        r LSET lst2 0 xxxxxxxxxxx
-        r RPUSH lst2 "cc"
-        r RPUSH lst2 "dd"
-        r LMOVE lst2 lst RIGHT LEFT
-        r LMOVE lst2 lst LEFT RIGHT
-        assert_equal [r llen lst] 2
-        assert_equal [r llen lst2] 2
-        assert_equal [r lpop lst2] "bb"
-        assert_equal [r lpop lst2] "cc"
-        assert_equal [r lpop lst] "dd"
-        assert_equal [r lpop lst] "xxxxxxxxxxx"
-    } {} {needs:debug}
 
     # repeating "plain check LSET with combinations"
     # but now with single item in each ziplist
-    test {plain check LSET with combinations ziplist maxsize 1} {
+    test {Test LSET with packed consist only one item} {
         r flushdb
         r config set list-max-ziplist-size 1
         r debug quicklist-packed-threshold 1b
@@ -293,11 +282,10 @@ start_server [list overrides [list save ""] ] {
 start_server [list overrides [list save ""] ] {
     r config set proto-max-bulk-len 10000000000 ;#10gb
     r config set client-query-buffer-limit 10000000000 ;#10gb
-
     set str_length 5000000000
 
     # repeating all the plain nodes basic checks with 5gb values
-    test {4gb check push and pop} {
+    test {Test LPUSH and LPOP on plain nodes over 4GB} {
         r flushdb
         r lpush lst 9
         r write "*3\r\n\$5\r\nLPUSH\r\n\$3\r\nlst\r\n"
@@ -311,9 +299,9 @@ start_server [list overrides [list save ""] ] {
         assert_equal [read_big_bulk {r rpop lst}] $str_length
         assert {[r llen lst] == 1}
         assert_equal [read_big_bulk {r rpop lst}] $str_length
-   } {} {largemem:skip}
+   } {} {large-memory}
 
-   test {4gb check lindex and linsert} {
+   test {Test LINDEX and LINSERT on plain nodes over 4GB} {
        r flushdb
        r write "*3\r\n\$5\r\nLPUSH\r\n\$3\r\nlst\r\n"
        write_big_bulk $str_length;
@@ -326,9 +314,9 @@ start_server [list overrides [list save ""] ] {
        r write "*5\r\n\$7\r\nLINSERT\r\n\$3\r\nlst\r\n\$6\r\nBEFORE\r\n\$3\r\n\"9\"\r\n"
        write_big_bulk 10;
        assert_equal [read_big_bulk {r rpop lst}] $str_length
-   } {} {largemem:skip}
+   } {} {large-memory}
 
-   test {4gb check LTRIM} {
+   test {Test LTRIM on plain nodes over 4GB} {
        r flushdb
        r lpush lst 9
        r write "*3\r\n\$5\r\nLPUSH\r\n\$3\r\nlst\r\n"
@@ -338,9 +326,9 @@ start_server [list overrides [list save ""] ] {
        assert_equal [r llen lst] 2
        assert_equal [r rpop lst] 9
        assert_equal [read_big_bulk {r rpop lst}] $str_length
-   } {} {largemem:skip}
+   } {} {large-memory}
 
-   test {4gb check LREM} {
+   test {Test LREM on plain nodes over 4GB} {
        r flushdb
        r lpush lst one
        r write "*3\r\n\$5\r\nLPUSH\r\n\$3\r\nlst\r\n"
@@ -349,9 +337,9 @@ start_server [list overrides [list save ""] ] {
        r LREM lst -2 "one"
        assert_equal [read_big_bulk {r rpop lst}] $str_length
        r llen lst
-   } {1} {largemem:skip}
+   } {1} {large-memory}
 
-   test {4gb check LSET} {
+   test {Test LSET on plain nodes over 4GB} {
        r flushdb
        r RPUSH lst "aa"
        r RPUSH lst "bb"
@@ -361,25 +349,25 @@ start_server [list overrides [list save ""] ] {
        assert_equal [r rpop lst] "cc"
        assert_equal [r rpop lst] "bb"
        assert_equal [read_big_bulk {r rpop lst}] $str_length
-   } {} {largemem:skip}
+   } {} {large-memory}
 
-   test {4gb check lmove} {
+   test {Test LMOVE on plain nodes over 4GB} {
        r flushdb
-       r RPUSH lst2 "aa"
-       r RPUSH lst2 "bb"
-       r write "*4\r\n\$4\r\nLSET\r\n\$4\r\nlst2\r\n\$1\r\n0\r\n"
+       r RPUSH lst2{t} "aa"
+       r RPUSH lst2{t} "bb"
+       r write "*4\r\n\$4\r\nLSET\r\n\$7\r\nlst2{t}\r\n\$1\r\n0\r\n"
        write_big_bulk $str_length;
-       r RPUSH lst2 "cc"
-       r RPUSH lst2 "dd"
-       r LMOVE lst2 lst RIGHT LEFT
-       r LMOVE lst2 lst LEFT RIGHT
-       assert_equal [r llen lst] 2
-       assert_equal [r llen lst2] 2
-       assert_equal [r lpop lst2] "bb"
-       assert_equal [r lpop lst2] "cc"
-       assert_equal [r lpop lst] "dd"
-       assert_equal [read_big_bulk {r rpop lst}] $str_length
-   } {} {largemem:skip}
+       r RPUSH lst2{t} "cc"
+       r RPUSH lst2{t} "dd"
+       r LMOVE lst2{t} lst{t} RIGHT LEFT
+       r LMOVE lst2{t} lst{t} LEFT RIGHT
+       assert_equal [r llen lst{t}] 2
+       assert_equal [r llen lst2{t}] 2
+       assert_equal [r lpop lst2{t}] "bb"
+       assert_equal [r lpop lst2{t}] "cc"
+       assert_equal [r lpop lst{t}] "dd"
+       assert_equal [read_big_bulk {r rpop lst{t}}] $str_length
+   } {} {large-memory}
 }
 
 start_server {

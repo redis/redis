@@ -17,7 +17,7 @@ match different external server configurations:
 | `--ignore-encoding`  | Skip all checks for specific encoding.  |
 | `--ignore-digest`    | Skip key value digest validations. |
 | `--cluster-mode`     | Run in strict Redis Cluster compatibility mode. |
-| `--large-mem`        | Run in large memory env. relevant for tests that use more then 100mb |
+| `--large-memory`     | Enables tests that consume more than 100mb |
 
 Tags
 ----
@@ -37,7 +37,7 @@ The following compatibility and capability tags are currently used:
 | ---------------------     | --------- |
 | `external:skip`           | Not compatible with external servers. |
 | `cluster:skip`            | Not compatible with `--cluster-mode`. |
-| `largemem:skip`           | Not compatible with `--large-mem`. |
+| `large-memory`            | Test that requires more than 100mb |
 | `tls:skip`                | Not campatible with `--tls`. |
 | `needs:repl`              | Uses replication and needs to be able to `SYNC` from server. |
 | `needs:debug`             | Uses the `DEBUG` command or other debugging focused commands (like `OBJECT`). |
