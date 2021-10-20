@@ -1223,12 +1223,6 @@ void rewriteConfigDirOption(typeData data, const char *name, struct rewriteConfi
     rewriteConfigStringOption(state,name,cwd,NULL);
 }
 
-/* Rewrite the watchdog-period option.*/
-void rewriteConfigWatchdogPeriodOption(typeData data, const char *name, struct rewriteConfigState *state) {
-    UNUSED(data);
-    rewriteConfigNumericalOption(state,name,server.watchdog_period,0);
-}
-
 /* Rewrite the slaveof option. */
 void rewriteConfigSlaveofOption(struct rewriteConfigState *state, char *option) {
     sds line;
@@ -2186,6 +2180,14 @@ static int updateGoodSlaves(long long val, long long prev, const char **err) {
     return 1;
 }
 
+static int updateWatchdogPeriod(long long val, long long prev, const char **err) {
+    UNUSED(val);
+    UNUSED(prev);
+    UNUSED(err);
+    applyWatchdogPeriod();
+    return 1;
+}
+
 static int updateAppendonly(int val, int prev, const char **err) {
     UNUSED(prev);
     if (val == 0 && server.aof_state != AOF_OFF) {
@@ -2331,30 +2333,6 @@ static void getConfigDirOption(client *c, typeData data) {
     if (getcwd(buf,sizeof(buf)) == NULL)
         buf[0] = '\0';
 
-    addReplyBulkCString(c,buf);
-}
-
-static int setConfigWatchdogPeriodOption(typeData data, sds *argv, int argc, int update, const char **err) {
-    UNUSED(data);
-    UNUSED(argc);
-    UNUSED(err);
-    UNUSED(update);
-
-    long long ll;
-    if (string2ll(argv[0],sdslen(argv[0]),&ll) == 0) return 0;
-    if (ll < 0 || ll > INT_MAX) return 0;
-
-    if (ll)
-        enableWatchdog(ll);
-    else
-        disableWatchdog();
-    return 1;
-}
-
-static void getConfigWatchdogPeriodOption(client *c, typeData data) {
-    UNUSED(data);
-    char buf[128];
-    ll2string(buf,sizeof(buf),server.watchdog_period);
     addReplyBulkCString(c,buf);
 }
 
@@ -2651,6 +2629,7 @@ standardConfig configs[] = {
     createIntConfig("hz", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.config_hz, CONFIG_DEFAULT_HZ, INTEGER_CONFIG, NULL, updateHZ),
     createIntConfig("min-replicas-to-write", "min-slaves-to-write", MODIFIABLE_CONFIG, 0, INT_MAX, server.repl_min_slaves_to_write, 0, INTEGER_CONFIG, NULL, updateGoodSlaves),
     createIntConfig("min-replicas-max-lag", "min-slaves-max-lag", MODIFIABLE_CONFIG, 0, INT_MAX, server.repl_min_slaves_max_lag, 10, INTEGER_CONFIG, NULL, updateGoodSlaves),
+    createIntConfig("watchdog-period", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.watchdog_period, 0, INTEGER_CONFIG, NULL, updateWatchdogPeriod),
 
     /* Unsigned int configs */
     createUIntConfig("maxclients", NULL, MODIFIABLE_CONFIG, 1, UINT_MAX, server.maxclients, 10000, INTEGER_CONFIG, NULL, updateMaxclients),
@@ -2716,7 +2695,6 @@ standardConfig configs[] = {
 
     /* Special configs */
     createSpecialConfig("dir", NULL, MODIFIABLE_CONFIG, setConfigDirOption, getConfigDirOption, rewriteConfigDirOption),
-    createSpecialConfig("watchdog-period", NULL, MODIFIABLE_CONFIG, setConfigWatchdogPeriodOption, getConfigWatchdogPeriodOption, rewriteConfigWatchdogPeriodOption),
     createSpecialConfig("save", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigSaveOption, getConfigSaveOption, rewriteConfigSaveOption),
     createSpecialConfig("client-output-buffer-limit", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigClientOutputBufferLimitOption, getConfigClientOutputBufferLimitOption, rewriteConfigClientOutputBufferLimitOption),
     createSpecialConfig("oom-score-adj-values", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigOOMScoreAdjValuesOption, getConfigOOMScoreAdjValuesOption, rewriteConfigOOMScoreAdjValuesOption),
