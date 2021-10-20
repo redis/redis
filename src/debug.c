@@ -2021,7 +2021,6 @@ void applyWatchdogPeriod() {
         act.sa_flags = 0;
         act.sa_handler = SIG_IGN;
         sigaction(SIGALRM, &act, NULL);
-        server.watchdog_period = 0;
     } else {
         /* Setup the signal handler. */
         sigemptyset(&act.sa_mask);
