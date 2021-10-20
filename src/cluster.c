@@ -536,6 +536,8 @@ void clusterInit(void) {
         exit(1);
     }
     if (listenToPort(port+CLUSTER_PORT_INCR, &server.cfd) == C_ERR) {
+        /* Note: the following log text is matched by the test suite. */
+        serverLog(LL_WARNING, "Failed listening on port %u (cluster), aborting.", port);
         exit(1);
     }
     if (createSocketAcceptHandler(&server.cfd, clusterAcceptHandler) != C_OK) {

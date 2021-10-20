@@ -21,10 +21,14 @@ proc csi {args} {
 # make sure the test infra won't use SELECT
 set ::singledb 1
 
+# cluster creation is complicated with TLS, and the current tests don't really need that coverage
+tags {tls:skip external:skip cluster} {
+
 # start three servers
-start_server {overrides {cluster-enabled yes cluster-node-timeout 1} tags {"external:skip cluster"}} {
-start_server {overrides {cluster-enabled yes cluster-node-timeout 1} tags {"external:skip cluster"}} {
-start_server {overrides {cluster-enabled yes cluster-node-timeout 1} tags {"external:skip cluster"}} {
+set base_conf [list cluster-enabled yes cluster-node-timeout 1]
+start_server [list overrides $base_conf] {
+start_server [list overrides $base_conf] {
+start_server [list overrides $base_conf] {
 
     set node1 [srv 0 client]
     set node2 [srv -1 client]
@@ -149,3 +153,5 @@ start_server {overrides {cluster-enabled yes cluster-node-timeout 1} tags {"exte
 }
 }
 }
+
+} ;# tags
