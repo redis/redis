@@ -207,6 +207,11 @@ proc tags_acceptable {tags err_return} {
         return 0
     }
 
+    if {$::large_mem && [lsearch $tags "largemem:skip"] >= 0} {
+        set err "Not supported in small envs"
+        return 0
+    }
+
     return 1
 }
 

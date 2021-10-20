@@ -311,7 +311,7 @@ start_server [list overrides [list save ""] ] {
         assert_equal [read_big_bulk {r rpop lst}] $str_length
         assert {[r llen lst] == 1}
         assert_equal [read_big_bulk {r rpop lst}] $str_length
-   } {} {large-memory}
+   } {} {largemem:skip}
 
    test {4gb check lindex and linsert} {
        r flushdb
@@ -326,7 +326,7 @@ start_server [list overrides [list save ""] ] {
        r write "*5\r\n\$7\r\nLINSERT\r\n\$3\r\nlst\r\n\$6\r\nBEFORE\r\n\$3\r\n\"9\"\r\n"
        write_big_bulk 10;
        assert_equal [read_big_bulk {r rpop lst}] $str_length
-   } {} {large-memory}
+   } {} {largemem:skip}
 
    test {4gb check LTRIM} {
        r flushdb
@@ -338,7 +338,7 @@ start_server [list overrides [list save ""] ] {
        assert_equal [r llen lst] 2
        assert_equal [r rpop lst] 9
        assert_equal [read_big_bulk {r rpop lst}] $str_length
-   } {} {large-memory}
+   } {} {largemem:skip}
 
    test {4gb check LREM} {
        r flushdb
@@ -349,7 +349,7 @@ start_server [list overrides [list save ""] ] {
        r LREM lst -2 "one"
        assert_equal [read_big_bulk {r rpop lst}] $str_length
        r llen lst
-   } {1} {large-memory}
+   } {1} {largemem:skip}
 
    test {4gb check LSET} {
        r flushdb
@@ -361,7 +361,7 @@ start_server [list overrides [list save ""] ] {
        assert_equal [r rpop lst] "cc"
        assert_equal [r rpop lst] "bb"
        assert_equal [read_big_bulk {r rpop lst}] $str_length
-   } {} {large-memory}
+   } {} {largemem:skip}
 
    test {4gb check lmove} {
        r flushdb
@@ -379,7 +379,7 @@ start_server [list overrides [list save ""] ] {
        assert_equal [r lpop lst2] "cc"
        assert_equal [r lpop lst] "dd"
        assert_equal [read_big_bulk {r rpop lst}] $str_length
-   } {} {large-memory}
+   } {} {largemem:skip}
 }
 
 start_server {
