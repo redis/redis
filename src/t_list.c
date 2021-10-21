@@ -386,6 +386,7 @@ void lsetCommand(client *c) {
 
     if ((getLongFromObjectOrReply(c, c->argv[2], &index, NULL) != C_OK))
         return;
+
     if (o->encoding == OBJ_ENCODING_QUICKLIST) {
         quicklist *ql = o->ptr;
         int replaced = quicklistReplaceAtIndex(ql, index,
@@ -460,6 +461,7 @@ void addListRangeReply(client *c, robj *o, long start, long end, int reverse) {
         int from = reverse ? end : start;
         int direction = reverse ? LIST_HEAD : LIST_TAIL;
         listTypeIterator *iter = listTypeInitIterator(o,from,direction);
+
         while(rangelen--) {
             listTypeEntry entry;
             serverAssert(listTypeNext(iter, &entry)); /* fail on corrupt data */
