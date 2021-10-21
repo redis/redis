@@ -816,7 +816,8 @@ NULL
         } else {
             addReply(c,shared.ok);
         }
-    } else if (!strcasecmp(c->argv[1]->ptr,"set-skip-checksum-validation") && c->argc == 3) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"set-skip-checksum-validation") &&
+               c->argc == 3) {
         server.skip_checksum_validation = atoi(c->argv[2]->ptr);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"aof-flush-sleep") &&

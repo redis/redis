@@ -1573,9 +1573,8 @@ int quicklistPopCustom(quicklist *quicklist, int where, unsigned char **data,
     }
 
     if(unlikely(QL_NODE_IS_PLAIN(node))) {
-        if (data) {
+        if (data)
             *data = saver(node->entry, node->sz);
-        }
         if (sz)
             *sz = node->sz;
         quicklistDelIndex(quicklist, node, NULL);
@@ -2034,8 +2033,6 @@ int quicklistTest(int argc, char *argv[], int accurate) {
             quicklistReleaseIterator(iter);
             quicklistRelease(ql);
         }
-
-
 
         TEST("rotate plain node ") {
             unsigned char *data;
