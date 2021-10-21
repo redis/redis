@@ -944,10 +944,10 @@ RedisModuleCommandProxy *moduleCreateCommandProxy(RedisModuleCtx *ctx, const cha
      *
      * Note that we use the Redis command table 'getkeys_proc' in order to
      * pass a reference to the command proxy structure. */
-    cp = zmalloc(sizeof(*cp));
+    cp = zcalloc(sizeof(*cp));
     cp->module = ctx->module;
     cp->func = cmdfunc;
-    cp->rediscmd = zmalloc(sizeof(*rediscmd));
+    cp->rediscmd = zcalloc(sizeof(*rediscmd));
     cp->rediscmd->name = cmdname;
     cp->rediscmd->proc = RedisModuleCommandDispatcher;
     cp->rediscmd->flags = flags | CMD_MODULE;
