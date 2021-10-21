@@ -100,7 +100,7 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
     }
 
     setkey_flags = (flags & OBJ_KEEPTTL) ? setkey_flags | SETKEY_KEEPTTL : setkey_flags;
-    setkey_flags = found ? setkey_flags | SETKEY_ALREADY_EXIST : setkey_flags | SETKEY_DOESNT_EXIST;
+    setkey_flags |= found ? SETKEY_ALREADY_EXIST : SETKEY_DOESNT_EXIST;
     setkey_flags |= SETKEY_SIGNAL;
 
     setKey(c,c->db,key,val,setkey_flags);
