@@ -470,23 +470,19 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (fsltype == NULL)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx, "fsl.push", fsl_push,
-                                  "write", 0, 0, 0) == REDISMODULE_ERR)
+    if (RedisModule_CreateCommand(ctx,"fsl.push",fsl_push,"write",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx, "fsl.bpop", fsl_bpop,
-                                  "write", 0, 0, 0) == REDISMODULE_ERR)
+    if (RedisModule_CreateCommand(ctx,"fsl.bpop",fsl_bpop,"write",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx, "fsl.bpopgt", fsl_bpopgt,
-                                  "write", 0, 0, 0) == REDISMODULE_ERR)
+    if (RedisModule_CreateCommand(ctx,"fsl.bpopgt",fsl_bpopgt,"write",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx, "fsl.bpoppush", fsl_bpoppush,
-                                  "write", 0, 0, 0) == REDISMODULE_ERR)
+    if (RedisModule_CreateCommand(ctx,"fsl.bpoppush",fsl_bpoppush,"write",1,2,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx,"fsl.getall",fsl_getall,"",0,0,0) == REDISMODULE_ERR)
+    if (RedisModule_CreateCommand(ctx,"fsl.getall",fsl_getall,"",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx, "blockonkeys.popall", blockonkeys_popall,

@@ -33,7 +33,7 @@ TEST_BEGIN(test_stats_large) {
 	size_t sz;
 	int expected = config_stats ? 0 : ENOENT;
 
-	p = mallocx(SMALL_MAXCLASS+1, MALLOCX_ARENA(0));
+	p = mallocx(SC_SMALL_MAXCLASS + 1, MALLOCX_ARENA(0));
 	assert_ptr_not_null(p, "Unexpected mallocx() failure");
 
 	assert_d_eq(mallctl("epoch", NULL, NULL, (void *)&epoch, sizeof(epoch)),
@@ -74,9 +74,10 @@ TEST_BEGIN(test_stats_arenas_summary) {
 	uint64_t dirty_npurge, dirty_nmadvise, dirty_purged;
 	uint64_t muzzy_npurge, muzzy_nmadvise, muzzy_purged;
 
-	little = mallocx(SMALL_MAXCLASS, MALLOCX_ARENA(0));
+	little = mallocx(SC_SMALL_MAXCLASS, MALLOCX_ARENA(0));
 	assert_ptr_not_null(little, "Unexpected mallocx() failure");
-	large = mallocx((1U << LG_LARGE_MINCLASS), MALLOCX_ARENA(0));
+	large = mallocx((1U << SC_LG_LARGE_MINCLASS),
+	    MALLOCX_ARENA(0));
 	assert_ptr_not_null(large, "Unexpected mallocx() failure");
 
 	dallocx(little, 0);
@@ -148,7 +149,7 @@ TEST_BEGIN(test_stats_arenas_small) {
 
 	no_lazy_lock(); /* Lazy locking would dodge tcache testing. */
 
-	p = mallocx(SMALL_MAXCLASS, MALLOCX_ARENA(0));
+	p = mallocx(SC_SMALL_MAXCLASS, MALLOCX_ARENA(0));
 	assert_ptr_not_null(p, "Unexpected mallocx() failure");
 
 	assert_d_eq(mallctl("thread.tcache.flush", NULL, NULL, NULL, 0),
@@ -191,7 +192,7 @@ TEST_BEGIN(test_stats_arenas_large) {
 	uint64_t epoch, nmalloc, ndalloc;
 	int expected = config_stats ? 0 : ENOENT;
 
-	p = mallocx((1U << LG_LARGE_MINCLASS), MALLOCX_ARENA(0));
+	p = mallocx((1U << SC_LG_LARGE_MINCLASS), MALLOCX_ARENA(0));
 	assert_ptr_not_null(p, "Unexpected mallocx() failure");
 
 	assert_d_eq(mallctl("epoch", NULL, NULL, (void *)&epoch, sizeof(epoch)),
@@ -227,7 +228,7 @@ gen_mallctl_str(char *cmd, char *name, unsigned arena_ind) {
 
 TEST_BEGIN(test_stats_arenas_bins) {
 	void *p;
-	size_t sz, curslabs, curregs;
+	size_t sz, curslabs, curregs, nonfull_slabs;
 	uint64_t epoch, nmalloc, ndalloc, nrequests, nfills, nflushes;
 	uint64_t nslabs, nreslabs;
 	int expected = config_stats ? 0 : ENOENT;
@@ -288,6 +289,9 @@ TEST_BEGIN(test_stats_arenas_bins) {
 	gen_mallctl_str(cmd, "curslabs", arena_ind);
 	assert_d_eq(mallctl(cmd, (void *)&curslabs, &sz, NULL, 0), expected,
 	    "Unexpected mallctl() result");
+	gen_mallctl_str(cmd, "nonfull_slabs", arena_ind);
+	assert_d_eq(mallctl(cmd, (void *)&nonfull_slabs, &sz, NULL, 0),
+	    expected, "Unexpected mallctl() result");
 
 	if (config_stats) {
 		assert_u64_gt(nmalloc, 0,
@@ -308,6 +312,8 @@ TEST_BEGIN(test_stats_arenas_bins) {
 		    "At least one slab should have been allocated");
 		assert_zu_gt(curslabs, 0,
 		    "At least one slab should be currently allocated");
+		assert_zu_eq(nonfull_slabs, 0,
+		    "slabs_nonfull should be empty");
 	}
 
 	dallocx(p, 0);
