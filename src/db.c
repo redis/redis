@@ -1530,7 +1530,7 @@ int expireIfNeeded(redisDb *db, robj *key, int expire_on_replica) {
      * commands. */
     if (expire_on_replica) {
         client *c = server.in_eval ? server.lua_client : server.current_client;
-        serverAssert(!c || !c->cmd || (c->cmd->flags & CMD_WRITE));
+        serverAssert(!c || !c->cmd || (c->cmd->flags & (CMD_WRITE|CMD_MODULE)));
     }
 
     if (!keyIsExpired(db,key)) return 0;
