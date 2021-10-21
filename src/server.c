@@ -4447,16 +4447,17 @@ void commandAddSubcommand(struct redisCommand *parent, struct redisCommand *subc
     serverAssert(dictAdd(parent->subcommands_dict, sdsnew(subcommand->name), subcommand) == DICT_OK);
 }
 
+
 /* Parse the flags string description 'strflags' and set them to the
- * command 'c'. If the flags are all valid C_OK is returned, otherwise
- * C_ERR is returned (yet the recognized flags are set in the command). */
-int populateSingleCommand(struct redisCommand *c, char *strflags) {
+ * command 'c'. Abort on error. */
+void parseCommandFlags(struct redisCommand *c, char *strflags) {
     int argc;
     sds *argv;
 
     /* Split the line into arguments for processing. */
     argv = sdssplitargs(strflags,&argc);
-    if (argv == NULL) return C_ERR;
+    if (argv == NULL)
+        serverPanic("Failed splitting strflags!");
 
     for (int j = 0; j < argc; j++) {
         char *flag = argv[j];
@@ -4506,7 +4507,7 @@ int populateSingleCommand(struct redisCommand *c, char *strflags) {
                 c->flags |= catflag;
             } else {
                 sdsfreesplitres(argv,argc);
-                return C_ERR;
+                serverPanic("Unsupported command flag %s", flag);
             }
         }
     }
@@ -4514,8 +4515,11 @@ int populateSingleCommand(struct redisCommand *c, char *strflags) {
     if (!(c->flags & CMD_CATEGORY_FAST)) c->flags |= CMD_CATEGORY_SLOW;
 
     sdsfreesplitres(argv,argc);
+}
 
-    /* Now handle the key arguments spec flags */
+void populateCommandStructure(struct redisCommand *c) {
+    int argc;
+    sds *argv;
 
     /* Redis commands don't need more args than STATIC_KEY_SPECS_NUM (Number of keys
      * specs can be greater than STATIC_KEY_SPECS_NUM only for module commands) */
@@ -4529,7 +4533,7 @@ int populateSingleCommand(struct redisCommand *c, char *strflags) {
         /* Split the line into arguments for processing. */
         argv = sdssplitargs(c->key_specs[i].sflags,&argc);
         if (argv == NULL)
-            return C_ERR;
+            serverPanic("Failed splitting key sflags!");
 
         for (int j = 0; j < argc; j++) {
             char *flag = argv[j];
@@ -4539,6 +4543,8 @@ int populateSingleCommand(struct redisCommand *c, char *strflags) {
                 c->key_specs[i].flags |= CMD_KEY_READ;
             } else if (!strcasecmp(flag,"incomplete")) {
                 c->key_specs[i].flags |= CMD_KEY_INCOMPLETE;
+            } else {
+                serverPanic("Unsupported key-arg flag %s", flag);
             }
         }
 
@@ -4551,6 +4557,9 @@ int populateSingleCommand(struct redisCommand *c, char *strflags) {
     /* Handle the "movablekeys" flag (must be done after populating all key specs). */
     populateCommandMovableKeys(c);
 
+    /* Assign the ID used for ACL. */
+    c->id = ACLGetCommandID(c->name);
+
     /* Handle subcommands */
     if (c->subcommands) {
         for (int j = 0; c->subcommands[j].name; j++) {
@@ -4558,14 +4567,11 @@ int populateSingleCommand(struct redisCommand *c, char *strflags) {
 
             /* Translate the command string flags description into an actual
              * set of flags. */
-            if (populateSingleCommand(sub,sub->sflags) == C_ERR)
-                serverPanic("Unsupported command flag or key spec flag");
-
+            parseCommandFlags(sub,sub->sflags);
+            populateCommandStructure(sub);
             commandAddSubcommand(c,sub);
         }
     }
-
-    return C_OK;
 }
 
 /* Populates the Redis Command Table starting from the hard coded list
@@ -4578,20 +4584,17 @@ void populateCommandTable(void) {
         struct redisCommand *c = redisCommandTable+j;
         int retval1, retval2;
 
-        /* Assign the ID used for ACL. */
-        c->id = ACLGetCommandID(c->name);
-
         /* Translate the command string flags description into an actual
          * set of flags. */
-        if (populateSingleCommand(c,c->sflags) == C_ERR)
-            serverPanic("Unsupported command flag or key spec flag");
-
+        parseCommandFlags(c,c->sflags);
 
         if (!(c->flags & CMD_SENTINEL) && server.sentinel_mode)
             continue;
 
         if (c->flags & CMD_ONLY_SENTINEL && !server.sentinel_mode)
             continue;
+
+        populateCommandStructure(c);
 
         retval1 = dictAdd(server.commands, sdsnew(c->name), c);
         /* Populate an additional dictionary that will be unaffected
