@@ -6181,6 +6181,8 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
     bc->free_privdata = free_privdata;
     bc->privdata = privdata;
     bc->reply_client = createClient(NULL);
+    if (bc->client)
+        bc->reply_client->resp = bc->client->resp;
     bc->reply_client->flags |= CLIENT_MODULE;
     bc->dbid = c->db->id;
     bc->blocked_on_keys = keys != NULL;
@@ -6654,7 +6656,10 @@ RedisModuleCtx *RM_GetThreadSafeContext(RedisModuleBlockedClient *bc) {
     ctx->client = createClient(NULL);
     if (bc) {
         selectDb(ctx->client,bc->dbid);
-        if (bc->client) ctx->client->id = bc->client->id;
+        if (bc->client) {
+            ctx->client->id = bc->client->id;
+            ctx->client->resp = bc->client->resp;
+        }
     }
     return ctx;
 }

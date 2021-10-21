@@ -78,6 +78,20 @@ start_server {tags {"modules"}} {
         r do_bg_rm_call hgetall hash
     } {foo bar}
 
+    test {RESP version carries through to blocked client} {
+        for {set client_proto 2} {$client_proto <= 3} {incr client_proto} {
+            r hello $client_proto
+            r readraw 1
+            set ret [r do_fake_bg_true]
+            if {$client_proto == 2} {
+                assert_equal $ret {:1}
+            } else {
+                assert_equal $ret "#t"
+            }
+            r readraw 0
+        }
+    }
+
     test {blocked client reaches client output buffer limit} {
         r hset hash big [string repeat x 50000]
         r hset hash bada [string repeat x 50000]
