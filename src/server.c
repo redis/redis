@@ -510,7 +510,7 @@ struct redisCommand clientSubcommands[] = {
      "no-script ok-loading ok-stale @connection"},
 
     {"trackinginfo",clientCommand,2,
-     "admin no-script ok-loading ok-stale @connection"},
+     "no-script ok-loading ok-stale @connection"},
 
     {"no-evict",clientCommand,3,
      "admin no-script ok-loading ok-stale @connection"},
