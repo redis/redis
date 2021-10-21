@@ -415,15 +415,19 @@ proc find_available_port {start count} {
         if {$port < $start || $port >= $start+$count} {
             set port $start
         }
-        if {[catch {set fd1 [socket 127.0.0.1 $port]}] &&
-            [catch {set fd2 [socket 127.0.0.1 [expr $port+10000]]}]} {
-            set ::last_port_attempted $port
-            return $port
+        if {[catch {set fd1 [socket -server 127.0.0.1 $port]}] ||
+            [catch {set fd2 [socket -server 127.0.0.1 [expr $port+10000]]}]} {
+            catch {
+                close $fd1
+                close $fd2
+            }
         } else {
             catch {
                 close $fd1
                 close $fd2
             }
+            set ::last_port_attempted $port
+            return $port
         }
         incr port
     }
