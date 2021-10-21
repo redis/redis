@@ -628,7 +628,7 @@ struct redisCommand sentinelSubcommands[] = {
     {"config",sentinelCommand,-3,
      "admin only-sentinel"},
 
-    {"debug",sentinelCommand,2,
+    {"debug",sentinelCommand,-2,
      "admin only-sentinel"},
 
     {"get-master-addr-by-name",sentinelCommand,3,
@@ -673,7 +673,7 @@ struct redisCommand sentinelSubcommands[] = {
     {"sentinels",sentinelCommand,3,
      "admin only-sentinel"},
 
-    {"set",sentinelCommand,5,
+    {"set",sentinelCommand,-3,
      "admin only-sentinel"},
 
     {"simulate-failure",sentinelCommand,3,
@@ -2027,7 +2027,7 @@ struct redisCommand redisCommandTable[] = {
      "read-only fast"},
 
     {"acl",NULL,-2,
-     "",
+     "sentinel",
      .subcommands=aclSubcommands},
 
     {"stralgo",NULL,-2,
@@ -4495,6 +4495,7 @@ int populateSingleCommand(struct redisCommand *c, char *strflags) {
         } else if (!strcasecmp(flag,"sentinel")) {
             c->flags |= CMD_SENTINEL;
         } else if (!strcasecmp(flag,"only-sentinel")) {
+            c->flags |= CMD_SENTINEL; /* Obviously it's s sentinel command */
             c->flags |= CMD_ONLY_SENTINEL;
         } else {
             /* Parse ACL categories here if the flag name starts with @. */
@@ -4575,13 +4576,6 @@ void populateCommandTable(void) {
 
     for (j = 0; j < numcommands; j++) {
         struct redisCommand *c = redisCommandTable+j;
-
-        if (!(c->flags & CMD_SENTINEL) && server.sentinel_mode)
-            continue;
-
-        if (c->flags & CMD_ONLY_SENTINEL && !server.sentinel_mode)
-            continue;
-
         int retval1, retval2;
 
         /* Assign the ID used for ACL. */
@@ -4591,6 +4585,13 @@ void populateCommandTable(void) {
          * set of flags. */
         if (populateSingleCommand(c,c->sflags) == C_ERR)
             serverPanic("Unsupported command flag or key spec flag");
+
+
+        if (!(c->flags & CMD_SENTINEL) && server.sentinel_mode)
+            continue;
+
+        if (c->flags & CMD_ONLY_SENTINEL && !server.sentinel_mode)
+            continue;
 
         retval1 = dictAdd(server.commands, sdsnew(c->name), c);
         /* Populate an additional dictionary that will be unaffected

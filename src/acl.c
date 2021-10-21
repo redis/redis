@@ -426,6 +426,7 @@ void ACLChangeCommandPerm(user *u, struct redisCommand *cmd, int allow) {
             struct redisCommand *sub = (struct redisCommand *)dictGetVal(de);
             ACLSetUserCommandBit(u,sub->id,allow);
         }
+        dictReleaseIterator(di);
     }
 }
 
