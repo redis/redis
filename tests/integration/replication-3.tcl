@@ -68,7 +68,7 @@ start_server {tags {"repl external:skip"}} {
             } else {
                 fail "Replication timeout."
             }
-            after 10
+            after 1000
             r -1 config set slave-read-only no
             assert_equal 2 [r -1 dbsize]    ; # active expire is off
             assert_equal 1 [r -1 incr key1] ; # incr expires and re-creates key1
