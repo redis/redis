@@ -302,7 +302,7 @@ struct client {
     int argc;
     robj **argv;
     redisDb *db;
-    int flags;
+    uint64_t flags;
     list *reply;
     // ... many other fields ...
     char buf[PROTO_REPLY_CHUNK_BYTES];
