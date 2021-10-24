@@ -280,12 +280,11 @@ start_server [list overrides [list save ""] ] {
 }
 
 start_server [list overrides [list save ""] ] {
-    r config set proto-max-bulk-len 10000000000 ;#10gb
-    r config set client-query-buffer-limit 10000000000 ;#10gb
     set str_length 5000000000
-
     # repeating all the plain nodes basic checks with 5gb values
     test {Test LPUSH and LPOP on plain nodes over 4GB} {
+        r config set proto-max-bulk-len 10000000000 ;#10gb
+        r config set client-query-buffer-limit 10000000000 ;#10gb
         r flushdb
         r lpush lst 9
         r write "*3\r\n\$5\r\nLPUSH\r\n\$3\r\nlst\r\n"
@@ -302,6 +301,8 @@ start_server [list overrides [list save ""] ] {
    } {} {large-memory}
 
    test {Test LINDEX and LINSERT on plain nodes over 4GB} {
+       r config set proto-max-bulk-len 10000000000 ;#10gb
+       r config set client-query-buffer-limit 10000000000 ;#10gb
        r flushdb
        r write "*3\r\n\$5\r\nLPUSH\r\n\$3\r\nlst\r\n"
        write_big_bulk $str_length;
@@ -317,6 +318,8 @@ start_server [list overrides [list save ""] ] {
    } {} {large-memory}
 
    test {Test LTRIM on plain nodes over 4GB} {
+       r config set proto-max-bulk-len 10000000000 ;#10gb
+       r config set client-query-buffer-limit 10000000000 ;#10gb
        r flushdb
        r lpush lst 9
        r write "*3\r\n\$5\r\nLPUSH\r\n\$3\r\nlst\r\n"
@@ -329,6 +332,8 @@ start_server [list overrides [list save ""] ] {
    } {} {large-memory}
 
    test {Test LREM on plain nodes over 4GB} {
+       r config set proto-max-bulk-len 10000000000 ;#10gb
+       r config set client-query-buffer-limit 10000000000 ;#10gb
        r flushdb
        r lpush lst one
        r write "*3\r\n\$5\r\nLPUSH\r\n\$3\r\nlst\r\n"
@@ -340,6 +345,8 @@ start_server [list overrides [list save ""] ] {
    } {1} {large-memory}
 
    test {Test LSET on plain nodes over 4GB} {
+       r config set proto-max-bulk-len 10000000000 ;#10gb
+       r config set client-query-buffer-limit 10000000000 ;#10gb
        r flushdb
        r RPUSH lst "aa"
        r RPUSH lst "bb"
@@ -352,6 +359,8 @@ start_server [list overrides [list save ""] ] {
    } {} {large-memory}
 
    test {Test LMOVE on plain nodes over 4GB} {
+       r config set proto-max-bulk-len 10000000000 ;#10gb
+       r config set client-query-buffer-limit 10000000000 ;#10gb
        r flushdb
        r RPUSH lst2{t} "aa"
        r RPUSH lst2{t} "bb"

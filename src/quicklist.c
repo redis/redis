@@ -3026,7 +3026,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
                                 if (node->encoding != QUICKLIST_NODE_ENCODING_RAW) {
                                     ERR("Incorrect compression: node %d is "
                                         "compressed at depth %d ((%u, %u); total "
-                                        "nodes: %lu; size: %lu)",
+                                        "nodes: %lu; size: %zu)",
                                         at, depth, low_raw, high_raw, ql->len,
                                         node->sz);
                                 }
