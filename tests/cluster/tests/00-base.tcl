@@ -70,6 +70,11 @@ test "Sanity for CLUSTER COUNT-FAILURE-REPORTS" {
     assert {[string is integer $reply]}
 }
 
+test "Sanity for CLUSTER KEYSLOT" {
+    set reply [R 0 CLUSTER KEYSLOT foo]
+    assert {[string is integer $reply]}
+}
+
 test "Sanity for CLUSTER SAVECONFIG" {
     set reply [R 0 CLUSTER SAVECONFIG]
     assert {$reply eq "OK"}
