@@ -280,11 +280,18 @@ start_server [list overrides [list save ""] ] {
 }
 
 start_server [list overrides [list save ""] ] {
+
+# test if the server supports such large configs (avoid 32 bit builds)
+catch {
+    r config set proto-max-bulk-len 10000000000 ;#10gb
+    r config set client-query-buffer-limit 10000000000 ;#10gb
+}
+if {[lindex [r config get proto-max-bulk-len] 1] == 10000000000} {
+
     set str_length 5000000000
+
     # repeating all the plain nodes basic checks with 5gb values
     test {Test LPUSH and LPOP on plain nodes over 4GB} {
-        r config set proto-max-bulk-len 10000000000 ;#10gb
-        r config set client-query-buffer-limit 10000000000 ;#10gb
         r flushdb
         r lpush lst 9
         r write "*3\r\n\$5\r\nLPUSH\r\n\$3\r\nlst\r\n"
@@ -301,8 +308,6 @@ start_server [list overrides [list save ""] ] {
    } {} {large-memory}
 
    test {Test LINDEX and LINSERT on plain nodes over 4GB} {
-       r config set proto-max-bulk-len 10000000000 ;#10gb
-       r config set client-query-buffer-limit 10000000000 ;#10gb
        r flushdb
        r write "*3\r\n\$5\r\nLPUSH\r\n\$3\r\nlst\r\n"
        write_big_bulk $str_length;
@@ -318,8 +323,6 @@ start_server [list overrides [list save ""] ] {
    } {} {large-memory}
 
    test {Test LTRIM on plain nodes over 4GB} {
-       r config set proto-max-bulk-len 10000000000 ;#10gb
-       r config set client-query-buffer-limit 10000000000 ;#10gb
        r flushdb
        r lpush lst 9
        r write "*3\r\n\$5\r\nLPUSH\r\n\$3\r\nlst\r\n"
@@ -332,8 +335,6 @@ start_server [list overrides [list save ""] ] {
    } {} {large-memory}
 
    test {Test LREM on plain nodes over 4GB} {
-       r config set proto-max-bulk-len 10000000000 ;#10gb
-       r config set client-query-buffer-limit 10000000000 ;#10gb
        r flushdb
        r lpush lst one
        r write "*3\r\n\$5\r\nLPUSH\r\n\$3\r\nlst\r\n"
@@ -345,8 +346,6 @@ start_server [list overrides [list save ""] ] {
    } {1} {large-memory}
 
    test {Test LSET on plain nodes over 4GB} {
-       r config set proto-max-bulk-len 10000000000 ;#10gb
-       r config set client-query-buffer-limit 10000000000 ;#10gb
        r flushdb
        r RPUSH lst "aa"
        r RPUSH lst "bb"
@@ -359,8 +358,6 @@ start_server [list overrides [list save ""] ] {
    } {} {large-memory}
 
    test {Test LMOVE on plain nodes over 4GB} {
-       r config set proto-max-bulk-len 10000000000 ;#10gb
-       r config set client-query-buffer-limit 10000000000 ;#10gb
        r flushdb
        r RPUSH lst2{t} "aa"
        r RPUSH lst2{t} "bb"
@@ -369,7 +366,7 @@ start_server [list overrides [list save ""] ] {
        r RPUSH lst2{t} "cc"
        r RPUSH lst2{t} "dd"
        r LMOVE lst2{t} lst{t} RIGHT LEFT
-       r LMOVE lst2{t} lst{t} LEFT RIGHT
+       assert_equal [read_big_bulk {r LMOVE lst2{t} lst{t} LEFT RIGHT}] $str_length
        assert_equal [r llen lst{t}] 2
        assert_equal [r llen lst2{t}] 2
        assert_equal [r lpop lst2{t}] "bb"
@@ -377,6 +374,7 @@ start_server [list overrides [list save ""] ] {
        assert_equal [r lpop lst{t}] "dd"
        assert_equal [read_big_bulk {r rpop lst{t}}] $str_length
    } {} {large-memory}
+} ;# skip 32bit builds
 }
 
 start_server {
@@ -1785,5 +1783,4 @@ foreach {pop} {BLPOP BLMPOP_RIGHT} {
         assert_equal [lpop k] [string repeat x 31]
         set _ $k
     } {12 0 9223372036854775808 2147483647 32767 127}
-
 }
