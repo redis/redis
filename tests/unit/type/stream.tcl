@@ -712,11 +712,11 @@ start_server {tags {"stream needs:debug"} overrides {appendonly yes aof-use-rdb-
 start_server {tags {"stream"}} {
     test {XGROUP HELP should not have unexpected options} {
         catch {r XGROUP help xxx} e
-        assert_match "*Unknown subcommand or wrong number of arguments*" $e
+        assert_match "*wrong number of arguments*" $e
     }
 
     test {XINFO HELP should not have unexpected options} {
         catch {r XINFO help xxx} e
-        assert_match "*Unknown subcommand or wrong number of arguments*" $e
+        assert_match "*wrong number of arguments*" $e
     }
 }

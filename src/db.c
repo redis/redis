@@ -1873,21 +1873,6 @@ int lcsGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *r
     return result->numkeys;
 }
 
-/* Helper function to extract keys from memory command.
- * MEMORY USAGE <key> */
-int memoryGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
-    UNUSED(cmd);
-
-    getKeysPrepareResult(result, 1);
-    if (argc >= 3 && !strcasecmp(argv[1]->ptr,"usage")) {
-        result->keys[0] = 2;
-        result->numkeys = 1;
-        return result->numkeys;
-    }
-    result->numkeys = 0;
-    return 0;
-}
-
 /* XREAD [BLOCK <milliseconds>] [COUNT <count>] [GROUP <groupname> <ttl>]
  *       STREAMS key_1 key_2 ... key_N ID_1 ID_2 ... ID_N */
 int xreadGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {

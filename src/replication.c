@@ -2812,6 +2812,11 @@ void replicaofCommand(client *c) {
  * (master or slave) and additional information related to replication
  * in an easy to process format. */
 void roleCommand(client *c) {
+    if (server.sentinel_mode) {
+        sentinelRoleCommand(c);
+        return;
+    }
+
     if (server.masterhost == NULL) {
         listIter li;
         listNode *ln;

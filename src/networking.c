@@ -2399,7 +2399,8 @@ sds catClientInfoString(sds s, client *client) {
     /* Compute the total memory consumed by this client. */
     size_t obufmem, total_mem = getClientMemoryUsage(client, &obufmem);
 
-    return sdscatfmt(s,
+    sds cmdname = client->lastcmd ? getFullCommandName(client->lastcmd) : NULL;
+    sds ret = sdscatfmt(s,
         "id=%U addr=%s laddr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i multi=%i qbuf=%U qbuf-free=%U argv-mem=%U multi-mem=%U obl=%U oll=%U omem=%U tot-mem=%U events=%s cmd=%s user=%s redir=%I resp=%i",
         (unsigned long long) client->id,
         getClientPeerId(client),
@@ -2422,10 +2423,13 @@ sds catClientInfoString(sds s, client *client) {
         (unsigned long long) obufmem, /* should not include client->buf since we want to see 0 for static clients. */
         (unsigned long long) total_mem,
         events,
-        client->lastcmd ? client->lastcmd->name : "NULL",
+        cmdname ? cmdname : "NULL",
         client->user ? client->user->name : "(superuser)",
         (client->flags & CLIENT_TRACKING) ? (long long) client->client_tracking_redirection : -1,
         client->resp);
+    if (cmdname)
+        sdsfree(cmdname);
+    return ret;
 }
 
 sds getAllClientsInfoString(int type) {
@@ -2568,6 +2572,8 @@ void clientCommand(client *c) {
 "    Control the replies sent to the current connection.",
 "SETNAME <name>",
 "    Assign the name <name> to the current connection.",
+"GETNAME",
+"    Get the name of the current connection.",
 "UNBLOCK <clientid> [TIMEOUT|ERROR]",
 "    Unblock the specified blocked client.",
 "TRACKING (ON|OFF) [REDIRECT <id>] [BCAST] [PREFIX <prefix> [...]]",
@@ -2575,6 +2581,8 @@ void clientCommand(client *c) {
 "    Control server assisted client side caching.",
 "TRACKINGINFO",
 "    Report tracking status for the current connection.",
+"NO-EVICT (ON|OFF)",
+"    Protect current client connection from eviction.",
 NULL
         };
         addReplyHelp(c, help);
@@ -2638,7 +2646,7 @@ NULL
             return;
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"no-evict") && c->argc == 3) {
-        /* CLIENT PROTECT ON|OFF */
+        /* CLIENT NO-EVICT ON|OFF */
         if (!strcasecmp(c->argv[2]->ptr,"on")) {
             c->flags |= CLIENT_NO_EVICT;
             addReply(c,shared.ok);
@@ -3195,7 +3203,7 @@ void replaceClientCommandVector(client *c, int argc, robj **argv) {
     for (j = 0; j < c->argc; j++)
         if (c->argv[j])
             c->argv_len_sum += getStringObjectLen(c->argv[j]);
-    c->cmd = lookupCommandOrOriginal(c->argv[0]->ptr);
+    c->cmd = lookupCommandOrOriginal(c->argv,c->argc);
     serverAssertWithInfo(c,NULL,c->cmd != NULL);
 }
 
@@ -3227,7 +3235,7 @@ void rewriteClientCommandArgument(client *c, int i, robj *newval) {
 
     /* If this is the command name make sure to fix c->cmd. */
     if (i == 0) {
-        c->cmd = lookupCommandOrOriginal(c->argv[0]->ptr);
+        c->cmd = lookupCommandOrOriginal(c->argv,c->argc);
         serverAssertWithInfo(c,NULL,c->cmd != NULL);
     }
 }
