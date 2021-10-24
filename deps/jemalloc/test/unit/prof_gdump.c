@@ -29,12 +29,12 @@ TEST_BEGIN(test_gdump) {
 	prof_dump_open = prof_dump_open_intercept;
 
 	did_prof_dump_open = false;
-	p = mallocx((1U << LG_LARGE_MINCLASS), 0);
+	p = mallocx((1U << SC_LG_LARGE_MINCLASS), 0);
 	assert_ptr_not_null(p, "Unexpected mallocx() failure");
 	assert_true(did_prof_dump_open, "Expected a profile dump");
 
 	did_prof_dump_open = false;
-	q = mallocx((1U << LG_LARGE_MINCLASS), 0);
+	q = mallocx((1U << SC_LG_LARGE_MINCLASS), 0);
 	assert_ptr_not_null(q, "Unexpected mallocx() failure");
 	assert_true(did_prof_dump_open, "Expected a profile dump");
 
@@ -45,7 +45,7 @@ TEST_BEGIN(test_gdump) {
 	    "Unexpected mallctl failure while disabling prof.gdump");
 	assert(gdump_old);
 	did_prof_dump_open = false;
-	r = mallocx((1U << LG_LARGE_MINCLASS), 0);
+	r = mallocx((1U << SC_LG_LARGE_MINCLASS), 0);
 	assert_ptr_not_null(q, "Unexpected mallocx() failure");
 	assert_false(did_prof_dump_open, "Unexpected profile dump");
 
@@ -56,7 +56,7 @@ TEST_BEGIN(test_gdump) {
 	    "Unexpected mallctl failure while enabling prof.gdump");
 	assert(!gdump_old);
 	did_prof_dump_open = false;
-	s = mallocx((1U << LG_LARGE_MINCLASS), 0);
+	s = mallocx((1U << SC_LG_LARGE_MINCLASS), 0);
 	assert_ptr_not_null(q, "Unexpected mallocx() failure");
 	assert_true(did_prof_dump_open, "Expected a profile dump");
 

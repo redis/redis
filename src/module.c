@@ -830,6 +830,8 @@ int64_t commandKeySpecsFlagsFromString(const char *s) {
     return flags;
 }
 
+RedisModuleCommandProxy *moduleCreateCommandProxy(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc cmdfunc, int64_t flags, int firstkey, int lastkey, int keystep);
+
 /* Register a new command in the Redis server, that will be handled by
  * calling the function pointer 'cmdfunc' using the RedisModule calling
  * convention. The function returns REDISMODULE_ERR if the specified command
@@ -888,7 +890,7 @@ int64_t commandKeySpecsFlagsFromString(const char *s) {
  *                     Normally this is used by a command that is used
  *                     to authenticate a client.
  * * **"may-replicate"**: This command may generate replication traffic, even
- *                        though it's not a write command.  
+ *                        though it's not a write command.
  *
  * The last three parameters specify which arguments of the new command are
  * Redis keys. See https://redis.io/commands/command for more information.
@@ -917,15 +919,23 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
     if ((flags & CMD_MODULE_NO_CLUSTER) && server.cluster_enabled)
         return REDISMODULE_ERR;
 
+    /* Check if the command name is busy. */
+    if (lookupCommandByCString(name) != NULL)
+        return REDISMODULE_ERR;
+
+    RedisModuleCommandProxy *cp = moduleCreateCommandProxy(ctx, name, cmdfunc, flags, firstkey, lastkey, keystep);
+    cp->rediscmd->arity = cmdfunc ? -1 : -2;
+
+    dictAdd(server.commands,sdsnew(name),cp->rediscmd);
+    dictAdd(server.orig_commands,sdsnew(name),cp->rediscmd);
+    cp->rediscmd->id = ACLGetCommandID(name); /* ID used for ACL. */
+    return REDISMODULE_OK;
+}
+
+RedisModuleCommandProxy *moduleCreateCommandProxy(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc cmdfunc, int64_t flags, int firstkey, int lastkey, int keystep) {
     struct redisCommand *rediscmd;
     RedisModuleCommandProxy *cp;
     sds cmdname = sdsnew(name);
-
-    /* Check if the command name is busy. */
-    if (lookupCommand(cmdname) != NULL) {
-        sdsfree(cmdname);
-        return REDISMODULE_ERR;
-    }
 
     /* Create a command "proxy", which is a structure that is referenced
      * in the command table, so that the generic command that works as
@@ -934,13 +944,12 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
      *
      * Note that we use the Redis command table 'getkeys_proc' in order to
      * pass a reference to the command proxy structure. */
-    cp = zmalloc(sizeof(*cp));
+    cp = zcalloc(sizeof(*cp));
     cp->module = ctx->module;
     cp->func = cmdfunc;
-    cp->rediscmd = zmalloc(sizeof(*rediscmd));
+    cp->rediscmd = zcalloc(sizeof(*rediscmd));
     cp->rediscmd->name = cmdname;
     cp->rediscmd->proc = RedisModuleCommandDispatcher;
-    cp->rediscmd->arity = -1;
     cp->rediscmd->flags = flags | CMD_MODULE;
     cp->rediscmd->getkeys_proc = (redisGetKeysProc*)(unsigned long)cp;
     cp->rediscmd->key_specs_max = STATIC_KEY_SPECS_NUM;
@@ -967,10 +976,68 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
     cp->rediscmd->calls = 0;
     cp->rediscmd->rejected_calls = 0;
     cp->rediscmd->failed_calls = 0;
-    dictAdd(server.commands,sdsdup(cmdname),cp->rediscmd);
-    dictAdd(server.orig_commands,sdsdup(cmdname),cp->rediscmd);
-    cp->rediscmd->id = ACLGetCommandID(cmdname); /* ID used for ACL. */
+    return cp;
+}
+
+/* Very similar to RedisModule_CreateCommand except that it is used to create
+ * a subcommand, associated with another, container, command.
+ *
+ * Example: If a module has a configuration command, MODULE.CONFIG, then
+ * GET and SET should be individual subcommands, while MODULE.CONFIG is
+ * a command, but should not be registered with a valid `funcptr`:
+ *
+ * if (RedisModule_CreateCommand(ctx,"module.config",NULL,"",0,0,0) == REDISMODULE_ERR)
+ *     return REDISMODULE_ERR;
+ *
+ *  if (RedisModule_CreateSubcommand(ctx,"container.config","set",cmd_config_set,"",0,0,0) == REDISMODULE_ERR)
+ *     return REDISMODULE_ERR;
+ *
+ *  if (RedisModule_CreateSubcommand(ctx,"container.config","get",cmd_config_get,"",0,0,0) == REDISMODULE_ERR)
+ *     return REDISMODULE_ERR;
+ *
+ */
+int RM_CreateSubcommand(RedisModuleCtx *ctx, const char *parent_name, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep) {
+    int64_t flags = strflags ? commandFlagsFromString((char*)strflags) : 0;
+    if (flags == -1) return REDISMODULE_ERR;
+    if ((flags & CMD_MODULE_NO_CLUSTER) && server.cluster_enabled)
+        return REDISMODULE_ERR;
+
+    struct redisCommand *parent_cmd = lookupCommandByCString(parent_name);
+
+    if (!parent_cmd || !(parent_cmd->flags & CMD_MODULE))
+        return REDISMODULE_ERR;
+
+    if (parent_cmd->parent)
+        return REDISMODULE_ERR; /* We don't allow more than one level of subcommands */
+
+    RedisModuleCommandProxy *parent_cp = (void*)(unsigned long)parent_cmd->getkeys_proc;
+    if (parent_cp->module != ctx->module)
+        return REDISMODULE_ERR;
+
+    /* Check if the command name is busy within the parent command. */
+    if (parent_cmd->subcommands_dict && lookupCommandByCStringLogic(parent_cmd->subcommands_dict, name) != NULL)
+        return REDISMODULE_ERR;
+
+    RedisModuleCommandProxy *cp = moduleCreateCommandProxy(ctx, name, cmdfunc, flags, firstkey, lastkey, keystep);
+    cp->rediscmd->arity = -2;
+
+    commandAddSubcommand(parent_cmd, cp->rediscmd);
     return REDISMODULE_OK;
+}
+
+/* Return `struct RedisModule *` as `void *` to avoid exposing it outside of module.c. */
+void *moduleGetHandleByName(char *modulename) {
+    return dictFetchValue(modules,modulename);
+}
+
+/* Returns 1 if `cmd` is a command of the module `modulename`. 0 otherwise. */
+int moduleIsModuleCommand(void *module_handle, struct redisCommand *cmd) {
+    if (cmd->proc != RedisModuleCommandDispatcher)
+        return 0;
+    if (module_handle == NULL)
+        return 0;
+    RedisModuleCommandProxy *cp = (void*)(unsigned long)cmd->getkeys_proc;
+    return (cp->module == module_handle);
 }
 
 void extendKeySpecsIfNeeded(struct redisCommand *cmd) {
@@ -1095,7 +1162,7 @@ int moduleSetCommandKeySpecFindKeys(RedisModuleCtx *ctx, const char *name, int i
  *
  * Example:
  *
- * if (RedisModule_CreateCommand(ctx,"kspec.smove",kspec_legacy,"",0,0,0) == REDISMODULE_ERR)
+ *  if (RedisModule_CreateCommand(ctx,"kspec.smove",kspec_legacy,"",0,0,0) == REDISMODULE_ERR)
  *      return REDISMODULE_ERR;
  *
  *  if (RedisModule_AddCommandKeySpec(ctx,"kspec.smove","read write",&spec_id) == REDISMODULE_ERR)
@@ -1111,6 +1178,11 @@ int moduleSetCommandKeySpecFindKeys(RedisModuleCtx *ctx, const char *name, int i
  *      return REDISMODULE_ERR;
  *  if (RedisModule_SetCommandKeySpecFindKeysRange(ctx,"kspec.smove",spec_id,0,1,0) == REDISMODULE_ERR)
  *      return REDISMODULE_ERR;
+ *
+ * It is also possible to use this API on subcommands (See RedisModule_CreateSubcommand).
+ * The name of the subcommand should be the name of the parent command + "|" + name of subcommand.
+ * Example:
+ *   RedisModule_AddCommandKeySpec(ctx,"module.config|get","read",&spec_id)
  *
  * Returns REDISMODULE_OK on success
  */
@@ -2711,6 +2783,17 @@ int RM_AvoidReplicaTraffic() {
 int RM_SelectDb(RedisModuleCtx *ctx, int newid) {
     int retval = selectDb(ctx->client,newid);
     return (retval == C_OK) ? REDISMODULE_OK : REDISMODULE_ERR;
+}
+
+/* Check if a key exists, without affecting its last access time.
+ *
+ * This is equivalent to calling RM_OpenKey with the mode REDISMODULE_READ |
+ * REDISMODULE_OPEN_KEY_NOTOUCH, then checking if NULL was returned and, if not,
+ * calling RM_CloseKey on the opened key.
+ */
+int RM_KeyExists(RedisModuleCtx *ctx, robj *keyname) {
+    robj *value = lookupKeyReadWithFlags(ctx->client->db, keyname, LOOKUP_NOTOUCH);
+    return (value != NULL);
 }
 
 /* Initialize a RedisModuleKey struct */
@@ -4853,7 +4936,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     /* Lookup command now, after filters had a chance to make modifications
      * if necessary.
      */
-    cmd = lookupCommand(c->argv[0]->ptr);
+    cmd = lookupCommand(c->argv,c->argc);
     if (!cmd) {
         errno = ENOENT;
         goto cleanup;
@@ -6122,6 +6205,8 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
     bc->free_privdata = free_privdata;
     bc->privdata = privdata;
     bc->reply_client = createClient(NULL);
+    if (bc->client)
+        bc->reply_client->resp = bc->client->resp;
     bc->reply_client->flags |= CLIENT_MODULE;
     bc->dbid = c->db->id;
     bc->blocked_on_keys = keys != NULL;
@@ -6595,7 +6680,10 @@ RedisModuleCtx *RM_GetThreadSafeContext(RedisModuleBlockedClient *bc) {
     ctx->client = createClient(NULL);
     if (bc) {
         selectDb(ctx->client,bc->dbid);
-        if (bc->client) ctx->client->id = bc->client->id;
+        if (bc->client) {
+            ctx->client->id = bc->client->id;
+            ctx->client->resp = bc->client->resp;
+        }
     }
     return ctx;
 }
@@ -7386,7 +7474,7 @@ int RM_ACLCheckCommandPermissions(RedisModuleUser *user, RedisModuleString **arg
     struct redisCommand *cmd;
 
     /* Find command */
-    if ((cmd = lookupCommand(argv[0]->ptr)) == NULL) {
+    if ((cmd = lookupCommand(argv, argc)) == NULL) {
         errno = ENOENT;
         return REDISMODULE_ERR;
     }
@@ -9777,8 +9865,7 @@ void moduleCommand(client *c) {
 NULL
         };
         addReplyHelp(c, help);
-    } else
-    if (!strcasecmp(subcmd,"load") && c->argc >= 3) {
+    } else if (!strcasecmp(subcmd,"load") && c->argc >= 3) {
         robj **argv = NULL;
         int argc = 0;
 
@@ -9996,7 +10083,7 @@ int *RM_GetCommandKeys(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, 
     int *res = NULL;
 
     /* Find command */
-    if ((cmd = lookupCommand(argv[0]->ptr)) == NULL) {
+    if ((cmd = lookupCommand(argv,argc)) == NULL) {
         errno = ENOENT;
         return NULL;
     }
@@ -10275,6 +10362,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(Free);
     REGISTER_API(Strdup);
     REGISTER_API(CreateCommand);
+    REGISTER_API(CreateSubcommand);
     REGISTER_API(SetModuleAttribs);
     REGISTER_API(IsModuleNameBusy);
     REGISTER_API(WrongArity);
@@ -10304,6 +10392,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ReplyWithLongDouble);
     REGISTER_API(GetSelectedDb);
     REGISTER_API(SelectDb);
+    REGISTER_API(KeyExists);
     REGISTER_API(OpenKey);
     REGISTER_API(CloseKey);
     REGISTER_API(KeyType);

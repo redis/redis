@@ -415,7 +415,7 @@ test {slave fails full sync and diskless load swapdb recovers it} {
             $slave slaveof $master_host $master_port
 
             # wait for the replica to start reading the rdb
-            wait_for_condition 50 100 {
+            wait_for_condition 100 100 {
                 [s -1 loading] eq 1
             } else {
                 fail "Replica didn't get into loading mode"

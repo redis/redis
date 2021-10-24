@@ -1893,7 +1893,7 @@ void readSyncBulkPayload(connection *conn) {
         if (rdbLoad(server.rdb_filename,&rsi,RDBFLAGS_REPLICATION) != C_OK) {
             serverLog(LL_WARNING,
                 "Failed trying to load the MASTER synchronization "
-                "DB from disk");
+                "DB from disk: %s", strerror(errno));
             cancelReplicationHandshake(1);
             if (server.rdb_del_sync_files && allPersistenceDisabled()) {
                 serverLog(LL_NOTICE,"Removing the RDB file obtained from "
@@ -2846,6 +2846,11 @@ void replicaofCommand(client *c) {
  * (master or slave) and additional information related to replication
  * in an easy to process format. */
 void roleCommand(client *c) {
+    if (server.sentinel_mode) {
+        sentinelRoleCommand(c);
+        return;
+    }
+
     if (server.masterhost == NULL) {
         listIter li;
         listNode *ln;

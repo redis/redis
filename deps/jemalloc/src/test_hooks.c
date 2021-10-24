@@ -6,7 +6,7 @@
  * from outside the generated library, so that we can use them in test code.
  */
 JEMALLOC_EXPORT
-void (*hooks_arena_new_hook)() = NULL;
+void (*test_hooks_arena_new_hook)() = NULL;
 
 JEMALLOC_EXPORT
-void (*hooks_libc_hook)() = NULL;
+void (*test_hooks_libc_hook)() = NULL;

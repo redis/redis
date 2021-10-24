@@ -793,7 +793,7 @@ int loadAppendOnlyFile(char *filename) {
         }
 
         /* Command lookup */
-        cmd = lookupCommand(argv[0]->ptr);
+        cmd = lookupCommand(argv,argc);
         if (!cmd) {
             serverLog(LL_WARNING,
                 "Unknown command '%s' reading the append only file",

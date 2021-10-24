@@ -17,6 +17,13 @@ ifeq ($(uname_S),Linux)
     LIBS = -lc
 endif
 
+# OS X 11.x doesn't have /usr/lib/libSystem.dylib and needs an explicit setting.
+ifeq ($(uname_S),Darwin)
+ifeq ("$(wildcard /usr/lib/libSystem.dylib)","")
+LIBS = -L /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib -lsystem
+endif
+endif
+
 TEST_MODULES = \
     commandfilter.so \
     basics.so \
@@ -43,7 +50,8 @@ TEST_MODULES = \
     zset.so \
     stream.so \
     aclcheck.so \
-    list.so
+    list.so \
+    subcommands.so
 
 
 .PHONY: all
