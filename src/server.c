@@ -561,7 +561,7 @@ struct redisCommand clusterSubcommands[] = {
     {"count-failure-reports",clusterCommand,3,
      "admin ok-stale random"},
 
-    {"countkeysinslots",clusterCommand,3,
+    {"countkeysinslot",clusterCommand,3,
      "ok-stale random"},
 
     {"delslots",clusterCommand,-3,
