@@ -59,6 +59,38 @@ test "Sanity for CLUSTER COUNTKEYSINSLOT" {
     assert {$reply eq 0}
 }
 
+test "Sanity for CLUSTER BUMPEPOCH" {
+    set reply [R 0 CLUSTER BUMPEPOCH]
+    assert_match {BUMPED*} $reply
+}
+
+test "Sanity for CLUSTER COUNT-FAILURE-REPORTS" {
+    set id [R 0 CLUSTER MYID]
+    set reply [R 0 CLUSTER COUNT-FAILURE-REPORTS $id]
+    assert {[string is integer $reply]}
+}
+
+test "Sanity for CLUSTER SAVECONFIG" {
+    set reply [R 0 CLUSTER SAVECONFIG]
+    assert {$reply eq "OK"}
+}
+
 test "It is possible to write and read from the cluster" {
     cluster_write_test 0
+}
+
+test "Sanity for CLUSTER FORGET" {
+    set id [R 0 CLUSTER MYID]
+    catch {[R 0 CLUSTER FORGET $id]} e
+    assert_match {*can't forget myself*} $e
+
+    set id [R 1 CLUSTER MYID]
+    set reply [R 0 CLUSTER FORGET $id]
+    assert {$reply eq "OK"}
+}
+
+test "Sanity for CLUSTER FLUSHSLOTS" {
+    R 0 FLUSHALL
+    set reply [R 0 CLUSTER FLUSHSLOTS]
+    assert {$reply eq "OK"}
 }
