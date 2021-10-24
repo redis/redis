@@ -462,9 +462,8 @@ void debugCommand(client *c) {
 "    accessed (otherwise the Redis behavior). Setting it to 1 reenables back the",
 "    default.",
 "QUICKLIST-PACKED-THRESHOLD <size>",
-"    Setting the size of elements that will be insertes as large element",
-"    Default value is 4gb, allowed value is smaller then that",
-"    For example 1Gb",
+"    Sets the threshold for elements to be inserted as plain vs packed nodes",
+"    Default value is 1GB, allows values up to 4GB",
 "SET-SKIP-CHECKSUM-VALIDATION <0|1>",
 "    Enables or disables checksum checks for RDB files and RESTORE's payload.",
 "SLEEP <seconds>",
@@ -812,7 +811,7 @@ NULL
         int memerr;
         unsigned long long sz = memtoull((const char *)c->argv[2]->ptr, &memerr);
         if (memerr || !quicklistisSetPackedThreshold(sz)) {
-            addReplyError(c, "argument must be a memory value bigger then 1 and smaller then 4gb");
+            addReplyError(c, "argument must be a memory value bigger then 1 and smaller than 4gb");
         } else {
             addReply(c,shared.ok);
         }

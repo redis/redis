@@ -208,7 +208,7 @@ proc tags_acceptable {tags err_return} {
     }
 
     if {!$::large_memory && [lsearch $tags "large-memory"] >= 0} {
-        set err "Not supported in small envs"
+        set err "large memory flag not provided"
         return 0
     }
 
