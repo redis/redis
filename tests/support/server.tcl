@@ -604,10 +604,10 @@ proc start_server {options {code undefined}} {
                     puts ""
                 }
 
-                set stderrlog [crashlog_from_file [dict get $srv "stderr"]]
-                if {[string length $stderrlog] > 0} {
-                    puts [format "\nLogged crash report (stderr) (pid %d):" [dict get $srv "pid"]]
-                    puts "$stderrlog"
+                set sanitizerlog [sanitizer_warnings_from_file [dict get $srv "stderr"]]
+                if {[string length $sanitizerlog] > 0} {
+                    puts [format "\nLogged sanitizer error lines (pid %d):" [dict get $srv "pid"]]
+                    puts "$sanitizerlog"
                     puts ""
                 }
             }

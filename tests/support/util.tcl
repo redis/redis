@@ -37,16 +37,27 @@ proc crashlog_from_file {filename} {
     set logall 0
     set result {}
     foreach line $lines {
-        # GCC UBSAN output does not contain 'Sanitizer' but 'runtime error'.
-        if {[string match {*REDIS BUG REPORT START*} $line] ||
-            [string match {*runtime error*} $line] ||
-            [string match {*Sanitizer*} $line]} {
+        if {[string match {*REDIS BUG REPORT START*} $line]} {
             set logall 1
         }
         if {[regexp {^\[\d+\]\s+\d+\s+\w+\s+\d{2}:\d{2}:\d{2} \#} $line]} {
             set matched 1
         }
         if {$logall || $matched} {
+            lappend result $line
+        }
+    }
+    join $result "\n"
+}
+
+# Return sanitizer log lines
+proc sanitizer_warnings_from_file {filename} {
+    set lines [split [exec cat $filename] "\n"]
+    set result {}
+    foreach line $lines {
+        # GCC UBSAN output does not contain 'Sanitizer' but 'runtime error'.
+        if {[string match {*runtime error*} $line] ||
+            [string match {*Sanitizer*} $line]} {
             lappend result $line
         }
     }
