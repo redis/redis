@@ -544,6 +544,10 @@ void signalFlushedDb(int dbid, int async) {
     }
 
     trackingInvalidateKeysOnFlush(async);
+
+    /* Changes in this method may take place in swapMainDbWithTempDb as well,
+     * where we execute similar calls, but with subtle differences as it's
+     * not simply flushing db. */
 }
 
 /*-----------------------------------------------------------------------------
@@ -1354,6 +1358,9 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
         scanDatabaseForReadyLists(activedb);
         touchAllWatchedKeysInDb(activedb, newdb);
     }
+
+    trackingInvalidateKeysOnFlush(1);
+    flushSlaveKeysWithExpireList();
 }
 
 /* SWAPDB db1 db2 */
