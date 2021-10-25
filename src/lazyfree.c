@@ -47,7 +47,7 @@ void lazyFreeLuaScripts(void *args[]) {
 }
 
 /* Release replication backlog referencing memory. */
-void lazyFreeReplicationBackogRefMem(void *args[]) {
+void lazyFreeReplicationBacklogRefMem(void *args[]) {
     list *blocks = args[0];
     rax *index = args[1];
     long long len = listLength(blocks);
@@ -199,7 +199,7 @@ void freeReplicationBacklogRefMemAsync(list *blocks, rax *index) {
         raxSize(index) > LAZYFREE_THRESHOLD)
     {
         atomicIncr(lazyfree_objects,listLength(blocks)+raxSize(index));
-        bioCreateLazyFreeJob(lazyFreeReplicationBackogRefMem,2,blocks,index);
+        bioCreateLazyFreeJob(lazyFreeReplicationBacklogRefMem,2,blocks,index);
     } else {
         listRelease(blocks);
         raxFree(index);
