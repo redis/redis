@@ -276,7 +276,7 @@ void execCommand(client *c) {
          * backlog with the final EXEC. */
         if (server.repl_backlog && was_master && !is_master) {
             char *execcmd = "*1\r\n$4\r\nEXEC\r\n";
-            feedReplicationBacklog(execcmd,strlen(execcmd));
+            feedReplicationBuffer(execcmd,strlen(execcmd));
         }
         afterPropagateExec();
     }

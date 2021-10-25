@@ -325,22 +325,44 @@ unsigned long LFUDecrAndReturn(robj *o) {
 }
 
 /* We don't want to count AOF buffers and slaves output buffers as
- * used memory: the eviction should use mostly data size. This function
- * returns the sum of AOF and slaves buffer. */
+ * used memory: the eviction should use mostly data size, because
+ * it can cause feedback-loop when we push DELs into them, putting
+ * more and more DELs will make them bigger, if we count them, we
+ * need to evict more keys, and then generate more DELs, maybe cause
+ * massive eviction loop, even all keys are evicted.
+ *
+ * This function returns the sum of AOF and replication buffer. */
 size_t freeMemoryGetNotCountedMemory(void) {
     size_t overhead = 0;
-    int slaves = listLength(server.slaves);
 
-    if (slaves) {
-        listIter li;
-        listNode *ln;
-
-        listRewind(server.slaves,&li);
-        while((ln = listNext(&li))) {
-            client *slave = listNodeValue(ln);
-            overhead += getClientOutputBufferMemoryUsage(slave);
+    /* Since all replicas and replication backlog share global replication
+     * buffer, we think only the part of exceeding backlog size is the extra
+     * separate consumption of replicas.
+     *
+     * Note that although the backlog is also initially incrementally grown
+     * (pushing DELs consumes memory), it'll eventually stop growing and
+     * remain constant in size, so even if its creation will cause some
+     * eviction, it's capped, and also here to stay (no resonance effect)
+     *
+     * Note that, because we trim backlog incrementally in the background,
+     * backlog size may exceeds our setting if slow replicas that reference
+     * vast replication buffer blocks disconnect. To avoid massive eviction
+     * loop, we don't count the delayed freed replication backlog into used
+     * memory even if there are no replicas, i.e. we still regard this memory
+     * as replicas'. */
+    if ((long long)server.repl_buffer_mem > server.repl_backlog_size) {
+        /* We use list structure to manage replication buffer blocks, so backlog
+         * also occupies some extra memory, we can't know exact blocks numbers,
+         * we only get approximate size according to per block size. */
+        size_t extra_approx_size =
+            (server.repl_backlog_size/PROTO_REPLY_CHUNK_BYTES + 1) *
+            (sizeof(replBufBlock)+sizeof(listNode));
+        size_t counted_mem = server.repl_backlog_size + extra_approx_size;
+        if (server.repl_buffer_mem > counted_mem) {
+            overhead += (server.repl_buffer_mem - counted_mem);
         }
     }
+
     if (server.aof_state != AOF_OFF) {
         overhead += sdsAllocSize(server.aof_buf)+aofRewriteBufferMemoryUsage();
     }
