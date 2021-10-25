@@ -71,6 +71,7 @@
 #define CONFIG_LATENCY_HISTOGRAM_MAX_VALUE 3000000L          /* <= 3 secs(us precision) */
 #define CONFIG_LATENCY_HISTOGRAM_INSTANT_MAX_VALUE 3000000L   /* <= 3 secs(us precision) */
 #define SHOW_THROUGHPUT_INTERVAL 250  /* 250ms */
+#define USECOND 1000000
 
 #define CLIENT_GET_EVENTLOOP(c) \
     (c->thread_id >= 0 ? config.threads[c->thread_id]->el : config.el)
@@ -126,6 +127,9 @@ static struct config {
     pthread_mutex_t liveclients_mutex;
     pthread_mutex_t is_updating_slots_mutex;
     int resp3; /* use RESP3 */
+    int qps;
+    int control_granularity;
+    long long resume_interval;
 } config;
 
 typedef struct _client {
@@ -148,6 +152,8 @@ typedef struct _client {
     int thread_id;
     struct clusterNode *cluster_node;
     int slots_last_update;
+    int count; // number requests that has finished in one qps control period 
+    long long last_resume; // last resume time
 } *client;
 
 /* Threads. */
@@ -463,17 +469,11 @@ static void setClusterKeyHashTag(client c) {
     }
 }
 
-static void clientDone(client c) {
-    int requests_finished = 0;
-    atomicGet(config.requests_finished, requests_finished);
-    if (requests_finished >= config.requests) {
-        freeClient(c);
-        if (!config.num_threads && config.el) aeStop(config.el);
-        return;
-    }
+static void resetOrCreateClient(client c) {
     if (config.keepalive) {
         resetClient(c);
-    } else {
+    }
+    else {
         if (config.num_threads) pthread_mutex_lock(&(config.liveclients_mutex));
         config.liveclients--;
         createMissingClients(c);
@@ -482,6 +482,32 @@ static void clientDone(client c) {
             pthread_mutex_unlock(&(config.liveclients_mutex));
         freeClient(c);
     }
+}
+
+int qpsControlHandler(aeEventLoop* el, long long id, void* clientData) {
+    UNUSED(el);
+    UNUSED(id);
+
+    client c = clientData;
+    resetOrCreateClient(c);
+    return AE_NOMORE;
+}
+
+static void clientDone(client c) {
+    int requests_finished = 0;
+    atomicGet(config.requests_finished, requests_finished);
+    if (requests_finished >= config.requests) {
+        freeClient(c);
+        if (!config.num_threads && config.el) aeStop(config.el);
+        return;
+    }
+    if (config.qps && c->count >= config.control_granularity) {
+        c->count = 0;
+        long long diff = (c->last_resume + config.resume_interval - ustime()) / 1000; // difference between expected next resume time and now in millisecond.
+        if (diff > 0) aeCreateTimeEvent(CLIENT_GET_EVENTLOOP(c), diff, qpsControlHandler, c, NULL);
+        else resetOrCreateClient(c);
+    }
+    else resetOrCreateClient(c);
 }
 
 static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
@@ -587,6 +613,8 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                 }
                 c->pending--;
                 if (c->pending == 0) {
+                    if (config.qps)
+                        c->count += 1;
                     clientDone(c);
                     break;
                 }
@@ -617,6 +645,7 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         if (config.cluster_mode && c->staglen > 0) setClusterKeyHashTag(c);
         atomicGet(config.slots_last_update, c->slots_last_update);
         c->start = ustime();
+        if (config.qps && c->count == 0) c->last_resume = c->start;
         c->latency = -1;
     }
     const ssize_t buflen = sdslen(c->obuf);
@@ -853,6 +882,7 @@ static client createClient(char *cmd, size_t len, client from, int thread_id) {
     listAddNodeTail(config.clients,c);
     atomicIncr(config.liveclients, 1);
     atomicGet(config.slots_last_update, c->slots_last_update);
+    c->count = 0;
     return c;
 }
 
@@ -1428,6 +1458,10 @@ int parseOptions(int argc, char **argv) {
         if (!strcmp(argv[i],"-c")) {
             if (lastarg) goto invalid;
             config.numclients = atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "--qps")) {
+            if (lastarg) goto invalid;
+            config.qps = atoi(argv[++i]);
+            if (config.qps < 0) config.qps = 0;
         } else if (!strcmp(argv[i],"-v") || !strcmp(argv[i], "--version")) {
             sds version = benchmarkVersion();
             printf("redis-benchmark %s\n", version);
@@ -1771,12 +1805,30 @@ int main(int argc, char **argv) {
     config.slots_last_update = 0;
     config.enable_tracking = 0;
     config.resp3 = 0;
+    config.qps = 0;
 
     i = parseOptions(argc,argv);
     argc -= i;
     argv += i;
 
     tag = "";
+    if (config.qps) {
+        int qps_per_client = config.qps / (config.numclients * config.pipeline);
+        if (qps_per_client <= 0) {
+            printf("warning: qps is too small with %d clients, qps control may fail\n", config.numclients);
+            qps_per_client = 1;
+        }
+        if (qps_per_client < 400) {
+            // resume interval > 2ms, we control qps per request
+            config.control_granularity = 1;
+            config.resume_interval = USECOND / qps_per_client;
+        }
+        else {
+            // we control qps every 5 requests
+            config.control_granularity = 10;
+            config.resume_interval = 10 * USECOND / qps_per_client;
+        }
+    }
 
 #ifdef USE_OPENSSL
     if (config.tls) {
