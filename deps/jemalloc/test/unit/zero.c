@@ -41,13 +41,13 @@ test_zero(size_t sz_min, size_t sz_max) {
 
 TEST_BEGIN(test_zero_small) {
 	test_skip_if(!config_fill);
-	test_zero(1, SMALL_MAXCLASS-1);
+	test_zero(1, SC_SMALL_MAXCLASS - 1);
 }
 TEST_END
 
 TEST_BEGIN(test_zero_large) {
 	test_skip_if(!config_fill);
-	test_zero(SMALL_MAXCLASS+1, (1U << (LG_LARGE_MINCLASS+1)));
+	test_zero(SC_SMALL_MAXCLASS + 1, 1U << (SC_LG_LARGE_MINCLASS + 1));
 }
 TEST_END
 

@@ -158,6 +158,7 @@ start_server {tags {"introspection"}} {
             bgsave_cpulist
             set-proc-title
             cluster-config-file
+            cluster-port
         }
 
         if {!$::tls} {
