@@ -1954,7 +1954,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                     return NULL;
                 }
 
-                if(container != QUICKLIST_NODE_CONTAINER_ZIPLIST && container != QUICKLIST_NODE_CONTAINER_PLAIN) {
+                if (container != QUICKLIST_NODE_CONTAINER_ZIPLIST && container != QUICKLIST_NODE_CONTAINER_PLAIN) {
                     rdbReportCorruptRDB("Quicklist integrity check failed.");
                     decrRefCount(o);
                     return NULL;

@@ -530,7 +530,7 @@ REDIS_STATIC int _quicklistNodeAllowMerge(const quicklistNode *a,
 
 #define quicklistNodeUpdateSz(node)                                            \
     do {                                                                       \
-        (node)->sz = ziplistBlobLen((node)->entry);                               \
+        (node)->sz = ziplistBlobLen((node)->entry);                            \
     } while (0)
 
 static quicklistNode* __quicklistCreatePlainNode(void *value, size_t sz) {
@@ -775,28 +775,30 @@ void quicklistReplaceEntry(quicklist *quicklist, quicklistEntry *entry,
     if (likely(!QL_NODE_IS_PLAIN(entry->node)) && likely(!isLargeElement(sz))) {
         entry->node->entry = ziplistReplace(entry->node->entry, entry->zi, data, sz);
         quicklistNodeUpdateSz(entry->node);
+        /* quicklistNext() and quicklistIndex() provide an uncompressed node */
+        quicklistCompress(quicklist, entry->node);
     } else if (QL_NODE_IS_PLAIN(entry->node)) {
         if (isLargeElement(sz)) {
             zfree(entry->node->entry);
             entry->node->entry = zmalloc(sz);
             entry->node->sz = sz;
             memcpy(entry->node->entry, data, sz);
+            quicklistCompress(quicklist, entry->node);
         } else {
             quicklistInsertAfter(quicklist, entry, data, sz);
+            quicklistCompress(quicklist, entry->node->next);
             __quicklistDelNode(quicklist, entry->node);
         }
-    } else if (isLargeElement(sz)) {
+    } else {
         quicklistInsertAfter(quicklist, entry, data, sz);
-        if (entry->node->count == 1)
+        quicklistCompress(quicklist, entry->node->next);
+        if (entry->node->count == 1) {
             __quicklistDelNode(quicklist, entry->node);
-        else {
+        } else {
             unsigned char* p = ziplistIndex(entry->node->entry, -1);
             quicklistDelIndex(quicklist, entry->node, &p);
         }
     }
-
-    /* quicklistNext() and quicklistIndex() provide an uncompressed node */
-    quicklistCompress(quicklist, entry->node);
 }
 
 /* Replace quicklist entry at offset 'index' by 'data' with length 'sz'.
@@ -1195,7 +1197,7 @@ int quicklistDelRange(quicklist *quicklist, const long start,
 /* compare between a two entries */
 int quicklistCompare(quicklistEntry* entry, unsigned char *p2, const size_t p2_len) {
     if (unlikely(QL_NODE_IS_PLAIN(entry->node))) {
-        return  ((entry->sz == p2_len) && (memcmp(entry->value ,p2, p2_len) == 0));
+        return ((entry->sz == p2_len) && (memcmp(entry->value ,p2, p2_len) == 0));
     }
     return ziplistCompare(entry->zi, p2, p2_len);
 }
