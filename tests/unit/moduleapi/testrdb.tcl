@@ -174,8 +174,11 @@ tags "modules" {
                     $master multi
                     $master client kill type replica
                     $master set asdf asdf
-                    # the side effect of resizing the backlog is that it is flushed (16k is the min size)
+                    # fill replication backlog with new content
                     $master config set repl-backlog-size 16384
+                    for {set keyid 0} {$keyid < 10} {incr keyid} {
+                        $master set "$keyid string_$keyid" [string repeat A 16384]
+                    }
                     $master exec
 
                     # Set master with a slow rdb generation, so that we can easily intercept loading
@@ -212,7 +215,7 @@ tags "modules" {
                     $master config set rdb-key-save-delay 0
 
                     # Make sure amount of keys matches master
-                    assert_equal [$replica dbsize] 1001
+                    assert_equal [$replica dbsize] 1011
                 }
             }
         } {} {external:skip}
