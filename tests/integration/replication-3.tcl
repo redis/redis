@@ -64,11 +64,10 @@ start_server {tags {"repl external:skip"}} {
             r set key2 5 px 10
             r -1 select 5
             wait_for_condition 50 100 {
-                [r -1 dbsize] == 2
+                [r -1 dbsize] == 2 && [r -1 exists key1 key2] == 0
             } else {
                 fail "Replication timeout."
             }
-            after 1000
             r -1 config set slave-read-only no
             assert_equal 2 [r -1 dbsize]    ; # active expire is off
             assert_equal 1 [r -1 incr key1] ; # incr expires and re-creates key1
@@ -108,11 +107,10 @@ start_server {tags {"repl external:skip"}} {
             r pexpire key 10
             r -1 select 5
             wait_for_condition 50 100 {
-                [r -1 dbsize] == 1
+                [r -1 dbsize] == 1 && [r -1 exists key] == 0
             } else {
                 fail "Replication timeout."
             }
-            after 10
             assert_equal [r -1 pfcount key] 0 ; # expired key not used
             assert_equal [r -1 dbsize] 1      ; # but it's also not deleted
             # cleanup

@@ -1527,7 +1527,7 @@ int expireIfNeeded(redisDb *db, robj *key, int expire_on_replica) {
     /* Deleting expired keys on a replica makes the replica inconsistent with
      * the master. The reason it's allowed for write commands is to make
      * writable replicas behave consistently. It shall not be used in readonly
-     * commands. */
+     * commands. Modules are accepted so that we don't break old modules. */
     if (expire_on_replica) {
         client *c = server.in_eval ? server.lua_client : server.current_client;
         serverAssert(!c || !c->cmd || (c->cmd->flags & (CMD_WRITE|CMD_MODULE)));
