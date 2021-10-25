@@ -25,7 +25,7 @@ extern "C" {
 
 #include "test/jemalloc_test_defs.h"
 
-#ifdef JEMALLOC_OSSPIN
+#if defined(JEMALLOC_OSATOMIC)
 #  include <libkern/OSAtomic.h>
 #endif
 
@@ -69,7 +69,7 @@ static const bool config_debug =
 
 #  define JEMALLOC_N(n) @private_namespace@##n
 #  include "jemalloc/internal/private_namespace.h"
-#  include "jemalloc/internal/hooks.h"
+#  include "jemalloc/internal/test_hooks.h"
 
 /* Hermetic headers. */
 #  include "jemalloc/internal/assert.h"

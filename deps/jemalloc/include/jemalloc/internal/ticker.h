@@ -75,4 +75,17 @@ ticker_tick(ticker_t *ticker) {
 	return ticker_ticks(ticker, 1);
 }
 
+/* 
+ * Try to tick.  If ticker would fire, return true, but rely on
+ * slowpath to reset ticker.
+ */
+static inline bool
+ticker_trytick(ticker_t *ticker) {
+	--ticker->tick;
+	if (unlikely(ticker->tick < 0)) {
+		return true;
+	}
+	return false;
+}
+
 #endif /* JEMALLOC_INTERNAL_TICKER_H */

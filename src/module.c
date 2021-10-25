@@ -60,6 +60,7 @@
 #include <dlfcn.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <fcntl.h>
 
 /* --------------------------------------------------------------------------
  * Private data structures used by the modules system. Those are data
@@ -829,6 +830,8 @@ int64_t commandKeySpecsFlagsFromString(const char *s) {
     return flags;
 }
 
+RedisModuleCommandProxy *moduleCreateCommandProxy(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc cmdfunc, int64_t flags, int firstkey, int lastkey, int keystep);
+
 /* Register a new command in the Redis server, that will be handled by
  * calling the function pointer 'cmdfunc' using the RedisModule calling
  * convention. The function returns REDISMODULE_ERR if the specified command
@@ -887,7 +890,7 @@ int64_t commandKeySpecsFlagsFromString(const char *s) {
  *                     Normally this is used by a command that is used
  *                     to authenticate a client.
  * * **"may-replicate"**: This command may generate replication traffic, even
- *                        though it's not a write command.  
+ *                        though it's not a write command.
  *
  * The last three parameters specify which arguments of the new command are
  * Redis keys. See https://redis.io/commands/command for more information.
@@ -916,15 +919,23 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
     if ((flags & CMD_MODULE_NO_CLUSTER) && server.cluster_enabled)
         return REDISMODULE_ERR;
 
+    /* Check if the command name is busy. */
+    if (lookupCommandByCString(name) != NULL)
+        return REDISMODULE_ERR;
+
+    RedisModuleCommandProxy *cp = moduleCreateCommandProxy(ctx, name, cmdfunc, flags, firstkey, lastkey, keystep);
+    cp->rediscmd->arity = cmdfunc ? -1 : -2;
+
+    dictAdd(server.commands,sdsnew(name),cp->rediscmd);
+    dictAdd(server.orig_commands,sdsnew(name),cp->rediscmd);
+    cp->rediscmd->id = ACLGetCommandID(name); /* ID used for ACL. */
+    return REDISMODULE_OK;
+}
+
+RedisModuleCommandProxy *moduleCreateCommandProxy(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc cmdfunc, int64_t flags, int firstkey, int lastkey, int keystep) {
     struct redisCommand *rediscmd;
     RedisModuleCommandProxy *cp;
     sds cmdname = sdsnew(name);
-
-    /* Check if the command name is busy. */
-    if (lookupCommand(cmdname) != NULL) {
-        sdsfree(cmdname);
-        return REDISMODULE_ERR;
-    }
 
     /* Create a command "proxy", which is a structure that is referenced
      * in the command table, so that the generic command that works as
@@ -933,13 +944,12 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
      *
      * Note that we use the Redis command table 'getkeys_proc' in order to
      * pass a reference to the command proxy structure. */
-    cp = zmalloc(sizeof(*cp));
+    cp = zcalloc(sizeof(*cp));
     cp->module = ctx->module;
     cp->func = cmdfunc;
-    cp->rediscmd = zmalloc(sizeof(*rediscmd));
+    cp->rediscmd = zcalloc(sizeof(*rediscmd));
     cp->rediscmd->name = cmdname;
     cp->rediscmd->proc = RedisModuleCommandDispatcher;
-    cp->rediscmd->arity = -1;
     cp->rediscmd->flags = flags | CMD_MODULE;
     cp->rediscmd->getkeys_proc = (redisGetKeysProc*)(unsigned long)cp;
     cp->rediscmd->key_specs_max = STATIC_KEY_SPECS_NUM;
@@ -966,10 +976,68 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
     cp->rediscmd->calls = 0;
     cp->rediscmd->rejected_calls = 0;
     cp->rediscmd->failed_calls = 0;
-    dictAdd(server.commands,sdsdup(cmdname),cp->rediscmd);
-    dictAdd(server.orig_commands,sdsdup(cmdname),cp->rediscmd);
-    cp->rediscmd->id = ACLGetCommandID(cmdname); /* ID used for ACL. */
+    return cp;
+}
+
+/* Very similar to RedisModule_CreateCommand except that it is used to create
+ * a subcommand, associated with another, container, command.
+ *
+ * Example: If a module has a configuration command, MODULE.CONFIG, then
+ * GET and SET should be individual subcommands, while MODULE.CONFIG is
+ * a command, but should not be registered with a valid `funcptr`:
+ *
+ * if (RedisModule_CreateCommand(ctx,"module.config",NULL,"",0,0,0) == REDISMODULE_ERR)
+ *     return REDISMODULE_ERR;
+ *
+ *  if (RedisModule_CreateSubcommand(ctx,"container.config","set",cmd_config_set,"",0,0,0) == REDISMODULE_ERR)
+ *     return REDISMODULE_ERR;
+ *
+ *  if (RedisModule_CreateSubcommand(ctx,"container.config","get",cmd_config_get,"",0,0,0) == REDISMODULE_ERR)
+ *     return REDISMODULE_ERR;
+ *
+ */
+int RM_CreateSubcommand(RedisModuleCtx *ctx, const char *parent_name, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep) {
+    int64_t flags = strflags ? commandFlagsFromString((char*)strflags) : 0;
+    if (flags == -1) return REDISMODULE_ERR;
+    if ((flags & CMD_MODULE_NO_CLUSTER) && server.cluster_enabled)
+        return REDISMODULE_ERR;
+
+    struct redisCommand *parent_cmd = lookupCommandByCString(parent_name);
+
+    if (!parent_cmd || !(parent_cmd->flags & CMD_MODULE))
+        return REDISMODULE_ERR;
+
+    if (parent_cmd->parent)
+        return REDISMODULE_ERR; /* We don't allow more than one level of subcommands */
+
+    RedisModuleCommandProxy *parent_cp = (void*)(unsigned long)parent_cmd->getkeys_proc;
+    if (parent_cp->module != ctx->module)
+        return REDISMODULE_ERR;
+
+    /* Check if the command name is busy within the parent command. */
+    if (parent_cmd->subcommands_dict && lookupCommandByCStringLogic(parent_cmd->subcommands_dict, name) != NULL)
+        return REDISMODULE_ERR;
+
+    RedisModuleCommandProxy *cp = moduleCreateCommandProxy(ctx, name, cmdfunc, flags, firstkey, lastkey, keystep);
+    cp->rediscmd->arity = -2;
+
+    commandAddSubcommand(parent_cmd, cp->rediscmd);
     return REDISMODULE_OK;
+}
+
+/* Return `struct RedisModule *` as `void *` to avoid exposing it outside of module.c. */
+void *moduleGetHandleByName(char *modulename) {
+    return dictFetchValue(modules,modulename);
+}
+
+/* Returns 1 if `cmd` is a command of the module `modulename`. 0 otherwise. */
+int moduleIsModuleCommand(void *module_handle, struct redisCommand *cmd) {
+    if (cmd->proc != RedisModuleCommandDispatcher)
+        return 0;
+    if (module_handle == NULL)
+        return 0;
+    RedisModuleCommandProxy *cp = (void*)(unsigned long)cmd->getkeys_proc;
+    return (cp->module == module_handle);
 }
 
 void extendKeySpecsIfNeeded(struct redisCommand *cmd) {
@@ -1094,7 +1162,7 @@ int moduleSetCommandKeySpecFindKeys(RedisModuleCtx *ctx, const char *name, int i
  *
  * Example:
  *
- * if (RedisModule_CreateCommand(ctx,"kspec.smove",kspec_legacy,"",0,0,0) == REDISMODULE_ERR)
+ *  if (RedisModule_CreateCommand(ctx,"kspec.smove",kspec_legacy,"",0,0,0) == REDISMODULE_ERR)
  *      return REDISMODULE_ERR;
  *
  *  if (RedisModule_AddCommandKeySpec(ctx,"kspec.smove","read write",&spec_id) == REDISMODULE_ERR)
@@ -1110,6 +1178,11 @@ int moduleSetCommandKeySpecFindKeys(RedisModuleCtx *ctx, const char *name, int i
  *      return REDISMODULE_ERR;
  *  if (RedisModule_SetCommandKeySpecFindKeysRange(ctx,"kspec.smove",spec_id,0,1,0) == REDISMODULE_ERR)
  *      return REDISMODULE_ERR;
+ *
+ * It is also possible to use this API on subcommands (See RedisModule_CreateSubcommand).
+ * The name of the subcommand should be the name of the parent command + "|" + name of subcommand.
+ * Example:
+ *   RedisModule_AddCommandKeySpec(ctx,"module.config|get","read",&spec_id)
  *
  * Returns REDISMODULE_OK on success
  */
@@ -2126,14 +2199,22 @@ int RM_ReplyWithEmptyString(RedisModuleCtx *ctx) {
 }
 
 /* Reply with a binary safe string, which should not be escaped or filtered
+ * taking in input a C buffer pointer, length and a 3 character type/extension.
+ *
+ * The function always returns REDISMODULE_OK. */
+int RM_ReplyWithVerbatimStringType(RedisModuleCtx *ctx, const char *buf, size_t len, const char *ext) {
+    client *c = moduleGetReplyClient(ctx);
+    if (c == NULL) return REDISMODULE_OK;
+    addReplyVerbatim(c, buf, len, ext);
+    return REDISMODULE_OK;
+}
+
+/* Reply with a binary safe string, which should not be escaped or filtered
  * taking in input a C buffer pointer and length.
  *
  * The function always returns REDISMODULE_OK. */
 int RM_ReplyWithVerbatimString(RedisModuleCtx *ctx, const char *buf, size_t len) {
-    client *c = moduleGetReplyClient(ctx);
-    if (c == NULL) return REDISMODULE_OK;
-    addReplyVerbatim(c, buf, len, "txt");
-    return REDISMODULE_OK;
+	return RM_ReplyWithVerbatimStringType(ctx, buf, len, "txt");
 }
 
 /* Reply to the client with a NULL.
@@ -2698,6 +2779,17 @@ int RM_SelectDb(RedisModuleCtx *ctx, int newid) {
     return (retval == C_OK) ? REDISMODULE_OK : REDISMODULE_ERR;
 }
 
+/* Check if a key exists, without affecting its last access time.
+ *
+ * This is equivalent to calling RM_OpenKey with the mode REDISMODULE_READ |
+ * REDISMODULE_OPEN_KEY_NOTOUCH, then checking if NULL was returned and, if not,
+ * calling RM_CloseKey on the opened key.
+ */
+int RM_KeyExists(RedisModuleCtx *ctx, robj *keyname) {
+    robj *value = lookupKeyReadWithFlags(ctx->client->db, keyname, LOOKUP_NOTOUCH);
+    return (value != NULL);
+}
+
 /* Initialize a RedisModuleKey struct */
 static void moduleInitKey(RedisModuleKey *kp, RedisModuleCtx *ctx, robj *keyname, robj *value, int mode){
     kp->ctx = ctx;
@@ -3018,7 +3110,7 @@ char *RM_StringDMA(RedisModuleKey *key, size_t *len, int mode) {
     return key->value->ptr;
 }
 
-/* If the string is open for writing and is of string type, resize it, padding
+/* If the key is open for writing and is of string type, resize it, padding
  * with zero bytes if the new length is greater than the old one.
  *
  * After this call, RM_StringDMA() must be called again to continue
@@ -4064,6 +4156,7 @@ int RM_HashGet(RedisModuleKey *key, int flags, ...) {
  * - EDOM if the given ID was 0-0 or not greater than all other IDs in the
  *   stream (only if the AUTOID flag is unset)
  * - EFBIG if the stream has reached the last possible ID
+ * - ERANGE if the elements are too large to be stored.
  */
 int RM_StreamAdd(RedisModuleKey *key, int flags, RedisModuleStreamID *id, RedisModuleString **argv, long numfields) {
     /* Validate args */
@@ -4107,8 +4200,9 @@ int RM_StreamAdd(RedisModuleKey *key, int flags, RedisModuleStreamID *id, RedisM
         use_id_ptr = &use_id;
     }
     if (streamAppendItem(s, argv, numfields, &added_id, use_id_ptr) == C_ERR) {
-        /* ID not greater than all existing IDs in the stream */
-        errno = EDOM;
+        /* Either the ID not greater than all existing IDs in the stream, or
+         * the elements are too large to be stored. either way, errno is already
+         * set by streamAppendItem. */
         return REDISMODULE_ERR;
     }
     /* Postponed signalKeyAsReady(). Done implicitly by moduleCreateEmptyKey()
@@ -4836,7 +4930,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     /* Lookup command now, after filters had a chance to make modifications
      * if necessary.
      */
-    cmd = lookupCommand(c->argv[0]->ptr);
+    cmd = lookupCommand(c->argv,c->argc);
     if (!cmd) {
         errno = ENOENT;
         goto cleanup;
@@ -5216,13 +5310,14 @@ robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, int todb, robj
  *   NOTE: The value is passed as a `void**` and the function is expected to update the
  *   pointer if the top-level value pointer is defragmented and consequently changes.
  *
- * * **mem_usage2**: Similar to `mem_usage`, but provides the `RedisModuleKeyOptCtx` parameter 
+ * * **mem_usage2**: Similar to `mem_usage`, but provides the `RedisModuleKeyOptCtx` parameter
+ *   so that meta information such as key name and db id can be obtained, and
+ *   the `sample_size` for size estimation (see MEMORY USAGE command).
+ * * **free_effort2**: Similar to `free_effort`, but provides the `RedisModuleKeyOptCtx` parameter
  *   so that meta information such as key name and db id can be obtained.
- * * **free_effort2**: Similar to `free_effort`, but provides the `RedisModuleKeyOptCtx` parameter 
+ * * **unlink2**: Similar to `unlink`, but provides the `RedisModuleKeyOptCtx` parameter
  *   so that meta information such as key name and db id can be obtained.
- * * **unlink2**: Similar to `unlink`, but provides the `RedisModuleKeyOptCtx` parameter 
- *   so that meta information such as key name and db id can be obtained.
- * * **copy2**: Similar to `copy`, but provides the `RedisModuleKeyOptCtx` parameter 
+ * * **copy2**: Similar to `copy`, but provides the `RedisModuleKeyOptCtx` parameter
  *   so that meta information such as key names and db ids can be obtained.
  * 
  * Note: the module name "AAAAAAAAA" is reserved and produces an error, it
@@ -5722,8 +5817,8 @@ void RM_DigestEndSequence(RedisModuleDigest *md) {
     memset(md->o,0,sizeof(md->o));
 }
 
-/* Decode a serialized representation of a module data type 'mt' from string
- * 'str' and return a newly allocated value, or NULL if decoding failed.
+/* Decode a serialized representation of a module data type 'mt', in a specific encoding version 'encver'
+ * from string 'str' and return a newly allocated value, or NULL if decoding failed.
  *
  * This call basically reuses the 'rdb_load' callback which module data types
  * implement in order to allow a module to arbitrarily serialize/de-serialize
@@ -5736,7 +5831,7 @@ void RM_DigestEndSequence(RedisModuleDigest *md) {
  * If this is NOT done, Redis will handle corrupted (or just truncated) serialized
  * data by producing an error message and terminating the process.
  */
-void *RM_LoadDataTypeFromString(const RedisModuleString *str, const moduleType *mt) {
+void *RM_LoadDataTypeFromStringEncver(const RedisModuleString *str, const moduleType *mt, int encver) {
     rio payload;
     RedisModuleIO io;
     void *ret;
@@ -5748,12 +5843,19 @@ void *RM_LoadDataTypeFromString(const RedisModuleString *str, const moduleType *
      * need to make sure we read the same.
      */
     io.ver = 2;
-    ret = mt->rdb_load(&io,0);
+    ret = mt->rdb_load(&io,encver);
     if (io.ctx) {
         moduleFreeContext(io.ctx);
         zfree(io.ctx);
     }
     return ret;
+}
+
+/* Similar to RM_LoadDataTypeFromStringEncver, original version of the API, kept
+ * for backward compatibility. 
+ */
+void *RM_LoadDataTypeFromString(const RedisModuleString *str, const moduleType *mt) {
+    return RM_LoadDataTypeFromStringEncver(str, mt, 0);
 }
 
 /* Encode a module data type 'mt' value 'data' into serialized form, and return it
@@ -6079,6 +6181,8 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
     bc->free_privdata = free_privdata;
     bc->privdata = privdata;
     bc->reply_client = createClient(NULL);
+    if (bc->client)
+        bc->reply_client->resp = bc->client->resp;
     bc->reply_client->flags |= CLIENT_MODULE;
     bc->dbid = c->db->id;
     bc->blocked_on_keys = keys != NULL;
@@ -6552,7 +6656,10 @@ RedisModuleCtx *RM_GetThreadSafeContext(RedisModuleBlockedClient *bc) {
     ctx->client = createClient(NULL);
     if (bc) {
         selectDb(ctx->client,bc->dbid);
-        if (bc->client) ctx->client->id = bc->client->id;
+        if (bc->client) {
+            ctx->client->id = bc->client->id;
+            ctx->client->resp = bc->client->resp;
+        }
     }
     return ctx;
 }
@@ -7343,7 +7450,7 @@ int RM_ACLCheckCommandPermissions(RedisModuleUser *user, RedisModuleString **arg
     struct redisCommand *cmd;
 
     /* Find command */
-    if ((cmd = lookupCommand(argv[0]->ptr)) == NULL) {
+    if ((cmd = lookupCommand(argv, argc)) == NULL) {
         errno = ENOENT;
         return REDISMODULE_ERR;
     }
@@ -9295,14 +9402,14 @@ size_t moduleGetFreeEffort(robj *key, robj *val, int dbid) {
 
 /* Return the memory usage of the module, it will automatically choose to call 
  * `mem_usage` or `mem_usage2`, and the default return value is 0. */
-size_t moduleGetMemUsage(robj *key, robj *val, int dbid) {
+size_t moduleGetMemUsage(robj *key, robj *val, size_t sample_size, int dbid) {
     moduleValue *mv = val->ptr;
     moduleType *mt = mv->type;
     size_t size = 0;
     /* We prefer to use the enhanced version. */
     if (mt->mem_usage2 != NULL) {
         RedisModuleKeyOptCtx ctx = {key, NULL, dbid, -1};
-        size = mt->mem_usage2(&ctx,mv->value);
+        size = mt->mem_usage2(&ctx, mv->value, sample_size);
     } else if (mt->mem_usage != NULL) {
         size = mt->mem_usage(mv->value);
     } 
@@ -9371,21 +9478,18 @@ void moduleInitModulesSystem(void) {
     server.module_client = NULL;
 
     moduleRegisterCoreAPI();
-    if (pipe(server.module_blocked_pipe) == -1) {
+
+    /* Create a pipe for module threads to be able to wake up the redis main thread.
+     * Make the pipe non blocking. This is just a best effort aware mechanism
+     * and we do not want to block not in the read nor in the write half.
+     * Enable close-on-exec flag on pipes in case of the fork-exec system calls in
+     * sentinels or redis servers. */
+    if (anetPipe(server.module_blocked_pipe, O_CLOEXEC|O_NONBLOCK, O_CLOEXEC|O_NONBLOCK) == -1) {
         serverLog(LL_WARNING,
             "Can't create the pipe for module blocking commands: %s",
             strerror(errno));
         exit(1);
     }
-    /* Make the pipe non blocking. This is just a best effort aware mechanism
-     * and we do not want to block not in the read nor in the write half. */
-    anetNonBlock(NULL,server.module_blocked_pipe[0]);
-    anetNonBlock(NULL,server.module_blocked_pipe[1]);
-
-    /* Enable close-on-exec flag on pipes in case of the fork-exec system calls in
-     * sentinels or redis servers. */
-    anetCloexec(server.module_blocked_pipe[0]);
-    anetCloexec(server.module_blocked_pipe[1]);
 
     /* Create the timers radix tree. */
     Timers = raxNew();
@@ -9718,8 +9822,7 @@ void moduleCommand(client *c) {
 NULL
         };
         addReplyHelp(c, help);
-    } else
-    if (!strcasecmp(subcmd,"load") && c->argc >= 3) {
+    } else if (!strcasecmp(subcmd,"load") && c->argc >= 3) {
         robj **argv = NULL;
         int argc = 0;
 
@@ -9937,7 +10040,7 @@ int *RM_GetCommandKeys(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, 
     int *res = NULL;
 
     /* Find command */
-    if ((cmd = lookupCommand(argv[0]->ptr)) == NULL) {
+    if ((cmd = lookupCommand(argv,argc)) == NULL) {
         errno = ENOENT;
         return NULL;
     }
@@ -10216,6 +10319,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(Free);
     REGISTER_API(Strdup);
     REGISTER_API(CreateCommand);
+    REGISTER_API(CreateSubcommand);
     REGISTER_API(SetModuleAttribs);
     REGISTER_API(IsModuleNameBusy);
     REGISTER_API(WrongArity);
@@ -10235,6 +10339,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ReplyWithString);
     REGISTER_API(ReplyWithEmptyString);
     REGISTER_API(ReplyWithVerbatimString);
+    REGISTER_API(ReplyWithVerbatimStringType);
     REGISTER_API(ReplyWithStringBuffer);
     REGISTER_API(ReplyWithCString);
     REGISTER_API(ReplyWithNull);
@@ -10244,6 +10349,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ReplyWithLongDouble);
     REGISTER_API(GetSelectedDb);
     REGISTER_API(SelectDb);
+    REGISTER_API(KeyExists);
     REGISTER_API(OpenKey);
     REGISTER_API(CloseKey);
     REGISTER_API(KeyType);
@@ -10352,6 +10458,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(LoadLongDouble);
     REGISTER_API(SaveDataTypeToString);
     REGISTER_API(LoadDataTypeFromString);
+    REGISTER_API(LoadDataTypeFromStringEncver);
     REGISTER_API(EmitAOF);
     REGISTER_API(Log);
     REGISTER_API(LogIOError);

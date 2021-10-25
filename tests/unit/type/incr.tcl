@@ -42,6 +42,12 @@ start_server {tags {"incr"}} {
         format $err
     } {ERR*}
 
+    test {DECRBY negation overflow} {
+        r set x 0
+        catch {r decrby x -9223372036854775808} err
+        format $err
+    } {ERR*}
+
     test {INCR fails against a key holding a list} {
         r rpush mylist 1
         catch {r incr mylist} err
