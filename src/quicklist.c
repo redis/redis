@@ -786,17 +786,16 @@ void quicklistReplaceEntry(quicklist *quicklist, quicklistEntry *entry,
             quicklistCompress(quicklist, entry->node);
         } else {
             quicklistInsertAfter(quicklist, entry, data, sz);
-            quicklistCompress(quicklist, entry->node->next);
             __quicklistDelNode(quicklist, entry->node);
         }
     } else {
         quicklistInsertAfter(quicklist, entry, data, sz);
-        quicklistCompress(quicklist, entry->node->next);
-        if (entry->node->count == 1) {
+        if (entry->node->count == 1)
             __quicklistDelNode(quicklist, entry->node);
-        } else {
+        else {
             unsigned char* p = ziplistIndex(entry->node->entry, -1);
             quicklistDelIndex(quicklist, entry->node, &p);
+            quicklistCompress(quicklist, entry->node->next);
         }
     }
 }
