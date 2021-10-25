@@ -2227,7 +2227,11 @@ int RM_ReplyWithNull(RedisModuleCtx *ctx) {
     return REDISMODULE_OK;
 }
 
-/* Reply to the client with a boolean value.
+/* Reply with a RESP3 Boolean type.
+ * Visit https://github.com/antirez/RESP3/blob/master/spec.md for more info about RESP3.
+ *
+ * In RESP3, this is boolean type
+ * In RESP2, it's a string response of "1" and "0" for true and false respectively.
  *
  * The function always returns REDISMODULE_OK. */
 int RM_ReplyWithBool(RedisModuleCtx *ctx, int b) {
@@ -2264,16 +2268,37 @@ int RM_ReplyWithCallReply(RedisModuleCtx *ctx, RedisModuleCallReply *reply) {
     return REDISMODULE_OK;
 }
 
-/* Send a string reply obtained converting the double 'd' into a bulk string.
+/* Reply with a RESP3 Double type.
+ * Visit https://github.com/antirez/RESP3/blob/master/spec.md for more info about RESP3.
+ *
+ * Send a string reply obtained converting the double 'd' into a bulk string.
  * This function is basically equivalent to converting a double into
  * a string into a C buffer, and then calling the function
  * RedisModule_ReplyWithStringBuffer() with the buffer and length.
+ *
+ * In RESP3 the string is tagged as a double, while in RESP2 it's just a plain string 
+ * that the user will have to parse.
  *
  * The function always returns REDISMODULE_OK. */
 int RM_ReplyWithDouble(RedisModuleCtx *ctx, double d) {
     client *c = moduleGetReplyClient(ctx);
     if (c == NULL) return REDISMODULE_OK;
     addReplyDouble(c,d);
+    return REDISMODULE_OK;
+}
+
+/* Reply with a RESP3 BigNumber type.
+ * Visit https://github.com/antirez/RESP3/blob/master/spec.md for more info about RESP3.
+ *
+ * In RESP3, this is a string of length `len` that is tagged as a BigNumber, 
+ * however, it's up to the caller to ensure that it's a valid BigNumber.
+ * In RESP2, this is just a plain bulk string response.
+ *
+ * The function always returns REDISMODULE_OK. */
+int RM_ReplyWithBigNumber(RedisModuleCtx *ctx, const char *bignum, size_t len) {
+    client *c = moduleGetReplyClient(ctx);
+    if (c == NULL) return REDISMODULE_OK;
+    addReplyBigNum(c, bignum, len);
     return REDISMODULE_OK;
 }
 
@@ -10346,6 +10371,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ReplyWithBool);
     REGISTER_API(ReplyWithCallReply);
     REGISTER_API(ReplyWithDouble);
+    REGISTER_API(ReplyWithBigNumber);
     REGISTER_API(ReplyWithLongDouble);
     REGISTER_API(GetSelectedDb);
     REGISTER_API(SelectDb);

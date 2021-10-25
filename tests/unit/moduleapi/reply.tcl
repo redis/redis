@@ -1,11 +1,10 @@
 set testmodule [file normalize tests/modules/reply.so]
 
-# test all with hello 2/3
-
 start_server {tags {"modules"}} {
     r module load $testmodule
     
-    for {proto=2; proto<=3; incr proto} {
+    #   test all with hello 2/3
+    for {set proto 2} {$proto <= 3} {incr proto} {
         r hello $proto
 
         test {RM_ReplyWithString: an string reply} {
@@ -15,6 +14,10 @@ start_server {tags {"modules"}} {
             # C string
             set string [r rw.cstring]
             assert_equal "A simple string" $string
+        }
+
+        test {RM_ReplyWithBigNumber: an string reply} {
+            assert_equal "123456778901234567890" [r rw.bignumber "123456778901234567890"]
         }
 
         test {RM_ReplyWithInt: an integer reply} {
@@ -40,7 +43,7 @@ start_server {tags {"modules"}} {
         test {RM_ReplyWithMap: an map reply} {
             set res [r rw.map 3]
             if {$proto == 2} {
-                assert_equal {0 0.0 1 1.5 2 3.0} $res
+                assert_equal {0 0 1 1.5 2 3} $res
             } else {
                 assert_equal [dict create 0 0.0 1 1.5 2 3.0] $res
             }
@@ -51,14 +54,21 @@ start_server {tags {"modules"}} {
         }
 
         test {RM_ReplyWithAttribute: an set reply} {
-            set res [r rw.attribute 3]
             if {$proto == 2} {
-                catch {r rw.error} e
+                catch {[r rw.attribute 3]} e
                 assert_match "Attributes aren't supported by RESP 2" $e
             } else {
-                assert_equal [dict create 0 0.0 1 1.5 2 3.0] $res
+                r readraw 1
+                set res [r rw.attribute 3]
+                assert_equal [r read] {:0}
+                assert_equal [r read] {,0}
+                assert_equal [r read] {:1}
+                assert_equal [r read] {,1.5}
+                assert_equal [r read] {:2}
+                assert_equal [r read] {,3}
+                assert_equal [r read] {+OK}
+                r readraw 0
             }
-            assert_equal "OK" $res
         }
 
         test {RM_ReplyWithBool: a boolean reply} {
