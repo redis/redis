@@ -263,7 +263,7 @@ void setKey(client *c, redisDb *db, robj *key, robj *val, int flags) {
     }
     incrRefCount(val);
     if (!(flags & SETKEY_KEEPTTL)) removeExpire(db,key);
-    if (flags & SETKEY_SIGNAL) signalModifiedKey(c,db,key);
+    if (!(flags & SETKEY_NO_SIGNAL)) signalModifiedKey(c,db,key);
 }
 
 /* Return a random key, in form of a Redis object.
