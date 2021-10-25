@@ -510,7 +510,7 @@ struct redisCommand clientSubcommands[] = {
      "no-script ok-loading ok-stale @connection"},
 
     {"trackinginfo",clientCommand,2,
-     "admin no-script ok-loading ok-stale @connection"},
+     "no-script ok-loading ok-stale @connection"},
 
     {"no-evict",clientCommand,3,
      "admin no-script ok-loading ok-stale @connection"},
@@ -3450,6 +3450,11 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     /* Close clients that need to be closed asynchronous */
     freeClientsInAsyncFreeQueue();
 
+    /* Incrementally trim replication backlog, 10 times the normal speed is
+     * to free replication backlog as much as possible. */
+    if (server.repl_backlog)
+        incrementalTrimReplicationBacklog(10*REPL_BACKLOG_TRIM_BLOCKS_PER_CALL);
+
     /* Disconnect some clients if they are consuming too much memory. */
     evictClients();
 
@@ -3674,6 +3679,7 @@ void initServerConfig(void) {
     server.aof_rewrite_scheduled = 0;
     server.aof_flush_sleep = 0;
     server.aof_last_fsync = time(NULL);
+    server.aof_cur_timestamp = 0;
     atomicSet(server.aof_bio_fsync_status,C_OK);
     server.aof_rewrite_time_last = -1;
     server.aof_rewrite_time_start = -1;
@@ -3718,9 +3724,6 @@ void initServerConfig(void) {
 
     /* Replication partial resync backlog */
     server.repl_backlog = NULL;
-    server.repl_backlog_histlen = 0;
-    server.repl_backlog_idx = 0;
-    server.repl_backlog_off = 0;
     server.repl_no_slaves_since = time(NULL);
 
     /* Failover related */
@@ -4172,6 +4175,7 @@ void initServer(void) {
     server.blocked_last_cron = 0;
     server.blocking_op_nesting = 0;
     server.thp_enabled = 0;
+    resetReplicationBuffer();
 
     if ((server.tls_port || server.tls_replication || server.tls_cluster)
                 && tlsConfigure(&server.tls_ctx_config) == C_ERR) {
@@ -6332,6 +6336,7 @@ sds genRedisInfoString(const char *section) {
             "mem_fragmentation_bytes:%zd\r\n"
             "mem_not_counted_for_evict:%zu\r\n"
             "mem_replication_backlog:%zu\r\n"
+            "mem_total_replication_buffers:%zu\r\n"
             "mem_clients_slaves:%zu\r\n"
             "mem_clients_normal:%zu\r\n"
             "mem_aof_buffer:%zu\r\n"
@@ -6376,6 +6381,7 @@ sds genRedisInfoString(const char *section) {
             mh->total_frag_bytes,
             freeMemoryGetNotCountedMemory(),
             mh->repl_backlog,
+            server.repl_buffer_mem,
             mh->clients_slaves,
             mh->clients_normal,
             mh->aof_buffer,
@@ -6766,8 +6772,8 @@ sds genRedisInfoString(const char *section) {
             server.second_replid_offset,
             server.repl_backlog != NULL,
             server.repl_backlog_size,
-            server.repl_backlog_off,
-            server.repl_backlog_histlen);
+            server.repl_backlog ? server.repl_backlog->offset : 0,
+            server.repl_backlog ? server.repl_backlog->histlen : 0);
     }
 
     /* CPU */
@@ -7519,15 +7525,19 @@ void dismissMemoryInChild(void) {
     /* Currently we use zmadvise_dontneed only when we use jemalloc with Linux.
      * so we avoid these pointless loops when they're not going to do anything. */
 #if defined(USE_JEMALLOC) && defined(__linux__)
+    listIter li;
+    listNode *ln;
 
-    /* Dismiss replication backlog. */
-    if (server.repl_backlog != NULL) {
-        dismissMemory(server.repl_backlog, server.repl_backlog_size);
+    /* Dismiss replication buffer. We don't need to separately dismiss replication
+     * backlog and replica' output buffer, because they just reference the global
+     * replication buffer but don't cost real memory. */
+    listRewind(server.repl_buffer_blocks, &li);
+    while((ln = listNext(&li))) {
+        replBufBlock *o = listNodeValue(ln);
+        dismissMemory(o, o->size);
     }
 
     /* Dismiss all clients memory. */
-    listIter li;
-    listNode *ln;
     listRewind(server.clients, &li);
     while((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
@@ -7596,15 +7606,34 @@ void loadDataFromDisk(void) {
                     server.second_replid_offset = rsi.repl_offset+1;
                     /* Rebase master_repl_offset from rsi.repl_offset. */
                     server.master_repl_offset += rsi.repl_offset;
-                    server.repl_backlog_off = server.master_repl_offset -
-                              server.repl_backlog_histlen + 1;
+                    serverAssert(server.repl_backlog);
+                    server.repl_backlog->offset = server.master_repl_offset -
+                              server.repl_backlog->histlen + 1;
                     server.repl_no_slaves_since = time(NULL);
+
+                    /* Rebase replication buffer blocks' offset since the previous
+                     * setting offset starts from 0. */
+                    listIter li;
+                    listNode *ln;
+                    listRewind(server.repl_buffer_blocks, &li);
+                    while ((ln = listNext(&li))) {
+                        replBufBlock *o = listNodeValue(ln);
+                        o->repl_offset += rsi.repl_offset;
+                    }
                 }
             }
         } else if (errno != ENOENT) {
             serverLog(LL_WARNING,"Fatal error loading the DB: %s. Exiting.",strerror(errno));
             exit(1);
         }
+
+        /* We always create replication backlog if server is a master, we need
+         * it because we put DELs in it when loading expired keys in RDB, but
+         * if RDB doesn't have replication info or there is no rdb, it is not
+         * possible to support partial resynchronization, to avoid extra memory
+         * of replication backlog, we drop it. */
+        if (server.master_repl_offset == 0 && server.repl_backlog)
+            freeReplicationBacklog();
     }
 }
 
