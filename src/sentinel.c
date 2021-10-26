@@ -4334,7 +4334,7 @@ void sentinelSetCommand(client *c) {
         switch(numargs) {
         case 2:
             sentinelEvent(LL_WARNING,"+set",ri,"%@ %s %s",(char*)c->argv[old_j]->ptr, 
-                                                          redacted ? "******" : (char*)c->argv[old_j+1]->ptr);                                                        
+                                                          redacted ? "******" : (char*)c->argv[old_j+1]->ptr);
             break;
         case 3:
             sentinelEvent(LL_WARNING,"+set",ri,"%@ %s %s %s",(char*)c->argv[old_j]->ptr,
