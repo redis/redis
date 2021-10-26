@@ -66,7 +66,7 @@ start_server {tags {"repl external:skip"}} {
             wait_for_condition 50 100 {
                 [r -1 dbsize] == 2 && [r -1 exists key1 key2] == 0
             } else {
-                fail "Replication timeout."
+                fail "Keys didn't replicate or didn't expire."
             }
             r -1 config set slave-read-only no
             assert_equal 2 [r -1 dbsize]    ; # active expire is off
@@ -109,7 +109,7 @@ start_server {tags {"repl external:skip"}} {
             wait_for_condition 50 100 {
                 [r -1 dbsize] == 1 && [r -1 exists key] == 0
             } else {
-                fail "Replication timeout."
+                fail "Key didn't replicate or didn't expire."
             }
             assert_equal [r -1 pfcount key] 0 ; # expired key not used
             assert_equal [r -1 dbsize] 1      ; # but it's also not deleted
