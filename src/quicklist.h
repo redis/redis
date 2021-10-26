@@ -145,7 +145,7 @@ typedef struct quicklistEntry {
 #define QUICKLIST_NODE_CONTAINER_PLAIN 1
 #define QUICKLIST_NODE_CONTAINER_ZIPLIST 2
 
-#define QL_NODE_IS_PLAIN(node) ((node)->container ==  QUICKLIST_NODE_CONTAINER_PLAIN)
+#define QL_NODE_IS_PLAIN(node) ((node)->container == QUICKLIST_NODE_CONTAINER_PLAIN)
 
 #define quicklistNodeIsCompressed(node)                                        \
     ((node)->encoding == QUICKLIST_NODE_ENCODING_LZF)

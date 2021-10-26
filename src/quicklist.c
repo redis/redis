@@ -537,7 +537,7 @@ static quicklistNode* __quicklistCreatePlainNode(void *value, size_t sz) {
     quicklistNode *new_node = quicklistCreateNode();
     new_node->entry = zmalloc(sz);
     new_node->container = QUICKLIST_NODE_CONTAINER_PLAIN;
-    memcpy(new_node->entry , value, sz);
+    memcpy(new_node->entry, value, sz);
     new_node->sz = sz;
     new_node->count++;
     return new_node;
