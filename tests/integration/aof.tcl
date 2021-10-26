@@ -444,6 +444,7 @@ tags {"aof external:skip"} {
     start_server_aof [list dir $server_path] {
         test {Successfully load AOF which has timestamp annotations inside} {
             set c [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+            wait_done_loading $c
             assert_equal "bar1" [$c get foo1]
             assert_equal "bar2" [$c get foo2]
             assert_equal "bar3" [$c get foo3]
@@ -455,6 +456,7 @@ tags {"aof external:skip"} {
         exec src/redis-check-aof --truncate-to-timestamp 1628217473 $aof_path
         start_server_aof [list dir $server_path] {
             set c [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+            wait_done_loading $c
             assert_equal "bar1" [$c get foo1]
             assert_equal "bar2" [$c get foo2]
             assert_equal "bar3" [$c get foo3]
@@ -464,6 +466,7 @@ tags {"aof external:skip"} {
         exec src/redis-check-aof --truncate-to-timestamp 1628217471 $aof_path
         start_server_aof [list dir $server_path] {
             set c [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+            wait_done_loading $c
             assert_equal "bar1" [$c get foo1]
             assert_equal "bar2" [$c get foo2]
             assert_equal "" [$c get foo3]
@@ -473,6 +476,7 @@ tags {"aof external:skip"} {
         exec src/redis-check-aof --truncate-to-timestamp 1628217470 $aof_path
         start_server_aof [list dir $server_path] {
             set c [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+            wait_done_loading $c
             assert_equal "bar1" [$c get foo1]
             assert_equal "" [$c get foo2]
         }
