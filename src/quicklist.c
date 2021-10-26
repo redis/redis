@@ -1392,6 +1392,7 @@ quicklist *quicklistDup(quicklist *orig) {
         copy->count += node->count;
         node->sz = current->sz;
         node->encoding = current->encoding;
+        node->container = current->container;
 
         _quicklistInsertNodeAfter(copy, copy->tail, node);
     }
