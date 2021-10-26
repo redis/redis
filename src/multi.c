@@ -402,7 +402,7 @@ void touchWatchedKey(redisDb *db, robj *key) {
 
 /* Set CLIENT_DIRTY_CAS to all clients of DB when DB is dirty.
  * It may happen in the following situations:
- * FLUSHDB, FLUSHALL, SWAPDB, end of successful diskless replication
+ * FLUSHDB, FLUSHALL, SWAPDB, end of successful diskless replication.
  *
  * replaced_with: for SWAPDB, the WATCH should be invalidated if
  * the key exists in either of them, and skipped only if it

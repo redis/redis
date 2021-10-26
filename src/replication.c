@@ -1976,16 +1976,16 @@ void readSyncBulkPayload(connection *conn) {
              * master structure and force resync of sub-replicas. */
             replicationAttachToNewMaster();
 
-            serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Swapping in memory DB");
+            serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Swapping active DB with loaded DB");
             swapMainDbWithTempDb(diskless_load_tempDb);
 
             moduleFireServerEvent(REDISMODULE_EVENT_REPL_ASYNC_LOAD,
                         REDISMODULE_SUBEVENT_REPL_ASYNC_LOAD_COMPLETED,
                         NULL);
 
-            /* Delete the tempDb as it's useless now. */
+            /* Delete the old db as it's useless now. */
             disklessLoadDiscardTempDb(diskless_load_tempDb);
-            serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Discarded temporary DB");
+            serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Discarded old DB");
         }
 
         /* Inform about db change, as replication was diskless and didn't cause a save. */

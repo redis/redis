@@ -472,18 +472,18 @@ redisDb *initTempDb(void) {
     }
 
     if (server.cluster_enabled) {
-        /* Prepare temp slots to keys map to be written during async diskless replication. */
+        /* Prepare temp slot to key map to be written during async diskless replication. */
         slotToKeyInit(tempDb);
     }
 
     return tempDb;
 }
 
-/* Discard tempDb, this can be slow (similar to FLUSHALL), but it's always async */
+/* Discard tempDb, this can be slow (similar to FLUSHALL), but it's always async. */
  void discardTempDb(redisDb *tempDb, void(callback)(dict*)) {
     int async = 1;
 
-    /* Release temp DBs */
+    /* Release temp DBs. */
     emptyDbStructure(tempDb, -1, async, callback);
     for (int i=0; i<server.dbnum; i++) {
         dictRelease(tempDb[i].dict);
@@ -491,7 +491,7 @@ redisDb *initTempDb(void) {
     }
 
     if (server.cluster_enabled) {
-        /* Release temp slots to keys map. */
+        /* Release temp slot to key map. */
         slotToKeyDestroy(tempDb);
     }
 
@@ -1354,7 +1354,7 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
          * if needed.
          *
          * Also the swapdb should make transaction fail if there is any
-         * client watching keys */
+         * client watching keys. */
         scanDatabaseForReadyLists(activedb);
         touchAllWatchedKeysInDb(activedb, newdb);
     }

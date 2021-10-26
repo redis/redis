@@ -376,7 +376,7 @@ static const RedisModuleEvent
 #define REDISMODULE_SUBEVENT_LOADING_PROGRESS_AOF 1
 #define _REDISMODULE_SUBEVENT_LOADING_PROGRESS_NEXT 2
 
-/* Replication Backup events are deprecated since Redis 7.0 and are never fired */
+/* Replication Backup events are deprecated since Redis 7.0 and are never fired. */
 #define REDISMODULE_SUBEVENT_REPL_BACKUP_CREATE 0
 #define REDISMODULE_SUBEVENT_REPL_BACKUP_RESTORE 1
 #define REDISMODULE_SUBEVENT_REPL_BACKUP_DISCARD 2
