@@ -19,6 +19,13 @@ start_server {tags {"lazyfree"}} {
     }
 
     test "FLUSHDB ASYNC can reclaim memory in background" {
+        # make the previous test is really done before sampling used_memory
+        wait_for_condition 50 100 {
+            [s lazyfree_pending_objects] == 0
+        } else {
+            fail "lazyfree isn't done"
+        }
+
         set orig_mem [s used_memory]
         set args {}
         for {set i 0} {$i < 100000} {incr i} {
