@@ -1485,10 +1485,10 @@ void quicklistRotate(quicklist *quicklist) {
     if (quicklist->count <= 1)
         return;
     /* First, get the tail entry */
-    unsigned char *p = NULL;
+
     unsigned char *value, *tmp;
     long long longval;
-    size_t sz;
+    size_t size;
     char longstr[32] = {0};
 
     if (unlikely(QL_NODE_IS_PLAIN(quicklist->tail))) {
@@ -1503,9 +1503,10 @@ void quicklistRotate(quicklist *quicklist) {
         return;
     }
 
-    p = ziplistIndex(quicklist->tail->entry, -1);
+    unsigned char *p = ziplistIndex(quicklist->tail->entry, -1);
+    unsigned int sz = (unsigned int) size;
 
-    ziplistGet(p, &tmp, (unsigned int*) &sz, &longval);
+    ziplistGet(p, &tmp, &sz, &longval);
     /* If value found is NULL, then ziplistGet populated longval instead */
     if (!tmp) {
         /* Write the longval as a string so we can re-add it */
@@ -2049,11 +2050,19 @@ int quicklistTest(int argc, char *argv[], int accurate) {
 
             quicklistRotate(ql);
 
+            int freed = 0;
+
             for(i = 1 ; i < 5; i++) {
                 quicklistPop(ql, QUICKLIST_HEAD, &data, &sz, &lv);
-                assert(data[5] != i);
+                if (data[5] != i) {
+                    zfree(data);
+                    freed =1;
+                    assert(1);
+                }
             }
             ql_verify(ql, 0, 0, 0, 0);
+            if (!freed)
+                zfree(data);
             quicklistRelease(ql);
             packed_threshold = (1 << 30);
         }
