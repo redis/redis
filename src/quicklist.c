@@ -1484,13 +1484,6 @@ int quicklistIndex(const quicklist *quicklist, const long long idx,
 void quicklistRotate(quicklist *quicklist) {
     if (quicklist->count <= 1)
         return;
-    /* First, get the tail entry */
-
-    unsigned char *value, *tmp;
-    long long longval;
-    size_t size;
-    char longstr[32] = {0};
-
     if (unlikely(QL_NODE_IS_PLAIN(quicklist->tail))) {
         quicklistNode *new_head = quicklist->tail;
         quicklistNode *new_tail = quicklist->tail->prev;
@@ -1503,8 +1496,12 @@ void quicklistRotate(quicklist *quicklist) {
         return;
     }
 
+    /* First, get the tail entry */
+    unsigned char *value, *tmp;
+    long long longval;
+    char longstr[32] = {0};
     unsigned char *p = ziplistIndex(quicklist->tail->entry, -1);
-    unsigned int sz = (unsigned int) size;
+    unsigned int sz;
 
     ziplistGet(p, &tmp, &sz, &longval);
     /* If value found is NULL, then ziplistGet populated longval instead */
