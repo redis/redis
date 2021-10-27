@@ -555,6 +555,9 @@ struct redisCommand clusterSubcommands[] = {
     {"addslots",clusterCommand,-3,
      "admin ok-stale random"},
 
+    {"addslotsrange",clusterCommand,-4,
+     "admin ok-stale random"},
+
     {"bumpepoch",clusterCommand,2,
      "admin ok-stale random"},
 
@@ -565,6 +568,9 @@ struct redisCommand clusterSubcommands[] = {
      "ok-stale random"},
 
     {"delslots",clusterCommand,-3,
+     "admin ok-stale random"},
+
+    {"delslotsrange",clusterCommand,-4,
      "admin ok-stale random"},
 
     {"failover",clusterCommand,-2,
