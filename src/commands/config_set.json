@@ -6,10 +6,16 @@
         "return_summary":"@simple-string-reply: OK when the configuration was set properly. Otherwise an error is returned.",
         "return_types":{
             "2":[
-                "+OK"
+                [
+                    "simple-string",
+                    "+OK on success."
+                ]
             ],
             "3":[
-                "+OK"
+                [
+                    "simple-string",
+                    "+OK on success."
+                ]
             ]
         },
         "arguments":[

@@ -3776,6 +3776,70 @@ void addReplyFlagsForKeyArgs(client *c, uint64_t flags) {
     setDeferredSetLen(c, flaglen, flagcount);
 }
 
+void addReplyCommandReturnTypes(client *c, struct redisCommand *cmd) {
+    int j;
+
+    addReplyMapLen(c, 2);
+    addReplyBulkCString(c, "RESP2");
+    void *array = addReplyDeferredLen(c);
+    for (j = 0; cmd->return_types_resp2 && cmd->return_types_resp2[j].type != NULL; j++) {
+        addReplyArrayLen(c, 2);
+        addReplyBulkCString(c, cmd->return_types_resp2[j].type);
+        addReplyBulkCString(c, cmd->return_types_resp2[j].summary);
+    }
+    setDeferredSetLen(c, array, j);
+    addReplyBulkCString(c, "RESP3");
+    array = addReplyDeferredLen(c);
+    for (j = 0; cmd->return_types_resp3 && cmd->return_types_resp3[j].type != NULL; j++) {
+        addReplyArrayLen(c, 2);
+        addReplyBulkCString(c, cmd->return_types_resp3[j].type);
+        addReplyBulkCString(c, cmd->return_types_resp3[j].summary);
+    }
+    setDeferredSetLen(c, array, j);
+}
+
+void addReplyCommandHistory(client *c, struct redisCommand *cmd) {
+    int j;
+
+    void *array = addReplyDeferredLen(c);
+    for (j = 0; cmd->history && cmd->history[j].since != NULL; j++) {
+        addReplyArrayLen(c, 2);
+        addReplyBulkCString(c, cmd->history[j].since);
+        addReplyBulkCString(c, cmd->history[j].summary);
+    }
+    setDeferredSetLen(c, array, j);
+}
+
+void addReplyCommandArgList(client *c, struct redisCommandArg *args) {
+    int j;
+
+    void *array = addReplyDeferredLen(c);
+    for (j = 0; args && args[j].name != NULL; j++) {
+        addReplyMapLen(c, 8);
+        addReplyBulkCString(c, "name");
+        addReplyBulkCString(c, args[j].name);
+        addReplyBulkCString(c, "type");
+        addReplyBulkCString(c, args[j].type);
+        addReplyBulkCString(c, "token");
+        addReplyBulkCString(c, args[j].token);
+        addReplyBulkCString(c, "summary");
+        addReplyBulkCString(c, args[j].summary);
+        addReplyBulkCString(c, "since");
+        addReplyBulkCString(c, args[j].since);
+        addReplyBulkCString(c, "optional");
+        addReplyBool(c, args[j].optional);
+        addReplyBulkCString(c, "multiple");
+        addReplyBool(c, args[j].multiple);
+        addReplyBulkCString(c, "value");
+        if (args[j].value_type == VALUE_ARG_STRING) {
+            addReplyBulkCString(c, args[j].value.string);
+        } else {
+            addReplyCommandArgList(c, args[j].value.subargs);
+        }
+    }
+    setDeferredSetLen(c, array, j);
+}
+
 void addReplyCommandKeyArgs(client *c, struct redisCommand *cmd) {
     addReplySetLen(c, cmd->key_specs_num);
     for (int i = 0; i < cmd->key_specs_num; i++) {
@@ -3895,17 +3959,46 @@ void addReplyCommand(client *c, struct redisCommand *cmd) {
                 lastkey += firstkey;
             keystep = cmd->legacy_range_key_spec.fk.range.keystep;
         }
-        /* We are adding: command name, arg count, flags, first, last, offset, categories, key args, subcommands */
-        addReplyArrayLen(c, 9);
+        #if 0
+            /* Declarative data */
+    char *name;
+    char *summary;
+    char *since;
+    char *group;
+    char *return_summary;
+    commandReturnType *return_types_resp2;
+    commandReturnType *return_types_resp3;
+    commandHistory *history;
+    redisCommandProc *proc;
+        #endif
+        /* We are adding: command name, arg count, flags, first, last, offset, categories, additional information */
+        addReplyArrayLen(c, 8);
         addReplyBulkCString(c, cmd->name);
         addReplyLongLong(c, cmd->arity);
         addReplyFlagsForCommand(c, cmd);
         addReplyLongLong(c, firstkey);
         addReplyLongLong(c, lastkey);
         addReplyLongLong(c, keystep);
-        addReplyCommandCategories(c,cmd);
-        addReplyCommandKeyArgs(c,cmd);
-        addReplyCommandSubCommands(c,cmd);
+        addReplyCommandCategories(c, cmd);
+        addReplyMapLen(c, 9);
+        addReplyBulkCString(c, "summary");
+        addReplyBulkCString(c, cmd->summary);
+        addReplyBulkCString(c, "complexity");
+        addReplyBulkCString(c, cmd->complexity);
+        addReplyBulkCString(c, "since");
+        addReplyBulkCString(c, cmd->since);
+        addReplyBulkCString(c, "group");
+        addReplyBulkCString(c, cmd->group);
+        addReplyBulkCString(c, "return_types");
+        addReplyCommandReturnTypes(c, cmd);
+        addReplyBulkCString(c, "history");
+        addReplyCommandHistory(c, cmd);
+        addReplyBulkCString(c, "arguments");
+        addReplyCommandArgList(c, cmd->args);
+        addReplyBulkCString(c, "key_specs");
+        addReplyCommandKeyArgs(c, cmd);
+        addReplyBulkCString(c, "subcommands");
+        addReplyCommandSubCommands(c, cmd);
     }
 }
 

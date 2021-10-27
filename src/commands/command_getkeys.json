@@ -1,0 +1,33 @@
+{
+    "GETKEYS":{
+        "summary":"Extract keys given a full Redis command",
+        "complexity":"O(N) where N is the number of arguments to the command",
+        "since":"2.8.13",
+        "group":"server",
+        "return_summary":"@array-reply: list of keys from your command.",
+        "return_types":{
+            "2":[
+                [
+                    "array",
+                    "The list of keys from your command"
+                ]
+            ],
+            "3":[
+                [
+                    "array",
+                    "The list of keys from your command"
+                ]
+            ]
+        },
+        "arity":-4,
+        "command_flags":[
+            "ok-loading",
+            "ok-stale"
+        ],
+        "acl_categories":[
+            "connection"
+        ],
+        "function":"commandGetKeysCommand",
+        "container":"COMMAND"
+    }
+}

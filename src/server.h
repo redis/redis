@@ -1836,12 +1836,33 @@ typedef struct {
     char *summary;
 } commandHistory;
 
+typedef enum {
+    VALUE_ARG_SUBARGS,
+    VALUE_ARG_STRING,
+} redisCommandValueArgType;
+
+struct redisCommandArg {
+    char *name;
+    char *type;
+    char *token;
+    char *summary;
+    char *since;
+    int optional;
+    int multiple;
+    redisCommandValueArgType value_type;
+    union {
+        struct redisCommandArg *subargs;
+        char *string;
+    } value;
+};
+
 typedef void redisCommandProc(client *c);
 typedef int redisGetKeysProc(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 struct redisCommand {
     /* Declarative data */
     char *name;
     char *summary;
+    char *complexity;
     char *since;
     char *group;
     char *return_summary;
@@ -1857,6 +1878,8 @@ struct redisCommand {
     redisGetKeysProc *getkeys_proc;
     /* Array of subcommands (may be NULL) */
     struct redisCommand *subcommands;
+    /* Array of arguments (may be NULL) */
+    struct redisCommandArg *args;
 
     /* Runtime data */
     uint64_t flags; /* The actual flags, obtained from the 'sflags' field. */

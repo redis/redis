@@ -7,10 +7,16 @@
         "return_summary":"@integer-reply: the number of elements in the resulting sorted set at\n`destination`.",
         "return_types":{
             "2":[
-                "<integer>"
+                [
+                    "integer",
+                    "Cardinality of the result"
+                ]
             ],
             "3":[
-                "<integer>"
+                [
+                    "integer",
+                    "Cardinality of the result"
+                ]
             ]
         },
         "arguments":[

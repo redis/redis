@@ -15,6 +15,28 @@
                 "<null>"
             ]
         },
+        "return_types":{
+            "2":[
+                [
+                    "bulk-string",
+                    "ID of the added entry"
+                ],
+                [
+                    "null-bulk-string",
+                    "Stream doesn't exist and NOMKSTREAN was given"
+                ]
+            ],
+            "3":[
+                [
+                    "bulk-string",
+                    "ID of the added entry"
+                ],
+                [
+                    "null",
+                    "Stream doesn't exist and NOMKSTREAN was given"
+                ]
+            ]
+        },
         "history":[
             [
                 "6.2",

@@ -7,12 +7,24 @@
         "return_summary":"@simple-string-reply: The command returns OK on success, or `NOKEY` if no keys were\nfound in the source instance.",
         "return_types":{
             "2":[
-                "+OK",
-                "+NOKEY"
+                [
+                    "simple-string",
+                    "+OK on success."
+                ],
+                [
+                    "simple-string",
+                    "+NOKEY if key(s) was not in found in source."
+                ]
             ],
             "3":[
-                "+OK",
-                "+NOKEY"
+                [
+                    "simple-string",
+                    "+OK on success."
+                ],
+                [
+                    "simple-string",
+                    "+NOKEY if key(s) was not in found in source."
+                ]
             ]
         },
         "history":[
@@ -87,7 +99,7 @@
                 "optional":true
             },
             {
-                "name":"auth",
+                "name":"auth2",
                 "type":"block",
                 "value":[
                     {
