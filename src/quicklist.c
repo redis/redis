@@ -2044,22 +2044,16 @@ int quicklistTest(int argc, char *argv[], int accurate) {
             quicklistPushHead(ql, "hello4", 6);
             quicklistPushHead(ql, "hello3", 6);
             quicklistPushHead(ql, "hello2", 6);
-
             quicklistRotate(ql);
-
-            int freed = 0;
 
             for(i = 1 ; i < 5; i++) {
                 quicklistPop(ql, QUICKLIST_HEAD, &data, &sz, &lv);
-                if (data[5] != i) {
-                    zfree(data);
-                    freed =1;
-                    assert(1);
-                }
-            }
-            ql_verify(ql, 0, 0, 0, 0);
-            if (!freed)
+                int temp_char = data[5];
                 zfree(data);
+                assert(temp_char == ('0' + i));
+            }
+
+            ql_verify(ql, 0, 0, 0, 0);
             quicklistRelease(ql);
             packed_threshold = (1 << 30);
         }
