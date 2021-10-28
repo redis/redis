@@ -1011,6 +1011,30 @@ static int redisHandledPushReply(redisContext *c, void *reply) {
     return 0;
 }
 
+int redisGetReplyFromReaderIfPush(redisContext *c) {
+    void *aux = NULL;
+    redisReader *r = c->reader;
+
+    while (1) {
+        if ((r->len - r->pos >= 1) && (r->buf[r->pos] == '>')) {
+            do {
+                if (redisGetReplyFromReader(c, &aux) == REDIS_ERR) {
+                    return REDIS_ERR;
+                }
+                if (aux == NULL) {
+                    if (redisBufferRead(c) == REDIS_ERR) {
+                        return REDIS_ERR;
+                    }
+                }
+            } while (aux == NULL);
+            redisHandledPushReply(c, aux);
+            aux = NULL;
+        } else {
+            return REDIS_OK;
+        }
+    }
+}
+
 int redisGetReply(redisContext *c, void **reply) {
     int wdone = 0;
     void *aux = NULL;
@@ -1018,6 +1042,10 @@ int redisGetReply(redisContext *c, void **reply) {
     /* Try to read pending replies */
     if (redisGetReplyFromReader(c,&aux) == REDIS_ERR)
         return REDIS_ERR;
+
+    if (redisHandledPushReply(c, aux)) {
+        aux = NULL;
+    }
 
     /* For the blocking context, flush output buffer and read reply */
     if (aux == NULL && c->flags & REDIS_BLOCK) {
@@ -1039,6 +1067,7 @@ int redisGetReply(redisContext *c, void **reply) {
                     return REDIS_ERR;
             } while (redisHandledPushReply(c, aux));
         } while (aux == NULL);
+        redisGetReplyFromReaderIfPush(c);
     }
 
     /* Set reply or free it if we were passed NULL */
