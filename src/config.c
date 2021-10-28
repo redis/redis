@@ -1550,10 +1550,12 @@ static int boolConfigSet(typeData data, sds *argv, int argc, int update, const c
     if (data.yesno.is_valid_fn && !data.yesno.is_valid_fn(yn, err))
         return 0;
     int prev = *(data.yesno.config);
-    *(data.yesno.config) = yn;
-    if (update && data.yesno.update_fn && !data.yesno.update_fn(yn, prev, err)) {
-        *(data.yesno.config) = prev;
-        return 0;
+    if (prev != yn) {
+        *(data.yesno.config) = yn;
+        if (update && data.yesno.update_fn && !data.yesno.update_fn(yn, prev, err)) {
+            *(data.yesno.config) = prev;
+            return 0;
+        }
     }
     return 1;
 }
@@ -1587,13 +1589,16 @@ static int stringConfigSet(typeData data, sds *argv, int argc, int update, const
     if (data.string.is_valid_fn && !data.string.is_valid_fn(argv[0], err))
         return 0;
     char *prev = *data.string.config;
-    *data.string.config = (data.string.convert_empty_to_null && !argv[0][0]) ? NULL : zstrdup(argv[0]);
-    if (update && data.string.update_fn && !data.string.update_fn(*data.string.config, prev, err)) {
-        zfree(*data.string.config);
-        *data.string.config = prev;
-        return 0;
+    char *new = (data.string.convert_empty_to_null && !argv[0][0]) ? NULL : argv[0];
+    if (new != prev && (new == NULL || prev == NULL || strcmp(prev, new))) {
+        *data.string.config = new != NULL ? zstrdup(new) : NULL;
+        if (update && data.string.update_fn && !data.string.update_fn(*data.string.config, prev, err)) {
+            zfree(*data.string.config);
+            *data.string.config = prev;
+            return 0;
+        }
+        zfree(prev);
     }
-    zfree(prev);
     return 1;
 }
 
@@ -1615,13 +1620,16 @@ static int sdsConfigSet(typeData data, sds *argv, int argc, int update, const ch
     if (data.sds.is_valid_fn && !data.sds.is_valid_fn(argv[0], err))
         return 0;
     sds prev = *data.sds.config;
-    *data.sds.config = (data.sds.convert_empty_to_null && (sdslen(argv[0]) == 0)) ? NULL : sdsdup(argv[0]);
-    if (update && data.sds.update_fn && !data.sds.update_fn(*data.sds.config, prev, err)) {
-        sdsfree(*data.sds.config);
-        *data.sds.config = prev;
-        return 0;
+    sds new = (data.string.convert_empty_to_null && (sdslen(argv[0]) == 0)) ? NULL : argv[0];
+    if (new != prev && (new == NULL || prev == NULL || sdscmp(prev, new))) {
+        *data.sds.config = new != NULL ? sdsdup(new) : NULL;
+        if (update && data.sds.update_fn && !data.sds.update_fn(*data.sds.config, prev, err)) {
+            sdsfree(*data.sds.config);
+            *data.sds.config = prev;
+            return 0;
+        }
+        sdsfree(prev);
     }
-    sdsfree(prev);
     return 1;
 }
 
@@ -1694,10 +1702,12 @@ static int enumConfigSet(typeData data, sds *argv, int argc, int update, const c
     if (data.enumd.is_valid_fn && !data.enumd.is_valid_fn(enumval, err))
         return 0;
     int prev = *(data.enumd.config);
-    *(data.enumd.config) = enumval;
-    if (update && data.enumd.update_fn && !data.enumd.update_fn(enumval, prev, err)) {
-        *(data.enumd.config) = prev;
-        return 0;
+    if (prev != enumval) {
+        *(data.enumd.config) = enumval;
+        if (update && data.enumd.update_fn && !data.enumd.update_fn(enumval, prev, err)) {
+            *(data.enumd.config) = prev;
+            return 0;
+        }
     }
     return 1;
 }
@@ -1885,9 +1895,11 @@ static int numericConfigSet(typeData data, sds *argv, int argc, int update, cons
     GET_NUMERIC_TYPE(prev)
     SET_NUMERIC_TYPE(ll)
 
-    if (update && data.numeric.update_fn && !data.numeric.update_fn(ll, prev, err)) {
-        SET_NUMERIC_TYPE(prev)
-        return 0;
+    if (prev != ll) {
+        if (update && data.numeric.update_fn && !data.numeric.update_fn(ll, prev, err)) {
+            SET_NUMERIC_TYPE(prev)
+            return 0;
+        }
     }
     return 1;
 }
@@ -2079,10 +2091,7 @@ static int updateHZ(long long val, long long prev, const char **err) {
 }
 
 static int updatePort(long long val, long long prev, const char **err) {
-    /* Do nothing if port is unchanged */
-    if (val == prev) {
-        return 1;
-    }
+    UNUSED(prev);
 
     if (changeListenPort(val, &server.ipfd, acceptTcpHandler) == C_ERR) {
         *err = "Unable to listen on this port. Check server logs.";
@@ -2240,11 +2249,6 @@ static int updateTlsCfgInt(long long val, long long prev, const char **err) {
 }
 
 static int updateTLSPort(long long val, long long prev, const char **err) {
-    /* Do nothing if port is unchanged */
-    if (val == prev) {
-        return 1;
-    }
-
     /* Configure TLS if tls is enabled */
     if (prev == 0 && tlsConfigure(&server.tls_ctx_config) == C_ERR) {
         *err = "Unable to update TLS configuration. Check server logs.";
