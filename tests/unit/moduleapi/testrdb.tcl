@@ -132,58 +132,61 @@ tags "modules" {
             }
         }
 
-        foreach state {ABORTED COMPLETED} {
-            test "Diskless load swapdb, module can use RedisModuleEvent_ReplAsyncLoad events on $state async_loading" {
+        # Module events for diskless load swapdb when async_loading (matching master replid)
+        # Run different execution flavors and declare suitable tests according to each flavor
+        # Delayed allows us to assert state of things while async_loading is in progress
+        foreach testType {Fast Delayed Aborted} {
+            start_server [list overrides [list loadmodule "$testmodule 2"] tags [list external:skip]] {
+                set replica [srv 0 client]
+                set replica_host [srv 0 host]
+                set replica_port [srv 0 port]
+                set replica_log [srv 0 stdout]
                 start_server [list overrides [list loadmodule "$testmodule 2"]] {
-                    set replica [srv 0 client]
-                    set replica_host [srv 0 host]
-                    set replica_port [srv 0 port]
-                    set replica_log [srv 0 stdout]
-                    start_server [list overrides [list loadmodule "$testmodule 2"]] {
-                        set master [srv 0 client]
-                        set master_host [srv 0 host]
-                        set master_port [srv 0 port]
+                    set master [srv 0 client]
+                    set master_host [srv 0 host]
+                    set master_port [srv 0 port]
 
-                        set start [clock clicks -milliseconds]
+                    set start [clock clicks -milliseconds]
 
-                        # Set master and replica to use diskless replication on swapdb mode
-                        $master config set repl-diskless-sync yes
-                        $master config set repl-diskless-sync-delay 0
-                        $replica config set repl-diskless-load swapdb
+                    # Set master and replica to use diskless replication on swapdb mode
+                    $master config set repl-diskless-sync yes
+                    $master config set repl-diskless-sync-delay 0
+                    $replica config set repl-diskless-load swapdb
 
-                        # Replica logs
-                        set loglines [count_log_lines -1]
+                    # Initial sync to have matching replids between master and replica
+                    $replica replicaof $master_host $master_port
 
-                        # Initial sync to have matching replids between master and replica
-                        $replica replicaof $master_host $master_port
+                    # Let replica finish initial sync with master
+                    wait_for_condition 100 100 {
+                        [s -1 master_link_status] eq "up"
+                    } else {
+                        fail "Master <-> Replica didn't finish sync"
+                    }
 
-                        # Let replica finish initial sync with master
-                        wait_for_log_messages -1 {"*MASTER <-> REPLICA sync: Finished with success*"} $loglines 100 100
+                    # Set global values on module so we can check if module event callbacks will pick it up correctly
+                    $master testrdb.set.before value1_master
+                    $replica testrdb.set.before value1_replica
 
-                        # Set global values on module so we can check if module event callbacks will pick it up correctly
-                        $master testrdb.set.before value1_master
-                        $replica testrdb.set.before value1_replica
+                    # Put different data sets on the master and replica
+                    # We need to put large keys on the master since the replica replies to info only once in 2mb
+                    $replica debug populate 2000 slave 10
+                    $master debug populate 500 master 100000
+                    $master config set rdbcompression no
 
-                        # Put different data sets on the master and replica
-                        # We need to put large keys on the master since the replica replies to info only once in 2mb
-                        $replica debug populate 2000 slave 10
-                        $master debug populate 500 master 100000
-                        $master config set rdbcompression no
+                    # Force the replica to try another full sync (this time it will have matching master replid)
+                    $master multi
+                    $master client kill type replica
+                    # Fill replication backlog with new content
+                    $master config set repl-backlog-size 16384
+                    for {set keyid 0} {$keyid < 10} {incr keyid} {
+                        $master set "$keyid string_$keyid" [string repeat A 16384]
+                    }
+                    $master exec
 
-                        # Force the replica to try another full sync (this time it will have matching master replid)
-                        $master multi
-                        $master client kill type replica
-
-                        # Fill replication backlog with new content
-                        $master config set repl-backlog-size 16384
-                        for {set keyid 0} {$keyid < 10} {incr keyid} {
-                            $master set "$keyid string_$keyid" [string repeat A 16384]
-                        }
-                        $master exec
-
+                    if {$testType == "Delayed" || $testType == "Aborted"} {
                         # Set master with a slow rdb generation, so that we can easily intercept loading
-                        # 5ms per key, with 500 keys is 2.5 seconds
-                        $master config set rdb-key-save-delay 5000
+                        # 10ms per key, with 500 keys is 5 seconds
+                        $master config set rdb-key-save-delay 10000
 
                         # Wait for the replica to start reading the rdb
                         wait_for_condition 100 100 {
@@ -191,43 +194,59 @@ tags "modules" {
                         } else {
                             fail "Replica didn't get into async_loading mode"
                         }
+                    }
 
-                        if {$state == "ABORTED"} {
+                    switch $testType {
+                        "Aborted" {
+                            # Make sure that next sync will not start immediately so that we can catch the replica in between syncs
+                            $master config set repl-diskless-sync-delay 5
+
                             # Kill the replica connection on the master
                             set killed [$master client kill type replica]
-                        }
 
-                        # Speed things up
-                        $master config set rdb-key-save-delay 0
-
-                        # Wait for loading to stop (when ABORTED, stop fast)
-                        wait_for_condition 100 100 {
-                            [s -1 async_loading] eq 0
-                        } else {
-                            if {$state == "ABORTED"}
+                            # Wait for loading to stop (fail)
+                            wait_for_condition 100 100 {
+                                [s -1 async_loading] eq 0
+                            } else {
                                 fail "Replica didn't disconnect"
-                            else
-                                fail "Loading didn't stop"
+                            }
+                            
+                            test {Diskless load swapdb RedisModuleEvent_ReplAsyncLoad handling: when loading aborted, can keep module variable same as before} {
+                                assert_equal [$replica dbsize] 2000
+                                assert_equal value1_replica [$replica testrdb.get.before]
+                            }
                         }
-
-                        if {$state == "ABORTED"} {
-                            # Module variable is same as before
-                            assert_equal [$replica dbsize] 2000
-                            assert_equal value1_replica [$replica testrdb.get.before]
-                        } elseif {$state == "COMPLETED"} {
-                            # Module variable got value from master
-                            assert_equal [$replica dbsize] 510
-                            assert_equal value1_master [$replica testrdb.get.before]
+                        "Delayed" {
+                            test {Diskless load swapdb RedisModuleEvent_ReplAsyncLoad handling: during loading, can keep module variable same as before} {
+                                assert_equal [$replica dbsize] 2000
+                                assert_equal value1_replica [$replica testrdb.get.before]
+                            }
                         }
+                        "Fast" {
+                            # Let replica finish sync with master
+                            wait_for_condition 100 100 {
+                                [s -1 master_link_status] eq "up"
+                            } else {
+                                fail "Master <-> Replica didn't finish sync"
+                            }
 
-                        if {$::verbose} {
-                            set end [clock clicks -milliseconds]
-                            set duration [expr $end - $start]
-                            puts "test took $duration ms"
+                            test {Diskless load swapdb RedisModuleEvent_ReplAsyncLoad handling: after db loaded, can set module variable with new value} {
+                                assert_equal [$replica dbsize] 510
+                                assert_equal value1_master [$replica testrdb.get.before]
+                            }
                         }
                     }
+
+                    # Speed up shutdown (useful for Aborted and Delayed)
+                    $master config set rdb-key-save-delay 0
+
+                    if {$::verbose} {
+                        set end [clock clicks -milliseconds]
+                        set duration [expr $end - $start]
+                        puts "test took $duration ms"
+                    }
                 }
-            } {} {external:skip}
+            }
         }
     }
 }
