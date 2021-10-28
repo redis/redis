@@ -48,6 +48,7 @@
 
 #include "anet.h"
 #include "config.h"
+#include "zmalloc.h"
 
 static void anetSetError(char *err, const char *fmt, ...)
 {
@@ -422,12 +423,24 @@ static int anetV6Only(char *err, int s) {
     return ANET_OK;
 }
 
-static int _anetTcpServer(char *err, int port, char *bindaddr, int af, int backlog)
+static int _anetTcpServer(char *err, int port, char *addr, int af, int backlog)
 {
     int s = -1, rv;
     char _port[6];  /* strlen("65535") */
     struct addrinfo hints, *servinfo, *p;
+    char* bindaddr = NULL;
+#ifdef SO_BINDTODEVICE
+    char* dev = NULL;
+#endif
 
+    if (addr != NULL) {
+        bindaddr = zstrdup(addr);
+#ifdef SO_BINDTODEVICE
+        dev = strchr(bindaddr, '@');
+        if (dev != NULL)
+            *dev++ = '\0';
+#endif
+    }
     snprintf(_port,6,"%d",port);
     memset(&hints,0,sizeof(hints));
     hints.ai_family = af;
@@ -440,6 +453,7 @@ static int _anetTcpServer(char *err, int port, char *bindaddr, int af, int backl
 
     if ((rv = getaddrinfo(bindaddr,_port,&hints,&servinfo)) != 0) {
         anetSetError(err, "%s", gai_strerror(rv));
+        zfree(bindaddr);
         return ANET_ERR;
     }
     for (p = servinfo; p != NULL; p = p->ai_next) {
@@ -448,6 +462,14 @@ static int _anetTcpServer(char *err, int port, char *bindaddr, int af, int backl
 
         if (af == AF_INET6 && anetV6Only(err,s) == ANET_ERR) goto error;
         if (anetSetReuseAddr(err,s) == ANET_ERR) goto error;
+#ifdef SO_BINDTODEVICE
+        if (dev) {
+            if (setsockopt(s, SOL_SOCKET, SO_BINDTODEVICE, dev, strlen(dev))) {
+                anetSetError(err, "setsockopt SO_BINDTODEVICE: %s", strerror(errno));
+                goto error;
+            }
+        }
+#endif
         if (anetListen(err,s,p->ai_addr,p->ai_addrlen,backlog) == ANET_ERR) s = ANET_ERR;
         goto end;
     }
@@ -461,6 +483,7 @@ error:
     s = ANET_ERR;
 end:
     freeaddrinfo(servinfo);
+    zfree(bindaddr);
     return s;
 }
 
