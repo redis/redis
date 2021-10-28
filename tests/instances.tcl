@@ -583,7 +583,7 @@ proc get_instance_id_by_port {type port} {
     fail "Instance $type port $port not found."
 }
 
-# Kill an instance of the specified type/id with SIGKILL.
+# Kill an instance of the specified type/id with SIGTERM.
 # This function will mark the instance PID as -1 to remember that this instance
 # is no longer running and will remove its PID from the list of pids that
 # we kill at cleanup.
@@ -596,6 +596,9 @@ proc kill_instance {type id} {
     if {$pid == -1} {
         error "You tried to kill $type $id twice."
     }
+
+    # stop appendonly so that the instance won't refuse to go down
+    R $id config set appendonly no
 
     stop_instance $pid
     set_instance_attrib $type $id pid -1
