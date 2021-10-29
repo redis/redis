@@ -160,20 +160,20 @@ class Argument(object):
 
         return s
 
-    def write(self, f):
+    def write_internal_structs(self, f):
         if self.subargs:
             for subarg in self.subargs:
-                subarg.write(f)
+                subarg.write_internal_structs(f)
 
             f.write("/* %s argument table */\n" % self.fullname())
             f.write("struct redisCommandArg %s[] = {\n" % self.subarg_table_name())
             for subarg in self.subargs:
-                f.write("%s,\n" % subarg.struct_name())
+                f.write("{%s},\n" % subarg.struct_code())
             f.write("{0}\n")
             f.write("};\n\n")
 
-        f.write("/* %s argument */\n" % self.fullname())
-        f.write("#define %s {%s}\n\n" % (self.struct_name(), self.struct_code()))
+        #f.write("/* %s argument */\n" % self.fullname())
+        #f.write("#define %s {%s}\n\n" % (self.struct_name(), self.struct_code()))
 
 
 class Command(object):
@@ -288,15 +288,15 @@ class Command(object):
 
         return s[:-1]
 
-    def write(self, f):
+    def write_internal_structs(self, f):
         if self.subcommands:
             for subcommand in sorted(self.subcommands, key=lambda cmd: cmd.name):
-                subcommand.write(f)
+                subcommand.write_internal_structs(f)
 
             f.write("/* %s command table */\n" % self.fullname())
             f.write("struct redisCommand %s[] = {\n" % self.subcommand_table_name())
             for subcommand in self.subcommands:
-                f.write("%s,\n" % subcommand.struct_name())
+                f.write("{%s},\n" % subcommand.struct_code())
             f.write("{0}\n")
             f.write("};\n\n")
 
@@ -322,17 +322,17 @@ class Command(object):
 
         if self.args:
             for arg in self.args:
-                arg.write(f)
+                arg.write_internal_structs(f)
 
             f.write("/* %s argument table */\n" % self.fullname())
             f.write("struct redisCommandArg %s[] = {\n" % self.arg_table_name())
             for arg in self.args:
-                f.write("%s,\n" % arg.struct_name())
+                f.write("{%s},\n" % arg.struct_code())
             f.write("{0}\n")
             f.write("};\n\n")
 
-        f.write("/* %s command */\n" % self.fullname())
-        f.write("#define %s {%s}\n\n" % (self.struct_name(), self.struct_code()))
+        #f.write("/* %s command */\n" % self.fullname())
+        #f.write("#define %s {%s}\n\n" % (self.struct_name(), self.struct_code()))
 
 
 class Subcommand(Command):
@@ -470,7 +470,7 @@ with open("commands.c","w") as f:
 
     command_list = sorted(commands.values(), key=lambda cmd: (cmd.group, cmd.name))
     for command in command_list:
-        command.write(f)
+        command.write_internal_structs(f)
 
     f.write("/* Main command table */\n")
     f.write("struct redisCommand redisCommandTable[] = {\n")
@@ -481,7 +481,7 @@ with open("commands.c","w") as f:
         if curr_group != command.group:
             curr_group = command.group
             f.write("/* %s */\n" % curr_group)
-        f.write("%s,\n" % command.struct_name())
+        f.write("{%s},\n" % command.struct_code())
     f.write("{0}\n")
     f.write("};\n")
 
