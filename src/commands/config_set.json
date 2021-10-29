@@ -3,21 +3,20 @@
         "summary":"Set a configuration parameter to the given value",
         "since":"2.0.0",
         "group":"generic",
-        "return_summary":"@simple-string-reply: OK when the configuration was set properly. Otherwise an error is returned.",
-        "return_types":{
-            "2":[
-                [
-                    "simple-string",
-                    "+OK on success."
-                ]
-            ],
-            "3":[
-                [
-                    "simple-string",
-                    "+OK on success."
-                ]
-            ]
-        },
+        "arity":4,
+        "command_flags":[
+            "admin",
+            "no-script"
+        ],
+        "function":"configSetCommand",
+        "container":"CONFIG",
+        "returns":[
+            {
+                "description": "Command succeeded",
+                "type":"simple-string",
+                "constant_value":"+OK"
+            }
+        ],
         "arguments":[
             {
                 "name":"parameter",
@@ -29,13 +28,6 @@
                 "type":"string",
                 "value":"value"
             }
-        ],
-        "arity":4,
-        "command_flags":[
-            "admin",
-            "no-script"
-        ],
-        "function":"configSetCommand",
-        "container":"CONFIG"
+        ]
     }
 }

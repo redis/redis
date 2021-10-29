@@ -4,39 +4,51 @@
         "complexity":"O(1) when adding a new entry, O(N) when trimming where N being the number of entries evicted.",
         "since":"5.0.0",
         "group":"stream",
-        "return_summary":"@bulk-string-reply, specifically:\n\nThe command returns the ID of the added entry. The ID is the one auto-generated\nif `*` is passed as ID argument, otherwise the command just returns the same ID\nspecified by the user during insertion.\n\nThe command returns a @nil-reply when used with the `NOMKSTREAM` option and the\nkey doesn't exist.",
-        "return_types":{
-            "2":[
-                "<bulk-string>",
-                "<null-bulk-string>"
-            ],
-            "3":[
-                "<bulk-string>",
-                "<null>"
-            ]
-        },
-        "return_types":{
-            "2":[
-                [
-                    "bulk-string",
-                    "ID of the added entry"
-                ],
-                [
-                    "null-bulk-string",
-                    "Stream doesn't exist and NOMKSTREAN was given"
+        "arity":-5,
+        "command_flags":[
+            "write",
+            "use-memory",
+            "fast",
+            "random"
+        ],
+        "acl_categories":[
+            "stream",
+            "write",
+            "slow"
+        ],
+        "key_specs":[
+            {
+                "begin_search":{
+                    "index":{
+                        "pos":1
+                    }
+                },
+                "find_keys":{
+                    "range":{
+                        "lastkey":0,
+                        "step":1,
+                        "limit":0
+                    }
+                },
+                "flags":[
+                    "write"
                 ]
-            ],
-            "3":[
-                [
-                    "bulk-string",
-                    "ID of the added entry"
-                ],
-                [
-                    "null",
-                    "Stream doesn't exist and NOMKSTREAN was given"
-                ]
-            ]
-        },
+            }
+        ],
+        "function":"xaddCommand",
+        "returns":[
+            {
+                "description": "ID of the added entry",
+                "type":"bulk-string"
+            },
+            {
+                "description": "Stream doesn't exist and NOMKSTREAN was given",
+                "type": {
+                    "RESP2":"null-bulk-string",
+                    "RESP3":"null"
+                }
+            }
+        ],
         "history":[
             [
                 "6.2",
@@ -138,38 +150,6 @@
                     }
                 ]
             }
-        ],
-        "arity":-5,
-        "command_flags":[
-            "write",
-            "use-memory",
-            "fast",
-            "random"
-        ],
-        "acl_categories":[
-            "stream",
-            "write",
-            "slow"
-        ],
-        "key_specs":[
-            {
-                "begin_search":{
-                    "index":{
-                        "pos":1
-                    }
-                },
-                "find_keys":{
-                    "range":{
-                        "lastkey":0,
-                        "step":1,
-                        "limit":0
-                    }
-                },
-                "flags":[
-                    "write"
-                ]
-            }
-        ],
-        "function":"xaddCommand"
+        ]
     }
 }

@@ -6,25 +6,57 @@ import json
 
 # Note: This script should be run from the src/ dir: ../utils/generate-command-code.py
 
-GROUPS = [
-    "generic",
-    "string",
-    "list",
-    "set",
-    "sorted_set",
-    "hash",
-    "pubsub",
-    "transactions",
-    "connection",
-    "server",
-    "scripting",
-    "hyperloglog",
-    "cluster",
-    "geo",
-    "stream",
-    "bitmap"
-]
+ARG_TYPES = {
+    None: "ARG_TYPE_NULL",
+    "string": "ARG_TYPE_STRING",
+    "integer": "ARG_TYPE_INTEGER",
+    "double": "ARG_TYPE_DOUBLE",
+    "key": "ARG_TYPE_KEY",
+    "pattern": "ARG_TYPE_PATTERN",
+    "unix-time": "ARG_TYPE_UNIX_TIME",
+    "oneof": "ARG_TYPE_ONEOF",
+    "block": "ARG_TYPE_BLOCK",
+}
 
+GROUPS = {
+    "generic": "COMMAND_GROUP_GENERIC",
+    "string": "COMMAND_GROUP_STRING",
+    "list": "COMMAND_GROUP_LIST",
+    "set": "COMMAND_GROUP_SET",
+    "sorted-set": "COMMAND_GROUP_SORTED_SET",
+    "hash": "COMMAND_GROUP_HASH",
+    "pubsub": "COMMAND_GROUP_PUBSUB",
+    "transactions": "COMMAND_GROUP_TRANSACTIONS",
+    "connection": "COMMAND_GROUP_CONNECTION",
+    "server": "COMMAND_GROUP_SERVER",
+    "scripting": "COMMAND_GROUP_SCRIPTING",
+    "hyperloglog": "COMMAND_GROUP_HYPERLOGLOG",
+    "cluster": "COMMAND_GROUP_CLUSTER",
+    "geo": "COMMAND_GROUP_GEO",
+    "stream": "COMMAND_GROUP_STREAM",
+    "bitmap": "COMMAND_GROUP_BITMAP",
+}
+
+RESP2_TYPES = {
+    "simple-string": "RESP2_SIMPLE_STRING",
+    "error": "RESP2_ERROR",
+    "integer": "RESP2_INTEGER",
+    "bulk-string": "RESP2_BULK_STRING",
+    "null-bulk-string": "RESP2_NULL_BULK_STRING",
+    "array": "RESP2_ARRAY",
+    "null-array": "RESP2_NULL_ARRAY",
+}
+
+RESP3_TYPES = {
+    "simple-string": "RESP3_SIMPLE_STRING",
+    "error": "RESP3_ERROR",
+    "integer": "RESP3_INTEGER",
+    "bulk-string": "RESP3_BULK_STRING",
+    "array": "RESP3_ARRAY",
+    "map": "RESP3_MAP",
+    "set": "RESP3_SET",
+    "null": "RESP3_NULL",
+}
 
 def get_optional_desc_string(desc, field):
     v = desc.get(field, None)
@@ -54,7 +86,7 @@ class KeySpec(object):
                     self.spec["begin_search"]["index"]["pos"]
                 )
             elif self.spec["begin_search"].get("keyword"):
-                return "KSPEC_BS_INDEX,.bs.keyword={\"%s\",%d}" % (
+                return "KSPEC_BS_KEYWORD,.bs.keyword={\"%s\",%d}" % (
                     self.spec["begin_search"]["keyword"]["keyword"],
                     self.spec["begin_search"]["keyword"]["startfrom"],
                 )
@@ -114,7 +146,7 @@ class Argument(object):
     def struct_code(self):
         s = "\"%s\",%s,%s,%s,%s,%d,%d" % (
             self.name,
-            get_optional_desc_string(self.desc, "type"),
+            ARG_TYPES[self.desc.get("type")],
             get_optional_desc_string(self.desc, "token"),
             get_optional_desc_string(self.desc, "summary"),
             get_optional_desc_string(self.desc, "since"),
@@ -122,9 +154,9 @@ class Argument(object):
             int(self.desc.get("multiple", False)),
         )
         if self.subargs:
-            s += ",VALUE_ARG_SUBARGS,.value.subargs=%s" % self.subarg_table_name()
+            s += ",.value.subargs=%s" % self.subarg_table_name()
         elif self.desc.get("value"):
-            s += ",VALUE_ARG_STRING,.value.string=\"%s\"" % self.desc["value"]
+            s += ",.value.string=\"%s\"" % self.desc["value"]
 
         return s
 
@@ -157,8 +189,8 @@ class Command(object):
     def fullname(self):
         return self.name
 
-    def return_types_table_name(self, resp):
-        return "%s_ReturnTypesRESP%d" % (self.fullname().replace(" ", "_"), resp)
+    def return_types_table_name(self):
+        return "%s_ReturnInfo" % self.fullname().replace(" ", "_")
 
     def subcommand_table_name(self):
         assert self.subcommands
@@ -173,12 +205,31 @@ class Command(object):
     def struct_name(self):
         return "%s_Command" % (self.fullname().replace(" ", "_"))
 
-    def return_types_code(self, resp):
-        if not self.desc.get("return_types"):
+    def return_info_code(self):
+        if not self.desc.get("returns"):
             return ""
         s = ""
-        for tupl in self.desc["return_types"][str(resp)]:
-            s += "{\"%s\",\"%s\"},\n" % (tupl[0], tupl[1])
+        for return_desc in self.desc["returns"]:
+            print return_desc
+            print type(return_desc["type"])
+            if return_desc.get("constant_value"):
+                assert return_desc["type"] == "simple-string"
+                s += "{\"%s\",\"%s\",RETURN_TYPE_RESP2_3_SAME,.type.global=%s},\n" % (
+                    return_desc["description"],
+                    return_desc["constant_value"],
+                    RESP2_TYPES[return_desc["type"]],
+                )
+            elif isinstance(return_desc["type"], unicode):
+                s += "{\"%s\",NULL,RETURN_TYPE_RESP2_3_SAME,.type.global=%s},\n" % (
+                    return_desc["description"],
+                    RESP2_TYPES[return_desc["type"]],
+                )
+            else:
+                s += "{\"%s\",NULL,RETURN_TYPE_RESP2_3_DIFFER,.type.unique={%s,%s}},\n" % (
+                    return_desc["description"],
+                    RESP2_TYPES[return_desc["type"]["RESP2"]],
+                    RESP3_TYPES[return_desc["type"]["RESP3"]],
+                )
         s += "{0}"
         return s
 
@@ -209,15 +260,13 @@ class Command(object):
                 s += "{%s}," % KeySpec(spec).struct_code()
             return s[:-1]
 
-        s = "\"%s\",%s,%s,%s,\"%s\",%s,%s,%s,%s,%s,%d,\"%s\"," % (
+        s = "\"%s\",%s,%s,%s,%s,%s,%s,%s,%d,\"%s\"," % (
             self.name,
             get_optional_desc_string(self.desc, "summary"),
             get_optional_desc_string(self.desc, "complexity"),
             get_optional_desc_string(self.desc, "since"),
-            self.group,
-            get_optional_desc_string(self.desc, "return_summary"),
-            self.return_types_table_name(2),
-            self.return_types_table_name(3),
+            GROUPS[self.group],
+            self.return_types_table_name(),
             self.history_table_name(),
             self.desc.get("function", "NULL"),
             self.desc["arity"],
@@ -253,15 +302,14 @@ class Command(object):
 
         f.write("/********** %s ********************/\n\n" % self.fullname())
 
-        for resp in [2, 3]:
-            f.write("/* %s RESP%d return types */\n" % (self.fullname(), resp))
-            code = self.return_types_code(resp)
-            if code:
-                f.write("commandReturnType %s[] = {\n" % self.return_types_table_name(resp))
-                f.write("%s\n" % code)
-                f.write("};\n\n")
-            else:
-                f.write("#define %s NULL\n\n" % self.return_types_table_name(resp))
+        f.write("/* %s return info */\n" % self.fullname())
+        code = self.return_info_code()
+        if code:
+            f.write("commandReturnInfo %s[] = {\n" % self.return_types_table_name())
+            f.write("%s\n" % code)
+            f.write("};\n\n")
+        else:
+            f.write("#define %s NULL\n\n" % self.return_types_table_name())
 
         f.write("/* %s history */\n" % self.fullname())
         code = self.history_code()
@@ -332,38 +380,7 @@ with open("commands.c","w") as f:
 """
 /* Our command table.
 *
-* Every entry is composed of the following fields:
-*
-* name:        A string representing the command name.
-*
-* function:    Pointer to the C function implementing the command.
-*
-* arity:       Number of arguments, it is possible to use -N to say >= N
-*
-* sflags:      Command flags as string. See below for a table of flags.
-*
-* flags:       Flags as bitmask. Computed by Redis using the 'sflags' field.
-*
-* get_keys_proc: An optional function to get key arguments from a command.
-*                This is only used when the following three fields are not
-*                enough to specify what arguments are keys.
-*
-* first_key_index: First argument that is a key
-*
-* last_key_index: Last argument that is a key
-*
-* key_step:    Step to get all the keys from first to last argument.
-*              For instance in MSET the step is two since arguments
-*              are key,val,key,val,...
-*
-* microseconds: Microseconds of total execution time for this command.
-*
-* calls:       Total number of calls of this command.
-*
-* id:          Command bit identifier for ACLs or other goals.
-*
-* The flags, microseconds and calls fields are computed by Redis and should
-* always be set to zero.
+* (See comment above sturct redisCommand)
 *
 * Command flags are expressed using space separated strings, that are turned
 * into actual flags by the populateCommandTable() function.

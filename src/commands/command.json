@@ -5,21 +5,11 @@
         "since": "2.8.13",
         "group": "server",
         "return_summary": "@array-reply: nested list of command details.  Commands are returned\nin random order.",
-        "return_types":{
-            "2":[
-                [
-                    "array",
-                    "Nested list of command details"
-                ]
-            ],
-            "3":[
-                [
-                    "array",
-                    "Nested list of command details"
-                ]
-            ]
-        },
         "arity":-1,
+        "function":"commandCommand",
+        "subcommands":[
+            "COUNT"
+        ],
         "command_flags":[
             "ok-loading",
             "ok-stale"
@@ -27,9 +17,11 @@
         "acl_categories":[
             "connection"
         ],
-        "function":"commandCommand",
-        "subcommands":[
-            "COUNT"
+        "returns":[
+            {
+                "description": "Nested list of command details",
+                "type":"array"
+            }
         ]
     }
 }

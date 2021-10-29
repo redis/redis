@@ -4,21 +4,6 @@
         "complexity":"O(1)",
         "since":"2.8.13",
         "group":"server",
-        "return_summary":"@integer-reply: number of commands returned by `COMMAND`",
-        "return_types":{
-            "2":[
-                [
-                    "integer",
-                    "Number of commands"
-                ]
-            ],
-            "3":[
-                [
-                    "integer",
-                    "Number of commands"
-                ]
-            ]
-        },
         "arity":2,
         "command_flags":[
             "ok-loading",
@@ -28,6 +13,12 @@
             "connection"
         ],
         "function":"commandCountCommand",
-        "container":"COMMAND"
+        "container":"COMMAND",
+        "returns":[
+            {
+                "description": "Number of commands",
+                "type":"integer"
+            }
+        ]
     }
 }

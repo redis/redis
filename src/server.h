@@ -1761,6 +1761,7 @@ typedef struct {
  * 2. keynum: there's an arg that contains the number of key args somewhere before the keys themselves
  */
 
+/* Must be synced with generate-command-code.py */
 typedef enum {
     KSPEC_BS_INVALID = 0, /* Must be 0 */
     KSPEC_BS_UNKNOWN,
@@ -1768,6 +1769,7 @@ typedef enum {
     KSPEC_BS_KEYWORD
 } kspec_bs_type;
 
+/* Must be synced with generate-command-code.py */
 typedef enum {
     KSPEC_FK_INVALID = 0, /* Must be 0 */
     KSPEC_FK_UNKNOWN,
@@ -1826,48 +1828,146 @@ typedef struct {
 /* Number of static key specs */
 #define STATIC_KEY_SPECS_NUM 4
 
-typedef struct {
-    char *type;
-    char *summary;
-} commandReturnType;
-
-typedef struct {
-    char *since;
-    char *summary;
-} commandHistory;
-
 typedef enum {
-    VALUE_ARG_SUBARGS,
-    VALUE_ARG_STRING,
-} redisCommandValueArgType;
+    ARG_TYPE_NULL,
+    ARG_TYPE_STRING,
+    ARG_TYPE_INTEGER,
+    ARG_TYPE_DOUBLE,
+    ARG_TYPE_KEY,
+    ARG_TYPE_PATTERN,
+    ARG_TYPE_UNIX_TIME,
+    ARG_TYPE_ONEOF, /* Has subargs */
+    ARG_TYPE_BLOCK /* Has subargs */
+} redisCommandArgType;
 
 struct redisCommandArg {
     char *name;
-    char *type;
+    redisCommandArgType type;
     char *token;
     char *summary;
     char *since;
     int optional;
     int multiple;
-    redisCommandValueArgType value_type;
     union {
         struct redisCommandArg *subargs;
         char *string;
     } value;
 };
 
+/* Must be synced with generate-command-code.py */
+typedef enum {
+    RESP2_SIMPLE_STRING,
+    RESP2_ERROR,
+    RESP2_INTEGER,
+    RESP2_BULK_STRING,
+    RESP2_NULL_BULK_STRING,
+    RESP2_ARRAY,
+    RESP2_NULL_ARRAY,
+} redisCommandRESP2Type;
+
+// TODO:GUYBE add more resp3 types
+/* Must be synced with generate-command-code.py */
+typedef enum {
+    RESP3_SIMPLE_STRING,
+    RESP3_ERROR,
+    RESP3_INTEGER,
+    RESP3_BULK_STRING,
+    RESP3_ARRAY,
+    RESP3_MAP,
+    RESP3_SET,
+    RESP3_NULL,
+} redisCommandRESP3Type;
+
+/* Must be synced with generate-command-code.py */
+typedef enum {
+    RETURN_TYPE_RESP2_3_SAME,
+    RETURN_TYPE_RESP2_3_DIFFER
+} redisCommandReturnType;
+
+typedef struct {
+    char *description;
+    char *constant_value;
+    redisCommandReturnType which;
+    union {
+        redisCommandRESP2Type global; /* Same type for both RESP2 and RESP3 */
+        struct {
+            redisCommandRESP2Type resp2;
+            redisCommandRESP3Type resp3;
+        } unique;
+    } type;
+} commandReturnInfo;
+
+typedef struct {
+    char *since;
+    char *summary;
+} commandHistory;
+
+/* Must be synced with generate-command-code.py */
+typedef enum {
+    COMMAND_GROUP_GENERIC,
+    COMMAND_GROUP_STRING,
+    COMMAND_GROUP_LIST,
+    COMMAND_GROUP_SET,
+    COMMAND_GROUP_SORTED_SET,
+    COMMAND_GROUP_HASH,
+    COMMAND_GROUP_PUBSUB,
+    COMMAND_GROUP_TRANSACTIONS,
+    COMMAND_GROUP_CONNECTION,
+    COMMAND_GROUP_SERVER,
+    COMMAND_GROUP_SCRIPTING,
+    COMMAND_GROUP_HYPERLOGLOG,
+    COMMAND_GROUP_CLUSTER,
+    COMMAND_GROUP_GEO,
+    COMMAND_GROUP_STREAM,
+    COMMAND_GROUP_BITMAP
+} redisCommandGroup;
+
 typedef void redisCommandProc(client *c);
 typedef int redisGetKeysProc(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
+
+/* Redis command structure.
+*
+* Every command is composed of the following fields:
+*
+* name:        A string representing the command name.
+*
+* function:    Pointer to the C function implementing the command.
+*
+* arity:       Number of arguments, it is possible to use -N to say >= N
+*
+* sflags:      Command flags as string. See below for a table of flags.
+*
+* flags:       Flags as bitmask. Computed by Redis using the 'sflags' field.
+*
+* get_keys_proc: An optional function to get key arguments from a command.
+*                This is only used when the following three fields are not
+*                enough to specify what arguments are keys.
+*
+* first_key_index: First argument that is a key
+*
+* last_key_index: Last argument that is a key
+*
+* key_step:    Step to get all the keys from first to last argument.
+*              For instance in MSET the step is two since arguments
+*              are key,val,key,val,...
+*
+* microseconds: Microseconds of total execution time for this command.
+*
+* calls:       Total number of calls of this command.
+*
+* id:          Command bit identifier for ACLs or other goals.
+*
+* The flags, microseconds and calls fields are computed by Redis and should
+* always be set to zero.
+*/
 struct redisCommand {
     /* Declarative data */
     char *name;
     char *summary;
     char *complexity;
     char *since;
-    char *group;
-    char *return_summary;
-    commandReturnType *return_types_resp2;
-    commandReturnType *return_types_resp3;
+    redisCommandGroup group;
+    commandReturnInfo *returns;
     commandHistory *history;
     redisCommandProc *proc;
     int arity;

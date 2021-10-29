@@ -4,37 +4,54 @@
         "complexity":"O(1)",
         "since":"1.0.0",
         "group":"string",
-        "return_summary":"@simple-string-reply: `OK` if `SET` was executed correctly.\n\n@nil-reply: `(nil)` if the `SET` operation was not performed because the user specified the `NX` or `XX` option but the condition was not met.\n\nIf the command is issued with the `GET` option, the above does not apply. It will instead reply as follows, regardless if the `SET` was actually performed:\n\n@bulk-string-reply: the old string value stored at key.\n\n@nil-reply: `(nil)` if the key did not exist.",
-        "return_types":{
-            "2":[
-                [
-                    "simple-string",
-                    "+OK on success."
-                ],
-                [
-                    "bulk-string",
-                    "Old value if GET was given"
-                ],
-                [
-                    "null-bulk-string",
-                    "Either SET failed, or GET was given and key didn't exist"
+        "arity":-3,
+        "function":"setCommand",
+        "command_flags":[
+            "write",
+            "use-memory"
+        ],
+        "acl_categories":[
+            "string",
+            "write",
+            "slow"
+        ],
+        "key_specs":[
+            {
+                "begin_search":{
+                    "index":{
+                        "pos":1
+                    }
+                },
+                "find_keys":{
+                    "range":{
+                        "lastkey":0,
+                        "step":1,
+                        "limit":0
+                    }
+                },
+                "flags":[
+                    "write"
                 ]
-            ],
-            "3":[
-                [
-                    "simple-string",
-                    "+OK on success."
-                ],
-                [
-                    "bulk-string",
-                    "Old value if GET was given"
-                ],
-                [
-                    "null",
-                    "Either SET failed, or GET was given and key didn't exist"
-                ]
-            ]
-        },
+            }
+        ],
+        "returns":[
+            {
+                "description": "Command succeeded",
+                "type":"simple-string",
+                "constant_value": "+OK"
+            },
+            {
+                "description": "Old value if `GET` was given",
+                "type":"bulk-string"
+            },
+            {
+                "description": "Either `SET` failed (with `NX` or `XX`), or `GET` was given and key didn't exist",
+                "type": {
+                    "RESP2":"null-bulk-string",
+                    "RESP3":"null"
+                }
+            }
+        ],
         "history":[
             [
                 "2.6.12",
@@ -86,14 +103,14 @@
                     {
                         "name":"exat",
                         "since":"6.2.0",
-                        "type":"unix_time",
+                        "type":"unix-time",
                         "token":"EXAT",
                         "value":"timestamp"
                     },
                     {
                         "name":"pxat",
                         "since":"6.2.0",
-                        "type":"unix_time",
+                        "type":"unix-time",
                         "token":"PXAT",
                         "value":"milliseconds-timestamp"
                     },
@@ -125,36 +142,6 @@
                 "optional":true,
                 "token":"GET"
             }
-        ],
-        "arity":-3,
-        "command_flags":[
-            "write",
-            "use-memory"
-        ],
-        "acl_categories":[
-            "string",
-            "write",
-            "slow"
-        ],
-        "key_specs":[
-            {
-                "begin_search":{
-                    "index":{
-                        "pos":1
-                    }
-                },
-                "find_keys":{
-                    "range":{
-                        "lastkey":0,
-                        "step":1,
-                        "limit":0
-                    }
-                },
-                "flags":[
-                    "write"
-                ]
-            }
-        ],
-        "function":"setCommand"
+        ]
     }
 }

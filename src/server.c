@@ -3776,24 +3776,90 @@ void addReplyFlagsForKeyArgs(client *c, uint64_t flags) {
     setDeferredSetLen(c, flaglen, flagcount);
 }
 
+
+const char *ARG_TYPE_STR[] = {
+    NULL,
+    "string",
+    "integer",
+    "double",
+    "key",
+    "pattern",
+    "unix-time",
+    "oneof",
+    "block",
+};
+
+void addReplyCommandArgList(client *c, struct redisCommandArg *args) {
+    int j;
+
+    void *array = addReplyDeferredLen(c);
+    for (j = 0; args && args[j].name != NULL; j++) {
+        addReplyMapLen(c, 8);
+        addReplyBulkCString(c, "name");
+        addReplyBulkCString(c, args[j].name);
+        addReplyBulkCString(c, "type");
+        addReplyBulkCString(c, ARG_TYPE_STR[args[j].type]);
+        addReplyBulkCString(c, "token");
+        addReplyBulkCString(c, args[j].token);
+        addReplyBulkCString(c, "summary");
+        addReplyBulkCString(c, args[j].summary);
+        addReplyBulkCString(c, "since");
+        addReplyBulkCString(c, args[j].since);
+        addReplyBulkCString(c, "optional");
+        addReplyBool(c, args[j].optional);
+        addReplyBulkCString(c, "multiple");
+        addReplyBool(c, args[j].multiple);
+        addReplyBulkCString(c, "value");
+        if (args[j].type == ARG_TYPE_ONEOF || args[j].type == ARG_TYPE_BLOCK) {
+            addReplyCommandArgList(c, args[j].value.subargs);
+        } else {
+            addReplyBulkCString(c, args[j].value.string);
+        }
+    }
+    setDeferredSetLen(c, array, j);
+}
+
+const char *RESP2_TYPE_STR[] = {
+    "simple-string",
+    "error",
+    "integer",
+    "bulk-string",
+    "null-bulk-string",
+    "array",
+    "null-array",
+};
+
+const char *RESP3_TYPE_STR[] = {
+    "simple-string",
+    "error",
+    "integer",
+    "bulk-string",
+    "array",
+    "map",
+    "set",
+    "null",
+};
+
 void addReplyCommandReturnTypes(client *c, struct redisCommand *cmd) {
     int j;
 
-    addReplyMapLen(c, 2);
-    addReplyBulkCString(c, "RESP2");
     void *array = addReplyDeferredLen(c);
-    for (j = 0; cmd->return_types_resp2 && cmd->return_types_resp2[j].type != NULL; j++) {
-        addReplyArrayLen(c, 2);
-        addReplyBulkCString(c, cmd->return_types_resp2[j].type);
-        addReplyBulkCString(c, cmd->return_types_resp2[j].summary);
-    }
-    setDeferredSetLen(c, array, j);
-    addReplyBulkCString(c, "RESP3");
-    array = addReplyDeferredLen(c);
-    for (j = 0; cmd->return_types_resp3 && cmd->return_types_resp3[j].type != NULL; j++) {
-        addReplyArrayLen(c, 2);
-        addReplyBulkCString(c, cmd->return_types_resp3[j].type);
-        addReplyBulkCString(c, cmd->return_types_resp3[j].summary);
+    for (j = 0; cmd->returns && cmd->returns[j].description != NULL; j++) {
+        addReplyMapLen(c, 3);
+        addReplyBulkCString(c, "description");
+        addReplyBulkCString(c, cmd->returns[j].description);
+        addReplyBulkCString(c, "constant-value");
+        addReplyBulkCString(c, cmd->returns[j].constant_value);
+        addReplyBulkCString(c, "type");
+        if (cmd->returns[j].which == RETURN_TYPE_RESP2_3_SAME) {
+            addReplyBulkCString(c, RESP2_TYPE_STR[cmd->returns[j].type.global]);
+        } else {
+            addReplyMapLen(c, 2);
+            addReplyBulkCString(c, "RESP2");
+            addReplyBulkCString(c, RESP2_TYPE_STR[cmd->returns[j].type.unique.resp2]);
+            addReplyBulkCString(c, "RESP3");
+            addReplyBulkCString(c, RESP3_TYPE_STR[cmd->returns[j].type.unique.resp3]);
+        }
     }
     setDeferredSetLen(c, array, j);
 }
@@ -3810,36 +3876,6 @@ void addReplyCommandHistory(client *c, struct redisCommand *cmd) {
     setDeferredSetLen(c, array, j);
 }
 
-void addReplyCommandArgList(client *c, struct redisCommandArg *args) {
-    int j;
-
-    void *array = addReplyDeferredLen(c);
-    for (j = 0; args && args[j].name != NULL; j++) {
-        addReplyMapLen(c, 8);
-        addReplyBulkCString(c, "name");
-        addReplyBulkCString(c, args[j].name);
-        addReplyBulkCString(c, "type");
-        addReplyBulkCString(c, args[j].type);
-        addReplyBulkCString(c, "token");
-        addReplyBulkCString(c, args[j].token);
-        addReplyBulkCString(c, "summary");
-        addReplyBulkCString(c, args[j].summary);
-        addReplyBulkCString(c, "since");
-        addReplyBulkCString(c, args[j].since);
-        addReplyBulkCString(c, "optional");
-        addReplyBool(c, args[j].optional);
-        addReplyBulkCString(c, "multiple");
-        addReplyBool(c, args[j].multiple);
-        addReplyBulkCString(c, "value");
-        if (args[j].value_type == VALUE_ARG_STRING) {
-            addReplyBulkCString(c, args[j].value.string);
-        } else {
-            addReplyCommandArgList(c, args[j].value.subargs);
-        }
-    }
-    setDeferredSetLen(c, array, j);
-}
-
 void addReplyCommandKeyArgs(client *c, struct redisCommand *cmd) {
     addReplySetLen(c, cmd->key_specs_num);
     for (int i = 0; i < cmd->key_specs_num; i++) {
@@ -3848,7 +3884,7 @@ void addReplyCommandKeyArgs(client *c, struct redisCommand *cmd) {
         addReplyBulkCString(c, "flags");
         addReplyFlagsForKeyArgs(c,cmd->key_specs[i].flags);
 
-        addReplyBulkCString(c, "begin_search");
+        addReplyBulkCString(c, "begin-search");
         switch (cmd->key_specs[i].begin_search_type) {
             case KSPEC_BS_UNKNOWN:
                 addReplyMapLen(c, 2);
@@ -3881,10 +3917,10 @@ void addReplyCommandKeyArgs(client *c, struct redisCommand *cmd) {
                 addReplyLongLong(c, cmd->key_specs[i].bs.keyword.startfrom);
                 break;
             default:
-                serverPanic("Invalid begin_search key spec type %d", cmd->key_specs[i].begin_search_type);
+                serverPanic("Invalid begin-search key spec type %d", cmd->key_specs[i].begin_search_type);
         }
 
-        addReplyBulkCString(c, "find_keys");
+        addReplyBulkCString(c, "find-keys");
         switch (cmd->key_specs[i].find_keys_type) {
             case KSPEC_FK_UNKNOWN:
                 addReplyMapLen(c, 2);
@@ -3923,7 +3959,7 @@ void addReplyCommandKeyArgs(client *c, struct redisCommand *cmd) {
                 addReplyLongLong(c, cmd->key_specs[i].fk.keynum.keystep);
                 break;
             default:
-                serverPanic("Invalid begin_search key spec type %d", cmd->key_specs[i].begin_search_type);
+                serverPanic("Invalid find-keys key spec type %d", cmd->key_specs[i].begin_search_type);
         }
     }
 }
@@ -3946,6 +3982,25 @@ void addReplyCommandSubCommands(client *c, struct redisCommand *cmd) {
     dictReleaseIterator(di);
 }
 
+const char *COMMAND_GROUP_STR[] = {
+    "generic",
+    "string",
+    "list",
+    "set",
+    "sorted-set",
+    "hash",
+    "pubsub",
+    "transactions",
+    "connection",
+    "server",
+    "scripting",
+    "hyperloglog",
+    "cluster",
+    "geo",
+    "stream",
+    "bitmap"
+};
+
 /* Output the representation of a Redis command. Used by the COMMAND command. */
 void addReplyCommand(client *c, struct redisCommand *cmd) {
     if (!cmd) {
@@ -3959,19 +4014,8 @@ void addReplyCommand(client *c, struct redisCommand *cmd) {
                 lastkey += firstkey;
             keystep = cmd->legacy_range_key_spec.fk.range.keystep;
         }
-        #if 0
-            /* Declarative data */
-    char *name;
-    char *summary;
-    char *since;
-    char *group;
-    char *return_summary;
-    commandReturnType *return_types_resp2;
-    commandReturnType *return_types_resp3;
-    commandHistory *history;
-    redisCommandProc *proc;
-        #endif
-        /* We are adding: command name, arg count, flags, first, last, offset, categories, additional information */
+
+        /* We are adding: command name, arg count, flags, first, last, offset, categories, additional information (map) */
         addReplyArrayLen(c, 8);
         addReplyBulkCString(c, cmd->name);
         addReplyLongLong(c, cmd->arity);
@@ -3988,14 +4032,14 @@ void addReplyCommand(client *c, struct redisCommand *cmd) {
         addReplyBulkCString(c, "since");
         addReplyBulkCString(c, cmd->since);
         addReplyBulkCString(c, "group");
-        addReplyBulkCString(c, cmd->group);
-        addReplyBulkCString(c, "return_types");
+        addReplyBulkCString(c, COMMAND_GROUP_STR[cmd->group]);
+        addReplyBulkCString(c, "returns");
         addReplyCommandReturnTypes(c, cmd);
         addReplyBulkCString(c, "history");
         addReplyCommandHistory(c, cmd);
         addReplyBulkCString(c, "arguments");
         addReplyCommandArgList(c, cmd->args);
-        addReplyBulkCString(c, "key_specs");
+        addReplyBulkCString(c, "key-specs");
         addReplyCommandKeyArgs(c, cmd);
         addReplyBulkCString(c, "subcommands");
         addReplyCommandSubCommands(c, cmd);

@@ -430,12 +430,6 @@ valgrind:
 helgrind:
 	$(MAKE) OPTIMIZATION="-O0" MALLOC="libc" CFLAGS="-D__ATOMIC_VAR_FORCE_SYNC_MACROS" REDIS_CFLAGS="-I/usr/local/include" REDIS_LDFLAGS="-L/usr/local/lib"
 
-src/help.h:
-	@../utils/generate-command-code.py --gen-help-h
-
-src/commands.c:
-	@../utils/generate-command-code.py  --gen-commands-c
-
 install: all
 	@mkdir -p $(INSTALL_BIN)
 	$(call MAKE_INSTALL,$(REDIS_SERVER_NAME),$(INSTALL_BIN))
