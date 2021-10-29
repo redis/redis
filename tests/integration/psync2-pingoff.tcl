@@ -53,9 +53,24 @@ start_server {} {
     }
 
     test "Make the old master a replica of the new one and check conditions" {
+        # There is a chance the master will send an additional PING to the
+        # replica between the two calls to INFO. So there is a chance the
+        # master will have an incremented offset due to PING and the slave
+        # won't have it yet. Change the period to prevent further PINGs.
+        set original_period_value [lindex [r CONFIG GET repl-ping-replica-period] 1]
+        $R(1) CONFIG SET repl-ping-replica-period 10
+
         assert_equal [status $R(1) sync_full] 0
         $R(0) REPLICAOF $R_host(1) $R_port(1)
+
+        # We wait for sync_full to increment and assumes that the master did
+        # the fork. In fact there are cases that the master will increment
+        # the sync_full counter (after replica asks for sync), but will see
+        # that there is already a fork running and will delay the fork creation.
+        # In this case, the INCR will be executed before the fork happens and it
+        # will not be in the command stream so we wait for the link to become up.
         wait_for_condition 50 1000 {
+            [status $R(0) master_link_status] == "up" &&
             [status $R(1) sync_full] == 1
         } else {
             fail "The new master was not able to sync"
@@ -70,6 +85,9 @@ start_server {} {
             fail "replica didn't get incr"
         }
         assert_equal [status $R(0) master_repl_offset] [status $R(1) master_repl_offset]
+
+        # Restore the original configuration
+        $R(1) CONFIG SET repl-ping-replica-period $original_period_value
     }
 }}
 
