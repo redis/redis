@@ -96,6 +96,14 @@ start_server {} {
     $master config set save ""
     $master config set repl-backlog-size 16384
     $master config set client-output-buffer-limit "replica 0 0 0"
+
+    # Executing 'debug digest' on master which has many keys costs much time
+    # (especially in valgrind), this causes that replica1 and replica2 disconnect
+    # with master.
+    $master config set repl-timeout 1000
+    $replica1 config set repl-timeout 1000
+    $replica2 config set repl-timeout 1000
+
     $replica1 replicaof $master_host $master_port
     wait_for_sync $replica1
 
