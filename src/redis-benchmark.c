@@ -130,6 +130,10 @@ static struct config {
     int qps;
     int control_granularity;
     long long resume_interval;
+    list **paused_clients; // list of paused client in each threads
+    long long *last_resume_time; // last resume time from pause 
+    int *count; // issued requests in current control loop
+    bool *paused; // indicators whether this thread is paused
 } config;
 
 typedef struct _client {
@@ -152,8 +156,6 @@ typedef struct _client {
     int thread_id;
     struct clusterNode *cluster_node;
     int slots_last_update;
-    int count; // number requests that has finished in one qps control period 
-    long long last_resume; // last resume time
 } *client;
 
 /* Threads. */
@@ -484,15 +486,6 @@ static void resetOrCreateClient(client c) {
     }
 }
 
-int qpsControlHandler(aeEventLoop* el, long long id, void* clientData) {
-    UNUSED(el);
-    UNUSED(id);
-
-    client c = clientData;
-    resetOrCreateClient(c);
-    return AE_NOMORE;
-}
-
 static void clientDone(client c) {
     int requests_finished = 0;
     atomicGet(config.requests_finished, requests_finished);
@@ -501,13 +494,25 @@ static void clientDone(client c) {
         if (!config.num_threads && config.el) aeStop(config.el);
         return;
     }
-    if (config.qps && c->count >= config.control_granularity) {
-        c->count = 0;
-        long long diff = (c->last_resume + config.resume_interval - ustime()) / 1000; // difference between expected next resume time and now in millisecond.
-        if (diff > 0) aeCreateTimeEvent(CLIENT_GET_EVENTLOOP(c), diff, qpsControlHandler, c, NULL);
-        else resetOrCreateClient(c);
+    resetOrCreateClient(c);
+}
+
+static int resumeClients(aeEventLoop* el, long long id, void* clientData) {
+    UNUSED(el);
+    UNUSED(id);
+
+    client c = clientData;
+    int thread_id = c->thread_id == -1 ? 0 : c->thread_id;
+    config.paused[thread_id] = false;
+    listNode* ln = config.paused_clients[thread_id]->head, *next;
+    while (ln) {
+        next = ln->next;
+        client c = ln->value;
+        aeCreateFileEvent(el, c->context->fd, AE_WRITABLE, writeHandler, c);
+        listDelNode(config.paused_clients[thread_id], ln);
+        ln = next;
     }
-    else resetOrCreateClient(c);
+    return AE_NOMORE;
 }
 
 static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
@@ -613,8 +618,6 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                 }
                 c->pending--;
                 if (c->pending == 0) {
-                    if (config.qps)
-                        c->count += 1;
                     clientDone(c);
                     break;
                 }
@@ -645,7 +648,33 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         if (config.cluster_mode && c->staglen > 0) setClusterKeyHashTag(c);
         atomicGet(config.slots_last_update, c->slots_last_update);
         c->start = ustime();
-        if (config.qps && c->count == 0) c->last_resume = c->start;
+        if (config.qps) {
+            int thread_id = c->thread_id == -1 ? 0 : c->thread_id;
+            if (config.paused[thread_id]) {
+                // this thread has been paused, delete event and add it to paused clients list
+                aeDeleteFileEvent(CLIENT_GET_EVENTLOOP(c), c->context->fd, AE_WRITABLE);
+                listAddNodeTail(config.paused_clients[thread_id], c);
+                atomicDecr(config.requests_issued, config.pipeline);
+                return;
+            }
+            if (config.last_resume_time[thread_id] == -1) config.last_resume_time[thread_id] = c->start;
+            if (config.count[thread_id] >= config.control_granularity) {
+                // reach a control point, compute the time since last resume
+                long long time_elapsed = c->start - config.last_resume_time[thread_id];
+                config.count[thread_id] = 0;
+                config.last_resume_time[thread_id] = -1;
+                if (time_elapsed < config.resume_interval) {
+                    // need control
+                    config.paused[thread_id] = true;
+                    aeDeleteFileEvent(CLIENT_GET_EVENTLOOP(c), c->context->fd, AE_WRITABLE);
+                    listAddNodeTail(config.paused_clients[thread_id], c);
+                    atomicDecr(config.requests_issued, config.pipeline);
+                    aeCreateTimeEvent(CLIENT_GET_EVENTLOOP(c), (config.resume_interval-time_elapsed)/1000, resumeClients, c, NULL);
+                    return;
+                }
+            }
+            config.count[thread_id] += config.pipeline;
+        }
         c->latency = -1;
     }
     const ssize_t buflen = sdslen(c->obuf);
@@ -882,7 +911,6 @@ static client createClient(char *cmd, size_t len, client from, int thread_id) {
     listAddNodeTail(config.clients,c);
     atomicIncr(config.liveclients, 1);
     atomicGet(config.slots_last_update, c->slots_last_update);
-    c->count = 0;
     return c;
 }
 
@@ -1018,6 +1046,31 @@ static void startBenchmarkThreads() {
         pthread_join(config.threads[i]->thread, NULL);
 }
 
+static void initQpsControl() {
+    int num_threads = config.num_threads == 0 ? 1 : config.num_threads;
+    config.paused_clients = zmalloc(num_threads * sizeof(list *));
+    config.last_resume_time = zmalloc(num_threads * sizeof(long long));
+    config.count = zmalloc(num_threads * sizeof(int));
+    config.paused = zmalloc(num_threads * sizeof(bool));
+    for (int i = 0; i < num_threads; ++i) {
+        config.paused_clients[i] = zmalloc(sizeof(list));
+        config.last_resume_time[i] = -1;
+    }
+}
+
+static void finishQpsControl() {
+    int num_threads = config.num_threads == 0 ? 1 : config.num_threads;
+    if (config.paused_clients) {
+        for (int i = 0; i < num_threads; ++i)
+            if (config.paused_clients[i])
+                zfree(config.paused_clients[i]);
+        zfree(config.paused_clients);
+    }
+    if (config.last_resume_time) zfree(config.last_resume_time);
+    if (config.count) zfree(config.count);
+    if (config.paused) zfree(config.count);
+}
+
 static void benchmark(const char *title, char *cmd, int len) {
     client c;
 
@@ -1038,6 +1091,7 @@ static void benchmark(const char *title, char *cmd, int len) {
         &config.current_sec_latency_histogram);  // Pointer to initialise
 
     if (config.num_threads) initBenchmarkThreads();
+    if (config.qps) initQpsControl();
 
     int thread_id = config.num_threads > 0 ? 0 : -1;
     c = createClient(cmd,len,NULL,thread_id);
@@ -1051,6 +1105,7 @@ static void benchmark(const char *title, char *cmd, int len) {
     showLatencyReport();
     freeAllClients();
     if (config.threads) freeBenchmarkThreads();
+    if (config.qps) finishQpsControl();
     if (config.current_sec_latency_histogram) hdr_close(config.current_sec_latency_histogram);
     if (config.latency_histogram) hdr_close(config.latency_histogram);
 
@@ -1813,23 +1868,23 @@ int main(int argc, char **argv) {
 
     tag = "";
     if (config.qps) {
-        int qps_per_client = config.qps / (config.numclients * config.pipeline);
-        if (qps_per_client <= 0) {
-            printf("warning: qps is too small with %d clients, qps control may fail\n", config.numclients);
-            qps_per_client = 1;
+        int num_threads = config.num_threads == 0 ? 1: config.num_threads;
+        int qps_per_thread = config.qps / num_threads;
+        if (qps_per_thread/config.pipeline <= 0) {
+            printf("warning: qps is too small with %d threads, qps control may fail\n", num_threads);
+            qps_per_thread = 1;
         }
-        if (qps_per_client < 400) {
-            // resume interval > 2ms, we control qps per request
-            config.control_granularity = 1;
-            config.resume_interval = USECOND / qps_per_client;
+        if (qps_per_thread/config.pipeline < 10) {
+            // throughput is controlled per request
+            config.control_granularity = config.pipeline;
+            config.resume_interval = USECOND / qps_per_thread * config.control_granularity;
         }
         else {
-            // we control qps every 5 requests
-            config.control_granularity = 10;
-            config.resume_interval = 10 * USECOND / qps_per_client;
+            // we control qps every 1/10 qps_per_thread requests
+            config.control_granularity = qps_per_thread / 10;
+            config.resume_interval = USECOND / 10;
         }
     }
-
 #ifdef USE_OPENSSL
     if (config.tls) {
         cliSecureInit();
