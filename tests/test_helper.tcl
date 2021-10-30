@@ -43,6 +43,7 @@ set ::all_tests {
     integration/replication-3
     integration/replication-4
     integration/replication-psync
+    integration/replication-buffer
     integration/aof
     integration/rdb
     integration/corrupt-dump
@@ -82,6 +83,7 @@ set ::all_tests {
     unit/oom-score-adj
     unit/shutdown
     unit/networking
+    unit/cluster
     unit/client-eviction
 }
 # Index to the next test to run in the ::all_tests list.

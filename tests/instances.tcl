@@ -196,14 +196,17 @@ proc stop_instance pid {
     # Node might have been stopped in the test
     catch {exec kill -SIGCONT $pid}
     if {$::valgrind} {
-        set max_wait 60000
+        set max_wait 120000
     } else {
         set max_wait 10000
     }
     while {[is_alive $pid]} {
         incr wait 10
 
-        if {$wait >= $max_wait} {
+        if {$wait == $max_wait} {
+            puts "Forcing process $pid to crash..."
+            catch {exec kill -SEGV $pid}
+        } elseif {$wait >= $max_wait * 2} {
             puts "Forcing process $pid to exit..."
             catch {exec kill -KILL $pid}
         } elseif {$wait % 1000 == 0} {
@@ -580,7 +583,7 @@ proc get_instance_id_by_port {type port} {
     fail "Instance $type port $port not found."
 }
 
-# Kill an instance of the specified type/id with SIGKILL.
+# Kill an instance of the specified type/id with SIGTERM.
 # This function will mark the instance PID as -1 to remember that this instance
 # is no longer running and will remove its PID from the list of pids that
 # we kill at cleanup.
@@ -593,6 +596,9 @@ proc kill_instance {type id} {
     if {$pid == -1} {
         error "You tried to kill $type $id twice."
     }
+
+    # stop appendonly so that the instance won't refuse to go down
+    R $id config set appendonly no
 
     stop_instance $pid
     set_instance_attrib $type $id pid -1

@@ -413,7 +413,7 @@ test {slave fails full sync and diskless load swapdb recovers it} {
             $slave slaveof $master_host $master_port
 
             # wait for the slave to start reading the rdb
-            wait_for_condition 50 100 {
+            wait_for_condition 100 100 {
                 [s -1 loading] eq 1
             } else {
                 fail "Replica didn't get into loading mode"
@@ -527,8 +527,11 @@ test {diskless loading short read} {
                     $master multi
                     $master client kill type replica
                     $master set asdf asdf
-                    # the side effect of resizing the backlog is that it is flushed (16k is the min size)
-                    $master config set repl-backlog-size [expr {16384 + $i}]
+                    # fill replication backlog with new content
+                    $master config set repl-backlog-size 16384
+                    for {set keyid 0} {$keyid < 10} {incr keyid} {
+                        $master set "$keyid string_$keyid" [string repeat A 16384]
+                    }
                     $master exec
                 }
                 # wait for loading to stop (fail)

@@ -11,9 +11,17 @@ else	# Linux, others
 endif
 
 # Needed to satisfy __stack_chk_fail_local on Linux with -m32, due to gcc
-# -fstack-protector by default. Breaks on FreeBSD so we exclude it.
-ifneq ($(uname_S),FreeBSD)
+# -fstack-protector by default. Breaks on FreeBSD and macOS 11 so needs
+# to be Linux specific.
+ifeq ($(uname_S),Linux)
     LIBS = -lc
+endif
+
+# OS X 11.x doesn't have /usr/lib/libSystem.dylib and needs an explicit setting.
+ifeq ($(uname_S),Darwin)
+ifeq ("$(wildcard /usr/lib/libSystem.dylib)","")
+LIBS = -L /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib -lsystem
+endif
 endif
 
 TEST_MODULES = \
@@ -42,7 +50,9 @@ TEST_MODULES = \
     zset.so \
     stream.so \
     aclcheck.so \
-    list.so
+    list.so \
+    subcommands.so \
+    reply.so
 
 
 .PHONY: all

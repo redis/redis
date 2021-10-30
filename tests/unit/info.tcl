@@ -51,7 +51,7 @@ start_server {tags {"info" "external:skip"}} {
             assert_equal [s total_error_replies] 0
             catch {r eval {redis.pcall('XGROUP', 'CREATECONSUMER', 's1', 'mygroup', 'consumer') return } 0} e
             assert_match {*count=1*} [errorstat ERR]
-            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat xgroup]
+            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat xgroup\\|createconsumer]
             assert_match {*calls=1,*,rejected_calls=0,failed_calls=0} [cmdstat eval]
 
             # EVAL command errors should still be pinpointed to him
@@ -83,7 +83,7 @@ start_server {tags {"info" "external:skip"}} {
             catch {r XGROUP CREATECONSUMER mystream mygroup consumer} e
             assert_match {NOGROUP*} $e
             assert_match {*count=1*} [errorstat NOGROUP]
-            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat xgroup]
+            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat xgroup\\|createconsumer]
             r config resetstat
             assert_match {} [errorstat NOGROUP]
         }

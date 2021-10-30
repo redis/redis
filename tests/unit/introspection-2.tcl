@@ -76,4 +76,26 @@ start_server {tags {"introspection"}} {
         assert_match {*calls=1,*} [cmdstat expire]
         assert_match {*calls=1,*} [cmdstat geoadd]
     } {} {needs:config-resetstat}
+
+    test {COMMAND GETKEYS GET} {
+        assert_equal {key} [r command getkeys get key]
+    }
+
+    test {COMMAND GETKEYS MEMORY USAGE} {
+        assert_equal {key} [r command getkeys memory usage key]
+    }
+
+    test {COMMAND GETKEYS XGROUP} {
+        assert_equal {key} [r command getkeys xgroup create key groupname $]
+    }
+
+    test "COMMAND LIST FILTERBY ACLCAT" {
+        set reply [r command list filterby aclcat hyperloglog]
+        assert_equal [lsort $reply] {pfadd pfcount pfdebug pfmerge pfselftest}
+    }
+
+    test "COMMAND LIST FILTERBY PATTERN" {
+        set reply [r command list filterby pattern pf*]
+        assert_equal [lsort $reply] {pfadd pfcount pfdebug pfmerge pfselftest}
+    }
 }

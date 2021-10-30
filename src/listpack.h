@@ -87,6 +87,7 @@ unsigned int lpCompare(unsigned char *p, unsigned char *s, uint32_t slen);
 void lpRandomPair(unsigned char *lp, unsigned long total_count, listpackEntry *key, listpackEntry *val);
 void lpRandomPairs(unsigned char *lp, unsigned int count, listpackEntry *keys, listpackEntry *vals);
 unsigned int lpRandomPairsUnique(unsigned char *lp, unsigned int count, listpackEntry *keys, listpackEntry *vals);
+int lpSafeToAdd(unsigned char* lp, size_t add);
 
 #ifdef REDIS_TEST
 int listpackTest(int argc, char *argv[], int accurate);

@@ -89,7 +89,7 @@ int cmd_KEYRANGE(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     char *key;
     size_t keylen;
     long long replylen = 0; /* Keep track of the emitted array len. */
-    RedisModule_ReplyWithArray(ctx,REDISMODULE_POSTPONED_ARRAY_LEN);
+    RedisModule_ReplyWithArray(ctx,REDISMODULE_POSTPONED_LEN);
     while((key = RedisModule_DictNextC(iter,&keylen,NULL)) != NULL) {
         if (replylen >= count) break;
         if (RedisModule_DictCompare(iter,"<=",argv[2]) == REDISMODULE_ERR)
