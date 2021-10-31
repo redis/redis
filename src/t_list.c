@@ -1198,7 +1198,7 @@ void lmpopGenericCommand(client *c, int numkeys_idx, int is_block) {
     long j;
     long numkeys = 0;      /* Number of keys. */
     int where = 0;         /* HEAD for LEFT, TAIL for RIGHT. */
-    long count = 1;        /* Reply will consist of up to count elements, depending on the list's length. */
+    long count = 0;        /* Reply will consist of up to count elements, depending on the list's length. */
 
     /* Parse the numkeys. */
     if (getRangeLongFromObjectOrReply(c, c->argv[numkeys_idx], 1, LONG_MAX,
@@ -1219,7 +1219,7 @@ void lmpopGenericCommand(client *c, int numkeys_idx, int is_block) {
         char *opt = c->argv[j]->ptr;
         int moreargs = (c->argc - 1) - j;
 
-        if (!strcasecmp(opt, "COUNT") && moreargs) {
+        if (count == 0 && !strcasecmp(opt, "COUNT") && moreargs) {
             j++;
             if (getRangeLongFromObjectOrReply(c, c->argv[j], 1, LONG_MAX,
                                               &count,"count should be greater than 0") != C_OK)
@@ -1229,6 +1229,8 @@ void lmpopGenericCommand(client *c, int numkeys_idx, int is_block) {
             return;
         }
     }
+
+    if (count == 0) count = 1;
 
     if (is_block) {
         /* BLOCK. We will handle CLIENT_DENY_BLOCKING flag in blockingPopGenericCommand. */
