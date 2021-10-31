@@ -28,8 +28,19 @@ start_server {tags {"modules"}} {
             assert_equal 3.141 [r rw.double 3.141]
         }
 
+        set ld 3.14159265359
+        if {$::valgrind} { set ld 1.00000000005 } ;# valgrind uses 64 bit long double
         test {RM_ReplyWithLongDouble: a float reply} {
-            assert_equal 3.141 [r rw.longdouble 3.141]
+            if {$proto == 2} {
+                # here the response gets to TCL as a string
+                assert_equal $ld [r rw.longdouble $ld]
+            } else {
+                # TCL doesn't support long double and the test infra converts it to a
+                # normal double which causes precision loss. so we use readraw instead
+                r readraw 1
+                assert_equal ",$ld" [r rw.longdouble $ld]
+                r readraw 0
+            }
         }
 
         test {RM_ReplyWithVerbatimString: a string reply} {
