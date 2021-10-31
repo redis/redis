@@ -2766,14 +2766,15 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
                 io.ver = 2;
                 /* Call the rdb_load method of the module providing the 10 bit
                  * encoding version in the lower 10 bits of the module ID. */
-                if (mt->aux_load(&io,moduleid&1023, when) != REDISMODULE_OK || io.error) {
-                    moduleTypeNameByID(name,moduleid);
-                    serverLog(LL_WARNING,"The RDB file contains module AUX data for the module type '%s', that the responsible module is not able to load. Check for modules log above for additional clues.", name);
-                    goto eoferr;
-                }
+                int rc = mt->aux_load(&io,moduleid&1023, when);
                 if (io.ctx) {
                     moduleFreeContext(io.ctx);
                     zfree(io.ctx);
+                }
+                if (rc != REDISMODULE_OK || io.error) {
+                    moduleTypeNameByID(name,moduleid);
+                    serverLog(LL_WARNING,"The RDB file contains module AUX data for the module type '%s', that the responsible module is not able to load. Check for modules log above for additional clues.", name);
+                    goto eoferr;
                 }
                 uint64_t eof = rdbLoadLen(rdb,NULL);
                 if (eof != RDB_MODULE_OPCODE_EOF) {
