@@ -56,7 +56,7 @@ test "Break master-slave link and prevent further reconnections" {
     assert {[R 5 read] eq {OK OK}}
 
     # Kill the master so that a reconnection will not be possible.
-    kill_instance redis 0
+    kill_instance redis 0 1
 }
 
 test "Slave #5 is reachable and alive" {

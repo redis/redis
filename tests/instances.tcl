@@ -589,7 +589,7 @@ proc get_instance_id_by_port {type port} {
 # we kill at cleanup.
 #
 # The instance can be restarted with restart-instance.
-proc kill_instance {type id} {
+proc kill_instance {type id {is_paused 0}} {
     set pid [get_instance_attrib $type $id pid]
     set port [get_instance_attrib $type $id port]
 
@@ -597,8 +597,10 @@ proc kill_instance {type id} {
         error "You tried to kill $type $id twice."
     }
 
-    # stop appendonly so that the instance won't refuse to go down
-    R $id config set appendonly no
+    if { !($is_paused) } {
+        # stop appendonly so that the instance won't refuse to go down
+        R $id config set appendonly no
+    }
 
     stop_instance $pid
     set_instance_attrib $type $id pid -1
