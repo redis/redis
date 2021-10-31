@@ -4287,6 +4287,7 @@ void zmpopGenericCommand(client *c, int numkeys_idx, int is_block) {
     long j;
     long numkeys = 0;      /* Number of keys. */
     int where = 0;         /* ZSET_MIN or ZSET_MAX. */
+    int count_is_set = 0;  /* Determine whether the count variant is set. */
     long count = 1;        /* Reply will consist of up to count elements, depending on the zset's length. */
 
     /* Parse the numkeys. */
@@ -4314,11 +4315,13 @@ void zmpopGenericCommand(client *c, int numkeys_idx, int is_block) {
         char *opt = c->argv[j]->ptr;
         int moreargs = (c->argc - 1) - j;
 
-        if (!strcasecmp(opt, "COUNT") && moreargs) {
+        if (count_is_set == 0 && !strcasecmp(opt, "COUNT") && moreargs) {
             j++;
             if (getRangeLongFromObjectOrReply(c, c->argv[j], 1, LONG_MAX,
                                               &count,"count should be greater than 0") != C_OK)
                 return;
+
+            count_is_set = 1;
         } else {
             addReplyErrorObject(c, shared.syntaxerr);
             return;
