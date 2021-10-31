@@ -637,7 +637,7 @@ void flushAllDataAndResetRDB(int flags) {
 #if defined(USE_JEMALLOC)
     /* jemalloc 5 doesn't release pages back to the OS when there's no traffic.
      * for large databases, flushdb blocks for long anyway, so a bit more won't
-     * harm and this way the flush and purge will be synchroneus. */
+     * harm and this way the flush and purge will be synchronous. */
     if (!(flags & EMPTYDB_ASYNC))
         jemalloc_purge();
 #endif
@@ -655,7 +655,7 @@ void flushdbCommand(client *c) {
 #if defined(USE_JEMALLOC)
     /* jemalloc 5 doesn't release pages back to the OS when there's no traffic.
      * for large databases, flushdb blocks for long anyway, so a bit more won't
-     * harm and this way the flush and purge will be synchroneus. */
+     * harm and this way the flush and purge will be synchronous. */
     if (!(flags & EMPTYDB_ASYNC))
         jemalloc_purge();
 #endif
