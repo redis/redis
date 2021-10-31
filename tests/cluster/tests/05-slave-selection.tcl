@@ -64,7 +64,7 @@ test "Write data while slave #10 is paused and can't receive it" {
     assert {[R 10 read] eq {OK OK}}
 
     # Kill the master so that a reconnection will not be possible.
-    kill_instance redis 0
+    kill_instance redis 0 1
 }
 
 test "Wait for instance #5 (and not #10) to turn into a master" {
