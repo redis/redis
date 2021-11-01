@@ -2446,13 +2446,14 @@ static void getConfigOOMScoreAdjValuesOption(client *c, typeData data) {
 
 static int setConfigNotifyKeyspaceEventsOption(typeData data, sds *argv, int argc, int update, const char **err) {
     UNUSED(data);
+    UNUSED(update);
     if (argc != 1) {
         *err = "wrong number of arguments";
         return 0;
     }
     int flags = keyspaceEventsStringToFlags(argv[0]);
     if (flags == -1) {
-        if (update) *err = "Invalid event class character. Use 'g$lshzxeA'.";
+        *err = "Invalid event class character. Use 'Ag$lshzxeKEtmd'.";
         return 0;
     }
     server.notify_keyspace_events = flags;
