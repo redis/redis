@@ -2304,7 +2304,7 @@ void replicationCron(void);
 void replicationStartPendingFork(void);
 void replicationHandleMasterDisconnection(void);
 void replicationCacheMaster(client *c);
-void resizeReplicationBacklog(long long newsize);
+void resizeReplicationBacklog();
 void replicationSetMaster(char *ip, int port);
 void replicationUnsetMaster(void);
 void refreshGoodSlavesCount(void);

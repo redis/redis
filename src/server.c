@@ -200,7 +200,7 @@ struct redisServer server; /* Server global state */
  */
 
 struct redisCommand configSubcommands[] = {
-    {"set",configSetCommand,4,
+    {"set",configSetCommand,-4,
      "admin ok-stale no-script"},
 
     {"get",configGetCommand,3,
