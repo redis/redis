@@ -1195,7 +1195,7 @@ int quicklistDelRange(quicklist *quicklist, const long start,
 /* compare between a two entries */
 int quicklistCompare(quicklistEntry* entry, unsigned char *p2, const size_t p2_len) {
     if (unlikely(QL_NODE_IS_PLAIN(entry->node))) {
-        return ((entry->sz == p2_len) && (memcmp(entry->value ,p2, p2_len) == 0));
+        return ((entry->sz == p2_len) && (memcmp(entry->value, p2, p2_len) == 0));
     }
     return ziplistCompare(entry->zi, p2, p2_len);
 }
@@ -1273,18 +1273,23 @@ void quicklistReleaseIterator(quicklistIter *iter) {
  */
 int quicklistNext(quicklistIter *iter, quicklistEntry *entry) {
     initEntry(entry);
+
     if (!iter) {
         D("Returning because no iter!");
         return 0;
     }
+
     entry->quicklist = iter->quicklist;
     entry->node = iter->current;
+
     if (!iter->current) {
         D("Returning because current node is NULL");
         return 0;
     }
+
     unsigned char *(*nextFn)(unsigned char *, unsigned char *) = NULL;
     int offset_update = 0;
+
     int plain = QL_NODE_IS_PLAIN(iter->current);
     if (!iter->zi) {
         /* If !zi, use current index. */
