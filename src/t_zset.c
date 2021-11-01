@@ -3786,11 +3786,14 @@ void zscanCommand(client *c) {
  * and member + score pairs. In these commands, we reply with null when we have no result.
  * Otherwise in ZPOPMIN/ZPOPMAX we reply an empty array by default.
  *
+ * 'reply_empty_with_zero_count' when true we reply an empty array when count is 0.
+ *
  * 'deleted' is an optional output argument to get an indication
  * if the key got deleted by this function.
  * */
 void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey,
-                        long count, int use_nested_array, int reply_nil_when_empty, int *deleted) {
+                        long count, int use_nested_array, int reply_nil_when_empty,
+                        int reply_empty_with_zero_count, int *deleted) {
     int idx;
     robj *key = NULL;
     robj *zobj = NULL;
@@ -3816,6 +3819,12 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
         } else {
             addReply(c,shared.emptyarray);
         }
+        return;
+    }
+
+    if (reply_empty_with_zero_count && count == 0) {
+        /* ZPOPMIN/ZPOPMAX with count 0. */
+        addReply(c, shared.emptyarray);
         return;
     }
 
@@ -3927,21 +3936,20 @@ void zpopMinMaxCommand(client *c, int where) {
     }
 
     long count = 0; /* 0 for plain single pop. */
+    int reply_empty_with_zero_count = 0;
+
     if (c->argc == 3) {
-        if (getLongFromObjectOrReply(c, c->argv[2], &count, NULL) != C_OK)
+        if (getPositiveLongFromObjectOrReply(c, c->argv[2], &count, NULL) != C_OK)
             return;
 
-        if (count <= 0) {
-            addReply(c, shared.emptyarray);
-            return;
-        }
+        reply_empty_with_zero_count = 1;
     }
 
     /* Respond with a single (flat) array in RESP2 or if count is 0
      * (returning a single element). In RESP3, when count > 0 use nested array. */
     int use_nested_array = (c->resp > 2 && count != 0);
 
-    genericZpopCommand(c, &c->argv[1], 1, where, 0, count, use_nested_array, 0, NULL);
+    genericZpopCommand(c, &c->argv[1], 1, where, 0, count, use_nested_array, 0, reply_empty_with_zero_count, NULL);
 }
 
 /* ZPOPMIN key [<count>] */
@@ -3990,7 +3998,7 @@ void blockingGenericZpopCommand(client *c, robj **keys, int numkeys, int where,
         if (llen == 0) continue;
 
         /* Non empty zset, this is like a normal ZPOP[MIN|MAX]. */
-        genericZpopCommand(c, &key, 1, where, 1, count, use_nested_array, reply_nil_when_empty, NULL);
+        genericZpopCommand(c, &key, 1, where, 1, count, use_nested_array, reply_nil_when_empty, 0, NULL);
 
         if (count == 0) {
             /* Replicate it as ZPOP[MIN|MAX] instead of BZPOP[MIN|MAX]. */
@@ -4332,7 +4340,7 @@ void zmpopGenericCommand(client *c, int numkeys_idx, int is_block) {
         blockingGenericZpopCommand(c, c->argv+numkeys_idx+1, numkeys, where, 1, count, 1, 1);
     } else {
         /* NON-BLOCK */
-        genericZpopCommand(c, c->argv+numkeys_idx+1, numkeys, where, 1, count, 1, 1, NULL);
+        genericZpopCommand(c, c->argv+numkeys_idx+1, numkeys, where, 1, count, 1, 1, 0, NULL);
     }
 }
 

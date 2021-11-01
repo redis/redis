@@ -351,7 +351,7 @@ void serveClientsBlockedOnSortedSetKey(robj *o, readyList *rl) {
             server.current_client = receiver;
             monotime replyTimer;
             elapsedStart(&replyTimer);
-            genericZpopCommand(receiver, &rl->key, 1, where, 1, count, use_nested_array, reply_nil_when_empty, &deleted);
+            genericZpopCommand(receiver, &rl->key, 1, where, 1, count, use_nested_array, reply_nil_when_empty, 0, &deleted);
             updateStatsOnUnblock(receiver, 0, elapsedUs(replyTimer));
             unblockClient(receiver);
             afterCommand(receiver);
