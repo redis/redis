@@ -28,8 +28,7 @@ start_server {tags {"modules"}} {
             assert_equal 3.141 [r rw.double 3.141]
         }
 
-        set ld 3.14159265359
-        if {$::valgrind} { set ld 1.00000000005 } ;# valgrind uses 64 bit long double
+        set ld 0.00000000000000001
         test "RESP$proto: RM_ReplyWithLongDouble: a float reply" {
             if {$proto == 2} {
                 # here the response gets to TCL as a string
