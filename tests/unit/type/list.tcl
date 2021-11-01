@@ -142,6 +142,12 @@ start_server [list overrides [list save ""] ] {
         assert {[r llen lst] == 1}
         r lpop lst
         assert {[string length $s1] == 10}
+        # check rdb
+        r lpush lst xxxxxxxxxx
+        r lpush lst bb
+        r save
+        r debug reload
+        assert_equal [r rpop lst] "xxxxxxxxxx"
     } {} {needs:debug}
 
     # basic command check for plain nodes - "LINDEX & LINSERT"

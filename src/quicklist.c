@@ -276,7 +276,7 @@ size_t quicklistGetLzf(const quicklistNode *node, void **data) {
 }
 
 void quicklistRepr(unsigned char *ql, int full) {
-    int i=0;
+    int i = 0;
     quicklist *quicklist  = (struct quicklist*) ql;
     printf("{count : %ld}\n", quicklist->count);
     printf("{len : %ld}\n", quicklist->len);
@@ -544,7 +544,7 @@ static quicklistNode* __quicklistCreatePlainNode(void *value, size_t sz) {
 }
 
 static void __quicklistInsertPlainNode(quicklist *quicklist, quicklistNode *old_node,
-                                       void *value, size_t sz, int after)  {
+                                       void *value, size_t sz, int after) {
     __quicklistInsertNode(quicklist, old_node, __quicklistCreatePlainNode(value, sz), after);
     quicklist->count++;
 }
@@ -772,7 +772,7 @@ void quicklistDelEntry(quicklistIter *iter, quicklistEntry *entry) {
 /* Replace quicklist entry by 'data' with length 'sz'. */
 void quicklistReplaceEntry(quicklist *quicklist, quicklistEntry *entry,
                            void *data, size_t sz) {
-    if (likely(!QL_NODE_IS_PLAIN(entry->node)) && likely(!isLargeElement(sz))) {
+    if (likely(!QL_NODE_IS_PLAIN(entry->node) && !isLargeElement(sz))) {
         entry->node->entry = ziplistReplace(entry->node->entry, entry->zi, data, sz);
         quicklistNodeUpdateSz(entry->node);
         /* quicklistNext() and quicklistIndex() provide an uncompressed node */
@@ -793,7 +793,7 @@ void quicklistReplaceEntry(quicklist *quicklist, quicklistEntry *entry,
         if (entry->node->count == 1)
             __quicklistDelNode(quicklist, entry->node);
         else {
-            unsigned char* p = ziplistIndex(entry->node->entry, -1);
+            unsigned char *p = ziplistIndex(entry->node->entry, -1);
             quicklistDelIndex(quicklist, entry->node, &p);
             quicklistCompress(quicklist, entry->node->next);
         }
@@ -971,7 +971,6 @@ REDIS_STATIC void _quicklistInsert(quicklist *quicklist, quicklistEntry *entry,
     int fill = quicklist->fill;
     quicklistNode *node = entry->node;
     quicklistNode *new_node = NULL;
-    quicklistNode *entry_node = NULL;
 
     if (!node) {
         /* we have no reference node, so let's create only node in the list */
@@ -1019,7 +1018,7 @@ REDIS_STATIC void _quicklistInsert(quicklist *quicklist, quicklistEntry *entry,
         } else {
             quicklistDecompressNodeForUse(node);
             new_node = _quicklistSplitNode(node, entry->offset, after);
-            entry_node = __quicklistCreatePlainNode(value, sz);
+            quicklistNode *entry_node = __quicklistCreatePlainNode(value, sz);
             __quicklistInsertNode(quicklist, node, entry_node, after);
             __quicklistInsertNode(quicklist, entry_node, new_node, after);
             quicklist->count++;
@@ -1274,48 +1273,28 @@ void quicklistReleaseIterator(quicklistIter *iter) {
  */
 int quicklistNext(quicklistIter *iter, quicklistEntry *entry) {
     initEntry(entry);
-
     if (!iter) {
         D("Returning because no iter!");
         return 0;
     }
-
     entry->quicklist = iter->quicklist;
     entry->node = iter->current;
-
     if (!iter->current) {
         D("Returning because current node is NULL");
         return 0;
     }
-
     unsigned char *(*nextFn)(unsigned char *, unsigned char *) = NULL;
     int offset_update = 0;
-
-    if (unlikely(QL_NODE_IS_PLAIN(iter->current))) {
-        quicklistDecompressNodeForUse(iter->current);
-        entry->value = entry->node->entry;
-        entry->sz = entry->node->sz;
-
-        if (iter->direction == AL_START_HEAD) {
-            /* Forward traversal */
-            D("Jumping to start of next node");
-            iter->current = iter->current->next;
-            iter->offset = 0;
-        } else if (iter->direction == AL_START_TAIL) {
-            /* Reverse traversal */
-            D("Jumping to end of previous node");
-            iter->current = iter->current->prev;
-            iter->offset = -1;
-        }
-        iter->zi = NULL;
-
-        return 1;
-    }
-
+    int plain = QL_NODE_IS_PLAIN(iter->current);
     if (!iter->zi) {
         /* If !zi, use current index. */
         quicklistDecompressNodeForUse(iter->current);
-        iter->zi = ziplistIndex(iter->current->entry, iter->offset);
+        if (plain)
+            iter->zi = iter->current->entry;
+        else
+            iter->zi = ziplistIndex(iter->current->entry, iter->offset);
+    } else if (plain) {
+        iter->zi = NULL;
     } else {
         /* else, use existing iterator offset and get prev/next as necessary. */
         if (iter->direction == AL_START_HEAD) {
@@ -1333,6 +1312,11 @@ int quicklistNext(quicklistIter *iter, quicklistEntry *entry) {
     entry->offset = iter->offset;
 
     if (iter->zi) {
+        if (plain) {
+            entry->value = entry->node->entry;
+            entry->sz = entry->node->sz;
+            return 1;
+        }
         /* Populate value from existing ziplist position */
         unsigned int sz = 0;
         ziplistGet(entry->zi, &entry->value, &sz, &entry->longval);
@@ -1480,30 +1464,36 @@ int quicklistIndex(const quicklist *quicklist, const long long idx,
     return 1;
 }
 
+
+static void quicklistRotatePlain(quicklist *quicklist) {
+    quicklistNode *new_head = quicklist->tail;
+    quicklistNode *new_tail = quicklist->tail->prev;
+    quicklist->head->prev = new_head;
+    new_tail->next = NULL;
+    new_head->next = quicklist->head;
+    new_head->prev = NULL;
+    quicklist->head = new_head;
+    quicklist->tail = new_tail;
+}
+
 /* Rotate quicklist by moving the tail element to the head. */
 void quicklistRotate(quicklist *quicklist) {
     if (quicklist->count <= 1)
         return;
+
     if (unlikely(QL_NODE_IS_PLAIN(quicklist->tail))) {
-        quicklistNode *new_head = quicklist->tail;
-        quicklistNode *new_tail = quicklist->tail->prev;
-        quicklist->head->prev = new_head;
-        new_tail->next = NULL;
-        new_head->next = quicklist->head;
-        new_head->prev = NULL;
-        quicklist->head = new_head;
-        quicklist->tail = new_tail;
+        quicklistRotatePlain(quicklist);
         return;
     }
 
     /* First, get the tail entry */
+    unsigned char *p = ziplistIndex(quicklist->tail->entry, -1);
     unsigned char *value, *tmp;
     long long longval;
-    char longstr[32] = {0};
-    unsigned char *p = ziplistIndex(quicklist->tail->entry, -1);
     unsigned int sz;
-
+    char longstr[32] = {0};
     ziplistGet(p, &tmp, &sz, &longval);
+
     /* If value found is NULL, then ziplistGet populated longval instead */
     if (!tmp) {
         /* Write the longval as a string so we can re-add it */
@@ -2031,6 +2021,21 @@ int quicklistTest(int argc, char *argv[], int accurate) {
             }
             quicklistReleaseIterator(iter);
             quicklistRelease(ql);
+        }
+
+
+        TEST("NEXT plain node")
+        {
+            packed_threshold = 1;
+            quicklist *ql = quicklistNew(-2, options[_i]);
+            quicklistPushHead(ql, "hello1", 6);
+            quicklistPushHead(ql, "hello2", 6);
+            quicklistPushHead(ql, "hello3", 6);
+            quicklistEntry entry;
+            quicklistIter *iter = quicklistGetIterator(ql, AL_START_TAIL);
+            quicklistNext(iter, &entry);
+            quicklistReleaseIterator(iter);
+            assert(strcmp("hello1", (char *)entry.value) == 0);
         }
 
         TEST("rotate plain node ") {

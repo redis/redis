@@ -1963,15 +1963,17 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
 
             unsigned char *data =
                 rdbGenericLoadStringObject(rdb,RDB_LOAD_PLAIN,&encoded_len);
-            if (data == NULL) {
+            if (data == NULL || (encoded_len == 0)) {
                 decrRefCount(o);
                 return NULL;
             }
-            if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
+
             if (container == QUICKLIST_NODE_CONTAINER_PLAIN) {
                 quicklistAppendPlainNode(o->ptr, data, encoded_len);
                 continue;
             }
+
+            if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
             if (!ziplistValidateIntegrity(data, encoded_len, deep_integrity_validation, NULL, NULL)) {
                 rdbReportCorruptRDB("Ziplist integrity check failed.");
                 decrRefCount(o);

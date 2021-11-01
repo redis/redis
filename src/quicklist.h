@@ -193,7 +193,7 @@ int quicklistPopCustom(quicklist *quicklist, int where, unsigned char **data,
 int quicklistPop(quicklist *quicklist, int where, unsigned char **data,
                  size_t *sz, long long *slong);
 unsigned long quicklistCount(const quicklist *ql);
-int quicklistCompare(quicklistEntry* entry, unsigned char *p2, const size_t p2_len);
+int quicklistCompare(quicklistEntry *entry, unsigned char *p2, const size_t p2_len);
 size_t quicklistGetLzf(const quicklistNode *node, void **data);
 void quicklistRepr(unsigned char *ql, int full);
 

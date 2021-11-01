@@ -53,7 +53,7 @@ When using an external server (`--host` and `--port`), filtering using the
 When using `--cluster-mode`, filtering using the `cluster:skip` tag is done
 automatically.
 
-When not using `--large-mem`, filtering using the `largemem:skip` tag is done
+When not using `--large-memory`, filtering using the `largemem:skip` tag is done
 automatically.
 
 In addition, it is possible to specify additional configuration. For example, to
