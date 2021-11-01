@@ -133,9 +133,7 @@ tags "modules" {
         }
 
         # Module events for diskless load swapdb when async_loading (matching master replid)
-        # Run different execution flavors and declare suitable tests according to each flavor
-        # Delayed allows us to assert state of things while async_loading is in progress
-        foreach testType {Fast Delayed Aborted} {
+        foreach testType {Successful Aborted} {
             start_server [list overrides [list loadmodule "$testmodule 2"] tags [list external:skip]] {
                 set replica [srv 0 client]
                 set replica_host [srv 0 host]
@@ -183,46 +181,46 @@ tags "modules" {
                     }
                     $master exec
 
-                    if {$testType == "Delayed" || $testType == "Aborted"} {
-                        # Set master with a slow rdb generation, so that we can easily intercept loading
-                        # 10ms per key, with 500 keys is 5 seconds
-                        $master config set rdb-key-save-delay 10000
-
-                        # Wait for the replica to start reading the rdb
-                        wait_for_condition 100 100 {
-                            [s -1 async_loading] eq 1
-                        } else {
-                            fail "Replica didn't get into async_loading mode"
-                        }
-                    }
-
                     switch $testType {
                         "Aborted" {
+                            # Set master with a slow rdb generation, so that we can easily intercept loading
+                            # 10ms per key, with 500 keys is 5 seconds
+                            $master config set rdb-key-save-delay 10000
+
+                            test {Diskless load swapdb RedisModuleEvent_ReplAsyncLoad handling: during loading, can keep module variable same as before} {
+                                # Wait for the replica to start reading the rdb and module for acknowledgement
+                                wait_for_condition 100 100 {
+                                    [s -1 async_loading] eq 1 && [$replica testrdb.async_loading.get.before] eq 1
+                                } else {
+                                    fail "Module didn't receive or react to REDISMODULE_SUBEVENT_REPL_ASYNC_LOAD_STARTED"
+                                }
+
+                                assert_equal [$replica dbsize] 2000
+                                assert_equal value1_replica [$replica testrdb.get.before]
+                            }
+
                             # Make sure that next sync will not start immediately so that we can catch the replica in between syncs
                             $master config set repl-diskless-sync-delay 5
 
                             # Kill the replica connection on the master
                             set killed [$master client kill type replica]
 
-                            # Wait for loading to stop (fail)
-                            wait_for_condition 100 100 {
-                                [s -1 async_loading] eq 0
-                            } else {
-                                fail "Replica didn't disconnect"
-                            }
-                            
                             test {Diskless load swapdb RedisModuleEvent_ReplAsyncLoad handling: when loading aborted, can keep module variable same as before} {
+                                # Wait for loading to stop (fail) and module for acknowledgement
+                                wait_for_condition 100 100 {
+                                    [s -1 async_loading] eq 0 && [$replica testrdb.async_loading.get.before] eq 0
+                                } else {
+                                    fail "Module didn't receive or react to REDISMODULE_SUBEVENT_REPL_ASYNC_LOAD_ABORTED"
+                                }
+
                                 assert_equal [$replica dbsize] 2000
                                 assert_equal value1_replica [$replica testrdb.get.before]
                             }
+
+                            # Speed up shutdown
+                            $master config set rdb-key-save-delay 0
                         }
-                        "Delayed" {
-                            test {Diskless load swapdb RedisModuleEvent_ReplAsyncLoad handling: during loading, can keep module variable same as before} {
-                                assert_equal [$replica dbsize] 2000
-                                assert_equal value1_replica [$replica testrdb.get.before]
-                            }
-                        }
-                        "Fast" {
+                        "Successful" {
                             # Let replica finish sync with master
                             wait_for_condition 100 100 {
                                 [s -1 master_link_status] eq "up"
@@ -236,9 +234,6 @@ tags "modules" {
                             }
                         }
                     }
-
-                    # Speed up shutdown (useful for Aborted and Delayed)
-                    $master config set rdb-key-save-delay 0
 
                     if {$::verbose} {
                         set end [clock clicks -milliseconds]

@@ -384,9 +384,7 @@ start_server {tags {"repl external:skip"}} {
 }
 
 # Diskless load swapdb when NOT async_loading (different master replid)
-# Run different execution flavors and declare suitable tests according to each flavor
-# Delayed allows us to assert state of things while loading is in progress
-foreach testType {Fast Delayed Aborted} {
+foreach testType {Successful Aborted} {
     start_server {tags {"repl external:skip"}} {
         set replica [srv 0 client]
         set replica_host [srv 0 host]
@@ -411,24 +409,26 @@ foreach testType {Fast Delayed Aborted} {
             # Set a key value on replica to check status on failure and after swapping db
             $replica set mykey myvalue
 
-            if {$testType == "Delayed" || $testType == "Aborted"} {
-                # Set master with a slow rdb generation, so that we can easily intercept loading
-                # 10ms per key, with 500 keys is 5 seconds
-                $master config set rdb-key-save-delay 10000
-
-                # Start the replication process
-                $replica replicaof $master_host $master_port
-
-                # Wait for the replica to start reading the rdb
-                wait_for_condition 100 100 {
-                    [s -1 loading] eq 1
-                } else {
-                    fail "Replica didn't get into loading mode"
-                }
-            }
-
             switch $testType {
                 "Aborted" {
+                    # Set master with a slow rdb generation, so that we can easily intercept loading
+                    # 10ms per key, with 500 keys is 5 seconds
+                    $master config set rdb-key-save-delay 10000
+
+                    # Start the replication process
+                    $replica replicaof $master_host $master_port
+
+                    test {Diskless load swapdb (different replid): replica enter loading} {
+                        # Wait for the replica to start reading the rdb
+                        wait_for_condition 100 100 {
+                            [s -1 loading] eq 1
+                        } else {
+                            fail "Replica didn't get into loading mode"
+                        }
+                        
+                        assert_equal [s -1 async_loading] 0
+                    }
+
                     # Make sure that next sync will not start immediately so that we can catch the replica in between syncs
                     $master config set repl-diskless-sync-delay 5
 
@@ -449,14 +449,11 @@ foreach testType {Fast Delayed Aborted} {
                         # Make sure amount of replica keys didn't change
                         assert_equal [$replica dbsize] 2001
                     }
+
+                    # Speed up shutdown
+                    $master config set rdb-key-save-delay 0
                 }
-                "Delayed" {
-                    test {Diskless load swapdb (different replid): replica enter loading} {
-                        assert_equal [s -1 loading] 1
-                        assert_equal [s -1 async_loading] 0
-                    }
-                }
-                "Fast" {
+                "Successful" {
                     # Start the replication process
                     $replica replicaof $master_host $master_port
 
@@ -476,17 +473,12 @@ foreach testType {Fast Delayed Aborted} {
                     }
                 }
             }
-
-            # Speed up shutdown (useful for Aborted and Delayed)
-            $master config set rdb-key-save-delay 0
         }
     }
 }
 
 # Diskless load swapdb when async_loading (matching master replid)
-# Run different execution flavors and declare suitable tests according to each flavor
-# Delayed allows us to assert state of things while async_loading is in progress
-foreach testType {Fast Delayed Aborted} {
+foreach testType {Successful Aborted} {
     start_server {tags {"repl external:skip"}} {
         set replica [srv 0 client]
         set replica_host [srv 0 host]
@@ -535,21 +527,34 @@ foreach testType {Fast Delayed Aborted} {
             }
             $master exec
 
-            if {$testType == "Delayed" || $testType == "Aborted"} {
-                # Set master with a slow rdb generation, so that we can easily intercept loading
-                # 10ms per key, with 500 keys is 5 seconds
-                $master config set rdb-key-save-delay 10000
-
-                # Wait for the replica to start reading the rdb
-                wait_for_condition 100 100 {
-                    [s -1 async_loading] eq 1
-                } else {
-                    fail "Replica didn't get into async_loading mode"
-                }
-            }
-
             switch $testType {
                 "Aborted" {
+                    # Set master with a slow rdb generation, so that we can easily intercept loading
+                    # 10ms per key, with 500 keys is 5 seconds
+                    $master config set rdb-key-save-delay 10000
+
+                    test {Diskless load swapdb (async_loading): replica enter async_loading} {
+                        # Wait for the replica to start reading the rdb
+                        wait_for_condition 100 100 {
+                            [s -1 async_loading] eq 1
+                        } else {
+                            fail "Replica didn't get into async_loading mode"
+                        }
+                        
+                        assert_equal [s -1 loading] 0
+                    }
+                    
+                    test {Diskless load swapdb (async_loading): old database is exposed while async replication is in progress} {
+                        # Ensure we still see old values while async_loading is in progress and also not LOADING status
+                        assert_equal [$replica get mykey] "myvalue"
+
+                        # Make sure we're still async_loading to validate previous assertion
+                        assert_equal [s -1 async_loading] 1
+
+                        # Make sure amount of replica keys didn't change
+                        assert_equal [$replica dbsize] 2001
+                    }
+
                     # Make sure that next sync will not start immediately so that we can catch the replica in between syncs
                     $master config set repl-diskless-sync-delay 5
 
@@ -570,25 +575,11 @@ foreach testType {Fast Delayed Aborted} {
                         # Make sure amount of replica keys didn't change
                         assert_equal [$replica dbsize] 2001
                     }
-                }
-                "Delayed" {
-                    test {Diskless load swapdb (async_loading): replica enter async_loading} {
-                        assert_equal [s -1 async_loading] 1
-                        assert_equal [s -1 loading] 0
-                    }
-                    
-                    test {Diskless load swapdb (async_loading): old database is exposed while async replication is in progress} {
-                        # Ensure we still see old values while async_loading is in progress and also not LOADING status
-                        assert_equal [$replica get mykey] "myvalue"
 
-                        # Make sure we're still async_loading to validate previous assertion
-                        assert_equal [s -1 async_loading] 1
-
-                        # Make sure amount of replica keys didn't change
-                        assert_equal [$replica dbsize] 2001
-                    }
+                    # Speed up shutdown
+                    $master config set rdb-key-save-delay 0
                 }
-                "Fast" {
+                "Successful" {
                     # Let replica finish sync with master
                     wait_for_condition 100 100 {
                         [s -1 master_link_status] eq "up"
@@ -605,9 +596,6 @@ foreach testType {Fast Delayed Aborted} {
                     }
                 }
             }
-
-            # Speed up shutdown (useful for Aborted and Delayed)
-            $master config set rdb-key-save-delay 0
         }
     }
 }

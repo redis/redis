@@ -193,6 +193,17 @@ int testrdb_get_before(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     return REDISMODULE_OK;
 }
 
+int testrdb_async_loading_get_before(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    REDISMODULE_NOT_USED(argv);
+    if (argc != 1){
+        RedisModule_WrongArity(ctx);
+        return REDISMODULE_OK;
+    }
+    RedisModule_ReplyWithLongLong(ctx, async_loading);
+    return REDISMODULE_OK;
+}
+
 int testrdb_set_after(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     if (argc != 2){
@@ -302,6 +313,9 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"testrdb.get.before", testrdb_get_before,"",0,0,0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"testrdb.async_loading.get.before", testrdb_async_loading_get_before,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"testrdb.set.after", testrdb_set_after,"deny-oom",0,0,0) == REDISMODULE_ERR)
