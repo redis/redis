@@ -783,6 +783,7 @@ int loadAppendOnlyFile(char *filename) {
         if (buf[1] == '\0') goto readerr;
         argc = atoi(buf+1);
         if (argc < 1) goto fmterr;
+        if ((size_t)argc > SIZE_MAX / sizeof(robj*)) goto fmterr;
 
         /* Load the next command in the AOF as our fake client
          * argv. */
