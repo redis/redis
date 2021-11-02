@@ -1004,7 +1004,7 @@ test {replica can handle EINTR if use diskless load} {
             set master_host [srv 0 host]
             set master_port [srv 0 port]
 
-            $master debug populate 5 master 100000
+            $master debug populate 100 master 100000
             $master config set rdbcompression no
             $master config set repl-diskless-sync yes
             $master config set repl-diskless-sync-delay 0
@@ -1012,13 +1012,13 @@ test {replica can handle EINTR if use diskless load} {
             # Construct EINTR error
             $slave config set watchdog-period 200
             # Block slave in read()
-            $master config set rdb-key-save-delay 1000000
+            $master config set rdb-key-save-delay 10000
             # Start the replication process...
             $slave slaveof $master_host $master_port
 
             # wait for the slave to start reading the rdb
             wait_for_condition 50 100 {
-                [s -1 master_link_status] eq {up}
+                [s -1 loading] eq 1
             } else {
                 fail "Replication not started."
             }
