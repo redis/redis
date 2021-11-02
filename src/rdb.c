@@ -1964,6 +1964,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
             unsigned char *data =
                 rdbGenericLoadStringObject(rdb,RDB_LOAD_PLAIN,&encoded_len);
             if (data == NULL || (encoded_len == 0)) {
+                if (encoded_len == 0)
+                    zfree(data);
                 decrRefCount(o);
                 return NULL;
             }

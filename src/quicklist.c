@@ -1294,11 +1294,11 @@ int quicklistNext(quicklistIter *iter, quicklistEntry *entry) {
     if (!iter->zi) {
         /* If !zi, use current index. */
         quicklistDecompressNodeForUse(iter->current);
-        if (plain)
+        if (unlikely(plain))
             iter->zi = iter->current->entry;
         else
             iter->zi = ziplistIndex(iter->current->entry, iter->offset);
-    } else if (plain) {
+    } else if (unlikely(plain)) {
         iter->zi = NULL;
     } else {
         /* else, use existing iterator offset and get prev/next as necessary. */
@@ -1317,7 +1317,7 @@ int quicklistNext(quicklistIter *iter, quicklistEntry *entry) {
     entry->offset = iter->offset;
 
     if (iter->zi) {
-        if (plain) {
+        if (unlikely(plain)) {
             entry->value = entry->node->entry;
             entry->sz = entry->node->sz;
             return 1;
@@ -1468,7 +1468,6 @@ int quicklistIndex(const quicklist *quicklist, const long long idx,
     entry->sz = sz;
     return 1;
 }
-
 
 static void quicklistRotatePlain(quicklist *quicklist) {
     quicklistNode *new_head = quicklist->tail;
@@ -2031,16 +2030,22 @@ int quicklistTest(int argc, char *argv[], int accurate) {
 
         TEST("NEXT plain node")
         {
-            packed_threshold = 1;
+            packed_threshold = 3;
             quicklist *ql = quicklistNew(-2, options[_i]);
-            quicklistPushHead(ql, "hello1", 6);
-            quicklistPushHead(ql, "hello2", 6);
-            quicklistPushHead(ql, "hello3", 6);
+            char *strings[] = {"hello1", "hello2", "h3", "h4", "hello5"};
+
+            for (int i = 0; i < 5; ++i)
+                quicklistPushHead(ql, strings[i], strlen(strings[i]));
+
             quicklistEntry entry;
             quicklistIter *iter = quicklistGetIterator(ql, AL_START_TAIL);
-            quicklistNext(iter, &entry);
+            int j = 0;
+
+            while(quicklistNext(iter, &entry) != 0) {
+                assert(strncmp(strings[j], (char *)entry.value, strlen(strings[j])) == 0);
+                j++;
+            }
             quicklistReleaseIterator(iter);
-            assert(strcmp("hello1", (char *)entry.value) == 0);
         }
 
         TEST("rotate plain node ") {

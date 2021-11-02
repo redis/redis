@@ -145,7 +145,6 @@ start_server [list overrides [list save ""] ] {
         # check rdb
         r lpush lst xxxxxxxxxx
         r lpush lst bb
-        r save
         r debug reload
         assert_equal [r rpop lst] "xxxxxxxxxx"
     } {} {needs:debug}
