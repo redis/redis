@@ -5492,7 +5492,7 @@ void infoCommand(client *c) {
 =======
 >>>>>>> Infoenhance new (#32)
 
-    /* When info is called with no other arguments*/
+    /* When info is called with no other arguments */
     if (c->argc == 1) {
         sds info = genRedisInfoString("default");
         addReplyVerbatim(c,info,sdslen(info),"txt");
