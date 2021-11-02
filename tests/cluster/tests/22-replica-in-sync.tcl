@@ -74,7 +74,7 @@ test "Replica in loading state is hidden" {
     for {set j 0} {$j < $num} {incr j} {
         set key "{0}"
         append key $j
-        R $master_id set key $value
+        R $master_id set $key $value
     }
     R $master_id exec
 
@@ -109,10 +109,21 @@ test "Replica in loading state is hidden" {
 }
 
 test "Check disconnected replica not hidden from slots" {
-    # Disconnect replica from primary
-    R $master_id client kill type replica
-    # Check master to have no replicas
-    assert {[s $master_id connected_slaves] == 0}
+    # Disconnect replica from primary by stopping it
+    # Stop AOF so that an initial AOFRW won't prevent the instance from terminating
+    R $replica_id config set appendonly no
+    kill_instance redis $replica_id
+
+    # Wait for master to have no replicas
+    wait_for_condition 100 50 {
+        [s $master_id connected_slaves] == 0
+    } else {
+        fail "replica didn't disconnect"
+    }
+
     # Check that replica is still in the cluster slots
     assert {[is_in_slots $master_id $replica]}
+
+    # Restart the stopped replica
+    restart_instance redis $replica_id
 }
