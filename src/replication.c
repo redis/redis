@@ -252,7 +252,7 @@ void feedReplicationBufferWithObject(robj *o) {
 void incrementalTrimReplicationBacklog(size_t max_blocks) {
     serverAssert(server.repl_backlog != NULL);
 
-    size_t trimmed_blocks = 0, trimmed_bytes = 0;
+    size_t trimmed_blocks = 0;
     while (server.repl_backlog->histlen > server.repl_backlog_size &&
            trimmed_blocks < max_blocks)
     {
@@ -277,8 +277,8 @@ void incrementalTrimReplicationBacklog(size_t max_blocks) {
 
         /* Decr refcount and release the first block later. */
         fo->refcount--;
-        trimmed_bytes += fo->size;
         trimmed_blocks++;
+        server.repl_backlog->histlen -= fo->size;
 
         /* Go to use next replication buffer block node. */
         listNode *next = listNextNode(first);
@@ -299,7 +299,6 @@ void incrementalTrimReplicationBacklog(size_t max_blocks) {
         listDelNode(server.repl_buffer_blocks, first);
     }
 
-    server.repl_backlog->histlen -= trimmed_bytes;
     /* Set the offset of the first byte we have in the backlog. */
     server.repl_backlog->offset = server.master_repl_offset -
                               server.repl_backlog->histlen + 1;
