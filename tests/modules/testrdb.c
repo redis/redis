@@ -32,7 +32,7 @@ void replAsyncLoadCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub
         async_loading = 1;
         break;
     case REDISMODULE_SUBEVENT_REPL_ASYNC_LOAD_ABORTED:
-        /* Discar temp aux */
+        /* Discard temp aux */
         if (before_str_temp)
             RedisModule_FreeString(ctx, before_str_temp);
         if (after_str_temp)
@@ -193,6 +193,7 @@ int testrdb_get_before(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     return REDISMODULE_OK;
 }
 
+/* For purpose of testing module events, expose variable state during async_loading. */
 int testrdb_async_loading_get_before(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     REDISMODULE_NOT_USED(argv);
@@ -200,7 +201,10 @@ int testrdb_async_loading_get_before(RedisModuleCtx *ctx, RedisModuleString **ar
         RedisModule_WrongArity(ctx);
         return REDISMODULE_OK;
     }
-    RedisModule_ReplyWithLongLong(ctx, async_loading);
+    if (before_str_temp)
+        RedisModule_ReplyWithString(ctx, before_str_temp);
+    else
+        RedisModule_ReplyWithStringBuffer(ctx, "", 0);
     return REDISMODULE_OK;
 }
 

@@ -167,8 +167,8 @@ tags "modules" {
 
                     # Put different data sets on the master and replica
                     # We need to put large keys on the master since the replica replies to info only once in 2mb
-                    $replica debug populate 2000 slave 10
-                    $master debug populate 500 master 100000
+                    $replica debug populate 200 slave 10
+                    $master debug populate 1000 master 100000
                     $master config set rdbcompression no
 
                     # Force the replica to try another full sync (this time it will have matching master replid)
@@ -184,18 +184,19 @@ tags "modules" {
                     switch $testType {
                         "Aborted" {
                             # Set master with a slow rdb generation, so that we can easily intercept loading
-                            # 10ms per key, with 500 keys is 5 seconds
+                            # 10ms per key, with 1000 keys is 10 seconds
                             $master config set rdb-key-save-delay 10000
 
                             test {Diskless load swapdb RedisModuleEvent_ReplAsyncLoad handling: during loading, can keep module variable same as before} {
                                 # Wait for the replica to start reading the rdb and module for acknowledgement
+                                # We wanna abort only after the temp db was populated by REDISMODULE_AUX_BEFORE_RDB
                                 wait_for_condition 100 100 {
-                                    [s -1 async_loading] eq 1 && [$replica testrdb.async_loading.get.before] eq 1
+                                    [s -1 async_loading] eq 1 && [$replica testrdb.async_loading.get.before] eq "value1_master"
                                 } else {
                                     fail "Module didn't receive or react to REDISMODULE_SUBEVENT_REPL_ASYNC_LOAD_STARTED"
                                 }
 
-                                assert_equal [$replica dbsize] 2000
+                                assert_equal [$replica dbsize] 200
                                 assert_equal value1_replica [$replica testrdb.get.before]
                             }
 
@@ -208,12 +209,12 @@ tags "modules" {
                             test {Diskless load swapdb RedisModuleEvent_ReplAsyncLoad handling: when loading aborted, can keep module variable same as before} {
                                 # Wait for loading to stop (fail) and module for acknowledgement
                                 wait_for_condition 100 100 {
-                                    [s -1 async_loading] eq 0 && [$replica testrdb.async_loading.get.before] eq 0
+                                    [s -1 async_loading] eq 0 && [$replica testrdb.async_loading.get.before] eq ""
                                 } else {
                                     fail "Module didn't receive or react to REDISMODULE_SUBEVENT_REPL_ASYNC_LOAD_ABORTED"
                                 }
 
-                                assert_equal [$replica dbsize] 2000
+                                assert_equal [$replica dbsize] 200
                                 assert_equal value1_replica [$replica testrdb.get.before]
                             }
 
@@ -229,7 +230,7 @@ tags "modules" {
                             }
 
                             test {Diskless load swapdb RedisModuleEvent_ReplAsyncLoad handling: after db loaded, can set module variable with new value} {
-                                assert_equal [$replica dbsize] 510
+                                assert_equal [$replica dbsize] 1010
                                 assert_equal value1_master [$replica testrdb.get.before]
                             }
                         }
