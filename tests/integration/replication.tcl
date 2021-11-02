@@ -614,7 +614,7 @@ start_server {tags {"repl external:skip"}} {
                     # start replication
                     # it's enough for just one replica to be slow, and have it's write handler enabled
                     # so that the whole rdb generation process is bound to that
-                    set loglines [count_log_lines -1]
+                    set loglines [count_log_lines -2]
                     [lindex $replicas 0] config set repl-diskless-load swapdb
                     [lindex $replicas 0] config set key-load-delay 100 ;# 20k keys and 100 microseconds sleep means at least 2 seconds
                     [lindex $replicas 0] replicaof $master_host $master_port
@@ -622,10 +622,7 @@ start_server {tags {"repl external:skip"}} {
 
                     # wait for the replicas to start reading the rdb
                     # using the log file since the replica only responds to INFO once in 2mb
-                    wait_for_log_messages -1 {"*Loading DB in memory*"} $loglines 800 10
-
-                    # Count loglines as early as possible to prevent the log from shifting backward.
-                    set loglines [count_log_lines -2]
+                    wait_for_log_messages -1 {"*Loading DB in memory*"} 0 800 10
 
                     if {$measure_time} {
                         set master_statfile "/proc/$master_pid/stat"
