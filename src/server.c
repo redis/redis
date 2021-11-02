@@ -5469,6 +5469,9 @@ void infoCommand(client *c) {
     }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> Infoenhance new (#32)
     char defSections[11][15] = {"server", "clients", "memory", "persistence", "stats", "replication", "cpu", "modules", "errorstats", "cluster", "keyspace"};
     dict * final = dictCreate(&setDictType); /* Set to add the subsections to print*/
     dict * defaultSet = dictCreate(&setDictType); /* Set Containing all subsections of default */
@@ -5479,27 +5482,48 @@ void infoCommand(client *c) {
         dictAdd(allSet, sdsnew(defSections[i]), NULL);
     }
     dictAdd(allSet, sdsnew("commandstats"), NULL);
+<<<<<<< HEAD
 
     /* When info is called with no other arguments */
     if (c->argc == 1) {
         sds info = genRedisInfoString("default");
 =======
     if (c->argc == 1) {
+=======
+>>>>>>> Infoenhance new (#32)
 
+    /* When info is called with no other arguments*/
+    if (c->argc == 1) {
         sds info = genRedisInfoString("default");
         addReplyVerbatim(c,info,sdslen(info),"txt");
         sdsfree(info);
         return;
     }
 
-    int defsections = 0, allsections = 0;
-    // first time find all/default flag
-    for (int i = 1; i < c->argc; i++) {
+    int has_all_sections = 0;
+    int has_def_sections = 0;
 
-        defsections = !strcasecmp(c->argv[i]->ptr,"default");
-        allsections = !strcasecmp(c->argv[i]->ptr,"all");
+    /* Checking for default all and eveything */
+    for (int i = 1; i < c->argc; i++) {
+        if (!strcasecmp(c->argv[i]->ptr,"default")) {
+            sds subcommandsds = sdsnew(c->argv[i]->ptr);
+            has_def_sections = 1;
+            if (dictFind(final,subcommandsds) == NULL ) /* Skip if subsection already present */
+                dictAdd(final, subcommandsds, NULL);
+            else
+                sdsfree(subcommandsds);
+        }
+        else if (!strcasecmp(c->argv[i]->ptr,"all") || !strcasecmp(c->argv[i]->ptr,"everything")) {
+            has_all_sections = 1;
+            sds subcommandsds = sdsnew(c->argv[i]->ptr);
+            if (dictFind(final,subcommandsds) == NULL )
+                dictAdd(final, subcommandsds, NULL);
+            else
+                sdsfree(subcommandsds);
+        }
     }
 
+<<<<<<< HEAD
     if (defsections || allsections) {
 
         sds info = allsections ? genRedisInfoString("all") : genRedisInfoString("default");
@@ -5507,6 +5531,30 @@ void infoCommand(client *c) {
         addReplyVerbatim(c,info,sdslen(info),"txt");
         sdsfree(info);
         return;
+=======
+    /* Populating the set with other subsections */
+    for (int i = 1; i < c->argc; i++) {
+        sds subcommandsds = sdsnew(c->argv[i]->ptr);
+        if (dictFind(final,subcommandsds) == NULL ) {
+            /* If all or everything is present and section is not in the allSet */
+            if (has_all_sections && (dictFind(allSet,subcommandsds) == NULL))
+                dictAdd(final,subcommandsds,NULL);
+            /* If default is present and section is not in the defSet */
+            else if (has_def_sections && (dictFind(defaultSet,subcommandsds) == NULL)) {
+                dictAdd(final,subcommandsds,NULL);
+            }
+            /* If default, all and everything not present in input */
+            else if ((has_def_sections || has_all_sections) == 0) {
+                dictAdd(final,subcommandsds,NULL);
+            }
+            else {
+                sdsfree(subcommandsds);
+            }
+        }
+        else {
+            sdsfree(subcommandsds);
+        }
+>>>>>>> Infoenhance new (#32)
     }
 
 <<<<<<< HEAD
@@ -5565,7 +5613,10 @@ void infoCommand(client *c) {
         char * subcommand = dictGetKey(de);
 =======
     sds info = sdsempty();
+    dictEntry *de;
+    dictIterator *di = dictGetSafeIterator(final);
     int lastValid = 0; 
+<<<<<<< HEAD
     // second time parse specific section flag
     for (int i = 1; i < c->argc; i++) {
 <<<<<<< HEAD
@@ -5575,20 +5626,29 @@ void infoCommand(client *c) {
 =======
 >>>>>>> Rebase and remove extra lines
 =======
+=======
+    while((de = dictNext(di)) != NULL) { /* Adding info of subsections to info */
+        char * subcommand = dictGetKey(de);
+>>>>>>> Infoenhance new (#32)
 
 >>>>>>> Revert "Rebase and remove extra lines"
         if (lastValid) {
             info = sdscat(info,"\r\n");
         }
 <<<<<<< HEAD
+<<<<<<< HEAD
         sds sectionInfo = genRedisInfoString(subcommand);
 =======
         sds sectionInfo = genRedisInfoString(c->argv[i]->ptr);
 >>>>>>> initial commit for sentinel info command change
+=======
+        sds sectionInfo = genRedisInfoString(subcommand);
+>>>>>>> Infoenhance new (#32)
         info = sdscatlen(info,sectionInfo,sdslen(sectionInfo));
         lastValid = sdslen(sectionInfo) > 0 ? 1 : 0;
         sdsfree(sectionInfo); 
     }
+<<<<<<< HEAD
 <<<<<<< HEAD
     dictReleaseIterator(di);
 
@@ -5606,6 +5666,15 @@ void infoCommand(client *c) {
 >>>>>>> initial commit for sentinel info command change
 =======
 >>>>>>> remove extra space
+=======
+    dictReleaseIterator(di);
+
+    addReplyVerbatim(c,info,sdslen(info),"txt");
+    sdsfree(info);
+    dictRelease(final);
+    dictRelease(defaultSet);
+    dictRelease(allSet);
+>>>>>>> Infoenhance new (#32)
     return;
 }
 
