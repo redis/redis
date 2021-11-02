@@ -5479,7 +5479,7 @@ void infoCommand(client *c) {
     }
     dictAdd(allSet, sdsnew("commandstats"), NULL);
 
-    /* When info is called with no other arguments*/
+    /* When info is called with no other arguments */
     if (c->argc == 1) {
         sds info = genRedisInfoString("default");
         addReplyVerbatim(c,info,sdslen(info),"txt");
