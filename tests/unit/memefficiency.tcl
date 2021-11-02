@@ -130,7 +130,7 @@ start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-r
                 set max_latency 0
                 foreach event [r latency latest] {
                     lassign $event eventname time latency max
-                    if {$eventname == "loading-cron"} {
+                    if {$eventname == "while-blocked-cron"} {
                         set max_latency $max
                     }
                 }
@@ -141,7 +141,7 @@ start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-r
                     puts "misses: $misses"
                     puts "max latency $max_latency"
                     puts [r latency latest]
-                    puts [r latency history loading-cron]
+                    puts [r latency history "while-blocked-cron"]
                 }
                 # make sure we had defrag hits during AOF loading
                 assert {$hits > 100000}
