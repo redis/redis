@@ -624,6 +624,9 @@ start_server {tags {"repl external:skip"}} {
                     # using the log file since the replica only responds to INFO once in 2mb
                     wait_for_log_messages -1 {"*Loading DB in memory*"} $loglines 800 10
 
+                    # Count loglines as early as possible to prevent the log from shifting backward.
+                    set loglines [count_log_lines -2]
+
                     if {$measure_time} {
                         set master_statfile "/proc/$master_pid/stat"
                         set master_start_metrics [get_cpu_metrics $master_statfile]
@@ -638,7 +641,6 @@ start_server {tags {"repl external:skip"}} {
                     $master incr $all_drop
 
                     # disconnect replicas depending on the current test
-                    set loglines [count_log_lines -2]
                     if {$all_drop == "all" || $all_drop == "fast"} {
                         exec kill [srv 0 pid]
                         set replicas_alive [lreplace $replicas_alive 1 1]
