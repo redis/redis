@@ -1011,7 +1011,6 @@ void clusterDelNode(clusterNode *delnode) {
             server.cluster->migrating_slots_to[j] = NULL;
         if (server.cluster->slots[j] == delnode) {
             clusterDelSlot(j);
-            removeChannelsInSlot(j);
         }
     }
 
@@ -1807,7 +1806,7 @@ int clusterProcessPacket(clusterLink *link) {
 
         explen += sizeof(clusterMsgDataFail);
         if (totlen != explen) return 1;
-    } else if (type == CLUSTERMSG_TYPE_PUBLISH || type == CLUSTERMSG_TYPE_PUBLISHLOCAL) {
+    } else if (type == CLUSTERMSG_TYPE_PUBLISH) {
         uint32_t explen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
 
         explen += sizeof(clusterMsgDataPublish) -
@@ -2173,41 +2172,40 @@ int clusterProcessPacket(clusterLink *link) {
         robj *channel, *message;
         uint32_t channel_len, message_len;
 
-        /* Don't bother creating useless objects if there are no
-         * Pub/Sub subscribers. */
-        if (dictSize(server.pubsub_channels) ||
-           dictSize(server.pubsub_patterns))
-        {
-            channel_len = ntohl(hdr->data.publish.msg.channel_len);
-            message_len = ntohl(hdr->data.publish.msg.message_len);
-            channel = createStringObject(
+        if (hdr->data.publish.msg.bulk_data[0] == 'l') {
+            /* Don't bother creating useless objects if there are no
+             * Pub/Sub local subscribers. */
+            if (dictSize(server.pubsublocal_channels)) {
+                channel_len = ntohl(hdr->data.publish.msg.channel_len);
+                message_len = ntohl(hdr->data.publish.msg.message_len);
+                channel = createStringObject(
+                        (char *) hdr->data.publish.msg.bulk_data, channel_len);
+                message = createStringObject(
+                        (char *) hdr->data.publish.msg.bulk_data + channel_len,
+                        message_len);
+                pubsubPublishMessageLocal(channel, message);
+                decrRefCount(channel);
+                decrRefCount(message);
+            }
+        else {
+            /* Don't bother creating useless objects if there are no
+             * Pub/Sub subscribers. */
+            if (dictSize(server.pubsub_channels) ||
+                dictSize(server.pubsub_patterns))
+            {
+                channel_len = ntohl(hdr->data.publish.msg.channel_len);
+                message_len = ntohl(hdr->data.publish.msg.message_len);
+                channel = createStringObject(
                         (char*)hdr->data.publish.msg.bulk_data,channel_len);
-            message = createStringObject(
+                message = createStringObject(
                         (char*)hdr->data.publish.msg.bulk_data+channel_len,
                         message_len);
-            pubsubPublishMessage(channel,message);
-            decrRefCount(channel);
-            decrRefCount(message);
+                pubsubPublishMessage(channel,message);
+                decrRefCount(channel);
+                decrRefCount(message);
+            }
         }
-    } else if (type == CLUSTERMSG_TYPE_PUBLISHLOCAL) {
-        if (!sender) return 1;  /* We don't know that node. */
-
-        robj *channel, *message;
-        uint32_t channel_len, message_len;
-
-        /* Don't bother creating useless objects if there are no
-         * Pub/Sub subscribers. */
-        if (dictSize(server.pubsublocal_channels)) {
-            channel_len = ntohl(hdr->data.publish.msg.channel_len);
-            message_len = ntohl(hdr->data.publish.msg.message_len);
-            channel = createStringObject(
-                    (char*)hdr->data.publish.msg.bulk_data,channel_len);
-            message = createStringObject(
-                    (char*)hdr->data.publish.msg.bulk_data+channel_len,
-                    message_len);
-            pubsubPublishMessageLocal(channel,message);
-            decrRefCount(channel);
-            decrRefCount(message);
+    } else if (type == CLUSTERMSG_TYPE_PUBLISH) {
         }
     } else if (type == CLUSTERMSG_TYPE_FAILOVER_AUTH_REQUEST) {
         if (!sender) return 1;  /* We don't know that node. */
@@ -2742,7 +2740,7 @@ void clusterBroadcastPong(int target) {
 /* Send a PUBLISH message.
  *
  * If link is NULL, then the message is broadcasted to the whole cluster. */
-void clusterSendPublish(clusterLink *link, robj *channel, robj *message, uint16_t type) {
+void clusterSendPublish(clusterLink *link, robj *channel, robj *message, int type) {
     unsigned char *payload;
     clusterMsg buf[1];
     clusterMsg *hdr = (clusterMsg*) buf;
@@ -2757,6 +2755,12 @@ void clusterSendPublish(clusterLink *link, robj *channel, robj *message, uint16_
     clusterBuildMessageHdr(hdr,type);
     totlen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
     totlen += sizeof(clusterMsgDataPublish) - 8 + channel_len + message_len;
+
+    if (type == PUBSUB_GLOBAL) {
+        hdr->data.publish.msg.bulk_data[0] = 'g';
+    } else if (type == PUBSUB_LOCAL) {
+        hdr->data.publish.msg.bulk_data[0] = 'l';
+    }
 
     hdr->data.publish.msg.channel_len = htonl(channel_len);
     hdr->data.publish.msg.message_len = htonl(message_len);
@@ -2877,7 +2881,7 @@ int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uin
  * messages to hosts without receives for a given channel.
  * -------------------------------------------------------------------------- */
 void clusterPropagatePublish(robj *channel, robj *message) {
-    clusterSendPublish(NULL, channel, message, CLUSTERMSG_TYPE_PUBLISH);
+    clusterSendPublish(NULL, channel, message, PUBSUB_GLOBAL);
 }
 
 /* -----------------------------------------------------------------------------
@@ -2893,7 +2897,7 @@ void clusterPropagatePublishLocal(robj *channel, robj *message) {
         listRewind(nodes_for_slot, &li);
         while((ln = listNext(&li))) {
             clusterNode *node = listNodeValue(ln);
-            clusterSendPublish(node->link, channel, message, CLUSTERMSG_TYPE_PUBLISHLOCAL);
+            clusterSendPublish(node->link, channel, message, PUBSUB_LOCAL);
         }
     }
     listRelease(nodes_for_slot);
@@ -4392,7 +4396,6 @@ const char *clusterGetMessageTypeString(int type) {
     case CLUSTERMSG_TYPE_MEET: return "meet";
     case CLUSTERMSG_TYPE_FAIL: return "fail";
     case CLUSTERMSG_TYPE_PUBLISH: return "publish";
-    case CLUSTERMSG_TYPE_PUBLISHLOCAL: return "publishlocal";
     case CLUSTERMSG_TYPE_FAILOVER_AUTH_REQUEST: return "auth-req";
     case CLUSTERMSG_TYPE_FAILOVER_AUTH_ACK: return "auth-ack";
     case CLUSTERMSG_TYPE_UPDATE: return "update";

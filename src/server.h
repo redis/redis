@@ -306,6 +306,10 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
                                     buffer configuration. Just the first
                                     three: normal, slave, pubsub. */
 
+/* Pubsub type */
+#define PUBSUB_GLOBAL 0 /* Pubsub global. */
+#define PUBSUB_LOCAL 1 /* Pubsub bounded to slot. */
+
 /* Slave replication state. Used in server.repl_state for slaves to remember
  * what to do next. */
 typedef enum {
@@ -2372,7 +2376,7 @@ unsigned int getKeysInSlot(unsigned int hashslot, robj **keys, unsigned int coun
 unsigned int countKeysInSlot(unsigned int hashslot);
 unsigned int countChannelsInSlot(unsigned int hashslot);
 unsigned int delKeysInSlot(unsigned int hashslot);
-void getChannelsInSlot(unsigned int hashslot, robj **keys);
+void getChannelsInSlot(unsigned int hashslot, robj **channels);
 int verifyClusterConfigWithData(void);
 void scanGenericCommand(client *c, robj *o, unsigned long cursor);
 int parseScanCursorOrReply(client *c, robj *o, unsigned long *cursor);

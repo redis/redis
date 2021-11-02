@@ -2042,10 +2042,10 @@ unsigned int getKeysInSlot(unsigned int hashslot, robj **keys, unsigned int coun
     return j;
 }
 
-/* Populate the specified array of objects with keys in the specified slot.
- * New objects are returned to represent keys, it's up to the caller to
- * decrement the reference count to release the keys names. */
-void getChannelsInSlot(unsigned int hashslot, robj **keys) {
+/* Populate the specified array of objects with channels in the specified slot.
+ * New objects are returned to represent channels, it's up to the caller to
+ * decrement the reference count to release the channels names. */
+void getChannelsInSlot(unsigned int hashslot, robj **channels) {
     raxIterator iter;
     int j = 0;
     unsigned char indexed[2];
@@ -2056,7 +2056,7 @@ void getChannelsInSlot(unsigned int hashslot, robj **keys) {
     raxSeek(&iter,">=",indexed,2);
     while(raxNext(&iter)) {
         if (iter.key[0] != indexed[0] || iter.key[1] != indexed[1]) break;
-        keys[j++] = createStringObject((char*)iter.key+2,iter.key_len-2);
+        channels[j++] = createStringObject((char*)iter.key + 2, iter.key_len - 2);
     }
     raxStop(&iter);
 }
