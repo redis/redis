@@ -455,7 +455,6 @@ void initConfigValues() {
 void loadServerConfigFromString(char *config) {
     const char *err = NULL;
     int linenum = 0, totlines, i;
-    int slaveof_linenum = 0;
     sds *lines;
 
     lines = sdssplitlen(config,strlen(config),"\n",1,&totlines);
@@ -514,21 +513,6 @@ void loadServerConfigFromString(char *config) {
         /* Execute config directives */
         if (!strcasecmp(argv[0],"include") && argc == 2) {
             loadServerConfig(argv[1], 0, NULL);
-        } else if ((!strcasecmp(argv[0],"slaveof") ||
-                    !strcasecmp(argv[0],"replicaof")) && argc == 3) {
-            slaveof_linenum = linenum;
-            sdsfree(server.masterhost);
-            if (!strcasecmp(argv[1], "no") && !strcasecmp(argv[2], "one")) {
-                server.masterhost = NULL;
-                continue;
-            }
-            server.masterhost = sdsnew(argv[1]);
-            char *ptr;
-            server.masterport = strtol(argv[2], &ptr, 10);
-            if (server.masterport < 0 || server.masterport > 65535 || *ptr != '\0') {
-                err = "Invalid master port"; goto loaderr;
-            }
-            server.repl_state = REPL_STATE_CONNECT;
         } else if (!strcasecmp(argv[0],"list-max-ziplist-entries") && argc == 2){
             /* DEAD OPTION */
         } else if (!strcasecmp(argv[0],"list-max-ziplist-value") && argc == 2) {
@@ -601,8 +585,6 @@ void loadServerConfigFromString(char *config) {
 
     /* Sanity checks. */
     if (server.cluster_enabled && server.masterhost) {
-        linenum = slaveof_linenum;
-        i = linenum-1;
         err = "replicaof directive not allowed in cluster mode";
         goto loaderr;
     }
@@ -617,8 +599,10 @@ void loadServerConfigFromString(char *config) {
 loaderr:
     fprintf(stderr, "\n*** FATAL CONFIG FILE ERROR (Redis %s) ***\n",
         REDIS_VERSION);
-    fprintf(stderr, "Reading the configuration file, at line %d\n", linenum);
-    fprintf(stderr, ">>> '%s'\n", lines[i]);
+    if (i < totlines) {
+        fprintf(stderr, "Reading the configuration file, at line %d\n", linenum);
+        fprintf(stderr, ">>> '%s'\n", lines[i]);
+    }
     fprintf(stderr, "%s\n", err);
     exit(1);
 }
@@ -766,14 +750,6 @@ badfmt: /* Bad format errors */
  * CONFIG GET implementation
  *----------------------------------------------------------------------------*/
 
-#define config_get_string_field(_name,_var) do { \
-    if (stringmatch(pattern,_name,1)) { \
-        addReplyBulkCString(c,_name); \
-        addReplyBulkCString(c,_var ? _var : ""); \
-        matches++; \
-    } \
-} while(0)
-
 void configGetCommand(client *c) {
     robj *o = c->argv[2];
     void *replylen = addReplyDeferredLen(c);
@@ -781,7 +757,6 @@ void configGetCommand(client *c) {
     int matches = 0;
     serverAssertWithInfo(c,o,sdsEncodedObject(o));
 
-    /* Iterate the configs that are standard */
     for (standardConfig *config = configs; config->name != NULL; config++) {
         if (stringmatch(pattern,config->name,1)) {
             addReplyBulkCString(c,config->name);
@@ -793,22 +768,6 @@ void configGetCommand(client *c) {
             config->interface.get(c,config->data);
             matches++;
         }
-    }
-
-    /* Everything we can't handle with macros follows. */
-
-    for (int i = 0; i < 2; i++) {
-        char *optname = i == 0 ? "replicaof" : "slaveof";
-        if (!stringmatch(pattern, optname, 1)) continue;
-        char buf[256];
-        addReplyBulkCString(c,optname);
-        if (server.masterhost)
-            snprintf(buf,sizeof(buf),"%s %d",
-                server.masterhost, server.masterport);
-        else
-            buf[0] = '\0';
-        addReplyBulkCString(c,buf);
-        matches++;
     }
 
     setDeferredMapLen(c,replylen,matches);
@@ -1230,19 +1189,20 @@ void rewriteConfigDirOption(typeData data, const char *name, struct rewriteConfi
 }
 
 /* Rewrite the slaveof option. */
-void rewriteConfigSlaveofOption(struct rewriteConfigState *state, char *option) {
+void rewriteConfigReplicaOfOption(typeData data, const char *name, struct rewriteConfigState *state) {
+    UNUSED(data);
     sds line;
 
     /* If this is a master, we want all the slaveof config options
      * in the file to be removed. Note that if this is a cluster instance
      * we don't want a slaveof directive inside redis.conf. */
     if (server.cluster_enabled || server.masterhost == NULL) {
-        rewriteConfigMarkAsProcessed(state,option);
+        rewriteConfigMarkAsProcessed(state, name);
         return;
     }
-    line = sdscatprintf(sdsempty(),"%s %s %d", option,
+    line = sdscatprintf(sdsempty(),"%s %s %d", name,
         server.masterhost, server.masterport);
-    rewriteConfigRewriteLine(state,option,line,1);
+    rewriteConfigRewriteLine(state,name,line,1);
 }
 
 /* Rewrite the notify-keyspace-events option. */
@@ -1525,7 +1485,6 @@ int rewriteConfig(char *path, int force_write) {
     }
 
     rewriteConfigUserOption(state);
-    rewriteConfigSlaveofOption(state,"replicaof");
     rewriteConfigLoadmoduleOption(state);
 
     /* Rewrite Sentinel config if in Sentinel mode. */
@@ -2497,11 +2456,47 @@ static int setConfigBindOption(typeData data, sds* argv, int argc, int update, c
     return 1;
 }
 
+static int setConfigReplicaOfOption(typeData data, sds* argv, int argc, int update, const char **err) {
+    UNUSED(data);
+    UNUSED(update);
+
+    if (argc != 2) {
+        *err = "wrong number of arguments";
+        return 0;
+    }
+
+    sdsfree(server.masterhost);
+    server.masterhost = NULL;
+    if (!strcasecmp(argv[0], "no") && !strcasecmp(argv[1], "one")) {
+        return 1;
+    }
+    char *ptr;
+    server.masterport = strtol(argv[1], &ptr, 10);
+    if (server.masterport < 0 || server.masterport > 65535 || *ptr != '\0') {
+        *err = "Invalid master port";
+        return 0;
+    }
+    server.masterhost = sdsnew(argv[0]);
+    server.repl_state = REPL_STATE_CONNECT;
+    return 1;
+}
+
 static void getConfigBindOption(client *c, typeData data) {
     UNUSED(data);
     sds aux = sdsjoin(server.bindaddr,server.bindaddr_count," ");
     addReplyBulkCString(c,aux);
     sdsfree(aux);
+}
+
+static void getConfigReplicaOfOption(client *c, typeData data) {
+    UNUSED(data);
+    char buf[256];
+    if (server.masterhost)
+        snprintf(buf,sizeof(buf),"%s %d",
+                 server.masterhost, server.masterport);
+    else
+        buf[0] = '\0';
+    addReplyBulkCString(c,buf);
 }
 
 standardConfig configs[] = {
@@ -2691,6 +2686,7 @@ standardConfig configs[] = {
     createSpecialConfig("oom-score-adj-values", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigOOMScoreAdjValuesOption, getConfigOOMScoreAdjValuesOption, rewriteConfigOOMScoreAdjValuesOption),
     createSpecialConfig("notify-keyspace-events", NULL, MODIFIABLE_CONFIG, setConfigNotifyKeyspaceEventsOption, getConfigNotifyKeyspaceEventsOption, rewriteConfigNotifyKeyspaceEventsOption),
     createSpecialConfig("bind", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigBindOption, getConfigBindOption, rewriteConfigBindOption),
+    createSpecialConfig("replicaof", "slaveof", IMMUTABLE_CONFIG | MULTI_ARG_CONFIG, setConfigReplicaOfOption, getConfigReplicaOfOption, rewriteConfigReplicaOfOption),
 
     /* NULL Terminator */
     {NULL}
