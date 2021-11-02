@@ -398,7 +398,9 @@ foreach testType {Successful Aborted} {
             # Set master and replica to use diskless replication on swapdb mode
             $master config set repl-diskless-sync yes
             $master config set repl-diskless-sync-delay 0
+            $master config set save ""
             $replica config set repl-diskless-load swapdb
+            $replica config set save ""
 
             # Put different data sets on the master and replica
             # We need to put large keys on the master since the replica replies to info only once in 2mb
@@ -492,7 +494,9 @@ foreach testType {Successful Aborted} {
             # Set master and replica to use diskless replication on swapdb mode
             $master config set repl-diskless-sync yes
             $master config set repl-diskless-sync-delay 0
+            $master config set save ""
             $replica config set repl-diskless-load swapdb
+            $replica config set save ""
 
             # Set replica writable so we can check that a key we manually added is served
             # during replication and after failure, but disappears on success

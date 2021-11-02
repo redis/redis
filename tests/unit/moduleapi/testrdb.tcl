@@ -149,7 +149,9 @@ tags "modules" {
                     # Set master and replica to use diskless replication on swapdb mode
                     $master config set repl-diskless-sync yes
                     $master config set repl-diskless-sync-delay 0
+                    $master config set save ""
                     $replica config set repl-diskless-load swapdb
+                    $replica config set save "" 
 
                     # Initial sync to have matching replids between master and replica
                     $replica replicaof $master_host $master_port
