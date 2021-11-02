@@ -7611,17 +7611,8 @@ void loadDataFromDisk(void) {
                     serverAssert(server.repl_backlog);
                     server.repl_backlog->offset = server.master_repl_offset -
                               server.repl_backlog->histlen + 1;
+                    rebaseReplicationBuffer(rsi.repl_offset);
                     server.repl_no_slaves_since = time(NULL);
-
-                    /* Rebase replication buffer blocks' offset since the previous
-                     * setting offset starts from 0. */
-                    listIter li;
-                    listNode *ln;
-                    listRewind(server.repl_buffer_blocks, &li);
-                    while ((ln = listNext(&li))) {
-                        replBufBlock *o = listNodeValue(ln);
-                        o->repl_offset += rsi.repl_offset;
-                    }
                 }
             }
         } else if (errno != ENOENT) {
