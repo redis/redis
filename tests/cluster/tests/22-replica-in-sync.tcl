@@ -25,6 +25,16 @@ proc is_replica_online {info_repl} {
     return $result
 }
 
+proc get_last_pong_time {node_id target_cid} {
+    foreach item [split [R $node_id cluster nodes] \n] {
+        set args [split $item " "]
+        if {[lindex $args 0] eq $target_cid} {
+            return [lindex $args 5]
+        }
+    }
+    fail "Target node ID was not present"
+}
+
 set master_id 0
 
 test "Fill up primary with data" {
@@ -120,12 +130,17 @@ test "Check disconnected replica not hidden from slots" {
     # Check master to have no replicas
     assert {[s $master_id connected_slaves] == 0}
 
+    set replica_cid [R $replica_id cluster myid]
+    set initial_pong [get_last_pong_time $master_id $replica_cid]
+    wait_for_condition 50 100 {
+        $initial_pong != [get_last_pong_time $master_id $replica_cid]
+    } else {
+        fail "Primary never recieved gossip from replica"
+    }
+
     # Check that replica is still in the cluster slots
     assert {[is_in_slots $master_id $replica]}
 
     # undo config
     R $master_id config set requirepass ""
-
-    # Stop AOF so that an initial AOFRW won't prevent the instance from terminating
-    R $replica_id config set appendonly no
 }
