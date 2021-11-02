@@ -131,7 +131,7 @@ client *createClient(connection *conn) {
         connSetReadHandler(conn, readQueryFromClient);
         connSetPrivateData(conn, c);
     }
-
+    c->buf = zmalloc(PROTO_REPLY_CHUNK_BYTES);
     selectDb(c,0);
     uint64_t client_id;
     atomicGetIncr(server.next_client_id, client_id, 1);
@@ -140,7 +140,9 @@ client *createClient(connection *conn) {
     c->conn = conn;
     c->name = NULL;
     c->bufpos = 0;
-    c->buf_usable_size = zmalloc_usable_size(c)-offsetof(client,buf);
+    c->buf_usable_size = zmalloc_usable_size(c->buf);
+    c->buf_peak = c->buf_usable_size;
+    c->buf_peak_last_reset_time = 0UL;
     c->ref_repl_buf_node = NULL;
     c->ref_block_pos = 0;
     c->qb_pos = 0;
@@ -1525,6 +1527,7 @@ void freeClient(client *c) {
 
     /* Free data structures. */
     listRelease(c->reply);
+    zfree(c->buf);
     freeReplicaReferencedReplBuffer(c);
     freeClientArgv(c);
     freeClientOriginalArgv(c);
@@ -1731,6 +1734,8 @@ int _writeToClient(client *c, ssize_t *nwritten) {
         /* If the buffer was sent, set bufpos to zero to continue with
          * the remainder of the reply. */
         if ((int)c->sentlen == c->bufpos) {
+            if(c->buf_peak < (size_t)c->bufpos)
+                c->buf_peak = (size_t)c->bufpos;
             c->bufpos = 0;
             c->sentlen = 0;
         }
@@ -2593,7 +2598,7 @@ sds catClientInfoString(sds s, client *client) {
     }
 
     sds ret = sdscatfmt(s,
-        "id=%U addr=%s laddr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i multi=%i qbuf=%U qbuf-free=%U argv-mem=%U multi-mem=%U obl=%U oll=%U omem=%U tot-mem=%U events=%s cmd=%s user=%s redir=%I resp=%i",
+        "id=%U addr=%s laddr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i multi=%i qbuf=%U qbuf-free=%U argv-mem=%U multi-mem=%U rbs=%U rbp=%U obl=%U oll=%U omem=%U tot-mem=%U events=%s cmd=%s user=%s redir=%I resp=%i",
         (unsigned long long) client->id,
         getClientPeerId(client),
         getClientSockname(client),
@@ -2610,6 +2615,8 @@ sds catClientInfoString(sds s, client *client) {
         (unsigned long long) sdsavail(client->querybuf),
         (unsigned long long) client->argv_len_sum,
         (unsigned long long) client->mstate.argv_len_sums,
+        (unsigned long long) client->buf_usable_size,
+        (unsigned long long) client->buf_peak,
         (unsigned long long) client->bufpos,
         (unsigned long long) listLength(client->reply) + used_blocks_of_repl_buf,
         (unsigned long long) obufmem, /* should not include client->buf since we want to see 0 for static clients. */
@@ -3451,6 +3458,7 @@ size_t getClientMemoryUsage(client *c, size_t *output_buffer_mem_usage) {
         *output_buffer_mem_usage = mem;
     mem += sdsZmallocSize(c->querybuf);
     mem += zmalloc_size(c);
+    mem += c->buf_usable_size;
     /* For efficiency (less work keeping track of the argv memory), it doesn't include the used memory
      * i.e. unused sds space and internal fragmentation, just the string length. but this is enough to
      * spot problematic clients. */

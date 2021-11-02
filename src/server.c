@@ -706,6 +706,50 @@ int clientsCronResizeQueryBuffer(client *c) {
     return 0;
 }
 
+/* The client output buffer can be adjusted to better fit the memory requierments.
+ *
+ * the logic is:
+ * in case the last observed peak size of the buffer equals the buffer size - we double the size
+ * in case the last observed peak size of the buffer is less than half the buffer size - we shrink by half.
+ * in any case we will reset the peak value each cron run.
+ * The function always returns 0 as it never terminates the client. */
+int clientsCronResizeOutputBuffer(client *c) {
+
+    void *new_buf = NULL;
+    const size_t BUFFER_TARGET_SHRINK_SIZE = c->buf_usable_size/2;
+    const size_t BUFFER_TARGET_EXPEND_SIZE = c->buf_usable_size*2;
+
+    if(c->bufpos != 0)  return 0;
+
+    if (BUFFER_TARGET_SHRINK_SIZE >= PROTO_REPLY_MIN_BYTES &&
+        c->buf_peak < BUFFER_TARGET_SHRINK_SIZE )
+    {
+
+        new_buf = ztryrealloc(c->buf,BUFFER_TARGET_SHRINK_SIZE);
+        server.stat_reply_buffer_shrinks++;
+
+    } else if(BUFFER_TARGET_EXPEND_SIZE <= PROTO_REPLY_CHUNK_BYTES &&
+            c->buf_peak == c->buf_usable_size)
+    {
+        new_buf = ztryrealloc(c->buf,BUFFER_TARGET_EXPEND_SIZE);
+        server.stat_reply_buffer_expends++;
+    }
+
+    /* reset the peak value each 5 seconds. in case the client will be idle
+     * it will start to shrink.
+     */
+    if(server.unixtime - c->buf_peak_last_reset_time >= 5) {
+        c->buf_peak = 0UL;
+        c->buf_peak_last_reset_time = server.unixtime;
+    }
+
+    if(new_buf) {
+        c->buf = new_buf;
+        c->buf_usable_size = zmalloc_usable_size(c->buf);
+    }
+    return 0;
+}
+
 /* This function is used in order to track clients using the biggest amount
  * of memory in the latest few seconds. This way we can provide such information
  * in the INFO output (clients section), without having to do an O(N) scan for
@@ -899,6 +943,8 @@ void clientsCron(void) {
          * terminated. */
         if (clientsCronHandleTimeout(c,now)) continue;
         if (clientsCronResizeQueryBuffer(c)) continue;
+        if (clientsCronResizeOutputBuffer(c)) continue;
+
         if (clientsCronTrackExpansiveClients(c, curr_peak_mem_usage_slot)) continue;
 
         /* Iterating all the clients in getMemoryOverheadData() is too slow and
@@ -5442,7 +5488,9 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "total_reads_processed:%lld\r\n"
             "total_writes_processed:%lld\r\n"
             "io_threaded_reads_processed:%lld\r\n"
-            "io_threaded_writes_processed:%lld\r\n",
+            "io_threaded_writes_processed:%lld\r\n"
+            "reply_buffer_shrink:%lld\r\n"
+            "reply_buffer_expends:%lld\r\n",
             server.stat_numconnections,
             server.stat_numcommands,
             getInstantaneousMetric(STATS_METRIC_COMMAND),
@@ -5485,7 +5533,9 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             stat_total_reads_processed,
             stat_total_writes_processed,
             server.stat_io_reads_processed,
-            server.stat_io_writes_processed);
+            server.stat_io_writes_processed,
+            server.stat_reply_buffer_shrinks,
+            server.stat_reply_buffer_expends);
     }
 
     /* Replication */

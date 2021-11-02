@@ -163,6 +163,7 @@ typedef long long ustime_t; /* microsecond time type. */
 #define PROTO_INLINE_MAX_SIZE   (1024*64) /* Max size of inline reads */
 #define PROTO_MBULK_BIG_ARG     (1024*32)
 #define PROTO_RESIZE_THRESHOLD  (1024*32) /* Threshold for determining whether to resize query buffer */
+#define PROTO_REPLY_MIN_BYTES   (1024) /* the lower limit on reply buffer size */
 #define LONG_STR_SIZE      21          /* Bytes needed for long -> str + '\0' */
 #define REDIS_AUTOSYNC_BYTES (1024*1024*4) /* Sync file every 4MB. */
 
@@ -1167,14 +1168,11 @@ typedef struct client {
                                   * i.e. the next offset to send. */
 
     /* Response buffer */
+    size_t buf_peak; /* Usable size of buffer. */
+    time_t buf_peak_last_reset_time; /* keeps the last time the buffer peak value was reset */
     int bufpos;
     size_t buf_usable_size; /* Usable size of buffer. */
-    /* Note that 'buf' must be the last field of client struct, because memory
-     * allocator may give us more memory than our apply for reducing fragments,
-     * but we want to make full use of given memory, i.e. we may access the
-     * memory after 'buf'. To avoid make others fields corrupt, 'buf' must be
-     * the last one. */
-    char buf[PROTO_REPLY_CHUNK_BYTES];
+    char *buf;
 } client;
 
 struct saveparam {
@@ -1586,6 +1584,9 @@ struct redisServer {
         long long samples[STATS_METRIC_SAMPLES];
         int idx;
     } inst_metric[STATS_METRIC_COUNT];
+    long long stat_reply_buffer_shrinks; /* Total number of buffer output buffer shrinks */
+    long long stat_reply_buffer_expends; /* Total number of output buffer expends */
+
     /* Configuration */
     int verbosity;                  /* Loglevel in redis.conf */
     int maxidletime;                /* Client timeout in seconds */
