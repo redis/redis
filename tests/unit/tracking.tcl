@@ -424,6 +424,10 @@ start_server {tags {"tracking network"}} {
         r CLIENT TRACKING off
         r HELLO 3
         r CLIENT TRACKING on
+
+        # make the previous test is really done before sampling used_memory
+        wait_lazyfree_done r
+
         set used [s used_memory]
         set limit [expr {$used+100*1024}]
         set old_policy [lindex [r config get maxmemory-policy] 1]
