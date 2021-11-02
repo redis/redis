@@ -2326,6 +2326,7 @@ void replicationCacheMasterUsingMyself(void);
 void feedReplicationBacklog(void *ptr, size_t len);
 void incrementalTrimReplicationBacklog(size_t blocks);
 int canFeedReplicaReplBuffer(client *replica);
+void rebaseReplicationBuffer(long long base_repl_offset);
 void showLatestBacklog(void);
 void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData, int mask);
 void rdbPipeWriteHandlerConnRemoved(struct connection *conn);
