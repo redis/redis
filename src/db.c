@@ -1541,8 +1541,14 @@ int expireIfNeeded(redisDb *db, robj *key, int expire_on_replica) {
      *
      * Still we try to return the right information to the caller,
      * that is, 0 if we think the key should be still valid, 1 if
-     * we think the key is expired at this time. */
-    if (server.masterhost != NULL && !expire_on_replica) return 1;
+     * we think the key is expired at this time.
+     *
+     * When replicating commands from the master, keys are never considered
+     * expired. */
+    if (server.masterhost != NULL) {
+        if (server.current_client == server.master) return 0;
+        if (!expire_on_replica) return 1;
+    }
 
     /* If clients are paused, we keep the current dataset constant,
      * but return to the client what we believe is the right state. Typically,
