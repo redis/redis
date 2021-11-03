@@ -307,6 +307,9 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
                                           RDB without replication buffer. */
 #define CLIENT_NO_EVICT (1ULL<<43) /* This client is protected against client
                                       memory eviction. */
+#define CLIENT_REPL_BUFONLY (1ULL<<44) /* This client is a replica that only wants
+                                           replication buffer without RDB. */
+#define CLIENT_REPL_RDBBUF (CLIENT_REPL_RDBONLY|CLIENT_REPL_BUFONLY)
 
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */
@@ -1137,6 +1140,7 @@ struct sharedObjectsStruct {
     *mbulkhdr[OBJ_SHARED_BULKHDR_LEN], /* "*<value>\r\n" */
     *bulkhdr[OBJ_SHARED_BULKHDR_LEN];  /* "$<value>\r\n" */
     sds minstring, maxstring;
+    sds bufonlybulk;
 };
 
 /* ZSETs use a specialized version of Skiplists */
@@ -1623,6 +1627,7 @@ struct redisServer {
     int repl_slave_ignore_maxmemory;    /* If true slaves do not evict. */
     time_t repl_down_since; /* Unix time at which link with master went down */
     int repl_disable_tcp_nodelay;   /* Disable TCP_NODELAY after SYNC? */
+    int repl_bufonly;              /* Set if last REPLICAOF command has extra BUF-ONLY option */
     int slave_priority;             /* Reported in INFO and used by Sentinel. */
     int replica_announced;          /* If true, replica is announced by Sentinel */
     int slave_announce_port;        /* Give the master this listening port. */

@@ -6989,6 +6989,10 @@ void sendRdbOnly(void) {
     sendReplconf("rdb-only", "1");
 }
 
+void sendBufOnly(void) {
+    sendReplconf("buf-only", "1");
+}
+
 /* Read raw bytes through a redisContext. The read operation is not greedy
  * and may not fill the buffer entirely.
  */
@@ -8321,6 +8325,7 @@ int main(int argc, char **argv) {
     if (config.slave_mode) {
         if (cliConnect(0) == REDIS_ERR) exit(1);
         sendCapa();
+        sendBufOnly();
         slaveMode();
     }
 

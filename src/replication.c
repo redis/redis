@@ -45,6 +45,9 @@ void replicationResurrectCachedMaster(connection *conn);
 void replicationSendAck(void);
 void putSlaveOnline(client *slave);
 int cancelReplicationHandshake(int reconnect);
+void sendBulkToBufOnlySlave(connection *conn);
+void createEmptyRdbBulk();
+
 
 /* We take a global flag to remember if this instance generated an RDB
  * because of replication, so that we can remove the RDB file in case
@@ -1004,8 +1007,21 @@ void syncCommand(client *c) {
                             server.replid, server.replid2);
     }
 
+    /* CASE 0: BUF-ONLY slave doesn't need BGSAVE operation. */
+    if (c->flags & CLIENT_REPL_BUFONLY) {
+        serverLog(LL_NOTICE,"No BGSAVE needed for BUF-ONLY synchronization from replica %s",
+                replicationGetSlaveName(c));
+        if (C_OK == replicationSetupSlaveForFullResync(c,server.master_repl_offset)) {
+            if (shared.bufonlybulk == NULL)
+                createEmptyRdbBulk();
+            c->replstate = SLAVE_STATE_SEND_BULK;
+            c->repldboff = 0;
+            c->repldbsize = sdslen(shared.bufonlybulk);
+            sendBulkToBufOnlySlave(c->conn);
+        }
+
     /* CASE 1: BGSAVE is in progress, with disk target. */
-    if (server.child_type == CHILD_TYPE_RDB &&
+    } else if (server.child_type == CHILD_TYPE_RDB &&
         server.rdb_child_type == RDB_CHILD_TYPE_DISK)
     {
         /* Ok a background save is in progress. Let's check if it is a good
@@ -1102,7 +1118,11 @@ void syncCommand(client *c) {
  * offset from a replica.
  *
  * - rdb-only
- * Only wants RDB snapshot without replication buffer. */
+ * Only wants RDB snapshot without replication buffer.
+ *
+ * - buf-only
+ * Only wants replication buffer without RDB snapshot.
+ * Don't combine this option with rdb-only in the same time. */
 void replconfCommand(client *c) {
     int j;
 
@@ -1178,6 +1198,23 @@ void replconfCommand(client *c) {
                 return;
             if (rdb_only == 1) c->flags |= CLIENT_REPL_RDBONLY;
             else c->flags &= ~CLIENT_REPL_RDBONLY;
+            if ((c->flags & CLIENT_REPL_RDBBUF) == CLIENT_REPL_RDBBUF) {
+                addReplyError(c, "request RDB-ONLY with BUF-ONLY already requested");
+                return;
+            }
+        } else if (!strcasecmp(c->argv[j]->ptr,"buf-only")) {
+           /* REPLCONF BUF-ONLY is used by slaves to tell master that they
+            * are only interested in replicatin buffer, no RDB snapshot at all. */
+            long buf_only = 0;
+            if (getRangeLongFromObjectOrReply(c,c->argv[j+1],
+                    0,1,&buf_only,NULL) != C_OK)
+                return;
+            if (buf_only == 1) c->flags |= CLIENT_REPL_BUFONLY;
+            else c->flags &= ~CLIENT_REPL_BUFONLY;
+            if ((c->flags & CLIENT_REPL_RDBBUF) == CLIENT_REPL_RDBBUF) {
+                addReplyError(c, "request BUF-ONLY with RDB-ONLY already requested");
+                return;
+            }
         } else {
             addReplyErrorFormat(c,"Unrecognized REPLCONF option: %s",
                 (char*)c->argv[j]->ptr);
@@ -1272,6 +1309,49 @@ void removeRDBUsedToSyncReplicas(void) {
                 bg_unlink(server.rdb_filename);
             }
         }
+    }
+}
+
+void createEmptyRdbBulk() {
+    rio rdb;
+    char magic[10];
+    uint64_t cksum;
+    off_t bulklen;
+    sds bulk;
+
+    rioInitWithBuffer(&rdb,sdsempty());
+    if (server.rdb_checksum) rdb.update_cksum = rioGenericUpdateChecksum;
+    snprintf(magic,sizeof(magic),"REDIS%04d",RDB_VERSION);
+    rioWrite(&rdb,magic,9);
+    rdbSaveType(&rdb,RDB_OPCODE_EOF);
+    cksum = rdb.cksum;
+    memrev64ifbe(&cksum);
+    rioWrite(&rdb,&cksum,8);
+    bulklen = rioTell(&rdb);
+    bulk = sdscatprintf(sdsempty(),"$%lld\r\n",(unsigned long long)bulklen);
+    bulk = sdscatsds(bulk,rdb.io.buffer.ptr);
+    sdsfree(rdb.io.buffer.ptr);
+    shared.bufonlybulk = bulk;
+}
+
+void sendBulkToBufOnlySlave(connection *conn) {
+    client *slave = connGetPrivateData(conn);
+    ssize_t nwritten;
+
+    if ((nwritten = connWrite(conn, shared.bufonlybulk + slave->repldboff, slave->repldbsize - slave->repldboff)) == -1) {
+        if (connGetState(conn) != CONN_STATE_CONNECTED) {
+            serverLog(LL_WARNING,"Write error sending DB to replica: %s", connGetLastError(conn));
+            freeClient(slave);
+        } else {
+            connSetWriteHandler(conn,sendBulkToBufOnlySlave);
+        }
+        return;
+    }
+    slave->repldboff += nwritten;
+    atomicIncr(server.stat_net_output_bytes, nwritten);
+    if (slave->repldboff == slave->repldbsize) {
+        connSetWriteHandler(slave->conn,NULL);
+        putSlaveOnline(slave);
     }
 }
 
@@ -2534,7 +2614,9 @@ void syncWithMaster(connection *conn) {
          * slave listening port correctly. */
         {
             int port;
-            if (server.slave_announce_port)
+            if (server.repl_bufonly)
+                port = 0;
+            else if (server.slave_announce_port)
                 port = server.slave_announce_port;
             else if (server.tls_replication && server.tls_port)
                 port = server.tls_port;
@@ -2563,7 +2645,7 @@ void syncWithMaster(connection *conn) {
          *
          * The master will ignore capabilities it does not understand. */
         err = sendCommand(conn,"REPLCONF",
-                "capa","eof","capa","psync2",NULL);
+                "capa","eof","capa","psync2","buf-only",server.repl_bufonly ? "1" : "0",NULL);
         if (err) goto write_error;
 
         server.repl_state = REPL_STATE_RECEIVE_AUTH_REPLY;
@@ -3011,12 +3093,16 @@ void replicaofCommand(client *c) {
                                  "master\r\n"));
             return;
         }
+
+        /* REPLICAOF HOST PORT [BUF-ONLY] */
+        server.repl_bufonly = c->argc == 4 && !strcasecmp(c->argv[3]->ptr,"buf-only");
+
         /* There was no previous master or the user specified a different one,
          * we can continue. */
         replicationSetMaster(c->argv[1]->ptr, port);
         sds client = catClientInfoString(sdsempty(),c);
-        serverLog(LL_NOTICE,"REPLICAOF %s:%d enabled (user request from '%s')",
-            server.masterhost, server.masterport, client);
+        serverLog(LL_NOTICE,"REPLICAOF %s:%d buf-only=%d enabled (user request from '%s')",
+            server.masterhost, server.masterport, server.repl_bufonly, client);
         sdsfree(client);
     }
     addReply(c,shared.ok);
