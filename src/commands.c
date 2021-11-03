@@ -110,7 +110,7 @@ struct redisCommandArg CONFIG_SET_Args[] = {
 
 /* CONFIG command table */
 struct redisCommand CONFIG_Subcommands[] = {
-{"SET","Set a configuration parameter to the given value",NULL,"2.0.0",COMMAND_GROUP_GENERIC,CONFIG_SET_ReturnInfo,CONFIG_SET_History,configSetCommand,4,"admin no-script",.args=CONFIG_SET_Args},
+{"SET","Set a configuration parameter to the given value",NULL,"2.0.0",COMMAND_GROUP_GENERIC,CONFIG_SET_ReturnInfo,CONFIG_SET_History,configSetCommand,4,"admin noscript",.args=CONFIG_SET_Args},
 {0}
 };
 
@@ -213,10 +213,7 @@ struct redisCommandArg SORT_Args[] = {
 /********** COMMAND COUNT ********************/
 
 /* COMMAND COUNT return info */
-commandReturnInfo COMMAND_COUNT_ReturnInfo[] = {
-{"Number of commands",NULL,RETURN_TYPE_RESP2_3_SAME,.type.global=RESP2_INTEGER},
-{0}
-};
+#define COMMAND_COUNT_ReturnInfo NULL
 
 /* COMMAND COUNT history */
 #define COMMAND_COUNT_History NULL
@@ -224,31 +221,60 @@ commandReturnInfo COMMAND_COUNT_ReturnInfo[] = {
 /********** COMMAND GETKEYS ********************/
 
 /* COMMAND GETKEYS return info */
-commandReturnInfo COMMAND_GETKEYS_ReturnInfo[] = {
-{"The list of keys from your command",NULL,RETURN_TYPE_RESP2_3_SAME,.type.global=RESP2_ARRAY},
-{0}
-};
+#define COMMAND_GETKEYS_ReturnInfo NULL
 
 /* COMMAND GETKEYS history */
 #define COMMAND_GETKEYS_History NULL
 
+/********** COMMAND HELP ********************/
+
+/* COMMAND HELP return info */
+#define COMMAND_HELP_ReturnInfo NULL
+
+/* COMMAND HELP history */
+#define COMMAND_HELP_History NULL
+
+/********** COMMAND INFO ********************/
+
+/* COMMAND INFO return info */
+#define COMMAND_INFO_ReturnInfo NULL
+
+/* COMMAND INFO history */
+#define COMMAND_INFO_History NULL
+
+/********** COMMAND LIST ********************/
+
+/* COMMAND LIST return info */
+#define COMMAND_LIST_ReturnInfo NULL
+
+/* COMMAND LIST history */
+#define COMMAND_LIST_History NULL
+
 /* COMMAND command table */
 struct redisCommand COMMAND_Subcommands[] = {
-{"COUNT","Get total number of Redis commands","O(1)","2.8.13",COMMAND_GROUP_SERVER,COMMAND_COUNT_ReturnInfo,COMMAND_COUNT_History,commandCountCommand,2,"ok-loading ok-stale @connection"},
-{"GETKEYS","Extract keys given a full Redis command","O(N) where N is the number of arguments to the command","2.8.13",COMMAND_GROUP_SERVER,COMMAND_GETKEYS_ReturnInfo,COMMAND_GETKEYS_History,commandGetKeysCommand,-4,"ok-loading ok-stale @connection"},
+{"COUNT","Get total number of Redis commands","O(1)","2.8.13",COMMAND_GROUP_SERVER,COMMAND_COUNT_ReturnInfo,COMMAND_COUNT_History,commandCountCommand,2,"loading stale @slow @connection"},
+{"INFO","Get array of specific Redis command details","O(N) when N is number of commands to look up","2.8.13",COMMAND_GROUP_SERVER,COMMAND_INFO_ReturnInfo,COMMAND_INFO_History,commandInfoCommand,-3,"loading stale @slow @connection"},
+{"LIST",NULL,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_LIST_ReturnInfo,COMMAND_LIST_History,commandListCommand,-2,"loading stale @slow @connection"},
+{"HELP",NULL,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_HELP_ReturnInfo,COMMAND_HELP_History,commandHelpCommand,2,"loading stale @slow @connection"},
+{"GETKEYS","Extract keys given a full Redis command","O(N) where N is the number of arguments to the command","2.8.13",COMMAND_GROUP_SERVER,COMMAND_GETKEYS_ReturnInfo,COMMAND_GETKEYS_History,commandGetKeysCommand,-4,"loading stale @slow @connection"},
 {0}
 };
 
 /********** COMMAND ********************/
 
 /* COMMAND return info */
-commandReturnInfo COMMAND_ReturnInfo[] = {
-{"Nested list of command details",NULL,RETURN_TYPE_RESP2_3_SAME,.type.global=RESP2_ARRAY},
-{0}
-};
+#define COMMAND_ReturnInfo NULL
 
 /* COMMAND history */
 #define COMMAND_History NULL
+
+/********** XSETID ********************/
+
+/* XSETID return info */
+#define XSETID_ReturnInfo NULL
+
+/* XSETID history */
+#define XSETID_History NULL
 
 /********** ZUNIONSTORE ********************/
 
@@ -279,14 +305,18 @@ struct redisCommandArg ZUNIONSTORE_Args[] = {
 {0}
 };
 
+/********** XACK ********************/
+
+/* XACK return info */
+#define XACK_ReturnInfo NULL
+
+/* XACK history */
+#define XACK_History NULL
+
 /********** XADD ********************/
 
 /* XADD return info */
-commandReturnInfo XADD_ReturnInfo[] = {
-{"ID of the added entry",NULL,RETURN_TYPE_RESP2_3_SAME,.type.global=RESP2_BULK_STRING},
-{"Stream doesn't exist and NOMKSTREAN was given",NULL,RETURN_TYPE_RESP2_3_DIFFER,.type.unique={RESP2_NULL_BULK_STRING,RESP3_NULL}},
-{0}
-};
+#define XADD_ReturnInfo NULL
 
 /* XADD history */
 commandHistory XADD_History[] = {
@@ -294,50 +324,208 @@ commandHistory XADD_History[] = {
 {0}
 };
 
-/* XADD trimming strategy argument table */
-struct redisCommandArg XADD_trimming_strategy_Subargs[] = {
-{"maxlen",ARG_TYPE_NULL,"MAXLEN",NULL,NULL,CMD_ARG_NONE},
-{"minid",ARG_TYPE_NULL,"MINID",NULL,"6.2.0",CMD_ARG_NONE},
+/********** XAUTOCLAIM ********************/
+
+/* XAUTOCLAIM return info */
+#define XAUTOCLAIM_ReturnInfo NULL
+
+/* XAUTOCLAIM history */
+#define XAUTOCLAIM_History NULL
+
+/********** XCLAIM ********************/
+
+/* XCLAIM return info */
+#define XCLAIM_ReturnInfo NULL
+
+/* XCLAIM history */
+#define XCLAIM_History NULL
+
+/********** XDEL ********************/
+
+/* XDEL return info */
+#define XDEL_ReturnInfo NULL
+
+/* XDEL history */
+#define XDEL_History NULL
+
+/********** XGROUP CREATE ********************/
+
+/* XGROUP CREATE return info */
+#define XGROUP_CREATE_ReturnInfo NULL
+
+/* XGROUP CREATE history */
+#define XGROUP_CREATE_History NULL
+
+/********** XGROUP CREATECONSUMER ********************/
+
+/* XGROUP CREATECONSUMER return info */
+#define XGROUP_CREATECONSUMER_ReturnInfo NULL
+
+/* XGROUP CREATECONSUMER history */
+#define XGROUP_CREATECONSUMER_History NULL
+
+/********** XGROUP DELCONSUMER ********************/
+
+/* XGROUP DELCONSUMER return info */
+#define XGROUP_DELCONSUMER_ReturnInfo NULL
+
+/* XGROUP DELCONSUMER history */
+#define XGROUP_DELCONSUMER_History NULL
+
+/********** XGROUP DESTROY ********************/
+
+/* XGROUP DESTROY return info */
+#define XGROUP_DESTROY_ReturnInfo NULL
+
+/* XGROUP DESTROY history */
+#define XGROUP_DESTROY_History NULL
+
+/********** XGROUP HELP ********************/
+
+/* XGROUP HELP return info */
+#define XGROUP_HELP_ReturnInfo NULL
+
+/* XGROUP HELP history */
+#define XGROUP_HELP_History NULL
+
+/********** XGROUP SETID ********************/
+
+/* XGROUP SETID return info */
+#define XGROUP_SETID_ReturnInfo NULL
+
+/* XGROUP SETID history */
+#define XGROUP_SETID_History NULL
+
+/* XGROUP command table */
+struct redisCommand XGROUP_Subcommands[] = {
+{"HELP",NULL,NULL,NULL,COMMAND_GROUP_STREAM,XGROUP_HELP_ReturnInfo,XGROUP_HELP_History,NULL,2,"loading stale @stream @slow"},
+{"CREATECONSUMER",NULL,NULL,NULL,COMMAND_GROUP_STREAM,XGROUP_CREATECONSUMER_ReturnInfo,XGROUP_CREATECONSUMER_History,NULL,5,"write denyoom @write @stream @slow",{{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"CREATE",NULL,NULL,NULL,COMMAND_GROUP_STREAM,XGROUP_CREATE_ReturnInfo,XGROUP_CREATE_History,NULL,-5,"write denyoom @write @stream @slow",{{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"DELCONSUMER",NULL,NULL,NULL,COMMAND_GROUP_STREAM,XGROUP_DELCONSUMER_ReturnInfo,XGROUP_DELCONSUMER_History,NULL,5,"write @write @stream @slow",{{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"DESTROY",NULL,NULL,NULL,COMMAND_GROUP_STREAM,XGROUP_DESTROY_ReturnInfo,XGROUP_DESTROY_History,NULL,4,"write @write @stream @slow",{{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"SETID",NULL,NULL,NULL,COMMAND_GROUP_STREAM,XGROUP_SETID_ReturnInfo,XGROUP_SETID_History,NULL,5,"write @write @stream @slow",{{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 {0}
 };
 
-/* XADD trimming operator argument table */
-struct redisCommandArg XADD_trimming_operator_Subargs[] = {
-{"exact",ARG_TYPE_NULL,"=",NULL,NULL,CMD_ARG_NONE},
-{"inexact",ARG_TYPE_NULL,"~",NULL,NULL,CMD_ARG_NONE},
+/********** XGROUP ********************/
+
+/* XGROUP return info */
+#define XGROUP_ReturnInfo NULL
+
+/* XGROUP history */
+#define XGROUP_History NULL
+
+/********** XINFO CONSUMERS ********************/
+
+/* XINFO CONSUMERS return info */
+#define XINFO_CONSUMERS_ReturnInfo NULL
+
+/* XINFO CONSUMERS history */
+#define XINFO_CONSUMERS_History NULL
+
+/********** XINFO GROUPS ********************/
+
+/* XINFO GROUPS return info */
+#define XINFO_GROUPS_ReturnInfo NULL
+
+/* XINFO GROUPS history */
+#define XINFO_GROUPS_History NULL
+
+/********** XINFO HELP ********************/
+
+/* XINFO HELP return info */
+#define XINFO_HELP_ReturnInfo NULL
+
+/* XINFO HELP history */
+#define XINFO_HELP_History NULL
+
+/********** XINFO STREAM ********************/
+
+/* XINFO STREAM return info */
+#define XINFO_STREAM_ReturnInfo NULL
+
+/* XINFO STREAM history */
+#define XINFO_STREAM_History NULL
+
+/* XINFO command table */
+struct redisCommand XINFO_Subcommands[] = {
+{"GROUPS",NULL,NULL,NULL,COMMAND_GROUP_STREAM,XINFO_GROUPS_ReturnInfo,XINFO_GROUPS_History,NULL,3,"readonly @read @stream @slow",{{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"CONSUMERS",NULL,NULL,NULL,COMMAND_GROUP_STREAM,XINFO_CONSUMERS_ReturnInfo,XINFO_CONSUMERS_History,NULL,4,"readonly random @read @stream @slow",{{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"STREAM",NULL,NULL,NULL,COMMAND_GROUP_STREAM,XINFO_STREAM_ReturnInfo,XINFO_STREAM_History,NULL,-3,"readonly @read @stream @slow",{{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"HELP",NULL,NULL,NULL,COMMAND_GROUP_STREAM,XINFO_HELP_ReturnInfo,XINFO_HELP_History,NULL,2,"loading stale @stream @slow"},
 {0}
 };
 
-/* XADD trimming argument table */
-struct redisCommandArg XADD_trimming_Subargs[] = {
-{"strategy",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_NONE,.value.subargs=XADD_trimming_strategy_Subargs},
-{"operator",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=XADD_trimming_operator_Subargs},
-{"threshold",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="threshold"},
-{"limit",ARG_TYPE_INTEGER,"LIMIT",NULL,"6.2.0",CMD_ARG_OPTIONAL,.value.string="limit"},
+/********** XINFO ********************/
+
+/* XINFO return info */
+#define XINFO_ReturnInfo NULL
+
+/* XINFO history */
+commandHistory XINFO_History[] = {
+{"6.0.0","Added the `FULL` option to `XINFO STREAM`."},
 {0}
 };
 
-/* XADD id argument table */
-struct redisCommandArg XADD_id_Subargs[] = {
-{"auto",ARG_TYPE_NULL,"*",NULL,NULL,CMD_ARG_NONE},
-{"specific",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="ID"},
+/********** XLEN ********************/
+
+/* XLEN return info */
+#define XLEN_ReturnInfo NULL
+
+/* XLEN history */
+#define XLEN_History NULL
+
+/********** XPENDING ********************/
+
+/* XPENDING return info */
+#define XPENDING_ReturnInfo NULL
+
+/* XPENDING history */
+commandHistory XPENDING_History[] = {
+{"6.2.0","Added the `IDLE` option and exclusive range intervals."},
 {0}
 };
 
-/* XADD fieldandvalues argument table */
-struct redisCommandArg XADD_fieldandvalues_Subargs[] = {
-{"field",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="field"},
-{"value",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="value"},
-{0}
-};
+/********** XRANGE ********************/
 
-/* XADD argument table */
-struct redisCommandArg XADD_Args[] = {
-{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
-{"trimming",ARG_TYPE_BLOCK,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=XADD_trimming_Subargs},
-{"nomakestream",ARG_TYPE_NULL,"NOMKSTREAM",NULL,"6.2.0",CMD_ARG_OPTIONAL},
-{"id",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_NONE,.value.subargs=XADD_id_Subargs},
-{"fieldandvalues",ARG_TYPE_BLOCK,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.value.subargs=XADD_fieldandvalues_Subargs},
+/* XRANGE return info */
+#define XRANGE_ReturnInfo NULL
+
+/* XRANGE history */
+#define XRANGE_History NULL
+
+/********** XREAD ********************/
+
+/* XREAD return info */
+#define XREAD_ReturnInfo NULL
+
+/* XREAD history */
+#define XREAD_History NULL
+
+/********** XREADGROUP ********************/
+
+/* XREADGROUP return info */
+#define XREADGROUP_ReturnInfo NULL
+
+/* XREADGROUP history */
+#define XREADGROUP_History NULL
+
+/********** XREVRANGE ********************/
+
+/* XREVRANGE return info */
+#define XREVRANGE_ReturnInfo NULL
+
+/* XREVRANGE history */
+#define XREVRANGE_History NULL
+
+/********** XTRIM ********************/
+
+/* XTRIM return info */
+#define XTRIM_ReturnInfo NULL
+
+/* XTRIM history */
+commandHistory XTRIM_History[] = {
+{"6.2","Added the `MINID` trimming strategy and the `LIMIT` option."},
 {0}
 };
 
@@ -392,14 +580,28 @@ struct redisCommand redisCommandTable[] = {
 /* generic */
 {"CONFIG",NULL,NULL,NULL,COMMAND_GROUP_GENERIC,CONFIG_ReturnInfo,CONFIG_History,NULL,-2,"",.subcommands=CONFIG_Subcommands},
 {"MIGRATE","Atomically transfer a key from a Redis instance to another one.","This command actually executes a DUMP+DEL in the source instance, and a RESTORE in the target instance. See the pages of these commands for time complexity. Also an O(N) data transfer between the two instances is performed.","2.6.0",COMMAND_GROUP_GENERIC,MIGRATE_ReturnInfo,MIGRATE_History,migrateCommand,-6,"write random @keyspace @dangerous @write @slow",{{"write",KSPEC_BS_INDEX,.bs.index={3},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"write incomplete",KSPEC_BS_KEYWORD,.bs.keyword={"KEYS",-2},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},migrateGetKeys,.args=MIGRATE_Args},
-{"SORT","Sort the elements in a list, set or sorted set","O(N+M*log(M)) where N is the number of elements in the list or set to sort, and M the number of returned elements. When the elements are not sorted, complexity is O(N).","1.0.0",COMMAND_GROUP_GENERIC,SORT_ReturnInfo,SORT_History,NULL,-2,"write denyoom movablekeys @write @set @sortedset @list @slow @dangerous",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"write incomplete",KSPEC_BS_UNKNOWN,{{0}},KSPEC_FK_UNKNOWN,{{0}}}},.args=SORT_Args},
+{"SORT","Sort the elements in a list, set or sorted set","O(N+M*log(M)) where N is the number of elements in the list or set to sort, and M the number of returned elements. When the elements are not sorted, complexity is O(N).","1.0.0",COMMAND_GROUP_GENERIC,SORT_ReturnInfo,SORT_History,NULL,-2,"write denyoom @write @set @sortedset @list @slow @dangerous",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"write incomplete",KSPEC_BS_UNKNOWN,{{0}},KSPEC_FK_UNKNOWN,{{0}}}},.args=SORT_Args},
 /* server */
-{"COMMAND","Get array of Redis command details","O(N) where N is the total number of Redis commands","2.8.13",COMMAND_GROUP_SERVER,COMMAND_ReturnInfo,COMMAND_History,commandCommand,-1,"ok-loading ok-stale @connection",.subcommands=COMMAND_Subcommands},
+{"COMMAND","Get array of Redis command details","O(N) where N is the total number of Redis commands","2.8.13",COMMAND_GROUP_SERVER,COMMAND_ReturnInfo,COMMAND_History,commandCommand,-1,"random loading stale @slow @connection",.subcommands=COMMAND_Subcommands},
+{"XSETID",NULL,NULL,NULL,COMMAND_GROUP_SERVER,XSETID_ReturnInfo,XSETID_History,xsetidCommand,3,"write denyoom fast @write @stream @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 /* sorted-set */
-{"ZUNIONSTORE","Add multiple sorted sets and store the resulting sorted set in a new key","O(N)+O(M log(M)) with N being the sum of the sizes of the input sorted sets, and M being the number of elements in the resulting sorted set.","2.0.0",COMMAND_GROUP_SORTED_SET,ZUNIONSTORE_ReturnInfo,ZUNIONSTORE_History,zunionstoreCommand,-4,"write use-memory @sortedset @write @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},zunionInterDiffStoreGetKeys,.args=ZUNIONSTORE_Args},
+{"ZUNIONSTORE","Add multiple sorted sets and store the resulting sorted set in a new key","O(N)+O(M log(M)) with N being the sum of the sizes of the input sorted sets, and M being the number of elements in the resulting sorted set.","2.0.0",COMMAND_GROUP_SORTED_SET,ZUNIONSTORE_ReturnInfo,ZUNIONSTORE_History,zunionstoreCommand,-4,"write denyoom @sortedset @write @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},zunionInterDiffStoreGetKeys,.args=ZUNIONSTORE_Args},
 /* stream */
-{"XADD","Appends a new entry to a stream","O(1) when adding a new entry, O(N) when trimming where N being the number of entries evicted.","5.0.0",COMMAND_GROUP_STREAM,XADD_ReturnInfo,XADD_History,xaddCommand,-5,"write use-memory fast random @stream @write @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XADD_Args},
+{"XACK","Marks a pending message as correctly processed, effectively removing it from the pending entries list of the consumer group. Return value of the command is the number of messages successfully acknowledged, that is, the IDs we were actually able to resolve in the PEL.","O(1) for each message ID processed.","5.0.0",COMMAND_GROUP_STREAM,XACK_ReturnInfo,XACK_History,xackCommand,-4,"write random fast @write @stream @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"XADD","Appends a new entry to a stream","O(1) when adding a new entry, O(N) when trimming where N being the number of entires evicted.","5.0.0",COMMAND_GROUP_STREAM,XADD_ReturnInfo,XADD_History,xaddCommand,-5,"write denyoom random fast @write @stream @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"XAUTOCLAIM","Changes (or acquires) ownership of messages in a consumer group, as if the messages were delivered to the specified consumer.","O(1) if COUNT is small.","6.2.0",COMMAND_GROUP_STREAM,XAUTOCLAIM_ReturnInfo,XAUTOCLAIM_History,xautoclaimCommand,-6,"write random fast @write @stream @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"XCLAIM","Changes (or acquires) ownership of a message in a consumer group, as if the message was delivered to the specified consumer.","O(log N) with N being the number of messages in the PEL of the consumer group.","5.0.0",COMMAND_GROUP_STREAM,XCLAIM_ReturnInfo,XCLAIM_History,xclaimCommand,-6,"write random fast @write @stream @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"XDEL","Removes the specified entries from the stream. Returns the number of items actually deleted, that may be different from the number of IDs passed in case certain IDs do not exist.","O(1) for each single item to delete in the stream, regardless of the stream size.","5.0.0",COMMAND_GROUP_STREAM,XDEL_ReturnInfo,XDEL_History,xdelCommand,-3,"write fast @write @stream @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"XGROUP","Create, destroy, and manage consumer groups.","O(1) for all the subcommands, with the exception of the DESTROY subcommand which takes an additional O(M) time in order to delete the M entries inside the consumer group pending entries list (PEL).","5.0.0",COMMAND_GROUP_STREAM,XGROUP_ReturnInfo,XGROUP_History,xgroupCommand,-2,"@slow",.subcommands=XGROUP_Subcommands},
+{"XINFO","Get information on streams and consumer groups","O(N) with N being the number of returned items for the subcommands CONSUMERS and GROUPS. The STREAM subcommand is O(log N) with N being the number of items in the stream.","5.0.0",COMMAND_GROUP_STREAM,XINFO_ReturnInfo,XINFO_History,xinfoCommand,-2,"@slow",.subcommands=XINFO_Subcommands},
+{"XLEN","Return the number of entries in a stream","O(1)","5.0.0",COMMAND_GROUP_STREAM,XLEN_ReturnInfo,XLEN_History,xlenCommand,2,"readonly fast @read @stream @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"XPENDING","Return information and entries from a stream consumer group pending entries list, that are messages fetched but never acknowledged.","O(N) with N being the number of elements returned, so asking for a small fixed number of entries per call is O(1). O(M), where M is the total number of entries scanned when used with the IDLE filter. When the command returns just the summary and the list of consumers is small, it runs in O(1) time; otherwise, an additional O(N) time for iterating every consumer.","5.0.0",COMMAND_GROUP_STREAM,XPENDING_ReturnInfo,XPENDING_History,xpendingCommand,-3,"readonly random @read @stream @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"XRANGE","Return a range of elements in a stream, with IDs matching the specified IDs interval","O(N) with N being the number of elements being returned. If N is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1).","5.0.0",COMMAND_GROUP_STREAM,XRANGE_ReturnInfo,XRANGE_History,xrangeCommand,-4,"readonly @read @stream @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"XREAD","Return never seen elements in multiple streams, with IDs greater than the ones reported by the caller for each stream. Can block.","For each stream mentioned: O(N) with N being the number of elements being returned, it means that XREAD-ing with a fixed COUNT is O(1). Note that when the BLOCK option is used, XADD will pay O(M) time in order to serve the M clients blocked on the stream getting new data.","5.0.0",COMMAND_GROUP_STREAM,XREAD_ReturnInfo,XREAD_History,xreadCommand,-4,"readonly @read @stream @slow @blocking",{{"read",KSPEC_BS_KEYWORD,.bs.keyword={"STREAMS",1},KSPEC_FK_RANGE,.fk.range={-1,1,2}}},xreadGetKeys},
+{"XREADGROUP","Return new entries from a stream using a consumer group, or access the history of the pending entries for a given consumer. Can block.","For each stream mentioned: O(M) with M being the number of elements returned. If M is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1). On the other side when XREADGROUP blocks, XADD will pay the O(N) time in order to serve the N clients blocked on the stream getting new data.","5.0.0",COMMAND_GROUP_STREAM,XREADGROUP_ReturnInfo,XREADGROUP_History,NULL,-7,"write @write @stream @slow @blocking",{{"read",KSPEC_BS_KEYWORD,.bs.keyword={"STREAMS",4},KSPEC_FK_RANGE,.fk.range={-1,1,2}}}},
+{"XREVRANGE","Return a range of elements in a stream, with IDs matching the specified IDs interval, in reverse order (from greater to smaller IDs) compared to XRANGE","O(N) with N being the number of elements returned. If N is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1).","5.0.0",COMMAND_GROUP_STREAM,XREVRANGE_ReturnInfo,XREVRANGE_History,xrevrangeCommand,-4,"readonly @read @stream @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"XTRIM","Trims the stream to (approximately if '~' is passed) a certain size","O(N), with N being the number of evicted entries. Constant times are very small however, since entries are organized in macro nodes containing multiple entries that can be released with a single deallocation.","5.0.0",COMMAND_GROUP_STREAM,XTRIM_ReturnInfo,XTRIM_History,xtrimCommand,-4,"write random @write @stream @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 /* string */
-{"SET","Set the string value of a key","O(1)","1.0.0",COMMAND_GROUP_STRING,SET_ReturnInfo,SET_History,setCommand,-3,"write use-memory @string @write @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SET_Args},
+{"SET","Set the string value of a key","O(1)","1.0.0",COMMAND_GROUP_STRING,SET_ReturnInfo,SET_History,setCommand,-3,"write denyoom @string @write @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SET_Args},
 {0}
 };

@@ -194,7 +194,7 @@ class Command(object):
     def __init__(self, name, desc):
         self.name = name.upper()
         self.desc = desc
-        self.group = self.desc["group"]
+        self.group = self.desc.get("group", "server")  # TODO:GUYBE "group" must be present!!!!
         self.subcommands = []
         self.args = []
         for arg_desc in self.desc.get("arguments", []):
@@ -381,9 +381,12 @@ for filename in glob.glob('commands/*.json'):
 # Link subcommands to containers
 print("Linking container command to subcommands...")
 for command in commands.values():
+    assert command.group
     if command.name not in subcommands:
         continue
     for subcommand in subcommands[command.name].values():
+        # assert not subcommand.group or subcommand.group == command.group TODO:GUYBE uncomment!!!!!
+        subcommand.group = command.group
         command.subcommands.append(subcommand)
 
 print("Generating commands.c...")

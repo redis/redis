@@ -6,7 +6,7 @@
         "arity":4,
         "command_flags":[
             "admin",
-            "no-script"
+            "noscript"
         ],
         "function":"configSetCommand",
         "container":"CONFIG",

@@ -7,7 +7,7 @@
         "arity":-4,
         "command_flags":[
             "write",
-            "use-memory"
+            "denyoom"
         ],
         "acl_categories":[
             "sortedset",

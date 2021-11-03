@@ -1,0 +1,34 @@
+{
+  "CREATE": {
+    "arity": -5,
+    "container": "XGROUP",
+    "command_flags": [
+      "write",
+      "denyoom"
+    ],
+    "acl_categories": [
+      "write",
+      "stream",
+      "slow"
+    ],
+    "key_specs": [
+      {
+        "flags": [
+          "write"
+        ],
+        "begin_search": {
+          "index": {
+            "pos": 2
+          }
+        },
+        "find_keys": {
+          "range": {
+            "lastkey": 0,
+            "step": 1,
+            "limit": 0
+          }
+        }
+      }
+    ]
+  }
+}

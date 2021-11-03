@@ -2503,45 +2503,46 @@ void parseCommandFlags(struct redisCommand *c, char *strflags) {
         serverPanic("Failed splitting strflags!");
 
     for (int j = 0; j < argc; j++) {
+        // TODO:GUYBE update the command.c/redisCommand struct comment too!!!!!
         char *flag = argv[j];
         if (!strcasecmp(flag,"write")) {
             c->flags |= CMD_WRITE|CMD_CATEGORY_WRITE;
-        } else if (!strcasecmp(flag,"read-only")) {
+        } else if (!strcasecmp(flag,"readonly")) {
             c->flags |= CMD_READONLY|CMD_CATEGORY_READ;
-        } else if (!strcasecmp(flag,"use-memory")) {
+        } else if (!strcasecmp(flag,"denyoom")) {
             c->flags |= CMD_DENYOOM;
         } else if (!strcasecmp(flag,"admin")) {
             c->flags |= CMD_ADMIN|CMD_CATEGORY_ADMIN|CMD_CATEGORY_DANGEROUS;
-        } else if (!strcasecmp(flag,"pub-sub")) {
+        } else if (!strcasecmp(flag,"pubsub")) {
             c->flags |= CMD_PUBSUB|CMD_CATEGORY_PUBSUB;
-        } else if (!strcasecmp(flag,"no-script")) {
+        } else if (!strcasecmp(flag,"noscript")) {
             c->flags |= CMD_NOSCRIPT;
         } else if (!strcasecmp(flag,"random")) {
             c->flags |= CMD_RANDOM;
-        } else if (!strcasecmp(flag,"to-sort")) {
+        } else if (!strcasecmp(flag,"sort_for_script")) {
             c->flags |= CMD_SORT_FOR_SCRIPT;
-        } else if (!strcasecmp(flag,"ok-loading")) {
+        } else if (!strcasecmp(flag,"loading")) {
             c->flags |= CMD_LOADING;
-        } else if (!strcasecmp(flag,"ok-stale")) {
+        } else if (!strcasecmp(flag,"stale")) {
             c->flags |= CMD_STALE;
-        } else if (!strcasecmp(flag,"no-monitor")) {
+        } else if (!strcasecmp(flag,"skip_monitor")) {
             c->flags |= CMD_SKIP_MONITOR;
-        } else if (!strcasecmp(flag,"no-slowlog")) {
+        } else if (!strcasecmp(flag,"skip_slowlog")) {
             c->flags |= CMD_SKIP_SLOWLOG;
-        } else if (!strcasecmp(flag,"cluster-asking")) {
+        } else if (!strcasecmp(flag,"asking")) {
             c->flags |= CMD_ASKING;
         } else if (!strcasecmp(flag,"fast")) {
             c->flags |= CMD_FAST | CMD_CATEGORY_FAST;
-        } else if (!strcasecmp(flag,"no-auth")) {
+        } else if (!strcasecmp(flag,"no_auth")) {
             c->flags |= CMD_NO_AUTH;
-        } else if (!strcasecmp(flag,"may-replicate")) {
+        } else if (!strcasecmp(flag,"may_replicate")) {
             c->flags |= CMD_MAY_REPLICATE;
         } else if (!strcasecmp(flag,"sentinel")) {
             c->flags |= CMD_SENTINEL;
         } else if (!strcasecmp(flag,"only-sentinel")) {
             c->flags |= CMD_SENTINEL; /* Obviously it's s sentinel command */
             c->flags |= CMD_ONLY_SENTINEL;
-        } else if (!strcasecmp(flag,"no-mandatory-keys")) {
+        } else if (!strcasecmp(flag,"no_mandatory_keys")) {
             c->flags |= CMD_NO_MANDATORY_KEYS;
         } else {
             /* Parse ACL categories here if the flag name starts with @. */
@@ -3772,6 +3773,7 @@ void addReplyFlagsForCommand(client *c, struct redisCommand *cmd) {
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_FAST, "fast");
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_NO_AUTH, "no_auth");
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_MAY_REPLICATE, "may_replicate");
+    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_NO_MANDATORY_KEYS, "no_mandatory_keys");
     /* "sentinel" and "only-sentinel" are hidden on purpose. */
     if (cmd->movablekeys) {
         addReplyStatus(c, "movablekeys");
@@ -3815,7 +3817,7 @@ void addReplyCommandArgList(client *c, struct redisCommandArg *args) {
 
     void *array = addReplyDeferredLen(c);
     for (j = 0; args && args[j].name != NULL; j++) {
-        addReplyMapLen(c, 8);
+        addReplyMapLen(c, 7);
         addReplyBulkCString(c, "name");
         addReplyBulkCString(c, args[j].name);
         addReplyBulkCString(c, "type");

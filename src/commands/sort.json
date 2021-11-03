@@ -7,8 +7,7 @@
         "arity":-2,
         "command_flags":[
             "write",
-            "denyoom",
-            "movablekeys"
+            "denyoom"
         ],
         "acl_categories":[
             "write",

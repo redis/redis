@@ -1,27 +1,19 @@
 {
-    "COMMAND":{
-        "summary": "Get array of Redis command details",
-        "complexity": "O(N) where N is the total number of Redis commands",
-        "since": "2.8.13",
-        "group": "server",
-        "return_summary": "@array-reply: nested list of command details.  Commands are returned\nin random order.",
-        "arity":-1,
-        "function":"commandCommand",
-        "subcommands":[
-            "COUNT"
-        ],
-        "command_flags":[
-            "ok-loading",
-            "ok-stale"
-        ],
-        "acl_categories":[
-            "connection"
-        ],
-        "returns":[
-            {
-                "description": "Nested list of command details",
-                "type":"array"
-            }
-        ]
-    }
+  "COMMAND": {
+    "summary": "Get array of Redis command details",
+    "complexity": "O(N) where N is the total number of Redis commands",
+    "group": "server",
+    "since": "2.8.13",
+    "arity": -1,
+    "function": "commandCommand",
+    "command_flags": [
+      "random",
+      "loading",
+      "stale"
+    ],
+    "acl_categories": [
+      "slow",
+      "connection"
+    ]
+  }
 }

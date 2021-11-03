@@ -8,7 +8,7 @@
         "function":"setCommand",
         "command_flags":[
             "write",
-            "use-memory"
+            "denyoom"
         ],
         "acl_categories":[
             "string",

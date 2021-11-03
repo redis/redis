@@ -1,0 +1,15 @@
+{
+  "HELP": {
+    "arity": 2,
+    "function":"commandHelpCommand",
+    "container": "COMMAND",
+    "command_flags": [
+      "loading",
+      "stale"
+    ],
+    "acl_categories": [
+      "slow",
+      "connection"
+    ]
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "HELP": {
+    "arity": 2,
+    "container": "XGROUP",
+    "command_flags": [
+      "loading",
+      "stale"
+    ],
+    "acl_categories": [
+      "stream",
+      "slow"
+    ]
+  }
+}
