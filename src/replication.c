@@ -2873,6 +2873,9 @@ void replicationUnsetMaster(void) {
     disconnectSlaves();
     server.repl_state = REPL_STATE_NONE;
 
+    /* Release slaveKeysWithExpire dict, since master doesn't need it. */
+    flushSlaveKeysWithExpireList();
+
     /* We need to make sure the new master will start the replication stream
      * with a SELECT statement. This is forced after a full resync, but
      * with PSYNC version 2, there is no need for full resync after a

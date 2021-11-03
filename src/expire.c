@@ -461,7 +461,7 @@ size_t getSlaveKeyWithExpireCount(void) {
  * inconsistencies. This is just a best-effort thing we do. */
 void flushSlaveKeysWithExpireList(void) {
     if (slaveKeysWithExpire) {
-        dictRelease(slaveKeysWithExpire);
+        freeSlaveKeysWithExpireDictAsync(slaveKeysWithExpire);
         slaveKeysWithExpire = NULL;
     }
 }
