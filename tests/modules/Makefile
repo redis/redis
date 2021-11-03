@@ -10,11 +10,9 @@ else	# Linux, others
 	SHOBJ_LDFLAGS ?= -shared
 endif
 
-# Needed to satisfy __stack_chk_fail_local on Linux with -m32, due to gcc
-# -fstack-protector by default. Breaks on FreeBSD and macOS 11 so needs
-# to be Linux specific.
 ifeq ($(uname_S),Linux)
-    LIBS = -lc
+    LD = gcc
+    CC = gcc
 endif
 
 # OS X 11.x doesn't have /usr/lib/libSystem.dylib and needs an explicit setting.
@@ -60,7 +58,7 @@ TEST_MODULES = \
 all: $(TEST_MODULES)
 
 32bit:
-	$(MAKE) CFLAGS="-m32" LDFLAGS="-melf_i386"
+	$(MAKE) CFLAGS="-m32" LDFLAGS="-m32"
 
 %.xo: %.c ../../src/redismodule.h
 	$(CC) -I../../src $(CFLAGS) $(SHOBJ_CFLAGS) -fPIC -c $< -o $@

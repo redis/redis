@@ -1137,6 +1137,7 @@ start_server {tags {"zset"}} {
         assert_error "ERR syntax error*" {r zmpop 1 myzset{t} MIN bar_arg}
         assert_error "ERR syntax error*" {r zmpop 1 myzset{t} MAX MIN}
         assert_error "ERR syntax error*" {r zmpop 1 myzset{t} COUNT}
+        assert_error "ERR syntax error*" {r zmpop 1 myzset{t} MAX COUNT 1 COUNT 2}
         assert_error "ERR syntax error*" {r zmpop 2 myzset{t} myzset2{t} bad_arg}
 
         assert_error "ERR count*" {r zmpop 1 myzset{t} MIN COUNT 0}
@@ -1922,6 +1923,7 @@ start_server {tags {"zset"}} {
         assert_error "ERR syntax error*" {r bzmpop 1 1 myzset{t} MIN bar_arg}
         assert_error "ERR syntax error*" {r bzmpop 1 1 myzset{t} MAX MIN}
         assert_error "ERR syntax error*" {r bzmpop 1 1 myzset{t} COUNT}
+        assert_error "ERR syntax error*" {r bzmpop 1 1 myzset{t} MIN COUNT 1 COUNT 2}
         assert_error "ERR syntax error*" {r bzmpop 1 2 myzset{t} myzset2{t} bad_arg}
 
         assert_error "ERR count*" {r bzmpop 1 1 myzset{t} MIN COUNT 0}

@@ -159,6 +159,38 @@ void freeReplicationBacklog(void) {
     server.repl_backlog = NULL;
 }
 
+/* To make search offset from replication buffer blocks quickly
+ * when replicas ask partial resynchronization, we create one index
+ * block every REPL_BACKLOG_INDEX_PER_BLOCKS blocks. */
+void createReplicationBacklogIndex(listNode *ln) {
+    server.repl_backlog->unindexed_count++;
+    if (server.repl_backlog->unindexed_count >= REPL_BACKLOG_INDEX_PER_BLOCKS) {
+        replBufBlock *o = listNodeValue(ln);
+        uint64_t encoded_offset = htonu64(o->repl_offset);
+        raxInsert(server.repl_backlog->blocks_index,
+                  (unsigned char*)&encoded_offset, sizeof(uint64_t),
+                  ln, NULL);
+        server.repl_backlog->unindexed_count = 0;
+    }
+}
+
+/* Rebase replication buffer blocks' offset since the initial
+ * setting offset starts from 0 when master restart. */
+void rebaseReplicationBuffer(long long base_repl_offset) {
+    raxFree(server.repl_backlog->blocks_index);
+    server.repl_backlog->blocks_index = raxNew();
+    server.repl_backlog->unindexed_count = 0;
+
+    listIter li;
+    listNode *ln;
+    listRewind(server.repl_buffer_blocks, &li);
+    while ((ln = listNext(&li))) {
+        replBufBlock *o = listNodeValue(ln);
+        o->repl_offset += base_repl_offset;
+        createReplicationBacklogIndex(ln);
+    }
+}
+
 void resetReplicationBuffer(void) {
     server.repl_buffer_mem = 0;
     server.repl_buffer_blocks = listCreate();
@@ -220,7 +252,7 @@ void feedReplicationBufferWithObject(robj *o) {
 void incrementalTrimReplicationBacklog(size_t max_blocks) {
     serverAssert(server.repl_backlog != NULL);
 
-    size_t trimmed_blocks = 0, trimmed_bytes = 0;
+    size_t trimmed_blocks = 0;
     while (server.repl_backlog->histlen > server.repl_backlog_size &&
            trimmed_blocks < max_blocks)
     {
@@ -245,8 +277,8 @@ void incrementalTrimReplicationBacklog(size_t max_blocks) {
 
         /* Decr refcount and release the first block later. */
         fo->refcount--;
-        trimmed_bytes += fo->size;
         trimmed_blocks++;
+        server.repl_backlog->histlen -= fo->size;
 
         /* Go to use next replication buffer block node. */
         listNode *next = listNextNode(first);
@@ -267,7 +299,6 @@ void incrementalTrimReplicationBacklog(size_t max_blocks) {
         listDelNode(server.repl_buffer_blocks, first);
     }
 
-    server.repl_backlog->histlen -= trimmed_bytes;
     /* Set the offset of the first byte we have in the backlog. */
     server.repl_backlog->offset = server.master_repl_offset -
                               server.repl_backlog->histlen + 1;
@@ -373,17 +404,7 @@ void feedReplicationBuffer(char *s, size_t len) {
         serverAssert(add_new_block == 1 && start_pos == 0);
     }
     if (add_new_block) {
-        /* To make search offset from replication buffer blocks quickly
-         * when replicas ask partial resynchronization, we create one index
-         * block every REPL_BACKLOG_INDEX_PER_BLOCKS blocks. */
-        server.repl_backlog->unindexed_count++;
-        if (server.repl_backlog->unindexed_count >= REPL_BACKLOG_INDEX_PER_BLOCKS) {
-            uint64_t encoded_offset = htonu64(tail->repl_offset);
-            raxInsert(server.repl_backlog->blocks_index,
-                (unsigned char*)&encoded_offset, sizeof(uint64_t),
-                listLast(server.repl_buffer_blocks), NULL);
-            server.repl_backlog->unindexed_count = 0;
-        }
+        createReplicationBacklogIndex(listLast(server.repl_buffer_blocks));
     }
     /* Try to trim replication backlog since replication backlog may exceed
      * our setting when we add replication stream. Note that it is important to

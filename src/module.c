@@ -803,6 +803,7 @@ int64_t commandFlagsFromString(char *s) {
         else if (!strcasecmp(t,"may-replicate")) flags |= CMD_MAY_REPLICATE;
         else if (!strcasecmp(t,"getkeys-api")) flags |= CMD_MODULE_GETKEYS;
         else if (!strcasecmp(t,"no-cluster")) flags |= CMD_MODULE_NO_CLUSTER;
+        else if (!strcasecmp(t,"no-mandatory-keys")) flags |= CMD_NO_MANDATORY_KEYS;
         else break;
     }
     sdsfreesplitres(tokens,count);
@@ -891,6 +892,7 @@ RedisModuleCommandProxy *moduleCreateCommandProxy(RedisModuleCtx *ctx, const cha
  *                     to authenticate a client.
  * * **"may-replicate"**: This command may generate replication traffic, even
  *                        though it's not a write command.
+ * * **"no-mandatory-keys"**: All the keys this command may take are optional
  *
  * The last three parameters specify which arguments of the new command are
  * Redis keys. See https://redis.io/commands/command for more information.
@@ -3085,7 +3087,7 @@ int RM_GetToDbIdFromOptCtx(RedisModuleKeyOptCtx *ctx) {
 int RM_StringSet(RedisModuleKey *key, RedisModuleString *str) {
     if (!(key->mode & REDISMODULE_WRITE) || key->iter) return REDISMODULE_ERR;
     RM_DeleteKey(key);
-    genericSetKey(key->ctx->client,key->db,key->key,str,0,0);
+    setKey(key->ctx->client,key->db,key->key,str,SETKEY_NO_SIGNAL);
     key->value = str;
     return REDISMODULE_OK;
 }
@@ -3165,7 +3167,7 @@ int RM_StringTruncate(RedisModuleKey *key, size_t newlen) {
     if (key->value == NULL) {
         /* Empty key: create it with the new size. */
         robj *o = createObject(OBJ_STRING,sdsnewlen(NULL, newlen));
-        genericSetKey(key->ctx->client,key->db,key->key,o,0,0);
+        setKey(key->ctx->client,key->db,key->key,o,SETKEY_NO_SIGNAL);
         key->value = o;
         decrRefCount(o);
     } else {
@@ -5443,7 +5445,7 @@ int RM_ModuleTypeSetValue(RedisModuleKey *key, moduleType *mt, void *value) {
     if (!(key->mode & REDISMODULE_WRITE) || key->iter) return REDISMODULE_ERR;
     RM_DeleteKey(key);
     robj *o = createModuleObject(mt,value);
-    genericSetKey(key->ctx->client,key->db,key->key,o,0,0);
+    setKey(key->ctx->client,key->db,key->key,o,SETKEY_NO_SIGNAL);
     decrRefCount(o);
     key->value = o;
     return REDISMODULE_OK;

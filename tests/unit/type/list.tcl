@@ -1076,6 +1076,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         assert_error "ERR syntax error*" {r lmpop 1 mylist{t} LEFT bar_arg}
         assert_error "ERR syntax error*" {r lmpop 1 mylist{t} RIGHT LEFT}
         assert_error "ERR syntax error*" {r lmpop 1 mylist{t} COUNT}
+        assert_error "ERR syntax error*" {r lmpop 1 mylist{t} LEFT COUNT 1 COUNT 2}
         assert_error "ERR syntax error*" {r lmpop 2 mylist{t} mylist2{t} bad_arg}
 
         assert_error "ERR count*" {r lmpop 1 mylist{t} LEFT COUNT 0}

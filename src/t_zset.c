@@ -2762,7 +2762,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
     if (dstkey) {
         if (dstzset->zsl->length) {
             zsetConvertToListpackIfNeeded(dstobj, maxelelen, totelelen);
-            setKey(c, c->db, dstkey, dstobj);
+            setKey(c, c->db, dstkey, dstobj, 0);
             addReplyLongLong(c, zsetLength(dstobj));
             notifyKeyspaceEvent(NOTIFY_ZSET,
                                 (op == SET_OP_UNION) ? "zunionstore" :
@@ -2955,7 +2955,7 @@ static void zrangeResultEmitLongLongForStore(zrange_result_handler *handler,
 static void zrangeResultFinalizeStore(zrange_result_handler *handler, size_t result_count)
 {
     if (result_count) {
-        setKey(handler->client, handler->client->db, handler->dstkey, handler->dstobj);
+        setKey(handler->client, handler->client->db, handler->dstkey, handler->dstobj, 0);
         addReplyLongLong(handler->client, result_count);
         notifyKeyspaceEvent(NOTIFY_ZSET, "zrangestore", handler->dstkey, handler->client->db->id);
         server.dirty++;
@@ -4287,7 +4287,7 @@ void zmpopGenericCommand(client *c, int numkeys_idx, int is_block) {
     long j;
     long numkeys = 0;      /* Number of keys. */
     int where = 0;         /* ZSET_MIN or ZSET_MAX. */
-    long count = 1;        /* Reply will consist of up to count elements, depending on the zset's length. */
+    long count = 0;        /* Reply will consist of up to count elements, depending on the zset's length. */
 
     /* Parse the numkeys. */
     if (getRangeLongFromObjectOrReply(c, c->argv[numkeys_idx], 1, LONG_MAX,
@@ -4314,7 +4314,7 @@ void zmpopGenericCommand(client *c, int numkeys_idx, int is_block) {
         char *opt = c->argv[j]->ptr;
         int moreargs = (c->argc - 1) - j;
 
-        if (!strcasecmp(opt, "COUNT") && moreargs) {
+        if (count == 0 && !strcasecmp(opt, "COUNT") && moreargs) {
             j++;
             if (getRangeLongFromObjectOrReply(c, c->argv[j], 1, LONG_MAX,
                                               &count,"count should be greater than 0") != C_OK)
@@ -4324,6 +4324,8 @@ void zmpopGenericCommand(client *c, int numkeys_idx, int is_block) {
             return;
         }
     }
+
+    if (count == 0) count = 1;
 
     if (is_block) {
         /* BLOCK. We will handle CLIENT_DENY_BLOCKING flag in blockingGenericZpopCommand. */
