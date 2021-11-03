@@ -527,8 +527,11 @@ test {diskless loading short read} {
                     $master multi
                     $master client kill type replica
                     $master set asdf asdf
-                    # the side effect of resizing the backlog is that it is flushed (16k is the min size)
-                    $master config set repl-backlog-size [expr {16384 + $i}]
+                    # fill replication backlog with new content
+                    $master config set repl-backlog-size 16384
+                    for {set keyid 0} {$keyid < 10} {incr keyid} {
+                        $master set "$keyid string_$keyid" [string repeat A 16384]
+                    }
                     $master exec
                 }
                 # wait for loading to stop (fail)
@@ -611,7 +614,7 @@ start_server {tags {"repl external:skip"}} {
                     # start replication
                     # it's enough for just one replica to be slow, and have it's write handler enabled
                     # so that the whole rdb generation process is bound to that
-                    set loglines [count_log_lines -1]
+                    set loglines [count_log_lines -2]
                     [lindex $replicas 0] config set repl-diskless-load swapdb
                     [lindex $replicas 0] config set key-load-delay 100 ;# 20k keys and 100 microseconds sleep means at least 2 seconds
                     [lindex $replicas 0] replicaof $master_host $master_port
@@ -619,7 +622,7 @@ start_server {tags {"repl external:skip"}} {
 
                     # wait for the replicas to start reading the rdb
                     # using the log file since the replica only responds to INFO once in 2mb
-                    wait_for_log_messages -1 {"*Loading DB in memory*"} $loglines 800 10
+                    wait_for_log_messages -1 {"*Loading DB in memory*"} 0 800 10
 
                     if {$measure_time} {
                         set master_statfile "/proc/$master_pid/stat"
@@ -635,7 +638,6 @@ start_server {tags {"repl external:skip"}} {
                     $master incr $all_drop
 
                     # disconnect replicas depending on the current test
-                    set loglines [count_log_lines -2]
                     if {$all_drop == "all" || $all_drop == "fast"} {
                         exec kill [srv 0 pid]
                         set replicas_alive [lreplace $replicas_alive 1 1]

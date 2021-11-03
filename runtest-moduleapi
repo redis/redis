@@ -43,4 +43,5 @@ $TCLSH tests/test_helper.tcl \
 --single unit/moduleapi/cluster \
 --single unit/moduleapi/aclcheck \
 --single unit/moduleapi/subcommands \
+--single unit/moduleapi/reply \
 "${@}"

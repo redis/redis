@@ -1487,6 +1487,11 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     /* Close clients that need to be closed asynchronous */
     freeClientsInAsyncFreeQueue();
 
+    /* Incrementally trim replication backlog, 10 times the normal speed is
+     * to free replication backlog as much as possible. */
+    if (server.repl_backlog)
+        incrementalTrimReplicationBacklog(10*REPL_BACKLOG_TRIM_BLOCKS_PER_CALL);
+
     /* Disconnect some clients if they are consuming too much memory. */
     evictClients();
 
@@ -1710,6 +1715,7 @@ void initServerConfig(void) {
     server.aof_rewrite_scheduled = 0;
     server.aof_flush_sleep = 0;
     server.aof_last_fsync = time(NULL);
+    server.aof_cur_timestamp = 0;
     atomicSet(server.aof_bio_fsync_status,C_OK);
     server.aof_rewrite_time_last = -1;
     server.aof_rewrite_time_start = -1;
@@ -1754,9 +1760,6 @@ void initServerConfig(void) {
 
     /* Replication partial resync backlog */
     server.repl_backlog = NULL;
-    server.repl_backlog_histlen = 0;
-    server.repl_backlog_idx = 0;
-    server.repl_backlog_off = 0;
     server.repl_no_slaves_since = time(NULL);
 
     /* Failover related */
@@ -2208,6 +2211,7 @@ void initServer(void) {
     server.blocked_last_cron = 0;
     server.blocking_op_nesting = 0;
     server.thp_enabled = 0;
+    resetReplicationBuffer();
 
     if ((server.tls_port || server.tls_replication || server.tls_cluster)
                 && tlsConfigure(&server.tls_ctx_config) == C_ERR) {
@@ -2236,11 +2240,13 @@ void initServer(void) {
     /* Open the TCP listening socket for the user commands. */
     if (server.port != 0 &&
         listenToPort(server.port,&server.ipfd) == C_ERR) {
+        /* Note: the following log text is matched by the test suite. */
         serverLog(LL_WARNING, "Failed listening on port %u (TCP), aborting.", server.port);
         exit(1);
     }
     if (server.tls_port != 0 &&
         listenToPort(server.tls_port,&server.tlsfd) == C_ERR) {
+        /* Note: the following log text is matched by the test suite. */
         serverLog(LL_WARNING, "Failed listening on port %u (TLS), aborting.", server.tls_port);
         exit(1);
     }
@@ -2484,16 +2490,17 @@ void commandAddSubcommand(struct redisCommand *parent, struct redisCommand *subc
     serverAssert(dictAdd(parent->subcommands_dict, sdsnew(subcommand->name), subcommand) == DICT_OK);
 }
 
+
 /* Parse the flags string description 'strflags' and set them to the
- * command 'c'. If the flags are all valid C_OK is returned, otherwise
- * C_ERR is returned (yet the recognized flags are set in the command). */
-int populateSingleCommand(struct redisCommand *c, char *strflags) {
+ * command 'c'. Abort on error. */
+void parseCommandFlags(struct redisCommand *c, char *strflags) {
     int argc;
     sds *argv;
 
     /* Split the line into arguments for processing. */
     argv = sdssplitargs(strflags,&argc);
-    if (argv == NULL) return C_ERR;
+    if (argv == NULL)
+        serverPanic("Failed splitting strflags!");
 
     for (int j = 0; j < argc; j++) {
         char *flag = argv[j];
@@ -2532,7 +2539,10 @@ int populateSingleCommand(struct redisCommand *c, char *strflags) {
         } else if (!strcasecmp(flag,"sentinel")) {
             c->flags |= CMD_SENTINEL;
         } else if (!strcasecmp(flag,"only-sentinel")) {
+            c->flags |= CMD_SENTINEL; /* Obviously it's s sentinel command */
             c->flags |= CMD_ONLY_SENTINEL;
+        } else if (!strcasecmp(flag,"no-mandatory-keys")) {
+            c->flags |= CMD_NO_MANDATORY_KEYS;
         } else {
             /* Parse ACL categories here if the flag name starts with @. */
             uint64_t catflag;
@@ -2542,7 +2552,7 @@ int populateSingleCommand(struct redisCommand *c, char *strflags) {
                 c->flags |= catflag;
             } else {
                 sdsfreesplitres(argv,argc);
-                return C_ERR;
+                serverPanic("Unsupported command flag %s", flag);
             }
         }
     }
@@ -2550,8 +2560,11 @@ int populateSingleCommand(struct redisCommand *c, char *strflags) {
     if (!(c->flags & CMD_CATEGORY_FAST)) c->flags |= CMD_CATEGORY_SLOW;
 
     sdsfreesplitres(argv,argc);
+}
 
-    /* Now handle the key arguments spec flags */
+void populateCommandStructure(struct redisCommand *c) {
+    int argc;
+    sds *argv;
 
     /* Redis commands don't need more args than STATIC_KEY_SPECS_NUM (Number of keys
      * specs can be greater than STATIC_KEY_SPECS_NUM only for module commands) */
@@ -2565,7 +2578,7 @@ int populateSingleCommand(struct redisCommand *c, char *strflags) {
         /* Split the line into arguments for processing. */
         argv = sdssplitargs(c->key_specs[i].sflags,&argc);
         if (argv == NULL)
-            return C_ERR;
+            serverPanic("Failed splitting key sflags!");
 
         for (int j = 0; j < argc; j++) {
             char *flag = argv[j];
@@ -2575,6 +2588,8 @@ int populateSingleCommand(struct redisCommand *c, char *strflags) {
                 c->key_specs[i].flags |= CMD_KEY_READ;
             } else if (!strcasecmp(flag,"incomplete")) {
                 c->key_specs[i].flags |= CMD_KEY_INCOMPLETE;
+            } else {
+                serverPanic("Unsupported key-arg flag %s", flag);
             }
         }
 
@@ -2587,6 +2602,9 @@ int populateSingleCommand(struct redisCommand *c, char *strflags) {
     /* Handle the "movablekeys" flag (must be done after populating all key specs). */
     populateCommandMovableKeys(c);
 
+    /* Assign the ID used for ACL. */
+    c->id = ACLGetCommandID(c->name);
+
     /* Handle subcommands */
     if (c->subcommands) {
         for (int j = 0; c->subcommands[j].name; j++) {
@@ -2594,14 +2612,11 @@ int populateSingleCommand(struct redisCommand *c, char *strflags) {
 
             /* Translate the command string flags description into an actual
              * set of flags. */
-            if (populateSingleCommand(sub,sub->sflags) == C_ERR)
-                serverPanic("Unsupported command flag or key spec flag");
-
+            parseCommandFlags(sub,sub->sflags);
+            populateCommandStructure(sub);
             commandAddSubcommand(c,sub);
         }
     }
-
-    return C_OK;
 }
 
 extern struct redisCommand redisCommandTable[];
@@ -2617,21 +2632,19 @@ void populateCommandTable(void) {
         if (c->name == NULL)
             break;
 
+        int retval1, retval2;
+
+        /* Translate the command string flags description into an actual
+         * set of flags. */
+        parseCommandFlags(c,c->sflags);
+
         if (!(c->flags & CMD_SENTINEL) && server.sentinel_mode)
             continue;
 
         if (c->flags & CMD_ONLY_SENTINEL && !server.sentinel_mode)
             continue;
 
-        int retval1, retval2;
-
-        /* Assign the ID used for ACL. */
-        c->id = ACLGetCommandID(c->name);
-
-        /* Translate the command string flags description into an actual
-         * set of flags. */
-        if (populateSingleCommand(c,c->sflags) == C_ERR)
-            serverPanic("Unsupported command flag or key spec flag");
+        populateCommandStructure(c);
 
         retval1 = dictAdd(server.commands, sdsnew(c->name), c);
         /* Populate an additional dictionary that will be unaffected
@@ -4074,7 +4087,11 @@ void getKeysSubcommand(client *c) {
     }
 
     if (!getKeysFromCommand(cmd,c->argv+2,c->argc-2,&result)) {
-        addReplyError(c,"Invalid arguments specified for command");
+        if (cmd->flags & CMD_NO_MANDATORY_KEYS) {
+            addReplyArrayLen(c,0);
+        } else {
+            addReplyError(c,"Invalid arguments specified for command");
+        }
     } else {
         addReplyArrayLen(c,result.numkeys);
         for (j = 0; j < result.numkeys; j++) addReplyBulk(c,c->argv[result.keys[j]+2]);
@@ -4508,6 +4525,7 @@ sds genRedisInfoString(const char *section) {
             "mem_fragmentation_bytes:%zd\r\n"
             "mem_not_counted_for_evict:%zu\r\n"
             "mem_replication_backlog:%zu\r\n"
+            "mem_total_replication_buffers:%zu\r\n"
             "mem_clients_slaves:%zu\r\n"
             "mem_clients_normal:%zu\r\n"
             "mem_aof_buffer:%zu\r\n"
@@ -4552,6 +4570,7 @@ sds genRedisInfoString(const char *section) {
             mh->total_frag_bytes,
             freeMemoryGetNotCountedMemory(),
             mh->repl_backlog,
+            server.repl_buffer_mem,
             mh->clients_slaves,
             mh->clients_normal,
             mh->aof_buffer,
@@ -4940,8 +4959,8 @@ sds genRedisInfoString(const char *section) {
             server.second_replid_offset,
             server.repl_backlog != NULL,
             server.repl_backlog_size,
-            server.repl_backlog_off,
-            server.repl_backlog_histlen);
+            server.repl_backlog ? server.repl_backlog->offset : 0,
+            server.repl_backlog ? server.repl_backlog->histlen : 0);
     }
 
     /* CPU */
@@ -5583,14 +5602,17 @@ int redisFork(int purpose) {
         closeChildUnusedResourceAfterFork();
     } else {
         /* Parent */
+        if (childpid == -1) {
+            int fork_errno = errno;
+            if (isMutuallyExclusiveChildType(purpose)) closeChildInfoPipe();
+            errno = fork_errno;
+            return -1;
+        }
+
         server.stat_total_forks++;
         server.stat_fork_time = ustime()-start;
         server.stat_fork_rate = (double) zmalloc_used_memory() * 1000000 / server.stat_fork_time / (1024*1024*1024); /* GB per second. */
         latencyAddSampleIfNeeded("fork",server.stat_fork_time/1000);
-        if (childpid == -1) {
-            if (isMutuallyExclusiveChildType(purpose)) closeChildInfoPipe();
-            return -1;
-        }
 
         /* The child_pid and child_type are only for mutual exclusive children.
          * other child types should handle and store their pid's in dedicated variables.
@@ -5690,15 +5712,19 @@ void dismissMemoryInChild(void) {
     /* Currently we use zmadvise_dontneed only when we use jemalloc with Linux.
      * so we avoid these pointless loops when they're not going to do anything. */
 #if defined(USE_JEMALLOC) && defined(__linux__)
+    listIter li;
+    listNode *ln;
 
-    /* Dismiss replication backlog. */
-    if (server.repl_backlog != NULL) {
-        dismissMemory(server.repl_backlog, server.repl_backlog_size);
+    /* Dismiss replication buffer. We don't need to separately dismiss replication
+     * backlog and replica' output buffer, because they just reference the global
+     * replication buffer but don't cost real memory. */
+    listRewind(server.repl_buffer_blocks, &li);
+    while((ln = listNext(&li))) {
+        replBufBlock *o = listNodeValue(ln);
+        dismissMemory(o, o->size);
     }
 
     /* Dismiss all clients memory. */
-    listIter li;
-    listNode *ln;
     listRewind(server.clients, &li);
     while((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
@@ -5767,8 +5793,10 @@ void loadDataFromDisk(void) {
                     server.second_replid_offset = rsi.repl_offset+1;
                     /* Rebase master_repl_offset from rsi.repl_offset. */
                     server.master_repl_offset += rsi.repl_offset;
-                    server.repl_backlog_off = server.master_repl_offset -
-                              server.repl_backlog_histlen + 1;
+                    serverAssert(server.repl_backlog);
+                    server.repl_backlog->offset = server.master_repl_offset -
+                              server.repl_backlog->histlen + 1;
+                    rebaseReplicationBuffer(rsi.repl_offset);
                     server.repl_no_slaves_since = time(NULL);
                 }
             }
@@ -5776,6 +5804,14 @@ void loadDataFromDisk(void) {
             serverLog(LL_WARNING,"Fatal error loading the DB: %s. Exiting.",strerror(errno));
             exit(1);
         }
+
+        /* We always create replication backlog if server is a master, we need
+         * it because we put DELs in it when loading expired keys in RDB, but
+         * if RDB doesn't have replication info or there is no rdb, it is not
+         * possible to support partial resynchronization, to avoid extra memory
+         * of replication backlog, we drop it. */
+        if (server.master_repl_offset == 0 && server.repl_backlog)
+            freeReplicationBacklog();
     }
 }
 

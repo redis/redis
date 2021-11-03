@@ -723,7 +723,7 @@ NULL
         } else if (!strcasecmp(name,"integer")) {
             addReplyLongLong(c,12345);
         } else if (!strcasecmp(name,"double")) {
-            addReplyDouble(c,3.14159265359);
+            addReplyDouble(c,3.141);
         } else if (!strcasecmp(name,"bignum")) {
             addReplyBigNum(c,"1234567999999999999999999999999999999",37);
         } else if (!strcasecmp(name,"null")) {
