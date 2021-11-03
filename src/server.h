@@ -1840,14 +1840,18 @@ typedef enum {
     ARG_TYPE_BLOCK /* Has subargs */
 } redisCommandArgType;
 
+#define CMD_ARG_NONE            (0)
+#define CMD_ARG_OPTIONAL        (1<<0)
+#define CMD_ARG_MULTIPLE        (1<<1)
+#define CMD_ARG_MULTIPLE_TOKEN  (1<<2)
+
 struct redisCommandArg {
     char *name;
     redisCommandArgType type;
     char *token;
     char *summary;
     char *since;
-    int optional;
-    int multiple;
+    int flags;
     union {
         struct redisCommandArg *subargs;
         char *string;

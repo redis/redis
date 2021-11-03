@@ -103,8 +103,8 @@ commandReturnInfo CONFIG_SET_ReturnInfo[] = {
 
 /* CONFIG SET argument table */
 struct redisCommandArg CONFIG_SET_Args[] = {
-{"parameter",ARG_TYPE_STRING,NULL,NULL,NULL,0,0,.value.string="parameter"},
-{"value",ARG_TYPE_STRING,NULL,NULL,NULL,0,0,.value.string="value"},
+{"parameter",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="parameter"},
+{"value",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="value"},
 {0}
 };
 
@@ -142,30 +142,71 @@ commandHistory MIGRATE_History[] = {
 
 /* MIGRATE keyornone argument table */
 struct redisCommandArg MIGRATE_keyornone_Subargs[] = {
-{"key",ARG_TYPE_KEY,NULL,NULL,NULL,0,0,.value.string="key"},
-{"nokey",ARG_TYPE_NULL,"""",NULL,NULL,0,0},
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"nokey",ARG_TYPE_NULL,"""",NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* MIGRATE auth2 argument table */
 struct redisCommandArg MIGRATE_auth2_Subargs[] = {
-{"username",ARG_TYPE_STRING,NULL,NULL,NULL,0,0,.value.string="username"},
-{"password",ARG_TYPE_STRING,NULL,NULL,NULL,0,0,.value.string="password"},
+{"username",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="username"},
+{"password",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="password"},
 {0}
 };
 
 /* MIGRATE argument table */
 struct redisCommandArg MIGRATE_Args[] = {
-{"host",ARG_TYPE_STRING,NULL,NULL,NULL,0,0,.value.string="host"},
-{"port",ARG_TYPE_STRING,NULL,NULL,NULL,0,0,.value.string="port"},
-{"keyornone",ARG_TYPE_ONEOF,NULL,NULL,NULL,0,0,.value.subargs=MIGRATE_keyornone_Subargs},
-{"destination-db",ARG_TYPE_INTEGER,NULL,NULL,NULL,0,0,.value.string="destination-db"},
-{"timeout",ARG_TYPE_INTEGER,NULL,NULL,NULL,0,0,.value.string="timeout"},
-{"copy",ARG_TYPE_NULL,"COPY",NULL,NULL,1,0},
-{"replace",ARG_TYPE_NULL,"REPLACE",NULL,NULL,1,0},
-{"auth",ARG_TYPE_STRING,"AUTH",NULL,NULL,1,0,.value.string="password"},
-{"auth2",ARG_TYPE_BLOCK,"AUTH2",NULL,NULL,1,0,.value.subargs=MIGRATE_auth2_Subargs},
-{"keys",ARG_TYPE_KEY,"KEYS",NULL,NULL,1,1,.value.string="key"},
+{"host",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="host"},
+{"port",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="port"},
+{"keyornone",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_NONE,.value.subargs=MIGRATE_keyornone_Subargs},
+{"destination-db",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="destination-db"},
+{"timeout",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="timeout"},
+{"copy",ARG_TYPE_NULL,"COPY",NULL,NULL,CMD_ARG_OPTIONAL},
+{"replace",ARG_TYPE_NULL,"REPLACE",NULL,NULL,CMD_ARG_OPTIONAL},
+{"auth",ARG_TYPE_STRING,"AUTH",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="password"},
+{"auth2",ARG_TYPE_BLOCK,"AUTH2",NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=MIGRATE_auth2_Subargs},
+{"keys",ARG_TYPE_KEY,"KEYS",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,.value.string="key"},
+{0}
+};
+
+/********** SORT ********************/
+
+/* SORT return info */
+#define SORT_ReturnInfo NULL
+
+/* SORT history */
+#define SORT_History NULL
+
+/* SORT sortby argument table */
+struct redisCommandArg SORT_sortby_Subargs[] = {
+{"pattern",ARG_TYPE_PATTERN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="pattern"},
+{"elementitself",ARG_TYPE_NULL,"#",NULL,NULL,CMD_ARG_NONE},
+{0}
+};
+
+/* SORT limit argument table */
+struct redisCommandArg SORT_limit_Subargs[] = {
+{"offset",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="offset"},
+{"count",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="count"},
+{0}
+};
+
+/* SORT order argument table */
+struct redisCommandArg SORT_order_Subargs[] = {
+{"asc",ARG_TYPE_NULL,"ASC",NULL,NULL,CMD_ARG_NONE},
+{"desc",ARG_TYPE_NULL,"DESC",NULL,NULL,CMD_ARG_NONE},
+{0}
+};
+
+/* SORT argument table */
+struct redisCommandArg SORT_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"sortby",ARG_TYPE_ONEOF,"BY",NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=SORT_sortby_Subargs},
+{"limit",ARG_TYPE_BLOCK,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=SORT_limit_Subargs},
+{"get",ARG_TYPE_STRING,"GET",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="pattern"},
+{"order",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=SORT_order_Subargs},
+{"sorting",ARG_TYPE_NULL,"ALPHA",NULL,NULL,CMD_ARG_OPTIONAL},
+{"store",ARG_TYPE_KEY,"STORE",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="destination"},
 {0}
 };
 
@@ -222,19 +263,19 @@ commandReturnInfo ZUNIONSTORE_ReturnInfo[] = {
 
 /* ZUNIONSTORE aggregate argument table */
 struct redisCommandArg ZUNIONSTORE_aggregate_Subargs[] = {
-{"sum",ARG_TYPE_NULL,"SUM",NULL,NULL,0,0},
-{"min",ARG_TYPE_NULL,"MIN",NULL,NULL,0,0},
-{"max",ARG_TYPE_NULL,"MAX",NULL,NULL,0,0},
+{"sum",ARG_TYPE_NULL,"SUM",NULL,NULL,CMD_ARG_NONE},
+{"min",ARG_TYPE_NULL,"MIN",NULL,NULL,CMD_ARG_NONE},
+{"max",ARG_TYPE_NULL,"MAX",NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* ZUNIONSTORE argument table */
 struct redisCommandArg ZUNIONSTORE_Args[] = {
-{"destination",ARG_TYPE_KEY,NULL,NULL,NULL,0,0,.value.string="destination"},
-{"numkeys",ARG_TYPE_INTEGER,NULL,NULL,NULL,0,0,.value.string="numkeys"},
-{"key",ARG_TYPE_KEY,NULL,NULL,NULL,0,1,.value.string="key"},
-{"weights",ARG_TYPE_INTEGER,"WEIGHTS",NULL,NULL,1,1,.value.string="weight"},
-{"aggregate",ARG_TYPE_ONEOF,"AGGREGATE",NULL,NULL,1,0,.value.subargs=ZUNIONSTORE_aggregate_Subargs},
+{"destination",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="destination"},
+{"numkeys",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="numkeys"},
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.value.string="key"},
+{"weights",ARG_TYPE_INTEGER,"WEIGHTS",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,.value.string="weight"},
+{"aggregate",ARG_TYPE_ONEOF,"AGGREGATE",NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=ZUNIONSTORE_aggregate_Subargs},
 {0}
 };
 
@@ -255,48 +296,48 @@ commandHistory XADD_History[] = {
 
 /* XADD trimming strategy argument table */
 struct redisCommandArg XADD_trimming_strategy_Subargs[] = {
-{"maxlen",ARG_TYPE_NULL,"MAXLEN",NULL,NULL,0,0},
-{"minid",ARG_TYPE_NULL,"MINID",NULL,"6.2.0",0,0},
+{"maxlen",ARG_TYPE_NULL,"MAXLEN",NULL,NULL,CMD_ARG_NONE},
+{"minid",ARG_TYPE_NULL,"MINID",NULL,"6.2.0",CMD_ARG_NONE},
 {0}
 };
 
 /* XADD trimming operator argument table */
 struct redisCommandArg XADD_trimming_operator_Subargs[] = {
-{"exact",ARG_TYPE_NULL,"=",NULL,NULL,0,0},
-{"inexact",ARG_TYPE_NULL,"~",NULL,NULL,0,0},
+{"exact",ARG_TYPE_NULL,"=",NULL,NULL,CMD_ARG_NONE},
+{"inexact",ARG_TYPE_NULL,"~",NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* XADD trimming argument table */
 struct redisCommandArg XADD_trimming_Subargs[] = {
-{"strategy",ARG_TYPE_ONEOF,NULL,NULL,NULL,0,0,.value.subargs=XADD_trimming_strategy_Subargs},
-{"operator",ARG_TYPE_ONEOF,NULL,NULL,NULL,1,0,.value.subargs=XADD_trimming_operator_Subargs},
-{"threshold",ARG_TYPE_INTEGER,NULL,NULL,NULL,0,0,.value.string="threshold"},
-{"limit",ARG_TYPE_INTEGER,"LIMIT",NULL,"6.2.0",1,0,.value.string="limit"},
+{"strategy",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_NONE,.value.subargs=XADD_trimming_strategy_Subargs},
+{"operator",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=XADD_trimming_operator_Subargs},
+{"threshold",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="threshold"},
+{"limit",ARG_TYPE_INTEGER,"LIMIT",NULL,"6.2.0",CMD_ARG_OPTIONAL,.value.string="limit"},
 {0}
 };
 
 /* XADD id argument table */
 struct redisCommandArg XADD_id_Subargs[] = {
-{"auto",ARG_TYPE_NULL,"*",NULL,NULL,0,0},
-{"specific",ARG_TYPE_STRING,NULL,NULL,NULL,0,0,.value.string="ID"},
+{"auto",ARG_TYPE_NULL,"*",NULL,NULL,CMD_ARG_NONE},
+{"specific",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="ID"},
 {0}
 };
 
 /* XADD fieldandvalues argument table */
 struct redisCommandArg XADD_fieldandvalues_Subargs[] = {
-{"field",ARG_TYPE_STRING,NULL,NULL,NULL,0,0,.value.string="field"},
-{"value",ARG_TYPE_STRING,NULL,NULL,NULL,0,0,.value.string="value"},
+{"field",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="field"},
+{"value",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="value"},
 {0}
 };
 
 /* XADD argument table */
 struct redisCommandArg XADD_Args[] = {
-{"key",ARG_TYPE_KEY,NULL,NULL,NULL,0,0,.value.string="key"},
-{"trimming",ARG_TYPE_BLOCK,NULL,NULL,NULL,1,0,.value.subargs=XADD_trimming_Subargs},
-{"nomakestream",ARG_TYPE_NULL,"NOMKSTREAM",NULL,"6.2.0",1,0},
-{"id",ARG_TYPE_ONEOF,NULL,NULL,NULL,0,0,.value.subargs=XADD_id_Subargs},
-{"fieldandvalues",ARG_TYPE_BLOCK,NULL,NULL,NULL,0,1,.value.subargs=XADD_fieldandvalues_Subargs},
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"trimming",ARG_TYPE_BLOCK,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=XADD_trimming_Subargs},
+{"nomakestream",ARG_TYPE_NULL,"NOMKSTREAM",NULL,"6.2.0",CMD_ARG_OPTIONAL},
+{"id",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_NONE,.value.subargs=XADD_id_Subargs},
+{"fieldandvalues",ARG_TYPE_BLOCK,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.value.subargs=XADD_fieldandvalues_Subargs},
 {0}
 };
 
@@ -321,28 +362,28 @@ commandHistory SET_History[] = {
 
 /* SET expire argument table */
 struct redisCommandArg SET_expire_Subargs[] = {
-{"ex",ARG_TYPE_INTEGER,"EX",NULL,"2.6.12",0,0,.value.string="seconds"},
-{"px",ARG_TYPE_INTEGER,"PX",NULL,"2.6.12",0,0,.value.string="milliseconds"},
-{"exat",ARG_TYPE_UNIX_TIME,"EXAT",NULL,"6.2.0",0,0,.value.string="timestamp"},
-{"pxat",ARG_TYPE_UNIX_TIME,"PXAT",NULL,"6.2.0",0,0,.value.string="milliseconds-timestamp"},
-{"keepttl",ARG_TYPE_NULL,"KEEPTTL",NULL,"6.0.0",0,0},
+{"ex",ARG_TYPE_INTEGER,"EX",NULL,"2.6.12",CMD_ARG_NONE,.value.string="seconds"},
+{"px",ARG_TYPE_INTEGER,"PX",NULL,"2.6.12",CMD_ARG_NONE,.value.string="milliseconds"},
+{"exat",ARG_TYPE_UNIX_TIME,"EXAT",NULL,"6.2.0",CMD_ARG_NONE,.value.string="timestamp"},
+{"pxat",ARG_TYPE_UNIX_TIME,"PXAT",NULL,"6.2.0",CMD_ARG_NONE,.value.string="milliseconds-timestamp"},
+{"keepttl",ARG_TYPE_NULL,"KEEPTTL",NULL,"6.0.0",CMD_ARG_NONE},
 {0}
 };
 
 /* SET existence argument table */
 struct redisCommandArg SET_existence_Subargs[] = {
-{"nx",ARG_TYPE_NULL,"NX",NULL,NULL,0,0},
-{"xx",ARG_TYPE_NULL,"XX",NULL,NULL,0,0},
+{"nx",ARG_TYPE_NULL,"NX",NULL,NULL,CMD_ARG_NONE},
+{"xx",ARG_TYPE_NULL,"XX",NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* SET argument table */
 struct redisCommandArg SET_Args[] = {
-{"key",ARG_TYPE_KEY,NULL,NULL,NULL,0,0,.value.string="key"},
-{"value",ARG_TYPE_STRING,NULL,NULL,NULL,0,0,.value.string="value"},
-{"expire",ARG_TYPE_ONEOF,NULL,NULL,NULL,1,0,.value.subargs=SET_expire_Subargs},
-{"existence",ARG_TYPE_ONEOF,NULL,NULL,NULL,1,0,.value.subargs=SET_existence_Subargs},
-{"get",ARG_TYPE_NULL,"GET",NULL,"6.2.0",1,0},
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"value",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="value"},
+{"expire",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=SET_expire_Subargs},
+{"existence",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=SET_existence_Subargs},
+{"get",ARG_TYPE_NULL,"GET",NULL,"6.2.0",CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -351,6 +392,7 @@ struct redisCommand redisCommandTable[] = {
 /* generic */
 {"CONFIG",NULL,NULL,NULL,COMMAND_GROUP_GENERIC,CONFIG_ReturnInfo,CONFIG_History,NULL,-2,"",.subcommands=CONFIG_Subcommands},
 {"MIGRATE","Atomically transfer a key from a Redis instance to another one.","This command actually executes a DUMP+DEL in the source instance, and a RESTORE in the target instance. See the pages of these commands for time complexity. Also an O(N) data transfer between the two instances is performed.","2.6.0",COMMAND_GROUP_GENERIC,MIGRATE_ReturnInfo,MIGRATE_History,migrateCommand,-6,"write random @keyspace @dangerous @write @slow",{{"write",KSPEC_BS_INDEX,.bs.index={3},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"write incomplete",KSPEC_BS_KEYWORD,.bs.keyword={"KEYS",-2},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},migrateGetKeys,.args=MIGRATE_Args},
+{"SORT","Sort the elements in a list, set or sorted set","O(N+M*log(M)) where N is the number of elements in the list or set to sort, and M the number of returned elements. When the elements are not sorted, complexity is O(N).","1.0.0",COMMAND_GROUP_GENERIC,SORT_ReturnInfo,SORT_History,NULL,-2,"write denyoom movablekeys @write @set @sortedset @list @slow @dangerous",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"write incomplete",KSPEC_BS_UNKNOWN,{{0}},KSPEC_FK_UNKNOWN,{{0}}}},.args=SORT_Args},
 /* server */
 {"COMMAND","Get array of Redis command details","O(N) where N is the total number of Redis commands","2.8.13",COMMAND_GROUP_SERVER,COMMAND_ReturnInfo,COMMAND_History,commandCommand,-1,"ok-loading ok-stale @connection",.subcommands=COMMAND_Subcommands},
 /* sorted-set */

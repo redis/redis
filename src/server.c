@@ -3776,7 +3776,6 @@ void addReplyFlagsForKeyArgs(client *c, uint64_t flags) {
     setDeferredSetLen(c, flaglen, flagcount);
 }
 
-
 const char *ARG_TYPE_STR[] = {
     NULL,
     "string",
@@ -3788,6 +3787,15 @@ const char *ARG_TYPE_STR[] = {
     "oneof",
     "block",
 };
+
+void addReplyFlagsForArg(client *c, uint64_t flags) {
+    int flagcount = 0;
+    void *flaglen = addReplyDeferredLen(c);
+    flagcount += addReplyCommandFlag(c,flags,CMD_ARG_OPTIONAL, "optional");
+    flagcount += addReplyCommandFlag(c,flags,CMD_ARG_MULTIPLE, "multiple");
+    flagcount += addReplyCommandFlag(c,flags,CMD_ARG_MULTIPLE_TOKEN, "multiple-token");
+    setDeferredSetLen(c, flaglen, flagcount);
+}
 
 void addReplyCommandArgList(client *c, struct redisCommandArg *args) {
     int j;
@@ -3805,10 +3813,8 @@ void addReplyCommandArgList(client *c, struct redisCommandArg *args) {
         addReplyBulkCString(c, args[j].summary);
         addReplyBulkCString(c, "since");
         addReplyBulkCString(c, args[j].since);
-        addReplyBulkCString(c, "optional");
-        addReplyBool(c, args[j].optional);
-        addReplyBulkCString(c, "multiple");
-        addReplyBool(c, args[j].multiple);
+        addReplyBulkCString(c, "flags");
+        addReplyFlagsForArg(c, args[j].flags);
         addReplyBulkCString(c, "value");
         if (args[j].type == ARG_TYPE_ONEOF || args[j].type == ARG_TYPE_BLOCK) {
             addReplyCommandArgList(c, args[j].value.subargs);

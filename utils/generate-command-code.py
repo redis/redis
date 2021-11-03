@@ -90,6 +90,8 @@ class KeySpec(object):
                     self.spec["begin_search"]["keyword"]["keyword"],
                     self.spec["begin_search"]["keyword"]["startfrom"],
                 )
+            elif "unknown" in self.spec["begin_search"]:
+                return "KSPEC_BS_UNKNOWN,{{0}}"
             else:
                 print("Invalid begin_search! value=%s" % self.spec["begin_search"])
                 exit(1)
@@ -107,6 +109,8 @@ class KeySpec(object):
                     self.spec["find_keys"]["keynum"]["firstkey"],
                     self.spec["find_keys"]["keynum"]["step"]
                 )
+            elif "unknown" in self.spec["find_keys"]:
+                return "KSPEC_FK_UNKNOWN,{{0}}"
             else:
                 print("Invalid find_keys! value=%s" % self.spec["find_keys"])
                 exit(1)
@@ -144,14 +148,24 @@ class Argument(object):
         return "%s_Subargs" % (self.fullname().replace(" ", "_"))
 
     def struct_code(self):
-        s = "\"%s\",%s,%s,%s,%s,%d,%d" % (
+        def _flags_code():
+            s = ""
+            if self.desc.get("optional", False):
+                s += "CMD_ARG_OPTIONAL|"
+            if self.desc.get("multiple", False):
+                s += "CMD_ARG_MULTIPLE|"
+            if self.desc.get("multiple_token", False):
+                assert self.desc.get("multiple", False)  # Sanity
+                s += "CMD_ARG_MULTIPLE_TOKEN|"
+            return s[:-1] if s else "CMD_ARG_NONE"
+
+        s = "\"%s\",%s,%s,%s,%s,%s" % (
             self.name,
             ARG_TYPES[self.desc.get("type")],
             get_optional_desc_string(self.desc, "token"),
             get_optional_desc_string(self.desc, "summary"),
             get_optional_desc_string(self.desc, "since"),
-            int(self.desc.get("optional", False)),
-            int(self.desc.get("multiple", False)),
+            _flags_code(),
         )
         if self.subargs:
             s += ",.value.subargs=%s" % self.subarg_table_name()
