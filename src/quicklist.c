@@ -2027,7 +2027,6 @@ int quicklistTest(int argc, char *argv[], int accurate) {
             quicklistRelease(ql);
         }
 
-
         TEST("NEXT plain node")
         {
             packed_threshold = 3;
@@ -2046,6 +2045,7 @@ int quicklistTest(int argc, char *argv[], int accurate) {
                 j++;
             }
             quicklistReleaseIterator(iter);
+            quicklistRelease(ql);
         }
 
         TEST("rotate plain node ") {
