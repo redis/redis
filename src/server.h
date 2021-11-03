@@ -2580,8 +2580,7 @@ int objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
 #define LOOKUP_NOTOUCH (1<<0)  /* Don't update LRU. */
 #define LOOKUP_NONOTIFY (1<<1) /* Don't trigger keyspace event on key misses. */
 #define LOOKUP_NOSTATS (1<<2)  /* Don't update keyspace hits/misses couters. */
-#define LOOKUP_NOEXPIRE (1<<3) /* Don't check if the key is expired. */
-#define LOOKUP_WRITE (1<<4)    /* Delete expired keys even in replicas. */
+#define LOOKUP_WRITE (1<<3)    /* Delete expired keys even in replicas. */
 
 void dbAdd(redisDb *db, robj *key, robj *val);
 int dbAddRDBLoad(redisDb *db, sds key, robj *val);

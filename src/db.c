@@ -74,7 +74,6 @@ void updateLFU(robj *val) {
  *  LOOKUP_NOTOUCH: Don't alter the last access time of the key.
  *  LOOKUP_NONOTIFY: Don't trigger keyspace event on key miss.
  *  LOOKUP_NOSTATS: Don't increment key hits/misses couters.
- *  LOOKUP_NOEXPIRE: Don't check if the key has expired.
  *  LOOKUP_WRITE: Prepare the key for writing (delete expired keys even on
  *                replicas, use separate keyspace stats and events (TODO)).
  *
@@ -88,9 +87,7 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
     robj *val = NULL;
     if (de) {
         val = dictGetVal(de);
-        if (!(flags & LOOKUP_NOEXPIRE) &&
-            expireIfNeeded(db, key, flags & LOOKUP_WRITE))
-        {
+        if (expireIfNeeded(db, key, flags & LOOKUP_WRITE)) {
             /* The key is no longer valid. */
             val = NULL;
         }
@@ -1293,7 +1290,7 @@ void scanDatabaseForReadyLists(redisDb *db) {
     while((de = dictNext(di)) != NULL) {
         robj *key = dictGetKey(de);
         robj *value = lookupKey(db, key, (LOOKUP_NOTOUCH | LOOKUP_NOSTATS |
-                                          LOOKUP_NONOTIFY | LOOKUP_NOEXPIRE));
+                                          LOOKUP_NONOTIFY));
         if (value) signalKeyAsReady(db, key, value->type);
     }
     dictReleaseIterator(di);
