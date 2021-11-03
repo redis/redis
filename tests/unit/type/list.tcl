@@ -1,3 +1,387 @@
+set ::str500 [string repeat x 500000000] ;# 500mb
+
+# Utility function to write big argument into redis client connection
+proc write_big_bulk {size} {
+    r write "\$$size\r\n"
+    while {$size >= 500000000} {
+        r write $::str500
+        incr size -500000000
+    }
+    if {$size > 0} {
+        r write [string repeat x $size]
+    }
+    r write "\r\n"
+    r flush
+    r read
+}
+
+# Utility to read big bulk response (work around Tcl limitations)
+proc read_big_bulk {code} {
+    r readraw 1
+    set resp_len [uplevel 1 $code] ;# get the first line of the RESP response
+    assert_equal [string range $resp_len 0 0] "$"
+    set resp_len [string range $resp_len 1 end]
+    set remaining $resp_len
+    while {$remaining > 0} {
+        set l $remaining
+        if {$l > 2147483647} {set l 2147483647}
+        set nbytes [string length [r rawread $l]]
+        incr remaining [expr {- $nbytes}]
+    }
+    assert_equal [r rawread 2] "\r\n"
+    r readraw 0
+    return $resp_len
+}
+
+# check functionality compression of plain and zipped nodes
+start_server [list overrides [list save ""] ] {
+    r config set list-compress-depth 2
+    r config set list-max-ziplist-size 1
+
+    # 3 test to check compression with regular ziplist nodes
+    # 1. using push + insert
+    # 2. using push + insert + trim
+    # 3. using push + insert + set
+
+    test {reg node check compression with insert and pop} {
+        r lpush list1 [string repeat a 500]
+        r lpush list1 [string repeat b 500]
+        r lpush list1 [string repeat c 500]
+        r lpush list1 [string repeat d 500]
+        r linsert list1 after [string repeat d 500] [string repeat e 500]
+        r linsert list1 after [string repeat d 500] [string repeat f 500]
+        r linsert list1 after [string repeat d 500] [string repeat g 500]
+        r linsert list1 after [string repeat d 500] [string repeat j 500]
+        assert_equal [r lpop list1] [string repeat d 500]
+        assert_equal [r lpop list1] [string repeat j 500]
+        assert_equal [r lpop list1] [string repeat g 500]
+        assert_equal [r lpop list1] [string repeat f 500]
+        assert_equal [r lpop list1] [string repeat e 500]
+        assert_equal [r lpop list1] [string repeat c 500]
+        assert_equal [r lpop list1] [string repeat b 500]
+        assert_equal [r lpop list1] [string repeat a 500]
+    };
+
+    test {reg node check compression combined with trim} {
+        r lpush list2 [string repeat a 500]
+        r linsert list2 after  [string repeat a 500] [string repeat b 500]
+        r rpush list2 [string repeat c 500]
+        assert_equal [string repeat b 500] [r lindex list2 1]
+        r LTRIM list2 1 -1
+        r llen list2
+    } {2}
+
+    test {reg node check compression with lset} {
+        r lpush list3 [string repeat a 500]
+        r LSET list3 0 [string repeat b 500]
+        assert_equal [string repeat b 500] [r lindex list3 0]
+        r lpush list3 [string repeat c 500]
+        r LSET list3 0 [string repeat d 500]
+        assert_equal [string repeat d 500] [r lindex list3 0]
+    }
+
+    # repeating the 3 tests with plain nodes
+    # (by adjusting quicklist-packed-threshold)
+
+    test {plain node check compression} {
+        r debug quicklist-packed-threshold 1b
+        r lpush list4 [string repeat a 500]
+        r lpush list4 [string repeat b 500]
+        r lpush list4 [string repeat c 500]
+        r lpush list4 [string repeat d 500]
+        r linsert list4 after [string repeat d 500] [string repeat e 500]
+        r linsert list4 after [string repeat d 500] [string repeat f 500]
+        r linsert list4 after [string repeat d 500] [string repeat g 500]
+        r linsert list4 after [string repeat d 500] [string repeat j 500]
+        assert_equal [r lpop list4] [string repeat d 500]
+        assert_equal [r lpop list4] [string repeat j 500]
+        assert_equal [r lpop list4] [string repeat g 500]
+        assert_equal [r lpop list4] [string repeat f 500]
+        assert_equal [r lpop list4] [string repeat e 500]
+        assert_equal [r lpop list4] [string repeat c 500]
+        assert_equal [r lpop list4] [string repeat b 500]
+        assert_equal [r lpop list4] [string repeat a 500]
+    } {} {needs:debug}
+
+    test {plain node check compression with ltrim} {
+        r debug quicklist-packed-threshold 1b
+        r lpush list5 [string repeat a 500]
+        r linsert list5 after  [string repeat a 500] [string repeat b 500]
+        r rpush list5 [string repeat c 500]
+        assert_equal [string repeat b 500] [r lindex list5 1]
+        r LTRIM list5 1 -1
+        r llen list5
+    } {2} {needs:debug}
+
+    test {plain node check compression using lset} {
+        r debug quicklist-packed-threshold 1b
+        r lpush list6 [string repeat a 500]
+        r LSET list6 0 [string repeat b 500]
+        assert_equal [string repeat b 500] [r lindex list6 0]
+        r lpush list6 [string repeat c 500]
+        r LSET list6 0 [string repeat d 500]
+        assert_equal [string repeat d 500] [r lindex list6 0]
+    } {} {needs:debug}
+}
+
+# check functionality of plain nodes using low packed-threshold
+start_server [list overrides [list save ""] ] {
+    # basic command check for plain nodes - "LPUSH & LPOP"
+    test {Test LPUSH and LPOP on plain nodes} {
+        r flushdb
+        r debug quicklist-packed-threshold 1b
+        r lpush lst 9
+        r lpush lst xxxxxxxxxx
+        r lpush lst xxxxxxxxxx
+        set s0 [s used_memory]
+        assert {$s0 > 10}
+        assert {[r llen lst] == 3}
+        set s0 [r rpop lst]
+        set s1 [r rpop lst]
+        assert {$s0 eq "9"}
+        assert {[r llen lst] == 1}
+        r lpop lst
+        assert {[string length $s1] == 10}
+        # check rdb
+        r lpush lst xxxxxxxxxx
+        r lpush lst bb
+        r debug reload
+        assert_equal [r rpop lst] "xxxxxxxxxx"
+    } {} {needs:debug}
+
+    # basic command check for plain nodes - "LINDEX & LINSERT"
+    test {Test LINDEX and LINSERT on plain nodes} {
+        r flushdb
+        r debug quicklist-packed-threshold 1b
+        r lpush lst xxxxxxxxxxx
+        r lpush lst 9
+        r lpush lst xxxxxxxxxxx
+        r linsert lst before "9" "8"
+        assert {[r lindex lst 1] eq "8"}
+        r linsert lst BEFORE "9" "7"
+        r linsert lst BEFORE "9" "xxxxxxxxxxx"
+        assert {[r lindex lst 3] eq "xxxxxxxxxxx"}
+    } {} {needs:debug}
+
+    # basic command check for plain nodes - "LTRIM"
+    test {Test LTRIM on plain nodes} {
+        r flushdb
+        r debug quicklist-packed-threshold 1b
+        r lpush lst1 9
+        r lpush lst1 xxxxxxxxxxx
+        r lpush lst1 9
+        r LTRIM lst1 1 -1
+        assert_equal [r llen lst1] 2
+    } {} {needs:debug}
+
+    # basic command check for plain nodes - "LREM"
+    test {Test LREM on plain nodes} {
+        r flushdb
+        r debug quicklist-packed-threshold 1b
+        r lpush lst one
+        r lpush lst xxxxxxxxxxx
+        set s0 [s used_memory]
+        assert {$s0 > 10}
+        r lpush lst 9
+        r LREM lst -2 "one"
+        assert_equal [r llen lst] 2
+    } {} {needs:debug}
+
+    # basic command check for plain nodes - "LPOS"
+    test {Test LPOS on plain nodes} {
+        r flushdb
+        r debug quicklist-packed-threshold 1b
+        r RPUSH lst "aa"
+        r RPUSH lst "bb"
+        r RPUSH lst "cc"
+        r LSET lst 0 "xxxxxxxxxxx"
+        assert_equal [r LPOS lst "xxxxxxxxxxx"] 0
+    } {} {needs:debug}
+
+    # basic command check for plain nodes - "LMOVE"
+    test {Test LMOVE on plain nodes} {
+        r flushdb
+        r debug quicklist-packed-threshold 1b
+        r RPUSH lst2{t} "aa"
+        r RPUSH lst2{t} "bb"
+        r LSET lst2{t} 0 xxxxxxxxxxx
+        r RPUSH lst2{t} "cc"
+        r RPUSH lst2{t} "dd"
+        r LMOVE lst2{t} lst{t} RIGHT LEFT
+        r LMOVE lst2{t} lst{t} LEFT RIGHT
+        assert_equal [r llen lst{t}] 2
+        assert_equal [r llen lst2{t}] 2
+        assert_equal [r lpop lst2{t}] "bb"
+        assert_equal [r lpop lst2{t}] "cc"
+        assert_equal [r lpop lst{t}] "dd"
+        assert_equal [r lpop lst{t}] "xxxxxxxxxxx"
+    } {} {needs:debug}
+
+    # testing LSET with combinations of node types
+    # plain->packed , packed->plain, plain->plain, packed->packed
+    test {Test LSET with packed / plain combinations} {
+        r debug quicklist-packed-threshold 5b
+        r RPUSH lst "aa"
+        r RPUSH lst "bb"
+        r lset lst 0 [string repeat d 50001]
+        set s1 [r lpop lst]
+        assert_equal $s1 [string repeat d 50001]
+        r RPUSH lst [string repeat f 50001]
+        r lset lst 0 [string repeat e 50001]
+        set s1 [r lpop lst]
+        assert_equal $s1 [string repeat e 50001]
+        r RPUSH lst [string repeat m 50001]
+        r lset lst 0 "bb"
+        set s1 [r lpop lst]
+        assert_equal $s1 "bb"
+        r RPUSH lst "bb"
+        r lset lst 0 "cc"
+        set s1 [r lpop lst]
+        assert_equal $s1 "cc"
+    } {} {needs:debug}
+
+    # checking LSET in case ziplist needs to be split
+    test {Test LSET with packed is split in the middle} {
+        r flushdb
+        r debug quicklist-packed-threshold 5b
+        r RPUSH lst "aa"
+        r RPUSH lst "bb"
+        r RPUSH lst "cc"
+        r RPUSH lst "dd"
+        r RPUSH lst "ee"
+        r lset lst 2 [string repeat e 10]
+        assert_equal [r lpop lst] "aa"
+        assert_equal [r lpop lst] "bb"
+        assert_equal [r lpop lst] [string repeat e 10]
+        assert_equal [r lpop lst] "dd"
+        assert_equal [r lpop lst] "ee"
+    } {} {needs:debug}
+
+
+    # repeating "plain check LSET with combinations"
+    # but now with single item in each ziplist
+    test {Test LSET with packed consist only one item} {
+        r flushdb
+        r config set list-max-ziplist-size 1
+        r debug quicklist-packed-threshold 1b
+        r RPUSH lst "aa"
+        r RPUSH lst "bb"
+        r lset lst 0 [string repeat d 50001]
+        set s1 [r lpop lst]
+        assert_equal $s1 [string repeat d 50001]
+        r RPUSH lst [string repeat f 50001]
+        r lset lst 0 [string repeat e 50001]
+        set s1 [r lpop lst]
+        assert_equal $s1 [string repeat e 50001]
+        r RPUSH lst [string repeat m 50001]
+        r lset lst 0 "bb"
+        set s1 [r lpop lst]
+        assert_equal $s1 "bb"
+        r RPUSH lst "bb"
+        r lset lst 0 "cc"
+        set s1 [r lpop lst]
+        assert_equal $s1 "cc"
+    } {} {needs:debug}
+}
+
+start_server [list overrides [list save ""] ] {
+
+# test if the server supports such large configs (avoid 32 bit builds)
+catch {
+    r config set proto-max-bulk-len 10000000000 ;#10gb
+    r config set client-query-buffer-limit 10000000000 ;#10gb
+}
+if {[lindex [r config get proto-max-bulk-len] 1] == 10000000000} {
+
+    set str_length 5000000000
+
+    # repeating all the plain nodes basic checks with 5gb values
+    test {Test LPUSH and LPOP on plain nodes over 4GB} {
+        r flushdb
+        r lpush lst 9
+        r write "*3\r\n\$5\r\nLPUSH\r\n\$3\r\nlst\r\n"
+        write_big_bulk $str_length;
+        r write "*3\r\n\$5\r\nLPUSH\r\n\$3\r\nlst\r\n"
+        write_big_bulk $str_length;
+        set s0 [s used_memory]
+        assert {$s0 > $str_length}
+        assert {[r llen lst] == 3}
+        assert_equal [r rpop lst] "9"
+        assert_equal [read_big_bulk {r rpop lst}] $str_length
+        assert {[r llen lst] == 1}
+        assert_equal [read_big_bulk {r rpop lst}] $str_length
+   } {} {large-memory}
+
+   test {Test LINDEX and LINSERT on plain nodes over 4GB} {
+       r flushdb
+       r write "*3\r\n\$5\r\nLPUSH\r\n\$3\r\nlst\r\n"
+       write_big_bulk $str_length;
+       r lpush lst 9
+       r write "*3\r\n\$5\r\nLPUSH\r\n\$3\r\nlst\r\n"
+       write_big_bulk $str_length;
+       r linsert lst before "9" "8"
+       assert_equal [r lindex lst 1] "8"
+       r LINSERT lst BEFORE "9" "7"
+       r write "*5\r\n\$7\r\nLINSERT\r\n\$3\r\nlst\r\n\$6\r\nBEFORE\r\n\$3\r\n\"9\"\r\n"
+       write_big_bulk 10;
+       assert_equal [read_big_bulk {r rpop lst}] $str_length
+   } {} {large-memory}
+
+   test {Test LTRIM on plain nodes over 4GB} {
+       r flushdb
+       r lpush lst 9
+       r write "*3\r\n\$5\r\nLPUSH\r\n\$3\r\nlst\r\n"
+       write_big_bulk $str_length;
+       r lpush lst 9
+       r LTRIM lst 1 -1
+       assert_equal [r llen lst] 2
+       assert_equal [r rpop lst] 9
+       assert_equal [read_big_bulk {r rpop lst}] $str_length
+   } {} {large-memory}
+
+   test {Test LREM on plain nodes over 4GB} {
+       r flushdb
+       r lpush lst one
+       r write "*3\r\n\$5\r\nLPUSH\r\n\$3\r\nlst\r\n"
+       write_big_bulk $str_length;
+       r lpush lst 9
+       r LREM lst -2 "one"
+       assert_equal [read_big_bulk {r rpop lst}] $str_length
+       r llen lst
+   } {1} {large-memory}
+
+   test {Test LSET on plain nodes over 4GB} {
+       r flushdb
+       r RPUSH lst "aa"
+       r RPUSH lst "bb"
+       r RPUSH lst "cc"
+       r write "*4\r\n\$4\r\nLSET\r\n\$3\r\nlst\r\n\$1\r\n0\r\n"
+       write_big_bulk $str_length;
+       assert_equal [r rpop lst] "cc"
+       assert_equal [r rpop lst] "bb"
+       assert_equal [read_big_bulk {r rpop lst}] $str_length
+   } {} {large-memory}
+
+   test {Test LMOVE on plain nodes over 4GB} {
+       r flushdb
+       r RPUSH lst2{t} "aa"
+       r RPUSH lst2{t} "bb"
+       r write "*4\r\n\$4\r\nLSET\r\n\$7\r\nlst2{t}\r\n\$1\r\n0\r\n"
+       write_big_bulk $str_length;
+       r RPUSH lst2{t} "cc"
+       r RPUSH lst2{t} "dd"
+       r LMOVE lst2{t} lst{t} RIGHT LEFT
+       assert_equal [read_big_bulk {r LMOVE lst2{t} lst{t} LEFT RIGHT}] $str_length
+       assert_equal [r llen lst{t}] 2
+       assert_equal [r llen lst2{t}] 2
+       assert_equal [r lpop lst2{t}] "bb"
+       assert_equal [r lpop lst2{t}] "cc"
+       assert_equal [r lpop lst{t}] "dd"
+       assert_equal [read_big_bulk {r rpop lst{t}}] $str_length
+   } {} {large-memory}
+} ;# skip 32bit builds
+}
+
 start_server {
     tags {"list"}
     overrides {
@@ -1405,5 +1789,4 @@ foreach {pop} {BLPOP BLMPOP_RIGHT} {
         assert_equal [lpop k] [string repeat x 31]
         set _ $k
     } {12 0 9223372036854775808 2147483647 32767 127}
-
 }

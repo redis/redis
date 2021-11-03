@@ -658,7 +658,7 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
         return rdbSaveType(rdb,RDB_TYPE_STRING);
     case OBJ_LIST:
         if (o->encoding == OBJ_ENCODING_QUICKLIST)
-            return rdbSaveType(rdb,RDB_TYPE_LIST_QUICKLIST);
+            return rdbSaveType(rdb, RDB_TYPE_LIST_QUICKLIST_2);
         else
             serverPanic("Unknown list encoding");
     case OBJ_SET:
@@ -813,13 +813,16 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
             nwritten += n;
 
             while(node) {
+                if ((n = rdbSaveLen(rdb,node->container)) == -1) return -1;
+                nwritten += n;
+
                 if (quicklistNodeIsCompressed(node)) {
                     void *data;
                     size_t compress_len = quicklistGetLzf(node, &data);
                     if ((n = rdbSaveLzfBlob(rdb,data,compress_len,node->sz)) == -1) return -1;
                     nwritten += n;
                 } else {
-                    if ((n = rdbSaveRawString(rdb,node->zl,node->sz)) == -1) return -1;
+                    if ((n = rdbSaveRawString(rdb,node->entry,node->sz)) == -1) return -1;
                     nwritten += n;
                 }
                 node = node->next;
@@ -1934,36 +1937,58 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
 
         /* All pairs should be read by now */
         serverAssert(len == 0);
-    } else if (rdbtype == RDB_TYPE_LIST_QUICKLIST) {
+    } else if (rdbtype == RDB_TYPE_LIST_QUICKLIST || rdbtype == RDB_TYPE_LIST_QUICKLIST_2) {
         if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
         if (len == 0) goto emptykey;
 
         o = createQuicklistObject();
         quicklistSetOptions(o->ptr, server.list_max_ziplist_size,
                             server.list_compress_depth);
-
+        uint64_t container = QUICKLIST_NODE_CONTAINER_ZIPLIST;
         while (len--) {
             size_t encoded_len;
-            unsigned char *zl =
+
+            if (rdbtype == RDB_TYPE_LIST_QUICKLIST_2) {
+                if ((container = rdbLoadLen(rdb,NULL)) == RDB_LENERR) {
+                    decrRefCount(o);
+                    return NULL;
+                }
+
+                if (container != QUICKLIST_NODE_CONTAINER_ZIPLIST && container != QUICKLIST_NODE_CONTAINER_PLAIN) {
+                    rdbReportCorruptRDB("Quicklist integrity check failed.");
+                    decrRefCount(o);
+                    return NULL;
+                }
+            }
+
+            unsigned char *data =
                 rdbGenericLoadStringObject(rdb,RDB_LOAD_PLAIN,&encoded_len);
-            if (zl == NULL) {
+            if (data == NULL || (encoded_len == 0)) {
+                zfree(data);
                 decrRefCount(o);
                 return NULL;
             }
+
+            if (container == QUICKLIST_NODE_CONTAINER_PLAIN) {
+                quicklistAppendPlainNode(o->ptr, data, encoded_len);
+                zfree(data);
+                continue;
+            }
+
             if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
-            if (!ziplistValidateIntegrity(zl, encoded_len, deep_integrity_validation, NULL, NULL)) {
+            if (!ziplistValidateIntegrity(data, encoded_len, deep_integrity_validation, NULL, NULL)) {
                 rdbReportCorruptRDB("Ziplist integrity check failed.");
                 decrRefCount(o);
-                zfree(zl);
+                zfree(data);
                 return NULL;
             }
 
             /* Silently skip empty ziplists, if we'll end up with empty quicklist we'll fail later. */
-            if (ziplistLen(zl) == 0) {
-                zfree(zl);
+            if (ziplistLen(data) == 0) {
+                zfree(data);
                 continue;
             } else {
-                quicklistAppendZiplist(o->ptr, zl);
+                quicklistAppendZiplist(o->ptr, data);
             }
         }
 

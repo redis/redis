@@ -29,9 +29,11 @@
  */
 
 #include "server.h"
+#include "util.h"
 #include "sha1.h"   /* SHA1 is used for DEBUG DIGEST */
 #include "crc64.h"
 #include "bio.h"
+#include "quicklist.h"
 
 #include <arpa/inet.h>
 #include <signal.h>
@@ -459,6 +461,9 @@ void debugCommand(client *c) {
 "    Setting it to 0 disables expiring keys in background when they are not",
 "    accessed (otherwise the Redis behavior). Setting it to 1 reenables back the",
 "    default.",
+"QUICKLIST-PACKED-THRESHOLD <size>",
+"    Sets the threshold for elements to be inserted as plain vs packed nodes",
+"    Default value is 1GB, allows values up to 4GB",
 "SET-SKIP-CHECKSUM-VALIDATION <0|1>",
 "    Enables or disables checksum checks for RDB files and RESTORE's payload.",
 "SLEEP <seconds>",
@@ -469,6 +474,9 @@ void debugCommand(client *c) {
 "    Return the size of different Redis core C structures.",
 "ZIPLIST <key>",
 "    Show low level info about the ziplist encoding of <key>.",
+"QUICKLIST <key> [<0|1>]",
+"    Show low level info about the quicklist encoding of <key>."
+"    The optional argument (0 by default) sets the level of detail",
 "CLIENT-EVICTION",
 "    Show low level client eviction pools info (maxmemory-clients).",
 "PAUSE-CRON <0|1>",
@@ -652,6 +660,21 @@ NULL
             ziplistRepr(o->ptr);
             addReplyStatus(c,"Ziplist structure printed on stdout");
         }
+    } else if (!strcasecmp(c->argv[1]->ptr,"quicklist") && (c->argc == 3 || c->argc == 4)) {
+        robj *o;
+
+        if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nokeyerr))
+            == NULL) return;
+
+        int full = 0;
+        if (c->argc == 4)
+            full = atoi(c->argv[3]->ptr);
+        if (o->encoding != OBJ_ENCODING_QUICKLIST) {
+            addReplyError(c,"Not a quicklist encoded object.");
+        } else {
+            quicklistRepr(o->ptr, full);
+            addReplyStatus(c,"Quicklist structure printed on stdout");
+        }
     } else if (!strcasecmp(c->argv[1]->ptr,"populate") &&
                c->argc >= 3 && c->argc <= 5) {
         long keys, j;
@@ -782,6 +805,16 @@ NULL
     {
         server.active_expire_enabled = atoi(c->argv[2]->ptr);
         addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"quicklist-packed-threshold") &&
+               c->argc == 3)
+    {
+        int memerr;
+        unsigned long long sz = memtoull((const char *)c->argv[2]->ptr, &memerr);
+        if (memerr || !quicklistisSetPackedThreshold(sz)) {
+            addReplyError(c, "argument must be a memory value bigger then 1 and smaller than 4gb");
+        } else {
+            addReply(c,shared.ok);
+        }
     } else if (!strcasecmp(c->argv[1]->ptr,"set-skip-checksum-validation") &&
                c->argc == 3)
     {

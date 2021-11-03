@@ -127,6 +127,7 @@ set ::singledb 0
 set ::cluster_mode 0
 set ::ignoreencoding 0
 set ::ignoredigest 0
+set ::large_memory 0
 
 # Set to 1 when we are running in client mode. The Redis test uses a
 # server-client model to run tests simultaneously. The server instance
@@ -592,6 +593,7 @@ proc print_help_screen {} {
         "--cluster-mode     Run tests in cluster protocol compatible mode."
         "--ignore-encoding  Don't validate object encoding."
         "--ignore-digest    Don't use debug digest validations."
+        "--large-memory     Run tests using over 100mb."
         "--help             Print this help screen."
     } "\n"]
 }
@@ -703,6 +705,8 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
     } elseif {$opt eq {--cluster-mode}} {
         set ::cluster_mode 1
         set ::singledb 1
+    } elseif {$opt eq {--large-memory}} {
+        set ::large_memory 1
     } elseif {$opt eq {--ignore-encoding}} {
         set ::ignoreencoding 1
     } elseif {$opt eq {--ignore-digest}} {

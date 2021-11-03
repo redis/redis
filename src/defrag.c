@@ -416,8 +416,8 @@ long activeDefragQuickListNode(quicklist *ql, quicklistNode **node_ref) {
         *node_ref = node = newnode;
         defragged++;
     }
-    if ((newzl = activeDefragAlloc(node->zl)))
-        defragged++, node->zl = newzl;
+    if ((newzl = activeDefragAlloc(node->entry)))
+        defragged++, node->entry = newzl;
     return defragged;
 }
 
