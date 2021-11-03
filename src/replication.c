@@ -1623,7 +1623,8 @@ void replicationSendNewlineToMaster(void) {
 }
 
 /* Callback used by emptyDb() while flushing away old data to load
- * the new dataset received by the master. */
+ * the new dataset received by the master and by discardTempDb()
+ * after loading succeeded or failed. */
 void replicationEmptyDbCallback(dict *d) {
     UNUSED(d);
     if (server.repl_state == REPL_STATE_TRANSFER)
@@ -1715,7 +1716,7 @@ redisDb *disklessLoadInitTempDb(void) {
 }
 
 /* Helper function for readSyncBulkPayload() to discard our tempDb
- * when the loading succeeded. */
+ * when the loading succeeded or failed. */
 void disklessLoadDiscardTempDb(redisDb *tempDb) {
     discardTempDb(tempDb, replicationEmptyDbCallback);
 }
@@ -1978,7 +1979,7 @@ void readSyncBulkPayload(connection *conn) {
                                       NULL);
 
                 disklessLoadDiscardTempDb(diskless_load_tempDb);
-                serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Discarded temporary DB");
+                serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Discarding temporary DB in background");
             } else {
                 /* Remove the half-loaded data in case we started with an empty replica. */
                 emptyDb(-1,empty_db_flags,replicationEmptyDbCallback);
@@ -2006,7 +2007,7 @@ void readSyncBulkPayload(connection *conn) {
 
             /* Delete the old db as it's useless now. */
             disklessLoadDiscardTempDb(diskless_load_tempDb);
-            serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Discarded old DB");
+            serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Discarding old DB in background");
         }
 
         /* Inform about db change, as replication was diskless and didn't cause a save. */

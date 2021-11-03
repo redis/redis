@@ -484,7 +484,7 @@ redisDb *initTempDb(void) {
 }
 
 /* Discard tempDb, this can be slow (similar to FLUSHALL), but it's always async. */
- void discardTempDb(redisDb *tempDb, void(callback)(dict*)) {
+void discardTempDb(redisDb *tempDb, void(callback)(dict*)) {
     int async = 1;
 
     /* Release temp DBs. */

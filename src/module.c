@@ -9192,9 +9192,9 @@ void ModuleForkDoneHandler(int exitcode, int bysignal) {
  * 
  *     WARNING: Replication Backup events are deprecated since Redis 7.0 and are never fired.
  *     See RedisModuleEvent_ReplAsyncLoad for understanding how Async Replication Loading events
- *     are now triggered when diskless-repl-load is set to swapdb.
+ *     are now triggered when repl-diskless-load is set to swapdb.
  *
- *     Called when diskless-repl-load config is set to swapdb,
+ *     Called when repl-diskless-load config is set to swapdb,
  *     And redis needs to backup the the current database for the
  *     possibility to be restored later. A module with global data and
  *     maybe with aux_load and aux_save callbacks may need to use this
