@@ -19,6 +19,13 @@ proc check_valgrind_errors stderr {
     }
 }
 
+proc check_sanitizer_errors stderr {
+    set res [sanitizer_errors_from_file $stderr]
+    if {$res != ""} {
+        send_data_packet $::test_server_fd err "Sanitizer error: $res\n"
+    }
+}
+
 proc clean_persistence config {
     # we may wanna keep the logs for later, but let's clean the persistence
     # files right away, since they can accumulate and take up a lot of space
@@ -43,6 +50,10 @@ proc kill_server config {
         # Check valgrind errors if needed
         if {$::valgrind} {
             check_valgrind_errors [dict get $config stderr]
+        }
+        # Check sanitizer errors if needed
+        if {$::sanitizer} {
+            check_sanitizer_errors [dict get $config stderr]
         }
         return
     }
@@ -102,6 +113,11 @@ proc kill_server config {
     # Check valgrind errors if needed
     if {$::valgrind} {
         check_valgrind_errors [dict get $config stderr]
+    }
+
+    # Check sanitizer errors if needed
+    if {$::sanitizer} {
+        check_sanitizer_errors [dict get $config stderr]
     }
 
     # Remove this pid from the set of active pids in the test server.
@@ -248,6 +264,8 @@ proc create_server_config_file {filename config} {
 proc spawn_server {config_file stdout stderr} {
     if {$::valgrind} {
         set pid [exec valgrind --track-origins=yes --trace-children=yes --suppressions=[pwd]/src/valgrind.sup --show-reachable=no --show-possibly-lost=no --leak-check=full src/redis-server $config_file >> $stdout 2>> $stderr &]
+    } elseif ($::sanitizer) {
+        set pid [exec /usr/bin/env ASAN_OPTIONS=allocator_may_return_null=1 src/redis-server $config_file >> $stdout 2>> $stderr &]
     } elseif ($::stack_logging) {
         set pid [exec /usr/bin/env MallocStackLogging=1 MallocLogFile=/tmp/malloc_log.txt src/redis-server $config_file >> $stdout 2>> $stderr &]
     } else {
@@ -604,11 +622,13 @@ proc start_server {options {code undefined}} {
                     puts ""
                 }
 
-                set sanitizerlog [sanitizer_warnings_from_file [dict get $srv "stderr"]]
-                if {[string length $sanitizerlog] > 0} {
-                    puts [format "\nLogged sanitizer error lines (pid %d):" [dict get $srv "pid"]]
-                    puts "$sanitizerlog"
-                    puts ""
+                if {$::sanitizer} {
+                    set sanitizerlog [sanitizer_errors_from_file [dict get $srv "stderr"]]
+                    if {[string length $sanitizerlog] > 0} {
+                        puts [format "\nLogged sanitizer errors (pid %d):" [dict get $srv "pid"]]
+                        puts "$sanitizerlog"
+                        puts ""
+                    }
                 }
             }
 

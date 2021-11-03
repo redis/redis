@@ -51,17 +51,18 @@ proc crashlog_from_file {filename} {
 }
 
 # Return sanitizer log lines
-proc sanitizer_warnings_from_file {filename} {
-    set lines [split [exec cat $filename] "\n"]
-    set result {}
-    foreach line $lines {
-        # GCC UBSAN output does not contain 'Sanitizer' but 'runtime error'.
-        if {[string match {*runtime error*} $line] ||
-            [string match {*Sanitizer*} $line]} {
-            lappend result $line
-        }
+proc sanitizer_errors_from_file {filename} {
+    set log [exec cat $filename]
+
+    # 1- Ignore huge allocation warnings
+    # 2- GCC UBSAN output does not contain 'Sanitizer' but 'runtime error'.
+    if {![string match {*WARNING: AddressSanitizer failed to allocate*} $log] &&
+        ([string match {*runtime error*} $log] ||
+        [string match {*Sanitizer*} $log])} {
+        return $log
     }
-    join $result "\n"
+
+    return ""
 }
 
 proc getInfoProperty {infostr property} {
