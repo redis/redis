@@ -243,25 +243,29 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
  * 1) The ref count of the value object is incremented.
  * 2) clients WATCHing for the destination key notified.
  * 3) The expire time of the key is reset (the key is made persistent),
- *    unless 'keepttl' is true.
+ *    unless 'SETKEY_KEEPTTL' is enabled in flags.
+ * 4) The key lookup can take place outside this interface outcome will be
+ *    delivered with 'SETKEY_ALREADY_EXIST' or 'SETKEY_DOESNT_EXIST'
  *
  * All the new keys in the database should be created via this interface.
  * The client 'c' argument may be set to NULL if the operation is performed
  * in a context where there is no clear client performing the operation. */
-void genericSetKey(client *c, redisDb *db, robj *key, robj *val, int keepttl, int signal) {
-    if (lookupKeyWrite(db,key) == NULL) {
+void setKey(client *c, redisDb *db, robj *key, robj *val, int flags) {
+    int keyfound = 0;
+
+    if (flags & SETKEY_ALREADY_EXIST)
+        keyfound = 1;
+    else if (!(flags & SETKEY_DOESNT_EXIST))
+        keyfound = (lookupKeyWrite(db,key) != NULL);
+
+    if (!keyfound) {
         dbAdd(db,key,val);
     } else {
         dbOverwrite(db,key,val);
     }
     incrRefCount(val);
-    if (!keepttl) removeExpire(db,key);
-    if (signal) signalModifiedKey(c,db,key);
-}
-
-/* Common case for genericSetKey() where the TTL is not retained. */
-void setKey(client *c, redisDb *db, robj *key, robj *val) {
-    genericSetKey(c,db,key,val,0,1);
+    if (!(flags & SETKEY_KEEPTTL)) removeExpire(db,key);
+    if (!(flags & SETKEY_NO_SIGNAL)) signalModifiedKey(c,db,key);
 }
 
 /* Return a random key, in form of a Redis object.

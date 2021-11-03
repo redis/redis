@@ -987,7 +987,7 @@ void sinterGenericCommand(client *c, robj **setkeys,
         /* Store the resulting set into the target, if the intersection
          * is not an empty set. */
         if (setTypeSize(dstset) > 0) {
-            setKey(c,c->db,dstkey,dstset);
+            setKey(c,c->db,dstkey,dstset,0);
             addReplyLongLong(c,setTypeSize(dstset));
             notifyKeyspaceEvent(NOTIFY_SET,"sinterstore",
                 dstkey,c->db->id);
@@ -1191,7 +1191,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
         /* If we have a target key where to store the resulting set
          * create this key with the result set inside */
         if (setTypeSize(dstset) > 0) {
-            setKey(c,c->db,dstkey,dstset);
+            setKey(c,c->db,dstkey,dstset,0);
             addReplyLongLong(c,setTypeSize(dstset));
             notifyKeyspaceEvent(NOTIFY_SET,
                 op == SET_OP_UNION ? "sunionstore" : "sdiffstore",
