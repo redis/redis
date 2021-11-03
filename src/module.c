@@ -5328,7 +5328,7 @@ int RM_ModuleTypeSetValue(RedisModuleKey *key, moduleType *mt, void *value) {
     if (!(key->mode & REDISMODULE_WRITE) || key->iter) return REDISMODULE_ERR;
     RM_DeleteKey(key);
     robj *o = createModuleObject(mt,value);
-    setKey(key->ctx->client,key->db,key->key,o,0);
+    setKey(key->ctx->client,key->db,key->key,o,SETKEY_NO_SIGNAL);
     decrRefCount(o);
     key->value = o;
     return REDISMODULE_OK;

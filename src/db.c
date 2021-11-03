@@ -243,7 +243,9 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
  * 1) The ref count of the value object is incremented.
  * 2) clients WATCHing for the destination key notified.
  * 3) The expire time of the key is reset (the key is made persistent),
- *    unless 'keepttl' is true.
+ *    unless 'SETKEY_KEEPTTL' is enabled in flags.
+ * 4) The key lookup can take place outside this interface outcome will be
+ *    delivered with 'SETKEY_ALREADY_EXIST' or 'SETKEY_DOESNT_EXIST'
  *
  * All the new keys in the database should be created via this interface.
  * The client 'c' argument may be set to NULL if the operation is performed
