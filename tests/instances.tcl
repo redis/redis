@@ -17,7 +17,6 @@ source ../support/test.tcl
 
 set ::verbose 0
 set ::valgrind 0
-set ::sanitizer 0
 set ::tls 0
 set ::pause_on_error 0
 set ::dont_clean 0
@@ -183,14 +182,12 @@ proc log_crashes {} {
         }
     }
 
-    if {$::sanitizer} {
-        set logs [glob */err.txt]
-        foreach log $logs {
-            set res [sanitizer_errors_from_file $log]
-            if {$res != ""} {
-                puts $res
-                incr ::failed
-            }
+    set logs [glob */err.txt]
+    foreach log $logs {
+        set res [sanitizer_errors_from_file $log]
+        if {$res != ""} {
+            puts $res
+            incr ::failed
         }
     }
 }
@@ -267,8 +264,6 @@ proc parse_options {} {
             set ::simulate_error 1
         } elseif {$opt eq {--valgrind}} {
             set ::valgrind 1
-        } elseif {$opt eq {--sanitizer}} {
-            set ::sanitizer 1
         } elseif {$opt eq {--host}} {
             incr j
             set ::host ${val}
@@ -289,7 +284,6 @@ proc parse_options {} {
             puts "--pause-on-error        Pause for manual inspection on error."
             puts "--fail                  Simulate a test failure."
             puts "--valgrind              Run with valgrind."
-            puts "--sanitizer             Catch sanitizer errors."
             puts "--tls                   Run tests in TLS mode."
             puts "--host <host>           Use hostname instead of 127.0.0.1."
             puts "--config <k> <v>        Extra config argument(s)."

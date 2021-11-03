@@ -51,10 +51,8 @@ proc kill_server config {
         if {$::valgrind} {
             check_valgrind_errors [dict get $config stderr]
         }
-        # Check sanitizer errors if needed
-        if {$::sanitizer} {
-            check_sanitizer_errors [dict get $config stderr]
-        }
+
+        check_sanitizer_errors [dict get $config stderr]
         return
     }
     set pid [dict get $config pid]
@@ -115,10 +113,7 @@ proc kill_server config {
         check_valgrind_errors [dict get $config stderr]
     }
 
-    # Check sanitizer errors if needed
-    if {$::sanitizer} {
-        check_sanitizer_errors [dict get $config stderr]
-    }
+    check_sanitizer_errors [dict get $config stderr]
 
     # Remove this pid from the set of active pids in the test server.
     send_data_packet $::test_server_fd server-killed $pid
@@ -264,12 +259,13 @@ proc create_server_config_file {filename config} {
 proc spawn_server {config_file stdout stderr} {
     if {$::valgrind} {
         set pid [exec valgrind --track-origins=yes --trace-children=yes --suppressions=[pwd]/src/valgrind.sup --show-reachable=no --show-possibly-lost=no --leak-check=full src/redis-server $config_file >> $stdout 2>> $stderr &]
-    } elseif ($::sanitizer) {
-        set pid [exec /usr/bin/env ASAN_OPTIONS=allocator_may_return_null=1 src/redis-server $config_file >> $stdout 2>> $stderr &]
     } elseif ($::stack_logging) {
         set pid [exec /usr/bin/env MallocStackLogging=1 MallocLogFile=/tmp/malloc_log.txt src/redis-server $config_file >> $stdout 2>> $stderr &]
     } else {
-        set pid [exec src/redis-server $config_file >> $stdout 2>> $stderr &]
+        # ASAN_OPTIONS environment variable is for address sanitizer. If a test
+        # tries to allocate huge memory area and expects allocator to return
+        # NULL, address sanitizer throws an error without this setting.
+        set pid [exec /usr/bin/env ASAN_OPTIONS=allocator_may_return_null=1 src/redis-server $config_file >> $stdout 2>> $stderr &]
     }
 
     if {$::wait_server} {
@@ -622,13 +618,11 @@ proc start_server {options {code undefined}} {
                     puts ""
                 }
 
-                if {$::sanitizer} {
-                    set sanitizerlog [sanitizer_errors_from_file [dict get $srv "stderr"]]
-                    if {[string length $sanitizerlog] > 0} {
-                        puts [format "\nLogged sanitizer errors (pid %d):" [dict get $srv "pid"]]
-                        puts "$sanitizerlog"
-                        puts ""
-                    }
+                set sanitizerlog [sanitizer_errors_from_file [dict get $srv "stderr"]]
+                if {[string length $sanitizerlog] > 0} {
+                    puts [format "\nLogged sanitizer errors (pid %d):" [dict get $srv "pid"]]
+                    puts "$sanitizerlog"
+                    puts ""
                 }
             }
 

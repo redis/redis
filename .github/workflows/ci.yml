@@ -24,30 +24,26 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: make
-        run: make SANITIZER=address REDIS_CFLAGS='-DREDIS_TEST'
+        run: make SANITIZER=address
       - name: testprep
         run: sudo apt-get install tcl8.6 tclx -y
       - name: test
-        run: ./runtest --sanitizer --verbose --tags -slow
+        run: ./runtest --verbose --tags -slow
       - name: module api test
-        run: ./runtest-moduleapi --sanitizer --verbose
-      - name: unittest
-        run: ./src/redis-server test all
+        run: ./runtest-moduleapi --verbose
 
   test-sanitizer-undefined:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
       - name: make
-        run: make SANITIZER=undefined REDIS_CFLAGS='-DREDIS_TEST'
+        run: make SANITIZER=undefined
       - name: testprep
         run: sudo apt-get install tcl8.6 tclx -y
       - name: test
-        run: ./runtest --sanitizer --verbose --tags -slow
+        run: ./runtest --verbose --tags -slow
       - name: module api test
-        run: ./runtest-moduleapi --sanitizer --verbose
-      - name: unittest
-        run: ./src/redis-server test all
+        run: ./runtest-moduleapi --verbose
 
   build-debian-old:
     runs-on: ubuntu-latest
