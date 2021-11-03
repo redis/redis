@@ -175,6 +175,8 @@ struct redisServer server; /* Server global state */
  *
  * sentinel-only: This command is present only when in sentinel mode.
  *
+ * no-mandatory-keys: This key arguments for this command are optional.
+ *
  * The following additional flags are only used in order to put commands
  * in a specific ACL category. Commands can have multiple ACL categories.
  * See redis.conf for the exact meaning of each.
@@ -1751,28 +1753,28 @@ struct redisCommand redisCommandTable[] = {
      * as opposed to after.
       */
     {"eval",evalCommand,-3,
-     "no-script no-monitor may-replicate @scripting",
+     "no-script no-monitor may-replicate no-mandatory-keys @scripting",
      {{"read write", /* We pass both read and write because these flag are worst-case-scenario */
        KSPEC_BS_INDEX,.bs.index={2},
        KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},
      evalGetKeys},
 
     {"eval_ro",evalRoCommand,-3,
-     "no-script no-monitor @scripting",
+     "no-script no-monitor no-mandatory-keys @scripting",
      {{"read",
        KSPEC_BS_INDEX,.bs.index={2},
        KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},
      evalGetKeys},
 
     {"evalsha",evalShaCommand,-3,
-     "no-script no-monitor may-replicate @scripting",
+     "no-script no-monitor may-replicate no-mandatory-keys @scripting",
      {{"read write", /* We pass both read and write because these flag are worst-case-scenario */
        KSPEC_BS_INDEX,.bs.index={2},
        KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},
      evalGetKeys},
 
     {"evalsha_ro",evalShaRoCommand,-3,
-     "no-script no-monitor @scripting",
+     "no-script no-monitor no-mandatory-keys @scripting",
      {{"read",
        KSPEC_BS_INDEX,.bs.index={2},
        KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},
@@ -4510,6 +4512,8 @@ void parseCommandFlags(struct redisCommand *c, char *strflags) {
         } else if (!strcasecmp(flag,"only-sentinel")) {
             c->flags |= CMD_SENTINEL; /* Obviously it's s sentinel command */
             c->flags |= CMD_ONLY_SENTINEL;
+        } else if (!strcasecmp(flag,"no-mandatory-keys")) {
+            c->flags |= CMD_NO_MANDATORY_KEYS;
         } else {
             /* Parse ACL categories here if the flag name starts with @. */
             uint64_t catflag;
@@ -5906,7 +5910,11 @@ void getKeysSubcommand(client *c) {
     }
 
     if (!getKeysFromCommand(cmd,c->argv+2,c->argc-2,&result)) {
-        addReplyError(c,"Invalid arguments specified for command");
+        if (cmd->flags & CMD_NO_MANDATORY_KEYS) {
+            addReplyArrayLen(c,0);
+        } else {
+            addReplyError(c,"Invalid arguments specified for command");
+        }
     } else {
         addReplyArrayLen(c,result.numkeys);
         for (j = 0; j < result.numkeys; j++) addReplyBulk(c,c->argv[result.keys[j]+2]);

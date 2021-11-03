@@ -236,6 +236,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 
 #define CMD_SENTINEL (1ULL<<40)        /* "sentinel" flag */
 #define CMD_ONLY_SENTINEL (1ULL<<41)   /* "only-sentinel" flag */
+#define CMD_NO_MANDATORY_KEYS (1ULL<<42)   /* "no-mandatory-keys" flag */
 
 /* AOF states */
 #define AOF_OFF 0             /* AOF is off */

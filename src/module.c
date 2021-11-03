@@ -803,6 +803,7 @@ int64_t commandFlagsFromString(char *s) {
         else if (!strcasecmp(t,"may-replicate")) flags |= CMD_MAY_REPLICATE;
         else if (!strcasecmp(t,"getkeys-api")) flags |= CMD_MODULE_GETKEYS;
         else if (!strcasecmp(t,"no-cluster")) flags |= CMD_MODULE_NO_CLUSTER;
+        else if (!strcasecmp(t,"no-mandatory-keys")) flags |= CMD_NO_MANDATORY_KEYS;
         else break;
     }
     sdsfreesplitres(tokens,count);
@@ -891,6 +892,7 @@ RedisModuleCommandProxy *moduleCreateCommandProxy(RedisModuleCtx *ctx, const cha
  *                     to authenticate a client.
  * * **"may-replicate"**: This command may generate replication traffic, even
  *                        though it's not a write command.
+ * * **"no-mandatory-keys"**: All the keys this command may take are optional
  *
  * The last three parameters specify which arguments of the new command are
  * Redis keys. See https://redis.io/commands/command for more information.
