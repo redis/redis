@@ -2734,7 +2734,7 @@ int RM_GetContextFlags(RedisModuleCtx *ctx) {
     /* Persistence flags */
     if (server.aof_state != AOF_OFF)
         flags |= REDISMODULE_CTX_FLAGS_AOF;
-    if (server.saveparamslen > 0)
+    if (server.save_params.len > 0)
         flags |= REDISMODULE_CTX_FLAGS_RDB;
 
     /* Replication flags */

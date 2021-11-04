@@ -1423,7 +1423,7 @@ void freeClient(client *c) {
          * But we also need to check if users enable 'save' RDB, if enable, we
          * should not remove directly since that means RDB is important for users
          * to keep data safe and we may delay configured 'save' for full sync. */
-        if (server.saveparamslen == 0 &&
+        if (server.save_params.len == 0 &&
             c->replstate == SLAVE_STATE_WAIT_BGSAVE_END &&
             server.child_type == CHILD_TYPE_RDB &&
             server.rdb_child_type == RDB_CHILD_TYPE_DISK &&

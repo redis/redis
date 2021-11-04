@@ -2554,7 +2554,7 @@ int isMutuallyExclusiveChildType(int type) {
 /* Return true if this instance has persistence completely turned off:
  * both RDB and AOF are disabled. */
 int allPersistenceDisabled(void) {
-    return server.saveparamslen == 0 && server.aof_state == AOF_OFF;
+    return server.save_params.len == 0 && server.aof_state == AOF_OFF;
 }
 
 /* ======================= Cron: called every 100 ms ======================== */
@@ -3153,8 +3153,8 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     } else {
         /* If there is not a background saving/rewrite in progress check if
          * we have to save/rewrite now. */
-        for (j = 0; j < server.saveparamslen; j++) {
-            struct saveparam *sp = server.saveparams+j;
+        for (j = 0; j < server.save_params.len; j++) {
+            struct saveparam *sp = server.save_params.params+j;
 
             /* Save if we reached the given amount of changes,
              * the given amount of seconds, and if the latest bgsave was
@@ -3678,7 +3678,6 @@ void initServerConfig(void) {
     server.sofd = -1;
     server.active_expire_enabled = 1;
     server.skip_checksum_validation = 0;
-    server.saveparams = NULL;
     server.loading = 0;
     server.async_loading = 0;
     server.loading_rdb_used_mem = 0;
@@ -3710,7 +3709,6 @@ void initServerConfig(void) {
 
     unsigned int lruclock = getLRUClock();
     atomicSet(server.lruclock,lruclock);
-    resetServerSaveParams();
 
     appendServerSaveParams(60*60,1);  /* save after 1 hour and 1 change */
     appendServerSaveParams(300,100);  /* save after 5 minutes and 100 changes */
@@ -5599,7 +5597,7 @@ int prepareForShutdown(int flags) {
     }
 
     /* Create a new RDB file before exiting. */
-    if ((server.saveparamslen > 0 && !nosave) || save) {
+    if ((server.save_params.len > 0 && !nosave) || save) {
         serverLog(LL_NOTICE,"Saving the final RDB snapshot before exiting.");
         if (server.supervised_mode == SUPERVISED_SYSTEMD)
             redisCommunicateSystemd("STATUS=Saving the final RDB snapshot\n");
@@ -5654,7 +5652,7 @@ int prepareForShutdown(int flags) {
  */
 int writeCommandsDeniedByDiskError(void) {
     if (server.stop_writes_on_bgsave_err &&
-        server.saveparamslen > 0 &&
+        server.save_params.len > 0 &&
         server.lastbgsave_status == C_ERR)
     {
         return DISK_ERROR_TYPE_RDB;
@@ -7202,57 +7200,28 @@ void redisAsciiArt(void) {
     zfree(buf);
 }
 
-int changeBindAddr(sds *addrlist, int addrlist_len) {
+int changeBindAddr(void) {
     int i;
-    int result = C_OK;
-
-    char *prev_bindaddr[CONFIG_BINDADDR_MAX];
-    int prev_bindaddr_count;
 
     /* Close old TCP and TLS servers */
     closeSocketListeners(&server.ipfd);
     closeSocketListeners(&server.tlsfd);
 
-    /* Keep previous settings */
-    prev_bindaddr_count = server.bindaddr_count;
-    memcpy(prev_bindaddr, server.bindaddr, sizeof(server.bindaddr));
-
-    /* Copy new settings */
-    memset(server.bindaddr, 0, sizeof(server.bindaddr));
-    for (i = 0; i < addrlist_len; i++) {
-        server.bindaddr[i] = zstrdup(addrlist[i]);
-    }
-    server.bindaddr_count = addrlist_len;
-
     /* Bind to the new port */
     if ((server.port != 0 && listenToPort(server.port, &server.ipfd) != C_OK) ||
         (server.tls_port != 0 && listenToPort(server.tls_port, &server.tlsfd) != C_OK)) {
-        serverLog(LL_WARNING, "Failed to bind, trying to restore old listening sockets.");
+        serverLog(LL_WARNING, "Failed to bind");
 
-        /* Restore old bind addresses */
-        for (i = 0; i < addrlist_len; i++) {
+        /* Cancel all bindings */
+        for (i = 0; i < server.bindaddr_count; i++) {
             zfree(server.bindaddr[i]);
+            server.bindaddr[i] = NULL;
         }
-        memcpy(server.bindaddr, prev_bindaddr, sizeof(server.bindaddr));
-        server.bindaddr_count = prev_bindaddr_count;
+        server.bindaddr_count = 0;
 
-        /* Re-Listen TCP and TLS */
-        server.ipfd.count = 0;
-        if (server.port != 0 && listenToPort(server.port, &server.ipfd) != C_OK) {
-            serverPanic("Failed to restore old listening TCP socket.");
-        }
-
-        server.tlsfd.count = 0;
-        if (server.tls_port != 0 && listenToPort(server.tls_port, &server.tlsfd) != C_OK) {
-            serverPanic("Failed to restore old listening TLS socket.");
-        }
-
-        result = C_ERR;
-    } else {
-        /* Free old bind addresses */
-        for (i = 0; i < prev_bindaddr_count; i++) {
-            zfree(prev_bindaddr[i]);
-        }
+        closeSocketListeners(&server.ipfd);
+        closeSocketListeners(&server.tlsfd);
+        return C_ERR;
     }
 
     /* Create TCP and TLS event handlers */
@@ -7265,7 +7234,7 @@ int changeBindAddr(sds *addrlist, int addrlist_len) {
 
     if (server.set_proc_title) redisSetProcTitle(NULL);
 
-    return result;
+    return C_OK;
 }
 
 int changeListenPort(int port, socketFds *sfd, aeFileProc *accept_handler) {
@@ -8012,6 +7981,8 @@ int main(int argc, char **argv) {
     } else {
         serverLog(LL_WARNING, "Configuration loaded");
     }
+
+    applyServerSaveParams();
 
     readOOMScoreAdj();
     initServer();
