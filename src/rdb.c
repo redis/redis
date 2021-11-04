@@ -3130,7 +3130,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
         if (server.rdb_checksum && !server.skip_checksum_validation) {
             memrev64ifbe(&cksum);
             if (cksum == 0) {
-                serverLog(LL_WARNING,"RDB file was saved with checksum disabled: no check performed.");
+                serverLog(LL_WARNING,"RDB file %s was saved with checksum disabled: no check performed.", server.rdb_filename);
             } else if (cksum != expected) {
                 serverLog(LL_WARNING,"Wrong RDB checksum expected: (%llx) but "
                     "got (%llx). Aborting now.",
@@ -3144,12 +3144,12 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
 
     if (empty_keys_skipped) {
         serverLog(LL_WARNING,
-            "Done loading RDB, keys loaded: %lld, keys expired: %lld, empty keys skipped: %lld.",
-                server.rdb_last_load_keys_loaded, server.rdb_last_load_keys_expired, empty_keys_skipped);
+            "Done loading RDB %s, keys loaded: %lld, keys expired: %lld, empty keys skipped: %lld.",
+                server.rdb_filename, server.rdb_last_load_keys_loaded, server.rdb_last_load_keys_expired, empty_keys_skipped);
     } else {
         serverLog(LL_NOTICE,
-            "Done loading RDB, keys loaded: %lld, keys expired: %lld.",
-                server.rdb_last_load_keys_loaded, server.rdb_last_load_keys_expired);
+            "Done loading RDB %s, keys loaded: %lld, keys expired: %lld.",
+                server.rdb_filename, server.rdb_last_load_keys_loaded, server.rdb_last_load_keys_expired);
     }
     return C_OK;
 
