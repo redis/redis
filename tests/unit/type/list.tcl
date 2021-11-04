@@ -517,10 +517,9 @@ start_server {
         assert_equal $largevalue(linkedlist) [r rpop mylist2]
         assert_equal c [r lpop mylist2]
     }
-    
-    test {R/LPOP with the optional count argument} {
+
+    test {RPOP/LPOP with the optional count argument} {
         assert_equal 7 [r lpush listcount aa bb cc dd ee ff gg]
-        assert_equal {} [r lpop listcount 0]
         assert_equal {gg} [r lpop listcount 1]
         assert_equal {ff ee} [r lpop listcount 2]
         assert_equal {aa bb} [r rpop listcount 2]
@@ -528,6 +527,16 @@ start_server {
         assert_equal {dd} [r rpop listcount 123]
         assert_error "*ERR*range*" {r lpop forbarqaz -123}
     }
+
+    # Make sure we can distinguish between an empty array and a null response
+    r readraw 1
+
+    test {RPOP/LPOP with the count 0 returns an empty array} {
+        r lpush listcount zero
+        r lpop listcount 0
+    } {*0}
+
+    r readraw 0
 
     test {Variadic RPUSH/LPUSH} {
         r del mylist
