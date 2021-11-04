@@ -7240,9 +7240,11 @@ int changeBindAddr(void) {
 int changeListenPort(int port, socketFds *sfd, aeFileProc *accept_handler) {
     socketFds new_sfd = {{0}};
 
+    /* Close old servers */
+    closeSocketListeners(sfd);
+
     /* Just close the server if port disabled */
     if (port == 0) {
-        closeSocketListeners(sfd);
         if (server.set_proc_title) redisSetProcTitle(NULL);
         return C_OK;
     }
@@ -7257,9 +7259,6 @@ int changeListenPort(int port, socketFds *sfd, aeFileProc *accept_handler) {
         closeSocketListeners(&new_sfd);
         return C_ERR;
     }
-
-    /* Close old servers */
-    closeSocketListeners(sfd);
 
     /* Copy new descriptors */
     sfd->count = new_sfd.count;

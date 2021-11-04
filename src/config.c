@@ -723,6 +723,7 @@ void configSetCommand(client *c) {
 
     /* Set all new values (don't apply yet) */
     for (i = 0; i < config_count; i++) {
+        // TODO: optimization: if set didn't change anything then allow returning a special value indicating no need to apply later
         if (!performInterfaceSet(set_configs[i], new_values[i], &errstr)) {
             restoreBackupConfig(set_configs, old_values, config_count);
             goto badfmt;
