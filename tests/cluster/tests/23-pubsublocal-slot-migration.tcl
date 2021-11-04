@@ -1,27 +1,7 @@
 source "../tests/includes/init-tests.tcl"
 
-proc cluster_allocate_linearslots {n} {
-    set maxslot 16384
-    set split [expr {$maxslot / $n + 1}]
-    set increment $split
-    set node 0
-    for {set j 1} {$j <= $maxslot} {incr j} {
-        if {$j == $split} {
-            incr node
-            incr split $increment
-        }
-        set slot [expr $j - 1]
-        R $node cluster addslots $slot
-    }
-}
-
-proc create_cluster_with_linearslots {primary replica} {
-    cluster_allocate_linearslots $primary
-    cluster_allocate_slaves $primary $replica
-}
-
 test "Create a 3 nodes cluster" {
-    create_cluster_with_linearslots 3 3
+    cluster_create_with_continuous_slots 3 3
 }
 
 test "Cluster is up" {
@@ -71,8 +51,11 @@ test "Client subscribes to multiple channels, migrate a slot, verify client rece
     set subscribeclient [redis_deferring_client $nodefrom(host) $nodefrom(port)]
 
     $subscribeclient deferred 1
-    $subscribeclient subscribelocal $channelname $anotherchannelname
+    $subscribeclient subscribelocal $channelname
     $subscribeclient read
+
+    $subscribeclient deferred 1
+    $subscribeclient subscribelocal $anotherchannelname
     $subscribeclient read
 
     assert_equal {OK} [$nodefrom(link) cluster setslot $slot migrating $nodeto(id)]
@@ -124,6 +107,48 @@ test "Migrate a slot, verify client receives unsubscribelocal on replica serving
 
     assert_equal {OK} [$nodeto(link) cluster setslot $slot node $nodeto(id)]    
     assert_equal {OK} [$nodeto(link) cluster setslot $slot node $nodeto(id)]
+
+    set msg [$subscribeclient read]
+    assert {"unsubscribelocal" eq [lindex $msg 0]}
+    assert {$channelname eq [lindex $msg 1]}
+    assert {"0" eq [lindex $msg 2]}
+    
+    $subscribeclient close
+}
+
+test "Delete a slot, verify unsubscribelocal message" {
+    set channelname ch2
+    set slot [$cluster cluster keyslot $channelname]
+
+    array set primary [$cluster masternode_for_slot $slot]
+
+    set subscribeclient [redis_deferring_client $primary(host) $primary(port)]
+    $subscribeclient deferred 1
+    $subscribeclient subscribelocal $channelname
+    $subscribeclient read
+
+    $primary(link) cluster DELSLOTS $slot
+
+    set msg [$subscribeclient read]
+    assert {"unsubscribelocal" eq [lindex $msg 0]}
+    assert {$channelname eq [lindex $msg 1]}
+    assert {"0" eq [lindex $msg 2]}
+    
+    $subscribeclient close
+}
+
+test "Reset cluster, verify unsubscribelocal message" {
+    set channelname ch4
+    set slot [$cluster cluster keyslot $channelname]
+
+    array set primary [$cluster masternode_for_slot $slot]
+
+    set subscribeclient [redis_deferring_client $primary(host) $primary(port)]
+    $subscribeclient deferred 1
+    $subscribeclient subscribelocal $channelname
+    $subscribeclient read
+
+    $cluster cluster reset
 
     set msg [$subscribeclient read]
     assert {"unsubscribelocal" eq [lindex $msg 0]}

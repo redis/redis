@@ -78,7 +78,6 @@ uint64_t clusterGetMaxEpoch(void);
 int clusterBumpConfigEpochWithoutConsensus(void);
 void moduleCallClusterReceivers(const char *sender_id, uint64_t module_id, uint8_t type, const unsigned char *payload, uint32_t len);
 const char *clusterGetMessageTypeString(int type);
-
 void removeChannelsInSlot(unsigned int slot);
 
 #define RCVBUF_INIT_LEN 1024
@@ -1705,7 +1704,6 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
                     countKeysInSlot(j) &&
                     sender != myself)
                 {
-                    removeChannelsInSlot(j);
                     dirty_slots[dirty_slots_count] = j;
                     dirty_slots_count++;
                 }
@@ -1806,7 +1804,7 @@ int clusterProcessPacket(clusterLink *link) {
 
         explen += sizeof(clusterMsgDataFail);
         if (totlen != explen) return 1;
-    } else if (type == CLUSTERMSG_TYPE_PUBLISH) {
+    } else if (type == CLUSTERMSG_TYPE_PUBLISH || type == CLUSTERMSG_TYPE_PUBLISHLOCAL) {
         uint32_t explen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
 
         explen += sizeof(clusterMsgDataPublish) -
@@ -2172,40 +2170,41 @@ int clusterProcessPacket(clusterLink *link) {
         robj *channel, *message;
         uint32_t channel_len, message_len;
 
-        if (hdr->data.publish.msg.bulk_data[0] == 'l') {
-            /* Don't bother creating useless objects if there are no
-             * Pub/Sub local subscribers. */
-            if (dictSize(server.pubsublocal_channels)) {
-                channel_len = ntohl(hdr->data.publish.msg.channel_len);
-                message_len = ntohl(hdr->data.publish.msg.message_len);
-                channel = createStringObject(
-                        (char *) hdr->data.publish.msg.bulk_data, channel_len);
-                message = createStringObject(
-                        (char *) hdr->data.publish.msg.bulk_data + channel_len,
-                        message_len);
-                pubsubPublishMessageLocal(channel, message);
-                decrRefCount(channel);
-                decrRefCount(message);
-            }
-        else {
-            /* Don't bother creating useless objects if there are no
-             * Pub/Sub subscribers. */
-            if (dictSize(server.pubsub_channels) ||
-                dictSize(server.pubsub_patterns))
-            {
-                channel_len = ntohl(hdr->data.publish.msg.channel_len);
-                message_len = ntohl(hdr->data.publish.msg.message_len);
-                channel = createStringObject(
+        /* Don't bother creating useless objects if there are no
+         * Pub/Sub subscribers. */
+        if (dictSize(server.pubsub_channels) ||
+           dictSize(server.pubsub_patterns))
+        {
+            channel_len = ntohl(hdr->data.publish.msg.channel_len);
+            message_len = ntohl(hdr->data.publish.msg.message_len);
+            channel = createStringObject(
                         (char*)hdr->data.publish.msg.bulk_data,channel_len);
-                message = createStringObject(
+            message = createStringObject(
                         (char*)hdr->data.publish.msg.bulk_data+channel_len,
                         message_len);
-                pubsubPublishMessage(channel,message);
-                decrRefCount(channel);
-                decrRefCount(message);
-            }
+            pubsubPublishMessage(channel,message);
+            decrRefCount(channel);
+            decrRefCount(message);
         }
-    } else if (type == CLUSTERMSG_TYPE_PUBLISH) {
+    } else if (type == CLUSTERMSG_TYPE_PUBLISHLOCAL) {
+        if (!sender) return 1;  /* We don't know that node. */
+
+        robj *channel, *message;
+        uint32_t channel_len, message_len;
+
+        /* Don't bother creating useless objects if there are no
+         * Pub/Sub subscribers. */
+        if (dictSize(server.pubsublocal_channels)) {
+            channel_len = ntohl(hdr->data.publish.msg.channel_len);
+            message_len = ntohl(hdr->data.publish.msg.message_len);
+            channel = createStringObject(
+                    (char*)hdr->data.publish.msg.bulk_data,channel_len);
+            message = createStringObject(
+                    (char*)hdr->data.publish.msg.bulk_data+channel_len,
+                    message_len);
+            pubsubPublishMessageLocal(channel,message);
+            decrRefCount(channel);
+            decrRefCount(message);
         }
     } else if (type == CLUSTERMSG_TYPE_FAILOVER_AUTH_REQUEST) {
         if (!sender) return 1;  /* We don't know that node. */
@@ -2740,7 +2739,7 @@ void clusterBroadcastPong(int target) {
 /* Send a PUBLISH message.
  *
  * If link is NULL, then the message is broadcasted to the whole cluster. */
-void clusterSendPublish(clusterLink *link, robj *channel, robj *message, int type) {
+void clusterSendPublish(clusterLink *link, robj *channel, robj *message, uint16_t type) {
     unsigned char *payload;
     clusterMsg buf[1];
     clusterMsg *hdr = (clusterMsg*) buf;
@@ -2755,12 +2754,6 @@ void clusterSendPublish(clusterLink *link, robj *channel, robj *message, int typ
     clusterBuildMessageHdr(hdr,type);
     totlen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
     totlen += sizeof(clusterMsgDataPublish) - 8 + channel_len + message_len;
-
-    if (type == PUBSUB_GLOBAL) {
-        hdr->data.publish.msg.bulk_data[0] = 'g';
-    } else if (type == PUBSUB_LOCAL) {
-        hdr->data.publish.msg.bulk_data[0] = 'l';
-    }
 
     hdr->data.publish.msg.channel_len = htonl(channel_len);
     hdr->data.publish.msg.message_len = htonl(message_len);
@@ -2881,7 +2874,7 @@ int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uin
  * messages to hosts without receives for a given channel.
  * -------------------------------------------------------------------------- */
 void clusterPropagatePublish(robj *channel, robj *message) {
-    clusterSendPublish(NULL, channel, message, PUBSUB_GLOBAL);
+    clusterSendPublish(NULL, channel, message, CLUSTERMSG_TYPE_PUBLISH);
 }
 
 /* -----------------------------------------------------------------------------
@@ -2897,7 +2890,7 @@ void clusterPropagatePublishLocal(robj *channel, robj *message) {
         listRewind(nodes_for_slot, &li);
         while((ln = listNext(&li))) {
             clusterNode *node = listNodeValue(ln);
-            clusterSendPublish(node->link, channel, message, PUBSUB_LOCAL);
+            clusterSendPublish(node->link, channel, message, CLUSTERMSG_TYPE_PUBLISHLOCAL);
         }
     }
     listRelease(nodes_for_slot);
@@ -3958,6 +3951,8 @@ int clusterAddSlot(clusterNode *n, int slot) {
  * Returns C_OK if the slot was assigned, otherwise if the slot was
  * already unassigned C_ERR is returned. */
 int clusterDelSlot(int slot) {
+    /* Cleanup the channels as part of slot deletion. */
+    removeChannelsInSlot(slot);
     clusterNode *n = server.cluster->slots[slot];
 
     if (!n) return C_ERR;
@@ -4396,6 +4391,7 @@ const char *clusterGetMessageTypeString(int type) {
     case CLUSTERMSG_TYPE_MEET: return "meet";
     case CLUSTERMSG_TYPE_FAIL: return "fail";
     case CLUSTERMSG_TYPE_PUBLISH: return "publish";
+    case CLUSTERMSG_TYPE_PUBLISHLOCAL: return "publishlocal";
     case CLUSTERMSG_TYPE_FAILOVER_AUTH_REQUEST: return "auth-req";
     case CLUSTERMSG_TYPE_FAILOVER_AUTH_ACK: return "auth-ack";
     case CLUSTERMSG_TYPE_UPDATE: return "update";
@@ -4708,7 +4704,6 @@ NULL
              * information. */
             if (countKeysInSlot(slot) == 0 &&
                 server.cluster->migrating_slots_to[slot]) {
-                removeChannelsInSlot(slot);
                 server.cluster->migrating_slots_to[slot] = NULL;
             }
 
@@ -5099,7 +5094,7 @@ NULL
 
 void removeChannelsInSlot(unsigned int slot) {
     unsigned int channelcount = countChannelsInSlot(slot);
-    if (channelcount != 0) return;
+    if (channelcount == 0) return;
 
     robj **channels = zmalloc(sizeof(robj*)*channelcount);
     getChannelsInSlot(slot,channels);
@@ -5886,7 +5881,6 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
             robj *thiskey = margv[keyindex[j]];
             int thisslot = keyHashSlot((char*)thiskey->ptr,
                                        sdslen(thiskey->ptr));
-            clusterNode *thisnode = server.cluster->slots[thisslot];
 
             if (firstkey == NULL) {
                 /* This is the first key we see. Check what is the slot
@@ -5918,9 +5912,9 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
                 } else if (server.cluster->importing_slots_from[slot] != NULL) {
                     importing_slot = 1;
                 }
-            } else if (!is_pubsublocal) {
-                /* If it is not the first key, make sure it is exactly
-                     * the same key as the first we saw. */
+            } else {
+                /* If it is not the first key/channel, make sure it is exactly
+                 * the same key/channel as the first we saw. */
                 if (!equalStringObjects(firstkey,thiskey)) {
                     if (slot != thisslot) {
                         /* Error: multiple keys from different slots. */
@@ -5930,25 +5924,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
                         return NULL;
                     } else {
                         /* Flag this request as one with multiple different
-                         * keys. */
-                        multiple_keys = 1;
-                    }
-                }
-            } else {
-                /* If it is not the first channel, make sure it is exactly
-                 * the same channel as the first we saw. */
-                if (!equalStringObjects(firstkey,thiskey)) {
-                    /* If the channel exists across different slots, it is still
-                     * valid if they are being served from the same node. */
-                    if (n != thisnode) {
-                        getKeysFreeResult(&result);
-                        if (error_code) {
-                            *error_code = CLUSTER_REDIR_CROSS_NODE_CHANNEL;
-                        }
-                        return NULL;
-                    } else {
-                        /* Flag this request as one with multiple different
-                         * channels. */
+                         * keys/channels. */
                         multiple_keys = 1;
                     }
                 }

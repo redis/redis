@@ -99,6 +99,7 @@ typedef struct clusterLink {
 #define CLUSTERMSG_TYPE_MFSTART 8       /* Pause clients for manual failover */
 #define CLUSTERMSG_TYPE_MODULE 9        /* Module cluster API message. */
 #define CLUSTERMSG_TYPE_COUNT 10        /* Total number of message types. */
+#define CLUSTERMSG_TYPE_PUBLISHLOCAL 11 /* Pub/Sub Publish local propagation */
 
 /* Flags that a module can set in order to prevent certain Redis Cluster
  * features to be enabled. Useful when implementing a different distributed

@@ -3,7 +3,7 @@
 source "../tests/includes/init-tests.tcl"
 
 test "Create a 3 nodes cluster" {
-    create_cluster 3 3
+    cluster_create_with_continuous_slots 3 3
 }
 
 test "Pub/Sub local basics" {
@@ -28,8 +28,9 @@ test "Pub/Sub local basics" {
     $subscribeclient2 subscribelocal channel.0
     $subscribeclient2 read
 
-    catch {$anotherclient subscribelocal channel.0} err
-    puts [string range $err 0 4]
+    $anotherclient subscribelocal channel.0
+    catch {$anotherclient read} err
+    assert_match {MOVED *} $err
 
     set data [randomValue]
     $publishclient publishlocal channel.0 $data
@@ -47,20 +48,20 @@ test "Pub/Sub local basics" {
     $anotherclient close
 }
 
-test "client can't subscribe to multiple local channels across different nodes" {
+test "client can't subscribe to multiple local channels across different slots in same call" {
     set port [get_instance_attrib redis 0 port]
     set cluster [redis_cluster 127.0.0.1:$port]
 
     catch {$cluster subscribelocal channel.0 channel.1} err
-
-    assert_match {CROSSNODE Channels*} $err
+    assert_match {CROSSSLOT Keys*} $err
 }
 
-test "client can subscribe to multiple local channels across different slots in a node" {
+test "client can subscribe to multiple local channels across different slots in separate call" {
     set port [get_instance_attrib redis 0 port]
     set cluster [redis_cluster 127.0.0.1:$port]
 
-    $cluster subscribelocal ch3 ch7
+    $cluster subscribelocal ch3
+    $cluster subscribelocal ch7
 }
 
 
