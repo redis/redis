@@ -2198,7 +2198,7 @@ int applySave(const char **err) {
 
 static int applyBind(const char **err) {
     if (changeBindAddr() == C_ERR) {
-        *err = "Failed to bind to specified bind addresses.";
+        *err = "Failed to bind to specified addresses.";
         return 0;
     }
 
