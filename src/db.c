@@ -1289,9 +1289,11 @@ void scanDatabaseForReadyLists(redisDb *db) {
     dictIterator *di = dictGetSafeIterator(db->blocking_keys);
     while((de = dictNext(di)) != NULL) {
         robj *key = dictGetKey(de);
-        robj *value = lookupKey(db, key, (LOOKUP_NOTOUCH | LOOKUP_NOSTATS |
-                                          LOOKUP_NONOTIFY));
-        if (value) signalKeyAsReady(db, key, value->type);
+        dictEntry *kde = dictFind(db->dict,key->ptr);
+        if (kde) {
+            robj *value = dictGetVal(kde);
+            signalKeyAsReady(db, key, value->type);
+        }
     }
     dictReleaseIterator(di);
 }
