@@ -245,6 +245,7 @@ static size_t rioConnRead(rio *r, void *buf, size_t len) {
                           (char*)r->io.conn.buf + sdslen(r->io.conn.buf),
                           toread);
         if (retval <= 0) {
+            if (connLastErrorRetryable(r->io.conn.conn)) continue;
             if (errno == EWOULDBLOCK) errno = ETIMEDOUT;
             return 0;
         }
@@ -352,6 +353,7 @@ static size_t rioFdWrite(rio *r, const void *buf, size_t len) {
     while(nwritten != len) {
         retval = write(r->io.fd.fd,p+nwritten,len-nwritten);
         if (retval <= 0) {
+            if (retval == -1 && errno == EINTR) continue;
             /* With blocking io, which is the sole user of this
              * rio target, EWOULDBLOCK is returned only because of
              * the SO_SNDTIMEO socket option, so we translate the error

@@ -406,6 +406,11 @@ void punsubscribeCommand(client *c) {
 
 /* PUBLISH <channel> <message> */
 void publishCommand(client *c) {
+    if (server.sentinel_mode) {
+        sentinelPublishCommand(c);
+        return;
+    }
+
     int receivers = pubsubPublishMessage(c->argv[1],c->argv[2]);
     if (server.cluster_enabled)
         clusterPropagatePublish(c->argv[1],c->argv[2]);

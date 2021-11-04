@@ -369,6 +369,105 @@ start_server {tags {"tracking network"}} {
         $r CLIENT TRACKING OFF
     }
 
+    test {hdel deliver invlidate message after response in the same connection} {
+        r CLIENT TRACKING off
+        r HELLO 3
+        r CLIENT TRACKING on
+        r HSET myhash f 1
+        r HGET myhash f
+        set res [r HDEL myhash f]
+        assert_equal $res 1
+        set res [r read]
+        assert_equal $res {invalidate myhash}
+    }
+
+    test {Tracking invalidation message is not interleaved with multiple keys response} {
+        r CLIENT TRACKING off
+        r HELLO 3
+        r CLIENT TRACKING on
+        # We need disable active expire, so we can trigger lazy expire
+        r DEBUG SET-ACTIVE-EXPIRE 0
+        r MULTI
+        r MSET x{t} 1 y{t} 2
+        r PEXPIRE y{t} 100
+        r GET y{t}
+        r EXEC
+        after 110
+        # Read expired key y{t}, generate invalidate message about this key
+        set res [r MGET x{t} y{t}]
+        assert_equal $res {1 {}}
+        # Consume the invalidate message which is after command response
+        set res [r read]
+        assert_equal $res {invalidate y{t}}
+        r DEBUG SET-ACTIVE-EXPIRE 1
+    } {OK} {needs:debug}
+
+    test {Tracking invalidation message is not interleaved with transaction response} {
+        r CLIENT TRACKING off
+        r HELLO 3
+        r CLIENT TRACKING on
+        r MSET a{t} 1 b{t} 2
+        r GET a{t}
+        # Start a transaction, make a{t} generate an invalidate message
+        r MULTI
+        r INCR a{t}
+        r GET b{t}
+        set res [r EXEC]
+        assert_equal $res {2 2}
+        set res [r read]
+        # Consume the invalidate message which is after command response
+        assert_equal $res {invalidate a{t}}
+    }
+
+    test {Tracking invalidation message of eviction keys should be before response} {
+        # Get the current memory limit and calculate a new limit.
+        r CLIENT TRACKING off
+        r HELLO 3
+        r CLIENT TRACKING on
+
+        # make the previous test is really done before sampling used_memory
+        wait_lazyfree_done r
+
+        set used [expr {[s used_memory] - [s mem_not_counted_for_evict]}]
+        set limit [expr {$used+100*1024}]
+        set old_policy [lindex [r config get maxmemory-policy] 1]
+        r config set maxmemory $limit
+        # We set policy volatile-random, so only keys with ttl will be evicted
+        r config set maxmemory-policy volatile-random
+        # Add a volatile key and tracking it.
+        r setex volatile-key 10000 x
+        r get volatile-key
+        # We use SETBIT here, so we can set a big key and get the used_memory
+        # bigger than maxmemory. Next command will evict volatile keys. We
+        # can't use SET, as SET uses big input buffer, so it will fail.
+        r setbit big-key 1600000 0 ;# this will consume 200kb
+        # volatile-key is evicted before response.
+        set res [r getbit big-key 0]
+        assert_equal $res {invalidate volatile-key}
+        set res [r read]
+        assert_equal $res 0
+        r config set maxmemory-policy $old_policy
+        r config set maxmemory 0
+    }
+
+    test {Unblocked BLMOVE gets notification after response} {
+        r RPUSH list2{t} a
+        $rd HELLO 3
+        $rd read
+        $rd CLIENT TRACKING on
+        $rd read
+        # Tracking key list2{t}
+        $rd LRANGE list2{t} 0 -1
+        $rd read
+        # We block on list1{t}
+        $rd BLMOVE list1{t} list2{t} left left 0
+        wait_for_blocked_clients_count 1
+        # unblock $rd, list2{t} gets element and generate invalidation message
+        r rpush list1{t} foo
+        assert_equal [$rd read] {foo}
+        assert_equal [$rd read] {invalidate list2{t}}
+    }
+
     test {Tracking gets notification on tracking table key eviction} {
         r CLIENT TRACKING off
         r CLIENT TRACKING on REDIRECT $redir_id NOLOOP

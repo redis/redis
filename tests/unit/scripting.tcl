@@ -606,6 +606,22 @@ start_server {tags {"scripting"}} {
         set res [r eval {redis.setresp(2); return redis.call('hgetall', KEYS[1])} 1 hash]
         assert_equal $res $expected_list
     }
+
+    test {Script return recursive object} {
+        r readraw 1
+        set res [r eval {local a = {}; local b = {a}; a[1] = b; return a} 0]
+        # drain the response
+        while {true} {
+            if {$res == "-ERR reached lua stack limit"} {
+                break
+            }
+            assert_equal $res "*1"
+            set res [r read]
+        }
+        r readraw 0
+        # make sure the connection is still valid
+        assert_equal [r ping] {PONG}
+    }
 }
 
 # Start a new server since the last test in this stanza will kill the
@@ -935,6 +951,35 @@ start_server {tags {"scripting external:skip"}} {
     r eval {return 'hello'} 0
 }
 
+start_server {tags {"scripting needs:debug external:skip"}} {
+    test {Test scripting debug protocol parsing} {
+        r script debug sync
+        r eval {return 'hello'} 0
+        catch {r 'hello\0world'} e
+        assert_match {*Unknown Redis Lua debugger command*} $e
+        catch {r 'hello\0'} e
+        assert_match {*Unknown Redis Lua debugger command*} $e
+        catch {r '\0hello'} e
+        assert_match {*Unknown Redis Lua debugger command*} $e
+        catch {r '\0hello\0'} e
+        assert_match {*Unknown Redis Lua debugger command*} $e
+    }
+
+    test {Test scripting debug lua stack overflow} {
+        r script debug sync
+        r eval {return 'hello'} 0
+        set cmd "*101\r\n\$5\r\nredis\r\n"
+        append cmd [string repeat "\$4\r\ntest\r\n" 100]
+        r write $cmd
+        r flush
+        set ret [r read]
+        assert_match {*Unknown Redis command called from Lua script*} $ret
+        # make sure the server is still ok
+        reconnect
+        assert_equal [r ping] {PONG}
+    }
+}
+
 start_server {tags {"scripting resp3 needs:debug"}} {
     r debug set-disable-deny-scripts 1
     for {set i 2} {$i <= 3} {incr i} {
@@ -983,10 +1028,10 @@ start_server {tags {"scripting resp3 needs:debug"}} {
                 set ret [r eval "redis.setresp($i);return redis.call('debug', 'protocol', 'double')" 0]
                 if {$client_proto == 2 || $i == 2} {
                     # if either Lua or the clien is RESP2 the reply will be RESP2
-                    assert_equal $ret {$18}
-                    assert_equal [r read] {3.1415926535900001}
+                    assert_equal $ret {$5}
+                    assert_equal [r read] {3.141}
                 } else {
-                    assert_equal $ret {,3.1415926535900001}
+                    assert_equal $ret {,3.141}
                 }
             }
 

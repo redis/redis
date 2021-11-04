@@ -40,6 +40,7 @@
 static char error[1044];
 static off_t epos;
 static long long line = 1;
+static time_t to_timestamp = 0;
 
 int consumeNewline(char *buf) {
     if (strncmp(buf,"\r\n",2) != 0) {
@@ -47,6 +48,47 @@ int consumeNewline(char *buf) {
         return 0;
     }
     line += 1;
+    return 1;
+}
+
+int readAnnotations(FILE *fp) {
+    char buf[AOF_ANNOTATION_LINE_MAX_LEN];
+    while (1) {
+        epos = ftello(fp);
+        if (fgets(buf, sizeof(buf), fp) == NULL) {
+            return 0;
+        }
+        if (buf[0] == '#') {
+            if (to_timestamp && strncmp(buf, "#TS:", 4) == 0) {
+                time_t ts = strtol(buf+4, NULL, 10);
+                if (ts <= to_timestamp) continue;
+                if (epos == 0) {
+                    printf("AOF has nothing before timestamp %ld, "
+                           "aborting...\n", to_timestamp);
+                    fclose(fp);
+                    exit(1);
+                }
+                /* Truncate remaining AOF if exceeding 'to_timestamp' */
+                if (ftruncate(fileno(fp), epos) == -1) {
+                    printf("Failed to truncate AOF to timestamp %ld\n",
+                            to_timestamp);
+                    exit(1);
+                } else {
+                    printf("Successfully truncated AOF to timestamp %ld\n",
+                            to_timestamp);
+                    fclose(fp);
+                    exit(0);
+                }
+            }
+            continue;
+        } else {
+            if (fseek(fp, -(ftello(fp)-epos), SEEK_CUR) == -1) {
+                ERROR("Fseek error: %s", strerror(errno));
+                return 0;
+            }
+            return 1;
+        }
+    }
     return 1;
 }
 
@@ -82,6 +124,11 @@ int readString(FILE *fp, char** target) {
         return 0;
     }
 
+    if (len < 0 || len > LONG_MAX - 2) {
+        ERROR("Expected to read string of %ld bytes, which is not in the suitable range",len);
+        return 0;
+    }
+
     /* Increase length to also consume \r\n */
     len += 2;
     *target = (char*)zmalloc(len);
@@ -107,6 +154,7 @@ off_t process(FILE *fp) {
 
     while(1) {
         if (!multi) pos = ftello(fp);
+        if (!readAnnotations(fp)) break;
         if (!readArgc(fp, &argc)) break;
 
         for (i = 0; i < argc; i++) {
@@ -148,20 +196,25 @@ int redis_check_aof_main(int argc, char **argv) {
     int fix = 0;
 
     if (argc < 2) {
-        printf("Usage: %s [--fix] <file.aof>\n", argv[0]);
-        exit(1);
+        goto invalid_args;
     } else if (argc == 2) {
         filename = argv[1];
     } else if (argc == 3) {
-        if (strcmp(argv[1],"--fix") != 0) {
-            printf("Invalid argument: %s\n", argv[1]);
-            exit(1);
+        if (!strcmp(argv[1],"--fix")) {
+            filename = argv[2];
+            fix = 1;
+        } else {
+            goto invalid_args;
         }
-        filename = argv[2];
-        fix = 1;
+    } else if (argc == 4) {
+        if (!strcmp(argv[1], "--truncate-to-timestamp")) {
+            to_timestamp = strtol(argv[2],NULL,10);
+            filename = argv[3];
+        } else {
+            goto invalid_args;
+        }
     } else {
-        printf("Invalid arguments\n");
-        exit(1);
+        goto invalid_args;
     }
 
     FILE *fp = fopen(filename,"r+");
@@ -203,6 +256,14 @@ int redis_check_aof_main(int argc, char **argv) {
 
     off_t pos = process(fp);
     off_t diff = size-pos;
+
+    /* In truncate-to-timestamp mode, just exit if there is nothing to truncate. */
+    if (diff == 0 && to_timestamp) {
+        printf("Truncate nothing in AOF to timestamp %ld\n", to_timestamp);
+        fclose(fp);
+        exit(0);
+    }
+
     printf("AOF analyzed: size=%lld, ok_up_to=%lld, ok_up_to_line=%lld, diff=%lld\n",
         (long long) size, (long long) pos, line, (long long) diff);
     if (diff > 0) {
@@ -232,4 +293,9 @@ int redis_check_aof_main(int argc, char **argv) {
 
     fclose(fp);
     exit(0);
+
+invalid_args:
+    printf("Usage: %s [--fix|--truncate-to-timestamp $timestamp] <file.aof>\n",
+            argv[0]);
+    exit(1);
 }

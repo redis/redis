@@ -135,6 +135,14 @@ test {corrupt payload: quicklist with empty ziplist} {
     }
 }
 
+test {corrupt payload: quicklist encoded_len is 0} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        catch { r restore _list 0 "\x12\x01\x01\x00\n\x00\x8f\xc6\xc0W\x1c\n\xb3<" replace } err
+        assert_match "*Bad data format*" $err
+        r ping
+    }
+}
+
 test {corrupt payload: #3080 - ziplist} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         # shallow sanitization is enough for restore to safely reject the payload with wrong size

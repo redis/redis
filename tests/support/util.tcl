@@ -113,6 +113,14 @@ proc wait_done_loading r {
     }
 }
 
+proc wait_lazyfree_done r {
+    wait_for_condition 50 100 {
+        [status $r lazyfree_pending_objects] == 0
+    } else {
+        fail "lazyfree isn't done"
+    }
+}
+
 # count current log lines in server's stdout
 proc count_log_lines {srv_idx} {
     set _ [string trim [exec wc -l < [srv $srv_idx stdout]]]

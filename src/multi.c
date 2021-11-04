@@ -58,7 +58,6 @@ void freeClientMultiState(client *c) {
 /* Add a new command into the MULTI commands queue */
 void queueMultiCommand(client *c) {
     multiCmd *mc;
-    int j;
 
     /* No sense to waste memory if the transaction is already aborted.
      * this is useful in case client sends these in a pipeline, or doesn't
@@ -72,14 +71,20 @@ void queueMultiCommand(client *c) {
     mc = c->mstate.commands+c->mstate.count;
     mc->cmd = c->cmd;
     mc->argc = c->argc;
-    mc->argv = zmalloc(sizeof(robj*)*c->argc);
-    memcpy(mc->argv,c->argv,sizeof(robj*)*c->argc);
-    for (j = 0; j < c->argc; j++)
-        incrRefCount(mc->argv[j]);
+    mc->argv = c->argv;
+    mc->argv_len = c->argv_len;
+
     c->mstate.count++;
     c->mstate.cmd_flags |= c->cmd->flags;
     c->mstate.cmd_inv_flags |= ~c->cmd->flags;
     c->mstate.argv_len_sums += c->argv_len_sum + sizeof(robj*)*c->argc;
+
+    /* Reset the client's args since we copied them into the mstate and shouldn't
+     * reference them from c anymore. */
+    c->argv = NULL;
+    c->argc = 0;
+    c->argv_len_sum = 0;
+    c->argv_len = 0;
 }
 
 void discardTransaction(client *c) {
@@ -159,7 +164,7 @@ void execCommandAbort(client *c, sds error) {
 void execCommand(client *c) {
     int j;
     robj **orig_argv;
-    int orig_argc;
+    int orig_argc, orig_argv_len;
     struct redisCommand *orig_cmd;
     int was_master = server.masterhost == NULL;
 
@@ -201,12 +206,14 @@ void execCommand(client *c) {
     server.in_exec = 1;
 
     orig_argv = c->argv;
+    orig_argv_len = c->argv_len;
     orig_argc = c->argc;
     orig_cmd = c->cmd;
     addReplyArrayLen(c,c->mstate.count);
     for (j = 0; j < c->mstate.count; j++) {
         c->argc = c->mstate.commands[j].argc;
         c->argv = c->mstate.commands[j].argv;
+        c->argv_len = c->mstate.commands[j].argv_len;
         c->cmd = c->mstate.commands[j].cmd;
 
         /* ACL permissions are also checked at the time of execution in case
@@ -237,7 +244,11 @@ void execCommand(client *c) {
                 "This command is no longer allowed for the "
                 "following reason: %s", reason);
         } else {
-            call(c,server.loading ? CMD_CALL_NONE : CMD_CALL_FULL);
+            if (c->id == CLIENT_ID_AOF)
+                call(c,CMD_CALL_NONE);
+            else
+                call(c,CMD_CALL_FULL);
+
             serverAssert((c->flags & CLIENT_BLOCKED) == 0);
         }
 
@@ -252,6 +263,7 @@ void execCommand(client *c) {
         c->flags &= ~CLIENT_DENY_BLOCKING;
 
     c->argv = orig_argv;
+    c->argv_len = orig_argv_len;
     c->argc = orig_argc;
     c->cmd = orig_cmd;
     discardTransaction(c);
@@ -268,7 +280,7 @@ void execCommand(client *c) {
          * backlog with the final EXEC. */
         if (server.repl_backlog && was_master && !is_master) {
             char *execcmd = "*1\r\n$4\r\nEXEC\r\n";
-            feedReplicationBacklog(execcmd,strlen(execcmd));
+            feedReplicationBuffer(execcmd,strlen(execcmd));
         }
         afterPropagateExec();
     }
@@ -390,7 +402,7 @@ void touchWatchedKey(redisDb *db, robj *key) {
 
 /* Set CLIENT_DIRTY_CAS to all clients of DB when DB is dirty.
  * It may happen in the following situations:
- * FLUSHDB, FLUSHALL, SWAPDB
+ * FLUSHDB, FLUSHALL, SWAPDB, end of successful diskless replication.
  *
  * replaced_with: for SWAPDB, the WATCH should be invalidated if
  * the key exists in either of them, and skipped only if it

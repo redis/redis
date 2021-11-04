@@ -80,14 +80,17 @@ proc kill_server config {
     # Node might have been stopped in the test
     catch {exec kill -SIGCONT $pid}
     if {$::valgrind} {
-        set max_wait 60000
+        set max_wait 120000
     } else {
         set max_wait 10000
     }
     while {[is_alive $config]} {
         incr wait 10
 
-        if {$wait >= $max_wait} {
+        if {$wait == $max_wait} {
+            puts "Forcing process $pid to crash..."
+            catch {exec kill -SEGV $pid}
+        } elseif {$wait >= $max_wait * 2} {
             puts "Forcing process $pid to exit..."
             catch {exec kill -KILL $pid}
         } elseif {$wait % 1000 == 0} {
@@ -204,6 +207,11 @@ proc tags_acceptable {tags err_return} {
 
     if {$::tls && [lsearch $tags "tls:skip"] >= 0} {
         set err "Not supported in tls mode"
+        return 0
+    }
+
+    if {!$::large_memory && [lsearch $tags "large-memory"] >= 0} {
+        set err "large memory flag not provided"
         return 0
     }
 

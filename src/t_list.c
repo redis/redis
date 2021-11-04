@@ -53,7 +53,7 @@ void listTypePush(robj *subject, robj *value, int where) {
     }
 }
 
-void *listPopSaver(unsigned char *data, unsigned int sz) {
+void *listPopSaver(unsigned char *data, size_t sz) {
     return createStringObject((char*)data,sz);
 }
 
@@ -184,7 +184,7 @@ void listTypeReplace(listTypeEntry *entry, robj *value) {
 int listTypeEqual(listTypeEntry *entry, robj *o) {
     if (entry->li->encoding == OBJ_ENCODING_QUICKLIST) {
         serverAssertWithInfo(NULL,o,sdsEncodedObject(o));
-        return quicklistCompare(entry->entry.zi,o->ptr,sdslen(o->ptr));
+        return quicklistCompare(&entry->entry,o->ptr,sdslen(o->ptr));
     } else {
         serverPanic("Unknown list encoding");
     }
@@ -208,7 +208,7 @@ void listTypeConvert(robj *subject, int enc) {
         size_t zlen = server.list_max_ziplist_size;
         int depth = server.list_compress_depth;
         subject->ptr = quicklistCreateFromZiplist(zlen, depth, subject->ptr);
-        subject->encoding = OBJ_ENCODING_QUICKLIST;
+        subject->encoding = enc;
     } else {
         serverPanic("Unsupported list conversion");
     }
@@ -227,7 +227,7 @@ robj *listTypeDup(robj *o) {
     switch (o->encoding) {
         case OBJ_ENCODING_QUICKLIST:
             lobj = createObject(OBJ_LIST, quicklistDup(o->ptr));
-            lobj->encoding = OBJ_ENCODING_QUICKLIST;
+            lobj->encoding = o->encoding;
             break;
         default:
             serverPanic("Unknown list encoding");
@@ -503,6 +503,7 @@ void listElementsRemoved(client *c, robj *key, int where, robj *o, long count, i
  * optional count may be provided as the third argument of the client's
  * command. */
 void popGenericCommand(client *c, int where) {
+    int hascount = (c->argc == 3);
     long count = 0;
     robj *value;
 
@@ -510,20 +511,21 @@ void popGenericCommand(client *c, int where) {
         addReplyErrorFormat(c,"wrong number of arguments for '%s' command",
                             c->cmd->name);
         return;
-    } else if (c->argc == 3) {
+    } else if (hascount) {
         /* Parse the optional count argument. */
         if (getPositiveLongFromObjectOrReply(c,c->argv[2],&count,NULL) != C_OK) 
             return;
-        if (count == 0) {
-            /* Fast exit path. */
-            addReplyNullArray(c);
-            return;
-        }
     }
 
     robj *o = lookupKeyWriteOrReply(c, c->argv[1], shared.null[c->resp]);
     if (o == NULL || checkType(c, o, OBJ_LIST))
         return;
+
+    if (hascount && !count) {
+        /* Fast exit path. */
+        addReply(c,shared.emptyarray);
+        return;
+    }
 
     if (!count) {
         /* Pop a single element. This is POP's original behavior that replies
@@ -1169,7 +1171,7 @@ void lmpopGenericCommand(client *c, int numkeys_idx, int is_block) {
     long j;
     long numkeys = 0;      /* Number of keys. */
     int where = 0;         /* HEAD for LEFT, TAIL for RIGHT. */
-    long count = 1;        /* Reply will consist of up to count elements, depending on the list's length. */
+    long count = 0;        /* Reply will consist of up to count elements, depending on the list's length. */
 
     /* Parse the numkeys. */
     if (getRangeLongFromObjectOrReply(c, c->argv[numkeys_idx], 1, LONG_MAX,
@@ -1190,7 +1192,7 @@ void lmpopGenericCommand(client *c, int numkeys_idx, int is_block) {
         char *opt = c->argv[j]->ptr;
         int moreargs = (c->argc - 1) - j;
 
-        if (!strcasecmp(opt, "COUNT") && moreargs) {
+        if (count == 0 && !strcasecmp(opt, "COUNT") && moreargs) {
             j++;
             if (getRangeLongFromObjectOrReply(c, c->argv[j], 1, LONG_MAX,
                                               &count,"count should be greater than 0") != C_OK)
@@ -1200,6 +1202,8 @@ void lmpopGenericCommand(client *c, int numkeys_idx, int is_block) {
             return;
         }
     }
+
+    if (count == 0) count = 1;
 
     if (is_block) {
         /* BLOCK. We will handle CLIENT_DENY_BLOCKING flag in blockingPopGenericCommand. */

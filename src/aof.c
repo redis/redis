@@ -600,8 +600,37 @@ sds catAppendOnlyGenericCommand(sds dst, int argc, robj **argv) {
     return dst;
 }
 
+/* Generate a piece of timestamp annotation for AOF if current record timestamp
+ * in AOF is not equal server unix time. If we specify 'force' argument to 1,
+ * we would generate one without check, currently, it is useful in AOF rewriting
+ * child process which always needs to record one timestamp at the beginning of
+ * rewriting AOF.
+ *
+ * Timestamp annotation format is "#TS:${timestamp}\r\n". "TS" is short of
+ * timestamp and this method could save extra bytes in AOF. */
+sds genAofTimestampAnnotationIfNeeded(int force) {
+    sds ts = NULL;
+
+    if (force || server.aof_cur_timestamp < server.unixtime) {
+        server.aof_cur_timestamp = force ? time(NULL) : server.unixtime;
+        ts = sdscatfmt(sdsempty(), "#TS:%I\r\n", server.aof_cur_timestamp);
+        serverAssert(sdslen(ts) <= AOF_ANNOTATION_LINE_MAX_LEN);
+    }
+    return ts;
+}
+
 void feedAppendOnlyFile(int dictid, robj **argv, int argc) {
     sds buf = sdsempty();
+
+    /* Feed timestamp if needed */
+    if (server.aof_timestamp_enabled) {
+        sds ts = genAofTimestampAnnotationIfNeeded(0);
+        if (ts != NULL) {
+            buf = sdscatsds(buf, ts);
+            sdsfree(ts);
+        }
+    }
+
     /* The DB this command was targeting is not the same as the last command
      * we appended. To issue a SELECT command is needed. */
     if (dictid != server.aof_selected_db) {
@@ -719,7 +748,7 @@ int loadAppendOnlyFile(char *filename) {
         serverLog(LL_NOTICE,"Reading RDB preamble from AOF file...");
         if (fseek(fp,0,SEEK_SET) == -1) goto readerr;
         rioInitWithFile(&rdb,fp);
-        if (rdbLoadRio(&rdb,RDBFLAGS_AOF_PREAMBLE,NULL) != C_OK) {
+        if (rdbLoadRio(&rdb,RDBFLAGS_AOF_PREAMBLE,NULL,server.db) != C_OK) {
             serverLog(LL_WARNING,"Error reading the RDB preamble of the AOF file, AOF loading aborted");
             goto readerr;
         } else {
@@ -732,7 +761,7 @@ int loadAppendOnlyFile(char *filename) {
         int argc, j;
         unsigned long len;
         robj **argv;
-        char buf[128];
+        char buf[AOF_ANNOTATION_LINE_MAX_LEN];
         sds argsds;
         struct redisCommand *cmd;
 
@@ -749,16 +778,19 @@ int loadAppendOnlyFile(char *filename) {
             else
                 goto readerr;
         }
+        if (buf[0] == '#') continue; /* Skip annotations */
         if (buf[0] != '*') goto fmterr;
         if (buf[1] == '\0') goto readerr;
         argc = atoi(buf+1);
         if (argc < 1) goto fmterr;
+        if ((size_t)argc > SIZE_MAX / sizeof(robj*)) goto fmterr;
 
         /* Load the next command in the AOF as our fake client
          * argv. */
         argv = zmalloc(sizeof(robj*)*argc);
         fakeClient->argc = argc;
         fakeClient->argv = argv;
+        fakeClient->argv_len = argc;
 
         for (j = 0; j < argc; j++) {
             /* Parse the argument len. */
@@ -792,7 +824,7 @@ int loadAppendOnlyFile(char *filename) {
         }
 
         /* Command lookup */
-        cmd = lookupCommand(argv[0]->ptr);
+        cmd = lookupCommand(argv,argc);
         if (!cmd) {
             serverLog(LL_WARNING,
                 "Unknown command '%s' reading the append only file",
@@ -824,9 +856,6 @@ int loadAppendOnlyFile(char *filename) {
         /* Clean up. Command code may have changed argv/argc so we use the
          * argv/argc of the client instead of the local variables. */
         freeClientArgv(fakeClient);
-        zfree(fakeClient->argv);
-        fakeClient->argv = NULL;
-        fakeClient->cmd = NULL;
         if (server.aof_load_truncated) valid_up_to = ftello(fp);
         if (server.key_load_delay)
             debugDelay(server.key_load_delay);
@@ -893,7 +922,7 @@ fmterr: /* Format error. */
     /* fall through to cleanup. */
 
 cleanup:
-    if (fakeClient) freeClient(fakeClient); /* avoid valgrind warning */
+    if (fakeClient) freeClient(fakeClient);
     fclose(fp);
     stopLoading(ret == AOF_OK);
     return ret;
@@ -1385,6 +1414,13 @@ int rewriteAppendOnlyFileRio(rio *aof) {
     long key_count = 0;
     long long updated_time = 0;
 
+    /* Record timestamp at the beginning of rewriting AOF. */
+    if (server.aof_timestamp_enabled) {
+        sds ts = genAofTimestampAnnotationIfNeeded(1);
+        if (rioWrite(aof,ts,sdslen(ts)) == 0) { sdsfree(ts); goto werr; }
+        sdsfree(ts);
+    }
+
     for (j = 0; j < server.dbnum; j++) {
         char selectcmd[] = "*2\r\n$6\r\nSELECT\r\n";
         redisDb *db = server.db+j;
@@ -1646,12 +1682,9 @@ int aofCreatePipes(void) {
     int fds[6] = {-1, -1, -1, -1, -1, -1};
     int j;
 
-    if (pipe(fds) == -1) goto error; /* parent -> children data. */
-    if (pipe(fds+2) == -1) goto error; /* children -> parent ack. */
-    if (pipe(fds+4) == -1) goto error; /* parent -> children ack. */
-    /* Parent -> children data is non blocking. */
-    if (anetNonBlock(NULL,fds[0]) != ANET_OK) goto error;
-    if (anetNonBlock(NULL,fds[1]) != ANET_OK) goto error;
+    if (anetPipe(fds, O_NONBLOCK, O_NONBLOCK) == -1) goto error; /* parent -> children data, non blocking pipe */
+    if (anetPipe(fds+2, 0, 0) == -1) goto error; /* children -> parent ack. */
+    if (anetPipe(fds+4, 0, 0) == -1) goto error; /* parent -> children ack. */
     if (aeCreateFileEvent(server.el, fds[2], AE_READABLE, aofChildPipeReadable, NULL) == AE_ERR) goto error;
 
     server.aof_pipe_write_data_to_child = fds[1];
