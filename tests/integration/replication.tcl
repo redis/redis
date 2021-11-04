@@ -1018,7 +1018,7 @@ test {replica can handle EINTR if use diskless load} {
             $slave slaveof $master_host $master_port
 
             # wait for the slave to start reading the rdb
-            set res [wait_for_log_messages -1 {"*WATCHDOG TIMER EXPIRED*"} $loglines 800 10]
+            wait_for_log_messages -1 {"*WATCHDOG TIMER EXPIRED*"} $loglines 800 10
             assert_equal 1 [s 0 sync_full]
         }
     }
