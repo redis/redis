@@ -599,6 +599,35 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
       $rd read
     } {}
 
+    test {SWAPDB awakes blocked client} {
+        r flushall
+        r select 1
+        r rpush k hello
+        r select 9
+        set rd [redis_deferring_client]
+        $rd brpop k 5
+        wait_for_blocked_clients_count 1
+        r swapdb 1 9
+        $rd read
+    } {k hello} {singledb:skip}
+
+    test {SWAPDB awakes blocked client, but the key already expired} {
+        r flushall
+        r debug set-active-expire 0
+        r select 1
+        r rpush k hello
+        r pexpire k 100
+        r select 9
+        set rd [redis_deferring_client]
+        $rd brpop k 1
+        wait_for_blocked_clients_count 1
+        after 100
+        r swapdb 1 9
+        set result [$rd read]
+        r debug set-active-expire 1
+        set result
+    } {} {singledb:skip}
+
 foreach {pop} {BLPOP BLMPOP_LEFT} {
     test "$pop when new key is moved into place" {
         set rd [redis_deferring_client]
