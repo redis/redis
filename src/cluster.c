@@ -2219,10 +2219,10 @@ int clusterProcessPacket(clusterLink *link) {
 
         /* Don't bother creating useless objects if there are no
          * Pub/Sub subscribers. */
-        if (type == CLUSTERMSG_TYPE_PUBLISH
-            && serverPubsubSubscriptionCount() > 0
-        || type == CLUSTERMSG_TYPE_PUBLISHLOCAL
-            && dictSize(server.pubsublocal_channels) > 0)
+        if ((type == CLUSTERMSG_TYPE_PUBLISH
+            && serverPubsubSubscriptionCount() > 0)
+        || (type == CLUSTERMSG_TYPE_PUBLISHLOCAL
+            && dictSize(server.pubsublocal_channels) > 0))
         {
             channel_len = ntohl(hdr->data.publish.msg.channel_len);
             message_len = ntohl(hdr->data.publish.msg.message_len);
