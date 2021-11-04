@@ -744,7 +744,7 @@ void configSetCommand(client *c) {
 
 badfmt: /* Bad format errors */
     if (errstr) {
-        addReplyErrorFormat(c,"Invalid arguments' - %s",
+        addReplyErrorFormat(c,"Invalid arguments - '%s'",
                 errstr);
     } else {
         addReplyError(c,"Invalid arguments");
