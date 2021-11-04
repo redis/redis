@@ -135,7 +135,7 @@ test "Check disconnected replica not hidden from slots" {
     wait_for_condition 50 100 {
         $initial_pong != [get_last_pong_time $master_id $replica_cid]
     } else {
-        fail "Primary never recieved gossip from replica"
+        fail "Primary never received gossip from replica"
     }
 
     # Check that replica is still in the cluster slots
