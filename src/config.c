@@ -654,7 +654,7 @@ static void restoreBackupConfig(standardConfig **set_configs, sds *old_values, i
     /* Apply backup */
     for (i = 0; i < count; i++) {
         /* TODO: use unique set of apply functions to avoid calling the same function twice */
-        if (!set_configs[i]->interface.apply(&errstr))
+        if (set_configs[i]->interface.apply && !set_configs[i]->interface.apply(&errstr))
             serverPanic("Failed applying restored failed CONFIG SET command: %s", errstr);
     }
 }
