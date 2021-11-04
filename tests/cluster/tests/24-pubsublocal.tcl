@@ -6,10 +6,8 @@ test "Create a 3 nodes cluster" {
     cluster_create_with_continuous_slots 3 3
 }
 
+set cluster [redis_cluster 127.0.0.1:[get_instance_attrib redis 0 port]]
 test "Pub/Sub local basics" {
-
-    set port [get_instance_attrib redis 0 port]
-    set cluster [redis_cluster 127.0.0.1:$port]
 
     set slot [$cluster cluster keyslot "channel.0"]
     array set publishnode [$cluster masternode_for_slot $slot]
@@ -41,7 +39,6 @@ test "Pub/Sub local basics" {
     set msg [$subscribeclient2 read]
     assert {$data eq [lindex $msg 2]}
 
-    $cluster close
     $publishclient close
     $subscribeclient close
     $subscribeclient2 close
@@ -49,27 +46,20 @@ test "Pub/Sub local basics" {
 }
 
 test "client can't subscribe to multiple local channels across different slots in same call" {
-    set port [get_instance_attrib redis 0 port]
-    set cluster [redis_cluster 127.0.0.1:$port]
-
     catch {$cluster subscribelocal channel.0 channel.1} err
     assert_match {CROSSSLOT Keys*} $err
 }
 
 test "client can subscribe to multiple local channels across different slots in separate call" {
-    set port [get_instance_attrib redis 0 port]
-    set cluster [redis_cluster 127.0.0.1:$port]
-
     $cluster subscribelocal ch3
     $cluster subscribelocal ch7
+
+    $cluster unsubscribelocal ch3
+    $cluster unsubscribelocal ch7
 }
 
 
 test "Verify Pub/Sub and Pub/Sub local no overlap" {
-
-    set port [get_instance_attrib redis 0 port]
-    set cluster [redis_cluster 127.0.0.1:$port]
-
     set slot [$cluster cluster keyslot "channel.0"]
     array set publishnode [$cluster masternode_for_slot $slot]
     array set notlocalnode [$cluster masternode_notfor_slot $slot]

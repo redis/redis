@@ -1789,8 +1789,8 @@ struct redisServer {
                                 * failover then any replica can be used. */
     int target_replica_port; /* Failover target port */
     int failover_state; /* Failover state */
-    int cluster_allow_pubsub_when_down; /* Is pubsublocal allowed when the cluster
-                                           is down? */
+    int cluster_allow_pubsublocal_when_down; /* Is pubsublocal allowed when the cluster
+                                           is down, doesn't affect pubsub global. */
 };
 
 #define MAX_KEYS_BUFFER 256
@@ -2616,6 +2616,7 @@ int pubsubUnsubscribeAllPatterns(client *c, int notify);
 int pubsubPublishMessage(robj *channel, robj *message);
 int pubsubPublishMessageLocal(robj *channel, robj *message);
 void addReplyPubsubMessage(client *c, robj *channel, robj *msg);
+int serverPubsubSubscriptionCount();
 
 /* Keyspace events notification */
 void notifyKeyspaceEvent(int type, char *event, robj *key, int dbid);

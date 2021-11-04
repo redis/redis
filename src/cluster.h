@@ -327,8 +327,6 @@ void slotToKeyRestoreBackup(clusterSlotsToKeysData *backup);
 void slotToKeyFlush(void);
 void slotToChannelAdd(sds channel);
 void slotToChannelDel(sds channel);
-void freeSlotsToChannelsMapAsync(rax *rt);
-void freeSlotsToChannelsMap(rax *rt, int async);
 
 
 #endif /* __CLUSTER_H */

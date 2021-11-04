@@ -30,8 +30,6 @@
 
 #include "server.h"
 #include "cluster.h"
-#include "endianconv.h"
-
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
@@ -82,7 +80,6 @@ void removeChannelsInSlot(unsigned int slot);
 unsigned int countKeysInSlot(unsigned int hashslot);
 unsigned int countChannelsInSlot(unsigned int hashslot);
 unsigned int delKeysInSlot(unsigned int hashslot);
-void getChannelsInSlot(unsigned int hashslot, robj **channels);
 
 /* Links to the next and previous entries for keys in the same slot are stored
  * in the dict entry metadata. See Slot to Key API below. */
@@ -2214,7 +2211,7 @@ int clusterProcessPacket(clusterLink *link) {
                 "Ignoring FAIL message from unknown node %.40s about %.40s",
                 hdr->sender, hdr->data.fail.about.nodename);
         }
-    } else if (type == CLUSTERMSG_TYPE_PUBLISH) {
+    } else if (type == CLUSTERMSG_TYPE_PUBLISH || type == CLUSTERMSG_TYPE_PUBLISHLOCAL) {
         if (!sender) return 1;  /* We don't know that node. */
 
         robj *channel, *message;
@@ -2222,8 +2219,10 @@ int clusterProcessPacket(clusterLink *link) {
 
         /* Don't bother creating useless objects if there are no
          * Pub/Sub subscribers. */
-        if (dictSize(server.pubsub_channels) ||
-           dictSize(server.pubsub_patterns))
+        if (type == CLUSTERMSG_TYPE_PUBLISH
+            && serverPubsubSubscriptionCount() > 0
+        || type == CLUSTERMSG_TYPE_PUBLISHLOCAL
+            && dictSize(server.pubsublocal_channels) > 0)
         {
             channel_len = ntohl(hdr->data.publish.msg.channel_len);
             message_len = ntohl(hdr->data.publish.msg.message_len);
@@ -2232,27 +2231,11 @@ int clusterProcessPacket(clusterLink *link) {
             message = createStringObject(
                         (char*)hdr->data.publish.msg.bulk_data+channel_len,
                         message_len);
-            pubsubPublishMessage(channel,message);
-            decrRefCount(channel);
-            decrRefCount(message);
-        }
-    } else if (type == CLUSTERMSG_TYPE_PUBLISHLOCAL) {
-        if (!sender) return 1;  /* We don't know that node. */
-
-        robj *channel, *message;
-        uint32_t channel_len, message_len;
-
-        /* Don't bother creating useless objects if there are no
-         * Pub/Sub subscribers. */
-        if (dictSize(server.pubsublocal_channels)) {
-            channel_len = ntohl(hdr->data.publish.msg.channel_len);
-            message_len = ntohl(hdr->data.publish.msg.message_len);
-            channel = createStringObject(
-                    (char*)hdr->data.publish.msg.bulk_data,channel_len);
-            message = createStringObject(
-                    (char*)hdr->data.publish.msg.bulk_data+channel_len,
-                    message_len);
-            pubsubPublishMessageLocal(channel,message);
+            if (type == CLUSTERMSG_TYPE_PUBLISHLOCAL) {
+                pubsubPublishMessageLocal(channel,message);
+            } else {
+                pubsubPublishMessage(channel,message);
+            }
             decrRefCount(channel);
             decrRefCount(message);
         }
@@ -5246,8 +5229,22 @@ void removeChannelsInSlot(unsigned int slot) {
     unsigned int channelcount = countChannelsInSlot(slot);
     if (channelcount == 0) return;
 
+    /* Retrieve all the channels for the slot. */
     robj **channels = zmalloc(sizeof(robj*)*channelcount);
-    getChannelsInSlot(slot,channels);
+    raxIterator iter;
+    int j = 0;
+    unsigned char indexed[2];
+
+    indexed[0] = (slot >> 8) & 0xff;
+    indexed[1] = slot & 0xff;
+    raxStart(&iter,server.cluster->slots_to_channels);
+    raxSeek(&iter,">=",indexed,2);
+    while(raxNext(&iter)) {
+        if (iter.key[0] != indexed[0] || iter.key[1] != indexed[1]) break;
+        channels[j++] = createStringObject((char*)iter.key + 2, iter.key_len - 2);
+    }
+    raxStop(&iter);
+
     pubsubUnsubscribeLocalChannels(channels,channelcount);
     zfree(channels);
 }
@@ -6107,7 +6104,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
      * if it is a read command and when allow_reads_when_down is enabled. */
     if (server.cluster->state != CLUSTER_OK) {
         if (is_pubsublocal) {
-            if (!server.cluster_allow_pubsub_when_down) {
+            if (!server.cluster_allow_pubsublocal_when_down) {
                 if (error_code) *error_code = CLUSTER_REDIR_DOWN_STATE;
                 return NULL;
             }
@@ -6385,4 +6382,52 @@ unsigned int delKeysInSlot(unsigned int hashslot) {
 
 unsigned int countKeysInSlot(unsigned int hashslot) {
     return server.cluster->slots_to_keys[hashslot].count;
+}
+
+/* -----------------------------------------------------------------------------
+ * Operation(s) on channel rax tree.
+ * -------------------------------------------------------------------------- */
+
+void slotToChannelUpdate(sds channel, int add) {
+    size_t keylen = sdslen(channel);
+    unsigned int hashslot = keyHashSlot(channel,keylen);
+    unsigned char buf[64];
+    unsigned char *indexed = buf;
+
+    if (keylen+2 > 64) indexed = zmalloc(keylen+2);
+    indexed[0] = (hashslot >> 8) & 0xff;
+    indexed[1] = hashslot & 0xff;
+    memcpy(indexed+2,channel,keylen);
+    if (add) {
+        raxInsert(server.cluster->slots_to_channels,indexed,keylen+2,NULL,NULL);
+    } else {
+        raxRemove(server.cluster->slots_to_channels,indexed,keylen+2,NULL);
+    }
+    if (indexed != buf) zfree(indexed);
+}
+
+void slotToChannelAdd(sds channel) {
+    slotToChannelUpdate(channel,1);
+}
+
+void slotToChannelDel(sds channel) {
+    slotToChannelUpdate(channel,0);
+}
+
+/* Get the count of the channels for a given slot. */
+unsigned int countChannelsInSlot(unsigned int hashslot) {
+    raxIterator iter;
+    int j = 0;
+    unsigned char indexed[2];
+
+    indexed[0] = (hashslot >> 8) & 0xff;
+    indexed[1] = hashslot & 0xff;
+    raxStart(&iter,server.cluster->slots_to_channels);
+    raxSeek(&iter,">=",indexed,2);
+    while(raxNext(&iter)) {
+        if (iter.key[0] != indexed[0] || iter.key[1] != indexed[1]) break;
+        j++;
+    }
+    raxStop(&iter);
+    return j;
 }

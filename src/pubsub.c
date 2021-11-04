@@ -215,6 +215,11 @@ void addReplyPubsubPatUnsubscribed(client *c, robj *pattern) {
  * Pubsub low level API
  *----------------------------------------------------------------------------*/
 
+/* Return the number of pubsub channels + patterns is handled. */
+int serverPubsubSubscriptionCount() {
+    return dictSize(server.pubsub_channels) + dictSize(server.pubsub_patterns);
+}
+
 /* Return the number of channels + patterns a client is subscribed to. */
 int clientSubscriptionsCount(client *c) {
     return dictSize(c->pubsub_channels) + listLength(c->pubsub_patterns);
@@ -575,7 +580,7 @@ void subscribeCommand(client *c) {
     c->flags |= CLIENT_PUBSUB;
 }
 
-/* UNSUBSCRIBE [channel [channel ...]] */
+/* UNSUBSCRIBE [channel ...] */
 void unsubscribeCommand(client *c) {
     if (c->argc == 1) {
         pubsubUnsubscribeAllChannels(c,1);
@@ -760,7 +765,7 @@ void subscribeLocalCommand(client *c) {
 }
 
 
-/* UNSUBSCRIBELOCAL [channel [channel ...]] */
+/* UNSUBSCRIBELOCAL [channel ...] */
 void unsubscribeLocalCommand(client *c) {
     if (c->argc == 1) {
         pubsubUnsubscribeLocalAllChannels(c,1);

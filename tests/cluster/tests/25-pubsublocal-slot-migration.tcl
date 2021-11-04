@@ -54,7 +54,6 @@ test "Client subscribes to multiple channels, migrate a slot, verify client rece
     $subscribeclient subscribelocal $channelname
     $subscribeclient read
 
-    $subscribeclient deferred 1
     $subscribeclient subscribelocal $anotherchannelname
     $subscribeclient read
 
