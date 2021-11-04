@@ -1013,17 +1013,12 @@ test {replica can handle EINTR if use diskless load} {
             $slave config set watchdog-period 200
             # Block slave in read()
             $master config set rdb-key-save-delay 10000
+            set loglines [count_log_lines -1]
             # Start the replication process...
             $slave slaveof $master_host $master_port
 
             # wait for the slave to start reading the rdb
-            wait_for_condition 50 100 {
-                [s -1 loading] eq 1
-            } else {
-                fail "Replication not started."
-            }
-            assert [log_file_matches $slave_log "*WATCHDOG TIMER EXPIRED*"]
-            assert ![log_file_matches $slave_log "*Reconnecting to MASTER*"]
+            set res [wait_for_log_messages -1 {"*WATCHDOG TIMER EXPIRED*"} $loglines 800 10]
             assert_equal 1 [s 0 sync_full]
         }
     }
