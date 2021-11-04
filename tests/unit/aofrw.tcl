@@ -1,4 +1,4 @@
-start_server {tags {"aofrw"}} {
+start_server {tags {"aofrw external:skip"}} {
     # Enable the AOF
     r config set appendonly yes
     r config set auto-aof-rewrite-percentage 0 ; # Disable auto-rewrite.
@@ -57,7 +57,7 @@ start_server {tags {"aofrw"}} {
     }
 }
 
-start_server {tags {"aofrw"} overrides {aof-use-rdb-preamble no}} {
+start_server {tags {"aofrw external:skip"} overrides {aof-use-rdb-preamble no}} {
     test {Turning off AOF kills the background writing child if any} {
         r config set appendonly yes
         waitForBgrewriteaof r
@@ -127,10 +127,10 @@ start_server {tags {"aofrw"} overrides {aof-use-rdb-preamble no}} {
     }
 
     foreach d {string int} {
-        foreach e {ziplist hashtable} {
+        foreach e {listpack hashtable} {
             test "AOF rewrite of hash with $e encoding, $d data" {
                 r flushall
-                if {$e eq {ziplist}} {set len 10} else {set len 1000}
+                if {$e eq {listpack}} {set len 10} else {set len 1000}
                 for {set j 0} {$j < $len} {incr j} {
                     if {$d eq {string}} {
                         set data [randstring 0 16 alpha]
@@ -153,10 +153,10 @@ start_server {tags {"aofrw"} overrides {aof-use-rdb-preamble no}} {
     }
 
     foreach d {string int} {
-        foreach e {ziplist skiplist} {
+        foreach e {listpack skiplist} {
             test "AOF rewrite of zset with $e encoding, $d data" {
                 r flushall
-                if {$e eq {ziplist}} {set len 10} else {set len 1000}
+                if {$e eq {listpack}} {set len 10} else {set len 1000}
                 for {set j 0} {$j < $len} {incr j} {
                     if {$d eq {string}} {
                         set data [randstring 0 16 alpha]

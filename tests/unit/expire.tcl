@@ -96,7 +96,9 @@ start_server {tags {"expire"}} {
         # server is under pressure, so if it does not work give it a few more
         # chances.
         for {set j 0} {$j < 30} {incr j} {
-            r del x y z
+            r del x
+            r del y
+            r del z
             r psetex x 100 somevalue
             after 80
             set a [r get x]
@@ -172,32 +174,34 @@ start_server {tags {"expire"}} {
         r psetex key1 500 a
         r psetex key2 500 a
         r psetex key3 500 a
-        set size1 [r dbsize]
+        assert_equal 3 [r dbsize]
         # Redis expires random keys ten times every second so we are
         # fairly sure that all the three keys should be evicted after
-        # one second.
-        after 1000
-        set size2 [r dbsize]
-        list $size1 $size2
-    } {3 0}
+        # two seconds.
+        wait_for_condition 20 100 {
+            [r dbsize] eq 0
+        } fail {
+            "Keys did not actively expire."
+        }
+    }
 
     test {Redis should lazy expire keys} {
         r flushdb
         r debug set-active-expire 0
-        r psetex key1 500 a
-        r psetex key2 500 a
-        r psetex key3 500 a
+        r psetex key1{t} 500 a
+        r psetex key2{t} 500 a
+        r psetex key3{t} 500 a
         set size1 [r dbsize]
         # Redis expires random keys ten times every second so we are
         # fairly sure that all the three keys should be evicted after
         # one second.
         after 1000
         set size2 [r dbsize]
-        r mget key1 key2 key3
+        r mget key1{t} key2{t} key3{t}
         set size3 [r dbsize]
         r debug set-active-expire 1
         list $size1 $size2 $size3
-    } {3 3 0}
+    } {3 3 0} {needs:debug}
 
     test {EXPIRE should not resurrect keys (issue #1026)} {
         r debug set-active-expire 0
@@ -207,7 +211,7 @@ start_server {tags {"expire"}} {
         r expire foo 10
         r debug set-active-expire 1
         r exists foo
-    } {0}
+    } {0} {needs:debug}
 
     test {5 keys in, 5 keys out} {
         r flushdb
@@ -217,8 +221,9 @@ start_server {tags {"expire"}} {
         r set e c
         r set s c
         r set foo b
-        lsort [r keys *]
-    } {a e foo s t}
+        assert_equal [lsort [r keys *]] {a e foo s t}
+        r del a ; # Do not leak volatile keys to other tests
+    }
 
     test {EXPIRE with empty string as TTL should report an error} {
         r set foo bar
@@ -279,7 +284,7 @@ start_server {tags {"expire"}} {
     } {-2}
 
     # Start a new server with empty data and AOF file.
-    start_server {overrides {appendonly {yes} appendfilename {appendonly.aof} appendfsync always}} {
+    start_server {overrides {appendonly {yes} appendfilename {appendonly.aof} appendfsync always} tags {external:skip}} {
         test {All time-to-live(TTL) in commands are propagated as absolute timestamp in milliseconds in AOF} {
             # This test makes sure that expire times are propagated as absolute
             # times to the AOF file and not as relative time, so that when the AOF
@@ -417,7 +422,7 @@ start_server {tags {"expire"}} {
             assert_equal [r pexpiretime foo16] "-1" ; # foo16 has no TTL
             assert_equal [r pexpiretime foo17] $ttl17
             assert_equal [r pexpiretime foo18] $ttl18
-        }
+        } {} {needs:debug}
     }
 
     test {All TTL in commands are propagated as absolute timestamp in replication stream} {
@@ -429,12 +434,13 @@ start_server {tags {"expire"}} {
         #    stream, which is as absolute timestamps.
         # See: https://github.com/redis/redis/issues/8433
 
+        r flushall ; # Clean up keyspace to avoid interference by keys from other tests
         set repl [attach_to_replication_stream]
         # SET commands
         r set foo1 bar ex 200
         r set foo1 bar px 100000
         r set foo1 bar exat [expr [clock seconds]+100]
-        r set foo1 bar pxat [expr [clock milliseconds]+10000]
+        r set foo1 bar pxat [expr [clock milliseconds]+100000]
         r setex foo1 100 bar
         r psetex foo1 100000 bar
         r set foo2 bar
@@ -450,7 +456,7 @@ start_server {tags {"expire"}} {
         r getex foo4 ex 200
         r getex foo4 px 200000
         r getex foo4 exat [expr [clock seconds]+100]
-        r getex foo4 pxat [expr [clock milliseconds]+10000]
+        r getex foo4 pxat [expr [clock milliseconds]+100000]
         # RESTORE commands
         r set foo5 bar
         set encoded [r dump foo5]
@@ -481,10 +487,10 @@ start_server {tags {"expire"}} {
             {restore foo6 * {*} ABSTTL}
             {restore foo7 * {*} absttl}
         }
-    }
+    } {} {needs:repl}
 
     # Start another server to test replication of TTLs
-    start_server {} {
+    start_server {tags {needs:repl external:skip}} {
         # Set the outer layer server as primary
         set primary [srv -1 client]
         set primary_host [srv -1 host]
@@ -566,7 +572,7 @@ start_server {tags {"expire"}} {
         r debug loadaof
         set ttl [r ttl foo]
         assert {$ttl <= 98 && $ttl > 90}
-    }
+    } {} {needs:debug}
 
     test {GETEX use of PERSIST option should remove TTL} {
        r set foo bar EX 100
@@ -580,7 +586,7 @@ start_server {tags {"expire"}} {
        after 2000
        r debug loadaof
        r ttl foo
-    } {-1}
+    } {-1} {needs:debug}
 
     test {GETEX propagate as to replica as PERSIST, DEL, or nothing} {
        set repl [attach_to_replication_stream]
@@ -594,5 +600,126 @@ start_server {tags {"expire"}} {
            {persist foo}
            {del foo}
         }
-    }
+    } {} {needs:repl}
+
+    test {EXPIRE with NX option on a key with ttl} {
+        r SET foo bar EX 100
+        assert_equal [r EXPIRE foo 200 NX] 0
+        assert_range [r TTL foo] 50 100
+    } {}
+
+    test {EXPIRE with NX option on a key without ttl} {
+        r SET foo bar
+        assert_equal [r EXPIRE foo 200 NX] 1
+        assert_range [r TTL foo] 100 200
+    } {}
+
+    test {EXPIRE with XX option on a key with ttl} {
+        r SET foo bar EX 100
+        assert_equal [r EXPIRE foo 200 XX] 1
+        assert_range [r TTL foo] 100 200
+    } {}
+
+    test {EXPIRE with XX option on a key without ttl} {
+        r SET foo bar
+        assert_equal [r EXPIRE foo 200 XX] 0
+        assert_equal [r TTL foo] -1
+    } {}
+
+    test {EXPIRE with GT option on a key with lower ttl} {
+        r SET foo bar EX 100
+        assert_equal [r EXPIRE foo 200 GT] 1
+        assert_range [r TTL foo] 100 200
+    } {}
+
+    test {EXPIRE with GT option on a key with higher ttl} {
+        r SET foo bar EX 200
+        assert_equal [r EXPIRE foo 100 GT] 0
+        assert_range [r TTL foo] 100 200
+    } {}
+
+    test {EXPIRE with GT option on a key without ttl} {
+        r SET foo bar
+        assert_equal [r EXPIRE foo 200 GT] 0
+        assert_equal [r TTL foo] -1
+    } {}
+
+    test {EXPIRE with LT option on a key with higher ttl} {
+        r SET foo bar EX 100
+        assert_equal [r EXPIRE foo 200 LT] 0
+        assert_range [r TTL foo] 50 100
+    } {}
+
+    test {EXPIRE with LT option on a key with lower ttl} {
+        r SET foo bar EX 200
+        assert_equal [r EXPIRE foo 100 LT] 1
+        assert_range [r TTL foo] 50 100
+    } {}
+
+    test {EXPIRE with LT option on a key without ttl} {
+        r SET foo bar
+        assert_equal [r EXPIRE foo 100 LT] 1
+        assert_range [r TTL foo] 50 100
+    } {}
+
+    test {EXPIRE with LT and XX option on a key with ttl} {
+        r SET foo bar EX 200
+        assert_equal [r EXPIRE foo 100 LT XX] 1
+        assert_range [r TTL foo] 50 100
+    } {}
+
+    test {EXPIRE with LT and XX option on a key without ttl} {
+        r SET foo bar
+        assert_equal [r EXPIRE foo 200 LT XX] 0
+        assert_equal [r TTL foo] -1
+    } {}
+
+    test {EXPIRE with conflicting options: LT GT} {
+        catch {r EXPIRE foo 200 LT GT} e
+        set e
+    } {ERR GT and LT options at the same time are not compatible}
+
+    test {EXPIRE with conflicting options: NX GT} {
+        catch {r EXPIRE foo 200 NX GT} e
+        set e
+    } {ERR NX and XX, GT or LT options at the same time are not compatible}
+
+    test {EXPIRE with conflicting options: NX LT} {
+        catch {r EXPIRE foo 200 NX LT} e
+        set e
+    } {ERR NX and XX, GT or LT options at the same time are not compatible}
+
+    test {EXPIRE with conflicting options: NX XX} {
+        catch {r EXPIRE foo 200 NX XX} e
+        set e
+    } {ERR NX and XX, GT or LT options at the same time are not compatible}
+
+    test {EXPIRE with unsupported options} {
+        catch {r EXPIRE foo 200 AB} e
+        set e
+    } {ERR Unsupported option AB}
+
+    test {EXPIRE with unsupported options} {
+        catch {r EXPIRE foo 200 XX AB} e
+        set e
+    } {ERR Unsupported option AB}
+
+    test {EXPIRE with negative expiry} {
+        r SET foo bar EX 100
+        assert_equal [r EXPIRE foo -10 LT] 1
+        assert_equal [r TTL foo] -2
+    } {}
+
+    test {EXPIRE with negative expiry on a non-valitale key} {
+        r SET foo bar
+        assert_equal [r EXPIRE foo -10 LT] 1
+        assert_equal [r TTL foo] -2
+    } {}
+
+    test {EXPIRE with non-existed key} {
+        assert_equal [r EXPIRE none 100 NX] 0
+        assert_equal [r EXPIRE none 100 XX] 0
+        assert_equal [r EXPIRE none 100 GT] 0
+        assert_equal [r EXPIRE none 100 LT] 0
+    } {}
 }

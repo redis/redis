@@ -1,4 +1,149 @@
-start_server {tags {"maxmemory"}} {
+start_server {tags {"maxmemory" "external:skip"}} {
+    r config set maxmemory 11mb
+    r config set maxmemory-policy allkeys-lru
+    set server_pid [s process_id]
+
+    proc init_test {client_eviction} {
+        r flushdb
+
+        set prev_maxmemory_clients [r config get maxmemory-clients]
+        if $client_eviction {
+            r config set maxmemory-clients 3mb
+            r client no-evict on
+        } else {
+            r config set maxmemory-clients 0
+        }
+
+        r config resetstat
+        # fill 5mb using 50 keys of 100kb
+        for {set j 0} {$j < 50} {incr j} {
+            r setrange $j 100000 x
+        }
+        assert_equal [r dbsize] 50
+    }
+    
+    # Return true if the eviction occurred (client or key) based on argument
+    proc check_eviction_test {client_eviction} {
+        set evicted_keys [s evicted_keys]
+        set evicted_clients [s evicted_clients]
+        set dbsize [r dbsize]
+        
+        if $client_eviction {
+            return [expr $evicted_clients > 0 && $evicted_keys == 0 && $dbsize == 50]
+        } else {
+            return [expr $evicted_clients == 0 && $evicted_keys > 0 && $dbsize < 50]
+        }
+    }
+
+    # Assert the eviction test passed (and prints some debug info on verbose)
+    proc verify_eviction_test {client_eviction} {
+        set evicted_keys [s evicted_keys]
+        set evicted_clients [s evicted_clients]
+        set dbsize [r dbsize]
+        
+        if $::verbose {
+            puts "evicted keys: $evicted_keys"
+            puts "evicted clients: $evicted_clients"
+            puts "dbsize: $dbsize"
+        }
+
+        assert [check_eviction_test $client_eviction]
+    }
+
+    foreach {client_eviction} {false true} {
+        set clients {}
+        test "eviction due to output buffers of many MGET clients, client eviction: $client_eviction" {
+            init_test $client_eviction
+
+            for {set j 0} {$j < 20} {incr j} {
+                set rr [redis_deferring_client]
+                lappend clients $rr
+            }
+            
+            # Generate client output buffers via MGET until we can observe some effect on 
+            # keys / client eviction, or we time out.
+            set t [clock seconds]
+            while {![check_eviction_test $client_eviction] && [expr [clock seconds] - $t] < 20} {
+                foreach rr $clients {
+                    if {[catch {
+                        $rr mget 1
+                        $rr flush
+                    } err]} {
+                        lremove clients $rr
+                    }
+                }
+            }
+
+            verify_eviction_test $client_eviction
+        }
+        foreach rr $clients {
+            $rr close
+        }
+
+        set clients {}
+        test "eviction due to input buffer of a dead client, client eviction: $client_eviction" {
+            init_test $client_eviction
+            
+            for {set j 0} {$j < 30} {incr j} {
+                set rr [redis_deferring_client]
+                lappend clients $rr
+            }
+
+            foreach rr $clients {
+                if {[catch {
+                    $rr write "*250\r\n"
+                    for {set j 0} {$j < 249} {incr j} {
+                        $rr write "\$1000\r\n"
+                        $rr write [string repeat x 1000]
+                        $rr write "\r\n"
+                        $rr flush
+                    }
+                }]} {
+                    lremove clients $rr
+                }
+            }
+
+            verify_eviction_test $client_eviction
+        }
+        foreach rr $clients {
+            $rr close
+        }
+
+        set clients {}
+        test "eviction due to output buffers of pubsub, client eviction: $client_eviction" {
+            init_test $client_eviction
+
+            for {set j 0} {$j < 20} {incr j} {
+                set rr [redis_client]
+                lappend clients $rr
+            }
+
+            foreach rr $clients {
+                $rr subscribe bla
+            }
+
+            # Generate client output buffers via PUBLISH until we can observe some effect on 
+            # keys / client eviction, or we time out.
+            set bigstr [string repeat x 100000]
+            set t [clock seconds]
+            while {![check_eviction_test $client_eviction] && [expr [clock seconds] - $t] < 20} {
+                if {[catch { r publish bla $bigstr } err]} {
+                    if $::verbose {
+                        puts "Error publishing: $err"
+                    }
+                }
+            }
+
+            verify_eviction_test $client_eviction
+        }
+        foreach rr $clients {
+            $rr close
+        }
+    }
+
+}
+
+start_server {tags {"maxmemory external:skip"}} {
     test "Without maxmemory small integers are shared" {
         r config set maxmemory 0
         r set a 1
@@ -143,8 +288,20 @@ start_server {tags {"maxmemory"}} {
     }
 }
 
+# Calculate query buffer memory of slave
+proc slave_query_buffer {srv} {
+    set clients [split [$srv client list] "\r\n"]
+    set c [lsearch -inline $clients *flags=S*]
+    if {[string length $c] > 0} {
+        assert {[regexp {qbuf=([0-9]+)} $c - qbuf]}
+        assert {[regexp {qbuf-free=([0-9]+)} $c - qbuf_free]}
+        return [expr $qbuf + $qbuf_free]
+    }
+    return 0
+}
+
 proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} {
-    start_server {tags {"maxmemory"}} {
+    start_server {tags {"maxmemory external:skip"}} {
         start_server {} {
         set slave_pid [s process_id]
         test "$test_name" {
@@ -154,6 +311,9 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
             set master [srv -1 client]
             set master_host [srv -1 host]
             set master_port [srv -1 port]
+
+            # Disable slow log for master to avoid memory growth in slow env.
+            $master config set slowlog-log-slower-than -1
 
             # add 100 keys of 100k (10MB total)
             for {set j 0} {$j < 100} {incr j} {
@@ -195,7 +355,7 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
                     $rd_master setrange key:0 0 [string repeat A $payload_len]
                 }
                 for {set k 0} {$k < $cmd_count} {incr k} {
-                    #$rd_master read
+                    $rd_master read
                 }
             } else {
                 for {set k 0} {$k < $cmd_count} {incr k} {
@@ -207,7 +367,13 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
             set slave_buf [s -1 mem_clients_slaves]
             set client_buf [s -1 mem_clients_normal]
             set mem_not_counted_for_evict [s -1 mem_not_counted_for_evict]
-            set used_no_repl [expr {$new_used - $mem_not_counted_for_evict}]
+            set used_no_repl [expr {$new_used - $mem_not_counted_for_evict - [slave_query_buffer $master]}]
+            # we need to exclude replies buffer and query buffer of replica from used memory.
+            # removing the replica (output) buffers is done so that we are able to measure any other
+            # changes to the used memory and see that they're insignificant (the test's purpose is to check that
+            # the replica buffers are counted correctly, so the used memory growth after deducting them
+            # should be nearly 0).
+            # we remove the query buffers because on slow test platforms, they can accumulate many ACKs.
             set delta [expr {($used_no_repl - $client_buf) - ($orig_used_no_repl - $orig_client_buf)}]
 
             assert {[$master dbsize] == 100}
@@ -216,11 +382,14 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
             assert {$delta < $delta_max && $delta > -$delta_max}
 
             $master client kill type slave
-            set killed_used [s -1 used_memory]
+            set info_str [$master info memory]
+            set killed_used [getInfoProperty $info_str used_memory]
+            set killed_mem_not_counted_for_evict [getInfoProperty $info_str mem_not_counted_for_evict]
             set killed_slave_buf [s -1 mem_clients_slaves]
-            set killed_mem_not_counted_for_evict [s -1 mem_not_counted_for_evict]
-            set killed_used_no_repl [expr {$killed_used - $killed_mem_not_counted_for_evict}]
+            # we need to exclude replies buffer and query buffer of slave from used memory after kill slave
+            set killed_used_no_repl [expr {$killed_used - $killed_mem_not_counted_for_evict - [slave_query_buffer $master]}]
             set delta_no_repl [expr {$killed_used_no_repl - $used_no_repl}]
+            assert {[$master dbsize] == 100}
             assert {$killed_slave_buf == 0}
             assert {$delta_no_repl > -$delta_max && $delta_no_repl < $delta_max}
 
@@ -241,7 +410,7 @@ test_slave_buffers {slave buffer are counted correctly} 1000000 10 0 1
 # test again with fewer (and bigger) commands without pipeline, but with eviction
 test_slave_buffers "replica buffer don't induce eviction" 100000 100 1 0
 
-start_server {tags {"maxmemory"}} {
+start_server {tags {"maxmemory external:skip"}} {
     test {Don't rehash if used memory exceeds maxmemory after rehash} {
         r config set maxmemory 0
         r config set maxmemory-policy allkeys-random
@@ -261,7 +430,7 @@ start_server {tags {"maxmemory"}} {
     } {4098}
 }
 
-start_server {tags {"maxmemory"}} {
+start_server {tags {"maxmemory external:skip"}} {
     test {client tracking don't cause eviction feedback loop} {
         r config set maxmemory 0
         r config set maxmemory-policy allkeys-lru

@@ -28,6 +28,7 @@
  */
 
 #include "server.h"
+#include "cluster.h"
 
 /* Structure to hold the pubsub related metadata. Currently used
  * for pubsub and pubsublocal feature. */
@@ -504,6 +505,7 @@ int pubsubPublishMessageInternal(robj *channel, robj *message, pubsubtype type) 
         while ((ln = listNext(&li)) != NULL) {
             client *c = ln->value;
             addReplyPubsubMessage(c,channel,message);
+            updateClientMemUsage(c);
             receivers++;
         }
     }
@@ -529,6 +531,7 @@ int pubsubPublishMessageInternal(robj *channel, robj *message, pubsubtype type) 
             while ((ln = listNext(&li)) != NULL) {
                 client *c = listNodeValue(ln);
                 addReplyPubsubPatMessage(c,pattern,channel,message);
+                updateClientMemUsage(c);
                 receivers++;
             }
         }
@@ -562,7 +565,7 @@ void subscribeCommand(client *c) {
          * expect a reply per command and so can not execute subscribe.
          *
          * Notice that we have a special treatment for multi because of
-         * backword compatibility
+         * backward compatibility
          */
         addReplyError(c, "SUBSCRIBE isn't allowed for a DENY BLOCKING client");
         return;
@@ -594,7 +597,7 @@ void psubscribeCommand(client *c) {
          * expect a reply per command and so can not execute subscribe.
          *
          * Notice that we have a special treatment for multi because of
-         * backword compatibility
+         * backward compatibility
          */
         addReplyError(c, "PSUBSCRIBE isn't allowed for a DENY BLOCKING client");
         return;
@@ -620,6 +623,11 @@ void punsubscribeCommand(client *c) {
 
 /* PUBLISH <channel> <message> */
 void publishCommand(client *c) {
+    if (server.sentinel_mode) {
+        sentinelPublishCommand(c);
+        return;
+    }
+
     int receivers = pubsubPublishMessage(c->argv[1],c->argv[2]);
     if (server.cluster_enabled)
         clusterPropagatePublish(c->argv[1],c->argv[2]);

@@ -6,7 +6,7 @@ proc errorstat {cmd} {
     return [errorrstat $cmd r]
 }
 
-start_server {tags {"info"}} {
+start_server {tags {"info" "external:skip"}} {
     start_server {} {
 
         test {errorstats: failed call authentication error} {
@@ -51,7 +51,7 @@ start_server {tags {"info"}} {
             assert_equal [s total_error_replies] 0
             catch {r eval {redis.pcall('XGROUP', 'CREATECONSUMER', 's1', 'mygroup', 'consumer') return } 0} e
             assert_match {*count=1*} [errorstat ERR]
-            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat xgroup]
+            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat xgroup\\|createconsumer]
             assert_match {*calls=1,*,rejected_calls=0,failed_calls=0} [cmdstat eval]
 
             # EVAL command errors should still be pinpointed to him
@@ -83,7 +83,7 @@ start_server {tags {"info"}} {
             catch {r XGROUP CREATECONSUMER mystream mygroup consumer} e
             assert_match {NOGROUP*} $e
             assert_match {*count=1*} [errorstat NOGROUP]
-            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat xgroup]
+            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat xgroup\\|createconsumer]
             r config resetstat
             assert_match {} [errorstat NOGROUP]
         }
@@ -110,11 +110,12 @@ start_server {tags {"info"}} {
             catch {r exec} e
             assert_match {EXECABORT*} $e
             assert_match {*count=1*} [errorstat ERR]
-            assert_equal [s total_error_replies] 1
+            assert_match {*count=1*} [errorstat EXECABORT]
+            assert_equal [s total_error_replies] 2
             assert_match {*calls=0,*,rejected_calls=1,failed_calls=0} [cmdstat set]
             assert_match {*calls=1,*,rejected_calls=0,failed_calls=0} [cmdstat multi]
-            assert_match {*calls=1,*,rejected_calls=0,failed_calls=0} [cmdstat exec]
-            assert_equal [s total_error_replies] 1
+            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat exec]
+            assert_equal [s total_error_replies] 2
             r config resetstat
             assert_match {} [errorstat ERR]
         }

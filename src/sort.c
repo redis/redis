@@ -189,7 +189,7 @@ int sortCompare(const void *s1, const void *s2) {
 
 /* The SORT command is the most complex command in Redis. Warning: this code
  * is optimized for speed and a bit less for readability */
-void sortCommand(client *c) {
+void sortCommandGeneric(client *c, int readonly) {
     list *operations;
     unsigned int outputlen = 0;
     int desc = 0, alpha = 0;
@@ -226,7 +226,7 @@ void sortCommand(client *c) {
                 break;
             }
             j+=2;
-        } else if (!strcasecmp(c->argv[j]->ptr,"store") && leftargs >= 1) {
+        } else if (readonly == 0 && !strcasecmp(c->argv[j]->ptr,"store") && leftargs >= 1) {
             storekey = c->argv[j+1];
             j++;
         } else if (!strcasecmp(c->argv[j]->ptr,"by") && leftargs >= 1) {
@@ -312,7 +312,7 @@ void sortCommand(client *c) {
     if (sortval->type == OBJ_ZSET)
         zsetConvert(sortval, OBJ_ENCODING_SKIPLIST);
 
-    /* Objtain the length of the object to sort. */
+    /* Obtain the length of the object to sort. */
     switch(sortval->type) {
     case OBJ_LIST: vectorlen = listTypeLength(sortval); break;
     case OBJ_SET: vectorlen =  setTypeSize(sortval); break;
@@ -570,7 +570,7 @@ void sortCommand(client *c) {
             }
         }
         if (outputlen) {
-            setKey(c,c->db,storekey,sobj);
+            setKey(c,c->db,storekey,sobj,0);
             notifyKeyspaceEvent(NOTIFY_LIST,"sortstore",storekey,
                                 c->db->id);
             server.dirty += outputlen;
@@ -594,4 +594,13 @@ void sortCommand(client *c) {
             decrRefCount(vector[j].u.cmpobj);
     }
     zfree(vector);
+}
+
+/* SORT wrapper function for read-only mode. */
+void sortroCommand(client *c) {
+    sortCommandGeneric(c, 1);
+}
+
+void sortCommand(client *c) {
+    sortCommandGeneric(c, 0);
 }

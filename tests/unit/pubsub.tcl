@@ -1,4 +1,10 @@
 start_server {tags {"pubsub network"}} {
+    if {$::singledb} {
+        set db 0
+    } else {
+        set db 9
+    }
+
     test "Pub/Sub PING" {
         set rd1 [redis_deferring_client]
         subscribe $rd1 somechannel
@@ -152,6 +158,24 @@ start_server {tags {"pubsub network"}} {
         r pubsub numsub abc def
     } {abc 0 def 0}
 
+    test "NUMPATs returns the number of unique patterns" {
+        set rd1 [redis_deferring_client]
+        set rd2 [redis_deferring_client]
+
+        # Three unique patterns and one that overlaps
+        psubscribe $rd1 "foo*"
+        psubscribe $rd2 "foo*"
+        psubscribe $rd1 "bar*"
+        psubscribe $rd2 "baz*"
+
+        set patterns [r pubsub numpat]
+
+        # clean up clients
+        punsubscribe $rd1
+        punsubscribe $rd2
+        assert_equal 3 $patterns
+    }
+
     test "Mix SUBSCRIBE and PSUBSCRIBE" {
         set rd1 [redis_deferring_client]
         assert_equal {1} [subscribe $rd1 {foo.bar}]
@@ -182,7 +206,7 @@ start_server {tags {"pubsub network"}} {
         set rd1 [redis_deferring_client]
         assert_equal {1} [psubscribe $rd1 *]
         r set foo bar
-        assert_equal {pmessage * __keyspace@9__:foo set} [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:foo set" [$rd1 read]
         $rd1 close
     }
 
@@ -191,7 +215,7 @@ start_server {tags {"pubsub network"}} {
         set rd1 [redis_deferring_client]
         assert_equal {1} [psubscribe $rd1 *]
         r set foo bar
-        assert_equal {pmessage * __keyevent@9__:set foo} [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:set foo" [$rd1 read]
         $rd1 close
     }
 
@@ -200,8 +224,8 @@ start_server {tags {"pubsub network"}} {
         set rd1 [redis_deferring_client]
         assert_equal {1} [psubscribe $rd1 *]
         r set foo bar
-        assert_equal {pmessage * __keyspace@9__:foo set} [$rd1 read]
-        assert_equal {pmessage * __keyevent@9__:set foo} [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:foo set" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:set foo" [$rd1 read]
         $rd1 close
     }
 
@@ -213,8 +237,8 @@ start_server {tags {"pubsub network"}} {
         r set foo bar
         r lpush mylist a
         # No notification for set, because only list commands are enabled.
-        assert_equal {pmessage * __keyspace@9__:mylist lpush} [$rd1 read]
-        assert_equal {pmessage * __keyevent@9__:lpush mylist} [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:mylist lpush" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:lpush mylist" [$rd1 read]
         $rd1 close
     }
 
@@ -225,10 +249,10 @@ start_server {tags {"pubsub network"}} {
         r set foo bar
         r expire foo 1
         r del foo
-        assert_equal {pmessage * __keyspace@9__:foo expire} [$rd1 read]
-        assert_equal {pmessage * __keyevent@9__:expire foo} [$rd1 read]
-        assert_equal {pmessage * __keyspace@9__:foo del} [$rd1 read]
-        assert_equal {pmessage * __keyevent@9__:del foo} [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:foo expire" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:expire foo" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:foo del" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:del foo" [$rd1 read]
         $rd1 close
     }
 
@@ -240,12 +264,12 @@ start_server {tags {"pubsub network"}} {
         r lpush mylist a
         r rpush mylist a
         r rpop mylist
-        assert_equal {pmessage * __keyspace@9__:mylist lpush} [$rd1 read]
-        assert_equal {pmessage * __keyevent@9__:lpush mylist} [$rd1 read]
-        assert_equal {pmessage * __keyspace@9__:mylist rpush} [$rd1 read]
-        assert_equal {pmessage * __keyevent@9__:rpush mylist} [$rd1 read]
-        assert_equal {pmessage * __keyspace@9__:mylist rpop} [$rd1 read]
-        assert_equal {pmessage * __keyevent@9__:rpop mylist} [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:mylist lpush" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:lpush mylist" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:mylist rpush" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:rpush mylist" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:mylist rpop" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:rpop mylist" [$rd1 read]
         $rd1 close
     }
 
@@ -258,9 +282,9 @@ start_server {tags {"pubsub network"}} {
         r srem myset x
         r sadd myset x y z
         r srem myset x
-        assert_equal {pmessage * __keyspace@9__:myset sadd} [$rd1 read]
-        assert_equal {pmessage * __keyspace@9__:myset sadd} [$rd1 read]
-        assert_equal {pmessage * __keyspace@9__:myset srem} [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myset sadd" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myset sadd" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myset srem" [$rd1 read]
         $rd1 close
     }
 
@@ -273,9 +297,9 @@ start_server {tags {"pubsub network"}} {
         r zrem myzset x
         r zadd myzset 3 x 4 y 5 z
         r zrem myzset x
-        assert_equal {pmessage * __keyspace@9__:myzset zadd} [$rd1 read]
-        assert_equal {pmessage * __keyspace@9__:myzset zadd} [$rd1 read]
-        assert_equal {pmessage * __keyspace@9__:myzset zrem} [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myzset zadd" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myzset zadd" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myzset zrem" [$rd1 read]
         $rd1 close
     }
 
@@ -286,8 +310,32 @@ start_server {tags {"pubsub network"}} {
         assert_equal {1} [psubscribe $rd1 *]
         r hmset myhash yes 1 no 0
         r hincrby myhash yes 10
-        assert_equal {pmessage * __keyspace@9__:myhash hset} [$rd1 read]
-        assert_equal {pmessage * __keyspace@9__:myhash hincrby} [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myhash hset" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myhash hincrby" [$rd1 read]
+        $rd1 close
+    }
+
+    test "Keyspace notifications: stream events test" {
+        r config set notify-keyspace-events Kt
+        r del mystream
+        set rd1 [redis_deferring_client]
+        assert_equal {1} [psubscribe $rd1 *]
+        r xgroup create mystream mygroup $ mkstream
+        r xgroup createconsumer mystream mygroup Bob
+        set id [r xadd mystream 1 field1 A]
+        r xreadgroup group mygroup Alice STREAMS mystream >
+        r xclaim mystream mygroup Mike 0 $id force
+        # Not notify because of "Lee" not exists.
+        r xgroup delconsumer mystream mygroup Lee
+        # Not notify because of "Bob" exists.
+        r xautoclaim mystream mygroup Bob 0 $id
+        r xgroup delconsumer mystream mygroup Bob
+        assert_equal "pmessage * __keyspace@${db}__:mystream xgroup-create" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:mystream xgroup-createconsumer" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:mystream xadd" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:mystream xgroup-createconsumer" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:mystream xgroup-createconsumer" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:mystream xgroup-delconsumer" [$rd1 read]
         $rd1 close
     }
 
@@ -302,7 +350,7 @@ start_server {tags {"pubsub network"}} {
         } else {
             fail "Key does not expire?!"
         }
-        assert_equal {pmessage * __keyevent@9__:expired foo} [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:expired foo" [$rd1 read]
         $rd1 close
     }
 
@@ -312,7 +360,7 @@ start_server {tags {"pubsub network"}} {
         set rd1 [redis_deferring_client]
         assert_equal {1} [psubscribe $rd1 *]
         r psetex foo 100 1
-        assert_equal {pmessage * __keyevent@9__:expired foo} [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:expired foo" [$rd1 read]
         $rd1 close
     }
 
@@ -324,10 +372,11 @@ start_server {tags {"pubsub network"}} {
         assert_equal {1} [psubscribe $rd1 *]
         r set foo bar
         r config set maxmemory 1
-        assert_equal {pmessage * __keyevent@9__:evicted foo} [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:evicted foo" [$rd1 read]
         r config set maxmemory 0
         $rd1 close
-    }
+        r config set maxmemory-policy noeviction
+    } {OK} {needs:config-maxmemory}
 
     test "Keyspace notifications: test CONFIG GET/SET of event flags" {
         r config set notify-keyspace-events gKE

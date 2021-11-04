@@ -41,6 +41,22 @@ the following additional steps:
    changed, otherwise you could just copy the old implementation if you are
    upgrading just to a similar version of Jemalloc.
 
+#### Updating/upgrading jemalloc
+
+The jemalloc directory is pulled as a subtee from the upstream jemalloc github repo. To update it you should run from the project root:
+
+1. `git subtree pull --prefix deps/jemalloc https://github.com/jemalloc/jemalloc.git <version-tag> --squash`<br>
+This should hopefully merge the local changes into the new version.
+2. In case any conflicts arise (due to our changes) you'll need to resolve them and commit.
+3. Reconfigure jemalloc:<br>
+```sh
+rm deps/jemalloc/VERSION deps/jemalloc/configure
+cd deps/jemalloc
+./autogen.sh --with-version=<version-tag>-0-g0
+```
+4. Update jemalloc's version in `deps/Makefile`: search for "`--with-version=<old-version-tag>-0-g0`" and update it accordingly.
+5. Commit the changes (VERSION,configure,Makefile).
+
 Hiredis
 ---
 
@@ -78,5 +94,3 @@ and our version:
 1. Makefile is modified to allow a different compiler than GCC.
 2. We have the implementation source code, and directly link to the following external libraries: `lua_cjson.o`, `lua_struct.o`, `lua_cmsgpack.o` and `lua_bit.o`.
 3. There is a security fix in `ldo.c`, line 498: The check for `LUA_SIGNATURE[0]` is removed in order to avoid direct bytecode execution.
-
-

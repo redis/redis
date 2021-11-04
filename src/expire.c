@@ -53,24 +53,11 @@
  * to the function to avoid too many gettimeofday() syscalls. */
 int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
     long long t = dictGetSignedIntegerVal(de);
-    mstime_t expire_latency;
     if (now > t) {
         sds key = dictGetKey(de);
         robj *keyobj = createStringObject(key,sdslen(key));
-
-        propagateExpire(db,keyobj,server.lazyfree_lazy_expire);
-        latencyStartMonitor(expire_latency);
-        if (server.lazyfree_lazy_expire)
-            dbAsyncDelete(db,keyobj);
-        else
-            dbSyncDelete(db,keyobj);
-        latencyEndMonitor(expire_latency);
-        latencyAddSampleIfNeeded("expire-del",expire_latency);
-        notifyKeyspaceEvent(NOTIFY_EXPIRED,
-            "expired",keyobj,db->id);
-        signalModifiedKey(NULL, db, keyobj);
+        deleteExpiredKeyAndPropagate(db,keyobj);
         decrRefCount(keyobj);
-        server.stat_expiredkeys++;
         return 1;
     } else {
         return 0;
@@ -258,8 +245,8 @@ void activeExpireCycle(int type) {
                     if (table == 1 && !dictIsRehashing(db->expires)) break;
 
                     unsigned long idx = db->expires_cursor;
-                    idx &= db->expires->ht[table].sizemask;
-                    dictEntry *de = db->expires->ht[table].table[idx];
+                    idx &= DICTHT_SIZE_MASK(db->expires->ht_size_exp[table]);
+                    dictEntry *de = db->expires->ht_table[table][idx];
                     long long ttl;
 
                     /* Scan the current bucket of the current table. */
@@ -439,7 +426,7 @@ void rememberSlaveKeyWithExpire(redisDb *db, robj *key) {
             NULL,                       /* val destructor */
             NULL                        /* allow to expand */
         };
-        slaveKeysWithExpire = dictCreate(&dt,NULL);
+        slaveKeysWithExpire = dictCreate(&dt);
     }
     if (db->id > 63) return;
 
@@ -489,6 +476,56 @@ int checkAlreadyExpired(long long when) {
     return (when <= mstime() && !server.loading && !server.masterhost);
 }
 
+#define EXPIRE_NX (1<<0)
+#define EXPIRE_XX (1<<1)
+#define EXPIRE_GT (1<<2)
+#define EXPIRE_LT (1<<3)
+
+/* Parse additional flags of expire commands
+ *
+ * Supported flags:
+ * - NX: set expiry only when the key has no expiry
+ * - XX: set expiry only when the key has an existing expiry
+ * - GT: set expiry only when the new expiry is greater than current one
+ * - LT: set expiry only when the new expiry is less than current one */
+int parseExtendedExpireArgumentsOrReply(client *c, int *flags) {
+    int nx = 0, xx = 0, gt = 0, lt = 0;
+
+    int j = 3;
+    while (j < c->argc) {
+        char *opt = c->argv[j]->ptr;
+        if (!strcasecmp(opt,"nx")) {
+            *flags |= EXPIRE_NX;
+            nx = 1;
+        } else if (!strcasecmp(opt,"xx")) {
+            *flags |= EXPIRE_XX;
+            xx = 1;
+        } else if (!strcasecmp(opt,"gt")) {
+            *flags |= EXPIRE_GT;
+            gt = 1;
+        } else if (!strcasecmp(opt,"lt")) {
+            *flags |= EXPIRE_LT;
+            lt = 1;
+        } else {
+            addReplyErrorFormat(c, "Unsupported option %s", opt);
+            return C_ERR;
+        }
+        j++;
+    }
+
+    if ((nx && xx) || (nx && gt) || (nx && lt)) {
+        addReplyError(c, "NX and XX, GT or LT options at the same time are not compatible");
+        return C_ERR;
+    }
+
+    if (gt && lt) {
+        addReplyError(c, "GT and LT options at the same time are not compatible");
+        return C_ERR;
+    }
+
+    return C_OK;
+}
+
 /*-----------------------------------------------------------------------------
  * Expires Commands
  *----------------------------------------------------------------------------*/
@@ -499,10 +536,19 @@ int checkAlreadyExpired(long long when) {
  * for *AT variants of the command, or the current time for relative expires).
  *
  * unit is either UNIT_SECONDS or UNIT_MILLISECONDS, and is only used for
- * the argv[2] parameter. The basetime is always specified in milliseconds. */
+ * the argv[2] parameter. The basetime is always specified in milliseconds.
+ *
+ * Additional flags are supported and parsed via parseExtendedExpireArguments */
 void expireGenericCommand(client *c, long long basetime, int unit) {
     robj *key = c->argv[1], *param = c->argv[2];
     long long when; /* unix time in milliseconds when the key will expire. */
+    long long current_expire = -1;
+    int flag = 0;
+
+    /* checking optional flags */
+    if (parseExtendedExpireArgumentsOrReply(c, &flag) != C_OK) {
+        return;
+    }
 
     if (getLongLongFromObjectOrReply(c, param, &when, NULL) != C_OK)
         return;
@@ -519,6 +565,50 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
     if (lookupKeyWrite(c->db,key) == NULL) {
         addReply(c,shared.czero);
         return;
+    }
+
+    if (flag) {
+        current_expire = getExpire(c->db, key);
+
+        /* NX option is set, check current expiry */
+        if (flag & EXPIRE_NX) {
+            if (current_expire != -1) {
+                addReply(c,shared.czero);
+                return;
+            }
+        }
+
+        /* XX option is set, check current expiry */
+        if (flag & EXPIRE_XX) {
+            if (current_expire == -1) {
+                /* reply 0 when the key has no expiry */
+                addReply(c,shared.czero);
+                return;
+            }
+        }
+
+        /* GT option is set, check current expiry */
+        if (flag & EXPIRE_GT) {
+            /* When current_expire is -1, we consider it as infinite TTL,
+             * so expire command with gt always fail the GT. */
+            if (when <= current_expire || current_expire == -1) {
+                /* reply 0 when the new expiry is not greater than current */
+                addReply(c,shared.czero);
+                return;
+            }
+        }
+
+        /* LT option is set, check current expiry */
+        if (flag & EXPIRE_LT) {
+            /* When current_expire -1, we consider it as infinite TTL,
+             * but 'when' can still be negative at this point, so if there is
+             * an expiry on the key and it's not less than current, we fail the LT. */
+            if (current_expire != -1 && when >= current_expire) {
+                /* reply 0 when the new expiry is not less than current */
+                addReply(c,shared.czero);
+                return;
+            }
+        }
     }
 
     if (checkAlreadyExpired(when)) {
@@ -570,7 +660,7 @@ void pexpireatCommand(client *c) {
     expireGenericCommand(c,0,UNIT_MILLISECONDS);
 }
 
-/* Implements TTL, PTTL and EXPIRETIME */
+/* Implements TTL, PTTL, EXPIRETIME and PEXPIRETIME */
 void ttlGenericCommand(client *c, int output_ms, int output_abs) {
     long long expire, ttl = -1;
 
@@ -637,4 +727,3 @@ void touchCommand(client *c) {
         if (lookupKeyRead(c->db,c->argv[j]) != NULL) touched++;
     addReplyLongLong(c,touched);
 }
-

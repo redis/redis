@@ -38,7 +38,7 @@
 
 /* The current RDB version. When the format changes in a way that is no longer
  * backward compatible this number gets incremented. */
-#define RDB_VERSION 9
+#define RDB_VERSION 10
 
 /* Defines related to the dump file format. To store 32 bits lengths for short
  * keys requires a lot of space, so we check the most significant 2 bits of
@@ -91,10 +91,13 @@
 #define RDB_TYPE_HASH_ZIPLIST  13
 #define RDB_TYPE_LIST_QUICKLIST 14
 #define RDB_TYPE_STREAM_LISTPACKS 15
+#define RDB_TYPE_HASH_LISTPACK 16
+#define RDB_TYPE_ZSET_LISTPACK 17
+#define RDB_TYPE_LIST_QUICKLIST_2   18
 /* NOTE: WHEN ADDING NEW RDB TYPE, UPDATE rdbIsObjectType() BELOW */
 
 /* Test if a type is an object type. */
-#define rdbIsObjectType(t) ((t >= 0 && t <= 7) || (t >= 9 && t <= 15))
+#define rdbIsObjectType(t) ((t >= 0 && t <= 7) || (t >= 9 && t <= 18))
 
 /* Special RDB opcodes (saved/loaded with rdbSaveType/rdbLoadType). */
 #define RDB_OPCODE_MODULE_AUX 247   /* Module auxiliary data. */
@@ -126,10 +129,15 @@
 #define RDBFLAGS_AOF_PREAMBLE (1<<0)    /* Load/save the RDB as AOF preamble. */
 #define RDBFLAGS_REPLICATION (1<<1)     /* Load/save for SYNC. */
 #define RDBFLAGS_ALLOW_DUP (1<<2)       /* Allow duplicated keys when loading.*/
+#define RDBFLAGS_FEED_REPL (1<<3)       /* Feed replication stream when loading.*/
+
+/* When rdbLoadObject() returns NULL, the err flag is
+ * set to hold the type of error that occurred */
+#define RDB_LOAD_ERR_EMPTY_KEY  1   /* Error of empty key */
+#define RDB_LOAD_ERR_OTHER      2   /* Any other errors */
 
 int rdbSaveType(rio *rdb, unsigned char type);
 int rdbLoadType(rio *rdb);
-int rdbSaveTime(rio *rdb, time_t t);
 time_t rdbLoadTime(rio *rdb);
 int rdbSaveLen(rio *rdb, uint64_t len);
 int rdbSaveMillisecondTime(rio *rdb, long long t);
@@ -143,11 +151,11 @@ int rdbSaveBackground(char *filename, rdbSaveInfo *rsi);
 int rdbSaveToSlavesSockets(rdbSaveInfo *rsi);
 void rdbRemoveTempFile(pid_t childpid, int from_signal);
 int rdbSave(char *filename, rdbSaveInfo *rsi);
-ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key);
-size_t rdbSavedObjectLen(robj *o, robj *key);
-robj *rdbLoadObject(int type, rio *rdb, sds key);
+ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid);
+size_t rdbSavedObjectLen(robj *o, robj *key, int dbid);
+robj *rdbLoadObject(int type, rio *rdb, sds key, int dbid, int *error);
 void backgroundSaveDoneHandler(int exitcode, int bysignal);
-int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime);
+int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime,int dbid);
 ssize_t rdbSaveSingleModuleAux(rio *rdb, int when, moduleType *mt);
 robj *rdbLoadCheckModuleValue(rio *rdb, char *modulename);
 robj *rdbLoadStringObject(rio *rdb);

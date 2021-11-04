@@ -85,11 +85,11 @@ TEST_END
 
 TEST_BEGIN(test_rtree_extrema) {
 	extent_t extent_a, extent_b;
-	extent_init(&extent_a, NULL, NULL, LARGE_MINCLASS, false,
-	    sz_size2index(LARGE_MINCLASS), 0, extent_state_active, false,
-	    false, true);
-	extent_init(&extent_b, NULL, NULL, 0, false, NSIZES, 0,
-	    extent_state_active, false, false, true);
+	extent_init(&extent_a, NULL, NULL, SC_LARGE_MINCLASS, false,
+	    sz_size2index(SC_LARGE_MINCLASS), 0,
+	    extent_state_active, false, false, true, EXTENT_NOT_HEAD);
+	extent_init(&extent_b, NULL, NULL, 0, false, SC_NSIZES, 0,
+	    extent_state_active, false, false, true, EXTENT_NOT_HEAD);
 
 	tsdn_t *tsdn = tsdn_fetch();
 
@@ -125,8 +125,8 @@ TEST_BEGIN(test_rtree_bits) {
 	    PAGE + (((uintptr_t)1) << LG_PAGE) - 1};
 
 	extent_t extent;
-	extent_init(&extent, NULL, NULL, 0, false, NSIZES, 0,
-	    extent_state_active, false, false, true);
+	extent_init(&extent, NULL, NULL, 0, false, SC_NSIZES, 0,
+	    extent_state_active, false, false, true, EXTENT_NOT_HEAD);
 
 	rtree_t *rtree = &test_rtree;
 	rtree_ctx_t rtree_ctx;
@@ -135,7 +135,7 @@ TEST_BEGIN(test_rtree_bits) {
 
 	for (unsigned i = 0; i < sizeof(keys)/sizeof(uintptr_t); i++) {
 		assert_false(rtree_write(tsdn, rtree, &rtree_ctx, keys[i],
-		    &extent, NSIZES, false),
+		    &extent, SC_NSIZES, false),
 		    "Unexpected rtree_write() failure");
 		for (unsigned j = 0; j < sizeof(keys)/sizeof(uintptr_t); j++) {
 			assert_ptr_eq(rtree_extent_read(tsdn, rtree, &rtree_ctx,
@@ -166,8 +166,8 @@ TEST_BEGIN(test_rtree_random) {
 	rtree_ctx_data_init(&rtree_ctx);
 
 	extent_t extent;
-	extent_init(&extent, NULL, NULL, 0, false, NSIZES, 0,
-	    extent_state_active, false, false, true);
+	extent_init(&extent, NULL, NULL, 0, false, SC_NSIZES, 0,
+	    extent_state_active, false, false, true, EXTENT_NOT_HEAD);
 
 	assert_false(rtree_new(rtree, false), "Unexpected rtree_new() failure");
 
@@ -177,7 +177,8 @@ TEST_BEGIN(test_rtree_random) {
 		    &rtree_ctx, keys[i], false, true);
 		assert_ptr_not_null(elm,
 		    "Unexpected rtree_leaf_elm_lookup() failure");
-		rtree_leaf_elm_write(tsdn, rtree, elm, &extent, NSIZES, false);
+		rtree_leaf_elm_write(tsdn, rtree, elm, &extent, SC_NSIZES,
+		    false);
 		assert_ptr_eq(rtree_extent_read(tsdn, rtree, &rtree_ctx,
 		    keys[i], true), &extent,
 		    "rtree_extent_read() should return previously set value");

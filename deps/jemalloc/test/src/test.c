@@ -48,12 +48,12 @@ do_hook(bool *hook_ran, void (**hook)()) {
 
 static void
 libc_reentrancy_hook() {
-	do_hook(&libc_hook_ran, &hooks_libc_hook);
+	do_hook(&libc_hook_ran, &test_hooks_libc_hook);
 }
 
 static void
 arena_new_reentrancy_hook() {
-	do_hook(&arena_new_hook_ran, &hooks_arena_new_hook);
+	do_hook(&arena_new_hook_ran, &test_hooks_arena_new_hook);
 }
 
 /* Actual test infrastructure. */
@@ -110,6 +110,20 @@ p_test_fini(void) {
 	    test_status_string(test_status));
 }
 
+static void
+check_global_slow(test_status_t *status) {
+#ifdef JEMALLOC_UNIT_TEST
+	/*
+	 * This check needs to peek into tsd internals, which is why it's only
+	 * exposed in unit tests.
+	 */
+	if (tsd_global_slow()) {
+		malloc_printf("Testing increased global slow count\n");
+		*status = test_status_fail;
+	}
+#endif
+}
+
 static test_status_t
 p_test_impl(bool do_malloc_init, bool do_reentrant, test_t *t, va_list ap) {
 	test_status_t ret;
@@ -131,28 +145,31 @@ p_test_impl(bool do_malloc_init, bool do_reentrant, test_t *t, va_list ap) {
 	for (; t != NULL; t = va_arg(ap, test_t *)) {
 		/* Non-reentrant run. */
 		reentrancy = non_reentrant;
-		hooks_arena_new_hook = hooks_libc_hook = NULL;
+		test_hooks_arena_new_hook = test_hooks_libc_hook = NULL;
 		t();
 		if (test_status > ret) {
 			ret = test_status;
 		}
+		check_global_slow(&ret);
 		/* Reentrant run. */
 		if (do_reentrant) {
 			reentrancy = libc_reentrant;
-			hooks_arena_new_hook = NULL;
-			hooks_libc_hook = &libc_reentrancy_hook;
+			test_hooks_arena_new_hook = NULL;
+			test_hooks_libc_hook = &libc_reentrancy_hook;
 			t();
 			if (test_status > ret) {
 				ret = test_status;
 			}
+			check_global_slow(&ret);
 
 			reentrancy = arena_new_reentrant;
-			hooks_libc_hook = NULL;
-			hooks_arena_new_hook = &arena_new_reentrancy_hook;
+			test_hooks_libc_hook = NULL;
+			test_hooks_arena_new_hook = &arena_new_reentrancy_hook;
 			t();
 			if (test_status > ret) {
 				ret = test_status;
 			}
+			check_global_slow(&ret);
 		}
 	}
 

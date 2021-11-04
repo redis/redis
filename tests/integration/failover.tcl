@@ -1,4 +1,4 @@
-start_server {tags {"failover"}} {
+start_server {tags {"failover external:skip"}} {
 start_server {} {
 start_server {} {
     set node_0 [srv 0 client]

@@ -196,15 +196,18 @@ proc stop_instance pid {
     # Node might have been stopped in the test
     catch {exec kill -SIGCONT $pid}
     if {$::valgrind} {
-        set max_wait 60000
+        set max_wait 120000
     } else {
         set max_wait 10000
     }
     while {[is_alive $pid]} {
         incr wait 10
 
-        if {$wait >= $max_wait} {
-            puts "Forcing process $pid to exit..."
+        if {$wait == $max_wait} {
+            puts [colorstr red "Forcing process $pid to crash..."]
+            catch {exec kill -SEGV $pid}
+        } elseif {$wait >= $max_wait * 2} {
+            puts [colorstr red "Forcing process $pid to exit..."]
             catch {exec kill -KILL $pid}
         } elseif {$wait % 1000 == 0} {
             puts "Waiting for process $pid to exit..."
@@ -373,10 +376,10 @@ proc test {descr code} {
     if {[catch {set retval [uplevel 1 $code]} error]} {
         incr ::failed
         if {[string match "assertion:*" $error]} {
-            set msg [string range $error 10 end]
+            set msg "FAILED: [string range $error 10 end]"
             puts [colorstr red $msg]
             if {$::pause_on_error} pause_on_error
-            puts "(Jumping to next unit after error)"
+            puts [colorstr red "(Jumping to next unit after error)"]
             return -code continue
         } else {
             # Re-raise, let handler up the stack take care of this.
@@ -448,10 +451,10 @@ proc run_tests {} {
 # Print a message and exists with 0 / 1 according to zero or more failures.
 proc end_tests {} {
     if {$::failed == 0 } {
-        puts "GOOD! No errors."
+        puts [colorstr green "GOOD! No errors."]
         exit 0
     } else {
-        puts "WARNING $::failed test(s) failed."
+        puts [colorstr red "WARNING $::failed test(s) failed."]
         exit 1
     }
 }

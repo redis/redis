@@ -36,7 +36,7 @@
 #include <stdio.h>
 #include <string.h>
 
-/** strores all the keys on which we got 'loaded' keyspace notification **/
+/** stores all the keys on which we got 'loaded' keyspace notification **/
 RedisModuleDict *loaded_event_log = NULL;
 /** stores all the keys on which we got 'module' keyspace notification **/
 RedisModuleDict *module_event_log = NULL;

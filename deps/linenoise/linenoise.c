@@ -103,6 +103,7 @@
  *
  */
 
+#define _BSD_SOURCE     /* For fchmod() */
 #include <termios.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -1194,7 +1195,7 @@ int linenoiseHistorySave(const char *filename) {
     fp = fopen(filename,"w");
     umask(old_umask);
     if (fp == NULL) return -1;
-    chmod(filename,S_IRUSR|S_IWUSR);
+    fchmod(fileno(fp),S_IRUSR|S_IWUSR);
     for (j = 0; j < history_len; j++)
         fprintf(fp,"%s\n",history[j]);
     fclose(fp);

@@ -104,7 +104,8 @@ intset *intsetNew(void) {
 
 /* Resize the intset */
 static intset *intsetResize(intset *is, uint32_t len) {
-    uint32_t size = len*intrev32ifbe(is->encoding);
+    uint64_t size = (uint64_t)len*intrev32ifbe(is->encoding);
+    assert(size <= SIZE_MAX - sizeof(intset));
     is = zrealloc(is,sizeof(intset)+size);
     return is;
 }
@@ -306,7 +307,7 @@ int intsetValidateIntegrity(const unsigned char *p, size_t size, int deep) {
         return 0;
     }
 
-    /* check that the size matchies (all records are inside the buffer). */
+    /* check that the size matches (all records are inside the buffer). */
     uint32_t count = intrev32ifbe(is->length);
     if (sizeof(*is) + count*record_size != size)
         return 0;

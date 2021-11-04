@@ -3,6 +3,13 @@ set testmodule [file normalize tests/modules/commandfilter.so]
 start_server {tags {"modules"}} {
     r module load $testmodule log-key 0
 
+    test {Retain a command filter argument} {
+        # Retain an argument now. Later we'll try to re-read it and make sure
+        # it is not corrupt and that valgrind does not complain.
+        r rpush some-list @retain my-retained-string
+        r commandfilter.retained
+    } {my-retained-string}
+
     test {Command Filter handles redirected commands} {
         r set mykey @log
         r lrange log-key 0 -1
@@ -43,6 +50,10 @@ start_server {tags {"modules"}} {
         r lrange log-key 0 -1
     } "{ping @log}"
 
+    test {Command Filter strings can be retained} {
+        r commandfilter.retained
+    } {my-retained-string}
+
     test {Command Filter is unregistered implicitly on module unload} {
         r del log-key
         r module unload commandfilter
@@ -80,5 +91,4 @@ start_server {tags {"modules"}} {
         r eval "redis.call('commandfilter.ping')" 0
         assert_equal {} [r lrange log-key 0 -1]
     }
-
 } 

@@ -10,8 +10,6 @@ typedef struct {
 	CRITICAL_SECTION	lock;
 #elif (defined(JEMALLOC_OS_UNFAIR_LOCK))
 	os_unfair_lock		lock;
-#elif (defined(JEMALLOC_OSSPIN))
-	OSSpinLock		lock;
 #else
 	pthread_mutex_t		lock;
 #endif

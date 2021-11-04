@@ -1,7 +1,16 @@
 source tests/support/cli.tcl
 
+if {$::singledb} {
+    set ::dbnum 0
+} else {
+    set ::dbnum 9
+}
+
 start_server {tags {"cli"}} {
-    proc open_cli {{opts "-n 9"} {infile ""}} {
+    proc open_cli {{opts ""} {infile ""}} {
+        if { $opts == "" } {
+            set opts "-n $::dbnum"
+        }
         set ::env(TERM) dumb
         set cmdline [rediscli [srv host] [srv port] $opts]
         if {$infile ne ""} {
@@ -22,13 +31,25 @@ start_server {tags {"cli"}} {
     }
 
     proc read_cli {fd} {
-        set buf [read $fd]
-        while {[string length $buf] == 0} {
-            # wait some time and try again
+        set ret [read $fd]
+        while {[string length $ret] == 0} {
             after 10
-            set buf [read $fd]
+            set ret [read $fd]
         }
-        set _ $buf
+
+        # We may have a short read, try to read some more.
+        set empty_reads 0
+        while {$empty_reads < 5} {
+            set buf [read $fd]
+            if {[string length $buf] == 0} {
+                after 10
+                incr empty_reads
+            } else {
+                append ret $buf
+                set empty_reads 0
+            }
+        }
+        return $ret
     }
 
     proc write_cli {fd buf} {
@@ -64,8 +85,8 @@ start_server {tags {"cli"}} {
         set _ $tmp
     }
 
-    proc _run_cli {opts args} {
-        set cmd [rediscli [srv host] [srv port] [list -n 9 {*}$args]]
+    proc _run_cli {host port db opts args} {
+        set cmd [rediscli $host $port [list -n $db {*}$args]]
         foreach {key value} $opts {
             if {$key eq "pipe"} {
                 set cmd "sh -c \"$value | $cmd\""
@@ -84,15 +105,19 @@ start_server {tags {"cli"}} {
     }
 
     proc run_cli {args} {
-        _run_cli {} {*}$args
+        _run_cli [srv host] [srv port] $::dbnum {} {*}$args
     }
 
     proc run_cli_with_input_pipe {cmd args} {
-        _run_cli [list pipe $cmd] -x {*}$args
+        _run_cli [srv host] [srv port] $::dbnum [list pipe $cmd] -x {*}$args
     }
 
     proc run_cli_with_input_file {path args} {
-        _run_cli [list path $path] -x {*}$args
+        _run_cli [srv host] [srv port] $::dbnum [list path $path] -x {*}$args
+    }
+
+    proc run_cli_host_port_db {host port db args} {
+        _run_cli $host $port $db {} {*}$args
     }
 
     proc test_nontty_cli {name code} {
@@ -109,7 +134,9 @@ start_server {tags {"cli"}} {
     test_interactive_cli "INFO response should be printed raw" {
         set lines [split [run_command $fd info] "\n"]
         foreach line $lines {
-            assert [regexp {^$|^#|^[^#:]+:} $line]
+            if {![regexp {^$|^#|^[^#:]+:} $line]} {
+                fail "Malformed info line: $line"
+            }
         }
     }
 
@@ -207,6 +234,30 @@ start_server {tags {"cli"}} {
         assert_equal "foo\nbar" [run_cli lrange list 0 -1]
     }
 
+if {!$::tls} { ;# fake_redis_node doesn't support TLS
+    test_nontty_cli "ASK redirect test" {
+        # Set up two fake Redis nodes.
+        set tclsh [info nameofexecutable]
+        set script "tests/helpers/fake_redis_node.tcl"
+        set port1 [find_available_port $::baseport $::portcount]
+        set port2 [find_available_port $::baseport $::portcount]
+        set p1 [exec $tclsh $script $port1 \
+                "SET foo bar" "-ASK 12182 127.0.0.1:$port2" &]
+        set p2 [exec $tclsh $script $port2 \
+                "ASKING" "+OK" \
+                "SET foo bar" "+OK" &]
+        # Make sure both fake nodes have started listening
+        wait_for_condition 50 50 {
+            [catch {close [socket "127.0.0.1" $port1]}] == 0 && \
+            [catch {close [socket "127.0.0.1" $port2]}] == 0
+        } else {
+            fail "Failed to start fake Redis nodes"
+        }
+        # Run the cli
+        assert_equal "OK" [run_cli_host_port_db "127.0.0.1" $port1 0 -c SET foo bar]
+    }
+}
+
     test_nontty_cli "Quoted input arguments" {
         r set "\x00\x00" "value"
         assert_equal "value" [run_cli --quoted-input get {"\x00\x00"}]
@@ -215,7 +266,6 @@ start_server {tags {"cli"}} {
     test_nontty_cli "No accidental unquoting of input arguments" {
         run_cli --quoted-input set {"\x41\x41"} quoted-val
         run_cli set {"\x41\x41"} unquoted-val
-
         assert_equal "quoted-val" [r get AA]
         assert_equal "unquoted-val" [r get {"\x41\x41"}]
     }
@@ -267,7 +317,7 @@ start_server {tags {"cli"}} {
         assert_match "OK" [r config set repl-diskless-sync yes]
         assert_match "OK" [r config set repl-diskless-sync-delay 0]
         test_redis_cli_rdb_dump
-    }
+    } {} {needs:repl}
 
     test "Scan mode" {
         r flushdb
@@ -283,9 +333,9 @@ start_server {tags {"cli"}} {
         assert_equal {key:2} [run_cli --scan --quoted-pattern {"*:\x32"}]
     }
 
-    test "Connecting as a replica" {
+    proc test_redis_cli_repl {} {
         set fd [open_cli "--replica"]
-        wait_for_condition 500 500 {
+        wait_for_condition 500 100 {
             [string match {*slave0:*state=online*} [r info]]
         } else {
             fail "redis-cli --replica did not connect"
@@ -294,19 +344,40 @@ start_server {tags {"cli"}} {
         for {set i 0} {$i < 100} {incr i} {
            r set test-key test-value-$i
         }
-        r client kill type slave
-        catch {
-            assert_match {*SET*key-a*} [read_cli $fd]
+
+        wait_for_condition 500 100 {
+            [string match {*test-value-99*} [read_cli $fd]]
+        } else {
+            fail "redis-cli --replica didn't read commands"
         }
 
-        close_cli $fd
+        fconfigure $fd -blocking true
+        r client kill type slave
+        catch { close_cli $fd } err
+        assert_match {*Server closed the connection*} $err
     }
+
+    test "Connecting as a replica" {
+        # Disk-based master
+        assert_match "OK" [r config set repl-diskless-sync no]
+        test_redis_cli_repl
+
+        # Disk-less master
+        assert_match "OK" [r config set repl-diskless-sync yes]
+        assert_match "OK" [r config set repl-diskless-sync-delay 0]
+        test_redis_cli_repl
+    } {} {needs:repl}
 
     test "Piping raw protocol" {
         set cmds [tmpfile "cli_cmds"]
         set cmds_fd [open $cmds "w"]
 
-        puts $cmds_fd [formatCommand select 9]
+        set cmds_count 2101
+
+        if {!$::singledb} {
+            puts $cmds_fd [formatCommand select 9]
+            incr cmds_count
+        }
         puts $cmds_fd [formatCommand del test-counter]
 
         for {set i 0} {$i < 1000} {incr i} {
@@ -324,7 +395,7 @@ start_server {tags {"cli"}} {
         set output [read_cli $cli_fd]
 
         assert_equal {1000} [r get test-counter]
-        assert_match {*All data transferred*errors: 0*replies: 2102*} $output
+        assert_match "*All data transferred*errors: 0*replies: ${cmds_count}*" $output
 
         file delete $cmds
     }
