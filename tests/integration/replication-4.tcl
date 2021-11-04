@@ -104,19 +104,17 @@ start_server {tags {"repl external:skip"}} {
         test {Replication of an expired key does not delete the expired key} {
             $master debug set-active-expire 0
             $master set k 1 ex 1
+            wait_for_ofs_sync $master $slave
             exec kill -SIGSTOP [srv 0 pid]
             $master incr k
             after 1000
+            # Stopping the replica for one second to makes sure the INCR arrives
+            # to the replica after the key is logically expired.
             exec kill -SIGCONT [srv 0 pid]
-            wait_for_condition 50 100 {
-                [status $slave slave_repl_offset] ==
-                [status $master master_repl_offset]
-            } else {
-                fail "Replication did not catch up."
-            }
-            # Check that k is expired but still exists in the replica.
+            wait_for_ofs_sync $master $slave
+            # Check that k is locigally expired but is present in the replica.
             assert_equal 0 [$slave exists k]
-            $slave debug object k ; # Raises exception if k does not exist.
+            $slave debug object k ; # Raises exception if k is gone.
         }
     }
 }

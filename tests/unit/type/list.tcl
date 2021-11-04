@@ -617,16 +617,25 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         r select 1
         r rpush k hello
         r pexpire k 100
-        r select 9
         set rd [redis_deferring_client]
+        $rd select 9
+        assert_equal {OK} [$rd read]
+        $rd client id
+        set id [$rd read]
         $rd brpop k 1
         wait_for_blocked_clients_count 1
         after 100
         r swapdb 1 9
-        set result [$rd read]
+        # The SWAPDB command tries to awake the blocked client, but it remains
+        # blocked because the key is expired. Check that the deferred client is
+        # still blocked. Then unblock it.
+        assert_match "*flags=b*" [r client list id $id]
+        r client unblock $id
+        assert_equal {} [$rd read]
+        # Restore server and client state
         r debug set-active-expire 1
-        set result
-    } {} {singledb:skip}
+        r select 9
+    } {OK} {singledb:skip}
 
 foreach {pop} {BLPOP BLMPOP_LEFT} {
     test "$pop when new key is moved into place" {
