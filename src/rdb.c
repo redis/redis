@@ -351,20 +351,25 @@ writeerr:
 }
 
 ssize_t rdbSaveLzfStringObject(rio *rdb, unsigned char *s, size_t len) {
+    unsigned char buf[RDB_LZF_BUF_SIZE+1];
     size_t comprlen, outlen;
     void *out;
 
     /* We require at least four bytes compression for this to be worth it */
     if (len <= 4) return 0;
     outlen = len-4;
-    if ((out = zmalloc(outlen+1)) == NULL) return 0;
+    if (outlen <= RDB_LZF_BUF_SIZE) {
+        out = buf;
+    } else {
+        if ((out = zmalloc(outlen+1)) == NULL) return 0;
+    }
     comprlen = lzf_compress(s, len, out, outlen);
     if (comprlen == 0) {
-        zfree(out);
+        if (outlen > RDB_LZF_BUF_SIZE) zfree(out);
         return 0;
     }
     ssize_t nwritten = rdbSaveLzfBlob(rdb, out, comprlen, len);
-    zfree(out);
+    if (outlen > RDB_LZF_BUF_SIZE) zfree(out);
     return nwritten;
 }
 
@@ -372,6 +377,7 @@ ssize_t rdbSaveLzfStringObject(rio *rdb, unsigned char *s, size_t len) {
  * changes according to 'flags'. For more info check the
  * rdbGenericLoadStringObject() function. */
 void *rdbLoadLzfStringObject(rio *rdb, int flags, size_t *lenptr) {
+    unsigned char buf[RDB_LZF_BUF_SIZE+1];
     int plain = flags & RDB_LOAD_PLAIN;
     int sds = flags & RDB_LOAD_SDS;
     uint64_t len, clen;
@@ -380,9 +386,13 @@ void *rdbLoadLzfStringObject(rio *rdb, int flags, size_t *lenptr) {
 
     if ((clen = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
     if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
-    if ((c = ztrymalloc(clen)) == NULL) {
-        serverLog(server.loading? LL_WARNING: LL_VERBOSE, "rdbLoadLzfStringObject failed allocating %llu bytes", (unsigned long long)clen);
-        goto err;
+    if (clen <= RDB_LZF_BUF_SIZE) {
+        c = buf;
+    } else {
+        if ((c = ztrymalloc(clen)) == NULL) {
+            serverLog(server.loading? LL_WARNING: LL_VERBOSE, "rdbLoadLzfStringObject failed allocating %llu bytes", (unsigned long long)clen);
+            goto err;
+        }
     }
 
     /* Allocate our target according to the uncompressed size. */
@@ -404,7 +414,7 @@ void *rdbLoadLzfStringObject(rio *rdb, int flags, size_t *lenptr) {
         rdbReportCorruptRDB("Invalid LZF compressed string");
         goto err;
     }
-    zfree(c);
+    if (clen > RDB_LZF_BUF_SIZE) zfree(c);
 
     if (plain || sds) {
         return val;
@@ -412,7 +422,7 @@ void *rdbLoadLzfStringObject(rio *rdb, int flags, size_t *lenptr) {
         return createObject(OBJ_STRING,val);
     }
 err:
-    zfree(c);
+    if (clen > RDB_LZF_BUF_SIZE) zfree(c);
     if (plain)
         zfree(val);
     else
