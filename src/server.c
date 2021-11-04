@@ -6227,7 +6227,8 @@ void loadDataFromDisk(void) {
             rdb_flags |= RDBFLAGS_FEED_REPL;
         }
         if (rdbLoad(server.rdb_filename,&rsi,rdb_flags) == C_OK) {
-            serverLog(LL_NOTICE,"DB loaded from disk: %.3f seconds",
+            serverLog(LL_NOTICE,"DB loaded from disk %s: %.3f seconds",
+                server.rdb_filename,
                 (float)(ustime()-start)/1000000);
 
             /* Restore the replication ID / offset from the RDB file. */
@@ -6262,7 +6263,7 @@ void loadDataFromDisk(void) {
                 }
             }
         } else if (errno != ENOENT) {
-            serverLog(LL_WARNING,"Fatal error loading the DB: %s. Exiting.",strerror(errno));
+            serverLog(LL_WARNING,"Fatal error loading the DB %s: %s. Exiting.", server.rdb_filename, strerror(errno));
             exit(1);
         }
 
