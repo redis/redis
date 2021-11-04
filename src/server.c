@@ -6227,7 +6227,7 @@ void loadDataFromDisk(void) {
             rdb_flags |= RDBFLAGS_FEED_REPL;
         }
         if (rdbLoad(server.rdb_filename,&rsi,rdb_flags) == C_OK) {
-            serverLog(LL_NOTICE,"DB loaded from disk %s: %.3f seconds",
+            serverLog(LL_NOTICE,"DB %s loaded from disk: %.3f seconds",
                 server.rdb_filename,
                 (float)(ustime()-start)/1000000);
 
