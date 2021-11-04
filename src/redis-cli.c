@@ -1574,6 +1574,7 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"--memkeys-samples")) {
             config.memkeys = 1;
             config.memkeys_samples = atoi(argv[++i]);
+	    if (!config.memkeys_samples) config.memkeys_samples = LLONG_MAX;
         } else if (!strcmp(argv[i],"--hotkeys")) {
             config.hotkeys = 1;
         } else if (!strcmp(argv[i],"--eval") && !lastarg) {
