@@ -3347,6 +3347,8 @@ void refreshGoodSlavesCount(void) {
     listRewind(server.slaves,&li);
     while((ln = listNext(&li))) {
         client *slave = ln->value;
+        if (slave->flags & CLIENT_REPL_BUFONLY)
+            continue;
         time_t lag = server.unixtime - slave->repl_ack_time;
 
         if (slave->replstate == SLAVE_STATE_ONLINE &&
