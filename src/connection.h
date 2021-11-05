@@ -31,7 +31,7 @@
 #ifndef __REDIS_CONNECTION_H
 #define __REDIS_CONNECTION_H
 
-#include <sys/errno.h>
+#include <errno.h>
 
 #define CONN_INFO_LEN   32
 
