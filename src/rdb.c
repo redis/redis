@@ -1585,6 +1585,25 @@ int ziplistPairsConvertAndValidateIntegrity(unsigned char *zl, size_t size, unsi
     return ret;
 }
 
+/* callback for ziplistValidateIntegrity.
+ * The ziplist element pointed by 'p' will be converted and stored into listpack. */
+static int _ziplistEntryConvertAndValidate(unsigned char *p, unsigned int head_count, void *userdata) {
+    UNUSED(head_count);
+    unsigned char *str;
+    unsigned int slen;
+    long long vll;
+    unsigned char **lp = (unsigned char**)userdata;
+
+    if (!ziplistGet(p, &str, &slen, &vll)) return 0;
+
+    if (str)
+        *lp = lpAppend(*lp, (unsigned char*)str, slen);
+    else
+        *lp = lpAppendInteger(*lp, vll);
+
+    return 1;
+}
+
 /* callback for to check the listpack doesn't have duplicate records */
 static int _lpPairsEntryValidation(unsigned char *p, unsigned int head_count, void *userdata) {
     struct {
@@ -1944,8 +1963,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
         o = createQuicklistObject();
         quicklistSetOptions(o->ptr, server.list_max_ziplist_size,
                             server.list_compress_depth);
-        uint64_t container = QUICKLIST_NODE_CONTAINER_ZIPLIST;
+        uint64_t container = QUICKLIST_NODE_CONTAINER_PACKED;
         while (len--) {
+            unsigned char *lp;
             size_t encoded_len;
 
             if (rdbtype == RDB_TYPE_LIST_QUICKLIST_2) {
@@ -1954,7 +1974,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                     return NULL;
                 }
 
-                if (container != QUICKLIST_NODE_CONTAINER_ZIPLIST && container != QUICKLIST_NODE_CONTAINER_PLAIN) {
+                if (container != QUICKLIST_NODE_CONTAINER_PACKED && container != QUICKLIST_NODE_CONTAINER_PLAIN) {
                     rdbReportCorruptRDB("Quicklist integrity check failed.");
                     decrRefCount(o);
                     return NULL;
@@ -1975,20 +1995,36 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 continue;
             }
 
-            if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
-            if (!ziplistValidateIntegrity(data, encoded_len, deep_integrity_validation, NULL, NULL)) {
-                rdbReportCorruptRDB("Ziplist integrity check failed.");
-                decrRefCount(o);
+            if (rdbtype == RDB_TYPE_LIST_QUICKLIST_2) {
+                lp = data;
+                if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
+                if (!lpValidateIntegrity(lp, encoded_len, deep_integrity_validation, NULL, NULL)) {
+                    rdbReportCorruptRDB("Listpack integrity check failed.");
+                    decrRefCount(o);
+                    zfree(lp);
+                    return NULL;
+                }
+            } else {
+                lp = lpNew(encoded_len);
+                if (!ziplistValidateIntegrity(data, encoded_len, 1,
+                        _ziplistEntryConvertAndValidate, &lp))
+                {
+                    rdbReportCorruptRDB("Ziplist integrity check failed.");
+                    decrRefCount(o);
+                    zfree(data);
+                    zfree(lp);
+                    return NULL;
+                }
                 zfree(data);
-                return NULL;
+                lp = lpShrinkToFit(lp);
             }
 
             /* Silently skip empty ziplists, if we'll end up with empty quicklist we'll fail later. */
-            if (ziplistLen(data) == 0) {
-                zfree(data);
+            if (lpLength(lp) == 0) {
+                zfree(lp);
                 continue;
             } else {
-                quicklistAppendZiplist(o->ptr, data);
+                quicklistAppendListpack(o->ptr, lp);
             }
         }
 
@@ -2163,6 +2199,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                         return NULL;
                     }
 
+                    lp = lpShrinkToFit(lp);
                     zfree(o->ptr);
                     o->ptr = lp;
                     o->type = OBJ_HASH;

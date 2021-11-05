@@ -143,7 +143,7 @@ typedef struct quicklistEntry {
 
 /* quicklist container formats */
 #define QUICKLIST_NODE_CONTAINER_PLAIN 1
-#define QUICKLIST_NODE_CONTAINER_ZIPLIST 2
+#define QUICKLIST_NODE_CONTAINER_PACKED 2
 
 #define QL_NODE_IS_PLAIN(node) ((node)->container == QUICKLIST_NODE_CONTAINER_PLAIN)
 
@@ -161,7 +161,7 @@ int quicklistPushHead(quicklist *quicklist, void *value, const size_t sz);
 int quicklistPushTail(quicklist *quicklist, void *value, const size_t sz);
 void quicklistPush(quicklist *quicklist, void *value, const size_t sz,
                    int where);
-void quicklistAppendZiplist(quicklist *quicklist, unsigned char *zl);
+void quicklistAppendListpack(quicklist *quicklist, unsigned char *zl);
 void quicklistAppendPlainNode(quicklist *quicklist, unsigned char *data, size_t sz);
 quicklist *quicklistAppendValuesFromZiplist(quicklist *quicklist,
                                             unsigned char *zl);
