@@ -1196,6 +1196,9 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
                          server.stat_clients_type_memory[CLIENT_TYPE_NORMAL];
     mem_total += mh->clients_normal;
 
+    mh->cluster_links = server.stat_cluster_links_memory;
+    mem_total += mh->cluster_links;
+
     mem = 0;
     if (server.aof_state != AOF_OFF) {
         mem += sdsZmallocSize(server.aof_buf);

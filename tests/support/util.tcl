@@ -978,3 +978,11 @@ proc read_big_bulk {code {compare no} {prefix ""}} {
     r readraw 0
     return $resp_len
 }
+
+proc prepare_value {size} {
+    set _v "c"
+    for {set i 1} {$i < $size} {incr i} {
+        append _v 0
+    }
+    return $_v
+}
