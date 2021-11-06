@@ -1966,7 +1966,7 @@ int processMultibulkBuffer(client *c) {
             addReplyError(c,"Protocol error: invalid multibulk length");
             setProtocolError("invalid mbulk count",c);
             return C_ERR;
-        } else if (ll > 10 && authRequired(c)) {
+        } else if (ll > 3 && authRequired(c)) {
             addReplyError(c, "Protocol error: unauthenticated multibulk length");
             setProtocolError("unauth mbulk count", c);
             return C_ERR;
