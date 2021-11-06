@@ -14,7 +14,9 @@ GROUPS = [
   "scripting",
   "hyperloglog",
   "cluster",
-  "geo"
+  "geo",
+  "stream",
+  "bitmap"
 ].freeze
 
 GROUPS_BY_NAME = Hash[*
@@ -24,9 +26,15 @@ GROUPS_BY_NAME = Hash[*
 ].freeze
 
 def argument arg
-  name = arg["name"].is_a?(Array) ? arg["name"].join(" ") : arg["name"]
-  name = arg["enum"].join "|" if "enum" == arg["type"]
-  name = arg["command"] + " " + name if arg["command"]
+  if "block" == arg["type"]
+    name = arg["block"].map do |entry|
+      argument entry
+    end.join " "
+  else
+    name = arg["name"].is_a?(Array) ? arg["name"].join(" ") : arg["name"]
+    name = arg["enum"].join "|" if "enum" == arg["type"]
+    name = arg["command"] + (name ? " " + name : "") if arg["command"]
+  end
   if arg["multiple"]
     name = "#{name} [#{name} ...]"
   end
@@ -37,7 +45,7 @@ def argument arg
 end
 
 def arguments command
-  return "-" unless command["arguments"]
+  return "" unless command["arguments"]
   command["arguments"].map do |arg|
     argument arg
   end.join " "
@@ -52,7 +60,7 @@ def commands
   require "json"
   require "uri"
 
-  url = URI.parse "https://raw.githubusercontent.com/antirez/redis-doc/master/commands.json"
+  url = URI.parse "https://raw.githubusercontent.com/redis/redis-doc/master/commands.json"
   client = Net::HTTP.new url.host, url.port
   client.use_ssl = true
   response = client.get url.path

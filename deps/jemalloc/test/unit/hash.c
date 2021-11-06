@@ -28,6 +28,7 @@
  */
 
 #include "test/jemalloc_test.h"
+#include "jemalloc/internal/hash.h"
 
 typedef enum {
 	hash_variant_x86_32,
@@ -36,33 +37,28 @@ typedef enum {
 } hash_variant_t;
 
 static int
-hash_variant_bits(hash_variant_t variant)
-{
-
+hash_variant_bits(hash_variant_t variant) {
 	switch (variant) {
-	case hash_variant_x86_32: return (32);
-	case hash_variant_x86_128: return (128);
-	case hash_variant_x64_128: return (128);
+	case hash_variant_x86_32: return 32;
+	case hash_variant_x86_128: return 128;
+	case hash_variant_x64_128: return 128;
 	default: not_reached();
 	}
 }
 
 static const char *
-hash_variant_string(hash_variant_t variant)
-{
-
+hash_variant_string(hash_variant_t variant) {
 	switch (variant) {
-	case hash_variant_x86_32: return ("hash_x86_32");
-	case hash_variant_x86_128: return ("hash_x86_128");
-	case hash_variant_x64_128: return ("hash_x64_128");
+	case hash_variant_x86_32: return "hash_x86_32";
+	case hash_variant_x86_128: return "hash_x86_128";
+	case hash_variant_x64_128: return "hash_x64_128";
 	default: not_reached();
 	}
 }
 
-#define	KEY_SIZE	256
+#define KEY_SIZE	256
 static void
-hash_variant_verify_key(hash_variant_t variant, uint8_t *key)
-{
+hash_variant_verify_key(hash_variant_t variant, uint8_t *key) {
 	const int hashbytes = hash_variant_bits(variant) / 8;
 	const int hashes_size = hashbytes * 256;
 	VARIABLE_ARRAY(uint8_t, hashes, hashes_size);
@@ -141,45 +137,37 @@ hash_variant_verify_key(hash_variant_t variant, uint8_t *key)
 }
 
 static void
-hash_variant_verify(hash_variant_t variant)
-{
-#define	MAX_ALIGN	16
+hash_variant_verify(hash_variant_t variant) {
+#define MAX_ALIGN	16
 	uint8_t key[KEY_SIZE + (MAX_ALIGN - 1)];
 	unsigned i;
 
-	for (i = 0; i < MAX_ALIGN; i++)
+	for (i = 0; i < MAX_ALIGN; i++) {
 		hash_variant_verify_key(variant, &key[i]);
+	}
 #undef MAX_ALIGN
 }
 #undef KEY_SIZE
 
-TEST_BEGIN(test_hash_x86_32)
-{
-
+TEST_BEGIN(test_hash_x86_32) {
 	hash_variant_verify(hash_variant_x86_32);
 }
 TEST_END
 
-TEST_BEGIN(test_hash_x86_128)
-{
-
+TEST_BEGIN(test_hash_x86_128) {
 	hash_variant_verify(hash_variant_x86_128);
 }
 TEST_END
 
-TEST_BEGIN(test_hash_x64_128)
-{
-
+TEST_BEGIN(test_hash_x64_128) {
 	hash_variant_verify(hash_variant_x64_128);
 }
 TEST_END
 
 int
-main(void)
-{
-
-	return (test(
+main(void) {
+	return test(
 	    test_hash_x86_32,
 	    test_hash_x86_128,
-	    test_hash_x64_128));
+	    test_hash_x64_128);
 }

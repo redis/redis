@@ -1,7 +1,6 @@
 #include "test/jemalloc_test.h"
 
-TEST_BEGIN(test_new_delete)
-{
+TEST_BEGIN(test_new_delete) {
 	tsd_t *tsd;
 	ckh_t ckh;
 
@@ -17,8 +16,7 @@ TEST_BEGIN(test_new_delete)
 }
 TEST_END
 
-TEST_BEGIN(test_count_insert_search_remove)
-{
+TEST_BEGIN(test_count_insert_search_remove) {
 	tsd_t *tsd;
 	ckh_t ckh;
 	const char *strs[] = {
@@ -105,9 +103,8 @@ TEST_BEGIN(test_count_insert_search_remove)
 }
 TEST_END
 
-TEST_BEGIN(test_insert_iter_remove)
-{
-#define	NITEMS ZU(1000)
+TEST_BEGIN(test_insert_iter_remove) {
+#define NITEMS ZU(1000)
 	tsd_t *tsd;
 	ckh_t ckh;
 	void **p[NITEMS];
@@ -174,10 +171,12 @@ TEST_BEGIN(test_insert_iter_remove)
 				}
 			}
 
-			for (j = 0; j < i + 1; j++)
+			for (j = 0; j < i + 1; j++) {
 				assert_true(seen[j], "Item %zu not seen", j);
-			for (; j < NITEMS; j++)
+			}
+			for (; j < NITEMS; j++) {
 				assert_false(seen[j], "Item %zu seen", j);
+			}
 		}
 	}
 
@@ -204,11 +203,9 @@ TEST_BEGIN(test_insert_iter_remove)
 TEST_END
 
 int
-main(void)
-{
-
-	return (test(
+main(void) {
+	return test(
 	    test_new_delete,
 	    test_count_insert_search_remove,
-	    test_insert_iter_remove));
+	    test_insert_iter_remove);
 }

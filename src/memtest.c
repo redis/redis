@@ -71,7 +71,7 @@ void memtest_progress_start(char *title, int pass) {
     printf("\x1b[H\x1b[2K");          /* Cursor home, clear current line.  */
     printf("%s [%d]\n", title, pass); /* Print title. */
     progress_printed = 0;
-    progress_full = ws.ws_col*(ws.ws_row-3);
+    progress_full = (size_t)ws.ws_col*(ws.ws_row-3);
     fflush(stdout);
 }
 
@@ -347,10 +347,15 @@ void memtest_alloc_and_test(size_t megabytes, int passes) {
 }
 
 void memtest(size_t megabytes, int passes) {
+#if !defined(__HAIKU__)
     if (ioctl(1, TIOCGWINSZ, &ws) == -1) {
         ws.ws_col = 80;
         ws.ws_row = 20;
     }
+#else
+    ws.ws_col = 80;
+    ws.ws_row = 20;
+#endif
     memtest_alloc_and_test(megabytes,passes);
     printf("\nYour memory passed this test.\n");
     printf("Please if you are still in doubt use the following two tools:\n");

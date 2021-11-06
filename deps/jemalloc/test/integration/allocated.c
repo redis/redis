@@ -9,8 +9,7 @@ static const bool config_stats =
     ;
 
 void *
-thd_start(void *arg)
-{
+thd_start(void *arg) {
 	int err;
 	void *p;
 	uint64_t a0, a1, d0, d1;
@@ -19,15 +18,17 @@ thd_start(void *arg)
 
 	sz = sizeof(a0);
 	if ((err = mallctl("thread.allocated", (void *)&a0, &sz, NULL, 0))) {
-		if (err == ENOENT)
+		if (err == ENOENT) {
 			goto label_ENOENT;
+		}
 		test_fail("%s(): Error in mallctl(): %s", __func__,
 		    strerror(err));
 	}
 	sz = sizeof(ap0);
 	if ((err = mallctl("thread.allocatedp", (void *)&ap0, &sz, NULL, 0))) {
-		if (err == ENOENT)
+		if (err == ENOENT) {
 			goto label_ENOENT;
+		}
 		test_fail("%s(): Error in mallctl(): %s", __func__,
 		    strerror(err));
 	}
@@ -37,16 +38,18 @@ thd_start(void *arg)
 
 	sz = sizeof(d0);
 	if ((err = mallctl("thread.deallocated", (void *)&d0, &sz, NULL, 0))) {
-		if (err == ENOENT)
+		if (err == ENOENT) {
 			goto label_ENOENT;
+		}
 		test_fail("%s(): Error in mallctl(): %s", __func__,
 		    strerror(err));
 	}
 	sz = sizeof(dp0);
 	if ((err = mallctl("thread.deallocatedp", (void *)&dp0, &sz, NULL,
 	    0))) {
-		if (err == ENOENT)
+		if (err == ENOENT) {
 			goto label_ENOENT;
+		}
 		test_fail("%s(): Error in mallctl(): %s", __func__,
 		    strerror(err));
 	}
@@ -88,23 +91,20 @@ thd_start(void *arg)
 	    "Deallocated memory counter should increase by at least the amount "
 	    "explicitly deallocated");
 
-	return (NULL);
+	return NULL;
 label_ENOENT:
 	assert_false(config_stats,
 	    "ENOENT should only be returned if stats are disabled");
 	test_skip("\"thread.allocated\" mallctl not available");
-	return (NULL);
+	return NULL;
 }
 
-TEST_BEGIN(test_main_thread)
-{
-
+TEST_BEGIN(test_main_thread) {
 	thd_start(NULL);
 }
 TEST_END
 
-TEST_BEGIN(test_subthread)
-{
+TEST_BEGIN(test_subthread) {
 	thd_t thd;
 
 	thd_create(&thd, thd_start, NULL);
@@ -113,14 +113,12 @@ TEST_BEGIN(test_subthread)
 TEST_END
 
 int
-main(void)
-{
-
+main(void) {
 	/* Run tests multiple times to check for bad interactions. */
-	return (test(
+	return test(
 	    test_main_thread,
 	    test_subthread,
 	    test_main_thread,
 	    test_subthread,
-	    test_main_thread));
+	    test_main_thread);
 }

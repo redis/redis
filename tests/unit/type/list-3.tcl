@@ -1,5 +1,5 @@
 start_server {
-    tags {list ziplist}
+    tags {"list ziplist"}
     overrides {
         "list-max-ziplist-size" 16
     }

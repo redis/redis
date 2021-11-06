@@ -1,4 +1,4 @@
-start_server {tags {"repl"}} {
+start_server {tags {"repl external:skip"}} {
     start_server {} {
         test {First server should have role slave after SLAVEOF} {
             r -1 slaveof [srv 0 host] [srv 0 port]
@@ -25,10 +25,23 @@ start_server {tags {"repl"}} {
                 set fd [open /tmp/repldump2.txt w]
                 puts -nonewline $fd $csv2
                 close $fd
-                puts "Master - Slave inconsistency"
+                puts "Master - Replica inconsistency"
                 puts "Run diff -u against /tmp/repldump*.txt for more info"
             }
             assert_equal [r debug digest] [r -1 debug digest]
+        }
+
+        test {Master can replicate command longer than client-query-buffer-limit on replica} {
+            # Configure the master to have a bigger query buffer limit
+            r config set client-query-buffer-limit 2000000
+            r -1 config set client-query-buffer-limit 1048576
+            # Write a very large command onto the master
+            r set key [string repeat "x" 1100000]
+            wait_for_condition 300 100 {
+                [r -1 get key] eq [string repeat "x" 1100000]
+            } else {
+                fail "Unable to replicate command longer than client-query-buffer-limit"
+            }
         }
 
         test {Slave is able to evict keys created in writable slaves} {
@@ -45,7 +58,7 @@ start_server {tags {"repl"}} {
     }
 }
 
-start_server {tags {"repl"}} {
+start_server {tags {"repl external:skip"}} {
     start_server {} {
         test {First server should have role slave after SLAVEOF} {
             r -1 slaveof [srv 0 host] [srv 0 port]
@@ -98,9 +111,8 @@ start_server {tags {"repl"}} {
                 set fd [open /tmp/repldump2.txt w]
                 puts -nonewline $fd $csv2
                 close $fd
-                puts "Master - Slave inconsistency"
+                puts "Master - Replica inconsistency"
                 puts "Run diff -u against /tmp/repldump*.txt for more info"
-
             }
 
             set old_digest [r debug digest]
@@ -108,6 +120,28 @@ start_server {tags {"repl"}} {
             r debug loadaof
             set new_digest [r debug digest]
             assert {$old_digest eq $new_digest}
+        }
+
+        test {SLAVE can reload "lua" AUX RDB fields of duplicated scripts} {
+            # Force a Slave full resynchronization
+            r debug change-repl-id
+            r -1 client kill type master
+
+            # Check that after a full resync the slave can still load
+            # correctly the RDB file: such file will contain "lua" AUX
+            # sections with scripts already in the memory of the master.
+
+            wait_for_condition 1000 100 {
+                [s -1 master_link_status] eq {up}
+            } else {
+                fail "Replication not started."
+            }
+
+            wait_for_condition 50 100 {
+                [r debug digest] eq [r -1 debug digest]
+            } else {
+                fail "DEBUG DIGEST mismatch after full SYNC with many scripts"
+            }
         }
     }
 }

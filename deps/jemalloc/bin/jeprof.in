@@ -71,6 +71,7 @@
 use strict;
 use warnings;
 use Getopt::Long;
+use Cwd;
 
 my $JEPROF_VERSION = "@jemalloc_version@";
 my $PPROF_VERSION = "2.0";
@@ -2891,21 +2892,24 @@ sub RemoveUninterestingFrames {
   my %skip = ();
   my $skip_regexp = 'NOMATCH';
   if ($main::profile_type eq 'heap' || $main::profile_type eq 'growth') {
-    foreach my $name ('calloc',
+    foreach my $name ('@JEMALLOC_PREFIX@calloc',
                       'cfree',
-                      'malloc',
-                      'free',
-                      'memalign',
-                      'posix_memalign',
-                      'aligned_alloc',
+                      '@JEMALLOC_PREFIX@malloc',
+                      'newImpl',
+                      'void* newImpl',
+                      '@JEMALLOC_PREFIX@free',
+                      '@JEMALLOC_PREFIX@memalign',
+                      '@JEMALLOC_PREFIX@posix_memalign',
+                      '@JEMALLOC_PREFIX@aligned_alloc',
                       'pvalloc',
-                      'valloc',
-                      'realloc',
-                      'mallocx', # jemalloc
-                      'rallocx', # jemalloc
-                      'xallocx', # jemalloc
-                      'dallocx', # jemalloc
-                      'sdallocx', # jemalloc
+                      '@JEMALLOC_PREFIX@valloc',
+                      '@JEMALLOC_PREFIX@realloc',
+                      '@JEMALLOC_PREFIX@mallocx',
+                      '@JEMALLOC_PREFIX@rallocx',
+                      '@JEMALLOC_PREFIX@xallocx',
+                      '@JEMALLOC_PREFIX@dallocx',
+                      '@JEMALLOC_PREFIX@sdallocx',
+                      '@JEMALLOC_PREFIX@sdallocx_noflags',
                       'tc_calloc',
                       'tc_cfree',
                       'tc_malloc',
@@ -4570,7 +4574,7 @@ sub ParseTextSectionHeader {
 # Split /proc/pid/maps dump into a list of libraries
 sub ParseLibraries {
   return if $main::use_symbol_page;  # We don't need libraries info.
-  my $prog = shift;
+  my $prog = Cwd::abs_path(shift);
   my $map = shift;
   my $pcs = shift;
 
@@ -4603,6 +4607,16 @@ sub ParseLibraries {
       $finish = HexExtend($2);
       $offset = $zero_offset;
       $lib = $3;
+    } elsif (($l =~ /^($h)-($h)\s+..x.\s+($h)\s+\S+:\S+\s+\d+\s+(\S+)$/i) && ($4 eq $prog)) {
+      # PIEs and address space randomization do not play well with our
+      # default assumption that main executable is at lowest
+      # addresses. So we're detecting main executable in
+      # /proc/self/maps as well.
+      $start = HexExtend($1);
+      $finish = HexExtend($2);
+      $offset = HexExtend($3);
+      $lib = $4;
+      $lib =~ s|\\|/|g;     # turn windows-style paths into unix-style paths
     }
     # FreeBSD 10.0 virtual memory map /proc/curproc/map as defined in
     # function procfs_doprocmap (sys/fs/procfs/procfs_map.c)
@@ -5353,7 +5367,7 @@ sub GetProcedureBoundaries {
   my $demangle_flag = "";
   my $cppfilt_flag = "";
   my $to_devnull = ">$dev_null 2>&1";
-  if (system(ShellEscape($nm, "--demangle", "image") . $to_devnull) == 0) {
+  if (system(ShellEscape($nm, "--demangle", $image) . $to_devnull) == 0) {
     # In this mode, we do "nm --demangle <foo>"
     $demangle_flag = "--demangle";
     $cppfilt_flag = "";
