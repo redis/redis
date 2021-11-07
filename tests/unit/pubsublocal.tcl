@@ -196,17 +196,6 @@ start_server {} {
         wait_for_sync $node_1
     }
 
-    test {publish message to replica and receive on master} {
-        set rd0 [redis_deferring_client node_0_host node_0_port]
-        set rd1 [redis_deferring_client node_1_host node_1_port]
-
-        assert_equal {1} [subscribelocal $rd0 {chan1}]
-        $rd1 PUBLISHLOCAL chan1 hello
-        assert_equal {message chan1 hello} [$rd0 read]
-        $rd1 PUBLISHLOCAL chan1 world
-        assert_equal {message chan1 world} [$rd0 read]
-    }
-
     test {publish message to master and receive on replica} {
         set rd0 [redis_deferring_client node_0_host node_0_port]
         set rd1 [redis_deferring_client node_1_host node_1_port]

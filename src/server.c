@@ -547,6 +547,9 @@ struct redisCommand pubsubSubcommands[] = {
     {"numsub",pubsubCommand,-2,
      "pub-sub ok-loading ok-stale"},
 
+    {"local",pubsubCommand,-2,
+     "pub-sub ok-loading ok-stale"},
+
     {"help",pubsubCommand,2,
      "ok-loading ok-stale"},
 
