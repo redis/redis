@@ -756,7 +756,7 @@ static int connTLSWrite(connection *conn_, const void *data, size_t data_len) {
         if (!(ssl_err = handleSSLReturnCode(conn, ret, &want))) {
             if (want == WANT_READ) conn->flags |= TLS_CONN_FLAG_WRITE_WANT_READ;
             updateSSLEvent(conn);
-            errno = EAGAIN;
+            conn->c.last_errno = errno = EAGAIN;
             return -1;
         } else {
             if (ssl_err == SSL_ERROR_ZERO_RETURN ||
@@ -787,7 +787,7 @@ static int connTLSRead(connection *conn_, void *buf, size_t buf_len) {
             if (want == WANT_WRITE) conn->flags |= TLS_CONN_FLAG_READ_WANT_WRITE;
             updateSSLEvent(conn);
 
-            errno = EAGAIN;
+            conn->c.last_errno = errno = EAGAIN;
             return -1;
         } else {
             if (ssl_err == SSL_ERROR_ZERO_RETURN ||

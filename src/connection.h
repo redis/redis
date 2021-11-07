@@ -152,7 +152,7 @@ static inline int connWrite(connection *conn, const void *data, size_t data_len)
  */
 static inline int connRead(connection *conn, void *buf, size_t buf_len) {
     int ret = conn->type->read(conn, buf, buf_len);
-    if (ret == -1 && conn->last_errno == EINTR) {
+    if (ret == -1 && (conn->last_errno == EINTR || conn->last_errno == EAGAIN)) {
         conn->state = CONN_STATE_CONNECTED;
     }
     return ret;
@@ -210,7 +210,7 @@ static inline int connGetType(connection *conn) {
 }
 
 static inline int connLastErrorRetryable(connection *conn) {
-    return conn->last_errno == EINTR;
+    return conn->last_errno == EINTR || conn->last_errno == EAGAIN;
 }
 
 connection *connCreateSocket();
