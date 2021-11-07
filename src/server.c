@@ -7136,7 +7136,14 @@ void daemonize(void) {
 }
 
 void version(void) {
-    if (server.sentinel_mode) {
+    printf("Redis %s v=%s sha=%s:%d malloc=%s bits=%d build=%llx\n",
+        server.sentinel_mode ? "sentinel" : "server",
+        REDIS_VERSION,
+        redisGitSHA1(),
+        atoi(redisGitDirty()) > 0,
+        ZMALLOC_LIB,
+        sizeof(long) == 4 ? 32 : 64,
+        (unsigned long long) redisBuildId());
         printf("Redis sentinel v=%s sha=%s:%d malloc=%s bits=%d build=%llx\n",
             REDIS_VERSION,
             redisGitSHA1(),
