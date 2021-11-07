@@ -2040,43 +2040,33 @@ void watchdogScheduleSignal(int period) {
     it.it_interval.tv_usec = 0;
     setitimer(ITIMER_REAL, &it, NULL);
 }
+void applyWatchdogPeriod() {
+    struct sigaction act;
 
-/* Enable the software watchdog with the specified period in milliseconds. */
-void enableWatchdog(int period) {
-    int min_period;
-
+    /* Disable watchdog when period is 0 */
     if (server.watchdog_period == 0) {
-        struct sigaction act;
+        watchdogScheduleSignal(0); /* Stop the current timer. */
 
-        /* Watchdog was actually disabled, so we have to setup the signal
-         * handler. */
+        /* Set the signal handler to SIG_IGN, this will also remove pending
+         * signals from the queue. */
+        sigemptyset(&act.sa_mask);
+        act.sa_flags = 0;
+        act.sa_handler = SIG_IGN;
+        sigaction(SIGALRM, &act, NULL);
+    } else {
+        /* Setup the signal handler. */
         sigemptyset(&act.sa_mask);
         act.sa_flags = SA_SIGINFO;
         act.sa_sigaction = watchdogSignalHandler;
         sigaction(SIGALRM, &act, NULL);
+
+        /* If the configured period is smaller than twice the timer period, it is
+         * too short for the software watchdog to work reliably. Fix it now
+         * if needed. */
+        int min_period = (1000/server.hz)*2;
+        if (server.watchdog_period < min_period) server.watchdog_period = min_period;
+        watchdogScheduleSignal(server.watchdog_period); /* Adjust the current timer. */
     }
-    /* If the configured period is smaller than twice the timer period, it is
-     * too short for the software watchdog to work reliably. Fix it now
-     * if needed. */
-    min_period = (1000/server.hz)*2;
-    if (period < min_period) period = min_period;
-    watchdogScheduleSignal(period); /* Adjust the current timer. */
-    server.watchdog_period = period;
-}
-
-/* Disable the software watchdog. */
-void disableWatchdog(void) {
-    struct sigaction act;
-    if (server.watchdog_period == 0) return; /* Already disabled. */
-    watchdogScheduleSignal(0); /* Stop the current timer. */
-
-    /* Set the signal handler to SIG_IGN, this will also remove pending
-     * signals from the queue. */
-    sigemptyset(&act.sa_mask);
-    act.sa_flags = 0;
-    act.sa_handler = SIG_IGN;
-    sigaction(SIGALRM, &act, NULL);
-    server.watchdog_period = 0;
 }
 
 /* Positive input is sleep time in microseconds. Negative input is fractions
