@@ -248,6 +248,23 @@ start_server {tags {"introspection"}} {
             assert_equal [r config get save] {save {}}
         }
     } {} {external:skip}
+    
+    test {CONFIG SET with multiple args} {
+        assert_equal [r config set maxmemory 10000001 maxmemory-clients 2000001 save {3000 5}] "OK"
+        assert_equal [r config get maxmemory] "maxmemory 10000001"
+        assert_equal [r config get maxmemory-clients] "maxmemory-clients 2000001"
+        assert_equal [r config get save] "save {3000 5}"
+    }
+
+    test {CONFIG SET rollback on error} {
+        # Set some value to maxmemory
+        assert_equal [r config set maxmemory 10000002] "OK"
+        # Set another value to maxmeory together with another invalid config
+        catch {r config set maxmemory 10000001 maxmemory-clients invalid} e
+        assert_match "ERR Invalid arguments*" $e
+        # Make sure we reverted back to the previous maxmemory
+        assert_equal [r config get maxmemory] "maxmemory 10000002"
+    }
 
     # Config file at this point is at a weird state, and includes all
     # known keywords. Might be a good idea to avoid adding tests here.
