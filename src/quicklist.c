@@ -275,36 +275,6 @@ size_t quicklistGetLzf(const quicklistNode *node, void **data) {
     return lzf->sz;
 }
 
-void quicklistRepr(unsigned char *ql, int full) {
-    int i = 0;
-    quicklist *quicklist  = (struct quicklist*) ql;
-    printf("{count : %ld}\n", quicklist->count);
-    printf("{len : %ld}\n", quicklist->len);
-    printf("{fill : %d}\n", quicklist->fill);
-    printf("{compress : %d}\n", quicklist->compress);
-    printf("{bookmark_count : %d}\n", quicklist->bookmark_count);
-    quicklistNode* node = quicklist->head;
-
-    while(node != NULL) {
-        printf("{quicklist node(%d)\n", i++);
-        printf("{container : %s, encoding: %s, size: %zu}\n", QL_NODE_IS_PLAIN(node) ? "PLAIN": "PACKED",
-               (node->encoding == QUICKLIST_NODE_ENCODING_RAW) ? "RAW": "LZF", node->sz);
-
-        if (full) {
-            if (node->container == QUICKLIST_NODE_CONTAINER_PACKED) {
-                printf("{ listpack:\n");
-                lpRepr(node->entry);
-                printf("}\n");
-
-            } else if (QL_NODE_IS_PLAIN(node)) {
-                printf("{ entry : %s }\n", node->entry);
-            }
-            printf("}\n");
-        }
-        node = node->next;
-    }
-}
-
 #define quicklistAllowsCompression(_ql) ((_ql)->compress != 0)
 
 /* Force 'quicklist' to meet compression guidelines set by compress depth.
@@ -388,7 +358,7 @@ REDIS_STATIC void __quicklistCompress(const quicklist *quicklist,
     } while (0)
 
 /* If we previously used quicklistDecompressNodeForUse(), just recompress. */
-#define quicklistRecompressOnly(_ql, _node)                                    \
+#define quicklistRecompressOnly(_node)                                         \
     do {                                                                       \
         if ((_node)->recompress)                                               \
             quicklistCompressNode((_node));                                    \
@@ -474,7 +444,6 @@ REDIS_STATIC int _quicklistNodeAllowInsert(const quicklistNode *node,
 
     if (unlikely(QL_NODE_IS_PLAIN(node) || isLargeElement(sz)))
         return 0;
-
 
     size_t new_sz = node->sz + sz;
     if (likely(_quicklistNodeSizeMeetsOptimizationRequirement(new_sz, fill)))
@@ -989,14 +958,14 @@ REDIS_STATIC void _quicklistInsert(quicklist *quicklist, quicklistEntry *entry,
         node->entry = lpInsertString(node->entry, value, sz, entry->zi, LP_AFTER, NULL);
         node->count++;
         quicklistNodeUpdateSz(node);
-        quicklistRecompressOnly(quicklist, node);
+        quicklistRecompressOnly(node);
     } else if (!full && !after) {
         D("Not full, inserting before current position.");
         quicklistDecompressNodeForUse(node);
         node->entry = lpInsertString(node->entry, value, sz, entry->zi, LP_BEFORE, NULL);
         node->count++;
         quicklistNodeUpdateSz(node);
-        quicklistRecompressOnly(quicklist, node);
+        quicklistRecompressOnly(node);
     } else if (full && at_tail && avail_next && after) {
         /* If we are: at tail, next has free space, and inserting after:
          *   - insert entry at head of next node. */
@@ -1006,7 +975,7 @@ REDIS_STATIC void _quicklistInsert(quicklist *quicklist, quicklistEntry *entry,
         new_node->entry = lpPrepend(new_node->entry, value, sz);
         new_node->count++;
         quicklistNodeUpdateSz(new_node);
-        quicklistRecompressOnly(quicklist, new_node);
+        quicklistRecompressOnly(new_node);
     } else if (full && at_head && avail_prev && !after) {
         /* If we are: at head, previous has free space, and inserting before:
          *   - insert entry at tail of previous node. */
@@ -1016,7 +985,7 @@ REDIS_STATIC void _quicklistInsert(quicklist *quicklist, quicklistEntry *entry,
         new_node->entry = lpAppend(new_node->entry, value, sz);
         new_node->count++;
         quicklistNodeUpdateSz(new_node);
-        quicklistRecompressOnly(quicklist, new_node);
+        quicklistRecompressOnly(new_node);
     } else if (full && ((at_tail && !avail_next && after) ||
                         (at_head && !avail_prev && !after))) {
         /* If we are: full, and our prev/next has no available space, then:
@@ -1133,7 +1102,7 @@ int quicklistDelRange(quicklist *quicklist, const long start,
             quicklist->count -= del;
             quicklistDeleteIfEmpty(quicklist, node);
             if (node)
-                quicklistRecompressOnly(quicklist, node);
+                quicklistRecompressOnly(node);
         }
 
         extent -= del;
@@ -1582,6 +1551,39 @@ void quicklistPush(quicklist *quicklist, void *value, const size_t sz,
         quicklistPushHead(quicklist, value, sz);
     } else if (where == QUICKLIST_TAIL) {
         quicklistPushTail(quicklist, value, sz);
+    }
+}
+
+/* Print info of quicklist which is used in debugCommand. */
+void quicklistRepr(unsigned char *ql, int full) {
+    int i = 0;
+    quicklist *quicklist  = (struct quicklist*) ql;
+    printf("{count : %ld}\n", quicklist->count);
+    printf("{len : %ld}\n", quicklist->len);
+    printf("{fill : %d}\n", quicklist->fill);
+    printf("{compress : %d}\n", quicklist->compress);
+    printf("{bookmark_count : %d}\n", quicklist->bookmark_count);
+    quicklistNode* node = quicklist->head;
+
+    while(node != NULL) {
+        printf("{quicklist node(%d)\n", i++);
+        printf("{container : %s, encoding: %s, size: %zu}\n", QL_NODE_IS_PLAIN(node) ? "PLAIN": "PACKED",
+               (node->encoding == QUICKLIST_NODE_ENCODING_RAW) ? "RAW": "LZF", node->sz);
+
+        if (full) {
+            quicklistDecompressNode(node);
+            if (node->container == QUICKLIST_NODE_CONTAINER_PACKED) {
+                printf("{ listpack:\n");
+                lpRepr(node->entry);
+                printf("}\n");
+
+            } else if (QL_NODE_IS_PLAIN(node)) {
+                printf("{ entry : %s }\n", node->entry);
+            }
+            printf("}\n");
+            quicklistRecompressOnly(node);
+        }
+        node = node->next;
     }
 }
 
