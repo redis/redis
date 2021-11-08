@@ -609,7 +609,15 @@ void quicklistAppendListpack(quicklist *quicklist, unsigned char *zl) {
  * to be retrieved later.
  * data - the data to add (pointer becomes the responsibility of quicklist) */
 void quicklistAppendPlainNode(quicklist *quicklist, unsigned char *data, size_t sz) {
-    __quicklistInsertPlainNode(quicklist, quicklist->tail, data, sz, 1);
+    quicklistNode *node = quicklistCreateNode();
+
+    node->entry = data;
+    node->count = 1;
+    node->sz = sz;
+    node->container = QUICKLIST_NODE_CONTAINER_PLAIN;
+
+    _quicklistInsertNodeAfter(quicklist, quicklist->tail, node);
+    quicklist->count += node->count;
 }
 
 /* Append all values of ziplist 'zl' individually into 'quicklist'.

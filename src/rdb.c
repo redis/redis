@@ -1991,7 +1991,6 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
 
             if (container == QUICKLIST_NODE_CONTAINER_PLAIN) {
                 quicklistAppendPlainNode(o->ptr, data, encoded_len);
-                zfree(data);
                 continue;
             }
 
