@@ -33,7 +33,6 @@
 #include "quicklist.h"
 #include "zmalloc.h"
 #include "config.h"
-#include "ziplist.h"
 #include "listpack.h"
 #include "util.h" /* for ll2string */
 #include "lzf.h"
@@ -618,41 +617,6 @@ void quicklistAppendPlainNode(quicklist *quicklist, unsigned char *data, size_t 
 
     _quicklistInsertNodeAfter(quicklist, quicklist->tail, node);
     quicklist->count += node->count;
-}
-
-/* Append all values of ziplist 'zl' individually into 'quicklist'.
- *
- * This allows us to restore old RDB ziplists into new quicklists
- * with smaller ziplist sizes than the saved RDB ziplist.
- *
- * Returns 'quicklist' argument. Frees passed-in ziplist 'zl' */
-quicklist *quicklistAppendValuesFromZiplist(quicklist *quicklist,
-                                            unsigned char *zl) {
-    unsigned char *value;
-    unsigned int sz;
-    long long longval;
-    char longstr[32] = {0};
-
-    unsigned char *p = ziplistIndex(zl, 0);
-    while (ziplistGet(p, &value, &sz, &longval)) {
-        if (!value) {
-            /* Write the longval as a string so we can re-add it */
-            sz = ll2string(longstr, sizeof(longstr), longval);
-            value = (unsigned char *)longstr;
-        }
-        quicklistPushTail(quicklist, value, sz);
-        p = ziplistNext(zl, p);
-    }
-    zfree(zl);
-    return quicklist;
-}
-
-/* Create new (potentially multi-node) quicklist from a single existing ziplist.
- *
- * Returns new quicklist.  Frees passed-in ziplist 'zl'. */
-quicklist *quicklistCreateFromZiplist(int fill, int compress,
-                                      unsigned char *zl) {
-    return quicklistAppendValuesFromZiplist(quicklistNew(fill, compress), zl);
 }
 
 #define quicklistDeleteIfEmpty(ql, n)                                          \
@@ -2956,32 +2920,6 @@ int quicklistTest(int argc, char *argv[], int accurate) {
                 if (ql->count != 30)
                     ERR("Didn't delete exactly three elements!  Count is: %lu",
                         ql->count);
-                quicklistRelease(ql);
-            }
-        }
-
-        TEST_DESC("create quicklist from ziplist at compress %d", options[_i]) {
-            for (int f = 0; f < fill_count; f++) {
-                unsigned char *zl = ziplistNew();
-                long long nums[64];
-                char num[64];
-                for (int i = 0; i < 33; i++) {
-                    nums[i] = -5157318210846258176 + i;
-                    int sz = ll2string(num, sizeof(num), nums[i]);
-                    zl =
-                        ziplistPush(zl, (unsigned char *)num, sz, ZIPLIST_TAIL);
-                }
-                for (int i = 0; i < 33; i++) {
-                    zl = ziplistPush(zl, (unsigned char *)genstr("hello", i),
-                                     32, ZIPLIST_TAIL);
-                }
-                quicklist *ql = quicklistCreateFromZiplist(fills[f], options[_i], zl);
-                if (fills[f] == 1)
-                    ql_verify(ql, 66, 66, 1, 1);
-                else if (fills[f] == 32)
-                    ql_verify(ql, 3, 66, 32, 2);
-                else if (fills[f] == 66)
-                    ql_verify(ql, 1, 66, 66, 66);
                 quicklistRelease(ql);
             }
         }
