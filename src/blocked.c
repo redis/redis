@@ -351,7 +351,7 @@ void serveClientsBlockedOnSortedSetKey(robj *o, readyList *rl) {
             server.current_client = receiver;
             monotime replyTimer;
             elapsedStart(&replyTimer);
-            genericZpopCommand(receiver, &rl->key, 1, where, 1, count, use_nested_array, reply_nil_when_empty, 0, &deleted);
+            genericZpopCommand(receiver, &rl->key, 1, where, 1, count, use_nested_array, reply_nil_when_empty, &deleted);
             updateStatsOnUnblock(receiver, 0, elapsedUs(replyTimer));
             unblockClient(receiver);
             afterCommand(receiver);
@@ -363,7 +363,7 @@ void serveClientsBlockedOnSortedSetKey(robj *o, readyList *rl) {
             argv[0] = where == ZSET_MIN ? shared.zpopmin : shared.zpopmax;
             argv[1] = rl->key;
             incrRefCount(rl->key);
-            if (count != 0) {
+            if (count != -1) {
                 /* Replicate it as command with COUNT. */
                 robj *count_obj = createStringObjectFromLongLong((count > llen) ? llen : count);
                 argv[2] = count_obj;
@@ -371,7 +371,7 @@ void serveClientsBlockedOnSortedSetKey(robj *o, readyList *rl) {
             }
             propagate(receiver->db->id, argv, argc, PROPAGATE_AOF|PROPAGATE_REPL);
             decrRefCount(argv[1]);
-            if (count != 0) decrRefCount(argv[2]);
+            if (count != -1) decrRefCount(argv[2]);
 
             /* The zset is empty and has been deleted. */
             if (deleted) break;
