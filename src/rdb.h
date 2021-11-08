@@ -40,9 +40,6 @@
  * backward compatible this number gets incremented. */
 #define RDB_VERSION 10
 
-/* Defines related to features that depend on RDB_VERSION. */
-#define RDB_VERSION_STREAM_V2 10
-
 /* Defines related to the dump file format. To store 32 bits lengths for short
  * keys requires a lot of space, so we check the most significant 2 bits of
  * the first byte to interpreter the length:
@@ -96,10 +93,11 @@
 #define RDB_TYPE_STREAM_LISTPACKS 15
 #define RDB_TYPE_HASH_LISTPACK 16
 #define RDB_TYPE_ZSET_LISTPACK 17
+#define RDB_TYPE_STREAM_LISTPACKS_2 18
 /* NOTE: WHEN ADDING NEW RDB TYPE, UPDATE rdbIsObjectType() BELOW */
 
 /* Test if a type is an object type. */
-#define rdbIsObjectType(t) ((t >= 0 && t <= 7) || (t >= 9 && t <= 17))
+#define rdbIsObjectType(t) ((t >= 0 && t <= 7) || (t >= 9 && t <= 18))
 
 /* Special RDB opcodes (saved/loaded with rdbSaveType/rdbLoadType). */
 #define RDB_OPCODE_MODULE_AUX 247   /* Module auxiliary data. */

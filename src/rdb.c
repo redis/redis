@@ -683,7 +683,7 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
         else
             serverPanic("Unknown hash encoding");
     case OBJ_STREAM:
-        return rdbSaveType(rdb,RDB_TYPE_STREAM_LISTPACKS);
+        return rdbSaveType(rdb,RDB_TYPE_STREAM_LISTPACKS_2);
     case OBJ_MODULE:
         return rdbSaveType(rdb,RDB_TYPE_MODULE_2);
     default:
@@ -1661,6 +1661,7 @@ int lpPairsValidateIntegrityAndDups(unsigned char *lp, size_t size, int deep) {
  * When the function returns NULL and if 'error' is not NULL, the
  * integer pointed by 'error' is set to the type of error that occurred */
 robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int rdbver, int *error) {
+    UNUSED(rdbver);
     robj *o = NULL, *ele, *dec;
     uint64_t len;
     unsigned int i;
@@ -2179,7 +2180,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int rdbver, int *e
                 rdbReportCorruptRDB("Unknown RDB encoding type %d",rdbtype);
                 break;
         }
-    } else if (rdbtype == RDB_TYPE_STREAM_LISTPACKS) {
+    } else if (rdbtype == RDB_TYPE_STREAM_LISTPACKS || rdbtype == RDB_TYPE_STREAM_LISTPACKS_2) {
         o = createStreamObject();
         stream *s = o->ptr;
         uint64_t listpacks = rdbLoadLen(rdb,NULL);
@@ -2256,7 +2257,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int rdbver, int *e
         s->last_id.ms = rdbLoadLen(rdb,NULL);
         s->last_id.seq = rdbLoadLen(rdb,NULL);
         
-        if (rdbver >= RDB_VERSION_STREAM_V2) {
+        if (rdbtype == RDB_TYPE_STREAM_LISTPACKS_2) {
             /* Load the first entry ID. */
             s->first_id.ms = rdbLoadLen(rdb,NULL);
             s->first_id.seq = rdbLoadLen(rdb,NULL);
@@ -2317,7 +2318,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int rdbver, int *e
             
             /* Load group offset. */
             uint64_t cg_offset;
-            if (rdbver >= RDB_VERSION_STREAM_V2) {
+            if (rdbtype == RDB_TYPE_STREAM_LISTPACKS_2) {
                 cg_offset = rdbLoadLen(rdb,NULL);
                 if (rioGetReadError(rdb)) {
                     rdbReportReadError("Stream cgroup offset loading failed.");
