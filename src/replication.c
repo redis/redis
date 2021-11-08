@@ -2614,9 +2614,7 @@ void syncWithMaster(connection *conn) {
          * slave listening port correctly. */
         {
             int port;
-            if (server.repl_bufonly)
-                port = 0;
-            else if (server.slave_announce_port)
+            if (server.slave_announce_port)
                 port = server.slave_announce_port;
             else if (server.tls_replication && server.tls_port)
                 port = server.tls_port;
@@ -2645,7 +2643,7 @@ void syncWithMaster(connection *conn) {
          *
          * The master will ignore capabilities it does not understand. */
         err = sendCommand(conn,"REPLCONF",
-                "capa","eof","capa","psync2","buf-only",server.repl_bufonly ? "1" : "0",NULL);
+                "capa","eof","capa","psync2",NULL);
         if (err) goto write_error;
 
         server.repl_state = REPL_STATE_RECEIVE_AUTH_REPLY;
@@ -3093,16 +3091,12 @@ void replicaofCommand(client *c) {
                                  "master\r\n"));
             return;
         }
-
-        /* REPLICAOF HOST PORT [BUF-ONLY] */
-        server.repl_bufonly = c->argc == 4 && !strcasecmp(c->argv[3]->ptr,"buf-only");
-
         /* There was no previous master or the user specified a different one,
          * we can continue. */
         replicationSetMaster(c->argv[1]->ptr, port);
         sds client = catClientInfoString(sdsempty(),c);
-        serverLog(LL_NOTICE,"REPLICAOF %s:%d buf-only=%d enabled (user request from '%s')",
-            server.masterhost, server.masterport, server.repl_bufonly, client);
+        serverLog(LL_NOTICE,"REPLICAOF %s:%d enabled (user request from '%s')",
+            server.masterhost, server.masterport, client);
         sdsfree(client);
     }
     addReply(c,shared.ok);

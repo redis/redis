@@ -1646,10 +1646,10 @@ struct redisCommand redisCommandTable[] = {
        KSPEC_BS_INDEX,.bs.index={1},
        KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 
-    {"slaveof",replicaofCommand,-3,
+    {"slaveof",replicaofCommand,3,
      "admin no-script ok-stale"},
 
-    {"replicaof",replicaofCommand,-3,
+    {"replicaof",replicaofCommand,3,
      "admin no-script ok-stale"},
 
     {"role",roleCommand,1,
@@ -3732,7 +3732,6 @@ void initServerConfig(void) {
     server.repl_syncio_timeout = CONFIG_REPL_SYNCIO_TIMEOUT;
     server.repl_down_since = 0; /* Never connected, repl is down since EVER. */
     server.master_repl_offset = 0;
-    server.repl_bufonly = 0;
 
     /* Replication partial resync backlog */
     server.repl_backlog = NULL;
