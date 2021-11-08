@@ -711,7 +711,7 @@ void configSetCommand(client *c) {
                 for (j = 0; j < i; j++) {
                     if (set_configs[j] == config) {
                         /* Note: we don't abort the loop since we still want to handle redacting sensitive configs (above) */
-                        /* TODO: more meaningful error reply */
+                        errstr = "duplicate parameter";
                         invalid_args = 1;
                         break;
                     }
@@ -724,7 +724,10 @@ void configSetCommand(client *c) {
         /* Fail if we couldn't find this config */
         /* Note: we don't abort the loop since we still want to handle redacting sensitive configs (above) */
         /* TODO: more meaningful error reply */
-        if (!set_configs[i]) invalid_args = 1;
+        if (!set_configs[i]) {
+            errstr = "unrecognized parameter";
+            invalid_args = 1;
+        }
     }
     
     if (invalid_args) goto badfmt;
@@ -756,7 +759,7 @@ void configSetCommand(client *c) {
 
 badfmt: /* Bad format errors */
     if (errstr) {
-        addReplyErrorFormat(c,"Invalid arguments - '%s'",
+        addReplyErrorFormat(c,"Invalid arguments - %s",
                 errstr);
     } else {
         addReplyError(c,"Invalid arguments");
