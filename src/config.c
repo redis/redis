@@ -222,16 +222,18 @@ typedef union typeData {
     numericConfigData numeric;
 } typeData;
 
+typedef int (*apply_fn)(const char **err);
 typedef struct typeInterface {
     /* Called on server start, to init the server with default value */
     void (*init)(typeData data);
-    /* Called on server startup and CONFIG SET, returns 1 on success, 0 on error
-     * and can set a verbose err string */
+    /* Called on server startup and CONFIG SET, returns 1 on success,
+     * 0 meaning no actual change done, negative on error and can set a verbose
+     * err string */
     int (*set)(typeData data, sds *argv, int argc, const char **err);
     /* Optional: called after `set()` to apply the config change. Used only in
      * the context of CONFIG SET. Returns 1 on success, 0 on failure.
      * Optionally set err to a static error string. */
-    int (*apply)(const char **err);
+    apply_fn apply;
     /* Called on CONFIG GET, returns sds to be used in reply */
     sds (*get)(typeData data);
     /* Called on CONFIG REWRITE, required to rewrite the config state */
@@ -343,7 +345,7 @@ static int updateClientOutputBufferLimit(sds *args, int arg_len, const char **er
     if (arg_len % 4) {
         if (err) *err = "Wrong number of arguments in "
                         "buffer limit configuration.";
-        return 0;
+        return -1;
     }
 
     /* Sanity check of single arguments, so that we either refuse the
@@ -354,7 +356,7 @@ static int updateClientOutputBufferLimit(sds *args, int arg_len, const char **er
         if (class == -1 || class == CLIENT_TYPE_MASTER) {
             if (err) *err = "Invalid client class specified in "
                             "buffer limit configuration.";
-            return 0;
+            return -1;
         }
 
         hard = memtoull(args[j+1], &hard_err);
@@ -365,7 +367,7 @@ static int updateClientOutputBufferLimit(sds *args, int arg_len, const char **er
         {
             if (err) *err = "Error in hard, soft or soft_seconds setting in "
                             "buffer limit configuration.";
-            return 0;
+            return -1;
         }
 
         values[class].hard_limit_bytes = hard;
@@ -438,7 +440,7 @@ void loadServerConfigFromString(char *config) {
                     goto loaderr;
                 }
                 /* Set config using all arguments that follows */
-                if (!config->interface.set(config->data, &argv[1], argc-1, &err)) {
+                if (config->interface.set(config->data, &argv[1], argc-1, &err) < 0) {
                     goto loaderr;
                 }
 
@@ -632,7 +634,7 @@ void loadServerConfig(char *filename, char config_from_stdin, char *options) {
 
 static int performInterfaceSet(standardConfig *config, sds value, const char **errstr) {
     sds *argv;
-    int argc;
+    int argc, res;
 
     if (config->flags & MULTI_ARG_CONFIG) {
         argv = sdssplitlen(value, sdslen(value), " ", 1, &argc);
@@ -642,31 +644,24 @@ static int performInterfaceSet(standardConfig *config, sds value, const char **e
     }
 
     /* Set the config */
-    if (!config->interface.set(config->data, argv, argc, errstr)) {
-        if (config->flags & MULTI_ARG_CONFIG) sdsfreesplitres(argv, argc);
-        return 0;
-    }
-
-    return 1;
+    res = config->interface.set(config->data, argv, argc, errstr);
+    if (config->flags & MULTI_ARG_CONFIG) sdsfreesplitres(argv, argc);
+    return res;
 }
 
-static void restoreBackupConfig(standardConfig **set_configs, sds *old_values, int count, int apply) {
+static void restoreBackupConfig(standardConfig **set_configs, sds *old_values, int count, apply_fn *apply_fns) {
     int i;
     const char *errstr = NULL;
     /* Set all backup values */
     for (i = 0; i < count; i++) {
-        if (!performInterfaceSet(set_configs[i], old_values[i], &errstr))
+        if (performInterfaceSet(set_configs[i], old_values[i], &errstr) < 0)
             serverPanic("Failed restoring failed CONFIG SET command: %s", errstr);
     }
     /* Apply backup */
-    if (apply) {
-        for (i = 0; i < count; i++) {
-            /* TODO: use unique set of apply functions to avoid calling the same function twice */
-            if (set_configs[i]->interface.apply &&
-                !set_configs[i]->interface.apply(&errstr))
-                serverPanic(
-                        "Failed applying restored failed CONFIG SET command: %s",
-                        errstr);
+    if (apply_fns) {
+        for (i = 0; apply_fns[i] != NULL && i < count; i++) {
+            if (!apply_fns[i](&errstr))
+                serverPanic("Failed applying restored failed CONFIG SET command: %s", errstr);
         }
     }
 }
@@ -680,6 +675,7 @@ void configSetCommand(client *c) {
     standardConfig **set_configs; /* TODO: make this a dict for better performance */
     sds *new_values;
     sds *old_values = NULL;
+    apply_fn *apply_fns; /* TODO: make this a set for better performance */
     int config_count, i, j;
     int invalid_args = 0;
 
@@ -693,6 +689,7 @@ void configSetCommand(client *c) {
     set_configs = zcalloc(sizeof(standardConfig*)*config_count);
     new_values = zmalloc(sizeof(sds*)*config_count);
     old_values = zcalloc(sizeof(sds*)*config_count);
+    apply_fns = zcalloc(sizeof(apply_fn)*config_count);
 
     /* Find all relevant configs */
     for (i = 0; i < config_count; i++) {
@@ -737,19 +734,30 @@ void configSetCommand(client *c) {
 
     /* Set all new values (don't apply yet) */
     for (i = 0; i < config_count; i++) {
-        // TODO: optimization: if set didn't change anything then allow returning a special value indicating no need to apply later
-        if (!performInterfaceSet(set_configs[i], new_values[i], &errstr)) {
-            restoreBackupConfig(set_configs, old_values, config_count, 0);
+        int res = performInterfaceSet(set_configs[i], new_values[i], &errstr);
+        if (res < 0) {
+            restoreBackupConfig(set_configs, old_values, i+1, NULL);
             goto badfmt;
+        } else if (res > 0) {
+            /* A new value was set, if this config has an apply function then store it for execution later */
+            if (set_configs[i]->interface.apply) {
+                /* Check if this apply function is already stored */
+                for (j = 0; apply_fns[j] != NULL && j < i; j++) {
+                    if (apply_fns[j] == set_configs[i]->interface.apply)
+                        break;
+                }
+                /* Apply function not stored, store it */
+                if (j == i)
+                    apply_fns[j] = set_configs[i]->interface.apply;
+            }
         }
     }
 
     /* Apply all configs after being set */
-    for (i = 0; i < config_count; i++) {
-        /* TODO: use unique set of apply functions to avoid calling the same function twice */
-        if (set_configs[i]->interface.apply && !set_configs[i]->interface.apply(&errstr)) {
+    for (i = 0; i < config_count && apply_fns[i] != NULL; i++) {
+        if (!apply_fns[i](&errstr)) {
             serverLog(LL_WARNING, "Failed applying new %s configuration, restoring previous settings.", set_configs[i]->name);
-            restoreBackupConfig(set_configs, old_values, config_count, 1);
+            restoreBackupConfig(set_configs, old_values, config_count, apply_fns);
             goto badfmt;
         }
     }
@@ -758,8 +766,7 @@ void configSetCommand(client *c) {
 
 badfmt: /* Bad format errors */
     if (errstr) {
-        addReplyErrorFormat(c,"Invalid arguments - %s",
-                errstr);
+        addReplyErrorFormat(c,"Invalid arguments - %s", errstr);
     } else {
         addReplyError(c,"Invalid arguments");
     }
@@ -769,6 +776,7 @@ end:
     for (i = 0; i < config_count; i++)
         sdsfree(old_values[i]);
     zfree(old_values);
+    zfree(apply_fns);
 }
 
 /*-----------------------------------------------------------------------------
@@ -1571,15 +1579,16 @@ static int boolConfigSet(typeData data, sds *argv, int argc, const char **err) {
     int yn = yesnotoi(argv[0]);
     if (yn == -1) {
         *err = "argument must be 'yes' or 'no'";
-        return 0;
+        return -1;
     }
     if (data.yesno.is_valid_fn && !data.yesno.is_valid_fn(yn, err))
-        return 0;
+        return -1;
     int prev = *(data.yesno.config);
     if (prev != yn) {
         *(data.yesno.config) = yn;
+        return 1;
     }
-    return 1;
+    return 0;
 }
 
 static sds boolConfigGet(typeData data) {
@@ -1608,14 +1617,15 @@ static void stringConfigInit(typeData data) {
 static int stringConfigSet(typeData data, sds *argv, int argc, const char **err) {
     UNUSED(argc);
     if (data.string.is_valid_fn && !data.string.is_valid_fn(argv[0], err))
-        return 0;
+        return -1;
     char *prev = *data.string.config;
     char *new = (data.string.convert_empty_to_null && !argv[0][0]) ? NULL : argv[0];
     if (new != prev && (new == NULL || prev == NULL || strcmp(prev, new))) {
         *data.string.config = new != NULL ? zstrdup(new) : NULL;
         zfree(prev);
+        return 1;
     }
-    return 1;
+    return 0;
 }
 
 static sds stringConfigGet(typeData data) {
@@ -1634,14 +1644,15 @@ static void sdsConfigInit(typeData data) {
 static int sdsConfigSet(typeData data, sds *argv, int argc, const char **err) {
     UNUSED(argc);
     if (data.sds.is_valid_fn && !data.sds.is_valid_fn(argv[0], err))
-        return 0;
+        return -1;
     sds prev = *data.sds.config;
     sds new = (data.string.convert_empty_to_null && (sdslen(argv[0]) == 0)) ? NULL : argv[0];
     if (new != prev && (new == NULL || prev == NULL || sdscmp(prev, new))) {
         *data.sds.config = new != NULL ? sdsdup(new) : NULL;
         sdsfree(prev);
+        return 1;
     }
-    return 1;
+    return 0;
 }
 
 static sds sdsConfigGet(typeData data) {
@@ -1706,15 +1717,16 @@ static int enumConfigSet(typeData data, sds *argv, int argc, const char **err) {
 
         sdsfree(enumerr);
         *err = loadbuf;
-        return 0;
+        return -1;
     }
     if (data.enumd.is_valid_fn && !data.enumd.is_valid_fn(enumval, err))
-        return 0;
+        return -1;
     int prev = *(data.enumd.config);
     if (prev != enumval) {
         *(data.enumd.config) = enumval;
+        return 1;
     }
-    return 1;
+    return 0;
 }
 
 static sds enumConfigGet(typeData data) {
@@ -1888,22 +1900,21 @@ static int numericConfigSet(typeData data, sds *argv, int argc, const char **err
     long long ll, prev = 0;
 
     if (!numericParseString(data, argv[0], err, &ll))
-        return 0;
+        return -1;
 
     if (!numericBoundaryCheck(data, ll, err))
-        return 0;
+        return -1;
 
     if (data.numeric.is_valid_fn && !data.numeric.is_valid_fn(ll, err))
-        return 0;
+        return -1;
 
     GET_NUMERIC_TYPE(prev)
-    SET_NUMERIC_TYPE(ll)
-
     if (prev != ll) {
-        /* TODO support returning -1 on err, 0 on no change, 1 on change
-         * this way we can avoid calling `apply` later if there was no change */
+        SET_NUMERIC_TYPE(ll)
+        return 1;
     }
-    return 1;
+
+    return 0;
 }
 
 static sds numericConfigGet(typeData data) {
@@ -2249,11 +2260,11 @@ static int setConfigDirOption(typeData data, sds *argv, int argc, const char **e
     UNUSED(data);
     if (argc != 1) {
         *err = "wrong number of arguments";
-        return 0;
+        return -1;
     }
     if (chdir(argv[0]) == -1) {
         *err = strerror(errno);
-        return 0;
+        return -1;
     }
     return 1;
 }
@@ -2281,7 +2292,7 @@ static int setConfigSaveOption(typeData data, sds *argv, int argc, const char **
     * - Seconds >= 1, changes >= 0 */
     if (argc & 1) {
         *err = "Invalid save parameters";
-        return 0;
+        return -1;
     }
     for (j = 0; j < argc; j++) {
         char *eptr;
@@ -2292,7 +2303,7 @@ static int setConfigSaveOption(typeData data, sds *argv, int argc, const char **
             ((j & 1) == 0 && val < 1) ||
             ((j & 1) == 1 && val < 0)) {
             *err = "Invalid save parameters";
-            return 0;
+            return -1;
         }
     }
     /* Finally set the new config */
@@ -2368,7 +2379,7 @@ static int setConfigOOMScoreAdjValuesOption(typeData data, sds *argv, int argc, 
 
     if (argc != CONFIG_OOM_COUNT) {
         *err = "wrong number of arguments";
-        return 0;
+        return -1;
     }
 
     for (i = 0; i < CONFIG_OOM_COUNT; i++) {
@@ -2377,7 +2388,7 @@ static int setConfigOOMScoreAdjValuesOption(typeData data, sds *argv, int argc, 
 
         if (*eptr != '\0' || val < -2000 || val > 2000) {
             if (err) *err = "Invalid oom-score-adj-values, elements must be between -2000 and 2000.";
-            return 0;
+            return -1;
         }
 
         values[i] = val;
@@ -2419,12 +2430,12 @@ static int setConfigNotifyKeyspaceEventsOption(typeData data, sds *argv, int arg
     UNUSED(data);
     if (argc != 1) {
         *err = "wrong number of arguments";
-        return 0;
+        return -1;
     }
     int flags = keyspaceEventsStringToFlags(argv[0]);
     if (flags == -1) {
         *err = "Invalid event class character. Use 'Ag$lshzxeKEtmd'.";
-        return 0;
+        return -1;
     }
     server.notify_keyspace_events = flags;
     return 1;
@@ -2441,7 +2452,7 @@ static int setConfigBindOption(typeData data, sds* argv, int argc, const char **
 
     if (argc > CONFIG_BINDADDR_MAX) {
         *err = "Too many bind addresses specified.";
-        return 0;
+        return -1;
     }
 
     /* A single empty argument is treated as a zero bindaddr count */
@@ -2463,7 +2474,7 @@ static int setConfigReplicaOfOption(typeData data, sds* argv, int argc, const ch
 
     if (argc != 2) {
         *err = "wrong number of arguments";
-        return 0;
+        return -1;
     }
 
     sdsfree(server.masterhost);
@@ -2475,7 +2486,7 @@ static int setConfigReplicaOfOption(typeData data, sds* argv, int argc, const ch
     server.masterport = strtol(argv[1], &ptr, 10);
     if (server.masterport < 0 || server.masterport > 65535 || *ptr != '\0') {
         *err = "Invalid master port";
-        return 0;
+        return -1;
     }
     server.masterhost = sdsnew(argv[0]);
     server.repl_state = REPL_STATE_CONNECT;
