@@ -7003,7 +7003,8 @@ static ssize_t readConn(redisContext *c, char *buf, size_t len)
 
 /* Sends SYNC and reads the number of bytes in the payload. Used both by
  * slaveMode() and getRDB().
- * returns 0 in case an EOF marker is used. */
+ * returns ULLONG_MAX and fill out_eof in case an EOF marker is used.
+ * otherwise, return bulk length of rdb. */
 unsigned long long sendSync(redisContext *c, char *out_eof) {
     /* To start we need to send the SYNC command and return the payload.
      * The hiredis client lib does not understand this part of the protocol
@@ -7036,7 +7037,7 @@ unsigned long long sendSync(redisContext *c, char *out_eof) {
     }
     if (strncmp(buf+1,"EOF:",4) == 0 && strlen(buf+5) >= RDB_EOF_MARK_SIZE) {
         memcpy(out_eof, buf+5, RDB_EOF_MARK_SIZE);
-        return 0;
+        return ULLONG_MAX;
     }
     return strtoull(buf+1,NULL,10);
 }
@@ -7045,12 +7046,12 @@ static void slaveMode(void) {
     static char eofmark[RDB_EOF_MARK_SIZE];
     static char lastbytes[RDB_EOF_MARK_SIZE];
     static int usemark = 0;
+    eofmark[0] = 0; /* none $EOF by default */
     unsigned long long payload = sendSync(context,eofmark);
     char buf[1024];
     int original_output = config.output;
 
-    if (payload == 0) {
-        payload = ULLONG_MAX;
+    if (eofmark[0]) {
         memset(lastbytes,0,RDB_EOF_MARK_SIZE);
         usemark = 1;
         fprintf(stderr,"SYNC with master, discarding "

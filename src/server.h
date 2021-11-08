@@ -1140,7 +1140,6 @@ struct sharedObjectsStruct {
     *mbulkhdr[OBJ_SHARED_BULKHDR_LEN], /* "*<value>\r\n" */
     *bulkhdr[OBJ_SHARED_BULKHDR_LEN];  /* "$<value>\r\n" */
     sds minstring, maxstring;
-    sds bufonlybulk;
 };
 
 /* ZSETs use a specialized version of Skiplists */

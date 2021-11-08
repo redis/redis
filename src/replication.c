@@ -45,9 +45,6 @@ void replicationResurrectCachedMaster(connection *conn);
 void replicationSendAck(void);
 void putSlaveOnline(client *slave);
 int cancelReplicationHandshake(int reconnect);
-void sendBulkToBufOnlySlave(connection *conn);
-void createEmptyRdbBulk();
-
 
 /* We take a global flag to remember if this instance generated an RDB
  * because of replication, so that we can remove the RDB file in case
@@ -1007,19 +1004,19 @@ void syncCommand(client *c) {
                             server.replid, server.replid2);
     }
 
-    /* CASE 0: BUF-ONLY slave doesn't need BGSAVE operation. */
+    /* CASE 0: BUF-ONLY replica doesn't need BGSAVE operation. */
     if (c->flags & CLIENT_REPL_BUFONLY) {
         serverLog(LL_NOTICE,"No BGSAVE needed for BUF-ONLY synchronization from replica %s",
                 replicationGetSlaveName(c));
         if (C_OK == replicationSetupSlaveForFullResync(c,server.master_repl_offset)) {
-            if (shared.bufonlybulk == NULL)
-                createEmptyRdbBulk();
             c->replstate = SLAVE_STATE_SEND_BULK;
-            c->repldboff = 0;
-            c->repldbsize = sdslen(shared.bufonlybulk);
-            sendBulkToBufOnlySlave(c->conn);
+            if (connWrite(c->conn,"$0\r\n",4) != 4) {
+                freeClientAsync(c);
+            } else {
+                atomicIncr(server.stat_net_output_bytes, 4);
+                putSlaveOnline(c);
+            }
         }
-
     /* CASE 1: BGSAVE is in progress, with disk target. */
     } else if (server.child_type == CHILD_TYPE_RDB &&
         server.rdb_child_type == RDB_CHILD_TYPE_DISK)
@@ -1122,7 +1119,7 @@ void syncCommand(client *c) {
  *
  * - buf-only
  * Only wants replication buffer without RDB snapshot.
- * Don't combine this option with rdb-only in the same time. */
+ * Don't combine this option with rdb-only together. */
 void replconfCommand(client *c) {
     int j;
 
@@ -1309,49 +1306,6 @@ void removeRDBUsedToSyncReplicas(void) {
                 bg_unlink(server.rdb_filename);
             }
         }
-    }
-}
-
-void createEmptyRdbBulk() {
-    rio rdb;
-    char magic[10];
-    uint64_t cksum;
-    off_t bulklen;
-    sds bulk;
-
-    rioInitWithBuffer(&rdb,sdsempty());
-    if (server.rdb_checksum) rdb.update_cksum = rioGenericUpdateChecksum;
-    snprintf(magic,sizeof(magic),"REDIS%04d",RDB_VERSION);
-    rioWrite(&rdb,magic,9);
-    rdbSaveType(&rdb,RDB_OPCODE_EOF);
-    cksum = rdb.cksum;
-    memrev64ifbe(&cksum);
-    rioWrite(&rdb,&cksum,8);
-    bulklen = rioTell(&rdb);
-    bulk = sdscatprintf(sdsempty(),"$%lld\r\n",(unsigned long long)bulklen);
-    bulk = sdscatsds(bulk,rdb.io.buffer.ptr);
-    sdsfree(rdb.io.buffer.ptr);
-    shared.bufonlybulk = bulk;
-}
-
-void sendBulkToBufOnlySlave(connection *conn) {
-    client *slave = connGetPrivateData(conn);
-    ssize_t nwritten;
-
-    if ((nwritten = connWrite(conn, shared.bufonlybulk + slave->repldboff, slave->repldbsize - slave->repldboff)) == -1) {
-        if (connGetState(conn) != CONN_STATE_CONNECTED) {
-            serverLog(LL_WARNING,"Write error sending DB to replica: %s", connGetLastError(conn));
-            freeClient(slave);
-        } else {
-            connSetWriteHandler(conn,sendBulkToBufOnlySlave);
-        }
-        return;
-    }
-    slave->repldboff += nwritten;
-    atomicIncr(server.stat_net_output_bytes, nwritten);
-    if (slave->repldboff == slave->repldbsize) {
-        connSetWriteHandler(slave->conn,NULL);
-        putSlaveOnline(slave);
     }
 }
 
@@ -3341,12 +3295,12 @@ void refreshGoodSlavesCount(void) {
     listRewind(server.slaves,&li);
     while((ln = listNext(&li))) {
         client *slave = ln->value;
-        if (slave->flags & CLIENT_REPL_BUFONLY)
+        if (slave->replstate != SLAVE_STATE_ONLINE ||
+            slave->flags & CLIENT_REPL_BUFONLY)
             continue;
         time_t lag = server.unixtime - slave->repl_ack_time;
 
-        if (slave->replstate == SLAVE_STATE_ONLINE &&
-            lag <= server.repl_min_slaves_max_lag) good++;
+        if (lag <= server.repl_min_slaves_max_lag) good++;
     }
     server.repl_good_slaves_count = good;
 }
@@ -3480,7 +3434,10 @@ int replicationCountAcksByOffset(long long offset) {
     while((ln = listNext(&li))) {
         client *slave = ln->value;
 
-        if (slave->replstate != SLAVE_STATE_ONLINE) continue;
+        /* buf-only replica is not real replica at all, skip it even if acked. */
+        if (slave->replstate != SLAVE_STATE_ONLINE ||
+            slave->flags & CLIENT_REPL_BUFONLY)
+            continue;
         if (slave->repl_ack_off >= offset) count++;
     }
     return count;

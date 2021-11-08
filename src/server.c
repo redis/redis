@@ -3650,9 +3650,6 @@ void createSharedObjects(void) {
      * string in string comparisons for the ZRANGEBYLEX command. */
     shared.minstring = sdsnew("minstring");
     shared.maxstring = sdsnew("maxstring");
-
-    /* Shared RDB bulk response for BUF-ONLY salves. Created when needed. */
-    shared.bufonlybulk = NULL;
 }
 
 void initServerConfig(void) {
