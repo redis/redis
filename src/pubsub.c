@@ -37,8 +37,8 @@ typedef struct pubsubtype {
     dict *(*serverPubSubChannels)();
     dict *(*clientPubSubChannels)(client*);
     int (*subscriptionCount)(client*);
-    robj *(*subscribeMsg)();
-    robj *(*unsubscribeMsg)();
+    robj **subscribeMsg;
+    robj **unsubscribeMsg;
 }pubsubtype;
 
 /*
@@ -67,26 +67,6 @@ dict* getClientPubSubLocalChannels(client *c);
 dict* getServerPubSubChannels();
 
 /*
- * Get client's response on global Pub/Sub channel subscription.
- */
-robj* getSubscribeMsgGlobal();
-
-/*
- * Get client's response on global Pub/Sub channel subscription.
- */
-robj* getSubscribeMsgLocal();
-
-/*
- * Get client's response on global Pub/Sub channel unsubscription.
- */
-robj* getUnsubscribeMsgGlobal();
-
-/*
- * Get client's response on global Pub/Sub channel unsubscription.
- */
-robj* getUnsubscribeMsgLocal();
-
-/*
  * Get client's local Pub/Sub channels dict.
  */
 dict* getServerPubSubLocalChannels();
@@ -106,8 +86,8 @@ pubsubtype pubSubType = {
     .serverPubSubChannels = getServerPubSubChannels,
     .clientPubSubChannels = getClientPubSubChannels,
     .subscriptionCount = clientSubscriptionsCount,
-    .subscribeMsg = getSubscribeMsgGlobal,
-    .unsubscribeMsg = getUnsubscribeMsgGlobal
+    .subscribeMsg = &shared.subscribebulk,
+    .unsubscribeMsg = &shared.unsubscribebulk,
 };
 
 /*
@@ -118,8 +98,8 @@ pubsubtype pubSubLocalType = {
     .serverPubSubChannels = getServerPubSubLocalChannels,
     .clientPubSubChannels = getClientPubSubLocalChannels,
     .subscriptionCount = clientLocalSubscriptionsCount,
-    .subscribeMsg = getSubscribeMsgLocal,
-    .unsubscribeMsg = getUnsubscribeMsgLocal
+    .subscribeMsg = &shared.subscribelocalbulk,
+    .unsubscribeMsg = &shared.unsubscribelocalbulk
 };
 
 /*-----------------------------------------------------------------------------
@@ -161,7 +141,7 @@ void addReplyPubsubSubscribed(client *c, robj *channel, pubsubtype type) {
         addReply(c,shared.mbulkhdr[3]);
     else
         addReplyPushLen(c,3);
-    addReply(c,type.subscribeMsg());
+    addReply(c,*type.subscribeMsg);
     addReplyBulk(c,channel);
     addReplyLongLong(c,type.subscriptionCount(c));
 }
@@ -175,7 +155,7 @@ void addReplyPubsubUnsubscribed(client *c, robj *channel, pubsubtype type) {
         addReply(c,shared.mbulkhdr[3]);
     else
         addReplyPushLen(c,3);
-    addReply(c, type.unsubscribeMsg());
+    addReply(c, *type.unsubscribeMsg);
     if (channel)
         addReplyBulk(c,channel);
     else
