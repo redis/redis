@@ -113,6 +113,14 @@ proc wait_done_loading r {
     }
 }
 
+proc wait_lazyfree_done r {
+    wait_for_condition 50 100 {
+        [status $r lazyfree_pending_objects] == 0
+    } else {
+        fail "lazyfree isn't done"
+    }
+}
+
 # count current log lines in server's stdout
 proc count_log_lines {srv_idx} {
     set _ [string trim [exec wc -l < [srv $srv_idx stdout]]]
@@ -435,15 +443,17 @@ proc find_available_port {start count} {
         if {$port < $start || $port >= $start+$count} {
             set port $start
         }
-        if {[catch {set fd1 [socket 127.0.0.1 $port]}] &&
-            [catch {set fd2 [socket 127.0.0.1 [expr $port+10000]]}]} {
+        set fd1 -1
+        if {[catch {set fd1 [socket -server 127.0.0.1 $port]}] ||
+            [catch {set fd2 [socket -server 127.0.0.1 [expr $port+10000]]}]} {
+            if {$fd1 != -1} {
+                close $fd1
+            }
+        } else {
+            close $fd1
+            close $fd2
             set ::last_port_attempted $port
             return $port
-        } else {
-            catch {
-                close $fd1
-                close $fd2
-            }
         }
         incr port
     }

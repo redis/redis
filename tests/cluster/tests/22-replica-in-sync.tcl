@@ -25,6 +25,16 @@ proc is_replica_online {info_repl} {
     return $result
 }
 
+proc get_last_pong_time {node_id target_cid} {
+    foreach item [split [R $node_id cluster nodes] \n] {
+        set args [split $item " "]
+        if {[lindex $args 0] eq $target_cid} {
+            return [lindex $args 5]
+        }
+    }
+    fail "Target node ID was not present"
+}
+
 set master_id 0
 
 test "Fill up primary with data" {
@@ -74,7 +84,7 @@ test "Replica in loading state is hidden" {
     for {set j 0} {$j < $num} {incr j} {
         set key "{0}"
         append key $j
-        R $master_id set key $value
+        R $master_id set $key $value
     }
     R $master_id exec
 
@@ -109,10 +119,28 @@ test "Replica in loading state is hidden" {
 }
 
 test "Check disconnected replica not hidden from slots" {
+    # We want to disconnect the replica, but keep it alive so it can still gossip
+
+    # Make sure that the replica will not be able to re-connect to the master
+    R $master_id config set requirepass asdf
+
     # Disconnect replica from primary
     R $master_id client kill type replica
+
     # Check master to have no replicas
     assert {[s $master_id connected_slaves] == 0}
+
+    set replica_cid [R $replica_id cluster myid]
+    set initial_pong [get_last_pong_time $master_id $replica_cid]
+    wait_for_condition 50 100 {
+        $initial_pong != [get_last_pong_time $master_id $replica_cid]
+    } else {
+        fail "Primary never received gossip from replica"
+    }
+
     # Check that replica is still in the cluster slots
     assert {[is_in_slots $master_id $replica]}
+
+    # undo config
+    R $master_id config set requirepass ""
 }

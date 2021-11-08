@@ -31,6 +31,8 @@
 #ifndef __REDIS_CONNECTION_H
 #define __REDIS_CONNECTION_H
 
+#include <errno.h>
+
 #define CONN_INFO_LEN   32
 
 struct aeEventLoop;
@@ -149,7 +151,11 @@ static inline int connWrite(connection *conn, const void *data, size_t data_len)
  * connGetState() to see if the connection state is still CONN_STATE_CONNECTED.
  */
 static inline int connRead(connection *conn, void *buf, size_t buf_len) {
-    return conn->type->read(conn, buf, buf_len);
+    int ret = conn->type->read(conn, buf, buf_len);
+    if (ret == -1 && conn->last_errno == EINTR) {
+        conn->state = CONN_STATE_CONNECTED;
+    }
+    return ret;
 }
 
 /* Register a write handler, to be called when the connection is writable.
@@ -201,6 +207,10 @@ static inline ssize_t connSyncReadLine(connection *conn, char *ptr, ssize_t size
 /* Return CONN_TYPE_* for the specified connection */
 static inline int connGetType(connection *conn) {
     return conn->type->get_type(conn);
+}
+
+static inline int connLastErrorRetryable(connection *conn) {
+    return conn->last_errno == EINTR;
 }
 
 connection *connCreateSocket();

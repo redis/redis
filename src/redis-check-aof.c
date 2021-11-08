@@ -124,6 +124,11 @@ int readString(FILE *fp, char** target) {
         return 0;
     }
 
+    if (len < 0 || len > LONG_MAX - 2) {
+        ERROR("Expected to read string of %ld bytes, which is not in the suitable range",len);
+        return 0;
+    }
+
     /* Increase length to also consume \r\n */
     len += 2;
     *target = (char*)zmalloc(len);

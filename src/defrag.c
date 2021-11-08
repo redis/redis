@@ -416,8 +416,8 @@ long activeDefragQuickListNode(quicklist *ql, quicklistNode **node_ref) {
         *node_ref = node = newnode;
         defragged++;
     }
-    if ((newzl = activeDefragAlloc(node->zl)))
-        defragged++, node->zl = newzl;
+    if ((newzl = activeDefragAlloc(node->entry)))
+        defragged++, node->entry = newzl;
     return defragged;
 }
 
@@ -903,7 +903,7 @@ void defragDictBucketCallback(dict *d, dictEntry **bucketref) {
             *bucketref = newde;
             if (server.cluster_enabled && d == server.db[0].dict) {
                 /* Cluster keyspace dict. Update slot-to-entries mapping. */
-                slotToKeyReplaceEntry(newde);
+                slotToKeyReplaceEntry(newde, server.db);
             }
         }
         bucketref = &(*bucketref)->next;
