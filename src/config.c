@@ -723,7 +723,6 @@ void configSetCommand(client *c) {
         }
         /* Fail if we couldn't find this config */
         /* Note: we don't abort the loop since we still want to handle redacting sensitive configs (above) */
-        /* TODO: more meaningful error reply */
         if (!set_configs[i]) {
             errstr = "unrecognized parameter";
             invalid_args = 1;
