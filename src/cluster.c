@@ -4004,11 +4004,14 @@ int clusterAddSlot(clusterNode *n, int slot) {
  * Returns C_OK if the slot was assigned, otherwise if the slot was
  * already unassigned C_ERR is returned. */
 int clusterDelSlot(int slot) {
-    /* Cleanup the channels as part of slot deletion. */
-    removeChannelsInSlot(slot);
     clusterNode *n = server.cluster->slots[slot];
 
     if (!n) return C_ERR;
+
+    /* Cleanup the channels as part of slot deletion. */
+    if (n == myself) {
+        removeChannelsInSlot(slot);
+    }
     serverAssert(clusterNodeClearSlotBit(n,slot) == 1);
     server.cluster->slots[slot] = NULL;
     return C_OK;
