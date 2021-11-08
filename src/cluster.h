@@ -323,5 +323,7 @@ void slotToKeyReplaceEntry(dictEntry *entry, redisDb *db);
 void slotToKeyInit(redisDb *db);
 void slotToKeyFlush(redisDb *db);
 void slotToKeyDestroy(redisDb *db);
+void clusterUpdateMyselfFlags(void);
+void clusterUpdateMyselfIp(void);
 
 #endif /* __CLUSTER_H */
