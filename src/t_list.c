@@ -503,6 +503,7 @@ void listElementsRemoved(client *c, robj *key, int where, robj *o, long count, i
  * optional count may be provided as the third argument of the client's
  * command. */
 void popGenericCommand(client *c, int where) {
+    int hascount = (c->argc == 3);
     long count = 0;
     robj *value;
 
@@ -510,20 +511,21 @@ void popGenericCommand(client *c, int where) {
         addReplyErrorFormat(c,"wrong number of arguments for '%s' command",
                             c->cmd->name);
         return;
-    } else if (c->argc == 3) {
+    } else if (hascount) {
         /* Parse the optional count argument. */
         if (getPositiveLongFromObjectOrReply(c,c->argv[2],&count,NULL) != C_OK) 
             return;
-        if (count == 0) {
-            /* Fast exit path. */
-            addReplyNullArray(c);
-            return;
-        }
     }
 
     robj *o = lookupKeyWriteOrReply(c, c->argv[1], shared.null[c->resp]);
     if (o == NULL || checkType(c, o, OBJ_LIST))
         return;
+
+    if (hascount && !count) {
+        /* Fast exit path. */
+        addReply(c,shared.emptyarray);
+        return;
+    }
 
     if (!count) {
         /* Pop a single element. This is POP's original behavior that replies

@@ -150,11 +150,13 @@ typedef struct RedisModuleStreamID {
 #define REDISMODULE_CTX_FLAGS_DENY_BLOCKING (1<<21)
 /* The current client uses RESP3 protocol */
 #define REDISMODULE_CTX_FLAGS_RESP3 (1<<22)
+/* Redis is currently async loading database for diskless replication. */
+#define REDISMODULE_CTX_FLAGS_ASYNC_LOADING (1<<23)
 
 /* Next context flag, must be updated when adding new flags above!
 This flag should not be used directly by the module.
  * Use RedisModule_GetContextFlagsAll instead. */
-#define _REDISMODULE_CTX_FLAGS_NEXT (1<<23)
+#define _REDISMODULE_CTX_FLAGS_NEXT (1<<24)
 
 /* Keyspace changes notification classes. Every class is associated with a
  * character for configuration purposes.
@@ -229,6 +231,10 @@ typedef uint64_t RedisModuleTimerID;
 
 /* Declare that the module can handle errors with RedisModule_SetModuleOptions. */
 #define REDISMODULE_OPTIONS_HANDLE_IO_ERRORS    (1<<0)
+
+/* Declare that the module can handle diskless async replication with RedisModule_SetModuleOptions. */
+#define REDISMODULE_OPTIONS_HANDLE_REPL_ASYNC_LOAD    (1<<1)
+
 /* When set, Redis will not call RedisModule_SignalModifiedKey(), implicitly in
  * RedisModule_CloseKey, and the module needs to do that when manually when keys
  * are modified from the user's sperspective, to invalidate WATCH. */
@@ -249,9 +255,10 @@ typedef uint64_t RedisModuleTimerID;
 #define REDISMODULE_EVENT_MODULE_CHANGE 9
 #define REDISMODULE_EVENT_LOADING_PROGRESS 10
 #define REDISMODULE_EVENT_SWAPDB 11
-#define REDISMODULE_EVENT_REPL_BACKUP 12
+#define REDISMODULE_EVENT_REPL_BACKUP 12 /* Deprecated since Redis 7.0, not used anymore. */
 #define REDISMODULE_EVENT_FORK_CHILD 13
-#define _REDISMODULE_EVENT_NEXT 14 /* Next event flag, should be updated if a new event added. */
+#define REDISMODULE_EVENT_REPL_ASYNC_LOAD 14
+#define _REDISMODULE_EVENT_NEXT 15 /* Next event flag, should be updated if a new event added. */
 
 typedef struct RedisModuleEvent {
     uint64_t id;        /* REDISMODULE_EVENT_... defines. */
@@ -311,8 +318,14 @@ static const RedisModuleEvent
         REDISMODULE_EVENT_SWAPDB,
         1
     },
+    /* Deprecated since Redis 7.0, not used anymore. */
+    __attribute__ ((deprecated))
     RedisModuleEvent_ReplBackup = {
-        REDISMODULE_EVENT_REPL_BACKUP,
+        REDISMODULE_EVENT_REPL_BACKUP, 
+        1
+    },
+    RedisModuleEvent_ReplAsyncLoad = {
+        REDISMODULE_EVENT_REPL_ASYNC_LOAD,
         1
     },
     RedisModuleEvent_ForkChild = {
@@ -363,10 +376,16 @@ static const RedisModuleEvent
 #define REDISMODULE_SUBEVENT_LOADING_PROGRESS_AOF 1
 #define _REDISMODULE_SUBEVENT_LOADING_PROGRESS_NEXT 2
 
+/* Replication Backup events are deprecated since Redis 7.0 and are never fired. */
 #define REDISMODULE_SUBEVENT_REPL_BACKUP_CREATE 0
 #define REDISMODULE_SUBEVENT_REPL_BACKUP_RESTORE 1
 #define REDISMODULE_SUBEVENT_REPL_BACKUP_DISCARD 2
 #define _REDISMODULE_SUBEVENT_REPL_BACKUP_NEXT 3
+
+#define REDISMODULE_SUBEVENT_REPL_ASYNC_LOAD_STARTED 0
+#define REDISMODULE_SUBEVENT_REPL_ASYNC_LOAD_ABORTED 1
+#define REDISMODULE_SUBEVENT_REPL_ASYNC_LOAD_COMPLETED 2
+#define _REDISMODULE_SUBEVENT_REPL_ASYNC_LOAD_NEXT 3
 
 #define REDISMODULE_SUBEVENT_FORK_CHILD_BORN 0
 #define REDISMODULE_SUBEVENT_FORK_CHILD_DIED 1
