@@ -152,9 +152,6 @@ static inline int connWrite(connection *conn, const void *data, size_t data_len)
  */
 static inline int connRead(connection *conn, void *buf, size_t buf_len) {
     int ret = conn->type->read(conn, buf, buf_len);
-    if (ret == -1 && conn->last_errno == EINTR) {
-        conn->state = CONN_STATE_CONNECTED;
-    }
     return ret;
 }
 
