@@ -1110,14 +1110,12 @@ unsigned char *lpMerge(unsigned char **first, unsigned char **second) {
     }
 
     /* Calculate final bytes (subtract one pair of metadata) */
-    size_t lpbytes = first_bytes + second_bytes - LP_HDR_SIZE - 1;
+    unsigned long long lpbytes = (unsigned long long)first_bytes + second_bytes - LP_HDR_SIZE - 1;
+    assert(lpbytes < UINT32_MAX); /* larger values can't be stored */
     unsigned long lplength = first_len + second_len;
 
     /* Combined lp length should be limited within UINT16_MAX */
     lplength = lplength < UINT16_MAX ? lplength : UINT16_MAX;
-
-    /* larger values can't be stored */
-    assert(lpbytes < UINT32_MAX);
 
     /* Extend target to new lpbytes then append or prepend source. */
     target = zrealloc(target, lpbytes);

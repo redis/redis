@@ -476,22 +476,8 @@ REDIS_STATIC int _quicklistNodeAllowInsert(const quicklistNode *node,
     if (unlikely(QL_NODE_IS_PLAIN(node) || isLargeElement(sz)))
         return 0;
 
-    size_t lp_overhead = sz;
-    /* size of encode offset */
-    if (sz < 64) lp_overhead += 1;
-    else if (sz < 4096) lp_overhead += 2;
-    else lp_overhead += 5;
 
-    /* size of backlen offset */
-    if (lp_overhead <= 127) lp_overhead += 1;
-    else if (lp_overhead < 16383) lp_overhead += 2;
-    else if (lp_overhead < 2097151) lp_overhead += 3;
-    else if (lp_overhead < 268435455) lp_overhead += 4;
-    else lp_overhead += 5;
-
-    /* new_sz overestimates if 'sz' encodes to an integer type */
-    size_t new_sz = node->sz + lp_overhead;
-    assert(new_sz > lp_overhead); /* Catch size_t overflow */
+    size_t new_sz = node->sz + sz;
     if (likely(_quicklistNodeSizeMeetsOptimizationRequirement(new_sz, fill)))
         return 1;
     /* when we return 1 above we know that the limit is a size limit (which is
