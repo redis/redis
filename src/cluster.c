@@ -2923,7 +2923,9 @@ void clusterPropagatePublishLocal(robj *channel, robj *message) {
         listRewind(nodes_for_slot, &li);
         while((ln = listNext(&li))) {
             clusterNode *node = listNodeValue(ln);
-            clusterSendPublish(node->link, channel, message, CLUSTERMSG_TYPE_PUBLISHLOCAL);
+            if (node != myself) {
+                clusterSendPublish(node->link, channel, message, CLUSTERMSG_TYPE_PUBLISHLOCAL);
+            }
         }
     }
     listRelease(nodes_for_slot);
@@ -4008,10 +4010,13 @@ int clusterDelSlot(int slot) {
 
     if (!n) return C_ERR;
 
-    /* Cleanup the channels as part of slot deletion. */
-    if (n == myself) {
+    /* Cleanup the channels in master/replica as part of slot deletion. */
+    list *nodes_for_slot = clusterGetNodesServingMySlots(n);
+    listNode *ln = listSearchKey(nodes_for_slot, myself);
+    if (ln != NULL) {
         removeChannelsInSlot(slot);
     }
+    listRelease(nodes_for_slot);
     serverAssert(clusterNodeClearSlotBit(n,slot) == 1);
     server.cluster->slots[slot] = NULL;
     return C_OK;

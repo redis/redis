@@ -27,6 +27,10 @@ test "Migrate a slot, verify client receives unsubscribelocal on primary serving
     assert_equal {OK} [$nodefrom(link) cluster setslot $slot migrating $nodeto(id)]
     assert_equal {OK} [$nodeto(link) cluster setslot $slot importing $nodefrom(id)]
 
+    # Verify subscribe is still valid, able to receive messages.
+    $nodefrom(link) publishlocal $channelname hello
+    assert_equal {message mychannel hello} [$subscribeclient read]
+
     assert_equal {OK} [$nodeto(link) cluster setslot $slot node $nodeto(id)]
    
     set msg [$subscribeclient read]
@@ -59,6 +63,10 @@ test "Client subscribes to multiple channels, migrate a slot, verify client rece
 
     assert_equal {OK} [$nodefrom(link) cluster setslot $slot migrating $nodeto(id)]
     assert_equal {OK} [$nodeto(link) cluster setslot $slot importing $nodefrom(id)]
+
+    # Verify subscribe is still valid, able to receive messages.
+    $nodefrom(link) publishlocal $channelname hello
+    assert_equal {message ch3 hello} [$subscribeclient read]
 
     assert_equal {OK} [$nodeto(link) cluster setslot $slot node $nodeto(id)]
 
@@ -104,7 +112,11 @@ test "Migrate a slot, verify client receives unsubscribelocal on replica serving
     assert_equal {OK} [$nodefrom(link) cluster setslot $slot migrating $nodeto(id)]
     assert_equal {OK} [$nodeto(link) cluster setslot $slot importing $nodefrom(id)]
 
-    assert_equal {OK} [$nodeto(link) cluster setslot $slot node $nodeto(id)]    
+    # Verify subscribe is still valid, able to receive messages.
+    $nodefrom(link) publishlocal $channelname hello
+    assert_equal {message mychannel1 hello} [$subscribeclient read]
+
+    assert_equal {OK} [$nodeto(link) cluster setslot $slot node $nodeto(id)]
     assert_equal {OK} [$nodeto(link) cluster setslot $slot node $nodeto(id)]
 
     set msg [$subscribeclient read]
@@ -147,7 +159,7 @@ test "Reset cluster, verify unsubscribelocal message" {
     $subscribeclient subscribelocal $channelname
     $subscribeclient read
 
-    $cluster cluster reset
+    $cluster cluster reset HARD
 
     set msg [$subscribeclient read]
     assert {"unsubscribelocal" eq [lindex $msg 0]}
