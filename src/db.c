@@ -586,7 +586,7 @@ int getFlushCommandFlags(client *c, int *flags) {
 void flushAllDataAndResetRDB(int flags) {
     server.dirty += emptyDb(-1,flags,NULL);
     if (server.child_type == CHILD_TYPE_RDB) killRDBChild();
-    if (server.save_params.len > 0) {
+    if (server.saveparamslen > 0) {
         /* Normally rdbSave() will reset dirty, but we don't want this here
          * as otherwise FLUSHALL will not be replicated nor put into the AOF. */
         int saved_dirty = server.dirty;

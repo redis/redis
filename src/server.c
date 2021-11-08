@@ -2554,7 +2554,7 @@ int isMutuallyExclusiveChildType(int type) {
 /* Return true if this instance has persistence completely turned off:
  * both RDB and AOF are disabled. */
 int allPersistenceDisabled(void) {
-    return server.save_params.len == 0 && server.aof_state == AOF_OFF;
+    return server.saveparamslen == 0 && server.aof_state == AOF_OFF;
 }
 
 /* ======================= Cron: called every 100 ms ======================== */
@@ -3153,8 +3153,8 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     } else {
         /* If there is not a background saving/rewrite in progress check if
          * we have to save/rewrite now. */
-        for (j = 0; j < server.save_params.len; j++) {
-            struct saveparam *sp = server.save_params.params+j;
+        for (j = 0; j < server.saveparamslen; j++) {
+            struct saveparam *sp = server.saveparams+j;
 
             /* Save if we reached the given amount of changes,
              * the given amount of seconds, and if the latest bgsave was
@@ -3678,6 +3678,7 @@ void initServerConfig(void) {
     server.sofd = -1;
     server.active_expire_enabled = 1;
     server.skip_checksum_validation = 0;
+    server.saveparams = NULL;
     server.loading = 0;
     server.async_loading = 0;
     server.loading_rdb_used_mem = 0;
@@ -3709,6 +3710,7 @@ void initServerConfig(void) {
 
     unsigned int lruclock = getLRUClock();
     atomicSet(server.lruclock,lruclock);
+    resetServerSaveParams();
 
     appendServerSaveParams(60*60,1);  /* save after 1 hour and 1 change */
     appendServerSaveParams(300,100);  /* save after 5 minutes and 100 changes */
@@ -5597,7 +5599,7 @@ int prepareForShutdown(int flags) {
     }
 
     /* Create a new RDB file before exiting. */
-    if ((server.save_params.len > 0 && !nosave) || save) {
+    if ((server.saveparamslen > 0 && !nosave) || save) {
         serverLog(LL_NOTICE,"Saving the final RDB snapshot before exiting.");
         if (server.supervised_mode == SUPERVISED_SYSTEMD)
             redisCommunicateSystemd("STATUS=Saving the final RDB snapshot\n");
@@ -5652,7 +5654,7 @@ int prepareForShutdown(int flags) {
  */
 int writeCommandsDeniedByDiskError(void) {
     if (server.stop_writes_on_bgsave_err &&
-        server.save_params.len > 0 &&
+        server.saveparamslen > 0 &&
         server.lastbgsave_status == C_ERR)
     {
         return DISK_ERROR_TYPE_RDB;
@@ -7980,8 +7982,6 @@ int main(int argc, char **argv) {
     } else {
         serverLog(LL_WARNING, "Configuration loaded");
     }
-
-    applyServerSaveParams();
 
     readOOMScoreAdj();
     initServer();
