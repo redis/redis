@@ -399,7 +399,7 @@ jobs:
       run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
 
   test-freebsd:
-    runs-on: macos-latest
+    runs-on: macos-10.15
     if: github.repository == 'redis/redis' && !contains(github.event.inputs.skipjobs, 'freebsd')
     timeout-minutes: 14400
     steps:

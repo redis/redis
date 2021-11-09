@@ -77,6 +77,9 @@ static int getExpireMillisecondsOrReply(client *c, robj *expire, int flags, int 
 
 void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
     long long milliseconds = 0; /* initialized to avoid any harmness warning */
+    int found = 0;
+    int setkey_flags = 0;
+
     if (expire && getExpireMillisecondsOrReply(c, expire, flags, unit, &milliseconds) != C_OK) {
         return;
     }
@@ -85,8 +88,10 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
         if (getGenericCommand(c) == C_ERR) return;
     }
 
-    if ((flags & OBJ_SET_NX && lookupKeyWrite(c->db,key) != NULL) ||
-        (flags & OBJ_SET_XX && lookupKeyWrite(c->db,key) == NULL))
+    found = (lookupKeyWrite(c->db,key) != NULL);
+
+    if ((flags & OBJ_SET_NX && found) ||
+        (flags & OBJ_SET_XX && !found))
     {
         if (!(flags & OBJ_SET_GET)) {
             addReply(c, abort_reply ? abort_reply : shared.null[c->resp]);
@@ -94,7 +99,10 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
         return;
     }
 
-    genericSetKey(c,c->db,key, val,flags & OBJ_KEEPTTL,1);
+    setkey_flags |= (flags & OBJ_KEEPTTL) ? SETKEY_KEEPTTL : 0;
+    setkey_flags |= found ? SETKEY_ALREADY_EXIST : SETKEY_DOESNT_EXIST;
+
+    setKey(c,c->db,key,val,setkey_flags);
     server.dirty++;
     notifyKeyspaceEvent(NOTIFY_STRING,"set",key,c->db->id);
 
@@ -418,7 +426,7 @@ void getdelCommand(client *c) {
 void getsetCommand(client *c) {
     if (getGenericCommand(c) == C_ERR) return;
     c->argv[2] = tryObjectEncoding(c->argv[2]);
-    setKey(c,c->db,c->argv[1],c->argv[2]);
+    setKey(c,c->db,c->argv[1],c->argv[2],0);
     notifyKeyspaceEvent(NOTIFY_STRING,"set",c->argv[1],c->db->id);
     server.dirty++;
 
@@ -567,7 +575,7 @@ void msetGenericCommand(client *c, int nx) {
 
     for (j = 1; j < c->argc; j += 2) {
         c->argv[j+1] = tryObjectEncoding(c->argv[j+1]);
-        setKey(c,c->db,c->argv[j],c->argv[j+1]);
+        setKey(c,c->db,c->argv[j],c->argv[j+1],0);
         notifyKeyspaceEvent(NOTIFY_STRING,"set",c->argv[j],c->db->id);
     }
     server.dirty += (c->argc-1)/2;
@@ -637,6 +645,11 @@ void decrbyCommand(client *c) {
     long long incr;
 
     if (getLongLongFromObjectOrReply(c, c->argv[2], &incr, NULL) != C_OK) return;
+    /* Overflow check: negating LLONG_MIN will cause an overflow */
+    if (incr == LLONG_MIN) {
+        addReplyError(c, "decrement would overflow");
+        return;
+    }
     incrDecrCommand(c,-incr);
 }
 
@@ -719,11 +732,20 @@ void strlenCommand(client *c) {
  * STRALGO <algorithm> ... arguments ... */
 void stralgoLCS(client *c);     /* This implements the LCS algorithm. */
 void stralgoCommand(client *c) {
-    /* Select the algorithm. */
-    if (!strcasecmp(c->argv[1]->ptr,"lcs")) {
+    char *subcmd = c->argv[1]->ptr;
+
+    if (c->argc == 2 && !strcasecmp(subcmd,"help")) {
+        const char *help[] = {
+"LCS",
+"    Run the longest common subsequence algorithm.",
+NULL
+        };
+        addReplyHelp(c, help);
+    } else if (!strcasecmp(subcmd,"lcs")) {
         stralgoLCS(c);
     } else {
-        addReplyErrorObject(c,shared.syntaxerr);
+        addReplySubcommandSyntaxError(c);
+        return;
     }
 }
 

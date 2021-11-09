@@ -146,6 +146,8 @@ void tlsInit(void) {
      */
     #if OPENSSL_VERSION_NUMBER < 0x10100000L
     OPENSSL_config(NULL);
+    #elif OPENSSL_VERSION_NUMBER < 0x10101000L
+    OPENSSL_init_crypto(OPENSSL_INIT_LOAD_CONFIG, NULL);
     #else
     OPENSSL_init_crypto(OPENSSL_INIT_LOAD_CONFIG|OPENSSL_INIT_ATFORK, NULL);
     #endif
@@ -174,7 +176,8 @@ void tlsCleanup(void) {
         redis_tls_client_ctx = NULL;
     }
 
-    #if OPENSSL_VERSION_NUMBER >= 0x10100000L
+    #if OPENSSL_VERSION_NUMBER >= 0x10100000L && !defined(LIBRESSL_VERSION_NUMBER)
+    // unavailable on LibreSSL
     OPENSSL_cleanup();
     #endif
 }
@@ -747,7 +750,14 @@ static int connTLSWrite(connection *conn_, const void *data, size_t data_len) {
     if (conn->c.state != CONN_STATE_CONNECTED) return -1;
     ERR_clear_error();
     ret = SSL_write(conn->ssl, data, data_len);
-
+    /* If system call was interrupted, there's no need to go through the full
+     * OpenSSL error handling and just report this for the caller to retry the
+     * operation.
+     */
+    if (errno == EINTR) {
+        conn->c.last_errno = EINTR;
+        return -1;
+    }
     if (ret <= 0) {
         WantIOType want = 0;
         if (!(ssl_err = handleSSLReturnCode(conn, ret, &want))) {
@@ -759,7 +769,7 @@ static int connTLSWrite(connection *conn_, const void *data, size_t data_len) {
             if (ssl_err == SSL_ERROR_ZERO_RETURN ||
                     ((ssl_err == SSL_ERROR_SYSCALL && !errno))) {
                 conn->c.state = CONN_STATE_CLOSED;
-                return 0;
+                return -1;
             } else {
                 conn->c.state = CONN_STATE_ERROR;
                 return -1;
@@ -778,6 +788,14 @@ static int connTLSRead(connection *conn_, void *buf, size_t buf_len) {
     if (conn->c.state != CONN_STATE_CONNECTED) return -1;
     ERR_clear_error();
     ret = SSL_read(conn->ssl, buf, buf_len);
+    /* If system call was interrupted, there's no need to go through the full
+     * OpenSSL error handling and just report this for the caller to retry the
+     * operation.
+     */
+    if (errno == EINTR) {
+        conn->c.last_errno = EINTR;
+        return -1;
+    }
     if (ret <= 0) {
         WantIOType want = 0;
         if (!(ssl_err = handleSSLReturnCode(conn, ret, &want))) {

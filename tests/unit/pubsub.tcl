@@ -158,6 +158,24 @@ start_server {tags {"pubsub network"}} {
         r pubsub numsub abc def
     } {abc 0 def 0}
 
+    test "NUMPATs returns the number of unique patterns" {
+        set rd1 [redis_deferring_client]
+        set rd2 [redis_deferring_client]
+
+        # Three unique patterns and one that overlaps
+        psubscribe $rd1 "foo*"
+        psubscribe $rd2 "foo*"
+        psubscribe $rd1 "bar*"
+        psubscribe $rd2 "baz*"
+
+        set patterns [r pubsub numpat]
+
+        # clean up clients
+        punsubscribe $rd1
+        punsubscribe $rd2
+        assert_equal 3 $patterns
+    }
+
     test "Mix SUBSCRIBE and PSUBSCRIBE" {
         set rd1 [redis_deferring_client]
         assert_equal {1} [subscribe $rd1 {foo.bar}]
@@ -294,6 +312,30 @@ start_server {tags {"pubsub network"}} {
         r hincrby myhash yes 10
         assert_equal "pmessage * __keyspace@${db}__:myhash hset" [$rd1 read]
         assert_equal "pmessage * __keyspace@${db}__:myhash hincrby" [$rd1 read]
+        $rd1 close
+    }
+
+    test "Keyspace notifications: stream events test" {
+        r config set notify-keyspace-events Kt
+        r del mystream
+        set rd1 [redis_deferring_client]
+        assert_equal {1} [psubscribe $rd1 *]
+        r xgroup create mystream mygroup $ mkstream
+        r xgroup createconsumer mystream mygroup Bob
+        set id [r xadd mystream 1 field1 A]
+        r xreadgroup group mygroup Alice STREAMS mystream >
+        r xclaim mystream mygroup Mike 0 $id force
+        # Not notify because of "Lee" not exists.
+        r xgroup delconsumer mystream mygroup Lee
+        # Not notify because of "Bob" exists.
+        r xautoclaim mystream mygroup Bob 0 $id
+        r xgroup delconsumer mystream mygroup Bob
+        assert_equal "pmessage * __keyspace@${db}__:mystream xgroup-create" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:mystream xgroup-createconsumer" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:mystream xadd" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:mystream xgroup-createconsumer" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:mystream xgroup-createconsumer" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:mystream xgroup-delconsumer" [$rd1 read]
         $rd1 close
     }
 

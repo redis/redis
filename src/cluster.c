@@ -77,6 +77,15 @@ uint64_t clusterGetMaxEpoch(void);
 int clusterBumpConfigEpochWithoutConsensus(void);
 void moduleCallClusterReceivers(const char *sender_id, uint64_t module_id, uint8_t type, const unsigned char *payload, uint32_t len);
 const char *clusterGetMessageTypeString(int type);
+unsigned int countKeysInSlot(unsigned int hashslot);
+unsigned int delKeysInSlot(unsigned int hashslot);
+
+/* Links to the next and previous entries for keys in the same slot are stored
+ * in the dict entry metadata. See Slot to Key API below. */
+#define dictEntryNextInSlot(de) \
+    (((clusterDictEntryMetadata *)dictMetadata(de))->next)
+#define dictEntryPrevInSlot(de) \
+    (((clusterDictEntryMetadata *)dictMetadata(de))->prev)
 
 #define RCVBUF_INIT_LEN 1024
 #define RCVBUF_MAX_PREALLOC (1<<20) /* 1MB */
@@ -133,9 +142,15 @@ int clusterLoadConfig(char *filename) {
         }
     }
 
+    if (redis_fstat(fileno(fp),&sb) == -1) {
+        serverLog(LL_WARNING,
+            "Unable to obtain the cluster node config file stat %s: %s",
+            filename, strerror(errno));
+        exit(1);
+    }
     /* Check if the file is zero-length: if so return C_ERR to signal
      * we have to write the config. */
-    if (fstat(fileno(fp),&sb) != -1 && sb.st_size == 0) {
+    if (sb.st_size == 0) {
         fclose(fp);
         return C_ERR;
     }
@@ -374,13 +389,14 @@ int clusterSaveConfig(int do_fsync) {
     if ((fd = open(server.cluster_configfile,O_WRONLY|O_CREAT,0644))
         == -1) goto err;
 
+    if (redis_fstat(fd,&sb) == -1) goto err;
+
     /* Pad the new payload if the existing file length is greater. */
-    if (fstat(fd,&sb) != -1) {
-        if (sb.st_size > (off_t)content_size) {
-            ci = sdsgrowzero(ci,sb.st_size);
-            memset(ci+content_size,'\n',sb.st_size-content_size);
-        }
+    if (sb.st_size > (off_t)content_size) {
+        ci = sdsgrowzero(ci,sb.st_size);
+        memset(ci+content_size,'\n',sb.st_size-content_size);
     }
+    
     if (write(fd,ci,sdslen(ci)) != (ssize_t)sdslen(ci)) goto err;
     if (do_fsync) {
         server.cluster->todo_before_sleep &= ~CLUSTER_TODO_FSYNC_CONFIG;
@@ -473,7 +489,8 @@ void deriveAnnouncedPorts(int *announced_port, int *announced_pport,
     /* Default announced ports. */
     *announced_port = port;
     *announced_pport = server.tls_cluster ? server.port : 0;
-    *announced_cport = port + CLUSTER_PORT_INCR;
+    *announced_cport = server.cluster_port ? server.cluster_port : port + CLUSTER_PORT_INCR;
+    
     /* Config overriding announced ports. */
     if (server.tls_cluster && server.cluster_announce_tls_port) {
         *announced_port = server.cluster_announce_tls_port;
@@ -491,6 +508,7 @@ void deriveAnnouncedPorts(int *announced_port, int *announced_pport,
  * that may change at runtime via CONFIG SET. This function changes the
  * set of flags in myself->flags accordingly. */
 void clusterUpdateMyselfFlags(void) {
+    if (!myself) return;
     int oldflags = myself->flags;
     int nofailover = server.cluster_slave_no_failover ?
                      CLUSTER_NODE_NOFAILOVER : 0;
@@ -499,6 +517,36 @@ void clusterUpdateMyselfFlags(void) {
     if (myself->flags != oldflags) {
         clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
                              CLUSTER_TODO_UPDATE_STATE);
+    }
+}
+
+
+/* We want to take myself->ip in sync with the cluster-announce-ip option.
+* The option can be set at runtime via CONFIG SET. */
+void clusterUpdateMyselfIp(void) {
+    if (!myself) return;
+    static char *prev_ip = NULL;
+    char *curr_ip = server.cluster_announce_ip;
+    int changed = 0;
+
+    if (prev_ip == NULL && curr_ip != NULL) changed = 1;
+    else if (prev_ip != NULL && curr_ip == NULL) changed = 1;
+    else if (prev_ip && curr_ip && strcmp(prev_ip,curr_ip)) changed = 1;
+
+    if (changed) {
+        if (prev_ip) zfree(prev_ip);
+        prev_ip = curr_ip;
+
+        if (curr_ip) {
+            /* We always take a copy of the previous IP address, by
+            * duplicating the string. This way later we can check if
+            * the address really changed. */
+            prev_ip = zstrdup(prev_ip);
+            strncpy(myself->ip,server.cluster_announce_ip,NET_IP_STR_LEN);
+            myself->ip[NET_IP_STR_LEN-1] = '\0';
+        } else {
+            myself->ip[0] = '\0'; /* Force autodetection. */
+        }
     }
 }
 
@@ -511,9 +559,9 @@ void clusterInit(void) {
     server.cluster->state = CLUSTER_FAIL;
     server.cluster->size = 1;
     server.cluster->todo_before_sleep = 0;
-    server.cluster->nodes = dictCreate(&clusterNodesDictType,NULL);
+    server.cluster->nodes = dictCreate(&clusterNodesDictType);
     server.cluster->nodes_black_list =
-        dictCreate(&clusterNodesBlackListDictType,NULL);
+        dictCreate(&clusterNodesBlackListDictType);
     server.cluster->failover_auth_time = 0;
     server.cluster->failover_auth_count = 0;
     server.cluster->failover_auth_rank = 0;
@@ -554,7 +602,7 @@ void clusterInit(void) {
      * The other handshake port check is triggered too late to stop
      * us from trying to use a too-high cluster port number. */
     int port = server.tls_cluster ? server.tls_port : server.port;
-    if (port > (65535-CLUSTER_PORT_INCR)) {
+    if (!server.cluster_port && port > (65535-CLUSTER_PORT_INCR)) {
         serverLog(LL_WARNING, "Redis port number too high. "
                    "Cluster communication port is 10,000 port "
                    "numbers higher than your Redis port. "
@@ -565,17 +613,19 @@ void clusterInit(void) {
         serverLog(LL_WARNING, "No bind address is configured, but it is required for the Cluster bus.");
         exit(1);
     }
-    if (listenToPort(port+CLUSTER_PORT_INCR, &server.cfd) == C_ERR) {
+    int cport = server.cluster_port ? server.cluster_port : port + CLUSTER_PORT_INCR;
+    if (listenToPort(cport, &server.cfd) == C_ERR ) {
+        /* Note: the following log text is matched by the test suite. */
+        serverLog(LL_WARNING, "Failed listening on port %u (cluster), aborting.", cport);
         exit(1);
     }
+    
     if (createSocketAcceptHandler(&server.cfd, clusterAcceptHandler) != C_OK) {
         serverPanic("Unrecoverable error creating Redis Cluster socket accept handler.");
     }
 
-    /* The slots -> keys map is a radix tree. Initialize it here. */
-    server.cluster->slots_to_keys = raxNew();
-    memset(server.cluster->slots_keys_count,0,
-           sizeof(server.cluster->slots_keys_count));
+    /* Initialize data for the Slot to key API. */
+    slotToKeyInit(server.db);
 
     /* Set myself->port/cport/pport to my listening ports, we'll just need to
      * discover the IP address via MEET messages. */
@@ -584,6 +634,7 @@ void clusterInit(void) {
     server.cluster->mf_end = 0;
     resetManualFailover();
     clusterUpdateMyselfFlags();
+    clusterUpdateMyselfIp();
 }
 
 /* Reset a node performing a soft or hard reset:
@@ -736,6 +787,7 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
             return;
         }
         connEnableTcpNoDelay(conn);
+        connKeepAlive(conn,server.cluster_node_timeout * 2);
 
         /* Use non-blocking I/O for cluster messages. */
         serverLog(LL_VERBOSE,"Accepting cluster node connection from %s:%d", cip, cport);
@@ -1222,7 +1274,7 @@ void clusterHandleConfigEpochCollision(clusterNode *sender) {
  * about the node we want to remove, we don't re-add it before some time.
  *
  * Currently the CLUSTER_BLACKLIST_TTL is set to 1 minute, this means
- * that redis-trib has 60 seconds to send CLUSTER FORGET messages to nodes
+ * that redis-cli has 60 seconds to send CLUSTER FORGET messages to nodes
  * in the cluster without dealing with the problem of other nodes re-adding
  * back the node to nodes we already sent the FORGET command to.
  *
@@ -1697,7 +1749,7 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
             if (server.cluster->slots[j] == sender) continue;
 
             /* The slot is in importing state, it should be modified only
-             * manually via redis-trib (example: a resharding is in progress
+             * manually via redis-cli (example: a resharding is in progress
              * and the migrating side slot was already closed and is advertising
              * a new config. We still want the slot to be closed manually). */
             if (server.cluster->importing_slots_from[j]) continue;
@@ -1785,8 +1837,8 @@ int clusterProcessPacket(clusterLink *link) {
 
     if (type < CLUSTERMSG_TYPE_COUNT)
         server.cluster->stats_bus_messages_received[type]++;
-    serverLog(LL_DEBUG,"--- Processing packet of type %d, %lu bytes",
-        type, (unsigned long) totlen);
+    serverLog(LL_DEBUG,"--- Processing packet of type %s, %lu bytes",
+        clusterGetMessageTypeString(type), (unsigned long) totlen);
 
     /* Perform sanity checks */
     if (totlen < 16) return 1; /* At least signature, version, totlen, count. */
@@ -3524,6 +3576,59 @@ void clusterHandleManualFailover(void) {
  * CLUSTER cron job
  * -------------------------------------------------------------------------- */
 
+/* Check if the node is disconnected and re-establish the connection.
+ * Also update a few stats while we are here, that can be used to make
+ * better decisions in other part of the code. */
+int clusterNodeCronHandleReconnect(clusterNode *node, mstime_t handshake_timeout, mstime_t now) {
+    /* Not interested in reconnecting the link with myself or nodes
+     * for which we have no address. */
+    if (node->flags & (CLUSTER_NODE_MYSELF|CLUSTER_NODE_NOADDR)) return 1;
+
+    if (node->flags & CLUSTER_NODE_PFAIL)
+        server.cluster->stats_pfail_nodes++;
+
+    /* A Node in HANDSHAKE state has a limited lifespan equal to the
+     * configured node timeout. */
+    if (nodeInHandshake(node) && now - node->ctime > handshake_timeout) {
+        clusterDelNode(node);
+        return 1;
+    }
+
+    if (node->link == NULL) {
+        clusterLink *link = createClusterLink(node);
+        link->conn = server.tls_cluster ? connCreateTLS() : connCreateSocket();
+        connSetPrivateData(link->conn, link);
+        if (connConnect(link->conn, node->ip, node->cport, server.bind_source_addr,
+                    clusterLinkConnectHandler) == -1) {
+            /* We got a synchronous error from connect before
+             * clusterSendPing() had a chance to be called.
+             * If node->ping_sent is zero, failure detection can't work,
+             * so we claim we actually sent a ping now (that will
+             * be really sent as soon as the link is obtained). */
+            if (node->ping_sent == 0) node->ping_sent = mstime();
+            serverLog(LL_DEBUG, "Unable to connect to "
+                "Cluster Node [%s]:%d -> %s", node->ip,
+                node->cport, server.neterr);
+
+            freeClusterLink(link);
+            return 0;
+        }
+        node->link = link;
+    }
+    return 0;
+}
+
+/* Resize the send buffer of a node if it is wasting
+ * enough space. */
+int clusterNodeCronResizeBuffers(clusterNode *node) {
+     /* If unused space is a lot bigger than the used portion of the buffer then free up unused space.
+      * We use a factor of 4 because of the greediness of sdsMakeRoomFor (used by sdscatlen). */
+    if (node->link != NULL && sdsavail(node->link->sndbuf) / 4 > sdslen(node->link->sndbuf)) {
+        node->link->sndbuf = sdsRemoveFreeSpace(node->link->sndbuf);
+    }
+    return 0;
+}
+
 /* This is executed 10 times every second */
 void clusterCron(void) {
     dictIterator *di;
@@ -3539,35 +3644,6 @@ void clusterCron(void) {
 
     iteration++; /* Number of times this function was called so far. */
 
-    /* We want to take myself->ip in sync with the cluster-announce-ip option.
-     * The option can be set at runtime via CONFIG SET, so we periodically check
-     * if the option changed to reflect this into myself->ip. */
-    {
-        static char *prev_ip = NULL;
-        char *curr_ip = server.cluster_announce_ip;
-        int changed = 0;
-
-        if (prev_ip == NULL && curr_ip != NULL) changed = 1;
-        else if (prev_ip != NULL && curr_ip == NULL) changed = 1;
-        else if (prev_ip && curr_ip && strcmp(prev_ip,curr_ip)) changed = 1;
-
-        if (changed) {
-            if (prev_ip) zfree(prev_ip);
-            prev_ip = curr_ip;
-
-            if (curr_ip) {
-                /* We always take a copy of the previous IP address, by
-                 * duplicating the string. This way later we can check if
-                 * the address really changed. */
-                prev_ip = zstrdup(prev_ip);
-                strncpy(myself->ip,server.cluster_announce_ip,NET_IP_STR_LEN);
-                myself->ip[NET_IP_STR_LEN-1] = '\0';
-            } else {
-                myself->ip[0] = '\0'; /* Force autodetection. */
-            }
-        }
-    }
-
     /* The handshake timeout is the time after which a handshake node that was
      * not turned into a normal node is removed from the nodes. Usually it is
      * just the NODE_TIMEOUT value, but when NODE_TIMEOUT is too small we use
@@ -3575,54 +3651,18 @@ void clusterCron(void) {
     handshake_timeout = server.cluster_node_timeout;
     if (handshake_timeout < 1000) handshake_timeout = 1000;
 
-    /* Update myself flags. */
-    clusterUpdateMyselfFlags();
-
-    /* Check if we have disconnected nodes and re-establish the connection.
-     * Also update a few stats while we are here, that can be used to make
-     * better decisions in other part of the code. */
-    di = dictGetSafeIterator(server.cluster->nodes);
+    /* Clear so clusterNodeCronHandleReconnect can count the number of nodes in PFAIL. */
     server.cluster->stats_pfail_nodes = 0;
+    /* Run through some of the operations we want to do on each cluster node. */
+    di = dictGetSafeIterator(server.cluster->nodes);
     while((de = dictNext(di)) != NULL) {
         clusterNode *node = dictGetVal(de);
-
-        /* Not interested in reconnecting the link with myself or nodes
-         * for which we have no address. */
-        if (node->flags & (CLUSTER_NODE_MYSELF|CLUSTER_NODE_NOADDR)) continue;
-
-        if (node->flags & CLUSTER_NODE_PFAIL)
-            server.cluster->stats_pfail_nodes++;
-
-        /* A Node in HANDSHAKE state has a limited lifespan equal to the
-         * configured node timeout. */
-        if (nodeInHandshake(node) && now - node->ctime > handshake_timeout) {
-            clusterDelNode(node);
-            continue;
-        }
-
-        if (node->link == NULL) {
-            clusterLink *link = createClusterLink(node);
-            link->conn = server.tls_cluster ? connCreateTLS() : connCreateSocket();
-            connSetPrivateData(link->conn, link);
-            if (connConnect(link->conn, node->ip, node->cport, server.bind_source_addr,
-                        clusterLinkConnectHandler) == -1) {
-                /* We got a synchronous error from connect before
-                 * clusterSendPing() had a chance to be called.
-                 * If node->ping_sent is zero, failure detection can't work,
-                 * so we claim we actually sent a ping now (that will
-                 * be really sent as soon as the link is obtained). */
-                if (node->ping_sent == 0) node->ping_sent = mstime();
-                serverLog(LL_DEBUG, "Unable to connect to "
-                    "Cluster Node [%s]:%d -> %s", node->ip,
-                    node->cport, server.neterr);
-
-                freeClusterLink(link);
-                continue;
-            }
-            node->link = link;
-        }
+        /* The protocol is that they return non-zero if the node was
+         * terminated. */
+        if(clusterNodeCronHandleReconnect(node, handshake_timeout, now)) continue;
+        if(clusterNodeCronResizeBuffers(node)) continue;
     }
-    dictReleaseIterator(di);
+    dictReleaseIterator(di); 
 
     /* Ping some random node 1 time every 10 iterations, so that we usually ping
      * one random node every second. */
@@ -4072,7 +4112,7 @@ void clusterUpdateState(void) {
  *    B) If according to our config other nodes are already in charge for
  *       this slots, we set the slots as IMPORTING from our point of view
  *       in order to justify we have those slots, and in order to make
- *       redis-trib aware of the issue, so that it can try to fix it.
+ *       redis-cli aware of the issue, so that it can try to fix it.
  * 2) If we find data in a DB different than DB0 we return C_ERR to
  *    signal the caller it should quit the server with an error message
  *    or take other actions.
@@ -4382,6 +4422,60 @@ int getSlotOrReply(client *c, robj *o) {
     return (int) slot;
 }
 
+/* Returns an indication if the replica node is fully available
+ * and should be listed in CLUSTER SLOTS response.
+ * Returns 1 for available nodes, 0 for nodes that have 
+ * not finished their initial sync, in failed state, or are 
+ * otherwise considered not available to serve read commands. */
+static int isReplicaAvailable(clusterNode *node) {
+    if (nodeFailed(node)) {
+        return 0;
+    }
+    long long repl_offset = node->repl_offset;
+    if (node->flags & CLUSTER_NODE_MYSELF) {
+        /* Nodes do not update their own information
+         * in the cluster node list. */
+        repl_offset = replicationGetSlaveOffset();
+    }
+    return (repl_offset != 0);
+}
+
+int checkSlotAssignmentsOrReply(client *c, unsigned char *slots, int del, int start_slot, int end_slot) {
+    int slot;
+    for (slot = start_slot; slot <= end_slot; slot++) {
+        if (del && server.cluster->slots[slot] == NULL) {
+            addReplyErrorFormat(c,"Slot %d is already unassigned", slot);
+            return C_ERR;
+        } else if (!del && server.cluster->slots[slot]) {
+            addReplyErrorFormat(c,"Slot %d is already busy", slot);
+            return C_ERR;
+        }
+        if (slots[slot]++ == 1) {
+            addReplyErrorFormat(c,"Slot %d specified multiple times",(int)slot);
+            return C_ERR;
+        }
+    }
+    return C_OK;
+}
+
+void clusterUpdateSlots(client *c, unsigned char *slots, int del) {
+    int j;
+    for (j = 0; j < CLUSTER_SLOTS; j++) {
+        if (slots[j]) {
+            int retval;
+                
+            /* If this slot was set as importing we can clear this
+             * state as now we are the real owner of the slot. */
+            if (server.cluster->importing_slots_from[j])
+                server.cluster->importing_slots_from[j] = NULL;
+
+            retval = del ? clusterDelSlot(j) :
+                           clusterAddSlot(myself,j);
+            serverAssertWithInfo(c,NULL,retval == C_OK);
+        }
+    }
+}
+
 void addNodeReplyForClusterSlot(client *c, clusterNode *node, int start_slot, int end_slot) {
     int i, nested_elements = 3; /* slots (2) + master addr (1) */
     void *nested_replylen = addReplyDeferredLen(c);
@@ -4399,7 +4493,7 @@ void addNodeReplyForClusterSlot(client *c, clusterNode *node, int start_slot, in
     for (i = 0; i < node->numslaves; i++) {
         /* This loop is copy/pasted from clusterGenNodeDescription()
          * with modifications for per-slot node aggregation. */
-        if (nodeFailed(node->slaves[i])) continue;
+        if (!isReplicaAvailable(node->slaves[i])) continue;
         addReplyArrayLen(c, 3);
         addReplyBulkCString(c, node->slaves[i]->ip);
         /* Report slave's non-TLS port to non-TLS client in TLS cluster */
@@ -4459,6 +4553,8 @@ void clusterCommand(client *c) {
         const char *help[] = {
 "ADDSLOTS <slot> [<slot> ...]",
 "    Assign slots to current node.",
+"ADDSLOTSRANGE <start slot> <end slot> [<start slot> <end slot> ...]",
+"    Assign slots which are between <start-slot> and <end-slot> to current node.",
 "BUMPEPOCH",
 "    Advance the cluster config epoch.",
 "COUNT-FAILURE-REPORTS <node-id>",
@@ -4467,6 +4563,8 @@ void clusterCommand(client *c) {
 "    Return the number of keys in <slot>.",
 "DELSLOTS <slot> [<slot> ...]",
 "    Delete slots information from current node.",
+"DELSLOTSRANGE <start slot> <end slot> [<start slot> <end slot> ...]",
+"    Delete slots information which are between <start-slot> and <end-slot> from current node.",
 "FAILOVER [FORCE|TAKEOVER]",
 "    Promote current replica node to being a master.",
 "FORGET <node-id>",
@@ -4566,43 +4664,62 @@ NULL
         int del = !strcasecmp(c->argv[1]->ptr,"delslots");
 
         memset(slots,0,CLUSTER_SLOTS);
+        /* Check that all the arguments are parseable.*/
+        for (j = 2; j < c->argc; j++) {
+            if ((slot = getSlotOrReply(c,c->argv[j])) == C_ERR) {
+                zfree(slots);
+                return;
+            }
+        }
+        /* Check that the slots are not already busy. */
+        for (j = 2; j < c->argc; j++) {
+            slot = getSlotOrReply(c,c->argv[j]);
+            if (checkSlotAssignmentsOrReply(c, slots, del, slot, slot) == C_ERR) {
+                zfree(slots);
+                return;
+            }
+        }
+        clusterUpdateSlots(c, slots, del);    
+        zfree(slots);
+        clusterDoBeforeSleep(CLUSTER_TODO_UPDATE_STATE|CLUSTER_TODO_SAVE_CONFIG);
+        addReply(c,shared.ok);
+    } else if ((!strcasecmp(c->argv[1]->ptr,"addslotsrange") ||
+               !strcasecmp(c->argv[1]->ptr,"delslotsrange")) && c->argc >= 4) {
+        if (c->argc % 2 == 1) {
+            addReplyErrorFormat(c,"wrong number of arguments for '%s' command",
+                            c->cmd->name);
+            return;
+        }
+        /* CLUSTER ADDSLOTSRANGE <start slot> <end slot> [<start slot> <end slot> ...] */
+        /* CLUSTER DELSLOTSRANGE <start slot> <end slot> [<start slot> <end slot> ...] */
+        int j, startslot, endslot;
+        unsigned char *slots = zmalloc(CLUSTER_SLOTS);
+        int del = !strcasecmp(c->argv[1]->ptr,"delslotsrange");
+
+        memset(slots,0,CLUSTER_SLOTS);
         /* Check that all the arguments are parseable and that all the
          * slots are not already busy. */
-        for (j = 2; j < c->argc; j++) {
-            if ((slot = getSlotOrReply(c,c->argv[j])) == -1) {
+        for (j = 2; j < c->argc; j += 2) {
+            if ((startslot = getSlotOrReply(c,c->argv[j])) == C_ERR) {
                 zfree(slots);
                 return;
             }
-            if (del && server.cluster->slots[slot] == NULL) {
-                addReplyErrorFormat(c,"Slot %d is already unassigned", slot);
-                zfree(slots);
-                return;
-            } else if (!del && server.cluster->slots[slot]) {
-                addReplyErrorFormat(c,"Slot %d is already busy", slot);
+            if ((endslot = getSlotOrReply(c,c->argv[j+1])) == C_ERR) {
                 zfree(slots);
                 return;
             }
-            if (slots[slot]++ == 1) {
-                addReplyErrorFormat(c,"Slot %d specified multiple times",
-                    (int)slot);
+            if (startslot > endslot) {
+                addReplyErrorFormat(c,"start slot number %d is greater than end slot number %d", startslot, endslot);
+                zfree(slots);
+                return;
+            }
+
+            if (checkSlotAssignmentsOrReply(c, slots, del, startslot, endslot) == C_ERR) {
                 zfree(slots);
                 return;
             }
         }
-        for (j = 0; j < CLUSTER_SLOTS; j++) {
-            if (slots[j]) {
-                int retval;
-
-                /* If this slot was set as importing we can clear this
-                 * state as now we are the real owner of the slot. */
-                if (server.cluster->importing_slots_from[j])
-                    server.cluster->importing_slots_from[j] = NULL;
-
-                retval = del ? clusterDelSlot(j) :
-                               clusterAddSlot(myself,j);
-                serverAssertWithInfo(c,NULL,retval == C_OK);
-            }
-        }
+        clusterUpdateSlots(c, slots, del);
         zfree(slots);
         clusterDoBeforeSleep(CLUSTER_TODO_UPDATE_STATE|CLUSTER_TODO_SAVE_CONFIG);
         addReply(c,shared.ok);
@@ -4631,6 +4748,10 @@ NULL
                     (char*)c->argv[4]->ptr);
                 return;
             }
+            if (nodeIsSlave(n)) {
+                addReplyError(c,"Target node is not a master");
+                return;
+            }
             server.cluster->migrating_slots_to[slot] = n;
         } else if (!strcasecmp(c->argv[3]->ptr,"importing") && c->argc == 5) {
             if (server.cluster->slots[slot] == myself) {
@@ -4641,6 +4762,10 @@ NULL
             if ((n = clusterLookupNode(c->argv[4]->ptr)) == NULL) {
                 addReplyErrorFormat(c,"I don't know about node %s",
                     (char*)c->argv[4]->ptr);
+                return;
+            }
+            if (nodeIsSlave(n)) {
+                addReplyError(c,"Target node is not a master");
                 return;
             }
             server.cluster->importing_slots_from[slot] = n;
@@ -4815,8 +4940,6 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"getkeysinslot") && c->argc == 4) {
         /* CLUSTER GETKEYSINSLOT <slot> <count> */
         long long maxkeys, slot;
-        unsigned int numkeys, j;
-        robj **keys;
 
         if (getLongLongFromObjectOrReply(c,c->argv[2],&slot,NULL) != C_OK)
             return;
@@ -4828,19 +4951,16 @@ NULL
             return;
         }
 
-        /* Avoid allocating more than needed in case of large COUNT argument
-         * and smaller actual number of keys. */
         unsigned int keys_in_slot = countKeysInSlot(slot);
-        if (maxkeys > keys_in_slot) maxkeys = keys_in_slot;
-
-        keys = zmalloc(sizeof(robj*)*maxkeys);
-        numkeys = getKeysInSlot(slot, keys, maxkeys);
+        unsigned int numkeys = maxkeys > keys_in_slot ? keys_in_slot : maxkeys;
         addReplyArrayLen(c,numkeys);
-        for (j = 0; j < numkeys; j++) {
-            addReplyBulk(c,keys[j]);
-            decrRefCount(keys[j]);
+        dictEntry *de = (*server.db->slots_to_keys).by_slot[slot].head;
+        for (unsigned int j = 0; j < numkeys; j++) {
+            serverAssert(de != NULL);
+            sds sdskey = dictGetKey(de);
+            addReplyBulkCBuffer(c, sdskey, sdslen(sdskey));
+            de = dictEntryNextInSlot(de);
         }
-        zfree(keys);
     } else if (!strcasecmp(c->argv[1]->ptr,"forget") && c->argc == 3) {
         /* CLUSTER FORGET <NODE ID> */
         clusterNode *n = clusterLookupNode(c->argv[2]->ptr);
@@ -5206,7 +5326,7 @@ void restoreCommand(client *c) {
 
     rioInitWithBuffer(&payload,c->argv[3]->ptr);
     if (((type = rdbLoadObjectType(&payload)) == -1) ||
-        ((obj = rdbLoadObject(type,&payload,key->ptr,c->db->id)) == NULL))
+        ((obj = rdbLoadObject(type,&payload,key->ptr,c->db->id,NULL)) == NULL))
     {
         addReplyError(c,"Bad data format");
         return;
@@ -5699,10 +5819,9 @@ socket_err:
 
     /* Cleanup we want to do if no retry is attempted. */
     zfree(ov); zfree(kv);
-    addReplySds(c,
-        sdscatprintf(sdsempty(),
-            "-IOERR error or timeout %s to target instance\r\n",
-            write_error ? "writing" : "reading"));
+    addReplyErrorSds(c, sdscatprintf(sdsempty(),
+                                  "-IOERR error or timeout %s to target instance",
+                                  write_error ? "writing" : "reading"));
     return;
 }
 
@@ -6019,7 +6138,8 @@ int clusterRedirectBlockedClientIfNeeded(client *c) {
     if (c->flags & CLIENT_BLOCKED &&
         (c->btype == BLOCKED_LIST ||
          c->btype == BLOCKED_ZSET ||
-         c->btype == BLOCKED_STREAM))
+         c->btype == BLOCKED_STREAM ||
+         c->btype == BLOCKED_MODULE))
     {
         dictEntry *de;
         dictIterator *di;
@@ -6032,6 +6152,11 @@ int clusterRedirectBlockedClientIfNeeded(client *c) {
             clusterRedirectClient(c,NULL,0,CLUSTER_REDIR_DOWN_STATE);
             return 1;
         }
+
+        /* If the client is blocked on module, but ont on a specific key,
+         * don't unblock it (except for the CLSUTER_FAIL case above). */
+        if (c->btype == BLOCKED_MODULE && !moduleClientIsBlockedOnKeys(c))
+            return 0;
 
         /* All keys must belong to the same slot, so check first key only. */
         di = dictGetIterator(c->bpop.keys);
@@ -6069,4 +6194,103 @@ int clusterRedirectBlockedClientIfNeeded(client *c) {
         dictReleaseIterator(di);
     }
     return 0;
+}
+
+/* Slot to Key API. This is used by Redis Cluster in order to obtain in
+ * a fast way a key that belongs to a specified hash slot. This is useful
+ * while rehashing the cluster and in other conditions when we need to
+ * understand if we have keys for a given hash slot. */
+
+void slotToKeyAddEntry(dictEntry *entry, redisDb *db) {
+    sds key = entry->key;
+    unsigned int hashslot = keyHashSlot(key, sdslen(key));
+    slotToKeys *slot_to_keys = &(*db->slots_to_keys).by_slot[hashslot];
+    slot_to_keys->count++;
+
+    /* Insert entry before the first element in the list. */
+    dictEntry *first = slot_to_keys->head;
+    dictEntryNextInSlot(entry) = first;
+    if (first != NULL) {
+        serverAssert(dictEntryPrevInSlot(first) == NULL);
+        dictEntryPrevInSlot(first) = entry;
+    }
+    serverAssert(dictEntryPrevInSlot(entry) == NULL);
+    slot_to_keys->head = entry;
+}
+
+void slotToKeyDelEntry(dictEntry *entry, redisDb *db) {
+    sds key = entry->key;
+    unsigned int hashslot = keyHashSlot(key, sdslen(key));
+    slotToKeys *slot_to_keys = &(*db->slots_to_keys).by_slot[hashslot];
+    slot_to_keys->count--;
+
+    /* Connect previous and next entries to each other. */
+    dictEntry *next = dictEntryNextInSlot(entry);
+    dictEntry *prev = dictEntryPrevInSlot(entry);
+    if (next != NULL) {
+        dictEntryPrevInSlot(next) = prev;
+    }
+    if (prev != NULL) {
+        dictEntryNextInSlot(prev) = next;
+    } else {
+        /* The removed entry was the first in the list. */
+        serverAssert(slot_to_keys->head == entry);
+        slot_to_keys->head = next;
+    }
+}
+
+/* Updates neighbour entries when an entry has been replaced (e.g. reallocated
+ * during active defrag). */
+void slotToKeyReplaceEntry(dictEntry *entry, redisDb *db) {
+    dictEntry *next = dictEntryNextInSlot(entry);
+    dictEntry *prev = dictEntryPrevInSlot(entry);
+    if (next != NULL) {
+        dictEntryPrevInSlot(next) = entry;
+    }
+    if (prev != NULL) {
+        dictEntryNextInSlot(prev) = entry;
+    } else {
+        /* The replaced entry was the first in the list. */
+        sds key = entry->key;
+        unsigned int hashslot = keyHashSlot(key, sdslen(key));
+        slotToKeys *slot_to_keys = &(*db->slots_to_keys).by_slot[hashslot];
+        slot_to_keys->head = entry;
+    }
+}
+
+/* Initialize slots-keys map of given db. */
+void slotToKeyInit(redisDb *db) {
+    db->slots_to_keys = zcalloc(sizeof(clusterSlotToKeyMapping));
+}
+
+/* Empty slots-keys map of given db. */
+void slotToKeyFlush(redisDb *db) {
+    memset(db->slots_to_keys, 0,
+        sizeof(clusterSlotToKeyMapping));
+}
+
+/* Free slots-keys map of given db. */
+void slotToKeyDestroy(redisDb *db) {
+    zfree(db->slots_to_keys);
+    db->slots_to_keys = NULL;
+}
+
+/* Remove all the keys in the specified hash slot.
+ * The number of removed items is returned. */
+unsigned int delKeysInSlot(unsigned int hashslot) {
+    unsigned int j = 0;
+    dictEntry *de = (*server.db->slots_to_keys).by_slot[hashslot].head;
+    while (de != NULL) {
+        sds sdskey = dictGetKey(de);
+        de = dictEntryNextInSlot(de);
+        robj *key = createStringObject(sdskey, sdslen(sdskey));
+        dbDelete(&server.db[0], key);
+        decrRefCount(key);
+        j++;
+    }
+    return j;
+}
+
+unsigned int countKeysInSlot(unsigned int hashslot) {
+    return (*server.db->slots_to_keys).by_slot[hashslot].count;
 }

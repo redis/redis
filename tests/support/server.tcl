@@ -33,6 +33,11 @@ proc kill_server config {
     # nothing to kill when running against external server
     if {$::external} return
 
+    # Close client connection if exists
+    if {[dict exists $config "client"]} {
+        [dict get $config "client"] close
+    }
+
     # nevermind if its already dead
     if {![is_alive $config]} {
         # Check valgrind errors if needed
@@ -75,14 +80,17 @@ proc kill_server config {
     # Node might have been stopped in the test
     catch {exec kill -SIGCONT $pid}
     if {$::valgrind} {
-        set max_wait 60000
+        set max_wait 120000
     } else {
         set max_wait 10000
     }
     while {[is_alive $config]} {
         incr wait 10
 
-        if {$wait >= $max_wait} {
+        if {$wait == $max_wait} {
+            puts "Forcing process $pid to crash..."
+            catch {exec kill -SEGV $pid}
+        } elseif {$wait >= $max_wait * 2} {
             puts "Forcing process $pid to exit..."
             catch {exec kill -KILL $pid}
         } elseif {$wait % 1000 == 0} {
@@ -194,6 +202,16 @@ proc tags_acceptable {tags err_return} {
 
     if {$::cluster_mode && [lsearch $tags "cluster:skip"] >= 0} {
         set err "Not supported in cluster mode"
+        return 0
+    }
+
+    if {$::tls && [lsearch $tags "tls:skip"] >= 0} {
+        set err "Not supported in tls mode"
+        return 0
+    }
+
+    if {!$::large_memory && [lsearch $tags "large-memory"] >= 0} {
+        set err "large memory flag not provided"
         return 0
     }
 
@@ -629,6 +647,8 @@ proc start_server {options {code undefined}} {
 proc restart_server {level wait_ready rotate_logs {reconnect 1}} {
     set srv [lindex $::servers end+$level]
     kill_server $srv
+    # Remove the default client from the server
+    dict unset srv "client"
 
     set pid [dict get $srv "pid"]
     set stdout [dict get $srv "stdout"]

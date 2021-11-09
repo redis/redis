@@ -4,7 +4,7 @@ proc randstring {min max {type binary}} {
     if {$type eq {binary}} {
         set minval 0
         set maxval 255
-    } elseif {$type eq {alpha}} {
+    } elseif {$type eq {alpha} || $type eq {simplealpha}} {
         set minval 48
         set maxval 122
     } elseif {$type eq {compr}} {
@@ -12,11 +12,11 @@ proc randstring {min max {type binary}} {
         set maxval 52
     }
     while {$len} {
-        set rr [expr {$minval+int(rand()*($maxval-$minval+1))}]
-        if {$type eq {alpha} && $rr eq 92} {
-            set rr 90; # avoid putting '\' char in the string, it can mess up TCL processing
-        }
-        append output [format "%c" $rr]
+        set num [expr {$minval+int(rand()*($maxval-$minval+1))}]
+        set rr [format "%c" $num]
+        if {$type eq {simplealpha} && ![string is alnum $rr]} {continue}
+        if {$type eq {alpha} && $num eq 92} {continue} ;# avoid putting '\' char in the string, it can mess up TCL processing
+        append output $rr
         incr len -1
     }
     return $output
@@ -113,6 +113,14 @@ proc wait_done_loading r {
     }
 }
 
+proc wait_lazyfree_done r {
+    wait_for_condition 50 100 {
+        [status $r lazyfree_pending_objects] == 0
+    } else {
+        fail "lazyfree isn't done"
+    }
+}
+
 # count current log lines in server's stdout
 proc count_log_lines {srv_idx} {
     set _ [string trim [exec wc -l < [srv $srv_idx stdout]]]
@@ -185,6 +193,11 @@ proc write_log_line {srv_idx msg} {
 # Random integer between 0 and max (excluded).
 proc randomInt {max} {
     expr {int(rand()*$max)}
+}
+
+# Random integer between min and max (excluded).
+proc randomRange {min max} {
+    expr {int(rand()*[expr $max - $min]) + $min}
 }
 
 # Random signed integer between -max and max (both extremes excluded).
@@ -430,15 +443,17 @@ proc find_available_port {start count} {
         if {$port < $start || $port >= $start+$count} {
             set port $start
         }
-        if {[catch {set fd1 [socket 127.0.0.1 $port]}] &&
-            [catch {set fd2 [socket 127.0.0.1 [expr $port+10000]]}]} {
+        set fd1 -1
+        if {[catch {set fd1 [socket -server 127.0.0.1 $port]}] ||
+            [catch {set fd2 [socket -server 127.0.0.1 [expr $port+10000]]}]} {
+            if {$fd1 != -1} {
+                close $fd1
+            }
+        } else {
+            close $fd1
+            close $fd2
             set ::last_port_attempted $port
             return $port
-        } else {
-            catch {
-                close $fd1
-                close $fd2
-            }
         }
         incr port
     }
@@ -623,6 +638,7 @@ proc generate_fuzzy_traffic_on_key {key duration} {
         set arity [lindex $cmd_info 1]
         set arity [expr $arity < 0 ? - $arity: $arity]
         set firstkey [lindex $cmd_info 3]
+        set lastkey [lindex $cmd_info 4]
         set i 1
         if {$cmd == "XINFO"} {
             lappend cmd "STREAM"
@@ -652,7 +668,7 @@ proc generate_fuzzy_traffic_on_key {key duration} {
             incr i 4
         }
         for {} {$i < $arity} {incr i} {
-            if {$i == $firstkey} {
+            if {$i == $firstkey || $i == $lastkey} {
                 lappend cmd $key
             } else {
                 lappend cmd [randomValue]
@@ -864,4 +880,17 @@ proc config_set {param value {options {}}} {
             }
         }
     }
+}
+
+proc delete_lines_with_pattern {filename tmpfilename pattern} {
+    set fh_in [open $filename r]
+    set fh_out [open $tmpfilename w]
+    while {[gets $fh_in line] != -1} {
+        if {![regexp $pattern $line]} {
+            puts $fh_out $line
+        }
+    }
+    close $fh_in
+    close $fh_out
+    file rename -force $tmpfilename $filename
 }

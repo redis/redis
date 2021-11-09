@@ -31,13 +31,25 @@ start_server {tags {"cli"}} {
     }
 
     proc read_cli {fd} {
-        set buf [read $fd]
-        while {[string length $buf] == 0} {
-            # wait some time and try again
+        set ret [read $fd]
+        while {[string length $ret] == 0} {
             after 10
-            set buf [read $fd]
+            set ret [read $fd]
         }
-        set _ $buf
+
+        # We may have a short read, try to read some more.
+        set empty_reads 0
+        while {$empty_reads < 5} {
+            set buf [read $fd]
+            if {[string length $buf] == 0} {
+                after 10
+                incr empty_reads
+            } else {
+                append ret $buf
+                set empty_reads 0
+            }
+        }
+        return $ret
     }
 
     proc write_cli {fd buf} {
@@ -73,8 +85,8 @@ start_server {tags {"cli"}} {
         set _ $tmp
     }
 
-    proc _run_cli {opts args} {
-        set cmd [rediscli [srv host] [srv port] [list -n $::dbnum {*}$args]]
+    proc _run_cli {host port db opts args} {
+        set cmd [rediscli $host $port [list -n $db {*}$args]]
         foreach {key value} $opts {
             if {$key eq "pipe"} {
                 set cmd "sh -c \"$value | $cmd\""
@@ -93,15 +105,19 @@ start_server {tags {"cli"}} {
     }
 
     proc run_cli {args} {
-        _run_cli {} {*}$args
+        _run_cli [srv host] [srv port] $::dbnum {} {*}$args
     }
 
     proc run_cli_with_input_pipe {cmd args} {
-        _run_cli [list pipe $cmd] -x {*}$args
+        _run_cli [srv host] [srv port] $::dbnum [list pipe $cmd] -x {*}$args
     }
 
     proc run_cli_with_input_file {path args} {
-        _run_cli [list path $path] -x {*}$args
+        _run_cli [srv host] [srv port] $::dbnum [list path $path] -x {*}$args
+    }
+
+    proc run_cli_host_port_db {host port db args} {
+        _run_cli $host $port $db {} {*}$args
     }
 
     proc test_nontty_cli {name code} {
@@ -218,6 +234,30 @@ start_server {tags {"cli"}} {
         assert_equal "foo\nbar" [run_cli lrange list 0 -1]
     }
 
+if {!$::tls} { ;# fake_redis_node doesn't support TLS
+    test_nontty_cli "ASK redirect test" {
+        # Set up two fake Redis nodes.
+        set tclsh [info nameofexecutable]
+        set script "tests/helpers/fake_redis_node.tcl"
+        set port1 [find_available_port $::baseport $::portcount]
+        set port2 [find_available_port $::baseport $::portcount]
+        set p1 [exec $tclsh $script $port1 \
+                "SET foo bar" "-ASK 12182 127.0.0.1:$port2" &]
+        set p2 [exec $tclsh $script $port2 \
+                "ASKING" "+OK" \
+                "SET foo bar" "+OK" &]
+        # Make sure both fake nodes have started listening
+        wait_for_condition 50 50 {
+            [catch {close [socket "127.0.0.1" $port1]}] == 0 && \
+            [catch {close [socket "127.0.0.1" $port2]}] == 0
+        } else {
+            fail "Failed to start fake Redis nodes"
+        }
+        # Run the cli
+        assert_equal "OK" [run_cli_host_port_db "127.0.0.1" $port1 0 -c SET foo bar]
+    }
+}
+
     test_nontty_cli "Quoted input arguments" {
         r set "\x00\x00" "value"
         assert_equal "value" [run_cli --quoted-input get {"\x00\x00"}]
@@ -226,7 +266,6 @@ start_server {tags {"cli"}} {
     test_nontty_cli "No accidental unquoting of input arguments" {
         run_cli --quoted-input set {"\x41\x41"} quoted-val
         run_cli set {"\x41\x41"} unquoted-val
-
         assert_equal "quoted-val" [r get AA]
         assert_equal "unquoted-val" [r get {"\x41\x41"}]
     }

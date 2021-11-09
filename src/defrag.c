@@ -34,6 +34,7 @@
  */
 
 #include "server.h"
+#include "cluster.h"
 #include <time.h>
 #include <assert.h>
 #include <stddef.h>
@@ -45,7 +46,7 @@
 int je_get_defrag_hint(void* ptr);
 
 /* forward declarations*/
-void defragDictBucketCallback(void *privdata, dictEntry **bucketref);
+void defragDictBucketCallback(dict *d, dictEntry **bucketref);
 dictEntry* replaceSatelliteDictKeyPtrAndOrDefragDictEntry(dict *d, sds oldkey, sds newkey, uint64_t hash, long *defragged);
 
 /* Defrag helper for generic allocations.
@@ -134,7 +135,6 @@ long dictIterDefragEntry(dictIterator *iter) {
      * of the dict and it's iterator, but the benefit is that it is very easy
      * to use, and require no other changes in the dict. */
     long defragged = 0;
-    dictht *ht;
     /* Handle the next entry (if there is one), and update the pointer in the
      * current entry. */
     if (iter->nextEntry) {
@@ -146,12 +146,11 @@ long dictIterDefragEntry(dictIterator *iter) {
         }
     }
     /* handle the case of the first entry in the hash bucket. */
-    ht = &iter->d->ht[iter->table];
-    if (ht->table[iter->index] == iter->entry) {
+    if (iter->d->ht_table[iter->table][iter->index] == iter->entry) {
         dictEntry *newde = activeDefragAlloc(iter->entry);
         if (newde) {
             iter->entry = newde;
-            ht->table[iter->index] = newde;
+            iter->d->ht_table[iter->table][iter->index] = newde;
             defragged++;
         }
     }
@@ -165,14 +164,14 @@ long dictDefragTables(dict* d) {
     dictEntry **newtable;
     long defragged = 0;
     /* handle the first hash table */
-    newtable = activeDefragAlloc(d->ht[0].table);
+    newtable = activeDefragAlloc(d->ht_table[0]);
     if (newtable)
-        defragged++, d->ht[0].table = newtable;
+        defragged++, d->ht_table[0] = newtable;
     /* handle the second hash table */
-    if (d->ht[1].table) {
-        newtable = activeDefragAlloc(d->ht[1].table);
+    if (d->ht_table[1]) {
+        newtable = activeDefragAlloc(d->ht_table[1]);
         if (newtable)
-            defragged++, d->ht[1].table = newtable;
+            defragged++, d->ht_table[1] = newtable;
     }
     return defragged;
 }
@@ -417,8 +416,8 @@ long activeDefragQuickListNode(quicklist *ql, quicklistNode **node_ref) {
         *node_ref = node = newnode;
         defragged++;
     }
-    if ((newzl = activeDefragAlloc(node->zl)))
-        defragged++, node->zl = newzl;
+    if ((newzl = activeDefragAlloc(node->entry)))
+        defragged++, node->entry = newzl;
     return defragged;
 }
 
@@ -857,7 +856,7 @@ long defragKey(redisDb *db, dictEntry *de) {
             serverPanic("Unknown set encoding");
         }
     } else if (ob->type == OBJ_ZSET) {
-        if (ob->encoding == OBJ_ENCODING_ZIPLIST) {
+        if (ob->encoding == OBJ_ENCODING_LISTPACK) {
             if ((newzl = activeDefragAlloc(ob->ptr)))
                 defragged++, ob->ptr = newzl;
         } else if (ob->encoding == OBJ_ENCODING_SKIPLIST) {
@@ -866,7 +865,7 @@ long defragKey(redisDb *db, dictEntry *de) {
             serverPanic("Unknown sorted set encoding");
         }
     } else if (ob->type == OBJ_HASH) {
-        if (ob->encoding == OBJ_ENCODING_ZIPLIST) {
+        if (ob->encoding == OBJ_ENCODING_LISTPACK) {
             if ((newzl = activeDefragAlloc(ob->ptr)))
                 defragged++, ob->ptr = newzl;
         } else if (ob->encoding == OBJ_ENCODING_HT) {
@@ -897,12 +896,15 @@ void defragScanCallback(void *privdata, const dictEntry *de) {
 
 /* Defrag scan callback for each hash table bucket,
  * used in order to defrag the dictEntry allocations. */
-void defragDictBucketCallback(void *privdata, dictEntry **bucketref) {
-    UNUSED(privdata); /* NOTE: this function is also used by both activeDefragCycle and scanLaterHash, etc. don't use privdata */
+void defragDictBucketCallback(dict *d, dictEntry **bucketref) {
     while(*bucketref) {
         dictEntry *de = *bucketref, *newde;
         if ((newde = activeDefragAlloc(de))) {
             *bucketref = newde;
+            if (server.cluster_enabled && d == server.db[0].dict) {
+                /* Cluster keyspace dict. Update slot-to-entries mapping. */
+                slotToKeyReplaceEntry(newde, server.db);
+            }
         }
         bucketref = &(*bucketref)->next;
     }
@@ -1094,6 +1096,7 @@ void activeDefragCycle(void) {
             current_db = -1;
             cursor = 0;
             db = NULL;
+            goto update_metrics;
         }
         return;
     }
@@ -1188,6 +1191,15 @@ void activeDefragCycle(void) {
 
     latencyEndMonitor(latency);
     latencyAddSampleIfNeeded("active-defrag-cycle",latency);
+
+update_metrics:
+    if (server.active_defrag_running > 0) {
+        if (server.stat_last_active_defrag_time == 0)
+            elapsedStart(&server.stat_last_active_defrag_time);
+    } else if (server.stat_last_active_defrag_time != 0) {
+        server.stat_total_active_defrag_time += elapsedUs(server.stat_last_active_defrag_time);
+        server.stat_last_active_defrag_time = 0;
+    }
 }
 
 #else /* HAVE_DEFRAG */

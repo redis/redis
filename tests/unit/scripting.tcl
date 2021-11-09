@@ -606,6 +606,22 @@ start_server {tags {"scripting"}} {
         set res [r eval {redis.setresp(2); return redis.call('hgetall', KEYS[1])} 1 hash]
         assert_equal $res $expected_list
     }
+
+    test {Script return recursive object} {
+        r readraw 1
+        set res [r eval {local a = {}; local b = {a}; a[1] = b; return a} 0]
+        # drain the response
+        while {true} {
+            if {$res == "-ERR reached lua stack limit"} {
+                break
+            }
+            assert_equal $res "*1"
+            set res [r read]
+        }
+        r readraw 0
+        # make sure the connection is still valid
+        assert_equal [r ping] {PONG}
+    }
 }
 
 # Start a new server since the last test in this stanza will kill the
@@ -933,4 +949,146 @@ start_server {tags {"scripting external:skip"}} {
     r script debug sync
     r eval {return 'hello'} 0
     r eval {return 'hello'} 0
+}
+
+start_server {tags {"scripting needs:debug external:skip"}} {
+    test {Test scripting debug protocol parsing} {
+        r script debug sync
+        r eval {return 'hello'} 0
+        catch {r 'hello\0world'} e
+        assert_match {*Unknown Redis Lua debugger command*} $e
+        catch {r 'hello\0'} e
+        assert_match {*Unknown Redis Lua debugger command*} $e
+        catch {r '\0hello'} e
+        assert_match {*Unknown Redis Lua debugger command*} $e
+        catch {r '\0hello\0'} e
+        assert_match {*Unknown Redis Lua debugger command*} $e
+    }
+
+    test {Test scripting debug lua stack overflow} {
+        r script debug sync
+        r eval {return 'hello'} 0
+        set cmd "*101\r\n\$5\r\nredis\r\n"
+        append cmd [string repeat "\$4\r\ntest\r\n" 100]
+        r write $cmd
+        r flush
+        set ret [r read]
+        assert_match {*Unknown Redis command called from Lua script*} $ret
+        # make sure the server is still ok
+        reconnect
+        assert_equal [r ping] {PONG}
+    }
+}
+
+start_server {tags {"scripting resp3 needs:debug"}} {
+    r debug set-disable-deny-scripts 1
+    for {set i 2} {$i <= 3} {incr i} {
+        for {set client_proto 2} {$client_proto <= 3} {incr client_proto} {
+            r hello $client_proto
+            r readraw 1
+
+            test {test resp3 big number protocol parsing} {
+                set ret [r eval "redis.setresp($i);return redis.call('debug', 'protocol', 'bignum')" 0]
+                if {$client_proto == 2 || $i == 2} {
+                    # if either Lua or the clien is RESP2 the reply will be RESP2
+                    assert_equal $ret {$37}
+                    assert_equal [r read] {1234567999999999999999999999999999999}
+                } else {
+                    assert_equal $ret {(1234567999999999999999999999999999999}
+                }
+            }
+
+            test {test resp3 map protocol parsing} {
+                set ret [r eval "redis.setresp($i);return redis.call('debug', 'protocol', 'map')" 0]
+                if {$client_proto == 2 || $i == 2} {
+                    # if either Lua or the clien is RESP2 the reply will be RESP2
+                    assert_equal $ret {*6}
+                } else {
+                    assert_equal $ret {%3}
+                }
+                for {set j 0} {$j < 6} {incr j} {
+                    r read
+                }
+            }
+
+            test {test resp3 set protocol parsing} {
+                set ret [r eval "redis.setresp($i);return redis.call('debug', 'protocol', 'set')" 0]
+                if {$client_proto == 2 || $i == 2} {
+                    # if either Lua or the clien is RESP2 the reply will be RESP2
+                    assert_equal $ret {*3}
+                } else {
+                    assert_equal $ret {~3}
+                }
+                for {set j 0} {$j < 3} {incr j} {
+                    r read
+                }
+            }
+
+            test {test resp3 double protocol parsing} {
+                set ret [r eval "redis.setresp($i);return redis.call('debug', 'protocol', 'double')" 0]
+                if {$client_proto == 2 || $i == 2} {
+                    # if either Lua or the clien is RESP2 the reply will be RESP2
+                    assert_equal $ret {$5}
+                    assert_equal [r read] {3.141}
+                } else {
+                    assert_equal $ret {,3.141}
+                }
+            }
+
+            test {test resp3 null protocol parsing} {
+                set ret [r eval "redis.setresp($i);return redis.call('debug', 'protocol', 'null')" 0]
+                if {$client_proto == 2} {
+                    # null is a special case in which a Lua client format does not effect the reply to the client
+                    assert_equal $ret {$-1}
+                } else {
+                    assert_equal $ret {_}
+                }
+            } {}
+
+            test {test resp3 verbatim protocol parsing} {
+                set ret [r eval "redis.setresp($i);return redis.call('debug', 'protocol', 'verbatim')" 0]
+                if {$client_proto == 2 || $i == 2} {
+                    # if either Lua or the clien is RESP2 the reply will be RESP2
+                    assert_equal $ret {$25}
+                    assert_equal [r read] {This is a verbatim}
+                    assert_equal [r read] {string}
+                } else {
+                    assert_equal $ret {=29}
+                    assert_equal [r read] {txt:This is a verbatim}
+                    assert_equal [r read] {string}
+                }
+            }
+
+            test {test resp3 true protocol parsing} {
+                set ret [r eval "redis.setresp($i);return redis.call('debug', 'protocol', 'true')" 0]
+                if {$client_proto == 2 || $i == 2} {
+                    # if either Lua or the clien is RESP2 the reply will be RESP2
+                    assert_equal $ret {:1}
+                } else {
+                    assert_equal $ret {#t}
+                }
+            }
+
+            test {test resp3 false protocol parsing} {
+                set ret [r eval "redis.setresp($i);return redis.call('debug', 'protocol', 'false')" 0]
+                if {$client_proto == 2 || $i == 2} {
+                    # if either Lua or the clien is RESP2 the reply will be RESP2
+                    assert_equal $ret {:0}
+                } else {
+                    assert_equal $ret {#f}
+                }
+            }
+
+            r readraw 0
+        }
+    }
+
+    # attribute is not relevant to test with resp2
+    test {test resp3 attribute protocol parsing} {
+        # attributes are not (yet) expose to the script
+        # So here we just check the parser handles them and they are ignored.
+        r eval "redis.setresp(3);return redis.call('debug', 'protocol', 'attrib')" 0
+    } {Some real reply following the attribute}
+
+    r debug set-disable-deny-scripts 0
 }

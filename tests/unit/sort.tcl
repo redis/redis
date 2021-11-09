@@ -263,6 +263,18 @@ start_server {
         r lrange testb 0 -1
     } {5 3 4} {cluster:skip}
 
+    test "SORT_RO - Successful case" {
+        r del mylist
+        r lpush mylist a
+        r set x:a 100
+        r sort_ro mylist by nosort get x:*->
+    } {100} {cluster:skip}
+
+    test "SORT_RO - Cannot run with STORE arg" {
+        catch {r sort_ro foolist STORE bar} e
+        set e
+    } {ERR syntax error}
+
     tags {"slow"} {
         set num 100
         set res [create_random_dataset $num lpush]

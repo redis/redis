@@ -320,4 +320,169 @@ tags {"aof external:skip"} {
             }
         }
     }
+
+    # Test that LMPOP/BLMPOP work fine with AOF.
+    create_aof {
+        append_to_aof [formatCommand lpush mylist a b c]
+        append_to_aof [formatCommand rpush mylist2 1 2 3]
+        append_to_aof [formatCommand lpush mylist3 a b c d e]
+    }
+
+    start_server_aof [list dir $server_path aof-load-truncated no] {
+        test "AOF+LMPOP/BLMPOP: pop elements from the list" {
+            set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+            set client2 [redis [dict get $srv host] [dict get $srv port] 1 $::tls]
+            wait_done_loading $client
+
+            # Pop all elements from mylist, should be blmpop delete mylist.
+            $client lmpop 1 mylist left count 1
+            $client blmpop 0 1 mylist left count 10
+
+            # Pop all elements from mylist2, should be lmpop delete mylist2.
+            $client blmpop 0 2 mylist mylist2 right count 10
+            $client lmpop 2 mylist mylist2 right count 2
+
+            # Blocking path, be blocked and then released.
+            $client2 blmpop 0 2 mylist mylist2 left count 2
+            after 100
+            $client lpush mylist2 a b c
+
+            # Pop up the last element in mylist2
+            $client blmpop 0 3 mylist mylist2 mylist3 left count 1
+
+            # Leave two elements in mylist3.
+            $client blmpop 0 3 mylist mylist2 mylist3 right count 3
+        }
+    }
+
+    start_server_aof [list dir $server_path aof-load-truncated no] {
+        test "AOF+LMPOP/BLMPOP: after pop elements from the list" {
+            set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+            wait_done_loading $client
+
+            # mylist and mylist2 no longer exist.
+            assert_equal 0 [$client exists mylist mylist2]
+
+            # Length of mylist3 is two.
+            assert_equal 2 [$client llen mylist3]
+        }
+    }
+
+    # Test that ZMPOP/BZMPOP work fine with AOF.
+    create_aof {
+        append_to_aof [formatCommand zadd myzset 1 one 2 two 3 three]
+        append_to_aof [formatCommand zadd myzset2 4 four 5 five 6 six]
+        append_to_aof [formatCommand zadd myzset3 1 one 2 two 3 three 4 four 5 five]
+    }
+
+    start_server_aof [list dir $server_path aof-load-truncated no] {
+        test "AOF+ZMPOP/BZMPOP: pop elements from the zset" {
+            set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+            set client2 [redis [dict get $srv host] [dict get $srv port] 1 $::tls]
+            wait_done_loading $client
+
+            # Pop all elements from myzset, should be bzmpop delete myzset.
+            $client zmpop 1 myzset min count 1
+            $client bzmpop 0 1 myzset min count 10
+
+            # Pop all elements from myzset2, should be zmpop delete myzset2.
+            $client bzmpop 0 2 myzset myzset2 max count 10
+            $client zmpop 2 myzset myzset2 max count 2
+
+            # Blocking path, be blocked and then released.
+            $client2 bzmpop 0 2 myzset myzset2 min count 2
+            after 100
+            $client zadd myzset2 1 one 2 two 3 three
+
+            # Pop up the last element in myzset2
+            $client bzmpop 0 3 myzset myzset2 myzset3 min count 1
+
+            # Leave two elements in myzset3.
+            $client bzmpop 0 3 myzset myzset2 myzset3 max count 3
+        }
+    }
+
+    start_server_aof [list dir $server_path aof-load-truncated no] {
+        test "AOF+ZMPOP/BZMPOP: after pop elements from the zset" {
+            set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+            wait_done_loading $client
+
+            # myzset and myzset2 no longer exist.
+            assert_equal 0 [$client exists myzset myzset2]
+
+            # Length of myzset3 is two.
+            assert_equal 2 [$client zcard myzset3]
+        }
+    }
+
+    test {Generate timestamp annotations in AOF} {
+        start_server {overrides {appendonly {yes} appendfilename {appendonly.aof}}} {
+            r config set aof-timestamp-enabled yes
+            r config set aof-use-rdb-preamble no
+            set aof [file join [lindex [r config get dir] 1] appendonly.aof]
+
+            r set foo bar
+            assert_match "#TS:*" [exec head -n 1 $aof]
+
+            r bgrewriteaof
+            waitForBgrewriteaof r
+            assert_match "#TS:*" [exec head -n 1 $aof]
+        }
+    }
+
+    # redis could load AOF which has timestamp annotations inside
+    create_aof {
+        append_to_aof "#TS:1628217470\r\n"
+        append_to_aof [formatCommand set foo1 bar1]
+        append_to_aof "#TS:1628217471\r\n"
+        append_to_aof [formatCommand set foo2 bar2]
+        append_to_aof "#TS:1628217472\r\n"
+        append_to_aof "#TS:1628217473\r\n"
+        append_to_aof [formatCommand set foo3 bar3]
+        append_to_aof "#TS:1628217474\r\n"
+    }
+    start_server_aof [list dir $server_path] {
+        test {Successfully load AOF which has timestamp annotations inside} {
+            set c [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+            wait_done_loading $c
+            assert_equal "bar1" [$c get foo1]
+            assert_equal "bar2" [$c get foo2]
+            assert_equal "bar3" [$c get foo3]
+        }
+    }
+
+    test {Truncate AOF to specific timestamp} {
+        # truncate to timestamp 1628217473
+        exec src/redis-check-aof --truncate-to-timestamp 1628217473 $aof_path
+        start_server_aof [list dir $server_path] {
+            set c [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+            wait_done_loading $c
+            assert_equal "bar1" [$c get foo1]
+            assert_equal "bar2" [$c get foo2]
+            assert_equal "bar3" [$c get foo3]
+        }
+
+        # truncate to timestamp 1628217471
+        exec src/redis-check-aof --truncate-to-timestamp 1628217471 $aof_path
+        start_server_aof [list dir $server_path] {
+            set c [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+            wait_done_loading $c
+            assert_equal "bar1" [$c get foo1]
+            assert_equal "bar2" [$c get foo2]
+            assert_equal "" [$c get foo3]
+        }
+
+        # truncate to timestamp 1628217470
+        exec src/redis-check-aof --truncate-to-timestamp 1628217470 $aof_path
+        start_server_aof [list dir $server_path] {
+            set c [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+            wait_done_loading $c
+            assert_equal "bar1" [$c get foo1]
+            assert_equal "" [$c get foo2]
+        }
+
+        # truncate to timestamp 1628217469
+        catch {exec src/redis-check-aof --truncate-to-timestamp 1628217469 $aof_path} e
+        assert_match {*aborting*} $e
+    }
 }

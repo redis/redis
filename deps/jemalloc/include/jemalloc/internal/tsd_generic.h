@@ -77,7 +77,10 @@ tsd_wrapper_get(bool init) {
 			abort();
 		} else {
 			wrapper->initialized = false;
+      JEMALLOC_DIAGNOSTIC_PUSH
+      JEMALLOC_DIAGNOSTIC_IGNORE_MISSING_STRUCT_FIELD_INITIALIZERS
 			tsd_t initializer = TSD_INITIALIZER;
+      JEMALLOC_DIAGNOSTIC_POP
 			wrapper->val = initializer;
 		}
 		tsd_wrapper_set(wrapper);
@@ -107,7 +110,10 @@ tsd_boot1(void) {
 	tsd_boot_wrapper.initialized = false;
 	tsd_cleanup(&tsd_boot_wrapper.val);
 	wrapper->initialized = false;
+  JEMALLOC_DIAGNOSTIC_PUSH
+  JEMALLOC_DIAGNOSTIC_IGNORE_MISSING_STRUCT_FIELD_INITIALIZERS
 	tsd_t initializer = TSD_INITIALIZER;
+  JEMALLOC_DIAGNOSTIC_POP
 	wrapper->val = initializer;
 	tsd_wrapper_set(wrapper);
 }

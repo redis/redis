@@ -185,25 +185,29 @@ int stringmatchlen_fuzz_test(void) {
     return total_matches;
 }
 
+
 /* Convert a string representing an amount of memory into the number of
- * bytes, so for instance memtoll("1Gb") will return 1073741824 that is
+ * bytes, so for instance memtoull("1Gb") will return 1073741824 that is
  * (1024*1024*1024).
  *
  * On parsing error, if *err is not NULL, it's set to 1, otherwise it's
  * set to 0. On error the function return value is 0, regardless of the
  * fact 'err' is NULL or not. */
-long long memtoll(const char *p, int *err) {
+unsigned long long memtoull(const char *p, int *err) {
     const char *u;
     char buf[128];
     long mul; /* unit multiplier */
-    long long val;
+    unsigned long long val;
     unsigned int digits;
 
     if (err) *err = 0;
 
     /* Search the first non digit character. */
     u = p;
-    if (*u == '-') u++;
+    if (*u == '-') {
+        if (err) *err = 1;
+        return 0;
+    }
     while(*u && isdigit(*u)) u++;
     if (*u == '\0' || !strcasecmp(u,"b")) {
         mul = 1;
@@ -236,7 +240,7 @@ long long memtoll(const char *p, int *err) {
 
     char *endptr;
     errno = 0;
-    val = strtoll(buf,&endptr,10);
+    val = strtoull(buf,&endptr,10);
     if ((val == 0 && errno == EINVAL) || *endptr != '\0') {
         if (err) *err = 1;
         return 0;
@@ -307,26 +311,12 @@ uint32_t sdigits10(int64_t v) {
 
 /* Convert a long long into a string. Returns the number of
  * characters needed to represent the number.
- * If the buffer is not big enough to store the string, 0 is returned.
- *
- * Based on the following article (that apparently does not provide a
- * novel approach but only publicizes an already used technique):
- *
- * https://www.facebook.com/notes/facebook-engineering/three-optimization-tips-for-c/10151361643253920
- *
- * Modified in order to handle signed integers since the original code was
- * designed for unsigned integers. */
+ * If the buffer is not big enough to store the string, 0 is returned. */
 int ll2string(char *dst, size_t dstlen, long long svalue) {
-    static const char digits[201] =
-        "0001020304050607080910111213141516171819"
-        "2021222324252627282930313233343536373839"
-        "4041424344454647484950515253545556575859"
-        "6061626364656667686970717273747576777879"
-        "8081828384858687888990919293949596979899";
-    int negative;
     unsigned long long value;
+    int negative = 0;
 
-    /* The main loop works with 64bit unsigned integers for simplicity, so
+    /* The ull2string function with 64bit unsigned integers for simplicity, so
      * we convert the number here and remember if it is negative. */
     if (svalue < 0) {
         if (svalue != LLONG_MIN) {
@@ -334,20 +324,45 @@ int ll2string(char *dst, size_t dstlen, long long svalue) {
         } else {
             value = ((unsigned long long) LLONG_MAX)+1;
         }
+        if (dstlen < 2)
+            return 0;
         negative = 1;
+        dst[0] = '-';
+        dst++;
+        dstlen--;
     } else {
         value = svalue;
-        negative = 0;
     }
 
+    /* Converts the unsigned long long value to string*/
+    int length = ull2string(dst, dstlen, value);
+    if (length == 0) return 0;
+    return length + negative;
+}
+
+/* Convert a unsigned long long into a string. Returns the number of
+ * characters needed to represent the number.
+ * If the buffer is not big enough to store the string, 0 is returned.
+ *
+ * Based on the following article (that apparently does not provide a
+ * novel approach but only publicizes an already used technique):
+ *
+ * https://www.facebook.com/notes/facebook-engineering/three-optimization-tips-for-c/10151361643253920 */
+int ull2string(char *dst, size_t dstlen, unsigned long long value) {
+    static const char digits[201] =
+        "0001020304050607080910111213141516171819"
+        "2021222324252627282930313233343536373839"
+        "4041424344454647484950515253545556575859"
+        "6061626364656667686970717273747576777879"
+        "8081828384858687888990919293949596979899";
+
     /* Check length. */
-    uint32_t const length = digits10(value)+negative;
+    uint32_t length = digits10(value);
     if (length >= dstlen) return 0;
 
     /* Null term. */
-    uint32_t next = length;
-    dst[next] = '\0';
-    next--;
+    uint32_t next = length - 1;
+    dst[next + 1] = '\0';
     while (value >= 100) {
         int const i = (value % 100) * 2;
         value /= 100;
@@ -365,8 +380,6 @@ int ll2string(char *dst, size_t dstlen, long long svalue) {
         dst[next - 1] = digits[i];
     }
 
-    /* Add sign. */
-    if (negative) dst[0] = '-';
     return length;
 }
 
