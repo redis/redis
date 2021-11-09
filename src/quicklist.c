@@ -69,6 +69,12 @@ int quicklistisSetPackedThreshold(size_t sz) {
  * 8k is a recommended / default size limit */
 #define SIZE_SAFETY_LIMIT 8192
 
+/* Maximum estimate of the listpack entry overhead.
+ * Although in the worst case(sz < 64), we will waste 5 bytes in one
+ * quicklistNode, but can avoid memory fragmentation due to listpack
+ * exceeding the limit size. */
+#define SIZE_ESTIMATE_OVERHEAD 8
+
 /* Minimum ziplist size in bytes for attempting compression. */
 #define MIN_COMPRESS_BYTES 48
 
@@ -445,7 +451,9 @@ REDIS_STATIC int _quicklistNodeAllowInsert(const quicklistNode *node,
     if (unlikely(QL_NODE_IS_PLAIN(node) || isLargeElement(sz)))
         return 0;
 
-    size_t new_sz = node->sz + sz;
+    /* No need to check if `new_sz` is overflowing since both `node->sz` and
+     * `sz` are to be less than 1GB after the plain/large element check above. */
+    size_t new_sz = node->sz + sz + SIZE_ESTIMATE_OVERHEAD;
     if (likely(_quicklistNodeSizeMeetsOptimizationRequirement(new_sz, fill)))
         return 1;
     /* when we return 1 above we know that the limit is a size limit (which is
