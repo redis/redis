@@ -1066,7 +1066,7 @@ void rewriteConfigStringOption(struct rewriteConfigState *state, const char *opt
 }
 
 /* Rewrite a SDS string option. */
-void rewriteConfigSdsOption(struct rewriteConfigState *state, const char *option, sds value, const sds defvalue) {
+void rewriteConfigSdsOption(struct rewriteConfigState *state, const char *option, sds value, const char *defvalue) {
     int force = 1;
     sds line;
 
@@ -1078,7 +1078,7 @@ void rewriteConfigSdsOption(struct rewriteConfigState *state, const char *option
     }
 
     /* Set force to zero if the value is set to its default. */
-    if (defvalue && sdscmp(value, defvalue) == 0) force = 0;
+    if (defvalue && strcmp(value, defvalue) == 0) force = 0;
 
     line = sdsnew(option);
     line = sdscatlen(line, " ", 1);
@@ -1634,7 +1634,7 @@ static void sdsConfigGet(client *c, typeData data) {
 }
 
 static void sdsConfigRewrite(typeData data, const char *name, struct rewriteConfigState *state) {
-    rewriteConfigSdsOption(state, name, *(data.sds.config), data.sds.default_value ? sdsnew(data.sds.default_value) : NULL);
+    rewriteConfigSdsOption(state, name, *(data.sds.config), data.sds.default_value);
 }
 
 
