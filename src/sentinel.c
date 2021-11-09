@@ -523,21 +523,6 @@ void sentinelCheckConfigFile(void) {
     }
 }
 
-void sentinelInitialMasterRebootDownAfterPeriod(void) {
-    dictIterator *di;
-    dictEntry *de;
-
-    di = dictGetIterator(sentinel.masters);
-    while((de = dictNext(di)) != NULL) {
-        sentinelRedisInstance *ri = dictGetVal(de);
-        if(ri->down_after_period > SENTINEL_PING_PERIOD)
-            ri->master_reboot_down_after_period = SENTINEL_PING_PERIOD * 10;
-        else
-            ri->master_reboot_down_after_period = ri->down_after_period * 10;
-    }
-    dictReleaseIterator(di);
-}
-
 /* This function gets called when the server is in Sentinel mode, started,
  * loaded the configuration, and is ready for normal operations. */
 void sentinelIsRunning(void) {
@@ -557,8 +542,6 @@ void sentinelIsRunning(void) {
 
     /* Log its ID to make debugging of issues simpler. */
     serverLog(LL_WARNING,"Sentinel ID is %s", sentinel.myid);
-
-    sentinelInitialMasterRebootDownAfterPeriod();
 
     /* We want to generate a +monitor event for every configured master
      * at startup. */
@@ -1314,11 +1297,8 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
     ri->last_master_down_reply_time = mstime();
     ri->s_down_since_time = 0;
     ri->o_down_since_time = 0;
-    ri->down_after_period = master ? master->down_after_period :
-                            sentinel_default_down_after;
-    if (ri->flags & SRI_SLAVE) {
-        ri->master_reboot_down_after_period = master ? master->master_reboot_down_after_period :SENTINEL_PING_PERIOD*10;
-    }                        
+    ri->down_after_period = master ? master->down_after_period : sentinel_default_down_after;
+    ri->master_reboot_down_after_period = 0;                     
     ri->master_link_down_time = 0;
     ri->auth_pass = NULL;
     ri->auth_user = NULL;
@@ -1838,6 +1818,8 @@ void loadSentinelConfigFromQueue(void) {
         server.sentinel_config->monitor_cfg,
         server.sentinel_config->post_monitor_cfg
     };
+
+
     /* loading from pre monitor config queue first to avoid dependency issues
      * loading from monitor config queue
      * loading from the post monitor config queue */
@@ -2021,6 +2003,14 @@ const char *sentinelHandleConfiguration(char **argv, int argc) {
         if ((sentinel.announce_hostnames = yesnotoi(argv[1])) == -1) {
             return "Please specify yes or no for the announce-hostnames option.";
         }
+    } else if (!strcasecmp(argv[0],"master-reboot-down-after-period") && argc == 3) {
+        /* master-reboot-down-after-period <name> <milliseconds> */
+        ri = sentinelGetMasterByName(argv[1]);
+        if (!ri) return "No such master with specified name.";
+        ri->master_reboot_down_after_period = atoi(argv[2]);
+        if (ri->master_reboot_down_after_period < 0)
+            return "negative time parameter.";
+        serverLog(LL_WARNING,"Sentinel are initialing, master-reboot-down-after-period is %lld", ri->master_reboot_down_after_period);        
     } else {
         return "Unrecognized sentinel configuration statement.";
     }
@@ -2140,6 +2130,15 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
             /* rewriteConfigMarkAsProcessed is handled after the loop */
         }
 
+        /* sentinel master-reboot-down-after-period */
+        if (master->master_reboot_down_after_period != 0) {
+            line = sdscatprintf(sdsempty(),
+                "sentinel master-reboot-down-after-period %s %ld",
+                master->name, (long) master->master_reboot_down_after_period);
+            rewriteConfigRewriteLine(state,"sentinel master-reboot-down-after-period",line,1);
+            /* rewriteConfigMarkAsProcessed is handled after the loop */
+        }
+
         /* sentinel config-epoch */
         line = sdscatprintf(sdsempty(),
             "sentinel config-epoch %s %llu",
@@ -2154,6 +2153,7 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
             master->name, (unsigned long long) master->leader_epoch);
         rewriteConfigRewriteLine(state,"sentinel leader-epoch",line,1);
         /* rewriteConfigMarkAsProcessed is handled after the loop */
+        
 
         /* sentinel known-slave */
         di2 = dictGetIterator(master->slaves);
@@ -2264,6 +2264,7 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
     rewriteConfigMarkAsProcessed(state,"sentinel known-replica");
     rewriteConfigMarkAsProcessed(state,"sentinel known-sentinel");
     rewriteConfigMarkAsProcessed(state,"sentinel rename-command");
+    rewriteConfigMarkAsProcessed(state,"sentinel master-reboot-down-after-period");
 }
 
 /* This function uses the config rewriting Redis engine in order to persist
@@ -2507,7 +2508,7 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
                 if (strncmp(ri->runid,l+7,40) != 0) {
                     sentinelEvent(LL_NOTICE,"+reboot",ri,"%@");
 
-                    if (ri->flags & SRI_MASTER) {
+                    if (ri->flags & SRI_MASTER && ri->master_reboot_down_after_period != 0) {
                         ri->flags |= SRI_MASTER_REBOOT;
                         ri->master_reboot_since_time = mstime();
                     }
@@ -4314,6 +4315,15 @@ void sentinelSetCommand(client *c) {
                 newname = sdsdup(newname);
                 dictAdd(ri->renamed_commands,oldname,newname);
             }
+            changes++;
+        } else if (!strcasecmp(option,"master-reboot-down-after-period") && moreargs > 0) {
+            /* master-reboot-down-after-period <milliseconds> */
+            robj *o = c->argv[++j];
+            if (getLongLongFromObject(o,&ll) == C_ERR || ll < 0) {
+                badarg = j;
+                goto badfmt;
+            }
+            ri->master_reboot_down_after_period = ll;
             changes++;
         } else {
             addReplyErrorFormat(c,"Unknown option or number of arguments for "
