@@ -451,7 +451,10 @@ REDIS_STATIC int _quicklistNodeAllowInsert(const quicklistNode *node,
     if (unlikely(QL_NODE_IS_PLAIN(node) || isLargeElement(sz)))
         return 0;
 
-    /* No need to check if `new_sz` is overflowing since both `node->sz` and
+    /* Estimate how many bytes will be added to the listpack by this one entry.
+     * We prefer an over estimation, which would at worse lead to a few bytes
+     * below the lowest limit of 4k (see optimization_level).
+     * Note: No need to check for overflow below since both `node->sz` and
      * `sz` are to be less than 1GB after the plain/large element check above. */
     size_t new_sz = node->sz + sz + SIZE_ESTIMATE_OVERHEAD;
     if (likely(_quicklistNodeSizeMeetsOptimizationRequirement(new_sz, fill)))
