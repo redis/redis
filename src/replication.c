@@ -1963,11 +1963,24 @@ void readSyncBulkPayload(connection *conn) {
         connRecvTimeout(conn, server.repl_timeout*1000);
         startLoading(server.repl_transfer_size, RDBFLAGS_REPLICATION, asyncLoading);
 
+        int loadingFailed = 0;
         if (rdbLoadRio(&rdb,RDBFLAGS_REPLICATION,&rsi,dbarray) != C_OK) {
             /* RDB loading failed. */
             serverLog(LL_WARNING,
                       "Failed trying to load the MASTER synchronization DB "
                       "from socket: %s", strerror(errno));
+            loadingFailed = 1;
+        } else if (usemark) {
+            /* Verify the end mark is correct. */
+            if (!rioRead(&rdb, buf, CONFIG_RUN_ID_SIZE) ||
+                memcmp(buf, eofmark, CONFIG_RUN_ID_SIZE) != 0)
+            {
+                serverLog(LL_WARNING, "Replication stream EOF marker is broken");
+                loadingFailed = 1;
+            }
+        }
+
+        if (loadingFailed) {
             stopLoading(0);
             cancelReplicationHandshake(1);
             rioFreeConn(&rdb, NULL);
@@ -2012,19 +2025,6 @@ void readSyncBulkPayload(connection *conn) {
 
         /* Inform about db change, as replication was diskless and didn't cause a save. */
         server.dirty++;
-
-        /* Verify the end mark is correct. */
-        if (usemark) {
-            if (!rioRead(&rdb,buf,CONFIG_RUN_ID_SIZE) ||
-                memcmp(buf,eofmark,CONFIG_RUN_ID_SIZE) != 0)
-            {
-                stopLoading(0);
-                serverLog(LL_WARNING,"Replication stream EOF marker is broken");
-                cancelReplicationHandshake(1);
-                rioFreeConn(&rdb, NULL);
-                return;
-            }
-        }
 
         stopLoading(1);
 
