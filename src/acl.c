@@ -123,7 +123,7 @@ void ACLFreeLogEntry(void *le);
  * possible branch misprediction related leak.
  */
 int time_independent_strcmp(char *a, char *b) {
-    char bufa[CONFIG_AUTHPASS_MAX_LEN], bufb[CONFIG_AUTHPASS_MAX_LEN];
+    char bufa[HASH_PASSWORD_LEN], bufb[HASH_PASSWORD_LEN];
     /* The above two strlen perform len(a) + len(b) operations where either
      * a or b are fixed (our password) length, and the difference is only
      * relative to the length of the user provided string, so no information
