@@ -55,7 +55,7 @@ jobs:
       run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
       if: true && !contains(github.event.inputs.skiptests, 'modules')
-      run: ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}}
+      run: ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
@@ -88,7 +88,7 @@ jobs:
       run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
       if: true && !contains(github.event.inputs.skiptests, 'modules')
-      run: ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}}
+      run: ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
@@ -119,7 +119,7 @@ jobs:
       run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
       if: true && !contains(github.event.inputs.skiptests, 'modules')
-      run: ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}}
+      run: ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
@@ -154,7 +154,7 @@ jobs:
       if: true && !contains(github.event.inputs.skiptests, 'modules')
       run: |
         make -C tests/modules 32bit # the script below doesn't have an argument, we must build manually ahead of time
-        ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}}
+        ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
@@ -193,8 +193,8 @@ jobs:
     - name: module api test
       if: true && !contains(github.event.inputs.skiptests, 'modules')
       run: |
-        ./runtest-moduleapi --verbose --tls ${{github.event.inputs.test_args}}
-        ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}}
+        ./runtest-moduleapi --verbose --tls --dump-logs ${{github.event.inputs.test_args}}
+        ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: |
@@ -257,7 +257,7 @@ jobs:
       run: ./runtest --valgrind --verbose --clients 1 --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
       if: true && !contains(github.event.inputs.skiptests, 'modules')
-      run: ./runtest-moduleapi --valgrind --no-latency --verbose --clients 1 ${{github.event.inputs.test_args}}
+      run: ./runtest-moduleapi --valgrind --no-latency --verbose --clients 1 --dump-logs ${{github.event.inputs.test_args}}
     - name: unittest
       run: |
         valgrind --track-origins=yes --suppressions=./src/valgrind.sup --show-reachable=no --show-possibly-lost=no --leak-check=full --log-file=err.txt ./src/redis-server test all
@@ -288,7 +288,7 @@ jobs:
       run: ./runtest --valgrind --verbose --clients 1 --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
       if: true && !contains(github.event.inputs.skiptests, 'modules')
-      run: ./runtest-moduleapi --valgrind --no-latency --verbose --clients 1 ${{github.event.inputs.test_args}}
+      run: ./runtest-moduleapi --valgrind --no-latency --verbose --clients 1 --dump-logs ${{github.event.inputs.test_args}}
 
   test-centos7-jemalloc:
     runs-on: ubuntu-latest
@@ -316,7 +316,7 @@ jobs:
       run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
       if: true && !contains(github.event.inputs.skiptests, 'modules')
-      run: ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}}
+      run: ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
@@ -356,8 +356,8 @@ jobs:
     - name: module api test
       if: true && !contains(github.event.inputs.skiptests, 'modules')
       run: |
-        ./runtest-moduleapi --verbose --tls ${{github.event.inputs.test_args}}
-        ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}}
+        ./runtest-moduleapi --verbose --tls --dump-logs ${{github.event.inputs.test_args}}
+        ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: |
@@ -390,7 +390,7 @@ jobs:
       run: ./runtest --accurate --verbose --no-latency --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
       if: true && !contains(github.event.inputs.skiptests, 'modules')
-      run: ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}}
+      run: ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
@@ -421,7 +421,7 @@ jobs:
         run: >
           gmake || exit 1 ;
           if echo "${{github.event.inputs.skiptests}}" | grep -vq redis ; then ./runtest --accurate --verbose --no-latency --dump-logs ${{github.event.inputs.test_args}} || exit 1 ; fi ;
-          if echo "${{github.event.inputs.skiptests}}" | grep -vq modules ; then MAKE=gmake ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}} || exit 1 ; fi ;
+          if echo "${{github.event.inputs.skiptests}}" | grep -vq modules ; then MAKE=gmake ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}} || exit 1 ; fi ;
           if echo "${{github.event.inputs.skiptests}}" | grep -vq sentinel ; then ./runtest-sentinel ${{github.event.inputs.cluster_test_args}} || exit 1 ; fi ;
           if echo "${{github.event.inputs.skiptests}}" | grep -vq cluster ; then ./runtest-cluster ${{github.event.inputs.cluster_test_args}} || exit 1 ; fi ;
 
@@ -450,7 +450,7 @@ jobs:
       run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
       if: true && !contains(github.event.inputs.skiptests, 'modules')
-      run: ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}}
+      run: ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
@@ -483,7 +483,7 @@ jobs:
       run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
       if: true && !contains(github.event.inputs.skiptests, 'modules')
-      run: ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}}
+      run: ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
