@@ -257,7 +257,7 @@ jobs:
       run: ./runtest --valgrind --verbose --clients 1 --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
       if: true && !contains(github.event.inputs.skiptests, 'modules')
-      run: ./runtest-moduleapi --valgrind --no-latency --verbose --clients 1 ${{github.event.inputs.test_args}}
+      run: ./runtest-moduleapi --valgrind --no-latency --verbose --clients 1 --dump-logs ${{github.event.inputs.test_args}}
     - name: unittest
       run: |
         valgrind --track-origins=yes --suppressions=./src/valgrind.sup --show-reachable=no --show-possibly-lost=no --leak-check=full --log-file=err.txt ./src/redis-server test all
@@ -288,7 +288,7 @@ jobs:
       run: ./runtest --valgrind --verbose --clients 1 --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
       if: true && !contains(github.event.inputs.skiptests, 'modules')
-      run: ./runtest-moduleapi --valgrind --no-latency --verbose --clients 1 ${{github.event.inputs.test_args}}
+      run: ./runtest-moduleapi --valgrind --no-latency --verbose --clients 1 --dump-logs ${{github.event.inputs.test_args}}
 
   test-centos7-jemalloc:
     runs-on: ubuntu-latest
