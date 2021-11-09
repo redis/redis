@@ -250,7 +250,7 @@ start_server {tags {"introspection"}} {
     } {} {external:skip}
     
     test {CONFIG SET with multiple args} {
-        assert_equal [r config set maxmemory 10000001 maxmemory-clients 2000001 save {3000 5}] "OK"
+        assert_equal [r config set maxmemory 10000001 repl-backlog-size 5m save {3000 5}] "OK"
         assert_equal [r config get maxmemory] "maxmemory 10000001"
         assert_equal [r config get maxmemory-clients] "maxmemory-clients 2000001"
         assert_equal [r config get save] "save {3000 5}"
