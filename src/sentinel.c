@@ -1818,8 +1818,6 @@ void loadSentinelConfigFromQueue(void) {
         server.sentinel_config->monitor_cfg,
         server.sentinel_config->post_monitor_cfg
     };
-
-
     /* loading from pre monitor config queue first to avoid dependency issues
      * loading from monitor config queue
      * loading from the post monitor config queue */
@@ -2010,7 +2008,6 @@ const char *sentinelHandleConfiguration(char **argv, int argc) {
         ri->master_reboot_down_after_period = atoi(argv[2]);
         if (ri->master_reboot_down_after_period < 0)
             return "negative time parameter.";
-        serverLog(LL_WARNING,"Sentinel are initialing, master-reboot-down-after-period is %lld", ri->master_reboot_down_after_period);        
     } else {
         return "Unrecognized sentinel configuration statement.";
     }
