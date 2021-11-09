@@ -1963,25 +1963,24 @@ void readSyncBulkPayload(connection *conn) {
         connRecvTimeout(conn, server.repl_timeout*1000);
         startLoading(server.repl_transfer_size, RDBFLAGS_REPLICATION, asyncLoading);
 
-        int replicationFailed = 0;
+        int loadingFailed = 0;
         if (rdbLoadRio(&rdb,RDBFLAGS_REPLICATION,&rsi,dbarray) != C_OK) {
             /* RDB loading failed. */
             serverLog(LL_WARNING,
                       "Failed trying to load the MASTER synchronization DB "
                       "from socket: %s", strerror(errno));
-            replicationFailed = 1;
-        }
-        else if (usemark) {
+            loadingFailed = 1;
+        } else if (usemark) {
             /* Verify the end mark is correct. */
             if (!rioRead(&rdb, buf, CONFIG_RUN_ID_SIZE) ||
                 memcmp(buf, eofmark, CONFIG_RUN_ID_SIZE) != 0)
             {
                 serverLog(LL_WARNING, "Replication stream EOF marker is broken");
-                replicationFailed = 1;
+                loadingFailed = 1;
             }
         }
 
-        if (replicationFailed) {
+        if (loadingFailed) {
             stopLoading(0);
             cancelReplicationHandshake(1);
             rioFreeConn(&rdb, NULL);
