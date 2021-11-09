@@ -6192,8 +6192,6 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
 void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_code) {
     if (error_code == CLUSTER_REDIR_CROSS_SLOT) {
         addReplyError(c,"-CROSSSLOT Keys in request don't hash to the same slot");
-    } else if (error_code == CLUSTER_REDIR_CROSS_NODE_CHANNEL) {
-        addReplyError(c, "-CROSSNODE Channels in request don't hash to the same node");
     } else if (error_code == CLUSTER_REDIR_UNSTABLE) {
         /* The request spawns multiple keys in the same slot,
          * but the slot is not "stable" currently as there is
