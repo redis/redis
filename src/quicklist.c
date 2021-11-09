@@ -452,7 +452,7 @@ REDIS_STATIC int _quicklistNodeAllowInsert(const quicklistNode *node,
         return 0;
 
     /* Estimate how many bytes will be added to the listpack by this one entry.
-     * We prefer an over estimation, which would at worse lead to a few bytes
+     * We prefer an overestimation, which would at worse lead to a few bytes
      * below the lowest limit of 4k (see optimization_level).
      * Note: No need to check for overflow below since both `node->sz` and
      * `sz` are to be less than 1GB after the plain/large element check above. */
