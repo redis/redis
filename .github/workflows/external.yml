@@ -15,12 +15,17 @@ jobs:
     - name: Build
       run: make REDIS_CFLAGS=-Werror
     - name: Start redis-server
-      run: ./src/redis-server --daemonize yes
+      run: ./src/redis-server --daemonize yes --logfile external-redis.log
     - name: Run external test
       run: |
           ./runtest \
             --host 127.0.0.1 --port 6379 \
             --tags -slow
+    - name: Archive redis log
+      uses: actions/upload-artifact@v2
+      with:
+        name: test-external-redis-log
+        path: external-redis.log
 
   test-external-cluster:
     runs-on: ubuntu-latest
