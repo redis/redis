@@ -22,6 +22,7 @@ jobs:
             --host 127.0.0.1 --port 6379 \
             --tags -slow
     - name: Archive redis log
+      if: ${{ failure() }}
       uses: actions/upload-artifact@v2
       with:
         name: test-external-redis-log
