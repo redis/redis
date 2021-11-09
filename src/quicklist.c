@@ -71,8 +71,8 @@ int quicklistisSetPackedThreshold(size_t sz) {
 
 /* Maximum estimate of the listpack entry overhead.
  * Although in the worst case(sz < 64), we will waste 5 bytes in one
- * quicklistNode, but can avoid memory fragmentation due to listpack
- * exceeding the limit size. */
+ * quicklistNode, but can avoid memory waste due to internal fragmentation
+ * when the listpack exceeds the size limit by a few bytes (e.g. being 16388). */
 #define SIZE_ESTIMATE_OVERHEAD 8
 
 /* Minimum ziplist size in bytes for attempting compression. */
