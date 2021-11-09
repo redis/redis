@@ -107,7 +107,7 @@ void ACLAddAllowedFirstArg(user *u, unsigned long id, const char *sub);
 void ACLFreeLogEntry(void *le);
 
 /* The length of the string representation of a hashed password. */
-#define HASH_PASSWORD_LEN SHA256_BLOCK_SIZE*2
+#define HASH_PASSWORD_LEN (SHA256_BLOCK_SIZE*2)
 
 /* =============================================================================
  * Helper functions for the rest of the ACL implementation
