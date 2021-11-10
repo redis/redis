@@ -250,20 +250,34 @@ start_server {tags {"introspection"}} {
     } {} {external:skip}
     
     test {CONFIG SET with multiple args} {
-        assert_equal [r config set maxmemory 10000001 repl-backlog-size 5m save {3000 5}] "OK"
-        assert_equal [r config get maxmemory] "maxmemory 10000001"
-        assert_equal [r config get maxmemory-clients] "maxmemory-clients 2000001"
-        assert_equal [r config get save] "save {3000 5}"
+        array set some_configs {maxmemory 10000001 repl-backlog-size 10000002 save {3000 5}}
+
+        # Backup
+        array set backups {}
+        foreach c [array names some_configs] {
+            set backups($c) [lindex [r config get $c] 1]
+        }
+
+        # multi config set and veirfy
+        assert_equal [eval "r config set [array get some_configs]"] "OK"
+        foreach c [array names some_configs] {
+            assert_equal [lindex [r config get $c] 1] $some_configs($c)
+        }
+
+        # Restore backup
+        assert_equal [eval "r config set [array get backups]"] "OK"
     }
 
     test {CONFIG SET rollback on error} {
+        # backup maxmemory config
+        set backup [lindex [r config get maxmemory] 1]
         # Set some value to maxmemory
         assert_equal [r config set maxmemory 10000002] "OK"
         # Set another value to maxmeory together with another invalid config
         catch {r config set maxmemory 10000001 maxmemory-clients invalid} e
         assert_match "ERR Invalid arguments*" $e
         # Make sure we reverted back to the previous maxmemory
-        assert_equal [r config get maxmemory] "maxmemory 10000002"
+        r config set maxmemory $backup
     }
 
     # Config file at this point is at a weird state, and includes all
