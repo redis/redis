@@ -40,187 +40,598 @@
 #include <sys/wait.h>
 #include <sys/param.h>
 
-void aofUpdateCurrentSize(void);
-void aofClosePipes(void);
+off_t getBaseAppendOnlyFileSize(void);
 void freeClientArgv(client *c);
+off_t getAppendOnlyFileSize(const char *filename);
 
 /* ----------------------------------------------------------------------------
- * AOF rewrite buffer implementation.
+ * AOF meta file implementation.
  *
- * The following code implement a simple buffer used in order to accumulate
- * changes while the background process is rewriting the AOF file.
+ * The following code implements the read/write logic of AOF meta file, which 
+ * is used to track and manage all AOF files.
  *
- * We only need to append, but can't just use realloc with a large block
- * because 'huge' reallocs are not always handled as one could expect
- * (via remapping of pages at OS level) but may involve copying data.
- *
- * For this reason we use a list of blocks, every block is
- * AOF_RW_BUF_BLOCK_SIZE bytes.
+ * There are three types of AOF, they are: 
+ * BASE: Every time aof rewrite success, a BASE type aof will be generated, which 
+ *       represents the redis SNAPSHOT at the moment when the rewrite is executed.
+ *       In the aof meta file, the BASE type AOF (if we have) is always at the 
+ *       beginning of the file. there is at most one BASE AOF.
+ * HIST: Each time the rewrite is successful, the previous BASE AOF and INCR 
+ *       AOFs will become HISTORY. they will be cleaned regularly in cron. 
+ * INCR: There may be more than one (after multiple rewrite failures), and they 
+ *       together represent all the incremental commands executed by redis after
+ *       the last aof rewrite.
+ * 
+ * The following is a possible aof meta file content:
+ * 
+ * fileName appendonly.aof_b_2 fileSeq 2 fileType b
+ * fileName appendonly.aof_i_1 fileSeq 1 fileType h
+ * fileName appendonly.aof_i_2 fileSeq 2 fileType h
+ * fileName appendonly.aof_i_3 fileSeq 3 fileType h
+ * fileName appendonly.aof_i_4 fileSeq 4 fileType i
+ * fileName appendonly.aof_i_5 fileSeq 5 fileType i
  * ------------------------------------------------------------------------- */
 
-#define AOF_RW_BUF_BLOCK_SIZE (1024*1024*10)    /* 10 MB per block */
-
-typedef struct aofrwblock {
-    unsigned long used, free, pos;
-    /* Note that 'buf' must be the last field of aofrwblock struct, because
-     * memory allocator may give us more memory than our apply for reducing
-     * fragments, but we want to make full use of given memory, i.e. we may
-     * access the memory after 'buf'. To avoid make others fields corrupt,
-     * 'buf' must be the last one. */
-    char buf[AOF_RW_BUF_BLOCK_SIZE];
-} aofrwblock;
-
-/* This function free the old AOF rewrite buffer if needed, and initialize
- * a fresh new one. It tests for server.aof_rewrite_buf_blocks equal to NULL
- * so can be used for the first initialization as well. */
-void aofRewriteBufferReset(void) {
-    if (server.aof_rewrite_buf_blocks)
-        listRelease(server.aof_rewrite_buf_blocks);
-
-    server.aof_rewrite_buf_blocks = listCreate();
-    listSetFreeMethod(server.aof_rewrite_buf_blocks,zfree);
+/* Create an empty aofInfo. */
+aofInfo *aofInfoCreate(void) {
+    return zcalloc(sizeof(aofInfo));
 }
 
-/* Return the current size of the AOF rewrite buffer. */
-unsigned long aofRewriteBufferSize(void) {
+/* Free the aofInfo structure (pointed to by ai)  and its embedded file_name. */
+void aofInfoFree(aofInfo *ai) {
+    serverAssert(ai != NULL);
+    if (ai->file_name) sdsfree(ai->file_name);
+    zfree(ai);
+}
+
+/* Deep copy an aofInfo. */
+aofInfo *aofInfoDup(aofInfo *orig) {
+    serverAssert(orig != NULL);
+    aofInfo *ai = aofInfoCreate();
+    ai->file_name = sdsdup(orig->file_name);
+    ai->file_seq = orig->file_seq;
+    ai->file_type = orig->file_type;
+    return ai;
+}
+
+/* Method to free AOF list elements. */
+void aofListFree(void *item) {
+    aofInfo *ai = (aofInfo *)item;
+    aofInfoFree(ai);
+}
+
+/* Method to duplicate AOF list elements. */
+void *aofListDup(void *item) {
+    return aofInfoDup(item);;
+}
+
+/* Create an empty aofMeta, which will be called in `loadAofMetaFromDisk`. */
+aofMeta *aofMetaCreate(void) {
+    aofMeta *am = zcalloc(sizeof(aofMeta));
+    am->incr_aof_list = listCreate();
+    am->history_aof_list = listCreate();
+    listSetFreeMethod(am->incr_aof_list,aofListFree);
+    listSetDupMethod(am->incr_aof_list,aofListDup);
+    listSetFreeMethod(am->history_aof_list,aofListFree);
+    listSetDupMethod(am->history_aof_list,aofListDup);
+    return am;
+}
+
+/* Free the aofMeta structure (pointed to by am) and its embedded members. */
+void aofMetaFree(aofMeta *am) {
+    if (am->base_aof_info) aofInfoFree(am->base_aof_info);
+    if (am->incr_aof_list) listRelease(am->incr_aof_list);
+    if (am->history_aof_list) listRelease(am->history_aof_list);
+    zfree(am);
+}
+
+char *getAofMetaName() {
+    return sdscatprintf(sdsempty(), "%s%s", server.aof_filename, META_NAME_SUFFIX);
+}
+
+char *getTempAofMetaName() {
+    return sdscatprintf(sdsempty(), "%s%s%s", META_TEM_NAME_PREFIX, server.aof_filename, META_NAME_SUFFIX);;
+}
+
+/* Returns the string representation of aofMeta pointed to by am.
+ * 
+ * The string is multiple lines separated by'\n', and each line 
+ * represents an AOF file.
+ * 
+ * Each line contains 6 fields (they are separated by spaces).Among 
+ * them, the 0th, 2nd, and 4th field respectively represent the meta 
+ * key, which meanings:
+ * fileName: AOF file name
+ * fileSeq: The serial number of the AOF file
+ * fileType: Types of AOF file, There are three types: b(BASE)、h(HIST)、i(INCR)
+ * 
+ * A possible line:
+ *    fileName appendonly.aof_b_5 fileSeq 5 fileType b
+ * 
+ * The BASE AOF information (if we have) will be placed on the first 
+ * line, followed by history type AOFs and Finally is the INCR type.
+ */
+sds getAofMetaAsString(aofMeta *am) {
+    serverAssert(am != NULL);
+
+    sds buf = sdsempty();
     listNode *ln;
     listIter li;
-    unsigned long size = 0;
 
-    listRewind(server.aof_rewrite_buf_blocks,&li);
-    while((ln = listNext(&li))) {
-        aofrwblock *block = listNodeValue(ln);
-        size += block->used;
+    /* 1. Add base aof information, it is always at the beginning of the meta file. */
+    if (am->base_aof_info) {
+        buf = sdscatprintf(buf,"%s %s %s %" PRId64 " %s %c\n",
+                AOF_META_KEY_FILE_NAME,am->base_aof_info->file_name,
+                AOF_META_KEY_FILE_SEQ,am->base_aof_info->file_seq,
+                AOF_META_KEY_FILE_TYPE,am->base_aof_info->file_type);
     }
-    return size;
+    
+    /* 2. Add history type aof information. */
+    listRewind(am->history_aof_list,&li);
+    while ((ln = listNext(&li)) != NULL) {
+        aofInfo *ai = (aofInfo*)ln->value;
+
+        buf = sdscatprintf(buf, "%s %s %s %" PRId64 " %s %c\n",
+            AOF_META_KEY_FILE_NAME,ai->file_name,
+            AOF_META_KEY_FILE_SEQ,ai->file_seq,
+            AOF_META_KEY_FILE_TYPE,ai->file_type);
+    }
+
+    /* 3. Add incr type aof information. */
+    listRewind(am->incr_aof_list,&li);
+    while ((ln = listNext(&li)) != NULL) {
+        aofInfo *ai = (aofInfo*)ln->value;
+
+        buf = sdscatprintf(buf, "%s %s %s %" PRId64 " %s %c\n",
+            AOF_META_KEY_FILE_NAME,ai->file_name,
+            AOF_META_KEY_FILE_SEQ,ai->file_seq,
+            AOF_META_KEY_FILE_TYPE,ai->file_type);
+    }
+
+    return buf;
 }
 
-/* This function is different from aofRewriteBufferSize, to get memory usage,
- * we should also count all other fields(except 'buf') of aofrwblock and the
- * last block's free size. */
-unsigned long aofRewriteBufferMemoryUsage(void) {
-    unsigned long size = aofRewriteBufferSize();
+/*  Load the meta information from the disk to `server.aof_meta` when 
+ *  the redis server start.
+ *  
+ *  During the loading process, we will conduct strict error checking. 
+ *  Once there are file opening error, format error, etc., we will 
+ *  directly exit the redis process.
+ * 
+ *  Note: We will ignore the DOESN'T EXIST error, because this will 
+ *  happen when we upgrade from an old version redis.
+ */
+void loadAofMetaFromDisk(void) {
+    const char *err = NULL;
+    struct redis_stat sb;
+    int64_t maxseq = 0;
+    server.aof_meta = aofMetaCreate();
 
-    listNode *ln = listLast(server.aof_rewrite_buf_blocks);
-    if (ln != NULL) {
-        aofrwblock *block = listNodeValue(ln);
-        size += block->free;
-        size += (offsetof(aofrwblock,buf) *
-                 listLength(server.aof_rewrite_buf_blocks));
+    sds meta_name = getAofMetaName();
+    FILE *fp = fopen(meta_name,"r");
+    if (fp == NULL) {
+        int en = errno;
+        if (redis_stat(meta_name,&sb) == 0) {
+            serverLog(LL_WARNING,
+                     "Fatal error: can't open the aof meta file %s for reading: %s",
+                     meta_name,strerror(en));
+            exit(1);
+        } else {
+            serverLog(LL_WARNING,
+                     "The aof meta file %s doesn't exist: %s",
+                     meta_name,strerror(errno));
+            sdsfree(meta_name);
+            return;
+        }
+    }  
+
+    sdsfree(meta_name);
+
+    char buf[1024];
+    sds config = sdsempty();
+
+    while (fgets(buf,1024,fp) != NULL)
+        config = sdscat(config,buf);
+
+    fclose(fp);
+
+    int linenum = 0, totlines, i;
+    sds *lines = sdssplitlen(config,strlen(config),"\n",1,&totlines);
+    serverAssert(totlines > 0);
+
+    for (i = 0; i < totlines; i++) {
+        sds *argv;
+        int argc;
+
+        linenum = i+1;
+
+        lines[i] = sdstrim(lines[i]," \t\r\n");
+
+        /* Skip comments and blank lines */
+        if (lines[i][0] == '#' || lines[i][0] == '\0') continue;
+
+        argv = sdssplitargs(lines[i],&argc);
+        if (argv == NULL || argc != 6) {
+            err = "The aof meta file is invalid format";
+            goto loaderr;
+        }
+
+        aofInfo* ai = aofInfoCreate();
+        if (strcmp(argv[0], AOF_META_KEY_FILE_NAME) == 0) {
+            ai->file_name = sdsnew(argv[1]);
+        } else {
+            err = "Mismatched meta key";
+            goto loaderr;
+        }
+
+        if (strcmp(argv[2], AOF_META_KEY_FILE_SEQ) == 0) {
+            ai->file_seq = atol(argv[3]);
+        } else {
+            err = "Mismatched meta key";
+            goto loaderr;
+        }
+
+        if (strcmp(argv[4], AOF_META_KEY_FILE_TYPE) == 0) {
+            ai->file_type = (argv[5])[0];
+        } else {
+            err = "Mismatched meta key";
+            goto loaderr;
+        }
+
+        sdsfreesplitres(argv, argc);
+
+        if (ai->file_type == AOF_FILE_TYPE_BASE) {
+            if (server.aof_meta->base_aof_info) {
+                err = "Found duplicate base aof information";
+                goto loaderr;
+            }
+            server.aof_meta->base_aof_info = ai;
+            server.aof_meta->curr_base_aof_seq = ai->file_seq;
+        } else if (ai->file_type == AOF_FILE_TYPE_HIST) {
+            listAddNodeTail(server.aof_meta->history_aof_list,ai);
+        } else if (ai->file_type == AOF_FILE_TYPE_INCR) {
+            if (ai->file_seq <= maxseq) {
+                err = "Found Non-increasing sequence number";
+                goto loaderr;
+            }
+            listAddNodeTail(server.aof_meta->incr_aof_list,ai);
+            server.aof_meta->curr_incr_aof_seq = ai->file_seq;
+            maxseq = ai->file_seq;
+        } else {
+            err = "Unknown aof file type";
+            goto loaderr;
+        }
     }
-    return size;
+
+    sdsfreesplitres(lines, totlines);
+    sdsfree(config);
+    return;
+
+loaderr:
+    fprintf(stderr, "\n*** FATAL AOF META FILE ERROR ***\n");
+    if (i < totlines) {
+        fprintf(stderr, "Reading the meta file, at line %d\n", linenum);
+        fprintf(stderr, ">>> '%s'\n", lines[i]);
+    }
+    fprintf(stderr, "%s\n", err);
+    exit(1);
 }
 
-/* Event handler used to send data to the child process doing the AOF
- * rewrite. We send pieces of our AOF differences buffer so that the final
- * write when the child finishes the rewrite will be small. */
-void aofChildWriteDiffData(aeEventLoop *el, int fd, void *privdata, int mask) {
+/* Deep copy an aofMeta from orig.
+ * 
+ * In `backgroundRewriteDoneHandler`, we will first deep copy a temporary aof_meta 
+ * from the `server.aof_meta`, and try to modify it. Once everything is modified, we 
+ * will atomically make the `server.aof_meta` point to this temporary aof_meta.
+ */
+aofMeta *aofMetaDup(aofMeta *orig) {
+    serverAssert(orig != NULL);
+    aofMeta *am = zcalloc(sizeof(aofMeta));
+    
+    am->curr_base_aof_seq = orig->curr_base_aof_seq;
+    am->curr_incr_aof_seq = orig->curr_incr_aof_seq;
+    am->dirty = orig->dirty;
+
+    if (orig->base_aof_info) am->base_aof_info = aofInfoDup(orig->base_aof_info);
+    
+    am->incr_aof_list = listDup(orig->incr_aof_list);
+    am->history_aof_list = listDup(orig->history_aof_list);
+    if (am->incr_aof_list == NULL || am->history_aof_list == NULL) {
+        aofMetaFree(am);
+        am = NULL;
+    }
+    return am;
+}
+
+/* Called in `backgroundRewriteDoneHandler`. Get a new BASE type AOF name, and 
+ * mark the previous (if we have) BASE AOF as the HIST type.
+ * 
+ * The format of BASE type AOF name is:
+ *   server.aof_filename_b_seq
+ * 
+ * It consists of three parts:
+ * server.aof_filename: Configured by the user as the base part of the aof name
+ * _b_: BASE type AOF-specific suffix
+ * seq: An incremental value to ensure that a redis process will not open the same BASE AOF file
+ */
+const char *getNewBaseAofNameAndMarkPreAsHistory(aofMeta *am) {
+    serverAssert(am != NULL);
+    if (am->base_aof_info) {
+        am->base_aof_info->file_type = AOF_FILE_TYPE_HIST;
+        listAddNodeTail(am->history_aof_list,am->base_aof_info);
+    }
+
+    aofInfo *ai = aofInfoCreate();
+    ai->file_name = sdscatprintf(sdsempty(),"%s%s%" PRId64 "",server.aof_filename, 
+                        BASE_AOF_SUFFIX,++am->curr_base_aof_seq);
+    ai->file_seq = am->curr_base_aof_seq;
+    ai->file_type = AOF_FILE_TYPE_BASE;
+    am->base_aof_info = ai;
+    am->dirty = 1;
+    return am->base_aof_info->file_name;
+}
+
+/* Get a new INCR type AOF name and add it to the meta structure.
+ * 
+ * The format of INCR type AOF name is:
+ *   server.aof_filename_i_seq
+ * 
+ * It consists of three parts:
+ * server.aof_filename: Configured by the user as the base part of the aof name
+ * _i_: INCR type AOF-specific suffix
+ * seq: An incremental value to ensure that a redis process will not open the same INCR AOF file
+ */
+const char* getNewIncrAofNameAndAddIt(aofMeta *am) {
+    aofInfo *ai = aofInfoCreate();
+    ai->file_type = AOF_FILE_TYPE_INCR;
+    ai->file_name = sdscatprintf(sdsempty(),"%s%s%" PRId64 "",server.aof_filename, 
+                        INCR_AOF_SUFFIX,++am->curr_incr_aof_seq);
+    ai->file_seq = am->curr_incr_aof_seq;
+    listAddNodeTail(am->incr_aof_list,ai);
+
+    am->dirty = 1;
+    return ai->file_name;
+}
+
+/* Get the last INCR AOF name or create a new one. */
+const char *getLastIncrAofName(aofMeta *am) {
+    serverAssert(am != NULL);
+
+    if (listLength(am->incr_aof_list) == 0) {
+        return getNewIncrAofNameAndAddIt(am);
+    }
+
+    listNode *lastnode = listIndex(am->incr_aof_list,-1);
+    aofInfo *ai = listNodeValue(lastnode);
+    return ai->file_name;
+}
+
+/* Called in `backgroundRewriteDoneHandler`. when aof rewrite success, This
+ * function will change the AOF file type in `incr_aof_list` from AOF_FILE_TYPE_INCR 
+ * to AOF_FILE_TYPE_HIST, and move them to the `history_aof_list`.
+ */
+void markRewrittenIncrAofAsHistory(aofMeta *am) {
+    serverAssert(am != NULL);
+
+    if (listLength(am->incr_aof_list) == 0) {
+        return;
+    }
+    
     listNode *ln;
-    aofrwblock *block;
+    listIter li;
+
+    listRewindTail(am->incr_aof_list,&li);
+
+    /* server.aof_fd != -1 means that AOF is open, then we must skip the last 
+     * AOF, because this one is our currently writing. */
+    if (server.aof_fd != -1) {
+        ln = listNext(&li);
+        serverAssert(ln != NULL);
+    }
+
+    /* move aofInfo from incr_aof_list to history_aof_list. */
+    while ((ln = listNext(&li)) != NULL) {
+        aofInfo *ai = (aofInfo*)ln->value;
+        serverAssert(ai->file_type == AOF_FILE_TYPE_INCR);
+
+        aofInfo *hai = aofInfoDup(ai);
+        hai->file_type = AOF_FILE_TYPE_HIST;
+        listAddNodeTail(am->history_aof_list,hai);
+        listDelNode(am->incr_aof_list,ln);
+    }
+
+    am->dirty = 1;
+}
+
+/* Write the formatted meta string to disk. */
+int writeAofMetaFile(sds buf) {
+    int ret = C_OK;
     ssize_t nwritten;
-    mstime_t latency;
-    UNUSED(el);
-    UNUSED(fd);
-    UNUSED(privdata);
-    UNUSED(mask);
+    int len;
 
-    latencyStartMonitor(latency);
-    while(1) {
-        ln = listFirst(server.aof_rewrite_buf_blocks);
-        block = ln ? ln->value : NULL;
-        if (server.aof_stop_sending_diff || !block) {
-            aeDeleteFileEvent(server.el,server.aof_pipe_write_data_to_child,
-                              AE_WRITABLE);
-            break;
-        }
-        if (block->used != block->pos) {
-            nwritten = write(server.aof_pipe_write_data_to_child,
-                             block->buf+block->pos,block->used-block->pos);
-            if (nwritten <= 0) break;
-            block->pos += nwritten;
-        }
-        if (block->used == block->pos) listDelNode(server.aof_rewrite_buf_blocks,ln);
+    sds meta_name = getAofMetaName();
+    sds temp_meta_name = getTempAofMetaName();
+    int fd = open(temp_meta_name,O_WRONLY|O_TRUNC|O_CREAT,0644);
+    if (fd == -1) {
+        serverLog(LL_WARNING,
+                "Can't open the aof meta file %s: %s",
+                 temp_meta_name, strerror(errno));
+        ret = C_ERR;
+        goto cleanup;
     }
-    latencyEndMonitor(latency);
-    latencyAddSampleIfNeeded("aof-rewrite-write-data-to-child",latency);
-}
-
-/* Append data to the AOF rewrite buffer, allocating new blocks if needed. */
-void aofRewriteBufferAppend(unsigned char *s, unsigned long len) {
-    listNode *ln = listLast(server.aof_rewrite_buf_blocks);
-    aofrwblock *block = ln ? ln->value : NULL;
-
+    
+    len = sdslen(buf);
     while(len) {
-        /* If we already got at least an allocated block, try appending
-         * at least some piece into it. */
-        if (block) {
-            unsigned long thislen = (block->free < len) ? block->free : len;
-            if (thislen) {  /* The current block is not already full. */
-                memcpy(block->buf+block->used, s, thislen);
-                block->used += thislen;
-                block->free -= thislen;
-                s += thislen;
-                len -= thislen;
-            }
+        nwritten = write(fd, buf, len);
+
+        if (nwritten < 0) {
+            if (errno == EINTR) continue;
+            serverLog(LL_WARNING,
+                "Error trying to write the temporary AOF meta file %s: %s",
+                temp_meta_name,
+                strerror(errno));
+            ret = C_ERR;
+            goto cleanup;
         }
 
-        if (len) { /* First block to allocate, or need another block. */
-            int numblocks;
-            size_t usable_size;
-
-            block = zmalloc_usable(sizeof(*block), &usable_size);
-            block->free = usable_size-offsetof(aofrwblock,buf);
-            block->used = 0;
-            block->pos = 0;
-            listAddNodeTail(server.aof_rewrite_buf_blocks,block);
-
-            /* Log every time we cross more 10 or 100 blocks, respectively
-             * as a notice or warning. */
-            numblocks = listLength(server.aof_rewrite_buf_blocks);
-            if (((numblocks+1) % 10) == 0) {
-                int level = ((numblocks+1) % 100) == 0 ? LL_WARNING :
-                                                         LL_NOTICE;
-                serverLog(level,"Background AOF buffer size: %lu MB",
-                    aofRewriteBufferSize()/(1024*1024));
-            }
-        }
+        len -= nwritten;
+        buf += nwritten;
     }
 
-    /* Install a file event to send data to the rewrite child if there is
-     * not one already. */
-    if (!server.aof_stop_sending_diff &&
-        aeGetFileEvents(server.el,server.aof_pipe_write_data_to_child) == 0)
-    {
-        aeCreateFileEvent(server.el, server.aof_pipe_write_data_to_child,
-            AE_WRITABLE, aofChildWriteDiffData, NULL);
+    if (redis_fsync(fd) == -1) {
+        serverLog(LL_WARNING,"Fail to fsync the temp AOF file %s: %s.", 
+                              temp_meta_name,
+                               strerror(errno));
+        ret = C_ERR;
+        goto cleanup;
     }
+
+    if (rename(temp_meta_name, meta_name) != 0) {
+        serverLog(LL_WARNING,
+                "Error trying to rename the temporary AOF meta file %s into %s: %s",
+                temp_meta_name,
+                meta_name,
+                strerror(errno));
+        ret = C_ERR;
+    }
+    
+cleanup:
+    close(fd);
+    sdsfree(meta_name);
+    sdsfree(temp_meta_name);
+    return ret;
 }
 
-/* Write the buffer (possibly composed of multiple blocks) into the specified
- * fd. If a short write or any other error happens -1 is returned,
- * otherwise the number of bytes written is returned. */
-ssize_t aofRewriteBufferWrite(int fd) {
+int writeAofMetaAndFree(sds aof_meta_str) {
+    serverAssert(aof_meta_str != NULL);
+    int ret = writeAofMetaFile(aof_meta_str);
+    sdsfree(aof_meta_str);
+    return ret;
+}
+
+/* Persist the aofMeta information pointed to by am to disk. */
+int persistAofMeta(aofMeta *am) {
+    if (am->dirty == 0) {
+        return C_OK;
+    }
+
+    am->dirty = 0;
+    sds aof_meta_str = getAofMetaAsString(am);
+    return writeAofMetaAndFree(aof_meta_str);
+}
+
+/* AOF garbage collection processing function.
+ * 
+ * When aof rewrite succuss, the previous BASE and INCR AOFs will 
+ * become HIST type and be moved into history_aof_list.
+ * 
+ * The function will traverse the history_aof_list and submit the 
+ * delete task to the bio thread.
+ */
+void delHistoryAofFilesCron(aofMeta *am) {
+    serverAssert(am != NULL);
+    if (server.aof_enabled_auto_gc == 0 || 
+         listLength(am->history_aof_list) == 0) {
+        return;
+    }
+
     listNode *ln;
     listIter li;
-    ssize_t count = 0;
 
-    listRewind(server.aof_rewrite_buf_blocks,&li);
-    while((ln = listNext(&li))) {
-        aofrwblock *block = listNodeValue(ln);
-        ssize_t nwritten;
-
-        if (block->used != block->pos) {
-            nwritten = write(fd,block->buf+block->pos,block->used-block->pos);
-            if (nwritten != (ssize_t)(block->used-block->pos)) {
-                if (nwritten == 0) errno = EIO;
-                return -1;
-            }
-            count += nwritten;
-        }
+    listRewind(am->history_aof_list,&li);
+    while ((ln = listNext(&li)) != NULL) {
+        aofInfo *ai = (aofInfo*)ln->value;
+        serverAssert(ai->file_type == AOF_FILE_TYPE_HIST);
+        serverLog(LL_DEBUG, "Delete the history aof file %s in background",ai->file_name);
+        bioCreateDelJob(ai->file_name);
+        listDelNode(am->history_aof_list,ln);
     }
-    return count;
+    am->dirty = 1;
+    int ret = persistAofMeta(server.aof_meta);
+    if (ret != C_OK) {
+        exit(1);
+    }
 }
 
+/* Called after `loadDataFromDisk` when redis start. If `server.aof_state` is 
+ * AOF_ON, It will do two things:
+ * 1. Open the last opened INCR type AOF for writing, If not, create a new one
+ * 2. synchronously update the meta file to the disk
+ * 
+ * if any of the above two steps fails, the redis process will exit.
+ */
+void openAofIfNeeded(void) {
+    if (server.aof_state != AOF_ON) {
+        return;
+    }
+
+    serverAssert(server.aof_meta != NULL);
+    serverAssert(server.aof_fd == -1);
+
+    const char *aof_name = getLastIncrAofName(server.aof_meta);
+    server.aof_fd = open(aof_name,O_WRONLY|O_APPEND|O_CREAT,0644);
+    if (server.aof_fd == -1) {
+        serverLog(LL_WARNING,"Can't open the append-only file %s: %s",aof_name,strerror(errno));
+        exit(1);
+    }
+
+    int ret = persistAofMeta(server.aof_meta);
+    if (ret != C_OK) {
+        exit(1);
+    }
+}
+
+/* Called when an aof rewrite is executed. If `server.aof_state` is AOF_ON, It will 
+ * do two things:
+ * 1. open a new INCR type AOF for writing
+ * 2. synchronously update the meta file to the disk
+ * 
+ * If any of the above two steps fails, the redis process will exit.
+ * */
+void openNewIncrAofForAppend(void) {
+    serverAssert(server.aof_meta != NULL);
+
+    const char *new_aof_name = getNewIncrAofNameAndAddIt(server.aof_meta);
+
+    /* Close old aof_fd if needed. */
+    if (server.aof_fd != -1) bioCreateCloseJob(server.aof_fd);
+
+    server.aof_fd = open(new_aof_name,O_WRONLY|O_TRUNC|O_CREAT,0644);
+    if (server.aof_fd == -1) {
+        serverLog(LL_WARNING,"Can't open the append-only file %s: %s",
+                    new_aof_name,strerror(errno));
+        exit(1);
+    }
+    /* Reset the aof_newfile_size. */
+    server.aof_newfile_size = 0;
+    int ret = persistAofMeta(server.aof_meta);
+    if (ret == C_ERR) {
+        exit(1);
+    }
+}
+
+/*  */
+int openLastOrCreateIncrAofForAppend(void) {
+    serverAssert(server.aof_meta != NULL);
+    
+    const char *incr_aof_name = getLastIncrAofName(server.aof_meta);
+    int fd = open(incr_aof_name,O_WRONLY|O_APPEND|O_CREAT,0644);
+    if (fd == -1) {
+        serverLog(LL_WARNING,"Can't open the append-only file %s: %s",
+                    incr_aof_name,strerror(errno));
+        return C_ERR;
+    }
+
+    int ret = persistAofMeta(server.aof_meta);
+    if (ret == C_ERR) {
+        close(fd);
+        return ret;
+    }
+
+    if (server.aof_fd != -1) bioCreateCloseJob(server.aof_fd);
+
+    server.aof_newfile_size = getAppendOnlyFileSize(incr_aof_name);
+    server.aof_fd = fd;
+    return C_OK;
+}
 /* ----------------------------------------------------------------------------
  * AOF file implementation
  * ------------------------------------------------------------------------- */
@@ -248,13 +659,9 @@ void killAppendOnlyChild(void) {
     if (kill(server.child_pid,SIGUSR1) != -1) {
         while(waitpid(-1, &statloc, 0) != server.child_pid);
     }
-    /* Reset the buffer accumulating changes while the child saves. */
-    aofRewriteBufferReset();
     aofRemoveTempFile(server.child_pid);
     resetChildState();
     server.aof_rewrite_time_start = -1;
-    /* Close pipes used for IPC between the two processes. */
-    aofClosePipes();
 }
 
 /* Called when the user switches from "appendonly yes" to "appendonly no"
@@ -274,6 +681,7 @@ void stopAppendOnly(void) {
     server.aof_selected_db = -1;
     server.aof_state = AOF_OFF;
     server.aof_rewrite_scheduled = 0;
+    server.aof_newfile_size = 0;
     killAppendOnlyChild();
     sdsfree(server.aof_buf);
     server.aof_buf = sdsempty();
@@ -282,23 +690,11 @@ void stopAppendOnly(void) {
 /* Called when the user switches from "appendonly no" to "appendonly yes"
  * at runtime using the CONFIG command. */
 int startAppendOnly(void) {
-    char cwd[MAXPATHLEN]; /* Current working dir path for error messages. */
-    int newfd;
-
-    newfd = open(server.aof_filename,O_WRONLY|O_APPEND|O_CREAT,0644);
     serverAssert(server.aof_state == AOF_OFF);
-    if (newfd == -1) {
-        char *cwdp = getcwd(cwd,MAXPATHLEN);
-
-        serverLog(LL_WARNING,
-            "Redis needs to enable the AOF but can't open the "
-            "append only file %s (in server root dir %s): %s",
-            server.aof_filename,
-            cwdp ? cwdp : "unknown",
-            strerror(errno));
-        return C_ERR;
-    }
     if (hasActiveChildProcess() && server.child_type != CHILD_TYPE_AOF) {
+        if (openLastOrCreateIncrAofForAppend() != C_OK) {
+            return C_ERR;
+        }
         server.aof_rewrite_scheduled = 1;
         serverLog(LL_WARNING,"AOF was enabled but there is already another background operation. An AOF background was scheduled to start when possible.");
     } else {
@@ -309,8 +705,8 @@ int startAppendOnly(void) {
             serverLog(LL_WARNING,"AOF was enabled but there is already an AOF rewriting in background. Stopping background AOF and starting a rewrite now.");
             killAppendOnlyChild();
         }
-        if (rewriteAppendOnlyFileBackground() == C_ERR) {
-            close(newfd);
+
+        if (rewriteAppendOnlyFileBackground(1) == C_ERR) {
             serverLog(LL_WARNING,"Redis needs to enable the AOF but can't trigger a background AOF rewrite operation. Check the above logs for more info about the error.");
             return C_ERR;
         }
@@ -319,8 +715,7 @@ int startAppendOnly(void) {
      * in order to append data on disk. */
     server.aof_state = AOF_WAIT_REWRITE;
     server.aof_last_fsync = server.unixtime;
-    server.aof_fd = newfd;
-
+    
     /* If AOF fsync error in bio job, we just ignore it and log the event. */
     int aof_bio_fsync_status;
     atomicGet(server.aof_bio_fsync_status, aof_bio_fsync_status);
@@ -484,7 +879,7 @@ void flushAppendOnlyFile(int force) {
                                        (long long)sdslen(server.aof_buf));
             }
 
-            if (ftruncate(server.aof_fd, server.aof_current_size) == -1) {
+            if (ftruncate(server.aof_fd, server.aof_newfile_size) == -1) {
                 if (can_log) {
                     serverLog(LL_WARNING, "Could not remove short write "
                              "from the append-only file.  Redis may refuse "
@@ -518,6 +913,7 @@ void flushAppendOnlyFile(int force) {
              * was no way to undo it with ftruncate(2). */
             if (nwritten > 0) {
                 server.aof_current_size += nwritten;
+                server.aof_newfile_size += nwritten;
                 sdsrange(server.aof_buf,nwritten,-1);
             }
             return; /* We'll try again on the next call... */
@@ -532,6 +928,7 @@ void flushAppendOnlyFile(int force) {
         }
     }
     server.aof_current_size += nwritten;
+    server.aof_newfile_size += nwritten;
 
     /* Re-use AOF buffer when it is small enough. The maximum comes from the
      * arena size of 4k minus some overhead (but is otherwise arbitrary). */
@@ -649,15 +1046,10 @@ void feedAppendOnlyFile(int dictid, robj **argv, int argc) {
     /* Append to the AOF buffer. This will be flushed on disk just before
      * of re-entering the event loop, so before the client will get a
      * positive reply about the operation performed. */
-    if (server.aof_state == AOF_ON)
+    if (server.aof_state == AOF_ON ||
+        (server.aof_state == AOF_WAIT_REWRITE && server.child_pid != -1)) {
         server.aof_buf = sdscatlen(server.aof_buf,buf,sdslen(buf));
-
-    /* If a background append only file rewriting is in progress we want to
-     * accumulate the differences between the child DB and the current one
-     * in a buffer, so that when the child process will do its work we
-     * can append the differences to the new append only file. */
-    if (server.child_type == CHILD_TYPE_AOF)
-        aofRewriteBufferAppend((unsigned char*)buf,sdslen(buf));
+    }
 
     sdsfree(buf);
 }
@@ -696,7 +1088,7 @@ struct client *createAOFClient(void) {
  * AOF_NOT_EXIST: AOF file doesn't exist.
  * AOF_EMPTY: The AOF file is empty (nothing to load).
  * AOF_FAILED: Failed to load the AOF file. */
-int loadAppendOnlyFile(char *filename) {
+int loadSingleAppendOnlyFile(char *filename) {
     struct client *fakeClient;
     FILE *fp = fopen(filename,"r");
     struct redis_stat sb;
@@ -712,7 +1104,7 @@ int loadAppendOnlyFile(char *filename) {
             serverLog(LL_WARNING,"Fatal error: can't open the append log file for reading: %s",strerror(en));
             return AOF_OPEN_ERR;
         } else {
-            serverLog(LL_WARNING,"The append log file doesn't exist: %s",strerror(errno));
+            serverLog(LL_WARNING,"The append log file %s doesn't exist: %s",filename,strerror(errno));
             return AOF_NOT_EXIST;
         }
     }
@@ -733,7 +1125,6 @@ int loadAppendOnlyFile(char *filename) {
     server.aof_state = AOF_OFF;
 
     fakeClient = createAOFClient();
-    startLoadingFile(fp, filename, RDBFLAGS_AOF_PREAMBLE);
 
     /* Check if this AOF file has an RDB preamble. In that case we need to
      * load the RDB file and later continue loading the AOF tail. */
@@ -874,9 +1265,6 @@ int loadAppendOnlyFile(char *filename) {
 
 loaded_ok: /* DB loaded, cleanup and return C_OK to the caller. */
     server.aof_state = old_aof_state;
-    aofUpdateCurrentSize();
-    server.aof_rewrite_base_size = server.aof_current_size;
-    server.aof_fsync_offset = server.aof_current_size;
     ret = AOF_OK;
     goto cleanup;
 
@@ -924,7 +1312,97 @@ fmterr: /* Format error. */
 cleanup:
     if (fakeClient) freeClient(fakeClient);
     fclose(fp);
-    stopLoading(ret == AOF_OK);
+    return ret;
+}
+
+/* Load the AOF files according the aofMeta pointed by am. */
+int loadAppendOnlyFiles(aofMeta *am) {
+    serverAssert(am != NULL);
+    int ret = C_OK;
+    long long start;
+    off_t base_aof_size = 0, incr_aof_size = 0, size;
+    char *aof_name;
+
+    /* If there is no information about BASE AOF and INCR AOF in aofMeta, then 
+     * there is only one possibility: the aof meta file does not exist, we may 
+     * be starting from an old redis version. so we must fall back to the previous 
+     * loading mode.
+     */
+    if (am->base_aof_info == NULL && listLength(am->incr_aof_list) == 0) {
+        struct redis_stat sb;
+        /* If the `server.aof_filename` file does not exist, we will directly return 
+         * AOF_NOT_EXIST, and redis will ignore this error. */
+        if (redis_stat(server.aof_filename, &sb) != 0) {
+            return AOF_NOT_EXIST;
+        }
+
+        /* If the server.aof_filename file exists, we manually construct a BASE 
+         * type aofInfo and add it to aofMeta. In this way, we can reuse the 
+         * following code to load this AOF file. */
+        aofInfo *ai = aofInfoCreate();
+        ai->file_name = sdsnew(server.aof_filename);
+        ai->file_seq = 1;
+        ai->file_type = AOF_FILE_TYPE_BASE;
+        am->base_aof_info = ai;
+        am->dirty = 1;
+
+        int ret = persistAofMeta(am);
+        if (ret == C_ERR) {
+            return AOF_FAILED;
+        }
+    }
+
+    /* Load BASE AOF. */
+    if (am->base_aof_info) {
+        serverAssert(am->base_aof_info->file_type == AOF_FILE_TYPE_BASE);
+        aof_name = (char*)am->base_aof_info->file_name;
+        size = getAppendOnlyFileSize(aof_name);
+        start = ustime();
+        startLoading(size, RDBFLAGS_AOF_PREAMBLE, 0);
+        ret = loadSingleAppendOnlyFile(aof_name);
+        stopLoading(ret == AOF_OK);
+        if (ret == AOF_OK) {
+            base_aof_size = size;
+            serverLog(LL_NOTICE,"DB loaded from append only file %s: %.3f seconds",aof_name,(float)(ustime()-start)/1000000);
+        }
+
+        /* If an AOF file exists in the meta but not on the disk, we consider this to be a fatal error. */
+        if (ret == AOF_NOT_EXIST) ret = AOF_FAILED;
+
+        if (ret != AOF_OK && ret != AOF_EMPTY) {
+            return ret;
+        }
+    }
+
+    /* Load INCR AOFs. */
+    listNode *ln;
+    listIter li;
+
+    listRewind(am->incr_aof_list,&li);
+    while ((ln = listNext(&li)) != NULL) {
+        aofInfo *ai = (aofInfo*)ln->value;
+        serverAssert(ai->file_type == AOF_FILE_TYPE_INCR);
+        aof_name = (char*)ai->file_name;
+        size = getAppendOnlyFileSize(aof_name);
+        start = ustime();
+        startLoading(size, RDBFLAGS_AOF_PREAMBLE, 0);
+        ret = loadSingleAppendOnlyFile(aof_name);
+        stopLoading(ret == AOF_OK);
+        if (ret == AOF_OK) {
+            incr_aof_size += size;
+            serverLog(LL_NOTICE,"DB loaded from append only file %s: %.3f seconds",aof_name,(float)(ustime()-start)/1000000);
+        }
+
+        if (ret == AOF_NOT_EXIST) ret = AOF_FAILED;
+
+        if (ret != AOF_OK && ret != AOF_EMPTY) {
+            return ret;
+        }
+    }
+
+    server.aof_current_size = base_aof_size + incr_aof_size;
+    server.aof_rewrite_base_size = server.aof_current_size;
+    server.aof_fsync_offset = server.aof_current_size;
     return ret;
 }
 
@@ -1391,25 +1869,9 @@ int rewriteModuleObject(rio *r, robj *key, robj *o, int dbid) {
     return io.error ? 0 : 1;
 }
 
-/* This function is called by the child rewriting the AOF file to read
- * the difference accumulated from the parent into a buffer, that is
- * concatenated at the end of the rewrite. */
-ssize_t aofReadDiffFromParent(void) {
-    char buf[65536]; /* Default pipe buffer size on most Linux systems. */
-    ssize_t nread, total = 0;
-
-    while ((nread =
-            read(server.aof_pipe_read_data_from_parent,buf,sizeof(buf))) > 0) {
-        server.aof_child_diff = sdscatlen(server.aof_child_diff,buf,nread);
-        total += nread;
-    }
-    return total;
-}
-
 int rewriteAppendOnlyFileRio(rio *aof) {
     dictIterator *di = NULL;
     dictEntry *de;
-    size_t processed = 0;
     int j;
     long key_count = 0;
     long long updated_time = 0;
@@ -1482,11 +1944,6 @@ int rewriteAppendOnlyFileRio(rio *aof) {
                 if (rioWriteBulkObject(aof,&key) == 0) goto werr;
                 if (rioWriteBulkLongLong(aof,expiretime) == 0) goto werr;
             }
-            /* Read some diff from the parent process from time to time. */
-            if (aof->processed_bytes > processed+AOF_READ_DIFF_INTERVAL_BYTES) {
-                processed = aof->processed_bytes;
-                aofReadDiffFromParent();
-            }
 
             /* Update info every 1 second (approximately).
              * in order to avoid calling mstime() on each iteration, we will
@@ -1520,10 +1977,9 @@ int rewriteAppendOnlyFile(char *filename) {
     rio aof;
     FILE *fp = NULL;
     char tmpfile[256];
-    char byte;
 
     /* Note that we have to use a different temp name here compared to the
-     * one used by rewriteAppendOnlyFileBackground() function. */
+     * one used by rewriteAppendOnlyFileBackground(int opennew) function. */
     snprintf(tmpfile,256,"temp-rewriteaof-%d.aof", (int) getpid());
     fp = fopen(tmpfile,"w");
     if (!fp) {
@@ -1531,7 +1987,6 @@ int rewriteAppendOnlyFile(char *filename) {
         return C_ERR;
     }
 
-    server.aof_child_diff = sdsempty();
     rioInitWithFile(&aof,fp);
 
     if (server.aof_rewrite_incremental_fsync)
@@ -1547,74 +2002,6 @@ int rewriteAppendOnlyFile(char *filename) {
         }
     } else {
         if (rewriteAppendOnlyFileRio(&aof) == C_ERR) goto werr;
-    }
-
-    /* Do an initial slow fsync here while the parent is still sending
-     * data, in order to make the next final fsync faster. */
-    if (fflush(fp) == EOF) goto werr;
-    if (fsync(fileno(fp)) == -1) goto werr;
-
-    /* Read again a few times to get more data from the parent.
-     * We can't read forever (the server may receive data from clients
-     * faster than it is able to send data to the child), so we try to read
-     * some more data in a loop as soon as there is a good chance more data
-     * will come. If it looks like we are wasting time, we abort (this
-     * happens after 20 ms without new data). */
-    int nodata = 0;
-    mstime_t start = mstime();
-    while(mstime()-start < 1000 && nodata < 20) {
-        if (aeWait(server.aof_pipe_read_data_from_parent, AE_READABLE, 1) <= 0)
-        {
-            nodata++;
-            continue;
-        }
-        nodata = 0; /* Start counting from zero, we stop on N *contiguous*
-                       timeouts. */
-        aofReadDiffFromParent();
-    }
-
-    /* Ask the master to stop sending diffs. */
-    if (write(server.aof_pipe_write_ack_to_parent,"!",1) != 1) goto werr;
-    if (anetNonBlock(NULL,server.aof_pipe_read_ack_from_parent) != ANET_OK)
-        goto werr;
-    /* We read the ACK from the server using a 5 seconds timeout. Normally
-     * it should reply ASAP, but just in case we lose its reply, we are sure
-     * the child will eventually get terminated. */
-    if (syncRead(server.aof_pipe_read_ack_from_parent,&byte,1,5000) != 1 ||
-        byte != '!') goto werr;
-    serverLog(LL_NOTICE,"Parent agreed to stop sending diffs. Finalizing AOF...");
-
-    /* Read the final diff if any. */
-    aofReadDiffFromParent();
-
-    /* Write the received diff to the file. */
-    serverLog(LL_NOTICE,
-        "Concatenating %.2f MB of AOF diff received from parent.",
-        (double) sdslen(server.aof_child_diff) / (1024*1024));
-
-    /* Now we write the entire AOF buffer we received from the parent
-     * via the pipe during the life of this fork child.
-     * once a second, we'll take a break and send updated COW info to the parent */
-    size_t bytes_to_write = sdslen(server.aof_child_diff);
-    const char *buf = server.aof_child_diff;
-    long long cow_updated_time = mstime();
-    long long key_count = dbTotalServerKeyCount();
-    while (bytes_to_write) {
-        /* We write the AOF buffer in chunk of 8MB so that we can check the time in between them */
-        size_t chunk_size = bytes_to_write < (8<<20) ? bytes_to_write : (8<<20);
-
-        if (rioWrite(&aof,buf,chunk_size) == 0)
-            goto werr;
-
-        bytes_to_write -= chunk_size;
-        buf += chunk_size;
-
-        /* Update COW info */
-        long long now = mstime();
-        if (now - cow_updated_time >= 1000) {
-            sendChildInfo(CHILD_INFO_TYPE_CURRENT_INFO, key_count, "AOF rewrite");
-            cow_updated_time = now;
-        }
     }
 
     /* Make sure data will not remain on the OS's output buffers */
@@ -1633,6 +2020,11 @@ int rewriteAppendOnlyFile(char *filename) {
     }
     serverLog(LL_NOTICE,"SYNC append only file rewrite performed");
     stopSaving(1);
+
+    /* Delay return if required (for testing) */
+    if (server.aof_child_rewrite_delay)
+        debugDelay(server.aof_child_rewrite_delay);
+
     return C_OK;
 
 werr:
@@ -1642,78 +2034,6 @@ werr:
     stopSaving(0);
     return C_ERR;
 }
-
-/* ----------------------------------------------------------------------------
- * AOF rewrite pipes for IPC
- * -------------------------------------------------------------------------- */
-
-/* This event handler is called when the AOF rewriting child sends us a
- * single '!' char to signal we should stop sending buffer diffs. The
- * parent sends a '!' as well to acknowledge. */
-void aofChildPipeReadable(aeEventLoop *el, int fd, void *privdata, int mask) {
-    char byte;
-    UNUSED(el);
-    UNUSED(privdata);
-    UNUSED(mask);
-
-    if (read(fd,&byte,1) == 1 && byte == '!') {
-        serverLog(LL_NOTICE,"AOF rewrite child asks to stop sending diffs.");
-        server.aof_stop_sending_diff = 1;
-        if (write(server.aof_pipe_write_ack_to_child,"!",1) != 1) {
-            /* If we can't send the ack, inform the user, but don't try again
-             * since in the other side the children will use a timeout if the
-             * kernel can't buffer our write, or, the children was
-             * terminated. */
-            serverLog(LL_WARNING,"Can't send ACK to AOF child: %s",
-                strerror(errno));
-        }
-    }
-    /* Remove the handler since this can be called only one time during a
-     * rewrite. */
-    aeDeleteFileEvent(server.el,server.aof_pipe_read_ack_from_child,AE_READABLE);
-}
-
-/* Create the pipes used for parent - child process IPC during rewrite.
- * We have a data pipe used to send AOF incremental diffs to the child,
- * and two other pipes used by the children to signal it finished with
- * the rewrite so no more data should be written, and another for the
- * parent to acknowledge it understood this new condition. */
-int aofCreatePipes(void) {
-    int fds[6] = {-1, -1, -1, -1, -1, -1};
-    int j;
-
-    if (anetPipe(fds, O_NONBLOCK, O_NONBLOCK) == -1) goto error; /* parent -> children data, non blocking pipe */
-    if (anetPipe(fds+2, 0, 0) == -1) goto error; /* children -> parent ack. */
-    if (anetPipe(fds+4, 0, 0) == -1) goto error; /* parent -> children ack. */
-    if (aeCreateFileEvent(server.el, fds[2], AE_READABLE, aofChildPipeReadable, NULL) == AE_ERR) goto error;
-
-    server.aof_pipe_write_data_to_child = fds[1];
-    server.aof_pipe_read_data_from_parent = fds[0];
-    server.aof_pipe_write_ack_to_parent = fds[3];
-    server.aof_pipe_read_ack_from_child = fds[2];
-    server.aof_pipe_write_ack_to_child = fds[5];
-    server.aof_pipe_read_ack_from_parent = fds[4];
-    server.aof_stop_sending_diff = 0;
-    return C_OK;
-
-error:
-    serverLog(LL_WARNING,"Error opening /setting AOF rewrite IPC pipes: %s",
-        strerror(errno));
-    for (j = 0; j < 6; j++) if(fds[j] != -1) close(fds[j]);
-    return C_ERR;
-}
-
-void aofClosePipes(void) {
-    aeDeleteFileEvent(server.el,server.aof_pipe_read_ack_from_child,AE_READABLE);
-    aeDeleteFileEvent(server.el,server.aof_pipe_write_data_to_child,AE_WRITABLE);
-    close(server.aof_pipe_write_data_to_child);
-    close(server.aof_pipe_read_data_from_parent);
-    close(server.aof_pipe_write_ack_to_parent);
-    close(server.aof_pipe_read_ack_from_child);
-    close(server.aof_pipe_write_ack_to_child);
-    close(server.aof_pipe_read_ack_from_parent);
-}
-
 /* ----------------------------------------------------------------------------
  * AOF background rewrite
  * ------------------------------------------------------------------------- */
@@ -1730,11 +2050,10 @@ void aofClosePipes(void) {
  *    finally will rename(2) the temp file in the actual file name.
  *    The the new file is reopened as the new append only file. Profit!
  */
-int rewriteAppendOnlyFileBackground(void) {
+int rewriteAppendOnlyFileBackground(int opennew) {
     pid_t childpid;
 
     if (hasActiveChildProcess()) return C_ERR;
-    if (aofCreatePipes() != C_OK) return C_ERR;
     if ((childpid = redisFork(CHILD_TYPE_AOF)) == 0) {
         char tmpfile[256];
 
@@ -1754,7 +2073,6 @@ int rewriteAppendOnlyFileBackground(void) {
             serverLog(LL_WARNING,
                 "Can't rewrite append only file in background: fork: %s",
                 strerror(errno));
-            aofClosePipes();
             return C_ERR;
         }
         serverLog(LL_NOTICE,
@@ -1768,6 +2086,8 @@ int rewriteAppendOnlyFileBackground(void) {
          * with a SELECT statement and it will be safe to merge. */
         server.aof_selected_db = -1;
         replicationScriptCacheFlush();
+        flushAppendOnlyFile(1);
+        if (opennew) openNewIncrAofForAppend();
         return C_OK;
     }
     return C_OK; /* unreached */
@@ -1779,7 +2099,7 @@ void bgrewriteaofCommand(client *c) {
     } else if (hasActiveChildProcess()) {
         server.aof_rewrite_scheduled = 1;
         addReplyStatus(c,"Background append only file rewriting scheduled");
-    } else if (rewriteAppendOnlyFileBackground() == C_OK) {
+    } else if (rewriteAppendOnlyFileBackground(server.aof_state == AOF_ON) == C_OK) {
         addReplyStatus(c,"Background append only file rewriting started");
     } else {
         addReplyError(c,"Can't execute an AOF background rewriting. "
@@ -1797,149 +2117,97 @@ void aofRemoveTempFile(pid_t childpid) {
     bg_unlink(tmpfile);
 }
 
-/* Update the server.aof_current_size field explicitly using stat(2)
- * to check the size of the file. This is useful after a rewrite or after
- * a restart, normally the size is updated just adding the write length
- * to the current length, that is much faster. */
-void aofUpdateCurrentSize(void) {
+off_t getAppendOnlyFileSize(const char *filename) {
     struct redis_stat sb;
+    off_t size;
     mstime_t latency;
 
     latencyStartMonitor(latency);
-    if (redis_stat(server.aof_filename,&sb) == -1) {
-        serverLog(LL_WARNING,"Unable to obtain the AOF file length. stat: %s",
-            strerror(errno));
+    if (redis_stat(filename,&sb) == -1) {
+        serverLog(LL_WARNING,"Unable to obtain the AOF file %s length. stat: %s",
+            filename,strerror(errno));
+        size = 0;
     } else {
-        server.aof_current_size = sb.st_size;
+        size = sb.st_size;
     }
     latencyEndMonitor(latency);
     latencyAddSampleIfNeeded("aof-fstat",latency);
+    return size;
+}
+
+off_t getBaseAppendOnlyFileSize(void) {
+    serverAssert(server.aof_meta != NULL);
+    char *base_aof_name;
+
+    if (server.aof_meta->base_aof_info == NULL) {
+        return 0;
+    } 
+
+    base_aof_name = server.aof_meta->base_aof_info->file_name;
+    return getAppendOnlyFileSize(base_aof_name);
 }
 
 /* A background append only file rewriting (BGREWRITEAOF) terminated its work.
  * Handle this. */
 void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
     if (!bysignal && exitcode == 0) {
-        int newfd, oldfd;
         char tmpfile[256];
         long long now = ustime();
+        const char *new_base_aof_name;
+        aofMeta *tmpmeta;
         mstime_t latency;
 
         serverLog(LL_NOTICE,
             "Background AOF rewrite terminated with success");
 
-        /* Flush the differences accumulated by the parent to the
-         * rewritten AOF. */
-        latencyStartMonitor(latency);
         snprintf(tmpfile,256,"temp-rewriteaof-bg-%d.aof",
             (int)server.child_pid);
-        newfd = open(tmpfile,O_WRONLY|O_APPEND);
-        if (newfd == -1) {
-            serverLog(LL_WARNING,
-                "Unable to open the temporary AOF produced by the child: %s", strerror(errno));
+
+        serverAssert(server.aof_meta != NULL);
+
+        /* Dup a temporary aof_meta for subsequent modifications. */
+        tmpmeta = aofMetaDup(server.aof_meta);
+        if (tmpmeta == NULL) {
             goto cleanup;
         }
 
-        if (aofRewriteBufferWrite(newfd) == -1) {
-            serverLog(LL_WARNING,
-                "Error trying to flush the parent diff to the rewritten AOF: %s", strerror(errno));
-            close(newfd);
-            goto cleanup;
-        }
-        latencyEndMonitor(latency);
-        latencyAddSampleIfNeeded("aof-rewrite-diff-write",latency);
-  
-        if (server.aof_fsync == AOF_FSYNC_EVERYSEC) {
-            aof_background_fsync(newfd);
-        } else if (server.aof_fsync == AOF_FSYNC_ALWAYS) {
-            latencyStartMonitor(latency);
-            if (redis_fsync(newfd) == -1) {
-                serverLog(LL_WARNING,
-                    "Error trying to fsync the parent diff to the rewritten AOF: %s", strerror(errno));
-                close(newfd);
-                goto cleanup;
-            }
-            latencyEndMonitor(latency);
-            latencyAddSampleIfNeeded("aof-rewrite-done-fsync",latency);
-        }
-
-        serverLog(LL_NOTICE,
-            "Residual parent diff successfully flushed to the rewritten AOF (%.2f MB)", (double) aofRewriteBufferSize() / (1024*1024));
-
-        /* The only remaining thing to do is to rename the temporary file to
-         * the configured file and switch the file descriptor used to do AOF
-         * writes. We don't want close(2) or rename(2) calls to block the
-         * server on old file deletion.
-         *
-         * There are two possible scenarios:
-         *
-         * 1) AOF is DISABLED and this was a one time rewrite. The temporary
-         * file will be renamed to the configured file. When this file already
-         * exists, it will be unlinked, which may block the server.
-         *
-         * 2) AOF is ENABLED and the rewritten AOF will immediately start
-         * receiving writes. After the temporary file is renamed to the
-         * configured file, the original AOF file descriptor will be closed.
-         * Since this will be the last reference to that file, closing it
-         * causes the underlying file to be unlinked, which may block the
-         * server.
-         *
-         * To mitigate the blocking effect of the unlink operation (either
-         * caused by rename(2) in scenario 1, or by close(2) in scenario 2), we
-         * use a background thread to take care of this. First, we
-         * make scenario 1 identical to scenario 2 by opening the target file
-         * when it exists. The unlink operation after the rename(2) will then
-         * be executed upon calling close(2) for its descriptor. Everything to
-         * guarantee atomicity for this switch has already happened by then, so
-         * we don't care what the outcome or duration of that close operation
-         * is, as long as the file descriptor is released again. */
-        if (server.aof_fd == -1) {
-            /* AOF disabled */
-
-            /* Don't care if this fails: oldfd will be -1 and we handle that.
-             * One notable case of -1 return is if the old file does
-             * not exist. */
-            oldfd = open(server.aof_filename,O_RDONLY|O_NONBLOCK);
-        } else {
-            /* AOF enabled */
-            oldfd = -1; /* We'll set this to the current AOF file descriptor later. */
-        }
-
-        /* Rename the temporary file. This will not unlink the target file if
-         * it exists, because we reference it with "oldfd". */
+        /* Get a new BASE type AOF name, and mark the previous (if we have) BASE AOF as the HIST type. */
+        new_base_aof_name = getNewBaseAofNameAndMarkPreAsHistory(tmpmeta);
+        serverAssert(new_base_aof_name != NULL);
+        /* Rename the temporary aof file to new_base_aof_name. */
         latencyStartMonitor(latency);
-        if (rename(tmpfile,server.aof_filename) == -1) {
+        if (rename(tmpfile,new_base_aof_name) == -1) {
             serverLog(LL_WARNING,
                 "Error trying to rename the temporary AOF file %s into %s: %s",
                 tmpfile,
-                server.aof_filename,
+                new_base_aof_name,
                 strerror(errno));
-            close(newfd);
-            if (oldfd != -1) close(oldfd);
+            aofMetaFree(tmpmeta);
             goto cleanup;
         }
         latencyEndMonitor(latency);
         latencyAddSampleIfNeeded("aof-rename",latency);
 
-        if (server.aof_fd == -1) {
-            /* AOF disabled, we don't need to set the AOF file descriptor
-             * to this new file, so we can close it. */
-            close(newfd);
-        } else {
-            /* AOF enabled, replace the old fd with the new one. */
-            oldfd = server.aof_fd;
-            server.aof_fd = newfd;
+        /* Change the AOF file type in `incr_aof_list` from AOF_FILE_TYPE_INCR 
+         * to AOF_FILE_TYPE_HIST, and move them to the `history_aof_list`. */
+        markRewrittenIncrAofAsHistory(tmpmeta);
+        if (persistAofMeta(tmpmeta) == C_ERR) {
+            aofMetaFree(tmpmeta);
+            goto cleanup;
+        }
+    
+        if (server.aof_fd != -1) {
+            /* AOF enabled. */
             server.aof_selected_db = -1; /* Make sure SELECT is re-issued */
-            aofUpdateCurrentSize();
+            server.aof_current_size = getBaseAppendOnlyFileSize() + server.aof_newfile_size;
             server.aof_rewrite_base_size = server.aof_current_size;
             server.aof_fsync_offset = server.aof_current_size;
             server.aof_last_fsync = server.unixtime;
-
-            /* Clear regular AOF buffer since its contents was just written to
-             * the new AOF from the background rewrite buffer. */
-            sdsfree(server.aof_buf);
-            server.aof_buf = sdsempty();
         }
+
+        /* We can safely let server.aof_meta point to tmpmeta and free the previous aof_meta. */
+        aofMetaFree(server.aof_meta);
+        server.aof_meta = tmpmeta;
 
         server.aof_lastbgrewrite_status = C_OK;
 
@@ -1947,9 +2215,6 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
         /* Change state from WAIT_REWRITE to ON if needed */
         if (server.aof_state == AOF_WAIT_REWRITE)
             server.aof_state = AOF_ON;
-
-        /* Asynchronously close the overwritten AOF. */
-        if (oldfd != -1) bioCreateCloseJob(oldfd);
 
         serverLog(LL_VERBOSE,
             "Background AOF rewrite signal handler took %lldus", ustime()-now);
@@ -1969,8 +2234,6 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
     }
 
 cleanup:
-    aofClosePipes();
-    aofRewriteBufferReset();
     aofRemoveTempFile(server.child_pid);
     server.aof_rewrite_time_last = time(NULL)-server.aof_rewrite_time_start;
     server.aof_rewrite_time_start = -1;

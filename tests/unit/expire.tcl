@@ -291,7 +291,9 @@ start_server {tags {"expire"}} {
             # is reloaded the TTLs are not being shifted forward to the future.
             # We want the time to logically pass when the server is restarted!
 
-            set aof [file join [lindex [r config get dir] 1] [lindex [r config get appendfilename] 1]]
+            set dir [lindex [r config get dir] 1]
+            set last_incr_aof_name [get_last_incr_aof_name $dir]
+            set aof [file join $dir $last_incr_aof_name]
 
             # Apply each TTL-related command to a unique key
             # SET commands

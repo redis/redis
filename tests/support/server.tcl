@@ -1,3 +1,4 @@
+source tests/support/aofmeta.tcl
 set ::global_overrides {}
 set ::tags {}
 set ::valgrind_errors {}
@@ -23,10 +24,10 @@ proc clean_persistence config {
     # we may wanna keep the logs for later, but let's clean the persistence
     # files right away, since they can accumulate and take up a lot of space
     set config [dict get $config "config"]
-    set rdb [format "%s/%s" [dict get $config "dir"] "dump.rdb"]
-    set aof [format "%s/%s" [dict get $config "dir"] "appendonly.aof"]
+    set dir [dict get $config "dir"]
+    set rdb [format "%s/%s" $dir "dump.rdb"]
+    clean_aof_persistence $dir
     catch {exec rm -rf $rdb}
-    catch {exec rm -rf $aof}
 }
 
 proc kill_server config {

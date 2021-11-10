@@ -3142,7 +3142,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     if (!hasActiveChildProcess() &&
         server.aof_rewrite_scheduled)
     {
-        rewriteAppendOnlyFileBackground();
+        rewriteAppendOnlyFileBackground(server.aof_state == AOF_ON);
     }
 
     /* Check if a background saving or AOF rewrite in progress terminated. */
@@ -3186,7 +3186,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             long long growth = (server.aof_current_size*100/base) - 100;
             if (growth >= server.aof_rewrite_perc) {
                 serverLog(LL_NOTICE,"Starting automatic rewriting of AOF on %lld%% growth",growth);
-                rewriteAppendOnlyFileBackground();
+                rewriteAppendOnlyFileBackground(1);
             }
         }
     }
@@ -3207,6 +3207,10 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     run_with_period(1000) {
         if (server.aof_state == AOF_ON && server.aof_last_write_status == C_ERR)
             flushAppendOnlyFile(0);
+    }
+
+    run_with_period(1000) {
+        if (server.aof_meta) delHistoryAofFilesCron(server.aof_meta);
     }
 
     /* Clear the paused clients state if needed. */
@@ -3696,6 +3700,7 @@ void initServerConfig(void) {
     server.aof_fd = -1;
     server.aof_selected_db = -1; /* Make sure the first time will not match */
     server.aof_flush_postponed_start = 0;
+    server.aof_newfile_size = 0;
     server.active_defrag_running = 0;
     server.notify_keyspace_events = 0;
     server.blocked_clients = 0;
@@ -4276,7 +4281,6 @@ void initServer(void) {
     server.child_info_pipe[0] = -1;
     server.child_info_pipe[1] = -1;
     server.child_info_nread = 0;
-    aofRewriteBufferReset();
     server.aof_buf = sdsempty();
     server.lastsave = time(NULL); /* At startup we consider the DB saved. */
     server.lastbgsave_try = 0;    /* At startup we never tried to BGSAVE. */
@@ -6487,14 +6491,12 @@ sds genRedisInfoString(const char *section) {
                 "aof_base_size:%lld\r\n"
                 "aof_pending_rewrite:%d\r\n"
                 "aof_buffer_length:%zu\r\n"
-                "aof_rewrite_buffer_length:%lu\r\n"
                 "aof_pending_bio_fsync:%llu\r\n"
                 "aof_delayed_fsync:%lu\r\n",
                 (long long) server.aof_current_size,
                 (long long) server.aof_rewrite_base_size,
                 server.aof_rewrite_scheduled,
                 sdslen(server.aof_buf),
-                aofRewriteBufferSize(),
                 bioPendingJobsOfType(BIO_AOF_FSYNC),
                 server.aof_delayed_fsync);
         }
@@ -7578,12 +7580,9 @@ int checkForSentinelMode(int argc, char **argv, char *exec_name) {
 void loadDataFromDisk(void) {
     long long start = ustime();
     if (server.aof_state == AOF_ON) {
-        /* It's not a failure if the file is empty or doesn't exist (later we will create it) */
-        int ret = loadAppendOnlyFile(server.aof_filename);
+        int ret = loadAppendOnlyFiles(server.aof_meta);
         if (ret == AOF_FAILED || ret == AOF_OPEN_ERR)
             exit(1);
-        if (ret == AOF_OK)
-            serverLog(LL_NOTICE,"DB loaded from append only file: %.3f seconds",(float)(ustime()-start)/1000000);
     } else {
         rdbSaveInfo rsi = RDB_SAVE_INFO_INIT;
         errno = 0; /* Prevent a stale value from affecting error checking */
@@ -8046,17 +8045,9 @@ int main(int argc, char **argv) {
         moduleLoadFromQueue();
         ACLLoadUsersAtStartup();
         InitServerLast();
+        loadAofMetaFromDisk();
         loadDataFromDisk();
-        /* Open the AOF file if needed. */
-        if (server.aof_state == AOF_ON) {
-            server.aof_fd = open(server.aof_filename,
-                                 O_WRONLY|O_APPEND|O_CREAT,0644);
-            if (server.aof_fd == -1) {
-                serverLog(LL_WARNING, "Can't open the append-only file: %s",
-                          strerror(errno));
-                exit(1);
-            }
-        }
+        openAofIfNeeded();
         if (server.cluster_enabled) {
             if (verifyClusterConfigWithData() == C_ERR) {
                 serverLog(LL_WARNING,

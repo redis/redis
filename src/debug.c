@@ -564,7 +564,9 @@ NULL
         if (server.aof_state != AOF_OFF) flushAppendOnlyFile(1);
         emptyDb(-1,EMPTYDB_NO_FLAGS,NULL);
         protectClient(c);
-        int ret = loadAppendOnlyFile(server.aof_filename);
+        aofMetaFree(server.aof_meta);
+        loadAofMetaFromDisk();
+        int ret = loadAppendOnlyFiles(server.aof_meta);
         if (ret != AOF_OK && ret != AOF_EMPTY)
             exit(1);
         unprotectClient(c);

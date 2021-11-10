@@ -105,7 +105,6 @@ typedef long long ustime_t; /* microsecond time type. */
 #define OBJ_SHARED_BULKHDR_LEN 32
 #define LOG_MAX_LEN    1024 /* Default maximum length of syslog messages.*/
 #define AOF_REWRITE_ITEMS_PER_CMD 64
-#define AOF_READ_DIFF_INTERVAL_BYTES (1024*10)
 #define AOF_ANNOTATION_LINE_MAX_LEN 1024
 #define CONFIG_AUTHPASS_MAX_LEN 512
 #define CONFIG_RUN_ID_SIZE 40
@@ -1282,6 +1281,45 @@ typedef struct redisTLSContextConfig {
 } redisTLSContextConfig;
 
 /*-----------------------------------------------------------------------------
+ * AOF meta definition
+ *----------------------------------------------------------------------------*/
+
+/* Naming rules */
+#define BASE_AOF_SUFFIX      "_b_"       /* server.aof_filename_b_1、server.aof_filename_b_2 etc. */
+#define INCR_AOF_SUFFIX      "_i_"       /* server.aof_filename_i_1、server.aof_filename_i_2 etc. */
+#define META_NAME_SUFFIX     "_manifest" /* server.aof_filename_manifest. */
+#define META_TEM_NAME_PREFIX "temp_"     /* temp_server.aof_filename_manifest. */
+
+/* AOF meta key */
+#define AOF_META_KEY_FILE_NAME   "fileName"
+#define AOF_META_KEY_FILE_SEQ    "fileSeq"
+#define AOF_META_KEY_FILE_TYPE   "fileType"
+
+typedef enum {
+    AOF_FILE_TYPE_BASE  = 'b', /* BASE AOF */
+    AOF_FILE_TYPE_HIST  = 'h', /* HIST AOF */
+    AOF_FILE_TYPE_INCR  = 'i', /* INCR AOF */
+} aof_file_type;
+
+typedef struct {
+    sds           file_name;  /* AOF name */     
+    int64_t       file_seq;   /* AOF sequence */          
+    aof_file_type file_type;  /* AOF type */
+} aofInfo;
+
+typedef struct {
+    aofInfo     *base_aof_info;       /* BASE AOF information. NULL if there is no BASE AOF. */ 
+    list        *incr_aof_list;       /* INCR AOF list. We may have multiple INCR AOFs when rewrite fails. */
+    list        *history_aof_list;    /* HIST AOF list. When the rewrite success, The aofInfo contained in 
+                                         `base_aof_info` and `incr_aof_list` will be moved to this list. We 
+                                         will delete these AOF files regularly in server cron. */
+    int64_t     curr_base_aof_seq;    /* The sequence number used by the current BASE AOF file. */     
+    int64_t     curr_incr_aof_seq;    /* The sequence number used by the current INCR AOF file. */
+    int         dirty;                /* 1 Indicates that the aofMeta in the memory is inconsistent with 
+                                         disk, we need to persist it immediately. */
+} aofMeta;
+
+/*-----------------------------------------------------------------------------
  * Global server state
  *----------------------------------------------------------------------------*/
 
@@ -1495,6 +1533,7 @@ struct redisServer {
     off_t aof_rewrite_min_size;     /* the AOF file is at least N bytes. */
     off_t aof_rewrite_base_size;    /* AOF size on latest startup or rewrite. */
     off_t aof_current_size;         /* AOF current size. */
+    off_t aof_newfile_size;         /* The size of the latest incr AOF. */
     off_t aof_fsync_offset;         /* AOF offset which is already synced to disk. */
     int aof_flush_sleep;            /* Micros to sleep before flush. (used by tests) */
     int aof_rewrite_scheduled;      /* Rewrite once BGSAVE terminates. */
@@ -1518,16 +1557,11 @@ struct redisServer {
     int aof_use_rdb_preamble;       /* Use RDB preamble on AOF rewrites. */
     redisAtomic int aof_bio_fsync_status; /* Status of AOF fsync in bio job. */
     redisAtomic int aof_bio_fsync_errno;  /* Errno of AOF fsync in bio job. */
-    /* AOF pipes used to communicate between parent and child during rewrite. */
-    int aof_pipe_write_data_to_child;
-    int aof_pipe_read_data_from_parent;
-    int aof_pipe_write_ack_to_parent;
-    int aof_pipe_read_ack_from_child;
-    int aof_pipe_write_ack_to_child;
-    int aof_pipe_read_ack_from_parent;
-    int aof_stop_sending_diff;     /* If true stop sending accumulated diffs
-                                      to child process. */
-    sds aof_child_diff;             /* AOF diff accumulator child side. */
+    aofMeta *aof_meta;               /* Used to record and manage AOF. */
+    int aof_child_rewrite_delay;     /* Delay in microseconds before 
+                                       `rewriteAppendOnlyFile` return. (for testings). */
+    int aof_enabled_auto_gc;         /* If enable automatically deleting HIST type AOFs? */
+
     /* RDB persistence */
     long long dirty;                /* Changes to DB from the last save */
     long long dirty_before_bgsave;  /* Used to restore dirty on failed BGSAVE */
@@ -2360,17 +2394,18 @@ int bg_unlink(const char *filename);
 void flushAppendOnlyFile(int force);
 void feedAppendOnlyFile(int dictid, robj **argv, int argc);
 void aofRemoveTempFile(pid_t childpid);
-int rewriteAppendOnlyFileBackground(void);
-int loadAppendOnlyFile(char *filename);
+int rewriteAppendOnlyFileBackground(int opennew);
+int loadAppendOnlyFiles(aofMeta *am);
 void stopAppendOnly(void);
 int startAppendOnly(void);
 void backgroundRewriteDoneHandler(int exitcode, int bysignal);
-void aofRewriteBufferReset(void);
-unsigned long aofRewriteBufferSize(void);
-unsigned long aofRewriteBufferMemoryUsage(void);
 ssize_t aofReadDiffFromParent(void);
 void killAppendOnlyChild(void);
 void restartAOFAfterSYNC();
+void loadAofMetaFromDisk(void);
+void openAofIfNeeded(void);
+void delHistoryAofFilesCron(aofMeta *am);
+void aofMetaFree(aofMeta *am);
 
 /* Child info */
 void openChildInfoPipe(void);

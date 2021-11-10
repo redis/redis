@@ -79,6 +79,7 @@ static unsigned long long bio_pending[BIO_NUM_OPS];
 struct bio_job {
     /* Job specific arguments.*/
     int fd; /* Fd for file based background jobs */
+    sds name; /* Used for del file based background jobs */
     lazy_free_fn *free_fn; /* Function that will free the provided arguments */
     void *free_args[]; /* List of arguments to be passed to the free function */
 };
@@ -162,6 +163,13 @@ void bioCreateFsyncJob(int fd) {
     bioSubmitJob(BIO_AOF_FSYNC, job);
 }
 
+void bioCreateDelJob(sds filename) {
+    struct bio_job *job = zmalloc(sizeof(*job));
+    job->name = sdsdup(filename);
+
+    bioSubmitJob(BIO_DEL_FILE, job);
+}
+
 void *bioProcessBackgroundJobs(void *arg) {
     struct bio_job *job;
     unsigned long type = (unsigned long) arg;
@@ -183,6 +191,9 @@ void *bioProcessBackgroundJobs(void *arg) {
         break;
     case BIO_LAZY_FREE:
         redis_set_thread_title("bio_lazy_free");
+        break;
+    case BIO_DEL_FILE:
+        redis_set_thread_title("bio_del_file");
         break;
     }
 
@@ -237,6 +248,9 @@ void *bioProcessBackgroundJobs(void *arg) {
             }
         } else if (type == BIO_LAZY_FREE) {
             job->free_fn(job->free_args);
+        } else if (type == BIO_DEL_FILE) {
+            unlink(job->name);
+            sdsfree(job->name);
         } else {
             serverPanic("Wrong job type in bioProcessBackgroundJobs().");
         }
