@@ -70,7 +70,7 @@ int quicklistisSetPackedThreshold(size_t sz) {
 #define SIZE_SAFETY_LIMIT 8192
 
 /* Maximum estimate of the listpack entry overhead.
- * Although in the worst case(sz < 64), we will waste 5 bytes in one
+ * Although in the worst case(sz < 64), we will waste 6 bytes in one
  * quicklistNode, but can avoid memory waste due to internal fragmentation
  * when the listpack exceeds the size limit by a few bytes (e.g. being 16388). */
 #define SIZE_ESTIMATE_OVERHEAD 8
