@@ -508,6 +508,7 @@ void deriveAnnouncedPorts(int *announced_port, int *announced_pport,
  * that may change at runtime via CONFIG SET. This function changes the
  * set of flags in myself->flags accordingly. */
 void clusterUpdateMyselfFlags(void) {
+    if (!myself) return;
     int oldflags = myself->flags;
     int nofailover = server.cluster_slave_no_failover ?
                      CLUSTER_NODE_NOFAILOVER : 0;
@@ -516,6 +517,36 @@ void clusterUpdateMyselfFlags(void) {
     if (myself->flags != oldflags) {
         clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
                              CLUSTER_TODO_UPDATE_STATE);
+    }
+}
+
+
+/* We want to take myself->ip in sync with the cluster-announce-ip option.
+* The option can be set at runtime via CONFIG SET. */
+void clusterUpdateMyselfIp(void) {
+    if (!myself) return;
+    static char *prev_ip = NULL;
+    char *curr_ip = server.cluster_announce_ip;
+    int changed = 0;
+
+    if (prev_ip == NULL && curr_ip != NULL) changed = 1;
+    else if (prev_ip != NULL && curr_ip == NULL) changed = 1;
+    else if (prev_ip && curr_ip && strcmp(prev_ip,curr_ip)) changed = 1;
+
+    if (changed) {
+        if (prev_ip) zfree(prev_ip);
+        prev_ip = curr_ip;
+
+        if (curr_ip) {
+            /* We always take a copy of the previous IP address, by
+            * duplicating the string. This way later we can check if
+            * the address really changed. */
+            prev_ip = zstrdup(prev_ip);
+            strncpy(myself->ip,server.cluster_announce_ip,NET_IP_STR_LEN);
+            myself->ip[NET_IP_STR_LEN-1] = '\0';
+        } else {
+            myself->ip[0] = '\0'; /* Force autodetection. */
+        }
     }
 }
 
@@ -593,8 +624,8 @@ void clusterInit(void) {
         serverPanic("Unrecoverable error creating Redis Cluster socket accept handler.");
     }
 
-    /* Reset data for the Slot to key API. */
-    slotToKeyFlush();
+    /* Initialize data for the Slot to key API. */
+    slotToKeyInit(server.db);
 
     /* Set myself->port/cport/pport to my listening ports, we'll just need to
      * discover the IP address via MEET messages. */
@@ -603,6 +634,7 @@ void clusterInit(void) {
     server.cluster->mf_end = 0;
     resetManualFailover();
     clusterUpdateMyselfFlags();
+    clusterUpdateMyselfIp();
 }
 
 /* Reset a node performing a soft or hard reset:
@@ -3612,44 +3644,12 @@ void clusterCron(void) {
 
     iteration++; /* Number of times this function was called so far. */
 
-    /* We want to take myself->ip in sync with the cluster-announce-ip option.
-     * The option can be set at runtime via CONFIG SET, so we periodically check
-     * if the option changed to reflect this into myself->ip. */
-    {
-        static char *prev_ip = NULL;
-        char *curr_ip = server.cluster_announce_ip;
-        int changed = 0;
-
-        if (prev_ip == NULL && curr_ip != NULL) changed = 1;
-        else if (prev_ip != NULL && curr_ip == NULL) changed = 1;
-        else if (prev_ip && curr_ip && strcmp(prev_ip,curr_ip)) changed = 1;
-
-        if (changed) {
-            if (prev_ip) zfree(prev_ip);
-            prev_ip = curr_ip;
-
-            if (curr_ip) {
-                /* We always take a copy of the previous IP address, by
-                 * duplicating the string. This way later we can check if
-                 * the address really changed. */
-                prev_ip = zstrdup(prev_ip);
-                strncpy(myself->ip,server.cluster_announce_ip,NET_IP_STR_LEN);
-                myself->ip[NET_IP_STR_LEN-1] = '\0';
-            } else {
-                myself->ip[0] = '\0'; /* Force autodetection. */
-            }
-        }
-    }
-
     /* The handshake timeout is the time after which a handshake node that was
      * not turned into a normal node is removed from the nodes. Usually it is
      * just the NODE_TIMEOUT value, but when NODE_TIMEOUT is too small we use
      * the value of 1 second. */
     handshake_timeout = server.cluster_node_timeout;
     if (handshake_timeout < 1000) handshake_timeout = 1000;
-
-    /* Update myself flags. */
-    clusterUpdateMyselfFlags();
 
     /* Clear so clusterNodeCronHandleReconnect can count the number of nodes in PFAIL. */
     server.cluster->stats_pfail_nodes = 0;
@@ -4954,7 +4954,7 @@ NULL
         unsigned int keys_in_slot = countKeysInSlot(slot);
         unsigned int numkeys = maxkeys > keys_in_slot ? keys_in_slot : maxkeys;
         addReplyArrayLen(c,numkeys);
-        dictEntry *de = server.cluster->slots_to_keys[slot].head;
+        dictEntry *de = (*server.db->slots_to_keys).by_slot[slot].head;
         for (unsigned int j = 0; j < numkeys; j++) {
             serverAssert(de != NULL);
             sds sdskey = dictGetKey(de);
@@ -6201,26 +6201,28 @@ int clusterRedirectBlockedClientIfNeeded(client *c) {
  * while rehashing the cluster and in other conditions when we need to
  * understand if we have keys for a given hash slot. */
 
-void slotToKeyAddEntry(dictEntry *entry) {
+void slotToKeyAddEntry(dictEntry *entry, redisDb *db) {
     sds key = entry->key;
     unsigned int hashslot = keyHashSlot(key, sdslen(key));
-    server.cluster->slots_to_keys[hashslot].count++;
+    slotToKeys *slot_to_keys = &(*db->slots_to_keys).by_slot[hashslot];
+    slot_to_keys->count++;
 
     /* Insert entry before the first element in the list. */
-    dictEntry *first = server.cluster->slots_to_keys[hashslot].head;
+    dictEntry *first = slot_to_keys->head;
     dictEntryNextInSlot(entry) = first;
     if (first != NULL) {
         serverAssert(dictEntryPrevInSlot(first) == NULL);
         dictEntryPrevInSlot(first) = entry;
     }
     serverAssert(dictEntryPrevInSlot(entry) == NULL);
-    server.cluster->slots_to_keys[hashslot].head = entry;
+    slot_to_keys->head = entry;
 }
 
-void slotToKeyDelEntry(dictEntry *entry) {
+void slotToKeyDelEntry(dictEntry *entry, redisDb *db) {
     sds key = entry->key;
     unsigned int hashslot = keyHashSlot(key, sdslen(key));
-    server.cluster->slots_to_keys[hashslot].count--;
+    slotToKeys *slot_to_keys = &(*db->slots_to_keys).by_slot[hashslot];
+    slot_to_keys->count--;
 
     /* Connect previous and next entries to each other. */
     dictEntry *next = dictEntryNextInSlot(entry);
@@ -6232,14 +6234,14 @@ void slotToKeyDelEntry(dictEntry *entry) {
         dictEntryNextInSlot(prev) = next;
     } else {
         /* The removed entry was the first in the list. */
-        serverAssert(server.cluster->slots_to_keys[hashslot].head == entry);
-        server.cluster->slots_to_keys[hashslot].head = next;
+        serverAssert(slot_to_keys->head == entry);
+        slot_to_keys->head = next;
     }
 }
 
 /* Updates neighbour entries when an entry has been replaced (e.g. reallocated
  * during active defrag). */
-void slotToKeyReplaceEntry(dictEntry *entry) {
+void slotToKeyReplaceEntry(dictEntry *entry, redisDb *db) {
     dictEntry *next = dictEntryNextInSlot(entry);
     dictEntry *prev = dictEntryPrevInSlot(entry);
     if (next != NULL) {
@@ -6251,33 +6253,33 @@ void slotToKeyReplaceEntry(dictEntry *entry) {
         /* The replaced entry was the first in the list. */
         sds key = entry->key;
         unsigned int hashslot = keyHashSlot(key, sdslen(key));
-        server.cluster->slots_to_keys[hashslot].head = entry;
+        slotToKeys *slot_to_keys = &(*db->slots_to_keys).by_slot[hashslot];
+        slot_to_keys->head = entry;
     }
 }
 
-/* Copies the slots-keys map to the specified backup structure. */
-void slotToKeyCopyToBackup(clusterSlotsToKeysData *backup) {
-    memcpy(backup, server.cluster->slots_to_keys,
-           sizeof(server.cluster->slots_to_keys));
+/* Initialize slots-keys map of given db. */
+void slotToKeyInit(redisDb *db) {
+    db->slots_to_keys = zcalloc(sizeof(clusterSlotToKeyMapping));
 }
 
-/* Overwrites the slots-keys map by copying the provided backup structure. */
-void slotToKeyRestoreBackup(clusterSlotsToKeysData *backup) {
-    memcpy(server.cluster->slots_to_keys, backup,
-           sizeof(server.cluster->slots_to_keys));
+/* Empty slots-keys map of given db. */
+void slotToKeyFlush(redisDb *db) {
+    memset(db->slots_to_keys, 0,
+        sizeof(clusterSlotToKeyMapping));
 }
 
-/* Empty the slots-keys map of Redis Cluster. */
-void slotToKeyFlush(void) {
-    memset(&server.cluster->slots_to_keys, 0,
-           sizeof(server.cluster->slots_to_keys));
+/* Free slots-keys map of given db. */
+void slotToKeyDestroy(redisDb *db) {
+    zfree(db->slots_to_keys);
+    db->slots_to_keys = NULL;
 }
 
 /* Remove all the keys in the specified hash slot.
  * The number of removed items is returned. */
 unsigned int delKeysInSlot(unsigned int hashslot) {
     unsigned int j = 0;
-    dictEntry *de = server.cluster->slots_to_keys[hashslot].head;
+    dictEntry *de = (*server.db->slots_to_keys).by_slot[hashslot].head;
     while (de != NULL) {
         sds sdskey = dictGetKey(de);
         de = dictEntryNextInSlot(de);
@@ -6290,5 +6292,5 @@ unsigned int delKeysInSlot(unsigned int hashslot) {
 }
 
 unsigned int countKeysInSlot(unsigned int hashslot) {
-    return server.cluster->slots_to_keys[hashslot].count;
+    return (*server.db->slots_to_keys).by_slot[hashslot].count;
 }

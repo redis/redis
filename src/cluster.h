@@ -141,14 +141,17 @@ typedef struct clusterNode {
     list *fail_reports;         /* List of nodes signaling this as failing */
 } clusterNode;
 
-/* State for the Slot to Key API, for a single slot. The keys in the same slot
- * are linked together using dictEntry metadata. See also "Slot to Key API" in
- * cluster.c. */
-struct clusterSlotToKeys {
+/* Slot to keys for a single slot. The keys in the same slot are linked together
+ * using dictEntry metadata. */
+typedef struct slotToKeys {
     uint64_t count;             /* Number of keys in the slot. */
     dictEntry *head;            /* The first key-value entry in the slot. */
+} slotToKeys;
+
+/* Slot to keys mapping for all slots, opaque outside this file. */
+struct clusterSlotToKeyMapping {
+    slotToKeys by_slot[CLUSTER_SLOTS];
 };
-typedef struct clusterSlotToKeys clusterSlotsToKeysData[CLUSTER_SLOTS];
 
 /* Dict entry metadata for cluster mode, used for the Slot to Key API to form a
  * linked list of the entries belonging to the same slot. */
@@ -168,7 +171,6 @@ typedef struct clusterState {
     clusterNode *migrating_slots_to[CLUSTER_SLOTS];
     clusterNode *importing_slots_from[CLUSTER_SLOTS];
     clusterNode *slots[CLUSTER_SLOTS];
-    clusterSlotsToKeysData slots_to_keys;
     /* The following fields are used to take the slave state on elections. */
     mstime_t failover_auth_time; /* Time of previous or next election. */
     int failover_auth_count;    /* Number of votes received so far. */
@@ -315,11 +317,13 @@ unsigned long getClusterConnectionsCount(void);
 int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uint8_t type, unsigned char *payload, uint32_t len);
 void clusterPropagatePublish(robj *channel, robj *message);
 unsigned int keyHashSlot(char *key, int keylen);
-void slotToKeyAddEntry(dictEntry *entry);
-void slotToKeyDelEntry(dictEntry *entry);
-void slotToKeyReplaceEntry(dictEntry *entry);
-void slotToKeyCopyToBackup(clusterSlotsToKeysData *backup);
-void slotToKeyRestoreBackup(clusterSlotsToKeysData *backup);
-void slotToKeyFlush(void);
+void slotToKeyAddEntry(dictEntry *entry, redisDb *db);
+void slotToKeyDelEntry(dictEntry *entry, redisDb *db);
+void slotToKeyReplaceEntry(dictEntry *entry, redisDb *db);
+void slotToKeyInit(redisDb *db);
+void slotToKeyFlush(redisDb *db);
+void slotToKeyDestroy(redisDb *db);
+void clusterUpdateMyselfFlags(void);
+void clusterUpdateMyselfIp(void);
 
 #endif /* __CLUSTER_H */
