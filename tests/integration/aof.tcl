@@ -1,34 +1,20 @@
-set defaults { appendonly {yes} appendfilename {appendonly.aof} }
+source tests/support/aofmanifest.tcl
+set defaults { appendonly {yes} appendfilename {appendonly} auto-aof-rewrite-percentage {0}}
 set server_path [tmpdir server.aof]
-set aof_path "$server_path/appendonly.aof"
-
-proc append_to_aof {str} {
-    upvar fp fp
-    puts -nonewline $fp $str
-}
-
-proc create_aof {code} {
-    upvar fp fp aof_path aof_path
-    set fp [open $aof_path w+]
-    uplevel 1 $code
-    close $fp
-}
-
-proc start_server_aof {overrides code} {
-    upvar defaults defaults srv srv server_path server_path
-    set config [concat $defaults $overrides]
-    set srv [start_server [list overrides $config]]
-    uplevel 1 $code
-    kill_server $srv
-}
+set aof_path "$server_path/appendonly.1.aof"
+set aof_manifest_path "$server_path/appendonly.manifest"
 
 tags {"aof external:skip"} {
     ## Server can start when aof-load-truncated is set to yes and AOF
     ## is truncated, with an incomplete MULTI block.
-    create_aof {
+    create_aof $aof_path {
         append_to_aof [formatCommand set foo hello]
         append_to_aof [formatCommand multi]
         append_to_aof [formatCommand set bar world]
+    }
+
+    create_aof_manifest $aof_manifest_path {
+        append_to_manifest "file appendonly.1.aof seq 1 type i\n"
     }
 
     start_server_aof [list dir $server_path aof-load-truncated yes] {
@@ -38,7 +24,7 @@ tags {"aof external:skip"} {
     }
 
     ## Should also start with truncated AOF without incomplete MULTI block.
-    create_aof {
+    create_aof $aof_path {
         append_to_aof [formatCommand incr foo]
         append_to_aof [formatCommand incr foo]
         append_to_aof [formatCommand incr foo]
@@ -77,7 +63,7 @@ tags {"aof external:skip"} {
     }
 
     ## Test that the server exits when the AOF contains a format error
-    create_aof {
+    create_aof $aof_path {
         append_to_aof [formatCommand set foo hello]
         append_to_aof "!!!"
         append_to_aof [formatCommand set foo hello]
@@ -102,7 +88,7 @@ tags {"aof external:skip"} {
     }
 
     ## Test the server doesn't start when the AOF contains an unfinished MULTI
-    create_aof {
+    create_aof $aof_path {
         append_to_aof [formatCommand set foo hello]
         append_to_aof [formatCommand multi]
         append_to_aof [formatCommand set bar world]
@@ -127,7 +113,7 @@ tags {"aof external:skip"} {
     }
 
     ## Test that the server exits when the AOF contains a short read
-    create_aof {
+    create_aof $aof_path {
         append_to_aof [formatCommand set foo hello]
         append_to_aof [string range [formatCommand set bar world] 0 end-1]
     }
@@ -159,7 +145,7 @@ tags {"aof external:skip"} {
     }
 
     test "Short read: Utility should show the abnormal line num in AOF" {
-        create_aof {
+        create_aof $aof_path {
             append_to_aof [formatCommand set foo hello]
             append_to_aof "!!!"
         }
@@ -190,7 +176,7 @@ tags {"aof external:skip"} {
     }
 
     ## Test that SPOP (that modifies the client's argc/argv) is correctly free'd
-    create_aof {
+    create_aof $aof_path {
         append_to_aof [formatCommand sadd set foo]
         append_to_aof [formatCommand sadd set bar]
         append_to_aof [formatCommand spop set]
@@ -209,7 +195,7 @@ tags {"aof external:skip"} {
     }
 
     ## Uses the alsoPropagate() API.
-    create_aof {
+    create_aof $aof_path {
         append_to_aof [formatCommand sadd set foo]
         append_to_aof [formatCommand sadd set bar]
         append_to_aof [formatCommand sadd set gah]
@@ -229,7 +215,7 @@ tags {"aof external:skip"} {
     }
 
     ## Test that PEXPIREAT is loaded correctly
-    create_aof {
+    create_aof $aof_path {
         append_to_aof [formatCommand rpush list foo]
         append_to_aof [formatCommand pexpireat list 1000]
         append_to_aof [formatCommand rpush list bar]
@@ -247,14 +233,14 @@ tags {"aof external:skip"} {
         }
     }
 
-    start_server {overrides {appendonly {yes} appendfilename {appendonly.aof}}} {
+    start_server {overrides {appendonly {yes} appendfilename {appendonly}}} {
         test {Redis should not try to convert DEL into EXPIREAT for EXPIRE -1} {
             r set x 10
             r expire x -1
         }
     }
 
-    start_server {overrides {appendonly {yes} appendfilename {appendonly.aof} appendfsync always}} {
+    start_server {overrides {appendonly {yes} appendfilename {appendonly} appendfsync always}} {
         test {AOF fsync always barrier issue} {
             set rd [redis_deferring_client]
             # Set a sleep when aof is flushed, so that we have a chance to look
@@ -272,7 +258,9 @@ tags {"aof external:skip"} {
                 r del x
                 r setrange x [expr {int(rand()*5000000)+10000000}] x
                 r debug aof-flush-sleep 500000
-                set aof [file join [lindex [r config get dir] 1] appendonly.aof]
+                set dir [lindex [r config get dir] 1]
+                set last_incr_aof_name [get_last_incr_aof_name $dir]
+                set aof [file join $dir $last_incr_aof_name]
                 set size1 [file size $aof]
                 $rd get x
                 after [expr {int(rand()*30)}]
@@ -285,9 +273,11 @@ tags {"aof external:skip"} {
         }
     }
 
-    start_server {overrides {appendonly {yes} appendfilename {appendonly.aof}}} {
+    start_server {overrides {appendonly {yes} appendfilename {appendonly}}} {
         test {GETEX should not append to AOF} {
-            set aof [file join [lindex [r config get dir] 1] appendonly.aof]
+            set dir [lindex [r config get dir] 1]
+            set lat_incr_aof_name [get_last_incr_aof_name $dir]
+            set aof [file join $dir $lat_incr_aof_name]
             r set foo bar
             set before [file size $aof]
             r getex foo
@@ -297,7 +287,7 @@ tags {"aof external:skip"} {
     }
 
     ## Test that the server exits when the AOF contains a unknown command
-    create_aof {
+    create_aof $aof_path {
         append_to_aof [formatCommand set foo hello]
         append_to_aof [formatCommand bla foo hello]
         append_to_aof [formatCommand set foo hello]
@@ -322,7 +312,7 @@ tags {"aof external:skip"} {
     }
 
     # Test that LMPOP/BLMPOP work fine with AOF.
-    create_aof {
+    create_aof $aof_path {
         append_to_aof [formatCommand lpush mylist a b c]
         append_to_aof [formatCommand rpush mylist2 1 2 3]
         append_to_aof [formatCommand lpush mylist3 a b c d e]
@@ -369,7 +359,7 @@ tags {"aof external:skip"} {
     }
 
     # Test that ZMPOP/BZMPOP work fine with AOF.
-    create_aof {
+    create_aof $aof_path {
         append_to_aof [formatCommand zadd myzset 1 one 2 two 3 three]
         append_to_aof [formatCommand zadd myzset2 4 four 5 five 6 six]
         append_to_aof [formatCommand zadd myzset3 1 one 2 two 3 three 4 four 5 five]
@@ -416,22 +406,27 @@ tags {"aof external:skip"} {
     }
 
     test {Generate timestamp annotations in AOF} {
-        start_server {overrides {appendonly {yes} appendfilename {appendonly.aof}}} {
+        start_server {overrides {appendonly {yes} appendfilename {appendonly}}} {
             r config set aof-timestamp-enabled yes
             r config set aof-use-rdb-preamble no
-            set aof [file join [lindex [r config get dir] 1] appendonly.aof]
+            set dir [lindex [r config get dir] 1]
+            set last_incr_aof_name [get_last_incr_aof_name $dir]
+            set aof [file join $dir $last_incr_aof_name]
 
             r set foo bar
             assert_match "#TS:*" [exec head -n 1 $aof]
 
             r bgrewriteaof
             waitForBgrewriteaof r
+
+            set cur_base_aof_name [get_cur_base_aof_name $dir]
+            set aof [file join $dir $cur_base_aof_name]
             assert_match "#TS:*" [exec head -n 1 $aof]
         }
     }
 
     # redis could load AOF which has timestamp annotations inside
-    create_aof {
+    create_aof $aof_path {
         append_to_aof "#TS:1628217470\r\n"
         append_to_aof [formatCommand set foo1 bar1]
         append_to_aof "#TS:1628217471\r\n"

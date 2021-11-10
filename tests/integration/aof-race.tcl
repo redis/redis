@@ -1,6 +1,7 @@
-set defaults { appendonly {yes} appendfilename {appendonly.aof} aof-use-rdb-preamble {no} }
+set defaults { appendonly {yes} appendfilename {appendonly} aof-use-rdb-preamble {no} }
 set server_path [tmpdir server.aof]
-set aof_path "$server_path/appendonly.aof"
+set aof_path "$server_path/appendonly.1.aof"
+set aof_manifest_path "$server_path/appendonly.manifest"
 
 proc start_server_aof {overrides code} {
     upvar defaults defaults srv srv server_path server_path

@@ -44,13 +44,13 @@ start_server {tags {"aofrw external:skip"}} {
             # Make sure no more commands processed, before taking debug digest
             wait_load_handlers_disconnected
 
+            after 1000
+
             # Get the data set digest
             set d1 [r debug digest]
-
             # Load the AOF
             r debug loadaof
             set d2 [r debug digest]
-
             # Make sure they are the same
             assert {$d1 eq $d2}
         }
