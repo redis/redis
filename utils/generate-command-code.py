@@ -279,7 +279,7 @@ class Command(object):
             return s[:-1]
 
         s = "\"%s\",%s,%s,%s,%s,%s,%s,%s,%d,\"%s\"," % (
-            self.name,
+            self.name.lower(),
             get_optional_desc_string(self.desc, "summary"),
             get_optional_desc_string(self.desc, "complexity"),
             get_optional_desc_string(self.desc, "since"),
