@@ -76,7 +76,7 @@ typedef struct sentinelAddr {
 #define SRI_RECONF_DONE (1<<10)     /* Slave synchronized with new master. */
 #define SRI_FORCE_FAILOVER (1<<11)  /* Force failover with master up. */
 #define SRI_SCRIPT_KILL_SENT (1<<12) /* SCRIPT KILL already sent on -BUSY */
-#define SRI_MASTER_REBOOT  (1<<13)   /* Master was detected as rebooting*/
+#define SRI_MASTER_REBOOT  (1<<13)   /* Master was detected as rebooting */
 
 /* Note: times are in milliseconds. */
 #define SENTINEL_PING_PERIOD 1000
@@ -1298,7 +1298,7 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
     ri->s_down_since_time = 0;
     ri->o_down_since_time = 0;
     ri->down_after_period = master ? master->down_after_period : sentinel_default_down_after;
-    ri->master_reboot_down_after_period = 0;                     
+    ri->master_reboot_down_after_period = 0;
     ri->master_link_down_time = 0;
     ri->auth_pass = NULL;
     ri->auth_user = NULL;
@@ -2150,7 +2150,6 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
             master->name, (unsigned long long) master->leader_epoch);
         rewriteConfigRewriteLine(state,"sentinel leader-epoch",line,1);
         /* rewriteConfigMarkAsProcessed is handled after the loop */
-        
 
         /* sentinel known-slave */
         di2 = dictGetIterator(master->slaves);
@@ -2777,7 +2776,7 @@ void sentinelPingReplyCallback(redisAsyncContext *c, void *reply, void *privdata
         {
             link->last_avail_time = mstime();
             link->act_ping_time = 0; /* Flag the pong as received. */
-            
+
             if (ri->flags & SRI_MASTER_REBOOT && strncmp(r->str,"PONG",4) == 0)
                 ri->flags &= ~SRI_MASTER_REBOOT;
 
