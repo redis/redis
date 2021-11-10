@@ -5306,11 +5306,7 @@ int processCommand(client *c) {
     /* If cluster is enabled perform the cluster redirection here.
      * However we don't perform the redirection if:
      * 1) The sender of this command is our master.
-     * 2) The command has no key arguments.
-     *
-     * We however allow pubsublocal commands even though
-     * it doesn't have any keys in it.The pubsublocal
-     * commands also works on the cluster slot semantics. */
+     * 2) The command has no key or local channel arguments. */
     if (server.cluster_enabled &&
         !(c->flags & CLIENT_MASTER) &&
         !(c->flags & CLIENT_LUA &&

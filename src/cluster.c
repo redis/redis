@@ -30,6 +30,8 @@
 
 #include "server.h"
 #include "cluster.h"
+#include "endianconv.h"
+
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
@@ -631,7 +633,7 @@ void clusterInit(void) {
     /* The slots -> channels map is a radix tree. Initialize it here. */
     server.cluster->slots_to_channels = raxNew();
 
-    /* Set myself->port / cport to my listening ports, we'll just need to
+    /* Set myself->port/cport/pport to my listening ports, we'll just need to
      * discover the IP address via MEET messages. */
     deriveAnnouncedPorts(&myself->port, &myself->pport, &myself->cport);
 
@@ -1087,9 +1089,8 @@ void clusterDelNode(clusterNode *delnode) {
             server.cluster->importing_slots_from[j] = NULL;
         if (server.cluster->migrating_slots_to[j] == delnode)
             server.cluster->migrating_slots_to[j] = NULL;
-        if (server.cluster->slots[j] == delnode) {
+        if (server.cluster->slots[j] == delnode)
             clusterDelSlot(j);
-        }
     }
 
     /* 2) Remove failure reports. */
@@ -4846,12 +4847,10 @@ NULL
             }
             /* If this slot is in migrating status but we have no keys
              * for it assigning the slot to another node will clear
-             * the migrating status and clear the channel to slot
-             * information. */
+             * the migrating status. */
             if (countKeysInSlot(slot) == 0 &&
-                server.cluster->migrating_slots_to[slot]) {
+                server.cluster->migrating_slots_to[slot])
                 server.cluster->migrating_slots_to[slot] = NULL;
-            }
 
             clusterDelSlot(slot);
             clusterAddSlot(n,slot);
