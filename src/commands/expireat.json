@@ -1,0 +1,44 @@
+{
+    "EXPIREAT": {
+        "summary": "Set the expiration for a key as a UNIX timestamp",
+        "complexity": "O(1)",
+        "group": "generic",
+        "since": "1.2.0",
+        "arity": -3,
+        "function": "expireatCommand",
+        "history": [
+            [
+                "7.0",
+                "Added options: `NX`, `XX`, `GT` and `LT`."
+            ]
+        ],
+        "command_flags": [
+            "write",
+            "fast"
+        ],
+        "acl_categories": [
+            "keyspace",
+            "write",
+            "fast"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "write"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ]
+    }
+}

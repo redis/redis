@@ -1,0 +1,18 @@
+{
+    "SAVE": {
+        "summary": "Synchronously save the dataset to disk",
+        "group": "server",
+        "since": "1.0.0",
+        "arity": 1,
+        "function": "saveCommand",
+        "command_flags": [
+            "admin",
+            "noscript"
+        ],
+        "acl_categories": [
+            "admin",
+            "slow",
+            "dangerous"
+        ]
+    }
+}

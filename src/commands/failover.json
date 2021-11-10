@@ -1,0 +1,19 @@
+{
+    "FAILOVER": {
+        "summary": "Start a coordinated failover between this server and one of its replicas.",
+        "group": "server",
+        "since": "6.2.0",
+        "arity": -1,
+        "function": "failoverCommand",
+        "command_flags": [
+            "admin",
+            "noscript",
+            "stale"
+        ],
+        "acl_categories": [
+            "admin",
+            "slow",
+            "dangerous"
+        ]
+    }
+}

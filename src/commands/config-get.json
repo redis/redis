@@ -1,0 +1,21 @@
+{
+    "GET": {
+        "summary": "Get the value of a configuration parameter",
+        "group": "server",
+        "since": "2.0.0",
+        "arity": 3,
+        "container": "CONFIG",
+        "function": "configGetCommand",
+        "command_flags": [
+            "admin",
+            "noscript",
+            "loading",
+            "stale"
+        ],
+        "acl_categories": [
+            "admin",
+            "slow",
+            "dangerous"
+        ]
+    }
+}

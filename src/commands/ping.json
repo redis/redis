@@ -1,0 +1,17 @@
+{
+    "PING": {
+        "summary": "Ping the server",
+        "group": "connection",
+        "since": "1.0.0",
+        "arity": -1,
+        "function": "pingCommand",
+        "command_flags": [
+            "stale",
+            "fast"
+        ],
+        "acl_categories": [
+            "fast",
+            "connection"
+        ]
+    }
+}

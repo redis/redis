@@ -1,0 +1,37 @@
+{
+    "DEL": {
+        "summary": "Delete a key",
+        "complexity": "O(N) where N is the number of keys that will be removed. When a key to remove holds a value other than a string, the individual complexity for this key is O(M) where M is the number of elements in the list, set, sorted set or hash. Removing a single key that holds a string value is O(1).",
+        "group": "generic",
+        "since": "1.0.0",
+        "arity": -2,
+        "function": "delCommand",
+        "command_flags": [
+            "write"
+        ],
+        "acl_categories": [
+            "keyspace",
+            "write",
+            "slow"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "write"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": -1,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ]
+    }
+}

@@ -1,0 +1,15 @@
+{
+    "PFSELFTEST": {
+        "arity": 1,
+        "function": "pfselftestCommand",
+        "command_flags": [
+            "admin"
+        ],
+        "acl_categories": [
+            "hyperloglog",
+            "admin",
+            "slow",
+            "dangerous"
+        ]
+    }
+}

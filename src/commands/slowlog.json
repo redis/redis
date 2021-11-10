@@ -1,0 +1,11 @@
+{
+    "SLOWLOG": {
+        "group": "server",
+        "since": "2.2.12",
+        "arity": -2,
+        "command_flags": [],
+        "acl_categories": [
+            "slow"
+        ]
+    }
+}

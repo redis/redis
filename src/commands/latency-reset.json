@@ -1,0 +1,21 @@
+{
+    "RESET": {
+        "summary": "Reset latency data for one or more events.",
+        "group": "server",
+        "since": "2.8.13",
+        "arity": -2,
+        "container": "LATENCY",
+        "function": "latencyCommand",
+        "command_flags": [
+            "admin",
+            "noscript",
+            "loading",
+            "stale"
+        ],
+        "acl_categories": [
+            "admin",
+            "slow",
+            "dangerous"
+        ]
+    }
+}

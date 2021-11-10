@@ -1,0 +1,19 @@
+{
+    "HELP": {
+        "summary": "Show helpful text about the different subcommands",
+        "complexity": "O(1)",
+        "group": "generic",
+        "since": "6.2.0",
+        "arity": 2,
+        "container": "OBJECT",
+        "function": "objectCommand",
+        "command_flags": [
+            "loading",
+            "stale"
+        ],
+        "acl_categories": [
+            "keyspace",
+            "slow"
+        ]
+    }
+}

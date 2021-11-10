@@ -1,0 +1,19 @@
+{
+    "INFO": {
+        "summary": "Get information and statistics about the server",
+        "group": "server",
+        "since": "1.0.0",
+        "arity": -1,
+        "depracated": true,
+        "function": "infoCommand",
+        "command_flags": [
+            "random",
+            "loading",
+            "stale"
+        ],
+        "acl_categories": [
+            "slow",
+            "dangerous"
+        ]
+    }
+}

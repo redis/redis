@@ -1,0 +1,39 @@
+{
+    "ZINCRBY": {
+        "summary": "Increment the score of a member in a sorted set",
+        "complexity": "O(log(N)) where N is the number of elements in the sorted set.",
+        "group": "sorted_set",
+        "since": "1.2.0",
+        "arity": 4,
+        "function": "zincrbyCommand",
+        "command_flags": [
+            "write",
+            "denyoom",
+            "fast"
+        ],
+        "acl_categories": [
+            "write",
+            "sortedset",
+            "fast"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "write"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ]
+    }
+}

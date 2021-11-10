@@ -1,0 +1,45 @@
+{
+    "KILL": {
+        "summary": "Kill the connection of a client",
+        "complexity": "O(N) where N is the number of client connections",
+        "group": "connection",
+        "since": "2.4.0",
+        "arity": -3,
+        "container": "CLIENT",
+        "function": "clientCommand",
+        "history": [
+            [
+                "2.8.12",
+                "Added new filter format. "
+            ],
+            [
+                "2.8.12",
+                "`ID` option."
+            ],
+            [
+                "3.2",
+                "Added `master` type in for `TYPE` option."
+            ],
+            [
+                "5",
+                "Replaced `slave` `TYPE` with `replica`. `slave` still supported for backward compatibility."
+            ],
+            [
+                "6.2",
+                "`LADDR` option."
+            ]
+        ],
+        "command_flags": [
+            "admin",
+            "noscript",
+            "loading",
+            "stale"
+        ],
+        "acl_categories": [
+            "admin",
+            "slow",
+            "dangerous",
+            "connection"
+        ]
+    }
+}

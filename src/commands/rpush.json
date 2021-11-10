@@ -1,0 +1,45 @@
+{
+    "RPUSH": {
+        "summary": "Append one or multiple elements to a list",
+        "complexity": "O(1) for each element added, so O(N) to add N elements when the command is called with multiple arguments.",
+        "group": "list",
+        "since": "1.0.0",
+        "arity": -3,
+        "function": "rpushCommand",
+        "history": [
+            [
+                "2.4",
+                "Accepts multiple `element` arguments."
+            ]
+        ],
+        "command_flags": [
+            "write",
+            "denyoom",
+            "fast"
+        ],
+        "acl_categories": [
+            "write",
+            "list",
+            "fast"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "write"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ]
+    }
+}

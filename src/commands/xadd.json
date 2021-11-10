@@ -1,46 +1,142 @@
 {
-  "XADD": {
-    "summary": "Appends a new entry to a stream",
-    "complexity": "O(1) when adding a new entry, O(N) when trimming where N being the number of entires evicted.",
-    "group": "stream",
-    "since": "5.0.0",
-    "arity": -5,
-    "function": "xaddCommand",
-    "history": [
-      [
-        "6.2",
-        "Added the `NOMKSTREAM` option, `MINID` trimming strategy and the `LIMIT` option."
-      ]
-    ],
-    "command_flags": [
-      "write",
-      "denyoom",
-      "random",
-      "fast"
-    ],
-    "acl_categories": [
-      "write",
-      "stream",
-      "fast"
-    ],
-    "key_specs": [
-      {
-        "flags": [
-          "write"
+    "XADD": {
+        "summary": "Appends a new entry to a stream",
+        "complexity": "O(1) when adding a new entry, O(N) when trimming where N being the number of entires evicted.",
+        "group": "stream",
+        "since": "5.0.0",
+        "arity": -5,
+        "function": "xaddCommand",
+        "history": [
+            [
+                "6.2",
+                "Added the `NOMKSTREAM` option, `MINID` trimming strategy and the `LIMIT` option."
+            ]
         ],
-        "begin_search": {
-          "index": {
-            "pos": 1
-          }
-        },
-        "find_keys": {
-          "range": {
-            "lastkey": 0,
-            "step": 1,
-            "limit": 0
-          }
-        }
-      }
-    ]
-  }
+        "command_flags": [
+            "write",
+            "denyoom",
+            "random",
+            "fast"
+        ],
+        "acl_categories": [
+            "write",
+            "stream",
+            "fast"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "write"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "type": "key", 
+                "name": "key", 
+                "value": "key"
+            }, 
+            {
+                "token": "NOMKSTREAM", 
+                "optional": true, 
+                "name": "nomkstream"
+            }, 
+            {
+                "type": "block", 
+                "optional": true, 
+                "name": "trim", 
+                "value": [
+                    {
+                        "type": "oneof", 
+                        "name": "__TBD__1__", 
+                        "value": [
+                            {
+                                "type": "__TBD__2__", 
+                                "name": "maxlen", 
+                                "value": "MAXLEN"
+                            }, 
+                            {
+                                "type": "__TBD__3__", 
+                                "name": "minid", 
+                                "value": "MINID"
+                            }
+                        ]
+                    }, 
+                    {
+                        "type": "oneof", 
+                        "optional": true, 
+                        "name": "__TBD__4__", 
+                        "value": [
+                            {
+                                "token": "=", 
+                                "name": "__TBD__5__"
+                            }, 
+                            {
+                                "token": "~", 
+                                "name": "__TBD__6__"
+                            }
+                        ]
+                    }, 
+                    {
+                        "type": "string", 
+                        "name": "threshold", 
+                        "value": "threshold"
+                    }, 
+                    {
+                        "type": "integer", 
+                        "token": "LIMIT", 
+                        "optional": true, 
+                        "name": "count", 
+                        "value": "count"
+                    }
+                ]
+            }, 
+            {
+                "type": "oneof", 
+                "name": "__TBD__7__", 
+                "value": [
+                    {
+                        "token": "*", 
+                        "name": "__TBD__8__"
+                    }, 
+                    {
+                        "type": "__TBD__9__", 
+                        "name": "id", 
+                        "value": "ID"
+                    }
+                ]
+            }, 
+            {
+                "mutliple_token": true, 
+                "mutliple": true, 
+                "name": "field_value", 
+                "value": [
+                    {
+                        "type": "string", 
+                        "name": "field", 
+                        "value": "field"
+                    }, 
+                    {
+                        "type": "string", 
+                        "name": "value", 
+                        "value": "value"
+                    }
+                ], 
+                "type": "block"
+            }
+        ]
+
+    }
 }

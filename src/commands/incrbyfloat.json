@@ -1,0 +1,39 @@
+{
+    "INCRBYFLOAT": {
+        "summary": "Increment the float value of a key by the given amount",
+        "complexity": "O(1)",
+        "group": "string",
+        "since": "2.6.0",
+        "arity": 3,
+        "function": "incrbyfloatCommand",
+        "command_flags": [
+            "write",
+            "denyoom",
+            "fast"
+        ],
+        "acl_categories": [
+            "write",
+            "string",
+            "fast"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "write"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ]
+    }
+}

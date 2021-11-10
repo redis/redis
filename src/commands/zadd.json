@@ -1,0 +1,53 @@
+{
+    "ZADD": {
+        "summary": "Add one or more members to a sorted set, or update its score if it already exists",
+        "complexity": "O(log(N)) for each item added, where N is the number of elements in the sorted set.",
+        "group": "sorted_set",
+        "since": "1.2.0",
+        "arity": -4,
+        "function": "zaddCommand",
+        "history": [
+            [
+                "2.4",
+                "Accepts multiple elements."
+            ],
+            [
+                "3.0.2",
+                "Added the `XX`, `NX`, `CH` and `INCR` options."
+            ],
+            [
+                "6.2",
+                "Added the `GT` and `LT` options."
+            ]
+        ],
+        "command_flags": [
+            "write",
+            "denyoom",
+            "fast"
+        ],
+        "acl_categories": [
+            "write",
+            "sortedset",
+            "fast"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "write"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ]
+    }
+}

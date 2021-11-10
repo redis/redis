@@ -1,0 +1,39 @@
+{
+    "FREQ": {
+        "summary": "Get the logarithmic access frequency counter of a Redis object",
+        "complexity": "O(1)",
+        "group": "generic",
+        "since": "4.0.0",
+        "arity": 3,
+        "container": "OBJECT",
+        "function": "objectCommand",
+        "command_flags": [
+            "readonly",
+            "random"
+        ],
+        "acl_categories": [
+            "keyspace",
+            "read",
+            "slow"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "read"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 2
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ]
+    }
+}

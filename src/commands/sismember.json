@@ -1,0 +1,38 @@
+{
+    "SISMEMBER": {
+        "summary": "Determine if a given value is a member of a set",
+        "complexity": "O(1)",
+        "group": "set",
+        "since": "1.0.0",
+        "arity": 3,
+        "function": "sismemberCommand",
+        "command_flags": [
+            "readonly",
+            "fast"
+        ],
+        "acl_categories": [
+            "read",
+            "set",
+            "fast"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "read"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ]
+    }
+}

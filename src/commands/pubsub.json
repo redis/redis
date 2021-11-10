@@ -1,0 +1,11 @@
+{
+    "PUBSUB": {
+        "group": "pubsub",
+        "since": "2.8.0",
+        "arity": -2,
+        "command_flags": [],
+        "acl_categories": [
+            "slow"
+        ]
+    }
+}

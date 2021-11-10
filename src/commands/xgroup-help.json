@@ -1,14 +1,19 @@
 {
-  "HELP": {
-    "arity": 2,
-    "container": "XGROUP",
-    "command_flags": [
-      "loading",
-      "stale"
-    ],
-    "acl_categories": [
-      "stream",
-      "slow"
-    ]
-  }
+    "HELP": {
+        "summary": "Show helpful text about the different subcommands",
+        "complexity": "O(1)",
+        "group": "stream",
+        "since": "5.0.0",
+        "arity": 2,
+        "container": "XGROUP",
+        "function": "xgroupCommand",
+        "command_flags": [
+            "loading",
+            "stale"
+        ],
+        "acl_categories": [
+            "stream",
+            "slow"
+        ]
+    }
 }

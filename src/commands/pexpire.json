@@ -1,0 +1,44 @@
+{
+    "PEXPIRE": {
+        "summary": "Set a key's time to live in milliseconds",
+        "complexity": "O(1)",
+        "group": "generic",
+        "since": "2.6.0",
+        "arity": -3,
+        "function": "pexpireCommand",
+        "history": [
+            [
+                "7.0",
+                "Added options: `NX`, `XX`, `GT` and `LT`."
+            ]
+        ],
+        "command_flags": [
+            "write",
+            "fast"
+        ],
+        "acl_categories": [
+            "keyspace",
+            "write",
+            "fast"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "write"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ]
+    }
+}

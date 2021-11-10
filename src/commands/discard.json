@@ -1,0 +1,19 @@
+{
+    "DISCARD": {
+        "summary": "Discard all commands issued after MULTI",
+        "group": "transactions",
+        "since": "2.0.0",
+        "arity": 1,
+        "function": "discardCommand",
+        "command_flags": [
+            "noscript",
+            "loading",
+            "stale",
+            "fast"
+        ],
+        "acl_categories": [
+            "fast",
+            "transaction"
+        ]
+    }
+}

@@ -1,0 +1,37 @@
+{
+    "RENAME": {
+        "summary": "Rename a key",
+        "complexity": "O(1)",
+        "group": "generic",
+        "since": "1.0.0",
+        "arity": 3,
+        "function": "renameCommand",
+        "command_flags": [
+            "write"
+        ],
+        "acl_categories": [
+            "keyspace",
+            "write",
+            "slow"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "write"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 1,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ]
+    }
+}

@@ -1,0 +1,22 @@
+{
+    "DELUSER": {
+        "summary": "Remove the specified ACL users and the associated rules",
+        "complexity": "O(1) amortized time considering the typical user.",
+        "group": "server",
+        "since": "6.0.0",
+        "arity": -3,
+        "container": "ACL",
+        "function": "aclCommand",
+        "command_flags": [
+            "admin",
+            "noscript",
+            "loading",
+            "stale"
+        ],
+        "acl_categories": [
+            "admin",
+            "slow",
+            "dangerous"
+        ]
+    }
+}

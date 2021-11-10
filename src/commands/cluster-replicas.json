@@ -1,0 +1,21 @@
+{
+    "REPLICAS": {
+        "summary": "List replica nodes of the specified master node",
+        "complexity": "O(1)",
+        "group": "cluster",
+        "since": "5.0.0",
+        "arity": 3,
+        "container": "CLUSTER",
+        "function": "clusterCommand",
+        "command_flags": [
+            "admin",
+            "random",
+            "stale"
+        ],
+        "acl_categories": [
+            "admin",
+            "slow",
+            "dangerous"
+        ]
+    }
+}

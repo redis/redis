@@ -1,0 +1,20 @@
+{
+    "LOAD": {
+        "summary": "Load a module",
+        "complexity": "O(1)",
+        "group": "server",
+        "since": "4.0.0",
+        "arity": -3,
+        "container": "MODULE",
+        "function": "moduleCommand",
+        "command_flags": [
+            "admin",
+            "noscript"
+        ],
+        "acl_categories": [
+            "admin",
+            "slow",
+            "dangerous"
+        ]
+    }
+}

@@ -1,14 +1,11 @@
 {
-  "XGROUP": {
-    "summary": "Create, destroy, and manage consumer groups.",
-    "complexity": "O(1) for all the subcommands, with the exception of the DESTROY subcommand which takes an additional O(M) time in order to delete the M entries inside the consumer group pending entries list (PEL).",
-    "group": "stream",
-    "since": "5.0.0",
-    "arity": -2,
-    "function": "xgroupCommand",
-    "command_flags": [],
-    "acl_categories": [
-      "slow"
-    ]
-  }
+    "XGROUP": {
+        "group": "stream",
+        "since": "5.0.0",
+        "arity": -2,
+        "command_flags": [],
+        "acl_categories": [
+            "slow"
+        ]
+    }
 }

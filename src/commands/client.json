@@ -1,0 +1,11 @@
+{
+    "CLIENT": {
+        "group": "connection",
+        "since": "2.4.0",
+        "arity": -2,
+        "command_flags": [],
+        "acl_categories": [
+            "slow"
+        ]
+    }
+}

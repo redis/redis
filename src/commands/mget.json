@@ -1,0 +1,38 @@
+{
+    "MGET": {
+        "summary": "Get the values of all the given keys",
+        "complexity": "O(N) where N is the number of keys to retrieve.",
+        "group": "string",
+        "since": "1.0.0",
+        "arity": -2,
+        "function": "mgetCommand",
+        "command_flags": [
+            "readonly",
+            "fast"
+        ],
+        "acl_categories": [
+            "read",
+            "string",
+            "fast"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "read"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": -1,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ]
+    }
+}

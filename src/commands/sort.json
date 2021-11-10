@@ -1,15 +1,17 @@
 {
-    "SORT":{
-        "summary":"Sort the elements in a list, set or sorted set",
-        "complexity":"O(N+M*log(M)) where N is the number of elements in the list or set to sort, and M the number of returned elements. When the elements are not sorted, complexity is O(N).",
-        "group":"generic",
-        "since":"1.0.0",
-        "arity":-2,
-        "command_flags":[
+    "SORT": {
+        "summary": "Sort the elements in a list, set or sorted set",
+        "complexity": "O(N+M*log(M)) where N is the number of elements in the list or set to sort, and M the number of returned elements. When the elements are not sorted, complexity is O(N).",
+        "group": "generic",
+        "since": "1.0.0",
+        "arity": -2,
+        "function": "sortCommand",
+        "get_keys_function": "sortGetKeys",
+        "command_flags": [
             "write",
             "denyoom"
         ],
-        "acl_categories":[
+        "acl_categories": [
             "write",
             "set",
             "sortedset",
@@ -17,113 +19,35 @@
             "slow",
             "dangerous"
         ],
-        "key_specs":[
+        "key_specs": [
             {
-                "flags":[
+                "flags": [
                     "read"
                 ],
-                "begin_search":{
-                    "index":{
-                        "pos":1
+                "begin_search": {
+                    "index": {
+                        "pos": 1
                     }
                 },
-                "find_keys":{
-                    "range":{
-                        "lastkey":0,
-                        "step":1,
-                        "limit":0
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
                     }
                 }
             },
             {
-                "flags":[
+                "flags": [
                     "write",
                     "incomplete"
                 ],
-                "begin_search":{
-                    "unknown":null
+                "begin_search": {
+                    "unknown": null
                 },
-                "find_keys":{
-                    "unknown":null
+                "find_keys": {
+                    "unknown": null
                 }
-            }
-        ],
-        "arguments":[
-            {
-                "name":"key",
-                "type":"key",
-                "value":"key"
-            },
-            {
-                "name":"sortby",
-                "type":"oneof",
-                "token":"BY",
-                "value":[
-                    {
-                        "name":"pattern",
-                        "type":"pattern",
-                        "value":"pattern"
-                    },
-                    {
-                        "name":"elementitself",
-                        "token":"#"
-                    }
-                ],
-                "optional":true
-            },
-            {
-                "name":"limit",
-                "type":"block",
-                "token":"LIMIT",
-                "value":[
-                    {
-                        "name":"offset",
-                        "type":"integer",
-                        "value":"offset"
-                    },
-                    {
-                        "name":"count",
-                        "type":"integer",
-                        "value":"count"
-                    }
-                ],
-                "optional":true
-            },
-            {
-                "name":"get",
-                "token":"GET",
-                "value":"pattern",
-                "type":"string",
-                "optional":true,
-                "multiple":true,
-                "multiple_token":true
-            },
-            {
-                "name":"order",
-                "type":"oneof",
-                "value":[
-                    {
-                        "name":"asc",
-                        "token":"ASC"
-                    },
-                    {
-                        "name":"desc",
-                        "token":"DESC"
-                    }
-                ],
-                "optional":true
-            },
-            {
-                "name":"sorting",
-                "token":"ALPHA",
-                "optional":true
-            },
-            {
-                "name":"store",
-                "token":"STORE",
-                "value":"destination",
-                "type":"key",
-                "optional":true
             }
         ]
     }

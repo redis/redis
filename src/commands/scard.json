@@ -1,0 +1,38 @@
+{
+    "SCARD": {
+        "summary": "Get the number of members in a set",
+        "complexity": "O(1)",
+        "group": "set",
+        "since": "1.0.0",
+        "arity": 2,
+        "function": "scardCommand",
+        "command_flags": [
+            "readonly",
+            "fast"
+        ],
+        "acl_categories": [
+            "read",
+            "set",
+            "fast"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "read"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ]
+    }
+}

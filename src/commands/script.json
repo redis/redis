@@ -1,0 +1,11 @@
+{
+    "SCRIPT": {
+        "group": "scripting",
+        "since": "2.6.0",
+        "arity": -2,
+        "command_flags": [],
+        "acl_categories": [
+            "slow"
+        ]
+    }
+}

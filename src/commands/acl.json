@@ -1,0 +1,11 @@
+{
+    "ACL": {
+        "group": "server",
+        "since": "6.0.0",
+        "arity": -2,
+        "command_flags": [],
+        "acl_categories": [
+            "slow"
+        ]
+    }
+}

@@ -1,0 +1,37 @@
+{
+    "GEOPOS": {
+        "summary": "Returns longitude and latitude of members of a geospatial index",
+        "complexity": "O(N) where N is the number of members requested.",
+        "group": "geo",
+        "since": "3.2.0",
+        "arity": -2,
+        "function": "geoposCommand",
+        "command_flags": [
+            "readonly"
+        ],
+        "acl_categories": [
+            "read",
+            "geo",
+            "slow"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "read"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ]
+    }
+}

@@ -1,33 +1,38 @@
 {
-  "SETID": {
-    "arity": 5,
-    "container": "XGROUP",
-    "command_flags": [
-      "write"
-    ],
-    "acl_categories": [
-      "write",
-      "stream",
-      "slow"
-    ],
-    "key_specs": [
-      {
-        "flags": [
-          "write"
+    "SETID": {
+        "summary": "Set a consumer group to an arbitrary last delivered ID value.",
+        "complexity": "O(1)",
+        "group": "stream",
+        "since": "5.0.0",
+        "arity": 5,
+        "container": "XGROUP",
+        "function": "xgroupCommand",
+        "command_flags": [
+            "write"
         ],
-        "begin_search": {
-          "index": {
-            "pos": 2
-          }
-        },
-        "find_keys": {
-          "range": {
-            "lastkey": 0,
-            "step": 1,
-            "limit": 0
-          }
-        }
-      }
-    ]
-  }
+        "acl_categories": [
+            "write",
+            "stream",
+            "slow"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "write"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 2
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ]
+    }
 }

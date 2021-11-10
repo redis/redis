@@ -1,0 +1,16 @@
+{
+    "ECHO": {
+        "summary": "Echo the given string",
+        "group": "connection",
+        "since": "1.0.0",
+        "arity": 2,
+        "function": "echoCommand",
+        "command_flags": [
+            "fast"
+        ],
+        "acl_categories": [
+            "fast",
+            "connection"
+        ]
+    }
+}

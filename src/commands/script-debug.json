@@ -1,0 +1,18 @@
+{
+    "DEBUG": {
+        "summary": "Set the debug mode for executed scripts.",
+        "complexity": "O(1)",
+        "group": "scripting",
+        "since": "3.2.0",
+        "arity": 3,
+        "container": "SCRIPT",
+        "function": "scriptCommand",
+        "command_flags": [
+            "noscript"
+        ],
+        "acl_categories": [
+            "slow",
+            "scripting"
+        ]
+    }
+}

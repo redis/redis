@@ -1,0 +1,38 @@
+{
+    "BITFIELD": {
+        "summary": "Perform arbitrary bitfield integer operations on strings",
+        "complexity": "O(1) for each subcommand specified",
+        "group": "bitmap",
+        "since": "3.2.0",
+        "arity": -2,
+        "function": "bitfieldCommand",
+        "command_flags": [
+            "write",
+            "denyoom"
+        ],
+        "acl_categories": [
+            "write",
+            "bitmap",
+            "slow"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "write"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ]
+    }
+}

@@ -1,15 +1,15 @@
 {
-  "LIST": {
-    "arity": -2,
-    "container": "COMMAND",
-    "function":"commandListCommand",
-    "command_flags": [
-      "loading",
-      "stale"
-    ],
-    "acl_categories": [
-      "slow",
-      "connection"
-    ]
-  }
+    "LIST": {
+        "arity": -2,
+        "container": "COMMAND",
+        "function": "commandListCommand",
+        "command_flags": [
+            "loading",
+            "stale"
+        ],
+        "acl_categories": [
+            "slow",
+            "connection"
+        ]
+    }
 }

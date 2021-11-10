@@ -1,0 +1,20 @@
+{
+    "SWAPDB": {
+        "summary": "Swaps two Redis databases",
+        "complexity": "O(N) where N is the count of clients watching or blocking on keys from both databases.",
+        "group": "server",
+        "since": "4.0.0",
+        "arity": 3,
+        "function": "swapdbCommand",
+        "command_flags": [
+            "write",
+            "fast"
+        ],
+        "acl_categories": [
+            "keyspace",
+            "write",
+            "fast",
+            "dangerous"
+        ]
+    }
+}

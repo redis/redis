@@ -1,0 +1,19 @@
+{
+    "FLUSHDB": {
+        "summary": "Remove all keys from the current database",
+        "complexity": "O(N) where N is the number of keys in the selected database",
+        "group": "server",
+        "since": "1.0.0",
+        "arity": -1,
+        "function": "flushdbCommand",
+        "command_flags": [
+            "write"
+        ],
+        "acl_categories": [
+            "keyspace",
+            "write",
+            "slow",
+            "dangerous"
+        ]
+    }
+}

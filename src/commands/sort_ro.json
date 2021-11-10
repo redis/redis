@@ -1,0 +1,40 @@
+{
+    "SORT_RO": {
+        "summary": "Sort the elements in a list, set or sorted set. Read-only variant of SORT.",
+        "complexity": "O(N+M*log(M)) where N is the number of elements in the list or set to sort, and M the number of returned elements. When the elements are not sorted, complexity is O(N).",
+        "group": "generic",
+        "since": "7.0.0",
+        "arity": -2,
+        "function": "sortroCommand",
+        "command_flags": [
+            "readonly"
+        ],
+        "acl_categories": [
+            "read",
+            "set",
+            "sortedset",
+            "list",
+            "slow",
+            "dangerous"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "read"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ]
+    }
+}

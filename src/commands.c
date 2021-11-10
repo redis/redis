@@ -90,37 +90,620 @@
 *    TYPE, EXPIRE*, PEXPIRE*, TTL, PTTL, ...
 */
 
-/********** CONFIG SET ********************/
+/********** BITCOUNT ********************/
 
-/* CONFIG SET return info */
-commandReturnInfo CONFIG_SET_ReturnInfo[] = {
-{"Command succeeded","+OK",RETURN_TYPE_RESP2_3_SAME,.type.global=RESP2_SIMPLE_STRING},
+/* BITCOUNT return info */
+#define BITCOUNT_ReturnInfo NULL
+
+/* BITCOUNT history */
+commandHistory BITCOUNT_History[] = {
+{"7.0","Added the `BYTE|BIT` option."},
 {0}
 };
 
-/* CONFIG SET history */
-#define CONFIG_SET_History NULL
+/********** BITFIELD ********************/
 
-/* CONFIG SET argument table */
-struct redisCommandArg CONFIG_SET_Args[] = {
-{"parameter",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="parameter"},
-{"value",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="value"},
+/* BITFIELD return info */
+#define BITFIELD_ReturnInfo NULL
+
+/* BITFIELD history */
+#define BITFIELD_History NULL
+
+/********** BITFIELD_RO ********************/
+
+/* BITFIELD_RO return info */
+#define BITFIELD_RO_ReturnInfo NULL
+
+/* BITFIELD_RO history */
+#define BITFIELD_RO_History NULL
+
+/********** BITOP ********************/
+
+/* BITOP return info */
+#define BITOP_ReturnInfo NULL
+
+/* BITOP history */
+#define BITOP_History NULL
+
+/********** BITPOS ********************/
+
+/* BITPOS return info */
+#define BITPOS_ReturnInfo NULL
+
+/* BITPOS history */
+commandHistory BITPOS_History[] = {
+{"7.0","Added the `BYTE|BIT` option."},
 {0}
 };
 
-/* CONFIG command table */
-struct redisCommand CONFIG_Subcommands[] = {
-{"SET","Set a configuration parameter to the given value",NULL,"2.0.0",COMMAND_GROUP_GENERIC,CONFIG_SET_ReturnInfo,CONFIG_SET_History,configSetCommand,4,"admin noscript",.args=CONFIG_SET_Args},
+/********** GETBIT ********************/
+
+/* GETBIT return info */
+#define GETBIT_ReturnInfo NULL
+
+/* GETBIT history */
+#define GETBIT_History NULL
+
+/********** SETBIT ********************/
+
+/* SETBIT return info */
+#define SETBIT_ReturnInfo NULL
+
+/* SETBIT history */
+#define SETBIT_History NULL
+
+/********** ASKING ********************/
+
+/* ASKING return info */
+#define ASKING_ReturnInfo NULL
+
+/* ASKING history */
+#define ASKING_History NULL
+
+/********** CLUSTER ADDSLOTS ********************/
+
+/* CLUSTER ADDSLOTS return info */
+#define CLUSTER_ADDSLOTS_ReturnInfo NULL
+
+/* CLUSTER ADDSLOTS history */
+#define CLUSTER_ADDSLOTS_History NULL
+
+/********** CLUSTER ADDSLOTSRANGE ********************/
+
+/* CLUSTER ADDSLOTSRANGE return info */
+#define CLUSTER_ADDSLOTSRANGE_ReturnInfo NULL
+
+/* CLUSTER ADDSLOTSRANGE history */
+#define CLUSTER_ADDSLOTSRANGE_History NULL
+
+/********** CLUSTER BUMPEPOCH ********************/
+
+/* CLUSTER BUMPEPOCH return info */
+#define CLUSTER_BUMPEPOCH_ReturnInfo NULL
+
+/* CLUSTER BUMPEPOCH history */
+#define CLUSTER_BUMPEPOCH_History NULL
+
+/********** CLUSTER COUNT_FAILURE_REPORTS ********************/
+
+/* CLUSTER COUNT_FAILURE_REPORTS return info */
+#define CLUSTER_COUNT_FAILURE_REPORTS_ReturnInfo NULL
+
+/* CLUSTER COUNT_FAILURE_REPORTS history */
+#define CLUSTER_COUNT_FAILURE_REPORTS_History NULL
+
+/********** CLUSTER COUNTKEYSINSLOT ********************/
+
+/* CLUSTER COUNTKEYSINSLOT return info */
+#define CLUSTER_COUNTKEYSINSLOT_ReturnInfo NULL
+
+/* CLUSTER COUNTKEYSINSLOT history */
+#define CLUSTER_COUNTKEYSINSLOT_History NULL
+
+/********** CLUSTER DELSLOTS ********************/
+
+/* CLUSTER DELSLOTS return info */
+#define CLUSTER_DELSLOTS_ReturnInfo NULL
+
+/* CLUSTER DELSLOTS history */
+#define CLUSTER_DELSLOTS_History NULL
+
+/********** CLUSTER DELSLOTSRANGE ********************/
+
+/* CLUSTER DELSLOTSRANGE return info */
+#define CLUSTER_DELSLOTSRANGE_ReturnInfo NULL
+
+/* CLUSTER DELSLOTSRANGE history */
+#define CLUSTER_DELSLOTSRANGE_History NULL
+
+/********** CLUSTER FAILOVER ********************/
+
+/* CLUSTER FAILOVER return info */
+#define CLUSTER_FAILOVER_ReturnInfo NULL
+
+/* CLUSTER FAILOVER history */
+#define CLUSTER_FAILOVER_History NULL
+
+/********** CLUSTER FLUSHSLOTS ********************/
+
+/* CLUSTER FLUSHSLOTS return info */
+#define CLUSTER_FLUSHSLOTS_ReturnInfo NULL
+
+/* CLUSTER FLUSHSLOTS history */
+#define CLUSTER_FLUSHSLOTS_History NULL
+
+/********** CLUSTER FORGET ********************/
+
+/* CLUSTER FORGET return info */
+#define CLUSTER_FORGET_ReturnInfo NULL
+
+/* CLUSTER FORGET history */
+#define CLUSTER_FORGET_History NULL
+
+/********** CLUSTER GETKEYSINSLOT ********************/
+
+/* CLUSTER GETKEYSINSLOT return info */
+#define CLUSTER_GETKEYSINSLOT_ReturnInfo NULL
+
+/* CLUSTER GETKEYSINSLOT history */
+#define CLUSTER_GETKEYSINSLOT_History NULL
+
+/********** CLUSTER HELP ********************/
+
+/* CLUSTER HELP return info */
+#define CLUSTER_HELP_ReturnInfo NULL
+
+/* CLUSTER HELP history */
+#define CLUSTER_HELP_History NULL
+
+/********** CLUSTER INFO ********************/
+
+/* CLUSTER INFO return info */
+#define CLUSTER_INFO_ReturnInfo NULL
+
+/* CLUSTER INFO history */
+#define CLUSTER_INFO_History NULL
+
+/********** CLUSTER KEYSLOT ********************/
+
+/* CLUSTER KEYSLOT return info */
+#define CLUSTER_KEYSLOT_ReturnInfo NULL
+
+/* CLUSTER KEYSLOT history */
+#define CLUSTER_KEYSLOT_History NULL
+
+/********** CLUSTER MEET ********************/
+
+/* CLUSTER MEET return info */
+#define CLUSTER_MEET_ReturnInfo NULL
+
+/* CLUSTER MEET history */
+#define CLUSTER_MEET_History NULL
+
+/********** CLUSTER MYID ********************/
+
+/* CLUSTER MYID return info */
+#define CLUSTER_MYID_ReturnInfo NULL
+
+/* CLUSTER MYID history */
+#define CLUSTER_MYID_History NULL
+
+/********** CLUSTER NODES ********************/
+
+/* CLUSTER NODES return info */
+#define CLUSTER_NODES_ReturnInfo NULL
+
+/* CLUSTER NODES history */
+#define CLUSTER_NODES_History NULL
+
+/********** CLUSTER REPLICAS ********************/
+
+/* CLUSTER REPLICAS return info */
+#define CLUSTER_REPLICAS_ReturnInfo NULL
+
+/* CLUSTER REPLICAS history */
+#define CLUSTER_REPLICAS_History NULL
+
+/********** CLUSTER REPLICATE ********************/
+
+/* CLUSTER REPLICATE return info */
+#define CLUSTER_REPLICATE_ReturnInfo NULL
+
+/* CLUSTER REPLICATE history */
+#define CLUSTER_REPLICATE_History NULL
+
+/********** CLUSTER RESET ********************/
+
+/* CLUSTER RESET return info */
+#define CLUSTER_RESET_ReturnInfo NULL
+
+/* CLUSTER RESET history */
+#define CLUSTER_RESET_History NULL
+
+/********** CLUSTER SAVECONFIG ********************/
+
+/* CLUSTER SAVECONFIG return info */
+#define CLUSTER_SAVECONFIG_ReturnInfo NULL
+
+/* CLUSTER SAVECONFIG history */
+#define CLUSTER_SAVECONFIG_History NULL
+
+/********** CLUSTER SET_CONFIG_EPOCH ********************/
+
+/* CLUSTER SET_CONFIG_EPOCH return info */
+#define CLUSTER_SET_CONFIG_EPOCH_ReturnInfo NULL
+
+/* CLUSTER SET_CONFIG_EPOCH history */
+#define CLUSTER_SET_CONFIG_EPOCH_History NULL
+
+/********** CLUSTER SETSLOT ********************/
+
+/* CLUSTER SETSLOT return info */
+#define CLUSTER_SETSLOT_ReturnInfo NULL
+
+/* CLUSTER SETSLOT history */
+#define CLUSTER_SETSLOT_History NULL
+
+/********** CLUSTER SLOTS ********************/
+
+/* CLUSTER SLOTS return info */
+#define CLUSTER_SLOTS_ReturnInfo NULL
+
+/* CLUSTER SLOTS history */
+commandHistory CLUSTER_SLOTS_History[] = {
+{"4.0","Added node IDs."},
 {0}
 };
 
-/********** CONFIG ********************/
+/* CLUSTER command table */
+struct redisCommand CLUSTER_Subcommands[] = {
+{"RESET","Reset a Redis Cluster node","O(N) where N is the number of known nodes. The command may execute a FLUSHALL as a side effect.","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_RESET_ReturnInfo,CLUSTER_RESET_History,clusterCommand,3,"admin random stale @admin @slow @dangerous"},
+{"ADDSLOTS","Assign new hash slots to receiving node","O(N) where N is the total number of hash slot arguments","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_ADDSLOTS_ReturnInfo,CLUSTER_ADDSLOTS_History,clusterCommand,-3,"admin random stale @admin @slow @dangerous"},
+{"HELP","Show helpful text about the different subcommands","O(1)","5.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_HELP_ReturnInfo,CLUSTER_HELP_History,clusterCommand,2,"loading stale @slow"},
+{"REPLICAS","List replica nodes of the specified master node","O(1)","5.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_REPLICAS_ReturnInfo,CLUSTER_REPLICAS_History,clusterCommand,3,"admin random stale @admin @slow @dangerous"},
+{"FLUSHSLOTS","Delete a node's own slots information","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_FLUSHSLOTS_ReturnInfo,CLUSTER_FLUSHSLOTS_History,clusterCommand,2,"admin random stale @admin @slow @dangerous"},
+{"SAVECONFIG","Forces the node to save cluster state on disk","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_SAVECONFIG_ReturnInfo,CLUSTER_SAVECONFIG_History,clusterCommand,2,"admin random stale @admin @slow @dangerous"},
+{"MYID","Return the node id","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_MYID_ReturnInfo,CLUSTER_MYID_History,clusterCommand,2,"random stale @slow"},
+{"NODES","Get Cluster config for the node","O(N) where N is the total number of Cluster nodes","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_NODES_ReturnInfo,CLUSTER_NODES_History,clusterCommand,2,"random stale @slow"},
+{"KEYSLOT","Returns the hash slot of the specified key","O(N) where N is the number of bytes in the key","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_KEYSLOT_ReturnInfo,CLUSTER_KEYSLOT_History,clusterCommand,3,"random stale @slow"},
+{"COUNT-FAILURE-REPORTS","Return the number of failure reports active for a given node","O(N) where N is the number of failure reports","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_COUNT_FAILURE_REPORTS_ReturnInfo,CLUSTER_COUNT_FAILURE_REPORTS_History,clusterCommand,3,"admin random stale @admin @slow @dangerous"},
+{"MEET","Force a node cluster to handshake with another node","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_MEET_ReturnInfo,CLUSTER_MEET_History,clusterCommand,-4,"admin random stale @admin @slow @dangerous"},
+{"SLOTS","Get array of Cluster slot to node mappings","O(N) where N is the total number of Cluster nodes","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_SLOTS_ReturnInfo,CLUSTER_SLOTS_History,clusterCommand,2,"random stale @slow"},
+{"BUMPEPOCH","Advance the cluster config epoch","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_BUMPEPOCH_ReturnInfo,CLUSTER_BUMPEPOCH_History,clusterCommand,2,"admin random stale @admin @slow @dangerous"},
+{"SETSLOT","Bind a hash slot to a specific node","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_SETSLOT_ReturnInfo,CLUSTER_SETSLOT_History,clusterCommand,-4,"admin random stale @admin @slow @dangerous"},
+{"FORGET","Remove a node from the nodes table","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_FORGET_ReturnInfo,CLUSTER_FORGET_History,clusterCommand,3,"admin random stale @admin @slow @dangerous"},
+{"GETKEYSINSLOT","Return local key names in the specified hash slot","O(log(N)) where N is the number of requested keys","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_GETKEYSINSLOT_ReturnInfo,CLUSTER_GETKEYSINSLOT_History,clusterCommand,4,"random stale @slow"},
+{"ADDSLOTSRANGE",NULL,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_ADDSLOTSRANGE_ReturnInfo,CLUSTER_ADDSLOTSRANGE_History,clusterCommand,-4,"admin random stale @admin @slow @dangerous"},
+{"INFO","Provides info about Redis Cluster node state","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_INFO_ReturnInfo,CLUSTER_INFO_History,clusterCommand,2,"random stale @slow"},
+{"COUNTKEYSINSLOT","Return the number of local keys in the specified hash slot","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_COUNTKEYSINSLOT_ReturnInfo,CLUSTER_COUNTKEYSINSLOT_History,clusterCommand,3,"random stale @slow"},
+{"FAILOVER","Forces a replica to perform a manual failover of its master.","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_FAILOVER_ReturnInfo,CLUSTER_FAILOVER_History,clusterCommand,-2,"admin random stale @admin @slow @dangerous"},
+{"DELSLOTSRANGE",NULL,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_DELSLOTSRANGE_ReturnInfo,CLUSTER_DELSLOTSRANGE_History,clusterCommand,-4,"admin random stale @admin @slow @dangerous"},
+{"REPLICATE","Reconfigure a node as a replica of the specified master node","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_REPLICATE_ReturnInfo,CLUSTER_REPLICATE_History,clusterCommand,3,"admin random stale @admin @slow @dangerous"},
+{"DELSLOTS","Set hash slots as unbound in receiving node","O(N) where N is the total number of hash slot arguments","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_DELSLOTS_ReturnInfo,CLUSTER_DELSLOTS_History,clusterCommand,-3,"admin random stale @admin @slow @dangerous"},
+{"SET-CONFIG-EPOCH","Set the configuration epoch in a new node","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_SET_CONFIG_EPOCH_ReturnInfo,CLUSTER_SET_CONFIG_EPOCH_History,clusterCommand,3,"admin random stale @admin @slow @dangerous"},
+{0}
+};
 
-/* CONFIG return info */
-#define CONFIG_ReturnInfo NULL
+/********** CLUSTER ********************/
 
-/* CONFIG history */
-#define CONFIG_History NULL
+/* CLUSTER return info */
+#define CLUSTER_ReturnInfo NULL
+
+/* CLUSTER history */
+#define CLUSTER_History NULL
+
+/********** READONLY ********************/
+
+/* READONLY return info */
+#define READONLY_ReturnInfo NULL
+
+/* READONLY history */
+#define READONLY_History NULL
+
+/********** READWRITE ********************/
+
+/* READWRITE return info */
+#define READWRITE_ReturnInfo NULL
+
+/* READWRITE history */
+#define READWRITE_History NULL
+
+/********** AUTH ********************/
+
+/* AUTH return info */
+#define AUTH_ReturnInfo NULL
+
+/* AUTH history */
+commandHistory AUTH_History[] = {
+{"6.0.0","Added ACL style (username and password)."},
+{0}
+};
+
+/********** CLIENT CACHING ********************/
+
+/* CLIENT CACHING return info */
+#define CLIENT_CACHING_ReturnInfo NULL
+
+/* CLIENT CACHING history */
+#define CLIENT_CACHING_History NULL
+
+/********** CLIENT GETNAME ********************/
+
+/* CLIENT GETNAME return info */
+#define CLIENT_GETNAME_ReturnInfo NULL
+
+/* CLIENT GETNAME history */
+#define CLIENT_GETNAME_History NULL
+
+/********** CLIENT GETREDIR ********************/
+
+/* CLIENT GETREDIR return info */
+#define CLIENT_GETREDIR_ReturnInfo NULL
+
+/* CLIENT GETREDIR history */
+#define CLIENT_GETREDIR_History NULL
+
+/********** CLIENT HELP ********************/
+
+/* CLIENT HELP return info */
+#define CLIENT_HELP_ReturnInfo NULL
+
+/* CLIENT HELP history */
+#define CLIENT_HELP_History NULL
+
+/********** CLIENT ID ********************/
+
+/* CLIENT ID return info */
+#define CLIENT_ID_ReturnInfo NULL
+
+/* CLIENT ID history */
+#define CLIENT_ID_History NULL
+
+/********** CLIENT INFO ********************/
+
+/* CLIENT INFO return info */
+#define CLIENT_INFO_ReturnInfo NULL
+
+/* CLIENT INFO history */
+#define CLIENT_INFO_History NULL
+
+/********** CLIENT KILL ********************/
+
+/* CLIENT KILL return info */
+#define CLIENT_KILL_ReturnInfo NULL
+
+/* CLIENT KILL history */
+commandHistory CLIENT_KILL_History[] = {
+{"2.8.12","Added new filter format. "},
+{"2.8.12","`ID` option."},
+{"3.2","Added `master` type in for `TYPE` option."},
+{"5","Replaced `slave` `TYPE` with `replica`. `slave` still supported for backward compatibility."},
+{"6.2","`LADDR` option."},
+{0}
+};
+
+/********** CLIENT LIST ********************/
+
+/* CLIENT LIST return info */
+#define CLIENT_LIST_ReturnInfo NULL
+
+/* CLIENT LIST history */
+commandHistory CLIENT_LIST_History[] = {
+{"2.8.12","Added unique client `id` field."},
+{"5.0","Added optional `TYPE` filter."},
+{"6.2","Added `laddr` field and the optional `ID` filter."},
+{0}
+};
+
+/********** CLIENT NO_EVICT ********************/
+
+/* CLIENT NO_EVICT return info */
+#define CLIENT_NO_EVICT_ReturnInfo NULL
+
+/* CLIENT NO_EVICT history */
+#define CLIENT_NO_EVICT_History NULL
+
+/********** CLIENT PAUSE ********************/
+
+/* CLIENT PAUSE return info */
+#define CLIENT_PAUSE_ReturnInfo NULL
+
+/* CLIENT PAUSE history */
+commandHistory CLIENT_PAUSE_History[] = {
+{"3.2.10","Client pause prevents client pause and key eviction as well."},
+{"6.2","CLIENT PAUSE WRITE mode added along with the `mode` option."},
+{0}
+};
+
+/********** CLIENT REPLY ********************/
+
+/* CLIENT REPLY return info */
+#define CLIENT_REPLY_ReturnInfo NULL
+
+/* CLIENT REPLY history */
+#define CLIENT_REPLY_History NULL
+
+/********** CLIENT SETNAME ********************/
+
+/* CLIENT SETNAME return info */
+#define CLIENT_SETNAME_ReturnInfo NULL
+
+/* CLIENT SETNAME history */
+#define CLIENT_SETNAME_History NULL
+
+/********** CLIENT TRACKING ********************/
+
+/* CLIENT TRACKING return info */
+#define CLIENT_TRACKING_ReturnInfo NULL
+
+/* CLIENT TRACKING history */
+#define CLIENT_TRACKING_History NULL
+
+/********** CLIENT TRACKINGINFO ********************/
+
+/* CLIENT TRACKINGINFO return info */
+#define CLIENT_TRACKINGINFO_ReturnInfo NULL
+
+/* CLIENT TRACKINGINFO history */
+#define CLIENT_TRACKINGINFO_History NULL
+
+/********** CLIENT UNBLOCK ********************/
+
+/* CLIENT UNBLOCK return info */
+#define CLIENT_UNBLOCK_ReturnInfo NULL
+
+/* CLIENT UNBLOCK history */
+#define CLIENT_UNBLOCK_History NULL
+
+/********** CLIENT UNPAUSE ********************/
+
+/* CLIENT UNPAUSE return info */
+#define CLIENT_UNPAUSE_ReturnInfo NULL
+
+/* CLIENT UNPAUSE history */
+#define CLIENT_UNPAUSE_History NULL
+
+/* CLIENT command table */
+struct redisCommand CLIENT_Subcommands[] = {
+{"INFO","Returns information about the current client connection.","O(1)","6.2.0",COMMAND_GROUP_CONNECTION,CLIENT_INFO_ReturnInfo,CLIENT_INFO_History,clientCommand,2,"noscript random loading stale @slow @connection"},
+{"NO-EVICT","Set client eviction mode for the current connection","O(1)","7.0.0",COMMAND_GROUP_CONNECTION,CLIENT_NO_EVICT_ReturnInfo,CLIENT_NO_EVICT_History,clientCommand,3,"admin noscript loading stale @admin @slow @dangerous @connection"},
+{"PAUSE","Stop processing commands from clients for some time","O(1)","2.9.50",COMMAND_GROUP_CONNECTION,CLIENT_PAUSE_ReturnInfo,CLIENT_PAUSE_History,clientCommand,-3,"admin noscript loading stale @admin @slow @dangerous @connection"},
+{"HELP","Show helpful text about the different subcommands","O(1)","5.0.0",COMMAND_GROUP_CONNECTION,CLIENT_HELP_ReturnInfo,CLIENT_HELP_History,clientCommand,2,"loading stale @slow @connection"},
+{"SETNAME","Set the current connection name","O(1)","2.6.9",COMMAND_GROUP_CONNECTION,CLIENT_SETNAME_ReturnInfo,CLIENT_SETNAME_History,clientCommand,3,"noscript loading stale @slow @connection"},
+{"GETNAME","Get the current connection name","O(1)","2.6.9",COMMAND_GROUP_CONNECTION,CLIENT_GETNAME_ReturnInfo,CLIENT_GETNAME_History,clientCommand,2,"noscript loading stale @slow @connection"},
+{"LIST","Get the list of client connections","O(N) where N is the number of client connections","2.4.0",COMMAND_GROUP_CONNECTION,CLIENT_LIST_ReturnInfo,CLIENT_LIST_History,clientCommand,-2,"admin noscript random loading stale @admin @slow @dangerous @connection"},
+{"TRACKINGINFO","Return information about server assisted client side caching for the current connection","O(1)","6.2.0",COMMAND_GROUP_CONNECTION,CLIENT_TRACKINGINFO_ReturnInfo,CLIENT_TRACKINGINFO_History,clientCommand,2,"noscript loading stale @slow @connection"},
+{"TRACKING","Enable or disable server assisted client side caching support","O(1). Some options may introduce additional complexity.","6.0.0",COMMAND_GROUP_CONNECTION,CLIENT_TRACKING_ReturnInfo,CLIENT_TRACKING_History,clientCommand,-3,"noscript loading stale @slow @connection"},
+{"KILL","Kill the connection of a client","O(N) where N is the number of client connections","2.4.0",COMMAND_GROUP_CONNECTION,CLIENT_KILL_ReturnInfo,CLIENT_KILL_History,clientCommand,-3,"admin noscript loading stale @admin @slow @dangerous @connection"},
+{"UNBLOCK","Unblock a client blocked in a blocking command from a different connection","O(log N) where N is the number of client connections","5.0.0",COMMAND_GROUP_CONNECTION,CLIENT_UNBLOCK_ReturnInfo,CLIENT_UNBLOCK_History,clientCommand,-3,"admin noscript loading stale @admin @slow @dangerous @connection"},
+{"CACHING","Instruct the server about tracking or not keys in the next request","O(1)","6.0.0",COMMAND_GROUP_CONNECTION,CLIENT_CACHING_ReturnInfo,CLIENT_CACHING_History,clientCommand,3,"noscript loading stale @slow @connection"},
+{"REPLY","Instruct the server whether to reply to commands","O(1)","3.2.0",COMMAND_GROUP_CONNECTION,CLIENT_REPLY_ReturnInfo,CLIENT_REPLY_History,clientCommand,3,"noscript loading stale @slow @connection"},
+{"GETREDIR","Get tracking notifications redirection client ID if any","O(1)","6.0.0",COMMAND_GROUP_CONNECTION,CLIENT_GETREDIR_ReturnInfo,CLIENT_GETREDIR_History,clientCommand,2,"noscript loading stale @slow @connection"},
+{"ID","Returns the client ID for the current connection","O(1)","5.0.0",COMMAND_GROUP_CONNECTION,CLIENT_ID_ReturnInfo,CLIENT_ID_History,clientCommand,2,"noscript loading stale @slow @connection"},
+{"UNPAUSE","Resume processing of clients that were paused","O(N) Where N is the number of paused clients","6.2.0",COMMAND_GROUP_CONNECTION,CLIENT_UNPAUSE_ReturnInfo,CLIENT_UNPAUSE_History,clientCommand,2,"admin noscript loading stale @admin @slow @dangerous @connection"},
+{0}
+};
+
+/********** CLIENT ********************/
+
+/* CLIENT return info */
+#define CLIENT_ReturnInfo NULL
+
+/* CLIENT history */
+#define CLIENT_History NULL
+
+/********** ECHO ********************/
+
+/* ECHO return info */
+#define ECHO_ReturnInfo NULL
+
+/* ECHO history */
+#define ECHO_History NULL
+
+/********** HELLO ********************/
+
+/* HELLO return info */
+#define HELLO_ReturnInfo NULL
+
+/* HELLO history */
+commandHistory HELLO_History[] = {
+{"6.2","`protover` made optional; when called without arguments the command reports the current connection's context."},
+{0}
+};
+
+/********** PING ********************/
+
+/* PING return info */
+#define PING_ReturnInfo NULL
+
+/* PING history */
+#define PING_History NULL
+
+/********** RESET ********************/
+
+/* RESET return info */
+#define RESET_ReturnInfo NULL
+
+/* RESET history */
+#define RESET_History NULL
+
+/********** SELECT ********************/
+
+/* SELECT return info */
+#define SELECT_ReturnInfo NULL
+
+/* SELECT history */
+#define SELECT_History NULL
+
+/********** COPY ********************/
+
+/* COPY return info */
+#define COPY_ReturnInfo NULL
+
+/* COPY history */
+#define COPY_History NULL
+
+/********** DEL ********************/
+
+/* DEL return info */
+#define DEL_ReturnInfo NULL
+
+/* DEL history */
+#define DEL_History NULL
+
+/********** DUMP ********************/
+
+/* DUMP return info */
+#define DUMP_ReturnInfo NULL
+
+/* DUMP history */
+#define DUMP_History NULL
+
+/********** EXISTS ********************/
+
+/* EXISTS return info */
+#define EXISTS_ReturnInfo NULL
+
+/* EXISTS history */
+#define EXISTS_History NULL
+
+/********** EXPIRE ********************/
+
+/* EXPIRE return info */
+#define EXPIRE_ReturnInfo NULL
+
+/* EXPIRE history */
+commandHistory EXPIRE_History[] = {
+{"7.0","Added options: `NX`, `XX`, `GT` and `LT`."},
+{0}
+};
+
+/********** EXPIREAT ********************/
+
+/* EXPIREAT return info */
+#define EXPIREAT_ReturnInfo NULL
+
+/* EXPIREAT history */
+commandHistory EXPIREAT_History[] = {
+{"7.0","Added options: `NX`, `XX`, `GT` and `LT`."},
+{0}
+};
+
+/********** EXPIRETIME ********************/
+
+/* EXPIRETIME return info */
+#define EXPIRETIME_ReturnInfo NULL
+
+/* EXPIRETIME history */
+#define EXPIRETIME_History NULL
+
+/********** KEYS ********************/
+
+/* KEYS return info */
+#define KEYS_ReturnInfo NULL
+
+/* KEYS history */
+#define KEYS_History NULL
 
 /********** MIGRATE ********************/
 
@@ -133,9 +716,9 @@ commandReturnInfo MIGRATE_ReturnInfo[] = {
 
 /* MIGRATE history */
 commandHistory MIGRATE_History[] = {
-{"3.0.0","Added the `COPY` and `REPLACE` options."},
-{"3.0.6","Added the `KEYS` option."},
-{"4.0.7","Added the `AUTH` option."},
+{"3.0.0","Added the `!COPY` and `REPLACE` options."},
+{"3.0.6","Added the `!KEYS` option."},
+{"4.0.7","Added the `!AUTH` option."},
 {"6.0.0","Added the `AUTH2` option."},
 {0}
 };
@@ -169,6 +752,158 @@ struct redisCommandArg MIGRATE_Args[] = {
 {0}
 };
 
+/********** MOVE ********************/
+
+/* MOVE return info */
+#define MOVE_ReturnInfo NULL
+
+/* MOVE history */
+#define MOVE_History NULL
+
+/********** OBJECT ENCODING ********************/
+
+/* OBJECT ENCODING return info */
+#define OBJECT_ENCODING_ReturnInfo NULL
+
+/* OBJECT ENCODING history */
+#define OBJECT_ENCODING_History NULL
+
+/********** OBJECT FREQ ********************/
+
+/* OBJECT FREQ return info */
+#define OBJECT_FREQ_ReturnInfo NULL
+
+/* OBJECT FREQ history */
+#define OBJECT_FREQ_History NULL
+
+/********** OBJECT HELP ********************/
+
+/* OBJECT HELP return info */
+#define OBJECT_HELP_ReturnInfo NULL
+
+/* OBJECT HELP history */
+#define OBJECT_HELP_History NULL
+
+/********** OBJECT IDLETIME ********************/
+
+/* OBJECT IDLETIME return info */
+#define OBJECT_IDLETIME_ReturnInfo NULL
+
+/* OBJECT IDLETIME history */
+#define OBJECT_IDLETIME_History NULL
+
+/********** OBJECT REFCOUNT ********************/
+
+/* OBJECT REFCOUNT return info */
+#define OBJECT_REFCOUNT_ReturnInfo NULL
+
+/* OBJECT REFCOUNT history */
+#define OBJECT_REFCOUNT_History NULL
+
+/* OBJECT command table */
+struct redisCommand OBJECT_Subcommands[] = {
+{"IDLETIME","Get the time since a Redis object was last accessed","O(1)","2.2.3",COMMAND_GROUP_GENERIC,OBJECT_IDLETIME_ReturnInfo,OBJECT_IDLETIME_History,objectCommand,3,"readonly random @keyspace @read @slow",{{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"FREQ","Get the logarithmic access frequency counter of a Redis object","O(1)","4.0.0",COMMAND_GROUP_GENERIC,OBJECT_FREQ_ReturnInfo,OBJECT_FREQ_History,objectCommand,3,"readonly random @keyspace @read @slow",{{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"REFCOUNT","Get the number of references to the value of the key","O(1)","2.2.3",COMMAND_GROUP_GENERIC,OBJECT_REFCOUNT_ReturnInfo,OBJECT_REFCOUNT_History,objectCommand,3,"readonly @keyspace @read @slow",{{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"HELP","Show helpful text about the different subcommands","O(1)","6.2.0",COMMAND_GROUP_GENERIC,OBJECT_HELP_ReturnInfo,OBJECT_HELP_History,objectCommand,2,"loading stale @keyspace @slow"},
+{"ENCODING","Inspect the internal encoding of a Redis object","O(1)","2.2.3",COMMAND_GROUP_GENERIC,OBJECT_ENCODING_ReturnInfo,OBJECT_ENCODING_History,objectCommand,3,"readonly @keyspace @read @slow",{{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{0}
+};
+
+/********** OBJECT ********************/
+
+/* OBJECT return info */
+#define OBJECT_ReturnInfo NULL
+
+/* OBJECT history */
+#define OBJECT_History NULL
+
+/********** PERSIST ********************/
+
+/* PERSIST return info */
+#define PERSIST_ReturnInfo NULL
+
+/* PERSIST history */
+#define PERSIST_History NULL
+
+/********** PEXPIRE ********************/
+
+/* PEXPIRE return info */
+#define PEXPIRE_ReturnInfo NULL
+
+/* PEXPIRE history */
+commandHistory PEXPIRE_History[] = {
+{"7.0","Added options: `NX`, `XX`, `GT` and `LT`."},
+{0}
+};
+
+/********** PEXPIREAT ********************/
+
+/* PEXPIREAT return info */
+#define PEXPIREAT_ReturnInfo NULL
+
+/* PEXPIREAT history */
+commandHistory PEXPIREAT_History[] = {
+{"7.0","Added options: `NX`, `XX`, `GT` and `LT`."},
+{0}
+};
+
+/********** PEXPIRETIME ********************/
+
+/* PEXPIRETIME return info */
+#define PEXPIRETIME_ReturnInfo NULL
+
+/* PEXPIRETIME history */
+#define PEXPIRETIME_History NULL
+
+/********** PTTL ********************/
+
+/* PTTL return info */
+#define PTTL_ReturnInfo NULL
+
+/* PTTL history */
+#define PTTL_History NULL
+
+/********** RANDOMKEY ********************/
+
+/* RANDOMKEY return info */
+#define RANDOMKEY_ReturnInfo NULL
+
+/* RANDOMKEY history */
+#define RANDOMKEY_History NULL
+
+/********** RENAME ********************/
+
+/* RENAME return info */
+#define RENAME_ReturnInfo NULL
+
+/* RENAME history */
+#define RENAME_History NULL
+
+/********** RENAMENX ********************/
+
+/* RENAMENX return info */
+#define RENAMENX_ReturnInfo NULL
+
+/* RENAMENX history */
+#define RENAMENX_History NULL
+
+/********** RESTORE ********************/
+
+/* RESTORE return info */
+#define RESTORE_ReturnInfo NULL
+
+/* RESTORE history */
+#define RESTORE_History NULL
+
+/********** SCAN ********************/
+
+/* SCAN return info */
+#define SCAN_ReturnInfo NULL
+
+/* SCAN history */
+#define SCAN_History NULL
+
 /********** SORT ********************/
 
 /* SORT return info */
@@ -177,36 +912,816 @@ struct redisCommandArg MIGRATE_Args[] = {
 /* SORT history */
 #define SORT_History NULL
 
-/* SORT sortby argument table */
-struct redisCommandArg SORT_sortby_Subargs[] = {
-{"pattern",ARG_TYPE_PATTERN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="pattern"},
-{"elementitself",ARG_TYPE_NULL,"#",NULL,NULL,CMD_ARG_NONE},
+/********** SORT_RO ********************/
+
+/* SORT_RO return info */
+#define SORT_RO_ReturnInfo NULL
+
+/* SORT_RO history */
+#define SORT_RO_History NULL
+
+/********** TOUCH ********************/
+
+/* TOUCH return info */
+#define TOUCH_ReturnInfo NULL
+
+/* TOUCH history */
+#define TOUCH_History NULL
+
+/********** TTL ********************/
+
+/* TTL return info */
+#define TTL_ReturnInfo NULL
+
+/* TTL history */
+#define TTL_History NULL
+
+/********** TYPE ********************/
+
+/* TYPE return info */
+#define TYPE_ReturnInfo NULL
+
+/* TYPE history */
+#define TYPE_History NULL
+
+/********** UNLINK ********************/
+
+/* UNLINK return info */
+#define UNLINK_ReturnInfo NULL
+
+/* UNLINK history */
+#define UNLINK_History NULL
+
+/********** WAIT ********************/
+
+/* WAIT return info */
+#define WAIT_ReturnInfo NULL
+
+/* WAIT history */
+#define WAIT_History NULL
+
+/********** GEOADD ********************/
+
+/* GEOADD return info */
+#define GEOADD_ReturnInfo NULL
+
+/* GEOADD history */
+commandHistory GEOADD_History[] = {
+{"6.2","Added the `CH`, `NX` and `XX` options."},
 {0}
 };
 
-/* SORT limit argument table */
-struct redisCommandArg SORT_limit_Subargs[] = {
-{"offset",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="offset"},
-{"count",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="count"},
+/********** GEODIST ********************/
+
+/* GEODIST return info */
+#define GEODIST_ReturnInfo NULL
+
+/* GEODIST history */
+#define GEODIST_History NULL
+
+/********** GEOHASH ********************/
+
+/* GEOHASH return info */
+#define GEOHASH_ReturnInfo NULL
+
+/* GEOHASH history */
+#define GEOHASH_History NULL
+
+/********** GEOPOS ********************/
+
+/* GEOPOS return info */
+#define GEOPOS_ReturnInfo NULL
+
+/* GEOPOS history */
+#define GEOPOS_History NULL
+
+/********** GEORADIUS ********************/
+
+/* GEORADIUS return info */
+#define GEORADIUS_ReturnInfo NULL
+
+/* GEORADIUS history */
+commandHistory GEORADIUS_History[] = {
+{"6.2","Added the `ANY` option for `COUNT`."},
 {0}
 };
 
-/* SORT order argument table */
-struct redisCommandArg SORT_order_Subargs[] = {
-{"asc",ARG_TYPE_NULL,"ASC",NULL,NULL,CMD_ARG_NONE},
-{"desc",ARG_TYPE_NULL,"DESC",NULL,NULL,CMD_ARG_NONE},
+/********** GEORADIUSBYMEMBER ********************/
+
+/* GEORADIUSBYMEMBER return info */
+#define GEORADIUSBYMEMBER_ReturnInfo NULL
+
+/* GEORADIUSBYMEMBER history */
+#define GEORADIUSBYMEMBER_History NULL
+
+/********** GEOSEARCH ********************/
+
+/* GEOSEARCH return info */
+#define GEOSEARCH_ReturnInfo NULL
+
+/* GEOSEARCH history */
+#define GEOSEARCH_History NULL
+
+/********** GEOSEARCHSTORE ********************/
+
+/* GEOSEARCHSTORE return info */
+#define GEOSEARCHSTORE_ReturnInfo NULL
+
+/* GEOSEARCHSTORE history */
+#define GEOSEARCHSTORE_History NULL
+
+/********** HDEL ********************/
+
+/* HDEL return info */
+#define HDEL_ReturnInfo NULL
+
+/* HDEL history */
+#define HDEL_History NULL
+
+/********** HEXISTS ********************/
+
+/* HEXISTS return info */
+#define HEXISTS_ReturnInfo NULL
+
+/* HEXISTS history */
+#define HEXISTS_History NULL
+
+/********** HGET ********************/
+
+/* HGET return info */
+#define HGET_ReturnInfo NULL
+
+/* HGET history */
+#define HGET_History NULL
+
+/********** HGETALL ********************/
+
+/* HGETALL return info */
+#define HGETALL_ReturnInfo NULL
+
+/* HGETALL history */
+#define HGETALL_History NULL
+
+/********** HINCRBY ********************/
+
+/* HINCRBY return info */
+#define HINCRBY_ReturnInfo NULL
+
+/* HINCRBY history */
+#define HINCRBY_History NULL
+
+/********** HINCRBYFLOAT ********************/
+
+/* HINCRBYFLOAT return info */
+#define HINCRBYFLOAT_ReturnInfo NULL
+
+/* HINCRBYFLOAT history */
+#define HINCRBYFLOAT_History NULL
+
+/********** HKEYS ********************/
+
+/* HKEYS return info */
+#define HKEYS_ReturnInfo NULL
+
+/* HKEYS history */
+#define HKEYS_History NULL
+
+/********** HLEN ********************/
+
+/* HLEN return info */
+#define HLEN_ReturnInfo NULL
+
+/* HLEN history */
+#define HLEN_History NULL
+
+/********** HMGET ********************/
+
+/* HMGET return info */
+#define HMGET_ReturnInfo NULL
+
+/* HMGET history */
+#define HMGET_History NULL
+
+/********** HMSET ********************/
+
+/* HMSET return info */
+#define HMSET_ReturnInfo NULL
+
+/* HMSET history */
+#define HMSET_History NULL
+
+/********** HRANDFIELD ********************/
+
+/* HRANDFIELD return info */
+#define HRANDFIELD_ReturnInfo NULL
+
+/* HRANDFIELD history */
+#define HRANDFIELD_History NULL
+
+/********** HSCAN ********************/
+
+/* HSCAN return info */
+#define HSCAN_ReturnInfo NULL
+
+/* HSCAN history */
+#define HSCAN_History NULL
+
+/********** HSET ********************/
+
+/* HSET return info */
+#define HSET_ReturnInfo NULL
+
+/* HSET history */
+#define HSET_History NULL
+
+/********** HSETNX ********************/
+
+/* HSETNX return info */
+#define HSETNX_ReturnInfo NULL
+
+/* HSETNX history */
+#define HSETNX_History NULL
+
+/********** HSTRLEN ********************/
+
+/* HSTRLEN return info */
+#define HSTRLEN_ReturnInfo NULL
+
+/* HSTRLEN history */
+#define HSTRLEN_History NULL
+
+/********** HVALS ********************/
+
+/* HVALS return info */
+#define HVALS_ReturnInfo NULL
+
+/* HVALS history */
+#define HVALS_History NULL
+
+/********** PFADD ********************/
+
+/* PFADD return info */
+#define PFADD_ReturnInfo NULL
+
+/* PFADD history */
+#define PFADD_History NULL
+
+/********** PFCOUNT ********************/
+
+/* PFCOUNT return info */
+#define PFCOUNT_ReturnInfo NULL
+
+/* PFCOUNT history */
+#define PFCOUNT_History NULL
+
+/********** PFMERGE ********************/
+
+/* PFMERGE return info */
+#define PFMERGE_ReturnInfo NULL
+
+/* PFMERGE history */
+#define PFMERGE_History NULL
+
+/********** BLMOVE ********************/
+
+/* BLMOVE return info */
+#define BLMOVE_ReturnInfo NULL
+
+/* BLMOVE history */
+#define BLMOVE_History NULL
+
+/********** BLMPOP ********************/
+
+/* BLMPOP return info */
+#define BLMPOP_ReturnInfo NULL
+
+/* BLMPOP history */
+#define BLMPOP_History NULL
+
+/********** BLPOP ********************/
+
+/* BLPOP return info */
+#define BLPOP_ReturnInfo NULL
+
+/* BLPOP history */
+commandHistory BLPOP_History[] = {
+{"6.0","`timeout` is interpreted as a double instead of an integer."},
 {0}
 };
 
-/* SORT argument table */
-struct redisCommandArg SORT_Args[] = {
-{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
-{"sortby",ARG_TYPE_ONEOF,"BY",NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=SORT_sortby_Subargs},
-{"limit",ARG_TYPE_BLOCK,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=SORT_limit_Subargs},
-{"get",ARG_TYPE_STRING,"GET",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="pattern"},
-{"order",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=SORT_order_Subargs},
-{"sorting",ARG_TYPE_NULL,"ALPHA",NULL,NULL,CMD_ARG_OPTIONAL},
-{"store",ARG_TYPE_KEY,"STORE",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="destination"},
+/********** BRPOP ********************/
+
+/* BRPOP return info */
+#define BRPOP_ReturnInfo NULL
+
+/* BRPOP history */
+commandHistory BRPOP_History[] = {
+{"6.0","`timeout` is interpreted as a double instead of an integer."},
+{0}
+};
+
+/********** BRPOPLPUSH ********************/
+
+/* BRPOPLPUSH return info */
+#define BRPOPLPUSH_ReturnInfo NULL
+
+/* BRPOPLPUSH history */
+commandHistory BRPOPLPUSH_History[] = {
+{"6.0","`timeout` is interpreted as a double instead of an integer."},
+{0}
+};
+
+/********** LINDEX ********************/
+
+/* LINDEX return info */
+#define LINDEX_ReturnInfo NULL
+
+/* LINDEX history */
+#define LINDEX_History NULL
+
+/********** LINSERT ********************/
+
+/* LINSERT return info */
+#define LINSERT_ReturnInfo NULL
+
+/* LINSERT history */
+#define LINSERT_History NULL
+
+/********** LLEN ********************/
+
+/* LLEN return info */
+#define LLEN_ReturnInfo NULL
+
+/* LLEN history */
+#define LLEN_History NULL
+
+/********** LMOVE ********************/
+
+/* LMOVE return info */
+#define LMOVE_ReturnInfo NULL
+
+/* LMOVE history */
+#define LMOVE_History NULL
+
+/********** LMPOP ********************/
+
+/* LMPOP return info */
+#define LMPOP_ReturnInfo NULL
+
+/* LMPOP history */
+#define LMPOP_History NULL
+
+/********** LPOP ********************/
+
+/* LPOP return info */
+#define LPOP_ReturnInfo NULL
+
+/* LPOP history */
+commandHistory LPOP_History[] = {
+{"6.2","Added the `count` argument."},
+{0}
+};
+
+/********** LPOS ********************/
+
+/* LPOS return info */
+#define LPOS_ReturnInfo NULL
+
+/* LPOS history */
+#define LPOS_History NULL
+
+/********** LPUSH ********************/
+
+/* LPUSH return info */
+#define LPUSH_ReturnInfo NULL
+
+/* LPUSH history */
+commandHistory LPUSH_History[] = {
+{"2.4","Accepts multiple `element` arguments."},
+{0}
+};
+
+/********** LPUSHX ********************/
+
+/* LPUSHX return info */
+#define LPUSHX_ReturnInfo NULL
+
+/* LPUSHX history */
+commandHistory LPUSHX_History[] = {
+{"4.0","Accepts multiple `element` arguments."},
+{0}
+};
+
+/********** LRANGE ********************/
+
+/* LRANGE return info */
+#define LRANGE_ReturnInfo NULL
+
+/* LRANGE history */
+#define LRANGE_History NULL
+
+/********** LREM ********************/
+
+/* LREM return info */
+#define LREM_ReturnInfo NULL
+
+/* LREM history */
+#define LREM_History NULL
+
+/********** LSET ********************/
+
+/* LSET return info */
+#define LSET_ReturnInfo NULL
+
+/* LSET history */
+#define LSET_History NULL
+
+/********** LTRIM ********************/
+
+/* LTRIM return info */
+#define LTRIM_ReturnInfo NULL
+
+/* LTRIM history */
+#define LTRIM_History NULL
+
+/********** RPOP ********************/
+
+/* RPOP return info */
+#define RPOP_ReturnInfo NULL
+
+/* RPOP history */
+commandHistory RPOP_History[] = {
+{"6.2","Added the `count` argument."},
+{0}
+};
+
+/********** RPOPLPUSH ********************/
+
+/* RPOPLPUSH return info */
+#define RPOPLPUSH_ReturnInfo NULL
+
+/* RPOPLPUSH history */
+#define RPOPLPUSH_History NULL
+
+/********** RPUSH ********************/
+
+/* RPUSH return info */
+#define RPUSH_ReturnInfo NULL
+
+/* RPUSH history */
+commandHistory RPUSH_History[] = {
+{"2.4","Accepts multiple `element` arguments."},
+{0}
+};
+
+/********** RPUSHX ********************/
+
+/* RPUSHX return info */
+#define RPUSHX_ReturnInfo NULL
+
+/* RPUSHX history */
+commandHistory RPUSHX_History[] = {
+{"4.0","Accepts multiple `element` arguments."},
+{0}
+};
+
+/********** PSUBSCRIBE ********************/
+
+/* PSUBSCRIBE return info */
+#define PSUBSCRIBE_ReturnInfo NULL
+
+/* PSUBSCRIBE history */
+#define PSUBSCRIBE_History NULL
+
+/********** PUBLISH ********************/
+
+/* PUBLISH return info */
+#define PUBLISH_ReturnInfo NULL
+
+/* PUBLISH history */
+#define PUBLISH_History NULL
+
+/********** PUBSUB CHANNELS ********************/
+
+/* PUBSUB CHANNELS return info */
+#define PUBSUB_CHANNELS_ReturnInfo NULL
+
+/* PUBSUB CHANNELS history */
+#define PUBSUB_CHANNELS_History NULL
+
+/********** PUBSUB HELP ********************/
+
+/* PUBSUB HELP return info */
+#define PUBSUB_HELP_ReturnInfo NULL
+
+/* PUBSUB HELP history */
+#define PUBSUB_HELP_History NULL
+
+/********** PUBSUB NUMPAT ********************/
+
+/* PUBSUB NUMPAT return info */
+#define PUBSUB_NUMPAT_ReturnInfo NULL
+
+/* PUBSUB NUMPAT history */
+#define PUBSUB_NUMPAT_History NULL
+
+/********** PUBSUB NUMSUB ********************/
+
+/* PUBSUB NUMSUB return info */
+#define PUBSUB_NUMSUB_ReturnInfo NULL
+
+/* PUBSUB NUMSUB history */
+#define PUBSUB_NUMSUB_History NULL
+
+/* PUBSUB command table */
+struct redisCommand PUBSUB_Subcommands[] = {
+{"NUMSUB","Get the count of subscribers for channels","O(N) for the NUMSUB subcommand, where N is the number of requested channels","2.8.0",COMMAND_GROUP_PUBSUB,PUBSUB_NUMSUB_ReturnInfo,PUBSUB_NUMSUB_History,pubsubCommand,-2,"pubsub loading stale @pubsub @slow"},
+{"CHANNELS","List active channels","O(N) where N is the number of active channels, and assuming constant time pattern matching (relatively short channels and patterns)","2.8.0",COMMAND_GROUP_PUBSUB,PUBSUB_CHANNELS_ReturnInfo,PUBSUB_CHANNELS_History,pubsubCommand,-2,"pubsub loading stale @pubsub @slow"},
+{"HELP","Show helpful text about the different subcommands","O(1)","6.2.0",COMMAND_GROUP_PUBSUB,PUBSUB_HELP_ReturnInfo,PUBSUB_HELP_History,pubsubCommand,2,"loading stale @slow"},
+{"NUMPAT","Get the count of unique patterns pattern subscriptions","O(1)","2.8.0",COMMAND_GROUP_PUBSUB,PUBSUB_NUMPAT_ReturnInfo,PUBSUB_NUMPAT_History,pubsubCommand,2,"pubsub loading stale @pubsub @slow"},
+{0}
+};
+
+/********** PUBSUB ********************/
+
+/* PUBSUB return info */
+#define PUBSUB_ReturnInfo NULL
+
+/* PUBSUB history */
+#define PUBSUB_History NULL
+
+/********** PUNSUBSCRIBE ********************/
+
+/* PUNSUBSCRIBE return info */
+#define PUNSUBSCRIBE_ReturnInfo NULL
+
+/* PUNSUBSCRIBE history */
+#define PUNSUBSCRIBE_History NULL
+
+/********** SUBSCRIBE ********************/
+
+/* SUBSCRIBE return info */
+#define SUBSCRIBE_ReturnInfo NULL
+
+/* SUBSCRIBE history */
+commandHistory SUBSCRIBE_History[] = {
+{"6.2","`RESET` can be called to exit subscribed state."},
+{0}
+};
+
+/********** UNSUBSCRIBE ********************/
+
+/* UNSUBSCRIBE return info */
+#define UNSUBSCRIBE_ReturnInfo NULL
+
+/* UNSUBSCRIBE history */
+#define UNSUBSCRIBE_History NULL
+
+/********** EVAL ********************/
+
+/* EVAL return info */
+#define EVAL_ReturnInfo NULL
+
+/* EVAL history */
+#define EVAL_History NULL
+
+/********** EVALSHA ********************/
+
+/* EVALSHA return info */
+#define EVALSHA_ReturnInfo NULL
+
+/* EVALSHA history */
+#define EVALSHA_History NULL
+
+/********** EVALSHA_RO ********************/
+
+/* EVALSHA_RO return info */
+#define EVALSHA_RO_ReturnInfo NULL
+
+/* EVALSHA_RO history */
+#define EVALSHA_RO_History NULL
+
+/********** EVAL_RO ********************/
+
+/* EVAL_RO return info */
+#define EVAL_RO_ReturnInfo NULL
+
+/* EVAL_RO history */
+#define EVAL_RO_History NULL
+
+/********** SCRIPT DEBUG ********************/
+
+/* SCRIPT DEBUG return info */
+#define SCRIPT_DEBUG_ReturnInfo NULL
+
+/* SCRIPT DEBUG history */
+#define SCRIPT_DEBUG_History NULL
+
+/********** SCRIPT EXISTS ********************/
+
+/* SCRIPT EXISTS return info */
+#define SCRIPT_EXISTS_ReturnInfo NULL
+
+/* SCRIPT EXISTS history */
+#define SCRIPT_EXISTS_History NULL
+
+/********** SCRIPT FLUSH ********************/
+
+/* SCRIPT FLUSH return info */
+#define SCRIPT_FLUSH_ReturnInfo NULL
+
+/* SCRIPT FLUSH history */
+commandHistory SCRIPT_FLUSH_History[] = {
+{"6.2.0","Added the `ASYNC` and `!SYNC` flushing mode modifiers, as well as the  **lazyfree-lazy-user-flush** configuration directive."},
+{0}
+};
+
+/********** SCRIPT HELP ********************/
+
+/* SCRIPT HELP return info */
+#define SCRIPT_HELP_ReturnInfo NULL
+
+/* SCRIPT HELP history */
+#define SCRIPT_HELP_History NULL
+
+/********** SCRIPT KILL ********************/
+
+/* SCRIPT KILL return info */
+#define SCRIPT_KILL_ReturnInfo NULL
+
+/* SCRIPT KILL history */
+#define SCRIPT_KILL_History NULL
+
+/********** SCRIPT LOAD ********************/
+
+/* SCRIPT LOAD return info */
+#define SCRIPT_LOAD_ReturnInfo NULL
+
+/* SCRIPT LOAD history */
+#define SCRIPT_LOAD_History NULL
+
+/* SCRIPT command table */
+struct redisCommand SCRIPT_Subcommands[] = {
+{"LOAD","Load the specified Lua script into the script cache.","O(N) with N being the length in bytes of the script body.","2.6.0",COMMAND_GROUP_SCRIPTING,SCRIPT_LOAD_ReturnInfo,SCRIPT_LOAD_History,scriptCommand,3,"noscript may_replicate @slow @scripting"},
+{"HELP","Show helpful text about the different subcommands","O(1)","5.0.0",COMMAND_GROUP_SCRIPTING,SCRIPT_HELP_ReturnInfo,SCRIPT_HELP_History,scriptCommand,2,"loading stale @slow @scripting"},
+{"EXISTS","Check existence of scripts in the script cache.","O(N) with N being the number of scripts to check (so checking a single script is an O(1) operation).","2.6.0",COMMAND_GROUP_SCRIPTING,SCRIPT_EXISTS_ReturnInfo,SCRIPT_EXISTS_History,scriptCommand,-3,"noscript @slow @scripting"},
+{"KILL","Kill the script currently in execution.","O(1)","2.6.0",COMMAND_GROUP_SCRIPTING,SCRIPT_KILL_ReturnInfo,SCRIPT_KILL_History,scriptCommand,2,"noscript @slow @scripting"},
+{"FLUSH","Remove all the scripts from the script cache.","O(N) with N being the number of scripts in cache","2.6.0",COMMAND_GROUP_SCRIPTING,SCRIPT_FLUSH_ReturnInfo,SCRIPT_FLUSH_History,scriptCommand,-2,"noscript may_replicate @slow @scripting"},
+{"DEBUG","Set the debug mode for executed scripts.","O(1)","3.2.0",COMMAND_GROUP_SCRIPTING,SCRIPT_DEBUG_ReturnInfo,SCRIPT_DEBUG_History,scriptCommand,3,"noscript @slow @scripting"},
+{0}
+};
+
+/********** SCRIPT ********************/
+
+/* SCRIPT return info */
+#define SCRIPT_ReturnInfo NULL
+
+/* SCRIPT history */
+#define SCRIPT_History NULL
+
+/********** ACL CAT ********************/
+
+/* ACL CAT return info */
+#define ACL_CAT_ReturnInfo NULL
+
+/* ACL CAT history */
+#define ACL_CAT_History NULL
+
+/********** ACL DELUSER ********************/
+
+/* ACL DELUSER return info */
+#define ACL_DELUSER_ReturnInfo NULL
+
+/* ACL DELUSER history */
+#define ACL_DELUSER_History NULL
+
+/********** ACL GENPASS ********************/
+
+/* ACL GENPASS return info */
+#define ACL_GENPASS_ReturnInfo NULL
+
+/* ACL GENPASS history */
+#define ACL_GENPASS_History NULL
+
+/********** ACL GETUSER ********************/
+
+/* ACL GETUSER return info */
+#define ACL_GETUSER_ReturnInfo NULL
+
+/* ACL GETUSER history */
+commandHistory ACL_GETUSER_History[] = {
+{"6.2","Added Pub/Sub channel patterns."},
+{0}
+};
+
+/********** ACL HELP ********************/
+
+/* ACL HELP return info */
+#define ACL_HELP_ReturnInfo NULL
+
+/* ACL HELP history */
+#define ACL_HELP_History NULL
+
+/********** ACL LIST ********************/
+
+/* ACL LIST return info */
+#define ACL_LIST_ReturnInfo NULL
+
+/* ACL LIST history */
+#define ACL_LIST_History NULL
+
+/********** ACL LOAD ********************/
+
+/* ACL LOAD return info */
+#define ACL_LOAD_ReturnInfo NULL
+
+/* ACL LOAD history */
+#define ACL_LOAD_History NULL
+
+/********** ACL LOG ********************/
+
+/* ACL LOG return info */
+#define ACL_LOG_ReturnInfo NULL
+
+/* ACL LOG history */
+#define ACL_LOG_History NULL
+
+/********** ACL SAVE ********************/
+
+/* ACL SAVE return info */
+#define ACL_SAVE_ReturnInfo NULL
+
+/* ACL SAVE history */
+#define ACL_SAVE_History NULL
+
+/********** ACL SETUSER ********************/
+
+/* ACL SETUSER return info */
+#define ACL_SETUSER_ReturnInfo NULL
+
+/* ACL SETUSER history */
+commandHistory ACL_SETUSER_History[] = {
+{"6.2","Added Pub/Sub channel patterns."},
+{0}
+};
+
+/********** ACL USERS ********************/
+
+/* ACL USERS return info */
+#define ACL_USERS_ReturnInfo NULL
+
+/* ACL USERS history */
+#define ACL_USERS_History NULL
+
+/********** ACL WHOAMI ********************/
+
+/* ACL WHOAMI return info */
+#define ACL_WHOAMI_ReturnInfo NULL
+
+/* ACL WHOAMI history */
+#define ACL_WHOAMI_History NULL
+
+/* ACL command table */
+struct redisCommand ACL_Subcommands[] = {
+{"LOAD","Reload the ACLs from the configured ACL file","O(N). Where N is the number of configured users.","6.0.0",COMMAND_GROUP_SERVER,ACL_LOAD_ReturnInfo,ACL_LOAD_History,aclCommand,2,"admin noscript loading stale @admin @slow @dangerous"},
+{"USERS","List the username of all the configured ACL rules","O(N). Where N is the number of configured users.","6.0.0",COMMAND_GROUP_SERVER,ACL_USERS_ReturnInfo,ACL_USERS_History,aclCommand,2,"admin noscript loading stale @admin @slow @dangerous"},
+{"LIST","List the current ACL rules in ACL config file format","O(N). Where N is the number of configured users.","6.0.0",COMMAND_GROUP_SERVER,ACL_LIST_ReturnInfo,ACL_LIST_History,aclCommand,2,"admin noscript loading stale @admin @slow @dangerous"},
+{"CAT","List the ACL categories or the commands inside a category","O(1) since the categories and commands are a fixed set.","6.0.0",COMMAND_GROUP_SERVER,ACL_CAT_ReturnInfo,ACL_CAT_History,aclCommand,-2,"noscript loading stale @slow"},
+{"DELUSER","Remove the specified ACL users and the associated rules","O(1) amortized time considering the typical user.","6.0.0",COMMAND_GROUP_SERVER,ACL_DELUSER_ReturnInfo,ACL_DELUSER_History,aclCommand,-3,"admin noscript loading stale @admin @slow @dangerous"},
+{"GETUSER","Get the rules for a specific ACL user","O(N). Where N is the number of password, command and pattern rules that the user has.","6.0.0",COMMAND_GROUP_SERVER,ACL_GETUSER_ReturnInfo,ACL_GETUSER_History,aclCommand,3,"admin noscript loading stale @admin @slow @dangerous"},
+{"HELP","Show helpful text about the different subcommands","O(1)","6.0.0",COMMAND_GROUP_SERVER,ACL_HELP_ReturnInfo,ACL_HELP_History,aclCommand,2,"loading stale @slow"},
+{"SETUSER","Modify or create the rules for a specific ACL user","O(N). Where N is the number of rules provided.","6.0.0",COMMAND_GROUP_SERVER,ACL_SETUSER_ReturnInfo,ACL_SETUSER_History,aclCommand,-3,"admin noscript loading stale @admin @slow @dangerous"},
+{"SAVE","Save the current ACL rules in the configured ACL file","O(N). Where N is the number of configured users.","6.0.0",COMMAND_GROUP_SERVER,ACL_SAVE_ReturnInfo,ACL_SAVE_History,aclCommand,2,"admin noscript loading stale @admin @slow @dangerous"},
+{"WHOAMI","Return the name of the user associated to the current connection","O(1)","6.0.0",COMMAND_GROUP_SERVER,ACL_WHOAMI_ReturnInfo,ACL_WHOAMI_History,aclCommand,2,"noscript loading stale @slow"},
+{"GENPASS","Generate a pseudorandom secure password to use for ACL users","O(1)","6.0.0",COMMAND_GROUP_SERVER,ACL_GENPASS_ReturnInfo,ACL_GENPASS_History,aclCommand,-2,"noscript loading stale @slow"},
+{"LOG","List latest events denied because of ACLs in place","O(N) with N being the number of entries shown.","6.0.0",COMMAND_GROUP_SERVER,ACL_LOG_ReturnInfo,ACL_LOG_History,aclCommand,-2,"admin noscript loading stale @admin @slow @dangerous"},
+{0}
+};
+
+/********** ACL ********************/
+
+/* ACL return info */
+#define ACL_ReturnInfo NULL
+
+/* ACL history */
+#define ACL_History NULL
+
+/********** BGREWRITEAOF ********************/
+
+/* BGREWRITEAOF return info */
+#define BGREWRITEAOF_ReturnInfo NULL
+
+/* BGREWRITEAOF history */
+#define BGREWRITEAOF_History NULL
+
+/********** BGSAVE ********************/
+
+/* BGSAVE return info */
+#define BGSAVE_ReturnInfo NULL
+
+/* BGSAVE history */
+commandHistory BGSAVE_History[] = {
+{"3.2.2","Added the `SCHEDULE` option."},
 {0}
 };
 
@@ -255,7 +1770,7 @@ struct redisCommand COMMAND_Subcommands[] = {
 {"COUNT","Get total number of Redis commands","O(1)","2.8.13",COMMAND_GROUP_SERVER,COMMAND_COUNT_ReturnInfo,COMMAND_COUNT_History,commandCountCommand,2,"loading stale @slow @connection"},
 {"INFO","Get array of specific Redis command details","O(N) when N is number of commands to look up","2.8.13",COMMAND_GROUP_SERVER,COMMAND_INFO_ReturnInfo,COMMAND_INFO_History,commandInfoCommand,-3,"loading stale @slow @connection"},
 {"LIST",NULL,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_LIST_ReturnInfo,COMMAND_LIST_History,commandListCommand,-2,"loading stale @slow @connection"},
-{"HELP",NULL,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_HELP_ReturnInfo,COMMAND_HELP_History,commandHelpCommand,2,"loading stale @slow @connection"},
+{"HELP","Show helpful text about the different subcommands","O(1)","5.0.0",COMMAND_GROUP_SERVER,COMMAND_HELP_ReturnInfo,COMMAND_HELP_History,commandHelpCommand,2,"loading stale @slow @connection"},
 {"GETKEYS","Extract keys given a full Redis command","O(N) where N is the number of arguments to the command","2.8.13",COMMAND_GROUP_SERVER,COMMAND_GETKEYS_ReturnInfo,COMMAND_GETKEYS_History,commandGetKeysCommand,-4,"loading stale @slow @connection"},
 {0}
 };
@@ -263,10 +1778,541 @@ struct redisCommand COMMAND_Subcommands[] = {
 /********** COMMAND ********************/
 
 /* COMMAND return info */
-#define COMMAND_ReturnInfo NULL
+commandReturnInfo COMMAND_ReturnInfo[] = {
+{"Nested list of command details",NULL,RETURN_TYPE_RESP2_3_SAME,.type.global=RESP2_ARRAY},
+{0}
+};
 
 /* COMMAND history */
 #define COMMAND_History NULL
+
+/********** CONFIG GET ********************/
+
+/* CONFIG GET return info */
+#define CONFIG_GET_ReturnInfo NULL
+
+/* CONFIG GET history */
+#define CONFIG_GET_History NULL
+
+/********** CONFIG HELP ********************/
+
+/* CONFIG HELP return info */
+#define CONFIG_HELP_ReturnInfo NULL
+
+/* CONFIG HELP history */
+#define CONFIG_HELP_History NULL
+
+/********** CONFIG RESETSTAT ********************/
+
+/* CONFIG RESETSTAT return info */
+#define CONFIG_RESETSTAT_ReturnInfo NULL
+
+/* CONFIG RESETSTAT history */
+#define CONFIG_RESETSTAT_History NULL
+
+/********** CONFIG REWRITE ********************/
+
+/* CONFIG REWRITE return info */
+#define CONFIG_REWRITE_ReturnInfo NULL
+
+/* CONFIG REWRITE history */
+#define CONFIG_REWRITE_History NULL
+
+/********** CONFIG SET ********************/
+
+/* CONFIG SET return info */
+commandReturnInfo CONFIG_SET_ReturnInfo[] = {
+{"Command succeeded","+OK",RETURN_TYPE_RESP2_3_SAME,.type.global=RESP2_SIMPLE_STRING},
+{0}
+};
+
+/* CONFIG SET history */
+#define CONFIG_SET_History NULL
+
+/* CONFIG SET argument table */
+struct redisCommandArg CONFIG_SET_Args[] = {
+{"parameter",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="parameter"},
+{"value",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="value"},
+{0}
+};
+
+/* CONFIG command table */
+struct redisCommand CONFIG_Subcommands[] = {
+{"SET","Set a configuration parameter to the given value",NULL,"2.0.0",COMMAND_GROUP_SERVER,CONFIG_SET_ReturnInfo,CONFIG_SET_History,configSetCommand,4,"admin noscript stale @admin @slow @dangerous",.args=CONFIG_SET_Args},
+{"GET","Get the value of a configuration parameter",NULL,"2.0.0",COMMAND_GROUP_SERVER,CONFIG_GET_ReturnInfo,CONFIG_GET_History,configGetCommand,3,"admin noscript loading stale @admin @slow @dangerous"},
+{"HELP","Show helpful text about the different subcommands","O(1)","5.0.0",COMMAND_GROUP_SERVER,CONFIG_HELP_ReturnInfo,CONFIG_HELP_History,configHelpCommand,2,"loading stale @slow"},
+{"RESETSTAT","Reset the stats returned by INFO","O(1)","2.0.0",COMMAND_GROUP_SERVER,CONFIG_RESETSTAT_ReturnInfo,CONFIG_RESETSTAT_History,configResetStatCommand,2,"admin noscript stale @admin @slow @dangerous"},
+{"REWRITE","Rewrite the configuration file with the in memory configuration",NULL,"2.8.0",COMMAND_GROUP_SERVER,CONFIG_REWRITE_ReturnInfo,CONFIG_REWRITE_History,configRewriteCommand,2,"admin noscript stale @admin @slow @dangerous"},
+{0}
+};
+
+/********** CONFIG ********************/
+
+/* CONFIG return info */
+#define CONFIG_ReturnInfo NULL
+
+/* CONFIG history */
+#define CONFIG_History NULL
+
+/********** DBSIZE ********************/
+
+/* DBSIZE return info */
+#define DBSIZE_ReturnInfo NULL
+
+/* DBSIZE history */
+#define DBSIZE_History NULL
+
+/********** DEBUG ********************/
+
+/* DEBUG return info */
+#define DEBUG_ReturnInfo NULL
+
+/* DEBUG history */
+#define DEBUG_History NULL
+
+/********** FAILOVER ********************/
+
+/* FAILOVER return info */
+#define FAILOVER_ReturnInfo NULL
+
+/* FAILOVER history */
+#define FAILOVER_History NULL
+
+/********** FLUSHALL ********************/
+
+/* FLUSHALL return info */
+#define FLUSHALL_ReturnInfo NULL
+
+/* FLUSHALL history */
+commandHistory FLUSHALL_History[] = {
+{"4.0.0","Added the `ASYNC` flushing mode modifier."},
+{"6.2.0","Added the `!SYNC` flushing mode modifier and the **lazyfree-lazy-user-flush** configuration directive."},
+{0}
+};
+
+/********** FLUSHDB ********************/
+
+/* FLUSHDB return info */
+#define FLUSHDB_ReturnInfo NULL
+
+/* FLUSHDB history */
+#define FLUSHDB_History NULL
+
+/********** GEORADIUSBYMEMBER_RO ********************/
+
+/* GEORADIUSBYMEMBER_RO return info */
+#define GEORADIUSBYMEMBER_RO_ReturnInfo NULL
+
+/* GEORADIUSBYMEMBER_RO history */
+#define GEORADIUSBYMEMBER_RO_History NULL
+
+/********** GEORADIUS_RO ********************/
+
+/* GEORADIUS_RO return info */
+#define GEORADIUS_RO_ReturnInfo NULL
+
+/* GEORADIUS_RO history */
+#define GEORADIUS_RO_History NULL
+
+/********** HOST ********************/
+
+/* HOST return info */
+#define HOST_ReturnInfo NULL
+
+/* HOST history */
+#define HOST_History NULL
+
+/********** INFO ********************/
+
+/* INFO return info */
+#define INFO_ReturnInfo NULL
+
+/* INFO history */
+#define INFO_History NULL
+
+/********** LASTSAVE ********************/
+
+/* LASTSAVE return info */
+#define LASTSAVE_ReturnInfo NULL
+
+/* LASTSAVE history */
+#define LASTSAVE_History NULL
+
+/********** LATENCY DOCTOR ********************/
+
+/* LATENCY DOCTOR return info */
+#define LATENCY_DOCTOR_ReturnInfo NULL
+
+/* LATENCY DOCTOR history */
+#define LATENCY_DOCTOR_History NULL
+
+/********** LATENCY GRAPH ********************/
+
+/* LATENCY GRAPH return info */
+#define LATENCY_GRAPH_ReturnInfo NULL
+
+/* LATENCY GRAPH history */
+#define LATENCY_GRAPH_History NULL
+
+/********** LATENCY HELP ********************/
+
+/* LATENCY HELP return info */
+#define LATENCY_HELP_ReturnInfo NULL
+
+/* LATENCY HELP history */
+#define LATENCY_HELP_History NULL
+
+/********** LATENCY HISTORY ********************/
+
+/* LATENCY HISTORY return info */
+#define LATENCY_HISTORY_ReturnInfo NULL
+
+/* LATENCY HISTORY history */
+#define LATENCY_HISTORY_History NULL
+
+/********** LATENCY LATEST ********************/
+
+/* LATENCY LATEST return info */
+#define LATENCY_LATEST_ReturnInfo NULL
+
+/* LATENCY LATEST history */
+#define LATENCY_LATEST_History NULL
+
+/********** LATENCY RESET ********************/
+
+/* LATENCY RESET return info */
+#define LATENCY_RESET_ReturnInfo NULL
+
+/* LATENCY RESET history */
+#define LATENCY_RESET_History NULL
+
+/* LATENCY command table */
+struct redisCommand LATENCY_Subcommands[] = {
+{"RESET","Reset latency data for one or more events.",NULL,"2.8.13",COMMAND_GROUP_SERVER,LATENCY_RESET_ReturnInfo,LATENCY_RESET_History,latencyCommand,-2,"admin noscript loading stale @admin @slow @dangerous"},
+{"HELP","Show helpful text about the different subcommands.",NULL,"2.8.13",COMMAND_GROUP_SERVER,LATENCY_HELP_ReturnInfo,LATENCY_HELP_History,latencyCommand,2,"loading stale @slow"},
+{"DOCTOR","Return a human readable latency analysis report.",NULL,"2.8.13",COMMAND_GROUP_SERVER,LATENCY_DOCTOR_ReturnInfo,LATENCY_DOCTOR_History,latencyCommand,2,"admin noscript loading stale @admin @slow @dangerous"},
+{"GRAPH","Return a latency graph for the event.",NULL,"2.8.13",COMMAND_GROUP_SERVER,LATENCY_GRAPH_ReturnInfo,LATENCY_GRAPH_History,latencyCommand,3,"admin noscript loading stale @admin @slow @dangerous"},
+{"HISTORY","Return timestamp-latency samples for the event.",NULL,"2.8.13",COMMAND_GROUP_SERVER,LATENCY_HISTORY_ReturnInfo,LATENCY_HISTORY_History,latencyCommand,3,"admin noscript loading stale @admin @slow @dangerous"},
+{"LATEST","Return the latest latency samples for all events.",NULL,"2.8.13",COMMAND_GROUP_SERVER,LATENCY_LATEST_ReturnInfo,LATENCY_LATEST_History,latencyCommand,2,"admin noscript loading stale @admin @slow @dangerous"},
+{0}
+};
+
+/********** LATENCY ********************/
+
+/* LATENCY return info */
+#define LATENCY_ReturnInfo NULL
+
+/* LATENCY history */
+#define LATENCY_History NULL
+
+/********** LOLWUT ********************/
+
+/* LOLWUT return info */
+#define LOLWUT_ReturnInfo NULL
+
+/* LOLWUT history */
+#define LOLWUT_History NULL
+
+/********** MEMORY DOCTOR ********************/
+
+/* MEMORY DOCTOR return info */
+#define MEMORY_DOCTOR_ReturnInfo NULL
+
+/* MEMORY DOCTOR history */
+#define MEMORY_DOCTOR_History NULL
+
+/********** MEMORY HELP ********************/
+
+/* MEMORY HELP return info */
+#define MEMORY_HELP_ReturnInfo NULL
+
+/* MEMORY HELP history */
+#define MEMORY_HELP_History NULL
+
+/********** MEMORY MALLOC_STATS ********************/
+
+/* MEMORY MALLOC_STATS return info */
+#define MEMORY_MALLOC_STATS_ReturnInfo NULL
+
+/* MEMORY MALLOC_STATS history */
+#define MEMORY_MALLOC_STATS_History NULL
+
+/********** MEMORY PURGE ********************/
+
+/* MEMORY PURGE return info */
+#define MEMORY_PURGE_ReturnInfo NULL
+
+/* MEMORY PURGE history */
+#define MEMORY_PURGE_History NULL
+
+/********** MEMORY STATS ********************/
+
+/* MEMORY STATS return info */
+#define MEMORY_STATS_ReturnInfo NULL
+
+/* MEMORY STATS history */
+#define MEMORY_STATS_History NULL
+
+/********** MEMORY USAGE ********************/
+
+/* MEMORY USAGE return info */
+#define MEMORY_USAGE_ReturnInfo NULL
+
+/* MEMORY USAGE history */
+#define MEMORY_USAGE_History NULL
+
+/* MEMORY command table */
+struct redisCommand MEMORY_Subcommands[] = {
+{"STATS","Show memory usage details",NULL,"4.0.0",COMMAND_GROUP_SERVER,MEMORY_STATS_ReturnInfo,MEMORY_STATS_History,memoryCommand,2,"random @slow"},
+{"HELP","Show helpful text about the different subcommands",NULL,"4.0.0",COMMAND_GROUP_SERVER,MEMORY_HELP_ReturnInfo,MEMORY_HELP_History,memoryCommand,2,"loading stale @slow"},
+{"MALLOC-STATS","Show allocator internal stats",NULL,"4.0.0",COMMAND_GROUP_SERVER,MEMORY_MALLOC_STATS_ReturnInfo,MEMORY_MALLOC_STATS_History,memoryCommand,2,"random @slow"},
+{"DOCTOR","Outputs memory problems report",NULL,"4.0.0",COMMAND_GROUP_SERVER,MEMORY_DOCTOR_ReturnInfo,MEMORY_DOCTOR_History,memoryCommand,2,"random @slow"},
+{"PURGE","Ask the allocator to release memory",NULL,"4.0.0",COMMAND_GROUP_SERVER,MEMORY_PURGE_ReturnInfo,MEMORY_PURGE_History,memoryCommand,2,"@slow"},
+{"USAGE","Estimate the memory usage of a key","O(N) where N is the number of samples.","4.0.0",COMMAND_GROUP_SERVER,MEMORY_USAGE_ReturnInfo,MEMORY_USAGE_History,memoryCommand,-3,"readonly @read @slow",{{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{0}
+};
+
+/********** MEMORY ********************/
+
+/* MEMORY return info */
+#define MEMORY_ReturnInfo NULL
+
+/* MEMORY history */
+#define MEMORY_History NULL
+
+/********** MODULE HELP ********************/
+
+/* MODULE HELP return info */
+#define MODULE_HELP_ReturnInfo NULL
+
+/* MODULE HELP history */
+#define MODULE_HELP_History NULL
+
+/********** MODULE LIST ********************/
+
+/* MODULE LIST return info */
+#define MODULE_LIST_ReturnInfo NULL
+
+/* MODULE LIST history */
+#define MODULE_LIST_History NULL
+
+/********** MODULE LOAD ********************/
+
+/* MODULE LOAD return info */
+#define MODULE_LOAD_ReturnInfo NULL
+
+/* MODULE LOAD history */
+#define MODULE_LOAD_History NULL
+
+/********** MODULE UNLOAD ********************/
+
+/* MODULE UNLOAD return info */
+#define MODULE_UNLOAD_ReturnInfo NULL
+
+/* MODULE UNLOAD history */
+#define MODULE_UNLOAD_History NULL
+
+/* MODULE command table */
+struct redisCommand MODULE_Subcommands[] = {
+{"LOAD","Load a module","O(1)","4.0.0",COMMAND_GROUP_SERVER,MODULE_LOAD_ReturnInfo,MODULE_LOAD_History,moduleCommand,-3,"admin noscript @admin @slow @dangerous"},
+{"LIST","List all modules loaded by the server","O(N) where N is the number of loaded modules.","4.0.0",COMMAND_GROUP_SERVER,MODULE_LIST_ReturnInfo,MODULE_LIST_History,moduleCommand,2,"admin noscript @admin @slow @dangerous"},
+{"HELP","Show helpful text about the different subcommands","O(1)","5.0.0",COMMAND_GROUP_SERVER,MODULE_HELP_ReturnInfo,MODULE_HELP_History,moduleCommand,2,"loading stale @slow"},
+{"UNLOAD","Unload a module","O(1)","4.0.0",COMMAND_GROUP_SERVER,MODULE_UNLOAD_ReturnInfo,MODULE_UNLOAD_History,moduleCommand,3,"admin noscript @admin @slow @dangerous"},
+{0}
+};
+
+/********** MODULE ********************/
+
+/* MODULE return info */
+#define MODULE_ReturnInfo NULL
+
+/* MODULE history */
+#define MODULE_History NULL
+
+/********** MONITOR ********************/
+
+/* MONITOR return info */
+#define MONITOR_ReturnInfo NULL
+
+/* MONITOR history */
+commandHistory MONITOR_History[] = {
+{"6.0","`AUTH` excluded from the command's output."},
+{"6.2","`RESET` can be called to exit monitor mode."},
+{"6.2.4","`AUTH`, `HELLO`, `EVAL`, `EVAL_RO`, `EVALSHA` and `EVALSHA_RO` included in the command's output."},
+{0}
+};
+
+/********** PFDEBUG ********************/
+
+/* PFDEBUG return info */
+#define PFDEBUG_ReturnInfo NULL
+
+/* PFDEBUG history */
+#define PFDEBUG_History NULL
+
+/********** PFSELFTEST ********************/
+
+/* PFSELFTEST return info */
+#define PFSELFTEST_ReturnInfo NULL
+
+/* PFSELFTEST history */
+#define PFSELFTEST_History NULL
+
+/********** POST ********************/
+
+/* POST return info */
+#define POST_ReturnInfo NULL
+
+/* POST history */
+#define POST_History NULL
+
+/********** PSYNC ********************/
+
+/* PSYNC return info */
+#define PSYNC_ReturnInfo NULL
+
+/* PSYNC history */
+#define PSYNC_History NULL
+
+/********** REPLCONF ********************/
+
+/* REPLCONF return info */
+#define REPLCONF_ReturnInfo NULL
+
+/* REPLCONF history */
+#define REPLCONF_History NULL
+
+/********** REPLICAOF ********************/
+
+/* REPLICAOF return info */
+#define REPLICAOF_ReturnInfo NULL
+
+/* REPLICAOF history */
+#define REPLICAOF_History NULL
+
+/********** RESTORE_ASKING ********************/
+
+/* RESTORE_ASKING return info */
+#define RESTORE_ASKING_ReturnInfo NULL
+
+/* RESTORE_ASKING history */
+#define RESTORE_ASKING_History NULL
+
+/********** ROLE ********************/
+
+/* ROLE return info */
+#define ROLE_ReturnInfo NULL
+
+/* ROLE history */
+#define ROLE_History NULL
+
+/********** SAVE ********************/
+
+/* SAVE return info */
+#define SAVE_ReturnInfo NULL
+
+/* SAVE history */
+#define SAVE_History NULL
+
+/********** SHUTDOWN ********************/
+
+/* SHUTDOWN return info */
+#define SHUTDOWN_ReturnInfo NULL
+
+/* SHUTDOWN history */
+#define SHUTDOWN_History NULL
+
+/********** SLAVEOF ********************/
+
+/* SLAVEOF return info */
+#define SLAVEOF_ReturnInfo NULL
+
+/* SLAVEOF history */
+#define SLAVEOF_History NULL
+
+/********** SLOWLOG GET ********************/
+
+/* SLOWLOG GET return info */
+#define SLOWLOG_GET_ReturnInfo NULL
+
+/* SLOWLOG GET history */
+commandHistory SLOWLOG_GET_History[] = {
+{"4.0","Added client IP address, port and name to the reply."},
+{0}
+};
+
+/********** SLOWLOG HELP ********************/
+
+/* SLOWLOG HELP return info */
+#define SLOWLOG_HELP_ReturnInfo NULL
+
+/* SLOWLOG HELP history */
+#define SLOWLOG_HELP_History NULL
+
+/********** SLOWLOG LEN ********************/
+
+/* SLOWLOG LEN return info */
+#define SLOWLOG_LEN_ReturnInfo NULL
+
+/* SLOWLOG LEN history */
+#define SLOWLOG_LEN_History NULL
+
+/********** SLOWLOG RESET ********************/
+
+/* SLOWLOG RESET return info */
+#define SLOWLOG_RESET_ReturnInfo NULL
+
+/* SLOWLOG RESET history */
+#define SLOWLOG_RESET_History NULL
+
+/* SLOWLOG command table */
+struct redisCommand SLOWLOG_Subcommands[] = {
+{"RESET","Clear all entries from the slow log","O(N) where N is the number of entries in the slowlog","2.2.12",COMMAND_GROUP_SERVER,SLOWLOG_RESET_ReturnInfo,SLOWLOG_RESET_History,slowlogCommand,2,"admin loading stale @admin @slow @dangerous"},
+{"HELP","Show helpful text about the different subcommands","O(1)","6.2.0",COMMAND_GROUP_SERVER,SLOWLOG_HELP_ReturnInfo,SLOWLOG_HELP_History,slowlogCommand,2,"loading stale @slow"},
+{"LEN","Get the slow log's length","O(1)","2.2.12",COMMAND_GROUP_SERVER,SLOWLOG_LEN_ReturnInfo,SLOWLOG_LEN_History,slowlogCommand,2,"admin random loading stale @admin @slow @dangerous"},
+{"GET","Get the slow log's entries","O(N) where N is the number of entries returned","2.2.12",COMMAND_GROUP_SERVER,SLOWLOG_GET_ReturnInfo,SLOWLOG_GET_History,slowlogCommand,-2,"admin random loading stale @admin @slow @dangerous"},
+{0}
+};
+
+/********** SLOWLOG ********************/
+
+/* SLOWLOG return info */
+#define SLOWLOG_ReturnInfo NULL
+
+/* SLOWLOG history */
+#define SLOWLOG_History NULL
+
+/********** SUBSTR ********************/
+
+/* SUBSTR return info */
+#define SUBSTR_ReturnInfo NULL
+
+/* SUBSTR history */
+#define SUBSTR_History NULL
+
+/********** SWAPDB ********************/
+
+/* SWAPDB return info */
+#define SWAPDB_ReturnInfo NULL
+
+/* SWAPDB history */
+#define SWAPDB_History NULL
+
+/********** SYNC ********************/
+
+/* SYNC return info */
+#define SYNC_ReturnInfo NULL
+
+/* SYNC history */
+#define SYNC_History NULL
+
+/********** TIME ********************/
+
+/* TIME return info */
+#define TIME_ReturnInfo NULL
+
+/* TIME history */
+#define TIME_History NULL
 
 /********** XSETID ********************/
 
@@ -276,34 +2322,450 @@ struct redisCommand COMMAND_Subcommands[] = {
 /* XSETID history */
 #define XSETID_History NULL
 
+/********** SADD ********************/
+
+/* SADD return info */
+#define SADD_ReturnInfo NULL
+
+/* SADD history */
+commandHistory SADD_History[] = {
+{"2.4","Accepts multiple `member` arguments."},
+{0}
+};
+
+/********** SCARD ********************/
+
+/* SCARD return info */
+#define SCARD_ReturnInfo NULL
+
+/* SCARD history */
+#define SCARD_History NULL
+
+/********** SDIFF ********************/
+
+/* SDIFF return info */
+#define SDIFF_ReturnInfo NULL
+
+/* SDIFF history */
+#define SDIFF_History NULL
+
+/********** SDIFFSTORE ********************/
+
+/* SDIFFSTORE return info */
+#define SDIFFSTORE_ReturnInfo NULL
+
+/* SDIFFSTORE history */
+#define SDIFFSTORE_History NULL
+
+/********** SINTER ********************/
+
+/* SINTER return info */
+#define SINTER_ReturnInfo NULL
+
+/* SINTER history */
+#define SINTER_History NULL
+
+/********** SINTERCARD ********************/
+
+/* SINTERCARD return info */
+#define SINTERCARD_ReturnInfo NULL
+
+/* SINTERCARD history */
+#define SINTERCARD_History NULL
+
+/********** SINTERSTORE ********************/
+
+/* SINTERSTORE return info */
+#define SINTERSTORE_ReturnInfo NULL
+
+/* SINTERSTORE history */
+#define SINTERSTORE_History NULL
+
+/********** SISMEMBER ********************/
+
+/* SISMEMBER return info */
+#define SISMEMBER_ReturnInfo NULL
+
+/* SISMEMBER history */
+#define SISMEMBER_History NULL
+
+/********** SMEMBERS ********************/
+
+/* SMEMBERS return info */
+#define SMEMBERS_ReturnInfo NULL
+
+/* SMEMBERS history */
+#define SMEMBERS_History NULL
+
+/********** SMISMEMBER ********************/
+
+/* SMISMEMBER return info */
+#define SMISMEMBER_ReturnInfo NULL
+
+/* SMISMEMBER history */
+#define SMISMEMBER_History NULL
+
+/********** SMOVE ********************/
+
+/* SMOVE return info */
+#define SMOVE_ReturnInfo NULL
+
+/* SMOVE history */
+#define SMOVE_History NULL
+
+/********** SPOP ********************/
+
+/* SPOP return info */
+#define SPOP_ReturnInfo NULL
+
+/* SPOP history */
+commandHistory SPOP_History[] = {
+{"3.2","Added the `count` argument."},
+{0}
+};
+
+/********** SRANDMEMBER ********************/
+
+/* SRANDMEMBER return info */
+#define SRANDMEMBER_ReturnInfo NULL
+
+/* SRANDMEMBER history */
+commandHistory SRANDMEMBER_History[] = {
+{"2.6.0","Added the optional `count` argument."},
+{0}
+};
+
+/********** SREM ********************/
+
+/* SREM return info */
+#define SREM_ReturnInfo NULL
+
+/* SREM history */
+commandHistory SREM_History[] = {
+{"2.4","Accepts multiple `member` arguments."},
+{0}
+};
+
+/********** SSCAN ********************/
+
+/* SSCAN return info */
+#define SSCAN_ReturnInfo NULL
+
+/* SSCAN history */
+#define SSCAN_History NULL
+
+/********** SUNION ********************/
+
+/* SUNION return info */
+#define SUNION_ReturnInfo NULL
+
+/* SUNION history */
+#define SUNION_History NULL
+
+/********** SUNIONSTORE ********************/
+
+/* SUNIONSTORE return info */
+#define SUNIONSTORE_ReturnInfo NULL
+
+/* SUNIONSTORE history */
+#define SUNIONSTORE_History NULL
+
+/********** BZMPOP ********************/
+
+/* BZMPOP return info */
+#define BZMPOP_ReturnInfo NULL
+
+/* BZMPOP history */
+#define BZMPOP_History NULL
+
+/********** BZPOPMAX ********************/
+
+/* BZPOPMAX return info */
+#define BZPOPMAX_ReturnInfo NULL
+
+/* BZPOPMAX history */
+commandHistory BZPOPMAX_History[] = {
+{"6.0","`timeout` is interpreted as a double instead of an integer."},
+{0}
+};
+
+/********** BZPOPMIN ********************/
+
+/* BZPOPMIN return info */
+#define BZPOPMIN_ReturnInfo NULL
+
+/* BZPOPMIN history */
+commandHistory BZPOPMIN_History[] = {
+{"6.0","`timeout` is interpreted as a double instead of an integer."},
+{0}
+};
+
+/********** ZADD ********************/
+
+/* ZADD return info */
+#define ZADD_ReturnInfo NULL
+
+/* ZADD history */
+commandHistory ZADD_History[] = {
+{"2.4","Accepts multiple elements."},
+{"3.0.2","Added the `XX`, `NX`, `CH` and `INCR` options."},
+{"6.2","Added the `GT` and `LT` options."},
+{0}
+};
+
+/********** ZCARD ********************/
+
+/* ZCARD return info */
+#define ZCARD_ReturnInfo NULL
+
+/* ZCARD history */
+#define ZCARD_History NULL
+
+/********** ZCOUNT ********************/
+
+/* ZCOUNT return info */
+#define ZCOUNT_ReturnInfo NULL
+
+/* ZCOUNT history */
+#define ZCOUNT_History NULL
+
+/********** ZDIFF ********************/
+
+/* ZDIFF return info */
+#define ZDIFF_ReturnInfo NULL
+
+/* ZDIFF history */
+#define ZDIFF_History NULL
+
+/********** ZDIFFSTORE ********************/
+
+/* ZDIFFSTORE return info */
+#define ZDIFFSTORE_ReturnInfo NULL
+
+/* ZDIFFSTORE history */
+#define ZDIFFSTORE_History NULL
+
+/********** ZINCRBY ********************/
+
+/* ZINCRBY return info */
+#define ZINCRBY_ReturnInfo NULL
+
+/* ZINCRBY history */
+#define ZINCRBY_History NULL
+
+/********** ZINTER ********************/
+
+/* ZINTER return info */
+#define ZINTER_ReturnInfo NULL
+
+/* ZINTER history */
+#define ZINTER_History NULL
+
+/********** ZINTERCARD ********************/
+
+/* ZINTERCARD return info */
+#define ZINTERCARD_ReturnInfo NULL
+
+/* ZINTERCARD history */
+#define ZINTERCARD_History NULL
+
+/********** ZINTERSTORE ********************/
+
+/* ZINTERSTORE return info */
+#define ZINTERSTORE_ReturnInfo NULL
+
+/* ZINTERSTORE history */
+#define ZINTERSTORE_History NULL
+
+/********** ZLEXCOUNT ********************/
+
+/* ZLEXCOUNT return info */
+#define ZLEXCOUNT_ReturnInfo NULL
+
+/* ZLEXCOUNT history */
+#define ZLEXCOUNT_History NULL
+
+/********** ZMPOP ********************/
+
+/* ZMPOP return info */
+#define ZMPOP_ReturnInfo NULL
+
+/* ZMPOP history */
+#define ZMPOP_History NULL
+
+/********** ZMSCORE ********************/
+
+/* ZMSCORE return info */
+#define ZMSCORE_ReturnInfo NULL
+
+/* ZMSCORE history */
+#define ZMSCORE_History NULL
+
+/********** ZPOPMAX ********************/
+
+/* ZPOPMAX return info */
+#define ZPOPMAX_ReturnInfo NULL
+
+/* ZPOPMAX history */
+#define ZPOPMAX_History NULL
+
+/********** ZPOPMIN ********************/
+
+/* ZPOPMIN return info */
+#define ZPOPMIN_ReturnInfo NULL
+
+/* ZPOPMIN history */
+#define ZPOPMIN_History NULL
+
+/********** ZRANDMEMBER ********************/
+
+/* ZRANDMEMBER return info */
+#define ZRANDMEMBER_ReturnInfo NULL
+
+/* ZRANDMEMBER history */
+#define ZRANDMEMBER_History NULL
+
+/********** ZRANGE ********************/
+
+/* ZRANGE return info */
+#define ZRANGE_ReturnInfo NULL
+
+/* ZRANGE history */
+commandHistory ZRANGE_History[] = {
+{"6.2","Added the `REV`, `BYSCORE`, `BYLEX` and `LIMIT` options."},
+{0}
+};
+
+/********** ZRANGEBYLEX ********************/
+
+/* ZRANGEBYLEX return info */
+#define ZRANGEBYLEX_ReturnInfo NULL
+
+/* ZRANGEBYLEX history */
+#define ZRANGEBYLEX_History NULL
+
+/********** ZRANGEBYSCORE ********************/
+
+/* ZRANGEBYSCORE return info */
+#define ZRANGEBYSCORE_ReturnInfo NULL
+
+/* ZRANGEBYSCORE history */
+#define ZRANGEBYSCORE_History NULL
+
+/********** ZRANGESTORE ********************/
+
+/* ZRANGESTORE return info */
+#define ZRANGESTORE_ReturnInfo NULL
+
+/* ZRANGESTORE history */
+#define ZRANGESTORE_History NULL
+
+/********** ZRANK ********************/
+
+/* ZRANK return info */
+#define ZRANK_ReturnInfo NULL
+
+/* ZRANK history */
+#define ZRANK_History NULL
+
+/********** ZREM ********************/
+
+/* ZREM return info */
+#define ZREM_ReturnInfo NULL
+
+/* ZREM history */
+commandHistory ZREM_History[] = {
+{"2.4","Accepts multiple elements."},
+{0}
+};
+
+/********** ZREMRANGEBYLEX ********************/
+
+/* ZREMRANGEBYLEX return info */
+#define ZREMRANGEBYLEX_ReturnInfo NULL
+
+/* ZREMRANGEBYLEX history */
+#define ZREMRANGEBYLEX_History NULL
+
+/********** ZREMRANGEBYRANK ********************/
+
+/* ZREMRANGEBYRANK return info */
+#define ZREMRANGEBYRANK_ReturnInfo NULL
+
+/* ZREMRANGEBYRANK history */
+#define ZREMRANGEBYRANK_History NULL
+
+/********** ZREMRANGEBYSCORE ********************/
+
+/* ZREMRANGEBYSCORE return info */
+#define ZREMRANGEBYSCORE_ReturnInfo NULL
+
+/* ZREMRANGEBYSCORE history */
+#define ZREMRANGEBYSCORE_History NULL
+
+/********** ZREVRANGE ********************/
+
+/* ZREVRANGE return info */
+#define ZREVRANGE_ReturnInfo NULL
+
+/* ZREVRANGE history */
+#define ZREVRANGE_History NULL
+
+/********** ZREVRANGEBYLEX ********************/
+
+/* ZREVRANGEBYLEX return info */
+#define ZREVRANGEBYLEX_ReturnInfo NULL
+
+/* ZREVRANGEBYLEX history */
+#define ZREVRANGEBYLEX_History NULL
+
+/********** ZREVRANGEBYSCORE ********************/
+
+/* ZREVRANGEBYSCORE return info */
+#define ZREVRANGEBYSCORE_ReturnInfo NULL
+
+/* ZREVRANGEBYSCORE history */
+#define ZREVRANGEBYSCORE_History NULL
+
+/********** ZREVRANK ********************/
+
+/* ZREVRANK return info */
+#define ZREVRANK_ReturnInfo NULL
+
+/* ZREVRANK history */
+#define ZREVRANK_History NULL
+
+/********** ZSCAN ********************/
+
+/* ZSCAN return info */
+#define ZSCAN_ReturnInfo NULL
+
+/* ZSCAN history */
+#define ZSCAN_History NULL
+
+/********** ZSCORE ********************/
+
+/* ZSCORE return info */
+#define ZSCORE_ReturnInfo NULL
+
+/* ZSCORE history */
+#define ZSCORE_History NULL
+
+/********** ZUNION ********************/
+
+/* ZUNION return info */
+#define ZUNION_ReturnInfo NULL
+
+/* ZUNION history */
+#define ZUNION_History NULL
+
 /********** ZUNIONSTORE ********************/
 
 /* ZUNIONSTORE return info */
-commandReturnInfo ZUNIONSTORE_ReturnInfo[] = {
-{"Cardinality of the result",NULL,RETURN_TYPE_RESP2_3_SAME,.type.global=RESP2_INTEGER},
-{0}
-};
+#define ZUNIONSTORE_ReturnInfo NULL
 
 /* ZUNIONSTORE history */
 #define ZUNIONSTORE_History NULL
-
-/* ZUNIONSTORE aggregate argument table */
-struct redisCommandArg ZUNIONSTORE_aggregate_Subargs[] = {
-{"sum",ARG_TYPE_NULL,"SUM",NULL,NULL,CMD_ARG_NONE},
-{"min",ARG_TYPE_NULL,"MIN",NULL,NULL,CMD_ARG_NONE},
-{"max",ARG_TYPE_NULL,"MAX",NULL,NULL,CMD_ARG_NONE},
-{0}
-};
-
-/* ZUNIONSTORE argument table */
-struct redisCommandArg ZUNIONSTORE_Args[] = {
-{"destination",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="destination"},
-{"numkeys",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="numkeys"},
-{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.value.string="key"},
-{"weights",ARG_TYPE_INTEGER,"WEIGHTS",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,.value.string="weight"},
-{"aggregate",ARG_TYPE_ONEOF,"AGGREGATE",NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=ZUNIONSTORE_aggregate_Subargs},
-{0}
-};
 
 /********** XACK ********************/
 
@@ -321,6 +2783,53 @@ struct redisCommandArg ZUNIONSTORE_Args[] = {
 /* XADD history */
 commandHistory XADD_History[] = {
 {"6.2","Added the `NOMKSTREAM` option, `MINID` trimming strategy and the `LIMIT` option."},
+{0}
+};
+
+/* XADD trim __tbd__1__ argument table */
+struct redisCommandArg XADD_trim___tbd__1___Subargs[] = {
+{"maxlen",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="MAXLEN"},
+{"minid",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="MINID"},
+{0}
+};
+
+/* XADD trim __tbd__4__ argument table */
+struct redisCommandArg XADD_trim___tbd__4___Subargs[] = {
+{"__tbd__5__",ARG_TYPE_NULL,"=",NULL,NULL,CMD_ARG_NONE},
+{"__tbd__6__",ARG_TYPE_NULL,"~",NULL,NULL,CMD_ARG_NONE},
+{0}
+};
+
+/* XADD trim argument table */
+struct redisCommandArg XADD_trim_Subargs[] = {
+{"__tbd__1__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_NONE,.value.subargs=XADD_trim___tbd__1___Subargs},
+{"__tbd__4__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=XADD_trim___tbd__4___Subargs},
+{"threshold",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="threshold"},
+{"count",ARG_TYPE_INTEGER,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="count"},
+{0}
+};
+
+/* XADD __tbd__7__ argument table */
+struct redisCommandArg XADD___tbd__7___Subargs[] = {
+{"__tbd__8__",ARG_TYPE_NULL,"*",NULL,NULL,CMD_ARG_NONE},
+{"id",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="ID"},
+{0}
+};
+
+/* XADD field_value argument table */
+struct redisCommandArg XADD_field_value_Subargs[] = {
+{"field",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="field"},
+{"value",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="value"},
+{0}
+};
+
+/* XADD argument table */
+struct redisCommandArg XADD_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"nomkstream",ARG_TYPE_NULL,"NOMKSTREAM",NULL,NULL,CMD_ARG_OPTIONAL},
+{"trim",ARG_TYPE_BLOCK,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=XADD_trim_Subargs},
+{"__tbd__7__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_NONE,.value.subargs=XADD___tbd__7___Subargs},
+{"field_value",ARG_TYPE_BLOCK,NULL,NULL,NULL,CMD_ARG_NONE,.value.subargs=XADD_field_value_Subargs},
 {0}
 };
 
@@ -398,12 +2907,12 @@ commandHistory XADD_History[] = {
 
 /* XGROUP command table */
 struct redisCommand XGROUP_Subcommands[] = {
-{"HELP",NULL,NULL,NULL,COMMAND_GROUP_STREAM,XGROUP_HELP_ReturnInfo,XGROUP_HELP_History,NULL,2,"loading stale @stream @slow"},
-{"CREATECONSUMER",NULL,NULL,NULL,COMMAND_GROUP_STREAM,XGROUP_CREATECONSUMER_ReturnInfo,XGROUP_CREATECONSUMER_History,NULL,5,"write denyoom @write @stream @slow",{{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"CREATE",NULL,NULL,NULL,COMMAND_GROUP_STREAM,XGROUP_CREATE_ReturnInfo,XGROUP_CREATE_History,NULL,-5,"write denyoom @write @stream @slow",{{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"DELCONSUMER",NULL,NULL,NULL,COMMAND_GROUP_STREAM,XGROUP_DELCONSUMER_ReturnInfo,XGROUP_DELCONSUMER_History,NULL,5,"write @write @stream @slow",{{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"DESTROY",NULL,NULL,NULL,COMMAND_GROUP_STREAM,XGROUP_DESTROY_ReturnInfo,XGROUP_DESTROY_History,NULL,4,"write @write @stream @slow",{{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"SETID",NULL,NULL,NULL,COMMAND_GROUP_STREAM,XGROUP_SETID_ReturnInfo,XGROUP_SETID_History,NULL,5,"write @write @stream @slow",{{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"HELP","Show helpful text about the different subcommands","O(1)","5.0.0",COMMAND_GROUP_STREAM,XGROUP_HELP_ReturnInfo,XGROUP_HELP_History,xgroupCommand,2,"loading stale @stream @slow"},
+{"CREATECONSUMER","Create a consumer in a consumer group.","O(1)","6.2.0",COMMAND_GROUP_STREAM,XGROUP_CREATECONSUMER_ReturnInfo,XGROUP_CREATECONSUMER_History,xgroupCommand,5,"write denyoom @write @stream @slow",{{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"CREATE","Create a consumer group.","O(1)","5.0.0",COMMAND_GROUP_STREAM,XGROUP_CREATE_ReturnInfo,XGROUP_CREATE_History,xgroupCommand,-5,"write denyoom @write @stream @slow",{{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"DELCONSUMER","Delete a consumer from a consumer group.","O(1)","5.0.0",COMMAND_GROUP_STREAM,XGROUP_DELCONSUMER_ReturnInfo,XGROUP_DELCONSUMER_History,xgroupCommand,5,"write @write @stream @slow",{{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"DESTROY","Destroy a consumer group.","O(N) where N is the number of entries in the group's pending entries list (PEL).","5.0.0",COMMAND_GROUP_STREAM,XGROUP_DESTROY_ReturnInfo,XGROUP_DESTROY_History,xgroupCommand,4,"write @write @stream @slow",{{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"SETID","Set a consumer group to an arbitrary last delivered ID value.","O(1)","5.0.0",COMMAND_GROUP_STREAM,XGROUP_SETID_ReturnInfo,XGROUP_SETID_History,xgroupCommand,5,"write @write @stream @slow",{{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 {0}
 };
 
@@ -449,10 +2958,10 @@ struct redisCommand XGROUP_Subcommands[] = {
 
 /* XINFO command table */
 struct redisCommand XINFO_Subcommands[] = {
-{"GROUPS",NULL,NULL,NULL,COMMAND_GROUP_STREAM,XINFO_GROUPS_ReturnInfo,XINFO_GROUPS_History,NULL,3,"readonly @read @stream @slow",{{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"CONSUMERS",NULL,NULL,NULL,COMMAND_GROUP_STREAM,XINFO_CONSUMERS_ReturnInfo,XINFO_CONSUMERS_History,NULL,4,"readonly random @read @stream @slow",{{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"STREAM",NULL,NULL,NULL,COMMAND_GROUP_STREAM,XINFO_STREAM_ReturnInfo,XINFO_STREAM_History,NULL,-3,"readonly @read @stream @slow",{{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"HELP",NULL,NULL,NULL,COMMAND_GROUP_STREAM,XINFO_HELP_ReturnInfo,XINFO_HELP_History,NULL,2,"loading stale @stream @slow"},
+{"GROUPS","List the consumer groups of a stream","O(1)","5.0.0",COMMAND_GROUP_STREAM,XINFO_GROUPS_ReturnInfo,XINFO_GROUPS_History,xinfoCommand,3,"readonly @read @stream @slow",{{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"CONSUMERS","List the consumers in a consumer group","O(1)","5.0.0",COMMAND_GROUP_STREAM,XINFO_CONSUMERS_ReturnInfo,XINFO_CONSUMERS_History,xinfoCommand,4,"readonly random @read @stream @slow",{{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"STREAM","Get information about a stream","O(1)","5.0.0",COMMAND_GROUP_STREAM,XINFO_STREAM_ReturnInfo,XINFO_STREAM_History,xinfoCommand,-3,"readonly @read @stream @slow",{{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"HELP","Show helpful text about the different subcommands","O(1)","5.0.0",COMMAND_GROUP_STREAM,XINFO_HELP_ReturnInfo,XINFO_HELP_History,xinfoCommand,2,"loading stale @stream @slow"},
 {0}
 };
 
@@ -462,10 +2971,7 @@ struct redisCommand XINFO_Subcommands[] = {
 #define XINFO_ReturnInfo NULL
 
 /* XINFO history */
-commandHistory XINFO_History[] = {
-{"6.0.0","Added the `FULL` option to `XINFO STREAM`."},
-{0}
-};
+#define XINFO_History NULL
 
 /********** XLEN ********************/
 
@@ -529,6 +3035,126 @@ commandHistory XTRIM_History[] = {
 {0}
 };
 
+/********** APPEND ********************/
+
+/* APPEND return info */
+#define APPEND_ReturnInfo NULL
+
+/* APPEND history */
+#define APPEND_History NULL
+
+/********** DECR ********************/
+
+/* DECR return info */
+#define DECR_ReturnInfo NULL
+
+/* DECR history */
+#define DECR_History NULL
+
+/********** DECRBY ********************/
+
+/* DECRBY return info */
+#define DECRBY_ReturnInfo NULL
+
+/* DECRBY history */
+#define DECRBY_History NULL
+
+/********** GET ********************/
+
+/* GET return info */
+#define GET_ReturnInfo NULL
+
+/* GET history */
+#define GET_History NULL
+
+/********** GETDEL ********************/
+
+/* GETDEL return info */
+#define GETDEL_ReturnInfo NULL
+
+/* GETDEL history */
+#define GETDEL_History NULL
+
+/********** GETEX ********************/
+
+/* GETEX return info */
+#define GETEX_ReturnInfo NULL
+
+/* GETEX history */
+#define GETEX_History NULL
+
+/********** GETRANGE ********************/
+
+/* GETRANGE return info */
+#define GETRANGE_ReturnInfo NULL
+
+/* GETRANGE history */
+#define GETRANGE_History NULL
+
+/********** GETSET ********************/
+
+/* GETSET return info */
+#define GETSET_ReturnInfo NULL
+
+/* GETSET history */
+#define GETSET_History NULL
+
+/********** INCR ********************/
+
+/* INCR return info */
+#define INCR_ReturnInfo NULL
+
+/* INCR history */
+#define INCR_History NULL
+
+/********** INCRBY ********************/
+
+/* INCRBY return info */
+#define INCRBY_ReturnInfo NULL
+
+/* INCRBY history */
+#define INCRBY_History NULL
+
+/********** INCRBYFLOAT ********************/
+
+/* INCRBYFLOAT return info */
+#define INCRBYFLOAT_ReturnInfo NULL
+
+/* INCRBYFLOAT history */
+#define INCRBYFLOAT_History NULL
+
+/********** MGET ********************/
+
+/* MGET return info */
+#define MGET_ReturnInfo NULL
+
+/* MGET history */
+#define MGET_History NULL
+
+/********** MSET ********************/
+
+/* MSET return info */
+#define MSET_ReturnInfo NULL
+
+/* MSET history */
+#define MSET_History NULL
+
+/********** MSETNX ********************/
+
+/* MSETNX return info */
+#define MSETNX_ReturnInfo NULL
+
+/* MSETNX history */
+#define MSETNX_History NULL
+
+/********** PSETEX ********************/
+
+/* PSETEX return info */
+#define PSETEX_ReturnInfo NULL
+
+/* PSETEX history */
+#define PSETEX_History NULL
+
 /********** SET ********************/
 
 /* SET return info */
@@ -543,8 +3169,8 @@ commandReturnInfo SET_ReturnInfo[] = {
 commandHistory SET_History[] = {
 {"2.6.12","Added the `EX`, `PX`, `NX` and `XX` options."},
 {"6.0","Added the `KEEPTTL` option."},
-{"6.2","Added the `GET`, `EXAT` and `PXAT` option."},
-{"7.0","Allowed the `NX` and `GET` options to be used together."},
+{"6.2","Added the `!GET`, `EXAT` and `PXAT` option."},
+{"7.0","Allowed the `NX` and `!GET` options to be used together."},
 {0}
 };
 
@@ -575,33 +3201,361 @@ struct redisCommandArg SET_Args[] = {
 {0}
 };
 
+/********** SETEX ********************/
+
+/* SETEX return info */
+#define SETEX_ReturnInfo NULL
+
+/* SETEX history */
+#define SETEX_History NULL
+
+/********** SETNX ********************/
+
+/* SETNX return info */
+#define SETNX_ReturnInfo NULL
+
+/* SETNX history */
+#define SETNX_History NULL
+
+/********** SETRANGE ********************/
+
+/* SETRANGE return info */
+#define SETRANGE_ReturnInfo NULL
+
+/* SETRANGE history */
+#define SETRANGE_History NULL
+
+/********** STRALGO HELP ********************/
+
+/* STRALGO HELP return info */
+#define STRALGO_HELP_ReturnInfo NULL
+
+/* STRALGO HELP history */
+#define STRALGO_HELP_History NULL
+
+/********** STRALGO LCS ********************/
+
+/* STRALGO LCS return info */
+#define STRALGO_LCS_ReturnInfo NULL
+
+/* STRALGO LCS history */
+#define STRALGO_LCS_History NULL
+
+/* STRALGO command table */
+struct redisCommand STRALGO_Subcommands[] = {
+{"HELP",NULL,NULL,NULL,COMMAND_GROUP_STRING,STRALGO_HELP_ReturnInfo,STRALGO_HELP_History,stralgoCommand,2,"loading stale @string @slow"},
+{"LCS",NULL,NULL,NULL,COMMAND_GROUP_STRING,STRALGO_LCS_ReturnInfo,STRALGO_LCS_History,stralgoCommand,-5,"readonly @read @string @slow",{{"read incomplete",KSPEC_BS_UNKNOWN,{{0}},KSPEC_FK_UNKNOWN,{{0}}}},lcsGetKeys},
+{0}
+};
+
+/********** STRALGO ********************/
+
+/* STRALGO return info */
+#define STRALGO_ReturnInfo NULL
+
+/* STRALGO history */
+#define STRALGO_History NULL
+
+/********** STRLEN ********************/
+
+/* STRLEN return info */
+#define STRLEN_ReturnInfo NULL
+
+/* STRLEN history */
+#define STRLEN_History NULL
+
+/********** DISCARD ********************/
+
+/* DISCARD return info */
+#define DISCARD_ReturnInfo NULL
+
+/* DISCARD history */
+#define DISCARD_History NULL
+
+/********** EXEC ********************/
+
+/* EXEC return info */
+#define EXEC_ReturnInfo NULL
+
+/* EXEC history */
+#define EXEC_History NULL
+
+/********** MULTI ********************/
+
+/* MULTI return info */
+#define MULTI_ReturnInfo NULL
+
+/* MULTI history */
+#define MULTI_History NULL
+
+/********** UNWATCH ********************/
+
+/* UNWATCH return info */
+#define UNWATCH_ReturnInfo NULL
+
+/* UNWATCH history */
+#define UNWATCH_History NULL
+
+/********** WATCH ********************/
+
+/* WATCH return info */
+#define WATCH_ReturnInfo NULL
+
+/* WATCH history */
+#define WATCH_History NULL
+
 /* Main command table */
 struct redisCommand redisCommandTable[] = {
+/* bitmap */
+{"BITCOUNT","Count set bits in a string","O(N)","2.6.0",COMMAND_GROUP_BITMAP,BITCOUNT_ReturnInfo,BITCOUNT_History,bitcountCommand,-2,"readonly @read @bitmap @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"BITFIELD","Perform arbitrary bitfield integer operations on strings","O(1) for each subcommand specified","3.2.0",COMMAND_GROUP_BITMAP,BITFIELD_ReturnInfo,BITFIELD_History,bitfieldCommand,-2,"write denyoom @write @bitmap @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"BITFIELD_RO","Perform arbitrary bitfield integer operations on strings. Read-only variant of BITFIELD","O(1) for each subcommand specified","6.2.0",COMMAND_GROUP_BITMAP,BITFIELD_RO_ReturnInfo,BITFIELD_RO_History,bitfieldroCommand,-2,"readonly fast @read @bitmap @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"BITOP","Perform bitwise operations between strings","O(N)","2.6.0",COMMAND_GROUP_BITMAP,BITOP_ReturnInfo,BITOP_History,bitopCommand,-4,"write denyoom @write @bitmap @slow",{{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"read",KSPEC_BS_INDEX,.bs.index={3},KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
+{"BITPOS","Find first bit set or clear in a string","O(N)","2.8.7",COMMAND_GROUP_BITMAP,BITPOS_ReturnInfo,BITPOS_History,bitposCommand,-3,"readonly @read @bitmap @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"GETBIT","Returns the bit value at offset in the string value stored at key","O(1)","2.2.0",COMMAND_GROUP_BITMAP,GETBIT_ReturnInfo,GETBIT_History,getbitCommand,3,"readonly fast @read @bitmap @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"SETBIT","Sets or clears the bit at offset in the string value stored at key","O(1)","2.2.0",COMMAND_GROUP_BITMAP,SETBIT_ReturnInfo,SETBIT_History,setbitCommand,4,"write denyoom @write @bitmap @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+/* cluster */
+{"ASKING","Sent by cluster clients after an -ASK redirect","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,ASKING_ReturnInfo,ASKING_History,askingCommand,1,"fast @fast @connection"},
+{"CLUSTER",NULL,NULL,"3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_ReturnInfo,CLUSTER_History,NULL,-2,"@slow",.subcommands=CLUSTER_Subcommands},
+{"READONLY","Enables read queries for a connection to a cluster replica node","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,READONLY_ReturnInfo,READONLY_History,readonlyCommand,1,"fast @fast @connection"},
+{"READWRITE","Disables read queries for a connection to a cluster replica node","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,READWRITE_ReturnInfo,READWRITE_History,readwriteCommand,1,"fast @fast @connection"},
+/* connection */
+{"AUTH","Authenticate to the server",NULL,"1.0.0",COMMAND_GROUP_CONNECTION,AUTH_ReturnInfo,AUTH_History,authCommand,-2,"noscript loading stale fast no_auth @fast @connection"},
+{"CLIENT",NULL,NULL,"2.4.0",COMMAND_GROUP_CONNECTION,CLIENT_ReturnInfo,CLIENT_History,NULL,-2,"@slow",.subcommands=CLIENT_Subcommands},
+{"ECHO","Echo the given string",NULL,"1.0.0",COMMAND_GROUP_CONNECTION,ECHO_ReturnInfo,ECHO_History,echoCommand,2,"fast @fast @connection"},
+{"HELLO","Handshake with Redis","O(1)","6.0.0",COMMAND_GROUP_CONNECTION,HELLO_ReturnInfo,HELLO_History,helloCommand,-1,"noscript loading stale fast no_auth @fast @connection"},
+{"PING","Ping the server",NULL,"1.0.0",COMMAND_GROUP_CONNECTION,PING_ReturnInfo,PING_History,pingCommand,-1,"stale fast @fast @connection"},
+{"RESET","Reset the connection",NULL,"6.2",COMMAND_GROUP_CONNECTION,RESET_ReturnInfo,RESET_History,resetCommand,1,"noscript loading stale fast @fast @connection"},
+{"SELECT","Change the selected database for the current connection",NULL,"1.0.0",COMMAND_GROUP_CONNECTION,SELECT_ReturnInfo,SELECT_History,selectCommand,2,"loading stale fast @fast @connection"},
 /* generic */
-{"CONFIG",NULL,NULL,NULL,COMMAND_GROUP_GENERIC,CONFIG_ReturnInfo,CONFIG_History,NULL,-2,"",.subcommands=CONFIG_Subcommands},
-{"MIGRATE","Atomically transfer a key from a Redis instance to another one.","This command actually executes a DUMP+DEL in the source instance, and a RESTORE in the target instance. See the pages of these commands for time complexity. Also an O(N) data transfer between the two instances is performed.","2.6.0",COMMAND_GROUP_GENERIC,MIGRATE_ReturnInfo,MIGRATE_History,migrateCommand,-6,"write random @keyspace @dangerous @write @slow",{{"write",KSPEC_BS_INDEX,.bs.index={3},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"write incomplete",KSPEC_BS_KEYWORD,.bs.keyword={"KEYS",-2},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},migrateGetKeys,.args=MIGRATE_Args},
-{"SORT","Sort the elements in a list, set or sorted set","O(N+M*log(M)) where N is the number of elements in the list or set to sort, and M the number of returned elements. When the elements are not sorted, complexity is O(N).","1.0.0",COMMAND_GROUP_GENERIC,SORT_ReturnInfo,SORT_History,NULL,-2,"write denyoom @write @set @sortedset @list @slow @dangerous",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"write incomplete",KSPEC_BS_UNKNOWN,{{0}},KSPEC_FK_UNKNOWN,{{0}}}},.args=SORT_Args},
+{"COPY","Copy a key","O(N) worst case for collections, where N is the number of nested items. O(1) for string values.","6.2.0",COMMAND_GROUP_GENERIC,COPY_ReturnInfo,COPY_History,copyCommand,-3,"write denyoom @keyspace @write @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"DEL","Delete a key","O(N) where N is the number of keys that will be removed. When a key to remove holds a value other than a string, the individual complexity for this key is O(M) where M is the number of elements in the list, set, sorted set or hash. Removing a single key that holds a string value is O(1).","1.0.0",COMMAND_GROUP_GENERIC,DEL_ReturnInfo,DEL_History,delCommand,-2,"write @keyspace @write @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
+{"DUMP","Return a serialized version of the value stored at the specified key.","O(1) to access the key and additional O(N*M) to serialize it, where N is the number of Redis objects composing the value and M their average size. For small string values the time complexity is thus O(1)+O(1*M) where M is small, so simply O(1).","2.6.0",COMMAND_GROUP_GENERIC,DUMP_ReturnInfo,DUMP_History,dumpCommand,2,"readonly random @keyspace @read @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"EXISTS","Determine if a key exists","O(N) where N is the number of keys to check.","1.0.0",COMMAND_GROUP_GENERIC,EXISTS_ReturnInfo,EXISTS_History,existsCommand,-2,"readonly fast @keyspace @read @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
+{"EXPIRE","Set a key's time to live in seconds","O(1)","1.0.0",COMMAND_GROUP_GENERIC,EXPIRE_ReturnInfo,EXPIRE_History,expireCommand,-3,"write fast @keyspace @write @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"EXPIREAT","Set the expiration for a key as a UNIX timestamp","O(1)","1.2.0",COMMAND_GROUP_GENERIC,EXPIREAT_ReturnInfo,EXPIREAT_History,expireatCommand,-3,"write fast @keyspace @write @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"EXPIRETIME","Get the expiration Unix timestamp for a key","O(1)","7.0.0",COMMAND_GROUP_GENERIC,EXPIRETIME_ReturnInfo,EXPIRETIME_History,expiretimeCommand,2,"readonly random fast @keyspace @read @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"KEYS","Find all keys matching the given pattern","O(N) with N being the number of keys in the database, under the assumption that the key names in the database and the given pattern have limited length.","1.0.0",COMMAND_GROUP_GENERIC,KEYS_ReturnInfo,KEYS_History,keysCommand,2,"readonly sort_for_script @keyspace @read @slow @dangerous"},
+{"MIGRATE","Atomically transfer a key from a Redis instance to another one.","This command actually executes a DUMP+DEL in the source instance, and a RESTORE in the target instance. See the pages of these commands for time complexity. Also an O(N) data transfer between the two instances is performed.","2.6.0",COMMAND_GROUP_GENERIC,MIGRATE_ReturnInfo,MIGRATE_History,migrateCommand,-6,"write random @keyspace @write @slow @dangerous",{{"write",KSPEC_BS_INDEX,.bs.index={3},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"write incomplete",KSPEC_BS_KEYWORD,.bs.keyword={"KEYS",-2},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},migrateGetKeys,.args=MIGRATE_Args},
+{"MOVE","Move a key to another database","O(1)","1.0.0",COMMAND_GROUP_GENERIC,MOVE_ReturnInfo,MOVE_History,moveCommand,3,"write fast @keyspace @write @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"OBJECT",NULL,NULL,"2.2.3",COMMAND_GROUP_GENERIC,OBJECT_ReturnInfo,OBJECT_History,NULL,-2,"@slow",.subcommands=OBJECT_Subcommands},
+{"PERSIST","Remove the expiration from a key","O(1)","2.2.0",COMMAND_GROUP_GENERIC,PERSIST_ReturnInfo,PERSIST_History,persistCommand,2,"write fast @keyspace @write @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"PEXPIRE","Set a key's time to live in milliseconds","O(1)","2.6.0",COMMAND_GROUP_GENERIC,PEXPIRE_ReturnInfo,PEXPIRE_History,pexpireCommand,-3,"write fast @keyspace @write @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"PEXPIREAT","Set the expiration for a key as a UNIX timestamp specified in milliseconds","O(1)","2.6.0",COMMAND_GROUP_GENERIC,PEXPIREAT_ReturnInfo,PEXPIREAT_History,pexpireatCommand,-3,"write fast @keyspace @write @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"PEXPIRETIME","Get the expiration Unix timestamp for a key in milliseconds","O(1)","7.0.0",COMMAND_GROUP_GENERIC,PEXPIRETIME_ReturnInfo,PEXPIRETIME_History,pexpiretimeCommand,2,"readonly random fast @keyspace @read @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"PTTL","Get the time to live for a key in milliseconds","O(1)","2.6.0",COMMAND_GROUP_GENERIC,PTTL_ReturnInfo,PTTL_History,pttlCommand,2,"readonly random fast @keyspace @read @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"RANDOMKEY","Return a random key from the keyspace","O(1)","1.0.0",COMMAND_GROUP_GENERIC,RANDOMKEY_ReturnInfo,RANDOMKEY_History,randomkeyCommand,1,"readonly random @keyspace @read @slow"},
+{"RENAME","Rename a key","O(1)","1.0.0",COMMAND_GROUP_GENERIC,RENAME_ReturnInfo,RENAME_History,renameCommand,3,"write @keyspace @write @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={1,1,0}}}},
+{"RENAMENX","Rename a key, only if the new key does not exist","O(1)","1.0.0",COMMAND_GROUP_GENERIC,RENAMENX_ReturnInfo,RENAMENX_History,renamenxCommand,3,"write fast @keyspace @write @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={1,1,0}}}},
+{"RESTORE","Create a key using the provided serialized value, previously obtained using DUMP.","O(1) to create the new key and additional O(N*M) to reconstruct the serialized value, where N is the number of Redis objects composing the value and M their average size. For small string values the time complexity is thus O(1)+O(1*M) where M is small, so simply O(1). However for sorted set values the complexity is O(N*M*log(N)) because inserting values into sorted sets is O(log(N)).","2.6.0",COMMAND_GROUP_GENERIC,RESTORE_ReturnInfo,RESTORE_History,restoreCommand,-4,"write denyoom @keyspace @write @slow @dangerous",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"SCAN","Incrementally iterate the keys space","O(1) for every call. O(N) for a complete iteration, including enough command calls for the cursor to return back to 0. N is the number of elements inside the collection.","2.8.0",COMMAND_GROUP_GENERIC,SCAN_ReturnInfo,SCAN_History,scanCommand,-2,"readonly random @keyspace @read @slow"},
+{"SORT","Sort the elements in a list, set or sorted set","O(N+M*log(M)) where N is the number of elements in the list or set to sort, and M the number of returned elements. When the elements are not sorted, complexity is O(N).","1.0.0",COMMAND_GROUP_GENERIC,SORT_ReturnInfo,SORT_History,sortCommand,-2,"write denyoom @write @set @sortedset @list @slow @dangerous",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"write incomplete",KSPEC_BS_UNKNOWN,{{0}},KSPEC_FK_UNKNOWN,{{0}}}},sortGetKeys},
+{"SORT_RO","Sort the elements in a list, set or sorted set. Read-only variant of SORT.","O(N+M*log(M)) where N is the number of elements in the list or set to sort, and M the number of returned elements. When the elements are not sorted, complexity is O(N).","7.0.0",COMMAND_GROUP_GENERIC,SORT_RO_ReturnInfo,SORT_RO_History,sortroCommand,-2,"readonly @read @set @sortedset @list @slow @dangerous",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"TOUCH","Alters the last access time of a key(s). Returns the number of existing keys specified.","O(N) where N is the number of keys that will be touched.","3.2.1",COMMAND_GROUP_GENERIC,TOUCH_ReturnInfo,TOUCH_History,touchCommand,-2,"readonly fast @keyspace @read @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
+{"TTL","Get the time to live for a key in seconds","O(1)","1.0.0",COMMAND_GROUP_GENERIC,TTL_ReturnInfo,TTL_History,ttlCommand,2,"readonly random fast @keyspace @read @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"TYPE","Determine the type stored at key","O(1)","1.0.0",COMMAND_GROUP_GENERIC,TYPE_ReturnInfo,TYPE_History,typeCommand,2,"readonly fast @keyspace @read @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"UNLINK","Delete a key asynchronously in another thread. Otherwise it is just as DEL, but non blocking.","O(1) for each key removed regardless of its size. Then the command does O(N) work in a different thread in order to reclaim memory, where N is the number of allocations the deleted objects where composed of.","4.0.0",COMMAND_GROUP_GENERIC,UNLINK_ReturnInfo,UNLINK_History,unlinkCommand,-2,"write fast @keyspace @write @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
+{"WAIT","Wait for the synchronous replication of all the write commands sent in the context of the current connection","O(1)","3.0.0",COMMAND_GROUP_GENERIC,WAIT_ReturnInfo,WAIT_History,waitCommand,3,"noscript @slow @connection"},
+/* geo */
+{"GEOADD","Add one or more geospatial items in the geospatial index represented using a sorted set","O(log(N)) for each item added, where N is the number of elements in the sorted set.","3.2.0",COMMAND_GROUP_GEO,GEOADD_ReturnInfo,GEOADD_History,geoaddCommand,-5,"write denyoom @write @geo @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"GEODIST","Returns the distance between two members of a geospatial index","O(log(N))","3.2.0",COMMAND_GROUP_GEO,GEODIST_ReturnInfo,GEODIST_History,geodistCommand,-4,"readonly @read @geo @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"GEOHASH","Returns members of a geospatial index as standard geohash strings","O(log(N)) for each member requested, where N is the number of elements in the sorted set.","3.2.0",COMMAND_GROUP_GEO,GEOHASH_ReturnInfo,GEOHASH_History,geohashCommand,-2,"readonly @read @geo @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"GEOPOS","Returns longitude and latitude of members of a geospatial index","O(N) where N is the number of members requested.","3.2.0",COMMAND_GROUP_GEO,GEOPOS_ReturnInfo,GEOPOS_History,geoposCommand,-2,"readonly @read @geo @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"GEORADIUS","Query a sorted set representing a geospatial index to fetch members matching a given maximum distance from a point","O(N+log(M)) where N is the number of elements inside the bounding box of the circular area delimited by center and radius and M is the number of items inside the index.","3.2.0",COMMAND_GROUP_GEO,GEORADIUS_ReturnInfo,GEORADIUS_History,georadiusCommand,-6,"write denyoom @write @geo @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"write",KSPEC_BS_KEYWORD,.bs.keyword={"STORE",6},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"write",KSPEC_BS_KEYWORD,.bs.keyword={"STOREDIST",6},KSPEC_FK_RANGE,.fk.range={0,1,0}}},georadiusGetKeys},
+{"GEORADIUSBYMEMBER","Query a sorted set representing a geospatial index to fetch members matching a given maximum distance from a member","O(N+log(M)) where N is the number of elements inside the bounding box of the circular area delimited by center and radius and M is the number of items inside the index.","3.2.0",COMMAND_GROUP_GEO,GEORADIUSBYMEMBER_ReturnInfo,GEORADIUSBYMEMBER_History,georadiusbymemberCommand,-5,"write denyoom @write @geo @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"write",KSPEC_BS_KEYWORD,.bs.keyword={"STORE",5},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"write",KSPEC_BS_KEYWORD,.bs.keyword={"STOREDIST",5},KSPEC_FK_RANGE,.fk.range={0,1,0}}},georadiusGetKeys},
+{"GEOSEARCH","Query a sorted set representing a geospatial index to fetch members inside an area of a box or a circle.","O(N+log(M)) where N is the number of elements in the grid-aligned bounding box area around the shape provided as the filter and M is the number of items inside the shape","6.2",COMMAND_GROUP_GEO,GEOSEARCH_ReturnInfo,GEOSEARCH_History,geosearchCommand,-7,"readonly @read @geo @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"GEOSEARCHSTORE","Query a sorted set representing a geospatial index to fetch members inside an area of a box or a circle, and store the result in another key.","O(N+log(M)) where N is the number of elements in the grid-aligned bounding box area around the shape provided as the filter and M is the number of items inside the shape","6.2",COMMAND_GROUP_GEO,GEOSEARCHSTORE_ReturnInfo,GEOSEARCHSTORE_History,geosearchstoreCommand,-8,"write denyoom @write @geo @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+/* hash */
+{"HDEL","Delete one or more hash fields","O(N) where N is the number of fields to be removed.","2.0.0",COMMAND_GROUP_HASH,HDEL_ReturnInfo,HDEL_History,hdelCommand,-3,"write fast @write @hash @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"HEXISTS","Determine if a hash field exists","O(1)","2.0.0",COMMAND_GROUP_HASH,HEXISTS_ReturnInfo,HEXISTS_History,hexistsCommand,3,"readonly fast @read @hash @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"HGET","Get the value of a hash field","O(1)","2.0.0",COMMAND_GROUP_HASH,HGET_ReturnInfo,HGET_History,hgetCommand,3,"readonly fast @read @hash @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"HGETALL","Get all the fields and values in a hash","O(N) where N is the size of the hash.","2.0.0",COMMAND_GROUP_HASH,HGETALL_ReturnInfo,HGETALL_History,hgetallCommand,2,"readonly random @read @hash @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"HINCRBY","Increment the integer value of a hash field by the given number","O(1)","2.0.0",COMMAND_GROUP_HASH,HINCRBY_ReturnInfo,HINCRBY_History,hincrbyCommand,4,"write denyoom fast @write @hash @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"HINCRBYFLOAT","Increment the float value of a hash field by the given amount","O(1)","2.6.0",COMMAND_GROUP_HASH,HINCRBYFLOAT_ReturnInfo,HINCRBYFLOAT_History,hincrbyfloatCommand,4,"write denyoom fast @write @hash @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"HKEYS","Get all the fields in a hash","O(N) where N is the size of the hash.","2.0.0",COMMAND_GROUP_HASH,HKEYS_ReturnInfo,HKEYS_History,hkeysCommand,2,"readonly sort_for_script @read @hash @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"HLEN","Get the number of fields in a hash","O(1)","2.0.0",COMMAND_GROUP_HASH,HLEN_ReturnInfo,HLEN_History,hlenCommand,2,"readonly fast @read @hash @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"HMGET","Get the values of all the given hash fields","O(N) where N is the number of fields being requested.","2.0.0",COMMAND_GROUP_HASH,HMGET_ReturnInfo,HMGET_History,hmgetCommand,-3,"readonly fast @read @hash @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"HMSET","Set multiple hash fields to multiple values","O(N) where N is the number of fields being set.","2.0.0",COMMAND_GROUP_HASH,HMSET_ReturnInfo,HMSET_History,hsetCommand,-4,"write denyoom fast @write @hash @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"HRANDFIELD","Get one or multiple random fields from a hash","O(N) where N is the number of fields returned","6.2.0",COMMAND_GROUP_HASH,HRANDFIELD_ReturnInfo,HRANDFIELD_History,hrandfieldCommand,-2,"readonly random @read @hash @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"HSCAN","Incrementally iterate hash fields and associated values","O(1) for every call. O(N) for a complete iteration, including enough command calls for the cursor to return back to 0. N is the number of elements inside the collection..","2.8.0",COMMAND_GROUP_HASH,HSCAN_ReturnInfo,HSCAN_History,hscanCommand,-3,"readonly random @read @hash @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"HSET","Set the string value of a hash field","O(1) for each field/value pair added, so O(N) to add N field/value pairs when the command is called with multiple field/value pairs.","2.0.0",COMMAND_GROUP_HASH,HSET_ReturnInfo,HSET_History,hsetCommand,-4,"write denyoom fast @write @hash @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"HSETNX","Set the value of a hash field, only if the field does not exist","O(1)","2.0.0",COMMAND_GROUP_HASH,HSETNX_ReturnInfo,HSETNX_History,hsetnxCommand,4,"write denyoom fast @write @hash @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"HSTRLEN","Get the length of the value of a hash field","O(1)","3.2.0",COMMAND_GROUP_HASH,HSTRLEN_ReturnInfo,HSTRLEN_History,hstrlenCommand,3,"readonly fast @read @hash @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"HVALS","Get all the values in a hash","O(N) where N is the size of the hash.","2.0.0",COMMAND_GROUP_HASH,HVALS_ReturnInfo,HVALS_History,hvalsCommand,2,"readonly sort_for_script @read @hash @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+/* hyperloglog */
+{"PFADD","Adds the specified elements to the specified HyperLogLog.","O(1) to add every element.","2.8.9",COMMAND_GROUP_HYPERLOGLOG,PFADD_ReturnInfo,PFADD_History,pfaddCommand,-2,"write denyoom fast @write @hyperloglog @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"PFCOUNT","Return the approximated cardinality of the set(s) observed by the HyperLogLog at key(s).","O(1) with a very small average constant time when called with a single key. O(N) with N being the number of keys, and much bigger constant times, when called with multiple keys.","2.8.9",COMMAND_GROUP_HYPERLOGLOG,PFCOUNT_ReturnInfo,PFCOUNT_History,pfcountCommand,-2,"readonly may_replicate @read @hyperloglog @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
+{"PFMERGE","Merge N different HyperLogLogs into a single one.","O(N) to merge N HyperLogLogs, but with high constant times.","2.8.9",COMMAND_GROUP_HYPERLOGLOG,PFMERGE_ReturnInfo,PFMERGE_History,pfmergeCommand,-2,"write denyoom @write @hyperloglog @slow",{{"write read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
+/* list */
+{"BLMOVE","Pop an element from a list, push it to another list and return it; or block until one is available","O(1)","6.2.0",COMMAND_GROUP_LIST,BLMOVE_ReturnInfo,BLMOVE_History,blmoveCommand,6,"write denyoom noscript @write @list @slow @blocking",{{"write read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"BLMPOP","Pop elements from a list, or block until one is available","O(N+M) where N is the number of provided keys and M is the number of elements returned.","7.0.0",COMMAND_GROUP_LIST,BLMPOP_ReturnInfo,BLMPOP_History,blmpopCommand,-5,"write @write @list @slow @blocking",{{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},blmpopGetKeys},
+{"BLPOP","Remove and get the first element in a list, or block until one is available","O(N) where N is the number of provided keys.","2.0.0",COMMAND_GROUP_LIST,BLPOP_ReturnInfo,BLPOP_History,blpopCommand,-3,"write noscript @write @list @slow @blocking",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-2,1,0}}}},
+{"BRPOP","Remove and get the last element in a list, or block until one is available","O(N) where N is the number of provided keys.","2.0.0",COMMAND_GROUP_LIST,BRPOP_ReturnInfo,BRPOP_History,brpopCommand,-3,"write noscript @write @list @slow @blocking",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-2,1,0}}}},
+{"BRPOPLPUSH","Pop an element from a list, push it to another list and return it; or block until one is available","O(1)","2.2.0",COMMAND_GROUP_LIST,BRPOPLPUSH_ReturnInfo,BRPOPLPUSH_History,brpoplpushCommand,4,"write denyoom noscript @write @list @slow @blocking",{{"write read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"LINDEX","Get an element from a list by its index","O(N) where N is the number of elements to traverse to get to the element at index. This makes asking for the first or the last element of the list O(1).","1.0.0",COMMAND_GROUP_LIST,LINDEX_ReturnInfo,LINDEX_History,lindexCommand,3,"readonly @read @list @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"LINSERT","Insert an element before or after another element in a list","O(N) where N is the number of elements to traverse before seeing the value pivot. This means that inserting somewhere on the left end on the list (head) can be considered O(1) and inserting somewhere on the right end (tail) is O(N).","2.2.0",COMMAND_GROUP_LIST,LINSERT_ReturnInfo,LINSERT_History,linsertCommand,5,"write denyoom @write @list @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"LLEN","Get the length of a list","O(1)","1.0.0",COMMAND_GROUP_LIST,LLEN_ReturnInfo,LLEN_History,llenCommand,2,"readonly fast @read @list @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"LMOVE","Pop an element from a list, push it to another list and return it","O(1)","6.2.0",COMMAND_GROUP_LIST,LMOVE_ReturnInfo,LMOVE_History,lmoveCommand,5,"write denyoom @write @list @slow",{{"write read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"LMPOP","Pop elements from a list","O(N+M) where N is the number of provided keys and M is the number of elements returned.","7.0.0",COMMAND_GROUP_LIST,LMPOP_ReturnInfo,LMPOP_History,lmpopCommand,-4,"write @write @list @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},lmpopGetKeys},
+{"LPOP","Remove and get the first elements in a list","O(N) where N is the number of elements returned","1.0.0",COMMAND_GROUP_LIST,LPOP_ReturnInfo,LPOP_History,lpopCommand,-2,"write fast @write @list @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"LPOS","Return the index of matching elements on a list","O(N) where N is the number of elements in the list, for the average case. When searching for elements near the head or the tail of the list, or when the MAXLEN option is provided, the command may run in constant time.","6.0.6",COMMAND_GROUP_LIST,LPOS_ReturnInfo,LPOS_History,lposCommand,-3,"readonly @read @list @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"LPUSH","Prepend one or multiple elements to a list","O(1) for each element added, so O(N) to add N elements when the command is called with multiple arguments.","1.0.0",COMMAND_GROUP_LIST,LPUSH_ReturnInfo,LPUSH_History,lpushCommand,-3,"write denyoom fast @write @list @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"LPUSHX","Prepend an element to a list, only if the list exists","O(1) for each element added, so O(N) to add N elements when the command is called with multiple arguments.","2.2.0",COMMAND_GROUP_LIST,LPUSHX_ReturnInfo,LPUSHX_History,lpushxCommand,-3,"write denyoom fast @write @list @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"LRANGE","Get a range of elements from a list","O(S+N) where S is the distance of start offset from HEAD for small lists, from nearest end (HEAD or TAIL) for large lists; and N is the number of elements in the specified range.","1.0.0",COMMAND_GROUP_LIST,LRANGE_ReturnInfo,LRANGE_History,lrangeCommand,4,"readonly @read @list @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"LREM","Remove elements from a list","O(N+M) where N is the length of the list and M is the number of elements removed.","1.0.0",COMMAND_GROUP_LIST,LREM_ReturnInfo,LREM_History,lremCommand,4,"write @write @list @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"LSET","Set the value of an element in a list by its index","O(N) where N is the length of the list. Setting either the first or the last element of the list is O(1).","1.0.0",COMMAND_GROUP_LIST,LSET_ReturnInfo,LSET_History,lsetCommand,4,"write denyoom @write @list @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"LTRIM","Trim a list to the specified range","O(N) where N is the number of elements to be removed by the operation.","1.0.0",COMMAND_GROUP_LIST,LTRIM_ReturnInfo,LTRIM_History,ltrimCommand,4,"write @write @list @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"RPOP","Remove and get the last elements in a list","O(N) where N is the number of elements returned","1.0.0",COMMAND_GROUP_LIST,RPOP_ReturnInfo,RPOP_History,rpopCommand,-2,"write fast @write @list @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"RPOPLPUSH","Remove the last element in a list, prepend it to another list and return it","O(1)","1.2.0",COMMAND_GROUP_LIST,RPOPLPUSH_ReturnInfo,RPOPLPUSH_History,rpoplpushCommand,3,"write denyoom @write @list @slow",{{"write read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"RPUSH","Append one or multiple elements to a list","O(1) for each element added, so O(N) to add N elements when the command is called with multiple arguments.","1.0.0",COMMAND_GROUP_LIST,RPUSH_ReturnInfo,RPUSH_History,rpushCommand,-3,"write denyoom fast @write @list @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"RPUSHX","Append an element to a list, only if the list exists","O(1) for each element added, so O(N) to add N elements when the command is called with multiple arguments.","2.2.0",COMMAND_GROUP_LIST,RPUSHX_ReturnInfo,RPUSHX_History,rpushxCommand,-3,"write denyoom fast @write @list @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+/* pubsub */
+{"PSUBSCRIBE","Listen for messages published to channels matching the given patterns","O(N) where N is the number of patterns the client is already subscribed to.","2.0.0",COMMAND_GROUP_PUBSUB,PSUBSCRIBE_ReturnInfo,PSUBSCRIBE_History,psubscribeCommand,-2,"pubsub noscript loading stale @pubsub @slow"},
+{"PUBLISH","Post a message to a channel","O(N+M) where N is the number of clients subscribed to the receiving channel and M is the total number of subscribed patterns (by any client).","2.0.0",COMMAND_GROUP_PUBSUB,PUBLISH_ReturnInfo,PUBLISH_History,publishCommand,3,"pubsub loading stale fast may_replicate @pubsub @fast"},
+{"PUBSUB",NULL,NULL,"2.8.0",COMMAND_GROUP_PUBSUB,PUBSUB_ReturnInfo,PUBSUB_History,NULL,-2,"@slow",.subcommands=PUBSUB_Subcommands},
+{"PUNSUBSCRIBE","Stop listening for messages posted to channels matching the given patterns","O(N+M) where N is the number of patterns the client is already subscribed and M is the number of total patterns subscribed in the system (by any client).","2.0.0",COMMAND_GROUP_PUBSUB,PUNSUBSCRIBE_ReturnInfo,PUNSUBSCRIBE_History,punsubscribeCommand,-1,"pubsub noscript loading stale @pubsub @slow"},
+{"SUBSCRIBE","Listen for messages published to the given channels","O(N) where N is the number of channels to subscribe to.","2.0.0",COMMAND_GROUP_PUBSUB,SUBSCRIBE_ReturnInfo,SUBSCRIBE_History,subscribeCommand,-2,"pubsub noscript loading stale @pubsub @slow"},
+{"UNSUBSCRIBE","Stop listening for messages posted to the given channels","O(N) where N is the number of clients already subscribed to a channel.","2.0.0",COMMAND_GROUP_PUBSUB,UNSUBSCRIBE_ReturnInfo,UNSUBSCRIBE_History,unsubscribeCommand,-1,"pubsub noscript loading stale @pubsub @slow"},
+/* scripting */
+{"EVAL","Execute a Lua script server side","Depends on the script that is executed.","2.6.0",COMMAND_GROUP_SCRIPTING,EVAL_ReturnInfo,EVAL_History,evalCommand,-3,"noscript skip_monitor may_replicate @slow @scripting",{{"write read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},evalGetKeys},
+{"EVALSHA","Execute a Lua script server side","Depends on the script that is executed.","2.6.0",COMMAND_GROUP_SCRIPTING,EVALSHA_ReturnInfo,EVALSHA_History,evalShaCommand,-3,"noscript skip_monitor may_replicate @slow @scripting",{{"write read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},evalGetKeys},
+{"EVALSHA_RO","Execute a read-only Lua script server side","Depends on the script that is executed.","7.0.0",COMMAND_GROUP_SCRIPTING,EVALSHA_RO_ReturnInfo,EVALSHA_RO_History,evalShaRoCommand,-3,"noscript skip_monitor @slow @scripting",{{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},evalGetKeys},
+{"EVAL_RO","Execute a read-only Lua script server side","Depends on the script that is executed.","7.0.0",COMMAND_GROUP_SCRIPTING,EVAL_RO_ReturnInfo,EVAL_RO_History,evalRoCommand,-3,"noscript skip_monitor @slow @scripting",{{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},evalGetKeys},
+{"SCRIPT",NULL,NULL,"2.6.0",COMMAND_GROUP_SCRIPTING,SCRIPT_ReturnInfo,SCRIPT_History,NULL,-2,"@slow",.subcommands=SCRIPT_Subcommands},
 /* server */
+{"ACL",NULL,NULL,"6.0.0",COMMAND_GROUP_SERVER,ACL_ReturnInfo,ACL_History,NULL,-2,"@slow",.subcommands=ACL_Subcommands},
+{"BGREWRITEAOF","Asynchronously rewrite the append-only file",NULL,"1.0.0",COMMAND_GROUP_SERVER,BGREWRITEAOF_ReturnInfo,BGREWRITEAOF_History,bgrewriteaofCommand,1,"admin noscript @admin @slow @dangerous"},
+{"BGSAVE","Asynchronously save the dataset to disk",NULL,"1.0.0",COMMAND_GROUP_SERVER,BGSAVE_ReturnInfo,BGSAVE_History,bgsaveCommand,-1,"admin noscript @admin @slow @dangerous"},
 {"COMMAND","Get array of Redis command details","O(N) where N is the total number of Redis commands","2.8.13",COMMAND_GROUP_SERVER,COMMAND_ReturnInfo,COMMAND_History,commandCommand,-1,"random loading stale @slow @connection",.subcommands=COMMAND_Subcommands},
+{"CONFIG",NULL,NULL,"2.0.0",COMMAND_GROUP_SERVER,CONFIG_ReturnInfo,CONFIG_History,NULL,-2,"@slow",.subcommands=CONFIG_Subcommands},
+{"DBSIZE","Return the number of keys in the selected database",NULL,"1.0.0",COMMAND_GROUP_SERVER,DBSIZE_ReturnInfo,DBSIZE_History,dbsizeCommand,1,"readonly fast @keyspace @read @fast"},
+{"DEBUG",NULL,NULL,NULL,COMMAND_GROUP_SERVER,DEBUG_ReturnInfo,DEBUG_History,debugCommand,-2,"admin noscript loading stale @admin @slow @dangerous"},
+{"FAILOVER","Start a coordinated failover between this server and one of its replicas.",NULL,"6.2.0",COMMAND_GROUP_SERVER,FAILOVER_ReturnInfo,FAILOVER_History,failoverCommand,-1,"admin noscript stale @admin @slow @dangerous"},
+{"FLUSHALL","Remove all keys from all databases","O(N) where N is the total number of keys in all databases","1.0.0",COMMAND_GROUP_SERVER,FLUSHALL_ReturnInfo,FLUSHALL_History,flushallCommand,-1,"write @keyspace @write @slow @dangerous"},
+{"FLUSHDB","Remove all keys from the current database","O(N) where N is the number of keys in the selected database","1.0.0",COMMAND_GROUP_SERVER,FLUSHDB_ReturnInfo,FLUSHDB_History,flushdbCommand,-1,"write @keyspace @write @slow @dangerous"},
+{"GEORADIUSBYMEMBER_RO",NULL,NULL,NULL,COMMAND_GROUP_SERVER,GEORADIUSBYMEMBER_RO_ReturnInfo,GEORADIUSBYMEMBER_RO_History,georadiusbymemberroCommand,-5,"readonly @read @geo @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"GEORADIUS_RO",NULL,NULL,NULL,COMMAND_GROUP_SERVER,GEORADIUS_RO_ReturnInfo,GEORADIUS_RO_History,georadiusroCommand,-6,"readonly @read @geo @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"HOST:",NULL,NULL,NULL,COMMAND_GROUP_SERVER,HOST_ReturnInfo,HOST_History,securityWarningCommand,-1,"readonly loading stale @read @slow"},
+{"INFO","Get information and statistics about the server",NULL,"1.0.0",COMMAND_GROUP_SERVER,INFO_ReturnInfo,INFO_History,infoCommand,-1,"random loading stale @slow @dangerous"},
+{"LASTSAVE","Get the UNIX time stamp of the last successful save to disk",NULL,"1.0.0",COMMAND_GROUP_SERVER,LASTSAVE_ReturnInfo,LASTSAVE_History,lastsaveCommand,1,"random loading stale fast @admin @fast @dangerous"},
+{"LATENCY",NULL,NULL,"2.8.13",COMMAND_GROUP_SERVER,LATENCY_ReturnInfo,LATENCY_History,NULL,-2,"@slow",.subcommands=LATENCY_Subcommands},
+{"LOLWUT","Display some computer art and the Redis version",NULL,"5.0.0",COMMAND_GROUP_SERVER,LOLWUT_ReturnInfo,LOLWUT_History,lolwutCommand,-1,"readonly fast @read @fast"},
+{"MEMORY",NULL,NULL,"4.0.0",COMMAND_GROUP_SERVER,MEMORY_ReturnInfo,MEMORY_History,NULL,-2,"@slow",.subcommands=MEMORY_Subcommands},
+{"MODULE",NULL,NULL,"4.0.0",COMMAND_GROUP_SERVER,MODULE_ReturnInfo,MODULE_History,NULL,-2,"@slow",.subcommands=MODULE_Subcommands},
+{"MONITOR","Listen for all requests received by the server in real time",NULL,"1.0.0",COMMAND_GROUP_SERVER,MONITOR_ReturnInfo,MONITOR_History,monitorCommand,1,"admin noscript loading stale @admin @slow @dangerous"},
+{"PFDEBUG",NULL,NULL,NULL,COMMAND_GROUP_SERVER,PFDEBUG_ReturnInfo,PFDEBUG_History,pfdebugCommand,-3,"write denyoom admin @write @hyperloglog @admin @slow @dangerous",{{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"PFSELFTEST",NULL,NULL,NULL,COMMAND_GROUP_SERVER,PFSELFTEST_ReturnInfo,PFSELFTEST_History,pfselftestCommand,1,"admin @hyperloglog @admin @slow @dangerous"},
+{"POST",NULL,NULL,NULL,COMMAND_GROUP_SERVER,POST_ReturnInfo,POST_History,securityWarningCommand,-1,"readonly loading stale @read @slow"},
+{"PSYNC","Internal command used for replication",NULL,"2.8.0",COMMAND_GROUP_SERVER,PSYNC_ReturnInfo,PSYNC_History,syncCommand,-3,"admin noscript @admin @slow @dangerous"},
+{"REPLCONF",NULL,NULL,NULL,COMMAND_GROUP_SERVER,REPLCONF_ReturnInfo,REPLCONF_History,replconfCommand,-1,"admin noscript loading stale @admin @slow @dangerous"},
+{"REPLICAOF","Make the server a replica of another instance, or promote it as master.",NULL,"5.0.0",COMMAND_GROUP_SERVER,REPLICAOF_ReturnInfo,REPLICAOF_History,replicaofCommand,3,"admin noscript stale @admin @slow @dangerous"},
+{"RESTORE-ASKING",NULL,NULL,NULL,COMMAND_GROUP_SERVER,RESTORE_ASKING_ReturnInfo,RESTORE_ASKING_History,restoreCommand,-4,"write denyoom asking @keyspace @write @slow @dangerous",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"ROLE","Return the role of the instance in the context of replication",NULL,"2.8.12",COMMAND_GROUP_SERVER,ROLE_ReturnInfo,ROLE_History,roleCommand,1,"noscript loading stale fast @admin @fast @dangerous"},
+{"SAVE","Synchronously save the dataset to disk",NULL,"1.0.0",COMMAND_GROUP_SERVER,SAVE_ReturnInfo,SAVE_History,saveCommand,1,"admin noscript @admin @slow @dangerous"},
+{"SHUTDOWN","Synchronously save the dataset to disk and then shut down the server",NULL,"1.0.0",COMMAND_GROUP_SERVER,SHUTDOWN_ReturnInfo,SHUTDOWN_History,shutdownCommand,-1,"admin noscript loading stale @admin @slow @dangerous"},
+{"SLAVEOF","Make the server a replica of another instance, or promote it as master. Deprecated starting with Redis 5. Use REPLICAOF instead.",NULL,"1.0.0",COMMAND_GROUP_SERVER,SLAVEOF_ReturnInfo,SLAVEOF_History,replicaofCommand,3,"admin noscript stale @admin @slow @dangerous"},
+{"SLOWLOG",NULL,NULL,"2.2.12",COMMAND_GROUP_SERVER,SLOWLOG_ReturnInfo,SLOWLOG_History,NULL,-2,"@slow",.subcommands=SLOWLOG_Subcommands},
+{"SUBSTR",NULL,NULL,NULL,COMMAND_GROUP_SERVER,SUBSTR_ReturnInfo,SUBSTR_History,getrangeCommand,4,"readonly @read @string @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"SWAPDB","Swaps two Redis databases","O(N) where N is the count of clients watching or blocking on keys from both databases.","4.0.0",COMMAND_GROUP_SERVER,SWAPDB_ReturnInfo,SWAPDB_History,swapdbCommand,3,"write fast @keyspace @write @fast @dangerous"},
+{"SYNC","Internal command used for replication",NULL,"1.0.0",COMMAND_GROUP_SERVER,SYNC_ReturnInfo,SYNC_History,syncCommand,1,"admin noscript @admin @slow @dangerous"},
+{"TIME","Return the current server time","O(1)","2.6.0",COMMAND_GROUP_SERVER,TIME_ReturnInfo,TIME_History,timeCommand,1,"random loading stale fast @fast"},
 {"XSETID",NULL,NULL,NULL,COMMAND_GROUP_SERVER,XSETID_ReturnInfo,XSETID_History,xsetidCommand,3,"write denyoom fast @write @stream @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-/* sorted-set */
-{"ZUNIONSTORE","Add multiple sorted sets and store the resulting sorted set in a new key","O(N)+O(M log(M)) with N being the sum of the sizes of the input sorted sets, and M being the number of elements in the resulting sorted set.","2.0.0",COMMAND_GROUP_SORTED_SET,ZUNIONSTORE_ReturnInfo,ZUNIONSTORE_History,zunionstoreCommand,-4,"write denyoom @sortedset @write @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},zunionInterDiffStoreGetKeys,.args=ZUNIONSTORE_Args},
+/* set */
+{"SADD","Add one or more members to a set","O(1) for each element added, so O(N) to add N elements when the command is called with multiple arguments.","1.0.0",COMMAND_GROUP_SET,SADD_ReturnInfo,SADD_History,saddCommand,-3,"write denyoom fast @write @set @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"SCARD","Get the number of members in a set","O(1)","1.0.0",COMMAND_GROUP_SET,SCARD_ReturnInfo,SCARD_History,scardCommand,2,"readonly fast @read @set @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"SDIFF","Subtract multiple sets","O(N) where N is the total number of elements in all given sets.","1.0.0",COMMAND_GROUP_SET,SDIFF_ReturnInfo,SDIFF_History,sdiffCommand,-2,"readonly sort_for_script @read @set @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
+{"SDIFFSTORE","Subtract multiple sets and store the resulting set in a key","O(N) where N is the total number of elements in all given sets.","1.0.0",COMMAND_GROUP_SET,SDIFFSTORE_ReturnInfo,SDIFFSTORE_History,sdiffstoreCommand,-3,"write denyoom @write @set @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
+{"SINTER","Intersect multiple sets","O(N*M) worst case where N is the cardinality of the smallest set and M is the number of sets.","1.0.0",COMMAND_GROUP_SET,SINTER_ReturnInfo,SINTER_History,sinterCommand,-2,"readonly sort_for_script @read @set @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
+{"SINTERCARD","Intersect multiple sets and return the cardinality of the result","O(N*M) worst case where N is the cardinality of the smallest set and M is the number of sets.","7.0.0",COMMAND_GROUP_SET,SINTERCARD_ReturnInfo,SINTERCARD_History,sinterCardCommand,-3,"readonly @read @set @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},sintercardGetKeys},
+{"SINTERSTORE","Intersect multiple sets and store the resulting set in a key","O(N*M) worst case where N is the cardinality of the smallest set and M is the number of sets.","1.0.0",COMMAND_GROUP_SET,SINTERSTORE_ReturnInfo,SINTERSTORE_History,sinterstoreCommand,-3,"write denyoom @write @set @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
+{"SISMEMBER","Determine if a given value is a member of a set","O(1)","1.0.0",COMMAND_GROUP_SET,SISMEMBER_ReturnInfo,SISMEMBER_History,sismemberCommand,3,"readonly fast @read @set @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"SMEMBERS","Get all the members in a set","O(N) where N is the set cardinality.","1.0.0",COMMAND_GROUP_SET,SMEMBERS_ReturnInfo,SMEMBERS_History,sinterCommand,2,"readonly sort_for_script @read @set @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"SMISMEMBER","Returns the membership associated with the given elements for a set","O(N) where N is the number of elements being checked for membership","6.2.0",COMMAND_GROUP_SET,SMISMEMBER_ReturnInfo,SMISMEMBER_History,smismemberCommand,-3,"readonly fast @read @set @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"SMOVE","Move a member from one set to another","O(1)","1.0.0",COMMAND_GROUP_SET,SMOVE_ReturnInfo,SMOVE_History,smoveCommand,4,"write fast @write @set @fast",{{"write read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"SPOP","Remove and return one or multiple random members from a set","Without the count argument O(1), otherwise O(N) where N is the value of the passed count.","1.0.0",COMMAND_GROUP_SET,SPOP_ReturnInfo,SPOP_History,spopCommand,-2,"write random fast @write @set @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"SRANDMEMBER","Get one or multiple random members from a set","Without the count argument O(1), otherwise O(N) where N is the absolute value of the passed count.","1.0.0",COMMAND_GROUP_SET,SRANDMEMBER_ReturnInfo,SRANDMEMBER_History,srandmemberCommand,-2,"readonly random @read @set @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"SREM","Remove one or more members from a set","O(N) where N is the number of members to be removed.","1.0.0",COMMAND_GROUP_SET,SREM_ReturnInfo,SREM_History,sremCommand,-3,"write fast @write @set @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"SSCAN","Incrementally iterate Set elements","O(1) for every call. O(N) for a complete iteration, including enough command calls for the cursor to return back to 0. N is the number of elements inside the collection..","2.8.0",COMMAND_GROUP_SET,SSCAN_ReturnInfo,SSCAN_History,sscanCommand,-3,"readonly random @read @set @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"SUNION","Add multiple sets","O(N) where N is the total number of elements in all given sets.","1.0.0",COMMAND_GROUP_SET,SUNION_ReturnInfo,SUNION_History,sunionCommand,-2,"readonly sort_for_script @read @set @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
+{"SUNIONSTORE","Add multiple sets and store the resulting set in a key","O(N) where N is the total number of elements in all given sets.","1.0.0",COMMAND_GROUP_SET,SUNIONSTORE_ReturnInfo,SUNIONSTORE_History,sunionstoreCommand,-3,"write denyoom @write @set @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
+/* sorted_set */
+{"BZMPOP","Remove and return members with scores in a sorted set or block until one is available","O(K) + O(N*log(M)) where K is the number of provided keys, N being the number of elements in the sorted set, and M being the number of elements popped.","7.0.0",COMMAND_GROUP_SORTED_SET,BZMPOP_ReturnInfo,BZMPOP_History,bzmpopCommand,-5,"write @write @sortedset @slow @blocking",{{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},blmpopGetKeys},
+{"BZPOPMAX","Remove and return the member with the highest score from one or more sorted sets, or block until one is available","O(log(N)) with N being the number of elements in the sorted set.","5.0.0",COMMAND_GROUP_SORTED_SET,BZPOPMAX_ReturnInfo,BZPOPMAX_History,bzpopmaxCommand,-3,"write noscript fast @write @sortedset @fast @blocking",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-2,1,0}}}},
+{"BZPOPMIN","Remove and return the member with the lowest score from one or more sorted sets, or block until one is available","O(log(N)) with N being the number of elements in the sorted set.","5.0.0",COMMAND_GROUP_SORTED_SET,BZPOPMIN_ReturnInfo,BZPOPMIN_History,bzpopminCommand,-3,"write noscript fast @write @sortedset @fast @blocking",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-2,1,0}}}},
+{"ZADD","Add one or more members to a sorted set, or update its score if it already exists","O(log(N)) for each item added, where N is the number of elements in the sorted set.","1.2.0",COMMAND_GROUP_SORTED_SET,ZADD_ReturnInfo,ZADD_History,zaddCommand,-4,"write denyoom fast @write @sortedset @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"ZCARD","Get the number of members in a sorted set","O(1)","1.2.0",COMMAND_GROUP_SORTED_SET,ZCARD_ReturnInfo,ZCARD_History,zcardCommand,2,"readonly fast @read @sortedset @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"ZCOUNT","Count the members in a sorted set with scores within the given values","O(log(N)) with N being the number of elements in the sorted set.","2.0.0",COMMAND_GROUP_SORTED_SET,ZCOUNT_ReturnInfo,ZCOUNT_History,zcountCommand,4,"readonly fast @read @sortedset @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"ZDIFF","Subtract multiple sorted sets","O(L + (N-K)log(N)) worst case where L is the total number of elements in all the sets, N is the size of the first set, and K is the size of the result set.","6.2.0",COMMAND_GROUP_SORTED_SET,ZDIFF_ReturnInfo,ZDIFF_History,zdiffCommand,-3,"readonly @read @sortedset @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},zunionInterDiffGetKeys},
+{"ZDIFFSTORE","Subtract multiple sorted sets and store the resulting sorted set in a new key","O(L + (N-K)log(N)) worst case where L is the total number of elements in all the sets, N is the size of the first set, and K is the size of the result set.","6.2.0",COMMAND_GROUP_SORTED_SET,ZDIFFSTORE_ReturnInfo,ZDIFFSTORE_History,zdiffstoreCommand,-4,"write denyoom @write @sortedset @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},zunionInterDiffStoreGetKeys},
+{"ZINCRBY","Increment the score of a member in a sorted set","O(log(N)) where N is the number of elements in the sorted set.","1.2.0",COMMAND_GROUP_SORTED_SET,ZINCRBY_ReturnInfo,ZINCRBY_History,zincrbyCommand,4,"write denyoom fast @write @sortedset @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"ZINTER","Intersect multiple sorted sets","O(N*K)+O(M*log(M)) worst case with N being the smallest input sorted set, K being the number of input sorted sets and M being the number of elements in the resulting sorted set.","6.2.0",COMMAND_GROUP_SORTED_SET,ZINTER_ReturnInfo,ZINTER_History,zinterCommand,-3,"readonly @read @sortedset @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},zunionInterDiffGetKeys},
+{"ZINTERCARD","Intersect multiple sorted sets and return the cardinality of the result","O(N*K) worst case with N being the smallest input sorted set, K being the number of input sorted sets.","7.0.0",COMMAND_GROUP_SORTED_SET,ZINTERCARD_ReturnInfo,ZINTERCARD_History,zinterCardCommand,-3,"readonly @read @sortedset @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},zunionInterDiffGetKeys},
+{"ZINTERSTORE","Intersect multiple sorted sets and store the resulting sorted set in a new key","O(N*K)+O(M*log(M)) worst case with N being the smallest input sorted set, K being the number of input sorted sets and M being the number of elements in the resulting sorted set.","2.0.0",COMMAND_GROUP_SORTED_SET,ZINTERSTORE_ReturnInfo,ZINTERSTORE_History,zinterstoreCommand,-4,"write denyoom @write @sortedset @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},zunionInterDiffStoreGetKeys},
+{"ZLEXCOUNT","Count the number of members in a sorted set between a given lexicographical range","O(log(N)) with N being the number of elements in the sorted set.","2.8.9",COMMAND_GROUP_SORTED_SET,ZLEXCOUNT_ReturnInfo,ZLEXCOUNT_History,zlexcountCommand,4,"readonly fast @read @sortedset @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"ZMPOP","Remove and return members with scores in a sorted set","O(K) + O(N*log(M)) where K is the number of provided keys, N being the number of elements in the sorted set, and M being the number of elements popped.","7.0.0",COMMAND_GROUP_SORTED_SET,ZMPOP_ReturnInfo,ZMPOP_History,zmpopCommand,-4,"write @write @sortedset @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},zmpopGetKeys},
+{"ZMSCORE","Get the score associated with the given members in a sorted set","O(N) where N is the number of members being requested.","6.2.0",COMMAND_GROUP_SORTED_SET,ZMSCORE_ReturnInfo,ZMSCORE_History,zmscoreCommand,-3,"readonly fast @read @sortedset @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"ZPOPMAX","Remove and return members with the highest scores in a sorted set","O(log(N)*M) with N being the number of elements in the sorted set, and M being the number of elements popped.","5.0.0",COMMAND_GROUP_SORTED_SET,ZPOPMAX_ReturnInfo,ZPOPMAX_History,zpopmaxCommand,-2,"write fast @write @sortedset @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"ZPOPMIN","Remove and return members with the lowest scores in a sorted set","O(log(N)*M) with N being the number of elements in the sorted set, and M being the number of elements popped.","5.0.0",COMMAND_GROUP_SORTED_SET,ZPOPMIN_ReturnInfo,ZPOPMIN_History,zpopminCommand,-2,"write fast @write @sortedset @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"ZRANDMEMBER","Get one or multiple random elements from a sorted set","O(N) where N is the number of elements returned","6.2.0",COMMAND_GROUP_SORTED_SET,ZRANDMEMBER_ReturnInfo,ZRANDMEMBER_History,zrandmemberCommand,-2,"readonly random @read @sortedset @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"ZRANGE","Return a range of members in a sorted set","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements returned.","1.2.0",COMMAND_GROUP_SORTED_SET,ZRANGE_ReturnInfo,ZRANGE_History,zrangeCommand,-4,"readonly @read @sortedset @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"ZRANGEBYLEX","Return a range of members in a sorted set, by lexicographical range","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements being returned. If M is constant (e.g. always asking for the first 10 elements with LIMIT), you can consider it O(log(N)).","2.8.9",COMMAND_GROUP_SORTED_SET,ZRANGEBYLEX_ReturnInfo,ZRANGEBYLEX_History,zrangebylexCommand,-4,"readonly @read @sortedset @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"ZRANGEBYSCORE","Return a range of members in a sorted set, by score","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements being returned. If M is constant (e.g. always asking for the first 10 elements with LIMIT), you can consider it O(log(N)).","1.0.5",COMMAND_GROUP_SORTED_SET,ZRANGEBYSCORE_ReturnInfo,ZRANGEBYSCORE_History,zrangebyscoreCommand,-4,"readonly @read @sortedset @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"ZRANGESTORE","Store a range of members from sorted set into another key","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements stored into the destination key.","6.2.0",COMMAND_GROUP_SORTED_SET,ZRANGESTORE_ReturnInfo,ZRANGESTORE_History,zrangestoreCommand,-5,"write denyoom @write @sortedset @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"ZRANK","Determine the index of a member in a sorted set","O(log(N))","2.0.0",COMMAND_GROUP_SORTED_SET,ZRANK_ReturnInfo,ZRANK_History,zrankCommand,3,"readonly fast @read @sortedset @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"ZREM","Remove one or more members from a sorted set","O(M*log(N)) with N being the number of elements in the sorted set and M the number of elements to be removed.","1.2.0",COMMAND_GROUP_SORTED_SET,ZREM_ReturnInfo,ZREM_History,zremCommand,-3,"write fast @write @sortedset @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"ZREMRANGEBYLEX","Remove all members in a sorted set between the given lexicographical range","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements removed by the operation.","2.8.9",COMMAND_GROUP_SORTED_SET,ZREMRANGEBYLEX_ReturnInfo,ZREMRANGEBYLEX_History,zremrangebylexCommand,4,"write @write @sortedset @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"ZREMRANGEBYRANK","Remove all members in a sorted set within the given indexes","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements removed by the operation.","2.0.0",COMMAND_GROUP_SORTED_SET,ZREMRANGEBYRANK_ReturnInfo,ZREMRANGEBYRANK_History,zremrangebyrankCommand,4,"write @write @sortedset @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"ZREMRANGEBYSCORE","Remove all members in a sorted set within the given scores","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements removed by the operation.","1.2.0",COMMAND_GROUP_SORTED_SET,ZREMRANGEBYSCORE_ReturnInfo,ZREMRANGEBYSCORE_History,zremrangebyscoreCommand,4,"write @write @sortedset @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"ZREVRANGE","Return a range of members in a sorted set, by index, with scores ordered from high to low","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements returned.","1.2.0",COMMAND_GROUP_SORTED_SET,ZREVRANGE_ReturnInfo,ZREVRANGE_History,zrevrangeCommand,-4,"readonly @read @sortedset @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"ZREVRANGEBYLEX","Return a range of members in a sorted set, by lexicographical range, ordered from higher to lower strings.","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements being returned. If M is constant (e.g. always asking for the first 10 elements with LIMIT), you can consider it O(log(N)).","2.8.9",COMMAND_GROUP_SORTED_SET,ZREVRANGEBYLEX_ReturnInfo,ZREVRANGEBYLEX_History,zrevrangebylexCommand,-4,"readonly @read @sortedset @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"ZREVRANGEBYSCORE","Return a range of members in a sorted set, by score, with scores ordered from high to low","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements being returned. If M is constant (e.g. always asking for the first 10 elements with LIMIT), you can consider it O(log(N)).","2.2.0",COMMAND_GROUP_SORTED_SET,ZREVRANGEBYSCORE_ReturnInfo,ZREVRANGEBYSCORE_History,zrevrangebyscoreCommand,-4,"readonly @read @sortedset @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"ZREVRANK","Determine the index of a member in a sorted set, with scores ordered from high to low","O(log(N))","2.0.0",COMMAND_GROUP_SORTED_SET,ZREVRANK_ReturnInfo,ZREVRANK_History,zrevrankCommand,3,"readonly fast @read @sortedset @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"ZSCAN","Incrementally iterate sorted sets elements and associated scores","O(1) for every call. O(N) for a complete iteration, including enough command calls for the cursor to return back to 0. N is the number of elements inside the collection..","2.8.0",COMMAND_GROUP_SORTED_SET,ZSCAN_ReturnInfo,ZSCAN_History,zscanCommand,-3,"readonly random @read @sortedset @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"ZSCORE","Get the score associated with the given member in a sorted set","O(1)","1.2.0",COMMAND_GROUP_SORTED_SET,ZSCORE_ReturnInfo,ZSCORE_History,zscoreCommand,3,"readonly fast @read @sortedset @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"ZUNION","Add multiple sorted sets","O(N)+O(M*log(M)) with N being the sum of the sizes of the input sorted sets, and M being the number of elements in the resulting sorted set.","6.2.0",COMMAND_GROUP_SORTED_SET,ZUNION_ReturnInfo,ZUNION_History,zunionCommand,-3,"readonly @read @sortedset @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},zunionInterDiffGetKeys},
+{"ZUNIONSTORE","Add multiple sorted sets and store the resulting sorted set in a new key","O(N)+O(M log(M)) with N being the sum of the sizes of the input sorted sets, and M being the number of elements in the resulting sorted set.","2.0.0",COMMAND_GROUP_SORTED_SET,ZUNIONSTORE_ReturnInfo,ZUNIONSTORE_History,zunionstoreCommand,-4,"write denyoom @write @sortedset @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},zunionInterDiffStoreGetKeys},
 /* stream */
 {"XACK","Marks a pending message as correctly processed, effectively removing it from the pending entries list of the consumer group. Return value of the command is the number of messages successfully acknowledged, that is, the IDs we were actually able to resolve in the PEL.","O(1) for each message ID processed.","5.0.0",COMMAND_GROUP_STREAM,XACK_ReturnInfo,XACK_History,xackCommand,-4,"write random fast @write @stream @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"XADD","Appends a new entry to a stream","O(1) when adding a new entry, O(N) when trimming where N being the number of entires evicted.","5.0.0",COMMAND_GROUP_STREAM,XADD_ReturnInfo,XADD_History,xaddCommand,-5,"write denyoom random fast @write @stream @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"XADD","Appends a new entry to a stream","O(1) when adding a new entry, O(N) when trimming where N being the number of entires evicted.","5.0.0",COMMAND_GROUP_STREAM,XADD_ReturnInfo,XADD_History,xaddCommand,-5,"write denyoom random fast @write @stream @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XADD_Args},
 {"XAUTOCLAIM","Changes (or acquires) ownership of messages in a consumer group, as if the messages were delivered to the specified consumer.","O(1) if COUNT is small.","6.2.0",COMMAND_GROUP_STREAM,XAUTOCLAIM_ReturnInfo,XAUTOCLAIM_History,xautoclaimCommand,-6,"write random fast @write @stream @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 {"XCLAIM","Changes (or acquires) ownership of a message in a consumer group, as if the message was delivered to the specified consumer.","O(log N) with N being the number of messages in the PEL of the consumer group.","5.0.0",COMMAND_GROUP_STREAM,XCLAIM_ReturnInfo,XCLAIM_History,xclaimCommand,-6,"write random fast @write @stream @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 {"XDEL","Removes the specified entries from the stream. Returns the number of items actually deleted, that may be different from the number of IDs passed in case certain IDs do not exist.","O(1) for each single item to delete in the stream, regardless of the stream size.","5.0.0",COMMAND_GROUP_STREAM,XDEL_ReturnInfo,XDEL_History,xdelCommand,-3,"write fast @write @stream @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"XGROUP","Create, destroy, and manage consumer groups.","O(1) for all the subcommands, with the exception of the DESTROY subcommand which takes an additional O(M) time in order to delete the M entries inside the consumer group pending entries list (PEL).","5.0.0",COMMAND_GROUP_STREAM,XGROUP_ReturnInfo,XGROUP_History,xgroupCommand,-2,"@slow",.subcommands=XGROUP_Subcommands},
-{"XINFO","Get information on streams and consumer groups","O(N) with N being the number of returned items for the subcommands CONSUMERS and GROUPS. The STREAM subcommand is O(log N) with N being the number of items in the stream.","5.0.0",COMMAND_GROUP_STREAM,XINFO_ReturnInfo,XINFO_History,xinfoCommand,-2,"@slow",.subcommands=XINFO_Subcommands},
+{"XGROUP",NULL,NULL,"5.0.0",COMMAND_GROUP_STREAM,XGROUP_ReturnInfo,XGROUP_History,NULL,-2,"@slow",.subcommands=XGROUP_Subcommands},
+{"XINFO",NULL,NULL,"5.0.0",COMMAND_GROUP_STREAM,XINFO_ReturnInfo,XINFO_History,NULL,-2,"@slow",.subcommands=XINFO_Subcommands},
 {"XLEN","Return the number of entries in a stream","O(1)","5.0.0",COMMAND_GROUP_STREAM,XLEN_ReturnInfo,XLEN_History,xlenCommand,2,"readonly fast @read @stream @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 {"XPENDING","Return information and entries from a stream consumer group pending entries list, that are messages fetched but never acknowledged.","O(N) with N being the number of elements returned, so asking for a small fixed number of entries per call is O(1). O(M), where M is the total number of entries scanned when used with the IDLE filter. When the command returns just the summary and the list of consumers is small, it runs in O(1) time; otherwise, an additional O(N) time for iterating every consumer.","5.0.0",COMMAND_GROUP_STREAM,XPENDING_ReturnInfo,XPENDING_History,xpendingCommand,-3,"readonly random @read @stream @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 {"XRANGE","Return a range of elements in a stream, with IDs matching the specified IDs interval","O(N) with N being the number of elements being returned. If N is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1).","5.0.0",COMMAND_GROUP_STREAM,XRANGE_ReturnInfo,XRANGE_History,xrangeCommand,-4,"readonly @read @stream @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 {"XREAD","Return never seen elements in multiple streams, with IDs greater than the ones reported by the caller for each stream. Can block.","For each stream mentioned: O(N) with N being the number of elements being returned, it means that XREAD-ing with a fixed COUNT is O(1). Note that when the BLOCK option is used, XADD will pay O(M) time in order to serve the M clients blocked on the stream getting new data.","5.0.0",COMMAND_GROUP_STREAM,XREAD_ReturnInfo,XREAD_History,xreadCommand,-4,"readonly @read @stream @slow @blocking",{{"read",KSPEC_BS_KEYWORD,.bs.keyword={"STREAMS",1},KSPEC_FK_RANGE,.fk.range={-1,1,2}}},xreadGetKeys},
-{"XREADGROUP","Return new entries from a stream using a consumer group, or access the history of the pending entries for a given consumer. Can block.","For each stream mentioned: O(M) with M being the number of elements returned. If M is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1). On the other side when XREADGROUP blocks, XADD will pay the O(N) time in order to serve the N clients blocked on the stream getting new data.","5.0.0",COMMAND_GROUP_STREAM,XREADGROUP_ReturnInfo,XREADGROUP_History,NULL,-7,"write @write @stream @slow @blocking",{{"read",KSPEC_BS_KEYWORD,.bs.keyword={"STREAMS",4},KSPEC_FK_RANGE,.fk.range={-1,1,2}}}},
+{"XREADGROUP","Return new entries from a stream using a consumer group, or access the history of the pending entries for a given consumer. Can block.","For each stream mentioned: O(M) with M being the number of elements returned. If M is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1). On the other side when XREADGROUP blocks, XADD will pay the O(N) time in order to serve the N clients blocked on the stream getting new data.","5.0.0",COMMAND_GROUP_STREAM,XREADGROUP_ReturnInfo,XREADGROUP_History,xreadCommand,-7,"write @write @stream @slow @blocking",{{"read",KSPEC_BS_KEYWORD,.bs.keyword={"STREAMS",4},KSPEC_FK_RANGE,.fk.range={-1,1,2}}},xreadGetKeys},
 {"XREVRANGE","Return a range of elements in a stream, with IDs matching the specified IDs interval, in reverse order (from greater to smaller IDs) compared to XRANGE","O(N) with N being the number of elements returned. If N is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1).","5.0.0",COMMAND_GROUP_STREAM,XREVRANGE_ReturnInfo,XREVRANGE_History,xrevrangeCommand,-4,"readonly @read @stream @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 {"XTRIM","Trims the stream to (approximately if '~' is passed) a certain size","O(N), with N being the number of evicted entries. Constant times are very small however, since entries are organized in macro nodes containing multiple entries that can be released with a single deallocation.","5.0.0",COMMAND_GROUP_STREAM,XTRIM_ReturnInfo,XTRIM_History,xtrimCommand,-4,"write random @write @stream @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 /* string */
-{"SET","Set the string value of a key","O(1)","1.0.0",COMMAND_GROUP_STRING,SET_ReturnInfo,SET_History,setCommand,-3,"write denyoom @string @write @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SET_Args},
+{"APPEND","Append a value to a key","O(1). The amortized time complexity is O(1) assuming the appended value is small and the already present value is of any size, since the dynamic string library used by Redis will double the free space available on every reallocation.","2.0.0",COMMAND_GROUP_STRING,APPEND_ReturnInfo,APPEND_History,appendCommand,3,"write denyoom fast @write @string @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"DECR","Decrement the integer value of a key by one","O(1)","1.0.0",COMMAND_GROUP_STRING,DECR_ReturnInfo,DECR_History,decrCommand,2,"write denyoom fast @write @string @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"DECRBY","Decrement the integer value of a key by the given number","O(1)","1.0.0",COMMAND_GROUP_STRING,DECRBY_ReturnInfo,DECRBY_History,decrbyCommand,3,"write denyoom fast @write @string @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"GET","Get the value of a key","O(1)","1.0.0",COMMAND_GROUP_STRING,GET_ReturnInfo,GET_History,getCommand,2,"readonly fast @read @string @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"GETDEL","Get the value of a key and delete the key","O(1)","6.2.0",COMMAND_GROUP_STRING,GETDEL_ReturnInfo,GETDEL_History,getdelCommand,2,"write fast @write @string @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"GETEX","Get the value of a key and optionally set its expiration","O(1)","6.2.0",COMMAND_GROUP_STRING,GETEX_ReturnInfo,GETEX_History,getexCommand,-2,"write fast @write @string @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"GETRANGE","Get a substring of the string stored at a key","O(N) where N is the length of the returned string. The complexity is ultimately determined by the returned length, but because creating a substring from an existing string is very cheap, it can be considered O(1) for small strings.","2.4.0",COMMAND_GROUP_STRING,GETRANGE_ReturnInfo,GETRANGE_History,getrangeCommand,4,"readonly @read @string @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"GETSET","Set the string value of a key and return its old value","O(1)","1.0.0",COMMAND_GROUP_STRING,GETSET_ReturnInfo,GETSET_History,getsetCommand,3,"write denyoom fast @write @string @fast",{{"write read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"INCR","Increment the integer value of a key by one","O(1)","1.0.0",COMMAND_GROUP_STRING,INCR_ReturnInfo,INCR_History,incrCommand,2,"write denyoom fast @write @string @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"INCRBY","Increment the integer value of a key by the given amount","O(1)","1.0.0",COMMAND_GROUP_STRING,INCRBY_ReturnInfo,INCRBY_History,incrbyCommand,3,"write denyoom fast @write @string @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"INCRBYFLOAT","Increment the float value of a key by the given amount","O(1)","2.6.0",COMMAND_GROUP_STRING,INCRBYFLOAT_ReturnInfo,INCRBYFLOAT_History,incrbyfloatCommand,3,"write denyoom fast @write @string @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"MGET","Get the values of all the given keys","O(N) where N is the number of keys to retrieve.","1.0.0",COMMAND_GROUP_STRING,MGET_ReturnInfo,MGET_History,mgetCommand,-2,"readonly fast @read @string @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
+{"MSET","Set multiple keys to multiple values","O(N) where N is the number of keys to set.","1.0.1",COMMAND_GROUP_STRING,MSET_ReturnInfo,MSET_History,msetCommand,-3,"write denyoom @write @string @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,2,0}}}},
+{"MSETNX","Set multiple keys to multiple values, only if none of the keys exist","O(N) where N is the number of keys to set.","1.0.1",COMMAND_GROUP_STRING,MSETNX_ReturnInfo,MSETNX_History,msetnxCommand,-3,"write denyoom @write @string @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,2,0}}}},
+{"PSETEX","Set the value and expiration in milliseconds of a key","O(1)","2.6.0",COMMAND_GROUP_STRING,PSETEX_ReturnInfo,PSETEX_History,psetexCommand,4,"write denyoom @write @string @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"SET","Set the string value of a key","O(1)","1.0.0",COMMAND_GROUP_STRING,SET_ReturnInfo,SET_History,setCommand,-3,"write denyoom @write @string @slow",{{"write read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SET_Args},
+{"SETEX","Set the value and expiration of a key","O(1)","2.0.0",COMMAND_GROUP_STRING,SETEX_ReturnInfo,SETEX_History,setexCommand,4,"write denyoom @write @string @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"SETNX","Set the value of a key, only if the key does not exist","O(1)","1.0.0",COMMAND_GROUP_STRING,SETNX_ReturnInfo,SETNX_History,setnxCommand,3,"write denyoom fast @write @string @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"SETRANGE","Overwrite part of a string at key starting at the specified offset","O(1), not counting the time taken to copy the new string in place. Usually, this string is very small so the amortized complexity is O(1). Otherwise, complexity is O(M) with M being the length of the value argument.","2.2.0",COMMAND_GROUP_STRING,SETRANGE_ReturnInfo,SETRANGE_History,setrangeCommand,4,"write denyoom @write @string @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"STRALGO","Run algorithms (currently LCS) against strings","For LCS O(strlen(s1)*strlen(s2))","6.0.0",COMMAND_GROUP_STRING,STRALGO_ReturnInfo,STRALGO_History,NULL,-2,"@slow",.subcommands=STRALGO_Subcommands},
+{"STRLEN","Get the length of the value stored in a key","O(1)","2.2.0",COMMAND_GROUP_STRING,STRLEN_ReturnInfo,STRLEN_History,strlenCommand,2,"readonly fast @read @string @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+/* transactions */
+{"DISCARD","Discard all commands issued after MULTI",NULL,"2.0.0",COMMAND_GROUP_TRANSACTIONS,DISCARD_ReturnInfo,DISCARD_History,discardCommand,1,"noscript loading stale fast @fast @transaction"},
+{"EXEC","Execute all commands issued after MULTI",NULL,"1.2.0",COMMAND_GROUP_TRANSACTIONS,EXEC_ReturnInfo,EXEC_History,execCommand,1,"noscript loading stale skip_slowlog @slow @transaction"},
+{"MULTI","Mark the start of a transaction block",NULL,"1.2.0",COMMAND_GROUP_TRANSACTIONS,MULTI_ReturnInfo,MULTI_History,multiCommand,1,"noscript loading stale fast @fast @transaction"},
+{"UNWATCH","Forget about all watched keys","O(1)","2.2.0",COMMAND_GROUP_TRANSACTIONS,UNWATCH_ReturnInfo,UNWATCH_History,unwatchCommand,1,"noscript loading stale fast @fast @transaction"},
+{"WATCH","Watch the given keys to determine execution of the MULTI/EXEC block","O(1) for every key.","2.2.0",COMMAND_GROUP_TRANSACTIONS,WATCH_ReturnInfo,WATCH_History,watchCommand,-2,"noscript loading stale fast @fast @transaction",{{"",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
 {0}
 };

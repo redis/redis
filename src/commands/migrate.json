@@ -1,58 +1,76 @@
 {
-    "MIGRATE":{
-        "summary":"Atomically transfer a key from a Redis instance to another one.",
-        "complexity":"This command actually executes a DUMP+DEL in the source instance, and a RESTORE in the target instance. See the pages of these commands for time complexity. Also an O(N) data transfer between the two instances is performed.",
-        "since":"2.6.0",
-        "group":"generic",
-        "arity":-6,
-        "command_flags":[
+    "MIGRATE": {
+        "summary": "Atomically transfer a key from a Redis instance to another one.",
+        "complexity": "This command actually executes a DUMP+DEL in the source instance, and a RESTORE in the target instance. See the pages of these commands for time complexity. Also an O(N) data transfer between the two instances is performed.",
+        "group": "generic",
+        "since": "2.6.0",
+        "arity": -6,
+        "function": "migrateCommand",
+        "get_keys_function": "migrateGetKeys",
+        "history": [
+            [
+                "3.0.0",
+                "Added the `!COPY` and `REPLACE` options."
+            ],
+            [
+                "3.0.6",
+                "Added the `!KEYS` option."
+            ],
+            [
+                "4.0.7",
+                "Added the `!AUTH` option."
+            ],
+            [
+                "6.0.0",
+                "Added the `AUTH2` option."
+            ]
+        ],
+        "command_flags": [
             "write",
             "random"
         ],
-        "acl_categories":[
+        "acl_categories": [
             "keyspace",
-            "dangerous",
             "write",
-            "slow"
+            "slow",
+            "dangerous"
         ],
-        "function":"migrateCommand",
-        "get_keys_function":"migrateGetKeys",
-        "key_specs":[
+        "key_specs": [
             {
-                "begin_search":{
-                    "index":{
-                        "pos":3
-                    }
-                },
-                "find_keys":{
-                    "range":{
-                        "lastkey":0,
-                        "step":1,
-                        "limit":0
-                    }
-                },
-                "flags":[
+                "flags": [
                     "write"
-                ]
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 3
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
             },
             {
-                "begin_search":{
-                    "keyword":{
-                        "keyword":"KEYS",
-                        "startfrom":-2
-                    }
-                },
-                "find_keys":{
-                    "range":{
-                        "lastkey":-1,
-                        "step":1,
-                        "limit":0
-                    }
-                },
-                "flags":[
+                "flags": [
                     "write",
                     "incomplete"
-                ]
+                ],
+                "begin_search": {
+                    "keyword": {
+                        "keyword": "KEYS",
+                        "startfrom": -2
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": -1,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
             }
         ],
         "returns":[
@@ -66,24 +84,6 @@
                 "type":"simple-string",
                 "constant_value":"+NOKEY"
             }
-        ],
-        "history":[
-            [
-                "3.0.0",
-                "Added the `COPY` and `REPLACE` options."
-            ],
-            [
-                "3.0.6",
-                "Added the `KEYS` option."
-            ],
-            [
-                "4.0.7",
-                "Added the `AUTH` option."
-            ],
-            [
-                "6.0.0",
-                "Added the `AUTH2` option."
-            ]
         ],
         "arguments":[
             {

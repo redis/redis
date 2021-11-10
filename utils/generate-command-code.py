@@ -23,7 +23,7 @@ GROUPS = {
     "string": "COMMAND_GROUP_STRING",
     "list": "COMMAND_GROUP_LIST",
     "set": "COMMAND_GROUP_SET",
-    "sorted-set": "COMMAND_GROUP_SORTED_SET",
+    "sorted_set": "COMMAND_GROUP_SORTED_SET",
     "hash": "COMMAND_GROUP_HASH",
     "pubsub": "COMMAND_GROUP_PUBSUB",
     "transactions": "COMMAND_GROUP_TRANSACTIONS",
@@ -159,6 +159,10 @@ class Argument(object):
                 s += "CMD_ARG_MULTIPLE_TOKEN|"
             return s[:-1] if s else "CMD_ARG_NONE"
 
+        # TODO:GUYBE remove
+        if self.desc.get("type", "").startswith("__TBD__"):
+            self.desc["type"] = "string"
+
         s = "\"%s\",%s,%s,%s,%s,%s" % (
             self.name,
             ARG_TYPES[self.desc.get("type")],
@@ -194,6 +198,8 @@ class Command(object):
     def __init__(self, name, desc):
         self.name = name.upper()
         self.desc = desc
+        if "group" not in self.desc:
+            print("WARNING: Command %s doesn't have group" % self.name)
         self.group = self.desc.get("group", "server")  # TODO:GUYBE "group" must be present!!!!
         self.subcommands = []
         self.args = []
@@ -201,7 +207,7 @@ class Command(object):
             self.args.append(Argument(self.fullname(), arg_desc))
 
     def fullname(self):
-        return self.name
+        return self.name.replace("-", "_").replace(":", "")
 
     def return_types_table_name(self):
         return "%s_ReturnInfo" % self.fullname().replace(" ", "_")
@@ -224,8 +230,6 @@ class Command(object):
             return ""
         s = ""
         for return_desc in self.desc["returns"]:
-            print return_desc
-            print type(return_desc["type"])
             if return_desc.get("constant_value"):
                 assert return_desc["type"] == "simple-string"
                 s += "{\"%s\",\"%s\",RETURN_TYPE_RESP2_3_SAME,.type.global=%s},\n" % (
@@ -355,7 +359,7 @@ class Subcommand(Command):
         super(Subcommand, self).__init__(name, desc)
 
     def fullname(self):
-        return "%s %s" % (self.container_name, self.name)
+        return "%s %s" % (self.container_name, self.name.replace("-", "_").replace(":", ""))
 
 
 def create_command(name, desc):
@@ -372,7 +376,7 @@ def create_command(name, desc):
 # Create all command objects
 print("Processing json files...")
 for filename in glob.glob('commands/*.json'):
-    print(filename)
+    #print(filename)
     with open(filename,"r") as f:
         d = json.load(f)
         for name, desc in d.items():
@@ -493,8 +497,6 @@ with open("commands.c","w") as f:
     f.write("struct redisCommand redisCommandTable[] = {\n")
     curr_group = None
     for command in command_list:
-        #print command.fullname()
-        #print command.help_code()
         if curr_group != command.group:
             curr_group = command.group
             f.write("/* %s */\n" % curr_group)

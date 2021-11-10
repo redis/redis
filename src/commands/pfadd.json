@@ -1,0 +1,39 @@
+{
+    "PFADD": {
+        "summary": "Adds the specified elements to the specified HyperLogLog.",
+        "complexity": "O(1) to add every element.",
+        "group": "hyperloglog",
+        "since": "2.8.9",
+        "arity": -2,
+        "function": "pfaddCommand",
+        "command_flags": [
+            "write",
+            "denyoom",
+            "fast"
+        ],
+        "acl_categories": [
+            "write",
+            "hyperloglog",
+            "fast"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "write"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ]
+    }
+}

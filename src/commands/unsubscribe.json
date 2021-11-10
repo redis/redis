@@ -1,0 +1,20 @@
+{
+    "UNSUBSCRIBE": {
+        "summary": "Stop listening for messages posted to the given channels",
+        "complexity": "O(N) where N is the number of clients already subscribed to a channel.",
+        "group": "pubsub",
+        "since": "2.0.0",
+        "arity": -1,
+        "function": "unsubscribeCommand",
+        "command_flags": [
+            "pubsub",
+            "noscript",
+            "loading",
+            "stale"
+        ],
+        "acl_categories": [
+            "pubsub",
+            "slow"
+        ]
+    }
+}

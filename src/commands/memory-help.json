@@ -1,0 +1,17 @@
+{
+    "HELP": {
+        "summary": "Show helpful text about the different subcommands",
+        "group": "server",
+        "since": "4.0.0",
+        "arity": 2,
+        "container": "MEMORY",
+        "function": "memoryCommand",
+        "command_flags": [
+            "loading",
+            "stale"
+        ],
+        "acl_categories": [
+            "slow"
+        ]
+    }
+}

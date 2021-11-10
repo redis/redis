@@ -1,0 +1,21 @@
+{
+    "RESET": {
+        "summary": "Reset a Redis Cluster node",
+        "complexity": "O(N) where N is the number of known nodes. The command may execute a FLUSHALL as a side effect.",
+        "group": "cluster",
+        "since": "3.0.0",
+        "arity": 3,
+        "container": "CLUSTER",
+        "function": "clusterCommand",
+        "command_flags": [
+            "admin",
+            "random",
+            "stale"
+        ],
+        "acl_categories": [
+            "admin",
+            "slow",
+            "dangerous"
+        ]
+    }
+}

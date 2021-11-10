@@ -1,0 +1,38 @@
+{
+    "GETDEL": {
+        "summary": "Get the value of a key and delete the key",
+        "complexity": "O(1)",
+        "group": "string",
+        "since": "6.2.0",
+        "arity": 2,
+        "function": "getdelCommand",
+        "command_flags": [
+            "write",
+            "fast"
+        ],
+        "acl_categories": [
+            "write",
+            "string",
+            "fast"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "write"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ]
+    }
+}

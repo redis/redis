@@ -1,37 +1,57 @@
 {
-    "SET":{
-        "summary":"Set the string value of a key",
-        "complexity":"O(1)",
-        "since":"1.0.0",
-        "group":"string",
-        "arity":-3,
-        "function":"setCommand",
-        "command_flags":[
+    "SET": {
+        "summary": "Set the string value of a key",
+        "complexity": "O(1)",
+        "group": "string",
+        "since": "1.0.0",
+        "arity": -3,
+        "depracated": true,
+        "function": "setCommand",
+        "history": [
+            [
+                "2.6.12",
+                "Added the `EX`, `PX`, `NX` and `XX` options."
+            ],
+            [
+                "6.0",
+                "Added the `KEEPTTL` option."
+            ],
+            [
+                "6.2",
+                "Added the `!GET`, `EXAT` and `PXAT` option."
+            ],
+            [
+                "7.0",
+                "Allowed the `NX` and `!GET` options to be used together."
+            ]
+        ],
+        "command_flags": [
             "write",
             "denyoom"
         ],
-        "acl_categories":[
-            "string",
+        "acl_categories": [
             "write",
+            "string",
             "slow"
         ],
-        "key_specs":[
+        "key_specs": [
             {
-                "begin_search":{
-                    "index":{
-                        "pos":1
+                "flags": [
+                    "write",
+                    "read"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
                     }
                 },
-                "find_keys":{
-                    "range":{
-                        "lastkey":0,
-                        "step":1,
-                        "limit":0
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
                     }
-                },
-                "flags":[
-                    "write"
-                ]
+                }
             }
         ],
         "returns":[
@@ -51,24 +71,6 @@
                     "RESP3":"null"
                 }
             }
-        ],
-        "history":[
-            [
-                "2.6.12",
-                "Added the `EX`, `PX`, `NX` and `XX` options."
-            ],
-            [
-                "6.0",
-                "Added the `KEEPTTL` option."
-            ],
-            [
-                "6.2",
-                "Added the `GET`, `EXAT` and `PXAT` option."
-            ],
-            [
-                "7.0",
-                "Allowed the `NX` and `GET` options to be used together."
-            ]
         ],
         "arguments":[
             {

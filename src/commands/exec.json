@@ -1,0 +1,19 @@
+{
+    "EXEC": {
+        "summary": "Execute all commands issued after MULTI",
+        "group": "transactions",
+        "since": "1.2.0",
+        "arity": 1,
+        "function": "execCommand",
+        "command_flags": [
+            "noscript",
+            "loading",
+            "stale",
+            "skip_slowlog"
+        ],
+        "acl_categories": [
+            "slow",
+            "transaction"
+        ]
+    }
+}

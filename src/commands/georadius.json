@@ -1,0 +1,82 @@
+{
+    "GEORADIUS": {
+        "summary": "Query a sorted set representing a geospatial index to fetch members matching a given maximum distance from a point",
+        "complexity": "O(N+log(M)) where N is the number of elements inside the bounding box of the circular area delimited by center and radius and M is the number of items inside the index.",
+        "group": "geo",
+        "since": "3.2.0",
+        "arity": -6,
+        "depracated": true,
+        "function": "georadiusCommand",
+        "get_keys_function": "georadiusGetKeys",
+        "history": [
+            [
+                "6.2",
+                "Added the `ANY` option for `COUNT`."
+            ]
+        ],
+        "command_flags": [
+            "write",
+            "denyoom"
+        ],
+        "acl_categories": [
+            "write",
+            "geo",
+            "slow"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "read"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            },
+            {
+                "flags": [
+                    "write"
+                ],
+                "begin_search": {
+                    "keyword": {
+                        "keyword": "STORE",
+                        "startfrom": 6
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            },
+            {
+                "flags": [
+                    "write"
+                ],
+                "begin_search": {
+                    "keyword": {
+                        "keyword": "STOREDIST",
+                        "startfrom": 6
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ]
+    }
+}

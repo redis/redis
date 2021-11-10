@@ -1,19 +1,19 @@
 {
-  "INFO": {
-    "summary": "Get array of specific Redis command details",
-    "complexity": "O(N) when N is number of commands to look up",
-    "group": "server",
-    "since": "2.8.13",
-    "arity": -3,
-    "container": "COMMAND",
-    "function": "commandInfoCommand",
-    "command_flags": [
-      "loading",
-      "stale"
-    ],
-    "acl_categories": [
-      "slow",
-      "connection"
-    ]
-  }
+    "INFO": {
+        "summary": "Get array of specific Redis command details",
+        "complexity": "O(N) when N is number of commands to look up",
+        "group": "server",
+        "since": "2.8.13",
+        "arity": -3,
+        "container": "COMMAND",
+        "function": "commandInfoCommand",
+        "command_flags": [
+            "loading",
+            "stale"
+        ],
+        "acl_categories": [
+            "slow",
+            "connection"
+        ]
+    }
 }

@@ -1,0 +1,44 @@
+{
+    "GEOADD": {
+        "summary": "Add one or more geospatial items in the geospatial index represented using a sorted set",
+        "complexity": "O(log(N)) for each item added, where N is the number of elements in the sorted set.",
+        "group": "geo",
+        "since": "3.2.0",
+        "arity": -5,
+        "function": "geoaddCommand",
+        "history": [
+            [
+                "6.2",
+                "Added the `CH`, `NX` and `XX` options."
+            ]
+        ],
+        "command_flags": [
+            "write",
+            "denyoom"
+        ],
+        "acl_categories": [
+            "write",
+            "geo",
+            "slow"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "write"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ]
+    }
+}

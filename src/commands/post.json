@@ -1,0 +1,15 @@
+{
+    "POST": {
+        "arity": -1,
+        "function": "securityWarningCommand",
+        "command_flags": [
+            "readonly",
+            "loading",
+            "stale"
+        ],
+        "acl_categories": [
+            "read",
+            "slow"
+        ]
+    }
+}

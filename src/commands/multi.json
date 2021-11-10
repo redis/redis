@@ -1,0 +1,19 @@
+{
+    "MULTI": {
+        "summary": "Mark the start of a transaction block",
+        "group": "transactions",
+        "since": "1.2.0",
+        "arity": 1,
+        "function": "multiCommand",
+        "command_flags": [
+            "noscript",
+            "loading",
+            "stale",
+            "fast"
+        ],
+        "acl_categories": [
+            "fast",
+            "transaction"
+        ]
+    }
+}
