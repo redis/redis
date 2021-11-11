@@ -2006,21 +2006,24 @@ int quicklistTest(int argc, char *argv[], int accurate) {
         }
 
         TEST("Comprassion Plain node") {
+            char buf[256];
             quicklistisSetPackedThreshold(1);
             quicklist *ql = quicklistNew(-2, 1);
-            for (int i = 0; i < 500; i++)
+            for (int i = 0; i < 500; i++) {
                 /* Set to 256 to allow the node to be triggered to compress,
                  * if it is less than 48(nocompress), the test will be successful. */
-                quicklistPushHead(ql, genstr("hello", i), 256);
+                snprintf(buf, sizeof(buf), "hello%d", i);
+                quicklistPushHead(ql, buf, 256);
+            }
 
             quicklistIter *iter = quicklistGetIterator(ql, AL_START_TAIL);
             quicklistEntry entry;
             int i = 0;
             while (quicklistNext(iter, &entry)) {
-                char *h = genstr("hello", i);
-                if (strcmp((char *)entry.value, h))
+                snprintf(buf, sizeof(buf), "hello%d", i);
+                if (strcmp((char *)entry.value, buf))
                     ERR("value [%s] didn't match [%s] at position %d",
-                        entry.value, h, i);
+                        entry.value, buf, i);
                 i++;
             }
             quicklistReleaseIterator(iter);
