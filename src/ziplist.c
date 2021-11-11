@@ -416,10 +416,10 @@ unsigned int zipStoreEntryEncoding(unsigned char *p, unsigned char encoding, uns
             (len) = (((ptr)[0] & 0x3f) << 8) | (ptr)[1];                       \
         } else if ((encoding) == ZIP_STR_32B) {                                \
             (lensize) = 5;                                                     \
-            (len) = ((ptr)[1] << 24) |                                         \
-                    ((ptr)[2] << 16) |                                         \
-                    ((ptr)[3] <<  8) |                                         \
-                    ((ptr)[4]);                                                \
+            (len) = ((uint32_t)(ptr)[1] << 24) |                               \
+                    ((uint32_t)(ptr)[2] << 16) |                               \
+                    ((uint32_t)(ptr)[3] <<  8) |                               \
+                    ((uint32_t)(ptr)[4]);                                      \
         } else {                                                               \
             (lensize) = 0; /* bad encoding, should be covered by a previous */ \
             (len) = 0;     /* ZIP_ASSERT_ENCODING / zipEncodingLenSize, or  */ \
@@ -557,7 +557,7 @@ void zipSaveInteger(unsigned char *p, int64_t value, unsigned char encoding) {
         memcpy(p,&i16,sizeof(i16));
         memrev16ifbe(p);
     } else if (encoding == ZIP_INT_24B) {
-        i32 = value<<8;
+        i32 = ((uint64_t)value)<<8;
         memrev32ifbe(&i32);
         memcpy(p,((uint8_t*)&i32)+1,sizeof(i32)-sizeof(uint8_t));
     } else if (encoding == ZIP_INT_32B) {

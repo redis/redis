@@ -95,7 +95,7 @@ typedef struct dictIterator {
     int table, safe;
     dictEntry *entry, *nextEntry;
     /* unsafe iterator fingerprint for misuse detection. */
-    long long fingerprint;
+    unsigned long long fingerprint;
 } dictIterator;
 
 typedef void (dictScanFunction)(void *privdata, const dictEntry *de);
