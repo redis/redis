@@ -2543,11 +2543,13 @@ void parseCommandFlags(struct redisCommand *c, char *strflags) {
             c->flags |= CMD_MAY_REPLICATE;
         } else if (!strcasecmp(flag,"sentinel")) {
             c->flags |= CMD_SENTINEL;
-        } else if (!strcasecmp(flag,"only-sentinel")) {
+        } else if (!strcasecmp(flag,"only_sentinel")) {
             c->flags |= CMD_SENTINEL; /* Obviously it's s sentinel command */
             c->flags |= CMD_ONLY_SENTINEL;
         } else if (!strcasecmp(flag,"no_mandatory_keys")) {
             c->flags |= CMD_NO_MANDATORY_KEYS;
+        } else if (!strcasecmp(flag,"internal")) {
+            c->flags |= CMD_INTERNAL;
         } else {
             /* Parse ACL categories here if the flag name starts with @. */
             uint64_t catflag;
@@ -3777,7 +3779,10 @@ void addReplyFlagsForCommand(client *c, struct redisCommand *cmd) {
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_FAST, "fast");
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_NO_AUTH, "no_auth");
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_MAY_REPLICATE, "may_replicate");
+    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_SENTINEL, "sentinel");
+    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_ONLY_SENTINEL, "only_sentinel");
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_NO_MANDATORY_KEYS, "no_mandatory_keys");
+    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_INTERNAL, "internal");
     /* "sentinel" and "only-sentinel" are hidden on purpose. */
     if (cmd->movablekeys) {
         addReplyStatus(c, "movablekeys");
@@ -3795,6 +3800,7 @@ void addReplyFlagsForKeyArgs(client *c, uint64_t flags) {
     setDeferredSetLen(c, flaglen, flagcount);
 }
 
+/* Must match redisCommandArgType */
 const char *ARG_TYPE_STR[] = {
     NULL,
     "string",
@@ -3819,31 +3825,53 @@ void addReplyFlagsForArg(client *c, uint64_t flags) {
 void addReplyCommandArgList(client *c, struct redisCommandArg *args) {
     int j;
 
-    void *array = addReplyDeferredLen(c);
+    void *setreply = addReplyDeferredLen(c);
     for (j = 0; args && args[j].name != NULL; j++) {
-        addReplyMapLen(c, 7);
+        long maplen = 0;
+        void *mapreply = addReplyDeferredLen(c);
         addReplyBulkCString(c, "name");
         addReplyBulkCString(c, args[j].name);
-        addReplyBulkCString(c, "type");
-        addReplyBulkCString(c, ARG_TYPE_STR[args[j].type]);
-        addReplyBulkCString(c, "token");
-        addReplyBulkCString(c, args[j].token);
-        addReplyBulkCString(c, "summary");
-        addReplyBulkCString(c, args[j].summary);
-        addReplyBulkCString(c, "since");
-        addReplyBulkCString(c, args[j].since);
-        addReplyBulkCString(c, "flags");
-        addReplyFlagsForArg(c, args[j].flags);
-        addReplyBulkCString(c, "value");
-        if (args[j].type == ARG_TYPE_ONEOF || args[j].type == ARG_TYPE_BLOCK) {
-            addReplyCommandArgList(c, args[j].value.subargs);
-        } else {
-            addReplyBulkCString(c, args[j].value.string);
+        maplen++;
+        if (args[j].type != ARG_TYPE_NULL) {
+            addReplyBulkCString(c, "type");
+            addReplyBulkCString(c, ARG_TYPE_STR[args[j].type]);
+            maplen++;
         }
+        if (args[j].token) {
+            addReplyBulkCString(c, "token");
+            addReplyBulkCString(c, args[j].token);
+            maplen++;
+        }
+        if (args[j].summary) {
+            addReplyBulkCString(c, "summary");
+            addReplyBulkCString(c, args[j].summary);
+            maplen++;
+        }
+        if (args[j].since) {
+            addReplyBulkCString(c, "since");
+            addReplyBulkCString(c, args[j].since);
+            maplen++;
+        }
+        if (args[j].flags) {
+            addReplyBulkCString(c, "flags");
+            addReplyFlagsForArg(c, args[j].flags);
+            maplen++;
+        }
+        if (args[j].type != ARG_TYPE_NULL) {
+            addReplyBulkCString(c, "value");
+            if (args[j].type == ARG_TYPE_ONEOF || args[j].type == ARG_TYPE_BLOCK) {
+                addReplyCommandArgList(c, args[j].value.subargs);
+            } else {
+                addReplyBulkCString(c, args[j].value.string);
+            }
+            maplen++;
+        }
+        setDeferredMapLen(c, mapreply, maplen);
     }
-    setDeferredSetLen(c, array, j);
+    setDeferredSetLen(c, setreply, j);
 }
 
+/* Must match redisCommandRESP2Type */
 const char *RESP2_TYPE_STR[] = {
     "simple-string",
     "error",
@@ -3854,6 +3882,7 @@ const char *RESP2_TYPE_STR[] = {
     "null-array",
 };
 
+/* Must match redisCommandRESP3Type */
 const char *RESP3_TYPE_STR[] = {
     "simple-string",
     "error",
@@ -3870,11 +3899,11 @@ void addReplyCommandReturnTypes(client *c, struct redisCommand *cmd) {
 
     void *array = addReplyDeferredLen(c);
     for (j = 0; cmd->returns && cmd->returns[j].description != NULL; j++) {
-        addReplyMapLen(c, 3);
+        long maplen = 0;
+        void *mapreply = addReplyDeferredLen(c);
         addReplyBulkCString(c, "description");
         addReplyBulkCString(c, cmd->returns[j].description);
-        addReplyBulkCString(c, "constant-value");
-        addReplyBulkCString(c, cmd->returns[j].constant_value);
+        maplen++;
         addReplyBulkCString(c, "type");
         if (cmd->returns[j].which == RETURN_TYPE_RESP2_3_SAME) {
             addReplyBulkCString(c, RESP2_TYPE_STR[cmd->returns[j].type.global]);
@@ -3885,6 +3914,13 @@ void addReplyCommandReturnTypes(client *c, struct redisCommand *cmd) {
             addReplyBulkCString(c, "RESP3");
             addReplyBulkCString(c, RESP3_TYPE_STR[cmd->returns[j].type.unique.resp3]);
         }
+        maplen++;
+        if (cmd->returns[j].constant_value) {
+            addReplyBulkCString(c, "constant-value");
+            addReplyBulkCString(c, cmd->returns[j].constant_value);
+            maplen++;
+        }
+        setDeferredMapLen(c, mapreply, maplen);
     }
     setDeferredSetLen(c, array, j);
 }
@@ -3901,7 +3937,18 @@ void addReplyCommandHistory(client *c, struct redisCommand *cmd) {
     setDeferredSetLen(c, array, j);
 }
 
-void addReplyCommandKeyArgs(client *c, struct redisCommand *cmd) {
+void addReplyCommandMetadata(client *c, struct redisCommand *cmd) {
+    int j;
+
+    void *array = addReplyDeferredLen(c);
+    for (j = 0; cmd->metadata && cmd->metadata[j].field != NULL; j++) {
+        addReplyBulkCString(c, cmd->metadata[j].field);
+        addReplyBulkCString(c, cmd->metadata[j].value);
+    }
+    setDeferredMapLen(c, array, j);
+}
+
+void addReplyCommandKeySpecs(client *c, struct redisCommand *cmd) {
     addReplySetLen(c, cmd->key_specs_num);
     for (int i = 0; i < cmd->key_specs_num; i++) {
         addReplyMapLen(c, 3);
@@ -4007,6 +4054,7 @@ void addReplyCommandSubCommands(client *c, struct redisCommand *cmd) {
     dictReleaseIterator(di);
 }
 
+/* Must match redisCommandGroup */
 const char *COMMAND_GROUP_STR[] = {
     "generic",
     "string",
@@ -4049,25 +4097,51 @@ void addReplyCommand(client *c, struct redisCommand *cmd) {
         addReplyLongLong(c, lastkey);
         addReplyLongLong(c, keystep);
         addReplyCommandCategories(c, cmd);
-        addReplyMapLen(c, 9);
+        long maplen = 0;
+        void *mapreply = addReplyDeferredLen(c);
         addReplyBulkCString(c, "summary");
         addReplyBulkCString(c, cmd->summary);
+        maplen++;
         addReplyBulkCString(c, "complexity");
         addReplyBulkCString(c, cmd->complexity);
+        maplen++;
         addReplyBulkCString(c, "since");
         addReplyBulkCString(c, cmd->since);
+        maplen++;
         addReplyBulkCString(c, "group");
         addReplyBulkCString(c, COMMAND_GROUP_STR[cmd->group]);
-        addReplyBulkCString(c, "returns");
-        addReplyCommandReturnTypes(c, cmd);
-        addReplyBulkCString(c, "history");
-        addReplyCommandHistory(c, cmd);
-        addReplyBulkCString(c, "arguments");
-        addReplyCommandArgList(c, cmd->args);
-        addReplyBulkCString(c, "key-specs");
-        addReplyCommandKeyArgs(c, cmd);
-        addReplyBulkCString(c, "subcommands");
-        addReplyCommandSubCommands(c, cmd);
+        maplen++;
+        if (cmd->returns) {
+            addReplyBulkCString(c, "returns");
+            addReplyCommandReturnTypes(c, cmd);
+            maplen++;
+        }
+        if (cmd->history) {
+            addReplyBulkCString(c, "history");
+            addReplyCommandHistory(c, cmd);
+            maplen++;
+        }
+        if (cmd->metadata) {
+            addReplyBulkCString(c, "metadata");
+            addReplyCommandMetadata(c, cmd);
+            maplen++;
+        }
+        if (cmd->args) {
+            addReplyBulkCString(c, "arguments");
+            addReplyCommandArgList(c, cmd->args);
+            maplen++;
+        }
+        if (cmd->key_specs_num) {
+            addReplyBulkCString(c, "key-specs");
+            addReplyCommandKeySpecs(c, cmd);
+            maplen++;
+        }
+        if (cmd->subcommands_dict) {
+            addReplyBulkCString(c, "subcommands");
+            addReplyCommandSubCommands(c, cmd);
+            maplen++;
+        }
+        setDeferredMapLen(c, mapreply, maplen);
     }
 }
 

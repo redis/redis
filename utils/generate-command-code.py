@@ -6,6 +6,10 @@ import json
 
 # Note: This script should be run from the src/ dir: ../utils/generate-command-code.py
 
+#TODO:GUYBE handle new field "internal" (bool) under command (add to struct redisCommand)
+#TODO:GUYBE handle new field "metadata" (dict) under command (add to struct redisCommand)
+#TODO:GUYBE auto-gen HELP commands from subcommands summary
+
 ARG_TYPES = {
     None: "ARG_TYPE_NULL",
     "string": "ARG_TYPE_STRING",
@@ -219,6 +223,9 @@ class Command(object):
     def history_table_name(self):
         return "%s_History" % (self.fullname().replace(" ", "_"))
 
+    def metadata_table_name(self):
+        return "%s_Metadata" % (self.fullname().replace(" ", "_"))
+
     def arg_table_name(self):
         return "%s_Args" % (self.fullname().replace(" ", "_"))
 
@@ -260,9 +267,18 @@ class Command(object):
         s += "{0}"
         return s
 
+    def metadata_code(self):
+        if not self.desc.get("metadata"):
+            return ""
+        s = ""
+        for k, v in self.desc["metadata"].items():
+            s += "{\"%s\",\"%s\"},\n" % (k, v)
+        s += "{0}"
+        return s
+
     def struct_code(self):
         """
-        "SET","<summary>","1.0.0","string","<return summary>",SET_ReturnTypesRESP2,SET_ReturnTypesRESP3,SET_History,setCommand,-3,"write use-memory @string @write @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}
+        "SET","<summary>","1.0.0","string","<return summary>",SET_ReturnTypesRESP2,SET_ReturnTypesRESP3,SET_History,SET_Metadata,setCommand,-3,"write use-memory @string @write @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}
         """
         def _flags_code():
             s = ""
@@ -278,7 +294,7 @@ class Command(object):
                 s += "{%s}," % KeySpec(spec).struct_code()
             return s[:-1]
 
-        s = "\"%s\",%s,%s,%s,%s,%s,%s,%s,%d,\"%s\"," % (
+        s = "\"%s\",%s,%s,%s,%s,%s,%s,%s,%s,%d,\"%s\"," % (
             self.name.lower(),
             get_optional_desc_string(self.desc, "summary"),
             get_optional_desc_string(self.desc, "complexity"),
@@ -286,6 +302,7 @@ class Command(object):
             GROUPS[self.group],
             self.return_types_table_name(),
             self.history_table_name(),
+            self.metadata_table_name(),
             self.desc.get("function", "NULL"),
             self.desc["arity"],
             _flags_code()
@@ -337,6 +354,15 @@ class Command(object):
             f.write("};\n\n")
         else:
             f.write("#define %s NULL\n\n" % self.history_table_name())
+
+        f.write("/* %s metadata */\n" % self.fullname())
+        code = self.metadata_code()
+        if code:
+            f.write("commandMetadata %s[] = {\n" % self.metadata_table_name())
+            f.write("%s\n" % code)
+            f.write("};\n\n")
+        else:
+            f.write("#define %s NULL\n\n" % self.metadata_table_name())
 
         if self.args:
             for arg in self.args:

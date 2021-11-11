@@ -237,6 +237,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CMD_SENTINEL (1ULL<<40)        /* "sentinel" flag */
 #define CMD_ONLY_SENTINEL (1ULL<<41)   /* "only-sentinel" flag */
 #define CMD_NO_MANDATORY_KEYS (1ULL<<42)   /* "no-mandatory-keys" flag */
+#define CMD_INTERNAL (1ULL<<43)   /* "internal" flag */
 
 /* AOF states */
 #define AOF_OFF 0             /* AOF is off */
@@ -1960,6 +1961,11 @@ typedef struct {
     char *summary;
 } commandHistory;
 
+typedef struct {
+    char *field;
+    char *value;
+} commandMetadata;
+
 /* Must be synced with generate-command-code.py */
 typedef enum {
     COMMAND_GROUP_GENERIC,
@@ -2027,6 +2033,7 @@ struct redisCommand {
     redisCommandGroup group;
     commandReturnInfo *returns;
     commandHistory *history;
+    commandMetadata *metadata;
     redisCommandProc *proc;
     int arity;
     char *sflags;   /* Flags as string representation, one char per flag. */

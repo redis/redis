@@ -12,6 +12,10 @@
                 "Added the `NOMKSTREAM` option, `MINID` trimming strategy and the `LIMIT` option."
             ]
         ],
+        "metadata": {
+            "command_type": "first_shard",
+            "transaction_type": 8
+        },
         "command_flags": [
             "write",
             "denyoom",
