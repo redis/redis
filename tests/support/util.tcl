@@ -699,14 +699,6 @@ proc generate_fuzzy_traffic_on_key {key duration} {
     return $sent
 }
 
-# write line to server log file
-proc write_log_line {srv_idx msg} {
-    set logfile [srv $srv_idx stdout]
-    set fd [open $logfile "a+"]
-    puts $fd "### $msg"
-    close $fd
-}
-
 proc string2printable s {
     set res {}
     set has_special_chars false
