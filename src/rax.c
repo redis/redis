@@ -1270,6 +1270,7 @@ void raxStart(raxIterator *it, rax *rt) {
  * is a low level function used to implement the iterator, not callable by
  * the user. Returns 0 on out of memory, otherwise 1 is returned. */
 int raxIteratorAddChars(raxIterator *it, unsigned char *s, size_t len) {
+    if (len == 0) return 1;
     if (it->key_max < it->key_len+len) {
         unsigned char *old = (it->key == it->key_static_string) ? NULL :
                                                                   it->key;
