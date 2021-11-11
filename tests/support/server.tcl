@@ -19,6 +19,13 @@ proc check_valgrind_errors stderr {
     }
 }
 
+proc check_sanitizer_errors stderr {
+    set res [sanitizer_errors_from_file $stderr]
+    if {$res != ""} {
+        send_data_packet $::test_server_fd err "Sanitizer error: $res\n"
+    }
+}
+
 proc clean_persistence config {
     # we may wanna keep the logs for later, but let's clean the persistence
     # files right away, since they can accumulate and take up a lot of space
@@ -44,6 +51,8 @@ proc kill_server config {
         if {$::valgrind} {
             check_valgrind_errors [dict get $config stderr]
         }
+
+        check_sanitizer_errors [dict get $config stderr]
         return
     }
     set pid [dict get $config pid]
@@ -103,6 +112,8 @@ proc kill_server config {
     if {$::valgrind} {
         check_valgrind_errors [dict get $config stderr]
     }
+
+    check_sanitizer_errors [dict get $config stderr]
 
     # Remove this pid from the set of active pids in the test server.
     send_data_packet $::test_server_fd server-killed $pid
@@ -251,7 +262,10 @@ proc spawn_server {config_file stdout stderr} {
     } elseif ($::stack_logging) {
         set pid [exec /usr/bin/env MallocStackLogging=1 MallocLogFile=/tmp/malloc_log.txt src/redis-server $config_file >> $stdout 2>> $stderr &]
     } else {
-        set pid [exec src/redis-server $config_file >> $stdout 2>> $stderr &]
+        # ASAN_OPTIONS environment variable is for address sanitizer. If a test
+        # tries to allocate huge memory area and expects allocator to return
+        # NULL, address sanitizer throws an error without this setting.
+        set pid [exec /usr/bin/env ASAN_OPTIONS=allocator_may_return_null=1 src/redis-server $config_file >> $stdout 2>> $stderr &]
     }
 
     if {$::wait_server} {
@@ -299,6 +313,10 @@ proc dump_server_log {srv} {
     puts "\n===== Start of server log (pid $pid) =====\n"
     puts [exec cat [dict get $srv "stdout"]]
     puts "===== End of server log (pid $pid) =====\n"
+
+    puts "\n===== Start of server stderr log (pid $pid) =====\n"
+    puts [exec cat [dict get $srv "stderr"]]
+    puts "===== End of server stderr log (pid $pid) =====\n"
 }
 
 proc run_external_server_test {code overrides} {
@@ -597,6 +615,13 @@ proc start_server {options {code undefined}} {
                 if {[string length $crashlog] > 0} {
                     puts [format "\nLogged crash report (pid %d):" [dict get $srv "pid"]]
                     puts "$crashlog"
+                    puts ""
+                }
+
+                set sanitizerlog [sanitizer_errors_from_file [dict get $srv "stderr"]]
+                if {[string length $sanitizerlog] > 0} {
+                    puts [format "\nLogged sanitizer errors (pid %d):" [dict get $srv "pid"]]
+                    puts "$sanitizerlog"
                     puts ""
                 }
             }

@@ -4916,7 +4916,7 @@ void sentinelFailoverWaitStart(sentinelRedisInstance *ri) {
     /* If I'm not the leader, and it is not a forced failover via
      * SENTINEL FAILOVER, then I can't continue with the failover. */
     if (!isleader && !(ri->flags & SRI_FORCE_FAILOVER)) {
-        int election_timeout = sentinel_election_timeout;
+        mstime_t election_timeout = sentinel_election_timeout;
 
         /* The election timeout is the MIN between SENTINEL_ELECTION_TIMEOUT
          * and the configured failover timeout. */

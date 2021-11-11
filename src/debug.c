@@ -39,6 +39,7 @@
 #include <signal.h>
 #include <dlfcn.h>
 #include <fcntl.h>
+#include <sys/mman.h>
 #include <unistd.h>
 
 #ifdef HAVE_BACKTRACE
@@ -485,7 +486,11 @@ NULL
         };
         addReplyHelp(c, help);
     } else if (!strcasecmp(c->argv[1]->ptr,"segfault")) {
-        *((char*)-1) = 'x';
+        /* Compiler gives warnings about writing to a random address
+         * e.g "*((char*)-1) = 'x';". As a workaround, we map a read-only area
+         * and try to write there to trigger segmentation fault. */
+        char* p = mmap(NULL, 4096, PROT_READ, MAP_PRIVATE | MAP_ANON, -1, 0);
+        *p = 'x';
     } else if (!strcasecmp(c->argv[1]->ptr,"panic")) {
         serverPanic("DEBUG PANIC called at Unix time %lld", (long long)time(NULL));
     } else if (!strcasecmp(c->argv[1]->ptr,"restart") ||
@@ -1154,6 +1159,7 @@ static void *getMcontextEip(ucontext_t *uc) {
 #undef NOT_SUPPORTED
 }
 
+REDIS_NO_SANITIZE("address")
 void logStackContent(void **sp) {
     int i;
     for (i = 15; i >= 0; i--) {
@@ -1856,7 +1862,9 @@ void dumpX86Calls(void *addr, size_t len) {
     for (j = 0; j < len-4; j++) {
         if (p[j] != 0xE8) continue; /* Not an E8 CALL opcode. */
         unsigned long target = (unsigned long)addr+j+5;
-        target += *((int32_t*)(p+j+1));
+        uint32_t tmp;
+        memcpy(&tmp, p+j+1, sizeof(tmp));
+        target += tmp;
         if (dladdr((void*)target, &info) != 0 && info.dli_sname != NULL) {
             if (ht[target&0xff] != target) {
                 printf("Function at 0x%lx is %s\n",target,info.dli_sname);

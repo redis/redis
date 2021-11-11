@@ -19,6 +19,19 @@ jobs:
     - name: module api test
       run: ./runtest-moduleapi --verbose
 
+  test-sanitizer-address:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: make
+        run: make SANITIZER=address
+      - name: testprep
+        run: sudo apt-get install tcl8.6 tclx -y
+      - name: test
+        run: ./runtest --verbose --tags -slow
+      - name: module api test
+        run: ./runtest-moduleapi --verbose
+
   build-debian-old:
     runs-on: ubuntu-latest
     container: debian:oldoldstable
