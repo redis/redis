@@ -200,6 +200,12 @@ int serverPubsubSubscriptionCount() {
     return dictSize(server.pubsub_channels) + dictSize(server.pubsub_patterns);
 }
 
+/* Return the number of pubsub local channels is handled. */
+int serverPubsubLocalSubscriptionCount() {
+    return dictSize(server.pubsublocal_channels);
+}
+
+
 /* Return the number of channels + patterns a client is subscribed to. */
 int clientSubscriptionsCount(client *c) {
     return dictSize(c->pubsub_channels) + listLength(c->pubsub_patterns);

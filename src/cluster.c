@@ -1118,7 +1118,7 @@ clusterNode *clusterLookupNode(const char *name) {
     return dictGetVal(de);
 }
 
-/* Get all the nodes serving this slot. */
+/* Get all the nodes serving the same slots as myself. */
 list *clusterGetNodesServingMySlots(clusterNode *node) {
     list *nodes_for_slot = listCreate();
     clusterNode *my_primary = nodeIsMaster(node) ? node : node->slaveof;
@@ -2255,7 +2255,7 @@ int clusterProcessPacket(clusterLink *link) {
         if ((type == CLUSTERMSG_TYPE_PUBLISH
             && serverPubsubSubscriptionCount() > 0)
         || (type == CLUSTERMSG_TYPE_PUBLISHLOCAL
-            && dictSize(server.pubsublocal_channels) > 0))
+            && serverPubsubLocalSubscriptionCount() > 0))
         {
             channel_len = ntohl(hdr->data.publish.msg.channel_len);
             message_len = ntohl(hdr->data.publish.msg.message_len);

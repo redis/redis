@@ -2618,6 +2618,7 @@ int pubsubPublishMessage(robj *channel, robj *message);
 int pubsubPublishMessageLocal(robj *channel, robj *message);
 void addReplyPubsubMessage(client *c, robj *channel, robj *msg);
 int serverPubsubSubscriptionCount();
+int serverPubsubLocalSubscriptionCount();
 
 /* Keyspace events notification */
 void notifyKeyspaceEvent(int type, char *event, robj *key, int dbid);
