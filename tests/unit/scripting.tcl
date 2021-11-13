@@ -1093,3 +1093,20 @@ start_server {tags {"scripting resp3 needs:debug"}} {
 
     r debug set-disable-deny-scripts 0
 }
+
+start_server {} {
+    test {Test lua stack overflow protection} {
+        # make sure the server is healthy
+        assert_equal [r ping] {PONG}
+        catch { r eval {
+            local members = {}
+            for i=1,7998 do
+                members[i] = 1
+            end
+            return redis.call('mset',unpack(members))
+        } 0 } e
+        assert_match {*response exceeds set limit for number of Lua stack slots*} $e
+        # make sure the server is still healthy
+        assert_equal [r ping] {PONG}
+    }
+}

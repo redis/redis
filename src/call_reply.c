@@ -71,73 +71,84 @@ static void callReplySetSharedData(CallReply *rep, int type, const char *proto, 
     rep->flags |= extra_flags;
 }
 
-static void callReplyNull(void *ctx, const char *proto, size_t proto_len) {
+static int callReplyNull(void *ctx, const char *proto, size_t proto_len) {
     CallReply *rep = ctx;
     callReplySetSharedData(rep, REDISMODULE_REPLY_NULL, proto, proto_len, REPLY_FLAG_RESP3);
+    return C_OK;
 }
 
-static void callReplyNullBulkString(void *ctx, const char *proto, size_t proto_len) {
+static int callReplyNullBulkString(void *ctx, const char *proto, size_t proto_len) {
     CallReply *rep = ctx;
     callReplySetSharedData(rep, REDISMODULE_REPLY_NULL, proto, proto_len, 0);
+    return C_OK;
 }
 
-static void callReplyNullArray(void *ctx, const char *proto, size_t proto_len) {
+static int callReplyNullArray(void *ctx, const char *proto, size_t proto_len) {
     CallReply *rep = ctx;
     callReplySetSharedData(rep, REDISMODULE_REPLY_NULL, proto, proto_len, 0);
+    return C_OK;
 }
 
-static void callReplyBulkString(void *ctx, const char *str, size_t len, const char *proto, size_t proto_len) {
+static int callReplyBulkString(void *ctx, const char *str, size_t len, const char *proto, size_t proto_len) {
     CallReply *rep = ctx;
     callReplySetSharedData(rep, REDISMODULE_REPLY_STRING, proto, proto_len, 0);
     rep->len = len;
     rep->val.str = str;
+    return C_OK;
 }
 
-static void callReplyError(void *ctx, const char *str, size_t len, const char *proto, size_t proto_len) {
+static int callReplyError(void *ctx, const char *str, size_t len, const char *proto, size_t proto_len) {
     CallReply *rep = ctx;
     callReplySetSharedData(rep, REDISMODULE_REPLY_ERROR, proto, proto_len, 0);
     rep->len = len;
     rep->val.str = str;
+    return C_OK;
 }
 
-static void callReplySimpleStr(void *ctx, const char *str, size_t len, const char *proto, size_t proto_len) {
+static int callReplySimpleStr(void *ctx, const char *str, size_t len, const char *proto, size_t proto_len) {
     CallReply *rep = ctx;
     callReplySetSharedData(rep, REDISMODULE_REPLY_STRING, proto, proto_len, 0);
     rep->len = len;
     rep->val.str = str;
+    return C_OK;
 }
 
-static void callReplyLong(void *ctx, long long val, const char *proto, size_t proto_len) {
+static int callReplyLong(void *ctx, long long val, const char *proto, size_t proto_len) {
     CallReply *rep = ctx;
     callReplySetSharedData(rep, REDISMODULE_REPLY_INTEGER, proto, proto_len, 0);
     rep->val.ll = val;
+    return C_OK;
 }
 
-static void callReplyDouble(void *ctx, double val, const char *proto, size_t proto_len) {
+static int callReplyDouble(void *ctx, double val, const char *proto, size_t proto_len) {
     CallReply *rep = ctx;
     callReplySetSharedData(rep, REDISMODULE_REPLY_DOUBLE, proto, proto_len, REPLY_FLAG_RESP3);
     rep->val.d = val;
+    return C_OK;
 }
 
-static void callReplyVerbatimString(void *ctx, const char *format, const char *str, size_t len, const char *proto, size_t proto_len) {
+static int callReplyVerbatimString(void *ctx, const char *format, const char *str, size_t len, const char *proto, size_t proto_len) {
     CallReply *rep = ctx;
     callReplySetSharedData(rep, REDISMODULE_REPLY_VERBATIM_STRING, proto, proto_len, REPLY_FLAG_RESP3);
     rep->len = len;
     rep->val.verbatim_str.str = str;
     rep->val.verbatim_str.format = format;
+    return C_OK;
 }
 
-static void callReplyBigNumber(void *ctx, const char *str, size_t len, const char *proto, size_t proto_len) {
+static int callReplyBigNumber(void *ctx, const char *str, size_t len, const char *proto, size_t proto_len) {
     CallReply *rep = ctx;
     callReplySetSharedData(rep, REDISMODULE_REPLY_BIG_NUMBER, proto, proto_len, REPLY_FLAG_RESP3);
     rep->len = len;
     rep->val.str = str;
+    return C_OK;
 }
 
-static void callReplyBool(void *ctx, int val, const char *proto, size_t proto_len) {
+static int callReplyBool(void *ctx, int val, const char *proto, size_t proto_len) {
     CallReply *rep = ctx;
     callReplySetSharedData(rep, REDISMODULE_REPLY_BOOL, proto, proto_len, REPLY_FLAG_RESP3);
     rep->val.ll = val;
+    return C_OK;
 }
 
 static void callReplyParseCollection(ReplyParser *parser, CallReply *rep, size_t len, const char *proto, size_t elements_per_entry) {
@@ -158,7 +169,7 @@ static void callReplyParseCollection(ReplyParser *parser, CallReply *rep, size_t
     rep->proto_len = parser->curr_location - proto;
 }
 
-static void callReplyAttribute(ReplyParser *parser, void *ctx, size_t len, const char *proto) {
+static int callReplyAttribute(ReplyParser *parser, void *ctx, size_t len, const char *proto) {
     CallReply *rep = ctx;
     rep->attribute = zcalloc(sizeof(CallReply));
 
@@ -176,31 +187,36 @@ static void callReplyAttribute(ReplyParser *parser, void *ctx, size_t len, const
     rep->proto = proto;
     rep->proto_len = parser->curr_location - proto;
     rep->flags |= REPLY_FLAG_RESP3;
+    return C_OK;
 }
 
-static void callReplyArray(ReplyParser *parser, void *ctx, size_t len, const char *proto) {
+static int callReplyArray(ReplyParser *parser, void *ctx, size_t len, const char *proto) {
     CallReply *rep = ctx;
     rep->type = REDISMODULE_REPLY_ARRAY;
     callReplyParseCollection(parser, rep, len, proto, 1);
+    return C_OK;
 }
 
-static void callReplySet(ReplyParser *parser, void *ctx, size_t len, const char *proto) {
+static int callReplySet(ReplyParser *parser, void *ctx, size_t len, const char *proto) {
     CallReply *rep = ctx;
     rep->type = REDISMODULE_REPLY_SET;
     callReplyParseCollection(parser, rep, len, proto, 1);
     rep->flags |= REPLY_FLAG_RESP3;
+    return C_OK;
 }
 
-static void callReplyMap(ReplyParser *parser, void *ctx, size_t len, const char *proto) {
+static int callReplyMap(ReplyParser *parser, void *ctx, size_t len, const char *proto) {
     CallReply *rep = ctx;
     rep->type = REDISMODULE_REPLY_MAP;
     callReplyParseCollection(parser, rep, len, proto, 2);
     rep->flags |= REPLY_FLAG_RESP3;
+    return C_OK;
 }
 
-static void callReplyParseError(void *ctx) {
+static int callReplyParseError(void *ctx) {
     CallReply *rep = ctx;
     rep->type = REDISMODULE_REPLY_UNKNOWN;
+    return C_OK;
 }
 
 /* Recursively free the current call reply and its sub-replies. */
