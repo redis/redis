@@ -95,7 +95,7 @@ start_server {tags {"expire"}} {
         # This test is very likely to do a false positive if the
         # server is under pressure, so if it does not work give it a few more
         # chances.
-        for {set j 0} {$j < 30} {incr j} {
+        for {set j 0} {$j < 50} {incr j} {
             r del x
             r del y
             r del z
