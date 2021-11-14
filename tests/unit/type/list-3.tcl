@@ -26,6 +26,39 @@ start_server {
         r ping ; # It's enough if the server is still alive
     } {PONG}
 
+    test {Stress tester for #3343-alike bugs with compression} {
+        r del key
+        config_set list-compress-depth 2
+        for {set j 0} {$j < 10000} {incr j} {
+            set op [randomInt 6]
+            set small_signed_count [expr 5-[randomInt 10]]
+            if {[randomInt 2] == 0} {
+                set ele [randomInt 1000]
+            } else {
+                set ele [string repeat x [randomInt 10000]][randomInt 1000]
+            }
+            switch $op {
+                0 {r lpush key $ele}
+                1 {r rpush key $ele}
+                2 {r lpop key}
+                3 {r rpop key}
+                4 {
+                    catch {r lset key $small_signed_count $ele}
+                }
+                5 {
+                    set otherele [randomInt 1000]
+                    if {[randomInt 2] == 0} {
+                        set where before
+                    } else {
+                        set where after
+                    }
+                    r linsert key $where $otherele $ele
+                }
+            }
+        }
+    }
+
+
     test {Stress tester for #3343-alike bugs} {
         r del key
         for {set j 0} {$j < 10000} {incr j} {

@@ -199,6 +199,7 @@ REDIS_STATIC int __quicklistCompressNode(quicklistNode *node) {
     node->attempted_compress = 1;
 #endif
 
+    node->recompress = 0;
     /* Don't bother compressing small values */
     if (node->sz < MIN_COMPRESS_BYTES)
         return 0;
@@ -217,7 +218,6 @@ REDIS_STATIC int __quicklistCompressNode(quicklistNode *node) {
     zfree(node->entry);
     node->entry = (unsigned char *)lzf;
     node->encoding = QUICKLIST_NODE_ENCODING_LZF;
-    node->recompress = 0;
     return 1;
 }
 
