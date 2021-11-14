@@ -378,7 +378,11 @@ proc run_external_server_test {code overrides} {
         r config set $param $val
     }
 
-    lpop ::servers
+    set srv [lpop ::servers]
+    
+    if {[dict exists $srv "client"]} {
+        [dict get $srv "client"] close
+    }
 }
 
 proc start_server {options {code undefined}} {

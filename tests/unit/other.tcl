@@ -272,6 +272,7 @@ start_server {tags {"other"}} {
 
         $rd reset
         assert_equal [$rd read] "RESET"
+        $rd close
 
         assert_no_match {*flags=O*} [r client list]
     } {} {needs:reset}
