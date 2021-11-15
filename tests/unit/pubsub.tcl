@@ -174,6 +174,8 @@ start_server {tags {"pubsub network"}} {
         punsubscribe $rd1
         punsubscribe $rd2
         assert_equal 3 $patterns
+        $rd1 close
+        $rd2 close
     }
 
     test "Mix SUBSCRIBE and PSUBSCRIBE" {

@@ -236,5 +236,6 @@ start_server {tags {"regression"}} {
         $rd read
         $rd rpush nolist a
         $rd read
+        $rd close
     }
 }
