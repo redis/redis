@@ -990,10 +990,11 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         $watching_client read
         r lpush srclist{t} element
         $watching_client exec
-        assert_equal [$watching_client read] {}
+        set res [$watching_client read]
         $blocked_client close
         $watching_client close
-    }
+        set _ $res
+    } {}
 
     test "BRPOPLPUSH does not affect WATCH while still blocked" {
         set blocked_client [redis_deferring_client]
@@ -1011,10 +1012,11 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         $watching_client exec
         # Blocked BLPOPLPUSH may create problems, unblock it.
         r lpush srclist{t} element
-        assert_equal [$watching_client read] {somevalue}
+        set res [$watching_client read]
         $blocked_client close
         $watching_client close
-    }
+        set _ $res
+    } {somevalue}
 
     test {BRPOPLPUSH timeout} {
       set rd [redis_deferring_client]
@@ -1022,9 +1024,10 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
       $rd brpoplpush foo_list{t} bar_list{t} 1
       wait_for_blocked_clients_count 1
       wait_for_blocked_clients_count 0 500 10
-      assert_equal [$rd read] {}
+      set res [$rd read]
       $rd close
-    }
+      set _ $res
+    } {}
 
 foreach {pop} {BLPOP BLMPOP_LEFT} {
     test "$pop when new key is moved into place" {
@@ -1035,9 +1038,10 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         wait_for_blocked_client
         r lpush bob{t} abc def hij
         r rename bob{t} foo{t}
-        assert_equal [$rd read] {foo{t} hij}
+        set res [$rd read]
         $rd close
-    }
+        set _ $res
+    } {foo{t} hij}
 
     test "$pop when result key is created by SORT..STORE" {
         set rd [redis_deferring_client]
@@ -1051,9 +1055,10 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         wait_for_blocked_client
         r lpush notfoo{t} hello hola aguacate konichiwa zanzibar
         r sort notfoo{t} ALPHA store foo{t}
-        assert_equal [$rd read] {foo{t} aguacate}
+        set res [$rd read]
         $rd close
-    }
+        set _ $res
+    } {foo{t} aguacate}
 }
 
     foreach {pop} {BLPOP BRPOP BLMPOP_LEFT BLMPOP_RIGHT} {

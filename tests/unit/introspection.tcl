@@ -19,9 +19,10 @@ start_server {tags {"introspection"}} {
         assert_match {*OK*} [$rd read]
         r set foo bar
         r get foo
-        assert_match {*"set" "foo"*"get" "foo"*} [list [$rd read] [$rd read]]
+        set res [list [$rd read] [$rd read]]
         $rd close
-    } 
+        set _ $res
+    } {*"set" "foo"*"get" "foo"*}
 
     test {MONITOR can log commands issued by the scripting engine} {
         set rd [redis_deferring_client]
