@@ -158,6 +158,8 @@ typedef struct clusterState {
     int failover_auth_count;    /* Number of votes received so far. */
     int failover_auth_sent;     /* True if we already asked for votes. */
     int failover_auth_rank;     /* This slave rank for current auth request. */
+    int failed_master_rank;     /* This slave rank for auth request in failed master list. */
+    long long rank_failover_timeout; /* maximum time to vote by ordered failover*/
     uint64_t failover_auth_epoch; /* Epoch of the current election. */
     int cant_failover_reason;   /* Why a slave is currently not able to
                                    failover. See the CANT_FAILOVER_* macros. */
