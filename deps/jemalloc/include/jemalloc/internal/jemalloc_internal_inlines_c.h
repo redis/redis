@@ -257,7 +257,7 @@ iget_defrag_hint(tsdn_t *tsdn, void* ptr) {
 					}
 				}
 				/* Compare the utilization ratio of the slab in question to the total average
-				 * among non-full slubs. To avoid precision lost in division, we do that by
+				 * among non-full slabs. To avoid precision loss in division, we do that by
 				 * extrapolating the usage of the slab as if all slabs have the same usage.
 				 * If this slab is less used than the average, we'll prefer to move the data
 				 * to hopefully more used ones. To avoid stagnation when all slabs have the same
