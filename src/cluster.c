@@ -466,6 +466,8 @@ void clusterInit(void) {
     server.cluster->failover_auth_epoch = 0;
     server.cluster->cant_failover_reason = CLUSTER_CANT_FAILOVER_NONE;
     server.cluster->lastVoteEpoch = 0;
+    server.cluster->rank_failover_timeout = 0;
+    server.cluster->failed_master_rank = 0;
     for (int i = 0; i < CLUSTERMSG_TYPE_COUNT; i++) {
         server.cluster->stats_bus_messages_sent[i] = 0;
         server.cluster->stats_bus_messages_received[i] = 0;
@@ -2975,6 +2977,29 @@ void clusterFailoverReplaceYourMaster(void) {
     resetManualFailover();
 }
 
+/* This function returns the "rank" of this instance in the context of all failed master list.
+ * The master node will be ignored if failed time exceeds cluster_node_timeout*cluster_slave_validity_factor.
+ */
+int clusterFailedMasterRank(){
+    dictIterator *di;
+    dictEntry *de;
+    int rank = 0;
+    if (server.cluster_enabled == 0 || !nodeIsSlave(myself)) {
+        return 0;
+    }
+    clusterNode *master = myself->slaveof;
+    di = dictGetSafeIterator(server.cluster->nodes);
+    while((de = dictNext(di)) != NULL) {
+        clusterNode *node = dictGetVal(de);
+        if(nodeIsMaster(node) && nodeFailed(node) && node->numslots > 0 && node->numslaves > 0 &&
+         (mstime() - node->fail_time) < (server.cluster_node_timeout * server.cluster_slave_validity_factor)){
+            //sort by name
+            if (memcmp(node->name, master->name,CLUSTER_NAMELEN) < 0) rank++;
+        }
+    }
+    return rank;
+}
+
 /* This function is called if we are a slave node and our master serving
  * a non-zero amount of hash slots is in FAIL state.
  *
@@ -2983,6 +3008,7 @@ void clusterFailoverReplaceYourMaster(void) {
  * 2) Try to get elected by masters.
  * 3) Perform the failover informing all the other nodes.
  */
+#define MAX_MSG_PROPAGATE_TIMEOUT 500
 void clusterHandleSlaveFailover(void) {
     mstime_t data_age;
     mstime_t auth_age = mstime() - server.cluster->failover_auth_time;
@@ -3056,9 +3082,13 @@ void clusterHandleSlaveFailover(void) {
     /* If the previous failover attempt timedout and the retry time has
      * elapsed, we can setup a new one. */
     if (auth_age > auth_retry_time) {
+        int failed_master_rank = clusterFailedMasterRank();
         server.cluster->failover_auth_time = mstime() +
             500 + /* Fixed delay of 500 milliseconds, let FAIL msg propagate. */
-            random() % 500; /* Random delay between 0 and 500 milliseconds. */
+            random() % 500 + /* Random delay between 0 and 500 milliseconds. */
+            failed_master_rank * MAX_MSG_PROPAGATE_TIMEOUT;  /* 500ms for one node failover */ 
+        server.cluster->rank_failover_timeout = server.cluster->failover_auth_time;
+        server.cluster->failed_master_rank = failed_master_rank;
         server.cluster->failover_auth_count = 0;
         server.cluster->failover_auth_sent = 0;
         server.cluster->failover_auth_rank = clusterGetSlaveRank();
@@ -3094,7 +3124,27 @@ void clusterHandleSlaveFailover(void) {
     if (server.cluster->failover_auth_sent == 0 &&
         server.cluster->mf_end == 0)
     {
+        long long delay_time =  server.cluster->rank_failover_timeout - mstime();
         int newrank = clusterGetSlaveRank();
+        int failed_master_rank = clusterFailedMasterRank();
+        if (failed_master_rank > server.cluster->failed_master_rank) {
+            long long added_delay =
+                (failed_master_rank - server.cluster->failed_master_rank) * MAX_MSG_PROPAGATE_TIMEOUT;
+            server.cluster->failover_auth_time += added_delay;
+            server.cluster->rank_failover_timeout += added_delay;
+            serverLog(LL_WARNING,
+                "Failed master rank updated to #%d, added %lld milliseconds of delay.",
+                failed_master_rank, added_delay);
+        }
+        if (failed_master_rank <= 0 && delay_time > 0){
+            //delay random()%200 ms for msg propagate.
+            server.cluster->failover_auth_time = mstime() + random() % 200;
+            serverLog(LL_NOTICE,
+                "The ranking of failed node is updated to #%d, advanced %lld milliseconds.",
+                failed_master_rank, delay_time);
+                server.cluster->rank_failover_timeout = 0;
+        }
+        server.cluster->failed_master_rank = failed_master_rank; 
         if (newrank > server.cluster->failover_auth_rank) {
             long long added_delay =
                 (newrank - server.cluster->failover_auth_rank) * 1000;
