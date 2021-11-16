@@ -65,7 +65,7 @@ jobs:
       if: true && !contains(github.event.inputs.skiptests, 'cluster')
       run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
     - name: unittest
-      run: ./src/redis-server test all
+      run: ./src/redis-server test all --accurate
 
   test-ubuntu-libc-malloc:
     runs-on: ubuntu-latest
@@ -170,7 +170,7 @@ jobs:
       if: true && !contains(github.event.inputs.skiptests, 'cluster')
       run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
     - name: unittest
-      run: ./src/redis-server test all
+      run: ./src/redis-server test all --accurate
 
   test-ubuntu-tls:
     runs-on: ubuntu-latest
@@ -268,7 +268,7 @@ jobs:
         sudo apt-get install tcl8.6 tclx valgrind -y
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
-      run: ./runtest --valgrind --verbose --clients 1 --timeout 2400 --dump-logs ${{github.event.inputs.test_args}}
+      run: ./runtest --valgrind --no-latency --verbose --clients 1 --timeout 2400 --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
       if: true && !contains(github.event.inputs.skiptests, 'modules')
       run: ./runtest-moduleapi --valgrind --no-latency --verbose --clients 1 --timeout 2400 --dump-logs ${{github.event.inputs.test_args}}
@@ -301,7 +301,7 @@ jobs:
         sudo apt-get install tcl8.6 tclx valgrind -y
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
-      run: ./runtest --valgrind --verbose --clients 1 --timeout 2400 --dump-logs ${{github.event.inputs.test_args}}
+      run: ./runtest --valgrind --no-latency --verbose --clients 1 --timeout 2400 --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
       if: true && !contains(github.event.inputs.skiptests, 'modules')
       run: ./runtest-moduleapi --valgrind --no-latency --verbose --clients 1 --timeout 2400 --dump-logs ${{github.event.inputs.test_args}}
@@ -346,7 +346,7 @@ jobs:
         if: true && !contains(github.event.inputs.skiptests, 'cluster')
         run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
       - name: unittest
-        run: ./src/redis-server test all
+        run: ./src/redis-server test all --accurate
 
   test-sanitizer-undefined:
     runs-on: ubuntu-latest
@@ -388,7 +388,7 @@ jobs:
         if: true && !contains(github.event.inputs.skiptests, 'cluster')
         run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
       - name: unittest
-        run: ./src/redis-server test all
+        run: ./src/redis-server test all --accurate
 
   test-centos7-jemalloc:
     runs-on: ubuntu-latest
@@ -496,7 +496,7 @@ jobs:
       run: ./runtest --accurate --verbose --no-latency --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
       if: true && !contains(github.event.inputs.skiptests, 'modules')
-      run: ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
+      run: ./runtest-moduleapi --verbose --no-latency --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
@@ -528,8 +528,8 @@ jobs:
         prepare: pkg install -y bash gmake lang/tcl86 lang/tclx
         run: >
           gmake || exit 1 ;
-          if echo "${{github.event.inputs.skiptests}}" | grep -vq redis ; then ./runtest --verbose --no-latency --dump-logs ${{github.event.inputs.test_args}} || exit 1 ; fi ;
-          if echo "${{github.event.inputs.skiptests}}" | grep -vq modules ; then MAKE=gmake ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}} || exit 1 ; fi ;
+          if echo "${{github.event.inputs.skiptests}}" | grep -vq redis ; then ./runtest --verbose --timeout 2400 --no-latency --dump-logs ${{github.event.inputs.test_args}} || exit 1 ; fi ;
+          if echo "${{github.event.inputs.skiptests}}" | grep -vq modules ; then MAKE=gmake ./runtest-moduleapi --verbose --timeout 2400 --no-latency --dump-logs ${{github.event.inputs.test_args}} || exit 1 ; fi ;
           if echo "${{github.event.inputs.skiptests}}" | grep -vq sentinel ; then ./runtest-sentinel ${{github.event.inputs.cluster_test_args}} || exit 1 ; fi ;
           if echo "${{github.event.inputs.skiptests}}" | grep -vq cluster ; then ./runtest-cluster ${{github.event.inputs.cluster_test_args}} || exit 1 ; fi ;
 
