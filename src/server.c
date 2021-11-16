@@ -4897,7 +4897,7 @@ void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t dur
 void call(client *c, int flags) {
     long long dirty;
     monotime call_timer;
-    int client_old_flags = c->flags;
+    uint64_t client_old_flags = c->flags;
     struct redisCommand *real_cmd = c->cmd;
     static long long prev_err_count;
 
