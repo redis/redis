@@ -1375,6 +1375,7 @@ unsigned int lpRandomPairsUnique(unsigned char *lp, unsigned int count, listpack
 #include <sys/time.h>
 #include "adlist.h"
 #include "sds.h"
+#include "testhelp.h"
 
 #define UNUSED(x) (void)(x)
 #define TEST(name) printf("test — %s\n", name);
@@ -1499,15 +1500,15 @@ static int lpValidation(unsigned char *p, unsigned int head_count, void *userdat
     return ret;
 }
 
-int listpackTest(int argc, char *argv[], int accurate) {
+int listpackTest(int argc, char *argv[], int flags) {
     UNUSED(argc);
     UNUSED(argv);
-    UNUSED(accurate);
 
     int i;
     unsigned char *lp, *p, *vstr;
     int64_t vlen;
     unsigned char intbuf[LP_INTBUF_SIZE];
+    int accurate = (flags & REDIS_TEST_ACCURATE);
 
     TEST("Create int list") {
         lp = createIntList();

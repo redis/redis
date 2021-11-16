@@ -1183,6 +1183,7 @@ void dictGetStats(char *buf, size_t bufsize, dict *d) {
 /* ------------------------------- Benchmark ---------------------------------*/
 
 #ifdef REDIS_TEST
+#include "testhelp.h"
 
 #define UNUSED(V) ((void) V)
 
@@ -1235,11 +1236,12 @@ dictType BenchmarkDictType = {
 } while(0)
 
 /* ./redis-server test dict [<count> | --accurate] */
-int dictTest(int argc, char **argv, int accurate) {
+int dictTest(int argc, char **argv, int flags) {
     long j;
     long long start, elapsed;
     dict *dict = dictCreate(&BenchmarkDictType);
     long count = 0;
+    int accurate = (flags & REDIS_TEST_ACCURATE);
 
     if (argc == 4) {
         if (accurate) {

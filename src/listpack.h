@@ -90,7 +90,7 @@ unsigned int lpRandomPairsUnique(unsigned char *lp, unsigned int count, listpack
 int lpSafeToAdd(unsigned char* lp, size_t add);
 
 #ifdef REDIS_TEST
-int listpackTest(int argc, char *argv[], int accurate);
+int listpackTest(int argc, char *argv[], int flags);
 #endif
 
 #endif

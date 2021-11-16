@@ -1720,6 +1720,7 @@ void quicklistBookmarksClear(quicklist *ql) {
 #ifdef REDIS_TEST
 #include <stdint.h>
 #include <sys/time.h>
+#include "testhelp.h"
 
 #define yell(str, ...) printf("ERROR! " str "\n\n", __VA_ARGS__)
 
@@ -1902,11 +1903,11 @@ static char *genstr(char *prefix, int i) {
 }
 
 /* main test, but callable from other files */
-int quicklistTest(int argc, char *argv[], int accurate) {
+int quicklistTest(int argc, char *argv[], int flags) {
     UNUSED(argc);
     UNUSED(argv);
-    UNUSED(accurate);
 
+    int accurate = (flags & REDIS_TEST_ACCURATE);
     unsigned int err = 0;
     int optimize_start =
         -(int)(sizeof(optimization_level) / sizeof(*optimization_level));
