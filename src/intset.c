@@ -393,7 +393,7 @@ static void checkConsistency(intset *is) {
 }
 
 #define UNUSED(x) (void)(x)
-int intsetTest(int argc, char **argv, int accurate) {
+int intsetTest(int argc, char **argv, int flags) {
     uint8_t success;
     int i;
     intset *is;
@@ -401,7 +401,7 @@ int intsetTest(int argc, char **argv, int accurate) {
 
     UNUSED(argc);
     UNUSED(argv);
-    UNUSED(accurate);
+    UNUSED(flags);
 
     printf("Value encodings: "); {
         assert(_intsetValueEncoding(-32768) == INTSET_ENC_INT16);
