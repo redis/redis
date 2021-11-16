@@ -460,6 +460,7 @@ dictType renamedCommandsDictType = {
 /* =========================== Initialization =============================== */
 
 void sentinelSetCommand(client *c);
+void sentinelGetCommand(client *c);
 void sentinelConfigGetCommand(client *c);
 void sentinelConfigSetCommand(client *c);
 
@@ -3946,6 +3947,9 @@ NULL
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"set")) {
         sentinelSetCommand(c);
+    } else if (!strcasecmp(c->argv[1]->ptr,"get")) {
+        if (c->argc != 3 || c->argc != 4) goto numargserr;
+        sentinelGetCommand(c);
     } else if (!strcasecmp(c->argv[1]->ptr,"config")) {
         if (c->argc < 3) goto numargserr;
         if (!strcasecmp(c->argv[2]->ptr,"set") && c->argc == 5)
@@ -4155,6 +4159,85 @@ void sentinelRoleCommand(client *c) {
         addReplyBulkCString(c,ri->name);
     }
     dictReleaseIterator(di);
+}
+
+/* SENTINEL GET <mastername> <option> */
+void sentinelGetCommand(client *c) {
+    sentinelRedisInstance *ri;
+    int has_all_masters = 0;
+    dictIterator *di;
+    dictEntry *de;
+    int matches = 0;
+    char *option = "";
+    int has_get_all = 0;
+
+    if (c->argc == 3) {
+        has_get_all = 1;
+    }
+    else{
+        option = c->argv[3]->ptr;
+    }
+
+    if (!strcasecmp(c->argv[2]->ptr,"all")) {
+        has_all_masters = 1;
+    }
+    else {
+        if ((ri = sentinelGetMasterByNameOrReplyError(c,c->argv[2])) == NULL)
+                return;
+    }
+
+    di = dictGetIterator(sentinel.masters);
+    void *replylen = addReplyDeferredLen(c);
+    while((de = dictNext(di)) != NULL) {
+        ri = dictGetVal(de);
+        if (!has_all_masters) {
+            if (ri != sentinelGetMasterByNameOrReplyError(c,c->argv[2]))
+                continue;
+        }
+
+        addReplyBulkCString(c,"# SENTINEL MASTER NAME");
+        addReplyBulkCString(c,ri->name);
+        matches++;
+
+        if (!strcasecmp(option,"down-after-milliseconds") || has_get_all) {
+            /* down-after-milliseconds <milliseconds> */
+            addReplyBulkCString(c,"sentinel down-after-milliseconds");
+            addReplyBulkLongLong(c,ri->down_after_period);
+            matches++;
+        }
+        if (!strcasecmp(option,"failover-timeout") || has_get_all) {
+            /* failover-timeout <milliseconds> */
+            addReplyBulkCString(c,"sentinel failover-timeout");
+            addReplyBulkLongLong(c,ri->failover_timeout);
+            matches++;
+        }
+        if (!strcasecmp(option,"parallel-syncs") || has_get_all) {
+            /* parallel-syncs <milliseconds> */
+            addReplyBulkCString(c,"sentinel parallel-syncs");
+            addReplyBulkCString(c,ri->parallel_syncs ? "yes" : "no");
+            matches++;
+        }
+        if (!strcasecmp(option,"quorum") || has_get_all) {
+            /* quorum <count> */
+            addReplyBulkCString(c, "sentinel quorum");
+            addReplyBulkLongLong(c, ri->quorum);
+            matches++;
+        }
+        if (!strcasecmp(option,"runid") || has_get_all) {
+            /* runid */
+            addReplyBulkCString(c, "sentinel runid");
+            addReplyBulkCString(c, ri->runid ? ri->runid : "");
+            matches++;
+        }
+        if (!strcasecmp(option,"config-epoch") || has_get_all) {
+            /* config-epoch <count> */
+            addReplyBulkCString(c, "sentinel config-epoch");
+            addReplyBulkLongLong(c, ri->config_epoch);
+            matches++;
+        }
+    }
+    dictReleaseIterator(di);
+    setDeferredMapLen(c, replylen, matches);
 }
 
 /* SENTINEL SET <mastername> [<option> <value> ...] */
