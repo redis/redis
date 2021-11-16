@@ -1755,6 +1755,7 @@ int rewriteAppendOnlyFileBackground(void) {
     } else {
         /* Parent */
         if (childpid == -1) {
+            server.aof_lastbgrewrite_status = C_ERR;
             serverLog(LL_WARNING,
                 "Can't rewrite append only file in background: fork: %s",
                 strerror(errno));
