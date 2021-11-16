@@ -832,7 +832,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
 
             /* The pattern always matches if it is exactly "*", so it is
              * equivalent to disabling it. */
-            use_pattern = !(pat[0] == '*' && patlen == 1);
+            use_pattern = !(patlen == 1 && pat[0] == '*');
 
             i += 2;
         } else if (!strcasecmp(c->argv[i]->ptr, "type") && o == NULL && j >= 2) {
