@@ -579,5 +579,5 @@ start_server {tags {"bitops"}} {
         assert_equal 1 [r getbit mykey $bitpos]
         r config set proto-max-bulk-len $oldval
         r del mykey
-    } {1} {large-memory}
+    } {1} {large-memory needs:debug}
 }
