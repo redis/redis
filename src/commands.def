@@ -5552,6 +5552,7 @@ struct COMMAND_ARG SENTINEL_IS_MASTER_DOWN_BY_ADDR_Args[] = {
 /* SENTINEL MASTER argument table */
 struct COMMAND_ARG SENTINEL_MASTER_Args[] = {
 {MAKE_ARG("master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("param",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
 };
 
 /********** SENTINEL MASTERS ********************/
@@ -5570,6 +5571,11 @@ struct COMMAND_ARG SENTINEL_MASTER_Args[] = {
 /* SENTINEL MASTERS key specs */
 #define SENTINEL_MASTERS_Keyspecs NULL
 #endif
+
+/* SENTINEL MASTERS argument table */
+struct COMMAND_ARG SENTINEL_MASTERS_Args[] = {
+{MAKE_ARG("param",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
+};
 
 /********** SENTINEL MONITOR ********************/
 
@@ -5672,6 +5678,7 @@ struct COMMAND_ARG SENTINEL_REMOVE_Args[] = {
 /* SENTINEL REPLICAS argument table */
 struct COMMAND_ARG SENTINEL_REPLICAS_Args[] = {
 {MAKE_ARG("master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("param",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
 };
 
 /********** SENTINEL RESET ********************/
@@ -5716,6 +5723,7 @@ struct COMMAND_ARG SENTINEL_RESET_Args[] = {
 /* SENTINEL SENTINELS argument table */
 struct COMMAND_ARG SENTINEL_SENTINELS_Args[] = {
 {MAKE_ARG("master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("param",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
 };
 
 /********** SENTINEL SET ********************/
@@ -5809,15 +5817,15 @@ struct COMMAND_STRUCT SENTINEL_Subcommands[] = {
 {MAKE_CMD("help","Returns helpful text about the different subcommands.","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_HELP_History,0,SENTINEL_HELP_Tips,0,sentinelCommand,2,CMD_LOADING|CMD_STALE|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_HELP_Keyspecs,0,NULL,0)},
 {MAKE_CMD("info-cache","Returns the cached `INFO` replies from the deployment's instances.","O(N) where N is the number of instances","3.2.0",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_INFO_CACHE_History,0,SENTINEL_INFO_CACHE_Tips,0,sentinelCommand,-3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_INFO_CACHE_Keyspecs,0,NULL,1),.args=SENTINEL_INFO_CACHE_Args},
 {MAKE_CMD("is-master-down-by-addr","Determines whether a master Redis instance is down.","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_IS_MASTER_DOWN_BY_ADDR_History,0,SENTINEL_IS_MASTER_DOWN_BY_ADDR_Tips,0,sentinelCommand,6,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_IS_MASTER_DOWN_BY_ADDR_Keyspecs,0,NULL,4),.args=SENTINEL_IS_MASTER_DOWN_BY_ADDR_Args},
-{MAKE_CMD("master","Returns the state of a master Redis instance.","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_MASTER_History,0,SENTINEL_MASTER_Tips,0,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_MASTER_Keyspecs,0,NULL,1),.args=SENTINEL_MASTER_Args},
-{MAKE_CMD("masters","Returns a list of monitored Redis masters.","O(N) where N is the number of masters","2.8.4",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_MASTERS_History,0,SENTINEL_MASTERS_Tips,0,sentinelCommand,2,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_MASTERS_Keyspecs,0,NULL,0)},
+{MAKE_CMD("master","Returns the state of a master Redis instance.","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_MASTER_History,0,SENTINEL_MASTER_Tips,0,sentinelCommand,-3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_MASTER_Keyspecs,0,NULL,2),.args=SENTINEL_MASTER_Args},
+{MAKE_CMD("masters","Returns a list of monitored Redis masters.","O(N) where N is the number of masters","2.8.4",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_MASTERS_History,0,SENTINEL_MASTERS_Tips,0,sentinelCommand,-2,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_MASTERS_Keyspecs,0,NULL,1),.args=SENTINEL_MASTERS_Args},
 {MAKE_CMD("monitor","Starts monitoring.","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_MONITOR_History,0,SENTINEL_MONITOR_Tips,0,sentinelCommand,6,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_MONITOR_Keyspecs,0,NULL,4),.args=SENTINEL_MONITOR_Args},
 {MAKE_CMD("myid","Returns the Redis Sentinel instance ID.","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_MYID_History,0,SENTINEL_MYID_Tips,0,sentinelCommand,2,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_MYID_Keyspecs,0,NULL,0)},
 {MAKE_CMD("pending-scripts","Returns information about pending scripts for Redis Sentinel.",NULL,"2.8.4",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_PENDING_SCRIPTS_History,0,SENTINEL_PENDING_SCRIPTS_Tips,0,sentinelCommand,2,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_PENDING_SCRIPTS_Keyspecs,0,NULL,0)},
 {MAKE_CMD("remove","Stops monitoring.","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_REMOVE_History,0,SENTINEL_REMOVE_Tips,0,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_REMOVE_Keyspecs,0,NULL,1),.args=SENTINEL_REMOVE_Args},
-{MAKE_CMD("replicas","Returns a list of the monitored Redis replicas.","O(N) where N is the number of replicas","5.0.0",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_REPLICAS_History,0,SENTINEL_REPLICAS_Tips,0,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_REPLICAS_Keyspecs,0,NULL,1),.args=SENTINEL_REPLICAS_Args},
+{MAKE_CMD("replicas","Returns a list of the monitored Redis replicas.","O(N) where N is the number of replicas","5.0.0",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_REPLICAS_History,0,SENTINEL_REPLICAS_Tips,0,sentinelCommand,-3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_REPLICAS_Keyspecs,0,NULL,2),.args=SENTINEL_REPLICAS_Args},
 {MAKE_CMD("reset","Resets Redis masters by name matching a pattern.","O(N) where N is the number of monitored masters","2.8.4",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_RESET_History,0,SENTINEL_RESET_Tips,0,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_RESET_Keyspecs,0,NULL,1),.args=SENTINEL_RESET_Args},
-{MAKE_CMD("sentinels","Returns a list of Sentinel instances.","O(N) where N is the number of Sentinels","2.8.4",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_SENTINELS_History,0,SENTINEL_SENTINELS_Tips,0,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_SENTINELS_Keyspecs,0,NULL,1),.args=SENTINEL_SENTINELS_Args},
+{MAKE_CMD("sentinels","Returns a list of Sentinel instances.","O(N) where N is the number of Sentinels","2.8.4",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_SENTINELS_History,0,SENTINEL_SENTINELS_Tips,0,sentinelCommand,-3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_SENTINELS_Keyspecs,0,NULL,2),.args=SENTINEL_SENTINELS_Args},
 {MAKE_CMD("set","Changes the configuration of a monitored Redis master.","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_SET_History,0,SENTINEL_SET_Tips,0,sentinelCommand,-5,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_SET_Keyspecs,0,NULL,2),.args=SENTINEL_SET_Args},
 {MAKE_CMD("simulate-failure","Simulates failover scenarios.",NULL,"3.2.0",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_SIMULATE_FAILURE_History,0,SENTINEL_SIMULATE_FAILURE_Tips,0,sentinelCommand,-3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_SIMULATE_FAILURE_Keyspecs,0,NULL,1),.args=SENTINEL_SIMULATE_FAILURE_Args},
 {MAKE_CMD("slaves","Returns a list of the monitored replicas.","O(N) where N is the number of replicas.","2.8.0",CMD_DOC_DEPRECATED,"`SENTINEL REPLICAS`","5.0.0","sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_SLAVES_History,0,SENTINEL_SLAVES_Tips,0,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_SLAVES_Keyspecs,0,NULL,1),.args=SENTINEL_SLAVES_Args},

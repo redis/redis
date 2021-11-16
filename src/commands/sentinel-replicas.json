@@ -4,7 +4,7 @@
         "complexity": "O(N) where N is the number of replicas",
         "group": "sentinel",
         "since": "5.0.0",
-        "arity": 3,
+        "arity": -3,
         "container": "SENTINEL",
         "function": "sentinelCommand",
         "command_flags": [
@@ -26,6 +26,12 @@
             {
                 "name": "master-name",
                 "type": "string"
+            },
+            {
+                "name": "param",
+                "type": "string",
+                "optional": true,
+                "multiple": true
             }
         ]
     }
