@@ -169,7 +169,6 @@ struct prof_tdata_s {
 
 	/* Sampling state. */
 	uint64_t		prng_state;
-	uint64_t		bytes_until_sample;
 
 	/* State used to avoid dumping while operating on prof internals. */
 	bool			enq;

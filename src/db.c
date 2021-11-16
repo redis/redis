@@ -30,6 +30,7 @@
 #include "server.h"
 #include "cluster.h"
 #include "atomicvar.h"
+#include "latency.h"
 
 #include <signal.h>
 #include <ctype.h>
@@ -60,10 +61,7 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
         /* Update the access time for the ageing algorithm.
          * Don't do it if we have a saving child, as this will trigger
          * a copy on write madness. */
-        if (server.rdb_child_pid == -1 &&
-            server.aof_child_pid == -1 &&
-            !(flags & LOOKUP_NOTOUCH))
-        {
+        if (!hasActiveChildProcess() && !(flags & LOOKUP_NOTOUCH)){
             if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
                 updateLFU(val);
             } else {
@@ -83,6 +81,7 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
  * 1. A key gets expired if it reached it's TTL.
  * 2. The key last access time is updated.
  * 3. The global keys hits/misses stats are updated (reported in INFO).
+ * 4. If keyspace notifications are enabled, a "keymiss" notification is fired.
  *
  * This API should not be used when we write to the key after obtaining
  * the object linked to the key, but only for read only operations.
@@ -101,13 +100,10 @@ robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
     robj *val;
 
     if (expireIfNeeded(db,key) == 1) {
-        /* Key expired. If we are in the context of a master, expireIfNeeded()
-         * returns 0 only when the key does not exist at all, so it's safe
-         * to return NULL ASAP. */
-        if (server.masterhost == NULL) {
-            server.stat_keyspace_misses++;
-            return NULL;
-        }
+        /* If we are in the context of a master, expireIfNeeded() returns 1
+         * when the key is no longer valid, so we can return NULL ASAP. */
+        if (server.masterhost == NULL)
+            goto keymiss;
 
         /* However if we are in the context of a slave, expireIfNeeded() will
          * not really try to expire the key, it only returns information
@@ -117,7 +113,7 @@ robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
          * However, if the command caller is not the master, and as additional
          * safety measure, the command invoked is a read-only command, we can
          * safely return NULL here, and provide a more consistent behavior
-         * to clients accessign expired values in a read-only fashion, that
+         * to clients accessing expired values in a read-only fashion, that
          * will say the key as non existing.
          *
          * Notably this covers GETs when slaves are used to scale reads. */
@@ -126,16 +122,21 @@ robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
             server.current_client->cmd &&
             server.current_client->cmd->flags & CMD_READONLY)
         {
-            server.stat_keyspace_misses++;
-            return NULL;
+            goto keymiss;
         }
     }
     val = lookupKey(db,key,flags);
     if (val == NULL)
-        server.stat_keyspace_misses++;
-    else
-        server.stat_keyspace_hits++;
+        goto keymiss;
+    server.stat_keyspace_hits++;
     return val;
+
+keymiss:
+    if (!(flags & LOOKUP_NONOTIFY)) {
+        notifyKeyspaceEvent(NOTIFY_KEY_MISS, "keymiss", key, db->id);
+    }
+    server.stat_keyspace_misses++;
+    return NULL;
 }
 
 /* Like lookupKeyReadWithFlags(), but does not use any flag, which is the
@@ -149,20 +150,24 @@ robj *lookupKeyRead(redisDb *db, robj *key) {
  *
  * Returns the linked value object if the key exists or NULL if the key
  * does not exist in the specified DB. */
-robj *lookupKeyWrite(redisDb *db, robj *key) {
+robj *lookupKeyWriteWithFlags(redisDb *db, robj *key, int flags) {
     expireIfNeeded(db,key);
-    return lookupKey(db,key,LOOKUP_NONE);
+    return lookupKey(db,key,flags);
+}
+
+robj *lookupKeyWrite(redisDb *db, robj *key) {
+    return lookupKeyWriteWithFlags(db, key, LOOKUP_NONE);
 }
 
 robj *lookupKeyReadOrReply(client *c, robj *key, robj *reply) {
     robj *o = lookupKeyRead(c->db, key);
-    if (!o) addReply(c,reply);
+    if (!o) addReplyOrErrorObject(c, reply);
     return o;
 }
 
 robj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply) {
     robj *o = lookupKeyWrite(c->db, key);
-    if (!o) addReply(c,reply);
+    if (!o) addReplyOrErrorObject(c, reply);
     return o;
 }
 
@@ -172,13 +177,30 @@ robj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply) {
  * The program is aborted if the key already exists. */
 void dbAdd(redisDb *db, robj *key, robj *val) {
     sds copy = sdsdup(key->ptr);
-    int retval = dictAdd(db->dict, copy, val);
+    dictEntry *de = dictAddRaw(db->dict, copy, NULL);
+    serverAssertWithInfo(NULL, key, de != NULL);
+    dictSetVal(db->dict, de, val);
+    signalKeyAsReady(db, key, val->type);
+    if (server.cluster_enabled) slotToKeyAddEntry(de, db);
+}
 
-    serverAssertWithInfo(NULL,key,retval == DICT_OK);
-    if (val->type == OBJ_LIST ||
-        val->type == OBJ_ZSET)
-        signalKeyAsReady(db, key);
-    if (server.cluster_enabled) slotToKeyAdd(key);
+/* This is a special version of dbAdd() that is used only when loading
+ * keys from the RDB file: the key is passed as an SDS string that is
+ * retained by the function (and not freed by the caller).
+ *
+ * Moreover this function will not abort if the key is already busy, to
+ * give more control to the caller, nor will signal the key as ready
+ * since it is not useful in this context.
+ *
+ * The function returns 1 if the key was added to the database, taking
+ * ownership of the SDS string, otherwise 0 is returned, and is up to the
+ * caller to free the SDS string. */
+int dbAddRDBLoad(redisDb *db, sds key, robj *val) {
+    dictEntry *de = dictAddRaw(db->dict, key, NULL);
+    if (de == NULL) return 0;
+    dictSetVal(db->dict, de, val);
+    if (server.cluster_enabled) slotToKeyAddEntry(de, db);
+    return 1;
 }
 
 /* Overwrite an existing key with a new value. Incrementing the reference
@@ -195,10 +217,14 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
     if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
         val->lru = old->lru;
     }
+    /* Although the key is not really deleted from the database, we regard 
+    overwrite as two steps of unlink+add, so we still need to call the unlink 
+    callback of the module. */
+    moduleNotifyKeyUnlink(key,old,db->id);
     dictSetVal(db->dict, de, val);
 
     if (server.lazyfree_lazy_server_del) {
-        freeObjAsync(old);
+        freeObjAsync(key,old,db->id);
         dictSetVal(db->dict, &auxentry, NULL);
     }
 
@@ -210,22 +236,30 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
  *
  * 1) The ref count of the value object is incremented.
  * 2) clients WATCHing for the destination key notified.
- * 3) The expire time of the key is reset (the key is made persistent).
+ * 3) The expire time of the key is reset (the key is made persistent),
+ *    unless 'SETKEY_KEEPTTL' is enabled in flags.
+ * 4) The key lookup can take place outside this interface outcome will be
+ *    delivered with 'SETKEY_ALREADY_EXIST' or 'SETKEY_DOESNT_EXIST'
  *
- * All the new keys in the database should be creted via this interface. */
-void setKey(redisDb *db, robj *key, robj *val) {
-    if (lookupKeyWrite(db,key) == NULL) {
+ * All the new keys in the database should be created via this interface.
+ * The client 'c' argument may be set to NULL if the operation is performed
+ * in a context where there is no clear client performing the operation. */
+void setKey(client *c, redisDb *db, robj *key, robj *val, int flags) {
+    int keyfound = 0;
+
+    if (flags & SETKEY_ALREADY_EXIST)
+        keyfound = 1;
+    else if (!(flags & SETKEY_DOESNT_EXIST))
+        keyfound = (lookupKeyWrite(db,key) != NULL);
+
+    if (!keyfound) {
         dbAdd(db,key,val);
     } else {
         dbOverwrite(db,key,val);
     }
     incrRefCount(val);
-    removeExpire(db,key);
-    signalModifiedKey(db,key);
-}
-
-int dbExists(redisDb *db, robj *key) {
-    return dictFind(db->dict,key->ptr) != NULL;
+    if (!(flags & SETKEY_KEEPTTL)) removeExpire(db,key);
+    if (!(flags & SETKEY_NO_SIGNAL)) signalModifiedKey(c,db,key);
 }
 
 /* Return a random key, in form of a Redis object.
@@ -241,7 +275,7 @@ robj *dbRandomKey(redisDb *db) {
         sds key;
         robj *keyobj;
 
-        de = dictGetRandomKey(db->dict);
+        de = dictGetFairRandomKey(db->dict);
         if (de == NULL) return NULL;
 
         key = dictGetKey(de);
@@ -252,7 +286,7 @@ robj *dbRandomKey(redisDb *db) {
                  * it could happen that all the keys are already logically
                  * expired in the slave, so the function cannot stop because
                  * expireIfNeeded() is false, nor it can stop because
-                 * dictGetRandomKey() returns NULL (there are keys to return).
+                 * dictGetFairRandomKey() returns NULL (there are keys to return).
                  * To prevent the infinite loop we do some tries, but if there
                  * are the conditions for an infinite loop, eventually we
                  * return a key name that may be already expired. */
@@ -267,24 +301,43 @@ robj *dbRandomKey(redisDb *db) {
     }
 }
 
-/* Delete a key, value, and associated expiration entry if any, from the DB */
-int dbSyncDelete(redisDb *db, robj *key) {
+/* Helper for sync and async delete. */
+static int dbGenericDelete(redisDb *db, robj *key, int async) {
     /* Deleting an entry from the expires dict will not free the sds of
      * the key, because it is shared with the main dictionary. */
     if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
-    if (dictDelete(db->dict,key->ptr) == DICT_OK) {
-        if (server.cluster_enabled) slotToKeyDel(key);
+    dictEntry *de = dictUnlink(db->dict,key->ptr);
+    if (de) {
+        robj *val = dictGetVal(de);
+        /* Tells the module that the key has been unlinked from the database. */
+        moduleNotifyKeyUnlink(key,val,db->id);
+        if (async) {
+            freeObjAsync(key, val, db->id);
+            dictSetVal(db->dict, de, NULL);
+        }
+        if (server.cluster_enabled) slotToKeyDelEntry(de, db);
+        dictFreeUnlinkedEntry(db->dict,de);
         return 1;
     } else {
         return 0;
     }
 }
 
+/* Delete a key, value, and associated expiration entry if any, from the DB */
+int dbSyncDelete(redisDb *db, robj *key) {
+    return dbGenericDelete(db, key, 0);
+}
+
+/* Delete a key, value, and associated expiration entry if any, from the DB. If
+ * the value consists of many allocations, it may be freed asynchronously. */
+int dbAsyncDelete(redisDb *db, robj *key) {
+    return dbGenericDelete(db, key, 1);
+}
+
 /* This is a wrapper whose behavior depends on the Redis lazy free
  * configuration. Deletes the key synchronously or asynchronously. */
 int dbDelete(redisDb *db, robj *key) {
-    return server.lazyfree_lazy_server_del ? dbAsyncDelete(db,key) :
-                                             dbSyncDelete(db,key);
+    return dbGenericDelete(db, key, server.lazyfree_lazy_server_del);
 }
 
 /* Prepare the string object stored at 'key' to be modified destructively
@@ -325,6 +378,41 @@ robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {
     return o;
 }
 
+/* Remove all keys from the database(s) structure. The dbarray argument
+ * may not be the server main DBs (could be a temporary DB).
+ *
+ * The dbnum can be -1 if all the DBs should be emptied, or the specified
+ * DB index if we want to empty only a single database.
+ * The function returns the number of keys removed from the database(s). */
+long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
+                           void(callback)(dict*))
+{
+    long long removed = 0;
+    int startdb, enddb;
+
+    if (dbnum == -1) {
+        startdb = 0;
+        enddb = server.dbnum-1;
+    } else {
+        startdb = enddb = dbnum;
+    }
+
+    for (int j = startdb; j <= enddb; j++) {
+        removed += dictSize(dbarray[j].dict);
+        if (async) {
+            emptyDbAsync(&dbarray[j]);
+        } else {
+            dictEmpty(dbarray[j].dict,callback);
+            dictEmpty(dbarray[j].expires,callback);
+        }
+        /* Because all keys of database are removed, reset average ttl. */
+        dbarray[j].avg_ttl = 0;
+        dbarray[j].expires_cursor = 0;
+    }
+
+    return removed;
+}
+
 /* Remove all keys from all the databases in a Redis server.
  * If callback is given the function is called from time to time to
  * signal that work is in progress.
@@ -336,11 +424,12 @@ robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {
  * EMPTYDB_ASYNC if we want the memory to be freed in a different thread
  * and the function to return ASAP.
  *
- * On success the fuction returns the number of keys removed from the
+ * On success the function returns the number of keys removed from the
  * database(s). Otherwise -1 is returned in the specific case the
  * DB number is out of range, and errno is set to EINVAL. */
-long long emptyDb(int dbnum, int flags, void(callback)(void*)) {
+long long emptyDb(int dbnum, int flags, void(callback)(dict*)) {
     int async = (flags & EMPTYDB_ASYNC);
+    RedisModuleFlushInfoV1 fi = {REDISMODULE_FLUSHINFO_VERSION,!async,dbnum};
     long long removed = 0;
 
     if (dbnum < -1 || dbnum >= server.dbnum) {
@@ -348,32 +437,69 @@ long long emptyDb(int dbnum, int flags, void(callback)(void*)) {
         return -1;
     }
 
-    int startdb, enddb;
-    if (dbnum == -1) {
-        startdb = 0;
-        enddb = server.dbnum-1;
-    } else {
-        startdb = enddb = dbnum;
+    /* Fire the flushdb modules event. */
+    moduleFireServerEvent(REDISMODULE_EVENT_FLUSHDB,
+                          REDISMODULE_SUBEVENT_FLUSHDB_START,
+                          &fi);
+
+    /* Make sure the WATCHed keys are affected by the FLUSH* commands.
+     * Note that we need to call the function while the keys are still
+     * there. */
+    signalFlushedDb(dbnum, async);
+
+    /* Empty redis database structure. */
+    removed = emptyDbStructure(server.db, dbnum, async, callback);
+
+    /* Flush slots to keys map if enable cluster, we can flush entire
+     * slots to keys map whatever dbnum because only support one DB
+     * in cluster mode. */
+    if (server.cluster_enabled) slotToKeyFlush(server.db);
+
+    if (dbnum == -1) flushSlaveKeysWithExpireList();
+
+    /* Also fire the end event. Note that this event will fire almost
+     * immediately after the start event if the flush is asynchronous. */
+    moduleFireServerEvent(REDISMODULE_EVENT_FLUSHDB,
+                          REDISMODULE_SUBEVENT_FLUSHDB_END,
+                          &fi);
+
+    return removed;
+}
+
+/* Initialize temporary db on replica for use during diskless replication. */
+redisDb *initTempDb(void) {
+    redisDb *tempDb = zcalloc(sizeof(redisDb)*server.dbnum);
+    for (int i=0; i<server.dbnum; i++) {
+        tempDb[i].dict = dictCreate(&dbDictType);
+        tempDb[i].expires = dictCreate(&dbExpiresDictType);
+        tempDb[i].slots_to_keys = NULL;
     }
 
-    for (int j = startdb; j <= enddb; j++) {
-        removed += dictSize(server.db[j].dict);
-        if (async) {
-            emptyDbAsync(&server.db[j]);
-        } else {
-            dictEmpty(server.db[j].dict,callback);
-            dictEmpty(server.db[j].expires,callback);
-        }
-    }
     if (server.cluster_enabled) {
-        if (async) {
-            slotToKeyFlushAsync();
-        } else {
-            slotToKeyFlush();
-        }
+        /* Prepare temp slot to key map to be written during async diskless replication. */
+        slotToKeyInit(tempDb);
     }
-    if (dbnum == -1) flushSlaveKeysWithExpireList();
-    return removed;
+
+    return tempDb;
+}
+
+/* Discard tempDb, this can be slow (similar to FLUSHALL), but it's always async. */
+void discardTempDb(redisDb *tempDb, void(callback)(dict*)) {
+    int async = 1;
+
+    /* Release temp DBs. */
+    emptyDbStructure(tempDb, -1, async, callback);
+    for (int i=0; i<server.dbnum; i++) {
+        dictRelease(tempDb[i].dict);
+        dictRelease(tempDb[i].expires);
+    }
+
+    if (server.cluster_enabled) {
+        /* Release temp slot to key map. */
+        slotToKeyDestroy(tempDb);
+    }
+
+    zfree(tempDb);
 }
 
 int selectDb(client *c, int id) {
@@ -381,6 +507,15 @@ int selectDb(client *c, int id) {
         return C_ERR;
     c->db = &server.db[id];
     return C_OK;
+}
+
+long long dbTotalServerKeyCount() {
+    long long total = 0;
+    int j;
+    for (j = 0; j < server.dbnum; j++) {
+        total += dictSize(server.db[j].dict);
+    }
+    return total;
 }
 
 /*-----------------------------------------------------------------------------
@@ -392,12 +527,31 @@ int selectDb(client *c, int id) {
  * Every time a DB is flushed the function signalFlushDb() is called.
  *----------------------------------------------------------------------------*/
 
-void signalModifiedKey(redisDb *db, robj *key) {
+/* Note that the 'c' argument may be NULL if the key was modified out of
+ * a context of a client. */
+void signalModifiedKey(client *c, redisDb *db, robj *key) {
     touchWatchedKey(db,key);
+    trackingInvalidateKey(c,key,1);
 }
 
-void signalFlushedDb(int dbid) {
-    touchWatchedKeysOnFlush(dbid);
+void signalFlushedDb(int dbid, int async) {
+    int startdb, enddb;
+    if (dbid == -1) {
+        startdb = 0;
+        enddb = server.dbnum-1;
+    } else {
+        startdb = enddb = dbid;
+    }
+
+    for (int j = startdb; j <= enddb; j++) {
+        touchAllWatchedKeysInDb(&server.db[j], NULL);
+    }
+
+    trackingInvalidateKeysOnFlush(async);
+
+    /* Changes in this method may take place in swapMainDbWithTempDb as well,
+     * where we execute similar calls, but with subtle differences as it's
+     * not simply flushing db. */
 }
 
 /*-----------------------------------------------------------------------------
@@ -407,51 +561,31 @@ void signalFlushedDb(int dbid) {
 /* Return the set of flags to use for the emptyDb() call for FLUSHALL
  * and FLUSHDB commands.
  *
- * Currently the command just attempts to parse the "ASYNC" option. It
- * also checks if the command arity is wrong.
+ * sync: flushes the database in an sync manner.
+ * async: flushes the database in an async manner.
+ * no option: determine sync or async according to the value of lazyfree-lazy-user-flush.
  *
  * On success C_OK is returned and the flags are stored in *flags, otherwise
  * C_ERR is returned and the function sends an error to the client. */
 int getFlushCommandFlags(client *c, int *flags) {
     /* Parse the optional ASYNC option. */
-    if (c->argc > 1) {
-        if (c->argc > 2 || strcasecmp(c->argv[1]->ptr,"async")) {
-            addReply(c,shared.syntaxerr);
-            return C_ERR;
-        }
-        *flags = EMPTYDB_ASYNC;
-    } else {
+    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"sync")) {
         *flags = EMPTYDB_NO_FLAGS;
+    } else if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"async")) {
+        *flags = EMPTYDB_ASYNC;
+    } else if (c->argc == 1) {
+        *flags = server.lazyfree_lazy_user_flush ? EMPTYDB_ASYNC : EMPTYDB_NO_FLAGS;
+    } else {
+        addReplyErrorObject(c,shared.syntaxerr);
+        return C_ERR;
     }
     return C_OK;
 }
 
-/* FLUSHDB [ASYNC]
- *
- * Flushes the currently SELECTed Redis DB. */
-void flushdbCommand(client *c) {
-    int flags;
-
-    if (getFlushCommandFlags(c,&flags) == C_ERR) return;
-    signalFlushedDb(c->db->id);
-    server.dirty += emptyDb(c->db->id,flags,NULL);
-    addReply(c,shared.ok);
-}
-
-/* FLUSHALL [ASYNC]
- *
- * Flushes the whole server data set. */
-void flushallCommand(client *c) {
-    int flags;
-
-    if (getFlushCommandFlags(c,&flags) == C_ERR) return;
-    signalFlushedDb(-1);
+/* Flushes the whole server data set. */
+void flushAllDataAndResetRDB(int flags) {
     server.dirty += emptyDb(-1,flags,NULL);
-    addReply(c,shared.ok);
-    if (server.rdb_child_pid != -1) {
-        kill(server.rdb_child_pid,SIGUSR1);
-        rdbRemoveTempFile(server.rdb_child_pid);
-    }
+    if (server.child_type == CHILD_TYPE_RDB) killRDBChild();
     if (server.saveparamslen > 0) {
         /* Normally rdbSave() will reset dirty, but we don't want this here
          * as otherwise FLUSHALL will not be replicated nor put into the AOF. */
@@ -461,7 +595,45 @@ void flushallCommand(client *c) {
         rdbSave(server.rdb_filename,rsiptr);
         server.dirty = saved_dirty;
     }
+
+    /* Without that extra dirty++, when db was already empty, FLUSHALL will
+     * not be replicated nor put into the AOF. */
     server.dirty++;
+#if defined(USE_JEMALLOC)
+    /* jemalloc 5 doesn't release pages back to the OS when there's no traffic.
+     * for large databases, flushdb blocks for long anyway, so a bit more won't
+     * harm and this way the flush and purge will be synchronous. */
+    if (!(flags & EMPTYDB_ASYNC))
+        jemalloc_purge();
+#endif
+}
+
+/* FLUSHDB [ASYNC]
+ *
+ * Flushes the currently SELECTed Redis DB. */
+void flushdbCommand(client *c) {
+    int flags;
+
+    if (getFlushCommandFlags(c,&flags) == C_ERR) return;
+    server.dirty += emptyDb(c->db->id,flags,NULL);
+    addReply(c,shared.ok);
+#if defined(USE_JEMALLOC)
+    /* jemalloc 5 doesn't release pages back to the OS when there's no traffic.
+     * for large databases, flushdb blocks for long anyway, so a bit more won't
+     * harm and this way the flush and purge will be synchronous. */
+    if (!(flags & EMPTYDB_ASYNC))
+        jemalloc_purge();
+#endif
+}
+
+/* FLUSHALL [ASYNC]
+ *
+ * Flushes the whole server data set. */
+void flushallCommand(client *c) {
+    int flags;
+    if (getFlushCommandFlags(c,&flags) == C_ERR) return;
+    flushAllDataAndResetRDB(flags);
+    addReply(c,shared.ok);
 }
 
 /* This command implements DEL and LAZYDEL. */
@@ -473,7 +645,7 @@ void delGenericCommand(client *c, int lazy) {
         int deleted  = lazy ? dbAsyncDelete(c->db,c->argv[j]) :
                               dbSyncDelete(c->db,c->argv[j]);
         if (deleted) {
-            signalModifiedKey(c->db,c->argv[j]);
+            signalModifiedKey(c,c->db,c->argv[j]);
             notifyKeyspaceEvent(NOTIFY_GENERIC,
                 "del",c->argv[j],c->db->id);
             server.dirty++;
@@ -484,7 +656,7 @@ void delGenericCommand(client *c, int lazy) {
 }
 
 void delCommand(client *c) {
-    delGenericCommand(c,0);
+    delGenericCommand(c,server.lazyfree_lazy_user_del);
 }
 
 void unlinkCommand(client *c) {
@@ -498,16 +670,15 @@ void existsCommand(client *c) {
     int j;
 
     for (j = 1; j < c->argc; j++) {
-        if (lookupKeyRead(c->db,c->argv[j])) count++;
+        if (lookupKeyReadWithFlags(c->db,c->argv[j],LOOKUP_NOTOUCH)) count++;
     }
     addReplyLongLong(c,count);
 }
 
 void selectCommand(client *c) {
-    long id;
+    int id;
 
-    if (getLongFromObjectOrReply(c, c->argv[1], &id,
-        "invalid DB index") != C_OK)
+    if (getIntFromObjectOrReply(c, c->argv[1], &id, NULL) != C_OK)
         return;
 
     if (server.cluster_enabled && id != 0) {
@@ -525,7 +696,7 @@ void randomkeyCommand(client *c) {
     robj *key;
 
     if ((key = dbRandomKey(c->db)) == NULL) {
-        addReply(c,shared.nullbulk);
+        addReplyNull(c);
         return;
     }
 
@@ -539,10 +710,10 @@ void keysCommand(client *c) {
     sds pattern = c->argv[1]->ptr;
     int plen = sdslen(pattern), allkeys;
     unsigned long numkeys = 0;
-    void *replylen = addDeferredMultiBulkLength(c);
+    void *replylen = addReplyDeferredLen(c);
 
     di = dictGetSafeIterator(c->db->dict);
-    allkeys = (pattern[0] == '*' && pattern[1] == '\0');
+    allkeys = (pattern[0] == '*' && plen == 1);
     while((de = dictNext(di)) != NULL) {
         sds key = dictGetKey(de);
         robj *keyobj;
@@ -557,7 +728,7 @@ void keysCommand(client *c) {
         }
     }
     dictReleaseIterator(di);
-    setDeferredMultiBulkLength(c,replylen,numkeys);
+    setDeferredArrayLen(c,replylen,numkeys);
 }
 
 /* This callback is used by scanGenericCommand in order to collect elements
@@ -611,7 +782,7 @@ int parseScanCursorOrReply(client *c, robj *o, unsigned long *cursor) {
 }
 
 /* This command implements SCAN, HSCAN and SSCAN commands.
- * If object 'o' is passed, then it must be a Hash or Set object, otherwise
+ * If object 'o' is passed, then it must be a Hash, Set or Zset object, otherwise
  * if 'o' is NULL the command will operate on the dictionary associated with
  * the current database.
  *
@@ -627,6 +798,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
     listNode *node, *nextnode;
     long count = 10;
     sds pat = NULL;
+    sds typename = NULL;
     int patlen = 0, use_pattern = 0;
     dict *ht;
 
@@ -649,7 +821,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
             }
 
             if (count < 1) {
-                addReply(c,shared.syntaxerr);
+                addReplyErrorObject(c,shared.syntaxerr);
                 goto cleanup;
             }
 
@@ -663,8 +835,12 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
             use_pattern = !(pat[0] == '*' && patlen == 1);
 
             i += 2;
+        } else if (!strcasecmp(c->argv[i]->ptr, "type") && o == NULL && j >= 2) {
+            /* SCAN for a particular type only applies to the db dict */
+            typename = c->argv[i+1]->ptr;
+            i+= 2;
         } else {
-            addReply(c,shared.syntaxerr);
+            addReplyErrorObject(c,shared.syntaxerr);
             goto cleanup;
         }
     }
@@ -718,17 +894,15 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
             listAddNodeTail(keys,createStringObjectFromLongLong(ll));
         cursor = 0;
     } else if (o->type == OBJ_HASH || o->type == OBJ_ZSET) {
-        unsigned char *p = ziplistIndex(o->ptr,0);
+        unsigned char *p = lpFirst(o->ptr);
         unsigned char *vstr;
-        unsigned int vlen;
-        long long vll;
+        int64_t vlen;
+        unsigned char intbuf[LP_INTBUF_SIZE];
 
         while(p) {
-            ziplistGet(p,&vstr,&vlen,&vll);
-            listAddNodeTail(keys,
-                (vstr != NULL) ? createStringObject((char*)vstr,vlen) :
-                                 createStringObjectFromLongLong(vll));
-            p = ziplistNext(o->ptr,p);
+            vstr = lpGet(p,&vlen,intbuf);
+            listAddNodeTail(keys, createStringObject((char*)vstr,vlen));
+            p = lpNext(o->ptr,p);
         }
         cursor = 0;
     } else {
@@ -743,7 +917,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         int filter = 0;
 
         /* Filter element if it does not match the pattern. */
-        if (!filter && use_pattern) {
+        if (use_pattern) {
             if (sdsEncodedObject(kobj)) {
                 if (!stringmatchlen(pat, patlen, kobj->ptr, sdslen(kobj->ptr), 0))
                     filter = 1;
@@ -757,10 +931,17 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
             }
         }
 
+        /* Filter an element if it isn't the type we want. */
+        if (!filter && o == NULL && typename){
+            robj* typecheck = lookupKeyReadWithFlags(c->db, kobj, LOOKUP_NOTOUCH);
+            char* type = getObjectTypeName(typecheck);
+            if (strcasecmp((char*) typename, type)) filter = 1;
+        }
+
         /* Filter element if it is an expired key. */
         if (!filter && o == NULL && expireIfNeeded(c->db, kobj)) filter = 1;
 
-        /* Remove the element and its associted value if needed. */
+        /* Remove the element and its associated value if needed. */
         if (filter) {
             decrRefCount(kobj);
             listDelNode(keys, node);
@@ -771,6 +952,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
          * value, or skip it if it was not filtered: we only match keys. */
         if (o && (o->type == OBJ_ZSET || o->type == OBJ_HASH)) {
             node = nextnode;
+            serverAssert(node); /* assertion for valgrind (avoid NPD) */
             nextnode = listNextNode(node);
             if (filter) {
                 kobj = listNodeValue(node);
@@ -782,10 +964,10 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
     }
 
     /* Step 4: Reply to the client. */
-    addReplyMultiBulkLen(c, 2);
+    addReplyArrayLen(c, 2);
     addReplyBulkLongLong(c,cursor);
 
-    addReplyMultiBulkLen(c, listLength(keys));
+    addReplyArrayLen(c, listLength(keys));
     while ((node = listFirst(keys)) != NULL) {
         robj *kobj = listNodeValue(node);
         addReplyBulk(c, kobj);
@@ -813,11 +995,8 @@ void lastsaveCommand(client *c) {
     addReplyLongLong(c,server.lastsave);
 }
 
-void typeCommand(client *c) {
-    robj *o;
-    char *type;
-
-    o = lookupKeyReadWithFlags(c->db,c->argv[1],LOOKUP_NOTOUCH);
+char* getObjectTypeName(robj *o) {
+    char* type;
     if (o == NULL) {
         type = "none";
     } else {
@@ -835,14 +1014,20 @@ void typeCommand(client *c) {
         default: type = "unknown"; break;
         }
     }
-    addReplyStatus(c,type);
+    return type;
+}
+
+void typeCommand(client *c) {
+    robj *o;
+    o = lookupKeyReadWithFlags(c->db,c->argv[1],LOOKUP_NOTOUCH);
+    addReplyStatus(c, getObjectTypeName(o));
 }
 
 void shutdownCommand(client *c) {
     int flags = 0;
 
     if (c->argc > 2) {
-        addReply(c,shared.syntaxerr);
+        addReplyErrorObject(c,shared.syntaxerr);
         return;
     } else if (c->argc == 2) {
         if (!strcasecmp(c->argv[1]->ptr,"nosave")) {
@@ -850,18 +1035,10 @@ void shutdownCommand(client *c) {
         } else if (!strcasecmp(c->argv[1]->ptr,"save")) {
             flags |= SHUTDOWN_SAVE;
         } else {
-            addReply(c,shared.syntaxerr);
+            addReplyErrorObject(c,shared.syntaxerr);
             return;
         }
     }
-    /* When SHUTDOWN is called while the server is loading a dataset in
-     * memory we need to make sure no attempt is performed to save
-     * the dataset on shutdown (otherwise it could overwrite the current DB
-     * with half-read data).
-     *
-     * Also when in Sentinel mode clear the SAVE flag and force NOSAVE. */
-    if (server.loading || server.sentinel_mode)
-        flags = (flags & ~SHUTDOWN_SAVE) | SHUTDOWN_NOSAVE;
     if (prepareForShutdown(flags) == C_OK) exit(0);
     addReplyError(c,"Errors trying to SHUTDOWN. Check logs.");
 }
@@ -898,8 +1075,8 @@ void renameGenericCommand(client *c, int nx) {
     dbAdd(c->db,c->argv[2],o);
     if (expire != -1) setExpire(c,c->db,c->argv[2],expire);
     dbDelete(c->db,c->argv[1]);
-    signalModifiedKey(c->db,c->argv[1]);
-    signalModifiedKey(c->db,c->argv[2]);
+    signalModifiedKey(c,c->db,c->argv[1]);
+    signalModifiedKey(c,c->db,c->argv[2]);
     notifyKeyspaceEvent(NOTIFY_GENERIC,"rename_from",
         c->argv[1],c->db->id);
     notifyKeyspaceEvent(NOTIFY_GENERIC,"rename_to",
@@ -919,8 +1096,8 @@ void renamenxCommand(client *c) {
 void moveCommand(client *c) {
     robj *o;
     redisDb *src, *dst;
-    int srcid;
-    long long dbid, expire;
+    int srcid, dbid;
+    long long expire;
 
     if (server.cluster_enabled) {
         addReplyError(c,"MOVE is not allowed in cluster mode");
@@ -931,11 +1108,11 @@ void moveCommand(client *c) {
     src = c->db;
     srcid = c->db->id;
 
-    if (getLongLongFromObject(c->argv[2],&dbid) == C_ERR ||
-        dbid < INT_MIN || dbid > INT_MAX ||
-        selectDb(c,dbid) == C_ERR)
-    {
-        addReply(c,shared.outofrangeerr);
+    if (getIntFromObjectOrReply(c, c->argv[2], &dbid, NULL) != C_OK)
+        return;
+
+    if (selectDb(c,dbid) == C_ERR) {
+        addReplyError(c,"DB index is out of range");
         return;
     }
     dst = c->db;
@@ -944,7 +1121,7 @@ void moveCommand(client *c) {
     /* If the user is moving using as target the same
      * DB as the source DB it is probably an error. */
     if (src == dst) {
-        addReply(c,shared.sameobjecterr);
+        addReplyErrorObject(c,shared.sameobjecterr);
         return;
     }
 
@@ -967,6 +1144,115 @@ void moveCommand(client *c) {
 
     /* OK! key moved, free the entry in the source DB */
     dbDelete(src,c->argv[1]);
+    signalModifiedKey(c,src,c->argv[1]);
+    signalModifiedKey(c,dst,c->argv[1]);
+    notifyKeyspaceEvent(NOTIFY_GENERIC,
+                "move_from",c->argv[1],src->id);
+    notifyKeyspaceEvent(NOTIFY_GENERIC,
+                "move_to",c->argv[1],dst->id);
+
+    server.dirty++;
+    addReply(c,shared.cone);
+}
+
+void copyCommand(client *c) {
+    robj *o;
+    redisDb *src, *dst;
+    int srcid, dbid;
+    long long expire;
+    int j, replace = 0, delete = 0;
+
+    /* Obtain source and target DB pointers 
+     * Default target DB is the same as the source DB 
+     * Parse the REPLACE option and targetDB option. */
+    src = c->db;
+    dst = c->db;
+    srcid = c->db->id;
+    dbid = c->db->id;
+    for (j = 3; j < c->argc; j++) {
+        int additional = c->argc - j - 1;
+        if (!strcasecmp(c->argv[j]->ptr,"replace")) {
+            replace = 1;
+        } else if (!strcasecmp(c->argv[j]->ptr, "db") && additional >= 1) {
+            if (getIntFromObjectOrReply(c, c->argv[j+1], &dbid, NULL) != C_OK)
+                return;
+
+            if (selectDb(c, dbid) == C_ERR) {
+                addReplyError(c,"DB index is out of range");
+                return;
+            }
+            dst = c->db;
+            selectDb(c,srcid); /* Back to the source DB */
+            j++; /* Consume additional arg. */
+        } else {
+            addReplyErrorObject(c,shared.syntaxerr);
+            return;
+        }
+    }
+
+    if ((server.cluster_enabled == 1) && (srcid != 0 || dbid != 0)) {
+        addReplyError(c,"Copying to another database is not allowed in cluster mode");
+        return;
+    }
+
+    /* If the user select the same DB as
+     * the source DB and using newkey as the same key
+     * it is probably an error. */
+    robj *key = c->argv[1];
+    robj *newkey = c->argv[2];
+    if (src == dst && (sdscmp(key->ptr, newkey->ptr) == 0)) {
+        addReplyErrorObject(c,shared.sameobjecterr);
+        return;
+    }
+
+    /* Check if the element exists and get a reference */
+    o = lookupKeyWrite(c->db, key);
+    if (!o) {
+        addReply(c,shared.czero);
+        return;
+    }
+    expire = getExpire(c->db,key);
+
+    /* Return zero if the key already exists in the target DB. 
+     * If REPLACE option is selected, delete newkey from targetDB. */
+    if (lookupKeyWrite(dst,newkey) != NULL) {
+        if (replace) {
+            delete = 1;
+        } else {
+            addReply(c,shared.czero);
+            return;
+        }
+    }
+
+    /* Duplicate object according to object's type. */
+    robj *newobj;
+    switch(o->type) {
+        case OBJ_STRING: newobj = dupStringObject(o); break;
+        case OBJ_LIST: newobj = listTypeDup(o); break;
+        case OBJ_SET: newobj = setTypeDup(o); break;
+        case OBJ_ZSET: newobj = zsetDup(o); break;
+        case OBJ_HASH: newobj = hashTypeDup(o); break;
+        case OBJ_STREAM: newobj = streamDup(o); break;
+        case OBJ_MODULE:
+            newobj = moduleTypeDupOrReply(c, key, newkey, dst->id, o);
+            if (!newobj) return;
+            break;
+        default:
+            addReplyError(c, "unknown type object");
+            return;
+    }
+
+    if (delete) {
+        dbDelete(dst,newkey);
+    }
+
+    dbAdd(dst,newkey,newobj);
+    if (expire != -1) setExpire(c, dst, newkey, expire);
+
+    /* OK! key copied */
+    signalModifiedKey(c,dst,c->argv[2]);
+    notifyKeyspaceEvent(NOTIFY_GENERIC,"copy_to",c->argv[2],dst->id);
+
     server.dirty++;
     addReply(c,shared.cone);
 }
@@ -981,10 +1267,7 @@ void scanDatabaseForReadyLists(redisDb *db) {
     while((de = dictNext(di)) != NULL) {
         robj *key = dictGetKey(de);
         robj *value = lookupKey(db,key,LOOKUP_NOTOUCH);
-        if (value && (value->type == OBJ_LIST ||
-                      value->type == OBJ_STREAM ||
-                      value->type == OBJ_ZSET))
-            signalKeyAsReady(db, key);
+        if (value) signalKeyAsReady(db, key, value->type);
     }
     dictReleaseIterator(di);
 }
@@ -1010,10 +1293,12 @@ int dbSwapDatabases(int id1, int id2) {
     db1->dict = db2->dict;
     db1->expires = db2->expires;
     db1->avg_ttl = db2->avg_ttl;
+    db1->expires_cursor = db2->expires_cursor;
 
     db2->dict = aux.dict;
     db2->expires = aux.expires;
     db2->avg_ttl = aux.avg_ttl;
+    db2->expires_cursor = aux.expires_cursor;
 
     /* Now we need to handle clients blocked on lists: as an effect
      * of swapping the two DBs, a client that was waiting for list
@@ -1023,15 +1308,68 @@ int dbSwapDatabases(int id1, int id2) {
      * However normally we only do this check for efficiency reasons
      * in dbAdd() when a list is created. So here we need to rescan
      * the list of clients blocked on lists and signal lists as ready
-     * if needed. */
+     * if needed.
+     *
+     * Also the swapdb should make transaction fail if there is any
+     * client watching keys */
     scanDatabaseForReadyLists(db1);
+    touchAllWatchedKeysInDb(db1, db2);
     scanDatabaseForReadyLists(db2);
+    touchAllWatchedKeysInDb(db2, db1);
     return C_OK;
+}
+
+/* Logically, this discards (flushes) the old main database, and apply the newly loaded
+ * database (temp) as the main (active) database, the actual freeing of old database
+ * (which will now be placed in the temp one) is done later. */
+void swapMainDbWithTempDb(redisDb *tempDb) {
+    if (server.cluster_enabled) {
+        /* Swap slots_to_keys from tempdb just loaded with main db slots_to_keys. */
+        clusterSlotToKeyMapping *aux = server.db->slots_to_keys;
+        server.db->slots_to_keys = tempDb->slots_to_keys;
+        tempDb->slots_to_keys = aux;
+    }
+
+    for (int i=0; i<server.dbnum; i++) {
+        redisDb aux = server.db[i];
+        redisDb *activedb = &server.db[i], *newdb = &tempDb[i];
+
+        /* Swap hash tables. Note that we don't swap blocking_keys,
+         * ready_keys and watched_keys, since clients 
+         * remain in the same DB they were. */
+        activedb->dict = newdb->dict;
+        activedb->expires = newdb->expires;
+        activedb->avg_ttl = newdb->avg_ttl;
+        activedb->expires_cursor = newdb->expires_cursor;
+
+        newdb->dict = aux.dict;
+        newdb->expires = aux.expires;
+        newdb->avg_ttl = aux.avg_ttl;
+        newdb->expires_cursor = aux.expires_cursor;
+
+        /* Now we need to handle clients blocked on lists: as an effect
+         * of swapping the two DBs, a client that was waiting for list
+         * X in a given DB, may now actually be unblocked if X happens
+         * to exist in the new version of the DB, after the swap.
+         *
+         * However normally we only do this check for efficiency reasons
+         * in dbAdd() when a list is created. So here we need to rescan
+         * the list of clients blocked on lists and signal lists as ready
+         * if needed.
+         *
+         * Also the swapdb should make transaction fail if there is any
+         * client watching keys. */
+        scanDatabaseForReadyLists(activedb);
+        touchAllWatchedKeysInDb(activedb, newdb);
+    }
+
+    trackingInvalidateKeysOnFlush(1);
+    flushSlaveKeysWithExpireList();
 }
 
 /* SWAPDB db1 db2 */
 void swapdbCommand(client *c) {
-    long id1, id2;
+    int id1, id2;
 
     /* Not allowed in cluster mode: we have just DB 0 there. */
     if (server.cluster_enabled) {
@@ -1040,11 +1378,11 @@ void swapdbCommand(client *c) {
     }
 
     /* Get the two DBs indexes. */
-    if (getLongFromObjectOrReply(c, c->argv[1], &id1,
+    if (getIntFromObjectOrReply(c, c->argv[1], &id1,
         "invalid first DB index") != C_OK)
         return;
 
-    if (getLongFromObjectOrReply(c, c->argv[2], &id2,
+    if (getIntFromObjectOrReply(c, c->argv[2], &id2,
         "invalid second DB index") != C_OK)
         return;
 
@@ -1053,6 +1391,8 @@ void swapdbCommand(client *c) {
         addReplyError(c,"DB index is out of range");
         return;
     } else {
+        RedisModuleSwapDbInfo si = {REDISMODULE_SWAPDBINFO_VERSION,id1,id2};
+        moduleFireServerEvent(REDISMODULE_EVENT_SWAPDB,0,&si);
         server.dirty++;
         addReply(c,shared.ok);
     }
@@ -1102,6 +1442,22 @@ long long getExpire(redisDb *db, robj *key) {
     return dictGetSignedIntegerVal(de);
 }
 
+/* Delete the specified expired key and propagate expire. */
+void deleteExpiredKeyAndPropagate(redisDb *db, robj *keyobj) {
+    mstime_t expire_latency;
+    latencyStartMonitor(expire_latency);
+    if (server.lazyfree_lazy_expire)
+        dbAsyncDelete(db,keyobj);
+    else
+        dbSyncDelete(db,keyobj);
+    latencyEndMonitor(expire_latency);
+    latencyAddSampleIfNeeded("expire-del",expire_latency);
+    notifyKeyspaceEvent(NOTIFY_EXPIRED,"expired",keyobj,db->id);
+    signalModifiedKey(NULL, db, keyobj);
+    propagateExpire(db,keyobj,server.lazyfree_lazy_expire);
+    server.stat_expiredkeys++;
+}
+
 /* Propagate expires into slaves and the AOF file.
  * When a key expires in the master, a DEL operation for this key is sent
  * to all the slaves and the AOF file if enabled.
@@ -1118,9 +1474,12 @@ void propagateExpire(redisDb *db, robj *key, int lazy) {
     incrRefCount(argv[0]);
     incrRefCount(argv[1]);
 
-    if (server.aof_state != AOF_OFF)
-        feedAppendOnlyFile(server.delCommand,db->id,argv,2);
-    replicationFeedSlaves(server.slaves,db->id,argv,2);
+    /* If the master decided to expire a key we must propagate it to replicas no matter what..
+     * Even if module executed a command without asking for propagation. */
+    int prev_replication_allowed = server.replication_allowed;
+    server.replication_allowed = 1;
+    propagate(db->id,argv,2,PROPAGATE_AOF|PROPAGATE_REPL);
+    server.replication_allowed = prev_replication_allowed;
 
     decrRefCount(argv[0]);
     decrRefCount(argv[1]);
@@ -1129,6 +1488,7 @@ void propagateExpire(redisDb *db, robj *key, int lazy) {
 /* Check if the key is expired. */
 int keyIsExpired(redisDb *db, robj *key) {
     mstime_t when = getExpire(db,key);
+    mstime_t now;
 
     if (when < 0) return 0; /* No expire for this key */
 
@@ -1140,8 +1500,26 @@ int keyIsExpired(redisDb *db, robj *key) {
      * only the first time it is accessed and not in the middle of the
      * script execution, making propagation to slaves / AOF consistent.
      * See issue #1525 on Github for more information. */
-    mstime_t now = server.lua_caller ? server.lua_time_start : mstime();
+    if (server.lua_caller) {
+        now = server.lua_time_snapshot;
+    }
+    /* If we are in the middle of a command execution, we still want to use
+     * a reference time that does not change: in that case we just use the
+     * cached time, that we update before each call in the call() function.
+     * This way we avoid that commands such as RPOPLPUSH or similar, that
+     * may re-open the same key multiple times, can invalidate an already
+     * open object in a next call, if the next call will see the key expired,
+     * while the first did not. */
+    else if (server.fixed_time_expire > 0) {
+        now = server.mstime;
+    }
+    /* For the other cases, we want to use the most fresh time we have. */
+    else {
+        now = mstime();
+    }
 
+    /* The key expired if the current (virtual or real) time is greater
+     * than the expire time of the key. */
     return now > when;
 }
 
@@ -1177,34 +1555,77 @@ int expireIfNeeded(redisDb *db, robj *key) {
      * we think the key is expired at this time. */
     if (server.masterhost != NULL) return 1;
 
+    /* If clients are paused, we keep the current dataset constant,
+     * but return to the client what we believe is the right state. Typically,
+     * at the end of the pause we will properly expire the key OR we will
+     * have failed over and the new primary will send us the expire. */
+    if (checkClientPauseTimeoutAndReturnIfPaused()) return 1;
+
     /* Delete the key */
-    server.stat_expiredkeys++;
-    propagateExpire(db,key,server.lazyfree_lazy_expire);
-    notifyKeyspaceEvent(NOTIFY_EXPIRED,
-        "expired",key,db->id);
-    return server.lazyfree_lazy_expire ? dbAsyncDelete(db,key) :
-                                         dbSyncDelete(db,key);
+    deleteExpiredKeyAndPropagate(db,key);
+    return 1;
 }
 
 /* -----------------------------------------------------------------------------
  * API to get key arguments from commands
  * ---------------------------------------------------------------------------*/
 
-/* The base case is to use the keys position as given in the command table
- * (firstkey, lastkey, step). */
-int *getKeysUsingCommandTable(struct redisCommand *cmd,robj **argv, int argc, int *numkeys) {
-    int j, i = 0, last, *keys;
-    UNUSED(argv);
-
-    if (cmd->firstkey == 0) {
-        *numkeys = 0;
-        return NULL;
+/* Prepare the getKeysResult struct to hold numkeys, either by using the
+ * pre-allocated keysbuf or by allocating a new array on the heap.
+ *
+ * This function must be called at least once before starting to populate
+ * the result, and can be called repeatedly to enlarge the result array.
+ */
+int *getKeysPrepareResult(getKeysResult *result, int numkeys) {
+    /* GETKEYS_RESULT_INIT initializes keys to NULL, point it to the pre-allocated stack
+     * buffer here. */
+    if (!result->keys) {
+        serverAssert(!result->numkeys);
+        result->keys = result->keysbuf;
     }
 
-    last = cmd->lastkey;
+    /* Resize if necessary */
+    if (numkeys > result->size) {
+        if (result->keys != result->keysbuf) {
+            /* We're not using a static buffer, just (re)alloc */
+            result->keys = zrealloc(result->keys, numkeys * sizeof(int));
+        } else {
+            /* We are using a static buffer, copy its contents */
+            result->keys = zmalloc(numkeys * sizeof(int));
+            if (result->numkeys)
+                memcpy(result->keys, result->keysbuf, result->numkeys * sizeof(int));
+        }
+        result->size = numkeys;
+    }
+
+    return result->keys;
+}
+
+/* The base case is to use the keys position as given in the command table
+ * (firstkey, lastkey, step).
+ * This function works only on command with the legacy_range_key_spec,
+ * all other commands should be handled by getkeys_proc. */
+int getKeysUsingLegacyRangeSpec(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+    int j, i = 0, last, first, step, *keys;
+    UNUSED(argv);
+
+    if (cmd->legacy_range_key_spec.begin_search_type == KSPEC_BS_INVALID) {
+        result->numkeys = 0;
+        return 0;
+    }
+
+    first = cmd->legacy_range_key_spec.bs.index.pos;
+    last = cmd->legacy_range_key_spec.fk.range.lastkey;
+    if (last >= 0)
+        last += first;
+    step = cmd->legacy_range_key_spec.fk.range.keystep;
+
     if (last < 0) last = argc+last;
-    keys = zmalloc(sizeof(int)*((last - cmd->firstkey)+1));
-    for (j = cmd->firstkey; j <= last; j += cmd->keystep) {
+
+    int count = ((last - first)+1);
+    keys = getKeysPrepareResult(result, count);
+
+    for (j = first; j <= last; j += step) {
         if (j >= argc) {
             /* Modules commands, and standard commands with a not fixed number
              * of arguments (negative arity parameter) do not have dispatch
@@ -1213,23 +1634,22 @@ int *getKeysUsingCommandTable(struct redisCommand *cmd,robj **argv, int argc, in
              * return no keys and expect the command implementation to report
              * an arity or syntax error. */
             if (cmd->flags & CMD_MODULE || cmd->arity < 0) {
-                zfree(keys);
-                *numkeys = 0;
-                return NULL;
+                result->numkeys = 0;
+                return 0;
             } else {
                 serverPanic("Redis built-in command declared keys positions not matching the arity requirements.");
             }
         }
         keys[i++] = j;
     }
-    *numkeys = i;
-    return keys;
+    result->numkeys = i;
+    return i;
 }
 
 /* Return all the arguments that are keys in the command passed via argc / argv.
  *
  * The command returns the positions of all the key arguments inside the array,
- * so the actual return value is an heap allocated array of integers. The
+ * so the actual return value is a heap allocated array of integers. The
  * length of the array is returned by reference into *numkeys.
  *
  * 'cmd' must be point to the corresponding entry into the redisCommand
@@ -1237,72 +1657,95 @@ int *getKeysUsingCommandTable(struct redisCommand *cmd,robj **argv, int argc, in
  *
  * This function uses the command table if a command-specific helper function
  * is not required, otherwise it calls the command-specific function. */
-int *getKeysFromCommand(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
+int getKeysFromCommand(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     if (cmd->flags & CMD_MODULE_GETKEYS) {
-        return moduleGetCommandKeysViaAPI(cmd,argv,argc,numkeys);
+        return moduleGetCommandKeysViaAPI(cmd,argv,argc,result);
     } else if (!(cmd->flags & CMD_MODULE) && cmd->getkeys_proc) {
-        return cmd->getkeys_proc(cmd,argv,argc,numkeys);
+        return cmd->getkeys_proc(cmd,argv,argc,result);
     } else {
-        return getKeysUsingCommandTable(cmd,argv,argc,numkeys);
+        return getKeysUsingLegacyRangeSpec(cmd,argv,argc,result);
     }
 }
 
 /* Free the result of getKeysFromCommand. */
-void getKeysFreeResult(int *result) {
-    zfree(result);
+void getKeysFreeResult(getKeysResult *result) {
+    if (result && result->keys != result->keysbuf)
+        zfree(result->keys);
 }
 
 /* Helper function to extract keys from following commands:
+ * COMMAND [destkey] <num-keys> <key> [...] <key> [...] ... <options>
+ *
+ * eg:
+ * ZUNION <num-keys> <key> <key> ... <key> <options>
  * ZUNIONSTORE <destkey> <num-keys> <key> <key> ... <key> <options>
- * ZINTERSTORE <destkey> <num-keys> <key> <key> ... <key> <options> */
-int *zunionInterGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
+ *
+ * 'storeKeyOfs': destkey index, 0 means destkey not exists.
+ * 'keyCountOfs': num-keys index.
+ * 'firstKeyOfs': firstkey index.
+ * 'keyStep': the interval of each key, usually this value is 1.
+ * */
+int genericGetKeys(int storeKeyOfs, int keyCountOfs, int firstKeyOfs, int keyStep,
+                    robj **argv, int argc, getKeysResult *result) {
     int i, num, *keys;
-    UNUSED(cmd);
 
-    num = atoi(argv[2]->ptr);
+    num = atoi(argv[keyCountOfs]->ptr);
     /* Sanity check. Don't return any key if the command is going to
-     * reply with syntax error. */
-    if (num < 1 || num > (argc-3)) {
-        *numkeys = 0;
-        return NULL;
+     * reply with syntax error. (no input keys). */
+    if (num < 1 || num > (argc - firstKeyOfs)/keyStep) {
+        result->numkeys = 0;
+        return 0;
     }
 
-    /* Keys in z{union,inter}store come from two places:
-     * argv[1] = storage key,
-     * argv[3...n] = keys to intersect */
-    keys = zmalloc(sizeof(int)*(num+1));
+    int numkeys = storeKeyOfs ? num + 1 : num;
+    keys = getKeysPrepareResult(result, numkeys);
+    result->numkeys = numkeys;
 
-    /* Add all key positions for argv[3...n] to keys[] */
-    for (i = 0; i < num; i++) keys[i] = 3+i;
+    /* Add all key positions for argv[firstKeyOfs...n] to keys[] */
+    for (i = 0; i < num; i++) keys[i] = firstKeyOfs+(i*keyStep);
 
-    /* Finally add the argv[1] key position (the storage key target). */
-    keys[num] = 1;
-    *numkeys = num+1;  /* Total keys = {union,inter} keys + storage key */
-    return keys;
+    if (storeKeyOfs) keys[num] = storeKeyOfs;
+    return result->numkeys;
 }
 
-/* Helper function to extract keys from the following commands:
- * EVAL <script> <num-keys> <key> <key> ... <key> [more stuff]
- * EVALSHA <script> <num-keys> <key> <key> ... <key> [more stuff] */
-int *evalGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
-    int i, num, *keys;
+int sintercardGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     UNUSED(cmd);
+    return genericGetKeys(0, 1, 2, 1, argv, argc, result);
+}
 
-    num = atoi(argv[2]->ptr);
-    /* Sanity check. Don't return any key if the command is going to
-     * reply with syntax error. */
-    if (num <= 0 || num > (argc-3)) {
-        *numkeys = 0;
-        return NULL;
-    }
+int zunionInterDiffStoreGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+    UNUSED(cmd);
+    return genericGetKeys(1, 2, 3, 1, argv, argc, result);
+}
 
-    keys = zmalloc(sizeof(int)*num);
-    *numkeys = num;
+int zunionInterDiffGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+    UNUSED(cmd);
+    return genericGetKeys(0, 1, 2, 1, argv, argc, result);
+}
 
-    /* Add all key positions for argv[3...n] to keys[] */
-    for (i = 0; i < num; i++) keys[i] = 3+i;
+int evalGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+    UNUSED(cmd);
+    return genericGetKeys(0, 2, 3, 1, argv, argc, result);
+}
 
-    return keys;
+int lmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+    UNUSED(cmd);
+    return genericGetKeys(0, 1, 2, 1, argv, argc, result);
+}
+
+int blmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+    UNUSED(cmd);
+    return genericGetKeys(0, 2, 3, 1, argv, argc, result);
+}
+
+int zmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+    UNUSED(cmd);
+    return genericGetKeys(0, 1, 2, 1, argv, argc, result);
+}
+
+int bzmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+    UNUSED(cmd);
+    return genericGetKeys(0, 2, 3, 1, argv, argc, result);
 }
 
 /* Helper function to extract keys from the SORT command.
@@ -1312,13 +1755,12 @@ int *evalGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) 
  * The first argument of SORT is always a key, however a list of options
  * follow in SQL-alike style. Here we parse just the minimum in order to
  * correctly identify keys in the "STORE" option. */
-int *sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
+int sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     int i, j, num, *keys, found_store = 0;
     UNUSED(cmd);
 
     num = 0;
-    keys = zmalloc(sizeof(int)*2); /* Alloc 2 places for the worst case. */
-
+    keys = getKeysPrepareResult(result, 2); /* Alloc 2 places for the worst case. */
     keys[num++] = 1; /* <sort-key> is always present. */
 
     /* Search for STORE option. By default we consider options to don't
@@ -1350,11 +1792,11 @@ int *sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) 
             }
         }
     }
-    *numkeys = num + found_store;
-    return keys;
+    result->numkeys = num + found_store;
+    return result->numkeys;
 }
 
-int *migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
+int migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     int i, num, first, *keys;
     UNUSED(cmd);
 
@@ -1375,17 +1817,17 @@ int *migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkey
         }
     }
 
-    keys = zmalloc(sizeof(int)*num);
+    keys = getKeysPrepareResult(result, num);
     for (i = 0; i < num; i++) keys[i] = first+i;
-    *numkeys = num;
-    return keys;
+    result->numkeys = num;
+    return num;
 }
 
 /* Helper function to extract keys from following commands:
  * GEORADIUS key x y radius unit [WITHDIST] [WITHHASH] [WITHCOORD] [ASC|DESC]
  *                             [COUNT count] [STORE key] [STOREDIST key]
  * GEORADIUSBYMEMBER key member radius unit ... options ... */
-int *georadiusGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
+int georadiusGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     int i, num, *keys;
     UNUSED(cmd);
 
@@ -1408,20 +1850,45 @@ int *georadiusGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numk
      * argv[1] = key,
      * argv[5...n] = stored key if present
      */
-    keys = zmalloc(sizeof(int) * num);
+    keys = getKeysPrepareResult(result, num);
 
     /* Add all key positions to keys[] */
     keys[0] = 1;
     if(num > 1) {
          keys[1] = stored_key;
     }
-    *numkeys = num;
-    return keys;
+    result->numkeys = num;
+    return num;
+}
+
+/* LCS ... [KEYS <key1> <key2>] ... */
+int lcsGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+    int i;
+    int *keys = getKeysPrepareResult(result, 2);
+    UNUSED(cmd);
+
+    /* We need to parse the options of the command in order to check for the
+     * "KEYS" argument before the "STRINGS" argument. */
+    for (i = 1; i < argc; i++) {
+        char *arg = argv[i]->ptr;
+        int moreargs = (argc-1) - i;
+
+        if (!strcasecmp(arg, "strings")) {
+            break;
+        } else if (!strcasecmp(arg, "keys") && moreargs >= 2) {
+            keys[0] = i+1;
+            keys[1] = i+2;
+            result->numkeys = 2;
+            return result->numkeys;
+        }
+    }
+    result->numkeys = 0;
+    return result->numkeys;
 }
 
 /* XREAD [BLOCK <milliseconds>] [COUNT <count>] [GROUP <groupname> <ttl>]
  *       STREAMS key_1 key_2 ... key_N ID_1 ID_2 ... ID_N */
-int *xreadGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
+int xreadGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     int i, num = 0, *keys;
     UNUSED(cmd);
 
@@ -1451,99 +1918,14 @@ int *xreadGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys)
 
     /* Syntax error. */
     if (streams_pos == -1 || num == 0 || num % 2 != 0) {
-        *numkeys = 0;
-        return NULL;
+        result->numkeys = 0;
+        return 0;
     }
     num /= 2; /* We have half the keys as there are arguments because
                  there are also the IDs, one per key. */
 
-    keys = zmalloc(sizeof(int) * num);
+    keys = getKeysPrepareResult(result, num);
     for (i = streams_pos+1; i < argc-num; i++) keys[i-streams_pos-1] = i;
-    *numkeys = num;
-    return keys;
-}
-
-/* Slot to Key API. This is used by Redis Cluster in order to obtain in
- * a fast way a key that belongs to a specified hash slot. This is useful
- * while rehashing the cluster and in other conditions when we need to
- * understand if we have keys for a given hash slot. */
-void slotToKeyUpdateKey(robj *key, int add) {
-    unsigned int hashslot = keyHashSlot(key->ptr,sdslen(key->ptr));
-    unsigned char buf[64];
-    unsigned char *indexed = buf;
-    size_t keylen = sdslen(key->ptr);
-
-    server.cluster->slots_keys_count[hashslot] += add ? 1 : -1;
-    if (keylen+2 > 64) indexed = zmalloc(keylen+2);
-    indexed[0] = (hashslot >> 8) & 0xff;
-    indexed[1] = hashslot & 0xff;
-    memcpy(indexed+2,key->ptr,keylen);
-    if (add) {
-        raxInsert(server.cluster->slots_to_keys,indexed,keylen+2,NULL,NULL);
-    } else {
-        raxRemove(server.cluster->slots_to_keys,indexed,keylen+2,NULL);
-    }
-    if (indexed != buf) zfree(indexed);
-}
-
-void slotToKeyAdd(robj *key) {
-    slotToKeyUpdateKey(key,1);
-}
-
-void slotToKeyDel(robj *key) {
-    slotToKeyUpdateKey(key,0);
-}
-
-void slotToKeyFlush(void) {
-    raxFree(server.cluster->slots_to_keys);
-    server.cluster->slots_to_keys = raxNew();
-    memset(server.cluster->slots_keys_count,0,
-           sizeof(server.cluster->slots_keys_count));
-}
-
-/* Pupulate the specified array of objects with keys in the specified slot.
- * New objects are returned to represent keys, it's up to the caller to
- * decrement the reference count to release the keys names. */
-unsigned int getKeysInSlot(unsigned int hashslot, robj **keys, unsigned int count) {
-    raxIterator iter;
-    int j = 0;
-    unsigned char indexed[2];
-
-    indexed[0] = (hashslot >> 8) & 0xff;
-    indexed[1] = hashslot & 0xff;
-    raxStart(&iter,server.cluster->slots_to_keys);
-    raxSeek(&iter,">=",indexed,2);
-    while(count-- && raxNext(&iter)) {
-        if (iter.key[0] != indexed[0] || iter.key[1] != indexed[1]) break;
-        keys[j++] = createStringObject((char*)iter.key+2,iter.key_len-2);
-    }
-    raxStop(&iter);
-    return j;
-}
-
-/* Remove all the keys in the specified hash slot.
- * The number of removed items is returned. */
-unsigned int delKeysInSlot(unsigned int hashslot) {
-    raxIterator iter;
-    int j = 0;
-    unsigned char indexed[2];
-
-    indexed[0] = (hashslot >> 8) & 0xff;
-    indexed[1] = hashslot & 0xff;
-    raxStart(&iter,server.cluster->slots_to_keys);
-    while(server.cluster->slots_keys_count[hashslot]) {
-        raxSeek(&iter,">=",indexed,2);
-        raxNext(&iter);
-
-        robj *key = createStringObject((char*)iter.key+2,iter.key_len-2);
-        dbDelete(&server.db[0],key);
-        decrRefCount(key);
-        j++;
-    }
-    raxStop(&iter);
-    return j;
-}
-
-unsigned int countKeysInSlot(unsigned int hashslot) {
-    return server.cluster->slots_keys_count[hashslot];
+    result->numkeys = num;
+    return num;
 }

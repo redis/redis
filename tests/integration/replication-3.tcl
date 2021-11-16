@@ -1,4 +1,4 @@
-start_server {tags {"repl"}} {
+start_server {tags {"repl external:skip"}} {
     start_server {} {
         test {First server should have role slave after SLAVEOF} {
             r -1 slaveof [srv 0 host] [srv 0 port]
@@ -13,9 +13,18 @@ start_server {tags {"repl"}} {
 
         test {MASTER and SLAVE consistency with expire} {
             createComplexDataset r $numops useexpire
-            after 4000 ;# Make sure everything expired before taking the digest
-            r keys *   ;# Force DEL syntesizing to slave
-            after 1000 ;# Wait another second. Now everything should be fine.
+
+            # Make sure everything expired before taking the digest
+            # createComplexDataset uses max expire time of 2 seconds
+            wait_for_condition 50 100 {
+                0 == [scan [regexp -inline {expires\=([\d]*)} [r -1 info keyspace]] expires=%d]
+            } else {
+                fail "expire didn't end"
+            }
+
+            # make sure the replica got all the DELs
+            wait_for_ofs_sync [srv 0 client] [srv -1 client]
+
             if {[r debug digest] ne [r -1 debug digest]} {
                 set csv1 [csvdump r]
                 set csv2 [csvdump {r -1}]
@@ -29,6 +38,19 @@ start_server {tags {"repl"}} {
                 puts "Run diff -u against /tmp/repldump*.txt for more info"
             }
             assert_equal [r debug digest] [r -1 debug digest]
+        }
+
+        test {Master can replicate command longer than client-query-buffer-limit on replica} {
+            # Configure the master to have a bigger query buffer limit
+            r config set client-query-buffer-limit 2000000
+            r -1 config set client-query-buffer-limit 1048576
+            # Write a very large command onto the master
+            r set key [string repeat "x" 1100000]
+            wait_for_condition 300 100 {
+                [r -1 get key] eq [string repeat "x" 1100000]
+            } else {
+                fail "Unable to replicate command longer than client-query-buffer-limit"
+            }
         }
 
         test {Slave is able to evict keys created in writable slaves} {
@@ -45,7 +67,7 @@ start_server {tags {"repl"}} {
     }
 }
 
-start_server {tags {"repl"}} {
+start_server {tags {"repl external:skip"}} {
     start_server {} {
         test {First server should have role slave after SLAVEOF} {
             r -1 slaveof [srv 0 host] [srv 0 port]
@@ -118,7 +140,7 @@ start_server {tags {"repl"}} {
             # correctly the RDB file: such file will contain "lua" AUX
             # sections with scripts already in the memory of the master.
 
-            wait_for_condition 50 100 {
+            wait_for_condition 1000 100 {
                 [s -1 master_link_status] eq {up}
             } else {
                 fail "Replication not started."

@@ -1,12 +1,19 @@
 #ifndef JEMALLOC_INTERNAL_ATOMIC_H
 #define JEMALLOC_INTERNAL_ATOMIC_H
 
-#define ATOMIC_INLINE static inline
+#define ATOMIC_INLINE JEMALLOC_ALWAYS_INLINE
 
+#define JEMALLOC_U8_ATOMICS
 #if defined(JEMALLOC_GCC_ATOMIC_ATOMICS)
 #  include "jemalloc/internal/atomic_gcc_atomic.h"
+#  if !defined(JEMALLOC_GCC_U8_ATOMIC_ATOMICS)
+#    undef JEMALLOC_U8_ATOMICS
+#  endif
 #elif defined(JEMALLOC_GCC_SYNC_ATOMICS)
 #  include "jemalloc/internal/atomic_gcc_sync.h"
+#  if !defined(JEMALLOC_GCC_U8_SYNC_ATOMICS)
+#    undef JEMALLOC_U8_ATOMICS
+#  endif
 #elif defined(_MSC_VER)
 #  include "jemalloc/internal/atomic_msvc.h"
 #elif defined(JEMALLOC_C11_ATOMICS)
@@ -65,6 +72,8 @@ JEMALLOC_GENERATE_INT_ATOMICS(unsigned, u, LG_SIZEOF_INT)
 JEMALLOC_GENERATE_INT_ATOMICS(size_t, zu, LG_SIZEOF_PTR)
 
 JEMALLOC_GENERATE_INT_ATOMICS(ssize_t, zd, LG_SIZEOF_PTR)
+
+JEMALLOC_GENERATE_INT_ATOMICS(uint8_t, u8, 0)
 
 JEMALLOC_GENERATE_INT_ATOMICS(uint32_t, u32, 2)
 

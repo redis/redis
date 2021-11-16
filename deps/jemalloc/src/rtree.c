@@ -39,7 +39,7 @@ rtree_node_dalloc_impl(tsdn_t *tsdn, rtree_t *rtree, rtree_node_elm_t *node) {
 	/* Nodes are never deleted during normal operation. */
 	not_reached();
 }
-UNUSED rtree_node_dalloc_t *JET_MUTABLE rtree_node_dalloc =
+rtree_node_dalloc_t *JET_MUTABLE rtree_node_dalloc =
     rtree_node_dalloc_impl;
 
 static rtree_leaf_elm_t *
@@ -54,7 +54,7 @@ rtree_leaf_dalloc_impl(tsdn_t *tsdn, rtree_t *rtree, rtree_leaf_elm_t *leaf) {
 	/* Leaves are never deleted during normal operation. */
 	not_reached();
 }
-UNUSED rtree_leaf_dalloc_t *JET_MUTABLE rtree_leaf_dalloc =
+rtree_leaf_dalloc_t *JET_MUTABLE rtree_leaf_dalloc =
     rtree_leaf_dalloc_impl;
 
 #ifdef JEMALLOC_JET

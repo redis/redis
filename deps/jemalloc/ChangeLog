@@ -4,7 +4,143 @@ brevity.  Much more detail can be found in the git revision history:
 
     https://github.com/jemalloc/jemalloc
 
-* 5.1.0 (May 4th, 2018)
+* 5.2.1 (August 5, 2019)
+
+  This release is primarily about Windows.  A critical virtual memory leak is
+  resolved on all Windows platforms.  The regression was present in all releases
+  since 5.0.0.
+
+  Bug fixes:
+  - Fix a severe virtual memory leak on Windows.  This regression was first
+    released in 5.0.0.  (@Ignition, @j0t, @frederik-h, @davidtgoldblatt,
+    @interwq)
+  - Fix size 0 handling in posix_memalign().  This regression was first released
+    in 5.2.0.  (@interwq)
+  - Fix the prof_log unit test which may observe unexpected backtraces from
+    compiler optimizations.  The test was first added in 5.2.0.  (@marxin,
+    @gnzlbg, @interwq)
+  - Fix the declaration of the extent_avail tree.  This regression was first
+    released in 5.1.0.  (@zoulasc)
+  - Fix an incorrect reference in jeprof.  This functionality was first released
+    in 3.0.0.  (@prehistoric-penguin)
+  - Fix an assertion on the deallocation fast-path.  This regression was first
+    released in 5.2.0.  (@yinan1048576)
+  - Fix the TLS_MODEL attribute in headers.  This regression was first released
+    in 5.0.0.  (@zoulasc, @interwq)
+
+  Optimizations and refactors:
+  - Implement opt.retain on Windows and enable by default on 64-bit.  (@interwq,
+    @davidtgoldblatt)
+  - Optimize away a branch on the operator delete[] path.  (@mgrice)
+  - Add format annotation to the format generator function.  (@zoulasc)
+  - Refactor and improve the size class header generation.  (@yinan1048576)
+  - Remove best fit.  (@djwatson)
+  - Avoid blocking on background thread locks for stats.  (@oranagra, @interwq)
+
+* 5.2.0 (April 2, 2019)
+
+  This release includes a few notable improvements, which are summarized below:
+  1) improved fast-path performance from the optimizations by @djwatson; 2)
+  reduced virtual memory fragmentation and metadata usage; and 3) bug fixes on
+  setting the number of background threads.  In addition, peak / spike memory
+  usage is improved with certain allocation patterns.  As usual, the release and
+  prior dev versions have gone through large-scale production testing.
+
+  New features:
+  - Implement oversize_threshold, which uses a dedicated arena for allocations
+    crossing the specified threshold to reduce fragmentation.  (@interwq)
+  - Add extents usage information to stats.  (@tyleretzel)
+  - Log time information for sampled allocations.  (@tyleretzel)
+  - Support 0 size in sdallocx.  (@djwatson)
+  - Output rate for certain counters in malloc_stats.  (@zinoale)
+  - Add configure option --enable-readlinkat, which allows the use of readlinkat
+    over readlink.  (@davidtgoldblatt)
+  - Add configure options --{enable,disable}-{static,shared} to allow not
+    building unwanted libraries.  (@Ericson2314)
+  - Add configure option --disable-libdl to enable fully static builds.
+    (@interwq)
+  - Add mallctl interfaces:
+	+ opt.oversize_threshold (@interwq)
+	+ stats.arenas.<i>.extent_avail (@tyleretzel)
+	+ stats.arenas.<i>.extents.<j>.n{dirty,muzzy,retained} (@tyleretzel)
+	+ stats.arenas.<i>.extents.<j>.{dirty,muzzy,retained}_bytes
+	  (@tyleretzel)
+
+  Portability improvements:
+  - Update MSVC builds.  (@maksqwe, @rustyx)
+  - Workaround a compiler optimizer bug on s390x.  (@rkmisra)
+  - Make use of pthread_set_name_np(3) on FreeBSD.  (@trasz)
+  - Implement malloc_getcpu() to enable percpu_arena for windows.  (@santagada)
+  - Link against -pthread instead of -lpthread.  (@paravoid)
+  - Make background_thread not dependent on libdl.  (@interwq)
+  - Add stringify to fix a linker directive issue on MSVC.  (@daverigby)
+  - Detect and fall back when 8-bit atomics are unavailable.  (@interwq)
+  - Fall back to the default pthread_create if dlsym(3) fails.  (@interwq)
+
+  Optimizations and refactors:
+  - Refactor the TSD module.  (@davidtgoldblatt)
+  - Avoid taking extents_muzzy mutex when muzzy is disabled.  (@interwq)
+  - Avoid taking large_mtx for auto arenas on the tcache flush path.  (@interwq)
+  - Optimize ixalloc by avoiding a size lookup.  (@interwq)
+  - Implement opt.oversize_threshold which uses a dedicated arena for requests
+    crossing the threshold, also eagerly purges the oversize extents.  Default
+    the threshold to 8 MiB.  (@interwq)
+  - Clean compilation with -Wextra.  (@gnzlbg, @jasone)
+  - Refactor the size class module.  (@davidtgoldblatt)
+  - Refactor the stats emitter.  (@tyleretzel)
+  - Optimize pow2_ceil.  (@rkmisra)
+  - Avoid runtime detection of lazy purging on FreeBSD.  (@trasz)
+  - Optimize mmap(2) alignment handling on FreeBSD.  (@trasz)
+  - Improve error handling for THP state initialization.  (@jsteemann)
+  - Rework the malloc() fast path.  (@djwatson)
+  - Rework the free() fast path.  (@djwatson)
+  - Refactor and optimize the tcache fill / flush paths.  (@djwatson)
+  - Optimize sync / lwsync on PowerPC.  (@chmeeedalf)
+  - Bypass extent_dalloc() when retain is enabled.  (@interwq)
+  - Optimize the locking on large deallocation.  (@interwq)
+  - Reduce the number of pages committed from sanity checking in debug build.
+    (@trasz, @interwq)
+  - Deprecate OSSpinLock.  (@interwq)
+  - Lower the default number of background threads to 4 (when the feature
+    is enabled).  (@interwq)
+  - Optimize the trylock spin wait.  (@djwatson)
+  - Use arena index for arena-matching checks.  (@interwq)
+  - Avoid forced decay on thread termination when using background threads.
+    (@interwq)
+  - Disable muzzy decay by default.  (@djwatson, @interwq)
+  - Only initialize libgcc unwinder when profiling is enabled.  (@paravoid,
+    @interwq)
+
+  Bug fixes (all only relevant to jemalloc 5.x):
+  - Fix background thread index issues with max_background_threads.  (@djwatson,
+    @interwq)
+  - Fix stats output for opt.lg_extent_max_active_fit.  (@interwq)
+  - Fix opt.prof_prefix initialization.  (@davidtgoldblatt)
+  - Properly trigger decay on tcache destroy.  (@interwq, @amosbird)
+  - Fix tcache.flush.  (@interwq)
+  - Detect whether explicit extent zero out is necessary with huge pages or
+    custom extent hooks, which may change the purge semantics.  (@interwq)
+  - Fix a side effect caused by extent_max_active_fit combined with decay-based
+    purging, where freed extents can accumulate and not be reused for an
+    extended period of time.  (@interwq, @mpghf)
+  - Fix a missing unlock on extent register error handling.  (@zoulasc)
+
+  Testing:
+  - Simplify the Travis script output.  (@gnzlbg)
+  - Update the test scripts for FreeBSD.  (@devnexen)
+  - Add unit tests for the producer-consumer pattern.  (@interwq)
+  - Add Cirrus-CI config for FreeBSD builds.  (@jasone)
+  - Add size-matching sanity checks on tcache flush.  (@davidtgoldblatt,
+    @interwq)
+
+  Incompatible changes:
+  - Remove --with-lg-page-sizes.  (@davidtgoldblatt)
+
+  Documentation:
+  - Attempt to build docs by default, however skip doc building when xsltproc
+    is missing. (@interwq, @cmuellner)
+
+* 5.1.0 (May 4, 2018)
 
   This release is primarily about fine-tuning, ranging from several new features
   to numerous notable performance and portability enhancements.  The release and

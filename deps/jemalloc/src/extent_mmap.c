@@ -21,8 +21,8 @@ bool	opt_retain =
 void *
 extent_alloc_mmap(void *new_addr, size_t size, size_t alignment, bool *zero,
     bool *commit) {
-	void *ret = pages_map(new_addr, size, ALIGNMENT_CEILING(alignment,
-	    PAGE), commit);
+	assert(alignment == ALIGNMENT_CEILING(alignment, PAGE));
+	void *ret = pages_map(new_addr, size, alignment, commit);
 	if (ret == NULL) {
 		return NULL;
 	}
