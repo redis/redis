@@ -52,14 +52,13 @@
                 "value": "max"
             },
             {
-                "optional": true,
                 "name": "withscores",
-                "value": "WITHSCORES",
-                "type": "token"
+                "token": "WITHSCORES",
+                "type": "pure-token",
+                "optional": true
             },
             {
                 "token": "LIMIT",
-                "optional": true,
                 "name": "offset_count",
                 "type": "block",
                 "value": [
@@ -73,7 +72,8 @@
                         "type": "integer",
                         "value": "count"
                     }
-                ]
+                ],
+                "optional": true
             }
         ]
     }

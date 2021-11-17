@@ -25,7 +25,6 @@
         ],
         "arguments": [
             {
-                "optional": true,
                 "name": "arguments",
                 "type": "block",
                 "value": [
@@ -36,7 +35,6 @@
                     },
                     {
                         "token": "AUTH",
-                        "optional": true,
                         "name": "username_password",
                         "type": "block",
                         "value": [
@@ -50,16 +48,18 @@
                                 "type": "string",
                                 "value": "password"
                             }
-                        ]
+                        ],
+                        "optional": true
                     },
                     {
                         "token": "SETNAME",
-                        "optional": true,
                         "name": "clientname",
                         "type": "string",
-                        "value": "clientname"
+                        "value": "clientname",
+                        "optional": true
                     }
-                ]
+                ],
+                "optional": true
             }
         ]
     }

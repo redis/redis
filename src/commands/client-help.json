@@ -1,6 +1,9 @@
 {
-    "CLIENT HELP": {
+    "HELP": {
+        "summary": "Show helpful text about the different subcommands",
+        "complexity": "O(1)",
         "group": "connection",
+        "since": "5.0.0",
         "arity": 2,
         "container": "CLIENT",
         "function": "clientCommand",

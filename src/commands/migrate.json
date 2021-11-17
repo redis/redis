@@ -85,18 +85,18 @@
                 "value": "port"
             },
             {
-                "name": "__TBD__3__",
+                "name": "key",
                 "type": "oneof",
                 "value": [
                     {
                         "name": "key",
-                        "type": "token",
-                        "value": "key"
+                        "type": "pure-token",
+                        "token": "key"
                     },
                     {
-                        "name": "__TBD__4__",
-                        "type": "token",
-                        "value": "\"\""
+                        "name": "__TBD__1__",
+                        "type": "pure-token",
+                        "token": "\"\""
                     }
                 ]
             },
@@ -111,27 +111,26 @@
                 "value": "timeout"
             },
             {
-                "optional": true,
                 "name": "copy",
-                "value": "COPY",
-                "type": "token"
+                "token": "COPY",
+                "type": "pure-token",
+                "optional": true
             },
             {
-                "optional": true,
                 "name": "replace",
-                "value": "REPLACE",
-                "type": "token"
+                "token": "REPLACE",
+                "type": "pure-token",
+                "optional": true
             },
             {
                 "token": "AUTH",
-                "optional": true,
                 "name": "password",
                 "type": "string",
-                "value": "password"
+                "value": "password",
+                "optional": true
             },
             {
                 "token": "AUTH2",
-                "optional": true,
                 "name": "username_password",
                 "type": "block",
                 "value": [
@@ -145,15 +144,16 @@
                         "type": "string",
                         "value": "password"
                     }
-                ]
+                ],
+                "optional": true
             },
             {
                 "token": "KEYS",
-                "optional": true,
-                "multiple": true,
                 "name": "key",
                 "type": "key",
-                "value": "key"
+                "value": "key",
+                "optional": true,
+                "multiple": true
             }
         ]
     }

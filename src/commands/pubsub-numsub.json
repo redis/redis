@@ -1,5 +1,5 @@
 {
-    "PUBSUB NUMSUB": {
+    "NUMSUB": {
         "summary": "Get the count of subscribers for channels",
         "complexity": "O(N) for the NUMSUB subcommand, where N is the number of requested channels",
         "group": "pubsub",
@@ -18,12 +18,11 @@
         ],
         "arguments": [
             {
-                "optional": true,
-                "multiple": true,
-                "multiple_token": true,
                 "name": "channel",
                 "type": "string",
-                "value": "channel"
+                "value": "channel",
+                "optional": true,
+                "multiple": true
             }
         ]
     }

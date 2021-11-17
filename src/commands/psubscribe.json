@@ -18,8 +18,6 @@
         ],
         "arguments": [
             {
-                "multiple": true,
-                "multiple_token": true,
                 "name": "pattern",
                 "type": "block",
                 "value": [
@@ -28,7 +26,8 @@
                         "type": "pattern",
                         "value": "pattern"
                     }
-                ]
+                ],
+                "multiple": true
             }
         ]
     }

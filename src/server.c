@@ -3802,14 +3802,13 @@ void addReplyFlagsForKeyArgs(client *c, uint64_t flags) {
 
 /* Must match redisCommandArgType */
 const char *ARG_TYPE_STR[] = {
-    NULL,
     "string",
     "integer",
     "double",
     "key",
     "pattern",
     "unix-time",
-    "token",
+    "pure-token",
     "oneof",
     "block",
 };
@@ -3833,11 +3832,9 @@ void addReplyCommandArgList(client *c, struct redisCommandArg *args) {
         addReplyBulkCString(c, "name");
         addReplyBulkCString(c, args[j].name);
         maplen++;
-        if (args[j].type != ARG_TYPE_NULL) {
-            addReplyBulkCString(c, "type");
-            addReplyBulkCString(c, ARG_TYPE_STR[args[j].type]);
-            maplen++;
-        }
+        addReplyBulkCString(c, "type");
+        addReplyBulkCString(c, ARG_TYPE_STR[args[j].type]);
+        maplen++;
         if (args[j].token) {
             addReplyBulkCString(c, "token");
             addReplyBulkCString(c, args[j].token);
@@ -3858,7 +3855,7 @@ void addReplyCommandArgList(client *c, struct redisCommandArg *args) {
             addReplyFlagsForArg(c, args[j].flags);
             maplen++;
         }
-        if (args[j].type != ARG_TYPE_NULL) {
+        if (args[j].type != ARG_TYPE_PURE_TOKEN) {
             addReplyBulkCString(c, "value");
             if (args[j].type == ARG_TYPE_ONEOF || args[j].type == ARG_TYPE_BLOCK) {
                 addReplyCommandArgList(c, args[j].value.subargs);

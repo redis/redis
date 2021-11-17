@@ -16,10 +16,10 @@
         "arguments": [
             {
                 "token": "VERSION",
-                "optional": true,
                 "name": "version",
                 "type": "integer",
-                "value": "version"
+                "value": "version",
+                "optional": true
             }
         ]
     }

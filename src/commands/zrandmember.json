@@ -41,7 +41,6 @@
                 "value": "key"
             },
             {
-                "optional": true,
                 "name": "options",
                 "type": "block",
                 "value": [
@@ -51,12 +50,13 @@
                         "value": "count"
                     },
                     {
-                        "optional": true,
                         "name": "withscores",
-                        "value": "WITHSCORES",
-                        "type": "token"
+                        "token": "WITHSCORES",
+                        "type": "pure-token",
+                        "optional": true
                     }
-                ]
+                ],
+                "optional": true
             }
         ]
     }

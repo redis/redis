@@ -52,30 +52,30 @@
                 "value": "serialized-value"
             },
             {
-                "optional": true,
                 "name": "replace",
-                "value": "REPLACE",
-                "type": "token"
+                "token": "REPLACE",
+                "type": "pure-token",
+                "optional": true
             },
             {
-                "optional": true,
                 "name": "absttl",
-                "value": "ABSTTL",
-                "type": "token"
+                "token": "ABSTTL",
+                "type": "pure-token",
+                "optional": true
             },
             {
                 "token": "IDLETIME",
-                "optional": true,
                 "name": "seconds",
                 "type": "integer",
-                "value": "seconds"
+                "value": "seconds",
+                "optional": true
             },
             {
                 "token": "FREQ",
-                "optional": true,
                 "name": "frequency",
                 "type": "integer",
-                "value": "frequency"
+                "value": "frequency",
+                "optional": true
             }
         ]
     }

@@ -17,15 +17,13 @@
         ],
         "arguments": [
             {
-                "optional": true,
                 "name": "target",
                 "type": "block",
                 "value": [
                     {
                         "token": "TO",
                         "name": "to",
-                        "value": "TO",
-                        "type": "token"
+                        "type": "pure-token"
                     },
                     {
                         "name": "host",
@@ -39,26 +37,25 @@
                     },
                     {
                         "token": "FORCE",
-                        "optional": true,
                         "name": "force",
-                        "value": "FORCE",
-                        "type": "token"
+                        "type": "pure-token",
+                        "optional": true
                     }
-                ]
+                ],
+                "optional": true
             },
             {
                 "token": "ABORT",
-                "optional": true,
                 "name": "abort",
-                "value": "ABORT",
-                "type": "token"
+                "type": "pure-token",
+                "optional": true
             },
             {
                 "token": "TIMEOUT",
-                "optional": true,
                 "name": "milliseconds",
                 "type": "integer",
-                "value": "milliseconds"
+                "value": "milliseconds",
+                "optional": true
             }
         ]
     }

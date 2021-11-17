@@ -1,5 +1,5 @@
 {
-    "CLIENT PAUSE": {
+    "PAUSE": {
         "summary": "Stop processing commands from clients for some time",
         "complexity": "O(1)",
         "group": "connection",
@@ -36,21 +36,21 @@
                 "value": "timeout"
             },
             {
-                "optional": true,
-                "name": "__TBD__49__",
+                "name": "mode",
                 "type": "oneof",
                 "value": [
                     {
                         "name": "write",
-                        "type": "token",
-                        "value": "WRITE"
+                        "type": "pure-token",
+                        "token": "WRITE"
                     },
                     {
                         "name": "all",
-                        "type": "token",
-                        "value": "ALL"
+                        "type": "pure-token",
+                        "token": "ALL"
                     }
-                ]
+                ],
+                "optional": true
             }
         ]
     }

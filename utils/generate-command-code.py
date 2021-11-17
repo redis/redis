@@ -18,7 +18,7 @@ ARG_TYPES = {
     "key": "ARG_TYPE_KEY",
     "pattern": "ARG_TYPE_PATTERN",
     "unix-time": "ARG_TYPE_UNIX_TIME",
-    "token": "ARG_TYPE_TOKEN",
+    "pure-token": "ARG_TYPE_PURE_TOKEN",
     "oneof": "ARG_TYPE_ONEOF",
     "block": "ARG_TYPE_BLOCK",
 }
@@ -131,15 +131,18 @@ class Argument(object):
     def __init__(self, parent_name, desc):
         self.desc = desc
         self.name = self.desc["name"].lower()
+        self.type = self.desc["type"]
         self.parent_name = parent_name
         self.subargs = []
         self.subargs_name = None
-        if self.desc.get("type") in ["oneof", "block"]:
+        if self.type in ["oneof", "block"]:
             for subdesc in self.desc["value"]:
                 self.subargs.append(Argument(self.fullname(), subdesc))
 
         # Sanity
-        if not all([self.desc.get("value"), self.desc.get("type")]):
+        assert (self.desc.get("value") and not self.type == "pure-token") or \
+               (not self.desc.get("value") and self.type == "pure-token")
+        if not self.desc.get("value"):
             assert self.desc.get("token")
 
     def fullname(self):
@@ -164,13 +167,9 @@ class Argument(object):
                 s += "CMD_ARG_MULTIPLE_TOKEN|"
             return s[:-1] if s else "CMD_ARG_NONE"
 
-        # TODO:GUYBE remove
-        if self.desc.get("type", "").startswith("__TBD__"):
-            self.desc["type"] = "string"
-
         s = "\"%s\",%s,%s,%s,%s,%s" % (
             self.name,
-            ARG_TYPES[self.desc.get("type")],
+            ARG_TYPES[self.type],
             get_optional_desc_string(self.desc, "token"),
             get_optional_desc_string(self.desc, "summary"),
             get_optional_desc_string(self.desc, "since"),
@@ -203,9 +202,7 @@ class Command(object):
     def __init__(self, name, desc):
         self.name = name.upper()
         self.desc = desc
-        if "group" not in self.desc:
-            print("WARNING: Command %s doesn't have group" % self.name)
-        self.group = self.desc.get("group", "server")  # TODO:GUYBE "group" must be present!!!!
+        self.group = self.desc["group"]
         self.subcommands = []
         self.args = []
         for arg_desc in self.desc.get("arguments", []):
@@ -416,7 +413,7 @@ for command in commands.values():
     if command.name not in subcommands:
         continue
     for subcommand in subcommands[command.name].values():
-        # assert not subcommand.group or subcommand.group == command.group TODO:GUYBE uncomment!!!!!
+        assert not subcommand.group or subcommand.group == command.group
         subcommand.group = command.group
         command.subcommands.append(subcommand)
 

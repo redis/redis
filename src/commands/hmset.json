@@ -44,8 +44,6 @@
                 "value": "key"
             },
             {
-                "multiple": true,
-                "multiple_token": true,
                 "name": "field_value",
                 "type": "block",
                 "value": [
@@ -59,7 +57,8 @@
                         "type": "string",
                         "value": "value"
                     }
-                ]
+                ],
+                "multiple": true
             }
         ]
     }

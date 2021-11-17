@@ -48,10 +48,10 @@
                 "value": "key"
             },
             {
-                "optional": true,
                 "name": "count",
                 "type": "integer",
-                "value": "count"
+                "value": "count",
+                "optional": true
             }
         ]
     }

@@ -18,12 +18,11 @@
         ],
         "arguments": [
             {
-                "optional": true,
-                "multiple": true,
-                "multiple_token": true,
                 "name": "channel",
                 "type": "string",
-                "value": "channel"
+                "value": "channel",
+                "optional": true,
+                "multiple": true
             }
         ]
     }

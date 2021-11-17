@@ -18,21 +18,21 @@
         ],
         "arguments": [
             {
-                "optional": true,
-                "name": "__TBD__58__",
+                "name": "nosave_save",
                 "type": "oneof",
                 "value": [
                     {
                         "name": "nosave",
-                        "type": "token",
-                        "value": "NOSAVE"
+                        "type": "pure-token",
+                        "token": "NOSAVE"
                     },
                     {
                         "name": "save",
-                        "type": "token",
-                        "value": "SAVE"
+                        "type": "pure-token",
+                        "token": "SAVE"
                     }
-                ]
+                ],
+                "optional": true
             }
         ]
     }

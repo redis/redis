@@ -1,5 +1,5 @@
 {
-    "MEMORY STATS": {
+    "STATS": {
         "summary": "Show memory usage details",
         "group": "server",
         "since": "4.0.0",

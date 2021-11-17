@@ -46,18 +46,16 @@
                 "value": "numkeys"
             },
             {
-                "multiple": true,
-                "multiple_token": true,
                 "name": "key",
                 "type": "key",
-                "value": "key"
+                "value": "key",
+                "multiple": true
             },
             {
-                "multiple": true,
-                "multiple_token": true,
                 "name": "arg",
                 "type": "string",
-                "value": "arg"
+                "value": "arg",
+                "multiple": true
             }
         ]
     }

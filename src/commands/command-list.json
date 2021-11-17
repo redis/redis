@@ -1,5 +1,5 @@
 {
-    "COMMAND LIST": {
+    "LIST": {
         "group": "server",
         "arity": -2,
         "container": "COMMAND",

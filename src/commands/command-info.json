@@ -1,5 +1,5 @@
 {
-    "COMMAND INFO": {
+    "INFO": {
         "summary": "Get array of specific Redis command details",
         "complexity": "O(N) when N is number of commands to look up",
         "group": "server",
@@ -17,11 +17,10 @@
         ],
         "arguments": [
             {
-                "multiple": true,
-                "multiple_token": true,
                 "name": "command-name",
                 "type": "string",
-                "value": "command-name"
+                "value": "command-name",
+                "multiple": true
             }
         ]
     }

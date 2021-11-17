@@ -83,59 +83,63 @@
                 "value": "value"
             },
             {
-                "optional": true,
-                "name": "__TBD__22__",
+                "name": "expiration",
                 "type": "oneof",
                 "value": [
                     {
-                        "name": "__TBD__23__",
-                        "type": "token",
-                        "value": "EX seconds"
+                        "name": "ex",
+                        "type": "integer",
+                        "value": "seconds",
+                        "token": "EX"
                     },
                     {
-                        "name": "__TBD__24__",
-                        "type": "token",
-                        "value": "PX milliseconds"
+                        "name": "px",
+                        "type": "integer",
+                        "value": "milliseconds",
+                        "token": "PX"
                     },
                     {
-                        "name": "__TBD__25__",
-                        "type": "token",
-                        "value": "EXAT timestamp"
+                        "name": "exat",
+                        "type": "unix-time",
+                        "value": "timestamp",
+                        "token": "EXAT"
                     },
                     {
-                        "name": "__TBD__26__",
-                        "type": "token",
-                        "value": "PXAT milliseconds-timestamp"
+                        "name": "pxat",
+                        "type": "unit-time",
+                        "value": "milliseconds-timestamp",
+                        "token": "PXAT"
                     },
                     {
                         "name": "keepttl",
-                        "type": "token",
-                        "value": "KEEPTTL"
+                        "type": "pure-token",
+                        "token": "KEEPTTL"
                     }
-                ]
+                ],
+                "optional": true
             },
             {
-                "optional": true,
-                "name": "__TBD__27__",
+                "name": "condition",
                 "type": "oneof",
                 "value": [
                     {
                         "name": "nx",
-                        "type": "token",
-                        "value": "NX"
+                        "type": "pure-token",
+                        "token": "NX"
                     },
                     {
                         "name": "xx",
-                        "type": "token",
-                        "value": "XX"
+                        "type": "pure-token",
+                        "token": "XX"
                     }
-                ]
+                ],
+                "optional": true
             },
             {
-                "optional": true,
                 "name": "get",
-                "value": "GET",
-                "type": "token"
+                "token": "GET",
+                "type": "pure-token",
+                "optional": true
             }
         ]
     }

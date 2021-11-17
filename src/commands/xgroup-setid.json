@@ -1,5 +1,5 @@
 {
-    "XGROUP SETID": {
+    "SETID": {
         "summary": "Set a consumer group to an arbitrary last delivered ID value.",
         "complexity": "O(1)",
         "group": "stream",

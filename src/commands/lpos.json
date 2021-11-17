@@ -46,24 +46,24 @@
             },
             {
                 "token": "RANK",
-                "optional": true,
                 "name": "rank",
                 "type": "integer",
-                "value": "rank"
+                "value": "rank",
+                "optional": true
             },
             {
                 "token": "COUNT",
-                "optional": true,
                 "name": "num-matches",
                 "type": "integer",
-                "value": "num-matches"
+                "value": "num-matches",
+                "optional": true
             },
             {
                 "token": "MAXLEN",
-                "optional": true,
                 "name": "len",
                 "type": "integer",
-                "value": "len"
+                "value": "len",
+                "optional": true
             }
         ]
     }

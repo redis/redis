@@ -64,34 +64,34 @@
                 "value": "destination"
             },
             {
-                "name": "__TBD__15__",
+                "name": "wherefrom",
                 "type": "oneof",
                 "value": [
                     {
                         "name": "left",
-                        "type": "token",
-                        "value": "LEFT"
+                        "type": "pure-token",
+                        "token": "LEFT"
                     },
                     {
                         "name": "right",
-                        "type": "token",
-                        "value": "RIGHT"
+                        "type": "pure-token",
+                        "token": "RIGHT"
                     }
                 ]
             },
             {
-                "name": "__TBD__16__",
+                "name": "whereto",
                 "type": "oneof",
                 "value": [
                     {
                         "name": "left",
-                        "type": "token",
-                        "value": "LEFT"
+                        "type": "pure-token",
+                        "token": "LEFT"
                     },
                     {
                         "name": "right",
-                        "type": "token",
-                        "value": "RIGHT"
+                        "type": "pure-token",
+                        "token": "RIGHT"
                     }
                 ]
             }

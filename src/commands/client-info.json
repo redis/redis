@@ -1,5 +1,5 @@
 {
-    "CLIENT INFO": {
+    "INFO": {
         "summary": "Returns information about the current client connection.",
         "complexity": "O(1)",
         "group": "connection",

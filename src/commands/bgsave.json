@@ -22,10 +22,10 @@
         ],
         "arguments": [
             {
-                "optional": true,
                 "name": "schedule",
-                "value": "SCHEDULE",
-                "type": "token"
+                "token": "SCHEDULE",
+                "type": "pure-token",
+                "optional": true
             }
         ]
     }

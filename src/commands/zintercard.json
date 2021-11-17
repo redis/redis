@@ -41,18 +41,17 @@
                 "value": "numkeys"
             },
             {
-                "multiple": true,
-                "multiple_token": true,
                 "name": "key",
                 "type": "key",
-                "value": "key"
+                "value": "key",
+                "multiple": true
             },
             {
                 "token": "LIMIT",
-                "optional": true,
                 "name": "limit",
                 "type": "integer",
-                "value": "limit"
+                "value": "limit",
+                "optional": true
             }
         ]
     }

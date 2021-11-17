@@ -50,31 +50,31 @@
                 "value": "member2"
             },
             {
-                "optional": true,
-                "name": "__TBD__37__",
+                "name": "unit",
                 "type": "oneof",
                 "value": [
                     {
                         "name": "m",
-                        "type": "token",
-                        "value": "m"
+                        "type": "pure-token",
+                        "token": "m"
                     },
                     {
                         "name": "km",
-                        "type": "token",
-                        "value": "km"
+                        "type": "pure-token",
+                        "token": "km"
                     },
                     {
                         "name": "ft",
-                        "type": "token",
-                        "value": "ft"
+                        "type": "pure-token",
+                        "token": "ft"
                     },
                     {
                         "name": "mi",
-                        "type": "token",
-                        "value": "mi"
+                        "type": "pure-token",
+                        "token": "mi"
                     }
-                ]
+                ],
+                "optional": true
             }
         ]
     }

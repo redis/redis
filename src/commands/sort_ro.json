@@ -44,14 +44,13 @@
             },
             {
                 "token": "BY",
-                "optional": true,
                 "name": "pattern",
                 "type": "pattern",
-                "value": "pattern"
+                "value": "pattern",
+                "optional": true
             },
             {
                 "token": "LIMIT",
-                "optional": true,
                 "name": "offset_count",
                 "type": "block",
                 "value": [
@@ -65,39 +64,40 @@
                         "type": "integer",
                         "value": "count"
                     }
-                ]
+                ],
+                "optional": true
             },
             {
                 "token": "GET",
-                "optional": true,
-                "multiple": true,
-                "multiple_token": true,
                 "name": "pattern",
                 "type": "string",
-                "value": "pattern"
+                "value": "pattern",
+                "optional": true,
+                "multiple": true,
+                "multiple_token": true
             },
             {
-                "optional": true,
-                "name": "__TBD__32__",
+                "name": "order",
                 "type": "oneof",
                 "value": [
                     {
                         "name": "asc",
-                        "type": "token",
-                        "value": "ASC"
+                        "type": "pure-token",
+                        "token": "ASC"
                     },
                     {
                         "name": "desc",
-                        "type": "token",
-                        "value": "DESC"
+                        "type": "pure-token",
+                        "token": "DESC"
                     }
-                ]
+                ],
+                "optional": true
             },
             {
-                "optional": true,
                 "name": "sorting",
-                "value": "ALPHA",
-                "type": "token"
+                "token": "ALPHA",
+                "type": "pure-token",
+                "optional": true
             }
         ]
     }

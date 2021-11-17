@@ -1,5 +1,5 @@
 {
-    "CLIENT NO-EVICT": {
+    "NO-EVICT": {
         "summary": "Set client eviction mode for the current connection",
         "complexity": "O(1)",
         "group": "connection",
@@ -21,18 +21,18 @@
         ],
         "arguments": [
             {
-                "name": "__TBD__47__",
+                "name": "enabled",
                 "type": "oneof",
                 "value": [
                     {
                         "name": "on",
-                        "type": "token",
-                        "value": "ON"
+                        "type": "pure-token",
+                        "token": "ON"
                     },
                     {
                         "name": "off",
-                        "type": "token",
-                        "value": "OFF"
+                        "type": "pure-token",
+                        "token": "OFF"
                     }
                 ]
             }

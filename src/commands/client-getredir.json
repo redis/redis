@@ -1,5 +1,5 @@
 {
-    "CLIENT GETREDIR": {
+    "GETREDIR": {
         "summary": "Get tracking notifications redirection client ID if any",
         "complexity": "O(1)",
         "group": "connection",

@@ -42,7 +42,6 @@
             },
             {
                 "token": "GET",
-                "optional": true,
                 "name": "encoding_offset",
                 "type": "block",
                 "value": [
@@ -56,11 +55,11 @@
                         "type": "integer",
                         "value": "offset"
                     }
-                ]
+                ],
+                "optional": true
             },
             {
                 "token": "SET",
-                "optional": true,
                 "name": "encoding_offset_value",
                 "type": "block",
                 "value": [
@@ -79,11 +78,11 @@
                         "type": "integer",
                         "value": "value"
                     }
-                ]
+                ],
+                "optional": true
             },
             {
                 "token": "INCRBY",
-                "optional": true,
                 "name": "encoding_offset_increment",
                 "type": "block",
                 "value": [
@@ -102,30 +101,31 @@
                         "type": "integer",
                         "value": "increment"
                     }
-                ]
+                ],
+                "optional": true
             },
             {
                 "token": "OVERFLOW",
-                "optional": true,
-                "name": "__TBD__11__",
+                "name": "wrap_sat_fail",
                 "type": "oneof",
                 "value": [
                     {
                         "name": "wrap",
-                        "type": "token",
-                        "value": "WRAP"
+                        "type": "pure-token",
+                        "token": "WRAP"
                     },
                     {
                         "name": "sat",
-                        "type": "token",
-                        "value": "SAT"
+                        "type": "pure-token",
+                        "token": "SAT"
                     },
                     {
                         "name": "fail",
-                        "type": "token",
-                        "value": "FAIL"
+                        "type": "pure-token",
+                        "token": "FAIL"
                     }
-                ]
+                ],
+                "optional": true
             }
         ]
     }

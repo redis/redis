@@ -24,11 +24,10 @@
         ],
         "arguments": [
             {
-                "multiple": true,
-                "multiple_token": true,
                 "name": "channel",
                 "type": "string",
-                "value": "channel"
+                "value": "channel",
+                "multiple": true
             }
         ]
     }

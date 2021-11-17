@@ -1,5 +1,5 @@
 {
-    "ACL LOG": {
+    "LOG": {
         "summary": "List latest events denied because of ACLs in place",
         "complexity": "O(N) with N being the number of entries shown.",
         "group": "server",
@@ -20,7 +20,6 @@
         ],
         "arguments": [
             {
-                "optional": true,
                 "name": "count_or RESET",
                 "type": "block",
                 "value": [
@@ -39,7 +38,8 @@
                         "type": "string",
                         "value": "RESET"
                     }
-                ]
+                ],
+                "optional": true
             }
         ]
     }

@@ -64,42 +64,41 @@
                 "value": "numkeys"
             },
             {
-                "multiple": true,
-                "multiple_token": true,
                 "name": "key",
                 "type": "key",
-                "value": "key"
+                "value": "key",
+                "multiple": true
             },
             {
                 "token": "WEIGHTS",
-                "optional": true,
-                "multiple": true,
                 "name": "weight",
                 "type": "integer",
-                "value": "weight"
+                "value": "weight",
+                "optional": true,
+                "multiple": true
             },
             {
                 "token": "AGGREGATE",
-                "optional": true,
-                "name": "__TBD__40__",
+                "name": "aggregate",
                 "type": "oneof",
                 "value": [
                     {
                         "name": "sum",
-                        "type": "token",
-                        "value": "SUM"
+                        "type": "pure-token",
+                        "token": "SUM"
                     },
                     {
                         "name": "min",
-                        "type": "token",
-                        "value": "MIN"
+                        "type": "pure-token",
+                        "token": "MIN"
                     },
                     {
                         "name": "max",
-                        "type": "token",
-                        "value": "MAX"
+                        "type": "pure-token",
+                        "token": "MAX"
                     }
-                ]
+                ],
+                "optional": true
             }
         ]
     }

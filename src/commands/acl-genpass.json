@@ -1,5 +1,5 @@
 {
-    "ACL GENPASS": {
+    "GENPASS": {
         "summary": "Generate a pseudorandom secure password to use for ACL users",
         "complexity": "O(1)",
         "group": "server",
@@ -17,10 +17,10 @@
         ],
         "arguments": [
             {
-                "optional": true,
                 "name": "bits",
                 "type": "integer",
-                "value": "bits"
+                "value": "bits",
+                "optional": true
             }
         ]
     }

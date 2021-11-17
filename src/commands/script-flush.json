@@ -1,5 +1,5 @@
 {
-    "SCRIPT FLUSH": {
+    "FLUSH": {
         "summary": "Remove all the scripts from the script cache.",
         "complexity": "O(N) with N being the number of scripts in cache",
         "group": "scripting",
@@ -23,21 +23,21 @@
         ],
         "arguments": [
             {
-                "optional": true,
-                "name": "__TBD__30__",
+                "name": "async",
                 "type": "oneof",
                 "value": [
                     {
                         "name": "async",
-                        "type": "token",
-                        "value": "ASYNC"
+                        "type": "pure-token",
+                        "token": "ASYNC"
                     },
                     {
                         "name": "sync",
-                        "type": "token",
-                        "value": "SYNC"
+                        "type": "pure-token",
+                        "token": "SYNC"
                     }
-                ]
+                ],
+                "optional": true
             }
         ]
     }

@@ -1,5 +1,5 @@
 {
-    "SLOWLOG GET": {
+    "GET": {
         "summary": "Get the slow log's entries",
         "complexity": "O(N) where N is the number of entries returned",
         "group": "server",
@@ -26,10 +26,10 @@
         ],
         "arguments": [
             {
-                "optional": true,
                 "name": "count",
                 "type": "integer",
-                "value": "count"
+                "value": "count",
+                "optional": true
             }
         ]
     }

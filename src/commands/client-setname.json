@@ -1,5 +1,5 @@
 {
-    "CLIENT SETNAME": {
+    "SETNAME": {
         "summary": "Set the current connection name",
         "complexity": "O(1)",
         "group": "connection",

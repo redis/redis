@@ -1,5 +1,5 @@
 {
-    "COMMAND COUNT": {
+    "COUNT": {
         "summary": "Get total number of Redis commands",
         "complexity": "O(1)",
         "group": "server",

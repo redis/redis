@@ -90,51 +90,50 @@
                 "value": "radius"
             },
             {
-                "name": "__TBD__77__",
+                "name": "unit",
                 "type": "oneof",
                 "value": [
                     {
                         "name": "m",
-                        "type": "token",
-                        "value": "m"
+                        "type": "pure-token",
+                        "token": "m"
                     },
                     {
                         "name": "km",
-                        "type": "token",
-                        "value": "km"
+                        "type": "pure-token",
+                        "token": "km"
                     },
                     {
                         "name": "ft",
-                        "type": "token",
-                        "value": "ft"
+                        "type": "pure-token",
+                        "token": "ft"
                     },
                     {
                         "name": "mi",
-                        "type": "token",
-                        "value": "mi"
+                        "type": "pure-token",
+                        "token": "mi"
                     }
                 ]
             },
             {
-                "optional": true,
                 "name": "withcoord",
-                "value": "WITHCOORD",
-                "type": "token"
+                "token": "WITHCOORD",
+                "type": "pure-token",
+                "optional": true
             },
             {
-                "optional": true,
                 "name": "withdist",
-                "value": "WITHDIST",
-                "type": "token"
+                "token": "WITHDIST",
+                "type": "pure-token",
+                "optional": true
             },
             {
-                "optional": true,
                 "name": "withhash",
-                "value": "WITHHASH",
-                "type": "token"
+                "token": "WITHHASH",
+                "type": "pure-token",
+                "optional": true
             },
             {
-                "optional": true,
                 "name": "count",
                 "type": "block",
                 "value": [
@@ -145,43 +144,44 @@
                         "value": "count"
                     },
                     {
-                        "optional": true,
                         "name": "any",
-                        "value": "ANY",
-                        "type": "token"
+                        "token": "ANY",
+                        "type": "pure-token",
+                        "optional": true
                     }
-                ]
+                ],
+                "optional": true
             },
             {
-                "optional": true,
-                "name": "__TBD__78__",
+                "name": "order",
                 "type": "oneof",
                 "value": [
                     {
                         "name": "asc",
-                        "type": "token",
-                        "value": "ASC"
+                        "type": "pure-token",
+                        "token": "ASC"
                     },
                     {
                         "name": "desc",
-                        "type": "token",
-                        "value": "DESC"
+                        "type": "pure-token",
+                        "token": "DESC"
                     }
-                ]
+                ],
+                "optional": true
             },
             {
                 "token": "STORE",
-                "optional": true,
                 "name": "key",
                 "type": "key",
-                "value": "key"
+                "value": "key",
+                "optional": true
             },
             {
                 "token": "STOREDIST",
-                "optional": true,
                 "name": "key",
                 "type": "key",
-                "value": "key"
+                "value": "key",
+                "optional": true
             }
         ]
     }

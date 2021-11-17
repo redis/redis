@@ -1,5 +1,5 @@
 {
-    "CLUSTER SLOTS": {
+    "SLOTS": {
         "summary": "Get array of Cluster slot to node mappings",
         "complexity": "O(N) where N is the total number of Cluster nodes",
         "group": "cluster",

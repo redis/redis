@@ -1,5 +1,5 @@
 {
-    "OBJECT FREQ": {
+    "FREQ": {
         "summary": "Get the logarithmic access frequency counter of a Redis object",
         "complexity": "O(1)",
         "group": "generic",

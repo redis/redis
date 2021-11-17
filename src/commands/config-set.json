@@ -1,5 +1,5 @@
 {
-    "CONFIG SET": {
+    "SET": {
         "summary": "Set a configuration parameter to the given value",
         "group": "server",
         "since": "2.0.0",

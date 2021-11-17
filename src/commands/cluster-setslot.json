@@ -1,5 +1,5 @@
 {
-    "CLUSTER SETSLOT": {
+    "SETSLOT": {
         "summary": "Bind a hash slot to a specific node",
         "complexity": "O(1)",
         "group": "cluster",
@@ -24,36 +24,36 @@
                 "value": "slot"
             },
             {
-                "name": "__TBD__21__",
+                "name": "subcommand",
                 "type": "oneof",
                 "value": [
                     {
                         "name": "importing",
-                        "type": "token",
-                        "value": "IMPORTING"
+                        "type": "pure-token",
+                        "token": "IMPORTING"
                     },
                     {
                         "name": "migrating",
-                        "type": "token",
-                        "value": "MIGRATING"
+                        "type": "pure-token",
+                        "token": "MIGRATING"
                     },
                     {
                         "name": "stable",
-                        "type": "token",
-                        "value": "STABLE"
+                        "type": "pure-token",
+                        "token": "STABLE"
                     },
                     {
                         "name": "node",
-                        "type": "token",
-                        "value": "NODE"
+                        "type": "pure-token",
+                        "token": "NODE"
                     }
                 ]
             },
             {
-                "optional": true,
                 "name": "node-id",
                 "type": "string",
-                "value": "node-id"
+                "value": "node-id",
+                "optional": true
             }
         ]
     }

@@ -51,37 +51,37 @@
                 "type": "block",
                 "value": [
                     {
-                        "name": "__TBD__33__",
+                        "name": "strategy",
                         "type": "oneof",
                         "value": [
                             {
                                 "name": "maxlen",
-                                "type": "token",
-                                "value": "MAXLEN"
+                                "type": "pure-token",
+                                "token": "MAXLEN"
                             },
                             {
                                 "name": "minid",
-                                "type": "token",
-                                "value": "MINID"
+                                "type": "pure-token",
+                                "token": "MINID"
                             }
                         ]
                     },
                     {
-                        "optional": true,
-                        "name": "__TBD__34__",
+                        "name": "operator",
                         "type": "oneof",
                         "value": [
                             {
-                                "name": "__TBD__35__",
-                                "type": "token",
-                                "value": "="
+                                "name": "__TBD__6__",
+                                "type": "pure-token",
+                                "token": "="
                             },
                             {
-                                "name": "__TBD__36__",
-                                "type": "token",
-                                "value": "~"
+                                "name": "__TBD__7__",
+                                "type": "pure-token",
+                                "token": "~"
                             }
-                        ]
+                        ],
+                        "optional": true
                     },
                     {
                         "name": "threshold",
@@ -90,10 +90,10 @@
                     },
                     {
                         "token": "LIMIT",
-                        "optional": true,
                         "name": "count",
                         "type": "integer",
-                        "value": "count"
+                        "value": "count",
+                        "optional": true
                     }
                 ]
             }

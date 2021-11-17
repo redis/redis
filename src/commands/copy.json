@@ -64,16 +64,16 @@
             },
             {
                 "token": "DB",
-                "optional": true,
                 "name": "destination-db",
                 "type": "integer",
-                "value": "destination-db"
+                "value": "destination-db",
+                "optional": true
             },
             {
-                "optional": true,
                 "name": "replace",
-                "value": "REPLACE",
-                "type": "token"
+                "token": "REPLACE",
+                "type": "pure-token",
+                "optional": true
             }
         ]
     }

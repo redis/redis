@@ -1,5 +1,5 @@
 {
-    "XINFO GROUPS": {
+    "GROUPS": {
         "summary": "List the consumer groups of a stream",
         "complexity": "O(1)",
         "group": "stream",

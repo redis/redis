@@ -52,16 +52,15 @@
                 "value": "group"
             },
             {
-                "optional": true,
                 "name": "filters",
                 "type": "block",
                 "value": [
                     {
                         "token": "IDLE",
-                        "optional": true,
                         "name": "min-idle-time",
                         "type": "integer",
-                        "value": "min-idle-time"
+                        "value": "min-idle-time",
+                        "optional": true
                     },
                     {
                         "name": "start",
@@ -79,12 +78,13 @@
                         "value": "count"
                     },
                     {
-                        "optional": true,
                         "name": "consumer",
                         "type": "string",
-                        "value": "consumer"
+                        "value": "consumer",
+                        "optional": true
                     }
-                ]
+                ],
+                "optional": true
             }
         ]
     }

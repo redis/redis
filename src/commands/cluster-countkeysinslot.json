@@ -1,5 +1,5 @@
 {
-    "CLUSTER COUNTKEYSINSLOT": {
+    "COUNTKEYSINSLOT": {
         "summary": "Return the number of local keys in the specified hash slot",
         "complexity": "O(1)",
         "group": "cluster",

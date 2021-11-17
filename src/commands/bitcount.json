@@ -46,7 +46,6 @@
                 "value": "key"
             },
             {
-                "optional": true,
                 "name": "index",
                 "type": "block",
                 "value": [
@@ -61,23 +60,24 @@
                         "value": "end"
                     },
                     {
-                        "optional": true,
-                        "name": "__TBD__56__",
+                        "name": "index_unit",
                         "type": "oneof",
                         "value": [
                             {
                                 "name": "byte",
-                                "type": "token",
-                                "value": "BYTE"
+                                "type": "pure-token",
+                                "token": "BYTE"
                             },
                             {
                                 "name": "bit",
-                                "type": "token",
-                                "value": "BIT"
+                                "type": "pure-token",
+                                "token": "BIT"
                             }
-                        ]
+                        ],
+                        "optional": true
                     }
-                ]
+                ],
+                "optional": true
             }
         ]
     }

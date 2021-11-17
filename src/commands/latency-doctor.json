@@ -1,5 +1,5 @@
 {
-    "LATENCY DOCTOR": {
+    "DOCTOR": {
         "summary": "Return a human readable latency analysis report.",
         "group": "server",
         "since": "2.8.13",

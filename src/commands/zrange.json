@@ -56,31 +56,30 @@
                 "value": "max"
             },
             {
-                "optional": true,
-                "name": "__TBD__18__",
+                "name": "sortby",
                 "type": "oneof",
                 "value": [
                     {
                         "name": "byscore",
-                        "type": "token",
-                        "value": "BYSCORE"
+                        "type": "pure-token",
+                        "token": "BYSCORE"
                     },
                     {
                         "name": "bylex",
-                        "type": "token",
-                        "value": "BYLEX"
+                        "type": "pure-token",
+                        "token": "BYLEX"
                     }
-                ]
+                ],
+                "optional": true
             },
             {
-                "optional": true,
                 "name": "rev",
-                "value": "REV",
-                "type": "token"
+                "token": "REV",
+                "type": "pure-token",
+                "optional": true
             },
             {
                 "token": "LIMIT",
-                "optional": true,
                 "name": "offset_count",
                 "type": "block",
                 "value": [
@@ -94,13 +93,14 @@
                         "type": "integer",
                         "value": "count"
                     }
-                ]
+                ],
+                "optional": true
             },
             {
-                "optional": true,
                 "name": "withscores",
-                "value": "WITHSCORES",
-                "type": "token"
+                "token": "WITHSCORES",
+                "type": "pure-token",
+                "optional": true
             }
         ]
     }

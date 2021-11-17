@@ -58,11 +58,10 @@
                 "value": "destination"
             },
             {
-                "multiple": true,
-                "multiple_token": true,
                 "name": "key",
                 "type": "key",
-                "value": "key"
+                "value": "key",
+                "multiple": true
             }
         ]
     }

@@ -1,5 +1,5 @@
 {
-    "ACL SETUSER": {
+    "SETUSER": {
         "summary": "Modify or create the rules for a specific ACL user",
         "complexity": "O(N). Where N is the number of rules provided.",
         "group": "server",
@@ -31,12 +31,11 @@
                 "value": "username"
             },
             {
-                "optional": true,
-                "multiple": true,
-                "multiple_token": true,
                 "name": "rule",
                 "type": "string",
-                "value": "rule"
+                "value": "rule",
+                "optional": true,
+                "multiple": true
             }
         ]
     }

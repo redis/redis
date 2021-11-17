@@ -1,5 +1,5 @@
 {
-    "CLIENT UNBLOCK": {
+    "UNBLOCK": {
         "summary": "Unblock a client blocked in a blocking command from a different connection",
         "complexity": "O(log N) where N is the number of client connections",
         "group": "connection",
@@ -26,21 +26,21 @@
                 "value": "client-id"
             },
             {
-                "optional": true,
-                "name": "__TBD__54__",
+                "name": "timeout_error",
                 "type": "oneof",
                 "value": [
                     {
                         "name": "timeout",
-                        "type": "token",
-                        "value": "TIMEOUT"
+                        "type": "pure-token",
+                        "token": "TIMEOUT"
                     },
                     {
                         "name": "error",
-                        "type": "token",
-                        "value": "ERROR"
+                        "type": "pure-token",
+                        "token": "ERROR"
                     }
-                ]
+                ],
+                "optional": true
             }
         ]
     }

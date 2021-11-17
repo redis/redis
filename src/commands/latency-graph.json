@@ -1,5 +1,5 @@
 {
-    "LATENCY GRAPH": {
+    "GRAPH": {
         "summary": "Return a latency graph for the event.",
         "group": "server",
         "since": "2.8.13",

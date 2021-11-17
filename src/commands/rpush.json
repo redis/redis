@@ -48,11 +48,10 @@
                 "value": "key"
             },
             {
-                "multiple": true,
-                "multiple_token": true,
                 "name": "element",
                 "type": "string",
-                "value": "element"
+                "value": "element",
+                "multiple": true
             }
         ]
     }

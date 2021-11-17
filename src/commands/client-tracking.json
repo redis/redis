@@ -1,5 +1,5 @@
 {
-    "CLIENT TRACKING": {
+    "TRACKING": {
         "summary": "Enable or disable server assisted client side caching support",
         "complexity": "O(1). Some options may introduce additional complexity.",
         "group": "connection",
@@ -18,60 +18,60 @@
         ],
         "arguments": [
             {
-                "name": "__TBD__50__",
+                "name": "status",
                 "type": "oneof",
                 "value": [
                     {
                         "name": "on",
-                        "type": "token",
-                        "value": "ON"
+                        "type": "pure-token",
+                        "token": "ON"
                     },
                     {
                         "name": "off",
-                        "type": "token",
-                        "value": "OFF"
+                        "type": "pure-token",
+                        "token": "OFF"
                     }
                 ]
             },
             {
                 "token": "REDIRECT",
-                "optional": true,
                 "name": "client-id",
                 "type": "integer",
-                "value": "client-id"
+                "value": "client-id",
+                "optional": true
             },
             {
                 "token": "PREFIX",
-                "optional": true,
-                "multiple": true,
-                "multiple_token": true,
                 "name": "prefix",
                 "type": "string",
-                "value": "prefix"
+                "value": "prefix",
+                "optional": true,
+                "multiple": true,
+                "multiple_token": true
             },
             {
-                "optional": true,
                 "name": "BCAST",
-                "value": "BCAST",
-                "type": "token"
+                "token": "BCAST",
+                "type": "pure-token",
+                "optional": true
             },
             {
-                "optional": true,
                 "name": "OPTIN",
-                "value": "OPTIN",
-                "type": "token"
+                "token": "OPTIN",
+                "type": "pure-token",
+                "optional": true
             },
             {
-                "optional": true,
                 "name": "OPTOUT",
-                "value": "OPTOUT",
-                "type": "token"
+                "token": "OPTOUT",
+                "type": "pure-token",
+                "optional": true
             },
             {
-                "optional": true,
                 "name": "NOLOOP",
-                "value": "NOLOOP",
-                "type": "token"
+                "token": "NOLOOP",
+                "type": "pure-token",
+                "optional": true
             }
         ]
     }

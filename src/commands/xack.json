@@ -47,11 +47,10 @@
                 "value": "group"
             },
             {
-                "multiple": true,
-                "multiple_token": true,
                 "name": "ID",
                 "type": "string",
-                "value": "ID"
+                "value": "ID",
+                "multiple": true
             }
         ]
     }

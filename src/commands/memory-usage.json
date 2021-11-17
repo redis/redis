@@ -1,5 +1,5 @@
 {
-    "MEMORY USAGE": {
+    "USAGE": {
         "summary": "Estimate the memory usage of a key",
         "complexity": "O(N) where N is the number of samples.",
         "group": "server",
@@ -41,10 +41,10 @@
             },
             {
                 "token": "SAMPLES",
-                "optional": true,
                 "name": "count",
                 "type": "integer",
-                "value": "count"
+                "value": "count",
+                "optional": true
             }
         ]
     }

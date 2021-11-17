@@ -57,44 +57,43 @@
                 "value": "min-idle-time"
             },
             {
-                "multiple": true,
-                "multiple_token": true,
                 "name": "ID",
                 "type": "string",
-                "value": "ID"
+                "value": "ID",
+                "multiple": true
             },
             {
                 "token": "IDLE",
-                "optional": true,
                 "name": "ms",
                 "type": "integer",
-                "value": "ms"
+                "value": "ms",
+                "optional": true
             },
             {
                 "token": "TIME",
-                "optional": true,
                 "name": "ms-unix-time",
                 "type": "integer",
-                "value": "ms-unix-time"
+                "value": "ms-unix-time",
+                "optional": true
             },
             {
                 "token": "RETRYCOUNT",
-                "optional": true,
                 "name": "count",
                 "type": "integer",
-                "value": "count"
+                "value": "count",
+                "optional": true
             },
             {
-                "optional": true,
                 "name": "force",
-                "value": "FORCE",
-                "type": "token"
+                "token": "FORCE",
+                "type": "pure-token",
+                "optional": true
             },
             {
-                "optional": true,
                 "name": "justid",
-                "value": "JUSTID",
-                "type": "token"
+                "token": "JUSTID",
+                "type": "pure-token",
+                "optional": true
             }
         ]
     }

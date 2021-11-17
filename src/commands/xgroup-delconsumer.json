@@ -1,5 +1,5 @@
 {
-    "XGROUP DELCONSUMER": {
+    "DELCONSUMER": {
         "summary": "Delete a consumer from a consumer group.",
         "complexity": "O(1)",
         "group": "stream",

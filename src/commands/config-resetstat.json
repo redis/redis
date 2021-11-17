@@ -1,5 +1,5 @@
 {
-    "CONFIG RESETSTAT": {
+    "RESETSTAT": {
         "summary": "Reset the stats returned by INFO",
         "complexity": "O(1)",
         "group": "server",

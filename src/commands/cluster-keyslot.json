@@ -1,5 +1,5 @@
 {
-    "CLUSTER KEYSLOT": {
+    "KEYSLOT": {
         "summary": "Returns the hash slot of the specified key",
         "complexity": "O(N) where N is the number of bytes in the key",
         "group": "cluster",

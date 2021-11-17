@@ -1,5 +1,5 @@
 {
-    "XGROUP CREATE": {
+    "CREATE": {
         "summary": "Create a consumer group.",
         "complexity": "O(1)",
         "group": "stream",
@@ -47,27 +47,26 @@
                 "value": "groupname"
             },
             {
-                "name": "__TBD__61__",
+                "name": "id",
                 "type": "oneof",
                 "value": [
                     {
                         "name": "id",
-                        "type": "token",
-                        "value": "id"
+                        "type": "pure-token",
+                        "token": "id"
                     },
                     {
-                        "name": "__TBD__62__",
-                        "type": "token",
-                        "value": "$"
+                        "name": "__TBD__8__",
+                        "type": "pure-token",
+                        "token": "$"
                     }
                 ]
             },
             {
                 "token": "MKSTREAM",
-                "optional": true,
                 "name": "mkstream",
-                "value": "MKSTREAM",
-                "type": "token"
+                "type": "pure-token",
+                "optional": true
             }
         ]
     }

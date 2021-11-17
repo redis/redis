@@ -1884,14 +1884,13 @@ typedef struct {
 #define STATIC_KEY_SPECS_NUM 4
 
 typedef enum {
-    ARG_TYPE_NULL,
     ARG_TYPE_STRING,
     ARG_TYPE_INTEGER,
     ARG_TYPE_DOUBLE,
     ARG_TYPE_KEY,
     ARG_TYPE_PATTERN,
     ARG_TYPE_UNIX_TIME,
-    ARG_TYPE_TOKEN,
+    ARG_TYPE_PURE_TOKEN,
     ARG_TYPE_ONEOF, /* Has subargs */
     ARG_TYPE_BLOCK /* Has subargs */
 } redisCommandArgType;

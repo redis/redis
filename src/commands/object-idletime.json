@@ -1,5 +1,5 @@
 {
-    "OBJECT IDLETIME": {
+    "IDLETIME": {
         "summary": "Get the time since a Redis object was last accessed",
         "complexity": "O(1)",
         "group": "generic",

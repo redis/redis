@@ -47,17 +47,17 @@
             },
             {
                 "token": "MATCH",
-                "optional": true,
                 "name": "pattern",
                 "type": "pattern",
-                "value": "pattern"
+                "value": "pattern",
+                "optional": true
             },
             {
                 "token": "COUNT",
-                "optional": true,
                 "name": "count",
                 "type": "integer",
-                "value": "count"
+                "value": "count",
+                "optional": true
             }
         ]
     }

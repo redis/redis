@@ -1,5 +1,5 @@
 {
-    "ACL CAT": {
+    "CAT": {
         "summary": "List the ACL categories or the commands inside a category",
         "complexity": "O(1) since the categories and commands are a fixed set.",
         "group": "server",
@@ -17,10 +17,10 @@
         ],
         "arguments": [
             {
-                "optional": true,
                 "name": "categoryname",
                 "type": "string",
-                "value": "categoryname"
+                "value": "categoryname",
+                "optional": true
             }
         ]
     }

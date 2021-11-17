@@ -63,16 +63,16 @@
             },
             {
                 "token": "COUNT",
-                "optional": true,
                 "name": "count",
                 "type": "integer",
-                "value": "count"
+                "value": "count",
+                "optional": true
             },
             {
-                "optional": true,
                 "name": "justid",
-                "value": "JUSTID",
-                "type": "token"
+                "token": "JUSTID",
+                "type": "pure-token",
+                "optional": true
             }
         ]
     }

@@ -1,5 +1,5 @@
 {
-    "XGROUP HELP": {
+    "HELP": {
         "summary": "Show helpful text about the different subcommands",
         "complexity": "O(1)",
         "group": "stream",

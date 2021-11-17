@@ -1,5 +1,5 @@
 {
-    "CLIENT ID": {
+    "ID": {
         "summary": "Returns the client ID for the current connection",
         "complexity": "O(1)",
         "group": "connection",

@@ -41,36 +41,40 @@
                 "value": "key"
             },
             {
-                "optional": true,
-                "name": "__TBD__67__",
+                "name": "expiration",
                 "type": "oneof",
                 "value": [
                     {
-                        "name": "__TBD__68__",
-                        "type": "token",
-                        "value": "EX seconds"
+                        "name": "ex",
+                        "type": "integer",
+                        "value": "seconds",
+                        "token": "EX"
                     },
                     {
-                        "name": "__TBD__69__",
-                        "type": "token",
-                        "value": "PX milliseconds"
+                        "name": "px",
+                        "type": "integer",
+                        "value": "milliseconds",
+                        "token": "PX"
                     },
                     {
-                        "name": "__TBD__70__",
-                        "type": "token",
-                        "value": "EXAT timestamp"
+                        "name": "exat",
+                        "type": "unix-time",
+                        "value": "timestamp",
+                        "token": "EXAT"
                     },
                     {
-                        "name": "__TBD__71__",
-                        "type": "token",
-                        "value": "PXAT milliseconds-timestamp"
+                        "name": "pxat",
+                        "type": "integer",
+                        "value": "milliseconds-timestamp",
+                        "token": "PXAT"
                     },
                     {
                         "name": "persist",
-                        "type": "token",
-                        "value": "PERSIST"
+                        "type": "pure-token",
+                        "token": "PERSIST"
                     }
-                ]
+                ],
+                "optional": true
             }
         ]
     }

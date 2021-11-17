@@ -1,5 +1,5 @@
 {
-    "COMMAND GETKEYS": {
+    "GETKEYS": {
         "summary": "Extract keys given a full Redis command",
         "complexity": "O(N) where N is the number of arguments to the command",
         "group": "server",

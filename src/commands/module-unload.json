@@ -1,5 +1,5 @@
 {
-    "MODULE UNLOAD": {
+    "UNLOAD": {
         "summary": "Unload a module",
         "complexity": "O(1)",
         "group": "server",

@@ -1,5 +1,5 @@
 {
-    "CLIENT REPLY": {
+    "REPLY": {
         "summary": "Instruct the server whether to reply to commands",
         "complexity": "O(1)",
         "group": "connection",
@@ -18,23 +18,23 @@
         ],
         "arguments": [
             {
-                "name": "__TBD__51__",
+                "name": "on_off_skip",
                 "type": "oneof",
                 "value": [
                     {
                         "name": "on",
-                        "type": "token",
-                        "value": "ON"
+                        "type": "pure-token",
+                        "token": "ON"
                     },
                     {
                         "name": "off",
-                        "type": "token",
-                        "value": "OFF"
+                        "type": "pure-token",
+                        "token": "OFF"
                     },
                     {
                         "name": "skip",
-                        "type": "token",
-                        "value": "SKIP"
+                        "type": "pure-token",
+                        "token": "SKIP"
                     }
                 ]
             }

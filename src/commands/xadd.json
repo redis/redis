@@ -50,48 +50,46 @@
             },
             {
                 "token": "NOMKSTREAM",
-                "optional": true,
                 "name": "nomkstream",
-                "value": "NOMKSTREAM",
-                "type": "token"
+                "type": "pure-token",
+                "optional": true
             },
             {
-                "optional": true,
                 "name": "trim",
                 "type": "block",
                 "value": [
                     {
-                        "name": "__TBD__5__",
+                        "name": "strategy",
                         "type": "oneof",
                         "value": [
                             {
                                 "name": "maxlen",
-                                "type": "token",
-                                "value": "MAXLEN"
+                                "type": "pure-token",
+                                "token": "MAXLEN"
                             },
                             {
                                 "name": "minid",
-                                "type": "token",
-                                "value": "MINID"
+                                "type": "pure-token",
+                                "token": "MINID"
                             }
                         ]
                     },
                     {
-                        "optional": true,
-                        "name": "__TBD__6__",
+                        "name": "operator",
                         "type": "oneof",
                         "value": [
                             {
-                                "name": "__TBD__7__",
-                                "type": "token",
-                                "value": "="
+                                "name": "__TBD__2__",
+                                "type": "pure-token",
+                                "token": "="
                             },
                             {
-                                "name": "__TBD__8__",
-                                "type": "token",
-                                "value": "~"
+                                "name": "__TBD__3__",
+                                "type": "pure-token",
+                                "token": "~"
                             }
-                        ]
+                        ],
+                        "optional": true
                     },
                     {
                         "name": "threshold",
@@ -100,21 +98,22 @@
                     },
                     {
                         "token": "LIMIT",
-                        "optional": true,
                         "name": "count",
                         "type": "integer",
-                        "value": "count"
+                        "value": "count",
+                        "optional": true
                     }
-                ]
+                ],
+                "optional": true
             },
             {
-                "name": "__TBD__9__",
+                "name": "__TBD__4__",
                 "type": "oneof",
                 "value": [
                     {
-                        "name": "__TBD__10__",
-                        "type": "token",
-                        "value": "*"
+                        "name": "__TBD__5__",
+                        "type": "pure-token",
+                        "token": "*"
                     },
                     {
                         "name": "id",
@@ -124,8 +123,6 @@
                 ]
             },
             {
-                "multiple": true,
-                "multiple_token": true,
                 "name": "field_value",
                 "type": "block",
                 "value": [
@@ -139,7 +136,8 @@
                         "type": "string",
                         "value": "value"
                     }
-                ]
+                ],
+                "multiple": true
             }
         ]
     }

@@ -15,10 +15,10 @@
         ],
         "arguments": [
             {
-                "optional": true,
                 "name": "message",
                 "type": "string",
-                "value": "message"
+                "value": "message",
+                "optional": true
             }
         ]
     }

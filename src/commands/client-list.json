@@ -1,5 +1,5 @@
 {
-    "CLIENT LIST": {
+    "LIST": {
         "summary": "Get the list of client connections",
         "complexity": "O(N) where N is the number of client connections",
         "group": "connection",
@@ -37,51 +37,49 @@
         "arguments": [
             {
                 "token": "TYPE",
-                "optional": true,
-                "name": "__TBD__52__",
+                "name": "normal_master_replica_pubsub",
                 "type": "oneof",
                 "value": [
                     {
                         "name": "normal",
-                        "type": "token",
-                        "value": "normal"
+                        "type": "pure-token",
+                        "token": "normal"
                     },
                     {
                         "name": "master",
-                        "type": "token",
-                        "value": "master"
+                        "type": "pure-token",
+                        "token": "master"
                     },
                     {
                         "name": "replica",
-                        "type": "token",
-                        "value": "replica"
+                        "type": "pure-token",
+                        "token": "replica"
                     },
                     {
                         "name": "pubsub",
-                        "type": "token",
-                        "value": "pubsub"
+                        "type": "pure-token",
+                        "token": "pubsub"
                     }
-                ]
+                ],
+                "optional": true
             },
             {
-                "optional": true,
                 "name": "id",
                 "type": "block",
                 "value": [
                     {
                         "token": "ID",
                         "name": "id",
-                        "value": "ID",
-                        "type": "token"
+                        "type": "pure-token"
                     },
                     {
-                        "multiple": true,
-                        "multiple_token": true,
                         "name": "client-id",
                         "type": "integer",
-                        "value": "client-id"
+                        "value": "client-id",
+                        "multiple": true
                     }
-                ]
+                ],
+                "optional": true
             }
         ]
     }

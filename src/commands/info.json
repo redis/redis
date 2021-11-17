@@ -16,10 +16,10 @@
         ],
         "arguments": [
             {
-                "optional": true,
                 "name": "section",
                 "type": "string",
-                "value": "section"
+                "value": "section",
+                "optional": true
             }
         ]
     }

@@ -27,21 +27,21 @@
         ],
         "arguments": [
             {
-                "optional": true,
-                "name": "__TBD__39__",
+                "name": "async",
                 "type": "oneof",
                 "value": [
                     {
                         "name": "async",
-                        "type": "token",
-                        "value": "ASYNC"
+                        "type": "pure-token",
+                        "token": "ASYNC"
                     },
                     {
                         "name": "sync",
-                        "type": "token",
-                        "value": "SYNC"
+                        "type": "pure-token",
+                        "token": "SYNC"
                     }
-                ]
+                ],
+                "optional": true
             }
         ]
     }

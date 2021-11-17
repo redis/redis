@@ -1,5 +1,5 @@
 {
-    "MEMORY PURGE": {
+    "PURGE": {
         "summary": "Ask the allocator to release memory",
         "group": "server",
         "since": "4.0.0",

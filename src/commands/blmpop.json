@@ -47,34 +47,33 @@
                 "value": "numkeys"
             },
             {
-                "multiple": true,
-                "multiple_token": true,
                 "name": "key",
                 "type": "key",
-                "value": "key"
+                "value": "key",
+                "multiple": true
             },
             {
-                "name": "__TBD__59__",
+                "name": "where",
                 "type": "oneof",
                 "value": [
                     {
                         "name": "left",
-                        "type": "token",
-                        "value": "LEFT"
+                        "type": "pure-token",
+                        "token": "LEFT"
                     },
                     {
                         "name": "right",
-                        "type": "token",
-                        "value": "RIGHT"
+                        "type": "pure-token",
+                        "token": "RIGHT"
                     }
                 ]
             },
             {
                 "token": "COUNT",
-                "optional": true,
                 "name": "count",
                 "type": "integer",
-                "value": "count"
+                "value": "count",
+                "optional": true
             }
         ]
     }

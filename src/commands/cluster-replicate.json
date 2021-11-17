@@ -1,5 +1,5 @@
 {
-    "CLUSTER REPLICATE": {
+    "REPLICATE": {
         "summary": "Reconfigure a node as a replica of the specified master node",
         "complexity": "O(1)",
         "group": "cluster",

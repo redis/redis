@@ -1,5 +1,5 @@
 {
-    "XINFO STREAM": {
+    "STREAM": {
         "summary": "Get information about a stream",
         "complexity": "O(1)",
         "group": "stream",
@@ -41,24 +41,23 @@
                 "value": "key"
             },
             {
-                "optional": true,
                 "name": "full",
                 "type": "block",
                 "value": [
                     {
                         "token": "FULL",
                         "name": "full",
-                        "value": "FULL",
-                        "type": "token"
+                        "type": "pure-token"
                     },
                     {
                         "token": "COUNT",
-                        "optional": true,
                         "name": "count",
                         "type": "integer",
-                        "value": "count"
+                        "value": "count",
+                        "optional": true
                     }
-                ]
+                ],
+                "optional": true
             }
         ]
     }
