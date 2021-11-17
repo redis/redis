@@ -2403,7 +2403,8 @@ static int setConfigOOMScoreAdjValuesOption(typeData data, sds *argv, int argc, 
      */
 
     if (values[CONFIG_OOM_REPLICA] < values[CONFIG_OOM_MASTER] ||
-        values[CONFIG_OOM_BGCHILD] < values[CONFIG_OOM_REPLICA]) {
+        values[CONFIG_OOM_BGCHILD] < values[CONFIG_OOM_REPLICA])
+    {
         serverLog(LL_WARNING,
                   "The oom-score-adj-values configuration may not work for non-privileged processes! "
                   "Please consult the documentation.");
