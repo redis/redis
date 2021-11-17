@@ -294,7 +294,12 @@ int prepareClientToWrite(client *c) {
  * -------------------------------------------------------------------------- */
 
 /* Attempts to add the reply to the static buffer in the client struct.
- * Returns the length of data that is added to the reply buffer. */
+ * Returns the length of data that is added to the reply buffer.
+ *
+ * Sanitizer suppression: client->buf_usable_size determined by
+ * zmalloc_usable_size() call. Writing beyond client->buf boundaries confuses
+ * sanitizer and generates a false positive out-of-bounds error */
+REDIS_NO_SANITIZE("bounds")
 size_t _addReplyToBuffer(client *c, const char *s, size_t len) {
     size_t available = c->buf_usable_size - c->bufpos;
 

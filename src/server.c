@@ -4897,7 +4897,7 @@ void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t dur
 void call(client *c, int flags) {
     long long dirty;
     monotime call_timer;
-    int client_old_flags = c->flags;
+    uint64_t client_old_flags = c->flags;
     struct redisCommand *real_cmd = c->cmd;
     static long long prev_err_count;
 
@@ -7768,7 +7768,15 @@ int iAmMaster(void) {
 }
 
 #ifdef REDIS_TEST
-typedef int redisTestProc(int argc, char **argv, int accurate);
+#include "testhelp.h"
+
+int __failed_tests = 0;
+int __test_num = 0;
+
+/* The flags are the following:
+* --accurate:     Runs tests with more iterations.
+* --large-memory: Enables tests that consume more than 100mb. */
+typedef int redisTestProc(int argc, char **argv, int flags);
 struct redisTest {
     char *name;
     redisTestProc *proc;
@@ -7805,17 +7813,17 @@ int main(int argc, char **argv) {
 
 #ifdef REDIS_TEST
     if (argc >= 3 && !strcasecmp(argv[1], "test")) {
-        int accurate = 0;
+        int flags = 0;
         for (j = 3; j < argc; j++) {
-            if (!strcasecmp(argv[j], "--accurate")) {
-                accurate = 1;
-            }
+            char *arg = argv[j];
+            if (!strcasecmp(arg, "--accurate")) flags |= REDIS_TEST_ACCURATE;
+            else if (!strcasecmp(arg, "--large-memory")) flags |= REDIS_TEST_LARGE_MEMORY;
         }
 
         if (!strcasecmp(argv[2], "all")) {
             int numtests = sizeof(redisTests)/sizeof(struct redisTest);
             for (j = 0; j < numtests; j++) {
-                redisTests[j].failed = (redisTests[j].proc(argc,argv,accurate) != 0);
+                redisTests[j].failed = (redisTests[j].proc(argc,argv,flags) != 0);
             }
 
             /* Report tests result */
@@ -7836,7 +7844,7 @@ int main(int argc, char **argv) {
         } else {
             redisTestProc *proc = getTestProcByName(argv[2]);
             if (!proc) return -1; /* test not found */
-            return proc(argc,argv,accurate);
+            return proc(argc,argv,flags);
         }
 
         return 0;

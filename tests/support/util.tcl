@@ -50,6 +50,27 @@ proc crashlog_from_file {filename} {
     join $result "\n"
 }
 
+# Return sanitizer log lines
+proc sanitizer_errors_from_file {filename} {
+    set log [exec cat $filename]
+    set lines [split [exec cat $filename] "\n"]
+
+    foreach line $lines {
+        # Ignore huge allocation warnings
+        if ([string match {*WARNING: AddressSanitizer failed to allocate*} $line]) {
+            continue
+        }
+
+        # GCC UBSAN output does not contain 'Sanitizer' but 'runtime error'.
+        if {[string match {*runtime error*} $log] ||
+            [string match {*Sanitizer*} $log]} {
+            return $log
+        }
+    }
+
+    return ""
+}
+
 proc getInfoProperty {infostr property} {
     if {[regexp "\r\n$property:(.*?)\r\n" $infostr _ value]} {
         set _ $value
@@ -697,14 +718,6 @@ proc generate_fuzzy_traffic_on_key {key duration} {
 
     # return the list of commands we sent
     return $sent
-}
-
-# write line to server log file
-proc write_log_line {srv_idx msg} {
-    set logfile [srv $srv_idx stdout]
-    set fd [open $logfile "a+"]
-    puts $fd "### $msg"
-    close $fd
 }
 
 proc string2printable s {

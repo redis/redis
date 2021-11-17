@@ -1720,6 +1720,8 @@ void quicklistBookmarksClear(quicklist *ql) {
 #ifdef REDIS_TEST
 #include <stdint.h>
 #include <sys/time.h>
+#include "testhelp.h"
+#include <stdlib.h>
 
 #define yell(str, ...) printf("ERROR! " str "\n\n", __VA_ARGS__)
 
@@ -1901,12 +1903,36 @@ static char *genstr(char *prefix, int i) {
     return result;
 }
 
+static void randstring(unsigned char *target, size_t sz) {
+    size_t p = 0;
+    int minval, maxval;
+    switch(rand() % 3) {
+    case 0:
+        minval = 'a';
+        maxval = 'z';
+    break;
+    case 1:
+        minval = '0';
+        maxval = '9';
+    break;
+    case 2:
+        minval = 'A';
+        maxval = 'Z';
+    break;
+    default:
+        assert(NULL);
+    }
+
+    while(p < sz)
+        target[p++] = minval+rand()%(maxval-minval+1);
+}
+
 /* main test, but callable from other files */
-int quicklistTest(int argc, char *argv[], int accurate) {
+int quicklistTest(int argc, char *argv[], int flags) {
     UNUSED(argc);
     UNUSED(argv);
-    UNUSED(accurate);
 
+    int accurate = (flags & REDIS_TEST_ACCURATE);
     unsigned int err = 0;
     int optimize_start =
         -(int)(sizeof(optimization_level) / sizeof(*optimization_level));
@@ -2006,21 +2032,24 @@ int quicklistTest(int argc, char *argv[], int accurate) {
         }
 
         TEST("Comprassion Plain node") {
+            char buf[256];
             quicklistisSetPackedThreshold(1);
             quicklist *ql = quicklistNew(-2, 1);
-            for (int i = 0; i < 500; i++)
+            for (int i = 0; i < 500; i++) {
                 /* Set to 256 to allow the node to be triggered to compress,
                  * if it is less than 48(nocompress), the test will be successful. */
-                quicklistPushHead(ql, genstr("hello", i), 256);
+                snprintf(buf, sizeof(buf), "hello%d", i);
+                quicklistPushHead(ql, buf, 256);
+            }
 
             quicklistIter *iter = quicklistGetIterator(ql, AL_START_TAIL);
             quicklistEntry entry;
             int i = 0;
             while (quicklistNext(iter, &entry)) {
-                char *h = genstr("hello", i);
-                if (strcmp((char *)entry.value, h))
+                snprintf(buf, sizeof(buf), "hello%d", i);
+                if (strcmp((char *)entry.value, buf))
                     ERR("value [%s] didn't match [%s] at position %d",
-                        entry.value, h, i);
+                        entry.value, buf, i);
                 i++;
             }
             quicklistReleaseIterator(iter);
@@ -3119,6 +3148,57 @@ int quicklistTest(int argc, char *argv[], int accurate) {
         assert(!quicklistBookmarkFind(ql, "0"));
         assert(!quicklistBookmarkFind(ql, "_test"));
         quicklistRelease(ql);
+    }
+
+    if (flags & REDIS_TEST_LARGE_MEMORY) {
+        TEST("compress and decompress quicklist ziplist node") {
+            quicklistNode *node = quicklistCreateNode();
+            node->entry = ziplistNew();
+            
+            /* Create a rand string */
+            size_t sz = (1 << 25); /* 32MB per one entry */
+            unsigned char *s = zmalloc(sz);
+            randstring(s, sz);
+
+            /* Keep filling the node, until it reaches 1GB */
+            for (int i = 0; i < 32; i++) {
+                node->entry = ziplistPush(node->entry, s, sz, ZIPLIST_TAIL);
+                quicklistNodeUpdateSz(node);
+
+                long long start = mstime();
+                assert(__quicklistCompressNode(node));
+                assert(__quicklistDecompressNode(node));
+                printf("Compress and decompress: %zu MB in %.2f seconds.\n",
+                       node->sz/1024/1024, (float)(mstime() - start) / 1000);
+            }
+
+            zfree(s);
+            zfree(node->entry);
+            zfree(node);
+        }
+
+#if ULONG_MAX >= 0xffffffffffffffff
+        TEST("compress and decomress quicklist plain node large than UINT32_MAX") {
+            size_t sz = (1ull << 32);
+            unsigned char *s = zmalloc(sz);
+            randstring(s, sz);
+            memcpy(s, "helloworld", 10);
+            memcpy(s + sz - 10, "1234567890", 10);
+
+            quicklistNode *node = __quicklistCreatePlainNode(s, sz);
+
+            long long start = mstime();
+            assert(__quicklistCompressNode(node));
+            assert(__quicklistDecompressNode(node));
+            printf("Compress and decompress: %zu MB in %.2f seconds.\n",
+                   node->sz/1024/1024, (float)(mstime() - start) / 1000);
+
+            assert(memcmp(node->entry, "helloworld", 10) == 0);
+            assert(memcmp(node->entry + sz - 10, "1234567890", 10) == 0);
+            zfree(node->entry);
+            zfree(node);
+        }
+#endif
     }
 
     if (!err)

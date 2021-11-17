@@ -572,7 +572,7 @@ proc print_help_screen {} {
         "--skip-till <unit> Skip all units until (and including) the specified one."
         "--skipunit <unit>  Skip one unit."
         "--clients <num>    Number of test clients (default 16)."
-        "--timeout <sec>    Test timeout in seconds (default 10 min)."
+        "--timeout <sec>    Test timeout in seconds (default 20 min)."
         "--force-failure    Force the execution of a test that always fails."
         "--config <k> <v>   Extra config file argument."
         "--skipfile <file>  Name of a file containing test names or regexp patterns that should be skipped (one per line)."

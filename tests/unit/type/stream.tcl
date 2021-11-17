@@ -291,6 +291,7 @@ start_server {
         set res [$rd read]
         assert {[lindex $res 0 0] eq {s2{t}}}
         assert {[lindex $res 0 1 0 1] eq {new abcd1234}}
+        $rd close
     }
 
     test {Blocking XREAD waiting old data} {
@@ -300,6 +301,7 @@ start_server {
         set res [$rd read]
         assert {[lindex $res 0 0] eq {s2{t}}}
         assert {[lindex $res 0 1 0 1] eq {old abcd1234}}
+        $rd close
     }
 
     test {Blocking XREAD will not reply with an empty array} {
@@ -311,6 +313,7 @@ start_server {
         $rd XREAD BLOCK 10 STREAMS s1 666
         after 20
         assert {[$rd read] == {}} ;# before the fix, client didn't even block, but was served synchronously with {s1 {}}
+        $rd close
     }
 
     test "XREAD: XADD + DEL should not awake client" {
@@ -325,6 +328,7 @@ start_server {
         set res [$rd read]
         assert {[lindex $res 0 0] eq {s1}}
         assert {[lindex $res 0 1 0 1] eq {new abcd1234}}
+        $rd close
     }
 
     test "XREAD: XADD + DEL + LPUSH should not awake client" {
@@ -341,6 +345,7 @@ start_server {
         set res [$rd read]
         assert {[lindex $res 0 0] eq {s1}}
         assert {[lindex $res 0 1 0 1] eq {new abcd1234}}
+        $rd close
     }
 
     test {XREAD with same stream name multiple times should work} {
@@ -351,6 +356,7 @@ start_server {
         set res [$rd read]
         assert {[lindex $res 0 0] eq {s2}}
         assert {[lindex $res 0 1 0 1] eq {new abcd1234}}
+        $rd close
     }
 
     test {XREAD + multiple XADD inside transaction} {
@@ -366,6 +372,7 @@ start_server {
         assert {[lindex $res 0 0] eq {s2}}
         assert {[lindex $res 0 1 0 1] eq {field one}}
         assert {[lindex $res 0 1 1 1] eq {field two}}
+        $rd close
     }
 
     test {XDEL basic test} {
@@ -470,6 +477,7 @@ start_server {
         r XADD x 2-1 f v
         set res [$rd read]
         assert {[lindex $res 0 1 0] == {2-1 {f v}}}
+        $rd close
     }
 
     test {XADD streamID edge} {

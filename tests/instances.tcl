@@ -181,6 +181,15 @@ proc log_crashes {} {
             incr ::failed
         }
     }
+
+    set logs [glob */err.txt]
+    foreach log $logs {
+        set res [sanitizer_errors_from_file $log]
+        if {$res != ""} {
+            puts $res
+            incr ::failed
+        }
+    }
 }
 
 proc is_alive pid {

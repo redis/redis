@@ -19,7 +19,9 @@ start_server {tags {"introspection"}} {
         assert_match {*OK*} [$rd read]
         r set foo bar
         r get foo
-        list [$rd read] [$rd read]
+        set res [list [$rd read] [$rd read]]
+        $rd close
+        set _ $res
     } {*"set" "foo"*"get" "foo"*}
 
     test {MONITOR can log commands issued by the scripting engine} {
@@ -29,6 +31,7 @@ start_server {tags {"introspection"}} {
         r eval {redis.call('set',KEYS[1],ARGV[1])} 1 foo bar
         assert_match {*eval*} [$rd read]
         assert_match {*lua*"set"*"foo"*"bar"*} [$rd read]
+        $rd close
     }
 
     test {MONITOR supports redacting command arguments} {

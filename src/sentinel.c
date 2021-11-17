@@ -2348,7 +2348,10 @@ static int instanceLinkNegotiateTLS(redisAsyncContext *context) {
     SSL *ssl = SSL_new(redis_tls_client_ctx ? redis_tls_client_ctx : redis_tls_ctx);
     if (!ssl) return C_ERR;
 
-    if (redisInitiateSSL(&context->c, ssl) == REDIS_ERR) return C_ERR;
+    if (redisInitiateSSL(&context->c, ssl) == REDIS_ERR) {
+        SSL_free(ssl);
+        return C_ERR;
+    }
 #endif
     return C_OK;
 }
@@ -4913,7 +4916,7 @@ void sentinelFailoverWaitStart(sentinelRedisInstance *ri) {
     /* If I'm not the leader, and it is not a forced failover via
      * SENTINEL FAILOVER, then I can't continue with the failover. */
     if (!isleader && !(ri->flags & SRI_FORCE_FAILOVER)) {
-        int election_timeout = sentinel_election_timeout;
+        mstime_t election_timeout = sentinel_election_timeout;
 
         /* The election timeout is the MIN between SENTINEL_ELECTION_TIMEOUT
          * and the configured failover timeout. */
