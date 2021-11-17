@@ -694,8 +694,6 @@ void configSetCommand(client *c) {
     /* Find all relevant configs */
     for (i = 0; i < config_count; i++) {
         for (standardConfig *config = configs; config->name != NULL; config++) {
-            serverAssertWithInfo(c,c->argv[2+i*2],sdsEncodedObject(c->argv[2+i*2]));
-            serverAssertWithInfo(c,c->argv[2+i*2+1],sdsEncodedObject(c->argv[2+i*2+1]));
             if ((!strcasecmp(c->argv[2+i*2]->ptr,config->name) ||
                  (config->alias && !strcasecmp(c->argv[2]->ptr,config->alias)))) {
 
