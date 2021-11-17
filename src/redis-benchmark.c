@@ -128,12 +128,12 @@ static struct config {
     pthread_mutex_t is_updating_slots_mutex;
     int resp3; /* use RESP3 */
     int qps;
-    int control_granularity;
-    long long resume_interval;
-    list **paused_clients; // list of paused client in each threads
-    long long *last_resume_time; // last resume time from pause 
-    int *count; // issued requests in current control loop
-    bool *paused; // indicators whether this thread is paused
+    int* control_granularity;
+    long long* resume_interval;
+    list **paused_clients; /* list of paused client in each threads */
+    long long *last_resume_time; /* last resume time from pause */
+    int *count; /* issued requests in current control loop */
+    bool *paused; /* indicators whether this thread is paused */
 } config;
 
 typedef struct _client {
@@ -651,26 +651,37 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         if (config.qps) {
             int thread_id = c->thread_id == -1 ? 0 : c->thread_id;
             if (config.paused[thread_id]) {
-                // this thread has been paused, delete event and add it to paused clients list
+                /* this thread has been paused, delete event and add it to paused clients list */
                 aeDeleteFileEvent(CLIENT_GET_EVENTLOOP(c), c->context->fd, AE_WRITABLE);
                 listAddNodeTail(config.paused_clients[thread_id], c);
                 atomicDecr(config.requests_issued, config.pipeline);
                 return;
             }
             if (config.last_resume_time[thread_id] == -1) config.last_resume_time[thread_id] = c->start;
-            if (config.count[thread_id] >= config.control_granularity) {
-                // reach a control point, compute the time since last resume
+            if (config.count[thread_id] >= config.control_granularity[thread_id]) {
+                /* reach a control point, compute the time since last resume */
                 long long time_elapsed = c->start - config.last_resume_time[thread_id];
                 config.count[thread_id] = 0;
                 config.last_resume_time[thread_id] = -1;
-                if (time_elapsed < config.resume_interval) {
-                    // need control
+                if (time_elapsed < config.resume_interval[thread_id]) {
+                    /* need control */
                     config.paused[thread_id] = true;
                     aeDeleteFileEvent(CLIENT_GET_EVENTLOOP(c), c->context->fd, AE_WRITABLE);
                     listAddNodeTail(config.paused_clients[thread_id], c);
                     atomicDecr(config.requests_issued, config.pipeline);
-                    aeCreateTimeEvent(CLIENT_GET_EVENTLOOP(c), (config.resume_interval-time_elapsed)/1000, resumeClients, c, NULL);
+                    aeCreateTimeEvent(CLIENT_GET_EVENTLOOP(c), (config.resume_interval[thread_id]-time_elapsed)/1000, resumeClients, c, NULL);
+                    if (config.resume_interval[thread_id] - time_elapsed > 10000 && config.control_granularity[thread_id] > 2*config.pipeline) {
+                        config.control_granularity[thread_id] /= 2;
+                        config.resume_interval[thread_id] /= 2;
+                    }
                     return;
+                }
+                else {
+                    int num_threads = config.num_threads == 0 ? 1 : config.num_threads;
+                    if (config.control_granularity[thread_id] < config.qps / num_threads) {
+                        config.control_granularity[thread_id] *= 2;
+                        config.resume_interval[thread_id] *= 2;
+                    }
                 }
             }
             config.count[thread_id] += config.pipeline;
@@ -1048,13 +1059,22 @@ static void startBenchmarkThreads() {
 
 static void initQpsControl() {
     int num_threads = config.num_threads == 0 ? 1 : config.num_threads;
+    int qps_per_thread = config.qps / num_threads;
     config.paused_clients = zmalloc(num_threads * sizeof(list *));
     config.last_resume_time = zmalloc(num_threads * sizeof(long long));
     config.count = zmalloc(num_threads * sizeof(int));
     config.paused = zmalloc(num_threads * sizeof(bool));
+    config.control_granularity = zmalloc(num_threads * sizeof(int));
+    config.resume_interval = zmalloc(num_threads * sizeof(long long));
+    if (qps_per_thread/config.pipeline <= 0) {
+        printf("warning: qps is too small with %d threads, qps control may fail\n", num_threads);
+        qps_per_thread = 1;
+    }
     for (int i = 0; i < num_threads; ++i) {
         config.paused_clients[i] = zmalloc(sizeof(list));
         config.last_resume_time[i] = -1;
+        config.control_granularity[i] = qps_per_thread;
+        config.resume_interval[i] = USECOND;
     }
 }
 
@@ -1867,24 +1887,6 @@ int main(int argc, char **argv) {
     argv += i;
 
     tag = "";
-    if (config.qps) {
-        int num_threads = config.num_threads == 0 ? 1: config.num_threads;
-        int qps_per_thread = config.qps / num_threads;
-        if (qps_per_thread/config.pipeline <= 0) {
-            printf("warning: qps is too small with %d threads, qps control may fail\n", num_threads);
-            qps_per_thread = 1;
-        }
-        if (qps_per_thread/config.pipeline < 10) {
-            // throughput is controlled per request
-            config.control_granularity = config.pipeline;
-            config.resume_interval = USECOND / qps_per_thread * config.control_granularity;
-        }
-        else {
-            // we control qps every 1/10 qps_per_thread requests
-            config.control_granularity = qps_per_thread / 10;
-            config.resume_interval = USECOND / 10;
-        }
-    }
 #ifdef USE_OPENSSL
     if (config.tls) {
         cliSecureInit();
