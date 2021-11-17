@@ -199,6 +199,10 @@ REDIS_STATIC int __quicklistCompressNode(quicklistNode *node) {
     node->attempted_compress = 1;
 #endif
 
+    /* validate that the node is neither
+     * tail nor head (it has prev and next)*/
+    assert(node->prev && node->next);
+
     node->recompress = 0;
     /* Don't bother compressing small values */
     if (node->sz < MIN_COMPRESS_BYTES)
@@ -235,6 +239,7 @@ REDIS_STATIC int __quicklistDecompressNode(quicklistNode *node) {
 #ifdef REDIS_TEST
     node->attempted_compress = 0;
 #endif
+    node->recompress = 0;
 
     void *decompressed = zmalloc(node->sz);
     quicklistLZF *lzf = (quicklistLZF *)node->entry;
@@ -313,6 +318,14 @@ void quicklistRepr(unsigned char *ql, int full) {
  * If compress depth is larger than the entire list, we return immediately. */
 REDIS_STATIC void __quicklistCompress(const quicklist *quicklist,
                                       quicklistNode *node) {
+    quicklistNode *forward = quicklist->head;
+    quicklistNode *reverse = quicklist->tail;
+
+    if (forward) forward->recompress = 0;
+    if (reverse) reverse->recompress = 0;
+    quicklistDecompressNode(forward);
+    quicklistDecompressNode(reverse);
+
     /* If length is less than our compress depth (from both sides),
      * we can't compress anything. */
     if (!quicklistAllowsCompression(quicklist) ||
@@ -351,8 +364,6 @@ REDIS_STATIC void __quicklistCompress(const quicklist *quicklist,
     /* Iterate until we reach compress depth for both sides of the list.a
      * Note: because we do length checks at the *top* of this function,
      *       we can skip explicit null checks below. Everything exists. */
-    quicklistNode *forward = quicklist->head;
-    quicklistNode *reverse = quicklist->tail;
     int depth = 0;
     int in_depth = 0;
     while (depth++ < quicklist->compress) {
@@ -376,16 +387,17 @@ REDIS_STATIC void __quicklistCompress(const quicklist *quicklist,
 
 
     /* At this point, forward and reverse are one node beyond depth */
-    quicklistCompressNode(forward);
-    quicklistCompressNode(reverse);
+    if (forward != quicklist->head)
+        quicklistCompressNode(forward);
+    if (reverse != quicklist->tail)
+        quicklistCompressNode(reverse);
 }
 
 #define quicklistCompress(_ql, _node)                                          \
     do {                                                                       \
-        if ((_node)->recompress) {                                             \
-            assert(_node != _ql->head && _node != _ql->tail);                  \
+        if ((_node)->recompress)                                               \
             quicklistCompressNode((_node));                                    \
-        } else                                                                 \
+        else                                                                   \
             __quicklistCompress((_ql), (_node));                               \
     } while (0)
 
@@ -393,7 +405,6 @@ REDIS_STATIC void __quicklistCompress(const quicklist *quicklist,
 #define quicklistRecompressOnly(_ql, _node)                                    \
     do {                                                                       \
         if ((_node)->recompress) {                                             \
-            assert(_node != _ql->head && _node != _ql->tail);                  \
             quicklistCompressNode((_node));                                    \
         }                                                                      \
     } while (0)
@@ -1577,6 +1588,8 @@ int quicklistPopCustom(quicklist *quicklist, int where, unsigned char **data,
         quicklistDelIndex(quicklist, node, NULL);
         return 1;
     }
+
+    assert(node->encoding != QUICKLIST_NODE_ENCODING_LZF);
 
     p = ziplistIndex(node->entry, pos);
     if (ziplistGet(p, &vstr, &vlen, &vlong)) {

@@ -26,7 +26,7 @@ start_server {
         r ping ; # It's enough if the server is still alive
     } {PONG}
 
-   test { check compression with recompress } {
+   test {Check compression with recompress} {
         r del key
         config_set list-compress-depth 1
         config_set list-max-ziplist-size 16
@@ -44,7 +44,7 @@ start_server {
     if {$::accurate} { set cycles 10000 }
     foreach comp {2 1 0} {
         config_set list-compress-depth $comp
-        test {Stress tester for #3343-alike bugs comp: $comp} {
+        test "Stress tester for #3343-alike bugs comp: $comp" {
             r del key
                 for {set j 0} {$j < $cycles} {incr j} {
                 set op [randomInt 7]
@@ -71,7 +71,11 @@ start_server {
                         }
                         r linsert key $where $otherele $ele
                     }
-                    6 {r lrem key 1 $ele}
+                    6 {
+                        set index [randomInt  [r llen key]]
+                        set otherele [r lindex key $index]
+                        r lrem key 1 $otherele
+                    }
                 }
             }
         }
