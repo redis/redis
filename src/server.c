@@ -4069,7 +4069,8 @@ const char *COMMAND_GROUP_STR[] = {
     "cluster",
     "geo",
     "stream",
-    "bitmap"
+    "bitmap",
+    "module"
 };
 
 /* Output the representation of a Redis command. Used by the COMMAND command. */

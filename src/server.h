@@ -1983,7 +1983,8 @@ typedef enum {
     COMMAND_GROUP_CLUSTER,
     COMMAND_GROUP_GEO,
     COMMAND_GROUP_STREAM,
-    COMMAND_GROUP_BITMAP
+    COMMAND_GROUP_BITMAP,
+    COMMAND_GROUP_MODULE,
 } redisCommandGroup;
 
 typedef void redisCommandProc(client *c);
