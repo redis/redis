@@ -33,6 +33,100 @@
                     }
                 }
             }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "token": "GET",
+                "optional": true,
+                "name": "encoding_offset",
+                "type": "block",
+                "value": [
+                    {
+                        "name": "encoding",
+                        "type": "string",
+                        "value": "encoding"
+                    },
+                    {
+                        "name": "offset",
+                        "type": "integer",
+                        "value": "offset"
+                    }
+                ]
+            },
+            {
+                "token": "SET",
+                "optional": true,
+                "name": "encoding_offset_value",
+                "type": "block",
+                "value": [
+                    {
+                        "name": "encoding",
+                        "type": "string",
+                        "value": "encoding"
+                    },
+                    {
+                        "name": "offset",
+                        "type": "integer",
+                        "value": "offset"
+                    },
+                    {
+                        "name": "value",
+                        "type": "integer",
+                        "value": "value"
+                    }
+                ]
+            },
+            {
+                "token": "INCRBY",
+                "optional": true,
+                "name": "encoding_offset_increment",
+                "type": "block",
+                "value": [
+                    {
+                        "name": "encoding",
+                        "type": "string",
+                        "value": "encoding"
+                    },
+                    {
+                        "name": "offset",
+                        "type": "integer",
+                        "value": "offset"
+                    },
+                    {
+                        "name": "increment",
+                        "type": "integer",
+                        "value": "increment"
+                    }
+                ]
+            },
+            {
+                "token": "OVERFLOW",
+                "optional": true,
+                "name": "__TBD__11__",
+                "type": "oneof",
+                "value": [
+                    {
+                        "name": "wrap",
+                        "type": "token",
+                        "value": "WRAP"
+                    },
+                    {
+                        "name": "sat",
+                        "type": "token",
+                        "value": "SAT"
+                    },
+                    {
+                        "name": "fail",
+                        "type": "token",
+                        "value": "FAIL"
+                    }
+                ]
+            }
         ]
     }
 }

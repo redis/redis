@@ -1,5 +1,5 @@
 {
-    "COUNT-FAILURE-REPORTS": {
+    "CLUSTER COUNT-FAILURE-REPORTS": {
         "summary": "Return the number of failure reports active for a given node",
         "complexity": "O(N) where N is the number of failure reports",
         "group": "cluster",
@@ -16,6 +16,13 @@
             "admin",
             "slow",
             "dangerous"
+        ],
+        "arguments": [
+            {
+                "name": "node-id",
+                "type": "string",
+                "value": "node-id"
+            }
         ]
     }
 }

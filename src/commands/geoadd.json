@@ -39,6 +39,59 @@
                     }
                 }
             }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "optional": true,
+                "name": "__TBD__42__",
+                "type": "oneof",
+                "value": [
+                    {
+                        "name": "nx",
+                        "type": "token",
+                        "value": "NX"
+                    },
+                    {
+                        "name": "xx",
+                        "type": "token",
+                        "value": "XX"
+                    }
+                ]
+            },
+            {
+                "optional": true,
+                "name": "change",
+                "value": "CH",
+                "type": "token"
+            },
+            {
+                "multiple": true,
+                "multiple_token": true,
+                "name": "longitude_latitude_member",
+                "type": "block",
+                "value": [
+                    {
+                        "name": "longitude",
+                        "type": "double",
+                        "value": "longitude"
+                    },
+                    {
+                        "name": "latitude",
+                        "type": "double",
+                        "value": "latitude"
+                    },
+                    {
+                        "name": "member",
+                        "type": "string",
+                        "value": "member"
+                    }
+                ]
+            }
         ]
     }
 }

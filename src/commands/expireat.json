@@ -39,6 +39,45 @@
                     }
                 }
             }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "name": "timestamp",
+                "type": "unix-time",
+                "value": "timestamp"
+            },
+            {
+                "optional": true,
+                "name": "__TBD__41__",
+                "type": "oneof",
+                "value": [
+                    {
+                        "name": "nx",
+                        "type": "token",
+                        "value": "NX"
+                    },
+                    {
+                        "name": "xx",
+                        "type": "token",
+                        "value": "XX"
+                    },
+                    {
+                        "name": "gt",
+                        "type": "token",
+                        "value": "GT"
+                    },
+                    {
+                        "name": "lt",
+                        "type": "token",
+                        "value": "LT"
+                    }
+                ]
+            }
         ]
     }
 }

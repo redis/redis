@@ -5,8 +5,9 @@
         "group": "list",
         "since": "2.2.0",
         "arity": 4,
-        "depracated": true,
         "function": "brpoplpushCommand",
+        "until": "6.2.0",
+        "replaced_by": "`BLMOVE` with the `RIGHT` and `LEFT` arguments",
         "history": [
             [
                 "6.0",
@@ -59,6 +60,23 @@
                         "limit": 0
                     }
                 }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "source",
+                "type": "key",
+                "value": "source"
+            },
+            {
+                "name": "destination",
+                "type": "key",
+                "value": "destination"
+            },
+            {
+                "name": "timeout",
+                "type": "double",
+                "value": "timeout"
             }
         ]
     }

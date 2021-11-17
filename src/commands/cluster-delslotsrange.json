@@ -1,5 +1,6 @@
 {
-    "DELSLOTSRANGE": {
+    "CLUSTER DELSLOTSRANGE": {
+        "group": "cluster",
         "arity": -4,
         "container": "CLUSTER",
         "function": "clusterCommand",

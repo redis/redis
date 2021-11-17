@@ -104,6 +104,28 @@ commandHistory BITCOUNT_History[] = {
 /* BITCOUNT metadata */
 #define BITCOUNT_Metadata NULL
 
+/* BITCOUNT index __tbd__56__ argument table */
+struct redisCommandArg BITCOUNT_index___tbd__56___Subargs[] = {
+{"byte",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="BYTE"},
+{"bit",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="BIT"},
+{0}
+};
+
+/* BITCOUNT index argument table */
+struct redisCommandArg BITCOUNT_index_Subargs[] = {
+{"start",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="start"},
+{"end",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="end"},
+{"__tbd__56__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=BITCOUNT_index___tbd__56___Subargs},
+{0}
+};
+
+/* BITCOUNT argument table */
+struct redisCommandArg BITCOUNT_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"index",ARG_TYPE_BLOCK,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=BITCOUNT_index_Subargs},
+{0}
+};
+
 /********** BITFIELD ********************/
 
 /* BITFIELD return info */
@@ -114,6 +136,47 @@ commandHistory BITCOUNT_History[] = {
 
 /* BITFIELD metadata */
 #define BITFIELD_Metadata NULL
+
+/* BITFIELD encoding_offset argument table */
+struct redisCommandArg BITFIELD_encoding_offset_Subargs[] = {
+{"encoding",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="encoding"},
+{"offset",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="offset"},
+{0}
+};
+
+/* BITFIELD encoding_offset_value argument table */
+struct redisCommandArg BITFIELD_encoding_offset_value_Subargs[] = {
+{"encoding",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="encoding"},
+{"offset",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="offset"},
+{"value",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="value"},
+{0}
+};
+
+/* BITFIELD encoding_offset_increment argument table */
+struct redisCommandArg BITFIELD_encoding_offset_increment_Subargs[] = {
+{"encoding",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="encoding"},
+{"offset",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="offset"},
+{"increment",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="increment"},
+{0}
+};
+
+/* BITFIELD __tbd__11__ argument table */
+struct redisCommandArg BITFIELD___tbd__11___Subargs[] = {
+{"wrap",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="WRAP"},
+{"sat",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="SAT"},
+{"fail",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="FAIL"},
+{0}
+};
+
+/* BITFIELD argument table */
+struct redisCommandArg BITFIELD_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"encoding_offset",ARG_TYPE_BLOCK,"GET",NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=BITFIELD_encoding_offset_Subargs},
+{"encoding_offset_value",ARG_TYPE_BLOCK,"SET",NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=BITFIELD_encoding_offset_value_Subargs},
+{"encoding_offset_increment",ARG_TYPE_BLOCK,"INCRBY",NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=BITFIELD_encoding_offset_increment_Subargs},
+{"__tbd__11__",ARG_TYPE_ONEOF,"OVERFLOW",NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=BITFIELD___tbd__11___Subargs},
+{0}
+};
 
 /********** BITFIELD_RO ********************/
 
@@ -126,6 +189,20 @@ commandHistory BITCOUNT_History[] = {
 /* BITFIELD_RO metadata */
 #define BITFIELD_RO_Metadata NULL
 
+/* BITFIELD_RO encoding_offset argument table */
+struct redisCommandArg BITFIELD_RO_encoding_offset_Subargs[] = {
+{"encoding",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="encoding"},
+{"offset",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="offset"},
+{0}
+};
+
+/* BITFIELD_RO argument table */
+struct redisCommandArg BITFIELD_RO_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"encoding_offset",ARG_TYPE_BLOCK,"GET",NULL,NULL,CMD_ARG_NONE,.value.subargs=BITFIELD_RO_encoding_offset_Subargs},
+{0}
+};
+
 /********** BITOP ********************/
 
 /* BITOP return info */
@@ -136,6 +213,14 @@ commandHistory BITCOUNT_History[] = {
 
 /* BITOP metadata */
 #define BITOP_Metadata NULL
+
+/* BITOP argument table */
+struct redisCommandArg BITOP_Args[] = {
+{"operation",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="operation"},
+{"destkey",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="destkey"},
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="key"},
+{0}
+};
 
 /********** BITPOS ********************/
 
@@ -151,6 +236,35 @@ commandHistory BITPOS_History[] = {
 /* BITPOS metadata */
 #define BITPOS_Metadata NULL
 
+/* BITPOS index end_index __tbd__1__ argument table */
+struct redisCommandArg BITPOS_index_end_index___tbd__1___Subargs[] = {
+{"byte",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="BYTE"},
+{"bit",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="BIT"},
+{0}
+};
+
+/* BITPOS index end_index argument table */
+struct redisCommandArg BITPOS_index_end_index_Subargs[] = {
+{"end",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="end"},
+{"__tbd__1__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=BITPOS_index_end_index___tbd__1___Subargs},
+{0}
+};
+
+/* BITPOS index argument table */
+struct redisCommandArg BITPOS_index_Subargs[] = {
+{"start",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="start"},
+{"end_index",ARG_TYPE_BLOCK,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=BITPOS_index_end_index_Subargs},
+{0}
+};
+
+/* BITPOS argument table */
+struct redisCommandArg BITPOS_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"bit",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="bit"},
+{"index",ARG_TYPE_BLOCK,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=BITPOS_index_Subargs},
+{0}
+};
+
 /********** GETBIT ********************/
 
 /* GETBIT return info */
@@ -161,6 +275,13 @@ commandHistory BITPOS_History[] = {
 
 /* GETBIT metadata */
 #define GETBIT_Metadata NULL
+
+/* GETBIT argument table */
+struct redisCommandArg GETBIT_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"offset",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="offset"},
+{0}
+};
 
 /********** SETBIT ********************/
 
@@ -173,6 +294,14 @@ commandHistory BITPOS_History[] = {
 /* SETBIT metadata */
 #define SETBIT_Metadata NULL
 
+/* SETBIT argument table */
+struct redisCommandArg SETBIT_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"offset",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="offset"},
+{"value",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="value"},
+{0}
+};
+
 /********** ASKING ********************/
 
 /* ASKING return info */
@@ -184,299 +313,410 @@ commandHistory BITPOS_History[] = {
 /* ASKING metadata */
 #define ASKING_Metadata NULL
 
-/********** CLUSTER ADDSLOTS ********************/
+/********** CLUSTER CLUSTER ADDSLOTS ********************/
 
-/* CLUSTER ADDSLOTS return info */
-#define CLUSTER_ADDSLOTS_ReturnInfo NULL
+/* CLUSTER CLUSTER ADDSLOTS return info */
+#define CLUSTER_CLUSTER_ADDSLOTS_ReturnInfo NULL
 
-/* CLUSTER ADDSLOTS history */
-#define CLUSTER_ADDSLOTS_History NULL
+/* CLUSTER CLUSTER ADDSLOTS history */
+#define CLUSTER_CLUSTER_ADDSLOTS_History NULL
 
-/* CLUSTER ADDSLOTS metadata */
-#define CLUSTER_ADDSLOTS_Metadata NULL
+/* CLUSTER CLUSTER ADDSLOTS metadata */
+#define CLUSTER_CLUSTER_ADDSLOTS_Metadata NULL
 
-/********** CLUSTER ADDSLOTSRANGE ********************/
+/* CLUSTER CLUSTER ADDSLOTS argument table */
+struct redisCommandArg CLUSTER_CLUSTER_ADDSLOTS_Args[] = {
+{"slot",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="slot"},
+{0}
+};
 
-/* CLUSTER ADDSLOTSRANGE return info */
-#define CLUSTER_ADDSLOTSRANGE_ReturnInfo NULL
+/********** CLUSTER CLUSTER ADDSLOTSRANGE ********************/
 
-/* CLUSTER ADDSLOTSRANGE history */
-#define CLUSTER_ADDSLOTSRANGE_History NULL
+/* CLUSTER CLUSTER ADDSLOTSRANGE return info */
+#define CLUSTER_CLUSTER_ADDSLOTSRANGE_ReturnInfo NULL
 
-/* CLUSTER ADDSLOTSRANGE metadata */
-#define CLUSTER_ADDSLOTSRANGE_Metadata NULL
+/* CLUSTER CLUSTER ADDSLOTSRANGE history */
+#define CLUSTER_CLUSTER_ADDSLOTSRANGE_History NULL
 
-/********** CLUSTER BUMPEPOCH ********************/
+/* CLUSTER CLUSTER ADDSLOTSRANGE metadata */
+#define CLUSTER_CLUSTER_ADDSLOTSRANGE_Metadata NULL
 
-/* CLUSTER BUMPEPOCH return info */
-#define CLUSTER_BUMPEPOCH_ReturnInfo NULL
+/********** CLUSTER CLUSTER BUMPEPOCH ********************/
 
-/* CLUSTER BUMPEPOCH history */
-#define CLUSTER_BUMPEPOCH_History NULL
+/* CLUSTER CLUSTER BUMPEPOCH return info */
+#define CLUSTER_CLUSTER_BUMPEPOCH_ReturnInfo NULL
 
-/* CLUSTER BUMPEPOCH metadata */
-#define CLUSTER_BUMPEPOCH_Metadata NULL
+/* CLUSTER CLUSTER BUMPEPOCH history */
+#define CLUSTER_CLUSTER_BUMPEPOCH_History NULL
 
-/********** CLUSTER COUNT_FAILURE_REPORTS ********************/
+/* CLUSTER CLUSTER BUMPEPOCH metadata */
+#define CLUSTER_CLUSTER_BUMPEPOCH_Metadata NULL
 
-/* CLUSTER COUNT_FAILURE_REPORTS return info */
-#define CLUSTER_COUNT_FAILURE_REPORTS_ReturnInfo NULL
+/********** CLUSTER CLUSTER COUNT_FAILURE_REPORTS ********************/
 
-/* CLUSTER COUNT_FAILURE_REPORTS history */
-#define CLUSTER_COUNT_FAILURE_REPORTS_History NULL
+/* CLUSTER CLUSTER COUNT_FAILURE_REPORTS return info */
+#define CLUSTER_CLUSTER_COUNT_FAILURE_REPORTS_ReturnInfo NULL
 
-/* CLUSTER COUNT_FAILURE_REPORTS metadata */
-#define CLUSTER_COUNT_FAILURE_REPORTS_Metadata NULL
+/* CLUSTER CLUSTER COUNT_FAILURE_REPORTS history */
+#define CLUSTER_CLUSTER_COUNT_FAILURE_REPORTS_History NULL
 
-/********** CLUSTER COUNTKEYSINSLOT ********************/
+/* CLUSTER CLUSTER COUNT_FAILURE_REPORTS metadata */
+#define CLUSTER_CLUSTER_COUNT_FAILURE_REPORTS_Metadata NULL
 
-/* CLUSTER COUNTKEYSINSLOT return info */
-#define CLUSTER_COUNTKEYSINSLOT_ReturnInfo NULL
+/* CLUSTER CLUSTER COUNT_FAILURE_REPORTS argument table */
+struct redisCommandArg CLUSTER_CLUSTER_COUNT_FAILURE_REPORTS_Args[] = {
+{"node-id",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="node-id"},
+{0}
+};
 
-/* CLUSTER COUNTKEYSINSLOT history */
-#define CLUSTER_COUNTKEYSINSLOT_History NULL
+/********** CLUSTER CLUSTER COUNTKEYSINSLOT ********************/
 
-/* CLUSTER COUNTKEYSINSLOT metadata */
-#define CLUSTER_COUNTKEYSINSLOT_Metadata NULL
+/* CLUSTER CLUSTER COUNTKEYSINSLOT return info */
+#define CLUSTER_CLUSTER_COUNTKEYSINSLOT_ReturnInfo NULL
 
-/********** CLUSTER DELSLOTS ********************/
+/* CLUSTER CLUSTER COUNTKEYSINSLOT history */
+#define CLUSTER_CLUSTER_COUNTKEYSINSLOT_History NULL
 
-/* CLUSTER DELSLOTS return info */
-#define CLUSTER_DELSLOTS_ReturnInfo NULL
+/* CLUSTER CLUSTER COUNTKEYSINSLOT metadata */
+#define CLUSTER_CLUSTER_COUNTKEYSINSLOT_Metadata NULL
 
-/* CLUSTER DELSLOTS history */
-#define CLUSTER_DELSLOTS_History NULL
+/* CLUSTER CLUSTER COUNTKEYSINSLOT argument table */
+struct redisCommandArg CLUSTER_CLUSTER_COUNTKEYSINSLOT_Args[] = {
+{"slot",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="slot"},
+{0}
+};
 
-/* CLUSTER DELSLOTS metadata */
-#define CLUSTER_DELSLOTS_Metadata NULL
+/********** CLUSTER CLUSTER DELSLOTS ********************/
 
-/********** CLUSTER DELSLOTSRANGE ********************/
+/* CLUSTER CLUSTER DELSLOTS return info */
+#define CLUSTER_CLUSTER_DELSLOTS_ReturnInfo NULL
 
-/* CLUSTER DELSLOTSRANGE return info */
-#define CLUSTER_DELSLOTSRANGE_ReturnInfo NULL
+/* CLUSTER CLUSTER DELSLOTS history */
+#define CLUSTER_CLUSTER_DELSLOTS_History NULL
 
-/* CLUSTER DELSLOTSRANGE history */
-#define CLUSTER_DELSLOTSRANGE_History NULL
+/* CLUSTER CLUSTER DELSLOTS metadata */
+#define CLUSTER_CLUSTER_DELSLOTS_Metadata NULL
 
-/* CLUSTER DELSLOTSRANGE metadata */
-#define CLUSTER_DELSLOTSRANGE_Metadata NULL
+/* CLUSTER CLUSTER DELSLOTS argument table */
+struct redisCommandArg CLUSTER_CLUSTER_DELSLOTS_Args[] = {
+{"slot",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="slot"},
+{0}
+};
 
-/********** CLUSTER FAILOVER ********************/
+/********** CLUSTER CLUSTER DELSLOTSRANGE ********************/
 
-/* CLUSTER FAILOVER return info */
-#define CLUSTER_FAILOVER_ReturnInfo NULL
+/* CLUSTER CLUSTER DELSLOTSRANGE return info */
+#define CLUSTER_CLUSTER_DELSLOTSRANGE_ReturnInfo NULL
 
-/* CLUSTER FAILOVER history */
-#define CLUSTER_FAILOVER_History NULL
+/* CLUSTER CLUSTER DELSLOTSRANGE history */
+#define CLUSTER_CLUSTER_DELSLOTSRANGE_History NULL
 
-/* CLUSTER FAILOVER metadata */
-#define CLUSTER_FAILOVER_Metadata NULL
+/* CLUSTER CLUSTER DELSLOTSRANGE metadata */
+#define CLUSTER_CLUSTER_DELSLOTSRANGE_Metadata NULL
 
-/********** CLUSTER FLUSHSLOTS ********************/
+/********** CLUSTER CLUSTER FAILOVER ********************/
 
-/* CLUSTER FLUSHSLOTS return info */
-#define CLUSTER_FLUSHSLOTS_ReturnInfo NULL
+/* CLUSTER CLUSTER FAILOVER return info */
+#define CLUSTER_CLUSTER_FAILOVER_ReturnInfo NULL
 
-/* CLUSTER FLUSHSLOTS history */
-#define CLUSTER_FLUSHSLOTS_History NULL
+/* CLUSTER CLUSTER FAILOVER history */
+#define CLUSTER_CLUSTER_FAILOVER_History NULL
 
-/* CLUSTER FLUSHSLOTS metadata */
-#define CLUSTER_FLUSHSLOTS_Metadata NULL
+/* CLUSTER CLUSTER FAILOVER metadata */
+#define CLUSTER_CLUSTER_FAILOVER_Metadata NULL
 
-/********** CLUSTER FORGET ********************/
+/* CLUSTER CLUSTER FAILOVER __tbd__19__ argument table */
+struct redisCommandArg CLUSTER_CLUSTER_FAILOVER___tbd__19___Subargs[] = {
+{"force",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="FORCE"},
+{"takeover",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="TAKEOVER"},
+{0}
+};
 
-/* CLUSTER FORGET return info */
-#define CLUSTER_FORGET_ReturnInfo NULL
+/* CLUSTER CLUSTER FAILOVER argument table */
+struct redisCommandArg CLUSTER_CLUSTER_FAILOVER_Args[] = {
+{"__tbd__19__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=CLUSTER_CLUSTER_FAILOVER___tbd__19___Subargs},
+{0}
+};
 
-/* CLUSTER FORGET history */
-#define CLUSTER_FORGET_History NULL
+/********** CLUSTER CLUSTER FLUSHSLOTS ********************/
 
-/* CLUSTER FORGET metadata */
-#define CLUSTER_FORGET_Metadata NULL
+/* CLUSTER CLUSTER FLUSHSLOTS return info */
+#define CLUSTER_CLUSTER_FLUSHSLOTS_ReturnInfo NULL
 
-/********** CLUSTER GETKEYSINSLOT ********************/
+/* CLUSTER CLUSTER FLUSHSLOTS history */
+#define CLUSTER_CLUSTER_FLUSHSLOTS_History NULL
 
-/* CLUSTER GETKEYSINSLOT return info */
-#define CLUSTER_GETKEYSINSLOT_ReturnInfo NULL
+/* CLUSTER CLUSTER FLUSHSLOTS metadata */
+#define CLUSTER_CLUSTER_FLUSHSLOTS_Metadata NULL
 
-/* CLUSTER GETKEYSINSLOT history */
-#define CLUSTER_GETKEYSINSLOT_History NULL
+/********** CLUSTER CLUSTER FORGET ********************/
 
-/* CLUSTER GETKEYSINSLOT metadata */
-#define CLUSTER_GETKEYSINSLOT_Metadata NULL
+/* CLUSTER CLUSTER FORGET return info */
+#define CLUSTER_CLUSTER_FORGET_ReturnInfo NULL
 
-/********** CLUSTER HELP ********************/
+/* CLUSTER CLUSTER FORGET history */
+#define CLUSTER_CLUSTER_FORGET_History NULL
 
-/* CLUSTER HELP return info */
-#define CLUSTER_HELP_ReturnInfo NULL
+/* CLUSTER CLUSTER FORGET metadata */
+#define CLUSTER_CLUSTER_FORGET_Metadata NULL
 
-/* CLUSTER HELP history */
-#define CLUSTER_HELP_History NULL
+/* CLUSTER CLUSTER FORGET argument table */
+struct redisCommandArg CLUSTER_CLUSTER_FORGET_Args[] = {
+{"node-id",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="node-id"},
+{0}
+};
 
-/* CLUSTER HELP metadata */
-#define CLUSTER_HELP_Metadata NULL
+/********** CLUSTER CLUSTER GETKEYSINSLOT ********************/
 
-/********** CLUSTER INFO ********************/
+/* CLUSTER CLUSTER GETKEYSINSLOT return info */
+#define CLUSTER_CLUSTER_GETKEYSINSLOT_ReturnInfo NULL
 
-/* CLUSTER INFO return info */
-#define CLUSTER_INFO_ReturnInfo NULL
+/* CLUSTER CLUSTER GETKEYSINSLOT history */
+#define CLUSTER_CLUSTER_GETKEYSINSLOT_History NULL
 
-/* CLUSTER INFO history */
-#define CLUSTER_INFO_History NULL
+/* CLUSTER CLUSTER GETKEYSINSLOT metadata */
+#define CLUSTER_CLUSTER_GETKEYSINSLOT_Metadata NULL
 
-/* CLUSTER INFO metadata */
-#define CLUSTER_INFO_Metadata NULL
+/* CLUSTER CLUSTER GETKEYSINSLOT argument table */
+struct redisCommandArg CLUSTER_CLUSTER_GETKEYSINSLOT_Args[] = {
+{"slot",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="slot"},
+{"count",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="count"},
+{0}
+};
 
-/********** CLUSTER KEYSLOT ********************/
+/********** CLUSTER CLUSTER HELP ********************/
 
-/* CLUSTER KEYSLOT return info */
-#define CLUSTER_KEYSLOT_ReturnInfo NULL
+/* CLUSTER CLUSTER HELP return info */
+#define CLUSTER_CLUSTER_HELP_ReturnInfo NULL
 
-/* CLUSTER KEYSLOT history */
-#define CLUSTER_KEYSLOT_History NULL
+/* CLUSTER CLUSTER HELP history */
+#define CLUSTER_CLUSTER_HELP_History NULL
 
-/* CLUSTER KEYSLOT metadata */
-#define CLUSTER_KEYSLOT_Metadata NULL
+/* CLUSTER CLUSTER HELP metadata */
+#define CLUSTER_CLUSTER_HELP_Metadata NULL
 
-/********** CLUSTER MEET ********************/
+/********** CLUSTER CLUSTER INFO ********************/
 
-/* CLUSTER MEET return info */
-#define CLUSTER_MEET_ReturnInfo NULL
+/* CLUSTER CLUSTER INFO return info */
+#define CLUSTER_CLUSTER_INFO_ReturnInfo NULL
 
-/* CLUSTER MEET history */
-#define CLUSTER_MEET_History NULL
+/* CLUSTER CLUSTER INFO history */
+#define CLUSTER_CLUSTER_INFO_History NULL
 
-/* CLUSTER MEET metadata */
-#define CLUSTER_MEET_Metadata NULL
+/* CLUSTER CLUSTER INFO metadata */
+#define CLUSTER_CLUSTER_INFO_Metadata NULL
 
-/********** CLUSTER MYID ********************/
+/********** CLUSTER CLUSTER KEYSLOT ********************/
 
-/* CLUSTER MYID return info */
-#define CLUSTER_MYID_ReturnInfo NULL
+/* CLUSTER CLUSTER KEYSLOT return info */
+#define CLUSTER_CLUSTER_KEYSLOT_ReturnInfo NULL
 
-/* CLUSTER MYID history */
-#define CLUSTER_MYID_History NULL
+/* CLUSTER CLUSTER KEYSLOT history */
+#define CLUSTER_CLUSTER_KEYSLOT_History NULL
 
-/* CLUSTER MYID metadata */
-#define CLUSTER_MYID_Metadata NULL
+/* CLUSTER CLUSTER KEYSLOT metadata */
+#define CLUSTER_CLUSTER_KEYSLOT_Metadata NULL
 
-/********** CLUSTER NODES ********************/
+/* CLUSTER CLUSTER KEYSLOT argument table */
+struct redisCommandArg CLUSTER_CLUSTER_KEYSLOT_Args[] = {
+{"key",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{0}
+};
 
-/* CLUSTER NODES return info */
-#define CLUSTER_NODES_ReturnInfo NULL
+/********** CLUSTER CLUSTER MEET ********************/
 
-/* CLUSTER NODES history */
-#define CLUSTER_NODES_History NULL
+/* CLUSTER CLUSTER MEET return info */
+#define CLUSTER_CLUSTER_MEET_ReturnInfo NULL
 
-/* CLUSTER NODES metadata */
-#define CLUSTER_NODES_Metadata NULL
+/* CLUSTER CLUSTER MEET history */
+#define CLUSTER_CLUSTER_MEET_History NULL
 
-/********** CLUSTER REPLICAS ********************/
+/* CLUSTER CLUSTER MEET metadata */
+#define CLUSTER_CLUSTER_MEET_Metadata NULL
 
-/* CLUSTER REPLICAS return info */
-#define CLUSTER_REPLICAS_ReturnInfo NULL
+/* CLUSTER CLUSTER MEET argument table */
+struct redisCommandArg CLUSTER_CLUSTER_MEET_Args[] = {
+{"ip",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="ip"},
+{"port",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="port"},
+{0}
+};
 
-/* CLUSTER REPLICAS history */
-#define CLUSTER_REPLICAS_History NULL
+/********** CLUSTER CLUSTER MYID ********************/
 
-/* CLUSTER REPLICAS metadata */
-#define CLUSTER_REPLICAS_Metadata NULL
+/* CLUSTER CLUSTER MYID return info */
+#define CLUSTER_CLUSTER_MYID_ReturnInfo NULL
 
-/********** CLUSTER REPLICATE ********************/
+/* CLUSTER CLUSTER MYID history */
+#define CLUSTER_CLUSTER_MYID_History NULL
 
-/* CLUSTER REPLICATE return info */
-#define CLUSTER_REPLICATE_ReturnInfo NULL
+/* CLUSTER CLUSTER MYID metadata */
+#define CLUSTER_CLUSTER_MYID_Metadata NULL
 
-/* CLUSTER REPLICATE history */
-#define CLUSTER_REPLICATE_History NULL
+/********** CLUSTER CLUSTER NODES ********************/
 
-/* CLUSTER REPLICATE metadata */
-#define CLUSTER_REPLICATE_Metadata NULL
+/* CLUSTER CLUSTER NODES return info */
+#define CLUSTER_CLUSTER_NODES_ReturnInfo NULL
 
-/********** CLUSTER RESET ********************/
+/* CLUSTER CLUSTER NODES history */
+#define CLUSTER_CLUSTER_NODES_History NULL
 
-/* CLUSTER RESET return info */
-#define CLUSTER_RESET_ReturnInfo NULL
+/* CLUSTER CLUSTER NODES metadata */
+#define CLUSTER_CLUSTER_NODES_Metadata NULL
 
-/* CLUSTER RESET history */
-#define CLUSTER_RESET_History NULL
+/********** CLUSTER CLUSTER REPLICAS ********************/
 
-/* CLUSTER RESET metadata */
-#define CLUSTER_RESET_Metadata NULL
+/* CLUSTER CLUSTER REPLICAS return info */
+#define CLUSTER_CLUSTER_REPLICAS_ReturnInfo NULL
 
-/********** CLUSTER SAVECONFIG ********************/
+/* CLUSTER CLUSTER REPLICAS history */
+#define CLUSTER_CLUSTER_REPLICAS_History NULL
 
-/* CLUSTER SAVECONFIG return info */
-#define CLUSTER_SAVECONFIG_ReturnInfo NULL
+/* CLUSTER CLUSTER REPLICAS metadata */
+#define CLUSTER_CLUSTER_REPLICAS_Metadata NULL
 
-/* CLUSTER SAVECONFIG history */
-#define CLUSTER_SAVECONFIG_History NULL
+/* CLUSTER CLUSTER REPLICAS argument table */
+struct redisCommandArg CLUSTER_CLUSTER_REPLICAS_Args[] = {
+{"node-id",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="node-id"},
+{0}
+};
 
-/* CLUSTER SAVECONFIG metadata */
-#define CLUSTER_SAVECONFIG_Metadata NULL
+/********** CLUSTER CLUSTER REPLICATE ********************/
 
-/********** CLUSTER SET_CONFIG_EPOCH ********************/
+/* CLUSTER CLUSTER REPLICATE return info */
+#define CLUSTER_CLUSTER_REPLICATE_ReturnInfo NULL
 
-/* CLUSTER SET_CONFIG_EPOCH return info */
-#define CLUSTER_SET_CONFIG_EPOCH_ReturnInfo NULL
+/* CLUSTER CLUSTER REPLICATE history */
+#define CLUSTER_CLUSTER_REPLICATE_History NULL
 
-/* CLUSTER SET_CONFIG_EPOCH history */
-#define CLUSTER_SET_CONFIG_EPOCH_History NULL
+/* CLUSTER CLUSTER REPLICATE metadata */
+#define CLUSTER_CLUSTER_REPLICATE_Metadata NULL
 
-/* CLUSTER SET_CONFIG_EPOCH metadata */
-#define CLUSTER_SET_CONFIG_EPOCH_Metadata NULL
+/* CLUSTER CLUSTER REPLICATE argument table */
+struct redisCommandArg CLUSTER_CLUSTER_REPLICATE_Args[] = {
+{"node-id",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="node-id"},
+{0}
+};
 
-/********** CLUSTER SETSLOT ********************/
+/********** CLUSTER CLUSTER RESET ********************/
 
-/* CLUSTER SETSLOT return info */
-#define CLUSTER_SETSLOT_ReturnInfo NULL
+/* CLUSTER CLUSTER RESET return info */
+#define CLUSTER_CLUSTER_RESET_ReturnInfo NULL
 
-/* CLUSTER SETSLOT history */
-#define CLUSTER_SETSLOT_History NULL
+/* CLUSTER CLUSTER RESET history */
+#define CLUSTER_CLUSTER_RESET_History NULL
 
-/* CLUSTER SETSLOT metadata */
-#define CLUSTER_SETSLOT_Metadata NULL
+/* CLUSTER CLUSTER RESET metadata */
+#define CLUSTER_CLUSTER_RESET_Metadata NULL
 
-/********** CLUSTER SLOTS ********************/
+/* CLUSTER CLUSTER RESET __tbd__20__ argument table */
+struct redisCommandArg CLUSTER_CLUSTER_RESET___tbd__20___Subargs[] = {
+{"hard",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="HARD"},
+{"soft",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="SOFT"},
+{0}
+};
 
-/* CLUSTER SLOTS return info */
-#define CLUSTER_SLOTS_ReturnInfo NULL
+/* CLUSTER CLUSTER RESET argument table */
+struct redisCommandArg CLUSTER_CLUSTER_RESET_Args[] = {
+{"__tbd__20__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=CLUSTER_CLUSTER_RESET___tbd__20___Subargs},
+{0}
+};
 
-/* CLUSTER SLOTS history */
-commandHistory CLUSTER_SLOTS_History[] = {
+/********** CLUSTER CLUSTER SAVECONFIG ********************/
+
+/* CLUSTER CLUSTER SAVECONFIG return info */
+#define CLUSTER_CLUSTER_SAVECONFIG_ReturnInfo NULL
+
+/* CLUSTER CLUSTER SAVECONFIG history */
+#define CLUSTER_CLUSTER_SAVECONFIG_History NULL
+
+/* CLUSTER CLUSTER SAVECONFIG metadata */
+#define CLUSTER_CLUSTER_SAVECONFIG_Metadata NULL
+
+/********** CLUSTER CLUSTER SET_CONFIG_EPOCH ********************/
+
+/* CLUSTER CLUSTER SET_CONFIG_EPOCH return info */
+#define CLUSTER_CLUSTER_SET_CONFIG_EPOCH_ReturnInfo NULL
+
+/* CLUSTER CLUSTER SET_CONFIG_EPOCH history */
+#define CLUSTER_CLUSTER_SET_CONFIG_EPOCH_History NULL
+
+/* CLUSTER CLUSTER SET_CONFIG_EPOCH metadata */
+#define CLUSTER_CLUSTER_SET_CONFIG_EPOCH_Metadata NULL
+
+/* CLUSTER CLUSTER SET_CONFIG_EPOCH argument table */
+struct redisCommandArg CLUSTER_CLUSTER_SET_CONFIG_EPOCH_Args[] = {
+{"config-epoch",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="config-epoch"},
+{0}
+};
+
+/********** CLUSTER CLUSTER SETSLOT ********************/
+
+/* CLUSTER CLUSTER SETSLOT return info */
+#define CLUSTER_CLUSTER_SETSLOT_ReturnInfo NULL
+
+/* CLUSTER CLUSTER SETSLOT history */
+#define CLUSTER_CLUSTER_SETSLOT_History NULL
+
+/* CLUSTER CLUSTER SETSLOT metadata */
+#define CLUSTER_CLUSTER_SETSLOT_Metadata NULL
+
+/* CLUSTER CLUSTER SETSLOT __tbd__21__ argument table */
+struct redisCommandArg CLUSTER_CLUSTER_SETSLOT___tbd__21___Subargs[] = {
+{"importing",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="IMPORTING"},
+{"migrating",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="MIGRATING"},
+{"stable",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="STABLE"},
+{"node",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="NODE"},
+{0}
+};
+
+/* CLUSTER CLUSTER SETSLOT argument table */
+struct redisCommandArg CLUSTER_CLUSTER_SETSLOT_Args[] = {
+{"slot",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="slot"},
+{"__tbd__21__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_NONE,.value.subargs=CLUSTER_CLUSTER_SETSLOT___tbd__21___Subargs},
+{"node-id",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="node-id"},
+{0}
+};
+
+/********** CLUSTER CLUSTER SLOTS ********************/
+
+/* CLUSTER CLUSTER SLOTS return info */
+#define CLUSTER_CLUSTER_SLOTS_ReturnInfo NULL
+
+/* CLUSTER CLUSTER SLOTS history */
+commandHistory CLUSTER_CLUSTER_SLOTS_History[] = {
 {"4.0","Added node IDs."},
 {0}
 };
 
-/* CLUSTER SLOTS metadata */
-#define CLUSTER_SLOTS_Metadata NULL
+/* CLUSTER CLUSTER SLOTS metadata */
+#define CLUSTER_CLUSTER_SLOTS_Metadata NULL
 
 /* CLUSTER command table */
 struct redisCommand CLUSTER_Subcommands[] = {
-{"reset","Reset a Redis Cluster node","O(N) where N is the number of known nodes. The command may execute a FLUSHALL as a side effect.","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_RESET_ReturnInfo,CLUSTER_RESET_History,CLUSTER_RESET_Metadata,clusterCommand,3,"admin random stale @admin @slow @dangerous"},
-{"addslots","Assign new hash slots to receiving node","O(N) where N is the total number of hash slot arguments","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_ADDSLOTS_ReturnInfo,CLUSTER_ADDSLOTS_History,CLUSTER_ADDSLOTS_Metadata,clusterCommand,-3,"admin random stale @admin @slow @dangerous"},
-{"help","Show helpful text about the different subcommands","O(1)","5.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_HELP_ReturnInfo,CLUSTER_HELP_History,CLUSTER_HELP_Metadata,clusterCommand,2,"loading stale @slow"},
-{"replicas","List replica nodes of the specified master node","O(1)","5.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_REPLICAS_ReturnInfo,CLUSTER_REPLICAS_History,CLUSTER_REPLICAS_Metadata,clusterCommand,3,"admin random stale @admin @slow @dangerous"},
-{"flushslots","Delete a node's own slots information","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_FLUSHSLOTS_ReturnInfo,CLUSTER_FLUSHSLOTS_History,CLUSTER_FLUSHSLOTS_Metadata,clusterCommand,2,"admin random stale @admin @slow @dangerous"},
-{"saveconfig","Forces the node to save cluster state on disk","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_SAVECONFIG_ReturnInfo,CLUSTER_SAVECONFIG_History,CLUSTER_SAVECONFIG_Metadata,clusterCommand,2,"admin random stale @admin @slow @dangerous"},
-{"myid","Return the node id","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_MYID_ReturnInfo,CLUSTER_MYID_History,CLUSTER_MYID_Metadata,clusterCommand,2,"random stale @slow"},
-{"nodes","Get Cluster config for the node","O(N) where N is the total number of Cluster nodes","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_NODES_ReturnInfo,CLUSTER_NODES_History,CLUSTER_NODES_Metadata,clusterCommand,2,"random stale @slow"},
-{"keyslot","Returns the hash slot of the specified key","O(N) where N is the number of bytes in the key","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_KEYSLOT_ReturnInfo,CLUSTER_KEYSLOT_History,CLUSTER_KEYSLOT_Metadata,clusterCommand,3,"random stale @slow"},
-{"count-failure-reports","Return the number of failure reports active for a given node","O(N) where N is the number of failure reports","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_COUNT_FAILURE_REPORTS_ReturnInfo,CLUSTER_COUNT_FAILURE_REPORTS_History,CLUSTER_COUNT_FAILURE_REPORTS_Metadata,clusterCommand,3,"admin random stale @admin @slow @dangerous"},
-{"meet","Force a node cluster to handshake with another node","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_MEET_ReturnInfo,CLUSTER_MEET_History,CLUSTER_MEET_Metadata,clusterCommand,-4,"admin random stale @admin @slow @dangerous"},
-{"slots","Get array of Cluster slot to node mappings","O(N) where N is the total number of Cluster nodes","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_SLOTS_ReturnInfo,CLUSTER_SLOTS_History,CLUSTER_SLOTS_Metadata,clusterCommand,2,"random stale @slow"},
-{"bumpepoch","Advance the cluster config epoch","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_BUMPEPOCH_ReturnInfo,CLUSTER_BUMPEPOCH_History,CLUSTER_BUMPEPOCH_Metadata,clusterCommand,2,"admin random stale @admin @slow @dangerous"},
-{"setslot","Bind a hash slot to a specific node","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_SETSLOT_ReturnInfo,CLUSTER_SETSLOT_History,CLUSTER_SETSLOT_Metadata,clusterCommand,-4,"admin random stale @admin @slow @dangerous"},
-{"forget","Remove a node from the nodes table","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_FORGET_ReturnInfo,CLUSTER_FORGET_History,CLUSTER_FORGET_Metadata,clusterCommand,3,"admin random stale @admin @slow @dangerous"},
-{"getkeysinslot","Return local key names in the specified hash slot","O(log(N)) where N is the number of requested keys","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_GETKEYSINSLOT_ReturnInfo,CLUSTER_GETKEYSINSLOT_History,CLUSTER_GETKEYSINSLOT_Metadata,clusterCommand,4,"random stale @slow"},
-{"addslotsrange",NULL,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_ADDSLOTSRANGE_ReturnInfo,CLUSTER_ADDSLOTSRANGE_History,CLUSTER_ADDSLOTSRANGE_Metadata,clusterCommand,-4,"admin random stale @admin @slow @dangerous"},
-{"info","Provides info about Redis Cluster node state","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_INFO_ReturnInfo,CLUSTER_INFO_History,CLUSTER_INFO_Metadata,clusterCommand,2,"random stale @slow"},
-{"countkeysinslot","Return the number of local keys in the specified hash slot","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_COUNTKEYSINSLOT_ReturnInfo,CLUSTER_COUNTKEYSINSLOT_History,CLUSTER_COUNTKEYSINSLOT_Metadata,clusterCommand,3,"random stale @slow"},
-{"failover","Forces a replica to perform a manual failover of its master.","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_FAILOVER_ReturnInfo,CLUSTER_FAILOVER_History,CLUSTER_FAILOVER_Metadata,clusterCommand,-2,"admin random stale @admin @slow @dangerous"},
-{"delslotsrange",NULL,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_DELSLOTSRANGE_ReturnInfo,CLUSTER_DELSLOTSRANGE_History,CLUSTER_DELSLOTSRANGE_Metadata,clusterCommand,-4,"admin random stale @admin @slow @dangerous"},
-{"replicate","Reconfigure a node as a replica of the specified master node","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_REPLICATE_ReturnInfo,CLUSTER_REPLICATE_History,CLUSTER_REPLICATE_Metadata,clusterCommand,3,"admin random stale @admin @slow @dangerous"},
-{"delslots","Set hash slots as unbound in receiving node","O(N) where N is the total number of hash slot arguments","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_DELSLOTS_ReturnInfo,CLUSTER_DELSLOTS_History,CLUSTER_DELSLOTS_Metadata,clusterCommand,-3,"admin random stale @admin @slow @dangerous"},
-{"set-config-epoch","Set the configuration epoch in a new node","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_SET_CONFIG_EPOCH_ReturnInfo,CLUSTER_SET_CONFIG_EPOCH_History,CLUSTER_SET_CONFIG_EPOCH_Metadata,clusterCommand,3,"admin random stale @admin @slow @dangerous"},
+{"cluster failover","Forces a replica to perform a manual failover of its master.","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_CLUSTER_FAILOVER_ReturnInfo,CLUSTER_CLUSTER_FAILOVER_History,CLUSTER_CLUSTER_FAILOVER_Metadata,clusterCommand,-2,"admin random stale @admin @slow @dangerous",.args=CLUSTER_CLUSTER_FAILOVER_Args},
+{"cluster forget","Remove a node from the nodes table","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_CLUSTER_FORGET_ReturnInfo,CLUSTER_CLUSTER_FORGET_History,CLUSTER_CLUSTER_FORGET_Metadata,clusterCommand,3,"admin random stale @admin @slow @dangerous",.args=CLUSTER_CLUSTER_FORGET_Args},
+{"cluster slots","Get array of Cluster slot to node mappings","O(N) where N is the total number of Cluster nodes","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_CLUSTER_SLOTS_ReturnInfo,CLUSTER_CLUSTER_SLOTS_History,CLUSTER_CLUSTER_SLOTS_Metadata,clusterCommand,2,"random stale @slow"},
+{"cluster reset","Reset a Redis Cluster node","O(N) where N is the number of known nodes. The command may execute a FLUSHALL as a side effect.","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_CLUSTER_RESET_ReturnInfo,CLUSTER_CLUSTER_RESET_History,CLUSTER_CLUSTER_RESET_Metadata,clusterCommand,3,"admin random stale @admin @slow @dangerous",.args=CLUSTER_CLUSTER_RESET_Args},
+{"cluster flushslots","Delete a node's own slots information","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_CLUSTER_FLUSHSLOTS_ReturnInfo,CLUSTER_CLUSTER_FLUSHSLOTS_History,CLUSTER_CLUSTER_FLUSHSLOTS_Metadata,clusterCommand,2,"admin random stale @admin @slow @dangerous"},
+{"cluster replicate","Reconfigure a node as a replica of the specified master node","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_CLUSTER_REPLICATE_ReturnInfo,CLUSTER_CLUSTER_REPLICATE_History,CLUSTER_CLUSTER_REPLICATE_Metadata,clusterCommand,3,"admin random stale @admin @slow @dangerous",.args=CLUSTER_CLUSTER_REPLICATE_Args},
+{"cluster myid","Return the node id","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_CLUSTER_MYID_ReturnInfo,CLUSTER_CLUSTER_MYID_History,CLUSTER_CLUSTER_MYID_Metadata,clusterCommand,2,"random stale @slow"},
+{"cluster delslotsrange",NULL,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_CLUSTER_DELSLOTSRANGE_ReturnInfo,CLUSTER_CLUSTER_DELSLOTSRANGE_History,CLUSTER_CLUSTER_DELSLOTSRANGE_Metadata,clusterCommand,-4,"admin random stale @admin @slow @dangerous"},
+{"cluster bumpepoch","Advance the cluster config epoch","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_CLUSTER_BUMPEPOCH_ReturnInfo,CLUSTER_CLUSTER_BUMPEPOCH_History,CLUSTER_CLUSTER_BUMPEPOCH_Metadata,clusterCommand,2,"admin random stale @admin @slow @dangerous"},
+{"cluster help",NULL,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_CLUSTER_HELP_ReturnInfo,CLUSTER_CLUSTER_HELP_History,CLUSTER_CLUSTER_HELP_Metadata,clusterCommand,2,"loading stale @slow"},
+{"cluster replicas","List replica nodes of the specified master node","O(1)","5.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_CLUSTER_REPLICAS_ReturnInfo,CLUSTER_CLUSTER_REPLICAS_History,CLUSTER_CLUSTER_REPLICAS_Metadata,clusterCommand,3,"admin random stale @admin @slow @dangerous",.args=CLUSTER_CLUSTER_REPLICAS_Args},
+{"cluster delslots","Set hash slots as unbound in receiving node","O(N) where N is the total number of hash slot arguments","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_CLUSTER_DELSLOTS_ReturnInfo,CLUSTER_CLUSTER_DELSLOTS_History,CLUSTER_CLUSTER_DELSLOTS_Metadata,clusterCommand,-3,"admin random stale @admin @slow @dangerous",.args=CLUSTER_CLUSTER_DELSLOTS_Args},
+{"cluster getkeysinslot","Return local key names in the specified hash slot","O(log(N)) where N is the number of requested keys","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_CLUSTER_GETKEYSINSLOT_ReturnInfo,CLUSTER_CLUSTER_GETKEYSINSLOT_History,CLUSTER_CLUSTER_GETKEYSINSLOT_Metadata,clusterCommand,4,"random stale @slow",.args=CLUSTER_CLUSTER_GETKEYSINSLOT_Args},
+{"cluster nodes","Get Cluster config for the node","O(N) where N is the total number of Cluster nodes","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_CLUSTER_NODES_ReturnInfo,CLUSTER_CLUSTER_NODES_History,CLUSTER_CLUSTER_NODES_Metadata,clusterCommand,2,"random stale @slow"},
+{"cluster keyslot","Returns the hash slot of the specified key","O(N) where N is the number of bytes in the key","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_CLUSTER_KEYSLOT_ReturnInfo,CLUSTER_CLUSTER_KEYSLOT_History,CLUSTER_CLUSTER_KEYSLOT_Metadata,clusterCommand,3,"random stale @slow",.args=CLUSTER_CLUSTER_KEYSLOT_Args},
+{"cluster info","Provides info about Redis Cluster node state","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_CLUSTER_INFO_ReturnInfo,CLUSTER_CLUSTER_INFO_History,CLUSTER_CLUSTER_INFO_Metadata,clusterCommand,2,"random stale @slow"},
+{"cluster countkeysinslot","Return the number of local keys in the specified hash slot","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_CLUSTER_COUNTKEYSINSLOT_ReturnInfo,CLUSTER_CLUSTER_COUNTKEYSINSLOT_History,CLUSTER_CLUSTER_COUNTKEYSINSLOT_Metadata,clusterCommand,3,"random stale @slow",.args=CLUSTER_CLUSTER_COUNTKEYSINSLOT_Args},
+{"cluster addslots","Assign new hash slots to receiving node","O(N) where N is the total number of hash slot arguments","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_CLUSTER_ADDSLOTS_ReturnInfo,CLUSTER_CLUSTER_ADDSLOTS_History,CLUSTER_CLUSTER_ADDSLOTS_Metadata,clusterCommand,-3,"admin random stale @admin @slow @dangerous",.args=CLUSTER_CLUSTER_ADDSLOTS_Args},
+{"cluster set-config-epoch","Set the configuration epoch in a new node","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_CLUSTER_SET_CONFIG_EPOCH_ReturnInfo,CLUSTER_CLUSTER_SET_CONFIG_EPOCH_History,CLUSTER_CLUSTER_SET_CONFIG_EPOCH_Metadata,clusterCommand,3,"admin random stale @admin @slow @dangerous",.args=CLUSTER_CLUSTER_SET_CONFIG_EPOCH_Args},
+{"cluster saveconfig","Forces the node to save cluster state on disk","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_CLUSTER_SAVECONFIG_ReturnInfo,CLUSTER_CLUSTER_SAVECONFIG_History,CLUSTER_CLUSTER_SAVECONFIG_Metadata,clusterCommand,2,"admin random stale @admin @slow @dangerous"},
+{"cluster count-failure-reports","Return the number of failure reports active for a given node","O(N) where N is the number of failure reports","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_CLUSTER_COUNT_FAILURE_REPORTS_ReturnInfo,CLUSTER_CLUSTER_COUNT_FAILURE_REPORTS_History,CLUSTER_CLUSTER_COUNT_FAILURE_REPORTS_Metadata,clusterCommand,3,"admin random stale @admin @slow @dangerous",.args=CLUSTER_CLUSTER_COUNT_FAILURE_REPORTS_Args},
+{"cluster setslot","Bind a hash slot to a specific node","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_CLUSTER_SETSLOT_ReturnInfo,CLUSTER_CLUSTER_SETSLOT_History,CLUSTER_CLUSTER_SETSLOT_Metadata,clusterCommand,-4,"admin random stale @admin @slow @dangerous",.args=CLUSTER_CLUSTER_SETSLOT_Args},
+{"cluster meet","Force a node cluster to handshake with another node","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_CLUSTER_MEET_ReturnInfo,CLUSTER_CLUSTER_MEET_History,CLUSTER_CLUSTER_MEET_Metadata,clusterCommand,-4,"admin random stale @admin @slow @dangerous",.args=CLUSTER_CLUSTER_MEET_Args},
+{"cluster addslotsrange",NULL,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_CLUSTER_ADDSLOTSRANGE_ReturnInfo,CLUSTER_CLUSTER_ADDSLOTSRANGE_History,CLUSTER_CLUSTER_ADDSLOTSRANGE_Metadata,clusterCommand,-4,"admin random stale @admin @slow @dangerous"},
 {0}
 };
 
@@ -527,79 +767,99 @@ commandHistory AUTH_History[] = {
 /* AUTH metadata */
 #define AUTH_Metadata NULL
 
-/********** CLIENT CACHING ********************/
+/* AUTH argument table */
+struct redisCommandArg AUTH_Args[] = {
+{"username",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="username"},
+{"password",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="password"},
+{0}
+};
 
-/* CLIENT CACHING return info */
-#define CLIENT_CACHING_ReturnInfo NULL
+/********** CLIENT CLIENT CACHING ********************/
 
-/* CLIENT CACHING history */
-#define CLIENT_CACHING_History NULL
+/* CLIENT CLIENT CACHING return info */
+#define CLIENT_CLIENT_CACHING_ReturnInfo NULL
 
-/* CLIENT CACHING metadata */
-#define CLIENT_CACHING_Metadata NULL
+/* CLIENT CLIENT CACHING history */
+#define CLIENT_CLIENT_CACHING_History NULL
 
-/********** CLIENT GETNAME ********************/
+/* CLIENT CLIENT CACHING metadata */
+#define CLIENT_CLIENT_CACHING_Metadata NULL
 
-/* CLIENT GETNAME return info */
-#define CLIENT_GETNAME_ReturnInfo NULL
+/* CLIENT CLIENT CACHING __tbd__53__ argument table */
+struct redisCommandArg CLIENT_CLIENT_CACHING___tbd__53___Subargs[] = {
+{"yes",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="YES"},
+{"no",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="NO"},
+{0}
+};
 
-/* CLIENT GETNAME history */
-#define CLIENT_GETNAME_History NULL
+/* CLIENT CLIENT CACHING argument table */
+struct redisCommandArg CLIENT_CLIENT_CACHING_Args[] = {
+{"__tbd__53__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_NONE,.value.subargs=CLIENT_CLIENT_CACHING___tbd__53___Subargs},
+{0}
+};
 
-/* CLIENT GETNAME metadata */
-#define CLIENT_GETNAME_Metadata NULL
+/********** CLIENT CLIENT GETNAME ********************/
 
-/********** CLIENT GETREDIR ********************/
+/* CLIENT CLIENT GETNAME return info */
+#define CLIENT_CLIENT_GETNAME_ReturnInfo NULL
 
-/* CLIENT GETREDIR return info */
-#define CLIENT_GETREDIR_ReturnInfo NULL
+/* CLIENT CLIENT GETNAME history */
+#define CLIENT_CLIENT_GETNAME_History NULL
 
-/* CLIENT GETREDIR history */
-#define CLIENT_GETREDIR_History NULL
+/* CLIENT CLIENT GETNAME metadata */
+#define CLIENT_CLIENT_GETNAME_Metadata NULL
 
-/* CLIENT GETREDIR metadata */
-#define CLIENT_GETREDIR_Metadata NULL
+/********** CLIENT CLIENT GETREDIR ********************/
 
-/********** CLIENT HELP ********************/
+/* CLIENT CLIENT GETREDIR return info */
+#define CLIENT_CLIENT_GETREDIR_ReturnInfo NULL
 
-/* CLIENT HELP return info */
-#define CLIENT_HELP_ReturnInfo NULL
+/* CLIENT CLIENT GETREDIR history */
+#define CLIENT_CLIENT_GETREDIR_History NULL
 
-/* CLIENT HELP history */
-#define CLIENT_HELP_History NULL
+/* CLIENT CLIENT GETREDIR metadata */
+#define CLIENT_CLIENT_GETREDIR_Metadata NULL
 
-/* CLIENT HELP metadata */
-#define CLIENT_HELP_Metadata NULL
+/********** CLIENT CLIENT HELP ********************/
 
-/********** CLIENT ID ********************/
+/* CLIENT CLIENT HELP return info */
+#define CLIENT_CLIENT_HELP_ReturnInfo NULL
 
-/* CLIENT ID return info */
-#define CLIENT_ID_ReturnInfo NULL
+/* CLIENT CLIENT HELP history */
+#define CLIENT_CLIENT_HELP_History NULL
 
-/* CLIENT ID history */
-#define CLIENT_ID_History NULL
+/* CLIENT CLIENT HELP metadata */
+#define CLIENT_CLIENT_HELP_Metadata NULL
 
-/* CLIENT ID metadata */
-#define CLIENT_ID_Metadata NULL
+/********** CLIENT CLIENT ID ********************/
 
-/********** CLIENT INFO ********************/
+/* CLIENT CLIENT ID return info */
+#define CLIENT_CLIENT_ID_ReturnInfo NULL
 
-/* CLIENT INFO return info */
-#define CLIENT_INFO_ReturnInfo NULL
+/* CLIENT CLIENT ID history */
+#define CLIENT_CLIENT_ID_History NULL
 
-/* CLIENT INFO history */
-#define CLIENT_INFO_History NULL
+/* CLIENT CLIENT ID metadata */
+#define CLIENT_CLIENT_ID_Metadata NULL
 
-/* CLIENT INFO metadata */
-#define CLIENT_INFO_Metadata NULL
+/********** CLIENT CLIENT INFO ********************/
 
-/********** CLIENT KILL ********************/
+/* CLIENT CLIENT INFO return info */
+#define CLIENT_CLIENT_INFO_ReturnInfo NULL
 
-/* CLIENT KILL return info */
-#define CLIENT_KILL_ReturnInfo NULL
+/* CLIENT CLIENT INFO history */
+#define CLIENT_CLIENT_INFO_History NULL
 
-/* CLIENT KILL history */
-commandHistory CLIENT_KILL_History[] = {
+/* CLIENT CLIENT INFO metadata */
+#define CLIENT_CLIENT_INFO_Metadata NULL
+
+/********** CLIENT CLIENT KILL ********************/
+
+/* CLIENT CLIENT KILL return info */
+#define CLIENT_CLIENT_KILL_ReturnInfo NULL
+
+/* CLIENT CLIENT KILL history */
+commandHistory CLIENT_CLIENT_KILL_History[] = {
 {"2.8.12","Added new filter format. "},
 {"2.8.12","`ID` option."},
 {"3.2","Added `master` type in for `TYPE` option."},
@@ -608,135 +868,259 @@ commandHistory CLIENT_KILL_History[] = {
 {0}
 };
 
-/* CLIENT KILL metadata */
-#define CLIENT_KILL_Metadata NULL
+/* CLIENT CLIENT KILL metadata */
+#define CLIENT_CLIENT_KILL_Metadata NULL
 
-/********** CLIENT LIST ********************/
+/* CLIENT CLIENT KILL __tbd__48__ argument table */
+struct redisCommandArg CLIENT_CLIENT_KILL___tbd__48___Subargs[] = {
+{"normal",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="normal"},
+{"master",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="master"},
+{"slave",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="slave"},
+{"pubsub",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="pubsub"},
+{0}
+};
 
-/* CLIENT LIST return info */
-#define CLIENT_LIST_ReturnInfo NULL
+/* CLIENT CLIENT KILL argument table */
+struct redisCommandArg CLIENT_CLIENT_KILL_Args[] = {
+{"ip:port",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="ip:port"},
+{"client-id",ARG_TYPE_INTEGER,"ID",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="client-id"},
+{"__tbd__48__",ARG_TYPE_ONEOF,"TYPE",NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=CLIENT_CLIENT_KILL___tbd__48___Subargs},
+{"username",ARG_TYPE_STRING,"USER",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="username"},
+{"ip:port",ARG_TYPE_STRING,"ADDR",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="ip:port"},
+{"ip:port",ARG_TYPE_STRING,"LADDR",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="ip:port"},
+{"yes/no",ARG_TYPE_STRING,"SKIPME",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="yes/no"},
+{0}
+};
 
-/* CLIENT LIST history */
-commandHistory CLIENT_LIST_History[] = {
+/********** CLIENT CLIENT LIST ********************/
+
+/* CLIENT CLIENT LIST return info */
+#define CLIENT_CLIENT_LIST_ReturnInfo NULL
+
+/* CLIENT CLIENT LIST history */
+commandHistory CLIENT_CLIENT_LIST_History[] = {
 {"2.8.12","Added unique client `id` field."},
 {"5.0","Added optional `TYPE` filter."},
 {"6.2","Added `laddr` field and the optional `ID` filter."},
 {0}
 };
 
-/* CLIENT LIST metadata */
-#define CLIENT_LIST_Metadata NULL
+/* CLIENT CLIENT LIST metadata */
+#define CLIENT_CLIENT_LIST_Metadata NULL
 
-/********** CLIENT NO_EVICT ********************/
+/* CLIENT CLIENT LIST __tbd__52__ argument table */
+struct redisCommandArg CLIENT_CLIENT_LIST___tbd__52___Subargs[] = {
+{"normal",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="normal"},
+{"master",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="master"},
+{"replica",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="replica"},
+{"pubsub",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="pubsub"},
+{0}
+};
 
-/* CLIENT NO_EVICT return info */
-#define CLIENT_NO_EVICT_ReturnInfo NULL
+/* CLIENT CLIENT LIST id argument table */
+struct redisCommandArg CLIENT_CLIENT_LIST_id_Subargs[] = {
+{"id",ARG_TYPE_TOKEN,"ID",NULL,NULL,CMD_ARG_NONE,.value.string="ID"},
+{"client-id",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="client-id"},
+{0}
+};
 
-/* CLIENT NO_EVICT history */
-#define CLIENT_NO_EVICT_History NULL
+/* CLIENT CLIENT LIST argument table */
+struct redisCommandArg CLIENT_CLIENT_LIST_Args[] = {
+{"__tbd__52__",ARG_TYPE_ONEOF,"TYPE",NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=CLIENT_CLIENT_LIST___tbd__52___Subargs},
+{"id",ARG_TYPE_BLOCK,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=CLIENT_CLIENT_LIST_id_Subargs},
+{0}
+};
 
-/* CLIENT NO_EVICT metadata */
-#define CLIENT_NO_EVICT_Metadata NULL
+/********** CLIENT CLIENT NO_EVICT ********************/
 
-/********** CLIENT PAUSE ********************/
+/* CLIENT CLIENT NO_EVICT return info */
+#define CLIENT_CLIENT_NO_EVICT_ReturnInfo NULL
 
-/* CLIENT PAUSE return info */
-#define CLIENT_PAUSE_ReturnInfo NULL
+/* CLIENT CLIENT NO_EVICT history */
+#define CLIENT_CLIENT_NO_EVICT_History NULL
 
-/* CLIENT PAUSE history */
-commandHistory CLIENT_PAUSE_History[] = {
+/* CLIENT CLIENT NO_EVICT metadata */
+#define CLIENT_CLIENT_NO_EVICT_Metadata NULL
+
+/* CLIENT CLIENT NO_EVICT __tbd__47__ argument table */
+struct redisCommandArg CLIENT_CLIENT_NO_EVICT___tbd__47___Subargs[] = {
+{"on",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="ON"},
+{"off",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="OFF"},
+{0}
+};
+
+/* CLIENT CLIENT NO_EVICT argument table */
+struct redisCommandArg CLIENT_CLIENT_NO_EVICT_Args[] = {
+{"__tbd__47__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_NONE,.value.subargs=CLIENT_CLIENT_NO_EVICT___tbd__47___Subargs},
+{0}
+};
+
+/********** CLIENT CLIENT PAUSE ********************/
+
+/* CLIENT CLIENT PAUSE return info */
+#define CLIENT_CLIENT_PAUSE_ReturnInfo NULL
+
+/* CLIENT CLIENT PAUSE history */
+commandHistory CLIENT_CLIENT_PAUSE_History[] = {
 {"3.2.10","Client pause prevents client pause and key eviction as well."},
 {"6.2","CLIENT PAUSE WRITE mode added along with the `mode` option."},
 {0}
 };
 
-/* CLIENT PAUSE metadata */
-#define CLIENT_PAUSE_Metadata NULL
+/* CLIENT CLIENT PAUSE metadata */
+#define CLIENT_CLIENT_PAUSE_Metadata NULL
 
-/********** CLIENT REPLY ********************/
+/* CLIENT CLIENT PAUSE __tbd__49__ argument table */
+struct redisCommandArg CLIENT_CLIENT_PAUSE___tbd__49___Subargs[] = {
+{"write",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="WRITE"},
+{"all",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="ALL"},
+{0}
+};
 
-/* CLIENT REPLY return info */
-#define CLIENT_REPLY_ReturnInfo NULL
+/* CLIENT CLIENT PAUSE argument table */
+struct redisCommandArg CLIENT_CLIENT_PAUSE_Args[] = {
+{"timeout",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="timeout"},
+{"__tbd__49__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=CLIENT_CLIENT_PAUSE___tbd__49___Subargs},
+{0}
+};
 
-/* CLIENT REPLY history */
-#define CLIENT_REPLY_History NULL
+/********** CLIENT CLIENT REPLY ********************/
 
-/* CLIENT REPLY metadata */
-#define CLIENT_REPLY_Metadata NULL
+/* CLIENT CLIENT REPLY return info */
+#define CLIENT_CLIENT_REPLY_ReturnInfo NULL
 
-/********** CLIENT SETNAME ********************/
+/* CLIENT CLIENT REPLY history */
+#define CLIENT_CLIENT_REPLY_History NULL
 
-/* CLIENT SETNAME return info */
-#define CLIENT_SETNAME_ReturnInfo NULL
+/* CLIENT CLIENT REPLY metadata */
+#define CLIENT_CLIENT_REPLY_Metadata NULL
 
-/* CLIENT SETNAME history */
-#define CLIENT_SETNAME_History NULL
+/* CLIENT CLIENT REPLY __tbd__51__ argument table */
+struct redisCommandArg CLIENT_CLIENT_REPLY___tbd__51___Subargs[] = {
+{"on",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="ON"},
+{"off",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="OFF"},
+{"skip",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="SKIP"},
+{0}
+};
 
-/* CLIENT SETNAME metadata */
-#define CLIENT_SETNAME_Metadata NULL
+/* CLIENT CLIENT REPLY argument table */
+struct redisCommandArg CLIENT_CLIENT_REPLY_Args[] = {
+{"__tbd__51__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_NONE,.value.subargs=CLIENT_CLIENT_REPLY___tbd__51___Subargs},
+{0}
+};
 
-/********** CLIENT TRACKING ********************/
+/********** CLIENT CLIENT SETNAME ********************/
 
-/* CLIENT TRACKING return info */
-#define CLIENT_TRACKING_ReturnInfo NULL
+/* CLIENT CLIENT SETNAME return info */
+#define CLIENT_CLIENT_SETNAME_ReturnInfo NULL
 
-/* CLIENT TRACKING history */
-#define CLIENT_TRACKING_History NULL
+/* CLIENT CLIENT SETNAME history */
+#define CLIENT_CLIENT_SETNAME_History NULL
 
-/* CLIENT TRACKING metadata */
-#define CLIENT_TRACKING_Metadata NULL
+/* CLIENT CLIENT SETNAME metadata */
+#define CLIENT_CLIENT_SETNAME_Metadata NULL
 
-/********** CLIENT TRACKINGINFO ********************/
+/* CLIENT CLIENT SETNAME argument table */
+struct redisCommandArg CLIENT_CLIENT_SETNAME_Args[] = {
+{"connection-name",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="connection-name"},
+{0}
+};
 
-/* CLIENT TRACKINGINFO return info */
-#define CLIENT_TRACKINGINFO_ReturnInfo NULL
+/********** CLIENT CLIENT TRACKING ********************/
 
-/* CLIENT TRACKINGINFO history */
-#define CLIENT_TRACKINGINFO_History NULL
+/* CLIENT CLIENT TRACKING return info */
+#define CLIENT_CLIENT_TRACKING_ReturnInfo NULL
 
-/* CLIENT TRACKINGINFO metadata */
-#define CLIENT_TRACKINGINFO_Metadata NULL
+/* CLIENT CLIENT TRACKING history */
+#define CLIENT_CLIENT_TRACKING_History NULL
 
-/********** CLIENT UNBLOCK ********************/
+/* CLIENT CLIENT TRACKING metadata */
+#define CLIENT_CLIENT_TRACKING_Metadata NULL
 
-/* CLIENT UNBLOCK return info */
-#define CLIENT_UNBLOCK_ReturnInfo NULL
+/* CLIENT CLIENT TRACKING __tbd__50__ argument table */
+struct redisCommandArg CLIENT_CLIENT_TRACKING___tbd__50___Subargs[] = {
+{"on",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="ON"},
+{"off",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="OFF"},
+{0}
+};
 
-/* CLIENT UNBLOCK history */
-#define CLIENT_UNBLOCK_History NULL
+/* CLIENT CLIENT TRACKING argument table */
+struct redisCommandArg CLIENT_CLIENT_TRACKING_Args[] = {
+{"__tbd__50__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_NONE,.value.subargs=CLIENT_CLIENT_TRACKING___tbd__50___Subargs},
+{"client-id",ARG_TYPE_INTEGER,"REDIRECT",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="client-id"},
+{"prefix",ARG_TYPE_STRING,"PREFIX",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="prefix"},
+{"bcast",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="BCAST"},
+{"optin",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="OPTIN"},
+{"optout",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="OPTOUT"},
+{"noloop",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="NOLOOP"},
+{0}
+};
 
-/* CLIENT UNBLOCK metadata */
-#define CLIENT_UNBLOCK_Metadata NULL
+/********** CLIENT CLIENT TRACKINGINFO ********************/
 
-/********** CLIENT UNPAUSE ********************/
+/* CLIENT CLIENT TRACKINGINFO return info */
+#define CLIENT_CLIENT_TRACKINGINFO_ReturnInfo NULL
 
-/* CLIENT UNPAUSE return info */
-#define CLIENT_UNPAUSE_ReturnInfo NULL
+/* CLIENT CLIENT TRACKINGINFO history */
+#define CLIENT_CLIENT_TRACKINGINFO_History NULL
 
-/* CLIENT UNPAUSE history */
-#define CLIENT_UNPAUSE_History NULL
+/* CLIENT CLIENT TRACKINGINFO metadata */
+#define CLIENT_CLIENT_TRACKINGINFO_Metadata NULL
 
-/* CLIENT UNPAUSE metadata */
-#define CLIENT_UNPAUSE_Metadata NULL
+/********** CLIENT CLIENT UNBLOCK ********************/
+
+/* CLIENT CLIENT UNBLOCK return info */
+#define CLIENT_CLIENT_UNBLOCK_ReturnInfo NULL
+
+/* CLIENT CLIENT UNBLOCK history */
+#define CLIENT_CLIENT_UNBLOCK_History NULL
+
+/* CLIENT CLIENT UNBLOCK metadata */
+#define CLIENT_CLIENT_UNBLOCK_Metadata NULL
+
+/* CLIENT CLIENT UNBLOCK __tbd__54__ argument table */
+struct redisCommandArg CLIENT_CLIENT_UNBLOCK___tbd__54___Subargs[] = {
+{"timeout",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="TIMEOUT"},
+{"error",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="ERROR"},
+{0}
+};
+
+/* CLIENT CLIENT UNBLOCK argument table */
+struct redisCommandArg CLIENT_CLIENT_UNBLOCK_Args[] = {
+{"client-id",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="client-id"},
+{"__tbd__54__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=CLIENT_CLIENT_UNBLOCK___tbd__54___Subargs},
+{0}
+};
+
+/********** CLIENT CLIENT UNPAUSE ********************/
+
+/* CLIENT CLIENT UNPAUSE return info */
+#define CLIENT_CLIENT_UNPAUSE_ReturnInfo NULL
+
+/* CLIENT CLIENT UNPAUSE history */
+#define CLIENT_CLIENT_UNPAUSE_History NULL
+
+/* CLIENT CLIENT UNPAUSE metadata */
+#define CLIENT_CLIENT_UNPAUSE_Metadata NULL
 
 /* CLIENT command table */
 struct redisCommand CLIENT_Subcommands[] = {
-{"info","Returns information about the current client connection.","O(1)","6.2.0",COMMAND_GROUP_CONNECTION,CLIENT_INFO_ReturnInfo,CLIENT_INFO_History,CLIENT_INFO_Metadata,clientCommand,2,"noscript random loading stale @slow @connection"},
-{"no-evict","Set client eviction mode for the current connection","O(1)","7.0.0",COMMAND_GROUP_CONNECTION,CLIENT_NO_EVICT_ReturnInfo,CLIENT_NO_EVICT_History,CLIENT_NO_EVICT_Metadata,clientCommand,3,"admin noscript loading stale @admin @slow @dangerous @connection"},
-{"pause","Stop processing commands from clients for some time","O(1)","2.9.50",COMMAND_GROUP_CONNECTION,CLIENT_PAUSE_ReturnInfo,CLIENT_PAUSE_History,CLIENT_PAUSE_Metadata,clientCommand,-3,"admin noscript loading stale @admin @slow @dangerous @connection"},
-{"help","Show helpful text about the different subcommands","O(1)","5.0.0",COMMAND_GROUP_CONNECTION,CLIENT_HELP_ReturnInfo,CLIENT_HELP_History,CLIENT_HELP_Metadata,clientCommand,2,"loading stale @slow @connection"},
-{"setname","Set the current connection name","O(1)","2.6.9",COMMAND_GROUP_CONNECTION,CLIENT_SETNAME_ReturnInfo,CLIENT_SETNAME_History,CLIENT_SETNAME_Metadata,clientCommand,3,"noscript loading stale @slow @connection"},
-{"getname","Get the current connection name","O(1)","2.6.9",COMMAND_GROUP_CONNECTION,CLIENT_GETNAME_ReturnInfo,CLIENT_GETNAME_History,CLIENT_GETNAME_Metadata,clientCommand,2,"noscript loading stale @slow @connection"},
-{"list","Get the list of client connections","O(N) where N is the number of client connections","2.4.0",COMMAND_GROUP_CONNECTION,CLIENT_LIST_ReturnInfo,CLIENT_LIST_History,CLIENT_LIST_Metadata,clientCommand,-2,"admin noscript random loading stale @admin @slow @dangerous @connection"},
-{"trackinginfo","Return information about server assisted client side caching for the current connection","O(1)","6.2.0",COMMAND_GROUP_CONNECTION,CLIENT_TRACKINGINFO_ReturnInfo,CLIENT_TRACKINGINFO_History,CLIENT_TRACKINGINFO_Metadata,clientCommand,2,"noscript loading stale @slow @connection"},
-{"tracking","Enable or disable server assisted client side caching support","O(1). Some options may introduce additional complexity.","6.0.0",COMMAND_GROUP_CONNECTION,CLIENT_TRACKING_ReturnInfo,CLIENT_TRACKING_History,CLIENT_TRACKING_Metadata,clientCommand,-3,"noscript loading stale @slow @connection"},
-{"kill","Kill the connection of a client","O(N) where N is the number of client connections","2.4.0",COMMAND_GROUP_CONNECTION,CLIENT_KILL_ReturnInfo,CLIENT_KILL_History,CLIENT_KILL_Metadata,clientCommand,-3,"admin noscript loading stale @admin @slow @dangerous @connection"},
-{"unblock","Unblock a client blocked in a blocking command from a different connection","O(log N) where N is the number of client connections","5.0.0",COMMAND_GROUP_CONNECTION,CLIENT_UNBLOCK_ReturnInfo,CLIENT_UNBLOCK_History,CLIENT_UNBLOCK_Metadata,clientCommand,-3,"admin noscript loading stale @admin @slow @dangerous @connection"},
-{"caching","Instruct the server about tracking or not keys in the next request","O(1)","6.0.0",COMMAND_GROUP_CONNECTION,CLIENT_CACHING_ReturnInfo,CLIENT_CACHING_History,CLIENT_CACHING_Metadata,clientCommand,3,"noscript loading stale @slow @connection"},
-{"reply","Instruct the server whether to reply to commands","O(1)","3.2.0",COMMAND_GROUP_CONNECTION,CLIENT_REPLY_ReturnInfo,CLIENT_REPLY_History,CLIENT_REPLY_Metadata,clientCommand,3,"noscript loading stale @slow @connection"},
-{"getredir","Get tracking notifications redirection client ID if any","O(1)","6.0.0",COMMAND_GROUP_CONNECTION,CLIENT_GETREDIR_ReturnInfo,CLIENT_GETREDIR_History,CLIENT_GETREDIR_Metadata,clientCommand,2,"noscript loading stale @slow @connection"},
-{"id","Returns the client ID for the current connection","O(1)","5.0.0",COMMAND_GROUP_CONNECTION,CLIENT_ID_ReturnInfo,CLIENT_ID_History,CLIENT_ID_Metadata,clientCommand,2,"noscript loading stale @slow @connection"},
-{"unpause","Resume processing of clients that were paused","O(N) Where N is the number of paused clients","6.2.0",COMMAND_GROUP_CONNECTION,CLIENT_UNPAUSE_ReturnInfo,CLIENT_UNPAUSE_History,CLIENT_UNPAUSE_Metadata,clientCommand,2,"admin noscript loading stale @admin @slow @dangerous @connection"},
+{"client kill","Kill the connection of a client","O(N) where N is the number of client connections","2.4.0",COMMAND_GROUP_CONNECTION,CLIENT_CLIENT_KILL_ReturnInfo,CLIENT_CLIENT_KILL_History,CLIENT_CLIENT_KILL_Metadata,clientCommand,-3,"admin noscript loading stale @admin @slow @dangerous @connection",.args=CLIENT_CLIENT_KILL_Args},
+{"client unpause","Resume processing of clients that were paused","O(N) Where N is the number of paused clients","6.2.0",COMMAND_GROUP_CONNECTION,CLIENT_CLIENT_UNPAUSE_ReturnInfo,CLIENT_CLIENT_UNPAUSE_History,CLIENT_CLIENT_UNPAUSE_Metadata,clientCommand,2,"admin noscript loading stale @admin @slow @dangerous @connection"},
+{"client unblock","Unblock a client blocked in a blocking command from a different connection","O(log N) where N is the number of client connections","5.0.0",COMMAND_GROUP_CONNECTION,CLIENT_CLIENT_UNBLOCK_ReturnInfo,CLIENT_CLIENT_UNBLOCK_History,CLIENT_CLIENT_UNBLOCK_Metadata,clientCommand,-3,"admin noscript loading stale @admin @slow @dangerous @connection",.args=CLIENT_CLIENT_UNBLOCK_Args},
+{"client no-evict","Set client eviction mode for the current connection","O(1)","7.0.0",COMMAND_GROUP_CONNECTION,CLIENT_CLIENT_NO_EVICT_ReturnInfo,CLIENT_CLIENT_NO_EVICT_History,CLIENT_CLIENT_NO_EVICT_Metadata,clientCommand,3,"admin noscript loading stale @admin @slow @dangerous @connection",.args=CLIENT_CLIENT_NO_EVICT_Args},
+{"client list","Get the list of client connections","O(N) where N is the number of client connections","2.4.0",COMMAND_GROUP_CONNECTION,CLIENT_CLIENT_LIST_ReturnInfo,CLIENT_CLIENT_LIST_History,CLIENT_CLIENT_LIST_Metadata,clientCommand,-2,"admin noscript random loading stale @admin @slow @dangerous @connection",.args=CLIENT_CLIENT_LIST_Args},
+{"client reply","Instruct the server whether to reply to commands","O(1)","3.2.0",COMMAND_GROUP_CONNECTION,CLIENT_CLIENT_REPLY_ReturnInfo,CLIENT_CLIENT_REPLY_History,CLIENT_CLIENT_REPLY_Metadata,clientCommand,3,"noscript loading stale @slow @connection",.args=CLIENT_CLIENT_REPLY_Args},
+{"client caching","Instruct the server about tracking or not keys in the next request","O(1)","6.0.0",COMMAND_GROUP_CONNECTION,CLIENT_CLIENT_CACHING_ReturnInfo,CLIENT_CLIENT_CACHING_History,CLIENT_CLIENT_CACHING_Metadata,clientCommand,3,"noscript loading stale @slow @connection",.args=CLIENT_CLIENT_CACHING_Args},
+{"client getredir","Get tracking notifications redirection client ID if any","O(1)","6.0.0",COMMAND_GROUP_CONNECTION,CLIENT_CLIENT_GETREDIR_ReturnInfo,CLIENT_CLIENT_GETREDIR_History,CLIENT_CLIENT_GETREDIR_Metadata,clientCommand,2,"noscript loading stale @slow @connection"},
+{"client id","Returns the client ID for the current connection","O(1)","5.0.0",COMMAND_GROUP_CONNECTION,CLIENT_CLIENT_ID_ReturnInfo,CLIENT_CLIENT_ID_History,CLIENT_CLIENT_ID_Metadata,clientCommand,2,"noscript loading stale @slow @connection"},
+{"client tracking","Enable or disable server assisted client side caching support","O(1). Some options may introduce additional complexity.","6.0.0",COMMAND_GROUP_CONNECTION,CLIENT_CLIENT_TRACKING_ReturnInfo,CLIENT_CLIENT_TRACKING_History,CLIENT_CLIENT_TRACKING_Metadata,clientCommand,-3,"noscript loading stale @slow @connection",.args=CLIENT_CLIENT_TRACKING_Args},
+{"client info","Returns information about the current client connection.","O(1)","6.2.0",COMMAND_GROUP_CONNECTION,CLIENT_CLIENT_INFO_ReturnInfo,CLIENT_CLIENT_INFO_History,CLIENT_CLIENT_INFO_Metadata,clientCommand,2,"noscript random loading stale @slow @connection"},
+{"client trackinginfo","Return information about server assisted client side caching for the current connection","O(1)","6.2.0",COMMAND_GROUP_CONNECTION,CLIENT_CLIENT_TRACKINGINFO_ReturnInfo,CLIENT_CLIENT_TRACKINGINFO_History,CLIENT_CLIENT_TRACKINGINFO_Metadata,clientCommand,2,"noscript loading stale @slow @connection"},
+{"client getname","Get the current connection name","O(1)","2.6.9",COMMAND_GROUP_CONNECTION,CLIENT_CLIENT_GETNAME_ReturnInfo,CLIENT_CLIENT_GETNAME_History,CLIENT_CLIENT_GETNAME_Metadata,clientCommand,2,"noscript loading stale @slow @connection"},
+{"client pause","Stop processing commands from clients for some time","O(1)","2.9.50",COMMAND_GROUP_CONNECTION,CLIENT_CLIENT_PAUSE_ReturnInfo,CLIENT_CLIENT_PAUSE_History,CLIENT_CLIENT_PAUSE_Metadata,clientCommand,-3,"admin noscript loading stale @admin @slow @dangerous @connection",.args=CLIENT_CLIENT_PAUSE_Args},
+{"client help",NULL,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_CLIENT_HELP_ReturnInfo,CLIENT_CLIENT_HELP_History,CLIENT_CLIENT_HELP_Metadata,clientCommand,2,"loading stale @slow @connection"},
+{"client setname","Set the current connection name","O(1)","2.6.9",COMMAND_GROUP_CONNECTION,CLIENT_CLIENT_SETNAME_ReturnInfo,CLIENT_CLIENT_SETNAME_History,CLIENT_CLIENT_SETNAME_Metadata,clientCommand,3,"noscript loading stale @slow @connection",.args=CLIENT_CLIENT_SETNAME_Args},
 {0}
 };
 
@@ -762,6 +1146,12 @@ struct redisCommand CLIENT_Subcommands[] = {
 /* ECHO metadata */
 #define ECHO_Metadata NULL
 
+/* ECHO argument table */
+struct redisCommandArg ECHO_Args[] = {
+{"message",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="message"},
+{0}
+};
+
 /********** HELLO ********************/
 
 /* HELLO return info */
@@ -776,6 +1166,27 @@ commandHistory HELLO_History[] = {
 /* HELLO metadata */
 #define HELLO_Metadata NULL
 
+/* HELLO arguments username_password argument table */
+struct redisCommandArg HELLO_arguments_username_password_Subargs[] = {
+{"username",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="username"},
+{"password",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="password"},
+{0}
+};
+
+/* HELLO arguments argument table */
+struct redisCommandArg HELLO_arguments_Subargs[] = {
+{"protover",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="protover"},
+{"username_password",ARG_TYPE_BLOCK,"AUTH",NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=HELLO_arguments_username_password_Subargs},
+{"clientname",ARG_TYPE_STRING,"SETNAME",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="clientname"},
+{0}
+};
+
+/* HELLO argument table */
+struct redisCommandArg HELLO_Args[] = {
+{"arguments",ARG_TYPE_BLOCK,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=HELLO_arguments_Subargs},
+{0}
+};
+
 /********** PING ********************/
 
 /* PING return info */
@@ -786,6 +1197,12 @@ commandHistory HELLO_History[] = {
 
 /* PING metadata */
 #define PING_Metadata NULL
+
+/* PING argument table */
+struct redisCommandArg PING_Args[] = {
+{"message",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="message"},
+{0}
+};
 
 /********** RESET ********************/
 
@@ -809,6 +1226,12 @@ commandHistory HELLO_History[] = {
 /* SELECT metadata */
 #define SELECT_Metadata NULL
 
+/* SELECT argument table */
+struct redisCommandArg SELECT_Args[] = {
+{"index",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="index"},
+{0}
+};
+
 /********** COPY ********************/
 
 /* COPY return info */
@@ -819,6 +1242,15 @@ commandHistory HELLO_History[] = {
 
 /* COPY metadata */
 #define COPY_Metadata NULL
+
+/* COPY argument table */
+struct redisCommandArg COPY_Args[] = {
+{"source",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="source"},
+{"destination",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="destination"},
+{"destination-db",ARG_TYPE_INTEGER,"DB",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="destination-db"},
+{"replace",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="REPLACE"},
+{0}
+};
 
 /********** DEL ********************/
 
@@ -831,6 +1263,12 @@ commandHistory HELLO_History[] = {
 /* DEL metadata */
 #define DEL_Metadata NULL
 
+/* DEL argument table */
+struct redisCommandArg DEL_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="key"},
+{0}
+};
+
 /********** DUMP ********************/
 
 /* DUMP return info */
@@ -842,6 +1280,12 @@ commandHistory HELLO_History[] = {
 /* DUMP metadata */
 #define DUMP_Metadata NULL
 
+/* DUMP argument table */
+struct redisCommandArg DUMP_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{0}
+};
+
 /********** EXISTS ********************/
 
 /* EXISTS return info */
@@ -852,6 +1296,12 @@ commandHistory HELLO_History[] = {
 
 /* EXISTS metadata */
 #define EXISTS_Metadata NULL
+
+/* EXISTS argument table */
+struct redisCommandArg EXISTS_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="key"},
+{0}
+};
 
 /********** EXPIRE ********************/
 
@@ -867,6 +1317,23 @@ commandHistory EXPIRE_History[] = {
 /* EXPIRE metadata */
 #define EXPIRE_Metadata NULL
 
+/* EXPIRE __tbd__74__ argument table */
+struct redisCommandArg EXPIRE___tbd__74___Subargs[] = {
+{"nx",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="NX"},
+{"xx",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="XX"},
+{"gt",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="GT"},
+{"lt",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="LT"},
+{0}
+};
+
+/* EXPIRE argument table */
+struct redisCommandArg EXPIRE_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"seconds",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="seconds"},
+{"__tbd__74__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=EXPIRE___tbd__74___Subargs},
+{0}
+};
+
 /********** EXPIREAT ********************/
 
 /* EXPIREAT return info */
@@ -881,6 +1348,23 @@ commandHistory EXPIREAT_History[] = {
 /* EXPIREAT metadata */
 #define EXPIREAT_Metadata NULL
 
+/* EXPIREAT __tbd__41__ argument table */
+struct redisCommandArg EXPIREAT___tbd__41___Subargs[] = {
+{"nx",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="NX"},
+{"xx",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="XX"},
+{"gt",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="GT"},
+{"lt",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="LT"},
+{0}
+};
+
+/* EXPIREAT argument table */
+struct redisCommandArg EXPIREAT_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"timestamp",ARG_TYPE_UNIX_TIME,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="timestamp"},
+{"__tbd__41__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=EXPIREAT___tbd__41___Subargs},
+{0}
+};
+
 /********** EXPIRETIME ********************/
 
 /* EXPIRETIME return info */
@@ -891,6 +1375,12 @@ commandHistory EXPIREAT_History[] = {
 
 /* EXPIRETIME metadata */
 #define EXPIRETIME_Metadata NULL
+
+/* EXPIRETIME argument table */
+struct redisCommandArg EXPIRETIME_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{0}
+};
 
 /********** KEYS ********************/
 
@@ -903,14 +1393,16 @@ commandHistory EXPIREAT_History[] = {
 /* KEYS metadata */
 #define KEYS_Metadata NULL
 
+/* KEYS argument table */
+struct redisCommandArg KEYS_Args[] = {
+{"pattern",ARG_TYPE_PATTERN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="pattern"},
+{0}
+};
+
 /********** MIGRATE ********************/
 
 /* MIGRATE return info */
-commandReturnInfo MIGRATE_ReturnInfo[] = {
-{"Command succeeded","+OK",RETURN_TYPE_RESP2_3_SAME,.type.global=RESP2_SIMPLE_STRING},
-{"Key(s) was not in found in source","+NOKEY",RETURN_TYPE_RESP2_3_SAME,.type.global=RESP2_SIMPLE_STRING},
-{0}
-};
+#define MIGRATE_ReturnInfo NULL
 
 /* MIGRATE history */
 commandHistory MIGRATE_History[] = {
@@ -924,15 +1416,15 @@ commandHistory MIGRATE_History[] = {
 /* MIGRATE metadata */
 #define MIGRATE_Metadata NULL
 
-/* MIGRATE keyornone argument table */
-struct redisCommandArg MIGRATE_keyornone_Subargs[] = {
-{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
-{"nokey",ARG_TYPE_NULL,"""",NULL,NULL,CMD_ARG_NONE},
+/* MIGRATE __tbd__3__ argument table */
+struct redisCommandArg MIGRATE___tbd__3___Subargs[] = {
+{"key",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"__tbd__4__",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string=""""},
 {0}
 };
 
-/* MIGRATE auth2 argument table */
-struct redisCommandArg MIGRATE_auth2_Subargs[] = {
+/* MIGRATE username_password argument table */
+struct redisCommandArg MIGRATE_username_password_Subargs[] = {
 {"username",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="username"},
 {"password",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="password"},
 {0}
@@ -942,14 +1434,14 @@ struct redisCommandArg MIGRATE_auth2_Subargs[] = {
 struct redisCommandArg MIGRATE_Args[] = {
 {"host",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="host"},
 {"port",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="port"},
-{"keyornone",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_NONE,.value.subargs=MIGRATE_keyornone_Subargs},
+{"__tbd__3__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_NONE,.value.subargs=MIGRATE___tbd__3___Subargs},
 {"destination-db",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="destination-db"},
 {"timeout",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="timeout"},
-{"copy",ARG_TYPE_NULL,"COPY",NULL,NULL,CMD_ARG_OPTIONAL},
-{"replace",ARG_TYPE_NULL,"REPLACE",NULL,NULL,CMD_ARG_OPTIONAL},
-{"auth",ARG_TYPE_STRING,"AUTH",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="password"},
-{"auth2",ARG_TYPE_BLOCK,"AUTH2",NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=MIGRATE_auth2_Subargs},
-{"keys",ARG_TYPE_KEY,"KEYS",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,.value.string="key"},
+{"copy",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="COPY"},
+{"replace",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="REPLACE"},
+{"password",ARG_TYPE_STRING,"AUTH",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="password"},
+{"username_password",ARG_TYPE_BLOCK,"AUTH2",NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=MIGRATE_username_password_Subargs},
+{"key",ARG_TYPE_KEY,"KEYS",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,.value.string="key"},
 {0}
 };
 
@@ -964,68 +1456,99 @@ struct redisCommandArg MIGRATE_Args[] = {
 /* MOVE metadata */
 #define MOVE_Metadata NULL
 
-/********** OBJECT ENCODING ********************/
+/* MOVE argument table */
+struct redisCommandArg MOVE_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"db",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="db"},
+{0}
+};
 
-/* OBJECT ENCODING return info */
-#define OBJECT_ENCODING_ReturnInfo NULL
+/********** OBJECT OBJECT ENCODING ********************/
 
-/* OBJECT ENCODING history */
-#define OBJECT_ENCODING_History NULL
+/* OBJECT OBJECT ENCODING return info */
+#define OBJECT_OBJECT_ENCODING_ReturnInfo NULL
 
-/* OBJECT ENCODING metadata */
-#define OBJECT_ENCODING_Metadata NULL
+/* OBJECT OBJECT ENCODING history */
+#define OBJECT_OBJECT_ENCODING_History NULL
 
-/********** OBJECT FREQ ********************/
+/* OBJECT OBJECT ENCODING metadata */
+#define OBJECT_OBJECT_ENCODING_Metadata NULL
 
-/* OBJECT FREQ return info */
-#define OBJECT_FREQ_ReturnInfo NULL
+/* OBJECT OBJECT ENCODING argument table */
+struct redisCommandArg OBJECT_OBJECT_ENCODING_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{0}
+};
 
-/* OBJECT FREQ history */
-#define OBJECT_FREQ_History NULL
+/********** OBJECT OBJECT FREQ ********************/
 
-/* OBJECT FREQ metadata */
-#define OBJECT_FREQ_Metadata NULL
+/* OBJECT OBJECT FREQ return info */
+#define OBJECT_OBJECT_FREQ_ReturnInfo NULL
 
-/********** OBJECT HELP ********************/
+/* OBJECT OBJECT FREQ history */
+#define OBJECT_OBJECT_FREQ_History NULL
 
-/* OBJECT HELP return info */
-#define OBJECT_HELP_ReturnInfo NULL
+/* OBJECT OBJECT FREQ metadata */
+#define OBJECT_OBJECT_FREQ_Metadata NULL
 
-/* OBJECT HELP history */
-#define OBJECT_HELP_History NULL
+/* OBJECT OBJECT FREQ argument table */
+struct redisCommandArg OBJECT_OBJECT_FREQ_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{0}
+};
 
-/* OBJECT HELP metadata */
-#define OBJECT_HELP_Metadata NULL
+/********** OBJECT OBJECT HELP ********************/
 
-/********** OBJECT IDLETIME ********************/
+/* OBJECT OBJECT HELP return info */
+#define OBJECT_OBJECT_HELP_ReturnInfo NULL
 
-/* OBJECT IDLETIME return info */
-#define OBJECT_IDLETIME_ReturnInfo NULL
+/* OBJECT OBJECT HELP history */
+#define OBJECT_OBJECT_HELP_History NULL
 
-/* OBJECT IDLETIME history */
-#define OBJECT_IDLETIME_History NULL
+/* OBJECT OBJECT HELP metadata */
+#define OBJECT_OBJECT_HELP_Metadata NULL
 
-/* OBJECT IDLETIME metadata */
-#define OBJECT_IDLETIME_Metadata NULL
+/********** OBJECT OBJECT IDLETIME ********************/
 
-/********** OBJECT REFCOUNT ********************/
+/* OBJECT OBJECT IDLETIME return info */
+#define OBJECT_OBJECT_IDLETIME_ReturnInfo NULL
 
-/* OBJECT REFCOUNT return info */
-#define OBJECT_REFCOUNT_ReturnInfo NULL
+/* OBJECT OBJECT IDLETIME history */
+#define OBJECT_OBJECT_IDLETIME_History NULL
 
-/* OBJECT REFCOUNT history */
-#define OBJECT_REFCOUNT_History NULL
+/* OBJECT OBJECT IDLETIME metadata */
+#define OBJECT_OBJECT_IDLETIME_Metadata NULL
 
-/* OBJECT REFCOUNT metadata */
-#define OBJECT_REFCOUNT_Metadata NULL
+/* OBJECT OBJECT IDLETIME argument table */
+struct redisCommandArg OBJECT_OBJECT_IDLETIME_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{0}
+};
+
+/********** OBJECT OBJECT REFCOUNT ********************/
+
+/* OBJECT OBJECT REFCOUNT return info */
+#define OBJECT_OBJECT_REFCOUNT_ReturnInfo NULL
+
+/* OBJECT OBJECT REFCOUNT history */
+#define OBJECT_OBJECT_REFCOUNT_History NULL
+
+/* OBJECT OBJECT REFCOUNT metadata */
+#define OBJECT_OBJECT_REFCOUNT_Metadata NULL
+
+/* OBJECT OBJECT REFCOUNT argument table */
+struct redisCommandArg OBJECT_OBJECT_REFCOUNT_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{0}
+};
 
 /* OBJECT command table */
 struct redisCommand OBJECT_Subcommands[] = {
-{"idletime","Get the time since a Redis object was last accessed","O(1)","2.2.3",COMMAND_GROUP_GENERIC,OBJECT_IDLETIME_ReturnInfo,OBJECT_IDLETIME_History,OBJECT_IDLETIME_Metadata,objectCommand,3,"readonly random @keyspace @read @slow",{{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"freq","Get the logarithmic access frequency counter of a Redis object","O(1)","4.0.0",COMMAND_GROUP_GENERIC,OBJECT_FREQ_ReturnInfo,OBJECT_FREQ_History,OBJECT_FREQ_Metadata,objectCommand,3,"readonly random @keyspace @read @slow",{{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"refcount","Get the number of references to the value of the key","O(1)","2.2.3",COMMAND_GROUP_GENERIC,OBJECT_REFCOUNT_ReturnInfo,OBJECT_REFCOUNT_History,OBJECT_REFCOUNT_Metadata,objectCommand,3,"readonly @keyspace @read @slow",{{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"help","Show helpful text about the different subcommands","O(1)","6.2.0",COMMAND_GROUP_GENERIC,OBJECT_HELP_ReturnInfo,OBJECT_HELP_History,OBJECT_HELP_Metadata,objectCommand,2,"loading stale @keyspace @slow"},
-{"encoding","Inspect the internal encoding of a Redis object","O(1)","2.2.3",COMMAND_GROUP_GENERIC,OBJECT_ENCODING_ReturnInfo,OBJECT_ENCODING_History,OBJECT_ENCODING_Metadata,objectCommand,3,"readonly @keyspace @read @slow",{{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"object idletime","Get the time since a Redis object was last accessed","O(1)","2.2.3",COMMAND_GROUP_GENERIC,OBJECT_OBJECT_IDLETIME_ReturnInfo,OBJECT_OBJECT_IDLETIME_History,OBJECT_OBJECT_IDLETIME_Metadata,objectCommand,3,"readonly random @keyspace @read @slow",{{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=OBJECT_OBJECT_IDLETIME_Args},
+{"object refcount","Get the number of references to the value of the key","O(1)","2.2.3",COMMAND_GROUP_GENERIC,OBJECT_OBJECT_REFCOUNT_ReturnInfo,OBJECT_OBJECT_REFCOUNT_History,OBJECT_OBJECT_REFCOUNT_Metadata,objectCommand,3,"readonly @keyspace @read @slow",{{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=OBJECT_OBJECT_REFCOUNT_Args},
+{"object help","Show helpful text about the different subcommands","O(1)","6.2.0",COMMAND_GROUP_GENERIC,OBJECT_OBJECT_HELP_ReturnInfo,OBJECT_OBJECT_HELP_History,OBJECT_OBJECT_HELP_Metadata,objectCommand,2,"loading stale @keyspace @slow"},
+{"object freq","Get the logarithmic access frequency counter of a Redis object","O(1)","4.0.0",COMMAND_GROUP_GENERIC,OBJECT_OBJECT_FREQ_ReturnInfo,OBJECT_OBJECT_FREQ_History,OBJECT_OBJECT_FREQ_Metadata,objectCommand,3,"readonly random @keyspace @read @slow",{{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=OBJECT_OBJECT_FREQ_Args},
+{"object encoding","Inspect the internal encoding of a Redis object","O(1)","2.2.3",COMMAND_GROUP_GENERIC,OBJECT_OBJECT_ENCODING_ReturnInfo,OBJECT_OBJECT_ENCODING_History,OBJECT_OBJECT_ENCODING_Metadata,objectCommand,3,"readonly @keyspace @read @slow",{{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=OBJECT_OBJECT_ENCODING_Args},
 {0}
 };
 
@@ -1051,6 +1574,12 @@ struct redisCommand OBJECT_Subcommands[] = {
 /* PERSIST metadata */
 #define PERSIST_Metadata NULL
 
+/* PERSIST argument table */
+struct redisCommandArg PERSIST_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{0}
+};
+
 /********** PEXPIRE ********************/
 
 /* PEXPIRE return info */
@@ -1064,6 +1593,23 @@ commandHistory PEXPIRE_History[] = {
 
 /* PEXPIRE metadata */
 #define PEXPIRE_Metadata NULL
+
+/* PEXPIRE __tbd__45__ argument table */
+struct redisCommandArg PEXPIRE___tbd__45___Subargs[] = {
+{"nx",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="NX"},
+{"xx",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="XX"},
+{"gt",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="GT"},
+{"lt",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="LT"},
+{0}
+};
+
+/* PEXPIRE argument table */
+struct redisCommandArg PEXPIRE_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"milliseconds",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="milliseconds"},
+{"__tbd__45__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=PEXPIRE___tbd__45___Subargs},
+{0}
+};
 
 /********** PEXPIREAT ********************/
 
@@ -1079,6 +1625,23 @@ commandHistory PEXPIREAT_History[] = {
 /* PEXPIREAT metadata */
 #define PEXPIREAT_Metadata NULL
 
+/* PEXPIREAT __tbd__31__ argument table */
+struct redisCommandArg PEXPIREAT___tbd__31___Subargs[] = {
+{"nx",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="NX"},
+{"xx",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="XX"},
+{"gt",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="GT"},
+{"lt",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="LT"},
+{0}
+};
+
+/* PEXPIREAT argument table */
+struct redisCommandArg PEXPIREAT_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"milliseconds-timestamp",ARG_TYPE_UNIX_TIME,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="milliseconds-timestamp"},
+{"__tbd__31__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=PEXPIREAT___tbd__31___Subargs},
+{0}
+};
+
 /********** PEXPIRETIME ********************/
 
 /* PEXPIRETIME return info */
@@ -1090,6 +1653,12 @@ commandHistory PEXPIREAT_History[] = {
 /* PEXPIRETIME metadata */
 #define PEXPIRETIME_Metadata NULL
 
+/* PEXPIRETIME argument table */
+struct redisCommandArg PEXPIRETIME_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{0}
+};
+
 /********** PTTL ********************/
 
 /* PTTL return info */
@@ -1100,6 +1669,12 @@ commandHistory PEXPIREAT_History[] = {
 
 /* PTTL metadata */
 #define PTTL_Metadata NULL
+
+/* PTTL argument table */
+struct redisCommandArg PTTL_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{0}
+};
 
 /********** RANDOMKEY ********************/
 
@@ -1123,6 +1698,13 @@ commandHistory PEXPIREAT_History[] = {
 /* RENAME metadata */
 #define RENAME_Metadata NULL
 
+/* RENAME argument table */
+struct redisCommandArg RENAME_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"newkey",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="newkey"},
+{0}
+};
+
 /********** RENAMENX ********************/
 
 /* RENAMENX return info */
@@ -1133,6 +1715,13 @@ commandHistory PEXPIREAT_History[] = {
 
 /* RENAMENX metadata */
 #define RENAMENX_Metadata NULL
+
+/* RENAMENX argument table */
+struct redisCommandArg RENAMENX_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"newkey",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="newkey"},
+{0}
+};
 
 /********** RESTORE ********************/
 
@@ -1145,6 +1734,18 @@ commandHistory PEXPIREAT_History[] = {
 /* RESTORE metadata */
 #define RESTORE_Metadata NULL
 
+/* RESTORE argument table */
+struct redisCommandArg RESTORE_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"ttl",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="ttl"},
+{"serialized-value",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="serialized-value"},
+{"replace",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="REPLACE"},
+{"absttl",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="ABSTTL"},
+{"seconds",ARG_TYPE_INTEGER,"IDLETIME",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="seconds"},
+{"frequency",ARG_TYPE_INTEGER,"FREQ",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="frequency"},
+{0}
+};
+
 /********** SCAN ********************/
 
 /* SCAN return info */
@@ -1155,6 +1756,15 @@ commandHistory PEXPIREAT_History[] = {
 
 /* SCAN metadata */
 #define SCAN_Metadata NULL
+
+/* SCAN argument table */
+struct redisCommandArg SCAN_Args[] = {
+{"cursor",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="cursor"},
+{"pattern",ARG_TYPE_PATTERN,"MATCH",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="pattern"},
+{"count",ARG_TYPE_INTEGER,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="count"},
+{"type",ARG_TYPE_STRING,"TYPE",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="type"},
+{0}
+};
 
 /********** SORT ********************/
 
@@ -1167,6 +1777,32 @@ commandHistory PEXPIREAT_History[] = {
 /* SORT metadata */
 #define SORT_Metadata NULL
 
+/* SORT offset_count argument table */
+struct redisCommandArg SORT_offset_count_Subargs[] = {
+{"offset",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="offset"},
+{"count",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="count"},
+{0}
+};
+
+/* SORT __tbd__38__ argument table */
+struct redisCommandArg SORT___tbd__38___Subargs[] = {
+{"asc",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="ASC"},
+{"desc",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="DESC"},
+{0}
+};
+
+/* SORT argument table */
+struct redisCommandArg SORT_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"pattern",ARG_TYPE_PATTERN,"BY",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="pattern"},
+{"offset_count",ARG_TYPE_BLOCK,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=SORT_offset_count_Subargs},
+{"pattern",ARG_TYPE_STRING,"GET",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="pattern"},
+{"__tbd__38__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=SORT___tbd__38___Subargs},
+{"sorting",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="ALPHA"},
+{"destination",ARG_TYPE_KEY,"STORE",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="destination"},
+{0}
+};
+
 /********** SORT_RO ********************/
 
 /* SORT_RO return info */
@@ -1177,6 +1813,31 @@ commandHistory PEXPIREAT_History[] = {
 
 /* SORT_RO metadata */
 #define SORT_RO_Metadata NULL
+
+/* SORT_RO offset_count argument table */
+struct redisCommandArg SORT_RO_offset_count_Subargs[] = {
+{"offset",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="offset"},
+{"count",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="count"},
+{0}
+};
+
+/* SORT_RO __tbd__32__ argument table */
+struct redisCommandArg SORT_RO___tbd__32___Subargs[] = {
+{"asc",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="ASC"},
+{"desc",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="DESC"},
+{0}
+};
+
+/* SORT_RO argument table */
+struct redisCommandArg SORT_RO_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"pattern",ARG_TYPE_PATTERN,"BY",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="pattern"},
+{"offset_count",ARG_TYPE_BLOCK,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=SORT_RO_offset_count_Subargs},
+{"pattern",ARG_TYPE_STRING,"GET",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="pattern"},
+{"__tbd__32__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=SORT_RO___tbd__32___Subargs},
+{"sorting",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="ALPHA"},
+{0}
+};
 
 /********** TOUCH ********************/
 
@@ -1189,6 +1850,12 @@ commandHistory PEXPIREAT_History[] = {
 /* TOUCH metadata */
 #define TOUCH_Metadata NULL
 
+/* TOUCH argument table */
+struct redisCommandArg TOUCH_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="key"},
+{0}
+};
+
 /********** TTL ********************/
 
 /* TTL return info */
@@ -1199,6 +1866,12 @@ commandHistory PEXPIREAT_History[] = {
 
 /* TTL metadata */
 #define TTL_Metadata NULL
+
+/* TTL argument table */
+struct redisCommandArg TTL_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{0}
+};
 
 /********** TYPE ********************/
 
@@ -1211,6 +1884,12 @@ commandHistory PEXPIREAT_History[] = {
 /* TYPE metadata */
 #define TYPE_Metadata NULL
 
+/* TYPE argument table */
+struct redisCommandArg TYPE_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{0}
+};
+
 /********** UNLINK ********************/
 
 /* UNLINK return info */
@@ -1222,6 +1901,12 @@ commandHistory PEXPIREAT_History[] = {
 /* UNLINK metadata */
 #define UNLINK_Metadata NULL
 
+/* UNLINK argument table */
+struct redisCommandArg UNLINK_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="key"},
+{0}
+};
+
 /********** WAIT ********************/
 
 /* WAIT return info */
@@ -1232,6 +1917,13 @@ commandHistory PEXPIREAT_History[] = {
 
 /* WAIT metadata */
 #define WAIT_Metadata NULL
+
+/* WAIT argument table */
+struct redisCommandArg WAIT_Args[] = {
+{"numreplicas",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="numreplicas"},
+{"timeout",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="timeout"},
+{0}
+};
 
 /********** GEOADD ********************/
 
@@ -1247,6 +1939,30 @@ commandHistory GEOADD_History[] = {
 /* GEOADD metadata */
 #define GEOADD_Metadata NULL
 
+/* GEOADD __tbd__42__ argument table */
+struct redisCommandArg GEOADD___tbd__42___Subargs[] = {
+{"nx",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="NX"},
+{"xx",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="XX"},
+{0}
+};
+
+/* GEOADD longitude_latitude_member argument table */
+struct redisCommandArg GEOADD_longitude_latitude_member_Subargs[] = {
+{"longitude",ARG_TYPE_DOUBLE,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="longitude"},
+{"latitude",ARG_TYPE_DOUBLE,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="latitude"},
+{"member",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="member"},
+{0}
+};
+
+/* GEOADD argument table */
+struct redisCommandArg GEOADD_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"__tbd__42__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=GEOADD___tbd__42___Subargs},
+{"change",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="CH"},
+{"longitude_latitude_member",ARG_TYPE_BLOCK,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.subargs=GEOADD_longitude_latitude_member_Subargs},
+{0}
+};
+
 /********** GEODIST ********************/
 
 /* GEODIST return info */
@@ -1257,6 +1973,24 @@ commandHistory GEOADD_History[] = {
 
 /* GEODIST metadata */
 #define GEODIST_Metadata NULL
+
+/* GEODIST __tbd__37__ argument table */
+struct redisCommandArg GEODIST___tbd__37___Subargs[] = {
+{"m",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="m"},
+{"km",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="km"},
+{"ft",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="ft"},
+{"mi",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="mi"},
+{0}
+};
+
+/* GEODIST argument table */
+struct redisCommandArg GEODIST_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"member1",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="member1"},
+{"member2",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="member2"},
+{"__tbd__37__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=GEODIST___tbd__37___Subargs},
+{0}
+};
 
 /********** GEOHASH ********************/
 
@@ -1269,6 +2003,13 @@ commandHistory GEOADD_History[] = {
 /* GEOHASH metadata */
 #define GEOHASH_Metadata NULL
 
+/* GEOHASH argument table */
+struct redisCommandArg GEOHASH_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"member",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="member"},
+{0}
+};
+
 /********** GEOPOS ********************/
 
 /* GEOPOS return info */
@@ -1279,6 +2020,13 @@ commandHistory GEOADD_History[] = {
 
 /* GEOPOS metadata */
 #define GEOPOS_Metadata NULL
+
+/* GEOPOS argument table */
+struct redisCommandArg GEOPOS_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"member",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="member"},
+{0}
+};
 
 /********** GEORADIUS ********************/
 
@@ -1294,6 +2042,46 @@ commandHistory GEORADIUS_History[] = {
 /* GEORADIUS metadata */
 #define GEORADIUS_Metadata NULL
 
+/* GEORADIUS __tbd__72__ argument table */
+struct redisCommandArg GEORADIUS___tbd__72___Subargs[] = {
+{"m",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="m"},
+{"km",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="km"},
+{"ft",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="ft"},
+{"mi",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="mi"},
+{0}
+};
+
+/* GEORADIUS count argument table */
+struct redisCommandArg GEORADIUS_count_Subargs[] = {
+{"count",ARG_TYPE_INTEGER,"COUNT",NULL,NULL,CMD_ARG_NONE,.value.string="count"},
+{"any",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="ANY"},
+{0}
+};
+
+/* GEORADIUS __tbd__73__ argument table */
+struct redisCommandArg GEORADIUS___tbd__73___Subargs[] = {
+{"asc",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="ASC"},
+{"desc",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="DESC"},
+{0}
+};
+
+/* GEORADIUS argument table */
+struct redisCommandArg GEORADIUS_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"longitude",ARG_TYPE_DOUBLE,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="longitude"},
+{"latitude",ARG_TYPE_DOUBLE,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="latitude"},
+{"radius",ARG_TYPE_DOUBLE,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="radius"},
+{"__tbd__72__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_NONE,.value.subargs=GEORADIUS___tbd__72___Subargs},
+{"withcoord",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="WITHCOORD"},
+{"withdist",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="WITHDIST"},
+{"withhash",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="WITHHASH"},
+{"count",ARG_TYPE_BLOCK,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=GEORADIUS_count_Subargs},
+{"__tbd__73__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=GEORADIUS___tbd__73___Subargs},
+{"key",ARG_TYPE_KEY,"STORE",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="key"},
+{"key",ARG_TYPE_KEY,"STOREDIST",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="key"},
+{0}
+};
+
 /********** GEORADIUSBYMEMBER ********************/
 
 /* GEORADIUSBYMEMBER return info */
@@ -1304,6 +2092,67 @@ commandHistory GEORADIUS_History[] = {
 
 /* GEORADIUSBYMEMBER metadata */
 #define GEORADIUSBYMEMBER_Metadata NULL
+
+/* GEORADIUSBYMEMBER __tbd__77__ argument table */
+struct redisCommandArg GEORADIUSBYMEMBER___tbd__77___Subargs[] = {
+{"m",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="m"},
+{"km",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="km"},
+{"ft",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="ft"},
+{"mi",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="mi"},
+{0}
+};
+
+/* GEORADIUSBYMEMBER count argument table */
+struct redisCommandArg GEORADIUSBYMEMBER_count_Subargs[] = {
+{"count",ARG_TYPE_INTEGER,"COUNT",NULL,NULL,CMD_ARG_NONE,.value.string="count"},
+{"any",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="ANY"},
+{0}
+};
+
+/* GEORADIUSBYMEMBER __tbd__78__ argument table */
+struct redisCommandArg GEORADIUSBYMEMBER___tbd__78___Subargs[] = {
+{"asc",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="ASC"},
+{"desc",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="DESC"},
+{0}
+};
+
+/* GEORADIUSBYMEMBER argument table */
+struct redisCommandArg GEORADIUSBYMEMBER_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"member",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="member"},
+{"radius",ARG_TYPE_DOUBLE,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="radius"},
+{"__tbd__77__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_NONE,.value.subargs=GEORADIUSBYMEMBER___tbd__77___Subargs},
+{"withcoord",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="WITHCOORD"},
+{"withdist",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="WITHDIST"},
+{"withhash",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="WITHHASH"},
+{"count",ARG_TYPE_BLOCK,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=GEORADIUSBYMEMBER_count_Subargs},
+{"__tbd__78__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=GEORADIUSBYMEMBER___tbd__78___Subargs},
+{"key",ARG_TYPE_KEY,"STORE",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="key"},
+{"key",ARG_TYPE_KEY,"STOREDIST",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="key"},
+{0}
+};
+
+/********** GEORADIUSBYMEMBER_RO ********************/
+
+/* GEORADIUSBYMEMBER_RO return info */
+#define GEORADIUSBYMEMBER_RO_ReturnInfo NULL
+
+/* GEORADIUSBYMEMBER_RO history */
+#define GEORADIUSBYMEMBER_RO_History NULL
+
+/* GEORADIUSBYMEMBER_RO metadata */
+#define GEORADIUSBYMEMBER_RO_Metadata NULL
+
+/********** GEORADIUS_RO ********************/
+
+/* GEORADIUS_RO return info */
+#define GEORADIUS_RO_ReturnInfo NULL
+
+/* GEORADIUS_RO history */
+#define GEORADIUS_RO_History NULL
+
+/* GEORADIUS_RO metadata */
+#define GEORADIUS_RO_Metadata NULL
 
 /********** GEOSEARCH ********************/
 
@@ -1316,6 +2165,75 @@ commandHistory GEORADIUS_History[] = {
 /* GEOSEARCH metadata */
 #define GEOSEARCH_Metadata NULL
 
+/* GEOSEARCH longitude_latitude argument table */
+struct redisCommandArg GEOSEARCH_longitude_latitude_Subargs[] = {
+{"longitude",ARG_TYPE_DOUBLE,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="longitude"},
+{"latitude",ARG_TYPE_DOUBLE,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="latitude"},
+{0}
+};
+
+/* GEOSEARCH circle __tbd__12__ argument table */
+struct redisCommandArg GEOSEARCH_circle___tbd__12___Subargs[] = {
+{"m",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="m"},
+{"km",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="km"},
+{"ft",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="ft"},
+{"mi",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="mi"},
+{0}
+};
+
+/* GEOSEARCH circle argument table */
+struct redisCommandArg GEOSEARCH_circle_Subargs[] = {
+{"radius",ARG_TYPE_DOUBLE,"BYRADIUS",NULL,NULL,CMD_ARG_NONE,.value.string="radius"},
+{"__tbd__12__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_NONE,.value.subargs=GEOSEARCH_circle___tbd__12___Subargs},
+{0}
+};
+
+/* GEOSEARCH box __tbd__13__ argument table */
+struct redisCommandArg GEOSEARCH_box___tbd__13___Subargs[] = {
+{"m",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="m"},
+{"km",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="km"},
+{"ft",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="ft"},
+{"mi",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="mi"},
+{0}
+};
+
+/* GEOSEARCH box argument table */
+struct redisCommandArg GEOSEARCH_box_Subargs[] = {
+{"width",ARG_TYPE_DOUBLE,"BYBOX",NULL,NULL,CMD_ARG_NONE,.value.string="width"},
+{"height",ARG_TYPE_DOUBLE,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="height"},
+{"__tbd__13__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_NONE,.value.subargs=GEOSEARCH_box___tbd__13___Subargs},
+{0}
+};
+
+/* GEOSEARCH __tbd__14__ argument table */
+struct redisCommandArg GEOSEARCH___tbd__14___Subargs[] = {
+{"asc",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="ASC"},
+{"desc",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="DESC"},
+{0}
+};
+
+/* GEOSEARCH count argument table */
+struct redisCommandArg GEOSEARCH_count_Subargs[] = {
+{"count",ARG_TYPE_INTEGER,"COUNT",NULL,NULL,CMD_ARG_NONE,.value.string="count"},
+{"any",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="ANY"},
+{0}
+};
+
+/* GEOSEARCH argument table */
+struct redisCommandArg GEOSEARCH_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"member",ARG_TYPE_STRING,"FROMMEMBER",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="member"},
+{"longitude_latitude",ARG_TYPE_BLOCK,"FROMLONLAT",NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=GEOSEARCH_longitude_latitude_Subargs},
+{"circle",ARG_TYPE_BLOCK,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=GEOSEARCH_circle_Subargs},
+{"box",ARG_TYPE_BLOCK,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=GEOSEARCH_box_Subargs},
+{"__tbd__14__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=GEOSEARCH___tbd__14___Subargs},
+{"count",ARG_TYPE_BLOCK,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=GEOSEARCH_count_Subargs},
+{"withcoord",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="WITHCOORD"},
+{"withdist",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="WITHDIST"},
+{"withhash",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="WITHHASH"},
+{0}
+};
+
 /********** GEOSEARCHSTORE ********************/
 
 /* GEOSEARCHSTORE return info */
@@ -1326,6 +2244,74 @@ commandHistory GEORADIUS_History[] = {
 
 /* GEOSEARCHSTORE metadata */
 #define GEOSEARCHSTORE_Metadata NULL
+
+/* GEOSEARCHSTORE longitude_latitude argument table */
+struct redisCommandArg GEOSEARCHSTORE_longitude_latitude_Subargs[] = {
+{"longitude",ARG_TYPE_DOUBLE,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="longitude"},
+{"latitude",ARG_TYPE_DOUBLE,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="latitude"},
+{0}
+};
+
+/* GEOSEARCHSTORE circle __tbd__63__ argument table */
+struct redisCommandArg GEOSEARCHSTORE_circle___tbd__63___Subargs[] = {
+{"m",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="m"},
+{"km",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="km"},
+{"ft",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="ft"},
+{"mi",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="mi"},
+{0}
+};
+
+/* GEOSEARCHSTORE circle argument table */
+struct redisCommandArg GEOSEARCHSTORE_circle_Subargs[] = {
+{"radius",ARG_TYPE_DOUBLE,"BYRADIUS",NULL,NULL,CMD_ARG_NONE,.value.string="radius"},
+{"__tbd__63__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_NONE,.value.subargs=GEOSEARCHSTORE_circle___tbd__63___Subargs},
+{0}
+};
+
+/* GEOSEARCHSTORE box __tbd__64__ argument table */
+struct redisCommandArg GEOSEARCHSTORE_box___tbd__64___Subargs[] = {
+{"m",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="m"},
+{"km",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="km"},
+{"ft",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="ft"},
+{"mi",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="mi"},
+{0}
+};
+
+/* GEOSEARCHSTORE box argument table */
+struct redisCommandArg GEOSEARCHSTORE_box_Subargs[] = {
+{"width",ARG_TYPE_DOUBLE,"BYBOX",NULL,NULL,CMD_ARG_NONE,.value.string="width"},
+{"height",ARG_TYPE_DOUBLE,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="height"},
+{"__tbd__64__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_NONE,.value.subargs=GEOSEARCHSTORE_box___tbd__64___Subargs},
+{0}
+};
+
+/* GEOSEARCHSTORE __tbd__65__ argument table */
+struct redisCommandArg GEOSEARCHSTORE___tbd__65___Subargs[] = {
+{"asc",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="ASC"},
+{"desc",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="DESC"},
+{0}
+};
+
+/* GEOSEARCHSTORE count argument table */
+struct redisCommandArg GEOSEARCHSTORE_count_Subargs[] = {
+{"count",ARG_TYPE_INTEGER,"COUNT",NULL,NULL,CMD_ARG_NONE,.value.string="count"},
+{"any",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="ANY"},
+{0}
+};
+
+/* GEOSEARCHSTORE argument table */
+struct redisCommandArg GEOSEARCHSTORE_Args[] = {
+{"destination",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="destination"},
+{"source",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="source"},
+{"member",ARG_TYPE_STRING,"FROMMEMBER",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="member"},
+{"longitude_latitude",ARG_TYPE_BLOCK,"FROMLONLAT",NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=GEOSEARCHSTORE_longitude_latitude_Subargs},
+{"circle",ARG_TYPE_BLOCK,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=GEOSEARCHSTORE_circle_Subargs},
+{"box",ARG_TYPE_BLOCK,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=GEOSEARCHSTORE_box_Subargs},
+{"__tbd__65__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=GEOSEARCHSTORE___tbd__65___Subargs},
+{"count",ARG_TYPE_BLOCK,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=GEOSEARCHSTORE_count_Subargs},
+{"storedist",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="STOREDIST"},
+{0}
+};
 
 /********** HDEL ********************/
 
@@ -1338,6 +2324,13 @@ commandHistory GEORADIUS_History[] = {
 /* HDEL metadata */
 #define HDEL_Metadata NULL
 
+/* HDEL argument table */
+struct redisCommandArg HDEL_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"field",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="field"},
+{0}
+};
+
 /********** HEXISTS ********************/
 
 /* HEXISTS return info */
@@ -1348,6 +2341,13 @@ commandHistory GEORADIUS_History[] = {
 
 /* HEXISTS metadata */
 #define HEXISTS_Metadata NULL
+
+/* HEXISTS argument table */
+struct redisCommandArg HEXISTS_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"field",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="field"},
+{0}
+};
 
 /********** HGET ********************/
 
@@ -1360,6 +2360,13 @@ commandHistory GEORADIUS_History[] = {
 /* HGET metadata */
 #define HGET_Metadata NULL
 
+/* HGET argument table */
+struct redisCommandArg HGET_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"field",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="field"},
+{0}
+};
+
 /********** HGETALL ********************/
 
 /* HGETALL return info */
@@ -1370,6 +2377,12 @@ commandHistory GEORADIUS_History[] = {
 
 /* HGETALL metadata */
 #define HGETALL_Metadata NULL
+
+/* HGETALL argument table */
+struct redisCommandArg HGETALL_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{0}
+};
 
 /********** HINCRBY ********************/
 
@@ -1382,6 +2395,14 @@ commandHistory GEORADIUS_History[] = {
 /* HINCRBY metadata */
 #define HINCRBY_Metadata NULL
 
+/* HINCRBY argument table */
+struct redisCommandArg HINCRBY_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"field",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="field"},
+{"increment",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="increment"},
+{0}
+};
+
 /********** HINCRBYFLOAT ********************/
 
 /* HINCRBYFLOAT return info */
@@ -1392,6 +2413,14 @@ commandHistory GEORADIUS_History[] = {
 
 /* HINCRBYFLOAT metadata */
 #define HINCRBYFLOAT_Metadata NULL
+
+/* HINCRBYFLOAT argument table */
+struct redisCommandArg HINCRBYFLOAT_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"field",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="field"},
+{"increment",ARG_TYPE_DOUBLE,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="increment"},
+{0}
+};
 
 /********** HKEYS ********************/
 
@@ -1404,6 +2433,12 @@ commandHistory GEORADIUS_History[] = {
 /* HKEYS metadata */
 #define HKEYS_Metadata NULL
 
+/* HKEYS argument table */
+struct redisCommandArg HKEYS_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{0}
+};
+
 /********** HLEN ********************/
 
 /* HLEN return info */
@@ -1414,6 +2449,12 @@ commandHistory GEORADIUS_History[] = {
 
 /* HLEN metadata */
 #define HLEN_Metadata NULL
+
+/* HLEN argument table */
+struct redisCommandArg HLEN_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{0}
+};
 
 /********** HMGET ********************/
 
@@ -1426,6 +2467,13 @@ commandHistory GEORADIUS_History[] = {
 /* HMGET metadata */
 #define HMGET_Metadata NULL
 
+/* HMGET argument table */
+struct redisCommandArg HMGET_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"field",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="field"},
+{0}
+};
+
 /********** HMSET ********************/
 
 /* HMSET return info */
@@ -1436,6 +2484,20 @@ commandHistory GEORADIUS_History[] = {
 
 /* HMSET metadata */
 #define HMSET_Metadata NULL
+
+/* HMSET field_value argument table */
+struct redisCommandArg HMSET_field_value_Subargs[] = {
+{"field",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="field"},
+{"value",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="value"},
+{0}
+};
+
+/* HMSET argument table */
+struct redisCommandArg HMSET_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"field_value",ARG_TYPE_BLOCK,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.subargs=HMSET_field_value_Subargs},
+{0}
+};
 
 /********** HRANDFIELD ********************/
 
@@ -1448,6 +2510,20 @@ commandHistory GEORADIUS_History[] = {
 /* HRANDFIELD metadata */
 #define HRANDFIELD_Metadata NULL
 
+/* HRANDFIELD options argument table */
+struct redisCommandArg HRANDFIELD_options_Subargs[] = {
+{"count",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="count"},
+{"withvalues",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="WITHVALUES"},
+{0}
+};
+
+/* HRANDFIELD argument table */
+struct redisCommandArg HRANDFIELD_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"options",ARG_TYPE_BLOCK,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=HRANDFIELD_options_Subargs},
+{0}
+};
+
 /********** HSCAN ********************/
 
 /* HSCAN return info */
@@ -1458,6 +2534,15 @@ commandHistory GEORADIUS_History[] = {
 
 /* HSCAN metadata */
 #define HSCAN_Metadata NULL
+
+/* HSCAN argument table */
+struct redisCommandArg HSCAN_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"cursor",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="cursor"},
+{"pattern",ARG_TYPE_PATTERN,"MATCH",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="pattern"},
+{"count",ARG_TYPE_INTEGER,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="count"},
+{0}
+};
 
 /********** HSET ********************/
 
@@ -1470,6 +2555,20 @@ commandHistory GEORADIUS_History[] = {
 /* HSET metadata */
 #define HSET_Metadata NULL
 
+/* HSET field_value argument table */
+struct redisCommandArg HSET_field_value_Subargs[] = {
+{"field",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="field"},
+{"value",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="value"},
+{0}
+};
+
+/* HSET argument table */
+struct redisCommandArg HSET_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"field_value",ARG_TYPE_BLOCK,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.subargs=HSET_field_value_Subargs},
+{0}
+};
+
 /********** HSETNX ********************/
 
 /* HSETNX return info */
@@ -1480,6 +2579,14 @@ commandHistory GEORADIUS_History[] = {
 
 /* HSETNX metadata */
 #define HSETNX_Metadata NULL
+
+/* HSETNX argument table */
+struct redisCommandArg HSETNX_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"field",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="field"},
+{"value",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="value"},
+{0}
+};
 
 /********** HSTRLEN ********************/
 
@@ -1492,6 +2599,13 @@ commandHistory GEORADIUS_History[] = {
 /* HSTRLEN metadata */
 #define HSTRLEN_Metadata NULL
 
+/* HSTRLEN argument table */
+struct redisCommandArg HSTRLEN_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"field",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="field"},
+{0}
+};
+
 /********** HVALS ********************/
 
 /* HVALS return info */
@@ -1502,6 +2616,12 @@ commandHistory GEORADIUS_History[] = {
 
 /* HVALS metadata */
 #define HVALS_Metadata NULL
+
+/* HVALS argument table */
+struct redisCommandArg HVALS_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{0}
+};
 
 /********** PFADD ********************/
 
@@ -1514,6 +2634,13 @@ commandHistory GEORADIUS_History[] = {
 /* PFADD metadata */
 #define PFADD_Metadata NULL
 
+/* PFADD argument table */
+struct redisCommandArg PFADD_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"element",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="element"},
+{0}
+};
+
 /********** PFCOUNT ********************/
 
 /* PFCOUNT return info */
@@ -1524,6 +2651,23 @@ commandHistory GEORADIUS_History[] = {
 
 /* PFCOUNT metadata */
 #define PFCOUNT_Metadata NULL
+
+/* PFCOUNT argument table */
+struct redisCommandArg PFCOUNT_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="key"},
+{0}
+};
+
+/********** PFDEBUG ********************/
+
+/* PFDEBUG return info */
+#define PFDEBUG_ReturnInfo NULL
+
+/* PFDEBUG history */
+#define PFDEBUG_History NULL
+
+/* PFDEBUG metadata */
+#define PFDEBUG_Metadata NULL
 
 /********** PFMERGE ********************/
 
@@ -1536,6 +2680,24 @@ commandHistory GEORADIUS_History[] = {
 /* PFMERGE metadata */
 #define PFMERGE_Metadata NULL
 
+/* PFMERGE argument table */
+struct redisCommandArg PFMERGE_Args[] = {
+{"destkey",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="destkey"},
+{"sourcekey",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="sourcekey"},
+{0}
+};
+
+/********** PFSELFTEST ********************/
+
+/* PFSELFTEST return info */
+#define PFSELFTEST_ReturnInfo NULL
+
+/* PFSELFTEST history */
+#define PFSELFTEST_History NULL
+
+/* PFSELFTEST metadata */
+#define PFSELFTEST_Metadata NULL
+
 /********** BLMOVE ********************/
 
 /* BLMOVE return info */
@@ -1547,6 +2709,30 @@ commandHistory GEORADIUS_History[] = {
 /* BLMOVE metadata */
 #define BLMOVE_Metadata NULL
 
+/* BLMOVE __tbd__43__ argument table */
+struct redisCommandArg BLMOVE___tbd__43___Subargs[] = {
+{"left",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="LEFT"},
+{"right",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="RIGHT"},
+{0}
+};
+
+/* BLMOVE __tbd__44__ argument table */
+struct redisCommandArg BLMOVE___tbd__44___Subargs[] = {
+{"left",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="LEFT"},
+{"right",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="RIGHT"},
+{0}
+};
+
+/* BLMOVE argument table */
+struct redisCommandArg BLMOVE_Args[] = {
+{"source",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="source"},
+{"destination",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="destination"},
+{"__tbd__43__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_NONE,.value.subargs=BLMOVE___tbd__43___Subargs},
+{"__tbd__44__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_NONE,.value.subargs=BLMOVE___tbd__44___Subargs},
+{"timeout",ARG_TYPE_DOUBLE,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="timeout"},
+{0}
+};
+
 /********** BLMPOP ********************/
 
 /* BLMPOP return info */
@@ -1557,6 +2743,23 @@ commandHistory GEORADIUS_History[] = {
 
 /* BLMPOP metadata */
 #define BLMPOP_Metadata NULL
+
+/* BLMPOP __tbd__59__ argument table */
+struct redisCommandArg BLMPOP___tbd__59___Subargs[] = {
+{"left",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="LEFT"},
+{"right",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="RIGHT"},
+{0}
+};
+
+/* BLMPOP argument table */
+struct redisCommandArg BLMPOP_Args[] = {
+{"timeout",ARG_TYPE_DOUBLE,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="timeout"},
+{"numkeys",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="numkeys"},
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="key"},
+{"__tbd__59__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_NONE,.value.subargs=BLMPOP___tbd__59___Subargs},
+{"count",ARG_TYPE_INTEGER,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="count"},
+{0}
+};
 
 /********** BLPOP ********************/
 
@@ -1572,6 +2775,13 @@ commandHistory BLPOP_History[] = {
 /* BLPOP metadata */
 #define BLPOP_Metadata NULL
 
+/* BLPOP argument table */
+struct redisCommandArg BLPOP_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="key"},
+{"timeout",ARG_TYPE_DOUBLE,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="timeout"},
+{0}
+};
+
 /********** BRPOP ********************/
 
 /* BRPOP return info */
@@ -1585,6 +2795,13 @@ commandHistory BRPOP_History[] = {
 
 /* BRPOP metadata */
 #define BRPOP_Metadata NULL
+
+/* BRPOP argument table */
+struct redisCommandArg BRPOP_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="key"},
+{"timeout",ARG_TYPE_DOUBLE,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="timeout"},
+{0}
+};
 
 /********** BRPOPLPUSH ********************/
 
@@ -1600,6 +2817,14 @@ commandHistory BRPOPLPUSH_History[] = {
 /* BRPOPLPUSH metadata */
 #define BRPOPLPUSH_Metadata NULL
 
+/* BRPOPLPUSH argument table */
+struct redisCommandArg BRPOPLPUSH_Args[] = {
+{"source",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="source"},
+{"destination",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="destination"},
+{"timeout",ARG_TYPE_DOUBLE,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="timeout"},
+{0}
+};
+
 /********** LINDEX ********************/
 
 /* LINDEX return info */
@@ -1610,6 +2835,13 @@ commandHistory BRPOPLPUSH_History[] = {
 
 /* LINDEX metadata */
 #define LINDEX_Metadata NULL
+
+/* LINDEX argument table */
+struct redisCommandArg LINDEX_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"index",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="index"},
+{0}
+};
 
 /********** LINSERT ********************/
 
@@ -1622,6 +2854,22 @@ commandHistory BRPOPLPUSH_History[] = {
 /* LINSERT metadata */
 #define LINSERT_Metadata NULL
 
+/* LINSERT __tbd__2__ argument table */
+struct redisCommandArg LINSERT___tbd__2___Subargs[] = {
+{"before",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="BEFORE"},
+{"after",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="AFTER"},
+{0}
+};
+
+/* LINSERT argument table */
+struct redisCommandArg LINSERT_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"__tbd__2__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_NONE,.value.subargs=LINSERT___tbd__2___Subargs},
+{"pivot",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="pivot"},
+{"element",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="element"},
+{0}
+};
+
 /********** LLEN ********************/
 
 /* LLEN return info */
@@ -1632,6 +2880,12 @@ commandHistory BRPOPLPUSH_History[] = {
 
 /* LLEN metadata */
 #define LLEN_Metadata NULL
+
+/* LLEN argument table */
+struct redisCommandArg LLEN_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{0}
+};
 
 /********** LMOVE ********************/
 
@@ -1644,6 +2898,29 @@ commandHistory BRPOPLPUSH_History[] = {
 /* LMOVE metadata */
 #define LMOVE_Metadata NULL
 
+/* LMOVE __tbd__15__ argument table */
+struct redisCommandArg LMOVE___tbd__15___Subargs[] = {
+{"left",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="LEFT"},
+{"right",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="RIGHT"},
+{0}
+};
+
+/* LMOVE __tbd__16__ argument table */
+struct redisCommandArg LMOVE___tbd__16___Subargs[] = {
+{"left",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="LEFT"},
+{"right",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="RIGHT"},
+{0}
+};
+
+/* LMOVE argument table */
+struct redisCommandArg LMOVE_Args[] = {
+{"source",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="source"},
+{"destination",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="destination"},
+{"__tbd__15__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_NONE,.value.subargs=LMOVE___tbd__15___Subargs},
+{"__tbd__16__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_NONE,.value.subargs=LMOVE___tbd__16___Subargs},
+{0}
+};
+
 /********** LMPOP ********************/
 
 /* LMPOP return info */
@@ -1654,6 +2931,22 @@ commandHistory BRPOPLPUSH_History[] = {
 
 /* LMPOP metadata */
 #define LMPOP_Metadata NULL
+
+/* LMPOP __tbd__17__ argument table */
+struct redisCommandArg LMPOP___tbd__17___Subargs[] = {
+{"left",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="LEFT"},
+{"right",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="RIGHT"},
+{0}
+};
+
+/* LMPOP argument table */
+struct redisCommandArg LMPOP_Args[] = {
+{"numkeys",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="numkeys"},
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="key"},
+{"__tbd__17__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_NONE,.value.subargs=LMPOP___tbd__17___Subargs},
+{"count",ARG_TYPE_INTEGER,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="count"},
+{0}
+};
 
 /********** LPOP ********************/
 
@@ -1669,6 +2962,13 @@ commandHistory LPOP_History[] = {
 /* LPOP metadata */
 #define LPOP_Metadata NULL
 
+/* LPOP argument table */
+struct redisCommandArg LPOP_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"count",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="count"},
+{0}
+};
+
 /********** LPOS ********************/
 
 /* LPOS return info */
@@ -1679,6 +2979,16 @@ commandHistory LPOP_History[] = {
 
 /* LPOS metadata */
 #define LPOS_Metadata NULL
+
+/* LPOS argument table */
+struct redisCommandArg LPOS_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"element",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="element"},
+{"rank",ARG_TYPE_INTEGER,"RANK",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="rank"},
+{"num-matches",ARG_TYPE_INTEGER,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="num-matches"},
+{"len",ARG_TYPE_INTEGER,"MAXLEN",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="len"},
+{0}
+};
 
 /********** LPUSH ********************/
 
@@ -1694,6 +3004,13 @@ commandHistory LPUSH_History[] = {
 /* LPUSH metadata */
 #define LPUSH_Metadata NULL
 
+/* LPUSH argument table */
+struct redisCommandArg LPUSH_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"element",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="element"},
+{0}
+};
+
 /********** LPUSHX ********************/
 
 /* LPUSHX return info */
@@ -1708,6 +3025,13 @@ commandHistory LPUSHX_History[] = {
 /* LPUSHX metadata */
 #define LPUSHX_Metadata NULL
 
+/* LPUSHX argument table */
+struct redisCommandArg LPUSHX_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"element",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="element"},
+{0}
+};
+
 /********** LRANGE ********************/
 
 /* LRANGE return info */
@@ -1718,6 +3042,14 @@ commandHistory LPUSHX_History[] = {
 
 /* LRANGE metadata */
 #define LRANGE_Metadata NULL
+
+/* LRANGE argument table */
+struct redisCommandArg LRANGE_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"start",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="start"},
+{"stop",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="stop"},
+{0}
+};
 
 /********** LREM ********************/
 
@@ -1730,6 +3062,14 @@ commandHistory LPUSHX_History[] = {
 /* LREM metadata */
 #define LREM_Metadata NULL
 
+/* LREM argument table */
+struct redisCommandArg LREM_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"count",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="count"},
+{"element",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="element"},
+{0}
+};
+
 /********** LSET ********************/
 
 /* LSET return info */
@@ -1741,6 +3081,14 @@ commandHistory LPUSHX_History[] = {
 /* LSET metadata */
 #define LSET_Metadata NULL
 
+/* LSET argument table */
+struct redisCommandArg LSET_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"index",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="index"},
+{"element",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="element"},
+{0}
+};
+
 /********** LTRIM ********************/
 
 /* LTRIM return info */
@@ -1751,6 +3099,14 @@ commandHistory LPUSHX_History[] = {
 
 /* LTRIM metadata */
 #define LTRIM_Metadata NULL
+
+/* LTRIM argument table */
+struct redisCommandArg LTRIM_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"start",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="start"},
+{"stop",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="stop"},
+{0}
+};
 
 /********** RPOP ********************/
 
@@ -1766,6 +3122,13 @@ commandHistory RPOP_History[] = {
 /* RPOP metadata */
 #define RPOP_Metadata NULL
 
+/* RPOP argument table */
+struct redisCommandArg RPOP_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"count",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="count"},
+{0}
+};
+
 /********** RPOPLPUSH ********************/
 
 /* RPOPLPUSH return info */
@@ -1776,6 +3139,13 @@ commandHistory RPOP_History[] = {
 
 /* RPOPLPUSH metadata */
 #define RPOPLPUSH_Metadata NULL
+
+/* RPOPLPUSH argument table */
+struct redisCommandArg RPOPLPUSH_Args[] = {
+{"source",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="source"},
+{"destination",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="destination"},
+{0}
+};
 
 /********** RPUSH ********************/
 
@@ -1791,6 +3161,13 @@ commandHistory RPUSH_History[] = {
 /* RPUSH metadata */
 #define RPUSH_Metadata NULL
 
+/* RPUSH argument table */
+struct redisCommandArg RPUSH_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"element",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="element"},
+{0}
+};
+
 /********** RPUSHX ********************/
 
 /* RPUSHX return info */
@@ -1805,6 +3182,13 @@ commandHistory RPUSHX_History[] = {
 /* RPUSHX metadata */
 #define RPUSHX_Metadata NULL
 
+/* RPUSHX argument table */
+struct redisCommandArg RPUSHX_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"element",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="element"},
+{0}
+};
+
 /********** PSUBSCRIBE ********************/
 
 /* PSUBSCRIBE return info */
@@ -1815,6 +3199,18 @@ commandHistory RPUSHX_History[] = {
 
 /* PSUBSCRIBE metadata */
 #define PSUBSCRIBE_Metadata NULL
+
+/* PSUBSCRIBE pattern argument table */
+struct redisCommandArg PSUBSCRIBE_pattern_Subargs[] = {
+{"pattern",ARG_TYPE_PATTERN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="pattern"},
+{0}
+};
+
+/* PSUBSCRIBE argument table */
+struct redisCommandArg PSUBSCRIBE_Args[] = {
+{"pattern",ARG_TYPE_BLOCK,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.subargs=PSUBSCRIBE_pattern_Subargs},
+{0}
+};
 
 /********** PUBLISH ********************/
 
@@ -1827,56 +3223,75 @@ commandHistory RPUSHX_History[] = {
 /* PUBLISH metadata */
 #define PUBLISH_Metadata NULL
 
-/********** PUBSUB CHANNELS ********************/
+/* PUBLISH argument table */
+struct redisCommandArg PUBLISH_Args[] = {
+{"channel",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="channel"},
+{"message",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="message"},
+{0}
+};
 
-/* PUBSUB CHANNELS return info */
-#define PUBSUB_CHANNELS_ReturnInfo NULL
+/********** PUBSUB PUBSUB CHANNELS ********************/
 
-/* PUBSUB CHANNELS history */
-#define PUBSUB_CHANNELS_History NULL
+/* PUBSUB PUBSUB CHANNELS return info */
+#define PUBSUB_PUBSUB_CHANNELS_ReturnInfo NULL
 
-/* PUBSUB CHANNELS metadata */
-#define PUBSUB_CHANNELS_Metadata NULL
+/* PUBSUB PUBSUB CHANNELS history */
+#define PUBSUB_PUBSUB_CHANNELS_History NULL
 
-/********** PUBSUB HELP ********************/
+/* PUBSUB PUBSUB CHANNELS metadata */
+#define PUBSUB_PUBSUB_CHANNELS_Metadata NULL
 
-/* PUBSUB HELP return info */
-#define PUBSUB_HELP_ReturnInfo NULL
+/* PUBSUB PUBSUB CHANNELS argument table */
+struct redisCommandArg PUBSUB_PUBSUB_CHANNELS_Args[] = {
+{"pattern",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="pattern"},
+{0}
+};
 
-/* PUBSUB HELP history */
-#define PUBSUB_HELP_History NULL
+/********** PUBSUB PUBSUB HELP ********************/
 
-/* PUBSUB HELP metadata */
-#define PUBSUB_HELP_Metadata NULL
+/* PUBSUB PUBSUB HELP return info */
+#define PUBSUB_PUBSUB_HELP_ReturnInfo NULL
 
-/********** PUBSUB NUMPAT ********************/
+/* PUBSUB PUBSUB HELP history */
+#define PUBSUB_PUBSUB_HELP_History NULL
 
-/* PUBSUB NUMPAT return info */
-#define PUBSUB_NUMPAT_ReturnInfo NULL
+/* PUBSUB PUBSUB HELP metadata */
+#define PUBSUB_PUBSUB_HELP_Metadata NULL
 
-/* PUBSUB NUMPAT history */
-#define PUBSUB_NUMPAT_History NULL
+/********** PUBSUB PUBSUB NUMPAT ********************/
 
-/* PUBSUB NUMPAT metadata */
-#define PUBSUB_NUMPAT_Metadata NULL
+/* PUBSUB PUBSUB NUMPAT return info */
+#define PUBSUB_PUBSUB_NUMPAT_ReturnInfo NULL
 
-/********** PUBSUB NUMSUB ********************/
+/* PUBSUB PUBSUB NUMPAT history */
+#define PUBSUB_PUBSUB_NUMPAT_History NULL
 
-/* PUBSUB NUMSUB return info */
-#define PUBSUB_NUMSUB_ReturnInfo NULL
+/* PUBSUB PUBSUB NUMPAT metadata */
+#define PUBSUB_PUBSUB_NUMPAT_Metadata NULL
 
-/* PUBSUB NUMSUB history */
-#define PUBSUB_NUMSUB_History NULL
+/********** PUBSUB PUBSUB NUMSUB ********************/
 
-/* PUBSUB NUMSUB metadata */
-#define PUBSUB_NUMSUB_Metadata NULL
+/* PUBSUB PUBSUB NUMSUB return info */
+#define PUBSUB_PUBSUB_NUMSUB_ReturnInfo NULL
+
+/* PUBSUB PUBSUB NUMSUB history */
+#define PUBSUB_PUBSUB_NUMSUB_History NULL
+
+/* PUBSUB PUBSUB NUMSUB metadata */
+#define PUBSUB_PUBSUB_NUMSUB_Metadata NULL
+
+/* PUBSUB PUBSUB NUMSUB argument table */
+struct redisCommandArg PUBSUB_PUBSUB_NUMSUB_Args[] = {
+{"channel",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="channel"},
+{0}
+};
 
 /* PUBSUB command table */
 struct redisCommand PUBSUB_Subcommands[] = {
-{"numsub","Get the count of subscribers for channels","O(N) for the NUMSUB subcommand, where N is the number of requested channels","2.8.0",COMMAND_GROUP_PUBSUB,PUBSUB_NUMSUB_ReturnInfo,PUBSUB_NUMSUB_History,PUBSUB_NUMSUB_Metadata,pubsubCommand,-2,"pubsub loading stale @pubsub @slow"},
-{"channels","List active channels","O(N) where N is the number of active channels, and assuming constant time pattern matching (relatively short channels and patterns)","2.8.0",COMMAND_GROUP_PUBSUB,PUBSUB_CHANNELS_ReturnInfo,PUBSUB_CHANNELS_History,PUBSUB_CHANNELS_Metadata,pubsubCommand,-2,"pubsub loading stale @pubsub @slow"},
-{"help","Show helpful text about the different subcommands","O(1)","6.2.0",COMMAND_GROUP_PUBSUB,PUBSUB_HELP_ReturnInfo,PUBSUB_HELP_History,PUBSUB_HELP_Metadata,pubsubCommand,2,"loading stale @slow"},
-{"numpat","Get the count of unique patterns pattern subscriptions","O(1)","2.8.0",COMMAND_GROUP_PUBSUB,PUBSUB_NUMPAT_ReturnInfo,PUBSUB_NUMPAT_History,PUBSUB_NUMPAT_Metadata,pubsubCommand,2,"pubsub loading stale @pubsub @slow"},
+{"pubsub channels","List active channels","O(N) where N is the number of active channels, and assuming constant time pattern matching (relatively short channels and patterns)","2.8.0",COMMAND_GROUP_PUBSUB,PUBSUB_PUBSUB_CHANNELS_ReturnInfo,PUBSUB_PUBSUB_CHANNELS_History,PUBSUB_PUBSUB_CHANNELS_Metadata,pubsubCommand,-2,"pubsub loading stale @pubsub @slow",.args=PUBSUB_PUBSUB_CHANNELS_Args},
+{"pubsub numsub","Get the count of subscribers for channels","O(N) for the NUMSUB subcommand, where N is the number of requested channels","2.8.0",COMMAND_GROUP_PUBSUB,PUBSUB_PUBSUB_NUMSUB_ReturnInfo,PUBSUB_PUBSUB_NUMSUB_History,PUBSUB_PUBSUB_NUMSUB_Metadata,pubsubCommand,-2,"pubsub loading stale @pubsub @slow",.args=PUBSUB_PUBSUB_NUMSUB_Args},
+{"pubsub numpat","Get the count of unique patterns pattern subscriptions","O(1)","2.8.0",COMMAND_GROUP_PUBSUB,PUBSUB_PUBSUB_NUMPAT_ReturnInfo,PUBSUB_PUBSUB_NUMPAT_History,PUBSUB_PUBSUB_NUMPAT_Metadata,pubsubCommand,2,"pubsub loading stale @pubsub @slow"},
+{"pubsub help","Show helpful text about the different subcommands","O(1)","6.2.0",COMMAND_GROUP_PUBSUB,PUBSUB_PUBSUB_HELP_ReturnInfo,PUBSUB_PUBSUB_HELP_History,PUBSUB_PUBSUB_HELP_Metadata,pubsubCommand,2,"loading stale @slow"},
 {0}
 };
 
@@ -1902,6 +3317,12 @@ struct redisCommand PUBSUB_Subcommands[] = {
 /* PUNSUBSCRIBE metadata */
 #define PUNSUBSCRIBE_Metadata NULL
 
+/* PUNSUBSCRIBE argument table */
+struct redisCommandArg PUNSUBSCRIBE_Args[] = {
+{"pattern",ARG_TYPE_PATTERN,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="pattern"},
+{0}
+};
+
 /********** SUBSCRIBE ********************/
 
 /* SUBSCRIBE return info */
@@ -1916,6 +3337,12 @@ commandHistory SUBSCRIBE_History[] = {
 /* SUBSCRIBE metadata */
 #define SUBSCRIBE_Metadata NULL
 
+/* SUBSCRIBE argument table */
+struct redisCommandArg SUBSCRIBE_Args[] = {
+{"channel",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="channel"},
+{0}
+};
+
 /********** UNSUBSCRIBE ********************/
 
 /* UNSUBSCRIBE return info */
@@ -1926,6 +3353,12 @@ commandHistory SUBSCRIBE_History[] = {
 
 /* UNSUBSCRIBE metadata */
 #define UNSUBSCRIBE_Metadata NULL
+
+/* UNSUBSCRIBE argument table */
+struct redisCommandArg UNSUBSCRIBE_Args[] = {
+{"channel",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="channel"},
+{0}
+};
 
 /********** EVAL ********************/
 
@@ -1938,6 +3371,15 @@ commandHistory SUBSCRIBE_History[] = {
 /* EVAL metadata */
 #define EVAL_Metadata NULL
 
+/* EVAL argument table */
+struct redisCommandArg EVAL_Args[] = {
+{"script",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="script"},
+{"numkeys",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="numkeys"},
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="key"},
+{"arg",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="arg"},
+{0}
+};
+
 /********** EVALSHA ********************/
 
 /* EVALSHA return info */
@@ -1948,6 +3390,15 @@ commandHistory SUBSCRIBE_History[] = {
 
 /* EVALSHA metadata */
 #define EVALSHA_Metadata NULL
+
+/* EVALSHA argument table */
+struct redisCommandArg EVALSHA_Args[] = {
+{"sha1",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="sha1"},
+{"numkeys",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="numkeys"},
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="key"},
+{"arg",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="arg"},
+{0}
+};
 
 /********** EVALSHA_RO ********************/
 
@@ -1960,6 +3411,15 @@ commandHistory SUBSCRIBE_History[] = {
 /* EVALSHA_RO metadata */
 #define EVALSHA_RO_Metadata NULL
 
+/* EVALSHA_RO argument table */
+struct redisCommandArg EVALSHA_RO_Args[] = {
+{"sha1",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="sha1"},
+{"numkeys",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="numkeys"},
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="key"},
+{"arg",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="arg"},
+{0}
+};
+
 /********** EVAL_RO ********************/
 
 /* EVAL_RO return info */
@@ -1971,83 +3431,131 @@ commandHistory SUBSCRIBE_History[] = {
 /* EVAL_RO metadata */
 #define EVAL_RO_Metadata NULL
 
-/********** SCRIPT DEBUG ********************/
+/* EVAL_RO argument table */
+struct redisCommandArg EVAL_RO_Args[] = {
+{"script",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="script"},
+{"numkeys",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="numkeys"},
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="key"},
+{"arg",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="arg"},
+{0}
+};
 
-/* SCRIPT DEBUG return info */
-#define SCRIPT_DEBUG_ReturnInfo NULL
+/********** SCRIPT SCRIPT DEBUG ********************/
 
-/* SCRIPT DEBUG history */
-#define SCRIPT_DEBUG_History NULL
+/* SCRIPT SCRIPT DEBUG return info */
+#define SCRIPT_SCRIPT_DEBUG_ReturnInfo NULL
 
-/* SCRIPT DEBUG metadata */
-#define SCRIPT_DEBUG_Metadata NULL
+/* SCRIPT SCRIPT DEBUG history */
+#define SCRIPT_SCRIPT_DEBUG_History NULL
 
-/********** SCRIPT EXISTS ********************/
+/* SCRIPT SCRIPT DEBUG metadata */
+#define SCRIPT_SCRIPT_DEBUG_Metadata NULL
 
-/* SCRIPT EXISTS return info */
-#define SCRIPT_EXISTS_ReturnInfo NULL
+/* SCRIPT SCRIPT DEBUG __tbd__29__ argument table */
+struct redisCommandArg SCRIPT_SCRIPT_DEBUG___tbd__29___Subargs[] = {
+{"yes",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="YES"},
+{"sync",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="SYNC"},
+{"no",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="NO"},
+{0}
+};
 
-/* SCRIPT EXISTS history */
-#define SCRIPT_EXISTS_History NULL
+/* SCRIPT SCRIPT DEBUG argument table */
+struct redisCommandArg SCRIPT_SCRIPT_DEBUG_Args[] = {
+{"__tbd__29__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_NONE,.value.subargs=SCRIPT_SCRIPT_DEBUG___tbd__29___Subargs},
+{0}
+};
 
-/* SCRIPT EXISTS metadata */
-#define SCRIPT_EXISTS_Metadata NULL
+/********** SCRIPT SCRIPT EXISTS ********************/
 
-/********** SCRIPT FLUSH ********************/
+/* SCRIPT SCRIPT EXISTS return info */
+#define SCRIPT_SCRIPT_EXISTS_ReturnInfo NULL
 
-/* SCRIPT FLUSH return info */
-#define SCRIPT_FLUSH_ReturnInfo NULL
+/* SCRIPT SCRIPT EXISTS history */
+#define SCRIPT_SCRIPT_EXISTS_History NULL
 
-/* SCRIPT FLUSH history */
-commandHistory SCRIPT_FLUSH_History[] = {
+/* SCRIPT SCRIPT EXISTS metadata */
+#define SCRIPT_SCRIPT_EXISTS_Metadata NULL
+
+/* SCRIPT SCRIPT EXISTS argument table */
+struct redisCommandArg SCRIPT_SCRIPT_EXISTS_Args[] = {
+{"sha1",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="sha1"},
+{0}
+};
+
+/********** SCRIPT SCRIPT FLUSH ********************/
+
+/* SCRIPT SCRIPT FLUSH return info */
+#define SCRIPT_SCRIPT_FLUSH_ReturnInfo NULL
+
+/* SCRIPT SCRIPT FLUSH history */
+commandHistory SCRIPT_SCRIPT_FLUSH_History[] = {
 {"6.2.0","Added the `ASYNC` and `!SYNC` flushing mode modifiers, as well as the  **lazyfree-lazy-user-flush** configuration directive."},
 {0}
 };
 
-/* SCRIPT FLUSH metadata */
-#define SCRIPT_FLUSH_Metadata NULL
+/* SCRIPT SCRIPT FLUSH metadata */
+#define SCRIPT_SCRIPT_FLUSH_Metadata NULL
 
-/********** SCRIPT HELP ********************/
+/* SCRIPT SCRIPT FLUSH __tbd__30__ argument table */
+struct redisCommandArg SCRIPT_SCRIPT_FLUSH___tbd__30___Subargs[] = {
+{"async",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="ASYNC"},
+{"sync",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="SYNC"},
+{0}
+};
 
-/* SCRIPT HELP return info */
-#define SCRIPT_HELP_ReturnInfo NULL
+/* SCRIPT SCRIPT FLUSH argument table */
+struct redisCommandArg SCRIPT_SCRIPT_FLUSH_Args[] = {
+{"__tbd__30__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=SCRIPT_SCRIPT_FLUSH___tbd__30___Subargs},
+{0}
+};
 
-/* SCRIPT HELP history */
-#define SCRIPT_HELP_History NULL
+/********** SCRIPT SCRIPT HELP ********************/
 
-/* SCRIPT HELP metadata */
-#define SCRIPT_HELP_Metadata NULL
+/* SCRIPT SCRIPT HELP return info */
+#define SCRIPT_SCRIPT_HELP_ReturnInfo NULL
 
-/********** SCRIPT KILL ********************/
+/* SCRIPT SCRIPT HELP history */
+#define SCRIPT_SCRIPT_HELP_History NULL
 
-/* SCRIPT KILL return info */
-#define SCRIPT_KILL_ReturnInfo NULL
+/* SCRIPT SCRIPT HELP metadata */
+#define SCRIPT_SCRIPT_HELP_Metadata NULL
 
-/* SCRIPT KILL history */
-#define SCRIPT_KILL_History NULL
+/********** SCRIPT SCRIPT KILL ********************/
 
-/* SCRIPT KILL metadata */
-#define SCRIPT_KILL_Metadata NULL
+/* SCRIPT SCRIPT KILL return info */
+#define SCRIPT_SCRIPT_KILL_ReturnInfo NULL
 
-/********** SCRIPT LOAD ********************/
+/* SCRIPT SCRIPT KILL history */
+#define SCRIPT_SCRIPT_KILL_History NULL
 
-/* SCRIPT LOAD return info */
-#define SCRIPT_LOAD_ReturnInfo NULL
+/* SCRIPT SCRIPT KILL metadata */
+#define SCRIPT_SCRIPT_KILL_Metadata NULL
 
-/* SCRIPT LOAD history */
-#define SCRIPT_LOAD_History NULL
+/********** SCRIPT SCRIPT LOAD ********************/
 
-/* SCRIPT LOAD metadata */
-#define SCRIPT_LOAD_Metadata NULL
+/* SCRIPT SCRIPT LOAD return info */
+#define SCRIPT_SCRIPT_LOAD_ReturnInfo NULL
+
+/* SCRIPT SCRIPT LOAD history */
+#define SCRIPT_SCRIPT_LOAD_History NULL
+
+/* SCRIPT SCRIPT LOAD metadata */
+#define SCRIPT_SCRIPT_LOAD_Metadata NULL
+
+/* SCRIPT SCRIPT LOAD argument table */
+struct redisCommandArg SCRIPT_SCRIPT_LOAD_Args[] = {
+{"script",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="script"},
+{0}
+};
 
 /* SCRIPT command table */
 struct redisCommand SCRIPT_Subcommands[] = {
-{"load","Load the specified Lua script into the script cache.","O(N) with N being the length in bytes of the script body.","2.6.0",COMMAND_GROUP_SCRIPTING,SCRIPT_LOAD_ReturnInfo,SCRIPT_LOAD_History,SCRIPT_LOAD_Metadata,scriptCommand,3,"noscript may_replicate @slow @scripting"},
-{"help","Show helpful text about the different subcommands","O(1)","5.0.0",COMMAND_GROUP_SCRIPTING,SCRIPT_HELP_ReturnInfo,SCRIPT_HELP_History,SCRIPT_HELP_Metadata,scriptCommand,2,"loading stale @slow @scripting"},
-{"exists","Check existence of scripts in the script cache.","O(N) with N being the number of scripts to check (so checking a single script is an O(1) operation).","2.6.0",COMMAND_GROUP_SCRIPTING,SCRIPT_EXISTS_ReturnInfo,SCRIPT_EXISTS_History,SCRIPT_EXISTS_Metadata,scriptCommand,-3,"noscript @slow @scripting"},
-{"kill","Kill the script currently in execution.","O(1)","2.6.0",COMMAND_GROUP_SCRIPTING,SCRIPT_KILL_ReturnInfo,SCRIPT_KILL_History,SCRIPT_KILL_Metadata,scriptCommand,2,"noscript @slow @scripting"},
-{"flush","Remove all the scripts from the script cache.","O(N) with N being the number of scripts in cache","2.6.0",COMMAND_GROUP_SCRIPTING,SCRIPT_FLUSH_ReturnInfo,SCRIPT_FLUSH_History,SCRIPT_FLUSH_Metadata,scriptCommand,-2,"noscript may_replicate @slow @scripting"},
-{"debug","Set the debug mode for executed scripts.","O(1)","3.2.0",COMMAND_GROUP_SCRIPTING,SCRIPT_DEBUG_ReturnInfo,SCRIPT_DEBUG_History,SCRIPT_DEBUG_Metadata,scriptCommand,3,"noscript @slow @scripting"},
+{"script debug","Set the debug mode for executed scripts.","O(1)","3.2.0",COMMAND_GROUP_SCRIPTING,SCRIPT_SCRIPT_DEBUG_ReturnInfo,SCRIPT_SCRIPT_DEBUG_History,SCRIPT_SCRIPT_DEBUG_Metadata,scriptCommand,3,"noscript @slow @scripting",.args=SCRIPT_SCRIPT_DEBUG_Args},
+{"script help",NULL,NULL,NULL,COMMAND_GROUP_SCRIPTING,SCRIPT_SCRIPT_HELP_ReturnInfo,SCRIPT_SCRIPT_HELP_History,SCRIPT_SCRIPT_HELP_Metadata,scriptCommand,2,"loading stale @slow @scripting"},
+{"script kill","Kill the script currently in execution.","O(1)","2.6.0",COMMAND_GROUP_SCRIPTING,SCRIPT_SCRIPT_KILL_ReturnInfo,SCRIPT_SCRIPT_KILL_History,SCRIPT_SCRIPT_KILL_Metadata,scriptCommand,2,"noscript @slow @scripting"},
+{"script load","Load the specified Lua script into the script cache.","O(N) with N being the length in bytes of the script body.","2.6.0",COMMAND_GROUP_SCRIPTING,SCRIPT_SCRIPT_LOAD_ReturnInfo,SCRIPT_SCRIPT_LOAD_History,SCRIPT_SCRIPT_LOAD_Metadata,scriptCommand,3,"noscript may_replicate @slow @scripting",.args=SCRIPT_SCRIPT_LOAD_Args},
+{"script exists","Check existence of scripts in the script cache.","O(N) with N being the number of scripts to check (so checking a single script is an O(1) operation).","2.6.0",COMMAND_GROUP_SCRIPTING,SCRIPT_SCRIPT_EXISTS_ReturnInfo,SCRIPT_SCRIPT_EXISTS_History,SCRIPT_SCRIPT_EXISTS_Metadata,scriptCommand,-3,"noscript @slow @scripting",.args=SCRIPT_SCRIPT_EXISTS_Args},
+{"script flush","Remove all the scripts from the script cache.","O(N) with N being the number of scripts in cache","2.6.0",COMMAND_GROUP_SCRIPTING,SCRIPT_SCRIPT_FLUSH_ReturnInfo,SCRIPT_SCRIPT_FLUSH_History,SCRIPT_SCRIPT_FLUSH_Metadata,scriptCommand,-2,"noscript may_replicate @slow @scripting",.args=SCRIPT_SCRIPT_FLUSH_Args},
 {0}
 };
 
@@ -2062,158 +3570,203 @@ struct redisCommand SCRIPT_Subcommands[] = {
 /* SCRIPT metadata */
 #define SCRIPT_Metadata NULL
 
-/********** ACL CAT ********************/
+/********** ACL ACL CAT ********************/
 
-/* ACL CAT return info */
-#define ACL_CAT_ReturnInfo NULL
+/* ACL ACL CAT return info */
+#define ACL_ACL_CAT_ReturnInfo NULL
 
-/* ACL CAT history */
-#define ACL_CAT_History NULL
+/* ACL ACL CAT history */
+#define ACL_ACL_CAT_History NULL
 
-/* ACL CAT metadata */
-#define ACL_CAT_Metadata NULL
+/* ACL ACL CAT metadata */
+#define ACL_ACL_CAT_Metadata NULL
 
-/********** ACL DELUSER ********************/
+/* ACL ACL CAT argument table */
+struct redisCommandArg ACL_ACL_CAT_Args[] = {
+{"categoryname",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="categoryname"},
+{0}
+};
 
-/* ACL DELUSER return info */
-#define ACL_DELUSER_ReturnInfo NULL
+/********** ACL ACL DELUSER ********************/
 
-/* ACL DELUSER history */
-#define ACL_DELUSER_History NULL
+/* ACL ACL DELUSER return info */
+#define ACL_ACL_DELUSER_ReturnInfo NULL
 
-/* ACL DELUSER metadata */
-#define ACL_DELUSER_Metadata NULL
+/* ACL ACL DELUSER history */
+#define ACL_ACL_DELUSER_History NULL
 
-/********** ACL GENPASS ********************/
+/* ACL ACL DELUSER metadata */
+#define ACL_ACL_DELUSER_Metadata NULL
 
-/* ACL GENPASS return info */
-#define ACL_GENPASS_ReturnInfo NULL
+/* ACL ACL DELUSER argument table */
+struct redisCommandArg ACL_ACL_DELUSER_Args[] = {
+{"username",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="username"},
+{0}
+};
 
-/* ACL GENPASS history */
-#define ACL_GENPASS_History NULL
+/********** ACL ACL GENPASS ********************/
 
-/* ACL GENPASS metadata */
-#define ACL_GENPASS_Metadata NULL
+/* ACL ACL GENPASS return info */
+#define ACL_ACL_GENPASS_ReturnInfo NULL
 
-/********** ACL GETUSER ********************/
+/* ACL ACL GENPASS history */
+#define ACL_ACL_GENPASS_History NULL
 
-/* ACL GETUSER return info */
-#define ACL_GETUSER_ReturnInfo NULL
+/* ACL ACL GENPASS metadata */
+#define ACL_ACL_GENPASS_Metadata NULL
 
-/* ACL GETUSER history */
-commandHistory ACL_GETUSER_History[] = {
+/* ACL ACL GENPASS argument table */
+struct redisCommandArg ACL_ACL_GENPASS_Args[] = {
+{"bits",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="bits"},
+{0}
+};
+
+/********** ACL ACL GETUSER ********************/
+
+/* ACL ACL GETUSER return info */
+#define ACL_ACL_GETUSER_ReturnInfo NULL
+
+/* ACL ACL GETUSER history */
+commandHistory ACL_ACL_GETUSER_History[] = {
 {"6.2","Added Pub/Sub channel patterns."},
 {0}
 };
 
-/* ACL GETUSER metadata */
-#define ACL_GETUSER_Metadata NULL
+/* ACL ACL GETUSER metadata */
+#define ACL_ACL_GETUSER_Metadata NULL
 
-/********** ACL HELP ********************/
+/* ACL ACL GETUSER argument table */
+struct redisCommandArg ACL_ACL_GETUSER_Args[] = {
+{"username",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="username"},
+{0}
+};
 
-/* ACL HELP return info */
-#define ACL_HELP_ReturnInfo NULL
+/********** ACL ACL HELP ********************/
 
-/* ACL HELP history */
-#define ACL_HELP_History NULL
+/* ACL ACL HELP return info */
+#define ACL_ACL_HELP_ReturnInfo NULL
 
-/* ACL HELP metadata */
-#define ACL_HELP_Metadata NULL
+/* ACL ACL HELP history */
+#define ACL_ACL_HELP_History NULL
 
-/********** ACL LIST ********************/
+/* ACL ACL HELP metadata */
+#define ACL_ACL_HELP_Metadata NULL
 
-/* ACL LIST return info */
-#define ACL_LIST_ReturnInfo NULL
+/********** ACL ACL LIST ********************/
 
-/* ACL LIST history */
-#define ACL_LIST_History NULL
+/* ACL ACL LIST return info */
+#define ACL_ACL_LIST_ReturnInfo NULL
 
-/* ACL LIST metadata */
-#define ACL_LIST_Metadata NULL
+/* ACL ACL LIST history */
+#define ACL_ACL_LIST_History NULL
 
-/********** ACL LOAD ********************/
+/* ACL ACL LIST metadata */
+#define ACL_ACL_LIST_Metadata NULL
 
-/* ACL LOAD return info */
-#define ACL_LOAD_ReturnInfo NULL
+/********** ACL ACL LOAD ********************/
 
-/* ACL LOAD history */
-#define ACL_LOAD_History NULL
+/* ACL ACL LOAD return info */
+#define ACL_ACL_LOAD_ReturnInfo NULL
 
-/* ACL LOAD metadata */
-#define ACL_LOAD_Metadata NULL
+/* ACL ACL LOAD history */
+#define ACL_ACL_LOAD_History NULL
 
-/********** ACL LOG ********************/
+/* ACL ACL LOAD metadata */
+#define ACL_ACL_LOAD_Metadata NULL
 
-/* ACL LOG return info */
-#define ACL_LOG_ReturnInfo NULL
+/********** ACL ACL LOG ********************/
 
-/* ACL LOG history */
-#define ACL_LOG_History NULL
+/* ACL ACL LOG return info */
+#define ACL_ACL_LOG_ReturnInfo NULL
 
-/* ACL LOG metadata */
-#define ACL_LOG_Metadata NULL
+/* ACL ACL LOG history */
+#define ACL_ACL_LOG_History NULL
 
-/********** ACL SAVE ********************/
+/* ACL ACL LOG metadata */
+#define ACL_ACL_LOG_Metadata NULL
 
-/* ACL SAVE return info */
-#define ACL_SAVE_ReturnInfo NULL
+/* ACL ACL LOG count_or reset argument table */
+struct redisCommandArg ACL_ACL_LOG_count_or_reset_Subargs[] = {
+{"count",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="count"},
+{"or",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="or"},
+{"reset",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="RESET"},
+{0}
+};
 
-/* ACL SAVE history */
-#define ACL_SAVE_History NULL
+/* ACL ACL LOG argument table */
+struct redisCommandArg ACL_ACL_LOG_Args[] = {
+{"count_or reset",ARG_TYPE_BLOCK,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=ACL_ACL_LOG_count_or_reset_Subargs},
+{0}
+};
 
-/* ACL SAVE metadata */
-#define ACL_SAVE_Metadata NULL
+/********** ACL ACL SAVE ********************/
 
-/********** ACL SETUSER ********************/
+/* ACL ACL SAVE return info */
+#define ACL_ACL_SAVE_ReturnInfo NULL
 
-/* ACL SETUSER return info */
-#define ACL_SETUSER_ReturnInfo NULL
+/* ACL ACL SAVE history */
+#define ACL_ACL_SAVE_History NULL
 
-/* ACL SETUSER history */
-commandHistory ACL_SETUSER_History[] = {
+/* ACL ACL SAVE metadata */
+#define ACL_ACL_SAVE_Metadata NULL
+
+/********** ACL ACL SETUSER ********************/
+
+/* ACL ACL SETUSER return info */
+#define ACL_ACL_SETUSER_ReturnInfo NULL
+
+/* ACL ACL SETUSER history */
+commandHistory ACL_ACL_SETUSER_History[] = {
 {"6.2","Added Pub/Sub channel patterns."},
 {0}
 };
 
-/* ACL SETUSER metadata */
-#define ACL_SETUSER_Metadata NULL
+/* ACL ACL SETUSER metadata */
+#define ACL_ACL_SETUSER_Metadata NULL
 
-/********** ACL USERS ********************/
+/* ACL ACL SETUSER argument table */
+struct redisCommandArg ACL_ACL_SETUSER_Args[] = {
+{"username",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="username"},
+{"rule",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="rule"},
+{0}
+};
 
-/* ACL USERS return info */
-#define ACL_USERS_ReturnInfo NULL
+/********** ACL ACL USERS ********************/
 
-/* ACL USERS history */
-#define ACL_USERS_History NULL
+/* ACL ACL USERS return info */
+#define ACL_ACL_USERS_ReturnInfo NULL
 
-/* ACL USERS metadata */
-#define ACL_USERS_Metadata NULL
+/* ACL ACL USERS history */
+#define ACL_ACL_USERS_History NULL
 
-/********** ACL WHOAMI ********************/
+/* ACL ACL USERS metadata */
+#define ACL_ACL_USERS_Metadata NULL
 
-/* ACL WHOAMI return info */
-#define ACL_WHOAMI_ReturnInfo NULL
+/********** ACL ACL WHOAMI ********************/
 
-/* ACL WHOAMI history */
-#define ACL_WHOAMI_History NULL
+/* ACL ACL WHOAMI return info */
+#define ACL_ACL_WHOAMI_ReturnInfo NULL
 
-/* ACL WHOAMI metadata */
-#define ACL_WHOAMI_Metadata NULL
+/* ACL ACL WHOAMI history */
+#define ACL_ACL_WHOAMI_History NULL
+
+/* ACL ACL WHOAMI metadata */
+#define ACL_ACL_WHOAMI_Metadata NULL
 
 /* ACL command table */
 struct redisCommand ACL_Subcommands[] = {
-{"load","Reload the ACLs from the configured ACL file","O(N). Where N is the number of configured users.","6.0.0",COMMAND_GROUP_SERVER,ACL_LOAD_ReturnInfo,ACL_LOAD_History,ACL_LOAD_Metadata,aclCommand,2,"admin noscript loading stale @admin @slow @dangerous"},
-{"users","List the username of all the configured ACL rules","O(N). Where N is the number of configured users.","6.0.0",COMMAND_GROUP_SERVER,ACL_USERS_ReturnInfo,ACL_USERS_History,ACL_USERS_Metadata,aclCommand,2,"admin noscript loading stale @admin @slow @dangerous"},
-{"list","List the current ACL rules in ACL config file format","O(N). Where N is the number of configured users.","6.0.0",COMMAND_GROUP_SERVER,ACL_LIST_ReturnInfo,ACL_LIST_History,ACL_LIST_Metadata,aclCommand,2,"admin noscript loading stale @admin @slow @dangerous"},
-{"cat","List the ACL categories or the commands inside a category","O(1) since the categories and commands are a fixed set.","6.0.0",COMMAND_GROUP_SERVER,ACL_CAT_ReturnInfo,ACL_CAT_History,ACL_CAT_Metadata,aclCommand,-2,"noscript loading stale @slow"},
-{"deluser","Remove the specified ACL users and the associated rules","O(1) amortized time considering the typical user.","6.0.0",COMMAND_GROUP_SERVER,ACL_DELUSER_ReturnInfo,ACL_DELUSER_History,ACL_DELUSER_Metadata,aclCommand,-3,"admin noscript loading stale @admin @slow @dangerous"},
-{"getuser","Get the rules for a specific ACL user","O(N). Where N is the number of password, command and pattern rules that the user has.","6.0.0",COMMAND_GROUP_SERVER,ACL_GETUSER_ReturnInfo,ACL_GETUSER_History,ACL_GETUSER_Metadata,aclCommand,3,"admin noscript loading stale @admin @slow @dangerous"},
-{"help","Show helpful text about the different subcommands","O(1)","6.0.0",COMMAND_GROUP_SERVER,ACL_HELP_ReturnInfo,ACL_HELP_History,ACL_HELP_Metadata,aclCommand,2,"loading stale @slow"},
-{"setuser","Modify or create the rules for a specific ACL user","O(N). Where N is the number of rules provided.","6.0.0",COMMAND_GROUP_SERVER,ACL_SETUSER_ReturnInfo,ACL_SETUSER_History,ACL_SETUSER_Metadata,aclCommand,-3,"admin noscript loading stale @admin @slow @dangerous"},
-{"save","Save the current ACL rules in the configured ACL file","O(N). Where N is the number of configured users.","6.0.0",COMMAND_GROUP_SERVER,ACL_SAVE_ReturnInfo,ACL_SAVE_History,ACL_SAVE_Metadata,aclCommand,2,"admin noscript loading stale @admin @slow @dangerous"},
-{"whoami","Return the name of the user associated to the current connection","O(1)","6.0.0",COMMAND_GROUP_SERVER,ACL_WHOAMI_ReturnInfo,ACL_WHOAMI_History,ACL_WHOAMI_Metadata,aclCommand,2,"noscript loading stale @slow"},
-{"genpass","Generate a pseudorandom secure password to use for ACL users","O(1)","6.0.0",COMMAND_GROUP_SERVER,ACL_GENPASS_ReturnInfo,ACL_GENPASS_History,ACL_GENPASS_Metadata,aclCommand,-2,"noscript loading stale @slow"},
-{"log","List latest events denied because of ACLs in place","O(N) with N being the number of entries shown.","6.0.0",COMMAND_GROUP_SERVER,ACL_LOG_ReturnInfo,ACL_LOG_History,ACL_LOG_Metadata,aclCommand,-2,"admin noscript loading stale @admin @slow @dangerous"},
+{"acl getuser","Get the rules for a specific ACL user","O(N). Where N is the number of password, command and pattern rules that the user has.","6.0.0",COMMAND_GROUP_SERVER,ACL_ACL_GETUSER_ReturnInfo,ACL_ACL_GETUSER_History,ACL_ACL_GETUSER_Metadata,aclCommand,3,"admin noscript loading stale @admin @slow @dangerous",.args=ACL_ACL_GETUSER_Args},
+{"acl list","List the current ACL rules in ACL config file format","O(N). Where N is the number of configured users.","6.0.0",COMMAND_GROUP_SERVER,ACL_ACL_LIST_ReturnInfo,ACL_ACL_LIST_History,ACL_ACL_LIST_Metadata,aclCommand,2,"admin noscript loading stale @admin @slow @dangerous"},
+{"acl users","List the username of all the configured ACL rules","O(N). Where N is the number of configured users.","6.0.0",COMMAND_GROUP_SERVER,ACL_ACL_USERS_ReturnInfo,ACL_ACL_USERS_History,ACL_ACL_USERS_Metadata,aclCommand,2,"admin noscript loading stale @admin @slow @dangerous"},
+{"acl setuser","Modify or create the rules for a specific ACL user","O(N). Where N is the number of rules provided.","6.0.0",COMMAND_GROUP_SERVER,ACL_ACL_SETUSER_ReturnInfo,ACL_ACL_SETUSER_History,ACL_ACL_SETUSER_Metadata,aclCommand,-3,"admin noscript loading stale @admin @slow @dangerous",.args=ACL_ACL_SETUSER_Args},
+{"acl load","Reload the ACLs from the configured ACL file","O(N). Where N is the number of configured users.","6.0.0",COMMAND_GROUP_SERVER,ACL_ACL_LOAD_ReturnInfo,ACL_ACL_LOAD_History,ACL_ACL_LOAD_Metadata,aclCommand,2,"admin noscript loading stale @admin @slow @dangerous"},
+{"acl save","Save the current ACL rules in the configured ACL file","O(N). Where N is the number of configured users.","6.0.0",COMMAND_GROUP_SERVER,ACL_ACL_SAVE_ReturnInfo,ACL_ACL_SAVE_History,ACL_ACL_SAVE_Metadata,aclCommand,2,"admin noscript loading stale @admin @slow @dangerous"},
+{"acl log","List latest events denied because of ACLs in place","O(N) with N being the number of entries shown.","6.0.0",COMMAND_GROUP_SERVER,ACL_ACL_LOG_ReturnInfo,ACL_ACL_LOG_History,ACL_ACL_LOG_Metadata,aclCommand,-2,"admin noscript loading stale @admin @slow @dangerous",.args=ACL_ACL_LOG_Args},
+{"acl help","Show helpful text about the different subcommands","O(1)","6.0.0",COMMAND_GROUP_SERVER,ACL_ACL_HELP_ReturnInfo,ACL_ACL_HELP_History,ACL_ACL_HELP_Metadata,aclCommand,2,"loading stale @slow"},
+{"acl deluser","Remove the specified ACL users and the associated rules","O(1) amortized time considering the typical user.","6.0.0",COMMAND_GROUP_SERVER,ACL_ACL_DELUSER_ReturnInfo,ACL_ACL_DELUSER_History,ACL_ACL_DELUSER_Metadata,aclCommand,-3,"admin noscript loading stale @admin @slow @dangerous",.args=ACL_ACL_DELUSER_Args},
+{"acl genpass","Generate a pseudorandom secure password to use for ACL users","O(1)","6.0.0",COMMAND_GROUP_SERVER,ACL_ACL_GENPASS_ReturnInfo,ACL_ACL_GENPASS_History,ACL_ACL_GENPASS_Metadata,aclCommand,-2,"noscript loading stale @slow",.args=ACL_ACL_GENPASS_Args},
+{"acl cat","List the ACL categories or the commands inside a category","O(1) since the categories and commands are a fixed set.","6.0.0",COMMAND_GROUP_SERVER,ACL_ACL_CAT_ReturnInfo,ACL_ACL_CAT_History,ACL_ACL_CAT_Metadata,aclCommand,-2,"noscript loading stale @slow",.args=ACL_ACL_CAT_Args},
+{"acl whoami","Return the name of the user associated to the current connection","O(1)","6.0.0",COMMAND_GROUP_SERVER,ACL_ACL_WHOAMI_ReturnInfo,ACL_ACL_WHOAMI_History,ACL_ACL_WHOAMI_Metadata,aclCommand,2,"noscript loading stale @slow"},
 {0}
 };
 
@@ -2253,78 +3806,87 @@ commandHistory BGSAVE_History[] = {
 /* BGSAVE metadata */
 #define BGSAVE_Metadata NULL
 
-/********** COMMAND COUNT ********************/
+/* BGSAVE argument table */
+struct redisCommandArg BGSAVE_Args[] = {
+{"schedule",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="SCHEDULE"},
+{0}
+};
 
-/* COMMAND COUNT return info */
-#define COMMAND_COUNT_ReturnInfo NULL
+/********** COMMAND COMMAND COUNT ********************/
 
-/* COMMAND COUNT history */
-#define COMMAND_COUNT_History NULL
+/* COMMAND COMMAND COUNT return info */
+#define COMMAND_COMMAND_COUNT_ReturnInfo NULL
 
-/* COMMAND COUNT metadata */
-#define COMMAND_COUNT_Metadata NULL
+/* COMMAND COMMAND COUNT history */
+#define COMMAND_COMMAND_COUNT_History NULL
 
-/********** COMMAND GETKEYS ********************/
+/* COMMAND COMMAND COUNT metadata */
+#define COMMAND_COMMAND_COUNT_Metadata NULL
 
-/* COMMAND GETKEYS return info */
-#define COMMAND_GETKEYS_ReturnInfo NULL
+/********** COMMAND COMMAND GETKEYS ********************/
 
-/* COMMAND GETKEYS history */
-#define COMMAND_GETKEYS_History NULL
+/* COMMAND COMMAND GETKEYS return info */
+#define COMMAND_COMMAND_GETKEYS_ReturnInfo NULL
 
-/* COMMAND GETKEYS metadata */
-#define COMMAND_GETKEYS_Metadata NULL
+/* COMMAND COMMAND GETKEYS history */
+#define COMMAND_COMMAND_GETKEYS_History NULL
 
-/********** COMMAND HELP ********************/
+/* COMMAND COMMAND GETKEYS metadata */
+#define COMMAND_COMMAND_GETKEYS_Metadata NULL
 
-/* COMMAND HELP return info */
-#define COMMAND_HELP_ReturnInfo NULL
+/********** COMMAND COMMAND HELP ********************/
 
-/* COMMAND HELP history */
-#define COMMAND_HELP_History NULL
+/* COMMAND COMMAND HELP return info */
+#define COMMAND_COMMAND_HELP_ReturnInfo NULL
 
-/* COMMAND HELP metadata */
-#define COMMAND_HELP_Metadata NULL
+/* COMMAND COMMAND HELP history */
+#define COMMAND_COMMAND_HELP_History NULL
 
-/********** COMMAND INFO ********************/
+/* COMMAND COMMAND HELP metadata */
+#define COMMAND_COMMAND_HELP_Metadata NULL
 
-/* COMMAND INFO return info */
-#define COMMAND_INFO_ReturnInfo NULL
+/********** COMMAND COMMAND INFO ********************/
 
-/* COMMAND INFO history */
-#define COMMAND_INFO_History NULL
+/* COMMAND COMMAND INFO return info */
+#define COMMAND_COMMAND_INFO_ReturnInfo NULL
 
-/* COMMAND INFO metadata */
-#define COMMAND_INFO_Metadata NULL
+/* COMMAND COMMAND INFO history */
+#define COMMAND_COMMAND_INFO_History NULL
 
-/********** COMMAND LIST ********************/
+/* COMMAND COMMAND INFO metadata */
+#define COMMAND_COMMAND_INFO_Metadata NULL
 
-/* COMMAND LIST return info */
-#define COMMAND_LIST_ReturnInfo NULL
+/* COMMAND COMMAND INFO argument table */
+struct redisCommandArg COMMAND_COMMAND_INFO_Args[] = {
+{"command-name",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="command-name"},
+{0}
+};
 
-/* COMMAND LIST history */
-#define COMMAND_LIST_History NULL
+/********** COMMAND COMMAND LIST ********************/
 
-/* COMMAND LIST metadata */
-#define COMMAND_LIST_Metadata NULL
+/* COMMAND COMMAND LIST return info */
+#define COMMAND_COMMAND_LIST_ReturnInfo NULL
+
+/* COMMAND COMMAND LIST history */
+#define COMMAND_COMMAND_LIST_History NULL
+
+/* COMMAND COMMAND LIST metadata */
+#define COMMAND_COMMAND_LIST_Metadata NULL
 
 /* COMMAND command table */
 struct redisCommand COMMAND_Subcommands[] = {
-{"count","Get total number of Redis commands","O(1)","2.8.13",COMMAND_GROUP_SERVER,COMMAND_COUNT_ReturnInfo,COMMAND_COUNT_History,COMMAND_COUNT_Metadata,commandCountCommand,2,"loading stale @slow @connection"},
-{"info","Get array of specific Redis command details","O(N) when N is number of commands to look up","2.8.13",COMMAND_GROUP_SERVER,COMMAND_INFO_ReturnInfo,COMMAND_INFO_History,COMMAND_INFO_Metadata,commandInfoCommand,-3,"loading stale @slow @connection"},
-{"list",NULL,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_LIST_ReturnInfo,COMMAND_LIST_History,COMMAND_LIST_Metadata,commandListCommand,-2,"loading stale @slow @connection"},
-{"help","Show helpful text about the different subcommands","O(1)","5.0.0",COMMAND_GROUP_SERVER,COMMAND_HELP_ReturnInfo,COMMAND_HELP_History,COMMAND_HELP_Metadata,commandHelpCommand,2,"loading stale @slow @connection"},
-{"getkeys","Extract keys given a full Redis command","O(N) where N is the number of arguments to the command","2.8.13",COMMAND_GROUP_SERVER,COMMAND_GETKEYS_ReturnInfo,COMMAND_GETKEYS_History,COMMAND_GETKEYS_Metadata,commandGetKeysCommand,-4,"loading stale @slow @connection"},
+{"command getkeys","Extract keys given a full Redis command","O(N) where N is the number of arguments to the command","2.8.13",COMMAND_GROUP_SERVER,COMMAND_COMMAND_GETKEYS_ReturnInfo,COMMAND_COMMAND_GETKEYS_History,COMMAND_COMMAND_GETKEYS_Metadata,commandGetKeysCommand,-4,"loading stale @slow @connection"},
+{"command info","Get array of specific Redis command details","O(N) when N is number of commands to look up","2.8.13",COMMAND_GROUP_SERVER,COMMAND_COMMAND_INFO_ReturnInfo,COMMAND_COMMAND_INFO_History,COMMAND_COMMAND_INFO_Metadata,commandInfoCommand,-3,"loading stale @slow @connection",.args=COMMAND_COMMAND_INFO_Args},
+{"command count","Get total number of Redis commands","O(1)","2.8.13",COMMAND_GROUP_SERVER,COMMAND_COMMAND_COUNT_ReturnInfo,COMMAND_COMMAND_COUNT_History,COMMAND_COMMAND_COUNT_Metadata,commandCountCommand,2,"loading stale @slow @connection"},
+{"command help",NULL,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_COMMAND_HELP_ReturnInfo,COMMAND_COMMAND_HELP_History,COMMAND_COMMAND_HELP_Metadata,commandHelpCommand,2,"loading stale @slow @connection"},
+{"command list",NULL,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_COMMAND_LIST_ReturnInfo,COMMAND_COMMAND_LIST_History,COMMAND_COMMAND_LIST_Metadata,commandListCommand,-2,"loading stale @slow @connection"},
 {0}
 };
 
 /********** COMMAND ********************/
 
 /* COMMAND return info */
-commandReturnInfo COMMAND_ReturnInfo[] = {
-{"Nested list of command details",NULL,RETURN_TYPE_RESP2_3_SAME,.type.global=RESP2_ARRAY},
-{0}
-};
+#define COMMAND_ReturnInfo NULL
 
 /* COMMAND history */
 #define COMMAND_History NULL
@@ -2332,66 +3894,69 @@ commandReturnInfo COMMAND_ReturnInfo[] = {
 /* COMMAND metadata */
 #define COMMAND_Metadata NULL
 
-/********** CONFIG GET ********************/
+/********** CONFIG CONFIG GET ********************/
 
-/* CONFIG GET return info */
-#define CONFIG_GET_ReturnInfo NULL
+/* CONFIG CONFIG GET return info */
+#define CONFIG_CONFIG_GET_ReturnInfo NULL
 
-/* CONFIG GET history */
-#define CONFIG_GET_History NULL
+/* CONFIG CONFIG GET history */
+#define CONFIG_CONFIG_GET_History NULL
 
-/* CONFIG GET metadata */
-#define CONFIG_GET_Metadata NULL
+/* CONFIG CONFIG GET metadata */
+#define CONFIG_CONFIG_GET_Metadata NULL
 
-/********** CONFIG HELP ********************/
-
-/* CONFIG HELP return info */
-#define CONFIG_HELP_ReturnInfo NULL
-
-/* CONFIG HELP history */
-#define CONFIG_HELP_History NULL
-
-/* CONFIG HELP metadata */
-#define CONFIG_HELP_Metadata NULL
-
-/********** CONFIG RESETSTAT ********************/
-
-/* CONFIG RESETSTAT return info */
-#define CONFIG_RESETSTAT_ReturnInfo NULL
-
-/* CONFIG RESETSTAT history */
-#define CONFIG_RESETSTAT_History NULL
-
-/* CONFIG RESETSTAT metadata */
-#define CONFIG_RESETSTAT_Metadata NULL
-
-/********** CONFIG REWRITE ********************/
-
-/* CONFIG REWRITE return info */
-#define CONFIG_REWRITE_ReturnInfo NULL
-
-/* CONFIG REWRITE history */
-#define CONFIG_REWRITE_History NULL
-
-/* CONFIG REWRITE metadata */
-#define CONFIG_REWRITE_Metadata NULL
-
-/********** CONFIG SET ********************/
-
-/* CONFIG SET return info */
-commandReturnInfo CONFIG_SET_ReturnInfo[] = {
-{"Command succeeded","+OK",RETURN_TYPE_RESP2_3_SAME,.type.global=RESP2_SIMPLE_STRING},
+/* CONFIG CONFIG GET argument table */
+struct redisCommandArg CONFIG_CONFIG_GET_Args[] = {
+{"parameter",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="parameter"},
 {0}
 };
 
-/* CONFIG SET history */
-#define CONFIG_SET_History NULL
+/********** CONFIG CONFIG HELP ********************/
 
-/* CONFIG SET metadata */
-#define CONFIG_SET_Metadata NULL
+/* CONFIG CONFIG HELP return info */
+#define CONFIG_CONFIG_HELP_ReturnInfo NULL
 
-/* CONFIG SET argument table */
-struct redisCommandArg CONFIG_SET_Args[] = {
+/* CONFIG CONFIG HELP history */
+#define CONFIG_CONFIG_HELP_History NULL
+
+/* CONFIG CONFIG HELP metadata */
+#define CONFIG_CONFIG_HELP_Metadata NULL
+
+/********** CONFIG CONFIG RESETSTAT ********************/
+
+/* CONFIG CONFIG RESETSTAT return info */
+#define CONFIG_CONFIG_RESETSTAT_ReturnInfo NULL
+
+/* CONFIG CONFIG RESETSTAT history */
+#define CONFIG_CONFIG_RESETSTAT_History NULL
+
+/* CONFIG CONFIG RESETSTAT metadata */
+#define CONFIG_CONFIG_RESETSTAT_Metadata NULL
+
+/********** CONFIG CONFIG REWRITE ********************/
+
+/* CONFIG CONFIG REWRITE return info */
+#define CONFIG_CONFIG_REWRITE_ReturnInfo NULL
+
+/* CONFIG CONFIG REWRITE history */
+#define CONFIG_CONFIG_REWRITE_History NULL
+
+/* CONFIG CONFIG REWRITE metadata */
+#define CONFIG_CONFIG_REWRITE_Metadata NULL
+
+/********** CONFIG CONFIG SET ********************/
+
+/* CONFIG CONFIG SET return info */
+#define CONFIG_CONFIG_SET_ReturnInfo NULL
+
+/* CONFIG CONFIG SET history */
+#define CONFIG_CONFIG_SET_History NULL
+
+/* CONFIG CONFIG SET metadata */
+#define CONFIG_CONFIG_SET_Metadata NULL
+
+/* CONFIG CONFIG SET argument table */
+struct redisCommandArg CONFIG_CONFIG_SET_Args[] = {
 {"parameter",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="parameter"},
 {"value",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="value"},
 {0}
@@ -2399,11 +3964,11 @@ struct redisCommandArg CONFIG_SET_Args[] = {
 
 /* CONFIG command table */
 struct redisCommand CONFIG_Subcommands[] = {
-{"set","Set a configuration parameter to the given value",NULL,"2.0.0",COMMAND_GROUP_SERVER,CONFIG_SET_ReturnInfo,CONFIG_SET_History,CONFIG_SET_Metadata,configSetCommand,4,"admin noscript stale @admin @slow @dangerous",.args=CONFIG_SET_Args},
-{"get","Get the value of a configuration parameter",NULL,"2.0.0",COMMAND_GROUP_SERVER,CONFIG_GET_ReturnInfo,CONFIG_GET_History,CONFIG_GET_Metadata,configGetCommand,3,"admin noscript loading stale @admin @slow @dangerous"},
-{"help","Show helpful text about the different subcommands","O(1)","5.0.0",COMMAND_GROUP_SERVER,CONFIG_HELP_ReturnInfo,CONFIG_HELP_History,CONFIG_HELP_Metadata,configHelpCommand,2,"loading stale @slow"},
-{"resetstat","Reset the stats returned by INFO","O(1)","2.0.0",COMMAND_GROUP_SERVER,CONFIG_RESETSTAT_ReturnInfo,CONFIG_RESETSTAT_History,CONFIG_RESETSTAT_Metadata,configResetStatCommand,2,"admin noscript stale @admin @slow @dangerous"},
-{"rewrite","Rewrite the configuration file with the in memory configuration",NULL,"2.8.0",COMMAND_GROUP_SERVER,CONFIG_REWRITE_ReturnInfo,CONFIG_REWRITE_History,CONFIG_REWRITE_Metadata,configRewriteCommand,2,"admin noscript stale @admin @slow @dangerous"},
+{"config rewrite","Rewrite the configuration file with the in memory configuration",NULL,"2.8.0",COMMAND_GROUP_SERVER,CONFIG_CONFIG_REWRITE_ReturnInfo,CONFIG_CONFIG_REWRITE_History,CONFIG_CONFIG_REWRITE_Metadata,configRewriteCommand,2,"admin noscript stale @admin @slow @dangerous"},
+{"config help",NULL,NULL,NULL,COMMAND_GROUP_SERVER,CONFIG_CONFIG_HELP_ReturnInfo,CONFIG_CONFIG_HELP_History,CONFIG_CONFIG_HELP_Metadata,configHelpCommand,2,"loading stale @slow"},
+{"config get","Get the value of a configuration parameter",NULL,"2.0.0",COMMAND_GROUP_SERVER,CONFIG_CONFIG_GET_ReturnInfo,CONFIG_CONFIG_GET_History,CONFIG_CONFIG_GET_Metadata,configGetCommand,3,"admin noscript loading stale @admin @slow @dangerous",.args=CONFIG_CONFIG_GET_Args},
+{"config set","Set a configuration parameter to the given value",NULL,"2.0.0",COMMAND_GROUP_SERVER,CONFIG_CONFIG_SET_ReturnInfo,CONFIG_CONFIG_SET_History,CONFIG_CONFIG_SET_Metadata,configSetCommand,4,"admin noscript stale @admin @slow @dangerous",.args=CONFIG_CONFIG_SET_Args},
+{"config resetstat","Reset the stats returned by INFO","O(1)","2.0.0",COMMAND_GROUP_SERVER,CONFIG_CONFIG_RESETSTAT_ReturnInfo,CONFIG_CONFIG_RESETSTAT_History,CONFIG_CONFIG_RESETSTAT_Metadata,configResetStatCommand,2,"admin noscript stale @admin @slow @dangerous"},
 {0}
 };
 
@@ -2451,6 +4016,23 @@ struct redisCommand CONFIG_Subcommands[] = {
 /* FAILOVER metadata */
 #define FAILOVER_Metadata NULL
 
+/* FAILOVER target argument table */
+struct redisCommandArg FAILOVER_target_Subargs[] = {
+{"to",ARG_TYPE_TOKEN,"TO",NULL,NULL,CMD_ARG_NONE,.value.string="TO"},
+{"host",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="host"},
+{"port",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="port"},
+{"force",ARG_TYPE_TOKEN,"FORCE",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="FORCE"},
+{0}
+};
+
+/* FAILOVER argument table */
+struct redisCommandArg FAILOVER_Args[] = {
+{"target",ARG_TYPE_BLOCK,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=FAILOVER_target_Subargs},
+{"abort",ARG_TYPE_TOKEN,"ABORT",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="ABORT"},
+{"milliseconds",ARG_TYPE_INTEGER,"TIMEOUT",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="milliseconds"},
+{0}
+};
+
 /********** FLUSHALL ********************/
 
 /* FLUSHALL return info */
@@ -2466,6 +4048,19 @@ commandHistory FLUSHALL_History[] = {
 /* FLUSHALL metadata */
 #define FLUSHALL_Metadata NULL
 
+/* FLUSHALL __tbd__39__ argument table */
+struct redisCommandArg FLUSHALL___tbd__39___Subargs[] = {
+{"async",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="ASYNC"},
+{"sync",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="SYNC"},
+{0}
+};
+
+/* FLUSHALL argument table */
+struct redisCommandArg FLUSHALL_Args[] = {
+{"__tbd__39__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=FLUSHALL___tbd__39___Subargs},
+{0}
+};
+
 /********** FLUSHDB ********************/
 
 /* FLUSHDB return info */
@@ -2477,27 +4072,18 @@ commandHistory FLUSHALL_History[] = {
 /* FLUSHDB metadata */
 #define FLUSHDB_Metadata NULL
 
-/********** GEORADIUSBYMEMBER_RO ********************/
+/* FLUSHDB __tbd__60__ argument table */
+struct redisCommandArg FLUSHDB___tbd__60___Subargs[] = {
+{"async",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="ASYNC"},
+{"sync",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="SYNC"},
+{0}
+};
 
-/* GEORADIUSBYMEMBER_RO return info */
-#define GEORADIUSBYMEMBER_RO_ReturnInfo NULL
-
-/* GEORADIUSBYMEMBER_RO history */
-#define GEORADIUSBYMEMBER_RO_History NULL
-
-/* GEORADIUSBYMEMBER_RO metadata */
-#define GEORADIUSBYMEMBER_RO_Metadata NULL
-
-/********** GEORADIUS_RO ********************/
-
-/* GEORADIUS_RO return info */
-#define GEORADIUS_RO_ReturnInfo NULL
-
-/* GEORADIUS_RO history */
-#define GEORADIUS_RO_History NULL
-
-/* GEORADIUS_RO metadata */
-#define GEORADIUS_RO_Metadata NULL
+/* FLUSHDB argument table */
+struct redisCommandArg FLUSHDB_Args[] = {
+{"__tbd__60__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=FLUSHDB___tbd__60___Subargs},
+{0}
+};
 
 /********** HOST ********************/
 
@@ -2521,6 +4107,12 @@ commandHistory FLUSHALL_History[] = {
 /* INFO metadata */
 #define INFO_Metadata NULL
 
+/* INFO argument table */
+struct redisCommandArg INFO_Args[] = {
+{"section",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="section"},
+{0}
+};
+
 /********** LASTSAVE ********************/
 
 /* LASTSAVE return info */
@@ -2532,80 +4124,98 @@ commandHistory FLUSHALL_History[] = {
 /* LASTSAVE metadata */
 #define LASTSAVE_Metadata NULL
 
-/********** LATENCY DOCTOR ********************/
+/********** LATENCY LATENCY DOCTOR ********************/
 
-/* LATENCY DOCTOR return info */
-#define LATENCY_DOCTOR_ReturnInfo NULL
+/* LATENCY LATENCY DOCTOR return info */
+#define LATENCY_LATENCY_DOCTOR_ReturnInfo NULL
 
-/* LATENCY DOCTOR history */
-#define LATENCY_DOCTOR_History NULL
+/* LATENCY LATENCY DOCTOR history */
+#define LATENCY_LATENCY_DOCTOR_History NULL
 
-/* LATENCY DOCTOR metadata */
-#define LATENCY_DOCTOR_Metadata NULL
+/* LATENCY LATENCY DOCTOR metadata */
+#define LATENCY_LATENCY_DOCTOR_Metadata NULL
 
-/********** LATENCY GRAPH ********************/
+/********** LATENCY LATENCY GRAPH ********************/
 
-/* LATENCY GRAPH return info */
-#define LATENCY_GRAPH_ReturnInfo NULL
+/* LATENCY LATENCY GRAPH return info */
+#define LATENCY_LATENCY_GRAPH_ReturnInfo NULL
 
-/* LATENCY GRAPH history */
-#define LATENCY_GRAPH_History NULL
+/* LATENCY LATENCY GRAPH history */
+#define LATENCY_LATENCY_GRAPH_History NULL
 
-/* LATENCY GRAPH metadata */
-#define LATENCY_GRAPH_Metadata NULL
+/* LATENCY LATENCY GRAPH metadata */
+#define LATENCY_LATENCY_GRAPH_Metadata NULL
 
-/********** LATENCY HELP ********************/
+/* LATENCY LATENCY GRAPH argument table */
+struct redisCommandArg LATENCY_LATENCY_GRAPH_Args[] = {
+{"event",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="event"},
+{0}
+};
 
-/* LATENCY HELP return info */
-#define LATENCY_HELP_ReturnInfo NULL
+/********** LATENCY LATENCY HELP ********************/
 
-/* LATENCY HELP history */
-#define LATENCY_HELP_History NULL
+/* LATENCY LATENCY HELP return info */
+#define LATENCY_LATENCY_HELP_ReturnInfo NULL
 
-/* LATENCY HELP metadata */
-#define LATENCY_HELP_Metadata NULL
+/* LATENCY LATENCY HELP history */
+#define LATENCY_LATENCY_HELP_History NULL
 
-/********** LATENCY HISTORY ********************/
+/* LATENCY LATENCY HELP metadata */
+#define LATENCY_LATENCY_HELP_Metadata NULL
 
-/* LATENCY HISTORY return info */
-#define LATENCY_HISTORY_ReturnInfo NULL
+/********** LATENCY LATENCY HISTORY ********************/
 
-/* LATENCY HISTORY history */
-#define LATENCY_HISTORY_History NULL
+/* LATENCY LATENCY HISTORY return info */
+#define LATENCY_LATENCY_HISTORY_ReturnInfo NULL
 
-/* LATENCY HISTORY metadata */
-#define LATENCY_HISTORY_Metadata NULL
+/* LATENCY LATENCY HISTORY history */
+#define LATENCY_LATENCY_HISTORY_History NULL
 
-/********** LATENCY LATEST ********************/
+/* LATENCY LATENCY HISTORY metadata */
+#define LATENCY_LATENCY_HISTORY_Metadata NULL
 
-/* LATENCY LATEST return info */
-#define LATENCY_LATEST_ReturnInfo NULL
+/* LATENCY LATENCY HISTORY argument table */
+struct redisCommandArg LATENCY_LATENCY_HISTORY_Args[] = {
+{"event",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="event"},
+{0}
+};
 
-/* LATENCY LATEST history */
-#define LATENCY_LATEST_History NULL
+/********** LATENCY LATENCY LATEST ********************/
 
-/* LATENCY LATEST metadata */
-#define LATENCY_LATEST_Metadata NULL
+/* LATENCY LATENCY LATEST return info */
+#define LATENCY_LATENCY_LATEST_ReturnInfo NULL
 
-/********** LATENCY RESET ********************/
+/* LATENCY LATENCY LATEST history */
+#define LATENCY_LATENCY_LATEST_History NULL
 
-/* LATENCY RESET return info */
-#define LATENCY_RESET_ReturnInfo NULL
+/* LATENCY LATENCY LATEST metadata */
+#define LATENCY_LATENCY_LATEST_Metadata NULL
 
-/* LATENCY RESET history */
-#define LATENCY_RESET_History NULL
+/********** LATENCY LATENCY RESET ********************/
 
-/* LATENCY RESET metadata */
-#define LATENCY_RESET_Metadata NULL
+/* LATENCY LATENCY RESET return info */
+#define LATENCY_LATENCY_RESET_ReturnInfo NULL
+
+/* LATENCY LATENCY RESET history */
+#define LATENCY_LATENCY_RESET_History NULL
+
+/* LATENCY LATENCY RESET metadata */
+#define LATENCY_LATENCY_RESET_Metadata NULL
+
+/* LATENCY LATENCY RESET argument table */
+struct redisCommandArg LATENCY_LATENCY_RESET_Args[] = {
+{"event",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="event"},
+{0}
+};
 
 /* LATENCY command table */
 struct redisCommand LATENCY_Subcommands[] = {
-{"reset","Reset latency data for one or more events.",NULL,"2.8.13",COMMAND_GROUP_SERVER,LATENCY_RESET_ReturnInfo,LATENCY_RESET_History,LATENCY_RESET_Metadata,latencyCommand,-2,"admin noscript loading stale @admin @slow @dangerous"},
-{"help","Show helpful text about the different subcommands.",NULL,"2.8.13",COMMAND_GROUP_SERVER,LATENCY_HELP_ReturnInfo,LATENCY_HELP_History,LATENCY_HELP_Metadata,latencyCommand,2,"loading stale @slow"},
-{"doctor","Return a human readable latency analysis report.",NULL,"2.8.13",COMMAND_GROUP_SERVER,LATENCY_DOCTOR_ReturnInfo,LATENCY_DOCTOR_History,LATENCY_DOCTOR_Metadata,latencyCommand,2,"admin noscript loading stale @admin @slow @dangerous"},
-{"graph","Return a latency graph for the event.",NULL,"2.8.13",COMMAND_GROUP_SERVER,LATENCY_GRAPH_ReturnInfo,LATENCY_GRAPH_History,LATENCY_GRAPH_Metadata,latencyCommand,3,"admin noscript loading stale @admin @slow @dangerous"},
-{"history","Return timestamp-latency samples for the event.",NULL,"2.8.13",COMMAND_GROUP_SERVER,LATENCY_HISTORY_ReturnInfo,LATENCY_HISTORY_History,LATENCY_HISTORY_Metadata,latencyCommand,3,"admin noscript loading stale @admin @slow @dangerous"},
-{"latest","Return the latest latency samples for all events.",NULL,"2.8.13",COMMAND_GROUP_SERVER,LATENCY_LATEST_ReturnInfo,LATENCY_LATEST_History,LATENCY_LATEST_Metadata,latencyCommand,2,"admin noscript loading stale @admin @slow @dangerous"},
+{"latency graph","Return a latency graph for the event.",NULL,"2.8.13",COMMAND_GROUP_SERVER,LATENCY_LATENCY_GRAPH_ReturnInfo,LATENCY_LATENCY_GRAPH_History,LATENCY_LATENCY_GRAPH_Metadata,latencyCommand,3,"admin noscript loading stale @admin @slow @dangerous",.args=LATENCY_LATENCY_GRAPH_Args},
+{"latency reset","Reset latency data for one or more events.",NULL,"2.8.13",COMMAND_GROUP_SERVER,LATENCY_LATENCY_RESET_ReturnInfo,LATENCY_LATENCY_RESET_History,LATENCY_LATENCY_RESET_Metadata,latencyCommand,-2,"admin noscript loading stale @admin @slow @dangerous",.args=LATENCY_LATENCY_RESET_Args},
+{"latency help","Show helpful text about the different subcommands.",NULL,"2.8.13",COMMAND_GROUP_SERVER,LATENCY_LATENCY_HELP_ReturnInfo,LATENCY_LATENCY_HELP_History,LATENCY_LATENCY_HELP_Metadata,latencyCommand,2,"loading stale @slow"},
+{"latency latest","Return the latest latency samples for all events.",NULL,"2.8.13",COMMAND_GROUP_SERVER,LATENCY_LATENCY_LATEST_ReturnInfo,LATENCY_LATENCY_LATEST_History,LATENCY_LATENCY_LATEST_Metadata,latencyCommand,2,"admin noscript loading stale @admin @slow @dangerous"},
+{"latency history","Return timestamp-latency samples for the event.",NULL,"2.8.13",COMMAND_GROUP_SERVER,LATENCY_LATENCY_HISTORY_ReturnInfo,LATENCY_LATENCY_HISTORY_History,LATENCY_LATENCY_HISTORY_Metadata,latencyCommand,3,"admin noscript loading stale @admin @slow @dangerous",.args=LATENCY_LATENCY_HISTORY_Args},
+{"latency doctor","Return a human readable latency analysis report.",NULL,"2.8.13",COMMAND_GROUP_SERVER,LATENCY_LATENCY_DOCTOR_ReturnInfo,LATENCY_LATENCY_DOCTOR_History,LATENCY_LATENCY_DOCTOR_Metadata,latencyCommand,2,"admin noscript loading stale @admin @slow @dangerous"},
 {0}
 };
 
@@ -2631,80 +4241,93 @@ struct redisCommand LATENCY_Subcommands[] = {
 /* LOLWUT metadata */
 #define LOLWUT_Metadata NULL
 
-/********** MEMORY DOCTOR ********************/
+/* LOLWUT argument table */
+struct redisCommandArg LOLWUT_Args[] = {
+{"version",ARG_TYPE_INTEGER,"VERSION",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="version"},
+{0}
+};
 
-/* MEMORY DOCTOR return info */
-#define MEMORY_DOCTOR_ReturnInfo NULL
+/********** MEMORY MEMORY DOCTOR ********************/
 
-/* MEMORY DOCTOR history */
-#define MEMORY_DOCTOR_History NULL
+/* MEMORY MEMORY DOCTOR return info */
+#define MEMORY_MEMORY_DOCTOR_ReturnInfo NULL
 
-/* MEMORY DOCTOR metadata */
-#define MEMORY_DOCTOR_Metadata NULL
+/* MEMORY MEMORY DOCTOR history */
+#define MEMORY_MEMORY_DOCTOR_History NULL
 
-/********** MEMORY HELP ********************/
+/* MEMORY MEMORY DOCTOR metadata */
+#define MEMORY_MEMORY_DOCTOR_Metadata NULL
 
-/* MEMORY HELP return info */
-#define MEMORY_HELP_ReturnInfo NULL
+/********** MEMORY MEMORY HELP ********************/
 
-/* MEMORY HELP history */
-#define MEMORY_HELP_History NULL
+/* MEMORY MEMORY HELP return info */
+#define MEMORY_MEMORY_HELP_ReturnInfo NULL
 
-/* MEMORY HELP metadata */
-#define MEMORY_HELP_Metadata NULL
+/* MEMORY MEMORY HELP history */
+#define MEMORY_MEMORY_HELP_History NULL
 
-/********** MEMORY MALLOC_STATS ********************/
+/* MEMORY MEMORY HELP metadata */
+#define MEMORY_MEMORY_HELP_Metadata NULL
 
-/* MEMORY MALLOC_STATS return info */
-#define MEMORY_MALLOC_STATS_ReturnInfo NULL
+/********** MEMORY MEMORY MALLOC_STATS ********************/
 
-/* MEMORY MALLOC_STATS history */
-#define MEMORY_MALLOC_STATS_History NULL
+/* MEMORY MEMORY MALLOC_STATS return info */
+#define MEMORY_MEMORY_MALLOC_STATS_ReturnInfo NULL
 
-/* MEMORY MALLOC_STATS metadata */
-#define MEMORY_MALLOC_STATS_Metadata NULL
+/* MEMORY MEMORY MALLOC_STATS history */
+#define MEMORY_MEMORY_MALLOC_STATS_History NULL
 
-/********** MEMORY PURGE ********************/
+/* MEMORY MEMORY MALLOC_STATS metadata */
+#define MEMORY_MEMORY_MALLOC_STATS_Metadata NULL
 
-/* MEMORY PURGE return info */
-#define MEMORY_PURGE_ReturnInfo NULL
+/********** MEMORY MEMORY PURGE ********************/
 
-/* MEMORY PURGE history */
-#define MEMORY_PURGE_History NULL
+/* MEMORY MEMORY PURGE return info */
+#define MEMORY_MEMORY_PURGE_ReturnInfo NULL
 
-/* MEMORY PURGE metadata */
-#define MEMORY_PURGE_Metadata NULL
+/* MEMORY MEMORY PURGE history */
+#define MEMORY_MEMORY_PURGE_History NULL
 
-/********** MEMORY STATS ********************/
+/* MEMORY MEMORY PURGE metadata */
+#define MEMORY_MEMORY_PURGE_Metadata NULL
 
-/* MEMORY STATS return info */
-#define MEMORY_STATS_ReturnInfo NULL
+/********** MEMORY MEMORY STATS ********************/
 
-/* MEMORY STATS history */
-#define MEMORY_STATS_History NULL
+/* MEMORY MEMORY STATS return info */
+#define MEMORY_MEMORY_STATS_ReturnInfo NULL
 
-/* MEMORY STATS metadata */
-#define MEMORY_STATS_Metadata NULL
+/* MEMORY MEMORY STATS history */
+#define MEMORY_MEMORY_STATS_History NULL
 
-/********** MEMORY USAGE ********************/
+/* MEMORY MEMORY STATS metadata */
+#define MEMORY_MEMORY_STATS_Metadata NULL
 
-/* MEMORY USAGE return info */
-#define MEMORY_USAGE_ReturnInfo NULL
+/********** MEMORY MEMORY USAGE ********************/
 
-/* MEMORY USAGE history */
-#define MEMORY_USAGE_History NULL
+/* MEMORY MEMORY USAGE return info */
+#define MEMORY_MEMORY_USAGE_ReturnInfo NULL
 
-/* MEMORY USAGE metadata */
-#define MEMORY_USAGE_Metadata NULL
+/* MEMORY MEMORY USAGE history */
+#define MEMORY_MEMORY_USAGE_History NULL
+
+/* MEMORY MEMORY USAGE metadata */
+#define MEMORY_MEMORY_USAGE_Metadata NULL
+
+/* MEMORY MEMORY USAGE argument table */
+struct redisCommandArg MEMORY_MEMORY_USAGE_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"count",ARG_TYPE_INTEGER,"SAMPLES",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="count"},
+{0}
+};
 
 /* MEMORY command table */
 struct redisCommand MEMORY_Subcommands[] = {
-{"stats","Show memory usage details",NULL,"4.0.0",COMMAND_GROUP_SERVER,MEMORY_STATS_ReturnInfo,MEMORY_STATS_History,MEMORY_STATS_Metadata,memoryCommand,2,"random @slow"},
-{"help","Show helpful text about the different subcommands",NULL,"4.0.0",COMMAND_GROUP_SERVER,MEMORY_HELP_ReturnInfo,MEMORY_HELP_History,MEMORY_HELP_Metadata,memoryCommand,2,"loading stale @slow"},
-{"malloc-stats","Show allocator internal stats",NULL,"4.0.0",COMMAND_GROUP_SERVER,MEMORY_MALLOC_STATS_ReturnInfo,MEMORY_MALLOC_STATS_History,MEMORY_MALLOC_STATS_Metadata,memoryCommand,2,"random @slow"},
-{"doctor","Outputs memory problems report",NULL,"4.0.0",COMMAND_GROUP_SERVER,MEMORY_DOCTOR_ReturnInfo,MEMORY_DOCTOR_History,MEMORY_DOCTOR_Metadata,memoryCommand,2,"random @slow"},
-{"purge","Ask the allocator to release memory",NULL,"4.0.0",COMMAND_GROUP_SERVER,MEMORY_PURGE_ReturnInfo,MEMORY_PURGE_History,MEMORY_PURGE_Metadata,memoryCommand,2,"@slow"},
-{"usage","Estimate the memory usage of a key","O(N) where N is the number of samples.","4.0.0",COMMAND_GROUP_SERVER,MEMORY_USAGE_ReturnInfo,MEMORY_USAGE_History,MEMORY_USAGE_Metadata,memoryCommand,-3,"readonly @read @slow",{{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"memory purge","Ask the allocator to release memory",NULL,"4.0.0",COMMAND_GROUP_SERVER,MEMORY_MEMORY_PURGE_ReturnInfo,MEMORY_MEMORY_PURGE_History,MEMORY_MEMORY_PURGE_Metadata,memoryCommand,2,"@slow"},
+{"memory malloc-stats","Show allocator internal stats",NULL,"4.0.0",COMMAND_GROUP_SERVER,MEMORY_MEMORY_MALLOC_STATS_ReturnInfo,MEMORY_MEMORY_MALLOC_STATS_History,MEMORY_MEMORY_MALLOC_STATS_Metadata,memoryCommand,2,"random @slow"},
+{"memory usage","Estimate the memory usage of a key","O(N) where N is the number of samples.","4.0.0",COMMAND_GROUP_SERVER,MEMORY_MEMORY_USAGE_ReturnInfo,MEMORY_MEMORY_USAGE_History,MEMORY_MEMORY_USAGE_Metadata,memoryCommand,-3,"readonly @read @slow",{{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=MEMORY_MEMORY_USAGE_Args},
+{"memory doctor","Outputs memory problems report",NULL,"4.0.0",COMMAND_GROUP_SERVER,MEMORY_MEMORY_DOCTOR_ReturnInfo,MEMORY_MEMORY_DOCTOR_History,MEMORY_MEMORY_DOCTOR_Metadata,memoryCommand,2,"random @slow"},
+{"memory help","Show helpful text about the different subcommands",NULL,"4.0.0",COMMAND_GROUP_SERVER,MEMORY_MEMORY_HELP_ReturnInfo,MEMORY_MEMORY_HELP_History,MEMORY_MEMORY_HELP_Metadata,memoryCommand,2,"loading stale @slow"},
+{"memory stats","Show memory usage details",NULL,"4.0.0",COMMAND_GROUP_SERVER,MEMORY_MEMORY_STATS_ReturnInfo,MEMORY_MEMORY_STATS_History,MEMORY_MEMORY_STATS_Metadata,memoryCommand,2,"random @slow"},
 {0}
 };
 
@@ -2719,56 +4342,69 @@ struct redisCommand MEMORY_Subcommands[] = {
 /* MEMORY metadata */
 #define MEMORY_Metadata NULL
 
-/********** MODULE HELP ********************/
+/********** MODULE MODULE HELP ********************/
 
-/* MODULE HELP return info */
-#define MODULE_HELP_ReturnInfo NULL
+/* MODULE MODULE HELP return info */
+#define MODULE_MODULE_HELP_ReturnInfo NULL
 
-/* MODULE HELP history */
-#define MODULE_HELP_History NULL
+/* MODULE MODULE HELP history */
+#define MODULE_MODULE_HELP_History NULL
 
-/* MODULE HELP metadata */
-#define MODULE_HELP_Metadata NULL
+/* MODULE MODULE HELP metadata */
+#define MODULE_MODULE_HELP_Metadata NULL
 
-/********** MODULE LIST ********************/
+/********** MODULE MODULE LIST ********************/
 
-/* MODULE LIST return info */
-#define MODULE_LIST_ReturnInfo NULL
+/* MODULE MODULE LIST return info */
+#define MODULE_MODULE_LIST_ReturnInfo NULL
 
-/* MODULE LIST history */
-#define MODULE_LIST_History NULL
+/* MODULE MODULE LIST history */
+#define MODULE_MODULE_LIST_History NULL
 
-/* MODULE LIST metadata */
-#define MODULE_LIST_Metadata NULL
+/* MODULE MODULE LIST metadata */
+#define MODULE_MODULE_LIST_Metadata NULL
 
-/********** MODULE LOAD ********************/
+/********** MODULE MODULE LOAD ********************/
 
-/* MODULE LOAD return info */
-#define MODULE_LOAD_ReturnInfo NULL
+/* MODULE MODULE LOAD return info */
+#define MODULE_MODULE_LOAD_ReturnInfo NULL
 
-/* MODULE LOAD history */
-#define MODULE_LOAD_History NULL
+/* MODULE MODULE LOAD history */
+#define MODULE_MODULE_LOAD_History NULL
 
-/* MODULE LOAD metadata */
-#define MODULE_LOAD_Metadata NULL
+/* MODULE MODULE LOAD metadata */
+#define MODULE_MODULE_LOAD_Metadata NULL
 
-/********** MODULE UNLOAD ********************/
+/* MODULE MODULE LOAD argument table */
+struct redisCommandArg MODULE_MODULE_LOAD_Args[] = {
+{"path",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="path"},
+{"arg",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,.value.string="arg"},
+{0}
+};
 
-/* MODULE UNLOAD return info */
-#define MODULE_UNLOAD_ReturnInfo NULL
+/********** MODULE MODULE UNLOAD ********************/
 
-/* MODULE UNLOAD history */
-#define MODULE_UNLOAD_History NULL
+/* MODULE MODULE UNLOAD return info */
+#define MODULE_MODULE_UNLOAD_ReturnInfo NULL
 
-/* MODULE UNLOAD metadata */
-#define MODULE_UNLOAD_Metadata NULL
+/* MODULE MODULE UNLOAD history */
+#define MODULE_MODULE_UNLOAD_History NULL
+
+/* MODULE MODULE UNLOAD metadata */
+#define MODULE_MODULE_UNLOAD_Metadata NULL
+
+/* MODULE MODULE UNLOAD argument table */
+struct redisCommandArg MODULE_MODULE_UNLOAD_Args[] = {
+{"name",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="name"},
+{0}
+};
 
 /* MODULE command table */
 struct redisCommand MODULE_Subcommands[] = {
-{"load","Load a module","O(1)","4.0.0",COMMAND_GROUP_SERVER,MODULE_LOAD_ReturnInfo,MODULE_LOAD_History,MODULE_LOAD_Metadata,moduleCommand,-3,"admin noscript @admin @slow @dangerous"},
-{"list","List all modules loaded by the server","O(N) where N is the number of loaded modules.","4.0.0",COMMAND_GROUP_SERVER,MODULE_LIST_ReturnInfo,MODULE_LIST_History,MODULE_LIST_Metadata,moduleCommand,2,"admin noscript @admin @slow @dangerous"},
-{"help","Show helpful text about the different subcommands","O(1)","5.0.0",COMMAND_GROUP_SERVER,MODULE_HELP_ReturnInfo,MODULE_HELP_History,MODULE_HELP_Metadata,moduleCommand,2,"loading stale @slow"},
-{"unload","Unload a module","O(1)","4.0.0",COMMAND_GROUP_SERVER,MODULE_UNLOAD_ReturnInfo,MODULE_UNLOAD_History,MODULE_UNLOAD_Metadata,moduleCommand,3,"admin noscript @admin @slow @dangerous"},
+{"module help",NULL,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_MODULE_HELP_ReturnInfo,MODULE_MODULE_HELP_History,MODULE_MODULE_HELP_Metadata,moduleCommand,2,"loading stale @slow"},
+{"module list","List all modules loaded by the server","O(N) where N is the number of loaded modules.","4.0.0",COMMAND_GROUP_SERVER,MODULE_MODULE_LIST_ReturnInfo,MODULE_MODULE_LIST_History,MODULE_MODULE_LIST_Metadata,moduleCommand,2,"admin noscript @admin @slow @dangerous"},
+{"module unload","Unload a module","O(1)","4.0.0",COMMAND_GROUP_SERVER,MODULE_MODULE_UNLOAD_ReturnInfo,MODULE_MODULE_UNLOAD_History,MODULE_MODULE_UNLOAD_Metadata,moduleCommand,3,"admin noscript @admin @slow @dangerous",.args=MODULE_MODULE_UNLOAD_Args},
+{"module load","Load a module","O(1)","4.0.0",COMMAND_GROUP_SERVER,MODULE_MODULE_LOAD_ReturnInfo,MODULE_MODULE_LOAD_History,MODULE_MODULE_LOAD_Metadata,moduleCommand,-3,"admin noscript @admin @slow @dangerous",.args=MODULE_MODULE_LOAD_Args},
 {0}
 };
 
@@ -2799,28 +4435,6 @@ commandHistory MONITOR_History[] = {
 /* MONITOR metadata */
 #define MONITOR_Metadata NULL
 
-/********** PFDEBUG ********************/
-
-/* PFDEBUG return info */
-#define PFDEBUG_ReturnInfo NULL
-
-/* PFDEBUG history */
-#define PFDEBUG_History NULL
-
-/* PFDEBUG metadata */
-#define PFDEBUG_Metadata NULL
-
-/********** PFSELFTEST ********************/
-
-/* PFSELFTEST return info */
-#define PFSELFTEST_ReturnInfo NULL
-
-/* PFSELFTEST history */
-#define PFSELFTEST_History NULL
-
-/* PFSELFTEST metadata */
-#define PFSELFTEST_Metadata NULL
-
 /********** POST ********************/
 
 /* POST return info */
@@ -2843,6 +4457,13 @@ commandHistory MONITOR_History[] = {
 /* PSYNC metadata */
 #define PSYNC_Metadata NULL
 
+/* PSYNC argument table */
+struct redisCommandArg PSYNC_Args[] = {
+{"replicationid",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="replicationid"},
+{"offset",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="offset"},
+{0}
+};
+
 /********** REPLCONF ********************/
 
 /* REPLCONF return info */
@@ -2864,6 +4485,13 @@ commandHistory MONITOR_History[] = {
 
 /* REPLICAOF metadata */
 #define REPLICAOF_Metadata NULL
+
+/* REPLICAOF argument table */
+struct redisCommandArg REPLICAOF_Args[] = {
+{"host",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="host"},
+{"port",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="port"},
+{0}
+};
 
 /********** RESTORE_ASKING ********************/
 
@@ -2909,6 +4537,19 @@ commandHistory MONITOR_History[] = {
 /* SHUTDOWN metadata */
 #define SHUTDOWN_Metadata NULL
 
+/* SHUTDOWN __tbd__58__ argument table */
+struct redisCommandArg SHUTDOWN___tbd__58___Subargs[] = {
+{"nosave",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="NOSAVE"},
+{"save",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="SAVE"},
+{0}
+};
+
+/* SHUTDOWN argument table */
+struct redisCommandArg SHUTDOWN_Args[] = {
+{"__tbd__58__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=SHUTDOWN___tbd__58___Subargs},
+{0}
+};
+
 /********** SLAVEOF ********************/
 
 /* SLAVEOF return info */
@@ -2920,59 +4561,72 @@ commandHistory MONITOR_History[] = {
 /* SLAVEOF metadata */
 #define SLAVEOF_Metadata NULL
 
-/********** SLOWLOG GET ********************/
+/* SLAVEOF argument table */
+struct redisCommandArg SLAVEOF_Args[] = {
+{"host",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="host"},
+{"port",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="port"},
+{0}
+};
 
-/* SLOWLOG GET return info */
-#define SLOWLOG_GET_ReturnInfo NULL
+/********** SLOWLOG SLOWLOG GET ********************/
 
-/* SLOWLOG GET history */
-commandHistory SLOWLOG_GET_History[] = {
+/* SLOWLOG SLOWLOG GET return info */
+#define SLOWLOG_SLOWLOG_GET_ReturnInfo NULL
+
+/* SLOWLOG SLOWLOG GET history */
+commandHistory SLOWLOG_SLOWLOG_GET_History[] = {
 {"4.0","Added client IP address, port and name to the reply."},
 {0}
 };
 
-/* SLOWLOG GET metadata */
-#define SLOWLOG_GET_Metadata NULL
+/* SLOWLOG SLOWLOG GET metadata */
+#define SLOWLOG_SLOWLOG_GET_Metadata NULL
 
-/********** SLOWLOG HELP ********************/
+/* SLOWLOG SLOWLOG GET argument table */
+struct redisCommandArg SLOWLOG_SLOWLOG_GET_Args[] = {
+{"count",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="count"},
+{0}
+};
 
-/* SLOWLOG HELP return info */
-#define SLOWLOG_HELP_ReturnInfo NULL
+/********** SLOWLOG SLOWLOG HELP ********************/
 
-/* SLOWLOG HELP history */
-#define SLOWLOG_HELP_History NULL
+/* SLOWLOG SLOWLOG HELP return info */
+#define SLOWLOG_SLOWLOG_HELP_ReturnInfo NULL
 
-/* SLOWLOG HELP metadata */
-#define SLOWLOG_HELP_Metadata NULL
+/* SLOWLOG SLOWLOG HELP history */
+#define SLOWLOG_SLOWLOG_HELP_History NULL
 
-/********** SLOWLOG LEN ********************/
+/* SLOWLOG SLOWLOG HELP metadata */
+#define SLOWLOG_SLOWLOG_HELP_Metadata NULL
 
-/* SLOWLOG LEN return info */
-#define SLOWLOG_LEN_ReturnInfo NULL
+/********** SLOWLOG SLOWLOG LEN ********************/
 
-/* SLOWLOG LEN history */
-#define SLOWLOG_LEN_History NULL
+/* SLOWLOG SLOWLOG LEN return info */
+#define SLOWLOG_SLOWLOG_LEN_ReturnInfo NULL
 
-/* SLOWLOG LEN metadata */
-#define SLOWLOG_LEN_Metadata NULL
+/* SLOWLOG SLOWLOG LEN history */
+#define SLOWLOG_SLOWLOG_LEN_History NULL
 
-/********** SLOWLOG RESET ********************/
+/* SLOWLOG SLOWLOG LEN metadata */
+#define SLOWLOG_SLOWLOG_LEN_Metadata NULL
 
-/* SLOWLOG RESET return info */
-#define SLOWLOG_RESET_ReturnInfo NULL
+/********** SLOWLOG SLOWLOG RESET ********************/
 
-/* SLOWLOG RESET history */
-#define SLOWLOG_RESET_History NULL
+/* SLOWLOG SLOWLOG RESET return info */
+#define SLOWLOG_SLOWLOG_RESET_ReturnInfo NULL
 
-/* SLOWLOG RESET metadata */
-#define SLOWLOG_RESET_Metadata NULL
+/* SLOWLOG SLOWLOG RESET history */
+#define SLOWLOG_SLOWLOG_RESET_History NULL
+
+/* SLOWLOG SLOWLOG RESET metadata */
+#define SLOWLOG_SLOWLOG_RESET_Metadata NULL
 
 /* SLOWLOG command table */
 struct redisCommand SLOWLOG_Subcommands[] = {
-{"reset","Clear all entries from the slow log","O(N) where N is the number of entries in the slowlog","2.2.12",COMMAND_GROUP_SERVER,SLOWLOG_RESET_ReturnInfo,SLOWLOG_RESET_History,SLOWLOG_RESET_Metadata,slowlogCommand,2,"admin loading stale @admin @slow @dangerous"},
-{"help","Show helpful text about the different subcommands","O(1)","6.2.0",COMMAND_GROUP_SERVER,SLOWLOG_HELP_ReturnInfo,SLOWLOG_HELP_History,SLOWLOG_HELP_Metadata,slowlogCommand,2,"loading stale @slow"},
-{"len","Get the slow log's length","O(1)","2.2.12",COMMAND_GROUP_SERVER,SLOWLOG_LEN_ReturnInfo,SLOWLOG_LEN_History,SLOWLOG_LEN_Metadata,slowlogCommand,2,"admin random loading stale @admin @slow @dangerous"},
-{"get","Get the slow log's entries","O(N) where N is the number of entries returned","2.2.12",COMMAND_GROUP_SERVER,SLOWLOG_GET_ReturnInfo,SLOWLOG_GET_History,SLOWLOG_GET_Metadata,slowlogCommand,-2,"admin random loading stale @admin @slow @dangerous"},
+{"slowlog get","Get the slow log's entries","O(N) where N is the number of entries returned","2.2.12",COMMAND_GROUP_SERVER,SLOWLOG_SLOWLOG_GET_ReturnInfo,SLOWLOG_SLOWLOG_GET_History,SLOWLOG_SLOWLOG_GET_Metadata,slowlogCommand,-2,"admin random loading stale @admin @slow @dangerous",.args=SLOWLOG_SLOWLOG_GET_Args},
+{"slowlog reset","Clear all entries from the slow log","O(N) where N is the number of entries in the slowlog","2.2.12",COMMAND_GROUP_SERVER,SLOWLOG_SLOWLOG_RESET_ReturnInfo,SLOWLOG_SLOWLOG_RESET_History,SLOWLOG_SLOWLOG_RESET_Metadata,slowlogCommand,2,"admin loading stale @admin @slow @dangerous"},
+{"slowlog help","Show helpful text about the different subcommands","O(1)","6.2.0",COMMAND_GROUP_SERVER,SLOWLOG_SLOWLOG_HELP_ReturnInfo,SLOWLOG_SLOWLOG_HELP_History,SLOWLOG_SLOWLOG_HELP_Metadata,slowlogCommand,2,"loading stale @slow"},
+{"slowlog len","Get the slow log's length","O(1)","2.2.12",COMMAND_GROUP_SERVER,SLOWLOG_SLOWLOG_LEN_ReturnInfo,SLOWLOG_SLOWLOG_LEN_History,SLOWLOG_SLOWLOG_LEN_Metadata,slowlogCommand,2,"admin random loading stale @admin @slow @dangerous"},
 {0}
 };
 
@@ -2987,17 +4641,6 @@ struct redisCommand SLOWLOG_Subcommands[] = {
 /* SLOWLOG metadata */
 #define SLOWLOG_Metadata NULL
 
-/********** SUBSTR ********************/
-
-/* SUBSTR return info */
-#define SUBSTR_ReturnInfo NULL
-
-/* SUBSTR history */
-#define SUBSTR_History NULL
-
-/* SUBSTR metadata */
-#define SUBSTR_Metadata NULL
-
 /********** SWAPDB ********************/
 
 /* SWAPDB return info */
@@ -3008,6 +4651,13 @@ struct redisCommand SLOWLOG_Subcommands[] = {
 
 /* SWAPDB metadata */
 #define SWAPDB_Metadata NULL
+
+/* SWAPDB argument table */
+struct redisCommandArg SWAPDB_Args[] = {
+{"index1",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="index1"},
+{"index2",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="index2"},
+{0}
+};
 
 /********** SYNC ********************/
 
@@ -3031,17 +4681,6 @@ struct redisCommand SLOWLOG_Subcommands[] = {
 /* TIME metadata */
 #define TIME_Metadata NULL
 
-/********** XSETID ********************/
-
-/* XSETID return info */
-#define XSETID_ReturnInfo NULL
-
-/* XSETID history */
-#define XSETID_History NULL
-
-/* XSETID metadata */
-#define XSETID_Metadata NULL
-
 /********** SADD ********************/
 
 /* SADD return info */
@@ -3056,6 +4695,13 @@ commandHistory SADD_History[] = {
 /* SADD metadata */
 #define SADD_Metadata NULL
 
+/* SADD argument table */
+struct redisCommandArg SADD_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"member",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="member"},
+{0}
+};
+
 /********** SCARD ********************/
 
 /* SCARD return info */
@@ -3066,6 +4712,12 @@ commandHistory SADD_History[] = {
 
 /* SCARD metadata */
 #define SCARD_Metadata NULL
+
+/* SCARD argument table */
+struct redisCommandArg SCARD_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{0}
+};
 
 /********** SDIFF ********************/
 
@@ -3078,6 +4730,12 @@ commandHistory SADD_History[] = {
 /* SDIFF metadata */
 #define SDIFF_Metadata NULL
 
+/* SDIFF argument table */
+struct redisCommandArg SDIFF_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="key"},
+{0}
+};
+
 /********** SDIFFSTORE ********************/
 
 /* SDIFFSTORE return info */
@@ -3088,6 +4746,13 @@ commandHistory SADD_History[] = {
 
 /* SDIFFSTORE metadata */
 #define SDIFFSTORE_Metadata NULL
+
+/* SDIFFSTORE argument table */
+struct redisCommandArg SDIFFSTORE_Args[] = {
+{"destination",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="destination"},
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="key"},
+{0}
+};
 
 /********** SINTER ********************/
 
@@ -3100,6 +4765,12 @@ commandHistory SADD_History[] = {
 /* SINTER metadata */
 #define SINTER_Metadata NULL
 
+/* SINTER argument table */
+struct redisCommandArg SINTER_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="key"},
+{0}
+};
+
 /********** SINTERCARD ********************/
 
 /* SINTERCARD return info */
@@ -3110,6 +4781,14 @@ commandHistory SADD_History[] = {
 
 /* SINTERCARD metadata */
 #define SINTERCARD_Metadata NULL
+
+/* SINTERCARD argument table */
+struct redisCommandArg SINTERCARD_Args[] = {
+{"numkeys",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="numkeys"},
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="key"},
+{"limit",ARG_TYPE_INTEGER,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="limit"},
+{0}
+};
 
 /********** SINTERSTORE ********************/
 
@@ -3122,6 +4801,13 @@ commandHistory SADD_History[] = {
 /* SINTERSTORE metadata */
 #define SINTERSTORE_Metadata NULL
 
+/* SINTERSTORE argument table */
+struct redisCommandArg SINTERSTORE_Args[] = {
+{"destination",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="destination"},
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="key"},
+{0}
+};
+
 /********** SISMEMBER ********************/
 
 /* SISMEMBER return info */
@@ -3132,6 +4818,13 @@ commandHistory SADD_History[] = {
 
 /* SISMEMBER metadata */
 #define SISMEMBER_Metadata NULL
+
+/* SISMEMBER argument table */
+struct redisCommandArg SISMEMBER_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"member",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="member"},
+{0}
+};
 
 /********** SMEMBERS ********************/
 
@@ -3144,6 +4837,12 @@ commandHistory SADD_History[] = {
 /* SMEMBERS metadata */
 #define SMEMBERS_Metadata NULL
 
+/* SMEMBERS argument table */
+struct redisCommandArg SMEMBERS_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{0}
+};
+
 /********** SMISMEMBER ********************/
 
 /* SMISMEMBER return info */
@@ -3155,6 +4854,13 @@ commandHistory SADD_History[] = {
 /* SMISMEMBER metadata */
 #define SMISMEMBER_Metadata NULL
 
+/* SMISMEMBER argument table */
+struct redisCommandArg SMISMEMBER_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"member",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="member"},
+{0}
+};
+
 /********** SMOVE ********************/
 
 /* SMOVE return info */
@@ -3165,6 +4871,14 @@ commandHistory SADD_History[] = {
 
 /* SMOVE metadata */
 #define SMOVE_Metadata NULL
+
+/* SMOVE argument table */
+struct redisCommandArg SMOVE_Args[] = {
+{"source",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="source"},
+{"destination",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="destination"},
+{"member",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="member"},
+{0}
+};
 
 /********** SPOP ********************/
 
@@ -3180,6 +4894,13 @@ commandHistory SPOP_History[] = {
 /* SPOP metadata */
 #define SPOP_Metadata NULL
 
+/* SPOP argument table */
+struct redisCommandArg SPOP_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"count",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="count"},
+{0}
+};
+
 /********** SRANDMEMBER ********************/
 
 /* SRANDMEMBER return info */
@@ -3193,6 +4914,13 @@ commandHistory SRANDMEMBER_History[] = {
 
 /* SRANDMEMBER metadata */
 #define SRANDMEMBER_Metadata NULL
+
+/* SRANDMEMBER argument table */
+struct redisCommandArg SRANDMEMBER_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"count",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="count"},
+{0}
+};
 
 /********** SREM ********************/
 
@@ -3208,6 +4936,13 @@ commandHistory SREM_History[] = {
 /* SREM metadata */
 #define SREM_Metadata NULL
 
+/* SREM argument table */
+struct redisCommandArg SREM_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"member",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="member"},
+{0}
+};
+
 /********** SSCAN ********************/
 
 /* SSCAN return info */
@@ -3218,6 +4953,15 @@ commandHistory SREM_History[] = {
 
 /* SSCAN metadata */
 #define SSCAN_Metadata NULL
+
+/* SSCAN argument table */
+struct redisCommandArg SSCAN_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"cursor",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="cursor"},
+{"pattern",ARG_TYPE_PATTERN,"MATCH",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="pattern"},
+{"count",ARG_TYPE_INTEGER,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="count"},
+{0}
+};
 
 /********** SUNION ********************/
 
@@ -3230,6 +4974,12 @@ commandHistory SREM_History[] = {
 /* SUNION metadata */
 #define SUNION_Metadata NULL
 
+/* SUNION argument table */
+struct redisCommandArg SUNION_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="key"},
+{0}
+};
+
 /********** SUNIONSTORE ********************/
 
 /* SUNIONSTORE return info */
@@ -3241,6 +4991,13 @@ commandHistory SREM_History[] = {
 /* SUNIONSTORE metadata */
 #define SUNIONSTORE_Metadata NULL
 
+/* SUNIONSTORE argument table */
+struct redisCommandArg SUNIONSTORE_Args[] = {
+{"destination",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="destination"},
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="key"},
+{0}
+};
+
 /********** BZMPOP ********************/
 
 /* BZMPOP return info */
@@ -3251,6 +5008,23 @@ commandHistory SREM_History[] = {
 
 /* BZMPOP metadata */
 #define BZMPOP_Metadata NULL
+
+/* BZMPOP __tbd__57__ argument table */
+struct redisCommandArg BZMPOP___tbd__57___Subargs[] = {
+{"min",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="MIN"},
+{"max",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="MAX"},
+{0}
+};
+
+/* BZMPOP argument table */
+struct redisCommandArg BZMPOP_Args[] = {
+{"timeout",ARG_TYPE_DOUBLE,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="timeout"},
+{"numkeys",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="numkeys"},
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="key"},
+{"__tbd__57__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_NONE,.value.subargs=BZMPOP___tbd__57___Subargs},
+{"count",ARG_TYPE_INTEGER,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="count"},
+{0}
+};
 
 /********** BZPOPMAX ********************/
 
@@ -3266,6 +5040,13 @@ commandHistory BZPOPMAX_History[] = {
 /* BZPOPMAX metadata */
 #define BZPOPMAX_Metadata NULL
 
+/* BZPOPMAX argument table */
+struct redisCommandArg BZPOPMAX_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="key"},
+{"timeout",ARG_TYPE_DOUBLE,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="timeout"},
+{0}
+};
+
 /********** BZPOPMIN ********************/
 
 /* BZPOPMIN return info */
@@ -3279,6 +5060,13 @@ commandHistory BZPOPMIN_History[] = {
 
 /* BZPOPMIN metadata */
 #define BZPOPMIN_Metadata NULL
+
+/* BZPOPMIN argument table */
+struct redisCommandArg BZPOPMIN_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="key"},
+{"timeout",ARG_TYPE_DOUBLE,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="timeout"},
+{0}
+};
 
 /********** ZADD ********************/
 
@@ -3296,6 +5084,38 @@ commandHistory ZADD_History[] = {
 /* ZADD metadata */
 #define ZADD_Metadata NULL
 
+/* ZADD __tbd__75__ argument table */
+struct redisCommandArg ZADD___tbd__75___Subargs[] = {
+{"nx",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="NX"},
+{"xx",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="XX"},
+{0}
+};
+
+/* ZADD __tbd__76__ argument table */
+struct redisCommandArg ZADD___tbd__76___Subargs[] = {
+{"gt",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="GT"},
+{"lt",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="LT"},
+{0}
+};
+
+/* ZADD score_member argument table */
+struct redisCommandArg ZADD_score_member_Subargs[] = {
+{"score",ARG_TYPE_DOUBLE,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="score"},
+{"member",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="member"},
+{0}
+};
+
+/* ZADD argument table */
+struct redisCommandArg ZADD_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"__tbd__75__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=ZADD___tbd__75___Subargs},
+{"__tbd__76__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=ZADD___tbd__76___Subargs},
+{"change",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="CH"},
+{"increment",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="INCR"},
+{"score_member",ARG_TYPE_BLOCK,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.subargs=ZADD_score_member_Subargs},
+{0}
+};
+
 /********** ZCARD ********************/
 
 /* ZCARD return info */
@@ -3306,6 +5126,12 @@ commandHistory ZADD_History[] = {
 
 /* ZCARD metadata */
 #define ZCARD_Metadata NULL
+
+/* ZCARD argument table */
+struct redisCommandArg ZCARD_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{0}
+};
 
 /********** ZCOUNT ********************/
 
@@ -3318,6 +5144,14 @@ commandHistory ZADD_History[] = {
 /* ZCOUNT metadata */
 #define ZCOUNT_Metadata NULL
 
+/* ZCOUNT argument table */
+struct redisCommandArg ZCOUNT_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"min",ARG_TYPE_DOUBLE,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="min"},
+{"max",ARG_TYPE_DOUBLE,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="max"},
+{0}
+};
+
 /********** ZDIFF ********************/
 
 /* ZDIFF return info */
@@ -3328,6 +5162,14 @@ commandHistory ZADD_History[] = {
 
 /* ZDIFF metadata */
 #define ZDIFF_Metadata NULL
+
+/* ZDIFF argument table */
+struct redisCommandArg ZDIFF_Args[] = {
+{"numkeys",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="numkeys"},
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="key"},
+{"withscores",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="WITHSCORES"},
+{0}
+};
 
 /********** ZDIFFSTORE ********************/
 
@@ -3340,6 +5182,14 @@ commandHistory ZADD_History[] = {
 /* ZDIFFSTORE metadata */
 #define ZDIFFSTORE_Metadata NULL
 
+/* ZDIFFSTORE argument table */
+struct redisCommandArg ZDIFFSTORE_Args[] = {
+{"destination",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="destination"},
+{"numkeys",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="numkeys"},
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="key"},
+{0}
+};
+
 /********** ZINCRBY ********************/
 
 /* ZINCRBY return info */
@@ -3350,6 +5200,14 @@ commandHistory ZADD_History[] = {
 
 /* ZINCRBY metadata */
 #define ZINCRBY_Metadata NULL
+
+/* ZINCRBY argument table */
+struct redisCommandArg ZINCRBY_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"increment",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="increment"},
+{"member",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="member"},
+{0}
+};
 
 /********** ZINTER ********************/
 
@@ -3362,6 +5220,24 @@ commandHistory ZADD_History[] = {
 /* ZINTER metadata */
 #define ZINTER_Metadata NULL
 
+/* ZINTER __tbd__46__ argument table */
+struct redisCommandArg ZINTER___tbd__46___Subargs[] = {
+{"sum",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="SUM"},
+{"min",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="MIN"},
+{"max",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="MAX"},
+{0}
+};
+
+/* ZINTER argument table */
+struct redisCommandArg ZINTER_Args[] = {
+{"numkeys",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="numkeys"},
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="key"},
+{"weight",ARG_TYPE_INTEGER,"WEIGHTS",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,.value.string="weight"},
+{"__tbd__46__",ARG_TYPE_ONEOF,"AGGREGATE",NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=ZINTER___tbd__46___Subargs},
+{"withscores",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="WITHSCORES"},
+{0}
+};
+
 /********** ZINTERCARD ********************/
 
 /* ZINTERCARD return info */
@@ -3372,6 +5248,14 @@ commandHistory ZADD_History[] = {
 
 /* ZINTERCARD metadata */
 #define ZINTERCARD_Metadata NULL
+
+/* ZINTERCARD argument table */
+struct redisCommandArg ZINTERCARD_Args[] = {
+{"numkeys",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="numkeys"},
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="key"},
+{"limit",ARG_TYPE_INTEGER,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="limit"},
+{0}
+};
 
 /********** ZINTERSTORE ********************/
 
@@ -3384,6 +5268,24 @@ commandHistory ZADD_History[] = {
 /* ZINTERSTORE metadata */
 #define ZINTERSTORE_Metadata NULL
 
+/* ZINTERSTORE __tbd__66__ argument table */
+struct redisCommandArg ZINTERSTORE___tbd__66___Subargs[] = {
+{"sum",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="SUM"},
+{"min",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="MIN"},
+{"max",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="MAX"},
+{0}
+};
+
+/* ZINTERSTORE argument table */
+struct redisCommandArg ZINTERSTORE_Args[] = {
+{"destination",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="destination"},
+{"numkeys",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="numkeys"},
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="key"},
+{"weight",ARG_TYPE_INTEGER,"WEIGHTS",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,.value.string="weight"},
+{"__tbd__66__",ARG_TYPE_ONEOF,"AGGREGATE",NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=ZINTERSTORE___tbd__66___Subargs},
+{0}
+};
+
 /********** ZLEXCOUNT ********************/
 
 /* ZLEXCOUNT return info */
@@ -3394,6 +5296,14 @@ commandHistory ZADD_History[] = {
 
 /* ZLEXCOUNT metadata */
 #define ZLEXCOUNT_Metadata NULL
+
+/* ZLEXCOUNT argument table */
+struct redisCommandArg ZLEXCOUNT_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"min",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="min"},
+{"max",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="max"},
+{0}
+};
 
 /********** ZMPOP ********************/
 
@@ -3406,6 +5316,22 @@ commandHistory ZADD_History[] = {
 /* ZMPOP metadata */
 #define ZMPOP_Metadata NULL
 
+/* ZMPOP __tbd__55__ argument table */
+struct redisCommandArg ZMPOP___tbd__55___Subargs[] = {
+{"min",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="MIN"},
+{"max",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="MAX"},
+{0}
+};
+
+/* ZMPOP argument table */
+struct redisCommandArg ZMPOP_Args[] = {
+{"numkeys",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="numkeys"},
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="key"},
+{"__tbd__55__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_NONE,.value.subargs=ZMPOP___tbd__55___Subargs},
+{"count",ARG_TYPE_INTEGER,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="count"},
+{0}
+};
+
 /********** ZMSCORE ********************/
 
 /* ZMSCORE return info */
@@ -3416,6 +5342,13 @@ commandHistory ZADD_History[] = {
 
 /* ZMSCORE metadata */
 #define ZMSCORE_Metadata NULL
+
+/* ZMSCORE argument table */
+struct redisCommandArg ZMSCORE_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"member",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="member"},
+{0}
+};
 
 /********** ZPOPMAX ********************/
 
@@ -3428,6 +5361,13 @@ commandHistory ZADD_History[] = {
 /* ZPOPMAX metadata */
 #define ZPOPMAX_Metadata NULL
 
+/* ZPOPMAX argument table */
+struct redisCommandArg ZPOPMAX_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"count",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="count"},
+{0}
+};
+
 /********** ZPOPMIN ********************/
 
 /* ZPOPMIN return info */
@@ -3439,6 +5379,13 @@ commandHistory ZADD_History[] = {
 /* ZPOPMIN metadata */
 #define ZPOPMIN_Metadata NULL
 
+/* ZPOPMIN argument table */
+struct redisCommandArg ZPOPMIN_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"count",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="count"},
+{0}
+};
+
 /********** ZRANDMEMBER ********************/
 
 /* ZRANDMEMBER return info */
@@ -3449,6 +5396,20 @@ commandHistory ZADD_History[] = {
 
 /* ZRANDMEMBER metadata */
 #define ZRANDMEMBER_Metadata NULL
+
+/* ZRANDMEMBER options argument table */
+struct redisCommandArg ZRANDMEMBER_options_Subargs[] = {
+{"count",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="count"},
+{"withscores",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="WITHSCORES"},
+{0}
+};
+
+/* ZRANDMEMBER argument table */
+struct redisCommandArg ZRANDMEMBER_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"options",ARG_TYPE_BLOCK,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=ZRANDMEMBER_options_Subargs},
+{0}
+};
 
 /********** ZRANGE ********************/
 
@@ -3464,6 +5425,32 @@ commandHistory ZRANGE_History[] = {
 /* ZRANGE metadata */
 #define ZRANGE_Metadata NULL
 
+/* ZRANGE __tbd__18__ argument table */
+struct redisCommandArg ZRANGE___tbd__18___Subargs[] = {
+{"byscore",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="BYSCORE"},
+{"bylex",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="BYLEX"},
+{0}
+};
+
+/* ZRANGE offset_count argument table */
+struct redisCommandArg ZRANGE_offset_count_Subargs[] = {
+{"offset",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="offset"},
+{"count",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="count"},
+{0}
+};
+
+/* ZRANGE argument table */
+struct redisCommandArg ZRANGE_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"min",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="min"},
+{"max",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="max"},
+{"__tbd__18__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=ZRANGE___tbd__18___Subargs},
+{"rev",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="REV"},
+{"offset_count",ARG_TYPE_BLOCK,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=ZRANGE_offset_count_Subargs},
+{"withscores",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="WITHSCORES"},
+{0}
+};
+
 /********** ZRANGEBYLEX ********************/
 
 /* ZRANGEBYLEX return info */
@@ -3474,6 +5461,22 @@ commandHistory ZRANGE_History[] = {
 
 /* ZRANGEBYLEX metadata */
 #define ZRANGEBYLEX_Metadata NULL
+
+/* ZRANGEBYLEX offset_count argument table */
+struct redisCommandArg ZRANGEBYLEX_offset_count_Subargs[] = {
+{"offset",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="offset"},
+{"count",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="count"},
+{0}
+};
+
+/* ZRANGEBYLEX argument table */
+struct redisCommandArg ZRANGEBYLEX_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"min",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="min"},
+{"max",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="max"},
+{"offset_count",ARG_TYPE_BLOCK,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=ZRANGEBYLEX_offset_count_Subargs},
+{0}
+};
 
 /********** ZRANGEBYSCORE ********************/
 
@@ -3486,6 +5489,23 @@ commandHistory ZRANGE_History[] = {
 /* ZRANGEBYSCORE metadata */
 #define ZRANGEBYSCORE_Metadata NULL
 
+/* ZRANGEBYSCORE offset_count argument table */
+struct redisCommandArg ZRANGEBYSCORE_offset_count_Subargs[] = {
+{"offset",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="offset"},
+{"count",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="count"},
+{0}
+};
+
+/* ZRANGEBYSCORE argument table */
+struct redisCommandArg ZRANGEBYSCORE_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"min",ARG_TYPE_DOUBLE,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="min"},
+{"max",ARG_TYPE_DOUBLE,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="max"},
+{"withscores",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="WITHSCORES"},
+{"offset_count",ARG_TYPE_BLOCK,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=ZRANGEBYSCORE_offset_count_Subargs},
+{0}
+};
+
 /********** ZRANGESTORE ********************/
 
 /* ZRANGESTORE return info */
@@ -3497,6 +5517,32 @@ commandHistory ZRANGE_History[] = {
 /* ZRANGESTORE metadata */
 #define ZRANGESTORE_Metadata NULL
 
+/* ZRANGESTORE __tbd__28__ argument table */
+struct redisCommandArg ZRANGESTORE___tbd__28___Subargs[] = {
+{"byscore",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="BYSCORE"},
+{"bylex",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="BYLEX"},
+{0}
+};
+
+/* ZRANGESTORE offset_count argument table */
+struct redisCommandArg ZRANGESTORE_offset_count_Subargs[] = {
+{"offset",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="offset"},
+{"count",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="count"},
+{0}
+};
+
+/* ZRANGESTORE argument table */
+struct redisCommandArg ZRANGESTORE_Args[] = {
+{"dst",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="dst"},
+{"src",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="src"},
+{"min",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="min"},
+{"max",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="max"},
+{"__tbd__28__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=ZRANGESTORE___tbd__28___Subargs},
+{"rev",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="REV"},
+{"offset_count",ARG_TYPE_BLOCK,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=ZRANGESTORE_offset_count_Subargs},
+{0}
+};
+
 /********** ZRANK ********************/
 
 /* ZRANK return info */
@@ -3507,6 +5553,13 @@ commandHistory ZRANGE_History[] = {
 
 /* ZRANK metadata */
 #define ZRANK_Metadata NULL
+
+/* ZRANK argument table */
+struct redisCommandArg ZRANK_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"member",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="member"},
+{0}
+};
 
 /********** ZREM ********************/
 
@@ -3522,6 +5575,13 @@ commandHistory ZREM_History[] = {
 /* ZREM metadata */
 #define ZREM_Metadata NULL
 
+/* ZREM argument table */
+struct redisCommandArg ZREM_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"member",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="member"},
+{0}
+};
+
 /********** ZREMRANGEBYLEX ********************/
 
 /* ZREMRANGEBYLEX return info */
@@ -3532,6 +5592,14 @@ commandHistory ZREM_History[] = {
 
 /* ZREMRANGEBYLEX metadata */
 #define ZREMRANGEBYLEX_Metadata NULL
+
+/* ZREMRANGEBYLEX argument table */
+struct redisCommandArg ZREMRANGEBYLEX_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"min",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="min"},
+{"max",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="max"},
+{0}
+};
 
 /********** ZREMRANGEBYRANK ********************/
 
@@ -3544,6 +5612,14 @@ commandHistory ZREM_History[] = {
 /* ZREMRANGEBYRANK metadata */
 #define ZREMRANGEBYRANK_Metadata NULL
 
+/* ZREMRANGEBYRANK argument table */
+struct redisCommandArg ZREMRANGEBYRANK_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"start",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="start"},
+{"stop",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="stop"},
+{0}
+};
+
 /********** ZREMRANGEBYSCORE ********************/
 
 /* ZREMRANGEBYSCORE return info */
@@ -3554,6 +5630,14 @@ commandHistory ZREM_History[] = {
 
 /* ZREMRANGEBYSCORE metadata */
 #define ZREMRANGEBYSCORE_Metadata NULL
+
+/* ZREMRANGEBYSCORE argument table */
+struct redisCommandArg ZREMRANGEBYSCORE_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"min",ARG_TYPE_DOUBLE,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="min"},
+{"max",ARG_TYPE_DOUBLE,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="max"},
+{0}
+};
 
 /********** ZREVRANGE ********************/
 
@@ -3566,6 +5650,15 @@ commandHistory ZREM_History[] = {
 /* ZREVRANGE metadata */
 #define ZREVRANGE_Metadata NULL
 
+/* ZREVRANGE argument table */
+struct redisCommandArg ZREVRANGE_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"start",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="start"},
+{"stop",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="stop"},
+{"withscores",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="WITHSCORES"},
+{0}
+};
+
 /********** ZREVRANGEBYLEX ********************/
 
 /* ZREVRANGEBYLEX return info */
@@ -3576,6 +5669,22 @@ commandHistory ZREM_History[] = {
 
 /* ZREVRANGEBYLEX metadata */
 #define ZREVRANGEBYLEX_Metadata NULL
+
+/* ZREVRANGEBYLEX offset_count argument table */
+struct redisCommandArg ZREVRANGEBYLEX_offset_count_Subargs[] = {
+{"offset",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="offset"},
+{"count",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="count"},
+{0}
+};
+
+/* ZREVRANGEBYLEX argument table */
+struct redisCommandArg ZREVRANGEBYLEX_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"max",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="max"},
+{"min",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="min"},
+{"offset_count",ARG_TYPE_BLOCK,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=ZREVRANGEBYLEX_offset_count_Subargs},
+{0}
+};
 
 /********** ZREVRANGEBYSCORE ********************/
 
@@ -3588,6 +5697,23 @@ commandHistory ZREM_History[] = {
 /* ZREVRANGEBYSCORE metadata */
 #define ZREVRANGEBYSCORE_Metadata NULL
 
+/* ZREVRANGEBYSCORE offset_count argument table */
+struct redisCommandArg ZREVRANGEBYSCORE_offset_count_Subargs[] = {
+{"offset",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="offset"},
+{"count",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="count"},
+{0}
+};
+
+/* ZREVRANGEBYSCORE argument table */
+struct redisCommandArg ZREVRANGEBYSCORE_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"max",ARG_TYPE_DOUBLE,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="max"},
+{"min",ARG_TYPE_DOUBLE,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="min"},
+{"withscores",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="WITHSCORES"},
+{"offset_count",ARG_TYPE_BLOCK,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=ZREVRANGEBYSCORE_offset_count_Subargs},
+{0}
+};
+
 /********** ZREVRANK ********************/
 
 /* ZREVRANK return info */
@@ -3598,6 +5724,13 @@ commandHistory ZREM_History[] = {
 
 /* ZREVRANK metadata */
 #define ZREVRANK_Metadata NULL
+
+/* ZREVRANK argument table */
+struct redisCommandArg ZREVRANK_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"member",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="member"},
+{0}
+};
 
 /********** ZSCAN ********************/
 
@@ -3610,6 +5743,15 @@ commandHistory ZREM_History[] = {
 /* ZSCAN metadata */
 #define ZSCAN_Metadata NULL
 
+/* ZSCAN argument table */
+struct redisCommandArg ZSCAN_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"cursor",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="cursor"},
+{"pattern",ARG_TYPE_PATTERN,"MATCH",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="pattern"},
+{"count",ARG_TYPE_INTEGER,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="count"},
+{0}
+};
+
 /********** ZSCORE ********************/
 
 /* ZSCORE return info */
@@ -3620,6 +5762,13 @@ commandHistory ZREM_History[] = {
 
 /* ZSCORE metadata */
 #define ZSCORE_Metadata NULL
+
+/* ZSCORE argument table */
+struct redisCommandArg ZSCORE_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"member",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="member"},
+{0}
+};
 
 /********** ZUNION ********************/
 
@@ -3632,6 +5781,24 @@ commandHistory ZREM_History[] = {
 /* ZUNION metadata */
 #define ZUNION_Metadata NULL
 
+/* ZUNION __tbd__79__ argument table */
+struct redisCommandArg ZUNION___tbd__79___Subargs[] = {
+{"sum",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="SUM"},
+{"min",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="MIN"},
+{"max",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="MAX"},
+{0}
+};
+
+/* ZUNION argument table */
+struct redisCommandArg ZUNION_Args[] = {
+{"numkeys",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="numkeys"},
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="key"},
+{"weight",ARG_TYPE_INTEGER,"WEIGHTS",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,.value.string="weight"},
+{"__tbd__79__",ARG_TYPE_ONEOF,"AGGREGATE",NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=ZUNION___tbd__79___Subargs},
+{"withscores",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="WITHSCORES"},
+{0}
+};
+
 /********** ZUNIONSTORE ********************/
 
 /* ZUNIONSTORE return info */
@@ -3643,6 +5810,24 @@ commandHistory ZREM_History[] = {
 /* ZUNIONSTORE metadata */
 #define ZUNIONSTORE_Metadata NULL
 
+/* ZUNIONSTORE __tbd__40__ argument table */
+struct redisCommandArg ZUNIONSTORE___tbd__40___Subargs[] = {
+{"sum",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="SUM"},
+{"min",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="MIN"},
+{"max",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="MAX"},
+{0}
+};
+
+/* ZUNIONSTORE argument table */
+struct redisCommandArg ZUNIONSTORE_Args[] = {
+{"destination",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="destination"},
+{"numkeys",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="numkeys"},
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="key"},
+{"weight",ARG_TYPE_INTEGER,"WEIGHTS",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,.value.string="weight"},
+{"__tbd__40__",ARG_TYPE_ONEOF,"AGGREGATE",NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=ZUNIONSTORE___tbd__40___Subargs},
+{0}
+};
+
 /********** XACK ********************/
 
 /* XACK return info */
@@ -3653,6 +5838,14 @@ commandHistory ZREM_History[] = {
 
 /* XACK metadata */
 #define XACK_Metadata NULL
+
+/* XACK argument table */
+struct redisCommandArg XACK_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"group",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="group"},
+{"id",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="ID"},
+{0}
+};
 
 /********** XADD ********************/
 
@@ -3666,38 +5859,34 @@ commandHistory XADD_History[] = {
 };
 
 /* XADD metadata */
-commandMetadata XADD_Metadata[] = {
-{"command_type","first_shard"},
-{"transaction_type","8"},
+#define XADD_Metadata NULL
+
+/* XADD trim __tbd__5__ argument table */
+struct redisCommandArg XADD_trim___tbd__5___Subargs[] = {
+{"maxlen",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="MAXLEN"},
+{"minid",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="MINID"},
 {0}
 };
 
-/* XADD trim __tbd__1__ argument table */
-struct redisCommandArg XADD_trim___tbd__1___Subargs[] = {
-{"maxlen",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="MAXLEN"},
-{"minid",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="MINID"},
-{0}
-};
-
-/* XADD trim __tbd__4__ argument table */
-struct redisCommandArg XADD_trim___tbd__4___Subargs[] = {
-{"__tbd__5__",ARG_TYPE_NULL,"=",NULL,NULL,CMD_ARG_NONE},
-{"__tbd__6__",ARG_TYPE_NULL,"~",NULL,NULL,CMD_ARG_NONE},
+/* XADD trim __tbd__6__ argument table */
+struct redisCommandArg XADD_trim___tbd__6___Subargs[] = {
+{"__tbd__7__",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="="},
+{"__tbd__8__",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="~"},
 {0}
 };
 
 /* XADD trim argument table */
 struct redisCommandArg XADD_trim_Subargs[] = {
-{"__tbd__1__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_NONE,.value.subargs=XADD_trim___tbd__1___Subargs},
-{"__tbd__4__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=XADD_trim___tbd__4___Subargs},
+{"__tbd__5__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_NONE,.value.subargs=XADD_trim___tbd__5___Subargs},
+{"__tbd__6__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=XADD_trim___tbd__6___Subargs},
 {"threshold",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="threshold"},
 {"count",ARG_TYPE_INTEGER,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="count"},
 {0}
 };
 
-/* XADD __tbd__7__ argument table */
-struct redisCommandArg XADD___tbd__7___Subargs[] = {
-{"__tbd__8__",ARG_TYPE_NULL,"*",NULL,NULL,CMD_ARG_NONE},
+/* XADD __tbd__9__ argument table */
+struct redisCommandArg XADD___tbd__9___Subargs[] = {
+{"__tbd__10__",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="*"},
 {"id",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="ID"},
 {0}
 };
@@ -3712,10 +5901,10 @@ struct redisCommandArg XADD_field_value_Subargs[] = {
 /* XADD argument table */
 struct redisCommandArg XADD_Args[] = {
 {"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
-{"nomkstream",ARG_TYPE_NULL,"NOMKSTREAM",NULL,NULL,CMD_ARG_OPTIONAL},
+{"nomkstream",ARG_TYPE_TOKEN,"NOMKSTREAM",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="NOMKSTREAM"},
 {"trim",ARG_TYPE_BLOCK,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=XADD_trim_Subargs},
-{"__tbd__7__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_NONE,.value.subargs=XADD___tbd__7___Subargs},
-{"field_value",ARG_TYPE_BLOCK,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.value.subargs=XADD_field_value_Subargs},
+{"__tbd__9__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_NONE,.value.subargs=XADD___tbd__9___Subargs},
+{"field_value",ARG_TYPE_BLOCK,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.subargs=XADD_field_value_Subargs},
 {0}
 };
 
@@ -3730,6 +5919,18 @@ struct redisCommandArg XADD_Args[] = {
 /* XAUTOCLAIM metadata */
 #define XAUTOCLAIM_Metadata NULL
 
+/* XAUTOCLAIM argument table */
+struct redisCommandArg XAUTOCLAIM_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"group",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="group"},
+{"consumer",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="consumer"},
+{"min-idle-time",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="min-idle-time"},
+{"start",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="start"},
+{"count",ARG_TYPE_INTEGER,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="count"},
+{"justid",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="JUSTID"},
+{0}
+};
+
 /********** XCLAIM ********************/
 
 /* XCLAIM return info */
@@ -3740,6 +5941,21 @@ struct redisCommandArg XADD_Args[] = {
 
 /* XCLAIM metadata */
 #define XCLAIM_Metadata NULL
+
+/* XCLAIM argument table */
+struct redisCommandArg XCLAIM_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"group",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="group"},
+{"consumer",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="consumer"},
+{"min-idle-time",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="min-idle-time"},
+{"id",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="ID"},
+{"ms",ARG_TYPE_INTEGER,"IDLE",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="ms"},
+{"ms-unix-time",ARG_TYPE_INTEGER,"TIME",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="ms-unix-time"},
+{"count",ARG_TYPE_INTEGER,"RETRYCOUNT",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="count"},
+{"force",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="FORCE"},
+{"justid",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="JUSTID"},
+{0}
+};
 
 /********** XDEL ********************/
 
@@ -3752,80 +5968,134 @@ struct redisCommandArg XADD_Args[] = {
 /* XDEL metadata */
 #define XDEL_Metadata NULL
 
-/********** XGROUP CREATE ********************/
+/* XDEL argument table */
+struct redisCommandArg XDEL_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"id",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="ID"},
+{0}
+};
 
-/* XGROUP CREATE return info */
-#define XGROUP_CREATE_ReturnInfo NULL
+/********** XGROUP XGROUP CREATE ********************/
 
-/* XGROUP CREATE history */
-#define XGROUP_CREATE_History NULL
+/* XGROUP XGROUP CREATE return info */
+#define XGROUP_XGROUP_CREATE_ReturnInfo NULL
 
-/* XGROUP CREATE metadata */
-#define XGROUP_CREATE_Metadata NULL
+/* XGROUP XGROUP CREATE history */
+#define XGROUP_XGROUP_CREATE_History NULL
 
-/********** XGROUP CREATECONSUMER ********************/
+/* XGROUP XGROUP CREATE metadata */
+#define XGROUP_XGROUP_CREATE_Metadata NULL
 
-/* XGROUP CREATECONSUMER return info */
-#define XGROUP_CREATECONSUMER_ReturnInfo NULL
+/* XGROUP XGROUP CREATE __tbd__61__ argument table */
+struct redisCommandArg XGROUP_XGROUP_CREATE___tbd__61___Subargs[] = {
+{"id",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="id"},
+{"__tbd__62__",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="$"},
+{0}
+};
 
-/* XGROUP CREATECONSUMER history */
-#define XGROUP_CREATECONSUMER_History NULL
+/* XGROUP XGROUP CREATE argument table */
+struct redisCommandArg XGROUP_XGROUP_CREATE_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"groupname",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="groupname"},
+{"__tbd__61__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_NONE,.value.subargs=XGROUP_XGROUP_CREATE___tbd__61___Subargs},
+{"mkstream",ARG_TYPE_TOKEN,"MKSTREAM",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="MKSTREAM"},
+{0}
+};
 
-/* XGROUP CREATECONSUMER metadata */
-#define XGROUP_CREATECONSUMER_Metadata NULL
+/********** XGROUP XGROUP CREATECONSUMER ********************/
 
-/********** XGROUP DELCONSUMER ********************/
+/* XGROUP XGROUP CREATECONSUMER return info */
+#define XGROUP_XGROUP_CREATECONSUMER_ReturnInfo NULL
 
-/* XGROUP DELCONSUMER return info */
-#define XGROUP_DELCONSUMER_ReturnInfo NULL
+/* XGROUP XGROUP CREATECONSUMER history */
+#define XGROUP_XGROUP_CREATECONSUMER_History NULL
 
-/* XGROUP DELCONSUMER history */
-#define XGROUP_DELCONSUMER_History NULL
+/* XGROUP XGROUP CREATECONSUMER metadata */
+#define XGROUP_XGROUP_CREATECONSUMER_Metadata NULL
 
-/* XGROUP DELCONSUMER metadata */
-#define XGROUP_DELCONSUMER_Metadata NULL
+/* XGROUP XGROUP CREATECONSUMER argument table */
+struct redisCommandArg XGROUP_XGROUP_CREATECONSUMER_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"groupname",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="groupname"},
+{"consumername",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="consumername"},
+{0}
+};
 
-/********** XGROUP DESTROY ********************/
+/********** XGROUP XGROUP DELCONSUMER ********************/
 
-/* XGROUP DESTROY return info */
-#define XGROUP_DESTROY_ReturnInfo NULL
+/* XGROUP XGROUP DELCONSUMER return info */
+#define XGROUP_XGROUP_DELCONSUMER_ReturnInfo NULL
 
-/* XGROUP DESTROY history */
-#define XGROUP_DESTROY_History NULL
+/* XGROUP XGROUP DELCONSUMER history */
+#define XGROUP_XGROUP_DELCONSUMER_History NULL
 
-/* XGROUP DESTROY metadata */
-#define XGROUP_DESTROY_Metadata NULL
+/* XGROUP XGROUP DELCONSUMER metadata */
+#define XGROUP_XGROUP_DELCONSUMER_Metadata NULL
 
-/********** XGROUP HELP ********************/
+/* XGROUP XGROUP DELCONSUMER argument table */
+struct redisCommandArg XGROUP_XGROUP_DELCONSUMER_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"groupname",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="groupname"},
+{"consumername",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="consumername"},
+{0}
+};
 
-/* XGROUP HELP return info */
-#define XGROUP_HELP_ReturnInfo NULL
+/********** XGROUP XGROUP DESTROY ********************/
 
-/* XGROUP HELP history */
-#define XGROUP_HELP_History NULL
+/* XGROUP XGROUP DESTROY return info */
+#define XGROUP_XGROUP_DESTROY_ReturnInfo NULL
 
-/* XGROUP HELP metadata */
-#define XGROUP_HELP_Metadata NULL
+/* XGROUP XGROUP DESTROY history */
+#define XGROUP_XGROUP_DESTROY_History NULL
 
-/********** XGROUP SETID ********************/
+/* XGROUP XGROUP DESTROY metadata */
+#define XGROUP_XGROUP_DESTROY_Metadata NULL
 
-/* XGROUP SETID return info */
-#define XGROUP_SETID_ReturnInfo NULL
+/* XGROUP XGROUP DESTROY argument table */
+struct redisCommandArg XGROUP_XGROUP_DESTROY_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"groupname",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="groupname"},
+{0}
+};
 
-/* XGROUP SETID history */
-#define XGROUP_SETID_History NULL
+/********** XGROUP XGROUP HELP ********************/
 
-/* XGROUP SETID metadata */
-#define XGROUP_SETID_Metadata NULL
+/* XGROUP XGROUP HELP return info */
+#define XGROUP_XGROUP_HELP_ReturnInfo NULL
+
+/* XGROUP XGROUP HELP history */
+#define XGROUP_XGROUP_HELP_History NULL
+
+/* XGROUP XGROUP HELP metadata */
+#define XGROUP_XGROUP_HELP_Metadata NULL
+
+/********** XGROUP XGROUP SETID ********************/
+
+/* XGROUP XGROUP SETID return info */
+#define XGROUP_XGROUP_SETID_ReturnInfo NULL
+
+/* XGROUP XGROUP SETID history */
+#define XGROUP_XGROUP_SETID_History NULL
+
+/* XGROUP XGROUP SETID metadata */
+#define XGROUP_XGROUP_SETID_Metadata NULL
+
+/* XGROUP XGROUP SETID argument table */
+struct redisCommandArg XGROUP_XGROUP_SETID_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"groupname",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="groupname"},
+{"id",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="id"},
+{0}
+};
 
 /* XGROUP command table */
 struct redisCommand XGROUP_Subcommands[] = {
-{"help","Show helpful text about the different subcommands","O(1)","5.0.0",COMMAND_GROUP_STREAM,XGROUP_HELP_ReturnInfo,XGROUP_HELP_History,XGROUP_HELP_Metadata,xgroupCommand,2,"loading stale @stream @slow"},
-{"createconsumer","Create a consumer in a consumer group.","O(1)","6.2.0",COMMAND_GROUP_STREAM,XGROUP_CREATECONSUMER_ReturnInfo,XGROUP_CREATECONSUMER_History,XGROUP_CREATECONSUMER_Metadata,xgroupCommand,5,"write denyoom @write @stream @slow",{{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"create","Create a consumer group.","O(1)","5.0.0",COMMAND_GROUP_STREAM,XGROUP_CREATE_ReturnInfo,XGROUP_CREATE_History,XGROUP_CREATE_Metadata,xgroupCommand,-5,"write denyoom @write @stream @slow",{{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"delconsumer","Delete a consumer from a consumer group.","O(1)","5.0.0",COMMAND_GROUP_STREAM,XGROUP_DELCONSUMER_ReturnInfo,XGROUP_DELCONSUMER_History,XGROUP_DELCONSUMER_Metadata,xgroupCommand,5,"write @write @stream @slow",{{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"destroy","Destroy a consumer group.","O(N) where N is the number of entries in the group's pending entries list (PEL).","5.0.0",COMMAND_GROUP_STREAM,XGROUP_DESTROY_ReturnInfo,XGROUP_DESTROY_History,XGROUP_DESTROY_Metadata,xgroupCommand,4,"write @write @stream @slow",{{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"setid","Set a consumer group to an arbitrary last delivered ID value.","O(1)","5.0.0",COMMAND_GROUP_STREAM,XGROUP_SETID_ReturnInfo,XGROUP_SETID_History,XGROUP_SETID_Metadata,xgroupCommand,5,"write @write @stream @slow",{{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"xgroup setid","Set a consumer group to an arbitrary last delivered ID value.","O(1)","5.0.0",COMMAND_GROUP_STREAM,XGROUP_XGROUP_SETID_ReturnInfo,XGROUP_XGROUP_SETID_History,XGROUP_XGROUP_SETID_Metadata,xgroupCommand,5,"write @write @stream @slow",{{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XGROUP_XGROUP_SETID_Args},
+{"xgroup createconsumer","Create a consumer in a consumer group.","O(1)","6.2.0",COMMAND_GROUP_STREAM,XGROUP_XGROUP_CREATECONSUMER_ReturnInfo,XGROUP_XGROUP_CREATECONSUMER_History,XGROUP_XGROUP_CREATECONSUMER_Metadata,xgroupCommand,5,"write denyoom @write @stream @slow",{{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XGROUP_XGROUP_CREATECONSUMER_Args},
+{"xgroup delconsumer","Delete a consumer from a consumer group.","O(1)","5.0.0",COMMAND_GROUP_STREAM,XGROUP_XGROUP_DELCONSUMER_ReturnInfo,XGROUP_XGROUP_DELCONSUMER_History,XGROUP_XGROUP_DELCONSUMER_Metadata,xgroupCommand,5,"write @write @stream @slow",{{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XGROUP_XGROUP_DELCONSUMER_Args},
+{"xgroup create","Create a consumer group.","O(1)","5.0.0",COMMAND_GROUP_STREAM,XGROUP_XGROUP_CREATE_ReturnInfo,XGROUP_XGROUP_CREATE_History,XGROUP_XGROUP_CREATE_Metadata,xgroupCommand,-5,"write denyoom @write @stream @slow",{{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XGROUP_XGROUP_CREATE_Args},
+{"xgroup help","Show helpful text about the different subcommands","O(1)","5.0.0",COMMAND_GROUP_STREAM,XGROUP_XGROUP_HELP_ReturnInfo,XGROUP_XGROUP_HELP_History,XGROUP_XGROUP_HELP_Metadata,xgroupCommand,2,"loading stale @stream @slow"},
+{"xgroup destroy","Destroy a consumer group.","O(N) where N is the number of entries in the group's pending entries list (PEL).","5.0.0",COMMAND_GROUP_STREAM,XGROUP_XGROUP_DESTROY_ReturnInfo,XGROUP_XGROUP_DESTROY_History,XGROUP_XGROUP_DESTROY_Metadata,xgroupCommand,4,"write @write @stream @slow",{{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XGROUP_XGROUP_DESTROY_Args},
 {0}
 };
 
@@ -3840,56 +6110,83 @@ struct redisCommand XGROUP_Subcommands[] = {
 /* XGROUP metadata */
 #define XGROUP_Metadata NULL
 
-/********** XINFO CONSUMERS ********************/
+/********** XINFO XINFO CONSUMERS ********************/
 
-/* XINFO CONSUMERS return info */
-#define XINFO_CONSUMERS_ReturnInfo NULL
+/* XINFO XINFO CONSUMERS return info */
+#define XINFO_XINFO_CONSUMERS_ReturnInfo NULL
 
-/* XINFO CONSUMERS history */
-#define XINFO_CONSUMERS_History NULL
+/* XINFO XINFO CONSUMERS history */
+#define XINFO_XINFO_CONSUMERS_History NULL
 
-/* XINFO CONSUMERS metadata */
-#define XINFO_CONSUMERS_Metadata NULL
+/* XINFO XINFO CONSUMERS metadata */
+#define XINFO_XINFO_CONSUMERS_Metadata NULL
 
-/********** XINFO GROUPS ********************/
+/* XINFO XINFO CONSUMERS argument table */
+struct redisCommandArg XINFO_XINFO_CONSUMERS_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"groupname",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="groupname"},
+{0}
+};
 
-/* XINFO GROUPS return info */
-#define XINFO_GROUPS_ReturnInfo NULL
+/********** XINFO XINFO GROUPS ********************/
 
-/* XINFO GROUPS history */
-#define XINFO_GROUPS_History NULL
+/* XINFO XINFO GROUPS return info */
+#define XINFO_XINFO_GROUPS_ReturnInfo NULL
 
-/* XINFO GROUPS metadata */
-#define XINFO_GROUPS_Metadata NULL
+/* XINFO XINFO GROUPS history */
+#define XINFO_XINFO_GROUPS_History NULL
 
-/********** XINFO HELP ********************/
+/* XINFO XINFO GROUPS metadata */
+#define XINFO_XINFO_GROUPS_Metadata NULL
 
-/* XINFO HELP return info */
-#define XINFO_HELP_ReturnInfo NULL
+/* XINFO XINFO GROUPS argument table */
+struct redisCommandArg XINFO_XINFO_GROUPS_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{0}
+};
 
-/* XINFO HELP history */
-#define XINFO_HELP_History NULL
+/********** XINFO XINFO HELP ********************/
 
-/* XINFO HELP metadata */
-#define XINFO_HELP_Metadata NULL
+/* XINFO XINFO HELP return info */
+#define XINFO_XINFO_HELP_ReturnInfo NULL
 
-/********** XINFO STREAM ********************/
+/* XINFO XINFO HELP history */
+#define XINFO_XINFO_HELP_History NULL
 
-/* XINFO STREAM return info */
-#define XINFO_STREAM_ReturnInfo NULL
+/* XINFO XINFO HELP metadata */
+#define XINFO_XINFO_HELP_Metadata NULL
 
-/* XINFO STREAM history */
-#define XINFO_STREAM_History NULL
+/********** XINFO XINFO STREAM ********************/
 
-/* XINFO STREAM metadata */
-#define XINFO_STREAM_Metadata NULL
+/* XINFO XINFO STREAM return info */
+#define XINFO_XINFO_STREAM_ReturnInfo NULL
+
+/* XINFO XINFO STREAM history */
+#define XINFO_XINFO_STREAM_History NULL
+
+/* XINFO XINFO STREAM metadata */
+#define XINFO_XINFO_STREAM_Metadata NULL
+
+/* XINFO XINFO STREAM full argument table */
+struct redisCommandArg XINFO_XINFO_STREAM_full_Subargs[] = {
+{"full",ARG_TYPE_TOKEN,"FULL",NULL,NULL,CMD_ARG_NONE,.value.string="FULL"},
+{"count",ARG_TYPE_INTEGER,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="count"},
+{0}
+};
+
+/* XINFO XINFO STREAM argument table */
+struct redisCommandArg XINFO_XINFO_STREAM_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"full",ARG_TYPE_BLOCK,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=XINFO_XINFO_STREAM_full_Subargs},
+{0}
+};
 
 /* XINFO command table */
 struct redisCommand XINFO_Subcommands[] = {
-{"groups","List the consumer groups of a stream","O(1)","5.0.0",COMMAND_GROUP_STREAM,XINFO_GROUPS_ReturnInfo,XINFO_GROUPS_History,XINFO_GROUPS_Metadata,xinfoCommand,3,"readonly @read @stream @slow",{{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"consumers","List the consumers in a consumer group","O(1)","5.0.0",COMMAND_GROUP_STREAM,XINFO_CONSUMERS_ReturnInfo,XINFO_CONSUMERS_History,XINFO_CONSUMERS_Metadata,xinfoCommand,4,"readonly random @read @stream @slow",{{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"stream","Get information about a stream","O(1)","5.0.0",COMMAND_GROUP_STREAM,XINFO_STREAM_ReturnInfo,XINFO_STREAM_History,XINFO_STREAM_Metadata,xinfoCommand,-3,"readonly @read @stream @slow",{{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"help","Show helpful text about the different subcommands","O(1)","5.0.0",COMMAND_GROUP_STREAM,XINFO_HELP_ReturnInfo,XINFO_HELP_History,XINFO_HELP_Metadata,xinfoCommand,2,"loading stale @stream @slow"},
+{"xinfo stream","Get information about a stream","O(1)","5.0.0",COMMAND_GROUP_STREAM,XINFO_XINFO_STREAM_ReturnInfo,XINFO_XINFO_STREAM_History,XINFO_XINFO_STREAM_Metadata,xinfoCommand,-3,"readonly @read @stream @slow",{{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XINFO_XINFO_STREAM_Args},
+{"xinfo groups","List the consumer groups of a stream","O(1)","5.0.0",COMMAND_GROUP_STREAM,XINFO_XINFO_GROUPS_ReturnInfo,XINFO_XINFO_GROUPS_History,XINFO_XINFO_GROUPS_Metadata,xinfoCommand,3,"readonly @read @stream @slow",{{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XINFO_XINFO_GROUPS_Args},
+{"xinfo consumers","List the consumers in a consumer group","O(1)","5.0.0",COMMAND_GROUP_STREAM,XINFO_XINFO_CONSUMERS_ReturnInfo,XINFO_XINFO_CONSUMERS_History,XINFO_XINFO_CONSUMERS_Metadata,xinfoCommand,4,"readonly random @read @stream @slow",{{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XINFO_XINFO_CONSUMERS_Args},
+{"xinfo help","Show helpful text about the different subcommands","O(1)","5.0.0",COMMAND_GROUP_STREAM,XINFO_XINFO_HELP_ReturnInfo,XINFO_XINFO_HELP_History,XINFO_XINFO_HELP_Metadata,xinfoCommand,2,"loading stale @stream @slow"},
 {0}
 };
 
@@ -3915,6 +6212,12 @@ struct redisCommand XINFO_Subcommands[] = {
 /* XLEN metadata */
 #define XLEN_Metadata NULL
 
+/* XLEN argument table */
+struct redisCommandArg XLEN_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{0}
+};
+
 /********** XPENDING ********************/
 
 /* XPENDING return info */
@@ -3929,6 +6232,24 @@ commandHistory XPENDING_History[] = {
 /* XPENDING metadata */
 #define XPENDING_Metadata NULL
 
+/* XPENDING filters argument table */
+struct redisCommandArg XPENDING_filters_Subargs[] = {
+{"min-idle-time",ARG_TYPE_INTEGER,"IDLE",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="min-idle-time"},
+{"start",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="start"},
+{"end",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="end"},
+{"count",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="count"},
+{"consumer",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="consumer"},
+{0}
+};
+
+/* XPENDING argument table */
+struct redisCommandArg XPENDING_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"group",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="group"},
+{"filters",ARG_TYPE_BLOCK,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=XPENDING_filters_Subargs},
+{0}
+};
+
 /********** XRANGE ********************/
 
 /* XRANGE return info */
@@ -3939,6 +6260,15 @@ commandHistory XPENDING_History[] = {
 
 /* XRANGE metadata */
 #define XRANGE_Metadata NULL
+
+/* XRANGE argument table */
+struct redisCommandArg XRANGE_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"start",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="start"},
+{"end",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="end"},
+{"count",ARG_TYPE_INTEGER,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="count"},
+{0}
+};
 
 /********** XREAD ********************/
 
@@ -3951,6 +6281,16 @@ commandHistory XPENDING_History[] = {
 /* XREAD metadata */
 #define XREAD_Metadata NULL
 
+/* XREAD argument table */
+struct redisCommandArg XREAD_Args[] = {
+{"count",ARG_TYPE_INTEGER,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="count"},
+{"milliseconds",ARG_TYPE_INTEGER,"BLOCK",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="milliseconds"},
+{"streams",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="STREAMS"},
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="key"},
+{"id",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="ID"},
+{0}
+};
+
 /********** XREADGROUP ********************/
 
 /* XREADGROUP return info */
@@ -3962,6 +6302,25 @@ commandHistory XPENDING_History[] = {
 /* XREADGROUP metadata */
 #define XREADGROUP_Metadata NULL
 
+/* XREADGROUP group_consumer argument table */
+struct redisCommandArg XREADGROUP_group_consumer_Subargs[] = {
+{"group",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="group"},
+{"consumer",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="consumer"},
+{0}
+};
+
+/* XREADGROUP argument table */
+struct redisCommandArg XREADGROUP_Args[] = {
+{"group_consumer",ARG_TYPE_BLOCK,"GROUP",NULL,NULL,CMD_ARG_NONE,.value.subargs=XREADGROUP_group_consumer_Subargs},
+{"count",ARG_TYPE_INTEGER,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="count"},
+{"milliseconds",ARG_TYPE_INTEGER,"BLOCK",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="milliseconds"},
+{"noack",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="NOACK"},
+{"streams",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="STREAMS"},
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="key"},
+{"id",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="ID"},
+{0}
+};
+
 /********** XREVRANGE ********************/
 
 /* XREVRANGE return info */
@@ -3972,6 +6331,26 @@ commandHistory XPENDING_History[] = {
 
 /* XREVRANGE metadata */
 #define XREVRANGE_Metadata NULL
+
+/* XREVRANGE argument table */
+struct redisCommandArg XREVRANGE_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"end",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="end"},
+{"start",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="start"},
+{"count",ARG_TYPE_INTEGER,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="count"},
+{0}
+};
+
+/********** XSETID ********************/
+
+/* XSETID return info */
+#define XSETID_ReturnInfo NULL
+
+/* XSETID history */
+#define XSETID_History NULL
+
+/* XSETID metadata */
+#define XSETID_Metadata NULL
 
 /********** XTRIM ********************/
 
@@ -3987,6 +6366,36 @@ commandHistory XTRIM_History[] = {
 /* XTRIM metadata */
 #define XTRIM_Metadata NULL
 
+/* XTRIM trim __tbd__33__ argument table */
+struct redisCommandArg XTRIM_trim___tbd__33___Subargs[] = {
+{"maxlen",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="MAXLEN"},
+{"minid",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="MINID"},
+{0}
+};
+
+/* XTRIM trim __tbd__34__ argument table */
+struct redisCommandArg XTRIM_trim___tbd__34___Subargs[] = {
+{"__tbd__35__",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="="},
+{"__tbd__36__",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="~"},
+{0}
+};
+
+/* XTRIM trim argument table */
+struct redisCommandArg XTRIM_trim_Subargs[] = {
+{"__tbd__33__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_NONE,.value.subargs=XTRIM_trim___tbd__33___Subargs},
+{"__tbd__34__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=XTRIM_trim___tbd__34___Subargs},
+{"threshold",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="threshold"},
+{"count",ARG_TYPE_INTEGER,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="count"},
+{0}
+};
+
+/* XTRIM argument table */
+struct redisCommandArg XTRIM_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"trim",ARG_TYPE_BLOCK,NULL,NULL,NULL,CMD_ARG_NONE,.value.subargs=XTRIM_trim_Subargs},
+{0}
+};
+
 /********** APPEND ********************/
 
 /* APPEND return info */
@@ -3997,6 +6406,13 @@ commandHistory XTRIM_History[] = {
 
 /* APPEND metadata */
 #define APPEND_Metadata NULL
+
+/* APPEND argument table */
+struct redisCommandArg APPEND_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"value",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="value"},
+{0}
+};
 
 /********** DECR ********************/
 
@@ -4009,6 +6425,12 @@ commandHistory XTRIM_History[] = {
 /* DECR metadata */
 #define DECR_Metadata NULL
 
+/* DECR argument table */
+struct redisCommandArg DECR_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{0}
+};
+
 /********** DECRBY ********************/
 
 /* DECRBY return info */
@@ -4019,6 +6441,13 @@ commandHistory XTRIM_History[] = {
 
 /* DECRBY metadata */
 #define DECRBY_Metadata NULL
+
+/* DECRBY argument table */
+struct redisCommandArg DECRBY_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"decrement",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="decrement"},
+{0}
+};
 
 /********** GET ********************/
 
@@ -4031,6 +6460,12 @@ commandHistory XTRIM_History[] = {
 /* GET metadata */
 #define GET_Metadata NULL
 
+/* GET argument table */
+struct redisCommandArg GET_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{0}
+};
+
 /********** GETDEL ********************/
 
 /* GETDEL return info */
@@ -4041,6 +6476,12 @@ commandHistory XTRIM_History[] = {
 
 /* GETDEL metadata */
 #define GETDEL_Metadata NULL
+
+/* GETDEL argument table */
+struct redisCommandArg GETDEL_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{0}
+};
 
 /********** GETEX ********************/
 
@@ -4053,6 +6494,23 @@ commandHistory XTRIM_History[] = {
 /* GETEX metadata */
 #define GETEX_Metadata NULL
 
+/* GETEX __tbd__67__ argument table */
+struct redisCommandArg GETEX___tbd__67___Subargs[] = {
+{"__tbd__68__",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="EX seconds"},
+{"__tbd__69__",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="PX milliseconds"},
+{"__tbd__70__",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="EXAT timestamp"},
+{"__tbd__71__",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="PXAT milliseconds-timestamp"},
+{"persist",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="PERSIST"},
+{0}
+};
+
+/* GETEX argument table */
+struct redisCommandArg GETEX_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"__tbd__67__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=GETEX___tbd__67___Subargs},
+{0}
+};
+
 /********** GETRANGE ********************/
 
 /* GETRANGE return info */
@@ -4063,6 +6521,14 @@ commandHistory XTRIM_History[] = {
 
 /* GETRANGE metadata */
 #define GETRANGE_Metadata NULL
+
+/* GETRANGE argument table */
+struct redisCommandArg GETRANGE_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"start",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="start"},
+{"end",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="end"},
+{0}
+};
 
 /********** GETSET ********************/
 
@@ -4075,6 +6541,13 @@ commandHistory XTRIM_History[] = {
 /* GETSET metadata */
 #define GETSET_Metadata NULL
 
+/* GETSET argument table */
+struct redisCommandArg GETSET_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"value",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="value"},
+{0}
+};
+
 /********** INCR ********************/
 
 /* INCR return info */
@@ -4085,6 +6558,12 @@ commandHistory XTRIM_History[] = {
 
 /* INCR metadata */
 #define INCR_Metadata NULL
+
+/* INCR argument table */
+struct redisCommandArg INCR_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{0}
+};
 
 /********** INCRBY ********************/
 
@@ -4097,6 +6576,13 @@ commandHistory XTRIM_History[] = {
 /* INCRBY metadata */
 #define INCRBY_Metadata NULL
 
+/* INCRBY argument table */
+struct redisCommandArg INCRBY_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"increment",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="increment"},
+{0}
+};
+
 /********** INCRBYFLOAT ********************/
 
 /* INCRBYFLOAT return info */
@@ -4107,6 +6593,13 @@ commandHistory XTRIM_History[] = {
 
 /* INCRBYFLOAT metadata */
 #define INCRBYFLOAT_Metadata NULL
+
+/* INCRBYFLOAT argument table */
+struct redisCommandArg INCRBYFLOAT_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"increment",ARG_TYPE_DOUBLE,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="increment"},
+{0}
+};
 
 /********** MGET ********************/
 
@@ -4119,6 +6612,12 @@ commandHistory XTRIM_History[] = {
 /* MGET metadata */
 #define MGET_Metadata NULL
 
+/* MGET argument table */
+struct redisCommandArg MGET_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="key"},
+{0}
+};
+
 /********** MSET ********************/
 
 /* MSET return info */
@@ -4129,6 +6628,19 @@ commandHistory XTRIM_History[] = {
 
 /* MSET metadata */
 #define MSET_Metadata NULL
+
+/* MSET key_value argument table */
+struct redisCommandArg MSET_key_value_Subargs[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"value",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="value"},
+{0}
+};
+
+/* MSET argument table */
+struct redisCommandArg MSET_Args[] = {
+{"key_value",ARG_TYPE_BLOCK,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.subargs=MSET_key_value_Subargs},
+{0}
+};
 
 /********** MSETNX ********************/
 
@@ -4141,6 +6653,19 @@ commandHistory XTRIM_History[] = {
 /* MSETNX metadata */
 #define MSETNX_Metadata NULL
 
+/* MSETNX key_value argument table */
+struct redisCommandArg MSETNX_key_value_Subargs[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"value",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="value"},
+{0}
+};
+
+/* MSETNX argument table */
+struct redisCommandArg MSETNX_Args[] = {
+{"key_value",ARG_TYPE_BLOCK,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.subargs=MSETNX_key_value_Subargs},
+{0}
+};
+
 /********** PSETEX ********************/
 
 /* PSETEX return info */
@@ -4152,15 +6677,18 @@ commandHistory XTRIM_History[] = {
 /* PSETEX metadata */
 #define PSETEX_Metadata NULL
 
+/* PSETEX argument table */
+struct redisCommandArg PSETEX_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"milliseconds",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="milliseconds"},
+{"value",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="value"},
+{0}
+};
+
 /********** SET ********************/
 
 /* SET return info */
-commandReturnInfo SET_ReturnInfo[] = {
-{"Command succeeded","+OK",RETURN_TYPE_RESP2_3_SAME,.type.global=RESP2_SIMPLE_STRING},
-{"Old value if `GET` was given",NULL,RETURN_TYPE_RESP2_3_SAME,.type.global=RESP2_BULK_STRING},
-{"Either `SET` failed (with `NX` or `XX`), or `GET` was given and key didn't exist",NULL,RETURN_TYPE_RESP2_3_DIFFER,.type.unique={RESP2_NULL_BULK_STRING,RESP3_NULL}},
-{0}
-};
+#define SET_ReturnInfo NULL
 
 /* SET history */
 commandHistory SET_History[] = {
@@ -4174,20 +6702,20 @@ commandHistory SET_History[] = {
 /* SET metadata */
 #define SET_Metadata NULL
 
-/* SET expire argument table */
-struct redisCommandArg SET_expire_Subargs[] = {
-{"ex",ARG_TYPE_INTEGER,"EX",NULL,"2.6.12",CMD_ARG_NONE,.value.string="seconds"},
-{"px",ARG_TYPE_INTEGER,"PX",NULL,"2.6.12",CMD_ARG_NONE,.value.string="milliseconds"},
-{"exat",ARG_TYPE_UNIX_TIME,"EXAT",NULL,"6.2.0",CMD_ARG_NONE,.value.string="timestamp"},
-{"pxat",ARG_TYPE_UNIX_TIME,"PXAT",NULL,"6.2.0",CMD_ARG_NONE,.value.string="milliseconds-timestamp"},
-{"keepttl",ARG_TYPE_NULL,"KEEPTTL",NULL,"6.0.0",CMD_ARG_NONE},
+/* SET __tbd__22__ argument table */
+struct redisCommandArg SET___tbd__22___Subargs[] = {
+{"__tbd__23__",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="EX seconds"},
+{"__tbd__24__",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="PX milliseconds"},
+{"__tbd__25__",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="EXAT timestamp"},
+{"__tbd__26__",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="PXAT milliseconds-timestamp"},
+{"keepttl",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="KEEPTTL"},
 {0}
 };
 
-/* SET existence argument table */
-struct redisCommandArg SET_existence_Subargs[] = {
-{"nx",ARG_TYPE_NULL,"NX",NULL,NULL,CMD_ARG_NONE},
-{"xx",ARG_TYPE_NULL,"XX",NULL,NULL,CMD_ARG_NONE},
+/* SET __tbd__27__ argument table */
+struct redisCommandArg SET___tbd__27___Subargs[] = {
+{"nx",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="NX"},
+{"xx",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="XX"},
 {0}
 };
 
@@ -4195,9 +6723,9 @@ struct redisCommandArg SET_existence_Subargs[] = {
 struct redisCommandArg SET_Args[] = {
 {"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
 {"value",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="value"},
-{"expire",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=SET_expire_Subargs},
-{"existence",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=SET_existence_Subargs},
-{"get",ARG_TYPE_NULL,"GET",NULL,"6.2.0",CMD_ARG_OPTIONAL},
+{"__tbd__22__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=SET___tbd__22___Subargs},
+{"__tbd__27__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=SET___tbd__27___Subargs},
+{"get",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.string="GET"},
 {0}
 };
 
@@ -4212,6 +6740,14 @@ struct redisCommandArg SET_Args[] = {
 /* SETEX metadata */
 #define SETEX_Metadata NULL
 
+/* SETEX argument table */
+struct redisCommandArg SETEX_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"seconds",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="seconds"},
+{"value",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="value"},
+{0}
+};
+
 /********** SETNX ********************/
 
 /* SETNX return info */
@@ -4222,6 +6758,13 @@ struct redisCommandArg SET_Args[] = {
 
 /* SETNX metadata */
 #define SETNX_Metadata NULL
+
+/* SETNX argument table */
+struct redisCommandArg SETNX_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"value",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="value"},
+{0}
+};
 
 /********** SETRANGE ********************/
 
@@ -4234,32 +6777,40 @@ struct redisCommandArg SET_Args[] = {
 /* SETRANGE metadata */
 #define SETRANGE_Metadata NULL
 
-/********** STRALGO HELP ********************/
+/* SETRANGE argument table */
+struct redisCommandArg SETRANGE_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{"offset",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="offset"},
+{"value",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="value"},
+{0}
+};
 
-/* STRALGO HELP return info */
-#define STRALGO_HELP_ReturnInfo NULL
+/********** STRALGO STRALGO HELP ********************/
 
-/* STRALGO HELP history */
-#define STRALGO_HELP_History NULL
+/* STRALGO STRALGO HELP return info */
+#define STRALGO_STRALGO_HELP_ReturnInfo NULL
 
-/* STRALGO HELP metadata */
-#define STRALGO_HELP_Metadata NULL
+/* STRALGO STRALGO HELP history */
+#define STRALGO_STRALGO_HELP_History NULL
 
-/********** STRALGO LCS ********************/
+/* STRALGO STRALGO HELP metadata */
+#define STRALGO_STRALGO_HELP_Metadata NULL
 
-/* STRALGO LCS return info */
-#define STRALGO_LCS_ReturnInfo NULL
+/********** STRALGO STRALGO LCS ********************/
 
-/* STRALGO LCS history */
-#define STRALGO_LCS_History NULL
+/* STRALGO STRALGO LCS return info */
+#define STRALGO_STRALGO_LCS_ReturnInfo NULL
 
-/* STRALGO LCS metadata */
-#define STRALGO_LCS_Metadata NULL
+/* STRALGO STRALGO LCS history */
+#define STRALGO_STRALGO_LCS_History NULL
+
+/* STRALGO STRALGO LCS metadata */
+#define STRALGO_STRALGO_LCS_Metadata NULL
 
 /* STRALGO command table */
 struct redisCommand STRALGO_Subcommands[] = {
-{"help",NULL,NULL,NULL,COMMAND_GROUP_STRING,STRALGO_HELP_ReturnInfo,STRALGO_HELP_History,STRALGO_HELP_Metadata,stralgoCommand,2,"loading stale @string @slow"},
-{"lcs",NULL,NULL,NULL,COMMAND_GROUP_STRING,STRALGO_LCS_ReturnInfo,STRALGO_LCS_History,STRALGO_LCS_Metadata,stralgoCommand,-5,"readonly @read @string @slow",{{"read incomplete",KSPEC_BS_UNKNOWN,{{0}},KSPEC_FK_UNKNOWN,{{0}}}},lcsGetKeys},
+{"stralgo help",NULL,NULL,NULL,COMMAND_GROUP_STRING,STRALGO_STRALGO_HELP_ReturnInfo,STRALGO_STRALGO_HELP_History,STRALGO_STRALGO_HELP_Metadata,stralgoCommand,2,"loading stale @string @slow"},
+{"stralgo lcs",NULL,NULL,NULL,COMMAND_GROUP_STRING,STRALGO_STRALGO_LCS_ReturnInfo,STRALGO_STRALGO_LCS_History,STRALGO_STRALGO_LCS_Metadata,stralgoCommand,-5,"readonly @read @string @slow",{{"read incomplete",KSPEC_BS_UNKNOWN,{{0}},KSPEC_FK_UNKNOWN,{{0}}}},lcsGetKeys},
 {0}
 };
 
@@ -4274,6 +6825,13 @@ struct redisCommand STRALGO_Subcommands[] = {
 /* STRALGO metadata */
 #define STRALGO_Metadata NULL
 
+/* STRALGO argument table */
+struct redisCommandArg STRALGO_Args[] = {
+{"algorithm",ARG_TYPE_TOKEN,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="LCS"},
+{"algo-specific-argument",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="algo-specific-argument"},
+{0}
+};
+
 /********** STRLEN ********************/
 
 /* STRLEN return info */
@@ -4284,6 +6842,23 @@ struct redisCommand STRALGO_Subcommands[] = {
 
 /* STRLEN metadata */
 #define STRLEN_Metadata NULL
+
+/* STRLEN argument table */
+struct redisCommandArg STRLEN_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
+{0}
+};
+
+/********** SUBSTR ********************/
+
+/* SUBSTR return info */
+#define SUBSTR_ReturnInfo NULL
+
+/* SUBSTR history */
+#define SUBSTR_History NULL
+
+/* SUBSTR metadata */
+#define SUBSTR_Metadata NULL
 
 /********** DISCARD ********************/
 
@@ -4340,258 +6915,264 @@ struct redisCommand STRALGO_Subcommands[] = {
 /* WATCH metadata */
 #define WATCH_Metadata NULL
 
+/* WATCH argument table */
+struct redisCommandArg WATCH_Args[] = {
+{"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.value.string="key"},
+{0}
+};
+
 /* Main command table */
 struct redisCommand redisCommandTable[] = {
 /* bitmap */
-{"bitcount","Count set bits in a string","O(N)","2.6.0",COMMAND_GROUP_BITMAP,BITCOUNT_ReturnInfo,BITCOUNT_History,BITCOUNT_Metadata,bitcountCommand,-2,"readonly @read @bitmap @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"bitfield","Perform arbitrary bitfield integer operations on strings","O(1) for each subcommand specified","3.2.0",COMMAND_GROUP_BITMAP,BITFIELD_ReturnInfo,BITFIELD_History,BITFIELD_Metadata,bitfieldCommand,-2,"write denyoom @write @bitmap @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"bitfield_ro","Perform arbitrary bitfield integer operations on strings. Read-only variant of BITFIELD","O(1) for each subcommand specified","6.2.0",COMMAND_GROUP_BITMAP,BITFIELD_RO_ReturnInfo,BITFIELD_RO_History,BITFIELD_RO_Metadata,bitfieldroCommand,-2,"readonly fast @read @bitmap @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"bitop","Perform bitwise operations between strings","O(N)","2.6.0",COMMAND_GROUP_BITMAP,BITOP_ReturnInfo,BITOP_History,BITOP_Metadata,bitopCommand,-4,"write denyoom @write @bitmap @slow",{{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"read",KSPEC_BS_INDEX,.bs.index={3},KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
-{"bitpos","Find first bit set or clear in a string","O(N)","2.8.7",COMMAND_GROUP_BITMAP,BITPOS_ReturnInfo,BITPOS_History,BITPOS_Metadata,bitposCommand,-3,"readonly @read @bitmap @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"getbit","Returns the bit value at offset in the string value stored at key","O(1)","2.2.0",COMMAND_GROUP_BITMAP,GETBIT_ReturnInfo,GETBIT_History,GETBIT_Metadata,getbitCommand,3,"readonly fast @read @bitmap @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"setbit","Sets or clears the bit at offset in the string value stored at key","O(1)","2.2.0",COMMAND_GROUP_BITMAP,SETBIT_ReturnInfo,SETBIT_History,SETBIT_Metadata,setbitCommand,4,"write denyoom @write @bitmap @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"bitcount","Count set bits in a string","O(N)","2.6.0",COMMAND_GROUP_BITMAP,BITCOUNT_ReturnInfo,BITCOUNT_History,BITCOUNT_Metadata,bitcountCommand,-2,"readonly @read @bitmap @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=BITCOUNT_Args},
+{"bitfield","Perform arbitrary bitfield integer operations on strings","O(1) for each subcommand specified","3.2.0",COMMAND_GROUP_BITMAP,BITFIELD_ReturnInfo,BITFIELD_History,BITFIELD_Metadata,bitfieldCommand,-2,"write denyoom @write @bitmap @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=BITFIELD_Args},
+{"bitfield_ro","Perform arbitrary bitfield integer operations on strings. Read-only variant of BITFIELD","O(1) for each subcommand specified","6.2.0",COMMAND_GROUP_BITMAP,BITFIELD_RO_ReturnInfo,BITFIELD_RO_History,BITFIELD_RO_Metadata,bitfieldroCommand,-2,"readonly fast @read @bitmap @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=BITFIELD_RO_Args},
+{"bitop","Perform bitwise operations between strings","O(N)","2.6.0",COMMAND_GROUP_BITMAP,BITOP_ReturnInfo,BITOP_History,BITOP_Metadata,bitopCommand,-4,"write denyoom @write @bitmap @slow",{{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"read",KSPEC_BS_INDEX,.bs.index={3},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=BITOP_Args},
+{"bitpos","Find first bit set or clear in a string","O(N)","2.8.7",COMMAND_GROUP_BITMAP,BITPOS_ReturnInfo,BITPOS_History,BITPOS_Metadata,bitposCommand,-3,"readonly @read @bitmap @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=BITPOS_Args},
+{"getbit","Returns the bit value at offset in the string value stored at key","O(1)","2.2.0",COMMAND_GROUP_BITMAP,GETBIT_ReturnInfo,GETBIT_History,GETBIT_Metadata,getbitCommand,3,"readonly fast @read @bitmap @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=GETBIT_Args},
+{"setbit","Sets or clears the bit at offset in the string value stored at key","O(1)","2.2.0",COMMAND_GROUP_BITMAP,SETBIT_ReturnInfo,SETBIT_History,SETBIT_Metadata,setbitCommand,4,"write denyoom @write @bitmap @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SETBIT_Args},
 /* cluster */
 {"asking","Sent by cluster clients after an -ASK redirect","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,ASKING_ReturnInfo,ASKING_History,ASKING_Metadata,askingCommand,1,"fast @fast @connection"},
 {"cluster",NULL,NULL,"3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_ReturnInfo,CLUSTER_History,CLUSTER_Metadata,NULL,-2,"@slow",.subcommands=CLUSTER_Subcommands},
 {"readonly","Enables read queries for a connection to a cluster replica node","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,READONLY_ReturnInfo,READONLY_History,READONLY_Metadata,readonlyCommand,1,"fast @fast @connection"},
 {"readwrite","Disables read queries for a connection to a cluster replica node","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,READWRITE_ReturnInfo,READWRITE_History,READWRITE_Metadata,readwriteCommand,1,"fast @fast @connection"},
 /* connection */
-{"auth","Authenticate to the server",NULL,"1.0.0",COMMAND_GROUP_CONNECTION,AUTH_ReturnInfo,AUTH_History,AUTH_Metadata,authCommand,-2,"noscript loading stale fast no_auth @fast @connection"},
+{"auth","Authenticate to the server",NULL,"1.0.0",COMMAND_GROUP_CONNECTION,AUTH_ReturnInfo,AUTH_History,AUTH_Metadata,authCommand,-2,"noscript loading stale fast no_auth @fast @connection",.args=AUTH_Args},
 {"client",NULL,NULL,"2.4.0",COMMAND_GROUP_CONNECTION,CLIENT_ReturnInfo,CLIENT_History,CLIENT_Metadata,NULL,-2,"@slow",.subcommands=CLIENT_Subcommands},
-{"echo","Echo the given string",NULL,"1.0.0",COMMAND_GROUP_CONNECTION,ECHO_ReturnInfo,ECHO_History,ECHO_Metadata,echoCommand,2,"fast @fast @connection"},
-{"hello","Handshake with Redis","O(1)","6.0.0",COMMAND_GROUP_CONNECTION,HELLO_ReturnInfo,HELLO_History,HELLO_Metadata,helloCommand,-1,"noscript loading stale fast no_auth @fast @connection"},
-{"ping","Ping the server",NULL,"1.0.0",COMMAND_GROUP_CONNECTION,PING_ReturnInfo,PING_History,PING_Metadata,pingCommand,-1,"stale fast @fast @connection"},
+{"echo","Echo the given string",NULL,"1.0.0",COMMAND_GROUP_CONNECTION,ECHO_ReturnInfo,ECHO_History,ECHO_Metadata,echoCommand,2,"fast @fast @connection",.args=ECHO_Args},
+{"hello","Handshake with Redis","O(1)","6.0.0",COMMAND_GROUP_CONNECTION,HELLO_ReturnInfo,HELLO_History,HELLO_Metadata,helloCommand,-1,"noscript loading stale fast no_auth @fast @connection",.args=HELLO_Args},
+{"ping","Ping the server",NULL,"1.0.0",COMMAND_GROUP_CONNECTION,PING_ReturnInfo,PING_History,PING_Metadata,pingCommand,-1,"stale fast @fast @connection",.args=PING_Args},
 {"reset","Reset the connection",NULL,"6.2",COMMAND_GROUP_CONNECTION,RESET_ReturnInfo,RESET_History,RESET_Metadata,resetCommand,1,"noscript loading stale fast @fast @connection"},
-{"select","Change the selected database for the current connection",NULL,"1.0.0",COMMAND_GROUP_CONNECTION,SELECT_ReturnInfo,SELECT_History,SELECT_Metadata,selectCommand,2,"loading stale fast @fast @connection"},
+{"select","Change the selected database for the current connection",NULL,"1.0.0",COMMAND_GROUP_CONNECTION,SELECT_ReturnInfo,SELECT_History,SELECT_Metadata,selectCommand,2,"loading stale fast @fast @connection",.args=SELECT_Args},
 /* generic */
-{"copy","Copy a key","O(N) worst case for collections, where N is the number of nested items. O(1) for string values.","6.2.0",COMMAND_GROUP_GENERIC,COPY_ReturnInfo,COPY_History,COPY_Metadata,copyCommand,-3,"write denyoom @keyspace @write @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"del","Delete a key","O(N) where N is the number of keys that will be removed. When a key to remove holds a value other than a string, the individual complexity for this key is O(M) where M is the number of elements in the list, set, sorted set or hash. Removing a single key that holds a string value is O(1).","1.0.0",COMMAND_GROUP_GENERIC,DEL_ReturnInfo,DEL_History,DEL_Metadata,delCommand,-2,"write @keyspace @write @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
-{"dump","Return a serialized version of the value stored at the specified key.","O(1) to access the key and additional O(N*M) to serialize it, where N is the number of Redis objects composing the value and M their average size. For small string values the time complexity is thus O(1)+O(1*M) where M is small, so simply O(1).","2.6.0",COMMAND_GROUP_GENERIC,DUMP_ReturnInfo,DUMP_History,DUMP_Metadata,dumpCommand,2,"readonly random @keyspace @read @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"exists","Determine if a key exists","O(N) where N is the number of keys to check.","1.0.0",COMMAND_GROUP_GENERIC,EXISTS_ReturnInfo,EXISTS_History,EXISTS_Metadata,existsCommand,-2,"readonly fast @keyspace @read @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
-{"expire","Set a key's time to live in seconds","O(1)","1.0.0",COMMAND_GROUP_GENERIC,EXPIRE_ReturnInfo,EXPIRE_History,EXPIRE_Metadata,expireCommand,-3,"write fast @keyspace @write @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"expireat","Set the expiration for a key as a UNIX timestamp","O(1)","1.2.0",COMMAND_GROUP_GENERIC,EXPIREAT_ReturnInfo,EXPIREAT_History,EXPIREAT_Metadata,expireatCommand,-3,"write fast @keyspace @write @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"expiretime","Get the expiration Unix timestamp for a key","O(1)","7.0.0",COMMAND_GROUP_GENERIC,EXPIRETIME_ReturnInfo,EXPIRETIME_History,EXPIRETIME_Metadata,expiretimeCommand,2,"readonly random fast @keyspace @read @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"keys","Find all keys matching the given pattern","O(N) with N being the number of keys in the database, under the assumption that the key names in the database and the given pattern have limited length.","1.0.0",COMMAND_GROUP_GENERIC,KEYS_ReturnInfo,KEYS_History,KEYS_Metadata,keysCommand,2,"readonly sort_for_script @keyspace @read @slow @dangerous"},
+{"copy","Copy a key","O(N) worst case for collections, where N is the number of nested items. O(1) for string values.","6.2.0",COMMAND_GROUP_GENERIC,COPY_ReturnInfo,COPY_History,COPY_Metadata,copyCommand,-3,"write denyoom @keyspace @write @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=COPY_Args},
+{"del","Delete a key","O(N) where N is the number of keys that will be removed. When a key to remove holds a value other than a string, the individual complexity for this key is O(M) where M is the number of elements in the list, set, sorted set or hash. Removing a single key that holds a string value is O(1).","1.0.0",COMMAND_GROUP_GENERIC,DEL_ReturnInfo,DEL_History,DEL_Metadata,delCommand,-2,"write @keyspace @write @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=DEL_Args},
+{"dump","Return a serialized version of the value stored at the specified key.","O(1) to access the key and additional O(N*M) to serialize it, where N is the number of Redis objects composing the value and M their average size. For small string values the time complexity is thus O(1)+O(1*M) where M is small, so simply O(1).","2.6.0",COMMAND_GROUP_GENERIC,DUMP_ReturnInfo,DUMP_History,DUMP_Metadata,dumpCommand,2,"readonly random @keyspace @read @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=DUMP_Args},
+{"exists","Determine if a key exists","O(N) where N is the number of keys to check.","1.0.0",COMMAND_GROUP_GENERIC,EXISTS_ReturnInfo,EXISTS_History,EXISTS_Metadata,existsCommand,-2,"readonly fast @keyspace @read @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=EXISTS_Args},
+{"expire","Set a key's time to live in seconds","O(1)","1.0.0",COMMAND_GROUP_GENERIC,EXPIRE_ReturnInfo,EXPIRE_History,EXPIRE_Metadata,expireCommand,-3,"write fast @keyspace @write @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=EXPIRE_Args},
+{"expireat","Set the expiration for a key as a UNIX timestamp","O(1)","1.2.0",COMMAND_GROUP_GENERIC,EXPIREAT_ReturnInfo,EXPIREAT_History,EXPIREAT_Metadata,expireatCommand,-3,"write fast @keyspace @write @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=EXPIREAT_Args},
+{"expiretime","Get the expiration Unix timestamp for a key","O(1)","7.0.0",COMMAND_GROUP_GENERIC,EXPIRETIME_ReturnInfo,EXPIRETIME_History,EXPIRETIME_Metadata,expiretimeCommand,2,"readonly random fast @keyspace @read @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=EXPIRETIME_Args},
+{"keys","Find all keys matching the given pattern","O(N) with N being the number of keys in the database, under the assumption that the key names in the database and the given pattern have limited length.","1.0.0",COMMAND_GROUP_GENERIC,KEYS_ReturnInfo,KEYS_History,KEYS_Metadata,keysCommand,2,"readonly sort_for_script @keyspace @read @slow @dangerous",.args=KEYS_Args},
 {"migrate","Atomically transfer a key from a Redis instance to another one.","This command actually executes a DUMP+DEL in the source instance, and a RESTORE in the target instance. See the pages of these commands for time complexity. Also an O(N) data transfer between the two instances is performed.","2.6.0",COMMAND_GROUP_GENERIC,MIGRATE_ReturnInfo,MIGRATE_History,MIGRATE_Metadata,migrateCommand,-6,"write random @keyspace @write @slow @dangerous",{{"write",KSPEC_BS_INDEX,.bs.index={3},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"write incomplete",KSPEC_BS_KEYWORD,.bs.keyword={"KEYS",-2},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},migrateGetKeys,.args=MIGRATE_Args},
-{"move","Move a key to another database","O(1)","1.0.0",COMMAND_GROUP_GENERIC,MOVE_ReturnInfo,MOVE_History,MOVE_Metadata,moveCommand,3,"write fast @keyspace @write @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"move","Move a key to another database","O(1)","1.0.0",COMMAND_GROUP_GENERIC,MOVE_ReturnInfo,MOVE_History,MOVE_Metadata,moveCommand,3,"write fast @keyspace @write @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=MOVE_Args},
 {"object",NULL,NULL,"2.2.3",COMMAND_GROUP_GENERIC,OBJECT_ReturnInfo,OBJECT_History,OBJECT_Metadata,NULL,-2,"@slow",.subcommands=OBJECT_Subcommands},
-{"persist","Remove the expiration from a key","O(1)","2.2.0",COMMAND_GROUP_GENERIC,PERSIST_ReturnInfo,PERSIST_History,PERSIST_Metadata,persistCommand,2,"write fast @keyspace @write @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"pexpire","Set a key's time to live in milliseconds","O(1)","2.6.0",COMMAND_GROUP_GENERIC,PEXPIRE_ReturnInfo,PEXPIRE_History,PEXPIRE_Metadata,pexpireCommand,-3,"write fast @keyspace @write @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"pexpireat","Set the expiration for a key as a UNIX timestamp specified in milliseconds","O(1)","2.6.0",COMMAND_GROUP_GENERIC,PEXPIREAT_ReturnInfo,PEXPIREAT_History,PEXPIREAT_Metadata,pexpireatCommand,-3,"write fast @keyspace @write @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"pexpiretime","Get the expiration Unix timestamp for a key in milliseconds","O(1)","7.0.0",COMMAND_GROUP_GENERIC,PEXPIRETIME_ReturnInfo,PEXPIRETIME_History,PEXPIRETIME_Metadata,pexpiretimeCommand,2,"readonly random fast @keyspace @read @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"pttl","Get the time to live for a key in milliseconds","O(1)","2.6.0",COMMAND_GROUP_GENERIC,PTTL_ReturnInfo,PTTL_History,PTTL_Metadata,pttlCommand,2,"readonly random fast @keyspace @read @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"persist","Remove the expiration from a key","O(1)","2.2.0",COMMAND_GROUP_GENERIC,PERSIST_ReturnInfo,PERSIST_History,PERSIST_Metadata,persistCommand,2,"write fast @keyspace @write @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=PERSIST_Args},
+{"pexpire","Set a key's time to live in milliseconds","O(1)","2.6.0",COMMAND_GROUP_GENERIC,PEXPIRE_ReturnInfo,PEXPIRE_History,PEXPIRE_Metadata,pexpireCommand,-3,"write fast @keyspace @write @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=PEXPIRE_Args},
+{"pexpireat","Set the expiration for a key as a UNIX timestamp specified in milliseconds","O(1)","2.6.0",COMMAND_GROUP_GENERIC,PEXPIREAT_ReturnInfo,PEXPIREAT_History,PEXPIREAT_Metadata,pexpireatCommand,-3,"write fast @keyspace @write @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=PEXPIREAT_Args},
+{"pexpiretime","Get the expiration Unix timestamp for a key in milliseconds","O(1)","7.0.0",COMMAND_GROUP_GENERIC,PEXPIRETIME_ReturnInfo,PEXPIRETIME_History,PEXPIRETIME_Metadata,pexpiretimeCommand,2,"readonly random fast @keyspace @read @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=PEXPIRETIME_Args},
+{"pttl","Get the time to live for a key in milliseconds","O(1)","2.6.0",COMMAND_GROUP_GENERIC,PTTL_ReturnInfo,PTTL_History,PTTL_Metadata,pttlCommand,2,"readonly random fast @keyspace @read @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=PTTL_Args},
 {"randomkey","Return a random key from the keyspace","O(1)","1.0.0",COMMAND_GROUP_GENERIC,RANDOMKEY_ReturnInfo,RANDOMKEY_History,RANDOMKEY_Metadata,randomkeyCommand,1,"readonly random @keyspace @read @slow"},
-{"rename","Rename a key","O(1)","1.0.0",COMMAND_GROUP_GENERIC,RENAME_ReturnInfo,RENAME_History,RENAME_Metadata,renameCommand,3,"write @keyspace @write @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={1,1,0}}}},
-{"renamenx","Rename a key, only if the new key does not exist","O(1)","1.0.0",COMMAND_GROUP_GENERIC,RENAMENX_ReturnInfo,RENAMENX_History,RENAMENX_Metadata,renamenxCommand,3,"write fast @keyspace @write @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={1,1,0}}}},
-{"restore","Create a key using the provided serialized value, previously obtained using DUMP.","O(1) to create the new key and additional O(N*M) to reconstruct the serialized value, where N is the number of Redis objects composing the value and M their average size. For small string values the time complexity is thus O(1)+O(1*M) where M is small, so simply O(1). However for sorted set values the complexity is O(N*M*log(N)) because inserting values into sorted sets is O(log(N)).","2.6.0",COMMAND_GROUP_GENERIC,RESTORE_ReturnInfo,RESTORE_History,RESTORE_Metadata,restoreCommand,-4,"write denyoom @keyspace @write @slow @dangerous",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"scan","Incrementally iterate the keys space","O(1) for every call. O(N) for a complete iteration, including enough command calls for the cursor to return back to 0. N is the number of elements inside the collection.","2.8.0",COMMAND_GROUP_GENERIC,SCAN_ReturnInfo,SCAN_History,SCAN_Metadata,scanCommand,-2,"readonly random @keyspace @read @slow"},
-{"sort","Sort the elements in a list, set or sorted set","O(N+M*log(M)) where N is the number of elements in the list or set to sort, and M the number of returned elements. When the elements are not sorted, complexity is O(N).","1.0.0",COMMAND_GROUP_GENERIC,SORT_ReturnInfo,SORT_History,SORT_Metadata,sortCommand,-2,"write denyoom @write @set @sortedset @list @slow @dangerous",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"write incomplete",KSPEC_BS_UNKNOWN,{{0}},KSPEC_FK_UNKNOWN,{{0}}}},sortGetKeys},
-{"sort_ro","Sort the elements in a list, set or sorted set. Read-only variant of SORT.","O(N+M*log(M)) where N is the number of elements in the list or set to sort, and M the number of returned elements. When the elements are not sorted, complexity is O(N).","7.0.0",COMMAND_GROUP_GENERIC,SORT_RO_ReturnInfo,SORT_RO_History,SORT_RO_Metadata,sortroCommand,-2,"readonly @read @set @sortedset @list @slow @dangerous",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"touch","Alters the last access time of a key(s). Returns the number of existing keys specified.","O(N) where N is the number of keys that will be touched.","3.2.1",COMMAND_GROUP_GENERIC,TOUCH_ReturnInfo,TOUCH_History,TOUCH_Metadata,touchCommand,-2,"readonly fast @keyspace @read @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
-{"ttl","Get the time to live for a key in seconds","O(1)","1.0.0",COMMAND_GROUP_GENERIC,TTL_ReturnInfo,TTL_History,TTL_Metadata,ttlCommand,2,"readonly random fast @keyspace @read @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"type","Determine the type stored at key","O(1)","1.0.0",COMMAND_GROUP_GENERIC,TYPE_ReturnInfo,TYPE_History,TYPE_Metadata,typeCommand,2,"readonly fast @keyspace @read @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"unlink","Delete a key asynchronously in another thread. Otherwise it is just as DEL, but non blocking.","O(1) for each key removed regardless of its size. Then the command does O(N) work in a different thread in order to reclaim memory, where N is the number of allocations the deleted objects where composed of.","4.0.0",COMMAND_GROUP_GENERIC,UNLINK_ReturnInfo,UNLINK_History,UNLINK_Metadata,unlinkCommand,-2,"write fast @keyspace @write @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
-{"wait","Wait for the synchronous replication of all the write commands sent in the context of the current connection","O(1)","3.0.0",COMMAND_GROUP_GENERIC,WAIT_ReturnInfo,WAIT_History,WAIT_Metadata,waitCommand,3,"noscript @slow @connection"},
+{"rename","Rename a key","O(1)","1.0.0",COMMAND_GROUP_GENERIC,RENAME_ReturnInfo,RENAME_History,RENAME_Metadata,renameCommand,3,"write @keyspace @write @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={1,1,0}}},.args=RENAME_Args},
+{"renamenx","Rename a key, only if the new key does not exist","O(1)","1.0.0",COMMAND_GROUP_GENERIC,RENAMENX_ReturnInfo,RENAMENX_History,RENAMENX_Metadata,renamenxCommand,3,"write fast @keyspace @write @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={1,1,0}}},.args=RENAMENX_Args},
+{"restore","Create a key using the provided serialized value, previously obtained using DUMP.","O(1) to create the new key and additional O(N*M) to reconstruct the serialized value, where N is the number of Redis objects composing the value and M their average size. For small string values the time complexity is thus O(1)+O(1*M) where M is small, so simply O(1). However for sorted set values the complexity is O(N*M*log(N)) because inserting values into sorted sets is O(log(N)).","2.6.0",COMMAND_GROUP_GENERIC,RESTORE_ReturnInfo,RESTORE_History,RESTORE_Metadata,restoreCommand,-4,"write denyoom @keyspace @write @slow @dangerous",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=RESTORE_Args},
+{"scan","Incrementally iterate the keys space","O(1) for every call. O(N) for a complete iteration, including enough command calls for the cursor to return back to 0. N is the number of elements inside the collection.","2.8.0",COMMAND_GROUP_GENERIC,SCAN_ReturnInfo,SCAN_History,SCAN_Metadata,scanCommand,-2,"readonly random @keyspace @read @slow",.args=SCAN_Args},
+{"sort","Sort the elements in a list, set or sorted set","O(N+M*log(M)) where N is the number of elements in the list or set to sort, and M the number of returned elements. When the elements are not sorted, complexity is O(N).","1.0.0",COMMAND_GROUP_GENERIC,SORT_ReturnInfo,SORT_History,SORT_Metadata,sortCommand,-2,"write denyoom @write @set @sortedset @list @slow @dangerous",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"write incomplete",KSPEC_BS_UNKNOWN,{{0}},KSPEC_FK_UNKNOWN,{{0}}}},sortGetKeys,.args=SORT_Args},
+{"sort_ro","Sort the elements in a list, set or sorted set. Read-only variant of SORT.","O(N+M*log(M)) where N is the number of elements in the list or set to sort, and M the number of returned elements. When the elements are not sorted, complexity is O(N).","7.0.0",COMMAND_GROUP_GENERIC,SORT_RO_ReturnInfo,SORT_RO_History,SORT_RO_Metadata,sortroCommand,-2,"readonly @read @set @sortedset @list @slow @dangerous",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SORT_RO_Args},
+{"touch","Alters the last access time of a key(s). Returns the number of existing keys specified.","O(N) where N is the number of keys that will be touched.","3.2.1",COMMAND_GROUP_GENERIC,TOUCH_ReturnInfo,TOUCH_History,TOUCH_Metadata,touchCommand,-2,"readonly fast @keyspace @read @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=TOUCH_Args},
+{"ttl","Get the time to live for a key in seconds","O(1)","1.0.0",COMMAND_GROUP_GENERIC,TTL_ReturnInfo,TTL_History,TTL_Metadata,ttlCommand,2,"readonly random fast @keyspace @read @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=TTL_Args},
+{"type","Determine the type stored at key","O(1)","1.0.0",COMMAND_GROUP_GENERIC,TYPE_ReturnInfo,TYPE_History,TYPE_Metadata,typeCommand,2,"readonly fast @keyspace @read @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=TYPE_Args},
+{"unlink","Delete a key asynchronously in another thread. Otherwise it is just as DEL, but non blocking.","O(1) for each key removed regardless of its size. Then the command does O(N) work in a different thread in order to reclaim memory, where N is the number of allocations the deleted objects where composed of.","4.0.0",COMMAND_GROUP_GENERIC,UNLINK_ReturnInfo,UNLINK_History,UNLINK_Metadata,unlinkCommand,-2,"write fast @keyspace @write @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=UNLINK_Args},
+{"wait","Wait for the synchronous replication of all the write commands sent in the context of the current connection","O(1)","3.0.0",COMMAND_GROUP_GENERIC,WAIT_ReturnInfo,WAIT_History,WAIT_Metadata,waitCommand,3,"noscript @slow @connection",.args=WAIT_Args},
 /* geo */
-{"geoadd","Add one or more geospatial items in the geospatial index represented using a sorted set","O(log(N)) for each item added, where N is the number of elements in the sorted set.","3.2.0",COMMAND_GROUP_GEO,GEOADD_ReturnInfo,GEOADD_History,GEOADD_Metadata,geoaddCommand,-5,"write denyoom @write @geo @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"geodist","Returns the distance between two members of a geospatial index","O(log(N))","3.2.0",COMMAND_GROUP_GEO,GEODIST_ReturnInfo,GEODIST_History,GEODIST_Metadata,geodistCommand,-4,"readonly @read @geo @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"geohash","Returns members of a geospatial index as standard geohash strings","O(log(N)) for each member requested, where N is the number of elements in the sorted set.","3.2.0",COMMAND_GROUP_GEO,GEOHASH_ReturnInfo,GEOHASH_History,GEOHASH_Metadata,geohashCommand,-2,"readonly @read @geo @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"geopos","Returns longitude and latitude of members of a geospatial index","O(N) where N is the number of members requested.","3.2.0",COMMAND_GROUP_GEO,GEOPOS_ReturnInfo,GEOPOS_History,GEOPOS_Metadata,geoposCommand,-2,"readonly @read @geo @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"georadius","Query a sorted set representing a geospatial index to fetch members matching a given maximum distance from a point","O(N+log(M)) where N is the number of elements inside the bounding box of the circular area delimited by center and radius and M is the number of items inside the index.","3.2.0",COMMAND_GROUP_GEO,GEORADIUS_ReturnInfo,GEORADIUS_History,GEORADIUS_Metadata,georadiusCommand,-6,"write denyoom @write @geo @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"write",KSPEC_BS_KEYWORD,.bs.keyword={"STORE",6},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"write",KSPEC_BS_KEYWORD,.bs.keyword={"STOREDIST",6},KSPEC_FK_RANGE,.fk.range={0,1,0}}},georadiusGetKeys},
-{"georadiusbymember","Query a sorted set representing a geospatial index to fetch members matching a given maximum distance from a member","O(N+log(M)) where N is the number of elements inside the bounding box of the circular area delimited by center and radius and M is the number of items inside the index.","3.2.0",COMMAND_GROUP_GEO,GEORADIUSBYMEMBER_ReturnInfo,GEORADIUSBYMEMBER_History,GEORADIUSBYMEMBER_Metadata,georadiusbymemberCommand,-5,"write denyoom @write @geo @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"write",KSPEC_BS_KEYWORD,.bs.keyword={"STORE",5},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"write",KSPEC_BS_KEYWORD,.bs.keyword={"STOREDIST",5},KSPEC_FK_RANGE,.fk.range={0,1,0}}},georadiusGetKeys},
-{"geosearch","Query a sorted set representing a geospatial index to fetch members inside an area of a box or a circle.","O(N+log(M)) where N is the number of elements in the grid-aligned bounding box area around the shape provided as the filter and M is the number of items inside the shape","6.2",COMMAND_GROUP_GEO,GEOSEARCH_ReturnInfo,GEOSEARCH_History,GEOSEARCH_Metadata,geosearchCommand,-7,"readonly @read @geo @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"geosearchstore","Query a sorted set representing a geospatial index to fetch members inside an area of a box or a circle, and store the result in another key.","O(N+log(M)) where N is the number of elements in the grid-aligned bounding box area around the shape provided as the filter and M is the number of items inside the shape","6.2",COMMAND_GROUP_GEO,GEOSEARCHSTORE_ReturnInfo,GEOSEARCHSTORE_History,GEOSEARCHSTORE_Metadata,geosearchstoreCommand,-8,"write denyoom @write @geo @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"geoadd","Add one or more geospatial items in the geospatial index represented using a sorted set","O(log(N)) for each item added, where N is the number of elements in the sorted set.","3.2.0",COMMAND_GROUP_GEO,GEOADD_ReturnInfo,GEOADD_History,GEOADD_Metadata,geoaddCommand,-5,"write denyoom @write @geo @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=GEOADD_Args},
+{"geodist","Returns the distance between two members of a geospatial index","O(log(N))","3.2.0",COMMAND_GROUP_GEO,GEODIST_ReturnInfo,GEODIST_History,GEODIST_Metadata,geodistCommand,-4,"readonly @read @geo @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=GEODIST_Args},
+{"geohash","Returns members of a geospatial index as standard geohash strings","O(log(N)) for each member requested, where N is the number of elements in the sorted set.","3.2.0",COMMAND_GROUP_GEO,GEOHASH_ReturnInfo,GEOHASH_History,GEOHASH_Metadata,geohashCommand,-2,"readonly @read @geo @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=GEOHASH_Args},
+{"geopos","Returns longitude and latitude of members of a geospatial index","O(N) where N is the number of members requested.","3.2.0",COMMAND_GROUP_GEO,GEOPOS_ReturnInfo,GEOPOS_History,GEOPOS_Metadata,geoposCommand,-2,"readonly @read @geo @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=GEOPOS_Args},
+{"georadius","Query a sorted set representing a geospatial index to fetch members matching a given maximum distance from a point","O(N+log(M)) where N is the number of elements inside the bounding box of the circular area delimited by center and radius and M is the number of items inside the index.","3.2.0",COMMAND_GROUP_GEO,GEORADIUS_ReturnInfo,GEORADIUS_History,GEORADIUS_Metadata,georadiusCommand,-6,"write denyoom @write @geo @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"write",KSPEC_BS_KEYWORD,.bs.keyword={"STORE",6},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"write",KSPEC_BS_KEYWORD,.bs.keyword={"STOREDIST",6},KSPEC_FK_RANGE,.fk.range={0,1,0}}},georadiusGetKeys,.args=GEORADIUS_Args},
+{"georadiusbymember","Query a sorted set representing a geospatial index to fetch members matching a given maximum distance from a member","O(N+log(M)) where N is the number of elements inside the bounding box of the circular area delimited by center and radius and M is the number of items inside the index.","3.2.0",COMMAND_GROUP_GEO,GEORADIUSBYMEMBER_ReturnInfo,GEORADIUSBYMEMBER_History,GEORADIUSBYMEMBER_Metadata,georadiusbymemberCommand,-5,"write denyoom @write @geo @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"write",KSPEC_BS_KEYWORD,.bs.keyword={"STORE",5},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"write",KSPEC_BS_KEYWORD,.bs.keyword={"STOREDIST",5},KSPEC_FK_RANGE,.fk.range={0,1,0}}},georadiusGetKeys,.args=GEORADIUSBYMEMBER_Args},
+{"georadiusbymember_ro",NULL,NULL,NULL,COMMAND_GROUP_GEO,GEORADIUSBYMEMBER_RO_ReturnInfo,GEORADIUSBYMEMBER_RO_History,GEORADIUSBYMEMBER_RO_Metadata,georadiusbymemberroCommand,-5,"readonly @read @geo @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"georadius_ro",NULL,NULL,NULL,COMMAND_GROUP_GEO,GEORADIUS_RO_ReturnInfo,GEORADIUS_RO_History,GEORADIUS_RO_Metadata,georadiusroCommand,-6,"readonly @read @geo @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"geosearch","Query a sorted set representing a geospatial index to fetch members inside an area of a box or a circle.","O(N+log(M)) where N is the number of elements in the grid-aligned bounding box area around the shape provided as the filter and M is the number of items inside the shape","6.2",COMMAND_GROUP_GEO,GEOSEARCH_ReturnInfo,GEOSEARCH_History,GEOSEARCH_Metadata,geosearchCommand,-7,"readonly @read @geo @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=GEOSEARCH_Args},
+{"geosearchstore","Query a sorted set representing a geospatial index to fetch members inside an area of a box or a circle, and store the result in another key.","O(N+log(M)) where N is the number of elements in the grid-aligned bounding box area around the shape provided as the filter and M is the number of items inside the shape","6.2",COMMAND_GROUP_GEO,GEOSEARCHSTORE_ReturnInfo,GEOSEARCHSTORE_History,GEOSEARCHSTORE_Metadata,geosearchstoreCommand,-8,"write denyoom @write @geo @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=GEOSEARCHSTORE_Args},
 /* hash */
-{"hdel","Delete one or more hash fields","O(N) where N is the number of fields to be removed.","2.0.0",COMMAND_GROUP_HASH,HDEL_ReturnInfo,HDEL_History,HDEL_Metadata,hdelCommand,-3,"write fast @write @hash @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"hexists","Determine if a hash field exists","O(1)","2.0.0",COMMAND_GROUP_HASH,HEXISTS_ReturnInfo,HEXISTS_History,HEXISTS_Metadata,hexistsCommand,3,"readonly fast @read @hash @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"hget","Get the value of a hash field","O(1)","2.0.0",COMMAND_GROUP_HASH,HGET_ReturnInfo,HGET_History,HGET_Metadata,hgetCommand,3,"readonly fast @read @hash @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"hgetall","Get all the fields and values in a hash","O(N) where N is the size of the hash.","2.0.0",COMMAND_GROUP_HASH,HGETALL_ReturnInfo,HGETALL_History,HGETALL_Metadata,hgetallCommand,2,"readonly random @read @hash @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"hincrby","Increment the integer value of a hash field by the given number","O(1)","2.0.0",COMMAND_GROUP_HASH,HINCRBY_ReturnInfo,HINCRBY_History,HINCRBY_Metadata,hincrbyCommand,4,"write denyoom fast @write @hash @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"hincrbyfloat","Increment the float value of a hash field by the given amount","O(1)","2.6.0",COMMAND_GROUP_HASH,HINCRBYFLOAT_ReturnInfo,HINCRBYFLOAT_History,HINCRBYFLOAT_Metadata,hincrbyfloatCommand,4,"write denyoom fast @write @hash @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"hkeys","Get all the fields in a hash","O(N) where N is the size of the hash.","2.0.0",COMMAND_GROUP_HASH,HKEYS_ReturnInfo,HKEYS_History,HKEYS_Metadata,hkeysCommand,2,"readonly sort_for_script @read @hash @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"hlen","Get the number of fields in a hash","O(1)","2.0.0",COMMAND_GROUP_HASH,HLEN_ReturnInfo,HLEN_History,HLEN_Metadata,hlenCommand,2,"readonly fast @read @hash @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"hmget","Get the values of all the given hash fields","O(N) where N is the number of fields being requested.","2.0.0",COMMAND_GROUP_HASH,HMGET_ReturnInfo,HMGET_History,HMGET_Metadata,hmgetCommand,-3,"readonly fast @read @hash @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"hmset","Set multiple hash fields to multiple values","O(N) where N is the number of fields being set.","2.0.0",COMMAND_GROUP_HASH,HMSET_ReturnInfo,HMSET_History,HMSET_Metadata,hsetCommand,-4,"write denyoom fast @write @hash @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"hrandfield","Get one or multiple random fields from a hash","O(N) where N is the number of fields returned","6.2.0",COMMAND_GROUP_HASH,HRANDFIELD_ReturnInfo,HRANDFIELD_History,HRANDFIELD_Metadata,hrandfieldCommand,-2,"readonly random @read @hash @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"hscan","Incrementally iterate hash fields and associated values","O(1) for every call. O(N) for a complete iteration, including enough command calls for the cursor to return back to 0. N is the number of elements inside the collection..","2.8.0",COMMAND_GROUP_HASH,HSCAN_ReturnInfo,HSCAN_History,HSCAN_Metadata,hscanCommand,-3,"readonly random @read @hash @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"hset","Set the string value of a hash field","O(1) for each field/value pair added, so O(N) to add N field/value pairs when the command is called with multiple field/value pairs.","2.0.0",COMMAND_GROUP_HASH,HSET_ReturnInfo,HSET_History,HSET_Metadata,hsetCommand,-4,"write denyoom fast @write @hash @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"hsetnx","Set the value of a hash field, only if the field does not exist","O(1)","2.0.0",COMMAND_GROUP_HASH,HSETNX_ReturnInfo,HSETNX_History,HSETNX_Metadata,hsetnxCommand,4,"write denyoom fast @write @hash @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"hstrlen","Get the length of the value of a hash field","O(1)","3.2.0",COMMAND_GROUP_HASH,HSTRLEN_ReturnInfo,HSTRLEN_History,HSTRLEN_Metadata,hstrlenCommand,3,"readonly fast @read @hash @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"hvals","Get all the values in a hash","O(N) where N is the size of the hash.","2.0.0",COMMAND_GROUP_HASH,HVALS_ReturnInfo,HVALS_History,HVALS_Metadata,hvalsCommand,2,"readonly sort_for_script @read @hash @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"hdel","Delete one or more hash fields","O(N) where N is the number of fields to be removed.","2.0.0",COMMAND_GROUP_HASH,HDEL_ReturnInfo,HDEL_History,HDEL_Metadata,hdelCommand,-3,"write fast @write @hash @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HDEL_Args},
+{"hexists","Determine if a hash field exists","O(1)","2.0.0",COMMAND_GROUP_HASH,HEXISTS_ReturnInfo,HEXISTS_History,HEXISTS_Metadata,hexistsCommand,3,"readonly fast @read @hash @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HEXISTS_Args},
+{"hget","Get the value of a hash field","O(1)","2.0.0",COMMAND_GROUP_HASH,HGET_ReturnInfo,HGET_History,HGET_Metadata,hgetCommand,3,"readonly fast @read @hash @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HGET_Args},
+{"hgetall","Get all the fields and values in a hash","O(N) where N is the size of the hash.","2.0.0",COMMAND_GROUP_HASH,HGETALL_ReturnInfo,HGETALL_History,HGETALL_Metadata,hgetallCommand,2,"readonly random @read @hash @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HGETALL_Args},
+{"hincrby","Increment the integer value of a hash field by the given number","O(1)","2.0.0",COMMAND_GROUP_HASH,HINCRBY_ReturnInfo,HINCRBY_History,HINCRBY_Metadata,hincrbyCommand,4,"write denyoom fast @write @hash @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HINCRBY_Args},
+{"hincrbyfloat","Increment the float value of a hash field by the given amount","O(1)","2.6.0",COMMAND_GROUP_HASH,HINCRBYFLOAT_ReturnInfo,HINCRBYFLOAT_History,HINCRBYFLOAT_Metadata,hincrbyfloatCommand,4,"write denyoom fast @write @hash @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HINCRBYFLOAT_Args},
+{"hkeys","Get all the fields in a hash","O(N) where N is the size of the hash.","2.0.0",COMMAND_GROUP_HASH,HKEYS_ReturnInfo,HKEYS_History,HKEYS_Metadata,hkeysCommand,2,"readonly sort_for_script @read @hash @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HKEYS_Args},
+{"hlen","Get the number of fields in a hash","O(1)","2.0.0",COMMAND_GROUP_HASH,HLEN_ReturnInfo,HLEN_History,HLEN_Metadata,hlenCommand,2,"readonly fast @read @hash @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HLEN_Args},
+{"hmget","Get the values of all the given hash fields","O(N) where N is the number of fields being requested.","2.0.0",COMMAND_GROUP_HASH,HMGET_ReturnInfo,HMGET_History,HMGET_Metadata,hmgetCommand,-3,"readonly fast @read @hash @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HMGET_Args},
+{"hmset","Set multiple hash fields to multiple values","O(N) where N is the number of fields being set.","2.0.0",COMMAND_GROUP_HASH,HMSET_ReturnInfo,HMSET_History,HMSET_Metadata,hsetCommand,-4,"write denyoom fast @write @hash @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HMSET_Args},
+{"hrandfield","Get one or multiple random fields from a hash","O(N) where N is the number of fields returned","6.2.0",COMMAND_GROUP_HASH,HRANDFIELD_ReturnInfo,HRANDFIELD_History,HRANDFIELD_Metadata,hrandfieldCommand,-2,"readonly random @read @hash @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HRANDFIELD_Args},
+{"hscan","Incrementally iterate hash fields and associated values","O(1) for every call. O(N) for a complete iteration, including enough command calls for the cursor to return back to 0. N is the number of elements inside the collection..","2.8.0",COMMAND_GROUP_HASH,HSCAN_ReturnInfo,HSCAN_History,HSCAN_Metadata,hscanCommand,-3,"readonly random @read @hash @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HSCAN_Args},
+{"hset","Set the string value of a hash field","O(1) for each field/value pair added, so O(N) to add N field/value pairs when the command is called with multiple field/value pairs.","2.0.0",COMMAND_GROUP_HASH,HSET_ReturnInfo,HSET_History,HSET_Metadata,hsetCommand,-4,"write denyoom fast @write @hash @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HSET_Args},
+{"hsetnx","Set the value of a hash field, only if the field does not exist","O(1)","2.0.0",COMMAND_GROUP_HASH,HSETNX_ReturnInfo,HSETNX_History,HSETNX_Metadata,hsetnxCommand,4,"write denyoom fast @write @hash @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HSETNX_Args},
+{"hstrlen","Get the length of the value of a hash field","O(1)","3.2.0",COMMAND_GROUP_HASH,HSTRLEN_ReturnInfo,HSTRLEN_History,HSTRLEN_Metadata,hstrlenCommand,3,"readonly fast @read @hash @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HSTRLEN_Args},
+{"hvals","Get all the values in a hash","O(N) where N is the size of the hash.","2.0.0",COMMAND_GROUP_HASH,HVALS_ReturnInfo,HVALS_History,HVALS_Metadata,hvalsCommand,2,"readonly sort_for_script @read @hash @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HVALS_Args},
 /* hyperloglog */
-{"pfadd","Adds the specified elements to the specified HyperLogLog.","O(1) to add every element.","2.8.9",COMMAND_GROUP_HYPERLOGLOG,PFADD_ReturnInfo,PFADD_History,PFADD_Metadata,pfaddCommand,-2,"write denyoom fast @write @hyperloglog @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"pfcount","Return the approximated cardinality of the set(s) observed by the HyperLogLog at key(s).","O(1) with a very small average constant time when called with a single key. O(N) with N being the number of keys, and much bigger constant times, when called with multiple keys.","2.8.9",COMMAND_GROUP_HYPERLOGLOG,PFCOUNT_ReturnInfo,PFCOUNT_History,PFCOUNT_Metadata,pfcountCommand,-2,"readonly may_replicate @read @hyperloglog @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
-{"pfmerge","Merge N different HyperLogLogs into a single one.","O(N) to merge N HyperLogLogs, but with high constant times.","2.8.9",COMMAND_GROUP_HYPERLOGLOG,PFMERGE_ReturnInfo,PFMERGE_History,PFMERGE_Metadata,pfmergeCommand,-2,"write denyoom @write @hyperloglog @slow",{{"write read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
+{"pfadd","Adds the specified elements to the specified HyperLogLog.","O(1) to add every element.","2.8.9",COMMAND_GROUP_HYPERLOGLOG,PFADD_ReturnInfo,PFADD_History,PFADD_Metadata,pfaddCommand,-2,"write denyoom fast @write @hyperloglog @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=PFADD_Args},
+{"pfcount","Return the approximated cardinality of the set(s) observed by the HyperLogLog at key(s).","O(1) with a very small average constant time when called with a single key. O(N) with N being the number of keys, and much bigger constant times, when called with multiple keys.","2.8.9",COMMAND_GROUP_HYPERLOGLOG,PFCOUNT_ReturnInfo,PFCOUNT_History,PFCOUNT_Metadata,pfcountCommand,-2,"readonly may_replicate @read @hyperloglog @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=PFCOUNT_Args},
+{"pfdebug",NULL,NULL,NULL,COMMAND_GROUP_HYPERLOGLOG,PFDEBUG_ReturnInfo,PFDEBUG_History,PFDEBUG_Metadata,pfdebugCommand,-3,"write denyoom admin @write @hyperloglog @admin @slow @dangerous",{{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"pfmerge","Merge N different HyperLogLogs into a single one.","O(N) to merge N HyperLogLogs, but with high constant times.","2.8.9",COMMAND_GROUP_HYPERLOGLOG,PFMERGE_ReturnInfo,PFMERGE_History,PFMERGE_Metadata,pfmergeCommand,-2,"write denyoom @write @hyperloglog @slow",{{"write read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=PFMERGE_Args},
+{"pfselftest",NULL,NULL,NULL,COMMAND_GROUP_HYPERLOGLOG,PFSELFTEST_ReturnInfo,PFSELFTEST_History,PFSELFTEST_Metadata,pfselftestCommand,1,"admin @hyperloglog @admin @slow @dangerous"},
 /* list */
-{"blmove","Pop an element from a list, push it to another list and return it; or block until one is available","O(1)","6.2.0",COMMAND_GROUP_LIST,BLMOVE_ReturnInfo,BLMOVE_History,BLMOVE_Metadata,blmoveCommand,6,"write denyoom noscript @write @list @slow @blocking",{{"write read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"blmpop","Pop elements from a list, or block until one is available","O(N+M) where N is the number of provided keys and M is the number of elements returned.","7.0.0",COMMAND_GROUP_LIST,BLMPOP_ReturnInfo,BLMPOP_History,BLMPOP_Metadata,blmpopCommand,-5,"write @write @list @slow @blocking",{{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},blmpopGetKeys},
-{"blpop","Remove and get the first element in a list, or block until one is available","O(N) where N is the number of provided keys.","2.0.0",COMMAND_GROUP_LIST,BLPOP_ReturnInfo,BLPOP_History,BLPOP_Metadata,blpopCommand,-3,"write noscript @write @list @slow @blocking",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-2,1,0}}}},
-{"brpop","Remove and get the last element in a list, or block until one is available","O(N) where N is the number of provided keys.","2.0.0",COMMAND_GROUP_LIST,BRPOP_ReturnInfo,BRPOP_History,BRPOP_Metadata,brpopCommand,-3,"write noscript @write @list @slow @blocking",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-2,1,0}}}},
-{"brpoplpush","Pop an element from a list, push it to another list and return it; or block until one is available","O(1)","2.2.0",COMMAND_GROUP_LIST,BRPOPLPUSH_ReturnInfo,BRPOPLPUSH_History,BRPOPLPUSH_Metadata,brpoplpushCommand,4,"write denyoom noscript @write @list @slow @blocking",{{"write read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"lindex","Get an element from a list by its index","O(N) where N is the number of elements to traverse to get to the element at index. This makes asking for the first or the last element of the list O(1).","1.0.0",COMMAND_GROUP_LIST,LINDEX_ReturnInfo,LINDEX_History,LINDEX_Metadata,lindexCommand,3,"readonly @read @list @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"linsert","Insert an element before or after another element in a list","O(N) where N is the number of elements to traverse before seeing the value pivot. This means that inserting somewhere on the left end on the list (head) can be considered O(1) and inserting somewhere on the right end (tail) is O(N).","2.2.0",COMMAND_GROUP_LIST,LINSERT_ReturnInfo,LINSERT_History,LINSERT_Metadata,linsertCommand,5,"write denyoom @write @list @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"llen","Get the length of a list","O(1)","1.0.0",COMMAND_GROUP_LIST,LLEN_ReturnInfo,LLEN_History,LLEN_Metadata,llenCommand,2,"readonly fast @read @list @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"lmove","Pop an element from a list, push it to another list and return it","O(1)","6.2.0",COMMAND_GROUP_LIST,LMOVE_ReturnInfo,LMOVE_History,LMOVE_Metadata,lmoveCommand,5,"write denyoom @write @list @slow",{{"write read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"lmpop","Pop elements from a list","O(N+M) where N is the number of provided keys and M is the number of elements returned.","7.0.0",COMMAND_GROUP_LIST,LMPOP_ReturnInfo,LMPOP_History,LMPOP_Metadata,lmpopCommand,-4,"write @write @list @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},lmpopGetKeys},
-{"lpop","Remove and get the first elements in a list","O(N) where N is the number of elements returned","1.0.0",COMMAND_GROUP_LIST,LPOP_ReturnInfo,LPOP_History,LPOP_Metadata,lpopCommand,-2,"write fast @write @list @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"lpos","Return the index of matching elements on a list","O(N) where N is the number of elements in the list, for the average case. When searching for elements near the head or the tail of the list, or when the MAXLEN option is provided, the command may run in constant time.","6.0.6",COMMAND_GROUP_LIST,LPOS_ReturnInfo,LPOS_History,LPOS_Metadata,lposCommand,-3,"readonly @read @list @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"lpush","Prepend one or multiple elements to a list","O(1) for each element added, so O(N) to add N elements when the command is called with multiple arguments.","1.0.0",COMMAND_GROUP_LIST,LPUSH_ReturnInfo,LPUSH_History,LPUSH_Metadata,lpushCommand,-3,"write denyoom fast @write @list @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"lpushx","Prepend an element to a list, only if the list exists","O(1) for each element added, so O(N) to add N elements when the command is called with multiple arguments.","2.2.0",COMMAND_GROUP_LIST,LPUSHX_ReturnInfo,LPUSHX_History,LPUSHX_Metadata,lpushxCommand,-3,"write denyoom fast @write @list @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"lrange","Get a range of elements from a list","O(S+N) where S is the distance of start offset from HEAD for small lists, from nearest end (HEAD or TAIL) for large lists; and N is the number of elements in the specified range.","1.0.0",COMMAND_GROUP_LIST,LRANGE_ReturnInfo,LRANGE_History,LRANGE_Metadata,lrangeCommand,4,"readonly @read @list @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"lrem","Remove elements from a list","O(N+M) where N is the length of the list and M is the number of elements removed.","1.0.0",COMMAND_GROUP_LIST,LREM_ReturnInfo,LREM_History,LREM_Metadata,lremCommand,4,"write @write @list @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"lset","Set the value of an element in a list by its index","O(N) where N is the length of the list. Setting either the first or the last element of the list is O(1).","1.0.0",COMMAND_GROUP_LIST,LSET_ReturnInfo,LSET_History,LSET_Metadata,lsetCommand,4,"write denyoom @write @list @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"ltrim","Trim a list to the specified range","O(N) where N is the number of elements to be removed by the operation.","1.0.0",COMMAND_GROUP_LIST,LTRIM_ReturnInfo,LTRIM_History,LTRIM_Metadata,ltrimCommand,4,"write @write @list @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"rpop","Remove and get the last elements in a list","O(N) where N is the number of elements returned","1.0.0",COMMAND_GROUP_LIST,RPOP_ReturnInfo,RPOP_History,RPOP_Metadata,rpopCommand,-2,"write fast @write @list @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"rpoplpush","Remove the last element in a list, prepend it to another list and return it","O(1)","1.2.0",COMMAND_GROUP_LIST,RPOPLPUSH_ReturnInfo,RPOPLPUSH_History,RPOPLPUSH_Metadata,rpoplpushCommand,3,"write denyoom @write @list @slow",{{"write read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"rpush","Append one or multiple elements to a list","O(1) for each element added, so O(N) to add N elements when the command is called with multiple arguments.","1.0.0",COMMAND_GROUP_LIST,RPUSH_ReturnInfo,RPUSH_History,RPUSH_Metadata,rpushCommand,-3,"write denyoom fast @write @list @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"rpushx","Append an element to a list, only if the list exists","O(1) for each element added, so O(N) to add N elements when the command is called with multiple arguments.","2.2.0",COMMAND_GROUP_LIST,RPUSHX_ReturnInfo,RPUSHX_History,RPUSHX_Metadata,rpushxCommand,-3,"write denyoom fast @write @list @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"blmove","Pop an element from a list, push it to another list and return it; or block until one is available","O(1)","6.2.0",COMMAND_GROUP_LIST,BLMOVE_ReturnInfo,BLMOVE_History,BLMOVE_Metadata,blmoveCommand,6,"write denyoom noscript @write @list @slow @blocking",{{"write read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=BLMOVE_Args},
+{"blmpop","Pop elements from a list, or block until one is available","O(N+M) where N is the number of provided keys and M is the number of elements returned.","7.0.0",COMMAND_GROUP_LIST,BLMPOP_ReturnInfo,BLMPOP_History,BLMPOP_Metadata,blmpopCommand,-5,"write @write @list @slow @blocking",{{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},blmpopGetKeys,.args=BLMPOP_Args},
+{"blpop","Remove and get the first element in a list, or block until one is available","O(N) where N is the number of provided keys.","2.0.0",COMMAND_GROUP_LIST,BLPOP_ReturnInfo,BLPOP_History,BLPOP_Metadata,blpopCommand,-3,"write noscript @write @list @slow @blocking",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-2,1,0}}},.args=BLPOP_Args},
+{"brpop","Remove and get the last element in a list, or block until one is available","O(N) where N is the number of provided keys.","2.0.0",COMMAND_GROUP_LIST,BRPOP_ReturnInfo,BRPOP_History,BRPOP_Metadata,brpopCommand,-3,"write noscript @write @list @slow @blocking",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-2,1,0}}},.args=BRPOP_Args},
+{"brpoplpush","Pop an element from a list, push it to another list and return it; or block until one is available","O(1)","2.2.0",COMMAND_GROUP_LIST,BRPOPLPUSH_ReturnInfo,BRPOPLPUSH_History,BRPOPLPUSH_Metadata,brpoplpushCommand,4,"write denyoom noscript @write @list @slow @blocking",{{"write read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=BRPOPLPUSH_Args},
+{"lindex","Get an element from a list by its index","O(N) where N is the number of elements to traverse to get to the element at index. This makes asking for the first or the last element of the list O(1).","1.0.0",COMMAND_GROUP_LIST,LINDEX_ReturnInfo,LINDEX_History,LINDEX_Metadata,lindexCommand,3,"readonly @read @list @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=LINDEX_Args},
+{"linsert","Insert an element before or after another element in a list","O(N) where N is the number of elements to traverse before seeing the value pivot. This means that inserting somewhere on the left end on the list (head) can be considered O(1) and inserting somewhere on the right end (tail) is O(N).","2.2.0",COMMAND_GROUP_LIST,LINSERT_ReturnInfo,LINSERT_History,LINSERT_Metadata,linsertCommand,5,"write denyoom @write @list @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=LINSERT_Args},
+{"llen","Get the length of a list","O(1)","1.0.0",COMMAND_GROUP_LIST,LLEN_ReturnInfo,LLEN_History,LLEN_Metadata,llenCommand,2,"readonly fast @read @list @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=LLEN_Args},
+{"lmove","Pop an element from a list, push it to another list and return it","O(1)","6.2.0",COMMAND_GROUP_LIST,LMOVE_ReturnInfo,LMOVE_History,LMOVE_Metadata,lmoveCommand,5,"write denyoom @write @list @slow",{{"write read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=LMOVE_Args},
+{"lmpop","Pop elements from a list","O(N+M) where N is the number of provided keys and M is the number of elements returned.","7.0.0",COMMAND_GROUP_LIST,LMPOP_ReturnInfo,LMPOP_History,LMPOP_Metadata,lmpopCommand,-4,"write @write @list @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},lmpopGetKeys,.args=LMPOP_Args},
+{"lpop","Remove and get the first elements in a list","O(N) where N is the number of elements returned","1.0.0",COMMAND_GROUP_LIST,LPOP_ReturnInfo,LPOP_History,LPOP_Metadata,lpopCommand,-2,"write fast @write @list @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=LPOP_Args},
+{"lpos","Return the index of matching elements on a list","O(N) where N is the number of elements in the list, for the average case. When searching for elements near the head or the tail of the list, or when the MAXLEN option is provided, the command may run in constant time.","6.0.6",COMMAND_GROUP_LIST,LPOS_ReturnInfo,LPOS_History,LPOS_Metadata,lposCommand,-3,"readonly @read @list @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=LPOS_Args},
+{"lpush","Prepend one or multiple elements to a list","O(1) for each element added, so O(N) to add N elements when the command is called with multiple arguments.","1.0.0",COMMAND_GROUP_LIST,LPUSH_ReturnInfo,LPUSH_History,LPUSH_Metadata,lpushCommand,-3,"write denyoom fast @write @list @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=LPUSH_Args},
+{"lpushx","Prepend an element to a list, only if the list exists","O(1) for each element added, so O(N) to add N elements when the command is called with multiple arguments.","2.2.0",COMMAND_GROUP_LIST,LPUSHX_ReturnInfo,LPUSHX_History,LPUSHX_Metadata,lpushxCommand,-3,"write denyoom fast @write @list @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=LPUSHX_Args},
+{"lrange","Get a range of elements from a list","O(S+N) where S is the distance of start offset from HEAD for small lists, from nearest end (HEAD or TAIL) for large lists; and N is the number of elements in the specified range.","1.0.0",COMMAND_GROUP_LIST,LRANGE_ReturnInfo,LRANGE_History,LRANGE_Metadata,lrangeCommand,4,"readonly @read @list @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=LRANGE_Args},
+{"lrem","Remove elements from a list","O(N+M) where N is the length of the list and M is the number of elements removed.","1.0.0",COMMAND_GROUP_LIST,LREM_ReturnInfo,LREM_History,LREM_Metadata,lremCommand,4,"write @write @list @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=LREM_Args},
+{"lset","Set the value of an element in a list by its index","O(N) where N is the length of the list. Setting either the first or the last element of the list is O(1).","1.0.0",COMMAND_GROUP_LIST,LSET_ReturnInfo,LSET_History,LSET_Metadata,lsetCommand,4,"write denyoom @write @list @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=LSET_Args},
+{"ltrim","Trim a list to the specified range","O(N) where N is the number of elements to be removed by the operation.","1.0.0",COMMAND_GROUP_LIST,LTRIM_ReturnInfo,LTRIM_History,LTRIM_Metadata,ltrimCommand,4,"write @write @list @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=LTRIM_Args},
+{"rpop","Remove and get the last elements in a list","O(N) where N is the number of elements returned","1.0.0",COMMAND_GROUP_LIST,RPOP_ReturnInfo,RPOP_History,RPOP_Metadata,rpopCommand,-2,"write fast @write @list @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=RPOP_Args},
+{"rpoplpush","Remove the last element in a list, prepend it to another list and return it","O(1)","1.2.0",COMMAND_GROUP_LIST,RPOPLPUSH_ReturnInfo,RPOPLPUSH_History,RPOPLPUSH_Metadata,rpoplpushCommand,3,"write denyoom @write @list @slow",{{"write read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=RPOPLPUSH_Args},
+{"rpush","Append one or multiple elements to a list","O(1) for each element added, so O(N) to add N elements when the command is called with multiple arguments.","1.0.0",COMMAND_GROUP_LIST,RPUSH_ReturnInfo,RPUSH_History,RPUSH_Metadata,rpushCommand,-3,"write denyoom fast @write @list @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=RPUSH_Args},
+{"rpushx","Append an element to a list, only if the list exists","O(1) for each element added, so O(N) to add N elements when the command is called with multiple arguments.","2.2.0",COMMAND_GROUP_LIST,RPUSHX_ReturnInfo,RPUSHX_History,RPUSHX_Metadata,rpushxCommand,-3,"write denyoom fast @write @list @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=RPUSHX_Args},
 /* pubsub */
-{"psubscribe","Listen for messages published to channels matching the given patterns","O(N) where N is the number of patterns the client is already subscribed to.","2.0.0",COMMAND_GROUP_PUBSUB,PSUBSCRIBE_ReturnInfo,PSUBSCRIBE_History,PSUBSCRIBE_Metadata,psubscribeCommand,-2,"pubsub noscript loading stale @pubsub @slow"},
-{"publish","Post a message to a channel","O(N+M) where N is the number of clients subscribed to the receiving channel and M is the total number of subscribed patterns (by any client).","2.0.0",COMMAND_GROUP_PUBSUB,PUBLISH_ReturnInfo,PUBLISH_History,PUBLISH_Metadata,publishCommand,3,"pubsub loading stale fast may_replicate @pubsub @fast"},
+{"psubscribe","Listen for messages published to channels matching the given patterns","O(N) where N is the number of patterns the client is already subscribed to.","2.0.0",COMMAND_GROUP_PUBSUB,PSUBSCRIBE_ReturnInfo,PSUBSCRIBE_History,PSUBSCRIBE_Metadata,psubscribeCommand,-2,"pubsub noscript loading stale @pubsub @slow",.args=PSUBSCRIBE_Args},
+{"publish","Post a message to a channel","O(N+M) where N is the number of clients subscribed to the receiving channel and M is the total number of subscribed patterns (by any client).","2.0.0",COMMAND_GROUP_PUBSUB,PUBLISH_ReturnInfo,PUBLISH_History,PUBLISH_Metadata,publishCommand,3,"pubsub loading stale fast may_replicate @pubsub @fast",.args=PUBLISH_Args},
 {"pubsub",NULL,NULL,"2.8.0",COMMAND_GROUP_PUBSUB,PUBSUB_ReturnInfo,PUBSUB_History,PUBSUB_Metadata,NULL,-2,"@slow",.subcommands=PUBSUB_Subcommands},
-{"punsubscribe","Stop listening for messages posted to channels matching the given patterns","O(N+M) where N is the number of patterns the client is already subscribed and M is the number of total patterns subscribed in the system (by any client).","2.0.0",COMMAND_GROUP_PUBSUB,PUNSUBSCRIBE_ReturnInfo,PUNSUBSCRIBE_History,PUNSUBSCRIBE_Metadata,punsubscribeCommand,-1,"pubsub noscript loading stale @pubsub @slow"},
-{"subscribe","Listen for messages published to the given channels","O(N) where N is the number of channels to subscribe to.","2.0.0",COMMAND_GROUP_PUBSUB,SUBSCRIBE_ReturnInfo,SUBSCRIBE_History,SUBSCRIBE_Metadata,subscribeCommand,-2,"pubsub noscript loading stale @pubsub @slow"},
-{"unsubscribe","Stop listening for messages posted to the given channels","O(N) where N is the number of clients already subscribed to a channel.","2.0.0",COMMAND_GROUP_PUBSUB,UNSUBSCRIBE_ReturnInfo,UNSUBSCRIBE_History,UNSUBSCRIBE_Metadata,unsubscribeCommand,-1,"pubsub noscript loading stale @pubsub @slow"},
+{"punsubscribe","Stop listening for messages posted to channels matching the given patterns","O(N+M) where N is the number of patterns the client is already subscribed and M is the number of total patterns subscribed in the system (by any client).","2.0.0",COMMAND_GROUP_PUBSUB,PUNSUBSCRIBE_ReturnInfo,PUNSUBSCRIBE_History,PUNSUBSCRIBE_Metadata,punsubscribeCommand,-1,"pubsub noscript loading stale @pubsub @slow",.args=PUNSUBSCRIBE_Args},
+{"subscribe","Listen for messages published to the given channels","O(N) where N is the number of channels to subscribe to.","2.0.0",COMMAND_GROUP_PUBSUB,SUBSCRIBE_ReturnInfo,SUBSCRIBE_History,SUBSCRIBE_Metadata,subscribeCommand,-2,"pubsub noscript loading stale @pubsub @slow",.args=SUBSCRIBE_Args},
+{"unsubscribe","Stop listening for messages posted to the given channels","O(N) where N is the number of clients already subscribed to a channel.","2.0.0",COMMAND_GROUP_PUBSUB,UNSUBSCRIBE_ReturnInfo,UNSUBSCRIBE_History,UNSUBSCRIBE_Metadata,unsubscribeCommand,-1,"pubsub noscript loading stale @pubsub @slow",.args=UNSUBSCRIBE_Args},
 /* scripting */
-{"eval","Execute a Lua script server side","Depends on the script that is executed.","2.6.0",COMMAND_GROUP_SCRIPTING,EVAL_ReturnInfo,EVAL_History,EVAL_Metadata,evalCommand,-3,"noscript skip_monitor may_replicate no_mandatory_keys @slow @scripting",{{"write read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},evalGetKeys},
-{"evalsha","Execute a Lua script server side","Depends on the script that is executed.","2.6.0",COMMAND_GROUP_SCRIPTING,EVALSHA_ReturnInfo,EVALSHA_History,EVALSHA_Metadata,evalShaCommand,-3,"noscript skip_monitor may_replicate no_mandatory_keys @slow @scripting",{{"write read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},evalGetKeys},
-{"evalsha_ro","Execute a read-only Lua script server side","Depends on the script that is executed.","7.0.0",COMMAND_GROUP_SCRIPTING,EVALSHA_RO_ReturnInfo,EVALSHA_RO_History,EVALSHA_RO_Metadata,evalShaRoCommand,-3,"noscript skip_monitor no_mandatory_keys @slow @scripting",{{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},evalGetKeys},
-{"eval_ro","Execute a read-only Lua script server side","Depends on the script that is executed.","7.0.0",COMMAND_GROUP_SCRIPTING,EVAL_RO_ReturnInfo,EVAL_RO_History,EVAL_RO_Metadata,evalRoCommand,-3,"noscript skip_monitor no_mandatory_keys @slow @scripting",{{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},evalGetKeys},
+{"eval","Execute a Lua script server side","Depends on the script that is executed.","2.6.0",COMMAND_GROUP_SCRIPTING,EVAL_ReturnInfo,EVAL_History,EVAL_Metadata,evalCommand,-3,"noscript skip_monitor may_replicate @slow @scripting",{{"write read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},evalGetKeys,.args=EVAL_Args},
+{"evalsha","Execute a Lua script server side","Depends on the script that is executed.","2.6.0",COMMAND_GROUP_SCRIPTING,EVALSHA_ReturnInfo,EVALSHA_History,EVALSHA_Metadata,evalShaCommand,-3,"noscript skip_monitor may_replicate @slow @scripting",{{"write read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},evalGetKeys,.args=EVALSHA_Args},
+{"evalsha_ro","Execute a read-only Lua script server side","Depends on the script that is executed.","7.0.0",COMMAND_GROUP_SCRIPTING,EVALSHA_RO_ReturnInfo,EVALSHA_RO_History,EVALSHA_RO_Metadata,evalShaRoCommand,-3,"noscript skip_monitor @slow @scripting",{{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},evalGetKeys,.args=EVALSHA_RO_Args},
+{"eval_ro","Execute a read-only Lua script server side","Depends on the script that is executed.","7.0.0",COMMAND_GROUP_SCRIPTING,EVAL_RO_ReturnInfo,EVAL_RO_History,EVAL_RO_Metadata,evalRoCommand,-3,"noscript skip_monitor @slow @scripting",{{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},evalGetKeys,.args=EVAL_RO_Args},
 {"script",NULL,NULL,"2.6.0",COMMAND_GROUP_SCRIPTING,SCRIPT_ReturnInfo,SCRIPT_History,SCRIPT_Metadata,NULL,-2,"@slow",.subcommands=SCRIPT_Subcommands},
 /* server */
 {"acl",NULL,NULL,"6.0.0",COMMAND_GROUP_SERVER,ACL_ReturnInfo,ACL_History,ACL_Metadata,NULL,-2,"@slow",.subcommands=ACL_Subcommands},
 {"bgrewriteaof","Asynchronously rewrite the append-only file",NULL,"1.0.0",COMMAND_GROUP_SERVER,BGREWRITEAOF_ReturnInfo,BGREWRITEAOF_History,BGREWRITEAOF_Metadata,bgrewriteaofCommand,1,"admin noscript @admin @slow @dangerous"},
-{"bgsave","Asynchronously save the dataset to disk",NULL,"1.0.0",COMMAND_GROUP_SERVER,BGSAVE_ReturnInfo,BGSAVE_History,BGSAVE_Metadata,bgsaveCommand,-1,"admin noscript @admin @slow @dangerous"},
+{"bgsave","Asynchronously save the dataset to disk",NULL,"1.0.0",COMMAND_GROUP_SERVER,BGSAVE_ReturnInfo,BGSAVE_History,BGSAVE_Metadata,bgsaveCommand,-1,"admin noscript @admin @slow @dangerous",.args=BGSAVE_Args},
 {"command","Get array of Redis command details","O(N) where N is the total number of Redis commands","2.8.13",COMMAND_GROUP_SERVER,COMMAND_ReturnInfo,COMMAND_History,COMMAND_Metadata,commandCommand,-1,"random loading stale @slow @connection",.subcommands=COMMAND_Subcommands},
 {"config",NULL,NULL,"2.0.0",COMMAND_GROUP_SERVER,CONFIG_ReturnInfo,CONFIG_History,CONFIG_Metadata,NULL,-2,"@slow",.subcommands=CONFIG_Subcommands},
 {"dbsize","Return the number of keys in the selected database",NULL,"1.0.0",COMMAND_GROUP_SERVER,DBSIZE_ReturnInfo,DBSIZE_History,DBSIZE_Metadata,dbsizeCommand,1,"readonly fast @keyspace @read @fast"},
 {"debug",NULL,NULL,NULL,COMMAND_GROUP_SERVER,DEBUG_ReturnInfo,DEBUG_History,DEBUG_Metadata,debugCommand,-2,"admin noscript loading stale @admin @slow @dangerous"},
-{"failover","Start a coordinated failover between this server and one of its replicas.",NULL,"6.2.0",COMMAND_GROUP_SERVER,FAILOVER_ReturnInfo,FAILOVER_History,FAILOVER_Metadata,failoverCommand,-1,"admin noscript stale @admin @slow @dangerous"},
-{"flushall","Remove all keys from all databases","O(N) where N is the total number of keys in all databases","1.0.0",COMMAND_GROUP_SERVER,FLUSHALL_ReturnInfo,FLUSHALL_History,FLUSHALL_Metadata,flushallCommand,-1,"write @keyspace @write @slow @dangerous"},
-{"flushdb","Remove all keys from the current database","O(N) where N is the number of keys in the selected database","1.0.0",COMMAND_GROUP_SERVER,FLUSHDB_ReturnInfo,FLUSHDB_History,FLUSHDB_Metadata,flushdbCommand,-1,"write @keyspace @write @slow @dangerous"},
-{"georadiusbymember_ro",NULL,NULL,NULL,COMMAND_GROUP_SERVER,GEORADIUSBYMEMBER_RO_ReturnInfo,GEORADIUSBYMEMBER_RO_History,GEORADIUSBYMEMBER_RO_Metadata,georadiusbymemberroCommand,-5,"readonly @read @geo @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"georadius_ro",NULL,NULL,NULL,COMMAND_GROUP_SERVER,GEORADIUS_RO_ReturnInfo,GEORADIUS_RO_History,GEORADIUS_RO_Metadata,georadiusroCommand,-6,"readonly @read @geo @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"failover","Start a coordinated failover between this server and one of its replicas.",NULL,"6.2.0",COMMAND_GROUP_SERVER,FAILOVER_ReturnInfo,FAILOVER_History,FAILOVER_Metadata,failoverCommand,-1,"admin noscript stale @admin @slow @dangerous",.args=FAILOVER_Args},
+{"flushall","Remove all keys from all databases","O(N) where N is the total number of keys in all databases","1.0.0",COMMAND_GROUP_SERVER,FLUSHALL_ReturnInfo,FLUSHALL_History,FLUSHALL_Metadata,flushallCommand,-1,"write @keyspace @write @slow @dangerous",.args=FLUSHALL_Args},
+{"flushdb","Remove all keys from the current database","O(N) where N is the number of keys in the selected database","1.0.0",COMMAND_GROUP_SERVER,FLUSHDB_ReturnInfo,FLUSHDB_History,FLUSHDB_Metadata,flushdbCommand,-1,"write @keyspace @write @slow @dangerous",.args=FLUSHDB_Args},
 {"host:",NULL,NULL,NULL,COMMAND_GROUP_SERVER,HOST_ReturnInfo,HOST_History,HOST_Metadata,securityWarningCommand,-1,"readonly loading stale @read @slow"},
-{"info","Get information and statistics about the server",NULL,"1.0.0",COMMAND_GROUP_SERVER,INFO_ReturnInfo,INFO_History,INFO_Metadata,infoCommand,-1,"random loading stale @slow @dangerous"},
+{"info","Get information and statistics about the server",NULL,"1.0.0",COMMAND_GROUP_SERVER,INFO_ReturnInfo,INFO_History,INFO_Metadata,infoCommand,-1,"random loading stale @slow @dangerous",.args=INFO_Args},
 {"lastsave","Get the UNIX time stamp of the last successful save to disk",NULL,"1.0.0",COMMAND_GROUP_SERVER,LASTSAVE_ReturnInfo,LASTSAVE_History,LASTSAVE_Metadata,lastsaveCommand,1,"random loading stale fast @admin @fast @dangerous"},
 {"latency",NULL,NULL,"2.8.13",COMMAND_GROUP_SERVER,LATENCY_ReturnInfo,LATENCY_History,LATENCY_Metadata,NULL,-2,"@slow",.subcommands=LATENCY_Subcommands},
-{"lolwut","Display some computer art and the Redis version",NULL,"5.0.0",COMMAND_GROUP_SERVER,LOLWUT_ReturnInfo,LOLWUT_History,LOLWUT_Metadata,lolwutCommand,-1,"readonly fast @read @fast"},
+{"lolwut","Display some computer art and the Redis version",NULL,"5.0.0",COMMAND_GROUP_SERVER,LOLWUT_ReturnInfo,LOLWUT_History,LOLWUT_Metadata,lolwutCommand,-1,"readonly fast @read @fast",.args=LOLWUT_Args},
 {"memory",NULL,NULL,"4.0.0",COMMAND_GROUP_SERVER,MEMORY_ReturnInfo,MEMORY_History,MEMORY_Metadata,NULL,-2,"@slow",.subcommands=MEMORY_Subcommands},
 {"module",NULL,NULL,"4.0.0",COMMAND_GROUP_SERVER,MODULE_ReturnInfo,MODULE_History,MODULE_Metadata,NULL,-2,"@slow",.subcommands=MODULE_Subcommands},
 {"monitor","Listen for all requests received by the server in real time",NULL,"1.0.0",COMMAND_GROUP_SERVER,MONITOR_ReturnInfo,MONITOR_History,MONITOR_Metadata,monitorCommand,1,"admin noscript loading stale @admin @slow @dangerous"},
-{"pfdebug",NULL,NULL,NULL,COMMAND_GROUP_SERVER,PFDEBUG_ReturnInfo,PFDEBUG_History,PFDEBUG_Metadata,pfdebugCommand,-3,"write denyoom admin @write @hyperloglog @admin @slow @dangerous",{{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"pfselftest",NULL,NULL,NULL,COMMAND_GROUP_SERVER,PFSELFTEST_ReturnInfo,PFSELFTEST_History,PFSELFTEST_Metadata,pfselftestCommand,1,"admin @hyperloglog @admin @slow @dangerous"},
 {"post",NULL,NULL,NULL,COMMAND_GROUP_SERVER,POST_ReturnInfo,POST_History,POST_Metadata,securityWarningCommand,-1,"readonly loading stale @read @slow"},
-{"psync","Internal command used for replication",NULL,"2.8.0",COMMAND_GROUP_SERVER,PSYNC_ReturnInfo,PSYNC_History,PSYNC_Metadata,syncCommand,-3,"admin noscript @admin @slow @dangerous"},
+{"psync","Internal command used for replication",NULL,"2.8.0",COMMAND_GROUP_SERVER,PSYNC_ReturnInfo,PSYNC_History,PSYNC_Metadata,syncCommand,-3,"admin noscript @admin @slow @dangerous",.args=PSYNC_Args},
 {"replconf",NULL,NULL,NULL,COMMAND_GROUP_SERVER,REPLCONF_ReturnInfo,REPLCONF_History,REPLCONF_Metadata,replconfCommand,-1,"admin noscript loading stale @admin @slow @dangerous"},
-{"replicaof","Make the server a replica of another instance, or promote it as master.",NULL,"5.0.0",COMMAND_GROUP_SERVER,REPLICAOF_ReturnInfo,REPLICAOF_History,REPLICAOF_Metadata,replicaofCommand,3,"admin noscript stale @admin @slow @dangerous"},
+{"replicaof","Make the server a replica of another instance, or promote it as master.",NULL,"5.0.0",COMMAND_GROUP_SERVER,REPLICAOF_ReturnInfo,REPLICAOF_History,REPLICAOF_Metadata,replicaofCommand,3,"admin noscript stale @admin @slow @dangerous",.args=REPLICAOF_Args},
 {"restore-asking",NULL,NULL,NULL,COMMAND_GROUP_SERVER,RESTORE_ASKING_ReturnInfo,RESTORE_ASKING_History,RESTORE_ASKING_Metadata,restoreCommand,-4,"write denyoom asking @keyspace @write @slow @dangerous",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 {"role","Return the role of the instance in the context of replication",NULL,"2.8.12",COMMAND_GROUP_SERVER,ROLE_ReturnInfo,ROLE_History,ROLE_Metadata,roleCommand,1,"noscript loading stale fast @admin @fast @dangerous"},
 {"save","Synchronously save the dataset to disk",NULL,"1.0.0",COMMAND_GROUP_SERVER,SAVE_ReturnInfo,SAVE_History,SAVE_Metadata,saveCommand,1,"admin noscript @admin @slow @dangerous"},
-{"shutdown","Synchronously save the dataset to disk and then shut down the server",NULL,"1.0.0",COMMAND_GROUP_SERVER,SHUTDOWN_ReturnInfo,SHUTDOWN_History,SHUTDOWN_Metadata,shutdownCommand,-1,"admin noscript loading stale @admin @slow @dangerous"},
-{"slaveof","Make the server a replica of another instance, or promote it as master. Deprecated starting with Redis 5. Use REPLICAOF instead.",NULL,"1.0.0",COMMAND_GROUP_SERVER,SLAVEOF_ReturnInfo,SLAVEOF_History,SLAVEOF_Metadata,replicaofCommand,3,"admin noscript stale @admin @slow @dangerous"},
+{"shutdown","Synchronously save the dataset to disk and then shut down the server",NULL,"1.0.0",COMMAND_GROUP_SERVER,SHUTDOWN_ReturnInfo,SHUTDOWN_History,SHUTDOWN_Metadata,shutdownCommand,-1,"admin noscript loading stale @admin @slow @dangerous",.args=SHUTDOWN_Args},
+{"slaveof","Make the server a replica of another instance, or promote it as master. Deprecated starting with Redis 5. Use REPLICAOF instead.",NULL,"1.0.0",COMMAND_GROUP_SERVER,SLAVEOF_ReturnInfo,SLAVEOF_History,SLAVEOF_Metadata,replicaofCommand,3,"admin noscript stale @admin @slow @dangerous",.args=SLAVEOF_Args},
 {"slowlog",NULL,NULL,"2.2.12",COMMAND_GROUP_SERVER,SLOWLOG_ReturnInfo,SLOWLOG_History,SLOWLOG_Metadata,NULL,-2,"@slow",.subcommands=SLOWLOG_Subcommands},
-{"substr",NULL,NULL,NULL,COMMAND_GROUP_SERVER,SUBSTR_ReturnInfo,SUBSTR_History,SUBSTR_Metadata,getrangeCommand,4,"readonly @read @string @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"swapdb","Swaps two Redis databases","O(N) where N is the count of clients watching or blocking on keys from both databases.","4.0.0",COMMAND_GROUP_SERVER,SWAPDB_ReturnInfo,SWAPDB_History,SWAPDB_Metadata,swapdbCommand,3,"write fast @keyspace @write @fast @dangerous"},
+{"swapdb","Swaps two Redis databases","O(N) where N is the count of clients watching or blocking on keys from both databases.","4.0.0",COMMAND_GROUP_SERVER,SWAPDB_ReturnInfo,SWAPDB_History,SWAPDB_Metadata,swapdbCommand,3,"write fast @keyspace @write @fast @dangerous",.args=SWAPDB_Args},
 {"sync","Internal command used for replication",NULL,"1.0.0",COMMAND_GROUP_SERVER,SYNC_ReturnInfo,SYNC_History,SYNC_Metadata,syncCommand,1,"admin noscript @admin @slow @dangerous"},
 {"time","Return the current server time","O(1)","2.6.0",COMMAND_GROUP_SERVER,TIME_ReturnInfo,TIME_History,TIME_Metadata,timeCommand,1,"random loading stale fast @fast"},
-{"xsetid",NULL,NULL,NULL,COMMAND_GROUP_SERVER,XSETID_ReturnInfo,XSETID_History,XSETID_Metadata,xsetidCommand,3,"write denyoom fast @write @stream @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 /* set */
-{"sadd","Add one or more members to a set","O(1) for each element added, so O(N) to add N elements when the command is called with multiple arguments.","1.0.0",COMMAND_GROUP_SET,SADD_ReturnInfo,SADD_History,SADD_Metadata,saddCommand,-3,"write denyoom fast @write @set @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"scard","Get the number of members in a set","O(1)","1.0.0",COMMAND_GROUP_SET,SCARD_ReturnInfo,SCARD_History,SCARD_Metadata,scardCommand,2,"readonly fast @read @set @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"sdiff","Subtract multiple sets","O(N) where N is the total number of elements in all given sets.","1.0.0",COMMAND_GROUP_SET,SDIFF_ReturnInfo,SDIFF_History,SDIFF_Metadata,sdiffCommand,-2,"readonly sort_for_script @read @set @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
-{"sdiffstore","Subtract multiple sets and store the resulting set in a key","O(N) where N is the total number of elements in all given sets.","1.0.0",COMMAND_GROUP_SET,SDIFFSTORE_ReturnInfo,SDIFFSTORE_History,SDIFFSTORE_Metadata,sdiffstoreCommand,-3,"write denyoom @write @set @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
-{"sinter","Intersect multiple sets","O(N*M) worst case where N is the cardinality of the smallest set and M is the number of sets.","1.0.0",COMMAND_GROUP_SET,SINTER_ReturnInfo,SINTER_History,SINTER_Metadata,sinterCommand,-2,"readonly sort_for_script @read @set @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
-{"sintercard","Intersect multiple sets and return the cardinality of the result","O(N*M) worst case where N is the cardinality of the smallest set and M is the number of sets.","7.0.0",COMMAND_GROUP_SET,SINTERCARD_ReturnInfo,SINTERCARD_History,SINTERCARD_Metadata,sinterCardCommand,-3,"readonly @read @set @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},sintercardGetKeys},
-{"sinterstore","Intersect multiple sets and store the resulting set in a key","O(N*M) worst case where N is the cardinality of the smallest set and M is the number of sets.","1.0.0",COMMAND_GROUP_SET,SINTERSTORE_ReturnInfo,SINTERSTORE_History,SINTERSTORE_Metadata,sinterstoreCommand,-3,"write denyoom @write @set @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
-{"sismember","Determine if a given value is a member of a set","O(1)","1.0.0",COMMAND_GROUP_SET,SISMEMBER_ReturnInfo,SISMEMBER_History,SISMEMBER_Metadata,sismemberCommand,3,"readonly fast @read @set @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"smembers","Get all the members in a set","O(N) where N is the set cardinality.","1.0.0",COMMAND_GROUP_SET,SMEMBERS_ReturnInfo,SMEMBERS_History,SMEMBERS_Metadata,sinterCommand,2,"readonly sort_for_script @read @set @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"smismember","Returns the membership associated with the given elements for a set","O(N) where N is the number of elements being checked for membership","6.2.0",COMMAND_GROUP_SET,SMISMEMBER_ReturnInfo,SMISMEMBER_History,SMISMEMBER_Metadata,smismemberCommand,-3,"readonly fast @read @set @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"smove","Move a member from one set to another","O(1)","1.0.0",COMMAND_GROUP_SET,SMOVE_ReturnInfo,SMOVE_History,SMOVE_Metadata,smoveCommand,4,"write fast @write @set @fast",{{"write read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"spop","Remove and return one or multiple random members from a set","Without the count argument O(1), otherwise O(N) where N is the value of the passed count.","1.0.0",COMMAND_GROUP_SET,SPOP_ReturnInfo,SPOP_History,SPOP_Metadata,spopCommand,-2,"write random fast @write @set @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"srandmember","Get one or multiple random members from a set","Without the count argument O(1), otherwise O(N) where N is the absolute value of the passed count.","1.0.0",COMMAND_GROUP_SET,SRANDMEMBER_ReturnInfo,SRANDMEMBER_History,SRANDMEMBER_Metadata,srandmemberCommand,-2,"readonly random @read @set @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"srem","Remove one or more members from a set","O(N) where N is the number of members to be removed.","1.0.0",COMMAND_GROUP_SET,SREM_ReturnInfo,SREM_History,SREM_Metadata,sremCommand,-3,"write fast @write @set @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"sscan","Incrementally iterate Set elements","O(1) for every call. O(N) for a complete iteration, including enough command calls for the cursor to return back to 0. N is the number of elements inside the collection..","2.8.0",COMMAND_GROUP_SET,SSCAN_ReturnInfo,SSCAN_History,SSCAN_Metadata,sscanCommand,-3,"readonly random @read @set @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"sunion","Add multiple sets","O(N) where N is the total number of elements in all given sets.","1.0.0",COMMAND_GROUP_SET,SUNION_ReturnInfo,SUNION_History,SUNION_Metadata,sunionCommand,-2,"readonly sort_for_script @read @set @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
-{"sunionstore","Add multiple sets and store the resulting set in a key","O(N) where N is the total number of elements in all given sets.","1.0.0",COMMAND_GROUP_SET,SUNIONSTORE_ReturnInfo,SUNIONSTORE_History,SUNIONSTORE_Metadata,sunionstoreCommand,-3,"write denyoom @write @set @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
+{"sadd","Add one or more members to a set","O(1) for each element added, so O(N) to add N elements when the command is called with multiple arguments.","1.0.0",COMMAND_GROUP_SET,SADD_ReturnInfo,SADD_History,SADD_Metadata,saddCommand,-3,"write denyoom fast @write @set @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SADD_Args},
+{"scard","Get the number of members in a set","O(1)","1.0.0",COMMAND_GROUP_SET,SCARD_ReturnInfo,SCARD_History,SCARD_Metadata,scardCommand,2,"readonly fast @read @set @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SCARD_Args},
+{"sdiff","Subtract multiple sets","O(N) where N is the total number of elements in all given sets.","1.0.0",COMMAND_GROUP_SET,SDIFF_ReturnInfo,SDIFF_History,SDIFF_Metadata,sdiffCommand,-2,"readonly sort_for_script @read @set @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=SDIFF_Args},
+{"sdiffstore","Subtract multiple sets and store the resulting set in a key","O(N) where N is the total number of elements in all given sets.","1.0.0",COMMAND_GROUP_SET,SDIFFSTORE_ReturnInfo,SDIFFSTORE_History,SDIFFSTORE_Metadata,sdiffstoreCommand,-3,"write denyoom @write @set @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=SDIFFSTORE_Args},
+{"sinter","Intersect multiple sets","O(N*M) worst case where N is the cardinality of the smallest set and M is the number of sets.","1.0.0",COMMAND_GROUP_SET,SINTER_ReturnInfo,SINTER_History,SINTER_Metadata,sinterCommand,-2,"readonly sort_for_script @read @set @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=SINTER_Args},
+{"sintercard","Intersect multiple sets and return the cardinality of the result","O(N*M) worst case where N is the cardinality of the smallest set and M is the number of sets.","7.0.0",COMMAND_GROUP_SET,SINTERCARD_ReturnInfo,SINTERCARD_History,SINTERCARD_Metadata,sinterCardCommand,-3,"readonly @read @set @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},sintercardGetKeys,.args=SINTERCARD_Args},
+{"sinterstore","Intersect multiple sets and store the resulting set in a key","O(N*M) worst case where N is the cardinality of the smallest set and M is the number of sets.","1.0.0",COMMAND_GROUP_SET,SINTERSTORE_ReturnInfo,SINTERSTORE_History,SINTERSTORE_Metadata,sinterstoreCommand,-3,"write denyoom @write @set @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=SINTERSTORE_Args},
+{"sismember","Determine if a given value is a member of a set","O(1)","1.0.0",COMMAND_GROUP_SET,SISMEMBER_ReturnInfo,SISMEMBER_History,SISMEMBER_Metadata,sismemberCommand,3,"readonly fast @read @set @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SISMEMBER_Args},
+{"smembers","Get all the members in a set","O(N) where N is the set cardinality.","1.0.0",COMMAND_GROUP_SET,SMEMBERS_ReturnInfo,SMEMBERS_History,SMEMBERS_Metadata,sinterCommand,2,"readonly sort_for_script @read @set @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SMEMBERS_Args},
+{"smismember","Returns the membership associated with the given elements for a set","O(N) where N is the number of elements being checked for membership","6.2.0",COMMAND_GROUP_SET,SMISMEMBER_ReturnInfo,SMISMEMBER_History,SMISMEMBER_Metadata,smismemberCommand,-3,"readonly fast @read @set @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SMISMEMBER_Args},
+{"smove","Move a member from one set to another","O(1)","1.0.0",COMMAND_GROUP_SET,SMOVE_ReturnInfo,SMOVE_History,SMOVE_Metadata,smoveCommand,4,"write fast @write @set @fast",{{"write read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SMOVE_Args},
+{"spop","Remove and return one or multiple random members from a set","Without the count argument O(1), otherwise O(N) where N is the value of the passed count.","1.0.0",COMMAND_GROUP_SET,SPOP_ReturnInfo,SPOP_History,SPOP_Metadata,spopCommand,-2,"write random fast @write @set @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SPOP_Args},
+{"srandmember","Get one or multiple random members from a set","Without the count argument O(1), otherwise O(N) where N is the absolute value of the passed count.","1.0.0",COMMAND_GROUP_SET,SRANDMEMBER_ReturnInfo,SRANDMEMBER_History,SRANDMEMBER_Metadata,srandmemberCommand,-2,"readonly random @read @set @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SRANDMEMBER_Args},
+{"srem","Remove one or more members from a set","O(N) where N is the number of members to be removed.","1.0.0",COMMAND_GROUP_SET,SREM_ReturnInfo,SREM_History,SREM_Metadata,sremCommand,-3,"write fast @write @set @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SREM_Args},
+{"sscan","Incrementally iterate Set elements","O(1) for every call. O(N) for a complete iteration, including enough command calls for the cursor to return back to 0. N is the number of elements inside the collection..","2.8.0",COMMAND_GROUP_SET,SSCAN_ReturnInfo,SSCAN_History,SSCAN_Metadata,sscanCommand,-3,"readonly random @read @set @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SSCAN_Args},
+{"sunion","Add multiple sets","O(N) where N is the total number of elements in all given sets.","1.0.0",COMMAND_GROUP_SET,SUNION_ReturnInfo,SUNION_History,SUNION_Metadata,sunionCommand,-2,"readonly sort_for_script @read @set @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=SUNION_Args},
+{"sunionstore","Add multiple sets and store the resulting set in a key","O(N) where N is the total number of elements in all given sets.","1.0.0",COMMAND_GROUP_SET,SUNIONSTORE_ReturnInfo,SUNIONSTORE_History,SUNIONSTORE_Metadata,sunionstoreCommand,-3,"write denyoom @write @set @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=SUNIONSTORE_Args},
 /* sorted_set */
-{"bzmpop","Remove and return members with scores in a sorted set or block until one is available","O(K) + O(N*log(M)) where K is the number of provided keys, N being the number of elements in the sorted set, and M being the number of elements popped.","7.0.0",COMMAND_GROUP_SORTED_SET,BZMPOP_ReturnInfo,BZMPOP_History,BZMPOP_Metadata,bzmpopCommand,-5,"write @write @sortedset @slow @blocking",{{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},blmpopGetKeys},
-{"bzpopmax","Remove and return the member with the highest score from one or more sorted sets, or block until one is available","O(log(N)) with N being the number of elements in the sorted set.","5.0.0",COMMAND_GROUP_SORTED_SET,BZPOPMAX_ReturnInfo,BZPOPMAX_History,BZPOPMAX_Metadata,bzpopmaxCommand,-3,"write noscript fast @write @sortedset @fast @blocking",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-2,1,0}}}},
-{"bzpopmin","Remove and return the member with the lowest score from one or more sorted sets, or block until one is available","O(log(N)) with N being the number of elements in the sorted set.","5.0.0",COMMAND_GROUP_SORTED_SET,BZPOPMIN_ReturnInfo,BZPOPMIN_History,BZPOPMIN_Metadata,bzpopminCommand,-3,"write noscript fast @write @sortedset @fast @blocking",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-2,1,0}}}},
-{"zadd","Add one or more members to a sorted set, or update its score if it already exists","O(log(N)) for each item added, where N is the number of elements in the sorted set.","1.2.0",COMMAND_GROUP_SORTED_SET,ZADD_ReturnInfo,ZADD_History,ZADD_Metadata,zaddCommand,-4,"write denyoom fast @write @sortedset @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"zcard","Get the number of members in a sorted set","O(1)","1.2.0",COMMAND_GROUP_SORTED_SET,ZCARD_ReturnInfo,ZCARD_History,ZCARD_Metadata,zcardCommand,2,"readonly fast @read @sortedset @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"zcount","Count the members in a sorted set with scores within the given values","O(log(N)) with N being the number of elements in the sorted set.","2.0.0",COMMAND_GROUP_SORTED_SET,ZCOUNT_ReturnInfo,ZCOUNT_History,ZCOUNT_Metadata,zcountCommand,4,"readonly fast @read @sortedset @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"zdiff","Subtract multiple sorted sets","O(L + (N-K)log(N)) worst case where L is the total number of elements in all the sets, N is the size of the first set, and K is the size of the result set.","6.2.0",COMMAND_GROUP_SORTED_SET,ZDIFF_ReturnInfo,ZDIFF_History,ZDIFF_Metadata,zdiffCommand,-3,"readonly @read @sortedset @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},zunionInterDiffGetKeys},
-{"zdiffstore","Subtract multiple sorted sets and store the resulting sorted set in a new key","O(L + (N-K)log(N)) worst case where L is the total number of elements in all the sets, N is the size of the first set, and K is the size of the result set.","6.2.0",COMMAND_GROUP_SORTED_SET,ZDIFFSTORE_ReturnInfo,ZDIFFSTORE_History,ZDIFFSTORE_Metadata,zdiffstoreCommand,-4,"write denyoom @write @sortedset @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},zunionInterDiffStoreGetKeys},
-{"zincrby","Increment the score of a member in a sorted set","O(log(N)) where N is the number of elements in the sorted set.","1.2.0",COMMAND_GROUP_SORTED_SET,ZINCRBY_ReturnInfo,ZINCRBY_History,ZINCRBY_Metadata,zincrbyCommand,4,"write denyoom fast @write @sortedset @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"zinter","Intersect multiple sorted sets","O(N*K)+O(M*log(M)) worst case with N being the smallest input sorted set, K being the number of input sorted sets and M being the number of elements in the resulting sorted set.","6.2.0",COMMAND_GROUP_SORTED_SET,ZINTER_ReturnInfo,ZINTER_History,ZINTER_Metadata,zinterCommand,-3,"readonly @read @sortedset @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},zunionInterDiffGetKeys},
-{"zintercard","Intersect multiple sorted sets and return the cardinality of the result","O(N*K) worst case with N being the smallest input sorted set, K being the number of input sorted sets.","7.0.0",COMMAND_GROUP_SORTED_SET,ZINTERCARD_ReturnInfo,ZINTERCARD_History,ZINTERCARD_Metadata,zinterCardCommand,-3,"readonly @read @sortedset @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},zunionInterDiffGetKeys},
-{"zinterstore","Intersect multiple sorted sets and store the resulting sorted set in a new key","O(N*K)+O(M*log(M)) worst case with N being the smallest input sorted set, K being the number of input sorted sets and M being the number of elements in the resulting sorted set.","2.0.0",COMMAND_GROUP_SORTED_SET,ZINTERSTORE_ReturnInfo,ZINTERSTORE_History,ZINTERSTORE_Metadata,zinterstoreCommand,-4,"write denyoom @write @sortedset @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},zunionInterDiffStoreGetKeys},
-{"zlexcount","Count the number of members in a sorted set between a given lexicographical range","O(log(N)) with N being the number of elements in the sorted set.","2.8.9",COMMAND_GROUP_SORTED_SET,ZLEXCOUNT_ReturnInfo,ZLEXCOUNT_History,ZLEXCOUNT_Metadata,zlexcountCommand,4,"readonly fast @read @sortedset @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"zmpop","Remove and return members with scores in a sorted set","O(K) + O(N*log(M)) where K is the number of provided keys, N being the number of elements in the sorted set, and M being the number of elements popped.","7.0.0",COMMAND_GROUP_SORTED_SET,ZMPOP_ReturnInfo,ZMPOP_History,ZMPOP_Metadata,zmpopCommand,-4,"write @write @sortedset @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},zmpopGetKeys},
-{"zmscore","Get the score associated with the given members in a sorted set","O(N) where N is the number of members being requested.","6.2.0",COMMAND_GROUP_SORTED_SET,ZMSCORE_ReturnInfo,ZMSCORE_History,ZMSCORE_Metadata,zmscoreCommand,-3,"readonly fast @read @sortedset @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"zpopmax","Remove and return members with the highest scores in a sorted set","O(log(N)*M) with N being the number of elements in the sorted set, and M being the number of elements popped.","5.0.0",COMMAND_GROUP_SORTED_SET,ZPOPMAX_ReturnInfo,ZPOPMAX_History,ZPOPMAX_Metadata,zpopmaxCommand,-2,"write fast @write @sortedset @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"zpopmin","Remove and return members with the lowest scores in a sorted set","O(log(N)*M) with N being the number of elements in the sorted set, and M being the number of elements popped.","5.0.0",COMMAND_GROUP_SORTED_SET,ZPOPMIN_ReturnInfo,ZPOPMIN_History,ZPOPMIN_Metadata,zpopminCommand,-2,"write fast @write @sortedset @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"zrandmember","Get one or multiple random elements from a sorted set","O(N) where N is the number of elements returned","6.2.0",COMMAND_GROUP_SORTED_SET,ZRANDMEMBER_ReturnInfo,ZRANDMEMBER_History,ZRANDMEMBER_Metadata,zrandmemberCommand,-2,"readonly random @read @sortedset @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"zrange","Return a range of members in a sorted set","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements returned.","1.2.0",COMMAND_GROUP_SORTED_SET,ZRANGE_ReturnInfo,ZRANGE_History,ZRANGE_Metadata,zrangeCommand,-4,"readonly @read @sortedset @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"zrangebylex","Return a range of members in a sorted set, by lexicographical range","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements being returned. If M is constant (e.g. always asking for the first 10 elements with LIMIT), you can consider it O(log(N)).","2.8.9",COMMAND_GROUP_SORTED_SET,ZRANGEBYLEX_ReturnInfo,ZRANGEBYLEX_History,ZRANGEBYLEX_Metadata,zrangebylexCommand,-4,"readonly @read @sortedset @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"zrangebyscore","Return a range of members in a sorted set, by score","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements being returned. If M is constant (e.g. always asking for the first 10 elements with LIMIT), you can consider it O(log(N)).","1.0.5",COMMAND_GROUP_SORTED_SET,ZRANGEBYSCORE_ReturnInfo,ZRANGEBYSCORE_History,ZRANGEBYSCORE_Metadata,zrangebyscoreCommand,-4,"readonly @read @sortedset @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"zrangestore","Store a range of members from sorted set into another key","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements stored into the destination key.","6.2.0",COMMAND_GROUP_SORTED_SET,ZRANGESTORE_ReturnInfo,ZRANGESTORE_History,ZRANGESTORE_Metadata,zrangestoreCommand,-5,"write denyoom @write @sortedset @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"zrank","Determine the index of a member in a sorted set","O(log(N))","2.0.0",COMMAND_GROUP_SORTED_SET,ZRANK_ReturnInfo,ZRANK_History,ZRANK_Metadata,zrankCommand,3,"readonly fast @read @sortedset @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"zrem","Remove one or more members from a sorted set","O(M*log(N)) with N being the number of elements in the sorted set and M the number of elements to be removed.","1.2.0",COMMAND_GROUP_SORTED_SET,ZREM_ReturnInfo,ZREM_History,ZREM_Metadata,zremCommand,-3,"write fast @write @sortedset @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"zremrangebylex","Remove all members in a sorted set between the given lexicographical range","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements removed by the operation.","2.8.9",COMMAND_GROUP_SORTED_SET,ZREMRANGEBYLEX_ReturnInfo,ZREMRANGEBYLEX_History,ZREMRANGEBYLEX_Metadata,zremrangebylexCommand,4,"write @write @sortedset @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"zremrangebyrank","Remove all members in a sorted set within the given indexes","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements removed by the operation.","2.0.0",COMMAND_GROUP_SORTED_SET,ZREMRANGEBYRANK_ReturnInfo,ZREMRANGEBYRANK_History,ZREMRANGEBYRANK_Metadata,zremrangebyrankCommand,4,"write @write @sortedset @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"zremrangebyscore","Remove all members in a sorted set within the given scores","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements removed by the operation.","1.2.0",COMMAND_GROUP_SORTED_SET,ZREMRANGEBYSCORE_ReturnInfo,ZREMRANGEBYSCORE_History,ZREMRANGEBYSCORE_Metadata,zremrangebyscoreCommand,4,"write @write @sortedset @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"zrevrange","Return a range of members in a sorted set, by index, with scores ordered from high to low","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements returned.","1.2.0",COMMAND_GROUP_SORTED_SET,ZREVRANGE_ReturnInfo,ZREVRANGE_History,ZREVRANGE_Metadata,zrevrangeCommand,-4,"readonly @read @sortedset @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"zrevrangebylex","Return a range of members in a sorted set, by lexicographical range, ordered from higher to lower strings.","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements being returned. If M is constant (e.g. always asking for the first 10 elements with LIMIT), you can consider it O(log(N)).","2.8.9",COMMAND_GROUP_SORTED_SET,ZREVRANGEBYLEX_ReturnInfo,ZREVRANGEBYLEX_History,ZREVRANGEBYLEX_Metadata,zrevrangebylexCommand,-4,"readonly @read @sortedset @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"zrevrangebyscore","Return a range of members in a sorted set, by score, with scores ordered from high to low","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements being returned. If M is constant (e.g. always asking for the first 10 elements with LIMIT), you can consider it O(log(N)).","2.2.0",COMMAND_GROUP_SORTED_SET,ZREVRANGEBYSCORE_ReturnInfo,ZREVRANGEBYSCORE_History,ZREVRANGEBYSCORE_Metadata,zrevrangebyscoreCommand,-4,"readonly @read @sortedset @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"zrevrank","Determine the index of a member in a sorted set, with scores ordered from high to low","O(log(N))","2.0.0",COMMAND_GROUP_SORTED_SET,ZREVRANK_ReturnInfo,ZREVRANK_History,ZREVRANK_Metadata,zrevrankCommand,3,"readonly fast @read @sortedset @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"zscan","Incrementally iterate sorted sets elements and associated scores","O(1) for every call. O(N) for a complete iteration, including enough command calls for the cursor to return back to 0. N is the number of elements inside the collection..","2.8.0",COMMAND_GROUP_SORTED_SET,ZSCAN_ReturnInfo,ZSCAN_History,ZSCAN_Metadata,zscanCommand,-3,"readonly random @read @sortedset @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"zscore","Get the score associated with the given member in a sorted set","O(1)","1.2.0",COMMAND_GROUP_SORTED_SET,ZSCORE_ReturnInfo,ZSCORE_History,ZSCORE_Metadata,zscoreCommand,3,"readonly fast @read @sortedset @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"zunion","Add multiple sorted sets","O(N)+O(M*log(M)) with N being the sum of the sizes of the input sorted sets, and M being the number of elements in the resulting sorted set.","6.2.0",COMMAND_GROUP_SORTED_SET,ZUNION_ReturnInfo,ZUNION_History,ZUNION_Metadata,zunionCommand,-3,"readonly @read @sortedset @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},zunionInterDiffGetKeys},
-{"zunionstore","Add multiple sorted sets and store the resulting sorted set in a new key","O(N)+O(M log(M)) with N being the sum of the sizes of the input sorted sets, and M being the number of elements in the resulting sorted set.","2.0.0",COMMAND_GROUP_SORTED_SET,ZUNIONSTORE_ReturnInfo,ZUNIONSTORE_History,ZUNIONSTORE_Metadata,zunionstoreCommand,-4,"write denyoom @write @sortedset @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},zunionInterDiffStoreGetKeys},
+{"bzmpop","Remove and return members with scores in a sorted set or block until one is available","O(K) + O(N*log(M)) where K is the number of provided keys, N being the number of elements in the sorted set, and M being the number of elements popped.","7.0.0",COMMAND_GROUP_SORTED_SET,BZMPOP_ReturnInfo,BZMPOP_History,BZMPOP_Metadata,bzmpopCommand,-5,"write @write @sortedset @slow @blocking",{{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},blmpopGetKeys,.args=BZMPOP_Args},
+{"bzpopmax","Remove and return the member with the highest score from one or more sorted sets, or block until one is available","O(log(N)) with N being the number of elements in the sorted set.","5.0.0",COMMAND_GROUP_SORTED_SET,BZPOPMAX_ReturnInfo,BZPOPMAX_History,BZPOPMAX_Metadata,bzpopmaxCommand,-3,"write noscript fast @write @sortedset @fast @blocking",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-2,1,0}}},.args=BZPOPMAX_Args},
+{"bzpopmin","Remove and return the member with the lowest score from one or more sorted sets, or block until one is available","O(log(N)) with N being the number of elements in the sorted set.","5.0.0",COMMAND_GROUP_SORTED_SET,BZPOPMIN_ReturnInfo,BZPOPMIN_History,BZPOPMIN_Metadata,bzpopminCommand,-3,"write noscript fast @write @sortedset @fast @blocking",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-2,1,0}}},.args=BZPOPMIN_Args},
+{"zadd","Add one or more members to a sorted set, or update its score if it already exists","O(log(N)) for each item added, where N is the number of elements in the sorted set.","1.2.0",COMMAND_GROUP_SORTED_SET,ZADD_ReturnInfo,ZADD_History,ZADD_Metadata,zaddCommand,-4,"write denyoom fast @write @sortedset @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZADD_Args},
+{"zcard","Get the number of members in a sorted set","O(1)","1.2.0",COMMAND_GROUP_SORTED_SET,ZCARD_ReturnInfo,ZCARD_History,ZCARD_Metadata,zcardCommand,2,"readonly fast @read @sortedset @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZCARD_Args},
+{"zcount","Count the members in a sorted set with scores within the given values","O(log(N)) with N being the number of elements in the sorted set.","2.0.0",COMMAND_GROUP_SORTED_SET,ZCOUNT_ReturnInfo,ZCOUNT_History,ZCOUNT_Metadata,zcountCommand,4,"readonly fast @read @sortedset @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZCOUNT_Args},
+{"zdiff","Subtract multiple sorted sets","O(L + (N-K)log(N)) worst case where L is the total number of elements in all the sets, N is the size of the first set, and K is the size of the result set.","6.2.0",COMMAND_GROUP_SORTED_SET,ZDIFF_ReturnInfo,ZDIFF_History,ZDIFF_Metadata,zdiffCommand,-3,"readonly @read @sortedset @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},zunionInterDiffGetKeys,.args=ZDIFF_Args},
+{"zdiffstore","Subtract multiple sorted sets and store the resulting sorted set in a new key","O(L + (N-K)log(N)) worst case where L is the total number of elements in all the sets, N is the size of the first set, and K is the size of the result set.","6.2.0",COMMAND_GROUP_SORTED_SET,ZDIFFSTORE_ReturnInfo,ZDIFFSTORE_History,ZDIFFSTORE_Metadata,zdiffstoreCommand,-4,"write denyoom @write @sortedset @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},zunionInterDiffStoreGetKeys,.args=ZDIFFSTORE_Args},
+{"zincrby","Increment the score of a member in a sorted set","O(log(N)) where N is the number of elements in the sorted set.","1.2.0",COMMAND_GROUP_SORTED_SET,ZINCRBY_ReturnInfo,ZINCRBY_History,ZINCRBY_Metadata,zincrbyCommand,4,"write denyoom fast @write @sortedset @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZINCRBY_Args},
+{"zinter","Intersect multiple sorted sets","O(N*K)+O(M*log(M)) worst case with N being the smallest input sorted set, K being the number of input sorted sets and M being the number of elements in the resulting sorted set.","6.2.0",COMMAND_GROUP_SORTED_SET,ZINTER_ReturnInfo,ZINTER_History,ZINTER_Metadata,zinterCommand,-3,"readonly @read @sortedset @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},zunionInterDiffGetKeys,.args=ZINTER_Args},
+{"zintercard","Intersect multiple sorted sets and return the cardinality of the result","O(N*K) worst case with N being the smallest input sorted set, K being the number of input sorted sets.","7.0.0",COMMAND_GROUP_SORTED_SET,ZINTERCARD_ReturnInfo,ZINTERCARD_History,ZINTERCARD_Metadata,zinterCardCommand,-3,"readonly @read @sortedset @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},zunionInterDiffGetKeys,.args=ZINTERCARD_Args},
+{"zinterstore","Intersect multiple sorted sets and store the resulting sorted set in a new key","O(N*K)+O(M*log(M)) worst case with N being the smallest input sorted set, K being the number of input sorted sets and M being the number of elements in the resulting sorted set.","2.0.0",COMMAND_GROUP_SORTED_SET,ZINTERSTORE_ReturnInfo,ZINTERSTORE_History,ZINTERSTORE_Metadata,zinterstoreCommand,-4,"write denyoom @write @sortedset @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},zunionInterDiffStoreGetKeys,.args=ZINTERSTORE_Args},
+{"zlexcount","Count the number of members in a sorted set between a given lexicographical range","O(log(N)) with N being the number of elements in the sorted set.","2.8.9",COMMAND_GROUP_SORTED_SET,ZLEXCOUNT_ReturnInfo,ZLEXCOUNT_History,ZLEXCOUNT_Metadata,zlexcountCommand,4,"readonly fast @read @sortedset @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZLEXCOUNT_Args},
+{"zmpop","Remove and return members with scores in a sorted set","O(K) + O(N*log(M)) where K is the number of provided keys, N being the number of elements in the sorted set, and M being the number of elements popped.","7.0.0",COMMAND_GROUP_SORTED_SET,ZMPOP_ReturnInfo,ZMPOP_History,ZMPOP_Metadata,zmpopCommand,-4,"write @write @sortedset @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},zmpopGetKeys,.args=ZMPOP_Args},
+{"zmscore","Get the score associated with the given members in a sorted set","O(N) where N is the number of members being requested.","6.2.0",COMMAND_GROUP_SORTED_SET,ZMSCORE_ReturnInfo,ZMSCORE_History,ZMSCORE_Metadata,zmscoreCommand,-3,"readonly fast @read @sortedset @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZMSCORE_Args},
+{"zpopmax","Remove and return members with the highest scores in a sorted set","O(log(N)*M) with N being the number of elements in the sorted set, and M being the number of elements popped.","5.0.0",COMMAND_GROUP_SORTED_SET,ZPOPMAX_ReturnInfo,ZPOPMAX_History,ZPOPMAX_Metadata,zpopmaxCommand,-2,"write fast @write @sortedset @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZPOPMAX_Args},
+{"zpopmin","Remove and return members with the lowest scores in a sorted set","O(log(N)*M) with N being the number of elements in the sorted set, and M being the number of elements popped.","5.0.0",COMMAND_GROUP_SORTED_SET,ZPOPMIN_ReturnInfo,ZPOPMIN_History,ZPOPMIN_Metadata,zpopminCommand,-2,"write fast @write @sortedset @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZPOPMIN_Args},
+{"zrandmember","Get one or multiple random elements from a sorted set","O(N) where N is the number of elements returned","6.2.0",COMMAND_GROUP_SORTED_SET,ZRANDMEMBER_ReturnInfo,ZRANDMEMBER_History,ZRANDMEMBER_Metadata,zrandmemberCommand,-2,"readonly random @read @sortedset @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZRANDMEMBER_Args},
+{"zrange","Return a range of members in a sorted set","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements returned.","1.2.0",COMMAND_GROUP_SORTED_SET,ZRANGE_ReturnInfo,ZRANGE_History,ZRANGE_Metadata,zrangeCommand,-4,"readonly @read @sortedset @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZRANGE_Args},
+{"zrangebylex","Return a range of members in a sorted set, by lexicographical range","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements being returned. If M is constant (e.g. always asking for the first 10 elements with LIMIT), you can consider it O(log(N)).","2.8.9",COMMAND_GROUP_SORTED_SET,ZRANGEBYLEX_ReturnInfo,ZRANGEBYLEX_History,ZRANGEBYLEX_Metadata,zrangebylexCommand,-4,"readonly @read @sortedset @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZRANGEBYLEX_Args},
+{"zrangebyscore","Return a range of members in a sorted set, by score","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements being returned. If M is constant (e.g. always asking for the first 10 elements with LIMIT), you can consider it O(log(N)).","1.0.5",COMMAND_GROUP_SORTED_SET,ZRANGEBYSCORE_ReturnInfo,ZRANGEBYSCORE_History,ZRANGEBYSCORE_Metadata,zrangebyscoreCommand,-4,"readonly @read @sortedset @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZRANGEBYSCORE_Args},
+{"zrangestore","Store a range of members from sorted set into another key","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements stored into the destination key.","6.2.0",COMMAND_GROUP_SORTED_SET,ZRANGESTORE_ReturnInfo,ZRANGESTORE_History,ZRANGESTORE_Metadata,zrangestoreCommand,-5,"write denyoom @write @sortedset @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZRANGESTORE_Args},
+{"zrank","Determine the index of a member in a sorted set","O(log(N))","2.0.0",COMMAND_GROUP_SORTED_SET,ZRANK_ReturnInfo,ZRANK_History,ZRANK_Metadata,zrankCommand,3,"readonly fast @read @sortedset @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZRANK_Args},
+{"zrem","Remove one or more members from a sorted set","O(M*log(N)) with N being the number of elements in the sorted set and M the number of elements to be removed.","1.2.0",COMMAND_GROUP_SORTED_SET,ZREM_ReturnInfo,ZREM_History,ZREM_Metadata,zremCommand,-3,"write fast @write @sortedset @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZREM_Args},
+{"zremrangebylex","Remove all members in a sorted set between the given lexicographical range","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements removed by the operation.","2.8.9",COMMAND_GROUP_SORTED_SET,ZREMRANGEBYLEX_ReturnInfo,ZREMRANGEBYLEX_History,ZREMRANGEBYLEX_Metadata,zremrangebylexCommand,4,"write @write @sortedset @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZREMRANGEBYLEX_Args},
+{"zremrangebyrank","Remove all members in a sorted set within the given indexes","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements removed by the operation.","2.0.0",COMMAND_GROUP_SORTED_SET,ZREMRANGEBYRANK_ReturnInfo,ZREMRANGEBYRANK_History,ZREMRANGEBYRANK_Metadata,zremrangebyrankCommand,4,"write @write @sortedset @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZREMRANGEBYRANK_Args},
+{"zremrangebyscore","Remove all members in a sorted set within the given scores","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements removed by the operation.","1.2.0",COMMAND_GROUP_SORTED_SET,ZREMRANGEBYSCORE_ReturnInfo,ZREMRANGEBYSCORE_History,ZREMRANGEBYSCORE_Metadata,zremrangebyscoreCommand,4,"write @write @sortedset @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZREMRANGEBYSCORE_Args},
+{"zrevrange","Return a range of members in a sorted set, by index, with scores ordered from high to low","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements returned.","1.2.0",COMMAND_GROUP_SORTED_SET,ZREVRANGE_ReturnInfo,ZREVRANGE_History,ZREVRANGE_Metadata,zrevrangeCommand,-4,"readonly @read @sortedset @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZREVRANGE_Args},
+{"zrevrangebylex","Return a range of members in a sorted set, by lexicographical range, ordered from higher to lower strings.","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements being returned. If M is constant (e.g. always asking for the first 10 elements with LIMIT), you can consider it O(log(N)).","2.8.9",COMMAND_GROUP_SORTED_SET,ZREVRANGEBYLEX_ReturnInfo,ZREVRANGEBYLEX_History,ZREVRANGEBYLEX_Metadata,zrevrangebylexCommand,-4,"readonly @read @sortedset @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZREVRANGEBYLEX_Args},
+{"zrevrangebyscore","Return a range of members in a sorted set, by score, with scores ordered from high to low","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements being returned. If M is constant (e.g. always asking for the first 10 elements with LIMIT), you can consider it O(log(N)).","2.2.0",COMMAND_GROUP_SORTED_SET,ZREVRANGEBYSCORE_ReturnInfo,ZREVRANGEBYSCORE_History,ZREVRANGEBYSCORE_Metadata,zrevrangebyscoreCommand,-4,"readonly @read @sortedset @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZREVRANGEBYSCORE_Args},
+{"zrevrank","Determine the index of a member in a sorted set, with scores ordered from high to low","O(log(N))","2.0.0",COMMAND_GROUP_SORTED_SET,ZREVRANK_ReturnInfo,ZREVRANK_History,ZREVRANK_Metadata,zrevrankCommand,3,"readonly fast @read @sortedset @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZREVRANK_Args},
+{"zscan","Incrementally iterate sorted sets elements and associated scores","O(1) for every call. O(N) for a complete iteration, including enough command calls for the cursor to return back to 0. N is the number of elements inside the collection..","2.8.0",COMMAND_GROUP_SORTED_SET,ZSCAN_ReturnInfo,ZSCAN_History,ZSCAN_Metadata,zscanCommand,-3,"readonly random @read @sortedset @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZSCAN_Args},
+{"zscore","Get the score associated with the given member in a sorted set","O(1)","1.2.0",COMMAND_GROUP_SORTED_SET,ZSCORE_ReturnInfo,ZSCORE_History,ZSCORE_Metadata,zscoreCommand,3,"readonly fast @read @sortedset @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZSCORE_Args},
+{"zunion","Add multiple sorted sets","O(N)+O(M*log(M)) with N being the sum of the sizes of the input sorted sets, and M being the number of elements in the resulting sorted set.","6.2.0",COMMAND_GROUP_SORTED_SET,ZUNION_ReturnInfo,ZUNION_History,ZUNION_Metadata,zunionCommand,-3,"readonly @read @sortedset @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},zunionInterDiffGetKeys,.args=ZUNION_Args},
+{"zunionstore","Add multiple sorted sets and store the resulting sorted set in a new key","O(N)+O(M log(M)) with N being the sum of the sizes of the input sorted sets, and M being the number of elements in the resulting sorted set.","2.0.0",COMMAND_GROUP_SORTED_SET,ZUNIONSTORE_ReturnInfo,ZUNIONSTORE_History,ZUNIONSTORE_Metadata,zunionstoreCommand,-4,"write denyoom @write @sortedset @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},zunionInterDiffStoreGetKeys,.args=ZUNIONSTORE_Args},
 /* stream */
-{"xack","Marks a pending message as correctly processed, effectively removing it from the pending entries list of the consumer group. Return value of the command is the number of messages successfully acknowledged, that is, the IDs we were actually able to resolve in the PEL.","O(1) for each message ID processed.","5.0.0",COMMAND_GROUP_STREAM,XACK_ReturnInfo,XACK_History,XACK_Metadata,xackCommand,-4,"write random fast @write @stream @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"xadd","Appends a new entry to a stream","O(1) when adding a new entry, O(N) when trimming where N being the number of entries evicted.","5.0.0",COMMAND_GROUP_STREAM,XADD_ReturnInfo,XADD_History,XADD_Metadata,xaddCommand,-5,"write denyoom random fast @write @stream @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XADD_Args},
-{"xautoclaim","Changes (or acquires) ownership of messages in a consumer group, as if the messages were delivered to the specified consumer.","O(1) if COUNT is small.","6.2.0",COMMAND_GROUP_STREAM,XAUTOCLAIM_ReturnInfo,XAUTOCLAIM_History,XAUTOCLAIM_Metadata,xautoclaimCommand,-6,"write random fast @write @stream @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"xclaim","Changes (or acquires) ownership of a message in a consumer group, as if the message was delivered to the specified consumer.","O(log N) with N being the number of messages in the PEL of the consumer group.","5.0.0",COMMAND_GROUP_STREAM,XCLAIM_ReturnInfo,XCLAIM_History,XCLAIM_Metadata,xclaimCommand,-6,"write random fast @write @stream @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"xdel","Removes the specified entries from the stream. Returns the number of items actually deleted, that may be different from the number of IDs passed in case certain IDs do not exist.","O(1) for each single item to delete in the stream, regardless of the stream size.","5.0.0",COMMAND_GROUP_STREAM,XDEL_ReturnInfo,XDEL_History,XDEL_Metadata,xdelCommand,-3,"write fast @write @stream @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"xack","Marks a pending message as correctly processed, effectively removing it from the pending entries list of the consumer group. Return value of the command is the number of messages successfully acknowledged, that is, the IDs we were actually able to resolve in the PEL.","O(1) for each message ID processed.","5.0.0",COMMAND_GROUP_STREAM,XACK_ReturnInfo,XACK_History,XACK_Metadata,xackCommand,-4,"write random fast @write @stream @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XACK_Args},
+{"xadd","Appends a new entry to a stream","O(1) when adding a new entry, O(N) when trimming where N being the number of entires evicted.","5.0.0",COMMAND_GROUP_STREAM,XADD_ReturnInfo,XADD_History,XADD_Metadata,xaddCommand,-5,"write denyoom random fast @write @stream @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XADD_Args},
+{"xautoclaim","Changes (or acquires) ownership of messages in a consumer group, as if the messages were delivered to the specified consumer.","O(1) if COUNT is small.","6.2.0",COMMAND_GROUP_STREAM,XAUTOCLAIM_ReturnInfo,XAUTOCLAIM_History,XAUTOCLAIM_Metadata,xautoclaimCommand,-6,"write random fast @write @stream @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XAUTOCLAIM_Args},
+{"xclaim","Changes (or acquires) ownership of a message in a consumer group, as if the message was delivered to the specified consumer.","O(log N) with N being the number of messages in the PEL of the consumer group.","5.0.0",COMMAND_GROUP_STREAM,XCLAIM_ReturnInfo,XCLAIM_History,XCLAIM_Metadata,xclaimCommand,-6,"write random fast @write @stream @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XCLAIM_Args},
+{"xdel","Removes the specified entries from the stream. Returns the number of items actually deleted, that may be different from the number of IDs passed in case certain IDs do not exist.","O(1) for each single item to delete in the stream, regardless of the stream size.","5.0.0",COMMAND_GROUP_STREAM,XDEL_ReturnInfo,XDEL_History,XDEL_Metadata,xdelCommand,-3,"write fast @write @stream @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XDEL_Args},
 {"xgroup",NULL,NULL,"5.0.0",COMMAND_GROUP_STREAM,XGROUP_ReturnInfo,XGROUP_History,XGROUP_Metadata,NULL,-2,"@slow",.subcommands=XGROUP_Subcommands},
 {"xinfo",NULL,NULL,"5.0.0",COMMAND_GROUP_STREAM,XINFO_ReturnInfo,XINFO_History,XINFO_Metadata,NULL,-2,"@slow",.subcommands=XINFO_Subcommands},
-{"xlen","Return the number of entries in a stream","O(1)","5.0.0",COMMAND_GROUP_STREAM,XLEN_ReturnInfo,XLEN_History,XLEN_Metadata,xlenCommand,2,"readonly fast @read @stream @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"xpending","Return information and entries from a stream consumer group pending entries list, that are messages fetched but never acknowledged.","O(N) with N being the number of elements returned, so asking for a small fixed number of entries per call is O(1). O(M), where M is the total number of entries scanned when used with the IDLE filter. When the command returns just the summary and the list of consumers is small, it runs in O(1) time; otherwise, an additional O(N) time for iterating every consumer.","5.0.0",COMMAND_GROUP_STREAM,XPENDING_ReturnInfo,XPENDING_History,XPENDING_Metadata,xpendingCommand,-3,"readonly random @read @stream @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"xrange","Return a range of elements in a stream, with IDs matching the specified IDs interval","O(N) with N being the number of elements being returned. If N is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1).","5.0.0",COMMAND_GROUP_STREAM,XRANGE_ReturnInfo,XRANGE_History,XRANGE_Metadata,xrangeCommand,-4,"readonly @read @stream @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"xread","Return never seen elements in multiple streams, with IDs greater than the ones reported by the caller for each stream. Can block.","For each stream mentioned: O(N) with N being the number of elements being returned, it means that XREAD-ing with a fixed COUNT is O(1). Note that when the BLOCK option is used, XADD will pay O(M) time in order to serve the M clients blocked on the stream getting new data.","5.0.0",COMMAND_GROUP_STREAM,XREAD_ReturnInfo,XREAD_History,XREAD_Metadata,xreadCommand,-4,"readonly @read @stream @slow @blocking",{{"read",KSPEC_BS_KEYWORD,.bs.keyword={"STREAMS",1},KSPEC_FK_RANGE,.fk.range={-1,1,2}}},xreadGetKeys},
-{"xreadgroup","Return new entries from a stream using a consumer group, or access the history of the pending entries for a given consumer. Can block.","For each stream mentioned: O(M) with M being the number of elements returned. If M is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1). On the other side when XREADGROUP blocks, XADD will pay the O(N) time in order to serve the N clients blocked on the stream getting new data.","5.0.0",COMMAND_GROUP_STREAM,XREADGROUP_ReturnInfo,XREADGROUP_History,XREADGROUP_Metadata,xreadCommand,-7,"write @write @stream @slow @blocking",{{"read",KSPEC_BS_KEYWORD,.bs.keyword={"STREAMS",4},KSPEC_FK_RANGE,.fk.range={-1,1,2}}},xreadGetKeys},
-{"xrevrange","Return a range of elements in a stream, with IDs matching the specified IDs interval, in reverse order (from greater to smaller IDs) compared to XRANGE","O(N) with N being the number of elements returned. If N is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1).","5.0.0",COMMAND_GROUP_STREAM,XREVRANGE_ReturnInfo,XREVRANGE_History,XREVRANGE_Metadata,xrevrangeCommand,-4,"readonly @read @stream @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"xtrim","Trims the stream to (approximately if '~' is passed) a certain size","O(N), with N being the number of evicted entries. Constant times are very small however, since entries are organized in macro nodes containing multiple entries that can be released with a single deallocation.","5.0.0",COMMAND_GROUP_STREAM,XTRIM_ReturnInfo,XTRIM_History,XTRIM_Metadata,xtrimCommand,-4,"write random @write @stream @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"xlen","Return the number of entries in a stream","O(1)","5.0.0",COMMAND_GROUP_STREAM,XLEN_ReturnInfo,XLEN_History,XLEN_Metadata,xlenCommand,2,"readonly fast @read @stream @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XLEN_Args},
+{"xpending","Return information and entries from a stream consumer group pending entries list, that are messages fetched but never acknowledged.","O(N) with N being the number of elements returned, so asking for a small fixed number of entries per call is O(1). O(M), where M is the total number of entries scanned when used with the IDLE filter. When the command returns just the summary and the list of consumers is small, it runs in O(1) time; otherwise, an additional O(N) time for iterating every consumer.","5.0.0",COMMAND_GROUP_STREAM,XPENDING_ReturnInfo,XPENDING_History,XPENDING_Metadata,xpendingCommand,-3,"readonly random @read @stream @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XPENDING_Args},
+{"xrange","Return a range of elements in a stream, with IDs matching the specified IDs interval","O(N) with N being the number of elements being returned. If N is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1).","5.0.0",COMMAND_GROUP_STREAM,XRANGE_ReturnInfo,XRANGE_History,XRANGE_Metadata,xrangeCommand,-4,"readonly @read @stream @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XRANGE_Args},
+{"xread","Return never seen elements in multiple streams, with IDs greater than the ones reported by the caller for each stream. Can block.","For each stream mentioned: O(N) with N being the number of elements being returned, it means that XREAD-ing with a fixed COUNT is O(1). Note that when the BLOCK option is used, XADD will pay O(M) time in order to serve the M clients blocked on the stream getting new data.","5.0.0",COMMAND_GROUP_STREAM,XREAD_ReturnInfo,XREAD_History,XREAD_Metadata,xreadCommand,-4,"readonly @read @stream @slow @blocking",{{"read",KSPEC_BS_KEYWORD,.bs.keyword={"STREAMS",1},KSPEC_FK_RANGE,.fk.range={-1,1,2}}},xreadGetKeys,.args=XREAD_Args},
+{"xreadgroup","Return new entries from a stream using a consumer group, or access the history of the pending entries for a given consumer. Can block.","For each stream mentioned: O(M) with M being the number of elements returned. If M is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1). On the other side when XREADGROUP blocks, XADD will pay the O(N) time in order to serve the N clients blocked on the stream getting new data.","5.0.0",COMMAND_GROUP_STREAM,XREADGROUP_ReturnInfo,XREADGROUP_History,XREADGROUP_Metadata,xreadCommand,-7,"write @write @stream @slow @blocking",{{"read",KSPEC_BS_KEYWORD,.bs.keyword={"STREAMS",4},KSPEC_FK_RANGE,.fk.range={-1,1,2}}},xreadGetKeys,.args=XREADGROUP_Args},
+{"xrevrange","Return a range of elements in a stream, with IDs matching the specified IDs interval, in reverse order (from greater to smaller IDs) compared to XRANGE","O(N) with N being the number of elements returned. If N is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1).","5.0.0",COMMAND_GROUP_STREAM,XREVRANGE_ReturnInfo,XREVRANGE_History,XREVRANGE_Metadata,xrevrangeCommand,-4,"readonly @read @stream @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XREVRANGE_Args},
+{"xsetid",NULL,NULL,NULL,COMMAND_GROUP_STREAM,XSETID_ReturnInfo,XSETID_History,XSETID_Metadata,xsetidCommand,3,"write denyoom fast @write @stream @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"xtrim","Trims the stream to (approximately if '~' is passed) a certain size","O(N), with N being the number of evicted entries. Constant times are very small however, since entries are organized in macro nodes containing multiple entries that can be released with a single deallocation.","5.0.0",COMMAND_GROUP_STREAM,XTRIM_ReturnInfo,XTRIM_History,XTRIM_Metadata,xtrimCommand,-4,"write random @write @stream @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XTRIM_Args},
 /* string */
-{"append","Append a value to a key","O(1). The amortized time complexity is O(1) assuming the appended value is small and the already present value is of any size, since the dynamic string library used by Redis will double the free space available on every reallocation.","2.0.0",COMMAND_GROUP_STRING,APPEND_ReturnInfo,APPEND_History,APPEND_Metadata,appendCommand,3,"write denyoom fast @write @string @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"decr","Decrement the integer value of a key by one","O(1)","1.0.0",COMMAND_GROUP_STRING,DECR_ReturnInfo,DECR_History,DECR_Metadata,decrCommand,2,"write denyoom fast @write @string @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"decrby","Decrement the integer value of a key by the given number","O(1)","1.0.0",COMMAND_GROUP_STRING,DECRBY_ReturnInfo,DECRBY_History,DECRBY_Metadata,decrbyCommand,3,"write denyoom fast @write @string @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"get","Get the value of a key","O(1)","1.0.0",COMMAND_GROUP_STRING,GET_ReturnInfo,GET_History,GET_Metadata,getCommand,2,"readonly fast @read @string @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"getdel","Get the value of a key and delete the key","O(1)","6.2.0",COMMAND_GROUP_STRING,GETDEL_ReturnInfo,GETDEL_History,GETDEL_Metadata,getdelCommand,2,"write fast @write @string @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"getex","Get the value of a key and optionally set its expiration","O(1)","6.2.0",COMMAND_GROUP_STRING,GETEX_ReturnInfo,GETEX_History,GETEX_Metadata,getexCommand,-2,"write fast @write @string @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"getrange","Get a substring of the string stored at a key","O(N) where N is the length of the returned string. The complexity is ultimately determined by the returned length, but because creating a substring from an existing string is very cheap, it can be considered O(1) for small strings.","2.4.0",COMMAND_GROUP_STRING,GETRANGE_ReturnInfo,GETRANGE_History,GETRANGE_Metadata,getrangeCommand,4,"readonly @read @string @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"getset","Set the string value of a key and return its old value","O(1)","1.0.0",COMMAND_GROUP_STRING,GETSET_ReturnInfo,GETSET_History,GETSET_Metadata,getsetCommand,3,"write denyoom fast @write @string @fast",{{"write read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"incr","Increment the integer value of a key by one","O(1)","1.0.0",COMMAND_GROUP_STRING,INCR_ReturnInfo,INCR_History,INCR_Metadata,incrCommand,2,"write denyoom fast @write @string @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"incrby","Increment the integer value of a key by the given amount","O(1)","1.0.0",COMMAND_GROUP_STRING,INCRBY_ReturnInfo,INCRBY_History,INCRBY_Metadata,incrbyCommand,3,"write denyoom fast @write @string @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"incrbyfloat","Increment the float value of a key by the given amount","O(1)","2.6.0",COMMAND_GROUP_STRING,INCRBYFLOAT_ReturnInfo,INCRBYFLOAT_History,INCRBYFLOAT_Metadata,incrbyfloatCommand,3,"write denyoom fast @write @string @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"mget","Get the values of all the given keys","O(N) where N is the number of keys to retrieve.","1.0.0",COMMAND_GROUP_STRING,MGET_ReturnInfo,MGET_History,MGET_Metadata,mgetCommand,-2,"readonly fast @read @string @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
-{"mset","Set multiple keys to multiple values","O(N) where N is the number of keys to set.","1.0.1",COMMAND_GROUP_STRING,MSET_ReturnInfo,MSET_History,MSET_Metadata,msetCommand,-3,"write denyoom @write @string @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,2,0}}}},
-{"msetnx","Set multiple keys to multiple values, only if none of the keys exist","O(N) where N is the number of keys to set.","1.0.1",COMMAND_GROUP_STRING,MSETNX_ReturnInfo,MSETNX_History,MSETNX_Metadata,msetnxCommand,-3,"write denyoom @write @string @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,2,0}}}},
-{"psetex","Set the value and expiration in milliseconds of a key","O(1)","2.6.0",COMMAND_GROUP_STRING,PSETEX_ReturnInfo,PSETEX_History,PSETEX_Metadata,psetexCommand,4,"write denyoom @write @string @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"append","Append a value to a key","O(1). The amortized time complexity is O(1) assuming the appended value is small and the already present value is of any size, since the dynamic string library used by Redis will double the free space available on every reallocation.","2.0.0",COMMAND_GROUP_STRING,APPEND_ReturnInfo,APPEND_History,APPEND_Metadata,appendCommand,3,"write denyoom fast @write @string @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=APPEND_Args},
+{"decr","Decrement the integer value of a key by one","O(1)","1.0.0",COMMAND_GROUP_STRING,DECR_ReturnInfo,DECR_History,DECR_Metadata,decrCommand,2,"write denyoom fast @write @string @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=DECR_Args},
+{"decrby","Decrement the integer value of a key by the given number","O(1)","1.0.0",COMMAND_GROUP_STRING,DECRBY_ReturnInfo,DECRBY_History,DECRBY_Metadata,decrbyCommand,3,"write denyoom fast @write @string @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=DECRBY_Args},
+{"get","Get the value of a key","O(1)","1.0.0",COMMAND_GROUP_STRING,GET_ReturnInfo,GET_History,GET_Metadata,getCommand,2,"readonly fast @read @string @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=GET_Args},
+{"getdel","Get the value of a key and delete the key","O(1)","6.2.0",COMMAND_GROUP_STRING,GETDEL_ReturnInfo,GETDEL_History,GETDEL_Metadata,getdelCommand,2,"write fast @write @string @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=GETDEL_Args},
+{"getex","Get the value of a key and optionally set its expiration","O(1)","6.2.0",COMMAND_GROUP_STRING,GETEX_ReturnInfo,GETEX_History,GETEX_Metadata,getexCommand,-2,"write fast @write @string @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=GETEX_Args},
+{"getrange","Get a substring of the string stored at a key","O(N) where N is the length of the returned string. The complexity is ultimately determined by the returned length, but because creating a substring from an existing string is very cheap, it can be considered O(1) for small strings.","2.4.0",COMMAND_GROUP_STRING,GETRANGE_ReturnInfo,GETRANGE_History,GETRANGE_Metadata,getrangeCommand,4,"readonly @read @string @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=GETRANGE_Args},
+{"getset","Set the string value of a key and return its old value","O(1)","1.0.0",COMMAND_GROUP_STRING,GETSET_ReturnInfo,GETSET_History,GETSET_Metadata,getsetCommand,3,"write denyoom fast @write @string @fast",{{"write read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=GETSET_Args},
+{"incr","Increment the integer value of a key by one","O(1)","1.0.0",COMMAND_GROUP_STRING,INCR_ReturnInfo,INCR_History,INCR_Metadata,incrCommand,2,"write denyoom fast @write @string @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=INCR_Args},
+{"incrby","Increment the integer value of a key by the given amount","O(1)","1.0.0",COMMAND_GROUP_STRING,INCRBY_ReturnInfo,INCRBY_History,INCRBY_Metadata,incrbyCommand,3,"write denyoom fast @write @string @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=INCRBY_Args},
+{"incrbyfloat","Increment the float value of a key by the given amount","O(1)","2.6.0",COMMAND_GROUP_STRING,INCRBYFLOAT_ReturnInfo,INCRBYFLOAT_History,INCRBYFLOAT_Metadata,incrbyfloatCommand,3,"write denyoom fast @write @string @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=INCRBYFLOAT_Args},
+{"mget","Get the values of all the given keys","O(N) where N is the number of keys to retrieve.","1.0.0",COMMAND_GROUP_STRING,MGET_ReturnInfo,MGET_History,MGET_Metadata,mgetCommand,-2,"readonly fast @read @string @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=MGET_Args},
+{"mset","Set multiple keys to multiple values","O(N) where N is the number of keys to set.","1.0.1",COMMAND_GROUP_STRING,MSET_ReturnInfo,MSET_History,MSET_Metadata,msetCommand,-3,"write denyoom @write @string @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,2,0}}},.args=MSET_Args},
+{"msetnx","Set multiple keys to multiple values, only if none of the keys exist","O(N) where N is the number of keys to set.","1.0.1",COMMAND_GROUP_STRING,MSETNX_ReturnInfo,MSETNX_History,MSETNX_Metadata,msetnxCommand,-3,"write denyoom @write @string @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,2,0}}},.args=MSETNX_Args},
+{"psetex","Set the value and expiration in milliseconds of a key","O(1)","2.6.0",COMMAND_GROUP_STRING,PSETEX_ReturnInfo,PSETEX_History,PSETEX_Metadata,psetexCommand,4,"write denyoom @write @string @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=PSETEX_Args},
 {"set","Set the string value of a key","O(1)","1.0.0",COMMAND_GROUP_STRING,SET_ReturnInfo,SET_History,SET_Metadata,setCommand,-3,"write denyoom @write @string @slow",{{"write read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SET_Args},
-{"setex","Set the value and expiration of a key","O(1)","2.0.0",COMMAND_GROUP_STRING,SETEX_ReturnInfo,SETEX_History,SETEX_Metadata,setexCommand,4,"write denyoom @write @string @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"setnx","Set the value of a key, only if the key does not exist","O(1)","1.0.0",COMMAND_GROUP_STRING,SETNX_ReturnInfo,SETNX_History,SETNX_Metadata,setnxCommand,3,"write denyoom fast @write @string @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"setrange","Overwrite part of a string at key starting at the specified offset","O(1), not counting the time taken to copy the new string in place. Usually, this string is very small so the amortized complexity is O(1). Otherwise, complexity is O(M) with M being the length of the value argument.","2.2.0",COMMAND_GROUP_STRING,SETRANGE_ReturnInfo,SETRANGE_History,SETRANGE_Metadata,setrangeCommand,4,"write denyoom @write @string @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"stralgo","Run algorithms (currently LCS) against strings","For LCS O(strlen(s1)*strlen(s2))","6.0.0",COMMAND_GROUP_STRING,STRALGO_ReturnInfo,STRALGO_History,STRALGO_Metadata,NULL,-2,"@slow",.subcommands=STRALGO_Subcommands},
-{"strlen","Get the length of the value stored in a key","O(1)","2.2.0",COMMAND_GROUP_STRING,STRLEN_ReturnInfo,STRLEN_History,STRLEN_Metadata,strlenCommand,2,"readonly fast @read @string @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"setex","Set the value and expiration of a key","O(1)","2.0.0",COMMAND_GROUP_STRING,SETEX_ReturnInfo,SETEX_History,SETEX_Metadata,setexCommand,4,"write denyoom @write @string @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SETEX_Args},
+{"setnx","Set the value of a key, only if the key does not exist","O(1)","1.0.0",COMMAND_GROUP_STRING,SETNX_ReturnInfo,SETNX_History,SETNX_Metadata,setnxCommand,3,"write denyoom fast @write @string @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SETNX_Args},
+{"setrange","Overwrite part of a string at key starting at the specified offset","O(1), not counting the time taken to copy the new string in place. Usually, this string is very small so the amortized complexity is O(1). Otherwise, complexity is O(M) with M being the length of the value argument.","2.2.0",COMMAND_GROUP_STRING,SETRANGE_ReturnInfo,SETRANGE_History,SETRANGE_Metadata,setrangeCommand,4,"write denyoom @write @string @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SETRANGE_Args},
+{"stralgo","Run algorithms (currently LCS) against strings","For LCS O(strlen(s1)*strlen(s2))","6.0.0",COMMAND_GROUP_STRING,STRALGO_ReturnInfo,STRALGO_History,STRALGO_Metadata,NULL,-2,"@slow",.subcommands=STRALGO_Subcommands,.args=STRALGO_Args},
+{"strlen","Get the length of the value stored in a key","O(1)","2.2.0",COMMAND_GROUP_STRING,STRLEN_ReturnInfo,STRLEN_History,STRLEN_Metadata,strlenCommand,2,"readonly fast @read @string @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=STRLEN_Args},
+{"substr",NULL,NULL,NULL,COMMAND_GROUP_STRING,SUBSTR_ReturnInfo,SUBSTR_History,SUBSTR_Metadata,getrangeCommand,4,"readonly @read @string @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 /* transactions */
 {"discard","Discard all commands issued after MULTI",NULL,"2.0.0",COMMAND_GROUP_TRANSACTIONS,DISCARD_ReturnInfo,DISCARD_History,DISCARD_Metadata,discardCommand,1,"noscript loading stale fast @fast @transaction"},
 {"exec","Execute all commands issued after MULTI",NULL,"1.2.0",COMMAND_GROUP_TRANSACTIONS,EXEC_ReturnInfo,EXEC_History,EXEC_Metadata,execCommand,1,"noscript loading stale skip_slowlog @slow @transaction"},
 {"multi","Mark the start of a transaction block",NULL,"1.2.0",COMMAND_GROUP_TRANSACTIONS,MULTI_ReturnInfo,MULTI_History,MULTI_Metadata,multiCommand,1,"noscript loading stale fast @fast @transaction"},
 {"unwatch","Forget about all watched keys","O(1)","2.2.0",COMMAND_GROUP_TRANSACTIONS,UNWATCH_ReturnInfo,UNWATCH_History,UNWATCH_Metadata,unwatchCommand,1,"noscript loading stale fast @fast @transaction"},
-{"watch","Watch the given keys to determine execution of the MULTI/EXEC block","O(1) for every key.","2.2.0",COMMAND_GROUP_TRANSACTIONS,WATCH_ReturnInfo,WATCH_History,WATCH_Metadata,watchCommand,-2,"noscript loading stale fast @fast @transaction",{{"",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
+{"watch","Watch the given keys to determine execution of the MULTI/EXEC block","O(1) for every key.","2.2.0",COMMAND_GROUP_TRANSACTIONS,WATCH_ReturnInfo,WATCH_History,WATCH_Metadata,watchCommand,-2,"noscript loading stale fast @fast @transaction",{{"",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=WATCH_Args},
 {0}
 };

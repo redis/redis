@@ -35,6 +35,41 @@
                     }
                 }
             }
+        ],
+        "arguments": [
+            {
+                "token": "COUNT",
+                "optional": true,
+                "name": "count",
+                "type": "integer",
+                "value": "count"
+            },
+            {
+                "token": "BLOCK",
+                "optional": true,
+                "name": "milliseconds",
+                "type": "integer",
+                "value": "milliseconds"
+            },
+            {
+                "name": "streams",
+                "value": "STREAMS",
+                "type": "token"
+            },
+            {
+                "multiple": true,
+                "multiple_token": true,
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "multiple": true,
+                "multiple_token": true,
+                "name": "ID",
+                "type": "string",
+                "value": "ID"
+            }
         ]
     }
 }

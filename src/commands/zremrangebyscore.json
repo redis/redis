@@ -32,6 +32,23 @@
                     }
                 }
             }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "name": "min",
+                "type": "double",
+                "value": "min"
+            },
+            {
+                "name": "max",
+                "type": "double",
+                "value": "max"
+            }
         ]
     }
 }

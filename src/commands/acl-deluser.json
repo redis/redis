@@ -1,5 +1,5 @@
 {
-    "DELUSER": {
+    "ACL DELUSER": {
         "summary": "Remove the specified ACL users and the associated rules",
         "complexity": "O(1) amortized time considering the typical user.",
         "group": "server",
@@ -17,6 +17,15 @@
             "admin",
             "slow",
             "dangerous"
+        ],
+        "arguments": [
+            {
+                "multiple": true,
+                "multiple_token": true,
+                "name": "username",
+                "type": "string",
+                "value": "username"
+            }
         ]
     }
 }

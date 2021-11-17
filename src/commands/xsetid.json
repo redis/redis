@@ -1,7 +1,10 @@
 {
     "XSETID": {
+        "group": "stream",
         "arity": 3,
         "function": "xsetidCommand",
+        "internal": true,
+        "undocumented": true,
         "command_flags": [
             "write",
             "denyoom",

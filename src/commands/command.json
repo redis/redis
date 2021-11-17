@@ -14,12 +14,6 @@
         "acl_categories": [
             "slow",
             "connection"
-        ],
-        "returns":[
-            {
-                "description": "Nested list of command details",
-                "type":"array"
-            }
         ]
     }
 }

@@ -1,5 +1,5 @@
 {
-    "MALLOC-STATS": {
+    "MEMORY MALLOC-STATS": {
         "summary": "Show allocator internal stats",
         "group": "server",
         "since": "4.0.0",

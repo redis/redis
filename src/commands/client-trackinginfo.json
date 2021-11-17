@@ -1,5 +1,5 @@
 {
-    "TRACKINGINFO": {
+    "CLIENT TRACKINGINFO": {
         "summary": "Return information about server assisted client side caching for the current connection",
         "complexity": "O(1)",
         "group": "connection",

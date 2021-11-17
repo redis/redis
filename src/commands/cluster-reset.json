@@ -1,5 +1,5 @@
 {
-    "RESET": {
+    "CLUSTER RESET": {
         "summary": "Reset a Redis Cluster node",
         "complexity": "O(N) where N is the number of known nodes. The command may execute a FLUSHALL as a side effect.",
         "group": "cluster",
@@ -16,6 +16,25 @@
             "admin",
             "slow",
             "dangerous"
+        ],
+        "arguments": [
+            {
+                "optional": true,
+                "name": "__TBD__20__",
+                "type": "oneof",
+                "value": [
+                    {
+                        "name": "hard",
+                        "type": "token",
+                        "value": "HARD"
+                    },
+                    {
+                        "name": "soft",
+                        "type": "token",
+                        "value": "SOFT"
+                    }
+                ]
+            }
         ]
     }
 }

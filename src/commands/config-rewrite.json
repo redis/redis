@@ -1,5 +1,5 @@
 {
-    "REWRITE": {
+    "CONFIG REWRITE": {
         "summary": "Rewrite the configuration file with the in memory configuration",
         "group": "server",
         "since": "2.8.0",

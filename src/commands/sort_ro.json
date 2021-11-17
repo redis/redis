@@ -35,6 +35,70 @@
                     }
                 }
             }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "token": "BY",
+                "optional": true,
+                "name": "pattern",
+                "type": "pattern",
+                "value": "pattern"
+            },
+            {
+                "token": "LIMIT",
+                "optional": true,
+                "name": "offset_count",
+                "type": "block",
+                "value": [
+                    {
+                        "name": "offset",
+                        "type": "integer",
+                        "value": "offset"
+                    },
+                    {
+                        "name": "count",
+                        "type": "integer",
+                        "value": "count"
+                    }
+                ]
+            },
+            {
+                "token": "GET",
+                "optional": true,
+                "multiple": true,
+                "multiple_token": true,
+                "name": "pattern",
+                "type": "string",
+                "value": "pattern"
+            },
+            {
+                "optional": true,
+                "name": "__TBD__32__",
+                "type": "oneof",
+                "value": [
+                    {
+                        "name": "asc",
+                        "type": "token",
+                        "value": "ASC"
+                    },
+                    {
+                        "name": "desc",
+                        "type": "token",
+                        "value": "DESC"
+                    }
+                ]
+            },
+            {
+                "optional": true,
+                "name": "sorting",
+                "value": "ALPHA",
+                "type": "token"
+            }
         ]
     }
 }

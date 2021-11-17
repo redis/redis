@@ -5,9 +5,22 @@
         "group": "string",
         "since": "6.0.0",
         "arity": -2,
-        "command_flags": [],
         "acl_categories": [
             "slow"
+        ],
+        "arguments": [
+            {
+                "name": "algorithm",
+                "value": "LCS",
+                "type": "token"
+            },
+            {
+                "multiple": true,
+                "multiple_token": true,
+                "name": "algo-specific-argument",
+                "type": "string",
+                "value": "algo-specific-argument"
+            }
         ]
     }
 }

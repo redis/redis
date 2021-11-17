@@ -5,8 +5,9 @@
         "group": "string",
         "since": "1.0.0",
         "arity": 3,
-        "depracated": true,
         "function": "getsetCommand",
+        "until": "6.2.0",
+        "replaced_by": "`SET` with the `!GET` argument",
         "command_flags": [
             "write",
             "denyoom",
@@ -35,6 +36,18 @@
                         "limit": 0
                     }
                 }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "name": "value",
+                "type": "string",
+                "value": "value"
             }
         ]
     }

@@ -38,6 +38,70 @@
                     }
                 }
             }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "name": "min",
+                "type": "string",
+                "value": "min"
+            },
+            {
+                "name": "max",
+                "type": "string",
+                "value": "max"
+            },
+            {
+                "optional": true,
+                "name": "__TBD__18__",
+                "type": "oneof",
+                "value": [
+                    {
+                        "name": "byscore",
+                        "type": "token",
+                        "value": "BYSCORE"
+                    },
+                    {
+                        "name": "bylex",
+                        "type": "token",
+                        "value": "BYLEX"
+                    }
+                ]
+            },
+            {
+                "optional": true,
+                "name": "rev",
+                "value": "REV",
+                "type": "token"
+            },
+            {
+                "token": "LIMIT",
+                "optional": true,
+                "name": "offset_count",
+                "type": "block",
+                "value": [
+                    {
+                        "name": "offset",
+                        "type": "integer",
+                        "value": "offset"
+                    },
+                    {
+                        "name": "count",
+                        "type": "integer",
+                        "value": "count"
+                    }
+                ]
+            },
+            {
+                "optional": true,
+                "name": "withscores",
+                "value": "WITHSCORES",
+                "type": "token"
+            }
         ]
     }
 }

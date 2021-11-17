@@ -33,6 +33,39 @@
                     }
                 }
             }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "name": "__TBD__2__",
+                "type": "oneof",
+                "value": [
+                    {
+                        "name": "before",
+                        "type": "token",
+                        "value": "BEFORE"
+                    },
+                    {
+                        "name": "after",
+                        "type": "token",
+                        "value": "AFTER"
+                    }
+                ]
+            },
+            {
+                "name": "pivot",
+                "type": "string",
+                "value": "pivot"
+            },
+            {
+                "name": "element",
+                "type": "string",
+                "value": "element"
+            }
         ]
     }
 }

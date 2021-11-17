@@ -48,6 +48,77 @@
                     }
                 }
             }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "optional": true,
+                "name": "__TBD__75__",
+                "type": "oneof",
+                "value": [
+                    {
+                        "name": "nx",
+                        "type": "token",
+                        "value": "NX"
+                    },
+                    {
+                        "name": "xx",
+                        "type": "token",
+                        "value": "XX"
+                    }
+                ]
+            },
+            {
+                "optional": true,
+                "name": "__TBD__76__",
+                "type": "oneof",
+                "value": [
+                    {
+                        "name": "gt",
+                        "type": "token",
+                        "value": "GT"
+                    },
+                    {
+                        "name": "lt",
+                        "type": "token",
+                        "value": "LT"
+                    }
+                ]
+            },
+            {
+                "optional": true,
+                "name": "change",
+                "value": "CH",
+                "type": "token"
+            },
+            {
+                "optional": true,
+                "name": "increment",
+                "value": "INCR",
+                "type": "token"
+            },
+            {
+                "multiple": true,
+                "multiple_token": true,
+                "name": "score_member",
+                "type": "block",
+                "value": [
+                    {
+                        "name": "score",
+                        "type": "double",
+                        "value": "score"
+                    },
+                    {
+                        "name": "member",
+                        "type": "string",
+                        "value": "member"
+                    }
+                ]
+            }
         ]
     }
 }

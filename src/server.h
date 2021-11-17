@@ -1891,6 +1891,7 @@ typedef enum {
     ARG_TYPE_KEY,
     ARG_TYPE_PATTERN,
     ARG_TYPE_UNIX_TIME,
+    ARG_TYPE_TOKEN,
     ARG_TYPE_ONEOF, /* Has subargs */
     ARG_TYPE_BLOCK /* Has subargs */
 } redisCommandArgType;

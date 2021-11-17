@@ -1,5 +1,5 @@
 {
-    "REFCOUNT": {
+    "OBJECT REFCOUNT": {
         "summary": "Get the number of references to the value of the key",
         "complexity": "O(1)",
         "group": "generic",
@@ -32,6 +32,13 @@
                         "limit": 0
                     }
                 }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "value": "key"
             }
         ]
     }

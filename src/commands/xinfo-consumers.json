@@ -1,5 +1,5 @@
 {
-    "CONSUMERS": {
+    "XINFO CONSUMERS": {
         "summary": "List the consumers in a consumer group",
         "complexity": "O(1)",
         "group": "stream",
@@ -33,6 +33,18 @@
                         "limit": 0
                     }
                 }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "name": "groupname",
+                "type": "string",
+                "value": "groupname"
             }
         ]
     }

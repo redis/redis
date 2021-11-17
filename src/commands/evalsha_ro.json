@@ -9,8 +9,7 @@
         "get_keys_function": "evalGetKeys",
         "command_flags": [
             "noscript",
-            "skip_monitor",
-            "no_mandatory_keys"
+            "skip_monitor"
         ],
         "acl_categories": [
             "slow",
@@ -33,6 +32,32 @@
                         "step": 1
                     }
                 }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "sha1",
+                "type": "string",
+                "value": "sha1"
+            },
+            {
+                "name": "numkeys",
+                "type": "integer",
+                "value": "numkeys"
+            },
+            {
+                "multiple": true,
+                "multiple_token": true,
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "multiple": true,
+                "multiple_token": true,
+                "name": "arg",
+                "type": "string",
+                "value": "arg"
             }
         ]
     }

@@ -1,5 +1,5 @@
 {
-    "KILL": {
+    "CLIENT KILL": {
         "summary": "Kill the connection of a client",
         "complexity": "O(N) where N is the number of client connections",
         "group": "connection",
@@ -40,6 +40,77 @@
             "slow",
             "dangerous",
             "connection"
+        ],
+        "arguments": [
+            {
+                "optional": true,
+                "name": "ip:port",
+                "type": "string",
+                "value": "ip:port"
+            },
+            {
+                "token": "ID",
+                "optional": true,
+                "name": "client-id",
+                "type": "integer",
+                "value": "client-id"
+            },
+            {
+                "token": "TYPE",
+                "optional": true,
+                "name": "__TBD__48__",
+                "type": "oneof",
+                "value": [
+                    {
+                        "name": "normal",
+                        "type": "token",
+                        "value": "normal"
+                    },
+                    {
+                        "name": "master",
+                        "type": "token",
+                        "value": "master"
+                    },
+                    {
+                        "name": "slave",
+                        "type": "token",
+                        "value": "slave"
+                    },
+                    {
+                        "name": "pubsub",
+                        "type": "token",
+                        "value": "pubsub"
+                    }
+                ]
+            },
+            {
+                "token": "USER",
+                "optional": true,
+                "name": "username",
+                "type": "string",
+                "value": "username"
+            },
+            {
+                "token": "ADDR",
+                "optional": true,
+                "name": "ip:port",
+                "type": "string",
+                "value": "ip:port"
+            },
+            {
+                "token": "LADDR",
+                "optional": true,
+                "name": "ip:port",
+                "type": "string",
+                "value": "ip:port"
+            },
+            {
+                "token": "SKIPME",
+                "optional": true,
+                "name": "yes/no",
+                "type": "string",
+                "value": "yes/no"
+            }
         ]
     }
 }

@@ -1,5 +1,5 @@
 {
-    "MYID": {
+    "CLUSTER MYID": {
         "summary": "Return the node id",
         "complexity": "O(1)",
         "group": "cluster",

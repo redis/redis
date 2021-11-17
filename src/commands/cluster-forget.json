@@ -1,5 +1,5 @@
 {
-    "FORGET": {
+    "CLUSTER FORGET": {
         "summary": "Remove a node from the nodes table",
         "complexity": "O(1)",
         "group": "cluster",
@@ -16,6 +16,13 @@
             "admin",
             "slow",
             "dangerous"
+        ],
+        "arguments": [
+            {
+                "name": "node-id",
+                "type": "string",
+                "value": "node-id"
+            }
         ]
     }
 }

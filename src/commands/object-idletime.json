@@ -1,5 +1,5 @@
 {
-    "IDLETIME": {
+    "OBJECT IDLETIME": {
         "summary": "Get the time since a Redis object was last accessed",
         "complexity": "O(1)",
         "group": "generic",
@@ -33,6 +33,13 @@
                         "limit": 0
                     }
                 }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "value": "key"
             }
         ]
     }

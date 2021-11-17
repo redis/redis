@@ -1,5 +1,5 @@
 {
-    "SAVECONFIG": {
+    "CLUSTER SAVECONFIG": {
         "summary": "Forces the node to save cluster state on disk",
         "complexity": "O(1)",
         "group": "cluster",

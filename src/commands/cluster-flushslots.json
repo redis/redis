@@ -1,5 +1,5 @@
 {
-    "FLUSHSLOTS": {
+    "CLUSTER FLUSHSLOTS": {
         "summary": "Delete a node's own slots information",
         "complexity": "O(1)",
         "group": "cluster",

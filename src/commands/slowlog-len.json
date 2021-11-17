@@ -1,5 +1,5 @@
 {
-    "LEN": {
+    "SLOWLOG LEN": {
         "summary": "Get the slow log's length",
         "complexity": "O(1)",
         "group": "server",

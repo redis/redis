@@ -32,6 +32,18 @@
                     }
                 }
             }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "name": "newkey",
+                "type": "key",
+                "value": "newkey"
+            }
         ]
     }
 }

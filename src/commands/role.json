@@ -4,7 +4,6 @@
         "group": "server",
         "since": "2.8.12",
         "arity": 1,
-        "depracated": true,
         "function": "roleCommand",
         "command_flags": [
             "noscript",

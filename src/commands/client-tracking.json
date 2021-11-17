@@ -1,5 +1,5 @@
 {
-    "TRACKING": {
+    "CLIENT TRACKING": {
         "summary": "Enable or disable server assisted client side caching support",
         "complexity": "O(1). Some options may introduce additional complexity.",
         "group": "connection",
@@ -15,6 +15,64 @@
         "acl_categories": [
             "slow",
             "connection"
+        ],
+        "arguments": [
+            {
+                "name": "__TBD__50__",
+                "type": "oneof",
+                "value": [
+                    {
+                        "name": "on",
+                        "type": "token",
+                        "value": "ON"
+                    },
+                    {
+                        "name": "off",
+                        "type": "token",
+                        "value": "OFF"
+                    }
+                ]
+            },
+            {
+                "token": "REDIRECT",
+                "optional": true,
+                "name": "client-id",
+                "type": "integer",
+                "value": "client-id"
+            },
+            {
+                "token": "PREFIX",
+                "optional": true,
+                "multiple": true,
+                "multiple_token": true,
+                "name": "prefix",
+                "type": "string",
+                "value": "prefix"
+            },
+            {
+                "optional": true,
+                "name": "BCAST",
+                "value": "BCAST",
+                "type": "token"
+            },
+            {
+                "optional": true,
+                "name": "OPTIN",
+                "value": "OPTIN",
+                "type": "token"
+            },
+            {
+                "optional": true,
+                "name": "OPTOUT",
+                "value": "OPTOUT",
+                "type": "token"
+            },
+            {
+                "optional": true,
+                "name": "NOLOOP",
+                "value": "NOLOOP",
+                "type": "token"
+            }
         ]
     }
 }

@@ -1,5 +1,5 @@
 {
-    "INFO": {
+    "CLUSTER INFO": {
         "summary": "Provides info about Redis Cluster node state",
         "complexity": "O(1)",
         "group": "cluster",

@@ -1,5 +1,5 @@
 {
-    "HELP": {
+    "OBJECT HELP": {
         "summary": "Show helpful text about the different subcommands",
         "complexity": "O(1)",
         "group": "generic",

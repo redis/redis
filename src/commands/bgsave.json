@@ -19,6 +19,14 @@
             "admin",
             "slow",
             "dangerous"
+        ],
+        "arguments": [
+            {
+                "optional": true,
+                "name": "schedule",
+                "value": "SCHEDULE",
+                "type": "token"
+            }
         ]
     }
 }

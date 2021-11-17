@@ -1,5 +1,5 @@
 {
-    "KILL": {
+    "SCRIPT KILL": {
         "summary": "Kill the script currently in execution.",
         "complexity": "O(1)",
         "group": "scripting",

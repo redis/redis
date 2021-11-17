@@ -39,6 +39,64 @@
                     }
                 }
             }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "name": "trim",
+                "type": "block",
+                "value": [
+                    {
+                        "name": "__TBD__33__",
+                        "type": "oneof",
+                        "value": [
+                            {
+                                "name": "maxlen",
+                                "type": "token",
+                                "value": "MAXLEN"
+                            },
+                            {
+                                "name": "minid",
+                                "type": "token",
+                                "value": "MINID"
+                            }
+                        ]
+                    },
+                    {
+                        "optional": true,
+                        "name": "__TBD__34__",
+                        "type": "oneof",
+                        "value": [
+                            {
+                                "name": "__TBD__35__",
+                                "type": "token",
+                                "value": "="
+                            },
+                            {
+                                "name": "__TBD__36__",
+                                "type": "token",
+                                "value": "~"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "threshold",
+                        "type": "string",
+                        "value": "threshold"
+                    },
+                    {
+                        "token": "LIMIT",
+                        "optional": true,
+                        "name": "count",
+                        "type": "integer",
+                        "value": "count"
+                    }
+                ]
+            }
         ]
     }
 }

@@ -33,6 +33,26 @@
                     }
                 }
             }
+        ],
+        "arguments": [
+            {
+                "multiple": true,
+                "multiple_token": true,
+                "name": "key_value",
+                "type": "block",
+                "value": [
+                    {
+                        "name": "key",
+                        "type": "key",
+                        "value": "key"
+                    },
+                    {
+                        "name": "value",
+                        "type": "string",
+                        "value": "value"
+                    }
+                ]
+            }
         ]
     }
 }

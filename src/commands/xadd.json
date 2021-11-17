@@ -1,7 +1,7 @@
 {
     "XADD": {
         "summary": "Appends a new entry to a stream",
-        "complexity": "O(1) when adding a new entry, O(N) when trimming where N being the number of entries evicted.",
+        "complexity": "O(1) when adding a new entry, O(N) when trimming where N being the number of entires evicted.",
         "group": "stream",
         "since": "5.0.0",
         "arity": -5,
@@ -12,10 +12,6 @@
                 "Added the `NOMKSTREAM` option, `MINID` trimming strategy and the `LIMIT` option."
             ]
         ],
-        "metadata": {
-            "command_type": "first_shard",
-            "transaction_type": 8
-        },
         "command_flags": [
             "write",
             "denyoom",
@@ -48,97 +44,102 @@
         ],
         "arguments": [
             {
-                "type": "key", 
-                "name": "key", 
+                "name": "key",
+                "type": "key",
                 "value": "key"
-            }, 
+            },
             {
-                "token": "NOMKSTREAM", 
-                "optional": true, 
-                "name": "nomkstream"
-            }, 
+                "token": "NOMKSTREAM",
+                "optional": true,
+                "name": "nomkstream",
+                "value": "NOMKSTREAM",
+                "type": "token"
+            },
             {
-                "type": "block", 
-                "optional": true, 
-                "name": "trim", 
+                "optional": true,
+                "name": "trim",
+                "type": "block",
                 "value": [
                     {
-                        "type": "oneof", 
-                        "name": "__TBD__1__", 
+                        "name": "__TBD__5__",
+                        "type": "oneof",
                         "value": [
                             {
-                                "type": "__TBD__2__", 
-                                "name": "maxlen", 
+                                "name": "maxlen",
+                                "type": "token",
                                 "value": "MAXLEN"
-                            }, 
+                            },
                             {
-                                "type": "__TBD__3__", 
-                                "name": "minid", 
+                                "name": "minid",
+                                "type": "token",
                                 "value": "MINID"
                             }
                         ]
-                    }, 
+                    },
                     {
-                        "type": "oneof", 
-                        "optional": true, 
-                        "name": "__TBD__4__", 
+                        "optional": true,
+                        "name": "__TBD__6__",
+                        "type": "oneof",
                         "value": [
                             {
-                                "token": "=", 
-                                "name": "__TBD__5__"
-                            }, 
+                                "name": "__TBD__7__",
+                                "type": "token",
+                                "value": "="
+                            },
                             {
-                                "token": "~", 
-                                "name": "__TBD__6__"
+                                "name": "__TBD__8__",
+                                "type": "token",
+                                "value": "~"
                             }
                         ]
-                    }, 
+                    },
                     {
-                        "type": "string", 
-                        "name": "threshold", 
+                        "name": "threshold",
+                        "type": "string",
                         "value": "threshold"
-                    }, 
+                    },
                     {
-                        "type": "integer", 
-                        "token": "LIMIT", 
-                        "optional": true, 
-                        "name": "count", 
+                        "token": "LIMIT",
+                        "optional": true,
+                        "name": "count",
+                        "type": "integer",
                         "value": "count"
                     }
                 ]
-            }, 
+            },
             {
-                "type": "oneof", 
-                "name": "__TBD__7__", 
+                "name": "__TBD__9__",
+                "type": "oneof",
                 "value": [
                     {
-                        "token": "*", 
-                        "name": "__TBD__8__"
-                    }, 
+                        "name": "__TBD__10__",
+                        "type": "token",
+                        "value": "*"
+                    },
                     {
-                        "type": "__TBD__9__", 
-                        "name": "id", 
+                        "name": "id",
+                        "type": "string",
                         "value": "ID"
                     }
                 ]
-            }, 
+            },
             {
-                "mutliple_token": true, 
                 "multiple": true,
-                "name": "field_value", 
+                "multiple_token": true,
+                "name": "field_value",
+                "type": "block",
                 "value": [
                     {
-                        "type": "string", 
-                        "name": "field", 
+                        "name": "field",
+                        "type": "string",
                         "value": "field"
-                    }, 
+                    },
                     {
-                        "type": "string", 
-                        "name": "value", 
+                        "name": "value",
+                        "type": "string",
                         "value": "value"
                     }
-                ], 
-                "type": "block"
+                ]
             }
         ]
     }

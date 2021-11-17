@@ -1,5 +1,5 @@
 {
-    "LIST": {
+    "MODULE LIST": {
         "summary": "List all modules loaded by the server",
         "complexity": "O(N) where N is the number of loaded modules.",
         "group": "server",

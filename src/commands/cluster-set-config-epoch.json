@@ -1,5 +1,5 @@
 {
-    "SET-CONFIG-EPOCH": {
+    "CLUSTER SET-CONFIG-EPOCH": {
         "summary": "Set the configuration epoch in a new node",
         "complexity": "O(1)",
         "group": "cluster",
@@ -16,6 +16,13 @@
             "admin",
             "slow",
             "dangerous"
+        ],
+        "arguments": [
+            {
+                "name": "config-epoch",
+                "type": "integer",
+                "value": "config-epoch"
+            }
         ]
     }
 }

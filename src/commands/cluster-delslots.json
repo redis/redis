@@ -1,5 +1,5 @@
 {
-    "DELSLOTS": {
+    "CLUSTER DELSLOTS": {
         "summary": "Set hash slots as unbound in receiving node",
         "complexity": "O(N) where N is the total number of hash slot arguments",
         "group": "cluster",
@@ -16,6 +16,15 @@
             "admin",
             "slow",
             "dangerous"
+        ],
+        "arguments": [
+            {
+                "multiple": true,
+                "multiple_token": true,
+                "name": "slot",
+                "type": "integer",
+                "value": "slot"
+            }
         ]
     }
 }

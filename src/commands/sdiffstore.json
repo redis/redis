@@ -50,6 +50,20 @@
                     }
                 }
             }
+        ],
+        "arguments": [
+            {
+                "name": "destination",
+                "type": "key",
+                "value": "destination"
+            },
+            {
+                "multiple": true,
+                "multiple_token": true,
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            }
         ]
     }
 }

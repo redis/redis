@@ -33,6 +33,31 @@
                     }
                 }
             }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "optional": true,
+                "name": "options",
+                "type": "block",
+                "value": [
+                    {
+                        "name": "count",
+                        "type": "integer",
+                        "value": "count"
+                    },
+                    {
+                        "optional": true,
+                        "name": "withvalues",
+                        "value": "WITHVALUES",
+                        "type": "token"
+                    }
+                ]
+            }
         ]
     }
 }

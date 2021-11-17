@@ -5,8 +5,9 @@
         "group": "sorted_set",
         "since": "1.0.5",
         "arity": -4,
-        "depracated": true,
         "function": "zrangebyscoreCommand",
+        "until": "6.2.0",
+        "replaced_by": "`ZRANGE` with the `BYSCORE` argument",
         "command_flags": [
             "readonly"
         ],
@@ -32,6 +33,47 @@
                         "limit": 0
                     }
                 }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "name": "min",
+                "type": "double",
+                "value": "min"
+            },
+            {
+                "name": "max",
+                "type": "double",
+                "value": "max"
+            },
+            {
+                "optional": true,
+                "name": "withscores",
+                "value": "WITHSCORES",
+                "type": "token"
+            },
+            {
+                "token": "LIMIT",
+                "optional": true,
+                "name": "offset_count",
+                "type": "block",
+                "value": [
+                    {
+                        "name": "offset",
+                        "type": "integer",
+                        "value": "offset"
+                    },
+                    {
+                        "name": "count",
+                        "type": "integer",
+                        "value": "count"
+                    }
+                ]
             }
         ]
     }

@@ -1,5 +1,6 @@
 {
-    "ADDSLOTSRANGE": {
+    "CLUSTER ADDSLOTSRANGE": {
+        "group": "cluster",
         "arity": -4,
         "container": "CLUSTER",
         "function": "clusterCommand",

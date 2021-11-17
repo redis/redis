@@ -15,6 +15,16 @@
         "acl_categories": [
             "pubsub",
             "slow"
+        ],
+        "arguments": [
+            {
+                "optional": true,
+                "multiple": true,
+                "multiple_token": true,
+                "name": "pattern",
+                "type": "pattern",
+                "value": "pattern"
+            }
         ]
     }
 }

@@ -73,96 +73,87 @@
                 }
             }
         ],
-        "returns":[
+        "arguments": [
             {
-                "description": "Command succeeded",
-                "type":"simple-string",
-                "constant_value":"+OK"
+                "name": "host",
+                "type": "string",
+                "value": "host"
             },
             {
-                "description": "Key(s) was not in found in source",
-                "type":"simple-string",
-                "constant_value":"+NOKEY"
-            }
-        ],
-        "arguments":[
-            {
-                "name":"host",
-                "type":"string",
-                "value":"host"
+                "name": "port",
+                "type": "string",
+                "value": "port"
             },
             {
-                "name":"port",
-                "type":"string",
-                "value":"port"
-            },
-            {
-                "name":"keyornone",
-                "type":"oneof",
-                "value":[
+                "name": "__TBD__3__",
+                "type": "oneof",
+                "value": [
                     {
-                        "name":"key",
-                        "type":"key",
-                        "value":"key"
+                        "name": "key",
+                        "type": "token",
+                        "value": "key"
                     },
                     {
-                        "name":"nokey",
-                        "token":"\"\""
+                        "name": "__TBD__4__",
+                        "type": "token",
+                        "value": "\"\""
                     }
                 ]
             },
             {
-                "name":"destination-db",
-                "type":"integer",
-                "value":"destination-db"
+                "name": "destination-db",
+                "type": "integer",
+                "value": "destination-db"
             },
             {
-                "name":"timeout",
-                "type":"integer",
-                "value":"timeout"
+                "name": "timeout",
+                "type": "integer",
+                "value": "timeout"
             },
             {
-                "name":"copy",
-                "token":"COPY",
-                "optional":true
+                "optional": true,
+                "name": "copy",
+                "value": "COPY",
+                "type": "token"
             },
             {
-                "name":"replace",
-                "token":"REPLACE",
-                "optional":true
+                "optional": true,
+                "name": "replace",
+                "value": "REPLACE",
+                "type": "token"
             },
             {
-                "name":"auth",
-                "type":"string",
-                "value":"password",
-                "token":"AUTH",
-                "optional":true
+                "token": "AUTH",
+                "optional": true,
+                "name": "password",
+                "type": "string",
+                "value": "password"
             },
             {
-                "name":"auth2",
-                "type":"block",
-                "value":[
+                "token": "AUTH2",
+                "optional": true,
+                "name": "username_password",
+                "type": "block",
+                "value": [
                     {
-                        "name":"username",
-                        "type":"string",
-                        "value":"username"
+                        "name": "username",
+                        "type": "string",
+                        "value": "username"
                     },
                     {
-                        "name":"password",
-                        "type":"string",
-                        "value":"password"
+                        "name": "password",
+                        "type": "string",
+                        "value": "password"
                     }
-                ],
-                "token":"AUTH2",
-                "optional":true
+                ]
             },
             {
-                "name":"keys",
-                "token":"KEYS",
-                "value":"key",
-                "type":"key",
-                "multiple":true,
-                "optional":true
+                "token": "KEYS",
+                "optional": true,
+                "multiple": true,
+                "name": "key",
+                "type": "key",
+                "value": "key"
             }
         ]
     }

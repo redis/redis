@@ -32,6 +32,20 @@
                     }
                 }
             }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "multiple": true,
+                "multiple_token": true,
+                "name": "member",
+                "type": "string",
+                "value": "member"
+            }
         ]
     }
 }

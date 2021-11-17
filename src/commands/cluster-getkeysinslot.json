@@ -1,5 +1,5 @@
 {
-    "GETKEYSINSLOT": {
+    "CLUSTER GETKEYSINSLOT": {
         "summary": "Return local key names in the specified hash slot",
         "complexity": "O(log(N)) where N is the number of requested keys",
         "group": "cluster",
@@ -13,6 +13,18 @@
         ],
         "acl_categories": [
             "slow"
+        ],
+        "arguments": [
+            {
+                "name": "slot",
+                "type": "integer",
+                "value": "slot"
+            },
+            {
+                "name": "count",
+                "type": "integer",
+                "value": "count"
+            }
         ]
     }
 }

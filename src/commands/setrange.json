@@ -33,6 +33,23 @@
                     }
                 }
             }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "name": "offset",
+                "type": "integer",
+                "value": "offset"
+            },
+            {
+                "name": "value",
+                "type": "string",
+                "value": "value"
+            }
         ]
     }
 }

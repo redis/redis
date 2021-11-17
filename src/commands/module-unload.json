@@ -1,5 +1,5 @@
 {
-    "UNLOAD": {
+    "MODULE UNLOAD": {
         "summary": "Unload a module",
         "complexity": "O(1)",
         "group": "server",
@@ -15,6 +15,13 @@
             "admin",
             "slow",
             "dangerous"
+        ],
+        "arguments": [
+            {
+                "name": "name",
+                "type": "string",
+                "value": "name"
+            }
         ]
     }
 }

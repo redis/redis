@@ -14,6 +14,52 @@
             "admin",
             "slow",
             "dangerous"
+        ],
+        "arguments": [
+            {
+                "optional": true,
+                "name": "target",
+                "type": "block",
+                "value": [
+                    {
+                        "token": "TO",
+                        "name": "to",
+                        "value": "TO",
+                        "type": "token"
+                    },
+                    {
+                        "name": "host",
+                        "type": "string",
+                        "value": "host"
+                    },
+                    {
+                        "name": "port",
+                        "type": "integer",
+                        "value": "port"
+                    },
+                    {
+                        "token": "FORCE",
+                        "optional": true,
+                        "name": "force",
+                        "value": "FORCE",
+                        "type": "token"
+                    }
+                ]
+            },
+            {
+                "token": "ABORT",
+                "optional": true,
+                "name": "abort",
+                "value": "ABORT",
+                "type": "token"
+            },
+            {
+                "token": "TIMEOUT",
+                "optional": true,
+                "name": "milliseconds",
+                "type": "integer",
+                "value": "milliseconds"
+            }
         ]
     }
 }

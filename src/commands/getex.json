@@ -33,6 +33,45 @@
                     }
                 }
             }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "optional": true,
+                "name": "__TBD__67__",
+                "type": "oneof",
+                "value": [
+                    {
+                        "name": "__TBD__68__",
+                        "type": "token",
+                        "value": "EX seconds"
+                    },
+                    {
+                        "name": "__TBD__69__",
+                        "type": "token",
+                        "value": "PX milliseconds"
+                    },
+                    {
+                        "name": "__TBD__70__",
+                        "type": "token",
+                        "value": "EXAT timestamp"
+                    },
+                    {
+                        "name": "__TBD__71__",
+                        "type": "token",
+                        "value": "PXAT milliseconds-timestamp"
+                    },
+                    {
+                        "name": "persist",
+                        "type": "token",
+                        "value": "PERSIST"
+                    }
+                ]
+            }
         ]
     }
 }

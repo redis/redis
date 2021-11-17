@@ -1,7 +1,10 @@
 {
     "REPLCONF": {
+        "group": "server",
         "arity": -1,
         "function": "replconfCommand",
+        "internal": true,
+        "undocumented": true,
         "command_flags": [
             "admin",
             "noscript",

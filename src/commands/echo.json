@@ -11,6 +11,13 @@
         "acl_categories": [
             "fast",
             "connection"
+        ],
+        "arguments": [
+            {
+                "name": "message",
+                "type": "string",
+                "value": "message"
+            }
         ]
     }
 }

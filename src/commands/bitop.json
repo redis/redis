@@ -50,6 +50,25 @@
                     }
                 }
             }
+        ],
+        "arguments": [
+            {
+                "name": "operation",
+                "type": "string",
+                "value": "operation"
+            },
+            {
+                "name": "destkey",
+                "type": "key",
+                "value": "destkey"
+            },
+            {
+                "multiple": true,
+                "multiple_token": true,
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            }
         ]
     }
 }

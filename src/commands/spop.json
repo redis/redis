@@ -40,6 +40,19 @@
                     }
                 }
             }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "optional": true,
+                "name": "count",
+                "type": "integer",
+                "value": "count"
+            }
         ]
     }
 }

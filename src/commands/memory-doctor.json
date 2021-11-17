@@ -1,5 +1,5 @@
 {
-    "DOCTOR": {
+    "MEMORY DOCTOR": {
         "summary": "Outputs memory problems report",
         "group": "server",
         "since": "4.0.0",

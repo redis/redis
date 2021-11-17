@@ -1,7 +1,11 @@
 {
     "SUBSTR": {
+        "group": "string",
         "arity": 4,
         "function": "getrangeCommand",
+        "until": "2.4.0",
+        "replaced_by": "`GETRANGE`",
+        "undocumented": true,
         "command_flags": [
             "readonly"
         ],

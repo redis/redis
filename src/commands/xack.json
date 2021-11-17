@@ -34,6 +34,25 @@
                     }
                 }
             }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "name": "group",
+                "type": "string",
+                "value": "group"
+            },
+            {
+                "multiple": true,
+                "multiple_token": true,
+                "name": "ID",
+                "type": "string",
+                "value": "ID"
+            }
         ]
     }
 }

@@ -13,6 +13,13 @@
         "acl_categories": [
             "fast",
             "connection"
+        ],
+        "arguments": [
+            {
+                "name": "index",
+                "type": "integer",
+                "value": "index"
+            }
         ]
     }
 }

@@ -5,7 +5,6 @@
         "group": "list",
         "since": "6.2.0",
         "arity": 5,
-        "depracated": true,
         "function": "lmoveCommand",
         "command_flags": [
             "write",
@@ -51,6 +50,50 @@
                         "limit": 0
                     }
                 }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "source",
+                "type": "key",
+                "value": "source"
+            },
+            {
+                "name": "destination",
+                "type": "key",
+                "value": "destination"
+            },
+            {
+                "name": "__TBD__15__",
+                "type": "oneof",
+                "value": [
+                    {
+                        "name": "left",
+                        "type": "token",
+                        "value": "LEFT"
+                    },
+                    {
+                        "name": "right",
+                        "type": "token",
+                        "value": "RIGHT"
+                    }
+                ]
+            },
+            {
+                "name": "__TBD__16__",
+                "type": "oneof",
+                "value": [
+                    {
+                        "name": "left",
+                        "type": "token",
+                        "value": "LEFT"
+                    },
+                    {
+                        "name": "right",
+                        "type": "token",
+                        "value": "RIGHT"
+                    }
+                ]
             }
         ]
     }

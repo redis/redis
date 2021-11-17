@@ -40,6 +40,20 @@
                     }
                 }
             }
+        ],
+        "arguments": [
+            {
+                "multiple": true,
+                "multiple_token": true,
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "name": "timeout",
+                "type": "double",
+                "value": "timeout"
+            }
         ]
     }
 }

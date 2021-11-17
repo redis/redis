@@ -1,5 +1,5 @@
 {
-    "GETNAME": {
+    "CLIENT GETNAME": {
         "summary": "Get the current connection name",
         "complexity": "O(1)",
         "group": "connection",

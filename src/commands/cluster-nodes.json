@@ -1,5 +1,5 @@
 {
-    "NODES": {
+    "CLUSTER NODES": {
         "summary": "Get Cluster config for the node",
         "complexity": "O(N) where N is the total number of Cluster nodes",
         "group": "cluster",

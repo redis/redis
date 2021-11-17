@@ -50,6 +50,31 @@
                     }
                 }
             }
+        ],
+        "arguments": [
+            {
+                "name": "source",
+                "type": "key",
+                "value": "source"
+            },
+            {
+                "name": "destination",
+                "type": "key",
+                "value": "destination"
+            },
+            {
+                "token": "DB",
+                "optional": true,
+                "name": "destination-db",
+                "type": "integer",
+                "value": "destination-db"
+            },
+            {
+                "optional": true,
+                "name": "replace",
+                "value": "REPLACE",
+                "type": "token"
+            }
         ]
     }
 }

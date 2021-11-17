@@ -1,5 +1,5 @@
 {
-    "MEET": {
+    "CLUSTER MEET": {
         "summary": "Force a node cluster to handshake with another node",
         "complexity": "O(1)",
         "group": "cluster",
@@ -16,6 +16,18 @@
             "admin",
             "slow",
             "dangerous"
+        ],
+        "arguments": [
+            {
+                "name": "ip",
+                "type": "string",
+                "value": "ip"
+            },
+            {
+                "name": "port",
+                "type": "integer",
+                "value": "port"
+            }
         ]
     }
 }

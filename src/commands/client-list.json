@@ -1,5 +1,5 @@
 {
-    "LIST": {
+    "CLIENT LIST": {
         "summary": "Get the list of client connections",
         "complexity": "O(N) where N is the number of client connections",
         "group": "connection",
@@ -33,6 +33,56 @@
             "slow",
             "dangerous",
             "connection"
+        ],
+        "arguments": [
+            {
+                "token": "TYPE",
+                "optional": true,
+                "name": "__TBD__52__",
+                "type": "oneof",
+                "value": [
+                    {
+                        "name": "normal",
+                        "type": "token",
+                        "value": "normal"
+                    },
+                    {
+                        "name": "master",
+                        "type": "token",
+                        "value": "master"
+                    },
+                    {
+                        "name": "replica",
+                        "type": "token",
+                        "value": "replica"
+                    },
+                    {
+                        "name": "pubsub",
+                        "type": "token",
+                        "value": "pubsub"
+                    }
+                ]
+            },
+            {
+                "optional": true,
+                "name": "id",
+                "type": "block",
+                "value": [
+                    {
+                        "token": "ID",
+                        "name": "id",
+                        "value": "ID",
+                        "type": "token"
+                    },
+                    {
+                        "multiple": true,
+                        "multiple_token": true,
+                        "name": "client-id",
+                        "type": "integer",
+                        "value": "client-id"
+                    }
+                ]
+            }
         ]
     }
 }

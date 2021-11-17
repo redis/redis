@@ -1,5 +1,5 @@
 {
-    "LOAD": {
+    "SCRIPT LOAD": {
         "summary": "Load the specified Lua script into the script cache.",
         "complexity": "O(N) with N being the length in bytes of the script body.",
         "group": "scripting",
@@ -14,6 +14,13 @@
         "acl_categories": [
             "slow",
             "scripting"
+        ],
+        "arguments": [
+            {
+                "name": "script",
+                "type": "string",
+                "value": "script"
+            }
         ]
     }
 }

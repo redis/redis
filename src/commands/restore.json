@@ -34,6 +34,49 @@
                     }
                 }
             }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "name": "ttl",
+                "type": "integer",
+                "value": "ttl"
+            },
+            {
+                "name": "serialized-value",
+                "type": "string",
+                "value": "serialized-value"
+            },
+            {
+                "optional": true,
+                "name": "replace",
+                "value": "REPLACE",
+                "type": "token"
+            },
+            {
+                "optional": true,
+                "name": "absttl",
+                "value": "ABSTTL",
+                "type": "token"
+            },
+            {
+                "token": "IDLETIME",
+                "optional": true,
+                "name": "seconds",
+                "type": "integer",
+                "value": "seconds"
+            },
+            {
+                "token": "FREQ",
+                "optional": true,
+                "name": "frequency",
+                "type": "integer",
+                "value": "frequency"
+            }
         ]
     }
 }

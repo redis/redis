@@ -1,5 +1,5 @@
 {
-    "SETNAME": {
+    "CLIENT SETNAME": {
         "summary": "Set the current connection name",
         "complexity": "O(1)",
         "group": "connection",
@@ -15,6 +15,13 @@
         "acl_categories": [
             "slow",
             "connection"
+        ],
+        "arguments": [
+            {
+                "name": "connection-name",
+                "type": "string",
+                "value": "connection-name"
+            }
         ]
     }
 }

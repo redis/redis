@@ -1,5 +1,5 @@
 {
-    "USERS": {
+    "ACL USERS": {
         "summary": "List the username of all the configured ACL rules",
         "complexity": "O(N). Where N is the number of configured users.",
         "group": "server",

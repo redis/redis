@@ -51,6 +51,20 @@
                     }
                 }
             }
+        ],
+        "arguments": [
+            {
+                "name": "destkey",
+                "type": "key",
+                "value": "destkey"
+            },
+            {
+                "multiple": true,
+                "multiple_token": true,
+                "name": "sourcekey",
+                "type": "key",
+                "value": "sourcekey"
+            }
         ]
     }
 }

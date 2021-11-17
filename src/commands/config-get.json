@@ -1,5 +1,5 @@
 {
-    "GET": {
+    "CONFIG GET": {
         "summary": "Get the value of a configuration parameter",
         "group": "server",
         "since": "2.0.0",
@@ -16,6 +16,13 @@
             "admin",
             "slow",
             "dangerous"
+        ],
+        "arguments": [
+            {
+                "name": "parameter",
+                "type": "string",
+                "value": "parameter"
+            }
         ]
     }
 }

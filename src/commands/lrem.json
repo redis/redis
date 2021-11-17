@@ -32,6 +32,23 @@
                     }
                 }
             }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "name": "count",
+                "type": "integer",
+                "value": "count"
+            },
+            {
+                "name": "element",
+                "type": "string",
+                "value": "element"
+            }
         ]
     }
 }

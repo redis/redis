@@ -34,6 +34,31 @@
                     }
                 }
             }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "multiple": true,
+                "multiple_token": true,
+                "name": "field_value",
+                "type": "block",
+                "value": [
+                    {
+                        "name": "field",
+                        "type": "string",
+                        "value": "field"
+                    },
+                    {
+                        "name": "value",
+                        "type": "string",
+                        "value": "value"
+                    }
+                ]
+            }
         ]
     }
 }

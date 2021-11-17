@@ -15,6 +15,13 @@
             "read",
             "slow",
             "dangerous"
+        ],
+        "arguments": [
+            {
+                "name": "pattern",
+                "type": "pattern",
+                "value": "pattern"
+            }
         ]
     }
 }

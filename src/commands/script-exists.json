@@ -1,5 +1,5 @@
 {
-    "EXISTS": {
+    "SCRIPT EXISTS": {
         "summary": "Check existence of scripts in the script cache.",
         "complexity": "O(N) with N being the number of scripts to check (so checking a single script is an O(1) operation).",
         "group": "scripting",
@@ -13,6 +13,15 @@
         "acl_categories": [
             "slow",
             "scripting"
+        ],
+        "arguments": [
+            {
+                "multiple": true,
+                "multiple_token": true,
+                "name": "sha1",
+                "type": "string",
+                "value": "sha1"
+            }
         ]
     }
 }

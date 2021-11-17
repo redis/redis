@@ -32,6 +32,30 @@
                     }
                 }
             }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "name": "end",
+                "type": "string",
+                "value": "end"
+            },
+            {
+                "name": "start",
+                "type": "string",
+                "value": "start"
+            },
+            {
+                "token": "COUNT",
+                "optional": true,
+                "name": "count",
+                "type": "integer",
+                "value": "count"
+            }
         ]
     }
 }

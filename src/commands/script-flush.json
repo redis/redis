@@ -1,5 +1,5 @@
 {
-    "FLUSH": {
+    "SCRIPT FLUSH": {
         "summary": "Remove all the scripts from the script cache.",
         "complexity": "O(N) with N being the number of scripts in cache",
         "group": "scripting",
@@ -20,6 +20,25 @@
         "acl_categories": [
             "slow",
             "scripting"
+        ],
+        "arguments": [
+            {
+                "optional": true,
+                "name": "__TBD__30__",
+                "type": "oneof",
+                "value": [
+                    {
+                        "name": "async",
+                        "type": "token",
+                        "value": "ASYNC"
+                    },
+                    {
+                        "name": "sync",
+                        "type": "token",
+                        "value": "SYNC"
+                    }
+                ]
+            }
         ]
     }
 }

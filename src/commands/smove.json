@@ -51,6 +51,23 @@
                     }
                 }
             }
+        ],
+        "arguments": [
+            {
+                "name": "source",
+                "type": "key",
+                "value": "source"
+            },
+            {
+                "name": "destination",
+                "type": "key",
+                "value": "destination"
+            },
+            {
+                "name": "member",
+                "type": "string",
+                "value": "member"
+            }
         ]
     }
 }

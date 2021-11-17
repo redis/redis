@@ -1,7 +1,10 @@
 {
     "POST": {
+        "group": "server",
         "arity": -1,
         "function": "securityWarningCommand",
+        "internal": true,
+        "undocumented": true,
         "command_flags": [
             "readonly",
             "loading",

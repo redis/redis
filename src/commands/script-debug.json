@@ -1,5 +1,5 @@
 {
-    "DEBUG": {
+    "SCRIPT DEBUG": {
         "summary": "Set the debug mode for executed scripts.",
         "complexity": "O(1)",
         "group": "scripting",
@@ -13,6 +13,29 @@
         "acl_categories": [
             "slow",
             "scripting"
+        ],
+        "arguments": [
+            {
+                "name": "__TBD__29__",
+                "type": "oneof",
+                "value": [
+                    {
+                        "name": "yes",
+                        "type": "token",
+                        "value": "YES"
+                    },
+                    {
+                        "name": "sync",
+                        "type": "token",
+                        "value": "SYNC"
+                    },
+                    {
+                        "name": "no",
+                        "type": "token",
+                        "value": "NO"
+                    }
+                ]
+            }
         ]
     }
 }

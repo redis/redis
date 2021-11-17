@@ -39,6 +39,53 @@
                     }
                 }
             }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "name": "group",
+                "type": "string",
+                "value": "group"
+            },
+            {
+                "optional": true,
+                "name": "filters",
+                "type": "block",
+                "value": [
+                    {
+                        "token": "IDLE",
+                        "optional": true,
+                        "name": "min-idle-time",
+                        "type": "integer",
+                        "value": "min-idle-time"
+                    },
+                    {
+                        "name": "start",
+                        "type": "string",
+                        "value": "start"
+                    },
+                    {
+                        "name": "end",
+                        "type": "string",
+                        "value": "end"
+                    },
+                    {
+                        "name": "count",
+                        "type": "integer",
+                        "value": "count"
+                    },
+                    {
+                        "optional": true,
+                        "name": "consumer",
+                        "type": "string",
+                        "value": "consumer"
+                    }
+                ]
+            }
         ]
     }
 }

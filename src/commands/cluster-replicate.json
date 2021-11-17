@@ -1,5 +1,5 @@
 {
-    "REPLICATE": {
+    "CLUSTER REPLICATE": {
         "summary": "Reconfigure a node as a replica of the specified master node",
         "complexity": "O(1)",
         "group": "cluster",
@@ -16,6 +16,13 @@
             "admin",
             "slow",
             "dangerous"
+        ],
+        "arguments": [
+            {
+                "name": "node-id",
+                "type": "string",
+                "value": "node-id"
+            }
         ]
     }
 }

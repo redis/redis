@@ -1,5 +1,5 @@
 {
-    "REPLY": {
+    "CLIENT REPLY": {
         "summary": "Instruct the server whether to reply to commands",
         "complexity": "O(1)",
         "group": "connection",
@@ -15,6 +15,29 @@
         "acl_categories": [
             "slow",
             "connection"
+        ],
+        "arguments": [
+            {
+                "name": "__TBD__51__",
+                "type": "oneof",
+                "value": [
+                    {
+                        "name": "on",
+                        "type": "token",
+                        "value": "ON"
+                    },
+                    {
+                        "name": "off",
+                        "type": "token",
+                        "value": "OFF"
+                    },
+                    {
+                        "name": "skip",
+                        "type": "token",
+                        "value": "SKIP"
+                    }
+                ]
+            }
         ]
     }
 }

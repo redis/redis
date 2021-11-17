@@ -1,5 +1,5 @@
 {
-    "HELP": {
+    "LATENCY HELP": {
         "summary": "Show helpful text about the different subcommands.",
         "group": "server",
         "since": "2.8.13",

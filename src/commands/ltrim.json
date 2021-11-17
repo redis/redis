@@ -32,6 +32,23 @@
                     }
                 }
             }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "name": "start",
+                "type": "integer",
+                "value": "start"
+            },
+            {
+                "name": "stop",
+                "type": "integer",
+                "value": "stop"
+            }
         ]
     }
 }

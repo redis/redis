@@ -33,6 +33,23 @@
                     }
                 }
             }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "name": "seconds",
+                "type": "integer",
+                "value": "seconds"
+            },
+            {
+                "name": "value",
+                "type": "string",
+                "value": "value"
+            }
         ]
     }
 }

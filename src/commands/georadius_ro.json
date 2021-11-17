@@ -1,7 +1,10 @@
 {
     "GEORADIUS_RO": {
+        "group": "geo",
         "arity": -6,
         "function": "georadiusroCommand",
+        "until": "6.2.0",
+        "replaced_by": "`GEOSEARCH` with the `BYRADIUS` argument",
         "command_flags": [
             "readonly"
         ],

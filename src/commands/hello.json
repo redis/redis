@@ -22,6 +22,45 @@
         "acl_categories": [
             "fast",
             "connection"
+        ],
+        "arguments": [
+            {
+                "optional": true,
+                "name": "arguments",
+                "type": "block",
+                "value": [
+                    {
+                        "name": "protover",
+                        "type": "integer",
+                        "value": "protover"
+                    },
+                    {
+                        "token": "AUTH",
+                        "optional": true,
+                        "name": "username_password",
+                        "type": "block",
+                        "value": [
+                            {
+                                "name": "username",
+                                "type": "string",
+                                "value": "username"
+                            },
+                            {
+                                "name": "password",
+                                "type": "string",
+                                "value": "password"
+                            }
+                        ]
+                    },
+                    {
+                        "token": "SETNAME",
+                        "optional": true,
+                        "name": "clientname",
+                        "type": "string",
+                        "value": "clientname"
+                    }
+                ]
+            }
         ]
     }
 }

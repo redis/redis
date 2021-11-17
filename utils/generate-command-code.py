@@ -18,6 +18,7 @@ ARG_TYPES = {
     "key": "ARG_TYPE_KEY",
     "pattern": "ARG_TYPE_PATTERN",
     "unix-time": "ARG_TYPE_UNIX_TIME",
+    "token": "ARG_TYPE_TOKEN",
     "oneof": "ARG_TYPE_ONEOF",
     "block": "ARG_TYPE_BLOCK",
 }

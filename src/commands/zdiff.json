@@ -33,6 +33,26 @@
                     }
                 }
             }
+        ],
+        "arguments": [
+            {
+                "name": "numkeys",
+                "type": "integer",
+                "value": "numkeys"
+            },
+            {
+                "multiple": true,
+                "multiple_token": true,
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "optional": true,
+                "name": "withscores",
+                "value": "WITHSCORES",
+                "type": "token"
+            }
         ]
     }
 }

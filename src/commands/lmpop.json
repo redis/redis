@@ -33,6 +33,43 @@
                     }
                 }
             }
+        ],
+        "arguments": [
+            {
+                "name": "numkeys",
+                "type": "integer",
+                "value": "numkeys"
+            },
+            {
+                "multiple": true,
+                "multiple_token": true,
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "name": "__TBD__17__",
+                "type": "oneof",
+                "value": [
+                    {
+                        "name": "left",
+                        "type": "token",
+                        "value": "LEFT"
+                    },
+                    {
+                        "name": "right",
+                        "type": "token",
+                        "value": "RIGHT"
+                    }
+                ]
+            },
+            {
+                "token": "COUNT",
+                "optional": true,
+                "name": "count",
+                "type": "integer",
+                "value": "count"
+            }
         ]
     }
 }

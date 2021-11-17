@@ -1,7 +1,9 @@
 {
     "DEBUG": {
+        "group": "server",
         "arity": -2,
         "function": "debugCommand",
+        "internal": true,
         "command_flags": [
             "admin",
             "noscript",

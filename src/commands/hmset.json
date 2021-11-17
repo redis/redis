@@ -5,8 +5,9 @@
         "group": "hash",
         "since": "2.0.0",
         "arity": -4,
-        "depracated": true,
         "function": "hsetCommand",
+        "until": "4.0.0",
+        "replaced_by": "`HSET` with multiple field-value pairs",
         "command_flags": [
             "write",
             "denyoom",
@@ -34,6 +35,31 @@
                         "limit": 0
                     }
                 }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "multiple": true,
+                "multiple_token": true,
+                "name": "field_value",
+                "type": "block",
+                "value": [
+                    {
+                        "name": "field",
+                        "type": "string",
+                        "value": "field"
+                    },
+                    {
+                        "name": "value",
+                        "type": "string",
+                        "value": "value"
+                    }
+                ]
             }
         ]
     }

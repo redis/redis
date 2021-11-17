@@ -13,6 +13,18 @@
             "admin",
             "slow",
             "dangerous"
+        ],
+        "arguments": [
+            {
+                "name": "replicationid",
+                "type": "integer",
+                "value": "replicationid"
+            },
+            {
+                "name": "offset",
+                "type": "integer",
+                "value": "offset"
+            }
         ]
     }
 }

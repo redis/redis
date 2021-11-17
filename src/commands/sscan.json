@@ -33,6 +33,32 @@
                     }
                 }
             }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "name": "cursor",
+                "type": "integer",
+                "value": "cursor"
+            },
+            {
+                "token": "MATCH",
+                "optional": true,
+                "name": "pattern",
+                "type": "pattern",
+                "value": "pattern"
+            },
+            {
+                "token": "COUNT",
+                "optional": true,
+                "name": "count",
+                "type": "integer",
+                "value": "count"
+            }
         ]
     }
 }

@@ -5,7 +5,6 @@
         "group": "string",
         "since": "1.0.0",
         "arity": -3,
-        "depracated": true,
         "function": "setCommand",
         "history": [
             [
@@ -72,77 +71,71 @@
                 }
             }
         ],
-        "arguments":[
+        "arguments": [
             {
-                "name":"key",
-                "type":"key",
-                "value":"key"
+                "name": "key",
+                "type": "key",
+                "value": "key"
             },
             {
-                "name":"value",
-                "type":"string",
-                "value":"value"
+                "name": "value",
+                "type": "string",
+                "value": "value"
             },
             {
-                "name":"expire",
-                "optional":true,
-                "type":"oneof",
-                "value":[
+                "optional": true,
+                "name": "__TBD__22__",
+                "type": "oneof",
+                "value": [
                     {
-                        "name":"ex",
-                        "since":"2.6.12",
-                        "type":"integer",
-                        "token":"EX",
-                        "value":"seconds"
+                        "name": "__TBD__23__",
+                        "type": "token",
+                        "value": "EX seconds"
                     },
                     {
-                        "name":"px",
-                        "since":"2.6.12",
-                        "type":"integer",
-                        "token":"PX",
-                        "value":"milliseconds"
+                        "name": "__TBD__24__",
+                        "type": "token",
+                        "value": "PX milliseconds"
                     },
                     {
-                        "name":"exat",
-                        "since":"6.2.0",
-                        "type":"unix-time",
-                        "token":"EXAT",
-                        "value":"timestamp"
+                        "name": "__TBD__25__",
+                        "type": "token",
+                        "value": "EXAT timestamp"
                     },
                     {
-                        "name":"pxat",
-                        "since":"6.2.0",
-                        "type":"unix-time",
-                        "token":"PXAT",
-                        "value":"milliseconds-timestamp"
+                        "name": "__TBD__26__",
+                        "type": "token",
+                        "value": "PXAT milliseconds-timestamp"
                     },
                     {
-                        "name":"keepttl",
-                        "since":"6.0.0",
-                        "token":"KEEPTTL"
+                        "name": "keepttl",
+                        "type": "token",
+                        "value": "KEEPTTL"
                     }
                 ]
             },
             {
-                "name":"existence",
-                "optional":true,
-                "type":"oneof",
-                "value":[
+                "optional": true,
+                "name": "__TBD__27__",
+                "type": "oneof",
+                "value": [
                     {
-                        "name":"nx",
-                        "token":"NX"
+                        "name": "nx",
+                        "type": "token",
+                        "value": "NX"
                     },
                     {
-                        "name":"xx",
-                        "token":"XX"
+                        "name": "xx",
+                        "type": "token",
+                        "value": "XX"
                     }
                 ]
             },
             {
-                "name":"get",
-                "since":"6.2.0",
-                "optional":true,
-                "token":"GET"
+                "optional": true,
+                "name": "get",
+                "value": "GET",
+                "type": "token"
             }
         ]
     }

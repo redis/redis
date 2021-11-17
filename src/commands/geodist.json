@@ -32,6 +32,50 @@
                     }
                 }
             }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "name": "member1",
+                "type": "string",
+                "value": "member1"
+            },
+            {
+                "name": "member2",
+                "type": "string",
+                "value": "member2"
+            },
+            {
+                "optional": true,
+                "name": "__TBD__37__",
+                "type": "oneof",
+                "value": [
+                    {
+                        "name": "m",
+                        "type": "token",
+                        "value": "m"
+                    },
+                    {
+                        "name": "km",
+                        "type": "token",
+                        "value": "km"
+                    },
+                    {
+                        "name": "ft",
+                        "type": "token",
+                        "value": "ft"
+                    },
+                    {
+                        "name": "mi",
+                        "type": "token",
+                        "value": "mi"
+                    }
+                ]
+            }
         ]
     }
 }

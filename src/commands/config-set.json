@@ -1,5 +1,5 @@
 {
-    "SET": {
+    "CONFIG SET": {
         "summary": "Set a configuration parameter to the given value",
         "group": "server",
         "since": "2.0.0",
@@ -16,23 +16,16 @@
             "slow",
             "dangerous"
         ],
-        "returns":[
+        "arguments": [
             {
-                "description": "Command succeeded",
-                "type":"simple-string",
-                "constant_value":"+OK"
-            }
-        ],
-        "arguments":[
-            {
-                "name":"parameter",
-                "type":"string",
-                "value":"parameter"
+                "name": "parameter",
+                "type": "string",
+                "value": "parameter"
             },
             {
-                "name":"value",
-                "type":"string",
-                "value":"value"
+                "name": "value",
+                "type": "string",
+                "value": "value"
             }
         ]
     }

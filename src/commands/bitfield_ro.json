@@ -33,6 +33,30 @@
                     }
                 }
             }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "token": "GET",
+                "name": "encoding_offset",
+                "type": "block",
+                "value": [
+                    {
+                        "name": "encoding",
+                        "type": "string",
+                        "value": "encoding"
+                    },
+                    {
+                        "name": "offset",
+                        "type": "integer",
+                        "value": "offset"
+                    }
+                ]
+            }
         ]
     }
 }

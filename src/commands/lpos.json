@@ -32,6 +32,39 @@
                     }
                 }
             }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "name": "element",
+                "type": "string",
+                "value": "element"
+            },
+            {
+                "token": "RANK",
+                "optional": true,
+                "name": "rank",
+                "type": "integer",
+                "value": "rank"
+            },
+            {
+                "token": "COUNT",
+                "optional": true,
+                "name": "num-matches",
+                "type": "integer",
+                "value": "num-matches"
+            },
+            {
+                "token": "MAXLEN",
+                "optional": true,
+                "name": "len",
+                "type": "integer",
+                "value": "len"
+            }
         ]
     }
 }

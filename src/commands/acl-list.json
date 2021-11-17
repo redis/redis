@@ -1,5 +1,5 @@
 {
-    "LIST": {
+    "ACL LIST": {
         "summary": "List the current ACL rules in ACL config file format",
         "complexity": "O(N). Where N is the number of configured users.",
         "group": "server",

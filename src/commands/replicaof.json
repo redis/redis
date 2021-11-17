@@ -14,6 +14,18 @@
             "admin",
             "slow",
             "dangerous"
+        ],
+        "arguments": [
+            {
+                "name": "host",
+                "type": "string",
+                "value": "host"
+            },
+            {
+                "name": "port",
+                "type": "string",
+                "value": "port"
+            }
         ]
     }
 }

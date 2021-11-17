@@ -24,6 +24,25 @@
             "write",
             "slow",
             "dangerous"
+        ],
+        "arguments": [
+            {
+                "optional": true,
+                "name": "__TBD__39__",
+                "type": "oneof",
+                "value": [
+                    {
+                        "name": "async",
+                        "type": "token",
+                        "value": "ASYNC"
+                    },
+                    {
+                        "name": "sync",
+                        "type": "token",
+                        "value": "SYNC"
+                    }
+                ]
+            }
         ]
     }
 }

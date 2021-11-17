@@ -3809,6 +3809,7 @@ const char *ARG_TYPE_STR[] = {
     "key",
     "pattern",
     "unix-time",
+    "token",
     "oneof",
     "block",
 };

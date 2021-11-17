@@ -33,6 +33,57 @@
                     }
                 }
             }
+        ],
+        "arguments": [
+            {
+                "name": "numkeys",
+                "type": "integer",
+                "value": "numkeys"
+            },
+            {
+                "multiple": true,
+                "multiple_token": true,
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "token": "WEIGHTS",
+                "optional": true,
+                "multiple": true,
+                "name": "weight",
+                "type": "integer",
+                "value": "weight"
+            },
+            {
+                "token": "AGGREGATE",
+                "optional": true,
+                "name": "__TBD__46__",
+                "type": "oneof",
+                "value": [
+                    {
+                        "name": "sum",
+                        "type": "token",
+                        "value": "SUM"
+                    },
+                    {
+                        "name": "min",
+                        "type": "token",
+                        "value": "MIN"
+                    },
+                    {
+                        "name": "max",
+                        "type": "token",
+                        "value": "MAX"
+                    }
+                ]
+            },
+            {
+                "optional": true,
+                "name": "withscores",
+                "value": "WITHSCORES",
+                "type": "token"
+            }
         ]
     }
 }

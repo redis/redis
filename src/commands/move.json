@@ -33,6 +33,18 @@
                     }
                 }
             }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "name": "db",
+                "type": "integer",
+                "value": "db"
+            }
         ]
     }
 }

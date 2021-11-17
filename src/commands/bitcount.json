@@ -38,6 +38,47 @@
                     }
                 }
             }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "optional": true,
+                "name": "index",
+                "type": "block",
+                "value": [
+                    {
+                        "name": "start",
+                        "type": "integer",
+                        "value": "start"
+                    },
+                    {
+                        "name": "end",
+                        "type": "integer",
+                        "value": "end"
+                    },
+                    {
+                        "optional": true,
+                        "name": "__TBD__56__",
+                        "type": "oneof",
+                        "value": [
+                            {
+                                "name": "byte",
+                                "type": "token",
+                                "value": "BYTE"
+                            },
+                            {
+                                "name": "bit",
+                                "type": "token",
+                                "value": "BIT"
+                            }
+                        ]
+                    }
+                ]
+            }
         ]
     }
 }

@@ -1,5 +1,5 @@
 {
-    "RESET": {
+    "LATENCY RESET": {
         "summary": "Reset latency data for one or more events.",
         "group": "server",
         "since": "2.8.13",
@@ -16,6 +16,16 @@
             "admin",
             "slow",
             "dangerous"
+        ],
+        "arguments": [
+            {
+                "optional": true,
+                "multiple": true,
+                "multiple_token": true,
+                "name": "event",
+                "type": "string",
+                "value": "event"
+            }
         ]
     }
 }

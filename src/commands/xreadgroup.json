@@ -35,6 +35,64 @@
                     }
                 }
             }
+        ],
+        "arguments": [
+            {
+                "token": "GROUP",
+                "name": "group_consumer",
+                "type": "block",
+                "value": [
+                    {
+                        "name": "group",
+                        "type": "string",
+                        "value": "group"
+                    },
+                    {
+                        "name": "consumer",
+                        "type": "string",
+                        "value": "consumer"
+                    }
+                ]
+            },
+            {
+                "token": "COUNT",
+                "optional": true,
+                "name": "count",
+                "type": "integer",
+                "value": "count"
+            },
+            {
+                "token": "BLOCK",
+                "optional": true,
+                "name": "milliseconds",
+                "type": "integer",
+                "value": "milliseconds"
+            },
+            {
+                "optional": true,
+                "name": "noack",
+                "value": "NOACK",
+                "type": "token"
+            },
+            {
+                "name": "streams",
+                "value": "STREAMS",
+                "type": "token"
+            },
+            {
+                "multiple": true,
+                "multiple_token": true,
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "multiple": true,
+                "multiple_token": true,
+                "name": "ID",
+                "type": "string",
+                "value": "ID"
+            }
         ]
     }
 }

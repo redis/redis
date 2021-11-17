@@ -12,6 +12,18 @@
         "acl_categories": [
             "slow",
             "connection"
+        ],
+        "arguments": [
+            {
+                "name": "numreplicas",
+                "type": "integer",
+                "value": "numreplicas"
+            },
+            {
+                "name": "timeout",
+                "type": "integer",
+                "value": "timeout"
+            }
         ]
     }
 }

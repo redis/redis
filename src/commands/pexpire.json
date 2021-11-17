@@ -39,6 +39,45 @@
                     }
                 }
             }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "name": "milliseconds",
+                "type": "integer",
+                "value": "milliseconds"
+            },
+            {
+                "optional": true,
+                "name": "__TBD__45__",
+                "type": "oneof",
+                "value": [
+                    {
+                        "name": "nx",
+                        "type": "token",
+                        "value": "NX"
+                    },
+                    {
+                        "name": "xx",
+                        "type": "token",
+                        "value": "XX"
+                    },
+                    {
+                        "name": "gt",
+                        "type": "token",
+                        "value": "GT"
+                    },
+                    {
+                        "name": "lt",
+                        "type": "token",
+                        "value": "LT"
+                    }
+                ]
+            }
         ]
     }
 }

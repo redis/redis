@@ -5,8 +5,9 @@
         "group": "sorted_set",
         "since": "2.2.0",
         "arity": -4,
-        "depracated": true,
         "function": "zrevrangebyscoreCommand",
+        "until": "6.2.0",
+        "replaced_by": "`ZRANGE` with the `REV` and `BYSCORE` arguments",
         "command_flags": [
             "readonly"
         ],
@@ -32,6 +33,47 @@
                         "limit": 0
                     }
                 }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "name": "max",
+                "type": "double",
+                "value": "max"
+            },
+            {
+                "name": "min",
+                "type": "double",
+                "value": "min"
+            },
+            {
+                "optional": true,
+                "name": "withscores",
+                "value": "WITHSCORES",
+                "type": "token"
+            },
+            {
+                "token": "LIMIT",
+                "optional": true,
+                "name": "offset_count",
+                "type": "block",
+                "value": [
+                    {
+                        "name": "offset",
+                        "type": "integer",
+                        "value": "offset"
+                    },
+                    {
+                        "name": "count",
+                        "type": "integer",
+                        "value": "count"
+                    }
+                ]
             }
         ]
     }

@@ -1,5 +1,5 @@
 {
-    "SETID": {
+    "XGROUP SETID": {
         "summary": "Set a consumer group to an arbitrary last delivered ID value.",
         "complexity": "O(1)",
         "group": "stream",
@@ -32,6 +32,23 @@
                         "limit": 0
                     }
                 }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "name": "groupname",
+                "type": "string",
+                "value": "groupname"
+            },
+            {
+                "name": "id",
+                "type": "string",
+                "value": "id"
             }
         ]
     }

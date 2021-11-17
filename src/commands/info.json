@@ -4,7 +4,6 @@
         "group": "server",
         "since": "1.0.0",
         "arity": -1,
-        "depracated": true,
         "function": "infoCommand",
         "command_flags": [
             "random",
@@ -14,6 +13,14 @@
         "acl_categories": [
             "slow",
             "dangerous"
+        ],
+        "arguments": [
+            {
+                "optional": true,
+                "name": "section",
+                "type": "string",
+                "value": "section"
+            }
         ]
     }
 }

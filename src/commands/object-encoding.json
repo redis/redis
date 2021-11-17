@@ -1,5 +1,5 @@
 {
-    "ENCODING": {
+    "OBJECT ENCODING": {
         "summary": "Inspect the internal encoding of a Redis object",
         "complexity": "O(1)",
         "group": "generic",
@@ -32,6 +32,13 @@
                         "limit": 0
                     }
                 }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "value": "key"
             }
         ]
     }

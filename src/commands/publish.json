@@ -16,6 +16,18 @@
         "acl_categories": [
             "pubsub",
             "fast"
+        ],
+        "arguments": [
+            {
+                "name": "channel",
+                "type": "string",
+                "value": "channel"
+            },
+            {
+                "name": "message",
+                "type": "string",
+                "value": "message"
+            }
         ]
     }
 }

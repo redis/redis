@@ -1,5 +1,5 @@
 {
-    "LOAD": {
+    "MODULE LOAD": {
         "summary": "Load a module",
         "complexity": "O(1)",
         "group": "server",
@@ -15,6 +15,20 @@
             "admin",
             "slow",
             "dangerous"
+        ],
+        "arguments": [
+            {
+                "name": "path",
+                "type": "string",
+                "value": "path"
+            },
+            {
+                "optional": true,
+                "multiple": true,
+                "name": "arg",
+                "type": "string",
+                "value": "arg"
+            }
         ]
     }
 }

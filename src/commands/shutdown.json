@@ -15,6 +15,25 @@
             "admin",
             "slow",
             "dangerous"
+        ],
+        "arguments": [
+            {
+                "optional": true,
+                "name": "__TBD__58__",
+                "type": "oneof",
+                "value": [
+                    {
+                        "name": "nosave",
+                        "type": "token",
+                        "value": "NOSAVE"
+                    },
+                    {
+                        "name": "save",
+                        "type": "token",
+                        "value": "SAVE"
+                    }
+                ]
+            }
         ]
     }
 }

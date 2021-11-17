@@ -15,6 +15,18 @@
             "write",
             "fast",
             "dangerous"
+        ],
+        "arguments": [
+            {
+                "name": "index1",
+                "type": "integer",
+                "value": "index1"
+            },
+            {
+                "name": "index2",
+                "type": "integer",
+                "value": "index2"
+            }
         ]
     }
 }

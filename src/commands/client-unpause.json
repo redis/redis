@@ -1,5 +1,5 @@
 {
-    "UNPAUSE": {
+    "CLIENT UNPAUSE": {
         "summary": "Resume processing of clients that were paused",
         "complexity": "O(N) Where N is the number of paused clients",
         "group": "connection",

@@ -1,12 +1,11 @@
 {
-    "PURGE": {
+    "MEMORY PURGE": {
         "summary": "Ask the allocator to release memory",
         "group": "server",
         "since": "4.0.0",
         "arity": 2,
         "container": "MEMORY",
         "function": "memoryCommand",
-        "command_flags": [],
         "acl_categories": [
             "slow"
         ]

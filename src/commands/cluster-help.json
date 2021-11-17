@@ -1,9 +1,6 @@
 {
-    "HELP": {
-        "summary": "Show helpful text about the different subcommands",
-        "complexity": "O(1)",
+    "CLUSTER HELP": {
         "group": "cluster",
-        "since": "5.0.0",
         "arity": 2,
         "container": "CLUSTER",
         "function": "clusterCommand",

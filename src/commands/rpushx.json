@@ -40,6 +40,20 @@
                     }
                 }
             }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "multiple": true,
+                "multiple_token": true,
+                "name": "element",
+                "type": "string",
+                "value": "element"
+            }
         ]
     }
 }

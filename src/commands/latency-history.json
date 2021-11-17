@@ -1,5 +1,5 @@
 {
-    "HISTORY": {
+    "LATENCY HISTORY": {
         "summary": "Return timestamp-latency samples for the event.",
         "group": "server",
         "since": "2.8.13",
@@ -16,6 +16,13 @@
             "admin",
             "slow",
             "dangerous"
+        ],
+        "arguments": [
+            {
+                "name": "event",
+                "type": "string",
+                "value": "event"
+            }
         ]
     }
 }

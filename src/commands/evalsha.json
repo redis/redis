@@ -10,8 +10,7 @@
         "command_flags": [
             "noscript",
             "skip_monitor",
-            "may_replicate",
-            "no_mandatory_keys"
+            "may_replicate"
         ],
         "acl_categories": [
             "slow",
@@ -35,6 +34,34 @@
                         "step": 1
                     }
                 }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "sha1",
+                "type": "string",
+                "value": "sha1"
+            },
+            {
+                "name": "numkeys",
+                "type": "integer",
+                "value": "numkeys"
+            },
+            {
+                "optional": true,
+                "multiple": true,
+                "multiple_token": true,
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "optional": true,
+                "multiple": true,
+                "multiple_token": true,
+                "name": "arg",
+                "type": "string",
+                "value": "arg"
             }
         ]
     }

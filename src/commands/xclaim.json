@@ -34,6 +34,68 @@
                     }
                 }
             }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "name": "group",
+                "type": "string",
+                "value": "group"
+            },
+            {
+                "name": "consumer",
+                "type": "string",
+                "value": "consumer"
+            },
+            {
+                "name": "min-idle-time",
+                "type": "string",
+                "value": "min-idle-time"
+            },
+            {
+                "multiple": true,
+                "multiple_token": true,
+                "name": "ID",
+                "type": "string",
+                "value": "ID"
+            },
+            {
+                "token": "IDLE",
+                "optional": true,
+                "name": "ms",
+                "type": "integer",
+                "value": "ms"
+            },
+            {
+                "token": "TIME",
+                "optional": true,
+                "name": "ms-unix-time",
+                "type": "integer",
+                "value": "ms-unix-time"
+            },
+            {
+                "token": "RETRYCOUNT",
+                "optional": true,
+                "name": "count",
+                "type": "integer",
+                "value": "count"
+            },
+            {
+                "optional": true,
+                "name": "force",
+                "value": "FORCE",
+                "type": "token"
+            },
+            {
+                "optional": true,
+                "name": "justid",
+                "value": "JUSTID",
+                "type": "token"
+            }
         ]
     }
 }

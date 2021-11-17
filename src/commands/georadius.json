@@ -5,9 +5,10 @@
         "group": "geo",
         "since": "3.2.0",
         "arity": -6,
-        "depracated": true,
         "function": "georadiusCommand",
         "get_keys_function": "georadiusGetKeys",
+        "until": "6.2.0",
+        "replaced_by": "`GEOSEARCH` and `GEOSEARCHSTORE` with the `BYRADIUS` argument",
         "history": [
             [
                 "6.2",
@@ -76,6 +77,122 @@
                         "limit": 0
                     }
                 }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "name": "longitude",
+                "type": "double",
+                "value": "longitude"
+            },
+            {
+                "name": "latitude",
+                "type": "double",
+                "value": "latitude"
+            },
+            {
+                "name": "radius",
+                "type": "double",
+                "value": "radius"
+            },
+            {
+                "name": "__TBD__72__",
+                "type": "oneof",
+                "value": [
+                    {
+                        "name": "m",
+                        "type": "token",
+                        "value": "m"
+                    },
+                    {
+                        "name": "km",
+                        "type": "token",
+                        "value": "km"
+                    },
+                    {
+                        "name": "ft",
+                        "type": "token",
+                        "value": "ft"
+                    },
+                    {
+                        "name": "mi",
+                        "type": "token",
+                        "value": "mi"
+                    }
+                ]
+            },
+            {
+                "optional": true,
+                "name": "withcoord",
+                "value": "WITHCOORD",
+                "type": "token"
+            },
+            {
+                "optional": true,
+                "name": "withdist",
+                "value": "WITHDIST",
+                "type": "token"
+            },
+            {
+                "optional": true,
+                "name": "withhash",
+                "value": "WITHHASH",
+                "type": "token"
+            },
+            {
+                "optional": true,
+                "name": "count",
+                "type": "block",
+                "value": [
+                    {
+                        "token": "COUNT",
+                        "name": "count",
+                        "type": "integer",
+                        "value": "count"
+                    },
+                    {
+                        "optional": true,
+                        "name": "any",
+                        "value": "ANY",
+                        "type": "token"
+                    }
+                ]
+            },
+            {
+                "optional": true,
+                "name": "__TBD__73__",
+                "type": "oneof",
+                "value": [
+                    {
+                        "name": "asc",
+                        "type": "token",
+                        "value": "ASC"
+                    },
+                    {
+                        "name": "desc",
+                        "type": "token",
+                        "value": "DESC"
+                    }
+                ]
+            },
+            {
+                "token": "STORE",
+                "optional": true,
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "token": "STOREDIST",
+                "optional": true,
+                "name": "key",
+                "type": "key",
+                "value": "key"
             }
         ]
     }

@@ -18,7 +18,6 @@
         ],
         "key_specs": [
             {
-                "flags": [],
                 "begin_search": {
                     "index": {
                         "pos": 1
@@ -31,6 +30,15 @@
                         "limit": 0
                     }
                 }
+            }
+        ],
+        "arguments": [
+            {
+                "multiple": true,
+                "multiple_token": true,
+                "name": "key",
+                "type": "key",
+                "value": "key"
             }
         ]
     }

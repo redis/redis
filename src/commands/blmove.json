@@ -5,7 +5,6 @@
         "group": "list",
         "since": "6.2.0",
         "arity": 6,
-        "depracated": true,
         "function": "blmoveCommand",
         "command_flags": [
             "write",
@@ -53,6 +52,55 @@
                         "limit": 0
                     }
                 }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "source",
+                "type": "key",
+                "value": "source"
+            },
+            {
+                "name": "destination",
+                "type": "key",
+                "value": "destination"
+            },
+            {
+                "name": "__TBD__43__",
+                "type": "oneof",
+                "value": [
+                    {
+                        "name": "left",
+                        "type": "token",
+                        "value": "LEFT"
+                    },
+                    {
+                        "name": "right",
+                        "type": "token",
+                        "value": "RIGHT"
+                    }
+                ]
+            },
+            {
+                "name": "__TBD__44__",
+                "type": "oneof",
+                "value": [
+                    {
+                        "name": "left",
+                        "type": "token",
+                        "value": "LEFT"
+                    },
+                    {
+                        "name": "right",
+                        "type": "token",
+                        "value": "RIGHT"
+                    }
+                ]
+            },
+            {
+                "name": "timeout",
+                "type": "double",
+                "value": "timeout"
             }
         ]
     }

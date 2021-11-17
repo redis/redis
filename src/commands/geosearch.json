@@ -5,7 +5,6 @@
         "group": "geo",
         "since": "6.2",
         "arity": -7,
-        "depracated": true,
         "function": "geosearchCommand",
         "command_flags": [
             "readonly"
@@ -32,6 +31,175 @@
                         "limit": 0
                     }
                 }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "token": "FROMMEMBER",
+                "optional": true,
+                "name": "member",
+                "type": "string",
+                "value": "member"
+            },
+            {
+                "token": "FROMLONLAT",
+                "optional": true,
+                "name": "longitude_latitude",
+                "type": "block",
+                "value": [
+                    {
+                        "name": "longitude",
+                        "type": "double",
+                        "value": "longitude"
+                    },
+                    {
+                        "name": "latitude",
+                        "type": "double",
+                        "value": "latitude"
+                    }
+                ]
+            },
+            {
+                "optional": true,
+                "name": "circle",
+                "type": "block",
+                "value": [
+                    {
+                        "token": "BYRADIUS",
+                        "name": "radius",
+                        "type": "double",
+                        "value": "radius"
+                    },
+                    {
+                        "name": "__TBD__12__",
+                        "type": "oneof",
+                        "value": [
+                            {
+                                "name": "m",
+                                "type": "token",
+                                "value": "m"
+                            },
+                            {
+                                "name": "km",
+                                "type": "token",
+                                "value": "km"
+                            },
+                            {
+                                "name": "ft",
+                                "type": "token",
+                                "value": "ft"
+                            },
+                            {
+                                "name": "mi",
+                                "type": "token",
+                                "value": "mi"
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "optional": true,
+                "name": "box",
+                "type": "block",
+                "value": [
+                    {
+                        "token": "BYBOX",
+                        "name": "width",
+                        "type": "double",
+                        "value": "width"
+                    },
+                    {
+                        "name": "height",
+                        "type": "double",
+                        "value": "height"
+                    },
+                    {
+                        "name": "__TBD__13__",
+                        "type": "oneof",
+                        "value": [
+                            {
+                                "name": "m",
+                                "type": "token",
+                                "value": "m"
+                            },
+                            {
+                                "name": "km",
+                                "type": "token",
+                                "value": "km"
+                            },
+                            {
+                                "name": "ft",
+                                "type": "token",
+                                "value": "ft"
+                            },
+                            {
+                                "name": "mi",
+                                "type": "token",
+                                "value": "mi"
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "optional": true,
+                "name": "__TBD__14__",
+                "type": "oneof",
+                "value": [
+                    {
+                        "name": "asc",
+                        "type": "token",
+                        "value": "ASC"
+                    },
+                    {
+                        "name": "desc",
+                        "type": "token",
+                        "value": "DESC"
+                    }
+                ]
+            },
+            {
+                "optional": true,
+                "name": "count",
+                "type": "block",
+                "value": [
+                    {
+                        "token": "COUNT",
+                        "name": "count",
+                        "type": "integer",
+                        "value": "count"
+                    },
+                    {
+                        "optional": true,
+                        "name": "any",
+                        "value": "ANY",
+                        "type": "token"
+                    }
+                ]
+            },
+            {
+                "optional": true,
+                "name": "withcoord",
+                "value": "WITHCOORD",
+                "type": "token"
+            },
+            {
+                "optional": true,
+                "name": "withdist",
+                "value": "WITHDIST",
+                "type": "token"
+            },
+            {
+                "optional": true,
+                "name": "withhash",
+                "value": "WITHHASH",
+                "type": "token"
             }
         ]
     }

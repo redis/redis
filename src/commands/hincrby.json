@@ -34,6 +34,23 @@
                     }
                 }
             }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "name": "field",
+                "type": "string",
+                "value": "field"
+            },
+            {
+                "name": "increment",
+                "type": "integer",
+                "value": "increment"
+            }
         ]
     }
 }

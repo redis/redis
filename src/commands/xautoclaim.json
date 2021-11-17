@@ -34,6 +34,46 @@
                     }
                 }
             }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "name": "group",
+                "type": "string",
+                "value": "group"
+            },
+            {
+                "name": "consumer",
+                "type": "string",
+                "value": "consumer"
+            },
+            {
+                "name": "min-idle-time",
+                "type": "string",
+                "value": "min-idle-time"
+            },
+            {
+                "name": "start",
+                "type": "string",
+                "value": "start"
+            },
+            {
+                "token": "COUNT",
+                "optional": true,
+                "name": "count",
+                "type": "integer",
+                "value": "count"
+            },
+            {
+                "optional": true,
+                "name": "justid",
+                "value": "JUSTID",
+                "type": "token"
+            }
         ]
     }
 }

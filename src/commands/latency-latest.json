@@ -1,5 +1,5 @@
 {
-    "LATEST": {
+    "LATENCY LATEST": {
         "summary": "Return the latest latency samples for all events.",
         "group": "server",
         "since": "2.8.13",

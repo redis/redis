@@ -34,6 +34,23 @@
                     }
                 }
             }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "value": "key"
+            },
+            {
+                "name": "increment",
+                "type": "integer",
+                "value": "increment"
+            },
+            {
+                "name": "member",
+                "type": "string",
+                "value": "member"
+            }
         ]
     }
 }
