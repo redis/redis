@@ -30,5 +30,11 @@ start_server {tags {"modules"}} {
         assert_equal $reply 3
     }
 
+    test {Unsafe command names are sanitized in INFO output} {
+        r test.weird:cmd
+        set info [r info commandstats]
+        assert_match {*cmdstat_test.weird_cmd:calls=1*} $info
+    }
+
     r module unload test
 }

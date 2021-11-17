@@ -2021,12 +2021,6 @@ struct redisCommand redisCommandTable[] = {
        KSPEC_BS_INDEX,.bs.index={1},
        KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 
-    {"post",securityWarningCommand,-1,
-     "ok-loading ok-stale read-only"},
-
-    {"host:",securityWarningCommand,-1,
-     "ok-loading ok-stale read-only"},
-
     {"latency",NULL,-2,
      "",
      .subcommands=latencySubcommands},
@@ -2042,6 +2036,9 @@ struct redisCommand redisCommandTable[] = {
      "",
      .subcommands=stralgoSubcommands},
 
+    {"quit",quitCommand,-1,
+     "no-script ok-stale ok-loading fast @connection"},
+     
     {"reset",resetCommand,1,
      "no-script ok-stale ok-loading fast @connection"},
 
@@ -5197,13 +5194,9 @@ int processCommand(client *c) {
 
     moduleCallCommandFilters(c);
 
-    /* The QUIT command is handled separately. Normal command procs will
-     * go through checking for replication and QUIT will cause trouble
-     * when FORCE_REPLICATION is enabled and would be implemented in
-     * a regular command proc. */
-    if (!strcasecmp(c->argv[0]->ptr,"quit")) {
-        addReply(c,shared.ok);
-        c->flags |= CLIENT_CLOSE_AFTER_REPLY;
+    /* Handle possible security attacks. */
+    if (!strcasecmp(c->argv[0]->ptr,"host:") || !strcasecmp(c->argv[0]->ptr,"post")) {
+        securityWarningCommand(c);
         return C_ERR;
     }
 
@@ -5348,6 +5341,7 @@ int processCommand(client *c) {
         if (c->flags & CLIENT_MULTI &&
             c->cmd->proc != execCommand &&
             c->cmd->proc != discardCommand &&
+            c->cmd->proc != quitCommand &&
             c->cmd->proc != resetCommand) {
             reject_cmd_on_oom = 1;
         }
@@ -5415,6 +5409,7 @@ int processCommand(client *c) {
         c->cmd->proc != unsubscribeCommand &&
         c->cmd->proc != psubscribeCommand &&
         c->cmd->proc != punsubscribeCommand &&
+        c->cmd->proc != quitCommand &&
         c->cmd->proc != resetCommand) {
         rejectCommandFormat(c,
             "Can't execute '%s': only (P)SUBSCRIBE / "
@@ -5455,6 +5450,7 @@ int processCommand(client *c) {
           c->cmd->proc != discardCommand &&
           c->cmd->proc != watchCommand &&
           c->cmd->proc != unwatchCommand &&
+          c->cmd->proc != quitCommand &&
           c->cmd->proc != resetCommand &&
         !(c->cmd->proc == shutdownCommand &&
           c->argc == 2 &&
@@ -5488,8 +5484,11 @@ int processCommand(client *c) {
 
     /* Exec the command */
     if (c->flags & CLIENT_MULTI &&
-        c->cmd->proc != execCommand && c->cmd->proc != discardCommand &&
-        c->cmd->proc != multiCommand && c->cmd->proc != watchCommand &&
+        c->cmd->proc != execCommand &&
+        c->cmd->proc != discardCommand &&
+        c->cmd->proc != multiCommand &&
+        c->cmd->proc != watchCommand &&
+        c->cmd->proc != quitCommand &&
         c->cmd->proc != resetCommand)
     {
         queueMultiCommand(c);

@@ -164,12 +164,4 @@ start_server {tags {"info" "external:skip"}} {
             assert_match {} [errorstat NOPERM]
         }
     }
-
-    start_server {} {
-        test {Unsafe command names are sanitized in INFO output} {
-            catch {r host:} e
-            set info [r info commandstats]
-            assert_match {*cmdstat_host_:calls=1*} $info
-        }
-    }
 }
