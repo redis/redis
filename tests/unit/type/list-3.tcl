@@ -46,36 +46,36 @@ start_server {
         config_set list-compress-depth $comp
         test "Stress tester for #3343-alike bugs comp: $comp" {
             r del key
-                for {set j 0} {$j < $cycles} {incr j} {
-                set op [randomInt 7]
-                set small_signed_count [expr 5-[randomInt 10]]
-                if {[randomInt 2] == 0} {
-                    set ele [randomInt 1000]
-                } else {
-                    set ele [string repeat x [randomInt 10000]][randomInt 1000]
+            for {set j 0} {$j < $cycles} {incr j} {
+            set op [randomInt 7]
+            set small_signed_count [expr 5-[randomInt 10]]
+            if {[randomInt 2] == 0} {
+                set ele [randomInt 1000]
+            } else {
+                set ele [string repeat x [randomInt 10000]][randomInt 1000]
+            }
+            switch $op {
+                0 {r lpush key $ele}
+                1 {r rpush key $ele}
+                2 {r lpop key}
+                3 {r rpop key}
+                4 {
+                    catch {r lset key $small_signed_count $ele}
                 }
-                switch $op {
-                    0 {r lpush key $ele}
-                    1 {r rpush key $ele}
-                    2 {r lpop key}
-                    3 {r rpop key}
-                    4 {
-                        catch {r lset key $small_signed_count $ele}
+                5 {
+                    set otherele [randomInt 1000]
+                    if {[randomInt 2] == 0} {
+                        set where before
+                    } else {
+                        set where after
                     }
-                    5 {
-                        set otherele [randomInt 1000]
-                        if {[randomInt 2] == 0} {
-                            set where before
-                        } else {
-                            set where after
-                        }
-                        r linsert key $where $otherele $ele
-                    }
-                    6 {
-                        set index [randomInt [r llen key]]
-                        set otherele [r lindex key $index]
-                        r lrem key 1 $otherele
-                    }
+                    r linsert key $where $otherele $ele
+                }
+                6 {
+                    set index [randomInt [r llen key]]
+                    set otherele [r lindex key $index]
+                    r lrem key 1 $otherele
+                }
                 }
             }
         }

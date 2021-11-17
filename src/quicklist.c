@@ -323,8 +323,6 @@ REDIS_STATIC void __quicklistCompress(const quicklist *quicklist,
 
     if (forward) forward->recompress = 0;
     if (reverse) reverse->recompress = 0;
-    quicklistDecompressNode(forward);
-    quicklistDecompressNode(reverse);
 
     /* If length is less than our compress depth (from both sides),
      * we can't compress anything. */
