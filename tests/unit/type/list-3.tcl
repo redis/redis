@@ -72,7 +72,7 @@ start_server {
                         r linsert key $where $otherele $ele
                     }
                     6 {
-                        set index [randomInt  [r llen key]]
+                        set index [randomInt [r llen key]]
                         set otherele [r lindex key $index]
                         r lrem key 1 $otherele
                     }

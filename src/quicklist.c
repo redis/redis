@@ -404,9 +404,8 @@ REDIS_STATIC void __quicklistCompress(const quicklist *quicklist,
 /* If we previously used quicklistDecompressNodeForUse(), just recompress. */
 #define quicklistRecompressOnly(_ql, _node)                                    \
     do {                                                                       \
-        if ((_node)->recompress) {                                             \
+        if ((_node)->recompress)                                               \
             quicklistCompressNode((_node));                                    \
-        }                                                                      \
     } while (0)
 
 /* Insert 'new_node' after 'old_node' if 'after' is 1.
@@ -1580,6 +1579,8 @@ int quicklistPopCustom(quicklist *quicklist, int where, unsigned char **data,
         return 0;
     }
 
+    assert(node->encoding != QUICKLIST_NODE_ENCODING_LZF);
+
     if (unlikely(QL_NODE_IS_PLAIN(node))) {
         if (data)
             *data = saver(node->entry, node->sz);
@@ -1588,8 +1589,6 @@ int quicklistPopCustom(quicklist *quicklist, int where, unsigned char **data,
         quicklistDelIndex(quicklist, node, NULL);
         return 1;
     }
-
-    assert(node->encoding != QUICKLIST_NODE_ENCODING_LZF);
 
     p = ziplistIndex(node->entry, pos);
     if (ziplistGet(p, &vstr, &vlen, &vlong)) {
