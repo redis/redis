@@ -6688,7 +6688,12 @@ struct redisCommandArg PSETEX_Args[] = {
 /********** SET ********************/
 
 /* SET return info */
-#define SET_ReturnInfo NULL
+commandReturnInfo SET_ReturnInfo[] = {
+{"Command succeeded","+OK",RETURN_TYPE_RESP2_3_SAME,.type.global=RESP2_SIMPLE_STRING},
+{"Old value if `GET` was given",NULL,RETURN_TYPE_RESP2_3_SAME,.type.global=RESP2_BULK_STRING},
+{"Either `SET` failed (with `NX` or `XX`), or `GET` was given and key didn't exist",NULL,RETURN_TYPE_RESP2_3_DIFFER,.type.unique={RESP2_NULL_BULK_STRING,RESP3_NULL}},
+{0}
+};
 
 /* SET history */
 commandHistory SET_History[] = {
@@ -6707,7 +6712,7 @@ struct redisCommandArg SET_expiration_Subargs[] = {
 {"ex",ARG_TYPE_INTEGER,"EX",NULL,NULL,CMD_ARG_NONE,.value.string="seconds"},
 {"px",ARG_TYPE_INTEGER,"PX",NULL,NULL,CMD_ARG_NONE,.value.string="milliseconds"},
 {"exat",ARG_TYPE_UNIX_TIME,"EXAT",NULL,NULL,CMD_ARG_NONE,.value.string="timestamp"},
-{"pxat",ARG_TYPE_INTEGER,"PXAT",NULL,NULL,CMD_ARG_NONE,.value.string="milliseconds-timestamp"},
+{"pxat",ARG_TYPE_UNIX_TIME,"PXAT",NULL,NULL,CMD_ARG_NONE,.value.string="milliseconds-timestamp"},
 {"keepttl",ARG_TYPE_PURE_TOKEN,"KEEPTTL",NULL,NULL,CMD_ARG_NONE},
 {0}
 };
@@ -7038,10 +7043,10 @@ struct redisCommand redisCommandTable[] = {
 {"subscribe","Listen for messages published to the given channels","O(N) where N is the number of channels to subscribe to.","2.0.0",COMMAND_GROUP_PUBSUB,SUBSCRIBE_ReturnInfo,SUBSCRIBE_History,SUBSCRIBE_Metadata,subscribeCommand,-2,"pubsub noscript loading stale @pubsub @slow",.args=SUBSCRIBE_Args},
 {"unsubscribe","Stop listening for messages posted to the given channels","O(N) where N is the number of clients already subscribed to a channel.","2.0.0",COMMAND_GROUP_PUBSUB,UNSUBSCRIBE_ReturnInfo,UNSUBSCRIBE_History,UNSUBSCRIBE_Metadata,unsubscribeCommand,-1,"pubsub noscript loading stale @pubsub @slow",.args=UNSUBSCRIBE_Args},
 /* scripting */
-{"eval","Execute a Lua script server side","Depends on the script that is executed.","2.6.0",COMMAND_GROUP_SCRIPTING,EVAL_ReturnInfo,EVAL_History,EVAL_Metadata,evalCommand,-3,"noscript skip_monitor may_replicate @slow @scripting",{{"write read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},evalGetKeys,.args=EVAL_Args},
-{"evalsha","Execute a Lua script server side","Depends on the script that is executed.","2.6.0",COMMAND_GROUP_SCRIPTING,EVALSHA_ReturnInfo,EVALSHA_History,EVALSHA_Metadata,evalShaCommand,-3,"noscript skip_monitor may_replicate @slow @scripting",{{"write read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},evalGetKeys,.args=EVALSHA_Args},
-{"evalsha_ro","Execute a read-only Lua script server side","Depends on the script that is executed.","7.0.0",COMMAND_GROUP_SCRIPTING,EVALSHA_RO_ReturnInfo,EVALSHA_RO_History,EVALSHA_RO_Metadata,evalShaRoCommand,-3,"noscript skip_monitor @slow @scripting",{{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},evalGetKeys,.args=EVALSHA_RO_Args},
-{"eval_ro","Execute a read-only Lua script server side","Depends on the script that is executed.","7.0.0",COMMAND_GROUP_SCRIPTING,EVAL_RO_ReturnInfo,EVAL_RO_History,EVAL_RO_Metadata,evalRoCommand,-3,"noscript skip_monitor @slow @scripting",{{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},evalGetKeys,.args=EVAL_RO_Args},
+{"eval","Execute a Lua script server side","Depends on the script that is executed.","2.6.0",COMMAND_GROUP_SCRIPTING,EVAL_ReturnInfo,EVAL_History,EVAL_Metadata,evalCommand,-3,"noscript skip_monitor may_replicate no_mandatory_keys @slow @scripting",{{"write read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},evalGetKeys,.args=EVAL_Args},
+{"evalsha","Execute a Lua script server side","Depends on the script that is executed.","2.6.0",COMMAND_GROUP_SCRIPTING,EVALSHA_ReturnInfo,EVALSHA_History,EVALSHA_Metadata,evalShaCommand,-3,"noscript skip_monitor may_replicate no_mandatory_keys @slow @scripting",{{"write read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},evalGetKeys,.args=EVALSHA_Args},
+{"evalsha_ro","Execute a read-only Lua script server side","Depends on the script that is executed.","7.0.0",COMMAND_GROUP_SCRIPTING,EVALSHA_RO_ReturnInfo,EVALSHA_RO_History,EVALSHA_RO_Metadata,evalShaRoCommand,-3,"noscript skip_monitor no_mandatory_keys @slow @scripting",{{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},evalGetKeys,.args=EVALSHA_RO_Args},
+{"eval_ro","Execute a read-only Lua script server side","Depends on the script that is executed.","7.0.0",COMMAND_GROUP_SCRIPTING,EVAL_RO_ReturnInfo,EVAL_RO_History,EVAL_RO_Metadata,evalRoCommand,-3,"noscript skip_monitor no_mandatory_keys @slow @scripting",{{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},evalGetKeys,.args=EVAL_RO_Args},
 {"script",NULL,NULL,"2.6.0",COMMAND_GROUP_SCRIPTING,SCRIPT_ReturnInfo,SCRIPT_History,SCRIPT_Metadata,NULL,-2,"@slow",.subcommands=SCRIPT_Subcommands},
 /* server */
 {"acl",NULL,NULL,"6.0.0",COMMAND_GROUP_SERVER,ACL_ReturnInfo,ACL_History,ACL_Metadata,NULL,-2,"@slow",.subcommands=ACL_Subcommands},
@@ -7131,7 +7136,7 @@ struct redisCommand redisCommandTable[] = {
 {"zunionstore","Add multiple sorted sets and store the resulting sorted set in a new key","O(N)+O(M log(M)) with N being the sum of the sizes of the input sorted sets, and M being the number of elements in the resulting sorted set.","2.0.0",COMMAND_GROUP_SORTED_SET,ZUNIONSTORE_ReturnInfo,ZUNIONSTORE_History,ZUNIONSTORE_Metadata,zunionstoreCommand,-4,"write denyoom @write @sortedset @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},zunionInterDiffStoreGetKeys,.args=ZUNIONSTORE_Args},
 /* stream */
 {"xack","Marks a pending message as correctly processed, effectively removing it from the pending entries list of the consumer group. Return value of the command is the number of messages successfully acknowledged, that is, the IDs we were actually able to resolve in the PEL.","O(1) for each message ID processed.","5.0.0",COMMAND_GROUP_STREAM,XACK_ReturnInfo,XACK_History,XACK_Metadata,xackCommand,-4,"write random fast @write @stream @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XACK_Args},
-{"xadd","Appends a new entry to a stream","O(1) when adding a new entry, O(N) when trimming where N being the number of entires evicted.","5.0.0",COMMAND_GROUP_STREAM,XADD_ReturnInfo,XADD_History,XADD_Metadata,xaddCommand,-5,"write denyoom random fast @write @stream @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XADD_Args},
+{"xadd","Appends a new entry to a stream","O(1) when adding a new entry, O(N) when trimming where N being the number of entries evicted.","5.0.0",COMMAND_GROUP_STREAM,XADD_ReturnInfo,XADD_History,XADD_Metadata,xaddCommand,-5,"write denyoom random fast @write @stream @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XADD_Args},
 {"xautoclaim","Changes (or acquires) ownership of messages in a consumer group, as if the messages were delivered to the specified consumer.","O(1) if COUNT is small.","6.2.0",COMMAND_GROUP_STREAM,XAUTOCLAIM_ReturnInfo,XAUTOCLAIM_History,XAUTOCLAIM_Metadata,xautoclaimCommand,-6,"write random fast @write @stream @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XAUTOCLAIM_Args},
 {"xclaim","Changes (or acquires) ownership of a message in a consumer group, as if the message was delivered to the specified consumer.","O(log N) with N being the number of messages in the PEL of the consumer group.","5.0.0",COMMAND_GROUP_STREAM,XCLAIM_ReturnInfo,XCLAIM_History,XCLAIM_Metadata,xclaimCommand,-6,"write random fast @write @stream @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XCLAIM_Args},
 {"xdel","Removes the specified entries from the stream. Returns the number of items actually deleted, that may be different from the number of IDs passed in case certain IDs do not exist.","O(1) for each single item to delete in the stream, regardless of the stream size.","5.0.0",COMMAND_GROUP_STREAM,XDEL_ReturnInfo,XDEL_History,XDEL_Metadata,xdelCommand,-3,"write fast @write @stream @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XDEL_Args},
