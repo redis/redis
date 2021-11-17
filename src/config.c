@@ -659,7 +659,7 @@ static void restoreBackupConfig(standardConfig **set_configs, sds *old_values, i
     }
     /* Apply backup */
     if (apply_fns) {
-        for (i = 0; apply_fns[i] != NULL && i < count; i++) {
+        for (i = 0; i < count && apply_fns[i] != NULL; i++) {
             if (!apply_fns[i](&errstr))
                 serverPanic("Failed applying restored failed CONFIG SET command: %s", errstr);
         }
