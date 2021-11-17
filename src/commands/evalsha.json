@@ -10,7 +10,8 @@
         "command_flags": [
             "noscript",
             "skip_monitor",
-            "may_replicate"
+            "may_replicate",
+            "no_mandatory_keys"
         ],
         "acl_categories": [
             "slow",

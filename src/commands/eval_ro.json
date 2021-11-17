@@ -9,7 +9,8 @@
         "get_keys_function": "evalGetKeys",
         "command_flags": [
             "noscript",
-            "skip_monitor"
+            "skip_monitor",
+            "no_mandatory_keys"
         ],
         "acl_categories": [
             "slow",
