@@ -7203,8 +7203,6 @@ void redisAsciiArt(void) {
 }
 
 int changeBindAddr(void) {
-    int i;
-
     /* Close old TCP and TLS servers */
     closeSocketListeners(&server.ipfd);
     closeSocketListeners(&server.tlsfd);
@@ -7213,13 +7211,6 @@ int changeBindAddr(void) {
     if ((server.port != 0 && listenToPort(server.port, &server.ipfd) != C_OK) ||
         (server.tls_port != 0 && listenToPort(server.tls_port, &server.tlsfd) != C_OK)) {
         serverLog(LL_WARNING, "Failed to bind");
-
-        /* Cancel all bindings */
-        for (i = 0; i < server.bindaddr_count; i++) {
-            zfree(server.bindaddr[i]);
-            server.bindaddr[i] = NULL;
-        }
-        server.bindaddr_count = 0;
 
         closeSocketListeners(&server.ipfd);
         closeSocketListeners(&server.tlsfd);
