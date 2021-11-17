@@ -681,7 +681,7 @@ void configSetCommand(client *c) {
 
     /* Make sure we have an even number of arguments: conf-val pairs */
     if (c->argc % 1) {
-        addReplyErrorFormat(c,"Unexpected CONFIG SET argument: %s", (char*)c->argv[c->argc-1]->ptr);
+        addReplyErrorObject(c, shared.syntaxerr);
         return;
     }
     config_count = (c->argc - 2) / 2;
@@ -696,12 +696,16 @@ void configSetCommand(client *c) {
         for (standardConfig *config = configs; config->name != NULL; config++) {
             serverAssertWithInfo(c,c->argv[2+i*2],sdsEncodedObject(c->argv[2+i*2]));
             serverAssertWithInfo(c,c->argv[2+i*2+1],sdsEncodedObject(c->argv[2+i*2+1]));
-            if (!(config->flags & IMMUTABLE_CONFIG) &&
-                (!strcasecmp(c->argv[2+i*2]->ptr,config->name) ||
+            if ((!strcasecmp(c->argv[2+i*2]->ptr,config->name) ||
                  (config->alias && !strcasecmp(c->argv[2]->ptr,config->alias)))) {
 
                 if (config->flags & SENSITIVE_CONFIG) {
                     redactClientCommandArgument(c,2+i*2+1);
+                }
+
+                if (config->flags & IMMUTABLE_CONFIG) {
+                    errstr = "can't set immutable config";
+                    invalid_args = 1;
                 }
 
                 /* If this config appears twice then fail */

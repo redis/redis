@@ -280,6 +280,16 @@ start_server {tags {"introspection"}} {
         r config set maxmemory $backup
     }
 
+    test {CONFIG SET duplicate configs} {
+        catch {r config set maxmemory 10000001 maxmemory 10000002} e
+        assert_match "ERR*duplicate*" $e
+    }
+
+    test {CONFIG SET set immutable} {
+        catch {r config set daemonize yes} e
+        assert_match "ERR*immutable*" $e
+    }
+
     # Config file at this point is at a weird state, and includes all
     # known keywords. Might be a good idea to avoid adding tests here.
 }
