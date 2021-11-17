@@ -726,40 +726,33 @@ void strlenCommand(client *c) {
     addReplyLongLong(c,stringObjectLen(o));
 }
 
-
-/* STRALGO -- Implement complex algorithms on strings.
- *
- * STRALGO <algorithm> ... arguments ... */
-void stralgoLCS(client *c);     /* This implements the LCS algorithm. */
-void stralgoCommand(client *c) {
-    char *subcmd = c->argv[1]->ptr;
-
-    if (c->argc == 2 && !strcasecmp(subcmd,"help")) {
-        const char *help[] = {
-"LCS",
-"    Run the longest common subsequence algorithm.",
-NULL
-        };
-        addReplyHelp(c, help);
-    } else if (!strcasecmp(subcmd,"lcs")) {
-        stralgoLCS(c);
-    } else {
-        addReplySubcommandSyntaxError(c);
-        return;
-    }
-}
-
-/* STRALGO <algo> [IDX] [LEN] [MINMATCHLEN <len>] [WITHMATCHLEN]
- *     STRINGS <string> <string> | KEYS <keya> <keyb>
- */
-void stralgoLCS(client *c) {
+/* LCS key1 key2 [LEN] [IDX] [MINMATCHLEN <len>] [WITHMATCHLEN] */
+void lcsCommand(client *c) {
     uint32_t i, j;
     long long minmatchlen = 0;
     sds a = NULL, b = NULL;
     int getlen = 0, getidx = 0, withmatchlen = 0;
     robj *obja = NULL, *objb = NULL;
 
-    for (j = 2; j < (uint32_t)c->argc; j++) {
+    obja = lookupKeyRead(c->db,c->argv[1]);
+    objb = lookupKeyRead(c->db,c->argv[2]);
+    if ((obja && obja->type != OBJ_STRING) ||
+        (objb && objb->type != OBJ_STRING))
+    {
+        addReplyError(c,
+            "The specified keys must contain string values");
+        /* Don't cleanup the objects, we need to do that
+         * only after calling getDecodedObject(). */
+        obja = NULL;
+        objb = NULL;
+        goto cleanup;
+    }
+    obja = obja ? getDecodedObject(obja) : createStringObject("",0);
+    objb = objb ? getDecodedObject(objb) : createStringObject("",0);
+    a = obja->ptr;
+    b = objb->ptr;
+
+    for (j = 3; j < (uint32_t)c->argc; j++) {
         char *opt = c->argv[j]->ptr;
         int moreargs = (c->argc-1) - j;
 
@@ -774,37 +767,6 @@ void stralgoLCS(client *c) {
                 != C_OK) goto cleanup;
             if (minmatchlen < 0) minmatchlen = 0;
             j++;
-        } else if (!strcasecmp(opt,"STRINGS") && moreargs > 1) {
-            if (a != NULL) {
-                addReplyError(c,"Either use STRINGS or KEYS");
-                goto cleanup;
-            }
-            a = c->argv[j+1]->ptr;
-            b = c->argv[j+2]->ptr;
-            j += 2;
-        } else if (!strcasecmp(opt,"KEYS") && moreargs > 1) {
-            if (a != NULL) {
-                addReplyError(c,"Either use STRINGS or KEYS");
-                goto cleanup;
-            }
-            obja = lookupKeyRead(c->db,c->argv[j+1]);
-            objb = lookupKeyRead(c->db,c->argv[j+2]);
-            if ((obja && obja->type != OBJ_STRING) ||
-                (objb && objb->type != OBJ_STRING))
-            {
-                addReplyError(c,
-                    "The specified keys must contain string values");
-                /* Don't cleanup the objects, we need to do that
-                 * only after calling getDecodedObject(). */
-                obja = NULL;
-                objb = NULL;
-                goto cleanup;
-            }
-            obja = obja ? getDecodedObject(obja) : createStringObject("",0);
-            objb = objb ? getDecodedObject(objb) : createStringObject("",0);
-            a = obja->ptr;
-            b = objb->ptr;
-            j += 2;
         } else {
             addReplyErrorObject(c,shared.syntaxerr);
             goto cleanup;
@@ -812,14 +774,9 @@ void stralgoLCS(client *c) {
     }
 
     /* Complain if the user passed ambiguous parameters. */
-    if (a == NULL) {
-        addReplyError(c,"Please specify two strings: "
-                        "STRINGS or KEYS options are mandatory");
-        goto cleanup;
-    } else if (getlen && getidx) {
+    if (getlen && getidx) {
         addReplyError(c,
-            "If you want both the length and indexes, please "
-            "just use IDX.");
+            "If you want both the length and indexes, please just use IDX.");
         goto cleanup;
     }
 

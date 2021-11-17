@@ -523,20 +523,6 @@ struct redisCommand clientSubcommands[] = {
     {NULL},
 };
 
-struct redisCommand stralgoSubcommands[] = {
-    {"lcs",stralgoCommand,-5,
-     "read-only @string",
-      {{"read incomplete", /* We can't use "keyword" here because we may give false information. */
-        KSPEC_BS_UNKNOWN,{{0}},
-        KSPEC_FK_UNKNOWN,{{0}}}},
-     lcsGetKeys},
-
-    {"help",stralgoCommand,2,
-     "ok-loading ok-stale @string"},
-
-    {NULL},
-};
-
 struct redisCommand pubsubSubcommands[] = {
     {"channels",pubsubCommand,-2,
      "pub-sub ok-loading ok-stale"},
@@ -2038,9 +2024,12 @@ struct redisCommand redisCommandTable[] = {
      "sentinel",
      .subcommands=aclSubcommands},
 
-    {"stralgo",NULL,-2,
-     "",
-     .subcommands=stralgoSubcommands},
+    {"lcs",lcsCommand,-3,
+     "read-only @string",
+      {{"read",
+        KSPEC_BS_INDEX,.bs.index={1},
+        KSPEC_FK_RANGE,.fk.range={1,1,0}}},
+     lcsGetKeys},
 
     {"reset",resetCommand,1,
      "no-script ok-stale ok-loading fast @connection"},
