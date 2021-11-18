@@ -338,7 +338,7 @@ jobs:
         run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
       - name: module api test
         if: true && !contains(github.event.inputs.skiptests, 'modules')
-        run: ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}}
+        run: ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
       - name: sentinel tests
         if: true && !contains(github.event.inputs.skiptests, 'sentinel')
         run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
@@ -380,7 +380,7 @@ jobs:
         run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
       - name: module api test
         if: true && !contains(github.event.inputs.skiptests, 'modules')
-        run: ./runtest-moduleapi --verbose ${{github.event.inputs.test_args}}
+        run: ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
       - name: sentinel tests
         if: true && !contains(github.event.inputs.skiptests, 'sentinel')
         run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
