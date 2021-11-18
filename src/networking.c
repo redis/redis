@@ -3276,9 +3276,16 @@ void replaceClientCommandVector(client *c, int argc, robj **argv) {
 void rewriteClientCommandArgument(client *c, int i, robj *newval) {
     robj *oldval;
     retainOriginalCommandVector(c);
-    if (i >= c->argv_len) {
-        c->argv = zrealloc(c->argv,sizeof(robj*)*(i+1));
-        c->argc = c->argv_len = i+1;
+
+    /* We need to handle both extending beyond argc (just update it and
+     * initialize the new element) or beyond argv_len (realloc is needed).
+     */
+    if (i >= c->argc) {
+        if (i >= c->argv_len) {
+            c->argv = zrealloc(c->argv,sizeof(robj*)*(i+1));
+            c->argv_len = i+1;
+        }
+        c->argc = i+1;
         c->argv[i] = NULL;
     }
     oldval = c->argv[i];
