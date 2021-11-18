@@ -697,32 +697,38 @@ void configSetCommand(client *c) {
             if ((!strcasecmp(c->argv[2+i*2]->ptr,config->name) ||
                  (config->alias && !strcasecmp(c->argv[2]->ptr,config->alias)))) {
 
+                /* Note: it's important we run over ALL passed configs and check if we need to call `redactClientCommandArgument()`.
+                 * This is in order to avoid anyone using this command for a log/slowlog/monitor/etc. displaying sensitive info.
+                 * So even if we encounter an error we still continue running over the remaining arguments. */
                 if (config->flags & SENSITIVE_CONFIG) {
                     redactClientCommandArgument(c,2+i*2+1);
                 }
 
-                if (config->flags & IMMUTABLE_CONFIG) {
-                    errstr = "can't set immutable config";
-                    invalid_args = 1;
-                }
-
-                /* If this config appears twice then fail */
-                for (j = 0; j < i; j++) {
-                    if (set_configs[j] == config) {
+                if (!invalid_args) {
+                    if (config->flags & IMMUTABLE_CONFIG) {
                         /* Note: we don't abort the loop since we still want to handle redacting sensitive configs (above) */
-                        errstr = "duplicate parameter";
+                        errstr = "can't set immutable config";
                         invalid_args = 1;
-                        break;
                     }
+
+                    /* If this config appears twice then fail */
+                    for (j = 0; j < i; j++) {
+                        if (set_configs[j] == config) {
+                            /* Note: we don't abort the loop since we still want to handle redacting sensitive configs (above) */
+                            errstr = "duplicate parameter";
+                            invalid_args = 1;
+                            break;
+                        }
+                    }
+                    set_configs[i] = config;
+                    new_values[i] = c->argv[2+i*2+1]->ptr;
                 }
-                set_configs[i] = config;
-                new_values[i] = c->argv[2+i*2+1]->ptr;
                 break;
             }
         }
         /* Fail if we couldn't find this config */
         /* Note: we don't abort the loop since we still want to handle redacting sensitive configs (above) */
-        if (!set_configs[i]) {
+        if (!invalid_args && !set_configs[i]) {
             errstr = "unrecognized parameter";
             invalid_args = 1;
         }
