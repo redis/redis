@@ -283,7 +283,7 @@ start_server {tags {"introspection"}} {
         # Set some value to maxmemory
         assert_equal [r config set maxmemory 10000002] "OK"
         # Set another value to maxmeory together with another invalid config
-        assert_error "ERR Invalid arguments - percentage argument must be less or equal to 100" {
+        assert_error "ERR Config set failed - percentage argument must be less or equal to 100" {
             r config set maxmemory 10000001 maxmemory-clients 200% client-query-buffer-limit invalid
         }
         # Validate we rolled back to original values
@@ -313,7 +313,7 @@ start_server {tags {"introspection"}} {
         catch {socket -server dummy_accept $used_port}
         # Try to listen on the used port, pass some more configs to make sure the
         # returned failure message is for the first bad config and everything is rolled back.
-        assert_error "ERR Invalid arguments - Unable to listen on this port*" {
+        assert_error "ERR Config set failed - Unable to listen on this port*" {
             r config set maxmemory 10000001 port $used_port client-query-buffer-limit 10m
         }
         # Make sure we reverted back to previous configs

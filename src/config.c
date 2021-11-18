@@ -734,7 +734,7 @@ void configSetCommand(client *c) {
         }
     }
     
-    if (invalid_args) goto badfmt;
+    if (invalid_args) goto err;
 
     /* Backup old values before setting new ones */
     for (i = 0; i < config_count; i++)
@@ -745,7 +745,7 @@ void configSetCommand(client *c) {
         int res = performInterfaceSet(set_configs[i], new_values[i], &errstr);
         if (!res) {
             restoreBackupConfig(set_configs, old_values, i+1, NULL);
-            goto badfmt;
+            goto err;
         } else if (res == 1) {
             /* A new value was set, if this config has an apply function then store it for execution later */
             if (set_configs[i]->interface.apply) {
@@ -766,15 +766,15 @@ void configSetCommand(client *c) {
         if (!apply_fns[i](&errstr)) {
             serverLog(LL_WARNING, "Failed applying new %s configuration, restoring previous settings.", set_configs[i]->name);
             restoreBackupConfig(set_configs, old_values, config_count, apply_fns);
-            goto badfmt;
+            goto err;
         }
     }
     addReply(c,shared.ok);
     goto end;
 
-badfmt: /* Bad format errors */
+err:
     if (errstr) {
-        addReplyErrorFormat(c,"Invalid arguments - %s", errstr);
+        addReplyErrorFormat(c,"Config set failed - %s", errstr);
     } else {
         addReplyError(c,"Invalid arguments");
     }
