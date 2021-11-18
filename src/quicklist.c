@@ -385,10 +385,8 @@ REDIS_STATIC void __quicklistCompress(const quicklist *quicklist,
 
 
     /* At this point, forward and reverse are one node beyond depth */
-    if (forward != quicklist->head)
-        quicklistCompressNode(forward);
-    if (reverse != quicklist->tail)
-        quicklistCompressNode(reverse);
+    quicklistCompressNode(forward);
+    quicklistCompressNode(reverse);
 }
 
 #define quicklistCompress(_ql, _node)                                          \
@@ -1642,6 +1640,10 @@ int quicklistPop(quicklist *quicklist, int where, unsigned char **data,
 /* Wrapper to allow argument-based switching between HEAD/TAIL pop */
 void quicklistPush(quicklist *quicklist, void *value, const size_t sz,
                    int where) {
+    if(quicklist->head)
+        assert(quicklist->head->encoding != QUICKLIST_NODE_ENCODING_LZF);
+    if(quicklist->tail)
+        assert(quicklist->tail->encoding != QUICKLIST_NODE_ENCODING_LZF);
     if (where == QUICKLIST_HEAD) {
         quicklistPushHead(quicklist, value, sz);
     } else if (where == QUICKLIST_TAIL) {

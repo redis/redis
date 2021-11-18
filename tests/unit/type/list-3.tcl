@@ -40,42 +40,42 @@ start_server {
         r rpush key g
    }
 
-    set cycles 1000
-    if {$::accurate} { set cycles 10000 }
-    foreach comp {2 1 0} {
+   set cycles 1000
+   if {$::accurate} { set cycles 10000 }
+   foreach comp {2 1 0} {
         config_set list-compress-depth $comp
         test "Stress tester for #3343-alike bugs comp: $comp" {
             r del key
             for {set j 0} {$j < $cycles} {incr j} {
-            set op [randomInt 7]
-            set small_signed_count [expr 5-[randomInt 10]]
-            if {[randomInt 2] == 0} {
-                set ele [randomInt 1000]
-            } else {
-                set ele [string repeat x [randomInt 10000]][randomInt 1000]
-            }
-            switch $op {
-                0 {r lpush key $ele}
-                1 {r rpush key $ele}
-                2 {r lpop key}
-                3 {r rpop key}
-                4 {
-                    catch {r lset key $small_signed_count $ele}
+                set op [randomInt 7]
+                set small_signed_count [expr 5-[randomInt 10]]
+                if {[randomInt 2] == 0} {
+                    set ele [randomInt 1000]
+                } else {
+                    set ele [string repeat x [randomInt 10000]][randomInt 1000]
                 }
-                5 {
-                    set otherele [randomInt 1000]
-                    if {[randomInt 2] == 0} {
-                        set where before
-                    } else {
-                        set where after
+                switch $op {
+                    0 {r lpush key $ele}
+                    1 {r rpush key $ele}
+                    2 {r lpop key}
+                    3 {r rpop key}
+                    4 {
+                        catch {r lset key $small_signed_count $ele}
                     }
-                    r linsert key $where $otherele $ele
-                }
-                6 {
-                    set index [randomInt [r llen key]]
-                    set otherele [r lindex key $index]
-                    r lrem key 1 $otherele
-                }
+                    5 {
+                        set otherele [randomInt 1000]
+                        if {[randomInt 2] == 0} {
+                            set where before
+                        } else {
+                            set where after
+                        }
+                        r linsert key $where $otherele $ele
+                    }
+                    6 {
+                        set index [randomInt [r llen key]]
+                        set otherele [r lindex key $index]
+                        r lrem key 1 $otherele
+                    }
                 }
             }
         }
