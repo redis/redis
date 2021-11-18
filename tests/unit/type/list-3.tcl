@@ -40,11 +40,12 @@ start_server {
         r rpush key g
    }
 
-   set cycles 1000
-   if {$::accurate} { set cycles 10000 }
 foreach comp {2 1 0} {
-   config_set list-compress-depth $comp
-   test "Stress tester for #3343-alike bugs comp: $comp" {
+    set cycles 1000
+    if {$::accurate} { set cycles 10000 }
+    config_set list-compress-depth $comp
+    
+    test "Stress tester for #3343-alike bugs comp: $comp" {
         r del key
         for {set j 0} {$j < $cycles} {incr j} {
             set op [randomInt 7]
@@ -79,7 +80,7 @@ foreach comp {2 1 0} {
             }
         }
     }
-}
+} ;# foreach comp
 
     tags {slow} {
         test {ziplist implementation: value encoding and backlink} {
