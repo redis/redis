@@ -273,24 +273,48 @@ start_server {tags {"introspection"}} {
 
     test {CONFIG SET rollback on error} {
         # backup maxmemory config
-        set backup [lindex [r config get maxmemory] 1]
+        set mm_backup [lindex [r config get maxmemory] 1]
+        set mmc_backup [lindex [r config get maxmemory-clients] 1]
         # Set some value to maxmemory
         assert_equal [r config set maxmemory 10000002] "OK"
         # Set another value to maxmeory together with another invalid config
-        catch {r config set maxmemory 10000001 maxmemory-clients invalid} e
-        assert_match "ERR Invalid arguments*" $e
-        # Make sure we reverted back to the previous maxmemory
-        r config set maxmemory $backup
+        assert_error "ERR Invalid arguments*" {r config set maxmemory 10000001 maxmemory-clients invalid}
+        # Validate we rolled back to original values
+        assert_equal [lindex [r config get maxmemory] 1] 10000002
+        assert_equal [lindex [r config get maxmemory-clients] 1] $mmc_backup
+        # Make sure we revert back to the previous maxmemory
+        r config set maxmemory $mm_backup
+    }
+
+    test {CONFIG SET rollback on apply error} {
+        # This test tries to configure a used port number in redis. This is expected
+        # to pass the `CONFIG SET` validity checking implementation but fail on 
+        # actual "apply" of the setting. This will validate that after an "apply"
+        # failure we rollback to the previous values.
+        proc dummy_accept {chan addr port} {}
+        
+        set port_backup [lindex [r config get port] 1]
+        set used_port [expr ($port_backup+1)%65536]
+
+        # Run a dummy server on used_port so we know we can't configure redis to 
+        # use it. It's ok for this to fail because that means used_port is invalid 
+        # anyway
+        catch {socket -server dummy_accept $used_port}
+        # Try to listen on the used port
+        assert_error "ERR Invalid arguments*" {r config set port $used_port}
+        # Make sure we reverted back to previous port
+        assert_equal [lindex [r config get port] 1] $port_backup
+        
+        # Make sure we can still commuincate with the server (on the original port)
+        assert_equal [r ping] "PONG"
     }
 
     test {CONFIG SET duplicate configs} {
-        catch {r config set maxmemory 10000001 maxmemory 10000002} e
-        assert_match "ERR*duplicate*" $e
+        assert_error "ERR*duplicate*" {r config set maxmemory 10000001 maxmemory 10000002}
     }
 
     test {CONFIG SET set immutable} {
-        catch {r config set daemonize yes} e
-        assert_match "ERR*immutable*" $e
+        assert_error "ERR*immutable*" {r config set daemonize yes}
     }
 
     # Config file at this point is at a weird state, and includes all
