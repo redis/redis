@@ -271,19 +271,27 @@ start_server {tags {"introspection"}} {
         assert_equal [eval "r config set [array get backups]"] "OK"
     }
 
-    test {CONFIG SET rollback on error} {
+    test {CONFIG SET rollback on set error} {
+        # This test passes an invalid percent value to maxmemory-clients which should cause an
+        # input verification failure during the "set" phase before trying to apply the 
+        # configuration. We want to make sure the correct failure happens and everything
+        # is rolled back.
         # backup maxmemory config
         set mm_backup [lindex [r config get maxmemory] 1]
         set mmc_backup [lindex [r config get maxmemory-clients] 1]
+        set qbl_backup [lindex [r config get client-query-buffer-limit] 1]
         # Set some value to maxmemory
         assert_equal [r config set maxmemory 10000002] "OK"
         # Set another value to maxmeory together with another invalid config
-        assert_error "ERR Invalid arguments*" {r config set maxmemory 10000001 maxmemory-clients invalid}
+        assert_error "ERR Invalid arguments - percentage argument must be less or equal to 100" {
+            r config set maxmemory 10000001 maxmemory-clients 200% client-query-buffer-limit invalid
+        }
         # Validate we rolled back to original values
         assert_equal [lindex [r config get maxmemory] 1] 10000002
         assert_equal [lindex [r config get maxmemory-clients] 1] $mmc_backup
+        assert_equal [lindex [r config get client-query-buffer-limit] 1] $qbl_backup
         # Make sure we revert back to the previous maxmemory
-        r config set maxmemory $mm_backup
+        assert_equal [r config set maxmemory $mm_backup] "OK"
     }
 
     test {CONFIG SET rollback on apply error} {
@@ -294,18 +302,26 @@ start_server {tags {"introspection"}} {
         proc dummy_accept {chan addr port} {}
         
         set port_backup [lindex [r config get port] 1]
+        set mm_backup [lindex [r config get maxmemory] 1]
+        set qbl_backup [lindex [r config get client-query-buffer-limit] 1]
+
         set used_port [expr ($port_backup+1)%65536]
 
         # Run a dummy server on used_port so we know we can't configure redis to 
         # use it. It's ok for this to fail because that means used_port is invalid 
         # anyway
         catch {socket -server dummy_accept $used_port}
-        # Try to listen on the used port
-        assert_error "ERR Invalid arguments*" {r config set port $used_port}
-        # Make sure we reverted back to previous port
+        # Try to listen on the used port, pass some more configs to make sure the
+        # returned failure message is for the first bad config and everything is rolled back.
+        assert_error "ERR Invalid arguments - Unable to listen on this port*" {
+            r config set maxmemory 10000001 port $used_port client-query-buffer-limit 10m
+        }
+        # Make sure we reverted back to previous configs
         assert_equal [lindex [r config get port] 1] $port_backup
+        assert_equal [lindex [r config get maxmemory] 1] $mm_backup
+        assert_equal [lindex [r config get client-query-buffer-limit] 1] $qbl_backup
         
-        # Make sure we can still commuincate with the server (on the original port)
+        # Make sure we can still communicate with the server (on the original port)
         assert_equal [r ping] "PONG"
     }
 
