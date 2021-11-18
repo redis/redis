@@ -318,11 +318,10 @@ void quicklistRepr(unsigned char *ql, int full) {
  * If compress depth is larger than the entire list, we return immediately. */
 REDIS_STATIC void __quicklistCompress(const quicklist *quicklist,
                                       quicklistNode *node) {
-    quicklistNode *forward = quicklist->head;
-    quicklistNode *reverse = quicklist->tail;
-
-    if (forward) forward->recompress = 0;
-    if (reverse) reverse->recompress = 0;
+    # The head and tail should never be compressed (we should not attempt to recompress them)
+    # This needs to be an assertion in the future
+    if (quicklist->head) quicklist->head->recompress = 0;
+    if (quicklist->tail) quicklist->tail->recompress = 0;
 
     /* If length is less than our compress depth (from both sides),
      * we can't compress anything. */
@@ -362,6 +361,8 @@ REDIS_STATIC void __quicklistCompress(const quicklist *quicklist,
     /* Iterate until we reach compress depth for both sides of the list.a
      * Note: because we do length checks at the *top* of this function,
      *       we can skip explicit null checks below. Everything exists. */
+    quicklistNode *forward = quicklist->head;
+    quicklistNode *reverse = quicklist->tail;
     int depth = 0;
     int in_depth = 0;
     while (depth++ < quicklist->compress) {
@@ -1574,6 +1575,7 @@ int quicklistPopCustom(quicklist *quicklist, int where, unsigned char **data,
         return 0;
     }
 
+    # The head and tail should never be compressed
     assert(node->encoding != QUICKLIST_NODE_ENCODING_LZF);
 
     if (unlikely(QL_NODE_IS_PLAIN(node))) {
@@ -1639,10 +1641,12 @@ int quicklistPop(quicklist *quicklist, int where, unsigned char **data,
 /* Wrapper to allow argument-based switching between HEAD/TAIL pop */
 void quicklistPush(quicklist *quicklist, void *value, const size_t sz,
                    int where) {
+    # The head and tail should never be compressed (we don't attempt to decompress them)
     if(quicklist->head)
         assert(quicklist->head->encoding != QUICKLIST_NODE_ENCODING_LZF);
     if(quicklist->tail)
         assert(quicklist->tail->encoding != QUICKLIST_NODE_ENCODING_LZF);
+
     if (where == QUICKLIST_HEAD) {
         quicklistPushHead(quicklist, value, sz);
     } else if (where == QUICKLIST_TAIL) {
