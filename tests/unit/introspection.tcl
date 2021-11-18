@@ -322,7 +322,9 @@ start_server {tags {"introspection"}} {
         assert_equal [lindex [r config get client-query-buffer-limit] 1] $qbl_backup
         
         # Make sure we can still communicate with the server (on the original port)
-        assert_equal [r ping] "PONG"
+        set r1 [redis_client]
+        assert_equal [$r1 ping] "PONG"
+        $r1 close
     }
 
     test {CONFIG SET duplicate configs} {
