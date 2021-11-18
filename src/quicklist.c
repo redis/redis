@@ -318,8 +318,8 @@ void quicklistRepr(unsigned char *ql, int full) {
  * If compress depth is larger than the entire list, we return immediately. */
 REDIS_STATIC void __quicklistCompress(const quicklist *quicklist,
                                       quicklistNode *node) {
-    # The head and tail should never be compressed (we should not attempt to recompress them)
-    # This needs to be an assertion in the future
+    /* The head and tail should never be compressed (we should not attempt to recompress them)
+     * This needs to be an assertion in the future */
     if (quicklist->head) quicklist->head->recompress = 0;
     if (quicklist->tail) quicklist->tail->recompress = 0;
 
@@ -1575,7 +1575,7 @@ int quicklistPopCustom(quicklist *quicklist, int where, unsigned char **data,
         return 0;
     }
 
-    # The head and tail should never be compressed
+    /* The head and tail should never be compressed */
     assert(node->encoding != QUICKLIST_NODE_ENCODING_LZF);
 
     if (unlikely(QL_NODE_IS_PLAIN(node))) {
@@ -1641,10 +1641,10 @@ int quicklistPop(quicklist *quicklist, int where, unsigned char **data,
 /* Wrapper to allow argument-based switching between HEAD/TAIL pop */
 void quicklistPush(quicklist *quicklist, void *value, const size_t sz,
                    int where) {
-    # The head and tail should never be compressed (we don't attempt to decompress them)
-    if(quicklist->head)
+    /* The head and tail should never be compressed (we don't attempt to decompress them) */
+    if (quicklist->head)
         assert(quicklist->head->encoding != QUICKLIST_NODE_ENCODING_LZF);
-    if(quicklist->tail)
+    if (quicklist->tail)
         assert(quicklist->tail->encoding != QUICKLIST_NODE_ENCODING_LZF);
 
     if (where == QUICKLIST_HEAD) {
