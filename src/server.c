@@ -1516,11 +1516,12 @@ struct redisCommand redisCommandTable[] = {
     {"auth",authCommand,-2,
      "no-auth no-script ok-loading ok-stale fast sentinel @connection"},
 
-    /* We don't allow PING during loading since in Redis PING is used as
-     * failure detection, and a loading server is considered to be
-     * not available. */
+    /* PING is used for Redis failure detection and availability check.
+     * So we return LOADING in case there's a synchronous replication in progress,
+     * MASTERDOWN when replica-serve-stale-data=no and link with MASTER is down,
+     * BUSY when blocked by a script, etc. */
     {"ping",pingCommand,-1,
-     "ok-stale fast sentinel @connection"},
+     "fast sentinel @connection"},
 
     {"sentinel",NULL,-2,
      "admin only-sentinel",
@@ -5412,8 +5413,8 @@ int processCommand(client *c) {
         return C_OK;
     }
 
-    /* Only allow commands with flag "t", such as INFO, SLAVEOF and so on,
-     * when slave-serve-stale-data is no and we are a slave with a broken
+    /* Only allow commands with flag "t", such as INFO, REPLICAOF and so on,
+     * when replica-serve-stale-data is no and we are a replica with a broken
      * link with master. */
     if (server.masterhost && server.repl_state != REPL_STATE_CONNECTED &&
         server.repl_serve_stale_data == 0 &&
