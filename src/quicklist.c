@@ -383,7 +383,6 @@ REDIS_STATIC void __quicklistCompress(const quicklist *quicklist,
     if (!in_depth)
         quicklistCompressNode(node);
 
-
     /* At this point, forward and reverse are one node beyond depth */
     quicklistCompressNode(forward);
     quicklistCompressNode(reverse);
