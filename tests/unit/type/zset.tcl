@@ -1003,6 +1003,32 @@ start_server {tags {"zset"}} {
             }
         }
 
+        foreach {pop} {ZPOPMIN ZPOPMAX} {
+            test "$pop with the count 0 returns an empty array" {
+                r del zset
+                r zadd zset 1 a 2 b 3 c
+                assert_equal {} [r $pop zset 0]
+
+                # Make sure we can distinguish between an empty array and a null response
+                r readraw 1
+                assert_equal {*0} [r $pop zset 0]
+                r readraw 0
+
+                assert_equal 3 [r zcard zset]
+            }
+
+            test "$pop with negative count" {
+                r set zset foo
+                assert_error "ERR *must be positive" {r $pop zset -1}
+
+                r del zset
+                assert_error "ERR *must be positive" {r $pop zset -2}
+
+                r zadd zset 1 a 2 b 3 c
+                assert_error "ERR *must be positive" {r $pop zset -3}
+            }
+        }
+
     foreach {popmin popmax} {ZPOPMIN ZPOPMAX ZMPOP_MIN ZMPOP_MAX} {
         test "Basic $popmin/$popmax with a single key - $encoding" {
             r del zset
@@ -1115,7 +1141,9 @@ start_server {tags {"zset"}} {
     test "ZPOP/ZMPOP against wrong type" {
         r set foo{t} bar
         assert_error "*WRONGTYPE*" {r zpopmin foo{t}}
+        assert_error "*WRONGTYPE*" {r zpopmin foo{t} 0}
         assert_error "*WRONGTYPE*" {r zpopmax foo{t}}
+        assert_error "*WRONGTYPE*" {r zpopmax foo{t} 0}
         assert_error "*WRONGTYPE*" {r zpopmin foo{t} 2}
 
         assert_error "*WRONGTYPE*" {r zmpop 1 foo{t} min}
