@@ -4060,39 +4060,45 @@ numargserr:
                           (char*)c->argv[1]->ptr);
 }
 
-#define info_section_from_redis(section_name) do { \
-    if (defsections || allsections || !strcasecmp(section,section_name)) { \
-        sds redissection; \
-        if (sections++) info = sdscat(info,"\r\n"); \
-        redissection = genRedisInfoString(section_name); \
-        info = sdscatlen(info,redissection,sdslen(redissection)); \
-        sdsfree(redissection); \
-    } \
-} while(0)
 
 /* SENTINEL INFO [section] */
 void sentinelInfoCommand(client *c) {
+    
+    char defSections[11][15] = {"server", "clients", "memory", "persistence", "stats", "replication", "cpu", "modules", "errorstats", "cluster", "keyspace"};
+    dict * sections_dict = dictCreate(&setDictType); /* Set to add the subsections to print*/
+
     if (c->argc > 2) {
         addReplyErrorObject(c,shared.syntaxerr);
         return;
     }
 
-    int defsections = 0, allsections = 0;
+    int defsections = 0, allsections = 0, everything = 0;
     char *section = c->argc == 2 ? c->argv[1]->ptr : NULL;
     if (section) {
         allsections = !strcasecmp(section,"all");
-        defsections = !strcasecmp(section,"default");
+        if (!strcasecmp(section,"default")){
+            for (int i = 0; i < 11; i++){
+                dictAdd(sections_dict, sdsnew(defSections[i]), NULL);
+            }
+            defsections = 1;
+        }
+        everything = !strcasecmp(section,"everything");
     } else {
+        for (int i = 0; i < 11; i++) {
+                dictAdd(sections_dict, sdsnew(defSections[i]), NULL);
+        }
         defsections = 1;
     }
 
     int sections = 0;
     sds info = sdsempty();
 
-    info_section_from_redis("server");
-    info_section_from_redis("clients");
-    info_section_from_redis("cpu");
-    info_section_from_redis("stats");
+    dictAdd(sections_dict, sdsnew("server"), NULL);
+    dictAdd(sections_dict, sdsnew("clients"), NULL);
+    dictAdd(sections_dict, sdsnew("cpu"), NULL);
+    dictAdd(sections_dict, sdsnew("stats"), NULL);
+
+    info = genRedisInfoString(sections_dict, allsections, everything);
 
     if (defsections || allsections || !strcasecmp(section,"sentinel")) {
         dictIterator *di;
@@ -4133,6 +4139,7 @@ void sentinelInfoCommand(client *c) {
         dictReleaseIterator(di);
     }
 
+    dictRelease(sections_dict);
     addReplyBulkSds(c, info);
 }
 

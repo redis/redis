@@ -3353,7 +3353,7 @@ void serverLogObjectDebugInfo(const robj *o);
 void sigsegvHandler(int sig, siginfo_t *info, void *secret);
 sds getFullCommandName(struct redisCommand *cmd);
 const char *getSafeInfoString(const char *s, size_t len, char **tmp);
-sds genRedisInfoString(const char *section);
+sds genRedisInfoString(dict *section_dict, int has_all_sections, int has_everything);
 sds genModulesInfoString(sds info);
 void applyWatchdogPeriod();
 void watchdogScheduleSignal(int period);
