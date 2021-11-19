@@ -78,7 +78,7 @@ void PingReceiver(RedisModuleCtx *ctx, const char *sender_id, uint8_t type, cons
         type,REDISMODULE_NODE_ID_LEN,sender_id,(int)len, payload);
     RedisModule_SendClusterMessage(ctx,NULL,MSGTYPE_PONG,(unsigned char*)"Ohi!",4);
     RedisModuleCallReply *reply = RedisModule_Call(ctx, "INCR", "c", "pings_received");
-	RedisModule_FreeCallReply(reply);
+    RedisModule_FreeCallReply(reply);
 }
 
 /* Callback for message MSGTYPE_PONG. */
