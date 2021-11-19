@@ -834,6 +834,13 @@ start_server {tags {"zset"}} {
             assert_equal {b 2 c 3} [r zinter 2 zseta{t} zsetb{t} aggregate max withscores]
         }
 
+        test "ZUNION/ZUNIONSTORE with AGGREGATE MUL - $encoding" {
+            assert_equal {a 1 b 2 d 3 c 6} [r zunion 2 zseta{t} zsetb{t} AGGREGATE MUL WITHSCORES]
+
+            assert_equal 4 [r zunionstore zsetc{t} 2 zseta{t} zsetb{t} AGGREGATE MUL]
+            assert_equal {a 1 b 2 d 3 c 6} [r zrange zsetc{t} 0 -1 withscores]
+        }
+
         test "ZINTERSTORE basics - $encoding" {
             assert_equal 2 [r zinterstore zsetc{t} 2 zseta{t} zsetb{t}]
             assert_equal {b 3 c 5} [r zrange zsetc{t} 0 -1 withscores]
@@ -847,6 +854,7 @@ start_server {tags {"zset"}} {
             assert_error "ERR syntax error*" {r zintercard 1 zseta{t} zseta{t}}
             assert_error "ERR syntax error*" {r zintercard 1 zseta{t} bar_arg}
             assert_error "ERR syntax error*" {r zintercard 1 zseta{t} LIMIT}
+            assert_error "ERR syntax error*" {r zintercard 1 zseta{t} LIMIT 0 LIMIT 1}
 
             assert_error "ERR LIMIT*" {r zintercard 1 myset{t} LIMIT -1}
             assert_error "ERR LIMIT*" {r zintercard 1 myset{t} LIMIT a}
@@ -893,39 +901,97 @@ start_server {tags {"zset"}} {
             assert_equal {b 2 c 3} [r zrange zsetc{t} 0 -1 withscores]
         }
 
-        foreach cmd {ZUNIONSTORE ZINTERSTORE} {
-            test "$cmd with +inf/-inf scores - $encoding" {
+        test "ZINTER/ZINTERSTORE with AGGREGATE MUL - $encoding" {
+            assert_equal {b 2 c 6} [r zinter 2 zseta{t} zsetb{t} AGGREGATE MUL WITHSCORES]
+
+            assert_equal 2 [r zinterstore zsetc{t} 2 zseta{t} zsetb{t} AGGREGATE MUL]
+            assert_equal {b 2 c 6} [r zrange zsetc{t} 0 -1 WITHSCORES]
+        }
+
+        foreach {cmd storecmd} {ZUNION ZUNIONSTORE ZINTER ZINTERSTORE} {
+            test "$cmd/$storecmd with illegal arguments" {
+                assert_error "ERR syntax error*" {r $cmd 1 zseta{t} WRONG_ARG}
+                assert_error "ERR syntax error*" {r $cmd 2 zseta{t} zsetb{t} zsetc{t}}
+                assert_error "ERR weight*" {r $cmd 1 zseta{t} WEIGHTS a}
+                assert_error "ERR syntax error*" {r $cmd 1 zseta{t} WEIGHTS 2 3}
+                assert_error "ERR syntax error*" {r $cmd 1 zseta{t} WEIGHTS 2 WEIGHTS 3}
+                assert_error "ERR syntax error*" {r $cmd 1 zseta{t} AGGREGATE NONE}
+                assert_error "ERR syntax error*" {r $cmd 1 zseta{t} AGGREGATE SUM AGGREGATE MIN}
+                assert_error "ERR syntax error*" {r $cmd 1 zseta{t} WITHSCORES WITHSCORES}
+
+                assert_error "ERR syntax error*" {r $storecmd zsetc{t} 1 zseta{t} WRONG_ARG}
+                assert_error "ERR syntax error*" {r $storecmd zsetc{t} 2 zseta{t} zsetb{t} zsetc{t}}
+                assert_error "ERR weight*" {r $storecmd zsetc{t} 1 zseta{t} WEIGHTS a}
+                assert_error "ERR syntax error*" {r $storecmd zsetc{t} 1 zseta{t} WEIGHTS 2 3}
+                assert_error "ERR syntax error*" {r $storecmd zsetc{t} 1 zseta{t} WEIGHTS 2 WEIGHTS 3}
+                assert_error "ERR syntax error*" {r $storecmd zsetc{t} 1 zseta{t} AGGREGATE NONE}
+                assert_error "ERR syntax error*" {r $storecmd zsetc{t} 1 zseta{t} AGGREGATE SUM AGGREGATE MIN}
+            }
+
+            test "$cmd/$storecmd with +inf/-inf scores with AGGREGATE SUM - $encoding" {
                 r del zsetinf1{t} zsetinf2{t}
 
                 r zadd zsetinf1{t} +inf key
                 r zadd zsetinf2{t} +inf key
-                r $cmd zsetinf3{t} 2 zsetinf1{t} zsetinf2{t}
+                r $storecmd zsetinf3{t} 2 zsetinf1{t} zsetinf2{t}
                 assert_equal inf [r zscore zsetinf3{t} key]
+                assert_equal {key inf} [r $cmd 2 zsetinf1{t} zsetinf2{t} WITHSCORES]
 
                 r zadd zsetinf1{t} -inf key
                 r zadd zsetinf2{t} +inf key
-                r $cmd zsetinf3{t} 2 zsetinf1{t} zsetinf2{t}
+                r $storecmd zsetinf3{t} 2 zsetinf1{t} zsetinf2{t}
                 assert_equal 0 [r zscore zsetinf3{t} key]
+                assert_equal {key 0} [r $cmd 2 zsetinf1{t} zsetinf2{t} WITHSCORES]
 
                 r zadd zsetinf1{t} +inf key
                 r zadd zsetinf2{t} -inf key
-                r $cmd zsetinf3{t} 2 zsetinf1{t} zsetinf2{t}
+                r $storecmd zsetinf3{t} 2 zsetinf1{t} zsetinf2{t}
                 assert_equal 0 [r zscore zsetinf3{t} key]
+                assert_equal {key 0} [r $cmd 2 zsetinf1{t} zsetinf2{t} WITHSCORES]
 
                 r zadd zsetinf1{t} -inf key
                 r zadd zsetinf2{t} -inf key
-                r $cmd zsetinf3{t} 2 zsetinf1{t} zsetinf2{t}
+                r $storecmd zsetinf3{t} 2 zsetinf1{t} zsetinf2{t}
                 assert_equal -inf [r zscore zsetinf3{t} key]
+                assert_equal {key -inf} [r $cmd 2 zsetinf1{t} zsetinf2{t} WITHSCORES]
             }
 
-            test "$cmd with NaN weights - $encoding" {
+            test "$cmd/$storecmd with +inf/-inf/0 scores with AGGREGATE MUL - $encoding" {
+                r del zsetinf1{t} zsetinf2{t}
+
+                r zadd zsetinf1{t} 0 key
+                r zadd zsetinf2{t} +inf key
+                r $storecmd zsetinf3{t} 2 zsetinf1{t} zsetinf2{t} AGGREGATE MUL
+                assert_equal 0 [r zscore zsetinf3{t} key]
+                assert_equal {key 0} [r $cmd 2 zsetinf1{t} zsetinf2{t} AGGREGATE MUL WITHSCORES]
+
+                r zadd zsetinf1{t} -inf key
+                r zadd zsetinf2{t} 0 key
+                r $storecmd zsetinf3{t} 2 zsetinf1{t} zsetinf2{t} AGGREGATE MUL
+                assert_equal 0 [r zscore zsetinf3{t} key]
+                assert_equal {key 0} [r $cmd 2 zsetinf1{t} zsetinf2{t} AGGREGATE MUL WITHSCORES]
+            }
+
+            test "$cmd/$storecmd with NaN weights - $encoding" {
                 r del zsetinf1{t} zsetinf2{t}
 
                 r zadd zsetinf1{t} 1.0 key
                 r zadd zsetinf2{t} 1.0 key
+                assert_error "*weight*not*float*" {r $cmd 2 zsetinf1{t} zsetinf2{t} weights nan nan}
                 assert_error "*weight*not*float*" {
-                    r $cmd zsetinf3{t} 2 zsetinf1{t} zsetinf2{t} weights nan nan
+                    r $storecmd zsetinf3{t} 2 zsetinf1{t} zsetinf2{t} weights nan nan
                 }
+            }
+        }
+
+        foreach {cmd storecmd} {ZDIFF ZDIFFSTORE} {
+            test "$cmd/$storecmd with illegal arguments" {
+                assert_error "ERR syntax error*" {r zdiff 2 zseta{t} zsetb{t} zsetc{t}}
+                assert_error "ERR syntax error*" {r zdiff 1 zseta{t} WRONG_ARG}
+                assert_error "ERR syntax error*" {r zdiff 1 zseta{t} WITHSCORES WITHSCORES}
+
+                assert_error "ERR syntax error*" {r zdiffstore zsetc{t} 2 zseta{t} zsetb{t} zsetc{t}}
+                assert_error "ERR syntax error*" {r zdiffstore zsetc{t} 1 zseta{t} WRONG_ARG}
             }
         }
 

@@ -1014,7 +1014,7 @@ void sinterCommand(client *c) {
 void sinterCardCommand(client *c) {
     long j;
     long numkeys = 0; /* Number of keys. */
-    long limit = 0;   /* 0 means not limit. */
+    long limit = -1;  /* 0 means not limit. */
 
     if (getRangeLongFromObjectOrReply(c, c->argv[1], 1, LONG_MAX,
                                       &numkeys, "numkeys should be greater than 0") != C_OK)
@@ -1028,7 +1028,7 @@ void sinterCardCommand(client *c) {
         char *opt = c->argv[j]->ptr;
         int moreargs = (c->argc - 1) - j;
 
-        if (!strcasecmp(opt, "LIMIT") && moreargs) {
+        if (limit == -1 && !strcasecmp(opt, "LIMIT") && moreargs) {
             j++;
             if (getPositiveLongFromObjectOrReply(c, c->argv[j], &limit,
                                                  "LIMIT can't be negative") != C_OK)
@@ -1039,6 +1039,7 @@ void sinterCardCommand(client *c) {
         }
     }
 
+    if (limit == -1) limit = 0;
     sinterGenericCommand(c, c->argv+2, numkeys, NULL, 1, limit);
 }
 
