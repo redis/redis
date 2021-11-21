@@ -732,5 +732,14 @@ test {corrupt payload: fuzzer findings - stream double free listpack when insert
     }
 }
 
+test {corrupt payload: fuzzer findings - LCS OOM} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r SETRANGE _int 423324 1450173551
+        catch {r LCS _int _int} err
+        assert_match "*Insufficient memory*" $err
+        r ping
+    }
+}
+
 } ;# tags
 

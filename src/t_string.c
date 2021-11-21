@@ -800,10 +800,15 @@ void lcsCommand(client *c) {
     unsigned long long lcssize = (unsigned long long)(alen+1)*(blen+1); /* Can't overflow due to the size limits above. */
     unsigned long long lcsalloc = lcssize * sizeof(uint32_t);
     uint32_t *lcs = NULL;
-    if (lcsalloc < SIZE_MAX && lcsalloc / lcssize == sizeof(uint32_t))
+    if (lcsalloc < SIZE_MAX && lcsalloc / lcssize == sizeof(uint32_t)) {
+        if (lcsalloc > (size_t)server.proto_max_bulk_len) {
+            addReplyError(c, "Insufficient memory, transient memory for LCS exceeds proto-max-bulk-len");
+            goto cleanup;
+        }
         lcs = ztrymalloc(lcsalloc);
+    }
     if (!lcs) {
-        addReplyError(c, "Insufficient memory");
+        addReplyError(c, "Insufficient memory, failed allocating transient memory for LCS");
         goto cleanup;
     }
 
