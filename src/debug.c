@@ -1976,8 +1976,11 @@ void bugReportEnd(int killViaSignal, int sig) {
 
     if (!killViaSignal) {
         /* To avoid issues with valgrind, we may wanna exit rahter than generate a signal */
-        if (server.use_exit_on_panic)
-            _exit(1); /* Using _exit to bypass false leak reports by gcc ASAN */
+        if (server.use_exit_on_panic) {
+             /* Using _exit to bypass false leak reports by gcc ASAN */
+             fflush(stdout);
+            _exit(1);
+        }
         abort();
     }
 
