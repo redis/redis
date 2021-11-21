@@ -477,6 +477,8 @@ void hashTypeConvertListpack(robj *o, int enc) {
             value = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_VALUE);
             ret = dictAdd(dict, key, value);
             if (ret != DICT_OK) {
+                sdsfree(key); sdsfree(value); /* Needed for gcc ASAN */
+                hashTypeReleaseIterator(hi);  /* Needed for gcc ASAN */
                 serverLogHexDump(LL_WARNING,"listpack with dup elements dump",
                     o->ptr,lpBytes(o->ptr));
                 serverPanic("Listpack corruption detected");

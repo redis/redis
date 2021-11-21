@@ -261,10 +261,22 @@ test {corrupt payload: hash listpack with duplicate records} {
     }
 }
 
-test {corrupt payload: hash ziplist uneven record count} {
-    # when we do perform full sanitization, we expect duplicate records to fail the restore
+test {corrupt payload: hash listpack with duplicate records - convert} {
+    # when we do NOT perform full sanitization, but we convert to hash, we expect duplicate records panic
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
-        r config set sanitize-dump-payload yes
+        r config set sanitize-dump-payload no
+        r config set hash-max-listpack-entries 1
+        r debug set-skip-checksum-validation 1
+        catch { r RESTORE _hash 0 "\x10\x17\x17\x00\x00\x00\x04\x00\x82a\x00\x03\x82b\x00\x03\x82a\x00\x03\x82d\x00\x03\xff\n\x00\xc0\xcf\xa6\x87\xe5\xa7\xc5\xbe" } err
+        assert_equal [count_log_message 0 "crashed by signal"] 0
+        assert_equal [count_log_message 0 "listpack with dup elements"] 1
+    }
+}
+
+test {corrupt payload: hash ziplist uneven record count} {
+    # when we do NOT perform full sanitization, but shallow sanitization can detect uneven count
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload no
         r debug set-skip-checksum-validation 1
         catch { r RESTORE _hash 0 "\r\x1b\x1b\x00\x00\x00\x16\x00\x00\x00\x04\x00\x00\x02a\x00\x04\x02b\x00\x04\x02a\x00\x04\x02d\x00\xff\t\x00\xa1\x98\x36x\xcc\x8e\x93\x2e" } err
         assert_match "*Bad data format*" $err
@@ -738,6 +750,17 @@ test {corrupt payload: fuzzer findings - LCS OOM} {
         catch {r LCS _int _int} err
         assert_match "*Insufficient memory*" $err
         r ping
+    }
+}
+
+test {corrupt payload: fuzzer findings - gcc asan reports false leak on assert} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r debug set-skip-checksum-validation 1
+        r config set sanitize-dump-payload no
+        catch { r restore _list 0 "\x12\x01\x02\x13\x13\x00\x00\x00\x10\x00\x00\x00\x03\x00\x00\xF3\xFE\x02\x5F\x31\x04\xF1\xFF\x0A\x00\x19\x8D\x3D\x74\x85\x94\x29\xBD" }
+        catch { r LPOP _list } err
+        assert_equal [count_log_message 0 "crashed by signal"] 0
+        assert_equal [count_log_message 0 "ASSERTION FAILED"] 1
     }
 }
 
