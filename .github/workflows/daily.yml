@@ -346,7 +346,7 @@ jobs:
         if: true && !contains(github.event.inputs.skiptests, 'cluster')
         run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
       - name: unittest
-        run: ./src/redis-server test all --accurate
+        run: ./src/redis-server test all
 
   test-sanitizer-undefined:
     runs-on: ubuntu-latest
