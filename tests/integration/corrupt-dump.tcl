@@ -744,5 +744,16 @@ test {corrupt payload: fuzzer findings - stream double free listpack when insert
     }
 }
 
+test {corrupt payload: fuzzer findings - gcc asan reports false leak on assert} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r debug set-skip-checksum-validation 1
+        r config set sanitize-dump-payload no
+        catch { r restore _list 0 "\x12\x01\x02\x13\x13\x00\x00\x00\x10\x00\x00\x00\x03\x00\x00\xF3\xFE\x02\x5F\x31\x04\xF1\xFF\x0A\x00\x19\x8D\x3D\x74\x85\x94\x29\xBD" }
+        catch { r LPOP _list } err
+        assert_equal [count_log_message 0 "crashed by signal"] 0
+        assert_equal [count_log_message 0 "ASSERTION FAILED"] 1
+    }
+}
+
 } ;# tags
 
