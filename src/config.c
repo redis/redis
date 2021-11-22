@@ -750,12 +750,15 @@ void configSetCommand(client *c) {
             /* A new value was set, if this config has an apply function then store it for execution later */
             if (set_configs[i]->interface.apply) {
                 /* Check if this apply function is already stored */
-                for (j = 0; apply_fns[j] != NULL && j < i; j++) {
-                    if (apply_fns[j] == set_configs[i]->interface.apply)
+                int exists = 0;
+                for (j = 0; apply_fns[j] != NULL && j <= i; j++) {
+                    if (apply_fns[j] == set_configs[i]->interface.apply) {
+                        exists = 1;
                         break;
+                    }
                 }
                 /* Apply function not stored, store it */
-                if (j == i)
+                if (!exists)
                     apply_fns[j] = set_configs[i]->interface.apply;
             }
         }
