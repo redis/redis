@@ -261,10 +261,22 @@ test {corrupt payload: hash listpack with duplicate records} {
     }
 }
 
-test {corrupt payload: hash ziplist uneven record count} {
-    # when we do perform full sanitization, we expect duplicate records to fail the restore
+test {corrupt payload: hash listpack with duplicate records - convert} {
+    # when we do NOT perform full sanitization, but we convert to hash, we expect duplicate records panic
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
-        r config set sanitize-dump-payload yes
+        r config set sanitize-dump-payload no
+        r config set hash-max-listpack-entries 1
+        r debug set-skip-checksum-validation 1
+        catch { r RESTORE _hash 0 "\x10\x17\x17\x00\x00\x00\x04\x00\x82a\x00\x03\x82b\x00\x03\x82a\x00\x03\x82d\x00\x03\xff\n\x00\xc0\xcf\xa6\x87\xe5\xa7\xc5\xbe" } err
+        assert_equal [count_log_message 0 "crashed by signal"] 0
+        assert_equal [count_log_message 0 "listpack with dup elements"] 1
+    }
+}
+
+test {corrupt payload: hash ziplist uneven record count} {
+    # when we do NOT perform full sanitization, but shallow sanitization can detect uneven count
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload no
         r debug set-skip-checksum-validation 1
         catch { r RESTORE _hash 0 "\r\x1b\x1b\x00\x00\x00\x16\x00\x00\x00\x04\x00\x00\x02a\x00\x04\x02b\x00\x04\x02a\x00\x04\x02d\x00\xff\t\x00\xa1\x98\x36x\xcc\x8e\x93\x2e" } err
         assert_match "*Bad data format*" $err
@@ -729,6 +741,26 @@ test {corrupt payload: fuzzer findings - stream double free listpack when insert
         catch { r restore _stream 0 "\x0F\x03\x10\x00\x00\x01\x7B\x60\x5A\x23\x79\x00\x00\x00\x00\x00\x00\x00\x00\xC3\x40\x4F\x40\x5C\x18\x5C\x00\x00\x00\x24\x00\x05\x01\x00\x01\x02\x01\x84\x69\x74\x65\x6D\x05\x85\x76\x61\x6C\x75\x65\x06\x40\x10\x00\x00\x20\x01\x00\x01\x20\x03\x00\x05\x20\x1C\x40\x09\x05\x01\x01\x82\x5F\x31\x03\x80\x0D\x00\x02\x20\x0D\x00\x02\xA0\x19\x00\x03\x20\x0B\x02\x82\x5F\x33\xA0\x19\x00\x04\x20\x0D\x00\x04\x20\x19\x00\xFF\x10\x00\x00\x01\x7B\x60\x5A\x23\x79\x00\x00\x00\x00\x00\x00\x00\x05\xC3\x40\x51\x40\x5E\x18\x5E\x00\x00\x00\x24\x00\x05\x01\x00\x01\x02\x01\x84\x69\x74\x65\x6D\x05\x85\x76\x61\x6C\x75\x65\x06\x40\x10\x00\x00\x20\x01\x06\x01\x01\x82\x5F\x35\x03\x05\x20\x1E\x40\x0B\x03\x01\x01\x06\x01\x80\x0B\x00\x02\x20\x0B\x02\x82\x5F\x37\xA0\x19\x00\x03\x20\x0D\x00\x08\xA0\x19\x00\x04\x20\x0B\x02\x82\x5F\x39\x20\x19\x00\xFF\x10\x00\x00\x01\x7B\x60\x5A\x23\x79\x00\x00\x00\x00\x00\x00\x00\x00\xC3\x3B\x40\x49\x18\x49\x00\x00\x00\x15\x00\x02\x01\x00\x01\x02\x01\x84\x69\x74\x65\x6D\x05\x85\x76\x61\x6C\x75\x65\x06\x40\x10\x00\x00\x20\x01\x40\x00\x00\x05\x20\x07\x40\x09\xC0\x22\x09\x01\x01\x86\x75\x6E\x69\x71\x75\x65\x07\xA0\x2C\x02\x08\x01\xFF\x0C\x81\x00\x00\x01\x7B\x60\x5A\x23\x7A\x01\x00\x0A\x00\x9C\x8F\x1E\xBF\x2E\x05\x59\x09" replace } err
         assert_match "*Bad data format*" $err
         r ping
+    }
+}
+
+test {corrupt payload: fuzzer findings - LCS OOM} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r SETRANGE _int 423324 1450173551
+        catch {r LCS _int _int} err
+        assert_match "*Insufficient memory*" $err
+        r ping
+    }
+}
+
+test {corrupt payload: fuzzer findings - gcc asan reports false leak on assert} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r debug set-skip-checksum-validation 1
+        r config set sanitize-dump-payload no
+        catch { r restore _list 0 "\x12\x01\x02\x13\x13\x00\x00\x00\x10\x00\x00\x00\x03\x00\x00\xF3\xFE\x02\x5F\x31\x04\xF1\xFF\x0A\x00\x19\x8D\x3D\x74\x85\x94\x29\xBD" }
+        catch { r LPOP _list } err
+        assert_equal [count_log_message 0 "crashed by signal"] 0
+        assert_equal [count_log_message 0 "ASSERTION FAILED"] 1
     }
 }
 

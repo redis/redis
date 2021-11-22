@@ -145,7 +145,7 @@ start_server {tags {"protocol network"}} {
         # restore state
         r hello 2
         set _ $res
-    } {Some real reply following the attribute} {resp3}
+    } {Some real reply following the attribute} {needs:debug resp3}
 
     test {RESP3 attributes readraw} {
         r hello 3
@@ -168,13 +168,13 @@ start_server {tags {"protocol network"}} {
         r deferred 0
         r hello 2
         set _ {}
-    } {} {resp3}
+    } {} {needs:debug resp3}
 
     test {RESP3 attributes on RESP2} {
         r hello 2
         set res [r debug protocol attrib]
         set _ $res
-    } {Some real reply following the attribute}
+    } {Some real reply following the attribute} {needs:debug}
 
     test "test big number parsing" {
         r hello 3

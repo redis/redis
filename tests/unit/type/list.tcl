@@ -122,6 +122,9 @@ start_server [list overrides [list save ""] ] {
         r LSET list6 0 [string repeat d 500]
         assert_equal [string repeat d 500] [r lindex list6 0]
     } {} {needs:debug}
+
+    # revert config for external mode tests.
+    r config set list-compress-depth 0
 }
 
 # check functionality of plain nodes using low packed-threshold

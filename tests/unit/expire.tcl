@@ -91,20 +91,27 @@ start_server {tags {"expire"}} {
         list $a $b
     } {somevalue {}}
 
-    test {PEXPIRE/PSETEX/PEXPIREAT can set sub-second expires} {
-        # This test is very likely to do a false positive if the
-        # server is under pressure, so if it does not work give it a few more
-        # chances.
+    test "PSETEX can set sub-second expires" {
+        # This test is very likely to do a false positive if the server is
+        # under pressure, so if it does not work give it a few more chances.
         for {set j 0} {$j < 50} {incr j} {
             r del x
-            r del y
-            r del z
             r psetex x 100 somevalue
             after 80
             set a [r get x]
             after 120
             set b [r get x]
 
+            if {$a eq {somevalue} && $b eq {}} break
+        }
+        if {$::verbose} { puts "PSETEX sub-second expire test attempts: $j" }
+        list $a $b
+    } {somevalue {}}
+
+    test "PEXPIRE can set sub-second expires" {
+        # This test is very likely to do a false positive if the server is
+        # under pressure, so if it does not work give it a few more chances.
+        for {set j 0} {$j < 50} {incr j} {
             r set x somevalue
             r pexpire x 100
             after 80
@@ -112,6 +119,16 @@ start_server {tags {"expire"}} {
             after 120
             set d [r get x]
 
+            if {$c eq {somevalue} && $d eq {}} break
+        }
+        if {$::verbose} { puts "PEXPIRE sub-second expire test attempts: $j" }
+        list $c $d
+    } {somevalue {}}
+
+    test "PEXPIREAT can set sub-second expires" {
+        # This test is very likely to do a false positive if the server is
+        # under pressure, so if it does not work give it a few more chances.
+        for {set j 0} {$j < 50} {incr j} {
             r set x somevalue
             set now [r time]
             r pexpireat x [expr ([lindex $now 0]*1000)+([lindex $now 1]/1000)+200]
@@ -120,15 +137,11 @@ start_server {tags {"expire"}} {
             after 220
             set f [r get x]
 
-            if {$a eq {somevalue} && $b eq {} &&
-                $c eq {somevalue} && $d eq {} &&
-                $e eq {somevalue} && $f eq {}} break
+            if {$e eq {somevalue} && $f eq {}} break
         }
-        if {$::verbose} {
-            puts "sub-second expire test attempts: $j"
-        }
-        list $a $b $c $d $e $f
-    } {somevalue {} somevalue {} somevalue {}}
+        if {$::verbose} { puts "PEXPIREAT sub-second expire test attempts: $j" }
+        list $e $f
+    } {somevalue {}}
 
     test {TTL returns time to live in seconds} {
         r del x
