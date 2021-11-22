@@ -1,5 +1,7 @@
 {
     "SCRIPT": {
+        "summary": "PATCH__TBD__83__",
+        "complexity": "Depends on subcommand.",
         "group": "scripting",
         "since": "2.6.0",
         "arity": -2,

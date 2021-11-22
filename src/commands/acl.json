@@ -1,8 +1,13 @@
 {
     "ACL": {
+        "summary": "PATCH__TBD__90__",
+        "complexity": "Depends on subcommand.",
         "group": "server",
         "since": "6.0.0",
         "arity": -2,
+        "command_flags": [
+            "sentinel"
+        ],
         "acl_categories": [
             "slow"
         ]

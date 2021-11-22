@@ -1,5 +1,7 @@
 {
     "PUBSUB": {
+        "summary": "PATCH__TBD__78__",
+        "complexity": "Depends on subcommand.",
         "group": "pubsub",
         "since": "2.8.0",
         "arity": -2,

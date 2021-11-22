@@ -17,7 +17,8 @@
             "loading",
             "stale",
             "fast",
-            "no_auth"
+            "no_auth",
+            "sentinel"
         ],
         "acl_categories": [
             "fast",

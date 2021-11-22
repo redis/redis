@@ -1,5 +1,7 @@
 {
     "LATENCY": {
+        "summary": "PATCH__TBD__81__",
+        "complexity": "Depends on subcommand.",
         "group": "server",
         "since": "2.8.13",
         "arity": -2,

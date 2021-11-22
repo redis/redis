@@ -1,6 +1,7 @@
 {
     "RESET": {
         "summary": "Reset the connection",
+        "complexity": "PATCH__TBD__74__",
         "group": "connection",
         "since": "6.2",
         "arity": 1,

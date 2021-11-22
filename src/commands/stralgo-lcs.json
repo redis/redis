@@ -1,6 +1,9 @@
 {
     "LCS": {
+        "summary": "PATCH__TBD__63__",
+        "complexity": "PATCH__TBD__62__",
         "group": "string",
+        "since": "PATCH__TBD__64__",
         "arity": -5,
         "container": "STRALGO",
         "function": "stralgoCommand",

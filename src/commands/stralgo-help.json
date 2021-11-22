@@ -1,6 +1,9 @@
 {
     "HELP": {
+        "summary": "PATCH__TBD__65__",
+        "complexity": "O(1)",
         "group": "string",
+        "since": "PATCH__TBD__66__",
         "arity": 2,
         "container": "STRALGO",
         "function": "stralgoCommand",

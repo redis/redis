@@ -1,6 +1,7 @@
 {
     "MONITOR": {
         "summary": "Listen for all requests received by the server in real time",
+        "complexity": "PATCH__TBD__54__",
         "group": "server",
         "since": "1.0.0",
         "arity": 1,

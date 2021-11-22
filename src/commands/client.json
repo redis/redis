@@ -1,8 +1,13 @@
 {
     "CLIENT": {
+        "summary": "PATCH__TBD__80__",
+        "complexity": "Depends on subcommand.",
         "group": "connection",
         "since": "2.4.0",
         "arity": -2,
+        "command_flags": [
+            "sentinel"
+        ],
         "acl_categories": [
             "slow"
         ]

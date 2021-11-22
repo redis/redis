@@ -1,6 +1,9 @@
 {
     "GEORADIUS_RO": {
+        "summary": "PATCH__TBD__6__",
+        "complexity": "PATCH__TBD__5__",
         "group": "geo",
+        "since": "PATCH__TBD__7__",
         "arity": -6,
         "function": "georadiusroCommand",
         "until": "6.2.0",

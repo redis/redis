@@ -79,12 +79,12 @@
                         "type": "oneof",
                         "value": [
                             {
-                                "name": "__TBD__2__",
+                                "name": "equal",
                                 "type": "pure-token",
                                 "token": "="
                             },
                             {
-                                "name": "__TBD__3__",
+                                "name": "approximately",
                                 "type": "pure-token",
                                 "token": "~"
                             }
@@ -107,11 +107,11 @@
                 "optional": true
             },
             {
-                "name": "__TBD__4__",
+                "name": "__TBD__1__",
                 "type": "oneof",
                 "value": [
                     {
-                        "name": "__TBD__5__",
+                        "name": "auto_id",
                         "type": "pure-token",
                         "token": "*"
                     },

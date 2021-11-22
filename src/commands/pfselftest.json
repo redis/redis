@@ -1,12 +1,16 @@
 {
     "PFSELFTEST": {
+        "summary": "PATCH__TBD__21__",
+        "complexity": "PATCH__TBD__20__",
         "group": "hyperloglog",
+        "since": "PATCH__TBD__22__",
         "arity": 1,
         "function": "pfselftestCommand",
         "internal": true,
         "undocumented": true,
         "command_flags": [
-            "admin"
+            "admin",
+            "internal"
         ],
         "acl_categories": [
             "hyperloglog",

@@ -1,6 +1,7 @@
 {
     "HISTORY": {
         "summary": "Return timestamp-latency samples for the event.",
+        "complexity": "PATCH__TBD__40__",
         "group": "server",
         "since": "2.8.13",
         "arity": 3,

@@ -1,6 +1,9 @@
 {
     "PFDEBUG": {
+        "summary": "PATCH__TBD__12__",
+        "complexity": "PATCH__TBD__11__",
         "group": "hyperloglog",
+        "since": "PATCH__TBD__13__",
         "arity": -3,
         "function": "pfdebugCommand",
         "internal": true,
@@ -8,7 +11,8 @@
         "command_flags": [
             "write",
             "denyoom",
-            "admin"
+            "admin",
+            "internal"
         ],
         "acl_categories": [
             "write",

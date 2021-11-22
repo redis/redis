@@ -1,6 +1,9 @@
 {
     "RESTORE-ASKING": {
+        "summary": "PATCH__TBD__18__",
+        "complexity": "PATCH__TBD__17__",
         "group": "server",
+        "since": "PATCH__TBD__19__",
         "arity": -4,
         "function": "restoreCommand",
         "internal": true,
@@ -8,7 +11,8 @@
         "command_flags": [
             "write",
             "denyoom",
-            "asking"
+            "asking",
+            "internal"
         ],
         "acl_categories": [
             "keyspace",

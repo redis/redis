@@ -1,6 +1,7 @@
 {
     "INFO": {
         "summary": "Get information and statistics about the server",
+        "complexity": "PATCH__TBD__37__",
         "group": "server",
         "since": "1.0.0",
         "arity": -1,
@@ -8,7 +9,8 @@
         "command_flags": [
             "random",
             "loading",
-            "stale"
+            "stale",
+            "sentinel"
         ],
         "acl_categories": [
             "slow",

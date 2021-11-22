@@ -1,5 +1,7 @@
 {
     "XINFO": {
+        "summary": "PATCH__TBD__79__",
+        "complexity": "Depends on subcommand.",
         "group": "stream",
         "since": "5.0.0",
         "arity": -2,

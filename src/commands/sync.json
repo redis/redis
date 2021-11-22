@@ -1,6 +1,7 @@
 {
     "SYNC": {
         "summary": "Internal command used for replication",
+        "complexity": "PATCH__TBD__50__",
         "group": "server",
         "since": "1.0.0",
         "arity": 1,

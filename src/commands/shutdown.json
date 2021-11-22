@@ -1,6 +1,7 @@
 {
     "SHUTDOWN": {
         "summary": "Synchronously save the dataset to disk and then shut down the server",
+        "complexity": "PATCH__TBD__35__",
         "group": "server",
         "since": "1.0.0",
         "arity": -1,
@@ -9,7 +10,8 @@
             "admin",
             "noscript",
             "loading",
-            "stale"
+            "stale",
+            "sentinel"
         ],
         "acl_categories": [
             "admin",

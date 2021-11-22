@@ -1,6 +1,7 @@
 {
     "LOLWUT": {
         "summary": "Display some computer art and the Redis version",
+        "complexity": "PATCH__TBD__68__",
         "group": "server",
         "since": "5.0.0",
         "arity": -1,

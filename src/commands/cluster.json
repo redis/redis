@@ -1,5 +1,7 @@
 {
     "CLUSTER": {
+        "summary": "PATCH__TBD__84__",
+        "complexity": "Depends on subcommand.",
         "group": "cluster",
         "since": "3.0.0",
         "arity": -2,

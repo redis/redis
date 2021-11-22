@@ -1,6 +1,9 @@
 {
     "ADDSLOTSRANGE": {
+        "summary": "Assign new hash slots to receiving node",
+        "complexity": "O(N) where N is the total number of the slots between the start slot and end slot arguments.",
         "group": "cluster",
+        "since": "7.0.0",
         "arity": -4,
         "container": "CLUSTER",
         "function": "clusterCommand",
@@ -13,6 +16,25 @@
             "admin",
             "slow",
             "dangerous"
+        ],
+        "arguments": [
+            {
+                "name": "start-slot_end-slot",
+                "type": "block",
+                "value": [
+                    {
+                        "name": "start-slot",
+                        "type": "integer",
+                        "value": "start-slot"
+                    },
+                    {
+                        "name": "end-slot",
+                        "type": "integer",
+                        "value": "end-slot"
+                    }
+                ],
+                "multiple": true
+            }
         ]
     }
 }

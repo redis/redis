@@ -16,7 +16,8 @@
             "pubsub",
             "noscript",
             "loading",
-            "stale"
+            "stale",
+            "sentinel"
         ],
         "acl_categories": [
             "pubsub",

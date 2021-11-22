@@ -1,6 +1,7 @@
 {
     "SELECT": {
         "summary": "Change the selected database for the current connection",
+        "complexity": "PATCH__TBD__48__",
         "group": "connection",
         "since": "1.0.0",
         "arity": 2,

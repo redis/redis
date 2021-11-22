@@ -1,5 +1,7 @@
 {
     "OBJECT": {
+        "summary": "PATCH__TBD__88__",
+        "complexity": "Depends on subcommand.",
         "group": "generic",
         "since": "2.2.3",
         "arity": -2,

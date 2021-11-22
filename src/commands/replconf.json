@@ -1,6 +1,9 @@
 {
     "REPLCONF": {
+        "summary": "PATCH__TBD__27__",
+        "complexity": "PATCH__TBD__26__",
         "group": "server",
+        "since": "PATCH__TBD__28__",
         "arity": -1,
         "function": "replconfCommand",
         "internal": true,
@@ -9,7 +12,8 @@
             "admin",
             "noscript",
             "loading",
-            "stale"
+            "stale",
+            "internal"
         ],
         "acl_categories": [
             "admin",

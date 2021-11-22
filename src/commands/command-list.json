@@ -1,6 +1,9 @@
 {
     "LIST": {
+        "summary": "PATCH__TBD__76__",
+        "complexity": "PATCH__TBD__75__",
         "group": "server",
+        "since": "PATCH__TBD__77__",
         "arity": -2,
         "container": "COMMAND",
         "function": "commandListCommand",

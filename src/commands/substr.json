@@ -1,6 +1,9 @@
 {
     "SUBSTR": {
+        "summary": "PATCH__TBD__33__",
+        "complexity": "PATCH__TBD__32__",
         "group": "string",
+        "since": "PATCH__TBD__34__",
         "arity": 4,
         "function": "getrangeCommand",
         "until": "2.4.0",

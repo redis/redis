@@ -1,6 +1,7 @@
 {
     "DISCARD": {
         "summary": "Discard all commands issued after MULTI",
+        "complexity": "PATCH__TBD__60__",
         "group": "transactions",
         "since": "2.0.0",
         "arity": 1,

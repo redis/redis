@@ -1,6 +1,7 @@
 {
     "MULTI": {
         "summary": "Mark the start of a transaction block",
+        "complexity": "PATCH__TBD__36__",
         "group": "transactions",
         "since": "1.2.0",
         "arity": 1,

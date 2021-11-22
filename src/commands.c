@@ -341,6 +341,19 @@ struct redisCommandArg CLUSTER_ADDSLOTS_Args[] = {
 /* CLUSTER ADDSLOTSRANGE metadata */
 #define CLUSTER_ADDSLOTSRANGE_Metadata NULL
 
+/* CLUSTER ADDSLOTSRANGE start_slot_end_slot argument table */
+struct redisCommandArg CLUSTER_ADDSLOTSRANGE_start_slot_end_slot_Subargs[] = {
+{"start-slot",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="start-slot"},
+{"end-slot",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="end-slot"},
+{0}
+};
+
+/* CLUSTER ADDSLOTSRANGE argument table */
+struct redisCommandArg CLUSTER_ADDSLOTSRANGE_Args[] = {
+{"start-slot_end-slot",ARG_TYPE_BLOCK,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.value.subargs=CLUSTER_ADDSLOTSRANGE_start_slot_end_slot_Subargs},
+{0}
+};
+
 /********** CLUSTER BUMPEPOCH ********************/
 
 /* CLUSTER BUMPEPOCH return info */
@@ -413,6 +426,19 @@ struct redisCommandArg CLUSTER_DELSLOTS_Args[] = {
 
 /* CLUSTER DELSLOTSRANGE metadata */
 #define CLUSTER_DELSLOTSRANGE_Metadata NULL
+
+/* CLUSTER DELSLOTSRANGE start_slot_end_slot argument table */
+struct redisCommandArg CLUSTER_DELSLOTSRANGE_start_slot_end_slot_Subargs[] = {
+{"start-slot",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="start-slot"},
+{"end-slot",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="end-slot"},
+{0}
+};
+
+/* CLUSTER DELSLOTSRANGE argument table */
+struct redisCommandArg CLUSTER_DELSLOTSRANGE_Args[] = {
+{"start-slot_end-slot",ARG_TYPE_BLOCK,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.value.subargs=CLUSTER_DELSLOTSRANGE_start_slot_end_slot_Subargs},
+{0}
+};
 
 /********** CLUSTER FAILOVER ********************/
 
@@ -709,11 +735,11 @@ struct redisCommand CLUSTER_Subcommands[] = {
 {"setslot","Bind a hash slot to a specific node","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_SETSLOT_ReturnInfo,CLUSTER_SETSLOT_History,CLUSTER_SETSLOT_Metadata,clusterCommand,-4,"admin random stale @admin @slow @dangerous",.args=CLUSTER_SETSLOT_Args},
 {"forget","Remove a node from the nodes table","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_FORGET_ReturnInfo,CLUSTER_FORGET_History,CLUSTER_FORGET_Metadata,clusterCommand,3,"admin random stale @admin @slow @dangerous",.args=CLUSTER_FORGET_Args},
 {"getkeysinslot","Return local key names in the specified hash slot","O(log(N)) where N is the number of requested keys","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_GETKEYSINSLOT_ReturnInfo,CLUSTER_GETKEYSINSLOT_History,CLUSTER_GETKEYSINSLOT_Metadata,clusterCommand,4,"random stale @slow",.args=CLUSTER_GETKEYSINSLOT_Args},
-{"addslotsrange",NULL,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_ADDSLOTSRANGE_ReturnInfo,CLUSTER_ADDSLOTSRANGE_History,CLUSTER_ADDSLOTSRANGE_Metadata,clusterCommand,-4,"admin random stale @admin @slow @dangerous"},
+{"addslotsrange","Assign new hash slots to receiving node","O(N) where N is the total number of the slots between the start slot and end slot arguments.","7.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_ADDSLOTSRANGE_ReturnInfo,CLUSTER_ADDSLOTSRANGE_History,CLUSTER_ADDSLOTSRANGE_Metadata,clusterCommand,-4,"admin random stale @admin @slow @dangerous",.args=CLUSTER_ADDSLOTSRANGE_Args},
 {"info","Provides info about Redis Cluster node state","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_INFO_ReturnInfo,CLUSTER_INFO_History,CLUSTER_INFO_Metadata,clusterCommand,2,"random stale @slow"},
 {"countkeysinslot","Return the number of local keys in the specified hash slot","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_COUNTKEYSINSLOT_ReturnInfo,CLUSTER_COUNTKEYSINSLOT_History,CLUSTER_COUNTKEYSINSLOT_Metadata,clusterCommand,3,"random stale @slow",.args=CLUSTER_COUNTKEYSINSLOT_Args},
 {"failover","Forces a replica to perform a manual failover of its master.","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_FAILOVER_ReturnInfo,CLUSTER_FAILOVER_History,CLUSTER_FAILOVER_Metadata,clusterCommand,-2,"admin random stale @admin @slow @dangerous",.args=CLUSTER_FAILOVER_Args},
-{"delslotsrange",NULL,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_DELSLOTSRANGE_ReturnInfo,CLUSTER_DELSLOTSRANGE_History,CLUSTER_DELSLOTSRANGE_Metadata,clusterCommand,-4,"admin random stale @admin @slow @dangerous"},
+{"delslotsrange","Set hash slots as unbound in receiving node","O(N) where N is the total number of the slots between the start slot and end slot arguments.","7.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_DELSLOTSRANGE_ReturnInfo,CLUSTER_DELSLOTSRANGE_History,CLUSTER_DELSLOTSRANGE_Metadata,clusterCommand,-4,"admin random stale @admin @slow @dangerous",.args=CLUSTER_DELSLOTSRANGE_Args},
 {"replicate","Reconfigure a node as a replica of the specified master node","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_REPLICATE_ReturnInfo,CLUSTER_REPLICATE_History,CLUSTER_REPLICATE_Metadata,clusterCommand,3,"admin random stale @admin @slow @dangerous",.args=CLUSTER_REPLICATE_Args},
 {"delslots","Set hash slots as unbound in receiving node","O(N) where N is the total number of hash slot arguments","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_DELSLOTS_ReturnInfo,CLUSTER_DELSLOTS_History,CLUSTER_DELSLOTS_Metadata,clusterCommand,-3,"admin random stale @admin @slow @dangerous",.args=CLUSTER_DELSLOTS_Args},
 {"set-config-epoch","Set the configuration epoch in a new node","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_SET_CONFIG_EPOCH_ReturnInfo,CLUSTER_SET_CONFIG_EPOCH_History,CLUSTER_SET_CONFIG_EPOCH_Metadata,clusterCommand,3,"admin random stale @admin @slow @dangerous",.args=CLUSTER_SET_CONFIG_EPOCH_Args},
@@ -1406,9 +1432,9 @@ struct redisCommandArg KEYS_Args[] = {
 
 /* MIGRATE history */
 commandHistory MIGRATE_History[] = {
-{"3.0.0","Added the `!COPY` and `REPLACE` options."},
-{"3.0.6","Added the `!KEYS` option."},
-{"4.0.7","Added the `!AUTH` option."},
+{"3.0.0","Added the `COPY` and `REPLACE` options."},
+{"3.0.6","Added the `KEYS` option."},
+{"4.0.7","Added the `AUTH` option."},
 {"6.0.0","Added the `AUTH2` option."},
 {0}
 };
@@ -1419,7 +1445,7 @@ commandHistory MIGRATE_History[] = {
 /* MIGRATE key argument table */
 struct redisCommandArg MIGRATE_key_Subargs[] = {
 {"key",ARG_TYPE_PURE_TOKEN,"key",NULL,NULL,CMD_ARG_NONE},
-{"__tbd__1__",ARG_TYPE_PURE_TOKEN,"""",NULL,NULL,CMD_ARG_NONE},
+{"empty_string",ARG_TYPE_PURE_TOKEN,"""",NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -3489,7 +3515,7 @@ struct redisCommandArg SCRIPT_EXISTS_Args[] = {
 
 /* SCRIPT FLUSH history */
 commandHistory SCRIPT_FLUSH_History[] = {
-{"6.2.0","Added the `ASYNC` and `!SYNC` flushing mode modifiers, as well as the  **lazyfree-lazy-user-flush** configuration directive."},
+{"6.2.0","Added the `ASYNC` and `SYNC` flushing mode modifiers, as well as the  **lazyfree-lazy-user-flush** configuration directive."},
 {0}
 };
 
@@ -3755,18 +3781,18 @@ struct redisCommandArg ACL_SETUSER_Args[] = {
 
 /* ACL command table */
 struct redisCommand ACL_Subcommands[] = {
-{"load","Reload the ACLs from the configured ACL file","O(N). Where N is the number of configured users.","6.0.0",COMMAND_GROUP_SERVER,ACL_LOAD_ReturnInfo,ACL_LOAD_History,ACL_LOAD_Metadata,aclCommand,2,"admin noscript loading stale @admin @slow @dangerous"},
-{"users","List the username of all the configured ACL rules","O(N). Where N is the number of configured users.","6.0.0",COMMAND_GROUP_SERVER,ACL_USERS_ReturnInfo,ACL_USERS_History,ACL_USERS_Metadata,aclCommand,2,"admin noscript loading stale @admin @slow @dangerous"},
-{"list","List the current ACL rules in ACL config file format","O(N). Where N is the number of configured users.","6.0.0",COMMAND_GROUP_SERVER,ACL_LIST_ReturnInfo,ACL_LIST_History,ACL_LIST_Metadata,aclCommand,2,"admin noscript loading stale @admin @slow @dangerous"},
-{"cat","List the ACL categories or the commands inside a category","O(1) since the categories and commands are a fixed set.","6.0.0",COMMAND_GROUP_SERVER,ACL_CAT_ReturnInfo,ACL_CAT_History,ACL_CAT_Metadata,aclCommand,-2,"noscript loading stale @slow",.args=ACL_CAT_Args},
-{"deluser","Remove the specified ACL users and the associated rules","O(1) amortized time considering the typical user.","6.0.0",COMMAND_GROUP_SERVER,ACL_DELUSER_ReturnInfo,ACL_DELUSER_History,ACL_DELUSER_Metadata,aclCommand,-3,"admin noscript loading stale @admin @slow @dangerous",.args=ACL_DELUSER_Args},
-{"getuser","Get the rules for a specific ACL user","O(N). Where N is the number of password, command and pattern rules that the user has.","6.0.0",COMMAND_GROUP_SERVER,ACL_GETUSER_ReturnInfo,ACL_GETUSER_History,ACL_GETUSER_Metadata,aclCommand,3,"admin noscript loading stale @admin @slow @dangerous",.args=ACL_GETUSER_Args},
-{"help","Show helpful text about the different subcommands","O(1)","6.0.0",COMMAND_GROUP_SERVER,ACL_HELP_ReturnInfo,ACL_HELP_History,ACL_HELP_Metadata,aclCommand,2,"loading stale @slow"},
-{"setuser","Modify or create the rules for a specific ACL user","O(N). Where N is the number of rules provided.","6.0.0",COMMAND_GROUP_SERVER,ACL_SETUSER_ReturnInfo,ACL_SETUSER_History,ACL_SETUSER_Metadata,aclCommand,-3,"admin noscript loading stale @admin @slow @dangerous",.args=ACL_SETUSER_Args},
-{"save","Save the current ACL rules in the configured ACL file","O(N). Where N is the number of configured users.","6.0.0",COMMAND_GROUP_SERVER,ACL_SAVE_ReturnInfo,ACL_SAVE_History,ACL_SAVE_Metadata,aclCommand,2,"admin noscript loading stale @admin @slow @dangerous"},
-{"whoami","Return the name of the user associated to the current connection","O(1)","6.0.0",COMMAND_GROUP_SERVER,ACL_WHOAMI_ReturnInfo,ACL_WHOAMI_History,ACL_WHOAMI_Metadata,aclCommand,2,"noscript loading stale @slow"},
-{"genpass","Generate a pseudorandom secure password to use for ACL users","O(1)","6.0.0",COMMAND_GROUP_SERVER,ACL_GENPASS_ReturnInfo,ACL_GENPASS_History,ACL_GENPASS_Metadata,aclCommand,-2,"noscript loading stale @slow",.args=ACL_GENPASS_Args},
-{"log","List latest events denied because of ACLs in place","O(N) with N being the number of entries shown.","6.0.0",COMMAND_GROUP_SERVER,ACL_LOG_ReturnInfo,ACL_LOG_History,ACL_LOG_Metadata,aclCommand,-2,"admin noscript loading stale @admin @slow @dangerous",.args=ACL_LOG_Args},
+{"load","Reload the ACLs from the configured ACL file","O(N). Where N is the number of configured users.","6.0.0",COMMAND_GROUP_SERVER,ACL_LOAD_ReturnInfo,ACL_LOAD_History,ACL_LOAD_Metadata,aclCommand,2,"admin noscript loading stale sentinel @admin @slow @dangerous"},
+{"users","List the username of all the configured ACL rules","O(N). Where N is the number of configured users.","6.0.0",COMMAND_GROUP_SERVER,ACL_USERS_ReturnInfo,ACL_USERS_History,ACL_USERS_Metadata,aclCommand,2,"admin noscript loading stale sentinel @admin @slow @dangerous"},
+{"list","List the current ACL rules in ACL config file format","O(N). Where N is the number of configured users.","6.0.0",COMMAND_GROUP_SERVER,ACL_LIST_ReturnInfo,ACL_LIST_History,ACL_LIST_Metadata,aclCommand,2,"admin noscript loading stale sentinel @admin @slow @dangerous"},
+{"cat","List the ACL categories or the commands inside a category","O(1) since the categories and commands are a fixed set.","6.0.0",COMMAND_GROUP_SERVER,ACL_CAT_ReturnInfo,ACL_CAT_History,ACL_CAT_Metadata,aclCommand,-2,"noscript loading stale sentinel @slow",.args=ACL_CAT_Args},
+{"deluser","Remove the specified ACL users and the associated rules","O(1) amortized time considering the typical user.","6.0.0",COMMAND_GROUP_SERVER,ACL_DELUSER_ReturnInfo,ACL_DELUSER_History,ACL_DELUSER_Metadata,aclCommand,-3,"admin noscript loading stale sentinel @admin @slow @dangerous",.args=ACL_DELUSER_Args},
+{"getuser","Get the rules for a specific ACL user","O(N). Where N is the number of password, command and pattern rules that the user has.","6.0.0",COMMAND_GROUP_SERVER,ACL_GETUSER_ReturnInfo,ACL_GETUSER_History,ACL_GETUSER_Metadata,aclCommand,3,"admin noscript loading stale sentinel @admin @slow @dangerous",.args=ACL_GETUSER_Args},
+{"help","Show helpful text about the different subcommands","O(1)","6.0.0",COMMAND_GROUP_SERVER,ACL_HELP_ReturnInfo,ACL_HELP_History,ACL_HELP_Metadata,aclCommand,2,"loading stale sentinel @slow"},
+{"setuser","Modify or create the rules for a specific ACL user","O(N). Where N is the number of rules provided.","6.0.0",COMMAND_GROUP_SERVER,ACL_SETUSER_ReturnInfo,ACL_SETUSER_History,ACL_SETUSER_Metadata,aclCommand,-3,"admin noscript loading stale sentinel @admin @slow @dangerous",.args=ACL_SETUSER_Args},
+{"save","Save the current ACL rules in the configured ACL file","O(N). Where N is the number of configured users.","6.0.0",COMMAND_GROUP_SERVER,ACL_SAVE_ReturnInfo,ACL_SAVE_History,ACL_SAVE_Metadata,aclCommand,2,"admin noscript loading stale sentinel @admin @slow @dangerous"},
+{"whoami","Return the name of the user associated to the current connection","O(1)","6.0.0",COMMAND_GROUP_SERVER,ACL_WHOAMI_ReturnInfo,ACL_WHOAMI_History,ACL_WHOAMI_Metadata,aclCommand,2,"noscript loading stale sentinel @slow"},
+{"genpass","Generate a pseudorandom secure password to use for ACL users","O(1)","6.0.0",COMMAND_GROUP_SERVER,ACL_GENPASS_ReturnInfo,ACL_GENPASS_History,ACL_GENPASS_Metadata,aclCommand,-2,"noscript loading stale sentinel @slow",.args=ACL_GENPASS_Args},
+{"log","List latest events denied because of ACLs in place","O(N) with N being the number of entries shown.","6.0.0",COMMAND_GROUP_SERVER,ACL_LOG_ReturnInfo,ACL_LOG_History,ACL_LOG_Metadata,aclCommand,-2,"admin noscript loading stale sentinel @admin @slow @dangerous",.args=ACL_LOG_Args},
 {0}
 };
 
@@ -3877,7 +3903,7 @@ struct redisCommandArg COMMAND_INFO_Args[] = {
 struct redisCommand COMMAND_Subcommands[] = {
 {"count","Get total number of Redis commands","O(1)","2.8.13",COMMAND_GROUP_SERVER,COMMAND_COUNT_ReturnInfo,COMMAND_COUNT_History,COMMAND_COUNT_Metadata,commandCountCommand,2,"loading stale @slow @connection"},
 {"info","Get array of specific Redis command details","O(N) when N is number of commands to look up","2.8.13",COMMAND_GROUP_SERVER,COMMAND_INFO_ReturnInfo,COMMAND_INFO_History,COMMAND_INFO_Metadata,commandInfoCommand,-3,"loading stale @slow @connection",.args=COMMAND_INFO_Args},
-{"list",NULL,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_LIST_ReturnInfo,COMMAND_LIST_History,COMMAND_LIST_Metadata,commandListCommand,-2,"loading stale @slow @connection"},
+{"list","PATCH__TBD__76__","PATCH__TBD__75__","PATCH__TBD__77__",COMMAND_GROUP_SERVER,COMMAND_LIST_ReturnInfo,COMMAND_LIST_History,COMMAND_LIST_Metadata,commandListCommand,-2,"loading stale @slow @connection"},
 {"help","Show helpful text about the different subcommands","O(1)","5.0.0",COMMAND_GROUP_SERVER,COMMAND_HELP_ReturnInfo,COMMAND_HELP_History,COMMAND_HELP_Metadata,commandHelpCommand,2,"loading stale @slow @connection"},
 {"getkeys","Extract keys given a full Redis command","O(N) where N is the number of arguments to the command","2.8.13",COMMAND_GROUP_SERVER,COMMAND_GETKEYS_ReturnInfo,COMMAND_GETKEYS_History,COMMAND_GETKEYS_Metadata,commandGetKeysCommand,-4,"loading stale @slow @connection"},
 {0}
@@ -3964,11 +3990,11 @@ struct redisCommandArg CONFIG_SET_Args[] = {
 
 /* CONFIG command table */
 struct redisCommand CONFIG_Subcommands[] = {
-{"set","Set a configuration parameter to the given value",NULL,"2.0.0",COMMAND_GROUP_SERVER,CONFIG_SET_ReturnInfo,CONFIG_SET_History,CONFIG_SET_Metadata,configSetCommand,4,"admin noscript stale @admin @slow @dangerous",.args=CONFIG_SET_Args},
-{"get","Get the value of a configuration parameter",NULL,"2.0.0",COMMAND_GROUP_SERVER,CONFIG_GET_ReturnInfo,CONFIG_GET_History,CONFIG_GET_Metadata,configGetCommand,3,"admin noscript loading stale @admin @slow @dangerous",.args=CONFIG_GET_Args},
+{"set","Set a configuration parameter to the given value","PATCH__TBD__47__","2.0.0",COMMAND_GROUP_SERVER,CONFIG_SET_ReturnInfo,CONFIG_SET_History,CONFIG_SET_Metadata,configSetCommand,4,"admin noscript stale @admin @slow @dangerous",.args=CONFIG_SET_Args},
+{"get","Get the value of a configuration parameter","PATCH__TBD__45__","2.0.0",COMMAND_GROUP_SERVER,CONFIG_GET_ReturnInfo,CONFIG_GET_History,CONFIG_GET_Metadata,configGetCommand,3,"admin noscript loading stale @admin @slow @dangerous",.args=CONFIG_GET_Args},
 {"help","Show helpful text about the different subcommands","O(1)","5.0.0",COMMAND_GROUP_SERVER,CONFIG_HELP_ReturnInfo,CONFIG_HELP_History,CONFIG_HELP_Metadata,configHelpCommand,2,"loading stale @slow"},
 {"resetstat","Reset the stats returned by INFO","O(1)","2.0.0",COMMAND_GROUP_SERVER,CONFIG_RESETSTAT_ReturnInfo,CONFIG_RESETSTAT_History,CONFIG_RESETSTAT_Metadata,configResetStatCommand,2,"admin noscript stale @admin @slow @dangerous"},
-{"rewrite","Rewrite the configuration file with the in memory configuration",NULL,"2.8.0",COMMAND_GROUP_SERVER,CONFIG_REWRITE_ReturnInfo,CONFIG_REWRITE_History,CONFIG_REWRITE_Metadata,configRewriteCommand,2,"admin noscript stale @admin @slow @dangerous"},
+{"rewrite","Rewrite the configuration file with the in memory configuration","PATCH__TBD__46__","2.8.0",COMMAND_GROUP_SERVER,CONFIG_REWRITE_ReturnInfo,CONFIG_REWRITE_History,CONFIG_REWRITE_Metadata,configRewriteCommand,2,"admin noscript stale @admin @slow @dangerous"},
 {0}
 };
 
@@ -4041,7 +4067,7 @@ struct redisCommandArg FAILOVER_Args[] = {
 /* FLUSHALL history */
 commandHistory FLUSHALL_History[] = {
 {"4.0.0","Added the `ASYNC` flushing mode modifier."},
-{"6.2.0","Added the `!SYNC` flushing mode modifier and the **lazyfree-lazy-user-flush** configuration directive."},
+{"6.2.0","Added the `SYNC` flushing mode modifier and the **lazyfree-lazy-user-flush** configuration directive."},
 {0}
 };
 
@@ -4210,12 +4236,12 @@ struct redisCommandArg LATENCY_RESET_Args[] = {
 
 /* LATENCY command table */
 struct redisCommand LATENCY_Subcommands[] = {
-{"reset","Reset latency data for one or more events.",NULL,"2.8.13",COMMAND_GROUP_SERVER,LATENCY_RESET_ReturnInfo,LATENCY_RESET_History,LATENCY_RESET_Metadata,latencyCommand,-2,"admin noscript loading stale @admin @slow @dangerous",.args=LATENCY_RESET_Args},
-{"help","Show helpful text about the different subcommands.",NULL,"2.8.13",COMMAND_GROUP_SERVER,LATENCY_HELP_ReturnInfo,LATENCY_HELP_History,LATENCY_HELP_Metadata,latencyCommand,2,"loading stale @slow"},
-{"doctor","Return a human readable latency analysis report.",NULL,"2.8.13",COMMAND_GROUP_SERVER,LATENCY_DOCTOR_ReturnInfo,LATENCY_DOCTOR_History,LATENCY_DOCTOR_Metadata,latencyCommand,2,"admin noscript loading stale @admin @slow @dangerous"},
-{"graph","Return a latency graph for the event.",NULL,"2.8.13",COMMAND_GROUP_SERVER,LATENCY_GRAPH_ReturnInfo,LATENCY_GRAPH_History,LATENCY_GRAPH_Metadata,latencyCommand,3,"admin noscript loading stale @admin @slow @dangerous",.args=LATENCY_GRAPH_Args},
-{"history","Return timestamp-latency samples for the event.",NULL,"2.8.13",COMMAND_GROUP_SERVER,LATENCY_HISTORY_ReturnInfo,LATENCY_HISTORY_History,LATENCY_HISTORY_Metadata,latencyCommand,3,"admin noscript loading stale @admin @slow @dangerous",.args=LATENCY_HISTORY_Args},
-{"latest","Return the latest latency samples for all events.",NULL,"2.8.13",COMMAND_GROUP_SERVER,LATENCY_LATEST_ReturnInfo,LATENCY_LATEST_History,LATENCY_LATEST_Metadata,latencyCommand,2,"admin noscript loading stale @admin @slow @dangerous"},
+{"reset","Reset latency data for one or more events.","PATCH__TBD__43__","2.8.13",COMMAND_GROUP_SERVER,LATENCY_RESET_ReturnInfo,LATENCY_RESET_History,LATENCY_RESET_Metadata,latencyCommand,-2,"admin noscript loading stale @admin @slow @dangerous",.args=LATENCY_RESET_Args},
+{"help","Show helpful text about the different subcommands.","O(1)","2.8.13",COMMAND_GROUP_SERVER,LATENCY_HELP_ReturnInfo,LATENCY_HELP_History,LATENCY_HELP_Metadata,latencyCommand,2,"loading stale @slow"},
+{"doctor","Return a human readable latency analysis report.","PATCH__TBD__42__","2.8.13",COMMAND_GROUP_SERVER,LATENCY_DOCTOR_ReturnInfo,LATENCY_DOCTOR_History,LATENCY_DOCTOR_Metadata,latencyCommand,2,"admin noscript loading stale @admin @slow @dangerous"},
+{"graph","Return a latency graph for the event.","PATCH__TBD__41__","2.8.13",COMMAND_GROUP_SERVER,LATENCY_GRAPH_ReturnInfo,LATENCY_GRAPH_History,LATENCY_GRAPH_Metadata,latencyCommand,3,"admin noscript loading stale @admin @slow @dangerous",.args=LATENCY_GRAPH_Args},
+{"history","Return timestamp-latency samples for the event.","PATCH__TBD__40__","2.8.13",COMMAND_GROUP_SERVER,LATENCY_HISTORY_ReturnInfo,LATENCY_HISTORY_History,LATENCY_HISTORY_Metadata,latencyCommand,3,"admin noscript loading stale @admin @slow @dangerous",.args=LATENCY_HISTORY_Args},
+{"latest","Return the latest latency samples for all events.","PATCH__TBD__44__","2.8.13",COMMAND_GROUP_SERVER,LATENCY_LATEST_ReturnInfo,LATENCY_LATEST_History,LATENCY_LATEST_Metadata,latencyCommand,2,"admin noscript loading stale @admin @slow @dangerous"},
 {0}
 };
 
@@ -4322,11 +4348,11 @@ struct redisCommandArg MEMORY_USAGE_Args[] = {
 
 /* MEMORY command table */
 struct redisCommand MEMORY_Subcommands[] = {
-{"stats","Show memory usage details",NULL,"4.0.0",COMMAND_GROUP_SERVER,MEMORY_STATS_ReturnInfo,MEMORY_STATS_History,MEMORY_STATS_Metadata,memoryCommand,2,"random @slow"},
-{"help","Show helpful text about the different subcommands",NULL,"4.0.0",COMMAND_GROUP_SERVER,MEMORY_HELP_ReturnInfo,MEMORY_HELP_History,MEMORY_HELP_Metadata,memoryCommand,2,"loading stale @slow"},
-{"malloc-stats","Show allocator internal stats",NULL,"4.0.0",COMMAND_GROUP_SERVER,MEMORY_MALLOC_STATS_ReturnInfo,MEMORY_MALLOC_STATS_History,MEMORY_MALLOC_STATS_Metadata,memoryCommand,2,"random @slow"},
-{"doctor","Outputs memory problems report",NULL,"4.0.0",COMMAND_GROUP_SERVER,MEMORY_DOCTOR_ReturnInfo,MEMORY_DOCTOR_History,MEMORY_DOCTOR_Metadata,memoryCommand,2,"random @slow"},
-{"purge","Ask the allocator to release memory",NULL,"4.0.0",COMMAND_GROUP_SERVER,MEMORY_PURGE_ReturnInfo,MEMORY_PURGE_History,MEMORY_PURGE_Metadata,memoryCommand,2,"@slow"},
+{"stats","Show memory usage details","PATCH__TBD__72__","4.0.0",COMMAND_GROUP_SERVER,MEMORY_STATS_ReturnInfo,MEMORY_STATS_History,MEMORY_STATS_Metadata,memoryCommand,2,"random @slow"},
+{"help","Show helpful text about the different subcommands","O(1)","4.0.0",COMMAND_GROUP_SERVER,MEMORY_HELP_ReturnInfo,MEMORY_HELP_History,MEMORY_HELP_Metadata,memoryCommand,2,"loading stale @slow"},
+{"malloc-stats","Show allocator internal stats","PATCH__TBD__71__","4.0.0",COMMAND_GROUP_SERVER,MEMORY_MALLOC_STATS_ReturnInfo,MEMORY_MALLOC_STATS_History,MEMORY_MALLOC_STATS_Metadata,memoryCommand,2,"random @slow"},
+{"doctor","Outputs memory problems report","PATCH__TBD__73__","4.0.0",COMMAND_GROUP_SERVER,MEMORY_DOCTOR_ReturnInfo,MEMORY_DOCTOR_History,MEMORY_DOCTOR_Metadata,memoryCommand,2,"random @slow"},
+{"purge","Ask the allocator to release memory","PATCH__TBD__70__","4.0.0",COMMAND_GROUP_SERVER,MEMORY_PURGE_ReturnInfo,MEMORY_PURGE_History,MEMORY_PURGE_Metadata,memoryCommand,2,"@slow"},
 {"usage","Estimate the memory usage of a key","O(N) where N is the number of samples.","4.0.0",COMMAND_GROUP_SERVER,MEMORY_USAGE_ReturnInfo,MEMORY_USAGE_History,MEMORY_USAGE_Metadata,memoryCommand,-3,"readonly @read @slow",{{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=MEMORY_USAGE_Args},
 {0}
 };
@@ -5870,8 +5896,8 @@ struct redisCommandArg XADD_trim_strategy_Subargs[] = {
 
 /* XADD trim operator argument table */
 struct redisCommandArg XADD_trim_operator_Subargs[] = {
-{"__tbd__2__",ARG_TYPE_PURE_TOKEN,"=",NULL,NULL,CMD_ARG_NONE},
-{"__tbd__3__",ARG_TYPE_PURE_TOKEN,"~",NULL,NULL,CMD_ARG_NONE},
+{"equal",ARG_TYPE_PURE_TOKEN,"=",NULL,NULL,CMD_ARG_NONE},
+{"approximately",ARG_TYPE_PURE_TOKEN,"~",NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -5884,9 +5910,9 @@ struct redisCommandArg XADD_trim_Subargs[] = {
 {0}
 };
 
-/* XADD __tbd__4__ argument table */
-struct redisCommandArg XADD___tbd__4___Subargs[] = {
-{"__tbd__5__",ARG_TYPE_PURE_TOKEN,"*",NULL,NULL,CMD_ARG_NONE},
+/* XADD __tbd__1__ argument table */
+struct redisCommandArg XADD___tbd__1___Subargs[] = {
+{"auto_id",ARG_TYPE_PURE_TOKEN,"*",NULL,NULL,CMD_ARG_NONE},
 {"id",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="ID"},
 {0}
 };
@@ -5903,7 +5929,7 @@ struct redisCommandArg XADD_Args[] = {
 {"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
 {"nomkstream",ARG_TYPE_PURE_TOKEN,"NOMKSTREAM",NULL,NULL,CMD_ARG_OPTIONAL},
 {"trim",ARG_TYPE_BLOCK,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=XADD_trim_Subargs},
-{"__tbd__4__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_NONE,.value.subargs=XADD___tbd__4___Subargs},
+{"__tbd__1__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_NONE,.value.subargs=XADD___tbd__1___Subargs},
 {"field_value",ARG_TYPE_BLOCK,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.value.subargs=XADD_field_value_Subargs},
 {0}
 };
@@ -5989,7 +6015,7 @@ struct redisCommandArg XDEL_Args[] = {
 /* XGROUP CREATE id argument table */
 struct redisCommandArg XGROUP_CREATE_id_Subargs[] = {
 {"id",ARG_TYPE_PURE_TOKEN,"id",NULL,NULL,CMD_ARG_NONE},
-{"__tbd__8__",ARG_TYPE_PURE_TOKEN,"$",NULL,NULL,CMD_ARG_NONE},
+{"new_id",ARG_TYPE_PURE_TOKEN,"$",NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -6375,8 +6401,8 @@ struct redisCommandArg XTRIM_trim_strategy_Subargs[] = {
 
 /* XTRIM trim operator argument table */
 struct redisCommandArg XTRIM_trim_operator_Subargs[] = {
-{"__tbd__6__",ARG_TYPE_PURE_TOKEN,"=",NULL,NULL,CMD_ARG_NONE},
-{"__tbd__7__",ARG_TYPE_PURE_TOKEN,"~",NULL,NULL,CMD_ARG_NONE},
+{"equal",ARG_TYPE_PURE_TOKEN,"=",NULL,NULL,CMD_ARG_NONE},
+{"approximately",ARG_TYPE_PURE_TOKEN,"~",NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -6699,8 +6725,8 @@ commandReturnInfo SET_ReturnInfo[] = {
 commandHistory SET_History[] = {
 {"2.6.12","Added the `EX`, `PX`, `NX` and `XX` options."},
 {"6.0","Added the `KEEPTTL` option."},
-{"6.2","Added the `!GET`, `EXAT` and `PXAT` option."},
-{"7.0","Allowed the `NX` and `!GET` options to be used together."},
+{"6.2","Added the `GET`, `EXAT` and `PXAT` option."},
+{"7.0","Allowed the `NX` and `GET` options to be used together."},
 {0}
 };
 
@@ -6712,7 +6738,7 @@ struct redisCommandArg SET_expiration_Subargs[] = {
 {"ex",ARG_TYPE_INTEGER,"EX",NULL,NULL,CMD_ARG_NONE,.value.string="seconds"},
 {"px",ARG_TYPE_INTEGER,"PX",NULL,NULL,CMD_ARG_NONE,.value.string="milliseconds"},
 {"exat",ARG_TYPE_UNIX_TIME,"EXAT",NULL,NULL,CMD_ARG_NONE,.value.string="timestamp"},
-{"pxat",ARG_TYPE_UNIX_TIME,"PXAT",NULL,NULL,CMD_ARG_NONE,.value.string="milliseconds-timestamp"},
+{"pxat",ARG_TYPE_INTEGER,"PXAT",NULL,NULL,CMD_ARG_NONE,.value.string="milliseconds-timestamp"},
 {"keepttl",ARG_TYPE_PURE_TOKEN,"KEEPTTL",NULL,NULL,CMD_ARG_NONE},
 {0}
 };
@@ -6814,8 +6840,8 @@ struct redisCommandArg SETRANGE_Args[] = {
 
 /* STRALGO command table */
 struct redisCommand STRALGO_Subcommands[] = {
-{"help",NULL,NULL,NULL,COMMAND_GROUP_STRING,STRALGO_HELP_ReturnInfo,STRALGO_HELP_History,STRALGO_HELP_Metadata,stralgoCommand,2,"loading stale @string @slow"},
-{"lcs",NULL,NULL,NULL,COMMAND_GROUP_STRING,STRALGO_LCS_ReturnInfo,STRALGO_LCS_History,STRALGO_LCS_Metadata,stralgoCommand,-5,"readonly @read @string @slow",{{"read incomplete",KSPEC_BS_UNKNOWN,{{0}},KSPEC_FK_UNKNOWN,{{0}}}},lcsGetKeys},
+{"help","PATCH__TBD__65__","O(1)","PATCH__TBD__66__",COMMAND_GROUP_STRING,STRALGO_HELP_ReturnInfo,STRALGO_HELP_History,STRALGO_HELP_Metadata,stralgoCommand,2,"loading stale @string @slow"},
+{"lcs","PATCH__TBD__63__","PATCH__TBD__62__","PATCH__TBD__64__",COMMAND_GROUP_STRING,STRALGO_LCS_ReturnInfo,STRALGO_LCS_History,STRALGO_LCS_Metadata,stralgoCommand,-5,"readonly @read @string @slow",{{"read incomplete",KSPEC_BS_UNKNOWN,{{0}},KSPEC_FK_UNKNOWN,{{0}}}},lcsGetKeys},
 {0}
 };
 
@@ -6938,17 +6964,17 @@ struct redisCommand redisCommandTable[] = {
 {"setbit","Sets or clears the bit at offset in the string value stored at key","O(1)","2.2.0",COMMAND_GROUP_BITMAP,SETBIT_ReturnInfo,SETBIT_History,SETBIT_Metadata,setbitCommand,4,"write denyoom @write @bitmap @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SETBIT_Args},
 /* cluster */
 {"asking","Sent by cluster clients after an -ASK redirect","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,ASKING_ReturnInfo,ASKING_History,ASKING_Metadata,askingCommand,1,"fast @fast @connection"},
-{"cluster",NULL,NULL,"3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_ReturnInfo,CLUSTER_History,CLUSTER_Metadata,NULL,-2,"@slow",.subcommands=CLUSTER_Subcommands},
+{"cluster","PATCH__TBD__84__","Depends on subcommand.","3.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_ReturnInfo,CLUSTER_History,CLUSTER_Metadata,NULL,-2,"@slow",.subcommands=CLUSTER_Subcommands},
 {"readonly","Enables read queries for a connection to a cluster replica node","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,READONLY_ReturnInfo,READONLY_History,READONLY_Metadata,readonlyCommand,1,"fast @fast @connection"},
 {"readwrite","Disables read queries for a connection to a cluster replica node","O(1)","3.0.0",COMMAND_GROUP_CLUSTER,READWRITE_ReturnInfo,READWRITE_History,READWRITE_Metadata,readwriteCommand,1,"fast @fast @connection"},
 /* connection */
-{"auth","Authenticate to the server",NULL,"1.0.0",COMMAND_GROUP_CONNECTION,AUTH_ReturnInfo,AUTH_History,AUTH_Metadata,authCommand,-2,"noscript loading stale fast no_auth @fast @connection",.args=AUTH_Args},
-{"client",NULL,NULL,"2.4.0",COMMAND_GROUP_CONNECTION,CLIENT_ReturnInfo,CLIENT_History,CLIENT_Metadata,NULL,-2,"@slow",.subcommands=CLIENT_Subcommands},
-{"echo","Echo the given string",NULL,"1.0.0",COMMAND_GROUP_CONNECTION,ECHO_ReturnInfo,ECHO_History,ECHO_Metadata,echoCommand,2,"fast @fast @connection",.args=ECHO_Args},
-{"hello","Handshake with Redis","O(1)","6.0.0",COMMAND_GROUP_CONNECTION,HELLO_ReturnInfo,HELLO_History,HELLO_Metadata,helloCommand,-1,"noscript loading stale fast no_auth @fast @connection",.args=HELLO_Args},
-{"ping","Ping the server",NULL,"1.0.0",COMMAND_GROUP_CONNECTION,PING_ReturnInfo,PING_History,PING_Metadata,pingCommand,-1,"stale fast @fast @connection",.args=PING_Args},
-{"reset","Reset the connection",NULL,"6.2",COMMAND_GROUP_CONNECTION,RESET_ReturnInfo,RESET_History,RESET_Metadata,resetCommand,1,"noscript loading stale fast @fast @connection"},
-{"select","Change the selected database for the current connection",NULL,"1.0.0",COMMAND_GROUP_CONNECTION,SELECT_ReturnInfo,SELECT_History,SELECT_Metadata,selectCommand,2,"loading stale fast @fast @connection",.args=SELECT_Args},
+{"auth","Authenticate to the server","PATCH__TBD__38__","1.0.0",COMMAND_GROUP_CONNECTION,AUTH_ReturnInfo,AUTH_History,AUTH_Metadata,authCommand,-2,"noscript loading stale fast no_auth sentinel @fast @connection",.args=AUTH_Args},
+{"client","PATCH__TBD__80__","Depends on subcommand.","2.4.0",COMMAND_GROUP_CONNECTION,CLIENT_ReturnInfo,CLIENT_History,CLIENT_Metadata,NULL,-2,"sentinel @slow",.subcommands=CLIENT_Subcommands},
+{"echo","Echo the given string","PATCH__TBD__52__","1.0.0",COMMAND_GROUP_CONNECTION,ECHO_ReturnInfo,ECHO_History,ECHO_Metadata,echoCommand,2,"fast @fast @connection",.args=ECHO_Args},
+{"hello","Handshake with Redis","O(1)","6.0.0",COMMAND_GROUP_CONNECTION,HELLO_ReturnInfo,HELLO_History,HELLO_Metadata,helloCommand,-1,"noscript loading stale fast no_auth sentinel @fast @connection",.args=HELLO_Args},
+{"ping","Ping the server","PATCH__TBD__67__","1.0.0",COMMAND_GROUP_CONNECTION,PING_ReturnInfo,PING_History,PING_Metadata,pingCommand,-1,"stale fast sentinel @fast @connection",.args=PING_Args},
+{"reset","Reset the connection","PATCH__TBD__74__","6.2",COMMAND_GROUP_CONNECTION,RESET_ReturnInfo,RESET_History,RESET_Metadata,resetCommand,1,"noscript loading stale fast @fast @connection"},
+{"select","Change the selected database for the current connection","PATCH__TBD__48__","1.0.0",COMMAND_GROUP_CONNECTION,SELECT_ReturnInfo,SELECT_History,SELECT_Metadata,selectCommand,2,"loading stale fast @fast @connection",.args=SELECT_Args},
 /* generic */
 {"copy","Copy a key","O(N) worst case for collections, where N is the number of nested items. O(1) for string values.","6.2.0",COMMAND_GROUP_GENERIC,COPY_ReturnInfo,COPY_History,COPY_Metadata,copyCommand,-3,"write denyoom @keyspace @write @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=COPY_Args},
 {"del","Delete a key","O(N) where N is the number of keys that will be removed. When a key to remove holds a value other than a string, the individual complexity for this key is O(M) where M is the number of elements in the list, set, sorted set or hash. Removing a single key that holds a string value is O(1).","1.0.0",COMMAND_GROUP_GENERIC,DEL_ReturnInfo,DEL_History,DEL_Metadata,delCommand,-2,"write @keyspace @write @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=DEL_Args},
@@ -6960,7 +6986,7 @@ struct redisCommand redisCommandTable[] = {
 {"keys","Find all keys matching the given pattern","O(N) with N being the number of keys in the database, under the assumption that the key names in the database and the given pattern have limited length.","1.0.0",COMMAND_GROUP_GENERIC,KEYS_ReturnInfo,KEYS_History,KEYS_Metadata,keysCommand,2,"readonly sort_for_script @keyspace @read @slow @dangerous",.args=KEYS_Args},
 {"migrate","Atomically transfer a key from a Redis instance to another one.","This command actually executes a DUMP+DEL in the source instance, and a RESTORE in the target instance. See the pages of these commands for time complexity. Also an O(N) data transfer between the two instances is performed.","2.6.0",COMMAND_GROUP_GENERIC,MIGRATE_ReturnInfo,MIGRATE_History,MIGRATE_Metadata,migrateCommand,-6,"write random @keyspace @write @slow @dangerous",{{"write",KSPEC_BS_INDEX,.bs.index={3},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"write incomplete",KSPEC_BS_KEYWORD,.bs.keyword={"KEYS",-2},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},migrateGetKeys,.args=MIGRATE_Args},
 {"move","Move a key to another database","O(1)","1.0.0",COMMAND_GROUP_GENERIC,MOVE_ReturnInfo,MOVE_History,MOVE_Metadata,moveCommand,3,"write fast @keyspace @write @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=MOVE_Args},
-{"object",NULL,NULL,"2.2.3",COMMAND_GROUP_GENERIC,OBJECT_ReturnInfo,OBJECT_History,OBJECT_Metadata,NULL,-2,"@slow",.subcommands=OBJECT_Subcommands},
+{"object","PATCH__TBD__88__","Depends on subcommand.","2.2.3",COMMAND_GROUP_GENERIC,OBJECT_ReturnInfo,OBJECT_History,OBJECT_Metadata,NULL,-2,"@slow",.subcommands=OBJECT_Subcommands},
 {"persist","Remove the expiration from a key","O(1)","2.2.0",COMMAND_GROUP_GENERIC,PERSIST_ReturnInfo,PERSIST_History,PERSIST_Metadata,persistCommand,2,"write fast @keyspace @write @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=PERSIST_Args},
 {"pexpire","Set a key's time to live in milliseconds","O(1)","2.6.0",COMMAND_GROUP_GENERIC,PEXPIRE_ReturnInfo,PEXPIRE_History,PEXPIRE_Metadata,pexpireCommand,-3,"write fast @keyspace @write @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=PEXPIRE_Args},
 {"pexpireat","Set the expiration for a key as a UNIX timestamp specified in milliseconds","O(1)","2.6.0",COMMAND_GROUP_GENERIC,PEXPIREAT_ReturnInfo,PEXPIREAT_History,PEXPIREAT_Metadata,pexpireatCommand,-3,"write fast @keyspace @write @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=PEXPIREAT_Args},
@@ -6985,8 +7011,8 @@ struct redisCommand redisCommandTable[] = {
 {"geopos","Returns longitude and latitude of members of a geospatial index","O(N) where N is the number of members requested.","3.2.0",COMMAND_GROUP_GEO,GEOPOS_ReturnInfo,GEOPOS_History,GEOPOS_Metadata,geoposCommand,-2,"readonly @read @geo @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=GEOPOS_Args},
 {"georadius","Query a sorted set representing a geospatial index to fetch members matching a given maximum distance from a point","O(N+log(M)) where N is the number of elements inside the bounding box of the circular area delimited by center and radius and M is the number of items inside the index.","3.2.0",COMMAND_GROUP_GEO,GEORADIUS_ReturnInfo,GEORADIUS_History,GEORADIUS_Metadata,georadiusCommand,-6,"write denyoom @write @geo @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"write",KSPEC_BS_KEYWORD,.bs.keyword={"STORE",6},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"write",KSPEC_BS_KEYWORD,.bs.keyword={"STOREDIST",6},KSPEC_FK_RANGE,.fk.range={0,1,0}}},georadiusGetKeys,.args=GEORADIUS_Args},
 {"georadiusbymember","Query a sorted set representing a geospatial index to fetch members matching a given maximum distance from a member","O(N+log(M)) where N is the number of elements inside the bounding box of the circular area delimited by center and radius and M is the number of items inside the index.","3.2.0",COMMAND_GROUP_GEO,GEORADIUSBYMEMBER_ReturnInfo,GEORADIUSBYMEMBER_History,GEORADIUSBYMEMBER_Metadata,georadiusbymemberCommand,-5,"write denyoom @write @geo @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"write",KSPEC_BS_KEYWORD,.bs.keyword={"STORE",5},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"write",KSPEC_BS_KEYWORD,.bs.keyword={"STOREDIST",5},KSPEC_FK_RANGE,.fk.range={0,1,0}}},georadiusGetKeys,.args=GEORADIUSBYMEMBER_Args},
-{"georadiusbymember_ro",NULL,NULL,NULL,COMMAND_GROUP_GEO,GEORADIUSBYMEMBER_RO_ReturnInfo,GEORADIUSBYMEMBER_RO_History,GEORADIUSBYMEMBER_RO_Metadata,georadiusbymemberroCommand,-5,"readonly @read @geo @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"georadius_ro",NULL,NULL,NULL,COMMAND_GROUP_GEO,GEORADIUS_RO_ReturnInfo,GEORADIUS_RO_History,GEORADIUS_RO_Metadata,georadiusroCommand,-6,"readonly @read @geo @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"georadiusbymember_ro","PATCH__TBD__15__","PATCH__TBD__14__","PATCH__TBD__16__",COMMAND_GROUP_GEO,GEORADIUSBYMEMBER_RO_ReturnInfo,GEORADIUSBYMEMBER_RO_History,GEORADIUSBYMEMBER_RO_Metadata,georadiusbymemberroCommand,-5,"readonly @read @geo @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"georadius_ro","PATCH__TBD__6__","PATCH__TBD__5__","PATCH__TBD__7__",COMMAND_GROUP_GEO,GEORADIUS_RO_ReturnInfo,GEORADIUS_RO_History,GEORADIUS_RO_Metadata,georadiusroCommand,-6,"readonly @read @geo @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 {"geosearch","Query a sorted set representing a geospatial index to fetch members inside an area of a box or a circle.","O(N+log(M)) where N is the number of elements in the grid-aligned bounding box area around the shape provided as the filter and M is the number of items inside the shape","6.2",COMMAND_GROUP_GEO,GEOSEARCH_ReturnInfo,GEOSEARCH_History,GEOSEARCH_Metadata,geosearchCommand,-7,"readonly @read @geo @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=GEOSEARCH_Args},
 {"geosearchstore","Query a sorted set representing a geospatial index to fetch members inside an area of a box or a circle, and store the result in another key.","O(N+log(M)) where N is the number of elements in the grid-aligned bounding box area around the shape provided as the filter and M is the number of items inside the shape","6.2",COMMAND_GROUP_GEO,GEOSEARCHSTORE_ReturnInfo,GEOSEARCHSTORE_History,GEOSEARCHSTORE_Metadata,geosearchstoreCommand,-8,"write denyoom @write @geo @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=GEOSEARCHSTORE_Args},
 /* hash */
@@ -7009,9 +7035,9 @@ struct redisCommand redisCommandTable[] = {
 /* hyperloglog */
 {"pfadd","Adds the specified elements to the specified HyperLogLog.","O(1) to add every element.","2.8.9",COMMAND_GROUP_HYPERLOGLOG,PFADD_ReturnInfo,PFADD_History,PFADD_Metadata,pfaddCommand,-2,"write denyoom fast @write @hyperloglog @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=PFADD_Args},
 {"pfcount","Return the approximated cardinality of the set(s) observed by the HyperLogLog at key(s).","O(1) with a very small average constant time when called with a single key. O(N) with N being the number of keys, and much bigger constant times, when called with multiple keys.","2.8.9",COMMAND_GROUP_HYPERLOGLOG,PFCOUNT_ReturnInfo,PFCOUNT_History,PFCOUNT_Metadata,pfcountCommand,-2,"readonly may_replicate @read @hyperloglog @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=PFCOUNT_Args},
-{"pfdebug",NULL,NULL,NULL,COMMAND_GROUP_HYPERLOGLOG,PFDEBUG_ReturnInfo,PFDEBUG_History,PFDEBUG_Metadata,pfdebugCommand,-3,"write denyoom admin @write @hyperloglog @admin @slow @dangerous",{{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"pfdebug","PATCH__TBD__12__","PATCH__TBD__11__","PATCH__TBD__13__",COMMAND_GROUP_HYPERLOGLOG,PFDEBUG_ReturnInfo,PFDEBUG_History,PFDEBUG_Metadata,pfdebugCommand,-3,"write denyoom admin internal @write @hyperloglog @admin @slow @dangerous",{{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 {"pfmerge","Merge N different HyperLogLogs into a single one.","O(N) to merge N HyperLogLogs, but with high constant times.","2.8.9",COMMAND_GROUP_HYPERLOGLOG,PFMERGE_ReturnInfo,PFMERGE_History,PFMERGE_Metadata,pfmergeCommand,-2,"write denyoom @write @hyperloglog @slow",{{"write read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=PFMERGE_Args},
-{"pfselftest",NULL,NULL,NULL,COMMAND_GROUP_HYPERLOGLOG,PFSELFTEST_ReturnInfo,PFSELFTEST_History,PFSELFTEST_Metadata,pfselftestCommand,1,"admin @hyperloglog @admin @slow @dangerous"},
+{"pfselftest","PATCH__TBD__21__","PATCH__TBD__20__","PATCH__TBD__22__",COMMAND_GROUP_HYPERLOGLOG,PFSELFTEST_ReturnInfo,PFSELFTEST_History,PFSELFTEST_Metadata,pfselftestCommand,1,"admin internal @hyperloglog @admin @slow @dangerous"},
 /* list */
 {"blmove","Pop an element from a list, push it to another list and return it; or block until one is available","O(1)","6.2.0",COMMAND_GROUP_LIST,BLMOVE_ReturnInfo,BLMOVE_History,BLMOVE_Metadata,blmoveCommand,6,"write denyoom noscript @write @list @slow @blocking",{{"write read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=BLMOVE_Args},
 {"blmpop","Pop elements from a list, or block until one is available","O(N+M) where N is the number of provided keys and M is the number of elements returned.","7.0.0",COMMAND_GROUP_LIST,BLMPOP_ReturnInfo,BLMPOP_History,BLMPOP_Metadata,blmpopCommand,-5,"write @write @list @slow @blocking",{{"write",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},blmpopGetKeys,.args=BLMPOP_Args},
@@ -7036,49 +7062,49 @@ struct redisCommand redisCommandTable[] = {
 {"rpush","Append one or multiple elements to a list","O(1) for each element added, so O(N) to add N elements when the command is called with multiple arguments.","1.0.0",COMMAND_GROUP_LIST,RPUSH_ReturnInfo,RPUSH_History,RPUSH_Metadata,rpushCommand,-3,"write denyoom fast @write @list @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=RPUSH_Args},
 {"rpushx","Append an element to a list, only if the list exists","O(1) for each element added, so O(N) to add N elements when the command is called with multiple arguments.","2.2.0",COMMAND_GROUP_LIST,RPUSHX_ReturnInfo,RPUSHX_History,RPUSHX_Metadata,rpushxCommand,-3,"write denyoom fast @write @list @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=RPUSHX_Args},
 /* pubsub */
-{"psubscribe","Listen for messages published to channels matching the given patterns","O(N) where N is the number of patterns the client is already subscribed to.","2.0.0",COMMAND_GROUP_PUBSUB,PSUBSCRIBE_ReturnInfo,PSUBSCRIBE_History,PSUBSCRIBE_Metadata,psubscribeCommand,-2,"pubsub noscript loading stale @pubsub @slow",.args=PSUBSCRIBE_Args},
-{"publish","Post a message to a channel","O(N+M) where N is the number of clients subscribed to the receiving channel and M is the total number of subscribed patterns (by any client).","2.0.0",COMMAND_GROUP_PUBSUB,PUBLISH_ReturnInfo,PUBLISH_History,PUBLISH_Metadata,publishCommand,3,"pubsub loading stale fast may_replicate @pubsub @fast",.args=PUBLISH_Args},
-{"pubsub",NULL,NULL,"2.8.0",COMMAND_GROUP_PUBSUB,PUBSUB_ReturnInfo,PUBSUB_History,PUBSUB_Metadata,NULL,-2,"@slow",.subcommands=PUBSUB_Subcommands},
-{"punsubscribe","Stop listening for messages posted to channels matching the given patterns","O(N+M) where N is the number of patterns the client is already subscribed and M is the number of total patterns subscribed in the system (by any client).","2.0.0",COMMAND_GROUP_PUBSUB,PUNSUBSCRIBE_ReturnInfo,PUNSUBSCRIBE_History,PUNSUBSCRIBE_Metadata,punsubscribeCommand,-1,"pubsub noscript loading stale @pubsub @slow",.args=PUNSUBSCRIBE_Args},
-{"subscribe","Listen for messages published to the given channels","O(N) where N is the number of channels to subscribe to.","2.0.0",COMMAND_GROUP_PUBSUB,SUBSCRIBE_ReturnInfo,SUBSCRIBE_History,SUBSCRIBE_Metadata,subscribeCommand,-2,"pubsub noscript loading stale @pubsub @slow",.args=SUBSCRIBE_Args},
-{"unsubscribe","Stop listening for messages posted to the given channels","O(N) where N is the number of clients already subscribed to a channel.","2.0.0",COMMAND_GROUP_PUBSUB,UNSUBSCRIBE_ReturnInfo,UNSUBSCRIBE_History,UNSUBSCRIBE_Metadata,unsubscribeCommand,-1,"pubsub noscript loading stale @pubsub @slow",.args=UNSUBSCRIBE_Args},
+{"psubscribe","Listen for messages published to channels matching the given patterns","O(N) where N is the number of patterns the client is already subscribed to.","2.0.0",COMMAND_GROUP_PUBSUB,PSUBSCRIBE_ReturnInfo,PSUBSCRIBE_History,PSUBSCRIBE_Metadata,psubscribeCommand,-2,"pubsub noscript loading stale sentinel @pubsub @slow",.args=PSUBSCRIBE_Args},
+{"publish","Post a message to a channel","O(N+M) where N is the number of clients subscribed to the receiving channel and M is the total number of subscribed patterns (by any client).","2.0.0",COMMAND_GROUP_PUBSUB,PUBLISH_ReturnInfo,PUBLISH_History,PUBLISH_Metadata,publishCommand,3,"pubsub loading stale fast may_replicate sentinel @pubsub @fast",.args=PUBLISH_Args},
+{"pubsub","PATCH__TBD__78__","Depends on subcommand.","2.8.0",COMMAND_GROUP_PUBSUB,PUBSUB_ReturnInfo,PUBSUB_History,PUBSUB_Metadata,NULL,-2,"@slow",.subcommands=PUBSUB_Subcommands},
+{"punsubscribe","Stop listening for messages posted to channels matching the given patterns","O(N+M) where N is the number of patterns the client is already subscribed and M is the number of total patterns subscribed in the system (by any client).","2.0.0",COMMAND_GROUP_PUBSUB,PUNSUBSCRIBE_ReturnInfo,PUNSUBSCRIBE_History,PUNSUBSCRIBE_Metadata,punsubscribeCommand,-1,"pubsub noscript loading stale sentinel @pubsub @slow",.args=PUNSUBSCRIBE_Args},
+{"subscribe","Listen for messages published to the given channels","O(N) where N is the number of channels to subscribe to.","2.0.0",COMMAND_GROUP_PUBSUB,SUBSCRIBE_ReturnInfo,SUBSCRIBE_History,SUBSCRIBE_Metadata,subscribeCommand,-2,"pubsub noscript loading stale sentinel @pubsub @slow",.args=SUBSCRIBE_Args},
+{"unsubscribe","Stop listening for messages posted to the given channels","O(N) where N is the number of clients already subscribed to a channel.","2.0.0",COMMAND_GROUP_PUBSUB,UNSUBSCRIBE_ReturnInfo,UNSUBSCRIBE_History,UNSUBSCRIBE_Metadata,unsubscribeCommand,-1,"pubsub noscript loading stale sentinel @pubsub @slow",.args=UNSUBSCRIBE_Args},
 /* scripting */
 {"eval","Execute a Lua script server side","Depends on the script that is executed.","2.6.0",COMMAND_GROUP_SCRIPTING,EVAL_ReturnInfo,EVAL_History,EVAL_Metadata,evalCommand,-3,"noscript skip_monitor may_replicate no_mandatory_keys @slow @scripting",{{"write read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},evalGetKeys,.args=EVAL_Args},
 {"evalsha","Execute a Lua script server side","Depends on the script that is executed.","2.6.0",COMMAND_GROUP_SCRIPTING,EVALSHA_ReturnInfo,EVALSHA_History,EVALSHA_Metadata,evalShaCommand,-3,"noscript skip_monitor may_replicate no_mandatory_keys @slow @scripting",{{"write read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},evalGetKeys,.args=EVALSHA_Args},
 {"evalsha_ro","Execute a read-only Lua script server side","Depends on the script that is executed.","7.0.0",COMMAND_GROUP_SCRIPTING,EVALSHA_RO_ReturnInfo,EVALSHA_RO_History,EVALSHA_RO_Metadata,evalShaRoCommand,-3,"noscript skip_monitor no_mandatory_keys @slow @scripting",{{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},evalGetKeys,.args=EVALSHA_RO_Args},
 {"eval_ro","Execute a read-only Lua script server side","Depends on the script that is executed.","7.0.0",COMMAND_GROUP_SCRIPTING,EVAL_RO_ReturnInfo,EVAL_RO_History,EVAL_RO_Metadata,evalRoCommand,-3,"noscript skip_monitor no_mandatory_keys @slow @scripting",{{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},evalGetKeys,.args=EVAL_RO_Args},
-{"script",NULL,NULL,"2.6.0",COMMAND_GROUP_SCRIPTING,SCRIPT_ReturnInfo,SCRIPT_History,SCRIPT_Metadata,NULL,-2,"@slow",.subcommands=SCRIPT_Subcommands},
+{"script","PATCH__TBD__83__","Depends on subcommand.","2.6.0",COMMAND_GROUP_SCRIPTING,SCRIPT_ReturnInfo,SCRIPT_History,SCRIPT_Metadata,NULL,-2,"@slow",.subcommands=SCRIPT_Subcommands},
 /* server */
-{"acl",NULL,NULL,"6.0.0",COMMAND_GROUP_SERVER,ACL_ReturnInfo,ACL_History,ACL_Metadata,NULL,-2,"@slow",.subcommands=ACL_Subcommands},
-{"bgrewriteaof","Asynchronously rewrite the append-only file",NULL,"1.0.0",COMMAND_GROUP_SERVER,BGREWRITEAOF_ReturnInfo,BGREWRITEAOF_History,BGREWRITEAOF_Metadata,bgrewriteaofCommand,1,"admin noscript @admin @slow @dangerous"},
-{"bgsave","Asynchronously save the dataset to disk",NULL,"1.0.0",COMMAND_GROUP_SERVER,BGSAVE_ReturnInfo,BGSAVE_History,BGSAVE_Metadata,bgsaveCommand,-1,"admin noscript @admin @slow @dangerous",.args=BGSAVE_Args},
-{"command","Get array of Redis command details","O(N) where N is the total number of Redis commands","2.8.13",COMMAND_GROUP_SERVER,COMMAND_ReturnInfo,COMMAND_History,COMMAND_Metadata,commandCommand,-1,"random loading stale @slow @connection",.subcommands=COMMAND_Subcommands},
-{"config",NULL,NULL,"2.0.0",COMMAND_GROUP_SERVER,CONFIG_ReturnInfo,CONFIG_History,CONFIG_Metadata,NULL,-2,"@slow",.subcommands=CONFIG_Subcommands},
-{"dbsize","Return the number of keys in the selected database",NULL,"1.0.0",COMMAND_GROUP_SERVER,DBSIZE_ReturnInfo,DBSIZE_History,DBSIZE_Metadata,dbsizeCommand,1,"readonly fast @keyspace @read @fast"},
-{"debug",NULL,NULL,NULL,COMMAND_GROUP_SERVER,DEBUG_ReturnInfo,DEBUG_History,DEBUG_Metadata,debugCommand,-2,"admin noscript loading stale @admin @slow @dangerous"},
-{"failover","Start a coordinated failover between this server and one of its replicas.",NULL,"6.2.0",COMMAND_GROUP_SERVER,FAILOVER_ReturnInfo,FAILOVER_History,FAILOVER_Metadata,failoverCommand,-1,"admin noscript stale @admin @slow @dangerous",.args=FAILOVER_Args},
+{"acl","PATCH__TBD__90__","Depends on subcommand.","6.0.0",COMMAND_GROUP_SERVER,ACL_ReturnInfo,ACL_History,ACL_Metadata,NULL,-2,"sentinel @slow",.subcommands=ACL_Subcommands},
+{"bgrewriteaof","Asynchronously rewrite the append-only file","PATCH__TBD__55__","1.0.0",COMMAND_GROUP_SERVER,BGREWRITEAOF_ReturnInfo,BGREWRITEAOF_History,BGREWRITEAOF_Metadata,bgrewriteaofCommand,1,"admin noscript @admin @slow @dangerous"},
+{"bgsave","Asynchronously save the dataset to disk","PATCH__TBD__57__","1.0.0",COMMAND_GROUP_SERVER,BGSAVE_ReturnInfo,BGSAVE_History,BGSAVE_Metadata,bgsaveCommand,-1,"admin noscript @admin @slow @dangerous",.args=BGSAVE_Args},
+{"command","Get array of Redis command details","O(N) where N is the total number of Redis commands","2.8.13",COMMAND_GROUP_SERVER,COMMAND_ReturnInfo,COMMAND_History,COMMAND_Metadata,commandCommand,-1,"random loading stale sentinel @slow @connection",.subcommands=COMMAND_Subcommands},
+{"config","PATCH__TBD__82__","Depends on subcommand.","2.0.0",COMMAND_GROUP_SERVER,CONFIG_ReturnInfo,CONFIG_History,CONFIG_Metadata,NULL,-2,"@slow",.subcommands=CONFIG_Subcommands},
+{"dbsize","Return the number of keys in the selected database","PATCH__TBD__61__","1.0.0",COMMAND_GROUP_SERVER,DBSIZE_ReturnInfo,DBSIZE_History,DBSIZE_Metadata,dbsizeCommand,1,"readonly fast @keyspace @read @fast"},
+{"debug","PATCH__TBD__9__","PATCH__TBD__8__","PATCH__TBD__10__",COMMAND_GROUP_SERVER,DEBUG_ReturnInfo,DEBUG_History,DEBUG_Metadata,debugCommand,-2,"admin noscript loading stale internal @admin @slow @dangerous"},
+{"failover","Start a coordinated failover between this server and one of its replicas.","PATCH__TBD__69__","6.2.0",COMMAND_GROUP_SERVER,FAILOVER_ReturnInfo,FAILOVER_History,FAILOVER_Metadata,failoverCommand,-1,"admin noscript stale @admin @slow @dangerous",.args=FAILOVER_Args},
 {"flushall","Remove all keys from all databases","O(N) where N is the total number of keys in all databases","1.0.0",COMMAND_GROUP_SERVER,FLUSHALL_ReturnInfo,FLUSHALL_History,FLUSHALL_Metadata,flushallCommand,-1,"write @keyspace @write @slow @dangerous",.args=FLUSHALL_Args},
 {"flushdb","Remove all keys from the current database","O(N) where N is the number of keys in the selected database","1.0.0",COMMAND_GROUP_SERVER,FLUSHDB_ReturnInfo,FLUSHDB_History,FLUSHDB_Metadata,flushdbCommand,-1,"write @keyspace @write @slow @dangerous",.args=FLUSHDB_Args},
-{"host:",NULL,NULL,NULL,COMMAND_GROUP_SERVER,HOST_ReturnInfo,HOST_History,HOST_Metadata,securityWarningCommand,-1,"readonly loading stale @read @slow"},
-{"info","Get information and statistics about the server",NULL,"1.0.0",COMMAND_GROUP_SERVER,INFO_ReturnInfo,INFO_History,INFO_Metadata,infoCommand,-1,"random loading stale @slow @dangerous",.args=INFO_Args},
-{"lastsave","Get the UNIX time stamp of the last successful save to disk",NULL,"1.0.0",COMMAND_GROUP_SERVER,LASTSAVE_ReturnInfo,LASTSAVE_History,LASTSAVE_Metadata,lastsaveCommand,1,"random loading stale fast @admin @fast @dangerous"},
-{"latency",NULL,NULL,"2.8.13",COMMAND_GROUP_SERVER,LATENCY_ReturnInfo,LATENCY_History,LATENCY_Metadata,NULL,-2,"@slow",.subcommands=LATENCY_Subcommands},
-{"lolwut","Display some computer art and the Redis version",NULL,"5.0.0",COMMAND_GROUP_SERVER,LOLWUT_ReturnInfo,LOLWUT_History,LOLWUT_Metadata,lolwutCommand,-1,"readonly fast @read @fast",.args=LOLWUT_Args},
-{"memory",NULL,NULL,"4.0.0",COMMAND_GROUP_SERVER,MEMORY_ReturnInfo,MEMORY_History,MEMORY_Metadata,NULL,-2,"@slow",.subcommands=MEMORY_Subcommands},
-{"module",NULL,NULL,"4.0.0",COMMAND_GROUP_SERVER,MODULE_ReturnInfo,MODULE_History,MODULE_Metadata,NULL,-2,"@slow",.subcommands=MODULE_Subcommands},
-{"monitor","Listen for all requests received by the server in real time",NULL,"1.0.0",COMMAND_GROUP_SERVER,MONITOR_ReturnInfo,MONITOR_History,MONITOR_Metadata,monitorCommand,1,"admin noscript loading stale @admin @slow @dangerous"},
-{"post",NULL,NULL,NULL,COMMAND_GROUP_SERVER,POST_ReturnInfo,POST_History,POST_Metadata,securityWarningCommand,-1,"readonly loading stale @read @slow"},
-{"psync","Internal command used for replication",NULL,"2.8.0",COMMAND_GROUP_SERVER,PSYNC_ReturnInfo,PSYNC_History,PSYNC_Metadata,syncCommand,-3,"admin noscript @admin @slow @dangerous",.args=PSYNC_Args},
-{"replconf",NULL,NULL,NULL,COMMAND_GROUP_SERVER,REPLCONF_ReturnInfo,REPLCONF_History,REPLCONF_Metadata,replconfCommand,-1,"admin noscript loading stale @admin @slow @dangerous"},
-{"replicaof","Make the server a replica of another instance, or promote it as master.",NULL,"5.0.0",COMMAND_GROUP_SERVER,REPLICAOF_ReturnInfo,REPLICAOF_History,REPLICAOF_Metadata,replicaofCommand,3,"admin noscript stale @admin @slow @dangerous",.args=REPLICAOF_Args},
-{"restore-asking",NULL,NULL,NULL,COMMAND_GROUP_SERVER,RESTORE_ASKING_ReturnInfo,RESTORE_ASKING_History,RESTORE_ASKING_Metadata,restoreCommand,-4,"write denyoom asking @keyspace @write @slow @dangerous",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-{"role","Return the role of the instance in the context of replication",NULL,"2.8.12",COMMAND_GROUP_SERVER,ROLE_ReturnInfo,ROLE_History,ROLE_Metadata,roleCommand,1,"noscript loading stale fast @admin @fast @dangerous"},
-{"save","Synchronously save the dataset to disk",NULL,"1.0.0",COMMAND_GROUP_SERVER,SAVE_ReturnInfo,SAVE_History,SAVE_Metadata,saveCommand,1,"admin noscript @admin @slow @dangerous"},
-{"shutdown","Synchronously save the dataset to disk and then shut down the server",NULL,"1.0.0",COMMAND_GROUP_SERVER,SHUTDOWN_ReturnInfo,SHUTDOWN_History,SHUTDOWN_Metadata,shutdownCommand,-1,"admin noscript loading stale @admin @slow @dangerous",.args=SHUTDOWN_Args},
-{"slaveof","Make the server a replica of another instance, or promote it as master. Deprecated starting with Redis 5. Use REPLICAOF instead.",NULL,"1.0.0",COMMAND_GROUP_SERVER,SLAVEOF_ReturnInfo,SLAVEOF_History,SLAVEOF_Metadata,replicaofCommand,3,"admin noscript stale @admin @slow @dangerous",.args=SLAVEOF_Args},
-{"slowlog",NULL,NULL,"2.2.12",COMMAND_GROUP_SERVER,SLOWLOG_ReturnInfo,SLOWLOG_History,SLOWLOG_Metadata,NULL,-2,"@slow",.subcommands=SLOWLOG_Subcommands},
+{"host:","PATCH__TBD__3__","PATCH__TBD__2__","PATCH__TBD__4__",COMMAND_GROUP_SERVER,HOST_ReturnInfo,HOST_History,HOST_Metadata,securityWarningCommand,-1,"readonly loading stale internal @read @slow"},
+{"info","Get information and statistics about the server","PATCH__TBD__37__","1.0.0",COMMAND_GROUP_SERVER,INFO_ReturnInfo,INFO_History,INFO_Metadata,infoCommand,-1,"random loading stale sentinel @slow @dangerous",.args=INFO_Args},
+{"lastsave","Get the UNIX time stamp of the last successful save to disk","PATCH__TBD__49__","1.0.0",COMMAND_GROUP_SERVER,LASTSAVE_ReturnInfo,LASTSAVE_History,LASTSAVE_Metadata,lastsaveCommand,1,"random loading stale fast @admin @fast @dangerous"},
+{"latency","PATCH__TBD__81__","Depends on subcommand.","2.8.13",COMMAND_GROUP_SERVER,LATENCY_ReturnInfo,LATENCY_History,LATENCY_Metadata,NULL,-2,"@slow",.subcommands=LATENCY_Subcommands},
+{"lolwut","Display some computer art and the Redis version","PATCH__TBD__68__","5.0.0",COMMAND_GROUP_SERVER,LOLWUT_ReturnInfo,LOLWUT_History,LOLWUT_Metadata,lolwutCommand,-1,"readonly fast @read @fast",.args=LOLWUT_Args},
+{"memory","PATCH__TBD__87__","Depends on subcommand.","4.0.0",COMMAND_GROUP_SERVER,MEMORY_ReturnInfo,MEMORY_History,MEMORY_Metadata,NULL,-2,"@slow",.subcommands=MEMORY_Subcommands},
+{"module","PATCH__TBD__86__","Depends on subcommand.","4.0.0",COMMAND_GROUP_SERVER,MODULE_ReturnInfo,MODULE_History,MODULE_Metadata,NULL,-2,"@slow",.subcommands=MODULE_Subcommands},
+{"monitor","Listen for all requests received by the server in real time","PATCH__TBD__54__","1.0.0",COMMAND_GROUP_SERVER,MONITOR_ReturnInfo,MONITOR_History,MONITOR_Metadata,monitorCommand,1,"admin noscript loading stale @admin @slow @dangerous"},
+{"post","PATCH__TBD__24__","PATCH__TBD__23__","PATCH__TBD__25__",COMMAND_GROUP_SERVER,POST_ReturnInfo,POST_History,POST_Metadata,securityWarningCommand,-1,"readonly loading stale internal @read @slow"},
+{"psync","Internal command used for replication","PATCH__TBD__58__","2.8.0",COMMAND_GROUP_SERVER,PSYNC_ReturnInfo,PSYNC_History,PSYNC_Metadata,syncCommand,-3,"admin noscript @admin @slow @dangerous",.args=PSYNC_Args},
+{"replconf","PATCH__TBD__27__","PATCH__TBD__26__","PATCH__TBD__28__",COMMAND_GROUP_SERVER,REPLCONF_ReturnInfo,REPLCONF_History,REPLCONF_Metadata,replconfCommand,-1,"admin noscript loading stale internal @admin @slow @dangerous"},
+{"replicaof","Make the server a replica of another instance, or promote it as master.","PATCH__TBD__59__","5.0.0",COMMAND_GROUP_SERVER,REPLICAOF_ReturnInfo,REPLICAOF_History,REPLICAOF_Metadata,replicaofCommand,3,"admin noscript stale @admin @slow @dangerous",.args=REPLICAOF_Args},
+{"restore-asking","PATCH__TBD__18__","PATCH__TBD__17__","PATCH__TBD__19__",COMMAND_GROUP_SERVER,RESTORE_ASKING_ReturnInfo,RESTORE_ASKING_History,RESTORE_ASKING_Metadata,restoreCommand,-4,"write denyoom asking internal @keyspace @write @slow @dangerous",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"role","Return the role of the instance in the context of replication","PATCH__TBD__53__","2.8.12",COMMAND_GROUP_SERVER,ROLE_ReturnInfo,ROLE_History,ROLE_Metadata,roleCommand,1,"noscript loading stale fast sentinel @admin @fast @dangerous"},
+{"save","Synchronously save the dataset to disk","PATCH__TBD__51__","1.0.0",COMMAND_GROUP_SERVER,SAVE_ReturnInfo,SAVE_History,SAVE_Metadata,saveCommand,1,"admin noscript @admin @slow @dangerous"},
+{"shutdown","Synchronously save the dataset to disk and then shut down the server","PATCH__TBD__35__","1.0.0",COMMAND_GROUP_SERVER,SHUTDOWN_ReturnInfo,SHUTDOWN_History,SHUTDOWN_Metadata,shutdownCommand,-1,"admin noscript loading stale sentinel @admin @slow @dangerous",.args=SHUTDOWN_Args},
+{"slaveof","Make the server a replica of another instance, or promote it as master. Deprecated starting with Redis 5. Use REPLICAOF instead.","PATCH__TBD__56__","1.0.0",COMMAND_GROUP_SERVER,SLAVEOF_ReturnInfo,SLAVEOF_History,SLAVEOF_Metadata,replicaofCommand,3,"admin noscript stale @admin @slow @dangerous",.args=SLAVEOF_Args},
+{"slowlog","PATCH__TBD__89__","Depends on subcommand.","2.2.12",COMMAND_GROUP_SERVER,SLOWLOG_ReturnInfo,SLOWLOG_History,SLOWLOG_Metadata,NULL,-2,"@slow",.subcommands=SLOWLOG_Subcommands},
 {"swapdb","Swaps two Redis databases","O(N) where N is the count of clients watching or blocking on keys from both databases.","4.0.0",COMMAND_GROUP_SERVER,SWAPDB_ReturnInfo,SWAPDB_History,SWAPDB_Metadata,swapdbCommand,3,"write fast @keyspace @write @fast @dangerous",.args=SWAPDB_Args},
-{"sync","Internal command used for replication",NULL,"1.0.0",COMMAND_GROUP_SERVER,SYNC_ReturnInfo,SYNC_History,SYNC_Metadata,syncCommand,1,"admin noscript @admin @slow @dangerous"},
+{"sync","Internal command used for replication","PATCH__TBD__50__","1.0.0",COMMAND_GROUP_SERVER,SYNC_ReturnInfo,SYNC_History,SYNC_Metadata,syncCommand,1,"admin noscript @admin @slow @dangerous"},
 {"time","Return the current server time","O(1)","2.6.0",COMMAND_GROUP_SERVER,TIME_ReturnInfo,TIME_History,TIME_Metadata,timeCommand,1,"random loading stale fast @fast"},
 /* set */
 {"sadd","Add one or more members to a set","O(1) for each element added, so O(N) to add N elements when the command is called with multiple arguments.","1.0.0",COMMAND_GROUP_SET,SADD_ReturnInfo,SADD_History,SADD_Metadata,saddCommand,-3,"write denyoom fast @write @set @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SADD_Args},
@@ -7140,15 +7166,15 @@ struct redisCommand redisCommandTable[] = {
 {"xautoclaim","Changes (or acquires) ownership of messages in a consumer group, as if the messages were delivered to the specified consumer.","O(1) if COUNT is small.","6.2.0",COMMAND_GROUP_STREAM,XAUTOCLAIM_ReturnInfo,XAUTOCLAIM_History,XAUTOCLAIM_Metadata,xautoclaimCommand,-6,"write random fast @write @stream @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XAUTOCLAIM_Args},
 {"xclaim","Changes (or acquires) ownership of a message in a consumer group, as if the message was delivered to the specified consumer.","O(log N) with N being the number of messages in the PEL of the consumer group.","5.0.0",COMMAND_GROUP_STREAM,XCLAIM_ReturnInfo,XCLAIM_History,XCLAIM_Metadata,xclaimCommand,-6,"write random fast @write @stream @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XCLAIM_Args},
 {"xdel","Removes the specified entries from the stream. Returns the number of items actually deleted, that may be different from the number of IDs passed in case certain IDs do not exist.","O(1) for each single item to delete in the stream, regardless of the stream size.","5.0.0",COMMAND_GROUP_STREAM,XDEL_ReturnInfo,XDEL_History,XDEL_Metadata,xdelCommand,-3,"write fast @write @stream @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XDEL_Args},
-{"xgroup",NULL,NULL,"5.0.0",COMMAND_GROUP_STREAM,XGROUP_ReturnInfo,XGROUP_History,XGROUP_Metadata,NULL,-2,"@slow",.subcommands=XGROUP_Subcommands},
-{"xinfo",NULL,NULL,"5.0.0",COMMAND_GROUP_STREAM,XINFO_ReturnInfo,XINFO_History,XINFO_Metadata,NULL,-2,"@slow",.subcommands=XINFO_Subcommands},
+{"xgroup","PATCH__TBD__85__","Depends on subcommand.","5.0.0",COMMAND_GROUP_STREAM,XGROUP_ReturnInfo,XGROUP_History,XGROUP_Metadata,NULL,-2,"@slow",.subcommands=XGROUP_Subcommands},
+{"xinfo","PATCH__TBD__79__","Depends on subcommand.","5.0.0",COMMAND_GROUP_STREAM,XINFO_ReturnInfo,XINFO_History,XINFO_Metadata,NULL,-2,"@slow",.subcommands=XINFO_Subcommands},
 {"xlen","Return the number of entries in a stream","O(1)","5.0.0",COMMAND_GROUP_STREAM,XLEN_ReturnInfo,XLEN_History,XLEN_Metadata,xlenCommand,2,"readonly fast @read @stream @fast",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XLEN_Args},
 {"xpending","Return information and entries from a stream consumer group pending entries list, that are messages fetched but never acknowledged.","O(N) with N being the number of elements returned, so asking for a small fixed number of entries per call is O(1). O(M), where M is the total number of entries scanned when used with the IDLE filter. When the command returns just the summary and the list of consumers is small, it runs in O(1) time; otherwise, an additional O(N) time for iterating every consumer.","5.0.0",COMMAND_GROUP_STREAM,XPENDING_ReturnInfo,XPENDING_History,XPENDING_Metadata,xpendingCommand,-3,"readonly random @read @stream @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XPENDING_Args},
 {"xrange","Return a range of elements in a stream, with IDs matching the specified IDs interval","O(N) with N being the number of elements being returned. If N is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1).","5.0.0",COMMAND_GROUP_STREAM,XRANGE_ReturnInfo,XRANGE_History,XRANGE_Metadata,xrangeCommand,-4,"readonly @read @stream @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XRANGE_Args},
 {"xread","Return never seen elements in multiple streams, with IDs greater than the ones reported by the caller for each stream. Can block.","For each stream mentioned: O(N) with N being the number of elements being returned, it means that XREAD-ing with a fixed COUNT is O(1). Note that when the BLOCK option is used, XADD will pay O(M) time in order to serve the M clients blocked on the stream getting new data.","5.0.0",COMMAND_GROUP_STREAM,XREAD_ReturnInfo,XREAD_History,XREAD_Metadata,xreadCommand,-4,"readonly @read @stream @slow @blocking",{{"read",KSPEC_BS_KEYWORD,.bs.keyword={"STREAMS",1},KSPEC_FK_RANGE,.fk.range={-1,1,2}}},xreadGetKeys,.args=XREAD_Args},
 {"xreadgroup","Return new entries from a stream using a consumer group, or access the history of the pending entries for a given consumer. Can block.","For each stream mentioned: O(M) with M being the number of elements returned. If M is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1). On the other side when XREADGROUP blocks, XADD will pay the O(N) time in order to serve the N clients blocked on the stream getting new data.","5.0.0",COMMAND_GROUP_STREAM,XREADGROUP_ReturnInfo,XREADGROUP_History,XREADGROUP_Metadata,xreadCommand,-7,"write @write @stream @slow @blocking",{{"read",KSPEC_BS_KEYWORD,.bs.keyword={"STREAMS",4},KSPEC_FK_RANGE,.fk.range={-1,1,2}}},xreadGetKeys,.args=XREADGROUP_Args},
 {"xrevrange","Return a range of elements in a stream, with IDs matching the specified IDs interval, in reverse order (from greater to smaller IDs) compared to XRANGE","O(N) with N being the number of elements returned. If N is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1).","5.0.0",COMMAND_GROUP_STREAM,XREVRANGE_ReturnInfo,XREVRANGE_History,XREVRANGE_Metadata,xrevrangeCommand,-4,"readonly @read @stream @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XREVRANGE_Args},
-{"xsetid",NULL,NULL,NULL,COMMAND_GROUP_STREAM,XSETID_ReturnInfo,XSETID_History,XSETID_Metadata,xsetidCommand,3,"write denyoom fast @write @stream @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"xsetid","PATCH__TBD__30__","PATCH__TBD__29__","PATCH__TBD__31__",COMMAND_GROUP_STREAM,XSETID_ReturnInfo,XSETID_History,XSETID_Metadata,xsetidCommand,3,"write denyoom fast internal @write @stream @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 {"xtrim","Trims the stream to (approximately if '~' is passed) a certain size","O(N), with N being the number of evicted entries. Constant times are very small however, since entries are organized in macro nodes containing multiple entries that can be released with a single deallocation.","5.0.0",COMMAND_GROUP_STREAM,XTRIM_ReturnInfo,XTRIM_History,XTRIM_Metadata,xtrimCommand,-4,"write random @write @stream @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XTRIM_Args},
 /* string */
 {"append","Append a value to a key","O(1). The amortized time complexity is O(1) assuming the appended value is small and the already present value is of any size, since the dynamic string library used by Redis will double the free space available on every reallocation.","2.0.0",COMMAND_GROUP_STRING,APPEND_ReturnInfo,APPEND_History,APPEND_Metadata,appendCommand,3,"write denyoom fast @write @string @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=APPEND_Args},
@@ -7172,11 +7198,11 @@ struct redisCommand redisCommandTable[] = {
 {"setrange","Overwrite part of a string at key starting at the specified offset","O(1), not counting the time taken to copy the new string in place. Usually, this string is very small so the amortized complexity is O(1). Otherwise, complexity is O(M) with M being the length of the value argument.","2.2.0",COMMAND_GROUP_STRING,SETRANGE_ReturnInfo,SETRANGE_History,SETRANGE_Metadata,setrangeCommand,4,"write denyoom @write @string @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SETRANGE_Args},
 {"stralgo","Run algorithms (currently LCS) against strings","For LCS O(strlen(s1)*strlen(s2))","6.0.0",COMMAND_GROUP_STRING,STRALGO_ReturnInfo,STRALGO_History,STRALGO_Metadata,NULL,-2,"@slow",.subcommands=STRALGO_Subcommands,.args=STRALGO_Args},
 {"strlen","Get the length of the value stored in a key","O(1)","2.2.0",COMMAND_GROUP_STRING,STRLEN_ReturnInfo,STRLEN_History,STRLEN_Metadata,strlenCommand,2,"readonly fast @read @string @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=STRLEN_Args},
-{"substr",NULL,NULL,NULL,COMMAND_GROUP_STRING,SUBSTR_ReturnInfo,SUBSTR_History,SUBSTR_Metadata,getrangeCommand,4,"readonly @read @string @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"substr","PATCH__TBD__33__","PATCH__TBD__32__","PATCH__TBD__34__",COMMAND_GROUP_STRING,SUBSTR_ReturnInfo,SUBSTR_History,SUBSTR_Metadata,getrangeCommand,4,"readonly @read @string @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 /* transactions */
-{"discard","Discard all commands issued after MULTI",NULL,"2.0.0",COMMAND_GROUP_TRANSACTIONS,DISCARD_ReturnInfo,DISCARD_History,DISCARD_Metadata,discardCommand,1,"noscript loading stale fast @fast @transaction"},
-{"exec","Execute all commands issued after MULTI",NULL,"1.2.0",COMMAND_GROUP_TRANSACTIONS,EXEC_ReturnInfo,EXEC_History,EXEC_Metadata,execCommand,1,"noscript loading stale skip_slowlog @slow @transaction"},
-{"multi","Mark the start of a transaction block",NULL,"1.2.0",COMMAND_GROUP_TRANSACTIONS,MULTI_ReturnInfo,MULTI_History,MULTI_Metadata,multiCommand,1,"noscript loading stale fast @fast @transaction"},
+{"discard","Discard all commands issued after MULTI","PATCH__TBD__60__","2.0.0",COMMAND_GROUP_TRANSACTIONS,DISCARD_ReturnInfo,DISCARD_History,DISCARD_Metadata,discardCommand,1,"noscript loading stale fast @fast @transaction"},
+{"exec","Execute all commands issued after MULTI","PATCH__TBD__39__","1.2.0",COMMAND_GROUP_TRANSACTIONS,EXEC_ReturnInfo,EXEC_History,EXEC_Metadata,execCommand,1,"noscript loading stale skip_slowlog @slow @transaction"},
+{"multi","Mark the start of a transaction block","PATCH__TBD__36__","1.2.0",COMMAND_GROUP_TRANSACTIONS,MULTI_ReturnInfo,MULTI_History,MULTI_Metadata,multiCommand,1,"noscript loading stale fast @fast @transaction"},
 {"unwatch","Forget about all watched keys","O(1)","2.2.0",COMMAND_GROUP_TRANSACTIONS,UNWATCH_ReturnInfo,UNWATCH_History,UNWATCH_Metadata,unwatchCommand,1,"noscript loading stale fast @fast @transaction"},
 {"watch","Watch the given keys to determine execution of the MULTI/EXEC block","O(1) for every key.","2.2.0",COMMAND_GROUP_TRANSACTIONS,WATCH_ReturnInfo,WATCH_History,WATCH_Metadata,watchCommand,-2,"noscript loading stale fast @fast @transaction",{{"",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=WATCH_Args},
 {0}

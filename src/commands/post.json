@@ -1,6 +1,9 @@
 {
     "POST": {
+        "summary": "PATCH__TBD__24__",
+        "complexity": "PATCH__TBD__23__",
         "group": "server",
+        "since": "PATCH__TBD__25__",
         "arity": -1,
         "function": "securityWarningCommand",
         "internal": true,
@@ -8,7 +11,8 @@
         "command_flags": [
             "readonly",
             "loading",
-            "stale"
+            "stale",
+            "internal"
         ],
         "acl_categories": [
             "read",

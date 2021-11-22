@@ -10,15 +10,15 @@
         "history": [
             [
                 "3.0.0",
-                "Added the `!COPY` and `REPLACE` options."
+                "Added the `COPY` and `REPLACE` options."
             ],
             [
                 "3.0.6",
-                "Added the `!KEYS` option."
+                "Added the `KEYS` option."
             ],
             [
                 "4.0.7",
-                "Added the `!AUTH` option."
+                "Added the `AUTH` option."
             ],
             [
                 "6.0.0",
@@ -94,7 +94,7 @@
                         "token": "key"
                     },
                     {
-                        "name": "__TBD__1__",
+                        "name": "empty_string",
                         "type": "pure-token",
                         "token": "\"\""
                     }

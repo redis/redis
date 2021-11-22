@@ -1,6 +1,7 @@
 {
     "RESET": {
         "summary": "Reset latency data for one or more events.",
+        "complexity": "PATCH__TBD__43__",
         "group": "server",
         "since": "2.8.13",
         "arity": -2,

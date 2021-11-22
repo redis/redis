@@ -10,7 +10,8 @@
         "command_flags": [
             "noscript",
             "loading",
-            "stale"
+            "stale",
+            "sentinel"
         ],
         "acl_categories": [
             "slow"

@@ -1,6 +1,7 @@
 {
     "REWRITE": {
         "summary": "Rewrite the configuration file with the in memory configuration",
+        "complexity": "PATCH__TBD__46__",
         "group": "server",
         "since": "2.8.0",
         "arity": 2,

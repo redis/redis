@@ -1,6 +1,9 @@
 {
     "XSETID": {
+        "summary": "PATCH__TBD__30__",
+        "complexity": "PATCH__TBD__29__",
         "group": "stream",
+        "since": "PATCH__TBD__31__",
         "arity": 3,
         "function": "xsetidCommand",
         "internal": true,
@@ -8,7 +11,8 @@
         "command_flags": [
             "write",
             "denyoom",
-            "fast"
+            "fast",
+            "internal"
         ],
         "acl_categories": [
             "write",

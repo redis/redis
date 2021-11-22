@@ -1,5 +1,7 @@
 {
     "SLOWLOG": {
+        "summary": "PATCH__TBD__89__",
+        "complexity": "Depends on subcommand.",
         "group": "server",
         "since": "2.2.12",
         "arity": -2,

@@ -56,7 +56,7 @@
                         "token": "id"
                     },
                     {
-                        "name": "__TBD__8__",
+                        "name": "new_id",
                         "type": "pure-token",
                         "token": "$"
                     }

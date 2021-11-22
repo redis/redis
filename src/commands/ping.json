@@ -1,13 +1,15 @@
 {
     "PING": {
         "summary": "Ping the server",
+        "complexity": "PATCH__TBD__67__",
         "group": "connection",
         "since": "1.0.0",
         "arity": -1,
         "function": "pingCommand",
         "command_flags": [
             "stale",
-            "fast"
+            "fast",
+            "sentinel"
         ],
         "acl_categories": [
             "fast",

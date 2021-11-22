@@ -1,6 +1,7 @@
 {
     "ROLE": {
         "summary": "Return the role of the instance in the context of replication",
+        "complexity": "PATCH__TBD__53__",
         "group": "server",
         "since": "2.8.12",
         "arity": 1,
@@ -9,7 +10,8 @@
             "noscript",
             "loading",
             "stale",
-            "fast"
+            "fast",
+            "sentinel"
         ],
         "acl_categories": [
             "admin",

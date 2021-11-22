@@ -11,7 +11,8 @@
             "loading",
             "stale",
             "fast",
-            "may_replicate"
+            "may_replicate",
+            "sentinel"
         ],
         "acl_categories": [
             "pubsub",

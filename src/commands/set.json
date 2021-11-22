@@ -17,11 +17,11 @@
             ],
             [
                 "6.2",
-                "Added the `!GET`, `EXAT` and `PXAT` option."
+                "Added the `GET`, `EXAT` and `PXAT` option."
             ],
             [
                 "7.0",
-                "Allowed the `NX` and `!GET` options to be used together."
+                "Allowed the `NX` and `GET` options to be used together."
             ]
         ],
         "command_flags": [
@@ -106,7 +106,7 @@
                     },
                     {
                         "name": "pxat",
-                        "type": "unix-time",
+                        "type": "integer",
                         "value": "milliseconds-timestamp",
                         "token": "PXAT"
                     },
