@@ -1962,7 +1962,7 @@ struct redisCommand redisCommandTable[] = {
      "",
      .subcommands=xgroupSubcommands},
 
-    {"xsetid",xsetidCommand,3,
+    {"xsetid",xsetidCommand,-3,
      "write use-memory fast @stream",
      {{"write",
        KSPEC_BS_INDEX,.bs.index={1},
@@ -2006,6 +2006,45 @@ struct redisCommand redisCommandTable[] = {
      "write random @stream",
      {{"write",
        KSPEC_BS_INDEX,.bs.index={1},
+       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+
+    {"xhash",xhashCommand,-2,
+     "write use-memory @stream",
+     {{"write",
+       KSPEC_BS_INDEX,.bs.index={2},
+       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+
+    {"xhlen",xhlenCommand,2,
+     "read-only fast @stream",
+     {{"write",
+       KSPEC_BS_INDEX,.bs.index={1},
+       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+
+    {"xhget",xhgetCommand,-3,
+     "read-only fast @stream",
+     {{"read",
+       KSPEC_BS_INDEX,.bs.index={1},
+       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+
+    {"xhgetid",xhgetidCommand,-3,
+     "read-only fast @stream",
+     {{"read",
+       KSPEC_BS_INDEX,.bs.index={1},
+       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+
+    {"xhscan",xhscanCommand,3,
+     "read-only random @stream",
+     {{"read",
+       KSPEC_BS_INDEX,.bs.index={1},
+       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+
+    {"xhcompact",xhcompactCommand,-3,
+     "write use-memory @stream",
+     {{"write",
+       KSPEC_BS_INDEX,.bs.index={1},
+       KSPEC_FK_RANGE,.fk.range={0,1,0}},
+      {"read",
+       KSPEC_BS_INDEX,.bs.index={2},
        KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 
     {"post",securityWarningCommand,-1,
@@ -2449,6 +2488,18 @@ dictType replScriptCacheDictType = {
     dictSdsKeyCaseCompare,      /* key compare */
     dictSdsDestructor,          /* key destructor */
     NULL,                       /* val destructor */
+    NULL                        /* allow to expand */
+};
+
+/* Stream hash: sds string -> stream ID. */
+void streamHashValDestructor(dict *d, void *val);
+dictType streamHashDictType = {
+    dictSdsCaseHash,            /* hash function */
+    NULL,                       /* key dup */
+    NULL,                       /* val dup */
+    dictSdsKeyCaseCompare,      /* key compare */
+    dictSdsDestructor,          /* key destructor */
+    streamHashValDestructor,    /* val destructor */
     NULL                        /* allow to expand */
 };
 

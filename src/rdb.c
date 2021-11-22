@@ -985,6 +985,58 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
         nwritten += n;
         if ((n = rdbSaveLen(rdb,s->last_id.seq)) == -1) return -1;
         nwritten += n;
+        /* Save the first entry ID. */
+        if ((n = rdbSaveLen(rdb,s->first_id.ms)) == -1) return -1;
+        nwritten += n;
+        if ((n = rdbSaveLen(rdb,s->first_id.seq)) == -1) return -1;
+        nwritten += n;
+        /* Save the maximal tombstone ID. */
+        if ((n = rdbSaveLen(rdb,s->xdel_max_id.ms)) == -1) return -1;
+        nwritten += n;
+        if ((n = rdbSaveLen(rdb,s->xdel_max_id.seq)) == -1) return -1;
+        nwritten += n;
+        /* Save the offset. */
+        if ((n = rdbSaveLen(rdb,s->offset)) == -1) return -1;
+        nwritten += n;
+
+        /* Save the hash. The first value is a flag that, when non-zero, signals
+         * that a hash exists for the stream. */
+        if (s->hash == NULL) {
+            if ((n = rdbSaveLen(rdb,0)) == -1) return -1;
+            nwritten += n;
+        } else {
+            if ((n = rdbSaveLen(rdb,1)) == -1) return -1;
+            nwritten += n;
+            /* Save the number of tombstones in the hash. */
+            if ((n = rdbSaveLen(rdb,s->hash_tombs)) == -1) return -1;
+            nwritten += n;
+            /* Save the number of entries in the hash's dict. */
+            if ((n = rdbSaveLen(rdb,dictSize(s->hash))) == -1) return -1;
+            nwritten += n;
+            /* Save the entries as key, ms, seq. */
+            dictIterator *di = dictGetIterator(s->hash);
+            dictEntry *de;
+            while((de = dictNext(di)) != NULL) {
+                sds key = dictGetKey(de);
+                streamID *value = dictGetVal(de);
+                if ((n = rdbSaveRawString(rdb,(unsigned char*)key,sdslen(key))) == -1) {
+                    dictReleaseIterator(di);
+                    return -1;
+                }
+                nwritten += n;
+                if ((n = rdbSaveLen(rdb,value->ms)) == -1) {
+                    dictReleaseIterator(di);
+                    return -1;
+                }
+                nwritten += n;
+                if ((n = rdbSaveLen(rdb,value->seq)) == -1) {
+                    dictReleaseIterator(di);
+                    return -1;
+                }
+                nwritten += n;
+            }
+            dictReleaseIterator(di);
+        }
 
         /* The consumer groups and their clients are part of the stream
          * type, so serialize every consumer group. */
@@ -1015,6 +1067,13 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
                 }
                 nwritten += n;
                 if ((n = rdbSaveLen(rdb,cg->last_id.seq)) == -1) {
+                    raxStop(&ri);
+                    return -1;
+                }
+                nwritten += n;
+                
+                /* Save the group offset. */
+                if ((n = rdbSaveLen(rdb,cg->offset)) == -1) {
                     raxStop(&ri);
                     return -1;
                 }
@@ -1651,7 +1710,7 @@ int lpPairsValidateIntegrityAndDups(unsigned char *lp, size_t size, int deep) {
  * On success a newly allocated object is returned, otherwise NULL.
  * When the function returns NULL and if 'error' is not NULL, the
  * integer pointed by 'error' is set to the type of error that occurred */
-robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
+robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int rdbver, int *error) {
     robj *o = NULL, *ele, *dec;
     uint64_t len;
     unsigned int i;
@@ -2285,6 +2344,55 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
         /* Load the last entry ID. */
         s->last_id.ms = rdbLoadLen(rdb,NULL);
         s->last_id.seq = rdbLoadLen(rdb,NULL);
+        
+        if (rdbver >= RDB_VERSION_STREAM_V2) {
+            /* Load the first entry ID. */
+            s->first_id.ms = rdbLoadLen(rdb,NULL);
+            s->first_id.seq = rdbLoadLen(rdb,NULL);
+
+            /* Load the maximal tombstone ID. */
+            s->xdel_max_id.ms = rdbLoadLen(rdb,NULL);
+            s->xdel_max_id.seq = rdbLoadLen(rdb,NULL);
+
+            /* Load the offset. */
+            s->offset = rdbLoadLen(rdb,NULL);
+
+            /* Load the hash, if it exists. */
+            uint64_t hlen, hexists = rdbLoadLen(rdb,NULL);
+            if (hexists) {
+                s->hash_tombs = rdbLoadLen(rdb,NULL);
+                s->hash = dictCreate(&streamHashDictType);
+                hlen = rdbLoadLen(rdb,NULL);
+                while (hlen--) {
+                    sds key = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL);
+                    if (key == NULL) {
+                        decrRefCount(o);
+                        return NULL;
+                    }
+                    streamID *value = zmalloc(sizeof(streamID));
+                    value->ms = rdbLoadLen(rdb,NULL);
+                    value->seq = rdbLoadLen(rdb,NULL);
+                    if (dictAdd(s->hash,key,value) == DICT_ERR) {
+                        rdbReportCorruptRDB("Duplicate stream hash fields detected");
+                        zfree(value);
+                        sdsfree(key);
+                        decrRefCount(o);
+                        return NULL;
+                    }
+                }
+            }
+        } else {
+            /* During migration the offset can be initialized to the stream's
+             * length. At this point, we also don't care about tombstones
+             * because CG offsets will be later initialized as well. */
+            s->xdel_max_id.ms = 0;
+            s->xdel_max_id.seq = 0;
+            s->offset = s->length;
+            
+            /* Since the rax is already loaded, we can find the first entry's
+             * ID. */ 
+            streamGetEdgeID(s,1,1,&s->first_id);
+        }
 
         if (rioGetReadError(rdb)) {
             rdbReportReadError("Stream object metadata loading failed.");
@@ -2320,8 +2428,22 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 decrRefCount(o);
                 return NULL;
             }
+            
+            /* Load group offset. */
+            uint64_t cg_offset;
+            if (rdbver >= RDB_VERSION_STREAM_V2) {
+                cg_offset = rdbLoadLen(rdb,NULL);
+                if (rioGetReadError(rdb)) {
+                    rdbReportReadError("Stream cgroup offset loading failed.");
+                    sdsfree(cgname);
+                    decrRefCount(o);
+                    return NULL;
+                }
+            } else {
+                cg_offset = streamGetOffsetForTip(s,&cg_id);
+            }
 
-            streamCG *cgroup = streamCreateCG(s,cgname,sdslen(cgname),&cg_id);
+            streamCG *cgroup = streamCreateCG(s,cgname,sdslen(cgname),&cg_id,cg_offset);
             if (cgroup == NULL) {
                 rdbReportCorruptRDB("Duplicated consumer group name %s",
                                          cgname);
@@ -2829,7 +2951,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi, redisDb *dbarray) {
         if ((key = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL)) == NULL)
             goto eoferr;
         /* Read value */
-        val = rdbLoadObject(type,rdb,key,db->id,&error);
+        val = rdbLoadObject(type,rdb,key,db->id,rdbver,&error);
 
         /* Check if the key already expired. This function is used when loading
          * an RDB file from disk, either at startup, or when an RDB was
