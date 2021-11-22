@@ -137,7 +137,7 @@ test {corrupt payload: quicklist with empty ziplist} {
 
 test {corrupt payload: quicklist encoded_len is 0} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
-        catch { r restore _list 0 "\x12\x01\x01\x00\n\x00\x8f\xc6\xc0W\x1c\n\xb3<" replace } err
+        catch { r restore _list 0 "\x12\x01\x01\x00\x0a\x00\x8f\xc6\xc0\x57\x1c\x0a\xb3\x3c" replace } err
         assert_match "*Bad data format*" $err
         r ping
     }
@@ -256,7 +256,7 @@ test {corrupt payload: hash listpack with duplicate records} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r config set sanitize-dump-payload yes
         r debug set-skip-checksum-validation 1
-        catch { r RESTORE _hash 0 "\x10\x17\x17\x00\x00\x00\x04\x00\x82a\x00\x03\x82b\x00\x03\x82a\x00\x03\x82d\x00\x03\xff\n\x00\xc0\xcf\xa6\x87\xe5\xa7\xc5\xbe" } err
+        catch { r RESTORE _hash 0 "\x10\x17\x17\x00\x00\x00\x04\x00\x82\x61\x00\x03\x82\x62\x00\x03\x82\x61\x00\x03\x82\x64\x00\x03\xff\x0a\x00\xc0\xcf\xa6\x87\xe5\xa7\xc5\xbe" } err
         assert_match "*Bad data format*" $err
     }
 }
@@ -267,7 +267,7 @@ test {corrupt payload: hash listpack with duplicate records - convert} {
         r config set sanitize-dump-payload no
         r config set hash-max-listpack-entries 1
         r debug set-skip-checksum-validation 1
-        catch { r RESTORE _hash 0 "\x10\x17\x17\x00\x00\x00\x04\x00\x82a\x00\x03\x82b\x00\x03\x82a\x00\x03\x82d\x00\x03\xff\n\x00\xc0\xcf\xa6\x87\xe5\xa7\xc5\xbe" } err
+        catch { r RESTORE _hash 0 "\x10\x17\x17\x00\x00\x00\x04\x00\x82\x61\x00\x03\x82\x62\x00\x03\x82\x61\x00\x03\x82\x64\x00\x03\xff\x0a\x00\xc0\xcf\xa6\x87\xe5\xa7\xc5\xbe" } err
         assert_equal [count_log_message 0 "crashed by signal"] 0
         assert_equal [count_log_message 0 "listpack with dup elements"] 1
     }
