@@ -382,21 +382,17 @@ int isWatchedKeyExpired(client *c) {
 /* "Touch" a key, so that if this key is being WATCHed by some client the
  * next EXEC will fail. */
 void touchWatchedKey(redisDb *db, robj *key) {
-    list *clients;
-    listIter li;
-    listNode *ln;
+    list *clients = NULL;
 
     if (dictSize(db->watched_keys) == 0) return;
-    clients = dictFetchValue(db->watched_keys, key);
-    if (!clients) return;
 
     /* Mark all the clients watching this key as CLIENT_DIRTY_CAS */
     /* Check if we are already watching for this key */
-    listRewind(clients,&li);
-    while((ln = listNext(&li))) {
-        client *c = listNodeValue(ln);
-
+    while ((clients = dictFetchValue(db->watched_keys, key)) && listLength(clients) != 0) {
+        client *c = listNodeValue(listFirst(clients));
         c->flags |= CLIENT_DIRTY_CAS;
+        /* As the client is marked as dirty, there is no point in watching other key events. */
+        unwatchAllKeys(c);
     }
 }
 
@@ -437,6 +433,11 @@ void watchCommand(client *c) {
 
     if (c->flags & CLIENT_MULTI) {
         addReplyError(c,"WATCH inside MULTI is not allowed");
+        return;
+    }
+    /* No point in watching if the client is already dirty.*/
+    if (c->flags & CLIENT_DIRTY_CAS) {
+        addReply(c,shared.ok);
         return;
     }
     for (j = 1; j < c->argc; j++)
