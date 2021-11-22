@@ -1,12 +1,21 @@
 {
     "XINFO": {
-        "summary": "PATCH__TBD__79__",
+        "summary": "A container for stream introspection commands",
         "complexity": "Depends on subcommand.",
         "group": "stream",
         "since": "5.0.0",
         "arity": -2,
         "acl_categories": [
             "slow"
+        ],
+        "returns": [
+            {
+                "description": "PATCH__TBD__394__",
+                "type": {
+                    "RESP2": "null-bulk-string",
+                    "RESP3": "null"
+                }
+            }
         ]
     }
 }

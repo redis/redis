@@ -18,6 +18,15 @@
             "slow",
             "dangerous",
             "connection"
+        ],
+        "returns": [
+            {
+                "description": "PATCH__TBD__137__",
+                "type": {
+                    "RESP2": "null-bulk-string",
+                    "RESP3": "null"
+                }
+            }
         ]
     }
 }

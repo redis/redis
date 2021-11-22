@@ -1,12 +1,21 @@
 {
     "SCRIPT": {
-        "summary": "PATCH__TBD__83__",
+        "summary": "A containter for Lua scripts management commands",
         "complexity": "Depends on subcommand.",
         "group": "scripting",
         "since": "2.6.0",
         "arity": -2,
         "acl_categories": [
             "slow"
+        ],
+        "returns": [
+            {
+                "description": "PATCH__TBD__330__",
+                "type": {
+                    "RESP2": "null-bulk-string",
+                    "RESP3": "null"
+                }
+            }
         ]
     }
 }

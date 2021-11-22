@@ -1,12 +1,21 @@
 {
     "CONFIG": {
-        "summary": "PATCH__TBD__82__",
+        "summary": "A container for server configuration commands",
         "complexity": "Depends on subcommand.",
         "group": "server",
         "since": "2.0.0",
         "arity": -2,
         "acl_categories": [
             "slow"
+        ],
+        "returns": [
+            {
+                "description": "PATCH__TBD__175__",
+                "type": {
+                    "RESP2": "null-bulk-string",
+                    "RESP3": "null"
+                }
+            }
         ]
     }
 }

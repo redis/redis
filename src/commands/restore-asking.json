@@ -1,6 +1,6 @@
 {
     "RESTORE-ASKING": {
-        "summary": "PATCH__TBD__18__",
+        "summary": "An internal command for migrating keys in a cluster",
         "complexity": "PATCH__TBD__17__",
         "group": "server",
         "since": "PATCH__TBD__19__",
@@ -36,6 +36,15 @@
                         "step": 1,
                         "limit": 0
                     }
+                }
+            }
+        ],
+        "returns": [
+            {
+                "description": "PATCH__TBD__314__",
+                "type": {
+                    "RESP2": "null-bulk-string",
+                    "RESP3": "null"
                 }
             }
         ]

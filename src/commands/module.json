@@ -1,12 +1,21 @@
 {
     "MODULE": {
-        "summary": "PATCH__TBD__86__",
+        "summary": "A container for module commands",
         "complexity": "Depends on subcommand.",
         "group": "server",
         "since": "4.0.0",
         "arity": -2,
         "acl_categories": [
             "slow"
+        ],
+        "returns": [
+            {
+                "description": "PATCH__TBD__271__",
+                "type": {
+                    "RESP2": "null-bulk-string",
+                    "RESP3": "null"
+                }
+            }
         ]
     }
 }

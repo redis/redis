@@ -19,6 +19,15 @@
             "dangerous",
             "connection"
         ],
+        "returns": [
+            {
+                "description": "PATCH__TBD__136__",
+                "type": {
+                    "RESP2": "null-bulk-string",
+                    "RESP3": "null"
+                }
+            }
+        ],
         "arguments": [
             {
                 "name": "client-id",

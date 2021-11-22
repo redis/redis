@@ -1,12 +1,21 @@
 {
     "PUBSUB": {
-        "summary": "PATCH__TBD__78__",
+        "summary": "A container for Pub/Sun commands",
         "complexity": "Depends on subcommand.",
         "group": "pubsub",
         "since": "2.8.0",
         "arity": -2,
         "acl_categories": [
             "slow"
+        ],
+        "returns": [
+            {
+                "description": "PATCH__TBD__303__",
+                "type": {
+                    "RESP2": "null-bulk-string",
+                    "RESP3": "null"
+                }
+            }
         ]
     }
 }

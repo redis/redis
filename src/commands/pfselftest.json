@@ -1,9 +1,9 @@
 {
     "PFSELFTEST": {
-        "summary": "PATCH__TBD__21__",
-        "complexity": "PATCH__TBD__20__",
+        "summary": "An internal command for testing HyperLogLog values",
+        "complexity": "N/A",
         "group": "hyperloglog",
-        "since": "PATCH__TBD__22__",
+        "since": "2.8.9",
         "arity": 1,
         "function": "pfselftestCommand",
         "internal": true,
@@ -17,6 +17,15 @@
             "admin",
             "slow",
             "dangerous"
+        ],
+        "returns": [
+            {
+                "description": "PATCH__TBD__291__",
+                "type": {
+                    "RESP2": "null-bulk-string",
+                    "RESP3": "null"
+                }
+            }
         ]
     }
 }

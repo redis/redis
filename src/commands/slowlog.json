@@ -1,12 +1,21 @@
 {
     "SLOWLOG": {
-        "summary": "PATCH__TBD__89__",
+        "summary": "A container for slow log commands",
         "complexity": "Depends on subcommand.",
         "group": "server",
         "since": "2.2.12",
         "arity": -2,
         "acl_categories": [
             "slow"
+        ],
+        "returns": [
+            {
+                "description": "PATCH__TBD__350__",
+                "type": {
+                    "RESP2": "null-bulk-string",
+                    "RESP3": "null"
+                }
+            }
         ]
     }
 }

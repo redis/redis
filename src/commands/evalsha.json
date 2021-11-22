@@ -37,6 +37,15 @@
                 }
             }
         ],
+        "returns": [
+            {
+                "description": "PATCH__TBD__187__",
+                "type": {
+                    "RESP2": "null-bulk-string",
+                    "RESP3": "null"
+                }
+            }
+        ],
         "arguments": [
             {
                 "name": "sha1",

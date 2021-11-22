@@ -1,6 +1,6 @@
 {
     "REPLCONF": {
-        "summary": "PATCH__TBD__27__",
+        "summary": "An internal command for configuring the replication stream",
         "complexity": "PATCH__TBD__26__",
         "group": "server",
         "since": "PATCH__TBD__28__",
@@ -19,6 +19,15 @@
             "admin",
             "slow",
             "dangerous"
+        ],
+        "returns": [
+            {
+                "description": "PATCH__TBD__310__",
+                "type": {
+                    "RESP2": "null-bulk-string",
+                    "RESP3": "null"
+                }
+            }
         ]
     }
 }

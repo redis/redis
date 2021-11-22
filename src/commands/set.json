@@ -56,18 +56,18 @@
         "returns":[
             {
                 "description": "Command succeeded",
-                "type":"simple-string",
+                "type": "simple-string",
                 "constant_value": "+OK"
             },
             {
                 "description": "Old value if `GET` was given",
-                "type":"bulk-string"
+                "type": "bulk-string"
             },
             {
                 "description": "Either `SET` failed (with `NX` or `XX`), or `GET` was given and key didn't exist",
                 "type": {
-                    "RESP2":"null-bulk-string",
-                    "RESP3":"null"
+                    "RESP2": "null-bulk-string",
+                    "RESP3": "null"
                 }
             }
         ],

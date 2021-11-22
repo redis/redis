@@ -36,6 +36,15 @@
                 }
             }
         ],
+        "returns": [
+            {
+                "description": "PATCH__TBD__398__",
+                "type": {
+                    "RESP2": "null-bulk-string",
+                    "RESP3": "null"
+                }
+            }
+        ],
         "arguments": [
             {
                 "token": "COUNT",

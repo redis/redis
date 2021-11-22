@@ -1,6 +1,6 @@
 {
     "CLIENT": {
-        "summary": "PATCH__TBD__80__",
+        "summary": "A container for client connection commands",
         "complexity": "Depends on subcommand.",
         "group": "connection",
         "since": "2.4.0",
@@ -10,6 +10,15 @@
         ],
         "acl_categories": [
             "slow"
+        ],
+        "returns": [
+            {
+                "description": "PATCH__TBD__138__",
+                "type": {
+                    "RESP2": "null-bulk-string",
+                    "RESP3": "null"
+                }
+            }
         ]
     }
 }

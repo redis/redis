@@ -1,9 +1,9 @@
 {
     "DEBUG": {
-        "summary": "PATCH__TBD__9__",
-        "complexity": "PATCH__TBD__8__",
+        "summary": "A container for debugging commands",
+        "complexity": "Depends on subcommand.",
         "group": "server",
-        "since": "PATCH__TBD__10__",
+        "since": "1.0.0",
         "arity": -2,
         "function": "debugCommand",
         "internal": true,
@@ -18,6 +18,15 @@
             "admin",
             "slow",
             "dangerous"
+        ],
+        "returns": [
+            {
+                "description": "PATCH__TBD__178__",
+                "type": {
+                    "RESP2": "null-bulk-string",
+                    "RESP3": "null"
+                }
+            }
         ]
     }
 }

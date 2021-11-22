@@ -17,6 +17,15 @@
         "acl_categories": [
             "read",
             "slow"
+        ],
+        "returns": [
+            {
+                "description": "PATCH__TBD__293__",
+                "type": {
+                    "RESP2": "null-bulk-string",
+                    "RESP3": "null"
+                }
+            }
         ]
     }
 }

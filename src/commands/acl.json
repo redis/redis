@@ -1,6 +1,6 @@
 {
     "ACL": {
-        "summary": "PATCH__TBD__90__",
+        "summary": "A container for Access List Control commands ",
         "complexity": "Depends on subcommand.",
         "group": "server",
         "since": "6.0.0",
@@ -10,6 +10,15 @@
         ],
         "acl_categories": [
             "slow"
+        ],
+        "returns": [
+            {
+                "description": "PATCH__TBD__103__",
+                "type": {
+                    "RESP2": "null-bulk-string",
+                    "RESP3": "null"
+                }
+            }
         ]
     }
 }

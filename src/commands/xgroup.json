@@ -1,12 +1,21 @@
 {
     "XGROUP": {
-        "summary": "PATCH__TBD__85__",
+        "summary": "A container for consumer groups commands",
         "complexity": "Depends on subcommand.",
         "group": "stream",
         "since": "5.0.0",
         "arity": -2,
         "acl_categories": [
             "slow"
+        ],
+        "returns": [
+            {
+                "description": "PATCH__TBD__389__",
+                "type": {
+                    "RESP2": "null-bulk-string",
+                    "RESP3": "null"
+                }
+            }
         ]
     }
 }

@@ -1,12 +1,21 @@
 {
     "OBJECT": {
-        "summary": "PATCH__TBD__88__",
+        "summary": "A container for object introspection commands",
         "complexity": "Depends on subcommand.",
         "group": "generic",
         "since": "2.2.3",
         "arity": -2,
         "acl_categories": [
             "slow"
+        ],
+        "returns": [
+            {
+                "description": "PATCH__TBD__282__",
+                "type": {
+                    "RESP2": "null-bulk-string",
+                    "RESP3": "null"
+                }
+            }
         ]
     }
 }

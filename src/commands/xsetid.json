@@ -1,9 +1,9 @@
 {
     "XSETID": {
-        "summary": "PATCH__TBD__30__",
-        "complexity": "PATCH__TBD__29__",
+        "summary": "An internal command for replicating stream values",
+        "complexity": "O(1)",
         "group": "stream",
-        "since": "PATCH__TBD__31__",
+        "since": "5.0.0",
         "arity": 3,
         "function": "xsetidCommand",
         "internal": true,
@@ -35,6 +35,15 @@
                         "step": 1,
                         "limit": 0
                     }
+                }
+            }
+        ],
+        "returns": [
+            {
+                "description": "PATCH__TBD__401__",
+                "type": {
+                    "RESP2": "null-bulk-string",
+                    "RESP3": "null"
                 }
             }
         ]

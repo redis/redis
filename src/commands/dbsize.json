@@ -1,7 +1,7 @@
 {
     "DBSIZE": {
         "summary": "Return the number of keys in the selected database",
-        "complexity": "PATCH__TBD__61__",
+        "complexity": "O(1)",
         "group": "server",
         "since": "1.0.0",
         "arity": 1,
@@ -14,6 +14,15 @@
             "keyspace",
             "read",
             "fast"
+        ],
+        "returns": [
+            {
+                "description": "PATCH__TBD__177__",
+                "type": {
+                    "RESP2": "null-bulk-string",
+                    "RESP3": "null"
+                }
+            }
         ]
     }
 }

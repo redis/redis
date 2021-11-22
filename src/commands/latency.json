@@ -1,12 +1,21 @@
 {
     "LATENCY": {
-        "summary": "PATCH__TBD__81__",
+        "summary": "A container for latency diagnostics commands",
         "complexity": "Depends on subcommand.",
         "group": "server",
         "since": "2.8.13",
         "arity": -2,
         "acl_categories": [
             "slow"
+        ],
+        "returns": [
+            {
+                "description": "PATCH__TBD__243__",
+                "type": {
+                    "RESP2": "null-bulk-string",
+                    "RESP3": "null"
+                }
+            }
         ]
     }
 }

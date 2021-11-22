@@ -15,6 +15,15 @@
         "acl_categories": [
             "slow",
             "transaction"
+        ],
+        "returns": [
+            {
+                "description": "PATCH__TBD__189__",
+                "type": {
+                    "RESP2": "null-bulk-string",
+                    "RESP3": "null"
+                }
+            }
         ]
     }
 }
