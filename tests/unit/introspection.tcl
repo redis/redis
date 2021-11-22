@@ -303,7 +303,7 @@ start_server {tags {"introspection"}} {
         
         set some_configs {maxmemory 10000001 port 0 client-query-buffer-limit 10m}
         
-        # On Linux we also set the oom score adj whihc has an apply function. This is
+        # On Linux we also set the oom score adj which has an apply function. This is
         # used to verify that even successful applies are rolled back if some other
         # config's apply fails.
         set oom_adj_avail [expr {!$::external && [exec uname] == "Linux"}]
