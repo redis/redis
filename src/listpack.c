@@ -698,10 +698,9 @@ unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s,
     while (p) {
         if (skipcnt == 0) {
             value = lpGetWithSize(p, &ll, NULL, &entry_size);
-            /* check the value doesn't reach outside the listpack before accessing it */
-            assert(p >= lp + LP_HDR_SIZE && p + entry_size < lp + lp_bytes);
-
             if (value) {
+                /* check the value doesn't reach outside the listpack before accessing it */
+                assert(p >= lp + LP_HDR_SIZE && p + entry_size < lp + lp_bytes);
                 if (slen == ll && memcmp(value, s, slen) == 0) {
                     return p;
                 }
