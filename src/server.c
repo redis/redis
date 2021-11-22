@@ -2037,10 +2037,10 @@ struct redisCommand redisCommandTable[] = {
      .subcommands=stralgoSubcommands},
 
     {"quit",quitCommand,-1,
-     "no-script ok-stale ok-loading fast @connection"},
+     "no-auth no-script ok-stale ok-loading fast @connection"},
      
     {"reset",resetCommand,1,
-     "no-script ok-stale ok-loading fast @connection"},
+     "no-auth no-script ok-stale ok-loading fast @connection"},
 
     {"failover",failoverCommand,-1,
      "admin no-script ok-stale"}
