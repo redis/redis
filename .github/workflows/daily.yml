@@ -261,7 +261,7 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
-      run: make valgrind REDIS_CFLAGS='-Werror -DREDIS_TEST' LUA_DEBUG=yes
+      run: make valgrind REDIS_CFLAGS='-Werror -DREDIS_TEST'
     - name: testprep
       run: |
         sudo apt-get update
@@ -370,7 +370,7 @@ jobs:
           repository: ${{ env.GITHUB_REPOSITORY }}
           ref: ${{ env.GITHUB_HEAD_REF }}
       - name: make
-        run: make SANITIZER=undefined REDIS_CFLAGS='-DREDIS_TEST'
+        run: make SANITIZER=undefined REDIS_CFLAGS='-DREDIS_TEST' LUA_DEBUG=yes # we (ab)use this flow to also check Lua C API violations
       - name: testprep
         run: |
           sudo apt-get update
