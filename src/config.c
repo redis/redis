@@ -680,7 +680,7 @@ void configSetCommand(client *c) {
     int invalid_args = 0;
 
     /* Make sure we have an even number of arguments: conf-val pairs */
-    if (c->argc % 1) {
+    if (c->argc & 1) {
         addReplyErrorObject(c, shared.syntaxerr);
         return;
     }
