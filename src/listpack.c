@@ -699,6 +699,8 @@ unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s,
         if (skipcnt == 0) {
             value = lpGetWithSize(p, &ll, NULL, &entry_size);
             if (value) {
+                /* check the value doesn't reach outside the listpack before accessing it */
+                assert(p >= lp + LP_HDR_SIZE && p + entry_size < lp + lp_bytes);
                 if (slen == ll && memcmp(value, s, slen) == 0) {
                     return p;
                 }
@@ -737,7 +739,12 @@ unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s,
             p = lpSkip(p);
         }
 
-        assert(p >= lp + LP_HDR_SIZE && p < lp + lp_bytes);
+        /* The next call to lpGetWithSize could read at most 8 bytes past `p`
+         * We use the slower validation call only when necessary. */
+        if (p + 8 >= lp + lp_bytes)
+            lpAssertValidEntry(lp, lp_bytes, p);
+        else
+            assert(p >= lp + LP_HDR_SIZE && p < lp + lp_bytes);
         if (p[0] == LP_EOF) break;
     }
 
