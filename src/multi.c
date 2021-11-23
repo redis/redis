@@ -388,7 +388,7 @@ void touchWatchedKey(redisDb *db, robj *key) {
 
     /* Mark all the clients watching this key as CLIENT_DIRTY_CAS */
     /* Check if we are already watching for this key */
-    while ((clients = dictFetchValue(db->watched_keys, key)) && listLength(clients) != 0) {
+    while ((clients = dictFetchValue(db->watched_keys, key))) {
         client *c = listNodeValue(listFirst(clients));
         c->flags |= CLIENT_DIRTY_CAS;
         /* As the client is marked as dirty, there is no point in watching other key events. */
