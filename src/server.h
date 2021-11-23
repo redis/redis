@@ -3015,6 +3015,7 @@ void xtrimCommand(client *c);
 void lolwutCommand(client *c);
 void aclCommand(client *c);
 void lcsCommand(client *c);
+void quitCommand(client *c);
 void resetCommand(client *c);
 void failoverCommand(client *c);
 
