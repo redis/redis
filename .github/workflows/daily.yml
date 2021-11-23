@@ -261,7 +261,7 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
-      run: make valgrind REDIS_CFLAGS='-Werror -DREDIS_TEST'
+      run: make valgrind REDIS_CFLAGS='-Werror -DREDIS_TEST' LUA_DEBUG=yes
     - name: testprep
       run: |
         sudo apt-get update
