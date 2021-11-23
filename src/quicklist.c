@@ -3109,7 +3109,7 @@ int quicklistTest(int argc, char *argv[], int flags) {
     if (flags & REDIS_TEST_LARGE_MEMORY) {
         TEST("compress and decompress quicklist ziplist node") {
             quicklistNode *node = quicklistCreateNode();
-            node->entry = ziplistNew();
+            node->entry = lpNew(0);
             
             /* Create a rand string */
             size_t sz = (1 << 25); /* 32MB per one entry */
@@ -3118,7 +3118,7 @@ int quicklistTest(int argc, char *argv[], int flags) {
 
             /* Keep filling the node, until it reaches 1GB */
             for (int i = 0; i < 32; i++) {
-                node->entry = ziplistPush(node->entry, s, sz, ZIPLIST_TAIL);
+                node->entry = lpAppend(node->entry, s, sz);
                 quicklistNodeUpdateSz(node);
 
                 long long start = mstime();
