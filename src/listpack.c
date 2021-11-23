@@ -1021,7 +1021,7 @@ unsigned char *lpDeleteRangeWithEntry(unsigned char *lp, unsigned char **p, unsi
      * address again after a reallocation. */
     unsigned long poff = first-lp;
 
-    /* Move tail to the front of the ziplist */
+    /* Move tail to the front of the listpack */
     memmove(first, tail, eofptr - tail + 1);
     lpSetTotalBytes(lp, bytes - (tail - first));
     uint32_t numele = lpGetNumElements(lp);

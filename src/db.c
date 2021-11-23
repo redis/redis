@@ -847,7 +847,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
 
     /* Step 2: Iterate the collection.
      *
-     * Note that if the object is encoded with a ziplist, intset, or any other
+     * Note that if the object is encoded with a listpack, intset, or any other
      * representation that is not a hash table, we are sure that it is also
      * composed of a small number of elements. So to avoid taking state we
      * just return everything inside the object in a single call, setting the
