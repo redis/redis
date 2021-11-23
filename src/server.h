@@ -3066,6 +3066,7 @@ void swapMainDbWithTempDb(redisDb *tempDb);
 void tlsInit(void);
 void tlsCleanup(void);
 int tlsConfigure(redisTLSContextConfig *ctx_config);
+int isTlsConfigured(void);
 
 #define redisDebug(fmt, ...) \
     printf("DEBUG %s:%d > " fmt "\n", __FILE__, __LINE__, __VA_ARGS__)

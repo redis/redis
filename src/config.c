@@ -2252,7 +2252,7 @@ static int applyTlsCfg(const char **err) {
 
 static int applyTLSPort(const char **err) {
     /* Configure TLS in case it wasn't enabled */
-    if (tlsConfigure(&server.tls_ctx_config) == C_ERR) {
+    if (!isTlsConfigured() && tlsConfigure(&server.tls_ctx_config) == C_ERR) {
         *err = "Unable to update TLS configuration. Check server logs.";
         return 0;
     }

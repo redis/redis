@@ -372,6 +372,12 @@ error:
     return C_ERR;
 }
 
+/* Return 1 if TLS was already configured, 0 otherwise.
+ */
+int isTlsConfigured(void) {
+    return redis_tls_ctx != NULL;
+}
+
 #ifdef TLS_DEBUGGING
 #define TLSCONN_DEBUG(fmt, ...) \
     serverLog(LL_DEBUG, "TLSCONN: " fmt, __VA_ARGS__)
