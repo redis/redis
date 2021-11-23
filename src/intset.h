@@ -49,7 +49,7 @@ size_t intsetBlobLen(intset *is);
 int intsetValidateIntegrity(const unsigned char *is, size_t size, int deep);
 
 #ifdef REDIS_TEST
-int intsetTest(int argc, char *argv[], int accurate);
+int intsetTest(int argc, char *argv[], int flags);
 #endif
 
 #endif // __INTSET_H

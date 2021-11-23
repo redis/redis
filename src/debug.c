@@ -39,6 +39,7 @@
 #include <signal.h>
 #include <dlfcn.h>
 #include <fcntl.h>
+#include <sys/mman.h>
 #include <unistd.h>
 
 #ifdef HAVE_BACKTRACE
@@ -485,7 +486,11 @@ NULL
         };
         addReplyHelp(c, help);
     } else if (!strcasecmp(c->argv[1]->ptr,"segfault")) {
-        *((char*)-1) = 'x';
+        /* Compiler gives warnings about writing to a random address
+         * e.g "*((char*)-1) = 'x';". As a workaround, we map a read-only area
+         * and try to write there to trigger segmentation fault. */
+        char* p = mmap(NULL, 4096, PROT_READ, MAP_PRIVATE | MAP_ANON, -1, 0);
+        *p = 'x';
     } else if (!strcasecmp(c->argv[1]->ptr,"panic")) {
         serverPanic("DEBUG PANIC called at Unix time %lld", (long long)time(NULL));
     } else if (!strcasecmp(c->argv[1]->ptr,"restart") ||
@@ -1154,6 +1159,7 @@ static void *getMcontextEip(ucontext_t *uc) {
 #undef NOT_SUPPORTED
 }
 
+REDIS_NO_SANITIZE("address")
 void logStackContent(void **sp) {
     int i;
     for (i = 15; i >= 0; i--) {
@@ -1856,7 +1862,9 @@ void dumpX86Calls(void *addr, size_t len) {
     for (j = 0; j < len-4; j++) {
         if (p[j] != 0xE8) continue; /* Not an E8 CALL opcode. */
         unsigned long target = (unsigned long)addr+j+5;
-        target += *((int32_t*)(p+j+1));
+        uint32_t tmp;
+        memcpy(&tmp, p+j+1, sizeof(tmp));
+        target += tmp;
         if (dladdr((void*)target, &info) != 0 && info.dli_sname != NULL) {
             if (ht[target&0xff] != target) {
                 printf("Function at 0x%lx is %s\n",target,info.dli_sname);
@@ -1967,8 +1975,12 @@ void bugReportEnd(int killViaSignal, int sig) {
     if (server.daemonize && server.supervised == 0 && server.pidfile) unlink(server.pidfile);
 
     if (!killViaSignal) {
-        if (server.use_exit_on_panic)
-            exit(1);
+        /* To avoid issues with valgrind, we may wanna exit rahter than generate a signal */
+        if (server.use_exit_on_panic) {
+             /* Using _exit to bypass false leak reports by gcc ASAN */
+             fflush(stdout);
+            _exit(1);
+        }
         abort();
     }
 
@@ -2040,43 +2052,33 @@ void watchdogScheduleSignal(int period) {
     it.it_interval.tv_usec = 0;
     setitimer(ITIMER_REAL, &it, NULL);
 }
+void applyWatchdogPeriod() {
+    struct sigaction act;
 
-/* Enable the software watchdog with the specified period in milliseconds. */
-void enableWatchdog(int period) {
-    int min_period;
-
+    /* Disable watchdog when period is 0 */
     if (server.watchdog_period == 0) {
-        struct sigaction act;
+        watchdogScheduleSignal(0); /* Stop the current timer. */
 
-        /* Watchdog was actually disabled, so we have to setup the signal
-         * handler. */
+        /* Set the signal handler to SIG_IGN, this will also remove pending
+         * signals from the queue. */
+        sigemptyset(&act.sa_mask);
+        act.sa_flags = 0;
+        act.sa_handler = SIG_IGN;
+        sigaction(SIGALRM, &act, NULL);
+    } else {
+        /* Setup the signal handler. */
         sigemptyset(&act.sa_mask);
         act.sa_flags = SA_SIGINFO;
         act.sa_sigaction = watchdogSignalHandler;
         sigaction(SIGALRM, &act, NULL);
+
+        /* If the configured period is smaller than twice the timer period, it is
+         * too short for the software watchdog to work reliably. Fix it now
+         * if needed. */
+        int min_period = (1000/server.hz)*2;
+        if (server.watchdog_period < min_period) server.watchdog_period = min_period;
+        watchdogScheduleSignal(server.watchdog_period); /* Adjust the current timer. */
     }
-    /* If the configured period is smaller than twice the timer period, it is
-     * too short for the software watchdog to work reliably. Fix it now
-     * if needed. */
-    min_period = (1000/server.hz)*2;
-    if (period < min_period) period = min_period;
-    watchdogScheduleSignal(period); /* Adjust the current timer. */
-    server.watchdog_period = period;
-}
-
-/* Disable the software watchdog. */
-void disableWatchdog(void) {
-    struct sigaction act;
-    if (server.watchdog_period == 0) return; /* Already disabled. */
-    watchdogScheduleSignal(0); /* Stop the current timer. */
-
-    /* Set the signal handler to SIG_IGN, this will also remove pending
-     * signals from the queue. */
-    sigemptyset(&act.sa_mask);
-    act.sa_flags = 0;
-    act.sa_handler = SIG_IGN;
-    sigaction(SIGALRM, &act, NULL);
-    server.watchdog_period = 0;
 }
 
 /* Positive input is sleep time in microseconds. Negative input is fractions

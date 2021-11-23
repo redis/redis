@@ -523,20 +523,6 @@ struct redisCommand clientSubcommands[] = {
     {NULL},
 };
 
-struct redisCommand stralgoSubcommands[] = {
-    {"lcs",stralgoCommand,-5,
-     "read-only @string",
-      {{"read incomplete", /* We can't use "keyword" here because we may give false information. */
-        KSPEC_BS_UNKNOWN,{{0}},
-        KSPEC_FK_UNKNOWN,{{0}}}},
-     lcsGetKeys},
-
-    {"help",stralgoCommand,2,
-     "ok-loading ok-stale @string"},
-
-    {NULL},
-};
-
 struct redisCommand pubsubSubcommands[] = {
     {"channels",pubsubCommand,-2,
      "pub-sub ok-loading ok-stale"},
@@ -1530,11 +1516,12 @@ struct redisCommand redisCommandTable[] = {
     {"auth",authCommand,-2,
      "no-auth no-script ok-loading ok-stale fast sentinel @connection"},
 
-    /* We don't allow PING during loading since in Redis PING is used as
-     * failure detection, and a loading server is considered to be
-     * not available. */
+    /* PING is used for Redis failure detection and availability check.
+     * So we return LOADING in case there's a synchronous replication in progress,
+     * MASTERDOWN when replica-serve-stale-data=no and link with MASTER is down,
+     * BUSY when blocked by a script, etc. */
     {"ping",pingCommand,-1,
-     "ok-stale fast sentinel @connection"},
+     "fast sentinel @connection"},
 
     {"sentinel",NULL,-2,
      "admin only-sentinel",
@@ -2021,12 +2008,6 @@ struct redisCommand redisCommandTable[] = {
        KSPEC_BS_INDEX,.bs.index={1},
        KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 
-    {"post",securityWarningCommand,-1,
-     "ok-loading ok-stale read-only"},
-
-    {"host:",securityWarningCommand,-1,
-     "ok-loading ok-stale read-only"},
-
     {"latency",NULL,-2,
      "",
      .subcommands=latencySubcommands},
@@ -2038,12 +2019,18 @@ struct redisCommand redisCommandTable[] = {
      "sentinel",
      .subcommands=aclSubcommands},
 
-    {"stralgo",NULL,-2,
-     "",
-     .subcommands=stralgoSubcommands},
+    {"lcs",lcsCommand,-3,
+     "read-only @string",
+      {{"read",
+        KSPEC_BS_INDEX,.bs.index={1},
+        KSPEC_FK_RANGE,.fk.range={1,1,0}}},
+     lcsGetKeys},
 
+    {"quit",quitCommand,-1,
+     "no-auth no-script ok-stale ok-loading fast @connection"},
+     
     {"reset",resetCommand,1,
-     "no-script ok-stale ok-loading fast @connection"},
+     "no-auth no-script ok-stale ok-loading fast @connection"},
 
     {"failover",failoverCommand,-1,
      "admin no-script ok-stale"}
@@ -3680,6 +3667,7 @@ void initServerConfig(void) {
     server.skip_checksum_validation = 0;
     server.saveparams = NULL;
     server.loading = 0;
+    server.async_loading = 0;
     server.loading_rdb_used_mem = 0;
     server.aof_state = AOF_OFF;
     server.aof_rewrite_base_size = 0;
@@ -4252,6 +4240,7 @@ void initServer(void) {
         server.db[j].id = j;
         server.db[j].avg_ttl = 0;
         server.db[j].defrag_later = listCreate();
+        server.db[j].slots_to_keys = NULL; /* Set by clusterInit later on if necessary. */
         listSetFreeMethod(server.db[j].defrag_later,(void (*)(void*))sdsfree);
     }
     evictionPoolAlloc(); /* Initialize the LRU keys pool. */
@@ -4360,6 +4349,8 @@ void initServer(void) {
     
     /* Initialize ACL default password if it exists */
     ACLUpdateDefaultUserPassword(server.requirepass);
+
+    applyWatchdogPeriod();
 }
 
 /* Some steps in server initialization need to be done last (after modules
@@ -4893,7 +4884,7 @@ void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t dur
 void call(client *c, int flags) {
     long long dirty;
     monotime call_timer;
-    int client_old_flags = c->flags;
+    uint64_t client_old_flags = c->flags;
     struct redisCommand *real_cmd = c->cmd;
     static long long prev_err_count;
 
@@ -5193,13 +5184,9 @@ int processCommand(client *c) {
 
     moduleCallCommandFilters(c);
 
-    /* The QUIT command is handled separately. Normal command procs will
-     * go through checking for replication and QUIT will cause trouble
-     * when FORCE_REPLICATION is enabled and would be implemented in
-     * a regular command proc. */
-    if (!strcasecmp(c->argv[0]->ptr,"quit")) {
-        addReply(c,shared.ok);
-        c->flags |= CLIENT_CLOSE_AFTER_REPLY;
+    /* Handle possible security attacks. */
+    if (!strcasecmp(c->argv[0]->ptr,"host:") || !strcasecmp(c->argv[0]->ptr,"post")) {
+        securityWarningCommand(c);
         return C_ERR;
     }
 
@@ -5344,6 +5331,7 @@ int processCommand(client *c) {
         if (c->flags & CLIENT_MULTI &&
             c->cmd->proc != execCommand &&
             c->cmd->proc != discardCommand &&
+            c->cmd->proc != quitCommand &&
             c->cmd->proc != resetCommand) {
             reject_cmd_on_oom = 1;
         }
@@ -5411,6 +5399,7 @@ int processCommand(client *c) {
         c->cmd->proc != unsubscribeCommand &&
         c->cmd->proc != psubscribeCommand &&
         c->cmd->proc != punsubscribeCommand &&
+        c->cmd->proc != quitCommand &&
         c->cmd->proc != resetCommand) {
         rejectCommandFormat(c,
             "Can't execute '%s': only (P)SUBSCRIBE / "
@@ -5419,8 +5408,8 @@ int processCommand(client *c) {
         return C_OK;
     }
 
-    /* Only allow commands with flag "t", such as INFO, SLAVEOF and so on,
-     * when slave-serve-stale-data is no and we are a slave with a broken
+    /* Only allow commands with flag "t", such as INFO, REPLICAOF and so on,
+     * when replica-serve-stale-data is no and we are a replica with a broken
      * link with master. */
     if (server.masterhost && server.repl_state != REPL_STATE_CONNECTED &&
         server.repl_serve_stale_data == 0 &&
@@ -5432,7 +5421,7 @@ int processCommand(client *c) {
 
     /* Loading DB? Return an error if the command has not the
      * CMD_LOADING flag. */
-    if (server.loading && is_denyloading_command) {
+    if (server.loading && !server.async_loading && is_denyloading_command) {
         rejectCommand(c, shared.loadingerr);
         return C_OK;
     }
@@ -5451,6 +5440,7 @@ int processCommand(client *c) {
           c->cmd->proc != discardCommand &&
           c->cmd->proc != watchCommand &&
           c->cmd->proc != unwatchCommand &&
+          c->cmd->proc != quitCommand &&
           c->cmd->proc != resetCommand &&
         !(c->cmd->proc == shutdownCommand &&
           c->argc == 2 &&
@@ -5484,8 +5474,11 @@ int processCommand(client *c) {
 
     /* Exec the command */
     if (c->flags & CLIENT_MULTI &&
-        c->cmd->proc != execCommand && c->cmd->proc != discardCommand &&
-        c->cmd->proc != multiCommand && c->cmd->proc != watchCommand &&
+        c->cmd->proc != execCommand &&
+        c->cmd->proc != discardCommand &&
+        c->cmd->proc != multiCommand &&
+        c->cmd->proc != watchCommand &&
+        c->cmd->proc != quitCommand &&
         c->cmd->proc != resetCommand)
     {
         queueMultiCommand(c);
@@ -6420,6 +6413,7 @@ sds genRedisInfoString(const char *section) {
         info = sdscatprintf(info,
             "# Persistence\r\n"
             "loading:%d\r\n"
+            "async_loading:%d\r\n"
             "current_cow_peak:%zu\r\n"
             "current_cow_size:%zu\r\n"
             "current_cow_size_age:%lu\r\n"
@@ -6445,7 +6439,8 @@ sds genRedisInfoString(const char *section) {
             "aof_last_cow_size:%zu\r\n"
             "module_fork_in_progress:%d\r\n"
             "module_fork_last_cow_size:%zu\r\n",
-            (int)server.loading,
+            (int)(server.loading && !server.async_loading),
+            (int)server.async_loading,
             server.stat_current_cow_peak,
             server.stat_current_cow_bytes,
             server.stat_current_cow_updated ? (unsigned long) elapsedMs(server.stat_current_cow_updated) / 1000 : 0,
@@ -7801,7 +7796,15 @@ int iAmMaster(void) {
 }
 
 #ifdef REDIS_TEST
-typedef int redisTestProc(int argc, char **argv, int accurate);
+#include "testhelp.h"
+
+int __failed_tests = 0;
+int __test_num = 0;
+
+/* The flags are the following:
+* --accurate:     Runs tests with more iterations.
+* --large-memory: Enables tests that consume more than 100mb. */
+typedef int redisTestProc(int argc, char **argv, int flags);
 struct redisTest {
     char *name;
     redisTestProc *proc;
@@ -7838,17 +7841,17 @@ int main(int argc, char **argv) {
 
 #ifdef REDIS_TEST
     if (argc >= 3 && !strcasecmp(argv[1], "test")) {
-        int accurate = 0;
+        int flags = 0;
         for (j = 3; j < argc; j++) {
-            if (!strcasecmp(argv[j], "--accurate")) {
-                accurate = 1;
-            }
+            char *arg = argv[j];
+            if (!strcasecmp(arg, "--accurate")) flags |= REDIS_TEST_ACCURATE;
+            else if (!strcasecmp(arg, "--large-memory")) flags |= REDIS_TEST_LARGE_MEMORY;
         }
 
         if (!strcasecmp(argv[2], "all")) {
             int numtests = sizeof(redisTests)/sizeof(struct redisTest);
             for (j = 0; j < numtests; j++) {
-                redisTests[j].failed = (redisTests[j].proc(argc,argv,accurate) != 0);
+                redisTests[j].failed = (redisTests[j].proc(argc,argv,flags) != 0);
             }
 
             /* Report tests result */
@@ -7869,7 +7872,7 @@ int main(int argc, char **argv) {
         } else {
             redisTestProc *proc = getTestProcByName(argv[2]);
             if (!proc) return -1; /* test not found */
-            return proc(argc,argv,accurate);
+            return proc(argc,argv,flags);
         }
 
         return 0;

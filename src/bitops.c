@@ -328,8 +328,9 @@ int checkSignedBitfieldOverflow(int64_t value, int64_t incr, uint64_t bits, int 
 
     /* Note that maxincr and minincr could overflow, but we use the values
      * only after checking 'value' range, so when we use it no overflow
-     * happens. */
-    int64_t maxincr = max-value;
+     * happens. 'uint64_t' cast is there just to prevent undefined behavior on
+     * overflow */
+    int64_t maxincr = (uint64_t)max-value;
     int64_t minincr = min-value;
 
     if (value > max || (bits != 64 && incr > maxincr) || (value >= 0 && incr > 0 && incr > maxincr))
@@ -600,6 +601,7 @@ void getbitCommand(client *c) {
 }
 
 /* BITOP op_name target_key src_key1 src_key2 src_key3 ... src_keyN */
+REDIS_NO_SANITIZE("alignment")
 void bitopCommand(client *c) {
     char *opname = c->argv[1]->ptr;
     robj *o, *targetkey = c->argv[2];
@@ -682,7 +684,6 @@ void bitopCommand(client *c) {
             unsigned long *lp[16];
             unsigned long *lres = (unsigned long*) res;
 
-            /* Note: sds pointer is always aligned to 8 byte boundary. */
             memcpy(lp,src,sizeof(unsigned long*)*numkeys);
             memcpy(res,src[0],minlen);
 
@@ -1152,10 +1153,9 @@ void bitfieldGeneric(client *c, int flags) {
                         thisop->bits);
 
                 if (thisop->opcode == BITFIELDOP_INCRBY) {
-                    newval = oldval + thisop->i64;
                     overflow = checkSignedBitfieldOverflow(oldval,
                             thisop->i64,thisop->bits,thisop->owtype,&wrapped);
-                    if (overflow) newval = wrapped;
+                    newval = overflow ? wrapped : oldval + thisop->i64;
                     retval = newval;
                 } else {
                     newval = thisop->i64;

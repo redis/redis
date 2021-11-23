@@ -166,7 +166,7 @@ int rdbSaveBinaryDoubleValue(rio *rdb, double val);
 int rdbLoadBinaryDoubleValue(rio *rdb, double *val);
 int rdbSaveBinaryFloatValue(rio *rdb, float val);
 int rdbLoadBinaryFloatValue(rio *rdb, float *val);
-int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi);
+int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi, redisDb *db);
 int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi);
 rdbSaveInfo *rdbPopulateSaveInfo(rdbSaveInfo *rsi);
 

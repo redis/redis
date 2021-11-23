@@ -238,7 +238,7 @@ typedef struct typeInterface {
     void (*init)(typeData data);
     /* Called on server startup and CONFIG SET, returns 1 on success, 0 on error
      * and can set a verbose err string, update is true when called from CONFIG SET */
-    int (*set)(typeData data, sds value, int update, const char **err);
+    int (*set)(typeData data, sds *argv, int argc, int update, const char **err);
     /* Called on CONFIG GET, required to add output to the client */
     void (*get)(client *c, typeData data);
     /* Called on CONFIG REWRITE, required to rewrite the config state */
@@ -258,6 +258,7 @@ typedef struct standardConfig {
 #define IMMUTABLE_CONFIG (1ULL<<0) /* Can this value only be set at startup? */
 #define SENSITIVE_CONFIG (1ULL<<1) /* Does this value contain sensitive information */
 #define DEBUG_CONFIG (1ULL<<2) /* Values that are useful for debugging. */
+#define MULTI_ARG_CONFIG (1ULL<<3) /* This config receives multiple arguments. */
 
 standardConfig configs[];
 
@@ -406,7 +407,7 @@ static int updateClientOutputBufferLimit(sds *args, int arg_len, const char **er
     if (arg_len % 4) {
         if (err) *err = "Wrong number of arguments in "
                         "buffer limit configuration.";
-        return C_ERR;
+        return 0;
     }
 
     /* Sanity check of single arguments, so that we either refuse the
@@ -417,7 +418,7 @@ static int updateClientOutputBufferLimit(sds *args, int arg_len, const char **er
         if (class == -1 || class == CLIENT_TYPE_MASTER) {
             if (err) *err = "Invalid client class specified in "
                             "buffer limit configuration.";
-            return C_ERR;
+            return 0;
         }
 
         hard = memtoull(args[j+1], &hard_err);
@@ -428,7 +429,7 @@ static int updateClientOutputBufferLimit(sds *args, int arg_len, const char **er
         {
             if (err) *err = "Error in hard, soft or soft_seconds setting in "
                             "buffer limit configuration.";
-            return C_ERR;
+            return 0;
         }
 
         values[class].hard_limit_bytes = hard;
@@ -442,21 +443,20 @@ static int updateClientOutputBufferLimit(sds *args, int arg_len, const char **er
         if (classes[j]) server.client_obuf_limits[j] = values[j];
     }
 
-    return C_OK;
+    return 1;
 }
 
 void initConfigValues() {
     for (standardConfig *config = configs; config->name != NULL; config++) {
-        config->interface.init(config->data);
+        if (config->interface.init) config->interface.init(config->data);
     }
 }
 
 void loadServerConfigFromString(char *config) {
+    char buf[1024];
     const char *err = NULL;
     int linenum = 0, totlines, i;
-    int slaveof_linenum = 0;
     sds *lines;
-    int save_loaded = 0;
 
     lines = sdssplitlen(config,strlen(config),"\n",1,&totlines);
 
@@ -490,11 +490,14 @@ void loadServerConfigFromString(char *config) {
             if ((!strcasecmp(argv[0],config->name) ||
                 (config->alias && !strcasecmp(argv[0],config->alias))))
             {
-                if (argc != 2) {
+                /* For normal single arg configs enforce we have a single argument.
+                 * Note that MULTI_ARG_CONFIGs need to validate arg count on their own */
+                if (!(config->flags & MULTI_ARG_CONFIG) && argc != 2) {
                     err = "wrong number of arguments";
                     goto loaderr;
                 }
-                if (!config->interface.set(config->data, argv[1], 0, &err)) {
+                /* Set config using all arguments that follows */
+                if (!config->interface.set(config->data, &argv[1], argc-1, 0, &err)) {
                     goto loaderr;
                 }
 
@@ -509,65 +512,8 @@ void loadServerConfigFromString(char *config) {
         }
 
         /* Execute config directives */
-        if (!strcasecmp(argv[0],"bind") && argc >= 2) {
-            int j, addresses = argc-1;
-
-            if (addresses > CONFIG_BINDADDR_MAX) {
-                err = "Too many bind addresses specified"; goto loaderr;
-            }
-
-            /* A single empty argument is treated as a zero bindaddr count */
-            if (addresses == 1 && sdslen(argv[1]) == 0) addresses = 0;
-
-            /* Free old bind addresses */
-            for (j = 0; j < server.bindaddr_count; j++) {
-                zfree(server.bindaddr[j]);
-            }
-            for (j = 0; j < addresses; j++)
-                server.bindaddr[j] = zstrdup(argv[j+1]);
-            server.bindaddr_count = addresses;
-        } else if (!strcasecmp(argv[0],"save")) {
-            /* We don't reset save params before loading, because if they're not part
-             * of the file the defaults should be used.
-             */
-            if (!save_loaded) {
-                save_loaded = 1;
-                resetServerSaveParams();
-            }
-
-            if (argc == 3) {
-                int seconds = atoi(argv[1]);
-                int changes = atoi(argv[2]);
-                if (seconds < 1 || changes < 0) {
-                    err = "Invalid save parameters"; goto loaderr;
-                }
-                appendServerSaveParams(seconds,changes);
-            } else if (argc == 2 && !strcasecmp(argv[1],"")) {
-                resetServerSaveParams();
-            }
-        } else if (!strcasecmp(argv[0],"dir") && argc == 2) {
-            if (chdir(argv[1]) == -1) {
-                err = sdscatprintf(sdsempty(), "Can't chdir to '%s': %s",
-                                   argv[1], strerror(errno));
-                goto loaderr;
-            }
-        } else if (!strcasecmp(argv[0],"include") && argc == 2) {
+        if (!strcasecmp(argv[0],"include") && argc == 2) {
             loadServerConfig(argv[1], 0, NULL);
-        } else if ((!strcasecmp(argv[0],"slaveof") ||
-                    !strcasecmp(argv[0],"replicaof")) && argc == 3) {
-            slaveof_linenum = linenum;
-            sdsfree(server.masterhost);
-            if (!strcasecmp(argv[1], "no") && !strcasecmp(argv[2], "one")) {
-                server.masterhost = NULL;
-                continue;
-            }
-            server.masterhost = sdsnew(argv[1]);
-            char *ptr;
-            server.masterport = strtol(argv[2], &ptr, 10);
-            if (server.masterport < 0 || server.masterport > 65535 || *ptr != '\0') {
-                err = "Invalid master port"; goto loaderr;
-            }
-            server.repl_state = REPL_STATE_CONNECT;
         } else if (!strcasecmp(argv[0],"list-max-ziplist-entries") && argc == 2){
             /* DEAD OPTION */
         } else if (!strcasecmp(argv[0],"list-max-ziplist-value") && argc == 2) {
@@ -596,24 +542,9 @@ void loadServerConfigFromString(char *config) {
                     err = "Target command name already exists"; goto loaderr;
                 }
             }
-        } else if (!strcasecmp(argv[0],"client-output-buffer-limit") &&
-                   argc == 5)
-        {
-            if (updateClientOutputBufferLimit(&argv[1], 4, &err) == C_ERR) goto loaderr;
-        } else if (!strcasecmp(argv[0],"oom-score-adj-values") && argc == 1 + CONFIG_OOM_COUNT) {
-            if (updateOOMScoreAdjValues(&argv[1], &err, 0) == C_ERR) goto loaderr;
-        } else if (!strcasecmp(argv[0],"notify-keyspace-events") && argc == 2) {
-            int flags = keyspaceEventsStringToFlags(argv[1]);
-
-            if (flags == -1) {
-                err = "Invalid event class character. Use 'Ag$lshzxeKEtmd'.";
-                goto loaderr;
-            }
-            server.notify_keyspace_events = flags;
         } else if (!strcasecmp(argv[0],"user") && argc >= 2) {
             int argc_err;
             if (ACLAppendUserForLoading(argv,argc,&argc_err) == C_ERR) {
-                char buf[1024];
                 const char *errmsg = ACLSetUserStringError();
                 snprintf(buf,sizeof(buf),"Error in user declaration '%s': %s",
                     argv[argc_err],errmsg);
@@ -654,8 +585,6 @@ void loadServerConfigFromString(char *config) {
 
     /* Sanity checks. */
     if (server.cluster_enabled && server.masterhost) {
-        linenum = slaveof_linenum;
-        i = linenum-1;
         err = "replicaof directive not allowed in cluster mode";
         goto loaderr;
     }
@@ -670,8 +599,10 @@ void loadServerConfigFromString(char *config) {
 loaderr:
     fprintf(stderr, "\n*** FATAL CONFIG FILE ERROR (Redis %s) ***\n",
         REDIS_VERSION);
-    fprintf(stderr, "Reading the configuration file, at line %d\n", linenum);
-    fprintf(stderr, ">>> '%s'\n", lines[i]);
+    if (i < totlines) {
+        fprintf(stderr, "Reading the configuration file, at line %d\n", linenum);
+        fprintf(stderr, ">>> '%s'\n", lines[i]);
+    }
     fprintf(stderr, "%s\n", err);
     exit(1);
 }
@@ -759,38 +690,10 @@ void loadServerConfig(char *filename, char config_from_stdin, char *options) {
 /*-----------------------------------------------------------------------------
  * CONFIG SET implementation
  *----------------------------------------------------------------------------*/
-
-#define config_set_bool_field(_name,_var) \
-    } else if (!strcasecmp(c->argv[2]->ptr,_name)) { \
-        int yn = yesnotoi(o->ptr); \
-        if (yn == -1) goto badfmt; \
-        _var = yn;
-
-#define config_set_numerical_field(_name,_var,min,max) \
-    } else if (!strcasecmp(c->argv[2]->ptr,_name)) { \
-        if (getLongLongFromObject(o,&ll) == C_ERR) goto badfmt; \
-        if (min != LLONG_MIN && ll < min) goto badfmt; \
-        if (max != LLONG_MAX && ll > max) goto badfmt; \
-        _var = ll;
-
-#define config_set_memory_field(_name,_var) \
-    } else if (!strcasecmp(c->argv[2]->ptr,_name)) { \
-        ll = memtoull(o->ptr,&err); \
-        if (err) goto badfmt; \
-        _var = ll;
-
-#define config_set_special_field(_name) \
-    } else if (!strcasecmp(c->argv[2]->ptr,_name)) {
-
-#define config_set_special_field_with_alias(_name1,_name2) \
-    } else if (!strcasecmp(c->argv[2]->ptr,_name1) || \
-               !strcasecmp(c->argv[2]->ptr,_name2)) {
-
-#define config_set_else } else
-
 void configSetCommand(client *c) {
     robj *o;
-    long long ll;
+    sds *argv;
+    int argc;
     const char *errstr = NULL;
     serverAssertWithInfo(c,c->argv[2],sdsEncodedObject(c->argv[2]));
     serverAssertWithInfo(c,c->argv[3],sdsEncodedObject(c->argv[3]));
@@ -805,115 +708,29 @@ void configSetCommand(client *c) {
             if (config->flags & SENSITIVE_CONFIG) {
                 redactClientCommandArgument(c,3);
             }
-            if (!config->interface.set(config->data,o->ptr,1,&errstr)) {
+
+            if (config->flags & MULTI_ARG_CONFIG) {
+                argv = sdssplitlen(o->ptr, sdslen(o->ptr), " ", 1, &argc);
+                if (argv == NULL) {
+                    goto badfmt;
+                }
+            } else {
+               argv = (char**)&o->ptr;
+               argc = 1;
+            }
+
+            if (!config->interface.set(config->data, argv, argc, 1, &errstr)) {
+                if (config->flags & MULTI_ARG_CONFIG) sdsfreesplitres(argv, argc);
                 goto badfmt;
             }
+            if (config->flags & MULTI_ARG_CONFIG) sdsfreesplitres(argv, argc);
             addReply(c,shared.ok);
             return;
         }
     }
 
-    if (0) { /* this starts the config_set macros else-if chain. */
-
-    /* Special fields that can't be handled with general macros. */
-    config_set_special_field("bind") {
-        int vlen;
-        sds *v = sdssplitlen(o->ptr,sdslen(o->ptr)," ",1,&vlen);
-
-        if (vlen > CONFIG_BINDADDR_MAX) {
-            addReplyError(c, "Too many bind addresses specified.");
-            sdsfreesplitres(v, vlen);
-            return;
-        }
-
-        if (changeBindAddr(v, vlen) == C_ERR) {
-            addReplyError(c, "Failed to bind to specified addresses.");
-            sdsfreesplitres(v, vlen);
-            return;
-        }
-        sdsfreesplitres(v, vlen);
-    } config_set_special_field("save") {
-        int vlen, j;
-        sds *v = sdssplitlen(o->ptr,sdslen(o->ptr)," ",1,&vlen);
-
-        /* Perform sanity check before setting the new config:
-         * - Even number of args
-         * - Seconds >= 1, changes >= 0 */
-        if (vlen & 1) {
-            sdsfreesplitres(v,vlen);
-            goto badfmt;
-        }
-        for (j = 0; j < vlen; j++) {
-            char *eptr;
-            long val;
-
-            val = strtoll(v[j], &eptr, 10);
-            if (eptr[0] != '\0' ||
-                ((j & 1) == 0 && val < 1) ||
-                ((j & 1) == 1 && val < 0)) {
-                sdsfreesplitres(v,vlen);
-                goto badfmt;
-            }
-        }
-        /* Finally set the new config */
-        resetServerSaveParams();
-        for (j = 0; j < vlen; j += 2) {
-            time_t seconds;
-            int changes;
-
-            seconds = strtoll(v[j],NULL,10);
-            changes = strtoll(v[j+1],NULL,10);
-            appendServerSaveParams(seconds, changes);
-        }
-        sdsfreesplitres(v,vlen);
-    } config_set_special_field("dir") {
-        if (chdir((char*)o->ptr) == -1) {
-            addReplyErrorFormat(c,"Changing directory: %s", strerror(errno));
-            return;
-        }
-    } config_set_special_field("client-output-buffer-limit") {
-        int vlen;
-        sds *v = sdssplitlen(o->ptr,sdslen(o->ptr)," ",1,&vlen);
-
-        if (updateClientOutputBufferLimit(v, vlen, &errstr) == C_ERR) {
-            sdsfreesplitres(v, vlen);
-            goto badfmt;
-        }
-
-        sdsfreesplitres(v,vlen);
-    } config_set_special_field("oom-score-adj-values") {
-        int vlen;
-        int success = 1;
-
-        sds *v = sdssplitlen(o->ptr, sdslen(o->ptr), " ", 1, &vlen);
-        if (vlen != CONFIG_OOM_COUNT || updateOOMScoreAdjValues(v, &errstr, 1) == C_ERR)
-            success = 0;
-
-        sdsfreesplitres(v, vlen);
-        if (!success)
-            goto badfmt;
-    } config_set_special_field("notify-keyspace-events") {
-        int flags = keyspaceEventsStringToFlags(o->ptr);
-
-        if (flags == -1) goto badfmt;
-        server.notify_keyspace_events = flags;
-    /* Numerical fields.
-     * config_set_numerical_field(name,var,min,max) */
-    } config_set_numerical_field(
-      "watchdog-period",ll,0,INT_MAX) {
-        if (ll)
-            enableWatchdog(ll);
-        else
-            disableWatchdog();
-    /* Everything else is an error... */
-    } config_set_else {
-        addReplyErrorFormat(c,"Unsupported CONFIG parameter: %s",
-            (char*)c->argv[2]->ptr);
-        return;
-    }
-
-    /* On success we just return a generic OK for all the options. */
-    addReply(c,shared.ok);
+    addReplyErrorFormat(c,"Unsupported CONFIG parameter: %s",
+        (char*)c->argv[2]->ptr);
     return;
 
 badfmt: /* Bad format errors */
@@ -933,40 +750,13 @@ badfmt: /* Bad format errors */
  * CONFIG GET implementation
  *----------------------------------------------------------------------------*/
 
-#define config_get_string_field(_name,_var) do { \
-    if (stringmatch(pattern,_name,1)) { \
-        addReplyBulkCString(c,_name); \
-        addReplyBulkCString(c,_var ? _var : ""); \
-        matches++; \
-    } \
-} while(0)
-
-#define config_get_bool_field(_name,_var) do { \
-    if (stringmatch(pattern,_name,1)) { \
-        addReplyBulkCString(c,_name); \
-        addReplyBulkCString(c,_var ? "yes" : "no"); \
-        matches++; \
-    } \
-} while(0)
-
-#define config_get_numerical_field(_name,_var) do { \
-    if (stringmatch(pattern,_name,1)) { \
-        ll2string(buf,sizeof(buf),_var); \
-        addReplyBulkCString(c,_name); \
-        addReplyBulkCString(c,buf); \
-        matches++; \
-    } \
-} while(0)
-
 void configGetCommand(client *c) {
     robj *o = c->argv[2];
     void *replylen = addReplyDeferredLen(c);
     char *pattern = o->ptr;
-    char buf[128];
     int matches = 0;
     serverAssertWithInfo(c,o,sdsEncodedObject(o));
 
-    /* Iterate the configs that are standard */
     for (standardConfig *config = configs; config->name != NULL; config++) {
         if (stringmatch(pattern,config->name,1)) {
             addReplyBulkCString(c,config->name);
@@ -978,100 +768,6 @@ void configGetCommand(client *c) {
             config->interface.get(c,config->data);
             matches++;
         }
-    }
-
-    /* Numerical values */
-    config_get_numerical_field("watchdog-period",server.watchdog_period);
-
-    /* Everything we can't handle with macros follows. */
-
-    if (stringmatch(pattern,"dir",1)) {
-        char buf[1024];
-
-        if (getcwd(buf,sizeof(buf)) == NULL)
-            buf[0] = '\0';
-
-        addReplyBulkCString(c,"dir");
-        addReplyBulkCString(c,buf);
-        matches++;
-    }
-    if (stringmatch(pattern,"save",1)) {
-        sds buf = sdsempty();
-        int j;
-
-        for (j = 0; j < server.saveparamslen; j++) {
-            buf = sdscatprintf(buf,"%jd %d",
-                    (intmax_t)server.saveparams[j].seconds,
-                    server.saveparams[j].changes);
-            if (j != server.saveparamslen-1)
-                buf = sdscatlen(buf," ",1);
-        }
-        addReplyBulkCString(c,"save");
-        addReplyBulkCString(c,buf);
-        sdsfree(buf);
-        matches++;
-    }
-    if (stringmatch(pattern,"client-output-buffer-limit",1)) {
-        sds buf = sdsempty();
-        int j;
-
-        for (j = 0; j < CLIENT_TYPE_OBUF_COUNT; j++) {
-            buf = sdscatprintf(buf,"%s %llu %llu %ld",
-                    getClientTypeName(j),
-                    server.client_obuf_limits[j].hard_limit_bytes,
-                    server.client_obuf_limits[j].soft_limit_bytes,
-                    (long) server.client_obuf_limits[j].soft_limit_seconds);
-            if (j != CLIENT_TYPE_OBUF_COUNT-1)
-                buf = sdscatlen(buf," ",1);
-        }
-        addReplyBulkCString(c,"client-output-buffer-limit");
-        addReplyBulkCString(c,buf);
-        sdsfree(buf);
-        matches++;
-    }
-    for (int i = 0; i < 2; i++) {
-        char *optname = i == 0 ? "replicaof" : "slaveof";
-        if (!stringmatch(pattern, optname, 1)) continue;
-        char buf[256];
-        addReplyBulkCString(c,optname);
-        if (server.masterhost)
-            snprintf(buf,sizeof(buf),"%s %d",
-                server.masterhost, server.masterport);
-        else
-            buf[0] = '\0';
-        addReplyBulkCString(c,buf);
-        matches++;
-    }
-    if (stringmatch(pattern,"notify-keyspace-events",1)) {
-        sds flags = keyspaceEventsFlagsToString(server.notify_keyspace_events);
-
-        addReplyBulkCString(c,"notify-keyspace-events");
-        addReplyBulkSds(c,flags);
-        matches++;
-    }
-    if (stringmatch(pattern,"bind",1)) {
-        sds aux = sdsjoin(server.bindaddr,server.bindaddr_count," ");
-
-        addReplyBulkCString(c,"bind");
-        addReplyBulkCString(c,aux);
-        sdsfree(aux);
-        matches++;
-    }
-
-    if (stringmatch(pattern,"oom-score-adj-values",1)) {
-        sds buf = sdsempty();
-        int j;
-
-        for (j = 0; j < CONFIG_OOM_COUNT; j++) {
-            buf = sdscatprintf(buf,"%d", server.oom_score_adj_values[j]);
-            if (j != CONFIG_OOM_COUNT-1)
-                buf = sdscatlen(buf," ",1);
-        }
-
-        addReplyBulkCString(c,"oom-score-adj-values");
-        addReplyBulkCString(c,buf);
-        sdsfree(buf);
-        matches++;
     }
 
     setDeferredMapLen(c,replylen,matches);
@@ -1370,7 +1066,7 @@ void rewriteConfigStringOption(struct rewriteConfigState *state, const char *opt
 }
 
 /* Rewrite a SDS string option. */
-void rewriteConfigSdsOption(struct rewriteConfigState *state, const char *option, sds value, const sds defvalue) {
+void rewriteConfigSdsOption(struct rewriteConfigState *state, const char *option, sds value, const char *defvalue) {
     int force = 1;
     sds line;
 
@@ -1382,7 +1078,7 @@ void rewriteConfigSdsOption(struct rewriteConfigState *state, const char *option
     }
 
     /* Set force to zero if the value is set to its default. */
-    if (defvalue && sdscmp(value, defvalue) == 0) force = 0;
+    if (defvalue && strcmp(value, defvalue) == 0) force = 0;
 
     line = sdsnew(option);
     line = sdscatlen(line, " ", 1);
@@ -1420,13 +1116,14 @@ void rewriteConfigEnumOption(struct rewriteConfigState *state, const char *optio
 }
 
 /* Rewrite the save option. */
-void rewriteConfigSaveOption(struct rewriteConfigState *state) {
+void rewriteConfigSaveOption(typeData data, const char *name, struct rewriteConfigState *state) {
+    UNUSED(data);
     int j;
     sds line;
 
     /* In Sentinel mode we don't need to rewrite the save parameters */
     if (server.sentinel_mode) {
-        rewriteConfigMarkAsProcessed(state,"save");
+        rewriteConfigMarkAsProcessed(state,name);
         return;
     }
 
@@ -1434,17 +1131,17 @@ void rewriteConfigSaveOption(struct rewriteConfigState *state) {
      * defaults from being used.
      */
     if (!server.saveparamslen) {
-        rewriteConfigRewriteLine(state,"save",sdsnew("save \"\""),1);
+        rewriteConfigRewriteLine(state,name,sdsnew("save \"\""),1);
     } else {
         for (j = 0; j < server.saveparamslen; j++) {
             line = sdscatprintf(sdsempty(),"save %ld %d",
                 (long) server.saveparams[j].seconds, server.saveparams[j].changes);
-            rewriteConfigRewriteLine(state,"save",line,1);
+            rewriteConfigRewriteLine(state,name,line,1);
         }
     }
 
     /* Mark "save" as processed in case server.saveparamslen is zero. */
-    rewriteConfigMarkAsProcessed(state,"save");
+    rewriteConfigMarkAsProcessed(state,name);
 }
 
 /* Rewrite the user option. */
@@ -1480,51 +1177,52 @@ void rewriteConfigUserOption(struct rewriteConfigState *state) {
 }
 
 /* Rewrite the dir option, always using absolute paths.*/
-void rewriteConfigDirOption(struct rewriteConfigState *state) {
+void rewriteConfigDirOption(typeData data, const char *name, struct rewriteConfigState *state) {
+    UNUSED(data);
     char cwd[1024];
 
     if (getcwd(cwd,sizeof(cwd)) == NULL) {
-        rewriteConfigMarkAsProcessed(state,"dir");
+        rewriteConfigMarkAsProcessed(state,name);
         return; /* no rewrite on error. */
     }
-    rewriteConfigStringOption(state,"dir",cwd,NULL);
+    rewriteConfigStringOption(state,name,cwd,NULL);
 }
 
 /* Rewrite the slaveof option. */
-void rewriteConfigSlaveofOption(struct rewriteConfigState *state, char *option) {
+void rewriteConfigReplicaOfOption(typeData data, const char *name, struct rewriteConfigState *state) {
+    UNUSED(data);
     sds line;
 
     /* If this is a master, we want all the slaveof config options
      * in the file to be removed. Note that if this is a cluster instance
      * we don't want a slaveof directive inside redis.conf. */
     if (server.cluster_enabled || server.masterhost == NULL) {
-        rewriteConfigMarkAsProcessed(state,option);
+        rewriteConfigMarkAsProcessed(state, name);
         return;
     }
-    line = sdscatprintf(sdsempty(),"%s %s %d", option,
+    line = sdscatprintf(sdsempty(),"%s %s %d", name,
         server.masterhost, server.masterport);
-    rewriteConfigRewriteLine(state,option,line,1);
+    rewriteConfigRewriteLine(state,name,line,1);
 }
 
 /* Rewrite the notify-keyspace-events option. */
-void rewriteConfigNotifykeyspaceeventsOption(struct rewriteConfigState *state) {
+void rewriteConfigNotifyKeyspaceEventsOption(typeData data, const char *name, struct rewriteConfigState *state) {
+    UNUSED(data);
     int force = server.notify_keyspace_events != 0;
-    char *option = "notify-keyspace-events";
     sds line, flags;
 
     flags = keyspaceEventsFlagsToString(server.notify_keyspace_events);
-    line = sdsnew(option);
+    line = sdsnew(name);
     line = sdscatlen(line, " ", 1);
     line = sdscatrepr(line, flags, sdslen(flags));
     sdsfree(flags);
-    rewriteConfigRewriteLine(state,option,line,force);
+    rewriteConfigRewriteLine(state,name,line,force);
 }
 
 /* Rewrite the client-output-buffer-limit option. */
-void rewriteConfigClientoutputbufferlimitOption(struct rewriteConfigState *state) {
+void rewriteConfigClientOutputBufferLimitOption(typeData data, const char *name, struct rewriteConfigState *state) {
+    UNUSED(data);
     int j;
-    char *option = "client-output-buffer-limit";
-
     for (j = 0; j < CLIENT_TYPE_OBUF_COUNT; j++) {
         int force = (server.client_obuf_limits[j].hard_limit_bytes !=
                     clientBufferLimitsDefaults[j].hard_limit_bytes) ||
@@ -1543,20 +1241,20 @@ void rewriteConfigClientoutputbufferlimitOption(struct rewriteConfigState *state
         char *typename = getClientTypeName(j);
         if (!strcmp(typename,"slave")) typename = "replica";
         line = sdscatprintf(sdsempty(),"%s %s %s %s %ld",
-                option, typename, hard, soft,
+                name, typename, hard, soft,
                 (long) server.client_obuf_limits[j].soft_limit_seconds);
-        rewriteConfigRewriteLine(state,option,line,force);
+        rewriteConfigRewriteLine(state,name,line,force);
     }
 }
 
 /* Rewrite the oom-score-adj-values option. */
-void rewriteConfigOOMScoreAdjValuesOption(struct rewriteConfigState *state) {
+void rewriteConfigOOMScoreAdjValuesOption(typeData data, const char *name, struct rewriteConfigState *state) {
+    UNUSED(data);
     int force = 0;
     int j;
-    char *option = "oom-score-adj-values";
     sds line;
 
-    line = sdsnew(option);
+    line = sdsnew(name);
     line = sdscatlen(line, " ", 1);
     for (j = 0; j < CONFIG_OOM_COUNT; j++) {
         if (server.oom_score_adj_values[j] != configOOMScoreAdjValuesDefaults[j])
@@ -1566,14 +1264,14 @@ void rewriteConfigOOMScoreAdjValuesOption(struct rewriteConfigState *state) {
         if (j+1 != CONFIG_OOM_COUNT)
             line = sdscatlen(line, " ", 1);
     }
-    rewriteConfigRewriteLine(state,option,line,force);
+    rewriteConfigRewriteLine(state,name,line,force);
 }
 
 /* Rewrite the bind option. */
-void rewriteConfigBindOption(struct rewriteConfigState *state) {
+void rewriteConfigBindOption(typeData data, const char *name, struct rewriteConfigState *state) {
+    UNUSED(data);
     int force = 1;
     sds line, addresses;
-    char *option = "bind";
     int is_default = 0;
 
     /* Compare server.bindaddr with CONFIG_DEFAULT_BINDADDR */
@@ -1589,7 +1287,7 @@ void rewriteConfigBindOption(struct rewriteConfigState *state) {
     }
 
     if (is_default) {
-        rewriteConfigMarkAsProcessed(state,option);
+        rewriteConfigMarkAsProcessed(state,name);
         return;
     }
 
@@ -1598,12 +1296,12 @@ void rewriteConfigBindOption(struct rewriteConfigState *state) {
         addresses = sdsjoin(server.bindaddr,server.bindaddr_count," ");
     else
         addresses = sdsnew("\"\"");
-    line = sdsnew(option);
+    line = sdsnew(name);
     line = sdscatlen(line, " ", 1);
     line = sdscatsds(line, addresses);
     sdsfree(addresses);
 
-    rewriteConfigRewriteLine(state,option,line,force);
+    rewriteConfigRewriteLine(state,name,line,force);
 }
 
 /* Rewrite the loadmodule option. */
@@ -1783,17 +1481,10 @@ int rewriteConfig(char *path, int force_write) {
 
     /* Iterate the configs that are standard */
     for (standardConfig *config = configs; config->name != NULL; config++) {
-        config->interface.rewrite(config->data, config->name, state);
+        if (config->interface.rewrite) config->interface.rewrite(config->data, config->name, state);
     }
 
-    rewriteConfigBindOption(state);
-    rewriteConfigSaveOption(state);
     rewriteConfigUserOption(state);
-    rewriteConfigDirOption(state);
-    rewriteConfigSlaveofOption(state,"replicaof");
-    rewriteConfigNotifykeyspaceeventsOption(state);
-    rewriteConfigClientoutputbufferlimitOption(state);
-    rewriteConfigOOMScoreAdjValuesOption(state);
     rewriteConfigLoadmoduleOption(state);
 
     /* Rewrite Sentinel config if in Sentinel mode. */
@@ -1849,8 +1540,9 @@ static void boolConfigInit(typeData data) {
     *data.yesno.config = data.yesno.default_value;
 }
 
-static int boolConfigSet(typeData data, sds value, int update, const char **err) {
-    int yn = yesnotoi(value);
+static int boolConfigSet(typeData data, sds *argv, int argc, int update, const char **err) {
+    UNUSED(argc);
+    int yn = yesnotoi(argv[0]);
     if (yn == -1) {
         *err = "argument must be 'yes' or 'no'";
         return 0;
@@ -1890,11 +1582,12 @@ static void stringConfigInit(typeData data) {
     *data.string.config = (data.string.convert_empty_to_null && !data.string.default_value) ? NULL : zstrdup(data.string.default_value);
 }
 
-static int stringConfigSet(typeData data, sds value, int update, const char **err) {
-    if (data.string.is_valid_fn && !data.string.is_valid_fn(value, err))
+static int stringConfigSet(typeData data, sds *argv, int argc, int update, const char **err) {
+    UNUSED(argc);
+    if (data.string.is_valid_fn && !data.string.is_valid_fn(argv[0], err))
         return 0;
     char *prev = *data.string.config;
-    *data.string.config = (data.string.convert_empty_to_null && !value[0]) ? NULL : zstrdup(value);
+    *data.string.config = (data.string.convert_empty_to_null && !argv[0][0]) ? NULL : zstrdup(argv[0]);
     if (update && data.string.update_fn && !data.string.update_fn(*data.string.config, prev, err)) {
         zfree(*data.string.config);
         *data.string.config = prev;
@@ -1917,11 +1610,12 @@ static void sdsConfigInit(typeData data) {
     *data.sds.config = (data.sds.convert_empty_to_null && !data.sds.default_value) ? NULL: sdsnew(data.sds.default_value);
 }
 
-static int sdsConfigSet(typeData data, sds value, int update, const char **err) {
-    if (data.sds.is_valid_fn && !data.sds.is_valid_fn(value, err))
+static int sdsConfigSet(typeData data, sds *argv, int argc, int update, const char **err) {
+    UNUSED(argc);
+    if (data.sds.is_valid_fn && !data.sds.is_valid_fn(argv[0], err))
         return 0;
     sds prev = *data.sds.config;
-    *data.sds.config = (data.sds.convert_empty_to_null && (sdslen(value) == 0)) ? NULL : sdsdup(value);
+    *data.sds.config = (data.sds.convert_empty_to_null && (sdslen(argv[0]) == 0)) ? NULL : sdsdup(argv[0]);
     if (update && data.sds.update_fn && !data.sds.update_fn(*data.sds.config, prev, err)) {
         sdsfree(*data.sds.config);
         *data.sds.config = prev;
@@ -1940,7 +1634,7 @@ static void sdsConfigGet(client *c, typeData data) {
 }
 
 static void sdsConfigRewrite(typeData data, const char *name, struct rewriteConfigState *state) {
-    rewriteConfigSdsOption(state, name, *(data.sds.config), data.sds.default_value ? sdsnew(data.sds.default_value) : NULL);
+    rewriteConfigSdsOption(state, name, *(data.sds.config), data.sds.default_value);
 }
 
 
@@ -1976,8 +1670,9 @@ static void enumConfigInit(typeData data) {
     *data.enumd.config = data.enumd.default_value;
 }
 
-static int enumConfigSet(typeData data, sds value, int update, const char **err) {
-    int enumval = configEnumGetValue(data.enumd.enum_value, value);
+static int enumConfigSet(typeData data, sds *argv, int argc, int update, const char **err) {
+    UNUSED(argc);
+    int enumval = configEnumGetValue(data.enumd.enum_value, argv[0]);
     if (enumval == INT_MIN) {
         sds enumerr = sdsnew("argument must be one of the following: ");
         configEnum *enumNode = data.enumd.enum_value;
@@ -2174,10 +1869,11 @@ static int numericParseString(typeData data, sds value, const char **err, long l
     return 0;
 }
 
-static int numericConfigSet(typeData data, sds value, int update, const char **err) {
+static int numericConfigSet(typeData data, sds *argv, int argc, int update, const char **err) {
+    UNUSED(argc);
     long long ll, prev = 0;
 
-    if (!numericParseString(data, value, err, &ll))
+    if (!numericParseString(data, argv[0], err, &ll))
         return 0;
 
     if (!numericBoundaryCheck(data, ll, err))
@@ -2314,6 +2010,11 @@ static void numericConfigRewrite(typeData data, const char *name, struct rewrite
     } \
 }
 
+#define createSpecialConfig(name, alias, modifiable, setfn, getfn, rewritefn) { \
+    embedCommonConfig(name, alias, modifiable) \
+    embedConfigInterface(NULL, setfn, getfn, rewritefn) \
+}
+
 static int isValidActiveDefrag(int val, const char **err) {
 #ifndef HAVE_DEFRAG
     if (val) {
@@ -2428,6 +2129,14 @@ static int updateGoodSlaves(long long val, long long prev, const char **err) {
     return 1;
 }
 
+static int updateWatchdogPeriod(long long val, long long prev, const char **err) {
+    UNUSED(val);
+    UNUSED(prev);
+    UNUSED(err);
+    applyWatchdogPeriod();
+    return 1;
+}
+
 static int updateAppendonly(int val, int prev, const char **err) {
     UNUSED(prev);
     if (val == 0 && server.aof_state != AOF_OFF) {
@@ -2504,6 +2213,23 @@ int updateRequirePass(sds val, sds prev, const char **err) {
     return 1;
 }
 
+
+int updateClusterFlags(int val, int prev, const char **err) {
+    UNUSED(val);
+    UNUSED(prev);
+    UNUSED(err);
+    clusterUpdateMyselfFlags();
+    return 1;
+}
+
+int updateClusterIp(char *val, char *prev, const char **err) {
+    UNUSED(val);
+    UNUSED(prev);
+    UNUSED(err);
+    clusterUpdateMyselfIp();
+    return 1;
+}
+
 #ifdef USE_OPENSSL
 static int updateTlsCfg(char *val, char *prev, const char **err) {
     UNUSED(val);
@@ -2552,6 +2278,244 @@ static int updateTLSPort(long long val, long long prev, const char **err) {
 
 #endif  /* USE_OPENSSL */
 
+static int setConfigDirOption(typeData data, sds *argv, int argc, int update, const char **err) {
+    UNUSED(data);
+    UNUSED(update);
+    if (argc != 1) {
+        *err = "wrong number of arguments";
+        return 0;
+    }
+    if (chdir(argv[0]) == -1) {
+        *err = strerror(errno);
+        return 0;
+    }
+    return 1;
+}
+
+static void getConfigDirOption(client *c, typeData data) {
+    UNUSED(data);
+    char buf[1024];
+
+    if (getcwd(buf,sizeof(buf)) == NULL)
+        buf[0] = '\0';
+
+    addReplyBulkCString(c,buf);
+}
+
+static int setConfigSaveOption(typeData data, sds *argv, int argc, int update, const char **err) {
+    UNUSED(data);
+    int j;
+
+    /* Special case: treat single arg "" as zero args indicating empty save configuration */
+    if (argc == 1 && !strcasecmp(argv[0],""))
+        argc = 0;
+
+    /* Perform sanity check before setting the new config:
+    * - Even number of args
+    * - Seconds >= 1, changes >= 0 */
+    if (argc & 1) {
+        *err = "Invalid save parameters";
+        return 0;
+    }
+    for (j = 0; j < argc; j++) {
+        char *eptr;
+        long val;
+
+        val = strtoll(argv[j], &eptr, 10);
+        if (eptr[0] != '\0' ||
+            ((j & 1) == 0 && val < 1) ||
+            ((j & 1) == 1 && val < 0)) {
+            *err = "Invalid save parameters";
+            return 0;
+        }
+    }
+    /* Finally set the new config */
+    if (update) {
+        resetServerSaveParams();
+    } else {
+        /* We don't reset save params before loading, because if they're not part
+         * of the file the defaults should be used.
+         */
+        static int save_loaded = 0;
+        if (!save_loaded) {
+            save_loaded = 1;
+            resetServerSaveParams();
+        }
+    }
+
+    for (j = 0; j < argc; j += 2) {
+        time_t seconds;
+        int changes;
+
+        seconds = strtoll(argv[j],NULL,10);
+        changes = strtoll(argv[j+1],NULL,10);
+        appendServerSaveParams(seconds, changes);
+    }
+
+    return 1;
+}
+
+static void getConfigSaveOption(client *c, typeData data) {
+    UNUSED(data);
+    sds buf = sdsempty();
+    int j;
+
+    for (j = 0; j < server.saveparamslen; j++) {
+        buf = sdscatprintf(buf,"%jd %d",
+                           (intmax_t)server.saveparams[j].seconds,
+                           server.saveparams[j].changes);
+        if (j != server.saveparamslen-1)
+            buf = sdscatlen(buf," ",1);
+    }
+
+    addReplyBulkCString(c,buf);
+    sdsfree(buf);
+}
+
+static int setConfigClientOutputBufferLimitOption(typeData data, sds *argv, int argc, int update, const char **err) {
+    UNUSED(data);
+    UNUSED(update);
+    return updateClientOutputBufferLimit(argv, argc, err);
+}
+
+static void getConfigClientOutputBufferLimitOption(client *c, typeData data) {
+    UNUSED(data);
+    sds buf = sdsempty();
+    int j;
+    for (j = 0; j < CLIENT_TYPE_OBUF_COUNT; j++) {
+        buf = sdscatprintf(buf,"%s %llu %llu %ld",
+                           getClientTypeName(j),
+                           server.client_obuf_limits[j].hard_limit_bytes,
+                           server.client_obuf_limits[j].soft_limit_bytes,
+                           (long) server.client_obuf_limits[j].soft_limit_seconds);
+        if (j != CLIENT_TYPE_OBUF_COUNT-1)
+            buf = sdscatlen(buf," ",1);
+    }
+    addReplyBulkCString(c,buf);
+    sdsfree(buf);
+}
+
+static int setConfigOOMScoreAdjValuesOption(typeData data, sds *argv, int argc, int update, const char **err) {
+    UNUSED(data);
+    if (argc != CONFIG_OOM_COUNT) {
+        *err = "wrong number of arguments";
+        return 0;
+    }
+    if (updateOOMScoreAdjValues(argv,err,update) == C_ERR) return 0;
+    return 1;
+}
+
+static void getConfigOOMScoreAdjValuesOption(client *c, typeData data) {
+    UNUSED(data);
+    sds buf = sdsempty();
+    int j;
+
+    for (j = 0; j < CONFIG_OOM_COUNT; j++) {
+        buf = sdscatprintf(buf,"%d", server.oom_score_adj_values[j]);
+        if (j != CONFIG_OOM_COUNT-1)
+            buf = sdscatlen(buf," ",1);
+    }
+
+    addReplyBulkCString(c,buf);
+    sdsfree(buf);
+}
+
+static int setConfigNotifyKeyspaceEventsOption(typeData data, sds *argv, int argc, int update, const char **err) {
+    UNUSED(data);
+    UNUSED(update);
+    if (argc != 1) {
+        *err = "wrong number of arguments";
+        return 0;
+    }
+    int flags = keyspaceEventsStringToFlags(argv[0]);
+    if (flags == -1) {
+        *err = "Invalid event class character. Use 'Ag$lshzxeKEtmd'.";
+        return 0;
+    }
+    server.notify_keyspace_events = flags;
+    return 1;
+}
+
+static void getConfigNotifyKeyspaceEventsOption(client *c, typeData data) {
+    UNUSED(data);
+    sds flags = keyspaceEventsFlagsToString(server.notify_keyspace_events);
+    addReplyBulkSds(c,flags);
+}
+
+static int setConfigBindOption(typeData data, sds* argv, int argc, int update, const char **err) {
+    UNUSED(data);
+
+    if (argc > CONFIG_BINDADDR_MAX) {
+        *err = "Too many bind addresses specified.";
+        return 0;
+    }
+
+    if (update) {
+        if (changeBindAddr(argv, argc) == C_ERR) {
+            *err = "Failed to bind to specified addresses.";
+            return 0;
+        }
+    } else {
+        int j;
+
+        /* A single empty argument is treated as a zero bindaddr count */
+        if (argc == 1 && sdslen(argv[0]) == 0) argc = 0;
+
+        /* Free old bind addresses */
+        for (j = 0; j < server.bindaddr_count; j++) {
+            zfree(server.bindaddr[j]);
+        }
+        for (j = 0; j < argc; j++)
+            server.bindaddr[j] = zstrdup(argv[j]);
+        server.bindaddr_count = argc;
+    }
+
+    return 1;
+}
+
+static int setConfigReplicaOfOption(typeData data, sds* argv, int argc, int update, const char **err) {
+    UNUSED(data);
+    UNUSED(update);
+
+    if (argc != 2) {
+        *err = "wrong number of arguments";
+        return 0;
+    }
+
+    sdsfree(server.masterhost);
+    server.masterhost = NULL;
+    if (!strcasecmp(argv[0], "no") && !strcasecmp(argv[1], "one")) {
+        return 1;
+    }
+    char *ptr;
+    server.masterport = strtol(argv[1], &ptr, 10);
+    if (server.masterport < 0 || server.masterport > 65535 || *ptr != '\0') {
+        *err = "Invalid master port";
+        return 0;
+    }
+    server.masterhost = sdsnew(argv[0]);
+    server.repl_state = REPL_STATE_CONNECT;
+    return 1;
+}
+
+static void getConfigBindOption(client *c, typeData data) {
+    UNUSED(data);
+    sds aux = sdsjoin(server.bindaddr,server.bindaddr_count," ");
+    addReplyBulkCString(c,aux);
+    sdsfree(aux);
+}
+
+static void getConfigReplicaOfOption(client *c, typeData data) {
+    UNUSED(data);
+    char buf[256];
+    if (server.masterhost)
+        snprintf(buf,sizeof(buf),"%s %d",
+                 server.masterhost, server.masterport);
+    else
+        buf[0] = '\0';
+    addReplyBulkCString(c,buf);
+}
+
 standardConfig configs[] = {
     /* Bool configs */
     createBoolConfig("rdbchecksum", NULL, IMMUTABLE_CONFIG, server.rdb_checksum, 1, NULL, NULL),
@@ -2580,7 +2544,7 @@ standardConfig configs[] = {
     createBoolConfig("aof-load-truncated", NULL, MODIFIABLE_CONFIG, server.aof_load_truncated, 1, NULL, NULL),
     createBoolConfig("aof-use-rdb-preamble", NULL, MODIFIABLE_CONFIG, server.aof_use_rdb_preamble, 1, NULL, NULL),
     createBoolConfig("aof-timestamp-enabled", NULL, MODIFIABLE_CONFIG, server.aof_timestamp_enabled, 0, NULL, NULL),
-    createBoolConfig("cluster-replica-no-failover", "cluster-slave-no-failover", MODIFIABLE_CONFIG, server.cluster_slave_no_failover, 0, NULL, NULL), /* Failover by default. */
+    createBoolConfig("cluster-replica-no-failover", "cluster-slave-no-failover", MODIFIABLE_CONFIG, server.cluster_slave_no_failover, 0, NULL, updateClusterFlags), /* Failover by default. */
     createBoolConfig("replica-lazy-flush", "slave-lazy-flush", MODIFIABLE_CONFIG, server.repl_slave_lazy_flush, 0, NULL, NULL),
     createBoolConfig("replica-serve-stale-data", "slave-serve-stale-data", MODIFIABLE_CONFIG, server.repl_serve_stale_data, 1, NULL, NULL),
     createBoolConfig("replica-read-only", "slave-read-only", DEBUG_CONFIG | MODIFIABLE_CONFIG, server.repl_slave_ro, 1, NULL, NULL),
@@ -2604,7 +2568,7 @@ standardConfig configs[] = {
     createStringConfig("pidfile", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.pidfile, NULL, NULL, NULL),
     createStringConfig("replica-announce-ip", "slave-announce-ip", MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.slave_announce_ip, NULL, NULL, NULL),
     createStringConfig("masteruser", NULL, MODIFIABLE_CONFIG | SENSITIVE_CONFIG, EMPTY_STRING_IS_NULL, server.masteruser, NULL, NULL, NULL),
-    createStringConfig("cluster-announce-ip", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.cluster_announce_ip, NULL, NULL, NULL),
+    createStringConfig("cluster-announce-ip", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.cluster_announce_ip, NULL, NULL, updateClusterIp),
     createStringConfig("cluster-config-file", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.cluster_configfile, "nodes.conf", NULL, NULL),
     createStringConfig("syslog-ident", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.syslog_ident, "redis", NULL, NULL),
     createStringConfig("dbfilename", NULL, MODIFIABLE_CONFIG, ALLOW_EMPTY_STRING, server.rdb_filename, "dump.rdb", isValidDBfilename, NULL),
@@ -2668,6 +2632,7 @@ standardConfig configs[] = {
     createIntConfig("hz", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.config_hz, CONFIG_DEFAULT_HZ, INTEGER_CONFIG, NULL, updateHZ),
     createIntConfig("min-replicas-to-write", "min-slaves-to-write", MODIFIABLE_CONFIG, 0, INT_MAX, server.repl_min_slaves_to_write, 0, INTEGER_CONFIG, NULL, updateGoodSlaves),
     createIntConfig("min-replicas-max-lag", "min-slaves-max-lag", MODIFIABLE_CONFIG, 0, INT_MAX, server.repl_min_slaves_max_lag, 10, INTEGER_CONFIG, NULL, updateGoodSlaves),
+    createIntConfig("watchdog-period", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.watchdog_period, 0, INTEGER_CONFIG, NULL, updateWatchdogPeriod),
 
     /* Unsigned int configs */
     createUIntConfig("maxclients", NULL, MODIFIABLE_CONFIG, 1, UINT_MAX, server.maxclients, 10000, INTEGER_CONFIG, NULL, updateMaxclients),
@@ -2730,6 +2695,15 @@ standardConfig configs[] = {
     createStringConfig("tls-ciphers", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.ciphers, NULL, NULL, updateTlsCfg),
     createStringConfig("tls-ciphersuites", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.ciphersuites, NULL, NULL, updateTlsCfg),
 #endif
+
+    /* Special configs */
+    createSpecialConfig("dir", NULL, MODIFIABLE_CONFIG, setConfigDirOption, getConfigDirOption, rewriteConfigDirOption),
+    createSpecialConfig("save", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigSaveOption, getConfigSaveOption, rewriteConfigSaveOption),
+    createSpecialConfig("client-output-buffer-limit", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigClientOutputBufferLimitOption, getConfigClientOutputBufferLimitOption, rewriteConfigClientOutputBufferLimitOption),
+    createSpecialConfig("oom-score-adj-values", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigOOMScoreAdjValuesOption, getConfigOOMScoreAdjValuesOption, rewriteConfigOOMScoreAdjValuesOption),
+    createSpecialConfig("notify-keyspace-events", NULL, MODIFIABLE_CONFIG, setConfigNotifyKeyspaceEventsOption, getConfigNotifyKeyspaceEventsOption, rewriteConfigNotifyKeyspaceEventsOption),
+    createSpecialConfig("bind", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigBindOption, getConfigBindOption, rewriteConfigBindOption),
+    createSpecialConfig("replicaof", "slaveof", IMMUTABLE_CONFIG | MULTI_ARG_CONFIG, setConfigReplicaOfOption, getConfigReplicaOfOption, rewriteConfigReplicaOfOption),
 
     /* NULL Terminator */
     {NULL}

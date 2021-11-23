@@ -488,6 +488,7 @@ void listElementsRemoved(client *c, robj *key, int where, robj *o, long count, i
  * optional count may be provided as the third argument of the client's
  * command. */
 void popGenericCommand(client *c, int where) {
+    int hascount = (c->argc == 3);
     long count = 0;
     robj *value;
 
@@ -495,20 +496,21 @@ void popGenericCommand(client *c, int where) {
         addReplyErrorFormat(c,"wrong number of arguments for '%s' command",
                             c->cmd->name);
         return;
-    } else if (c->argc == 3) {
+    } else if (hascount) {
         /* Parse the optional count argument. */
         if (getPositiveLongFromObjectOrReply(c,c->argv[2],&count,NULL) != C_OK) 
             return;
-        if (count == 0) {
-            /* Fast exit path. */
-            addReplyNullArray(c);
-            return;
-        }
     }
 
     robj *o = lookupKeyWriteOrReply(c, c->argv[1], shared.null[c->resp]);
     if (o == NULL || checkType(c, o, OBJ_LIST))
         return;
+
+    if (hascount && !count) {
+        /* Fast exit path. */
+        addReply(c,shared.emptyarray);
+        return;
+    }
 
     if (!count) {
         /* Pop a single element. This is POP's original behavior that replies
@@ -1023,9 +1025,9 @@ void serveClientBlockedOnList(client *receiver, robj *o, robj *key, robj *dstkey
  * 'numkeys' is the number of keys.
  * 'timeout_idx' parameter position of block timeout.
  * 'where' LIST_HEAD for LEFT, LIST_TAIL for RIGHT.
- * 'count' is the number of elements requested to pop, or 0 for plain single pop.
+ * 'count' is the number of elements requested to pop, or -1 for plain single pop.
  *
- * When count is 0, a reply of a single bulk-string will be used.
+ * When count is -1, a reply of a single bulk-string will be used.
  * When count > 0, an array reply will be used. */
 void blockingPopGenericCommand(client *c, robj **keys, int numkeys, int where, int timeout_idx, long count) {
     robj *o;
@@ -1050,7 +1052,7 @@ void blockingPopGenericCommand(client *c, robj **keys, int numkeys, int where, i
         /* Empty list, move to next key. */
         if (llen == 0) continue;
 
-        if (count != 0) {
+        if (count != -1) {
             /* BLMPOP, non empty list, like a normal [LR]POP with count option.
              * The difference here we pop a range of elements in a nested arrays way. */
             listPopRangeAndReplyWithKey(c, o, key, where, count, NULL);
@@ -1095,12 +1097,12 @@ void blockingPopGenericCommand(client *c, robj **keys, int numkeys, int where, i
 
 /* BLPOP <key> [<key> ...] <timeout> */
 void blpopCommand(client *c) {
-    blockingPopGenericCommand(c,c->argv+1,c->argc-2,LIST_HEAD,c->argc-1,0);
+    blockingPopGenericCommand(c,c->argv+1,c->argc-2,LIST_HEAD,c->argc-1,-1);
 }
 
 /* BRPOP <key> [<key> ...] <timeout> */
 void brpopCommand(client *c) {
-    blockingPopGenericCommand(c,c->argv+1,c->argc-2,LIST_TAIL,c->argc-1,0);
+    blockingPopGenericCommand(c,c->argv+1,c->argc-2,LIST_TAIL,c->argc-1,-1);
 }
 
 void blmoveGenericCommand(client *c, int wherefrom, int whereto, mstime_t timeout) {
@@ -1115,7 +1117,7 @@ void blmoveGenericCommand(client *c, int wherefrom, int whereto, mstime_t timeou
         } else {
             /* The list is empty and the client blocks. */
             struct blockPos pos = {wherefrom, whereto};
-            blockForKeys(c,BLOCKED_LIST,c->argv + 1,1,0,timeout,c->argv[2],&pos,NULL);
+            blockForKeys(c,BLOCKED_LIST,c->argv + 1,1,-1,timeout,c->argv[2],&pos,NULL);
         }
     } else {
         /* The list exists and has elements, so
@@ -1154,7 +1156,7 @@ void lmpopGenericCommand(client *c, int numkeys_idx, int is_block) {
     long j;
     long numkeys = 0;      /* Number of keys. */
     int where = 0;         /* HEAD for LEFT, TAIL for RIGHT. */
-    long count = 0;        /* Reply will consist of up to count elements, depending on the list's length. */
+    long count = -1;       /* Reply will consist of up to count elements, depending on the list's length. */
 
     /* Parse the numkeys. */
     if (getRangeLongFromObjectOrReply(c, c->argv[numkeys_idx], 1, LONG_MAX,
@@ -1175,7 +1177,7 @@ void lmpopGenericCommand(client *c, int numkeys_idx, int is_block) {
         char *opt = c->argv[j]->ptr;
         int moreargs = (c->argc - 1) - j;
 
-        if (count == 0 && !strcasecmp(opt, "COUNT") && moreargs) {
+        if (count == -1 && !strcasecmp(opt, "COUNT") && moreargs) {
             j++;
             if (getRangeLongFromObjectOrReply(c, c->argv[j], 1, LONG_MAX,
                                               &count,"count should be greater than 0") != C_OK)
@@ -1186,7 +1188,7 @@ void lmpopGenericCommand(client *c, int numkeys_idx, int is_block) {
         }
     }
 
-    if (count == 0) count = 1;
+    if (count == -1) count = 1;
 
     if (is_block) {
         /* BLOCK. We will handle CLIENT_DENY_BLOCKING flag in blockingPopGenericCommand. */

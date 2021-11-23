@@ -903,7 +903,7 @@ void defragDictBucketCallback(dict *d, dictEntry **bucketref) {
             *bucketref = newde;
             if (server.cluster_enabled && d == server.db[0].dict) {
                 /* Cluster keyspace dict. Update slot-to-entries mapping. */
-                slotToKeyReplaceEntry(newde);
+                slotToKeyReplaceEntry(newde, server.db);
             }
         }
         bucketref = &(*bucketref)->next;

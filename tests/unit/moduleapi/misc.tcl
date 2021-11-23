@@ -122,4 +122,10 @@ start_server {tags {"modules"}} {
     test {test RM_Call CLIENT INFO} {
         assert_match "*fd=-1*" [r test.call_generic client info]
     }
+
+    test {Unsafe command names are sanitized in INFO output} {
+        r test.weird:cmd
+        set info [r info commandstats]
+        assert_match {*cmdstat_test.weird_cmd:calls=1*} $info
+    }
 }
