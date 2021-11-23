@@ -651,17 +651,18 @@ static int performInterfaceSet(standardConfig *config, sds value, const char **e
 
 static void restoreBackupConfig(standardConfig **set_configs, sds *old_values, int count, apply_fn *apply_fns) {
     int i;
-    const char *errstr = NULL;
+    const char *errstr = "unknown error";
     /* Set all backup values */
     for (i = 0; i < count; i++) {
         if (!performInterfaceSet(set_configs[i], old_values[i], &errstr))
-            serverPanic("Failed restoring failed CONFIG SET command: %s", errstr);
+            serverLog(LL_WARNING, "Failed restoring failed CONFIG SET command. Error setting %s to '%s': %s",
+                      set_configs[i]->name, old_values[i], errstr);
     }
     /* Apply backup */
     if (apply_fns) {
         for (i = 0; i < count && apply_fns[i] != NULL; i++) {
             if (!apply_fns[i](&errstr))
-                serverPanic("Failed applying restored failed CONFIG SET command: %s", errstr);
+                serverLog(LL_WARNING, "Failed applying restored failed CONFIG SET command: %s", errstr);
         }
     }
 }
