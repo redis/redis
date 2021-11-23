@@ -1160,6 +1160,8 @@ unsigned char *ziplistIndex(unsigned char *zl, int index) {
             /* No need for "safe" check: when going backwards, we know the header
              * we're parsing is in the range, we just need to assert (below) that
              * the size we take doesn't cause p to go outside the allocation. */
+            ZIP_DECODE_PREVLENSIZE(p, prevlensize);
+            assert(p + prevlensize < zl + zlbytes - ZIPLIST_END_SIZE);
             ZIP_DECODE_PREVLEN(p, prevlensize, prevlen);
             while (prevlen > 0 && index--) {
                 p -= prevlen;
