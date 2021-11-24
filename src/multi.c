@@ -404,8 +404,6 @@ void touchWatchedKey(redisDb *db, robj *key) {
  * the key exists in either of them, and skipped only if it
  * doesn't exist in both. */
 void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with) {
-    listIter li;
-    listNode *ln;
     dictEntry *de;
 
     if (dictSize(emptied->watched_keys) == 0) return;
@@ -416,12 +414,11 @@ void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with) {
         if (dictFind(emptied->dict, key->ptr) ||
             (replaced_with && dictFind(replaced_with->dict, key->ptr)))
         {
-            list *clients = dictGetVal(de);
-            if (!clients) continue;
-            listRewind(clients,&li);
-            while((ln = listNext(&li))) {
-                client *c = listNodeValue(ln);
+            list *clients = NULL;
+            while((clients = dictFetchValue(emptied->watched_keys, key))) {
+                client *c = listNodeValue(listFirst(clients));
                 c->flags |= CLIENT_DIRTY_CAS;
+                unwatchAllKeys(c);
             }
         }
     }
