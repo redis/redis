@@ -7,7 +7,6 @@ start_server {tags {"modules"}} {
         set reply [r command info subcommands.bitarray]
         # create a dict for easy lookup
         unset -nocomplain mydict
-        puts [lindex [lindex $reply 0] 7]
         foreach {k v} [lindex [lindex $reply 0] 7] {
             dict append mydict $k $v
         }

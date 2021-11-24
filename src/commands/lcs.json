@@ -1,0 +1,38 @@
+{
+    "LCS": {
+        "summary": "__TBD__3__",
+        "complexity": "__TBD__2__",
+        "group": "string",
+        "since": "7.0.0",
+        "arity": -3,
+        "function": "lcsCommand",
+        "get_keys_function": "lcsGetKeys",
+        "command_flags": [
+            "readonly"
+        ],
+        "acl_categories": [
+            "read",
+            "string",
+            "slow"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "read"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 1,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ]
+    }
+}

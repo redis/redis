@@ -330,7 +330,7 @@ class Command(object):
         f.write("/* %s hints */\n" % self.fullname())
         code = self.hints_code()
         if code:
-            f.write("char *%s[] = {\n" % self.hints_table_name())
+            f.write("const char *%s[] = {\n" % self.hints_table_name())
             f.write("%s\n" % code)
             f.write("};\n\n")
         else:

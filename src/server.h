@@ -1906,15 +1906,15 @@ typedef enum {
 #define CMD_ARG_MULTIPLE_TOKEN  (1<<2)
 
 struct redisCommandArg {
-    char *name;
+    const char *name;
     redisCommandArgType type;
-    char *token;
-    char *summary;
-    char *since;
+    const char *token;
+    const char *summary;
+    const char *since;
     int flags;
     union {
         struct redisCommandArg *subargs;
-        char *string;
+        const char *string;
     } value;
 };
 
@@ -1943,8 +1943,8 @@ typedef enum {
 } redisCommandRESP3Type;
 
 typedef struct {
-    char *since;
-    char *summary;
+    const char *since;
+    const char *changes;
 } commandHistory;
 
 /* Must be synced with generate-command-code.py */
@@ -2008,19 +2008,19 @@ typedef int redisGetKeysProc(struct redisCommand *cmd, robj **argv, int argc, ge
 */
 struct redisCommand {
     /* Declarative data */
-    char *name;
-    char *summary;
-    char *complexity;
-    char *since;
+    const char *name;
+    const char *summary;
+    const char *complexity;
+    const char *since;
     int doc_flags;
-    char *replaced_by;
-    char *deprecated_since;
+    const char *replaced_by;
+    const char *deprecated_since;
     redisCommandGroup group;
     commandHistory *history;
-    char **hints;
+    const char **hints;
     redisCommandProc *proc;
     int arity;
-    char *sflags;   /* Flags as string representation, one char per flag. */
+    const char *sflags;   /* Flags as string representation, one char per flag. */
     keySpec key_specs_static[STATIC_KEY_SPECS_NUM];
     /* Use a function to determine keys arguments in a command line.
      * Used for Redis Cluster redirect (may be NULL) */

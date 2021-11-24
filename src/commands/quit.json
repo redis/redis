@@ -1,0 +1,21 @@
+{
+    "QUIT": {
+        "summary": "Close the connection",
+        "complexity": "__TBD__7__",
+        "group": "connection",
+        "since": "1.0.0",
+        "arity": -1,
+        "function": "quitCommand",
+        "command_flags": [
+            "noscript",
+            "loading",
+            "stale",
+            "fast",
+            "no_auth"
+        ],
+        "acl_categories": [
+            "fast",
+            "connection"
+        ]
+    }
+}

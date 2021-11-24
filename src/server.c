@@ -2497,7 +2497,7 @@ void commandAddSubcommand(struct redisCommand *parent, struct redisCommand *subc
 
 /* Parse the flags string description 'strflags' and set them to the
  * command 'c'. Abort on error. */
-void parseCommandFlags(struct redisCommand *c, char *strflags) {
+void parseCommandFlags(struct redisCommand *c, const char *strflags) {
     int argc;
     sds *argv;
 
@@ -3909,7 +3909,7 @@ void addReplyCommandHistory(client *c, struct redisCommand *cmd) {
     for (j = 0; cmd->history && cmd->history[j].since != NULL; j++) {
         addReplyArrayLen(c, 2);
         addReplyBulkCString(c, cmd->history[j].since);
-        addReplyBulkCString(c, cmd->history[j].summary);
+        addReplyBulkCString(c, cmd->history[j].changes);
     }
     setDeferredSetLen(c, array, j);
 }
