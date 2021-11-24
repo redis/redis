@@ -743,5 +743,16 @@ test {corrupt payload: fuzzer findings - lpFind invalid access } {
     }
 }
 
+test {corrupt payload: fuzzer findings - invalid access in ziplist tail prevlen decoding} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r debug set-skip-checksum-validation 1
+        r config set sanitize-dump-payload no
+        r restore _listbig 0 "\x12\x02\x02\x1B\x1B\x00\x00\x00\x16\x00\x00\x00\x05\x00\x00\x02\x5F\x39\x04\xF9\x02\x02\x5F\x37\x04\xF7\x02\x02\x5F\x35\xFF\x02\x19\x19\x00\x00\x00\x16\x00\x00\x00\x05\x00\x00\xF5\x02\x02\x5F\x33\x04\xF3\x02\x02\x5F\x31\xFE\xF1\xFF\x0A\x00\x64\x0C\xEB\x03\xDF\x36\x61\xCE"
+        catch { r RPOPLPUSH _listbig _listbig }
+        assert_equal [count_log_message 0 "crashed by signal"] 0
+        assert_equal [count_log_message 0 "ASSERTION FAILED"] 1
+    }
+}
+
 } ;# tags
 
