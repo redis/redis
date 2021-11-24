@@ -1942,25 +1942,6 @@ typedef enum {
     RESP3_NULL,
 } redisCommandRESP3Type;
 
-/* Must be synced with generate-command-code.py */
-typedef enum {
-    RETURN_TYPE_RESP2_3_SAME,
-    RETURN_TYPE_RESP2_3_DIFFER
-} redisCommandReturnType;
-
-typedef struct {
-    char *description;
-    char *constant_value;
-    redisCommandReturnType which;
-    union {
-        redisCommandRESP2Type global; /* Same type for both RESP2 and RESP3 */
-        struct {
-            redisCommandRESP2Type resp2;
-            redisCommandRESP3Type resp3;
-        } unique;
-    } type;
-} commandReturnInfo;
-
 typedef struct {
     char *since;
     char *summary;
@@ -2035,7 +2016,6 @@ struct redisCommand {
     char *replaced_by;
     char *deprecated_since;
     redisCommandGroup group;
-    commandReturnInfo *returns;
     commandHistory *history;
     char **hints;
     redisCommandProc *proc;

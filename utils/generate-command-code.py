@@ -225,32 +225,6 @@ class Command(object):
     def struct_name(self):
         return "%s_Command" % (self.fullname().replace(" ", "_"))
 
-    def return_info_code(self):
-        if not self.desc.get("returns"):
-            return ""
-        s = ""
-        for return_desc in self.desc["returns"]:
-            if return_desc.get("constant_value"):
-                assert return_desc["type"] == "simple-string"
-                s += "{\"%s\",\"%s\",RETURN_TYPE_RESP2_3_SAME,.type.global=%s},\n" % (
-                    return_desc["description"],
-                    return_desc["constant_value"],
-                    RESP2_TYPES[return_desc["type"]],
-                )
-            elif isinstance(return_desc["type"], unicode):
-                s += "{\"%s\",NULL,RETURN_TYPE_RESP2_3_SAME,.type.global=%s},\n" % (
-                    return_desc["description"],
-                    RESP2_TYPES[return_desc["type"]],
-                )
-            else:
-                s += "{\"%s\",NULL,RETURN_TYPE_RESP2_3_DIFFER,.type.unique={%s,%s}},\n" % (
-                    return_desc["description"],
-                    RESP2_TYPES[return_desc["type"]["RESP2"]],
-                    RESP3_TYPES[return_desc["type"]["RESP3"]],
-                )
-        s += "{0}"
-        return s
-
     def history_code(self):
         if not self.desc.get("history"):
             return ""
@@ -299,7 +273,7 @@ class Command(object):
                 s += "{%s}," % KeySpec(spec).struct_code()
             return s[:-1]
 
-        s = "\"%s\",%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%d,\"%s\"," % (
+        s = "\"%s\",%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%d,\"%s\"," % (
             self.name.lower(),
             get_optional_desc_string(self.desc, "summary"),
             get_optional_desc_string(self.desc, "complexity"),
@@ -308,7 +282,6 @@ class Command(object):
             get_optional_desc_string(self.desc, "replaced_by"),
             get_optional_desc_string(self.desc, "deprecated_since"),
             GROUPS[self.group],
-            self.return_types_table_name(),
             self.history_table_name(),
             self.hints_table_name(),
             self.desc.get("function", "NULL"),
@@ -344,15 +317,6 @@ class Command(object):
             f.write("};\n\n")
 
         f.write("/********** %s ********************/\n\n" % self.fullname())
-
-        f.write("/* %s return info */\n" % self.fullname())
-        code = self.return_info_code()
-        if code:
-            f.write("commandReturnInfo %s[] = {\n" % self.return_types_table_name())
-            f.write("%s\n" % code)
-            f.write("};\n\n")
-        else:
-            f.write("#define %s NULL\n\n" % self.return_types_table_name())
 
         f.write("/* %s history */\n" % self.fullname())
         code = self.history_code()

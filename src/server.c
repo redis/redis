@@ -3902,37 +3902,6 @@ const char *RESP3_TYPE_STR[] = {
     "null",
 };
 
-void addReplyCommandReturnTypes(client *c, struct redisCommand *cmd) {
-    int j;
-
-    void *array = addReplyDeferredLen(c);
-    for (j = 0; cmd->returns && cmd->returns[j].description != NULL; j++) {
-        long maplen = 0;
-        void *mapreply = addReplyDeferredLen(c);
-        addReplyBulkCString(c, "description");
-        addReplyBulkCString(c, cmd->returns[j].description);
-        maplen++;
-        addReplyBulkCString(c, "type");
-        if (cmd->returns[j].which == RETURN_TYPE_RESP2_3_SAME) {
-            addReplyBulkCString(c, RESP2_TYPE_STR[cmd->returns[j].type.global]);
-        } else {
-            addReplyMapLen(c, 2);
-            addReplyBulkCString(c, "RESP2");
-            addReplyBulkCString(c, RESP2_TYPE_STR[cmd->returns[j].type.unique.resp2]);
-            addReplyBulkCString(c, "RESP3");
-            addReplyBulkCString(c, RESP3_TYPE_STR[cmd->returns[j].type.unique.resp3]);
-        }
-        maplen++;
-        if (cmd->returns[j].constant_value) {
-            addReplyBulkCString(c, "constant-value");
-            addReplyBulkCString(c, cmd->returns[j].constant_value);
-            maplen++;
-        }
-        setDeferredMapLen(c, mapreply, maplen);
-    }
-    setDeferredSetLen(c, array, j);
-}
-
 void addReplyCommandHistory(client *c, struct redisCommand *cmd) {
     int j;
 
@@ -4132,11 +4101,6 @@ void addReplyCommand(client *c, struct redisCommand *cmd) {
         if (cmd->replaced_by) {
             addReplyBulkCString(c, "replaced-by");
             addReplyBulkCString(c, cmd->replaced_by);
-            maplen++;
-        }
-        if (cmd->returns) {
-            addReplyBulkCString(c, "returns");
-            addReplyCommandReturnTypes(c, cmd);
             maplen++;
         }
         if (cmd->history) {
