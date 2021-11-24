@@ -114,8 +114,11 @@ tags "modules" {
                             }
                             $master exec
                         }
+
                         # wait for loading to stop (fail)
+                        # After a loading successfully, next loop will enter `async_loading`
                         wait_for_condition 1000 1 {
+                            [s -1 async_loading] eq 0 &&
                             [s -1 loading] eq 0
                         } else {
                             fail "Replica didn't disconnect"
