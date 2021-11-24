@@ -6,28 +6,19 @@
         "since": "PATCH__TBD__28__",
         "arity": -1,
         "function": "replconfCommand",
-        "internal": true,
-        "undocumented": true,
+        "doc_flags": [
+            "syscmd"
+        ],
         "command_flags": [
             "admin",
             "noscript",
             "loading",
-            "stale",
-            "internal"
+            "stale"
         ],
         "acl_categories": [
             "admin",
             "slow",
             "dangerous"
-        ],
-        "returns": [
-            {
-                "description": "PATCH__TBD__310__",
-                "type": {
-                    "RESP2": "null-bulk-string",
-                    "RESP3": "null"
-                }
-            }
         ]
     }
 }

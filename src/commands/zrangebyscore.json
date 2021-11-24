@@ -6,8 +6,11 @@
         "since": "1.0.5",
         "arity": -4,
         "function": "zrangebyscoreCommand",
-        "until": "6.2.0",
+        "deprecated_since": "6.2.0",
         "replaced_by": "`ZRANGE` with the `BYSCORE` argument",
+        "doc_flags": [
+            "deprecated"
+        ],
         "command_flags": [
             "readonly"
         ],
@@ -32,15 +35,6 @@
                         "step": 1,
                         "limit": 0
                     }
-                }
-            }
-        ],
-        "returns": [
-            {
-                "description": "PATCH__TBD__420__",
-                "type": {
-                    "RESP2": "null-bulk-string",
-                    "RESP3": "null"
                 }
             }
         ],

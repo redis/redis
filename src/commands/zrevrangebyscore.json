@@ -6,8 +6,11 @@
         "since": "2.2.0",
         "arity": -4,
         "function": "zrevrangebyscoreCommand",
-        "until": "6.2.0",
+        "deprecated_since": "6.2.0",
         "replaced_by": "`ZRANGE` with the `REV` and `BYSCORE` arguments",
+        "doc_flags": [
+            "deprecated"
+        ],
         "command_flags": [
             "readonly"
         ],
@@ -32,15 +35,6 @@
                         "step": 1,
                         "limit": 0
                     }
-                }
-            }
-        ],
-        "returns": [
-            {
-                "description": "PATCH__TBD__429__",
-                "type": {
-                    "RESP2": "null-bulk-string",
-                    "RESP3": "null"
                 }
             }
         ],

@@ -3791,6 +3791,14 @@ void addReplyFlagsForCommand(client *c, struct redisCommand *cmd) {
     setDeferredSetLen(c, flaglen, flagcount);
 }
 
+void addReplyDocFlagsForCommand(client *c, struct redisCommand *cmd) {
+    int flagcount = 0;
+    void *flaglen = addReplyDeferredLen(c);
+    flagcount += addReplyCommandFlag(c,cmd->doc_flags,CMD_DOC_DEPRECATED, "deprecated");
+    flagcount += addReplyCommandFlag(c,cmd->doc_flags,CMD_DOC_SYSCMD, "syscmd");
+    setDeferredSetLen(c, flaglen, flagcount);
+}
+
 void addReplyFlagsForKeyArgs(client *c, uint64_t flags) {
     int flagcount = 0;
     void *flaglen = addReplyDeferredLen(c);
@@ -3935,13 +3943,12 @@ void addReplyCommandHistory(client *c, struct redisCommand *cmd) {
     setDeferredSetLen(c, array, j);
 }
 
-void addReplyCommandMetadata(client *c, struct redisCommand *cmd) {
+void addReplyCommandHints(client *c, struct redisCommand *cmd) {
     int j;
 
     void *array = addReplyDeferredLen(c);
-    for (j = 0; cmd->metadata && cmd->metadata[j].field != NULL; j++) {
+    for (j = 0; cmd->metadata && cmd->hints[j].field != NULL; j++) {
         addReplyBulkCString(c, cmd->metadata[j].field);
-        addReplyBulkCString(c, cmd->metadata[j].value);
     }
     setDeferredMapLen(c, array, j);
 }
@@ -4110,6 +4117,21 @@ void addReplyCommand(client *c, struct redisCommand *cmd) {
         addReplyBulkCString(c, "group");
         addReplyBulkCString(c, COMMAND_GROUP_STR[cmd->group]);
         maplen++;
+        if (cmd->doc_flags) {
+            addReplyBulkCString(c, "doc-flags");
+            addReplyDocFlagsForCommand(c, cmd);
+            maplen++;
+        }
+        if (cmd->deprecated_since) {
+            addReplyBulkCString(c, "deprecated-since");
+            addReplyBulkCString(c, cmd->deprecated_since);
+            maplen++;
+        }
+        if (cmd->replaced_by) {
+            addReplyBulkCString(c, "replaced-by");
+            addReplyBulkCString(c, cmd->replaced_by);
+            maplen++;
+        }
         if (cmd->returns) {
             addReplyBulkCString(c, "returns");
             addReplyCommandReturnTypes(c, cmd);
@@ -4120,9 +4142,9 @@ void addReplyCommand(client *c, struct redisCommand *cmd) {
             addReplyCommandHistory(c, cmd);
             maplen++;
         }
-        if (cmd->metadata) {
-            addReplyBulkCString(c, "metadata");
-            addReplyCommandMetadata(c, cmd);
+        if (cmd->hints) {
+            addReplyBulkCString(c, "hints");
+            addReplyCommandHints(c, cmd);
             maplen++;
         }
         if (cmd->args) {

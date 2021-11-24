@@ -6,13 +6,13 @@
         "since": "2.8.9",
         "arity": -3,
         "function": "pfdebugCommand",
-        "internal": true,
-        "undocumented": true,
+        "doc_flags": [
+            "syscmd"
+        ],
         "command_flags": [
             "write",
             "denyoom",
-            "admin",
-            "internal"
+            "admin"
         ],
         "acl_categories": [
             "write",
@@ -37,15 +37,6 @@
                         "step": 1,
                         "limit": 0
                     }
-                }
-            }
-        ],
-        "returns": [
-            {
-                "description": "PATCH__TBD__289__",
-                "type": {
-                    "RESP2": "null-bulk-string",
-                    "RESP3": "null"
                 }
             }
         ]

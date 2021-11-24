@@ -6,13 +6,13 @@
         "since": "PATCH__TBD__19__",
         "arity": -4,
         "function": "restoreCommand",
-        "internal": true,
-        "undocumented": true,
+        "doc_flags": [
+            "syscmd"
+        ],
         "command_flags": [
             "write",
             "denyoom",
-            "asking",
-            "internal"
+            "asking"
         ],
         "acl_categories": [
             "keyspace",
@@ -36,15 +36,6 @@
                         "step": 1,
                         "limit": 0
                     }
-                }
-            }
-        ],
-        "returns": [
-            {
-                "description": "PATCH__TBD__314__",
-                "type": {
-                    "RESP2": "null-bulk-string",
-                    "RESP3": "null"
                 }
             }
         ]

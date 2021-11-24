@@ -6,8 +6,11 @@
         "since": "2.0.0",
         "arity": -4,
         "function": "hsetCommand",
-        "until": "4.0.0",
+        "deprecated_since": "4.0.0",
         "replaced_by": "`HSET` with multiple field-value pairs",
+        "doc_flags": [
+            "deprecated"
+        ],
         "command_flags": [
             "write",
             "denyoom",
@@ -34,15 +37,6 @@
                         "step": 1,
                         "limit": 0
                     }
-                }
-            }
-        ],
-        "returns": [
-            {
-                "description": "PATCH__TBD__223__",
-                "type": {
-                    "RESP2": "null-bulk-string",
-                    "RESP3": "null"
                 }
             }
         ],

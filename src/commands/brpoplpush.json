@@ -6,13 +6,16 @@
         "since": "2.2.0",
         "arity": 4,
         "function": "brpoplpushCommand",
-        "until": "6.2.0",
-        "replaced_by": "`BLMOVE` with the `RIGHT` and `LEFT` arguments",
         "history": [
             [
                 "6.0",
                 "`timeout` is interpreted as a double instead of an integer."
             ]
+        ],
+        "deprecated_since": "6.2.0",
+        "replaced_by": "`BLMOVE` with the `RIGHT` and `LEFT` arguments",
+        "doc_flags": [
+            "deprecated"
         ],
         "command_flags": [
             "write",
@@ -59,15 +62,6 @@
                         "step": 1,
                         "limit": 0
                     }
-                }
-            }
-        ],
-        "returns": [
-            {
-                "description": "PATCH__TBD__118__",
-                "type": {
-                    "RESP2": "null-bulk-string",
-                    "RESP3": "null"
                 }
             }
         ],

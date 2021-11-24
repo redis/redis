@@ -14,15 +14,6 @@
         "acl_categories": [
             "slow",
             "connection"
-        ],
-        "returns": [
-            {
-                "description": "PATCH__TBD__164__",
-                "type": {
-                    "RESP2": "null-bulk-string",
-                    "RESP3": "null"
-                }
-            }
         ]
     }
 }

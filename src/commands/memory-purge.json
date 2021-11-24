@@ -9,15 +9,6 @@
         "function": "memoryCommand",
         "acl_categories": [
             "slow"
-        ],
-        "returns": [
-            {
-                "description": "PATCH__TBD__261__",
-                "type": {
-                    "RESP2": "null-bulk-string",
-                    "RESP3": "null"
-                }
-            }
         ]
     }
 }

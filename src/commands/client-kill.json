@@ -41,15 +41,6 @@
             "dangerous",
             "connection"
         ],
-        "returns": [
-            {
-                "description": "PATCH__TBD__128__",
-                "type": {
-                    "RESP2": "null-bulk-string",
-                    "RESP3": "null"
-                }
-            }
-        ],
         "arguments": [
             {
                 "name": "ip:port",

@@ -1,9 +1,9 @@
 {
     "HELP": {
-        "summary": "__TBD__6__",
+        "summary": "Show helpful text about the different subcommands",
         "complexity": "O(1)",
         "group": "server",
-        "since": "__TBD__7__",
+        "since": "5.0.0",
         "arity": 2,
         "container": "MODULE",
         "function": "moduleCommand",
@@ -13,15 +13,6 @@
         ],
         "acl_categories": [
             "slow"
-        ],
-        "returns": [
-            {
-                "description": "PATCH__TBD__267__",
-                "type": {
-                    "RESP2": "null-bulk-string",
-                    "RESP3": "null"
-                }
-            }
         ]
     }
 }

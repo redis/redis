@@ -6,8 +6,11 @@
         "since": "5.0.0",
         "arity": -5,
         "function": "georadiusbymemberroCommand",
-        "until": "6.2.0",
+        "deprecated_since": "6.2.0",
         "replaced_by": "`GEOSEARCH` with the `BYRADIUS` and `FROMMEMBER` arguments",
+        "doc_flags": [
+            "deprecated"
+        ],
         "command_flags": [
             "readonly"
         ],
@@ -32,15 +35,6 @@
                         "step": 1,
                         "limit": 0
                     }
-                }
-            }
-        ],
-        "returns": [
-            {
-                "description": "PATCH__TBD__204__",
-                "type": {
-                    "RESP2": "null-bulk-string",
-                    "RESP3": "null"
                 }
             }
         ]

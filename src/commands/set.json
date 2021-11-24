@@ -53,24 +53,6 @@
                 }
             }
         ],
-        "returns":[
-            {
-                "description": "Command succeeded",
-                "type": "simple-string",
-                "constant_value": "+OK"
-            },
-            {
-                "description": "Old value if `GET` was given",
-                "type": "bulk-string"
-            },
-            {
-                "description": "Either `SET` failed (with `NX` or `XX`), or `GET` was given and key didn't exist",
-                "type": {
-                    "RESP2": "null-bulk-string",
-                    "RESP3": "null"
-                }
-            }
-        ],
         "arguments": [
             {
                 "name": "key",

@@ -6,13 +6,10 @@
         "since": "5.0.0",
         "arity": 3,
         "function": "xsetidCommand",
-        "internal": true,
-        "undocumented": true,
         "command_flags": [
             "write",
             "denyoom",
-            "fast",
-            "internal"
+            "fast"
         ],
         "acl_categories": [
             "write",
@@ -35,15 +32,6 @@
                         "step": 1,
                         "limit": 0
                     }
-                }
-            }
-        ],
-        "returns": [
-            {
-                "description": "PATCH__TBD__401__",
-                "type": {
-                    "RESP2": "null-bulk-string",
-                    "RESP3": "null"
                 }
             }
         ]

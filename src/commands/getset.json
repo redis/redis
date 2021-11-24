@@ -6,8 +6,11 @@
         "since": "1.0.0",
         "arity": 3,
         "function": "getsetCommand",
-        "until": "6.2.0",
+        "deprecated_since": "6.2.0",
         "replaced_by": "`SET` with the `!GET` argument",
+        "doc_flags": [
+            "deprecated"
+        ],
         "command_flags": [
             "write",
             "denyoom",
@@ -35,15 +38,6 @@
                         "step": 1,
                         "limit": 0
                     }
-                }
-            }
-        ],
-        "returns": [
-            {
-                "description": "PATCH__TBD__212__",
-                "type": {
-                    "RESP2": "null-bulk-string",
-                    "RESP3": "null"
                 }
             }
         ],

@@ -13,15 +13,6 @@
         "acl_categories": [
             "slow",
             "scripting"
-        ],
-        "returns": [
-            {
-                "description": "PATCH__TBD__328__",
-                "type": {
-                    "RESP2": "null-bulk-string",
-                    "RESP3": "null"
-                }
-            }
         ]
     }
 }

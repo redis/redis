@@ -6,27 +6,19 @@
         "since": "1.0.0",
         "arity": -2,
         "function": "debugCommand",
-        "internal": true,
+        "doc_flags": [
+            "syscmd"
+        ],
         "command_flags": [
             "admin",
             "noscript",
             "loading",
-            "stale",
-            "internal"
+            "stale"
         ],
         "acl_categories": [
             "admin",
             "slow",
             "dangerous"
-        ],
-        "returns": [
-            {
-                "description": "PATCH__TBD__178__",
-                "type": {
-                    "RESP2": "null-bulk-string",
-                    "RESP3": "null"
-                }
-            }
         ]
     }
 }

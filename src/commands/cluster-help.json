@@ -1,9 +1,9 @@
 {
     "HELP": {
-        "summary": "__TBD__10__",
+        "summary": "Show helpful text about the different subcommands",
         "complexity": "O(1)",
         "group": "cluster",
-        "since": "__TBD__11__",
+        "since": "5.0.0",
         "arity": 2,
         "container": "CLUSTER",
         "function": "clusterCommand",
@@ -13,15 +13,6 @@
         ],
         "acl_categories": [
             "slow"
-        ],
-        "returns": [
-            {
-                "description": "PATCH__TBD__150__",
-                "type": {
-                    "RESP2": "null-bulk-string",
-                    "RESP3": "null"
-                }
-            }
         ]
     }
 }

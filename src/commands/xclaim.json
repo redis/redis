@@ -35,15 +35,6 @@
                 }
             }
         ],
-        "returns": [
-            {
-                "description": "PATCH__TBD__381__",
-                "type": {
-                    "RESP2": "null-bulk-string",
-                    "RESP3": "null"
-                }
-            }
-        ],
         "arguments": [
             {
                 "name": "key",

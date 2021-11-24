@@ -16,15 +16,6 @@
             "pubsub",
             "slow"
         ],
-        "returns": [
-            {
-                "description": "PATCH__TBD__299__",
-                "type": {
-                    "RESP2": "null-bulk-string",
-                    "RESP3": "null"
-                }
-            }
-        ],
         "arguments": [
             {
                 "name": "pattern",

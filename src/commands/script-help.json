@@ -1,9 +1,9 @@
 {
     "HELP": {
-        "summary": "__TBD__2__",
+        "summary": "Show helpful text about the different subcommands",
         "complexity": "O(1)",
         "group": "scripting",
-        "since": "__TBD__3__",
+        "since": "5.0.0",
         "arity": 2,
         "container": "SCRIPT",
         "function": "scriptCommand",
@@ -14,15 +14,6 @@
         "acl_categories": [
             "slow",
             "scripting"
-        ],
-        "returns": [
-            {
-                "description": "PATCH__TBD__327__",
-                "type": {
-                    "RESP2": "null-bulk-string",
-                    "RESP3": "null"
-                }
-            }
         ]
     }
 }

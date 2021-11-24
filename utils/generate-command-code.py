@@ -9,9 +9,12 @@ import json
 #TODO:GUYBE handle new field "internal" (bool) under command (add to struct redisCommand)
 #TODO:GUYBE handle new field "metadata" (dict) under command (add to struct redisCommand)
 #TODO:GUYBE auto-gen HELP commands from subcommands summary
+# remove redis.io doc for DEBUG
+# new ones: "replaced-by", "depercted-since", "doc-flags"
+# "doc-flags" -> "syscmd", "dpercated"
+# 
 
 ARG_TYPES = {
-    None: "ARG_TYPE_NULL",
     "string": "ARG_TYPE_STRING",
     "integer": "ARG_TYPE_INTEGER",
     "double": "ARG_TYPE_DOUBLE",
@@ -222,7 +225,7 @@ class Command(object):
         return "%s_History" % (self.fullname().replace(" ", "_"))
 
     def metadata_table_name(self):
-        return "%s_Metadata" % (self.fullname().replace(" ", "_"))
+        return "%s_Hints" % (self.fullname().replace(" ", "_"))
 
     def arg_table_name(self):
         return "%s_Args" % (self.fullname().replace(" ", "_"))
@@ -265,13 +268,13 @@ class Command(object):
         s += "{0}"
         return s
 
-    def metadata_code(self):
-        if not self.desc.get("metadata"):
+    def hints_code(self):
+        if not self.desc.get("hints"):
             return ""
         s = ""
-        for k, v in self.desc["metadata"].items():
-            s += "{\"%s\",\"%s\"},\n" % (k, v)
-        s += "{0}"
+        for hint in self.desc["hints"].split(' '):
+            s += "\"%s\",\n" % hint
+        s += "NULL"
         return s
 
     def struct_code(self):
@@ -286,17 +289,32 @@ class Command(object):
                 s += "@%s " % cat
             return s[:-1]
 
+        def _doc_flags_code():
+            s = ""
+            for flag in self.desc.get("doc_flags", []):
+                if flag == "deprecated":
+                    s += "CMD_DOC_DEPRECATED|"
+                elif flag == "syscmd":
+                    s += "CMD_DOC_SYSCMD|"
+                else:
+                    print("Invalid doc flag %s" % flag)
+                    exit(1)
+            return s[:-1] if s else "CMD_DOC_NONE"
+
         def _key_specs_code():
             s = ""
             for spec in self.desc.get("key_specs", []):
                 s += "{%s}," % KeySpec(spec).struct_code()
             return s[:-1]
 
-        s = "\"%s\",%s,%s,%s,%s,%s,%s,%s,%s,%d,\"%s\"," % (
+        s = "\"%s\",%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%d,\"%s\"," % (
             self.name.lower(),
             get_optional_desc_string(self.desc, "summary"),
             get_optional_desc_string(self.desc, "complexity"),
             get_optional_desc_string(self.desc, "since"),
+            _doc_flags_code(),
+            get_optional_desc_string(self.desc, "replaced_by"),
+            get_optional_desc_string(self.desc, "deprecated_since"),
             GROUPS[self.group],
             self.return_types_table_name(),
             self.history_table_name(),
@@ -353,10 +371,10 @@ class Command(object):
         else:
             f.write("#define %s NULL\n\n" % self.history_table_name())
 
-        f.write("/* %s metadata */\n" % self.fullname())
-        code = self.metadata_code()
+        f.write("/* %s hints */\n" % self.fullname())
+        code = self.hints_code()
         if code:
-            f.write("commandMetadata %s[] = {\n" % self.metadata_table_name())
+            f.write("const char *%s[] = {\n" % self.hints_table_name())
             f.write("%s\n" % code)
             f.write("};\n\n")
         else:

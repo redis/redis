@@ -14,15 +14,6 @@
             "admin",
             "slow",
             "dangerous"
-        ],
-        "returns": [
-            {
-                "description": "PATCH__TBD__107__",
-                "type": {
-                    "RESP2": "null-bulk-string",
-                    "RESP3": "null"
-                }
-            }
         ]
     }
 }

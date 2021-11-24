@@ -6,26 +6,17 @@
         "since": "2.8.9",
         "arity": 1,
         "function": "pfselftestCommand",
-        "internal": true,
-        "undocumented": true,
+        "doc_flags": [
+            "syscmd"
+        ],
         "command_flags": [
-            "admin",
-            "internal"
+            "admin"
         ],
         "acl_categories": [
             "hyperloglog",
             "admin",
             "slow",
             "dangerous"
-        ],
-        "returns": [
-            {
-                "description": "PATCH__TBD__291__",
-                "type": {
-                    "RESP2": "null-bulk-string",
-                    "RESP3": "null"
-                }
-            }
         ]
     }
 }

@@ -6,8 +6,11 @@
         "since": "1.2.0",
         "arity": 3,
         "function": "rpoplpushCommand",
-        "until": "6.2.0",
+        "deprecated_since": "6.2.0",
         "replaced_by": "`LMOVE` with the `RIGHT` and `LEFT` arguments",
+        "doc_flags": [
+            "deprecated"
+        ],
         "command_flags": [
             "write",
             "denyoom"
@@ -51,15 +54,6 @@
                         "step": 1,
                         "limit": 0
                     }
-                }
-            }
-        ],
-        "returns": [
-            {
-                "description": "PATCH__TBD__317__",
-                "type": {
-                    "RESP2": "null-bulk-string",
-                    "RESP3": "null"
                 }
             }
         ],

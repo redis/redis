@@ -7,13 +7,16 @@
         "arity": -6,
         "function": "georadiusCommand",
         "get_keys_function": "georadiusGetKeys",
-        "until": "6.2.0",
-        "replaced_by": "`GEOSEARCH` and `GEOSEARCHSTORE` with the `BYRADIUS` argument",
         "history": [
             [
                 "6.2",
                 "Added the `ANY` option for `COUNT`."
             ]
+        ],
+        "deprecated_since": "6.2.0",
+        "replaced_by": "`GEOSEARCH` and `GEOSEARCHSTORE` with the `BYRADIUS` argument",
+        "doc_flags": [
+            "deprecated"
         ],
         "command_flags": [
             "write",
@@ -76,15 +79,6 @@
                         "step": 1,
                         "limit": 0
                     }
-                }
-            }
-        ],
-        "returns": [
-            {
-                "description": "PATCH__TBD__201__",
-                "type": {
-                    "RESP2": "null-bulk-string",
-                    "RESP3": "null"
                 }
             }
         ],

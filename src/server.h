@@ -251,6 +251,11 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define AOF_OPEN_ERR 3
 #define AOF_FAILED 4
 
+/* Command doc flags */
+#define CMD_DOC_NONE 0
+#define CMD_DOC_DEPRECATED (1<<0) /* Command is deprecated */
+#define CMD_DOC_SYSCMD (1<<1) /* System (internal) command */
+
 /* Client flags */
 #define CLIENT_SLAVE (1<<0)   /* This client is a replica */
 #define CLIENT_MASTER (1<<1)  /* This client is a master */
@@ -1961,11 +1966,6 @@ typedef struct {
     char *summary;
 } commandHistory;
 
-typedef struct {
-    char *field;
-    char *value;
-} commandMetadata;
-
 /* Must be synced with generate-command-code.py */
 typedef enum {
     COMMAND_GROUP_GENERIC,
@@ -2031,10 +2031,13 @@ struct redisCommand {
     char *summary;
     char *complexity;
     char *since;
+    int doc_flags;
+    char *replaced_by;
+    char *deprecated_since;
     redisCommandGroup group;
     commandReturnInfo *returns;
     commandHistory *history;
-    commandMetadata *metadata;
+    char **hints;
     redisCommandProc *proc;
     int arity;
     char *sflags;   /* Flags as string representation, one char per flag. */

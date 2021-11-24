@@ -16,15 +16,6 @@
             "slow",
             "connection"
         ],
-        "returns": [
-            {
-                "description": "PATCH__TBD__132__",
-                "type": {
-                    "RESP2": "null-bulk-string",
-                    "RESP3": "null"
-                }
-            }
-        ],
         "arguments": [
             {
                 "name": "on_off_skip",

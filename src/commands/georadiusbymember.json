@@ -7,8 +7,11 @@
         "arity": -5,
         "function": "georadiusbymemberCommand",
         "get_keys_function": "georadiusGetKeys",
-        "until": "6.2.0",
+        "deprecated_since": "6.2.0",
         "replaced_by": "`GEOSEARCH` and `GEOSEARCHSTORE` with the `BYRADIUS` and `FROMMEMBER` arguments",
+        "doc_flags": [
+            "deprecated"
+        ],
         "command_flags": [
             "write",
             "denyoom"
@@ -70,15 +73,6 @@
                         "step": 1,
                         "limit": 0
                     }
-                }
-            }
-        ],
-        "returns": [
-            {
-                "description": "PATCH__TBD__203__",
-                "type": {
-                    "RESP2": "null-bulk-string",
-                    "RESP3": "null"
                 }
             }
         ],
