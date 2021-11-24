@@ -1531,7 +1531,11 @@ int keyIsExpired(redisDb *db, robj *key) {
  *
  * The behavior of the function depends on the replication role of the
  * instance, because by default replicas do not delete expired keys. They
- * wait for DELs from the master for consistency matters.
+ * wait for DELs from the master for consistency matters. However even
+ * replicas will try to have a coherent return value for the function,
+ * so that read commands executed in the replica side will be able to
+ * behave like if the key is expired even if still present (because the
+ * master has yet to propagate the DEL).
  *
  * In masters as a side effect of finding a key which is expired, such
  * key will be evicted from the database. Also this may trigger the
