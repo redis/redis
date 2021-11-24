@@ -382,14 +382,20 @@ int isWatchedKeyExpired(client *c) {
 /* "Touch" a key, so that if this key is being WATCHed by some client the
  * next EXEC will fail. */
 void touchWatchedKey(redisDb *db, robj *key) {
-    list *clients = NULL;
+    list *clients;
+    listIter li;
+    listNode *ln;
 
     if (dictSize(db->watched_keys) == 0) return;
+    clients = dictFetchValue(db->watched_keys, key);
+    if (!clients) return;
 
     /* Mark all the clients watching this key as CLIENT_DIRTY_CAS */
     /* Check if we are already watching for this key */
-    while ((clients = dictFetchValue(db->watched_keys, key))) {
-        client *c = listNodeValue(listFirst(clients));
+    listRewind(clients,&li);
+    while((ln = listNext(&li))) {
+        client *c = listNodeValue(ln);
+
         c->flags |= CLIENT_DIRTY_CAS;
         /* As the client is marked as dirty, there is no point in watching other key events. */
         unwatchAllKeys(c);
@@ -404,6 +410,8 @@ void touchWatchedKey(redisDb *db, robj *key) {
  * the key exists in either of them, and skipped only if it
  * doesn't exist in both. */
 void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with) {
+    listIter li;
+    listNode *ln;
     dictEntry *de;
 
     if (dictSize(emptied->watched_keys) == 0) return;
@@ -414,9 +422,11 @@ void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with) {
         if (dictFind(emptied->dict, key->ptr) ||
             (replaced_with && dictFind(replaced_with->dict, key->ptr)))
         {
-            list *clients = NULL;
-            while((clients = dictFetchValue(emptied->watched_keys, key))) {
-                client *c = listNodeValue(listFirst(clients));
+            list *clients = dictGetVal(de);
+            if (!clients) continue;
+            listRewind(clients,&li);
+            while((ln = listNext(&li))) {
+                client *c = listNodeValue(ln);
                 c->flags |= CLIENT_DIRTY_CAS;
                 unwatchAllKeys(c);
             }
