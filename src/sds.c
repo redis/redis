@@ -1314,10 +1314,10 @@ static sds sdsTestTemplateCallback(sds varname, void *arg) {
     else return NULL;
 }
 
-int sdsTest(int argc, char **argv, int accurate) {
+int sdsTest(int argc, char **argv, int flags) {
     UNUSED(argc);
     UNUSED(argv);
-    UNUSED(accurate);
+    UNUSED(flags);
 
     {
         sds x = sdsnew("foo"), y;
@@ -1559,7 +1559,6 @@ int sdsTest(int argc, char **argv, int accurate) {
         test_cond("sdsrezie() crop alloc", sdsalloc(x) == 4);
         sdsfree(x);
     }
-    test_report();
     return 0;
 }
 #endif

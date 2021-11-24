@@ -118,7 +118,8 @@ start_server {} {
         $master config rewrite
 
         $master debug set-active-expire 0
-        for {set j 0} {$j < 1024} {incr j} {
+        # Make sure replication backlog is full and will be trimmed.
+        for {set j 0} {$j < 2048} {incr j} {
             $master select [expr $j%16]
             $master set $j somevalue px 10
         }
@@ -149,7 +150,7 @@ start_server {} {
         assert {[status $master repl_backlog_first_byte_offset] > [status $master second_repl_offset]}
         assert {[status $master sync_partial_ok] == 0}
         assert {[status $master sync_full] == 1}
-        assert {[status $master rdb_last_load_keys_expired] == 1024}
+        assert {[status $master rdb_last_load_keys_expired] == 2048}
         assert {[status $replica sync_full] == 1}
 
         set digest [$master debug digest]

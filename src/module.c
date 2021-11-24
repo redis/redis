@@ -394,7 +394,7 @@ typedef struct RedisModuleKeyOptCtx {
 void RM_FreeCallReply(RedisModuleCallReply *reply);
 void RM_CloseKey(RedisModuleKey *key);
 void autoMemoryCollect(RedisModuleCtx *ctx);
-robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int *argcp, int *flags, va_list ap);
+robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int *argcp, int *argvlenp, int *flags, va_list ap);
 void moduleReplicateMultiIfNeeded(RedisModuleCtx *ctx);
 void RM_ZsetRangeStop(RedisModuleKey *kp);
 static void zsetKeyReset(RedisModuleKey *key);
@@ -526,7 +526,7 @@ int moduleCreateEmptyKey(RedisModuleKey *key, int type) {
     switch(type) {
     case REDISMODULE_KEYTYPE_LIST:
         obj = createQuicklistObject();
-        quicklistSetOptions(obj->ptr, server.list_max_ziplist_size,
+        quicklistSetOptions(obj->ptr, server.list_max_listpack_size,
                             server.list_compress_depth);
         break;
     case REDISMODULE_KEYTYPE_ZSET:
@@ -803,6 +803,7 @@ int64_t commandFlagsFromString(char *s) {
         else if (!strcasecmp(t,"may-replicate")) flags |= CMD_MAY_REPLICATE;
         else if (!strcasecmp(t,"getkeys-api")) flags |= CMD_MODULE_GETKEYS;
         else if (!strcasecmp(t,"no-cluster")) flags |= CMD_MODULE_NO_CLUSTER;
+        else if (!strcasecmp(t,"no-mandatory-keys")) flags |= CMD_NO_MANDATORY_KEYS;
         else break;
     }
     sdsfreesplitres(tokens,count);
@@ -891,6 +892,7 @@ RedisModuleCommandProxy *moduleCreateCommandProxy(RedisModuleCtx *ctx, const cha
  *                     to authenticate a client.
  * * **"may-replicate"**: This command may generate replication traffic, even
  *                        though it's not a write command.
+ * * **"no-mandatory-keys"**: All the keys this command may take are optional
  *
  * The last three parameters specify which arguments of the new command are
  * Redis keys. See https://redis.io/commands/command for more information.
@@ -1342,6 +1344,10 @@ int RM_BlockedClientMeasureTimeEnd(RedisModuleBlockedClient *bc) {
  *
  * REDISMODULE_OPTION_NO_IMPLICIT_SIGNAL_MODIFIED:
  * See RM_SignalModifiedKey().
+ * 
+ * REDISMODULE_OPTIONS_HANDLE_REPL_ASYNC_LOAD:
+ * Setting this flag indicates module awareness of diskless async replication (repl-diskless-load=swapdb)
+ * and that redis could be serving reads during replication instead of blocking with LOADING status.
  */
 void RM_SetModuleOptions(RedisModuleCtx *ctx, int options) {
     ctx->module->options = options;
@@ -2227,7 +2233,11 @@ int RM_ReplyWithNull(RedisModuleCtx *ctx) {
     return REDISMODULE_OK;
 }
 
-/* Reply to the client with a boolean value.
+/* Reply with a RESP3 Boolean type.
+ * Visit https://github.com/antirez/RESP3/blob/master/spec.md for more info about RESP3.
+ *
+ * In RESP3, this is boolean type
+ * In RESP2, it's a string response of "1" and "0" for true and false respectively.
  *
  * The function always returns REDISMODULE_OK. */
 int RM_ReplyWithBool(RedisModuleCtx *ctx, int b) {
@@ -2264,16 +2274,37 @@ int RM_ReplyWithCallReply(RedisModuleCtx *ctx, RedisModuleCallReply *reply) {
     return REDISMODULE_OK;
 }
 
-/* Send a string reply obtained converting the double 'd' into a bulk string.
+/* Reply with a RESP3 Double type.
+ * Visit https://github.com/antirez/RESP3/blob/master/spec.md for more info about RESP3.
+ *
+ * Send a string reply obtained converting the double 'd' into a bulk string.
  * This function is basically equivalent to converting a double into
  * a string into a C buffer, and then calling the function
  * RedisModule_ReplyWithStringBuffer() with the buffer and length.
+ *
+ * In RESP3 the string is tagged as a double, while in RESP2 it's just a plain string 
+ * that the user will have to parse.
  *
  * The function always returns REDISMODULE_OK. */
 int RM_ReplyWithDouble(RedisModuleCtx *ctx, double d) {
     client *c = moduleGetReplyClient(ctx);
     if (c == NULL) return REDISMODULE_OK;
     addReplyDouble(c,d);
+    return REDISMODULE_OK;
+}
+
+/* Reply with a RESP3 BigNumber type.
+ * Visit https://github.com/antirez/RESP3/blob/master/spec.md for more info about RESP3.
+ *
+ * In RESP3, this is a string of length `len` that is tagged as a BigNumber, 
+ * however, it's up to the caller to ensure that it's a valid BigNumber.
+ * In RESP2, this is just a plain bulk string response.
+ *
+ * The function always returns REDISMODULE_OK. */
+int RM_ReplyWithBigNumber(RedisModuleCtx *ctx, const char *bignum, size_t len) {
+    client *c = moduleGetReplyClient(ctx);
+    if (c == NULL) return REDISMODULE_OK;
+    addReplyBigNum(c, bignum, len);
     return REDISMODULE_OK;
 }
 
@@ -2369,7 +2400,7 @@ int RM_Replicate(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...)
 
     /* Create the client and dispatch the command. */
     va_start(ap, fmt);
-    argv = moduleCreateArgvFromUserFormat(cmdname,fmt,&argc,&flags,ap);
+    argv = moduleCreateArgvFromUserFormat(cmdname,fmt,&argc,NULL,&flags,ap);
     va_end(ap);
     if (argv == NULL) return REDISMODULE_ERR;
 
@@ -2687,7 +2718,9 @@ int RM_GetContextFlags(RedisModuleCtx *ctx) {
     if (server.cluster_enabled)
         flags |= REDISMODULE_CTX_FLAGS_CLUSTER;
 
-    if (server.loading)
+    if (server.async_loading)
+        flags |= REDISMODULE_CTX_FLAGS_ASYNC_LOADING;
+    else if (server.loading)
         flags |= REDISMODULE_CTX_FLAGS_LOADING;
 
     /* Maxmemory and eviction policy */
@@ -3054,7 +3087,7 @@ int RM_GetToDbIdFromOptCtx(RedisModuleKeyOptCtx *ctx) {
 int RM_StringSet(RedisModuleKey *key, RedisModuleString *str) {
     if (!(key->mode & REDISMODULE_WRITE) || key->iter) return REDISMODULE_ERR;
     RM_DeleteKey(key);
-    genericSetKey(key->ctx->client,key->db,key->key,str,0,0);
+    setKey(key->ctx->client,key->db,key->key,str,SETKEY_NO_SIGNAL);
     key->value = str;
     return REDISMODULE_OK;
 }
@@ -3134,7 +3167,7 @@ int RM_StringTruncate(RedisModuleKey *key, size_t newlen) {
     if (key->value == NULL) {
         /* Empty key: create it with the new size. */
         robj *o = createObject(OBJ_STRING,sdsnewlen(NULL, newlen));
-        genericSetKey(key->ctx->client,key->db,key->key,o,0,0);
+        setKey(key->ctx->client,key->db,key->key,o,SETKEY_NO_SIGNAL);
         key->value = o;
         decrRefCount(o);
     } else {
@@ -4732,9 +4765,9 @@ RedisModuleString *RM_CreateStringFromCallReply(RedisModuleCallReply *reply) {
     }
 }
 
-/* Returns an array of robj pointers, and populates *argc with the number
- * of items, by parsing the format specifier "fmt" as described for
- * the RM_Call(), RM_Replicate() and other module APIs.
+/* Returns an array of robj pointers, by parsing the format specifier "fmt" as described for
+ * the RM_Call(), RM_Replicate() and other module APIs. Populates *argcp with the number of
+ * items and *argvlenp with the length of the allocated argv.
  *
  * The integer pointed by 'flags' is populated with flags according
  * to special modifiers in "fmt". For now only one exists:
@@ -4748,7 +4781,7 @@ RedisModuleString *RM_CreateStringFromCallReply(RedisModuleCallReply *reply) {
  *
  * On error (format specifier error) NULL is returned and nothing is
  * allocated. On success the argument vector is returned. */
-robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int *argcp, int *flags, va_list ap) {
+robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int *argcp, int *argvlenp, int *flags, va_list ap) {
     int argc = 0, argv_size, j;
     robj **argv = NULL;
 
@@ -4814,7 +4847,8 @@ robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int 
         }
         p++;
     }
-    *argcp = argc;
+    if (argcp) *argcp = argc;
+    if (argvlenp) *argvlenp = argv_size;
     return argv;
 
 fmterr:
@@ -4876,14 +4910,14 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     struct redisCommand *cmd;
     client *c = NULL;
     robj **argv = NULL;
-    int argc = 0, flags = 0;
+    int argc = 0, argv_len = 0, flags = 0;
     va_list ap;
     RedisModuleCallReply *reply = NULL;
     int replicate = 0; /* Replicate this command? */
 
     /* Handle arguments. */
     va_start(ap, fmt);
-    argv = moduleCreateArgvFromUserFormat(cmdname,fmt,&argc,&flags,ap);
+    argv = moduleCreateArgvFromUserFormat(cmdname,fmt,&argc,&argv_len,&flags,ap);
     replicate = flags & REDISMODULE_ARGV_REPLICATE;
     va_end(ap);
 
@@ -4908,6 +4942,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     c->db = ctx->client->db;
     c->argv = argv;
     c->argc = argc;
+    c->argv_len = argv_len;
     c->resp = 2;
     if (flags & REDISMODULE_ARGV_RESP_3) {
         c->resp = 3;
@@ -5412,7 +5447,7 @@ int RM_ModuleTypeSetValue(RedisModuleKey *key, moduleType *mt, void *value) {
     if (!(key->mode & REDISMODULE_WRITE) || key->iter) return REDISMODULE_ERR;
     RM_DeleteKey(key);
     robj *o = createModuleObject(mt,value);
-    genericSetKey(key->ctx->client,key->db,key->key,o,0,0);
+    setKey(key->ctx->client,key->db,key->key,o,SETKEY_NO_SIGNAL);
     decrRefCount(o);
     key->value = o;
     return REDISMODULE_OK;
@@ -5480,6 +5515,24 @@ int moduleAllDatatypesHandleErrors() {
         if (listLength(module->types) &&
             !(module->options & REDISMODULE_OPTIONS_HANDLE_IO_ERRORS))
         {
+            dictReleaseIterator(di);
+            return 0;
+        }
+    }
+    dictReleaseIterator(di);
+    return 1;
+}
+
+/* Returns 0 if module did not declare REDISMODULE_OPTIONS_HANDLE_REPL_ASYNC_LOAD, in which case
+ * diskless async loading should be avoided because module doesn't know there can be traffic during
+ * database full resynchronization. */
+int moduleAllModulesHandleReplAsyncLoad() {
+    dictIterator *di = dictGetIterator(modules);
+    dictEntry *de;
+
+    while ((de = dictNext(di)) != NULL) {
+        struct RedisModule *module = dictGetVal(de);
+        if (!(module->options & REDISMODULE_OPTIONS_HANDLE_REPL_ASYNC_LOAD)) {
             dictReleaseIterator(di);
             return 0;
         }
@@ -5923,7 +5976,7 @@ void RM_EmitAOF(RedisModuleIO *io, const char *cmdname, const char *fmt, ...) {
 
     /* Emit the arguments into the AOF in Redis protocol format. */
     va_start(ap, fmt);
-    argv = moduleCreateArgvFromUserFormat(cmdname,fmt,&argc,&flags,ap);
+    argv = moduleCreateArgvFromUserFormat(cmdname,fmt,&argc,NULL,&flags,ap);
     va_end(ap);
     if (argv == NULL) {
         serverLog(LL_WARNING,
@@ -6198,7 +6251,7 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
             "Blocking module command called from transaction");
     } else {
         if (keys) {
-            blockForKeys(c,BLOCKED_MODULE,keys,numkeys,0,timeout,NULL,NULL,NULL);
+            blockForKeys(c,BLOCKED_MODULE,keys,numkeys,-1,timeout,NULL,NULL,NULL);
         } else {
             blockClient(c,BLOCKED_MODULE);
         }
@@ -8384,7 +8437,6 @@ int moduleUnregisterFilters(RedisModule *module) {
  * If multiple filters are registered (by the same or different modules), they
  * are executed in the order of registration.
  */
-
 RedisModuleCommandFilter *RM_RegisterCommandFilter(RedisModuleCtx *ctx, RedisModuleCommandFilterFunc callback, int flags) {
     RedisModuleCommandFilter *filter = zmalloc(sizeof(*filter));
     filter->module = ctx->module;
@@ -9138,8 +9190,12 @@ void ModuleForkDoneHandler(int exitcode, int bysignal) {
  *         int32_t dbnum_second;   // Swap Db second dbnum
  *
  * * RedisModuleEvent_ReplBackup
+ * 
+ *     WARNING: Replication Backup events are deprecated since Redis 7.0 and are never fired.
+ *     See RedisModuleEvent_ReplAsyncLoad for understanding how Async Replication Loading events
+ *     are now triggered when repl-diskless-load is set to swapdb.
  *
- *     Called when diskless-repl-load config is set to swapdb,
+ *     Called when repl-diskless-load config is set to swapdb,
  *     And redis needs to backup the the current database for the
  *     possibility to be restored later. A module with global data and
  *     maybe with aux_load and aux_save callbacks may need to use this
@@ -9149,6 +9205,19 @@ void ModuleForkDoneHandler(int exitcode, int bysignal) {
  *     * `REDISMODULE_SUBEVENT_REPL_BACKUP_CREATE`
  *     * `REDISMODULE_SUBEVENT_REPL_BACKUP_RESTORE`
  *     * `REDISMODULE_SUBEVENT_REPL_BACKUP_DISCARD`
+ * 
+ * * RedisModuleEvent_ReplAsyncLoad
+ *
+ *     Called when repl-diskless-load config is set to swapdb and a replication with a master of same
+ *     data set history (matching replication ID) occurs.
+ *     In which case redis serves current data set while loading new database in memory from socket.
+ *     Modules must have declared they support this mechanism in order to activate it, through
+ *     REDISMODULE_OPTIONS_HANDLE_REPL_ASYNC_LOAD flag.
+ *     The following sub events are available:
+ *
+ *     * `REDISMODULE_SUBEVENT_REPL_ASYNC_LOAD_STARTED`
+ *     * `REDISMODULE_SUBEVENT_REPL_ASYNC_LOAD_ABORTED`
+ *     * `REDISMODULE_SUBEVENT_REPL_ASYNC_LOAD_COMPLETED`
  *
  * * RedisModuleEvent_ForkChild
  *
@@ -9228,8 +9297,8 @@ int RM_IsSubEventSupported(RedisModuleEvent event, int64_t subevent) {
         return subevent < _REDISMODULE_SUBEVENT_LOADING_PROGRESS_NEXT;
     case REDISMODULE_EVENT_SWAPDB:
         return subevent < _REDISMODULE_SUBEVENT_SWAPDB_NEXT;
-    case REDISMODULE_EVENT_REPL_BACKUP:
-        return subevent < _REDISMODULE_SUBEVENT_REPL_BACKUP_NEXT;
+    case REDISMODULE_EVENT_REPL_ASYNC_LOAD:
+        return subevent < _REDISMODULE_SUBEVENT_REPL_ASYNC_LOAD_NEXT;
     case REDISMODULE_EVENT_FORK_CHILD:
         return subevent < _REDISMODULE_SUBEVENT_FORK_CHILD_NEXT;
     default:
@@ -9767,6 +9836,8 @@ sds genModulesInfoStringRenderModuleOptions(struct RedisModule *module) {
     sds output = sdsnew("[");
     if (module->options & REDISMODULE_OPTIONS_HANDLE_IO_ERRORS)
         output = sdscat(output,"handle-io-errors|");
+    if (module->options & REDISMODULE_OPTIONS_HANDLE_REPL_ASYNC_LOAD)
+        output = sdscat(output,"handle-repl-async-load|");
     output = sdstrim(output,"|");
     output = sdscat(output,"]");
     return output;
@@ -10346,6 +10417,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ReplyWithBool);
     REGISTER_API(ReplyWithCallReply);
     REGISTER_API(ReplyWithDouble);
+    REGISTER_API(ReplyWithBigNumber);
     REGISTER_API(ReplyWithLongDouble);
     REGISTER_API(GetSelectedDb);
     REGISTER_API(SelectDb);

@@ -145,7 +145,11 @@ void aofChildWriteDiffData(aeEventLoop *el, int fd, void *privdata, int mask) {
     latencyAddSampleIfNeeded("aof-rewrite-write-data-to-child",latency);
 }
 
-/* Append data to the AOF rewrite buffer, allocating new blocks if needed. */
+/* Append data to the AOF rewrite buffer, allocating new blocks if needed.
+ *
+ * Sanitizer suppression: zmalloc_usable() confuses sanitizer, it generates
+ * a false positive out-of-bounds error */
+REDIS_NO_SANITIZE("bounds")
 void aofRewriteBufferAppend(unsigned char *s, unsigned long len) {
     listNode *ln = listLast(server.aof_rewrite_buf_blocks);
     aofrwblock *block = ln ? ln->value : NULL;
@@ -600,8 +604,37 @@ sds catAppendOnlyGenericCommand(sds dst, int argc, robj **argv) {
     return dst;
 }
 
+/* Generate a piece of timestamp annotation for AOF if current record timestamp
+ * in AOF is not equal server unix time. If we specify 'force' argument to 1,
+ * we would generate one without check, currently, it is useful in AOF rewriting
+ * child process which always needs to record one timestamp at the beginning of
+ * rewriting AOF.
+ *
+ * Timestamp annotation format is "#TS:${timestamp}\r\n". "TS" is short of
+ * timestamp and this method could save extra bytes in AOF. */
+sds genAofTimestampAnnotationIfNeeded(int force) {
+    sds ts = NULL;
+
+    if (force || server.aof_cur_timestamp < server.unixtime) {
+        server.aof_cur_timestamp = force ? time(NULL) : server.unixtime;
+        ts = sdscatfmt(sdsempty(), "#TS:%I\r\n", server.aof_cur_timestamp);
+        serverAssert(sdslen(ts) <= AOF_ANNOTATION_LINE_MAX_LEN);
+    }
+    return ts;
+}
+
 void feedAppendOnlyFile(int dictid, robj **argv, int argc) {
     sds buf = sdsempty();
+
+    /* Feed timestamp if needed */
+    if (server.aof_timestamp_enabled) {
+        sds ts = genAofTimestampAnnotationIfNeeded(0);
+        if (ts != NULL) {
+            buf = sdscatsds(buf, ts);
+            sdsfree(ts);
+        }
+    }
+
     /* The DB this command was targeting is not the same as the last command
      * we appended. To issue a SELECT command is needed. */
     if (dictid != server.aof_selected_db) {
@@ -720,7 +753,7 @@ int loadAppendOnlyFile(char *filename) {
         serverLog(LL_NOTICE,"Reading RDB preamble from AOF file...");
         if (fseek(fp,0,SEEK_SET) == -1) goto readerr;
         rioInitWithFile(&rdb,fp);
-        if (rdbLoadRio(&rdb,RDBFLAGS_AOF_PREAMBLE,NULL) != C_OK) {
+        if (rdbLoadRio(&rdb,RDBFLAGS_AOF_PREAMBLE,NULL,server.db) != C_OK) {
             serverLog(LL_WARNING,"Error reading the RDB preamble of the AOF file, AOF loading aborted");
             goto readerr;
         } else {
@@ -733,7 +766,7 @@ int loadAppendOnlyFile(char *filename) {
         int argc, j;
         unsigned long len;
         robj **argv;
-        char buf[128];
+        char buf[AOF_ANNOTATION_LINE_MAX_LEN];
         sds argsds;
         struct redisCommand *cmd;
 
@@ -750,10 +783,12 @@ int loadAppendOnlyFile(char *filename) {
             else
                 goto readerr;
         }
+        if (buf[0] == '#') continue; /* Skip annotations */
         if (buf[0] != '*') goto fmterr;
         if (buf[1] == '\0') goto readerr;
         argc = atoi(buf+1);
         if (argc < 1) goto fmterr;
+        if ((size_t)argc > SIZE_MAX / sizeof(robj*)) goto fmterr;
 
         /* Load the next command in the AOF as our fake client
          * argv. */
@@ -1385,6 +1420,13 @@ int rewriteAppendOnlyFileRio(rio *aof) {
     long key_count = 0;
     long long updated_time = 0;
 
+    /* Record timestamp at the beginning of rewriting AOF. */
+    if (server.aof_timestamp_enabled) {
+        sds ts = genAofTimestampAnnotationIfNeeded(1);
+        if (rioWrite(aof,ts,sdslen(ts)) == 0) { sdsfree(ts); goto werr; }
+        sdsfree(ts);
+    }
+
     for (j = 0; j < server.dbnum; j++) {
         char selectcmd[] = "*2\r\n$6\r\nSELECT\r\n";
         redisDb *db = server.db+j;
@@ -1715,6 +1757,7 @@ int rewriteAppendOnlyFileBackground(void) {
     } else {
         /* Parent */
         if (childpid == -1) {
+            server.aof_lastbgrewrite_status = C_ERR;
             serverLog(LL_WARNING,
                 "Can't rewrite append only file in background: fork: %s",
                 strerror(errno));

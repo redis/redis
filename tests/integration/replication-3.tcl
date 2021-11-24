@@ -13,9 +13,18 @@ start_server {tags {"repl external:skip"}} {
 
         test {MASTER and SLAVE consistency with expire} {
             createComplexDataset r $numops useexpire
-            after 4000 ;# Make sure everything expired before taking the digest
-            r keys *   ;# Force DEL syntesizing to slave
-            after 1000 ;# Wait another second. Now everything should be fine.
+
+            # Make sure everything expired before taking the digest
+            # createComplexDataset uses max expire time of 2 seconds
+            wait_for_condition 50 100 {
+                0 == [scan [regexp -inline {expires\=([\d]*)} [r -1 info keyspace]] expires=%d]
+            } else {
+                fail "expire didn't end"
+            }
+
+            # make sure the replica got all the DELs
+            wait_for_ofs_sync [srv 0 client] [srv -1 client]
+
             if {[r debug digest] ne [r -1 debug digest]} {
                 set csv1 [csvdump r]
                 set csv2 [csvdump {r -1}]

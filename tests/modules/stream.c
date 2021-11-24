@@ -132,7 +132,7 @@ int stream_range(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     assert(errno == ENOENT);
 
     /* Return array. */
-    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_LEN);
     RedisModule_AutoMemory(ctx);
     RedisModuleStreamID id;
     long numfields;

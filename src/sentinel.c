@@ -2348,7 +2348,10 @@ static int instanceLinkNegotiateTLS(redisAsyncContext *context) {
     SSL *ssl = SSL_new(redis_tls_client_ctx ? redis_tls_client_ctx : redis_tls_ctx);
     if (!ssl) return C_ERR;
 
-    if (redisInitiateSSL(&context->c, ssl) == REDIS_ERR) return C_ERR;
+    if (redisInitiateSSL(&context->c, ssl) == REDIS_ERR) {
+        SSL_free(ssl);
+        return C_ERR;
+    }
 #endif
     return C_OK;
 }
@@ -4156,6 +4159,7 @@ void sentinelSetCommand(client *c) {
     int j, changes = 0;
     int badarg = 0; /* Bad argument position for error reporting. */
     char *option;
+    int redacted;
 
     if ((ri = sentinelGetMasterByNameOrReplyError(c,c->argv[2]))
         == NULL) return;
@@ -4166,6 +4170,7 @@ void sentinelSetCommand(client *c) {
         option = c->argv[j]->ptr;
         long long ll;
         int old_j = j; /* Used to know what to log as an event. */
+        redacted = 0;
 
         if (!strcasecmp(option,"down-after-milliseconds") && moreargs > 0) {
             /* down-after-milliseconds <milliseconds> */
@@ -4240,6 +4245,7 @@ void sentinelSetCommand(client *c) {
             sdsfree(ri->auth_pass);
             ri->auth_pass = strlen(value) ? sdsnew(value) : NULL;
             changes++;
+            redacted = 1;
         } else if (!strcasecmp(option,"auth-user") && moreargs > 0) {
             /* auth-user <username> */
             char *value = c->argv[++j]->ptr;
@@ -4287,7 +4293,7 @@ void sentinelSetCommand(client *c) {
         switch(numargs) {
         case 2:
             sentinelEvent(LL_WARNING,"+set",ri,"%@ %s %s",(char*)c->argv[old_j]->ptr,
-                                                          (char*)c->argv[old_j+1]->ptr);
+                                                          redacted ? "******" : (char*)c->argv[old_j+1]->ptr);
             break;
         case 3:
             sentinelEvent(LL_WARNING,"+set",ri,"%@ %s %s %s",(char*)c->argv[old_j]->ptr,
@@ -4910,7 +4916,7 @@ void sentinelFailoverWaitStart(sentinelRedisInstance *ri) {
     /* If I'm not the leader, and it is not a forced failover via
      * SENTINEL FAILOVER, then I can't continue with the failover. */
     if (!isleader && !(ri->flags & SRI_FORCE_FAILOVER)) {
-        int election_timeout = sentinel_election_timeout;
+        mstime_t election_timeout = sentinel_election_timeout;
 
         /* The election timeout is the MIN between SENTINEL_ELECTION_TIMEOUT
          * and the configured failover timeout. */

@@ -637,6 +637,7 @@ start_server {tags {"scripting"}} {
         r script kill
         after 200 ; # Give some time to Lua to call the hook again...
         assert_equal [r ping] "PONG"
+        $rd close
     }
 
     test {Timedout read-only scripts can be killed by SCRIPT KILL even when use pcall} {
@@ -1028,10 +1029,10 @@ start_server {tags {"scripting resp3 needs:debug"}} {
                 set ret [r eval "redis.setresp($i);return redis.call('debug', 'protocol', 'double')" 0]
                 if {$client_proto == 2 || $i == 2} {
                     # if either Lua or the clien is RESP2 the reply will be RESP2
-                    assert_equal $ret {$18}
-                    assert_equal [r read] {3.1415926535900001}
+                    assert_equal $ret {$5}
+                    assert_equal [r read] {3.141}
                 } else {
-                    assert_equal $ret {,3.1415926535900001}
+                    assert_equal $ret {,3.141}
                 }
             }
 

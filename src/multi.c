@@ -244,7 +244,11 @@ void execCommand(client *c) {
                 "This command is no longer allowed for the "
                 "following reason: %s", reason);
         } else {
-            call(c,server.loading ? CMD_CALL_NONE : CMD_CALL_FULL);
+            if (c->id == CLIENT_ID_AOF)
+                call(c,CMD_CALL_NONE);
+            else
+                call(c,CMD_CALL_FULL);
+
             serverAssert((c->flags & CLIENT_BLOCKED) == 0);
         }
 
@@ -276,7 +280,7 @@ void execCommand(client *c) {
          * backlog with the final EXEC. */
         if (server.repl_backlog && was_master && !is_master) {
             char *execcmd = "*1\r\n$4\r\nEXEC\r\n";
-            feedReplicationBacklog(execcmd,strlen(execcmd));
+            feedReplicationBuffer(execcmd,strlen(execcmd));
         }
         afterPropagateExec();
     }
@@ -398,7 +402,7 @@ void touchWatchedKey(redisDb *db, robj *key) {
 
 /* Set CLIENT_DIRTY_CAS to all clients of DB when DB is dirty.
  * It may happen in the following situations:
- * FLUSHDB, FLUSHALL, SWAPDB
+ * FLUSHDB, FLUSHALL, SWAPDB, end of successful diskless replication.
  *
  * replaced_with: for SWAPDB, the WATCH should be invalidated if
  * the key exists in either of them, and skipped only if it

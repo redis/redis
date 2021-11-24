@@ -146,6 +146,10 @@ proc ::redis::__method__read {id fd} {
     ::redis::redis_read_reply $id $fd
 }
 
+proc ::redis::__method__rawread {id fd len} {
+    return [read $fd $len]
+}
+
 proc ::redis::__method__write {id fd buf} {
     ::redis::redis_write $fd $buf
 }

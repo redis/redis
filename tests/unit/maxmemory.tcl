@@ -355,7 +355,7 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
                     $rd_master setrange key:0 0 [string repeat A $payload_len]
                 }
                 for {set k 0} {$k < $cmd_count} {incr k} {
-                    #$rd_master read
+                    $rd_master read
                 }
             } else {
                 for {set k 0} {$k < $cmd_count} {incr k} {
@@ -382,12 +382,14 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
             assert {$delta < $delta_max && $delta > -$delta_max}
 
             $master client kill type slave
-            set killed_used [s -1 used_memory]
+            set info_str [$master info memory]
+            set killed_used [getInfoProperty $info_str used_memory]
+            set killed_mem_not_counted_for_evict [getInfoProperty $info_str mem_not_counted_for_evict]
             set killed_slave_buf [s -1 mem_clients_slaves]
-            set killed_mem_not_counted_for_evict [s -1 mem_not_counted_for_evict]
             # we need to exclude replies buffer and query buffer of slave from used memory after kill slave
             set killed_used_no_repl [expr {$killed_used - $killed_mem_not_counted_for_evict - [slave_query_buffer $master]}]
             set delta_no_repl [expr {$killed_used_no_repl - $used_no_repl}]
+            assert {[$master dbsize] == 100}
             assert {$killed_slave_buf == 0}
             assert {$delta_no_repl > -$delta_max && $delta_no_repl < $delta_max}
 

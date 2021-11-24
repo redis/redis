@@ -566,4 +566,18 @@ start_server {tags {"bitops"}} {
         r config set proto-max-bulk-len $oldval
         r del mykey
     } {1} {large-memory}
+
+    test "SETBIT values larger than UINT32_MAX and lzf_compress/lzf_decompress correctly" {
+        set bytes [expr (1 << 32) + 1]
+        set bitpos [expr (1 << 35)]
+        set oldval [lindex [r config get proto-max-bulk-len] 1]
+        r config set proto-max-bulk-len $bytes
+        r setbit mykey $bitpos 1
+        assert_equal $bytes [r strlen mykey]
+        assert_equal 1 [r getbit mykey $bitpos]
+        r debug reload ;# lzf_compress/lzf_decompress when RDB saving/loading.
+        assert_equal 1 [r getbit mykey $bitpos]
+        r config set proto-max-bulk-len $oldval
+        r del mykey
+    } {1} {large-memory needs:debug}
 }

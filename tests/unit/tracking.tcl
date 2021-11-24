@@ -424,7 +424,11 @@ start_server {tags {"tracking network"}} {
         r CLIENT TRACKING off
         r HELLO 3
         r CLIENT TRACKING on
-        set used [s used_memory]
+
+        # make the previous test is really done before sampling used_memory
+        wait_lazyfree_done r
+
+        set used [expr {[s used_memory] - [s mem_not_counted_for_evict]}]
         set limit [expr {$used+100*1024}]
         set old_policy [lindex [r config get maxmemory-policy] 1]
         r config set maxmemory $limit
@@ -436,7 +440,7 @@ start_server {tags {"tracking network"}} {
         # We use SETBIT here, so we can set a big key and get the used_memory
         # bigger than maxmemory. Next command will evict volatile keys. We
         # can't use SET, as SET uses big input buffer, so it will fail.
-        r setbit big-key 1000000 0
+        r setbit big-key 1600000 0 ;# this will consume 200kb
         # volatile-key is evicted before response.
         set res [r getbit big-key 0]
         assert_equal $res {invalidate volatile-key}
