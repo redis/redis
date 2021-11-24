@@ -205,7 +205,7 @@ void quicklistBookmarksClear(quicklist *ql);
 int quicklistisSetPackedThreshold(size_t sz);
 
 #ifdef REDIS_TEST
-int quicklistTest(int argc, char *argv[], int accurate);
+int quicklistTest(int argc, char *argv[], int flags);
 #endif
 
 /* Directions for iterators */

@@ -26,10 +26,29 @@ start_server {
         r ping ; # It's enough if the server is still alive
     } {PONG}
 
-    test {Stress tester for #3343-alike bugs} {
+    test {Check compression with recompress} {
         r del key
-        for {set j 0} {$j < 10000} {incr j} {
-            set op [randomInt 6]
+        config_set list-compress-depth 1
+        config_set list-max-ziplist-size 16
+        r rpush key a
+        r rpush key [string repeat b 50000]
+        r rpush key c
+        r lset key 1 d
+        r rpop key
+        r rpush key [string repeat e 5000]
+        r linsert key before f 1
+        r rpush key g
+   }
+
+foreach comp {2 1 0} {
+    set cycles 1000
+    if {$::accurate} { set cycles 10000 }
+    config_set list-compress-depth $comp
+    
+    test "Stress tester for #3343-alike bugs comp: $comp" {
+        r del key
+        for {set j 0} {$j < $cycles} {incr j} {
+            set op [randomInt 7]
             set small_signed_count [expr 5-[randomInt 10]]
             if {[randomInt 2] == 0} {
                 set ele [randomInt 1000]
@@ -53,9 +72,15 @@ start_server {
                     }
                     r linsert key $where $otherele $ele
                 }
+                6 {
+                    set index [randomInt [r llen key]]
+                    set otherele [r lindex key $index]
+                    r lrem key 1 $otherele
+                }
             }
         }
     }
+} ;# foreach comp
 
     tags {slow} {
         test {ziplist implementation: value encoding and backlink} {

@@ -453,6 +453,7 @@ void initConfigValues() {
 }
 
 void loadServerConfigFromString(char *config) {
+    char buf[1024];
     const char *err = NULL;
     int linenum = 0, totlines, i;
     sds *lines;
@@ -544,7 +545,6 @@ void loadServerConfigFromString(char *config) {
         } else if (!strcasecmp(argv[0],"user") && argc >= 2) {
             int argc_err;
             if (ACLAppendUserForLoading(argv,argc,&argc_err) == C_ERR) {
-                char buf[1024];
                 const char *errmsg = ACLSetUserStringError();
                 snprintf(buf,sizeof(buf),"Error in user declaration '%s': %s",
                     argv[argc_err],errmsg);

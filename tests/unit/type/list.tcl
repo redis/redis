@@ -122,6 +122,9 @@ start_server [list overrides [list save ""] ] {
         r LSET list6 0 [string repeat d 500]
         assert_equal [string repeat d 500] [r lindex list6 0]
     } {} {needs:debug}
+
+    # revert config for external mode tests.
+    r config set list-compress-depth 0
 }
 
 # check functionality of plain nodes using low packed-threshold
@@ -582,6 +585,7 @@ start_server {
             assert_equal {blist c} [$rd read]
 
             assert_equal 1 [r llen blist]
+            $rd close
         }
 
         test "$pop: multiple existing lists - $type" {
@@ -610,6 +614,7 @@ start_server {
             assert_equal {blist2{t} f} [$rd read]
             assert_equal 1 [r llen blist1{t}]
             assert_equal 1 [r llen blist2{t}]
+            $rd close
         }
 
         test "$pop: second list has an entry - $type" {
@@ -627,6 +632,7 @@ start_server {
             assert_equal {blist2{t} f} [$rd read]
             assert_equal 0 [r llen blist1{t}]
             assert_equal 1 [r llen blist2{t}]
+            $rd close
         }
     }
 
@@ -642,6 +648,7 @@ start_server {
 
             assert_equal d [r lpop target{t}]
             assert_equal "a b $large c" [r lrange blist{t} 0 -1]
+            $rd close
         }
 
         foreach wherefrom {left right} {
@@ -669,6 +676,7 @@ start_server {
                     } else {
                         assert_equal $poppedelement [r lpop target{t}]
                     }
+                    $rd close
                 }
             }
         }
@@ -690,6 +698,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         r del list
         r lpush list b
         assert_equal {list b} [$rd read]
+        $rd close
     }
 
     test "$pop, LPUSH + DEL + SET should not awake blocked client" {
@@ -708,6 +717,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         r del list
         r lpush list b
         assert_equal {list b} [$rd read]
+        $rd close
     }
 }
 
@@ -730,6 +740,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         assert_equal [$rd read] {list1{t} a}
         $rd blpop list1{t} list2{t} list2{t} list1{t} 0
         assert_equal [$rd read] {list2{t} b}
+        $rd close
     }
 
 foreach {pop} {BLPOP BLMPOP_LEFT} {
@@ -747,6 +758,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         r lpush list c
         r exec
         assert_equal {list c} [$rd read]
+        $rd close
     }
 
     test "$pop with variadic LPUSH" {
@@ -760,6 +772,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         if {$::valgrind} {after 100}
         assert_equal {blist bar} [$rd read]
         assert_equal foo [lindex [r lrange blist 0 -1] 0]
+        $rd close
     }
 }
 
@@ -772,6 +785,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         r rpush blist{t} foo
         assert_equal foo [$rd read]
         assert_equal {foo bar} [r lrange target{t} 0 -1]
+        $rd close
     }
 
     foreach wherefrom {left right} {
@@ -789,6 +803,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
                 } else {
                     assert_equal {foo bar} [r lrange target{t} 0 -1]
                 }
+                $rd close
             }
         }
     }
@@ -806,6 +821,8 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
                 assert_equal foo [$rd read]
                 assert_equal {target{t} foo} [$rd2 read]
                 assert_equal 0 [r exists target{t}]
+                $rd close
+                $rd2 close
             }
         }
     }
@@ -816,6 +833,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         r set blist{t} nolist
         $rd brpoplpush blist{t} target{t} 1
         assert_error "WRONGTYPE*" {$rd read}
+        $rd close
     }
 
     test "BRPOPLPUSH with wrong destination type" {
@@ -825,6 +843,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         r lpush blist{t} foo
         $rd brpoplpush blist{t} target{t} 1
         assert_error "WRONGTYPE*" {$rd read}
+        $rd close
 
         set rd [redis_deferring_client]
         r del blist{t} target{t}
@@ -834,6 +853,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         r rpush blist{t} foo
         assert_error "WRONGTYPE*" {$rd read}
         assert_equal {foo} [r lrange blist{t} 0 -1]
+        $rd close
     }
 
     test "BRPOPLPUSH maintains order of elements after failure" {
@@ -843,6 +863,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         $rd brpoplpush blist{t} target{t} 0
         r rpush blist{t} a b c
         assert_error "WRONGTYPE*" {$rd read}
+        $rd close
         r lrange blist{t} 0 -1
     } {a b c}
 
@@ -858,6 +879,8 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         assert_error "WRONGTYPE*" {$rd1 read}
         assert_equal {foo} [$rd2 read]
         assert_equal {foo} [r lrange target2{t} 0 -1]
+        $rd1 close
+        $rd2 close
     }
 
     test "BLMPOP with multiple blocked clients" {
@@ -884,6 +907,10 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
 
         r lpush blist2{t} 1 2 3
         assert_equal {blist2{t} 1} [$rd4 read]
+        $rd1 close
+        $rd2 close
+        $rd3 close
+        $rd4 close
     }
 
     test "Linked LMOVEs" {
@@ -901,6 +928,8 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
       assert_equal {} [r lrange list1{t} 0 -1]
       assert_equal {} [r lrange list2{t} 0 -1]
       assert_equal {foo} [r lrange list3{t} 0 -1]
+      $rd1 close
+      $rd2 close
     }
 
     test "Circular BRPOPLPUSH" {
@@ -917,6 +946,8 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
 
       assert_equal {foo} [r lrange list1{t} 0 -1]
       assert_equal {} [r lrange list2{t} 0 -1]
+      $rd1 close
+      $rd2 close
     }
 
     test "Self-referential BRPOPLPUSH" {
@@ -930,6 +961,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
       r rpush blist{t} foo
 
       assert_equal {foo} [r lrange blist{t} 0 -1]
+      $rd close
     }
 
     test "BRPOPLPUSH inside a transaction" {
@@ -961,7 +993,10 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         $watching_client read
         r lpush srclist{t} element
         $watching_client exec
-        $watching_client read
+        set res [$watching_client read]
+        $blocked_client close
+        $watching_client close
+        set _ $res
     } {}
 
     test "BRPOPLPUSH does not affect WATCH while still blocked" {
@@ -980,7 +1015,10 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         $watching_client exec
         # Blocked BLPOPLPUSH may create problems, unblock it.
         r lpush srclist{t} element
-        $watching_client read
+        set res [$watching_client read]
+        $blocked_client close
+        $watching_client close
+        set _ $res
     } {somevalue}
 
     test {BRPOPLPUSH timeout} {
@@ -989,7 +1027,9 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
       $rd brpoplpush foo_list{t} bar_list{t} 1
       wait_for_blocked_clients_count 1
       wait_for_blocked_clients_count 0 500 10
-      $rd read
+      set res [$rd read]
+      $rd close
+      set _ $res
     } {}
 
 foreach {pop} {BLPOP BLMPOP_LEFT} {
@@ -1001,7 +1041,9 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         wait_for_blocked_client
         r lpush bob{t} abc def hij
         r rename bob{t} foo{t}
-        $rd read
+        set res [$rd read]
+        $rd close
+        set _ $res
     } {foo{t} hij}
 
     test "$pop when result key is created by SORT..STORE" {
@@ -1016,7 +1058,9 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         wait_for_blocked_client
         r lpush notfoo{t} hello hola aguacate konichiwa zanzibar
         r sort notfoo{t} ALPHA store foo{t}
-        $rd read
+        set res [$rd read]
+        $rd close
+        set _ $res
     } {foo{t} aguacate}
 }
 
@@ -1029,12 +1073,14 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
             r rpush blist1 foo
             assert_equal {blist1 foo} [$rd read]
             assert_equal 0 [r exists blist1]
+            $rd close
         }
 
         test "$pop: with negative timeout" {
             set rd [redis_deferring_client]
             bpop_command $rd $pop blist1 -1
             assert_error "ERR*is negative*" {$rd read}
+            $rd close
         }
 
         test "$pop: with non-integer timeout" {
@@ -1044,6 +1090,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
             r rpush blist1 foo
             assert_equal {blist1 foo} [$rd read]
             assert_equal 0 [r exists blist1]
+            $rd close
         }
 
         test "$pop: with zero timeout should block indefinitely" {
@@ -1055,6 +1102,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
             after 1000
             r rpush blist1 foo
             assert_equal {blist1 foo} [$rd read]
+            $rd close
         }
 
         test "$pop: second argument is not a list" {
@@ -1064,6 +1112,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
             bpop_command_two_key $rd $pop blist1{t} blist2{t} 1
             $rd $pop blist1{t} blist2{t} 1
             assert_error "WRONGTYPE*" {$rd read}
+            $rd close
         }
 
         test "$pop: timeout" {
@@ -1072,6 +1121,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
             bpop_command_two_key $rd $pop blist1{t} blist2{t} 1
             wait_for_blocked_client
             assert_equal {} [$rd read]
+            $rd close
         }
 
         test "$pop: arguments are empty" {
@@ -1091,6 +1141,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
             assert_equal {blist2{t} foo} [$rd read]
             assert_equal 0 [r exists blist1{t}]
             assert_equal 0 [r exists blist2{t}]
+            $rd close
         }
     }
 
@@ -1133,6 +1184,8 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         # Released on timeout.
         assert_equal {} [r blmpop 0.01 1 mylist{t} left count 10]
         r set foo{t} bar ;# something else to propagate after, so we can make sure the above pop didn't.
+
+        $rd close
 
         assert_replication_stream $repl {
             {select *}
@@ -1749,7 +1802,8 @@ foreach {pop} {BLPOP BLMPOP_RIGHT} {
         wait_for_blocked_client
         r lpush l foo
         assert_equal {l foo} [$rd read]
-    } {}
+        $rd close
+    }
 }
 
     test {List ziplist of various encodings} {

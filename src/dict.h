@@ -99,7 +99,7 @@ typedef struct dictIterator {
     int table, safe;
     dictEntry *entry, *nextEntry;
     /* unsafe iterator fingerprint for misuse detection. */
-    long long fingerprint;
+    unsigned long long fingerprint;
 } dictIterator;
 
 typedef void (dictScanFunction)(void *privdata, const dictEntry *de);
@@ -206,7 +206,7 @@ uint64_t dictGetHash(dict *d, const void *key);
 dictEntry **dictFindEntryRefByPtrAndHash(dict *d, const void *oldptr, uint64_t hash);
 
 #ifdef REDIS_TEST
-int dictTest(int argc, char *argv[], int accurate);
+int dictTest(int argc, char *argv[], int flags);
 #endif
 
 #endif /* __DICT_H */

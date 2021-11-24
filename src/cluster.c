@@ -632,6 +632,7 @@ void clusterInit(void) {
     deriveAnnouncedPorts(&myself->port, &myself->pport, &myself->cport);
 
     server.cluster->mf_end = 0;
+    server.cluster->mf_slave = NULL;
     resetManualFailover();
     clusterUpdateMyselfFlags();
     clusterUpdateMyselfIp();
@@ -2781,7 +2782,13 @@ void clusterBroadcastPong(int target) {
 
 /* Send a PUBLISH message.
  *
- * If link is NULL, then the message is broadcasted to the whole cluster. */
+ * If link is NULL, then the message is broadcasted to the whole cluster.
+ *
+ * Sanitizer suppression: In clusterMsgDataPublish, sizeof(bulk_data) is 8.
+ * As all the struct is used as a buffer, when more than 8 bytes are copied into
+ * the 'bulk_data', sanitizer generates an out-of-bounds error which is a false
+ * positive in this context. */
+REDIS_NO_SANITIZE("bounds")
 void clusterSendPublish(clusterLink *link, robj *channel, robj *message) {
     unsigned char *payload;
     clusterMsg buf[1];
@@ -3530,8 +3537,10 @@ void clusterHandleSlaveMigration(int max_slaves) {
  * The function can be used both to initialize the manual failover state at
  * startup or to abort a manual failover in progress. */
 void resetManualFailover(void) {
-    if (server.cluster->mf_end) {
-        checkClientPauseTimeoutAndReturnIfPaused();
+    if (server.cluster->mf_slave) {
+        /* We were a master failing over, so we paused clients. Regardless
+         * of the outcome we unpause now to allow traffic again. */
+        unpauseClients();
     }
     server.cluster->mf_end = 0; /* No manual failover in progress. */
     server.cluster->mf_can_start = 0;

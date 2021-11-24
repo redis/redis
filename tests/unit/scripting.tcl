@@ -637,6 +637,7 @@ start_server {tags {"scripting"}} {
         r script kill
         after 200 ; # Give some time to Lua to call the hook again...
         assert_equal [r ping] "PONG"
+        $rd close
     }
 
     test {Timedout read-only scripts can be killed by SCRIPT KILL even when use pcall} {

@@ -85,6 +85,27 @@ ifeq ($(USE_JEMALLOC),no)
 	MALLOC=libc
 endif
 
+ifdef SANITIZER
+ifeq ($(SANITIZER),address)
+	MALLOC=libc
+	CFLAGS+=-fsanitize=address -fno-sanitize-recover=all -fno-omit-frame-pointer
+	LDFLAGS+=-fsanitize=address
+else
+ifeq ($(SANITIZER),undefined)
+	MALLOC=libc
+	CFLAGS+=-fsanitize=undefined -fno-sanitize-recover=all -fno-omit-frame-pointer
+	LDFLAGS+=-fsanitize=undefined
+else
+ifeq ($(SANITIZER),thread)
+	CFLAGS+=-fsanitize=thread -fno-sanitize-recover=all -fno-omit-frame-pointer
+	LDFLAGS+=-fsanitize=thread
+else
+    $(error "unknown sanitizer=${SANITIZER}")
+endif
+endif
+endif
+endif
+
 # Override default settings if possible
 -include .make-settings
 
