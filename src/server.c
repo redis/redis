@@ -2378,7 +2378,7 @@ dictType commandTableDictType = {
     NULL                        /* allow to expand */
 };
 
-/* Hash type hash table (note that small hashes are represented with ziplists) */
+/* Hash type hash table (note that small hashes are represented with listpacks) */
 dictType hashDictType = {
     dictSdsHash,                /* hash function */
     NULL,                       /* key dup */
