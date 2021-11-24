@@ -6,14 +6,6 @@ import json
 
 # Note: This script should be run from the src/ dir: ../utils/generate-command-code.py
 
-#TODO:GUYBE handle new field "internal" (bool) under command (add to struct redisCommand)
-#TODO:GUYBE handle new field "metadata" (dict) under command (add to struct redisCommand)
-#TODO:GUYBE auto-gen HELP commands from subcommands summary
-# remove redis.io doc for DEBUG
-# new ones: "replaced-by", "depercted-since", "doc-flags"
-# "doc-flags" -> "syscmd", "dpercated"
-# 
-
 ARG_TYPES = {
     "string": "ARG_TYPE_STRING",
     "integer": "ARG_TYPE_INTEGER",
@@ -224,7 +216,7 @@ class Command(object):
     def history_table_name(self):
         return "%s_History" % (self.fullname().replace(" ", "_"))
 
-    def metadata_table_name(self):
+    def hints_table_name(self):
         return "%s_Hints" % (self.fullname().replace(" ", "_"))
 
     def arg_table_name(self):
@@ -279,7 +271,7 @@ class Command(object):
 
     def struct_code(self):
         """
-        "SET","<summary>","1.0.0","string","<return summary>",SET_ReturnTypesRESP2,SET_ReturnTypesRESP3,SET_History,SET_Metadata,setCommand,-3,"write use-memory @string @write @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}
+        "SET","<summary>","1.0.0","string","<return summary>",SET_ReturnTypesRESP2,SET_ReturnTypesRESP3,SET_History,SET_Hints,setCommand,-3,"write use-memory @string @write @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}
         """
         def _flags_code():
             s = ""
@@ -318,7 +310,7 @@ class Command(object):
             GROUPS[self.group],
             self.return_types_table_name(),
             self.history_table_name(),
-            self.metadata_table_name(),
+            self.hints_table_name(),
             self.desc.get("function", "NULL"),
             self.desc["arity"],
             _flags_code()
@@ -374,11 +366,11 @@ class Command(object):
         f.write("/* %s hints */\n" % self.fullname())
         code = self.hints_code()
         if code:
-            f.write("const char *%s[] = {\n" % self.hints_table_name())
+            f.write("char *%s[] = {\n" % self.hints_table_name())
             f.write("%s\n" % code)
             f.write("};\n\n")
         else:
-            f.write("#define %s NULL\n\n" % self.metadata_table_name())
+            f.write("#define %s NULL\n\n" % self.hints_table_name())
 
         if self.args:
             for arg in self.args:

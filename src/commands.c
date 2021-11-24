@@ -4122,20 +4122,6 @@ struct redisCommandArg FLUSHDB_Args[] = {
 {0}
 };
 
-/********** HOST ********************/
-
-/* HOST return info */
-commandReturnInfo HOST_ReturnInfo[] = {
-{"PATCH__TBD__224__",NULL,RETURN_TYPE_RESP2_3_DIFFER,.type.unique={RESP2_NULL_BULK_STRING,RESP3_NULL}},
-{0}
-};
-
-/* HOST history */
-#define HOST_History NULL
-
-/* HOST hints */
-#define HOST_Hints NULL
-
 /********** INFO ********************/
 
 /* INFO return info */
@@ -4474,20 +4460,6 @@ commandHistory MONITOR_History[] = {
 
 /* MONITOR hints */
 #define MONITOR_Hints NULL
-
-/********** POST ********************/
-
-/* POST return info */
-commandReturnInfo POST_ReturnInfo[] = {
-{"PATCH__TBD__293__",NULL,RETURN_TYPE_RESP2_3_DIFFER,.type.unique={RESP2_NULL_BULK_STRING,RESP3_NULL}},
-{0}
-};
-
-/* POST history */
-#define POST_History NULL
-
-/* POST hints */
-#define POST_Hints NULL
 
 /********** PSYNC ********************/
 
@@ -6754,7 +6726,12 @@ commandHistory SET_History[] = {
 };
 
 /* SET hints */
-#define SET_Hints NULL
+char *SET_Hints[] = {
+"hint1",
+"hint2",
+"hint3",
+NULL
+};
 
 /* SET expiration argument table */
 struct redisCommandArg SET_expiration_Subargs[] = {
@@ -6836,62 +6813,6 @@ struct redisCommandArg SETRANGE_Args[] = {
 {"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
 {"offset",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="offset"},
 {"value",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="value"},
-{0}
-};
-
-/********** STRALGO HELP ********************/
-
-/* STRALGO HELP return info */
-commandReturnInfo STRALGO_HELP_ReturnInfo[] = {
-{"PATCH__TBD__359__",NULL,RETURN_TYPE_RESP2_3_DIFFER,.type.unique={RESP2_NULL_BULK_STRING,RESP3_NULL}},
-{0}
-};
-
-/* STRALGO HELP history */
-#define STRALGO_HELP_History NULL
-
-/* STRALGO HELP hints */
-#define STRALGO_HELP_Hints NULL
-
-/********** STRALGO LCS ********************/
-
-/* STRALGO LCS return info */
-commandReturnInfo STRALGO_LCS_ReturnInfo[] = {
-{"PATCH__TBD__360__",NULL,RETURN_TYPE_RESP2_3_DIFFER,.type.unique={RESP2_NULL_BULK_STRING,RESP3_NULL}},
-{0}
-};
-
-/* STRALGO LCS history */
-#define STRALGO_LCS_History NULL
-
-/* STRALGO LCS hints */
-#define STRALGO_LCS_Hints NULL
-
-/* STRALGO command table */
-struct redisCommand STRALGO_Subcommands[] = {
-{"help","PATCH__TBD__65__","O(1)","PATCH__TBD__66__",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,STRALGO_HELP_ReturnInfo,STRALGO_HELP_History,STRALGO_HELP_Hints,stralgoCommand,2,"loading stale @string @slow"},
-{"lcs","PATCH__TBD__63__","PATCH__TBD__62__","PATCH__TBD__64__",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,STRALGO_LCS_ReturnInfo,STRALGO_LCS_History,STRALGO_LCS_Hints,stralgoCommand,-5,"readonly @read @string @slow",{{"read incomplete",KSPEC_BS_UNKNOWN,{{0}},KSPEC_FK_UNKNOWN,{{0}}}},lcsGetKeys},
-{0}
-};
-
-/********** STRALGO ********************/
-
-/* STRALGO return info */
-commandReturnInfo STRALGO_ReturnInfo[] = {
-{"PATCH__TBD__361__",NULL,RETURN_TYPE_RESP2_3_DIFFER,.type.unique={RESP2_NULL_BULK_STRING,RESP3_NULL}},
-{0}
-};
-
-/* STRALGO history */
-#define STRALGO_History NULL
-
-/* STRALGO hints */
-#define STRALGO_Hints NULL
-
-/* STRALGO argument table */
-struct redisCommandArg STRALGO_Args[] = {
-{"algorithm",ARG_TYPE_PURE_TOKEN,"LCS",NULL,NULL,CMD_ARG_NONE},
-{"algo-specific-argument",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.value.string="algo-specific-argument"},
 {0}
 };
 
@@ -7121,7 +7042,6 @@ struct redisCommand redisCommandTable[] = {
 {"failover","Start a coordinated failover between this server and one of its replicas.","PATCH__TBD__69__","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,FAILOVER_ReturnInfo,FAILOVER_History,FAILOVER_Hints,failoverCommand,-1,"admin noscript stale @admin @slow @dangerous",.args=FAILOVER_Args},
 {"flushall","Remove all keys from all databases","O(N) where N is the total number of keys in all databases","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,FLUSHALL_ReturnInfo,FLUSHALL_History,FLUSHALL_Hints,flushallCommand,-1,"write @keyspace @write @slow @dangerous",.args=FLUSHALL_Args},
 {"flushdb","Remove all keys from the current database","O(N) where N is the number of keys in the selected database","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,FLUSHDB_ReturnInfo,FLUSHDB_History,FLUSHDB_Hints,flushdbCommand,-1,"write @keyspace @write @slow @dangerous",.args=FLUSHDB_Args},
-{"host:","PATCH__TBD__3__","PATCH__TBD__2__","PATCH__TBD__4__",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,HOST_ReturnInfo,HOST_History,HOST_Hints,securityWarningCommand,-1,"readonly loading stale internal @read @slow"},
 {"info","Get information and statistics about the server","PATCH__TBD__37__","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,INFO_ReturnInfo,INFO_History,INFO_Hints,infoCommand,-1,"random loading stale sentinel @slow @dangerous",.args=INFO_Args},
 {"lastsave","Get the UNIX time stamp of the last successful save to disk","PATCH__TBD__49__","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,LASTSAVE_ReturnInfo,LASTSAVE_History,LASTSAVE_Hints,lastsaveCommand,1,"random loading stale fast @admin @fast @dangerous"},
 {"latency","A container for latency diagnostics commands","Depends on subcommand.","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,LATENCY_ReturnInfo,LATENCY_History,LATENCY_Hints,NULL,-2,"@slow",.subcommands=LATENCY_Subcommands},
@@ -7129,7 +7049,6 @@ struct redisCommand redisCommandTable[] = {
 {"memory","A container for memory diagnostics commands","Depends on subcommand.","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MEMORY_ReturnInfo,MEMORY_History,MEMORY_Hints,NULL,-2,"@slow",.subcommands=MEMORY_Subcommands},
 {"module","A container for module commands","Depends on subcommand.","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_ReturnInfo,MODULE_History,MODULE_Hints,NULL,-2,"@slow",.subcommands=MODULE_Subcommands},
 {"monitor","Listen for all requests received by the server in real time","PATCH__TBD__54__","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MONITOR_ReturnInfo,MONITOR_History,MONITOR_Hints,monitorCommand,1,"admin noscript loading stale @admin @slow @dangerous"},
-{"post","PATCH__TBD__24__","PATCH__TBD__23__","PATCH__TBD__25__",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,POST_ReturnInfo,POST_History,POST_Hints,securityWarningCommand,-1,"readonly loading stale internal @read @slow"},
 {"psync","Internal command used for replication","PATCH__TBD__58__","2.8.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,PSYNC_ReturnInfo,PSYNC_History,PSYNC_Hints,syncCommand,-3,"admin noscript @admin @slow @dangerous",.args=PSYNC_Args},
 {"replconf","An internal command for configuring the replication stream","PATCH__TBD__26__","PATCH__TBD__28__",CMD_DOC_SYSCMD,NULL,NULL,COMMAND_GROUP_SERVER,REPLCONF_ReturnInfo,REPLCONF_History,REPLCONF_Hints,replconfCommand,-1,"admin noscript loading stale @admin @slow @dangerous"},
 {"replicaof","Make the server a replica of another instance, or promote it as master.","PATCH__TBD__59__","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,REPLICAOF_ReturnInfo,REPLICAOF_History,REPLICAOF_Hints,replicaofCommand,3,"admin noscript stale @admin @slow @dangerous",.args=REPLICAOF_Args},
@@ -7233,7 +7152,6 @@ struct redisCommand redisCommandTable[] = {
 {"setex","Set the value and expiration of a key","O(1)","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,SETEX_ReturnInfo,SETEX_History,SETEX_Hints,setexCommand,4,"write denyoom @write @string @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SETEX_Args},
 {"setnx","Set the value of a key, only if the key does not exist","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,SETNX_ReturnInfo,SETNX_History,SETNX_Hints,setnxCommand,3,"write denyoom fast @write @string @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SETNX_Args},
 {"setrange","Overwrite part of a string at key starting at the specified offset","O(1), not counting the time taken to copy the new string in place. Usually, this string is very small so the amortized complexity is O(1). Otherwise, complexity is O(M) with M being the length of the value argument.","2.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,SETRANGE_ReturnInfo,SETRANGE_History,SETRANGE_Hints,setrangeCommand,4,"write denyoom @write @string @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SETRANGE_Args},
-{"stralgo","Run algorithms (currently LCS) against strings","For LCS O(strlen(s1)*strlen(s2))","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,STRALGO_ReturnInfo,STRALGO_History,STRALGO_Hints,NULL,-2,"@slow",.subcommands=STRALGO_Subcommands,.args=STRALGO_Args},
 {"strlen","Get the length of the value stored in a key","O(1)","2.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,STRLEN_ReturnInfo,STRLEN_History,STRLEN_Hints,strlenCommand,2,"readonly fast @read @string @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=STRLEN_Args},
 {"substr","Get a substring of the string stored at a key","O(N) where N is the length of the returned string. The complexity is ultimately determined by the returned length, but because creating a substring from an existing string is very cheap, it can be considered O(1) for small strings.","__TBD__6__",CMD_DOC_DEPRECATED,"`GETRANGE`","2.0.0",COMMAND_GROUP_STRING,SUBSTR_ReturnInfo,SUBSTR_History,SUBSTR_Hints,getrangeCommand,4,"readonly @read @string @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 /* transactions */

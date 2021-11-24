@@ -3949,10 +3949,10 @@ void addReplyCommandHints(client *c, struct redisCommand *cmd) {
     int j;
 
     void *array = addReplyDeferredLen(c);
-    for (j = 0; cmd->metadata && cmd->hints[j].field != NULL; j++) {
-        addReplyBulkCString(c, cmd->metadata[j].field);
+    for (j = 0; cmd->hints && cmd->hints[j] != NULL; j++) {
+        addReplyBulkCString(c, cmd->hints[j]);
     }
-    setDeferredMapLen(c, array, j);
+    setDeferredSetLen(c, array, j);
 }
 
 void addReplyCommandKeySpecs(client *c, struct redisCommand *cmd) {
