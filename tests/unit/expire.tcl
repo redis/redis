@@ -268,9 +268,17 @@ start_server {tags {"expire"}} {
 
     test {EXPIRE with big integer overflows when converted to milliseconds} {
         r set foo bar
-        catch {r EXPIRE foo 10000000000000000} e
-        set e
-    } {ERR invalid expire time in expire}
+
+        # Hit `when > LLONG_MAX - basetime`
+        assert_error "ERR invalid expire time in expire" {r EXPIRE foo 9223370399119966}
+
+        # Hit `when > LLONG_MAX / 1000`
+        assert_error "ERR invalid expire time in expire" {r EXPIRE foo 9223372036854776}
+        assert_error "ERR invalid expire time in expire" {r EXPIRE foo 10000000000000000}
+        assert_error "ERR invalid expire time in expire" {r EXPIRE foo 18446744073709561}
+
+        assert_equal {-1} [r ttl foo]
+    }
 
     test {PEXPIRE with big integer overflow when basetime is added} {
         r set foo bar
@@ -280,8 +288,11 @@ start_server {tags {"expire"}} {
 
     test {EXPIRE with big negative integer} {
         r set foo bar
-        catch {r EXPIRE foo -9999999999999999} e
-        assert_match {ERR invalid expire time in expire} $e
+
+        # Hit `when < LLONG_MIN / 1000`
+        assert_error "ERR invalid expire time in expire" {r EXPIRE foo -9223372036854776}
+        assert_error "ERR invalid expire time in expire" {r EXPIRE foo -9999999999999999}
+
         r ttl foo
     } {-1}
 
