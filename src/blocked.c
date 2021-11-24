@@ -591,8 +591,7 @@ void handleClientsBlockedOnKeys(void) {
             updateCachedTime(0);
 
             /* Serve clients blocked on the key. */
-            robj *o = lookupKeyReadWithFlags(rl->db, rl->key, (LOOKUP_NONOTIFY |
-                                                               LOOKUP_NOSTATS));
+            robj *o = lookupKeyReadWithFlags(rl->db, rl->key, LOOKUP_NONOTIFY | LOOKUP_NOSTATS);
             if (o != NULL) {
                 if (o->type == OBJ_LIST)
                     serveClientsBlockedOnListKey(o,rl);

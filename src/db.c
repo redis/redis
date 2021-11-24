@@ -45,7 +45,7 @@ struct dbBackup {
  * C-level DB API
  *----------------------------------------------------------------------------*/
 
-int expireIfNeeded(redisDb *db, robj *key, int expire_on_replica);
+int expireIfNeeded(redisDb *db, robj *key, int force_delete_expired);
 int keyIsExpired(redisDb *db, robj *key);
 
 /* Update LFU when an object is accessed.
@@ -87,7 +87,17 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
     robj *val = NULL;
     if (de) {
         val = dictGetVal(de);
-        if (expireIfNeeded(db, key, flags & LOOKUP_WRITE)) {
+        int force_delete_expired = flags & LOOKUP_WRITE;
+        if (force_delete_expired) {
+            /* Forcing deletion of expired keys on a replica makes the replica
+             * inconsistent with the master. The reason it's allowed for write
+             * commands is to make writable replicas behave consistently. It
+             * shall not be used in readonly commands. Modules are accepted so
+             * that we don't break old modules. */
+            client *c = server.in_eval ? server.lua_client : server.current_client;
+            serverAssert(!c || !c->cmd || (c->cmd->flags & (CMD_WRITE|CMD_MODULE)));
+        }
+        if (expireIfNeeded(db, key, force_delete_expired)) {
             /* The key is no longer valid. */
             val = NULL;
         }
@@ -1507,31 +1517,22 @@ int keyIsExpired(redisDb *db, robj *key) {
  * is via lookupKey*() family of functions.
  *
  * The behavior of the function depends on the replication role of the
- * instance, because replicas do not expire keys. They wait for DELs
- * from the master for consistency matters. The exception is write
- * operations to writable replicas. However, even read-only replicas
- * will try to have a coherent return value of the function, so that
- * read commands executed on the replica will be able to behave as if
- * the key is expired even if still present (because the master has yet
- * to propagate the DEL).
+ * instance, because by default replicas do not delete expired keys. They
+ * wait for DELs from the master for consistency matters.
  *
  * In masters as a side effect of finding a key which is expired, such
  * key will be evicted from the database. Also this may trigger the
  * propagation of a DEL/UNLINK command in AOF / replication stream.
  *
+ * On replicas, this function does not delete expired keys by default, but
+ * it still returns 1 if the key is logically expired. To force deletion
+ * of logically expired keys even on replicas, set force_delete_expired to
+ * a non-zero value. Note though that if the current client is executing
+ * replicated commands from the master, keys are never considered expired.
+ *
  * The return value of the function is 0 if the key is still valid,
  * otherwise the function returns 1 if the key is expired. */
-int expireIfNeeded(redisDb *db, robj *key, int expire_on_replica) {
-
-    /* Deleting expired keys on a replica makes the replica inconsistent with
-     * the master. The reason it's allowed for write commands is to make
-     * writable replicas behave consistently. It shall not be used in readonly
-     * commands. Modules are accepted so that we don't break old modules. */
-    if (expire_on_replica) {
-        client *c = server.in_eval ? server.lua_client : server.current_client;
-        serverAssert(!c || !c->cmd || (c->cmd->flags & (CMD_WRITE|CMD_MODULE)));
-    }
-
+int expireIfNeeded(redisDb *db, robj *key, int force_delete_expired) {
     if (!keyIsExpired(db,key)) return 0;
 
     /* If we are running in the context of a replica, instead of
@@ -1549,7 +1550,7 @@ int expireIfNeeded(redisDb *db, robj *key, int expire_on_replica) {
      * expired. */
     if (server.masterhost != NULL) {
         if (server.current_client == server.master) return 0;
-        if (!expire_on_replica) return 1;
+        if (!force_delete_expired) return 1;
     }
 
     /* If clients are paused, we keep the current dataset constant,
