@@ -1249,8 +1249,8 @@ commandHistory MIGRATE_History[] = {
 /* MIGRATE hints */
 #define MIGRATE_Hints NULL
 
-/* MIGRATE key argument table */
-struct redisCommandArg MIGRATE_key_Subargs[] = {
+/* MIGRATE key_or_none argument table */
+struct redisCommandArg MIGRATE_key_or_none_Subargs[] = {
 {"key",ARG_TYPE_PURE_TOKEN,"key",NULL,NULL,CMD_ARG_NONE},
 {"empty_string",ARG_TYPE_PURE_TOKEN,"""",NULL,NULL,CMD_ARG_NONE},
 {0}
@@ -1267,7 +1267,7 @@ struct redisCommandArg MIGRATE_username_password_Subargs[] = {
 struct redisCommandArg MIGRATE_Args[] = {
 {"host",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="host"},
 {"port",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="port"},
-{"key",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_NONE,.value.subargs=MIGRATE_key_Subargs},
+{"key_or_none",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_NONE,.value.subargs=MIGRATE_key_or_none_Subargs},
 {"destination-db",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="destination-db"},
 {"timeout",ARG_TYPE_INTEGER,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="timeout"},
 {"copy",ARG_TYPE_PURE_TOKEN,"COPY",NULL,NULL,CMD_ARG_OPTIONAL},
@@ -5026,8 +5026,8 @@ struct redisCommandArg XADD_trim_Subargs[] = {
 {0}
 };
 
-/* XADD __tbd__1__ argument table */
-struct redisCommandArg XADD___tbd__1___Subargs[] = {
+/* XADD id_or_auto argument table */
+struct redisCommandArg XADD_id_or_auto_Subargs[] = {
 {"auto_id",ARG_TYPE_PURE_TOKEN,"*",NULL,NULL,CMD_ARG_NONE},
 {"id",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="ID"},
 {0}
@@ -5045,7 +5045,7 @@ struct redisCommandArg XADD_Args[] = {
 {"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
 {"nomkstream",ARG_TYPE_PURE_TOKEN,"NOMKSTREAM",NULL,NULL,CMD_ARG_OPTIONAL},
 {"trim",ARG_TYPE_BLOCK,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=XADD_trim_Subargs},
-{"__tbd__1__",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_NONE,.value.subargs=XADD___tbd__1___Subargs},
+{"id_or_auto",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_NONE,.value.subargs=XADD_id_or_auto_Subargs},
 {"field_value",ARG_TYPE_BLOCK,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.value.subargs=XADD_field_value_Subargs},
 {0}
 };

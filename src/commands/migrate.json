@@ -85,7 +85,7 @@
                 "value": "port"
             },
             {
-                "name": "key",
+                "name": "key_or_none",
                 "type": "oneof",
                 "value": [
                     {

@@ -1034,15 +1034,60 @@ int RM_CreateSubcommand(RedisModuleCommandProxy *parent, const char *name, Redis
     return REDISMODULE_OK;
 }
 
+int RM_SetCommandArity(RedisModuleCommandProxy *command, int arity) {
+    struct redisCommand *cmd = command->rediscmd;
+    cmd->arity = arity;
+    return REDISMODULE_OK;
+}
+
+int RM_SetCommandSummary(RedisModuleCommandProxy *command, const char *summary) {
+    struct redisCommand *cmd = command->rediscmd;
+    cmd->summary = summary;
+    return REDISMODULE_OK;
+}
+
+int RM_SetCommandDebutVersion(RedisModuleCommandProxy *command, const char *since) {
+    struct redisCommand *cmd = command->rediscmd;
+    cmd->since = since;
+    return REDISMODULE_OK;
+}
+
+int RM_SetCommandComplexity(RedisModuleCommandProxy *command, const char *complexity) {
+    struct redisCommand *cmd = command->rediscmd;
+    cmd->complexity = complexity;
+    return REDISMODULE_OK;
+}
+
+int RM_SetCommandHints(RedisModuleCommandProxy *command, const char *hints) {
+    struct redisCommand *cmd = command->rediscmd;
+
+    int j, count;
+    sds *strings = sdssplitlen(hints,strlen(hints)," ",1,&count);
+    if (strings == NULL)
+        return REDISMODULE_ERR;
+
+    for (j = 0; cmd->hints && cmd->hints[j]; j++)
+        sdsfree((sds)cmd->hints[j]);
+
+    cmd->hints = zrealloc(cmd->hints, (count+1)*sizeof(char *));
+
+    for (j = 0; j < count; j++)
+        cmd->hints[j] = strings[j];
+    cmd->hints[count] = NULL;
+
+    return REDISMODULE_OK;
+}
+
 int RM_AppendCommandHistoryEntry(RedisModuleCommandProxy *command, const char *since, const char *changes) {
     struct redisCommand *cmd = command->rediscmd;
 
     int len = 0;
     while (cmd->history && cmd->history[len++].since);
 
-    cmd->history = zrealloc(cmd->history, len * sizeof(commandHistory));
+    cmd->history = zrealloc(cmd->history, (len+1)*sizeof(commandHistory));
     cmd->history[len].since = since;
     cmd->history[len].changes = changes;
+    memset(&cmd->history[len+1], 0, sizeof(commandHistory));
     return REDISMODULE_OK;
 }
 
@@ -9619,8 +9664,10 @@ void moduleUnregisterCommands(struct RedisModule *module) {
                 (void*)(unsigned long)cmd->getkeys_proc;
             sds cmdname = (sds)cp->rediscmd->name;
             if (cp->module == module) {
-                if (cp->rediscmd->key_specs != cp->rediscmd->key_specs_static)
-                    zfree(cp->rediscmd->key_specs);
+                if (cmd->key_specs != cmd->key_specs_static)
+                    zfree(cmd->key_specs);
+                for (int j = 0; cmd->hints && cmd->hints[j]; j++)
+                    sdsfree((sds)cmd->hints[j]);
                 dictDelete(server.commands,cmdname);
                 dictDelete(server.orig_commands,cmdname);
                 sdsfree(cmdname);
@@ -10380,6 +10427,11 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(CreateCommand);
     REGISTER_API(GetCommandProxy);
     REGISTER_API(CreateSubcommand);
+    REGISTER_API(SetCommandArity);
+    REGISTER_API(SetCommandSummary);
+    REGISTER_API(SetCommandDebutVersion);
+    REGISTER_API(SetCommandComplexity);
+    REGISTER_API(SetCommandHints);
     REGISTER_API(AppendCommandHistoryEntry);
     REGISTER_API(SetModuleAttribs);
     REGISTER_API(IsModuleNameBusy);

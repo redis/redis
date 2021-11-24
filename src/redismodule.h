@@ -626,6 +626,11 @@ REDISMODULE_API int (*RedisModule_GetApi)(const char *, void *) REDISMODULE_ATTR
 REDISMODULE_API int (*RedisModule_CreateCommand)(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleCommandProxy *(*RedisModule_GetCommandProxy)(RedisModuleCtx *ctx, const char *name) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_CreateSubcommand)(RedisModuleCommandProxy *parent, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_SetCommandArity)(RedisModuleCommandProxy *command, int arity) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_SetCommandSummary)(RedisModuleCommandProxy *command, const char *summary) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_SetCommandDebutVersion)(RedisModuleCommandProxy *command, const char *since) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_SetCommandComplexity)(RedisModuleCommandProxy *command, const char *complexity) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_SetCommandHints)(RedisModuleCommandProxy *command, const char *hints) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_AppendCommandHistoryEntry)(RedisModuleCommandProxy *command, const char *since, const char *changes) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_SetModuleAttribs)(RedisModuleCtx *ctx, const char *name, int ver, int apiver) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_IsModuleNameBusy)(const char *name) REDISMODULE_ATTR;
@@ -950,6 +955,11 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(CreateCommand);
     REDISMODULE_GET_API(GetCommandProxy);
     REDISMODULE_GET_API(CreateSubcommand);
+    REDISMODULE_GET_API(SetCommandArity);
+    REDISMODULE_GET_API(SetCommandSummary);
+    REDISMODULE_GET_API(SetCommandDebutVersion);
+    REDISMODULE_GET_API(SetCommandComplexity);
+    REDISMODULE_GET_API(SetCommandHints);
     REDISMODULE_GET_API(AppendCommandHistoryEntry);
     REDISMODULE_GET_API(SetModuleAttribs);
     REDISMODULE_GET_API(IsModuleNameBusy);

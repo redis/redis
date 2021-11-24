@@ -107,7 +107,7 @@
                 "optional": true
             },
             {
-                "name": "__TBD__1__",
+                "name": "id_or_auto",
                 "type": "oneof",
                 "value": [
                     {
