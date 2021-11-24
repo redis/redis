@@ -1372,13 +1372,14 @@ int rdbSave(char *filename, rdbSaveInfo *rsi) {
     snprintf(tmpfile,256,"temp-%d.rdb", (int) getpid());
     fp = fopen(tmpfile,"w");
     if (!fp) {
+        char *str_err = strerror(errno);
         char *cwdp = getcwd(cwd,MAXPATHLEN);
         serverLog(LL_WARNING,
-            "Failed opening the RDB file %s (in server root dir %s) "
+            "Failed opening the temp RDB file %s (in server root dir %s) "
             "for saving: %s",
-            filename,
+            tmpfile,
             cwdp ? cwdp : "unknown",
-            strerror(errno));
+            str_err);
         return C_ERR;
     }
 
@@ -1402,6 +1403,7 @@ int rdbSave(char *filename, rdbSaveInfo *rsi) {
     /* Use RENAME to make sure the DB file is changed atomically only
      * if the generate DB file is ok. */
     if (rename(tmpfile,filename) == -1) {
+        char *str_err = strerror(errno);
         char *cwdp = getcwd(cwd,MAXPATHLEN);
         serverLog(LL_WARNING,
             "Error moving temp DB file %s on the final "
@@ -1409,7 +1411,7 @@ int rdbSave(char *filename, rdbSaveInfo *rsi) {
             tmpfile,
             filename,
             cwdp ? cwdp : "unknown",
-            strerror(errno));
+            str_err);
         unlink(tmpfile);
         stopSaving(0);
         return C_ERR;
