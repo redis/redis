@@ -322,7 +322,7 @@ tags {"external:skip"} {
             r config set auto-aof-rewrite-percentage 1
             r config set auto-aof-rewrite-min-size 1mb
 
-            # Let AOFRW fail two times, this will trigger AOFRW limite
+            # Let AOFRW fail two times, this will trigger AOFRW limit
             r bgrewriteaof
             set fork_child_pid [get_child_pid 0]
             exec kill -9 $fork_child_pid
