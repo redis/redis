@@ -112,20 +112,19 @@ void listTypeSetIteratorDirection(listTypeIterator *li, unsigned char direction)
 
 /* Clean up the iterator. */
 void listTypeReleaseIterator(listTypeIterator *li) {
-    zfree(li->iter);
+    quicklistReleaseIterator(li->iter);
     zfree(li);
 }
 
 /* Stores pointer to current the entry in the provided entry structure
  * and advances the position of the iterator. Returns 1 when the current
  * entry is in fact an entry, 0 otherwise. */
-int listTypeNext(listTypeIterator *li, listTypeEntry *entry) {
+int listTypeNext(listTypeIterator *li) {
     /* Protect from converting when iterating */
     serverAssert(li->subject->encoding == li->encoding);
 
-    entry->li = li;
     if (li->encoding == OBJ_ENCODING_QUICKLIST) {
-        return quicklistNext(li->iter, &entry->entry);
+        return quicklistNext(li->iter);
     } else {
         serverPanic("Unknown list encoding");
     }
@@ -133,14 +132,14 @@ int listTypeNext(listTypeIterator *li, listTypeEntry *entry) {
 }
 
 /* Return entry or NULL at the current position of the iterator. */
-robj *listTypeGet(listTypeEntry *entry) {
+robj *listTypeGet(listTypeIterator *li) {
     robj *value = NULL;
-    if (entry->li->encoding == OBJ_ENCODING_QUICKLIST) {
-        if (entry->entry.value) {
-            value = createStringObject((char *)entry->entry.value,
-                                       entry->entry.sz);
+    if (li->encoding == OBJ_ENCODING_QUICKLIST) {
+        if (li->iter->value) {
+            value = createStringObject((char *)li->iter->value,
+                                       li->iter->sz);
         } else {
-            value = createStringObjectFromLongLong(entry->entry.longval);
+            value = createStringObjectFromLongLong(li->iter->longval);
         }
     } else {
         serverPanic("Unknown list encoding");
@@ -148,17 +147,15 @@ robj *listTypeGet(listTypeEntry *entry) {
     return value;
 }
 
-void listTypeInsert(listTypeEntry *entry, robj *value, int where) {
-    if (entry->li->encoding == OBJ_ENCODING_QUICKLIST) {
+void listTypeInsert(listTypeIterator *li, robj *value, int where) {
+    if (li->encoding == OBJ_ENCODING_QUICKLIST) {
         value = getDecodedObject(value);
         sds str = value->ptr;
         size_t len = sdslen(str);
         if (where == LIST_TAIL) {
-            quicklistInsertAfter((quicklist *)entry->entry.quicklist,
-                                 &entry->entry, str, len);
+            quicklistInsertAfter(li->iter, str, len);
         } else if (where == LIST_HEAD) {
-            quicklistInsertBefore((quicklist *)entry->entry.quicklist,
-                                  &entry->entry, str, len);
+            quicklistInsertBefore(li->iter, str, len);
         }
         decrRefCount(value);
     } else {
@@ -167,13 +164,12 @@ void listTypeInsert(listTypeEntry *entry, robj *value, int where) {
 }
 
 /* Replaces entry at the current position of the iterator. */
-void listTypeReplace(listTypeEntry *entry, robj *value) {
-    if (entry->li->encoding == OBJ_ENCODING_QUICKLIST) {
+void listTypeReplace(listTypeIterator *li, robj *value) {
+    if (li->encoding == OBJ_ENCODING_QUICKLIST) {
         value = getDecodedObject(value);
         sds str = value->ptr;
         size_t len = sdslen(str);
-        quicklistReplaceEntry((quicklist *)entry->entry.quicklist,
-                              &entry->entry, str, len);
+        quicklistReplaceEntry(li->iter, str, len);
         decrRefCount(value);
     } else {
         serverPanic("Unknown list encoding");
@@ -181,19 +177,19 @@ void listTypeReplace(listTypeEntry *entry, robj *value) {
 }
 
 /* Compare the given object with the entry at the current position. */
-int listTypeEqual(listTypeEntry *entry, robj *o) {
-    if (entry->li->encoding == OBJ_ENCODING_QUICKLIST) {
+int listTypeEqual(listTypeIterator *entry, robj *o) {
+    if (entry->encoding == OBJ_ENCODING_QUICKLIST) {
         serverAssertWithInfo(NULL,o,sdsEncodedObject(o));
-        return quicklistCompare(&entry->entry,o->ptr,sdslen(o->ptr));
+        return quicklistCompare(entry->iter,o->ptr,sdslen(o->ptr));
     } else {
         serverPanic("Unknown list encoding");
     }
 }
 
 /* Delete the element pointed to. */
-void listTypeDelete(listTypeIterator *iter, listTypeEntry *entry) {
-    if (entry->li->encoding == OBJ_ENCODING_QUICKLIST) {
-        quicklistDelEntry(iter->iter, &entry->entry);
+void listTypeDelete(listTypeIterator *iter) {
+    if (iter->encoding == OBJ_ENCODING_QUICKLIST) {
+        quicklistDelEntry(iter->iter);
     } else {
         serverPanic("Unknown list encoding");
     }
@@ -290,7 +286,6 @@ void linsertCommand(client *c) {
     int where;
     robj *subject;
     listTypeIterator *iter;
-    listTypeEntry entry;
     int inserted = 0;
 
     if (strcasecmp(c->argv[2]->ptr,"after") == 0) {
@@ -307,9 +302,9 @@ void linsertCommand(client *c) {
 
     /* Seek pivot from head to tail */
     iter = listTypeInitIterator(subject,0,LIST_TAIL);
-    while (listTypeNext(iter,&entry)) {
-        if (listTypeEqual(&entry,c->argv[3])) {
-            listTypeInsert(&entry,c->argv[4],where);
+    while (listTypeNext(iter)) {
+        if (listTypeEqual(iter,c->argv[3])) {
+            listTypeInsert(iter,c->argv[4],where);
             inserted = 1;
             break;
         }
@@ -347,16 +342,17 @@ void lindexCommand(client *c) {
         return;
 
     if (o->encoding == OBJ_ENCODING_QUICKLIST) {
-        quicklistEntry entry;
-        if (quicklistIndex(o->ptr, index, &entry)) {
-            if (entry.value) {
-                addReplyBulkCBuffer(c, entry.value, entry.sz);
+        listTypeIterator *iter = listTypeInitIterator(o, index, LIST_HEAD);
+        if (listTypeNext(iter)) {
+            if (iter->iter->value) {
+                addReplyBulkCBuffer(c, iter->iter->value, iter->iter->sz);
             } else {
-                addReplyBulkLongLong(c, entry.longval);
+                addReplyBulkLongLong(c, iter->iter->longval);
             }
         } else {
             addReplyNull(c);
         }
+        listTypeReleaseIterator(iter);
     } else {
         serverPanic("Unknown list encoding");
     }
@@ -448,9 +444,8 @@ void addListRangeReply(client *c, robj *o, long start, long end, int reverse) {
         listTypeIterator *iter = listTypeInitIterator(o,from,direction);
 
         while(rangelen--) {
-            listTypeEntry entry;
-            serverAssert(listTypeNext(iter, &entry)); /* fail on corrupt data */
-            quicklistEntry *qe = &entry.entry;
+            serverAssert(listTypeNext(iter)); /* fail on corrupt data */
+            quicklistIter *qe = iter->iter;
             if (qe->value) {
                 addReplyBulkCBuffer(c,qe->value,qe->sz);
             } else {
@@ -724,11 +719,10 @@ void lposCommand(client *c) {
     /* Seek the element. */
     listTypeIterator *li;
     li = listTypeInitIterator(o,direction == LIST_HEAD ? -1 : 0,direction);
-    listTypeEntry entry;
     long llen = listTypeLength(o);
     long index = 0, matches = 0, matchindex = -1, arraylen = 0;
-    while (listTypeNext(li,&entry) && (maxlen == 0 || index < maxlen)) {
-        if (listTypeEqual(&entry,ele)) {
+    while (listTypeNext(li) && (maxlen == 0 || index < maxlen)) {
+        if (listTypeEqual(li,ele)) {
             matches++;
             matchindex = (direction == LIST_TAIL) ? index : llen - index - 1;
             if (matches >= rank) {
@@ -779,10 +773,9 @@ void lremCommand(client *c) {
         li = listTypeInitIterator(subject,0,LIST_TAIL);
     }
 
-    listTypeEntry entry;
-    while (listTypeNext(li,&entry)) {
-        if (listTypeEqual(&entry,obj)) {
-            listTypeDelete(li, &entry);
+    while (listTypeNext(li)) {
+        if (listTypeEqual(li,obj)) {
+            listTypeDelete(li);
             server.dirty++;
             removed++;
             if (toremove && removed == toremove) break;

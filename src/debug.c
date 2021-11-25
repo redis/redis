@@ -147,9 +147,8 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
         mixStringObjectDigest(digest,o);
     } else if (o->type == OBJ_LIST) {
         listTypeIterator *li = listTypeInitIterator(o,0,LIST_TAIL);
-        listTypeEntry entry;
-        while(listTypeNext(li,&entry)) {
-            robj *eleobj = listTypeGet(&entry);
+        while(listTypeNext(li)) {
+            robj *eleobj = listTypeGet(li);
             mixStringObjectDigest(digest,eleobj);
             decrRefCount(eleobj);
         }
