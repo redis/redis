@@ -49,7 +49,7 @@ off_t getBaseAndIncrAppendOnlyFilesSize(aofManifest *am);
  *
  * The following code implements the read/write logic of AOF manifest file, which 
  * is used to track and manage all AOF files.
- *
+ * 
  * There are three types of AOF, they are: 
  * BASE: Every time AOFRW success, a BASE type AOF will be generated, which 
  *       represents the redis SNAPSHOT at the moment when the AOFRW is executed.
@@ -72,8 +72,8 @@ off_t getBaseAndIncrAppendOnlyFilesSize(aofManifest *am);
  * ------------------------------------------------------------------------- */
 
 /* Naming rules */
-#define BASE_AOF_SUFFIX           ".rdb"        
-#define INCR_AOF_SUFFIX           ".aof"        
+#define BASE_FILE_SUFFIX           ".rdb"        
+#define INCR_FILE_SUFFIX           ".aof"        
 #define MANIFEST_NAME_SUFFIX      ".manifest"   
 #define MANIFEST_TEMP_NAME_PREFIX "temp_"      
 
@@ -383,7 +383,7 @@ void aofManifestAtomicUpdate(aofManifest *am) {
  * The format of BASE type AOF name is:
  *   server.aof_filename.seq.rdb
  */
-sds getNewBaseAofNameAndMarkPreAsHistory(aofManifest *am) {
+sds getNewBaseFileNameAndMarkPreAsHistory(aofManifest *am) {
     serverAssert(am != NULL);
     if (am->base_aof_info) {
         am->base_aof_info->file_type = AOF_FILE_TYPE_HIST;
@@ -392,7 +392,7 @@ sds getNewBaseAofNameAndMarkPreAsHistory(aofManifest *am) {
 
     aofInfo *ai = aofInfoCreate();
     ai->file_name = sdscatprintf(sdsempty(), "%s.%lld%s", server.aof_filename, 
-                        ++am->curr_base_aof_seq, BASE_AOF_SUFFIX);
+                        ++am->curr_base_aof_seq, BASE_FILE_SUFFIX);
     ai->file_seq = am->curr_base_aof_seq;
     ai->file_type = AOF_FILE_TYPE_BASE;
     am->base_aof_info = ai;
@@ -409,7 +409,7 @@ sds getNewIncrAofName(aofManifest *am) {
     aofInfo *ai = aofInfoCreate();
     ai->file_type = AOF_FILE_TYPE_INCR;
     ai->file_name = sdscatprintf(sdsempty(), "%s.%lld%s", server.aof_filename, 
-                        ++am->curr_incr_aof_seq, INCR_AOF_SUFFIX);
+                        ++am->curr_incr_aof_seq, INCR_FILE_SUFFIX);
     ai->file_seq = am->curr_incr_aof_seq;
     listAddNodeTail(am->incr_aof_list, ai);
 
@@ -618,6 +618,7 @@ int openNewIncrAofForAppend(void) {
 
     /* Dup an temp aof_manifest to modify. */
     aofManifest *temp_am = aofManifestDup(server.aof_manifest);
+    if (temp_am == NULL) return C_ERR;
 
     /* Open new AOF. */
     sds new_aof_name = getNewIncrAofName(temp_am);
@@ -2251,8 +2252,8 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
     if (!bysignal && exitcode == 0) {
         char tmpfile[256];
         long long now = ustime();
-        sds new_base_aof_name;
-        aofManifest *tmp_am;
+        sds new_base_filename;
+        aofManifest *temp_am;
         mstime_t latency;
 
         serverLog(LL_NOTICE,
@@ -2264,24 +2265,24 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
         serverAssert(server.aof_manifest != NULL);
 
         /* Dup a temporary aof_manifest for subsequent modifications. */
-        tmp_am = aofManifestDup(server.aof_manifest);
-        if (tmp_am == NULL) {
+        temp_am = aofManifestDup(server.aof_manifest);
+        if (temp_am == NULL) {
             goto cleanup;
         }
 
-        /* Get a new BASE type AOF name, and mark the previous (if we have) BASE 
-         * AOF as the HISTORY type. */
-        new_base_aof_name = getNewBaseAofNameAndMarkPreAsHistory(tmp_am);
-        serverAssert(new_base_aof_name != NULL);
-        /* Rename the temporary aof file to new_base_aof_name. */
+        /* Get a new BASE type file name, and mark the previous (if we have)
+         * as the HISTORY type. */
+        new_base_filename = getNewBaseFileNameAndMarkPreAsHistory(temp_am);
+        serverAssert(new_base_filename != NULL);
+        /* Rename the temporary aof file to new_base_filename. */
         latencyStartMonitor(latency);
-        if (rename(tmpfile, new_base_aof_name) == -1) {
+        if (rename(tmpfile, new_base_filename) == -1) {
             serverLog(LL_WARNING,
                 "Error trying to rename the temporary AOF file %s into %s: %s",
                 tmpfile,
-                new_base_aof_name,
+                new_base_filename,
                 strerror(errno));
-            aofManifestFree(tmp_am);
+            aofManifestFree(temp_am);
             goto cleanup;
         }
         latencyEndMonitor(latency);
@@ -2289,23 +2290,23 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
 
         /* Change the AOF file type in `incr_aof_list` from AOF_FILE_TYPE_INCR 
          * to AOF_FILE_TYPE_HIST, and move them to the `history_aof_list`. */
-        markRewrittenIncrAofAsHistory(tmp_am);
-        if (persistAofManifest(tmp_am) == C_ERR) {
-            aofManifestFree(tmp_am);
+        markRewrittenIncrAofAsHistory(temp_am);
+        if (persistAofManifest(temp_am) == C_ERR) {
+            aofManifestFree(temp_am);
             goto cleanup;
         }
     
         if (server.aof_fd != -1) {
             /* AOF enabled. */
             server.aof_selected_db = -1; /* Make sure SELECT is re-issued */
-            server.aof_current_size = getAppendOnlyFileSize(new_base_aof_name) + server.aof_last_incr_size;
+            server.aof_current_size = getAppendOnlyFileSize(new_base_filename) + server.aof_last_incr_size;
             server.aof_rewrite_base_size = server.aof_current_size;
             server.aof_fsync_offset = server.aof_current_size;
             server.aof_last_fsync = server.unixtime;
         }
 
-        /* We can safely let server.aof_manifest point to tmp_am and free the previous one. */
-        aofManifestAtomicUpdate(tmp_am);
+        /* We can safely let `server.aof_manifest` point to temp_am and free the previous one. */
+        aofManifestAtomicUpdate(temp_am);
 
         /* We don't care about the return value of `aofDelHistoryFiles`, because the history 
          * deletion failure will not cause any problems. */

@@ -1296,7 +1296,7 @@ typedef struct {
 } aofInfo;
 
 typedef struct {
-    aofInfo     *base_aof_info;       /* BASE AOF information. NULL if there is no BASE AOF. */ 
+    aofInfo     *base_aof_info;       /* BASE file information. NULL if there is no BASE file. */ 
     list        *incr_aof_list;       /* INCR AOF list. We may have multiple INCR AOFs when rewrite fails. */
     list        *history_aof_list;    /* HISTORY AOF list. When the rewrite success, The aofInfo contained in 
                                          `base_aof_info` and `incr_aof_list` will be moved to this list. We 
