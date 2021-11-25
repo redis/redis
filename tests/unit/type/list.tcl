@@ -1057,7 +1057,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         set id [$rd read]
         $rd brpop k 1
         wait_for_blocked_clients_count 1
-        after 100
+        after 101
         r swapdb 1 9
         # The SWAPDB command tries to awake the blocked client, but it remains
         # blocked because the key is expired. Check that the deferred client is
