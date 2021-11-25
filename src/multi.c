@@ -430,6 +430,8 @@ void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with) {
             while((ln = listNext(&li))) {
                 client *c = listNodeValue(ln);
                 c->flags |= CLIENT_DIRTY_CAS;
+                /* As the client is marked as dirty, there is no point in getting here
+                 * again for others keys (or keep the memory overhead till EXEC). */
                 unwatchAllKeys(c);
             }
         }
