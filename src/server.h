@@ -1301,8 +1301,8 @@ typedef struct {
     list        *history_aof_list;    /* HISTORY AOF list. When the rewrite success, The aofInfo contained in 
                                          `base_aof_info` and `incr_aof_list` will be moved to this list. We 
                                          will delete these AOF files regularly in server cron. */
-    long long   curr_base_aof_seq;    /* The sequence number used by the current BASE AOF file. */     
-    long long   curr_incr_aof_seq;    /* The sequence number used by the current INCR AOF file. */
+    long long   curr_base_file_seq;    /* The sequence number used by the current BASE AOF file. */     
+    long long   curr_incr_file_seq;    /* The sequence number used by the current INCR AOF file. */
     int         dirty;                /* 1 Indicates that the aofManifest in the memory is inconsistent with 
                                          disk, we need to persist it immediately. */
 } aofManifest;
