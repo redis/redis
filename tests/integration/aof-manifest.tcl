@@ -1,12 +1,12 @@
 source tests/support/aofmanifest.tcl
 set defaults { appendonly {yes} appendfilename {appendonly} auto-aof-rewrite-percentage {0}}
-set server_path [tmpdir server.aof]
+set server_path [tmpdir server.incr]
 set old_version_aof_path "$server_path/appendonly"
-set base_1_aof_path "$server_path/appendonly.1.rdb"
-set base_2_aof_path "$server_path/appendonly.2.rdb"
-set incr_1_aof_path "$server_path/appendonly.1.aof"
-set incr_2_aof_path "$server_path/appendonly.2.aof"
-set incr_3_aof_path "$server_path/appendonly.3.aof"
+set base_1_aof_path "$server_path/appendonly.1.base"
+set base_2_aof_path "$server_path/appendonly.2.base"
+set incr_1_aof_path "$server_path/appendonly.1.incr"
+set incr_2_aof_path "$server_path/appendonly.2.incr"
+set incr_3_aof_path "$server_path/appendonly.3.incr"
 set aof_manifest_path "$server_path/appendonly.manifest"
 
 tags {"external:skip"} {
@@ -37,8 +37,8 @@ tags {"external:skip"} {
 
             # First AOFRW done
             assert_aof_manifest_content $dir {
-                {file appendonly.1.rdb seq 1 type b}
-                {file appendonly.1.aof seq 1 type i}
+                {file appendonly.1.base seq 1 type b}
+                {file appendonly.1.incr seq 1 type i}
             }
 
             # Check we really have these files
@@ -51,8 +51,8 @@ tags {"external:skip"} {
 
             # The second AOFRW done
             assert_aof_manifest_content $dir {
-                {file appendonly.2.rdb seq 2 type b}
-                {file appendonly.2.aof seq 2 type i}
+                {file appendonly.2.base seq 2 type b}
+                {file appendonly.2.incr seq 2 type i}
             }
 
             assert_equal 1 [check_file_exist $dir $::aof_manifest_name]
@@ -106,11 +106,11 @@ tags {"external:skip"} {
 
             # We will have four INCR AOFs
             assert_aof_manifest_content $dir {
-                {file appendonly.2.rdb seq 2 type b}
-                {file appendonly.2.aof seq 2 type i}
-                {file appendonly.3.aof seq 3 type i}
-                {file appendonly.4.aof seq 4 type i}
-                {file appendonly.5.aof seq 5 type i}
+                {file appendonly.2.base seq 2 type b}
+                {file appendonly.2.incr seq 2 type i}
+                {file appendonly.3.incr seq 3 type i}
+                {file appendonly.4.incr seq 4 type i}
+                {file appendonly.5.incr seq 5 type i}
             }
 
             assert_equal 1 [check_file_exist $dir "${aof_basename}.2${::base_aof_sufix}"]
@@ -136,8 +136,8 @@ tags {"external:skip"} {
             # All previous INCR AOFs have become history
             # and have be deleted
             assert_aof_manifest_content $dir {
-                {file appendonly.3.rdb seq 3 type b}
-                {file appendonly.6.aof seq 6 type i}
+                {file appendonly.3.base seq 3 type b}
+                {file appendonly.6.incr seq 6 type i}
             }
 
             # Wait bio delete history 
@@ -168,7 +168,7 @@ tags {"external:skip"} {
 
             # We only have BASE AOF, no INCR AOF
             assert_aof_manifest_content $dir {
-                {file appendonly.4.rdb seq 4 type b}
+                {file appendonly.4.base seq 4 type b}
             }
 
             assert_equal 1 [check_file_exist $dir "${aof_basename}.4${::base_aof_sufix}"]
@@ -190,8 +190,8 @@ tags {"external:skip"} {
            
             # A new INCR AOF was created
             assert_aof_manifest_content $dir {
-                {file appendonly.5.rdb seq 5 type b}
-                {file appendonly.1.aof seq 1 type i}
+                {file appendonly.5.base seq 5 type b}
+                {file appendonly.1.incr seq 1 type i}
             }
 
             # Wait bio delete history 
@@ -216,12 +216,12 @@ tags {"external:skip"} {
 
             # We can see four history AOFs (Evolved from two BASE and two INCR)
             assert_aof_manifest_content $dir {
-                {file appendonly.7.rdb seq 7 type b} 
-                {file appendonly.2.aof seq 2 type h} 
-                {file appendonly.6.rdb seq 6 type h} 
-                {file appendonly.1.aof seq 1 type h} 
-                {file appendonly.5.rdb seq 5 type h} 
-                {file appendonly.3.aof seq 3 type i}
+                {file appendonly.7.base seq 7 type b} 
+                {file appendonly.2.incr seq 2 type h} 
+                {file appendonly.6.base seq 6 type h} 
+                {file appendonly.1.incr seq 1 type h} 
+                {file appendonly.5.base seq 5 type h} 
+                {file appendonly.3.incr seq 3 type i}
             }
 
             assert_equal 1 [check_file_exist $dir "${aof_basename}.5${::base_aof_sufix}"]
@@ -233,8 +233,8 @@ tags {"external:skip"} {
 
             # Auto gc success
             assert_aof_manifest_content $dir {
-                {file appendonly.7.rdb seq 7 type b} 
-                {file appendonly.3.aof seq 3 type i}
+                {file appendonly.7.base seq 7 type b} 
+                {file appendonly.3.incr seq 3 type i}
             }
 
             # wait bio delete history 
@@ -251,8 +251,8 @@ tags {"external:skip"} {
         test "AOF reload can recovery the sequence" {
             # Current manifest, BASE seq 7 and INCR seq 3
             assert_aof_manifest_content $dir {
-                {file appendonly.7.rdb seq 7 type b} 
-                {file appendonly.3.aof seq 3 type i}
+                {file appendonly.7.base seq 7 type b} 
+                {file appendonly.3.incr seq 3 type i}
             }
 
             r debug loadaof
@@ -263,8 +263,8 @@ tags {"external:skip"} {
 
             # Now BASE seq is 8 and INCR seq is 4
             assert_aof_manifest_content $dir {
-                {file appendonly.8.rdb seq 8 type b} 
-                {file appendonly.4.aof seq 4 type i}
+                {file appendonly.8.base seq 8 type b} 
+                {file appendonly.4.incr seq 4 type i}
             }
         }
 
@@ -287,8 +287,8 @@ tags {"external:skip"} {
 
             # Not open new INCR aof
             assert_aof_manifest_content $dir {
-                {file appendonly.8.rdb seq 8 type b} 
-                {file appendonly.4.aof seq 4 type i}
+                {file appendonly.8.base seq 8 type b} 
+                {file appendonly.4.incr seq 4 type i}
             }
 
             r set k2 v2
@@ -306,8 +306,8 @@ tags {"external:skip"} {
             waitForBgrewriteaof r
 
             assert_aof_manifest_content $dir {
-                {file appendonly.9.rdb seq 9 type b} 
-                {file appendonly.5.aof seq 5 type i}
+                {file appendonly.9.base seq 9 type b} 
+                {file appendonly.5.incr seq 5 type i}
             }
 
             r set k3 v3
@@ -333,10 +333,10 @@ tags {"external:skip"} {
             waitForBgrewriteaof r
 
             assert_aof_manifest_content $dir {
-                {file appendonly.9.rdb seq 9 type b} 
-                {file appendonly.5.aof seq 5 type i}
-                {file appendonly.6.aof seq 6 type i}
-                {file appendonly.7.aof seq 7 type i}
+                {file appendonly.9.base seq 9 type b} 
+                {file appendonly.5.incr seq 5 type i}
+                {file appendonly.6.incr seq 6 type i}
+                {file appendonly.7.incr seq 7 type i}
             }
 
             set orig_size [r dbsize]
@@ -359,10 +359,10 @@ tags {"external:skip"} {
 
             # No new INCR AOF be created
             assert_aof_manifest_content $dir {
-                {file appendonly.9.rdb seq 9 type b} 
-                {file appendonly.5.aof seq 5 type i}
-                {file appendonly.6.aof seq 6 type i}
-                {file appendonly.7.aof seq 7 type i}
+                {file appendonly.9.base seq 9 type b} 
+                {file appendonly.5.incr seq 5 type i}
+                {file appendonly.6.incr seq 6 type i}
+                {file appendonly.7.incr seq 7 type i}
             }
 
             # Turn off auto-rewrite
@@ -377,8 +377,8 @@ tags {"external:skip"} {
             assert_equal 1 [check_file_exist $dir "${aof_basename}.8${::incr_aof_sufix}"]
 
             assert_aof_manifest_content $dir {
-                {file appendonly.10.rdb seq 10 type b} 
-                {file appendonly.8.aof seq 8 type i}
+                {file appendonly.10.base seq 10 type b} 
+                {file appendonly.8.incr seq 8 type i}
             }
 
             stop_write_load $load_handle0
@@ -405,9 +405,9 @@ tags {"external:skip"} {
     }
 
     create_aof_manifest $aof_manifest_path {
-        append_to_manifest "file appendonly.1.rdb seq 1 type b\n"
-        append_to_manifest "file appendonly.1.aof seq 1 type i\n"
-        append_to_manifest "file appendonly.3.aof seq 3 type i\n"
+        append_to_manifest "file appendonly.1.base seq 1 type b\n"
+        append_to_manifest "file appendonly.1.incr seq 1 type i\n"
+        append_to_manifest "file appendonly.3.incr seq 3 type i\n"
     }
 
     start_server_aof [list dir $server_path] {
@@ -447,8 +447,8 @@ tags {"external:skip"} {
     }
 
     create_aof_manifest $aof_manifest_path {
-        append_to_manifest "file appendonly.3.aof seq 3 type i\n"
-        append_to_manifest "file appendonly.1.aof seq 1 type i\n"
+        append_to_manifest "file appendonly.3.incr seq 3 type i\n"
+        append_to_manifest "file appendonly.1.incr seq 1 type i\n"
     }
 
     start_server_aof [list dir $server_path] {
@@ -473,9 +473,9 @@ tags {"external:skip"} {
     }
 
     create_aof_manifest $aof_manifest_path {
-        append_to_manifest "file appendonly.1.aof seq 1 type i\n"
+        append_to_manifest "file appendonly.1.incr seq 1 type i\n"
         append_to_manifest "\n"
-        append_to_manifest "file appendonly.3.aof seq 3 type i\n"
+        append_to_manifest "file appendonly.3.incr seq 3 type i\n"
     }
 
     start_server_aof [list dir $server_path] {
@@ -492,7 +492,7 @@ tags {"external:skip"} {
     catch {exec rm -rf $incr_3_aof_path}
     catch {exec rm -rf $aof_manifest_path}
 
-    # Tests5: AOF can't load data when there is a duplicate base aof
+    # Tests5: AOF can't load data when there is a duplicate base file
     create_aof $base_1_aof_path {
         append_to_aof [formatCommand set k1 v1]
     }
@@ -506,13 +506,13 @@ tags {"external:skip"} {
     }
 
     create_aof_manifest $aof_manifest_path {
-        append_to_manifest "file appendonly.1.rdb seq 1 type b\n"
-        append_to_manifest "file appendonly.2.rdb seq 2 type b\n"
-        append_to_manifest "file appendonly.1.aof seq 1 type i\n"
+        append_to_manifest "file appendonly.1.base seq 1 type b\n"
+        append_to_manifest "file appendonly.2.base seq 2 type b\n"
+        append_to_manifest "file appendonly.1.incr seq 1 type i\n"
     }
 
     start_server_aof [list dir $server_path] {
-        test "AOF can't load data when there is a duplicate base aof" {
+        test "AOF can't load data when there is a duplicate base file" {
             wait_for_condition 100 50 {
                 ! [is_alive $srv]
             } else {
@@ -533,8 +533,8 @@ tags {"external:skip"} {
     }
 
     create_aof_manifest $aof_manifest_path {
-        append_to_manifest "file appendonly.1.rdb seq 1 type x\n"
-        append_to_manifest "file appendonly.1.aof seq 1 type i\n"
+        append_to_manifest "file appendonly.1.base seq 1 type x\n"
+        append_to_manifest "file appendonly.1.incr seq 1 type i\n"
     }
 
     start_server_aof [list dir $server_path] {
@@ -559,8 +559,8 @@ tags {"external:skip"} {
     }
 
     create_aof_manifest $aof_manifest_path {
-        append_to_manifest "filenema appendonly.1.rdb seq 1 type b\n"
-        append_to_manifest "file appendonly.1.aof seq 1 type i\n"
+        append_to_manifest "filx appendonly.1.base seq 1 type b\n"
+        append_to_manifest "file appendonly.1.incr seq 1 type i\n"
     }
 
     start_server_aof [list dir $server_path] {
@@ -595,7 +595,7 @@ tags {"external:skip"} {
 
             assert_aof_manifest_content $server_path {
                 {file appendonly seq 1 type b} 
-                {file appendonly.1.aof seq 1 type i}
+                {file appendonly.1.incr seq 1 type i}
             }
 
             assert_equal OK [$client set k4 v4]
@@ -616,8 +616,8 @@ tags {"external:skip"} {
             assert_equal OK [$client set k5 v5]
 
             assert_aof_manifest_content $server_path {
-                {file appendonly.2.rdb seq 2 type b} 
-                {file appendonly.2.aof seq 2 type i}
+                {file appendonly.2.base seq 2 type b} 
+                {file appendonly.2.incr seq 2 type i}
             }
 
             set d1 [$client debug digest]

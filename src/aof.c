@@ -63,17 +63,17 @@ off_t getBaseAndIncrAppendOnlyFilesSize(aofManifest *am);
  * 
  * The following is a possible AOF manifest file content:
  * 
- * file appendonly.2.rdb seq 2 type b
- * file appendonly.1.aof seq 1 type h
- * file appendonly.2.aof seq 2 type h
- * file appendonly.3.aof seq 3 type h
- * file appendonly.4.aof seq 4 type i
- * file appendonly.5.aof seq 5 type i
+ * file appendonly.2.base seq 2 type b
+ * file appendonly.1.incr seq 1 type h
+ * file appendonly.2.incr seq 2 type h
+ * file appendonly.3.incr seq 3 type h
+ * file appendonly.4.incr seq 4 type i
+ * file appendonly.5.incr seq 5 type i
  * ------------------------------------------------------------------------- */
 
 /* Naming rules */
-#define BASE_FILE_SUFFIX           ".rdb"        
-#define INCR_FILE_SUFFIX           ".aof"        
+#define BASE_FILE_SUFFIX           ".base"        
+#define INCR_FILE_SUFFIX           ".incr"        
 #define MANIFEST_NAME_SUFFIX       ".manifest"   
 #define MANIFEST_TEMP_NAME_PREFIX  "temp_"      
 
@@ -158,7 +158,7 @@ sds getTempAofManifestFileName() {
  * type: Types of AOF file, There are: b(BASE)、h(HISTORY)、i(INCR)
  * 
  * A possible line:
- *    file appendonly.1.rdb seq 1 type b
+ *    file appendonly.1.base seq 1 type b
  * 
  * The BASE file information (if we have) will be placed on the first 
  * line, followed by history type AOFs and finally is the INCR AOFs.
@@ -659,7 +659,7 @@ int openNewIncrAofForAppend(void) {
  * 
  * So, we use time delay to achieve our goal. When AOFRW fails, we delay the execution 
  * of the next AOFRW by 1 minute. If the next AOFRW also fails, it will be delayed by 2 
- * minutes. The next is 4, 8, 16, the maximum delay is 60 minutes (1 day).
+ * minutes. The next is 4, 8, 16, the maximum delay is 60 minutes (1 hour).
  * 
  * During the limit period, we can still use the 'bgrewriteaof' command to execute AOFRW 
  * immediately.

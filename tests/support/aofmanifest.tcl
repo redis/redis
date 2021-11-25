@@ -1,8 +1,8 @@
 set ::aof_manifest_name "appendonly.manifest"
 set ::aof_meta_temp_filename "temp_appendonly.manifest"
 set ::default_aof_basename "appendonly"
-set ::base_aof_sufix ".rdb"
-set ::incr_aof_sufix ".aof"
+set ::base_aof_sufix ".base"
+set ::incr_aof_sufix ".incr"
 
 proc get_full_path {dir filename} {
     set _ [format "%s/%s" $dir $filename]
