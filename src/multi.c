@@ -397,7 +397,9 @@ void touchWatchedKey(redisDb *db, robj *key) {
         client *c = listNodeValue(ln);
 
         c->flags |= CLIENT_DIRTY_CAS;
-        /* As the client is marked as dirty, there is no point in watching other key events. */
+        /* As the client is marked as dirty, there is no point in getting here
+         * again in case that key (or others) are modified again (or keep the
+         * memory overhead till EXEC). */
         unwatchAllKeys(c);
     }
 }
