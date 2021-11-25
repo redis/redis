@@ -1372,13 +1372,14 @@ int rdbSave(char *filename, rdbSaveInfo *rsi) {
     snprintf(tmpfile,256,"temp-%d.rdb", (int) getpid());
     fp = fopen(tmpfile,"w");
     if (!fp) {
+        char *str_err = strerror(errno);
         char *cwdp = getcwd(cwd,MAXPATHLEN);
         serverLog(LL_WARNING,
-            "Failed opening the RDB file %s (in server root dir %s) "
+            "Failed opening the temp RDB file %s (in server root dir %s) "
             "for saving: %s",
-            filename,
+            tmpfile,
             cwdp ? cwdp : "unknown",
-            strerror(errno));
+            str_err);
         return C_ERR;
     }
 
@@ -1402,6 +1403,7 @@ int rdbSave(char *filename, rdbSaveInfo *rsi) {
     /* Use RENAME to make sure the DB file is changed atomically only
      * if the generate DB file is ok. */
     if (rename(tmpfile,filename) == -1) {
+        char *str_err = strerror(errno);
         char *cwdp = getcwd(cwd,MAXPATHLEN);
         serverLog(LL_WARNING,
             "Error moving temp DB file %s on the final "
@@ -1409,7 +1411,7 @@ int rdbSave(char *filename, rdbSaveInfo *rsi) {
             tmpfile,
             filename,
             cwdp ? cwdp : "unknown",
-            strerror(errno));
+            str_err);
         unlink(tmpfile);
         stopSaving(0);
         return C_ERR;
@@ -1593,6 +1595,45 @@ int ziplistPairsConvertAndValidateIntegrity(unsigned char *zl, size_t size, unsi
     return ret;
 }
 
+/* callback for ziplistValidateIntegrity.
+ * The ziplist element pointed by 'p' will be converted and stored into listpack. */
+static int _ziplistEntryConvertAndValidate(unsigned char *p, unsigned int head_count, void *userdata) {
+    UNUSED(head_count);
+    unsigned char *str;
+    unsigned int slen;
+    long long vll;
+    unsigned char **lp = (unsigned char**)userdata;
+
+    if (!ziplistGet(p, &str, &slen, &vll)) return 0;
+
+    if (str)
+        *lp = lpAppend(*lp, (unsigned char*)str, slen);
+    else
+        *lp = lpAppendInteger(*lp, vll);
+
+    return 1;
+}
+
+/* callback for ziplistValidateIntegrity.
+ * The ziplist element pointed by 'p' will be converted and stored into quicklist. */
+static int _listZiplistEntryConvertAndValidate(unsigned char *p, unsigned int head_count, void *userdata) {
+    UNUSED(head_count);
+    unsigned char *str;
+    unsigned int slen;
+    long long vll;
+    char longstr[32] = {0};
+    quicklist *ql = (quicklist*)userdata;
+
+    if (!ziplistGet(p, &str, &slen, &vll)) return 0;
+    if (!str) {
+        /* Write the longval as a string so we can re-add it */
+        slen = ll2string(longstr, sizeof(longstr), vll);
+        str = (unsigned char *)longstr;
+    }
+    quicklistPushTail(ql, str, slen);
+    return 1;
+}
+
 /* callback for to check the listpack doesn't have duplicate records */
 static int _lpPairsEntryValidation(unsigned char *p, unsigned int head_count, void *userdata) {
     struct {
@@ -1680,7 +1721,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
         if (len == 0) goto emptykey;
 
         o = createQuicklistObject();
-        quicklistSetOptions(o->ptr, server.list_max_ziplist_size,
+        quicklistSetOptions(o->ptr, server.list_max_listpack_size,
                             server.list_compress_depth);
 
         /* Load every single element of the list */
@@ -1950,10 +1991,11 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
         if (len == 0) goto emptykey;
 
         o = createQuicklistObject();
-        quicklistSetOptions(o->ptr, server.list_max_ziplist_size,
+        quicklistSetOptions(o->ptr, server.list_max_listpack_size,
                             server.list_compress_depth);
-        uint64_t container = QUICKLIST_NODE_CONTAINER_ZIPLIST;
+        uint64_t container = QUICKLIST_NODE_CONTAINER_PACKED;
         while (len--) {
+            unsigned char *lp;
             size_t encoded_len;
 
             if (rdbtype == RDB_TYPE_LIST_QUICKLIST_2) {
@@ -1962,7 +2004,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                     return NULL;
                 }
 
-                if (container != QUICKLIST_NODE_CONTAINER_ZIPLIST && container != QUICKLIST_NODE_CONTAINER_PLAIN) {
+                if (container != QUICKLIST_NODE_CONTAINER_PACKED && container != QUICKLIST_NODE_CONTAINER_PLAIN) {
                     rdbReportCorruptRDB("Quicklist integrity check failed.");
                     decrRefCount(o);
                     return NULL;
@@ -1979,24 +2021,39 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
 
             if (container == QUICKLIST_NODE_CONTAINER_PLAIN) {
                 quicklistAppendPlainNode(o->ptr, data, encoded_len);
-                zfree(data);
                 continue;
             }
 
-            if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
-            if (!ziplistValidateIntegrity(data, encoded_len, deep_integrity_validation, NULL, NULL)) {
-                rdbReportCorruptRDB("Ziplist integrity check failed.");
-                decrRefCount(o);
+            if (rdbtype == RDB_TYPE_LIST_QUICKLIST_2) {
+                lp = data;
+                if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
+                if (!lpValidateIntegrity(lp, encoded_len, deep_integrity_validation, NULL, NULL)) {
+                    rdbReportCorruptRDB("Listpack integrity check failed.");
+                    decrRefCount(o);
+                    zfree(lp);
+                    return NULL;
+                }
+            } else {
+                lp = lpNew(encoded_len);
+                if (!ziplistValidateIntegrity(data, encoded_len, 1,
+                        _ziplistEntryConvertAndValidate, &lp))
+                {
+                    rdbReportCorruptRDB("Ziplist integrity check failed.");
+                    decrRefCount(o);
+                    zfree(data);
+                    zfree(lp);
+                    return NULL;
+                }
                 zfree(data);
-                return NULL;
+                lp = lpShrinkToFit(lp);
             }
 
             /* Silently skip empty ziplists, if we'll end up with empty quicklist we'll fail later. */
-            if (ziplistLen(data) == 0) {
-                zfree(data);
+            if (lpLength(lp) == 0) {
+                zfree(lp);
                 continue;
             } else {
-                quicklistAppendZiplist(o->ptr, data);
+                quicklistAppendListpack(o->ptr, lp);
             }
         }
 
@@ -2080,27 +2137,36 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                     }
                 }
                 break;
-            case RDB_TYPE_LIST_ZIPLIST:
-                if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
-                if (!ziplistValidateIntegrity(encoded, encoded_len, deep_integrity_validation, NULL, NULL)) {
-                    rdbReportCorruptRDB("List ziplist integrity check failed.");
-                    zfree(encoded);
-                    o->ptr = NULL;
-                    decrRefCount(o);
-                    return NULL;
-                }
+            case RDB_TYPE_LIST_ZIPLIST: 
+                {
+                    quicklist *ql = quicklistNew(server.list_max_listpack_size,
+                                                 server.list_compress_depth);
 
-                if (ziplistLen(encoded) == 0) {
-                    zfree(encoded);
-                    o->ptr = NULL;
-                    decrRefCount(o);
-                    goto emptykey;
-                }
+                    if (!ziplistValidateIntegrity(encoded, encoded_len, 1,
+                            _listZiplistEntryConvertAndValidate, ql))
+                    {
+                        rdbReportCorruptRDB("List ziplist integrity check failed.");
+                        zfree(encoded);
+                        o->ptr = NULL;
+                        decrRefCount(o);
+                        quicklistRelease(ql);
+                        return NULL;
+                    }
 
-                o->type = OBJ_LIST;
-                o->encoding = OBJ_ENCODING_ZIPLIST;
-                listTypeConvert(o,OBJ_ENCODING_QUICKLIST);
-                break;
+                    if (ql->len == 0) {
+                        zfree(encoded);
+                        o->ptr = NULL;
+                        decrRefCount(o);
+                        quicklistRelease(ql);
+                        goto emptykey;
+                    }
+
+                    zfree(encoded);
+                    o->type = OBJ_LIST;
+                    o->ptr = ql;
+                    o->encoding = OBJ_ENCODING_QUICKLIST;
+                    break;
+                }
             case RDB_TYPE_SET_INTSET:
                 if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
                 if (!intsetValidateIntegrity(encoded, encoded_len, deep_integrity_validation)) {
@@ -2138,6 +2204,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
 
                     if (zsetLength(o) > server.zset_max_listpack_entries)
                         zsetConvert(o,OBJ_ENCODING_SKIPLIST);
+                    else
+                        o->ptr = lpShrinkToFit(o->ptr);
                     break;
                 }
             case RDB_TYPE_ZSET_LISTPACK:
@@ -2180,9 +2248,10 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                         goto emptykey;
                     }
 
-                    if (hashTypeLength(o) > server.hash_max_listpack_entries) {
+                    if (hashTypeLength(o) > server.hash_max_listpack_entries)
                         hashTypeConvert(o, OBJ_ENCODING_HT);
-                    } 
+                    else
+                        o->ptr = lpShrinkToFit(o->ptr);
                     break;
                 }
             case RDB_TYPE_HASH_LISTPACK:

@@ -1021,7 +1021,7 @@ unsigned char *lpDeleteRangeWithEntry(unsigned char *lp, unsigned char **p, unsi
      * address again after a reallocation. */
     unsigned long poff = first-lp;
 
-    /* Move tail to the front of the ziplist */
+    /* Move tail to the front of the listpack */
     memmove(first, tail, eofptr - tail + 1);
     lpSetTotalBytes(lp, bytes - (tail - first));
     uint32_t numele = lpGetNumElements(lp);
@@ -1062,6 +1062,103 @@ unsigned char *lpDeleteRange(unsigned char *lp, long index, unsigned long num) {
     }
 
     return lp;
+}
+
+/* Merge listpacks 'first' and 'second' by appending 'second' to 'first'.
+ *
+ * NOTE: The larger listpack is reallocated to contain the new merged listpack.
+ * Either 'first' or 'second' can be used for the result.  The parameter not
+ * used will be free'd and set to NULL.
+ *
+ * After calling this function, the input parameters are no longer valid since
+ * they are changed and free'd in-place.
+ *
+ * The result listpack is the contents of 'first' followed by 'second'.
+ *
+ * On failure: returns NULL if the merge is impossible.
+ * On success: returns the merged listpack (which is expanded version of either
+ * 'first' or 'second', also frees the other unused input listpack, and sets the
+ * input listpack argument equal to newly reallocated listpack return value. */
+unsigned char *lpMerge(unsigned char **first, unsigned char **second) {
+    /* If any params are null, we can't merge, so NULL. */
+    if (first == NULL || *first == NULL || second == NULL || *second == NULL)
+        return NULL;
+
+    /* Can't merge same list into itself. */
+    if (*first == *second)
+        return NULL;
+
+    size_t first_bytes = lpBytes(*first);
+    unsigned long first_len = lpLength(*first);
+
+    size_t second_bytes = lpBytes(*second);
+    unsigned long second_len = lpLength(*second);
+
+    int append;
+    unsigned char *source, *target;
+    size_t target_bytes, source_bytes;
+    /* Pick the largest listpack so we can resize easily in-place.
+     * We must also track if we are now appending or prepending to
+     * the target listpack. */
+    if (first_bytes >= second_bytes) {
+        /* retain first, append second to first. */
+        target = *first;
+        target_bytes = first_bytes;
+        source = *second;
+        source_bytes = second_bytes;
+        append = 1;
+    } else {
+        /* else, retain second, prepend first to second. */
+        target = *second;
+        target_bytes = second_bytes;
+        source = *first;
+        source_bytes = first_bytes;
+        append = 0;
+    }
+
+    /* Calculate final bytes (subtract one pair of metadata) */
+    unsigned long long lpbytes = (unsigned long long)first_bytes + second_bytes - LP_HDR_SIZE - 1;
+    assert(lpbytes < UINT32_MAX); /* larger values can't be stored */
+    unsigned long lplength = first_len + second_len;
+
+    /* Combined lp length should be limited within UINT16_MAX */
+    lplength = lplength < UINT16_MAX ? lplength : UINT16_MAX;
+
+    /* Extend target to new lpbytes then append or prepend source. */
+    target = zrealloc(target, lpbytes);
+    if (append) {
+        /* append == appending to target */
+        /* Copy source after target (copying over original [END]):
+         *   [TARGET - END, SOURCE - HEADER] */
+        memcpy(target + target_bytes - 1,
+               source + LP_HDR_SIZE,
+               source_bytes - LP_HDR_SIZE);
+    } else {
+        /* !append == prepending to target */
+        /* Move target *contents* exactly size of (source - [END]),
+         * then copy source into vacated space (source - [END]):
+         *   [SOURCE - END, TARGET - HEADER] */
+        memmove(target + source_bytes - 1,
+                target + LP_HDR_SIZE,
+                target_bytes - LP_HDR_SIZE);
+        memcpy(target, source, source_bytes - 1);
+    }
+
+    lpSetNumElements(target, lplength);
+    lpSetTotalBytes(target, lpbytes);
+
+    /* Now free and NULL out what we didn't realloc */
+    if (append) {
+        zfree(*second);
+        *second = NULL;
+        *first = target;
+    } else {
+        zfree(*first);
+        *first = NULL;
+        *second = target;
+    }
+
+    return target;
 }
 
 /* Return the total number of bytes the listpack is composed of. */
@@ -1375,6 +1472,57 @@ unsigned int lpRandomPairsUnique(unsigned char *lp, unsigned int count, listpack
         index++;
     }
     return picked;
+}
+
+/* Print info of listpack which is used in debugCommand */
+void lpRepr(unsigned char *lp) {
+    unsigned char *p, *vstr;
+    int64_t vlen;
+    unsigned char intbuf[LP_INTBUF_SIZE];
+    int index = 0;
+
+    printf("{total bytes %zu} {num entries %lu}\n", lpBytes(lp), lpLength(lp));
+        
+    p = lpFirst(lp);
+    while(p) {
+        uint32_t encoded_size_bytes = lpCurrentEncodedSizeBytes(p);
+        uint32_t encoded_size = lpCurrentEncodedSizeUnsafe(p);
+        unsigned long back_len = lpEncodeBacklen(NULL, encoded_size);
+        printf(
+            "{\n"
+                "\taddr: 0x%08lx,\n"
+                "\tindex: %2d,\n"
+                "\toffset: %1lu,\n"
+                "\thdr+entrylen+backlen: %2lu,\n"
+                "\thdrlen: %3u,\n"
+                "\tbacklen: %2lu,\n"
+                "\tpayload: %1u\n",
+            (long unsigned)p,
+            index,
+            (unsigned long) (p-lp),
+            encoded_size + back_len,
+            encoded_size_bytes,
+            back_len,
+            encoded_size - encoded_size_bytes);
+        printf("\tbytes: ");
+        for (unsigned int i = 0; i < (encoded_size + back_len); i++) {
+            printf("%02x|",p[i]);
+        }
+        printf("\n");
+
+        vstr = lpGet(p, &vlen, intbuf);
+        printf("\t[str]");
+        if (vlen > 40) {
+            if (fwrite(vstr, 40, 1, stdout) == 0) perror("fwrite");
+            printf("...");
+        } else {
+            if (fwrite(vstr, vlen, 1, stdout) == 0) perror("fwrite");
+        }
+        printf("\n}\n");
+        index++;
+        p = lpNext(lp, p);
+    }
+    printf("{end}\n\n");
 }
 
 #ifdef REDIS_TEST
@@ -1843,6 +1991,58 @@ int listpackTest(int argc, char *argv[], int flags) {
         assert(lpCompare(p,(unsigned char*)"1024",4));
         assert(!lpCompare(p,(unsigned char*)"1025",4));
         lpFree(lp);
+    }
+
+    TEST("lpMerge two empty listpacks") {
+        unsigned char *lp1 = lpNew(0);
+        unsigned char *lp2 = lpNew(0);
+
+        /* Merge two empty listpacks, get empty result back. */
+        lp1 = lpMerge(&lp1, &lp2);
+        assert(lpLength(lp1) == 0);
+        zfree(lp1);
+    }
+
+    TEST("lpMerge two listpacks - first larger than second") {
+        unsigned char *lp1 = createIntList();
+        unsigned char *lp2 = createList();
+
+        size_t lp1_bytes = lpBytes(lp1);
+        size_t lp2_bytes = lpBytes(lp2);
+        unsigned long lp1_len = lpLength(lp1);
+        unsigned long lp2_len = lpLength(lp2);
+
+        unsigned char *lp3 = lpMerge(&lp1, &lp2);
+        assert(lp3 == lp1);
+        assert(lp2 == NULL);
+        assert(lpLength(lp3) == (lp1_len + lp2_len));
+        assert(lpBytes(lp3) == (lp1_bytes + lp2_bytes - LP_HDR_SIZE - 1));
+        verifyEntry(lpSeek(lp3, 0), (unsigned char*)"4294967296", 10);
+        verifyEntry(lpSeek(lp3, 5), (unsigned char*)"much much longer non integer", 28);
+        verifyEntry(lpSeek(lp3, 6), (unsigned char*)"hello", 5);
+        verifyEntry(lpSeek(lp3, -1), (unsigned char*)"1024", 4);
+        zfree(lp3);
+    }
+
+    TEST("lpMerge two listpacks - second larger than first") {
+        unsigned char *lp1 = createList();
+        unsigned char *lp2 = createIntList();
+
+        size_t lp1_bytes = lpBytes(lp1);
+        size_t lp2_bytes = lpBytes(lp2);
+        unsigned long lp1_len = lpLength(lp1);
+        unsigned long lp2_len = lpLength(lp2);
+
+        unsigned char *lp3 = lpMerge(&lp1, &lp2);
+        assert(lp3 == lp2);
+        assert(lp1 == NULL);
+        assert(lpLength(lp3) == (lp1_len + lp2_len));
+        assert(lpBytes(lp3) == (lp1_bytes + lp2_bytes - LP_HDR_SIZE - 1));
+        verifyEntry(lpSeek(lp3, 0), (unsigned char*)"hello", 5);
+        verifyEntry(lpSeek(lp3, 3), (unsigned char*)"1024", 4);
+        verifyEntry(lpSeek(lp3, 4), (unsigned char*)"4294967296", 10);
+        verifyEntry(lpSeek(lp3, -1), (unsigned char*)"much much longer non integer", 28);
+        zfree(lp3);
     }
 
     TEST("Random pair with one element") {

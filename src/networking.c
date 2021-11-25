@@ -2585,6 +2585,12 @@ void resetCommand(client *c) {
     addReplyStatus(c,"RESET");
 }
 
+/* Disconnect the current client */
+void quitCommand(client *c) {
+    addReply(c,shared.ok);
+    c->flags |= CLIENT_CLOSE_AFTER_REPLY;
+}
+
 void clientCommand(client *c) {
     listNode *ln;
     listIter li;
@@ -3193,7 +3199,7 @@ void helloCommand(client *c) {
  * when a POST or "Host:" header is seen, and will log the event from
  * time to time (to avoid creating a DOS as a result of too many logs). */
 void securityWarningCommand(client *c) {
-    static time_t logged_time;
+    static time_t logged_time = 0;
     time_t now = time(NULL);
 
     if (llabs(now-logged_time) > 60) {
