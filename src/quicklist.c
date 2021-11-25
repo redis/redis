@@ -111,10 +111,8 @@ void _quicklistBookmarkDelete(quicklist *ql, quicklistBookmark *bm);
 #define resetIterator(e)                                                       \
     do {                                                                       \
         initIteratorEntry(e);                                                  \
-        (e)->quicklist = NULL;                                                 \
         (e)->current = NULL;                                                   \
         (e)->zi = NULL;                                                        \
-        (e)->offset = (e)->direction = -123456789;                             \
     } while (0)
 
 /* Create a new quicklist.
@@ -1263,6 +1261,26 @@ void quicklistReleaseIterator(quicklistIter *iter) {
     if (iter->current)
         quicklistRecompressOnly(iter->current);
 
+#ifdef REDIS_TEST
+    unsigned int index = 0;
+    quicklistNode *node = iter->quicklist->head;
+    while(node != NULL) {
+        assert(node->recompress != 1);
+
+        /* Verify that quicklist node outside the compress range
+         * are not compressed. */
+        unsigned compress = iter->quicklist->compress;
+        if (compress == 0 || index < compress ||
+            (iter->quicklist->len - index - 1) < compress)
+        {
+            assert(node->encoding != QUICKLIST_NODE_ENCODING_LZF);
+        }
+
+        index++;
+        node = node->next;
+    }
+#endif
+
     zfree(iter);
 }
 
@@ -1585,17 +1603,6 @@ void quicklistRepr(unsigned char *ql, int full) {
     quicklistNode* node = quicklist->head;
 
     while(node != NULL) {
-        assert(node->recompress != 1);
-
-        /* Verify that quicklist node outside the compress range
-         * are not compressed. */
-        unsigned compress = quicklist->compress;
-        if (compress == 0 || i < compress ||
-            (quicklist->len - i - 1) < compress)
-        {
-            assert(node->encoding != QUICKLIST_NODE_ENCODING_LZF);
-        }
-
         printf("{quicklist node(%d)\n", i++);
         printf("{container : %s, encoding: %s, size: %zu, recompress: %d}\n",
                QL_NODE_IS_PLAIN(node) ? "PLAIN": "PACKED",
