@@ -2,14 +2,280 @@ source tests/support/aofmanifest.tcl
 set defaults { appendonly {yes} appendfilename {appendonly} auto-aof-rewrite-percentage {0}}
 set server_path [tmpdir server.incr]
 set old_version_aof_path "$server_path/appendonly"
-set base_1_aof_path "$server_path/appendonly.1.base"
-set base_2_aof_path "$server_path/appendonly.2.base"
-set incr_1_aof_path "$server_path/appendonly.1.incr"
-set incr_2_aof_path "$server_path/appendonly.2.incr"
-set incr_3_aof_path "$server_path/appendonly.3.incr"
+set base_1_filepath "$server_path/appendonly.1.base"
+set base_2_filepath "$server_path/appendonly.2.base"
+set incr_1_filepath "$server_path/appendonly.1.incr"
+set incr_2_filepath "$server_path/appendonly.2.incr"
+set incr_3_filepath "$server_path/appendonly.3.incr"
 set aof_manifest_path "$server_path/appendonly.manifest"
 
 tags {"external:skip"} {
+    # Tests1: AOF can load data discontinuously increasing sequence
+    create_aof $base_1_filepath {
+        append_to_aof [formatCommand set k1 v1]
+    }
+
+    create_aof $incr_1_filepath {
+        append_to_aof [formatCommand set k2 v2]
+    }
+
+    create_aof $incr_3_filepath {
+        append_to_aof [formatCommand set k3 v3]
+    }
+
+    create_aof_manifest $aof_manifest_path {
+        append_to_manifest "file appendonly.1.base seq 1 type b\n"
+        append_to_manifest "file appendonly.1.incr seq 1 type i\n"
+        append_to_manifest "file appendonly.3.incr seq 3 type i\n"
+    }
+
+    start_server_aof [list dir $server_path] {
+        test "AOF can load data discontinuously increasing sequence" {
+            assert_equal 1 [is_alive $srv]
+            set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+            wait_done_loading $client
+
+            assert_equal v1 [$client get k1]
+            assert_equal v2 [$client get k2]
+            assert_equal v3 [$client get k3]
+        }
+    }
+
+    # Tests2: AOF can't load data when some aof missing
+    catch {exec rm -rf $incr_1_filepath}
+    
+    start_server_aof [list dir $server_path] {
+        test "AOF can't load data when some aof missing" {
+            wait_for_condition 100 50 {
+                ! [is_alive $srv]
+            } else {
+                fail "AOF loading didn't fail"
+            }
+        }
+    }
+
+    clean_aof_persistence $server_path
+
+    # Tests3: AOF can't load data when the sequence not increase monotonically
+    create_aof $incr_1_filepath {
+        append_to_aof [formatCommand set k1 v1]
+    }
+
+    create_aof $incr_3_filepath {
+        append_to_aof [formatCommand set k2 v2]
+    }
+
+    create_aof_manifest $aof_manifest_path {
+        append_to_manifest "file appendonly.3.incr seq 3 type i\n"
+        append_to_manifest "file appendonly.1.incr seq 1 type i\n"
+    }
+
+    start_server_aof [list dir $server_path] {
+        test "AOF can't load data when the sequence not increase monotonically" {
+            wait_for_condition 100 50 {
+                ! [is_alive $srv]
+            } else {
+                fail "AOF loading didn't fail"
+            }
+        }
+    }
+
+    clean_aof_persistence $server_path
+
+    # Tests4: AOF can't load data when there are blank lines in the manifest file
+    create_aof $incr_1_filepath {
+        append_to_aof [formatCommand set k1 v1]
+    }
+
+    create_aof $incr_3_filepath {
+        append_to_aof [formatCommand set k2 v2]
+    }
+
+    create_aof_manifest $aof_manifest_path {
+        append_to_manifest "file appendonly.1.incr seq 1 type i\n"
+        append_to_manifest "\n"
+        append_to_manifest "file appendonly.3.incr seq 3 type i\n"
+    }
+
+    start_server_aof [list dir $server_path] {
+        test "AOF can't load data when there are blank lines in the manifest file" {
+            wait_for_condition 100 50 {
+                ! [is_alive $srv]
+            } else {
+                fail "AOF loading didn't fail"
+            }
+        }
+    }
+
+    catch {exec rm -rf $incr_1_filepath}
+    catch {exec rm -rf $incr_3_filepath}
+    catch {exec rm -rf $aof_manifest_path}
+
+    # Tests5: AOF can't load data when there is a duplicate base file
+    create_aof $base_1_filepath {
+        append_to_aof [formatCommand set k1 v1]
+    }
+
+    create_aof $base_2_filepath {
+        append_to_aof [formatCommand set k2 v2]
+    }
+
+    create_aof $incr_1_filepath {
+        append_to_aof [formatCommand set k3 v3]
+    }
+
+    create_aof_manifest $aof_manifest_path {
+        append_to_manifest "file appendonly.1.base seq 1 type b\n"
+        append_to_manifest "file appendonly.2.base seq 2 type b\n"
+        append_to_manifest "file appendonly.1.incr seq 1 type i\n"
+    }
+
+    start_server_aof [list dir $server_path] {
+        test "AOF can't load data when there is a duplicate base file" {
+            wait_for_condition 100 50 {
+                ! [is_alive $srv]
+            } else {
+                fail "AOF loading didn't fail"
+            }
+        }
+    }
+
+    clean_aof_persistence $server_path
+
+    # Tests6: AOF can't load data when the manifest format is wrong (type unknown)
+    create_aof $base_1_filepath {
+        append_to_aof [formatCommand set k1 v1]
+    }
+
+    create_aof $incr_1_filepath {
+        append_to_aof [formatCommand set k3 v3]
+    }
+
+    create_aof_manifest $aof_manifest_path {
+        append_to_manifest "file appendonly.1.base seq 1 type x\n"
+        append_to_manifest "file appendonly.1.incr seq 1 type i\n"
+    }
+
+    start_server_aof [list dir $server_path] {
+        test "AOF can't load data when the manifest format is wrong (type unknown)" {
+            wait_for_condition 100 50 {
+                ! [is_alive $srv]
+            } else {
+                fail "AOF loading didn't fail"
+            }
+        }
+    }
+
+    clean_aof_persistence $server_path
+
+    # Tests7: AOF can't load data when the manifest format is wrong (file typo)
+    create_aof $base_1_filepath {
+        append_to_aof [formatCommand set k1 v1]
+    }
+
+    create_aof $incr_1_filepath {
+        append_to_aof [formatCommand set k3 v3]
+    }
+
+    create_aof_manifest $aof_manifest_path {
+        append_to_manifest "filx appendonly.1.base seq 1 type b\n"
+        append_to_manifest "file appendonly.1.incr seq 1 type i\n"
+    }
+
+    start_server_aof [list dir $server_path] {
+        test "AOF can't load data when the manifest format is wrong (file typo)" {
+            wait_for_condition 100 50 {
+                ! [is_alive $srv]
+            } else {
+                fail "AOF loading didn't fail"
+            }
+        }
+    }
+
+    clean_aof_persistence $server_path
+
+    # Tests8: AOF can load data from old redis aof
+    create_aof $old_version_aof_path {
+        append_to_aof [formatCommand set k1 v1]
+        append_to_aof [formatCommand set k2 v2]
+        append_to_aof [formatCommand set k3 v3]
+    }
+
+    start_server_aof [list dir $server_path] {
+        test "AOF can load data from old redis aof" {
+            assert_equal 1 [is_alive $srv]
+
+            set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+            wait_done_loading $client
+
+            assert_equal v1 [$client get k1]
+            assert_equal v2 [$client get k2]
+            assert_equal v3 [$client get k3]
+
+            assert_aof_manifest_content $server_path {
+                {file appendonly seq 1 type b} 
+                {file appendonly.1.incr seq 1 type i}
+            }
+
+            assert_equal OK [$client set k4 v4]
+            
+            $client bgrewriteaof
+            while 1 {
+                if {[status $client aof_rewrite_in_progress] eq 1} {
+                    if {$::verbose} {
+                        puts -nonewline "\nWaiting for background AOF rewrite to finish... "
+                        flush stdout
+                    }
+                    after 1000
+                } else {
+                    break
+                }
+            }
+
+            assert_equal OK [$client set k5 v5]
+
+            assert_aof_manifest_content $server_path {
+                {file appendonly.2.base seq 2 type b} 
+                {file appendonly.2.incr seq 2 type i}
+            }
+
+            set d1 [$client debug digest]
+            $client debug loadaof
+            set d2 [$client debug digest]
+            assert {$d1 eq $d2}
+        }
+    }
+
+    clean_aof_persistence $server_path
+
+    # Tests9: AOF can't load data when the manifest file is empty
+    create_aof_manifest $aof_manifest_path {
+    }
+
+    start_server_aof [list dir $server_path] {
+        test "AOF can't load data when the manifest file is empty" {
+            wait_for_condition 100 50 {
+                ! [is_alive $srv]
+            } else {
+                fail "AOF loading didn't fail"
+            }
+        }
+    }
+
+    clean_aof_persistence $server_path
+
+    # Tests10: AOF can start when no aof and no manifest
+    start_server_aof [list dir $server_path] {
+        test "AOF can start when no aof and no manifest" {
+            assert_equal 1 [is_alive $srv]
+
+            set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+
+            assert_equal OK [$client set k1 v1]
+            assert_equal v1 [$client get k1]
+        }
+    }
+
     start_server {tags {"aof manifest"} overrides {aof-use-rdb-preamble {yes} appendfilename {appendonly}}} {
         set dir [get_redis_dir]
         set aof_basename [get_aof_basename $::default_aof_basename]
@@ -388,272 +654,6 @@ tags {"external:skip"} {
             r debug loadaof
             set d2 [r debug digest]
             assert {$d1 eq $d2}
-        }
-    }
-
-    # Tests1: AOF can load data discontinuously increasing sequence
-    create_aof $base_1_aof_path {
-        append_to_aof [formatCommand set k1 v1]
-    }
-
-    create_aof $incr_1_aof_path {
-        append_to_aof [formatCommand set k2 v2]
-    }
-
-    create_aof $incr_3_aof_path {
-        append_to_aof [formatCommand set k3 v3]
-    }
-
-    create_aof_manifest $aof_manifest_path {
-        append_to_manifest "file appendonly.1.base seq 1 type b\n"
-        append_to_manifest "file appendonly.1.incr seq 1 type i\n"
-        append_to_manifest "file appendonly.3.incr seq 3 type i\n"
-    }
-
-    start_server_aof [list dir $server_path] {
-        test "AOF can load data discontinuously increasing sequence" {
-            assert_equal 1 [is_alive $srv]
-            set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
-            wait_done_loading $client
-
-            assert_equal v1 [$client get k1]
-            assert_equal v2 [$client get k2]
-            assert_equal v3 [$client get k3]
-        }
-    }
-
-    # Tests2: AOF can't load data when some aof missing
-    catch {exec rm -rf $incr_1_aof_path}
-    
-    start_server_aof [list dir $server_path] {
-        test "AOF can't load data when some aof missing" {
-            wait_for_condition 100 50 {
-                ! [is_alive $srv]
-            } else {
-                fail "AOF loading didn't fail"
-            }
-        }
-    }
-
-    clean_aof_persistence $server_path
-
-    # Tests3: AOF can't load data when the sequence not increase monotonically
-    create_aof $incr_1_aof_path {
-        append_to_aof [formatCommand set k1 v1]
-    }
-
-    create_aof $incr_3_aof_path {
-        append_to_aof [formatCommand set k2 v2]
-    }
-
-    create_aof_manifest $aof_manifest_path {
-        append_to_manifest "file appendonly.3.incr seq 3 type i\n"
-        append_to_manifest "file appendonly.1.incr seq 1 type i\n"
-    }
-
-    start_server_aof [list dir $server_path] {
-        test "AOF can't load data when the sequence not increase monotonically" {
-            wait_for_condition 100 50 {
-                ! [is_alive $srv]
-            } else {
-                fail "AOF loading didn't fail"
-            }
-        }
-    }
-
-    clean_aof_persistence $server_path
-
-    # Tests4: AOF can't load data when there are blank lines in the manifest file
-    create_aof $incr_1_aof_path {
-        append_to_aof [formatCommand set k1 v1]
-    }
-
-    create_aof $incr_3_aof_path {
-        append_to_aof [formatCommand set k2 v2]
-    }
-
-    create_aof_manifest $aof_manifest_path {
-        append_to_manifest "file appendonly.1.incr seq 1 type i\n"
-        append_to_manifest "\n"
-        append_to_manifest "file appendonly.3.incr seq 3 type i\n"
-    }
-
-    start_server_aof [list dir $server_path] {
-        test "AOF can't load data when there are blank lines in the manifest file" {
-            wait_for_condition 100 50 {
-                ! [is_alive $srv]
-            } else {
-                fail "AOF loading didn't fail"
-            }
-        }
-    }
-
-    catch {exec rm -rf $incr_1_aof_path}
-    catch {exec rm -rf $incr_3_aof_path}
-    catch {exec rm -rf $aof_manifest_path}
-
-    # Tests5: AOF can't load data when there is a duplicate base file
-    create_aof $base_1_aof_path {
-        append_to_aof [formatCommand set k1 v1]
-    }
-
-    create_aof $base_2_aof_path {
-        append_to_aof [formatCommand set k2 v2]
-    }
-
-    create_aof $incr_1_aof_path {
-        append_to_aof [formatCommand set k3 v3]
-    }
-
-    create_aof_manifest $aof_manifest_path {
-        append_to_manifest "file appendonly.1.base seq 1 type b\n"
-        append_to_manifest "file appendonly.2.base seq 2 type b\n"
-        append_to_manifest "file appendonly.1.incr seq 1 type i\n"
-    }
-
-    start_server_aof [list dir $server_path] {
-        test "AOF can't load data when there is a duplicate base file" {
-            wait_for_condition 100 50 {
-                ! [is_alive $srv]
-            } else {
-                fail "AOF loading didn't fail"
-            }
-        }
-    }
-
-    clean_aof_persistence $server_path
-
-    # Tests6: AOF can't load data when the manifest format is wrong (type unknown)
-    create_aof $base_1_aof_path {
-        append_to_aof [formatCommand set k1 v1]
-    }
-
-    create_aof $incr_1_aof_path {
-        append_to_aof [formatCommand set k3 v3]
-    }
-
-    create_aof_manifest $aof_manifest_path {
-        append_to_manifest "file appendonly.1.base seq 1 type x\n"
-        append_to_manifest "file appendonly.1.incr seq 1 type i\n"
-    }
-
-    start_server_aof [list dir $server_path] {
-        test "AOF can't load data when the manifest format is wrong (type unknown)" {
-            wait_for_condition 100 50 {
-                ! [is_alive $srv]
-            } else {
-                fail "AOF loading didn't fail"
-            }
-        }
-    }
-
-    clean_aof_persistence $server_path
-
-    # Tests7: AOF can't load data when the manifest format is wrong (file typo)
-    create_aof $base_1_aof_path {
-        append_to_aof [formatCommand set k1 v1]
-    }
-
-    create_aof $incr_1_aof_path {
-        append_to_aof [formatCommand set k3 v3]
-    }
-
-    create_aof_manifest $aof_manifest_path {
-        append_to_manifest "filx appendonly.1.base seq 1 type b\n"
-        append_to_manifest "file appendonly.1.incr seq 1 type i\n"
-    }
-
-    start_server_aof [list dir $server_path] {
-        test "AOF can't load data when the manifest format is wrong (file typo)" {
-            wait_for_condition 100 50 {
-                ! [is_alive $srv]
-            } else {
-                fail "AOF loading didn't fail"
-            }
-        }
-    }
-
-    clean_aof_persistence $server_path
-
-    # Tests8: AOF can load data from old redis aof
-    create_aof $old_version_aof_path {
-        append_to_aof [formatCommand set k1 v1]
-        append_to_aof [formatCommand set k2 v2]
-        append_to_aof [formatCommand set k3 v3]
-    }
-
-    start_server_aof [list dir $server_path] {
-        test "AOF can load data from old redis aof" {
-            assert_equal 1 [is_alive $srv]
-
-            set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
-            wait_done_loading $client
-
-            assert_equal v1 [$client get k1]
-            assert_equal v2 [$client get k2]
-            assert_equal v3 [$client get k3]
-
-            assert_aof_manifest_content $server_path {
-                {file appendonly seq 1 type b} 
-                {file appendonly.1.incr seq 1 type i}
-            }
-
-            assert_equal OK [$client set k4 v4]
-            
-            $client bgrewriteaof
-            while 1 {
-                if {[status $client aof_rewrite_in_progress] eq 1} {
-                    if {$::verbose} {
-                        puts -nonewline "\nWaiting for background AOF rewrite to finish... "
-                        flush stdout
-                    }
-                    after 1000
-                } else {
-                    break
-                }
-            }
-
-            assert_equal OK [$client set k5 v5]
-
-            assert_aof_manifest_content $server_path {
-                {file appendonly.2.base seq 2 type b} 
-                {file appendonly.2.incr seq 2 type i}
-            }
-
-            set d1 [$client debug digest]
-            $client debug loadaof
-            set d2 [$client debug digest]
-            assert {$d1 eq $d2}
-        }
-    }
-
-    clean_aof_persistence $server_path
-
-    # Tests9: AOF can't load data when the manifest file is empty
-    create_aof_manifest $aof_manifest_path {
-    }
-
-    start_server_aof [list dir $server_path] {
-        test "AOF can't load data when the manifest file is empty" {
-            wait_for_condition 100 50 {
-                ! [is_alive $srv]
-            } else {
-                fail "AOF loading didn't fail"
-            }
-        }
-    }
-
-    clean_aof_persistence $server_path
-
-    # Tests10: AOF can start when no aof and no manifest
-    start_server_aof [list dir $server_path] {
-        test "AOF can start when no aof and no manifest" {
-            assert_equal 1 [is_alive $srv]
-
-            set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
-
-            assert_equal OK [$client set k1 v1]
-            assert_equal v1 [$client get k1]
         }
     }
 }
