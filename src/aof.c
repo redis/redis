@@ -659,17 +659,17 @@ int openNewIncrAofForAppend(void) {
  * 
  * So, we use time delay to achieve our goal. When AOFRW fails, we delay the execution 
  * of the next AOFRW by 1 minute. If the next AOFRW also fails, it will be delayed by 2 
- * minutes. The next is 4, 8, 16, 32, 64, the maximum delay is 1440 minutes (1 day).
+ * minutes. The next is 4, 8, 16, the maximum delay is 60 minutes (1 day).
  * 
  * During the limit period, we can still use the 'bgrewriteaof' command to execute AOFRW 
  * immediately.
  * 
  * Return 1 means that AOFRW is limited and cannot be executed. 0 means that we can execute 
- * AOFRW, which may be that we have reached the 'next_rewrite_time' or the number of INCR AOFs 
- * has not reached the limit threshold.
+ * AOFRW, which may be that we have reached the 'next_rewrite_time' or the number of INCR 
+ * AOFs has not reached the limit threshold.
  * */ 
 #define AOF_REWRITE_LIMITE_THRESHOLD    3    
-#define AOF_REWRITE_LIMITE_NAX_MINUTES  1440 /* 1 day */
+#define AOF_REWRITE_LIMITE_NAX_MINUTES  60 /* 1 hour */
 int aofRewriteLimited(void) {
     int limit = 0;
     static int limit_deley_minutes = 0;
@@ -2104,11 +2104,7 @@ int rewriteAppendOnlyFile(char *filename) {
     }
     serverLog(LL_NOTICE,"SYNC append only file rewrite performed");
     stopSaving(1);
-
-    /* Delay return if required (for testing) */
-    if (server.aof_child_rewrite_delay)
-        debugDelay(server.aof_child_rewrite_delay);
-
+    
     return C_OK;
 
 werr:

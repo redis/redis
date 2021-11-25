@@ -10,7 +10,7 @@ set incr_3_aof_path "$server_path/appendonly.3.aof"
 set aof_manifest_path "$server_path/appendonly.manifest"
 
 tags {"external:skip"} {
-    start_server {tags {"aof manifest"} overrides {aof-use-rdb-preamble {no} appendfilename {appendonly}}} {
+    start_server {tags {"aof manifest"} overrides {aof-use-rdb-preamble {yes} appendfilename {appendonly}}} {
         set dir [get_redis_dir]
         set aof_basename [get_aof_basename $::default_aof_basename]
         set master [srv 0 client]
@@ -77,7 +77,7 @@ tags {"external:skip"} {
 
         test "AOF multiple rewrite failures will open multiple INCR AOFs" {
             # Start write load
-            r config set aof-child-rewrite-delay 1000000
+            r config set rdb-key-save-delay 10000000
 
             set orig_size [r dbsize]
             set load_handle0 [start_write_load $master_host $master_port 10]
@@ -127,7 +127,7 @@ tags {"external:skip"} {
             set d2 [r debug digest]
             assert {$d1 eq $d2}
 
-            r config set aof-child-rewrite-delay 0
+            r config set rdb-key-save-delay 0
 
             # AOFRW success
             r bgrewriteaof
@@ -316,7 +316,7 @@ tags {"external:skip"} {
         }
 
         test "AOF will trigger limit when AOFRW fails many times" {
-            r config set aof-child-rewrite-delay 1000000
+            r config set rdb-key-save-delay 10000000
             # Let us trigger AOFRW easily
             r config set auto-aof-rewrite-percentage 1
             r config set auto-aof-rewrite-min-size 1mb
@@ -367,7 +367,7 @@ tags {"external:skip"} {
 
             # Turn off auto-rewrite
             r config set auto-aof-rewrite-percentage 0
-            r config set aof-child-rewrite-delay 0
+            r config set rdb-key-save-delay 0
 
             # We can still manually execute AOFRW immediately
             r bgrewriteaof

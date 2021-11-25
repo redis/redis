@@ -1546,8 +1546,6 @@ struct redisServer {
     redisAtomic int aof_bio_fsync_status; /* Status of AOF fsync in bio job. */
     redisAtomic int aof_bio_fsync_errno;  /* Errno of AOF fsync in bio job. */
     aofManifest *aof_manifest;       /* Used to record and manage AOF. */
-    int aof_child_rewrite_delay;     /* Delay in microseconds before
-                                       `rewriteAppendOnlyFile` return. (for testings). */
     int aof_disable_auto_gc;         /* If disable automatically deleting HISTORY type AOFs?
                                         default no. (for testings). */
 
