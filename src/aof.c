@@ -347,9 +347,10 @@ loaderr:
 
 /* Deep copy an aofManifest from orig.
  * 
- * In `backgroundRewriteDoneHandler`, we will first deep copy a temporary aof_manifest 
- * from the `server.aof_manifest`, and try to modify it. Once everything is modified, we 
- * will atomically make the `server.aof_manifest` point to this temporary aof_manifest.
+ * In `backgroundRewriteDoneHandler` and `openNewIncrAofForAppend`, we will first deep
+ * copy a temporary aof_manifest from the `server.aof_manifest`, and try to modify it. 
+ * Once everything is modified, we will atomically make the `server.aof_manifest` point
+ * to this temporary aof_manifest.
  */
 aofManifest *aofManifestDup(aofManifest *orig) {
     serverAssert(orig != NULL);
@@ -583,8 +584,10 @@ void aofOpenIfNeededOnServerStart(void) {
     serverAssert(server.aof_manifest != NULL);
     serverAssert(server.aof_fd == -1);
 
+    /* Because we will exit(1) if open AOF or persistent manifest fails, so we don't 
+     * need atomic modification here. */
     const char *aof_name = getLastIncrAofName(server.aof_manifest);
-    server.aof_fd = open(aof_name,O_WRONLY|O_APPEND|O_CREAT,0644);
+    server.aof_fd = open(aof_name, O_WRONLY|O_APPEND|O_CREAT, 0644);
     if (server.aof_fd == -1) {
         serverLog(LL_WARNING, "Can't open the append-only file %s: %s", 
             aof_name, strerror(errno));
@@ -597,8 +600,8 @@ void aofOpenIfNeededOnServerStart(void) {
     }
 }
 
-/* Called when start to execute AOFRW. If `server.aof_state` is 
- * AOF_ON or AOF_WAIT_REWRITE, It will do two things:
+/* Called in `rewriteAppendOnlyFileBackground`. If `server.aof_state` 
+ * is AOF_ON or AOF_WAIT_REWRITE, It will do two things:
  * 1. open a new INCR type AOF for writing
  * 2. synchronously update the manifest file to the disk
  * 
@@ -660,6 +663,9 @@ int openNewIncrAofForAppend(void) {
  * So, we use time delay to achieve our goal. When AOFRW fails, we delay the execution 
  * of the next AOFRW by 1 minute. If the next AOFRW also fails, it will be delayed by 2 
  * minutes. The next is 4 8 16 32 64, the maximum delay is 1440 minutes (1 day).
+ * 
+ * During the limit period, we can still use the 'bgrewriteaof' command to execute AOFRW 
+ * immediately.
  * 
  * Return 1 means that AOFRW is limited and cannot be executed. 0 means that we can execute 
  * AOFRW, which may be that we have reached the 'next_rewrite_time' or the number of INCR AOFs 
