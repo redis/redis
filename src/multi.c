@@ -446,7 +446,7 @@ void watchCommand(client *c) {
         addReplyError(c,"WATCH inside MULTI is not allowed");
         return;
     }
-    /* No point in watching if the client is already dirty.*/
+    /* No point in watching if the client is already dirty. */
     if (c->flags & CLIENT_DIRTY_CAS) {
         addReply(c,shared.ok);
         return;
