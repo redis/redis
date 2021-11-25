@@ -101,30 +101,33 @@ foreach comp {2 1 0} {
     test "Stress tester for #3343-alike bugs comp: $comp" {
         r del key
         set sent {}
-        set print_commands false
         for {set j 0} {$j < $cycles} {incr j} {
-            if {[catch {
+            catch {
                 set cmd [generate_cmd_on_list_key key]
                 lappend sent $cmd
 
                 # execute the command, we expect commands to fail on syntax errors
                 r {*}$cmd
-            }]} {
-                if {[count_log_message 0 "crashed by signal"] != 0 || [count_log_message 0 "ASSERTION FAILED"] != 0} {
-                    puts "Server crashed"
-                    set print_commands true
-                    break
-                }
             }
         }
 
-        # check valgrind and asan report for invalid reads after execute
-        # command so that we have a report that is easier to reproduce
-        set valgrind_errors [find_valgrind_errors [srv 0 stderr] false]
-        set asan_errors [sanitizer_errors_from_file [srv 0 stderr]]
-        if {$valgrind_errors != "" || $asan_errors != ""} {
-            puts "valgrind or asan found an issue"
+        set print_commands false
+        set crash false
+        if {[catch {r ping}]} {
+            puts "Server crashed"
             set print_commands true
+            set crash true
+        }
+
+        if {!$::external} {
+            # check valgrind and asan report for invalid reads after execute
+            # command so that we have a report that is easier to reproduce
+            set valgrind_errors [find_valgrind_errors [srv 0 stderr] false]
+            set asan_errors [sanitizer_errors_from_file [srv 0 stderr]]
+            if {$valgrind_errors != "" || $asan_errors != ""} {
+                puts "valgrind or asan found an issue"
+                set print_commands true
+            }
         }
 
         if {$print_commands} {
@@ -134,8 +137,8 @@ foreach comp {2 1 0} {
             }
         }
 
-        r ping
-    } {PONG} {external:skip}
+        assert_equal $crash false
+    }
 } ;# foreach comp
 
     tags {slow} {
