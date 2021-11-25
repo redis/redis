@@ -285,11 +285,10 @@ tags {"external:skip"} {
             # Make server.aof_rewrite_scheduled = 1
             r config set appendonly yes
 
-            # Open new INCR aof
+            # Not open new INCR aof
             assert_aof_manifest_content $dir {
                 {file appendonly.8.rdb seq 8 type b} 
                 {file appendonly.4.aof seq 4 type i}
-                {file appendonly.5.aof seq 5 type i}
             }
 
             r set k2 v2
@@ -308,7 +307,7 @@ tags {"external:skip"} {
 
             assert_aof_manifest_content $dir {
                 {file appendonly.9.rdb seq 9 type b} 
-                {file appendonly.6.aof seq 6 type i}
+                {file appendonly.5.aof seq 5 type i}
             }
 
             r set k3 v3
@@ -335,9 +334,9 @@ tags {"external:skip"} {
 
             assert_aof_manifest_content $dir {
                 {file appendonly.9.rdb seq 9 type b} 
+                {file appendonly.5.aof seq 5 type i}
                 {file appendonly.6.aof seq 6 type i}
                 {file appendonly.7.aof seq 7 type i}
-                {file appendonly.8.aof seq 8 type i}
             }
 
             set orig_size [r dbsize]
@@ -361,9 +360,9 @@ tags {"external:skip"} {
             # No new INCR AOF be created
             assert_aof_manifest_content $dir {
                 {file appendonly.9.rdb seq 9 type b} 
+                {file appendonly.5.aof seq 5 type i}
                 {file appendonly.6.aof seq 6 type i}
                 {file appendonly.7.aof seq 7 type i}
-                {file appendonly.8.aof seq 8 type i}
             }
 
             # Turn off auto-rewrite
@@ -375,11 +374,11 @@ tags {"external:skip"} {
             waitForBgrewriteaof r
 
             # Can create New INCR AOF but AOFRW still fail
-            assert_equal 1 [check_file_exist $dir "${aof_basename}.9${::incr_aof_sufix}"]
+            assert_equal 1 [check_file_exist $dir "${aof_basename}.8${::incr_aof_sufix}"]
 
             assert_aof_manifest_content $dir {
                 {file appendonly.10.rdb seq 10 type b} 
-                {file appendonly.9.aof seq 9 type i}
+                {file appendonly.8.aof seq 8 type i}
             }
 
             stop_write_load $load_handle0

@@ -370,7 +370,7 @@ aofManifest *aofManifestDup(aofManifest *orig) {
     return am;
 }
 
-void aofManifestForceUpdate(aofManifest *am) {
+void aofManifestAtomicUpdate(aofManifest *am) {
     serverAssert(am != NULL);
     if (server.aof_manifest) aofManifestFree(server.aof_manifest);
     server.aof_manifest = am;
@@ -597,35 +597,55 @@ void aofOpenIfNeededOnServerStart(void) {
     }
 }
 
-/* Called when start to execute AOFRW. If `server.aof_state` is AOF_ON, It
- * will do two things:
+/* Called when start to execute AOFRW. If `server.aof_state` is 
+ * AOF_ON or AOF_WAIT_REWRITE, It will do two things:
  * 1. open a new INCR type AOF for writing
  * 2. synchronously update the manifest file to the disk
  * 
- * If any of the above two steps fails, the redis process will exit.
+ * The above two steps of modification are atomic, that is, if 
+ * any step fails, the entire operation will rollback and returns
+ * C_ERR, and if all succeeds, it returns C_OK.
  * */
-void openNewIncrAofForAppend(void) {
+int openNewIncrAofForAppend(void) {
     serverAssert(server.aof_manifest != NULL);
+    int newfd;
 
-    sds new_aof_name = getNewIncrAofName(server.aof_manifest);
+    /* Only open new INCR AOF when AOF enabled. */
+    if (server.aof_state == AOF_OFF) return C_OK;
 
-    /* Close old aof_fd if needed. */
-    if (server.aof_fd != -1) bioCreateCloseJob(server.aof_fd);
+    /* Dup an temp aof_manifest to modify. */
+    aofManifest *temp_am = aofManifestDup(server.aof_manifest);
 
-    server.aof_fd = open(new_aof_name, O_WRONLY|O_TRUNC|O_CREAT, 0644);
-    if (server.aof_fd == -1) {
+    /* Open new AOF. */
+    sds new_aof_name = getNewIncrAofName(temp_am);
+    newfd = open(new_aof_name, O_WRONLY|O_TRUNC|O_CREAT, 0644);
+    if (newfd == -1) {
         serverLog(LL_WARNING, "Can't open the append-only file %s: %s",
             new_aof_name, strerror(errno));
 
-        exit(1);
+        aofManifestFree(temp_am);
+        return C_ERR;
     }
+
+    /* Persist AOF Manifest. */
+    int ret = persistAofManifest(temp_am);
+    if (ret == C_ERR) {
+        close(newfd);
+        aofManifestFree(temp_am);
+        return C_ERR;
+    }
+
+    /* If reaches here, we can safely modify the `server.aof_manifest` 
+     * and `server.aof_fd`. */
+
+    /* Close old aof_fd if needed. */
+    if (server.aof_fd != -1) bioCreateCloseJob(server.aof_fd);
+    server.aof_fd = newfd;
 
     /* Reset the aof_last_incr_size. */
     server.aof_last_incr_size = 0;
-    int ret = persistAofManifest(server.aof_manifest);
-    if (ret == C_ERR) {
-        exit(1);
-    }
+    aofManifestAtomicUpdate(temp_am);
+    return C_OK;  
 }
 
 /* Whether to limit the execution of Background AOF rewrite.
@@ -645,8 +665,8 @@ void openNewIncrAofForAppend(void) {
  * AOFRW, which may be that we have reached the 'next_rewrite_time' or the number of INCR AOFs 
  * has not reached the limit threshold.
  * */ 
-#define AOF_REWRITE_LIMITE_THRESHOLD  3    
-#define AOF_REWRITE_LIMITE_NAX_DELAY  1440 /* 1 day */
+#define AOF_REWRITE_LIMITE_THRESHOLD    3    
+#define AOF_REWRITE_LIMITE_NAX_MINUTES  1440 /* 1 day */
 int aofRewriteLimited(void) {
     int limit = 0;
     static int limit_deley_minutes = 0;
@@ -663,12 +683,12 @@ int aofRewriteLimited(void) {
 
             if (limit_deley_minutes == 0) {
                 limit_deley_minutes = 1;
-            } else if (limit_deley_minutes < AOF_REWRITE_LIMITE_NAX_DELAY) {
+            } else if (limit_deley_minutes < AOF_REWRITE_LIMITE_NAX_MINUTES) {
                 limit_deley_minutes <<= 1;
             } 
 
-            if (limit_deley_minutes > AOF_REWRITE_LIMITE_NAX_DELAY) {
-                limit_deley_minutes = AOF_REWRITE_LIMITE_NAX_DELAY;
+            if (limit_deley_minutes > AOF_REWRITE_LIMITE_NAX_MINUTES) {
+                limit_deley_minutes = AOF_REWRITE_LIMITE_NAX_MINUTES;
             }
 
             next_rewrite_time = server.unixtime + limit_deley_minutes * 60;
@@ -743,43 +763,9 @@ void stopAppendOnly(void) {
 /* Called when the user switches from "appendonly no" to "appendonly yes"
  * at runtime using the CONFIG command. */
 int startAppendOnly(void) {
-    char cwd[MAXPATHLEN]; /* Current working dir path for error messages. */
-    int newfd;
     serverAssert(server.aof_state == AOF_OFF);
-    
-    /* We don't directly use `openNewIncrAofForAppend` here because we want 
-     * to check in advance whether there will be some problems when opening 
-     * AOF, so that the error can be replied to the client, instead of exiting 
-     * directly.
-     * 
-     * So here we need to back up 'server.aof_manifest' in advance, so that 
-     * we can rollback it when AOF open or `persistAofManifest` fails.
-     * */
-    aofManifest *am_backup = aofManifestDup(server.aof_manifest);
-    sds new_incr_aofname = getNewIncrAofName(server.aof_manifest);
-    newfd = open(new_incr_aofname, O_WRONLY|O_TRUNC|O_CREAT, 0644);
-    if (newfd == -1) {
-        char *cwdp = getcwd(cwd,MAXPATHLEN);
-
-        serverLog(LL_WARNING,
-            "Redis needs to enable the AOF but can't open the "
-            "append only file %s (in server root dir %s): %s",
-            new_incr_aofname,
-            cwdp ? cwdp : "unknown",
-            strerror(errno));
-        aofManifestForceUpdate(am_backup);
-        return C_ERR;
-    }
-
-    int ret = persistAofManifest(server.aof_manifest);
-    if (ret != C_OK) {
-        close(newfd);
-        aofManifestForceUpdate(am_backup);
-        return C_ERR;
-    }
-    aofManifestFree(am_backup);
-
     if (hasActiveChildProcess() && server.child_type != CHILD_TYPE_AOF) {
+        server.aof_state = AOF_WAIT_REWRITE;
         server.aof_rewrite_scheduled = 1;
         serverLog(LL_WARNING,"AOF was enabled but there is already another background operation. An AOF background was scheduled to start when possible.");
     } else {
@@ -790,18 +776,15 @@ int startAppendOnly(void) {
             serverLog(LL_WARNING,"AOF was enabled but there is already an AOF rewriting in background. Stopping background AOF and starting a rewrite now.");
             killAppendOnlyChild();
         }
-
+        
+        server.aof_state = AOF_WAIT_REWRITE;
         if (rewriteAppendOnlyFileBackground() == C_ERR) {
-            close(newfd);
+            server.aof_state = AOF_OFF;
             serverLog(LL_WARNING,"Redis needs to enable the AOF but can't trigger a background AOF rewrite operation. Check the above logs for more info about the error.");
             return C_ERR;
         }
     }
-    /* We correctly switched on AOF, now wait for the rewrite to be complete
-     * in order to append data on disk. */
-    server.aof_state = AOF_WAIT_REWRITE;
-    server.aof_last_fsync = server.unixtime;
-    server.aof_fd = newfd;    
+    server.aof_last_fsync = server.unixtime; 
     /* If AOF fsync error in bio job, we just ignore it and log the event. */
     int aof_bio_fsync_status;
     atomicGet(server.aof_bio_fsync_status, aof_bio_fsync_status);
@@ -2152,6 +2135,15 @@ int rewriteAppendOnlyFileBackground(void) {
     pid_t childpid;
 
     if (hasActiveChildProcess()) return C_ERR;
+
+    /* We set aof_selected_db to -1 in order to force the next call to the
+     * feedAppendOnlyFile() to issue a SELECT command, so the differences
+     * accumulated by the parent into server.aof_rewrite_buf will start
+     * with a SELECT statement and it will be safe to merge. */
+    server.aof_selected_db = -1;
+    flushAppendOnlyFile(1);
+    if (openNewIncrAofForAppend() != C_OK) return C_ERR;
+
     if ((childpid = redisFork(CHILD_TYPE_AOF)) == 0) {
         char tmpfile[256];
 
@@ -2177,17 +2169,8 @@ int rewriteAppendOnlyFileBackground(void) {
         serverLog(LL_NOTICE,
             "Background append only file rewriting started by pid %ld",(long) childpid);
         server.aof_rewrite_scheduled = 0;
-        server.aof_rewrite_time_start = time(NULL);
-
-        /* We set aof_selected_db to -1 in order to force the next call to the
-         * feedAppendOnlyFile() to issue a SELECT command, so the differences
-         * accumulated by the parent into server.aof_rewrite_buf will start
-         * with a SELECT statement and it will be safe to merge. */
-        server.aof_selected_db = -1;
-        replicationScriptCacheFlush();
-        flushAppendOnlyFile(1);
-        /* Only open new INCR AOF when AOF enabled. */
-        if (server.aof_fd != -1) openNewIncrAofForAppend();
+        server.aof_rewrite_time_start = time(NULL);      
+        replicationScriptCacheFlush(); 
         return C_OK;
     }
     return C_OK; /* unreached */
@@ -2316,7 +2299,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
         }
 
         /* We can safely let server.aof_manifest point to tmp_am and free the previous one. */
-        aofManifestForceUpdate(tmp_am);
+        aofManifestAtomicUpdate(tmp_am);
 
         /* We don't care about the return value of `aofDelHistoryFiles`, because the history 
          * deletion failure will not cause any problems. */
