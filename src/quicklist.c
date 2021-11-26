@@ -108,10 +108,11 @@ void _quicklistBookmarkDelete(quicklist *ql, quicklistBookmark *bm);
         (e)->sz = 0;                                                           \
     } while (0)
 
-#define resetIterator(e)                                                       \
+#define resetIterator(e, n, o)                                      \
     do {                                                                       \
         initIteratorEntry(e);                                                  \
-        (e)->current = NULL;                                                   \
+        (e)->current = (n);                                              \
+        (e)->offset = (o);                                                \
         (e)->zi = NULL;                                                        \
     } while (0)
 
@@ -695,17 +696,13 @@ void quicklistDelEntry(quicklistIter *iter) {
     int deleted_node = quicklistDelIndex(iter->quicklist,
                                          iter->current, &iter->zi);
 
-    /* after delete, the zi is now invalid for any future usage. */
-    iter->zi = NULL;
-
-    /* If current node is deleted, we must update iterator node and offset. */
+    /* If current node is deleted, we must update iterator node and offset.
+     * After delete, the zi is now invalid for any future usage. */
     if (deleted_node) {
         if (iter->direction == AL_START_HEAD) {
-            iter->current = next;
-            iter->offset = 0;
+            resetIterator(iter, next, 0);
         } else if (iter->direction == AL_START_TAIL) {
-            iter->current = prev;
-            iter->offset = -1;
+            resetIterator(iter, prev, -1);
         }
     }
     /* else if (!deleted_node), no changes needed.
@@ -756,13 +753,10 @@ void quicklistReplaceEntry(quicklistIter *iter, void *data, size_t sz)
         }
     }
 
-    /* after replace, the zi is now invalid for any future usage. */
-    iter->zi = NULL;
-
-    /* If current node is deleted, we must update iterator node and offset. */
+    /* If current node is deleted, we must update iterator node and offset.
+     * after replace, the zi is now invalid for any future usage. */
     if (new_node) {
-        iter->current = new_node;
-        iter->offset = 0;
+        resetIterator(iter, new_node, 0);
     }
 }
 
@@ -931,13 +925,13 @@ REDIS_STATIC quicklistNode *_quicklistSplitNode(quicklistNode *node, int offset,
  *
  * If after==1, the new value is inserted after 'entry', otherwise
  * the new value is inserted before 'entry'. */
-REDIS_STATIC void _quicklistInsert(quicklistIter *entry, void *value,
+REDIS_STATIC void _quicklistInsert(quicklistIter *iter, void *value,
                                    const size_t sz, int after)
 {
-    quicklist *quicklist = entry->quicklist;
+    quicklist *quicklist = iter->quicklist;
     int full = 0, at_tail = 0, at_head = 0, avail_next = 0, avail_prev = 0;
     int fill = quicklist->fill;
-    quicklistNode *node = entry->current;
+    quicklistNode *node = iter->current;
     quicklistNode *new_node = NULL;
 
     if (!node) {
@@ -962,7 +956,7 @@ REDIS_STATIC void _quicklistInsert(quicklistIter *entry, void *value,
         full = 1;
     }
 
-    if (after && (entry->offset == node->count - 1 || entry->offset == -1)) {
+    if (after && (iter->offset == node->count - 1 || iter->offset == -1)) {
         D("At Tail of current listpack");
         at_tail = 1;
         if (_quicklistNodeAllowInsert(node->next, fill, sz)) {
@@ -971,7 +965,7 @@ REDIS_STATIC void _quicklistInsert(quicklistIter *entry, void *value,
         }
     }
 
-    if (!after && (entry->offset == 0 || entry->offset == -(node->count))) {
+    if (!after && (iter->offset == 0 || iter->offset == -(node->count))) {
         D("At Head");
         at_head = 1;
         if (_quicklistNodeAllowInsert(node->prev, fill, sz)) {
@@ -985,7 +979,7 @@ REDIS_STATIC void _quicklistInsert(quicklistIter *entry, void *value,
             __quicklistInsertPlainNode(quicklist, node, value, sz, after);
         } else {
             quicklistDecompressNodeForUse(node);
-            new_node = _quicklistSplitNode(node, entry->offset, after);
+            new_node = _quicklistSplitNode(node, iter->offset, after);
             quicklistNode *entry_node = __quicklistCreatePlainNode(value, sz);
             __quicklistInsertNode(quicklist, node, entry_node, after);
             __quicklistInsertNode(quicklist, entry_node, new_node, after);
@@ -998,14 +992,14 @@ REDIS_STATIC void _quicklistInsert(quicklistIter *entry, void *value,
     if (!full && after) {
         D("Not full, inserting after current position.");
         quicklistDecompressNodeForUse(node);
-        node->entry = lpInsertString(node->entry, value, sz, entry->zi, LP_AFTER, NULL);
+        node->entry = lpInsertString(node->entry, value, sz, iter->zi, LP_AFTER, NULL);
         node->count++;
         quicklistNodeUpdateSz(node);
         quicklistRecompressOnly(node);
     } else if (!full && !after) {
         D("Not full, inserting before current position.");
         quicklistDecompressNodeForUse(node);
-        node->entry = lpInsertString(node->entry, value, sz, entry->zi, LP_BEFORE, NULL);
+        node->entry = lpInsertString(node->entry, value, sz, iter->zi, LP_BEFORE, NULL);
         node->count++;
         quicklistNodeUpdateSz(node);
         quicklistRecompressOnly(node);
@@ -1044,7 +1038,7 @@ REDIS_STATIC void _quicklistInsert(quicklistIter *entry, void *value,
         /* covers both after and !after cases */
         D("\tsplitting node...");
         quicklistDecompressNodeForUse(node);
-        new_node = _quicklistSplitNode(node, entry->offset, after);
+        new_node = _quicklistSplitNode(node, iter->offset, after);
         if (after)
             new_node->entry = lpPrepend(new_node->entry, value, sz);
         else
@@ -1056,22 +1050,19 @@ REDIS_STATIC void _quicklistInsert(quicklistIter *entry, void *value,
     }
 
     quicklist->count++;
+    
+    /* In any case, we reset iterator to forbid use of iterator after insert.
+     * Notice: iter->current has been compressed in _quicklistInsert(). */
+    resetIterator(iter, NULL, 0); 
 }
 
 void quicklistInsertBefore(quicklistIter *iter, void *value, const size_t sz) {
     _quicklistInsert(iter, value, sz, 0);
 
-    /* In any case, we reset iterator to forbid use of iterator after insert.
-     * Notice: iter->current has been compressed in _quicklistInsert(). */
-    resetIterator(iter); 
 }
 
 void quicklistInsertAfter(quicklistIter *iter, void *value, const size_t sz) {
     _quicklistInsert(iter, value, sz, 1);
-
-    /* In any case, we reset iterator to forbid use of iterator after insert.
-     * Notice: iter->current has been compressed in _quicklistInsert(). */
-    resetIterator(iter);
 }
 
 /* Delete a range of elements from the quicklist.
