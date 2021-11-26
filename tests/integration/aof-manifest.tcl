@@ -633,7 +633,7 @@ tags {"external:skip"} {
                 {file appendonly.7.incr seq 7 type i}
             }
 
-            # Turn off auto-rewrite
+            # Turn off auto rewrite
             r config set auto-aof-rewrite-percentage 0
             r config set rdb-key-save-delay 0
 
