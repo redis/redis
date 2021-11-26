@@ -51,6 +51,8 @@ tags {"external:skip"} {
             } else {
                 fail "AOF loading didn't fail"
             }
+
+            assert_equal 1 [count_message_lines $server_path/stdout "doesn't exist"]
         }
     }
 

@@ -301,7 +301,7 @@ void aofLoadManifestFromDisk(void) {
 
         if (ai->file_type == AOF_FILE_TYPE_BASE) {
             if (server.aof_manifest->base_aof_info) {
-                err = "Found duplicate base aof information";
+                err = "Found duplicate base file information";
                 goto loaderr;
             }
             server.aof_manifest->base_aof_info = ai;
@@ -680,11 +680,8 @@ int aofRewriteLimited(void) {
         if (server.unixtime < next_rewrite_time) {
             limit = 1;
         } else {
-            if (next_rewrite_time == 0) {
-                limit = 1;
-            }
-
             if (limit_deley_minutes == 0) {
+                limit = 1;
                 limit_deley_minutes = 1;
             } else if (limit_deley_minutes < AOF_REWRITE_LIMITE_NAX_MINUTES) {
                 limit_deley_minutes <<= 1;
