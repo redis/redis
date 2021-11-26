@@ -360,7 +360,9 @@ aofManifest *aofManifestDup(aofManifest *orig) {
     am->curr_incr_file_seq = orig->curr_incr_file_seq;
     am->dirty = orig->dirty;
 
-    if (orig->base_aof_info) am->base_aof_info = aofInfoDup(orig->base_aof_info);
+    if (orig->base_aof_info) {
+        am->base_aof_info = aofInfoDup(orig->base_aof_info);
+    }
     
     am->incr_aof_list = listDup(orig->incr_aof_list);
     am->history_aof_list = listDup(orig->history_aof_list);
@@ -371,6 +373,8 @@ aofManifest *aofManifestDup(aofManifest *orig) {
     return am;
 }
 
+/* Change the `server.aof_manifest` pointer to 'am' and free the previous 
+ * one if we have. */
 void aofManifestFreeAndUpdate(aofManifest *am) {
     serverAssert(am != NULL);
     if (server.aof_manifest) aofManifestFree(server.aof_manifest);
@@ -415,7 +419,7 @@ sds getLastIncrAofName(aofManifest *am) {
     serverAssert(am != NULL);
 
     /* If incr_aof_list is empty, just create a new one. */
-    if (listLength(am->incr_aof_list) == 0) {
+    if (!listLength(am->incr_aof_list)) {
         return getNewIncrAofName(am);
     }
 
@@ -432,8 +436,7 @@ sds getLastIncrAofName(aofManifest *am) {
  */
 void markRewrittenIncrAofAsHistory(aofManifest *am) {
     serverAssert(am != NULL);
-
-    if (listLength(am->incr_aof_list) == 0) {
+    if (!listLength(am->incr_aof_list)) {
         return;
     }
     
@@ -442,14 +445,14 @@ void markRewrittenIncrAofAsHistory(aofManifest *am) {
 
     listRewindTail(am->incr_aof_list, &li);
 
-    /* server.aof_fd != -1 means that AOF is open, then we must 
-     * skip the last AOF, because this file is our currently writing. */
+    /* server.aof_fd != -1 means AOF enabled, then we must skip the 
+     * last AOF, because this file is our currently writing. */
     if (server.aof_fd != -1) {
         ln = listNext(&li);
         serverAssert(ln != NULL);
     }
 
-    /* Move aofInfo from incr_aof_list to history_aof_list. */
+    /* Move aofInfo from 'incr_aof_list' to 'history_aof_list'. */
     while ((ln = listNext(&li)) != NULL) {
         aofInfo *ai = (aofInfo*)ln->value;
         serverAssert(ai->file_type == AOF_FILE_TYPE_INCR);
@@ -469,12 +472,12 @@ int writeAofManifestFile(sds buf) {
     ssize_t nwritten;
     int len;
 
-    sds amname = getAofManifestFileName();
-    sds t_amname = getTempAofManifestFileName();
-    int fd = open(t_amname, O_WRONLY|O_TRUNC|O_CREAT, 0644);
+    sds am_name = getAofManifestFileName();
+    sds tmp_am_name = getTempAofManifestFileName();
+    int fd = open(tmp_am_name, O_WRONLY|O_TRUNC|O_CREAT, 0644);
     if (fd == -1) {
         serverLog(LL_WARNING, "Can't open the aof manifest file %s: %s", 
-            t_amname, strerror(errno));
+            tmp_am_name, strerror(errno));
 
         ret = C_ERR;
         goto cleanup;
@@ -488,7 +491,7 @@ int writeAofManifestFile(sds buf) {
             if (errno == EINTR) continue;
 
             serverLog(LL_WARNING, "Error trying to write the temporary AOF manifest file %s: %s",
-                t_amname, strerror(errno));
+                tmp_am_name, strerror(errno));
 
             ret = C_ERR;
             goto cleanup;
@@ -500,24 +503,24 @@ int writeAofManifestFile(sds buf) {
 
     if (redis_fsync(fd) == -1) {
         serverLog(LL_WARNING, "Fail to fsync the temp AOF file %s: %s.", 
-            t_amname, strerror(errno));
+            tmp_am_name, strerror(errno));
 
         ret = C_ERR;
         goto cleanup;
     }
 
-    if (rename(t_amname, amname) != 0) {
+    if (rename(tmp_am_name, am_name) != 0) {
         serverLog(LL_WARNING,
             "Error trying to rename the temporary AOF manifest file %s into %s: %s",
-            t_amname, amname, strerror(errno));
+            tmp_am_name, am_name, strerror(errno));
 
         ret = C_ERR;
     }
     
 cleanup:
     if (fd != -1) close(fd);
-    sdsfree(amname);
-    sdsfree(t_amname);
+    sdsfree(am_name);
+    sdsfree(tmp_am_name);
     return ret;
 }
 
@@ -543,7 +546,7 @@ int persistAofManifest(aofManifest *am) {
 int aofDelHistoryFiles(void) {
     if (server.aof_manifest == NULL || 
         server.aof_disable_auto_gc == 1 || 
-        listLength(server.aof_manifest->history_aof_list) == 0) 
+        !listLength(server.aof_manifest->history_aof_list)) 
     {
         return C_OK;
     }
@@ -581,7 +584,7 @@ void aofOpenIfNeededOnServerStart(void) {
 
     /* Because we will exit(1) if open AOF or persistent manifest fails, so
      * we don't need atomic modification here. */
-    const char *aof_name = getLastIncrAofName(server.aof_manifest);
+    sds aof_name = getLastIncrAofName(server.aof_manifest);
     /* Here we should use 'O_APPEND' flag. */
     server.aof_fd = open(aof_name, O_WRONLY|O_APPEND|O_CREAT, 0644);
     if (server.aof_fd == -1) {
@@ -594,6 +597,8 @@ void aofOpenIfNeededOnServerStart(void) {
     if (ret != C_OK) {
         exit(1);
     }
+
+    server.aof_last_incr_size = getAppendOnlyFileSize(aof_name);
 }
 
 /* Called in `rewriteAppendOnlyFileBackground`. If `server.aof_state` 
@@ -694,7 +699,7 @@ int aofRewriteLimited(void) {
             next_rewrite_time = server.unixtime + limit_deley_minutes * 60;
             
             serverLog(LL_WARNING, 
-                "Background AOF rewrite has failed %ld times and triggered the limit, redis will retry in %d minutes", 
+                "Background AOF rewrite has continuous failed %ld times and triggered the limit, redis will retry in %d minutes", 
                 incr_aof_num, limit_deley_minutes);
         }
     } else {
@@ -764,8 +769,8 @@ void stopAppendOnly(void) {
  * at runtime using the CONFIG command. */
 int startAppendOnly(void) {
     serverAssert(server.aof_state == AOF_OFF);
+    server.aof_state = AOF_WAIT_REWRITE;
     if (hasActiveChildProcess() && server.child_type != CHILD_TYPE_AOF) {
-        server.aof_state = AOF_WAIT_REWRITE;
         server.aof_rewrite_scheduled = 1;
         serverLog(LL_WARNING,"AOF was enabled but there is already another background operation. An AOF background was scheduled to start when possible.");
     } else {
@@ -777,7 +782,6 @@ int startAppendOnly(void) {
             killAppendOnlyChild();
         }
         
-        server.aof_state = AOF_WAIT_REWRITE;
         if (rewriteAppendOnlyFileBackground() == C_ERR) {
             server.aof_state = AOF_OFF;
             serverLog(LL_WARNING,"Redis needs to enable the AOF but can't trigger a background AOF rewrite operation. Check the above logs for more info about the error.");
@@ -1152,7 +1156,7 @@ struct client *createAOFClient(void) {
     return c;
 }
 
-/* Replay the append log file. On success AOF_OK is returned,
+/* Replay a append log file. On success AOF_OK is returned,
  * otherwise, one of the following is returned:
  * AOF_OPEN_ERR: Failed to open the AOF file.
  * AOF_NOT_EXIST: AOF file doesn't exist.
@@ -1438,7 +1442,7 @@ int loadAppendOnlyFiles(aofManifest *am) {
         start = ustime();
         ret = loadSingleAppendOnlyFile(aof_name);
         if (ret == AOF_OK) {
-            serverLog(LL_NOTICE, "DB loaded from base append only file %s: %.3f seconds",
+            serverLog(LL_NOTICE, "DB loaded from base file %s: %.3f seconds",
                 aof_name, (float)(ustime()-start)/1000000);
         }
 
@@ -1466,7 +1470,7 @@ int loadAppendOnlyFiles(aofManifest *am) {
             start = ustime();
             ret = loadSingleAppendOnlyFile(aof_name);
             if (ret == AOF_OK) {
-                serverLog(LL_NOTICE, "DB loaded from incr append only file %s: %.3f seconds", 
+                serverLog(LL_NOTICE, "DB loaded from incr file %s: %.3f seconds", 
                     aof_name, (float)(ustime()-start)/1000000);
             }
 
@@ -2259,11 +2263,12 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             goto cleanup;
         }
 
-        /* Get a new BASE type file name, and mark the previous (if we have)
+        /* Get a new BASE file name, and mark the previous (if we have)
          * as the HISTORY type. */
         new_base_filename = getNewBaseFileNameAndMarkPreAsHistory(temp_am);
         serverAssert(new_base_filename != NULL);
-        /* Rename the temporary aof file to new_base_filename. */
+
+        /* Rename the temporary aof file to 'new_base_filename'. */
         latencyStartMonitor(latency);
         if (rename(tmpfile, new_base_filename) == -1) {
             serverLog(LL_WARNING,
@@ -2280,6 +2285,8 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
         /* Change the AOF file type in `incr_aof_list` from AOF_FILE_TYPE_INCR 
          * to AOF_FILE_TYPE_HIST, and move them to the `history_aof_list`. */
         markRewrittenIncrAofAsHistory(temp_am);
+
+        /* Persist our modifications. */
         if (persistAofManifest(temp_am) == C_ERR) {
             aofManifestFree(temp_am);
             goto cleanup;

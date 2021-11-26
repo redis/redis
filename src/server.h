@@ -1284,25 +1284,25 @@ typedef struct redisTLSContextConfig {
  * AOF manifest definition
  *----------------------------------------------------------------------------*/
 typedef enum {
-    AOF_FILE_TYPE_BASE  = 'b', /* BASE AOF */
-    AOF_FILE_TYPE_HIST  = 'h', /* HISTORY AOF */
-    AOF_FILE_TYPE_INCR  = 'i', /* INCR AOF */
+    AOF_FILE_TYPE_BASE  = 'b', /* BASE file */
+    AOF_FILE_TYPE_HIST  = 'h', /* HISTORY file */
+    AOF_FILE_TYPE_INCR  = 'i', /* INCR file */
 } aof_file_type;
 
 typedef struct {
-    sds           file_name;  /* AOF name */     
-    long long     file_seq;   /* AOF sequence */          
-    aof_file_type file_type;  /* AOF type */
+    sds           file_name;  /* file name */     
+    long long     file_seq;   /* file sequence */          
+    aof_file_type file_type;  /* file type */
 } aofInfo;
 
 typedef struct {
     aofInfo     *base_aof_info;       /* BASE file information. NULL if there is no BASE file. */ 
-    list        *incr_aof_list;       /* INCR AOF list. We may have multiple INCR AOFs when rewrite fails. */
-    list        *history_aof_list;    /* HISTORY AOF list. When the rewrite success, The aofInfo contained in 
+    list        *incr_aof_list;       /* INCR AOFs list. We may have multiple INCR AOF when rewrite fails. */
+    list        *history_aof_list;    /* HISTORY AOF list. When the AOFRW success, The aofInfo contained in 
                                          `base_aof_info` and `incr_aof_list` will be moved to this list. We 
-                                         will delete these AOF files regularly in server cron. */
-    long long   curr_base_file_seq;    /* The sequence number used by the current BASE AOF file. */     
-    long long   curr_incr_file_seq;    /* The sequence number used by the current INCR AOF file. */
+                                         will delete these AOF files when AOFRW finish. */
+    long long   curr_base_file_seq;   /* The sequence number used by the current BASE file. */     
+    long long   curr_incr_file_seq;   /* The sequence number used by the current INCR file. */
     int         dirty;                /* 1 Indicates that the aofManifest in the memory is inconsistent with 
                                          disk, we need to persist it immediately. */
 } aofManifest;
@@ -1545,7 +1545,7 @@ struct redisServer {
     int aof_use_rdb_preamble;       /* Use RDB preamble on AOF rewrites. */
     redisAtomic int aof_bio_fsync_status; /* Status of AOF fsync in bio job. */
     redisAtomic int aof_bio_fsync_errno;  /* Errno of AOF fsync in bio job. */
-    aofManifest *aof_manifest;       /* Used to record and manage AOF. */
+    aofManifest *aof_manifest;       /* Used to record and manage AOFs. */
     int aof_disable_auto_gc;         /* If disable automatically deleting HISTORY type AOFs?
                                         default no. (for testings). */
 
