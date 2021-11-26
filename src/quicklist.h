@@ -176,12 +176,12 @@ int quicklistDelRange(quicklist *quicklist, const long start, const long stop);
 quicklistIter *quicklistGetIterator(quicklist *quicklist, int direction);
 quicklistIter *quicklistGetIteratorAtIdx(quicklist *quicklist,
                                          int direction, const long long idx);
+quicklistIter *quicklistGetIteratorEntryAtIdx(quicklist *quicklist, const long long index,
+                                              quicklistEntry *entry);
 int quicklistNext(quicklistIter *iter, quicklistEntry *entry);
 void quicklistSetDirection(quicklistIter *iter, int direction);
 void quicklistReleaseIterator(quicklistIter *iter);
 quicklist *quicklistDup(quicklist *orig);
-quicklistIter *quicklistIndex(quicklist *quicklist, const long long index,
-                              quicklistEntry *entry);
 void quicklistRotate(quicklist *quicklist);
 int quicklistPopCustom(quicklist *quicklist, int where, unsigned char **data,
                        size_t *sz, long long *sval,

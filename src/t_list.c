@@ -345,7 +345,7 @@ void lindexCommand(client *c) {
 
     if (o->encoding == OBJ_ENCODING_QUICKLIST) {
         quicklistEntry entry;
-        quicklistIter *iter = quicklistIndex(o->ptr, index, &entry);
+        quicklistIter *iter = quicklistGetIteratorEntryAtIdx(o->ptr, index, &entry);
         if (iter) {
             if (entry.value) {
                 addReplyBulkCBuffer(c, entry.value, entry.sz);
