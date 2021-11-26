@@ -510,17 +510,18 @@ void dictRelease(dict *d)
 dictEntry *dictFind(dict *d, const void *key)
 {
     dictEntry *he;
-    uint64_t h, idx_0, idx_1;
+    uint64_t h;
+    long idx_0, idx_1;
 
     if (dictSize(d) == 0) return NULL; /* dict is empty */
     if (dictIsRehashing(d)) _dictRehashStep(d);
     h = dictHashKey(d, key);
-    idx_0 = h & DICTHT_SIZE_MASK(d->ht_size_exp[0])
-    if (d->rehashidx < idx_0){
-        he = d->ht_table[0][idx_0]
+    idx_0 = h & DICTHT_SIZE_MASK(d->ht_size_exp[0]);
+    if (likely(d->rehashidx < idx_0)){
+        he = d->ht_table[0][idx_0];
     } else {
-        idx_1 = h & DICTHT_SIZE_MASK(d->ht_size_exp[1])
-        he = d->ht_table[1][idx_1]
+        idx_1 = h & DICTHT_SIZE_MASK(d->ht_size_exp[1]);
+        he = d->ht_table[1][idx_1];
     }
     while(he) {
         if (key==he->key || dictCompareKeys(d, key, he->key))
