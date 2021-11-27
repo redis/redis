@@ -13,6 +13,23 @@ start_server {tags {"introspection"}} {
         r client info
     } {*addr=*:* fd=* age=* idle=* flags=N db=* sub=0 psub=0 multi=-1 qbuf=26 qbuf-free=* argv-mem=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client*}
 
+    test {CLIENT KILL with illegal arguments} {
+        assert_error "ERR wrong number*" {r client kill}
+        assert_error "ERR syntax error*" {r client kill id 10 wrong_arg}
+
+        assert_error "ERR*greater than 0*" {r client kill id str}
+        assert_error "ERR*greater than 0*" {r client kill id -1}
+        assert_error "ERR*greater than 0*" {r client kill id 0}
+
+        assert_error "ERR Unknown client type*" {r client kill type wrong_type}
+
+        assert_error "ERR No such user*" {r client kill user wrong_user}
+
+        assert_error "ERR syntax error*" {r client kill skipme yes_or_no}
+        assert_error "ERR*skipme*" {r client kill skipme yes}
+        assert_error "ERR*skipme*" {r client kill skipme no}
+    }
+
     test {MONITOR can log executed commands} {
         set rd [redis_deferring_client]
         $rd monitor
