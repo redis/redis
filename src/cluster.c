@@ -5270,7 +5270,7 @@ void dumpCommand(client *c) {
     return;
 }
 
-/* RESTORE key ttl serialized-value [REPLACE] */
+/* RESTORE key ttl serialized-value [REPLACE] [ABSTTL] [IDLETIME seconds] [FREQ frequency] */
 void restoreCommand(client *c) {
     long long ttl, lfu_freq = -1, lru_idle = -1, lru_clock = -1;
     rio payload;
