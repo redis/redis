@@ -426,6 +426,8 @@ REDIS_STATIC void __quicklistInsertNode(quicklist *quicklist,
 
     if (old_node)
         quicklistCompress(quicklist, old_node);
+
+    quicklistCompress(quicklist, new_node);
 }
 
 /* Wrappers for node inserting around existing node. */
@@ -1604,11 +1606,12 @@ void quicklistRepr(unsigned char *ql, int full) {
 
     while(node != NULL) {
         printf("{quicklist node(%d)\n", i++);
-        printf("{container : %s, encoding: %s, size: %zu, recompress: %d}\n",
+        printf("{container : %s, encoding: %s, size: %zu, recompress: %d, attempted_compress: %d}\n",
                QL_NODE_IS_PLAIN(node) ? "PLAIN": "PACKED",
                (node->encoding == QUICKLIST_NODE_ENCODING_RAW) ? "RAW": "LZF",
                node->sz,
-               node->recompress);
+               node->recompress,
+               node->attempted_compress);
 
         if (full) {
             quicklistDecompressNode(node);
