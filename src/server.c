@@ -2023,8 +2023,7 @@ struct redisCommand redisCommandTable[] = {
      "read-only @string",
       {{"read",
         KSPEC_BS_INDEX,.bs.index={1},
-        KSPEC_FK_RANGE,.fk.range={1,1,0}}},
-     lcsGetKeys},
+        KSPEC_FK_RANGE,.fk.range={1,1,0}}}},
 
     {"quit",quitCommand,-1,
      "no-auth no-script ok-stale ok-loading fast @connection"},

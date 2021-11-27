@@ -97,6 +97,10 @@ start_server {tags {"introspection"}} {
         assert_equal {} [r command getkeys eval "return 1" 0]
     }
 
+    test {COMMAND GETKEYS LCS} {
+        assert_equal {key1 key2} [r command getkeys lcs key1 key2]
+    }
+
     test "COMMAND LIST FILTERBY ACLCAT" {
         set reply [r command list filterby aclcat hyperloglog]
         assert_equal [lsort $reply] {pfadd pfcount pfdebug pfmerge pfselftest}
