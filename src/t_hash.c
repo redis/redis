@@ -39,17 +39,22 @@
  * as their string length can be queried in constant time. */
 void hashTypeTryConversion(robj *o, robj **argv, int start, int end) {
     int i;
+    size_t sum = 0;
 
     if (o->encoding != OBJ_ENCODING_LISTPACK) return;
 
     for (i = start; i <= end; i++) {
-        if (sdsEncodedObject(argv[i]) &&
-            sdslen(argv[i]->ptr) > server.hash_max_listpack_value)
-        {
+        if (!sdsEncodedObject(argv[i]))
+            continue;
+        size_t len = sdslen(argv[i]->ptr);
+        if (len > server.hash_max_listpack_value) {
             hashTypeConvert(o, OBJ_ENCODING_HT);
-            break;
+            return;
         }
+        sum += len;
     }
+    if (!lpSafeToAdd(o->ptr, sum))
+        hashTypeConvert(o, OBJ_ENCODING_HT);
 }
 
 /* Get the value from a listpack encoded hash, identified by field.
@@ -472,6 +477,8 @@ void hashTypeConvertListpack(robj *o, int enc) {
             value = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_VALUE);
             ret = dictAdd(dict, key, value);
             if (ret != DICT_OK) {
+                sdsfree(key); sdsfree(value); /* Needed for gcc ASAN */
+                hashTypeReleaseIterator(hi);  /* Needed for gcc ASAN */
                 serverLogHexDump(LL_WARNING,"listpack with dup elements dump",
                     o->ptr,lpBytes(o->ptr));
                 serverPanic("Listpack corruption detected");

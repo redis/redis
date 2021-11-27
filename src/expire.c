@@ -552,15 +552,23 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
 
     if (getLongLongFromObjectOrReply(c, param, &when, NULL) != C_OK)
         return;
-    int negative_when = when < 0;
-    if (unit == UNIT_SECONDS) when *= 1000;
-    when += basetime;
-    if (((when < 0) && !negative_when) || ((when-basetime > 0) && negative_when)) {
-        /* EXPIRE allows negative numbers, but we can at least detect an
-         * overflow by either unit conversion or basetime addition. */
+
+    /* EXPIRE allows negative numbers, but we can at least detect an
+     * overflow by either unit conversion or basetime addition. */
+    if (unit == UNIT_SECONDS) {
+        if (when > LLONG_MAX / 1000 || when < LLONG_MIN / 1000) {
+            addReplyErrorFormat(c, "invalid expire time in %s", c->cmd->name);
+            return;
+        }
+        when *= 1000;
+    }
+
+    if (when > LLONG_MAX - basetime) {
         addReplyErrorFormat(c, "invalid expire time in %s", c->cmd->name);
         return;
     }
+    when += basetime;
+
     /* No key, return zero. */
     if (lookupKeyWrite(c->db,key) == NULL) {
         addReply(c,shared.czero);

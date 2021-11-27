@@ -456,31 +456,9 @@ dictType renamedCommandsDictType = {
 
 /* =========================== Initialization =============================== */
 
-void sentinelCommand(client *c);
-void sentinelInfoCommand(client *c);
 void sentinelSetCommand(client *c);
-void sentinelPublishCommand(client *c);
-void sentinelRoleCommand(client *c);
 void sentinelConfigGetCommand(client *c);
 void sentinelConfigSetCommand(client *c);
-
-struct redisCommand sentinelcmds[] = {
-    {"ping",pingCommand,1,"fast @connection"},
-    {"sentinel",sentinelCommand,-2,"admin"},
-    {"subscribe",subscribeCommand,-2,"pub-sub"},
-    {"unsubscribe",unsubscribeCommand,-1,"pub-sub"},
-    {"psubscribe",psubscribeCommand,-2,"pub-sub"},
-    {"punsubscribe",punsubscribeCommand,-1,"pub-sub"},
-    {"publish",sentinelPublishCommand,3,"pub-sub fast"},
-    {"info",sentinelInfoCommand,-1,"random @dangerous"},
-    {"role",sentinelRoleCommand,1,"fast read-only @dangerous"},
-    {"client",clientCommand,-2,"admin random @connection"},
-    {"shutdown",shutdownCommand,-1,"admin"},
-    {"auth",authCommand,-2,"no-auth fast @connection"},
-    {"hello",helloCommand,-1,"no-auth fast @connection"},
-    {"acl",aclCommand,-2,"admin"},
-    {"command",commandCommand,-1, "random @connection"}
-};
 
 /* this array is used for sentinel config lookup, which need to be loaded
  * before monitoring masters config to avoid dependency issues */
@@ -507,28 +485,6 @@ void freeSentinelLoadQueueEntry(void *item);
 
 /* Perform the Sentinel mode initialization. */
 void initSentinel(void) {
-    unsigned int j;
-
-    /* Remove usual Redis commands from the command table, then just add
-     * the SENTINEL command. */
-    dictEmpty(server.commands,NULL);
-    dictEmpty(server.orig_commands,NULL);
-    ACLClearCommandID();
-    for (j = 0; j < sizeof(sentinelcmds)/sizeof(sentinelcmds[0]); j++) {
-        int retval;
-        struct redisCommand *cmd = sentinelcmds+j;
-        cmd->id = ACLGetCommandID(cmd->name); /* Assign the ID used for ACL. */
-        retval = dictAdd(server.commands, sdsnew(cmd->name), cmd);
-        serverAssert(retval == DICT_OK);
-        retval = dictAdd(server.orig_commands, sdsnew(cmd->name), cmd);
-        serverAssert(retval == DICT_OK);
-
-        /* Translate the command string flags description into an actual
-         * set of flags. */
-        if (populateSingleCommand(cmd,cmd->sflags) == C_ERR)
-            serverPanic("Unsupported command flag");
-    }
-
     /* Initialize various data structures. */
     sentinel.current_epoch = 0;
     sentinel.masters = dictCreate(&instancesDictType);
@@ -2392,7 +2348,10 @@ static int instanceLinkNegotiateTLS(redisAsyncContext *context) {
     SSL *ssl = SSL_new(redis_tls_client_ctx ? redis_tls_client_ctx : redis_tls_ctx);
     if (!ssl) return C_ERR;
 
-    if (redisInitiateSSL(&context->c, ssl) == REDIS_ERR) return C_ERR;
+    if (redisInitiateSSL(&context->c, ssl) == REDIS_ERR) {
+        SSL_free(ssl);
+        return C_ERR;
+    }
 #endif
     return C_OK;
 }
@@ -3885,11 +3844,11 @@ NULL
         if ((ri = sentinelGetMasterByNameOrReplyError(c,c->argv[2])) == NULL)
             return;
         if (ri->flags & SRI_FAILOVER_IN_PROGRESS) {
-            addReplySds(c,sdsnew("-INPROG Failover already in progress\r\n"));
+            addReplyError(c,"-INPROG Failover already in progress");
             return;
         }
         if (sentinelSelectSlave(ri) == NULL) {
-            addReplySds(c,sdsnew("-NOGOODSLAVE No suitable replica to promote\r\n"));
+            addReplyError(c,"-NOGOODSLAVE No suitable replica to promote");
             return;
         }
         serverLog(LL_WARNING,"Executing user requested FAILOVER of '%s'",
@@ -3978,8 +3937,7 @@ NULL
                 e = sdscat(e, "Not enough available Sentinels to reach the"
                               " majority and authorize a failover");
             }
-            e = sdscat(e,"\r\n");
-            addReplySds(c,e);
+            addReplyErrorSds(c,e);
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"set")) {
         if (c->argc <= 3) goto numargserr;
@@ -4201,6 +4159,7 @@ void sentinelSetCommand(client *c) {
     int j, changes = 0;
     int badarg = 0; /* Bad argument position for error reporting. */
     char *option;
+    int redacted;
 
     if ((ri = sentinelGetMasterByNameOrReplyError(c,c->argv[2]))
         == NULL) return;
@@ -4211,6 +4170,7 @@ void sentinelSetCommand(client *c) {
         option = c->argv[j]->ptr;
         long long ll;
         int old_j = j; /* Used to know what to log as an event. */
+        redacted = 0;
 
         if (!strcasecmp(option,"down-after-milliseconds") && moreargs > 0) {
             /* down-after-milliseconds <milliseconds> */
@@ -4285,6 +4245,7 @@ void sentinelSetCommand(client *c) {
             sdsfree(ri->auth_pass);
             ri->auth_pass = strlen(value) ? sdsnew(value) : NULL;
             changes++;
+            redacted = 1;
         } else if (!strcasecmp(option,"auth-user") && moreargs > 0) {
             /* auth-user <username> */
             char *value = c->argv[++j]->ptr;
@@ -4332,7 +4293,7 @@ void sentinelSetCommand(client *c) {
         switch(numargs) {
         case 2:
             sentinelEvent(LL_WARNING,"+set",ri,"%@ %s %s",(char*)c->argv[old_j]->ptr,
-                                                          (char*)c->argv[old_j+1]->ptr);
+                                                          redacted ? "******" : (char*)c->argv[old_j+1]->ptr);
             break;
         case 3:
             sentinelEvent(LL_WARNING,"+set",ri,"%@ %s %s %s",(char*)c->argv[old_j]->ptr,
@@ -4955,7 +4916,7 @@ void sentinelFailoverWaitStart(sentinelRedisInstance *ri) {
     /* If I'm not the leader, and it is not a forced failover via
      * SENTINEL FAILOVER, then I can't continue with the failover. */
     if (!isleader && !(ri->flags & SRI_FORCE_FAILOVER)) {
-        int election_timeout = sentinel_election_timeout;
+        mstime_t election_timeout = sentinel_election_timeout;
 
         /* The election timeout is the MIN between SENTINEL_ELECTION_TIMEOUT
          * and the configured failover timeout. */

@@ -85,6 +85,27 @@ ifeq ($(USE_JEMALLOC),no)
 	MALLOC=libc
 endif
 
+ifdef SANITIZER
+ifeq ($(SANITIZER),address)
+	MALLOC=libc
+	CFLAGS+=-fsanitize=address -fno-sanitize-recover=all -fno-omit-frame-pointer
+	LDFLAGS+=-fsanitize=address
+else
+ifeq ($(SANITIZER),undefined)
+	MALLOC=libc
+	CFLAGS+=-fsanitize=undefined -fno-sanitize-recover=all -fno-omit-frame-pointer
+	LDFLAGS+=-fsanitize=undefined
+else
+ifeq ($(SANITIZER),thread)
+	CFLAGS+=-fsanitize=thread -fno-sanitize-recover=all -fno-omit-frame-pointer
+	LDFLAGS+=-fsanitize=thread
+else
+    $(error "unknown sanitizer=${SANITIZER}")
+endif
+endif
+endif
+endif
+
 # Override default settings if possible
 -include .make-settings
 
@@ -121,15 +142,11 @@ ifeq ($(uname_S),Darwin)
 	# must be referenced explicitly during build.
 ifeq ($(uname_M),arm64)
 	# Homebrew arm64 uses /opt/homebrew as HOMEBREW_PREFIX
-	OPENSSL_PREFIX=/opt/homebrew/opt/openssl
+	OPENSSL_PREFIX?=/opt/homebrew/opt/openssl
 else
 	# Homebrew x86/ppc uses /usr/local as HOMEBREW_PREFIX
-	OPENSSL_PREFIX=/usr/local/opt/openssl
+	OPENSSL_PREFIX?=/usr/local/opt/openssl
 endif
-OPENSSL_CFLAGS=-I$(OPENSSL_PREFIX)/include
-OPENSSL_LDFLAGS=-L$(OPENSSL_PREFIX)/lib
-# Also export OPENSSL_PREFIX so it ends up in deps sub-Makefiles
-export OPENSSL_PREFIX
 else
 ifeq ($(uname_S),AIX)
         # AIX
@@ -190,6 +207,14 @@ endif
 endif
 endif
 endif
+
+ifdef OPENSSL_PREFIX
+	OPENSSL_CFLAGS=-I$(OPENSSL_PREFIX)/include
+	OPENSSL_LDFLAGS=-L$(OPENSSL_PREFIX)/lib
+	# Also export OPENSSL_PREFIX so it ends up in deps sub-Makefiles
+	export OPENSSL_PREFIX
+endif
+
 # Include paths to dependencies
 FINAL_CFLAGS+= -I../deps/hiredis -I../deps/linenoise -I../deps/lua/src -I../deps/hdr_histogram
 

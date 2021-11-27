@@ -122,6 +122,13 @@ int test_randomkey(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     return REDISMODULE_OK;
 }
 
+int test_keyexists(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc < 2) return RedisModule_WrongArity(ctx);
+    RedisModuleString *key = argv[1];
+    int exists = RedisModule_KeyExists(ctx, key);
+    return RedisModule_ReplyWithBool(ctx, exists);
+}
+
 RedisModuleKey *open_key_or_reply(RedisModuleCtx *ctx, RedisModuleString *keyname, int mode) {
     RedisModuleKey *key = RedisModule_OpenKey(ctx, keyname, mode);
     if (!key) {
@@ -288,6 +295,14 @@ int test_log_tsctx(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     return REDISMODULE_OK;
 }
 
+int test_weird_cmd(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+
+    RedisModule_ReplyWithSimpleString(ctx, "OK");
+    return REDISMODULE_OK;
+}
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -306,6 +321,8 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"test.randomkey", test_randomkey,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx,"test.keyexists", test_keyexists,"",1,1,1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"test.setlru", test_setlru,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"test.getlru", test_getlru,"",0,0,0) == REDISMODULE_ERR)
@@ -321,6 +338,9 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx,"test.getclientcert", test_getclientcert,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"test.log_tsctx", test_log_tsctx,"",0,0,0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    /* Add a command with ':' in it's name, so that we can check commandstats sanitization. */
+    if (RedisModule_CreateCommand(ctx,"test.weird:cmd", test_weird_cmd,"readonly",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;

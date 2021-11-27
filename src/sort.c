@@ -570,7 +570,7 @@ void sortCommandGeneric(client *c, int readonly) {
             }
         }
         if (outputlen) {
-            setKey(c,c->db,storekey,sobj);
+            setKey(c,c->db,storekey,sobj,0);
             notifyKeyspaceEvent(NOTIFY_LIST,"sortstore",storekey,
                                 c->db->id);
             server.dirty += outputlen;

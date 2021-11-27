@@ -295,6 +295,8 @@ void serveClientsBlockedOnListKey(robj *o, readyList *rl) {
              * call. */
             if (dstkey) incrRefCount(dstkey);
 
+            client *old_client = server.current_client;
+            server.current_client = receiver;
             monotime replyTimer;
             elapsedStart(&replyTimer);
             serveClientBlockedOnList(receiver, o,
@@ -303,6 +305,8 @@ void serveClientsBlockedOnListKey(robj *o, readyList *rl) {
                                      &deleted);
             updateStatsOnUnblock(receiver, 0, elapsedUs(replyTimer));
             unblockClient(receiver);
+            afterCommand(receiver);
+            server.current_client = old_client;
 
             if (dstkey) decrRefCount(dstkey);
 
@@ -343,11 +347,15 @@ void serveClientsBlockedOnSortedSetKey(robj *o, readyList *rl) {
                                     ? 1 : 0;
             int reply_nil_when_empty = use_nested_array;
 
+            client *old_client = server.current_client;
+            server.current_client = receiver;
             monotime replyTimer;
             elapsedStart(&replyTimer);
             genericZpopCommand(receiver, &rl->key, 1, where, 1, count, use_nested_array, reply_nil_when_empty, &deleted);
             updateStatsOnUnblock(receiver, 0, elapsedUs(replyTimer));
             unblockClient(receiver);
+            afterCommand(receiver);
+            server.current_client = old_client;
 
             /* Replicate the command. */
             int argc = 2;
@@ -355,7 +363,7 @@ void serveClientsBlockedOnSortedSetKey(robj *o, readyList *rl) {
             argv[0] = where == ZSET_MIN ? shared.zpopmin : shared.zpopmax;
             argv[1] = rl->key;
             incrRefCount(rl->key);
-            if (count != 0) {
+            if (count != -1) {
                 /* Replicate it as command with COUNT. */
                 robj *count_obj = createStringObjectFromLongLong((count > llen) ? llen : count);
                 argv[2] = count_obj;
@@ -363,7 +371,7 @@ void serveClientsBlockedOnSortedSetKey(robj *o, readyList *rl) {
             }
             propagate(receiver->db->id, argv, argc, PROPAGATE_AOF|PROPAGATE_REPL);
             decrRefCount(argv[1]);
-            if (count != 0) decrRefCount(argv[2]);
+            if (count != -1) decrRefCount(argv[2]);
 
             /* The zset is empty and has been deleted. */
             if (deleted) break;
@@ -442,6 +450,8 @@ void serveClientsBlockedOnStreamKey(robj *o, readyList *rl) {
                     }
                 }
 
+                client *old_client = server.current_client;
+                server.current_client = receiver;
                 monotime replyTimer;
                 elapsedStart(&replyTimer);
                 /* Emit the two elements sub-array consisting of
@@ -470,6 +480,8 @@ void serveClientsBlockedOnStreamKey(robj *o, readyList *rl) {
                  * valid, so we must do the setup above before
                  * this call. */
                 unblockClient(receiver);
+                afterCommand(receiver);
+                server.current_client = old_client;
             }
         }
     }
@@ -514,12 +526,16 @@ void serveClientsBlockedOnKeyByModule(readyList *rl) {
              * different modules with different triggers to consider if a key
              * is ready or not. This means we can't exit the loop but need
              * to continue after the first failure. */
+            client *old_client = server.current_client;
+            server.current_client = receiver;
             monotime replyTimer;
             elapsedStart(&replyTimer);
             if (!moduleTryServeClientBlockedOnKey(receiver, rl->key)) continue;
             updateStatsOnUnblock(receiver, 0, elapsedUs(replyTimer));
 
             moduleUnblockClient(receiver);
+            afterCommand(receiver);
+            server.current_client = old_client;
         }
     }
 }

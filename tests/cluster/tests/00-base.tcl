@@ -54,6 +54,11 @@ test "Nodes should report cluster_state is ok now" {
     assert_cluster_state ok
 }
 
+test "Sanity for CLUSTER COUNTKEYSINSLOT" {
+    set reply [R 0 CLUSTER COUNTKEYSINSLOT 0]
+    assert {$reply eq 0}
+}
+
 test "It is possible to write and read from the cluster" {
     cluster_write_test 0
 }

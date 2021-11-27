@@ -202,6 +202,7 @@ start_server {
         $rd XREADGROUP GROUP mygroup Alice BLOCK 10 STREAMS mystream ">"
         after 20
         assert {[$rd read] == {}} ;# before the fix, client didn't even block, but was served synchronously with {mystream {}}
+        $rd close
     }
 
     test {XGROUP DESTROY should unblock XREADGROUP with -NOGROUP} {
@@ -211,6 +212,7 @@ start_server {
         $rd XREADGROUP GROUP mygroup Alice BLOCK 100 STREAMS mystream ">"
         r XGROUP DESTROY mystream mygroup
         assert_error "*NOGROUP*" {$rd read}
+        $rd close
     }
 
     test {RENAME can unblock XREADGROUP with data} {
@@ -222,6 +224,7 @@ start_server {
         r XADD mystream2{t} 100 f1 v1
         r RENAME mystream2{t} mystream{t}
         assert_equal "{mystream{t} {{100-0 {f1 v1}}}}" [$rd read] ;# mystream2{t} had mygroup before RENAME
+        $rd close
     }
 
     test {RENAME can unblock XREADGROUP with -NOGROUP} {
@@ -232,6 +235,7 @@ start_server {
         r XADD mystream2{t} 100 f1 v1
         r RENAME mystream2{t} mystream{t}
         assert_error "*NOGROUP*" {$rd read} ;# mystream2{t} didn't have mygroup before RENAME
+        $rd close
     }
 
     test {XCLAIM can claim PEL items from another consumer} {
@@ -566,6 +570,7 @@ start_server {
             assert_equal [lindex $consumer_info 1] "Alice" ;# consumer name
             set consumer_info [lindex $reply 1]
             assert_equal [lindex $consumer_info 1] "Bob" ;# consumer name
+            $rd close
         }
 
         test {Consumer without PEL is present in AOF after AOFRW} {
@@ -593,6 +598,7 @@ start_server {
             assert_equal [lindex $consumer_info 1] "Alice"
             set consumer_info [lindex $reply 1]
             assert_equal [lindex $consumer_info 1] "Charlie"
+            $rd close
         }
     }
 

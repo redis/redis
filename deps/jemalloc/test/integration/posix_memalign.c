@@ -85,9 +85,10 @@ TEST_BEGIN(test_alignment_and_size) {
 	    alignment <= MAXALIGN;
 	    alignment <<= 1) {
 		total = 0;
-		for (size = 1;
+		for (size = 0;
 		    size < 3 * alignment && size < (1U << 31);
-		    size += (alignment >> (LG_SIZEOF_PTR-1)) - 1) {
+		    size += ((size == 0) ? 1 :
+		    (alignment >> (LG_SIZEOF_PTR-1)) - 1)) {
 			for (i = 0; i < NITER; i++) {
 				err = posix_memalign(&ps[i],
 				    alignment, size);

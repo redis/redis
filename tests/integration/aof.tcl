@@ -414,4 +414,75 @@ tags {"aof external:skip"} {
             assert_equal 2 [$client zcard myzset3]
         }
     }
+
+    test {Generate timestamp annotations in AOF} {
+        start_server {overrides {appendonly {yes} appendfilename {appendonly.aof}}} {
+            r config set aof-timestamp-enabled yes
+            r config set aof-use-rdb-preamble no
+            set aof [file join [lindex [r config get dir] 1] appendonly.aof]
+
+            r set foo bar
+            assert_match "#TS:*" [exec head -n 1 $aof]
+
+            r bgrewriteaof
+            waitForBgrewriteaof r
+            assert_match "#TS:*" [exec head -n 1 $aof]
+        }
+    }
+
+    # redis could load AOF which has timestamp annotations inside
+    create_aof {
+        append_to_aof "#TS:1628217470\r\n"
+        append_to_aof [formatCommand set foo1 bar1]
+        append_to_aof "#TS:1628217471\r\n"
+        append_to_aof [formatCommand set foo2 bar2]
+        append_to_aof "#TS:1628217472\r\n"
+        append_to_aof "#TS:1628217473\r\n"
+        append_to_aof [formatCommand set foo3 bar3]
+        append_to_aof "#TS:1628217474\r\n"
+    }
+    start_server_aof [list dir $server_path] {
+        test {Successfully load AOF which has timestamp annotations inside} {
+            set c [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+            wait_done_loading $c
+            assert_equal "bar1" [$c get foo1]
+            assert_equal "bar2" [$c get foo2]
+            assert_equal "bar3" [$c get foo3]
+        }
+    }
+
+    test {Truncate AOF to specific timestamp} {
+        # truncate to timestamp 1628217473
+        exec src/redis-check-aof --truncate-to-timestamp 1628217473 $aof_path
+        start_server_aof [list dir $server_path] {
+            set c [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+            wait_done_loading $c
+            assert_equal "bar1" [$c get foo1]
+            assert_equal "bar2" [$c get foo2]
+            assert_equal "bar3" [$c get foo3]
+        }
+
+        # truncate to timestamp 1628217471
+        exec src/redis-check-aof --truncate-to-timestamp 1628217471 $aof_path
+        start_server_aof [list dir $server_path] {
+            set c [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+            wait_done_loading $c
+            assert_equal "bar1" [$c get foo1]
+            assert_equal "bar2" [$c get foo2]
+            assert_equal "" [$c get foo3]
+        }
+
+        # truncate to timestamp 1628217470
+        exec src/redis-check-aof --truncate-to-timestamp 1628217470 $aof_path
+        start_server_aof [list dir $server_path] {
+            set c [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+            wait_done_loading $c
+            assert_equal "bar1" [$c get foo1]
+            assert_equal "" [$c get foo2]
+        }
+
+        # truncate to timestamp 1628217469
+        catch {exec src/redis-check-aof --truncate-to-timestamp 1628217469 $aof_path} e
+        assert_match {*aborting*} $e
+    }
 }
