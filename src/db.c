@@ -1861,31 +1861,6 @@ int georadiusGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysRes
     return num;
 }
 
-/* LCS ... [KEYS <key1> <key2>] ... */
-int lcsGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
-    int i;
-    int *keys = getKeysPrepareResult(result, 2);
-    UNUSED(cmd);
-
-    /* We need to parse the options of the command in order to check for the
-     * "KEYS" argument before the "STRINGS" argument. */
-    for (i = 1; i < argc; i++) {
-        char *arg = argv[i]->ptr;
-        int moreargs = (argc-1) - i;
-
-        if (!strcasecmp(arg, "strings")) {
-            break;
-        } else if (!strcasecmp(arg, "keys") && moreargs >= 2) {
-            keys[0] = i+1;
-            keys[1] = i+2;
-            result->numkeys = 2;
-            return result->numkeys;
-        }
-    }
-    result->numkeys = 0;
-    return result->numkeys;
-}
-
 /* XREAD [BLOCK <milliseconds>] [COUNT <count>] [GROUP <groupname> <ttl>]
  *       STREAMS key_1 key_2 ... key_N ID_1 ID_2 ... ID_N */
 int xreadGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
