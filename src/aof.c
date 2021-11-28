@@ -418,7 +418,7 @@ sds getNewIncrAofName(aofManifest *am) {
 sds getLastIncrAofName(aofManifest *am) {
     serverAssert(am != NULL);
 
-    /* If incr_aof_list is empty, just create a new one. */
+    /* If 'incr_aof_list' is empty, just create a new one. */
     if (!listLength(am->incr_aof_list)) {
         return getNewIncrAofName(am);
     }
@@ -445,7 +445,7 @@ void markRewrittenIncrAofAsHistory(aofManifest *am) {
 
     listRewindTail(am->incr_aof_list, &li);
 
-    /* server.aof_fd != -1 means AOF enabled, then we must skip the 
+    /* "server.aof_fd != -1" means AOF enabled, then we must skip the 
      * last AOF, because this file is our currently writing. */
     if (server.aof_fd != -1) {
         ln = listNext(&li);
@@ -582,7 +582,7 @@ void aofOpenIfNeededOnServerStart(void) {
     serverAssert(server.aof_manifest != NULL);
     serverAssert(server.aof_fd == -1);
 
-    /* Because we will exit(1) if open AOF or persistent manifest fails, so
+    /* Because we will 'exit(1)' if open AOF or persistent manifest fails, so
      * we don't need atomic modification here. */
     sds aof_name = getLastIncrAofName(server.aof_manifest);
     /* Here we should use 'O_APPEND' flag. */
@@ -649,6 +649,7 @@ int openNewIncrAofForAppend(void) {
 
     /* Reset the aof_last_incr_size. */
     server.aof_last_incr_size = 0;
+    /* Update `server.aof_manifest`. */
     aofManifestFreeAndUpdate(temp_am);
     return C_OK;  
 }
@@ -1409,7 +1410,7 @@ int loadAppendOnlyFiles(aofManifest *am) {
             return AOF_NOT_EXIST;
         }
 
-        /* If the server.aof_filename file exists, we manually construct a BASE 
+        /* If the `server.aof_filename` file exists, we manually construct a BASE 
          * type aofInfo and add it to aofManifest. In this way, we can reuse the 
          * following code to load this AOF file. */
         aofInfo *ai = aofInfoCreate();
@@ -2263,7 +2264,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             goto cleanup;
         }
 
-        /* Get a new BASE file name, and mark the previous (if we have)
+        /* Get a new BASE file name and mark the previous (if we have)
          * as the HISTORY type. */
         new_base_filename = getNewBaseFileNameAndMarkPreAsHistory(temp_am);
         serverAssert(new_base_filename != NULL);
@@ -2282,12 +2283,13 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
         latencyEndMonitor(latency);
         latencyAddSampleIfNeeded("aof-rename", latency);
 
-        /* Change the AOF file type in `incr_aof_list` from AOF_FILE_TYPE_INCR 
-         * to AOF_FILE_TYPE_HIST, and move them to the `history_aof_list`. */
+        /* Change the AOF file type in 'incr_aof_list' from AOF_FILE_TYPE_INCR 
+         * to AOF_FILE_TYPE_HIST, and move them to the 'history_aof_list'. */
         markRewrittenIncrAofAsHistory(temp_am);
 
         /* Persist our modifications. */
         if (persistAofManifest(temp_am) == C_ERR) {
+            bg_unlink(new_base_filename);
             aofManifestFree(temp_am);
             goto cleanup;
         }
