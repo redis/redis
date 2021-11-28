@@ -34,9 +34,9 @@
  * for pubsub and pubsublocal feature. */
 typedef struct pubsubtype {
     int local;
-    dict *(*serverPubSubChannels)();
     dict *(*clientPubSubChannels)(client*);
     int (*subscriptionCount)(client*);
+    dict **serverPubSubChannels;
     robj **subscribeMsg;
     robj **unsubscribeMsg;
 }pubsubtype;
@@ -62,16 +62,6 @@ dict* getClientPubSubChannels(client *c);
 dict* getClientPubSubLocalChannels(client *c);
 
 /*
- * Get client's global Pub/Sub channels dict.
- */
-dict* getServerPubSubChannels();
-
-/*
- * Get client's local Pub/Sub channels dict.
- */
-dict* getServerPubSubLocalChannels();
-
-/*
  * Get list of channels client is subscribed to.
  * If a pattern is provided, the subset of channels is returned
  * matching the pattern.
@@ -83,9 +73,9 @@ void channelList(client *c, sds pat, dict* pubsub_channels);
  */
 pubsubtype pubSubType = {
     .local = 0,
-    .serverPubSubChannels = getServerPubSubChannels,
     .clientPubSubChannels = getClientPubSubChannels,
     .subscriptionCount = clientSubscriptionsCount,
+    .serverPubSubChannels = &server.pubsub_channels,
     .subscribeMsg = &shared.subscribebulk,
     .unsubscribeMsg = &shared.unsubscribebulk,
 };
@@ -95,9 +85,9 @@ pubsubtype pubSubType = {
  */
 pubsubtype pubSubLocalType = {
     .local = 1,
-    .serverPubSubChannels = getServerPubSubLocalChannels,
     .clientPubSubChannels = getClientPubSubLocalChannels,
     .subscriptionCount = clientLocalSubscriptionsCount,
+    .serverPubSubChannels = &server.pubsublocal_channels,
     .subscribeMsg = &shared.subscribelocalbulk,
     .unsubscribeMsg = &shared.unsubscribelocalbulk
 };
@@ -224,30 +214,6 @@ dict* getClientPubSubLocalChannels(client *c) {
     return c->pubsublocal_channels;
 }
 
-dict* getServerPubSubChannels() {
-    return server.pubsub_channels;
-}
-
-dict* getServerPubSubLocalChannels() {
-    return server.pubsublocal_channels;
-}
-
-robj* getSubscribeMsgGlobal() {
-    return shared.subscribebulk;
-}
-
-robj* getSubscribeMsgLocal() {
-    return shared.subscribelocalbulk;
-}
-
-robj* getUnsubscribeMsgGlobal() {
-    return shared.unsubscribebulk;
-}
-
-robj* getUnsubscribeMsgLocal() {
-    return shared.unsubscribelocalbulk;
-}
-
 /* Return the number of pubsub + pubsub local channels
  * a client is subscribed to. */
 int clientTotalPubSubSubscriptionCount(client *c) {
@@ -266,10 +232,10 @@ int pubsubSubscribeChannel(client *c, robj *channel, pubsubtype type) {
         retval = 1;
         incrRefCount(channel);
         /* Add the client to the channel -> list of clients hash table */
-        de = dictFind(type.serverPubSubChannels(), channel);
+        de = dictFind(*type.serverPubSubChannels, channel);
         if (de == NULL) {
             clients = listCreate();
-            dictAdd(type.serverPubSubChannels(), channel, clients);
+            dictAdd(*type.serverPubSubChannels, channel, clients);
             incrRefCount(channel);
         } else {
             clients = dictGetVal(de);
@@ -295,7 +261,7 @@ int pubsubUnsubscribeChannel(client *c, robj *channel, int notify, pubsubtype ty
     if (dictDelete(type.clientPubSubChannels(c),channel) == DICT_OK) {
         retval = 1;
         /* Remove the client from the channel -> clients list hash table */
-        de = dictFind(type.serverPubSubChannels(), channel);
+        de = dictFind(*type.serverPubSubChannels, channel);
         serverAssertWithInfo(c,NULL,de != NULL);
         clients = dictGetVal(de);
         ln = listSearchKey(clients,c);
@@ -305,7 +271,7 @@ int pubsubUnsubscribeChannel(client *c, robj *channel, int notify, pubsubtype ty
             /* Free the list and associated hash entry at all if this was
              * the latest client, so that it will be possible to abuse
              * Redis PUBSUB creating millions of channels. */
-            dictDelete(type.serverPubSubChannels(), channel);
+            dictDelete(*type.serverPubSubChannels, channel);
             /* As this channel isn't subscribed by anyone, it's safe
              * to remove the channel from the slot. */
             if (server.cluster_enabled & type.local) {
@@ -486,7 +452,7 @@ int pubsubPublishMessageInternal(robj *channel, robj *message, pubsubtype type) 
     listIter li;
 
     /* Send to clients listening for that channel */
-    de = dictFind(type.serverPubSubChannels(), channel);
+    de = dictFind(*type.serverPubSubChannels, channel);
     if (de) {
         list *list = dictGetVal(de);
         listNode *ln;
@@ -638,11 +604,10 @@ void pubsubCommand(client *c) {
 "NUMSUB [<channel> ...]",
 "    Return the number of subscribers for the specified channels, excluding",
 "    pattern subscriptions(default: no channels)."
-"LOCAL CHANNELS [<pattern>]",
+"LOCALCHANNELS [<pattern>]",
 "    Return the currently active local channels matching a <pattern> (default: '*').",
 "LOCAL NUMSUB [<channel> ...]",
-"    Return the number of subscribers for the specified local channel(s)"
-,
+"    Return the number of subscribers for the specified local channel(s)",
 NULL
         };
         addReplyHelp(c, help);
@@ -666,25 +631,22 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"numpat") && c->argc == 2) {
         /* PUBSUB NUMPAT */
         addReplyLongLong(c,dictSize(server.pubsub_patterns));
-    } else if (!strcasecmp(c->argv[1]->ptr,"local") && c->argc >= 2) {
-        /* PUBSUB LOCAL CHANNELS */
-        if (!strcasecmp(c->argv[2]->ptr,"channels")) {
-            sds pat = (c->argc == 3) ? NULL : c->argv[3]->ptr;
-            channelList(c,pat,server.pubsublocal_channels);
+    } else if (!strcasecmp(c->argv[1]->ptr,"localchannels") &&
+        (c->argc == 2 || c->argc == 3)) 
+    {
+        /* PUBSUB LOCALCHANNELS */
+        sds pat = (c->argc == 2) ? NULL : c->argv[2]->ptr;
+        channelList(c,pat,server.pubsublocal_channels);
+    } else if (!strcasecmp(c->argv[1]->ptr,"localnumsub") && c->argc >= 2) {
+        /* PUBSUB LOCALNUMSUB [Channel_1 ... Channel_N] */
+        int j;
 
-        } else if (!strcasecmp(c->argv[2]->ptr,"numsub")) {
-            /* PUBSUB LOCAL NUMSUB [Channel_1 ... Channel_N] */
-            int j;
+        addReplyArrayLen(c, (c->argc-2)*2);
+        for (j = 2; j < c->argc; j++) {
+            list *l = dictFetchValue(server.pubsublocal_channels,c->argv[j]);
 
-            addReplyArrayLen(c, (c->argc - 3) * 2);
-            for (j = 3; j < c->argc; j++) {
-                list *l = dictFetchValue(server.pubsublocal_channels,c->argv[j]);
-
-                addReplyBulk(c,c->argv[j]);
-                addReplyLongLong(c,l ? listLength(l) : 0);
-            }
-        } else {
-            addReplySubcommandSyntaxError(c);
+            addReplyBulk(c,c->argv[j]);
+            addReplyLongLong(c,l ? listLength(l) : 0);
         }
     } else {
         addReplySubcommandSyntaxError(c);
@@ -727,11 +689,8 @@ void publishLocalCommand(client *c) {
 /* SUBSCRIBELOCAL channel [channel ...] */
 void subscribeLocalCommand(client *c) {
     if (c->flags & CLIENT_DENY_BLOCKING) {
-        /**
-         * A client that has CLIENT_DENY_BLOCKING flag on
-         * expect a reply per command and so can not execute subscribe.
-         *
-         */
+        /* A client that has CLIENT_DENY_BLOCKING flag on
+         * expect a reply per command and so can not execute subscribe. */
         addReplyError(c, "SUBSCRIBELOCAL isn't allowed for a DENY BLOCKING client");
         return;
     }
@@ -742,7 +701,7 @@ void subscribeLocalCommand(client *c) {
          * already exists the slotToChannel doesn't needs
          * to be incremented. */
         if (server.cluster_enabled &
-            (dictFind(pubSubLocalType.serverPubSubChannels(),c->argv[j]) == NULL)) {
+            (dictFind(*pubSubLocalType.serverPubSubChannels,c->argv[j]) == NULL)) {
             slotToChannelAdd(c->argv[j]->ptr);
         }
         pubsubSubscribeChannel(c,c->argv[j],pubSubLocalType);

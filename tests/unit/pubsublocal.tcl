@@ -146,7 +146,7 @@ start_server {tags {"pubsublocal"}} {
     }
 
     test "PUBSUB command basics" {
-        r pubsub local numsub abc def
+        r pubsub localnumsub abc def
     } {abc 0 def 0}
 
     test "PUBLISHLOCAL/SUBSCRIBELOCAL with two clients" {
@@ -156,8 +156,8 @@ start_server {tags {"pubsublocal"}} {
         assert_equal {1} [subscribelocal $rd1 {chan1}]
         assert_equal {1} [subscribelocal $rd2 {chan1}]
         assert_equal 2 [r publishlocal chan1 hello]
-        assert_equal "chan1 2" [r pubsub local numsub chan1]
-        assert_equal "chan1" [r pubsub local channels]
+        assert_equal "chan1 2" [r pubsub localnumsub chan1]
+        assert_equal "chan1" [r pubsub localchannels]
 
         # clean up clients
         $rd1 close
@@ -172,9 +172,9 @@ start_server {tags {"pubsublocal"}} {
         assert_equal {1} [subscribe $rd2 {chan1}]
         assert_equal 1 [r publishlocal chan1 hello]
         assert_equal 1 [r publish chan1 hello]
-        assert_equal "chan1 1" [r pubsub local numsub chan1]
+        assert_equal "chan1 1" [r pubsub localnumsub chan1]
         assert_equal "chan1 1" [r pubsub numsub chan1]
-        assert_equal "chan1" [r pubsub local channels]
+        assert_equal "chan1" [r pubsub localchannels]
         assert_equal "chan1" [r pubsub channels]
     }
 }
