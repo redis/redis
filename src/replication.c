@@ -332,7 +332,7 @@ void feedReplicationBuffer(char *s, size_t len) {
     /* Install write handler for all replicas. */
     prepareReplicasToWrite();
 
-    size_t start_pos = 0; /* The position of referenced blok to start sending. */
+    size_t start_pos = 0; /* The position of referenced block to start sending. */
     listNode *start_node = NULL; /* Replica/backlog starts referenced node. */
     int add_new_block = 0; /* Create new block if current block is total used. */
     listNode *ln = listLast(server.repl_buffer_blocks);
