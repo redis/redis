@@ -1978,8 +1978,11 @@ start_server {tags {"zset"}} {
         r del myzset{t} myzset2{t}
 
         $rd1 bzmpop 0 2 myzset{t} myzset2{t} min count 1
+        wait_for_blocked_clients_count 1
         $rd2 bzmpop 0 2 myzset{t} myzset2{t} max count 10
+        wait_for_blocked_clients_count 2
         $rd3 bzmpop 0 2 myzset{t} myzset2{t} min count 10
+        wait_for_blocked_clients_count 3
         $rd4 bzmpop 0 2 myzset{t} myzset2{t} max count 1
         wait_for_blocked_clients_count 4
 
