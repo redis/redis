@@ -6,7 +6,6 @@
         "since": "7.0.0",
         "arity": -3,
         "function": "lcsCommand",
-        "get_keys_function": "lcsGetKeys",
         "command_flags": [
             "readonly"
         ],
