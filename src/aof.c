@@ -737,7 +737,8 @@ int loadAppendOnlyFile(char *filename) {
      * to the same file we're about to read. */
     server.aof_state = AOF_OFF;
 
-    fakeClient = createAOFClient();
+    client *old_client = server.current_client;
+    fakeClient = server.current_client = createAOFClient();
     startLoadingFile(fp, filename, RDBFLAGS_AOF_PREAMBLE);
 
     /* Check if this AOF file has an RDB preamble. In that case we need to
@@ -928,6 +929,7 @@ fmterr: /* Format error. */
 
 cleanup:
     if (fakeClient) freeClient(fakeClient);
+    server.current_client = old_client;
     fclose(fp);
     stopLoading(ret == AOF_OK);
     return ret;
