@@ -3852,7 +3852,7 @@ NULL
         raxSeek(&ri,"^",NULL,0);
         while(raxNext(&ri)) {
             streamCG *cg = ri.data;
-            addReplyMapLen(c,4);
+            addReplyMapLen(c,6);
             addReplyBulkCString(c,"name");
             addReplyBulkCBuffer(c,ri.key,ri.key_len);
             addReplyBulkCString(c,"consumers");
@@ -3861,6 +3861,10 @@ NULL
             addReplyLongLong(c,raxSize(cg->pel));
             addReplyBulkCString(c,"last-delivered-id");
             addReplyStreamID(c,&cg->last_id);
+            addReplyBulkCString(c,"last-delivered-offset");
+            addReplyLongLong(c,cg->offset);
+            addReplyBulkCString(c,"lag");
+            streamReplyWithCGLag(c,s,cg);
         }
         raxStop(&ri);
     } else if (!strcasecmp(opt,"STREAM")) {
