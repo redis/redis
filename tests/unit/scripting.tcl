@@ -557,6 +557,16 @@ start_server {tags {"scripting"}} {
         set res [r eval {redis.setresp(2); return redis.call('hgetall', KEYS[1])} 1 hash]
         assert_equal $res $expected_list
     }
+
+    test {Script check unpack with massive arguments} {
+        r eval {
+            local a = {}
+            for i=1,7999 do
+                a[i] = 1
+            end 
+            return redis.call("lpush", "l", unpack(a))
+        } 0
+    } {7999}
 }
 
 # Start a new server since the last test in this stanza will kill the
