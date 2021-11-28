@@ -678,8 +678,8 @@ start_server {tags {"stream xsetid"}} {
     test {XSETID can set a specific ID} {
         r XSETID mystream "200-0"
         set reply [r XINFO stream mystream]
-        assert_equal [lindex $reply 7] "200-0" ;# stream last id
-        assert_equal [lindex $reply 11] "1" ;# stream offset
+        assert_equal [dict get $reply last-generated-id] "200-0"
+        assert_equal [dict get $reply last-offset] 1
     }
 
     test {XSETID cannot SETID with smaller ID} {
@@ -734,7 +734,7 @@ start_server {tags {"stream offset"}} {
         r XADD x 1-0 data a
 
         set reply [r XINFO STREAM x FULL]
-        assert_equal [lindex $reply 11] 1 ;# stream last offset
+        assert_equal [dict get $reply last-offset] 1
     }
     
     test {Maxmimum XDEL ID behaves correctly} {
@@ -744,15 +744,15 @@ start_server {tags {"stream offset"}} {
         r XADD x 3-0 data c
 
         set reply [r XINFO STREAM x FULL]
-        assert_equal [lindex $reply 9] "0-0" ;# stream xdel max id
+        assert_equal [dict get $reply xdel-max-id] "0-0"
 
         r XDEL x 2-0
         set reply [r XINFO STREAM x FULL]
-        assert_equal [lindex $reply 9] "2-0" ;# stream xdel max id
+        assert_equal [dict get $reply xdel-max-id] "2-0"
 
         r XDEL x 1-0
         set reply [r XINFO STREAM x FULL]
-        assert_equal [lindex $reply 9] "2-0" ;# stream xdel max id
+        assert_equal [dict get $reply xdel-max-id] "2-0"
     }
 }
 
