@@ -1075,6 +1075,7 @@ int RM_SetCommandHints(RedisModuleCommandProxy *command, const char *hints) {
         cmd->hints[j] = strings[j];
     cmd->hints[count] = NULL;
 
+    sdsfreesplitres(strings, 0); /* We pass count=0 in order to free just the array itself */
     return REDISMODULE_OK;
 }
 
