@@ -1211,7 +1211,8 @@ int loadSingleAppendOnlyFile(char *filename) {
      * to the same file we're about to read. */
     server.aof_state = AOF_OFF;
 
-    fakeClient = createAOFClient();
+    client *old_client = server.current_client;
+    fakeClient = server.current_client = createAOFClient();
 
     /* Check if this AOF file has an RDB preamble. In that case we need to
      * load the RDB file and later continue loading the AOF tail. */
@@ -1402,6 +1403,7 @@ fmterr: /* Format error. */
 
 cleanup:
     if (fakeClient) freeClient(fakeClient);
+    server.current_client = old_client;
     fclose(fp);
     return ret;
 }
