@@ -63,21 +63,23 @@ off_t getBaseAndIncrAppendOnlyFilesSize(aofManifest *am);
  * 
  * The following is a possible AOF manifest file content:
  * 
- * file appendonly.2.base seq 2 type b
- * file appendonly.1.incr seq 1 type h
- * file appendonly.2.incr seq 2 type h
- * file appendonly.3.incr seq 3 type h
- * file appendonly.4.incr seq 4 type i
- * file appendonly.5.incr seq 5 type i
+ * file appendonly_2.base.rdb seq 2 type b
+ * file appendonly_1.incr.aof seq 1 type h
+ * file appendonly_2.incr.aof seq 2 type h
+ * file appendonly_3.incr.aof seq 3 type h
+ * file appendonly_4.incr.aof seq 4 type i
+ * file appendonly_5.incr.aof seq 5 type i
  * ------------------------------------------------------------------------- */
 
-/* Naming rules */
+/* Naming rules. */
 #define BASE_FILE_SUFFIX           ".base"        
-#define INCR_FILE_SUFFIX           ".incr"        
+#define INCR_FILE_SUFFIX           ".incr"   
+#define RDB_FORMAT_SUFFIX          ".rdb"
+#define AOF_FORMAT_SUFFIX          ".aof"
 #define MANIFEST_NAME_SUFFIX       ".manifest"   
 #define MANIFEST_TEMP_NAME_PREFIX  "temp_"      
 
-/* AOF manifest key */
+/* AOF manifest key. */
 #define AOF_MANIFEST_KEY_FILE_NAME   "file"
 #define AOF_MANIFEST_KEY_FILE_SEQ    "seq"
 #define AOF_MANIFEST_KEY_FILE_TYPE   "type"
@@ -158,7 +160,7 @@ sds getTempAofManifestFileName() {
  * type: Types of AOF file, There are: b(BASE)、h(HISTORY)、i(INCR)
  * 
  * A possible line:
- *    file appendonly.1.base seq 1 type b
+ *    file appendonly_1.base.rdb seq 1 type b
  * 
  * The BASE file information (if we have) will be placed on the first 
  * line, followed by history type AOFs and finally is the INCR AOFs.
@@ -383,6 +385,12 @@ void aofManifestFreeAndUpdate(aofManifest *am) {
 
 /* Called in `backgroundRewriteDoneHandler` to get a new BASE file
  * name, and mark the previous (if we have) BASE file as HISTORY type. 
+ *
+ * BASE file naming rules: `server.aof_filename`_seq.base.format
+ * 
+ * for example:
+ *  appendonly.aof_1.base.aof  (server.aof_use_rdb_preamble is no)
+ *  appendonly.aof_1.base.rdb  (server.aof_use_rdb_preamble is yes)
  * */
 sds getNewBaseFileNameAndMarkPreAsHistory(aofManifest *am) {
     serverAssert(am != NULL);
@@ -392,9 +400,12 @@ sds getNewBaseFileNameAndMarkPreAsHistory(aofManifest *am) {
         listAddNodeHead(am->history_aof_list, am->base_aof_info);
     }
 
+    char *format_suffix = server.aof_use_rdb_preamble ? 
+        RDB_FORMAT_SUFFIX:AOF_FORMAT_SUFFIX;
+
     aofInfo *ai = aofInfoCreate();
-    ai->file_name = sdscatprintf(sdsempty(), "%s.%lld%s", server.aof_filename, 
-                        ++am->curr_base_file_seq, BASE_FILE_SUFFIX);
+    ai->file_name = sdscatprintf(sdsempty(), "%s_%lld%s%s", server.aof_filename, 
+                        ++am->curr_base_file_seq, BASE_FILE_SUFFIX, format_suffix);
     ai->file_seq = am->curr_base_file_seq;
     ai->file_type = AOF_FILE_TYPE_BASE;
     am->base_aof_info = ai;
@@ -402,12 +413,18 @@ sds getNewBaseFileNameAndMarkPreAsHistory(aofManifest *am) {
     return am->base_aof_info->file_name;
 }
 
-/* Get a new INCR type AOF name. */
+/* Get a new INCR type AOF name. 
+ *  
+ * INCR aof naming rules: `server.aof_filename`_seq.incr.aof
+ * 
+ * for example:
+ *  appendonly.aof_1.incr.aof
+ */
 sds getNewIncrAofName(aofManifest *am) {
     aofInfo *ai = aofInfoCreate();
     ai->file_type = AOF_FILE_TYPE_INCR;
-    ai->file_name = sdscatprintf(sdsempty(), "%s.%lld%s", server.aof_filename, 
-                        ++am->curr_incr_file_seq, INCR_FILE_SUFFIX);
+    ai->file_name = sdscatprintf(sdsempty(), "%s_%lld%s%s", server.aof_filename, 
+                        ++am->curr_incr_file_seq, INCR_FILE_SUFFIX, AOF_FORMAT_SUFFIX);
     ai->file_seq = am->curr_incr_file_seq;
     listAddNodeTail(am->incr_aof_list, ai);
     am->dirty = 1;
@@ -2303,7 +2320,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             server.aof_last_fsync = server.unixtime;
         }
 
-        /* We can safely let `server.aof_manifest` point to temp_am and free the previous one. */
+        /* We can safely let `server.aof_manifest` point to 'temp_am' and free the previous one. */
         aofManifestFreeAndUpdate(temp_am);
 
         /* We don't care about the return value of `aofDelHistoryFiles`, because the history 

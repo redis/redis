@@ -1,7 +1,7 @@
 source tests/support/aofmanifest.tcl
 set defaults { appendonly {yes} appendfilename {appendonly} auto-aof-rewrite-percentage {0}}
 set server_path [tmpdir server.aof]
-set aof_path "$server_path/appendonly.1.incr"
+set aof_path "$server_path/appendonly_1.incr.aof"
 set aof_manifest_path "$server_path/appendonly.manifest"
 
 tags {"aof external:skip"} {
@@ -14,7 +14,7 @@ tags {"aof external:skip"} {
     }
 
     create_aof_manifest $aof_manifest_path {
-        append_to_manifest "file appendonly.1.incr seq 1 type i\n"
+        append_to_manifest "file appendonly_1.incr.aof seq 1 type i\n"
     }
 
     start_server_aof [list dir $server_path aof-load-truncated yes] {
