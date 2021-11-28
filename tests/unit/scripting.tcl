@@ -622,6 +622,16 @@ start_server {tags {"scripting"}} {
         # make sure the connection is still valid
         assert_equal [r ping] {PONG}
     }
+
+    test {Script check unpack with massive arguments} {
+        r eval {
+            local a = {}
+            for i=1,7999 do
+                a[i] = 1
+            end 
+            return redis.call("lpush", "l", unpack(a))
+        } 0
+    } {7999}
 }
 
 # Start a new server since the last test in this stanza will kill the
