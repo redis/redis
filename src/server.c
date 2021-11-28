@@ -250,7 +250,7 @@ struct redisCommand xgroupSubcommands[] = {
        KSPEC_BS_INDEX,.bs.index={2},
        KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 
-    {"setid",xgroupCommand,5,
+    {"setid",xgroupCommand,-5,
      "write @stream",
      {{"write",
        KSPEC_BS_INDEX,.bs.index={2},
