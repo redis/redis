@@ -1,0 +1,21 @@
+{
+    "REPLICAS": {
+        "summary": "__TBD__35__",
+        "complexity": "__TBD__34__",
+        "group": "sentinel",
+        "since": "__TBD__37__",
+        "arity": 3,
+        "container": "SENTINEL",
+        "function": "sentinelCommand",
+        "command_flags": [
+            "admin",
+            "sentinel",
+            "only_sentinel"
+        ],
+        "acl_categories": [
+            "admin",
+            "slow",
+            "dangerous"
+        ]
+    }
+}

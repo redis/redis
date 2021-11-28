@@ -1040,23 +1040,21 @@ int RM_SetCommandArity(RedisModuleCommandProxy *command, int arity) {
     return REDISMODULE_OK;
 }
 
-// TODO:GUYBE copy all const char*
-
 int RM_SetCommandSummary(RedisModuleCommandProxy *command, const char *summary) {
     struct redisCommand *cmd = command->rediscmd;
-    cmd->summary = summary;
+    cmd->summary = sdsnew(summary);
     return REDISMODULE_OK;
 }
 
 int RM_SetCommandDebutVersion(RedisModuleCommandProxy *command, const char *since) {
     struct redisCommand *cmd = command->rediscmd;
-    cmd->since = since;
+    cmd->since = sdsnew(since);
     return REDISMODULE_OK;
 }
 
 int RM_SetCommandComplexity(RedisModuleCommandProxy *command, const char *complexity) {
     struct redisCommand *cmd = command->rediscmd;
-    cmd->complexity = complexity;
+    cmd->complexity = sdsnew(complexity);
     return REDISMODULE_OK;
 }
 
@@ -1087,8 +1085,8 @@ int RM_AppendCommandHistoryEntry(RedisModuleCommandProxy *command, const char *s
     while (cmd->history && cmd->history[++len].since);
 
     cmd->history = zrealloc(cmd->history, (len+2)*sizeof(commandHistory));
-    cmd->history[len].since = since;
-    cmd->history[len].changes = changes;
+    cmd->history[len].since = sdsnew(since);
+    cmd->history[len].changes = sdsnew(changes);
     memset(&cmd->history[len+1], 0, sizeof(commandHistory));
     return REDISMODULE_OK;
 }
@@ -9767,17 +9765,24 @@ void moduleUnregisterCommands(struct RedisModule *module) {
         if (cmd->proc == RedisModuleCommandDispatcher) {
             RedisModuleCommandProxy *cp =
                 (void*)(unsigned long)cmd->getkeys_proc;
-            sds cmdname = (sds)cp->rediscmd->name;
+            sds cmdname = (sds)cmd->name;
             if (cp->module == module) {
-                // TODO:GUYBE free everything we copied/allocated (summary, history, etc.)
                 if (cmd->key_specs != cmd->key_specs_static)
                     zfree(cmd->key_specs);
                 for (int j = 0; cmd->hints && cmd->hints[j]; j++)
                     sdsfree((sds)cmd->hints[j]);
+                for (int j = 0; cmd->history && cmd->history[j].since; j++) {
+                    sdsfree((sds)cmd->history[j].since);
+                    sdsfree((sds)cmd->history[j].changes);
+                }
                 dictDelete(server.commands,cmdname);
                 dictDelete(server.orig_commands,cmdname);
                 sdsfree(cmdname);
-                zfree(cp->rediscmd);
+                sdsfree((sds)cmd->summary);
+                sdsfree((sds)cmd->since);
+                sdsfree((sds)cmd->complexity);
+                zfree(cmd->args);
+                zfree(cmd);
                 zfree(cp);
             }
         }

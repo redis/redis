@@ -1,0 +1,21 @@
+{
+    "CONFIG": {
+        "summary": "__TBD__27__",
+        "complexity": "__TBD__26__",
+        "group": "sentinel",
+        "since": "__TBD__29__",
+        "arity": -3,
+        "container": "SENTINEL",
+        "function": "sentinelCommand",
+        "command_flags": [
+            "admin",
+            "sentinel",
+            "only_sentinel"
+        ],
+        "acl_categories": [
+            "admin",
+            "slow",
+            "dangerous"
+        ]
+    }
+}

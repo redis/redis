@@ -1,0 +1,21 @@
+{
+    "MYID": {
+        "summary": "__TBD__59__",
+        "complexity": "__TBD__58__",
+        "group": "sentinel",
+        "since": "__TBD__61__",
+        "arity": 2,
+        "container": "SENTINEL",
+        "function": "sentinelCommand",
+        "command_flags": [
+            "admin",
+            "sentinel",
+            "only_sentinel"
+        ],
+        "acl_categories": [
+            "admin",
+            "slow",
+            "dangerous"
+        ]
+    }
+}

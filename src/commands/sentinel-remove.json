@@ -1,0 +1,21 @@
+{
+    "REMOVE": {
+        "summary": "__TBD__75__",
+        "complexity": "__TBD__74__",
+        "group": "sentinel",
+        "since": "__TBD__77__",
+        "arity": 3,
+        "container": "SENTINEL",
+        "function": "sentinelCommand",
+        "command_flags": [
+            "admin",
+            "sentinel",
+            "only_sentinel"
+        ],
+        "acl_categories": [
+            "admin",
+            "slow",
+            "dangerous"
+        ]
+    }
+}

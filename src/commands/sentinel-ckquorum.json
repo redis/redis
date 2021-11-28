@@ -1,0 +1,21 @@
+{
+    "CKQUORUM": {
+        "summary": "__TBD__43__",
+        "complexity": "__TBD__42__",
+        "group": "sentinel",
+        "since": "__TBD__45__",
+        "arity": 3,
+        "container": "SENTINEL",
+        "function": "sentinelCommand",
+        "command_flags": [
+            "admin",
+            "sentinel",
+            "only_sentinel"
+        ],
+        "acl_categories": [
+            "admin",
+            "slow",
+            "dangerous"
+        ]
+    }
+}

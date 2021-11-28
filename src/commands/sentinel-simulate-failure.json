@@ -1,0 +1,21 @@
+{
+    "SIMULATE-FAILURE": {
+        "summary": "__TBD__82__",
+        "complexity": "__TBD__81__",
+        "group": "sentinel",
+        "since": "__TBD__84__",
+        "arity": 3,
+        "container": "SENTINEL",
+        "function": "sentinelCommand",
+        "command_flags": [
+            "admin",
+            "sentinel",
+            "only_sentinel"
+        ],
+        "acl_categories": [
+            "admin",
+            "slow",
+            "dangerous"
+        ]
+    }
+}

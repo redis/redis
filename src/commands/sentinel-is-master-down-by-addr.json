@@ -1,0 +1,21 @@
+{
+    "IS-MASTER-DOWN-BY-ADDR": {
+        "summary": "__TBD__39__",
+        "complexity": "__TBD__38__",
+        "group": "sentinel",
+        "since": "__TBD__41__",
+        "arity": 6,
+        "container": "SENTINEL",
+        "function": "sentinelCommand",
+        "command_flags": [
+            "admin",
+            "sentinel",
+            "only_sentinel"
+        ],
+        "acl_categories": [
+            "admin",
+            "slow",
+            "dangerous"
+        ]
+    }
+}

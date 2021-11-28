@@ -1,0 +1,21 @@
+{
+    "INFO-CACHE": {
+        "summary": "__TBD__51__",
+        "complexity": "__TBD__50__",
+        "group": "sentinel",
+        "since": "__TBD__53__",
+        "arity": 3,
+        "container": "SENTINEL",
+        "function": "sentinelCommand",
+        "command_flags": [
+            "admin",
+            "sentinel",
+            "only_sentinel"
+        ],
+        "acl_categories": [
+            "admin",
+            "slow",
+            "dangerous"
+        ]
+    }
+}

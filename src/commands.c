@@ -2,93 +2,9 @@
 
 #include "server.h"
 
-/* Our command table.
-*
-* (See comment above sturct redisCommand)
-*
-* Command flags are expressed using space separated strings, that are turned
-* into actual flags by the populateCommandTable() function.
-*
-* This is the meaning of the flags:
-*
-* write:       Write command (may modify the key space).
-*
-* read-only:   Commands just reading from keys without changing the content.
-*              Note that commands that don't read from the keyspace such as
-*              TIME, SELECT, INFO, administrative commands, and connection
-*              or transaction related commands (multi, exec, discard, ...)
-*              are not flagged as read-only commands, since they affect the
-*              server or the connection in other ways.
-*
-* use-memory:  May increase memory usage once called. Don't allow if out
-*              of memory.
-*
-* admin:       Administrative command, like SAVE or SHUTDOWN.
-*
-* pub-sub:     Pub/Sub related command.
-*
-* no-script:   Command not allowed in scripts.
-*
-* random:      Random command. Command is not deterministic, that is, the same
-*              command with the same arguments, with the same key space, may
-*              have different results. For instance SPOP and RANDOMKEY are
-*              two random commands.
-*
-* to-sort:     Sort command output array if called from script, so that the
-*              output is deterministic. When this flag is used (not always
-*              possible), then the "random" flag is not needed.
-*
-* ok-loading:  Allow the command while loading the database.
-*
-* ok-stale:    Allow the command while a slave has stale data but is not
-*              allowed to serve this data. Normally no command is accepted
-*              in this condition but just a few.
-*
-* no-monitor:  Do not automatically propagate the command on MONITOR.
-*
-* no-slowlog:  Do not automatically propagate the command to the slowlog.
-*
-* cluster-asking: Perform an implicit ASKING for this command, so the
-*              command will be accepted in cluster mode if the slot is marked
-*              as 'importing'.
-*
-* fast:        Fast command: O(1) or O(log(N)) command that should never
-*              delay its execution as long as the kernel scheduler is giving
-*              us time. Note that commands that may trigger a DEL as a side
-*              effect (like SET) are not fast commands.
-* 
-* may-replicate: Command may produce replication traffic, but should be 
-*                allowed under circumstances where write commands are disallowed. 
-*                Examples include PUBLISH, which replicates pubsub messages,and 
-*                EVAL, which may execute write commands, which are replicated, 
-*                or may just execute read commands. A command can not be marked 
-*                both "write" and "may-replicate"
-*
-* sentinel: This command is present in sentinel mode too.
-*
-* sentinel-only: This command is present only when in sentinel mode.
-*
-* The following additional flags are only used in order to put commands
-* in a specific ACL category. Commands can have multiple ACL categories.
-* See redis.conf for the exact meaning of each.
-*
-* @keyspace, @read, @write, @set, @sortedset, @list, @hash, @string, @bitmap,
-* @hyperloglog, @stream, @admin, @fast, @slow, @pubsub, @blocking, @dangerous,
-* @connection, @transaction, @scripting, @geo.
-*
-* Note that:
-*
-* 1) The read-only flag implies the @read ACL category.
-* 2) The write flag implies the @write ACL category.
-* 3) The fast flag implies the @fast ACL category.
-* 4) The admin flag implies the @admin and @dangerous ACL category.
-* 5) The pub-sub flag implies the @pubsub ACL category.
-* 6) The lack of fast flag implies the @slow ACL category.
-* 7) The non obvious "keyspace" category includes the commands
-*    that interact with keys without having anything to do with
-*    specific data structures, such as: DEL, RENAME, MOVE, SELECT,
-*    TYPE, EXPIRE*, PEXPIRE*, TTL, PTTL, ...
-*/
+/* We have fabulous commands from
+ * the fantastic
+ * Redis Command Table! */
 
 /********** BITCOUNT ********************/
 
@@ -3109,6 +3025,199 @@ struct redisCommand SCRIPT_Subcommands[] = {
 /* SCRIPT hints */
 #define SCRIPT_Hints NULL
 
+/********** SENTINEL CKQUORUM ********************/
+
+/* SENTINEL CKQUORUM history */
+#define SENTINEL_CKQUORUM_History NULL
+
+/* SENTINEL CKQUORUM hints */
+#define SENTINEL_CKQUORUM_Hints NULL
+
+/********** SENTINEL CONFIG ********************/
+
+/* SENTINEL CONFIG history */
+#define SENTINEL_CONFIG_History NULL
+
+/* SENTINEL CONFIG hints */
+#define SENTINEL_CONFIG_Hints NULL
+
+/********** SENTINEL DEBUG ********************/
+
+/* SENTINEL DEBUG history */
+#define SENTINEL_DEBUG_History NULL
+
+/* SENTINEL DEBUG hints */
+#define SENTINEL_DEBUG_Hints NULL
+
+/********** SENTINEL FAILOVER ********************/
+
+/* SENTINEL FAILOVER history */
+#define SENTINEL_FAILOVER_History NULL
+
+/* SENTINEL FAILOVER hints */
+#define SENTINEL_FAILOVER_Hints NULL
+
+/********** SENTINEL FLUSHCONFIG ********************/
+
+/* SENTINEL FLUSHCONFIG history */
+#define SENTINEL_FLUSHCONFIG_History NULL
+
+/* SENTINEL FLUSHCONFIG hints */
+#define SENTINEL_FLUSHCONFIG_Hints NULL
+
+/********** SENTINEL GET_MASTER_ADDR_BY_NAME ********************/
+
+/* SENTINEL GET_MASTER_ADDR_BY_NAME history */
+#define SENTINEL_GET_MASTER_ADDR_BY_NAME_History NULL
+
+/* SENTINEL GET_MASTER_ADDR_BY_NAME hints */
+#define SENTINEL_GET_MASTER_ADDR_BY_NAME_Hints NULL
+
+/********** SENTINEL HELP ********************/
+
+/* SENTINEL HELP history */
+#define SENTINEL_HELP_History NULL
+
+/* SENTINEL HELP hints */
+#define SENTINEL_HELP_Hints NULL
+
+/********** SENTINEL INFO_CACHE ********************/
+
+/* SENTINEL INFO_CACHE history */
+#define SENTINEL_INFO_CACHE_History NULL
+
+/* SENTINEL INFO_CACHE hints */
+#define SENTINEL_INFO_CACHE_Hints NULL
+
+/********** SENTINEL IS_MASTER_DOWN_BY_ADDR ********************/
+
+/* SENTINEL IS_MASTER_DOWN_BY_ADDR history */
+#define SENTINEL_IS_MASTER_DOWN_BY_ADDR_History NULL
+
+/* SENTINEL IS_MASTER_DOWN_BY_ADDR hints */
+#define SENTINEL_IS_MASTER_DOWN_BY_ADDR_Hints NULL
+
+/********** SENTINEL MASTER ********************/
+
+/* SENTINEL MASTER history */
+#define SENTINEL_MASTER_History NULL
+
+/* SENTINEL MASTER hints */
+#define SENTINEL_MASTER_Hints NULL
+
+/********** SENTINEL MASTERS ********************/
+
+/* SENTINEL MASTERS history */
+#define SENTINEL_MASTERS_History NULL
+
+/* SENTINEL MASTERS hints */
+#define SENTINEL_MASTERS_Hints NULL
+
+/********** SENTINEL MONITOR ********************/
+
+/* SENTINEL MONITOR history */
+#define SENTINEL_MONITOR_History NULL
+
+/* SENTINEL MONITOR hints */
+#define SENTINEL_MONITOR_Hints NULL
+
+/********** SENTINEL MYID ********************/
+
+/* SENTINEL MYID history */
+#define SENTINEL_MYID_History NULL
+
+/* SENTINEL MYID hints */
+#define SENTINEL_MYID_Hints NULL
+
+/********** SENTINEL PENDING_SCRIPTS ********************/
+
+/* SENTINEL PENDING_SCRIPTS history */
+#define SENTINEL_PENDING_SCRIPTS_History NULL
+
+/* SENTINEL PENDING_SCRIPTS hints */
+#define SENTINEL_PENDING_SCRIPTS_Hints NULL
+
+/********** SENTINEL REMOVE ********************/
+
+/* SENTINEL REMOVE history */
+#define SENTINEL_REMOVE_History NULL
+
+/* SENTINEL REMOVE hints */
+#define SENTINEL_REMOVE_Hints NULL
+
+/********** SENTINEL REPLICAS ********************/
+
+/* SENTINEL REPLICAS history */
+#define SENTINEL_REPLICAS_History NULL
+
+/* SENTINEL REPLICAS hints */
+#define SENTINEL_REPLICAS_Hints NULL
+
+/********** SENTINEL RESET ********************/
+
+/* SENTINEL RESET history */
+#define SENTINEL_RESET_History NULL
+
+/* SENTINEL RESET hints */
+#define SENTINEL_RESET_Hints NULL
+
+/********** SENTINEL SENTINELS ********************/
+
+/* SENTINEL SENTINELS history */
+#define SENTINEL_SENTINELS_History NULL
+
+/* SENTINEL SENTINELS hints */
+#define SENTINEL_SENTINELS_Hints NULL
+
+/********** SENTINEL SET ********************/
+
+/* SENTINEL SET history */
+#define SENTINEL_SET_History NULL
+
+/* SENTINEL SET hints */
+#define SENTINEL_SET_Hints NULL
+
+/********** SENTINEL SIMULATE_FAILURE ********************/
+
+/* SENTINEL SIMULATE_FAILURE history */
+#define SENTINEL_SIMULATE_FAILURE_History NULL
+
+/* SENTINEL SIMULATE_FAILURE hints */
+#define SENTINEL_SIMULATE_FAILURE_Hints NULL
+
+/* SENTINEL command table */
+struct redisCommand SENTINEL_Subcommands[] = {
+{"reset","__TBD__47__","__TBD__46__","__TBD__49__",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_RESET_History,SENTINEL_RESET_Hints,sentinelCommand,3,"admin sentinel only_sentinel @admin @slow @dangerous"},
+{"masters","__TBD__11__","__TBD__10__","__TBD__13__",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_MASTERS_History,SENTINEL_MASTERS_Hints,sentinelCommand,2,"admin sentinel only_sentinel @admin @slow @dangerous"},
+{"set","__TBD__71__","__TBD__70__","__TBD__73__",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_SET_History,SENTINEL_SET_Hints,sentinelCommand,-3,"admin sentinel only_sentinel @admin @slow @dangerous"},
+{"monitor","__TBD__63__","__TBD__62__","__TBD__65__",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_MONITOR_History,SENTINEL_MONITOR_Hints,sentinelCommand,6,"admin sentinel only_sentinel @admin @slow @dangerous"},
+{"pending-scripts","__TBD__55__","__TBD__54__","__TBD__57__",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_PENDING_SCRIPTS_History,SENTINEL_PENDING_SCRIPTS_Hints,sentinelCommand,2,"admin sentinel only_sentinel @admin @slow @dangerous"},
+{"get-master-addr-by-name","__TBD__31__","__TBD__30__","__TBD__33__",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_GET_MASTER_ADDR_BY_NAME_History,SENTINEL_GET_MASTER_ADDR_BY_NAME_Hints,sentinelCommand,3,"admin sentinel only_sentinel @admin @slow @dangerous"},
+{"sentinels","__TBD__67__","__TBD__66__","__TBD__69__",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_SENTINELS_History,SENTINEL_SENTINELS_Hints,sentinelCommand,3,"admin sentinel only_sentinel @admin @slow @dangerous"},
+{"simulate-failure","__TBD__82__","__TBD__81__","__TBD__84__",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_SIMULATE_FAILURE_History,SENTINEL_SIMULATE_FAILURE_Hints,sentinelCommand,3,"admin sentinel only_sentinel @admin @slow @dangerous"},
+{"is-master-down-by-addr","__TBD__39__","__TBD__38__","__TBD__41__",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_IS_MASTER_DOWN_BY_ADDR_History,SENTINEL_IS_MASTER_DOWN_BY_ADDR_Hints,sentinelCommand,6,"admin sentinel only_sentinel @admin @slow @dangerous"},
+{"ckquorum","__TBD__43__","__TBD__42__","__TBD__45__",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_CKQUORUM_History,SENTINEL_CKQUORUM_Hints,sentinelCommand,3,"admin sentinel only_sentinel @admin @slow @dangerous"},
+{"remove","__TBD__75__","__TBD__74__","__TBD__77__",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_REMOVE_History,SENTINEL_REMOVE_Hints,sentinelCommand,3,"admin sentinel only_sentinel @admin @slow @dangerous"},
+{"replicas","__TBD__35__","__TBD__34__","__TBD__37__",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_REPLICAS_History,SENTINEL_REPLICAS_Hints,sentinelCommand,3,"admin sentinel only_sentinel @admin @slow @dangerous"},
+{"master","__TBD__19__","__TBD__18__","__TBD__21__",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_MASTER_History,SENTINEL_MASTER_Hints,sentinelCommand,3,"admin sentinel only_sentinel @admin @slow @dangerous"},
+{"info-cache","__TBD__51__","__TBD__50__","__TBD__53__",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_INFO_CACHE_History,SENTINEL_INFO_CACHE_Hints,sentinelCommand,3,"admin sentinel only_sentinel @admin @slow @dangerous"},
+{"debug","__TBD__7__","__TBD__6__","__TBD__9__",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_DEBUG_History,SENTINEL_DEBUG_Hints,sentinelCommand,-2,"admin sentinel only_sentinel @admin @slow @dangerous"},
+{"myid","__TBD__59__","__TBD__58__","__TBD__61__",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_MYID_History,SENTINEL_MYID_Hints,sentinelCommand,2,"admin sentinel only_sentinel @admin @slow @dangerous"},
+{"flushconfig","__TBD__15__","__TBD__14__","__TBD__17__",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_FLUSHCONFIG_History,SENTINEL_FLUSHCONFIG_Hints,sentinelCommand,2,"admin sentinel only_sentinel @admin @slow @dangerous"},
+{"config","__TBD__27__","__TBD__26__","__TBD__29__",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_CONFIG_History,SENTINEL_CONFIG_Hints,sentinelCommand,-3,"admin sentinel only_sentinel @admin @slow @dangerous"},
+{"failover","__TBD__23__","__TBD__22__","__TBD__25__",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_FAILOVER_History,SENTINEL_FAILOVER_Hints,sentinelCommand,3,"admin sentinel only_sentinel @admin @slow @dangerous"},
+{"help","__TBD__78__","O(1)","__TBD__80__",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_HELP_History,SENTINEL_HELP_Hints,sentinelCommand,2,"loading stale sentinel only_sentinel @slow"},
+{0}
+};
+
+/********** SENTINEL ********************/
+
+/* SENTINEL history */
+#define SENTINEL_History NULL
+
+/* SENTINEL hints */
+#define SENTINEL_Hints NULL
+
 /********** ACL CAT ********************/
 
 /* ACL CAT history */
@@ -5733,12 +5842,7 @@ commandHistory SET_History[] = {
 };
 
 /* SET hints */
-const char *SET_Hints[] = {
-"hint1",
-"hint2",
-"hint3",
-NULL
-};
+#define SET_Hints NULL
 
 /* SET expiration argument table */
 struct redisCommandArg SET_expiration_Subargs[] = {
@@ -5906,7 +6010,7 @@ struct redisCommand redisCommandTable[] = {
 {"echo","Echo the given string","PATCH__TBD__52__","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,ECHO_History,ECHO_Hints,echoCommand,2,"fast @fast @connection",.args=ECHO_Args},
 {"hello","Handshake with Redis","O(1)","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,HELLO_History,HELLO_Hints,helloCommand,-1,"noscript loading stale fast no_auth sentinel @fast @connection",.args=HELLO_Args},
 {"ping","Ping the server","PATCH__TBD__67__","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,PING_History,PING_Hints,pingCommand,-1,"fast sentinel @fast @connection",.args=PING_Args},
-{"quit","Close the connection","__TBD__7__","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,QUIT_History,QUIT_Hints,quitCommand,-1,"noscript loading stale fast no_auth @fast @connection"},
+{"quit","Close the connection","__TBD__85__","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,QUIT_History,QUIT_Hints,quitCommand,-1,"noscript loading stale fast no_auth @fast @connection"},
 {"reset","Reset the connection","PATCH__TBD__74__","6.2",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,RESET_History,RESET_Hints,resetCommand,1,"noscript loading stale fast no_auth @fast @connection"},
 {"select","Change the selected database for the current connection","PATCH__TBD__48__","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,SELECT_History,SELECT_Hints,selectCommand,2,"loading stale fast @fast @connection",.args=SELECT_Args},
 /* generic */
@@ -6008,6 +6112,8 @@ struct redisCommand redisCommandTable[] = {
 {"evalsha_ro","Execute a read-only Lua script server side","Depends on the script that is executed.","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,EVALSHA_RO_History,EVALSHA_RO_Hints,evalShaRoCommand,-3,"noscript skip_monitor no_mandatory_keys @slow @scripting",{{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},evalGetKeys,.args=EVALSHA_RO_Args},
 {"eval_ro","Execute a read-only Lua script server side","Depends on the script that is executed.","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,EVAL_RO_History,EVAL_RO_Hints,evalRoCommand,-3,"noscript skip_monitor no_mandatory_keys @slow @scripting",{{"read",KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.keynum={0,1,1}}},evalGetKeys,.args=EVAL_RO_Args},
 {"script","A container for Lua scripts management commands","Depends on subcommand.","2.6.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,SCRIPT_History,SCRIPT_Hints,NULL,-2,"@slow",.subcommands=SCRIPT_Subcommands},
+/* sentinel */
+{"sentinel","__TBD__86__","Depends on subcommand.","__TBD__88__",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_History,SENTINEL_Hints,NULL,-2,"admin sentinel only_sentinel @admin @slow @dangerous",.subcommands=SENTINEL_Subcommands},
 /* server */
 {"acl","A container for Access List Control commands ","Depends on subcommand.","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,ACL_History,ACL_Hints,NULL,-2,"sentinel @slow",.subcommands=ACL_Subcommands},
 {"bgrewriteaof","Asynchronously rewrite the append-only file","PATCH__TBD__55__","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,BGREWRITEAOF_History,BGREWRITEAOF_Hints,bgrewriteaofCommand,1,"admin noscript @admin @slow @dangerous"},
@@ -6130,7 +6236,7 @@ struct redisCommand redisCommandTable[] = {
 {"setnx","Set the value of a key, only if the key does not exist","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,SETNX_History,SETNX_Hints,setnxCommand,3,"write denyoom fast @write @string @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SETNX_Args},
 {"setrange","Overwrite part of a string at key starting at the specified offset","O(1), not counting the time taken to copy the new string in place. Usually, this string is very small so the amortized complexity is O(1). Otherwise, complexity is O(M) with M being the length of the value argument.","2.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,SETRANGE_History,SETRANGE_Hints,setrangeCommand,4,"write denyoom @write @string @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SETRANGE_Args},
 {"strlen","Get the length of the value stored in a key","O(1)","2.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,STRLEN_History,STRLEN_Hints,strlenCommand,2,"readonly fast @read @string @fast",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=STRLEN_Args},
-{"substr","Get a substring of the string stored at a key","O(N) where N is the length of the returned string. The complexity is ultimately determined by the returned length, but because creating a substring from an existing string is very cheap, it can be considered O(1) for small strings.","__TBD__6__",CMD_DOC_DEPRECATED,"`GETRANGE`","2.0.0",COMMAND_GROUP_STRING,SUBSTR_History,SUBSTR_Hints,getrangeCommand,4,"readonly @read @string @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+{"substr","Get a substring of the string stored at a key","O(N) where N is the length of the returned string. The complexity is ultimately determined by the returned length, but because creating a substring from an existing string is very cheap, it can be considered O(1) for small strings.","__TBD__89__",CMD_DOC_DEPRECATED,"`GETRANGE`","2.0.0",COMMAND_GROUP_STRING,SUBSTR_History,SUBSTR_Hints,getrangeCommand,4,"readonly @read @string @slow",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 /* transactions */
 {"discard","Discard all commands issued after MULTI","PATCH__TBD__60__","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_TRANSACTIONS,DISCARD_History,DISCARD_Hints,discardCommand,1,"noscript loading stale fast @fast @transaction"},
 {"exec","Execute all commands issued after MULTI","PATCH__TBD__39__","1.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_TRANSACTIONS,EXEC_History,EXEC_Hints,execCommand,1,"noscript loading stale skip_slowlog @slow @transaction"},

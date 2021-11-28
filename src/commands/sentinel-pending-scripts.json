@@ -1,0 +1,21 @@
+{
+    "PENDING-SCRIPTS": {
+        "summary": "__TBD__55__",
+        "complexity": "__TBD__54__",
+        "group": "sentinel",
+        "since": "__TBD__57__",
+        "arity": 2,
+        "container": "SENTINEL",
+        "function": "sentinelCommand",
+        "command_flags": [
+            "admin",
+            "sentinel",
+            "only_sentinel"
+        ],
+        "acl_categories": [
+            "admin",
+            "slow",
+            "dangerous"
+        ]
+    }
+}

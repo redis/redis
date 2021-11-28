@@ -2507,7 +2507,6 @@ void parseCommandFlags(struct redisCommand *c, const char *strflags) {
         serverPanic("Failed splitting strflags!");
 
     for (int j = 0; j < argc; j++) {
-        // TODO:GUYBE update the command.c/redisCommand struct comment too!!!!!
         char *flag = argv[j];
         if (!strcasecmp(flag,"write")) {
             c->flags |= CMD_WRITE|CMD_CATEGORY_WRITE;
@@ -2548,8 +2547,6 @@ void parseCommandFlags(struct redisCommand *c, const char *strflags) {
             c->flags |= CMD_ONLY_SENTINEL;
         } else if (!strcasecmp(flag,"no_mandatory_keys")) {
             c->flags |= CMD_NO_MANDATORY_KEYS;
-        } else if (!strcasecmp(flag,"internal")) {
-            c->flags |= CMD_INTERNAL;
         } else {
             /* Parse ACL categories here if the flag name starts with @. */
             uint64_t catflag;
@@ -3784,7 +3781,6 @@ void addReplyFlagsForCommand(client *c, struct redisCommand *cmd) {
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_SENTINEL, "sentinel");
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_ONLY_SENTINEL, "only_sentinel");
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_NO_MANDATORY_KEYS, "no_mandatory_keys");
-    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_INTERNAL, "internal");
     /* "sentinel" and "only-sentinel" are hidden on purpose. */
     if (cmd->movablekeys) {
         addReplyStatus(c, "movablekeys");
@@ -3895,10 +3891,12 @@ const char *RESP3_TYPE_STR[] = {
     "simple-string",
     "error",
     "integer",
+    "double",
     "bulk-string",
     "array",
     "map",
     "set",
+    "bool",
     "null",
 };
 
@@ -4045,6 +4043,7 @@ const char *COMMAND_GROUP_STR[] = {
     "scripting",
     "hyperloglog",
     "cluster",
+    "sentinel",
     "geo",
     "stream",
     "bitmap",

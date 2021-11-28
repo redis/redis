@@ -1,0 +1,19 @@
+{
+    "SENTINEL": {
+        "summary": "__TBD__86__",
+        "complexity": "Depends on subcommand.",
+        "group": "sentinel",
+        "since": "__TBD__88__",
+        "arity": -2,
+        "command_flags": [
+            "admin",
+            "sentinel",
+            "only_sentinel"
+        ],
+        "acl_categories": [
+            "admin",
+            "slow",
+            "dangerous"
+        ]
+    }
+}

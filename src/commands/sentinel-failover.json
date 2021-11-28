@@ -1,0 +1,21 @@
+{
+    "FAILOVER": {
+        "summary": "__TBD__23__",
+        "complexity": "__TBD__22__",
+        "group": "sentinel",
+        "since": "__TBD__25__",
+        "arity": 3,
+        "container": "SENTINEL",
+        "function": "sentinelCommand",
+        "command_flags": [
+            "admin",
+            "sentinel",
+            "only_sentinel"
+        ],
+        "acl_categories": [
+            "admin",
+            "slow",
+            "dangerous"
+        ]
+    }
+}

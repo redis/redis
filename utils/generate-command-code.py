@@ -32,6 +32,7 @@ GROUPS = {
     "scripting": "COMMAND_GROUP_SCRIPTING",
     "hyperloglog": "COMMAND_GROUP_HYPERLOGLOG",
     "cluster": "COMMAND_GROUP_CLUSTER",
+    "sentinel": "COMMAND_GROUP_SENTINEL",
     "geo": "COMMAND_GROUP_GEO",
     "stream": "COMMAND_GROUP_STREAM",
     "bitmap": "COMMAND_GROUP_BITMAP",
@@ -51,10 +52,12 @@ RESP3_TYPES = {
     "simple-string": "RESP3_SIMPLE_STRING",
     "error": "RESP3_ERROR",
     "integer": "RESP3_INTEGER",
+    "double": "RESP3_DOUBLE",
     "bulk-string": "RESP3_BULK_STRING",
     "array": "RESP3_ARRAY",
     "map": "RESP3_MAP",
     "set": "RESP3_SET",
+    "bool": "RESP3_BOOL",
     "null": "RESP3_NULL",
 }
 
@@ -374,7 +377,6 @@ def create_command(name, desc):
 # Create all command objects
 print("Processing json files...")
 for filename in glob.glob('commands/*.json'):
-    #print(filename)
     with open(filename,"r") as f:
         d = json.load(f)
         for name, desc in d.items():
@@ -397,93 +399,9 @@ with open("commands.c","w") as f:
     f.write("#include \"server.h\"\n")
     f.write(
 """
-/* Our command table.
-*
-* (See comment above sturct redisCommand)
-*
-* Command flags are expressed using space separated strings, that are turned
-* into actual flags by the populateCommandTable() function.
-*
-* This is the meaning of the flags:
-*
-* write:       Write command (may modify the key space).
-*
-* read-only:   Commands just reading from keys without changing the content.
-*              Note that commands that don't read from the keyspace such as
-*              TIME, SELECT, INFO, administrative commands, and connection
-*              or transaction related commands (multi, exec, discard, ...)
-*              are not flagged as read-only commands, since they affect the
-*              server or the connection in other ways.
-*
-* use-memory:  May increase memory usage once called. Don't allow if out
-*              of memory.
-*
-* admin:       Administrative command, like SAVE or SHUTDOWN.
-*
-* pub-sub:     Pub/Sub related command.
-*
-* no-script:   Command not allowed in scripts.
-*
-* random:      Random command. Command is not deterministic, that is, the same
-*              command with the same arguments, with the same key space, may
-*              have different results. For instance SPOP and RANDOMKEY are
-*              two random commands.
-*
-* to-sort:     Sort command output array if called from script, so that the
-*              output is deterministic. When this flag is used (not always
-*              possible), then the "random" flag is not needed.
-*
-* ok-loading:  Allow the command while loading the database.
-*
-* ok-stale:    Allow the command while a slave has stale data but is not
-*              allowed to serve this data. Normally no command is accepted
-*              in this condition but just a few.
-*
-* no-monitor:  Do not automatically propagate the command on MONITOR.
-*
-* no-slowlog:  Do not automatically propagate the command to the slowlog.
-*
-* cluster-asking: Perform an implicit ASKING for this command, so the
-*              command will be accepted in cluster mode if the slot is marked
-*              as 'importing'.
-*
-* fast:        Fast command: O(1) or O(log(N)) command that should never
-*              delay its execution as long as the kernel scheduler is giving
-*              us time. Note that commands that may trigger a DEL as a side
-*              effect (like SET) are not fast commands.
-* 
-* may-replicate: Command may produce replication traffic, but should be 
-*                allowed under circumstances where write commands are disallowed. 
-*                Examples include PUBLISH, which replicates pubsub messages,and 
-*                EVAL, which may execute write commands, which are replicated, 
-*                or may just execute read commands. A command can not be marked 
-*                both "write" and "may-replicate"
-*
-* sentinel: This command is present in sentinel mode too.
-*
-* sentinel-only: This command is present only when in sentinel mode.
-*
-* The following additional flags are only used in order to put commands
-* in a specific ACL category. Commands can have multiple ACL categories.
-* See redis.conf for the exact meaning of each.
-*
-* @keyspace, @read, @write, @set, @sortedset, @list, @hash, @string, @bitmap,
-* @hyperloglog, @stream, @admin, @fast, @slow, @pubsub, @blocking, @dangerous,
-* @connection, @transaction, @scripting, @geo.
-*
-* Note that:
-*
-* 1) The read-only flag implies the @read ACL category.
-* 2) The write flag implies the @write ACL category.
-* 3) The fast flag implies the @fast ACL category.
-* 4) The admin flag implies the @admin and @dangerous ACL category.
-* 5) The pub-sub flag implies the @pubsub ACL category.
-* 6) The lack of fast flag implies the @slow ACL category.
-* 7) The non obvious "keyspace" category includes the commands
-*    that interact with keys without having anything to do with
-*    specific data structures, such as: DEL, RENAME, MOVE, SELECT,
-*    TYPE, EXPIRE*, PEXPIRE*, TTL, PTTL, ...
-*/\n
+/* We have fabulous commands from
+ * the fantastic
+ * Redis Command Table! */\n
 """
     )
 

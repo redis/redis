@@ -237,7 +237,6 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CMD_SENTINEL (1ULL<<40)        /* "sentinel" flag */
 #define CMD_ONLY_SENTINEL (1ULL<<41)   /* "only-sentinel" flag */
 #define CMD_NO_MANDATORY_KEYS (1ULL<<42)   /* "no-mandatory-keys" flag */
-#define CMD_INTERNAL (1ULL<<43)   /* "internal" flag */
 
 /* AOF states */
 #define AOF_OFF 0             /* AOF is off */
@@ -1918,7 +1917,7 @@ typedef struct redisCommandArg {
     } value;
 } redisCommandArg;
 
-/* Must be synced with generate-command-code.py */
+/* Must be synced with RESP2_TYPE_STR generate-command-code.py */
 typedef enum {
     RESP2_SIMPLE_STRING,
     RESP2_ERROR,
@@ -1929,16 +1928,17 @@ typedef enum {
     RESP2_NULL_ARRAY,
 } redisCommandRESP2Type;
 
-// TODO:GUYBE add more resp3 types
-/* Must be synced with generate-command-code.py */
+/* Must be synced with RESP3_TYPE_STR and generate-command-code.py */
 typedef enum {
     RESP3_SIMPLE_STRING,
     RESP3_ERROR,
     RESP3_INTEGER,
+    RESP3_DOUBLE,
     RESP3_BULK_STRING,
     RESP3_ARRAY,
     RESP3_MAP,
     RESP3_SET,
+    RESP3_BOOL,
     RESP3_NULL,
 } redisCommandRESP3Type;
 
@@ -1947,7 +1947,7 @@ typedef struct {
     const char *changes;
 } commandHistory;
 
-/* Must be synced with generate-command-code.py */
+/* Must be synced with COMMAND_GROUP_STR and generate-command-code.py */
 typedef enum {
     COMMAND_GROUP_GENERIC,
     COMMAND_GROUP_STRING,
@@ -1962,6 +1962,7 @@ typedef enum {
     COMMAND_GROUP_SCRIPTING,
     COMMAND_GROUP_HYPERLOGLOG,
     COMMAND_GROUP_CLUSTER,
+    COMMAND_GROUP_SENTINEL,
     COMMAND_GROUP_GEO,
     COMMAND_GROUP_STREAM,
     COMMAND_GROUP_BITMAP,
@@ -1972,56 +1973,109 @@ typedef void redisCommandProc(client *c);
 typedef int redisGetKeysProc(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 
 /* Redis command structure.
-*
-* Every command is composed of the following fields:
-*
-* name:        A string representing the command name.
-*
-* function:    Pointer to the C function implementing the command.
-*
-* arity:       Number of arguments, it is possible to use -N to say >= N
-*
-* sflags:      Command flags as string. See below for a table of flags.
-*
-* flags:       Flags as bitmask. Computed by Redis using the 'sflags' field.
-*
-* get_keys_proc: An optional function to get key arguments from a command.
-*                This is only used when the following three fields are not
-*                enough to specify what arguments are keys.
-*
-* first_key_index: First argument that is a key
-*
-* last_key_index: Last argument that is a key
-*
-* key_step:    Step to get all the keys from first to last argument.
-*              For instance in MSET the step is two since arguments
-*              are key,val,key,val,...
-*
-* microseconds: Microseconds of total execution time for this command.
-*
-* calls:       Total number of calls of this command.
-*
-* id:          Command bit identifier for ACLs or other goals.
-*
-* The flags, microseconds and calls fields are computed by Redis and should
-* always be set to zero.
-*/
+ *
+ * Note that the command table is in commands.c and it is auto-generated.
+ *
+ * This is the meaning of the flags:
+ *
+ * write:       Write command (may modify the key space).
+ *
+ * readonly:    Commands just reading from keys without changing the content.
+ *              Note that commands that don't read from the keyspace such as
+ *              TIME, SELECT, INFO, administrative commands, and connection
+ *              or transaction related commands (multi, exec, discard, ...)
+ *              are not flagged as read-only commands, since they affect the
+ *              server or the connection in other ways.
+ *
+ * denyoom:     May increase memory usage once called. Don't allow if out
+ *              of memory.
+ *
+ * admin:       Administrative command, like SAVE or SHUTDOWN.
+ *
+ * pubsub:      Pub/Sub related command.
+ *
+ * noscript:    Command not allowed in scripts.
+ *
+ * random:      Random command. Command is not deterministic, that is, the same
+ *              command with the same arguments, with the same key space, may
+ *              have different results. For instance SPOP and RANDOMKEY are
+ *              two random commands.
+ *
+ * sort_for_script:     Sort command output array if called from script, so that the
+ *                      output is deterministic. When this flag is used (not always
+ *                      possible), then the "random" flag is not needed.
+ *
+ * loading:     Allow the command while loading the database.
+ *
+ * stale:       Allow the command while a slave has stale data but is not
+ *              allowed to serve this data. Normally no command is accepted
+ *              in this condition but just a few.
+ *
+ * skip_monitor:  Do not automatically propagate the command on MONITOR.
+ *
+ * skip_slowlog:  Do not automatically propagate the command to the slowlog.
+ *
+ * asking:      Perform an implicit ASKING for this command, so the
+ *              command will be accepted in cluster mode if the slot is marked
+ *              as 'importing'.
+ *
+ * fast:        Fast command: O(1) or O(log(N)) command that should never
+ *              delay its execution as long as the kernel scheduler is giving
+ *              us time. Note that commands that may trigger a DEL as a side
+ *              effect (like SET) are not fast commands.
+ *
+ * no_auth:     Command doesn't require authentication
+ *
+ * may_replicate: Command may produce replication traffic, but should be
+ *                allowed under circumstances where write commands are disallowed.
+ *                Examples include PUBLISH, which replicates pubsub messages,and
+ *                EVAL, which may execute write commands, which are replicated,
+ *                or may just execute read commands. A command can not be marked
+ *                both "write" and "may-replicate"
+ *
+ * sentinel:    This command is present in sentinel mode too.
+ *
+ * sentinel_only: This command is present only when in sentinel mode.
+ *
+ * no_mandatory_keys: This key arguments for this command are optional.
+ *
+ * The following additional flags are only used in order to put commands
+ * in a specific ACL category. Commands can have multiple ACL categories.
+ * See redis.conf for the exact meaning of each.
+ *
+ * @keyspace, @read, @write, @set, @sortedset, @list, @hash, @string, @bitmap,
+ * @hyperloglog, @stream, @admin, @fast, @slow, @pubsub, @blocking, @dangerous,
+ * @connection, @transaction, @scripting, @geo.
+ *
+ * Note that:
+ *
+ * 1) The read-only flag implies the @read ACL category.
+ * 2) The write flag implies the @write ACL category.
+ * 3) The fast flag implies the @fast ACL category.
+ * 4) The admin flag implies the @admin and @dangerous ACL category.
+ * 5) The pub-sub flag implies the @pubsub ACL category.
+ * 6) The lack of fast flag implies the @slow ACL category.
+ * 7) The non obvious "keyspace" category includes the commands
+ *    that interact with keys without having anything to do with
+ *    specific data structures, such as: DEL, RENAME, MOVE, SELECT,
+ *    TYPE, EXPIRE*, PEXPIRE*, TTL, PTTL, ...
+ */
 struct redisCommand {
     /* Declarative data */
-    const char *name;
-    const char *summary;
-    const char *complexity;
-    const char *since;
-    int doc_flags;
-    const char *replaced_by;
-    const char *deprecated_since;
-    redisCommandGroup group;
-    commandHistory *history;
-    const char **hints;
-    redisCommandProc *proc;
-    int arity;
-    const char *sflags;   /* Flags as string representation, one char per flag. */
-    keySpec key_specs_static[STATIC_KEY_SPECS_NUM];
+    const char *name; /* A string representing the command name. */
+    const char *summary; /* Summary of the command (optional). */
+    const char *complexity; /* Complexity description (optional). */
+    const char *since; /* Debut version of the command (optional). */
+    int doc_flags; /* Flags for documentation (see CMD_DOC_*). */
+    const char *replaced_by; /* In case the command is deprecated, this is the successor command. */
+    const char *deprecated_since; /* In case the command is deprecated, when did it happen? */
+    redisCommandGroup group; /* Command group */
+    commandHistory *history; /* History of the command */
+    const char **hints; /* An array of strings that are meant o be hints for clients/proxies regarding this command */
+    redisCommandProc *proc; /* Command implementation */
+    int arity; /* Number of arguments, it is possible to use -N to say >= N */
+    const char *sflags;   /* Flags as string representation, see struct comment. */
+    keySpec key_specs_static[STATIC_KEY_SPECS_NUM]; /* Key specs. See keySpec */
     /* Use a function to determine keys arguments in a command line.
      * Used for Redis Cluster redirect (may be NULL) */
     redisGetKeysProc *getkeys_proc;

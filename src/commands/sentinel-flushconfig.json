@@ -1,0 +1,21 @@
+{
+    "FLUSHCONFIG": {
+        "summary": "__TBD__15__",
+        "complexity": "__TBD__14__",
+        "group": "sentinel",
+        "since": "__TBD__17__",
+        "arity": 2,
+        "container": "SENTINEL",
+        "function": "sentinelCommand",
+        "command_flags": [
+            "admin",
+            "sentinel",
+            "only_sentinel"
+        ],
+        "acl_categories": [
+            "admin",
+            "slow",
+            "dangerous"
+        ]
+    }
+}

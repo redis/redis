@@ -1,0 +1,21 @@
+{
+    "GET-MASTER-ADDR-BY-NAME": {
+        "summary": "__TBD__31__",
+        "complexity": "__TBD__30__",
+        "group": "sentinel",
+        "since": "__TBD__33__",
+        "arity": 3,
+        "container": "SENTINEL",
+        "function": "sentinelCommand",
+        "command_flags": [
+            "admin",
+            "sentinel",
+            "only_sentinel"
+        ],
+        "acl_categories": [
+            "admin",
+            "slow",
+            "dangerous"
+        ]
+    }
+}

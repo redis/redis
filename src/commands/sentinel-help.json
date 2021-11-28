@@ -1,0 +1,20 @@
+{
+    "HELP": {
+        "summary": "__TBD__78__",
+        "complexity": "O(1)",
+        "group": "sentinel",
+        "since": "__TBD__80__",
+        "arity": 2,
+        "container": "SENTINEL",
+        "function": "sentinelCommand",
+        "command_flags": [
+            "loading",
+            "stale",
+            "sentinel",
+            "only_sentinel"
+        ],
+        "acl_categories": [
+            "slow"
+        ]
+    }
+}

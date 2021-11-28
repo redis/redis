@@ -1,7 +1,7 @@
 {
     "QUIT": {
         "summary": "Close the connection",
-        "complexity": "__TBD__7__",
+        "complexity": "__TBD__85__",
         "group": "connection",
         "since": "1.0.0",
         "arity": -1,

@@ -6,7 +6,6 @@
         "since": "1.0.0",
         "arity": -3,
         "function": "setCommand",
-        "hints": "hint1 hint2 hint3",
         "history": [
             [
                 "2.6.12",

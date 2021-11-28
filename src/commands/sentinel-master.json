@@ -1,0 +1,21 @@
+{
+    "MASTER": {
+        "summary": "__TBD__19__",
+        "complexity": "__TBD__18__",
+        "group": "sentinel",
+        "since": "__TBD__21__",
+        "arity": 3,
+        "container": "SENTINEL",
+        "function": "sentinelCommand",
+        "command_flags": [
+            "admin",
+            "sentinel",
+            "only_sentinel"
+        ],
+        "acl_categories": [
+            "admin",
+            "slow",
+            "dangerous"
+        ]
+    }
+}
