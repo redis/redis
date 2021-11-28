@@ -1377,7 +1377,7 @@ int zsetAdd(robj *zobj, double score, sds ele, int in_flags, int *out_flags, dou
         }
     }
 
-    /* Note that the above block handling ziplist would have either returned or
+    /* Note that the above block handling listpack would have either returned or
      * converted the key to skiplist. */
     if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
         zset *zs = zobj->ptr;
@@ -2551,9 +2551,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
     /* read keys to be used for input */
     src = zcalloc(sizeof(zsetopsrc) * setnum);
     for (i = 0, j = numkeysIndex+1; i < setnum; i++, j++) {
-        robj *obj = dstkey ?
-            lookupKeyWrite(c->db,c->argv[j]) :
-            lookupKeyRead(c->db,c->argv[j]);
+        robj *obj = lookupKeyRead(c->db, c->argv[j]);
         if (obj != NULL) {
             if (obj->type != OBJ_ZSET && obj->type != OBJ_SET) {
                 zfree(src);
@@ -3646,9 +3644,7 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start, int st
     }
 
     /* Step 3: Lookup the key and get the range. */
-    zobj = handler->dstkey ?
-        lookupKeyWrite(c->db,key) :
-        lookupKeyRead(c->db,key);
+    zobj = lookupKeyRead(c->db, key);
     if (zobj == NULL) {
         if (store) {
             handler->beginResultEmission(handler);

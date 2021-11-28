@@ -292,6 +292,7 @@ int startAppendOnly(void) {
     newfd = open(server.aof_filename,O_WRONLY|O_APPEND|O_CREAT,0644);
     serverAssert(server.aof_state == AOF_OFF);
     if (newfd == -1) {
+        char *str_err = strerror(errno);
         char *cwdp = getcwd(cwd,MAXPATHLEN);
 
         serverLog(LL_WARNING,
@@ -299,7 +300,7 @@ int startAppendOnly(void) {
             "append only file %s (in server root dir %s): %s",
             server.aof_filename,
             cwdp ? cwdp : "unknown",
-            strerror(errno));
+            str_err);
         return C_ERR;
     }
     if (hasActiveChildProcess() && server.child_type != CHILD_TYPE_AOF) {
@@ -736,7 +737,8 @@ int loadAppendOnlyFile(char *filename) {
      * to the same file we're about to read. */
     server.aof_state = AOF_OFF;
 
-    fakeClient = createAOFClient();
+    client *old_client = server.current_client;
+    fakeClient = server.current_client = createAOFClient();
     startLoadingFile(fp, filename, RDBFLAGS_AOF_PREAMBLE);
 
     /* Check if this AOF file has an RDB preamble. In that case we need to
@@ -927,6 +929,7 @@ fmterr: /* Format error. */
 
 cleanup:
     if (fakeClient) freeClient(fakeClient);
+    server.current_client = old_client;
     fclose(fp);
     stopLoading(ret == AOF_OK);
     return ret;

@@ -1481,33 +1481,6 @@ sentinelRedisInstance *sentinelGetMasterByName(char *name) {
     return ri;
 }
 
-/* Add the specified flags to all the instances in the specified dictionary. */
-void sentinelAddFlagsToDictOfRedisInstances(dict *instances, int flags) {
-    dictIterator *di;
-    dictEntry *de;
-
-    di = dictGetIterator(instances);
-    while((de = dictNext(di)) != NULL) {
-        sentinelRedisInstance *ri = dictGetVal(de);
-        ri->flags |= flags;
-    }
-    dictReleaseIterator(di);
-}
-
-/* Remove the specified flags to all the instances in the specified
- * dictionary. */
-void sentinelDelFlagsToDictOfRedisInstances(dict *instances, int flags) {
-    dictIterator *di;
-    dictEntry *de;
-
-    di = dictGetIterator(instances);
-    while((de = dictNext(di)) != NULL) {
-        sentinelRedisInstance *ri = dictGetVal(de);
-        ri->flags &= ~flags;
-    }
-    dictReleaseIterator(di);
-}
-
 /* Reset the state of a monitored master:
  * 1) Remove all slaves.
  * 2) Remove all sentinels.

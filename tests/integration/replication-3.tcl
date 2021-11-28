@@ -64,6 +64,68 @@ start_server {tags {"repl external:skip"}} {
             after 6000
             r -1 dbsize
         } {0}
+
+        test {Writable replica doesn't return expired keys} {
+            r select 5
+            assert {[r dbsize] == 0}
+            r debug set-active-expire 0
+            r set key1 5 px 10
+            r set key2 5 px 10
+            r -1 select 5
+            wait_for_condition 50 100 {
+                [r -1 dbsize] == 2 && [r -1 exists key1 key2] == 0
+            } else {
+                fail "Keys didn't replicate or didn't expire."
+            }
+            r -1 config set slave-read-only no
+            assert_equal 2 [r -1 dbsize]    ; # active expire is off
+            assert_equal 1 [r -1 incr key1] ; # incr expires and re-creates key1
+            assert_equal -1 [r -1 ttl key1] ; # incr created key1 without TTL
+            assert_equal {} [r -1 get key2] ; # key2 expired but not deleted
+            assert_equal 2 [r -1 dbsize]
+            # cleanup
+            r debug set-active-expire 1
+            r -1 del key1 key2
+            r -1 config set slave-read-only yes
+            r del key1 key2
+        }
+
+        test {PFCOUNT updates cache on readonly replica} {
+            r select 5
+            assert {[r dbsize] == 0}
+            r pfadd key a b c d e f g h i j k l m n o p q
+            set strval [r get key]
+            r -1 select 5
+            wait_for_condition 50 100 {
+                [r -1 dbsize] == 1
+            } else {
+                fail "Replication timeout."
+            }
+            assert {$strval == [r -1 get key]}
+            assert_equal 17 [r -1 pfcount key]
+            assert {$strval != [r -1 get key]}; # cache updated
+            # cleanup
+            r del key
+        }
+
+        test {PFCOUNT doesn't use expired key on readonly replica} {
+            r select 5
+            assert {[r dbsize] == 0}
+            r debug set-active-expire 0
+            r pfadd key a b c d e f g h i j k l m n o p q
+            r pexpire key 10
+            r -1 select 5
+            wait_for_condition 50 100 {
+                [r -1 dbsize] == 1 && [r -1 exists key] == 0
+            } else {
+                fail "Key didn't replicate or didn't expire."
+            }
+            assert_equal [r -1 pfcount key] 0 ; # expired key not used
+            assert_equal [r -1 dbsize] 1      ; # but it's also not deleted
+            # cleanup
+            r debug set-active-expire 1
+            r del key
+        }
     }
 }
 
