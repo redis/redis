@@ -1905,7 +1905,7 @@ typedef enum {
 #define CMD_ARG_MULTIPLE        (1<<1)
 #define CMD_ARG_MULTIPLE_TOKEN  (1<<2)
 
-struct redisCommandArg {
+typedef struct redisCommandArg {
     const char *name;
     redisCommandArgType type;
     const char *token;
@@ -1916,7 +1916,7 @@ struct redisCommandArg {
         struct redisCommandArg *subargs;
         const char *string;
     } value;
-};
+} redisCommandArg;
 
 /* Must be synced with generate-command-code.py */
 typedef enum {

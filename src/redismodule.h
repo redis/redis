@@ -240,6 +240,23 @@ typedef uint64_t RedisModuleTimerID;
  * are modified from the user's sperspective, to invalidate WATCH. */
 #define REDISMODULE_OPTION_NO_IMPLICIT_SIGNAL_MODIFIED (1<<1)
 
+typedef enum {
+    REDISMODULE_ARG_TYPE_STRING,
+    REDISMODULE_ARG_TYPE_INTEGER,
+    REDISMODULE_ARG_TYPE_DOUBLE,
+    REDISMODULE_ARG_TYPE_KEY,
+    REDISMODULE_ARG_TYPE_PATTERN,
+    REDISMODULE_ARG_TYPE_UNIX_TIME,
+    REDISMODULE_ARG_TYPE_PURE_TOKEN,
+    REDISMODULE_ARG_TYPE_ONEOF, /* Must have subargs */
+    REDISMODULE_ARG_TYPE_BLOCK /* Must have subargs */
+} RedisModuleCommandArgType;
+
+#define REDISMODULE_CMD_ARG_NONE            (0)
+#define REDISMODULE_CMD_ARG_OPTIONAL        (1<<0)
+#define REDISMODULE_CMD_ARG_MULTIPLE        (1<<1)
+#define REDISMODULE_CMD_ARG_MULTIPLE_TOKEN  (1<<2)
+
 /* Server events definitions.
  * Those flags should not be used directly by the module, instead
  * the module should use RedisModuleEvent_* variables */
@@ -553,6 +570,7 @@ typedef struct RedisModuleScanCursor RedisModuleScanCursor;
 typedef struct RedisModuleDefragCtx RedisModuleDefragCtx;
 typedef struct RedisModuleUser RedisModuleUser;
 typedef struct RedisModuleKeyOptCtx RedisModuleKeyOptCtx;
+typedef struct RedisModuleCommandArg RedisModuleCommandArg;
 
 typedef int (*RedisModuleCmdFunc)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 typedef void (*RedisModuleDisconnectFunc)(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc);
@@ -632,6 +650,9 @@ REDISMODULE_API int (*RedisModule_SetCommandDebutVersion)(RedisModuleCommandProx
 REDISMODULE_API int (*RedisModule_SetCommandComplexity)(RedisModuleCommandProxy *command, const char *complexity) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_SetCommandHints)(RedisModuleCommandProxy *command, const char *hints) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_AppendCommandHistoryEntry)(RedisModuleCommandProxy *command, const char *since, const char *changes) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleCommandArg *(*RedisModule_CreateCommandArg)(const char* argname, RedisModuleCommandArgType type, const char *token, const char *summary, const char* since, int flags, const char *value) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_AppendSubarg)(RedisModuleCommandArg *parent, RedisModuleCommandArg *subarg) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_AppendArgToCommand)(RedisModuleCommandProxy *command, RedisModuleCommandArg *arg) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_SetModuleAttribs)(RedisModuleCtx *ctx, const char *name, int ver, int apiver) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_IsModuleNameBusy)(const char *name) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_WrongArity)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
@@ -961,6 +982,9 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(SetCommandComplexity);
     REDISMODULE_GET_API(SetCommandHints);
     REDISMODULE_GET_API(AppendCommandHistoryEntry);
+    REDISMODULE_GET_API(CreateCommandArg);
+    REDISMODULE_GET_API(AppendSubarg);
+    REDISMODULE_GET_API(AppendArgToCommand);
     REDISMODULE_GET_API(SetModuleAttribs);
     REDISMODULE_GET_API(IsModuleNameBusy);
     REDISMODULE_GET_API(WrongArity);
@@ -1281,6 +1305,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
 /* Things only defined for the modules core, not exported to modules
  * including this file. */
 #define RedisModuleString robj
+#define RedisModuleCommandArg redisCommandArg
 
 #endif /* REDISMODULE_CORE */
 #endif /* REDISMODULE_H */

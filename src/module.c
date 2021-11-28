@@ -1040,6 +1040,8 @@ int RM_SetCommandArity(RedisModuleCommandProxy *command, int arity) {
     return REDISMODULE_OK;
 }
 
+// TODO:GUYBE copy all const char*
+
 int RM_SetCommandSummary(RedisModuleCommandProxy *command, const char *summary) {
     struct redisCommand *cmd = command->rediscmd;
     cmd->summary = summary;
@@ -1082,12 +1084,115 @@ int RM_AppendCommandHistoryEntry(RedisModuleCommandProxy *command, const char *s
     struct redisCommand *cmd = command->rediscmd;
 
     int len = 0;
-    while (cmd->history && cmd->history[len++].since);
+    while (cmd->history && cmd->history[++len].since);
 
-    cmd->history = zrealloc(cmd->history, (len+1)*sizeof(commandHistory));
+    cmd->history = zrealloc(cmd->history, (len+2)*sizeof(commandHistory));
     cmd->history[len].since = since;
     cmd->history[len].changes = changes;
     memset(&cmd->history[len+1], 0, sizeof(commandHistory));
+    return REDISMODULE_OK;
+}
+
+redisCommandArgType moduleArgTypeConvert(RedisModuleCommandArgType type, int *error) {
+    *error = 0;
+    switch (type) {
+        case REDISMODULE_ARG_TYPE_STRING:
+            return ARG_TYPE_STRING;
+        case REDISMODULE_ARG_TYPE_INTEGER:
+            return ARG_TYPE_INTEGER;
+        case REDISMODULE_ARG_TYPE_DOUBLE:
+            return ARG_TYPE_DOUBLE;
+        case REDISMODULE_ARG_TYPE_KEY:
+            return ARG_TYPE_KEY;
+        case REDISMODULE_ARG_TYPE_PATTERN:
+            return ARG_TYPE_PATTERN;
+        case REDISMODULE_ARG_TYPE_UNIX_TIME:
+            return ARG_TYPE_UNIX_TIME;
+        case REDISMODULE_ARG_TYPE_PURE_TOKEN:
+            return ARG_TYPE_PURE_TOKEN;
+        case REDISMODULE_ARG_TYPE_ONEOF:
+            return ARG_TYPE_ONEOF;
+        case REDISMODULE_ARG_TYPE_BLOCK:
+            return ARG_TYPE_BLOCK;
+        default:
+            *error = 1;
+            return -1;
+    }
+}
+
+int moduleArgFlagsConvert(int flags) {
+    int realflags = 0;
+
+    if (flags & REDISMODULE_CMD_ARG_OPTIONAL) {
+        realflags |= CMD_ARG_OPTIONAL;
+    }
+    if (flags & REDISMODULE_CMD_ARG_MULTIPLE) {
+        realflags |= CMD_ARG_MULTIPLE;
+    }
+    if (flags & REDISMODULE_CMD_ARG_MULTIPLE_TOKEN) {
+        realflags |= CMD_ARG_MULTIPLE_TOKEN;
+    }
+
+    return realflags;
+}
+
+RedisModuleCommandArg *RM_CreateCommandArg(const char* argname, RedisModuleCommandArgType type, const char *token, const char *summary, const char* since, int flags, const char *value) {
+    int err;
+
+    redisCommandArgType realtype = moduleArgTypeConvert(type, &err);
+    if (err)
+        return NULL;
+
+    if (realtype == ARG_TYPE_PURE_TOKEN) {
+        if (value != NULL || token == NULL)
+            return NULL;
+    } else if ((realtype == ARG_TYPE_ONEOF || realtype == ARG_TYPE_BLOCK)) {
+        if (value != NULL)
+            return NULL;
+    } else if (value == NULL) {
+        return NULL;
+    }
+
+    redisCommandArg *arg = zcalloc(sizeof(*arg));
+    arg->name = argname;
+    arg->type = realtype;
+    arg->token = token;
+    arg->summary = summary;
+    arg->since = since;
+    arg->flags = moduleArgFlagsConvert(flags);
+    arg->value.string = value;
+
+    return arg;
+}
+
+int RM_AppendSubarg(RedisModuleCommandArg *parent, RedisModuleCommandArg *subarg) {
+    if (parent->type != ARG_TYPE_ONEOF && parent->type != ARG_TYPE_BLOCK)
+        return REDISMODULE_ERR;
+
+    int len = 0;
+    while (parent->value.subargs && parent->value.subargs[++len].name);
+
+    parent->value.subargs = zrealloc(parent->value.subargs, (len+2)*sizeof(redisCommandArg));
+    /* Copy and free the subarg */
+    parent->value.subargs[len] = *subarg;
+    zfree(subarg);
+
+    memset(&parent->value.subargs[len+1], 0, sizeof(redisCommandArg));
+    return REDISMODULE_OK;
+}
+
+int RM_AppendArgToCommand(RedisModuleCommandProxy *command, RedisModuleCommandArg *arg) {
+    struct redisCommand *cmd = command->rediscmd;
+
+    int len = 0;
+    while (cmd->args && cmd->args[++len].name);
+
+    cmd->args = zrealloc(cmd->args, (len+2)*sizeof(redisCommandArg));
+    /* Copy and free the arg */
+    cmd->args[len] = *arg;
+    zfree(arg);
+
+    memset(&cmd->args[len+1], 0, sizeof(redisCommandArg));
     return REDISMODULE_OK;
 }
 
@@ -9664,6 +9769,7 @@ void moduleUnregisterCommands(struct RedisModule *module) {
                 (void*)(unsigned long)cmd->getkeys_proc;
             sds cmdname = (sds)cp->rediscmd->name;
             if (cp->module == module) {
+                // TODO:GUYBE free everything we copied/allocated (summary, history, etc.)
                 if (cmd->key_specs != cmd->key_specs_static)
                     zfree(cmd->key_specs);
                 for (int j = 0; cmd->hints && cmd->hints[j]; j++)
@@ -10433,6 +10539,9 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(SetCommandComplexity);
     REGISTER_API(SetCommandHints);
     REGISTER_API(AppendCommandHistoryEntry);
+    REGISTER_API(CreateCommandArg);
+    REGISTER_API(AppendSubarg);
+    REGISTER_API(AppendArgToCommand);
     REGISTER_API(SetModuleAttribs);
     REGISTER_API(IsModuleNameBusy);
     REGISTER_API(WrongArity);
