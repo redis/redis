@@ -1407,6 +1407,45 @@ int streamIsContiguousRange(stream *s, streamID *start) {
     return 0;
 }
 
+/* Replies with a consumerg group's current lag, that is the number of messages
+ * in the stream that are yet to be delivered. In case that the lag isn't
+ * available due to fragmentation, the reply to the client is a null. */
+void streamReplyWithCGLag(client *c, stream *s, streamCG *cg) {
+    int valid = 1;
+    uint64_t lag = 0;
+
+    if (!s->offset) {
+        /* The lag of a newly-initialized stream is 0. */
+        lag = 0;
+    } else if (cg->offset && streamIsContiguousRange(s,&cg->last_id)) {
+        /* No fragmentation ahead means that the group's offset is valid for
+         * performing the lag calculation. */
+        lag = s->offset - cg->offset;
+    } else if (streamIDEqZero(&cg->last_id)) {
+        if (streamIsContiguousRange(s,NULL)) {
+            /* The group is at 0-0 of a non-fragmented stream. */
+            lag = s->length;
+        } else {
+            valid = 0;
+        }
+    } else {
+        /* Attempt to retrieve the group's pffset. */
+        uint64_t offset = streamGetOffsetForTip(s,&cg->last_id);
+        if (offset) {
+            /* A valid offset was obtained. */
+            lag = s->offset - offset;
+        } else {
+            valid = 0;
+        }
+    }
+
+    if (valid) {
+        addReplyLongLong(c,(long long)lag);
+    } else {
+        addReplyNull(c);
+    }
+}
+
 /* A helper for getting an offset for the given ID if it is at one of the tips.
  * A non-zero offset can be either logical (one before the first ID in the
  * in the stream) or exact (the first or last IDs), but in both cases
@@ -3633,40 +3672,8 @@ void xinfoReplyWithStreamInfo(client *c, stream *s) {
                 addReplyLongLong(c,cg->offset);
 
                 /* Group lag */
-                int valid = 1;
-                uint64_t lag = 0;
-
                 addReplyBulkCString(c,"lag");
-                if (!s->offset) {
-                    /* The lag of a newly-initialized stream is 0. */
-                    lag = 0;
-                } else if (cg->offset && streamIsContiguousRange(s,&cg->last_id)) {
-                    /* No fragmentation ahead means that the group's
-                        * offset is valid for lag calculation. */
-                    lag = s->offset - cg->offset;
-                } else if (streamIDEqZero(&cg->last_id)) {
-                    if (streamIsContiguousRange(s,NULL)) {
-                        /* The group is at 0-0 of a non-fragmented stream. */
-                        lag = s->length;
-                    } else {
-                        valid = 0;
-                    }
-                } else {
-                    /* Attempt to retrieve the group's pffset. */
-                    uint64_t offset = streamGetOffsetForTip(s,&cg->last_id);
-                    if (offset) {
-                        /* A valid offset was obtained - w00t! */
-                        lag = s->offset - offset;
-                    } else {
-                        valid = 0;
-                    }
-                }
-
-                if (valid) {
-                    addReplyLongLong(c,(long long)lag);
-                } else {
-                    addReplyNull(c);
-                }
+                streamReplyWithCGLag(c,s,cg);
 
                 /* Group PEL count */
                 addReplyBulkCString(c,"pel-count");
