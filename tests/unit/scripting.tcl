@@ -695,6 +695,32 @@ start_server {tags {"scripting"}} {
         } e
         set _ $e
     } {*Script attempted to access nonexistent global variable 'print'*}
+
+    test {Script return recursive object} {
+        r readraw 1
+        set res [r eval {local a = {}; local b = {a}; a[1] = b; return a} 0]
+        # drain the response
+        while {true} {
+            if {$res == "-ERR reached lua stack limit"} {
+                break
+            }
+            assert_equal $res "*1"
+            set res [r read]
+        }
+        r readraw 0
+        # make sure the connection is still valid
+        assert_equal [r ping] {PONG}
+    }
+
+    test {Script check unpack with massive arguments} {
+        r eval {
+            local a = {}
+            for i=1,7999 do
+                a[i] = 1
+            end 
+            return redis.call("lpush", "l", unpack(a))
+        } 0
+    } {7999}
 }
 
 # Start a new server since the last test in this stanza will kill the
