@@ -13,7 +13,7 @@ then
     exit 1
 fi
 
-$MAKE -C tests/modules CFLAGS='-Werror' && \
+$MAKE -C tests/modules && \
 $TCLSH tests/test_helper.tcl \
 --single unit/moduleapi/commandfilter \
 --single unit/moduleapi/basics \
