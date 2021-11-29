@@ -96,7 +96,7 @@ struct AutoMemEntry {
     int type;
 };
 
-/* AutMemEntry type field values. */
+/* AutoMemEntry type field values. */
 #define REDISMODULE_AM_KEY 0
 #define REDISMODULE_AM_STRING 1
 #define REDISMODULE_AM_REPLY 2
@@ -991,10 +991,10 @@ RedisModuleCommandProxy *moduleCreateCommandProxy(RedisModuleCtx *ctx, const cha
  * if (RedisModule_CreateCommand(ctx,"module.config",NULL,"",0,0,0) == REDISMODULE_ERR)
  *     return REDISMODULE_ERR;
  *
- *  if (RedisModule_CreateSubcommand(ctx,"container.config","set",cmd_config_set,"",0,0,0) == REDISMODULE_ERR)
+ *  if (RedisModule_CreateSubcommand(ctx,"module.config","set",cmd_config_set,"",0,0,0) == REDISMODULE_ERR)
  *     return REDISMODULE_ERR;
  *
- *  if (RedisModule_CreateSubcommand(ctx,"container.config","get",cmd_config_get,"",0,0,0) == REDISMODULE_ERR)
+ *  if (RedisModule_CreateSubcommand(ctx,"module.config","get",cmd_config_get,"",0,0,0) == REDISMODULE_ERR)
  *     return REDISMODULE_ERR;
  *
  */
@@ -9815,7 +9815,7 @@ void addReplyLoadedModules(client *c) {
 }
 
 /* Helper for genModulesInfoString(): given a list of modules, return
- * am SDS string in the form "[modulename|modulename2|...]" */
+ * an SDS string in the form "[modulename|modulename2|...]" */
 sds genModulesInfoStringRenderModulesList(list *l) {
     listIter li;
     listNode *ln;

@@ -39,6 +39,7 @@
  * C-level DB API
  *----------------------------------------------------------------------------*/
 
+int expireIfNeeded(redisDb *db, robj *key, int force_delete_expired);
 int keyIsExpired(redisDb *db, robj *key);
 
 /* Update LFU when an object is accessed.
@@ -50,14 +51,53 @@ void updateLFU(robj *val) {
     val->lru = (LFUGetTimeInMinutes()<<8) | counter;
 }
 
-/* Low level key lookup API, not actually called directly from commands
- * implementations that should instead rely on lookupKeyRead(),
- * lookupKeyWrite() and lookupKeyReadWithFlags(). */
+/* Lookup a key for read or write operations, or return NULL if the key is not
+ * found in the specified DB. This function implements the functionality of
+ * lookupKeyRead(), lookupKeyWrite() and their ...WithFlags() variants.
+ *
+ * Side-effects of calling this function:
+ *
+ * 1. A key gets expired if it reached it's TTL.
+ * 2. The key's last access time is updated.
+ * 3. The global keys hits/misses stats are updated (reported in INFO).
+ * 4. If keyspace notifications are enabled, a "keymiss" notification is fired.
+ *
+ * Flags change the behavior of this command:
+ *
+ *  LOOKUP_NONE (or zero): No special flags are passed.
+ *  LOOKUP_NOTOUCH: Don't alter the last access time of the key.
+ *  LOOKUP_NONOTIFY: Don't trigger keyspace event on key miss.
+ *  LOOKUP_NOSTATS: Don't increment key hits/misses couters.
+ *  LOOKUP_WRITE: Prepare the key for writing (delete expired keys even on
+ *                replicas, use separate keyspace stats and events (TODO)).
+ *
+ * Note: this function also returns NULL if the key is logically expired but
+ * still existing, in case this is a replica and the LOOKUP_WRITE is not set.
+ * Even if the key expiry is master-driven, we can correctly report a key is
+ * expired on replicas even if the master is lagging expiring our key via DELs
+ * in the replication link. */
 robj *lookupKey(redisDb *db, robj *key, int flags) {
     dictEntry *de = dictFind(db->dict,key->ptr);
+    robj *val = NULL;
     if (de) {
-        robj *val = dictGetVal(de);
+        val = dictGetVal(de);
+        int force_delete_expired = flags & LOOKUP_WRITE;
+        if (force_delete_expired) {
+            /* Forcing deletion of expired keys on a replica makes the replica
+             * inconsistent with the master. The reason it's allowed for write
+             * commands is to make writable replicas behave consistently. It
+             * shall not be used in readonly commands. Modules are accepted so
+             * that we don't break old modules. */
+            client *c = server.in_eval ? server.lua_client : server.current_client;
+            serverAssert(!c || !c->cmd || (c->cmd->flags & (CMD_WRITE|CMD_MODULE)));
+        }
+        if (expireIfNeeded(db, key, force_delete_expired)) {
+            /* The key is no longer valid. */
+            val = NULL;
+        }
+    }
 
+    if (val) {
         /* Update the access time for the ageing algorithm.
          * Don't do it if we have a saving child, as this will trigger
          * a copy on write madness. */
@@ -68,75 +108,33 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
                 val->lru = LRU_CLOCK();
             }
         }
-        return val;
+
+        if (!(flags & (LOOKUP_NOSTATS | LOOKUP_WRITE)))
+            server.stat_keyspace_hits++;
+        /* TODO: Use separate hits stats for WRITE */
     } else {
-        return NULL;
+        if (!(flags & (LOOKUP_NONOTIFY | LOOKUP_WRITE)))
+            notifyKeyspaceEvent(NOTIFY_KEY_MISS, "keymiss", key, db->id);
+        if (!(flags & (LOOKUP_NOSTATS | LOOKUP_WRITE)))
+            server.stat_keyspace_misses++;
+        /* TODO: Use separate misses stats and notify event for WRITE */
     }
+
+    return val;
 }
 
 /* Lookup a key for read operations, or return NULL if the key is not found
  * in the specified DB.
  *
- * As a side effect of calling this function:
- * 1. A key gets expired if it reached it's TTL.
- * 2. The key last access time is updated.
- * 3. The global keys hits/misses stats are updated (reported in INFO).
- * 4. If keyspace notifications are enabled, a "keymiss" notification is fired.
- *
  * This API should not be used when we write to the key after obtaining
  * the object linked to the key, but only for read only operations.
  *
- * Flags change the behavior of this command:
- *
- *  LOOKUP_NONE (or zero): no special flags are passed.
- *  LOOKUP_NOTOUCH: don't alter the last access time of the key.
- *
- * Note: this function also returns NULL if the key is logically expired
- * but still existing, in case this is a slave, since this API is called only
- * for read operations. Even if the key expiry is master-driven, we can
- * correctly report a key is expired on slaves even if the master is lagging
- * expiring our key via DELs in the replication link. */
+ * This function is equivalent to lookupKey(). The point of using this function
+ * rather than lookupKey() directly is to indicate that the purpose is to read
+ * the key. */
 robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
-    robj *val;
-
-    if (expireIfNeeded(db,key) == 1) {
-        /* If we are in the context of a master, expireIfNeeded() returns 1
-         * when the key is no longer valid, so we can return NULL ASAP. */
-        if (server.masterhost == NULL)
-            goto keymiss;
-
-        /* However if we are in the context of a slave, expireIfNeeded() will
-         * not really try to expire the key, it only returns information
-         * about the "logical" status of the key: key expiring is up to the
-         * master in order to have a consistent view of master's data set.
-         *
-         * However, if the command caller is not the master, and as additional
-         * safety measure, the command invoked is a read-only command, we can
-         * safely return NULL here, and provide a more consistent behavior
-         * to clients accessing expired values in a read-only fashion, that
-         * will say the key as non existing.
-         *
-         * Notably this covers GETs when slaves are used to scale reads. */
-        if (server.current_client &&
-            server.current_client != server.master &&
-            server.current_client->cmd &&
-            server.current_client->cmd->flags & CMD_READONLY)
-        {
-            goto keymiss;
-        }
-    }
-    val = lookupKey(db,key,flags);
-    if (val == NULL)
-        goto keymiss;
-    server.stat_keyspace_hits++;
-    return val;
-
-keymiss:
-    if (!(flags & LOOKUP_NONOTIFY)) {
-        notifyKeyspaceEvent(NOTIFY_KEY_MISS, "keymiss", key, db->id);
-    }
-    server.stat_keyspace_misses++;
-    return NULL;
+    serverAssert(!(flags & LOOKUP_WRITE));
+    return lookupKey(db, key, flags);
 }
 
 /* Like lookupKeyReadWithFlags(), but does not use any flag, which is the
@@ -146,13 +144,13 @@ robj *lookupKeyRead(redisDb *db, robj *key) {
 }
 
 /* Lookup a key for write operations, and as a side effect, if needed, expires
- * the key if its TTL is reached.
+ * the key if its TTL is reached. It's equivalent to lookupKey() with the
+ * LOOKUP_WRITE flag added.
  *
  * Returns the linked value object if the key exists or NULL if the key
  * does not exist in the specified DB. */
 robj *lookupKeyWriteWithFlags(redisDb *db, robj *key, int flags) {
-    expireIfNeeded(db,key);
-    return lookupKey(db,key,flags);
+    return lookupKey(db, key, flags | LOOKUP_WRITE);
 }
 
 robj *lookupKeyWrite(redisDb *db, robj *key) {
@@ -292,7 +290,7 @@ robj *dbRandomKey(redisDb *db) {
                  * return a key name that may be already expired. */
                 return keyobj;
             }
-            if (expireIfNeeded(db,keyobj)) {
+            if (expireIfNeeded(db,keyobj,0)) {
                 decrRefCount(keyobj);
                 continue; /* search for another key. This expired. */
             }
@@ -641,7 +639,7 @@ void delGenericCommand(client *c, int lazy) {
     int numdel = 0, j;
 
     for (j = 1; j < c->argc; j++) {
-        expireIfNeeded(c->db,c->argv[j]);
+        expireIfNeeded(c->db,c->argv[j],0);
         int deleted  = lazy ? dbAsyncDelete(c->db,c->argv[j]) :
                               dbSyncDelete(c->db,c->argv[j]);
         if (deleted) {
@@ -939,7 +937,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         }
 
         /* Filter element if it is an expired key. */
-        if (!filter && o == NULL && expireIfNeeded(c->db, kobj)) filter = 1;
+        if (!filter && o == NULL && expireIfNeeded(c->db, kobj, 0)) filter = 1;
 
         /* Remove the element and its associated value if needed. */
         if (filter) {
@@ -1206,7 +1204,7 @@ void copyCommand(client *c) {
     }
 
     /* Check if the element exists and get a reference */
-    o = lookupKeyWrite(c->db, key);
+    o = lookupKeyRead(c->db, key);
     if (!o) {
         addReply(c,shared.czero);
         return;
@@ -1266,8 +1264,11 @@ void scanDatabaseForReadyLists(redisDb *db) {
     dictIterator *di = dictGetSafeIterator(db->blocking_keys);
     while((de = dictNext(di)) != NULL) {
         robj *key = dictGetKey(de);
-        robj *value = lookupKey(db,key,LOOKUP_NOTOUCH);
-        if (value) signalKeyAsReady(db, key, value->type);
+        dictEntry *kde = dictFind(db->dict,key->ptr);
+        if (kde) {
+            robj *value = dictGetVal(kde);
+            signalKeyAsReady(db, key, value->type);
+        }
     }
     dictReleaseIterator(di);
 }
@@ -1529,10 +1530,10 @@ int keyIsExpired(redisDb *db, robj *key) {
  * is via lookupKey*() family of functions.
  *
  * The behavior of the function depends on the replication role of the
- * instance, because slave instances do not expire keys, they wait
- * for DELs from the master for consistency matters. However even
- * slaves will try to have a coherent return value for the function,
- * so that read commands executed in the slave side will be able to
+ * instance, because by default replicas do not delete expired keys. They
+ * wait for DELs from the master for consistency matters. However even
+ * replicas will try to have a coherent return value for the function,
+ * so that read commands executed in the replica side will be able to
  * behave like if the key is expired even if still present (because the
  * master has yet to propagate the DEL).
  *
@@ -1540,20 +1541,34 @@ int keyIsExpired(redisDb *db, robj *key) {
  * key will be evicted from the database. Also this may trigger the
  * propagation of a DEL/UNLINK command in AOF / replication stream.
  *
+ * On replicas, this function does not delete expired keys by default, but
+ * it still returns 1 if the key is logically expired. To force deletion
+ * of logically expired keys even on replicas, set force_delete_expired to
+ * a non-zero value. Note though that if the current client is executing
+ * replicated commands from the master, keys are never considered expired.
+ *
  * The return value of the function is 0 if the key is still valid,
  * otherwise the function returns 1 if the key is expired. */
-int expireIfNeeded(redisDb *db, robj *key) {
+int expireIfNeeded(redisDb *db, robj *key, int force_delete_expired) {
     if (!keyIsExpired(db,key)) return 0;
 
-    /* If we are running in the context of a slave, instead of
+    /* If we are running in the context of a replica, instead of
      * evicting the expired key from the database, we return ASAP:
-     * the slave key expiration is controlled by the master that will
-     * send us synthesized DEL operations for expired keys.
+     * the replica key expiration is controlled by the master that will
+     * send us synthesized DEL operations for expired keys. The
+     * exception is when write operations are performed on writable
+     * replicas.
      *
      * Still we try to return the right information to the caller,
      * that is, 0 if we think the key should be still valid, 1 if
-     * we think the key is expired at this time. */
-    if (server.masterhost != NULL) return 1;
+     * we think the key is expired at this time.
+     *
+     * When replicating commands from the master, keys are never considered
+     * expired. */
+    if (server.masterhost != NULL) {
+        if (server.current_client == server.master) return 0;
+        if (!force_delete_expired) return 1;
+    }
 
     /* If clients are paused, we keep the current dataset constant,
      * but return to the client what we believe is the right state. Typically,
@@ -1859,31 +1874,6 @@ int georadiusGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysRes
     }
     result->numkeys = num;
     return num;
-}
-
-/* LCS ... [KEYS <key1> <key2>] ... */
-int lcsGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
-    int i;
-    int *keys = getKeysPrepareResult(result, 2);
-    UNUSED(cmd);
-
-    /* We need to parse the options of the command in order to check for the
-     * "KEYS" argument before the "STRINGS" argument. */
-    for (i = 1; i < argc; i++) {
-        char *arg = argv[i]->ptr;
-        int moreargs = (argc-1) - i;
-
-        if (!strcasecmp(arg, "strings")) {
-            break;
-        } else if (!strcasecmp(arg, "keys") && moreargs >= 2) {
-            keys[0] = i+1;
-            keys[1] = i+2;
-            result->numkeys = 2;
-            return result->numkeys;
-        }
-    }
-    result->numkeys = 0;
-    return result->numkeys;
 }
 
 /* XREAD [BLOCK <milliseconds>] [COUNT <count>] [GROUP <groupname> <ttl>]

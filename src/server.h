@@ -2411,7 +2411,6 @@ int ACLCheckPubsubChannelPerm(sds channel, list *allowed, int literal);
 int ACLCheckAllUserCommandPerm(const user *u, struct redisCommand *cmd, robj **argv, int argc, int *idxptr);
 int ACLCheckAllPerm(client *c, int *idxptr);
 int ACLSetUser(user *u, const char *op, ssize_t oplen);
-sds ACLDefaultUserFirstPassword(void);
 uint64_t ACLGetCommandCategoryFlagByName(const char *name);
 int ACLAppendUserForLoading(sds *argv, int argc, int *argc_err);
 const char *ACLSetUserStringError(void);
@@ -2624,11 +2623,9 @@ int removeExpire(redisDb *db, robj *key);
 void deleteExpiredKeyAndPropagate(redisDb *db, robj *keyobj);
 void propagateExpire(redisDb *db, robj *key, int lazy);
 int keyIsExpired(redisDb *db, robj *key);
-int expireIfNeeded(redisDb *db, robj *key);
 long long getExpire(redisDb *db, robj *key);
 void setExpire(client *c, redisDb *db, robj *key, long long when);
 int checkAlreadyExpired(long long when);
-robj *lookupKey(redisDb *db, robj *key, int flags);
 robj *lookupKeyRead(redisDb *db, robj *key);
 robj *lookupKeyWrite(redisDb *db, robj *key);
 robj *lookupKeyReadOrReply(client *c, robj *key, robj *reply);
@@ -2640,8 +2637,11 @@ robj *objectCommandLookupOrReply(client *c, robj *key, robj *reply);
 int objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
                        long long lru_clock, int lru_multiplier);
 #define LOOKUP_NONE 0
-#define LOOKUP_NOTOUCH (1<<0)
-#define LOOKUP_NONOTIFY (1<<1)
+#define LOOKUP_NOTOUCH (1<<0)  /* Don't update LRU. */
+#define LOOKUP_NONOTIFY (1<<1) /* Don't trigger keyspace event on key misses. */
+#define LOOKUP_NOSTATS (1<<2)  /* Don't update keyspace hits/misses couters. */
+#define LOOKUP_WRITE (1<<3)    /* Delete expired keys even in replicas. */
+
 void dbAdd(redisDb *db, robj *key, robj *val);
 int dbAddRDBLoad(redisDb *db, sds key, robj *val);
 void dbOverwrite(redisDb *db, robj *key, robj *val);
@@ -2691,7 +2691,6 @@ int sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *
 int migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int georadiusGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int xreadGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
-int lcsGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int lmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int blmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int zmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
