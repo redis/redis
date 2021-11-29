@@ -287,6 +287,7 @@ start_server {
         r XADD s2{t} * old abcd1234
         set rd [redis_deferring_client]
         $rd XREAD BLOCK 20000 STREAMS s1{t} s2{t} s3{t} $ $ $
+        wait_for_blocked_client
         r XADD s2{t} * new abcd1234
         set res [$rd read]
         assert {[lindex $res 0 0] eq {s2{t}}}
