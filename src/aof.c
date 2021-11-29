@@ -2312,7 +2312,10 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             aofManifestFree(temp_am);
             goto cleanup;
         }
-    
+
+        /* We can safely let `server.aof_manifest` point to 'temp_am' and free the previous one. */
+        aofManifestFreeAndUpdate(temp_am);
+
         if (server.aof_fd != -1) {
             /* AOF enabled. */
             server.aof_selected_db = -1; /* Make sure SELECT is re-issued */
@@ -2321,9 +2324,6 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             server.aof_fsync_offset = server.aof_current_size;
             server.aof_last_fsync = server.unixtime;
         }
-
-        /* We can safely let `server.aof_manifest` point to 'temp_am' and free the previous one. */
-        aofManifestFreeAndUpdate(temp_am);
 
         /* We don't care about the return value of `aofDelHistoryFiles`, because the history 
          * deletion failure will not cause any problems. */

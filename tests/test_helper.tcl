@@ -46,7 +46,7 @@ set ::all_tests {
     integration/replication-psync
     integration/replication-buffer
     integration/aof
-    integration/aof-manifest
+    integration/aof-multi-part
     integration/rdb
     integration/corrupt-dump
     integration/corrupt-dump-fuzzer

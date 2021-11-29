@@ -10,7 +10,7 @@ set incr_3_filepath "$server_path/appendonly_3.incr.aof"
 set aof_manifest_path "$server_path/appendonly.manifest"
 
 tags {"external:skip"} {
-    # Tests1: AOF can load data discontinuously increasing sequence
+    # Tests1: Multi Part AOF can load data discontinuously increasing sequence
     create_aof $base_1_filepath {
         append_to_aof [formatCommand set k1 v1]
     }
@@ -30,7 +30,7 @@ tags {"external:skip"} {
     }
 
     start_server_aof [list dir $server_path] {
-        test "AOF can load data discontinuously increasing sequence" {
+        test "Multi Part AOF can load data discontinuously increasing sequence" {
             assert_equal 1 [is_alive $srv]
             set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
             wait_done_loading $client
@@ -41,11 +41,11 @@ tags {"external:skip"} {
         }
     }
 
-    # Tests2: AOF can't load data when some aof missing
+    # Tests2: Multi Part AOF can't load data when some aof missing
     catch {exec rm -rf $incr_1_filepath}
     
     start_server_aof [list dir $server_path] {
-        test "AOF can't load data when some aof missing" {
+        test "Multi Part AOF can't load data when some aof missing" {
             wait_for_condition 100 50 {
                 ! [is_alive $srv]
             } else {
@@ -58,7 +58,7 @@ tags {"external:skip"} {
 
     clean_aof_persistence $server_path
 
-    # Tests3: AOF can't load data when the sequence not increase monotonically
+    # Tests3: Multi Part AOF can't load data when the sequence not increase monotonically
     create_aof $incr_1_filepath {
         append_to_aof [formatCommand set k1 v1]
     }
@@ -73,7 +73,7 @@ tags {"external:skip"} {
     }
 
     start_server_aof [list dir $server_path] {
-        test "AOF can't load data when the sequence not increase monotonically" {
+        test "Multi Part AOF can't load data when the sequence not increase monotonically" {
             wait_for_condition 100 50 {
                 ! [is_alive $srv]
             } else {
@@ -84,7 +84,7 @@ tags {"external:skip"} {
 
     clean_aof_persistence $server_path
 
-    # Tests4: AOF can't load data when there are blank lines in the manifest file
+    # Tests4: Multi Part AOF can't load data when there are blank lines in the manifest file
     create_aof $incr_1_filepath {
         append_to_aof [formatCommand set k1 v1]
     }
@@ -100,7 +100,7 @@ tags {"external:skip"} {
     }
 
     start_server_aof [list dir $server_path] {
-        test "AOF can't load data when there are blank lines in the manifest file" {
+        test "Multi Part AOF can't load data when there are blank lines in the manifest file" {
             wait_for_condition 100 50 {
                 ! [is_alive $srv]
             } else {
@@ -113,7 +113,7 @@ tags {"external:skip"} {
     catch {exec rm -rf $incr_3_filepath}
     catch {exec rm -rf $aof_manifest_path}
 
-    # Tests5: AOF can't load data when there is a duplicate base file
+    # Tests5: Multi Part AOF can't load data when there is a duplicate base file
     create_aof $base_1_filepath {
         append_to_aof [formatCommand set k1 v1]
     }
@@ -133,7 +133,7 @@ tags {"external:skip"} {
     }
 
     start_server_aof [list dir $server_path] {
-        test "AOF can't load data when there is a duplicate base file" {
+        test "Multi Part AOF can't load data when there is a duplicate base file" {
             wait_for_condition 100 50 {
                 ! [is_alive $srv]
             } else {
@@ -144,7 +144,7 @@ tags {"external:skip"} {
 
     clean_aof_persistence $server_path
 
-    # Tests6: AOF can't load data when the manifest format is wrong (type unknown)
+    # Tests6: Multi Part AOF can't load data when the manifest format is wrong (type unknown)
     create_aof $base_1_filepath {
         append_to_aof [formatCommand set k1 v1]
     }
@@ -159,7 +159,7 @@ tags {"external:skip"} {
     }
 
     start_server_aof [list dir $server_path] {
-        test "AOF can't load data when the manifest format is wrong (type unknown)" {
+        test "Multi Part AOF can't load data when the manifest format is wrong (type unknown)" {
             wait_for_condition 100 50 {
                 ! [is_alive $srv]
             } else {
@@ -170,7 +170,7 @@ tags {"external:skip"} {
 
     clean_aof_persistence $server_path
 
-    # Tests7: AOF can't load data when the manifest format is wrong (file typo)
+    # Tests7: Multi Part AOF can't load data when the manifest format is wrong (file typo)
     create_aof $base_1_filepath {
         append_to_aof [formatCommand set k1 v1]
     }
@@ -185,7 +185,7 @@ tags {"external:skip"} {
     }
 
     start_server_aof [list dir $server_path] {
-        test "AOF can't load data when the manifest format is wrong (file typo)" {
+        test "Multi Part AOF can't load data when the manifest format is wrong (file typo)" {
             wait_for_condition 100 50 {
                 ! [is_alive $srv]
             } else {
@@ -196,7 +196,7 @@ tags {"external:skip"} {
 
     clean_aof_persistence $server_path
 
-    # Tests8: AOF can load data from old redis aof
+    # Tests8: Multi Part AOF can load data from old redis aof
     create_aof $old_version_aof_path {
         append_to_aof [formatCommand set k1 v1]
         append_to_aof [formatCommand set k2 v2]
@@ -204,7 +204,7 @@ tags {"external:skip"} {
     }
 
     start_server_aof [list dir $server_path] {
-        test "AOF can load data from old redis aof" {
+        test "Multi Part AOF can load data from old redis aof" {
             assert_equal 1 [is_alive $srv]
 
             set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
@@ -250,12 +250,12 @@ tags {"external:skip"} {
 
     clean_aof_persistence $server_path
 
-    # Tests9: AOF can't load data when the manifest file is empty
+    # Tests9: Multi Part AOF can't load data when the manifest file is empty
     create_aof_manifest $aof_manifest_path {
     }
 
     start_server_aof [list dir $server_path] {
-        test "AOF can't load data when the manifest file is empty" {
+        test "Multi Part AOF can't load data when the manifest file is empty" {
             wait_for_condition 100 50 {
                 ! [is_alive $srv]
             } else {
@@ -266,9 +266,9 @@ tags {"external:skip"} {
 
     clean_aof_persistence $server_path
 
-    # Tests10: AOF can start when no aof and no manifest
+    # Tests10: Multi Part AOF can start when no aof and no manifest
     start_server_aof [list dir $server_path] {
-        test "AOF can start when no aof and no manifest" {
+        test "Multi Part AOF can start when no aof and no manifest" {
             assert_equal 1 [is_alive $srv]
 
             set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
@@ -278,14 +278,14 @@ tags {"external:skip"} {
         }
     }
 
-    start_server {tags {"aof manifest"} overrides {aof-use-rdb-preamble {yes} appendfilename {appendonly}}} {
+    start_server {tags {"Multi Part AOF"} overrides {aof-use-rdb-preamble {yes} appendfilename {appendonly}}} {
         set dir [get_redis_dir]
         set aof_basename [get_aof_basename $::default_aof_basename]
         set master [srv 0 client]
         set master_host [srv 0 host]
         set master_port [srv 0 port]
 
-        test "AOF make sure aof manifest $::aof_manifest_name not in current working directory" {
+        test "Make sure aof manifest $::aof_manifest_name not in current working directory" {
             assert_equal 0 [file exists $::aof_manifest_name]
         }
 
@@ -473,7 +473,7 @@ tags {"external:skip"} {
             assert_equal 1 [check_file_exist $dir "${aof_basename}_1${::incr_aof_sufix}${::aof_format_suffix}"]
         }
 
-        test "AOF enable/disable aof auto gc" {
+        test "AOF enable/disable auto gc" {
             r config set aof-disable-auto-gc yes
 
             r bgrewriteaof
@@ -536,7 +536,7 @@ tags {"external:skip"} {
             }
         }
 
-        test "AOF turn on during BGSAVE will not write aof util AOFRW finish" {
+        test "AOF enable during BGSAVE will not write data util AOFRW finish" {
             r flushall
             r config set rdb-key-save-delay 10000000
             r config set appendonly no
@@ -616,6 +616,7 @@ tags {"external:skip"} {
                 fail "No write load detected."
             }
 
+            # Make sure we have limit log
             wait_for_condition 1000 500 {
                 [count_log_message 0 "triggered the limit"] == 1
             } else {
@@ -641,7 +642,7 @@ tags {"external:skip"} {
             r bgrewriteaof
             waitForBgrewriteaof r
 
-            # Can create New INCR AOF but AOFRW still fail
+            # Can create New INCR AOF
             assert_equal 1 [check_file_exist $dir "${aof_basename}_8${::incr_aof_sufix}${::aof_format_suffix}"]
 
             assert_aof_manifest_content $dir {
