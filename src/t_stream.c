@@ -1736,9 +1736,6 @@ int streamGenericParseIDOrReply(client *c, const robj *o, streamID *id, uint64_t
         }
     } else {
         seq = missing_seq;
-        if (seq_given != NULL) {
-            *seq_given = 0;
-        }
     }
     id->ms = ms;
     id->seq = seq;
