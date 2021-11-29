@@ -2,6 +2,8 @@
 
 uname_S:= $(shell sh -c 'uname -s 2>/dev/null || echo not')
 
+LUA_DEBUG?=no
+
 CCCOLOR="\033[34m"
 LINKCOLOR="\033[34;1m"
 SRCCOLOR="\033[33m"
@@ -69,8 +71,13 @@ ifeq ($(uname_S),SunOS)
 	LUA_CFLAGS= -D__C99FEATURES__=1
 endif
 
-LUA_CFLAGS+= -O2 -Wall -DLUA_ANSI -DENABLE_CJSON_GLOBAL -DREDIS_STATIC='' -DLUA_USE_MKSTEMP $(CFLAGS)
+LUA_CFLAGS+= -Wall -DLUA_ANSI -DENABLE_CJSON_GLOBAL -DREDIS_STATIC='' -DLUA_USE_MKSTEMP $(CFLAGS)
 LUA_LDFLAGS+= $(LDFLAGS)
+ifeq ($(LUA_DEBUG),yes)
+	LUA_CFLAGS+= -O0 -g -DLUA_USE_APICHECK
+else
+	LUA_CFLAGS+= -O2 
+endif
 # lua's Makefile defines AR="ar rcu", which is unusual, and makes it more
 # challenging to cross-compile lua (and redis).  These defines make it easier
 # to fit redis into cross-compilation environments, which typically set AR.
