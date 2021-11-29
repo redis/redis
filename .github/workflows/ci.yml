@@ -18,6 +18,10 @@ jobs:
         ./runtest --verbose --tags -slow --dump-logs
     - name: module api test
       run: ./runtest-moduleapi --verbose --dump-logs
+    - name: sentinel tests
+      run: ./runtest-sentinel
+    - name: cluster tests
+      run: ./runtest-cluster
 
   test-sanitizer-address:
     runs-on: ubuntu-latest
@@ -31,6 +35,10 @@ jobs:
         run: ./runtest --verbose --tags -slow --dump-logs
       - name: module api test
         run: ./runtest-moduleapi --verbose --dump-logs
+      - name: sentinel tests
+        run: ./runtest-sentinel
+      - name: cluster tests
+        run: ./runtest-cluster
 
   build-debian-old:
     runs-on: ubuntu-latest
