@@ -1520,7 +1520,7 @@ struct redisServer {
     int aof_rewrite_perc;           /* Rewrite AOF if % growth is > M and... */
     off_t aof_rewrite_min_size;     /* the AOF file is at least N bytes. */
     off_t aof_rewrite_base_size;    /* AOF size on latest startup or rewrite. */
-    off_t aof_current_size;         /* AOF current size. */
+    off_t aof_current_size;         /* AOF current size (Including BASE + INCRs). */
     off_t aof_last_incr_size;       /* The size of the latest incr AOF. */
     off_t aof_fsync_offset;         /* AOF offset which is already synced to disk. */
     int aof_flush_sleep;            /* Micros to sleep before flush. (used by tests) */
@@ -1545,7 +1545,7 @@ struct redisServer {
     int aof_use_rdb_preamble;       /* Use RDB preamble on AOF rewrites. */
     redisAtomic int aof_bio_fsync_status; /* Status of AOF fsync in bio job. */
     redisAtomic int aof_bio_fsync_errno;  /* Errno of AOF fsync in bio job. */
-    aofManifest *aof_manifest;       /* Used to record and manage AOFs. */
+    aofManifest *aof_manifest;       /* Used to track AOFs. */
     int aof_disable_auto_gc;         /* If disable automatically deleting HISTORY type AOFs?
                                         default no. (for testings). */
 

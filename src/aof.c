@@ -54,9 +54,9 @@ off_t getBaseAndIncrAppendOnlyFilesSize(aofManifest *am);
  * BASE: Every time AOFRW success, a BASE file will be generated, which represents 
  *       the redis SNAPSHOT at the moment when the AOFRW is executed. In AOF manifest
  *       file, the BASE file (if we have) is always at the beginning. there is at 
- *       most one BASE AOF file.
+ *       most one BASE file.
  * HISTORY: Each time the AOFRW is successful, the previous BASE file and INCR AOF 
- *       files will become HISTORY. they will be cleaned regularly unless GC is disabled.
+ *       files will become HISTORY. they will be cleaned unless GC is disabled.
  * INCR: There may be more than one (during AOFRW, and after AOFRW failure), and they
  *       together represent all the incremental commands executed by redis after the 
  *       last successful AOFRW.
@@ -223,12 +223,12 @@ void aofLoadManifestFromDisk(void) {
     if (fp == NULL) {
         int en = errno;
         if (redis_stat(am_name, &sb) == 0) {
-            serverLog(LL_WARNING, "Fatal error: can't open the aof manifest  \
+            serverLog(LL_WARNING, "Fatal error: can't open the AOF manifest  \
                 file %s for reading: %s", am_name, strerror(en));
 
             exit(1);
         } else {
-            serverLog(LL_NOTICE, "The aof manifest file %s doesn't exist: %s",
+            serverLog(LL_NOTICE, "The AOF manifest file %s doesn't exist: %s",
                 am_name, strerror(errno));
 
             sdsfree(am_name);
@@ -250,13 +250,13 @@ void aofLoadManifestFromDisk(void) {
         if (fgets(buf, sizeof(buf), fp) == NULL) {
             if (feof(fp)) {
                 if (linenum == 0) {
-                    err = "Found an empty aof manifest";
+                    err = "Found an empty AOF manifest";
                     goto loaderr;
                 } else {
                     break;
                 }
             } else {
-                err = "Read aof manifest failed";
+                err = "Read AOF manifest failed";
                 goto loaderr;
             }
         }
@@ -268,7 +268,7 @@ void aofLoadManifestFromDisk(void) {
 
         argv = sdssplitargs(line, &argc);
         if (argv == NULL || argc != 6) {
-            err = "The aof manifest file is invalid format";
+            err = "The AOF manifest file is invalid format";
             goto loaderr;
         }
 
@@ -319,7 +319,7 @@ void aofLoadManifestFromDisk(void) {
             server.aof_manifest->curr_incr_file_seq = ai->file_seq;
             maxseq = ai->file_seq;
         } else {
-            err = "Unknown aof file type";
+            err = "Unknown AOF file type";
             goto loaderr;
         }
 
@@ -350,7 +350,7 @@ loaderr:
 /* Deep copy an aofManifest from orig.
  * 
  * In `backgroundRewriteDoneHandler` and `openNewIncrAofForAppend`, we will
- * first deep copy a temporary aof manifest from the `server.aof_manifest` and 
+ * first deep copy a temporary AOF manifest from the `server.aof_manifest` and 
  * try to modify it. Once everything is modified, we will atomically make the 
  * `server.aof_manifest` point to this temporary aof_manifest.
  */
@@ -415,7 +415,7 @@ sds getNewBaseFileNameAndMarkPreAsHistory(aofManifest *am) {
 
 /* Get a new INCR type AOF name. 
  *  
- * INCR aof naming rules: `server.aof_filename`_seq.incr.aof
+ * INCR AOF naming rules: `server.aof_filename`_seq.incr.aof
  * 
  * for example:
  *  appendonly.aof_1.incr.aof
@@ -493,7 +493,7 @@ int writeAofManifestFile(sds buf) {
     sds tmp_am_name = getTempAofManifestFileName();
     int fd = open(tmp_am_name, O_WRONLY|O_TRUNC|O_CREAT, 0644);
     if (fd == -1) {
-        serverLog(LL_WARNING, "Can't open the aof manifest file %s: %s", 
+        serverLog(LL_WARNING, "Can't open the AOF manifest file %s: %s", 
             tmp_am_name, strerror(errno));
 
         ret = C_ERR;
@@ -587,9 +587,9 @@ int aofDelHistoryFiles(void) {
 /* Called after `loadDataFromDisk` when redis start. If `server.aof_state` is 
  * 'AOF_ON', It will do two things:
  * 1. Open the last opened INCR type AOF for writing, If not, create a new one
- * 2. synchronously update the manifest file to the disk
+ * 2. Synchronously update the manifest file to the disk
  * 
- * if any of the above two steps fails, the redis process will exit.
+ * If any of the above two steps fails, the redis process will exit.
  */
 void aofOpenIfNeededOnServerStart(void) {
     if (server.aof_state != AOF_ON) {
@@ -620,8 +620,8 @@ void aofOpenIfNeededOnServerStart(void) {
 
 /* Called in `rewriteAppendOnlyFileBackground`. If `server.aof_state` 
  * is 'AOF_ON' or ‘AOF_WAIT_REWRITE', It will do two things:
- * 1. open a new INCR type AOF for writing
- * 2. synchronously update the manifest file to the disk
+ * 1. Open a new INCR type AOF for writing
+ * 2. Synchronously update the manifest file to the disk
  * 
  * The above two steps of modification are atomic, that is, if 
  * any step fails, the entire operation will rollback and returns
@@ -1140,7 +1140,7 @@ void feedAppendOnlyFile(int dictid, robj **argv, int argc) {
     if (server.aof_state == AOF_ON ||
         server.child_type == CHILD_TYPE_AOF)
     {
-        server.aof_buf = sdscatlen(server.aof_buf,buf,sdslen(buf));
+        server.aof_buf = sdscatlen(server.aof_buf, buf, sdslen(buf));
     }
 
     sdsfree(buf);
@@ -1416,7 +1416,7 @@ int loadAppendOnlyFiles(aofManifest *am) {
     off_t total_size = 0;
     sds aof_name;
 
-    /* If there is no information about BASE AOF and INCR AOF in aofManifest, then 
+    /* If there is no information about BASE file and INCR AOF in aofManifest, then 
      * there is only one possibility: the aof manifest file does not exist, we may 
      * be starting from an old redis version. so we must fall back to the previous 
      * loading mode.
@@ -1431,7 +1431,7 @@ int loadAppendOnlyFiles(aofManifest *am) {
 
         /* If the `server.aof_filename` file exists, we manually construct a BASE 
          * type aofInfo and add it to aofManifest. In this way, we can reuse the 
-         * following code to load this AOF file. */
+         * following code to load this file. */
         aofInfo *ai = aofInfoCreate();
         ai->file_name = sdsnew(server.aof_filename);
         ai->file_seq = 1;
@@ -1448,7 +1448,7 @@ int loadAppendOnlyFiles(aofManifest *am) {
 
     serverAssert(am->base_aof_info != NULL || listLength(am->incr_aof_list) != 0);
 
-    /* Here we calculate the total size of all BASE AOF and INCR AOF files in 
+    /* Here we calculate the total size of all BASE and INCR files in 
      * advance, it will be set to `server.loading_total_bytes`. */
     total_size = getBaseAndIncrAppendOnlyFilesSize(server.aof_manifest);
     startLoading(total_size, RDBFLAGS_AOF_PREAMBLE, 0);
@@ -2144,12 +2144,14 @@ werr:
  * 1) The user calls BGREWRITEAOF
  * 2) Redis calls this function, that forks():
  *    2a) the child rewrite the append only file in a temp file.
- *    2b) the parent accumulates differences in server.aof_rewrite_buf.
+ *    2b) the parent open a new INCR AOF file to continue writing.
  * 3) When the child finished '2a' exists.
- * 4) The parent will trap the exit code, if it's OK, will append the
- *    data accumulated into server.aof_rewrite_buf into the temp file, and
- *    finally will rename(2) the temp file in the actual file name.
- *    The the new file is reopened as the new append only file. Profit!
+ * 4) The parent will trap the exit code, if it's OK, it will:
+ *    4a) get a new BASE file name mark the previous (if we have) as the HISTORY type
+ *    4b) rename(2) the temp file in new BASE file name
+ *    4c) mark the rewritten INCR AOFs as history type
+ *    4d) persist AOF manifest file
+ *    4e) Delete the history files use bio
  */
 int rewriteAppendOnlyFileBackground(void) {
     pid_t childpid;

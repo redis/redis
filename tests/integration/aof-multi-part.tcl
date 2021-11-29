@@ -41,11 +41,11 @@ tags {"external:skip"} {
         }
     }
 
-    # Tests2: Multi Part AOF can't load data when some aof missing
+    # Tests2: Multi Part AOF can't load data when some file missing
     catch {exec rm -rf $incr_1_filepath}
     
     start_server_aof [list dir $server_path] {
-        test "Multi Part AOF can't load data when some aof missing" {
+        test "Multi Part AOF can't load data when some file missing" {
             wait_for_condition 100 50 {
                 ! [is_alive $srv]
             } else {
@@ -63,12 +63,12 @@ tags {"external:skip"} {
         append_to_aof [formatCommand set k1 v1]
     }
 
-    create_aof $incr_3_filepath {
+    create_aof $incr_2_filepath {
         append_to_aof [formatCommand set k2 v2]
     }
 
     create_aof_manifest $aof_manifest_path {
-        append_to_manifest "file appendonly_3.incr.aof seq 3 type i\n"
+        append_to_manifest "file appendonly_2.incr.aof seq 2 type i\n"
         append_to_manifest "file appendonly_1.incr.aof seq 1 type i\n"
     }
 
@@ -196,7 +196,37 @@ tags {"external:skip"} {
 
     clean_aof_persistence $server_path
 
-    # Tests8: Multi Part AOF can load data from old redis aof
+    # Tests8: Multi Part AOF can't load data when the manifest file is empty
+    create_aof_manifest $aof_manifest_path {
+    }
+
+    start_server_aof [list dir $server_path] {
+        test "Multi Part AOF can't load data when the manifest file is empty" {
+            wait_for_condition 100 50 {
+                ! [is_alive $srv]
+            } else {
+                fail "AOF loading didn't fail"
+            }
+        }
+    }
+
+    clean_aof_persistence $server_path
+
+    # Tests9: Multi Part AOF can start when no aof and no manifest
+    start_server_aof [list dir $server_path] {
+        test "Multi Part AOF can start when no aof and no manifest" {
+            assert_equal 1 [is_alive $srv]
+
+            set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+
+            assert_equal OK [$client set k1 v1]
+            assert_equal v1 [$client get k1]
+        }
+    }
+
+    clean_aof_persistence $server_path
+
+    # Tests10: Multi Part AOF can load data from old redis aof
     create_aof $old_version_aof_path {
         append_to_aof [formatCommand set k1 v1]
         append_to_aof [formatCommand set k2 v2]
@@ -245,36 +275,6 @@ tags {"external:skip"} {
             $client debug loadaof
             set d2 [$client debug digest]
             assert {$d1 eq $d2}
-        }
-    }
-
-    clean_aof_persistence $server_path
-
-    # Tests9: Multi Part AOF can't load data when the manifest file is empty
-    create_aof_manifest $aof_manifest_path {
-    }
-
-    start_server_aof [list dir $server_path] {
-        test "Multi Part AOF can't load data when the manifest file is empty" {
-            wait_for_condition 100 50 {
-                ! [is_alive $srv]
-            } else {
-                fail "AOF loading didn't fail"
-            }
-        }
-    }
-
-    clean_aof_persistence $server_path
-
-    # Tests10: Multi Part AOF can start when no aof and no manifest
-    start_server_aof [list dir $server_path] {
-        test "Multi Part AOF can start when no aof and no manifest" {
-            assert_equal 1 [is_alive $srv]
-
-            set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
-
-            assert_equal OK [$client set k1 v1]
-            assert_equal v1 [$client get k1]
         }
     }
 
