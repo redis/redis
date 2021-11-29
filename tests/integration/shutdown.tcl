@@ -1,51 +1,56 @@
 test {Shutting down master waits for replica to catch up} {
-    start_server {tags {"repl external:skip"}} {
-        start_server {} {
+    start_server {overrides {save {}}} {
+        start_server {overrides {save {}}} {
             set master [srv -1 client]
             set master_host [srv -1 host]
             set master_port [srv -1 port]
+            set master_pid [srv -1 pid]
             set replica [srv 0 client]
+            set replica_pid [srv 0 pid]
 
+            # Config master.
             $master config set repl-diskless-sync yes
             $master config set repl-diskless-sync-delay 1
 
+            # Config replica.
             $replica replicaof $master_host $master_port
             wait_for_condition 50 100 {
                 [s 0 master_link_status] eq {up}
             } else {
                 fail "Replication not started."
             }
-
             $replica config set repl-diskless-load swapdb
 
+            # Preparation: Set k to 1 on both master and replica.
             $master set k 1
             wait_for_ofs_sync $master $replica
-            # Stopping the replica for one second to check if the master waits.
-            exec kill -SIGSTOP [srv 0 pid]
-            after 100
 
-            # Fill upp the replication socket buffers
-            $master debug populate 10000000
+            # Pause the replica.
+            exec kill -SIGSTOP $replica_pid
+            after 10
 
+            # Fill upp the replication socket buffers.
+            set junk_size 100000
+            for {set i 0} {$i < $junk_size} {incr i} {
+                $master set "key.$i.junkjunkjunk" \
+                    "value.$i.blablablablablablablablabla"
+            }
+
+            # Incr k and immediately shutdown master.
             $master incr k
+            exec kill -SIGTERM $master_pid
+            #catch {$master shutdown}
+            #puts "Shutdown done."
 
-            # Shutdown master and make check that clients can't connect.
-            puts "Shutting down master."
-            catch {$master shutdown nosave}
-            puts "Shutdown done."
-            #catch {set rd [redis_deferring_client]} e
-            #assert_match {*connection refused*} $e
-
-            after 500
-            exec kill -SIGCONT [srv 0 pid]
-            puts [$replica get k]
+            # Wake up replica and check if master has waited for it.
+            after 1000
+            exec kill -SIGCONT $replica_pid
             wait_for_condition 50 100 {
-                !([puts [$replica get k]] eq 42) && \
                 [$replica get k] eq 2
             } else {
                 fail "Master exited before replica could catch up."
             }
-            # wait_for_ofs_sync $master $replica
+            assert_equal [expr $junk_size + 1] [$replica dbsize]
         }
     }
 } {} {repl external:skip}
