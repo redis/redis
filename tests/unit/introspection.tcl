@@ -33,6 +33,7 @@ start_server {tags {"introspection"}} {
         set rd1 [redis_deferring_client]
         set rd2 [redis_deferring_client]
         set connected_clients [s connected_clients]
+        assert {$connected_clients >= 3}
         set res [r client kill skipme yes]
         assert {$res == $connected_clients - 1}
 
@@ -40,6 +41,7 @@ start_server {tags {"introspection"}} {
         set rd3 [redis_deferring_client]
         set rd4 [redis_deferring_client]
         set connected_clients [s connected_clients]
+        assert {$connected_clients == 3}
         set res [r client kill skipme no]
         assert_equal $res $connected_clients
 
