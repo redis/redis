@@ -1843,7 +1843,9 @@ void xaddCommand(client *c) {
 
     /* Append using the low level function and return the ID. */
     streamID id;
-    if (streamAppendItem(s,c->argv+field_pos,(c->argc-field_pos)/2,&id,parsed_args.id_given ? &parsed_args.id : NULL,parsed_args.seq_given) == C_ERR) {
+    if (streamAppendItem(s,c->argv+field_pos,(c->argc-field_pos)/2,
+        &id,parsed_args.id_given ? &parsed_args.id : NULL,parsed_args.seq_given) == C_ERR)
+    {
         if (errno == EDOM)
             addReplyError(c,"The ID specified in XADD is equal or smaller than "
                             "the target stream top item");
@@ -1875,7 +1877,7 @@ void xaddCommand(client *c) {
 
     /* Let's rewrite the ID argument with the one actually generated for
      * AOF/replication propagation. */
-    if (!parsed_args.id_given) {
+    if (!parsed_args.id_given || !parsed_args.seq_given) {
         robj *idarg = createObjectFromStreamID(&id);
         rewriteClientCommandArgument(c, idpos, idarg);
         decrRefCount(idarg);
