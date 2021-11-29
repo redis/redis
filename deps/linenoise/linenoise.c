@@ -104,6 +104,7 @@
  */
 
 #define _DEFAULT_SOURCE /* For fchmod() */
+#define _BSD_SOURCE     /* For fchmod() */
 #include <termios.h>
 #include <unistd.h>
 #include <stdlib.h>
