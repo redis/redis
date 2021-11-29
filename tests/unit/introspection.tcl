@@ -26,8 +26,26 @@ start_server {tags {"introspection"}} {
         assert_error "ERR No such user*" {r client kill user wrong_user}
 
         assert_error "ERR syntax error*" {r client kill skipme yes_or_no}
-        assert_error "ERR*skipme*" {r client kill skipme yes}
-        assert_error "ERR*skipme*" {r client kill skipme no}
+    }
+
+    test {CLIENT KILL SKIPME YES/NO will kill all clients} {
+        # Kill all clients except `me`
+        set rd1 [redis_deferring_client]
+        set rd2 [redis_deferring_client]
+        set connected_clients [s connected_clients]
+        set res [r client kill skipme yes]
+        assert {$res == $connected_clients - 1}
+
+        # Kill all clients, including `me`
+        set rd3 [redis_deferring_client]
+        set rd4 [redis_deferring_client]
+        set connected_clients [s connected_clients]
+        set res [r client kill skipme no]
+        assert_equal $res $connected_clients
+
+        # After killing `me`, the first ping will throw an error
+        assert_error "*I/O error*" {r ping}
+        assert_equal "PONG" [r ping]
     }
 
     test {MONITOR can log executed commands} {

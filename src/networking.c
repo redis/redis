@@ -2775,11 +2775,6 @@ NULL
                         addReplyErrorObject(c,shared.syntaxerr);
                         return;
                     }
-
-                    if (c->argc == 4) {
-                        addReplyError(c, "The skipme parameter cannot be used alone");
-                        return;
-                    }
                 } else {
                     addReplyErrorObject(c,shared.syntaxerr);
                     return;
