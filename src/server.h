@@ -1229,7 +1229,7 @@ struct redisMemOverhead {
  * order to implement additional functionalities, by storing and loading
  * metadata to the RDB file.
  *
- * Currently the only use is to select a DB at load time, useful in
+ * For example, to use select a DB at load time, useful in
  * replication in order to make sure that chained slaves (slaves of slaves)
  * select the correct DB and are able to accept the stream coming from the
  * top-level master. */
