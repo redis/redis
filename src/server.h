@@ -1581,6 +1581,9 @@ struct redisServer {
     int memcheck_enabled;           /* Enable memory check on crash. */
     int use_exit_on_panic;          /* Use exit() on panic and assert rather than
                                      * abort(). useful for Valgrind. */
+    /* Shutdown */
+    int shutdown_timeout;           /* Graceful shutdown time limit in seconds. */
+
     /* Replication (master) */
     char replid[CONFIG_RUN_ID_SIZE+1];  /* My current replication ID. */
     char replid2[CONFIG_RUN_ID_SIZE+1]; /* replid inherited from master*/

@@ -5572,9 +5572,11 @@ int prepareForShutdown(int flags) {
 
     /* If we have any replicas, let them catch up the replication offset before
      * we shut down, to avoid data loss. */
-    if ((flags & SHUTDOWN_WAIT_REPL) && !isReadyToShutdown()) {
-        mstime_t grace_period = 10000; /* 10 seconds */
-        server.shutdown_mstime = server.mstime + grace_period;
+    if ((flags & SHUTDOWN_WAIT_REPL) &&
+        server.shutdown_timeout != 0 &&
+        !isReadyToShutdown())
+    {
+        server.shutdown_mstime = server.mstime + server.shutdown_timeout * 1000;
         mstime_t cron_delay = 1000/server.hz;
         pauseClients(server.shutdown_mstime + cron_delay, CLIENT_PAUSE_WRITE);
         serverLog(LL_WARNING, "Waiting for replicas before shutting down.");

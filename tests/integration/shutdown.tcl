@@ -11,6 +11,7 @@ test {Shutting down master waits for replica to catch up} {
             # Config master.
             $master config set repl-diskless-sync yes
             $master config set repl-diskless-sync-delay 1
+            $master config set shutdown-timeout 120 ; # for slow CI machines
 
             # Config replica.
             $replica replicaof $master_host $master_port
