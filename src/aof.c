@@ -239,7 +239,7 @@ void aofLoadManifestFromDisk(void) {
 
     sdsfree(am_name);
 
-    char buf[MANIFEST_MAX_LINE+1] = { 0 };
+    char buf[MANIFEST_MAX_LINE+1];
     sds *argv = NULL;
     int argc;
     aofInfo *ai = NULL;
@@ -264,7 +264,7 @@ void aofLoadManifestFromDisk(void) {
 
         linenum++;
 
-        if (buf[MANIFEST_MAX_LINE-1] != '\0' && buf[MANIFEST_MAX_LINE-1] != '\n') {
+        if (strchr(buf, '\n') == NULL) {
             err = "The AOF manifest file contains too long line";
             goto loaderr;
         }
