@@ -1227,7 +1227,12 @@ struct redisMemOverhead {
 
 /* This structure can be optionally passed to RDB save/load functions in
  * order to implement additional functionalities, by storing and loading
- * metadata to the RDB file. */
+ * metadata to the RDB file.
+ *
+ * For example, to use select a DB at load time, useful in
+ * replication in order to make sure that chained slaves (slaves of slaves)
+ * select the correct DB and are able to accept the stream coming from the
+ * top-level master. */
 typedef struct rdbSaveInfo {
     /* Used saving and loading. */
     int repl_stream_db;  /* DB to select in server.master client. */
