@@ -1062,8 +1062,8 @@ static void initQpsControl() {
     int qps_per_thread = config.qps / num_threads;
     config.paused_clients = zmalloc(num_threads * sizeof(list *));
     config.last_resume_time = zmalloc(num_threads * sizeof(long long));
-    config.count = zmalloc(num_threads * sizeof(int));
-    config.paused = zmalloc(num_threads * sizeof(bool));
+    config.count = zcalloc(num_threads * sizeof(int));
+    config.paused = zcalloc(num_threads * sizeof(bool));
     config.control_granularity = zmalloc(num_threads * sizeof(int));
     config.resume_interval = zmalloc(num_threads * sizeof(long long));
     if (qps_per_thread/config.pipeline <= 0) {
@@ -1089,6 +1089,8 @@ static void finishQpsControl() {
     if (config.last_resume_time) zfree(config.last_resume_time);
     if (config.count) zfree(config.count);
     if (config.paused) zfree(config.count);
+    if (config.control_granularity) zfree(config.control_granularity);
+    if (config.resume_interval) zfree(config.resume_interval);
 }
 
 static void benchmark(const char *title, char *cmd, int len) {
