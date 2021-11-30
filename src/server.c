@@ -2035,6 +2035,11 @@ struct redisCommand redisCommandTable[] = {
      "admin no-script ok-stale"}
 };
 
+/*============================ Internal prototypes ========================== */
+
+int isReadyToShutdown(void);
+int finishShutdown(void);
+
 /*============================ Utility functions ============================ */
 
 /* We use a private localtime implementation which is fork-safe. The logging
@@ -3085,9 +3090,15 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* We received a SIGTERM, shutting down here in a safe way, as it is
      * not ok doing so inside the signal handler. */
     if (server.shutdown_asap) {
-        if (prepareForShutdown(SHUTDOWN_NOFLAGS) == C_OK) exit(0);
-        serverLog(LL_WARNING,"SIGTERM received but errors trying to shut down the server, check the logs for more information");
-        server.shutdown_asap = 0;
+        if (server.shutdown_mstime == 0) {
+            if (prepareForShutdown(SHUTDOWN_WAIT_REPL) == C_OK) exit(0);
+        } else if (server.mstime >= server.shutdown_mstime ||
+                   server.shutdown_asap > 1 ||
+                   isReadyToShutdown())
+        {
+            if (finishShutdown() == C_OK) exit(0);
+            /* Shutdown failed. Continue running. An error has been logged. */
+        }
     }
 
     /* Show some info about non-empty databases */
@@ -3688,6 +3699,8 @@ void initServerConfig(void) {
     memset(server.blocked_clients_by_type,0,
            sizeof(server.blocked_clients_by_type));
     server.shutdown_asap = 0;
+    server.shutdown_flags = 0;
+    server.shutdown_mstime = 0;
     server.cluster_module_flags = CLUSTER_MODULE_FLAG_NONE;
     server.migrate_cached_sockets = dictCreate(&migrateCacheDictType);
     server.next_client_id = 1; /* Client IDs, start from 1 .*/
@@ -5522,6 +5535,25 @@ void closeListeningSockets(int unlink_unix_socket) {
     }
 }
 
+/* Prepare for shutting down the server. Flags:
+ *
+ * - SHUTDOWN_SAVE: Save a database dump even if the server is configured not to
+ *   save any dump.
+ *
+ * - SHUTDOWN_NOSAVE: Don't save any database dump even if the server is
+ *   configured to save one.
+ *
+ * - SHUTDOWN_WAIT_REPL: Wait for replicas to catch up before shutting down.
+ *
+ * If SHUTDOWN_WAIT_REPL is set and any replicas are lagging behind, C_ERR is
+ * returned and server.shutdown_mstime is set to a timestamp to allow a grace
+ * period for the replicas to catch up. This is checked and handled by
+ * serverCron() which completes the shutdown as soon as possible.
+ *
+ * If shutting down fails for any other reason, C_ERR is returned and an error
+ * is logged.
+ *
+ * On success, this function returns C_OK and then it's OK to call exit(0). */
 int prepareForShutdown(int flags) {
     /* When SHUTDOWN is called while the server is loading a dataset in
      * memory we need to make sure no attempt is performed to save
@@ -5532,12 +5564,51 @@ int prepareForShutdown(int flags) {
     if (server.loading || server.sentinel_mode)
         flags = (flags & ~SHUTDOWN_SAVE) | SHUTDOWN_NOSAVE;
 
-    int save = flags & SHUTDOWN_SAVE;
-    int nosave = flags & SHUTDOWN_NOSAVE;
+    server.shutdown_flags = flags;
 
     serverLog(LL_WARNING,"User requested shutdown...");
     if (server.supervised_mode == SUPERVISED_SYSTEMD)
         redisCommunicateSystemd("STOPPING=1\n");
+
+    /* If we have any replicas, let them catch up the replication offset before
+     * we shut down, to avoid data loss. */
+    if ((flags & SHUTDOWN_WAIT_REPL) && !isReadyToShutdown()) {
+        mstime_t grace_period = 10000; /* 10 seconds */
+        server.shutdown_mstime = server.mstime + grace_period;
+        mstime_t cron_delay = 1000/server.hz;
+        pauseClients(server.shutdown_mstime + cron_delay, CLIENT_PAUSE_WRITE);
+        serverLog(LL_WARNING, "Waiting for replicas before shutting down.");
+        return C_ERR;
+    }
+
+    return finishShutdown();
+}
+
+/* Returns 0 if there are any replicas which are lagging in replication which we
+ * need to wait for before shutting down. Returns 1 if we're ready to shut
+ * down now. */
+int isReadyToShutdown(void) {
+    if (server.masterhost != NULL) return 1; /* We're a replica. */
+    if (listLength(server.slaves) == 0) return 1;  /* No replicas. */
+
+    listIter li;
+    listNode *ln;
+    listRewind(server.slaves, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        client *replica = listNodeValue(ln);
+        /* TODO: Do we care about replica->replstate? */
+        if (replica->repl_ack_off != server.master_repl_offset) return 0;
+    }
+    return 1;
+}
+
+/* The final step of the shutdown sequence. Returns C_OK if the shutdown
+ * sequence was successful and it's OK to call exit(). If C_ERR is returned,
+ * it's not safe to call exit(). */
+int finishShutdown(void) {
+
+    int save = server.shutdown_flags & SHUTDOWN_SAVE;
+    int nosave = server.shutdown_flags & SHUTDOWN_NOSAVE;
 
     /* Kill all the Lua debugger forked sessions. */
     ldbKillForkedSessions();
@@ -5571,7 +5642,7 @@ int prepareForShutdown(int flags) {
              * shutdown or else the dataset will be lost. */
             if (server.aof_state == AOF_WAIT_REWRITE) {
                 serverLog(LL_WARNING, "Writing initial AOF, can't exit.");
-                return C_ERR;
+                goto error;
             }
             serverLog(LL_WARNING,
                 "There is a child rewriting the AOF. Killing it!");
@@ -5603,7 +5674,7 @@ int prepareForShutdown(int flags) {
             serverLog(LL_WARNING,"Error trying to save the DB, can't exit.");
             if (server.supervised_mode == SUPERVISED_SYSTEMD)
                 redisCommunicateSystemd("STATUS=Error trying to save the DB, can't exit.\n");
-            return C_ERR;
+            goto error;
         }
     }
 
@@ -5620,11 +5691,32 @@ int prepareForShutdown(int flags) {
      * send them pending writes. */
     flushSlavesOutputBuffers();
 
+    /* Log a warning for each replica that is lagging. */
+    listIter replicas_iter;
+    listNode *replicas_list_node;
+    listRewind(server.slaves, &replicas_iter);
+    while ((replicas_list_node = listNext(&replicas_iter)) != NULL) {
+        client *replica = listNodeValue(replicas_list_node);
+        if (replica->repl_ack_off != server.master_repl_offset) {
+            serverLog(LL_WARNING,
+                      "Replica %s offset is %lld behind ours.",
+                      replicationGetSlaveName(replica),
+                      server.master_repl_offset - replica->repl_ack_off);
+        }
+    }
+
     /* Close the listening sockets. Apparently this allows faster restarts. */
     closeListeningSockets(1);
     serverLog(LL_WARNING,"%s is now ready to exit, bye bye...",
         server.sentinel_mode ? "Sentinel" : "Redis");
     return C_OK;
+
+error:
+    serverLog(LL_WARNING, "Errors trying to shut down the server. Check the logs for more information.");
+    server.shutdown_asap = 0;
+    server.shutdown_flags = 0;
+    server.shutdown_mstime = 0;
+    return C_ERR;
 }
 
 /*================================== Commands =============================== */
@@ -7308,6 +7400,12 @@ static void sigShutdownHandler(int sig) {
      * the user really wanting to quit ASAP without waiting to persist
      * on disk. */
     if (server.shutdown_asap && sig == SIGINT) {
+        if (server.shutdown_mstime != 0 && server.shutdown_asap == 1) {
+            /* Waiting for replicas lagging behind. */
+            serverLogFromHandler(LL_WARNING, "You insist... Shutting down faster by ignoring slow replicas.");
+            server.shutdown_asap++;
+            return;
+        }
         serverLogFromHandler(LL_WARNING, "You insist... exiting now.");
         rdbRemoveTempFile(getpid(), 1);
         exit(1); /* Exit with an error since this was not a clean shutdown. */

@@ -471,6 +471,7 @@ typedef enum {
 #define SHUTDOWN_SAVE 1         /* Force SAVE on SHUTDOWN even if no save
                                    points are configured. */
 #define SHUTDOWN_NOSAVE 2       /* Don't SAVE on SHUTDOWN. */
+#define SHUTDOWN_WAIT_REPL 4    /* Wait for replicas to catch up. */
 
 /* Command call flags, see call() function */
 #define CMD_CALL_NONE 0
@@ -1325,6 +1326,8 @@ struct redisServer {
     rax *errors;                /* Errors table */
     redisAtomic unsigned int lruclock; /* Clock for LRU eviction */
     volatile sig_atomic_t shutdown_asap; /* SHUTDOWN needed ASAP */
+    mstime_t shutdown_mstime;   /* Timestamp to limit graceful shutdown. */
+    int shutdown_flags;         /* Flags passed to prepareForShutdown(). */
     int activerehashing;        /* Incremental rehash in serverCron() */
     int active_defrag_running;  /* Active defragmentation running (holds current scan aggressiveness) */
     char *pidfile;              /* PID file path */
