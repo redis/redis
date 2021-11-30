@@ -2867,8 +2867,9 @@ void databasesCron(void) {
 
         /* Resize */
         for (j = 0; j < dbs_per_call; j++) {
-            tryResizeHashTables(resize_db % server.dbnum);
+            tryResizeHashTables(resize_db);
             resize_db++;
+            resize_db %= server.dbnum;
         }
 
         /* Rehash */

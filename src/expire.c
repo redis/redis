@@ -186,12 +186,13 @@ void activeExpireCycle(int type) {
         /* Expired and checked in a single loop. */
         unsigned long expired, sampled;
 
-        redisDb *db = server.db+(current_db % server.dbnum);
+        redisDb *db = server.db+current_db;
 
         /* Increment the DB now so we are sure if we run out of time
          * in the current DB we'll restart from the next. This allows to
          * distribute the time evenly across DBs. */
         current_db++;
+        current_db %= server.dbnum;
 
         /* Continue to expire if at the end of the cycle there are still
          * a big percentage of keys to expire, compared to the number of keys
