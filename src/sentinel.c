@@ -76,6 +76,7 @@ typedef struct sentinelAddr {
 #define SRI_RECONF_DONE (1<<10)     /* Slave synchronized with new master. */
 #define SRI_FORCE_FAILOVER (1<<11)  /* Force failover with master up. */
 #define SRI_SCRIPT_KILL_SENT (1<<12) /* SCRIPT KILL already sent on -BUSY */
+#define SRI_MASTER_REBOOT  (1<<13)   /* Master was detected as rebooting */
 
 /* Note: times are in milliseconds. */
 #define SENTINEL_PING_PERIOD 1000
@@ -193,6 +194,8 @@ typedef struct sentinelRedisInstance {
     mstime_t s_down_since_time; /* Subjectively down since time. */
     mstime_t o_down_since_time; /* Objectively down since time. */
     mstime_t down_after_period; /* Consider it down after that period. */
+    mstime_t master_reboot_down_after_period; /* Consider master down after that period. */
+    mstime_t master_reboot_since_time; /* master reboot time since time. */
     mstime_t info_refresh;  /* Time at which we received INFO output from it. */
     dict *renamed_commands;     /* Commands renamed in this instance:
                                    Sentinel will use the alternative commands
@@ -1294,8 +1297,8 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
     ri->last_master_down_reply_time = mstime();
     ri->s_down_since_time = 0;
     ri->o_down_since_time = 0;
-    ri->down_after_period = master ? master->down_after_period :
-                            sentinel_default_down_after;
+    ri->down_after_period = master ? master->down_after_period : sentinel_default_down_after;
+    ri->master_reboot_down_after_period = 0;
     ri->master_link_down_time = 0;
     ri->auth_pass = NULL;
     ri->auth_user = NULL;
@@ -1971,6 +1974,13 @@ const char *sentinelHandleConfiguration(char **argv, int argc) {
         if ((sentinel.announce_hostnames = yesnotoi(argv[1])) == -1) {
             return "Please specify yes or no for the announce-hostnames option.";
         }
+    } else if (!strcasecmp(argv[0],"master-reboot-down-after-period") && argc == 3) {
+        /* master-reboot-down-after-period <name> <milliseconds> */
+        ri = sentinelGetMasterByName(argv[1]);
+        if (!ri) return "No such master with specified name.";
+        ri->master_reboot_down_after_period = atoi(argv[2]);
+        if (ri->master_reboot_down_after_period < 0)
+            return "negative time parameter.";
     } else {
         return "Unrecognized sentinel configuration statement.";
     }
@@ -2087,6 +2097,15 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
                 "sentinel auth-user %s %s",
                 master->name, master->auth_user);
             rewriteConfigRewriteLine(state,"sentinel auth-user",line,1);
+            /* rewriteConfigMarkAsProcessed is handled after the loop */
+        }
+
+        /* sentinel master-reboot-down-after-period */
+        if (master->master_reboot_down_after_period != 0) {
+            line = sdscatprintf(sdsempty(),
+                "sentinel master-reboot-down-after-period %s %ld",
+                master->name, (long) master->master_reboot_down_after_period);
+            rewriteConfigRewriteLine(state,"sentinel master-reboot-down-after-period",line,1);
             /* rewriteConfigMarkAsProcessed is handled after the loop */
         }
 
@@ -2214,6 +2233,7 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
     rewriteConfigMarkAsProcessed(state,"sentinel known-replica");
     rewriteConfigMarkAsProcessed(state,"sentinel known-sentinel");
     rewriteConfigMarkAsProcessed(state,"sentinel rename-command");
+    rewriteConfigMarkAsProcessed(state,"sentinel master-reboot-down-after-period");
 }
 
 /* This function uses the config rewriting Redis engine in order to persist
@@ -2456,6 +2476,12 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
             } else {
                 if (strncmp(ri->runid,l+7,40) != 0) {
                     sentinelEvent(LL_NOTICE,"+reboot",ri,"%@");
+
+                    if (ri->flags & SRI_MASTER && ri->master_reboot_down_after_period != 0) {
+                        ri->flags |= SRI_MASTER_REBOOT;
+                        ri->master_reboot_since_time = mstime();
+                    }
+
                     sdsfree(ri->runid);
                     ri->runid = sdsnewlen(l+7,40);
                 }
@@ -2723,6 +2749,10 @@ void sentinelPingReplyCallback(redisAsyncContext *c, void *reply, void *privdata
         {
             link->last_avail_time = mstime();
             link->act_ping_time = 0; /* Flag the pong as received. */
+
+            if (ri->flags & SRI_MASTER_REBOOT && strncmp(r->str,"PONG",4) == 0)
+                ri->flags &= ~SRI_MASTER_REBOOT;
+
         } else {
             /* Send a SCRIPT KILL command if the instance appears to be
              * down because of a busy script. */
@@ -4255,6 +4285,15 @@ void sentinelSetCommand(client *c) {
                 dictAdd(ri->renamed_commands,oldname,newname);
             }
             changes++;
+        } else if (!strcasecmp(option,"master-reboot-down-after-period") && moreargs > 0) {
+            /* master-reboot-down-after-period <milliseconds> */
+            robj *o = c->argv[++j];
+            if (getLongLongFromObject(o,&ll) == C_ERR || ll < 0) {
+                badarg = j;
+                goto badfmt;
+            }
+            ri->master_reboot_down_after_period = ll;
+            changes++;
         } else {
             addReplyErrorFormat(c,"Unknown option or number of arguments for "
                                   "SENTINEL SET '%s'", option);
@@ -4358,7 +4397,9 @@ void sentinelCheckSubjectivelyDown(sentinelRedisInstance *ri) {
         (ri->flags & SRI_MASTER &&
          ri->role_reported == SRI_SLAVE &&
          mstime() - ri->role_reported_time >
-          (ri->down_after_period+sentinel_info_period*2)))
+          (ri->down_after_period+sentinel_info_period*2)) ||
+          (ri->flags & SRI_MASTER_REBOOT && 
+           mstime()-ri->master_reboot_since_time > ri->master_reboot_down_after_period))
     {
         /* Is subjectively down */
         if ((ri->flags & SRI_S_DOWN) == 0) {
