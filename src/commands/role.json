@@ -12,6 +12,10 @@
             "stale",
             "fast",
             "sentinel"
+        ],
+        "acl_categories": [
+            "admin",
+            "dangerous"
         ]
     }
 }

@@ -12,7 +12,8 @@
         "acl_categories": [
             "set",
             "sortedset",
-            "list"
+            "list",
+            "dangerous"
         ],
         "key_specs": [
             {

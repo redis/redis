@@ -12,6 +12,9 @@
             "stale",
             "sentinel"
         ],
+        "acl_categories": [
+            "dangerous"
+        ],
         "arguments": [
             {
                 "name": "section",

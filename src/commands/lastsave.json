@@ -11,6 +11,10 @@
             "loading",
             "stale",
             "fast"
+        ],
+        "acl_categories": [
+            "admin",
+            "dangerous"
         ]
     }
 }

@@ -15,7 +15,8 @@
             "asking"
         ],
         "acl_categories": [
-            "keyspace"
+            "keyspace",
+            "dangerous"
         ],
         "key_specs": [
             {

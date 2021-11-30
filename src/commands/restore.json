@@ -11,7 +11,8 @@
             "denyoom"
         ],
         "acl_categories": [
-            "keyspace"
+            "keyspace",
+            "dangerous"
         ],
         "key_specs": [
             {
