@@ -11,9 +11,7 @@
             "denyoom"
         ],
         "acl_categories": [
-            "write",
-            "geo",
-            "slow"
+            "geo"
         ],
         "key_specs": [
             {

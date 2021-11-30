@@ -10,9 +10,7 @@
             "write"
         ],
         "acl_categories": [
-            "write",
-            "sortedset",
-            "slow"
+            "sortedset"
         ],
         "key_specs": [
             {

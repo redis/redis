@@ -3778,8 +3778,6 @@ void addReplyFlagsForCommand(client *c, struct redisCommand *cmd) {
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_FAST, "fast");
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_NO_AUTH, "no_auth");
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_MAY_REPLICATE, "may_replicate");
-    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_SENTINEL, "sentinel");
-    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_ONLY_SENTINEL, "only_sentinel");
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_NO_MANDATORY_KEYS, "no_mandatory_keys");
     /* "sentinel" and "only-sentinel" are hidden on purpose. */
     if (cmd->movablekeys) {
@@ -4078,15 +4076,17 @@ void addReplyCommand(client *c, struct redisCommand *cmd) {
         addReplyBulkCString(c, "summary");
         addReplyBulkCString(c, cmd->summary);
         maplen++;
-        addReplyBulkCString(c, "complexity");
-        addReplyBulkCString(c, cmd->complexity);
-        maplen++;
         addReplyBulkCString(c, "since");
         addReplyBulkCString(c, cmd->since);
         maplen++;
         addReplyBulkCString(c, "group");
         addReplyBulkCString(c, COMMAND_GROUP_STR[cmd->group]);
         maplen++;
+        if (cmd->complexity) {
+            addReplyBulkCString(c, "complexity");
+            addReplyBulkCString(c, cmd->complexity);
+            maplen++;
+        }
         if (cmd->doc_flags) {
             addReplyBulkCString(c, "doc-flags");
             addReplyDocFlagsForCommand(c, cmd);

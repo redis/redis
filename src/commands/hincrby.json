@@ -12,9 +12,7 @@
             "fast"
         ],
         "acl_categories": [
-            "write",
-            "hash",
-            "fast"
+            "hash"
         ],
         "key_specs": [
             {

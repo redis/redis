@@ -29,9 +29,7 @@
             "denyoom"
         ],
         "acl_categories": [
-            "write",
-            "string",
-            "slow"
+            "string"
         ],
         "key_specs": [
             {

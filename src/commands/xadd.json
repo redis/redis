@@ -19,9 +19,7 @@
             "fast"
         ],
         "acl_categories": [
-            "write",
-            "stream",
-            "fast"
+            "stream"
         ],
         "key_specs": [
             {

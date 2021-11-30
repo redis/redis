@@ -10,10 +10,6 @@
             "readonly",
             "fast"
         ],
-        "acl_categories": [
-            "read",
-            "fast"
-        ],
         "arguments": [
             {
                 "token": "VERSION",

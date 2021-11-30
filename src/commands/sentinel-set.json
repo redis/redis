@@ -1,9 +1,9 @@
 {
     "SET": {
-        "summary": "__TBD__71__",
-        "complexity": "__TBD__70__",
+        "summary": "Change the configuration of a monitored master",
+        "complexity": "O(1)",
         "group": "sentinel",
-        "since": "__TBD__73__",
+        "since": "2.8.4",
         "arity": -3,
         "container": "SENTINEL",
         "function": "sentinelCommand",
@@ -11,11 +11,6 @@
             "admin",
             "sentinel",
             "only_sentinel"
-        ],
-        "acl_categories": [
-            "admin",
-            "slow",
-            "dangerous"
         ]
     }
 }

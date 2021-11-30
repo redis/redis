@@ -12,9 +12,7 @@
             "random"
         ],
         "acl_categories": [
-            "keyspace",
-            "read",
-            "slow"
+            "keyspace"
         ],
         "key_specs": [
             {

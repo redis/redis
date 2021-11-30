@@ -16,11 +16,6 @@
             "admin",
             "noscript"
         ],
-        "acl_categories": [
-            "admin",
-            "slow",
-            "dangerous"
-        ],
         "arguments": [
             {
                 "name": "schedule",

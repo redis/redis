@@ -14,9 +14,6 @@
             "stale"
         ],
         "acl_categories": [
-            "admin",
-            "slow",
-            "dangerous",
             "connection"
         ]
     }

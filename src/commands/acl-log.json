@@ -14,11 +14,6 @@
             "stale",
             "sentinel"
         ],
-        "acl_categories": [
-            "admin",
-            "slow",
-            "dangerous"
-        ],
         "arguments": [
             {
                 "name": "count_or RESET",

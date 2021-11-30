@@ -1,9 +1,9 @@
 {
     "HELP": {
-        "summary": "__TBD__78__",
+        "summary": "Show helpful text about the different subcommands",
         "complexity": "O(1)",
         "group": "sentinel",
-        "since": "__TBD__80__",
+        "since": "6.2.0",
         "arity": 2,
         "container": "SENTINEL",
         "function": "sentinelCommand",
@@ -12,9 +12,6 @@
             "stale",
             "sentinel",
             "only_sentinel"
-        ],
-        "acl_categories": [
-            "slow"
         ]
     }
 }

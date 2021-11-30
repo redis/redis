@@ -4,9 +4,6 @@
         "complexity": "Depends on subcommand.",
         "group": "pubsub",
         "since": "2.8.0",
-        "arity": -2,
-        "acl_categories": [
-            "slow"
-        ]
+        "arity": -2
     }
 }

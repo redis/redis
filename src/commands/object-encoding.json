@@ -11,9 +11,7 @@
             "readonly"
         ],
         "acl_categories": [
-            "keyspace",
-            "read",
-            "slow"
+            "keyspace"
         ],
         "key_specs": [
             {

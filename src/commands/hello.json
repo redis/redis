@@ -21,7 +21,6 @@
             "sentinel"
         ],
         "acl_categories": [
-            "fast",
             "connection"
         ],
         "arguments": [

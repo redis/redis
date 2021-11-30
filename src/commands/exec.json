@@ -13,7 +13,6 @@
             "skip_slowlog"
         ],
         "acl_categories": [
-            "slow",
             "transaction"
         ]
     }

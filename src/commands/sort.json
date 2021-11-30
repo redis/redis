@@ -12,12 +12,9 @@
             "denyoom"
         ],
         "acl_categories": [
-            "write",
             "set",
             "sortedset",
-            "list",
-            "slow",
-            "dangerous"
+            "list"
         ],
         "key_specs": [
             {

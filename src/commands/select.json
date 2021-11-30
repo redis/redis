@@ -12,7 +12,6 @@
             "fast"
         ],
         "acl_categories": [
-            "fast",
             "connection"
         ],
         "arguments": [

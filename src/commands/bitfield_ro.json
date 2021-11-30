@@ -11,9 +11,7 @@
             "fast"
         ],
         "acl_categories": [
-            "read",
-            "bitmap",
-            "fast"
+            "bitmap"
         ],
         "key_specs": [
             {

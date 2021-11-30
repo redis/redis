@@ -11,9 +11,7 @@
             "readonly"
         ],
         "acl_categories": [
-            "read",
-            "sortedset",
-            "slow"
+            "sortedset"
         ],
         "key_specs": [
             {

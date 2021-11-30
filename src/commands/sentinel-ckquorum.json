@@ -1,9 +1,9 @@
 {
     "CKQUORUM": {
-        "summary": "__TBD__43__",
-        "complexity": "__TBD__42__",
+        "summary": "Check for a Sentinel quorum",
+        "complexity": "PATCH__TBD__42__",
         "group": "sentinel",
-        "since": "__TBD__45__",
+        "since": "2.8.4",
         "arity": 3,
         "container": "SENTINEL",
         "function": "sentinelCommand",
@@ -11,11 +11,6 @@
             "admin",
             "sentinel",
             "only_sentinel"
-        ],
-        "acl_categories": [
-            "admin",
-            "slow",
-            "dangerous"
         ]
     }
 }

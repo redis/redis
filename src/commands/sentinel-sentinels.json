@@ -1,9 +1,9 @@
 {
     "SENTINELS": {
-        "summary": "__TBD__67__",
-        "complexity": "__TBD__66__",
+        "summary": "List the Sentinel instances",
+        "complexity": "O(N) where N is the number of Sentinels",
         "group": "sentinel",
-        "since": "__TBD__69__",
+        "since": "2.8.4",
         "arity": 3,
         "container": "SENTINEL",
         "function": "sentinelCommand",
@@ -11,11 +11,6 @@
             "admin",
             "sentinel",
             "only_sentinel"
-        ],
-        "acl_categories": [
-            "admin",
-            "slow",
-            "dangerous"
         ]
     }
 }

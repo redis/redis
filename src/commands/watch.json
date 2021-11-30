@@ -13,7 +13,6 @@
             "fast"
         ],
         "acl_categories": [
-            "fast",
             "transaction"
         ],
         "key_specs": [

@@ -13,10 +13,7 @@
             "admin"
         ],
         "acl_categories": [
-            "hyperloglog",
-            "admin",
-            "slow",
-            "dangerous"
+            "hyperloglog"
         ]
     }
 }

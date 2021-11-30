@@ -10,12 +10,9 @@
             "readonly"
         ],
         "acl_categories": [
-            "read",
             "set",
             "sortedset",
-            "list",
-            "slow",
-            "dangerous"
+            "list"
         ],
         "key_specs": [
             {

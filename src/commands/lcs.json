@@ -3,16 +3,14 @@
         "summary": "__TBD__3__",
         "complexity": "__TBD__2__",
         "group": "string",
-        "since": "7.0.0",
+        "since": "7.0",
         "arity": -3,
         "function": "lcsCommand",
         "command_flags": [
             "readonly"
         ],
         "acl_categories": [
-            "read",
-            "string",
-            "slow"
+            "string"
         ],
         "key_specs": [
             {

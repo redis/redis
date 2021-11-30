@@ -17,9 +17,7 @@
             "fast"
         ],
         "acl_categories": [
-            "write",
-            "list",
-            "fast"
+            "list"
         ],
         "key_specs": [
             {

@@ -107,7 +107,7 @@ class KeySpec(object):
                     self.spec["find_keys"]["range"]["limit"]
                 )
             elif self.spec["find_keys"].get("keynum"):
-                return "KSPEC_FK_RANGE,.fk.keynum={%d,%d,%d}" % (
+                return "KSPEC_FK_KEYNUM,.fk.keynum={%d,%d,%d}" % (
                     self.spec["find_keys"]["keynum"]["keynumidx"],
                     self.spec["find_keys"]["keynum"]["firstkey"],
                     self.spec["find_keys"]["keynum"]["step"]

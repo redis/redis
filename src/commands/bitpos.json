@@ -16,9 +16,7 @@
             "readonly"
         ],
         "acl_categories": [
-            "read",
-            "bitmap",
-            "slow"
+            "bitmap"
         ],
         "key_specs": [
             {

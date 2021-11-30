@@ -3,7 +3,7 @@
         "summary": "Get a substring of the string stored at a key",
         "complexity": "O(N) where N is the length of the returned string. The complexity is ultimately determined by the returned length, but because creating a substring from an existing string is very cheap, it can be considered O(1) for small strings.",
         "group": "string",
-        "since": "__TBD__89__",
+        "since": "1.0.0",
         "arity": 4,
         "function": "getrangeCommand",
         "history": [
@@ -21,9 +21,7 @@
             "readonly"
         ],
         "acl_categories": [
-            "read",
-            "string",
-            "slow"
+            "string"
         ],
         "key_specs": [
             {

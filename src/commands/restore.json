@@ -11,10 +11,7 @@
             "denyoom"
         ],
         "acl_categories": [
-            "keyspace",
-            "write",
-            "slow",
-            "dangerous"
+            "keyspace"
         ],
         "key_specs": [
             {

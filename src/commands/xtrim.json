@@ -17,9 +17,7 @@
             "random"
         ],
         "acl_categories": [
-            "write",
-            "stream",
-            "slow"
+            "stream"
         ],
         "key_specs": [
             {

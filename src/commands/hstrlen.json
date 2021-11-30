@@ -11,9 +11,7 @@
             "fast"
         ],
         "acl_categories": [
-            "read",
-            "hash",
-            "fast"
+            "hash"
         ],
         "key_specs": [
             {

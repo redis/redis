@@ -11,10 +11,6 @@
             "pubsub",
             "loading",
             "stale"
-        ],
-        "acl_categories": [
-            "pubsub",
-            "slow"
         ]
     }
 }

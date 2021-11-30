@@ -17,9 +17,7 @@
             "random"
         ],
         "acl_categories": [
-            "read",
-            "set",
-            "slow"
+            "set"
         ],
         "key_specs": [
             {

@@ -11,9 +11,7 @@
             "write"
         ],
         "acl_categories": [
-            "write",
-            "stream",
-            "slow"
+            "stream"
         ],
         "key_specs": [
             {
@@ -47,8 +45,19 @@
             },
             {
                 "name": "id",
-                "type": "string",
-                "value": "id"
+                "type": "oneof",
+                "value": [
+                    {
+                        "name": "id",
+                        "type": "pure-token",
+                        "token": "id"
+                    },
+                    {
+                        "name": "new_id",
+                        "type": "pure-token",
+                        "token": "$"
+                    }
+                ]
             }
         ]
     }

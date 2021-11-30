@@ -17,9 +17,7 @@
             "noscript"
         ],
         "acl_categories": [
-            "write",
             "list",
-            "slow",
             "blocking"
         ],
         "key_specs": [

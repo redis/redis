@@ -10,7 +10,6 @@
             "noscript"
         ],
         "acl_categories": [
-            "slow",
             "connection"
         ],
         "arguments": [

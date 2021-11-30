@@ -11,9 +11,7 @@
             "denyoom"
         ],
         "acl_categories": [
-            "write",
-            "hyperloglog",
-            "slow"
+            "hyperloglog"
         ],
         "key_specs": [
             {

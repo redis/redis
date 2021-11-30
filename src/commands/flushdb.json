@@ -10,10 +10,7 @@
             "write"
         ],
         "acl_categories": [
-            "keyspace",
-            "write",
-            "slow",
-            "dangerous"
+            "keyspace"
         ],
         "arguments": [
             {

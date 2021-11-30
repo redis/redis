@@ -12,8 +12,7 @@
             "stale"
         ],
         "acl_categories": [
-            "keyspace",
-            "slow"
+            "keyspace"
         ]
     }
 }

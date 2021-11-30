@@ -11,9 +11,7 @@
             "denyoom"
         ],
         "acl_categories": [
-            "write",
-            "bitmap",
-            "slow"
+            "bitmap"
         ],
         "key_specs": [
             {

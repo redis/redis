@@ -11,9 +11,7 @@
             "readonly"
         ],
         "acl_categories": [
-            "read",
             "stream",
-            "slow",
             "blocking"
         ],
         "key_specs": [

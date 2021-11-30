@@ -13,9 +13,6 @@
             "stale",
             "sentinel"
         ],
-        "acl_categories": [
-            "slow"
-        ],
         "arguments": [
             {
                 "name": "bits",

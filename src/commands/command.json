@@ -13,7 +13,6 @@
             "sentinel"
         ],
         "acl_categories": [
-            "slow",
             "connection"
         ]
     }

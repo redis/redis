@@ -12,11 +12,6 @@
             "noscript",
             "stale"
         ],
-        "acl_categories": [
-            "admin",
-            "slow",
-            "dangerous"
-        ],
         "arguments": [
             {
                 "name": "parameter",

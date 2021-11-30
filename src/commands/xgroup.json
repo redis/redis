@@ -4,9 +4,6 @@
         "complexity": "Depends on subcommand.",
         "group": "stream",
         "since": "5.0.0",
-        "arity": -2,
-        "acl_categories": [
-            "slow"
-        ]
+        "arity": -2
     }
 }

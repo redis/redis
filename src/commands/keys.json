@@ -11,10 +11,7 @@
             "sort_for_script"
         ],
         "acl_categories": [
-            "keyspace",
-            "read",
-            "slow",
-            "dangerous"
+            "keyspace"
         ],
         "arguments": [
             {

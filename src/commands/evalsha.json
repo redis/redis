@@ -14,7 +14,6 @@
             "no_mandatory_keys"
         ],
         "acl_categories": [
-            "slow",
             "scripting"
         ],
         "key_specs": [

@@ -1,9 +1,9 @@
 {
     "IS-MASTER-DOWN-BY-ADDR": {
-        "summary": "__TBD__39__",
-        "complexity": "__TBD__38__",
+        "summary": "Check if a master is down",
+        "complexity": "O(1)",
         "group": "sentinel",
-        "since": "__TBD__41__",
+        "since": "2.8.4",
         "arity": 6,
         "container": "SENTINEL",
         "function": "sentinelCommand",
@@ -11,11 +11,6 @@
             "admin",
             "sentinel",
             "only_sentinel"
-        ],
-        "acl_categories": [
-            "admin",
-            "slow",
-            "dangerous"
         ]
     }
 }

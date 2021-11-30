@@ -6,9 +6,6 @@
         "since": "4.0.0",
         "arity": 2,
         "container": "MEMORY",
-        "function": "memoryCommand",
-        "acl_categories": [
-            "slow"
-        ]
+        "function": "memoryCommand"
     }
 }

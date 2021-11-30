@@ -11,9 +11,6 @@
             "random",
             "stale"
         ],
-        "acl_categories": [
-            "slow"
-        ],
         "arguments": [
             {
                 "name": "slot",

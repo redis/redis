@@ -14,7 +14,6 @@
             "no_auth"
         ],
         "acl_categories": [
-            "fast",
             "connection"
         ]
     }

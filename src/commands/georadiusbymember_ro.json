@@ -15,9 +15,7 @@
             "readonly"
         ],
         "acl_categories": [
-            "read",
-            "geo",
-            "slow"
+            "geo"
         ],
         "key_specs": [
             {

@@ -18,7 +18,6 @@
             "may_replicate"
         ],
         "acl_categories": [
-            "slow",
             "scripting"
         ],
         "arguments": [

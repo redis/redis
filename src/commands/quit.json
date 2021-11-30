@@ -1,7 +1,7 @@
 {
     "QUIT": {
         "summary": "Close the connection",
-        "complexity": "__TBD__85__",
+        "complexity": "O(1)",
         "group": "connection",
         "since": "1.0.0",
         "arity": -1,
@@ -14,7 +14,6 @@
             "no_auth"
         ],
         "acl_categories": [
-            "fast",
             "connection"
         ]
     }

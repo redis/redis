@@ -12,10 +12,6 @@
             "loading",
             "stale"
         ],
-        "acl_categories": [
-            "pubsub",
-            "slow"
-        ],
         "arguments": [
             {
                 "name": "channel",

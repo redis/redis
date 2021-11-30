@@ -3,7 +3,7 @@
         "summary": "PATCH__TBD__76__",
         "complexity": "PATCH__TBD__75__",
         "group": "server",
-        "since": "7.0.0",
+        "since": "7.0",
         "arity": -2,
         "container": "COMMAND",
         "function": "commandListCommand",
@@ -12,7 +12,6 @@
             "stale"
         ],
         "acl_categories": [
-            "slow",
             "connection"
         ]
     }

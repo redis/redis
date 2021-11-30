@@ -14,7 +14,6 @@
             "stale"
         ],
         "acl_categories": [
-            "slow",
             "connection"
         ]
     }

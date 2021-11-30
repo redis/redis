@@ -11,9 +11,7 @@
             "sort_for_script"
         ],
         "acl_categories": [
-            "read",
-            "hash",
-            "slow"
+            "hash"
         ],
         "key_specs": [
             {

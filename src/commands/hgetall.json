@@ -11,9 +11,7 @@
             "random"
         ],
         "acl_categories": [
-            "read",
-            "hash",
-            "slow"
+            "hash"
         ],
         "key_specs": [
             {

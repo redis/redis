@@ -30,10 +30,7 @@
             "random"
         ],
         "acl_categories": [
-            "keyspace",
-            "write",
-            "slow",
-            "dangerous"
+            "keyspace"
         ],
         "key_specs": [
             {
@@ -85,7 +82,7 @@
                 "value": "port"
             },
             {
-                "name": "key_or_none",
+                "name": "key",
                 "type": "oneof",
                 "value": [
                     {

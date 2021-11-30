@@ -1,9 +1,9 @@
 {
     "REMOVE": {
-        "summary": "__TBD__75__",
-        "complexity": "__TBD__74__",
+        "summary": "Stop monitoring",
+        "complexity": "O(1)",
         "group": "sentinel",
-        "since": "__TBD__77__",
+        "since": "2.8.4",
         "arity": 3,
         "container": "SENTINEL",
         "function": "sentinelCommand",
@@ -11,11 +11,6 @@
             "admin",
             "sentinel",
             "only_sentinel"
-        ],
-        "acl_categories": [
-            "admin",
-            "slow",
-            "dangerous"
         ]
     }
 }

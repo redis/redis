@@ -10,9 +10,6 @@
         "command_flags": [
             "random",
             "stale"
-        ],
-        "acl_categories": [
-            "slow"
         ]
     }
 }

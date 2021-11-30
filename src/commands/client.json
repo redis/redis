@@ -7,9 +7,6 @@
         "arity": -2,
         "command_flags": [
             "sentinel"
-        ],
-        "acl_categories": [
-            "slow"
         ]
     }
 }

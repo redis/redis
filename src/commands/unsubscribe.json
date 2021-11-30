@@ -13,10 +13,6 @@
             "stale",
             "sentinel"
         ],
-        "acl_categories": [
-            "pubsub",
-            "slow"
-        ],
         "arguments": [
             {
                 "name": "channel",

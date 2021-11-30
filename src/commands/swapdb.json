@@ -11,10 +11,7 @@
             "fast"
         ],
         "acl_categories": [
-            "keyspace",
-            "write",
-            "fast",
-            "dangerous"
+            "keyspace"
         ],
         "arguments": [
             {

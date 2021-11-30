@@ -10,9 +10,7 @@
             "readonly"
         ],
         "acl_categories": [
-            "read",
-            "string",
-            "slow"
+            "string"
         ],
         "key_specs": [
             {

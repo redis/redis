@@ -1,9 +1,9 @@
 {
     "DEBUG": {
-        "summary": "__TBD__7__",
-        "complexity": "__TBD__6__",
+        "summary": "PATCH__TBD__7__",
+        "complexity": "PATCH__TBD__6__",
         "group": "sentinel",
-        "since": "__TBD__9__",
+        "since": "PATCH__TBD__9__",
         "arity": -2,
         "container": "SENTINEL",
         "function": "sentinelCommand",
@@ -11,11 +11,6 @@
             "admin",
             "sentinel",
             "only_sentinel"
-        ],
-        "acl_categories": [
-            "admin",
-            "slow",
-            "dangerous"
         ]
     }
 }

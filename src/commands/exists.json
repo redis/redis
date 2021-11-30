@@ -11,9 +11,7 @@
             "fast"
         ],
         "acl_categories": [
-            "keyspace",
-            "read",
-            "fast"
+            "keyspace"
         ],
         "key_specs": [
             {

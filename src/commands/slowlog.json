@@ -4,9 +4,6 @@
         "complexity": "Depends on subcommand.",
         "group": "server",
         "since": "2.2.12",
-        "arity": -2,
-        "acl_categories": [
-            "slow"
-        ]
+        "arity": -2
     }
 }

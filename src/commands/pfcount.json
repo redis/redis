@@ -11,9 +11,7 @@
             "may_replicate"
         ],
         "acl_categories": [
-            "read",
-            "hyperloglog",
-            "slow"
+            "hyperloglog"
         ],
         "key_specs": [
             {

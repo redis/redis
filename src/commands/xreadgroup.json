@@ -11,9 +11,7 @@
             "write"
         ],
         "acl_categories": [
-            "write",
             "stream",
-            "slow",
             "blocking"
         ],
         "key_specs": [

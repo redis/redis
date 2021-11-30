@@ -10,10 +10,6 @@
         "command_flags": [
             "readonly"
         ],
-        "acl_categories": [
-            "read",
-            "slow"
-        ],
         "key_specs": [
             {
                 "flags": [

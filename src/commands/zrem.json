@@ -17,9 +17,7 @@
             "fast"
         ],
         "acl_categories": [
-            "write",
-            "sortedset",
-            "fast"
+            "sortedset"
         ],
         "key_specs": [
             {

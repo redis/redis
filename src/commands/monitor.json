@@ -25,11 +25,6 @@
             "noscript",
             "loading",
             "stale"
-        ],
-        "acl_categories": [
-            "admin",
-            "slow",
-            "dangerous"
         ]
     }
 }

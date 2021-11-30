@@ -1,19 +1,14 @@
 {
     "SENTINEL": {
-        "summary": "__TBD__86__",
+        "summary": "A container for Sentinel commands",
         "complexity": "Depends on subcommand.",
         "group": "sentinel",
-        "since": "__TBD__88__",
+        "since": "2.8.4",
         "arity": -2,
         "command_flags": [
             "admin",
             "sentinel",
             "only_sentinel"
-        ],
-        "acl_categories": [
-            "admin",
-            "slow",
-            "dangerous"
         ]
     }
 }
