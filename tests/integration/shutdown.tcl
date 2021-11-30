@@ -11,7 +11,7 @@ test {Shutting down master waits for replica to catch up} {
             # Config master.
             $master config set repl-diskless-sync yes
             $master config set repl-diskless-sync-delay 1
-            $master config set shutdown-timeout 120 ; # for slow CI machines
+            $master config set shutdown-timeout 300 ; # 5min for slow CI
 
             # Config replica.
             $replica replicaof $master_host $master_port
@@ -46,7 +46,7 @@ test {Shutting down master waits for replica to catch up} {
             # Wake up replica and check if master has waited for it.
             after 1000
             exec kill -SIGCONT $replica_pid
-            wait_for_condition 50 100 {
+            wait_for_condition 300 1000 {
                 [$replica get k] eq 2
             } else {
                 fail "Master exited before replica could catch up."
