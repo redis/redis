@@ -166,10 +166,10 @@ sds getTempAofManifestFileName() {
  * line, followed by history type AOFs and finally is the INCR AOFs.
  */
 #define AOF_INFO_FORMAT_AND_CAT(buf, info)                    \
-    sdscatprintf(buf, "%s %s %s %lld %s %c\n",                \
-                 AOF_MANIFEST_KEY_FILE_NAME, info->file_name, \
-                 AOF_MANIFEST_KEY_FILE_SEQ, info->file_seq,   \
-                 AOF_MANIFEST_KEY_FILE_TYPE, info->file_type)
+    sdscatprintf((buf), "%s %s %s %lld %s %c\n",                \
+                 AOF_MANIFEST_KEY_FILE_NAME, (info)->file_name, \
+                 AOF_MANIFEST_KEY_FILE_SEQ, (info)->file_seq,   \
+                 AOF_MANIFEST_KEY_FILE_TYPE, (info)->file_type)
 
 sds getAofManifestAsString(aofManifest *am) {
     serverAssert(am != NULL);
@@ -211,6 +211,7 @@ sds getAofManifestAsString(aofManifest *am) {
  *  Note: We will ignore the "doesn't exist" error, because this will 
  *  happen when we upgrade from an old version redis.
  */
+#define MANIFEST_MAX_LINE 1024
 void aofLoadManifestFromDisk(void) {
     const char *err = NULL;
     struct redis_stat sb;
@@ -238,7 +239,7 @@ void aofLoadManifestFromDisk(void) {
 
     sdsfree(am_name);
 
-    char buf[1024];
+    char buf[MANIFEST_MAX_LINE+1] = { 0 };
     sds *argv = NULL;
     int argc;
     aofInfo *ai = NULL;
@@ -247,7 +248,7 @@ void aofLoadManifestFromDisk(void) {
     int linenum = 0;
 
     while (1) {
-        if (fgets(buf, sizeof(buf), fp) == NULL) {
+        if (fgets(buf, MANIFEST_MAX_LINE+1, fp) == NULL) {
             if (feof(fp)) {
                 if (linenum == 0) {
                     err = "Found an empty AOF manifest";
@@ -263,11 +264,14 @@ void aofLoadManifestFromDisk(void) {
 
         linenum++;
 
-        line = sdsnew(buf);
-        line = sdstrim(line, " \t\r\n");
+        if (buf[MANIFEST_MAX_LINE-1] != '\0' && buf[MANIFEST_MAX_LINE-1] != '\n') {
+            err = "The AOF manifest file contains too long line";
+            goto loaderr;
+        }
 
+        line = sdstrim(sdsnew(buf), " \t\r\n");
         argv = sdssplitargs(line, &argc);
-        if (argv == NULL || argc != 6) {
+        if (argv == NULL || argc < 6) {
             err = "The AOF manifest file is invalid format";
             goto loaderr;
         }
@@ -368,10 +372,8 @@ aofManifest *aofManifestDup(aofManifest *orig) {
     
     am->incr_aof_list = listDup(orig->incr_aof_list);
     am->history_aof_list = listDup(orig->history_aof_list);
-    if (am->incr_aof_list == NULL || am->history_aof_list == NULL) {
-        aofManifestFree(am);
-        am = NULL;
-    }
+    serverAssert(am->incr_aof_list != NULL);
+    serverAssert(am->history_aof_list != NULL);
     return am;
 }
 
@@ -550,11 +552,11 @@ int persistAofManifest(aofManifest *am) {
     sds amstr = getAofManifestAsString(am);
     int ret = writeAofManifestFile(amstr);
     sdsfree(amstr);
-    am->dirty = 0;
+    if (ret == C_OK) am->dirty = 0;
     return ret;
 }
 
-/* When AOFRW succuss, the previous BASE and INCR AOFs will 
+/* When AOFRW success, the previous BASE and INCR AOFs will 
  * become HISTORY type and be moved into 'history_aof_list'.
  * 
  * The function will traverse the 'history_aof_list' and submit 
@@ -634,9 +636,8 @@ int openNewIncrAofForAppend(void) {
     /* Only open new INCR AOF when AOF enabled. */
     if (server.aof_state == AOF_OFF) return C_OK;
 
-    /* Dup an temp aof_manifest to modify. */
+    /* Dup a temp aof_manifest to modify. */
     aofManifest *temp_am = aofManifestDup(server.aof_manifest);
-    if (temp_am == NULL) return C_ERR;
 
     /* Open new AOF. */
     sds new_aof_name = getNewIncrAofName(temp_am);
@@ -1174,7 +1175,7 @@ struct client *createAOFClient(void) {
     return c;
 }
 
-/* Replay a append log file. On success AOF_OK is returned,
+/* Replay an append log file. On success AOF_OK is returned,
  * otherwise, one of the following is returned:
  * AOF_OPEN_ERR: Failed to open the AOF file.
  * AOF_NOT_EXIST: AOF file doesn't exist.
@@ -2281,9 +2282,6 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
 
         /* Dup a temporary aof_manifest for subsequent modifications. */
         temp_am = aofManifestDup(server.aof_manifest);
-        if (temp_am == NULL) {
-            goto cleanup;
-        }
 
         /* Get a new BASE file name and mark the previous (if we have)
          * as the HISTORY type. */
