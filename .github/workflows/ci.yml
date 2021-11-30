@@ -4,6 +4,19 @@ on: [push, pull_request]
 
 jobs:
 
+  test-ubuntu-latest-cluster:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: make
+      # Fail build if there are warnings
+      # build with TLS just for compilation coverage
+      run: make REDIS_CFLAGS='-Werror' BUILD_TLS=yes
+    - name: cluster tests
+      run: |
+        sudo apt-get install tcl8.6 tclx
+        ./runtest-cluster
+
   test-ubuntu-latest:
     runs-on: ubuntu-latest
     steps:
@@ -20,8 +33,6 @@ jobs:
       run: ./runtest-moduleapi --verbose --dump-logs
     - name: sentinel tests
       run: ./runtest-sentinel
-    - name: cluster tests
-      run: ./runtest-cluster
 
   test-sanitizer-address:
     runs-on: ubuntu-latest
@@ -37,8 +48,6 @@ jobs:
         run: ./runtest-moduleapi --verbose --dump-logs
       - name: sentinel tests
         run: ./runtest-sentinel
-      - name: cluster tests
-        run: ./runtest-cluster
 
   build-debian-old:
     runs-on: ubuntu-latest
