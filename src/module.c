@@ -4232,7 +4232,8 @@ int RM_StreamAdd(RedisModuleKey *key, int flags, RedisModuleStreamID *id, RedisM
         use_id.seq = id->seq;
         use_id_ptr = &use_id;
     }
-    if (streamAppendItem(s, argv, numfields, &added_id, use_id_ptr) == C_ERR) {
+
+    if (streamAppendItem(s,argv,numfields,&added_id,use_id_ptr,1) == C_ERR) {
         /* Either the ID not greater than all existing IDs in the stream, or
          * the elements are too large to be stored. either way, errno is already
          * set by streamAppendItem. */

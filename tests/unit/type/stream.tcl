@@ -85,6 +85,43 @@ start_server {
         assert_error ERR* {r xadd mystream * c d}
     }
 
+    test {XADD auto-generated sequence is incremented for last ID} {
+        r DEL mystream
+        set id1 [r XADD mystream 123-456 item 1 value a]
+        set id2 [r XADD mystream 123-* item 2 value b]
+        lassign [split $id2 -] _ seq
+        assert {$seq == 457}
+        assert {[streamCompareID $id1 $id2] == -1}
+    }
+
+    test {XADD auto-generated sequence is zero for future timestamp ID} {
+        r DEL mystream
+        set id1 [r XADD mystream 123-456 item 1 value a]
+        set id2 [r XADD mystream 789-* item 2 value b]
+        lassign [split $id2 -] _ seq
+        assert {$seq == 0}
+        assert {[streamCompareID $id1 $id2] == -1}
+    }
+
+    test {XADD auto-generated sequence can't be smaller than last ID} {
+        r DEL mystream
+        r XADD mystream 123-456 item 1 value a
+        assert_error ERR* {r XADD mystream 42-* item 2 value b}
+    }
+
+    test {XADD auto-generated sequence can't overflow} {
+        r DEL mystream
+        r xadd mystream 1-18446744073709551615 a b
+        assert_error ERR* {r xadd mystream 1-* c d}
+    }
+
+    test {XADD 0-* should succeed} {
+        r DEL mystream
+        set id [r xadd mystream 0-* a b]
+        lassign [split $id -] _ seq
+        assert {$seq == 1}
+    }
+
     test {XADD with MAXLEN option} {
         r DEL mystream
         for {set j 0} {$j < 1000} {incr j} {
