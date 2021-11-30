@@ -1195,10 +1195,10 @@ int loadSingleAppendOnlyFile(char *filename) {
     if (fp == NULL) {
         int en = errno;
         if (redis_stat(filename, &sb) == 0) {
-            serverLog(LL_WARNING,"Fatal error: can't open the append log file for reading: %s",strerror(en));
+            serverLog(LL_WARNING,"Fatal error: can't open the append log file %s for reading: %s", filename, strerror(en));
             return AOF_OPEN_ERR;
         } else {
-            serverLog(LL_WARNING,"The append log file %s doesn't exist: %s",filename,strerror(errno));
+            serverLog(LL_WARNING,"The append log file %s doesn't exist: %s", filename, strerror(errno));
             return AOF_NOT_EXIST;
         }
     }
@@ -1228,7 +1228,7 @@ int loadSingleAppendOnlyFile(char *filename) {
         if (fseek(fp,0,SEEK_SET) == -1) goto readerr;
         rioInitWithFile(&rdb,fp);
         if (rdbLoadRio(&rdb,RDBFLAGS_AOF_PREAMBLE,NULL,server.db) != C_OK) {
-            serverLog(LL_WARNING,"Error reading the RDB preamble of the AOF file, AOF loading aborted");
+            serverLog(LL_WARNING,"Error reading the RDB preamble of the AOF file %s, AOF loading aborted", filename);
             goto readerr;
         } else {
             loadingAbsProgress(ftello(fp));
@@ -1310,8 +1310,8 @@ int loadSingleAppendOnlyFile(char *filename) {
         cmd = lookupCommand(argv,argc);
         if (!cmd) {
             serverLog(LL_WARNING,
-                "Unknown command '%s' reading the append only file",
-                (char*)argv[0]->ptr);
+                "Unknown command '%s' reading the append only file %s",
+                (char*)argv[0]->ptr, filename);
             freeClientArgv(fakeClient);
             ret = AOF_FAILED;
             goto cleanup;
@@ -1350,7 +1350,7 @@ int loadSingleAppendOnlyFile(char *filename) {
      * to remove the unprocessed tail and continue. */
     if (fakeClient->flags & CLIENT_MULTI) {
         serverLog(LL_WARNING,
-            "Revert incomplete MULTI/EXEC transaction in AOF file");
+            "Revert incomplete MULTI/EXEC transaction in AOF file %s", filename);
         valid_up_to = valid_before_multi;
         goto uxeof;
     }
@@ -1363,42 +1363,45 @@ loaded_ok: /* DB loaded, cleanup and return C_OK to the caller. */
 
 readerr: /* Read error. If feof(fp) is true, fall through to unexpected EOF. */
     if (!feof(fp)) {
-        serverLog(LL_WARNING,"Unrecoverable error reading the append only file: %s", strerror(errno));
+        serverLog(LL_WARNING,"Unrecoverable error reading the append only file %s: %s", filename, strerror(errno));
         ret = AOF_FAILED;
         goto cleanup;
     }
 
 uxeof: /* Unexpected AOF end of file. */
     if (server.aof_load_truncated) {
-        serverLog(LL_WARNING,"!!! Warning: short read while loading the AOF file !!!");
-        serverLog(LL_WARNING,"!!! Truncating the AOF at offset %llu !!!",
-            (unsigned long long) valid_up_to);
+        serverLog(LL_WARNING,"!!! Warning: short read while loading the AOF file %s!!!", filename);
+        serverLog(LL_WARNING,"!!! Truncating the AOF %s at offset %llu !!!",
+            filename, (unsigned long long) valid_up_to);
         if (valid_up_to == -1 || truncate(filename,valid_up_to) == -1) {
             if (valid_up_to == -1) {
                 serverLog(LL_WARNING,"Last valid command offset is invalid");
             } else {
-                serverLog(LL_WARNING,"Error truncating the AOF file: %s",
-                    strerror(errno));
+                serverLog(LL_WARNING,"Error truncating the AOF file %s: %s",
+                    filename, strerror(errno));
             }
         } else {
             /* Make sure the AOF file descriptor points to the end of the
              * file after the truncate call. */
             if (server.aof_fd != -1 && lseek(server.aof_fd,0,SEEK_END) == -1) {
-                serverLog(LL_WARNING,"Can't seek the end of the AOF file: %s",
-                    strerror(errno));
+                serverLog(LL_WARNING,"Can't seek the end of the AOF file %s: %s",
+                    filename, strerror(errno));
             } else {
                 serverLog(LL_WARNING,
-                    "AOF loaded anyway because aof-load-truncated is enabled");
+                    "AOF %s loaded anyway because aof-load-truncated is enabled", filename);
                 goto loaded_ok;
             }
         }
     }
-    serverLog(LL_WARNING,"Unexpected end of file reading the append only file. You can: 1) Make a backup of your AOF file, then use ./redis-check-aof --fix <filename>. 2) Alternatively you can set the 'aof-load-truncated' configuration option to yes and restart the server.");
+    serverLog(LL_WARNING,"Unexpected end of file reading the append only file %s. You can: \
+        1) Make a backup of your AOF file, then use ./redis-check-aof --fix <filename>.    \
+        2) Alternatively you can set the 'aof-load-truncated' configuration option to yes and restart the server.", filename);
     ret = AOF_FAILED;
     goto cleanup;
 
 fmterr: /* Format error. */
-    serverLog(LL_WARNING,"Bad file format reading the append only file: make a backup of your AOF file, then use ./redis-check-aof --fix <filename>");
+    serverLog(LL_WARNING,"Bad file format reading the append only file %s: \
+        make a backup of your AOF file, then use ./redis-check-aof --fix <filename>", filename);
     ret = AOF_FAILED;
     /* fall through to cleanup. */
 
