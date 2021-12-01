@@ -1416,6 +1416,7 @@ int loadAppendOnlyFiles(aofManifest *am) {
     long long start;
     off_t total_size = 0;
     sds aof_name;
+    int need_rewrite = 0;
 
     /* If there is no information about BASE file and INCR AOF in aofManifest, then 
      * there is only one possibility: the aof manifest file does not exist, we may 
@@ -1440,6 +1441,8 @@ int loadAppendOnlyFiles(aofManifest *am) {
         am->base_aof_info = ai;
         am->curr_base_file_seq = 1;
         am->dirty = 1;
+
+        need_rewrite = 1;
 
         int ret = persistAofManifest(am);
         if (ret == C_ERR) {
@@ -1506,6 +1509,12 @@ int loadAppendOnlyFiles(aofManifest *am) {
     server.aof_current_size = total_size;
     server.aof_rewrite_base_size = server.aof_current_size;
     server.aof_fsync_offset = server.aof_current_size;
+
+    /* We are upgrading from an old version redis, so we 
+     * execute AOFRW immediately, so that the BASE file name 
+     * will quickly become the new name, and everything will 
+     * become OK. */
+    if (need_rewrite) server.aof_rewrite_scheduled = 1;
 
 cleanup:
     stopLoading(ret == AOF_OK);

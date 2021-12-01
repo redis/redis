@@ -405,9 +405,16 @@ tags {"external:skip"} {
             assert_equal v2 [$client get k2]
             assert_equal v3 [$client get k3]
 
+            # Wait first AOFRW
+            wait_for_condition 1000 500 {
+                [check_file_exist $server_path "appendonly.aof_2.base.rdb"] == 1
+            } else {
+                fail "Failed to wait AOFRW"
+            }
+
             assert_aof_manifest_content $server_path {
-                {file appendonly.aof seq 1 type b} 
-                {file appendonly.aof_1.incr.aof seq 1 type i}
+                {file appendonly.aof_2.base.rdb seq 2 type b} 
+                {file appendonly.aof_2.incr.aof seq 2 type i}
             }
 
             assert_equal OK [$client set k4 v4]
@@ -425,11 +432,13 @@ tags {"external:skip"} {
                 }
             }
 
+            
+
             assert_equal OK [$client set k5 v5]
 
             assert_aof_manifest_content $server_path {
-                {file appendonly.aof_2.base.rdb seq 2 type b} 
-                {file appendonly.aof_2.incr.aof seq 2 type i}
+                {file appendonly.aof_3.base.rdb seq 3 type b} 
+                {file appendonly.aof_3.incr.aof seq 3 type i}
             }
 
             set d1 [$client debug digest]
@@ -438,6 +447,8 @@ tags {"external:skip"} {
             assert {$d1 eq $d2}
         }
     }
+
+    clean_aof_persistence $server_path $basename
 
 
     # Test Part 2
@@ -448,13 +459,16 @@ tags {"external:skip"} {
     # whether the correct manifest is generated, whether the data can be reload correctly under continuous 
     # writing pressure, etc.
  
-    start_server {tags {"Multi Part AOF"} overrides {aof-use-rdb-preamble {yes} appendfilename {appendonly.aof}}} {
+    
+    start_server {tags {"Multi Part AOF"} overrides {aof-use-rdb-preamble {yes} appendonly {no} appendfilename {appendonly.aof}}} {
         set dir [get_redis_dir]
         set aof_basename [get_aof_basename $::default_aof_basename]
         set master [srv 0 client]
         set master_host [srv 0 host]
         set master_port [srv 0 port]
 
+        catch {exec rm -rf $::aof_manifest_name}
+        
         test "Make sure aof manifest $::aof_manifest_name not in current working directory" {
             assert_equal 0 [file exists $::aof_manifest_name]
         }
