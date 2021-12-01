@@ -3534,7 +3534,7 @@ struct redisCommandArg CONFIG_SET_Args[] = {
 
 /* CONFIG command table */
 struct redisCommand CONFIG_Subcommands[] = {
-{"set","Set a configuration parameter to the given value","PATCH__TBD__47__","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,CONFIG_SET_History,CONFIG_SET_Hints,configSetCommand,4,"admin noscript stale",.args=CONFIG_SET_Args},
+{"set","Set a configuration parameter to the given value","PATCH__TBD__47__","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,CONFIG_SET_History,CONFIG_SET_Hints,configSetCommand,-4,"admin noscript stale",.args=CONFIG_SET_Args},
 {"get","Get the value of a configuration parameter","PATCH__TBD__45__","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,CONFIG_GET_History,CONFIG_GET_Hints,configGetCommand,3,"admin noscript loading stale",.args=CONFIG_GET_Args},
 {"help","Show helpful text about the different subcommands","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,CONFIG_HELP_History,CONFIG_HELP_Hints,configHelpCommand,2,"loading stale"},
 {"resetstat","Reset the stats returned by INFO","O(1)","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,CONFIG_RESETSTAT_History,CONFIG_RESETSTAT_Hints,configResetStatCommand,2,"admin noscript stale"},
@@ -5856,7 +5856,7 @@ struct redisCommandArg SET_expiration_Subargs[] = {
 {"ex",ARG_TYPE_INTEGER,"EX",NULL,NULL,CMD_ARG_NONE,.value.string="seconds"},
 {"px",ARG_TYPE_INTEGER,"PX",NULL,NULL,CMD_ARG_NONE,.value.string="milliseconds"},
 {"exat",ARG_TYPE_UNIX_TIME,"EXAT",NULL,NULL,CMD_ARG_NONE,.value.string="timestamp"},
-{"pxat",ARG_TYPE_INTEGER,"PXAT",NULL,NULL,CMD_ARG_NONE,.value.string="milliseconds-timestamp"},
+{"pxat",ARG_TYPE_UNIX_TIME,"PXAT",NULL,NULL,CMD_ARG_NONE,.value.string="milliseconds-timestamp"},
 {"keepttl",ARG_TYPE_PURE_TOKEN,"KEEPTTL",NULL,NULL,CMD_ARG_NONE},
 {0}
 };
