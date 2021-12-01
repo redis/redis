@@ -308,7 +308,7 @@ start_server {tags {"expire"}} {
     } {-2}
 
     # Start a new server with empty data and AOF file.
-    start_server {overrides {appendonly {yes} appendfilename {appendonly} appendfsync always} tags {external:skip}} {
+    start_server {overrides {appendonly {yes} appendfilename {appendonly.aof} appendfsync always} tags {external:skip}} {
         test {All time-to-live(TTL) in commands are propagated as absolute timestamp in milliseconds in AOF} {
             # This test makes sure that expire times are propagated as absolute
             # times to the AOF file and not as relative time, so that when the AOF

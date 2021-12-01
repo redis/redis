@@ -165,7 +165,7 @@ sds getTempAofManifestFileName() {
  * The BASE file information (if we have) will be placed on the first 
  * line, followed by history type AOFs and finally is the INCR AOFs.
  */
-#define AOF_INFO_FORMAT_AND_CAT(buf, info)                    \
+#define AOF_INFO_FORMAT_AND_CAT(buf, info)                      \
     sdscatprintf((buf), "%s %s %s %lld %s %c\n",                \
                  AOF_MANIFEST_KEY_FILE_NAME, (info)->file_name, \
                  AOF_MANIFEST_KEY_FILE_SEQ, (info)->file_seq,   \
@@ -271,34 +271,30 @@ void aofLoadManifestFromDisk(void) {
 
         line = sdstrim(sdsnew(buf), " \t\r\n");
         argv = sdssplitargs(line, &argc);
-        if (argv == NULL || argc < 6) {
+        if (argv == NULL || argc < 6 || (argc % 2)) {
             err = "The AOF manifest file is invalid format";
             goto loaderr;
         }
 
         ai = aofInfoCreate();
-        if (strcmp(argv[0], AOF_MANIFEST_KEY_FILE_NAME) == 0) {
-            ai->file_name = sdsnew(argv[1]);
-            if (!pathIsBaseName(ai->file_name)) {
-                err = "File can't be a path, just a filename";
-                goto loaderr;
-            }
-        } else {
-            err = "Mismatched manifest file name key";
-            goto loaderr;
+        for (int i = 0; i < argc; i += 2) {
+            if (!strcasecmp(argv[i], AOF_MANIFEST_KEY_FILE_NAME)) {
+                ai->file_name = sdsnew(argv[i+1]);
+                if (!pathIsBaseName(ai->file_name)) {
+                    err = "File can't be a path, just a filename";
+                    goto loaderr;
+                }
+            } else if (!strcasecmp(argv[i], AOF_MANIFEST_KEY_FILE_SEQ)) {
+                ai->file_seq = atoll(argv[i+1]);
+            } else if (!strcasecmp(argv[i], AOF_MANIFEST_KEY_FILE_TYPE)) {
+                ai->file_type = (argv[i+1])[0];
+            } 
+            /* else if (!strcasecmp(argv[i], AOF_MANIFEST_KEY_OTHER)) {} */
         }
 
-        if (strcmp(argv[2], AOF_MANIFEST_KEY_FILE_SEQ) == 0) {
-            ai->file_seq = atoll(argv[3]);
-        } else {
-            err = "Mismatched manifest file seq key";
-            goto loaderr;
-        }
-
-        if (strcmp(argv[4], AOF_MANIFEST_KEY_FILE_TYPE) == 0) {
-            ai->file_type = (argv[5])[0];
-        } else {
-            err = "Mismatched manifest file type key";
+        /* We have to make sure we load all the information. */
+        if (!ai->file_name || !ai->file_seq || !ai->file_type) {
+            err = "Mismatched manifest key";
             goto loaderr;
         }
 

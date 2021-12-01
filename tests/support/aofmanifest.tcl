@@ -1,6 +1,6 @@
-set ::aof_manifest_name "appendonly.manifest"
-set ::aof_meta_temp_filename "temp_appendonly.manifest"
-set ::default_aof_basename "appendonly"
+set ::aof_manifest_name "appendonly.aof.manifest"
+set ::aof_meta_temp_filename "temp_appendonly.aof.manifest"
+set ::default_aof_basename "appendonly.aof"
 set ::base_aof_sufix ".base"
 set ::incr_aof_sufix ".incr"
 set ::aof_format_suffix ".aof"
@@ -105,26 +105,9 @@ proc assert_aof_manifest_content {dir content} {
     }
 }
 
-proc clean_aof_persistence {dir} {
-    set meta_path [get_full_path $dir $::aof_manifest_name]
-
-    if {![file exists $meta_path]} {
-        return
-    }
-
-    set fp [open $meta_path r+]
-    while {1} {
-        set line [gets $fp]
-        if {[eof $fp]} {
-           close $fp
-           break;
-        }
-
-        set aofname [lindex [split $line " "] 1]
-        set aof_path [get_full_path $dir $aofname]
-        catch {exec rm -rf $aof_path}
-    }
-    catch {exec rm -rf $meta_path}
+proc clean_aof_persistence {dir basename} {
+    set path [format "%s/%s*" $dir $basename]
+    catch {eval exec rm -rf [glob $path]}
 }
 
 proc append_to_manifest {str} {

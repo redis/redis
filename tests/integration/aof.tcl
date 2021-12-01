@@ -240,7 +240,7 @@ tags {"aof external:skip"} {
         }
     }
 
-    start_server {overrides {appendonly {yes} appendfilename {appendonly} appendfsync always}} {
+    start_server {overrides {appendonly {yes} appendfilename {appendonly.aof} appendfsync always}} {
         test {AOF fsync always barrier issue} {
             set rd [redis_deferring_client]
             # Set a sleep when aof is flushed, so that we have a chance to look
@@ -273,7 +273,7 @@ tags {"aof external:skip"} {
         }
     }
 
-    start_server {overrides {appendonly {yes} appendfilename {appendonly}}} {
+    start_server {overrides {appendonly {yes} appendfilename {appendonly.aof}}} {
         test {GETEX should not append to AOF} {
             set dir [lindex [r config get dir] 1]
             set lat_incr_aof_name [get_last_incr_aof_name $dir]
@@ -406,7 +406,7 @@ tags {"aof external:skip"} {
     }
 
     test {Generate timestamp annotations in AOF} {
-        start_server {overrides {appendonly {yes} appendfilename {appendonly}}} {
+        start_server {overrides {appendonly {yes} appendfilename {appendonly.aof}}} {
             r config set aof-timestamp-enabled yes
             r config set aof-use-rdb-preamble no
             set dir [lindex [r config get dir] 1]
