@@ -1363,33 +1363,43 @@ dictType BenchmarkDictType = {
 #define start_benchmark() start = timeInMilliseconds()
 #define end_benchmark(msg) do { \
     elapsed = timeInMilliseconds()-start; \
-    printf(msg ": %ld items in %lld ms\n", count, elapsed); \
+    printf(msg ": %ld items, %ld cycles in %lld ms\n", elementCount, benchmarkCycles, elapsed); \
 } while(0)
 
-/* ./redis-server test dict [<count> | --accurate] */
+/* ./redis-server test dict [<elementCount> | --accurate] | [<benchmarkCycles> | --accurate] */
 int dictTest(int argc, char **argv, int accurate) {
-    long j;
+    long i, j;
     long long start, elapsed;
     dict *dict = dictCreate(&BenchmarkDictType);
-    long count = 0;
+    long elementCount, benchmarkCycles;
 
-    if (argc == 4) {
+    if (argc >= 4) {
         if (accurate) {
-            count = 5000000;
+            elementCount = 5000000;
         } else {
-            count = strtol(argv[3],NULL,10);
+            elementCount = strtol(argv[3],NULL,10);
         }
     } else {
-        count = 5000;
+        elementCount = 5000;
+    }
+
+    if (argc == 5) {
+        if (accurate) {
+            benchmarkCycles = 5000000;
+        } else {
+            benchmarkCycles = strtol(argv[4],NULL,10);
+        }
+    } else {
+        benchmarkCycles = 100000;
     }
 
     start_benchmark();
-    for (j = 0; j < count; j++) {
+    for (j = 0; j < elementCount; j++) {
         int retval = dictAdd(dict,stringFromLongLong(j),(void*)j);
         assert(retval == DICT_OK);
     }
     end_benchmark("Inserting");
-    assert((long)dictSize(dict) == count);
+    assert((long)dictSize(dict) == elementCount);
 
     /* Wait for rehashing. */
     while (dictIsRehashing(dict)) {
@@ -1397,8 +1407,9 @@ int dictTest(int argc, char **argv, int accurate) {
     }
 
     start_benchmark();
-    for (j = 0; j < count; j++) {
-        char *key = stringFromLongLong(j);
+    for (j = 0; j < benchmarkCycles; j++) {
+        i = j % elementCount;
+        char *key = stringFromLongLong(i);
         dictEntry *de = dictFind(dict,key);
         assert(de != NULL);
         zfree(key);
@@ -1406,8 +1417,9 @@ int dictTest(int argc, char **argv, int accurate) {
     end_benchmark("Linear access of existing elements");
 
     start_benchmark();
-    for (j = 0; j < count; j++) {
-        char *key = stringFromLongLong(j);
+    for (j = 0; j < benchmarkCycles; j++) {
+        i = j % elementCount;
+        char *key = stringFromLongLong(i);
         dictEntry *de = dictFind(dict,key);
         assert(de != NULL);
         zfree(key);
@@ -1415,8 +1427,8 @@ int dictTest(int argc, char **argv, int accurate) {
     end_benchmark("Linear access of existing elements (2nd round)");
 
     start_benchmark();
-    for (j = 0; j < count; j++) {
-        char *key = stringFromLongLong(rand() % count);
+    for (j = 0; j < benchmarkCycles; j++) {
+        char *key = stringFromLongLong(rand() % elementCount);
         dictEntry *de = dictFind(dict,key);
         assert(de != NULL);
         zfree(key);
@@ -1424,15 +1436,15 @@ int dictTest(int argc, char **argv, int accurate) {
     end_benchmark("Random access of existing elements");
 
     start_benchmark();
-    for (j = 0; j < count; j++) {
+    for (j = 0; j < benchmarkCycles; j++) {
         dictEntry *de = dictGetRandomKey(dict);
         assert(de != NULL);
     }
     end_benchmark("Accessing random keys");
 
     start_benchmark();
-    for (j = 0; j < count; j++) {
-        char *key = stringFromLongLong(rand() % count);
+    for (j = 0; j < benchmarkCycles; j++) {
+        char *key = stringFromLongLong(rand() % elementCount);
         key[0] = 'X';
         dictEntry *de = dictFind(dict,key);
         assert(de == NULL);
@@ -1442,8 +1454,9 @@ int dictTest(int argc, char **argv, int accurate) {
 
     dictX *dictX = dictEvolution(dict);
     start_benchmark();
-    for (j = 0; j < count; j++) {
-        char *key = stringFromLongLong(j);
+    for (j = 0; j < benchmarkCycles; j++) {
+        i = j % elementCount;
+        char *key = stringFromLongLong(i);
         dictEntry *de = dictXFind(dictX, key);
         assert(de != NULL);
         zfree(key);
@@ -1451,8 +1464,9 @@ int dictTest(int argc, char **argv, int accurate) {
     end_benchmark("Linear access of existing elements in dictX");
 
     start_benchmark();
-    for (j = 0; j < count; j++) {
-        char *key = stringFromLongLong(j);
+    for (j = 0; j < benchmarkCycles; j++) {
+        i = j % elementCount;
+        char *key = stringFromLongLong(i);
         dictEntry *de = dictXFind(dictX, key);
         assert(de != NULL);
         zfree(key);
@@ -1460,8 +1474,8 @@ int dictTest(int argc, char **argv, int accurate) {
     end_benchmark("Linear access of existing elements (2nd round) in dictX");
 
     start_benchmark();
-    for (j = 0; j < count; j++) {
-        char *key = stringFromLongLong(rand() % count);
+    for (j = 0; j < benchmarkCycles; j++) {
+        char *key = stringFromLongLong(rand() % elementCount);
         dictEntry *de = dictXFind(dictX, key);
         assert(de != NULL);
         zfree(key);
@@ -1469,8 +1483,8 @@ int dictTest(int argc, char **argv, int accurate) {
     end_benchmark("Random access of existing elements in dictX");
 
     start_benchmark();
-    for (j = 0; j < count; j++) {
-        char *key = stringFromLongLong(rand() % count);
+    for (j = 0; j < benchmarkCycles; j++) {
+        char *key = stringFromLongLong(rand() % elementCount);
         key[0] = 'X';
         dictEntry *de = dictXFind(dictX, key);
         assert(de == NULL);
@@ -1480,7 +1494,7 @@ int dictTest(int argc, char **argv, int accurate) {
 
     dictRewind(dict, dictX);
     start_benchmark();
-    for (j = 0; j < count; j++) {
+    for (j = 0; j < elementCount; j++) {
         char *key = stringFromLongLong(j);
         int retval = dictDelete(dict,key);
         assert(retval == DICT_OK);
