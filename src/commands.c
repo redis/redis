@@ -5115,7 +5115,7 @@ commandHistory XADD_History[] = {
 /* XADD trim strategy argument table */
 struct redisCommandArg XADD_trim_strategy_Subargs[] = {
 {"maxlen",ARG_TYPE_PURE_TOKEN,"MAXLEN",NULL,NULL,CMD_ARG_NONE},
-{"minid",ARG_TYPE_PURE_TOKEN,"MINID",NULL,NULL,CMD_ARG_NONE},
+{"minid",ARG_TYPE_PURE_TOKEN,"MINID",NULL,"6.2",CMD_ARG_NONE},
 {0}
 };
 
@@ -5131,14 +5131,14 @@ struct redisCommandArg XADD_trim_Subargs[] = {
 {"strategy",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_NONE,.value.subargs=XADD_trim_strategy_Subargs},
 {"operator",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=XADD_trim_operator_Subargs},
 {"threshold",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="threshold"},
-{"count",ARG_TYPE_INTEGER,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="count"},
+{"count",ARG_TYPE_INTEGER,"LIMIT",NULL,"6.2",CMD_ARG_OPTIONAL,.value.string="count"},
 {0}
 };
 
 /* XADD id_or_auto argument table */
 struct redisCommandArg XADD_id_or_auto_Subargs[] = {
 {"auto_id",ARG_TYPE_PURE_TOKEN,"*",NULL,NULL,CMD_ARG_NONE},
-{"id",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="ID"},
+{"id",ARG_TYPE_STRING,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="id"},
 {0}
 };
 
@@ -5152,7 +5152,7 @@ struct redisCommandArg XADD_field_value_Subargs[] = {
 /* XADD argument table */
 struct redisCommandArg XADD_Args[] = {
 {"key",ARG_TYPE_KEY,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
-{"nomkstream",ARG_TYPE_PURE_TOKEN,"NOMKSTREAM",NULL,NULL,CMD_ARG_OPTIONAL},
+{"nomkstream",ARG_TYPE_PURE_TOKEN,"NOMKSTREAM",NULL,"6.2",CMD_ARG_OPTIONAL},
 {"trim",ARG_TYPE_BLOCK,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=XADD_trim_Subargs},
 {"id_or_auto",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_NONE,.value.subargs=XADD_id_or_auto_Subargs},
 {"field_value",ARG_TYPE_BLOCK,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.value.subargs=XADD_field_value_Subargs},
@@ -6233,7 +6233,7 @@ struct redisCommand redisCommandTable[] = {
 {"incr","Increment the integer value of a key by one","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,INCR_History,INCR_Hints,incrCommand,2,"write denyoom fast @string",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=INCR_Args},
 {"incrby","Increment the integer value of a key by the given amount","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,INCRBY_History,INCRBY_Hints,incrbyCommand,3,"write denyoom fast @string",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=INCRBY_Args},
 {"incrbyfloat","Increment the float value of a key by the given amount","O(1)","2.6.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,INCRBYFLOAT_History,INCRBYFLOAT_Hints,incrbyfloatCommand,3,"write denyoom fast @string",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=INCRBYFLOAT_Args},
-{"lcs","__TBD__3__","__TBD__2__","__TBD__5__",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,LCS_History,LCS_Hints,lcsCommand,-3,"readonly @string",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={1,1,0}}}},
+{"lcs","__TBD__3__","__TBD__2__","7.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,LCS_History,LCS_Hints,lcsCommand,-3,"readonly @string",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={1,1,0}}}},
 {"mget","Get the values of all the given keys","O(N) where N is the number of keys to retrieve.","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,MGET_History,MGET_Hints,mgetCommand,-2,"readonly fast @string",{{"read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=MGET_Args},
 {"mset","Set multiple keys to multiple values","O(N) where N is the number of keys to set.","1.0.1",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,MSET_History,MSET_Hints,msetCommand,-3,"write denyoom @string",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,2,0}}},.args=MSET_Args},
 {"msetnx","Set multiple keys to multiple values, only if none of the keys exist","O(N) where N is the number of keys to set.","1.0.1",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,MSETNX_History,MSETNX_Hints,msetnxCommand,-3,"write denyoom @string",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,2,0}}},.args=MSETNX_Args},

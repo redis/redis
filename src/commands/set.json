@@ -86,7 +86,7 @@
                     },
                     {
                         "name": "pxat",
-                        "type": "integer",
+                        "type": "unix-time",
                         "value": "milliseconds-timestamp",
                         "token": "PXAT"
                     },

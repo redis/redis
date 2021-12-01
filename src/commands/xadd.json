@@ -50,7 +50,8 @@
                 "token": "NOMKSTREAM",
                 "name": "nomkstream",
                 "type": "pure-token",
-                "optional": true
+                "optional": true,
+                "since": "6.2"
             },
             {
                 "name": "trim",
@@ -68,7 +69,8 @@
                             {
                                 "name": "minid",
                                 "type": "pure-token",
-                                "token": "MINID"
+                                "token": "MINID",
+                                "since": "6.2"
                             }
                         ]
                     },
@@ -99,7 +101,8 @@
                         "name": "count",
                         "type": "integer",
                         "value": "count",
-                        "optional": true
+                        "optional": true,
+                        "since": "6.2"
                     }
                 ],
                 "optional": true
@@ -116,7 +119,7 @@
                     {
                         "name": "id",
                         "type": "string",
-                        "value": "ID"
+                        "value": "id"
                     }
                 ]
             },

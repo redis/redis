@@ -154,6 +154,10 @@ class Argument(object):
         return "%s_Subargs" % (self.fullname().replace(" ", "_"))
 
     def struct_code(self):
+        """
+        Output example:
+        "expiration",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=SET_expiration_Subargs
+        """
         def _flags_code():
             s = ""
             if self.desc.get("optional", False):
@@ -191,9 +195,6 @@ class Argument(object):
                 f.write("{%s},\n" % subarg.struct_code())
             f.write("{0}\n")
             f.write("};\n\n")
-
-        #f.write("/* %s argument */\n" % self.fullname())
-        #f.write("#define %s {%s}\n\n" % (self.struct_name(), self.struct_code()))
 
 
 class Command(object):
@@ -248,7 +249,8 @@ class Command(object):
 
     def struct_code(self):
         """
-        "SET","<summary>","1.0.0","string","<return summary>",SET_ReturnTypesRESP2,SET_ReturnTypesRESP3,SET_History,SET_Hints,setCommand,-3,"write use-memory @string @write @slow",{{"write",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}
+        Output example:
+        "set","Set the string value of a key","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,SET_History,SET_Hints,setCommand,-3,"write denyoom @string",{{"write read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SET_Args
         """
         def _flags_code():
             s = ""
@@ -349,9 +351,6 @@ class Command(object):
                 f.write("{%s},\n" % arg.struct_code())
             f.write("{0}\n")
             f.write("};\n\n")
-
-        #f.write("/* %s command */\n" % self.fullname())
-        #f.write("#define %s {%s}\n\n" % (self.struct_name(), self.struct_code()))
 
 
 class Subcommand(Command):

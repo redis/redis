@@ -52,7 +52,11 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
 
     /* Sanity */
+
+    /* Trying to create the same subcommand fails */
     RedisModule_Assert(RedisModule_CreateSubcommand(parent,"get",NULL,"",0,0,0) == REDISMODULE_ERR);
+
+    /* Trying to create a sub-subcommand fails */
     RedisModule_Assert(RedisModule_CreateSubcommand(subcmd,"get",NULL,"",0,0,0) == REDISMODULE_ERR);
 
     return REDISMODULE_OK;

@@ -244,18 +244,18 @@ typedef enum {
     REDISMODULE_ARG_TYPE_STRING,
     REDISMODULE_ARG_TYPE_INTEGER,
     REDISMODULE_ARG_TYPE_DOUBLE,
-    REDISMODULE_ARG_TYPE_KEY,
+    REDISMODULE_ARG_TYPE_KEY, /* A string, but represents a keyname */
     REDISMODULE_ARG_TYPE_PATTERN,
     REDISMODULE_ARG_TYPE_UNIX_TIME,
     REDISMODULE_ARG_TYPE_PURE_TOKEN,
-    REDISMODULE_ARG_TYPE_ONEOF, /* Must have subargs */
-    REDISMODULE_ARG_TYPE_BLOCK /* Must have subargs */
+    REDISMODULE_ARG_TYPE_ONEOF, /* Must have sub-arguments */
+    REDISMODULE_ARG_TYPE_BLOCK /* Must have sub-arguments */
 } RedisModuleCommandArgType;
 
 #define REDISMODULE_CMD_ARG_NONE            (0)
-#define REDISMODULE_CMD_ARG_OPTIONAL        (1<<0)
-#define REDISMODULE_CMD_ARG_MULTIPLE        (1<<1)
-#define REDISMODULE_CMD_ARG_MULTIPLE_TOKEN  (1<<2)
+#define REDISMODULE_CMD_ARG_OPTIONAL        (1<<0) /* The argument is optional (like GET in SET command) */
+#define REDISMODULE_CMD_ARG_MULTIPLE        (1<<1) /* The argument may repeat itself (like key in DEL) */
+#define REDISMODULE_CMD_ARG_MULTIPLE_TOKEN  (1<<2) /* The argument may repeat itself, and so does its token (like `GET pattern` in SORT) */
 
 /* Server events definitions.
  * Those flags should not be used directly by the module, instead

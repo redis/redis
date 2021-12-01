@@ -1887,6 +1887,7 @@ typedef struct {
 /* Number of static key specs */
 #define STATIC_KEY_SPECS_NUM 4
 
+/* Must be synced with ARG_TYPE_STR and generate-command-code.py */
 typedef enum {
     ARG_TYPE_STRING,
     ARG_TYPE_INTEGER,
@@ -1917,7 +1918,7 @@ typedef struct redisCommandArg {
     } value;
 } redisCommandArg;
 
-/* Must be synced with RESP2_TYPE_STR generate-command-code.py */
+/* Must be synced with RESP2_TYPE_STR and generate-command-code.py */
 typedef enum {
     RESP2_SIMPLE_STRING,
     RESP2_ERROR,
