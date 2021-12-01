@@ -402,3 +402,30 @@ start_server {tags {"introspection"}} {
     # Config file at this point is at a weird state, and includes all
     # known keywords. Might be a good idea to avoid adding tests here.
 }
+
+test {config during loading} {
+    start_server [list overrides [list key-load-delay 50 rdbcompression no]] {
+        # create a big rdb that will take long to load. it is important
+        # for keys to be big since the server processes events only once in 2mb.
+        # 100mb of rdb, 100k keys will load in more than 5 seconds
+        r debug populate 100000 key 1000
+
+        restart_server 0 false false
+
+        # make sure it's still loading
+        assert_equal [s loading] 1
+
+        # verify some configs are allowed during loading
+        r config set loglevel debug
+        assert_equal [lindex [r config get loglevel] 1] debug
+
+        # verify some configs are forbidden during loading
+        assert_error {LOADING*} {r config set dir asdf}
+
+        # make sure it's still loading
+        assert_equal [s loading] 1
+
+        # no need to keep waiting for loading to complete
+        exec kill [srv 0 pid]
+    }
+}

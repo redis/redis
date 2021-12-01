@@ -201,16 +201,16 @@ struct redisServer server; /* Server global state */
 
 struct redisCommand configSubcommands[] = {
     {"set",configSetCommand,-4,
-     "admin ok-stale no-script"},
+     "admin ok-loading ok-stale no-script"},
 
     {"get",configGetCommand,3,
      "admin ok-loading ok-stale no-script"},
 
     {"resetstat",configResetStatCommand,2,
-     "admin ok-stale no-script"},
+     "admin ok-loading ok-stale no-script"},
 
     {"rewrite",configRewriteCommand,2,
-     "admin ok-stale no-script"},
+     "admin ok-loading ok-stale no-script"},
 
     {"help",configHelpCommand,2,
      "ok-stale ok-loading"},
@@ -5423,6 +5423,23 @@ int processCommand(client *c) {
      * CMD_LOADING flag. */
     if (server.loading && !server.async_loading && is_denyloading_command) {
         rejectCommand(c, shared.loadingerr);
+        return C_OK;
+    }
+
+    /* During async-loading, block certain commands.
+     * TODO: this should be promoted to a command flag, same as lua_timedout below. */
+    if (server.async_loading && (
+        c->cmd->proc == saveCommand ||
+        c->cmd->proc == bgsaveCommand ||
+        c->cmd->proc == saveCommand ||
+        c->cmd->proc == bgrewriteaofCommand ||
+        c->cmd->proc == clusterCommand || /* I'm not sure that's necessary */
+        c->cmd->proc == sentinelCommand || /* I'm not sure that's necessary */
+        c->cmd->proc == moduleCommand ||
+        c->cmd->proc == syncCommand ||
+        c->cmd->proc == replicaofCommand))
+    {
+        rejectCommand(c,shared.loadingerr);
         return C_OK;
     }
 
