@@ -200,7 +200,7 @@ struct redisServer server; /* Server global state */
  */
 
 struct redisCommand configSubcommands[] = {
-    {"set",configSetCommand,4,
+    {"set",configSetCommand,-4,
      "admin ok-stale no-script"},
 
     {"get",configGetCommand,3,
@@ -3838,8 +3838,6 @@ static void readOOMScoreAdj(void) {
  * depending on current role.
  */
 int setOOMScoreAdj(int process_class) {
-
-    if (server.oom_score_adj == OOM_SCORE_ADJ_NO) return C_OK;
     if (process_class == -1)
         process_class = (server.masterhost ? CONFIG_OOM_REPLICA : CONFIG_OOM_MASTER);
 
@@ -3850,11 +3848,14 @@ int setOOMScoreAdj(int process_class) {
     int val;
     char buf[64];
 
-    val = server.oom_score_adj_values[process_class];
-    if (server.oom_score_adj == OOM_SCORE_RELATIVE)
-        val += server.oom_score_adj_base;
-    if (val > 1000) val = 1000;
-    if (val < -1000) val = -1000;
+    if (server.oom_score_adj != OOM_SCORE_ADJ_NO) {
+        val = server.oom_score_adj_values[process_class];
+        if (server.oom_score_adj == OOM_SCORE_RELATIVE)
+            val += server.oom_score_adj_base;
+        if (val > 1000) val = 1000;
+        if (val < -1000) val = -1000;
+    } else
+        val = server.oom_score_adj_base;
 
     snprintf(buf, sizeof(buf) - 1, "%d\n", val);
 
@@ -7190,57 +7191,19 @@ void redisAsciiArt(void) {
     zfree(buf);
 }
 
-int changeBindAddr(sds *addrlist, int addrlist_len) {
-    int i;
-    int result = C_OK;
-
-    char *prev_bindaddr[CONFIG_BINDADDR_MAX];
-    int prev_bindaddr_count;
-
+int changeBindAddr(void) {
     /* Close old TCP and TLS servers */
     closeSocketListeners(&server.ipfd);
     closeSocketListeners(&server.tlsfd);
 
-    /* Keep previous settings */
-    prev_bindaddr_count = server.bindaddr_count;
-    memcpy(prev_bindaddr, server.bindaddr, sizeof(server.bindaddr));
-
-    /* Copy new settings */
-    memset(server.bindaddr, 0, sizeof(server.bindaddr));
-    for (i = 0; i < addrlist_len; i++) {
-        server.bindaddr[i] = zstrdup(addrlist[i]);
-    }
-    server.bindaddr_count = addrlist_len;
-
     /* Bind to the new port */
     if ((server.port != 0 && listenToPort(server.port, &server.ipfd) != C_OK) ||
         (server.tls_port != 0 && listenToPort(server.tls_port, &server.tlsfd) != C_OK)) {
-        serverLog(LL_WARNING, "Failed to bind, trying to restore old listening sockets.");
+        serverLog(LL_WARNING, "Failed to bind");
 
-        /* Restore old bind addresses */
-        for (i = 0; i < addrlist_len; i++) {
-            zfree(server.bindaddr[i]);
-        }
-        memcpy(server.bindaddr, prev_bindaddr, sizeof(server.bindaddr));
-        server.bindaddr_count = prev_bindaddr_count;
-
-        /* Re-Listen TCP and TLS */
-        server.ipfd.count = 0;
-        if (server.port != 0 && listenToPort(server.port, &server.ipfd) != C_OK) {
-            serverPanic("Failed to restore old listening TCP socket.");
-        }
-
-        server.tlsfd.count = 0;
-        if (server.tls_port != 0 && listenToPort(server.tls_port, &server.tlsfd) != C_OK) {
-            serverPanic("Failed to restore old listening TLS socket.");
-        }
-
-        result = C_ERR;
-    } else {
-        /* Free old bind addresses */
-        for (i = 0; i < prev_bindaddr_count; i++) {
-            zfree(prev_bindaddr[i]);
-        }
+        closeSocketListeners(&server.ipfd);
+        closeSocketListeners(&server.tlsfd);
+        return C_ERR;
     }
 
     /* Create TCP and TLS event handlers */
@@ -7253,15 +7216,17 @@ int changeBindAddr(sds *addrlist, int addrlist_len) {
 
     if (server.set_proc_title) redisSetProcTitle(NULL);
 
-    return result;
+    return C_OK;
 }
 
 int changeListenPort(int port, socketFds *sfd, aeFileProc *accept_handler) {
     socketFds new_sfd = {{0}};
 
+    /* Close old servers */
+    closeSocketListeners(sfd);
+
     /* Just close the server if port disabled */
     if (port == 0) {
-        closeSocketListeners(sfd);
         if (server.set_proc_title) redisSetProcTitle(NULL);
         return C_OK;
     }
@@ -7276,9 +7241,6 @@ int changeListenPort(int port, socketFds *sfd, aeFileProc *accept_handler) {
         closeSocketListeners(&new_sfd);
         return C_ERR;
     }
-
-    /* Close old servers */
-    closeSocketListeners(sfd);
 
     /* Copy new descriptors */
     sfd->count = new_sfd.count;

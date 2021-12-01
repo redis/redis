@@ -288,6 +288,116 @@ start_server {tags {"introspection"}} {
             assert_equal [r config get save] {save {}}
         }
     } {} {external:skip}
+    
+    test {CONFIG SET with multiple args} {
+        set some_configs {maxmemory 10000001 repl-backlog-size 10000002 save {3000 5}}
+
+        # Backup
+        set backups {}
+        foreach c [dict keys $some_configs] {
+            lappend backups $c [lindex [r config get $c] 1]
+        }
+
+        # multi config set and veirfy
+        assert_equal [eval "r config set $some_configs"] "OK"
+        dict for {c val} $some_configs {
+            assert_equal [lindex [r config get $c] 1] $val
+        }
+
+        # Restore backup
+        assert_equal [eval "r config set $backups"] "OK"
+    }
+
+    test {CONFIG SET rollback on set error} {
+        # This test passes an invalid percent value to maxmemory-clients which should cause an
+        # input verification failure during the "set" phase before trying to apply the 
+        # configuration. We want to make sure the correct failure happens and everything
+        # is rolled back.
+        # backup maxmemory config
+        set mm_backup [lindex [r config get maxmemory] 1]
+        set mmc_backup [lindex [r config get maxmemory-clients] 1]
+        set qbl_backup [lindex [r config get client-query-buffer-limit] 1]
+        # Set some value to maxmemory
+        assert_equal [r config set maxmemory 10000002] "OK"
+        # Set another value to maxmeory together with another invalid config
+        assert_error "ERR Config set failed - percentage argument must be less or equal to 100" {
+            r config set maxmemory 10000001 maxmemory-clients 200% client-query-buffer-limit invalid
+        }
+        # Validate we rolled back to original values
+        assert_equal [lindex [r config get maxmemory] 1] 10000002
+        assert_equal [lindex [r config get maxmemory-clients] 1] $mmc_backup
+        assert_equal [lindex [r config get client-query-buffer-limit] 1] $qbl_backup
+        # Make sure we revert back to the previous maxmemory
+        assert_equal [r config set maxmemory $mm_backup] "OK"
+    }
+
+    test {CONFIG SET rollback on apply error} {
+        # This test tries to configure a used port number in redis. This is expected
+        # to pass the `CONFIG SET` validity checking implementation but fail on 
+        # actual "apply" of the setting. This will validate that after an "apply"
+        # failure we rollback to the previous values.
+        proc dummy_accept {chan addr port} {}
+        
+        set some_configs {maxmemory 10000001 port 0 client-query-buffer-limit 10m}
+        
+        # On Linux we also set the oom score adj which has an apply function. This is
+        # used to verify that even successful applies are rolled back if some other
+        # config's apply fails.
+        set oom_adj_avail [expr {!$::external && [exec uname] == "Linux"}]
+        if {$oom_adj_avail} {
+            proc get_oom_score_adj {} {
+                set pid [srv 0 pid]
+                set fd [open "/proc/$pid/oom_score_adj" "r"]
+                set val [gets $fd]
+                close $fd
+                return $val
+            }
+            set some_configs [linsert $some_configs 0 oom-score-adj yes oom-score-adj-values {1 1 1}]
+            set read_oom_adj [get_oom_score_adj]
+        }
+
+        # Backup
+        set backups {}
+        foreach c [dict keys $some_configs] {
+            lappend backups $c [lindex [r config get $c] 1]
+        }
+        
+
+        set used_port [expr ([dict get $backups port]+1)%65536]
+        dict set some_configs port $used_port
+
+
+        # Run a dummy server on used_port so we know we can't configure redis to 
+        # use it. It's ok for this to fail because that means used_port is invalid 
+        # anyway
+        catch {socket -server dummy_accept $used_port}
+        # Try to listen on the used port, pass some more configs to make sure the
+        # returned failure message is for the first bad config and everything is rolled back.
+        assert_error "ERR Config set failed - Unable to listen on this port*" {
+            eval "r config set $some_configs"
+        }
+        # Make sure we reverted back to previous configs
+        dict for {conf val} $backups {
+            assert_equal [lindex [r config get $conf] 1] $val
+        }
+        
+        if {$oom_adj_avail} {
+            assert_equal [get_oom_score_adj] $read_oom_adj
+        }
+        
+        # Make sure we can still communicate with the server (on the original port)
+        set r1 [redis_client]
+        assert_equal [$r1 ping] "PONG"
+        $r1 close
+    }
+
+    test {CONFIG SET duplicate configs} {
+        assert_error "ERR*duplicate*" {r config set maxmemory 10000001 maxmemory 10000002}
+    }
+
+    test {CONFIG SET set immutable} {
+        assert_error "ERR*immutable*" {r config set daemonize yes}
+    }
 
     # Config file at this point is at a weird state, and includes all
     # known keywords. Might be a good idea to avoid adding tests here.

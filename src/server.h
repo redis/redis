@@ -2302,7 +2302,7 @@ void replicationCron(void);
 void replicationStartPendingFork(void);
 void replicationHandleMasterDisconnection(void);
 void replicationCacheMaster(client *c);
-void resizeReplicationBacklog(long long newsize);
+void resizeReplicationBacklog();
 void replicationSetMaster(char *ip, int port);
 void replicationUnsetMaster(void);
 void refreshGoodSlavesCount(void);
@@ -2497,7 +2497,7 @@ void setupSignalHandlers(void);
 void removeSignalHandlers(void);
 int createSocketAcceptHandler(socketFds *sfd, aeFileProc *accept_handler);
 int changeListenPort(int port, socketFds *sfd, aeFileProc *accept_handler);
-int changeBindAddr(sds *addrlist, int addrlist_len);
+int changeBindAddr(void);
 struct redisCommand *lookupCommand(robj **argv ,int argc);
 struct redisCommand *lookupCommandBySdsLogic(dict *commands, sds s);
 struct redisCommand *lookupCommandBySds(sds s);
@@ -3064,6 +3064,7 @@ void swapMainDbWithTempDb(redisDb *tempDb);
 void tlsInit(void);
 void tlsCleanup(void);
 int tlsConfigure(redisTLSContextConfig *ctx_config);
+int isTlsConfigured(void);
 
 #define redisDebug(fmt, ...) \
     printf("DEBUG %s:%d > " fmt "\n", __FILE__, __LINE__, __VA_ARGS__)
