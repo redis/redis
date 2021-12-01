@@ -122,17 +122,13 @@ void createReplicationBacklog(void) {
 }
 
 /* This function is called when the user modifies the replication backlog
- * size at runtime. It is up to the function to both update the
- * server.repl_backlog_size and to resize the buffer and setup it so that
- * it contains the same data as the previous one (possibly less data, but
- * the most recent bytes, or the same data and more free space in case the
+ * size at runtime. It is up to the function to resize the buffer and setup it
+ * so that it contains the same data as the previous one (possibly less data,
+ * but the most recent bytes, or the same data and more free space in case the
  * buffer is enlarged). */
-void resizeReplicationBacklog(long long newsize) {
-    if (newsize < CONFIG_REPL_BACKLOG_MIN_SIZE)
-        newsize = CONFIG_REPL_BACKLOG_MIN_SIZE;
-    if (server.repl_backlog_size == newsize) return;
-
-    server.repl_backlog_size = newsize;
+void resizeReplicationBacklog(void) {
+    if (server.repl_backlog_size < CONFIG_REPL_BACKLOG_MIN_SIZE)
+        server.repl_backlog_size = CONFIG_REPL_BACKLOG_MIN_SIZE;
     if (server.repl_backlog)
         incrementalTrimReplicationBacklog(REPL_BACKLOG_TRIM_BLOCKS_PER_CALL);
 }

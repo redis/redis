@@ -1009,6 +1009,17 @@ start_server {tags {"scripting resp3 needs:debug"}} {
                 }
             }
 
+            test {test resp3 malformed big number protocol parsing} {
+                set ret [r eval "return {big_number='123\\r\\n123'}" 0]
+                if {$client_proto == 2} {
+                    # if either Lua or the clien is RESP2 the reply will be RESP2
+                    assert_equal $ret {$8}
+                    assert_equal [r read] {123  123}
+                } else {
+                    assert_equal $ret {(123  123}
+                }
+            }
+
             test {test resp3 map protocol parsing} {
                 set ret [r eval "redis.setresp($i);return redis.call('debug', 'protocol', 'map')" 0]
                 if {$client_proto == 2 || $i == 2} {

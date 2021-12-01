@@ -114,7 +114,7 @@ typedef struct quicklist {
 } quicklist;
 
 typedef struct quicklistIter {
-    const quicklist *quicklist;
+    quicklist *quicklist;
     quicklistNode *current;
     unsigned char *zi;
     long offset; /* offset in current listpack */
@@ -163,25 +163,25 @@ void quicklistPush(quicklist *quicklist, void *value, const size_t sz,
                    int where);
 void quicklistAppendListpack(quicklist *quicklist, unsigned char *zl);
 void quicklistAppendPlainNode(quicklist *quicklist, unsigned char *data, size_t sz);
-void quicklistInsertAfter(quicklist *quicklist, quicklistEntry *entry,
+void quicklistInsertAfter(quicklistIter *iter, quicklistEntry *entry,
                           void *value, const size_t sz);
-void quicklistInsertBefore(quicklist *quicklist, quicklistEntry *entry,
+void quicklistInsertBefore(quicklistIter *iter, quicklistEntry *entry,
                            void *value, const size_t sz);
 void quicklistDelEntry(quicklistIter *iter, quicklistEntry *entry);
-void quicklistReplaceEntry(quicklist *quicklist, quicklistEntry *entry,
+void quicklistReplaceEntry(quicklistIter *iter, quicklistEntry *entry,
                            void *data, size_t sz);
 int quicklistReplaceAtIndex(quicklist *quicklist, long index, void *data,
                             const size_t sz);
 int quicklistDelRange(quicklist *quicklist, const long start, const long stop);
-quicklistIter *quicklistGetIterator(const quicklist *quicklist, int direction);
-quicklistIter *quicklistGetIteratorAtIdx(const quicklist *quicklist,
+quicklistIter *quicklistGetIterator(quicklist *quicklist, int direction);
+quicklistIter *quicklistGetIteratorAtIdx(quicklist *quicklist,
                                          int direction, const long long idx);
+quicklistIter *quicklistGetIteratorEntryAtIdx(quicklist *quicklist, const long long index,
+                                              quicklistEntry *entry);
 int quicklistNext(quicklistIter *iter, quicklistEntry *entry);
 void quicklistSetDirection(quicklistIter *iter, int direction);
 void quicklistReleaseIterator(quicklistIter *iter);
 quicklist *quicklistDup(quicklist *orig);
-int quicklistIndex(const quicklist *quicklist, const long long index,
-                   quicklistEntry *entry);
 void quicklistRotate(quicklist *quicklist);
 int quicklistPopCustom(quicklist *quicklist, int where, unsigned char **data,
                        size_t *sz, long long *sval,

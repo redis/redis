@@ -596,7 +596,10 @@ void luaReplyToRedisReply(client *c, lua_State *lua) {
         lua_gettable(lua,-2);
         t = lua_type(lua,-1);
         if (t == LUA_TSTRING) {
-            addReplyBigNum(c,(char*)lua_tostring(lua,-1),lua_strlen(lua,-1));
+            sds big_num = sdsnewlen(lua_tostring(lua,-1), lua_strlen(lua,-1));
+            sdsmapchars(big_num,"\r\n","  ",2);
+            addReplyBigNum(c,big_num,sdslen(big_num));
+            sdsfree(big_num);
             lua_pop(lua,2);
             return;
         }
