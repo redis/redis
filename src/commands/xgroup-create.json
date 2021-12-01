@@ -50,8 +50,8 @@
                 "value": [
                     {
                         "name": "id",
-                        "type": "pure-token",
-                        "token": "id"
+                        "type": "string",
+                        "value": "ID"
                     },
                     {
                         "name": "new_id",

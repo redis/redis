@@ -61,9 +61,11 @@ RESP3_TYPES = {
     "null": "RESP3_NULL",
 }
 
-def get_optional_desc_string(desc, field):
+def get_optional_desc_string(desc, field, force_uppercase=False):
     v = desc.get(field, None)
-    ret = "\"%s\"" % v if v else "NULL"
+    if v and force_uppercase:
+        v = v.upper()
+    ret = "\"%s\"" % v if v else "NULL"    
     return ret.replace("\n", "\\n") 
 
 # Globals
@@ -172,7 +174,7 @@ class Argument(object):
         s = "\"%s\",%s,%s,%s,%s,%s" % (
             self.name,
             ARG_TYPES[self.type],
-            get_optional_desc_string(self.desc, "token"),
+            get_optional_desc_string(self.desc, "token", force_uppercase=True),
             get_optional_desc_string(self.desc, "summary"),
             get_optional_desc_string(self.desc, "since"),
             _flags_code(),
@@ -180,7 +182,7 @@ class Argument(object):
         if self.subargs:
             s += ",.value.subargs=%s" % self.subarg_table_name()
         elif self.desc.get("value"):
-            s += ",.value.string=\"%s\"" % self.desc["value"]
+            s += ",.value.string=\"%s\"" % self.desc["value"].lower()
 
         return s
 
