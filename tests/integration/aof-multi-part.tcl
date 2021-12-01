@@ -11,6 +11,13 @@ set incr_3_filepath "$server_path/appendonly.aof_3.incr.aof"
 set aof_manifest_path "$server_path/appendonly.aof.manifest"
 
 tags {"external:skip"} {
+    
+    # Test Part 1
+    #
+    # In order to test the loading logic of redis under different combinations of manifest and AOF.
+    # We will manually construct the manifest file and AOF, and then start redis to verify whether 
+    # the redis behavior is as expected.
+
     # Tests1: Multi Part AOF can't load data when some file missing
     create_aof $base_1_filepath {
         append_to_aof [formatCommand set k1 v1]
@@ -186,7 +193,7 @@ tags {"external:skip"} {
     }
 
     create_aof_manifest $aof_manifest_path {
-        append_to_manifest "filx appendonly.aof_1.base.aof seq 1 type b\n"
+        append_to_manifest "file appendonly.aof_1.base.aof seq 1 type b\n"
         append_to_manifest "file appendonly.aof_1.incr.aof type i\n"
     }
 
@@ -348,7 +355,39 @@ tags {"external:skip"} {
 
     clean_aof_persistence $server_path $basename
 
-    # Tests14: Multi Part AOF can load data from old redis aof
+    # Tests14: Multi Part AOF can load data when some AOFs are empty
+    create_aof $base_1_filepath {
+        append_to_aof [formatCommand set k1 v1]
+    }
+
+    create_aof $incr_1_filepath {
+    }
+
+    create_aof $incr_3_filepath {
+        append_to_aof [formatCommand set k3 v3]
+    }
+
+    create_aof_manifest $aof_manifest_path {
+        append_to_manifest "file appendonly.aof_1.base.aof seq 1 type b\n"
+        append_to_manifest "file appendonly.aof_1.incr.aof seq 1 type i\n"
+        append_to_manifest "file appendonly.aof_3.incr.aof seq 3 type i\n"
+    }
+
+    start_server_aof [list dir $server_path] {
+        test "Multi Part AOF can load data when some AOFs are empty" {
+            assert_equal 1 [is_alive $srv]
+            set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+            wait_done_loading $client
+
+            assert_equal v1 [$client get k1]
+            assert_equal "" [$client get k2]
+            assert_equal v3 [$client get k3]
+        }
+    }
+
+    clean_aof_persistence $server_path $basename
+
+    # Tests15: Multi Part AOF can load data from old version redis
     create_aof $old_version_aof_path {
         append_to_aof [formatCommand set k1 v1]
         append_to_aof [formatCommand set k2 v2]
@@ -356,7 +395,7 @@ tags {"external:skip"} {
     }
 
     start_server_aof [list dir $server_path] {
-        test "Multi Part AOF can load data from old redis aof" {
+        test "Multi Part AOF can load data from old version redis" {
             assert_equal 1 [is_alive $srv]
 
             set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
@@ -400,6 +439,15 @@ tags {"external:skip"} {
         }
     }
 
+
+    # Test Part 2
+    #
+    # To test whether the AOFRW behaves as expected during the redis run.
+    # We will start redis first, then perform pressure writing, enable and disable AOF, and manually 
+    # and automatically run bgrewrite and other actions, to test whether the correct AOF file is created, 
+    # whether the correct manifest is generated, whether the data can be reload correctly under continuous 
+    # writing pressure, etc.
+ 
     start_server {tags {"Multi Part AOF"} overrides {aof-use-rdb-preamble {yes} appendfilename {appendonly.aof}}} {
         set dir [get_redis_dir]
         set aof_basename [get_aof_basename $::default_aof_basename]
