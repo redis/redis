@@ -4,7 +4,7 @@
         "complexity": "PATCH__TBD__47__",
         "group": "server",
         "since": "2.0.0",
-        "arity": 4,
+        "arity": -4,
         "container": "CONFIG",
         "function": "configSetCommand",
         "command_flags": [
