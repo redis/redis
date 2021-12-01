@@ -24,7 +24,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: make
-        run: make SANITIZER=address
+        run: make SANITIZER=address REDIS_CFLAGS='-Werror'
       - name: testprep
         run: sudo apt-get install tcl8.6 tclx -y
       - name: test

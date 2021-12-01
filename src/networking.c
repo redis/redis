@@ -2741,10 +2741,11 @@ NULL
                 int moreargs = c->argc > i+1;
 
                 if (!strcasecmp(c->argv[i]->ptr,"id") && moreargs) {
-                    long long tmp;
+                    long tmp;
 
-                    if (getLongLongFromObjectOrReply(c,c->argv[i+1],&tmp,NULL)
-                        != C_OK) return;
+                    if (getRangeLongFromObjectOrReply(c, c->argv[i+1], 1, LONG_MAX, &tmp,
+                                                      "client-id should be greater than 0") != C_OK)
+                        return;
                     id = tmp;
                 } else if (!strcasecmp(c->argv[i]->ptr,"type") && moreargs) {
                     type = getClientTypeByName(c->argv[i+1]->ptr);
