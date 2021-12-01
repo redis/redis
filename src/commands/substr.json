@@ -6,12 +6,6 @@
         "since": "1.0.0",
         "arity": 4,
         "function": "getrangeCommand",
-        "history": [
-            [
-                "2.0.0",
-                "the command has been deprecated and replaced by `GETRANGE`."
-            ]
-        ],
         "deprecated_since": "2.0.0",
         "replaced_by": "`GETRANGE`",
         "doc_flags": [

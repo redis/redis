@@ -3840,6 +3840,11 @@ void addReplyCommandArgList(client *c, struct redisCommandArg *args) {
         addReplyBulkCString(c, "type");
         addReplyBulkCString(c, ARG_TYPE_STR[args[j].type]);
         maplen++;
+        if (args[j].type == ARG_TYPE_KEY) {
+            addReplyBulkCString(c, "key-spec-index");
+            addReplyLongLong(c, args[j].key_spec_index);
+            maplen++;
+        }
         if (args[j].token) {
             addReplyBulkCString(c, "token");
             addReplyBulkCString(c, args[j].token);

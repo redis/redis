@@ -23,32 +23,29 @@
                 "type": "oneof",
                 "value": [
                     {
-                        "name": "importing",
-                        "type": "pure-token",
+                        "name": "node-id",
+                        "type": "integer",
+                        "value": "node-id",
                         "token": "IMPORTING"
                     },
                     {
-                        "name": "migrating",
-                        "type": "pure-token",
+                        "name": "node-id",
+                        "type": "integer",
+                        "value": "node-id",
                         "token": "MIGRATING"
+                    },
+                    {
+                        "name": "node-id",
+                        "type": "integer",
+                        "value": "node-id",
+                        "token": "NODE"
                     },
                     {
                         "name": "stable",
                         "type": "pure-token",
                         "token": "STABLE"
-                    },
-                    {
-                        "name": "node",
-                        "type": "pure-token",
-                        "token": "NODE"
                     }
                 ]
-            },
-            {
-                "name": "node-id",
-                "type": "string",
-                "value": "node-id",
-                "optional": true
             }
         ]
     }

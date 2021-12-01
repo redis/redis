@@ -83,13 +83,14 @@
                 "value": "port"
             },
             {
-                "name": "key_or_none",
+                "name": "key_or_empty_string",
                 "type": "oneof",
                 "value": [
                     {
                         "name": "key",
                         "type": "key",
-                        "value": "key"
+                        "value": "key",
+                        "key_spec_index": 0
                     },
                     {
                         "name": "empty_string",
@@ -150,6 +151,7 @@
                 "name": "keys",
                 "type": "key",
                 "value": "key",
+                "key_spec_index": 1,
                 "optional": true,
                 "multiple": true
             }

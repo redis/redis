@@ -58,12 +58,14 @@
             {
                 "name": "destkey",
                 "type": "key",
-                "value": "destkey"
+                "value": "destkey",
+                "key_spec_index": 0
             },
             {
                 "name": "key",
                 "type": "key",
                 "value": "key",
+                "key_spec_index": 1,
                 "multiple": true
             }
         ]

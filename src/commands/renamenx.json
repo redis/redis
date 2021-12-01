@@ -36,12 +36,14 @@
             {
                 "name": "key",
                 "type": "key",
-                "value": "key"
+                "value": "key",
+                "key_spec_index": 0
             },
             {
                 "name": "newkey",
                 "type": "key",
-                "value": "newkey"
+                "value": "newkey",
+                "key_spec_index": 0
             }
         ]
     }

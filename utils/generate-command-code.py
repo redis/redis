@@ -171,9 +171,10 @@ class Argument(object):
                 s += "CMD_ARG_MULTIPLE_TOKEN|"
             return s[:-1] if s else "CMD_ARG_NONE"
 
-        s = "\"%s\",%s,%s,%s,%s,%s" % (
+        s = "\"%s\",%s,%d,%s,%s,%s,%s" % (
             self.name,
             ARG_TYPES[self.type],
+            self.desc.get("key_spec_index", -1),
             get_optional_desc_string(self.desc, "token", force_uppercase=True),
             get_optional_desc_string(self.desc, "summary"),
             get_optional_desc_string(self.desc, "since"),

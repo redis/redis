@@ -36,7 +36,8 @@
             {
                 "name": "key",
                 "type": "key",
-                "value": "key"
+                "value": "key",
+                "key_spec_index": 0
             },
             {
                 "name": "expiration",
@@ -56,14 +57,14 @@
                     },
                     {
                         "name": "exat",
-                        "type": "unix-time",
-                        "value": "timestamp",
+                        "type": "integer",
+                        "value": "unix-time",
                         "token": "EXAT"
                     },
                     {
                         "name": "pxat",
                         "type": "integer",
-                        "value": "milliseconds-timestamp",
+                        "value": "unix-time",
                         "token": "PXAT"
                     },
                     {

@@ -53,12 +53,14 @@
             {
                 "name": "dst",
                 "type": "key",
-                "value": "dst"
+                "value": "dst",
+                "key_spec_index": 0
             },
             {
                 "name": "src",
                 "type": "key",
-                "value": "src"
+                "value": "src",
+                "key_spec_index": 1
             },
             {
                 "name": "min",

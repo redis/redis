@@ -1176,6 +1176,10 @@ int moduleArgFlagsConvert(int flags) {
  * * `type`: The type of the argument.
  *           Some types allow an argument to have sub-arguments
  *           (REDISMODULE_ARG_TYPE_ONEOF and REDISMODULE_ARG_TYPE_BLOCK)
+ * * `key_spec_index` : If the `type` is REDISMODULE_ARG_TYPE_KEY you
+ *                      must provide the index of the key-spec associated
+ *                      with this argument. See RedisModule_AddCommandKeySpec.
+ *                      If the argument is not a key, you must specify -1.
  * * `token`: The token preceding the argument (optional).
  *            Example: the argument "seconds" in SET has a token "EX")
  *            If the argument consists of only a token (Example: "NX" in SET)
@@ -1215,47 +1219,47 @@ int moduleArgFlagsConvert(int flags) {
  * Here's an example of how to create XADD's arguments via module API:
  *
  * // Trimming args
- * RedisModuleCommandArg *trim_maxlen = RedisModule_CreateCommandArg("maxlen", REDISMODULE_ARG_TYPE_PURE_TOKEN, "MAXLEN", NULL, NULL, REDISMODULE_CMD_ARG_NONE, NULL);
- * RedisModuleCommandArg *trim_minid = RedisModule_CreateCommandArg("minid", REDISMODULE_ARG_TYPE_PURE_TOKEN, "MINID", NULL, "6.2.0", REDISMODULE_CMD_ARG_NONE, NULL);
- * RedisModuleCommandArg *trim_startegy = RedisModule_CreateCommandArg("trim_startegy", REDISMODULE_ARG_TYPE_ONEOF, NULL, NULL, NULL, REDISMODULE_CMD_ARG_NONE, NULL);
+ * RedisModuleCommandArg *trim_maxlen = RedisModule_CreateCommandArg("maxlen", REDISMODULE_ARG_TYPE_PURE_TOKEN, -1, "MAXLEN", NULL, NULL, REDISMODULE_CMD_ARG_NONE, NULL);
+ * RedisModuleCommandArg *trim_minid = RedisModule_CreateCommandArg("minid", REDISMODULE_ARG_TYPE_PURE_TOKEN, -1, "MINID", NULL, "6.2.0", REDISMODULE_CMD_ARG_NONE, NULL);
+ * RedisModuleCommandArg *trim_startegy = RedisModule_CreateCommandArg("trim_startegy", REDISMODULE_ARG_TYPE_ONEOF, -1, NULL, NULL, NULL, REDISMODULE_CMD_ARG_NONE, NULL);
  * RedisModule_AppendSubarg(trim_startegy, trim_maxlen);
  * RedisModule_AppendSubarg(trim_startegy, trim_minid);
  *
- * RedisModuleCommandArg *trim_exact = RedisModule_CreateCommandArg("exact", REDISMODULE_ARG_TYPE_PURE_TOKEN, "=", NULL, NULL, REDISMODULE_CMD_ARG_NONE, NULL);
- * RedisModuleCommandArg *trim_approx = RedisModule_CreateCommandArg("approx", REDISMODULE_ARG_TYPE_PURE_TOKEN, "~", NULL, NULL, REDISMODULE_CMD_ARG_NONE, NULL);
- * RedisModuleCommandArg *trim_op = RedisModule_CreateCommandArg("trim_op", REDISMODULE_ARG_TYPE_ONEOF, NULL, NULL, NULL, REDISMODULE_CMD_ARG_OPTIONAL, NULL);
+ * RedisModuleCommandArg *trim_exact = RedisModule_CreateCommandArg("exact", REDISMODULE_ARG_TYPE_PURE_TOKEN, -1, "=", NULL, NULL, REDISMODULE_CMD_ARG_NONE, NULL);
+ * RedisModuleCommandArg *trim_approx = RedisModule_CreateCommandArg("approx", REDISMODULE_ARG_TYPE_PURE_TOKEN, -1, "~", NULL, NULL, REDISMODULE_CMD_ARG_NONE, NULL);
+ * RedisModuleCommandArg *trim_op = RedisModule_CreateCommandArg("trim_op", REDISMODULE_ARG_TYPE_ONEOF, -1, NULL, NULL, NULL, REDISMODULE_CMD_ARG_OPTIONAL, NULL);
  * RedisModule_AppendSubarg(trim_op, trim_exact);
  * RedisModule_AppendSubarg(trim_op, trim_approx);
  *
- * RedisModuleCommandArg *trim_threshold = RedisModule_CreateCommandArg("trim_threshold", REDISMODULE_ARG_TYPE_STRING, NULL, NULL, NULL, REDISMODULE_CMD_ARG_NONE, "threshold");
+ * RedisModuleCommandArg *trim_threshold = RedisModule_CreateCommandArg("trim_threshold", REDISMODULE_ARG_TYPE_STRING, -1, NULL, NULL, NULL, REDISMODULE_CMD_ARG_NONE, "threshold");
  *
- * RedisModuleCommandArg *trim_count = RedisModule_CreateCommandArg("trim_count", REDISMODULE_ARG_TYPE_INTEGER, "LIMIT", NULL, "6.2.0", REDISMODULE_CMD_ARG_OPTIONAL, "count");
+ * RedisModuleCommandArg *trim_count = RedisModule_CreateCommandArg("trim_count", REDISMODULE_ARG_TYPE_INTEGER, -1, "LIMIT", NULL, "6.2.0", REDISMODULE_CMD_ARG_OPTIONAL, "count");
  *
- * RedisModuleCommandArg *trimming = RedisModule_CreateCommandArg("trimming", REDISMODULE_ARG_TYPE_BLOCK, NULL, NULL, NULL, REDISMODULE_CMD_ARG_OPTIONAL, NULL);
+ * RedisModuleCommandArg *trimming = RedisModule_CreateCommandArg("trimming", REDISMODULE_ARG_TYPE_BLOCK, -1, NULL, NULL, NULL, REDISMODULE_CMD_ARG_OPTIONAL, NULL);
  * RedisModule_AppendSubarg(trimming, trim_startegy);
  * RedisModule_AppendSubarg(trimming, trim_op);
  * RedisModule_AppendSubarg(trimming, trim_threshold);
  * RedisModule_AppendSubarg(trimming, trim_count);
  *
  * // ID arg
- * RedisModuleCommandArg *id_auto = RedisModule_CreateCommandArg("id_auto", REDISMODULE_ARG_TYPE_PURE_TOKEN, "*", NULL, NULL, REDISMODULE_CMD_ARG_NONE, NULL);
- * RedisModuleCommandArg *id_given = RedisModule_CreateCommandArg("id_given", REDISMODULE_ARG_TYPE_STRING, NULL, NULL, NULL, REDISMODULE_CMD_ARG_NONE, "id");
- * RedisModuleCommandArg *id = RedisModule_CreateCommandArg("id", REDISMODULE_ARG_TYPE_ONEOF, NULL, NULL, NULL, REDISMODULE_CMD_ARG_NONE, NULL);
+ * RedisModuleCommandArg *id_auto = RedisModule_CreateCommandArg("id_auto", REDISMODULE_ARG_TYPE_PURE_TOKEN, -1, "*", NULL, NULL, REDISMODULE_CMD_ARG_NONE, NULL);
+ * RedisModuleCommandArg *id_given = RedisModule_CreateCommandArg("id_given", REDISMODULE_ARG_TYPE_STRING, -1, NULL, NULL, NULL, REDISMODULE_CMD_ARG_NONE, "id");
+ * RedisModuleCommandArg *id = RedisModule_CreateCommandArg("id", REDISMODULE_ARG_TYPE_ONEOF, -1, NULL, NULL, NULL, REDISMODULE_CMD_ARG_NONE, NULL);
  * RedisModule_AppendSubarg(id, id_auto);
  * RedisModule_AppendSubarg(id, id_given);
  *
  * // Fields and values
- * RedisModuleCommandArg *field = RedisModule_CreateCommandArg("field", REDISMODULE_ARG_TYPE_STRING, NULL, NULL, NULL, REDISMODULE_CMD_ARG_NONE, "field");
- * RedisModuleCommandArg *value = RedisModule_CreateCommandArg("value", REDISMODULE_ARG_TYPE_STRING, NULL, NULL, NULL, REDISMODULE_CMD_ARG_NONE, "value");
- * RedisModuleCommandArg *fieldsvalues = RedisModule_CreateCommandArg("fields_and_values", REDISMODULE_ARG_TYPE_BLOCK, NULL, NULL, NULL, REDISMODULE_CMD_ARG_MULTIPLE, NULL);
+ * RedisModuleCommandArg *field = RedisModule_CreateCommandArg("field", REDISMODULE_ARG_TYPE_STRING, -1, NULL, NULL, NULL, REDISMODULE_CMD_ARG_NONE, "field");
+ * RedisModuleCommandArg *value = RedisModule_CreateCommandArg("value", REDISMODULE_ARG_TYPE_STRING, -1, NULL, NULL, NULL, REDISMODULE_CMD_ARG_NONE, "value");
+ * RedisModuleCommandArg *fieldsvalues = RedisModule_CreateCommandArg("fields_and_values", REDISMODULE_ARG_TYPE_BLOCK, -1, NULL, NULL, NULL, REDISMODULE_CMD_ARG_MULTIPLE, NULL);
  * RedisModule_AppendSubarg(fieldsvalues, field);
  * RedisModule_AppendSubarg(fieldsvalues, value);
  *
  * // Key
- * RedisModuleCommandArg *key = RedisModule_CreateCommandArg("key", REDISMODULE_ARG_TYPE_KEY, NULL, NULL, NULL, REDISMODULE_CMD_ARG_NONE, "key");
+ * RedisModuleCommandArg *key = RedisModule_CreateCommandArg("key", REDISMODULE_ARG_TYPE_KEY, 0, NULL, NULL, NULL, REDISMODULE_CMD_ARG_NONE, "key");
  *
  * // NOMKSTREAM
- * RedisModuleCommandArg *nomkstream = RedisModule_CreateCommandArg("nomkstream", REDISMODULE_ARG_TYPE_PURE_TOKEN, "NOMKSTREAM", NULL, NULL, REDISMODULE_CMD_ARG_OPTIONAL, NULL);
+ * RedisModuleCommandArg *nomkstream = RedisModule_CreateCommandArg("nomkstream", REDISMODULE_ARG_TYPE_PURE_TOKEN, -1, "NOMKSTREAM", NULL, NULL, REDISMODULE_CMD_ARG_OPTIONAL, NULL);
  *
  * // Append all args
  * RedisModule_AppendArgToCommand(xadd, key);
@@ -1263,7 +1267,7 @@ int moduleArgFlagsConvert(int flags) {
  * RedisModule_AppendArgToCommand(xadd, trimming);
  * RedisModule_AppendArgToCommand(xadd, id);
  * RedisModule_AppendArgToCommand(xadd, fieldsvalues); */
-RedisModuleCommandArg *RM_CreateCommandArg(const char *argname, RedisModuleCommandArgType type, const char *token, const char *summary, const char* since, int flags, const char *value) {
+RedisModuleCommandArg *RM_CreateCommandArg(const char *argname, RedisModuleCommandArgType type, int key_spec_index, const char *token, const char *summary, const char* since, int flags, const char *value) {
     int err;
 
     redisCommandArgType realtype = moduleArgTypeConvert(type, &err);
@@ -1280,6 +1284,13 @@ RedisModuleCommandArg *RM_CreateCommandArg(const char *argname, RedisModuleComma
         return NULL;
     }
 
+    if (realtype == ARG_TYPE_KEY) {
+        if (key_spec_index < 0)
+            return NULL;
+    } else if (key_spec_index != -1) {
+        return NULL;
+    }
+
     int realflags = moduleArgFlagsConvert(flags);
     if ((realflags & CMD_ARG_MULTIPLE_TOKEN) && !(realflags & CMD_ARG_MULTIPLE)) {
         return NULL;
@@ -1288,6 +1299,7 @@ RedisModuleCommandArg *RM_CreateCommandArg(const char *argname, RedisModuleComma
     redisCommandArg *arg = zcalloc(sizeof(*arg));
     arg->name = argname;
     arg->type = realtype;
+    arg->key_spec_index = key_spec_index;
     arg->token = token;
     arg->summary = summary;
     arg->since = since;

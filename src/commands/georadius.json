@@ -84,7 +84,8 @@
             {
                 "name": "key",
                 "type": "key",
-                "value": "key"
+                "value": "key",
+                "key_spec_index": 0
             },
             {
                 "name": "longitude",
@@ -186,6 +187,7 @@
                 "name": "key",
                 "type": "key",
                 "value": "key",
+                "key_spec_index": 1,
                 "optional": true
             },
             {
@@ -193,6 +195,7 @@
                 "name": "key",
                 "type": "key",
                 "value": "key",
+                "key_spec_index": 2,
                 "optional": true
             }
         ]

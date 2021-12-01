@@ -52,7 +52,8 @@
             {
                 "name": "key",
                 "type": "key",
-                "value": "key"
+                "value": "key",
+                "key_spec_index": 0
             },
             {
                 "token": "BY",
@@ -116,6 +117,7 @@
                 "name": "destination",
                 "type": "key",
                 "value": "destination",
+                "key_spec_index": 1,
                 "optional": true
             }
         ]

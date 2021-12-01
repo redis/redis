@@ -1908,6 +1908,7 @@ typedef enum {
 typedef struct redisCommandArg {
     const char *name;
     redisCommandArgType type;
+    int key_spec_index;
     const char *token;
     const char *summary;
     const char *since;

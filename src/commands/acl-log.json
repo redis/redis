@@ -16,8 +16,8 @@
         ],
         "arguments": [
             {
-                "name": "count_or_RESET",
-                "type": "block",
+                "name": "operation",
+                "type": "oneof",
                 "value": [
                     {
                         "name": "count",
