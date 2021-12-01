@@ -1875,6 +1875,8 @@ void ACLFreeLogEntry(void *leptr) {
  *
  * The last 2 arguments are a manual override to be used, instead of any of the automatic
  * ones which depend on the client and reason arguments (use NULL for default).
+ *
+ * If `object` is not NULL, this functions takes over it.
  */
 void addACLLogEntry(client *c, int reason, int context, int argpos, sds username, sds object) {
     /* Create a new entry. */
@@ -1885,7 +1887,7 @@ void addACLLogEntry(client *c, int reason, int context, int argpos, sds username
     le->ctime = mstime();
 
     if (object) {
-        le->object = sdsnew(object);
+        le->object = object;
     } else {
         switch(reason) {
             case ACL_DENIED_CMD: le->object = sdsnew(c->cmd->name); break;

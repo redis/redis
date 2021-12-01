@@ -5272,7 +5272,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         }
         acl_retval = ACLCheckAllUserCommandPerm(ctx->client->user,c->cmd,c->argv,c->argc,&acl_errpos);
         if (acl_retval != ACL_OK) {
-            sds object = (acl_retval == ACL_DENIED_CMD) ? (sds)c->cmd->name : c->argv[acl_errpos]->ptr;
+            sds object = (acl_retval == ACL_DENIED_CMD) ? sdsnew(c->cmd->name) : sdsdup(c->argv[acl_errpos]->ptr);
             addACLLogEntry(ctx->client, acl_retval, ACL_LOG_CTX_MODULE, -1, ctx->client->user->name, object);
             errno = EACCES;
             goto cleanup;
@@ -7827,7 +7827,7 @@ int RM_ACLCheckChannelPermissions(RedisModuleUser *user, RedisModuleString *ch, 
  *
  * For more information about ACL log, please refer to https://redis.io/commands/acl-log */
 void RM_ACLAddLogEntry(RedisModuleCtx *ctx, RedisModuleUser *user, RedisModuleString *object) {
-    addACLLogEntry(ctx->client, 0, ACL_LOG_CTX_MODULE, -1, user->user->name, object->ptr);
+    addACLLogEntry(ctx->client, 0, ACL_LOG_CTX_MODULE, -1, user->user->name, sdsdup(object->ptr));
 }
 
 /* Authenticate the client associated with the context with
