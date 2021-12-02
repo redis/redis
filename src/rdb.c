@@ -32,6 +32,7 @@
 #include "zipmap.h"
 #include "endianconv.h"
 #include "stream.h"
+#include "functions.h"
 
 #include <math.h>
 #include <fcntl.h>
@@ -1239,6 +1240,25 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
     if (rdbSaveInfoAuxFields(rdb,rdbflags,rsi) == -1) goto werr;
     if (rdbSaveModulesAux(rdb, REDISMODULE_AUX_BEFORE_RDB) == -1) goto werr;
 
+    /* save functions */
+    dict *functions = functionsGet();
+    dictIterator *iter = dictGetIterator(functions);
+    dictEntry *entry = NULL;
+    while ((entry = dictNext(iter))) {
+        rdbSaveType(rdb, RDB_OPCODE_FUNCTION);
+        functionInfo* fi = dictGetVal(entry);
+        if (rdbSaveRawString(rdb, (unsigned char *) fi->name, sdslen(fi->name)) == -1) goto werr;
+        if (rdbSaveRawString(rdb, (unsigned char *) fi->ei->name, sdslen(fi->ei->name)) == -1) goto werr;
+        if (fi->desc) {
+            if (rdbSaveLen(rdb, 1) == -1) goto werr; /* desc exists */
+            if (rdbSaveRawString(rdb, (unsigned char *) fi->desc, sdslen(fi->desc)) == -1) goto werr;
+        } else {
+            if (rdbSaveLen(rdb, 0) == -1) goto werr; /* desc not exists */
+        }
+        if (rdbSaveRawString(rdb, (unsigned char *) fi->code, sdslen(fi->code)) == -1) goto werr;
+    }
+    dictReleaseIterator(iter);
+
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
         dict *d = db->dict;
@@ -1303,8 +1323,8 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
      * the script cache as well: on successful PSYNC after a restart, we need
      * to be able to process any EVALSHA inside the replication backlog the
      * master will send us. */
-    if (rsi && dictSize(server.lua_scripts)) {
-        di = dictGetIterator(server.lua_scripts);
+    if (rsi && dictSize(evalScriptsDict())) {
+        di = dictGetIterator(evalScriptsDict());
         while((de = dictNext(di)) != NULL) {
             robj *body = dictGetVal(de);
             if (rdbSaveAuxField(rdb,"lua",3,body->ptr,sdslen(body->ptr)) == -1)
@@ -2687,12 +2707,80 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
     }
 }
 
+static int rdbFunctionLoad(rio *rdb, int ver, functionsCtx* functions_ctx) {
+    UNUSED(ver);
+    sds name = NULL;
+    sds engine_name = NULL;
+    sds desc = NULL;
+    sds blob = NULL;
+    sds err = NULL;
+    uint64_t has_desc;
+    int res = C_ERR;
+    if (!(name = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
+        serverLog(LL_WARNING, "Failed loading function name");
+        goto error;
+    }
+
+    if (!(engine_name = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
+        serverLog(LL_WARNING, "Failed loading engine name");
+        goto error;
+    }
+
+    if ((has_desc = rdbLoadLen(rdb, NULL)) == RDB_LENERR) {
+        serverLog(LL_WARNING, "Failed loading function desc indicator");
+        goto error;
+    }
+
+    if (has_desc && !(desc = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
+        serverLog(LL_WARNING, "Failed loading function desc");
+        goto error;
+    }
+
+    if (!(blob = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
+        serverLog(LL_WARNING, "Failed loading function blob");
+        goto error;
+    }
+
+    if (functionsCreateWithFunctionCtx(name, engine_name, desc, blob, 0, &err, functions_ctx) != C_OK) {
+        serverLog(LL_WARNING, "Failed compiling and saving the function %s", err);
+        goto error;
+    }
+
+    res = C_OK;
+
+error:
+    if (name) sdsfree(name);
+    if (engine_name) sdsfree(engine_name);
+    if (desc) sdsfree(desc);
+    if (blob) sdsfree(blob);
+    if (err)  sdsfree(err);
+    return res;
+}
+
 /* Load an RDB file from the rio stream 'rdb'. On success C_OK is returned,
  * otherwise C_ERR is returned and 'errno' is set accordingly. */
-int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi, redisDb *dbarray) {
+int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
+    functionsCtx* functions_ctx = functionsCtxGetCurrent();
+    functionsCtxClear(functions_ctx);
+    rdbLoadingCtx loading_ctx = { .dbarray = server.db, .functions_ctx = functions_ctx };
+    int retval = rdbLoadRioWithLoadingCtx(rdb,rdbflags,rsi,&loading_ctx);
+    if (retval != C_OK) {
+        /* Loading failed, clear the function ctx */
+        functionsCtxClear(functions_ctx);
+    }
+    return retval;
+}
+
+
+/* Load an RDB file from the rio stream 'rdb'. On success C_OK is returned,
+ * otherwise C_ERR is returned and 'errno' is set accordingly. 
+ * The rdb_loading_ctx argument holds objects to which the rdb will be loaded to,
+ * currently it only allow to set db object and functionsCtx to which the data
+ * will be loaded (in the future it might contains more such objects). */
+int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadingCtx *rdb_loading_ctx) {
     uint64_t dbid = 0;
     int type, rdbver;
-    redisDb *db = dbarray+0;
+    redisDb *db = rdb_loading_ctx->dbarray+0;
     char buf[1024];
     int error;
     long long empty_keys_skipped = 0;
@@ -2764,7 +2852,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi, redisDb *dbarray) {
                     "databases. Exiting\n", server.dbnum);
                 exit(1);
             }
-            db = dbarray+dbid;
+            db = rdb_loading_ctx->dbarray+dbid;
             continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_RESIZEDB) {
             /* RESIZEDB: Hint about the size of the keys in the currently
@@ -2808,7 +2896,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi, redisDb *dbarray) {
                 if (rsi) rsi->repl_offset = strtoll(auxval->ptr,NULL,10);
             } else if (!strcasecmp(auxkey->ptr,"lua")) {
                 /* Load the script back in memory. */
-                if (luaCreateFunction(NULL,server.lua,auxval) == NULL) {
+                if (luaCreateFunction(NULL, auxval) == NULL) {
                     rdbReportCorruptRDB(
                         "Can't load Lua script from RDB file! "
                         "BODY: %s", (char*)auxval->ptr);
@@ -2895,6 +2983,12 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi, redisDb *dbarray) {
                 decrRefCount(aux);
                 continue; /* Read next opcode. */
             }
+        } else if (type == RDB_OPCODE_FUNCTION) {
+            if (rdbFunctionLoad(rdb, rdbver, rdb_loading_ctx->functions_ctx) != C_OK) {
+                serverLog(LL_WARNING,"Failed loading function");
+                goto eoferr;
+            }
+            continue;
         }
 
         /* Read key */
@@ -3044,7 +3138,9 @@ int rdbLoad(char *filename, rdbSaveInfo *rsi, int rdbflags) {
     if ((fp = fopen(filename,"r")) == NULL) return C_ERR;
     startLoadingFile(fp, filename,rdbflags);
     rioInitWithFile(&rdb,fp);
-    retval = rdbLoadRio(&rdb,rdbflags,rsi,server.db);
+
+    retval = rdbLoadRio(&rdb,rdbflags,rsi);
+
     fclose(fp);
     stopLoading(retval==C_OK);
     return retval;

@@ -33,6 +33,7 @@
 #include "server.h"
 #include "bio.h"
 #include "atomicvar.h"
+#include "script.h"
 #include <math.h>
 
 /* ----------------------------------------------------------------------------
@@ -472,7 +473,7 @@ static int evictionTimeProc(
 static int isSafeToPerformEvictions(void) {
     /* - There must be no script in timeout condition.
      * - Nor we are loading data right now.  */
-    if (server.lua_timedout || server.loading) return 0;
+    if (scriptIsTimedout() || server.loading) return 0;
 
     /* By default replicas should ignore maxmemory
      * and just be masters exact copies. */
