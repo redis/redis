@@ -428,4 +428,4 @@ test {config during loading} {
         # no need to keep waiting for loading to complete
         exec kill [srv 0 pid]
     }
-}
+} {} {external:skip}
