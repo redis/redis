@@ -250,19 +250,23 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
     }
 
-    if (RedisModule_CreateCommand(ctx,"keyspace.del_key_copy", cmdDelKeyCopy,"",0,0,0) == REDISMODULE_ERR){
+    if (RedisModule_CreateCommand(ctx, "keyspace.del_key_copy", cmdDelKeyCopy,
+                                  "write", 0, 0, 0) == REDISMODULE_ERR){
         return REDISMODULE_ERR;
     }
     
-    if (RedisModule_CreateCommand(ctx,"keyspace.incr_case1", cmdIncrCase1,"",0,0,0) == REDISMODULE_ERR){
+    if (RedisModule_CreateCommand(ctx, "keyspace.incr_case1", cmdIncrCase1,
+                                  "write", 0, 0, 0) == REDISMODULE_ERR){
         return REDISMODULE_ERR;
     }
     
-    if (RedisModule_CreateCommand(ctx,"keyspace.incr_case2", cmdIncrCase2,"",0,0,0) == REDISMODULE_ERR){
+    if (RedisModule_CreateCommand(ctx, "keyspace.incr_case2", cmdIncrCase2,
+                                  "write", 0, 0, 0) == REDISMODULE_ERR){
         return REDISMODULE_ERR;
     }
     
-    if (RedisModule_CreateCommand(ctx,"keyspace.incr_case3", cmdIncrCase3,"",0,0,0) == REDISMODULE_ERR){
+    if (RedisModule_CreateCommand(ctx, "keyspace.incr_case3", cmdIncrCase3,
+                                  "write", 0, 0, 0) == REDISMODULE_ERR){
         return REDISMODULE_ERR;
     }
 

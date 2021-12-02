@@ -99,7 +99,7 @@ typedef struct dictIterator {
     int table, safe;
     dictEntry *entry, *nextEntry;
     /* unsafe iterator fingerprint for misuse detection. */
-    long long fingerprint;
+    unsigned long long fingerprint;
 } dictIterator;
 
 typedef void (dictScanFunction)(void *privdata, const dictEntry *de);
@@ -249,7 +249,8 @@ dictX *dictEvolution(dict *d);
 void dictRewind(dict *d, dictX *dx);
 /* Define the same methods as dict for comparison */
 dictEntry *dictXFind(dictX *dx, const void *key);
-int dictTest(int argc, char *argv[], int accurate);
+int dictTest(int argc, char *argv[], int flags);
+
 #endif
 
 #endif /* __DICT_H */

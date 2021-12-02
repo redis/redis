@@ -596,7 +596,10 @@ void luaReplyToRedisReply(client *c, lua_State *lua) {
         lua_gettable(lua,-2);
         t = lua_type(lua,-1);
         if (t == LUA_TSTRING) {
-            addReplyBigNum(c,(char*)lua_tostring(lua,-1),lua_strlen(lua,-1));
+            sds big_num = sdsnewlen(lua_tostring(lua,-1), lua_strlen(lua,-1));
+            sdsmapchars(big_num,"\r\n","  ",2);
+            addReplyBigNum(c,big_num,sdslen(big_num));
+            sdsfree(big_num);
             lua_pop(lua,2);
             return;
         }
@@ -790,6 +793,10 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
         return raise_error ? luaRaiseError(lua) : 1;
     }
 
+    /* Pop all arguments from the stack, we do not need them anymore
+     * and this way we guaranty we will have room on the stack for the result. */
+    lua_pop(lua, argc);
+
     /* Setup our fake client for command execution */
     c->argv = argv;
     c->argc = argc;
@@ -882,7 +889,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
                 "Write commands not allowed after non deterministic commands. Call redis.replicate_commands() at the start of your script in order to switch to single commands replication mode.");
             goto cleanup;
         } else if (server.masterhost && server.repl_slave_ro &&
-                   !server.loading &&
+                   server.lua_caller->id != CLIENT_ID_AOF &&
                    !(server.lua_caller->flags & CLIENT_MASTER))
         {
             luaPushError(lua, shared.roslaveerr->ptr);
@@ -905,11 +912,11 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
      * could enlarge the memory usage are not allowed, but only if this is the
      * first write in the context of this script, otherwise we can't stop
      * in the middle. */
-    if (server.maxmemory &&             /* Maxmemory is actually enabled. */
-        !server.loading &&              /* Don't care about mem if loading. */
-        !server.masterhost &&           /* Slave must execute the script. */
-        server.lua_write_dirty == 0 &&  /* Script had no side effects so far. */
-        server.lua_oom &&               /* Detected OOM when script start. */
+    if (server.maxmemory &&                        /* Maxmemory is actually enabled. */
+        server.lua_caller->id != CLIENT_ID_AOF &&  /* Don't care about mem if loading from AOF. */
+        !server.masterhost &&                      /* Slave must execute the script. */
+        server.lua_write_dirty == 0 &&             /* Script had no side effects so far. */
+        server.lua_oom &&                          /* Detected OOM when script start. */
         (cmd->flags & CMD_DENYOOM))
     {
         luaPushError(lua, shared.oomerr->ptr);
@@ -922,7 +929,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     /* If this is a Redis Cluster node, we need to make sure Lua is not
      * trying to access non-local keys, with the exception of commands
      * received from our master or when loading the AOF back in memory. */
-    if (server.cluster_enabled && !server.loading &&
+    if (server.cluster_enabled && server.lua_caller->id != CLIENT_ID_AOF &&
         !(server.lua_caller->flags & CLIENT_MASTER))
     {
         int error_code;

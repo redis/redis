@@ -89,6 +89,18 @@ start_server {tags {"introspection"}} {
         assert_equal {key} [r command getkeys xgroup create key groupname $]
     }
 
+    test {COMMAND GETKEYS EVAL with keys} {
+        assert_equal {key} [r command getkeys eval "return 1" 1 key]
+    }
+
+    test {COMMAND GETKEYS EVAL without keys} {
+        assert_equal {} [r command getkeys eval "return 1" 0]
+    }
+
+    test {COMMAND GETKEYS LCS} {
+        assert_equal {key1 key2} [r command getkeys lcs key1 key2]
+    }
+
     test "COMMAND LIST FILTERBY ACLCAT" {
         set reply [r command list filterby aclcat hyperloglog]
         assert_equal [lsort $reply] {pfadd pfcount pfdebug pfmerge pfselftest}

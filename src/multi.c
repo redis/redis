@@ -244,7 +244,11 @@ void execCommand(client *c) {
                 "This command is no longer allowed for the "
                 "following reason: %s", reason);
         } else {
-            call(c,server.loading ? CMD_CALL_NONE : CMD_CALL_FULL);
+            if (c->id == CLIENT_ID_AOF)
+                call(c,CMD_CALL_NONE);
+            else
+                call(c,CMD_CALL_FULL);
+
             serverAssert((c->flags & CLIENT_BLOCKED) == 0);
         }
 
@@ -393,12 +397,16 @@ void touchWatchedKey(redisDb *db, robj *key) {
         client *c = listNodeValue(ln);
 
         c->flags |= CLIENT_DIRTY_CAS;
+        /* As the client is marked as dirty, there is no point in getting here
+         * again in case that key (or others) are modified again (or keep the
+         * memory overhead till EXEC). */
+        unwatchAllKeys(c);
     }
 }
 
 /* Set CLIENT_DIRTY_CAS to all clients of DB when DB is dirty.
  * It may happen in the following situations:
- * FLUSHDB, FLUSHALL, SWAPDB
+ * FLUSHDB, FLUSHALL, SWAPDB, end of successful diskless replication.
  *
  * replaced_with: for SWAPDB, the WATCH should be invalidated if
  * the key exists in either of them, and skipped only if it
@@ -422,6 +430,9 @@ void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with) {
             while((ln = listNext(&li))) {
                 client *c = listNodeValue(ln);
                 c->flags |= CLIENT_DIRTY_CAS;
+                /* As the client is marked as dirty, there is no point in getting here
+                 * again for others keys (or keep the memory overhead till EXEC). */
+                unwatchAllKeys(c);
             }
         }
     }
@@ -433,6 +444,11 @@ void watchCommand(client *c) {
 
     if (c->flags & CLIENT_MULTI) {
         addReplyError(c,"WATCH inside MULTI is not allowed");
+        return;
+    }
+    /* No point in watching if the client is already dirty. */
+    if (c->flags & CLIENT_DIRTY_CAS) {
+        addReply(c,shared.ok);
         return;
     }
     for (j = 1; j < c->argc; j++)

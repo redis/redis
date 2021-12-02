@@ -551,8 +551,8 @@ void *dictFetchValue(dict *d, const void *key) {
  * the fingerprint again when the iterator is released.
  * If the two fingerprints are different it means that the user of the iterator
  * performed forbidden operations against the dictionary while iterating. */
-long long dictFingerprint(dict *d) {
-    long long integers[6], hash = 0;
+unsigned long long dictFingerprint(dict *d) {
+    unsigned long long integers[6], hash = 0;
     int j;
 
     integers[0] = (long) d->ht_table[0];
@@ -1208,6 +1208,7 @@ void dictGetStats(char *buf, size_t bufsize, dict *d) {
 /* ------------------------------- Benchmark ---------------------------------*/
 
 #ifdef REDIS_TEST
+#include "testhelp.h"
 
 #define UNUSED(V) ((void) V)
 
@@ -1367,11 +1368,12 @@ dictType BenchmarkDictType = {
 } while(0)
 
 /* ./redis-server test dict [<elementCount> | --accurate] | [<benchmarkCycles> | --accurate] */
-int dictTest(int argc, char **argv, int accurate) {
+int dictTest(int argc, char **argv, int flags) {
     long i, j;
     long long start, elapsed;
     dict *dict = dictCreate(&BenchmarkDictType);
     long elementCount, benchmarkCycles;
+    int accurate = (flags & REDIS_TEST_ACCURATE);
 
     if (argc >= 4) {
         if (accurate) {

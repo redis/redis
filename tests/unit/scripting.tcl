@@ -622,6 +622,16 @@ start_server {tags {"scripting"}} {
         # make sure the connection is still valid
         assert_equal [r ping] {PONG}
     }
+
+    test {Script check unpack with massive arguments} {
+        r eval {
+            local a = {}
+            for i=1,7999 do
+                a[i] = 1
+            end 
+            return redis.call("lpush", "l", unpack(a))
+        } 0
+    } {7999}
 }
 
 # Start a new server since the last test in this stanza will kill the
@@ -637,6 +647,7 @@ start_server {tags {"scripting"}} {
         r script kill
         after 200 ; # Give some time to Lua to call the hook again...
         assert_equal [r ping] "PONG"
+        $rd close
     }
 
     test {Timedout read-only scripts can be killed by SCRIPT KILL even when use pcall} {
@@ -998,6 +1009,17 @@ start_server {tags {"scripting resp3 needs:debug"}} {
                 }
             }
 
+            test {test resp3 malformed big number protocol parsing} {
+                set ret [r eval "return {big_number='123\\r\\n123'}" 0]
+                if {$client_proto == 2} {
+                    # if either Lua or the clien is RESP2 the reply will be RESP2
+                    assert_equal $ret {$8}
+                    assert_equal [r read] {123  123}
+                } else {
+                    assert_equal $ret {(123  123}
+                }
+            }
+
             test {test resp3 map protocol parsing} {
                 set ret [r eval "redis.setresp($i);return redis.call('debug', 'protocol', 'map')" 0]
                 if {$client_proto == 2 || $i == 2} {
@@ -1028,10 +1050,10 @@ start_server {tags {"scripting resp3 needs:debug"}} {
                 set ret [r eval "redis.setresp($i);return redis.call('debug', 'protocol', 'double')" 0]
                 if {$client_proto == 2 || $i == 2} {
                     # if either Lua or the clien is RESP2 the reply will be RESP2
-                    assert_equal $ret {$18}
-                    assert_equal [r read] {3.1415926535900001}
+                    assert_equal $ret {$5}
+                    assert_equal [r read] {3.141}
                 } else {
-                    assert_equal $ret {,3.1415926535900001}
+                    assert_equal $ret {,3.141}
                 }
             }
 

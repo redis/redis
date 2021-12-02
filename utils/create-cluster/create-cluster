@@ -1,7 +1,9 @@
 #!/bin/bash
 
+SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+
 # Settings
-BIN_PATH="../../src/"
+BIN_PATH="$SCRIPT_DIR/../../src/"
 CLUSTER_HOST=127.0.0.1
 PORT=30000
 TIMEOUT=2000

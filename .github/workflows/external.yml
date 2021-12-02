@@ -15,12 +15,18 @@ jobs:
     - name: Build
       run: make REDIS_CFLAGS=-Werror
     - name: Start redis-server
-      run: ./src/redis-server --daemonize yes
+      run: ./src/redis-server --daemonize yes --logfile external-redis.log
     - name: Run external test
       run: |
           ./runtest \
             --host 127.0.0.1 --port 6379 \
             --tags -slow
+    - name: Archive redis log
+      if: ${{ failure() }}
+      uses: actions/upload-artifact@v2
+      with:
+        name: test-external-redis-log
+        path: external-redis.log
 
   test-external-cluster:
     runs-on: ubuntu-latest
@@ -30,7 +36,7 @@ jobs:
     - name: Build
       run: make REDIS_CFLAGS=-Werror
     - name: Start redis-server
-      run: ./src/redis-server --cluster-enabled yes --daemonize yes
+      run: ./src/redis-server --cluster-enabled yes --daemonize yes --logfile external-redis.log
     - name: Create a single node cluster
       run: ./src/redis-cli cluster addslots $(for slot in {0..16383}; do echo $slot; done); sleep 5
     - name: Run external test
@@ -39,4 +45,10 @@ jobs:
             --host 127.0.0.1 --port 6379 \
             --cluster-mode \
             --tags -slow
+    - name: Archive redis log
+      if: ${{ failure() }}
+      uses: actions/upload-artifact@v2
+      with:
+        name: test-external-cluster-log
+        path: external-redis.log
 

@@ -294,7 +294,12 @@ int prepareClientToWrite(client *c) {
  * -------------------------------------------------------------------------- */
 
 /* Attempts to add the reply to the static buffer in the client struct.
- * Returns the length of data that is added to the reply buffer. */
+ * Returns the length of data that is added to the reply buffer.
+ *
+ * Sanitizer suppression: client->buf_usable_size determined by
+ * zmalloc_usable_size() call. Writing beyond client->buf boundaries confuses
+ * sanitizer and generates a false positive out-of-bounds error */
+REDIS_NO_SANITIZE("bounds")
 size_t _addReplyToBuffer(client *c, const char *s, size_t len) {
     size_t available = c->buf_usable_size - c->bufpos;
 
@@ -2580,6 +2585,12 @@ void resetCommand(client *c) {
     addReplyStatus(c,"RESET");
 }
 
+/* Disconnect the current client */
+void quitCommand(client *c) {
+    addReply(c,shared.ok);
+    c->flags |= CLIENT_CLOSE_AFTER_REPLY;
+}
+
 void clientCommand(client *c) {
     listNode *ln;
     listIter li;
@@ -2730,10 +2741,11 @@ NULL
                 int moreargs = c->argc > i+1;
 
                 if (!strcasecmp(c->argv[i]->ptr,"id") && moreargs) {
-                    long long tmp;
+                    long tmp;
 
-                    if (getLongLongFromObjectOrReply(c,c->argv[i+1],&tmp,NULL)
-                        != C_OK) return;
+                    if (getRangeLongFromObjectOrReply(c, c->argv[i+1], 1, LONG_MAX, &tmp,
+                                                      "client-id should be greater than 0") != C_OK)
+                        return;
                     id = tmp;
                 } else if (!strcasecmp(c->argv[i]->ptr,"type") && moreargs) {
                     type = getClientTypeByName(c->argv[i+1]->ptr);
@@ -3188,7 +3200,7 @@ void helloCommand(client *c) {
  * when a POST or "Host:" header is seen, and will log the event from
  * time to time (to avoid creating a DOS as a result of too many logs). */
 void securityWarningCommand(client *c) {
-    static time_t logged_time;
+    static time_t logged_time = 0;
     time_t now = time(NULL);
 
     if (llabs(now-logged_time) > 60) {
@@ -3271,9 +3283,16 @@ void replaceClientCommandVector(client *c, int argc, robj **argv) {
 void rewriteClientCommandArgument(client *c, int i, robj *newval) {
     robj *oldval;
     retainOriginalCommandVector(c);
-    if (i >= c->argv_len) {
-        c->argv = zrealloc(c->argv,sizeof(robj*)*(i+1));
-        c->argc = c->argv_len = i+1;
+
+    /* We need to handle both extending beyond argc (just update it and
+     * initialize the new element) or beyond argv_len (realloc is needed).
+     */
+    if (i >= c->argc) {
+        if (i >= c->argv_len) {
+            c->argv = zrealloc(c->argv,sizeof(robj*)*(i+1));
+            c->argv_len = i+1;
+        }
+        c->argc = i+1;
         c->argv[i] = NULL;
     }
     oldval = c->argv[i];
