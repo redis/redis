@@ -5579,7 +5579,7 @@ int prepareForShutdown(int flags) {
         server.shutdown_mstime = server.mstime + server.shutdown_timeout * 1000;
         mstime_t cron_delay = 1000/server.hz;
         pauseClients(server.shutdown_mstime + cron_delay, CLIENT_PAUSE_WRITE);
-        serverLog(LL_WARNING, "Waiting for replicas before shutting down.");
+        serverLog(LL_NOTICE, "Waiting for replicas before shutting down.");
         return C_ERR;
     }
 
@@ -5611,6 +5611,29 @@ int finishShutdown(void) {
 
     int save = server.shutdown_flags & SHUTDOWN_SAVE;
     int nosave = server.shutdown_flags & SHUTDOWN_NOSAVE;
+
+    /* Log a warning for each replica that is lagging. */
+    listIter replicas_iter;
+    listNode *replicas_list_node;
+    int num_replicas = 0, num_lagging_replicas = 0;
+    listRewind(server.slaves, &replicas_iter);
+    while ((replicas_list_node = listNext(&replicas_iter)) != NULL) {
+        client *replica = listNodeValue(replicas_list_node);
+        num_replicas++;
+        if (replica->repl_ack_off != server.master_repl_offset) {
+            num_lagging_replicas++;
+            serverLog(LL_WARNING,
+                      "Lagging replica %s reported offset %lld behind master.",
+                      replicationGetSlaveName(replica),
+                      server.master_repl_offset - replica->repl_ack_off);
+        }
+    }
+    if (num_replicas > 0) {
+        serverLog(LL_NOTICE,
+                  "%d of %d replicas are in sync when shutting down.",
+                  num_replicas - num_lagging_replicas,
+                  num_replicas);
+    }
 
     /* Kill all the Lua debugger forked sessions. */
     ldbKillForkedSessions();
@@ -5692,20 +5715,6 @@ int finishShutdown(void) {
     /* Best effort flush of slave output buffers, so that we hopefully
      * send them pending writes. */
     flushSlavesOutputBuffers();
-
-    /* Log a warning for each replica that is lagging. */
-    listIter replicas_iter;
-    listNode *replicas_list_node;
-    listRewind(server.slaves, &replicas_iter);
-    while ((replicas_list_node = listNext(&replicas_iter)) != NULL) {
-        client *replica = listNodeValue(replicas_list_node);
-        if (replica->repl_ack_off != server.master_repl_offset) {
-            serverLog(LL_WARNING,
-                      "Replica %s offset is %lld behind ours.",
-                      replicationGetSlaveName(replica),
-                      server.master_repl_offset - replica->repl_ack_off);
-        }
-    }
 
     /* Close the listening sockets. Apparently this allows faster restarts. */
     closeListeningSockets(1);
