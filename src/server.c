@@ -3092,10 +3092,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     if (server.shutdown_asap) {
         if (server.shutdown_mstime == 0) {
             if (prepareForShutdown(SHUTDOWN_WAIT_REPL) == C_OK) exit(0);
-        } else if (server.mstime >= server.shutdown_mstime ||
-                   server.shutdown_asap > 1 ||
-                   isReadyToShutdown())
-        {
+        } else if (server.mstime >= server.shutdown_mstime || isReadyToShutdown()) {
             if (finishShutdown() == C_OK) exit(0);
             /* Shutdown failed. Continue running. An error has been logged. */
         }
@@ -7409,14 +7406,8 @@ static void sigShutdownHandler(int sig) {
     /* SIGINT is often delivered via Ctrl+C in an interactive session.
      * If we receive the signal the second time, we interpret this as
      * the user really wanting to quit ASAP without waiting to persist
-     * on disk. */
+     * on disk and without waiting for lagging replicas. */
     if (server.shutdown_asap && sig == SIGINT) {
-        if (server.shutdown_mstime != 0 && server.shutdown_asap == 1) {
-            /* Waiting for replicas lagging behind. */
-            serverLogFromHandler(LL_WARNING, "You insist... Shutting down faster by ignoring slow replicas.");
-            server.shutdown_asap++;
-            return;
-        }
         serverLogFromHandler(LL_WARNING, "You insist... exiting now.");
         rdbRemoveTempFile(getpid(), 1);
         exit(1); /* Exit with an error since this was not a clean shutdown. */
