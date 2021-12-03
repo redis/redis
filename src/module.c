@@ -1085,6 +1085,8 @@ int RM_SetCommandComplexity(RedisModuleCommandProxy *command, const char *comple
 /* Set hints for clients/proxies (space-separated string).
  * Each element will be considered a hint.
  *
+ * See https://redis.io/topics/command-hints
+ *
  * Only affects the output of COMMAND */
 int RM_SetCommandHints(RedisModuleCommandProxy *command, const char *hints) {
     struct redisCommand *cmd = command->rediscmd;
@@ -1208,7 +1210,7 @@ int moduleArgFlagsConvert(int flags) {
  * * `REDISMODULE_ARG_TYPE_UNIX_TIME`: Integer, but Unix timestamp
  * * `REDISMODULE_ARG_TYPE_PURE_TOKEN`: Argument doesn't have a placeholder, it's just a binary token (see example below)
  * * `REDISMODULE_ARG_TYPE_ONEOF`: Used when user can choose only one of a few sub-arguments (see example below)
- * * `REDISMODULE_ARG_TYPE_ONEOF`: Used when one wants to group together several sub-arguments, usually to apply something on
+ * * `REDISMODULE_ARG_TYPE_BLOCK`: Used when one wants to group together several sub-arguments, usually to apply something on
  *                                 all of them (like making the entire group "optional") (see example below)
  *
  * Explanation about the flags:

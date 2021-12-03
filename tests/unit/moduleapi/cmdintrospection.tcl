@@ -4,6 +4,13 @@ start_server {tags {"modules"}} {
     r module load $testmodule
 
     test "Module command introspection via COMMAND" {
+        # cmdintrospection.xadd mimics XADD with regards to how
+        # what COMMAND exposes. There are three differences:
+        # 1. cmdintrospection.xadd (and all module commands) do not have ACL categories
+        # 2. cmdintrospection.xadd's `group` is "module"
+        # 3. cmdintrospection.xadd has command hints (for testing) and XADD doesn't (for now)
+        # This test verifies that, apart from the above differences, the output of COMMAND
+        # is identical.
         set redis_reply [lindex [r command info xadd] 0]
         set module_reply [lindex [r command info cmdintrospection.xadd] 0]
         for {set i 1} {$i < [llength $redis_reply]} {incr i} {

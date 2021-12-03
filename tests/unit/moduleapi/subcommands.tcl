@@ -4,6 +4,7 @@ start_server {tags {"modules"}} {
     r module load $testmodule
 
     test "Module subcommands via COMMAND" {
+        # Verify that module subcommands are displayed correctly in COMMAND
         set reply [r command info subcommands.bitarray]
         # create a dict for easy lookup
         unset -nocomplain mydict
