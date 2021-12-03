@@ -369,7 +369,7 @@ void serveClientsBlockedOnSortedSetKey(robj *o, readyList *rl) {
                 argv[2] = count_obj;
                 argc++;
             }
-            propagate(receiver->db->id, argv, argc, PROPAGATE_AOF|PROPAGATE_REPL);
+            alsoPropagate(receiver->db->id, argv, argc, PROPAGATE_AOF|PROPAGATE_REPL);
             decrRefCount(argv[1]);
             if (count != -1) decrRefCount(argv[2]);
 
@@ -613,6 +613,8 @@ void handleClientsBlockedOnKeys(void) {
         }
         listRelease(l); /* We have the new list on place at this point. */
     }
+
+    propagatePendingCommands();
 }
 
 /* This is how the current blocking lists/sorted sets/streams work, we use

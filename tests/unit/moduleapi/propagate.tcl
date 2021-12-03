@@ -29,15 +29,9 @@ tags "modules" {
 
                     assert_replication_stream $repl {
                         {select *}
-                        {multi}
                         {incr timer}
-                        {exec}
-                        {multi}
                         {incr timer}
-                        {exec}
-                        {multi}
                         {incr timer}
-                        {exec}
                     }
                     close_replication_stream $repl
                 }
@@ -45,8 +39,6 @@ tags "modules" {
                 test {module propagates nested ctx case1} {
                     set repl [attach_to_replication_stream]
 
-                    $master del timer-nested-start
-                    $master del timer-nested-end
                     $master propagate-test.timer-nested
 
                     wait_for_condition 5000 10 {
@@ -56,20 +48,23 @@ tags "modules" {
                     }
 
                     assert_replication_stream $repl {
-                        {select *}
                         {multi}
+                        {select *}
                         {incrby timer-nested-start 1}
                         {incrby timer-nested-end 1}
                         {exec}
                     }
                     close_replication_stream $repl
+
+                    # Note propagate-test.timer-nested just propagates INCRBY, causing an
+                    # inconsistency, so we flush
+                    $master flushall
+                    wait_for_ofs_sync $master $replica
                 }
 
                 test {module propagates nested ctx case2} {
                     set repl [attach_to_replication_stream]
 
-                    $master del timer-nested-start
-                    $master del timer-nested-end
                     $master propagate-test.timer-nested-repl
 
                     wait_for_condition 5000 10 {
@@ -78,21 +73,26 @@ tags "modules" {
                         fail "The two counters don't match the expected value."
                     }
 
-                    # Note the 'after-call' and 'timer-nested-start' propagation below is out of order (known limitation)
                     assert_replication_stream $repl {
-                        {select *}
                         {multi}
+                        {select *}
+                        {incrby timer-nested-start 1}
                         {incr using-call}
                         {incr counter-1}
                         {incr counter-2}
-                        {incr after-call}
                         {incr counter-3}
                         {incr counter-4}
-                        {incrby timer-nested-start 1}
+                        {incr after-call}
+                        {incr timer-nested-middle}
                         {incrby timer-nested-end 1}
                         {exec}
                     }
                     close_replication_stream $repl
+
+                    # Note propagate-test.timer-nested-repl just propagates INCRBY, causing an
+                    # inconsistency, so we flush
+                    $master flushall
+                    wait_for_ofs_sync $master $replica
                 }
 
                 test {module propagates from thread} {
@@ -126,16 +126,16 @@ tags "modules" {
 
                     # Note the 'after-call' propagation below is out of order (known limitation)
                     assert_replication_stream $repl {
-                        {select *}
                         {multi}
+                        {select *}
                         {incr counter-1}
                         {incr counter-2}
                         {exec}
                         {multi}
                         {incr using-call}
-                        {incr after-call}
                         {incr counter-1}
                         {incr counter-2}
+                        {incr after-call}
                         {exec}
                     }
                     close_replication_stream $repl
@@ -148,18 +148,17 @@ tags "modules" {
                     $master propagate-test.simple
                     $master propagate-test.mixed
 
-                    # Note the 'after-call' propagation below is out of order (known limitation)
                     assert_replication_stream $repl {
-                        {select *}
                         {multi}
+                        {select *}
                         {incr counter-1}
                         {incr counter-2}
                         {exec}
                         {multi}
                         {incr using-call}
-                        {incr after-call}
                         {incr counter-1}
                         {incr counter-2}
+                        {incr after-call}
                         {exec}
                     }
                     close_replication_stream $repl
@@ -173,18 +172,17 @@ tags "modules" {
                     $master propagate-test.simple
                     $master propagate-test.mixed
 
-                    # Note the 'after-call' propagation below is out of order (known limitation)
                     assert_replication_stream $repl {
-                        {select *}
                         {multi}
+                        {select *}
                         {incr counter-1}
                         {incr counter-2}
                         {exec}
                         {multi}
                         {incr using-call}
-                        {incr after-call}
                         {incr counter-1}
                         {incr counter-2}
+                        {incr after-call}
                         {exec}
                     }
                     close_replication_stream $repl
@@ -196,22 +194,43 @@ tags "modules" {
                     $master multi
                     $master propagate-test.simple
                     $master propagate-test.mixed
+                    $master propagate-test.timer-nested-repl
                     $master exec
-                    wait_for_ofs_sync $master $replica
 
-                    # Note the 'after-call' propagation below is out of order (known limitation)
+                    wait_for_condition 5000 10 {
+                        [$replica get timer-nested-end] eq "1"
+                    } else {
+                        fail "The two counters don't match the expected value."
+                    }
+
                     assert_replication_stream $repl {
-                        {select *}
                         {multi}
+                        {select *}
                         {incr counter-1}
                         {incr counter-2}
                         {incr using-call}
-                        {incr after-call}
                         {incr counter-1}
                         {incr counter-2}
+                        {incr after-call}
+                        {exec}
+                        {multi}
+                        {incrby timer-nested-start 1}
+                        {incr using-call}
+                        {incr counter-1}
+                        {incr counter-2}
+                        {incr counter-3}
+                        {incr counter-4}
+                        {incr after-call}
+                        {incr timer-nested-middle}
+                        {incrby timer-nested-end 1}
                         {exec}
                     }
                     close_replication_stream $repl
+
+                   # Note propagate-test.timer-nested just propagates INCRBY, causing an
+                    # inconsistency, so we flush
+                    $master flushall
+                    wait_for_ofs_sync $master $replica
                 }
 
                 test {module RM_Call of expired key propagation} {
@@ -226,9 +245,11 @@ tags "modules" {
                     wait_for_ofs_sync $master $replica
 
                     assert_replication_stream $repl {
+                        {multi}
                         {select *}
                         {del k1}
                         {propagate-test.incr k1}
+                        {exec}
                     }
                     close_replication_stream $repl
 

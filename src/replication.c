@@ -436,7 +436,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
     serverAssert(!(listLength(slaves) != 0 && server.repl_backlog == NULL));
 
     /* Send SELECT command to every slave if needed. */
-    if (server.slaveseldb != dictid) {
+    if (dictid != -1 && server.slaveseldb != dictid) {
         robj *selectcmd;
 
         /* For a few DBs we have pre-computed SELECT command. */
@@ -456,8 +456,9 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
 
         if (dictid < 0 || dictid >= PROTO_SHARED_SELECT_CMDS)
             decrRefCount(selectcmd);
+
+        server.slaveseldb = dictid;
     }
-    server.slaveseldb = dictid;
 
     /* Write the command to the replication buffer if any. */
     char aux[LONG_STR_SIZE+3];

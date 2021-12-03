@@ -158,22 +158,16 @@ struct RedisModuleCtx {
     getKeysResult *keys_result;
 
     struct RedisModulePoolAllocBlock *pa_head;
-    redisOpArray saved_oparray;    /* When propagating commands in a callback
-                                      we reallocate the "also propagate" op
-                                      array. Here we save the old one to
-                                      restore it later. */
 };
 typedef struct RedisModuleCtx RedisModuleCtx;
 
-#define REDISMODULE_CTX_INIT {(void*)(unsigned long)&RM_GetApi, NULL, NULL, NULL, NULL, 0, 0, 0, NULL, 0, NULL, NULL, NULL, NULL, {0}}
+#define REDISMODULE_CTX_INIT {(void*)(unsigned long)&RM_GetApi, NULL, NULL, NULL, NULL, 0, 0, 0, NULL, 0, NULL, NULL, NULL, NULL}
 #define REDISMODULE_CTX_AUTO_MEMORY (1<<0)
 #define REDISMODULE_CTX_KEYS_POS_REQUEST (1<<1)
 #define REDISMODULE_CTX_BLOCKED_REPLY (1<<2)
 #define REDISMODULE_CTX_BLOCKED_TIMEOUT (1<<3)
 #define REDISMODULE_CTX_THREAD_SAFE (1<<4)
 #define REDISMODULE_CTX_BLOCKED_DISCONNECTED (1<<5)
-#define REDISMODULE_CTX_MODULE_COMMAND_CALL (1<<6)
-#define REDISMODULE_CTX_MULTI_EMITTED (1<<7)
 
 /* This represents a Redis key opened with RM_OpenKey(). */
 struct RedisModuleKey {
@@ -395,7 +389,6 @@ void RM_FreeCallReply(RedisModuleCallReply *reply);
 void RM_CloseKey(RedisModuleKey *key);
 void autoMemoryCollect(RedisModuleCtx *ctx);
 robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int *argcp, int *argvlenp, int *flags, va_list ap);
-void moduleReplicateMultiIfNeeded(RedisModuleCtx *ctx);
 void RM_ZsetRangeStop(RedisModuleKey *kp);
 static void zsetKeyReset(RedisModuleKey *key);
 static void moduleInitKeyTypeSpecific(RedisModuleKey *key);
@@ -614,52 +607,15 @@ int RM_GetApi(const char *funcname, void **targetPtrPtr) {
     return REDISMODULE_OK;
 }
 
-/* Helper function for when a command callback is called, in order to handle
- * details needed to correctly replicate commands. */
-void moduleHandlePropagationAfterCommandCallback(RedisModuleCtx *ctx) {
-    client *c = ctx->client;
-
-    /* We don't need to do anything here if the context was never used
-     * in order to propagate commands. */
-    if (!(ctx->flags & REDISMODULE_CTX_MULTI_EMITTED)) return;
-
-    /* We don't need to do anything here if the server isn't inside
-     * a transaction. */
-    if (!server.propagate_in_transaction) return;
-
-    /* If this command is executed from with Lua or MULTI/EXEC we do not
-     * need to propagate EXEC */
-    if (server.in_script || server.in_exec) return;
-
-    /* Handle the replication of the final EXEC, since whatever a command
-     * emits is always wrapped around MULTI/EXEC. */
-    alsoPropagate(c->db->id,&shared.exec,1,PROPAGATE_AOF|PROPAGATE_REPL);
-    afterPropagateExec();
-
-    /* If this is not a module command context (but is instead a simple
-     * callback context), we have to handle directly the "also propagate"
-     * array and emit it. In a module command call this will be handled
-     * directly by call(). */
-    if (!(ctx->flags & REDISMODULE_CTX_MODULE_COMMAND_CALL) &&
-        server.also_propagate.numops)
-    {
-        for (int j = 0; j < server.also_propagate.numops; j++) {
-            redisOp *rop = &server.also_propagate.ops[j];
-            int target = rop->target;
-            if (target)
-                propagate(rop->dbid,rop->argv,rop->argc,target);
-        }
-        redisOpArrayFree(&server.also_propagate);
-        /* Restore the previous oparray in case of nexted use of the API. */
-        server.also_propagate = ctx->saved_oparray;
-        /* We're done with saved_oparray, let's invalidate it. */
-        redisOpArrayInit(&ctx->saved_oparray);
-    }
-}
-
 /* Free the context after the user function was called. */
 void moduleFreeContext(RedisModuleCtx *ctx) {
-    moduleHandlePropagationAfterCommandCallback(ctx);
+    if (ctx->module) {
+        /* Generally speaking, modules take care of their own propagation,
+         * unless we are in a transaction.
+         * See comment in call(), next to propagatePendingCommands */
+        if (--ctx->module->ctx_nesting == 0 && !server.in_exec)
+            propagatePendingCommands();
+    }
     autoMemoryCollect(ctx);
     poolAllocRelease(ctx);
     if (ctx->postponed_arrays) {
@@ -675,13 +631,19 @@ void moduleFreeContext(RedisModuleCtx *ctx) {
     if (ctx->flags & REDISMODULE_CTX_THREAD_SAFE) freeClient(ctx->client);
 }
 
+RedisModuleCtx moduleCreateContext(RedisModule *module, int detached) {
+    RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
+    if (module && !detached)
+        module->ctx_nesting++;
+    return ctx;
+}
+
 /* This Redis command binds the normal Redis command invocation with commands
  * exported by modules. */
 void RedisModuleCommandDispatcher(client *c) {
     RedisModuleCommandProxy *cp = (void*)(unsigned long)c->cmd->getkeys_proc;
-    RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
+    RedisModuleCtx ctx = moduleCreateContext(cp->module, 0);
 
-    ctx.flags |= REDISMODULE_CTX_MODULE_COMMAND_CALL;
     ctx.module = cp->module;
     ctx.client = c;
     cp->func(&ctx,(void**)c->argv,c->argc);
@@ -715,7 +677,7 @@ void RedisModuleCommandDispatcher(client *c) {
  * "get keys" call by calling RedisModule_IsKeysPositionRequest(ctx). */
 int moduleGetCommandKeysViaAPI(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     RedisModuleCommandProxy *cp = (void*)(unsigned long)cmd->getkeys_proc;
-    RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
+    RedisModuleCtx ctx = moduleCreateContext(cp->module, 0);
 
     ctx.module = cp->module;
     ctx.client = NULL;
@@ -1285,6 +1247,7 @@ void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int api
     module->usedby = listCreate();
     module->using = listCreate();
     module->filters = listCreate();
+    module->ctx_nesting = 0;
     module->in_call = 0;
     module->in_hook = 0;
     module->options = 0;
@@ -2327,31 +2290,6 @@ int RM_ReplyWithLongDouble(RedisModuleCtx *ctx, long double ld) {
  * ## Commands replication API
  * -------------------------------------------------------------------------- */
 
-/* Helper function to replicate MULTI the first time we replicate something
- * in the context of a command execution. EXEC will be handled by the
- * RedisModuleCommandDispatcher() function. */
-void moduleReplicateMultiIfNeeded(RedisModuleCtx *ctx) {
-    /* Skip this if client explicitly wrap the command with MULTI, or if
-     * the module command was called by a script. */
-    if (server.in_script || server.in_exec) return;
-    /* If we already emitted MULTI return ASAP. */
-    if (server.propagate_in_transaction) return;
-    /* If this is a thread safe context, we do not want to wrap commands
-     * executed into MULTI/EXEC, they are executed as single commands
-     * from an external client in essence. */
-    if (ctx->flags & REDISMODULE_CTX_THREAD_SAFE) return;
-    /* If this is a callback context, and not a module command execution
-     * context, we have to setup the op array for the "also propagate" API
-     * so that RM_Replicate() will work. */
-    if (!(ctx->flags & REDISMODULE_CTX_MODULE_COMMAND_CALL)) {
-        serverAssert(ctx->saved_oparray.ops == NULL);
-        ctx->saved_oparray = server.also_propagate;
-        redisOpArrayInit(&server.also_propagate);
-    }
-    execCommandPropagateMulti(ctx->client->db->id);
-    ctx->flags |= REDISMODULE_CTX_MULTI_EMITTED;
-}
-
 /* Replicate the specified command and arguments to slaves and AOF, as effect
  * of execution of the calling command implementation.
  *
@@ -2418,7 +2356,6 @@ int RM_Replicate(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...)
     if (ctx->flags & REDISMODULE_CTX_THREAD_SAFE) {
         propagate(ctx->client->db->id,argv,argc,target);
     } else {
-        moduleReplicateMultiIfNeeded(ctx);
         alsoPropagate(ctx->client->db->id,argv,argc,target);
     }
 
@@ -5030,13 +4967,8 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     server.replication_allowed = replicate && server.replication_allowed;
 
     /* Run the command */
-    int call_flags = CMD_CALL_SLOWLOG | CMD_CALL_STATS | CMD_CALL_NOWRAP;
+    int call_flags = CMD_CALL_SLOWLOG | CMD_CALL_STATS | CMD_CALL_FROM_MODULE;
     if (replicate) {
-        /* If we are using single commands replication, we need to wrap what
-         * we propagate into a MULTI/EXEC block, so that it will be atomic like
-         * a Lua script in the context of AOF and slaves. */
-        moduleReplicateMultiIfNeeded(ctx);
-
         if (!(flags & REDISMODULE_ARGV_NO_AOF))
             call_flags |= CMD_CALL_PROPAGATE_AOF;
         if (!(flags & REDISMODULE_ARGV_NO_REPLICAS))
@@ -6009,7 +5941,7 @@ void RM_EmitAOF(RedisModuleIO *io, const char *cmdname, const char *fmt, ...) {
 
 RedisModuleCtx *RM_GetContextFromIO(RedisModuleIO *io) {
     if (io->ctx) return io->ctx; /* Can't have more than one... */
-    RedisModuleCtx ctxtemplate = REDISMODULE_CTX_INIT;
+    RedisModuleCtx ctxtemplate = moduleCreateContext(io->type->module, 0);
     io->ctx = zmalloc(sizeof(RedisModuleCtx));
     *(io->ctx) = ctxtemplate;
     io->ctx->module = io->type->module;
@@ -6164,7 +6096,7 @@ void unblockClientFromModule(client *c) {
      * by the module itself or because of a timeout, so the callback will NOT
      * get called if this is not an actual disconnection event. */
     if (bc->disconnect_callback) {
-        RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
+        RedisModuleCtx ctx = moduleCreateContext(bc->module, 0);
         ctx.blocked_privdata = bc->privdata;
         ctx.module = bc->module;
         ctx.client = bc->client;
@@ -6276,7 +6208,7 @@ int moduleTryServeClientBlockedOnKey(client *c, robj *key) {
      * explicit call). See #6798. */
     if (bc->unblocked) return 0;
 
-    RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
+    RedisModuleCtx ctx = moduleCreateContext(bc->module, 0);
     ctx.flags |= REDISMODULE_CTX_BLOCKED_REPLY;
     ctx.blocked_ready_key = key;
     ctx.blocked_privdata = bc->privdata;
@@ -6523,7 +6455,7 @@ void moduleHandleBlockedClients(void) {
          * the key was signaled as ready. */
         uint64_t reply_us = 0;
         if (c && !bc->blocked_on_keys && bc->reply_callback) {
-            RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
+            RedisModuleCtx ctx = moduleCreateContext(bc->module, 0);
             ctx.flags |= REDISMODULE_CTX_BLOCKED_REPLY;
             ctx.blocked_privdata = bc->privdata;
             ctx.blocked_ready_key = NULL;
@@ -6546,7 +6478,7 @@ void moduleHandleBlockedClients(void) {
 
         /* Free privdata if any. */
         if (bc->privdata && bc->free_privdata) {
-            RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
+            RedisModuleCtx ctx = moduleCreateContext(bc->module, 0);
             if (c == NULL)
                 ctx.flags |= REDISMODULE_CTX_BLOCKED_DISCONNECTED;
             ctx.blocked_privdata = bc->privdata;
@@ -6615,7 +6547,7 @@ void moduleBlockedClientTimedOut(client *c) {
      * explicit call). See #6798. */
     if (bc->unblocked) return;
 
-    RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
+    RedisModuleCtx ctx = moduleCreateContext(bc->module, 0);
     ctx.flags |= REDISMODULE_CTX_BLOCKED_TIMEOUT;
     ctx.module = bc->module;
     ctx.client = bc->client;
@@ -6696,7 +6628,7 @@ int RM_BlockedClientDisconnected(RedisModuleCtx *ctx) {
  * the module ID and thus be more useful for logging. */
 RedisModuleCtx *RM_GetThreadSafeContext(RedisModuleBlockedClient *bc) {
     RedisModuleCtx *ctx = zmalloc(sizeof(*ctx));
-    RedisModuleCtx empty = REDISMODULE_CTX_INIT;
+    RedisModuleCtx empty = moduleCreateContext(bc ? bc->module : NULL, 1);
     memcpy(ctx,&empty,sizeof(empty));
     if (bc) {
         ctx->blocked_client = bc;
@@ -6725,7 +6657,7 @@ RedisModuleCtx *RM_GetThreadSafeContext(RedisModuleBlockedClient *bc) {
  * a long term, for purposes such as logging. */
 RedisModuleCtx *RM_GetDetachedThreadSafeContext(RedisModuleCtx *ctx) {
     RedisModuleCtx *new_ctx = zmalloc(sizeof(*new_ctx));
-    RedisModuleCtx empty = REDISMODULE_CTX_INIT;
+    RedisModuleCtx empty = moduleCreateContext(ctx->module, 1);
     memcpy(new_ctx,&empty,sizeof(empty));
     new_ctx->module = ctx->module;
     new_ctx->flags |= REDISMODULE_CTX_THREAD_SAFE;
@@ -6887,7 +6819,7 @@ void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid)
         /* Only notify subscribers on events matching they registration,
          * and avoid subscribers triggering themselves */
         if ((sub->event_mask & type) && sub->active == 0) {
-            RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
+            RedisModuleCtx ctx = moduleCreateContext(sub->module, 0);
             ctx.module = sub->module;
             ctx.client = moduleFreeContextReusedClient;
             selectDb(ctx.client, dbid);
@@ -6950,7 +6882,7 @@ void moduleCallClusterReceivers(const char *sender_id, uint64_t module_id, uint8
     moduleClusterReceiver *r = clusterReceivers[type];
     while(r) {
         if (r->module_id == module_id) {
-            RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
+            RedisModuleCtx ctx = moduleCreateContext(r->module, 0);
             ctx.module = r->module;
             ctx.client = moduleFreeContextReusedClient;
             selectDb(ctx.client, 0);
@@ -7222,7 +7154,7 @@ int moduleTimerHandler(struct aeEventLoop *eventLoop, long long id, void *client
         expiretime = ntohu64(expiretime);
         if (now >= expiretime) {
             RedisModuleTimer *timer = ri.data;
-            RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
+            RedisModuleCtx ctx = moduleCreateContext(timer->module, 0);
 
             ctx.module = timer->module;
             ctx.client = moduleFreeContextReusedClient;
@@ -9328,7 +9260,7 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
     while((ln = listNext(&li))) {
         RedisModuleEventListener *el = ln->value;
         if (el->event.id == eid) {
-            RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
+            RedisModuleCtx ctx = moduleCreateContext(el->module, 0);
             ctx.module = el->module;
 
             if (eid == REDISMODULE_EVENT_CLIENT_CHANGE) {
@@ -9708,6 +9640,9 @@ int moduleLoad(const char *path, void **module_argv, int module_argc) {
                           REDISMODULE_SUBEVENT_MODULE_LOADED,
                           ctx.module);
 
+    /* We can't call moduleCreateContext before we have the RedisModule,
+     * so we have to increment the counter here */
+    ctx.module->ctx_nesting++;
     moduleFreeContext(&ctx);
     return C_OK;
 }
@@ -9743,7 +9678,7 @@ int moduleUnload(sds name) {
     int (*onunload)(void *);
     onunload = (int (*)(void *))(unsigned long) dlsym(module->handle, "RedisModule_OnUnload");
     if (onunload) {
-        RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
+        RedisModuleCtx ctx = moduleCreateContext(module, 0);
         ctx.module = module;
         ctx.client = moduleFreeContextReusedClient;
         int unload_status = onunload((void*)&ctx);

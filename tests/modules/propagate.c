@@ -79,6 +79,8 @@ void timerNestedHandler(RedisModuleCtx *ctx, void *data) {
     RedisModule_Replicate(ctx,"INCRBY","cc","timer-nested-start","1");
     RedisModuleCallReply *reply = RedisModule_Call(ctx,"propagate-test.nested", repl? "!" : "");
     RedisModule_FreeCallReply(reply);
+    reply = RedisModule_Call(ctx, "INCR", repl? "c!" : "c", "timer-nested-middle");
+    RedisModule_FreeCallReply(reply);
     RedisModule_Replicate(ctx,"INCRBY","cc","timer-nested-end","1");
 }
 
