@@ -1,0 +1,40 @@
+{
+    "FCALL": {
+        "summary": "PATCH__TBD__38__",
+        "complexity": "PATCH__TBD__37__",
+        "group": "scripting",
+        "since": "7.0.0",
+        "arity": -3,
+        "function": "fcallCommand",
+        "get_keys_function": "functionGetKeys",
+        "command_flags": [
+            "noscript",
+            "skip_monitor",
+            "may_replicate",
+            "no_mandatory_keys"
+        ],
+        "acl_categories": [
+            "scripting"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "write",
+                    "read"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 2
+                    }
+                },
+                "find_keys": {
+                    "keynum": {
+                        "keynumidx": 0,
+                        "firstkey": 1,
+                        "step": 1
+                    }
+                }
+            }
+        ]
+    }
+}

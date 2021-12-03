@@ -1,0 +1,18 @@
+{
+    "HELP": {
+        "summary": "Show helpful text about the different subcommands",
+        "complexity": "O(1)",
+        "group": "scripting",
+        "since": "7.0.0",
+        "arity": 2,
+        "container": "FUNCTION",
+        "function": "functionsHelpCommand",
+        "command_flags": [
+            "loading",
+            "stale"
+        ],
+        "acl_categories": [
+            "scripting"
+        ]
+    }
+}

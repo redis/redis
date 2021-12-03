@@ -1,0 +1,17 @@
+{
+    "LIST": {
+        "summary": "PATCH__TBD__27__",
+        "complexity": "PATCH__TBD__26__",
+        "group": "scripting",
+        "since": "7.0.0",
+        "arity": 2,
+        "container": "FUNCTION",
+        "function": "functionsListCommand",
+        "command_flags": [
+            "noscript"
+        ],
+        "acl_categories": [
+            "scripting"
+        ]
+    }
+}

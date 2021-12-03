@@ -1,12 +1,18 @@
 {
     "SET": {
-        "summary": "Set a configuration parameter to the given value",
+        "summary": "Set configuration parameters to the given values",
         "complexity": "PATCH__TBD__47__",
         "group": "server",
         "since": "2.0.0",
         "arity": -4,
         "container": "CONFIG",
         "function": "configSetCommand",
+        "history": [
+            [
+                "7.0.0",
+                "Added the ability to set multiple parameters in one call."
+            ]
+        ],
         "command_flags": [
             "admin",
             "noscript",
@@ -14,14 +20,21 @@
         ],
         "arguments": [
             {
-                "name": "parameter",
-                "type": "string",
-                "value": "parameter"
-            },
-            {
-                "name": "value",
-                "type": "string",
-                "value": "value"
+                "name": "parameter_value",
+                "type": "block",
+                "value": [
+                    {
+                        "name": "parameter",
+                        "type": "string",
+                        "value": "parameter"
+                    },
+                    {
+                        "name": "value",
+                        "type": "string",
+                        "value": "value"
+                    }
+                ],
+                "multiple": true
             }
         ]
     }

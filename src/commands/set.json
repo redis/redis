@@ -82,13 +82,13 @@
                     {
                         "name": "exat",
                         "type": "unix-time",
-                        "value": "timestamp",
+                        "value": "unix-time-seconds",
                         "token": "EXAT"
                     },
                     {
                         "name": "pxat",
                         "type": "unix-time",
-                        "value": "milliseconds-timestamp",
+                        "value": "unix-time-milliseconds",
                         "token": "PXAT"
                     },
                     {

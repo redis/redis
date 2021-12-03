@@ -1,9 +1,9 @@
 {
     "LCS": {
-        "summary": "__TBD__3__",
-        "complexity": "__TBD__2__",
+        "summary": "Find longest common substring",
+        "complexity": "O(N*M) where N and M are the lengths of s1 and s2, respectively",
         "group": "string",
-        "since": "7.0",
+        "since": "7.0.0",
         "arity": -3,
         "function": "lcsCommand",
         "command_flags": [
@@ -29,6 +29,45 @@
                         "limit": 0
                     }
                 }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key1",
+                "type": "key",
+                "value": "key1",
+                "key_spec_index": 0
+            },
+            {
+                "name": "key2",
+                "type": "key",
+                "value": "key2",
+                "key_spec_index": 1
+            },
+            {
+                "name": "len",
+                "token": "LEN",
+                "type": "pure-token",
+                "optional": true
+            },
+            {
+                "name": "idx",
+                "token": "IDX",
+                "type": "pure-token",
+                "optional": true
+            },
+            {
+                "token": "MINMATCHLEN",
+                "name": "len",
+                "type": "integer",
+                "value": "len",
+                "optional": true
+            },
+            {
+                "name": "withmatchlen",
+                "token": "WITHMATCHLEN",
+                "type": "pure-token",
+                "optional": true
             }
         ]
     }
