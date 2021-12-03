@@ -4730,6 +4730,7 @@ sds genRedisInfoString(client * c, const char * source) {
     int all_sections = 0;
     int everything = 0;
     int is_sentinel = 0;
+    int modules = 0;
     
     if (!strcasecmp(source,"sentinel"))
         is_sentinel = 1;
@@ -4746,8 +4747,10 @@ sds genRedisInfoString(client * c, const char * source) {
                     default_sections = 1;
                 } else if (!strcasecmp(c->argv[i]->ptr,"all")) {
                     all_sections = 1;
-                } else if (!strcasecmp(c->argv[i]->ptr,"everything")) {
+                }  else if (!strcasecmp(c->argv[i]->ptr,"everything")) {
                     everything = 1;
+                } else if (!strcasecmp(c->argv[i]->ptr,"modules")) {
+                    modules = 1;
                 } else {
                     sds section = sdsnew(c->argv[i]->ptr);
                     sdstolower(section);
@@ -4766,7 +4769,6 @@ sds genRedisInfoString(client * c, const char * source) {
     sds info = sdsempty();
     time_t uptime = server.unixtime-server.stat_starttime;
     int j;
-    int modules = 0;
     int sections = 0;
     
     if (everything) all_sections = 1;
@@ -5428,11 +5430,10 @@ sds genRedisInfoString(client * c, const char * source) {
     }
 
     /* Modules */
-    if (((default_sections || all_sections) && !is_sentinel) || (dictFind(section_dict,"modules") != NULL)) {
+    if (((default_sections || all_sections || modules) && !is_sentinel)) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,"# Modules\r\n");
         info = genModulesInfoString(info);
-        modules = 1;
     }
 
     /* Command statistics */
