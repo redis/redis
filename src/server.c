@@ -2037,6 +2037,7 @@ struct redisCommand redisCommandTable[] = {
 
 /*============================ Internal prototypes ========================== */
 
+static inline int isShutdownInitiated(void);
 int isReadyToShutdown(void);
 int finishShutdown(void);
 
@@ -3089,10 +3090,10 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     /* We received a SIGTERM, shutting down here in a safe way, as it is
      * not ok doing so inside the signal handler. */
-    if (server.shutdown_asap) {
-        if (server.shutdown_mstime == 0) {
-            if (prepareForShutdown(SHUTDOWN_WAIT_REPL) == C_OK) exit(0);
-        } else if (server.mstime >= server.shutdown_mstime || isReadyToShutdown()) {
+    if (server.shutdown_asap && !isShutdownInitiated()) {
+        if (prepareForShutdown(SHUTDOWN_WAIT_REPL) == C_OK) exit(0);
+    } else if (isShutdownInitiated()) {
+        if (server.mstime >= server.shutdown_mstime || isReadyToShutdown()) {
             if (finishShutdown() == C_OK) exit(0);
             /* Shutdown failed. Continue running. An error has been logged. */
         }
@@ -5552,6 +5553,8 @@ void closeListeningSockets(int unlink_unix_socket) {
  *
  * On success, this function returns C_OK and then it's OK to call exit(0). */
 int prepareForShutdown(int flags) {
+    if (isShutdownInitiated()) return C_ERR;
+
     /* When SHUTDOWN is called while the server is loading a dataset in
      * memory we need to make sure no attempt is performed to save
      * the dataset on shutdown (otherwise it could overwrite the current DB
@@ -5581,6 +5584,10 @@ int prepareForShutdown(int flags) {
     }
 
     return finishShutdown();
+}
+
+static inline int isShutdownInitiated(void) {
+    return server.shutdown_mstime != 0;
 }
 
 /* Returns 0 if there are any replicas which are lagging in replication which we
@@ -5724,6 +5731,7 @@ error:
     server.shutdown_asap = 0;
     server.shutdown_flags = 0;
     server.shutdown_mstime = 0;
+    replyToClientsBlockedOnShutdown();
     return C_ERR;
 }
 

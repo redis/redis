@@ -1022,7 +1022,7 @@ void typeCommand(client *c) {
 }
 
 void shutdownCommand(client *c) {
-    int flags = 0;
+    int flags = SHUTDOWN_WAIT_REPL;
 
     if (c->argc > 2) {
         addReplyErrorObject(c,shared.syntaxerr);
@@ -1037,8 +1037,10 @@ void shutdownCommand(client *c) {
             return;
         }
     }
+    blockClient(c, BLOCKED_SHUTDOWN);
     if (prepareForShutdown(flags) == C_OK) exit(0);
-    addReplyError(c,"Errors trying to SHUTDOWN. Check logs.");
+    /* If we're here, then shutdown is ongoing (the client is still blocked) or
+     * failed (the client has received an error). */
 }
 
 void renameGenericCommand(client *c, int nx) {
