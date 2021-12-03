@@ -1303,7 +1303,7 @@ int lpValidateIntegrity(unsigned char *lp, size_t size, int deep,
     uint32_t count = 0;
     uint32_t numele = lpGetNumElements(lp);
     unsigned char *p = lp + LP_HDR_SIZE;
-    while(p && p[0] != LP_EOF) {
+    while(p && p != (lp + size - 1)) {
         unsigned char *prev = p;
 
         /* Validate this entry and move to the next entry in advance
