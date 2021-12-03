@@ -165,8 +165,8 @@ int rdbSaveLen(rio *rdb, uint64_t len) {
     size_t nwritten;
 
     if (len < (1<<6)) {
-        /* Save a 6 bit len */
-        buf[0] = (len&0xFF)|(RDB_6BITLEN<<6);
+        /* Save a 6 bit len, Currently RDB_6BITLEN is 0 ,no need to operate buf[0] with `|(RDB_6BITLEN<<6)`*/
+        buf[0] = len&0xFF;
         if (rdbWriteRaw(rdb,buf,1) == -1) return -1;
         nwritten = 1;
     } else if (len < (1<<14)) {
