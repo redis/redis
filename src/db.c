@@ -31,6 +31,7 @@
 #include "cluster.h"
 #include "atomicvar.h"
 #include "latency.h"
+#include "script.h"
 
 #include <signal.h>
 #include <ctype.h>
@@ -88,7 +89,7 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
              * commands is to make writable replicas behave consistently. It
              * shall not be used in readonly commands. Modules are accepted so
              * that we don't break old modules. */
-            client *c = server.in_eval ? server.lua_client : server.current_client;
+            client *c = server.in_script ? scriptGetClient() : server.current_client;
             serverAssert(!c || !c->cmd || (c->cmd->flags & (CMD_WRITE|CMD_MODULE)));
         }
         if (expireIfNeeded(db, key, force_delete_expired)) {
@@ -1501,8 +1502,8 @@ int keyIsExpired(redisDb *db, robj *key) {
      * only the first time it is accessed and not in the middle of the
      * script execution, making propagation to slaves / AOF consistent.
      * See issue #1525 on Github for more information. */
-    if (server.lua_caller) {
-        now = server.lua_time_snapshot;
+    if (server.script_caller) {
+        now = evalTimeSnapshot();
     }
     /* If we are in the middle of a command execution, we still want to use
      * a reference time that does not change: in that case we just use the
@@ -1739,6 +1740,11 @@ int zunionInterDiffGetKeys(struct redisCommand *cmd, robj **argv, int argc, getK
 }
 
 int evalGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+    UNUSED(cmd);
+    return genericGetKeys(0, 2, 3, 1, argv, argc, result);
+}
+
+int functionGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     UNUSED(cmd);
     return genericGetKeys(0, 2, 3, 1, argv, argc, result);
 }
