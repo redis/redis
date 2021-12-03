@@ -38,6 +38,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     RedisModule_SetCommandDebutVersion(xadd, "5.0.0");
     RedisModule_SetCommandComplexity(xadd, "O(1) when adding a new entry, O(N) when trimming where N being the number of entries evicted.");
     RedisModule_AppendCommandHistoryEntry(xadd, "6.2", "Added the `NOMKSTREAM` option, `MINID` trimming strategy and the `LIMIT` option.");
+    RedisModule_AppendCommandHistoryEntry(xadd, "7.0", "Added support for the `<ms>-*` explicit ID form.");
     RedisModule_SetCommandHints(xadd, "hint1 hint2 hint3");
 
     // Trimming args
