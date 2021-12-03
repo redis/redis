@@ -376,7 +376,7 @@ start_server {} {
         set slave_id [expr {($master_id+1)%5}]
         set sync_count [status $R($master_id) sync_full]
 
-        # Make sure to replicate the first EVAL while the salve is online
+        # Make sure to replicate the first EVAL while the slave is online
         # so that it's part of the scripts the master believes it's safe
         # to propagate as EVALSHA.
         $R($master_id) EVAL {return redis.call("incr","__mycounter")} 0

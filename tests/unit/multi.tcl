@@ -617,11 +617,10 @@ start_server {tags {"multi"}} {
         close_replication_stream $repl
     } {} {needs:repl}
 
-    test {MULTI propagation of SCRIPT LOAD} {
+    test {MULTI propagation of EVAL} {
         set repl [attach_to_replication_stream]
 
-        # make sure that EVAL inside MULTI is propagated in a transaction
-        r config set lua-replicate-commands no
+        # make sure that EVAL inside MULTI is propagated in a transaction in effects
         r multi
         r eval {redis.call('set', KEYS[1], 'bar')} 1 bar
         r exec
@@ -629,7 +628,7 @@ start_server {tags {"multi"}} {
         assert_replication_stream $repl {
             {select *}
             {multi}
-            {eval *}
+            {set bar bar}
             {exec}
         }
         close_replication_stream $repl
