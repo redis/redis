@@ -409,6 +409,10 @@ typedef enum {
 #define SUPERVISED_SYSTEMD 2
 #define SUPERVISED_UPSTART 3
 
+/* Debug flags set by the DEBUG subcommands */
+#define DEBUG_PAUSE_CRON 1
+#define DEBUG_PREVENT_SHUTDOWN 2
+
 /* Anti-warning macro... */
 #define UNUSED(V) ((void) V)
 
@@ -1488,7 +1492,7 @@ struct redisServer {
     int set_proc_title;             /* True if change proc title */
     char *proc_title_template;      /* Process title template format */
     clientBufferLimitsConfig client_obuf_limits[CLIENT_TYPE_OBUF_COUNT];
-    int pause_cron;                 /* Don't run cron tasks (debug) */
+    int debug_flags;                /* DEBUG_* flags set by DEBUG command. */
     /* AOF persistence */
     int aof_enabled;                /* AOF configuration */
     int aof_state;                  /* AOF_(ON|OFF|WAIT_REWRITE) */
