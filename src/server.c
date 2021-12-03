@@ -4747,7 +4747,7 @@ sds genRedisInfoString(client * c, const char * source) {
                     default_sections = 1;
                 } else if (!strcasecmp(c->argv[i]->ptr,"all")) {
                     all_sections = 1;
-                }  else if (!strcasecmp(c->argv[i]->ptr,"everything")) {
+                } else if (!strcasecmp(c->argv[i]->ptr,"everything")) {
                     everything = 1;
                 } else if (!strcasecmp(c->argv[i]->ptr,"modules")) {
                     modules = 1;
