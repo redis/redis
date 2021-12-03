@@ -294,7 +294,7 @@ void sortCommandGeneric(client *c, int readonly) {
      * scripting and replication. */
     if (dontsort &&
         sortval->type == OBJ_SET &&
-        (storekey || c->flags & CLIENT_LUA))
+        (storekey || c->flags & CLIENT_SCRIPT))
     {
         /* Force ALPHA sorting */
         dontsort = 0;

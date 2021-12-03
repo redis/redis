@@ -199,6 +199,8 @@ start_server {tags {"introspection"}} {
             set-proc-title
             cluster-config-file
             cluster-port
+            oom-score-adj
+            oom-score-adj-values
         }
 
         if {!$::tls} {
@@ -337,9 +339,9 @@ start_server {tags {"introspection"}} {
         # actual "apply" of the setting. This will validate that after an "apply"
         # failure we rollback to the previous values.
         proc dummy_accept {chan addr port} {}
-        
+
         set some_configs {maxmemory 10000001 port 0 client-query-buffer-limit 10m}
-        
+
         # On Linux we also set the oom score adj which has an apply function. This is
         # used to verify that even successful applies are rolled back if some other
         # config's apply fails.
@@ -361,30 +363,31 @@ start_server {tags {"introspection"}} {
         foreach c [dict keys $some_configs] {
             lappend backups $c [lindex [r config get $c] 1]
         }
-        
 
-        set used_port [expr ([dict get $backups port]+1)%65536]
+        set used_port [find_available_port $::baseport $::portcount]
         dict set some_configs port $used_port
-
 
         # Run a dummy server on used_port so we know we can't configure redis to 
         # use it. It's ok for this to fail because that means used_port is invalid 
         # anyway
-        catch {socket -server dummy_accept $used_port}
+        catch {socket -server dummy_accept -myaddr 127.0.0.1 $used_port} e
+        if {$::verbose} { puts "dummy_accept: $e" }
+
         # Try to listen on the used port, pass some more configs to make sure the
         # returned failure message is for the first bad config and everything is rolled back.
         assert_error "ERR Config set failed - Unable to listen on this port*" {
             eval "r config set $some_configs"
         }
+
         # Make sure we reverted back to previous configs
         dict for {conf val} $backups {
             assert_equal [lindex [r config get $conf] 1] $val
         }
-        
+
         if {$oom_adj_avail} {
             assert_equal [get_oom_score_adj] $read_oom_adj
         }
-        
+
         # Make sure we can still communicate with the server (on the original port)
         set r1 [redis_client]
         assert_equal [$r1 ping] "PONG"
