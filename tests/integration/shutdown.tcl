@@ -28,7 +28,7 @@ foreach how {sigterm shutdown} {
                 after 10
 
                 # Fill upp the replication socket buffers.
-                set junk_size 100000
+                set junk_size 10000
                 for {set i 0} {$i < $junk_size} {incr i} {
                     $master set "key.$i.junkjunkjunk" \
                         "value.$i.blablablablablablablablabla"
