@@ -545,7 +545,7 @@ void clusterUpdateMyselfIp(void) {
             * duplicating the string. This way later we can check if
             * the address really changed. */
             prev_ip = zstrdup(prev_ip);
-            strncpy(myself->ip,server.cluster_announce_ip,NET_IP_STR_LEN);
+            strncpy(myself->ip,server.cluster_announce_ip,NET_IP_STR_LEN-1);
             myself->ip[NET_IP_STR_LEN-1] = '\0';
         } else {
             myself->ip[0] = '\0'; /* Force autodetection. */
@@ -638,6 +638,7 @@ void clusterInit(void) {
     deriveAnnouncedPorts(&myself->port, &myself->pport, &myself->cport);
 
     server.cluster->mf_end = 0;
+    server.cluster->mf_slave = NULL;
     resetManualFailover();
     clusterUpdateMyselfFlags();
     clusterUpdateMyselfIp();
@@ -2560,7 +2561,7 @@ void clusterBuildMessageHdr(clusterMsg *hdr, int type) {
      * first byte is zero, they'll do auto discovery. */
     memset(hdr->myip,0,NET_IP_STR_LEN);
     if (server.cluster_announce_ip) {
-        strncpy(hdr->myip,server.cluster_announce_ip,NET_IP_STR_LEN);
+        strncpy(hdr->myip,server.cluster_announce_ip,NET_IP_STR_LEN-1);
         hdr->myip[NET_IP_STR_LEN-1] = '\0';
     }
 
@@ -2804,7 +2805,13 @@ void clusterBroadcastPong(int target) {
 
 /* Send a PUBLISH message.
  *
- * If link is NULL, then the message is broadcasted to the whole cluster. */
+ * If link is NULL, then the message is broadcasted to the whole cluster.
+ *
+ * Sanitizer suppression: In clusterMsgDataPublish, sizeof(bulk_data) is 8.
+ * As all the struct is used as a buffer, when more than 8 bytes are copied into
+ * the 'bulk_data', sanitizer generates an out-of-bounds error which is a false
+ * positive in this context. */
+REDIS_NO_SANITIZE("bounds")
 void clusterSendPublish(clusterLink *link, robj *channel, robj *message, uint16_t type) {
     unsigned char *payload;
     clusterMsg buf[1];
@@ -3574,8 +3581,10 @@ void clusterHandleSlaveMigration(int max_slaves) {
  * The function can be used both to initialize the manual failover state at
  * startup or to abort a manual failover in progress. */
 void resetManualFailover(void) {
-    if (server.cluster->mf_end) {
-        checkClientPauseTimeoutAndReturnIfPaused();
+    if (server.cluster->mf_slave) {
+        /* We were a master failing over, so we paused clients. Regardless
+         * of the outcome we unpause now to allow traffic again. */
+        unpauseClients();
     }
     server.cluster->mf_end = 0; /* No manual failover in progress. */
     server.cluster->mf_can_start = 0;
@@ -5338,7 +5347,7 @@ void dumpCommand(client *c) {
     return;
 }
 
-/* RESTORE key ttl serialized-value [REPLACE] */
+/* RESTORE key ttl serialized-value [REPLACE] [ABSTTL] [IDLETIME seconds] [FREQ frequency] */
 void restoreCommand(client *c) {
     long long ttl, lfu_freq = -1, lru_idle = -1, lru_clock = -1;
     rio payload;
@@ -6093,9 +6102,9 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
              * slot migration, the channel will be served from the source
              * node until the migration completes with CLUSTER SETSLOT <slot>
              * NODE <node-id>. */
-
+            int flags = LOOKUP_NOTOUCH | LOOKUP_NOSTATS | LOOKUP_NONOTIFY;
             if ((migrating_slot || importing_slot) && !is_pubsublocal &&
-                lookupKeyRead(&server.db[0],thiskey) == NULL)
+                lookupKeyReadWithFlags(&server.db[0], thiskey, flags) == NULL)
             {
                 missing_keys++;
             }

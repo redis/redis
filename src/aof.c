@@ -30,6 +30,7 @@
 #include "server.h"
 #include "bio.h"
 #include "rio.h"
+#include "functions.h"
 
 #include <signal.h>
 #include <fcntl.h>
@@ -145,7 +146,11 @@ void aofChildWriteDiffData(aeEventLoop *el, int fd, void *privdata, int mask) {
     latencyAddSampleIfNeeded("aof-rewrite-write-data-to-child",latency);
 }
 
-/* Append data to the AOF rewrite buffer, allocating new blocks if needed. */
+/* Append data to the AOF rewrite buffer, allocating new blocks if needed.
+ *
+ * Sanitizer suppression: zmalloc_usable() confuses sanitizer, it generates
+ * a false positive out-of-bounds error */
+REDIS_NO_SANITIZE("bounds")
 void aofRewriteBufferAppend(unsigned char *s, unsigned long len) {
     listNode *ln = listLast(server.aof_rewrite_buf_blocks);
     aofrwblock *block = ln ? ln->value : NULL;
@@ -288,6 +293,7 @@ int startAppendOnly(void) {
     newfd = open(server.aof_filename,O_WRONLY|O_APPEND|O_CREAT,0644);
     serverAssert(server.aof_state == AOF_OFF);
     if (newfd == -1) {
+        char *str_err = strerror(errno);
         char *cwdp = getcwd(cwd,MAXPATHLEN);
 
         serverLog(LL_WARNING,
@@ -295,7 +301,7 @@ int startAppendOnly(void) {
             "append only file %s (in server root dir %s): %s",
             server.aof_filename,
             cwdp ? cwdp : "unknown",
-            strerror(errno));
+            str_err);
         return C_ERR;
     }
     if (hasActiveChildProcess() && server.child_type != CHILD_TYPE_AOF) {
@@ -732,7 +738,8 @@ int loadAppendOnlyFile(char *filename) {
      * to the same file we're about to read. */
     server.aof_state = AOF_OFF;
 
-    fakeClient = createAOFClient();
+    client *old_client = server.current_client;
+    fakeClient = server.current_client = createAOFClient();
     startLoadingFile(fp, filename, RDBFLAGS_AOF_PREAMBLE);
 
     /* Check if this AOF file has an RDB preamble. In that case we need to
@@ -748,7 +755,8 @@ int loadAppendOnlyFile(char *filename) {
         serverLog(LL_NOTICE,"Reading RDB preamble from AOF file...");
         if (fseek(fp,0,SEEK_SET) == -1) goto readerr;
         rioInitWithFile(&rdb,fp);
-        if (rdbLoadRio(&rdb,RDBFLAGS_AOF_PREAMBLE,NULL,server.db) != C_OK) {
+
+        if (rdbLoadRio(&rdb,RDBFLAGS_AOF_PREAMBLE,NULL) != C_OK) {
             serverLog(LL_WARNING,"Error reading the RDB preamble of the AOF file, AOF loading aborted");
             goto readerr;
         } else {
@@ -923,6 +931,7 @@ fmterr: /* Format error. */
 
 cleanup:
     if (fakeClient) freeClient(fakeClient);
+    server.current_client = old_client;
     fclose(fp);
     stopLoading(ret == AOF_OK);
     return ret;
@@ -1751,6 +1760,7 @@ int rewriteAppendOnlyFileBackground(void) {
     } else {
         /* Parent */
         if (childpid == -1) {
+            server.aof_lastbgrewrite_status = C_ERR;
             serverLog(LL_WARNING,
                 "Can't rewrite append only file in background: fork: %s",
                 strerror(errno));

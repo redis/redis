@@ -98,7 +98,7 @@ tags "modules" {
                         # kill the replica connection on the master
                         set killed [$master client kill type replica]
 
-                        set res [wait_for_log_messages -1 {"*Internal error in RDB*" "*Finished with success*" "*Successful partial resynchronization*"} $loglines 1000 1]
+                        set res [wait_for_log_messages -1 {"*Internal error in RDB*" "*Finished with success*" "*Successful partial resynchronization*"} $loglines 500 10]
                         if {$::verbose} { puts $res }
                         set log_text [lindex $res 0]
                         set loglines [lindex $res 1]
@@ -114,8 +114,11 @@ tags "modules" {
                             }
                             $master exec
                         }
+
                         # wait for loading to stop (fail)
+                        # After a loading successfully, next loop will enter `async_loading`
                         wait_for_condition 1000 1 {
+                            [s -1 async_loading] eq 0 &&
                             [s -1 loading] eq 0
                         } else {
                             fail "Replica didn't disconnect"

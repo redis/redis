@@ -96,7 +96,7 @@ struct AutoMemEntry {
     int type;
 };
 
-/* AutMemEntry type field values. */
+/* AutoMemEntry type field values. */
 #define REDISMODULE_AM_KEY 0
 #define REDISMODULE_AM_STRING 1
 #define REDISMODULE_AM_REPLY 2
@@ -394,7 +394,7 @@ typedef struct RedisModuleKeyOptCtx {
 void RM_FreeCallReply(RedisModuleCallReply *reply);
 void RM_CloseKey(RedisModuleKey *key);
 void autoMemoryCollect(RedisModuleCtx *ctx);
-robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int *argcp, int *flags, va_list ap);
+robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int *argcp, int *argvlenp, int *flags, va_list ap);
 void moduleReplicateMultiIfNeeded(RedisModuleCtx *ctx);
 void RM_ZsetRangeStop(RedisModuleKey *kp);
 static void zsetKeyReset(RedisModuleKey *key);
@@ -526,7 +526,7 @@ int moduleCreateEmptyKey(RedisModuleKey *key, int type) {
     switch(type) {
     case REDISMODULE_KEYTYPE_LIST:
         obj = createQuicklistObject();
-        quicklistSetOptions(obj->ptr, server.list_max_ziplist_size,
+        quicklistSetOptions(obj->ptr, server.list_max_listpack_size,
                             server.list_compress_depth);
         break;
     case REDISMODULE_KEYTYPE_ZSET:
@@ -629,7 +629,7 @@ void moduleHandlePropagationAfterCommandCallback(RedisModuleCtx *ctx) {
 
     /* If this command is executed from with Lua or MULTI/EXEC we do not
      * need to propagate EXEC */
-    if (server.in_eval || server.in_exec) return;
+    if (server.in_script || server.in_exec) return;
 
     /* Handle the replication of the final EXEC, since whatever a command
      * emits is always wrapped around MULTI/EXEC. */
@@ -991,10 +991,10 @@ RedisModuleCommandProxy *moduleCreateCommandProxy(RedisModuleCtx *ctx, const cha
  * if (RedisModule_CreateCommand(ctx,"module.config",NULL,"",0,0,0) == REDISMODULE_ERR)
  *     return REDISMODULE_ERR;
  *
- *  if (RedisModule_CreateSubcommand(ctx,"container.config","set",cmd_config_set,"",0,0,0) == REDISMODULE_ERR)
+ *  if (RedisModule_CreateSubcommand(ctx,"module.config","set",cmd_config_set,"",0,0,0) == REDISMODULE_ERR)
  *     return REDISMODULE_ERR;
  *
- *  if (RedisModule_CreateSubcommand(ctx,"container.config","get",cmd_config_get,"",0,0,0) == REDISMODULE_ERR)
+ *  if (RedisModule_CreateSubcommand(ctx,"module.config","get",cmd_config_get,"",0,0,0) == REDISMODULE_ERR)
  *     return REDISMODULE_ERR;
  *
  */
@@ -2333,7 +2333,7 @@ int RM_ReplyWithLongDouble(RedisModuleCtx *ctx, long double ld) {
 void moduleReplicateMultiIfNeeded(RedisModuleCtx *ctx) {
     /* Skip this if client explicitly wrap the command with MULTI, or if
      * the module command was called by a script. */
-    if (server.in_eval || server.in_exec) return;
+    if (server.in_script || server.in_exec) return;
     /* If we already emitted MULTI return ASAP. */
     if (server.propagate_in_transaction) return;
     /* If this is a thread safe context, we do not want to wrap commands
@@ -2400,7 +2400,7 @@ int RM_Replicate(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...)
 
     /* Create the client and dispatch the command. */
     va_start(ap, fmt);
-    argv = moduleCreateArgvFromUserFormat(cmdname,fmt,&argc,&flags,ap);
+    argv = moduleCreateArgvFromUserFormat(cmdname,fmt,&argc,NULL,&flags,ap);
     va_end(ap);
     if (argv == NULL) return REDISMODULE_ERR;
 
@@ -2709,7 +2709,7 @@ int RM_GetContextFlags(RedisModuleCtx *ctx) {
         }
     }
 
-    if (server.in_eval)
+    if (server.in_script)
         flags |= REDISMODULE_CTX_FLAGS_LUA;
 
     if (server.in_exec)
@@ -4232,7 +4232,8 @@ int RM_StreamAdd(RedisModuleKey *key, int flags, RedisModuleStreamID *id, RedisM
         use_id.seq = id->seq;
         use_id_ptr = &use_id;
     }
-    if (streamAppendItem(s, argv, numfields, &added_id, use_id_ptr) == C_ERR) {
+
+    if (streamAppendItem(s,argv,numfields,&added_id,use_id_ptr,1) == C_ERR) {
         /* Either the ID not greater than all existing IDs in the stream, or
          * the elements are too large to be stored. either way, errno is already
          * set by streamAppendItem. */
@@ -4765,9 +4766,9 @@ RedisModuleString *RM_CreateStringFromCallReply(RedisModuleCallReply *reply) {
     }
 }
 
-/* Returns an array of robj pointers, and populates *argc with the number
- * of items, by parsing the format specifier "fmt" as described for
- * the RM_Call(), RM_Replicate() and other module APIs.
+/* Returns an array of robj pointers, by parsing the format specifier "fmt" as described for
+ * the RM_Call(), RM_Replicate() and other module APIs. Populates *argcp with the number of
+ * items and *argvlenp with the length of the allocated argv.
  *
  * The integer pointed by 'flags' is populated with flags according
  * to special modifiers in "fmt". For now only one exists:
@@ -4781,7 +4782,7 @@ RedisModuleString *RM_CreateStringFromCallReply(RedisModuleCallReply *reply) {
  *
  * On error (format specifier error) NULL is returned and nothing is
  * allocated. On success the argument vector is returned. */
-robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int *argcp, int *flags, va_list ap) {
+robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int *argcp, int *argvlenp, int *flags, va_list ap) {
     int argc = 0, argv_size, j;
     robj **argv = NULL;
 
@@ -4847,7 +4848,8 @@ robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int 
         }
         p++;
     }
-    *argcp = argc;
+    if (argcp) *argcp = argc;
+    if (argvlenp) *argvlenp = argv_size;
     return argv;
 
 fmterr:
@@ -4909,14 +4911,14 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     struct redisCommand *cmd;
     client *c = NULL;
     robj **argv = NULL;
-    int argc = 0, flags = 0;
+    int argc = 0, argv_len = 0, flags = 0;
     va_list ap;
     RedisModuleCallReply *reply = NULL;
     int replicate = 0; /* Replicate this command? */
 
     /* Handle arguments. */
     va_start(ap, fmt);
-    argv = moduleCreateArgvFromUserFormat(cmdname,fmt,&argc,&flags,ap);
+    argv = moduleCreateArgvFromUserFormat(cmdname,fmt,&argc,&argv_len,&flags,ap);
     replicate = flags & REDISMODULE_ARGV_REPLICATE;
     va_end(ap);
 
@@ -4941,6 +4943,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     c->db = ctx->client->db;
     c->argv = argv;
     c->argc = argc;
+    c->argv_len = argv_len;
     c->resp = 2;
     if (flags & REDISMODULE_ARGV_RESP_3) {
         c->resp = 3;
@@ -5974,7 +5977,7 @@ void RM_EmitAOF(RedisModuleIO *io, const char *cmdname, const char *fmt, ...) {
 
     /* Emit the arguments into the AOF in Redis protocol format. */
     va_start(ap, fmt);
-    argv = moduleCreateArgvFromUserFormat(cmdname,fmt,&argc,&flags,ap);
+    argv = moduleCreateArgvFromUserFormat(cmdname,fmt,&argc,NULL,&flags,ap);
     va_end(ap);
     if (argv == NULL) {
         serverLog(LL_WARNING,
@@ -6212,7 +6215,7 @@ void unblockClientFromModule(client *c) {
  */
 RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback, RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*), long long timeout_ms, RedisModuleString **keys, int numkeys, void *privdata) {
     client *c = ctx->client;
-    int islua = server.in_eval;
+    int islua = server.in_script;
     int ismulti = server.in_exec;
 
     c->bpop.module_blocked_handle = zmalloc(sizeof(RedisModuleBlockedClient));
@@ -6249,7 +6252,7 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
             "Blocking module command called from transaction");
     } else {
         if (keys) {
-            blockForKeys(c,BLOCKED_MODULE,keys,numkeys,0,timeout,NULL,NULL,NULL);
+            blockForKeys(c,BLOCKED_MODULE,keys,numkeys,-1,timeout,NULL,NULL,NULL);
         } else {
             blockClient(c,BLOCKED_MODULE);
         }
@@ -8435,7 +8438,6 @@ int moduleUnregisterFilters(RedisModule *module) {
  * If multiple filters are registered (by the same or different modules), they
  * are executed in the order of registration.
  */
-
 RedisModuleCommandFilter *RM_RegisterCommandFilter(RedisModuleCtx *ctx, RedisModuleCommandFilterFunc callback, int flags) {
     RedisModuleCommandFilter *filter = zmalloc(sizeof(*filter));
     filter->module = ctx->module;
@@ -9814,7 +9816,7 @@ void addReplyLoadedModules(client *c) {
 }
 
 /* Helper for genModulesInfoString(): given a list of modules, return
- * am SDS string in the form "[modulename|modulename2|...]" */
+ * an SDS string in the form "[modulename|modulename2|...]" */
 sds genModulesInfoStringRenderModulesList(list *l) {
     listIter li;
     listNode *ln;

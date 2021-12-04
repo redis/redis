@@ -39,6 +39,7 @@
 #include <signal.h>
 #include <dlfcn.h>
 #include <fcntl.h>
+#include <sys/mman.h>
 #include <unistd.h>
 
 #ifdef HAVE_BACKTRACE
@@ -433,7 +434,9 @@ void debugCommand(client *c) {
 "    Crash the server simulating a panic.",
 "POPULATE <count> [<prefix>] [<size>]",
 "    Create <count> string keys named key:<num>. If <prefix> is specified then",
-"    it is used instead of the 'key' prefix.",
+"    it is used instead of the 'key' prefix. These are not propagated to",
+"    replicas. Cluster slots are not respected so keys not belonging to the",
+"    current node can be created in cluster mode.",
 "PROTOCOL <type>",
 "    Reply with a test value of the specified type. <type> can be: string,",
 "    integer, double, bignum, null, array, set, map, attrib, push, verbatim,",
@@ -472,10 +475,10 @@ void debugCommand(client *c) {
 "    Run a fuzz tester against the stringmatchlen() function.",
 "STRUCTSIZE",
 "    Return the size of different Redis core C structures.",
-"ZIPLIST <key>",
-"    Show low level info about the ziplist encoding of <key>.",
+"LISTPACK <key>",
+"    Show low level info about the listpack encoding of <key>.",
 "QUICKLIST <key> [<0|1>]",
-"    Show low level info about the quicklist encoding of <key>."
+"    Show low level info about the quicklist encoding of <key>.",
 "    The optional argument (0 by default) sets the level of detail",
 "CLIENT-EVICTION",
 "    Show low level client eviction pools info (maxmemory-clients).",
@@ -485,7 +488,11 @@ NULL
         };
         addReplyHelp(c, help);
     } else if (!strcasecmp(c->argv[1]->ptr,"segfault")) {
-        *((char*)-1) = 'x';
+        /* Compiler gives warnings about writing to a random address
+         * e.g "*((char*)-1) = 'x';". As a workaround, we map a read-only area
+         * and try to write there to trigger segmentation fault. */
+        char* p = mmap(NULL, 4096, PROT_READ, MAP_PRIVATE | MAP_ANON, -1, 0);
+        *p = 'x';
     } else if (!strcasecmp(c->argv[1]->ptr,"panic")) {
         serverPanic("DEBUG PANIC called at Unix time %lld", (long long)time(NULL));
     } else if (!strcasecmp(c->argv[1]->ptr,"restart") ||
@@ -597,8 +604,8 @@ NULL
             used = snprintf(nextra, remaining, " ql_avg_node:%.2f", avg);
             nextra += used;
             remaining -= used;
-            /* Add quicklist fill level / max ziplist size */
-            used = snprintf(nextra, remaining, " ql_ziplist_max:%d", ql->fill);
+            /* Add quicklist fill level / max listpack size */
+            used = snprintf(nextra, remaining, " ql_listpack_max:%d", ql->fill);
             nextra += used;
             remaining -= used;
             /* Add isCompressed? */
@@ -648,17 +655,17 @@ NULL
                 (long long) sdsavail(val->ptr),
                 (long long) getStringObjectSdsUsedMemory(val));
         }
-    } else if (!strcasecmp(c->argv[1]->ptr,"ziplist") && c->argc == 3) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"listpack") && c->argc == 3) {
         robj *o;
 
         if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nokeyerr))
                 == NULL) return;
 
-        if (o->encoding != OBJ_ENCODING_ZIPLIST) {
-            addReplyError(c,"Not a ziplist encoded object.");
+        if (o->encoding != OBJ_ENCODING_LISTPACK) {
+            addReplyError(c,"Not a listpack encoded object.");
         } else {
-            ziplistRepr(o->ptr);
-            addReplyStatus(c,"Ziplist structure printed on stdout");
+            lpRepr(o->ptr);
+            addReplyStatus(c,"Listpack structure printed on stdout");
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"quicklist") && (c->argc == 3 || c->argc == 4)) {
         robj *o;
@@ -912,7 +919,7 @@ NULL
         addReplyStatus(c,"Apparently Redis did not crash: test passed");
     } else if (!strcasecmp(c->argv[1]->ptr,"set-disable-deny-scripts") && c->argc == 3)
     {
-        server.lua_disable_deny_script = atoi(c->argv[2]->ptr);;
+        server.script_disable_deny_script = atoi(c->argv[2]->ptr);;
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"config-rewrite-force-all") && c->argc == 2)
     {
@@ -1154,6 +1161,7 @@ static void *getMcontextEip(ucontext_t *uc) {
 #undef NOT_SUPPORTED
 }
 
+REDIS_NO_SANITIZE("address")
 void logStackContent(void **sp) {
     int i;
     for (i = 15; i >= 0; i--) {
@@ -1856,7 +1864,9 @@ void dumpX86Calls(void *addr, size_t len) {
     for (j = 0; j < len-4; j++) {
         if (p[j] != 0xE8) continue; /* Not an E8 CALL opcode. */
         unsigned long target = (unsigned long)addr+j+5;
-        target += *((int32_t*)(p+j+1));
+        uint32_t tmp;
+        memcpy(&tmp, p+j+1, sizeof(tmp));
+        target += tmp;
         if (dladdr((void*)target, &info) != 0 && info.dli_sname != NULL) {
             if (ht[target&0xff] != target) {
                 printf("Function at 0x%lx is %s\n",target,info.dli_sname);
@@ -1967,8 +1977,12 @@ void bugReportEnd(int killViaSignal, int sig) {
     if (server.daemonize && server.supervised == 0 && server.pidfile) unlink(server.pidfile);
 
     if (!killViaSignal) {
-        if (server.use_exit_on_panic)
-            exit(1);
+        /* To avoid issues with valgrind, we may wanna exit rahter than generate a signal */
+        if (server.use_exit_on_panic) {
+             /* Using _exit to bypass false leak reports by gcc ASAN */
+             fflush(stdout);
+            _exit(1);
+        }
         abort();
     }
 

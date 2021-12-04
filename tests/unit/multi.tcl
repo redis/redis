@@ -500,19 +500,21 @@ start_server {tags {"multi"}} {
         set r1 [redis_client]
         r set xx 1
 
-        # check that GET is disallowed on stale replica, even if the replica becomes stale only after queuing.
+        # check that GET and PING are disallowed on stale replica, even if the replica becomes stale only after queuing.
         r multi
         r get xx
         $r1 replicaof localhsot 0
         catch {r exec} e
         assert_match {*EXECABORT*MASTERDOWN*} $e
 
-        # check that PING is allowed
+        # reset
+        $r1 replicaof no one
+
         r multi
         r ping
         $r1 replicaof localhsot 0
-        set pong [r exec]
-        assert {$pong == "PONG"}
+        catch {r exec} e
+        assert_match {*EXECABORT*MASTERDOWN*} $e
 
         # check that when replica is not stale, GET is allowed
         # while we're at it, let's check that multi is allowed on stale replica too

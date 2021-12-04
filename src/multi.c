@@ -397,6 +397,10 @@ void touchWatchedKey(redisDb *db, robj *key) {
         client *c = listNodeValue(ln);
 
         c->flags |= CLIENT_DIRTY_CAS;
+        /* As the client is marked as dirty, there is no point in getting here
+         * again in case that key (or others) are modified again (or keep the
+         * memory overhead till EXEC). */
+        unwatchAllKeys(c);
     }
 }
 
@@ -426,6 +430,9 @@ void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with) {
             while((ln = listNext(&li))) {
                 client *c = listNodeValue(ln);
                 c->flags |= CLIENT_DIRTY_CAS;
+                /* As the client is marked as dirty, there is no point in getting here
+                 * again for others keys (or keep the memory overhead till EXEC). */
+                unwatchAllKeys(c);
             }
         }
     }
@@ -437,6 +444,11 @@ void watchCommand(client *c) {
 
     if (c->flags & CLIENT_MULTI) {
         addReplyError(c,"WATCH inside MULTI is not allowed");
+        return;
+    }
+    /* No point in watching if the client is already dirty. */
+    if (c->flags & CLIENT_DIRTY_CAS) {
+        addReply(c,shared.ok);
         return;
     }
     for (j = 1; j < c->argc; j++)
