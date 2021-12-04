@@ -956,6 +956,10 @@ int lpValidateIntegrity(unsigned char *lp, size_t size, int deep){
         count++;
     }
 
+    /* Make sure 'p' really does point to the end of the listpack. */
+    if (p != lp + size - 1)
+        return 0;
+
     /* Check that the count in the header is correct */
     uint32_t numele = lpGetNumElements(lp);
     if (numele != LP_HDR_NUMELE_UNKNOWN && numele != count)
