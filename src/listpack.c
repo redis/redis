@@ -1303,7 +1303,7 @@ int lpValidateIntegrity(unsigned char *lp, size_t size, int deep,
     uint32_t count = 0;
     uint32_t numele = lpGetNumElements(lp);
     unsigned char *p = lp + LP_HDR_SIZE;
-    while(p && p != (lp + size - 1)) {
+    while(p && p[0] != LP_EOF) {
         unsigned char *prev = p;
 
         /* Validate this entry and move to the next entry in advance
@@ -1317,6 +1317,10 @@ int lpValidateIntegrity(unsigned char *lp, size_t size, int deep,
 
         count++;
     }
+
+    /* Make sure 'p' really does point to the end of the listpack. */
+    if (p != lp + size - 1)
+        return 0;
 
     /* Check that the count in the header is correct */
     if (numele != LP_HDR_NUMELE_UNKNOWN && numele != count)
