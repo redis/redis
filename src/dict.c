@@ -517,9 +517,9 @@ dictEntry *dictFind(dict *d, const void *key)
     if (dictIsRehashing(d)) _dictRehashStep(d);
     h = dictHashKey(d, key);
     idx_0 = h & DICTHT_SIZE_MASK(d->ht_size_exp[0]);
-    if (likely(d->rehashidx < idx_0)) {
+    if (likely(d->rehashidx < idx_0))
         he = d->ht_table[0][idx_0];
-    } else {
+    else {
         idx_1 = h & DICTHT_SIZE_MASK(d->ht_size_exp[1]);
         he = d->ht_table[1][idx_1];
     }
@@ -529,7 +529,6 @@ dictEntry *dictFind(dict *d, const void *key)
         he = he->next;
     }
     return NULL;
-    }
 }
 
 void *dictFetchValue(dict *d, const void *key) {
