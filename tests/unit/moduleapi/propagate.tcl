@@ -36,6 +36,87 @@ tags "modules" {
                     close_replication_stream $repl
                 }
 
+                test {module propagation with notifications} {
+                    set repl [attach_to_replication_stream]
+
+                    $master set x y
+                    wait_for_ofs_sync $master $replica
+
+                    assert_replication_stream $repl {
+                        {multi}
+                        {select *}
+                        {incr notifications}
+                        {set x y}
+                        {exec}
+                    }
+                    close_replication_stream $repl
+                }
+
+                test {module propagation with notifications with multi} {
+                    set repl [attach_to_replication_stream]
+
+                    $master multi
+                    $master set x1 y1
+                    $master set x2 y2
+                    $master exec
+                    wait_for_ofs_sync $master $replica
+
+                    assert_replication_stream $repl {
+                        {multi}
+                        {select *}
+                        {incr notifications}
+                        {set x1 y1}
+                        {incr notifications}
+                        {set x2 y2}
+                        {exec}
+                    }
+                    close_replication_stream $repl
+                }
+
+                test {module propagation with notifications with active-expire} {
+                    $master debug set-active-expire 1
+                    set repl [attach_to_replication_stream]
+
+                    $master set asdf1 1 PX 300
+                    $master set asdf2 2 PX 300
+                    $master set asdf3 3 PX 300
+
+                    wait_for_condition 5000 10 {
+                        [$replica keys asdf*] eq {}
+                    } else {
+                        fail "Not all keys have expired"
+                    }
+
+                    # Note whenever there's double notification: for for "set" and one for "expire"
+                    assert_replication_stream $repl {
+                        {multi}
+                        {select *}
+                        {incr notifications}
+                        {incr notifications}
+                        {set asdf1 1 PXAT *}
+                        {exec}
+                        {multi}
+                        {incr notifications}
+                        {incr notifications}
+                        {set asdf2 2 PXAT *}
+                        {exec}
+                        {multi}
+                        {incr notifications}
+                        {incr notifications}
+                        {set asdf3 3 PXAT *}
+                        {exec}
+                        {multi}
+                        {incr notifications}
+                        {del asdf*}
+                        {incr notifications}
+                        {del asdf*}
+                        {incr notifications}
+                        {del asdf*}
+                        {exec}
+                    }
+                    close_replication_stream $repl
+                }
+
                 test {module propagates nested ctx case1} {
                     set repl [attach_to_replication_stream]
 
@@ -77,12 +158,15 @@ tags "modules" {
                         {multi}
                         {select *}
                         {incrby timer-nested-start 1}
+                        {incr notifications}
                         {incr using-call}
                         {incr counter-1}
                         {incr counter-2}
                         {incr counter-3}
                         {incr counter-4}
+                        {incr notifications}
                         {incr after-call}
+                        {incr notifications}
                         {incr timer-nested-middle}
                         {incrby timer-nested-end 1}
                         {exec}
@@ -118,7 +202,7 @@ tags "modules" {
                     close_replication_stream $repl
                 }
 
-                test {module propagates from from command} {
+                test {module propagates from command} {
                     set repl [attach_to_replication_stream]
 
                     $master propagate-test.simple
@@ -132,16 +216,44 @@ tags "modules" {
                         {incr counter-2}
                         {exec}
                         {multi}
+                        {incr notifications}
                         {incr using-call}
                         {incr counter-1}
                         {incr counter-2}
+                        {incr notifications}
                         {incr after-call}
                         {exec}
                     }
                     close_replication_stream $repl
                 }
 
-                test {module propagates from from command after good EVAL} {
+                test {module propagates from EVAL} {
+                    set repl [attach_to_replication_stream]
+
+                    assert_equal [ $master eval { \
+                        redis.call("propagate-test.simple"); \
+                        redis.call("set", "x", "y"); \
+                        redis.call("propagate-test.mixed"); return "OK" } 0 ] {OK}
+
+                    assert_replication_stream $repl {
+                        {multi}
+                        {select *}
+                        {incr counter-1}
+                        {incr counter-2}
+                        {incr notifications}
+                        {set x y}
+                        {incr notifications}
+                        {incr using-call}
+                        {incr counter-1}
+                        {incr counter-2}
+                        {incr notifications}
+                        {incr after-call}
+                        {exec}
+                    }
+                    close_replication_stream $repl
+                }
+
+                test {module propagates from command after good EVAL} {
                     set repl [attach_to_replication_stream]
 
                     assert_equal [ $master eval { return "hello" } 0 ] {hello}
@@ -155,16 +267,18 @@ tags "modules" {
                         {incr counter-2}
                         {exec}
                         {multi}
+                        {incr notifications}
                         {incr using-call}
                         {incr counter-1}
                         {incr counter-2}
+                        {incr notifications}
                         {incr after-call}
                         {exec}
                     }
                     close_replication_stream $repl
                 }
 
-                test {module propagates from from command after bad EVAL} {
+                test {module propagates from command after bad EVAL} {
                     set repl [attach_to_replication_stream]
 
                     catch { $master eval { return "hello" } -12 } e
@@ -179,16 +293,18 @@ tags "modules" {
                         {incr counter-2}
                         {exec}
                         {multi}
+                        {incr notifications}
                         {incr using-call}
                         {incr counter-1}
                         {incr counter-2}
+                        {incr notifications}
                         {incr after-call}
                         {exec}
                     }
                     close_replication_stream $repl
                 }
 
-                test {module propagates from from multi-exec} {
+                test {module propagates from multi-exec} {
                     set repl [attach_to_replication_stream]
 
                     $master multi
@@ -208,19 +324,24 @@ tags "modules" {
                         {select *}
                         {incr counter-1}
                         {incr counter-2}
+                        {incr notifications}
                         {incr using-call}
                         {incr counter-1}
                         {incr counter-2}
+                        {incr notifications}
                         {incr after-call}
                         {exec}
                         {multi}
                         {incrby timer-nested-start 1}
+                        {incr notifications}
                         {incr using-call}
                         {incr counter-1}
                         {incr counter-2}
                         {incr counter-3}
                         {incr counter-4}
+                        {incr notifications}
                         {incr after-call}
+                        {incr notifications}
                         {incr timer-nested-middle}
                         {incrby timer-nested-end 1}
                         {exec}

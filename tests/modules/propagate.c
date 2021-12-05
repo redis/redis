@@ -41,6 +41,17 @@
 #include "redismodule.h"
 #include <pthread.h>
 
+static int KeySpace_NotificationGeneric(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
+    REDISMODULE_NOT_USED(type);
+    REDISMODULE_NOT_USED(event);
+    REDISMODULE_NOT_USED(key);
+
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, "INCR", "c!", "notifications");
+    RedisModule_FreeCallReply(rep);
+
+    return REDISMODULE_OK;
+}
+
 /* Timer callback. */
 void timerHandler(RedisModuleCtx *ctx, void *data) {
     REDISMODULE_NOT_USED(ctx);
@@ -213,6 +224,9 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_Init(ctx,"propagate-test",1,REDISMODULE_APIVER_1)
             == REDISMODULE_ERR) return REDISMODULE_ERR;
+
+    if (RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_ALL, KeySpace_NotificationGeneric) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"propagate-test.timer",
                 propagateTestTimerCommand,

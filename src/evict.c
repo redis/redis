@@ -564,6 +564,7 @@ int performEvictions(void) {
     /* Sanity: There can't be any pending command to propagate when
      * we're in cron */
     serverAssert(server.also_propagate.numops == 0);
+    server.core_propagates = 1;
 
     while (mem_freed < (long long)mem_tofree) {
         int j, k, i;
@@ -735,6 +736,9 @@ cant_free:
 
     /* Propagate all DELs */
     propagatePendingCommands();
+
+    serverAssert(server.core_propagates == 1); /* This function should not be re-entrant */
+    server.core_propagates = 0;
 
     latencyEndMonitor(latency);
     latencyAddSampleIfNeeded("eviction-cycle",latency);

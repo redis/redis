@@ -185,6 +185,7 @@ void activeExpireCycle(int type) {
     /* Sanity: There can't be any pending command to propagate when
      * we're in cron */
     serverAssert(server.also_propagate.numops == 0);
+    server.core_propagates = 1;
 
     for (j = 0; j < dbs_per_call && timelimit_exit == 0; j++) {
         /* Expired and checked in a single loop. */
@@ -308,6 +309,9 @@ void activeExpireCycle(int type) {
 
     /* Propagate all DELs */
     propagatePendingCommands();
+
+    serverAssert(server.core_propagates == 1); /* This function should not be re-entrant */
+    server.core_propagates = 0;
 
     elapsed = ustime()-start;
     server.stat_expire_cycle_time_used += elapsed;

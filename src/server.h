@@ -1348,8 +1348,9 @@ struct redisServer {
     int sentinel_mode;          /* True if this instance is a Sentinel. */
     size_t initial_memory_usage; /* Bytes used after initialization. */
     int always_show_logo;       /* Show logo even for non-stdout logging. */
-    int in_script;                /* Are we inside EVAL? */
+    int in_script;              /* Are we inside EVAL? */
     int in_exec;                /* Are we inside EXEC? */
+    int core_propagates;        /* True if the core (in oppose to the module subsystem) is in charge of calling propagatePendingCommands */
     char *ignore_warnings;      /* Config: warnings that should be ignored. */
     int client_pause_in_transaction; /* Was a client pause executed during this Exec? */
     int thp_enabled;                 /* If true, THP is enabled. */

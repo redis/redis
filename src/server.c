@@ -4300,6 +4300,7 @@ void initServer(void) {
     server.cronloops = 0;
     server.in_script = 0;
     server.in_exec = 0;
+    server.core_propagates = 0;
     server.client_pause_in_transaction = 0;
     server.child_pid = -1;
     server.child_type = CHILD_TYPE_NONE;
@@ -4974,6 +4975,18 @@ void call(client *c, int flags) {
      * demand, and initialize the array for additional commands propagation. */
     c->flags &= ~(CLIENT_FORCE_AOF|CLIENT_FORCE_REPL|CLIENT_PREVENT_PROP);
 
+    /* Module commands generally take care of themselves, unless we are in
+     * EVAL/EXEC: In this case we need to wrap the whole thing in MULTI/EXEC
+     * (The module code can only handle one command at a time).
+     * See the test "module propagates from from multi-exec".
+     *
+     * Because call() is re-entrant we have to cache and restore
+     * server.core_propagates. */
+    int prev_core_propagates = server.core_propagates;
+    server.core_propagates = !(flags & CMD_CALL_FROM_MODULE || c->cmd->flags & CMD_MODULE) ||
+                             server.in_exec ||
+                             server.in_script;
+
     /* Call the command. */
     dirty = server.dirty;
     prev_err_count = server.stat_total_error_replies;
@@ -5103,19 +5116,11 @@ void call(client *c, int flags) {
     c->flags |= client_old_flags &
         (CLIENT_FORCE_AOF|CLIENT_FORCE_REPL|CLIENT_PREVENT_PROP);
 
-    /* If we are at the op-most call() we can propagate what we accumulated.
-     * There is one exception (with an exception):
-     * Module commands generally take care of themselves, unless the user
-     * used them wrapped them in MULTI/EXEC: In this case we need to wrap the
-     * whole thing in MULTI/EXEC (The module code can only handle one command
-     * at a time.
-     * See the test "module propagates from from multi-exec" */
-    if (server.in_nested_call == 0 &&
-        !(flags & CMD_CALL_FROM_MODULE) &&
-        (!(c->cmd->flags & CMD_MODULE) || c->cmd->proc == execCommand))
-    {
+    /* If we are at the op-most call() we can propagate what we accumulated. */
+    if (server.in_nested_call == 0 && server.core_propagates)
         propagatePendingCommands();
-    }
+
+    server.core_propagates = prev_core_propagates;
 
     /* Client pause takes effect after a transaction has finished. This needs
      * to be located after everything is propagated. */

@@ -612,8 +612,8 @@ void moduleFreeContext(RedisModuleCtx *ctx) {
     if (ctx->module) {
         /* Generally speaking, modules take care of their own propagation,
          * unless we are in a transaction.
-         * See comment in call(), next to propagatePendingCommands */
-        if (--ctx->module->ctx_nesting == 0 && !server.in_exec)
+         * See comment in call(), next to server.core_propagates */
+        if (--ctx->module->ctx_nesting == 0 && !server.core_propagates)
             propagatePendingCommands();
     }
     autoMemoryCollect(ctx);

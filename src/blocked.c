@@ -562,6 +562,8 @@ void serveClientsBlockedOnKeyByModule(readyList *rl) {
  * be used only for a single type, like virtually any Redis application will
  * do, the function is already fair. */
 void handleClientsBlockedOnKeys(void) {
+    server.core_propagates = 1;
+
     while(listLength(server.ready_keys) != 0) {
         list *l;
 
@@ -614,6 +616,8 @@ void handleClientsBlockedOnKeys(void) {
         listRelease(l); /* We have the new list on place at this point. */
     }
 
+    serverAssert(server.core_propagates == 1); /* This function should not be re-entrant */
+    server.core_propagates = 0;
     propagatePendingCommands();
 }
 
