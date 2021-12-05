@@ -254,7 +254,7 @@ typedef struct standardConfig {
 #define SENSITIVE_CONFIG (1ULL<<1) /* Does this value contain sensitive information */
 #define DEBUG_CONFIG (1ULL<<2) /* Values that are useful for debugging. */
 #define MULTI_ARG_CONFIG (1ULL<<3) /* This config receives multiple arguments. */
-#define HIDDEN_CONFIG (1ULL<<4) /* This config is hidden in `config get <pattern>` */
+#define HIDDEN_CONFIG (1ULL<<4) /* This config is hidden in `config get <pattern>` (used for tests/debugging) */
 
 standardConfig configs[];
 
@@ -817,16 +817,16 @@ void configGetCommand(client *c) {
                 matches++;
                 break;
             }
-        } else {
-            if (stringmatch(pattern,config->name,1)) {
-                addReplyBulkCString(c,config->name);
-                addReplyBulkSds(c, config->interface.get(config->data));
-                matches++;
-            } else if (config->alias && stringmatch(pattern,config->alias,1)) {
-                addReplyBulkCString(c,config->alias);
-                addReplyBulkSds(c, config->interface.get(config->data));
-                matches++;
-            }
+            continue;
+        }
+        if (stringmatch(pattern,config->name,1)) {
+            addReplyBulkCString(c,config->name);
+            addReplyBulkSds(c, config->interface.get(config->data));
+            matches++;
+        } else if (config->alias && stringmatch(pattern,config->alias,1)) {
+            addReplyBulkCString(c,config->alias);
+            addReplyBulkSds(c, config->interface.get(config->data));
+            matches++;
         }
     }
 
