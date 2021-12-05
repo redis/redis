@@ -5228,7 +5228,7 @@ void createDumpPayload(rio *payload, robj *o, robj *key, int dbid) {
  * it is set to the payload's version.
  * If the DUMP payload looks valid C_OK is returned, otherwise C_ERR
  * is returned. */
-int verifyDumpPayload(unsigned char *p, size_t len, int *version) {
+int verifyDumpPayload(unsigned char *p, size_t len) {
     unsigned char *footer;
     uint16_t rdbver;
     uint64_t crc;
@@ -5239,9 +5239,6 @@ int verifyDumpPayload(unsigned char *p, size_t len, int *version) {
 
     /* Set and verify RDB version. */
     rdbver = (footer[1] << 8) | footer[0];
-    if (version != NULL) {
-        *version = rdbver;
-    }
     if (rdbver > RDB_VERSION) return C_ERR;
 
     if (server.skip_checksum_validation)
@@ -5331,9 +5328,7 @@ void restoreCommand(client *c) {
     }
 
     /* Verify RDB version and data checksum. */
-    int rdbver;
-    if (verifyDumpPayload(c->argv[3]->ptr,sdslen(c->argv[3]->ptr),
-                          &rdbver) == C_ERR)
+    if (verifyDumpPayload(c->argv[3]->ptr,sdslen(c->argv[3]->ptr)) == C_ERR)
     {
         addReplyError(c,"DUMP payload version or checksum are wrong");
         return;

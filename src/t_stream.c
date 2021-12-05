@@ -404,13 +404,11 @@ void streamGetEdgeID(stream *s, int first, int skip_tombstones, streamID *edge_i
     /* If the stream isn't empty, locate the edge ID (the stream may appear
      * empty, but may still have tombstones). */
     if (!empty || !skip_tombstones) {
-        streamIteratorStart(&si,s,&min_id,&max_id,!first);
+        streamIteratorStart(&si,s,NULL,NULL,!first);
         si.skip_tombstones = skip_tombstones;
         empty = !streamIteratorGetID(&si,edge_id,&numfields);
         streamIteratorStop(&si);        
-    }
-
-    if (empty) {
+    } else {
         /* Stream is empty, mark edge ID as lowest/highest possible. */
         *edge_id = first ? max_id : min_id;
     }
@@ -1198,7 +1196,7 @@ int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields) {
                 }
             } else {
                 if (memcmp(buf,si->end_key,sizeof(streamID)) <= 0 &&
-                    !(flags & STREAM_ITEM_FLAG_DELETED))
+                    (!si->skip_tombstones || !(flags & STREAM_ITEM_FLAG_DELETED)))
                 {
                     if (memcmp(buf,si->start_key,sizeof(streamID)) < 0)
                         return 0; /* We are already out of range. */
@@ -1377,7 +1375,7 @@ int streamIDEqZero(streamID *id) {
  *
  * NOTE: this assumes that the caller had verified that 'start' is less than
  * 's->last_id'. */
-int streamIsContiguousRange(stream *s, streamID *start) {
+int streamRangeContainsTombstone(stream *s, streamID *start) {
     streamID start_id;
 
     if (!s->length || streamIDEqZero(&s->xdel_max_id)) {
@@ -1417,20 +1415,20 @@ void streamReplyWithCGLag(client *c, stream *s, streamCG *cg) {
     if (!s->offset) {
         /* The lag of a newly-initialized stream is 0. */
         lag = 0;
-    } else if (cg->offset && streamIsContiguousRange(s,&cg->last_id)) {
+    } else if (cg->offset && streamRangeContainsTombstone(s,&cg->last_id)) {
         /* No fragmentation ahead means that the group's offset is valid for
          * performing the lag calculation. */
         lag = s->offset - cg->offset;
     } else if (streamIDEqZero(&cg->last_id)) {
-        if (streamIsContiguousRange(s,NULL)) {
+        if (streamRangeContainsTombstone(s,NULL)) {
             /* The group is at 0-0 of a non-fragmented stream. */
             lag = s->length;
         } else {
             valid = 0;
         }
     } else {
-        /* Attempt to retrieve the group's pffset. */
-        uint64_t offset = streamGetOffsetForTip(s,&cg->last_id);
+        /* Attempt to retrieve the group's offset. */
+        uint64_t offset = streamEstimateDistanceFromFirstEverEntry(s,&cg->last_id);
         if (offset) {
             /* A valid offset was obtained. */
             lag = s->offset - offset;
@@ -1446,13 +1444,28 @@ void streamReplyWithCGLag(client *c, stream *s, streamCG *cg) {
     }
 }
 
-/* A helper for getting an offset for the given ID if it is at one of the tips.
- * A non-zero offset can be either logical (one before the first ID in the
- * in the stream) or exact (the first or last IDs), but in both cases
- * it provides a valid lag estimate. The zero offset usually means that
- * the offset isn't available, except in the case of the 
- * newly-initialized stream. */
-uint64_t streamGetOffsetForTip(stream *s, streamID *id) {
+/* This function returns a value that is the ID's offset, or its distance (the
+ * number of entries) from the first entry ever to have been addedto the stream.
+ * A valid offset is always non-zero, whereas the zero offset means that the
+ * offset for an ID isn't available. Basically, the offset is available only
+ * for IDs that are at stream's tips (the current first and last entries).
+ * 
+ * A valid, non-zero offset is returned only in one of the following cases:
+ * 1. The ID is the same as the stream's last ID. In this case, the returned
+ *    offset is the same as the stream's current offset.
+ * 2. The ID equals that of the currently first entry in the stream, and the
+ *    stream has no tombstones. The returned value, in this case, is the result
+ *    of subtracting the stream's length from its offset, incremented by one.
+ * 3. The ID less than the stream's first current entry's ID, and there are no
+ *    tombstones. Here the estimated offset is the result of subtracting the
+ *    stream's length from its offset.
+ *
+ * The zero offset is returned in the following cases:
+ * 1. The stream's offset is zero, meaning that no entries were ever added.
+ * 2. The provided ID, if it even exists, is somewhere between the the stream's
+ *    current first and last entries' IDs.
+ * 3. The stream contains one or more tombstones. */
+uint64_t streamEstimateDistanceFromFirstEverEntry(stream *s, streamID *id) {
     /* The offset of any ID in an empty, never-before-used stream is 0. */
     if (!s->offset) {
         return 0;
@@ -1491,7 +1504,7 @@ uint64_t streamGetOffsetForTip(stream *s, streamID *id) {
 
     /* There's a chance that the next ID is valid, and the only thing
      * before our ID is a tombstone. If we got here, we know that the
-     * stream isn't empty and that our ID is before it's start, so there 
+     * stream isn't empty and that our ID is before its start, so there 
      * must be at least one entry with a larger ID in it. */
     streamIterator si;
     int64_t numfields;
@@ -1676,7 +1689,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
     while(streamIteratorGetID(&si,&id,&numfields)) {
         /* Update the group last_id if needed. */
         if (group && streamCompareID(&id,&group->last_id) > 0) {
-            if (group->offset && streamIsContiguousRange(s,&id)) {
+            if (group->offset && streamRangeContainsTombstone(s,&id)) {
                 /* A valid (non-zero) offset and no future tombstones mean we
                  * can increment the offset to keep tracking the group's
                  * progress. */
@@ -1685,7 +1698,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
                 /* The group's offset may be zero because it is was invalid, or
                  * because it is the real 0 offset (the one before the first).
                  * Either way, in this case, we try to obtain the offset. */
-                group->offset = streamGetOffsetForTip(s,&id);
+                group->offset = streamEstimateDistanceFromFirstEverEntry(s,&id);
             }
             group->last_id = id;
             /* Group last ID should be propagated only if NOACK was
@@ -2638,13 +2651,12 @@ NULL
             o = createStreamObject();
             dbAdd(c->db,c->argv[2],o);
             s = o->ptr;
-            offset = 0;
             signalModifiedKey(c,c->db,c->argv[2]);
         }
 
         /* Handle missing/invalid offset for the group. */
         if (!offset || (uint64_t)offset > s->offset) {
-            offset = streamGetOffsetForTip(s,&id);
+            offset = streamEstimateDistanceFromFirstEverEntry(s,&id);
         }
 
         streamCG *cg = streamCreateCG(s,grpname,sdslen(grpname),&id,offset);
@@ -2722,7 +2734,7 @@ void xsetidCommand(client *c) {
     streamID max_xdel_id;
     int ext_form = (c->argc == 5);
 
-    if (c->argc != 3  && c->argc != 5) {
+    if (c->argc != 3 && c->argc != 5) {
         addReplyErrorObject(c,shared.syntaxerr);
         return;
     }
