@@ -823,7 +823,8 @@ void configGetCommand(client *c) {
             addReplyBulkCString(c,config->name);
             addReplyBulkSds(c, config->interface.get(config->data));
             matches++;
-        } else if (config->alias && stringmatch(pattern,config->alias,1)) {
+        }
+        if (config->alias && stringmatch(pattern,config->alias,1)) {
             addReplyBulkCString(c,config->alias);
             addReplyBulkSds(c, config->interface.get(config->data));
             matches++;
