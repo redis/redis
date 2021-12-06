@@ -897,17 +897,17 @@ RedisModuleCommandProxy *moduleCreateCommandProxy(struct RedisModule *module, co
  * The last three parameters specify which arguments of the new command are
  * Redis keys. See https://redis.io/commands/command for more information.
  *
- * * 'firstkey': One-based index of the first argument that's a key.
+ * * `firstkey`: One-based index of the first argument that's a key.
  *               Position 0 is always the command name itself.
  *               0 for commands with no keys.
- * * 'lastkey':  One-based index of the last argument that's a key.
+ * * `lastkey`:  One-based index of the last argument that's a key.
  *               Negative numbers refer to counting backwards from the last
  *               argument (-1 means the last argument provided)
  *               0 for commands with no keys.
- * * 'keystep':  Step between first and last key indexes.
+ * * `keystep`:  Step between first and last key indexes.
  *               0 for commands with no keys.
  *
- * This information is used by ACL, Cluster and the 'COMMAND' command.
+ * This information is used by ACL, Cluster and the `COMMAND` command.
  *
  * NOTE: The scheme described above serves a limited purpose and can
  * only be used to find keys that exist at constant indices.
@@ -1006,16 +1006,16 @@ RedisModuleCommandProxy *RM_GetCommandProxy(RedisModuleCtx *ctx, const char *nam
  * GET and SET should be individual subcommands, while MODULE.CONFIG is
  * a command, but should not be registered with a valid `funcptr`:
  *
- *  if (RedisModule_CreateCommand(ctx,"module.config",NULL,"",0,0,0) == REDISMODULE_ERR)
- *     return REDISMODULE_ERR;
+ *      if (RedisModule_CreateCommand(ctx,"module.config",NULL,"",0,0,0) == REDISMODULE_ERR)
+ *          return REDISMODULE_ERR;
  *
- *  RedisModuleCOmmandProxy *parent = RedisModule_GetCommandProxy(ctx,,"module.config");
+ *      RedisModuleCommandProxy *parent = RedisModule_GetCommandProxy(ctx,,"module.config");
  *
- *  if (RedisModule_CreateSubcommand(parent,"set",cmd_config_set,"",0,0,0) == REDISMODULE_ERR)
- *     return REDISMODULE_ERR;
+ *      if (RedisModule_CreateSubcommand(parent,"set",cmd_config_set,"",0,0,0) == REDISMODULE_ERR)
+ *         return REDISMODULE_ERR;
  *
- *  if (RedisModule_CreateSubcommand(parent,"get",cmd_config_get,"",0,0,0) == REDISMODULE_ERR)
- *     return REDISMODULE_ERR;
+ *      if (RedisModule_CreateSubcommand(parent,"get",cmd_config_get,"",0,0,0) == REDISMODULE_ERR)
+ *         return REDISMODULE_ERR;
  *
  */
 int RM_CreateSubcommand(RedisModuleCommandProxy *parent, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep) {
@@ -1043,7 +1043,7 @@ int RM_CreateSubcommand(RedisModuleCommandProxy *parent, const char *name, Redis
 /* Set the command arity (number f arguments it takes)
  * It is possible to use -N to say >= N.
  *
- * Affects the output of COMMAND, but also used to filter
+ * Affects the output of `COMMAND`, but also used to filter
  * commands with wrong argc even before they reach the
  * module code */
 int RM_SetCommandArity(RedisModuleCommandProxy *command, int arity) {
@@ -1054,7 +1054,7 @@ int RM_SetCommandArity(RedisModuleCommandProxy *command, int arity) {
 
 /* Set a short description of the command.
  *
- * Only affects the output of COMMAND */
+ * Only affects the output of `COMMAND` */
 int RM_SetCommandSummary(RedisModuleCommandProxy *command, const char *summary) {
     struct redisCommand *cmd = command->rediscmd;
     cmd->summary = sdsnew(summary);
@@ -1066,7 +1066,7 @@ int RM_SetCommandSummary(RedisModuleCommandProxy *command, const char *summary) 
  *
  * Note: The version specified should be the module's, not Redis`.
  *
- * Only affects the output of COMMAND */
+ * Only affects the output of `COMMAND` */
 int RM_SetCommandDebutVersion(RedisModuleCommandProxy *command, const char *since) {
     struct redisCommand *cmd = command->rediscmd;
     cmd->since = sdsnew(since);
@@ -1075,7 +1075,7 @@ int RM_SetCommandDebutVersion(RedisModuleCommandProxy *command, const char *sinc
 
 /* Set a short description of the command complexity.
  *
- * Only affects the output of COMMAND */
+ * Only affects the output of `COMMAND` */
 int RM_SetCommandComplexity(RedisModuleCommandProxy *command, const char *complexity) {
     struct redisCommand *cmd = command->rediscmd;
     cmd->complexity = sdsnew(complexity);
@@ -1087,7 +1087,7 @@ int RM_SetCommandComplexity(RedisModuleCommandProxy *command, const char *comple
  *
  * See https://redis.io/topics/command-hints
  *
- * Only affects the output of COMMAND */
+ * Only affects the output of `COMMAND` */
 int RM_SetCommandHints(RedisModuleCommandProxy *command, const char *hints) {
     struct redisCommand *cmd = command->rediscmd;
 
@@ -1112,9 +1112,9 @@ int RM_SetCommandHints(RedisModuleCommandProxy *command, const char *hints) {
 /* Append a history note about this command.
  * Example:
  *
- * RedisModule_AppendCommandHistoryEntry(cmd, "1.2.0", "Added the PX argument");
+ *      RedisModule_AppendCommandHistoryEntry(cmd, "1.2.0", "Added the PX argument");
  *
- * Only affects the output of COMMAND */
+ * Only affects the output of `COMMAND` */
 int RM_AppendCommandHistoryEntry(RedisModuleCommandProxy *command, const char *since, const char *changes) {
     struct redisCommand *cmd = command->rediscmd;
 
@@ -1172,27 +1172,29 @@ int moduleArgFlagsConvert(int flags) {
 }
 
 /* Create an opaque structure representing a command argument
- * (For manipulating the output of COMMAND)
+ *
+ * (For manipulating the output of `COMMAND`)
  *
  * * `argname`: Name of the argument
  * * `type`: The type of the argument.
  *           Some types allow an argument to have sub-arguments
- *           (REDISMODULE_ARG_TYPE_ONEOF and REDISMODULE_ARG_TYPE_BLOCK)
- * * `key_spec_index` : If the `type` is REDISMODULE_ARG_TYPE_KEY you
+ *           (`REDISMODULE_ARG_TYPE_ONEOF` and `REDISMODULE_ARG_TYPE_BLOCK`)
+ * * `key_spec_index` : If the `type` is `REDISMODULE_ARG_TYPE_KEY` you
  *                      must provide the index of the key-spec associated
- *                      with this argument. See RedisModule_AddCommandKeySpec.
+ *                      with this argument.
+ *                      See RedisModule_AddCommandKeySpec.
  *                      If the argument is not a key, you must specify -1.
  * * `token`: The token preceding the argument (optional).
- *            Example: the argument "seconds" in SET has a token "EX")
- *            If the argument consists of only a token (Example: "NX" in SET)
- *            the type should be REDISMODULE_ARG_TYPE_PURE_TOKEN and the
+ *            Example: the argument `seconds` in `SET` has a token `EX`)
+ *            If the argument consists of only a token (Example: `NX` in `SET`)
+ *            the type should be `REDISMODULE_ARG_TYPE_PURE_TOKEN` and the
  *            value should be NULL
  * * `summary`: A short description of the argument (optional)
  * * `since`: The first version which included this argument (optional)
- * * `flags`: See REDISMODULE_CMD_ARG_*
+ * * `flags`: See `REDISMODULE_CMD_ARG_*`
  * * `value`: The display-value of the argument. This string is what
  *            should be displayed when creating the command syntax from
- *            the output of COMMAND.
+ *            the output of `COMMAND`.
  *            If `token` is not NULL, it should also be displayed.
  *
  * Use the returned RedisModuleCommandArg to either add sub-arguments
@@ -1201,6 +1203,7 @@ int moduleArgFlagsConvert(int flags) {
  * RedisModule_AppendArgToCommand.
  *
  * Explanation about `RedisModuleCommandArgType`:
+ *
  * * `REDISMODULE_ARG_TYPE_STRING`: String arg
  * * `REDISMODULE_ARG_TYPE_INTEGER`: Integer arg
  * * `REDISMODULE_ARG_TYPE_DOUBLE`: Double-precision arg
@@ -1214,61 +1217,62 @@ int moduleArgFlagsConvert(int flags) {
  *                                 all of them (like making the entire group "optional") (see example below)
  *
  * Explanation about the flags:
+ *
  * * `REDISMODULE_CMD_ARG_OPTIONAL`: The argument is optional (like GET in SET command)
  * * `REDISMODULE_CMD_ARG_MULTIPLE`: The argument may repeat itself (like key in DEL)
  * * `REDISMODULE_CMD_ARG_MULTIPLE_TOKEN`: The argument may repeat itself, and so does its token (like `GET pattern` in SORT)
  *
- * Here's an example of how to create XADD's arguments via module API:
+ * Here's an example of how to create `XADD`'s arguments via module API:
  *
- * // Trimming args
- * RedisModuleCommandArg *trim_maxlen = RedisModule_CreateCommandArg("maxlen", REDISMODULE_ARG_TYPE_PURE_TOKEN, -1, "MAXLEN", NULL, NULL, REDISMODULE_CMD_ARG_NONE, NULL);
- * RedisModuleCommandArg *trim_minid = RedisModule_CreateCommandArg("minid", REDISMODULE_ARG_TYPE_PURE_TOKEN, -1, "MINID", NULL, "6.2.0", REDISMODULE_CMD_ARG_NONE, NULL);
- * RedisModuleCommandArg *trim_startegy = RedisModule_CreateCommandArg("trim_startegy", REDISMODULE_ARG_TYPE_ONEOF, -1, NULL, NULL, NULL, REDISMODULE_CMD_ARG_NONE, NULL);
- * RedisModule_AppendSubarg(trim_startegy, trim_maxlen);
- * RedisModule_AppendSubarg(trim_startegy, trim_minid);
+ *      // Trimming args
+ *      RedisModuleCommandArg *trim_maxlen = RedisModule_CreateCommandArg("maxlen", REDISMODULE_ARG_TYPE_PURE_TOKEN, -1, "MAXLEN", NULL, NULL, REDISMODULE_CMD_ARG_NONE, NULL);
+ *      RedisModuleCommandArg *trim_minid = RedisModule_CreateCommandArg("minid", REDISMODULE_ARG_TYPE_PURE_TOKEN, -1, "MINID", NULL, "6.2.0", REDISMODULE_CMD_ARG_NONE, NULL);
+ *      RedisModuleCommandArg *trim_startegy = RedisModule_CreateCommandArg("trim_startegy", REDISMODULE_ARG_TYPE_ONEOF, -1, NULL, NULL, NULL, REDISMODULE_CMD_ARG_NONE, NULL);
+ *      RedisModule_AppendSubarg(trim_startegy, trim_maxlen);
+ *      RedisModule_AppendSubarg(trim_startegy, trim_minid);
  *
- * RedisModuleCommandArg *trim_exact = RedisModule_CreateCommandArg("exact", REDISMODULE_ARG_TYPE_PURE_TOKEN, -1, "=", NULL, NULL, REDISMODULE_CMD_ARG_NONE, NULL);
- * RedisModuleCommandArg *trim_approx = RedisModule_CreateCommandArg("approx", REDISMODULE_ARG_TYPE_PURE_TOKEN, -1, "~", NULL, NULL, REDISMODULE_CMD_ARG_NONE, NULL);
- * RedisModuleCommandArg *trim_op = RedisModule_CreateCommandArg("trim_op", REDISMODULE_ARG_TYPE_ONEOF, -1, NULL, NULL, NULL, REDISMODULE_CMD_ARG_OPTIONAL, NULL);
- * RedisModule_AppendSubarg(trim_op, trim_exact);
- * RedisModule_AppendSubarg(trim_op, trim_approx);
+ *      RedisModuleCommandArg *trim_exact = RedisModule_CreateCommandArg("exact", REDISMODULE_ARG_TYPE_PURE_TOKEN, -1, "=", NULL, NULL, REDISMODULE_CMD_ARG_NONE, NULL);
+ *      RedisModuleCommandArg *trim_approx = RedisModule_CreateCommandArg("approx", REDISMODULE_ARG_TYPE_PURE_TOKEN, -1, "~", NULL, NULL, REDISMODULE_CMD_ARG_NONE, NULL);
+ *      RedisModuleCommandArg *trim_op = RedisModule_CreateCommandArg("trim_op", REDISMODULE_ARG_TYPE_ONEOF, -1, NULL, NULL, NULL, REDISMODULE_CMD_ARG_OPTIONAL, NULL);
+ *      RedisModule_AppendSubarg(trim_op, trim_exact);
+ *      RedisModule_AppendSubarg(trim_op, trim_approx);
  *
- * RedisModuleCommandArg *trim_threshold = RedisModule_CreateCommandArg("trim_threshold", REDISMODULE_ARG_TYPE_STRING, -1, NULL, NULL, NULL, REDISMODULE_CMD_ARG_NONE, "threshold");
+ *      RedisModuleCommandArg *trim_threshold = RedisModule_CreateCommandArg("trim_threshold", REDISMODULE_ARG_TYPE_STRING, -1, NULL, NULL, NULL, REDISMODULE_CMD_ARG_NONE, "threshold");
  *
- * RedisModuleCommandArg *trim_count = RedisModule_CreateCommandArg("trim_count", REDISMODULE_ARG_TYPE_INTEGER, -1, "LIMIT", NULL, "6.2.0", REDISMODULE_CMD_ARG_OPTIONAL, "count");
+ *      RedisModuleCommandArg *trim_count = RedisModule_CreateCommandArg("trim_count", REDISMODULE_ARG_TYPE_INTEGER, -1, "LIMIT", NULL, "6.2.0", REDISMODULE_CMD_ARG_OPTIONAL, "count");
  *
- * RedisModuleCommandArg *trimming = RedisModule_CreateCommandArg("trimming", REDISMODULE_ARG_TYPE_BLOCK, -1, NULL, NULL, NULL, REDISMODULE_CMD_ARG_OPTIONAL, NULL);
- * RedisModule_AppendSubarg(trimming, trim_startegy);
- * RedisModule_AppendSubarg(trimming, trim_op);
- * RedisModule_AppendSubarg(trimming, trim_threshold);
- * RedisModule_AppendSubarg(trimming, trim_count);
+ *      RedisModuleCommandArg *trimming = RedisModule_CreateCommandArg("trimming", REDISMODULE_ARG_TYPE_BLOCK, -1, NULL, NULL, NULL, REDISMODULE_CMD_ARG_OPTIONAL, NULL);
+ *      RedisModule_AppendSubarg(trimming, trim_startegy);
+ *      RedisModule_AppendSubarg(trimming, trim_op);
+ *      RedisModule_AppendSubarg(trimming, trim_threshold);
+ *      RedisModule_AppendSubarg(trimming, trim_count);
  *
- * // ID arg
- * RedisModuleCommandArg *id_auto = RedisModule_CreateCommandArg("id_auto", REDISMODULE_ARG_TYPE_PURE_TOKEN, -1, "*", NULL, NULL, REDISMODULE_CMD_ARG_NONE, NULL);
- * RedisModuleCommandArg *id_given = RedisModule_CreateCommandArg("id_given", REDISMODULE_ARG_TYPE_STRING, -1, NULL, NULL, NULL, REDISMODULE_CMD_ARG_NONE, "id");
- * RedisModuleCommandArg *id = RedisModule_CreateCommandArg("id", REDISMODULE_ARG_TYPE_ONEOF, -1, NULL, NULL, NULL, REDISMODULE_CMD_ARG_NONE, NULL);
- * RedisModule_AppendSubarg(id, id_auto);
- * RedisModule_AppendSubarg(id, id_given);
+ *      // ID arg
+ *      RedisModuleCommandArg *id_auto = RedisModule_CreateCommandArg("id_auto", REDISMODULE_ARG_TYPE_PURE_TOKEN, -1, "*", NULL, NULL, REDISMODULE_CMD_ARG_NONE, NULL);
+ *      RedisModuleCommandArg *id_given = RedisModule_CreateCommandArg("id_given", REDISMODULE_ARG_TYPE_STRING, -1, NULL, NULL, NULL, REDISMODULE_CMD_ARG_NONE, "id");
+ *      RedisModuleCommandArg *id = RedisModule_CreateCommandArg("id", REDISMODULE_ARG_TYPE_ONEOF, -1, NULL, NULL, NULL, REDISMODULE_CMD_ARG_NONE, NULL);
+ *      RedisModule_AppendSubarg(id, id_auto);
+ *      RedisModule_AppendSubarg(id, id_given);
  *
- * // Fields and values
- * RedisModuleCommandArg *field = RedisModule_CreateCommandArg("field", REDISMODULE_ARG_TYPE_STRING, -1, NULL, NULL, NULL, REDISMODULE_CMD_ARG_NONE, "field");
- * RedisModuleCommandArg *value = RedisModule_CreateCommandArg("value", REDISMODULE_ARG_TYPE_STRING, -1, NULL, NULL, NULL, REDISMODULE_CMD_ARG_NONE, "value");
- * RedisModuleCommandArg *fieldsvalues = RedisModule_CreateCommandArg("fields_and_values", REDISMODULE_ARG_TYPE_BLOCK, -1, NULL, NULL, NULL, REDISMODULE_CMD_ARG_MULTIPLE, NULL);
- * RedisModule_AppendSubarg(fieldsvalues, field);
- * RedisModule_AppendSubarg(fieldsvalues, value);
+ *      // Fields and values
+ *      RedisModuleCommandArg *field = RedisModule_CreateCommandArg("field", REDISMODULE_ARG_TYPE_STRING, -1, NULL, NULL, NULL, REDISMODULE_CMD_ARG_NONE, "field");
+ *      RedisModuleCommandArg *value = RedisModule_CreateCommandArg("value", REDISMODULE_ARG_TYPE_STRING, -1, NULL, NULL, NULL, REDISMODULE_CMD_ARG_NONE, "value");
+ *      RedisModuleCommandArg *fieldsvalues = RedisModule_CreateCommandArg("fields_and_values", REDISMODULE_ARG_TYPE_BLOCK, -1, NULL, NULL, NULL, REDISMODULE_CMD_ARG_MULTIPLE, NULL);
+ *      RedisModule_AppendSubarg(fieldsvalues, field);
+ *      RedisModule_AppendSubarg(fieldsvalues, value);
  *
- * // Key
- * RedisModuleCommandArg *key = RedisModule_CreateCommandArg("key", REDISMODULE_ARG_TYPE_KEY, 0, NULL, NULL, NULL, REDISMODULE_CMD_ARG_NONE, "key");
+ *      // Key
+ *      RedisModuleCommandArg *key = RedisModule_CreateCommandArg("key", REDISMODULE_ARG_TYPE_KEY, 0, NULL, NULL, NULL, REDISMODULE_CMD_ARG_NONE, "key");
  *
- * // NOMKSTREAM
- * RedisModuleCommandArg *nomkstream = RedisModule_CreateCommandArg("nomkstream", REDISMODULE_ARG_TYPE_PURE_TOKEN, -1, "NOMKSTREAM", NULL, NULL, REDISMODULE_CMD_ARG_OPTIONAL, NULL);
+ *      // NOMKSTREAM
+ *      RedisModuleCommandArg *nomkstream = RedisModule_CreateCommandArg("nomkstream", REDISMODULE_ARG_TYPE_PURE_TOKEN, -1, "NOMKSTREAM", NULL, NULL, REDISMODULE_CMD_ARG_OPTIONAL, NULL);
  *
- * // Append all args
- * RedisModule_AppendArgToCommand(xadd, key);
- * RedisModule_AppendArgToCommand(xadd, nomkstream);
- * RedisModule_AppendArgToCommand(xadd, trimming);
- * RedisModule_AppendArgToCommand(xadd, id);
- * RedisModule_AppendArgToCommand(xadd, fieldsvalues); */
+ *      // Append all args
+ *      RedisModule_AppendArgToCommand(xadd, key);
+ *      RedisModule_AppendArgToCommand(xadd, nomkstream);
+ *      RedisModule_AppendArgToCommand(xadd, trimming);
+ *      RedisModule_AppendArgToCommand(xadd, id);
+ *      RedisModule_AppendArgToCommand(xadd, fieldsvalues); */
 RedisModuleCommandArg *RM_CreateCommandArg(const char *argname, RedisModuleCommandArgType type, int key_spec_index, const char *token, const char *summary, const char* since, int flags, const char *value) {
     int err;
 
@@ -1312,7 +1316,8 @@ RedisModuleCommandArg *RM_CreateCommandArg(const char *argname, RedisModuleComma
 }
 
 /* Append a sub-argument to a parent argument.
- * (For manipulating the output of COMMAND)
+ *
+ * (For manipulating the output of `COMMAND`)
  *
  * Note that `parent` must be either REDISMODULE_ARG_TYPE_ONEOF or
  * REDISMODULE_ARG_TYPE_BLOCK.
@@ -1335,7 +1340,8 @@ int RM_AppendSubarg(RedisModuleCommandArg *parent, RedisModuleCommandArg *subarg
 }
 
 /* Append an argument to a command.
- * (For manipulating the output of COMMAND)
+ *
+ * (For manipulating the output of `COMMAND`)
  *
  * See examples above RedisModule_CreateCommandArg */
 int RM_AppendArgToCommand(RedisModuleCommandProxy *command, RedisModuleCommandArg *arg) {
@@ -1434,22 +1440,22 @@ int moduleSetCommandKeySpecFindKeys(RedisModuleCommandProxy *command, int index,
  * of key arguments better than the old [first,last,step] scheme
  * which is limited and doesn't fit many commands.
  *
- * This information is used by ACL, Cluster and the 'COMMAND' command.
+ * This information is used by ACL, Cluster and the `COMMAND` command.
  *
  * There are two steps to retrieve the key arguments:
  *
- * - begin_search (BS): in which index should we start seacrhing for keys?
- * - find_keys (FK): relative to the output of BS, how can we will which args are keys?
+ * - `begin_search` (BS): in which index should we start seacrhing for keys?
+ * - `find_keys` (FK): relative to the output of BS, how can we will which args are keys?
  *
  * There are two types of BS:
  *
- * - index: key args start at a constant index
- * - keyword: key args start just after a specific keyword
+ * - `index`: key args start at a constant index
+ * - `keyword`: key args start just after a specific keyword
  *
  * There are two kinds of FK:
  *
- * - range: keys end at a specific index (or relative to the last argument)
- * - keynum: there's an arg that contains the number of key args somewhere before the keys themselves
+ * - `range`: keys end at a specific index (or relative to the last argument)
+ * - `keynum`: there's an arg that contains the number of key args somewhere before the keys themselves
  *
  * This function adds a new key spec to a command, returning a unique id in `spec_id`.
  * The caller must then call one of the RedisModule_SetCommandKeySpecBeginSearch* APIs
@@ -1459,27 +1465,29 @@ int moduleSetCommandKeySpecFindKeys(RedisModuleCommandProxy *command, int index,
  *
  * Example:
  *
- *  if (RedisModule_CreateCommand(ctx,"kspec.smove",kspec_legacy,"",0,0,0) == REDISMODULE_ERR)
- *      return REDISMODULE_ERR;
+ *      if (RedisModule_CreateCommand(ctx,"kspec.smove",kspec_legacy,"",0,0,0) == REDISMODULE_ERR)
+ *          return REDISMODULE_ERR;
  *
- *  if (RedisModule_AddCommandKeySpec(ctx,"kspec.smove","read write",&spec_id) == REDISMODULE_ERR)
- *      return REDISMODULE_ERR;
- *  if (RedisModule_SetCommandKeySpecBeginSearchIndex(ctx,"kspec.smove",spec_id,1) == REDISMODULE_ERR)
- *      return REDISMODULE_ERR;
- *  if (RedisModule_SetCommandKeySpecFindKeysRange(ctx,"kspec.smove",spec_id,0,1,0) == REDISMODULE_ERR)
- *      return REDISMODULE_ERR;
+ *      if (RedisModule_AddCommandKeySpec(ctx,"kspec.smove","read write",&spec_id) == REDISMODULE_ERR)
+ *          return REDISMODULE_ERR;
+ *      if (RedisModule_SetCommandKeySpecBeginSearchIndex(ctx,"kspec.smove",spec_id,1) == REDISMODULE_ERR)
+ *          return REDISMODULE_ERR;
+ *      if (RedisModule_SetCommandKeySpecFindKeysRange(ctx,"kspec.smove",spec_id,0,1,0) == REDISMODULE_ERR)
+ *          return REDISMODULE_ERR;
  *
- *  if (RedisModule_AddCommandKeySpec(ctx,"kspec.smove","write",&spec_id) == REDISMODULE_ERR)
- *      return REDISMODULE_ERR;
- *  if (RedisModule_SetCommandKeySpecBeginSearchIndex(ctx,"kspec.smove",spec_id,2) == REDISMODULE_ERR)
- *      return REDISMODULE_ERR;
- *  if (RedisModule_SetCommandKeySpecFindKeysRange(ctx,"kspec.smove",spec_id,0,1,0) == REDISMODULE_ERR)
- *      return REDISMODULE_ERR;
+ *      if (RedisModule_AddCommandKeySpec(ctx,"kspec.smove","write",&spec_id) == REDISMODULE_ERR)
+ *          return REDISMODULE_ERR;
+ *      if (RedisModule_SetCommandKeySpecBeginSearchIndex(ctx,"kspec.smove",spec_id,2) == REDISMODULE_ERR)
+ *          return REDISMODULE_ERR;
+ *      if (RedisModule_SetCommandKeySpecFindKeysRange(ctx,"kspec.smove",spec_id,0,1,0) == REDISMODULE_ERR)
+ *          return REDISMODULE_ERR;
  *
  * It is also possible to use this API on subcommands (See RedisModule_CreateSubcommand).
  * The name of the subcommand should be the name of the parent command + "|" + name of subcommand.
+ *
  * Example:
- *   RedisModule_AddCommandKeySpec(ctx,"module.config|get","read",&spec_id)
+ *
+ *      RedisModule_AddCommandKeySpec(ctx,"module.config|get","read",&spec_id)
  *
  * Returns REDISMODULE_OK on success
  */
@@ -10398,7 +10406,7 @@ int RM_ModuleTypeReplaceValue(RedisModuleKey *key, moduleType *mt, void *new_val
 
 /* For a specified command, parse its arguments and return an array that
  * contains the indexes of all key name arguments. This function is
- * essentially a more efficient way to do COMMAND GETKEYS.
+ * essentially a more efficient way to do `COMMAND GETKEYS`.
  *
  * A NULL return value indicates the specified command has no keys, or
  * an error condition. Error conditions are indicated by setting errno
