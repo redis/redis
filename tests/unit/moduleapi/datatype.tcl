@@ -8,20 +8,20 @@ start_server {tags {"modules"}} {
         assert {[r datatype.get dtkey] eq {100 stringval}}
     }
 
-    test {DataType: RM_SaveDataTypeToString(), RM_LoadDataTypeFromString() work} {
+    test {DataType: RM_SaveDataTypeToString(), RM_LoadDataTypeFromStringEncver() work} {
         r datatype.set dtkey -1111 MyString
         set encoded [r datatype.dump dtkey]
 
-        r datatype.restore dtkeycopy $encoded
+        assert {[r datatype.restore dtkeycopy $encoded 4] eq {4}}
         assert {[r datatype.get dtkeycopy] eq {-1111 MyString}}
     }
 
-    test {DataType: Handle truncated RM_LoadDataTypeFromString()} {
+    test {DataType: Handle truncated RM_LoadDataTypeFromStringEncver()} {
         r datatype.set dtkey -1111 MyString
         set encoded [r datatype.dump dtkey]
         set truncated [string range $encoded 0 end-1]
 
-        catch {r datatype.restore dtkeycopy $truncated} e
+        catch {r datatype.restore dtkeycopy $truncated 4} e
         set e
     } {*Invalid*}
 

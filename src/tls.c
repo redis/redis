@@ -372,6 +372,12 @@ error:
     return C_ERR;
 }
 
+/* Return 1 if TLS was already configured, 0 otherwise.
+ */
+int isTlsConfigured(void) {
+    return redis_tls_ctx != NULL;
+}
+
 #ifdef TLS_DEBUGGING
 #define TLSCONN_DEBUG(fmt, ...) \
     serverLog(LL_DEBUG, "TLSCONN: " fmt, __VA_ARGS__)
@@ -750,7 +756,14 @@ static int connTLSWrite(connection *conn_, const void *data, size_t data_len) {
     if (conn->c.state != CONN_STATE_CONNECTED) return -1;
     ERR_clear_error();
     ret = SSL_write(conn->ssl, data, data_len);
-
+    /* If system call was interrupted, there's no need to go through the full
+     * OpenSSL error handling and just report this for the caller to retry the
+     * operation.
+     */
+    if (errno == EINTR) {
+        conn->c.last_errno = EINTR;
+        return -1;
+    }
     if (ret <= 0) {
         WantIOType want = 0;
         if (!(ssl_err = handleSSLReturnCode(conn, ret, &want))) {
@@ -781,6 +794,14 @@ static int connTLSRead(connection *conn_, void *buf, size_t buf_len) {
     if (conn->c.state != CONN_STATE_CONNECTED) return -1;
     ERR_clear_error();
     ret = SSL_read(conn->ssl, buf, buf_len);
+    /* If system call was interrupted, there's no need to go through the full
+     * OpenSSL error handling and just report this for the caller to retry the
+     * operation.
+     */
+    if (errno == EINTR) {
+        conn->c.last_errno = EINTR;
+        return -1;
+    }
     if (ret <= 0) {
         WantIOType want = 0;
         if (!(ssl_err = handleSSLReturnCode(conn, ret, &want))) {

@@ -797,7 +797,7 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
         robj *zobj;
         zset *zs;
         int i;
-        size_t maxelelen = 0;
+        size_t maxelelen = 0, totelelen = 0;
 
         if (returned_items) {
             zobj = createZsetObject();
@@ -812,14 +812,15 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
             size_t elelen = sdslen(gp->member);
 
             if (maxelelen < elelen) maxelelen = elelen;
+            totelelen += elelen;
             znode = zslInsert(zs->zsl,score,gp->member);
             serverAssert(dictAdd(zs->dict,gp->member,&znode->score) == DICT_OK);
             gp->member = NULL;
         }
 
         if (returned_items) {
-            zsetConvertToListpackIfNeeded(zobj,maxelelen);
-            setKey(c,c->db,storekey,zobj);
+            zsetConvertToListpackIfNeeded(zobj,maxelelen,totelelen);
+            setKey(c,c->db,storekey,zobj,0);
             decrRefCount(zobj);
             notifyKeyspaceEvent(NOTIFY_ZSET,flags & GEOSEARCH ? "geosearchstore" : "georadiusstore",storekey,
                                 c->db->id);

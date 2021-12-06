@@ -15,9 +15,22 @@ jobs:
     - name: test
       run: |
         sudo apt-get install tcl8.6 tclx
-        ./runtest --verbose --tags -slow
+        ./runtest --verbose --tags -slow --dump-logs
     - name: module api test
-      run: ./runtest-moduleapi --verbose
+      run: ./runtest-moduleapi --verbose --dump-logs
+
+  test-sanitizer-address:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: make
+        run: make SANITIZER=address REDIS_CFLAGS='-Werror'
+      - name: testprep
+        run: sudo apt-get install tcl8.6 tclx -y
+      - name: test
+        run: ./runtest --verbose --tags -slow --dump-logs
+      - name: module api test
+        run: ./runtest-moduleapi --verbose --dump-logs
 
   build-debian-old:
     runs-on: ubuntu-latest

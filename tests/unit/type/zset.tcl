@@ -1003,6 +1003,32 @@ start_server {tags {"zset"}} {
             }
         }
 
+        foreach {pop} {ZPOPMIN ZPOPMAX} {
+            test "$pop with the count 0 returns an empty array" {
+                r del zset
+                r zadd zset 1 a 2 b 3 c
+                assert_equal {} [r $pop zset 0]
+
+                # Make sure we can distinguish between an empty array and a null response
+                r readraw 1
+                assert_equal {*0} [r $pop zset 0]
+                r readraw 0
+
+                assert_equal 3 [r zcard zset]
+            }
+
+            test "$pop with negative count" {
+                r set zset foo
+                assert_error "ERR *must be positive" {r $pop zset -1}
+
+                r del zset
+                assert_error "ERR *must be positive" {r $pop zset -2}
+
+                r zadd zset 1 a 2 b 3 c
+                assert_error "ERR *must be positive" {r $pop zset -3}
+            }
+        }
+
     foreach {popmin popmax} {ZPOPMIN ZPOPMAX ZMPOP_MIN ZMPOP_MAX} {
         test "Basic $popmin/$popmax with a single key - $encoding" {
             r del zset
@@ -1037,6 +1063,7 @@ start_server {tags {"zset"}} {
             verify_bzpop_response $rd $popmin zset 5 0 {zset b 1} {zset {{b 1}}}
             verify_bzpop_response $rd $popmax zset 5 0 {zset c 2} {zset {{c 2}}}
             assert_equal 0 [r exists zset]
+            $rd close
         }
 
         test "$popmin/$popmax with multiple existing sorted sets - $encoding" {
@@ -1053,6 +1080,7 @@ start_server {tags {"zset"}} {
             verify_bzpop_two_key_response $rd $popmin z2{t} z1{t} 5 0 {z2{t} d 3} {z2{t} {{d 3}}}
             assert_equal 1 [r zcard z1{t}]
             assert_equal 1 [r zcard z2{t}]
+            $rd close
         }
 
         test "$popmin/$popmax second sorted set has members - $encoding" {
@@ -1064,6 +1092,7 @@ start_server {tags {"zset"}} {
             verify_bzpop_two_key_response $rd $popmin z1{t} z2{t} 5 0 {z2{t} d 3} {z2{t} {{d 3}}}
             assert_equal 0 [r zcard z1{t}]
             assert_equal 1 [r zcard z2{t}]
+            $rd close
         }
     }
 
@@ -1098,6 +1127,7 @@ start_server {tags {"zset"}} {
 
             assert_equal 0 [r exists zset]
             r hello 2
+            $rd close
         }
     }
 
@@ -1111,7 +1141,9 @@ start_server {tags {"zset"}} {
     test "ZPOP/ZMPOP against wrong type" {
         r set foo{t} bar
         assert_error "*WRONGTYPE*" {r zpopmin foo{t}}
+        assert_error "*WRONGTYPE*" {r zpopmin foo{t} 0}
         assert_error "*WRONGTYPE*" {r zpopmax foo{t}}
+        assert_error "*WRONGTYPE*" {r zpopmax foo{t} 0}
         assert_error "*WRONGTYPE*" {r zpopmin foo{t} 2}
 
         assert_error "*WRONGTYPE*" {r zmpop 1 foo{t} min}
@@ -1137,6 +1169,7 @@ start_server {tags {"zset"}} {
         assert_error "ERR syntax error*" {r zmpop 1 myzset{t} MIN bar_arg}
         assert_error "ERR syntax error*" {r zmpop 1 myzset{t} MAX MIN}
         assert_error "ERR syntax error*" {r zmpop 1 myzset{t} COUNT}
+        assert_error "ERR syntax error*" {r zmpop 1 myzset{t} MAX COUNT 1 COUNT 2}
         assert_error "ERR syntax error*" {r zmpop 2 myzset{t} myzset2{t} bad_arg}
 
         assert_error "ERR count*" {r zmpop 1 myzset{t} MIN COUNT 0}
@@ -1257,7 +1290,7 @@ start_server {tags {"zset"}} {
             assert_equal [$rd read] {a}
             verify_score_response $rd $resp 1
 
-            $rd readraw 0
+            $rd close
         }
 
         test "ZMPOP readraw in RESP$resp" {
@@ -1346,7 +1379,7 @@ start_server {tags {"zset"}} {
             assert_equal [$rd read] {b}
             verify_score_response $rd $resp 2
 
-            $rd readraw 0
+            $rd close
         }
     }
 
@@ -1800,6 +1833,7 @@ start_server {tags {"zset"}} {
             r zadd zset 1 bar
 
             verify_pop_response $pop [$rd read] {zset bar 1} {zset {{bar 1}}}
+            $rd close
         }
 
         test "$pop, ZADD + DEL + SET should not awake blocked client" {
@@ -1818,6 +1852,7 @@ start_server {tags {"zset"}} {
             r zadd zset 1 bar
 
             verify_pop_response $pop [$rd read] {zset bar 1} {zset {{bar 1}}}
+            $rd close
         }
     }
 
@@ -1842,6 +1877,7 @@ start_server {tags {"zset"}} {
             assert_equal [$rd read] {z1{t} a 0}
             $rd bzpopmin z1{t} z2{t} z2{t} z1{t} 0
             assert_equal [$rd read] {z2{t} b 1}
+            $rd close
         }
 
     foreach {pop} {BZPOPMIN BZMPOP_MIN} {
@@ -1859,6 +1895,7 @@ start_server {tags {"zset"}} {
             r exec
 
             verify_pop_response $pop [$rd read] {zset a 0} {zset {{a 0}}}
+            $rd close
         }
 
         test "$pop with variadic ZADD" {
@@ -1872,6 +1909,7 @@ start_server {tags {"zset"}} {
             if {$::valgrind} {after 100}
             verify_pop_response $pop [$rd read] {zset foo -1} {zset {{foo -1}}}
             assert_equal {bar} [r zrange zset 0 -1]
+            $rd close
         }
 
         test "$pop with zero timeout should block indefinitely" {
@@ -1882,6 +1920,7 @@ start_server {tags {"zset"}} {
             after 1000
             r zadd zset 0 foo
             verify_pop_response $pop [$rd read] {zset foo 0} {zset {{foo 0}}}
+            $rd close
         }
     }
 
@@ -1922,6 +1961,7 @@ start_server {tags {"zset"}} {
         assert_error "ERR syntax error*" {r bzmpop 1 1 myzset{t} MIN bar_arg}
         assert_error "ERR syntax error*" {r bzmpop 1 1 myzset{t} MAX MIN}
         assert_error "ERR syntax error*" {r bzmpop 1 1 myzset{t} COUNT}
+        assert_error "ERR syntax error*" {r bzmpop 1 1 myzset{t} MIN COUNT 1 COUNT 2}
         assert_error "ERR syntax error*" {r bzmpop 1 2 myzset{t} myzset2{t} bad_arg}
 
         assert_error "ERR count*" {r bzmpop 1 1 myzset{t} MIN COUNT 0}
@@ -1938,8 +1978,11 @@ start_server {tags {"zset"}} {
         r del myzset{t} myzset2{t}
 
         $rd1 bzmpop 0 2 myzset{t} myzset2{t} min count 1
+        wait_for_blocked_clients_count 1
         $rd2 bzmpop 0 2 myzset{t} myzset2{t} max count 10
+        wait_for_blocked_clients_count 2
         $rd3 bzmpop 0 2 myzset{t} myzset2{t} min count 10
+        wait_for_blocked_clients_count 3
         $rd4 bzmpop 0 2 myzset{t} myzset2{t} max count 1
         wait_for_blocked_clients_count 4
 
@@ -1956,6 +1999,10 @@ start_server {tags {"zset"}} {
         assert_equal {myzset2{t} {{c 3}}} [$rd4 read]
 
         r del myzset{t} myzset2{t}
+        $rd1 close
+        $rd2 close
+        $rd3 close
+        $rd4 close
     }
 
     test "BZMPOP propagate as pop with count command to replica" {
@@ -1983,6 +2030,8 @@ start_server {tags {"zset"}} {
         # Released on timeout.
         assert_equal {} [r bzmpop 0.01 1 myzset{t} max count 10]
         r set foo{t} bar ;# something else to propagate after, so we can make sure the above pop didn't.
+
+        $rd close
 
         assert_replication_stream $repl {
             {select *}

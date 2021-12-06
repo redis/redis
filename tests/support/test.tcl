@@ -118,7 +118,7 @@ proc wait_for_condition {maxtries delay e _else_ elsescript} {
 proc search_pattern_list {value pattern_list} {
     set n 0
     foreach el $pattern_list {
-        if {[regexp -- $el $value]} {
+        if {[string length $el] > 0 && [regexp -- $el $value]} {
             return $n
         }
         incr n
@@ -128,7 +128,7 @@ proc search_pattern_list {value pattern_list} {
 
 proc test {name code {okpattern undefined} {tags {}}} {
     # abort if test name in skiptests
-    if {[lsearch $::skiptests $name] >= 0} {
+    if {[search_pattern_list $name $::skiptests] >= 0} {
         incr ::num_skipped
         send_data_packet $::test_server_fd skip $name
         return
@@ -152,11 +152,17 @@ proc test {name code {okpattern undefined} {tags {}}} {
     set details {}
     lappend details "$name in $::curfile"
 
-    # set a cur_test global to be logged into new servers that are spown
+    # set a cur_test global to be logged into new servers that are spawn
     # and log the test name in all existing servers
     set prev_test $::cur_test
     set ::cur_test "$name in $::curfile"
-    if {!$::external} {
+    if {$::external} {
+        catch {
+            set r [redis [srv 0 host] [srv 0 port] 0 $::tls]
+            $r debug log "### Starting test $::cur_test"
+            $r close
+        }
+    } else {
         foreach srv $::servers {
             set stdout [dict get $srv stdout]
             set fd [open $stdout "a+"]
