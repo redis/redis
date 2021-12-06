@@ -811,7 +811,7 @@ void configGetCommand(client *c) {
                 addReplyBulkSds(c, config->interface.get(config->data));
                 matches++;
                 break;
-            } else if (config->alias && strcasecmp(pattern, config->alias)) {
+            } else if (config->alias && !strcasecmp(pattern, config->alias)) {
                 addReplyBulkCString(c, config->alias);
                 addReplyBulkSds(c, config->interface.get(config->data));
                 matches++;
