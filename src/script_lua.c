@@ -908,9 +908,14 @@ static int luaRedisStatusReplyCommand(lua_State *lua) {
  * Set the propagation of write commands executed in the context of the
  * script to on/off for AOF and slaves. */
 static int luaRedisSetReplCommand(lua_State *lua) {
-    int flags;
+    int flags, argc = lua_gettop(lua);
 
     scriptRunCtx* rctx = luaGetFromRegistry(lua, REGISTRY_RUN_CTX_NAME);
+
+    if (argc != 1) {
+         lua_pushstring(lua, "redis.set_repl() requires two arguments.");
+         return lua_error(lua);
+    }
 
     flags = lua_tonumber(lua,-1);
     if ((flags & ~(PROPAGATE_AOF|PROPAGATE_REPL)) != 0) {

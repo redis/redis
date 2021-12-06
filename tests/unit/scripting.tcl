@@ -227,7 +227,7 @@ start_server {tags {"scripting"}} {
         assert_error "*xreadgroup command is not allowed with BLOCK option from scripts" {run_script {return redis.pcall('xreadgroup','group','g','c','BLOCK',0,'STREAMS','s','>')} 1 s}
     }
 
-    test {EVAL - Scripts can run certain commands} {
+    test {EVAL - Scripts can run non-deterministic commands} {
         set e {}
         catch {
             run_script "redis.pcall('randomkey'); return redis.pcall('set','x','ciao')" 0
@@ -401,16 +401,6 @@ start_server {tags {"scripting"}} {
             [r evalsha b534286061d4b9e4026607613b95c06c06015ae8 0]
     } {b534286061d4b9e4026607613b95c06c06015ae8 loaded}
 
-    # reply oredering is only relevant for is_eval Lua
-    test "Now in the context of Lua the output of random commands can be random" {
-        r del myset
-        r sadd myset a b c d e f g h i l m n o p q r s t u v z aa aaa azz
-        set res_1 [r eval {return redis.call('smembers',KEYS[1])} 1 myset]
-        set res_2 [r eval {return redis.call('smembers',KEYS[1])} 1 myset]
-        #TODO: actually this is assert {$res_1 ne $res_2}
-        assert_equal $res_1 $res_2
-    }
-
     test "SORT is normally not alpha re-ordered for the scripting engine" {
         r del myset
         r sadd myset 1 2 3 4 10
@@ -471,8 +461,12 @@ start_server {tags {"scripting"}} {
     # random handling is only relevant for is_eval Lua
     test {random numbers are random now} {
         set rand1 [r eval {return tostring(math.random())} 0]
-        set rand2 [r eval {return tostring(math.random())} 0]
-        assert {$rand1 ne $rand2}
+        puts $rand1
+        wait_for_condition 100 1 {
+            $rand1 ne [r eval {return tostring(math.random())} 0]
+        } else {
+            fail "random numbers should be random, now it's fixed value"
+        }
     }
 
     test {Scripting engine PRNG can be seeded correctly} {

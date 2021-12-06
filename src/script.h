@@ -59,11 +59,13 @@
 
 /* runCtx flags */
 #define SCRIPT_WRITE_DIRTY            (1ULL<<0) /* indicate that the current script already performed a write command */
-#define SCRIPT_MULTI_EMMITED          (1ULL<<1) /* indicate that we already wrote a multi command to replication/aof */
-#define SCRIPT_TIMEDOUT               (1ULL<<2) /* indicate that the current script timedout */
-#define SCRIPT_KILLED                 (1ULL<<3) /* indicate that the current script was marked to be killed */
-#define SCRIPT_READ_ONLY              (1ULL<<4) /* indicate that the current script should only perform read commands */
-#define SCRIPT_EVAL_MODE              (1ULL<<5) /* Indicate that the current script called from legacy Lua */
+
+#define SCRIPT_MULTI_EMMITED          (1ULL<<2) /* indicate that we already wrote a multi command to replication/aof */
+#define SCRIPT_TIMEDOUT               (1ULL<<3) /* indicate that the current script timedout */
+#define SCRIPT_KILLED                 (1ULL<<4) /* indicate that the current script was marked to be killed */
+#define SCRIPT_READ_ONLY              (1ULL<<5) /* indicate that the current script should only perform read commands */
+
+#define SCRIPT_EVAL_MODE              (1ULL<<7) /* Indicate that the current script called from legacy Lua */
 typedef struct scriptRunCtx scriptRunCtx;
 
 struct scriptRunCtx {
