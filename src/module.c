@@ -450,7 +450,7 @@ char *RM_Strdup(const char *str) {
 void poolAllocRelease(RedisModuleCtx *ctx) {
     RedisModulePoolAllocBlock *head = ctx->pa_head, *next;
 
-    while(head != NULL) {
+    while (head != NULL) {
         next = head->next;
         zfree(head);
         head = next;
@@ -4005,7 +4005,7 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
 
     int count = 0;
     va_start(ap, flags);
-    while(1) {
+    while (1) {
         RedisModuleString *field, *value;
         /* Get the field and value objects. */
         if (flags & REDISMODULE_HASH_CFIELDS) {
@@ -4107,7 +4107,7 @@ int RM_HashGet(RedisModuleKey *key, int flags, ...) {
     if (key->value && key->value->type != OBJ_HASH) return REDISMODULE_ERR;
 
     va_start(ap, flags);
-    while(1) {
+    while (1) {
         RedisModuleString *field, **valueptr;
         int *existsptr;
         /* Get the field object and the value pointer to pointer. */
@@ -4797,7 +4797,7 @@ robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int 
 
     /* Create the client and dispatch the command. */
     const char *p = fmt;
-    while(*p) {
+    while (*p) {
         if (*p == 'c') {
             char *cstr = va_arg(ap,char*);
             argv[argc++] = createStringObject(cstr,strlen(cstr));
@@ -5050,7 +5050,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     /* Convert the result of the Redis command into a module reply. */
     sds proto = sdsnewlen(c->buf,c->bufpos);
     c->bufpos = 0;
-    while(listLength(c->reply)) {
+    while (listLength(c->reply)) {
         clientReplyBlock *o = listNodeValue(listFirst(c->reply));
 
         proto = sdscatlen(proto,o->buf,o->used);
@@ -5151,7 +5151,7 @@ moduleType *moduleTypeLookupModuleByName(const char *name) {
         listNode *ln;
 
         listRewind(module->types,&li);
-        while((ln = listNext(&li))) {
+        while ((ln = listNext(&li))) {
             moduleType *mt = ln->value;
             if (memcmp(name,mt->name,sizeof(mt->name)) == 0) {
                 dictReleaseIterator(di);
@@ -5190,7 +5190,7 @@ moduleType *moduleTypeLookupModuleByID(uint64_t id) {
         listNode *ln;
 
         listRewind(module->types,&li);
-        while((ln = listNext(&li))) {
+        while ((ln = listNext(&li))) {
             moduleType *this_mt = ln->value;
             /* Compare only the 54 bit module identifier and not the
              * encoding version. */
@@ -5794,7 +5794,7 @@ ssize_t rdbSaveModulesAux(rio *rdb, int when) {
         listNode *ln;
 
         listRewind(module->types,&li);
-        while((ln = listNext(&li))) {
+        while ((ln = listNext(&li))) {
             moduleType *mt = ln->value;
             if (!mt->aux_save || !(mt->aux_save_triggers & when))
                 continue;
@@ -6882,7 +6882,7 @@ void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid)
     /* Remove irrelevant flags from the type mask */
     type &= ~(NOTIFY_KEYEVENT | NOTIFY_KEYSPACE);
 
-    while((ln = listNext(&li))) {
+    while ((ln = listNext(&li))) {
         RedisModuleKeyspaceSubscriber *sub = ln->value;
         /* Only notify subscribers on events matching they registration,
          * and avoid subscribers triggering themselves */
@@ -6908,7 +6908,7 @@ void moduleUnsubscribeNotifications(RedisModule *module) {
     listIter li;
     listNode *ln;
     listRewind(moduleKeyspaceSubscribers,&li);
-    while((ln = listNext(&li))) {
+    while ((ln = listNext(&li))) {
         RedisModuleKeyspaceSubscriber *sub = ln->value;
         if (sub->module == module) {
             listDelNode(moduleKeyspaceSubscribers, ln);
@@ -6948,7 +6948,7 @@ static moduleClusterReceiver *clusterReceivers[UINT8_MAX];
 /* Dispatch the message to the right module receiver. */
 void moduleCallClusterReceivers(const char *sender_id, uint64_t module_id, uint8_t type, const unsigned char *payload, uint32_t len) {
     moduleClusterReceiver *r = clusterReceivers[type];
-    while(r) {
+    while (r) {
         if (r->module_id == module_id) {
             RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
             ctx.module = r->module;
@@ -6972,7 +6972,7 @@ void RM_RegisterClusterMessageReceiver(RedisModuleCtx *ctx, uint8_t type, RedisM
 
     uint64_t module_id = moduleTypeEncodeId(ctx->module->name,0);
     moduleClusterReceiver *r = clusterReceivers[type], *prev = NULL;
-    while(r) {
+    while (r) {
         if (r->module_id == module_id) {
             /* Found! Set or delete. */
             if (callback) {
@@ -7051,7 +7051,7 @@ char **RM_GetClusterNodesList(RedisModuleCtx *ctx, size_t *numnodes) {
     dictIterator *di = dictGetIterator(server.cluster->nodes);
     dictEntry *de;
     int j = 0;
-    while((de = dictNext(di)) != NULL) {
+    while ((de = dictNext(di)) != NULL) {
         clusterNode *node = dictGetVal(de);
         if (node->flags & (CLUSTER_NODE_NOADDR|CLUSTER_NODE_HANDSHAKE)) continue;
         ids[j] = zmalloc(REDISMODULE_NODE_ID_LEN);
@@ -7214,7 +7214,7 @@ int moduleTimerHandler(struct aeEventLoop *eventLoop, long long id, void *client
     raxStart(&ri,Timers);
     uint64_t now = ustime();
     long long next_period = 0;
-    while(1) {
+    while (1) {
         raxSeek(&ri,"^",NULL,0);
         if (!raxNext(&ri)) break;
         uint64_t expiretime;
@@ -7275,7 +7275,7 @@ RedisModuleTimerID RM_CreateTimer(RedisModuleCtx *ctx, mstime_t period, RedisMod
     uint64_t expiretime = ustime()+period*1000;
     uint64_t key;
 
-    while(1) {
+    while (1) {
         key = htonu64(expiretime);
         if (raxFind(Timers, (unsigned char*)&key,sizeof(key)) == raxNotFound) {
             raxInsert(Timers,(unsigned char*)&key,sizeof(key),timer,NULL);
@@ -7840,7 +7840,7 @@ int RM_DictIteratorReseek(RedisModuleDictIter *di, const char *op, RedisModuleSt
  *      ... create the iterator here ...
  *      char *key;
  *      void *data;
- *      while((key = RedisModule_DictNextC(iter,&keylen,&data)) != NULL) {
+ *      while ((key = RedisModule_DictNextC(iter,&keylen,&data)) != NULL) {
  *          printf("%.*s %p\n", (int)keylen, key, data);
  *      }
  *
@@ -8350,7 +8350,7 @@ int moduleUnregisterUsedAPI(RedisModule *module) {
     int count = 0;
 
     listRewind(module->using,&li);
-    while((ln = listNext(&li))) {
+    while ((ln = listNext(&li))) {
         RedisModule *used = ln->value;
         listNode *ln = listSearchKey(used->usedby,module);
         if (ln) {
@@ -8371,7 +8371,7 @@ int moduleUnregisterFilters(RedisModule *module) {
     int count = 0;
 
     listRewind(module->filters,&li);
-    while((ln = listNext(&li))) {
+    while ((ln = listNext(&li))) {
         RedisModuleCommandFilter *filter = ln->value;
         listNode *ln = listSearchKey(moduleCommandFilters,filter);
         if (ln) {
@@ -8482,7 +8482,7 @@ void moduleCallCommandFilters(client *c) {
         .argc = c->argc
     };
 
-    while((ln = listNext(&li))) {
+    while ((ln = listNext(&li))) {
         RedisModuleCommandFilter *f = ln->value;
 
         /* Skip filter if REDISMODULE_CMDFILTER_NOSELF is set and module is
@@ -8664,7 +8664,7 @@ void RM_ScanCursorDestroy(RedisModuleScanCursor *cursor) {
  * The way it should be used:
  *
  *      RedisModuleCursor *c = RedisModule_ScanCursorCreate();
- *      while(RedisModule_Scan(ctx, c, callback, privateData));
+ *      while (RedisModule_Scan(ctx, c, callback, privateData));
  *      RedisModule_ScanCursorDestroy(c);
  *
  * It is also possible to use this API from another thread while the lock
@@ -8672,7 +8672,7 @@ void RM_ScanCursorDestroy(RedisModuleScanCursor *cursor) {
  *
  *      RedisModuleCursor *c = RedisModule_ScanCursorCreate();
  *      RedisModule_ThreadSafeContextLock(ctx);
- *      while(RedisModule_Scan(ctx, c, callback, privateData)){
+ *      while (RedisModule_Scan(ctx, c, callback, privateData)){
  *          RedisModule_ThreadSafeContextUnlock(ctx);
  *          // do some background job
  *          RedisModule_ThreadSafeContextLock(ctx);
@@ -8760,7 +8760,7 @@ static void moduleScanKeyCallback(void *privdata, const dictEntry *de) {
  *
  *      RedisModuleCursor *c = RedisModule_ScanCursorCreate();
  *      RedisModuleKey *key = RedisModule_OpenKey(...)
- *      while(RedisModule_ScanKey(key, c, callback, privateData));
+ *      while (RedisModule_ScanKey(key, c, callback, privateData));
  *      RedisModule_CloseKey(key);
  *      RedisModule_ScanCursorDestroy(c);
  *
@@ -8770,7 +8770,7 @@ static void moduleScanKeyCallback(void *privdata, const dictEntry *de) {
  *      RedisModuleCursor *c = RedisModule_ScanCursorCreate();
  *      RedisModule_ThreadSafeContextLock(ctx);
  *      RedisModuleKey *key = RedisModule_OpenKey(...)
- *      while(RedisModule_ScanKey(ctx, c, callback, privateData)){
+ *      while (RedisModule_ScanKey(ctx, c, callback, privateData)){
  *          RedisModule_CloseKey(key);
  *          RedisModule_ThreadSafeContextUnlock(ctx);
  *          // do some background job
@@ -8826,7 +8826,7 @@ int RM_ScanKey(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleSc
     } else if (o->type == OBJ_SET && o->encoding == OBJ_ENCODING_INTSET) {
         int pos = 0;
         int64_t ll;
-        while(intsetGet(o->ptr,pos++,&ll)) {
+        while (intsetGet(o->ptr,pos++,&ll)) {
             robj *field = createObject(OBJ_STRING,sdsfromlonglong(ll));
             fn(key, field, NULL, privdata);
             decrRefCount(field);
@@ -8839,7 +8839,7 @@ int RM_ScanKey(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleSc
         unsigned char *vstr;
         unsigned int vlen;
         long long vll;
-        while(p) {
+        while (p) {
             vstr = lpGetValue(p,&vlen,&vll);
             robj *field = (vstr != NULL) ?
                 createStringObject((char*)vstr,vlen) :
@@ -8862,7 +8862,7 @@ int RM_ScanKey(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleSc
         unsigned char *vstr;
         int64_t vlen;
         unsigned char intbuf[LP_INTBUF_SIZE];
-        while(p) {
+        while (p) {
             vstr = lpGet(p,&vlen,intbuf);
             robj *field = createStringObject((char*)vstr,vlen);
             p = lpNext(o->ptr,p);
@@ -8943,7 +8943,7 @@ int TerminateModuleForkChild(int child_pid, int wait) {
     serverLog(LL_VERBOSE,"Killing running module fork child: %ld",
         (long) server.child_pid);
     if (kill(server.child_pid,SIGUSR1) != -1 && wait) {
-        while(waitpid(server.child_pid, &statloc, 0) !=
+        while (waitpid(server.child_pid, &statloc, 0) !=
               server.child_pid);
     }
     /* Reset the buffer accumulating changes while the child saves. */
@@ -9242,7 +9242,7 @@ int RM_SubscribeToServerEvent(RedisModuleCtx *ctx, RedisModuleEvent event, Redis
     listIter li;
     listNode *ln;
     listRewind(RedisModule_EventListeners,&li);
-    while((ln = listNext(&li))) {
+    while ((ln = listNext(&li))) {
         el = ln->value;
         if (el->module == ctx->module && el->event.id == event.id)
             break; /* Matching event found. */
@@ -9325,7 +9325,7 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
     listIter li;
     listNode *ln;
     listRewind(RedisModule_EventListeners,&li);
-    while((ln = listNext(&li))) {
+    while ((ln = listNext(&li))) {
         RedisModuleEventListener *el = ln->value;
         if (el->event.id == eid) {
             RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
@@ -9406,7 +9406,7 @@ void moduleUnsubscribeAllServerEvents(RedisModule *module) {
     listNode *ln;
     listRewind(RedisModule_EventListeners,&li);
 
-    while((ln = listNext(&li))) {
+    while ((ln = listNext(&li))) {
         el = ln->value;
         if (el->module == module) {
             listDelNode(RedisModule_EventListeners,ln);
@@ -9596,7 +9596,7 @@ void moduleLoadFromQueue(void) {
     listNode *ln;
 
     listRewind(server.loadmodule_queue,&li);
-    while((ln = listNext(&li))) {
+    while ((ln = listNext(&li))) {
         struct moduleLoadQueueEntry *loadmod = ln->value;
         if (moduleLoad(loadmod->path,(void **)loadmod->argv,loadmod->argc)
             == C_ERR)
@@ -9822,7 +9822,7 @@ sds genModulesInfoStringRenderModulesList(list *l) {
     listNode *ln;
     listRewind(l,&li);
     sds output = sdsnew("[");
-    while((ln = listNext(&li))) {
+    while ((ln = listNext(&li))) {
         RedisModule *module = ln->value;
         output = sdscat(output,module->name);
         if (ln != listLast(l))

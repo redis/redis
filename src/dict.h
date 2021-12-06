@@ -119,16 +119,16 @@ typedef void (dictScanBucketFunction)(dict *d, dictEntry **bucketref);
         (entry)->v.val = (d)->type->valDup((d), _val_); \
     else \
         (entry)->v.val = (_val_); \
-} while(0)
+} while (0)
 
 #define dictSetSignedIntegerVal(entry, _val_) \
-    do { (entry)->v.s64 = _val_; } while(0)
+    do { (entry)->v.s64 = _val_; } while (0)
 
 #define dictSetUnsignedIntegerVal(entry, _val_) \
-    do { (entry)->v.u64 = _val_; } while(0)
+    do { (entry)->v.u64 = _val_; } while (0)
 
 #define dictSetDoubleVal(entry, _val_) \
-    do { (entry)->v.d = _val_; } while(0)
+    do { (entry)->v.d = _val_; } while (0)
 
 #define dictFreeKey(d, entry) \
     if ((d)->type->keyDestructor) \
@@ -139,7 +139,7 @@ typedef void (dictScanBucketFunction)(dict *d, dictEntry **bucketref);
         (entry)->key = (d)->type->keyDup((d), _key_); \
     else \
         (entry)->key = (_key_); \
-} while(0)
+} while (0)
 
 #define dictCompareKeys(d, key1, key2) \
     (((d)->type->keyCompare) ? \

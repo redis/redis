@@ -183,7 +183,7 @@ NULL
 
         listRewind(server.slowlog,&li);
         totentries = addReplyDeferredLen(c);
-        while(count-- && (ln = listNext(&li))) {
+        while (count-- && (ln = listNext(&li))) {
             int j;
 
             se = ln->value;

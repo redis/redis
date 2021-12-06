@@ -140,7 +140,7 @@ void handleBlockedClientsTimeout(void) {
     raxStart(&ri,server.clients_timeout_table);
     raxSeek(&ri,"^",NULL,0);
 
-    while(raxNext(&ri)) {
+    while (raxNext(&ri)) {
         uint64_t timeout;
         client *c;
         decodeTimeoutKey(ri.key,&timeout,&c);

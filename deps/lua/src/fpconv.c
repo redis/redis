@@ -191,7 +191,7 @@ int fpconv_g_fmt(char *str, double num, int precision)
     b = buf;
     do {
         *str++ = (*b == locale_decimal_point ? '.' : *b);
-    } while(*b++);
+    } while (*b++);
 
     return len;
 }

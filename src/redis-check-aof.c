@@ -152,7 +152,7 @@ off_t process(FILE *fp) {
     int i, multi = 0;
     char *str;
 
-    while(1) {
+    while (1) {
         if (!multi) pos = ftello(fp);
         if (!readAnnotations(fp)) break;
         if (!readArgc(fp, &argc)) break;

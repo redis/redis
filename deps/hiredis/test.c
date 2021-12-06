@@ -298,7 +298,7 @@ static void test_format_commands(void) {
     test_cond(strncmp(cmd,"*2\r\n$12\r\nkey:00000123\r\n$9\r\nstr:hello\r\n",len) == 0 && \
         len == 4+5+(12+2)+4+(9+2));                                                       \
     hi_free(cmd);                                                                         \
-} while(0)
+} while (0)
 
 #define FLOAT_WIDTH_TEST(type) do {                                                       \
     type value = 123.0;                                                                   \
@@ -307,7 +307,7 @@ static void test_format_commands(void) {
     test_cond(strncmp(cmd,"*2\r\n$12\r\nkey:0123.000\r\n$9\r\nstr:hello\r\n",len) == 0 && \
         len == 4+5+(12+2)+4+(9+2));                                                       \
     hi_free(cmd);                                                                         \
-} while(0)
+} while (0)
 
     INTEGER_WIDTH_TEST("d", int);
     INTEGER_WIDTH_TEST("hhd", char);
@@ -423,7 +423,7 @@ static void test_reply_reader(void) {
         ((redisReply*)reply)->elements == 1);
 
     test("Can parse arbitrarily nested multi-bulks correctly: ");
-    while(i--) {
+    while (i--) {
         assert(reply != NULL && ((redisReply*)reply)->type == REDIS_REPLY_ARRAY);
         reply = ((redisReply*)reply)->element[0];
     }
@@ -1259,7 +1259,7 @@ static void test_throughput(struct config config) {
 //
 //     /* Write output buffer */
 //     wdone = 0;
-//     while(!wdone) {
+//     while (!wdone) {
 //         usleep(500);
 //         redisBufferWrite(c,&wdone);
 //     }
@@ -1267,7 +1267,7 @@ static void test_throughput(struct config config) {
 //     /* Read until at least one callback is executed (the 3 replies will
 //      * arrive in a single packet, causing all callbacks to be executed in
 //      * a single pass). */
-//     while(__test_callback_flags == 0) {
+//     while (__test_callback_flags == 0) {
 //         assert(redisBufferRead(c) == REDIS_OK);
 //         redisProcessCallbacks(c);
 //     }

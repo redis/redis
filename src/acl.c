@@ -422,7 +422,7 @@ void ACLChangeCommandPerm(user *u, struct redisCommand *cmd, int allow) {
     if (cmd->subcommands_dict) {
         dictEntry *de;
         dictIterator *di = dictGetSafeIterator(cmd->subcommands_dict);
-        while((de = dictNext(di)) != NULL) {
+        while ((de = dictNext(di)) != NULL) {
             struct redisCommand *sub = (struct redisCommand *)dictGetVal(de);
             ACLSetUserCommandBit(u,sub->id,allow);
         }
@@ -678,7 +678,7 @@ sds ACLDescribeUser(user *u) {
     listIter li;
     listNode *ln;
     listRewind(u->passwords,&li);
-    while((ln = listNext(&li))) {
+    while ((ln = listNext(&li))) {
         sds thispass = listNodeValue(ln);
         res = sdscatlen(res,"#",1);
         res = sdscatsds(res,thispass);
@@ -690,7 +690,7 @@ sds ACLDescribeUser(user *u) {
         res = sdscatlen(res,"~* ",3);
     } else {
         listRewind(u->patterns,&li);
-        while((ln = listNext(&li))) {
+        while ((ln = listNext(&li))) {
             sds thispat = listNodeValue(ln);
             res = sdscatlen(res,"~",1);
             res = sdscatsds(res,thispat);
@@ -704,7 +704,7 @@ sds ACLDescribeUser(user *u) {
     } else {
         res = sdscatlen(res,"resetchannels ",14);
         listRewind(u->channels,&li);
-        while((ln = listNext(&li))) {
+        while ((ln = listNext(&li))) {
             sds thispat = listNodeValue(ln);
             res = sdscatlen(res,"&",1);
             res = sdscatsds(res,thispat);
@@ -772,7 +772,7 @@ void ACLAddAllowedFirstArg(user *u, unsigned long id, const char *sub) {
      * make sure the first-arg is not already specified inside. */
     long items = 0;
     if (u->allowed_firstargs[id]) {
-        while(u->allowed_firstargs[id][items]) {
+        while (u->allowed_firstargs[id][items]) {
             /* If it's already here do not add it again. */
             if (!strcasecmp(u->allowed_firstargs[id][items],sub))
                 return;
@@ -1159,7 +1159,7 @@ int ACLCheckUserCredentials(robj *username, robj *password) {
     listNode *ln;
     listRewind(u->passwords,&li);
     sds hashed = ACLHashPassword(password->ptr,sdslen(password->ptr));
-    while((ln = listNext(&li))) {
+    while ((ln = listNext(&li))) {
         sds thispass = listNodeValue(ln);
         if (!time_independent_strcmp(hashed, thispass)) {
             sdsfree(hashed);
@@ -1255,7 +1255,7 @@ int ACLCheckKey(const user *u, const char *key, int keylen) {
     listRewind(u->patterns,&li);
 
     /* Test this key against every pattern. */
-    while((ln = listNext(&li))) {
+    while ((ln = listNext(&li))) {
         sds pattern = listNodeValue(ln);
         size_t plen = sdslen(pattern);
         if (stringmatchlen(pattern,plen,key,keylen,0))
@@ -1341,7 +1341,7 @@ int ACLCheckPubsubChannelPerm(sds channel, list *allowed, int literal) {
     int match = 0;
 
     listRewind(allowed,&li);
-    while((ln = listNext(&li))) {
+    while ((ln = listNext(&li))) {
         sds pattern = listNodeValue(ln);
         size_t plen = sdslen(pattern);
 
@@ -1602,7 +1602,7 @@ sds ACLLoadFromFile(const char *filename) {
 
     /* Load the whole file as a single string in memory. */
     sds acls = sdsempty();
-    while(fgets(buf,sizeof(buf),fp) != NULL)
+    while (fgets(buf,sizeof(buf),fp) != NULL)
         acls = sdscat(acls,buf);
     fclose(fp);
 
@@ -1740,7 +1740,7 @@ int ACLSaveToFile(const char *filename) {
     raxIterator ri;
     raxStart(&ri,Users);
     raxSeek(&ri,"^",NULL,0);
-    while(raxNext(&ri)) {
+    while (raxNext(&ri)) {
         user *u = ri.data;
         /* Return information in the configuration file format. */
         sds user = sdsnew("user ");
@@ -1936,7 +1936,7 @@ void addACLLogEntry(client *c, int reason, int context, int argpos, sds username
         /* Add it to our list of entries. We'll have to trim the list
          * to its maximum size. */
         listAddNodeHead(ACLLog, le);
-        while(listLength(ACLLog) > server.acllog_max_len) {
+        while (listLength(ACLLog) > server.acllog_max_len) {
             listNode *ln = listLast(ACLLog);
             ACLLogEntry *le = listNodeValue(ln);
             ACLFreeLogEntry(le);
@@ -2060,7 +2060,7 @@ void aclCommand(client *c) {
         listIter li;
         listNode *ln;
         listRewind(u->passwords,&li);
-        while((ln = listNext(&li))) {
+        while ((ln = listNext(&li))) {
             sds thispass = listNodeValue(ln);
             addReplyBulkCBuffer(c,thispass,sdslen(thispass));
         }
@@ -2080,7 +2080,7 @@ void aclCommand(client *c) {
             listIter li;
             listNode *ln;
             listRewind(u->patterns,&li);
-            while((ln = listNext(&li))) {
+            while ((ln = listNext(&li))) {
                 sds thispat = listNodeValue(ln);
                 addReplyBulkCBuffer(c,thispat,sdslen(thispat));
             }
@@ -2096,7 +2096,7 @@ void aclCommand(client *c) {
             listIter li;
             listNode *ln;
             listRewind(u->channels,&li);
-            while((ln = listNext(&li))) {
+            while ((ln = listNext(&li))) {
                 sds thispat = listNodeValue(ln);
                 addReplyBulkCBuffer(c,thispat,sdslen(thispat));
             }
@@ -2109,7 +2109,7 @@ void aclCommand(client *c) {
         raxIterator ri;
         raxStart(&ri,Users);
         raxSeek(&ri,"^",NULL,0);
-        while(raxNext(&ri)) {
+        while (raxNext(&ri)) {
             user *u = ri.data;
             if (justnames) {
                 addReplyBulkCBuffer(c,u->name,sdslen(u->name));

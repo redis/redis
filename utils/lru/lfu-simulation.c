@@ -95,7 +95,7 @@ int main(void) {
         entries[j].ctime = time(NULL);
     }
 
-    while(1) {
+    while (1) {
         time_t now = time(NULL);
         long idx;
 
@@ -109,7 +109,7 @@ int main(void) {
         if (now-start < switch_after) {
             /* Power law. */
             idx = 1;
-            while((rand() % 21) != 0 && idx < keyspace_size) idx *= 2;
+            while ((rand() % 21) != 0 && idx < keyspace_size) idx *= 2;
             if (idx > keyspace_size) idx = keyspace_size;
             idx = rand() % idx;
         } else {

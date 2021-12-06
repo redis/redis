@@ -214,7 +214,7 @@ int prepareReplicasToWrite(void) {
     int prepared = 0;
 
     listRewind(server.slaves,&li);
-    while((ln = listNext(&li))) {
+    while ((ln = listNext(&li))) {
         client *slave = ln->value;
         if (!canFeedReplicaReplBuffer(slave)) continue;
         if (prepareClientToWrite(slave) == C_ERR) continue;
@@ -374,7 +374,7 @@ void feedReplicationBuffer(char *s, size_t len) {
     /* For output buffer of replicas. */
     listIter li;
     listRewind(server.slaves,&li);
-    while((ln = listNext(&li))) {
+    while ((ln = listNext(&li))) {
         client *slave = ln->value;
         if (!canFeedReplicaReplBuffer(slave)) continue;
 
@@ -499,7 +499,7 @@ void showLatestBacklog(void) {
 
     sds dump = sdsempty();
     listNode *node = listLast(server.repl_buffer_blocks);
-    while(dumplen) {
+    while (dumplen) {
         if (node == NULL) break;
         replBufBlock *o = listNodeValue(node);
         size_t thislen = o->used >= dumplen ? dumplen : o->used;
@@ -569,7 +569,7 @@ void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv,
     cmdobj = createObject(OBJ_STRING,cmdrepr);
 
     listRewind(monitors,&li);
-    while((ln = listNext(&li))) {
+    while ((ln = listNext(&li))) {
         client *monitor = ln->value;
         addReply(monitor,cmdobj);
         updateClientMemUsage(c);
@@ -858,7 +858,7 @@ int startBgsaveForReplication(int mincapa) {
     if (retval == C_ERR) {
         serverLog(LL_WARNING,"BGSAVE for replication failed");
         listRewind(server.slaves,&li);
-        while((ln = listNext(&li))) {
+        while ((ln = listNext(&li))) {
             client *slave = ln->value;
 
             if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START) {
@@ -877,7 +877,7 @@ int startBgsaveForReplication(int mincapa) {
      * the slaves for a full resync. Otherwise for disk target do it now.*/
     if (!socket_target) {
         listRewind(server.slaves,&li);
-        while((ln = listNext(&li))) {
+        while ((ln = listNext(&li))) {
             client *slave = ln->value;
 
             if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START) {
@@ -1013,7 +1013,7 @@ void syncCommand(client *c) {
         listIter li;
 
         listRewind(server.slaves,&li);
-        while((ln = listNext(&li))) {
+        while ((ln = listNext(&li))) {
             slave = ln->value;
             /* If the client needs a buffer of commands, we can't use
              * a replica without replication buffer. */
@@ -1249,7 +1249,7 @@ void removeRDBUsedToSyncReplicas(void) {
 
         int delrdb = 1;
         listRewind(server.slaves,&li);
-        while((ln = listNext(&li))) {
+        while ((ln = listNext(&li))) {
             slave = ln->value;
             if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START ||
                 slave->replstate == SLAVE_STATE_WAIT_BGSAVE_END ||
@@ -1484,7 +1484,7 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
     listIter li;
 
     listRewind(server.slaves,&li);
-    while((ln = listNext(&li))) {
+    while ((ln = listNext(&li))) {
         client *slave = ln->value;
 
         if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_END) {
@@ -2191,7 +2191,7 @@ char *sendCommand(connection *conn, ...) {
      * protocol to make sure correct arguments are sent. This function
      * is not safe for all binary data. */
     va_start(ap,conn);
-    while(1) {
+    while (1) {
         arg = va_arg(ap, char*);
         if (arg == NULL) break;
         cmdargs = sdscatprintf(cmdargs,"$%zu\r\n%s\r\n",strlen(arg),arg);
@@ -2391,7 +2391,7 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
          * disconnection. */
         char *start = reply+10;
         char *end = reply+9;
-        while(end[0] != '\r' && end[0] != '\n' && end[0] != '\0') end++;
+        while (end[0] != '\r' && end[0] != '\n' && end[0] != '\0') end++;
         if (end-start == CONFIG_RUN_ID_SIZE) {
             char new[CONFIG_RUN_ID_SIZE+1];
             memcpy(new,start,CONFIG_RUN_ID_SIZE);
@@ -2709,7 +2709,7 @@ void syncWithMaster(connection *conn) {
 
     /* Prepare a suitable temp file for bulk transfer */
     if (!useDisklessLoad()) {
-        while(maxtries--) {
+        while (maxtries--) {
             snprintf(tmpfile,256,
                 "temp-%d.%ld.rdb",(int)server.unixtime,(long int)getpid());
             dfd = open(tmpfile,O_CREAT|O_WRONLY|O_EXCL,0644);
@@ -3050,7 +3050,7 @@ void roleCommand(client *c) {
         addReplyLongLong(c,server.master_repl_offset);
         mbcount = addReplyDeferredLen(c);
         listRewind(server.slaves,&li);
-        while((ln = listNext(&li))) {
+        while ((ln = listNext(&li))) {
             client *slave = ln->value;
             char ip[NET_IP_STR_LEN], *slaveaddr = slave->slave_addr;
 
@@ -3267,7 +3267,7 @@ void refreshGoodSlavesCount(void) {
         !server.repl_min_slaves_max_lag) return;
 
     listRewind(server.slaves,&li);
-    while((ln = listNext(&li))) {
+    while ((ln = listNext(&li))) {
         client *slave = ln->value;
         time_t lag = server.unixtime - slave->repl_ack_time;
 
@@ -3403,7 +3403,7 @@ int replicationCountAcksByOffset(long long offset) {
     int count = 0;
 
     listRewind(server.slaves,&li);
-    while((ln = listNext(&li))) {
+    while ((ln = listNext(&li))) {
         client *slave = ln->value;
 
         if (slave->replstate != SLAVE_STATE_ONLINE) continue;
@@ -3470,7 +3470,7 @@ void processClientsWaitingReplicas(void) {
     listNode *ln;
 
     listRewind(server.clients_waiting_acks,&li);
-    while((ln = listNext(&li))) {
+    while ((ln = listNext(&li))) {
         client *c = ln->value;
 
         /* Every time we find a client that is satisfied for a given
@@ -3609,7 +3609,7 @@ void replicationCron(void) {
      * ping period and refresh the connection once per second since certain
      * timeouts are set at a few seconds (example: PSYNC response). */
     listRewind(server.slaves,&li);
-    while((ln = listNext(&li))) {
+    while ((ln = listNext(&li))) {
         client *slave = ln->value;
 
         int is_presync =
@@ -3628,7 +3628,7 @@ void replicationCron(void) {
         listNode *ln;
 
         listRewind(server.slaves,&li);
-        while((ln = listNext(&li))) {
+        while ((ln = listNext(&li))) {
             client *slave = ln->value;
 
             if (slave->replstate == SLAVE_STATE_ONLINE) {
@@ -3740,7 +3740,7 @@ void replicationStartPendingFork(void) {
         listIter li;
 
         listRewind(server.slaves,&li);
-        while((ln = listNext(&li))) {
+        while ((ln = listNext(&li))) {
             client *slave = ln->value;
             if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START) {
                 idle = server.unixtime - slave->lastinteraction;
@@ -3770,7 +3770,7 @@ static client *findReplica(char *host, int port) {
     client *replica;
 
     listRewind(server.slaves,&li);
-    while((ln = listNext(&li))) {
+    while ((ln = listNext(&li))) {
         replica = ln->value;
         char ip[NET_IP_STR_LEN], *replicaip = replica->slave_addr;
 
@@ -4000,7 +4000,7 @@ void updateFailoverStatus(void) {
 
         listRewind(server.slaves,&li);
         /* Find any replica that has matched our repl_offset */
-        while((ln = listNext(&li))) {
+        while ((ln = listNext(&li))) {
             replica = ln->value;
             if (replica->repl_ack_off == server.master_repl_offset) {
                 char ip[NET_IP_STR_LEN], *replicaaddr = replica->slave_addr;

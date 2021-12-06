@@ -148,7 +148,7 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
     } else if (o->type == OBJ_LIST) {
         listTypeIterator *li = listTypeInitIterator(o,0,LIST_TAIL);
         listTypeEntry entry;
-        while(listTypeNext(li,&entry)) {
+        while (listTypeNext(li,&entry)) {
             robj *eleobj = listTypeGet(&entry);
             mixStringObjectDigest(digest,eleobj);
             decrRefCount(eleobj);
@@ -157,7 +157,7 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
     } else if (o->type == OBJ_SET) {
         setTypeIterator *si = setTypeInitIterator(o);
         sds sdsele;
-        while((sdsele = setTypeNextObject(si)) != NULL) {
+        while ((sdsele = setTypeNextObject(si)) != NULL) {
             xorDigest(digest,sdsele,sdslen(sdsele));
             sdsfree(sdsele);
         }
@@ -200,7 +200,7 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
             dictIterator *di = dictGetIterator(zs->dict);
             dictEntry *de;
 
-            while((de = dictNext(di)) != NULL) {
+            while ((de = dictNext(di)) != NULL) {
                 sds sdsele = dictGetKey(de);
                 double *score = dictGetVal(de);
 
@@ -236,12 +236,12 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
         streamID id;
         int64_t numfields;
 
-        while(streamIteratorGetID(&si,&id,&numfields)) {
+        while (streamIteratorGetID(&si,&id,&numfields)) {
             sds itemid = sdscatfmt(sdsempty(),"%U.%U",id.ms,id.seq);
             mixDigest(digest,itemid,sdslen(itemid));
             sdsfree(itemid);
 
-            while(numfields--) {
+            while (numfields--) {
                 unsigned char *field, *value;
                 int64_t field_len, value_len;
                 streamIteratorGetField(&si,&field,&value,
@@ -294,7 +294,7 @@ void computeDatasetDigest(unsigned char *final) {
         mixDigest(final,&aux,sizeof(aux));
 
         /* Iterate this DB writing every entry */
-        while((de = dictNext(di)) != NULL) {
+        while ((de = dictNext(di)) != NULL) {
             sds key;
             robj *keyobj, *o;
 
@@ -1092,7 +1092,7 @@ static void *getMcontextEip(ucontext_t *uc) {
 #define NOT_SUPPORTED() do {\
     UNUSED(uc);\
     return NULL;\
-} while(0)
+} while (0)
 #if defined(__APPLE__) && !defined(MAC_OS_X_VERSION_10_6)
     /* OSX < 10.6 */
     #if defined(__x86_64__)
@@ -1182,7 +1182,7 @@ void logRegisters(ucontext_t *uc) {
     UNUSED(uc);\
     serverLog(LL_WARNING,\
               "  Dumping of registers not supported for this OS/arch");\
-} while(0)
+} while (0)
 
 /* OSX */
 #if defined(__APPLE__) && defined(MAC_OS_X_VERSION_10_6)
@@ -1763,7 +1763,7 @@ int memtest_test_linux_anonymous_maps(void) {
 
     fp = fopen("/proc/self/maps","r");
     if (!fp) return 0;
-    while(fgets(line,sizeof(line),fp) != NULL) {
+    while (fgets(line,sizeof(line),fp) != NULL) {
         char *start, *end, *p = line;
 
         start = p;
@@ -2004,7 +2004,7 @@ void serverLogHexDump(int level, char *descr, void *value, size_t len) {
 
     serverLog(level,"%s (hexdump of %zu bytes):", descr, len);
     b = buf;
-    while(len) {
+    while (len) {
         b[0] = charset[(*v)>>4];
         b[1] = charset[(*v)&0xf];
         b[2] = '\0';

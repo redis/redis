@@ -39,7 +39,7 @@
     } while (0)
 #define _EL_DEL_READ(ctx) do { \
         if ((ctx)->ev.delRead) (ctx)->ev.delRead((ctx)->ev.data); \
-    } while(0)
+    } while (0)
 #define _EL_ADD_WRITE(ctx)                                          \
     do {                                                            \
         refreshTimeout(ctx);                                        \
@@ -47,11 +47,11 @@
     } while (0)
 #define _EL_DEL_WRITE(ctx) do { \
         if ((ctx)->ev.delWrite) (ctx)->ev.delWrite((ctx)->ev.data); \
-    } while(0)
+    } while (0)
 #define _EL_CLEANUP(ctx) do { \
         if ((ctx)->ev.cleanup) (ctx)->ev.cleanup((ctx)->ev.data); \
         ctx->ev.cleanup = NULL; \
-    } while(0)
+    } while (0)
 
 static inline void refreshTimeout(redisAsyncContext *ctx) {
     #define REDIS_TIMER_ISSET(tvp) \

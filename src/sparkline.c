@@ -110,7 +110,7 @@ sds sparklineRenderRange(sds output, struct sequence *seq, int rows, int offset,
         relmax = 1;
     }
 
-    while(loop) {
+    while (loop) {
         loop = 0;
         memset(chars,' ',len);
         for (j = 0; j < len; j++) {

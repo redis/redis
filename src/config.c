@@ -263,7 +263,7 @@ standardConfig configs[];
 
 /* Get enum value from name. If there is no match INT_MIN is returned. */
 int configEnumGetValue(configEnum *ce, char *name) {
-    while(ce->name != NULL) {
+    while (ce->name != NULL) {
         if (!strcasecmp(ce->name,name)) return ce->val;
         ce++;
     }
@@ -272,7 +272,7 @@ int configEnumGetValue(configEnum *ce, char *name) {
 
 /* Get enum name from value. If no match is found NULL is returned. */
 const char *configEnumGetName(configEnum *ce, int val) {
-    while(ce->name != NULL) {
+    while (ce->name != NULL) {
         if (ce->val == val) return ce->name;
         ce++;
     }
@@ -593,7 +593,7 @@ void loadServerConfig(char *filename, char config_from_stdin, char *options) {
                                   globbuf.gl_pathv[i], strerror(errno));
                         exit(1);
                     }
-                    while(fgets(buf,CONFIG_MAX_LINE+1,fp) != NULL)
+                    while (fgets(buf,CONFIG_MAX_LINE+1,fp) != NULL)
                         config = sdscat(config,buf);
                     fclose(fp);
                 }
@@ -609,7 +609,7 @@ void loadServerConfig(char *filename, char config_from_stdin, char *options) {
                           filename, strerror(errno));
                 exit(1);
             }
-            while(fgets(buf,CONFIG_MAX_LINE+1,fp) != NULL)
+            while (fgets(buf,CONFIG_MAX_LINE+1,fp) != NULL)
                 config = sdscat(config,buf);
             fclose(fp);
         }
@@ -619,7 +619,7 @@ void loadServerConfig(char *filename, char config_from_stdin, char *options) {
     if (config_from_stdin) {
         serverLog(LL_WARNING,"Reading config from stdin");
         fp = stdin;
-        while(fgets(buf,CONFIG_MAX_LINE+1,fp) != NULL)
+        while (fgets(buf,CONFIG_MAX_LINE+1,fp) != NULL)
             config = sdscat(config,buf);
     }
 
@@ -929,7 +929,7 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
     if (fp == NULL) return state;
 
     /* Read the old file line by line, populate the state. */
-    while(fgets(buf,CONFIG_MAX_LINE+1,fp) != NULL) {
+    while (fgets(buf,CONFIG_MAX_LINE+1,fp) != NULL) {
         int argc;
         sds *argv;
         sds line = sdstrim(sdsnew(buf),"\r\n\t ");
@@ -1205,7 +1205,7 @@ void rewriteConfigUserOption(struct rewriteConfigState *state) {
     raxIterator ri;
     raxStart(&ri,Users);
     raxSeek(&ri,"^",NULL,0);
-    while(raxNext(&ri)) {
+    while (raxNext(&ri)) {
         user *u = ri.data;
         sds line = sdsnew("user ");
         line = sdscatsds(line,u->name);
@@ -1402,7 +1402,7 @@ void rewriteConfigRemoveOrphaned(struct rewriteConfigState *state) {
     dictIterator *di = dictGetIterator(state->option_to_line);
     dictEntry *de;
 
-    while((de = dictNext(di)) != NULL) {
+    while ((de = dictNext(di)) != NULL) {
         list *l = dictGetVal(de);
         sds option = dictGetKey(de);
 
@@ -1413,7 +1413,7 @@ void rewriteConfigRemoveOrphaned(struct rewriteConfigState *state) {
             continue;
         }
 
-        while(listLength(l)) {
+        while (listLength(l)) {
             listNode *ln = listFirst(l);
             int linenum = (long) ln->value;
 
@@ -1716,7 +1716,7 @@ static int enumConfigSet(typeData data, sds *argv, int argc, const char **err) {
     if (enumval == INT_MIN) {
         sds enumerr = sdsnew("argument must be one of the following: ");
         configEnum *enumNode = data.enumd.enum_value;
-        while(enumNode->name != NULL) {
+        while (enumNode->name != NULL) {
             enumerr = sdscatlen(enumerr, enumNode->name,
                                 strlen(enumNode->name));
             enumerr = sdscatlen(enumerr, ", ", 2);

@@ -164,7 +164,7 @@ int clusterLoadConfig(char *filename) {
      * To simplify we allocate 1024+CLUSTER_SLOTS*128 bytes per line. */
     maxline = 1024+CLUSTER_SLOTS*128;
     line = zmalloc(maxline);
-    while(fgets(line,maxline,fp) != NULL) {
+    while (fgets(line,maxline,fp) != NULL) {
         int argc;
         sds *argv;
         clusterNode *n, *master;
@@ -236,7 +236,7 @@ int clusterLoadConfig(char *filename) {
 
         /* Parse flags */
         p = s = argv[2];
-        while(p) {
+        while (p) {
             p = strchr(s,',');
             if (p) *p = '\0';
             if (!strcasecmp(s,"myself")) {
@@ -329,7 +329,7 @@ int clusterLoadConfig(char *filename) {
                 sdsfreesplitres(argv,argc);
                 goto fmterr;
             }
-            while(start <= stop) clusterAddSlot(n, start++);
+            while (start <= stop) clusterAddSlot(n, start++);
         }
 
         sdsfreesplitres(argv,argc);
@@ -668,7 +668,7 @@ void clusterReset(int hard) {
 
     /* Forget all the nodes, but myself. */
     di = dictGetSafeIterator(server.cluster->nodes);
-    while((de = dictNext(di)) != NULL) {
+    while ((de = dictNext(di)) != NULL) {
         clusterNode *node = dictGetVal(de);
 
         if (node == myself) continue;
@@ -767,7 +767,7 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
      * UPDATE messages may interact with the database content. */
     if (server.masterhost == NULL && server.loading) return;
 
-    while(max--) {
+    while (max--) {
         cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
         if (cfd == ANET_ERR) {
             if (errno != EWOULDBLOCK)
@@ -1090,7 +1090,7 @@ void clusterDelNode(clusterNode *delnode) {
 
     /* 2) Remove failure reports. */
     di = dictGetSafeIterator(server.cluster->nodes);
-    while((de = dictNext(di)) != NULL) {
+    while ((de = dictNext(di)) != NULL) {
         clusterNode *node = dictGetVal(de);
 
         if (node == delnode) continue;
@@ -1142,7 +1142,7 @@ uint64_t clusterGetMaxEpoch(void) {
     dictEntry *de;
 
     di = dictGetSafeIterator(server.cluster->nodes);
-    while((de = dictNext(di)) != NULL) {
+    while ((de = dictNext(di)) != NULL) {
         clusterNode *node = dictGetVal(de);
         if (node->configEpoch > max) max = node->configEpoch;
     }
@@ -1298,7 +1298,7 @@ void clusterBlacklistCleanup(void) {
     dictEntry *de;
 
     di = dictGetSafeIterator(server.cluster->nodes_black_list);
-    while((de = dictNext(di)) != NULL) {
+    while ((de = dictNext(di)) != NULL) {
         int64_t expire = dictGetUnsignedIntegerVal(de);
 
         if (expire < server.unixtime)
@@ -1433,7 +1433,7 @@ int clusterHandshakeInProgress(char *ip, int port, int cport) {
     dictEntry *de;
 
     di = dictGetSafeIterator(server.cluster->nodes);
-    while((de = dictNext(di)) != NULL) {
+    while ((de = dictNext(di)) != NULL) {
         clusterNode *node = dictGetVal(de);
 
         if (!nodeInHandshake(node)) continue;
@@ -1514,7 +1514,7 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
     clusterMsgDataGossip *g = (clusterMsgDataGossip*) hdr->data.ping.gossip;
     clusterNode *sender = link->node ? link->node : clusterLookupNode(hdr->sender);
 
-    while(count--) {
+    while (count--) {
         uint16_t flags = ntohs(g->flags);
         clusterNode *node;
         sds ci;
@@ -2405,7 +2405,7 @@ void clusterReadHandler(connection *conn) {
     clusterLink *link = connGetPrivateData(conn);
     unsigned int readlen, rcvbuflen;
 
-    while(1) { /* Read as long as there is data to read. */
+    while (1) { /* Read as long as there is data to read. */
         rcvbuflen = link->rcvbuf_len;
         if (rcvbuflen < 8) {
             /* First, obtain the first 8 bytes to get the full message
@@ -2499,7 +2499,7 @@ void clusterBroadcastMessage(void *buf, size_t len) {
     dictEntry *de;
 
     di = dictGetSafeIterator(server.cluster->nodes);
-    while((de = dictNext(di)) != NULL) {
+    while ((de = dictNext(di)) != NULL) {
         clusterNode *node = dictGetVal(de);
 
         if (!node->link) continue;
@@ -2679,7 +2679,7 @@ void clusterSendPing(clusterLink *link, int type) {
 
     /* Populate the gossip fields */
     int maxiterations = wanted*3;
-    while(freshnodes > 0 && gossipcount < wanted && maxiterations--) {
+    while (freshnodes > 0 && gossipcount < wanted && maxiterations--) {
         dictEntry *de = dictGetRandomKey(server.cluster->nodes);
         clusterNode *this = dictGetVal(de);
 
@@ -2717,7 +2717,7 @@ void clusterSendPing(clusterLink *link, int type) {
         dictEntry *de;
 
         di = dictGetSafeIterator(server.cluster->nodes);
-        while((de = dictNext(di)) != NULL && pfail_wanted > 0) {
+        while ((de = dictNext(di)) != NULL && pfail_wanted > 0) {
             clusterNode *node = dictGetVal(de);
             if (node->flags & CLUSTER_NODE_HANDSHAKE) continue;
             if (node->flags & CLUSTER_NODE_NOADDR) continue;
@@ -2764,7 +2764,7 @@ void clusterBroadcastPong(int target) {
     dictEntry *de;
 
     di = dictGetSafeIterator(server.cluster->nodes);
-    while((de = dictNext(di)) != NULL) {
+    while ((de = dictNext(di)) != NULL) {
         clusterNode *node = dictGetVal(de);
 
         if (!node->link) continue;
@@ -3446,7 +3446,7 @@ void clusterHandleSlaveMigration(int max_slaves) {
      * happen and relatively harmless when it does. */
     candidate = myself;
     di = dictGetSafeIterator(server.cluster->nodes);
-    while((de = dictNext(di)) != NULL) {
+    while ((de = dictNext(di)) != NULL) {
         clusterNode *node = dictGetVal(de);
         int okslaves = 0, is_orphaned = 1;
 
@@ -3664,7 +3664,7 @@ void clusterCron(void) {
     server.cluster->stats_pfail_nodes = 0;
     /* Run through some of the operations we want to do on each cluster node. */
     di = dictGetSafeIterator(server.cluster->nodes);
-    while((de = dictNext(di)) != NULL) {
+    while ((de = dictNext(di)) != NULL) {
         clusterNode *node = dictGetVal(de);
         /* The protocol is that they return non-zero if the node was
          * terminated. */
@@ -3709,7 +3709,7 @@ void clusterCron(void) {
     max_slaves = 0;
     this_slaves = 0;
     di = dictGetSafeIterator(server.cluster->nodes);
-    while((de = dictNext(di)) != NULL) {
+    while ((de = dictNext(di)) != NULL) {
         clusterNode *node = dictGetVal(de);
         now = mstime(); /* Use an updated time at every iteration. */
 
@@ -3909,7 +3909,7 @@ int clusterMastersHaveSlaves(void) {
     dictIterator *di = dictGetSafeIterator(server.cluster->nodes);
     dictEntry *de;
     int slaves = 0;
-    while((de = dictNext(di)) != NULL) {
+    while ((de = dictNext(di)) != NULL) {
         clusterNode *node = dictGetVal(de);
 
         if (nodeIsSlave(node)) continue;
@@ -4061,7 +4061,7 @@ void clusterUpdateState(void) {
 
         server.cluster->size = 0;
         di = dictGetSafeIterator(server.cluster->nodes);
-        while((de = dictNext(di)) != NULL) {
+        while ((de = dictNext(di)) != NULL) {
             clusterNode *node = dictGetVal(de);
 
             if (nodeIsMaster(node) && node->numslots) {
@@ -4380,7 +4380,7 @@ sds clusterGenNodesDescription(int filter, int use_pport) {
     clusterGenNodesSlotsInfo(filter);
 
     di = dictGetSafeIterator(server.cluster->nodes);
-    while((de = dictNext(di)) != NULL) {
+    while ((de = dictNext(di)) != NULL) {
         clusterNode *node = dictGetVal(de);
 
         if (node->flags & filter) continue;
@@ -5475,7 +5475,7 @@ void migrateCloseTimedoutSockets(void) {
     dictIterator *di = dictGetSafeIterator(server.migrate_cached_sockets);
     dictEntry *de;
 
-    while((de = dictNext(di)) != NULL) {
+    while ((de = dictNext(di)) != NULL) {
         migrateCachedSocket *cs = dictGetVal(de);
 
         if ((server.unixtime - cs->last_use_time) > MIGRATE_SOCKET_CACHE_TTL) {

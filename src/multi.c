@@ -314,7 +314,7 @@ void watchForKey(client *c, robj *key) {
 
     /* Check if we are already watching for this key */
     listRewind(c->watched_keys,&li);
-    while((ln = listNext(&li))) {
+    while ((ln = listNext(&li))) {
         wk = listNodeValue(ln);
         if (wk->db == c->db && equalStringObjects(key,wk->key))
             return; /* Key already watched */
@@ -343,7 +343,7 @@ void unwatchAllKeys(client *c) {
 
     if (listLength(c->watched_keys) == 0) return;
     listRewind(c->watched_keys,&li);
-    while((ln = listNext(&li))) {
+    while ((ln = listNext(&li))) {
         list *clients;
         watchedKey *wk;
 
@@ -393,7 +393,7 @@ void touchWatchedKey(redisDb *db, robj *key) {
     /* Mark all the clients watching this key as CLIENT_DIRTY_CAS */
     /* Check if we are already watching for this key */
     listRewind(clients,&li);
-    while((ln = listNext(&li))) {
+    while ((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
 
         c->flags |= CLIENT_DIRTY_CAS;
@@ -419,7 +419,7 @@ void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with) {
     if (dictSize(emptied->watched_keys) == 0) return;
 
     dictIterator *di = dictGetSafeIterator(emptied->watched_keys);
-    while((de = dictNext(di)) != NULL) {
+    while ((de = dictNext(di)) != NULL) {
         robj *key = dictGetKey(de);
         if (dictFind(emptied->dict, key->ptr) ||
             (replaced_with && dictFind(replaced_with->dict, key->ptr)))
@@ -427,7 +427,7 @@ void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with) {
             list *clients = dictGetVal(de);
             if (!clients) continue;
             listRewind(clients,&li);
-            while((ln = listNext(&li))) {
+            while ((ln = listNext(&li))) {
                 client *c = listNodeValue(ln);
                 c->flags |= CLIENT_DIRTY_CAS;
                 /* As the client is marked as dirty, there is no point in getting here

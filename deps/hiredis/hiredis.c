@@ -323,7 +323,7 @@ int redisvFormatCommand(char **target, const char *format, va_list ap) {
     if (curarg == NULL)
         return -1;
 
-    while(*c != '\0') {
+    while (*c != '\0') {
         if (*c != '%' || c[1] == '\0') {
             if (*c == ' ') {
                 if (touched) {
@@ -521,7 +521,7 @@ memory_err:
 
 cleanup:
     if (curargv) {
-        while(argc--)
+        while (argc--)
             hi_sdsfree(curargv[argc]);
         hi_free(curargv);
     }

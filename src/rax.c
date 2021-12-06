@@ -462,7 +462,7 @@ static inline size_t raxLowWalk(rax *rax, unsigned char *s, size_t len, raxNode 
 
     size_t i = 0; /* Position in the string. */
     size_t j = 0; /* Position in the node children (or bytes if compressed).*/
-    while(h->size && i < len) {
+    while (h->size && i < len) {
         debugnode("Lookup current node",h);
         unsigned char *v = h->data;
 
@@ -845,7 +845,7 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
 
     /* We walked the radix tree as far as we could, but still there are left
      * chars in our string. We need to insert the missing nodes. */
-    while(i < len) {
+    while (i < len) {
         raxNode *child;
 
         /* If this node is going to have a single child, and there
@@ -934,7 +934,7 @@ void *raxFind(rax *rax, unsigned char *s, size_t len) {
 raxNode **raxFindParentLink(raxNode *parent, raxNode *child) {
     raxNode **cp = raxNodeFirstChildPtr(parent);
     raxNode *c;
-    while(1) {
+    while (1) {
         memcpy(&c,cp,sizeof(c));
         if (c == child) break;
         cp++;
@@ -973,7 +973,7 @@ raxNode *raxRemoveChild(raxNode *parent, raxNode *child) {
 
     /* 2. Search the child pointer to remove inside the array of children
      *    pointers. */
-    while(1) {
+    while (1) {
         raxNode *aux;
         memcpy(&aux,c,sizeof(aux));
         if (aux == child) break;
@@ -1047,7 +1047,7 @@ int raxRemove(rax *rax, unsigned char *s, size_t len, void **old) {
     if (h->size == 0) {
         debugf("Key deleted in node without children. Cleanup needed.\n");
         raxNode *child = NULL;
-        while(h != rax->head) {
+        while (h != rax->head) {
             child = h;
             debugf("Freeing child %p [%.*s] key:%d\n", (void*)child,
                 (int)child->size, (char*)child->data, child->iskey);
@@ -1142,7 +1142,7 @@ int raxRemove(rax *rax, unsigned char *s, size_t len, void **old) {
          * At the end of the loop 'h' will point to the first node we
          * can try to compress and 'parent' to its parent. */
         raxNode *parent;
-        while(1) {
+        while (1) {
             parent = raxStackPop(&ts);
             if (!parent || parent->iskey ||
                 (!parent->iscompr && parent->size != 1)) break;
@@ -1154,7 +1154,7 @@ int raxRemove(rax *rax, unsigned char *s, size_t len, void **old) {
         /* Scan chain of nodes we can compress. */
         size_t comprsize = h->size;
         int nodes = 1;
-        while(h->size != 0) {
+        while (h->size != 0) {
             raxNode **cp = raxNodeLastChildPtr(h);
             memcpy(&h,cp,sizeof(h));
             if (h->iskey || (!h->iscompr && h->size != 1)) break;
@@ -1186,7 +1186,7 @@ int raxRemove(rax *rax, unsigned char *s, size_t len, void **old) {
              * all the nodes that we'll no longer use. */
             comprsize = 0;
             h = start;
-            while(h->size != 0) {
+            while (h->size != 0) {
                 memcpy(new->data+comprsize,h->data,h->size);
                 comprsize += h->size;
                 raxNode **cp = raxNodeLastChildPtr(h);
@@ -1224,7 +1224,7 @@ void raxRecursiveFree(rax *rax, raxNode *n, void (*free_callback)(void*)) {
     debugnode("free traversing",n);
     int numchildren = n->iscompr ? 1 : n->size;
     raxNode **cp = raxNodeLastChildPtr(n);
-    while(numchildren--) {
+    while (numchildren--) {
         raxNode *child;
         memcpy(&child,cp,sizeof(child));
         raxRecursiveFree(rax,child,free_callback);
@@ -1325,7 +1325,7 @@ int raxIteratorNextStep(raxIterator *it, int noup) {
     size_t orig_stack_items = it->stack.items;
     raxNode *orig_node = it->node;
 
-    while(1) {
+    while (1) {
         int children = it->node->iscompr ? 1 : it->node->size;
         if (!noup && children) {
             debugf("GO DEEPER\n");
@@ -1353,7 +1353,7 @@ int raxIteratorNextStep(raxIterator *it, int noup) {
              * new one: go upper until a node is found where there are
              * children representing keys lexicographically greater than the
              * current key. */
-            while(1) {
+            while (1) {
                 int old_noup = noup;
 
                 /* Already on head? Can't go up, iteration finished. */
@@ -1413,7 +1413,7 @@ int raxIteratorNextStep(raxIterator *it, int noup) {
  * out of memory, otherwise 1. This is a helper function for different
  * iteration functions below. */
 int raxSeekGreatest(raxIterator *it) {
-    while(it->node->size) {
+    while (it->node->size) {
         if (it->node->iscompr) {
             if (!raxIteratorAddChars(it,it->node->data,
                 it->node->size)) return 0;
@@ -1445,7 +1445,7 @@ int raxIteratorPrevStep(raxIterator *it, int noup) {
     size_t orig_stack_items = it->stack.items;
     raxNode *orig_node = it->node;
 
-    while(1) {
+    while (1) {
         int old_noup = noup;
 
         /* Already on head? Can't go up, iteration finished. */
@@ -1724,7 +1724,7 @@ int raxRandomWalk(raxIterator *it, size_t steps) {
     }
 
     raxNode *n = it->node;
-    while(steps > 0 || !n->iskey) {
+    while (steps > 0 || !n->iskey) {
         int numchildren = n->iscompr ? 1 : n->size;
         int r = rand() % (numchildren+(n != it->rt->head));
 
@@ -1875,7 +1875,7 @@ void raxDebugShowNode(const char *msg, raxNode *n) {
         msg, (void*)n, (int)n->size, (char*)n->data, n->iskey, n->size);
     int numcld = n->iscompr ? 1 : n->size;
     raxNode **cldptr = raxNodeLastChildPtr(n) - (numcld-1);
-    while(numcld--) {
+    while (numcld--) {
         raxNode *child;
         memcpy(&child,cldptr,sizeof(child));
         cldptr++;

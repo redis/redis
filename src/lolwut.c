@@ -130,7 +130,7 @@ void lwDrawLine(lwCanvas *canvas, int x1, int y1, int x2, int y2, int color) {
     int sy = (y1 < y2) ? 1 : -1;
     int err = dx-dy, e2;
 
-    while(1) {
+    while (1) {
         lwDrawPixel(canvas,x1,y1,color);
         if (x1 == x2 && y1 == y2) break;
         e2 = err*2;

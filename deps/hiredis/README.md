@@ -270,7 +270,7 @@ This API can also be used to implement a blocking subscriber:
 ```c
 reply = redisCommand(context,"SUBSCRIBE foo");
 freeReplyObject(reply);
-while(redisGetReply(context,(void *)&reply) == REDIS_OK) {
+while (redisGetReply(context,(void *)&reply) == REDIS_OK) {
     // consume message
     freeReplyObject(reply);
 }

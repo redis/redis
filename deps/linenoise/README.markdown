@@ -81,7 +81,7 @@ line is freed with the same allocator it was created.
 The canonical loop used by a program using Linenoise will be something like
 this:
 
-    while((line = linenoise("hello> ")) != NULL) {
+    while ((line = linenoise("hello> ")) != NULL) {
         printf("You wrote: %s\n", line);
         linenoiseFree(line); /* Or just free(line) if you use libc malloc. */
     }

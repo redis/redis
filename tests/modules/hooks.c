@@ -109,7 +109,7 @@ void clearEvents(RedisModuleCtx *ctx)
     RedisModuleString *key;
     EventElement *event;
     RedisModuleDictIter *iter = RedisModule_DictIteratorStart(event_log, "^", NULL);
-    while((key = RedisModule_DictNext(ctx, iter, (void**)&event)) != NULL) {
+    while ((key = RedisModule_DictNext(ctx, iter, (void**)&event)) != NULL) {
         event->count = 0;
         event->last_val_int = 0;
         if (event->last_val_string) RedisModule_FreeString(ctx, event->last_val_string);

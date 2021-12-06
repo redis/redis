@@ -374,7 +374,7 @@ static int completeLine(struct linenoiseState *ls) {
     } else {
         size_t stop = 0, i = 0;
 
-        while(!stop) {
+        while (!stop) {
             /* Show completion or original buffer */
             if (i < lc.len) {
                 struct linenoiseState saved = *ls;
@@ -526,7 +526,7 @@ static void refreshSingleLine(struct linenoiseState *l) {
     size_t pos = l->pos;
     struct abuf ab;
 
-    while((plen+pos) >= l->cols) {
+    while ((plen+pos) >= l->cols) {
         buf++;
         len--;
         pos--;
@@ -820,7 +820,7 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
     linenoiseHistoryAdd("");
 
     if (write(l.ofd,prompt,l.plen) == -1) return -1;
-    while(1) {
+    while (1) {
         char c;
         int nread;
         char seq[3];
@@ -987,7 +987,7 @@ void linenoisePrintKeyCodes(void) {
             "Press keys to see scan codes. Type 'quit' at any time to exit.\n");
     if (enableRawMode(STDIN_FILENO) == -1) return;
     memset(quit,' ',4);
-    while(1) {
+    while (1) {
         char c;
         int nread;
 
@@ -1031,7 +1031,7 @@ static char *linenoiseNoTTY(void) {
     char *line = NULL;
     size_t len = 0, maxlen = 0;
 
-    while(1) {
+    while (1) {
         if (len == maxlen) {
             if (maxlen == 0) maxlen = 16;
             maxlen *= 2;
@@ -1078,7 +1078,7 @@ char *linenoise(const char *prompt) {
         fflush(stdout);
         if (fgets(buf,LINENOISE_MAX_LINE,stdin) == NULL) return NULL;
         len = strlen(buf);
-        while(len && (buf[len-1] == '\n' || buf[len-1] == '\r')) {
+        while (len && (buf[len-1] == '\n' || buf[len-1] == '\r')) {
             len--;
             buf[len] = '\0';
         }

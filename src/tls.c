@@ -913,7 +913,7 @@ static ssize_t connTLSSyncReadLine(connection *conn_, char *ptr, ssize_t size, l
     setBlockingTimeout(conn, timeout);
 
     size--;
-    while(size) {
+    while (size) {
         char c;
 
         if (SSL_read(conn->ssl,&c,1) <= 0) {
@@ -971,7 +971,7 @@ int tlsProcessPendingData() {
 
     int processed = listLength(pending_list);
     listRewind(pending_list,&li);
-    while((ln = listNext(&li))) {
+    while ((ln = listNext(&li))) {
         tls_connection *conn = listNodeValue(ln);
         tlsHandleEvent(conn, AE_READABLE);
     }

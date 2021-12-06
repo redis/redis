@@ -71,7 +71,7 @@ void disableTracking(client *c) {
         raxIterator ri;
         raxStart(&ri,c->client_tracking_prefixes);
         raxSeek(&ri,"^",NULL,0);
-        while(raxNext(&ri)) {
+        while (raxNext(&ri)) {
             bcastState *bs = raxFind(PrefixTable,ri.key,ri.key_len);
             serverAssert(bs != raxNotFound);
             raxRemove(bs->clients,(unsigned char*)&c,sizeof(c),NULL);
@@ -116,7 +116,7 @@ int checkPrefixCollisionsOrReply(client *c, robj **prefixes, size_t numprefix) {
             raxIterator ri;
             raxStart(&ri,c->client_tracking_prefixes);
             raxSeek(&ri,"^",NULL,0);
-            while(raxNext(&ri)) {
+            while (raxNext(&ri)) {
                 if (stringCheckPrefix(ri.key,ri.key_len,
                     prefixes[i]->ptr,sdslen(prefixes[i]->ptr))) 
                 {
@@ -318,7 +318,7 @@ void trackingRememberKeyToBroadcast(client *c, char *keyname, size_t keylen) {
     raxIterator ri;
     raxStart(&ri,PrefixTable);
     raxSeek(&ri,"^",NULL,0);
-    while(raxNext(&ri)) {
+    while (raxNext(&ri)) {
         if (ri.key_len > keylen) continue;
         if (ri.key_len != 0 && memcmp(ri.key,keyname,ri.key_len) != 0)
             continue;
@@ -363,7 +363,7 @@ void trackingInvalidateKey(client *c, robj *keyobj, int bcast) {
     raxIterator ri;
     raxStart(&ri,ids);
     raxSeek(&ri,"^",NULL,0);
-    while(raxNext(&ri)) {
+    while (raxNext(&ri)) {
         uint64_t id;
         memcpy(&id,ri.key,sizeof(id));
         client *target = lookupClientByID(id);
@@ -493,7 +493,7 @@ void trackingLimitUsedSlots(void) {
     /* We just remove one key after another by using a random walk. */
     raxIterator ri;
     raxStart(&ri,TrackingTable);
-    while(effort > 0) {
+    while (effort > 0) {
         effort--;
         raxSeek(&ri,"^",NULL,0);
         raxRandomWalk(&ri,0);
@@ -530,7 +530,7 @@ sds trackingBuildBroadcastReply(client *c, rax *keys) {
         count = 0;
         raxStart(&ri,keys);
         raxSeek(&ri,"^",NULL,0);
-        while(raxNext(&ri)) {
+        while (raxNext(&ri)) {
             if (ri.data != c) count++;
         }
         raxStop(&ri);
@@ -549,7 +549,7 @@ sds trackingBuildBroadcastReply(client *c, rax *keys) {
     proto = sdscatlen(proto,"\r\n",2);
     raxStart(&ri,keys);
     raxSeek(&ri,"^",NULL,0);
-    while(raxNext(&ri)) {
+    while (raxNext(&ri)) {
         if (c && ri.data == c) continue;
         len = ll2string(buf,sizeof(buf),ri.key_len);
         proto = sdscatlen(proto,"$",1);
@@ -575,7 +575,7 @@ void trackingBroadcastInvalidationMessages(void) {
     raxSeek(&ri,"^",NULL,0);
 
     /* For each prefix... */
-    while(raxNext(&ri)) {
+    while (raxNext(&ri)) {
         bcastState *bs = ri.data;
 
         if (raxSize(bs->keys)) {
@@ -586,7 +586,7 @@ void trackingBroadcastInvalidationMessages(void) {
             /* Send this array of keys to every client in the list. */
             raxStart(&ri2,bs->clients);
             raxSeek(&ri2,"^",NULL,0);
-            while(raxNext(&ri2)) {
+            while (raxNext(&ri2)) {
                 client *c;
                 memcpy(&c,ri2.key,sizeof(c));
                 if (c->flags & CLIENT_TRACKING_NOLOOP) {

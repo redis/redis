@@ -350,7 +350,7 @@ static size_t rioFdWrite(rio *r, const void *buf, size_t len) {
     }
 
     size_t nwritten = 0;
-    while(nwritten != len) {
+    while (nwritten != len) {
         retval = write(r->io.fd.fd,p+nwritten,len-nwritten);
         if (retval <= 0) {
             if (retval == -1 && errno == EINTR) continue;

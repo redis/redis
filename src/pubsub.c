@@ -256,7 +256,7 @@ int pubsubUnsubscribeAllChannels(client *c, int notify) {
         dictIterator *di = dictGetSafeIterator(c->pubsub_channels);
         dictEntry *de;
 
-        while((de = dictNext(di)) != NULL) {
+        while ((de = dictNext(di)) != NULL) {
             robj *channel = dictGetKey(de);
 
             count += pubsubUnsubscribeChannel(c,channel,notify);
@@ -312,7 +312,7 @@ int pubsubPublishMessage(robj *channel, robj *message) {
     di = dictGetIterator(server.pubsub_patterns);
     if (di) {
         channel = getDecodedObject(channel);
-        while((de = dictNext(di)) != NULL) {
+        while ((de = dictNext(di)) != NULL) {
             robj *pattern = dictGetKey(de);
             list *clients = dictGetVal(de);
             if (!stringmatchlen((char*)pattern->ptr,
@@ -444,7 +444,7 @@ NULL
         void *replylen;
 
         replylen = addReplyDeferredLen(c);
-        while((de = dictNext(di)) != NULL) {
+        while ((de = dictNext(di)) != NULL) {
             robj *cobj = dictGetKey(de);
             sds channel = cobj->ptr;
 

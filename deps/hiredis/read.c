@@ -131,7 +131,7 @@ static char *seekNewline(char *s, size_t len) {
      * allow to search a limited length and the buffer that is being searched
      * might not have a trailing NULL character. */
     while (pos < _len) {
-        while(pos < _len && s[pos] != '\r') pos++;
+        while (pos < _len && s[pos] != '\r') pos++;
         if (pos==_len) {
             /* Not found. */
             return NULL;

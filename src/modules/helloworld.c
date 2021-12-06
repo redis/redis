@@ -158,7 +158,7 @@ int HelloListSplice_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, 
         return RedisModule_ReplyWithError(ctx,"ERR invalid count");
     }
 
-    while(count-- > 0) {
+    while (count-- > 0) {
         RedisModuleString *ele;
 
         ele = RedisModule_ListPop(srckey,REDISMODULE_LIST_TAIL);
@@ -202,7 +202,7 @@ int HelloListSpliceAuto_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **ar
         return RedisModule_ReplyWithError(ctx,"ERR invalid count");
     }
 
-    while(count-- > 0) {
+    while (count-- > 0) {
         RedisModuleString *ele;
 
         ele = RedisModule_ListPop(srckey,REDISMODULE_LIST_TAIL);
@@ -229,7 +229,7 @@ int HelloRandArray_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
      * by other "count" calls to other reply functions in order to generate
      * the elements of the array. */
     RedisModule_ReplyWithArray(ctx,count);
-    while(count--) RedisModule_ReplyWithLongLong(ctx,rand());
+    while (count--) RedisModule_ReplyWithLongLong(ctx,rand());
     return REDISMODULE_OK;
 }
 
@@ -289,7 +289,7 @@ int HelloRepl2_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     long long sum = 0;
 
     /* Rotate and increment. */
-    while(listlen--) {
+    while (listlen--) {
         RedisModuleString *ele = RedisModule_ListPop(key,REDISMODULE_LIST_TAIL);
         long long val;
         if (RedisModule_StringToLongLong(ele,&val) != REDISMODULE_OK) val = 0;
@@ -392,7 +392,7 @@ int HelloZsumRange_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
     double scoresum_b = 0;
 
     RedisModule_ZsetFirstInScoreRange(key,score_start,score_end,0,0);
-    while(!RedisModule_ZsetRangeEndReached(key)) {
+    while (!RedisModule_ZsetRangeEndReached(key)) {
         double score;
         RedisModuleString *ele = RedisModule_ZsetRangeCurrentElement(key,&score);
         RedisModule_FreeString(ctx,ele);
@@ -402,7 +402,7 @@ int HelloZsumRange_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
     RedisModule_ZsetRangeStop(key);
 
     RedisModule_ZsetLastInScoreRange(key,score_start,score_end,0,0);
-    while(!RedisModule_ZsetRangeEndReached(key)) {
+    while (!RedisModule_ZsetRangeEndReached(key)) {
         double score;
         RedisModuleString *ele = RedisModule_ZsetRangeCurrentElement(key,&score);
         RedisModule_FreeString(ctx,ele);
@@ -444,7 +444,7 @@ int HelloLexRange_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, in
 
     int arraylen = 0;
     RedisModule_ReplyWithArray(ctx,REDISMODULE_POSTPONED_LEN);
-    while(!RedisModule_ZsetRangeEndReached(key)) {
+    while (!RedisModule_ZsetRangeEndReached(key)) {
         double score;
         RedisModuleString *ele = RedisModule_ZsetRangeCurrentElement(key,&score);
         RedisModule_ReplyWithString(ctx,ele);

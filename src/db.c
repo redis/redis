@@ -270,7 +270,7 @@ robj *dbRandomKey(redisDb *db) {
     int maxtries = 100;
     int allvolatile = dictSize(db->dict) == dictSize(db->expires);
 
-    while(1) {
+    while (1) {
         sds key;
         robj *keyobj;
 
@@ -713,7 +713,7 @@ void keysCommand(client *c) {
 
     di = dictGetSafeIterator(c->db->dict);
     allkeys = (pattern[0] == '*' && plen == 1);
-    while((de = dictNext(di)) != NULL) {
+    while ((de = dictNext(di)) != NULL) {
         sds key = dictGetKey(de);
         robj *keyobj;
 
@@ -889,7 +889,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         int pos = 0;
         int64_t ll;
 
-        while(intsetGet(o->ptr,pos++,&ll))
+        while (intsetGet(o->ptr,pos++,&ll))
             listAddNodeTail(keys,createStringObjectFromLongLong(ll));
         cursor = 0;
     } else if (o->type == OBJ_HASH || o->type == OBJ_ZSET) {
@@ -898,7 +898,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         int64_t vlen;
         unsigned char intbuf[LP_INTBUF_SIZE];
 
-        while(p) {
+        while (p) {
             vstr = lpGet(p,&vlen,intbuf);
             listAddNodeTail(keys, createStringObject((char*)vstr,vlen));
             p = lpNext(o->ptr,p);
@@ -1263,7 +1263,7 @@ void copyCommand(client *c) {
 void scanDatabaseForReadyLists(redisDb *db) {
     dictEntry *de;
     dictIterator *di = dictGetSafeIterator(db->blocking_keys);
-    while((de = dictNext(di)) != NULL) {
+    while ((de = dictNext(di)) != NULL) {
         robj *key = dictGetKey(de);
         dictEntry *kde = dictFind(db->dict,key->ptr);
         if (kde) {

@@ -2855,7 +2855,7 @@ void clientsCron(void) {
     ClientsPeakMemOutput[zeroidx] = 0;
 
 
-    while(listLength(server.clients) && iterations--) {
+    while (listLength(server.clients) && iterations--) {
         client *c;
         listNode *head;
 
@@ -3953,7 +3953,7 @@ void adjustOpenFilesLimit(void) {
             /* Try to set the file limit to match 'maxfiles' or at least
              * to the higher value supported less than maxfiles. */
             bestlimit = maxfiles;
-            while(bestlimit > oldlimit) {
+            while (bestlimit > oldlimit) {
                 rlim_t decr_step = 16;
 
                 limit.rlim_cur = bestlimit;
@@ -4669,7 +4669,7 @@ void resetCommandTableStats(dict* commands) {
     dictIterator *di;
 
     di = dictGetSafeIterator(commands);
-    while((de = dictNext(di)) != NULL) {
+    while ((de = dictNext(di)) != NULL) {
         c = (struct redisCommand *) dictGetVal(de);
         c->microseconds = 0;
         c->calls = 0;
@@ -4708,7 +4708,7 @@ int redisOpArrayAppend(redisOpArray *oa, int dbid, robj **argv, int argc, int ta
 }
 
 void redisOpArrayFree(redisOpArray *oa) {
-    while(oa->numops) {
+    while (oa->numops) {
         int j;
         redisOp *op;
 
@@ -5905,7 +5905,7 @@ void addReplyCommandSubCommands(client *c, struct redisCommand *cmd) {
     addReplyArrayLen(c, dictSize(cmd->subcommands_dict));
     dictEntry *de;
     dictIterator *di = dictGetSafeIterator(cmd->subcommands_dict);
-    while((de = dictNext(di)) != NULL) {
+    while ((de = dictNext(di)) != NULL) {
         struct redisCommand *sub = (struct redisCommand *)dictGetVal(de);
         addReplyCommand(c,sub);
     }
@@ -6184,7 +6184,7 @@ sds genRedisInfoStringCommandStats(sds info, dict *commands) {
     dictEntry *de;
     dictIterator *di;
     di = dictGetSafeIterator(commands);
-    while((de = dictNext(di)) != NULL) {
+    while ((de = dictNext(di)) != NULL) {
         char *tmpsafe;
         c = (struct redisCommand *) dictGetVal(de);
         if (c->calls || c->failed_calls || c->rejected_calls) {
@@ -6799,7 +6799,7 @@ sds genRedisInfoString(const char *section) {
             listIter li;
 
             listRewind(server.slaves,&li);
-            while((ln = listNext(&li))) {
+            while ((ln = listNext(&li))) {
                 client *slave = listNodeValue(ln);
                 char *state = NULL;
                 char ip[NET_IP_STR_LEN], *slaveip = slave->slave_addr;
@@ -6905,7 +6905,7 @@ sds genRedisInfoString(const char *section) {
         raxStart(&ri,server.errors);
         raxSeek(&ri,"^",NULL,0);
         struct redisError *e;
-        while(raxNext(&ri)) {
+        while (raxNext(&ri)) {
             char *tmpsafe;
             e = (struct redisError *) ri.data;
             info = sdscatprintf(info,
@@ -7573,14 +7573,14 @@ void dismissMemoryInChild(void) {
      * backlog and replica' output buffer, because they just reference the global
      * replication buffer but don't cost real memory. */
     listRewind(server.repl_buffer_blocks, &li);
-    while((ln = listNext(&li))) {
+    while ((ln = listNext(&li))) {
         replBufBlock *o = listNodeValue(ln);
         dismissMemory(o, o->size);
     }
 
     /* Dismiss all clients memory. */
     listRewind(server.clients, &li);
-    while((ln = listNext(&li))) {
+    while ((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
         dismissClientMemory(c);
     }
@@ -8000,7 +8000,7 @@ int main(int argc, char **argv) {
             server.exec_argv[1] = zstrdup(server.configfile);
             j = 2; // Skip this arg when parsing options
         }
-        while(j < argc) {
+        while (j < argc) {
             /* Either first or last argument - Should we read config from stdin? */
             if (argv[j][0] == '-' && argv[j][1] == '\0' && (j == 1 || j == argc-1)) {
                 config_from_stdin = 1;

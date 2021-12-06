@@ -446,7 +446,7 @@ void addListRangeReply(client *c, robj *o, long start, long end, int reverse) {
         int direction = reverse ? LIST_HEAD : LIST_TAIL;
         listTypeIterator *iter = listTypeInitIterator(o,from,direction);
 
-        while(rangelen--) {
+        while (rangelen--) {
             listTypeEntry entry;
             serverAssert(listTypeNext(iter, &entry)); /* fail on corrupt data */
             quicklistEntry *qe = &entry.entry;

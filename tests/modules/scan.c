@@ -39,7 +39,7 @@ int scan_strings(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_LEN);
 
     RedisModuleScanCursor* cursor = RedisModule_ScanCursorCreate();
-    while(RedisModule_Scan(ctx, cursor, scan_strings_callback, &pd));
+    while (RedisModule_Scan(ctx, cursor, scan_strings_callback, &pd));
     RedisModule_ScanCursorDestroy(cursor);
 
     RedisModule_ReplySetArrayLength(ctx, pd.nkeys);
@@ -95,7 +95,7 @@ int scan_key(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
     RedisModuleScanCursor* cursor = RedisModule_ScanCursorCreate();
-    while(RedisModule_ScanKey(key, cursor, scan_key_callback, &pd));
+    while (RedisModule_ScanKey(key, cursor, scan_key_callback, &pd));
     RedisModule_ScanCursorDestroy(cursor);
 
     RedisModule_ReplySetArrayLength(ctx, pd.nreplies);

@@ -278,7 +278,7 @@ int RedisModule_OnUnload(RedisModuleCtx *ctx) {
     char* key;
     size_t keyLen;
     RedisModuleString* val;
-    while((key = RedisModule_DictNextC(iter, &keyLen, (void**)&val))){
+    while ((key = RedisModule_DictNextC(iter, &keyLen, (void**)&val))){
         RedisModule_FreeString(ctx, val);
     }
     RedisModule_FreeDict(ctx, loaded_event_log);
@@ -286,7 +286,7 @@ int RedisModule_OnUnload(RedisModuleCtx *ctx) {
     loaded_event_log = NULL;
 
     iter = RedisModule_DictIteratorStartC(module_event_log, "^", NULL, 0);
-    while((key = RedisModule_DictNextC(iter, &keyLen, (void**)&val))){
+    while ((key = RedisModule_DictNextC(iter, &keyLen, (void**)&val))){
         RedisModule_FreeString(ctx, val);
     }
     RedisModule_FreeDict(ctx, module_event_log);

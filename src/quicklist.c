@@ -1604,7 +1604,7 @@ void quicklistRepr(unsigned char *ql, int full) {
     printf("{bookmark_count : %d}\n", quicklist->bookmark_count);
     quicklistNode* node = quicklist->head;
 
-    while(node != NULL) {
+    while (node != NULL) {
         printf("{quicklist node(%d)\n", i++);
         printf("{container : %s, encoding: %s, size: %zu, recompress: %d, attempted_compress: %d}\n",
                QL_NODE_IS_PLAIN(node) ? "PLAIN": "PACKED",
@@ -1931,7 +1931,7 @@ static void randstring(unsigned char *target, size_t sz) {
         assert(NULL);
     }
 
-    while(p < sz)
+    while (p < sz)
         target[p++] = minval+rand()%(maxval-minval+1);
 }
 
@@ -2078,7 +2078,7 @@ int quicklistTest(int argc, char *argv[], int flags) {
             quicklistIter *iter = quicklistGetIterator(ql, AL_START_TAIL);
             int j = 0;
 
-            while(quicklistNext(iter, &entry) != 0) {
+            while (quicklistNext(iter, &entry) != 0) {
                 assert(strncmp(strings[j], (char *)entry.value, strlen(strings[j])) == 0);
                 j++;
             }

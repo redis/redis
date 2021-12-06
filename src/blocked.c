@@ -243,7 +243,7 @@ void disconnectAllBlockedClients(void) {
     listIter li;
 
     listRewind(server.clients,&li);
-    while((ln = listNext(&li))) {
+    while ((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
 
         if (c->flags & CLIENT_BLOCKED) {
@@ -275,7 +275,7 @@ void serveClientsBlockedOnListKey(robj *o, readyList *rl) {
         int numclients = listLength(clients);
         int deleted = 0;
 
-        while(numclients--) {
+        while (numclients--) {
             listNode *clientnode = listFirst(clients);
             client *receiver = clientnode->value;
 
@@ -395,7 +395,7 @@ void serveClientsBlockedOnStreamKey(robj *o, readyList *rl) {
         listIter li;
         listRewind(clients,&li);
 
-        while((ln = listNext(&li))) {
+        while ((ln = listNext(&li))) {
             client *receiver = listNodeValue(ln);
             if (receiver->btype != BLOCKED_STREAM) continue;
             bkinfo *bki = dictFetchValue(receiver->bpop.keys,rl->key);
@@ -507,7 +507,7 @@ void serveClientsBlockedOnKeyByModule(readyList *rl) {
         list *clients = dictGetVal(de);
         int numclients = listLength(clients);
 
-        while(numclients--) {
+        while (numclients--) {
             listNode *clientnode = listFirst(clients);
             client *receiver = clientnode->value;
 
@@ -562,7 +562,7 @@ void serveClientsBlockedOnKeyByModule(readyList *rl) {
  * be used only for a single type, like virtually any Redis application will
  * do, the function is already fair. */
 void handleClientsBlockedOnKeys(void) {
-    while(listLength(server.ready_keys) != 0) {
+    while (listLength(server.ready_keys) != 0) {
         list *l;
 
         /* Point server.ready_keys to a fresh list and save the current one
@@ -572,7 +572,7 @@ void handleClientsBlockedOnKeys(void) {
         l = server.ready_keys;
         server.ready_keys = listCreate();
 
-        while(listLength(l) != 0) {
+        while (listLength(l) != 0) {
             listNode *ln = listFirst(l);
             readyList *rl = ln->value;
 
@@ -701,7 +701,7 @@ void unblockClientWaitingData(client *c) {
     serverAssertWithInfo(c,NULL,dictSize(c->bpop.keys) != 0);
     di = dictGetIterator(c->bpop.keys);
     /* The client may wait for multiple keys, so unblock it for every key. */
-    while((de = dictNext(di)) != NULL) {
+    while ((de = dictNext(di)) != NULL) {
         robj *key = dictGetKey(de);
         bkinfo *bki = dictGetVal(de);
 

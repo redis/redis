@@ -504,7 +504,7 @@ static int anetGenericAccept(char *err, int s, struct sockaddr *sa, socklen_t *l
 #else
         fd = accept(s,sa,len);
 #endif
-    } while(fd == -1 && errno == EINTR);
+    } while (fd == -1 && errno == EINTR);
     if (fd == -1) {
         anetSetError(err, "accept: %s", strerror(errno));
         return ANET_ERR;

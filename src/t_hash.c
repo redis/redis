@@ -1103,7 +1103,7 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
         listpackEntry key, value;
         dict *d = dictCreate(&hashDictType);
         dictExpand(d, count);
-        while(added < count) {
+        while (added < count) {
             hashTypeRandomElement(hash, size, &key, withvalues? &value : NULL);
 
             /* Try to add the object to the dictionary. If it already exists

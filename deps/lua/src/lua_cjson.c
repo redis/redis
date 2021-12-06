@@ -332,7 +332,7 @@ void json_verify_invalid_number_setting(lua_State *l, int *setting)
     }
 }
 #else
-#define json_verify_invalid_number_setting(l, s)    do { } while(0)
+#define json_verify_invalid_number_setting(l, s)    do { } while (0)
 #endif
 
 static int json_cfg_encode_invalid_numbers(lua_State *l)

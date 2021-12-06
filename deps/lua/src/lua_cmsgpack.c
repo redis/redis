@@ -75,7 +75,7 @@ void memrevifle(void *ptr, size_t len) {
 
     if (testp[0] == 0) return; /* Big endian, nothing to do. */
     len /= 2;
-    while(len--) {
+    while (len--) {
         aux = *p;
         *p = *e;
         *e = aux;
@@ -157,7 +157,7 @@ void mp_cur_init(mp_cur *cursor, const unsigned char *s, size_t len) {
     cursor->err = MP_CUR_ERROR_NONE;
 }
 
-#define mp_cur_consume(_c,_len) do { _c->p += _len; _c->left -= _len; } while(0)
+#define mp_cur_consume(_c,_len) do { _c->p += _len; _c->left -= _len; } while (0)
 
 /* When there is not enough room we set an error in the cursor and return. This
  * is very common across the code so we have a macro to make the code look
@@ -167,7 +167,7 @@ void mp_cur_init(mp_cur *cursor, const unsigned char *s, size_t len) {
         _c->err = MP_CUR_ERROR_EOF; \
         return; \
     } \
-} while(0)
+} while (0)
 
 /* ------------------------- Low level MP encoding -------------------------- */
 
@@ -403,7 +403,7 @@ void mp_encode_lua_table_as_map(lua_State *L, mp_buf *buf, int level) {
      * map opcodes for message pack. Too hackish for this lib. */
     luaL_checkstack(L, 3, "in function mp_encode_lua_table_as_map");
     lua_pushnil(L);
-    while(lua_next(L,-2)) {
+    while (lua_next(L,-2)) {
         lua_pop(L,1); /* remove value, keep key for next iteration. */
         len++;
     }
@@ -411,7 +411,7 @@ void mp_encode_lua_table_as_map(lua_State *L, mp_buf *buf, int level) {
     /* Step two: actually encoding of the map. */
     mp_encode_map(L,buf,len);
     lua_pushnil(L);
-    while(lua_next(L,-2)) {
+    while (lua_next(L,-2)) {
         /* Stack: ... key value */
         lua_pushvalue(L,-2); /* Stack: ... key value key */
         mp_encode_lua_type(L,buf,level+1); /* encode key */
@@ -437,7 +437,7 @@ int table_is_an_array(lua_State *L) {
 
     luaL_checkstack(L, 2, "in function table_is_an_array");
     lua_pushnil(L);
-    while(lua_next(L,-2)) {
+    while (lua_next(L,-2)) {
         /* Stack: ... key value */
         lua_pop(L,1); /* Stack: ... key */
         /* The <= 0 check is valid here because we're comparing indexes. */
@@ -555,7 +555,7 @@ void mp_decode_to_lua_array(lua_State *L, mp_cur *c, size_t len) {
 
     lua_newtable(L);
     luaL_checkstack(L, 1, "in function mp_decode_to_lua_array");
-    while(len--) {
+    while (len--) {
         lua_pushnumber(L,index++);
         mp_decode_to_lua_type(L,c);
         if (c->err) return;
@@ -566,7 +566,7 @@ void mp_decode_to_lua_array(lua_State *L, mp_cur *c, size_t len) {
 void mp_decode_to_lua_hash(lua_State *L, mp_cur *c, size_t len) {
     assert(len <= UINT_MAX);
     lua_newtable(L);
-    while(len--) {
+    while (len--) {
         mp_decode_to_lua_type(L,c); /* key */
         if (c->err) return;
         mp_decode_to_lua_type(L,c); /* value */

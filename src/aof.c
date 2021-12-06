@@ -89,7 +89,7 @@ unsigned long aofRewriteBufferSize(void) {
     unsigned long size = 0;
 
     listRewind(server.aof_rewrite_buf_blocks,&li);
-    while((ln = listNext(&li))) {
+    while ((ln = listNext(&li))) {
         aofrwblock *block = listNodeValue(ln);
         size += block->used;
     }
@@ -126,7 +126,7 @@ void aofChildWriteDiffData(aeEventLoop *el, int fd, void *privdata, int mask) {
     UNUSED(mask);
 
     latencyStartMonitor(latency);
-    while(1) {
+    while (1) {
         ln = listFirst(server.aof_rewrite_buf_blocks);
         block = ln ? ln->value : NULL;
         if (server.aof_stop_sending_diff || !block) {
@@ -155,7 +155,7 @@ void aofRewriteBufferAppend(unsigned char *s, unsigned long len) {
     listNode *ln = listLast(server.aof_rewrite_buf_blocks);
     aofrwblock *block = ln ? ln->value : NULL;
 
-    while(len) {
+    while (len) {
         /* If we already got at least an allocated block, try appending
          * at least some piece into it. */
         if (block) {
@@ -210,7 +210,7 @@ ssize_t aofRewriteBufferWrite(int fd) {
     ssize_t count = 0;
 
     listRewind(server.aof_rewrite_buf_blocks,&li);
-    while((ln = listNext(&li))) {
+    while ((ln = listNext(&li))) {
         aofrwblock *block = listNodeValue(ln);
         ssize_t nwritten;
 
@@ -251,7 +251,7 @@ void killAppendOnlyChild(void) {
     serverLog(LL_NOTICE,"Killing running AOF rewrite child: %ld",
         (long) server.child_pid);
     if (kill(server.child_pid,SIGUSR1) != -1) {
-        while(waitpid(-1, &statloc, 0) != server.child_pid);
+        while (waitpid(-1, &statloc, 0) != server.child_pid);
     }
     /* Reset the buffer accumulating changes while the child saves. */
     aofRewriteBufferReset();
@@ -354,7 +354,7 @@ int startAppendOnly(void) {
 ssize_t aofWrite(int fd, const char *buf, size_t len) {
     ssize_t nwritten = 0, totwritten = 0;
 
-    while(len) {
+    while (len) {
         nwritten = write(fd, buf, len);
 
         if (nwritten < 0) {
@@ -765,7 +765,7 @@ int loadAppendOnlyFile(char *filename) {
     }
 
     /* Read the actual AOF file, in REPL format, command by command. */
-    while(1) {
+    while (1) {
         int argc, j;
         unsigned long len;
         robj **argv;
@@ -1008,7 +1008,7 @@ int rewriteSetObject(rio *r, robj *key, robj *o) {
         int ii = 0;
         int64_t llval;
 
-        while(intsetGet(o->ptr,ii++,&llval)) {
+        while (intsetGet(o->ptr,ii++,&llval)) {
             if (count == 0) {
                 int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
                     AOF_REWRITE_ITEMS_PER_CMD : items;
@@ -1028,7 +1028,7 @@ int rewriteSetObject(rio *r, robj *key, robj *o) {
         dictIterator *di = dictGetIterator(o->ptr);
         dictEntry *de;
 
-        while((de = dictNext(di)) != NULL) {
+        while ((de = dictNext(di)) != NULL) {
             sds ele = dictGetKey(de);
             if (count == 0) {
                 int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
@@ -1104,7 +1104,7 @@ int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
         dictIterator *di = dictGetIterator(zs->dict);
         dictEntry *de;
 
-        while((de = dictNext(di)) != NULL) {
+        while ((de = dictNext(di)) != NULL) {
             sds ele = dictGetKey(de);
             double *score = dictGetVal(de);
 
@@ -1259,7 +1259,7 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
 
     if (s->length) {
         /* Reconstruct the stream data using XADD commands. */
-        while(streamIteratorGetID(&si,&id,&numfields)) {
+        while (streamIteratorGetID(&si,&id,&numfields)) {
             /* Emit a two elements array for each item. The first is
              * the ID, the second is an array of field-value pairs. */
 
@@ -1272,7 +1272,7 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
                 streamIteratorStop(&si);
                 return 0;
             }
-            while(numfields--) {
+            while (numfields--) {
                 unsigned char *field, *value;
                 int64_t field_len, value_len;
                 streamIteratorGetField(&si,&field,&value,&field_len,&value_len);
@@ -1320,7 +1320,7 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
         raxIterator ri;
         raxStart(&ri,s->cgroups);
         raxSeek(&ri,"^",NULL,0);
-        while(raxNext(&ri)) {
+        while (raxNext(&ri)) {
             streamCG *group = ri.data;
             /* Emit the XGROUP CREATE in order to create the group. */
             if (!rioWriteBulkCount(r,'*',5) ||
@@ -1341,7 +1341,7 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
             raxIterator ri_cons;
             raxStart(&ri_cons,group->consumers);
             raxSeek(&ri_cons,"^",NULL,0);
-            while(raxNext(&ri_cons)) {
+            while (raxNext(&ri_cons)) {
                 streamConsumer *consumer = ri_cons.data;
                 /* If there are no pending entries, just emit XGROUP CREATECONSUMER */
                 if (raxSize(consumer->pel) == 0) {
@@ -1360,7 +1360,7 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
                 raxIterator ri_pel;
                 raxStart(&ri_pel,consumer->pel);
                 raxSeek(&ri_pel,"^",NULL,0);
-                while(raxNext(&ri_pel)) {
+                while (raxNext(&ri_pel)) {
                     streamNACK *nack = ri_pel.data;
                     if (rioWriteStreamPendingEntry(r,key,(char*)ri.key,
                                                    ri.key_len,consumer,
@@ -1442,7 +1442,7 @@ int rewriteAppendOnlyFileRio(rio *aof) {
         if (rioWriteBulkLongLong(aof,j) == 0) goto werr;
 
         /* Iterate this DB writing every entry */
-        while((de = dictNext(di)) != NULL) {
+        while ((de = dictNext(di)) != NULL) {
             sds keystr;
             robj key, *o;
             long long expiretime;
@@ -1571,7 +1571,7 @@ int rewriteAppendOnlyFile(char *filename) {
      * happens after 20 ms without new data). */
     int nodata = 0;
     mstime_t start = mstime();
-    while(mstime()-start < 1000 && nodata < 20) {
+    while (mstime()-start < 1000 && nodata < 20) {
         if (aeWait(server.aof_pipe_read_data_from_parent, AE_READABLE, 1) <= 0)
         {
             nodata++;

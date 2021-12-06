@@ -31,7 +31,7 @@ struct LazyFreeLinkObject *createLazyFreeLinkObject(void) {
 void LazyFreeLinkInsert(struct LazyFreeLinkObject *o, int64_t ele) {
     struct LazyFreeLinkNode *next = o->head, *newnode, *prev = NULL;
 
-    while(next && next->value < ele) {
+    while (next && next->value < ele) {
         prev = next;
         next = next->next;
     }
@@ -49,7 +49,7 @@ void LazyFreeLinkInsert(struct LazyFreeLinkObject *o, int64_t ele) {
 void LazyFreeLinkReleaseObject(struct LazyFreeLinkObject *o) {
     struct LazyFreeLinkNode *cur, *next;
     cur = o->head;
-    while(cur) {
+    while (cur) {
         next = cur->next;
         RedisModule_Free(cur);
         cur = next;
@@ -117,7 +117,7 @@ void *LazyFreeLinkRdbLoad(RedisModuleIO *rdb, int encver) {
     }
     uint64_t elements = RedisModule_LoadUnsigned(rdb);
     struct LazyFreeLinkObject *hto = createLazyFreeLinkObject();
-    while(elements--) {
+    while (elements--) {
         int64_t ele = RedisModule_LoadSigned(rdb);
         LazyFreeLinkInsert(hto,ele);
     }
@@ -128,7 +128,7 @@ void LazyFreeLinkRdbSave(RedisModuleIO *rdb, void *value) {
     struct LazyFreeLinkObject *hto = value;
     struct LazyFreeLinkNode *node = hto->head;
     RedisModule_SaveUnsigned(rdb,hto->len);
-    while(node) {
+    while (node) {
         RedisModule_SaveSigned(rdb,node->value);
         node = node->next;
     }
@@ -137,7 +137,7 @@ void LazyFreeLinkRdbSave(RedisModuleIO *rdb, void *value) {
 void LazyFreeLinkAofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value) {
     struct LazyFreeLinkObject *hto = value;
     struct LazyFreeLinkNode *node = hto->head;
-    while(node) {
+    while (node) {
         RedisModule_EmitAOF(aof,"LAZYFREELINK.INSERT","sl",key,node->value);
         node = node->next;
     }

@@ -657,7 +657,7 @@ static void luaReplyToRedisReply(client *c, client* script_client, lua_State *lu
         /* Handle the array reply. */
         void *replylen = addReplyDeferredLen(c);
         int j = 1, mbulklen = 0;
-        while(1) {
+        while (1) {
             /* we took care of the stack size on function start */
             lua_pushnumber(lua,j++);
             lua_gettable(lua,-2);
@@ -812,7 +812,7 @@ static int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     } else {
         reply = sdsnewlen(c->buf,c->bufpos);
         c->bufpos = 0;
-        while(listLength(c->reply)) {
+        while (listLength(c->reply)) {
             clientReplyBlock *o = listNodeValue(listFirst(c->reply));
 
             reply = sdscatlen(reply,o->buf,o->used);

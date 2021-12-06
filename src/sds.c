@@ -568,7 +568,7 @@ int sdsll2str(char *s, long long value) {
     do {
         *p++ = '0'+(v%10);
         v /= 10;
-    } while(v);
+    } while (v);
     if (value < 0) *p++ = '-';
 
     /* Compute length and add null term. */
@@ -577,7 +577,7 @@ int sdsll2str(char *s, long long value) {
 
     /* Reverse the string. */
     p--;
-    while(s < p) {
+    while (s < p) {
         aux = *s;
         *s = *p;
         *p = aux;
@@ -598,7 +598,7 @@ int sdsull2str(char *s, unsigned long long v) {
     do {
         *p++ = '0'+(v%10);
         v /= 10;
-    } while(v);
+    } while (v);
 
     /* Compute length and add null term. */
     l = p-s;
@@ -606,7 +606,7 @@ int sdsull2str(char *s, unsigned long long v) {
 
     /* Reverse the string. */
     p--;
-    while(s < p) {
+    while (s < p) {
         aux = *s;
         *s = *p;
         *p = aux;
@@ -645,7 +645,7 @@ sds sdscatvprintf(sds s, const char *fmt, va_list ap) {
 
     /* Alloc enough space for buffer and \0 after failing to
      * fit the string in the current buffer size. */
-    while(1) {
+    while (1) {
         va_copy(cpy,ap);
         bufstrlen = vsnprintf(buf, buflen, fmt, cpy);
         va_end(cpy);
@@ -723,7 +723,7 @@ sds sdscatfmt(sds s, char const *fmt, ...) {
     va_start(ap,fmt);
     f = fmt;    /* Next format specifier byte to process. */
     i = initlen; /* Position of the next byte to write to dest str. */
-    while(*f) {
+    while (*f) {
         char next, *str;
         size_t l;
         long long num;
@@ -825,8 +825,8 @@ sds sdstrim(sds s, const char *cset) {
 
     sp = s;
     ep = end = s+sdslen(s)-1;
-    while(sp <= end && strchr(cset, *sp)) sp++;
-    while(ep > sp && strchr(cset, *ep)) ep--;
+    while (sp <= end && strchr(cset, *sp)) sp++;
+    while (ep > sp && strchr(cset, *ep)) ep--;
     len = (ep-sp)+1;
     if (s != sp) memmove(s, sp, len);
     s[len] = '\0';
@@ -987,7 +987,7 @@ cleanup:
 /* Free the result returned by sdssplitlen(), or do nothing if 'tokens' is NULL. */
 void sdsfreesplitres(sds *tokens, int count) {
     if (!tokens) return;
-    while(count--)
+    while (count--)
         sdsfree(tokens[count]);
     s_free(tokens);
 }
@@ -1000,7 +1000,7 @@ void sdsfreesplitres(sds *tokens, int count) {
  * references must be substituted with the new pointer returned by the call. */
 sds sdscatrepr(sds s, const char *p, size_t len) {
     s = sdscatlen(s,"\"",1);
-    while(len--) {
+    while (len--) {
         switch(*p) {
         case '\\':
         case '"':
@@ -1079,9 +1079,9 @@ sds *sdssplitargs(const char *line, int *argc) {
     char **vector = NULL;
 
     *argc = 0;
-    while(1) {
+    while (1) {
         /* skip blanks */
-        while(*p && isspace(*p)) p++;
+        while (*p && isspace(*p)) p++;
         if (*p) {
             /* get a token */
             int inq=0;  /* set to 1 if we are in "quotes" */
@@ -1089,7 +1089,7 @@ sds *sdssplitargs(const char *line, int *argc) {
             int done=0;
 
             if (current == NULL) current = sdsempty();
-            while(!done) {
+            while (!done) {
                 if (inq) {
                     if (*p == '\\' && *(p+1) == 'x' &&
                                              is_hex_digit(*(p+2)) &&
@@ -1175,7 +1175,7 @@ sds *sdssplitargs(const char *line, int *argc) {
     }
 
 err:
-    while((*argc)--)
+    while ((*argc)--)
         sdsfree(vector[*argc]);
     s_free(vector);
     if (current) sdsfree(current);

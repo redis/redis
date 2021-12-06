@@ -119,7 +119,7 @@ static void update_min_max_atomic(struct hdr_histogram* h, int64_t value)
 static int64_t power(int64_t base, int64_t exp)
 {
     int64_t result = 1;
-    while(exp)
+    while (exp)
     {
         result *= base; exp--;
     }

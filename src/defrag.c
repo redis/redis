@@ -263,7 +263,7 @@ long activeDefragSdsDict(dict* d, int val_type) {
     dictEntry *de;
     long defragged = 0;
     di = dictGetIterator(d);
-    while((de = dictNext(di)) != NULL) {
+    while ((de = dictNext(di)) != NULL) {
         sds sdsele = dictGetKey(de), newsds;
         if ((newsds = activeDefragSds(sdsele)))
             de->key = newsds, defragged++;
@@ -356,7 +356,7 @@ long activeDefragSdsListAndDict(list *l, dict *d, int dict_val_type) {
 
     /* Defrag the dict values (keys were already handled) */
     di = dictGetIterator(d);
-    while((de = dictNext(di)) != NULL) {
+    while ((de = dictNext(di)) != NULL) {
         if (dict_val_type == DEFRAG_SDS_DICT_VAL_IS_SDS) {
             sds newsds, sdsele = dictGetVal(de);
             if ((newsds = activeDefragSds(sdsele)))
@@ -578,7 +578,7 @@ long defragZsetSkiplist(redisDb *db, dictEntry *kde) {
         defragLater(db, kde);
     else {
         dictIterator *di = dictGetIterator(zs->dict);
-        while((de = dictNext(di)) != NULL) {
+        while ((de = dictNext(di)) != NULL) {
             defragged += activeDefragZsetEntry(zs, de);
         }
         dictReleaseIterator(di);
@@ -897,7 +897,7 @@ void defragScanCallback(void *privdata, const dictEntry *de) {
 /* Defrag scan callback for each hash table bucket,
  * used in order to defrag the dictEntry allocations. */
 void defragDictBucketCallback(dict *d, dictEntry **bucketref) {
-    while(*bucketref) {
+    while (*bucketref) {
         dictEntry *de = *bucketref, *newde;
         if ((newde = activeDefragAlloc(de))) {
             *bucketref = newde;
@@ -1030,12 +1030,12 @@ int defragLaterStep(redisDb *db, long long endtime) {
                 prev_defragged = server.stat_active_defrag_hits;
                 prev_scanned = server.stat_active_defrag_scanned;
             }
-        } while(defrag_later_cursor);
+        } while (defrag_later_cursor);
         if(key_defragged != server.stat_active_defrag_hits)
             server.stat_active_defrag_key_hits++;
         else
             server.stat_active_defrag_key_misses++;
-    } while(1);
+    } while (1);
 }
 
 #define INTERPOLATE(x, x1, x2, y1, y2) ( (y1) + ((x)-(x1)) * ((y2)-(y1)) / ((x2)-(x1)) )
@@ -1186,8 +1186,8 @@ void activeDefragCycle(void) {
                 prev_defragged = server.stat_active_defrag_hits;
                 prev_scanned = server.stat_active_defrag_scanned;
             }
-        } while(cursor && !quit);
-    } while(!quit);
+        } while (cursor && !quit);
+    } while (!quit);
 
     latencyEndMonitor(latency);
     latencyAddSampleIfNeeded("active-defrag-cycle",latency);

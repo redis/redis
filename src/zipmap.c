@@ -143,7 +143,7 @@ static unsigned char *zipmapLookupRaw(unsigned char *zm, unsigned char *key, uns
     unsigned char *p = zm+1, *k = NULL;
     unsigned int l,llen;
 
-    while(*p != ZIPMAP_END) {
+    while (*p != ZIPMAP_END) {
         unsigned char free;
 
         /* Match or skip the key */
@@ -311,7 +311,7 @@ unsigned char *zipmapRewind(unsigned char *zm) {
  * Example:
  *
  * unsigned char *i = zipmapRewind(my_zipmap);
- * while((i = zipmapNext(i,&key,&klen,&value,&vlen)) != NULL) {
+ * while ((i = zipmapNext(i,&key,&klen,&value,&vlen)) != NULL) {
  *     printf("%d bytes key at $p\n", klen, key);
  *     printf("%d bytes value at $p\n", vlen, value);
  * }
@@ -357,7 +357,7 @@ unsigned int zipmapLen(unsigned char *zm) {
         len = zm[0];
     } else {
         unsigned char *p = zipmapRewind(zm);
-        while((p = zipmapNext(p,NULL,NULL,NULL,NULL)) != NULL) len++;
+        while ((p = zipmapNext(p,NULL,NULL,NULL,NULL)) != NULL) len++;
 
         /* Re-store length if small enough */
         if (len < ZIPMAP_BIGLEN) zm[0] = len;
@@ -396,7 +396,7 @@ int zipmapValidateIntegrity(unsigned char *zm, size_t size, int deep) {
 
     unsigned int count = 0;
     unsigned char *p = zm + 1; /* skip the count */
-    while(*p != ZIPMAP_END) {
+    while (*p != ZIPMAP_END) {
         /* read the field name length encoding type */
         s = zipmapGetEncodedLengthSize(p);
         /* make sure the entry length doesn't reach outside the edge of the zipmap */
@@ -446,7 +446,7 @@ static void zipmapRepr(unsigned char *p) {
     unsigned int l;
 
     printf("{status %u}",*p++);
-    while(1) {
+    while (1) {
         if (p[0] == ZIPMAP_END) {
             printf("{end}");
             break;
@@ -467,7 +467,7 @@ static void zipmapRepr(unsigned char *p) {
             p += l+e;
             if (e) {
                 printf("[");
-                while(e--) printf(".");
+                while (e--) printf(".");
                 printf("]");
             }
         }
@@ -532,7 +532,7 @@ int zipmapTest(int argc, char *argv[], int flags) {
         unsigned char *key, *value;
         unsigned int klen, vlen;
 
-        while((i = zipmapNext(i,&key,&klen,&value,&vlen)) != NULL) {
+        while ((i = zipmapNext(i,&key,&klen,&value,&vlen)) != NULL) {
             printf("  %d:%.*s => %d:%.*s\n", klen, klen, key, vlen, vlen, value);
         }
     }

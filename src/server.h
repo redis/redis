@@ -698,7 +698,7 @@ typedef struct RedisModuleIO {
     iovar.key = keyptr; \
     iovar.dbid = db; \
     iovar.ctx = NULL; \
-} while(0)
+} while (0)
 
 /* This is a structure used to export DEBUG DIGEST capabilities to Redis
  * modules. We want to capture both the ordered and unordered elements of
@@ -716,7 +716,7 @@ typedef struct RedisModuleDigest {
 #define moduleInitDigestContext(mdvar) do { \
     memset(mdvar.o,0,sizeof(mdvar.o)); \
     memset(mdvar.x,0,sizeof(mdvar.x)); \
-} while(0)
+} while (0)
 
 /* Objects encoding. Some kind of objects like Strings and Hashes can be
  * internally represented in multiple ways. The 'encoding' field of the object
@@ -765,7 +765,7 @@ char *getObjectTypeName(robj*);
     _var.type = OBJ_STRING; \
     _var.encoding = OBJ_ENCODING_RAW; \
     _var.ptr = _ptr; \
-} while(0)
+} while (0)
 
 struct evictionPoolEntry; /* Defined in evict.c */
 
@@ -3066,7 +3066,7 @@ void swapMainDbWithTempDb(redisDb *tempDb);
 #define serverLog(level, ...) do {\
         if (((level)&0xff) < server.verbosity) break;\
         _serverLog(level, __VA_ARGS__);\
-    } while(0)
+    } while (0)
 
 /* TLS stuff */
 void tlsInit(void);

@@ -440,7 +440,7 @@ int hi_sdsll2str(char *s, long long value) {
     do {
         *p++ = '0'+(v%10);
         v /= 10;
-    } while(v);
+    } while (v);
     if (value < 0) *p++ = '-';
 
     /* Compute length and add null term. */
@@ -449,7 +449,7 @@ int hi_sdsll2str(char *s, long long value) {
 
     /* Reverse the string. */
     p--;
-    while(s < p) {
+    while (s < p) {
         aux = *s;
         *s = *p;
         *p = aux;
@@ -470,7 +470,7 @@ int hi_sdsull2str(char *s, unsigned long long v) {
     do {
         *p++ = '0'+(v%10);
         v /= 10;
-    } while(v);
+    } while (v);
 
     /* Compute length and add null term. */
     l = p-s;
@@ -478,7 +478,7 @@ int hi_sdsull2str(char *s, unsigned long long v) {
 
     /* Reverse the string. */
     p--;
-    while(s < p) {
+    while (s < p) {
         aux = *s;
         *s = *p;
         *p = aux;
@@ -516,7 +516,7 @@ hisds hi_sdscatvprintf(hisds s, const char *fmt, va_list ap) {
 
     /* Try with buffers two times bigger every time we fail to
      * fit the string in the current buffer size. */
-    while(1) {
+    while (1) {
         buf[buflen-2] = '\0';
         va_copy(cpy,ap);
         vsnprintf(buf, buflen, fmt, cpy);
@@ -585,7 +585,7 @@ hisds hi_sdscatfmt(hisds s, char const *fmt, ...) {
 
     va_start(ap,fmt);
     i = hi_sdslen(s); /* Position of the next byte to write to dest str. */
-    while(*f) {
+    while (*f) {
         char next, *str;
         size_t l;
         long long num;
@@ -694,8 +694,8 @@ hisds hi_sdstrim(hisds s, const char *cset) {
 
     sp = start = s;
     ep = end = s+hi_sdslen(s)-1;
-    while(sp <= end && strchr(cset, *sp)) sp++;
-    while(ep > sp && strchr(cset, *ep)) ep--;
+    while (sp <= end && strchr(cset, *sp)) sp++;
+    while (ep > sp && strchr(cset, *ep)) ep--;
     len = (sp > ep) ? 0 : ((ep-sp)+1);
     if (s != sp) memmove(s, sp, len);
     s[len] = '\0';
@@ -858,7 +858,7 @@ cleanup:
 /* Free the result returned by hi_sdssplitlen(), or do nothing if 'tokens' is NULL. */
 void hi_sdsfreesplitres(hisds *tokens, int count) {
     if (!tokens) return;
-    while(count--)
+    while (count--)
         hi_sdsfree(tokens[count]);
     hi_s_free(tokens);
 }
@@ -871,7 +871,7 @@ void hi_sdsfreesplitres(hisds *tokens, int count) {
  * references must be substituted with the new pointer returned by the call. */
 hisds hi_sdscatrepr(hisds s, const char *p, size_t len) {
     s = hi_sdscatlen(s,"\"",1);
-    while(len--) {
+    while (len--) {
         switch(*p) {
         case '\\':
         case '"':
@@ -943,9 +943,9 @@ hisds *hi_sdssplitargs(const char *line, int *argc) {
     char **vector = NULL;
 
     *argc = 0;
-    while(1) {
+    while (1) {
         /* skip blanks */
-        while(*p && isspace(*p)) p++;
+        while (*p && isspace(*p)) p++;
         if (*p) {
             /* get a token */
             int inq=0;  /* set to 1 if we are in "quotes" */
@@ -953,7 +953,7 @@ hisds *hi_sdssplitargs(const char *line, int *argc) {
             int done=0;
 
             if (current == NULL) current = hi_sdsempty();
-            while(!done) {
+            while (!done) {
                 if (inq) {
                     if (*p == '\\' && *(p+1) == 'x' &&
                                              isxdigit(*(p+2)) &&
@@ -1047,7 +1047,7 @@ hisds *hi_sdssplitargs(const char *line, int *argc) {
     }
 
 err:
-    while((*argc)--)
+    while ((*argc)--)
         hi_sdsfree(vector[*argc]);
     hi_s_free(vector);
     if (current) hi_sdsfree(current);

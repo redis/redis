@@ -30,7 +30,7 @@ int main(int argc, char **argv) {
     }
     fstat(fd,&stat);
 
-    while(cycles--) {
+    while (cycles--) {
         unsigned char buf[32];
         unsigned long offset = rand()%stat.st_size;
         int writelen = 1+rand()%31;

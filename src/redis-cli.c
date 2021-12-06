@@ -489,7 +489,7 @@ static void cliIntegrateHelp(void) {
             ch->params = sdscat(ch->params,"key ");
             args--;
         }
-        while(args-- > 0) ch->params = sdscat(ch->params,"arg ");
+        while (args-- > 0) ch->params = sdscat(ch->params,"arg ");
         if (entry->element[1]->integer < 0)
             ch->params = sdscat(ch->params,"...options...");
         ch->summary = "Help not available";
@@ -648,7 +648,7 @@ static char *hintsCallback(const char *buf, int *color, int *bold) {
         /* Remove arguments from the returned hint to show only the
             * ones the user did not yet type. */
         int toremove = argc-matchlen;
-        while(toremove > 0 && sdslen(hint)) {
+        while (toremove > 0 && sdslen(hint)) {
             if (hint[0] == '[') break;
             if (hint[0] == ' ') toremove--;
             sdsrange(hint,1,-1);
@@ -931,7 +931,7 @@ static sds cliFormatReplyTTY(redisReply *r, char *prefix) {
             do {
                 idxlen++;
                 i /= 10;
-            } while(i);
+            } while (i);
 
             /* Prefix for nested multi bulks should grow with idxlen+2 spaces */
             memset(_prefixlen,' ',idxlen+2);
@@ -1341,7 +1341,7 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
 
     /* Negative repeat is allowed and causes infinite loop,
        works well with the interval option. */
-    while(repeat < 0 || repeat-- > 0) {
+    while (repeat < 0 || repeat-- > 0) {
         redisAppendCommandArgv(context,argc,(const char**)argv,argvlen);
         if (config.monitor_mode) {
             do {
@@ -1351,7 +1351,7 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
                 /* This happens when the MONITOR command returns an error. */
                 if (config.last_cmd_type == REDIS_REPLY_ERROR)
                     config.monitor_mode = 0;
-            } while(config.monitor_mode);
+            } while (config.monitor_mode);
             zfree(argvlen);
             return REDIS_OK;
         }
@@ -1445,7 +1445,7 @@ static redisReply *reconnectingRedisCommand(redisContext *c, const char *fmt, ..
     va_list ap;
 
     assert(!c->err);
-    while(reply == NULL) {
+    while (reply == NULL) {
         while (c->err & (REDIS_ERR_IO | REDIS_ERR_EOF)) {
             printf("\r\x1b[0K"); /* Cursor to left edge + clear line. */
             printf("Reconnecting... %d\r", ++tries);
@@ -2013,7 +2013,7 @@ void cliLoadPreferences(void) {
     char buf[1024];
 
     if (fp) {
-        while(fgets(buf,sizeof(buf),fp) != NULL) {
+        while (fgets(buf,sizeof(buf),fp) != NULL) {
             sds *argv;
             int argc;
 
@@ -2108,7 +2108,7 @@ static void repl(void) {
     }
 
     cliRefreshPrompt();
-    while((line = linenoise(context ? config.prompt : "not connected> ")) != NULL) {
+    while ((line = linenoise(context ? config.prompt : "not connected> ")) != NULL) {
         if (line[0] != '\0') {
             long repeat = 1;
             int skipargs = 0;
@@ -2238,7 +2238,7 @@ static int evalMode(int argc, char **argv) {
     int j, got_comma, keys;
     int retval = REDIS_OK;
 
-    while(1) {
+    while (1) {
         if (config.eval_ldb) {
             printf(
             "Lua debugging session started, please use:\n"
@@ -2260,7 +2260,7 @@ static int evalMode(int argc, char **argv) {
                 "Can't open file '%s': %s\n", config.eval, strerror(errno));
             exit(1);
         }
-        while((nread = fread(buf,1,sizeof(buf),fp)) != 0) {
+        while ((nread = fread(buf,1,sizeof(buf),fp)) != 0) {
             script = sdscatlen(script,buf,nread);
         }
         fclose(fp);
@@ -3776,7 +3776,7 @@ static int clusterManagerMigrateKeysInSlot(clusterManagerNode *source,
                             listIter dli;
                             listNode *dln;
                             listRewind(diffs, &dli);
-                            while((dln = listNext(&dli)) != NULL) {
+                            while ((dln = listNext(&dli)) != NULL) {
                                 char *k = dln->value;
                                 clusterManagerLogErr("    - %s\n", k);
                             }
@@ -3937,7 +3937,7 @@ static void clusterManagerWaitForClusterJoin(void) {
     int counter = 0,
         check_after = CLUSTER_JOIN_CHECK_AFTER +
                       (int)(listLength(cluster_manager.nodes) * 0.15f);
-    while(!clusterManagerIsConfigConsistent()) {
+    while (!clusterManagerIsConfigConsistent()) {
         printf(".");
         fflush(stdout);
         sleep(1);
@@ -6077,7 +6077,7 @@ static int clusterManagerCommandReshard(int argc, char **argv) {
         }
     } else {
         char *p;
-        while((p = strchr(from, ',')) != NULL) {
+        while ((p = strchr(from, ',')) != NULL) {
             *p = '\0';
             if (!strcmp(from, "all")) {
                 all = 1;
@@ -6780,7 +6780,7 @@ static void latencyMode(void) {
     }
 
     if (!context) exit(1);
-    while(1) {
+    while (1) {
         start = mstime();
         reply = reconnectingRedisCommand(context,"PING");
         if (reply == NULL) {
@@ -6933,7 +6933,7 @@ static void latencyDistMode(void) {
     };
 
     if (!context) exit(1);
-    while(1) {
+    while (1) {
         start = ustime();
         reply = reconnectingRedisCommand(context,"PING");
         if (reply == NULL) {
@@ -7020,7 +7020,7 @@ unsigned long long sendSync(redisContext *c, char *out_eof) {
 
     /* Read $<payload>\r\n, making sure to read just up to "\n" */
     p = buf;
-    while(1) {
+    while (1) {
         nread = readConn(c,p,1);
         if (nread <= 0) {
             fprintf(stderr,"Error reading bulk length while SYNCing\n");
@@ -7062,7 +7062,7 @@ static void slaveMode(void) {
 
 
     /* Discard the payload. */
-    while(payload) {
+    while (payload) {
         ssize_t nread;
 
         nread = readConn(context,buf,(payload > sizeof(buf)) ? sizeof(buf) : payload);
@@ -7149,7 +7149,7 @@ static void getRDB(clusterManagerNode *node) {
         }
     }
 
-    while(payload) {
+    while (payload) {
         ssize_t nread, nwritten;
 
         nread = readConn(s,buf,(payload > sizeof(buf)) ? sizeof(buf) : payload);
@@ -7229,7 +7229,7 @@ static void pipeMode(void) {
 
     /* Transfer raw protocol and read replies from the server at the same
      * time. */
-    while(!done) {
+    while (!done) {
         int mask = AE_READABLE;
 
         if (!eof || obuf_len != 0) mask |= AE_WRITABLE;
@@ -7268,7 +7268,7 @@ static void pipeMode(void) {
                     replies++;
                     freeReplyObject(reply);
                 }
-            } while(reply);
+            } while (reply);
 
             /* Abort on read errors. We abort here because it is important
              * to consume replies even after a read error: this way we can
@@ -7280,7 +7280,7 @@ static void pipeMode(void) {
         if (mask & AE_WRITABLE) {
             ssize_t loop_nwritten = 0;
 
-            while(1) {
+            while (1) {
                 /* Transfer current buffer to server. */
                 if (obuf_len != 0) {
                     ssize_t nwritten = cliWriteConn(context,obuf+obuf_pos,obuf_len);
@@ -7662,7 +7662,7 @@ static void findBigKeys(int memkeys, unsigned memkeys_samples) {
         }
 
         freeReplyObject(reply);
-    } while(it != 0);
+    } while (it != 0);
 
     if(types) zfree(types);
     if(sizes) zfree(sizes);
@@ -7813,7 +7813,7 @@ static void findHotKeys(void) {
         }
 
         freeReplyObject(reply);
-    } while(it != 0);
+    } while (it != 0);
 
     if (freqs) zfree(freqs);
 
@@ -7899,7 +7899,7 @@ static void statMode(void) {
     long aux, requests = 0;
     int i = 0;
 
-    while(1) {
+    while (1) {
         char buf[64];
         int j;
 
@@ -8002,7 +8002,7 @@ static void scanMode(void) {
         }
         freeReplyObject(reply);
         if (config.interval) usleep(config.interval);
-    } while(cur != 0);
+    } while (cur != 0);
 
     exit(0);
 }
@@ -8044,13 +8044,13 @@ static void LRUTestMode(void) {
     int j;
 
     srand(time(NULL)^getpid());
-    while(1) {
+    while (1) {
         /* Perform cycles of 1 second with 50% writes and 50% reads.
          * We use pipelining batching writes / reads N times per cycle in order
          * to fill the target instance easily. */
         start_cycle = mstime();
         long long hits = 0, misses = 0;
-        while(mstime() - start_cycle < LRU_CYCLE_PERIOD) {
+        while (mstime() - start_cycle < LRU_CYCLE_PERIOD) {
             /* Write cycle. */
             for (j = 0; j < LRU_CYCLE_PIPELINE_SIZE; j++) {
                 char val[6];
@@ -8118,7 +8118,7 @@ unsigned long compute_something_fast(void) {
 
     i = 0;
     j = 0;
-    while(count--) {
+    while (count--) {
         i++;
         j = j + s[i];
         t = s[i];
@@ -8153,7 +8153,7 @@ static void intrinsicLatencyMode(void) {
     test_end = ustime() + run_time;
     signal(SIGINT, intrinsicLatencyModeStop);
 
-    while(1) {
+    while (1) {
         long long start, end, latency;
 
         start = ustime();

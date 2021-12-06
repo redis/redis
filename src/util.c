@@ -48,7 +48,7 @@
 int stringmatchlen(const char *pattern, int patternLen,
         const char *string, int stringLen, int nocase)
 {
-    while(patternLen && stringLen) {
+    while (patternLen && stringLen) {
         switch(pattern[0]) {
         case '*':
             while (patternLen && pattern[1] == '*') {
@@ -57,7 +57,7 @@ int stringmatchlen(const char *pattern, int patternLen,
             }
             if (patternLen == 1)
                 return 1; /* match */
-            while(stringLen) {
+            while (stringLen) {
                 if (stringmatchlen(pattern+1, patternLen-1,
                             string, stringLen, nocase))
                     return 1; /* match */
@@ -82,7 +82,7 @@ int stringmatchlen(const char *pattern, int patternLen,
                 patternLen--;
             }
             match = 0;
-            while(1) {
+            while (1) {
                 if (pattern[0] == '\\' && patternLen >= 2) {
                     pattern++;
                     patternLen--;
@@ -153,7 +153,7 @@ int stringmatchlen(const char *pattern, int patternLen,
         pattern++;
         patternLen--;
         if (stringLen == 0) {
-            while(*pattern == '*') {
+            while (*pattern == '*') {
                 pattern++;
                 patternLen--;
             }
@@ -175,7 +175,7 @@ int stringmatchlen_fuzz_test(void) {
     char pat[32];
     int cycles = 10000000;
     int total_matches = 0;
-    while(cycles--) {
+    while (cycles--) {
         int strlen = rand() % sizeof(str);
         int patlen = rand() % sizeof(pat);
         for (int j = 0; j < strlen; j++) str[j] = rand() % 128;
@@ -208,7 +208,7 @@ unsigned long long memtoull(const char *p, int *err) {
         if (err) *err = 1;
         return 0;
     }
-    while(*u && isdigit(*u)) u++;
+    while (*u && isdigit(*u)) u++;
     if (*u == '\0' || !strcasecmp(u,"b")) {
         mul = 1;
     } else if (!strcasecmp(u,"k")) {
@@ -634,7 +634,7 @@ int ld2string(char *buf, size_t len, long double value, ld2string_mode mode) {
             /* Now remove trailing zeroes after the '.' */
             if (strchr(buf,'.') != NULL) {
                 char *p = buf+l-1;
-                while(*p == '0') {
+                while (*p == '0') {
                     p--;
                     l--;
                 }
@@ -684,7 +684,7 @@ void getRandomBytes(unsigned char *p, size_t len) {
         if (fp) fclose(fp);
     }
 
-    while(len) {
+    while (len) {
         /* This implements SHA256-HMAC. */
         unsigned char digest[SHA256_BLOCK_SIZE];
         unsigned char kxor[64];
@@ -771,7 +771,7 @@ sds getAbsolutePath(char *filename) {
             char *p = abspath + sdslen(abspath)-2;
             int trimlen = 1;
 
-            while(*p != '/') {
+            while (*p != '/') {
                 p--;
                 trimlen++;
             }

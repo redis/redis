@@ -130,7 +130,7 @@ int luaRedisDebugCommand(lua_State *lua) {
     if (!ldb.active) return 0;
     int argc = lua_gettop(lua);
     sds log = sdscatprintf(sdsempty(),"<debug> line %d: ", ldb.currentline);
-    while(argc--) {
+    while (argc--) {
         log = ldbCatStackValue(log,lua,-1 - argc);
         if (argc != 0) log = sdscatlen(log,", ",2);
     }
@@ -651,7 +651,7 @@ void ldbInit(void) {
 void ldbFlushLog(list *log) {
     listNode *ln;
 
-    while((ln = listFirst(log)) != NULL)
+    while ((ln = listFirst(log)) != NULL)
         listDelNode(log,ln);
 }
 
@@ -710,7 +710,7 @@ void ldbLogWithMaxLen(sds entry) {
 void ldbSendLogs(void) {
     sds proto = sdsempty();
     proto = sdscatfmt(proto,"*%i\r\n", (int)listLength(ldb.logs));
-    while(listLength(ldb.logs)) {
+    while (listLength(ldb.logs)) {
         listNode *ln = listFirst(ldb.logs);
         proto = sdscatlen(proto,"+",1);
         sdsmapchars(ln->value,"\r\n","  ",2);
@@ -778,7 +778,7 @@ int ldbStartSession(client *c) {
      * lines since this is the way the debugger accesses the source code. */
     sds srcstring = sdsdup(c->argv[1]->ptr);
     size_t srclen = sdslen(srcstring);
-    while(srclen && (srcstring[srclen-1] == '\n' ||
+    while (srclen && (srcstring[srclen-1] == '\n' ||
                      srcstring[srclen-1] == '\r'))
     {
         srcstring[--srclen] = '\0';
@@ -844,7 +844,7 @@ void ldbKillForkedSessions(void) {
     listNode *ln;
 
     listRewind(ldb.children,&li);
-    while((ln = listNext(&li))) {
+    while ((ln = listNext(&li))) {
         pid_t pid = (unsigned long) ln->value;
         serverLog(LL_WARNING,"Killing debugging session %ld",(long)pid);
         kill(pid,SIGKILL);
@@ -937,7 +937,7 @@ sds *ldbReplParseCommand(int *argcp, char** err) {
     /* Parse each argument. */
     argv = zmalloc(sizeof(sds)*(*argcp));
     argc = 0;
-    while(argc < *argcp) {
+    while (argc < *argcp) {
         /* reached the end but there should be more data to read */
         if (*p == '\0') goto keep_reading;
 
@@ -1261,7 +1261,7 @@ void ldbPrint(lua_State *lua, char *varname) {
         l++;
         const char *name;
         int i = 1; /* Variable index. */
-        while((name = lua_getlocal(lua,&ar,i)) != NULL) {
+        while ((name = lua_getlocal(lua,&ar,i)) != NULL) {
             i++;
             if (strcmp(varname,name) == 0) {
                 ldbLogStackValue(lua,"<value> ");
@@ -1292,7 +1292,7 @@ void ldbPrintAll(lua_State *lua) {
     if (lua_getstack(lua,0,&ar) != 0) {
         const char *name;
         int i = 1; /* Variable index. */
-        while((name = lua_getlocal(lua,&ar,i)) != NULL) {
+        while ((name = lua_getlocal(lua,&ar,i)) != NULL) {
             i++;
             if (!strstr(name,"(*temporary)")) {
                 sds prefix = sdscatprintf(sdsempty(),"<value> %s = ",name);
@@ -1421,7 +1421,7 @@ void ldbTrace(lua_State *lua) {
     lua_Debug ar;
     int level = 0;
 
-    while(lua_getstack(lua,level,&ar)) {
+    while (lua_getstack(lua,level,&ar)) {
         lua_getinfo(lua,"Snl",&ar);
         if(strstr(ar.short_src,"user_script") != NULL) {
             ldbLog(sdscatprintf(sdsempty(),"%s %s:",
@@ -1462,8 +1462,8 @@ int ldbRepl(lua_State *lua) {
 
     /* We continue processing commands until a command that should return
      * to the Lua interpreter is found. */
-    while(1) {
-        while((argv = ldbReplParseCommand(&argc, &err)) == NULL) {
+    while (1) {
+        while ((argv = ldbReplParseCommand(&argc, &err)) == NULL) {
             char buf[1024];
             if (err) {
                 lua_pushstring(lua, err);

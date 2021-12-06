@@ -85,7 +85,7 @@ typedef struct dictIterator {
         entry->val = (ht)->type->valDup((ht)->privdata, _val_); \
     else \
         entry->val = (_val_); \
-} while(0)
+} while (0)
 
 #define dictFreeEntryKey(ht, entry) \
     if ((ht)->type->keyDestructor) \
@@ -96,7 +96,7 @@ typedef struct dictIterator {
         entry->key = (ht)->type->keyDup((ht)->privdata, _key_); \
     else \
         entry->key = (_key_); \
-} while(0)
+} while (0)
 
 #define dictCompareHashKeys(ht, key1, key2) \
     (((ht)->type->keyCompare) ? \

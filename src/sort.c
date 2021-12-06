@@ -205,7 +205,7 @@ void sortCommandGeneric(client *c, int readonly) {
     j = 2; /* options start at argv[2] */
 
     /* The SORT command has an SQL-alike syntax, parse it */
-    while(j < c->argc) {
+    while (j < c->argc) {
         int leftargs = c->argc-j-1;
         if (!strcasecmp(c->argv[j]->ptr,"asc")) {
             desc = 0;
@@ -358,7 +358,7 @@ void sortCommandGeneric(client *c, int readonly) {
                     desc ? (long)(listTypeLength(sortval) - start - 1) : start,
                     desc ? LIST_HEAD : LIST_TAIL);
 
-            while(j < vectorlen && listTypeNext(li,&entry)) {
+            while (j < vectorlen && listTypeNext(li,&entry)) {
                 vector[j].obj = listTypeGet(&entry);
                 vector[j].u.score = 0;
                 vector[j].u.cmpobj = NULL;
@@ -372,7 +372,7 @@ void sortCommandGeneric(client *c, int readonly) {
     } else if (sortval->type == OBJ_LIST) {
         listTypeIterator *li = listTypeInitIterator(sortval,0,LIST_TAIL);
         listTypeEntry entry;
-        while(listTypeNext(li,&entry)) {
+        while (listTypeNext(li,&entry)) {
             vector[j].obj = listTypeGet(&entry);
             vector[j].u.score = 0;
             vector[j].u.cmpobj = NULL;
@@ -382,7 +382,7 @@ void sortCommandGeneric(client *c, int readonly) {
     } else if (sortval->type == OBJ_SET) {
         setTypeIterator *si = setTypeInitIterator(sortval);
         sds sdsele;
-        while((sdsele = setTypeNextObject(si)) != NULL) {
+        while ((sdsele = setTypeNextObject(si)) != NULL) {
             vector[j].obj = createObject(OBJ_STRING,sdsele);
             vector[j].u.score = 0;
             vector[j].u.cmpobj = NULL;
@@ -416,7 +416,7 @@ void sortCommandGeneric(client *c, int readonly) {
                 ln = zslGetElementByRank(zsl,start+1);
         }
 
-        while(rangelen--) {
+        while (rangelen--) {
             serverAssertWithInfo(c,sortval,ln != NULL);
             sdsele = ln->ele;
             vector[j].obj = createStringObject(sdsele,sdslen(sdsele));
@@ -434,7 +434,7 @@ void sortCommandGeneric(client *c, int readonly) {
         dictEntry *setele;
         sds sdsele;
         di = dictGetIterator(set);
-        while((setele = dictNext(di)) != NULL) {
+        while ((setele = dictNext(di)) != NULL) {
             sdsele =  dictGetKey(setele);
             vector[j].obj = createStringObject(sdsele,sdslen(sdsele));
             vector[j].u.score = 0;
@@ -513,7 +513,7 @@ void sortCommandGeneric(client *c, int readonly) {
 
             if (!getop) addReplyBulk(c,vector[j].obj);
             listRewind(operations,&li);
-            while((ln = listNext(&li))) {
+            while ((ln = listNext(&li))) {
                 redisSortOperation *sop = ln->value;
                 robj *val = lookupKeyByPattern(c->db,sop->pattern,
                                                vector[j].obj);
@@ -543,7 +543,7 @@ void sortCommandGeneric(client *c, int readonly) {
                 listTypePush(sobj,vector[j].obj,LIST_TAIL);
             } else {
                 listRewind(operations,&li);
-                while((ln = listNext(&li))) {
+                while ((ln = listNext(&li))) {
                     redisSortOperation *sop = ln->value;
                     robj *val = lookupKeyByPattern(c->db,sop->pattern,
                                                    vector[j].obj);

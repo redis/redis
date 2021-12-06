@@ -41,7 +41,7 @@ int keyspaceEventsStringToFlags(char *classes) {
     char *p = classes;
     int c, flags = 0;
 
-    while((c = *p++) != '\0') {
+    while ((c = *p++) != '\0') {
         switch(c) {
         case 'A': flags |= NOTIFY_ALL; break;
         case 'g': flags |= NOTIFY_GENERIC; break;

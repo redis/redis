@@ -204,7 +204,7 @@ robj *streamDup(robj *o) {
         raxIterator ri_cg_pel;
         raxStart(&ri_cg_pel,cg->pel);
         raxSeek(&ri_cg_pel,"^",NULL,0);
-        while(raxNext(&ri_cg_pel)){
+        while (raxNext(&ri_cg_pel)){
             streamNACK *nack = ri_cg_pel.data;
             streamNACK *new_nack = streamCreateNACK(NULL);
             new_nack->delivery_time = nack->delivery_time;
@@ -339,7 +339,7 @@ int lpGetEdgeStreamID(unsigned char *lp, int first, streamID *master_id, streamI
  * for development and debugging. */
 void streamLogListpackContent(unsigned char *lp) {
     unsigned char *p = lpFirst(lp);
-    while(p) {
+    while (p) {
         unsigned char buf[LP_INTBUF_SIZE];
         int64_t v;
         unsigned char *ele = lpGet(p,&v,buf);
@@ -827,7 +827,7 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
                 to_skip *= 2; /* Fields and values. */
             }
 
-            while(to_skip--) p = lpNext(lp,p); /* Skip the whole entry. */
+            while (to_skip--) p = lpNext(lp,p); /* Skip the whole entry. */
             p = lpNext(lp,p); /* Skip the final lp-count field. */
 
             /* Mark the entry as deleted. */
@@ -1042,8 +1042,8 @@ static int streamParseAddOrTrimArgsOrReply(client *c, streamAddTrimArgs *args, i
  *  streamIterator myiterator;
  *  streamIteratorStart(&myiterator,...);
  *  int64_t numfields;
- *  while(streamIteratorGetID(&myiterator,&ID,&numfields)) {
- *      while(numfields--) {
+ *  while (streamIteratorGetID(&myiterator,&ID,&numfields)) {
+ *      while (numfields--) {
  *          unsigned char *key, *value;
  *          size_t key_len, value_len;
  *          streamIteratorGetField(&myiterator,&key,&value,&key_len,&value_len);
@@ -1098,7 +1098,7 @@ void streamIteratorStart(streamIterator *si, stream *s, streamID *start, streamI
  * elements within the iteration range, otherwise return 0 in order to
  * signal the iteration terminated. */
 int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields) {
-    while(1) { /* Will stop when element > stop_key or end of radix tree. */
+    while (1) { /* Will stop when element > stop_key or end of radix tree. */
         /* If the current listpack is set to NULL, this is the start of the
          * iteration or the previous listpack was completely iterated.
          * Go to the next node. */
@@ -1136,14 +1136,14 @@ int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields) {
              * emitted the current entry, and have to go back to the previous
              * one. */
             int lp_count = lpGetInteger(si->lp_ele);
-            while(lp_count--) si->lp_ele = lpPrev(si->lp,si->lp_ele);
+            while (lp_count--) si->lp_ele = lpPrev(si->lp,si->lp_ele);
             /* Seek lp-count of prev entry. */
             si->lp_ele = lpPrev(si->lp,si->lp_ele);
         }
 
         /* For every radix tree node, iterate the corresponding listpack,
          * returning elements when they are within range. */
-        while(1) {
+        while (1) {
             if (!si->rev) {
                 /* If we are going forward, skip the previous entry
                  * lp-count field (or in case of the master entry, the zero
@@ -1160,7 +1160,7 @@ int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields) {
                     si->lp_ele = NULL;
                     break;
                 }
-                while(lp_count--) si->lp_ele = lpPrev(si->lp,si->lp_ele);
+                while (lp_count--) si->lp_ele = lpPrev(si->lp,si->lp_ele);
             }
 
             /* Get the flags entry. */
@@ -1229,7 +1229,7 @@ int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields) {
                 /* If the entry was not flagged SAMEFIELD we also read the
                  * number of fields, so go back one more. */
                 if (!(flags & STREAM_ITEM_FLAG_SAMEFIELDS)) prev_times++;
-                while(prev_times--) si->lp_ele = lpPrev(si->lp,si->lp_ele);
+                while (prev_times--) si->lp_ele = lpPrev(si->lp,si->lp_ele);
             }
         }
 
@@ -1524,7 +1524,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
     if (!(flags & STREAM_RWR_RAWENTRIES))
         arraylen_ptr = addReplyDeferredLen(c);
     streamIteratorStart(&si,s,start,end,rev);
-    while(streamIteratorGetID(&si,&id,&numfields)) {
+    while (streamIteratorGetID(&si,&id,&numfields)) {
         /* Update the group last_id if needed. */
         if (group && streamCompareID(&id,&group->last_id) > 0) {
             group->last_id = id;
@@ -1542,7 +1542,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
         addReplyArrayLen(c,numfields*2);
 
         /* Emit the field-value pairs. */
-        while(numfields--) {
+        while (numfields--) {
             unsigned char *key, *value;
             int64_t key_len, value_len;
             streamIteratorGetField(&si,&key,&value,&key_len,&value_len);
@@ -1634,7 +1634,7 @@ size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start
     void *arraylen_ptr = addReplyDeferredLen(c);
     raxStart(&ri,consumer->pel);
     raxSeek(&ri,">=",startkey,sizeof(startkey));
-    while(raxNext(&ri) && (!count || arraylen < count)) {
+    while (raxNext(&ri) && (!count || arraylen < count)) {
         if (end && memcmp(ri.key,end,ri.key_len) > 0) break;
         streamID thisid;
         streamDecodeID(ri.key,&thisid);
@@ -2367,7 +2367,7 @@ void streamDelConsumer(streamCG *cg, streamConsumer *consumer) {
     raxIterator ri;
     raxStart(&ri,consumer->pel);
     raxSeek(&ri,"^",NULL,0);
-    while(raxNext(&ri)) {
+    while (raxNext(&ri)) {
         streamNACK *nack = ri.data;
         raxRemove(cg->pel,ri.key,ri.key_len,NULL);
         streamFreeNACK(nack);
@@ -2738,7 +2738,7 @@ void xpendingCommand(client *c) {
             raxSeek(&ri,"^",NULL,0);
             void *arraylen_ptr = addReplyDeferredLen(c);
             size_t arraylen = 0;
-            while(raxNext(&ri)) {
+            while (raxNext(&ri)) {
                 streamConsumer *consumer = ri.data;
                 if (raxSize(consumer->pel) == 0) continue;
                 addReplyArrayLen(c,2);
@@ -2775,7 +2775,7 @@ void xpendingCommand(client *c) {
         void *arraylen_ptr = addReplyDeferredLen(c);
         size_t arraylen = 0;
 
-        while(count && raxNext(&ri) && memcmp(ri.key,endkey,ri.key_len) <= 0) {
+        while (count && raxNext(&ri) && memcmp(ri.key,endkey,ri.key_len) <= 0) {
             streamNACK *nack = ri.data;
 
             if (minidle) {
@@ -3112,7 +3112,7 @@ void xautoclaimCommand(client *c) {
     }
 
     int j = 6; /* options start at argv[6] */
-    while(j < c->argc) {
+    while (j < c->argc) {
         int moreargs = (c->argc-1) - j; /* Number of additional arguments. */
         char *opt = c->argv[j]->ptr;
         if (!strcasecmp(opt,"COUNT") && moreargs) {
@@ -3413,7 +3413,7 @@ void xinfoReplyWithStreamInfo(client *c, stream *s) {
             raxIterator ri_cgroups;
             raxStart(&ri_cgroups,s->cgroups);
             raxSeek(&ri_cgroups,"^",NULL,0);
-            while(raxNext(&ri_cgroups)) {
+            while (raxNext(&ri_cgroups)) {
                 streamCG *cg = ri_cgroups.data;
                 addReplyMapLen(c,5);
 
@@ -3436,7 +3436,7 @@ void xinfoReplyWithStreamInfo(client *c, stream *s) {
                 raxIterator ri_cg_pel;
                 raxStart(&ri_cg_pel,cg->pel);
                 raxSeek(&ri_cg_pel,"^",NULL,0);
-                while(raxNext(&ri_cg_pel) && (!count || arraylen_cg_pel < count)) {
+                while (raxNext(&ri_cg_pel) && (!count || arraylen_cg_pel < count)) {
                     streamNACK *nack = ri_cg_pel.data;
                     addReplyArrayLen(c,4);
 
@@ -3467,7 +3467,7 @@ void xinfoReplyWithStreamInfo(client *c, stream *s) {
                 raxIterator ri_consumers;
                 raxStart(&ri_consumers,cg->consumers);
                 raxSeek(&ri_consumers,"^",NULL,0);
-                while(raxNext(&ri_consumers)) {
+                while (raxNext(&ri_consumers)) {
                     streamConsumer *consumer = ri_consumers.data;
                     addReplyMapLen(c,4);
 
@@ -3490,7 +3490,7 @@ void xinfoReplyWithStreamInfo(client *c, stream *s) {
                     raxIterator ri_cpel;
                     raxStart(&ri_cpel,consumer->pel);
                     raxSeek(&ri_cpel,"^",NULL,0);
-                    while(raxNext(&ri_cpel) && (!count || arraylen_cpel < count)) {
+                    while (raxNext(&ri_cpel) && (!count || arraylen_cpel < count)) {
                         streamNACK *nack = ri_cpel.data;
                         addReplyArrayLen(c,3);
 
@@ -3575,7 +3575,7 @@ NULL
         raxStart(&ri,cg->consumers);
         raxSeek(&ri,"^",NULL,0);
         mstime_t now = mstime();
-        while(raxNext(&ri)) {
+        while (raxNext(&ri)) {
             streamConsumer *consumer = ri.data;
             mstime_t idle = now - consumer->seen_time;
             if (idle < 0) idle = 0;
@@ -3600,7 +3600,7 @@ NULL
         raxIterator ri;
         raxStart(&ri,s->cgroups);
         raxSeek(&ri,"^",NULL,0);
-        while(raxNext(&ri)) {
+        while (raxNext(&ri)) {
             streamCG *cg = ri.data;
             addReplyMapLen(c,4);
             addReplyBulkCString(c,"name");

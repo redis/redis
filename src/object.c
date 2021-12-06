@@ -1008,7 +1008,7 @@ size_t objectComputeSize(robj *key, robj *o, size_t sample_size, int dbid) {
             d = o->ptr;
             di = dictGetIterator(d);
             asize = sizeof(*o)+sizeof(dict)+(sizeof(struct dictEntry*)*dictSlots(d));
-            while((de = dictNext(di)) != NULL && samples < sample_size) {
+            while ((de = dictNext(di)) != NULL && samples < sample_size) {
                 ele = dictGetKey(de);
                 elesize += sizeof(struct dictEntry) + sdsZmallocSize(ele);
                 samples++;
@@ -1030,7 +1030,7 @@ size_t objectComputeSize(robj *key, robj *o, size_t sample_size, int dbid) {
             asize = sizeof(*o)+sizeof(zset)+sizeof(zskiplist)+sizeof(dict)+
                     (sizeof(struct dictEntry*)*dictSlots(d))+
                     zmalloc_size(zsl->header);
-            while(znode != NULL && samples < sample_size) {
+            while (znode != NULL && samples < sample_size) {
                 elesize += sdsZmallocSize(znode->ele);
                 elesize += sizeof(struct dictEntry)+zmalloc_size(znode);
                 samples++;
@@ -1047,7 +1047,7 @@ size_t objectComputeSize(robj *key, robj *o, size_t sample_size, int dbid) {
             d = o->ptr;
             di = dictGetIterator(d);
             asize = sizeof(*o)+sizeof(dict)+(sizeof(struct dictEntry*)*dictSlots(d));
-            while((de = dictNext(di)) != NULL && samples < sample_size) {
+            while ((de = dictNext(di)) != NULL && samples < sample_size) {
                 ele = dictGetKey(de);
                 ele2 = dictGetVal(de);
                 elesize += sdsZmallocSize(ele) + sdsZmallocSize(ele2);
@@ -1072,7 +1072,7 @@ size_t objectComputeSize(robj *key, robj *o, size_t sample_size, int dbid) {
         raxStart(&ri,s->rax);
         raxSeek(&ri,"^",NULL,0);
         size_t lpsize = 0, samples = 0;
-        while(samples < sample_size && raxNext(&ri)) {
+        while (samples < sample_size && raxNext(&ri)) {
             unsigned char *lp = ri.data;
             lpsize += lpBytes(lp);
             samples++;
@@ -1097,7 +1097,7 @@ size_t objectComputeSize(robj *key, robj *o, size_t sample_size, int dbid) {
         if (s->cgroups) {
             raxStart(&ri,s->cgroups);
             raxSeek(&ri,"^",NULL,0);
-            while(raxNext(&ri)) {
+            while (raxNext(&ri)) {
                 streamCG *cg = ri.data;
                 asize += sizeof(*cg);
                 asize += streamRadixTreeMemoryUsage(cg->pel);
@@ -1108,7 +1108,7 @@ size_t objectComputeSize(robj *key, robj *o, size_t sample_size, int dbid) {
                 raxIterator cri;
                 raxStart(&cri,cg->consumers);
                 raxSeek(&cri,"^",NULL,0);
-                while(raxNext(&cri)) {
+                while (raxNext(&cri)) {
                     streamConsumer *consumer = cri.data;
                     asize += sizeof(*consumer);
                     asize += sdslen(consumer->name);

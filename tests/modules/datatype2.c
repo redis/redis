@@ -174,7 +174,7 @@ void MemPoolFreeDb(RedisModuleCtx *ctx, int dbid) {
     RedisModuleString *key;
     void *tdata;
     RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(mem_pool[dbid], "^", NULL, 0);
-    while((key = RedisModule_DictNext(ctx, iter, &tdata)) != NULL) {
+    while ((key = RedisModule_DictNext(ctx, iter, &tdata)) != NULL) {
         MemBlockFree((struct MemBlock *)tdata);
     }
     RedisModule_DictIteratorStop(iter);
@@ -424,7 +424,7 @@ int MemUsage_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
     void *data;
     RedisModuleString *key;
     RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(mem_pool[dbid], "^", NULL, 0);
-    while((key = RedisModule_DictNext(ctx, iter, &data)) != NULL) {
+    while ((key = RedisModule_DictNext(ctx, iter, &data)) != NULL) {
         int dbbackup = RedisModule_GetSelectedDb(ctx);
         RedisModule_SelectDb(ctx, dbid);
         RedisModuleKey *openkey = RedisModule_OpenKey(ctx, key, REDISMODULE_READ);

@@ -400,7 +400,7 @@ size_t zmalloc_get_rss(void) {
 
     p = buf;
     count = 23; /* RSS is the 24th field in /proc/<pid>/stat */
-    while(p && count--) {
+    while (p && count--) {
         p = strchr(p,' ');
         if (p) p++;
     }
@@ -601,7 +601,7 @@ size_t zmalloc_get_smap_bytes_by_field(char *field, long pid) {
     }
 
     if (!fp) return 0;
-    while(fgets(line,sizeof(line),fp) != NULL) {
+    while (fgets(line,sizeof(line),fp) != NULL) {
         if (strncmp(line,field,flen) == 0) {
             char *p = strchr(line,'k');
             if (p) {

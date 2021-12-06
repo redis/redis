@@ -2832,7 +2832,7 @@ sub ExtractCalls {
   my $profile = shift;
 
   my $calls = {};
-  while( my ($stack_trace, $count) = each %$profile ) {
+  while ( my ($stack_trace, $count) = each %$profile ) {
     my @address = split(/\n/, $stack_trace);
     my $destination = ExtractSymbolLocation($symbols, $address[0]);
     AddEntry($calls, $destination, $count);

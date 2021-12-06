@@ -71,7 +71,7 @@ struct HelloTypeObject *createHelloTypeObject(void) {
 void HelloTypeInsert(struct HelloTypeObject *o, int64_t ele) {
     struct HelloTypeNode *next = o->head, *newnode, *prev = NULL;
 
-    while(next && next->value < ele) {
+    while (next && next->value < ele) {
         prev = next;
         next = next->next;
     }
@@ -89,7 +89,7 @@ void HelloTypeInsert(struct HelloTypeObject *o, int64_t ele) {
 void HelloTypeReleaseObject(struct HelloTypeObject *o) {
     struct HelloTypeNode *cur, *next;
     cur = o->head;
-    while(cur) {
+    while (cur) {
         next = cur->next;
         RedisModule_Free(cur);
         cur = next;
@@ -163,7 +163,7 @@ int HelloTypeRange_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
     struct HelloTypeNode *node = hto ? hto->head : NULL;
     RedisModule_ReplyWithArray(ctx,REDISMODULE_POSTPONED_LEN);
     long long arraylen = 0;
-    while(node && count--) {
+    while (node && count--) {
         RedisModule_ReplyWithLongLong(ctx,node->value);
         arraylen++;
         node = node->next;
@@ -272,7 +272,7 @@ void *HelloTypeRdbLoad(RedisModuleIO *rdb, int encver) {
     }
     uint64_t elements = RedisModule_LoadUnsigned(rdb);
     struct HelloTypeObject *hto = createHelloTypeObject();
-    while(elements--) {
+    while (elements--) {
         int64_t ele = RedisModule_LoadSigned(rdb);
         HelloTypeInsert(hto,ele);
     }
@@ -283,7 +283,7 @@ void HelloTypeRdbSave(RedisModuleIO *rdb, void *value) {
     struct HelloTypeObject *hto = value;
     struct HelloTypeNode *node = hto->head;
     RedisModule_SaveUnsigned(rdb,hto->len);
-    while(node) {
+    while (node) {
         RedisModule_SaveSigned(rdb,node->value);
         node = node->next;
     }
@@ -292,7 +292,7 @@ void HelloTypeRdbSave(RedisModuleIO *rdb, void *value) {
 void HelloTypeAofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value) {
     struct HelloTypeObject *hto = value;
     struct HelloTypeNode *node = hto->head;
-    while(node) {
+    while (node) {
         RedisModule_EmitAOF(aof,"HELLOTYPE.INSERT","sl",key,node->value);
         node = node->next;
     }
@@ -313,7 +313,7 @@ void HelloTypeFree(void *value) {
 void HelloTypeDigest(RedisModuleDigest *md, void *value) {
     struct HelloTypeObject *hto = value;
     struct HelloTypeNode *node = hto->head;
-    while(node) {
+    while (node) {
         RedisModule_DigestAddLongLong(md,node->value);
         node = node->next;
     }

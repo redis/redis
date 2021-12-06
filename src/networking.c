@@ -1164,7 +1164,7 @@ void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     UNUSED(mask);
     UNUSED(privdata);
 
-    while(max--) {
+    while (max--) {
         cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
         if (cfd == ANET_ERR) {
             if (errno != EWOULDBLOCK)
@@ -1184,7 +1184,7 @@ void acceptTLSHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     UNUSED(mask);
     UNUSED(privdata);
 
-    while(max--) {
+    while (max--) {
         cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
         if (cfd == ANET_ERR) {
             if (errno != EWOULDBLOCK)
@@ -1203,7 +1203,7 @@ void acceptUnixHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     UNUSED(mask);
     UNUSED(privdata);
 
-    while(max--) {
+    while (max--) {
         cfd = anetUnixAccept(server.neterr, fd);
         if (cfd == ANET_ERR) {
             if (errno != EWOULDBLOCK)
@@ -1246,7 +1246,7 @@ void disconnectSlaves(void) {
     listIter li;
     listNode *ln;
     listRewind(server.slaves,&li);
-    while((ln = listNext(&li))) {
+    while ((ln = listNext(&li))) {
         freeClient((client*)ln->value);
     }
 }
@@ -1259,7 +1259,7 @@ int anyOtherSlaveWaitRdb(client *except_me) {
     listNode *ln;
 
     listRewind(server.slaves, &li);
-    while((ln = listNext(&li))) {
+    while ((ln = listNext(&li))) {
         client *slave = ln->value;
         if (slave != except_me &&
             slave->replstate == SLAVE_STATE_WAIT_BGSAVE_END)
@@ -1643,7 +1643,7 @@ int writeToClient(client *c, int handler_installed) {
 
     ssize_t nwritten = 0, totwritten = 0;
 
-    while(clientHasPendingReplies(c)) {
+    while (clientHasPendingReplies(c)) {
         int ret = _writeToClient(c, &nwritten);
         if (ret == C_ERR) break;
         totwritten += nwritten;
@@ -1717,7 +1717,7 @@ int handleClientsWithPendingWrites(void) {
     int processed = listLength(server.clients_pending_write);
 
     listRewind(server.clients_pending_write,&li);
-    while((ln = listNext(&li))) {
+    while ((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
         c->flags &= ~CLIENT_PENDING_WRITE;
         listDelNode(server.clients_pending_write,ln);
@@ -1992,7 +1992,7 @@ int processMultibulkBuffer(client *c) {
     }
 
     serverAssertWithInfo(c,NULL,c->multibulklen > 0);
-    while(c->multibulklen) {
+    while (c->multibulklen) {
         /* Read bulk length if unknown */
         if (c->bulklen == -1) {
             newline = strchr(c->querybuf+c->qb_pos,'\r');
@@ -2188,7 +2188,7 @@ int processPendingCommandsAndResetClient(client *c) {
  * return C_ERR in case the client was freed during the processing */
 int processInputBuffer(client *c) {
     /* Keep processing while there is something in the input buffer */
-    while(c->qb_pos < sdslen(c->querybuf)) {
+    while (c->qb_pos < sdslen(c->querybuf)) {
         /* Immediately abort if the client is in the middle of something. */
         if (c->flags & CLIENT_BLOCKED) break;
 
@@ -2738,7 +2738,7 @@ NULL
             int i = 2; /* Next option index. */
 
             /* New style syntax: parse options. */
-            while(i < c->argc) {
+            while (i < c->argc) {
                 int moreargs = c->argc > i+1;
 
                 if (!strcasecmp(c->argv[i]->ptr,"id") && moreargs) {
@@ -3103,7 +3103,7 @@ NULL
             raxIterator ri;
             raxStart(&ri,c->client_tracking_prefixes);
             raxSeek(&ri,"^",NULL,0);
-            while(raxNext(&ri)) {
+            while (raxNext(&ri)) {
                 addReplyBulkCBuffer(c,ri.key,ri.key_len);
             }
             raxStop(&ri);
@@ -3501,7 +3501,7 @@ void flushSlavesOutputBuffers(void) {
     listNode *ln;
 
     listRewind(server.slaves,&li);
-    while((ln = listNext(&li))) {
+    while ((ln = listNext(&li))) {
         client *slave = listNodeValue(ln);
         int can_receive_writes = connHasWriteHandler(slave->conn) ||
                                  (slave->flags & CLIENT_PENDING_WRITE);
@@ -3673,7 +3673,7 @@ void *IOThreadMain(void *myid) {
     redisSetCpuAffinity(server.server_cpulist);
     makeThreadKillable();
 
-    while(1) {
+    while (1) {
         /* Wait for start */
         for (int j = 0; j < 1000000; j++) {
             if (getIOPendingCount(id) != 0) break;
@@ -3693,7 +3693,7 @@ void *IOThreadMain(void *myid) {
         listIter li;
         listNode *ln;
         listRewind(io_threads_list[id],&li);
-        while((ln = listNext(&li))) {
+        while ((ln = listNext(&li))) {
             client *c = listNodeValue(ln);
             if (io_threads_op == IO_THREADS_OP_WRITE) {
                 writeToClient(c,0);
@@ -3825,7 +3825,7 @@ int handleClientsWithPendingWritesUsingThreads(void) {
     listNode *ln;
     listRewind(server.clients_pending_write,&li);
     int item_id = 0;
-    while((ln = listNext(&li))) {
+    while ((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
         c->flags &= ~CLIENT_PENDING_WRITE;
 
@@ -3860,14 +3860,14 @@ int handleClientsWithPendingWritesUsingThreads(void) {
 
     /* Also use the main thread to process a slice of clients. */
     listRewind(io_threads_list[0],&li);
-    while((ln = listNext(&li))) {
+    while ((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
         writeToClient(c,0);
     }
     listEmpty(io_threads_list[0]);
 
     /* Wait for all the other threads to end their work. */
-    while(1) {
+    while (1) {
         unsigned long pending = 0;
         for (int j = 1; j < server.io_threads_num; j++)
             pending += getIOPendingCount(j);
@@ -3879,7 +3879,7 @@ int handleClientsWithPendingWritesUsingThreads(void) {
     /* Run the list of clients again to install the write handler where
      * needed. */
     listRewind(server.clients_pending_write,&li);
-    while((ln = listNext(&li))) {
+    while ((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
 
         /* Update the client in the mem usage buckets after we're done processing it in the io-threads */
@@ -3942,7 +3942,7 @@ int handleClientsWithPendingReadsUsingThreads(void) {
     listNode *ln;
     listRewind(server.clients_pending_read,&li);
     int item_id = 0;
-    while((ln = listNext(&li))) {
+    while ((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
         int target_id = item_id % server.io_threads_num;
         listAddNodeTail(io_threads_list[target_id],c);
@@ -3959,14 +3959,14 @@ int handleClientsWithPendingReadsUsingThreads(void) {
 
     /* Also use the main thread to process a slice of clients. */
     listRewind(io_threads_list[0],&li);
-    while((ln = listNext(&li))) {
+    while ((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
         readQueryFromClient(c->conn);
     }
     listEmpty(io_threads_list[0]);
 
     /* Wait for all the other threads to end their work. */
-    while(1) {
+    while (1) {
         unsigned long pending = 0;
         for (int j = 1; j < server.io_threads_num; j++)
             pending += getIOPendingCount(j);
@@ -3976,7 +3976,7 @@ int handleClientsWithPendingReadsUsingThreads(void) {
     io_threads_op = IO_THREADS_OP_IDLE;
 
     /* Run the list of clients again to process the new buffers. */
-    while(listLength(server.clients_pending_read)) {
+    while (listLength(server.clients_pending_read)) {
         ln = listFirst(server.clients_pending_read);
         client *c = listNodeValue(ln);
         listDelNode(server.clients_pending_read,ln);

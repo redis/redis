@@ -344,7 +344,7 @@ static char *invalid_hll_err = "-INVALIDOBJ Corrupted HLL object detected";
     unsigned long b0 = _p[_byte]; \
     unsigned long b1 = _p[_byte+1]; \
     target = ((b0 >> _fb) | (b1 << _fb8)) & HLL_REGISTER_MAX; \
-} while(0)
+} while (0)
 
 /* Set the value of the register at position 'regnum' to 'val'.
  * 'p' is an array of unsigned bytes. */
@@ -358,7 +358,7 @@ static char *invalid_hll_err = "-INVALIDOBJ Corrupted HLL object detected";
     _p[_byte] |= _v << _fb; \
     _p[_byte+1] &= ~(HLL_REGISTER_MAX >> _fb8); \
     _p[_byte+1] |= _v >> _fb8; \
-} while(0)
+} while (0)
 
 /* Macros to access the sparse representation.
  * The macros parameter is expected to be an uint8_t pointer. */
@@ -377,15 +377,15 @@ static char *invalid_hll_err = "-INVALIDOBJ Corrupted HLL object detected";
 #define HLL_SPARSE_XZERO_MAX_LEN 16384
 #define HLL_SPARSE_VAL_SET(p,val,len) do { \
     *(p) = (((val)-1)<<2|((len)-1))|HLL_SPARSE_VAL_BIT; \
-} while(0)
+} while (0)
 #define HLL_SPARSE_ZERO_SET(p,len) do { \
     *(p) = (len)-1; \
-} while(0)
+} while (0)
 #define HLL_SPARSE_XZERO_SET(p,len) do { \
     int _l = (len)-1; \
     *(p) = (_l>>8) | HLL_SPARSE_XZERO_BIT; \
     *((p)+1) = (_l&0xff); \
-} while(0)
+} while (0)
 #define HLL_ALPHA_INF 0.721347520444481703680 /* constant for 0.5/ln(2) */
 
 /* ========================= HyperLogLog algorithm  ========================= */
@@ -401,7 +401,7 @@ uint64_t MurmurHash64A (const void * key, int len, unsigned int seed) {
     const uint8_t *data = (const uint8_t *)key;
     const uint8_t *end = data + (len-(len&7));
 
-    while(data != end) {
+    while (data != end) {
         uint64_t k;
 
 #if (BYTE_ORDER == LITTLE_ENDIAN)
@@ -471,7 +471,7 @@ int hllPatLen(unsigned char *ele, size_t elesize, long *regp) {
                                      and count will be <= Q+1. */
     bit = 1;
     count = 1; /* Initialized to 1 since we count the "00000...1" pattern. */
-    while((hash & bit) == 0) {
+    while ((hash & bit) == 0) {
         count++;
         bit <<= 1;
     }
@@ -603,7 +603,7 @@ int hllSparseToDense(robj *o) {
     /* Now read the sparse representation and set non-zero registers
      * accordingly. */
     p += HLL_HDR_SIZE;
-    while(p < end) {
+    while (p < end) {
         if (HLL_SPARSE_IS_ZERO(p)) {
             runlen = HLL_SPARSE_ZERO_LEN(p);
             idx += runlen;
@@ -616,7 +616,7 @@ int hllSparseToDense(robj *o) {
             runlen = HLL_SPARSE_VAL_LEN(p);
             regval = HLL_SPARSE_VAL_VALUE(p);
             if ((runlen + idx) > HLL_REGISTERS) break; /* Overflow. */
-            while(runlen--) {
+            while (runlen--) {
                 HLL_DENSE_SET_REGISTER(hdr->registers,idx,regval);
                 idx++;
             }
@@ -678,7 +678,7 @@ int hllSparseSet(robj *o, long index, uint8_t count) {
     prev = NULL; /* Points to previous opcode at the end of the loop. */
     next = NULL; /* Points to the next opcode at the end of the loop. */
     span = 0;
-    while(p < end) {
+    while (p < end) {
         long oplen;
 
         /* Set span to the number of registers covered by this opcode.
@@ -913,7 +913,7 @@ void hllSparseRegHisto(uint8_t *sparse, int sparselen, int *invalid, int* reghis
     int idx = 0, runlen, regval;
     uint8_t *end = sparse+sparselen, *p = sparse;
 
-    while(p < end) {
+    while (p < end) {
         if (HLL_SPARSE_IS_ZERO(p)) {
             runlen = HLL_SPARSE_ZERO_LEN(p);
             idx += runlen;
@@ -979,7 +979,7 @@ double hllSigma(double x) {
         zPrime = z;
         z += x * y;
         y += y;
-    } while(zPrime != z);
+    } while (zPrime != z);
     return z;
 }
 
@@ -996,7 +996,7 @@ double hllTau(double x) {
         zPrime = z;
         y *= 0.5;
         z -= pow(1 - x, 2)*y;
-    } while(zPrime != z);
+    } while (zPrime != z);
     return z / 3;
 }
 
@@ -1083,7 +1083,7 @@ int hllMerge(uint8_t *max, robj *hll) {
 
         p += HLL_HDR_SIZE;
         i = 0;
-        while(p < end) {
+        while (p < end) {
             if (HLL_SPARSE_IS_ZERO(p)) {
                 runlen = HLL_SPARSE_ZERO_LEN(p);
                 i += runlen;
@@ -1096,7 +1096,7 @@ int hllMerge(uint8_t *max, robj *hll) {
                 runlen = HLL_SPARSE_VAL_LEN(p);
                 regval = HLL_SPARSE_VAL_VALUE(p);
                 if ((runlen + i) > HLL_REGISTERS) break; /* Overflow. */
-                while(runlen--) {
+                while (runlen--) {
                     if (regval > max[i]) max[i] = regval;
                     i++;
                 }
@@ -1127,7 +1127,7 @@ robj *createHLLObject(void) {
     aux = HLL_REGISTERS;
     s = sdsnewlen(NULL,sparselen);
     p = (uint8_t*)s + HLL_HDR_SIZE;
-    while(aux) {
+    while (aux) {
         int xzero = HLL_SPARSE_XZERO_MAX_LEN;
         if (xzero > aux) xzero = aux;
         HLL_SPARSE_XZERO_SET(p,xzero);
@@ -1547,7 +1547,7 @@ void pfdebugCommand(client *c) {
         }
 
         p += HLL_HDR_SIZE;
-        while(p < end) {
+        while (p < end) {
             int runlen, regval;
 
             if (HLL_SPARSE_IS_ZERO(p)) {

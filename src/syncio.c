@@ -51,7 +51,7 @@ ssize_t syncWrite(int fd, char *ptr, ssize_t size, long long timeout) {
     long long start = mstime();
     long long remaining = timeout;
 
-    while(1) {
+    while (1) {
         long long wait = (remaining > SYNCIO__RESOLUTION) ?
                           remaining : SYNCIO__RESOLUTION;
         long long elapsed;
@@ -88,7 +88,7 @@ ssize_t syncRead(int fd, char *ptr, ssize_t size, long long timeout) {
     long long remaining = timeout;
 
     if (size == 0) return 0;
-    while(1) {
+    while (1) {
         long long wait = (remaining > SYNCIO__RESOLUTION) ?
                           remaining : SYNCIO__RESOLUTION;
         long long elapsed;
@@ -126,7 +126,7 @@ ssize_t syncReadLine(int fd, char *ptr, ssize_t size, long long timeout) {
     ssize_t nread = 0;
 
     size--;
-    while(size) {
+    while (size) {
         char c;
 
         if (syncRead(fd,&c,1,timeout) == -1) return -1;

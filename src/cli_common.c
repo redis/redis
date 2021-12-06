@@ -206,7 +206,7 @@ sds readArgFromStdin(void) {
     char buf[1024];
     sds arg = sdsempty();
 
-    while(1) {
+    while (1) {
         int nread = read(fileno(stdin),buf,1024);
 
         if (nread == 0) break;

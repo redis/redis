@@ -116,12 +116,12 @@
     (p)[1] = ((v)>>8)&0xff; \
     (p)[2] = ((v)>>16)&0xff; \
     (p)[3] = ((v)>>24)&0xff; \
-} while(0)
+} while (0)
 
 #define lpSetNumElements(p,v) do { \
     (p)[4] = (v)&0xff; \
     (p)[5] = ((v)>>8)&0xff; \
-} while(0)
+} while (0)
 
 /* Validates that 'p' is not outside the listpack.
  * All function that return a pointer to an element in the listpack will assert
@@ -392,7 +392,7 @@ static inline uint64_t lpDecodeBacklen(unsigned char *p) {
         shift += 7;
         p--;
         if (shift > 28) return UINT64_MAX;
-    } while(1);
+    } while (1);
     return val;
 }
 
@@ -522,7 +522,7 @@ unsigned long lpLength(unsigned char *lp) {
      * to get the total number. */
     uint32_t count = 0;
     unsigned char *p = lpFirst(lp);
-    while(p) {
+    while (p) {
         count++;
         p = lpNext(lp,p);
     }
@@ -1303,7 +1303,7 @@ int lpValidateIntegrity(unsigned char *lp, size_t size, int deep,
     uint32_t count = 0;
     uint32_t numele = lpGetNumElements(lp);
     unsigned char *p = lp + LP_HDR_SIZE;
-    while(p && p[0] != LP_EOF) {
+    while (p && p[0] != LP_EOF) {
         unsigned char *prev = p;
 
         /* Validate this entry and move to the next entry in advance
@@ -1488,7 +1488,7 @@ void lpRepr(unsigned char *lp) {
     printf("{total bytes %zu} {num entries %lu}\n", lpBytes(lp), lpLength(lp));
         
     p = lpFirst(lp);
-    while(p) {
+    while (p) {
         uint32_t encoded_size_bytes = lpCurrentEncodedSizeBytes(p);
         uint32_t encoded_size = lpCurrentEncodedSizeUnsafe(p);
         unsigned long back_len = lpEncodeBacklen(NULL, encoded_size);
@@ -1639,7 +1639,7 @@ static int randstring(char *target, unsigned int min, unsigned int max) {
         assert(NULL);
     }
 
-    while(p < len)
+    while (p < len)
         target[p++] = minval+rand()%(maxval-minval+1);
     return len;
 }

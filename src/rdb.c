@@ -728,7 +728,7 @@ ssize_t rdbSaveStreamPEL(rio *rdb, rax *pel, int nacks) {
     raxIterator ri;
     raxStart(&ri,pel);
     raxSeek(&ri,"^",NULL,0);
-    while(raxNext(&ri)) {
+    while (raxNext(&ri)) {
         /* We store IDs in raw form as 128 big big endian numbers, like
          * they are inside the radix tree key. */
         if ((n = rdbWriteRaw(rdb,ri.key,sizeof(streamID))) == -1) {
@@ -772,7 +772,7 @@ size_t rdbSaveStreamConsumers(rio *rdb, streamCG *cg) {
     raxIterator ri;
     raxStart(&ri,cg->consumers);
     raxSeek(&ri,"^",NULL,0);
-    while(raxNext(&ri)) {
+    while (raxNext(&ri)) {
         streamConsumer *consumer = ri.data;
 
         /* Consumer name. */
@@ -821,7 +821,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
             if ((n = rdbSaveLen(rdb,ql->len)) == -1) return -1;
             nwritten += n;
 
-            while(node) {
+            while (node) {
                 if ((n = rdbSaveLen(rdb,node->container)) == -1) return -1;
                 nwritten += n;
 
@@ -852,7 +852,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
             }
             nwritten += n;
 
-            while((de = dictNext(di)) != NULL) {
+            while ((de = dictNext(di)) != NULL) {
                 sds ele = dictGetKey(de);
                 if ((n = rdbSaveRawString(rdb,(unsigned char*)ele,sdslen(ele)))
                     == -1)
@@ -924,7 +924,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
             }
             nwritten += n;
 
-            while((de = dictNext(di)) != NULL) {
+            while ((de = dictNext(di)) != NULL) {
                 sds field = dictGetKey(de);
                 sds value = dictGetVal(de);
 
@@ -999,7 +999,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
             /* Serialize each consumer group. */
             raxStart(&ri,s->cgroups);
             raxSeek(&ri,"^",NULL,0);
-            while(raxNext(&ri)) {
+            while (raxNext(&ri)) {
                 streamCG *cg = ri.data;
 
                 /* Save the group name. */
@@ -1278,7 +1278,7 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
         if (rdbSaveLen(rdb,expires_size) == -1) goto werr;
 
         /* Iterate this DB writing every entry */
-        while((de = dictNext(di)) != NULL) {
+        while ((de = dictNext(di)) != NULL) {
             sds keystr = dictGetKey(de);
             robj key, *o = dictGetVal(de);
             long long expire;
@@ -1325,7 +1325,7 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
      * master will send us. */
     if (rsi && dictSize(evalScriptsDict())) {
         di = dictGetIterator(evalScriptsDict());
-        while((de = dictNext(di)) != NULL) {
+        while ((de = dictNext(di)) != NULL) {
             robj *body = dictGetVal(de);
             if (rdbSaveAuxField(rdb,"lua",3,body->ptr,sdslen(body->ptr)) == -1)
                 goto werr;
@@ -1518,7 +1518,7 @@ void rdbRemoveTempFile(pid_t childpid, int from_signal) {
  * a dummy redis object is returned just to conform to the API. */
 robj *rdbLoadCheckModuleValue(rio *rdb, char *modulename) {
     uint64_t opcode;
-    while((opcode = rdbLoadLen(rdb,NULL)) != RDB_MODULE_OPCODE_EOF) {
+    while ((opcode = rdbLoadLen(rdb,NULL)) != RDB_MODULE_OPCODE_EOF) {
         if (opcode == RDB_MODULE_OPCODE_SINT ||
             opcode == RDB_MODULE_OPCODE_UINT)
         {
@@ -1745,7 +1745,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                             server.list_compress_depth);
 
         /* Load every single element of the list */
-        while(len--) {
+        while (len--) {
             if ((ele = rdbLoadEncodedStringObject(rdb)) == NULL) {
                 decrRefCount(o);
                 return NULL;
@@ -1841,7 +1841,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
         }
 
         /* Load every single element of the sorted set. */
-        while(zsetlen--) {
+        while (zsetlen--) {
             sds sdsele;
             double score;
             zskiplistNode *znode;
@@ -2308,7 +2308,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
             return NULL;
         }
 
-        while(listpacks--) {
+        while (listpacks--) {
             /* Get the master ID, the one we'll use as key of the radix tree
              * node: the entries inside the listpack itself are delta-encoded
              * relatively to this ID. */
@@ -2388,7 +2388,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
             decrRefCount(o);
             return NULL;
         }
-        while(cgroups_count--) {
+        while (cgroups_count--) {
             /* Get the consumer group name and ID. We can then create the
              * consumer group ASAP and populate its structure as
              * we read more data. */
@@ -2431,7 +2431,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 decrRefCount(o);
                 return NULL;
             }
-            while(pel_size--) {
+            while (pel_size--) {
                 unsigned char rawid[sizeof(streamID)];
                 if (rioRead(rdb,rawid,sizeof(rawid)) == 0) {
                     rdbReportReadError("Stream PEL ID loading failed.");
@@ -2464,7 +2464,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 decrRefCount(o);
                 return NULL;
             }
-            while(consumers_num--) {
+            while (consumers_num--) {
                 sds cname = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL);
                 if (cname == NULL) {
                     rdbReportReadError(
@@ -2491,7 +2491,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                     decrRefCount(o);
                     return NULL;
                 }
-                while(pel_size--) {
+                while (pel_size--) {
                     unsigned char rawid[sizeof(streamID)];
                     if (rioRead(rdb,rawid,sizeof(rawid)) == 0) {
                         rdbReportReadError(
@@ -2527,7 +2527,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 raxIterator ri_cg_pel;
                 raxStart(&ri_cg_pel,cgroup->pel);
                 raxSeek(&ri_cg_pel,"^",NULL,0);
-                while(raxNext(&ri_cg_pel)) {
+                while (raxNext(&ri_cg_pel)) {
                     streamNACK *nack = ri_cg_pel.data;
                     if (!nack->consumer) {
                         raxStop(&ri_cg_pel);
@@ -2805,7 +2805,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
     long long lru_idle = -1, lfu_freq = -1, expiretime = -1, now = mstime();
     long long lru_clock = LRU_CLOCK();
 
-    while(1) {
+    while (1) {
         sds key;
         robj *val;
 
@@ -3276,7 +3276,7 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
     server.rdb_pipe_numconns = 0;
     server.rdb_pipe_numconns_writing = 0;
     listRewind(server.slaves,&li);
-    while((ln = listNext(&li))) {
+    while ((ln = listNext(&li))) {
         client *slave = ln->value;
         if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START) {
             server.rdb_pipe_conns[server.rdb_pipe_numconns++] = slave->conn;
@@ -3322,7 +3322,7 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
              * all the slaves in BGSAVE_START state, but an early call to
              * replicationSetupSlaveForFullResync() turned it into BGSAVE_END */
             listRewind(server.slaves,&li);
-            while((ln = listNext(&li))) {
+            while ((ln = listNext(&li))) {
                 client *slave = ln->value;
                 if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_END) {
                     slave->replstate = SLAVE_STATE_WAIT_BGSAVE_START;

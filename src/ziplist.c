@@ -313,7 +313,7 @@ typedef struct zlentry {
 #define ZIP_ENTRY_ENCODING(ptr, encoding) do {  \
     (encoding) = ((ptr)[0]); \
     if ((encoding) < ZIP_STR_MASK) (encoding) &= ZIP_STR_MASK; \
-} while(0)
+} while (0)
 
 #define ZIP_ENCODING_SIZE_INVALID 0xff
 /* Return the number of bytes required to encode the entry type + length.
@@ -437,7 +437,7 @@ unsigned int zipStoreEntryEncoding(unsigned char *p, unsigned char encoding, uns
         else                                                                   \
             (lensize) = (len) = 0; /* bad encoding */                          \
     }                                                                          \
-} while(0)
+} while (0)
 
 /* Encode the length of the previous entry and write it to "p". This only
  * uses the larger encoding (required in __ziplistCascadeUpdate). */
@@ -475,7 +475,7 @@ unsigned int zipStorePrevEntryLength(unsigned char *p, unsigned int len) {
     } else {                                                                   \
         (prevlensize) = 5;                                                     \
     }                                                                          \
-} while(0)
+} while (0)
 
 /* Return the length of the previous element, and the number of bytes that
  * are used in order to encode the previous element length.
@@ -494,7 +494,7 @@ unsigned int zipStorePrevEntryLength(unsigned char *p, unsigned int len) {
                     ((ptr)[2] <<  8) |                                         \
                     ((ptr)[1]);                                                \
     }                                                                          \
-} while(0)
+} while (0)
 
 /* Given a pointer 'p' to the prevlen info that prefixes an entry, this
  * function returns the difference in number of bytes needed to encode
@@ -1444,7 +1444,7 @@ void ziplistRepr(unsigned char *zl) {
         intrev16ifbe(ZIPLIST_LENGTH(zl)),
         intrev32ifbe(ZIPLIST_TAIL_OFFSET(zl)));
     p = ZIPLIST_ENTRY_HEAD(zl);
-    while(*p != ZIP_END) {
+    while (*p != ZIP_END) {
         assert(zipEntrySafe(zl, zlbytes, p, &entry, 1));
         printf(
             "{\n"
@@ -1519,7 +1519,7 @@ int ziplistValidateIntegrity(unsigned char *zl, size_t size, int deep,
     unsigned char *p = ZIPLIST_ENTRY_HEAD(zl);
     unsigned char *prev = NULL;
     size_t prev_raw_size = 0;
-    while(*p != ZIP_END) {
+    while (*p != ZIP_END) {
         struct zlentry e;
         /* Decode the entry headers and fail if invalid or reaches outside the allocation */
         if (!zipEntrySafe(zl, size, p, &e, 1))
@@ -1799,7 +1799,7 @@ static int randstring(char *target, unsigned int min, unsigned int max) {
         assert(NULL);
     }
 
-    while(p < len)
+    while (p < len)
         target[p++] = minval+rand()%(maxval-minval+1);
     return len;
 }

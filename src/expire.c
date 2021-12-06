@@ -251,7 +251,7 @@ void activeExpireCycle(int type) {
 
                     /* Scan the current bucket of the current table. */
                     checked_buckets++;
-                    while(de) {
+                    while (de) {
                         /* Get the next entry now since this entry may get
                          * deleted. */
                         dictEntry *e = de;
@@ -362,7 +362,7 @@ void expireSlaveKeys(void) {
 
     int cycles = 0, noexpire = 0;
     mstime_t start = mstime();
-    while(1) {
+    while (1) {
         dictEntry *de = dictGetRandomKey(slaveKeysWithExpire);
         sds keyname = dictGetKey(de);
         uint64_t dbids = dictGetUnsignedIntegerVal(de);
@@ -371,7 +371,7 @@ void expireSlaveKeys(void) {
         /* Check the key against every database corresponding to the
          * bits set in the value bitmap. */
         int dbid = 0;
-        while(dbids && dbid < server.dbnum) {
+        while (dbids && dbid < server.dbnum) {
             if ((dbids & 1) != 0) {
                 redisDb *db = server.db+dbid;
                 dictEntry *expire = dictFind(db->expires,keyname);

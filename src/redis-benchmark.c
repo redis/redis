@@ -402,7 +402,7 @@ static void freeClient(client c) {
 static void freeAllClients(void) {
     listNode *ln = config.clients->head, *next;
 
-    while(ln) {
+    while (ln) {
         next = ln->next;
         freeClient(ln->value);
         ln = next;
@@ -499,7 +499,7 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         fprintf(stderr,"Error: %s\n",c->context->errstr);
         exit(1);
     } else {
-        while(c->pending) {
+        while (c->pending) {
             if (redisGetReply(c->context,&reply) != REDIS_OK) {
                 fprintf(stderr,"Error: %s\n",c->context->errstr);
                 exit(1);
@@ -622,7 +622,7 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     const ssize_t writeLen = buflen-c->written;
     if (writeLen > 0) {
         void *ptr = c->obuf+c->written;
-        while(1) {
+        while (1) {
             /* Optimistically try to write before checking if the file descriptor
              * is actually writable. At worst we get EAGAIN. */
             const ssize_t nwritten = cliWriteConn(c->context,ptr,writeLen);
@@ -841,7 +841,7 @@ static client createClient(char *cmd, size_t len, client from, int thread_id) {
 
 static void createMissingClients(client c) {
     int n = 0;
-    while(config.liveclients < config.numclients) {
+    while (config.liveclients < config.numclients) {
         int thread_id = -1;
         if (config.num_threads)
             thread_id = config.liveclients % config.num_threads;
@@ -1856,7 +1856,7 @@ int main(int argc, char **argv) {
             config.datasize = len;
             benchmark(title,cmd,len);
             free(cmd);
-        } while(config.loop);
+        } while (config.loop);
         sdsfreesplitres(sds_args, argc);
 
         sdsfree(title);
@@ -2006,7 +2006,7 @@ int main(int argc, char **argv) {
         }
 
         if (!config.csv) printf("\n");
-    } while(config.loop);
+    } while (config.loop);
 
     zfree(data);
     freeCliConnInfo(config.conn_info);

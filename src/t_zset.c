@@ -107,7 +107,7 @@ void zslFree(zskiplist *zsl) {
     zskiplistNode *node = zsl->header->level[0].forward, *next;
 
     zfree(zsl->header);
-    while(node) {
+    while (node) {
         next = node->level[0].forward;
         zslFreeNode(node);
         node = next;
@@ -203,7 +203,7 @@ void zslDeleteNode(zskiplist *zsl, zskiplistNode *x, zskiplistNode **update) {
     } else {
         zsl->tail = x->backward;
     }
-    while(zsl->level > 1 && zsl->header->level[zsl->level-1].forward == NULL)
+    while (zsl->level > 1 && zsl->header->level[zsl->level-1].forward == NULL)
         zsl->level--;
     zsl->length--;
 }
@@ -1517,7 +1517,7 @@ long zsetRank(robj *zobj, sds ele, int reverse) {
         serverAssert(sptr != NULL);
 
         rank = 1;
-        while(eptr != NULL) {
+        while (eptr != NULL) {
             if (lpCompare(eptr,(unsigned char*)ele,sdslen(ele)))
                 break;
             rank++;
@@ -1672,7 +1672,7 @@ void zaddGenericCommand(client *c, int flags) {
     /* Parse options. At the end 'scoreidx' is set to the argument position
      * of the score of the first score-element pair. */
     scoreidx = 2;
-    while(scoreidx < c->argc) {
+    while (scoreidx < c->argc) {
         char *opt = c->argv[scoreidx]->ptr;
         if (!strcasecmp(opt,"nx")) flags |= ZADD_IN_NX;
         else if (!strcasecmp(opt,"xx")) flags |= ZADD_IN_XX;
@@ -2322,7 +2322,7 @@ static size_t zsetDictGetMaxElementLength(dict *d, size_t *totallen) {
 
     di = dictGetIterator(d);
 
-    while((de = dictNext(di)) != NULL) {
+    while ((de = dictNext(di)) != NULL) {
         sds ele = dictGetKey(de);
         if (sdslen(ele) > maxelelen) maxelelen = sdslen(ele);
         if (totallen)
@@ -2743,7 +2743,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
          * right size, in order to save rehashing time. */
         dictExpand(dstzset->dict,dictSize(accumulator));
 
-        while((de = dictNext(di)) != NULL) {
+        while ((de = dictNext(di)) != NULL) {
             sds ele = dictGetKey(de);
             score = dictGetDoubleVal(de);
             znode = zslInsert(dstzset->zsl,score,ele);
@@ -3082,7 +3082,7 @@ void genericZrangebyrankCommand(zrange_result_handler *handler,
                 ln = zslGetElementByRank(zsl,start+1);
         }
 
-        while(rangelen--) {
+        while (rangelen--) {
             serverAssertWithInfo(c,zobj,ln != NULL);
             sds ele = ln->ele;
             handler->emitResultFromCBuffer(handler, ele, sdslen(ele), ln->score);
@@ -3901,7 +3901,7 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
         addReplyDouble(c,score);
         sdsfree(ele);
         ++result_count;
-    } while(--rangelen);
+    } while (--rangelen);
 
     /* Remove the key, if indeed needed. */
     if (zsetLength(zobj) == 0) {

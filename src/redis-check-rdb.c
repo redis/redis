@@ -213,7 +213,7 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
     }
 
     expiretime = -1;
-    while(1) {
+    while (1) {
         robj *key, *val;
 
         /* Read type. */

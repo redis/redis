@@ -521,7 +521,7 @@ void spopWithCountCommand(client *c) {
      * set size. We can just extract random elements and return them to
      * the set. */
     if (remaining*SPOP_MOVE_STRATEGY_MUL > count) {
-        while(count--) {
+        while (count--) {
             /* Emit and remove. */
             encoding = setTypeRandomElement(set,&sdsele,&llele);
             if (encoding == OBJ_ENCODING_INTSET) {
@@ -551,7 +551,7 @@ void spopWithCountCommand(client *c) {
         robj *newset = NULL;
 
         /* Create a new set with just the remaining elements. */
-        while(remaining--) {
+        while (remaining--) {
             encoding = setTypeRandomElement(set,&sdsele,&llele);
             if (encoding == OBJ_ENCODING_INTSET) {
                 sdsele = sdsfromlonglong(llele);
@@ -567,7 +567,7 @@ void spopWithCountCommand(client *c) {
         /* Transfer the old set to the client. */
         setTypeIterator *si;
         si = setTypeInitIterator(set);
-        while((encoding = setTypeNext(si,&sdsele,&llele)) != -1) {
+        while ((encoding = setTypeNext(si,&sdsele,&llele)) != -1) {
             if (encoding == OBJ_ENCODING_INTSET) {
                 addReplyBulkLongLong(c,llele);
                 objele = createStringObjectFromLongLong(llele);
@@ -692,7 +692,7 @@ void srandmemberWithCountCommand(client *c) {
      * elements in random order. */
     if (!uniq || count == 1) {
         addReplyArrayLen(c,count);
-        while(count--) {
+        while (count--) {
             encoding = setTypeRandomElement(set,&ele,&llele);
             if (encoding == OBJ_ENCODING_INTSET) {
                 addReplyBulkLongLong(c,llele);
@@ -798,7 +798,7 @@ void srandmemberWithCountCommand(client *c) {
 
         addReplyArrayLen(c,count);
         di = dictGetIterator(d);
-        while((de = dictNext(di)) != NULL)
+        while ((de = dictNext(di)) != NULL)
             addReplyBulkSds(c,dictGetKey(de));
         dictReleaseIterator(di);
         dictRelease(d);
@@ -925,7 +925,7 @@ void sinterGenericCommand(client *c, robj **setkeys,
      * the element against all the other sets, if at least one set does
      * not include the element it is discarded */
     si = setTypeInitIterator(sets[0]);
-    while((encoding = setTypeNext(si,&elesds,&intobj)) != -1) {
+    while ((encoding = setTypeNext(si,&elesds,&intobj)) != -1) {
         for (j = 1; j < setnum; j++) {
             if (sets[j] == sets[0]) continue;
             if (encoding == OBJ_ENCODING_INTSET) {
@@ -1114,7 +1114,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
             if (!sets[j]) continue; /* non existing keys are like empty sets */
 
             si = setTypeInitIterator(sets[j]);
-            while((ele = setTypeNextObject(si)) != NULL) {
+            while ((ele = setTypeNextObject(si)) != NULL) {
                 if (setTypeAdd(dstset,ele)) cardinality++;
                 sdsfree(ele);
             }
@@ -1130,7 +1130,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
          * This way we perform at max N*M operations, where N is the size of
          * the first set, and M the number of sets. */
         si = setTypeInitIterator(sets[0]);
-        while((ele = setTypeNextObject(si)) != NULL) {
+        while ((ele = setTypeNextObject(si)) != NULL) {
             for (j = 1; j < setnum; j++) {
                 if (!sets[j]) continue; /* no key is an empty set. */
                 if (sets[j] == sets[0]) break; /* same set! */
@@ -1156,7 +1156,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
             if (!sets[j]) continue; /* non existing keys are like empty sets */
 
             si = setTypeInitIterator(sets[j]);
-            while((ele = setTypeNextObject(si)) != NULL) {
+            while ((ele = setTypeNextObject(si)) != NULL) {
                 if (j == 0) {
                     if (setTypeAdd(dstset,ele)) cardinality++;
                 } else {
@@ -1176,7 +1176,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
     if (!dstkey) {
         addReplySetLen(c,cardinality);
         si = setTypeInitIterator(dstset);
-        while((ele = setTypeNextObject(si)) != NULL) {
+        while ((ele = setTypeNextObject(si)) != NULL) {
             addReplyBulkCBuffer(c,ele,sdslen(ele));
             sdsfree(ele);
         }

@@ -143,7 +143,7 @@ int memtest_addressing(unsigned long *l, size_t bytes, int interactive) {
         rseed ^= rseed << 25; \
         rseed ^= rseed >> 27; \
         rout = rseed * UINT64_C(2685821657736338717); \
-} while(0)
+} while (0)
 
 void memtest_fill_random(unsigned long *l, size_t bytes, int interactive) {
     unsigned long step = 4096/sizeof(unsigned long);
@@ -299,7 +299,7 @@ int memtest_preserving_test(unsigned long *m, size_t bytes, int passes) {
     if (bytes & 4095) return 0; /* Can't test across 4k page boundaries. */
     if (bytes < 4096*2) return 0; /* Can't test a single page. */
 
-    while(left) {
+    while (left) {
         /* If we have to test a single final page, go back a single page
          * so that we can test two pages, since the code can't test a single
          * page but at least two. */
@@ -315,7 +315,7 @@ int memtest_preserving_test(unsigned long *m, size_t bytes, int passes) {
         if (len/4096 % 2) len -= 4096;
 
         memcpy(backup,p,len); /* Backup. */
-        while(pass != passes) {
+        while (pass != passes) {
             pass++;
             errors += memtest_addressing(p,len,0);
             memtest_fill_random(p,len,0);
