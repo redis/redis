@@ -142,6 +142,10 @@ struct redisServer server; /* Server global state */
  *              have different results. For instance SPOP and RANDOMKEY are
  *              two random commands.
  *
+ * to-sort:     Sort command output array if called from script, so that the
+ *              output is deterministic. When this flag is used (not always
+ *              possible), then the "random" flag is not needed.
+ *
  * ok-loading:  Allow the command while loading the database.
  *
  * ok-stale:    Allow the command while a slave has stale data but is not
@@ -1038,7 +1042,7 @@ struct redisCommand redisCommandTable[] = {
        KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 
     {"sinter",sinterCommand,-2,
-     "read-only random @set",
+     "read-only to-sort @set",
      {{"read",
        KSPEC_BS_INDEX,.bs.index={1},
        KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
@@ -1060,7 +1064,7 @@ struct redisCommand redisCommandTable[] = {
        KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
 
     {"sunion",sunionCommand,-2,
-     "read-only random @set",
+     "read-only to-sort @set",
      {{"read",
        KSPEC_BS_INDEX,.bs.index={1},
        KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
@@ -1075,7 +1079,7 @@ struct redisCommand redisCommandTable[] = {
        KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
 
     {"sdiff",sdiffCommand,-2,
-     "read-only random @set",
+     "read-only to-sort @set",
      {{"read",
        KSPEC_BS_INDEX,.bs.index={1},
        KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
@@ -1090,7 +1094,7 @@ struct redisCommand redisCommandTable[] = {
        KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
 
     {"smembers",sinterCommand,2,
-     "read-only random @set",
+     "read-only to-sort @set",
      {{"read",
        KSPEC_BS_INDEX,.bs.index={1},
        KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
@@ -1393,13 +1397,13 @@ struct redisCommand redisCommandTable[] = {
        KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 
     {"hkeys",hkeysCommand,2,
-     "read-only random @hash",
+     "read-only to-sort @hash",
      {{"read",
        KSPEC_BS_INDEX,.bs.index={1},
        KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 
     {"hvals",hvalsCommand,2,
-     "read-only random @hash",
+     "read-only to-sort @hash",
      {{"read",
        KSPEC_BS_INDEX,.bs.index={1},
        KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
@@ -1527,7 +1531,7 @@ struct redisCommand redisCommandTable[] = {
        KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 
     {"keys",keysCommand,2,
-     "read-only random @keyspace @dangerous"},
+     "read-only to-sort @keyspace @dangerous"},
 
     {"scan",scanCommand,-2,
      "read-only random @keyspace"},
@@ -4527,6 +4531,8 @@ void parseCommandFlags(struct redisCommand *c, char *strflags) {
             c->flags |= CMD_NOSCRIPT;
         } else if (!strcasecmp(flag,"random")) {
             c->flags |= CMD_RANDOM;
+        } else if (!strcasecmp(flag,"to-sort")) {
+            c->flags |= CMD_SORT_FOR_SCRIPT;
         } else if (!strcasecmp(flag,"ok-loading")) {
             c->flags |= CMD_LOADING;
         } else if (!strcasecmp(flag,"ok-stale")) {
@@ -5773,6 +5779,7 @@ void addReplyFlagsForCommand(client *c, struct redisCommand *cmd) {
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_PUBSUB, "pubsub");
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_NOSCRIPT, "noscript");
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_RANDOM, "random");
+    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_SORT_FOR_SCRIPT,"sort_for_script");
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_LOADING, "loading");
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_STALE, "stale");
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_SKIP_MONITOR, "skip_monitor");

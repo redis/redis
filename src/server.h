@@ -191,7 +191,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CMD_PUBSUB (1ULL<<5)           /* "pub-sub" flag */
 #define CMD_NOSCRIPT (1ULL<<6)         /* "no-script" flag */
 #define CMD_RANDOM (1ULL<<7)           /* "random" flag */
-
+#define CMD_SORT_FOR_SCRIPT (1ULL<<8)  /* "to-sort" flag */
 #define CMD_LOADING (1ULL<<9)          /* "ok-loading" flag */
 #define CMD_STALE (1ULL<<10)           /* "ok-stale" flag */
 #define CMD_SKIP_MONITOR (1ULL<<11)    /* "no-monitor" flag */
