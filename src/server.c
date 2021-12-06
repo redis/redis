@@ -3888,7 +3888,13 @@ static void readOOMScoreAdj(void) {
  * A process_class value of -1 implies OOM_CONFIG_MASTER or OOM_CONFIG_REPLICA,
  * depending on current role.
  */
+static int oom_adj_managed_by_redis = 0;
 int setOOMScoreAdj(int process_class) {
+
+    if (server.oom_score_adj != OOM_SCORE_ADJ_NO && !oom_adj_managed_by_redis) {
+        readOOMScoreAdj();
+    }
+
     if (process_class == -1)
         process_class = (server.masterhost ? CONFIG_OOM_REPLICA : CONFIG_OOM_MASTER);
 
@@ -3905,8 +3911,13 @@ int setOOMScoreAdj(int process_class) {
             val += server.oom_score_adj_base;
         if (val > 1000) val = 1000;
         if (val < -1000) val = -1000;
-    } else
+    } else if (oom_adj_managed_by_redis)
         val = server.oom_score_adj_base;
+    else {
+        return C_OK;
+    }
+
+    oom_adj_managed_by_redis = server.oom_score_adj != OOM_SCORE_ADJ_NO;
 
     snprintf(buf, sizeof(buf) - 1, "%d\n", val);
 
@@ -8046,7 +8057,6 @@ int main(int argc, char **argv) {
         serverLog(LL_WARNING, "Configuration loaded");
     }
 
-    readOOMScoreAdj();
     initServer();
     if (background || server.pidfile) createPidFile();
     if (server.set_proc_title) redisSetProcTitle(NULL);

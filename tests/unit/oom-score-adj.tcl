@@ -14,6 +14,15 @@ if {$system_name eq {linux}} {
             return $val
         }
 
+        proc set_oom_score_adj {score {pid ""}} {
+            if {$pid == ""} {
+                set pid [srv 0 pid]
+            }
+            set fd [open "/proc/$pid/oom_score_adj" "w"]
+            puts $fd $score
+            close $fd
+        }
+
         test {CONFIG SET oom-score-adj works as expected} {
             set base [get_oom_score_adj]
 
@@ -72,6 +81,22 @@ if {$system_name eq {linux}} {
                 # Make sure previous values remain
                 assert {[r config get oom-score-adj-values] == {oom-score-adj-values {0 100 100}}}
             }
+        }
+
+        test {CONFIG SET oom-score-adj-values doesn't touch proc when disabled} {
+            set orig_osa [get_oom_score_adj]
+            
+            set other_val1 [expr $orig_osa + 1]
+            set other_val2 [expr $orig_osa + 2]
+            
+            r config set oom-score-adj no
+            
+            set_oom_score_adj $other_val2
+            assert_equal [get_oom_score_adj] $other_val2
+
+            r config set oom-score-adj-values "$other_val1 $other_val1 $other_val1"
+            
+            assert_equal [get_oom_score_adj] $other_val2
         }
     }
 }
