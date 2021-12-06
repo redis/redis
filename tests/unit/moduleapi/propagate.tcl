@@ -40,11 +40,10 @@ tags "modules" {
                     set repl [attach_to_replication_stream]
 
                     $master set x y
-                    wait_for_ofs_sync $master $replica
 
                     assert_replication_stream $repl {
-                        {multi}
                         {select *}
+                        {multi}
                         {incr notifications}
                         {set x y}
                         {exec}
@@ -59,11 +58,10 @@ tags "modules" {
                     $master set x1 y1
                     $master set x2 y2
                     $master exec
-                    wait_for_ofs_sync $master $replica
 
                     assert_replication_stream $repl {
-                        {multi}
                         {select *}
+                        {multi}
                         {incr notifications}
                         {set x1 y1}
                         {incr notifications}
@@ -87,10 +85,11 @@ tags "modules" {
                         fail "Not all keys have expired"
                     }
 
-                    # Note whenever there's double notification: for for "set" and one for "expire"
+                    # Note whenever there's double notification: SET with PX issues two separate
+                    # notifications: one for "set" and one for "expire"
                     assert_replication_stream $repl {
-                        {multi}
                         {select *}
+                        {multi}
                         {incr notifications}
                         {incr notifications}
                         {set asdf1 1 PXAT *}
@@ -105,14 +104,12 @@ tags "modules" {
                         {incr notifications}
                         {set asdf3 3 PXAT *}
                         {exec}
-                        {multi}
                         {incr notifications}
                         {del asdf*}
                         {incr notifications}
                         {del asdf*}
                         {incr notifications}
                         {del asdf*}
-                        {exec}
                     }
                     close_replication_stream $repl
                 }
@@ -129,8 +126,8 @@ tags "modules" {
                     }
 
                     assert_replication_stream $repl {
-                        {multi}
                         {select *}
+                        {multi}
                         {incrby timer-nested-start 1}
                         {incrby timer-nested-end 1}
                         {exec}
@@ -140,7 +137,6 @@ tags "modules" {
                     # Note propagate-test.timer-nested just propagates INCRBY, causing an
                     # inconsistency, so we flush
                     $master flushall
-                    wait_for_ofs_sync $master $replica
                 }
 
                 test {module propagates nested ctx case2} {
@@ -155,8 +151,8 @@ tags "modules" {
                     }
 
                     assert_replication_stream $repl {
-                        {multi}
                         {select *}
+                        {multi}
                         {incrby timer-nested-start 1}
                         {incr notifications}
                         {incr using-call}
@@ -176,7 +172,6 @@ tags "modules" {
                     # Note propagate-test.timer-nested-repl just propagates INCRBY, causing an
                     # inconsistency, so we flush
                     $master flushall
-                    wait_for_ofs_sync $master $replica
                 }
 
                 test {module propagates from thread} {
@@ -208,10 +203,9 @@ tags "modules" {
                     $master propagate-test.simple
                     $master propagate-test.mixed
 
-                    # Note the 'after-call' propagation below is out of order (known limitation)
                     assert_replication_stream $repl {
-                        {multi}
                         {select *}
+                        {multi}
                         {incr counter-1}
                         {incr counter-2}
                         {exec}
@@ -236,8 +230,8 @@ tags "modules" {
                         redis.call("propagate-test.mixed"); return "OK" } 0 ] {OK}
 
                     assert_replication_stream $repl {
-                        {multi}
                         {select *}
+                        {multi}
                         {incr counter-1}
                         {incr counter-2}
                         {incr notifications}
@@ -261,8 +255,8 @@ tags "modules" {
                     $master propagate-test.mixed
 
                     assert_replication_stream $repl {
-                        {multi}
                         {select *}
+                        {multi}
                         {incr counter-1}
                         {incr counter-2}
                         {exec}
@@ -287,8 +281,8 @@ tags "modules" {
                     $master propagate-test.mixed
 
                     assert_replication_stream $repl {
-                        {multi}
                         {select *}
+                        {multi}
                         {incr counter-1}
                         {incr counter-2}
                         {exec}
@@ -320,8 +314,8 @@ tags "modules" {
                     }
 
                     assert_replication_stream $repl {
-                        {multi}
                         {select *}
+                        {multi}
                         {incr counter-1}
                         {incr counter-2}
                         {incr notifications}
@@ -351,23 +345,20 @@ tags "modules" {
                    # Note propagate-test.timer-nested just propagates INCRBY, causing an
                     # inconsistency, so we flush
                     $master flushall
-                    wait_for_ofs_sync $master $replica
                 }
 
                 test {module RM_Call of expired key propagation} {
                     $master debug set-active-expire 0
 
                     $master set k1 900 px 100
-                    wait_for_ofs_sync $master $replica
                     after 110
 
                     set repl [attach_to_replication_stream]
                     $master propagate-test.incr k1
-                    wait_for_ofs_sync $master $replica
 
                     assert_replication_stream $repl {
-                        {multi}
                         {select *}
+                        {multi}
                         {del k1}
                         {propagate-test.incr k1}
                         {exec}

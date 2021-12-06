@@ -63,12 +63,13 @@
                                                    Thanks to this flag we'll raise an error every time a write command
                                                    is called after a random command and prevent none deterministic
                                                    replication or AOF. */
-#define SCRIPT_TIMEDOUT               (1ULL<<2) /* indicate that the current script timedout */
-#define SCRIPT_KILLED                 (1ULL<<3) /* indicate that the current script was marked to be killed */
-#define SCRIPT_READ_ONLY              (1ULL<<4) /* indicate that the current script should only perform read commands */
-#define SCRIPT_EVAL_REPLICATION       (1ULL<<5) /* mode for eval, indicate that we replicate the
+#define SCRIPT_FLAG_UNUSED            (1ULL<<2) /* unused flag (may be used if needed) */
+#define SCRIPT_TIMEDOUT               (1ULL<<3) /* indicate that the current script timedout */
+#define SCRIPT_KILLED                 (1ULL<<4) /* indicate that the current script was marked to be killed */
+#define SCRIPT_READ_ONLY              (1ULL<<5) /* indicate that the current script should only perform read commands */
+#define SCRIPT_EVAL_REPLICATION       (1ULL<<6) /* mode for eval, indicate that we replicate the
                                                    script invocation and not the effects */
-#define SCRIPT_EVAL_MODE              (1ULL<<6) /* Indicate that the current script called from legacy Lua */
+#define SCRIPT_EVAL_MODE              (1ULL<<7) /* Indicate that the current script called from legacy Lua */
 typedef struct scriptRunCtx scriptRunCtx;
 
 struct scriptRunCtx {

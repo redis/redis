@@ -120,18 +120,6 @@ void discardCommand(client *c) {
     addReply(c,shared.ok);
 }
 
-/* Send a MULTI command to all the slaves and AOF file. Check the execCommand
- * implementation for more information. */
-void execCommandPropagateMulti() {
-    /* It doesn't matter which dbid we pass since MULTI itself doesn't touch any keys */
-    propagate(-1,&shared.multi,1,PROPAGATE_AOF|PROPAGATE_REPL);
-}
-
-void execCommandPropagateExec() {
-    /* It doesn't matter which dbid we pass since EXEC itself doesn't touch any keys */
-    propagate(-1,&shared.exec,1,PROPAGATE_AOF|PROPAGATE_REPL);
-}
-
 /* Aborts a transaction, with a specific error message.
  * The transaction is always aborted with -EXECABORT so that the client knows
  * the server exited the multi state, but the actual reason for the abort is

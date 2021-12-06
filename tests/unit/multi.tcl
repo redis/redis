@@ -311,9 +311,11 @@ start_server {tags {"multi"}} {
         r multi
         r set foo bar
         r exec
+        r set foo2 bar
         assert_replication_stream $repl {
             {select *}
             {set foo bar}
+            {set foo2 bar}
         }
         close_replication_stream $repl
     } {} {needs:repl}
@@ -325,15 +327,17 @@ start_server {tags {"multi"}} {
         r get foo{t}
         r set foo2{t} bar2
         r get foo2{t}
+        r select 3
         r set foo3{t} bar3
         r get foo3{t}
         r exec
 
         assert_replication_stream $repl {
-            {multi}
             {select *}
+            {multi}
             {set foo{t} bar}
             {set foo2{t} bar2}
+            {select *}
             {set foo3{t} bar3}
             {exec}
         }
@@ -384,6 +388,23 @@ start_server {tags {"multi"}} {
         }
         close_replication_stream $repl
     } {} {needs:repl}
+
+    test {MULTI / EXEC with REPLICAOF} {
+        set repl [attach_to_replication_stream]
+        r set foo bar
+        r multi
+        r set foo2 bar
+        r replicaof localhost 9999
+        r set foo3 bar
+        r exec
+        catch {r set foo3 bar} e
+        assert_match {READONLY*} $e
+        assert_replication_stream $repl {
+            {select *}
+            {set foo bar}
+        }
+        r replicaof no one
+    } {OK} {needs:repl}
 
     test {DISCARD should not fail during OOM} {
         set rd [redis_deferring_client]

@@ -4301,6 +4301,7 @@ void initServer(void) {
     server.in_script = 0;
     server.in_exec = 0;
     server.core_propagates = 0;
+    server.propagate_no_wrap = 0;
     server.client_pause_in_transaction = 0;
     server.child_pid = -1;
     server.child_type = CHILD_TYPE_NONE;
@@ -4811,7 +4812,7 @@ struct redisCommand *lookupCommandOrOriginal(robj **argv ,int argc) {
  * However in extreme cases, like working with threads, there's no other
  * choice except using this function (see RM_Replicate).
  */
-void propagate(int dbid, robj **argv, int argc, int flags) {
+void propagateNow(int dbid, robj **argv, int argc, int flags) {
     if (!server.replication_allowed || flags == PROPAGATE_NONE)
         return;
 
@@ -4910,19 +4911,25 @@ void propagatePendingCommands() {
      *
      * And if the array contains only one command, no need to
      * wrap it, since the single command is atomic. */
-    if (server.also_propagate.numops > 1) {
-        execCommandPropagateMulti();
+    if (server.also_propagate.numops > 1 && !server.propagate_no_wrap) {
+        /* We use the first command-to-propagate to set the dbid for MULTI,
+         * so that the SELECT will be propagated beforehand */
+        int multi_dbid = server.also_propagate.ops[0].dbid;
+        propagateNow(multi_dbid,&shared.multi,1,PROPAGATE_AOF|PROPAGATE_REPL);
         multi_emitted = 1;
     }
 
     for (j = 0; j < server.also_propagate.numops; j++) {
         rop = &server.also_propagate.ops[j];
         serverAssert(rop->target);
-        propagate(rop->dbid,rop->argv,rop->argc,rop->target);
+        propagateNow(rop->dbid,rop->argv,rop->argc,rop->target);
     }
 
-    if (multi_emitted)
-        execCommandPropagateExec();
+    if (multi_emitted) {
+        /* We take the dbid from last command so that propagateNow() won't inject another SELECT */
+        int exec_dbid = server.also_propagate.ops[server.also_propagate.numops-1].dbid;
+        propagateNow(exec_dbid,&shared.exec,1,PROPAGATE_AOF|PROPAGATE_REPL);
+    }
 
     redisOpArrayFree(&server.also_propagate);
 }
@@ -4983,7 +4990,7 @@ void call(client *c, int flags) {
      * Because call() is re-entrant we have to cache and restore
      * server.core_propagates. */
     int prev_core_propagates = server.core_propagates;
-    server.core_propagates = !(flags & CMD_CALL_FROM_MODULE || c->cmd->flags & CMD_MODULE) ||
+    server.core_propagates = !(flags & CMD_CALL_FROM_MODULE) ||
                              server.in_exec ||
                              server.in_script;
 
@@ -5116,18 +5123,6 @@ void call(client *c, int flags) {
     c->flags |= client_old_flags &
         (CLIENT_FORCE_AOF|CLIENT_FORCE_REPL|CLIENT_PREVENT_PROP);
 
-    /* If we are at the op-most call() we can propagate what we accumulated. */
-    if (server.in_nested_call == 0 && server.core_propagates)
-        propagatePendingCommands();
-
-    server.core_propagates = prev_core_propagates;
-
-    /* Client pause takes effect after a transaction has finished. This needs
-     * to be located after everything is propagated. */
-    if (!server.in_exec && server.client_pause_in_transaction) {
-        server.client_pause_in_transaction = 0;
-    }
-
     /* If the client has keys tracking enabled for client side caching,
      * make sure to remember the keys it fetched via this command. */
     if (c->cmd->flags & CMD_READONLY) {
@@ -5152,6 +5147,14 @@ void call(client *c, int flags) {
 
     /* Do some maintenance job and cleanup */
     afterCommand(c);
+
+    /* Client pause takes effect after a transaction has finished. This needs
+     * to be located after everything is propagated. */
+    if (!server.in_exec && server.client_pause_in_transaction) {
+        server.client_pause_in_transaction = 0;
+    }
+
+    server.core_propagates = prev_core_propagates;
 }
 
 /* Used when a command that is ready for execution needs to be rejected, due to
@@ -5192,9 +5195,16 @@ void rejectCommandFormat(client *c, const char *fmt, ...) {
 /* This is called after a command in call, we can do some maintenance job in it. */
 void afterCommand(client *c) {
     UNUSED(c);
-    /* Flush pending invalidation messages only when we are not in nested call.
-     * So the messages are not interleaved with transaction response. */
-    if (!server.in_nested_call) trackingHandlePendingKeyInvalidations();
+    if (!server.in_nested_call) {
+        /* If we are at the top-most call() we can propagate what we accumulated.
+         * Should be done before trackingHandlePendingKeyInvalidations so that we
+         * reply to client before invalidating cache (makes more sense) */
+        if (server.core_propagates)
+            propagatePendingCommands();
+        /* Flush pending invalidation messages only when we are not in nested call.
+         * So the messages are not interleaved with transaction response. */
+        trackingHandlePendingKeyInvalidations();
+    }
 }
 
 /* Returns 1 for commands that may have key names in their arguments, but the legacy range

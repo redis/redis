@@ -353,9 +353,6 @@ void serveClientsBlockedOnSortedSetKey(robj *o, readyList *rl) {
             elapsedStart(&replyTimer);
             genericZpopCommand(receiver, &rl->key, 1, where, 1, count, use_nested_array, reply_nil_when_empty, &deleted);
             updateStatsOnUnblock(receiver, 0, elapsedUs(replyTimer));
-            unblockClient(receiver);
-            afterCommand(receiver);
-            server.current_client = old_client;
 
             /* Replicate the command. */
             int argc = 2;
@@ -372,6 +369,10 @@ void serveClientsBlockedOnSortedSetKey(robj *o, readyList *rl) {
             alsoPropagate(receiver->db->id, argv, argc, PROPAGATE_AOF|PROPAGATE_REPL);
             decrRefCount(argv[1]);
             if (count != -1) decrRefCount(argv[2]);
+
+            unblockClient(receiver);
+            afterCommand(receiver);
+            server.current_client = old_client;
 
             /* The zset is empty and has been deleted. */
             if (deleted) break;
@@ -563,6 +564,7 @@ void serveClientsBlockedOnKeyByModule(readyList *rl) {
  * do, the function is already fair. */
 void handleClientsBlockedOnKeys(void) {
     server.core_propagates = 1;
+    server.propagate_no_wrap = 1;
 
     while(listLength(server.ready_keys) != 0) {
         list *l;
@@ -618,7 +620,7 @@ void handleClientsBlockedOnKeys(void) {
 
     serverAssert(server.core_propagates == 1); /* This function should not be re-entrant */
     server.core_propagates = 0;
-    propagatePendingCommands();
+    server.propagate_no_wrap = 0;
 }
 
 /* This is how the current blocking lists/sorted sets/streams work, we use

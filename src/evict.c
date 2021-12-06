@@ -561,10 +561,11 @@ int performEvictions(void) {
     monotime evictionTimer;
     elapsedStart(&evictionTimer);
 
-    /* Sanity: There can't be any pending command to propagate when
-     * we're in cron */
+    /* Sanity: There can't be any pending commands to propagate when
+     * we're in a timer or when we're in processCommand */
     serverAssert(server.also_propagate.numops == 0);
     server.core_propagates = 1;
+    server.propagate_no_wrap = 1;
 
     while (mem_freed < (long long)mem_tofree) {
         int j, k, i;
@@ -739,6 +740,7 @@ cant_free:
 
     serverAssert(server.core_propagates == 1); /* This function should not be re-entrant */
     server.core_propagates = 0;
+    server.propagate_no_wrap = 0;
 
     latencyEndMonitor(latency);
     latencyAddSampleIfNeeded("eviction-cycle",latency);

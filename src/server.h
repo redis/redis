@@ -482,7 +482,7 @@ typedef enum {
 #define CMD_CALL_FULL (CMD_CALL_SLOWLOG | CMD_CALL_STATS | CMD_CALL_PROPAGATE)
 #define CMD_CALL_FROM_MODULE (1<<4)  /* From RM_Call */
 
-/* Command propagation flags, see propagate() function */
+/* Command propagation flags, see propagateNow() function */
 #define PROPAGATE_NONE 0
 #define PROPAGATE_AOF 1
 #define PROPAGATE_REPL 2
@@ -1351,6 +1351,7 @@ struct redisServer {
     int in_script;              /* Are we inside EVAL? */
     int in_exec;                /* Are we inside EXEC? */
     int core_propagates;        /* True if the core (in oppose to the module subsystem) is in charge of calling propagatePendingCommands */
+    int propagate_no_wrap;      /* True if propagatePendingCommands should avoid wrapping command in MULTI/EXEC */
     char *ignore_warnings;      /* Config: warnings that should be ignored. */
     int client_pause_in_transaction; /* Was a client pause executed during this Exec? */
     int thp_enabled;                 /* If true, THP is enabled. */
@@ -2223,10 +2224,6 @@ void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with);
 void discardTransaction(client *c);
 void flagTransaction(client *c);
 void execCommandAbort(client *c, sds error);
-void execCommandPropagateMulti();
-void execCommandPropagateExec();
-void beforePropagateMulti();
-void afterPropagateExec();
 
 /* Redis object implementation */
 void decrRefCount(robj *o);
@@ -2502,7 +2499,7 @@ struct redisCommand *lookupCommandByCStringLogic(dict *commands, const char *s);
 struct redisCommand *lookupCommandByCString(const char *s);
 struct redisCommand *lookupCommandOrOriginal(robj **argv ,int argc);
 void call(client *c, int flags);
-void propagate(int dbid, robj **argv, int argc, int flags);
+void propagateNow(int dbid, robj **argv, int argc, int flags);
 void alsoPropagate(int dbid, robj **argv, int argc, int target);
 void propagatePendingCommands();
 void redisOpArrayInit(redisOpArray *oa);

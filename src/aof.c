@@ -628,6 +628,8 @@ sds genAofTimestampAnnotationIfNeeded(int force) {
 void feedAppendOnlyFile(int dictid, robj **argv, int argc) {
     sds buf = sdsempty();
 
+    serverAssert(dictid >= 0 && dictid < server.dbnum);
+
     /* Feed timestamp if needed */
     if (server.aof_timestamp_enabled) {
         sds ts = genAofTimestampAnnotationIfNeeded(0);
@@ -639,7 +641,7 @@ void feedAppendOnlyFile(int dictid, robj **argv, int argc) {
 
     /* The DB this command was targeting is not the same as the last command
      * we appended. To issue a SELECT command is needed. */
-    if (dictid != -1 && dictid != server.aof_selected_db) {
+    if (dictid != server.aof_selected_db) {
         char seldb[64];
 
         snprintf(seldb,sizeof(seldb),"%d",dictid);
