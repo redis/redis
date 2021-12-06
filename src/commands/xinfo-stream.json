@@ -41,13 +41,9 @@
             },
             {
                 "name": "full",
+                "token": "FULL",
                 "type": "block",
                 "value": [
-                    {
-                        "token": "FULL",
-                        "name": "full",
-                        "type": "pure-token"
-                    },
                     {
                         "token": "COUNT",
                         "name": "count",

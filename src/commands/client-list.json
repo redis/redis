@@ -62,13 +62,9 @@
             },
             {
                 "name": "id",
+                "token": "ID",
                 "type": "block",
                 "value": [
-                    {
-                        "token": "ID",
-                        "name": "id",
-                        "type": "pure-token"
-                    },
                     {
                         "name": "client-id",
                         "type": "integer",

@@ -729,7 +729,6 @@ struct redisCommandArg CLIENT_LIST_normal_master_replica_pubsub_Subargs[] = {
 
 /* CLIENT LIST id argument table */
 struct redisCommandArg CLIENT_LIST_id_Subargs[] = {
-{"id",ARG_TYPE_PURE_TOKEN,-1,"ID",NULL,NULL,CMD_ARG_NONE},
 {"client-id",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.value.string="client-id"},
 {0}
 };
@@ -737,7 +736,7 @@ struct redisCommandArg CLIENT_LIST_id_Subargs[] = {
 /* CLIENT LIST argument table */
 struct redisCommandArg CLIENT_LIST_Args[] = {
 {"normal_master_replica_pubsub",ARG_TYPE_ONEOF,-1,"TYPE",NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=CLIENT_LIST_normal_master_replica_pubsub_Subargs},
-{"id",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=CLIENT_LIST_id_Subargs},
+{"id",ARG_TYPE_BLOCK,-1,"ID",NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=CLIENT_LIST_id_Subargs},
 {0}
 };
 
@@ -3552,11 +3551,25 @@ struct redisCommandArg COMMAND_INFO_Args[] = {
 /* COMMAND LIST hints */
 #define COMMAND_LIST_Hints NULL
 
+/* COMMAND LIST filterby argument table */
+struct redisCommandArg COMMAND_LIST_filterby_Subargs[] = {
+{"module",ARG_TYPE_STRING,-1,"MODULE",NULL,NULL,CMD_ARG_NONE,.value.string="module-name"},
+{"aclcat",ARG_TYPE_STRING,-1,"ACLCAT",NULL,NULL,CMD_ARG_NONE,.value.string="category"},
+{"pattern",ARG_TYPE_PATTERN,-1,"PATTERN",NULL,NULL,CMD_ARG_NONE,.value.string="pattern"},
+{0}
+};
+
+/* COMMAND LIST argument table */
+struct redisCommandArg COMMAND_LIST_Args[] = {
+{"filterby",ARG_TYPE_ONEOF,-1,"FILTERBY",NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=COMMAND_LIST_filterby_Subargs},
+{0}
+};
+
 /* COMMAND command table */
 struct redisCommand COMMAND_Subcommands[] = {
 {"count","Get total number of Redis commands","O(1)","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_COUNT_History,COMMAND_COUNT_Hints,commandCountCommand,2,"loading stale @connection"},
 {"info","Get array of specific Redis command details","O(N) when N is number of commands to look up","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_INFO_History,COMMAND_INFO_Hints,commandInfoCommand,-3,"loading stale @connection",.args=COMMAND_INFO_Args},
-{"list","PATCH__TBD__76__","PATCH__TBD__75__","7.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_LIST_History,COMMAND_LIST_Hints,commandListCommand,-2,"loading stale @connection"},
+{"list","PATCH__TBD__76__","PATCH__TBD__75__","7.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_LIST_History,COMMAND_LIST_Hints,commandListCommand,-2,"loading stale @connection",.args=COMMAND_LIST_Args},
 {"help","Show helpful text about the different subcommands","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_HELP_History,COMMAND_HELP_Hints,commandHelpCommand,2,"loading stale @connection"},
 {"getkeys","Extract keys given a full Redis command","O(N) where N is the number of arguments to the command","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_GETKEYS_History,COMMAND_GETKEYS_Hints,commandGetKeysCommand,-4,"loading stale @connection"},
 {0}
@@ -3676,7 +3689,6 @@ struct redisCommand CONFIG_Subcommands[] = {
 
 /* FAILOVER target argument table */
 struct redisCommandArg FAILOVER_target_Subargs[] = {
-{"to",ARG_TYPE_PURE_TOKEN,-1,"TO",NULL,NULL,CMD_ARG_NONE},
 {"host",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="host"},
 {"port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="port"},
 {"force",ARG_TYPE_PURE_TOKEN,-1,"FORCE",NULL,NULL,CMD_ARG_OPTIONAL},
@@ -3685,7 +3697,7 @@ struct redisCommandArg FAILOVER_target_Subargs[] = {
 
 /* FAILOVER argument table */
 struct redisCommandArg FAILOVER_Args[] = {
-{"target",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=FAILOVER_target_Subargs},
+{"target",ARG_TYPE_BLOCK,-1,"TO",NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=FAILOVER_target_Subargs},
 {"abort",ARG_TYPE_PURE_TOKEN,-1,"ABORT",NULL,NULL,CMD_ARG_OPTIONAL},
 {"milliseconds",ARG_TYPE_INTEGER,-1,"TIMEOUT",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="milliseconds"},
 {0}
@@ -5486,7 +5498,6 @@ struct redisCommandArg XINFO_GROUPS_Args[] = {
 
 /* XINFO STREAM full argument table */
 struct redisCommandArg XINFO_STREAM_full_Subargs[] = {
-{"full",ARG_TYPE_PURE_TOKEN,-1,"FULL",NULL,NULL,CMD_ARG_NONE},
 {"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="count"},
 {0}
 };
@@ -5494,7 +5505,7 @@ struct redisCommandArg XINFO_STREAM_full_Subargs[] = {
 /* XINFO STREAM argument table */
 struct redisCommandArg XINFO_STREAM_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,.value.string="key"},
-{"full",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=XINFO_STREAM_full_Subargs},
+{"full",ARG_TYPE_BLOCK,-1,"FULL",NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=XINFO_STREAM_full_Subargs},
 {0}
 };
 
@@ -5583,13 +5594,18 @@ struct redisCommandArg XRANGE_Args[] = {
 /* XREAD hints */
 #define XREAD_Hints NULL
 
+/* XREAD streams argument table */
+struct redisCommandArg XREAD_streams_Subargs[] = {
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.value.string="key"},
+{"id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.value.string="id"},
+{0}
+};
+
 /* XREAD argument table */
 struct redisCommandArg XREAD_Args[] = {
 {"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="count"},
 {"milliseconds",ARG_TYPE_INTEGER,-1,"BLOCK",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="milliseconds"},
-{"streams",ARG_TYPE_PURE_TOKEN,-1,"STREAMS",NULL,NULL,CMD_ARG_NONE},
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.value.string="key"},
-{"id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.value.string="id"},
+{"streams",ARG_TYPE_BLOCK,-1,"STREAMS",NULL,NULL,CMD_ARG_NONE,.value.subargs=XREAD_streams_Subargs},
 {0}
 };
 
@@ -5608,15 +5624,20 @@ struct redisCommandArg XREADGROUP_group_consumer_Subargs[] = {
 {0}
 };
 
+/* XREADGROUP streams argument table */
+struct redisCommandArg XREADGROUP_streams_Subargs[] = {
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.value.string="key"},
+{"id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.value.string="id"},
+{0}
+};
+
 /* XREADGROUP argument table */
 struct redisCommandArg XREADGROUP_Args[] = {
 {"group_consumer",ARG_TYPE_BLOCK,-1,"GROUP",NULL,NULL,CMD_ARG_NONE,.value.subargs=XREADGROUP_group_consumer_Subargs},
 {"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="count"},
 {"milliseconds",ARG_TYPE_INTEGER,-1,"BLOCK",NULL,NULL,CMD_ARG_OPTIONAL,.value.string="milliseconds"},
 {"noack",ARG_TYPE_PURE_TOKEN,-1,"NOACK",NULL,NULL,CMD_ARG_OPTIONAL},
-{"streams",ARG_TYPE_PURE_TOKEN,-1,"STREAMS",NULL,NULL,CMD_ARG_NONE},
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.value.string="key"},
-{"id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.value.string="id"},
+{"streams",ARG_TYPE_BLOCK,-1,"STREAMS",NULL,NULL,CMD_ARG_NONE,.value.subargs=XREADGROUP_streams_Subargs},
 {0}
 };
 

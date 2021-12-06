@@ -52,20 +52,22 @@
             {
                 "name": "streams",
                 "token": "STREAMS",
-                "type": "pure-token"
-            },
-            {
-                "name": "key",
-                "type": "key",
-                "value": "key",
-                "key_spec_index": 0,
-                "multiple": true
-            },
-            {
-                "name": "ID",
-                "type": "string",
-                "value": "ID",
-                "multiple": true
+                "type": "block",
+                "value": [
+                    {
+                        "name": "key",
+                        "type": "key",
+                        "value": "key",
+                        "key_spec_index": 0,
+                        "multiple": true
+                    },
+                    {
+                        "name": "ID",
+                        "type": "string",
+                        "value": "ID",
+                        "multiple": true
+                    }
+                ]
             }
         ]
     }

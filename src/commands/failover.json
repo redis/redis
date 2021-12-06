@@ -14,13 +14,9 @@
         "arguments": [
             {
                 "name": "target",
+                "token": "TO",
                 "type": "block",
                 "value": [
-                    {
-                        "token": "TO",
-                        "name": "to",
-                        "type": "pure-token"
-                    },
                     {
                         "name": "host",
                         "type": "string",
