@@ -118,7 +118,9 @@ start_server {tags {"pubsublocal"}} {
 
     test "PUBLISH/SUBSCRIBE after UNSUBSCRIBE without arguments" {
         set rd1 [redis_deferring_client]
-        assert_equal {1 2 3} [subscribelocal $rd1 {chan1 chan2 chan3}]
+        assert_equal {1} [subscribelocal $rd1 {chan1}]
+        assert_equal {2} [subscribelocal $rd1 {chan2}]
+        assert_equal {3} [subscribelocal $rd1 {chan3}]
         unsubscribelocal $rd1
         assert_equal 0 [r publishlocal chan1 hello]
         assert_equal 0 [r publishlocal chan2 hello]
@@ -140,7 +142,9 @@ start_server {tags {"pubsublocal"}} {
 
     test "UNSUBSCRIBE from non-subscribed channels" {
         set rd1 [redis_deferring_client]
-        assert_equal {0 0 0} [unsubscribelocal $rd1 {foo bar quux}]
+        assert_equal {0} [unsubscribelocal $rd1 {foo}]
+        assert_equal {0} [unsubscribelocal $rd1 {bar}]
+        assert_equal {0} [unsubscribelocal $rd1 {quux}]
 
         # clean up clients
         $rd1 close
