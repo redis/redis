@@ -376,7 +376,7 @@ start_server {tags {"other external:skip"}} {
 
 test {hash-seed configuration works as expected} {
     proc make_hash {seed} {
-        start_server [list tags {"external:skip"} overrides [list hash-seed $seed]] {
+        start_server [list overrides [list hash-seed $seed]] {
             for {set i 0} {$i < 1000} {incr i} {
                 r hset myhash field:$i value:$i
             }
@@ -390,4 +390,4 @@ test {hash-seed configuration works as expected} {
     set hash3 [make_hash xxxxxxxxxxxxxxxx]
     assert_equal $hash1 $hash2
     assert {$hash1 != $hash3}
-}
+} {} {external:skip}
