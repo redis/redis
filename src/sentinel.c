@@ -3726,9 +3726,9 @@ void sentinelCommand(client *c) {
 "    Reset masters for specific master name matching this pattern.",
 "SENTINELS <master-name>",
 "    Show a list of Sentinel instances for this master and their state.",
-"SET <master-name> <option> <value>",
+"SET <master-name> <option> <value> [<option> <value> ...]",
 "    Set configuration parameters for certain masters.",
-"SIMULATE-FAILURE (CRASH-AFTER-ELECTION|CRASH-AFTER-PROMOTION|HELP)",
+"SIMULATE-FAILURE [CRASH-AFTER-ELECTION] [CRASH-AFTER-PROMOTION] [HELP]",
 "    Simulate a Sentinel crash.",
 NULL
         };
