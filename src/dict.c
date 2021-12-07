@@ -337,7 +337,7 @@ dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing)
      * Insert the element in top, with the assumption that in a database
      * system it is more likely that recently added entries are accessed
      * more frequently. */
-    htidx = dictIsRehashing(d) ? 1 : 0;
+    htidx = (dictIsRehashing(d) && d->rehashidx != 0) ? 1 : 0;
     size_t metasize = dictMetadataSize(d);
     entry = zmalloc(sizeof(*entry) + metasize);
     if (metasize > 0) {
@@ -517,7 +517,7 @@ dictEntry *dictFind(dict *d, const void *key)
     if (dictIsRehashing(d)) _dictRehashStep(d);
     h = dictHashKey(d, key);
     idx_0 = h & DICTHT_SIZE_MASK(d->ht_size_exp[0]);
-    if (likely(d->rehashidx < idx_0))
+    if (likely(d->rehashidx <= idx_0))
         he = d->ht_table[0][idx_0];
     else {
         idx_1 = h & DICTHT_SIZE_MASK(d->ht_size_exp[1]);
@@ -1056,6 +1056,7 @@ static long _dictKeyIndex(dict *d, const void *key, uint64_t hash, dictEntry **e
             he = he->next;
         }
         if (!dictIsRehashing(d)) break;
+        if (d->rehashidx == 0)  break;
     }
     return idx;
 }
