@@ -5535,6 +5535,7 @@ sds genRedisInfoString(dict * section_dict, int all_sections, int everything) {
                                   everything || modules ? NULL: section_dict,
                                   0, /* not a crash report */
                                   sections);
+        dictRelease(section_dict);
     }
     return info;
 }
