@@ -4,7 +4,7 @@ proc randstring {min max {type binary}} {
     if {$type eq {binary}} {
         set minval 0
         set maxval 255
-    } elseif {$type eq {alpha}} {
+    } elseif {$type eq {alpha} || $type eq {simplealpha}} {
         set minval 48
         set maxval 122
     } elseif {$type eq {compr}} {
@@ -12,11 +12,11 @@ proc randstring {min max {type binary}} {
         set maxval 52
     }
     while {$len} {
-        set rr [expr {$minval+int(rand()*($maxval-$minval+1))}]
-        if {$type eq {alpha} && $rr eq 92} {
-            set rr 90; # avoid putting '\' char in the string, it can mess up TCL processing
-        }
-        append output [format "%c" $rr]
+        set num [expr {$minval+int(rand()*($maxval-$minval+1))}]
+        set rr [format "%c" $num]
+        if {$type eq {simplealpha} && ![string is alnum $rr]} {continue}
+        if {$type eq {alpha} && $num eq 92} {continue} ;# avoid putting '\' char in the string, it can mess up TCL processing
+        append output $rr
         incr len -1
     }
     return $output
@@ -48,6 +48,27 @@ proc crashlog_from_file {filename} {
         }
     }
     join $result "\n"
+}
+
+# Return sanitizer log lines
+proc sanitizer_errors_from_file {filename} {
+    set log [exec cat $filename]
+    set lines [split [exec cat $filename] "\n"]
+
+    foreach line $lines {
+        # Ignore huge allocation warnings
+        if ([string match {*WARNING: AddressSanitizer failed to allocate*} $line]) {
+            continue
+        }
+
+        # GCC UBSAN output does not contain 'Sanitizer' but 'runtime error'.
+        if {[string match {*runtime error*} $log] ||
+            [string match {*Sanitizer*} $log]} {
+            return $log
+        }
+    }
+
+    return ""
 }
 
 proc getInfoProperty {infostr property} {
@@ -110,6 +131,14 @@ proc wait_done_loading r {
         [catch {$r ping} e] == 0
     } else {
         fail "Loading DB is taking too much time."
+    }
+}
+
+proc wait_lazyfree_done r {
+    wait_for_condition 50 100 {
+        [status $r lazyfree_pending_objects] == 0
+    } else {
+        fail "lazyfree isn't done"
     }
 }
 
@@ -185,6 +214,11 @@ proc write_log_line {srv_idx msg} {
 # Random integer between 0 and max (excluded).
 proc randomInt {max} {
     expr {int(rand()*$max)}
+}
+
+# Random integer between min and max (excluded).
+proc randomRange {min max} {
+    expr {int(rand()*[expr $max - $min]) + $min}
 }
 
 # Random signed integer between -max and max (both extremes excluded).
@@ -430,15 +464,17 @@ proc find_available_port {start count} {
         if {$port < $start || $port >= $start+$count} {
             set port $start
         }
-        if {[catch {set fd1 [socket 127.0.0.1 $port]}] &&
-            [catch {set fd2 [socket 127.0.0.1 [expr $port+10000]]}]} {
+        set fd1 -1
+        if {[catch {set fd1 [socket -server 127.0.0.1 $port]}] ||
+            [catch {set fd2 [socket -server 127.0.0.1 [expr $port+10000]]}]} {
+            if {$fd1 != -1} {
+                close $fd1
+            }
+        } else {
+            close $fd1
+            close $fd2
             set ::last_port_attempted $port
             return $port
-        } else {
-            catch {
-                close $fd1
-                close $fd2
-            }
         }
         incr port
     }
@@ -595,7 +631,7 @@ proc errorrstat {cmd r} {
 proc generate_fuzzy_traffic_on_key {key duration} {
     # Commands per type, blocking commands removed
     # TODO: extract these from help.h or elsewhere, and improve to include other types
-    set string_commands {APPEND BITCOUNT BITFIELD BITOP BITPOS DECR DECRBY GET GETBIT GETRANGE GETSET INCR INCRBY INCRBYFLOAT MGET MSET MSETNX PSETEX SET SETBIT SETEX SETNX SETRANGE STRALGO STRLEN}
+    set string_commands {APPEND BITCOUNT BITFIELD BITOP BITPOS DECR DECRBY GET GETBIT GETRANGE GETSET INCR INCRBY INCRBYFLOAT MGET MSET MSETNX PSETEX SET SETBIT SETEX SETNX SETRANGE LCS STRLEN}
     set hash_commands {HDEL HEXISTS HGET HGETALL HINCRBY HINCRBYFLOAT HKEYS HLEN HMGET HMSET HSCAN HSET HSETNX HSTRLEN HVALS HRANDFIELD}
     set zset_commands {ZADD ZCARD ZCOUNT ZINCRBY ZINTERSTORE ZLEXCOUNT ZPOPMAX ZPOPMIN ZRANGE ZRANGEBYLEX ZRANGEBYSCORE ZRANK ZREM ZREMRANGEBYLEX ZREMRANGEBYRANK ZREMRANGEBYSCORE ZREVRANGE ZREVRANGEBYLEX ZREVRANGEBYSCORE ZREVRANK ZSCAN ZSCORE ZUNIONSTORE ZRANDMEMBER}
     set list_commands {LINDEX LINSERT LLEN LPOP LPOS LPUSH LPUSHX LRANGE LREM LSET LTRIM RPOP RPOPLPUSH RPUSH RPUSHX}
@@ -682,14 +718,6 @@ proc generate_fuzzy_traffic_on_key {key duration} {
 
     # return the list of commands we sent
     return $sent
-}
-
-# write line to server log file
-proc write_log_line {srv_idx msg} {
-    set logfile [srv $srv_idx stdout]
-    set fd [open $logfile "a+"]
-    puts $fd "### $msg"
-    close $fd
 }
 
 proc string2printable s {

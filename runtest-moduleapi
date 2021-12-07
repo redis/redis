@@ -1,5 +1,5 @@
 #!/bin/sh
-TCL_VERSIONS="8.5 8.6"
+TCL_VERSIONS="8.5 8.6 8.7"
 TCLSH=""
 [ -z "$MAKE" ] && MAKE=make
 
@@ -34,8 +34,14 @@ $TCLSH tests/test_helper.tcl \
 --single unit/moduleapi/getkeys \
 --single unit/moduleapi/test_lazyfree \
 --single unit/moduleapi/defrag \
+--single unit/moduleapi/keyspecs \
 --single unit/moduleapi/hash \
 --single unit/moduleapi/zset \
+--single unit/moduleapi/list \
 --single unit/moduleapi/stream \
 --single unit/moduleapi/datatype2 \
+--single unit/moduleapi/cluster \
+--single unit/moduleapi/aclcheck \
+--single unit/moduleapi/subcommands \
+--single unit/moduleapi/reply \
 "${@}"

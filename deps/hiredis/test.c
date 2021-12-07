@@ -498,6 +498,20 @@ static void test_reply_reader(void) {
     freeReplyObject(reply);
     redisReaderFree(reader);
 
+    test("Multi-bulk never overflows regardless of maxelements: ");
+    size_t bad_mbulk_len = (SIZE_MAX / sizeof(void *)) + 3;
+    char bad_mbulk_reply[100];
+    snprintf(bad_mbulk_reply, sizeof(bad_mbulk_reply), "*%llu\r\n+asdf\r\n",
+        (unsigned long long) bad_mbulk_len);
+
+    reader = redisReaderCreate();
+    reader->maxelements = 0;    /* Don't rely on default limit */
+    redisReaderFeed(reader, bad_mbulk_reply, strlen(bad_mbulk_reply));
+    ret = redisReaderGetReply(reader,&reply);
+    test_cond(ret == REDIS_ERR && strcasecmp(reader->errstr, "Out of memory") == 0);
+    freeReplyObject(reply);
+    redisReaderFree(reader);
+
 #if LLONG_MAX > SIZE_MAX
     test("Set error when array > SIZE_MAX: ");
     reader = redisReaderCreate();

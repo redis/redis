@@ -29,6 +29,7 @@
  */
 
 #include "server.h"
+#include "functions.h"
 #include <math.h>
 #include <ctype.h>
 
@@ -233,13 +234,6 @@ robj *createQuicklistObject(void) {
     return o;
 }
 
-robj *createZiplistObject(void) {
-    unsigned char *zl = ziplistNew();
-    robj *o = createObject(OBJ_LIST,zl);
-    o->encoding = OBJ_ENCODING_ZIPLIST;
-    return o;
-}
-
 robj *createSetObject(void) {
     dict *d = dictCreate(&setDictType);
     robj *o = createObject(OBJ_SET,d);
@@ -272,10 +266,10 @@ robj *createZsetObject(void) {
     return o;
 }
 
-robj *createZsetZiplistObject(void) {
-    unsigned char *zl = ziplistNew();
-    robj *o = createObject(OBJ_ZSET,zl);
-    o->encoding = OBJ_ENCODING_ZIPLIST;
+robj *createZsetListpackObject(void) {
+    unsigned char *lp = lpNew(0);
+    robj *o = createObject(OBJ_ZSET,lp);
+    o->encoding = OBJ_ENCODING_LISTPACK;
     return o;
 }
 
@@ -329,7 +323,7 @@ void freeZsetObject(robj *o) {
         zslFree(zs->zsl);
         zfree(zs);
         break;
-    case OBJ_ENCODING_ZIPLIST:
+    case OBJ_ENCODING_LISTPACK:
         zfree(o->ptr);
         break;
     default:
@@ -415,9 +409,9 @@ void dismissListObject(robj *o, size_t size_hint) {
             quicklistNode *node = ql->head;
             while (node) {
                 if (quicklistNodeIsCompressed(node)) {
-                    dismissMemory(node->zl, ((quicklistLZF*)node->zl)->sz);
+                    dismissMemory(node->entry, ((quicklistLZF*)node->entry)->sz);
                 } else {
-                    dismissMemory(node->zl, node->sz);
+                    dismissMemory(node->entry, node->sz);
                 }
                 node = node->next;
             }
@@ -473,8 +467,8 @@ void dismissZsetObject(robj *o, size_t size_hint) {
         dict *d = zs->dict;
         dismissMemory(d->ht_table[0], DICTHT_SIZE(d->ht_size_exp[0])*sizeof(dictEntry*));
         dismissMemory(d->ht_table[1], DICTHT_SIZE(d->ht_size_exp[1])*sizeof(dictEntry*));
-    } else if (o->encoding == OBJ_ENCODING_ZIPLIST) {
-        dismissMemory(o->ptr, ziplistBlobLen((unsigned char*)o->ptr));
+    } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
+        dismissMemory(o->ptr, lpBytes((unsigned char*)o->ptr));
     } else {
         serverPanic("Unknown zset encoding type");
     }
@@ -1000,7 +994,7 @@ size_t objectComputeSize(robj *key, robj *o, size_t sample_size, int dbid) {
             quicklistNode *node = ql->head;
             asize = sizeof(*o)+sizeof(quicklist);
             do {
-                elesize += sizeof(quicklistNode)+zmalloc_size(node->zl);
+                elesize += sizeof(quicklistNode)+zmalloc_size(node->entry);
                 samples++;
             } while ((node = node->next) && samples < sample_size);
             asize += (double)elesize/samples*ql->len;
@@ -1027,7 +1021,7 @@ size_t objectComputeSize(robj *key, robj *o, size_t sample_size, int dbid) {
             serverPanic("Unknown set encoding");
         }
     } else if (o->type == OBJ_ZSET) {
-        if (o->encoding == OBJ_ENCODING_ZIPLIST) {
+        if (o->encoding == OBJ_ENCODING_LISTPACK) {
             asize = sizeof(*o)+zmalloc_size(o->ptr);
         } else if (o->encoding == OBJ_ENCODING_SKIPLIST) {
             d = ((zset*)o->ptr)->dict;
@@ -1127,7 +1121,7 @@ size_t objectComputeSize(robj *key, robj *o, size_t sample_size, int dbid) {
             raxStop(&ri);
         }
     } else if (o->type == OBJ_MODULE) {
-        asize = moduleGetMemUsage(key, o, dbid);
+        asize = moduleGetMemUsage(key, o, sample_size, dbid);
     } else {
         serverPanic("Unknown object type");
     }
@@ -1172,20 +1166,34 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
 
     mem_total += server.initial_memory_usage;
 
-    mem = 0;
-    if (server.repl_backlog)
-        mem += zmalloc_size(server.repl_backlog);
-    mh->repl_backlog = mem;
-    mem_total += mem;
+    /* Replication backlog and replicas share one global replication buffer,
+     * only if replication buffer memory is more than the repl backlog setting,
+     * we consider the excess as replicas' memory. Otherwise, replication buffer
+     * memory is the consumption of repl backlog. */
+    if (listLength(server.slaves) &&
+        (long long)server.repl_buffer_mem > server.repl_backlog_size)
+    {
+        mh->clients_slaves = server.repl_buffer_mem - server.repl_backlog_size;
+        mh->repl_backlog = server.repl_backlog_size;
+    } else {
+        mh->clients_slaves = 0;
+        mh->repl_backlog = server.repl_buffer_mem;
+    }
+    if (server.repl_backlog) {
+        /* The approximate memory of rax tree for indexed blocks. */
+        mh->repl_backlog +=
+            server.repl_backlog->blocks_index->numnodes * sizeof(raxNode) +
+            raxSize(server.repl_backlog->blocks_index) * sizeof(void*);
+    }
+    mem_total += mh->repl_backlog;
+    mem_total += mh->clients_slaves;
 
     /* Computing the memory used by the clients would be O(N) if done
      * here online. We use our values computed incrementally by
-     * clientsCronTrackClientsMemUsage(). */
-    mh->clients_slaves = server.stat_clients_type_memory[CLIENT_TYPE_SLAVE];
+     * updateClientMemUsage(). */
     mh->clients_normal = server.stat_clients_type_memory[CLIENT_TYPE_MASTER]+
                          server.stat_clients_type_memory[CLIENT_TYPE_PUBSUB]+
                          server.stat_clients_type_memory[CLIENT_TYPE_NORMAL];
-    mem_total += mh->clients_slaves;
     mem_total += mh->clients_normal;
 
     mem = 0;
@@ -1196,9 +1204,7 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     mh->aof_buffer = mem;
     mem_total+=mem;
 
-    mem = server.lua_scripts_mem;
-    mem += dictSize(server.lua_scripts) * sizeof(dictEntry) +
-        dictSlots(server.lua_scripts) * sizeof(dictEntry*);
+    mem = evalScriptsMemory();
     mem += dictSize(server.repl_scriptcache_dict) * sizeof(dictEntry) +
         dictSlots(server.repl_scriptcache_dict) * sizeof(dictEntry*);
     if (listLength(server.repl_scriptcache_fifo) > 0) {
@@ -1207,6 +1213,8 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     }
     mh->lua_caches = mem;
     mem_total+=mem;
+    mh->functions_caches = functionsMemoryOverhead();
+    mem_total+=mh->functions_caches;
 
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
@@ -1312,13 +1320,13 @@ sds getMemoryDoctorReport(void) {
         }
 
         /* Slaves using more than 10 MB each? */
-        if (numslaves > 0 && mh->clients_slaves / numslaves > (1024*1024*10)) {
+        if (numslaves > 0 && mh->clients_slaves > (1024*1024*10)) {
             big_slave_buf = 1;
             num_reports++;
         }
 
         /* Too many scripts are cached? */
-        if (dictSize(server.lua_scripts) > 1000) {
+        if (dictSize(evalScriptsDict()) > 1000) {
             many_scripts = 1;
             num_reports++;
         }
@@ -1487,7 +1495,7 @@ void memoryCommand(client *c) {
 "    Return information about the memory usage of the server.",
 "USAGE <key> [SAMPLES <count>]",
 "    Return memory in bytes used by <key> and its value. Nested values are",
-"    sampled up to <count> times (default: 5).",
+"    sampled up to <count> times (default: 5, 0 means sample all).",
 NULL
         };
         addReplyHelp(c, help);
@@ -1522,7 +1530,7 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"stats") && c->argc == 2) {
         struct redisMemOverhead *mh = getMemoryOverheadData();
 
-        addReplyMapLen(c,25+mh->num_dbs);
+        addReplyMapLen(c,26+mh->num_dbs);
 
         addReplyBulkCString(c,"peak.allocated");
         addReplyLongLong(c,mh->peak_allocated);
@@ -1547,6 +1555,9 @@ NULL
 
         addReplyBulkCString(c,"lua.caches");
         addReplyLongLong(c,mh->lua_caches);
+
+        addReplyBulkCString(c,"functions.caches");
+        addReplyLongLong(c,mh->functions_caches);
 
         for (size_t j = 0; j < mh->num_dbs; j++) {
             char dbname[32];

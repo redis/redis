@@ -416,8 +416,8 @@ long activeDefragQuickListNode(quicklist *ql, quicklistNode **node_ref) {
         *node_ref = node = newnode;
         defragged++;
     }
-    if ((newzl = activeDefragAlloc(node->zl)))
-        defragged++, node->zl = newzl;
+    if ((newzl = activeDefragAlloc(node->entry)))
+        defragged++, node->entry = newzl;
     return defragged;
 }
 
@@ -860,7 +860,7 @@ long defragKey(redisDb *db, dictEntry *de, void *oldkey) {
             serverPanic("Unknown set encoding");
         }
     } else if (ob->type == OBJ_ZSET) {
-        if (ob->encoding == OBJ_ENCODING_ZIPLIST) {
+        if (ob->encoding == OBJ_ENCODING_LISTPACK) {
             if ((newzl = activeDefragAlloc(ob->ptr)))
                 defragged++, ob->ptr = newzl;
         } else if (ob->encoding == OBJ_ENCODING_SKIPLIST) {
@@ -958,7 +958,7 @@ long defragOtherGlobals() {
     /* there are many more pointers to defrag (e.g. client argv, output / aof buffers, etc.
      * but we assume most of these are short lived, we only need to defrag allocations
      * that remain static for a long time */
-    defragged += activeDefragSdsDict(server.lua_scripts, DEFRAG_SDS_DICT_VAL_IS_STROB);
+    defragged += activeDefragSdsDict(evalScriptsDict(), DEFRAG_SDS_DICT_VAL_IS_STROB);
     defragged += activeDefragSdsListAndDict(server.repl_scriptcache_fifo, server.repl_scriptcache_dict, DEFRAG_SDS_DICT_NO_VAL);
     defragged += moduleDefragGlobals();
     return defragged;
@@ -1115,6 +1115,7 @@ void activeDefragCycle(void) {
             current_db = -1;
             cursor = 0;
             db = NULL;
+            goto update_metrics;
         }
         return;
     }
@@ -1209,6 +1210,15 @@ void activeDefragCycle(void) {
 
     latencyEndMonitor(latency);
     latencyAddSampleIfNeeded("active-defrag-cycle",latency);
+
+update_metrics:
+    if (server.active_defrag_running > 0) {
+        if (server.stat_last_active_defrag_time == 0)
+            elapsedStart(&server.stat_last_active_defrag_time);
+    } else if (server.stat_last_active_defrag_time != 0) {
+        server.stat_total_active_defrag_time += elapsedUs(server.stat_last_active_defrag_time);
+        server.stat_last_active_defrag_time = 0;
+    }
 }
 
 #else /* HAVE_DEFRAG */

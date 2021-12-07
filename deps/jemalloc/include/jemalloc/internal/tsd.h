@@ -3,6 +3,7 @@
 
 #include "jemalloc/internal/arena_types.h"
 #include "jemalloc/internal/assert.h"
+#include "jemalloc/internal/bin_types.h"
 #include "jemalloc/internal/jemalloc_internal_externs.h"
 #include "jemalloc/internal/prof_types.h"
 #include "jemalloc/internal/ql.h"
@@ -68,19 +69,22 @@ typedef void (*test_callback_t)(int *);
     O(offset_state,		uint64_t,		uint64_t)	\
     O(thread_allocated,		uint64_t,		uint64_t)	\
     O(thread_deallocated,	uint64_t,		uint64_t)	\
+    O(bytes_until_sample,	int64_t,		int64_t)	\
     O(prof_tdata,		prof_tdata_t *,		prof_tdata_t *)	\
     O(rtree_ctx,		rtree_ctx_t,		rtree_ctx_t)	\
     O(iarena,			arena_t *,		arena_t *)	\
     O(arena,			arena_t *,		arena_t *)	\
     O(arenas_tdata,		arena_tdata_t *,	arena_tdata_t *)\
+    O(binshards,		tsd_binshards_t,	tsd_binshards_t)\
     O(tcache,			tcache_t,		tcache_t)	\
     O(witness_tsd,              witness_tsd_t,		witness_tsdn_t)	\
     MALLOC_TEST_TSD
 
 #define TSD_INITIALIZER {						\
-    tsd_state_uninitialized,						\
+    ATOMIC_INIT(tsd_state_uninitialized),				\
     TCACHE_ENABLED_ZERO_INITIALIZER,					\
     false,								\
+    0,									\
     0,									\
     0,									\
     0,									\
@@ -91,24 +95,91 @@ typedef void (*test_callback_t)(int *);
     NULL,								\
     NULL,								\
     NULL,								\
+    TSD_BINSHARDS_ZERO_INITIALIZER,					\
     TCACHE_ZERO_INITIALIZER,						\
     WITNESS_TSD_INITIALIZER						\
     MALLOC_TEST_TSD_INITIALIZER						\
 }
 
+void *malloc_tsd_malloc(size_t size);
+void malloc_tsd_dalloc(void *wrapper);
+void malloc_tsd_cleanup_register(bool (*f)(void));
+tsd_t *malloc_tsd_boot0(void);
+void malloc_tsd_boot1(void);
+void tsd_cleanup(void *arg);
+tsd_t *tsd_fetch_slow(tsd_t *tsd, bool internal);
+void tsd_state_set(tsd_t *tsd, uint8_t new_state);
+void tsd_slow_update(tsd_t *tsd);
+void tsd_prefork(tsd_t *tsd);
+void tsd_postfork_parent(tsd_t *tsd);
+void tsd_postfork_child(tsd_t *tsd);
+
+/*
+ * Call ..._inc when your module wants to take all threads down the slow paths,
+ * and ..._dec when it no longer needs to.
+ */
+void tsd_global_slow_inc(tsdn_t *tsdn);
+void tsd_global_slow_dec(tsdn_t *tsdn);
+bool tsd_global_slow();
+
 enum {
-	tsd_state_nominal = 0, /* Common case --> jnz. */
-	tsd_state_nominal_slow = 1, /* Initialized but on slow path. */
-	/* the above 2 nominal states should be lower values. */
-	tsd_state_nominal_max = 1, /* used for comparison only. */
-	tsd_state_minimal_initialized = 2,
-	tsd_state_purgatory = 3,
-	tsd_state_reincarnated = 4,
-	tsd_state_uninitialized = 5
+	/* Common case --> jnz. */
+	tsd_state_nominal = 0,
+	/* Initialized but on slow path. */
+	tsd_state_nominal_slow = 1,
+	/*
+	 * Some thread has changed global state in such a way that all nominal
+	 * threads need to recompute their fast / slow status the next time they
+	 * get a chance.
+	 *
+	 * Any thread can change another thread's status *to* recompute, but
+	 * threads are the only ones who can change their status *from*
+	 * recompute.
+	 */
+	tsd_state_nominal_recompute = 2,
+	/*
+	 * The above nominal states should be lower values.  We use
+	 * tsd_nominal_max to separate nominal states from threads in the
+	 * process of being born / dying.
+	 */
+	tsd_state_nominal_max = 2,
+
+	/*
+	 * A thread might free() during its death as its only allocator action;
+	 * in such scenarios, we need tsd, but set up in such a way that no
+	 * cleanup is necessary.
+	 */
+	tsd_state_minimal_initialized = 3,
+	/* States during which we know we're in thread death. */
+	tsd_state_purgatory = 4,
+	tsd_state_reincarnated = 5,
+	/*
+	 * What it says on the tin; tsd that hasn't been initialized.  Note
+	 * that even when the tsd struct lives in TLS, when need to keep track
+	 * of stuff like whether or not our pthread destructors have been
+	 * scheduled, so this really truly is different than the nominal state.
+	 */
+	tsd_state_uninitialized = 6
 };
 
-/* Manually limit tsd_state_t to a single byte. */
-typedef uint8_t tsd_state_t;
+/*
+ * Some TSD accesses can only be done in a nominal state.  To enforce this, we
+ * wrap TSD member access in a function that asserts on TSD state, and mangle
+ * field names to prevent touching them accidentally.
+ */
+#define TSD_MANGLE(n) cant_access_tsd_items_directly_use_a_getter_or_setter_##n
+
+#ifdef JEMALLOC_U8_ATOMICS
+#  define tsd_state_t atomic_u8_t
+#  define tsd_atomic_load atomic_load_u8
+#  define tsd_atomic_store atomic_store_u8
+#  define tsd_atomic_exchange atomic_exchange_u8
+#else
+#  define tsd_state_t atomic_u32_t
+#  define tsd_atomic_load atomic_load_u32
+#  define tsd_atomic_store atomic_store_u32
+#  define tsd_atomic_exchange atomic_exchange_u32
+#endif
 
 /* The actual tsd. */
 struct tsd_s {
@@ -117,12 +188,28 @@ struct tsd_s {
 	 * module.  Access any thread-local state through the getters and
 	 * setters below.
 	 */
-	tsd_state_t	state;
+
+	/*
+	 * We manually limit the state to just a single byte.  Unless the 8-bit
+	 * atomics are unavailable (which is rare).
+	 */
+	tsd_state_t state;
 #define O(n, t, nt)							\
-	t use_a_getter_or_setter_instead_##n;
+	t TSD_MANGLE(n);
 MALLOC_TSD
 #undef O
 };
+
+JEMALLOC_ALWAYS_INLINE uint8_t
+tsd_state_get(tsd_t *tsd) {
+	/*
+	 * This should be atomic.  Unfortunately, compilers right now can't tell
+	 * that this can be done as a memory comparison, and forces a load into
+	 * a register that hurts fast-path performance.
+	 */
+	/* return atomic_load_u8(&tsd->state, ATOMIC_RELAXED); */
+	return *(uint8_t *)&tsd->state;
+}
 
 /*
  * Wrapper around tsd_t that makes it possible to avoid implicit conversion
@@ -150,15 +237,6 @@ tsdn_tsd(tsdn_t *tsdn) {
 	return &tsdn->tsd;
 }
 
-void *malloc_tsd_malloc(size_t size);
-void malloc_tsd_dalloc(void *wrapper);
-void malloc_tsd_cleanup_register(bool (*f)(void));
-tsd_t *malloc_tsd_boot0(void);
-void malloc_tsd_boot1(void);
-void tsd_cleanup(void *arg);
-tsd_t *tsd_fetch_slow(tsd_t *tsd, bool internal);
-void tsd_slow_update(tsd_t *tsd);
-
 /*
  * We put the platform-specific data declarations and inlines into their own
  * header files to avoid cluttering this file.  They define tsd_boot0,
@@ -182,7 +260,7 @@ void tsd_slow_update(tsd_t *tsd);
 #define O(n, t, nt)							\
 JEMALLOC_ALWAYS_INLINE t *						\
 tsd_##n##p_get_unsafe(tsd_t *tsd) {					\
-	return &tsd->use_a_getter_or_setter_instead_##n;		\
+	return &tsd->TSD_MANGLE(n);					\
 }
 MALLOC_TSD
 #undef O
@@ -191,10 +269,16 @@ MALLOC_TSD
 #define O(n, t, nt)							\
 JEMALLOC_ALWAYS_INLINE t *						\
 tsd_##n##p_get(tsd_t *tsd) {						\
-	assert(tsd->state == tsd_state_nominal ||			\
-	    tsd->state == tsd_state_nominal_slow ||			\
-	    tsd->state == tsd_state_reincarnated ||			\
-	    tsd->state == tsd_state_minimal_initialized);		\
+	/*								\
+	 * Because the state might change asynchronously if it's	\
+	 * nominal, we need to make sure that we only read it once.	\
+	 */								\
+	uint8_t state = tsd_state_get(tsd);				\
+	assert(state == tsd_state_nominal ||				\
+	    state == tsd_state_nominal_slow ||				\
+	    state == tsd_state_nominal_recompute ||			\
+	    state == tsd_state_reincarnated ||				\
+	    state == tsd_state_minimal_initialized);			\
 	return tsd_##n##p_get_unsafe(tsd);				\
 }
 MALLOC_TSD
@@ -229,8 +313,8 @@ MALLOC_TSD
 #define O(n, t, nt)							\
 JEMALLOC_ALWAYS_INLINE void						\
 tsd_##n##_set(tsd_t *tsd, t val) {					\
-	assert(tsd->state != tsd_state_reincarnated &&			\
-	    tsd->state != tsd_state_minimal_initialized);		\
+	assert(tsd_state_get(tsd) != tsd_state_reincarnated &&		\
+	    tsd_state_get(tsd) != tsd_state_minimal_initialized);	\
 	*tsd_##n##p_get(tsd) = val;					\
 }
 MALLOC_TSD
@@ -238,13 +322,18 @@ MALLOC_TSD
 
 JEMALLOC_ALWAYS_INLINE void
 tsd_assert_fast(tsd_t *tsd) {
+	/*
+	 * Note that our fastness assertion does *not* include global slowness
+	 * counters; it's not in general possible to ensure that they won't
+	 * change asynchronously from underneath us.
+	 */
 	assert(!malloc_slow && tsd_tcache_enabled_get(tsd) &&
 	    tsd_reentrancy_level_get(tsd) == 0);
 }
 
 JEMALLOC_ALWAYS_INLINE bool
 tsd_fast(tsd_t *tsd) {
-	bool fast = (tsd->state == tsd_state_nominal);
+	bool fast = (tsd_state_get(tsd) == tsd_state_nominal);
 	if (fast) {
 		tsd_assert_fast(tsd);
 	}
@@ -261,7 +350,7 @@ tsd_fetch_impl(bool init, bool minimal) {
 	}
 	assert(tsd != NULL);
 
-	if (unlikely(tsd->state != tsd_state_nominal)) {
+	if (unlikely(tsd_state_get(tsd) != tsd_state_nominal)) {
 		return tsd_fetch_slow(tsd, minimal);
 	}
 	assert(tsd_fast(tsd));
@@ -281,7 +370,7 @@ JEMALLOC_ALWAYS_INLINE tsd_t *
 tsd_internal_fetch(void) {
 	tsd_t *tsd = tsd_fetch_min();
 	/* Use reincarnated state to prevent full initialization. */
-	tsd->state = tsd_state_reincarnated;
+	tsd_state_set(tsd, tsd_state_reincarnated);
 
 	return tsd;
 }
@@ -293,7 +382,7 @@ tsd_fetch(void) {
 
 static inline bool
 tsd_nominal(tsd_t *tsd) {
-	return (tsd->state <= tsd_state_nominal_max);
+	return (tsd_state_get(tsd) <= tsd_state_nominal_max);
 }
 
 JEMALLOC_ALWAYS_INLINE tsdn_t *

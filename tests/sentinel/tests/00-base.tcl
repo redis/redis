@@ -2,6 +2,10 @@
 source "../tests/includes/start-init-tests.tcl"
 source "../tests/includes/init-tests.tcl"
 
+foreach_sentinel_id id {
+    S $id sentinel debug default-down-after 1000
+}
+
 if {$::simulate_error} {
     test "This test will fail" {
         fail "Simulated error"
@@ -14,7 +18,9 @@ test "Basic failover works if the master is down" {
     assert {[lindex $addr 1] == $old_port}
     kill_instance redis $master_id
     foreach_sentinel_id id {
-        wait_for_condition 1000 50 {
+        S $id sentinel debug ping-period 500
+        S $id sentinel debug ask-period 500  
+        wait_for_condition 1000 100 {
             [lindex [S $id SENTINEL GET-MASTER-ADDR-BY-NAME mymaster] 1] != $old_port
         } else {
             fail "At least one Sentinel did not receive failover info"
@@ -95,7 +101,7 @@ test "Failover works if we configure for absolute agreement" {
 
     # Wait for Sentinels to monitor the master again
     foreach_sentinel_id id {
-        wait_for_condition 1000 50 {
+        wait_for_condition 1000 100 {
             [dict get [S $id SENTINEL MASTER mymaster] info-refresh] < 100000
         } else {
             fail "At least one Sentinel is not monitoring the master"
@@ -105,7 +111,7 @@ test "Failover works if we configure for absolute agreement" {
     kill_instance redis $master_id
 
     foreach_sentinel_id id {
-        wait_for_condition 1000 50 {
+        wait_for_condition 1000 100 {
             [lindex [S $id SENTINEL GET-MASTER-ADDR-BY-NAME mymaster] 1] != $old_port
         } else {
             fail "At least one Sentinel did not receive failover info"

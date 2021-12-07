@@ -40,6 +40,13 @@ start_server {tags {"modules"}} {
         assert_equal [r test.dbsize] 0
     }
 
+    test {test module keyexists} {
+        r set x foo
+        assert_equal 1 [r test.keyexists x]
+        r del x
+        assert_equal 0 [r test.keyexists x]
+    }
+
     test {test module lru api} {
         r config set maxmemory-policy allkeys-lru
         r set x foo
@@ -114,5 +121,11 @@ start_server {tags {"modules"}} {
 
     test {test RM_Call CLIENT INFO} {
         assert_match "*fd=-1*" [r test.call_generic client info]
+    }
+
+    test {Unsafe command names are sanitized in INFO output} {
+        r test.weird:cmd
+        set info [r info commandstats]
+        assert_match {*cmdstat_test.weird_cmd:calls=1*} $info
     }
 }

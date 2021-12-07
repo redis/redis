@@ -573,29 +573,27 @@ start_server {tags {"string"}} {
     set rna2 {ATTAAAGGTTTATACCTTCCCAGGTAACAAACCAACCAACTTTCGATCTCTTGTAGATCTGTTCTCTAAACGAACTTTAAAATCTGTGTGGCTGTCACTCGGCTGCATGCTTAGTGCACTCACGCAGTATAATTAATAACTAATTACTGTCGTTGACAGGACACGAGTAACTCGTCTATCTTCTGCAGGCTGCTTACGGTTTCGTCCGTGTTGCAGCCGATCATCAGCACATCTAGGTTT}
     set rnalcs {ACCTTCCCAGGTAACAAACCAACCAACTTTCGATCTCTTGTAGATCTGTTCTCTAAACGAACTTTAAAATCTGTGTGGCTGTCACTCGGCTGCATGCTTAGTGCACTCACGCAGTATAATTAATAACTAATTACTGTCGTTGACAGGACACGAGTAACTCGTCTATCTTCTGCAGGCTGCTTACGGTTTCGTCCGTGTTGCAGCCGATCATCAGCACATCTAGGTTT}
 
-    test {STRALGO LCS string output with STRINGS option} {
-        r STRALGO LCS STRINGS $rna1 $rna2
-    } $rnalcs
-
-    test {STRALGO LCS len} {
-        r STRALGO LCS LEN STRINGS $rna1 $rna2
-    } [string length $rnalcs]
-
-    test {LCS with KEYS option} {
+    test {LCS basic} {
         r set virus1{t} $rna1
         r set virus2{t} $rna2
-        r STRALGO LCS KEYS virus1{t} virus2{t}
+        r LCS virus1{t} virus2{t}
     } $rnalcs
 
+    test {LCS len} {
+        r set virus1{t} $rna1
+        r set virus2{t} $rna2
+        r LCS virus1{t} virus2{t} LEN
+    } [string length $rnalcs]
+
     test {LCS indexes} {
-        dict get [r STRALGO LCS IDX KEYS virus1{t} virus2{t}] matches
+        dict get [r LCS virus1{t} virus2{t} IDX] matches
     } {{{238 238} {239 239}} {{236 236} {238 238}} {{229 230} {236 237}} {{224 224} {235 235}} {{1 222} {13 234}}}
 
     test {LCS indexes with match len} {
-        dict get [r STRALGO LCS IDX KEYS virus1{t} virus2{t} WITHMATCHLEN] matches
+        dict get [r LCS virus1{t} virus2{t} IDX WITHMATCHLEN] matches
     } {{{238 238} {239 239} 1} {{236 236} {238 238} 1} {{229 230} {236 237} 2} {{224 224} {235 235} 1} {{1 222} {13 234} 222}}
 
     test {LCS indexes with match len and minimum match len} {
-        dict get [r STRALGO LCS IDX KEYS virus1{t} virus2{t} WITHMATCHLEN MINMATCHLEN 5] matches
+        dict get [r LCS virus1{t} virus2{t} IDX WITHMATCHLEN MINMATCHLEN 5] matches
     } {{{1 222} {13 234} 222}}
 }

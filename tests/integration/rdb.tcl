@@ -4,6 +4,15 @@ set server_path [tmpdir "server.rdb-encoding-test"]
 
 # Copy RDB with different encodings in server path
 exec cp tests/assets/encodings.rdb $server_path
+exec cp tests/assets/list-quicklist.rdb $server_path
+
+start_server [list overrides [list "dir" $server_path "dbfilename" "list-quicklist.rdb"]] {
+    test "test old version rdb file" {
+        r select 0
+        assert_equal [r get x] 7
+        r lpop list
+    } {7}
+}
 
 start_server [list overrides [list "dir" $server_path "dbfilename" "encodings.rdb"]] {
   test "RDB encoding loading test" {
@@ -45,7 +54,7 @@ start_server [list overrides [list "dir" $server_path] keep_persistence true] {
     test {Test RDB stream encoding} {
         for {set j 0} {$j < 1000} {incr j} {
             if {rand() < 0.9} {
-                r xadd stream * foo $j
+                r xadd stream * foo abc
             } else {
                 r xadd stream * bar $j
             }
@@ -202,9 +211,34 @@ test {client freed during loading} {
     }
 }
 
+start_server {} {
+    test {Test RDB load info} {
+        r debug populate 1000
+        r save
+        restart_server 0 true false
+        wait_done_loading r
+        assert {[s rdb_last_load_keys_expired] == 0}
+        assert {[s rdb_last_load_keys_loaded] == 1000}
+
+        r debug set-active-expire 0
+        for {set j 0} {$j < 1024} {incr j} {
+            r select [expr $j%16]
+            r set $j somevalue px 10
+        }
+        after 20
+
+        r save
+        restart_server 0 true false
+        wait_done_loading r
+        assert {[s rdb_last_load_keys_expired] == 1024}
+        assert {[s rdb_last_load_keys_loaded] == 1000}
+    }
+}
+
 # Our COW metrics (Private_Dirty) work only on Linux
 set system_name [string tolower [exec uname -s]]
-if {$system_name eq {linux}} {
+set page_size [exec getconf PAGESIZE]
+if {$system_name eq {linux} && $page_size == 4096} {
 
 start_server {overrides {save ""}} {
     test {Test child sending info} {
@@ -221,9 +255,11 @@ start_server {overrides {save ""}} {
         r config set rdb-key-save-delay 200
         r config set loglevel debug
 
-        # populate the db with 10k keys of 4k each
+        # populate the db with 10k keys of 512B each (since we want to measure the COW size by
+        # changing some keys and read the reported COW size, we are using small key size to prevent from
+        # the "dismiss mechanism" free memory and reduce the COW size)
         set rd [redis_deferring_client 0]
-        set size 4096
+        set size 500 ;# aim for the 512 bin (sds overhead)
         set cmd_count 10000
         for {set k 0} {$k < $cmd_count} {incr k} {
             $rd set key$k [string repeat A $size]
@@ -246,6 +282,7 @@ start_server {overrides {save ""}} {
         # on each iteration, we will write some key to the server to trigger copy-on-write, and
         # wait to see that it reflected in INFO.
         set iteration 1
+        set key_idx 0
         while 1 {
             # take samples before writing new data to the server
             set cow_size [s current_cow_size]
@@ -259,12 +296,19 @@ start_server {overrides {save ""}} {
             }
 
             # trigger copy-on-write
-            r setrange key$iteration 0 [string repeat B $size]
+            set modified_keys 16
+            for {set k 0} {$k < $modified_keys} {incr k} {
+                r setrange key$key_idx 0 [string repeat B $size]
+                incr key_idx 1
+            }
 
+            # changing 16 keys (512B each) will create at least 8192 COW (2 pages), but we don't want the test
+            # to be too strict, so we check for a change of at least 4096 bytes
+            set exp_cow [expr $cow_size + 4096]
             # wait to see that current_cow_size value updated (as long as the child is in progress)
             wait_for_condition 80 100 {
                 [s rdb_bgsave_in_progress] == 0 ||
-                [s current_cow_size] >= $cow_size + $size && 
+                [s current_cow_size] >= $exp_cow &&
                 [s current_save_keys_processed] > $keys_processed &&
                 [s current_fork_perc] > 0
             } else {

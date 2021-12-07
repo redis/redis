@@ -259,7 +259,7 @@ int geoGetPointsInRange(robj *zobj, double min, double max, GeoShape *shape, geo
     size_t origincount = ga->used;
     sds member;
 
-    if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
+    if (zobj->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *zl = zobj->ptr;
         unsigned char *eptr, *sptr;
         unsigned char *vstr = NULL;
@@ -272,7 +272,7 @@ int geoGetPointsInRange(robj *zobj, double min, double max, GeoShape *shape, geo
             return 0;
         }
 
-        sptr = ziplistNext(zl, eptr);
+        sptr = lpNext(zl, eptr);
         while (eptr) {
             score = zzlGetScore(sptr);
 
@@ -280,8 +280,7 @@ int geoGetPointsInRange(robj *zobj, double min, double max, GeoShape *shape, geo
             if (!zslValueLteMax(score, &range))
                 break;
 
-            /* We know the element exists. ziplistGet should always succeed */
-            ziplistGet(eptr, &vstr, &vlen, &vlong);
+            vstr = lpGetValue(eptr, &vlen, &vlong);
             member = (vstr == NULL) ? sdsfromlonglong(vlong) :
                                       sdsnewlen(vstr,vlen);
             if (geoAppendIfWithinShape(ga,shape,score,member)
@@ -798,7 +797,7 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
         robj *zobj;
         zset *zs;
         int i;
-        size_t maxelelen = 0;
+        size_t maxelelen = 0, totelelen = 0;
 
         if (returned_items) {
             zobj = createZsetObject();
@@ -813,14 +812,15 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
             size_t elelen = sdslen(gp->member);
 
             if (maxelelen < elelen) maxelelen = elelen;
+            totelelen += elelen;
             znode = zslInsert(zs->zsl,score,gp->member);
             serverAssert(dictAdd(zs->dict,gp->member,&znode->score) == DICT_OK);
             gp->member = NULL;
         }
 
         if (returned_items) {
-            zsetConvertToZiplistIfNeeded(zobj,maxelelen);
-            setKey(c,c->db,storekey,zobj);
+            zsetConvertToListpackIfNeeded(zobj,maxelelen,totelelen);
+            setKey(c,c->db,storekey,zobj,0);
             decrRefCount(zobj);
             notifyKeyspaceEvent(NOTIFY_ZSET,flags & GEOSEARCH ? "geosearchstore" : "georadiusstore",storekey,
                                 c->db->id);

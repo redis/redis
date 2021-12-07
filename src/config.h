@@ -31,6 +31,7 @@
 #define __CONFIG_H
 
 #ifdef __APPLE__
+#include <fcntl.h> // for fcntl(fd, F_FULLFSYNC)
 #include <AvailabilityMacros.h>
 #endif
 
@@ -97,10 +98,12 @@
 #endif
 
 /* Define redis_fsync to fdatasync() in Linux and fsync() for all the rest */
-#ifdef __linux__
-#define redis_fsync fdatasync
+#if defined(__linux__)
+#define redis_fsync(fd) fdatasync(fd)
+#elif defined(__APPLE__)
+#define redis_fsync(fd) fcntl(fd, F_FULLFSYNC)
 #else
-#define redis_fsync fsync
+#define redis_fsync(fd) fsync(fd)
 #endif
 
 #if __GNUC__ >= 4
@@ -117,11 +120,22 @@
 #define unlikely(x) (x)
 #endif
 
+#if defined(__has_attribute)
+#if __has_attribute(no_sanitize)
+#define REDIS_NO_SANITIZE(sanitizer) __attribute__((no_sanitize(sanitizer)))
+#endif
+#endif
+#if !defined(REDIS_NO_SANITIZE)
+#define REDIS_NO_SANITIZE(sanitizer)
+#endif
+
 /* Define rdb_fsync_range to sync_file_range() on Linux, otherwise we use
  * the plain fsync() call. */
 #if (defined(__linux__) && defined(SYNC_FILE_RANGE_WAIT_BEFORE))
 #define HAVE_SYNC_FILE_RANGE 1
 #define rdb_fsync_range(fd,off,size) sync_file_range(fd,off,size,SYNC_FILE_RANGE_WAIT_BEFORE|SYNC_FILE_RANGE_WRITE)
+#elif defined(__APPLE__)
+#define rdb_fsync_range(fd,off,size) fcntl(fd, F_FULLFSYNC)
 #else
 #define rdb_fsync_range(fd,off,size) fsync(fd)
 #endif
