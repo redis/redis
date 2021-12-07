@@ -375,19 +375,44 @@ start_server {tags {"other external:skip"}} {
 }
 
 test {hash-seed configuration works as expected} {
-    proc make_hash {seed} {
+    proc make_keys {} {
+        for {set i 0} {$i < 1000} {incr i} {
+            r set mykey:$i value:$i
+        }
+        return [r keys *]
+    }
+
+    proc make_hash {} {
+        for {set i 0} {$i < 1000} {incr i} {
+            r hset myhash field:$i value:$i
+        }
+        return [r hgetall myhash]
+    }
+
+    proc make_seeded_keys_and_hash {seed} {
         start_server [list overrides [list hash-seed $seed]] {
-            for {set i 0} {$i < 1000} {incr i} {
-                r hset myhash field:$i value:$i
-            }
-            set h [r hgetall myhash]
+            set h [list [make_hash] [make_keys]]
         }
         return $h
     }
 
-    set hash1 [make_hash aaaabbbbccccdddd]
-    set hash2 [make_hash aaaabbbbccccdddd]
-    set hash3 [make_hash xxxxxxxxxxxxxxxx]
-    assert_equal $hash1 $hash2
-    assert {$hash1 != $hash3}
+    # Verify hash-seed is applied
+    set result1 [make_seeded_keys_and_hash aaaabbbbccccdddd]
+    set result2 [make_seeded_keys_and_hash aaaabbbbccccdddd]
+    set result3 [make_seeded_keys_and_hash xxxxxxxxxxxxxxxx]
+    assert_equal $result1 $result2
+    assert {$result1 != $result3}
+
+    # Verify expected randomness when hash-seed is not used
+    start_server {} {
+        set hash1 [make_hash]
+        set keys1 [make_keys]
+    }
+
+    start_server {} {
+        set hash2 [make_hash]
+        set keys2 [make_keys]
+    }
+    assert {$hash1 != $hash2}
+    assert {$keys1 != $keys2}
 } {} {external:skip}
