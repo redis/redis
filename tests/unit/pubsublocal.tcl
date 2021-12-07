@@ -79,7 +79,8 @@ start_server {tags {"pubsublocal"}} {
         set rd1 [redis_deferring_client]
 
         # subscribe to two channels
-        assert_equal {1 2} [subscribelocal $rd1 {chan1 chan2}]
+        assert_equal {1} [subscribelocal $rd1 {chan1}]
+        assert_equal {2} [subscribelocal $rd1 {chan2}]
         assert_equal 1 [r publishlocal chan1 hello]
         assert_equal 1 [r publishlocal chan2 world]
         assert_equal {message chan1 hello} [$rd1 read]
