@@ -2100,6 +2100,14 @@ static int updateProcTitleTemplate(const char **err) {
     return 1;
 }
 
+static int isValidHashSeed(sds val, const char **err) {
+    if (val && sdslen(val) != DICT_HASH_SEED_SIZE) {
+        *err = "Invalid hash-seed length";
+        return 0;
+    }
+    return 1;
+}
+
 static int updateHZ(const char **err) {
     UNUSED(err);
     /* Hz is more a hint from the user, so we accept values out of range
@@ -2591,6 +2599,7 @@ standardConfig configs[] = {
     /* SDS Configs */
     createSDSConfig("masterauth", NULL, MODIFIABLE_CONFIG | SENSITIVE_CONFIG, EMPTY_STRING_IS_NULL, server.masterauth, NULL, NULL, NULL),
     createSDSConfig("requirepass", NULL, MODIFIABLE_CONFIG | SENSITIVE_CONFIG, EMPTY_STRING_IS_NULL, server.requirepass, NULL, NULL, updateRequirePass),
+    createSDSConfig("hash-seed", NULL, IMMUTABLE_CONFIG | SENSITIVE_CONFIG, EMPTY_STRING_IS_NULL, server.hash_seed, NULL, isValidHashSeed, NULL),
 
     /* Enum Configs */
     createEnumConfig("supervised", NULL, IMMUTABLE_CONFIG, supervised_mode_enum, server.supervised_mode, SUPERVISED_NONE, NULL, NULL),

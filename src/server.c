@@ -2277,6 +2277,50 @@ uint64_t dictSdsCaseHash(const void *key) {
     return dictGenCaseHashFunction((unsigned char*)key, sdslen((char*)key));
 }
 
+int dictCStringKeyCompare(dict *d, const void *key1, const void *key2) {
+    UNUSED(d);
+    return strcmp(key1,key2) == 0;
+}
+
+
+/* Preset seed is used for dict types that are initialized early and don't
+ * yet have a chance to use seed-hash if configured.
+ */
+static int preset_hash_function_seed_set = 0;
+static uint8_t preset_hash_function_seed[DICT_HASH_SEED_SIZE];
+
+uint64_t dictPresetSeedSdsCaseHash(const void *key) {
+    return dictCaseHashFunction((unsigned char*)key, sdslen((char*)key), preset_hash_function_seed);
+}
+
+uint64_t dictPresetSeedSdsHash(const void *key) {
+    return dictHashFunction((unsigned char*)key, sdslen((char*)key), preset_hash_function_seed);
+}
+
+uint64_t dictPresetSeedCStringKeyHash(const void *key) {
+    return dictHashFunction((unsigned char*)key, strlen((char*)key), preset_hash_function_seed);
+}
+
+/* This is called once, immediately on startup, to initialize both the preset
+ * seed and the dict.c seed. Normally, it will not be called again.
+ *
+ * If the hash-seed immutable config is used, it will be called once with the
+ * specified seed after processing the config. At this point we expect that
+ * only dicts that use the preset seed to be populated, so it is still safe to
+ * re-initialize the dict.c seed.
+ */
+static void initDictHashSeed(uint8_t *seed) {
+    uint8_t randseed[DICT_HASH_SEED_SIZE];
+
+    getRandomBytes(randseed, sizeof(randseed));
+    if (!preset_hash_function_seed_set) {
+        memcpy(preset_hash_function_seed, randseed, sizeof(preset_hash_function_seed));
+        preset_hash_function_seed_set = 1;
+    }
+
+    dictSetHashFunctionSeed(seed ? seed : randseed);
+}
+
 int dictEncObjKeyCompare(dict *d, const void *key1, const void *key2)
 {
     robj *o1 = (robj*) key1, *o2 = (robj*) key2;
@@ -2417,7 +2461,7 @@ dictType dbExpiresDictType = {
 
 /* Command table. sds string -> command struct pointer. */
 dictType commandTableDictType = {
-    dictSdsCaseHash,            /* hash function */
+    dictPresetSeedSdsCaseHash,  /* hash function */
     NULL,                       /* key dup */
     NULL,                       /* val dup */
     dictSdsKeyCaseCompare,      /* key compare */
@@ -2464,7 +2508,7 @@ dictType keylistDictType = {
 /* Modules system dictionary type. Keys are module name,
  * values are pointer to RedisModule struct. */
 dictType modulesDictType = {
-    dictSdsCaseHash,            /* hash function */
+    dictPresetSeedSdsCaseHash,  /* hash function */
     NULL,                       /* key dup */
     NULL,                       /* val dup */
     dictSdsKeyCaseCompare,      /* key compare */
@@ -7934,9 +7978,8 @@ int main(int argc, char **argv) {
      */
     umask(server.umask = umask(0777));
 
-    uint8_t hashseed[16];
-    getRandomBytes(hashseed,sizeof(hashseed));
-    dictSetHashFunctionSeed(hashseed);
+    /* Initialize hash function seeds (both preset and dict) */
+    initDictHashSeed(NULL);
 
     char *exec_name = strrchr(argv[0], '/');
     if (exec_name == NULL) exec_name = argv[0];
@@ -8023,6 +8066,7 @@ int main(int argc, char **argv) {
         }
 
         loadServerConfig(server.configfile, config_from_stdin, options);
+        if (server.hash_seed) initDictHashSeed((uint8_t *) server.hash_seed);
         if (server.sentinel_mode) loadSentinelConfigFromQueue();
         sdsfree(options);
     }

@@ -1337,6 +1337,7 @@ struct redisServer {
     dict *orig_commands;        /* Command table before command renaming. */
     aeEventLoop *el;
     rax *errors;                /* Errors table */
+    sds hash_seed;              /* Seed for dict hash function */
     redisAtomic unsigned int lruclock; /* Clock for LRU eviction */
     volatile sig_atomic_t shutdown_asap; /* SHUTDOWN needed ASAP */
     int activerehashing;        /* Incremental rehash in serverCron() */
@@ -2548,6 +2549,7 @@ void dismissSds(sds s);
 void dismissMemory(void* ptr, size_t size_hint);
 void dismissMemoryInChild(void);
 
+
 #define RESTART_SERVER_NONE 0
 #define RESTART_SERVER_GRACEFULLY (1<<0)     /* Do proper shutdown. */
 #define RESTART_SERVER_CONFIG_REWRITE (1<<1) /* CONFIG REWRITE before restart.*/
@@ -2777,6 +2779,8 @@ int dictSdsKeyCompare(dict *d, const void *key1, const void *key2);
 int dictSdsKeyCaseCompare(dict *d, const void *key1, const void *key2);
 void dictSdsDestructor(dict *d, void *val);
 void *dictSdsDup(dict *d, const void *key);
+int dictCStringKeyCompare(dict *d, const void *key1, const void *key2);
+uint64_t dictPresetSeedCStringKeyHash(const void *key);
 
 /* Git SHA1 */
 char *redisGitSHA1(void);

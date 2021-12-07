@@ -169,6 +169,9 @@ typedef void (dictScanBucketFunction)(dict *d, dictEntry **bucketref);
 #define randomULong() random()
 #endif
 
+/* SipHash seed size */
+#define DICT_HASH_SEED_SIZE 16
+
 /* API */
 dict *dictCreate(dictType *type);
 int dictExpand(dict *d, unsigned long size);
@@ -194,13 +197,14 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count);
 void dictGetStats(char *buf, size_t bufsize, dict *d);
 uint64_t dictGenHashFunction(const void *key, int len);
 uint64_t dictGenCaseHashFunction(const unsigned char *buf, int len);
+uint64_t dictHashFunction(const void *key, int len, const uint8_t *seed);
+uint64_t dictCaseHashFunction(const unsigned char *buf, int len, const uint8_t *seed);
 void dictEmpty(dict *d, void(callback)(dict*));
 void dictEnableResize(void);
 void dictDisableResize(void);
 int dictRehash(dict *d, int n);
 int dictRehashMilliseconds(dict *d, int ms);
 void dictSetHashFunctionSeed(uint8_t *seed);
-uint8_t *dictGetHashFunctionSeed(void);
 unsigned long dictScan(dict *d, unsigned long v, dictScanFunction *fn, dictScanBucketFunction *bucketfn, void *privdata);
 uint64_t dictGetHash(dict *d, const void *key);
 dictEntry **dictFindEntryRefByPtrAndHash(dict *d, const void *oldptr, uint64_t hash);

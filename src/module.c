@@ -9494,17 +9494,8 @@ size_t moduleGetMemUsage(robj *key, robj *val, size_t sample_size, int dbid) {
 /* server.moduleapi dictionary type. Only uses plain C strings since
  * this gets queries from modules. */
 
-uint64_t dictCStringKeyHash(const void *key) {
-    return dictGenHashFunction((unsigned char*)key, strlen((char*)key));
-}
-
-int dictCStringKeyCompare(dict *d, const void *key1, const void *key2) {
-    UNUSED(d);
-    return strcmp(key1,key2) == 0;
-}
-
 dictType moduleAPIDictType = {
-    dictCStringKeyHash,        /* hash function */
+    dictPresetSeedCStringKeyHash,  /* hash function */
     NULL,                      /* key dup */
     NULL,                      /* val dup */
     dictCStringKeyCompare,     /* key compare */

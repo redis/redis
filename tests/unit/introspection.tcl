@@ -201,6 +201,7 @@ start_server {tags {"introspection"}} {
             cluster-port
             oom-score-adj
             oom-score-adj-values
+            hash-seed
         }
 
         if {!$::tls} {
