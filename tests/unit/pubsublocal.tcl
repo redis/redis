@@ -184,8 +184,8 @@ start_server {tags {"pubsublocal external:skip"}} {
     }
 }
 
-start_server {tags {"pubsublocal"}} {
-start_server {} {
+start_server {tags {"pubsublocal external:skip"}} {
+start_server {tags {"pubsublocal external:skip"}} {
     set node_0 [srv 0 client]
     set node_0_host [srv 0 host]
     set node_0_port [srv 0 port]
