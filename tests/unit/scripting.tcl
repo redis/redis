@@ -461,7 +461,6 @@ start_server {tags {"scripting"}} {
     # random handling is only relevant for is_eval Lua
     test {random numbers are random now} {
         set rand1 [r eval {return tostring(math.random())} 0]
-        puts $rand1
         wait_for_condition 100 1 {
             $rand1 ne [r eval {return tostring(math.random())} 0]
         } else {
@@ -521,8 +520,6 @@ start_server {tags {"scripting"}} {
     } {102} {external:skip}
 
     if {$is_eval eq 1} {
-    # script propagation is irrelevant on functions
-
     test {We can call scripts rewriting client->argv from Lua} {
         r del myset
         r sadd myset a b c
