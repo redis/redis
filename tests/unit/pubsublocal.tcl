@@ -189,12 +189,10 @@ start_server {} {
     set node_0 [srv 0 client]
     set node_0_host [srv 0 host]
     set node_0_port [srv 0 port]
-    set node_0_pid [srv 0 pid]
 
     set node_1 [srv -1 client]
     set node_1_host [srv -1 host]
     set node_1_port [srv -1 port]
-    set node_1_pid [srv -1 pid]
 
     test {setup replication for following tests} {
         $node_1 replicaof $node_0_host $node_0_port
