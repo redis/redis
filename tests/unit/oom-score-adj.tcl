@@ -98,5 +98,29 @@ if {$system_name eq {linux}} {
             
             assert_equal [get_oom_score_adj] $other_val2
         }
+
+        test {CONFIG SET oom score restored on disable} {
+            r config set oom-score-adj no
+            set_oom_score_adj 22
+            assert_equal [get_oom_score_adj] 22
+
+            r config set oom-score-adj-values "9 9 9" oom-score-adj yes
+            assert_equal [get_oom_score_adj] [expr 9+22]
+
+            r config set oom-score-adj no
+            assert_equal [get_oom_score_adj] 22
+        }
+
+        test {CONFIG SET oom score relative and absolute} {
+            set custom_oom 9
+            r config set oom-score-adj no
+            set base_oom [get_oom_score_adj]
+
+            r config set oom-score-adj-values "$custom_oom $custom_oom $custom_oom" oom-score-adj relative
+            assert_equal [get_oom_score_adj] [expr $base_oom+$custom_oom]
+
+            r config set oom-score-adj absolute
+            assert_equal [get_oom_score_adj] $custom_oom
+        }
     }
 }

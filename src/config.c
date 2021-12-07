@@ -2387,6 +2387,7 @@ static sds getConfigClientOutputBufferLimitOption(typeData data) {
 static int setConfigOOMScoreAdjValuesOption(typeData data, sds *argv, int argc, const char **err) {
     int i;
     int values[CONFIG_OOM_COUNT];
+    int change = 0;
     UNUSED(data);
 
     if (argc != CONFIG_OOM_COUNT) {
@@ -2419,10 +2420,13 @@ static int setConfigOOMScoreAdjValuesOption(typeData data, sds *argv, int argc, 
     }
 
     for (i = 0; i < CONFIG_OOM_COUNT; i++) {
-        server.oom_score_adj_values[i] = values[i];
+        if (server.oom_score_adj_values[i] != values[i]) {
+            server.oom_score_adj_values[i] = values[i];
+            change = 1;
+        }
     }
 
-    return 1;
+    return change ? 1 : 2;
 }
 
 static sds getConfigOOMScoreAdjValuesOption(typeData data) {

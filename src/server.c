@@ -3869,18 +3869,6 @@ int restartServer(int flags, mstime_t delay) {
     return C_ERR; /* Never reached. */
 }
 
-static void readOOMScoreAdj(void) {
-#ifdef HAVE_PROC_OOM_SCORE_ADJ
-    char buf[64];
-    int fd = open("/proc/self/oom_score_adj", O_RDONLY);
-
-    if (fd < 0) return;
-    if (read(fd, buf, sizeof(buf)) > 0)
-        server.oom_score_adj_base = atoi(buf);
-    close(fd);
-#endif
-}
-
 /* This function will configure the current process's oom_score_adj according
  * to user specified configuration. This is currently implemented on Linux
  * only.
@@ -3888,12 +3876,13 @@ static void readOOMScoreAdj(void) {
  * A process_class value of -1 implies OOM_CONFIG_MASTER or OOM_CONFIG_REPLICA,
  * depending on current role.
  */
-static int oom_adj_managed_by_redis = 0;
 int setOOMScoreAdj(int process_class) {
-
-    if (server.oom_score_adj != OOM_SCORE_ADJ_NO && !oom_adj_managed_by_redis) {
-        readOOMScoreAdj();
-    }
+    /* The following static is used to indicate Redis has changed the process's oom score.
+     * We need this so when we disabled oom-score-adj (also during configuration rollback
+     * when another configuration parameter was invalid and causes a rollback after
+     * applying a new oom-score). we can return to the oom-score value from before our
+     * adjustments. */
+    static int oom_score_adjusted_by_redis = 0;
 
     if (process_class == -1)
         process_class = (server.masterhost ? CONFIG_OOM_REPLICA : CONFIG_OOM_MASTER);
@@ -3906,18 +3895,31 @@ int setOOMScoreAdj(int process_class) {
     char buf[64];
 
     if (server.oom_score_adj != OOM_SCORE_ADJ_NO) {
+        if (!oom_score_adjusted_by_redis) {
+            oom_score_adjusted_by_redis = 1;
+            /* Backup base value before enabling Redis control over oom score */
+            fd = open("/proc/self/oom_score_adj", O_RDONLY);
+            if (fd < 0 || read(fd, buf, sizeof(buf)) < 0) {
+                serverLog(LL_WARNING, "Unable to read oom_score_adj: %s", strerror(errno));
+                if (fd != -1) close(fd);
+                return C_ERR;
+            }
+            server.oom_score_adj_base = atoi(buf);
+            close(fd);
+        }
+
         val = server.oom_score_adj_values[process_class];
         if (server.oom_score_adj == OOM_SCORE_RELATIVE)
             val += server.oom_score_adj_base;
         if (val > 1000) val = 1000;
         if (val < -1000) val = -1000;
-    } else if (oom_adj_managed_by_redis)
+    } else if (oom_score_adjusted_by_redis) {
+        oom_score_adjusted_by_redis = 0;
         val = server.oom_score_adj_base;
+    }
     else {
         return C_OK;
     }
-
-    oom_adj_managed_by_redis = server.oom_score_adj != OOM_SCORE_ADJ_NO;
 
     snprintf(buf, sizeof(buf) - 1, "%d\n", val);
 
