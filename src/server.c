@@ -4766,9 +4766,16 @@ dict * genSectionDict(client * c, const char * source, int * all_sections, int *
             }
         }
         else {
-            sds section = sdsnew(source); /* Got this from module */
-            sdstolower(section);
-            dictAdd(section_dict,section,NULL);
+            if (!strcasecmp(source,"all")) {
+                    (*all_sections) = 1;
+            } else if (!strcasecmp(source,"everything")) {
+                    (*everything) = 1;
+            }
+            else {
+                sds section = sdsnew(source); /* Got this from module */
+                sdstolower(section);
+                dictAdd(section_dict,section,NULL);
+            }
         }
     }  
     return section_dict;
@@ -5535,7 +5542,6 @@ sds genRedisInfoString(dict * section_dict, int all_sections, int everything) {
                                   everything || modules ? NULL: section_dict,
                                   0, /* not a crash report */
                                   sections);
-        dictRelease(section_dict);
     }
     return info;
 }

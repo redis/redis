@@ -7895,11 +7895,13 @@ int RM_InfoAddSection(RedisModuleInfoCtx *ctx, char *name) {
             ctx->in_section = 0;
             return REDISMODULE_ERR;
         }
+        dictAdd(ctx->requested_sections, full_name, NULL);
+        dictAdd(ctx->requested_sections, sdsnew(ctx->module->name), NULL);
     }
     if (ctx->sections++) ctx->info = sdscat(ctx->info,"\r\n");
     ctx->info = sdscatfmt(ctx->info, "# %S\r\n", full_name);
+    
     ctx->in_section = 1;
-    sdsfree(full_name);
     return REDISMODULE_OK;
 }
 
@@ -8088,6 +8090,7 @@ RedisModuleServerInfoData *RM_GetServerInfo(RedisModuleCtx *ctx, const char *sec
     }
     sdsfree(info);
     sdsfreesplitres(lines,totlines);
+    dictRelease(section_dict);
     return d;
 }
 
