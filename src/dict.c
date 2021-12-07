@@ -337,7 +337,7 @@ dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing)
      * Insert the element in top, with the assumption that in a database
      * system it is more likely that recently added entries are accessed
      * more frequently. */
-    htidx = (dictIsRehashing(d) && d->rehashidx != 0) ? 1 : 0;
+    htidx = dictIsRehashing(d) ? 1 : 0;
     size_t metasize = dictMetadataSize(d);
     entry = zmalloc(sizeof(*entry) + metasize);
     if (metasize > 0) {
@@ -510,23 +510,23 @@ void dictRelease(dict *d)
 dictEntry *dictFind(dict *d, const void *key)
 {
     dictEntry *he;
-    uint64_t h;
-    long idx_0, idx_1;
+    uint64_t h, table;
+    long idx;
 
     if (dictSize(d) == 0) return NULL; /* dict is empty */
     if (dictIsRehashing(d)) _dictRehashStep(d);
     h = dictHashKey(d, key);
-    idx_0 = h & DICTHT_SIZE_MASK(d->ht_size_exp[0]);
-    if (likely(d->rehashidx <= idx_0))
-        he = d->ht_table[0][idx_0];
-    else {
-        idx_1 = h & DICTHT_SIZE_MASK(d->ht_size_exp[1]);
-        he = d->ht_table[1][idx_1];
-    }
-    while (he) {
-        if (key==he->key || dictCompareKeys(d, key, he->key))
-            return he;
-        he = he->next;
+    idx = h & DICTHT_SIZE_MASK(d->ht_size_exp[0]);
+    table = d->rehashidx > idx ? 1 : 0;
+    for (; table <= 1; table++) {
+        idx = h & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
+        he = d->ht_table[table][idx];
+        while(he) {
+            if (key==he->key || dictCompareKeys(d, key, he->key))
+                return he;
+            he = he->next;
+        }
+        if (!dictIsRehashing(d)) return NULL;
     }
     return NULL;
 }
@@ -1056,7 +1056,6 @@ static long _dictKeyIndex(dict *d, const void *key, uint64_t hash, dictEntry **e
             he = he->next;
         }
         if (!dictIsRehashing(d)) break;
-        if (d->rehashidx == 0)  break;
     }
     return idx;
 }
