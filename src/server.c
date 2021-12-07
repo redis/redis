@@ -3877,19 +3877,21 @@ int restartServer(int flags, mstime_t delay) {
  * depending on current role.
  */
 int setOOMScoreAdj(int process_class) {
-    /* The following static is used to indicate Redis has changed the process's oom score.
-     * We need this so when we disabled oom-score-adj (also during configuration rollback
-     * when another configuration parameter was invalid and causes a rollback after
-     * applying a new oom-score). we can return to the oom-score value from before our
-     * adjustments. */
-    static int oom_score_adjusted_by_redis = 0;
-
     if (process_class == -1)
         process_class = (server.masterhost ? CONFIG_OOM_REPLICA : CONFIG_OOM_MASTER);
 
     serverAssert(process_class >= 0 && process_class < CONFIG_OOM_COUNT);
 
 #ifdef HAVE_PROC_OOM_SCORE_ADJ
+    /* The following statics are used to indicate Redis has changed the process's oom score.
+     * And to save the original score so we can restore it later if needed.
+     * We need this so when we disabled oom-score-adj (also during configuration rollback
+     * when another configuration parameter was invalid and causes a rollback after
+     * applying a new oom-score) we can return to the oom-score value from before our
+     * adjustments. */
+    static int oom_score_adjusted_by_redis = 0;
+    static int oom_score_adj_base = 0;
+
     int fd;
     int val;
     char buf[64];
@@ -3904,18 +3906,18 @@ int setOOMScoreAdj(int process_class) {
                 if (fd != -1) close(fd);
                 return C_ERR;
             }
-            server.oom_score_adj_base = atoi(buf);
+            oom_score_adj_base = atoi(buf);
             close(fd);
         }
 
         val = server.oom_score_adj_values[process_class];
         if (server.oom_score_adj == OOM_SCORE_RELATIVE)
-            val += server.oom_score_adj_base;
+            val += oom_score_adj_base;
         if (val > 1000) val = 1000;
         if (val < -1000) val = -1000;
     } else if (oom_score_adjusted_by_redis) {
         oom_score_adjusted_by_redis = 0;
-        val = server.oom_score_adj_base;
+        val = oom_score_adj_base;
     }
     else {
         return C_OK;
