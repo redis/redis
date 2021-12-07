@@ -1,4 +1,4 @@
-start_server {tags {"pubsublocal"}} {
+start_server {tags {"pubsublocal external:skip"}} {
     proc __consume_subscribelocal_messages {client type channels} {
         set numsub -1
         set counts {}
