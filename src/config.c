@@ -254,6 +254,7 @@ typedef struct standardConfig {
 #define SENSITIVE_CONFIG (1ULL<<1) /* Does this value contain sensitive information */
 #define DEBUG_CONFIG (1ULL<<2) /* Values that are useful for debugging. */
 #define MULTI_ARG_CONFIG (1ULL<<3) /* This config receives multiple arguments. */
+#define PROTECTED_CONFIG (1ULL<<4) /* Cannot be modify if protected-configs is enabled. */
 
 standardConfig configs[];
 
@@ -706,9 +707,9 @@ void configSetCommand(client *c) {
                 }
 
                 if (!invalid_args) {
-                    if (config->flags & IMMUTABLE_CONFIG) {
+                    if ((config->flags & IMMUTABLE_CONFIG) || (server.protected_configs && config->flags & PROTECTED_CONFIG)) {
                         /* Note: we don't abort the loop since we still want to handle redacting sensitive configs (above) */
-                        errstr = "can't set immutable config";
+                        errstr = (config->flags & IMMUTABLE_CONFIG) ? "can't set immutable config" : "can't set protected config";
                         invalid_args = 1;
                     }
 
@@ -2571,6 +2572,9 @@ standardConfig configs[] = {
     createBoolConfig("disable-thp", NULL, MODIFIABLE_CONFIG, server.disable_thp, 1, NULL, NULL),
     createBoolConfig("cluster-allow-replica-migration", NULL, MODIFIABLE_CONFIG, server.cluster_allow_replica_migration, 1, NULL, NULL),
     createBoolConfig("replica-announced", NULL, MODIFIABLE_CONFIG, server.replica_announced, 1, NULL, NULL),
+    createBoolConfig("protected-configs", NULL, IMMUTABLE_CONFIG, server.protected_configs, 0, NULL, NULL),
+    createBoolConfig("debug-commands-disabled", NULL, IMMUTABLE_CONFIG, server.debug_cmd_disabled, 0, NULL, NULL),
+    createBoolConfig("module-commands-disabled", NULL, IMMUTABLE_CONFIG, server.module_cmd_disabled, 0, NULL, NULL),
 
     /* String Configs */
     createStringConfig("aclfile", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.acl_filename, "", NULL, NULL),
@@ -2581,7 +2585,7 @@ standardConfig configs[] = {
     createStringConfig("cluster-announce-ip", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.cluster_announce_ip, NULL, NULL, updateClusterIp),
     createStringConfig("cluster-config-file", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.cluster_configfile, "nodes.conf", NULL, NULL),
     createStringConfig("syslog-ident", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.syslog_ident, "redis", NULL, NULL),
-    createStringConfig("dbfilename", NULL, MODIFIABLE_CONFIG, ALLOW_EMPTY_STRING, server.rdb_filename, "dump.rdb", isValidDBfilename, NULL),
+    createStringConfig("dbfilename", NULL, MODIFIABLE_CONFIG | PROTECTED_CONFIG, ALLOW_EMPTY_STRING, server.rdb_filename, "dump.rdb", isValidDBfilename, NULL),
     createStringConfig("appendfilename", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.aof_filename, "appendonly.aof", isValidAOFfilename, NULL),
     createStringConfig("server_cpulist", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.server_cpulist, NULL, NULL, NULL),
     createStringConfig("bio_cpulist", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.bio_cpulist, NULL, NULL, NULL),
@@ -2590,7 +2594,7 @@ standardConfig configs[] = {
     createStringConfig("ignore-warnings", NULL, MODIFIABLE_CONFIG, ALLOW_EMPTY_STRING, server.ignore_warnings, "", NULL, NULL),
     createStringConfig("proc-title-template", NULL, MODIFIABLE_CONFIG, ALLOW_EMPTY_STRING, server.proc_title_template, CONFIG_DEFAULT_PROC_TITLE_TEMPLATE, isValidProcTitleTemplate, updateProcTitleTemplate),
     createStringConfig("bind-source-addr", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.bind_source_addr, NULL, NULL, NULL),
-    createStringConfig("logfile", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.logfile, "", NULL, NULL),
+    createStringConfig("logfile", NULL, IMMUTABLE_CONFIG | PROTECTED_CONFIG, ALLOW_EMPTY_STRING, server.logfile, "", NULL, NULL),
 
     /* SDS Configs */
     createSDSConfig("masterauth", NULL, MODIFIABLE_CONFIG | SENSITIVE_CONFIG, EMPTY_STRING_IS_NULL, server.masterauth, NULL, NULL, NULL),
@@ -2707,7 +2711,7 @@ standardConfig configs[] = {
 #endif
 
     /* Special configs */
-    createSpecialConfig("dir", NULL, MODIFIABLE_CONFIG, setConfigDirOption, getConfigDirOption, rewriteConfigDirOption, NULL),
+    createSpecialConfig("dir", NULL, MODIFIABLE_CONFIG | PROTECTED_CONFIG, setConfigDirOption, getConfigDirOption, rewriteConfigDirOption, NULL),
     createSpecialConfig("save", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigSaveOption, getConfigSaveOption, rewriteConfigSaveOption, NULL),
     createSpecialConfig("client-output-buffer-limit", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigClientOutputBufferLimitOption, getConfigClientOutputBufferLimitOption, rewriteConfigClientOutputBufferLimitOption, NULL),
     createSpecialConfig("oom-score-adj-values", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigOOMScoreAdjValuesOption, getConfigOOMScoreAdjValuesOption, rewriteConfigOOMScoreAdjValuesOption, updateOOMScoreAdj),

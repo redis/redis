@@ -201,6 +201,9 @@ start_server {tags {"introspection"}} {
             cluster-port
             oom-score-adj
             oom-score-adj-values
+            protected-configs
+            debug-commands-disabled
+            module-commands-disabled
         }
 
         if {!$::tls} {
@@ -404,4 +407,14 @@ start_server {tags {"introspection"}} {
 
     # Config file at this point is at a weird state, and includes all
     # known keywords. Might be a good idea to avoid adding tests here.
+}
+
+start_server {tags {"introspection"} overrides {protected-configs {yes} debug-commands-disabled {yes}}} {
+    test {cannot modify protect configs} {
+        assert_error "ERR*protected*" {r config set dir somedir}
+    }
+
+    test {debug commands disabled} {
+        assert_error "ERR*DEBUG commands not allowed*" {r DEBUG OBJECT x}
+    } {} {needs:debug}
 }

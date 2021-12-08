@@ -1404,6 +1404,9 @@ struct redisServer {
     int io_threads_do_reads;    /* Read and parse from IO threads? */
     int io_threads_active;      /* Is IO threads currently active? */
     long long events_processed_while_blocked; /* processEventsWhileBlocked() */
+    int protected_configs;      /* Deny the modification of protected configs */
+    int debug_cmd_disabled;     /* Deny DEBUG commands */
+    int module_cmd_disabled;    /* Deny Module commands */
 
     /* RDB / AOF loading information */
     volatile sig_atomic_t loading; /* We are loading data from disk if true */

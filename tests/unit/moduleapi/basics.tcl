@@ -32,3 +32,11 @@ start_server {tags {"modules"}} {
 
     r module unload test
 }
+
+start_server {tags {"modules"} overrides {module-commands-disabled yes}} {
+    r module load $testmodule
+
+    test {module commands disabled} {
+        assert_error "ERR*Module commands not allowed*" {r test.rmcallautomode}
+    }
+}
