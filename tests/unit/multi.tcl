@@ -327,7 +327,6 @@ start_server {tags {"multi"}} {
         r get foo{t}
         r set foo2{t} bar2
         r get foo2{t}
-        r select 3
         r set foo3{t} bar3
         r get foo3{t}
         r exec
@@ -337,12 +336,38 @@ start_server {tags {"multi"}} {
             {multi}
             {set foo{t} bar}
             {set foo2{t} bar2}
-            {select *}
             {set foo3{t} bar3}
             {exec}
         }
         close_replication_stream $repl
     } {} {needs:repl}
+
+    test {MULTI / EXEC is propagated correctly (multiple commands with SELECT)} {
+        set repl [attach_to_replication_stream]
+        r multi
+        r select 1
+        r set foo{t} bar
+        r get foo{t}
+        r select 2
+        r set foo2{t} bar2
+        r get foo2{t}
+        r select 3
+        r set foo3{t} bar3
+        r get foo3{t}
+        r exec
+
+        assert_replication_stream $repl {
+            {select *}
+            {multi}
+            {set foo{t} bar}
+            {select *}
+            {set foo2{t} bar2}
+            {select *}
+            {set foo3{t} bar3}
+            {exec}
+        }
+        close_replication_stream $repl
+    } {} {needs:repl singledb:skip}
 
     test {MULTI / EXEC is propagated correctly (empty transaction)} {
         set repl [attach_to_replication_stream]
@@ -397,14 +422,14 @@ start_server {tags {"multi"}} {
         r replicaof localhost 9999
         r set foo3 bar
         r exec
-        catch {r set foo3 bar} e
+        catch {r set foo4 bar} e
         assert_match {READONLY*} $e
         assert_replication_stream $repl {
             {select *}
             {set foo bar}
         }
         r replicaof no one
-    } {OK} {needs:repl}
+    } {OK} {needs:repl cluster:skip}
 
     test {DISCARD should not fail during OOM} {
         set rd [redis_deferring_client]

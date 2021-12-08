@@ -4693,17 +4693,27 @@ void resetErrorTableStats(void) {
 void redisOpArrayInit(redisOpArray *oa) {
     oa->ops = NULL;
     oa->numops = 0;
+    oa->capacity = 0;
 }
 
 int redisOpArrayAppend(redisOpArray *oa, int dbid, robj **argv, int argc, int target) {
     redisOp *op;
+    int prev_capacity = oa->capacity;
 
-    oa->ops = zrealloc(oa->ops,sizeof(redisOp)*(oa->numops+1));
-    op = oa->ops+oa->numops;
+    if (oa->numops == 0) {
+        oa->capacity = 16;
+    } else if (oa->numops >= oa->capacity) {
+        oa->capacity *= 2;
+    }
+
+    if (prev_capacity != oa->capacity)
+        oa->ops = zrealloc(oa->ops,sizeof(redisOp *)*oa->capacity);
+    op = zmalloc(sizeof(*op));
     op->dbid = dbid;
     op->argv = argv;
     op->argc = argc;
     op->target = target;
+    oa->ops[oa->numops] = op;
     oa->numops++;
     return oa->numops;
 }
@@ -4714,10 +4724,11 @@ void redisOpArrayFree(redisOpArray *oa) {
         redisOp *op;
 
         oa->numops--;
-        op = oa->ops+oa->numops;
+        op = oa->ops[oa->numops];
         for (j = 0; j < op->argc; j++)
             decrRefCount(op->argv[j]);
         zfree(op->argv);
+        zfree(op);
     }
     zfree(oa->ops);
     redisOpArrayInit(oa);
@@ -4795,6 +4806,22 @@ struct redisCommand *lookupCommandOrOriginal(robj **argv ,int argc) {
     return cmd;
 }
 
+static int shouldPropagate(int target) {
+    if (!server.replication_allowed || target == PROPAGATE_NONE || server.loading)
+        return 0;
+
+    if (target & PROPAGATE_AOF) {
+        if (server.aof_state != AOF_OFF)
+            return 1;
+    }
+    if (target & PROPAGATE_REPL) {
+        if (server.masterhost == NULL && (server.repl_backlog || listLength(server.slaves) != 0))
+            return 1;
+    }
+
+    return 0;
+}
+
 /* Propagate the specified command (in the context of the specified database id)
  * to AOF and Slaves.
  *
@@ -4812,17 +4839,17 @@ struct redisCommand *lookupCommandOrOriginal(robj **argv ,int argc) {
  * However in extreme cases, like working with threads, there's no other
  * choice except using this function (see RM_Replicate).
  */
-void propagateNow(int dbid, robj **argv, int argc, int flags) {
-    if (!server.replication_allowed || flags == PROPAGATE_NONE)
+void propagateNow(int dbid, robj **argv, int argc, int target) {
+    if (!shouldPropagate(target))
         return;
 
     /* This needs to be unreachable since the dataset should be fixed during 
      * client pause, otherwise data may be lost during a failover. */
     serverAssert(!(areClientsPaused() && !server.client_pause_in_transaction));
 
-    if (server.aof_state != AOF_OFF && flags & PROPAGATE_AOF)
+    if (server.aof_state != AOF_OFF && target & PROPAGATE_AOF)
         feedAppendOnlyFile(dbid,argv,argc);
-    if (flags & PROPAGATE_REPL)
+    if (target & PROPAGATE_REPL)
         replicationFeedSlaves(server.slaves,dbid,argv,argc);
 }
 
@@ -4841,11 +4868,8 @@ void alsoPropagate(int dbid, robj **argv, int argc, int target) {
     robj **argvcopy;
     int j;
 
-    if (!server.replication_allowed)
+    if (!shouldPropagate(target))
         return;
-
-    if (server.loading)
-        return; /* No propagation during loading. */
 
     argvcopy = zmalloc(sizeof(robj*)*argc);
     for (j = 0; j < argc; j++) {
@@ -4914,20 +4938,20 @@ void propagatePendingCommands() {
     if (server.also_propagate.numops > 1 && !server.propagate_no_wrap) {
         /* We use the first command-to-propagate to set the dbid for MULTI,
          * so that the SELECT will be propagated beforehand */
-        int multi_dbid = server.also_propagate.ops[0].dbid;
+        int multi_dbid = server.also_propagate.ops[0]->dbid;
         propagateNow(multi_dbid,&shared.multi,1,PROPAGATE_AOF|PROPAGATE_REPL);
         multi_emitted = 1;
     }
 
     for (j = 0; j < server.also_propagate.numops; j++) {
-        rop = &server.also_propagate.ops[j];
+        rop = server.also_propagate.ops[j];
         serverAssert(rop->target);
         propagateNow(rop->dbid,rop->argv,rop->argc,rop->target);
     }
 
     if (multi_emitted) {
         /* We take the dbid from last command so that propagateNow() won't inject another SELECT */
-        int exec_dbid = server.also_propagate.ops[server.also_propagate.numops-1].dbid;
+        int exec_dbid = server.also_propagate.ops[server.also_propagate.numops-1]->dbid;
         propagateNow(exec_dbid,&shared.exec,1,PROPAGATE_AOF|PROPAGATE_REPL);
     }
 
