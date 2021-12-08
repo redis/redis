@@ -762,7 +762,7 @@ void configSetCommand(client *c) {
                     }
                 }
                 /* Apply function not stored, store it */
-                if (!exists){
+                if (!exists) {
                     apply_fns[j] = set_configs[i]->interface.apply;
                     config_map_fns[j] = i;
                 }
