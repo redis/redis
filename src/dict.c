@@ -1044,7 +1044,7 @@ static long _dictKeyIndex(dict *d, const void *key, uint64_t hash, dictEntry **e
         return -1;
     for (table = 0; table <= 1; table++) {
         idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
-        if (table == 0 && idx < d->rehashidx) continue; 
+        if (table == 0 && (long)idx < d->rehashidx) continue; 
         /* Search if this slot does not already contain the given key */
         he = d->ht_table[table][idx];
         while(he) {
