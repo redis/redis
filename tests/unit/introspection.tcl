@@ -402,6 +402,16 @@ start_server {tags {"introspection"}} {
         assert_error "ERR*immutable*" {r config set daemonize yes}
     }
 
+    test {CONFIG GET hidden configs} {
+        set hidden_config "key-load-delay"
+
+        # When we use a pattern we shouldn't get the hidden config
+        assert {![dict exists [r config get *] $hidden_config]}
+
+        # When we explicitly request the hidden config we should get it
+        assert {[dict exists [r config get $hidden_config] "$hidden_config"]}
+    }
+
     # Config file at this point is at a weird state, and includes all
     # known keywords. Might be a good idea to avoid adding tests here.
 }

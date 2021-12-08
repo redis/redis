@@ -1869,18 +1869,6 @@ int restartServer(int flags, mstime_t delay) {
     return C_ERR; /* Never reached. */
 }
 
-static void readOOMScoreAdj(void) {
-#ifdef HAVE_PROC_OOM_SCORE_ADJ
-    char buf[64];
-    int fd = open("/proc/self/oom_score_adj", O_RDONLY);
-
-    if (fd < 0) return;
-    if (read(fd, buf, sizeof(buf)) > 0)
-        server.oom_score_adj_base = atoi(buf);
-    close(fd);
-#endif
-}
-
 /* This function will configure the current process's oom_score_adj according
  * to user specified configuration. This is currently implemented on Linux
  * only.
@@ -1895,18 +1883,45 @@ int setOOMScoreAdj(int process_class) {
     serverAssert(process_class >= 0 && process_class < CONFIG_OOM_COUNT);
 
 #ifdef HAVE_PROC_OOM_SCORE_ADJ
+    /* The following statics are used to indicate Redis has changed the process's oom score.
+     * And to save the original score so we can restore it later if needed.
+     * We need this so when we disabled oom-score-adj (also during configuration rollback
+     * when another configuration parameter was invalid and causes a rollback after
+     * applying a new oom-score) we can return to the oom-score value from before our
+     * adjustments. */
+    static int oom_score_adjusted_by_redis = 0;
+    static int oom_score_adj_base = 0;
+
     int fd;
     int val;
     char buf[64];
 
     if (server.oom_score_adj != OOM_SCORE_ADJ_NO) {
+        if (!oom_score_adjusted_by_redis) {
+            oom_score_adjusted_by_redis = 1;
+            /* Backup base value before enabling Redis control over oom score */
+            fd = open("/proc/self/oom_score_adj", O_RDONLY);
+            if (fd < 0 || read(fd, buf, sizeof(buf)) < 0) {
+                serverLog(LL_WARNING, "Unable to read oom_score_adj: %s", strerror(errno));
+                if (fd != -1) close(fd);
+                return C_ERR;
+            }
+            oom_score_adj_base = atoi(buf);
+            close(fd);
+        }
+
         val = server.oom_score_adj_values[process_class];
         if (server.oom_score_adj == OOM_SCORE_RELATIVE)
-            val += server.oom_score_adj_base;
+            val += oom_score_adj_base;
         if (val > 1000) val = 1000;
         if (val < -1000) val = -1000;
-    } else
-        val = server.oom_score_adj_base;
+    } else if (oom_score_adjusted_by_redis) {
+        oom_score_adjusted_by_redis = 0;
+        val = oom_score_adj_base;
+    }
+    else {
+        return C_OK;
+    }
 
     snprintf(buf, sizeof(buf) - 1, "%d\n", val);
 
@@ -6255,7 +6270,6 @@ int main(int argc, char **argv) {
         serverLog(LL_WARNING, "Configuration loaded");
     }
 
-    readOOMScoreAdj();
     initServer();
     if (background || server.pidfile) createPidFile();
     if (server.set_proc_title) redisSetProcTitle(NULL);
