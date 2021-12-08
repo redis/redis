@@ -45,6 +45,12 @@ typedef struct configEnum {
     const int val;
 } configEnum;
 
+typedef struct deprecatedConfig {
+    const char* name;
+    const int argc_min;
+    const int argc_max;
+} deprecatedConfig;
+
 configEnum maxmemory_policy_enum[] = {
     {"volatile-lru", MAXMEMORY_VOLATILE_LRU},
     {"volatile-lfu", MAXMEMORY_VOLATILE_LFU},
@@ -396,6 +402,12 @@ void initConfigValues() {
 static int reading_config_file;
 
 void loadServerConfigFromString(char *config) {
+    deprecatedConfig deprecated_configs[] = {
+        {"list-max-ziplist-entries", 2, 2},
+        {"list-max-ziplist-value", 2, 2},
+        {"lua-replicate-commands", 2, 2},
+        {NULL, 0},
+    };
     char buf[1024];
     const char *err = NULL;
     int linenum = 0, totlines, i;
@@ -450,6 +462,16 @@ void loadServerConfigFromString(char *config) {
             }
         }
 
+        for (deprecatedConfig *config = deprecated_configs; config->name != NULL; config++) {
+            if (!strcasecmp(argv[0], config->name) && 
+                config->argc_min <= argc && 
+                argc <= config->argc_max) 
+            {
+                match = 1;
+                break;
+            }
+        }
+
         if (match) {
             sdsfreesplitres(argv,argc);
             continue;
@@ -458,12 +480,6 @@ void loadServerConfigFromString(char *config) {
         /* Execute config directives */
         if (!strcasecmp(argv[0],"include") && argc == 2) {
             loadServerConfig(argv[1], 0, NULL);
-        } else if (!strcasecmp(argv[0],"list-max-ziplist-entries") && argc == 2){
-            /* DEAD OPTION */
-        } else if (!strcasecmp(argv[0],"list-max-ziplist-value") && argc == 2) {
-            /* DEAD OPTION */
-        } else if (!strcasecmp(argv[0],"lua-replicate-commands") && argc == 2) {
-             /* DEAD OPTION */
         } else if (!strcasecmp(argv[0],"rename-command") && argc == 3) {
             struct redisCommand *cmd = lookupCommandBySds(argv[1]);
             int retval;
