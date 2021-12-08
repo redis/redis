@@ -73,8 +73,8 @@ start_server {tags {"pause network"}} {
         $rd MULTI
         assert_equal [$rd read] "OK"
         $rd SET FOO BAR
-        r client PAUSE 100000000 WRITE
         assert_equal [$rd read] "QUEUED"
+        r client PAUSE 100000000 WRITE
         $rd EXEC
         wait_for_blocked_clients_count 1 50 100
         r client unpause 
