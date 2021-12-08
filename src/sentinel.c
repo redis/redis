@@ -3943,7 +3943,6 @@ NULL
             addReplyErrorSds(c,e);
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"set")) {
-        if (c->argc <= 3) goto numargserr;
         sentinelSetCommand(c);
     } else if (!strcasecmp(c->argv[1]->ptr,"config")) {
         if (c->argc < 3) goto numargserr;
