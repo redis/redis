@@ -225,6 +225,17 @@ test {corrupt payload: listpack too long entry prev len} {
     }
 }
 
+test {corrupt payload: stream with duplicate consumers} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        catch {
+            r restore key 0 "\x0F\x00\x00\x00\x00\x01\x07\x6D\x79\x67\x72\x6F\x75\x70\x00\x00\x00\x02\x04\x6E\x61\x6D\x65\x2A\x4C\xAA\x9A\x7D\x01\x00\x00\x00\x04\x6E\x61\x6D\x65\x2B\x4C\xAA\x9A\x7D\x01\x00\x00\x00\x0A\x00\xCC\xED\x8C\xA7\x62\xEE\xC7\xC8"
+        } err
+        assert_match "*Bad data format*" $err
+        verify_log_message 0 "*Duplicate stream consumer detected*" 0
+        r ping
+    }
+}
+
 test {corrupt payload: hash ziplist with duplicate records} {
     # when we do perform full sanitization, we expect duplicate records to fail the restore
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
