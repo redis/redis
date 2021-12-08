@@ -16,7 +16,8 @@
             {
                 "name": "hard_soft",
                 "type": "oneof",
-                "value": [
+                "optional": true,
+                "arguments": [
                     {
                         "name": "hard",
                         "type": "pure-token",
@@ -27,8 +28,7 @@
                         "type": "pure-token",
                         "token": "SOFT"
                     }
-                ],
-                "optional": true
+                ]
             }
         ]
     }

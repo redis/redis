@@ -36,35 +36,31 @@
             {
                 "name": "key",
                 "type": "key",
-                "value": "key",
                 "key_spec_index": 0
             },
             {
                 "name": "expiration",
                 "type": "oneof",
-                "value": [
+                "optional": true,
+                "arguments": [
                     {
-                        "name": "ex",
+                        "name": "seconds",
                         "type": "integer",
-                        "value": "seconds",
                         "token": "EX"
                     },
                     {
-                        "name": "px",
+                        "name": "milliseconds",
                         "type": "integer",
-                        "value": "milliseconds",
                         "token": "PX"
                     },
                     {
-                        "name": "exat",
+                        "name": "unix-time",
                         "type": "integer",
-                        "value": "unix-time",
                         "token": "EXAT"
                     },
                     {
-                        "name": "pxat",
+                        "name": "unix-time",
                         "type": "integer",
-                        "value": "unix-time",
                         "token": "PXAT"
                     },
                     {
@@ -72,8 +68,7 @@
                         "type": "pure-token",
                         "token": "PERSIST"
                     }
-                ],
-                "optional": true
+                ]
             }
         ]
     }

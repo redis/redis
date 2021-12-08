@@ -42,17 +42,16 @@
             {
                 "name": "key",
                 "type": "key",
-                "value": "key",
                 "key_spec_index": 0
             },
             {
                 "name": "trim",
                 "type": "block",
-                "value": [
+                "arguments": [
                     {
                         "name": "strategy",
                         "type": "oneof",
-                        "value": [
+                        "arguments": [
                             {
                                 "name": "maxlen",
                                 "type": "pure-token",
@@ -68,7 +67,8 @@
                     {
                         "name": "operator",
                         "type": "oneof",
-                        "value": [
+                        "optional": true,
+                        "arguments": [
                             {
                                 "name": "equal",
                                 "type": "pure-token",
@@ -79,19 +79,16 @@
                                 "type": "pure-token",
                                 "token": "~"
                             }
-                        ],
-                        "optional": true
+                        ]
                     },
                     {
                         "name": "threshold",
-                        "type": "string",
-                        "value": "threshold"
+                        "type": "string"
                     },
                     {
                         "token": "LIMIT",
                         "name": "count",
                         "type": "integer",
-                        "value": "count",
                         "optional": true
                     }
                 ]

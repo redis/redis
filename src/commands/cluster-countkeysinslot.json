@@ -14,8 +14,7 @@
         "arguments": [
             {
                 "name": "slot",
-                "type": "integer",
-                "value": "slot"
+                "type": "integer"
             }
         ]
     }

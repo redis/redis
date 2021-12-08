@@ -18,7 +18,6 @@
             {
                 "name": "command-name",
                 "type": "string",
-                "value": "command-name",
                 "multiple": true
             }
         ]

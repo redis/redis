@@ -33,14 +33,12 @@
             {
                 "name": "key",
                 "type": "key",
-                "value": "key",
                 "key_spec_index": 0
             },
             {
                 "token": "SAMPLES",
                 "name": "count",
                 "type": "integer",
-                "value": "count",
                 "optional": true
             }
         ]

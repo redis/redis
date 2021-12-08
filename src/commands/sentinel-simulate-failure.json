@@ -4,7 +4,7 @@
         "complexity": "PATCH__TBD__81__",
         "group": "sentinel",
         "since": "3.2.0",
-        "arity": 3,
+        "arity": -3,
         "container": "SENTINEL",
         "function": "sentinelCommand",
         "command_flags": [

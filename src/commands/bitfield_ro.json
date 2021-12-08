@@ -36,23 +36,20 @@
             {
                 "name": "key",
                 "type": "key",
-                "value": "key",
                 "key_spec_index": 0
             },
             {
                 "token": "GET",
                 "name": "encoding_offset",
                 "type": "block",
-                "value": [
+                "arguments": [
                     {
                         "name": "encoding",
-                        "type": "string",
-                        "value": "encoding"
+                        "type": "string"
                     },
                     {
                         "name": "offset",
-                        "type": "integer",
-                        "value": "offset"
+                        "type": "integer"
                     }
                 ]
             }

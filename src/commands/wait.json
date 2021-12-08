@@ -15,13 +15,11 @@
         "arguments": [
             {
                 "name": "numreplicas",
-                "type": "integer",
-                "value": "numreplicas"
+                "type": "integer"
             },
             {
                 "name": "timeout",
-                "type": "integer",
-                "value": "timeout"
+                "type": "integer"
             }
         ]
     }

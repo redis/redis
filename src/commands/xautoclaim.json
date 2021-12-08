@@ -37,34 +37,28 @@
             {
                 "name": "key",
                 "type": "key",
-                "value": "key",
                 "key_spec_index": 0
             },
             {
                 "name": "group",
-                "type": "string",
-                "value": "group"
+                "type": "string"
             },
             {
                 "name": "consumer",
-                "type": "string",
-                "value": "consumer"
+                "type": "string"
             },
             {
                 "name": "min-idle-time",
-                "type": "string",
-                "value": "min-idle-time"
+                "type": "string"
             },
             {
                 "name": "start",
-                "type": "string",
-                "value": "start"
+                "type": "string"
             },
             {
                 "token": "COUNT",
                 "name": "count",
                 "type": "integer",
-                "value": "count",
                 "optional": true
             },
             {

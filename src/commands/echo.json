@@ -15,8 +15,7 @@
         "arguments": [
             {
                 "name": "message",
-                "type": "string",
-                "value": "message"
+                "type": "string"
             }
         ]
     }

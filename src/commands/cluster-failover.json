@@ -16,7 +16,8 @@
             {
                 "name": "options",
                 "type": "oneof",
-                "value": [
+                "optional": true,
+                "arguments": [
                     {
                         "name": "force",
                         "type": "pure-token",
@@ -27,8 +28,7 @@
                         "type": "pure-token",
                         "token": "TAKEOVER"
                     }
-                ],
-                "optional": true
+                ]
             }
         ]
     }

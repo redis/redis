@@ -19,7 +19,6 @@
             {
                 "name": "section",
                 "type": "string",
-                "value": "section",
                 "optional": true
             }
         ]

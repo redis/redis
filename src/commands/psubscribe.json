@@ -17,14 +17,13 @@
             {
                 "name": "pattern",
                 "type": "block",
-                "value": [
+                "multiple": true,
+                "arguments": [
                     {
                         "name": "pattern",
-                        "type": "pattern",
-                        "value": "pattern"
+                        "type": "pattern"
                     }
-                ],
-                "multiple": true
+                ]
             }
         ]
     }

@@ -43,13 +43,11 @@
             {
                 "name": "key",
                 "type": "key",
-                "value": "key",
                 "key_spec_index": 0
             },
             {
                 "name": "value",
-                "type": "string",
-                "value": "value"
+                "type": "string"
             }
         ]
     }

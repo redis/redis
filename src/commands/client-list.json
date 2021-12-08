@@ -36,7 +36,8 @@
                 "token": "TYPE",
                 "name": "normal_master_replica_pubsub",
                 "type": "oneof",
-                "value": [
+                "optional": true,
+                "arguments": [
                     {
                         "name": "normal",
                         "type": "pure-token",
@@ -57,22 +58,20 @@
                         "type": "pure-token",
                         "token": "pubsub"
                     }
-                ],
-                "optional": true
+                ]
             },
             {
                 "name": "id",
                 "token": "ID",
                 "type": "block",
-                "value": [
+                "optional": true,
+                "arguments": [
                     {
                         "name": "client-id",
                         "type": "integer",
-                        "value": "client-id",
                         "multiple": true
                     }
-                ],
-                "optional": true
+                ]
             }
         ]
     }

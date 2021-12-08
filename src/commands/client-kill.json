@@ -42,21 +42,20 @@
             {
                 "name": "ip:port",
                 "type": "string",
-                "value": "ip:port",
                 "optional": true
             },
             {
                 "token": "ID",
                 "name": "client-id",
                 "type": "integer",
-                "value": "client-id",
                 "optional": true
             },
             {
                 "token": "TYPE",
                 "name": "normal_master_slave_pubsub",
                 "type": "oneof",
-                "value": [
+                "optional": true,
+                "arguments": [
                     {
                         "name": "normal",
                         "type": "pure-token",
@@ -77,35 +76,30 @@
                         "type": "pure-token",
                         "token": "pubsub"
                     }
-                ],
-                "optional": true
+                ]
             },
             {
                 "token": "USER",
                 "name": "username",
                 "type": "string",
-                "value": "username",
                 "optional": true
             },
             {
                 "token": "ADDR",
                 "name": "ip:port",
                 "type": "string",
-                "value": "ip:port",
                 "optional": true
             },
             {
                 "token": "LADDR",
                 "name": "ip:port",
                 "type": "string",
-                "value": "ip:port",
                 "optional": true
             },
             {
                 "token": "SKIPME",
                 "name": "yes/no",
                 "type": "string",
-                "value": "yes/no",
                 "optional": true
             }
         ]

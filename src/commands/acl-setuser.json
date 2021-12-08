@@ -23,13 +23,11 @@
         "arguments": [
             {
                 "name": "username",
-                "type": "string",
-                "value": "username"
+                "type": "string"
             },
             {
                 "name": "rule",
                 "type": "string",
-                "value": "rule",
                 "optional": true,
                 "multiple": true
             }

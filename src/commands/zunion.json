@@ -35,13 +35,11 @@
         "arguments": [
             {
                 "name": "numkeys",
-                "type": "integer",
-                "value": "numkeys"
+                "type": "integer"
             },
             {
                 "name": "key",
                 "type": "key",
-                "value": "key",
                 "key_spec_index": 0,
                 "multiple": true
             },
@@ -49,7 +47,6 @@
                 "token": "WEIGHTS",
                 "name": "weight",
                 "type": "integer",
-                "value": "weight",
                 "optional": true,
                 "multiple": true
             },
@@ -57,7 +54,8 @@
                 "token": "AGGREGATE",
                 "name": "aggregate",
                 "type": "oneof",
-                "value": [
+                "optional": true,
+                "arguments": [
                     {
                         "name": "sum",
                         "type": "pure-token",
@@ -73,8 +71,7 @@
                         "type": "pure-token",
                         "token": "MAX"
                     }
-                ],
-                "optional": true
+                ]
             },
             {
                 "name": "withscores",

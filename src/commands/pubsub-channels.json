@@ -16,7 +16,6 @@
             {
                 "name": "pattern",
                 "type": "string",
-                "value": "pattern",
                 "optional": true
             }
         ]

@@ -36,13 +36,12 @@
             {
                 "name": "key",
                 "type": "key",
-                "value": "key",
                 "key_spec_index": 0
             },
             {
                 "name": "where",
                 "type": "oneof",
-                "value": [
+                "arguments": [
                     {
                         "name": "before",
                         "type": "pure-token",
@@ -57,13 +56,11 @@
             },
             {
                 "name": "pivot",
-                "type": "string",
-                "value": "pivot"
+                "type": "string"
             },
             {
                 "name": "element",
-                "type": "string",
-                "value": "element"
+                "type": "string"
             }
         ]
     }

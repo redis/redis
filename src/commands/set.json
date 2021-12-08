@@ -55,34 +55,30 @@
             {
                 "name": "key",
                 "type": "key",
-                "value": "key",
                 "key_spec_index": 0
             },
             {
                 "name": "value",
-                "type": "string",
-                "value": "value"
+                "type": "string"
             },
             {
                 "name": "expiration",
                 "type": "oneof",
-                "subargs": [
+                "optional": true,
+                "arguments": [
                     {
-                        "name": "ex",
+                        "name": "seconds",
                         "type": "integer",
-                        "value": "seconds",
                         "token": "EX"
                     },
                     {
-                        "name": "px",
+                        "name": "milliseconds",
                         "type": "integer",
-                        "value": "milliseconds",
                         "token": "PX"
                     },
                     {
-                        "name": "exat",
+                        "name": "unix-time-seconds",
                         "type": "unix-time",
-                        "value": "unix-time-seconds",
                         "token": "EXAT"
                     },
                     {
@@ -95,16 +91,13 @@
                         "type": "pure-token",
                         "token": "KEEPTTL"
                     }
-                ],
-                "optional": true
+                ]
             },
-            if type is oneof,block: render the subsrags
-            if type is pure-token: render "token"
-            else render "name" (and "token" if exist)
             {
                 "name": "condition",
                 "type": "oneof",
-                "value": [
+                "optional": true,
+                "arguments": [
                     {
                         "name": "nx",
                         "type": "pure-token",
@@ -115,8 +108,7 @@
                         "type": "pure-token",
                         "token": "XX"
                     }
-                ],
-                "optional": true
+                ]
             },
             {
                 "name": "get",

@@ -23,7 +23,6 @@
             {
                 "name": "count",
                 "type": "integer",
-                "value": "count",
                 "optional": true
             }
         ]

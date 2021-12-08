@@ -17,13 +17,11 @@
         "arguments": [
             {
                 "name": "index1",
-                "type": "integer",
-                "value": "index1"
+                "type": "integer"
             },
             {
                 "name": "index2",
-                "type": "integer",
-                "value": "index2"
+                "type": "integer"
             }
         ]
     }

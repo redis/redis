@@ -19,7 +19,7 @@
             {
                 "name": "status",
                 "type": "oneof",
-                "value": [
+                "arguments": [
                     {
                         "name": "on",
                         "type": "pure-token",
@@ -36,14 +36,12 @@
                 "token": "REDIRECT",
                 "name": "client-id",
                 "type": "integer",
-                "value": "client-id",
                 "optional": true
             },
             {
                 "token": "PREFIX",
                 "name": "prefix",
                 "type": "string",
-                "value": "prefix",
                 "optional": true,
                 "multiple": true,
                 "multiple_token": true

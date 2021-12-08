@@ -18,8 +18,7 @@
         "arguments": [
             {
                 "name": "connection-name",
-                "type": "string",
-                "value": "connection-name"
+                "type": "string"
             }
         ]
     }

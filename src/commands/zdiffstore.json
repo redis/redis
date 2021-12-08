@@ -54,18 +54,15 @@
             {
                 "name": "destination",
                 "type": "key",
-                "value": "destination",
                 "key_spec_index": 0
             },
             {
                 "name": "numkeys",
-                "type": "integer",
-                "value": "numkeys"
+                "type": "integer"
             },
             {
                 "name": "key",
                 "type": "key",
-                "value": "key",
                 "key_spec_index": 1,
                 "multiple": true
             }

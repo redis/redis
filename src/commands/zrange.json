@@ -41,23 +41,21 @@
             {
                 "name": "key",
                 "type": "key",
-                "value": "key",
                 "key_spec_index": 0
             },
             {
                 "name": "min",
-                "type": "string",
-                "value": "min"
+                "type": "string"
             },
             {
                 "name": "max",
-                "type": "string",
-                "value": "max"
+                "type": "string"
             },
             {
                 "name": "sortby",
                 "type": "oneof",
-                "value": [
+                "optional": true,
+                "arguments": [
                     {
                         "name": "byscore",
                         "type": "pure-token",
@@ -68,8 +66,7 @@
                         "type": "pure-token",
                         "token": "BYLEX"
                     }
-                ],
-                "optional": true
+                ]
             },
             {
                 "name": "rev",
@@ -81,19 +78,17 @@
                 "token": "LIMIT",
                 "name": "offset_count",
                 "type": "block",
-                "value": [
+                "optional": true,
+                "arguments": [
                     {
                         "name": "offset",
-                        "type": "integer",
-                        "value": "offset"
+                        "type": "integer"
                     },
                     {
                         "name": "count",
-                        "type": "integer",
-                        "value": "count"
+                        "type": "integer"
                     }
-                ],
-                "optional": true
+                ]
             },
             {
                 "name": "withscores",

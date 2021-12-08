@@ -35,48 +35,44 @@
             {
                 "name": "key",
                 "type": "key",
-                "value": "key",
                 "key_spec_index": 0
             },
             {
                 "token": "FROMMEMBER",
                 "name": "member",
                 "type": "string",
-                "value": "member",
                 "optional": true
             },
             {
                 "token": "FROMLONLAT",
                 "name": "longitude_latitude",
                 "type": "block",
-                "value": [
+                "optional": true,
+                "arguments": [
                     {
                         "name": "longitude",
-                        "type": "double",
-                        "value": "longitude"
+                        "type": "double"
                     },
                     {
                         "name": "latitude",
-                        "type": "double",
-                        "value": "latitude"
+                        "type": "double"
                     }
-                ],
-                "optional": true
+                ]
             },
             {
                 "name": "circle",
                 "type": "block",
-                "value": [
+                "optional": true,
+                "arguments": [
                     {
                         "token": "BYRADIUS",
                         "name": "radius",
-                        "type": "double",
-                        "value": "radius"
+                        "type": "double"
                     },
                     {
                         "name": "unit",
                         "type": "oneof",
-                        "value": [
+                        "arguments": [
                             {
                                 "name": "m",
                                 "type": "pure-token",
@@ -99,28 +95,26 @@
                             }
                         ]
                     }
-                ],
-                "optional": true
+                ]
             },
             {
                 "name": "box",
                 "type": "block",
-                "value": [
+                "optional": true,
+                "arguments": [
                     {
                         "token": "BYBOX",
                         "name": "width",
-                        "type": "double",
-                        "value": "width"
+                        "type": "double"
                     },
                     {
                         "name": "height",
-                        "type": "double",
-                        "value": "height"
+                        "type": "double"
                     },
                     {
                         "name": "unit",
                         "type": "oneof",
-                        "value": [
+                        "arguments": [
                             {
                                 "name": "m",
                                 "type": "pure-token",
@@ -143,13 +137,13 @@
                             }
                         ]
                     }
-                ],
-                "optional": true
+                ]
             },
             {
                 "name": "order",
                 "type": "oneof",
-                "value": [
+                "optional": true,
+                "arguments": [
                     {
                         "name": "asc",
                         "type": "pure-token",
@@ -160,18 +154,17 @@
                         "type": "pure-token",
                         "token": "DESC"
                     }
-                ],
-                "optional": true
+                ]
             },
             {
                 "name": "count",
                 "type": "block",
-                "value": [
+                "optional": true,
+                "arguments": [
                     {
                         "token": "COUNT",
                         "name": "count",
-                        "type": "integer",
-                        "value": "count"
+                        "type": "integer"
                     },
                     {
                         "name": "any",
@@ -179,8 +172,7 @@
                         "type": "pure-token",
                         "optional": true
                     }
-                ],
-                "optional": true
+                ]
             },
             {
                 "name": "withcoord",

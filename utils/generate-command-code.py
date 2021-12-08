@@ -136,14 +136,8 @@ class Argument(object):
         self.subargs = []
         self.subargs_name = None
         if self.type in ["oneof", "block"]:
-            for subdesc in self.desc["value"]:
+            for subdesc in self.desc["arguments"]:
                 self.subargs.append(Argument(self.fullname(), subdesc))
-
-        # Sanity
-        assert (self.desc.get("value") and not self.type == "pure-token") or \
-               (not self.desc.get("value") and self.type == "pure-token")
-        if not self.desc.get("value"):
-            assert self.desc.get("token")
 
     def fullname(self):
         return ("%s %s" % (self.parent_name, self.name)).replace("-", "_")
@@ -181,9 +175,7 @@ class Argument(object):
             _flags_code(),
         )
         if self.subargs:
-            s += ",.value.subargs=%s" % self.subarg_table_name()
-        elif self.desc.get("value"):
-            s += ",.value.string=\"%s\"" % self.desc["value"].lower()
+            s += ",.subargs=%s" % self.subarg_table_name()
 
         return s
 

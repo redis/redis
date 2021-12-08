@@ -15,29 +15,25 @@
         "arguments": [
             {
                 "name": "slot",
-                "type": "integer",
-                "value": "slot"
+                "type": "integer"
             },
             {
                 "name": "subcommand",
                 "type": "oneof",
-                "value": [
+                "arguments": [
                     {
                         "name": "node-id",
                         "type": "integer",
-                        "value": "node-id",
                         "token": "IMPORTING"
                     },
                     {
                         "name": "node-id",
                         "type": "integer",
-                        "value": "node-id",
                         "token": "MIGRATING"
                     },
                     {
                         "name": "node-id",
                         "type": "integer",
-                        "value": "node-id",
                         "token": "NODE"
                     },
                     {

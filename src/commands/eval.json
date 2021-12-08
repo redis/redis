@@ -39,18 +39,15 @@
         "arguments": [
             {
                 "name": "script",
-                "type": "string",
-                "value": "script"
+                "type": "string"
             },
             {
                 "name": "numkeys",
-                "type": "integer",
-                "value": "numkeys"
+                "type": "integer"
             },
             {
                 "name": "key",
                 "type": "key",
-                "value": "key",
                 "key_spec_index": 0,
                 "optional": true,
                 "multiple": true
@@ -58,7 +55,6 @@
             {
                 "name": "arg",
                 "type": "string",
-                "value": "arg",
                 "optional": true,
                 "multiple": true
             }

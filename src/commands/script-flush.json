@@ -24,7 +24,8 @@
             {
                 "name": "async",
                 "type": "oneof",
-                "value": [
+                "optional": true,
+                "arguments": [
                     {
                         "name": "async",
                         "type": "pure-token",
@@ -35,8 +36,7 @@
                         "type": "pure-token",
                         "token": "SYNC"
                     }
-                ],
-                "optional": true
+                ]
             }
         ]
     }

@@ -14,13 +14,11 @@
         "arguments": [
             {
                 "name": "slot",
-                "type": "integer",
-                "value": "slot"
+                "type": "integer"
             },
             {
                 "name": "count",
-                "type": "integer",
-                "value": "count"
+                "type": "integer"
             }
         ]
     }

@@ -17,7 +17,6 @@
             {
                 "name": "sha1",
                 "type": "string",
-                "value": "sha1",
                 "multiple": true
             }
         ]

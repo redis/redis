@@ -36,18 +36,15 @@
             {
                 "name": "key",
                 "type": "key",
-                "value": "key",
                 "key_spec_index": 0
             },
             {
                 "name": "min",
-                "type": "double",
-                "value": "min"
+                "type": "double"
             },
             {
                 "name": "max",
-                "type": "double",
-                "value": "max"
+                "type": "double"
             }
         ]
     }

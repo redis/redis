@@ -54,19 +54,17 @@
             {
                 "name": "source",
                 "type": "key",
-                "value": "source",
                 "key_spec_index": 0
             },
             {
                 "name": "destination",
                 "type": "key",
-                "value": "destination",
                 "key_spec_index": 1
             },
             {
                 "name": "wherefrom",
                 "type": "oneof",
-                "value": [
+                "arguments": [
                     {
                         "name": "left",
                         "type": "pure-token",
@@ -82,7 +80,7 @@
             {
                 "name": "whereto",
                 "type": "oneof",
-                "value": [
+                "arguments": [
                     {
                         "name": "left",
                         "type": "pure-token",

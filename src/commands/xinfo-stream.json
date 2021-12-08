@@ -36,23 +36,21 @@
             {
                 "name": "key",
                 "type": "key",
-                "value": "key",
                 "key_spec_index": 0
             },
             {
                 "name": "full",
                 "token": "FULL",
                 "type": "block",
-                "value": [
+                "optional": true,
+                "arguments": [
                     {
                         "token": "COUNT",
                         "name": "count",
                         "type": "integer",
-                        "value": "count",
                         "optional": true
                     }
-                ],
-                "optional": true
+                ]
             }
         ]
     }

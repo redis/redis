@@ -36,22 +36,19 @@
             {
                 "name": "key",
                 "type": "key",
-                "value": "key",
                 "key_spec_index": 0
             },
             {
                 "name": "groupname",
-                "type": "string",
-                "value": "groupname"
+                "type": "string"
             },
             {
                 "name": "id",
                 "type": "oneof",
-                "value": [
+                "arguments": [
                     {
-                        "name": "id",
-                        "type": "string",
-                        "value": "ID"
+                        "name": "ID",
+                        "type": "string"
                     },
                     {
                         "name": "new_id",

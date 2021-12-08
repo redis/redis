@@ -1910,10 +1910,7 @@ typedef struct redisCommandArg {
     const char *summary;
     const char *since;
     int flags;
-    union {
-        struct redisCommandArg *subargs;
-        const char *string;
-    } value;
+    struct redisCommandArg *subargs;
 } redisCommandArg;
 
 /* Must be synced with RESP2_TYPE_STR and generate-command-code.py */

@@ -16,16 +16,15 @@
                 "name": "target",
                 "token": "TO",
                 "type": "block",
-                "value": [
+                "optional": true,
+                "arguments": [
                     {
                         "name": "host",
-                        "type": "string",
-                        "value": "host"
+                        "type": "string"
                     },
                     {
                         "name": "port",
-                        "type": "integer",
-                        "value": "port"
+                        "type": "integer"
                     },
                     {
                         "token": "FORCE",
@@ -33,8 +32,7 @@
                         "type": "pure-token",
                         "optional": true
                     }
-                ],
-                "optional": true
+                ]
             },
             {
                 "token": "ABORT",
@@ -46,7 +44,6 @@
                 "token": "TIMEOUT",
                 "name": "milliseconds",
                 "type": "integer",
-                "value": "milliseconds",
                 "optional": true
             }
         ]

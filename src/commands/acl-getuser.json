@@ -23,8 +23,7 @@
         "arguments": [
             {
                 "name": "username",
-                "type": "string",
-                "value": "username"
+                "type": "string"
             }
         ]
     }

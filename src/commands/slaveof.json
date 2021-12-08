@@ -14,13 +14,11 @@
         "arguments": [
             {
                 "name": "host",
-                "type": "string",
-                "value": "host"
+                "type": "string"
             },
             {
                 "name": "port",
-                "type": "string",
-                "value": "port"
+                "type": "string"
             }
         ]
     }

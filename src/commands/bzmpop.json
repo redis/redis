@@ -36,25 +36,22 @@
         "arguments": [
             {
                 "name": "timeout",
-                "type": "double",
-                "value": "timeout"
+                "type": "double"
             },
             {
                 "name": "numkeys",
-                "type": "integer",
-                "value": "numkeys"
+                "type": "integer"
             },
             {
                 "name": "key",
                 "type": "key",
-                "value": "key",
                 "key_spec_index": 0,
                 "multiple": true
             },
             {
                 "name": "where",
                 "type": "oneof",
-                "value": [
+                "arguments": [
                     {
                         "name": "min",
                         "type": "pure-token",
@@ -71,7 +68,6 @@
                 "token": "COUNT",
                 "name": "count",
                 "type": "integer",
-                "value": "count",
                 "optional": true
             }
         ]

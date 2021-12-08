@@ -16,19 +16,17 @@
             {
                 "name": "start-slot_end-slot",
                 "type": "block",
-                "value": [
+                "multiple": true,
+                "arguments": [
                     {
                         "name": "start-slot",
-                        "type": "integer",
-                        "value": "start-slot"
+                        "type": "integer"
                     },
                     {
                         "name": "end-slot",
-                        "type": "integer",
-                        "value": "end-slot"
+                        "type": "integer"
                     }
-                ],
-                "multiple": true
+                ]
             }
         ]
     }

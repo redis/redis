@@ -35,23 +35,21 @@
             {
                 "name": "key",
                 "type": "key",
-                "value": "key",
                 "key_spec_index": 0
             },
             {
                 "name": "member1",
-                "type": "string",
-                "value": "member1"
+                "type": "string"
             },
             {
                 "name": "member2",
-                "type": "string",
-                "value": "member2"
+                "type": "string"
             },
             {
                 "name": "unit",
                 "type": "oneof",
-                "value": [
+                "optional": true,
+                "arguments": [
                     {
                         "name": "m",
                         "type": "pure-token",
@@ -72,8 +70,7 @@
                         "type": "pure-token",
                         "token": "mi"
                     }
-                ],
-                "optional": true
+                ]
             }
         ]
     }

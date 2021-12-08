@@ -17,13 +17,11 @@
         "arguments": [
             {
                 "name": "channel",
-                "type": "string",
-                "value": "channel"
+                "type": "string"
             },
             {
                 "name": "message",
-                "type": "string",
-                "value": "message"
+                "type": "string"
             }
         ]
     }

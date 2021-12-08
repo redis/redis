@@ -15,8 +15,7 @@
         "arguments": [
             {
                 "name": "config-epoch",
-                "type": "integer",
-                "value": "config-epoch"
+                "type": "integer"
             }
         ]
     }

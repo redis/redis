@@ -37,13 +37,11 @@
             {
                 "name": "key",
                 "type": "key",
-                "value": "key",
                 "key_spec_index": 0
             },
             {
                 "name": "element",
                 "type": "string",
-                "value": "element",
                 "optional": true,
                 "multiple": true
             }

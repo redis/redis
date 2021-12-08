@@ -23,7 +23,6 @@
             {
                 "name": "channel",
                 "type": "string",
-                "value": "channel",
                 "multiple": true
             }
         ]

@@ -42,48 +42,41 @@
             {
                 "name": "key",
                 "type": "key",
-                "value": "key",
                 "key_spec_index": 0
             },
             {
                 "name": "group",
-                "type": "string",
-                "value": "group"
+                "type": "string"
             },
             {
                 "name": "filters",
                 "type": "block",
-                "value": [
+                "optional": true,
+                "arguments": [
                     {
                         "token": "IDLE",
                         "name": "min-idle-time",
                         "type": "integer",
-                        "value": "min-idle-time",
                         "optional": true
                     },
                     {
                         "name": "start",
-                        "type": "string",
-                        "value": "start"
+                        "type": "string"
                     },
                     {
                         "name": "end",
-                        "type": "string",
-                        "value": "end"
+                        "type": "string"
                     },
                     {
                         "name": "count",
-                        "type": "integer",
-                        "value": "count"
+                        "type": "integer"
                     },
                     {
                         "name": "consumer",
                         "type": "string",
-                        "value": "consumer",
                         "optional": true
                     }
-                ],
-                "optional": true
+                ]
             }
         ]
     }

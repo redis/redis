@@ -43,13 +43,11 @@
             {
                 "name": "key",
                 "type": "key",
-                "value": "key",
                 "key_spec_index": 0
             },
             {
                 "name": "member",
                 "type": "string",
-                "value": "member",
                 "multiple": true
             }
         ]

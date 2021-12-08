@@ -20,7 +20,7 @@
             {
                 "name": "enabled",
                 "type": "oneof",
-                "value": [
+                "arguments": [
                     {
                         "name": "on",
                         "type": "pure-token",

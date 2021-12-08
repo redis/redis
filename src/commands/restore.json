@@ -37,18 +37,15 @@
             {
                 "name": "key",
                 "type": "key",
-                "value": "key",
                 "key_spec_index": 0
             },
             {
                 "name": "ttl",
-                "type": "integer",
-                "value": "ttl"
+                "type": "integer"
             },
             {
                 "name": "serialized-value",
-                "type": "string",
-                "value": "serialized-value"
+                "type": "string"
             },
             {
                 "name": "replace",
@@ -66,14 +63,12 @@
                 "token": "IDLETIME",
                 "name": "seconds",
                 "type": "integer",
-                "value": "seconds",
                 "optional": true
             },
             {
                 "token": "FREQ",
                 "name": "frequency",
                 "type": "integer",
-                "value": "frequency",
                 "optional": true
             }
         ]

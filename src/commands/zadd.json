@@ -51,13 +51,13 @@
             {
                 "name": "key",
                 "type": "key",
-                "value": "key",
                 "key_spec_index": 0
             },
             {
                 "name": "condition",
                 "type": "oneof",
-                "value": [
+                "optional": true,
+                "arguments": [
                     {
                         "name": "nx",
                         "type": "pure-token",
@@ -68,13 +68,13 @@
                         "type": "pure-token",
                         "token": "XX"
                     }
-                ],
-                "optional": true
+                ]
             },
             {
                 "name": "comparison",
                 "type": "oneof",
-                "value": [
+                "optional": true,
+                "arguments": [
                     {
                         "name": "gt",
                         "type": "pure-token",
@@ -85,8 +85,7 @@
                         "type": "pure-token",
                         "token": "LT"
                     }
-                ],
-                "optional": true
+                ]
             },
             {
                 "name": "change",
@@ -103,19 +102,17 @@
             {
                 "name": "score_member",
                 "type": "block",
-                "value": [
+                "multiple": true,
+                "arguments": [
                     {
                         "name": "score",
-                        "type": "double",
-                        "value": "score"
+                        "type": "double"
                     },
                     {
                         "name": "member",
-                        "type": "string",
-                        "value": "member"
+                        "type": "string"
                     }
-                ],
-                "multiple": true
+                ]
             }
         ]
     }

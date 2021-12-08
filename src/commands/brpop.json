@@ -43,14 +43,12 @@
             {
                 "name": "key",
                 "type": "key",
-                "value": "key",
                 "key_spec_index": 0,
                 "multiple": true
             },
             {
                 "name": "timeout",
-                "type": "double",
-                "value": "timeout"
+                "type": "double"
             }
         ]
     }

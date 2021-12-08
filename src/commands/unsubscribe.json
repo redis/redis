@@ -17,7 +17,6 @@
             {
                 "name": "channel",
                 "type": "string",
-                "value": "channel",
                 "optional": true,
                 "multiple": true
             }

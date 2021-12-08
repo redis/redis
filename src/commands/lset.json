@@ -36,18 +36,15 @@
             {
                 "name": "key",
                 "type": "key",
-                "value": "key",
                 "key_spec_index": 0
             },
             {
                 "name": "index",
-                "type": "integer",
-                "value": "index"
+                "type": "integer"
             },
             {
                 "name": "element",
-                "type": "string",
-                "value": "element"
+                "type": "string"
             }
         ]
     }

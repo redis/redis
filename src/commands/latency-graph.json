@@ -16,8 +16,7 @@
         "arguments": [
             {
                 "name": "event",
-                "type": "string",
-                "value": "event"
+                "type": "string"
             }
         ]
     }

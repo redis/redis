@@ -18,7 +18,6 @@
             {
                 "name": "username",
                 "type": "string",
-                "value": "username",
                 "multiple": true
             }
         ]

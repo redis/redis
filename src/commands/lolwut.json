@@ -15,7 +15,6 @@
                 "token": "VERSION",
                 "name": "version",
                 "type": "integer",
-                "value": "version",
                 "optional": true
             }
         ]

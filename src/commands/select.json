@@ -17,8 +17,7 @@
         "arguments": [
             {
                 "name": "index",
-                "type": "integer",
-                "value": "index"
+                "type": "integer"
             }
         ]
     }

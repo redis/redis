@@ -17,8 +17,7 @@
         "arguments": [
             {
                 "name": "script",
-                "type": "string",
-                "value": "script"
+                "type": "string"
             }
         ]
     }

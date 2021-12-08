@@ -37,25 +37,21 @@
         "arguments": [
             {
                 "name": "sha1",
-                "type": "string",
-                "value": "sha1"
+                "type": "string"
             },
             {
                 "name": "numkeys",
-                "type": "integer",
-                "value": "numkeys"
+                "type": "integer"
             },
             {
                 "name": "key",
                 "type": "key",
-                "value": "key",
                 "key_spec_index": 0,
                 "multiple": true
             },
             {
                 "name": "arg",
                 "type": "string",
-                "value": "arg",
                 "multiple": true
             }
         ]

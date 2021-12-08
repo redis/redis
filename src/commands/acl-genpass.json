@@ -17,7 +17,6 @@
             {
                 "name": "bits",
                 "type": "integer",
-                "value": "bits",
                 "optional": true
             }
         ]

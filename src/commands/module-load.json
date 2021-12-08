@@ -14,13 +14,11 @@
         "arguments": [
             {
                 "name": "path",
-                "type": "string",
-                "value": "path"
+                "type": "string"
             },
             {
                 "name": "arg",
                 "type": "string",
-                "value": "arg",
                 "optional": true,
                 "multiple": true
             }

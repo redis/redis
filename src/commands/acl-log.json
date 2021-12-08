@@ -18,19 +18,18 @@
             {
                 "name": "operation",
                 "type": "oneof",
-                "value": [
+                "optional": true,
+                "arguments": [
                     {
                         "name": "count",
-                        "type": "integer",
-                        "value": "count"
+                        "type": "integer"
                     },
                     {
                         "name": "reset",
                         "type": "pure-token",
                         "token": "RESET"
                     }
-                ],
-                "optional": true
+                ]
             }
         ]
     }

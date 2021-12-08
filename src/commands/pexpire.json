@@ -42,18 +42,17 @@
             {
                 "name": "key",
                 "type": "key",
-                "value": "key",
                 "key_spec_index": 0
             },
             {
                 "name": "milliseconds",
-                "type": "integer",
-                "value": "milliseconds"
+                "type": "integer"
             },
             {
                 "name": "condition",
                 "type": "oneof",
-                "value": [
+                "optional": true,
+                "arguments": [
                     {
                         "name": "nx",
                         "type": "pure-token",
@@ -74,8 +73,7 @@
                         "type": "pure-token",
                         "token": "LT"
                     }
-                ],
-                "optional": true
+                ]
             }
         ]
     }

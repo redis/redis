@@ -16,7 +16,6 @@
             {
                 "name": "slot",
                 "type": "integer",
-                "value": "slot",
                 "multiple": true
             }
         ]

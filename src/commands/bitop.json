@@ -52,19 +52,16 @@
         "arguments": [
             {
                 "name": "operation",
-                "type": "string",
-                "value": "operation"
+                "type": "string"
             },
             {
                 "name": "destkey",
                 "type": "key",
-                "value": "destkey",
                 "key_spec_index": 0
             },
             {
                 "name": "key",
                 "type": "key",
-                "value": "key",
                 "key_spec_index": 1,
                 "multiple": true
             }

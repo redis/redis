@@ -17,7 +17,6 @@
             {
                 "name": "event",
                 "type": "string",
-                "value": "event",
                 "optional": true,
                 "multiple": true
             }

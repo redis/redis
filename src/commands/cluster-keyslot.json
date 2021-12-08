@@ -14,8 +14,7 @@
         "arguments": [
             {
                 "name": "key",
-                "type": "string",
-                "value": "key"
+                "type": "string"
             }
         ]
     }

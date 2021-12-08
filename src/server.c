@@ -3880,13 +3880,9 @@ void addReplyCommandArgList(client *c, struct redisCommandArg *args) {
             addReplyFlagsForArg(c, args[j].flags);
             maplen++;
         }
-        if (args[j].type != ARG_TYPE_PURE_TOKEN) {
-            addReplyBulkCString(c, "value");
-            if (args[j].type == ARG_TYPE_ONEOF || args[j].type == ARG_TYPE_BLOCK) {
-                addReplyCommandArgList(c, args[j].value.subargs);
-            } else {
-                addReplyBulkCString(c, args[j].value.string);
-            }
+        if (args[j].type == ARG_TYPE_ONEOF || args[j].type == ARG_TYPE_BLOCK) {
+            addReplyBulkCString(c, "arguments");
+            addReplyCommandArgList(c, args[j].subargs);
             maplen++;
         }
         setDeferredMapLen(c, mapreply, maplen);

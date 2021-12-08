@@ -13,13 +13,11 @@
         "arguments": [
             {
                 "name": "replicationid",
-                "type": "integer",
-                "value": "replicationid"
+                "type": "integer"
             },
             {
                 "name": "offset",
-                "type": "integer",
-                "value": "offset"
+                "type": "integer"
             }
         ]
     }

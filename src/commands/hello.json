@@ -27,39 +27,35 @@
             {
                 "name": "arguments",
                 "type": "block",
-                "value": [
+                "optional": true,
+                "arguments": [
                     {
                         "name": "protover",
-                        "type": "integer",
-                        "value": "protover"
+                        "type": "integer"
                     },
                     {
                         "token": "AUTH",
                         "name": "username_password",
                         "type": "block",
-                        "value": [
+                        "optional": true,
+                        "arguments": [
                             {
                                 "name": "username",
-                                "type": "string",
-                                "value": "username"
+                                "type": "string"
                             },
                             {
                                 "name": "password",
-                                "type": "string",
-                                "value": "password"
+                                "type": "string"
                             }
-                        ],
-                        "optional": true
+                        ]
                     },
                     {
                         "token": "SETNAME",
                         "name": "clientname",
                         "type": "string",
-                        "value": "clientname",
                         "optional": true
                     }
-                ],
-                "optional": true
+                ]
             }
         ]
     }

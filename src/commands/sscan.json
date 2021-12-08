@@ -36,26 +36,22 @@
             {
                 "name": "key",
                 "type": "key",
-                "value": "key",
                 "key_spec_index": 0
             },
             {
                 "name": "cursor",
-                "type": "integer",
-                "value": "cursor"
+                "type": "integer"
             },
             {
                 "token": "MATCH",
                 "name": "pattern",
                 "type": "pattern",
-                "value": "pattern",
                 "optional": true
             },
             {
                 "token": "COUNT",
                 "name": "count",
                 "type": "integer",
-                "value": "count",
                 "optional": true
             }
         ]

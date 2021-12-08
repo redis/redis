@@ -41,27 +41,26 @@
             {
                 "name": "key",
                 "type": "key",
-                "value": "key",
                 "key_spec_index": 0
             },
             {
                 "name": "index",
                 "type": "block",
-                "value": [
+                "optional": true,
+                "arguments": [
                     {
                         "name": "start",
-                        "type": "integer",
-                        "value": "start"
+                        "type": "integer"
                     },
                     {
                         "name": "end",
-                        "type": "integer",
-                        "value": "end"
+                        "type": "integer"
                     },
                     {
                         "name": "index_unit",
                         "type": "oneof",
-                        "value": [
+                        "optional": true,
+                        "arguments": [
                             {
                                 "name": "byte",
                                 "type": "pure-token",
@@ -72,11 +71,9 @@
                                 "type": "pure-token",
                                 "token": "BIT"
                             }
-                        ],
-                        "optional": true
+                        ]
                     }
-                ],
-                "optional": true
+                ]
             }
         ]
     }

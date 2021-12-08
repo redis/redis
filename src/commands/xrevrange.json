@@ -35,24 +35,20 @@
             {
                 "name": "key",
                 "type": "key",
-                "value": "key",
                 "key_spec_index": 0
             },
             {
                 "name": "end",
-                "type": "string",
-                "value": "end"
+                "type": "string"
             },
             {
                 "name": "start",
-                "type": "string",
-                "value": "start"
+                "type": "string"
             },
             {
                 "token": "COUNT",
                 "name": "count",
                 "type": "integer",
-                "value": "count",
                 "optional": true
             }
         ]

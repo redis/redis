@@ -19,27 +19,24 @@
                 "name": "filterby",
                 "token": "FILTERBY",
                 "type": "oneof",
-                "value": [
+                "optional": true,
+                "arguments": [
                     {
-                        "name": "module",
+                        "name": "module-name",
                         "type": "string",
-                        "value": "module-name",
                         "token": "MODULE"
                     },
                     {
-                        "name": "aclcat",
+                        "name": "category",
                         "type": "string",
-                        "value": "category",
                         "token": "ACLCAT"
                     },
                     {
                         "name": "pattern",
                         "type": "pattern",
-                        "value": "pattern",
                         "token": "PATTERN"
                     }
-                ],
-                "optional": true
+                ]
             }
         ]
     }

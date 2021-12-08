@@ -17,7 +17,6 @@
             {
                 "name": "message",
                 "type": "string",
-                "value": "message",
                 "optional": true
             }
         ]

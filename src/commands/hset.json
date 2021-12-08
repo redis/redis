@@ -37,25 +37,22 @@
             {
                 "name": "key",
                 "type": "key",
-                "value": "key",
                 "key_spec_index": 0
             },
             {
                 "name": "field_value",
                 "type": "block",
-                "value": [
+                "multiple": true,
+                "arguments": [
                     {
                         "name": "field",
-                        "type": "string",
-                        "value": "field"
+                        "type": "string"
                     },
                     {
                         "name": "value",
-                        "type": "string",
-                        "value": "value"
+                        "type": "string"
                     }
-                ],
-                "multiple": true
+                ]
             }
         ]
     }

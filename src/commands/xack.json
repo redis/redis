@@ -37,18 +37,15 @@
             {
                 "name": "key",
                 "type": "key",
-                "value": "key",
                 "key_spec_index": 0
             },
             {
                 "name": "group",
-                "type": "string",
-                "value": "group"
+                "type": "string"
             },
             {
                 "name": "ID",
                 "type": "string",
-                "value": "ID",
                 "multiple": true
             }
         ]

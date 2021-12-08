@@ -36,18 +36,15 @@
             {
                 "name": "key",
                 "type": "key",
-                "value": "key",
                 "key_spec_index": 0
             },
             {
                 "name": "milliseconds",
-                "type": "integer",
-                "value": "milliseconds"
+                "type": "integer"
             },
             {
                 "name": "value",
-                "type": "string",
-                "value": "value"
+                "type": "string"
             }
         ]
     }

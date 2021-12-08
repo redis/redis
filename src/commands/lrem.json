@@ -35,18 +35,15 @@
             {
                 "name": "key",
                 "type": "key",
-                "value": "key",
                 "key_spec_index": 0
             },
             {
                 "name": "count",
-                "type": "integer",
-                "value": "count"
+                "type": "integer"
             },
             {
                 "name": "element",
-                "type": "string",
-                "value": "element"
+                "type": "string"
             }
         ]
     }

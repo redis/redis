@@ -35,33 +35,28 @@
             {
                 "name": "key",
                 "type": "key",
-                "value": "key",
                 "key_spec_index": 0
             },
             {
                 "name": "element",
-                "type": "string",
-                "value": "element"
+                "type": "string"
             },
             {
                 "token": "RANK",
                 "name": "rank",
                 "type": "integer",
-                "value": "rank",
                 "optional": true
             },
             {
                 "token": "COUNT",
                 "name": "num-matches",
                 "type": "integer",
-                "value": "num-matches",
                 "optional": true
             },
             {
                 "token": "MAXLEN",
                 "name": "len",
                 "type": "integer",
-                "value": "len",
                 "optional": true
             }
         ]

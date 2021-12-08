@@ -39,16 +39,14 @@
                 "token": "GROUP",
                 "name": "group_consumer",
                 "type": "block",
-                "value": [
+                "arguments": [
                     {
                         "name": "group",
-                        "type": "string",
-                        "value": "group"
+                        "type": "string"
                     },
                     {
                         "name": "consumer",
-                        "type": "string",
-                        "value": "consumer"
+                        "type": "string"
                     }
                 ]
             },
@@ -56,14 +54,12 @@
                 "token": "COUNT",
                 "name": "count",
                 "type": "integer",
-                "value": "count",
                 "optional": true
             },
             {
                 "token": "BLOCK",
                 "name": "milliseconds",
                 "type": "integer",
-                "value": "milliseconds",
                 "optional": true
             },
             {
@@ -76,18 +72,16 @@
                 "name": "streams",
                 "token": "STREAMS",
                 "type": "block",
-                "value": [
+                "arguments": [
                     {
                         "name": "key",
                         "type": "key",
-                        "value": "key",
                         "key_spec_index": 0,
                         "multiple": true
                     },
                     {
                         "name": "ID",
                         "type": "string",
-                        "value": "ID",
                         "multiple": true
                     }
                 ]

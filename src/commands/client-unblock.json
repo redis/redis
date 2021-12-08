@@ -19,13 +19,13 @@
         "arguments": [
             {
                 "name": "client-id",
-                "type": "integer",
-                "value": "client-id"
+                "type": "integer"
             },
             {
                 "name": "timeout_error",
                 "type": "oneof",
-                "value": [
+                "optional": true,
+                "arguments": [
                     {
                         "name": "timeout",
                         "type": "pure-token",
@@ -36,8 +36,7 @@
                         "type": "pure-token",
                         "token": "ERROR"
                     }
-                ],
-                "optional": true
+                ]
             }
         ]
     }

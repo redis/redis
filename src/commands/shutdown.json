@@ -17,7 +17,8 @@
             {
                 "name": "nosave_save",
                 "type": "oneof",
-                "value": [
+                "optional": true,
+                "arguments": [
                     {
                         "name": "nosave",
                         "type": "pure-token",
@@ -28,8 +29,7 @@
                         "type": "pure-token",
                         "token": "SAVE"
                     }
-                ],
-                "optional": true
+                ]
             }
         ]
     }

@@ -15,8 +15,7 @@
         "arguments": [
             {
                 "name": "node-id",
-                "type": "string",
-                "value": "node-id"
+                "type": "string"
             }
         ]
     }

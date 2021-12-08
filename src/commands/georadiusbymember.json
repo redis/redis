@@ -78,23 +78,20 @@
             {
                 "name": "key",
                 "type": "key",
-                "value": "key",
                 "key_spec_index": 0
             },
             {
                 "name": "member",
-                "type": "string",
-                "value": "member"
+                "type": "string"
             },
             {
                 "name": "radius",
-                "type": "double",
-                "value": "radius"
+                "type": "double"
             },
             {
                 "name": "unit",
                 "type": "oneof",
-                "value": [
+                "arguments": [
                     {
                         "name": "m",
                         "type": "pure-token",
@@ -138,12 +135,12 @@
             {
                 "name": "count",
                 "type": "block",
-                "value": [
+                "optional": true,
+                "arguments": [
                     {
                         "token": "COUNT",
                         "name": "count",
-                        "type": "integer",
-                        "value": "count"
+                        "type": "integer"
                     },
                     {
                         "name": "any",
@@ -151,13 +148,13 @@
                         "type": "pure-token",
                         "optional": true
                     }
-                ],
-                "optional": true
+                ]
             },
             {
                 "name": "order",
                 "type": "oneof",
-                "value": [
+                "optional": true,
+                "arguments": [
                     {
                         "name": "asc",
                         "type": "pure-token",
@@ -168,14 +165,12 @@
                         "type": "pure-token",
                         "token": "DESC"
                     }
-                ],
-                "optional": true
+                ]
             },
             {
                 "token": "STORE",
                 "name": "key",
                 "type": "key",
-                "value": "key",
                 "key_spec_index": 1,
                 "optional": true
             },
@@ -183,7 +178,6 @@
                 "token": "STOREDIST",
                 "name": "key",
                 "type": "key",
-                "value": "key",
                 "key_spec_index": 2,
                 "optional": true
             }

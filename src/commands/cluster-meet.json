@@ -15,13 +15,11 @@
         "arguments": [
             {
                 "name": "ip",
-                "type": "string",
-                "value": "ip"
+                "type": "string"
             },
             {
                 "name": "port",
-                "type": "integer",
-                "value": "port"
+                "type": "integer"
             }
         ]
     }

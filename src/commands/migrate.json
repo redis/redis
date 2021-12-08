@@ -74,22 +74,19 @@
         "arguments": [
             {
                 "name": "host",
-                "type": "string",
-                "value": "host"
+                "type": "string"
             },
             {
                 "name": "port",
-                "type": "string",
-                "value": "port"
+                "type": "string"
             },
             {
                 "name": "key_or_empty_string",
                 "type": "oneof",
-                "value": [
+                "arguments": [
                     {
                         "name": "key",
                         "type": "key",
-                        "value": "key",
                         "key_spec_index": 0
                     },
                     {
@@ -101,13 +98,11 @@
             },
             {
                 "name": "destination-db",
-                "type": "integer",
-                "value": "destination-db"
+                "type": "integer"
             },
             {
                 "name": "timeout",
-                "type": "integer",
-                "value": "timeout"
+                "type": "integer"
             },
             {
                 "name": "copy",
@@ -125,32 +120,28 @@
                 "token": "AUTH",
                 "name": "password",
                 "type": "string",
-                "value": "password",
                 "optional": true
             },
             {
                 "token": "AUTH2",
                 "name": "username_password",
                 "type": "block",
-                "value": [
+                "optional": true,
+                "arguments": [
                     {
                         "name": "username",
-                        "type": "string",
-                        "value": "username"
+                        "type": "string"
                     },
                     {
                         "name": "password",
-                        "type": "string",
-                        "value": "password"
+                        "type": "string"
                     }
-                ],
-                "optional": true
+                ]
             },
             {
                 "token": "KEYS",
-                "name": "keys",
+                "name": "key",
                 "type": "key",
-                "value": "key",
                 "key_spec_index": 1,
                 "optional": true,
                 "multiple": true

@@ -17,7 +17,7 @@
             {
                 "name": "mode",
                 "type": "oneof",
-                "value": [
+                "arguments": [
                     {
                         "name": "yes",
                         "type": "pure-token",
