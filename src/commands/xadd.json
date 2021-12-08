@@ -103,9 +103,8 @@
                     },
                     {
                         "token": "LIMIT",
-                        "name": "count",
+                        "name": "limit",
                         "type": "integer",
-                        "value": "count",
                         "optional": true,
                         "since": "6.2"
                     }
