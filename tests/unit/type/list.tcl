@@ -815,6 +815,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
                 set rd2 [redis_deferring_client]
                 r del blist{t} target{t}
                 $rd2 blpop target{t} 0
+                wait_for_blocked_clients_count 1
                 $rd blmove blist{t} target{t} $wherefrom $whereto 0
                 wait_for_blocked_clients_count 2
                 r rpush blist{t} foo
@@ -891,8 +892,11 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         r del blist{t} blist2{t}
 
         $rd1 blmpop 0 2 blist{t} blist2{t} left count 1
+        wait_for_blocked_clients_count 1
         $rd2 blmpop 0 2 blist{t} blist2{t} right count 10
+        wait_for_blocked_clients_count 2
         $rd3 blmpop 0 2 blist{t} blist2{t} left count 10
+        wait_for_blocked_clients_count 3
         $rd4 blmpop 0 2 blist{t} blist2{t} right count 1
         wait_for_blocked_clients_count 4
 
@@ -920,6 +924,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
       r del list1{t} list2{t} list3{t}
 
       $rd1 blmove list1{t} list2{t} right left 0
+      wait_for_blocked_clients_count 1
       $rd2 blmove list2{t} list3{t} left right 0
       wait_for_blocked_clients_count 2
 
@@ -939,6 +944,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
       r del list1{t} list2{t}
 
       $rd1 brpoplpush list1{t} list2{t} 0
+      wait_for_blocked_clients_count 1
       $rd2 brpoplpush list2{t} list1{t} 0
       wait_for_blocked_clients_count 2
 
@@ -1031,6 +1037,44 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
       $rd close
       set _ $res
     } {}
+
+    test {SWAPDB awakes blocked client} {
+        r flushall
+        r select 1
+        r rpush k hello
+        r select 9
+        set rd [redis_deferring_client]
+        $rd brpop k 5
+        wait_for_blocked_clients_count 1
+        r swapdb 1 9
+        $rd read
+    } {k hello} {singledb:skip}
+
+    test {SWAPDB awakes blocked client, but the key already expired} {
+        r flushall
+        r debug set-active-expire 0
+        r select 1
+        r rpush k hello
+        r pexpire k 100
+        set rd [redis_deferring_client]
+        $rd select 9
+        assert_equal {OK} [$rd read]
+        $rd client id
+        set id [$rd read]
+        $rd brpop k 1
+        wait_for_blocked_clients_count 1
+        after 101
+        r swapdb 1 9
+        # The SWAPDB command tries to awake the blocked client, but it remains
+        # blocked because the key is expired. Check that the deferred client is
+        # still blocked. Then unblock it.
+        assert_match "*flags=b*" [r client list id $id]
+        r client unblock $id
+        assert_equal {} [$rd read]
+        # Restore server and client state
+        r debug set-active-expire 1
+        r select 9
+    } {OK} {singledb:skip}
 
 foreach {pop} {BLPOP BLMPOP_LEFT} {
     test "$pop when new key is moved into place" {

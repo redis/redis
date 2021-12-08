@@ -936,12 +936,12 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"test.basics",
-        TestBasics,"readonly",1,1,1) == REDISMODULE_ERR)
+        TestBasics,"write",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     /* the following commands are used by an external test and should not be added to TestBasics */
     if (RedisModule_CreateCommand(ctx,"test.rmcallautomode",
-        TestCallRespAutoMode,"readonly",1,1,1) == REDISMODULE_ERR)
+        TestCallRespAutoMode,"write",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"test.getresp",

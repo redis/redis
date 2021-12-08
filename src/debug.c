@@ -434,7 +434,9 @@ void debugCommand(client *c) {
 "    Crash the server simulating a panic.",
 "POPULATE <count> [<prefix>] [<size>]",
 "    Create <count> string keys named key:<num>. If <prefix> is specified then",
-"    it is used instead of the 'key' prefix.",
+"    it is used instead of the 'key' prefix. These are not propagated to",
+"    replicas. Cluster slots are not respected so keys not belonging to the",
+"    current node can be created in cluster mode.",
 "PROTOCOL <type>",
 "    Reply with a test value of the specified type. <type> can be: string,",
 "    integer, double, bignum, null, array, set, map, attrib, push, verbatim,",
@@ -476,7 +478,7 @@ void debugCommand(client *c) {
 "LISTPACK <key>",
 "    Show low level info about the listpack encoding of <key>.",
 "QUICKLIST <key> [<0|1>]",
-"    Show low level info about the quicklist encoding of <key>."
+"    Show low level info about the quicklist encoding of <key>.",
 "    The optional argument (0 by default) sets the level of detail",
 "CLIENT-EVICTION",
 "    Show low level client eviction pools info (maxmemory-clients).",
@@ -917,7 +919,7 @@ NULL
         addReplyStatus(c,"Apparently Redis did not crash: test passed");
     } else if (!strcasecmp(c->argv[1]->ptr,"set-disable-deny-scripts") && c->argc == 3)
     {
-        server.lua_disable_deny_script = atoi(c->argv[2]->ptr);;
+        server.script_disable_deny_script = atoi(c->argv[2]->ptr);;
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"config-rewrite-force-all") && c->argc == 2)
     {

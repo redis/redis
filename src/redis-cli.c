@@ -1347,6 +1347,10 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
             do {
                 if (cliReadReply(output_raw) != REDIS_OK) exit(1);
                 fflush(stdout);
+
+                /* This happens when the MONITOR command returns an error. */
+                if (config.last_cmd_type == REDIS_REPLY_ERROR)
+                    config.monitor_mode = 0;
             } while(config.monitor_mode);
             zfree(argvlen);
             return REDIS_OK;
