@@ -204,7 +204,7 @@ struct redisCommand configSubcommands[] = {
     {"set",configSetCommand,-4,
      "admin ok-stale no-script"},
 
-    {"get",configGetCommand,3,
+    {"get",configGetCommand,-3,
      "admin ok-loading ok-stale no-script"},
 
     {"resetstat",configResetStatCommand,2,
