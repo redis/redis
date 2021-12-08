@@ -127,10 +127,11 @@
 
 /*
  * Whether to store pointers or offsets inside the hash table. On
- * 64 bit architetcures, pointers take up twice as much space,
+ * 64 bit architectures, pointers take up twice as much space,
  * and might also be slower. Default is to autodetect.
- */
-/*#define LZF_USER_OFFSETS autodetect */
+ * Notice: Don't set this value to 1, it will result in 'LZF_HSLOT'
+ * not being able to store offset above UINT32_MAX in 64bit. */
+#define LZF_USE_OFFSETS 0
 
 /*****************************************************************************/
 /* nothing should be changed below */

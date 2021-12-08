@@ -22,7 +22,7 @@
    1. We use SipHash 1-2. This is not believed to be as strong as the
       suggested 2-4 variant, but AFAIK there are not trivial attacks
       against this reduced-rounds version, and it runs at the same speed
-      as Murmurhash2 that we used previously, why the 2-4 variant slowed
+      as Murmurhash2 that we used previously, while the 2-4 variant slowed
       down Redis by a 4% figure more or less.
    2. Hard-code rounds in the hope the compiler can optimize it more
       in this raw from. Anyway we always want the standard 2-4 variant.
@@ -36,7 +36,7 @@
       perform a text transformation in some temporary buffer, which is costly.
    5. Remove debugging code.
    6. Modified the original test.c file to be a stand-alone function testing
-      the function in the new form (returing an uint64_t) using just the
+      the function in the new form (returning an uint64_t) using just the
       relevant test vector.
  */
 #include <assert.h>
@@ -46,7 +46,7 @@
 #include <ctype.h>
 
 /* Fast tolower() alike function that does not care about locale
- * but just returns a-z insetad of A-Z. */
+ * but just returns a-z instead of A-Z. */
 int siptlw(int c) {
     if (c >= 'A' && c <= 'Z') {
         return c+('a'-'A');
@@ -55,10 +55,21 @@ int siptlw(int c) {
     }
 }
 
+#if defined(__has_attribute)
+#if __has_attribute(no_sanitize)
+#define NO_SANITIZE(sanitizer) __attribute__((no_sanitize(sanitizer)))
+#endif
+#endif
+
+#if !defined(NO_SANITIZE)
+#define NO_SANITIZE(sanitizer)
+#endif
+
 /* Test of the CPU is Little Endian and supports not aligned accesses.
  * Two interesting conditions to speedup the function that happen to be
  * in most of x86 servers. */
-#if defined(__X86_64__) || defined(__x86_64__) || defined (__i386__)
+#if defined(__X86_64__) || defined(__x86_64__) || defined (__i386__) \
+	|| defined (__aarch64__) || defined (__arm64__)
 #define UNALIGNED_LE_CPU
 #endif
 
@@ -112,6 +123,7 @@ int siptlw(int c) {
         v2 = ROTL(v2, 32);                                                     \
     } while (0)
 
+NO_SANITIZE("alignment")
 uint64_t siphash(const uint8_t *in, const size_t inlen, const uint8_t *k) {
 #ifndef UNALIGNED_LE_CPU
     uint64_t hash;
@@ -171,6 +183,7 @@ uint64_t siphash(const uint8_t *in, const size_t inlen, const uint8_t *k) {
 #endif
 }
 
+NO_SANITIZE("alignment")
 uint64_t siphash_nocase(const uint8_t *in, const size_t inlen, const uint8_t *k)
 {
 #ifndef UNALIGNED_LE_CPU
