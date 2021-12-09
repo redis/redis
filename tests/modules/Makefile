@@ -10,14 +10,21 @@ else	# Linux, others
 	SHOBJ_LDFLAGS ?= -shared
 endif
 
-# Needed to satisfy __stack_chk_fail_local on Linux with -m32, due to gcc
-# -fstack-protector by default. Breaks on FreeBSD so we exclude it.
-ifneq ($(uname_S),FreeBSD)
-    LIBS = -lc
+ifeq ($(uname_S),Linux)
+    LD = gcc
+    CC = gcc
+endif
+
+# OS X 11.x doesn't have /usr/lib/libSystem.dylib and needs an explicit setting.
+ifeq ($(uname_S),Darwin)
+ifeq ("$(wildcard /usr/lib/libSystem.dylib)","")
+LIBS = -L /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib -lsystem
+endif
 endif
 
 TEST_MODULES = \
     commandfilter.so \
+    basics.so \
     testrdb.so \
     fork.so \
     infotest.so \
@@ -28,6 +35,7 @@ TEST_MODULES = \
     blockonbackground.so \
     scan.so \
     datatype.so \
+    datatype2.so \
     auth.so \
     keyspace_events.so \
     blockedclient.so \
@@ -35,9 +43,14 @@ TEST_MODULES = \
     test_lazyfree.so \
     timer.so \
     defragtest.so \
+    keyspecs.so \
     hash.so \
     zset.so \
     stream.so \
+    aclcheck.so \
+    list.so \
+    subcommands.so \
+    reply.so \
     subscribe_channel.so
 
 
@@ -46,7 +59,7 @@ TEST_MODULES = \
 all: $(TEST_MODULES)
 
 32bit:
-	$(MAKE) CFLAGS="-m32" LDFLAGS="-melf_i386"
+	$(MAKE) CFLAGS="-m32" LDFLAGS="-m32"
 
 %.xo: %.c ../../src/redismodule.h
 	$(CC) -I../../src $(CFLAGS) $(SHOBJ_CFLAGS) -fPIC -c $< -o $@

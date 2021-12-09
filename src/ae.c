@@ -32,6 +32,7 @@
 
 #include "ae.h"
 #include "anet.h"
+#include "redisassert.h"
 
 #include <stdio.h>
 #include <sys/time.h>
@@ -339,8 +340,8 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
  * if flags has AE_ALL_EVENTS set, all the kind of events are processed.
  * if flags has AE_FILE_EVENTS set, file events are processed.
  * if flags has AE_TIME_EVENTS set, time events are processed.
- * if flags has AE_DONT_WAIT set the function returns ASAP until all
- * the events that's possible to process without to wait are processed.
+ * if flags has AE_DONT_WAIT set, the function returns ASAP once all
+ * the events that can be handled without a wait are processed.
  * if flags has AE_CALL_AFTER_SLEEP set, the aftersleep callback is called.
  * if flags has AE_CALL_BEFORE_SLEEP set, the beforesleep callback is called.
  *
@@ -399,9 +400,9 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
             eventLoop->aftersleep(eventLoop);
 
         for (j = 0; j < numevents; j++) {
-            aeFileEvent *fe = &eventLoop->events[eventLoop->fired[j].fd];
-            int mask = eventLoop->fired[j].mask;
             int fd = eventLoop->fired[j].fd;
+            aeFileEvent *fe = &eventLoop->events[fd];
+            int mask = eventLoop->fired[j].mask;
             int fired = 0; /* Number of events fired for current fd. */
 
             /* Normally we execute the readable event first, and the writable

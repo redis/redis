@@ -30,7 +30,7 @@ uint16_t minutes_diff(uint16_t now, uint16_t prev) {
     return 65535-prev+now;
 }
 
-/* Increment a couter logaritmically: the greatest is its value, the
+/* Increment a counter logarithmically: the greatest is its value, the
  * less likely is that the counter is really incremented.
  * The maximum value of the counter is saturated at 255. */
 uint8_t log_incr(uint8_t counter) {

@@ -85,6 +85,9 @@ proc assert_error {pattern code} {
 }
 
 proc assert_encoding {enc key} {
+    if {$::ignoreencoding} {
+        return
+    }
     set dbg [r debug object $key]
     assert_match "* encoding:$enc *" $dbg
 }
@@ -112,46 +115,54 @@ proc wait_for_condition {maxtries delay e _else_ elsescript} {
     }
 }
 
-proc test {name code {okpattern undefined} {options undefined}} {
+proc search_pattern_list {value pattern_list} {
+    set n 0
+    foreach el $pattern_list {
+        if {[string length $el] > 0 && [regexp -- $el $value]} {
+            return $n
+        }
+        incr n
+    }
+    return -1
+}
+
+proc test {name code {okpattern undefined} {tags {}}} {
     # abort if test name in skiptests
-    if {[lsearch $::skiptests $name] >= 0} {
+    if {[search_pattern_list $name $::skiptests] >= 0} {
         incr ::num_skipped
         send_data_packet $::test_server_fd skip $name
         return
     }
 
     # abort if only_tests was set but test name is not included
-    if {[llength $::only_tests] > 0 && [lsearch $::only_tests $name] < 0} {
+    if {[llength $::only_tests] > 0 && [search_pattern_list $name $::only_tests] < 0} {
         incr ::num_skipped
         send_data_packet $::test_server_fd skip $name
         return
     }
 
-    # check if tagged with at least 1 tag to allow when there *is* a list
-    # of tags to allow, because default policy is to run everything
-    if {[llength $::allowtags] > 0} {
-        set matched 0
-        foreach tag $::allowtags {
-            if {[lsearch $::tags $tag] >= 0} {
-                incr matched
-            }
-        }
-        if {$matched < 1} {
-            incr ::num_aborted
-            send_data_packet $::test_server_fd ignore $name
-            return
-        }
+    set tags [concat $::tags $tags]
+    if {![tags_acceptable $tags err]} {
+        incr ::num_aborted
+        send_data_packet $::test_server_fd ignore "$name: $err"
+        return
     }
 
     incr ::num_tests
     set details {}
     lappend details "$name in $::curfile"
 
-    # set a cur_test global to be logged into new servers that are spown
+    # set a cur_test global to be logged into new servers that are spawn
     # and log the test name in all existing servers
     set prev_test $::cur_test
     set ::cur_test "$name in $::curfile"
-    if {!$::external} {
+    if {$::external} {
+        catch {
+            set r [redis [srv 0 host] [srv 0 port] 0 $::tls]
+            $r debug log "### Starting test $::cur_test"
+            $r close
+        }
+    } else {
         foreach srv $::servers {
             set stdout [dict get $srv stdout]
             set fd [open $stdout "a+"]

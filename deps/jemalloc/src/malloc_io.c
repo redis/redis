@@ -632,7 +632,6 @@ malloc_vcprintf(void (*write_cb)(void *, const char *), void *cbopaque,
 		 */
 		write_cb = (je_malloc_message != NULL) ? je_malloc_message :
 		    wrtmessage;
-		cbopaque = NULL;
 	}
 
 	malloc_vsnprintf(buf, sizeof(buf), format, ap);

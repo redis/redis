@@ -3,7 +3,7 @@
 
 #include "jemalloc/internal/bit_util.h"
 #include "jemalloc/internal/pages.h"
-#include "jemalloc/internal/size_classes.h"
+#include "jemalloc/internal/sc.h"
 #include "jemalloc/internal/util.h"
 
 /*
@@ -26,18 +26,18 @@
  * sz_pind2sz_tab encodes the same information as could be computed by
  * sz_pind2sz_compute().
  */
-extern size_t const sz_pind2sz_tab[NPSIZES+1];
+extern size_t sz_pind2sz_tab[SC_NPSIZES + 1];
 /*
  * sz_index2size_tab encodes the same information as could be computed (at
  * unacceptable cost in some code paths) by sz_index2size_compute().
  */
-extern size_t const sz_index2size_tab[NSIZES];
+extern size_t sz_index2size_tab[SC_NSIZES];
 /*
  * sz_size2index_tab is a compact lookup table that rounds request sizes up to
  * size classes.  In order to reduce cache footprint, the table is compressed,
  * and all accesses are via sz_size2index().
  */
-extern uint8_t const sz_size2index_tab[];
+extern uint8_t sz_size2index_tab[];
 
 static const size_t sz_large_pad =
 #ifdef JEMALLOC_CACHE_OBLIVIOUS
@@ -47,49 +47,47 @@ static const size_t sz_large_pad =
 #endif
     ;
 
+extern void sz_boot(const sc_data_t *sc_data);
+
 JEMALLOC_ALWAYS_INLINE pszind_t
 sz_psz2ind(size_t psz) {
-	if (unlikely(psz > LARGE_MAXCLASS)) {
-		return NPSIZES;
+	if (unlikely(psz > SC_LARGE_MAXCLASS)) {
+		return SC_NPSIZES;
 	}
-	{
-		pszind_t x = lg_floor((psz<<1)-1);
-		pszind_t shift = (x < LG_SIZE_CLASS_GROUP + LG_PAGE) ? 0 : x -
-		    (LG_SIZE_CLASS_GROUP + LG_PAGE);
-		pszind_t grp = shift << LG_SIZE_CLASS_GROUP;
+	pszind_t x = lg_floor((psz<<1)-1);
+	pszind_t shift = (x < SC_LG_NGROUP + LG_PAGE) ?
+	    0 : x - (SC_LG_NGROUP + LG_PAGE);
+	pszind_t grp = shift << SC_LG_NGROUP;
 
-		pszind_t lg_delta = (x < LG_SIZE_CLASS_GROUP + LG_PAGE + 1) ?
-		    LG_PAGE : x - LG_SIZE_CLASS_GROUP - 1;
+	pszind_t lg_delta = (x < SC_LG_NGROUP + LG_PAGE + 1) ?
+	    LG_PAGE : x - SC_LG_NGROUP - 1;
 
-		size_t delta_inverse_mask = ZU(-1) << lg_delta;
-		pszind_t mod = ((((psz-1) & delta_inverse_mask) >> lg_delta)) &
-		    ((ZU(1) << LG_SIZE_CLASS_GROUP) - 1);
+	size_t delta_inverse_mask = ZU(-1) << lg_delta;
+	pszind_t mod = ((((psz-1) & delta_inverse_mask) >> lg_delta)) &
+	    ((ZU(1) << SC_LG_NGROUP) - 1);
 
-		pszind_t ind = grp + mod;
-		return ind;
-	}
+	pszind_t ind = grp + mod;
+	return ind;
 }
 
 static inline size_t
 sz_pind2sz_compute(pszind_t pind) {
-	if (unlikely(pind == NPSIZES)) {
-		return LARGE_MAXCLASS + PAGE;
+	if (unlikely(pind == SC_NPSIZES)) {
+		return SC_LARGE_MAXCLASS + PAGE;
 	}
-	{
-		size_t grp = pind >> LG_SIZE_CLASS_GROUP;
-		size_t mod = pind & ((ZU(1) << LG_SIZE_CLASS_GROUP) - 1);
+	size_t grp = pind >> SC_LG_NGROUP;
+	size_t mod = pind & ((ZU(1) << SC_LG_NGROUP) - 1);
 
-		size_t grp_size_mask = ~((!!grp)-1);
-		size_t grp_size = ((ZU(1) << (LG_PAGE +
-		    (LG_SIZE_CLASS_GROUP-1))) << grp) & grp_size_mask;
+	size_t grp_size_mask = ~((!!grp)-1);
+	size_t grp_size = ((ZU(1) << (LG_PAGE + (SC_LG_NGROUP-1))) << grp)
+	    & grp_size_mask;
 
-		size_t shift = (grp == 0) ? 1 : grp;
-		size_t lg_delta = shift + (LG_PAGE-1);
-		size_t mod_size = (mod+1) << lg_delta;
+	size_t shift = (grp == 0) ? 1 : grp;
+	size_t lg_delta = shift + (LG_PAGE-1);
+	size_t mod_size = (mod+1) << lg_delta;
 
-		size_t sz = grp_size + mod_size;
-		return sz;
-	}
+	size_t sz = grp_size + mod_size;
+	return sz;
 }
 
 static inline size_t
@@ -101,70 +99,70 @@ sz_pind2sz_lookup(pszind_t pind) {
 
 static inline size_t
 sz_pind2sz(pszind_t pind) {
-	assert(pind < NPSIZES+1);
+	assert(pind < SC_NPSIZES + 1);
 	return sz_pind2sz_lookup(pind);
 }
 
 static inline size_t
 sz_psz2u(size_t psz) {
-	if (unlikely(psz > LARGE_MAXCLASS)) {
-		return LARGE_MAXCLASS + PAGE;
+	if (unlikely(psz > SC_LARGE_MAXCLASS)) {
+		return SC_LARGE_MAXCLASS + PAGE;
 	}
-	{
-		size_t x = lg_floor((psz<<1)-1);
-		size_t lg_delta = (x < LG_SIZE_CLASS_GROUP + LG_PAGE + 1) ?
-		    LG_PAGE : x - LG_SIZE_CLASS_GROUP - 1;
-		size_t delta = ZU(1) << lg_delta;
-		size_t delta_mask = delta - 1;
-		size_t usize = (psz + delta_mask) & ~delta_mask;
-		return usize;
-	}
+	size_t x = lg_floor((psz<<1)-1);
+	size_t lg_delta = (x < SC_LG_NGROUP + LG_PAGE + 1) ?
+	    LG_PAGE : x - SC_LG_NGROUP - 1;
+	size_t delta = ZU(1) << lg_delta;
+	size_t delta_mask = delta - 1;
+	size_t usize = (psz + delta_mask) & ~delta_mask;
+	return usize;
 }
 
 static inline szind_t
 sz_size2index_compute(size_t size) {
-	if (unlikely(size > LARGE_MAXCLASS)) {
-		return NSIZES;
+	if (unlikely(size > SC_LARGE_MAXCLASS)) {
+		return SC_NSIZES;
 	}
-#if (NTBINS != 0)
-	if (size <= (ZU(1) << LG_TINY_MAXCLASS)) {
-		szind_t lg_tmin = LG_TINY_MAXCLASS - NTBINS + 1;
+
+	if (size == 0) {
+		return 0;
+	}
+#if (SC_NTINY != 0)
+	if (size <= (ZU(1) << SC_LG_TINY_MAXCLASS)) {
+		szind_t lg_tmin = SC_LG_TINY_MAXCLASS - SC_NTINY + 1;
 		szind_t lg_ceil = lg_floor(pow2_ceil_zu(size));
 		return (lg_ceil < lg_tmin ? 0 : lg_ceil - lg_tmin);
 	}
 #endif
 	{
 		szind_t x = lg_floor((size<<1)-1);
-		szind_t shift = (x < LG_SIZE_CLASS_GROUP + LG_QUANTUM) ? 0 :
-		    x - (LG_SIZE_CLASS_GROUP + LG_QUANTUM);
-		szind_t grp = shift << LG_SIZE_CLASS_GROUP;
+		szind_t shift = (x < SC_LG_NGROUP + LG_QUANTUM) ? 0 :
+		    x - (SC_LG_NGROUP + LG_QUANTUM);
+		szind_t grp = shift << SC_LG_NGROUP;
 
-		szind_t lg_delta = (x < LG_SIZE_CLASS_GROUP + LG_QUANTUM + 1)
-		    ? LG_QUANTUM : x - LG_SIZE_CLASS_GROUP - 1;
+		szind_t lg_delta = (x < SC_LG_NGROUP + LG_QUANTUM + 1)
+		    ? LG_QUANTUM : x - SC_LG_NGROUP - 1;
 
 		size_t delta_inverse_mask = ZU(-1) << lg_delta;
 		szind_t mod = ((((size-1) & delta_inverse_mask) >> lg_delta)) &
-		    ((ZU(1) << LG_SIZE_CLASS_GROUP) - 1);
+		    ((ZU(1) << SC_LG_NGROUP) - 1);
 
-		szind_t index = NTBINS + grp + mod;
+		szind_t index = SC_NTINY + grp + mod;
 		return index;
 	}
 }
 
 JEMALLOC_ALWAYS_INLINE szind_t
 sz_size2index_lookup(size_t size) {
-	assert(size <= LOOKUP_MAXCLASS);
-	{
-		szind_t ret = (sz_size2index_tab[(size-1) >> LG_TINY_MIN]);
-		assert(ret == sz_size2index_compute(size));
-		return ret;
-	}
+	assert(size <= SC_LOOKUP_MAXCLASS);
+	szind_t ret = (sz_size2index_tab[(size + (ZU(1) << SC_LG_TINY_MIN) - 1)
+					 >> SC_LG_TINY_MIN]);
+	assert(ret == sz_size2index_compute(size));
+	return ret;
 }
 
 JEMALLOC_ALWAYS_INLINE szind_t
 sz_size2index(size_t size) {
-	assert(size > 0);
-	if (likely(size <= LOOKUP_MAXCLASS)) {
+	if (likely(size <= SC_LOOKUP_MAXCLASS)) {
 		return sz_size2index_lookup(size);
 	}
 	return sz_size2index_compute(size);
@@ -172,20 +170,20 @@ sz_size2index(size_t size) {
 
 static inline size_t
 sz_index2size_compute(szind_t index) {
-#if (NTBINS > 0)
-	if (index < NTBINS) {
-		return (ZU(1) << (LG_TINY_MAXCLASS - NTBINS + 1 + index));
+#if (SC_NTINY > 0)
+	if (index < SC_NTINY) {
+		return (ZU(1) << (SC_LG_TINY_MAXCLASS - SC_NTINY + 1 + index));
 	}
 #endif
 	{
-		size_t reduced_index = index - NTBINS;
-		size_t grp = reduced_index >> LG_SIZE_CLASS_GROUP;
-		size_t mod = reduced_index & ((ZU(1) << LG_SIZE_CLASS_GROUP) -
+		size_t reduced_index = index - SC_NTINY;
+		size_t grp = reduced_index >> SC_LG_NGROUP;
+		size_t mod = reduced_index & ((ZU(1) << SC_LG_NGROUP) -
 		    1);
 
 		size_t grp_size_mask = ~((!!grp)-1);
 		size_t grp_size = ((ZU(1) << (LG_QUANTUM +
-		    (LG_SIZE_CLASS_GROUP-1))) << grp) & grp_size_mask;
+		    (SC_LG_NGROUP-1))) << grp) & grp_size_mask;
 
 		size_t shift = (grp == 0) ? 1 : grp;
 		size_t lg_delta = shift + (LG_QUANTUM-1);
@@ -205,18 +203,22 @@ sz_index2size_lookup(szind_t index) {
 
 JEMALLOC_ALWAYS_INLINE size_t
 sz_index2size(szind_t index) {
-	assert(index < NSIZES);
+	assert(index < SC_NSIZES);
 	return sz_index2size_lookup(index);
 }
 
 JEMALLOC_ALWAYS_INLINE size_t
 sz_s2u_compute(size_t size) {
-	if (unlikely(size > LARGE_MAXCLASS)) {
+	if (unlikely(size > SC_LARGE_MAXCLASS)) {
 		return 0;
 	}
-#if (NTBINS > 0)
-	if (size <= (ZU(1) << LG_TINY_MAXCLASS)) {
-		size_t lg_tmin = LG_TINY_MAXCLASS - NTBINS + 1;
+
+	if (size == 0) {
+		size++;
+	}
+#if (SC_NTINY > 0)
+	if (size <= (ZU(1) << SC_LG_TINY_MAXCLASS)) {
+		size_t lg_tmin = SC_LG_TINY_MAXCLASS - SC_NTINY + 1;
 		size_t lg_ceil = lg_floor(pow2_ceil_zu(size));
 		return (lg_ceil < lg_tmin ? (ZU(1) << lg_tmin) :
 		    (ZU(1) << lg_ceil));
@@ -224,8 +226,8 @@ sz_s2u_compute(size_t size) {
 #endif
 	{
 		size_t x = lg_floor((size<<1)-1);
-		size_t lg_delta = (x < LG_SIZE_CLASS_GROUP + LG_QUANTUM + 1)
-		    ?  LG_QUANTUM : x - LG_SIZE_CLASS_GROUP - 1;
+		size_t lg_delta = (x < SC_LG_NGROUP + LG_QUANTUM + 1)
+		    ?  LG_QUANTUM : x - SC_LG_NGROUP - 1;
 		size_t delta = ZU(1) << lg_delta;
 		size_t delta_mask = delta - 1;
 		size_t usize = (size + delta_mask) & ~delta_mask;
@@ -247,8 +249,7 @@ sz_s2u_lookup(size_t size) {
  */
 JEMALLOC_ALWAYS_INLINE size_t
 sz_s2u(size_t size) {
-	assert(size > 0);
-	if (likely(size <= LOOKUP_MAXCLASS)) {
+	if (likely(size <= SC_LOOKUP_MAXCLASS)) {
 		return sz_s2u_lookup(size);
 	}
 	return sz_s2u_compute(size);
@@ -265,7 +266,7 @@ sz_sa2u(size_t size, size_t alignment) {
 	assert(alignment != 0 && ((alignment - 1) & alignment) == 0);
 
 	/* Try for a small size class. */
-	if (size <= SMALL_MAXCLASS && alignment < PAGE) {
+	if (size <= SC_SMALL_MAXCLASS && alignment < PAGE) {
 		/*
 		 * Round size up to the nearest multiple of alignment.
 		 *
@@ -281,20 +282,20 @@ sz_sa2u(size_t size, size_t alignment) {
 		 *    192 | 11000000 |  64
 		 */
 		usize = sz_s2u(ALIGNMENT_CEILING(size, alignment));
-		if (usize < LARGE_MINCLASS) {
+		if (usize < SC_LARGE_MINCLASS) {
 			return usize;
 		}
 	}
 
 	/* Large size class.  Beware of overflow. */
 
-	if (unlikely(alignment > LARGE_MAXCLASS)) {
+	if (unlikely(alignment > SC_LARGE_MAXCLASS)) {
 		return 0;
 	}
 
 	/* Make sure result is a large size class. */
-	if (size <= LARGE_MINCLASS) {
-		usize = LARGE_MINCLASS;
+	if (size <= SC_LARGE_MINCLASS) {
+		usize = SC_LARGE_MINCLASS;
 	} else {
 		usize = sz_s2u(size);
 		if (usize < size) {

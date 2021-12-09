@@ -1,4 +1,4 @@
-start_server {tags {"latency-monitor"}} {
+start_server {tags {"latency-monitor needs:latency"}} {
     # Set a threshold high enough to avoid spurious latency events.
     r config set latency-monitor-threshold 200
     r latency reset
@@ -74,6 +74,6 @@ start_server {tags {"latency-monitor"}} {
 
     test {LATENCY HELP should not have unexpected options} {
         catch {r LATENCY help xxx} e
-        assert_match "*Unknown subcommand or wrong number of arguments*" $e
+        assert_match "*wrong number of arguments*" $e
     }
 }

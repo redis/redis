@@ -47,6 +47,7 @@
 #include <stdio.h>
 
 #include "anet.h"
+#include "config.h"
 
 static void anetSetError(char *err, const char *fmt, ...)
 {
@@ -491,18 +492,39 @@ int anetUnixServer(char *err, char *path, mode_t perm, int backlog)
     return s;
 }
 
+/* Accept a connection and also make sure the socket is non-blocking, and CLOEXEC.
+ * returns the new socket FD, or -1 on error. */
 static int anetGenericAccept(char *err, int s, struct sockaddr *sa, socklen_t *len) {
     int fd;
     do {
+        /* Use the accept4() call on linux to simultaneously accept and
+         * set a socket as non-blocking. */
+#ifdef HAVE_ACCEPT4
+        fd = accept4(s, sa, len,  SOCK_NONBLOCK | SOCK_CLOEXEC);
+#else
         fd = accept(s,sa,len);
+#endif
     } while(fd == -1 && errno == EINTR);
     if (fd == -1) {
         anetSetError(err, "accept: %s", strerror(errno));
         return ANET_ERR;
     }
+#ifndef HAVE_ACCEPT4
+    if (anetCloexec(fd) == -1) {
+        anetSetError(err, "anetCloexec: %s", strerror(errno));
+        close(fd);
+        return ANET_ERR;
+    }
+    if (anetNonBlock(err, fd) != ANET_OK) {
+        close(fd);
+        return ANET_ERR;
+    }
+#endif
     return fd;
 }
 
+/* Accept a connection and also make sure the socket is non-blocking, and CLOEXEC.
+ * returns the new socket FD, or -1 on error. */
 int anetTcpAccept(char *err, int s, char *ip, size_t ip_len, int *port) {
     int fd;
     struct sockaddr_storage sa;
@@ -522,6 +544,8 @@ int anetTcpAccept(char *err, int s, char *ip, size_t ip_len, int *port) {
     return fd;
 }
 
+/* Accept a connection and also make sure the socket is non-blocking, and CLOEXEC.
+ * returns the new socket FD, or -1 on error. */
 int anetUnixAccept(char *err, int s) {
     int fd;
     struct sockaddr_un sa;
@@ -541,18 +565,26 @@ int anetFdToString(int fd, char *ip, size_t ip_len, int *port, int fd_to_str_typ
     } else {
         if (getsockname(fd, (struct sockaddr *)&sa, &salen) == -1) goto error;
     }
-    if (ip_len == 0) goto error;
 
     if (sa.ss_family == AF_INET) {
         struct sockaddr_in *s = (struct sockaddr_in *)&sa;
-        if (ip) inet_ntop(AF_INET,(void*)&(s->sin_addr),ip,ip_len);
+        if (ip) {
+            if (inet_ntop(AF_INET,(void*)&(s->sin_addr),ip,ip_len) == NULL)
+                goto error;
+        }
         if (port) *port = ntohs(s->sin_port);
     } else if (sa.ss_family == AF_INET6) {
         struct sockaddr_in6 *s = (struct sockaddr_in6 *)&sa;
-        if (ip) inet_ntop(AF_INET6,(void*)&(s->sin6_addr),ip,ip_len);
+        if (ip) {
+            if (inet_ntop(AF_INET6,(void*)&(s->sin6_addr),ip,ip_len) == NULL)
+                goto error;
+        }
         if (port) *port = ntohs(s->sin6_port);
     } else if (sa.ss_family == AF_UNIX) {
-        if (ip) snprintf(ip, ip_len, "/unixsocket");
+        if (ip) {
+            int res = snprintf(ip, ip_len, "/unixsocket");
+            if (res < 0 || (unsigned int) res >= ip_len) goto error;
+        }
         if (port) *port = 0;
     } else {
         goto error;
@@ -587,4 +619,60 @@ int anetFormatFdAddr(int fd, char *buf, size_t buf_len, int fd_to_str_type) {
 
     anetFdToString(fd,ip,sizeof(ip),&port,fd_to_str_type);
     return anetFormatAddr(buf, buf_len, ip, port);
+}
+
+/* Create a pipe buffer with given flags for read end and write end.
+ * Note that it supports the file flags defined by pipe2() and fcntl(F_SETFL),
+ * and one of the use cases is O_CLOEXEC|O_NONBLOCK. */
+int anetPipe(int fds[2], int read_flags, int write_flags) {
+    int pipe_flags = 0;
+#if defined(__linux__) || defined(__FreeBSD__)
+    /* When possible, try to leverage pipe2() to apply flags that are common to both ends.
+     * There is no harm to set O_CLOEXEC to prevent fd leaks. */
+    pipe_flags = O_CLOEXEC | (read_flags & write_flags);
+    if (pipe2(fds, pipe_flags)) {
+        /* Fail on real failures, and fallback to simple pipe if pipe2 is unsupported. */
+        if (errno != ENOSYS && errno != EINVAL)
+            return -1;
+        pipe_flags = 0;
+    } else {
+        /* If the flags on both ends are identical, no need to do anything else. */
+        if ((O_CLOEXEC | read_flags) == (O_CLOEXEC | write_flags))
+            return 0;
+        /* Clear the flags which have already been set using pipe2. */
+        read_flags &= ~pipe_flags;
+        write_flags &= ~pipe_flags;
+    }
+#endif
+
+    /* When we reach here with pipe_flags of 0, it means pipe2 failed (or was not attempted),
+     * so we try to use pipe. Otherwise, we skip and proceed to set specific flags below. */
+    if (pipe_flags == 0 && pipe(fds))
+        return -1;
+
+    /* File descriptor flags.
+     * Currently, only one such flag is defined: FD_CLOEXEC, the close-on-exec flag. */
+    if (read_flags & O_CLOEXEC)
+        if (fcntl(fds[0], F_SETFD, FD_CLOEXEC))
+            goto error;
+    if (write_flags & O_CLOEXEC)
+        if (fcntl(fds[1], F_SETFD, FD_CLOEXEC))
+            goto error;
+
+    /* File status flags after clearing the file descriptor flag O_CLOEXEC. */
+    read_flags &= ~O_CLOEXEC;
+    if (read_flags)
+        if (fcntl(fds[0], F_SETFL, read_flags))
+            goto error;
+    write_flags &= ~O_CLOEXEC;
+    if (write_flags)
+        if (fcntl(fds[1], F_SETFL, write_flags))
+            goto error;
+
+    return 0;
+
+error:
+    close(fds[0]);
+    close(fds[1]);
+    return -1;
 }

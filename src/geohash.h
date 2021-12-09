@@ -128,7 +128,6 @@ int geohashDecodeWGS84(const GeoHashBits hash, GeoHashArea *area);
 int geohashDecodeAreaToLongLat(const GeoHashArea *area, double *xy);
 int geohashDecodeToLongLatType(const GeoHashBits hash, double *xy);
 int geohashDecodeToLongLatWGS84(const GeoHashBits hash, double *xy);
-int geohashDecodeToLongLatMercator(const GeoHashBits hash, double *xy);
 void geohashNeighbors(const GeoHashBits *hash, GeoHashNeighbors *neighbors);
 
 #if defined(__cplusplus)

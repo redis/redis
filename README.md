@@ -224,10 +224,11 @@ of the BSD license that you can find in the [COPYING][1] file included in the Re
 source distribution.
 
 Please see the [CONTRIBUTING][2] file in this source distribution for more
-information, including details on our process for security bugs/vulnerabilities.
+information. For security bugs and vulnerabilities, please see [SECURITY.md][3].
 
 [1]: https://github.com/redis/redis/blob/unstable/COPYING
 [2]: https://github.com/redis/redis/blob/unstable/CONTRIBUTING
+[3]: https://github.com/redis/redis/blob/unstable/SECURITY.md
 
 Redis internals
 ===
@@ -303,8 +304,8 @@ struct client {
     redisDb *db;
     int flags;
     list *reply;
-    char buf[PROTO_REPLY_CHUNK_BYTES];
     // ... many other fields ...
+    char buf[PROTO_REPLY_CHUNK_BYTES];
 }
 ```
 The client structure defines a *connected client*:
@@ -379,8 +380,8 @@ aof.c and rdb.c
 
 As you can guess from the names, these files implement the RDB and AOF
 persistence for Redis. Redis uses a persistence model based on the `fork()`
-system call in order to create a thread with the same (shared) memory
-content of the main Redis thread. This secondary thread dumps the content
+system call in order to create a process with the same (shared) memory
+content of the main Redis process. This secondary process dumps the content
 of the memory on disk. This is used by `rdb.c` to create the snapshots
 on disk and by `aof.c` in order to perform the AOF rewrite when the
 append only file gets too big.
@@ -442,6 +443,16 @@ This file also implements both the `SYNC` and `PSYNC` commands that are
 used in order to perform the first synchronization between masters and
 replicas, or to continue the replication after a disconnection.
 
+Script
+---
+The script unit is compose of 3 units
+* `script.c` - integration of scripts with Redis (commands execution, set replication/resp, ..)
+* `script_lua.c` - responsible to execute Lua code, uses script.c to interact with Redis from within the Lua code.
+* `function_lua.c` - contains the Lua engine implementation, uses script_lua.c to execute the Lua code.
+* `functions.c` - Contains Redis Functions implementation (FUNCTION command), uses functions_lua.c if the function it wants to invoke needs the Lua engine.
+* `eval.c` - Contains the `eval` implementation using `script_lua.c` to invoke the Lua code.
+
+
 Other C files
 ---
 
@@ -450,10 +461,9 @@ Other C files
 * `sds.c` is the Redis string library, check https://github.com/antirez/sds for more information.
 * `anet.c` is a library to use POSIX networking in a simpler way compared to the raw interface exposed by the kernel.
 * `dict.c` is an implementation of a non-blocking hash table which rehashes incrementally.
-* `scripting.c` implements Lua scripting. It is completely self-contained and isolated from the rest of the Redis implementation and is simple enough to understand if you are familiar with the Lua API.
-* `cluster.c` implements the Redis Cluster. Probably a good read only after being very familiar with the rest of the Redis code base. If you want to read `cluster.c` make sure to read the [Redis Cluster specification][3].
+* `cluster.c` implements the Redis Cluster. Probably a good read only after being very familiar with the rest of the Redis code base. If you want to read `cluster.c` make sure to read the [Redis Cluster specification][4].
 
-[3]: https://redis.io/topics/cluster-spec
+[4]: https://redis.io/topics/cluster-spec
 
 Anatomy of a Redis command
 ---

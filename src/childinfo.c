@@ -29,6 +29,7 @@
 
 #include "server.h"
 #include <unistd.h>
+#include <fcntl.h>
 
 typedef struct {
     size_t keys;
@@ -42,11 +43,9 @@ typedef struct {
  * RDB / AOF saving process from the child to the parent (for instance
  * the amount of copy on write memory used) */
 void openChildInfoPipe(void) {
-    if (pipe(server.child_info_pipe) == -1) {
+    if (anetPipe(server.child_info_pipe, O_NONBLOCK, 0) == -1) {
         /* On error our two file descriptors should be still set to -1,
          * but we call anyway closeChildInfoPipe() since can't hurt. */
-        closeChildInfoPipe();
-    } else if (anetNonBlock(NULL,server.child_info_pipe[0]) != ANET_OK) {
         closeChildInfoPipe();
     } else {
         server.child_info_nread = 0;
@@ -73,6 +72,9 @@ void sendChildInfoGeneric(childInfoType info_type, size_t keys, double progress,
     static monotime cow_updated = 0;
     static uint64_t cow_update_cost = 0;
     static size_t cow = 0;
+    static size_t peak_cow = 0;
+    static size_t update_count = 0;
+    static unsigned long long sum_cow = 0;
 
     child_info_data data = {0}; /* zero everything, including padding to satisfy valgrind */
 
@@ -89,11 +91,15 @@ void sendChildInfoGeneric(childInfoType info_type, size_t keys, double progress,
         cow = zmalloc_get_private_dirty(-1);
         cow_updated = getMonotonicUs();
         cow_update_cost = cow_updated - now;
+        if (cow > peak_cow) peak_cow = cow;
+        sum_cow += cow;
+        update_count++;
 
-        if (cow) {
-            serverLog((info_type == CHILD_INFO_TYPE_CURRENT_INFO) ? LL_VERBOSE : LL_NOTICE,
-                      "%s: %zu MB of memory used by copy-on-write",
-                      pname, data.cow / (1024 * 1024));
+        int cow_info = (info_type != CHILD_INFO_TYPE_CURRENT_INFO);
+        if (cow || cow_info) {
+            serverLog(cow_info ? LL_NOTICE : LL_VERBOSE,
+                      "Fork CoW for %s: current %zu MB, peak %zu MB, average %llu MB",
+                      pname, cow>>20, peak_cow>>20, (sum_cow/update_count)>>20);
         }
     }
 
@@ -112,17 +118,19 @@ void sendChildInfoGeneric(childInfoType info_type, size_t keys, double progress,
 
 /* Update Child info. */
 void updateChildInfo(childInfoType information_type, size_t cow, monotime cow_updated, size_t keys, double progress) {
+    if (cow > server.stat_current_cow_peak) server.stat_current_cow_peak = cow;
+
     if (information_type == CHILD_INFO_TYPE_CURRENT_INFO) {
         server.stat_current_cow_bytes = cow;
         server.stat_current_cow_updated = cow_updated;
         server.stat_current_save_keys_processed = keys;
         if (progress != -1) server.stat_module_progress = progress;
     } else if (information_type == CHILD_INFO_TYPE_AOF_COW_SIZE) {
-        server.stat_aof_cow_bytes = cow;
+        server.stat_aof_cow_bytes = server.stat_current_cow_peak;
     } else if (information_type == CHILD_INFO_TYPE_RDB_COW_SIZE) {
-        server.stat_rdb_cow_bytes = cow;
+        server.stat_rdb_cow_bytes = server.stat_current_cow_peak;
     } else if (information_type == CHILD_INFO_TYPE_MODULE_COW_SIZE) {
-        server.stat_module_cow_bytes = cow;
+        server.stat_module_cow_bytes = server.stat_current_cow_peak;
     }
 }
 

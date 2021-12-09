@@ -10,7 +10,8 @@
     OPTION('a',		unmerged,	config_stats,	false)		\
     OPTION('b',		bins,		true,		false)		\
     OPTION('l',		large,		true,		false)		\
-    OPTION('x',		mutex,		true,		false)
+    OPTION('x',		mutex,		true,		false)		\
+    OPTION('e',		extents,	true,		false)
 
 enum {
 #define OPTION(o, v, d, s) stats_print_option_num_##v,
