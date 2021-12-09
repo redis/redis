@@ -766,7 +766,6 @@ void configSetCommand(client *c) {
                     apply_fns[j] = set_configs[i]->interface.apply;
                     config_map_fns[j] = i;
                 }
-                    
             }
         }
     }
