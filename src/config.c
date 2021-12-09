@@ -808,31 +808,18 @@ void configGetCommand(client *c) {
             robj *o = c->argv[2+i];
             char *pattern = o->ptr;
 
-            /* Hidden configs require an exact match (not a pattern) */
-            if (config->flags & HIDDEN_CONFIG) {
-                if (!matched_conf && !strcasecmp(pattern, config->name)) {
-                    addReplyBulkCString(c, config->name);
-                    addReplyBulkSds(c, config->interface.get(config->data));
-                    matches++;
-                    matched_conf = 1;
-                    break;
-                }
-                if (!matched_alias && config->alias && !strcasecmp(pattern, config->alias)) {
-                    addReplyBulkCString(c, config->alias);
-                    addReplyBulkSds(c, config->interface.get(config->data));
-                    matches++;
-                    matched_alias = 1;
-                    break;
-                }
-                continue;
-            }
-            if (!matched_conf && stringmatch(pattern, config->name, 1)) {
+            /* Note that hidden configs require an exact match (not a pattern) */
+            if (!matched_conf &&
+                (((config->flags & HIDDEN_CONFIG) && !strcasecmp(pattern, config->name)) ||
+                 (!(config->flags & HIDDEN_CONFIG) && stringmatch(pattern, config->name, 1)))) {
                 addReplyBulkCString(c, config->name);
                 addReplyBulkSds(c, config->interface.get(config->data));
                 matches++;
                 matched_conf = 1;
             }
-            if (!matched_alias && config->alias && stringmatch(pattern, config->alias, 1)) {
+            if (!matched_alias && config->alias &&
+                (((config->flags & HIDDEN_CONFIG) && !strcasecmp(pattern, config->alias)) ||
+                 (!(config->flags & HIDDEN_CONFIG) && stringmatch(pattern, config->alias, 1)))) {
                 addReplyBulkCString(c, config->alias);
                 addReplyBulkSds(c, config->interface.get(config->data));
                 matches++;
