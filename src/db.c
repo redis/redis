@@ -585,6 +585,10 @@ int getFlushCommandFlags(client *c, int *flags) {
 /* Flushes the whole server data set. */
 void flushAllDataAndResetRDB(int flags) {
     server.dirty += emptyDb(-1,flags,NULL);
+    if (flags & EMPTYDB_WITHSCRIPTS) {
+        scriptingReset(flags & EMPTYDB_ASYNC);
+        functionsCtxClear(functionsCtxGetCurrent());
+    }
     if (server.child_type == CHILD_TYPE_RDB) killRDBChild();
     if (server.saveparamslen > 0) {
         /* Normally rdbSave() will reset dirty, but we don't want this here
@@ -626,29 +630,25 @@ void flushdbCommand(client *c) {
 #endif
 }
 
-static int flushCommandsInternal(client *c) {
+static void flushCommandsInternal(client *c, int additional_flags) {
     int flags;
-    if (getFlushCommandFlags(c,&flags) == C_ERR) return C_ERR;
-    flushAllDataAndResetRDB(flags);
-    return C_OK;
+    if (getFlushCommandFlags(c,&flags) == C_ERR) return; /* Error was already sent to the client */
+    flushAllDataAndResetRDB(flags | additional_flags);
+    addReply(c,shared.ok);
 }
 
 /* FLUSHALL [ASYNC]
  *
  * Flushes the whole server data set. */
 void flushallCommand(client *c) {
-    if (flushCommandsInternal(c) == C_ERR) return; /* Error was already sent to the client */
-    addReply(c,shared.ok);
+    flushCommandsInternal(c, EMPTYDB_NO_FLAGS);
 }
 
 /* FLUSHEVERYTHING [ASYNC]
  *
  * Flushes the whole server data set and functions. */
 void flusheverythingCommand(client *c) {
-    if (flushCommandsInternal(c) == C_ERR) return; /* Error was already sent to the client */
-    /* Clear functions */
-    functionsCtxClear(functionsCtxGetCurrent());
-    addReply(c,shared.ok);
+    flushCommandsInternal(c, EMPTYDB_WITHSCRIPTS);
 }
 
 /* This command implements DEL and LAZYDEL. */
