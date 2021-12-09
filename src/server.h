@@ -310,13 +310,13 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */
-#define BLOCKED_NONE 0     /* Not blocked, no CLIENT_BLOCKED flag set. */
-#define BLOCKED_LIST 1     /* BLPOP & co. */
-#define BLOCKED_WAIT 2     /* WAIT for synchronous replication. */
-#define BLOCKED_MODULE 3   /* Blocked by a loadable module. */
-#define BLOCKED_STREAM 4   /* XREAD. */
-#define BLOCKED_ZSET 5     /* BZPOP et al. */
-#define BLOCKED_PAUSE 6    /* Blocked by CLIENT PAUSE */
+#define BLOCKED_NONE 0    /* Not blocked, no CLIENT_BLOCKED flag set. */
+#define BLOCKED_LIST 1    /* BLPOP & co. */
+#define BLOCKED_WAIT 2    /* WAIT for synchronous replication. */
+#define BLOCKED_MODULE 3  /* Blocked by a loadable module. */
+#define BLOCKED_STREAM 4  /* XREAD. */
+#define BLOCKED_ZSET 5    /* BZPOP et al. */
+#define BLOCKED_PAUSE 6   /* Blocked by CLIENT PAUSE */
 #define BLOCKED_SHUTDOWN 7 /* SHUTDOWN. */
 #define BLOCKED_NUM 8      /* Number of blocked states. */
 

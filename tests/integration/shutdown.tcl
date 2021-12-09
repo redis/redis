@@ -1,3 +1,20 @@
+# This test suite tests shutdown when there are lagging replicas connected.
+
+# Fill upp the OS socket send buffer for the replica connection. When the
+# replication buffer memory increases beyond 1M (often after writing 4M or so),
+# we assume it's because the OS socket send buffer can't swallow anymore.
+proc fill_up_os_socket_send_buffer_for_repl {idx} {
+    set i 0
+    while {1} {
+        set buf_size [s $idx mem_total_replication_buffers]
+        if {$buf_size > 1024*1024} {
+            break
+        }
+        incr i
+        populate 1024 junk$i: 1024 $idx
+    }
+}
+
 foreach how {sigterm shutdown} {
     test "Shutting down master waits for replica to catch up ($how)" {
         start_server {} {
@@ -10,13 +27,12 @@ foreach how {sigterm shutdown} {
                 set replica_pid [srv 0 pid]
 
                 # Config master.
-                $master config set repl-diskless-sync yes
-                $master config set repl-diskless-sync-delay 1
-                $master config set shutdown-timeout 300 ; # 5min for slow CI
+                $master config set shutdown-timeout 300; # 5min for slow CI
+                $master config set repl-backlog-size 1;  # small as possible
+                $master config set hz 100;               # cron runs every 10ms
 
                 # Config replica.
                 $replica replicaof $master_host $master_port
-                $replica config set repl-diskless-load swapdb
                 wait_for_sync $replica
 
                 # Preparation: Set k to 1 on both master and replica.
@@ -27,12 +43,10 @@ foreach how {sigterm shutdown} {
                 exec kill -SIGSTOP $replica_pid
                 after 10
 
-                # Fill upp the replication socket buffers.
-                set junk_size 10000
-                for {set i 0} {$i < $junk_size} {incr i} {
-                    $master set "key.$i.junkjunkjunk" \
-                        "value.$i.blablablablablablablablabla"
-                }
+                # Fill upp the OS socket send buffer for the replica connection
+                # to prevent the following INCR from reaching the replica via
+                # the OS.
+                fill_up_os_socket_send_buffer_for_repl -1
 
                 # Incr k and immediately shutdown master.
                 $master incr k
@@ -45,16 +59,21 @@ foreach how {sigterm shutdown} {
                         $rd shutdown
                     }
                 }
+                wait_for_condition 50 100 {
+                    [s -1 shutdown_in_milliseconds] > 0
+                } else {
+                    fail "Master not indicating ongoing shutdown."
+                }
+                assert {[s -1 shutdown_flags] == {w}}
 
                 # Wake up replica and check if master has waited for it.
-                after 1000
+                after 20; # 2 cron intervals
                 exec kill -SIGCONT $replica_pid
                 wait_for_condition 300 1000 {
                     [$replica get k] eq 2
                 } else {
                     fail "Master exited before replica could catch up."
                 }
-                assert_equal [expr $junk_size + 1] [$replica dbsize]
 
                 # Check shutdown log messages on master
                 wait_for_log_messages -1 {"*ready to exit, bye bye*"} 0 100 500
@@ -76,7 +95,7 @@ test {Shutting down master waits for replica timeout} {
             set replica_pid [srv 0 pid]
 
             # Config master.
-            $master config set shutdown-timeout 2 ; # seconds
+            $master config set shutdown-timeout 1; # second
 
             # Config replica.
             $replica replicaof $master_host $master_port
@@ -90,17 +109,28 @@ test {Shutting down master waits for replica timeout} {
             exec kill -SIGSTOP $replica_pid
             after 10
 
+            # Fill upp the OS socket send buffer for the replica connection to
+            # prevent the following INCR k from reaching the replica via the OS.
+            fill_up_os_socket_send_buffer_for_repl -1
+
             # Incr k and immediately shutdown master.
             $master incr k
             exec kill -SIGTERM $master_pid
+            wait_for_condition 50 100 {
+                [s -1 shutdown_in_milliseconds] > 0
+            } else {
+                fail "Master not indicating ongoing shutdown."
+            }
+            assert {[s -1 shutdown_flags] == {w}}
 
-            # Wake up replica after master has finished shutting down.
-            after 2500
-            exec kill -SIGCONT $replica_pid
-
-            # Check shutdown log messages on master
+            # Let master finish shuting down and check log.
+            wait_for_log_messages -1 {"*ready to exit, bye bye*"} 0 100 100
             verify_log_message -1 "*Lagging replica*" 0
             verify_log_message -1 "*0 of 1 replicas are in sync*" 0
+
+            # Wake up replica.
+            exec kill -SIGCONT $replica_pid
+            assert_equal 1 [$replica get k]
         }
     }
 } {} {repl external:skip}

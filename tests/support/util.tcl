@@ -591,8 +591,8 @@ proc stop_bg_complex_data {handle} {
     catch {exec /bin/kill -9 $handle}
 }
 
-proc populate {num {prefix key:} {size 3}} {
-    set rd [redis_deferring_client]
+proc populate {num {prefix key:} {size 3} {idx 0}} {
+    set rd [redis_deferring_client $idx]
     for {set j 0} {$j < $num} {incr j} {
         $rd set $prefix$j [string repeat A $size]
     }

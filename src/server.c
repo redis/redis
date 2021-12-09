@@ -5577,8 +5577,7 @@ int prepareForShutdown(int flags) {
         !isReadyToShutdown())
     {
         server.shutdown_mstime = server.mstime + server.shutdown_timeout * 1000;
-        mstime_t cron_delay = 1000/server.hz;
-        pauseClients(server.shutdown_mstime + cron_delay, CLIENT_PAUSE_WRITE);
+        pauseClients(LLONG_MAX, CLIENT_PAUSE_WRITE);
         serverLog(LL_NOTICE, "Waiting for replicas before shutting down.");
         return C_ERR;
     }
@@ -5594,7 +5593,6 @@ static inline int isShutdownInitiated(void) {
  * need to wait for before shutting down. Returns 1 if we're ready to shut
  * down now. */
 int isReadyToShutdown(void) {
-    if (server.masterhost != NULL) return 1; /* We're a replica. */
     if (listLength(server.slaves) == 0) return 1;  /* No replicas. */
 
     listIter li;
@@ -5602,7 +5600,6 @@ int isReadyToShutdown(void) {
     listRewind(server.slaves, &li);
     while ((ln = listNext(&li)) != NULL) {
         client *replica = listNodeValue(ln);
-        /* TODO: Do we care about replica->replstate? */
         if (replica->repl_ack_off != server.master_repl_offset) return 0;
     }
     return 1;
@@ -5740,6 +5737,7 @@ error:
     server.shutdown_flags = 0;
     server.shutdown_mstime = 0;
     replyToClientsBlockedOnShutdown();
+    unpauseClients();
     return C_ERR;
 }
 
@@ -6363,6 +6361,20 @@ sds genRedisInfoString(const char *section) {
             server.executable ? server.executable : "",
             server.configfile ? server.configfile : "",
             server.io_threads_active);
+
+        /* Conditional properties */
+        if (isShutdownInitiated()) {
+            char flagstr[4] = {0};
+            int i = 0;
+            if (server.shutdown_flags & SHUTDOWN_SAVE) flagstr[i++] = 's';
+            if (server.shutdown_flags & SHUTDOWN_NOSAVE) flagstr[i++] = 'n';
+            if (server.shutdown_flags & SHUTDOWN_WAIT_REPL) flagstr[i++] = 'w';
+            info = sdscatfmt(info,
+                "shutdown_in_milliseconds:%I\r\n"
+                "shutdown_flags:%s\r\n",
+                (int64_t)(server.shutdown_mstime - server.mstime),
+                flagstr);
+        }
     }
 
     /* Clients */
