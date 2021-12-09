@@ -774,7 +774,7 @@ void configSetCommand(client *c) {
     /* Apply all configs after being set */
     for (i = 0; i < config_count && apply_fns[i] != NULL; i++) {
         if (!apply_fns[i](&errstr)) {
-            serverLog(LL_WARNING, "Failed applying new %s configuration, restoring previous settings.", set_configs[config_map_fns[i]]->name);
+            serverLog(LL_WARNING, "Failed applying new configuration. Possibly related to new %s setting. Restoring previous settings.", set_configs[config_map_fns[i]]->name);
             restoreBackupConfig(set_configs, old_values, config_count, apply_fns);
             goto err;
         }
