@@ -2652,9 +2652,9 @@ int dbSyncDelete(redisDb *db, robj *key);
 int dbDelete(redisDb *db, robj *key);
 robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o);
 
-#define EMPTYDB_NO_FLAGS 0      /* No flags. */
-#define EMPTYDB_ASYNC (1<<0)    /* Reclaim memory in another thread. */
-#define EMPTYDB_WITHSCRIPTS (1<<1)    /* Reclaim memory in another thread. */
+#define EMPTYDB_NO_FLAGS 0            /* No flags. */
+#define EMPTYDB_ASYNC (1<<0)          /* Reclaim memory in another thread. */
+#define EMPTYDB_WITHSCRIPTS (1<<1)    /* Indicate to also flush scripts (eval and functions). */
 long long emptyDb(int dbnum, int flags, void(callback)(dict*));
 long long emptyDbStructure(redisDb *dbarray, int dbnum, int async, void(callback)(dict*));
 void flushAllDataAndResetRDB(int flags);
