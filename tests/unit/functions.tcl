@@ -129,6 +129,22 @@ start_server {tags {"scripting"}} {
         r fcall_ro test 0
     } {1}
 
+    test {FUNCTION - test flushall do not clean functions} {
+        r flushall
+        r function list
+    } {{name test engine LUA description {}}}
+
+    test {FUNCTION - test flusheverything cleans functions} {
+        r flusheverything
+        r function list
+    } {}
+
+    test {FUNCTION - test flusheverything can not be called from within a functions} {
+        r function create lua test REPLACE {return redis.call('flusheverything')}
+        catch { r fcall test 0 } e
+        set _ $e
+    } {*Redis command is not allowed from script*}
+
     test {FUNCTION - test keys and argv} {
         r function create lua test REPLACE {return redis.call('set', KEYS[1], ARGV[1])}
         r fcall test 1 x foo

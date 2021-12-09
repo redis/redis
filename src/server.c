@@ -1601,6 +1601,9 @@ struct redisCommand redisCommandTable[] = {
     {"flushall",flushallCommand,-1,
      "write @keyspace @dangerous"},
 
+    {"flusheverything",flusheverythingCommand,-1,
+     "no-script write @keyspace @dangerous"},
+
     {"sort",sortCommand,-2,
      "write use-memory @list @set @sortedset @dangerous",
      {{"read",

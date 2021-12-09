@@ -32,6 +32,7 @@
 #include "atomicvar.h"
 #include "latency.h"
 #include "script.h"
+#include "functions.h"
 
 #include <signal.h>
 #include <ctype.h>
@@ -625,13 +626,28 @@ void flushdbCommand(client *c) {
 #endif
 }
 
+static int flushCommandsInternal(client *c) {
+    int flags;
+    if (getFlushCommandFlags(c,&flags) == C_ERR) return C_ERR;
+    flushAllDataAndResetRDB(flags);
+    return C_OK;
+}
+
 /* FLUSHALL [ASYNC]
  *
  * Flushes the whole server data set. */
 void flushallCommand(client *c) {
-    int flags;
-    if (getFlushCommandFlags(c,&flags) == C_ERR) return;
-    flushAllDataAndResetRDB(flags);
+    if (flushCommandsInternal(c) == C_ERR) return; /* Error was already sent to the client */
+    addReply(c,shared.ok);
+}
+
+/* FLUSHEVERYTHING [ASYNC]
+ *
+ * Flushes the whole server data set and functions. */
+void flusheverythingCommand(client *c) {
+    if (flushCommandsInternal(c) == C_ERR) return; /* Error was already sent to the client */
+    /* Clear functions */
+    functionsCtxClear(functionsCtxGetCurrent());
     addReply(c,shared.ok);
 }
 
