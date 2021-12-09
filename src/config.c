@@ -680,6 +680,7 @@ void configSetCommand(client *c) {
     apply_fn *apply_fns; /* TODO: make this a set for better performance */
     int config_count, i, j;
     int invalid_args = 0;
+    int *config_map_fns;
 
     /* Make sure we have an even number of arguments: conf-val pairs */
     if (c->argc & 1) {
@@ -692,6 +693,7 @@ void configSetCommand(client *c) {
     new_values = zmalloc(sizeof(sds*)*config_count);
     old_values = zcalloc(sizeof(sds*)*config_count);
     apply_fns = zcalloc(sizeof(apply_fn)*config_count);
+    config_map_fns = zmalloc(sizeof(int)*config_count);
 
     /* Find all relevant configs */
     for (i = 0; i < config_count; i++) {
@@ -760,8 +762,10 @@ void configSetCommand(client *c) {
                     }
                 }
                 /* Apply function not stored, store it */
-                if (!exists)
+                if (!exists) {
                     apply_fns[j] = set_configs[i]->interface.apply;
+                    config_map_fns[j] = i;
+                }
             }
         }
     }
@@ -769,7 +773,7 @@ void configSetCommand(client *c) {
     /* Apply all configs after being set */
     for (i = 0; i < config_count && apply_fns[i] != NULL; i++) {
         if (!apply_fns[i](&errstr)) {
-            serverLog(LL_WARNING, "Failed applying new %s configuration, restoring previous settings.", set_configs[i]->name);
+            serverLog(LL_WARNING, "Failed applying new configuration. Possibly related to new %s setting. Restoring previous settings.", set_configs[config_map_fns[i]]->name);
             restoreBackupConfig(set_configs, old_values, config_count, apply_fns);
             goto err;
         }
@@ -790,6 +794,7 @@ end:
         sdsfree(old_values[i]);
     zfree(old_values);
     zfree(apply_fns);
+    zfree(config_map_fns);
 }
 
 /*-----------------------------------------------------------------------------
