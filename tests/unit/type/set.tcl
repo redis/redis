@@ -934,3 +934,57 @@ start_server {
         }
     }
 }
+
+start_server [list overrides [list save ""] ] {
+
+# test if the server supports such large configs (avoid 32 bit builds)
+catch {
+    r config set proto-max-bulk-len 10000000000 ;#10gb
+    r config set client-query-buffer-limit 10000000000 ;#10gb
+}
+if {[lindex [r config get proto-max-bulk-len] 1] == 10000000000} {
+
+    set ::str500 [string repeat x 500000000] ;# 500mb
+
+    # Utility function to write big argument into redis client connection
+    proc write_big_bulk {size prefix} {
+        assert {[string length prefix] <= $size}
+        r write "\$$size\r\n"
+        r write $prefix
+        incr size -[string length $prefix]
+        while {$size >= 500000000} {
+            r write $::str500
+            incr size -500000000
+        }
+        if {$size > 0} {
+            r write [string repeat x $size]
+        }
+        r write "\r\n"
+        r flush
+        r read
+    }
+
+    set str_length 4400000000 ;#~4.4GB
+
+    test {SADD, SCARD, SISMEMBER - large data} {
+        r flushdb
+        r write "*3\r\n\$4\r\nSADD\r\n\$5\r\nmyset\r\n"
+        assert_equal 1 [write_big_bulk $str_length "aaa"]
+        r write "*3\r\n\$4\r\nSADD\r\n\$5\r\nmyset\r\n"
+        assert_equal 1 [write_big_bulk $str_length "bbb"]
+        r write "*3\r\n\$4\r\nSADD\r\n\$5\r\nmyset\r\n"
+        assert_equal 0 [write_big_bulk $str_length "aaa"]
+        assert_encoding hashtable myset
+        set s0 [s used_memory]
+        assert {$s0 > [expr $str_length * 2]}
+        assert_equal 2 [r scard myset]
+
+        r write "*3\r\n\$9\r\nSISMEMBER\r\n\$5\r\nmyset\r\n"
+        assert_equal 1 [write_big_bulk $str_length "aaa"]
+        r write "*3\r\n\$9\r\nSISMEMBER\r\n\$5\r\nmyset\r\n"
+        assert_equal 1 [write_big_bulk $str_length "bbb"]
+        r write "*3\r\n\$9\r\nSISMEMBER\r\n\$5\r\nmyset\r\n"
+        assert_equal 0 [write_big_bulk $str_length "ccc"]
+    } {} {large-memory}
+} ;# skip 32bit builds
+}
