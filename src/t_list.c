@@ -833,6 +833,21 @@ int getListPositionFromObjectOrReply(client *c, robj *arg, int *position) {
     return C_OK;
 }
 
+void validateSrcKeys(client *c, int keyidx, long *numkeys) {
+    if (getRangeLongFromObjectOrReply(c, c->argv[keyidx], 1, LONG_MAX,
+                                      numkeys, "numkeys should be greater than 0") != C_OK) {
+        addReplyErrorObject(c, shared.syntaxerr);
+        return;
+    }
+
+    /* Parse the where. where_idx: the index of where in the c->argv. */
+    long where_idx = keyidx + *numkeys + 1;
+    if (where_idx >= c->argc) {
+        addReplyErrorObject(c, shared.syntaxerr);
+        return;
+    }
+}
+
 robj *getStringObjectFromListPosition(int position) {
     if (position == LIST_HEAD) {
         return shared.left;
@@ -876,11 +891,9 @@ void lmoveGenericCommand(client *c, int wherefrom, int whereto) {
         signalModifiedKey(c,c->db,touchedkey);
         server.dirty++;
         if (c->cmd->proc == blmoveCommand) {
-            rewriteClientCommandVector(c,5,shared.lmove,
-                                       c->argv[1],c->argv[2],c->argv[3],c->argv[4]);
+            rewriteClientCommandVector(c,5,shared.lmove,c->argv[1],c->argv[2],c->argv[3],c->argv[4]);
         } else if (c->cmd->proc == brpoplpushCommand) {
-            rewriteClientCommandVector(c,3,shared.rpoplpush,
-                                       c->argv[1],c->argv[2]);
+            rewriteClientCommandVector(c,3,shared.rpoplpush,c->argv[1],c->argv[2]);
         }
     }
 }
@@ -1094,6 +1107,88 @@ void blockingPopGenericCommand(client *c, robj **keys, int numkeys, int where, i
     blockForKeys(c,BLOCKED_LIST,keys,numkeys,count,timeout,NULL,&pos,NULL);
 }
 
+/* Blocking MULTI MOVE
+ *
+ * 'numkeys' is the number of keys.
+ * 'timeout_idx' parameter position of block timeout.
+ * 'wherefrom' LIST_HEAD for LEFT, LIST_TAIL for RIGHT.
+ * 'whereto' LIST_HEAD for LEFT, LIST_TAIL for RIGHT.
+ *
+ * BMMOVE <source-key> [<source-key> ...] <destination> <timeout>
+ */
+void blmMoveGenericCommand(client *c, robj **keys, int numkeys, int wherefrom, int whereto, mstime_t timeout, int is_block) {
+    robj *key, *sobj, *dobj, *value;
+
+    int srcSideIdx = c->argc-2;
+    int destSideIdx = c->argc-1;
+    int totalArgs = 5 + numkeys;
+
+    if (is_block) {
+        --srcSideIdx; --destSideIdx; ++totalArgs;
+    }
+
+    if(checkArgs(c, totalArgs)) return;
+
+    /* Traverse all input keys, we take action only based on one key. */
+    for (int j = 0; j < numkeys; j++) {
+
+        key = keys[j];
+
+        /*
+         * Performing source key validations.
+         *  1. If identified key is not of type list then return.
+         *  2. If the identified key is null or empty then continue to the next key in the provided list.
+         */
+        // Fetch the source key object.
+        sobj = lookupKeyWrite(c->db, key);
+
+        if (sobj == NULL) continue;
+        if (checkType(c, sobj, OBJ_LIST)) return;
+        if (listTypeLength(sobj) == 0) continue;
+
+        /* Non-empty source list. This will be a normal move. */
+
+        // Fetch the destination key object
+        dobj = lookupKeyWrite(c->db, c->argv[1]);
+
+        // Validate the destination object.
+        if (checkType(c, dobj, OBJ_LIST)) return;
+
+        value = listTypePop(sobj, wherefrom);
+        serverAssert(value); /* assertion for valgrind (avoid NPD) */
+        lmoveHandlePush(c, c->argv[1], dobj, value, whereto);
+
+        /* listTypePop returns an object with its refcount incremented */
+        decrRefCount(value);
+
+        /* Notify the source list that a pop has happened. */
+        /* Delete the source list if it is empty and send a generic notification.*/
+        notifyKeyspaceEvent(NOTIFY_LIST, wherefrom == LIST_HEAD ? "lpop" : "rpop", key, c->db->id);
+        if (listTypeLength(sobj) == 0) {
+            dbDelete(c->db, key);
+            notifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, c->db->id);
+        }
+
+        signalModifiedKey(c, c->db, key);
+        server.dirty++;
+
+//        rewriteClientCommandVector(c,5,shared.lmove,c->argv[1],c->argv[2],c->argv[3],c->argv[4]);
+        rewriteClientCommandVector(c, 5, shared.lmove, key, c->argv[1], c->argv[srcSideIdx], c->argv[destSideIdx]);
+        return;
+    }
+
+    /* If we are not allowed to block the client, the only thing
+     * we can do is treating it as a timeout (even with timeout 0). */
+    if(!is_block || (c->flags & CLIENT_DENY_BLOCKING)){
+        addReplyNullArray(c);
+        return;
+    }
+
+    /* If the keys do not exist we must block */
+    struct blockPos pos = {wherefrom, whereto};
+    blockForKeys(c, BLOCKED_LIST, keys, numkeys, 0, timeout, c->argv[1], &pos, NULL);
+}
+
 /* BLPOP <key> [<key> ...] <timeout> */
 void blpopCommand(client *c) {
     blockingPopGenericCommand(c,c->argv+1,c->argc-2,LIST_HEAD,c->argc-1,-1);
@@ -1137,6 +1232,27 @@ void blmoveCommand(client *c) {
     if (getTimeoutFromObjectOrReply(c,c->argv[5],&timeout,UNIT_SECONDS)
         != C_OK) return;
     blmoveGenericCommand(c,wherefrom,whereto,timeout);
+}
+
+void lmMoveGenericCommand(client *c, int is_block) {
+    int wherefrom, whereto, numkeys;
+    mstime_t timeout = 0;
+    int srcidx = c->argc - 2;
+    int destidx = c->argc - 1;
+
+    if (is_block == 1) {
+        --srcidx; --destidx;
+        if (getTimeoutFromObjectOrReply(c, c->argv[c->argc - 1], &timeout, UNIT_SECONDS != C_OK)) return;
+    }
+    if (getListPositionFromObjectOrReply(c, c->argv[srcidx], &wherefrom)
+        != C_OK)
+        return;
+    if (getListPositionFromObjectOrReply(c, c->argv[destidx], &whereto)
+        != C_OK)
+        return;
+    if (getIntFromObjectOrReply(c, c->argv[2], &numkeys, "numkeys should be greater than 0") != C_OK) return ;
+
+    blmMoveGenericCommand(c, c->argv + 3, numkeys, wherefrom, whereto, timeout, is_block);
 }
 
 /* BRPOPLPUSH <source> <destination> <timeout> */
@@ -1206,4 +1322,14 @@ void lmpopCommand(client *c) {
 /* BLMPOP timeout numkeys [<key> ...] LEFT|RIGHT [COUNT count] */
 void blmpopCommand(client *c) {
     lmpopGenericCommand(c, 2, 1);
+}
+
+/* LMMOVE destination numkeys [srckey1 ...] LEFT|RIGHT LEFT|RIGHT */
+void lmMoveCommand(client *c){
+    lmMoveGenericCommand(c, 0);
+}
+
+/* BLMMOVE destination numkeys [srckey1 ...] LEFT|RIGHT LEFT|RIGHT timeout */
+void blmMoveCommand(client *c){
+    lmMoveGenericCommand(c, 1);
 }
