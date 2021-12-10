@@ -462,15 +462,19 @@ void loadServerConfigFromString(char *config) {
             }
         }
 
-        for (deprecatedConfig *config = deprecated_configs; config->name != NULL; config++) {
-            if (!strcasecmp(argv[0], config->name) && 
-                config->argc_min <= argc && 
-                argc <= config->argc_max) 
-            {
-                match = 1;
-                break;
+        //If there's no matching above, we try matching them with deprecated configs
+        if (!match) {
+            for (deprecatedConfig *config = deprecated_configs; config->name != NULL; config++) {
+                if (!strcasecmp(argv[0], config->name) && 
+                    config->argc_min <= argc && 
+                    argc <= config->argc_max) 
+                {
+                    match = 1;
+                    break;
+                }
             }
         }
+        
 
         if (match) {
             sdsfreesplitres(argv,argc);
