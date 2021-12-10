@@ -791,7 +791,7 @@ err:
     if (invalid_arg_name) {
         addReplyErrorFormat(c,"Unknown option or number of arguments for CONFIG SET - '%s'", invalid_arg_name);
     } else if (errstr) {
-        addReplyErrorFormat(c,"argument '%s' for CONFIG SET failed - %s", err_arg_name, errstr);
+        addReplyErrorFormat(c,"CONFIG SET failed (possibly related to argument '%s') - %s", err_arg_name, errstr);
     } else {
         addReplyError(c,"Invalid arguments");
     }
