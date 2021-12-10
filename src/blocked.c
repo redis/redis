@@ -352,7 +352,6 @@ void serveClientsBlockedOnSortedSetKey(robj *o, readyList *rl) {
             monotime replyTimer;
             elapsedStart(&replyTimer);
             genericZpopCommand(receiver, &rl->key, 1, where, 1, count, use_nested_array, reply_nil_when_empty, &deleted);
-            updateStatsOnUnblock(receiver, 0, elapsedUs(replyTimer));
 
             /* Replicate the command. */
             int argc = 2;
@@ -370,6 +369,7 @@ void serveClientsBlockedOnSortedSetKey(robj *o, readyList *rl) {
             decrRefCount(argv[1]);
             if (count != -1) decrRefCount(argv[2]);
 
+            updateStatsOnUnblock(receiver, 0, elapsedUs(replyTimer));
             unblockClient(receiver);
             afterCommand(receiver);
             server.current_client = old_client;
@@ -475,7 +475,6 @@ void serveClientsBlockedOnStreamKey(robj *o, readyList *rl) {
                                      receiver->bpop.xread_count,
                                      0, group, consumer, noack, &pi);
                 updateStatsOnUnblock(receiver, 0, elapsedUs(replyTimer));
-
                 /* Note that after we unblock the client, 'gt'
                  * and other receiver->bpop stuff are no longer
                  * valid, so we must do the setup above before
@@ -533,7 +532,6 @@ void serveClientsBlockedOnKeyByModule(readyList *rl) {
             elapsedStart(&replyTimer);
             if (!moduleTryServeClientBlockedOnKey(receiver, rl->key)) continue;
             updateStatsOnUnblock(receiver, 0, elapsedUs(replyTimer));
-
             moduleUnblockClient(receiver);
             afterCommand(receiver);
             server.current_client = old_client;
@@ -564,7 +562,6 @@ void serveClientsBlockedOnKeyByModule(readyList *rl) {
  * do, the function is already fair. */
 void handleClientsBlockedOnKeys(void) {
     server.core_propagates = 1;
-    server.propagate_no_wrap = 1;
 
     while(listLength(server.ready_keys) != 0) {
         list *l;
@@ -620,7 +617,6 @@ void handleClientsBlockedOnKeys(void) {
 
     serverAssert(server.core_propagates == 1); /* This function should not be re-entrant */
     server.core_propagates = 0;
-    server.propagate_no_wrap = 0;
 }
 
 /* This is how the current blocking lists/sorted sets/streams work, we use

@@ -1352,7 +1352,7 @@ struct redisServer {
     int in_script;              /* Are we inside EVAL? */
     int in_exec;                /* Are we inside EXEC? */
     int core_propagates;        /* True if the core (in oppose to the module subsystem) is in charge of calling propagatePendingCommands */
-    int propagate_no_wrap;      /* True if propagatePendingCommands should avoid wrapping command in MULTI/EXEC */
+    int propagate_no_multi;      /* True if propagatePendingCommands should avoid wrapping command in MULTI/EXEC */
     char *ignore_warnings;      /* Config: warnings that should be ignored. */
     int client_pause_in_transaction; /* Was a client pause executed during this Exec? */
     int thp_enabled;                 /* If true, THP is enabled. */

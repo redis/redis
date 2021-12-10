@@ -4301,7 +4301,7 @@ void initServer(void) {
     server.in_script = 0;
     server.in_exec = 0;
     server.core_propagates = 0;
-    server.propagate_no_wrap = 0;
+    server.propagate_no_multi = 0;
     server.client_pause_in_transaction = 0;
     server.child_pid = -1;
     server.child_type = CHILD_TYPE_NONE;
@@ -4935,7 +4935,7 @@ void propagatePendingCommands() {
      *
      * And if the array contains only one command, no need to
      * wrap it, since the single command is atomic. */
-    if (server.also_propagate.numops > 1 && !server.propagate_no_wrap) {
+    if (server.also_propagate.numops > 1 && !server.propagate_no_multi) {
         /* We use the first command-to-propagate to set the dbid for MULTI,
          * so that the SELECT will be propagated beforehand */
         int multi_dbid = server.also_propagate.ops[0]->dbid;

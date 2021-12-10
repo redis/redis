@@ -415,6 +415,8 @@ start_server {tags {"multi"}} {
     } {} {needs:repl}
 
     test {MULTI / EXEC with REPLICAOF} {
+        # This test verifies that if we demote a master to replica inside a transaction, the
+        # entire transaction is not propagated to the already-connected replica
         set repl [attach_to_replication_stream]
         r set foo bar
         r multi

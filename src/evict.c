@@ -564,8 +564,11 @@ int performEvictions(void) {
     /* Sanity: There can't be any pending commands to propagate when
      * we're in a timer or when we're in processCommand */
     serverAssert(server.also_propagate.numops == 0);
+    /* Unlike active-expire and blocked client, we can reach here from 'CONFIG SET maxmemory'
+     * so we have to back-up and restore server.core_propagates. */
+    int prev_core_propagates = server.core_propagates;
     server.core_propagates = 1;
-    server.propagate_no_wrap = 1;
+    server.propagate_no_multi = 1;
 
     while (mem_freed < (long long)mem_tofree) {
         int j, k, i;
@@ -654,7 +657,6 @@ int performEvictions(void) {
         if (bestkey) {
             db = server.db+bestdbid;
             robj *keyobj = createStringObject(bestkey,sdslen(bestkey));
-            propagateDeletion(db,keyobj,server.lazyfree_lazy_eviction);
             /* We compute the amount of memory freed by db*Delete() alone.
              * It is possible that actually the memory needed to propagate
              * the DEL in AOF and replication link is greater than the one
@@ -679,6 +681,7 @@ int performEvictions(void) {
             signalModifiedKey(NULL,db,keyobj);
             notifyKeyspaceEvent(NOTIFY_EVICTED, "evicted",
                 keyobj, db->id);
+            propagateDeletion(db,keyobj,server.lazyfree_lazy_eviction);
             decrRefCount(keyobj);
             keys_freed++;
 
@@ -739,8 +742,8 @@ cant_free:
     propagatePendingCommands();
 
     serverAssert(server.core_propagates == 1); /* This function should not be re-entrant */
-    server.core_propagates = 0;
-    server.propagate_no_wrap = 0;
+    server.core_propagates = prev_core_propagates;
+    server.propagate_no_multi = 0;
 
     latencyEndMonitor(latency);
     latencyAddSampleIfNeeded("eviction-cycle",latency);

@@ -112,6 +112,93 @@ tags "modules" {
                         {del asdf*}
                     }
                     close_replication_stream $repl
+
+                    $master debug set-active-expire 0
+                }
+
+                test {module propagation with notifications with eviction case 1} {
+                    $master flushall
+                    $master set asdf1 1
+                    $master set asdf2 2
+                    $master set asdf3 3
+          
+                    $master config set maxmemory-policy allkeys-random
+                    $master config set maxmemory 1
+
+                    # Please note the following loop:
+                    # We evict a key and send a notification, which does INCR on the "notifications" key, so
+                    # that every time we evict any key, "notifications" key exist (it happens inside the
+                    # performEvictions loop). So even evicting "notifications" causes INCR on "notifications".
+                    # If maxmemory_eviction_tenacity would have been set to 100 this would be an endless loop, but
+                    # since the default is 10, at some point the performEvictions loop would end.
+                    # Bottom line: "notifications" always exists and we can't really determine the order of evictions
+                    # This test is here only for sanity
+
+                    wait_for_condition 5000 10 {
+                        [$replica dbsize] eq 1
+                    } else {
+                        fail "Not all keys have been evicted"
+                    }
+
+                    $master config set maxmemory 0
+                    $master config set maxmemory-policy noeviction
+                }
+
+                test {module propagation with notifications with eviction case 2} {
+                    $master flushall
+                    set repl [attach_to_replication_stream]
+
+                    $master set asdf1 1 EX 300
+                    $master set asdf2 2 EX 300
+                    $master set asdf3 3 EX 300
+
+                    # Please note we use volatile eviction to prevent the loop described in the test above.
+                    # "notifications" is not volatile so it always remains
+                    $master config set maxmemory-policy volatile-ttl
+                    $master config set maxmemory 1
+
+                    wait_for_condition 5000 10 {
+                        [$replica dbsize] eq 1
+                    } else {
+                        fail "Not all keys have been evicted"
+                    }
+
+                    $master config set maxmemory 0
+                    $master config set maxmemory-policy noeviction
+
+                    $master set asdf4 4
+
+                    # Note whenever there's double notification: SET with EX issues two separate
+                    # notifications: one for "set" and one for "expire"
+                    assert_replication_stream $repl {
+                        {select *}
+                        {multi}
+                        {incr notifications}
+                        {incr notifications}
+                        {set asdf1 1 PXAT *}
+                        {exec}
+                        {multi}
+                        {incr notifications}
+                        {incr notifications}
+                        {set asdf2 2 PXAT *}
+                        {exec}
+                        {multi}
+                        {incr notifications}
+                        {incr notifications}
+                        {set asdf3 3 PXAT *}
+                        {exec}
+                        {incr notifications}
+                        {del asdf*}
+                        {incr notifications}
+                        {del asdf*}
+                        {incr notifications}
+                        {del asdf*}
+                        {multi}
+                        {incr notifications}
+                        {set asdf4 4}
+                        {exec}
+                    }
+                    close_replication_stream $repl
                 }
 
                 test {module propagates nested ctx case1} {
