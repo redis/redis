@@ -421,7 +421,7 @@ start_server {tags {"introspection"}} {
         # Verify we got both name and alias in result
         assert {[dict exists $res slaveof] && [dict exists $res replicaof]}  
 
-        # Verify pattern found multiples maxmemory* configs
+        # Verify pattern found multiple maxmemory* configs
         assert {[dict exists $res maxmemory] && [dict exists $res maxmemory-samples] && [dict exists $res maxmemory-clients]}  
 
         # Verify we also got the explicit config
