@@ -474,7 +474,6 @@ void loadServerConfigFromString(char *config) {
                 }
             }
         }
-        
 
         if (match) {
             sdsfreesplitres(argv,argc);
