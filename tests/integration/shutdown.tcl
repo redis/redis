@@ -64,7 +64,7 @@ foreach how {sigterm shutdown} {
                 } else {
                     fail "Master not indicating ongoing shutdown."
                 }
-                assert {[s -1 shutdown_flags] == {w}}
+                assert {[s -1 shutdown_flags] == {}}
 
                 # Wake up replica and check if master has waited for it.
                 after 20; # 2 cron intervals
@@ -121,9 +121,9 @@ test {Shutting down master waits for replica timeout} {
             } else {
                 fail "Master not indicating ongoing shutdown."
             }
-            assert {[s -1 shutdown_flags] == {w}}
+            assert {[s -1 shutdown_flags] == {}}
 
-            # Let master finish shuting down and check log.
+            # Let master finish shutting down and check log.
             wait_for_log_messages -1 {"*ready to exit, bye bye*"} 0 100 100
             verify_log_message -1 "*Lagging replica*" 0
             verify_log_message -1 "*0 of 1 replicas are in sync*" 0

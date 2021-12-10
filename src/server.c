@@ -3091,7 +3091,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* We received a SIGTERM, shutting down here in a safe way, as it is
      * not ok doing so inside the signal handler. */
     if (server.shutdown_asap && !isShutdownInitiated()) {
-        if (prepareForShutdown(SHUTDOWN_WAIT_REPL) == C_OK) exit(0);
+        if (prepareForShutdown(SHUTDOWN_NOFLAGS) == C_OK) exit(0);
     } else if (isShutdownInitiated()) {
         if (server.mstime >= server.shutdown_mstime || isReadyToShutdown()) {
             if (finishShutdown() == C_OK) exit(0);
@@ -3801,9 +3801,9 @@ int restartServer(int flags, mstime_t delay) {
         return C_ERR;
     }
 
-    /* Perform a proper shutdown. */
+    /* Perform a proper shutdown. We don't wait for lagging replicas though. */
     if (flags & RESTART_SERVER_GRACEFULLY &&
-        prepareForShutdown(SHUTDOWN_NOFLAGS) != C_OK)
+        prepareForShutdown(SHUTDOWN_NOW) != C_OK)
     {
         serverLog(LL_WARNING,"Can't restart: error preparing for shutdown");
         return C_ERR;
@@ -5453,7 +5453,7 @@ int processCommand(client *c) {
           c->cmd->proc != quitCommand &&
           c->cmd->proc != resetCommand &&
         !(c->cmd->proc == shutdownCommand &&
-          c->argc == 2 &&
+          c->argc >= 2 && // FIXME
           tolower(((char*)c->argv[1]->ptr)[0]) == 'n') &&
         !(c->cmd->proc == scriptCommand &&
           c->argc == 2 &&
@@ -5541,9 +5541,9 @@ void closeListeningSockets(int unlink_unix_socket) {
  * - SHUTDOWN_NOSAVE: Don't save any database dump even if the server is
  *   configured to save one.
  *
- * - SHUTDOWN_WAIT_REPL: Wait for replicas to catch up before shutting down.
+ * - SHUTDOWN_NOW: Don't wait for replicas to catch up before shutting down.
  *
- * If SHUTDOWN_WAIT_REPL is set and any replicas are lagging behind, C_ERR is
+ * Unless SHUTDOWN_NOW is set and if any replicas are lagging behind, C_ERR is
  * returned and server.shutdown_mstime is set to a timestamp to allow a grace
  * period for the replicas to catch up. This is checked and handled by
  * serverCron() which completes the shutdown as soon as possible.
@@ -5572,7 +5572,7 @@ int prepareForShutdown(int flags) {
 
     /* If we have any replicas, let them catch up the replication offset before
      * we shut down, to avoid data loss. */
-    if ((flags & SHUTDOWN_WAIT_REPL) &&
+    if (!(flags & SHUTDOWN_NOW) &&
         server.shutdown_timeout != 0 &&
         !isReadyToShutdown())
     {
@@ -5612,6 +5612,7 @@ int finishShutdown(void) {
 
     int save = server.shutdown_flags & SHUTDOWN_SAVE;
     int nosave = server.shutdown_flags & SHUTDOWN_NOSAVE;
+    int force = server.shutdown_flags & SHUTDOWN_FORCE;
 
     /* Log a warning for each replica that is lagging. */
     listIter replicas_iter;
@@ -5667,8 +5668,12 @@ int finishShutdown(void) {
             /* If we have AOF enabled but haven't written the AOF yet, don't
              * shutdown or else the dataset will be lost. */
             if (server.aof_state == AOF_WAIT_REWRITE) {
-                serverLog(LL_WARNING, "Writing initial AOF, can't exit.");
-                goto error;
+                if (force) {
+                    serverLog(LL_WARNING, "Writing initial AOF. Exit anyway.");
+                } else {
+                    serverLog(LL_WARNING, "Writing initial AOF, can't exit.");
+                    goto error;
+                }
             }
             serverLog(LL_WARNING,
                 "There is a child rewriting the AOF. Killing it!");
@@ -5697,10 +5702,14 @@ int finishShutdown(void) {
              * in the next cron() Redis will be notified that the background
              * saving aborted, handling special stuff like slaves pending for
              * synchronization... */
-            serverLog(LL_WARNING,"Error trying to save the DB, can't exit.");
-            if (server.supervised_mode == SUPERVISED_SYSTEMD)
-                redisCommunicateSystemd("STATUS=Error trying to save the DB, can't exit.\n");
-            goto error;
+            if (force) {
+                serverLog(LL_WARNING,"Error trying to save the DB. Exit anyway.");
+            } else {
+                serverLog(LL_WARNING,"Error trying to save the DB, can't exit.");
+                if (server.supervised_mode == SUPERVISED_SYSTEMD)
+                    redisCommunicateSystemd("STATUS=Error trying to save the DB, can't exit.\n");
+                goto error;
+            }
         }
     }
 
@@ -6368,7 +6377,7 @@ sds genRedisInfoString(const char *section) {
             int i = 0;
             if (server.shutdown_flags & SHUTDOWN_SAVE) flagstr[i++] = 's';
             if (server.shutdown_flags & SHUTDOWN_NOSAVE) flagstr[i++] = 'n';
-            if (server.shutdown_flags & SHUTDOWN_WAIT_REPL) flagstr[i++] = 'w';
+            if (server.shutdown_flags & SHUTDOWN_FORCE) flagstr[i++] = 'f';
             info = sdscatfmt(info,
                 "shutdown_in_milliseconds:%I\r\n"
                 "shutdown_flags:%s\r\n",

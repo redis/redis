@@ -476,7 +476,8 @@ typedef enum {
 #define SHUTDOWN_SAVE 1         /* Force SAVE on SHUTDOWN even if no save
                                    points are configured. */
 #define SHUTDOWN_NOSAVE 2       /* Don't SAVE on SHUTDOWN. */
-#define SHUTDOWN_WAIT_REPL 4    /* Wait for replicas to catch up. */
+#define SHUTDOWN_NOW 4          /* Don't wait for replicas to catch up. */
+#define SHUTDOWN_FORCE 8        /* Don't let errors prevent shutdown. */
 
 /* Command call flags, see call() function */
 #define CMD_CALL_NONE 0

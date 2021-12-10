@@ -1022,21 +1022,27 @@ void typeCommand(client *c) {
 }
 
 void shutdownCommand(client *c) {
-    int flags = SHUTDOWN_WAIT_REPL;
-
-    if (c->argc > 2) {
-        addReplyErrorObject(c,shared.syntaxerr);
-        return;
-    } else if (c->argc == 2) {
-        if (!strcasecmp(c->argv[1]->ptr,"nosave")) {
+    int flags = SHUTDOWN_NOFLAGS;
+    for (int i = 1; i < c->argc; i++) {
+        if (!strcasecmp(c->argv[i]->ptr,"nosave")) {
             flags |= SHUTDOWN_NOSAVE;
-        } else if (!strcasecmp(c->argv[1]->ptr,"save")) {
+        } else if (!strcasecmp(c->argv[i]->ptr,"save")) {
             flags |= SHUTDOWN_SAVE;
+        } else if (!strcasecmp(c->argv[i]->ptr, "now")) {
+            flags |= SHUTDOWN_NOW;
+        } else if (!strcasecmp(c->argv[i]->ptr, "force")) {
+            flags |= SHUTDOWN_FORCE;
         } else {
             addReplyErrorObject(c,shared.syntaxerr);
             return;
         }
     }
+    if (flags & SHUTDOWN_NOSAVE && flags & SHUTDOWN_SAVE) {
+        /* Illegal combo. */
+        addReplyErrorObject(c,shared.syntaxerr);
+        return;
+    }
+
     blockClient(c, BLOCKED_SHUTDOWN);
     if (prepareForShutdown(flags) == C_OK) exit(0);
     /* If we're here, then shutdown is ongoing (the client is still blocked) or
