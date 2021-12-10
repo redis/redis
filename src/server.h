@@ -1201,7 +1201,7 @@ typedef struct redisOp {
  * redisOpArrayFree();
  */
 typedef struct redisOpArray {
-    redisOp **ops;
+    redisOp *ops;
     int numops;
     int capacity;
 } redisOpArray;

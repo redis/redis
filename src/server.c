@@ -4707,13 +4707,12 @@ int redisOpArrayAppend(redisOpArray *oa, int dbid, robj **argv, int argc, int ta
     }
 
     if (prev_capacity != oa->capacity)
-        oa->ops = zrealloc(oa->ops,sizeof(redisOp *)*oa->capacity);
-    op = zmalloc(sizeof(*op));
+        oa->ops = zrealloc(oa->ops,sizeof(redisOp)*oa->capacity);
+    op = oa->ops+oa->numops;
     op->dbid = dbid;
     op->argv = argv;
     op->argc = argc;
     op->target = target;
-    oa->ops[oa->numops] = op;
     oa->numops++;
     return oa->numops;
 }
@@ -4724,11 +4723,10 @@ void redisOpArrayFree(redisOpArray *oa) {
         redisOp *op;
 
         oa->numops--;
-        op = oa->ops[oa->numops];
+        op = oa->ops+oa->numops;
         for (j = 0; j < op->argc; j++)
             decrRefCount(op->argv[j]);
         zfree(op->argv);
-        zfree(op);
     }
     zfree(oa->ops);
     redisOpArrayInit(oa);
@@ -4938,20 +4936,20 @@ void propagatePendingCommands() {
     if (server.also_propagate.numops > 1 && !server.propagate_no_multi) {
         /* We use the first command-to-propagate to set the dbid for MULTI,
          * so that the SELECT will be propagated beforehand */
-        int multi_dbid = server.also_propagate.ops[0]->dbid;
+        int multi_dbid = server.also_propagate.ops[0].dbid;
         propagateNow(multi_dbid,&shared.multi,1,PROPAGATE_AOF|PROPAGATE_REPL);
         multi_emitted = 1;
     }
 
     for (j = 0; j < server.also_propagate.numops; j++) {
-        rop = server.also_propagate.ops[j];
+        rop = &server.also_propagate.ops[j];
         serverAssert(rop->target);
         propagateNow(rop->dbid,rop->argv,rop->argc,rop->target);
     }
 
     if (multi_emitted) {
         /* We take the dbid from last command so that propagateNow() won't inject another SELECT */
-        int exec_dbid = server.also_propagate.ops[server.also_propagate.numops-1]->dbid;
+        int exec_dbid = server.also_propagate.ops[server.also_propagate.numops-1].dbid;
         propagateNow(exec_dbid,&shared.exec,1,PROPAGATE_AOF|PROPAGATE_REPL);
     }
 
