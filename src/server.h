@@ -260,7 +260,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CLIENT_CLOSE_AFTER_REPLY (1<<6) /* Close after writing entire reply. */
 #define CLIENT_UNBLOCKED (1<<7) /* This client was unblocked and is stored in
                                   server.unblocked_clients */
-#define CLIENT_LUA (1<<8) /* This is a non connected client used by Lua */
+#define CLIENT_SCRIPT (1<<8) /* This is a non connected client used by Lua */
 #define CLIENT_ASKING (1<<9)     /* Client issued the ASKING command */
 #define CLIENT_CLOSE_ASAP (1<<10)/* Close this client ASAP */
 #define CLIENT_UNIX_SOCKET (1<<11) /* Client connected via Unix domain socket */
@@ -829,6 +829,19 @@ typedef struct redisDb {
     clusterSlotToKeyMapping *slots_to_keys; /* Array of slots to keys. Only used in cluster mode (db 0). */
 } redisDb;
 
+/* forward declaration for functions ctx */
+typedef struct functionsCtx functionsCtx;
+
+/* Holding object that need to be populated during
+ * rdb loading. On loading end it is possible to decide
+ * whether not to set those objects on their rightful place.
+ * For example: dbarray need to be set as main database on
+ *              successful loading and dropped on failure. */
+typedef struct rdbLoadingCtx {
+    redisDb* dbarray;
+    functionsCtx* functions_ctx;
+}rdbLoadingCtx;
+
 /* Client MULTI/EXEC state */
 typedef struct multiCmd {
     robj **argv;
@@ -1129,7 +1142,7 @@ struct sharedObjectsStruct {
     robj *crlf, *ok, *err, *emptybulk, *czero, *cone, *pong, *space,
     *queued, *null[4], *nullarray[4], *emptymap[4], *emptyset[4],
     *emptyarray, *wrongtypeerr, *nokeyerr, *syntaxerr, *sameobjecterr,
-    *outofrangeerr, *noscripterr, *loadingerr, *slowscripterr, *bgsaveerr,
+    *outofrangeerr, *noscripterr, *loadingerr, *slowevalerr, *slowscripterr, *bgsaveerr,
     *masterdownerr, *roslaveerr, *execaborterr, *noautherr, *noreplicaserr,
     *busykeyerr, *oomerr, *plus, *messagebulk, *pmessagebulk, *subscribebulk,
     *unsubscribebulk, *psubscribebulk, *punsubscribebulk, *del, *unlink,
@@ -1210,6 +1223,7 @@ struct redisMemOverhead {
     size_t clients_normal;
     size_t aof_buffer;
     size_t lua_caches;
+    size_t functions_caches;
     size_t overhead_total;
     size_t dataset;
     size_t total_keys;
@@ -1236,7 +1250,7 @@ struct redisMemOverhead {
  * order to implement additional functionalities, by storing and loading
  * metadata to the RDB file.
  *
- * Currently the only use is to select a DB at load time, useful in
+ * For example, to use select a DB at load time, useful in
  * replication in order to make sure that chained slaves (slaves of slaves)
  * select the correct DB and are able to accept the stream coming from the
  * top-level master. */
@@ -1343,7 +1357,7 @@ struct redisServer {
     int sentinel_mode;          /* True if this instance is a Sentinel. */
     size_t initial_memory_usage; /* Bytes used after initialization. */
     int always_show_logo;       /* Show logo even for non-stdout logging. */
-    int in_eval;                /* Are we inside EVAL? */
+    int in_script;                /* Are we inside EVAL? */
     int in_exec;                /* Are we inside EXEC? */
     int propagate_in_transaction;  /* Make sure we don't propagate nested MULTI/EXEC */
     char *ignore_warnings;      /* Config: warnings that should be ignored. */
@@ -1662,7 +1676,6 @@ struct redisServer {
     int lfu_log_factor;             /* LFU logarithmic counter factor. */
     int lfu_decay_time;             /* LFU counter decay factor. */
     long long proto_max_bulk_len;   /* Protocol bulk length maximum size. */
-    int oom_score_adj_base;         /* Base oom_score_adj value, as observed on startup */
     int oom_score_adj_values[CONFIG_OOM_COUNT];   /* Linux oom_score_adj configuration */
     int oom_score_adj;                            /* If true, oom_score_adj is managed */
     int disable_thp;                              /* If true, disable THP by syscall */
@@ -1731,28 +1744,11 @@ struct redisServer {
                                         is down? */
     int cluster_config_file_lock_fd;   /* cluster config fd, will be flock */
     /* Scripting */
-    lua_State *lua; /* The Lua interpreter. We use just one for all clients */
-    client *lua_client;   /* The "fake client" to query Redis from Lua */
-    client *lua_caller;   /* The client running EVAL right now, or NULL */
-    char* lua_cur_script; /* SHA1 of the script currently running, or NULL */
-    dict *lua_scripts;         /* A dictionary of SHA1 -> Lua scripts */
-    unsigned long long lua_scripts_mem;  /* Cached scripts' memory + oh */
-    mstime_t lua_time_limit;  /* Script timeout in milliseconds */
-    monotime lua_time_start;  /* monotonic timer to detect timed-out script */
-    mstime_t lua_time_snapshot; /* Snapshot of mstime when script is started */
-    int lua_write_dirty;  /* True if a write command was called during the
-                             execution of the current script. */
-    int lua_random_dirty; /* True if a random command was called during the
-                             execution of the current script. */
-    int lua_replicate_commands; /* True if we are doing single commands repl. */
-    int lua_multi_emitted;/* True if we already propagated MULTI. */
-    int lua_repl;         /* Script replication flags for redis.set_repl(). */
-    int lua_timedout;     /* True if we reached the time limit for script
-                             execution. */
-    int lua_kill;         /* Kill the script if true. */
+    client *script_caller;       /* The client running script right now, or NULL */
+    mstime_t script_time_limit;  /* Script timeout in milliseconds */
     int lua_always_replicate_commands; /* Default replication type. */
-    int lua_oom;          /* OOM detected when script start? */
-    int lua_disable_deny_script; /* Allow running commands marked "no-script" inside a script. */
+    int script_oom;                    /* OOM detected when script start */
+    int script_disable_deny_script;    /* Allow running commands marked "no-script" inside a script. */
     /* Lazy free */
     int lazyfree_lazy_eviction;
     int lazyfree_lazy_expire;
@@ -2314,7 +2310,7 @@ void replicationCron(void);
 void replicationStartPendingFork(void);
 void replicationHandleMasterDisconnection(void);
 void replicationCacheMaster(client *c);
-void resizeReplicationBacklog(long long newsize);
+void resizeReplicationBacklog();
 void replicationSetMaster(char *ip, int port);
 void replicationUnsetMaster(void);
 void refreshGoodSlavesCount(void);
@@ -2512,7 +2508,7 @@ void setupSignalHandlers(void);
 void removeSignalHandlers(void);
 int createSocketAcceptHandler(socketFds *sfd, aeFileProc *accept_handler);
 int changeListenPort(int port, socketFds *sfd, aeFileProc *accept_handler);
-int changeBindAddr(sds *addrlist, int addrlist_len);
+int changeBindAddr(void);
 struct redisCommand *lookupCommand(robj **argv ,int argc);
 struct redisCommand *lookupCommandBySdsLogic(dict *commands, sds s);
 struct redisCommand *lookupCommandBySds(sds s);
@@ -2702,6 +2698,7 @@ int sintercardGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysRes
 int zunionInterDiffGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
 int zunionInterDiffStoreGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
 int evalGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
+int functionGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int georadiusGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
@@ -2737,8 +2734,17 @@ void scriptingInit(int setup);
 int ldbRemoveChild(pid_t pid);
 void ldbKillForkedSessions(void);
 int ldbPendingChildren(void);
-sds luaCreateFunction(client *c, lua_State *lua, robj *body);
+sds luaCreateFunction(client *c, robj *body);
+void luaLdbLineHook(lua_State *lua, lua_Debug *ar);
 void freeLuaScriptsAsync(dict *lua_scripts);
+int ldbIsEnabled();
+void ldbLog(sds entry);
+void ldbLogRedisReply(char *reply);
+void sha1hex(char *digest, char *script, size_t len);
+unsigned long evalMemory();
+dict* evalScriptsDict();
+unsigned long evalScriptsMemory();
+mstime_t evalTimeSnapshot();
 
 /* Blocked clients */
 void processUnblockedClients(void);
@@ -2784,6 +2790,7 @@ uint64_t dictSdsCaseHash(const void *key);
 int dictSdsKeyCompare(dict *d, const void *key1, const void *key2);
 int dictSdsKeyCaseCompare(dict *d, const void *key1, const void *key2);
 void dictSdsDestructor(dict *d, void *val);
+void *dictSdsDup(dict *d, const void *key);
 
 /* Git SHA1 */
 char *redisGitSHA1(void);
@@ -3079,6 +3086,7 @@ void swapMainDbWithTempDb(redisDb *tempDb);
 void tlsInit(void);
 void tlsCleanup(void);
 int tlsConfigure(redisTLSContextConfig *ctx_config);
+int isTlsConfigured(void);
 
 #define redisDebug(fmt, ...) \
     printf("DEBUG %s:%d > " fmt "\n", __FILE__, __LINE__, __VA_ARGS__)

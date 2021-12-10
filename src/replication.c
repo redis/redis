@@ -32,6 +32,7 @@
 #include "server.h"
 #include "cluster.h"
 #include "bio.h"
+#include "functions.h"
 
 #include <memory.h>
 #include <sys/time.h>
@@ -122,17 +123,13 @@ void createReplicationBacklog(void) {
 }
 
 /* This function is called when the user modifies the replication backlog
- * size at runtime. It is up to the function to both update the
- * server.repl_backlog_size and to resize the buffer and setup it so that
- * it contains the same data as the previous one (possibly less data, but
- * the most recent bytes, or the same data and more free space in case the
+ * size at runtime. It is up to the function to resize the buffer and setup it
+ * so that it contains the same data as the previous one (possibly less data,
+ * but the most recent bytes, or the same data and more free space in case the
  * buffer is enlarged). */
-void resizeReplicationBacklog(long long newsize) {
-    if (newsize < CONFIG_REPL_BACKLOG_MIN_SIZE)
-        newsize = CONFIG_REPL_BACKLOG_MIN_SIZE;
-    if (server.repl_backlog_size == newsize) return;
-
-    server.repl_backlog_size = newsize;
+void resizeReplicationBacklog(void) {
+    if (server.repl_backlog_size < CONFIG_REPL_BACKLOG_MIN_SIZE)
+        server.repl_backlog_size = CONFIG_REPL_BACKLOG_MIN_SIZE;
     if (server.repl_backlog)
         incrementalTrimReplicationBacklog(REPL_BACKLOG_TRIM_BLOCKS_PER_CALL);
 }
@@ -550,7 +547,7 @@ void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv,
 
     gettimeofday(&tv,NULL);
     cmdrepr = sdscatprintf(cmdrepr,"%ld.%06ld ",(long)tv.tv_sec,(long)tv.tv_usec);
-    if (c->flags & CLIENT_LUA) {
+    if (c->flags & CLIENT_SCRIPT) {
         cmdrepr = sdscatprintf(cmdrepr,"[%d lua] ",dictid);
     } else if (c->flags & CLIENT_UNIX_SOCKET) {
         cmdrepr = sdscatprintf(cmdrepr,"[%d unix:%s] ",dictid,server.unixsocket);
@@ -1742,6 +1739,7 @@ void readSyncBulkPayload(connection *conn) {
     ssize_t nread, readlen, nwritten;
     int use_diskless_load = useDisklessLoad();
     redisDb *diskless_load_tempDb = NULL;
+    functionsCtx* temp_functions_ctx = NULL;
     int empty_db_flags = server.repl_slave_lazy_flush ? EMPTYDB_ASYNC :
                                                         EMPTYDB_NO_FLAGS;
     off_t left;
@@ -1917,6 +1915,7 @@ void readSyncBulkPayload(connection *conn) {
     if (use_diskless_load && server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB) {
         /* Initialize empty tempDb dictionaries. */
         diskless_load_tempDb = disklessLoadInitTempDb();
+        temp_functions_ctx = functionsCtxCreate();
 
         moduleFireServerEvent(REDISMODULE_EVENT_REPL_ASYNC_LOAD,
                               REDISMODULE_SUBEVENT_REPL_ASYNC_LOAD_STARTED,
@@ -1939,6 +1938,7 @@ void readSyncBulkPayload(connection *conn) {
     if (use_diskless_load) {
         rio rdb;
         redisDb *dbarray;
+        functionsCtx* functions_ctx;
         int asyncLoading = 0;
 
         if (server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB) {
@@ -1951,8 +1951,11 @@ void readSyncBulkPayload(connection *conn) {
                 asyncLoading = 1;
             }
             dbarray = diskless_load_tempDb;
+            functions_ctx = temp_functions_ctx;
         } else {
             dbarray = server.db;
+            functions_ctx = functionsCtxGetCurrent();
+            functionsCtxClear(functions_ctx);
         }
 
         rioInitWithConn(&rdb,conn,server.repl_transfer_size);
@@ -1964,7 +1967,8 @@ void readSyncBulkPayload(connection *conn) {
         startLoading(server.repl_transfer_size, RDBFLAGS_REPLICATION, asyncLoading);
 
         int loadingFailed = 0;
-        if (rdbLoadRio(&rdb,RDBFLAGS_REPLICATION,&rsi,dbarray) != C_OK) {
+        rdbLoadingCtx loadingCtx = { .dbarray = dbarray, .functions_ctx = functions_ctx };
+        if (rdbLoadRioWithLoadingCtx(&rdb,RDBFLAGS_REPLICATION,&rsi,&loadingCtx) != C_OK) {
             /* RDB loading failed. */
             serverLog(LL_WARNING,
                       "Failed trying to load the MASTER synchronization DB "
@@ -1992,6 +1996,7 @@ void readSyncBulkPayload(connection *conn) {
                                       NULL);
 
                 disklessLoadDiscardTempDb(diskless_load_tempDb);
+                functionsCtxFree(temp_functions_ctx);
                 serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Discarding temporary DB in background");
             } else {
                 /* Remove the half-loaded data in case we started with an empty replica. */
@@ -2013,6 +2018,9 @@ void readSyncBulkPayload(connection *conn) {
 
             serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Swapping active DB with loaded DB");
             swapMainDbWithTempDb(diskless_load_tempDb);
+
+            /* swap existing functions ctx with the temporary one */
+            functionsCtxSwapWithCurrent(temp_functions_ctx);
 
             moduleFireServerEvent(REDISMODULE_EVENT_REPL_ASYNC_LOAD,
                         REDISMODULE_SUBEVENT_REPL_ASYNC_LOAD_COMPLETED,
