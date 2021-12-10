@@ -46,7 +46,7 @@ typedef struct configEnum {
 } configEnum;
 
 typedef struct deprecatedConfig {
-    const char* name;
+    const char *name;
     const int argc_min;
     const int argc_max;
 } deprecatedConfig;
