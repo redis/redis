@@ -833,21 +833,6 @@ int getListPositionFromObjectOrReply(client *c, robj *arg, int *position) {
     return C_OK;
 }
 
-void validateSrcKeys(client *c, int keyidx, long *numkeys) {
-    if (getRangeLongFromObjectOrReply(c, c->argv[keyidx], 1, LONG_MAX,
-                                      numkeys, "numkeys should be greater than 0") != C_OK) {
-        addReplyErrorObject(c, shared.syntaxerr);
-        return;
-    }
-
-    /* Parse the where. where_idx: the index of where in the c->argv. */
-    long where_idx = keyidx + *numkeys + 1;
-    if (where_idx >= c->argc) {
-        addReplyErrorObject(c, shared.syntaxerr);
-        return;
-    }
-}
-
 robj *getStringObjectFromListPosition(int position) {
     if (position == LIST_HEAD) {
         return shared.left;
