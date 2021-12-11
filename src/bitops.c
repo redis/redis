@@ -1033,6 +1033,7 @@ void bitfieldGeneric(client *c, int flags) {
     int owtype = BFOVERFLOW_WRAP; /* Overflow type. */
     int readonly = 1;
     uint64_t highest_write_offset = 0;
+    int overflow_provided = 0;
 
     for (j = 2; j < c->argc; j++) {
         int remargs = c->argc-j-1; /* Remaining args other than current. */
@@ -1049,6 +1050,12 @@ void bitfieldGeneric(client *c, int flags) {
         else if (!strcasecmp(subcmd,"incrby") && remargs >= 3)
             opcode = BITFIELDOP_INCRBY;
         else if (!strcasecmp(subcmd,"overflow") && remargs >= 1) {
+            if (flags & BITFIELD_FLAG_READONLY) {
+                addReplyError(c, "BITFIELD_RO doesn't support the OVERFLOW subcommand");
+                zfree(ops);
+                return;
+            }
+            overflow_provided = 1;
             char *owtypename = c->argv[j+1]->ptr;
             j++;
             if (!strcasecmp(owtypename,"wrap"))
@@ -1105,6 +1112,11 @@ void bitfieldGeneric(client *c, int flags) {
     }
 
     if (readonly) {
+        if (overflow_provided) {
+            addReplyError(c, "BITFIELD with only GET doesn't support the OVERFLOW subcommand");
+            zfree(ops);
+            return;
+        }
         /* Lookup for read is ok if key doesn't exit, but errors
          * if it's not a string. */
         o = lookupKeyRead(c->db,c->argv[1]);
