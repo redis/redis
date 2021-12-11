@@ -1092,14 +1092,15 @@ void blockingPopGenericCommand(client *c, robj **keys, int numkeys, int where, i
     blockForKeys(c,BLOCKED_LIST,keys,numkeys,count,timeout,NULL,&pos,NULL);
 }
 
-/* Blocking MULTI MOVE
+/* Blocking MULTI Source Key MOVE
+ * Persists a single key from one of the specified src keys into destination and returns val to client.
  *
  * 'numkeys' is the number of keys.
- * 'timeout_idx' parameter position of block timeout.
+ * 'timeout' parameter position of block timeout.
  * 'wherefrom' LIST_HEAD for LEFT, LIST_TAIL for RIGHT.
  * 'whereto' LIST_HEAD for LEFT, LIST_TAIL for RIGHT.
  *
- * BMMOVE <source-key> [<source-key> ...] <destination> <timeout>
+ * BLMMOVE destination numkeys [srckey1 ...] LEFT|RIGHT LEFT|RIGHT timeout
  */
 void blmMoveGenericCommand(client *c, robj **keys, int numkeys, int wherefrom, int whereto, mstime_t timeout, int is_block) {
     robj *key, *sobj, *dobj, *value;
@@ -1143,7 +1144,7 @@ void blmMoveGenericCommand(client *c, robj **keys, int numkeys, int wherefrom, i
         serverAssert(value); /* assertion for valgrind (avoid NPD) */
         lmoveHandlePush(c, c->argv[1], dobj, value, whereto);
 
-        /* listTypePop returns an object with its refcount incremented */
+        /* listTypePop returns an object with its refcount decremented */
         decrRefCount(value);
 
         /* Notify the source list that a pop has happened. */
@@ -1156,8 +1157,7 @@ void blmMoveGenericCommand(client *c, robj **keys, int numkeys, int wherefrom, i
 
         signalModifiedKey(c, c->db, key);
         server.dirty++;
-
-//        rewriteClientCommandVector(c,5,shared.lmove,c->argv[1],c->argv[2],c->argv[3],c->argv[4]);
+        
         rewriteClientCommandVector(c, 5, shared.lmove, key, c->argv[1], c->argv[srcSideIdx], c->argv[destSideIdx]);
         return;
     }
