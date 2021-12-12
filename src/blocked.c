@@ -561,7 +561,7 @@ void serveClientsBlockedOnKeyByModule(readyList *rl) {
  * be used only for a single type, like virtually any Redis application will
  * do, the function is already fair. */
 void handleClientsBlockedOnKeys(void) {
-    /* This function is called only whne also_propagate is in its basic state
+    /* This function is called only when also_propagate is in its basic state
      * (i.e. not from call(), module context, etc.) */
     serverAssert(server.also_propagate.numops == 0);
     serverAssert(server.core_propagates == CORE_PROPAGATES_UNSET);
