@@ -561,13 +561,19 @@ int performEvictions(void) {
     monotime evictionTimer;
     elapsedStart(&evictionTimer);
 
-    /* Sanity: There can't be any pending commands to propagate when
-     * we're in a timer or when we're in processCommand */
-    serverAssert(server.also_propagate.numops == 0);
     /* Unlike active-expire and blocked client, we can reach here from 'CONFIG SET maxmemory'
      * so we have to back-up and restore server.core_propagates. */
     int prev_core_propagates = server.core_propagates;
-    server.core_propagates = 1;
+    if (server.core_propagates == CORE_PROPAGATES_UNSET) {
+        /* Sanity: There can't be any pending commands to propagate when
+         * we're in a timer or when we're in processCommand */
+        serverAssert(server.also_propagate.numops == 0);
+        server.core_propagates = CORE_PROPAGATES_YES;
+    } else {
+        /* We are in 'CONFIG SET maxmemory' command, someone else is in charge of
+         * propagation (either call() or the module in case it was an RM_Call
+         * outside of call() context). */
+    }
     server.propagate_no_multi = 1;
 
     while (mem_freed < (long long)mem_tofree) {
@@ -738,10 +744,12 @@ cant_free:
         }
     }
 
-    /* Propagate all DELs */
-    propagatePendingCommands();
+    serverAssert(server.core_propagates != CORE_PROPAGATES_UNSET);
 
-    serverAssert(server.core_propagates == 1); /* This function should not be re-entrant */
+    /* Propagate all DELs */
+    if (server.core_propagates == CORE_PROPAGATES_YES)
+        propagatePendingCommands();
+
     server.core_propagates = prev_core_propagates;
     server.propagate_no_multi = 0;
 

@@ -121,6 +121,64 @@ int propagateTestTimerNestedReplCommand(RedisModuleCtx *ctx, RedisModuleString *
     return REDISMODULE_OK;
 }
 
+void timerHandlerMaxmemory(RedisModuleCtx *ctx, void *data) {
+    REDISMODULE_NOT_USED(ctx);
+    REDISMODULE_NOT_USED(data);
+
+    RedisModuleCallReply *reply = RedisModule_Call(ctx,"SETEX","ccc!","timer-maxmemory-start","100","1");
+    RedisModule_FreeCallReply(reply);
+    reply = RedisModule_Call(ctx, "CONFIG", "ccc!", "SET", "maxmemory", "1");
+    RedisModule_FreeCallReply(reply);
+
+    RedisModule_Replicate(ctx, "INCR", "c", "timer-maxmemory-middle");
+
+    reply = RedisModule_Call(ctx, "CONFIG", "ccc", "SET", "maxmemory", "0");
+    RedisModule_FreeCallReply(reply);
+    reply = RedisModule_Call(ctx,"SET","cc!","timer-maxmemory-end","1");
+    RedisModule_FreeCallReply(reply);
+}
+
+int propagateTestTimerMaxmemoryCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+
+    RedisModuleTimerID timer_id =
+        RedisModule_CreateTimer(ctx,100,timerHandlerMaxmemory,(void*)1);
+    REDISMODULE_NOT_USED(timer_id);
+
+    RedisModule_ReplyWithSimpleString(ctx,"OK");
+    return REDISMODULE_OK;
+}
+
+void timerHandlerEval(RedisModuleCtx *ctx, void *data) {
+    REDISMODULE_NOT_USED(ctx);
+    REDISMODULE_NOT_USED(data);
+
+    RedisModuleCallReply *reply = RedisModule_Call(ctx,"INCRBY","cc!","timer-eval-start","1");
+    RedisModule_FreeCallReply(reply);
+    reply = RedisModule_Call(ctx, "EVAL", "cccc!", "redis.call('set',KEYS[1],ARGV[1])", "1", "foo", "bar");
+    RedisModule_FreeCallReply(reply);
+
+    RedisModule_Replicate(ctx, "INCR", "c", "timer-eval-middle");
+
+    reply = RedisModule_Call(ctx,"INCRBY","cc!","timer-eval-end","1");
+    RedisModule_FreeCallReply(reply);
+}
+
+int propagateTestTimerEvalCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+
+    RedisModuleTimerID timer_id =
+        RedisModule_CreateTimer(ctx,100,timerHandlerEval,(void*)1);
+    REDISMODULE_NOT_USED(timer_id);
+
+    RedisModule_ReplyWithSimpleString(ctx,"OK");
+    return REDISMODULE_OK;
+}
+
 /* The thread entry point. */
 void *threadMain(void *arg) {
     REDISMODULE_NOT_USED(arg);
@@ -240,6 +298,16 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx,"propagate-test.timer-nested-repl",
                 propagateTestTimerNestedReplCommand,
+                "",1,1,1) == REDISMODULE_ERR)
+            return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"propagate-test.timer-maxmemory",
+                propagateTestTimerMaxmemoryCommand,
+                "",1,1,1) == REDISMODULE_ERR)
+            return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"propagate-test.timer-eval",
+                propagateTestTimerEvalCommand,
                 "",1,1,1) == REDISMODULE_ERR)
             return REDISMODULE_ERR;
 

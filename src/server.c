@@ -4300,7 +4300,7 @@ void initServer(void) {
     server.cronloops = 0;
     server.in_script = 0;
     server.in_exec = 0;
-    server.core_propagates = 0;
+    server.core_propagates = CORE_PROPAGATES_UNSET;
     server.propagate_no_multi = 0;
     server.client_pause_in_transaction = 0;
     server.child_pid = -1;
@@ -5004,17 +5004,24 @@ void call(client *c, int flags) {
      * demand, and initialize the array for additional commands propagation. */
     c->flags &= ~(CLIENT_FORCE_AOF|CLIENT_FORCE_REPL|CLIENT_PREVENT_PROP);
 
-    /* Module commands generally take care of themselves, unless we are in
-     * EVAL/EXEC: In this case we need to wrap the whole thing in MULTI/EXEC
-     * (The module code can only handle one command at a time).
-     * See the test "module propagates from from multi-exec".
+    /* Redis core is in charge of propagation when the first entry point
+     * of call() is processCommand().
+     * The only other option to get to call() without having processCommand
+     * as an entry point is if a module triggers RM_Call outside of call()
+     * context (for example, in a timer).
+     * In that case, the module is in charge of propagation.
      *
      * Because call() is re-entrant we have to cache and restore
      * server.core_propagates. */
     int prev_core_propagates = server.core_propagates;
-    server.core_propagates = !(flags & CMD_CALL_FROM_MODULE) ||
-                             server.in_exec ||
-                             server.in_script;
+    if (server.core_propagates == CORE_PROPAGATES_UNSET) {
+        if (flags & CMD_CALL_FROM_MODULE) {
+            server.core_propagates = CORE_PROPAGATES_NO;
+        } else {
+            serverAssert(server.also_propagate.numops == 0);
+            server.core_propagates = CORE_PROPAGATES_YES;
+        }
+    }
 
     /* Call the command. */
     dirty = server.dirty;
@@ -5217,11 +5224,12 @@ void rejectCommandFormat(client *c, const char *fmt, ...) {
 /* This is called after a command in call, we can do some maintenance job in it. */
 void afterCommand(client *c) {
     UNUSED(c);
+    serverAssert(server.core_propagates != CORE_PROPAGATES_UNSET);
     if (!server.in_nested_call) {
         /* If we are at the top-most call() we can propagate what we accumulated.
          * Should be done before trackingHandlePendingKeyInvalidations so that we
          * reply to client before invalidating cache (makes more sense) */
-        if (server.core_propagates)
+        if (server.core_propagates == CORE_PROPAGATES_YES)
             propagatePendingCommands();
         /* Flush pending invalidation messages only when we are not in nested call.
          * So the messages are not interleaved with transaction response. */

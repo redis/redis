@@ -610,10 +610,9 @@ int RM_GetApi(const char *funcname, void **targetPtrPtr) {
 /* Free the context after the user function was called. */
 void moduleFreeContext(RedisModuleCtx *ctx) {
     if (ctx->module) {
-        /* Generally speaking, modules take care of their own propagation,
-         * unless we are in a transaction.
-         * See comment in call(), next to server.core_propagates */
-        if (--ctx->module->ctx_nesting == 0 && !server.core_propagates)
+        /* Modules take care of their own propagation, when we are
+         * outside of call() context (timers, events, etc.). */
+        if (--ctx->module->ctx_nesting == 0 && server.core_propagates != CORE_PROPAGATES_YES)
             propagatePendingCommands();
     }
     autoMemoryCollect(ctx);

@@ -201,6 +201,51 @@ tags "modules" {
                     close_replication_stream $repl
                 }
 
+                test {module propagation with timer and CONFIG SET maxmemory} {
+                    set repl [attach_to_replication_stream]
+
+                    $master config set maxmemory-policy volatile-random
+
+                    $master propagate-test.timer-maxmemory
+
+                    assert_replication_stream $repl {
+                        {select *}
+                        {multi}
+                        {incr notifications}
+                        {incr notifications}
+                        {set timer-maxmemory-start 1 PXAT *}
+                        {incr notifications}
+                        {del timer-maxmemory-start}
+                        {incr timer-maxmemory-middle}
+                        {incr notifications}
+                        {set timer-maxmemory-end 1}
+                        {exec}
+                    }
+                    close_replication_stream $repl
+
+                    $master config set maxmemory-policy noeviction
+                }
+
+                test {module propagation with timer and EVAL} {
+                    set repl [attach_to_replication_stream]
+
+                    $master propagate-test.timer-eval
+
+                    assert_replication_stream $repl {
+                        {select *}
+                        {multi}
+                        {incr notifications}
+                        {incrby timer-eval-start 1}
+                        {incr notifications}
+                        {set foo bar}
+                        {incr timer-eval-middle}
+                        {incr notifications}
+                        {incrby timer-eval-end 1}
+                        {exec}
+                    }
+                    close_replication_stream $repl
+                }
+
                 test {module propagates nested ctx case1} {
                     set repl [attach_to_replication_stream]
 

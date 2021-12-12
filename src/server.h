@@ -487,6 +487,16 @@ typedef enum {
 #define PROPAGATE_AOF 1
 #define PROPAGATE_REPL 2
 
+/* Options for server.core_propagates.
+ * If server.core_propagates is CORE_PROPAGATES_YES it means Redis
+ * core is in charge of calling propagatePendingCommands.
+ * Otherwise, the module subsystem is in charge. */
+typedef enum {
+    CORE_PROPAGATES_UNSET = 0,
+    CORE_PROPAGATES_YES,
+    CORE_PROPAGATES_NO
+} core_propagates_type;
+
 /* Client pause types, larger types are more restrictive
  * pause types than smaller pause types. */
 typedef enum {
@@ -1351,7 +1361,7 @@ struct redisServer {
     int always_show_logo;       /* Show logo even for non-stdout logging. */
     int in_script;              /* Are we inside EVAL? */
     int in_exec;                /* Are we inside EXEC? */
-    int core_propagates;        /* True if the core (in oppose to the module subsystem) is in charge of calling propagatePendingCommands */
+    core_propagates_type core_propagates; /* Is the core (in oppose to the module subsystem) is in charge of calling propagatePendingCommands? */
     int propagate_no_multi;      /* True if propagatePendingCommands should avoid wrapping command in MULTI/EXEC */
     char *ignore_warnings;      /* Config: warnings that should be ignored. */
     int client_pause_in_transaction; /* Was a client pause executed during this Exec? */
