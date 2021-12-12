@@ -1609,16 +1609,21 @@ int _writeToClient(client *c, ssize_t *nwritten) {
             listNode *next;
             clientReplyBlock *o;
             struct iovec iov[iovcnt];
+            char *iov_base;
+            size_t iov_len;
             iovcnt = 0;
             while ((next = listNext(&iter))) {
                 o = listNodeValue(next);
-                if (o->used == 0) {
+                if (o->used == 0) { // empty node, just release it
                     c->reply_bytes -= o->size;
                     listDelNode(c->reply, next);
                     continue;
                 }
-                char *iov_base = o->buf;
-                size_t iov_len = o->used;
+
+                iov_base = o->buf;
+                iov_len = o->used;
+                /* The first node of reply list might be incomplete from the last call,
+                 * thus it needs to be calibrated to get the actual data address and length. */
                 if (iovcnt == 0) {
                     iov_base = o->buf + c->sentlen;
                     iov_len = o->used - c->sentlen;
@@ -1630,19 +1635,22 @@ int _writeToClient(client *c, ssize_t *nwritten) {
             if (iovcnt == 0) return C_OK;
             *nwritten = connWritev(c->conn, iov, iovcnt);
             if (*nwritten <= 0) return C_ERR;
-            ssize_t sent_bytes = *nwritten;
-            listRewind(c->reply, &iter);
-            sent_bytes -= (ssize_t)iov[0].iov_len;
-            if (sent_bytes >= 0) {
+
+            ssize_t sent_bytes = *nwritten - (ssize_t)iov[0].iov_len;
+            if (sent_bytes >= 0) { // it's safe to release the first node
+                listRewind(c->reply, &iter);
                 next = listNext(&iter);
                 o = listNodeValue(next);
                 c->reply_bytes -= o->size;
                 listDelNode(c->reply, next);
                 c->sentlen = 0;
-            } else {
+            } else { // still stuck in the first node
                 c->sentlen += *nwritten;
                 sent_bytes = 0;
             }
+
+            /* Locate the new node which has leftover data and
+             * release all nodes in front of it. */
             while (sent_bytes) {
                 next = listNext(&iter);
                 o = listNodeValue(next);
@@ -1675,6 +1683,7 @@ int _writeToClient(client *c, ssize_t *nwritten) {
                 c->sentlen = 0;
             }
         }
+
         /* If there are no longer objects in the list, we expect
          * the count of reply bytes to be exactly zero. */
         if (listLength(c->reply) == 0)
