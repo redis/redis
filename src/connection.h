@@ -32,6 +32,7 @@
 #define __REDIS_CONNECTION_H
 
 #include <errno.h>
+#include <sys/uio.h>
 
 #define CONN_INFO_LEN   32
 
@@ -59,6 +60,7 @@ typedef struct ConnectionType {
     void (*ae_handler)(struct aeEventLoop *el, int fd, void *clientData, int mask);
     int (*connect)(struct connection *conn, const char *addr, int port, const char *source_addr, ConnectionCallbackFunc connect_handler);
     int (*write)(struct connection *conn, const void *data, size_t data_len);
+    int (*writev)(struct connection *conn, const struct iovec *iov, int iovcnt);
     int (*read)(struct connection *conn, void *buf, size_t buf_len);
     void (*close)(struct connection *conn);
     int (*accept)(struct connection *conn, ConnectionCallbackFunc accept_handler);
@@ -140,6 +142,10 @@ static inline int connBlockingConnect(connection *conn, const char *addr, int po
  */
 static inline int connWrite(connection *conn, const void *data, size_t data_len) {
     return conn->type->write(conn, data, data_len);
+}
+
+static inline int connWritev(connection *conn, const struct iovec *iov, int iovcnt) {
+    return conn->type->writev(conn, iov, iovcnt);
 }
 
 /* Read from the connection, behaves the same as read(2).

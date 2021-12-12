@@ -1560,8 +1560,8 @@ client *lookupClientByID(uint64_t id) {
 
 /* This function does actual writing output buffers to different types of
  * clients, it is called by writeToClient.
- * If we write successfully, it return C_OK, otherwise, C_ERR is returned,
- * And 'nwritten' is a output parameter, it means how many bytes server write
+ * If we write successfully, it returns C_OK, otherwise, C_ERR is returned,
+ * And 'nwritten' is an output parameter, it means how many bytes server write
  * to client. */
 int _writeToClient(client *c, ssize_t *nwritten) {
     *nwritten = 0;
@@ -1602,29 +1602,83 @@ int _writeToClient(client *c, ssize_t *nwritten) {
             c->sentlen = 0;
         }
     } else {
-        clientReplyBlock *o = listNodeValue(listFirst(c->reply));
-        size_t objlen = o->used;
+        int iovcnt = listLength(c->reply);
+        if (iovcnt > 1) {
+            listIter iter;
+            listRewind(c->reply, &iter);
+            listNode *next;
+            clientReplyBlock *o;
+            struct iovec iov[iovcnt];
+            iovcnt = 0;
+            while ((next = listNext(&iter))) {
+                o = listNodeValue(next);
+                if (o->used == 0) {
+                    c->reply_bytes -= o->size;
+                    listDelNode(c->reply, next);
+                    continue;
+                }
+                char *iov_base = o->buf;
+                size_t iov_len = o->used;
+                if (iovcnt == 0) {
+                    iov_base = o->buf + c->sentlen;
+                    iov_len = o->used - c->sentlen;
+                }
+                iov[iovcnt].iov_base = iov_base;
+                iov[iovcnt].iov_len = iov_len;
+                iovcnt++;
+            }
+            if (iovcnt == 0) return C_OK;
+            *nwritten = connWritev(c->conn, iov, iovcnt);
+            if (*nwritten <= 0) return C_ERR;
+            ssize_t sent_bytes = *nwritten;
+            listRewind(c->reply, &iter);
+            sent_bytes -= (ssize_t)iov[0].iov_len;
+            if (sent_bytes >= 0) {
+                next = listNext(&iter);
+                o = listNodeValue(next);
+                c->reply_bytes -= o->size;
+                listDelNode(c->reply, next);
+                c->sentlen = 0;
+            } else {
+                c->sentlen += *nwritten;
+                sent_bytes = 0;
+            }
+            while (sent_bytes) {
+                next = listNext(&iter);
+                o = listNodeValue(next);
+                if (sent_bytes < (ssize_t)o->used) {
+                    c->sentlen = sent_bytes;
+                    break;
+                }
+                sent_bytes -= (ssize_t)o->used;
+                c->reply_bytes -= o->size;
+                listDelNode(c->reply, next);
+            }
+        } else {
+            clientReplyBlock *o = listNodeValue(listFirst(c->reply));
+            size_t objlen = o->used;
 
-        if (objlen == 0) {
-            c->reply_bytes -= o->size;
-            listDelNode(c->reply,listFirst(c->reply));
-            return C_OK;
+            if (objlen == 0) {
+                c->reply_bytes -= o->size;
+                listDelNode(c->reply,listFirst(c->reply));
+                return C_OK;
+            }
+
+            *nwritten = connWrite(c->conn, o->buf + c->sentlen, objlen - c->sentlen);
+            if (*nwritten <= 0) return C_ERR;
+            c->sentlen += *nwritten;
+
+            /* If we fully sent the object on head go to the next one */
+            if (c->sentlen == objlen) {
+                c->reply_bytes -= o->size;
+                listDelNode(c->reply, listFirst(c->reply));
+                c->sentlen = 0;
+            }
         }
-
-        *nwritten = connWrite(c->conn, o->buf + c->sentlen, objlen - c->sentlen);
-        if (*nwritten <= 0) return C_ERR;
-        c->sentlen += *nwritten;
-
-        /* If we fully sent the object on head go to the next one */
-        if (c->sentlen == objlen) {
-            c->reply_bytes -= o->size;
-            listDelNode(c->reply,listFirst(c->reply));
-            c->sentlen = 0;
-            /* If there are no longer objects in the list, we expect
-             * the count of reply bytes to be exactly zero. */
-            if (listLength(c->reply) == 0)
-                serverAssert(c->reply_bytes == 0);
-        }
+        /* If there are no longer objects in the list, we expect
+         * the count of reply bytes to be exactly zero. */
+        if (listLength(c->reply) == 0)
+            serverAssert(c->reply_bytes == 0);
     }
     return C_OK;
 }
