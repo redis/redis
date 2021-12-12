@@ -198,6 +198,11 @@ start_server {tags {"bitops"}} {
         }
         r del mystring
     }
+
+    test {BITFIELD with only get subcommand rejects OVERFLOW subcommand} {
+        catch {r bitfield bits overflow sat get u8 0} err
+        assert_match {*ERR BITFIELD with only GET doesn't support the OVERFLOW subcommand*} $err
+    }
 }
 
 start_server {tags {"repl external:skip"}} {
@@ -227,6 +232,11 @@ start_server {tags {"repl external:skip"}} {
         test {BITFIELD_RO fails when write option is used} {
             catch {$slave bitfield_ro bits set u8 0 100 get u8 0} err
             assert_match {*ERR BITFIELD_RO only supports the GET subcommand*} $err
+        }
+
+        test {BITFIELD_RO rejects OVERFLOW subcommand} {
+            catch {$slave bitfield_ro bits overflow wrap get u8 0} err
+            assert_match {*ERR BITFIELD_RO doesn't support the OVERFLOW subcommand*} $err
         }
     }
 }
