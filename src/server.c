@@ -5733,24 +5733,24 @@ int finishShutdown(void) {
         TerminateModuleForkChild(server.child_pid,0);
     }
 
-    if (server.aof_state != AOF_OFF) {
-        /* Kill the AOF saving child as the AOF we already have may be longer
-         * but contains the full dataset anyway. */
-        if (server.child_type == CHILD_TYPE_AOF) {
-            /* If we have AOF enabled but haven't written the AOF yet, don't
-             * shutdown or else the dataset will be lost. */
-            if (server.aof_state == AOF_WAIT_REWRITE) {
-                if (force) {
-                    serverLog(LL_WARNING, "Writing initial AOF. Exit anyway.");
-                } else {
-                    serverLog(LL_WARNING, "Writing initial AOF, can't exit.");
-                    goto error;
-                }
+    /* Kill the AOF saving child as the AOF we already have may be longer
+     * but contains the full dataset anyway. */
+    if (server.child_type == CHILD_TYPE_AOF) {
+        /* If we have AOF enabled but haven't written the AOF yet, don't
+         * shutdown or else the dataset will be lost. */
+        if (server.aof_state == AOF_WAIT_REWRITE) {
+            if (force) {
+                serverLog(LL_WARNING, "Writing initial AOF. Exit anyway.");
+            } else {
+                serverLog(LL_WARNING, "Writing initial AOF, can't exit.");
+                goto error;
             }
-            serverLog(LL_WARNING,
-                "There is a child rewriting the AOF. Killing it!");
-            killAppendOnlyChild();
         }
+        serverLog(LL_WARNING,
+                  "There is a child rewriting the AOF. Killing it!");
+        killAppendOnlyChild();
+    }
+    if (server.aof_state != AOF_OFF) {
         /* Append only file: flush buffers and fsync() the AOF at exit */
         serverLog(LL_NOTICE,"Calling fsync() on the AOF file.");
         flushAppendOnlyFile(1);
