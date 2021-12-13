@@ -462,7 +462,7 @@ void loadServerConfigFromString(char *config) {
             }
         }
 
-        //If there's no matching above, we try matching them with deprecated configs
+        /* If there's no matching above, we try matching them with deprecated configs */
         if (!match) {
             for (deprecatedConfig *config = deprecated_configs; config->name != NULL; config++) {
                 if (!strcasecmp(argv[0], config->name) && 
