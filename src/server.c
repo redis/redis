@@ -5520,9 +5520,7 @@ int processCommand(client *c) {
           c->cmd->proc != unwatchCommand &&
           c->cmd->proc != quitCommand &&
           c->cmd->proc != resetCommand &&
-        !(c->cmd->proc == shutdownCommand &&
-          c->argc >= 2 && // FIXME
-          tolower(((char*)c->argv[1]->ptr)[0]) == 'n') &&
+          c->cmd->proc != shutdownCommand &&
         !(c->cmd->proc == scriptCommand &&
           c->argc == 2 &&
           tolower(((char*)c->argv[1]->ptr)[0]) == 'k') &&
@@ -6447,16 +6445,9 @@ sds genRedisInfoString(const char *section) {
 
         /* Conditional properties */
         if (isShutdownInitiated()) {
-            char flagstr[4] = {0};
-            int i = 0;
-            if (server.shutdown_flags & SHUTDOWN_SAVE) flagstr[i++] = 's';
-            if (server.shutdown_flags & SHUTDOWN_NOSAVE) flagstr[i++] = 'n';
-            if (server.shutdown_flags & SHUTDOWN_FORCE) flagstr[i++] = 'f';
             info = sdscatfmt(info,
-                "shutdown_in_milliseconds:%I\r\n"
-                "shutdown_flags:%s\r\n",
-                (int64_t)(server.shutdown_mstime - server.mstime),
-                flagstr);
+                "shutdown_in_milliseconds:%I\r\n",
+                (int64_t)(server.shutdown_mstime - server.mstime));
         }
     }
 

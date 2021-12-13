@@ -1,17 +1,19 @@
 # This test suite tests shutdown when there are lagging replicas connected.
 
-# Fill upp the OS socket send buffer for the replica connection. When the
-# replication buffer memory increases beyond 1M (often after writing 4M or so),
-# we assume it's because the OS socket send buffer can't swallow anymore.
+# Fill up the OS socket send buffer for the replica connection 1M at a time.
+# When the replication buffer memory increases beyond 2M (often after writing 4M
+# or so), we assume it's because the OS socket send buffer can't swallow
+# anymore.
 proc fill_up_os_socket_send_buffer_for_repl {idx} {
     set i 0
     while {1} {
-        set buf_size [s $idx mem_total_replication_buffers]
-        if {$buf_size > 1024*1024} {
-            break
-        }
         incr i
         populate 1024 junk$i: 1024 $idx
+        after 10
+        set buf_size [s $idx mem_total_replication_buffers]
+        if {$buf_size > 2*1024*1024} {
+            break
+        }
     }
 }
 
@@ -43,7 +45,7 @@ foreach how {sigterm shutdown} {
                 exec kill -SIGSTOP $replica_pid
                 after 10
 
-                # Fill upp the OS socket send buffer for the replica connection
+                # Fill up the OS socket send buffer for the replica connection
                 # to prevent the following INCR from reaching the replica via
                 # the OS.
                 fill_up_os_socket_send_buffer_for_repl -1
@@ -64,7 +66,6 @@ foreach how {sigterm shutdown} {
                 } else {
                     fail "Master not indicating ongoing shutdown."
                 }
-                assert {[s -1 shutdown_flags] == {}}
 
                 # Wake up replica and check if master has waited for it.
                 after 20; # 2 cron intervals
@@ -109,7 +110,7 @@ test {Shutting down master waits for replica timeout} {
             exec kill -SIGSTOP $replica_pid
             after 10
 
-            # Fill upp the OS socket send buffer for the replica connection to
+            # Fill up the OS socket send buffer for the replica connection to
             # prevent the following INCR k from reaching the replica via the OS.
             fill_up_os_socket_send_buffer_for_repl -1
 
@@ -121,7 +122,6 @@ test {Shutting down master waits for replica timeout} {
             } else {
                 fail "Master not indicating ongoing shutdown."
             }
-            assert {[s -1 shutdown_flags] == {}}
 
             # Let master finish shutting down and check log.
             wait_for_log_messages -1 {"*ready to exit, bye bye*"} 0 100 100
