@@ -98,5 +98,5 @@ start_server [list overrides [list save ""] ] {
         r mset D1 1 D2 2
         r sort myset by D* get S* store mylist
         r llen mylist
-    } {2}
+    } {2} {cluster:skip}
 }
