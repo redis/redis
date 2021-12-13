@@ -185,8 +185,7 @@ void activeExpireCycle(int type) {
     /* Sanity: There can't be any pending commands to propagate when
      * we're in cron */
     serverAssert(server.also_propagate.numops == 0);
-    serverAssert(server.core_propagates == CORE_PROPAGATES_UNSET);
-    server.core_propagates = CORE_PROPAGATES_YES;
+    server.core_propagates = 1;
     server.propagate_no_multi = 1;
 
     for (j = 0; j < dbs_per_call && timelimit_exit == 0; j++) {
@@ -309,12 +308,12 @@ void activeExpireCycle(int type) {
                  (expired*100/sampled) > config_cycle_acceptable_stale);
     }
 
-    serverAssert(server.core_propagates == CORE_PROPAGATES_YES); /* This function should not be re-entrant */
+    serverAssert(server.core_propagates); /* This function should not be re-entrant */
 
     /* Propagate all DELs */
     propagatePendingCommands();
 
-    server.core_propagates = CORE_PROPAGATES_UNSET;
+    server.core_propagates = 0;
     server.propagate_no_multi = 0;
 
     elapsed = ustime()-start;

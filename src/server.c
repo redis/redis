@@ -4300,7 +4300,7 @@ void initServer(void) {
     server.cronloops = 0;
     server.in_script = 0;
     server.in_exec = 0;
-    server.core_propagates = CORE_PROPAGATES_UNSET;
+    server.core_propagates = 0;
     server.propagate_no_multi = 0;
     server.client_pause_in_transaction = 0;
     server.child_pid = -1;
@@ -5014,14 +5014,8 @@ void call(client *c, int flags) {
      * Because call() is re-entrant we have to cache and restore
      * server.core_propagates. */
     int prev_core_propagates = server.core_propagates;
-    if (server.core_propagates == CORE_PROPAGATES_UNSET) {
-        if (flags & CMD_CALL_FROM_MODULE) {
-            server.core_propagates = CORE_PROPAGATES_NO;
-        } else {
-            serverAssert(server.also_propagate.numops == 0);
-            server.core_propagates = CORE_PROPAGATES_YES;
-        }
-    }
+    if (!server.core_propagates && !(flags & CMD_CALL_FROM_MODULE))
+        server.core_propagates = 1;
 
     /* Call the command. */
     dirty = server.dirty;
@@ -5224,12 +5218,11 @@ void rejectCommandFormat(client *c, const char *fmt, ...) {
 /* This is called after a command in call, we can do some maintenance job in it. */
 void afterCommand(client *c) {
     UNUSED(c);
-    serverAssert(server.core_propagates != CORE_PROPAGATES_UNSET);
     if (!server.in_nested_call) {
         /* If we are at the top-most call() we can propagate what we accumulated.
          * Should be done before trackingHandlePendingKeyInvalidations so that we
          * reply to client before invalidating cache (makes more sense) */
-        if (server.core_propagates == CORE_PROPAGATES_YES)
+        if (server.core_propagates)
             propagatePendingCommands();
         /* Flush pending invalidation messages only when we are not in nested call.
          * So the messages are not interleaved with transaction response. */

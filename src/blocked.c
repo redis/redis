@@ -564,8 +564,7 @@ void handleClientsBlockedOnKeys(void) {
     /* This function is called only when also_propagate is in its basic state
      * (i.e. not from call(), module context, etc.) */
     serverAssert(server.also_propagate.numops == 0);
-    serverAssert(server.core_propagates == CORE_PROPAGATES_UNSET);
-    server.core_propagates = CORE_PROPAGATES_YES;
+    server.core_propagates = 1;
 
     while(listLength(server.ready_keys) != 0) {
         list *l;
@@ -624,9 +623,9 @@ void handleClientsBlockedOnKeys(void) {
         listRelease(l); /* We have the new list on place at this point. */
     }
 
-    serverAssert(server.core_propagates == CORE_PROPAGATES_YES); /* This function should not be re-entrant */
+    serverAssert(server.core_propagates); /* This function should not be re-entrant */
 
-    server.core_propagates = CORE_PROPAGATES_UNSET;
+    server.core_propagates = 0;
 }
 
 /* This is how the current blocking lists/sorted sets/streams work, we use

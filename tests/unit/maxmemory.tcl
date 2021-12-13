@@ -495,54 +495,73 @@ start_server {tags {"maxmemory external:skip"}} {
 }
 
 start_server {tags {"maxmemory" "external:skip"}} {
-    set replica [srv 0 client]
-    set replica_host [srv 0 host]
-    set replica_port [srv 0 port]
-    start_server {tags {"maxmemory" "external:skip"}} {
-        set master [srv 0 client]
-        set master_host [srv 0 host]
-        set master_port [srv 0 port]
+    test {propagation with eviction} {
+        set repl [attach_to_replication_stream]
 
-        # Start the replication process...
-        $replica replicaof $master_host $master_port
-        wait_for_sync $replica
-        after 1000
+        r set asdf1 1
+        r set asdf2 2
+        r set asdf3 3
 
-        test {propagation with eviction} {
-            set repl [attach_to_replication_stream]
+        r config set maxmemory-policy allkeys-lru
+        r config set maxmemory 1
 
-            $master set asdf1 1
-            $master set asdf2 2
-            $master set asdf3 3
-
-            $master config set maxmemory-policy allkeys-lru
-            $master config set maxmemory 1
-
-            wait_for_condition 5000 10 {
-                [$replica dbsize] eq 0
-            } else {
-                fail "Not all keys have been evicted"
-            }
-
-            $master config set maxmemory 0
-            $master config set maxmemory-policy noeviction
-
-            $master set asdf4 4
-
-            assert_replication_stream $repl {
-                {select *}
-                {set asdf1 1}
-                {set asdf2 2}
-                {set asdf3 3}
-                {del asdf*}
-                {del asdf*}
-                {del asdf*}
-                {set asdf4 4}
-            }
-            close_replication_stream $repl
-
-            $master config set maxmemory 0
-            $master config set maxmemory-policy noeviction
+        wait_for_condition 5000 10 {
+            [r dbsize] eq 0
+        } else {
+            fail "Not all keys have been evicted"
         }
+
+        r config set maxmemory 0
+        r config set maxmemory-policy noeviction
+
+        r set asdf4 4
+
+        assert_replication_stream $repl {
+            {select *}
+            {set asdf1 1}
+            {set asdf2 2}
+            {set asdf3 3}
+            {del asdf*}
+            {del asdf*}
+            {del asdf*}
+            {set asdf4 4}
+        }
+        close_replication_stream $repl
+
+        r config set maxmemory 0
+        r config set maxmemory-policy noeviction
+    }
+}
+
+start_server {tags {"maxmemory" "external:skip"}} {
+    test {propagation with eviction in MULTI} {
+        set repl [attach_to_replication_stream]
+
+        r config set maxmemory-policy allkeys-lru
+
+        r multi
+        r incr x
+        r config set maxmemory 1
+        r incr x
+        assert_equal [r exec] {1 OK 2}
+
+        wait_for_condition 5000 10 {
+            [r dbsize] eq 0
+        } else {
+            fail "Not all keys have been evicted"
+        }
+
+        assert_replication_stream $repl {
+            {select *}
+            {multi}
+            {incr x}
+            {incr x}
+            {exec}
+            {del x}
+        }
+        close_replication_stream $repl
+
+        r config set maxmemory 0
+        r config set maxmemory-policy noeviction
     }
 }

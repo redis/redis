@@ -125,16 +125,14 @@ void timerHandlerMaxmemory(RedisModuleCtx *ctx, void *data) {
     REDISMODULE_NOT_USED(ctx);
     REDISMODULE_NOT_USED(data);
 
-    RedisModuleCallReply *reply = RedisModule_Call(ctx,"SETEX","ccc!","timer-maxmemory-start","100","1");
+    RedisModuleCallReply *reply = RedisModule_Call(ctx,"SETEX","ccc!","timer-maxmemory-volatile-start","100","1");
     RedisModule_FreeCallReply(reply);
     reply = RedisModule_Call(ctx, "CONFIG", "ccc!", "SET", "maxmemory", "1");
     RedisModule_FreeCallReply(reply);
 
     RedisModule_Replicate(ctx, "INCR", "c", "timer-maxmemory-middle");
 
-    reply = RedisModule_Call(ctx, "CONFIG", "ccc", "SET", "maxmemory", "0");
-    RedisModule_FreeCallReply(reply);
-    reply = RedisModule_Call(ctx,"SET","cc!","timer-maxmemory-end","1");
+    reply = RedisModule_Call(ctx,"SETEX","ccc!","timer-maxmemory-volatile-end","100","1");
     RedisModule_FreeCallReply(reply);
 }
 

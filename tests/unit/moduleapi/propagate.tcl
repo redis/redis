@@ -208,21 +208,33 @@ tags "modules" {
 
                     $master propagate-test.timer-maxmemory
 
+                    # The replica will have two keys: "notifications" and "timer-maxmemory-middle"
+                    # which are not volatile
+                    wait_for_condition 5000 10 {
+                        [$replica dbsize] eq 2
+                    } else {
+                        fail "Not all keys have been evicted"
+                    }
+
                     assert_replication_stream $repl {
                         {select *}
                         {multi}
                         {incr notifications}
                         {incr notifications}
-                        {set timer-maxmemory-start 1 PXAT *}
-                        {incr notifications}
-                        {del timer-maxmemory-start}
+                        {set timer-maxmemory-volatile-start 1 PXAT *}
                         {incr timer-maxmemory-middle}
                         {incr notifications}
-                        {set timer-maxmemory-end 1}
+                        {incr notifications}
+                        {set timer-maxmemory-volatile-end 1 PXAT *}
                         {exec}
+                        {incr notifications}
+                        {del timer-maxmemory-volatile-*}
+                        {incr notifications}
+                        {del timer-maxmemory-volatile-*}
                     }
                     close_replication_stream $repl
 
+                    $master config set maxmemory 0
                     $master config set maxmemory-policy noeviction
                 }
 
