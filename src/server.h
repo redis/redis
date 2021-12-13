@@ -434,6 +434,11 @@ typedef enum {
 #define SANITIZE_DUMP_YES 1
 #define SANITIZE_DUMP_CLIENTS 2
 
+/* Enable protected config/command */
+#define PROTECTED_CONF_NO 0
+#define PROTECTED_CONF_YES 1
+#define PROTECTED_CONF_LOCAL 2
+
 /* Sets operations codes */
 #define SET_OP_UNION 0
 #define SET_OP_DIFF 1
@@ -1404,9 +1409,9 @@ struct redisServer {
     int io_threads_do_reads;    /* Read and parse from IO threads? */
     int io_threads_active;      /* Is IO threads currently active? */
     long long events_processed_while_blocked; /* processEventsWhileBlocked() */
-    int protected_configs;      /* Deny the modification of protected configs */
-    int debug_cmd_disabled;     /* Deny DEBUG commands */
-    int module_cmd_disabled;    /* Deny Module commands */
+    int enable_protected_configs;    /* Enable the modification of protected configs */
+    int enable_debug_cmd;            /* Enable DEBUG commands */
+    int enable_module_cmd;           /* Enable MODULE commands */
 
     /* RDB / AOF loading information */
     volatile sig_atomic_t loading; /* We are loading data from disk if true */
@@ -2156,6 +2161,7 @@ int handleClientsWithPendingWritesUsingThreads(void);
 int handleClientsWithPendingReadsUsingThreads(void);
 int stopThreadedIOIfNeeded(void);
 int clientHasPendingReplies(client *c);
+int localConnection(client *c);
 int updateClientMemUsage(client *c);
 void updateClientMemUsageBucket(client *c);
 void unlinkClient(client *c);
@@ -2616,6 +2622,7 @@ void rewriteConfigMarkAsProcessed(struct rewriteConfigState *state, const char *
 int rewriteConfig(char *path, int force_all);
 void initConfigValues();
 sds getConfigDebugInfo();
+int protectedConfigEnabled(int config, client *c);
 
 /* db.c -- Keyspace access API */
 int removeExpire(redisDb *db, robj *key);

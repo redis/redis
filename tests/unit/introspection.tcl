@@ -201,9 +201,9 @@ start_server {tags {"introspection"}} {
             cluster-port
             oom-score-adj
             oom-score-adj-values
-            protected-configs
-            debug-commands-disabled
-            module-commands-disabled
+            enable-protected-configs
+            enable-debug-command
+            enable-module-command
         }
 
         if {!$::tls} {
@@ -419,12 +419,25 @@ start_server {tags {"introspection"}} {
     # known keywords. Might be a good idea to avoid adding tests here.
 }
 
-start_server {tags {"introspection"} overrides {protected-configs {yes} debug-commands-disabled {yes}}} {
-    test {cannot modify protect configs} {
+start_server {tags {"introspection external:skip"} overrides {enable-protected-configs {no} enable-debug-command {no}}} {
+    test {cannot modify protected configuration - no} {
         assert_error "ERR*protected*" {r config set dir somedir}
-    }
+        assert_error "ERR*DEBUG command not allowed*" {r DEBUG OBJECT x}
+    } {} {needs:debug}
+}
 
-    test {debug commands disabled} {
-        assert_error "ERR*DEBUG commands not allowed*" {r DEBUG OBJECT x}
+start_server {config "minimal.conf" tags {"introspection external:skip"} overrides {protected-mode {no} enable-protected-configs {local} enable-debug-command {local}}} {
+    test {cannot modify protected configuration - local} {
+        assert_no_match "ERR*protected*" {r config set dir somedir}
+        assert_no_match "ERR*protected*" {r DEBUG OBJECT x}
+
+        # Get a non-loopback address of this instance for this test.
+        set myaddr [get_nonloopback_addr]
+        if {$myaddr != "" && ![string match {127.*} $myaddr]} {
+            # Non-loopback client should fail
+            set r2 [get_nonloopback_client]
+            assert_error "ERR*protected*" {$r2 config set dir somedir}
+            assert_error "ERR*DEBUG command not allowed*" {$r2 DEBUG OBJECT x}
+        }
     } {} {needs:debug}
 }

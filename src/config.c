@@ -128,6 +128,13 @@ configEnum sanitize_dump_payload_enum[] = {
     {NULL, 0}
 };
 
+configEnum protected_config_enum[] = {
+        {"no", PROTECTED_CONF_NO},
+        {"yes", PROTECTED_CONF_YES},
+        {"local", PROTECTED_CONF_LOCAL},
+        {NULL, 0}
+};
+
 /* Output buffer limits presets. */
 clientBufferLimitsConfig clientBufferLimitsDefaults[CLIENT_TYPE_OBUF_COUNT] = {
     {0, 0, 0}, /* normal */
@@ -255,7 +262,7 @@ typedef struct standardConfig {
 #define DEBUG_CONFIG (1ULL<<2) /* Values that are useful for debugging. */
 #define MULTI_ARG_CONFIG (1ULL<<3) /* This config receives multiple arguments. */
 #define HIDDEN_CONFIG (1ULL<<4) /* This config is hidden in `config get <pattern>` (used for tests/debugging) */
-#define PROTECTED_CONFIG (1ULL<<5) /* Cannot be modify if protected-configs is enabled. */
+#define PROTECTED_CONFIG (1ULL<<5) /* Becomes immutable if enable-protected-configs is enabled. */
 
 standardConfig configs[];
 
@@ -708,7 +715,8 @@ void configSetCommand(client *c) {
                 }
 
                 if (!invalid_args) {
-                    if ((config->flags & IMMUTABLE_CONFIG) || (server.protected_configs && config->flags & PROTECTED_CONFIG)) {
+                    if (config->flags & IMMUTABLE_CONFIG ||
+                        (config->flags & PROTECTED_CONFIG && !protectedConfigEnabled(server.enable_protected_configs, c))) {
                         /* Note: we don't abort the loop since we still want to handle redacting sensitive configs (above) */
                         errstr = (config->flags & IMMUTABLE_CONFIG) ? "can't set immutable config" : "can't set protected config";
                         invalid_args = 1;
@@ -2543,6 +2551,11 @@ static sds getConfigReplicaOfOption(typeData data) {
     return sdsnew(buf);
 }
 
+int protectedConfigEnabled(int config, client *c) {
+    return (config == PROTECTED_CONF_YES) ||
+           (config == PROTECTED_CONF_LOCAL && localConnection(c));
+}
+
 standardConfig configs[] = {
     /* Bool configs */
     createBoolConfig("rdbchecksum", NULL, IMMUTABLE_CONFIG, server.rdb_checksum, 1, NULL, NULL),
@@ -2588,9 +2601,6 @@ standardConfig configs[] = {
     createBoolConfig("disable-thp", NULL, MODIFIABLE_CONFIG, server.disable_thp, 1, NULL, NULL),
     createBoolConfig("cluster-allow-replica-migration", NULL, MODIFIABLE_CONFIG, server.cluster_allow_replica_migration, 1, NULL, NULL),
     createBoolConfig("replica-announced", NULL, MODIFIABLE_CONFIG, server.replica_announced, 1, NULL, NULL),
-    createBoolConfig("protected-configs", NULL, IMMUTABLE_CONFIG, server.protected_configs, 0, NULL, NULL),
-    createBoolConfig("debug-commands-disabled", NULL, IMMUTABLE_CONFIG, server.debug_cmd_disabled, 0, NULL, NULL),
-    createBoolConfig("module-commands-disabled", NULL, IMMUTABLE_CONFIG, server.module_cmd_disabled, 0, NULL, NULL),
 
     /* String Configs */
     createStringConfig("aclfile", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.acl_filename, "", NULL, NULL),
@@ -2626,6 +2636,9 @@ standardConfig configs[] = {
     createEnumConfig("oom-score-adj", NULL, MODIFIABLE_CONFIG, oom_score_adj_enum, server.oom_score_adj, OOM_SCORE_ADJ_NO, NULL, updateOOMScoreAdj),
     createEnumConfig("acl-pubsub-default", NULL, MODIFIABLE_CONFIG, acl_pubsub_default_enum, server.acl_pubsub_default, USER_FLAG_ALLCHANNELS, NULL, NULL),
     createEnumConfig("sanitize-dump-payload", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, sanitize_dump_payload_enum, server.sanitize_dump_payload, SANITIZE_DUMP_NO, NULL, NULL),
+    createEnumConfig("enable-protected-configs", NULL, IMMUTABLE_CONFIG, protected_config_enum, server.enable_protected_configs, PROTECTED_CONF_NO, NULL, NULL),
+    createEnumConfig("enable-debug-command", NULL, IMMUTABLE_CONFIG, protected_config_enum,server.enable_debug_cmd, PROTECTED_CONF_LOCAL, NULL, NULL),
+    createEnumConfig("enable-module-command", NULL, IMMUTABLE_CONFIG, protected_config_enum, server.enable_module_cmd, PROTECTED_CONF_LOCAL, NULL, NULL),
 
     /* Integer configs */
     createIntConfig("databases", NULL, IMMUTABLE_CONFIG, 1, INT_MAX, server.dbnum, 16, INTEGER_CONFIG, NULL, NULL),

@@ -5283,14 +5283,14 @@ int processCommand(client *c) {
         return C_OK;
     }
 
-    /* check if DEBUG/Module command not allowed */
-    if ((server.debug_cmd_disabled && c->cmd->proc == debugCommand) ||
-        (server.module_cmd_disabled && c->cmd->flags & CMD_MODULE)) {
-        rejectCommandFormat(c,"%s commands not allowed, you may enable it by "
-                              "editing the Redis configuration file, and setting the "
-                              "%s option to 'no', and then restarting the server.",
-                              c->cmd->proc == debugCommand ? "DEBUG" : "Module",
-                              c->cmd->proc == debugCommand ? "debug-command-disabled" : "module-command-disabled");
+    /* check if DEBUG/MODULE command not allowed */
+    if ((c->cmd->proc == debugCommand && !protectedConfigEnabled(server.enable_debug_cmd, c)) ||
+        (c->cmd->proc == moduleCommand && !protectedConfigEnabled(server.enable_module_cmd, c))) {
+        rejectCommandFormat(c,"%s command not allowed, you may enable it by "
+                              "editing the %s option in the Redis configuration file,"
+                              "and then restarting the server.",
+                              c->cmd->proc == debugCommand ? "DEBUG" : "MODULE",
+                              c->cmd->proc == debugCommand ? "enable-debug-command" : "enable-module-command");
         return C_OK;
     }
 
