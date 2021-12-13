@@ -2966,6 +2966,7 @@ void migrateCommand(client *c);
 void askingCommand(client *c);
 void readonlyCommand(client *c);
 void readwriteCommand(client *c);
+int verifyDumpPayload(unsigned char *p, size_t len, uint16_t *rdbver_ptr);
 void dumpCommand(client *c);
 void objectCommand(client *c);
 void memoryCommand(client *c);

@@ -117,6 +117,20 @@ start_server {tags {"scripting"}} {
         r fcall test 0
     } {hello}
 
+    test {FUNCTION - test function dump and restore} {
+        set e [r function dump]
+        r function delete test
+        assert_match {} [r function list]
+        r function restore $e
+        r function list
+    } {{name test engine LUA description {some description}}}
+
+    test {FUNCTION - test function restore with bad payload do not drop existing functions} {
+        catch {r function restore bad_payload} e
+        assert_match {*payload version or checksum are wrong*} $e
+        r function list
+    } {{name test engine LUA description {some description}}}
+
     test {FUNCTION - test fcall_ro with write command} {
         r function create lua test REPLACE {return redis.call('set', 'x', '1')}
         catch { r fcall_ro test 0 } e
@@ -211,6 +225,25 @@ start_server {tags {"scripting repl"}} {
         test {FUNCTION - call on replica} {
             r -1 fcall test 0
         } {hello}
+
+        test {FUNCTION - restore is replicated to replica} {
+            set e [r function dump]
+
+            r function delete test
+            wait_for_condition 50 100 {
+                [r -1 function list] eq {}
+            } else {
+                fail "Failed waiting for function to replicate to replica"
+            }
+
+            r function restore $e
+
+            wait_for_condition 50 100 {
+                [r -1 function list] eq {{name test engine LUA description {some description}}}
+            } else {
+                fail "Failed waiting for function to replicate to replica"
+            }
+        }
 
         test {FUNCTION - delete is replicated to replica} {
             r function delete test

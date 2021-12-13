@@ -370,6 +370,61 @@ void fcallCommandReadOnly(client *c) {
     fcallCommandGeneric(c, 1);
 }
 
+void functionsDumpCommand(client *c) {
+    unsigned char buf[2];
+    uint64_t crc;
+    rio payload;
+    rioInitWithBuffer(&payload,sdsempty());
+
+    functionsSaveRio(&payload);
+
+    /* RDB version */
+    buf[0] = RDB_VERSION & 0xff;
+    buf[1] = (RDB_VERSION >> 8) & 0xff;
+    payload.io.buffer.ptr = sdscatlen(payload.io.buffer.ptr,buf,2);
+
+    /* CRC64 */
+    crc = crc64(0,(unsigned char*)payload.io.buffer.ptr,
+                sdslen(payload.io.buffer.ptr));
+    memrev64ifbe(&crc);
+    payload.io.buffer.ptr = sdscatlen(payload.io.buffer.ptr,&crc,8);
+
+    addReplyBulkSds(c,payload.io.buffer.ptr);
+}
+
+void functionsRestoreCommand(client *c) {
+    uint16_t rdbver;
+    if (verifyDumpPayload(c->argv[2]->ptr, sdslen(c->argv[2]->ptr), &rdbver) != C_OK) {
+        addReplyError(c,"DUMP payload version or checksum are wrong");
+        return;
+    }
+
+    sds data = c->argv[2]->ptr;
+    size_t data_len = sdslen(data);
+    rio payload;
+    int type;
+
+    functionsCtx* f_ctx = functionsCtxCreate();
+    rioInitWithBuffer(&payload, data);
+
+    /* Read until reaching last 10 bytes that should contain RDB version and checksum. */
+    while(data_len - payload.io.buffer.pos > 10) {
+        /* Read type. */
+        if ((type = rdbLoadType(&payload)) == -1) goto load_error;
+        if (type != RDB_OPCODE_FUNCTION) goto load_error;
+        if (rdbFunctionLoad(&payload, rdbver, f_ctx) != C_OK) goto load_error;
+    }
+
+    functionsCtxSwapWithCurrent(f_ctx);
+    forceCommandPropagation(c, PROPAGATE_REPL | PROPAGATE_AOF);
+    addReply(c,shared.ok);
+    return;
+
+load_error:
+    functionsCtxFree(f_ctx);
+    addReplyError(c,"Failed loading payload");
+}
+
 void functionsHelpCommand(client *c) {
     const char *help[] = {
 "CREATE <ENGINE NAME> <FUNCTION NAME> [REPLACE] [DESC <FUNCTION DESCRIPTION>] <FUNCTION CODE>",

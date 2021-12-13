@@ -1214,6 +1214,27 @@ ssize_t rdbSaveSingleModuleAux(rio *rdb, int when, moduleType *mt) {
     return io.bytes;
 }
 
+int functionsSaveRio(rio *rdb) {
+    dict *functions = functionsGet();
+    dictIterator *iter = dictGetIterator(functions);
+    dictEntry *entry = NULL;
+    while ((entry = dictNext(iter))) {
+        rdbSaveType(rdb, RDB_OPCODE_FUNCTION);
+        functionInfo* fi = dictGetVal(entry);
+        if (rdbSaveRawString(rdb, (unsigned char *) fi->name, sdslen(fi->name)) == -1) return C_ERR;
+        if (rdbSaveRawString(rdb, (unsigned char *) fi->ei->name, sdslen(fi->ei->name)) == -1) return C_ERR;
+        if (fi->desc) {
+            if (rdbSaveLen(rdb, 1) == -1) return C_ERR; /* desc exists */
+            if (rdbSaveRawString(rdb, (unsigned char *) fi->desc, sdslen(fi->desc)) == -1) return C_ERR;
+        } else {
+            if (rdbSaveLen(rdb, 0) == -1) return C_ERR; /* desc not exists */
+        }
+        if (rdbSaveRawString(rdb, (unsigned char *) fi->code, sdslen(fi->code)) == -1) return C_ERR;
+    }
+    dictReleaseIterator(iter);
+    return C_OK;
+}
+
 /* Produces a dump of the database in RDB format sending it to the specified
  * Redis I/O channel. On success C_OK is returned, otherwise C_ERR
  * is returned and part of the output, or all the output, can be
@@ -1240,24 +1261,7 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
     if (rdbSaveInfoAuxFields(rdb,rdbflags,rsi) == -1) goto werr;
     if (rdbSaveModulesAux(rdb, REDISMODULE_AUX_BEFORE_RDB) == -1) goto werr;
 
-    /* save functions */
-    dict *functions = functionsGet();
-    dictIterator *iter = dictGetIterator(functions);
-    dictEntry *entry = NULL;
-    while ((entry = dictNext(iter))) {
-        rdbSaveType(rdb, RDB_OPCODE_FUNCTION);
-        functionInfo* fi = dictGetVal(entry);
-        if (rdbSaveRawString(rdb, (unsigned char *) fi->name, sdslen(fi->name)) == -1) goto werr;
-        if (rdbSaveRawString(rdb, (unsigned char *) fi->ei->name, sdslen(fi->ei->name)) == -1) goto werr;
-        if (fi->desc) {
-            if (rdbSaveLen(rdb, 1) == -1) goto werr; /* desc exists */
-            if (rdbSaveRawString(rdb, (unsigned char *) fi->desc, sdslen(fi->desc)) == -1) goto werr;
-        } else {
-            if (rdbSaveLen(rdb, 0) == -1) goto werr; /* desc not exists */
-        }
-        if (rdbSaveRawString(rdb, (unsigned char *) fi->code, sdslen(fi->code)) == -1) goto werr;
-    }
-    dictReleaseIterator(iter);
+    if (functionsSaveRio(rdb) != C_OK) goto werr;
 
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
@@ -2712,7 +2716,7 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
     }
 }
 
-static int rdbFunctionLoad(rio *rdb, int ver, functionsCtx* functions_ctx) {
+int rdbFunctionLoad(rio *rdb, int ver, functionsCtx* functions_ctx) {
     UNUSED(ver);
     sds name = NULL;
     sds engine_name = NULL;
