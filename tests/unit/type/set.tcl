@@ -962,9 +962,10 @@ if {[lindex [r config get proto-max-bulk-len] 1] == 10000000000} {
         r write "*3\r\n\$9\r\nSISMEMBER\r\n\$5\r\nmyset\r\n"
         assert_equal 1 [write_big_bulk $str_length "aaa"]
         r write "*3\r\n\$9\r\nSISMEMBER\r\n\$5\r\nmyset\r\n"
-        assert_equal 1 [write_big_bulk $str_length "bbb"]
-        r write "*3\r\n\$9\r\nSISMEMBER\r\n\$5\r\nmyset\r\n"
         assert_equal 0 [write_big_bulk $str_length "ccc"]
+        r write "*3\r\n\$4\r\nSREM\r\n\$5\r\nmyset\r\n"
+        assert_equal 1 [write_big_bulk $str_length "bbb"]
+        assert_equal [read_big_bulk {r spop myset} yes "aaa"] $str_length
     } {} {large-memory}
 } ;# skip 32bit builds
 }
