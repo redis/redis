@@ -1604,6 +1604,7 @@ int _writeToClient(client *c, ssize_t *nwritten) {
     } else {
         int iovcnt = listLength(c->reply);
         if (iovcnt > 1) {
+            if (iovcnt > IOV_MAX) iovcnt = IOV_MAX;
             listIter iter;
             listRewind(c->reply, &iter);
             listNode *next;
@@ -1630,7 +1631,7 @@ int _writeToClient(client *c, ssize_t *nwritten) {
                 }
                 iov[iovcnt].iov_base = iov_base;
                 iov[iovcnt].iov_len = iov_len;
-                iovcnt++;
+                if (++iovcnt == IOV_MAX) break;
             }
             if (iovcnt == 0) return C_OK;
             *nwritten = connWritev(c->conn, iov, iovcnt);
