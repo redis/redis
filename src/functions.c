@@ -383,7 +383,7 @@ void functionsFlushCommand(client *c) {
     } else if (c->argc == 2) {
         async = server.lazyfree_lazy_user_flush ? 1 : 0;
     } else {
-        addReplyError(c,"FUNCTION FLUSH only support SYNC|ASYNC option");
+        addReplyError(c,"FUNCTION FLUSH only supports SYNC|ASYNC option");
         return;
     }
 
@@ -425,7 +425,7 @@ void functionsHelpCommand(client *c) {
 "KILL",
 "    Kill the current running function.",
 "FLUSH [ASYNC|SYNC]",
-"    Flush all the functions.",
+"    Delete all the functions.",
 "    When called without the optional mode argument, the behavior is determined by the",
 "    lazyfree-lazy-user-flush configuration directive. Valid modes are:",
 "    * ASYNC: Asynchronously flush the functions.",
