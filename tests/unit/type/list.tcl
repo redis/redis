@@ -1051,6 +1051,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
     } {k hello} {singledb:skip}
 
     test {SWAPDB awakes blocked client, but the key already expired} {
+        set repl [attach_to_replication_stream]
         r flushall
         r debug set-active-expire 0
         r select 1
@@ -1071,6 +1072,17 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         assert_match "*flags=b*" [r client list id $id]
         r client unblock $id
         assert_equal {} [$rd read]
+        assert_replication_stream $repl {
+            {select *}
+            {flushall}
+            {select 1}
+            {rpush k hello}
+            {pexpireat k *}
+            {swapdb 1 9}
+            {select 9}
+            {del k}
+        }
+        close_replication_stream $repl
         # Restore server and client state
         r debug set-active-expire 1
         r select 9

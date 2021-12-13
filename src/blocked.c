@@ -608,6 +608,11 @@ void handleClientsBlockedOnKeys(void) {
                  * regardless of the object type: we don't know what the
                  * module is trying to accomplish right now. */
                 serveClientsBlockedOnKeyByModule(rl);
+            } else {
+                /* Edge case: If lookupKeyReadWithFlags decides to expire the key we have to
+                 * take care of the propagation here, because afterCommand wasn't called */
+                if (server.also_propagate.numops > 0)
+                    propagatePendingCommands();
             }
             server.fixed_time_expire--;
 
@@ -620,6 +625,7 @@ void handleClientsBlockedOnKeys(void) {
     }
 
     serverAssert(server.core_propagates == CORE_PROPAGATES_YES); /* This function should not be re-entrant */
+
     server.core_propagates = CORE_PROPAGATES_UNSET;
 }
 
