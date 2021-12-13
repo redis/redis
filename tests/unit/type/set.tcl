@@ -944,26 +944,6 @@ catch {
 }
 if {[lindex [r config get proto-max-bulk-len] 1] == 10000000000} {
 
-    set ::str500 [string repeat x 500000000] ;# 500mb
-
-    # Utility function to write big argument into redis client connection
-    proc write_big_bulk {size prefix} {
-        assert {[string length prefix] <= $size}
-        r write "\$$size\r\n"
-        r write $prefix
-        incr size -[string length $prefix]
-        while {$size >= 500000000} {
-            r write $::str500
-            incr size -500000000
-        }
-        if {$size > 0} {
-            r write [string repeat x $size]
-        }
-        r write "\r\n"
-        r flush
-        r read
-    }
-
     set str_length 4400000000 ;#~4.4GB
 
     test {SADD, SCARD, SISMEMBER - large data} {

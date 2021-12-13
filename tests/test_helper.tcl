@@ -85,6 +85,7 @@ set ::all_tests {
     unit/networking
     unit/cluster
     unit/client-eviction
+    unit/violations
 }
 # Index to the next test to run in the ::all_tests list.
 set ::next_test 0
@@ -837,6 +838,51 @@ proc is_a_slow_computer {} {
     for {set j 0} {$j < 1000000} {incr j} {}
     set elapsed [expr [clock milliseconds]-$start]
     expr {$elapsed > 200}
+}
+
+# The following functions and variables are used only when running large-memory
+# tests. We avoid defining when not running large-memory tests them because the 
+# global variable takes up lots of memory.
+if {$::large_memory} {
+    set ::str500 [string repeat x 500000000] ;# 500mb
+
+    # Utility function to write big argument into redis client connection
+    proc write_big_bulk {size {prefix ""} {skip_read no}} {
+        assert {[string length prefix] <= $size}
+        r write "\$$size\r\n"
+        r write $prefix
+        incr size -[string length $prefix]
+        while {$size >= 500000000} {
+            r write $::str500
+            incr size -500000000
+        }
+        if {$size > 0} {
+            r write [string repeat x $size]
+        }
+        r write "\r\n"
+        if {!$skip_read} {
+            r flush
+            r read
+        }
+    }
+
+    # Utility to read big bulk response (work around Tcl limitations)
+    proc read_big_bulk {code} {
+        r readraw 1
+        set resp_len [uplevel 1 $code] ;# get the first line of the RESP response
+        assert_equal [string range $resp_len 0 0] "$"
+        set resp_len [string range $resp_len 1 end]
+        set remaining $resp_len
+        while {$remaining > 0} {
+            set l $remaining
+            if {$l > 2147483647} {set l 2147483647}
+            set nbytes [string length [r rawread $l]]
+            incr remaining [expr {- $nbytes}]
+        }
+        assert_equal [r rawread 2] "\r\n"
+        r readraw 0
+        return $resp_len
+    }
 }
 
 if {$::client} {
