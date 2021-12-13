@@ -355,8 +355,6 @@ start_server {overrides {save ""}} {
 }
 } ;# system_name
 
-} ;# tags
-
 exec cp -f tests/assets/scriptbackup.rdb $server_path
 start_server [list overrides [list "dir" $server_path "dbfilename" "scriptbackup.rdb" "appendonly" "no"]] {
     # the script is: "return redis.call('set', 'foo', 'bar')""
@@ -365,3 +363,5 @@ start_server [list overrides [list "dir" $server_path "dbfilename" "scriptbackup
         assert_equal [r script exists a0c38691e9fffe4563723c32ba77a34398e090e6] 0
     }
 }
+
+} ;# tags
