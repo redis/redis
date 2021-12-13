@@ -370,6 +370,34 @@ void fcallCommandReadOnly(client *c) {
     fcallCommandGeneric(c, 1);
 }
 
+void functionsFlushCommand(client *c) {
+    if (c->argc > 3) {
+        addReplyErrorFormat(c,"wrong number of arguments for '%s' command or subcommand", c->cmd->name);
+        return;
+    }
+    int async = 0;
+    if (c->argc == 3 && !strcasecmp(c->argv[2]->ptr,"sync")) {
+        async = 0;
+    } else if (c->argc == 3 && !strcasecmp(c->argv[2]->ptr,"async")) {
+        async = 1;
+    } else if (c->argc == 2) {
+        async = server.lazyfree_lazy_user_flush ? 1 : 0;
+    } else {
+        addReplyError(c,"FUNCTION FLUSH only support SYNC|ASYNC option");
+        return;
+    }
+    functionsCtx* f_ctx = functionsCtxCreate();
+    if (async) {
+        functionsCtx* old_f_ctx = functions_ctx;
+        functions_ctx = f_ctx;
+        freeFunctionsAsync(old_f_ctx);
+    } else {
+        functionsCtxSwapWithCurrent(f_ctx);
+    }
+    forceCommandPropagation(c, PROPAGATE_REPL | PROPAGATE_AOF);
+    addReply(c,shared.ok);
+}
+
 void functionsHelpCommand(client *c) {
     const char *help[] = {
 "CREATE <ENGINE NAME> <FUNCTION NAME> [REPLACE] [DESC <FUNCTION DESCRIPTION>] <FUNCTION CODE>",
@@ -396,6 +424,12 @@ void functionsHelpCommand(client *c) {
 "    In addition, returns a list of available engines.",
 "KILL",
 "    Kill the current running function.",
+"FLUSH [ASYNC|SYNC]",
+"    Flush all the functions.",
+"    When called without the optional mode argument, the behavior is determined by the",
+"    lazyfree-lazy-user-flush configuration directive. Valid modes are:",
+"    * ASYNC: Asynchronously flush the functions.",
+"    * SYNC: Synchronously flush the functions.",
 NULL };
     addReplyHelp(c, help);
 }
@@ -522,6 +556,10 @@ unsigned long functionsNum() {
 
 dict* functionsGet() {
     return functions_ctx->functions;
+}
+
+size_t functionsLen(functionsCtx *functions_ctx) {
+    return dictSize(functions_ctx->functions);
 }
 
 /* Initialize engine data structures.
