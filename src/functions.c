@@ -386,13 +386,13 @@ void functionsFlushCommand(client *c) {
         addReplyError(c,"FUNCTION FLUSH only support SYNC|ASYNC option");
         return;
     }
-    functionsCtx* f_ctx = functionsCtxCreate();
+
     if (async) {
         functionsCtx* old_f_ctx = functions_ctx;
-        functions_ctx = f_ctx;
+        functions_ctx = functionsCtxCreate();
         freeFunctionsAsync(old_f_ctx);
     } else {
-        functionsCtxSwapWithCurrent(f_ctx);
+        functionsCtxClear(functions_ctx);
     }
     forceCommandPropagation(c, PROPAGATE_REPL | PROPAGATE_AOF);
     addReply(c,shared.ok);
