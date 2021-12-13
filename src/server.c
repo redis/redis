@@ -5520,7 +5520,7 @@ int processCommand(client *c) {
           c->cmd->proc != unwatchCommand &&
           c->cmd->proc != quitCommand &&
           c->cmd->proc != resetCommand &&
-          c->cmd->proc != shutdownCommand &&
+          c->cmd->proc != shutdownCommand && /* more checks in shutdownCommand */
         !(c->cmd->proc == scriptCommand &&
           c->argc == 2 &&
           tolower(((char*)c->argv[1]->ptr)[0]) == 'k') &&
@@ -5615,13 +5615,17 @@ void closeListeningSockets(int unlink_unix_socket) {
  *
  * - SHUTDOWN_NOW: Don't wait for replicas to catch up before shutting down.
  *
+ * - SHUTDOWN_FORCE: Ignore errors writing AOF and RDB files on disk, which
+ *   would normally prevent a shutdown.
+ *
  * Unless SHUTDOWN_NOW is set and if any replicas are lagging behind, C_ERR is
  * returned and server.shutdown_mstime is set to a timestamp to allow a grace
  * period for the replicas to catch up. This is checked and handled by
  * serverCron() which completes the shutdown as soon as possible.
  *
- * If shutting down fails for any other reason, C_ERR is returned and an error
- * is logged.
+ * If shutting down fails due to errors writing RDB or AOF files, C_ERR is
+ * returned and an error is logged. If the flag SHUTDOWN_FORCE is set, these
+ * errors are logged but ignored and C_OK is returned.
  *
  * On success, this function returns C_OK and then it's OK to call exit(0). */
 int prepareForShutdown(int flags) {

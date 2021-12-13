@@ -1043,9 +1043,9 @@ void shutdownCommand(client *c) {
         addReplyErrorObject(c,shared.syntaxerr);
         return;
     }
-    if (!(flags & (SHUTDOWN_NOSAVE|SHUTDOWN_FORCE)) && scriptIsTimedout()) {
-        /* Script timed out. Shutdown allowed only with certain flags. See also
-         * processCommand where these errors are returned. */
+    if (!(flags & SHUTDOWN_NOSAVE) && scriptIsTimedout()) {
+        /* Script timed out. Shutdown allowed only with the NOSAVE flag. See
+         * also processCommand where these errors are returned. */
         if (scriptIsEval())
             addReplyErrorObject(c, shared.slowevalerr);
         else
