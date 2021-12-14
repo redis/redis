@@ -381,7 +381,7 @@ zskiplistNode *zslLastInRange(zskiplist *zsl, zrangespec *range) {
  * range->maxex). When inclusive a score >= min && score <= max is deleted.
  * Note that this function takes the reference to the hash table view of the
  * sorted set, in order to remove the elements from the hash table too. */
-unsigned long zslDeleteRangeByScore(zskiplist *zsl, zrangespec *range, dict *dict) {
+unsigned long zslDeleteRangeByScore(zskiplist *zsl, zrangespec *range, dict *dict, long count) {
     zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;
     unsigned long removed = 0;
     int i;
@@ -404,16 +404,16 @@ unsigned long zslDeleteRangeByScore(zskiplist *zsl, zrangespec *range, dict *dic
         dictDelete(dict,x->ele);
         zslFreeNode(x); /* Here is where x->ele is actually released. */
         removed++;
+        if (count > 0 && removed >= (unsigned long)count) break;
         x = next;
     }
     return removed;
 }
 
-unsigned long zslDeleteRangeByLex(zskiplist *zsl, zlexrangespec *range, dict *dict) {
+unsigned long zslDeleteRangeByLex(zskiplist *zsl, zlexrangespec *range, dict *dict, long count) {
     zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;
     unsigned long removed = 0;
     int i;
-
 
     x = zsl->header;
     for (i = zsl->level-1; i >= 0; i--) {
@@ -433,6 +433,7 @@ unsigned long zslDeleteRangeByLex(zskiplist *zsl, zlexrangespec *range, dict *di
         dictDelete(dict,x->ele);
         zslFreeNode(x); /* Here is where x->ele is actually released. */
         removed++;
+        if (count > 0 && removed >= (unsigned long)count) break;
         x = next;
     }
     return removed;
@@ -1078,7 +1079,7 @@ unsigned char *zzlInsert(unsigned char *zl, sds ele, double score) {
     return zl;
 }
 
-unsigned char *zzlDeleteRangeByScore(unsigned char *zl, zrangespec *range, unsigned long *deleted) {
+unsigned char *zzlDeleteRangeByScore(unsigned char *zl, zrangespec *range, long count, unsigned long *deleted) {
     unsigned char *eptr, *sptr;
     double score;
     unsigned long num = 0;
@@ -1095,6 +1096,7 @@ unsigned char *zzlDeleteRangeByScore(unsigned char *zl, zrangespec *range, unsig
             /* Delete both the element and the score. */
             zl = lpDeleteRangeWithEntry(zl,&eptr,2);
             num++;
+            if (count > 0 && num >= (unsigned long)count) break;
         } else {
             /* No longer in range. */
             break;
@@ -1105,7 +1107,7 @@ unsigned char *zzlDeleteRangeByScore(unsigned char *zl, zrangespec *range, unsig
     return zl;
 }
 
-unsigned char *zzlDeleteRangeByLex(unsigned char *zl, zlexrangespec *range, unsigned long *deleted) {
+unsigned char *zzlDeleteRangeByLex(unsigned char *zl, zlexrangespec *range, long count, unsigned long *deleted) {
     unsigned char *eptr, *sptr;
     unsigned long num = 0;
 
@@ -1120,6 +1122,7 @@ unsigned char *zzlDeleteRangeByLex(unsigned char *zl, zlexrangespec *range, unsi
             /* Delete both the element and the score. */
             zl = lpDeleteRangeWithEntry(zl,&eptr,2);
             num++;
+            if (count > 0 && num >= (unsigned long)count) break;
         } else {
             /* No longer in range. */
             break;
@@ -1823,8 +1826,20 @@ typedef enum {
     ZRANGE_LEX,
 } zrange_type;
 
-/* Implements ZREMRANGEBYRANK, ZREMRANGEBYSCORE, ZREMRANGEBYLEX commands. */
-void zremrangeGenericCommand(client *c, zrange_type rangetype) {
+void genericZrangebyRangetypeCommand(client *c, zrange_type rangetype, robj *zobj,
+                                     long start, long end, zrangespec *range, zlexrangespec *lexrange,
+                                     long offset, long limit, int withscores, int reverse);
+
+/* Implements ZREMRANGEBYRANK, ZREMRANGEBYSCORE, ZREMRANGEBYLEX, ZREMRANGE commands.
+ *
+ * 'is_get' when true the command will behave look like pop, we will return the elements before
+ * actually do the remove. The return value depends on the following `withscores` parameter.
+ *
+ * 'withscores' only work with is_get, the behave and return value exactly like `ZRANGE` command.
+ *
+ * 'count' how many elements are requested to be removed, -1 means that all in the range.
+ * */
+void zremrangeGenericCommand(client *c, zrange_type rangetype, int is_get, int withscores, long count) {
     robj *key = c->argv[1];
     robj *zobj;
     int keyremoved = 0;
@@ -1833,6 +1848,7 @@ void zremrangeGenericCommand(client *c, zrange_type rangetype) {
     zlexrangespec lexrange;
     long start, end, llen;
     char *notify_type = NULL;
+    int return_empty = 0; /* A flag indicates whether it will return empty (zero or empty array). */
 
     /* Step 1: Parse the range. */
     if (rangetype == ZRANGE_RANK) {
@@ -1857,8 +1873,14 @@ void zremrangeGenericCommand(client *c, zrange_type rangetype) {
     }
 
     /* Step 2: Lookup & range sanity checks if needed. */
-    if ((zobj = lookupKeyWriteOrReply(c,key,shared.czero)) == NULL ||
-        checkType(c,zobj,OBJ_ZSET)) goto cleanup;
+    zobj = lookupKeyWrite(c->db, key);
+    if (checkType(c, zobj, OBJ_ZSET)) goto cleanup;
+
+    /* If key non exist or count is zero, serve if ASAP. */
+    if (zobj == NULL || count == 0) {
+        return_empty = 1;
+        goto cleanup;
+    }
 
     if (rangetype == ZRANGE_RANK) {
         /* Sanitize indexes. */
@@ -1870,10 +1892,17 @@ void zremrangeGenericCommand(client *c, zrange_type rangetype) {
         /* Invariant: start >= 0, so this test will be true when end < 0.
          * The range is empty when start > end or start >= length. */
         if (start > end || start >= llen) {
-            addReply(c,shared.czero);
+            return_empty = 1;
             goto cleanup;
         }
         if (end >= llen) end = llen-1;
+    }
+
+    if (is_get) {
+        /* Get the elements before we remove it. */
+        genericZrangebyRangetypeCommand(c, rangetype, zobj,
+                                        start, end, &range, &lexrange,
+                                        0, count, withscores, 0);
     }
 
     /* Step 3: Perform the range deletion operation. */
@@ -1884,10 +1913,10 @@ void zremrangeGenericCommand(client *c, zrange_type rangetype) {
             zobj->ptr = zzlDeleteRangeByRank(zobj->ptr,start+1,end+1,&deleted);
             break;
         case ZRANGE_SCORE:
-            zobj->ptr = zzlDeleteRangeByScore(zobj->ptr,&range,&deleted);
+            zobj->ptr = zzlDeleteRangeByScore(zobj->ptr, &range, count, &deleted);
             break;
         case ZRANGE_LEX:
-            zobj->ptr = zzlDeleteRangeByLex(zobj->ptr,&lexrange,&deleted);
+            zobj->ptr = zzlDeleteRangeByLex(zobj->ptr, &lexrange, count, &deleted);
             break;
         }
         if (zzlLength(zobj->ptr) == 0) {
@@ -1902,10 +1931,10 @@ void zremrangeGenericCommand(client *c, zrange_type rangetype) {
             deleted = zslDeleteRangeByRank(zs->zsl,start+1,end+1,zs->dict);
             break;
         case ZRANGE_SCORE:
-            deleted = zslDeleteRangeByScore(zs->zsl,&range,zs->dict);
+            deleted = zslDeleteRangeByScore(zs->zsl, &range, zs->dict, count);
             break;
         case ZRANGE_LEX:
-            deleted = zslDeleteRangeByLex(zs->zsl,&lexrange,zs->dict);
+            deleted = zslDeleteRangeByLex(zs->zsl, &lexrange, zs->dict, count);
             break;
         }
         if (htNeedsResize(zs->dict)) dictResize(zs->dict);
@@ -1925,22 +1954,91 @@ void zremrangeGenericCommand(client *c, zrange_type rangetype) {
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key,c->db->id);
     }
     server.dirty += deleted;
-    addReplyLongLong(c,deleted);
+
+    if (!is_get)
+        addReplyLongLong(c,deleted);
 
 cleanup:
+    if (return_empty) {
+        if (is_get) {
+            /* If we are not able to pop up any elements, return empty array. */
+            addReply(c, shared.emptyarray);
+        } else {
+            /* Otherwise we are not able remove any elements, return 0. */
+            addReply(c, shared.czero);
+        }
+    }
+
     if (rangetype == ZRANGE_LEX) zslFreeLexRange(&lexrange);
 }
 
+/* ZREMRANGEBYRANK key start stop */
 void zremrangebyrankCommand(client *c) {
-    zremrangeGenericCommand(c,ZRANGE_RANK);
+    zremrangeGenericCommand(c, ZRANGE_RANK, 0, 0, -1);
 }
 
+/* ZREMRANGEBYSCORE key min max */
 void zremrangebyscoreCommand(client *c) {
-    zremrangeGenericCommand(c,ZRANGE_SCORE);
+    zremrangeGenericCommand(c, ZRANGE_SCORE, 0, 0, -1);
 }
 
+/* ZREMRANGEBYRANK key start stop */
 void zremrangebylexCommand(client *c) {
-    zremrangeGenericCommand(c,ZRANGE_LEX);
+    zremrangeGenericCommand(c, ZRANGE_LEX, 0, 0, -1);
+}
+
+/* ZREMRANGE key start|min stop|max [BYRANK|BYSCORE|BYLEX] [GET] [WITHSCORES] [COUNT count] */
+void zremrangeCommand(client *c) {
+    int j;
+    int rangetype = ZRANGE_AUTO;
+    int is_get = 0;
+    int withscores = 0;
+    int count_is_set = 0; /* Determine whether the count variant is set. */
+    long count = -1; /* -1 means all. */
+
+    /* Parse the optional arguments. */
+    for (j = 4; j < c->argc; j++) {
+        char *opt = c->argv[j]->ptr;
+        int moreargs = (c->argc - 1) - j;
+
+        /* We will parse the range in zremrangeGenericCommand. */
+        if (rangetype == ZRANGE_AUTO && !strcasecmp(opt, "BYRANK")) {
+            rangetype = ZRANGE_RANK;
+        } else if (rangetype == ZRANGE_AUTO && !strcasecmp(opt, "BYSCORE")) {
+            rangetype = ZRANGE_SCORE;
+        } else if (rangetype == ZRANGE_AUTO && !strcasecmp(opt, "BYLEX")) {
+            rangetype = ZRANGE_LEX;
+        } else if (!is_get && !strcasecmp(opt, "GET")) {
+            is_get = 1;
+        }  else if (!withscores && !strcasecmp(opt, "WITHSCORES")) {
+            withscores = 1;
+        } else if (!count_is_set && !strcasecmp(opt, "COUNT") && moreargs) {
+            j++;
+            if (getRangeLongFromObjectOrReply(c, c->argv[j], -1, LONG_MAX,
+                                              &count,"count should be greater than -1") != C_OK)
+                return;
+
+            count_is_set = 1;
+        } else {
+            addReplyErrorObject(c, shared.syntaxerr);
+            return;
+        }
+    }
+
+    /* Use defaults if not overridden by arguments. */
+    if (rangetype == ZRANGE_AUTO) rangetype = ZRANGE_RANK;
+
+    /* Check for conflicting arguments. */
+    if (rangetype == ZRANGE_RANK && count_is_set) {
+        addReplyError(c, "syntax error, COUNT is only supported in combination with either BYSCORE or BYLEX");
+        return;
+    }
+    if (withscores && !is_get) {
+        addReplyError(c, "syntax error, WITHSCORES is only supported in combination with GET");
+        return;
+    }
+
+    zremrangeGenericCommand(c, rangetype, is_get, withscores, count);
 }
 
 typedef struct {
@@ -3525,6 +3623,33 @@ void zrevrangebylexCommand(client *c) {
     zrange_result_handler handler;
     zrangeResultHandlerInit(&handler, c, ZRANGE_CONSUMER_TYPE_CLIENT);
     zrangeGenericCommand(&handler, 1, 0, ZRANGE_LEX, ZRANGE_DIRECTION_REVERSE);
+}
+
+/* A function to help us call the ZrangeCommand according to the rangetype. */
+void genericZrangebyRangetypeCommand(client *c, zrange_type rangetype, robj *zobj,
+                                     long start, long end, zrangespec *range, zlexrangespec *lexrange,
+                                     long offset, long limit, int withscores, int reverse)
+{
+    zrange_result_handler handler;
+    zrangeResultHandlerInit(&handler, c, ZRANGE_CONSUMER_TYPE_CLIENT);
+
+    if (withscores)
+        zrangeResultHandlerScoreEmissionEnable(&handler);
+
+    switch (rangetype) {
+        case ZRANGE_AUTO:
+        case ZRANGE_RANK:
+            genericZrangebyrankCommand(&handler, zobj, start, end, withscores, reverse);
+            break;
+
+        case ZRANGE_SCORE:
+            genericZrangebyscoreCommand(&handler, range, zobj, offset, limit, reverse);
+            break;
+
+        case ZRANGE_LEX:
+            genericZrangebylexCommand(&handler, lexrange, zobj, withscores, offset, limit, reverse);
+            break;
+    }
 }
 
 /**

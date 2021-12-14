@@ -1123,6 +1123,12 @@ struct redisCommand redisCommandTable[] = {
        KSPEC_BS_INDEX,.bs.index={1},
        KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 
+    {"zremrange", zremrangeCommand,-4,
+     "write @sortedset",
+     {{"write",
+       KSPEC_BS_INDEX,.bs.index={1},
+       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+
     {"zremrangebyscore",zremrangebyscoreCommand,4,
      "write @sortedset",
      {{"write",
