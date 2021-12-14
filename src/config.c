@@ -128,10 +128,10 @@ configEnum sanitize_dump_payload_enum[] = {
     {NULL, 0}
 };
 
-configEnum protected_config_enum[] = {
-        {"no", PROTECTED_CONF_NO},
-        {"yes", PROTECTED_CONF_YES},
-        {"local", PROTECTED_CONF_LOCAL},
+configEnum protected_action_enum[] = {
+        {"no", PROTECTED_ACTION_NO},
+        {"yes", PROTECTED_ACTION_YES},
+        {"local", PROTECTED_ACTION_LOCAL},
         {NULL, 0}
 };
 
@@ -716,7 +716,7 @@ void configSetCommand(client *c) {
 
                 if (!invalid_args) {
                     if (config->flags & IMMUTABLE_CONFIG ||
-                        (config->flags & PROTECTED_CONFIG && !protectedConfigEnabled(server.enable_protected_configs, c))) {
+                        (config->flags & PROTECTED_CONFIG && !allowProtectedAction(server.enable_protected_configs, c))) {
                         /* Note: we don't abort the loop since we still want to handle redacting sensitive configs (above) */
                         errstr = (config->flags & IMMUTABLE_CONFIG) ? "can't set immutable config" : "can't set protected config";
                         invalid_args = 1;
@@ -2551,9 +2551,9 @@ static sds getConfigReplicaOfOption(typeData data) {
     return sdsnew(buf);
 }
 
-int protectedConfigEnabled(int config, client *c) {
-    return (config == PROTECTED_CONF_YES) ||
-           (config == PROTECTED_CONF_LOCAL && localConnection(c));
+int allowProtectedAction(int config, client *c) {
+    return (config == PROTECTED_ACTION_YES) ||
+           (config == PROTECTED_ACTION_LOCAL && localConnection(c));
 }
 
 standardConfig configs[] = {
@@ -2636,9 +2636,9 @@ standardConfig configs[] = {
     createEnumConfig("oom-score-adj", NULL, MODIFIABLE_CONFIG, oom_score_adj_enum, server.oom_score_adj, OOM_SCORE_ADJ_NO, NULL, updateOOMScoreAdj),
     createEnumConfig("acl-pubsub-default", NULL, MODIFIABLE_CONFIG, acl_pubsub_default_enum, server.acl_pubsub_default, USER_FLAG_ALLCHANNELS, NULL, NULL),
     createEnumConfig("sanitize-dump-payload", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, sanitize_dump_payload_enum, server.sanitize_dump_payload, SANITIZE_DUMP_NO, NULL, NULL),
-    createEnumConfig("enable-protected-configs", NULL, IMMUTABLE_CONFIG, protected_config_enum, server.enable_protected_configs, PROTECTED_CONF_NO, NULL, NULL),
-    createEnumConfig("enable-debug-command", NULL, IMMUTABLE_CONFIG, protected_config_enum,server.enable_debug_cmd, PROTECTED_CONF_LOCAL, NULL, NULL),
-    createEnumConfig("enable-module-command", NULL, IMMUTABLE_CONFIG, protected_config_enum, server.enable_module_cmd, PROTECTED_CONF_LOCAL, NULL, NULL),
+    createEnumConfig("enable-protected-configs", NULL, IMMUTABLE_CONFIG, protected_action_enum, server.enable_protected_configs, PROTECTED_ACTION_NO, NULL, NULL),
+    createEnumConfig("enable-debug-command", NULL, IMMUTABLE_CONFIG, protected_action_enum, server.enable_debug_cmd, PROTECTED_ACTION_LOCAL, NULL, NULL),
+    createEnumConfig("enable-module-command", NULL, IMMUTABLE_CONFIG, protected_action_enum, server.enable_module_cmd, PROTECTED_ACTION_LOCAL, NULL, NULL),
 
     /* Integer configs */
     createIntConfig("databases", NULL, IMMUTABLE_CONFIG, 1, INT_MAX, server.dbnum, 16, INTEGER_CONFIG, NULL, NULL),

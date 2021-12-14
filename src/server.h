@@ -435,9 +435,9 @@ typedef enum {
 #define SANITIZE_DUMP_CLIENTS 2
 
 /* Enable protected config/command */
-#define PROTECTED_CONF_NO 0
-#define PROTECTED_CONF_YES 1
-#define PROTECTED_CONF_LOCAL 2
+#define PROTECTED_ACTION_NO 0
+#define PROTECTED_ACTION_YES 1
+#define PROTECTED_ACTION_LOCAL 2
 
 /* Sets operations codes */
 #define SET_OP_UNION 0
@@ -2622,7 +2622,7 @@ void rewriteConfigMarkAsProcessed(struct rewriteConfigState *state, const char *
 int rewriteConfig(char *path, int force_all);
 void initConfigValues();
 sds getConfigDebugInfo();
-int protectedConfigEnabled(int config, client *c);
+int allowProtectedAction(int config, client *c);
 
 /* db.c -- Keyspace access API */
 int removeExpire(redisDb *db, robj *key);

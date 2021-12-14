@@ -5284,8 +5284,8 @@ int processCommand(client *c) {
     }
 
     /* check if DEBUG/MODULE command not allowed */
-    if ((c->cmd->proc == debugCommand && !protectedConfigEnabled(server.enable_debug_cmd, c)) ||
-        (c->cmd->proc == moduleCommand && !protectedConfigEnabled(server.enable_module_cmd, c))) {
+    if ((c->cmd->proc == debugCommand && !allowProtectedAction(server.enable_debug_cmd, c)) ||
+        (c->cmd->proc == moduleCommand && !allowProtectedAction(server.enable_module_cmd, c))) {
         rejectCommandFormat(c,"%s command not allowed, you may enable it by "
                               "editing the %s option in the Redis configuration file,"
                               "and then restarting the server.",

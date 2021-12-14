@@ -204,6 +204,9 @@ start_server {tags {"introspection"}} {
             enable-protected-configs
             enable-debug-command
             enable-module-command
+            dbfilename
+            logfile
+            dir
         }
 
         if {!$::tls} {
@@ -422,14 +425,15 @@ start_server {tags {"introspection"}} {
 start_server {tags {"introspection external:skip"} overrides {enable-protected-configs {no} enable-debug-command {no}}} {
     test {cannot modify protected configuration - no} {
         assert_error "ERR*protected*" {r config set dir somedir}
-        assert_error "ERR*DEBUG command not allowed*" {r DEBUG OBJECT x}
+        assert_error "ERR*DEBUG command not allowed*" {r DEBUG HELP}
     } {} {needs:debug}
 }
 
 start_server {config "minimal.conf" tags {"introspection external:skip"} overrides {protected-mode {no} enable-protected-configs {local} enable-debug-command {local}}} {
     test {cannot modify protected configuration - local} {
-        assert_no_match "ERR*protected*" {r config set dir somedir}
-        assert_no_match "ERR*protected*" {r DEBUG OBJECT x}
+        # verify that for local connection it doesn't error
+        r config set dbfilename somename
+        r DEBUG HELP
 
         # Get a non-loopback address of this instance for this test.
         set myaddr [get_nonloopback_addr]
@@ -437,7 +441,7 @@ start_server {config "minimal.conf" tags {"introspection external:skip"} overrid
             # Non-loopback client should fail
             set r2 [get_nonloopback_client]
             assert_error "ERR*protected*" {$r2 config set dir somedir}
-            assert_error "ERR*DEBUG command not allowed*" {$r2 DEBUG OBJECT x}
+            assert_error "ERR*DEBUG command not allowed*" {$r2 DEBUG HELP}
         }
     } {} {needs:debug}
 }

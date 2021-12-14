@@ -1054,8 +1054,7 @@ void clientAcceptHandler(connection *conn) {
      * requests from non loopback interfaces. Instead we try to explain the
      * user what to do to fix it if needed. */
     if (server.protected_mode &&
-        DefaultUser->flags & USER_FLAG_NOPASS &&
-        !(c->flags & CLIENT_UNIX_SOCKET))
+        DefaultUser->flags & USER_FLAG_NOPASS)
     {
         if (!localConnection(c)) {
             char *err =
