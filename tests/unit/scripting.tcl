@@ -498,27 +498,6 @@ start_server {tags {"scripting"}} {
         r get x
     } {10000}
 
-    test {EVAL processes writes from AOF in read-only slaves} {
-        r flushall
-        r config set appendonly yes
-        r config set aof-use-rdb-preamble no
-        run_script {redis.call("set",KEYS[1],"100")} 1 foo
-        run_script {redis.call("incr",KEYS[1])} 1 foo
-        run_script {redis.call("incr",KEYS[1])} 1 foo
-        wait_for_condition 50 100 {
-            [s aof_rewrite_in_progress] == 0
-        } else {
-            fail "AOF rewrite can't complete after CONFIG SET appendonly yes."
-        }
-        r config set slave-read-only yes
-        r slaveof 127.0.0.1 0
-        r debug loadaof
-        set res [r get foo]
-        r slaveof no one
-        r config set aof-use-rdb-preamble yes
-        set res
-    } {102} {external:skip}
-
     if {$is_eval eq 1} {
     test {We can call scripts rewriting client->argv from Lua} {
         r del myset
@@ -531,7 +510,6 @@ start_server {tags {"scripting"}} {
         assert {[r spop myset] eq {}}
     }
     } ;# is_eval
-
 
     test {Call Redis command with many args from Lua (issue #1764)} {
         run_script {

@@ -602,17 +602,14 @@ start_server {tags {"multi"}} {
     test {MULTI propagation of SCRIPT LOAD} {
         set repl [attach_to_replication_stream]
 
-        # make sure that SCRIPT LOAD inside MULTI is propagated in a transaction
+        # make sure that SCRIPT LOAD inside MULTI isn't propagated
         r multi
         r script load {redis.call('set', KEYS[1], 'foo')}
         set res [r exec]
         set sha [lindex $res 0]
 
         assert_replication_stream $repl {
-            {select *}
-            {multi}
-            {script load *}
-            {exec}
+            {}
         }
         close_replication_stream $repl
     } {} {needs:repl}

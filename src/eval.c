@@ -528,7 +528,7 @@ NULL
         sds sha = luaCreateFunction(c,c->argv[2]);
         if (sha == NULL) return; /* The error was sent by luaCreateFunction(). */
         addReplyBulkCBuffer(c,sha,40);
-        forceCommandPropagation(c,PROPAGATE_REPL|PROPAGATE_AOF);
+        preventCommandPropagation(c);
     } else if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"kill")) {
         scriptKill(c, 1);
     } else if (c->argc == 3 && !strcasecmp(c->argv[1]->ptr,"debug")) {

@@ -511,4 +511,23 @@ tags {"aof external:skip"} {
         }
     }
 
+    test {EVAL can't processes writes in AOF when doing "debug loadaof" in read-only slaves} {
+        start_server [list overrides [list dir $server_path appendonly no aof-use-rdb-preamble no]] {
+            r config set appendonly yes
+            waitForBgrewriteaof r
+            create_aof {
+                append_to_aof [formatCommand select 9]
+                append_to_aof [formatCommand eval {redis.call("set",KEYS[1],"100")} 1 foo]
+                append_to_aof [formatCommand eval {redis.call("incr",KEYS[1])} 1 foo]
+                append_to_aof [formatCommand eval {redis.call("incr",KEYS[1])} 1 foo]
+            }
+            r config set slave-read-only yes
+            r slaveof 127.0.0.1 0
+            r debug loadaof
+            after 100
+            r slaveof no one
+            assert_equal [r get foo] ""
+        }
+    }
+
 }
