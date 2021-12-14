@@ -508,8 +508,7 @@ void *RM_PoolAlloc(RedisModuleCtx *ctx, size_t bytes) {
  * Helpers for modules API implementation
  * -------------------------------------------------------------------------- */
 
-client *moduleAllocTempClient()
-{
+client *moduleAllocTempClient() {
     client *c;
 
     pthread_mutex_lock(&moduleTempClientsMutex);
@@ -522,8 +521,7 @@ client *moduleAllocTempClient()
     return c;
 }
 
-void moduleReleaseTempClient(client *c)
-{
+void moduleReleaseTempClient(client *c) {
     const size_t cap = sizeof(moduleTempClients) / sizeof(moduleTempClients[0]);
 
     pthread_mutex_lock(&moduleTempClientsMutex);
