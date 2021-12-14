@@ -3107,7 +3107,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     }
 
     /* for debug purposes: skip actual cron work if pause_cron is on */
-    if (server.debug_flags & DEBUG_PAUSE_CRON) return 1000/server.hz;
+    if (server.pause_cron) return 1000/server.hz;
 
     run_with_period(100) {
         long long stat_net_input_bytes, stat_net_output_bytes;
@@ -3754,7 +3754,7 @@ void initServerConfig(void) {
     server.migrate_cached_sockets = dictCreate(&migrateCacheDictType);
     server.next_client_id = 1; /* Client IDs, start from 1 .*/
     server.page_size = sysconf(_SC_PAGESIZE);
-    server.debug_flags = 0;
+    server.pause_cron = 0;
 
     unsigned int lruclock = getLRUClock();
     atomicSet(server.lruclock,lruclock);
@@ -5789,14 +5789,6 @@ int finishShutdown(void) {
                 goto error;
             }
         }
-    }
-
-    /* Simulated failure for debug and test. */
-    if (server.debug_flags & DEBUG_PREVENT_SHUTDOWN) {
-        serverLog(LL_WARNING, "Stopped by DEBUG PREVENT-SHUTDOWN, can't exit.");
-        if (server.supervised_mode == SUPERVISED_SYSTEMD)
-            redisCommunicateSystemd("STATUS=Debug prevents shutdown, can't exit.\n");
-        goto error;
     }
 
     /* Fire the shutdown modules event. */

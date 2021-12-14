@@ -484,9 +484,6 @@ void debugCommand(client *c) {
 "    Show low level client eviction pools info (maxmemory-clients).",
 "PAUSE-CRON <0|1>",
 "    Stop periodic cron job processing.",
-"PREVENT-SHUTDOWN <0|1>",
-"    Simulate a failure during shutdown resulting in Redis continuing to run",
-"    after receiving a SHUTDOWN command or a SIGTERM or SIGINT signal.",
 NULL
         };
         addReplyHelp(c, help);
@@ -955,17 +952,9 @@ NULL
         mallctl_string(c, c->argv+2, c->argc-2);
         return;
 #endif
-    } else if (!strcasecmp(c->argv[1]->ptr,"pause-cron") && c->argc == 3) {
-        if (atoi(c->argv[2]->ptr))
-            server.debug_flags |= DEBUG_PAUSE_CRON;
-        else
-            server.debug_flags &= ~DEBUG_PAUSE_CRON;
-        addReply(c,shared.ok);
-    } else if (!strcasecmp(c->argv[1]->ptr,"prevent-shutdown") && c->argc == 3) {
-        if (atoi(c->argv[2]->ptr))
-            server.debug_flags |= DEBUG_PREVENT_SHUTDOWN;
-        else
-            server.debug_flags &= ~DEBUG_PREVENT_SHUTDOWN;
+    } else if (!strcasecmp(c->argv[1]->ptr,"pause-cron") && c->argc == 3)
+    {
+        server.pause_cron = atoi(c->argv[2]->ptr);
         addReply(c,shared.ok);
     } else {
         addReplySubcommandSyntaxError(c);
