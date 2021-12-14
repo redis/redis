@@ -5639,8 +5639,6 @@ int prepareForShutdown(int flags) {
      * Also when in Sentinel mode clear the SAVE flag and force NOSAVE. */
     if (server.loading || server.sentinel_mode)
         flags = (flags & ~SHUTDOWN_SAVE) | SHUTDOWN_NOSAVE;
-    if (server.loading)
-        flags |= SHUTDOWN_FORCE;
 
     server.shutdown_flags = flags;
 
@@ -7489,6 +7487,9 @@ static void sigShutdownHandler(int sig) {
         serverLogFromHandler(LL_WARNING, "You insist... exiting now.");
         rdbRemoveTempFile(getpid(), 1);
         exit(1); /* Exit with an error since this was not a clean shutdown. */
+    } else if (server.loading) {
+        serverLogFromHandler(LL_WARNING, "Received shutdown signal during loading, exiting now.");
+        exit(0);
     }
 
     serverLogFromHandler(LL_WARNING, msg);
