@@ -793,7 +793,7 @@ err:
     } else if (errstr) {
         addReplyErrorFormat(c,"CONFIG SET failed (possibly related to argument '%s') - %s", err_arg_name, errstr);
     } else {
-        addReplyError(c,"Invalid arguments");
+        addReplyErrorFormat(c,"CONFIG SET failed (possibly related to argument '%s')", err_arg_name);
     }
 end:
     zfree(set_configs);
