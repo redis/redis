@@ -1150,12 +1150,11 @@ struct sharedObjectsStruct {
     *time, *pxat, *absttl, *retrycount, *force, *justid, 
     *lastid, *ping, *setid, *keepttl, *load, *createconsumer,
     *getack, *special_asterick, *special_equals, *default_username, *redacted,
+    *subscribelocalbulk,*unsubscribelocalbulk,
     *select[PROTO_SHARED_SELECT_CMDS],
     *integers[OBJ_SHARED_INTEGERS],
     *mbulkhdr[OBJ_SHARED_BULKHDR_LEN], /* "*<value>\r\n" */
-    *bulkhdr[OBJ_SHARED_BULKHDR_LEN],  /* "$<value>\r\n" */
-    *subscribelocalbulk,
-    *unsubscribelocalbulk;
+    *bulkhdr[OBJ_SHARED_BULKHDR_LEN];  /* "$<value>\r\n" */
     sds minstring, maxstring;
 };
 
@@ -1786,7 +1785,7 @@ struct redisServer {
     int target_replica_port; /* Failover target port */
     int failover_state; /* Failover state */
     int cluster_allow_pubsublocal_when_down; /* Is pubsublocal allowed when the cluster
-                                           is down, doesn't affect pubsub global. */
+                                                is down, doesn't affect pubsub global. */
 };
 
 #define MAX_KEYS_BUFFER 256
