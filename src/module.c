@@ -534,6 +534,9 @@ void moduleReleaseTempClient(client *c)
         c->reply_bytes = 0;
         resetClient(c);
         c->bufpos = 0;
+        c->flags = 0;
+        c->resp = 2;
+        selectDb(c, 0);
         moduleTempClients[moduleTempClientCount++] = c;
     }
     pthread_mutex_unlock(&moduleTempClientsMutex);
