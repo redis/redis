@@ -254,6 +254,7 @@ typedef struct standardConfig {
 #define SENSITIVE_CONFIG (1ULL<<1) /* Does this value contain sensitive information */
 #define DEBUG_CONFIG (1ULL<<2) /* Values that are useful for debugging. */
 #define MULTI_ARG_CONFIG (1ULL<<3) /* This config receives multiple arguments. */
+#define HIDDEN_CONFIG (1ULL<<4) /* This config is hidden in `config get <pattern>` (used for tests/debugging) */
 
 standardConfig configs[];
 
@@ -679,6 +680,7 @@ void configSetCommand(client *c) {
     apply_fn *apply_fns; /* TODO: make this a set for better performance */
     int config_count, i, j;
     int invalid_args = 0;
+    int *config_map_fns;
 
     /* Make sure we have an even number of arguments: conf-val pairs */
     if (c->argc & 1) {
@@ -691,6 +693,7 @@ void configSetCommand(client *c) {
     new_values = zmalloc(sizeof(sds*)*config_count);
     old_values = zcalloc(sizeof(sds*)*config_count);
     apply_fns = zcalloc(sizeof(apply_fn)*config_count);
+    config_map_fns = zmalloc(sizeof(int)*config_count);
 
     /* Find all relevant configs */
     for (i = 0; i < config_count; i++) {
@@ -759,8 +762,10 @@ void configSetCommand(client *c) {
                     }
                 }
                 /* Apply function not stored, store it */
-                if (!exists)
+                if (!exists) {
                     apply_fns[j] = set_configs[i]->interface.apply;
+                    config_map_fns[j] = i;
+                }
             }
         }
     }
@@ -768,7 +773,7 @@ void configSetCommand(client *c) {
     /* Apply all configs after being set */
     for (i = 0; i < config_count && apply_fns[i] != NULL; i++) {
         if (!apply_fns[i](&errstr)) {
-            serverLog(LL_WARNING, "Failed applying new %s configuration, restoring previous settings.", set_configs[i]->name);
+            serverLog(LL_WARNING, "Failed applying new configuration. Possibly related to new %s setting. Restoring previous settings.", set_configs[config_map_fns[i]]->name);
             restoreBackupConfig(set_configs, old_values, config_count, apply_fns);
             goto err;
         }
@@ -789,6 +794,7 @@ end:
         sdsfree(old_values[i]);
     zfree(old_values);
     zfree(apply_fns);
+    zfree(config_map_fns);
 }
 
 /*-----------------------------------------------------------------------------
@@ -803,6 +809,21 @@ void configGetCommand(client *c) {
     serverAssertWithInfo(c,o,sdsEncodedObject(o));
 
     for (standardConfig *config = configs; config->name != NULL; config++) {
+        /* Hidden configs require an exact match (not a pattern) */
+        if (config->flags & HIDDEN_CONFIG) {
+            if (!strcasecmp(pattern, config->name)) {
+                addReplyBulkCString(c, config->name);
+                addReplyBulkSds(c, config->interface.get(config->data));
+                matches++;
+                break;
+            } else if (config->alias && !strcasecmp(pattern, config->alias)) {
+                addReplyBulkCString(c, config->alias);
+                addReplyBulkSds(c, config->interface.get(config->data));
+                matches++;
+                break;
+            }
+            continue;
+        }
         if (stringmatch(pattern,config->name,1)) {
             addReplyBulkCString(c,config->name);
             addReplyBulkSds(c, config->interface.get(config->data));
@@ -2387,6 +2408,7 @@ static sds getConfigClientOutputBufferLimitOption(typeData data) {
 static int setConfigOOMScoreAdjValuesOption(typeData data, sds *argv, int argc, const char **err) {
     int i;
     int values[CONFIG_OOM_COUNT];
+    int change = 0;
     UNUSED(data);
 
     if (argc != CONFIG_OOM_COUNT) {
@@ -2419,10 +2441,13 @@ static int setConfigOOMScoreAdjValuesOption(typeData data, sds *argv, int argc, 
     }
 
     for (i = 0; i < CONFIG_OOM_COUNT; i++) {
-        server.oom_score_adj_values[i] = values[i];
+        if (server.oom_score_adj_values[i] != values[i]) {
+            server.oom_score_adj_values[i] = values[i];
+            change = 1;
+        }
     }
 
-    return 1;
+    return change ? 1 : 2;
 }
 
 static sds getConfigOOMScoreAdjValuesOption(typeData data) {
@@ -2564,7 +2589,7 @@ standardConfig configs[] = {
     createBoolConfig("cluster-allow-pubsublocal-when-down", NULL, MODIFIABLE_CONFIG, server.cluster_allow_pubsublocal_when_down, 1, NULL, NULL),
     createBoolConfig("crash-log-enabled", NULL, MODIFIABLE_CONFIG, server.crashlog_enabled, 1, NULL, updateSighandlerEnabled),
     createBoolConfig("crash-memcheck-enabled", NULL, MODIFIABLE_CONFIG, server.memcheck_enabled, 1, NULL, NULL),
-    createBoolConfig("use-exit-on-panic", NULL, MODIFIABLE_CONFIG, server.use_exit_on_panic, 0, NULL, NULL),
+    createBoolConfig("use-exit-on-panic", NULL, MODIFIABLE_CONFIG | HIDDEN_CONFIG, server.use_exit_on_panic, 0, NULL, NULL),
     createBoolConfig("disable-thp", NULL, MODIFIABLE_CONFIG, server.disable_thp, 1, NULL, NULL),
     createBoolConfig("cluster-allow-replica-migration", NULL, MODIFIABLE_CONFIG, server.cluster_allow_replica_migration, 1, NULL, NULL),
     createBoolConfig("replica-announced", NULL, MODIFIABLE_CONFIG, server.replica_announced, 1, NULL, NULL),
@@ -2633,13 +2658,13 @@ standardConfig configs[] = {
     createIntConfig("repl-timeout", NULL, MODIFIABLE_CONFIG, 1, INT_MAX, server.repl_timeout, 60, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("repl-ping-replica-period", "repl-ping-slave-period", MODIFIABLE_CONFIG, 1, INT_MAX, server.repl_ping_slave_period, 10, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("list-compress-depth", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, 0, INT_MAX, server.list_compress_depth, 0, INTEGER_CONFIG, NULL, NULL),
-    createIntConfig("rdb-key-save-delay", NULL, MODIFIABLE_CONFIG, INT_MIN, INT_MAX, server.rdb_key_save_delay, 0, INTEGER_CONFIG, NULL, NULL),
-    createIntConfig("key-load-delay", NULL, MODIFIABLE_CONFIG, INT_MIN, INT_MAX, server.key_load_delay, 0, INTEGER_CONFIG, NULL, NULL),
+    createIntConfig("rdb-key-save-delay", NULL, MODIFIABLE_CONFIG | HIDDEN_CONFIG, INT_MIN, INT_MAX, server.rdb_key_save_delay, 0, INTEGER_CONFIG, NULL, NULL),
+    createIntConfig("key-load-delay", NULL, MODIFIABLE_CONFIG | HIDDEN_CONFIG, INT_MIN, INT_MAX, server.key_load_delay, 0, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("active-expire-effort", NULL, MODIFIABLE_CONFIG, 1, 10, server.active_expire_effort, 1, INTEGER_CONFIG, NULL, NULL), /* From 1 to 10. */
     createIntConfig("hz", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.config_hz, CONFIG_DEFAULT_HZ, INTEGER_CONFIG, NULL, updateHZ),
     createIntConfig("min-replicas-to-write", "min-slaves-to-write", MODIFIABLE_CONFIG, 0, INT_MAX, server.repl_min_slaves_to_write, 0, INTEGER_CONFIG, NULL, updateGoodSlaves),
     createIntConfig("min-replicas-max-lag", "min-slaves-max-lag", MODIFIABLE_CONFIG, 0, INT_MAX, server.repl_min_slaves_max_lag, 10, INTEGER_CONFIG, NULL, updateGoodSlaves),
-    createIntConfig("watchdog-period", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.watchdog_period, 0, INTEGER_CONFIG, NULL, updateWatchdogPeriod),
+    createIntConfig("watchdog-period", NULL, MODIFIABLE_CONFIG | HIDDEN_CONFIG, 0, INT_MAX, server.watchdog_period, 0, INTEGER_CONFIG, NULL, updateWatchdogPeriod),
 
     /* Unsigned int configs */
     createUIntConfig("maxclients", NULL, MODIFIABLE_CONFIG, 1, UINT_MAX, server.maxclients, 10000, INTEGER_CONFIG, NULL, updateMaxclients),
@@ -2678,7 +2703,7 @@ standardConfig configs[] = {
     /* Other configs */
     createTimeTConfig("repl-backlog-ttl", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.repl_backlog_time_limit, 60*60, INTEGER_CONFIG, NULL, NULL), /* Default: 1 hour */
     createOffTConfig("auto-aof-rewrite-min-size", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.aof_rewrite_min_size, 64*1024*1024, MEMORY_CONFIG, NULL, NULL),
-    createOffTConfig("loading-process-events-interval-bytes", NULL, MODIFIABLE_CONFIG, 1024, INT_MAX, server.loading_process_events_interval_bytes, 1024*1024*2, INTEGER_CONFIG, NULL, NULL),
+    createOffTConfig("loading-process-events-interval-bytes", NULL, MODIFIABLE_CONFIG | HIDDEN_CONFIG, 1024, INT_MAX, server.loading_process_events_interval_bytes, 1024*1024*2, INTEGER_CONFIG, NULL, NULL),
 
 #ifdef USE_OPENSSL
     createIntConfig("tls-port", NULL, MODIFIABLE_CONFIG, 0, 65535, server.tls_port, 0, INTEGER_CONFIG, NULL, applyTLSPort), /* TCP port. */

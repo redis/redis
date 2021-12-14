@@ -118,6 +118,15 @@ test {corrupt payload: quicklist encoded_len is 0} {
     }
 }
 
+test {corrupt payload: quicklist listpack entry start with EOF} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload yes
+        catch { r restore _list 0 "\x12\x01\x02\x0b\x0b\x00\x00\x00\x01\x00\x81\x61\x02\xff\xff\x0a\x00\x7e\xd8\xde\x5b\x0d\xd7\x70\xb8" replace } err
+        assert_match "*Bad data format*" $err
+        r ping
+    }
+}
+
 test {corrupt payload: #3080 - ziplist} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         # shallow sanitization is enough for restore to safely reject the payload with wrong size
@@ -213,6 +222,17 @@ test {corrupt payload: listpack too long entry prev len} {
         } err
         assert_match "*Bad data format*" $err
         verify_log_message 0 "*Stream listpack integrity check failed*" 0
+    }
+}
+
+test {corrupt payload: stream with duplicate consumers} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        catch {
+            r restore key 0 "\x0F\x00\x00\x00\x00\x01\x07\x6D\x79\x67\x72\x6F\x75\x70\x00\x00\x00\x02\x04\x6E\x61\x6D\x65\x2A\x4C\xAA\x9A\x7D\x01\x00\x00\x00\x04\x6E\x61\x6D\x65\x2B\x4C\xAA\x9A\x7D\x01\x00\x00\x00\x0A\x00\xCC\xED\x8C\xA7\x62\xEE\xC7\xC8"
+        } err
+        assert_match "*Bad data format*" $err
+        verify_log_message 0 "*Duplicate stream consumer detected*" 0
+        r ping
     }
 }
 
