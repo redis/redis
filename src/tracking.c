@@ -235,10 +235,10 @@ void trackingRememberKeys(client *c) {
         return;
     }
 
-    int *keys = result.keys;
+    keyReference *keys = result.keys;
 
     for(int j = 0; j < numkeys; j++) {
-        int idx = keys[j];
+        int idx = keys[j].pos;
         sds sdskey = c->argv[idx]->ptr;
         rax *ids = raxFind(TrackingTable,(unsigned char*)sdskey,sdslen(sdskey));
         if (ids == raxNotFound) {

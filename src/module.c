@@ -741,7 +741,7 @@ void RM_KeyAtPos(RedisModuleCtx *ctx, int pos) {
         getKeysPrepareResult(res, newsize);
     }
 
-    res->keys[res->numkeys++] = pos;
+    res->keys[res->numkeys++].pos = pos;
 }
 
 /* Helper for RM_CreateCommand(). Turns a string representing command
@@ -7460,13 +7460,31 @@ int RM_ACLCheckCommandPermissions(RedisModuleUser *user, RedisModuleString **arg
     return REDISMODULE_OK;
 }
 
-/* Check if the key can be accessed by the user, according to the ACLs associated with it.
+/* Check if the key can be accessed by the user, according to the ACLs associated with it
+ * and the flags used. The supported flags are:
  *
- * If the user can access the key, REDISMODULE_OK is returned, otherwise
- * REDISMODULE_ERR is returned. */
-int RM_ACLCheckKeyPermissions(RedisModuleUser *user, RedisModuleString *key) {
-    if (ACLCheckKey(user->user, key->ptr, sdslen(key->ptr)) != ACL_OK)
+ * REDISMODULE_KEY_PERMISSION_READ: Can the module read data from the key.
+ * REDISMODULE_KEY_PERMISSION_WRITE: Can the module write data to the key.
+ *
+ * On success a REDISMODULE_OK is returned, otherwise
+ * REDISMODULE_ERR is returned and errno is set to the following values:
+ * 
+ * * EINVAL: The provided flags are invalid.
+ * * EACCESS: The user does not have permission to access the key.
+ */
+int RM_ACLCheckKeyPermissions(RedisModuleUser *user, RedisModuleString *key, int flags) {
+    int acl_flags = 0;
+    if (flags & REDISMODULE_KEY_PERMISSION_READ) acl_flags |= CMD_KEY_READ;
+    if (flags & REDISMODULE_KEY_PERMISSION_WRITE) acl_flags |= CMD_KEY_WRITE;
+    if (!acl_flags) {
+        errno = EINVAL;
         return REDISMODULE_ERR;
+    }
+
+    if (ACLUserCheckKeyPerm(user->user, key->ptr, sdslen(key->ptr), flags) != ACL_OK) {
+        errno = EACCES;
+        return REDISMODULE_ERR;
+    }
 
     return REDISMODULE_OK;
 }
@@ -7478,7 +7496,7 @@ int RM_ACLCheckKeyPermissions(RedisModuleUser *user, RedisModuleString *key) {
  * If the user can access the pubsub channel, REDISMODULE_OK is returned, otherwise
  * REDISMODULE_ERR is returned. */
 int RM_ACLCheckChannelPermissions(RedisModuleUser *user, RedisModuleString *ch, int literal) {
-    if (ACLCheckPubsubChannelPerm(ch->ptr, user->user->channels, literal) != ACL_OK)
+    if (ACLUserCheckChannelPerm(user->user, ch->ptr, literal) != ACL_OK)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;
@@ -10095,17 +10113,11 @@ int *RM_GetCommandKeys(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, 
         return NULL;
     }
 
-    if (result.keys == result.keysbuf) {
-        /* If the result is using a stack based array, copy it. */
-        unsigned long int size = sizeof(int) * result.numkeys;
-        res = zmalloc(size);
-        memcpy(res, result.keys, size);
-    } else {
-        /* We return the heap based array and intentionally avoid calling
-         * getKeysFreeResult() here, as it is the caller's responsibility
-         * to free this array.
-         */
-        res = result.keys;
+    /* The return value here expects an array of key positions */
+    unsigned long int size = sizeof(int) * result.numkeys;
+    res = zmalloc(size);
+    for (int i = 0; i < result.numkeys; i++) {
+        res[i] = result.keys[i].pos;
     }
 
     return res;

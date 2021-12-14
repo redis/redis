@@ -12,7 +12,7 @@ int set_aclcheck_key(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     /* Check that the key can be accessed */
     RedisModuleString *user_name = RedisModule_GetCurrentUserName(ctx);
     RedisModuleUser *user = RedisModule_GetModuleUserFromUserName(user_name);
-    int ret = RedisModule_ACLCheckKeyPermissions(user, argv[1]);
+    int ret = RedisModule_ACLCheckKeyPermissions(user, argv[1], REDISMODULE_KEY_PERMISSION_ALL);
     if (ret != 0) {
         RedisModule_ReplyWithError(ctx, "DENIED KEY");
         RedisModule_FreeModuleUser(user);

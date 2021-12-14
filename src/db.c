@@ -1648,7 +1648,7 @@ int expireIfNeeded(redisDb *db, robj *key, int force_delete_expired) {
  * This function must be called at least once before starting to populate
  * the result, and can be called repeatedly to enlarge the result array.
  */
-int *getKeysPrepareResult(getKeysResult *result, int numkeys) {
+keyReference *getKeysPrepareResult(getKeysResult *result, int numkeys) {
     /* GETKEYS_RESULT_INIT initializes keys to NULL, point it to the pre-allocated stack
      * buffer here. */
     if (!result->keys) {
@@ -1660,12 +1660,12 @@ int *getKeysPrepareResult(getKeysResult *result, int numkeys) {
     if (numkeys > result->size) {
         if (result->keys != result->keysbuf) {
             /* We're not using a static buffer, just (re)alloc */
-            result->keys = zrealloc(result->keys, numkeys * sizeof(int));
+            result->keys = zrealloc(result->keys, numkeys * sizeof(keyReference));
         } else {
             /* We are using a static buffer, copy its contents */
-            result->keys = zmalloc(numkeys * sizeof(int));
+            result->keys = zmalloc(numkeys * sizeof(keyReference));
             if (result->numkeys)
-                memcpy(result->keys, result->keysbuf, result->numkeys * sizeof(int));
+                memcpy(result->keys, result->keysbuf, result->numkeys * sizeof(keyReference));
         }
         result->size = numkeys;
     }
@@ -1673,12 +1673,180 @@ int *getKeysPrepareResult(getKeysResult *result, int numkeys) {
     return result->keys;
 }
 
+/* Fetch the keys based of the provided key specs. Returns 0 if the keyspec definition is
+ * incomplete. */
+int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+    int j, i, k = 0, last, first, step;
+    keyReference *keys;
+
+    for (j = 0; j < cmd->key_specs_num; j++) {
+        keySpec *spec = cmd->key_specs+j;
+        serverAssert(spec->begin_search_type != KSPEC_BS_INVALID);
+        if (spec->flags & CMD_KEY_INCOMPLETE) {
+            result->numkeys = 0;
+            return 0;
+        }
+
+        /* Skip specs that represent channels instead of keys */
+        if (spec->flags & (CMD_KEY_CHANNEL|CMD_KEY_CHANNEL_PATTERN|CMD_KEY_SHARD_CHANNEL)) {
+            continue;
+        }
+
+        first = 0;
+        if (spec->begin_search_type == KSPEC_BS_INDEX) {
+            first = spec->bs.index.pos;
+        } else { /* KSPEC_BS_IKEYWORD */
+            int start_index = spec->bs.keyword.startfrom > 0 ? spec->bs.keyword.startfrom : argc+spec->bs.keyword.startfrom;
+            int end_index = spec->bs.keyword.startfrom > 0 ? argc-1: 1;
+            for (i = start_index; i != end_index; i = start_index <= end_index ? i + 1 : i - 1) {
+                if (i >= argc)
+                    break;
+                if (!strcasecmp((char*)argv[i]->ptr,spec->bs.keyword.keyword)) {
+                    first = i+1;
+                    break;
+                }
+            }
+        }
+
+        if (!first) {
+            continue;
+        }
+
+        if (spec->find_keys_type == KSPEC_FK_RANGE) {
+            step = spec->fk.range.keystep;
+            if (spec->fk.range.lastkey >= 0) {
+                last = first + spec->fk.range.lastkey;
+            } else {
+                if (!spec->fk.range.limit) {
+                    last = argc + spec->fk.range.lastkey;
+                } else {
+                    serverAssert(spec->fk.range.lastkey == -1);
+                    last = first + ((argc-first)/spec->fk.range.limit + spec->fk.range.lastkey);
+                }
+            }
+        } else { /* KSPEC_FK_KEYNUM */
+            step = spec->fk.keynum.keystep;
+            long long numkeys;
+
+            if (!string2ll(argv[first+spec->fk.keynum.keynumidx]->ptr,sdslen(argv[first+spec->fk.keynum.keynumidx]->ptr),&numkeys)) {
+                continue;
+            }
+
+            first += spec->fk.keynum.firstkey;
+            last = first + (int)numkeys-1;
+        }
+
+        int count = ((last - first)+1);
+        keys = getKeysPrepareResult(result, count);
+
+        for (i = first; i <= last; i += step) {
+            if (i >= argc) {
+                /* Modules commands, and standard commands with a not fixed number
+                 * of arguments (negative arity parameter) do not have dispatch
+                 * time arity checks, so we need to handle the case where the user
+                 * passed an invalid number of arguments here. In this case we
+                 * return no keys and expect the command implementation to report
+                 * an arity or syntax error. */
+                if (cmd->flags & CMD_MODULE || cmd->arity < 0) {
+                    continue;
+                } else {
+                    serverPanic("Redis built-in command declared keys positions not matching the arity requirements.");
+                }
+            }
+            keys[k].pos = i;
+            keys[k++].flags = spec->flags;
+        }
+    }
+
+    result->numkeys = k;
+    return k;
+}
+
+/* Return all the arguments that are keys in the command passed via argc / argv. 
+ * This function will eventually replace getKeysFromCommand.
+ *
+ * The command returns the positions of all the key arguments inside the array,
+ * so the actual return value is a heap allocated array of integers. The
+ * length of the array is returned by reference into *numkeys.
+ * 
+ * Along with the position, this command also returns the flags that are
+ * associated with how Redis will access the key.
+ *
+ * 'cmd' must be point to the corresponding entry into the redisCommand
+ * table, according to the command name in argv[0].
+ *
+ * This function uses the command table if a command-specific helper function
+ * is not required, otherwise it calls the command-specific function. */
+int getKeysFromCommandWithSpecs(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+    if (cmd->flags & CMD_MODULE_GETKEYS) {
+        return moduleGetCommandKeysViaAPI(cmd,argv,argc,result);
+    } else {
+        int ret = getKeysUsingKeySpecs(cmd,argv,argc,result);
+        if (ret) {
+            return ret;
+        } else if (!(cmd->flags & CMD_MODULE) && cmd->getkeys_proc) {
+            return cmd->getkeys_proc(cmd,argv,argc,result);
+        } else {
+            return 0;
+        }
+    }
+}
+
+/* This function returns a sanity check if the command may have keys. */
+int doesCommandHaveKeys(struct redisCommand *cmd) {
+    return cmd->getkeys_proc || cmd->key_specs_num;
+}
+
+int getChannelsFromCommand(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+    UNUSED(argv);
+    keyReference *keys;
+    int count = 0;
+    if (cmd->proc == publishCommand || cmd->proc == spublishCommand) {
+        count = 1;
+        keys = getKeysPrepareResult(result, count);
+        keys[0].pos = 1;
+        keys[0].flags = cmd->proc == publishCommand ? CMD_KEY_CHANNEL : CMD_KEY_SHARD_CHANNEL;
+    } else if (cmd->proc == subscribeCommand 
+        || cmd->proc == psubscribeCommand
+        || cmd->proc == ssubscribeCommand)
+    {
+        count = argc - 1;
+        keys = getKeysPrepareResult(result, count);
+        for (int j = 0; j <= argc; j++) {
+            keys[j].pos = j+1;
+            if (cmd->proc == subscribeCommand) {
+                keys[j].flags = CMD_KEY_CHANNEL;
+            } else if (cmd->proc == psubscribeCommand) {
+                keys[j].flags = CMD_KEY_CHANNEL_PATTERN;
+            } else if (cmd->proc == ssubscribeCommand) {
+                keys[j].flags = CMD_KEY_SHARD_CHANNEL;
+            } else {
+                serverPanic("Unknown channel type found");
+            }
+        }
+    } else {
+        result->numkeys = 0;;
+        return 0;
+    }
+    result->numkeys = count;
+    return count;
+}
+
+int doesCommandHaveChannels(struct redisCommand *cmd) {
+    return (cmd->proc == publishCommand
+        || cmd->proc == subscribeCommand
+        || cmd->proc == psubscribeCommand
+        || cmd->proc == spublishCommand
+        || cmd->proc == ssubscribeCommand);
+}
+
 /* The base case is to use the keys position as given in the command table
  * (firstkey, lastkey, step).
  * This function works only on command with the legacy_range_key_spec,
  * all other commands should be handled by getkeys_proc. */
 int getKeysUsingLegacyRangeSpec(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
-    int j, i = 0, last, first, step, *keys;
+    int j, i = 0, last, first, step;
+    keyReference *keys;
     UNUSED(argv);
 
     if (cmd->legacy_range_key_spec.begin_search_type == KSPEC_BS_INVALID) {
@@ -1712,7 +1880,8 @@ int getKeysUsingLegacyRangeSpec(struct redisCommand *cmd, robj **argv, int argc,
                 serverPanic("Redis built-in command declared keys positions not matching the arity requirements.");
             }
         }
-        keys[i++] = j;
+        keys[i].pos = j;
+        keys[i++].flags = CMD_KEY_READ | CMD_KEY_WRITE;
     }
     result->numkeys = i;
     return i;
@@ -1759,7 +1928,8 @@ void getKeysFreeResult(getKeysResult *result) {
  * */
 int genericGetKeys(int storeKeyOfs, int keyCountOfs, int firstKeyOfs, int keyStep,
                     robj **argv, int argc, getKeysResult *result) {
-    int i, num, *keys;
+    int i, num;
+    keyReference *keys;
 
     num = atoi(argv[keyCountOfs]->ptr);
     /* Sanity check. Don't return any key if the command is going to
@@ -1774,9 +1944,16 @@ int genericGetKeys(int storeKeyOfs, int keyCountOfs, int firstKeyOfs, int keySte
     result->numkeys = numkeys;
 
     /* Add all key positions for argv[firstKeyOfs...n] to keys[] */
-    for (i = 0; i < num; i++) keys[i] = firstKeyOfs+(i*keyStep);
+    for (i = 0; i < num; i++) {
+        keys[i].pos = firstKeyOfs+(i*keyStep);
+        /* Note to future, do I need to fill any of these out or do keyspecs cover these now? */
+        keys[i].flags = CMD_KEY_READ;
+    } 
 
-    if (storeKeyOfs) keys[num] = storeKeyOfs;
+    if (storeKeyOfs) {
+        keys[num].pos = storeKeyOfs;
+        keys[num].flags = CMD_KEY_WRITE;
+    } 
     return result->numkeys;
 }
 
@@ -1833,12 +2010,14 @@ int bzmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult
  * follow in SQL-alike style. Here we parse just the minimum in order to
  * correctly identify keys in the "STORE" option. */
 int sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
-    int i, j, num, *keys, found_store = 0;
+    int i, j, num, found_store = 0;
+    keyReference *keys;
     UNUSED(cmd);
 
     num = 0;
     keys = getKeysPrepareResult(result, 2); /* Alloc 2 places for the worst case. */
-    keys[num++] = 1; /* <sort-key> is always present. */
+    keys[num].pos = 1; /* <sort-key> is always present. */
+    keys[num++].flags = CMD_KEY_READ;
 
     /* Search for STORE option. By default we consider options to don't
      * have arguments, so if we find an unknown option name we scan the
@@ -1864,7 +2043,8 @@ int sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *
                  * to be sure to process the *last* "STORE" option if multiple
                  * ones are provided. This is same behavior as SORT. */
                 found_store = 1;
-                keys[num] = i+1; /* <store-key> */
+                keys[num].pos = i+1; /* <store-key> */
+                keys[num].flags = CMD_KEY_WRITE;
                 break;
             }
         }
@@ -1874,7 +2054,8 @@ int sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *
 }
 
 int migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
-    int i, num, first, *keys;
+    int i, num, first;
+    keyReference *keys;
     UNUSED(cmd);
 
     /* Assume the obvious form. */
@@ -1895,7 +2076,10 @@ int migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResul
     }
 
     keys = getKeysPrepareResult(result, num);
-    for (i = 0; i < num; i++) keys[i] = first+i;
+    for (i = 0; i < num; i++) {
+        keys[i].pos = first+i;
+        keys[num].flags = CMD_KEY_WRITE;
+    } 
     result->numkeys = num;
     return num;
 }
@@ -1905,7 +2089,8 @@ int migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResul
  *                             [COUNT count] [STORE key] [STOREDIST key]
  * GEORADIUSBYMEMBER key member radius unit ... options ... */
 int georadiusGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
-    int i, num, *keys;
+    int i, num;
+    keyReference *keys;
     UNUSED(cmd);
 
     /* Check for the presence of the stored key in the command */
@@ -1930,9 +2115,11 @@ int georadiusGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysRes
     keys = getKeysPrepareResult(result, num);
 
     /* Add all key positions to keys[] */
-    keys[0] = 1;
+    keys[0].pos = 1;
+    keys[0].flags = CMD_KEY_WRITE;
     if(num > 1) {
-         keys[1] = stored_key;
+         keys[1].pos = stored_key;
+         keys[1].flags = CMD_KEY_WRITE;
     }
     result->numkeys = num;
     return num;
@@ -1941,7 +2128,8 @@ int georadiusGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysRes
 /* XREAD [BLOCK <milliseconds>] [COUNT <count>] [GROUP <groupname> <ttl>]
  *       STREAMS key_1 key_2 ... key_N ID_1 ID_2 ... ID_N */
 int xreadGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
-    int i, num = 0, *keys;
+    int i, num = 0;
+    keyReference *keys;
     UNUSED(cmd);
 
     /* We need to parse the options of the command in order to seek the first
@@ -1977,7 +2165,10 @@ int xreadGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult 
                  there are also the IDs, one per key. */
 
     keys = getKeysPrepareResult(result, num);
-    for (i = streams_pos+1; i < argc-num; i++) keys[i-streams_pos-1] = i;
+    for (i = streams_pos+1; i < argc-num; i++) {
+        keys[i-streams_pos-1].pos = i;
+        keys[i-streams_pos-1].flags = CMD_KEY_READ; 
+    } 
     result->numkeys = num;
     return num;
 }
