@@ -146,7 +146,6 @@ test "Shutting down master waits for replicas then fails" {
             set replica_pid [srv 0 pid]
 
             # Config master and replica.
-            $master debug prevent-shutdown 1
             $replica replicaof $master_host $master_port
             wait_for_sync $replica
 
@@ -164,6 +163,10 @@ test "Shutting down master waits for replicas then fails" {
             assert_match "*connected_clients:3*" $info_clients
             assert_match "*blocked_clients:2*" $info_clients
 
+            # Start a very slow initial AOFRW, which will prevent shutdown.
+            $master config set rdb-key-save-delay 30000000; # 30 seconds
+            $master config set appendonly yes
+
             # Wake up replica, causing master to continue shutting down.
             exec kill -SIGCONT $replica_pid
 
@@ -177,11 +180,11 @@ test "Shutting down master waits for replicas then fails" {
 
             # Check shutdown log messages on master.
             verify_log_message -1 "*1 of 1 replicas are in sync*" 0
-            verify_log_message -1 "*Stopped by DEBUG PREVENT-SHUTDOWN*" 0
+            verify_log_message -1 "*Writing initial AOF, can't exit*" 0
             verify_log_message -1 "*Errors trying to shut down*" 0
 
-            # Allow master to exit normally.
-            $master debug prevent-shutdown 0
+            # Let master to exit fast, without waiting for the very slow AOFRW.
+            catch {$master shutdown nosave force}
         }
     }
 } {} {repl external:skip}
