@@ -160,7 +160,7 @@ typedef long long ustime_t; /* microsecond time type. */
 #define PROTO_RESIZE_THRESHOLD  (1024*32) /* Threshold for determining whether to resize query buffer */
 #define LONG_STR_SIZE      21          /* Bytes needed for long -> str + '\0' */
 #define REDIS_AUTOSYNC_BYTES (1024*1024*4) /* Sync file every 4MB. */
-#define MAX_IOV_SIZE_PER_EVENT 16 /* the maximum size of replBufBlock to write per event. */
+#define MAX_IOV_SIZE_PER_EVENT 8 /* the maximum size of replBufBlock to write per event, same as UIO_FASTIOV. */
 
 #define LIMIT_PENDING_QUERYBUF (4*1024*1024) /* 4mb */
 
