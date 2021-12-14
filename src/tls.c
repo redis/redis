@@ -39,6 +39,7 @@
 #include <openssl/err.h>
 #include <openssl/rand.h>
 #include <openssl/pem.h>
+#include <sys/uio.h>
 
 #define REDIS_TLS_PROTO_TLSv1       (1<<0)
 #define REDIS_TLS_PROTO_TLSv1_1     (1<<1)
@@ -786,6 +787,19 @@ static int connTLSWrite(connection *conn_, const void *data, size_t data_len) {
     return ret;
 }
 
+static int connTLSWritev(connection *conn_, const struct iovec *iov, int iovcnt) {
+    size_t cum = 0;
+    for (int i = 0; i < iovcnt; i++) cum += iov[i].iov_len;
+
+    char buf[cum];
+    size_t offset = 0;
+    for (int i = 0; i < iovcnt; i++){
+        memcpy(buf + offset, iov[i].iov_base, iov[i].iov_len);
+        offset += iov[i].iov_len;
+    }
+    return connTLSWrite(conn_, buf, cum);
+}
+
 static int connTLSRead(connection *conn_, void *buf, size_t buf_len) {
     tls_connection *conn = (tls_connection *) conn_;
     int ret;
@@ -949,6 +963,7 @@ ConnectionType CT_TLS = {
     .blocking_connect = connTLSBlockingConnect,
     .read = connTLSRead,
     .write = connTLSWrite,
+    .writev = connTLSWritev,
     .close = connTLSClose,
     .set_write_handler = connTLSSetWriteHandler,
     .set_read_handler = connTLSSetReadHandler,

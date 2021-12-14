@@ -1602,67 +1602,57 @@ int _writeToClient(client *c, ssize_t *nwritten) {
             c->sentlen = 0;
         }
     } else {
-        int iovcnt = listLength(c->reply);
-        if (iovcnt > 1) {
-            if (iovcnt > IOV_MAX) iovcnt = IOV_MAX;
+        if (listLength(c->reply) > 1) {
+            struct iovec iov[MAX_IOV_SIZE_PER_EVENT];
+            int iovcnt = 0;
+            size_t cum_bytes = 0; 
+            /* The first node of reply list might be incomplete from the last call,
+             * thus it needs to be calibrated to get the actual data address and length. */
+            size_t offset = c->sentlen;
             listIter iter;
-            listRewind(c->reply, &iter);
             listNode *next;
             clientReplyBlock *o;
-            struct iovec iov[iovcnt];
-            char *iov_base;
-            size_t iov_len;
-            iovcnt = 0;
-            while ((next = listNext(&iter))) {
+            listRewind(c->reply, &iter);
+            while ((next = listNext(&iter)) && iovcnt < MAX_IOV_SIZE_PER_EVENT && cum_bytes < NET_MAX_WRITES_PER_EVENT) {
                 o = listNodeValue(next);
-                if (o->used == 0) { // empty node, just release it
+                if (o->used == 0) { /* empty node, just release it. */
                     c->reply_bytes -= o->size;
                     listDelNode(c->reply, next);
                     continue;
                 }
 
-                iov_base = o->buf;
-                iov_len = o->used;
-                /* The first node of reply list might be incomplete from the last call,
-                 * thus it needs to be calibrated to get the actual data address and length. */
-                if (iovcnt == 0) {
-                    iov_base = o->buf + c->sentlen;
-                    iov_len = o->used - c->sentlen;
-                }
-                iov[iovcnt].iov_base = iov_base;
-                iov[iovcnt].iov_len = iov_len;
-                if (++iovcnt == IOV_MAX) break;
+                iov[iovcnt].iov_base = o->buf + offset;
+                iov[iovcnt].iov_len = o->used - offset;
+                cum_bytes += iov[iovcnt].iov_len;
+                if (++iovcnt == 1) offset = 0;
             }
             if (iovcnt == 0) return C_OK;
             *nwritten = connWritev(c->conn, iov, iovcnt);
             if (*nwritten <= 0) return C_ERR;
 
-            ssize_t sent_bytes = *nwritten - (ssize_t)iov[0].iov_len;
-            if (sent_bytes >= 0) { // it's safe to release the first node
+            ssize_t remaining = *nwritten - (ssize_t)iov[0].iov_len;
+            if (remaining >= 0) { /* it's safe to release the first node. */
                 listRewind(c->reply, &iter);
                 next = listNext(&iter);
                 o = listNodeValue(next);
                 c->reply_bytes -= o->size;
                 listDelNode(c->reply, next);
                 c->sentlen = 0;
-            } else { // still stuck in the first node
-                c->sentlen += *nwritten;
-                sent_bytes = 0;
-            }
-
-            /* Locate the new node which has leftover data and
-             * release all nodes in front of it. */
-            while (sent_bytes) {
-                next = listNext(&iter);
-                o = listNodeValue(next);
-                if (sent_bytes < (ssize_t)o->used) {
-                    c->sentlen = sent_bytes;
-                    break;
+                /* Locate the new node which has leftover data and
+                * release all nodes in front of it. */
+                while (remaining) {
+                    next = listNext(&iter);
+                    o = listNodeValue(next);
+                    if (remaining < (ssize_t)o->used) {
+                        c->sentlen = remaining;
+                        break;
+                    }
+                    remaining -= (ssize_t)o->used;
+                    c->reply_bytes -= o->size;
+                    listDelNode(c->reply, next);
                 }
-                sent_bytes -= (ssize_t)o->used;
-                c->reply_bytes -= o->size;
-                listDelNode(c->reply, next);
-            }
+            } else /* still stuck in the first node. */
+                c->sentlen += *nwritten;
         } else {
             clientReplyBlock *o = listNodeValue(listFirst(c->reply));
             size_t objlen = o->used;
