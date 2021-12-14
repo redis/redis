@@ -136,9 +136,15 @@ double extractUnitOrReply(client *c, robj *unit) {
         return 0.3048;
     } else if (!strcmp(u, "mi")) {
         return 1609.34;
+    } else if (!strcmp(u, "nm")) {
+        return 1852;
+    } else if (!strcmp(u, "yd")) {
+        return 1.09361;
+    } else if (!strcmp(u, "ch")) {
+        return 20.1168;
     } else {
         addReplyError(c,
-            "unsupported unit provided. please use m, km, ft, mi");
+            "unsupported unit provided. please use m, km, ft, mi, nm, yd, ch");
         return -1;
     }
 }
