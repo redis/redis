@@ -1605,7 +1605,6 @@ int _writeToClient(client *c, ssize_t *nwritten) {
         if (listLength(c->reply) > 1) {
             struct iovec iov[MAX_IOV_SIZE_PER_EVENT];
             int iovcnt = 0;
-            size_t cum_bytes = 0; 
             /* The first node of reply list might be incomplete from the last call,
              * thus it needs to be calibrated to get the actual data address and length. */
             size_t offset = c->sentlen;
@@ -1613,7 +1612,7 @@ int _writeToClient(client *c, ssize_t *nwritten) {
             listNode *next;
             clientReplyBlock *o;
             listRewind(c->reply, &iter);
-            while ((next = listNext(&iter)) && iovcnt < MAX_IOV_SIZE_PER_EVENT && cum_bytes < NET_MAX_WRITES_PER_EVENT) {
+            while ((next = listNext(&iter)) && iovcnt < MAX_IOV_SIZE_PER_EVENT) {
                 o = listNodeValue(next);
                 if (o->used == 0) { /* empty node, just release it. */
                     c->reply_bytes -= o->size;
@@ -1623,7 +1622,6 @@ int _writeToClient(client *c, ssize_t *nwritten) {
 
                 iov[iovcnt].iov_base = o->buf + offset;
                 iov[iovcnt].iov_len = o->used - offset;
-                cum_bytes += iov[iovcnt].iov_len;
                 if (++iovcnt == 1) offset = 0;
             }
             if (iovcnt == 0) return C_OK;
