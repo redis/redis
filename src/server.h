@@ -2568,9 +2568,21 @@ void setTypeConvert(robj *subject, int enc);
 robj *setTypeDup(robj *o);
 
 /* Hash data type */
-#define HASH_SET_TAKE_FIELD (1<<0)
-#define HASH_SET_TAKE_VALUE (1<<1)
-#define HASH_SET_COPY 0
+
+/* Hash input flags. */
+#define HSET_IN_DEFAULT 0
+#define HSET_IN_TAKE_FIELD (1<<0) /* The SDS field ownership passes to the function. */
+#define HSET_IN_TAKE_VALUE (1<<1) /* The SDS value ownership passes to the function. */
+#define HSET_IN_FIELDS (1<<2) /* Identifies whether this command take FIELDS parameter. */
+#define HSET_IN_NX (1<<3) /* Don't touch elements not already existing. */
+#define HSET_IN_XX (1<<4) /* Only touch elements already existing. */
+#define HSET_IN_CH (1<<5) /* Modify the return value from the number of new elements added,
+                           * to the total number of elements changed. */
+
+/* Hash output flags. */
+#define HSET_OUT_NOP (1<<0) /* Operation not performed because of conditionals.*/
+#define HSET_OUT_ADDED (1<<1) /* The element was new and was added. */
+#define HSET_OUT_UPDATED (1<<2) /* The element already existed, value updated. */
 
 void hashTypeConvert(robj *o, int enc);
 void hashTypeTryConversion(robj *subject, robj **argv, int start, int end);
@@ -2589,7 +2601,7 @@ void hashTypeCurrentObject(hashTypeIterator *hi, int what, unsigned char **vstr,
 sds hashTypeCurrentObjectNewSds(hashTypeIterator *hi, int what);
 robj *hashTypeLookupWriteOrCreate(client *c, robj *key);
 robj *hashTypeGetValueObject(robj *o, sds field);
-int hashTypeSet(robj *o, sds field, sds value, int flags);
+void hashTypeSet(robj *o, sds field, sds value, int in_flags, int *out_flags);
 robj *hashTypeDup(robj *o);
 
 /* Pub / Sub */
@@ -2923,6 +2935,7 @@ void strlenCommand(client *c);
 void zrankCommand(client *c);
 void zrevrankCommand(client *c);
 void hsetCommand(client *c);
+void hsetexCommand(client *c);
 void hsetnxCommand(client *c);
 void hgetCommand(client *c);
 void hmgetCommand(client *c);

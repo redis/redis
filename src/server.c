@@ -1342,7 +1342,13 @@ struct redisCommand redisCommandTable[] = {
        KSPEC_BS_INDEX,.bs.index={1},
        KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 
-    {"hsetnx",hsetnxCommand,4,
+    {"hsetex",hsetexCommand,-5,
+     "write use-memory fast @hash",
+     {{"write",
+       KSPEC_BS_INDEX,.bs.index={1},
+       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+
+    {"hsetnx",hsetnxCommand,-4,
      "write use-memory fast @hash",
      {{"write",
        KSPEC_BS_INDEX,.bs.index={1},
