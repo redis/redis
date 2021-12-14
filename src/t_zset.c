@@ -468,31 +468,49 @@ unsigned long zslDeleteRangeByRank(zskiplist *zsl, unsigned int start, unsigned 
     return removed;
 }
 
+#define zsl_is_first_entry_same_score(x, score) ( \
+    (!(x)->backward) || \
+    ((x)->backward->score < (score)))
+
+#define zsl_is_last_entry_same_score(x, score) ( \
+    (!(x)->level[0].forward) || \
+    ((x)->level[0].forward->score > (score)))
+
 /* Find the rank for an element by both score and key.
  * Returns 0 when the element cannot be found, rank otherwise.
  * Note that the rank is 1-based due to the span of zsl->header to the
  * first element. */
-unsigned long zslGetRank(zskiplist *zsl, double score, sds ele) {
-    zskiplistNode *x;
+unsigned long _zslGetRank(zskiplist *zsl, double score, sds ele, int last, int unique) {
+    zskiplistNode *x, *next;
     unsigned long rank = 0;
     int i;
 
     x = zsl->header;
     for (i = zsl->level-1; i >= 0; i--) {
-        while (x->level[i].forward &&
-            (x->level[i].forward->score < score ||
-                (x->level[i].forward->score == score &&
-                sdscmp(x->level[i].forward->ele,ele) <= 0))) {
+        next = x->level[i].forward;
+        while (next &&
+            (next->score < score ||
+                (next->score == score &&
+                    ((!unique && sdscmp(next->ele,ele) <= 0) ||
+                     (unique && (last || zsl_is_first_entry_same_score(next,score))))))) {
             rank += x->level[i].span;
-            x = x->level[i].forward;
+            x = next;
+            next = x->level[i].forward;
         }
 
         /* x might be equal to zsl->header, so test if obj is non-NULL */
-        if (x->ele && x->score == score && sdscmp(x->ele,ele) == 0) {
+        if (x->ele && x->score == score &&
+            ((!unique && sdscmp(x->ele,ele) == 0) ||
+                (unique && ((!last && zsl_is_first_entry_same_score(x,score)) ||
+                    (last && zsl_is_last_entry_same_score(x,score)))))) {
             return rank;
         }
     }
     return 0;
+}
+
+unsigned long zslGetRank(zskiplist *zsl, double score, sds ele) {
+    return _zslGetRank(zsl, score, ele, 0, 0);
 }
 
 /* Finds an element by its rank. The rank argument needs to be 1-based. */
@@ -1500,8 +1518,12 @@ int zsetDel(robj *zobj, sds ele) {
  * If 'reverse' is false, the rank is returned considering as first element
  * the one with the lowest score. Otherwise if 'reverse' is non-zero
  * the rank is computed considering as element with rank 0 the one with
- * the highest score. */
-long zsetRank(robj *zobj, sds ele, int reverse) {
+ * the highest score.
+ *
+ * If 'unique' is non-zero, the rank without counting all the duplicated
+ * entries with the same score is returned. This means we return the rank
+ * of the first entry which has same score with the target ele */
+long zsetRank(robj *zobj, sds ele, int reverse, int unique) {
     unsigned long llen;
     unsigned long rank;
 
@@ -1510,25 +1532,33 @@ long zsetRank(robj *zobj, sds ele, int reverse) {
     if (zobj->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *zl = zobj->ptr;
         unsigned char *eptr, *sptr;
+        unsigned long index = 1;
+        double curr, prev = 0;
 
-        eptr = lpSeek(zl,0);
+        eptr = lpSeek(zl,reverse ? -2 : 0);
         serverAssert(eptr != NULL);
         sptr = lpNext(zl,eptr);
         serverAssert(sptr != NULL);
 
         rank = 1;
         while(eptr != NULL) {
+            if (!unique) rank = index;
+            else {
+                curr = zzlGetScore(sptr);
+                if (index == 1 || prev != curr) {
+                    prev = curr;
+                    rank = index;
+                }
+            }
             if (lpCompare(eptr,(unsigned char*)ele,sdslen(ele)))
                 break;
-            rank++;
-            zzlNext(zl,&eptr,&sptr);
+            index++;
+            if (!reverse) zzlNext(zl,&eptr,&sptr);
+            else zzlPrev(zl,&eptr,&sptr);
         }
 
         if (eptr != NULL) {
-            if (reverse)
-                return llen-rank;
-            else
-                return rank-1;
+            return rank-1;
         } else {
             return -1;
         }
@@ -1541,7 +1571,7 @@ long zsetRank(robj *zobj, sds ele, int reverse) {
         de = dictFind(zs->dict,ele);
         if (de != NULL) {
             score = *(double*)dictGetVal(de);
-            rank = zslGetRank(zsl,score,ele);
+            rank = _zslGetRank(zsl,score,ele,reverse,unique);
             /* Existing elements always have a rank. */
             serverAssert(rank != 0);
             if (reverse)
@@ -3733,12 +3763,20 @@ void zrankGenericCommand(client *c, int reverse) {
     robj *ele = c->argv[2];
     robj *zobj;
     long rank;
+    int unique = 0;
 
     if ((zobj = lookupKeyReadOrReply(c,key,shared.null[c->resp])) == NULL ||
         checkType(c,zobj,OBJ_ZSET)) return;
 
+    if (c->argc == 4 && !strcasecmp(c->argv[3]->ptr,"unique")) {
+        unique = 1;
+    } else if (c->argc >= 4) {
+        addReplyErrorObject(c,shared.syntaxerr);
+        return;
+    }
+
     serverAssertWithInfo(c,ele,sdsEncodedObject(ele));
-    rank = zsetRank(zobj,ele->ptr,reverse);
+    rank = zsetRank(zobj,ele->ptr,reverse,unique);
     if (rank >= 0) {
         addReplyLongLong(c,rank);
     } else {
