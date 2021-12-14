@@ -553,6 +553,62 @@ void mgetCommand(client *c) {
     }
 }
 
+void msetexGenericCommand(client *c, int nx) {
+    int j;
+    long long milliseconds = 0;
+    int unit = UNIT_SECONDS;
+
+    if ((c->argc % 3) != 2) {
+        addReplyError(c,"wrong number of arguments for MSETX");
+        return;
+    }
+
+    char *a = c->argv[1]->ptr;
+
+    if (a[1] != '\0') {
+        addReplyError(c,"Incorrect parameter for MSETEX");
+        return;
+    }
+    if (a[0] == 's' || a[0] == 'S') {
+        unit = UNIT_SECONDS;
+    } else if (a[0] == 'm' || a[0] == 'M'){
+        unit = UNIT_MILLISECONDS;
+    } else {
+        addReplyError(c,"Incorrect parameter for MSETEX");
+        return;
+    }
+    
+    /* Handle the NX flag. The MSETEXNX semantic is to return zero and don't
+     * set anything if at least one key alerady exists. */
+    if (nx) {
+        for (j = 2; j < c->argc; j += 3) {
+            if (lookupKeyWrite(c->db,c->argv[j]) != NULL) {
+                addReply(c, shared.czero);
+                return;
+            }
+        }
+    }
+
+    for (j = 2; j < c->argc; j += 3) {
+        c->argv[j+1] = tryObjectEncoding(c->argv[j+1]);
+        setKey(c->db,c->argv[j],c->argv[j+1]);
+        if (getLongLongFromObjectOrReply(c, c->argv[j+2], &milliseconds, NULL) != C_OK)
+            return;
+        if (milliseconds <= 0) {
+            addReplyErrorFormat(c,"invalid expire time in %s",c->cmd->name);
+            return;
+        }
+        if (UNIT_SECONDS == unit) {
+            milliseconds *= 1000;
+        }
+        setExpire(c, c->db, c->argv[j], mstime()+milliseconds);
+        notifyKeyspaceEvent(NOTIFY_STRING, "set", c->argv[j], c->db->id);
+        notifyKeyspaceEvent(NOTIFY_GENERIC, "expire", c->argv[j], c->db->id);
+    }
+    server.dirty += (c->argc-2)/3;
+    addReply(c, nx ? shared.cone : shared.ok);
+}
+
 void msetGenericCommand(client *c, int nx) {
     int j;
 
@@ -580,6 +636,14 @@ void msetGenericCommand(client *c, int nx) {
     }
     server.dirty += (c->argc-1)/2;
     addReply(c, nx ? shared.cone : shared.ok);
+}
+
+void msetexCommand(client *c) {
+    msetexGenericCommand(c, 0);
+}
+
+void msetnxexCommand(client *c) {
+    msetexGenericCommand(c, 1);
 }
 
 void msetCommand(client *c) {

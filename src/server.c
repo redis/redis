@@ -1468,6 +1468,14 @@ struct redisCommand redisCommandTable[] = {
        KSPEC_BS_INDEX,.bs.index={1},
        KSPEC_FK_RANGE,.fk.range={-1,2,0}}}},
 
+    {"msetex",msetexCommand,-3,
+     "write use-memory @string",
+     0,NULL,1,-1,2,0,0,0},
+    
+    {"msetnxex",msetnxexCommand,-3,
+     "write use-memory @string",
+     0,NULL,1,-1,2,0,0,0},
+
     {"randomkey",randomkeyCommand,1,
      "read-only random @keyspace"},
 
