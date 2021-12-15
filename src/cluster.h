@@ -6,17 +6,15 @@
  *----------------------------------------------------------------------------*/
 
 #define CLUSTER_SLOTS 16384
-#define CLUSTER_OK 0          /* Everything looks ok */
-#define CLUSTER_FAIL 1        /* The cluster can't work */
-#define CLUSTER_NAMELEN 40    /* sha1 hex length */
+#define CLUSTER_OK 0            /* Everything looks ok */
+#define CLUSTER_FAIL 1          /* The cluster can't work */
+#define CLUSTER_NAMELEN 40      /* sha1 hex length */
 #define CLUSTER_PORT_INCR 10000 /* Cluster port = baseport + PORT_INCR */
 
 /* The following defines are amount of time, sometimes expressed as
  * multiplicators of the node timeout value (when ending with MULT). */
 #define CLUSTER_FAIL_REPORT_VALIDITY_MULT 2 /* Fail report validity. */
 #define CLUSTER_FAIL_UNDO_TIME_MULT 2 /* Undo fail if master is back. */
-#define CLUSTER_FAIL_UNDO_TIME_ADD 10 /* Some additional time. */
-#define CLUSTER_FAILOVER_DELAY 5 /* Seconds */
 #define CLUSTER_MF_TIMEOUT 5000 /* Milliseconds to do a manual failover. */
 #define CLUSTER_MF_PAUSE_MULT 2 /* Master pause manual failover mult. */
 #define CLUSTER_SLAVE_MIGRATION_DELAY 5000 /* Delay for slave migration. */
@@ -135,11 +133,33 @@ typedef struct clusterNode {
     mstime_t orphaned_time;     /* Starting time of orphaned master condition */
     long long repl_offset;      /* Last known repl offset for this node. */
     char ip[NET_IP_STR_LEN];  /* Latest known IP address of this node */
-    int port;                   /* Latest known clients port of this node */
+    int port;                   /* Latest known clients port (TLS or plain). */
+    int pport;                  /* Latest known clients plaintext port. Only used
+                                   if the main clients port is for TLS. */
     int cport;                  /* Latest known cluster port of this node. */
     clusterLink *link;          /* TCP/IP link with this node */
     list *fail_reports;         /* List of nodes signaling this as failing */
 } clusterNode;
+
+/* Slot to keys for a single slot. The keys in the same slot are linked together
+ * using dictEntry metadata. */
+typedef struct slotToKeys {
+    uint64_t count;             /* Number of keys in the slot. */
+    dictEntry *head;            /* The first key-value entry in the slot. */
+} slotToKeys;
+
+/* Slot to keys mapping for all slots, opaque outside this file. */
+struct clusterSlotToKeyMapping {
+    slotToKeys by_slot[CLUSTER_SLOTS];
+};
+
+/* Dict entry metadata for cluster mode, used for the Slot to Key API to form a
+ * linked list of the entries belonging to the same slot. */
+typedef struct clusterDictEntryMetadata {
+    dictEntry *prev;            /* Prev entry with key in the same slot */
+    dictEntry *next;            /* Next entry with key in the same slot */
+} clusterDictEntryMetadata;
+
 
 typedef struct clusterState {
     clusterNode *myself;  /* This node */
@@ -151,8 +171,6 @@ typedef struct clusterState {
     clusterNode *migrating_slots_to[CLUSTER_SLOTS];
     clusterNode *importing_slots_from[CLUSTER_SLOTS];
     clusterNode *slots[CLUSTER_SLOTS];
-    uint64_t slots_keys_count[CLUSTER_SLOTS];
-    rax *slots_to_keys;
     /* The following fields are used to take the slave state on elections. */
     mstime_t failover_auth_time; /* Time of previous or next election. */
     int failover_auth_count;    /* Number of votes received so far. */
@@ -194,7 +212,8 @@ typedef struct {
     uint16_t port;              /* base port last time it was seen */
     uint16_t cport;             /* cluster port last time it was seen */
     uint16_t flags;             /* node->flags copy */
-    uint32_t notused1;
+    uint16_t pport;             /* plaintext-port, when base port is TLS */
+    uint16_t notused1;
 } clusterMsgDataGossip;
 
 typedef struct {
@@ -267,7 +286,8 @@ typedef struct {
     unsigned char myslots[CLUSTER_SLOTS/8];
     char slaveof[CLUSTER_NAMELEN];
     char myip[NET_IP_STR_LEN];    /* Sender IP, if not all zeroed. */
-    char notused1[34];  /* 34 bytes reserved for future usage. */
+    char notused1[32];  /* 32 bytes reserved for future usage. */
+    uint16_t pport;      /* Sender TCP plaintext port, if base port is TLS */
     uint16_t cport;      /* Sender TCP cluster bus port */
     uint16_t flags;      /* Sender node flags */
     unsigned char state; /* Cluster state from the POV of the sender */
@@ -284,9 +304,26 @@ typedef struct {
                                             master is up. */
 
 /* ---------------------- API exported outside cluster.c -------------------- */
+void clusterInit(void);
+void clusterCron(void);
+void clusterBeforeSleep(void);
 clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, int *ask);
+clusterNode *clusterLookupNode(const char *name);
 int clusterRedirectBlockedClientIfNeeded(client *c);
 void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_code);
+void migrateCloseTimedoutSockets(void);
+int verifyClusterConfigWithData(void);
 unsigned long getClusterConnectionsCount(void);
+int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uint8_t type, unsigned char *payload, uint32_t len);
+void clusterPropagatePublish(robj *channel, robj *message);
+unsigned int keyHashSlot(char *key, int keylen);
+void slotToKeyAddEntry(dictEntry *entry, redisDb *db);
+void slotToKeyDelEntry(dictEntry *entry, redisDb *db);
+void slotToKeyReplaceEntry(dictEntry *entry, redisDb *db);
+void slotToKeyInit(redisDb *db);
+void slotToKeyFlush(redisDb *db);
+void slotToKeyDestroy(redisDb *db);
+void clusterUpdateMyselfFlags(void);
+void clusterUpdateMyselfIp(void);
 
 #endif /* __CLUSTER_H */

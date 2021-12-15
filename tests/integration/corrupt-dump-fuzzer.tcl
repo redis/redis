@@ -1,6 +1,15 @@
 # tests of corrupt ziplist payload with valid CRC
 
-tags {"dump" "corruption"} {
+tags {"dump" "corruption" "external:skip"} {
+
+# catch sigterm so that in case one of the random command hangs the test,
+# usually due to redis not putting a response in the output buffers,
+# we'll know which command it was
+if { ! [ catch {
+    package require Tclx
+} err ] } {
+    signal error SIGTERM
+}
 
 proc generate_collections {suffix elements} {
     set rd [redis_deferring_client]
@@ -43,7 +52,7 @@ proc generate_types {} {
     generate_collections big 10
 
     # make sure our big stream also has a listpack record that has different
-    # field names than the master recored
+    # field names than the master recorded
     r xadd streambig * item 1 value 1
     r xadd streambig * item 1 unique value
 }
@@ -90,6 +99,7 @@ foreach sanitize_dump {no yes} {
             r debug set-skip-checksum-validation 1
             set start_time [clock seconds]
             generate_types
+            set dbsize [r dbsize]
             r save
             set cycle 0
             set stat_terminated_in_restore 0
@@ -117,7 +127,7 @@ foreach sanitize_dump {no yes} {
                         set report_and_restart true
                         incr stat_terminated_in_restore
                         write_log_line 0 "corrupt payload: $printable_dump"
-                        if {$sanitize_dump == 1} {
+                        if {$sanitize_dump == yes} {
                             puts "Server crashed in RESTORE with payload: $printable_dump"
                         }
                     }
@@ -133,6 +143,12 @@ foreach sanitize_dump {no yes} {
                         set sent [generate_fuzzy_traffic_on_key "_$k" 1] ;# traffic for 1 second
                         incr stat_traffic_commands_sent [llength $sent]
                         r del "_$k" ;# in case the server terminated, here's where we'll detect it.
+                        if {$dbsize != [r dbsize]} {
+                            puts "unexpected keys"
+                            puts "keys: [r keys *]"
+                            puts $sent
+                            exit 1
+                        }
                     } err ] } {
                         # if the server terminated update stats and restart it
                         set report_and_restart true
@@ -140,7 +156,7 @@ foreach sanitize_dump {no yes} {
                         set by_signal [count_log_message 0 "crashed by signal"]
                         incr stat_terminated_by_signal $by_signal
 
-                        if {$by_signal != 0 || $sanitize_dump == 1 } {
+                        if {$by_signal != 0 || $sanitize_dump == yes} {
                             puts "Server crashed (by signal: $by_signal), with payload: $printable_dump"
                             set print_commands true
                         }
@@ -150,8 +166,9 @@ foreach sanitize_dump {no yes} {
                 # check valgrind report for invalid reads after each RESTORE
                 # payload so that we have a report that is easier to reproduce
                 set valgrind_errors [find_valgrind_errors [srv 0 stderr] false]
-                if {$valgrind_errors != ""} {
-                    puts "valgrind found an issue for payload: $printable_dump"
+                set asan_errors [sanitizer_errors_from_file [srv 0 stderr]]
+                if {$valgrind_errors != "" || $asan_errors != ""} {
+                    puts "valgrind or asan found an issue for payload: $printable_dump"
                     set report_and_restart true
                     set print_commands true
                 }
@@ -186,7 +203,7 @@ foreach sanitize_dump {no yes} {
             }
         }
         # if we run sanitization we never expect the server to crash at runtime
-        if { $sanitize_dump == 1} {
+        if {$sanitize_dump == yes} {
             assert_equal $stat_terminated_in_restore 0
             assert_equal $stat_terminated_in_traffic 0
         }

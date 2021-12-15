@@ -104,7 +104,8 @@ intset *intsetNew(void) {
 
 /* Resize the intset */
 static intset *intsetResize(intset *is, uint32_t len) {
-    uint32_t size = len*intrev32ifbe(is->encoding);
+    uint64_t size = (uint64_t)len*intrev32ifbe(is->encoding);
+    assert(size <= SIZE_MAX - sizeof(intset));
     is = zrealloc(is,sizeof(intset)+size);
     return is;
 }
@@ -281,10 +282,10 @@ uint32_t intsetLen(const intset *is) {
 
 /* Return intset blob size in bytes. */
 size_t intsetBlobLen(intset *is) {
-    return sizeof(intset)+intrev32ifbe(is->length)*intrev32ifbe(is->encoding);
+    return sizeof(intset)+(size_t)intrev32ifbe(is->length)*intrev32ifbe(is->encoding);
 }
 
-/* Validate the integrity of the data stracture.
+/* Validate the integrity of the data structure.
  * when `deep` is 0, only the integrity of the header is validated.
  * when `deep` is 1, we make sure there are no duplicate or out of order records. */
 int intsetValidateIntegrity(const unsigned char *p, size_t size, int deep) {
@@ -306,7 +307,7 @@ int intsetValidateIntegrity(const unsigned char *p, size_t size, int deep) {
         return 0;
     }
 
-    /* check that the size matchies (all records are inside the buffer). */
+    /* check that the size matches (all records are inside the buffer). */
     uint32_t count = intrev32ifbe(is->length);
     if (sizeof(*is) + count*record_size != size)
         return 0;
@@ -392,7 +393,7 @@ static void checkConsistency(intset *is) {
 }
 
 #define UNUSED(x) (void)(x)
-int intsetTest(int argc, char **argv, int accurate) {
+int intsetTest(int argc, char **argv, int flags) {
     uint8_t success;
     int i;
     intset *is;
@@ -400,7 +401,7 @@ int intsetTest(int argc, char **argv, int accurate) {
 
     UNUSED(argc);
     UNUSED(argv);
-    UNUSED(accurate);
+    UNUSED(flags);
 
     printf("Value encodings: "); {
         assert(_intsetValueEncoding(-32768) == INTSET_ENC_INT16);

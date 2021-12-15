@@ -64,6 +64,8 @@ proc exec_instance {type dirname cfgfile} {
 proc spawn_instance {type base_port count {conf {}} {base_conf_file ""}} {
     for {set j 0} {$j < $count} {incr j} {
         set port [find_available_port $base_port $::redis_port_count]
+        # plaintext port (only used for TLS cluster)
+        set pport 0
         # Create a directory for this instance.
         set dirname "${type}_${j}"
         lappend ::dirs $dirname
@@ -83,7 +85,9 @@ proc spawn_instance {type base_port count {conf {}} {base_conf_file ""}} {
             puts $cfg "tls-port $port"
             puts $cfg "tls-replication yes"
             puts $cfg "tls-cluster yes"
-            puts $cfg "port 0"
+            # plaintext port, only used by plaintext clients in a TLS cluster
+            set pport [find_available_port $base_port $::redis_port_count]
+            puts $cfg "port $pport"
             puts $cfg [format "tls-cert-file %s/../../tls/server.crt" [pwd]]
             puts $cfg [format "tls-key-file %s/../../tls/server.key" [pwd]]
             puts $cfg [format "tls-client-cert-file %s/../../tls/client.crt" [pwd]]
@@ -118,6 +122,8 @@ proc spawn_instance {type base_port count {conf {}} {base_conf_file ""}} {
                 set cfg [open $cfgfile a+]
                 if {$::tls} {
                     puts $cfg "tls-port $port"
+                    set pport [find_available_port $base_port $::redis_port_count]
+                    puts $cfg "port $pport"
                 } else {
                     puts $cfg "port $port"
                 }
@@ -143,6 +149,7 @@ proc spawn_instance {type base_port count {conf {}} {base_conf_file ""}} {
             pid $pid \
             host $::host \
             port $port \
+            plaintext-port $pport \
             link $link \
         ]
     }
@@ -174,6 +181,15 @@ proc log_crashes {} {
             incr ::failed
         }
     }
+
+    set logs [glob */err.txt]
+    foreach log $logs {
+        set res [sanitizer_errors_from_file $log]
+        if {$res != ""} {
+            puts $res
+            incr ::failed
+        }
+    }
 }
 
 proc is_alive pid {
@@ -189,15 +205,18 @@ proc stop_instance pid {
     # Node might have been stopped in the test
     catch {exec kill -SIGCONT $pid}
     if {$::valgrind} {
-        set max_wait 60000
+        set max_wait 120000
     } else {
         set max_wait 10000
     }
     while {[is_alive $pid]} {
         incr wait 10
 
-        if {$wait >= $max_wait} {
-            puts "Forcing process $pid to exit..."
+        if {$wait == $max_wait} {
+            puts [colorstr red "Forcing process $pid to crash..."]
+            catch {exec kill -SEGV $pid}
+        } elseif {$wait >= $max_wait * 2} {
+            puts [colorstr red "Forcing process $pid to exit..."]
             catch {exec kill -KILL $pid}
         } elseif {$wait % 1000 == 0} {
             puts "Waiting for process $pid to exit..."
@@ -366,10 +385,10 @@ proc test {descr code} {
     if {[catch {set retval [uplevel 1 $code]} error]} {
         incr ::failed
         if {[string match "assertion:*" $error]} {
-            set msg [string range $error 10 end]
+            set msg "FAILED: [string range $error 10 end]"
             puts [colorstr red $msg]
             if {$::pause_on_error} pause_on_error
-            puts "(Jumping to next unit after error)"
+            puts [colorstr red "(Jumping to next unit after error)"]
             return -code continue
         } else {
             # Re-raise, let handler up the stack take care of this.
@@ -441,10 +460,10 @@ proc run_tests {} {
 # Print a message and exists with 0 / 1 according to zero or more failures.
 proc end_tests {} {
     if {$::failed == 0 } {
-        puts "GOOD! No errors."
+        puts [colorstr green "GOOD! No errors."]
         exit 0
     } else {
-        puts "WARNING $::failed test(s) failed."
+        puts [colorstr red "WARNING $::failed test(s) failed."]
         exit 1
     }
 }
@@ -490,6 +509,14 @@ proc SI {n field} {
 
 proc RI {n field} {
     get_info_field [R $n info] $field
+}
+
+proc RPort {n} {
+    if {$::tls} {
+        return [lindex [R $n config get tls-port] 1]
+    } else {
+        return [lindex [R $n config get port] 1]
+    }
 }
 
 # Iterate over IDs of sentinel or redis instances.

@@ -40,20 +40,20 @@ start_server {tags {"tracking network"}} {
     } {*OK}
 
     test {The other connection is able to get invalidations} {
-        r SET a 1
-        r SET b 1
-        r GET a
-        r INCR b ; # This key should not be notified, since it wasn't fetched.
-        r INCR a
+        r SET a{t} 1
+        r SET b{t} 1
+        r GET a{t}
+        r INCR b{t} ; # This key should not be notified, since it wasn't fetched.
+        r INCR a{t}
         set keys [lindex [$rd_redirection read] 2]
         assert {[llength $keys] == 1}
-        assert {[lindex $keys 0] eq {a}}
+        assert {[lindex $keys 0] eq {a{t}}}
     }
 
     test {The client is now able to disable tracking} {
         # Make sure to add a few more keys in the tracking list
         # so that we can check for leaks, as a side effect.
-        r MGET a b c d e f g
+        r MGET a{t} b{t} c{t} d{t} e{t} f{t} g{t}
         r CLIENT TRACKING off
     } {*OK}
 
@@ -62,28 +62,28 @@ start_server {tags {"tracking network"}} {
     } {*OK*}
 
     test {The connection gets invalidation messages about all the keys} {
-        r MSET a 1 b 2 c 3
+        r MSET a{t} 1 b{t} 2 c{t} 3
         set keys [lsort [lindex [$rd_redirection read] 2]]
-        assert {$keys eq {a b c}}
+        assert {$keys eq {a{t} b{t} c{t}}}
     }
 
     test {Clients can enable the BCAST mode with prefixes} {
         r CLIENT TRACKING off
         r CLIENT TRACKING on BCAST REDIRECT $redir_id PREFIX a: PREFIX b:
         r MULTI
-        r INCR a:1
-        r INCR a:2
-        r INCR b:1
-        r INCR b:2
+        r INCR a:1{t}
+        r INCR a:2{t}
+        r INCR b:1{t}
+        r INCR b:2{t}
         # we should not get this key
-        r INCR c:1
+        r INCR c:1{t}
         r EXEC
         # Because of the internals, we know we are going to receive
         # two separated notifications for the two different prefixes.
         set keys1 [lsort [lindex [$rd_redirection read] 2]]
         set keys2 [lsort [lindex [$rd_redirection read] 2]]
         set keys [lsort [list {*}$keys1 {*}$keys2]]
-        assert {$keys eq {a:1 a:2 b:1 b:2}}
+        assert {$keys eq {a:1{t} a:2{t} b:1{t} b:2{t}}}
     }
 
     test {Adding prefixes to BCAST mode works} {
@@ -96,16 +96,16 @@ start_server {tags {"tracking network"}} {
     test {Tracking NOLOOP mode in standard mode works} {
         r CLIENT TRACKING off
         r CLIENT TRACKING on REDIRECT $redir_id NOLOOP
-        r MGET otherkey1 loopkey otherkey2
-        $rd_sg SET otherkey1 1; # We should get this
-        r SET loopkey 1 ; # We should not get this
-        $rd_sg SET otherkey2 1; # We should get this
+        r MGET otherkey1{t} loopkey{t} otherkey2{t}
+        $rd_sg SET otherkey1{t} 1; # We should get this
+        r SET loopkey{t} 1 ; # We should not get this
+        $rd_sg SET otherkey2{t} 1; # We should get this
         # Because of the internals, we know we are going to receive
         # two separated notifications for the two different keys.
         set keys1 [lsort [lindex [$rd_redirection read] 2]]
         set keys2 [lsort [lindex [$rd_redirection read] 2]]
         set keys [lsort [list {*}$keys1 {*}$keys2]]
-        assert {$keys eq {otherkey1 otherkey2}}
+        assert {$keys eq {otherkey1{t} otherkey2{t}}}
     }
 
     test {Tracking NOLOOP mode in BCAST mode works} {
@@ -131,6 +131,22 @@ start_server {tags {"tracking network"}} {
         set keys [lsort [lindex [$rd_redirection read] 2]]
         assert {$keys eq {mykey}}
     }
+
+    test {Tracking gets notification of lazy expired keys} {
+        r CLIENT TRACKING off
+        r CLIENT TRACKING on BCAST REDIRECT $redir_id NOLOOP
+        # Use multi-exec to expose a race where the key gets an two invalidations
+        # in the same event loop, once by the client so filtered by NOLOOP, and
+        # the second one by the lazy expire
+        r MULTI
+        r SET mykey{t} myval px 1
+        r SET mykeyotherkey{t} myval ; # We should not get it
+        r DEBUG SLEEP 0.1
+        r GET mykey{t}
+        r EXEC
+        set keys [lsort [lindex [$rd_redirection read] 2]]
+        assert {$keys eq {mykey{t}}}
+    } {} {needs:debug}
 
     test {HELLO 3 reply is correct} {
         set reply [r HELLO 3]
@@ -220,16 +236,16 @@ start_server {tags {"tracking network"}} {
         r CLIENT TRACKING on REDIRECT $redir_id
         $rd CLIENT TRACKING on REDIRECT $redir_id 
         assert_equal OK [$rd read] ; # Consume the TRACKING reply
-        $rd_sg MSET key1 1 key2 1
-        r GET key1
-        $rd GET key2 
+        $rd_sg MSET key1{t} 1 key2{t} 1
+        r GET key1{t}
+        $rd GET key2{t} 
         assert_equal 1 [$rd read] ; # Consume the GET reply
-        $rd_sg INCR key1
-        $rd_sg INCR key2
+        $rd_sg INCR key1{t}
+        $rd_sg INCR key2{t}
         set res1 [lindex [$rd_redirection read] 2]
         set res2 [lindex [$rd_redirection read] 2]
-        assert {$res1 eq {key1}}
-        assert {$res2 eq {key2}}
+        assert {$res1 eq {key1{t}}}
+        assert {$res2 eq {key2{t}}}
     }
 
     test {Different clients using different protocols can track the same key} {
@@ -353,12 +369,111 @@ start_server {tags {"tracking network"}} {
         $r CLIENT TRACKING OFF
     }
 
+    test {hdel deliver invlidate message after response in the same connection} {
+        r CLIENT TRACKING off
+        r HELLO 3
+        r CLIENT TRACKING on
+        r HSET myhash f 1
+        r HGET myhash f
+        set res [r HDEL myhash f]
+        assert_equal $res 1
+        set res [r read]
+        assert_equal $res {invalidate myhash}
+    }
+
+    test {Tracking invalidation message is not interleaved with multiple keys response} {
+        r CLIENT TRACKING off
+        r HELLO 3
+        r CLIENT TRACKING on
+        # We need disable active expire, so we can trigger lazy expire
+        r DEBUG SET-ACTIVE-EXPIRE 0
+        r MULTI
+        r MSET x{t} 1 y{t} 2
+        r PEXPIRE y{t} 100
+        r GET y{t}
+        r EXEC
+        after 110
+        # Read expired key y{t}, generate invalidate message about this key
+        set res [r MGET x{t} y{t}]
+        assert_equal $res {1 {}}
+        # Consume the invalidate message which is after command response
+        set res [r read]
+        assert_equal $res {invalidate y{t}}
+        r DEBUG SET-ACTIVE-EXPIRE 1
+    } {OK} {needs:debug}
+
+    test {Tracking invalidation message is not interleaved with transaction response} {
+        r CLIENT TRACKING off
+        r HELLO 3
+        r CLIENT TRACKING on
+        r MSET a{t} 1 b{t} 2
+        r GET a{t}
+        # Start a transaction, make a{t} generate an invalidate message
+        r MULTI
+        r INCR a{t}
+        r GET b{t}
+        set res [r EXEC]
+        assert_equal $res {2 2}
+        set res [r read]
+        # Consume the invalidate message which is after command response
+        assert_equal $res {invalidate a{t}}
+    }
+
+    test {Tracking invalidation message of eviction keys should be before response} {
+        # Get the current memory limit and calculate a new limit.
+        r CLIENT TRACKING off
+        r HELLO 3
+        r CLIENT TRACKING on
+
+        # make the previous test is really done before sampling used_memory
+        wait_lazyfree_done r
+
+        set used [expr {[s used_memory] - [s mem_not_counted_for_evict]}]
+        set limit [expr {$used+100*1024}]
+        set old_policy [lindex [r config get maxmemory-policy] 1]
+        r config set maxmemory $limit
+        # We set policy volatile-random, so only keys with ttl will be evicted
+        r config set maxmemory-policy volatile-random
+        # Add a volatile key and tracking it.
+        r setex volatile-key 10000 x
+        r get volatile-key
+        # We use SETBIT here, so we can set a big key and get the used_memory
+        # bigger than maxmemory. Next command will evict volatile keys. We
+        # can't use SET, as SET uses big input buffer, so it will fail.
+        r setbit big-key 1600000 0 ;# this will consume 200kb
+        # volatile-key is evicted before response.
+        set res [r getbit big-key 0]
+        assert_equal $res {invalidate volatile-key}
+        set res [r read]
+        assert_equal $res 0
+        r config set maxmemory-policy $old_policy
+        r config set maxmemory 0
+    }
+
+    test {Unblocked BLMOVE gets notification after response} {
+        r RPUSH list2{t} a
+        $rd HELLO 3
+        $rd read
+        $rd CLIENT TRACKING on
+        $rd read
+        # Tracking key list2{t}
+        $rd LRANGE list2{t} 0 -1
+        $rd read
+        # We block on list1{t}
+        $rd BLMOVE list1{t} list2{t} left left 0
+        wait_for_blocked_clients_count 1
+        # unblock $rd, list2{t} gets element and generate invalidation message
+        r rpush list1{t} foo
+        assert_equal [$rd read] {foo}
+        assert_equal [$rd read] {invalidate list2{t}}
+    }
+
     test {Tracking gets notification on tracking table key eviction} {
         r CLIENT TRACKING off
         r CLIENT TRACKING on REDIRECT $redir_id NOLOOP
-        r MSET key1 1 key2 2
+        r MSET key1{t} 1 key2{t} 2
         # Let the server track the two keys for us
-        r MGET key1 key2
+        r MGET key1{t} key2{t}
         # Force the eviction of all the keys but one:
         r config set tracking-table-max-keys 1
         # Note that we may have other keys in the table for this client,
@@ -368,11 +483,11 @@ start_server {tags {"tracking network"}} {
         # otherwise the test will die for timeout.
         while 1 {
             set keys [lindex [$rd_redirection read] 2]
-            if {$keys eq {key1} || $keys eq {key2}} break
+            if {$keys eq {key1{t}} || $keys eq {key2{t}}} break
         }
         # We should receive an expire notification for one of
         # the two keys (only one must remain)
-        assert {$keys eq {key1} || $keys eq {key2}}
+        assert {$keys eq {key1{t}} || $keys eq {key2{t}}}
     }
 
     test {Invalidation message received for flushall} {
@@ -393,6 +508,17 @@ start_server {tags {"tracking network"}} {
         $rd_sg FLUSHDB
         set msg [$rd_redirection read]
         assert {[lindex msg 2] eq {} }
+    }
+
+    test {Test ASYNC flushall} {
+        clean_all
+        r CLIENT TRACKING on REDIRECT $redir_id
+        r GET key1
+        r GET key2
+        assert_equal [s 0 tracking_total_keys] 2
+        $rd_sg FLUSHALL ASYNC
+        assert_equal [s 0 tracking_total_keys] 0
+        assert_equal [lindex [$rd_redirection read] 2] {}
     }
 
     # Keys are defined to be evicted 100 at a time by default.

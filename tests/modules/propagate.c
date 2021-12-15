@@ -75,7 +75,7 @@ void timerNestedHandler(RedisModuleCtx *ctx, void *data) {
     int repl = (long long)data;
 
     /* The goal is the trigger a module command that calls RM_Replicate
-     * in order to test MULTI/EXEC structre */
+     * in order to test MULTI/EXEC structure */
     RedisModule_Replicate(ctx,"INCRBY","cc","timer-nested-start","1");
     RedisModuleCallReply *reply = RedisModule_Call(ctx,"propagate-test.nested", repl? "!" : "");
     RedisModule_FreeCallReply(reply);
@@ -192,6 +192,19 @@ int propagateTestNestedCommand(RedisModuleCtx *ctx, RedisModuleString **argv, in
     return REDISMODULE_OK;
 }
 
+int propagateTestIncr(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    REDISMODULE_NOT_USED(argc);
+    RedisModuleCallReply *reply;
+
+    /* This test propagates the module command, not the INCR it executes. */
+    reply = RedisModule_Call(ctx, "INCR", "s", argv[1]);
+    RedisModule_ReplyWithCallReply(ctx,reply);
+    RedisModule_FreeCallReply(reply);
+    RedisModule_ReplicateVerbatim(ctx);
+    return REDISMODULE_OK;
+}
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -226,12 +239,17 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx,"propagate-test.mixed",
                 propagateTestMixedCommand,
-                "",1,1,1) == REDISMODULE_ERR)
+                "write",1,1,1) == REDISMODULE_ERR)
             return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"propagate-test.nested",
                 propagateTestNestedCommand,
-                "",1,1,1) == REDISMODULE_ERR)
+                "write",1,1,1) == REDISMODULE_ERR)
+            return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"propagate-test.incr",
+                propagateTestIncr,
+                "write",1,1,1) == REDISMODULE_ERR)
             return REDISMODULE_ERR;
 
     return REDISMODULE_OK;

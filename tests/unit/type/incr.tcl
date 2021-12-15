@@ -42,6 +42,12 @@ start_server {tags {"incr"}} {
         format $err
     } {ERR*}
 
+    test {DECRBY negation overflow} {
+        r set x 0
+        catch {r decrby x -9223372036854775808} err
+        format $err
+    } {ERR*}
+
     test {INCR fails against a key holding a list} {
         r rpush mylist 1
         catch {r incr mylist} err
@@ -63,7 +69,7 @@ start_server {tags {"incr"}} {
         assert {[r object refcount foo] > 1}
         r incr foo
         assert {[r object refcount foo] == 1}
-    }
+    } {} {needs:debug}
 
     test {INCR can modify objects in-place} {
         r set foo 20000
@@ -75,7 +81,7 @@ start_server {tags {"incr"}} {
         assert {[string range $old 0 2] eq "at:"}
         assert {[string range $new 0 2] eq "at:"}
         assert {$old eq $new}
-    }
+    } {} {needs:debug}
 
     test {INCRBYFLOAT against non existing key} {
         r del novar

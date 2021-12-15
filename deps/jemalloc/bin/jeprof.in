@@ -2909,6 +2909,7 @@ sub RemoveUninterestingFrames {
                       '@JEMALLOC_PREFIX@xallocx',
                       '@JEMALLOC_PREFIX@dallocx',
                       '@JEMALLOC_PREFIX@sdallocx',
+                      '@JEMALLOC_PREFIX@sdallocx_noflags',
                       'tc_calloc',
                       'tc_cfree',
                       'tc_malloc',
@@ -5366,7 +5367,7 @@ sub GetProcedureBoundaries {
   my $demangle_flag = "";
   my $cppfilt_flag = "";
   my $to_devnull = ">$dev_null 2>&1";
-  if (system(ShellEscape($nm, "--demangle", "image") . $to_devnull) == 0) {
+  if (system(ShellEscape($nm, "--demangle", $image) . $to_devnull) == 0) {
     # In this mode, we do "nm --demangle <foo>"
     $demangle_flag = "--demangle";
     $cppfilt_flag = "";

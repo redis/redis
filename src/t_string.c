@@ -72,32 +72,15 @@ static int checkStringLength(client *c, long long size) {
 #define OBJ_PXAT (1<<7)            /* Set if timestamp in ms is given */
 #define OBJ_PERSIST (1<<8)         /* Set if we need to remove the ttl */
 
+/* Forward declaration */
+static int getExpireMillisecondsOrReply(client *c, robj *expire, int flags, int unit, long long *milliseconds);
+
 void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
-    long long milliseconds = 0, when = 0; /* initialized to avoid any harmness warning */
+    long long milliseconds = 0; /* initialized to avoid any harmness warning */
+    int found = 0;
+    int setkey_flags = 0;
 
-    if (expire) {
-        if (getLongLongFromObjectOrReply(c, expire, &milliseconds, NULL) != C_OK)
-            return;
-        if (milliseconds <= 0 || (unit == UNIT_SECONDS && milliseconds > LLONG_MAX / 1000)) {
-            /* Negative value provided or multiplication is gonna overflow. */
-            addReplyErrorFormat(c, "invalid expire time in %s", c->cmd->name);
-            return;
-        }
-        if (unit == UNIT_SECONDS) milliseconds *= 1000;
-        when = milliseconds;
-        if ((flags & OBJ_PX) || (flags & OBJ_EX))
-            when += mstime();
-        if (when <= 0) {
-            /* Overflow detected. */
-            addReplyErrorFormat(c, "invalid expire time in %s", c->cmd->name);
-            return;
-        }
-    }
-
-    if ((flags & OBJ_SET_NX && lookupKeyWrite(c->db,key) != NULL) ||
-        (flags & OBJ_SET_XX && lookupKeyWrite(c->db,key) == NULL))
-    {
-        addReply(c, abort_reply ? abort_reply : shared.null[c->resp]);
+    if (expire && getExpireMillisecondsOrReply(c, expire, flags, unit, &milliseconds) != C_OK) {
         return;
     }
 
@@ -105,27 +88,34 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
         if (getGenericCommand(c) == C_ERR) return;
     }
 
-    genericSetKey(c,c->db,key, val,flags & OBJ_KEEPTTL,1);
+    found = (lookupKeyWrite(c->db,key) != NULL);
+
+    if ((flags & OBJ_SET_NX && found) ||
+        (flags & OBJ_SET_XX && !found))
+    {
+        if (!(flags & OBJ_SET_GET)) {
+            addReply(c, abort_reply ? abort_reply : shared.null[c->resp]);
+        }
+        return;
+    }
+
+    setkey_flags |= (flags & OBJ_KEEPTTL) ? SETKEY_KEEPTTL : 0;
+    setkey_flags |= found ? SETKEY_ALREADY_EXIST : SETKEY_DOESNT_EXIST;
+
+    setKey(c,c->db,key,val,setkey_flags);
     server.dirty++;
     notifyKeyspaceEvent(NOTIFY_STRING,"set",key,c->db->id);
-    if (expire) {
-        setExpire(c,c->db,key,when);
-        notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",key,c->db->id);
 
-        /* Propagate as SET Key Value PXAT millisecond-timestamp if there is EXAT/PXAT or
-         * propagate as SET Key Value PX millisecond if there is EX/PX flag.
-         *
-         * Additionally when we propagate the SET with PX (relative millisecond) we translate
-         * it again to SET with PXAT for the AOF.
-         *
-         * Additional care is required while modifying the argument order. AOF relies on the
-         * exp argument being at index 3. (see feedAppendOnlyFile)
-         * */
-        robj *exp = (flags & OBJ_PXAT) || (flags & OBJ_EXAT) ? shared.pxat : shared.px;
-        robj *millisecondObj = createStringObjectFromLongLong(milliseconds);
-        rewriteClientCommandVector(c,5,shared.set,key,val,exp,millisecondObj);
-        decrRefCount(millisecondObj);
+    if (expire) {
+        setExpire(c,c->db,key,milliseconds);
+        /* Propagate as SET Key Value PXAT millisecond-timestamp if there is
+         * EX/PX/EXAT/PXAT flag. */
+        robj *milliseconds_obj = createStringObjectFromLongLong(milliseconds);
+        rewriteClientCommandVector(c, 5, shared.set, key, val, shared.pxat, milliseconds_obj);
+        decrRefCount(milliseconds_obj);
+        notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",key,c->db->id);
     }
+
     if (!(flags & OBJ_SET_GET)) {
         addReply(c, ok_reply ? ok_reply : shared.ok);
     }
@@ -148,6 +138,45 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
         }
         replaceClientCommandVector(c, argc, argv);
     }
+}
+
+/*
+ * Extract the `expire` argument of a given GET/SET command as an absolute timestamp in milliseconds.
+ *
+ * "client" is the client that sent the `expire` argument.
+ * "expire" is the `expire` argument to be extracted.
+ * "flags" represents the behavior of the command (e.g. PX or EX).
+ * "unit" is the original unit of the given `expire` argument (e.g. UNIT_SECONDS).
+ * "milliseconds" is output argument.
+ *
+ * If return C_OK, "milliseconds" output argument will be set to the resulting absolute timestamp.
+ * If return C_ERR, an error reply has been added to the given client.
+ */
+static int getExpireMillisecondsOrReply(client *c, robj *expire, int flags, int unit, long long *milliseconds) {
+    int ret = getLongLongFromObjectOrReply(c, expire, milliseconds, NULL);
+    if (ret != C_OK) {
+        return ret;
+    }
+
+    if (*milliseconds <= 0 || (unit == UNIT_SECONDS && *milliseconds > LLONG_MAX / 1000)) {
+        /* Negative value provided or multiplication is gonna overflow. */
+        addReplyErrorFormat(c, "invalid expire time in %s", c->cmd->name);
+        return C_ERR;
+    }
+
+    if (unit == UNIT_SECONDS) *milliseconds *= 1000;
+
+    if ((flags & OBJ_PX) || (flags & OBJ_EX)) {
+        *milliseconds += mstime();
+    }
+
+    if (*milliseconds <= 0) {
+        /* Overflow detected. */
+        addReplyErrorFormat(c,"invalid expire time in %s",c->cmd->name);
+        return C_ERR;
+    }
+
+    return C_OK;
 }
 
 #define COMMAND_GET 0
@@ -177,7 +206,7 @@ int parseExtendedStringArgumentsOrReply(client *c, int *flags, int *unit, robj *
 
         if ((opt[0] == 'n' || opt[0] == 'N') &&
             (opt[1] == 'x' || opt[1] == 'X') && opt[2] == '\0' &&
-            !(*flags & OBJ_SET_XX) && !(*flags & OBJ_SET_GET) && (command_type == COMMAND_SET))
+            !(*flags & OBJ_SET_XX) && (command_type == COMMAND_SET))
         {
             *flags |= OBJ_SET_NX;
         } else if ((opt[0] == 'x' || opt[0] == 'X') &&
@@ -188,7 +217,7 @@ int parseExtendedStringArgumentsOrReply(client *c, int *flags, int *unit, robj *
         } else if ((opt[0] == 'g' || opt[0] == 'G') &&
                    (opt[1] == 'e' || opt[1] == 'E') &&
                    (opt[2] == 't' || opt[2] == 'T') && opt[3] == '\0' &&
-                   !(*flags & OBJ_SET_NX) && (command_type == COMMAND_SET))
+                   (command_type == COMMAND_SET))
         {
             *flags |= OBJ_SET_GET;
         } else if (!strcasecmp(opt, "KEEPTTL") && !(*flags & OBJ_PERSIST) &&
@@ -338,26 +367,10 @@ void getexCommand(client *c) {
         return;
     }
 
-    long long milliseconds = 0, when = 0;
-
     /* Validate the expiration time value first */
-    if (expire) {
-        if (getLongLongFromObjectOrReply(c, expire, &milliseconds, NULL) != C_OK)
-            return;
-        if (milliseconds <= 0 || (unit == UNIT_SECONDS && milliseconds > LLONG_MAX / 1000)) {
-            /* Negative value provided or multiplication is gonna overflow. */
-            addReplyErrorFormat(c, "invalid expire time in %s", c->cmd->name);
-            return;
-        }
-        if (unit == UNIT_SECONDS) milliseconds *= 1000;
-        when = milliseconds;
-        if ((flags & OBJ_PX) || (flags & OBJ_EX))
-            when += mstime();
-        if (when <= 0) {
-            /* Overflow detected. */
-            addReplyErrorFormat(c, "invalid expire time in %s", c->cmd->name);
-            return;
-        }
+    long long milliseconds = 0;
+    if (expire && getExpireMillisecondsOrReply(c, expire, flags, unit, &milliseconds) != C_OK) {
+        return;
     }
 
     /* We need to do this before we expire the key or delete it */
@@ -377,12 +390,12 @@ void getexCommand(client *c) {
         notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
         server.dirty++;
     } else if (expire) {
-        setExpire(c,c->db,c->argv[1],when);
-        /* Propagate */
-        robj *exp = (flags & OBJ_PXAT) || (flags & OBJ_EXAT) ? shared.pexpireat : shared.pexpire;
-        robj* millisecondObj = createStringObjectFromLongLong(milliseconds);
-        rewriteClientCommandVector(c,3,exp,c->argv[1],millisecondObj);
-        decrRefCount(millisecondObj);
+        setExpire(c,c->db,c->argv[1],milliseconds);
+        /* Propagate as PXEXPIREAT millisecond-timestamp if there is
+         * EX/PX/EXAT/PXAT flag and the key has not expired. */
+        robj *milliseconds_obj = createStringObjectFromLongLong(milliseconds);
+        rewriteClientCommandVector(c,3,shared.pexpireat,c->argv[1],milliseconds_obj);
+        decrRefCount(milliseconds_obj);
         signalModifiedKey(c, c->db, c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",c->argv[1],c->db->id);
         server.dirty++;
@@ -413,7 +426,7 @@ void getdelCommand(client *c) {
 void getsetCommand(client *c) {
     if (getGenericCommand(c) == C_ERR) return;
     c->argv[2] = tryObjectEncoding(c->argv[2]);
-    setKey(c,c->db,c->argv[1],c->argv[2]);
+    setKey(c,c->db,c->argv[1],c->argv[2],0);
     notifyKeyspaceEvent(NOTIFY_STRING,"set",c->argv[1],c->db->id);
     server.dirty++;
 
@@ -544,7 +557,8 @@ void msetGenericCommand(client *c, int nx) {
     int j;
 
     if ((c->argc % 2) == 0) {
-        addReplyError(c,"wrong number of arguments for MSET");
+        addReplyErrorFormat(c,"wrong number of arguments for '%s' command",
+                            c->cmd->name);
         return;
     }
 
@@ -561,7 +575,7 @@ void msetGenericCommand(client *c, int nx) {
 
     for (j = 1; j < c->argc; j += 2) {
         c->argv[j+1] = tryObjectEncoding(c->argv[j+1]);
-        setKey(c,c->db,c->argv[j],c->argv[j+1]);
+        setKey(c,c->db,c->argv[j],c->argv[j+1],0);
         notifyKeyspaceEvent(NOTIFY_STRING,"set",c->argv[j],c->db->id);
     }
     server.dirty += (c->argc-1)/2;
@@ -609,9 +623,7 @@ void incrDecrCommand(client *c, long long incr) {
     signalModifiedKey(c,c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_STRING,"incrby",c->argv[1],c->db->id);
     server.dirty++;
-    addReply(c,shared.colon);
-    addReply(c,new);
-    addReply(c,shared.crlf);
+    addReplyLongLong(c, value);
 }
 
 void incrCommand(client *c) {
@@ -633,6 +645,11 @@ void decrbyCommand(client *c) {
     long long incr;
 
     if (getLongLongFromObjectOrReply(c, c->argv[2], &incr, NULL) != C_OK) return;
+    /* Overflow check: negating LLONG_MIN will cause an overflow */
+    if (incr == LLONG_MIN) {
+        addReplyError(c, "decrement would overflow");
+        return;
+    }
     incrDecrCommand(c,-incr);
 }
 
@@ -709,31 +726,33 @@ void strlenCommand(client *c) {
     addReplyLongLong(c,stringObjectLen(o));
 }
 
-
-/* STRALGO -- Implement complex algorithms on strings.
- *
- * STRALGO <algorithm> ... arguments ... */
-void stralgoLCS(client *c);     /* This implements the LCS algorithm. */
-void stralgoCommand(client *c) {
-    /* Select the algorithm. */
-    if (!strcasecmp(c->argv[1]->ptr,"lcs")) {
-        stralgoLCS(c);
-    } else {
-        addReplyErrorObject(c,shared.syntaxerr);
-    }
-}
-
-/* STRALGO <algo> [IDX] [LEN] [MINMATCHLEN <len>] [WITHMATCHLEN]
- *     STRINGS <string> <string> | KEYS <keya> <keyb>
- */
-void stralgoLCS(client *c) {
+/* LCS key1 key2 [LEN] [IDX] [MINMATCHLEN <len>] [WITHMATCHLEN] */
+void lcsCommand(client *c) {
     uint32_t i, j;
     long long minmatchlen = 0;
     sds a = NULL, b = NULL;
     int getlen = 0, getidx = 0, withmatchlen = 0;
     robj *obja = NULL, *objb = NULL;
 
-    for (j = 2; j < (uint32_t)c->argc; j++) {
+    obja = lookupKeyRead(c->db,c->argv[1]);
+    objb = lookupKeyRead(c->db,c->argv[2]);
+    if ((obja && obja->type != OBJ_STRING) ||
+        (objb && objb->type != OBJ_STRING))
+    {
+        addReplyError(c,
+            "The specified keys must contain string values");
+        /* Don't cleanup the objects, we need to do that
+         * only after calling getDecodedObject(). */
+        obja = NULL;
+        objb = NULL;
+        goto cleanup;
+    }
+    obja = obja ? getDecodedObject(obja) : createStringObject("",0);
+    objb = objb ? getDecodedObject(objb) : createStringObject("",0);
+    a = obja->ptr;
+    b = objb->ptr;
+
+    for (j = 3; j < (uint32_t)c->argc; j++) {
         char *opt = c->argv[j]->ptr;
         int moreargs = (c->argc-1) - j;
 
@@ -748,37 +767,6 @@ void stralgoLCS(client *c) {
                 != C_OK) goto cleanup;
             if (minmatchlen < 0) minmatchlen = 0;
             j++;
-        } else if (!strcasecmp(opt,"STRINGS") && moreargs > 1) {
-            if (a != NULL) {
-                addReplyError(c,"Either use STRINGS or KEYS");
-                goto cleanup;
-            }
-            a = c->argv[j+1]->ptr;
-            b = c->argv[j+2]->ptr;
-            j += 2;
-        } else if (!strcasecmp(opt,"KEYS") && moreargs > 1) {
-            if (a != NULL) {
-                addReplyError(c,"Either use STRINGS or KEYS");
-                goto cleanup;
-            }
-            obja = lookupKeyRead(c->db,c->argv[j+1]);
-            objb = lookupKeyRead(c->db,c->argv[j+2]);
-            if ((obja && obja->type != OBJ_STRING) ||
-                (objb && objb->type != OBJ_STRING))
-            {
-                addReplyError(c,
-                    "The specified keys must contain string values");
-                /* Don't cleanup the objects, we need to do that
-                 * only after calling getDecodedObject(). */
-                obja = NULL;
-                objb = NULL;
-                goto cleanup;
-            }
-            obja = obja ? getDecodedObject(obja) : createStringObject("",0);
-            objb = objb ? getDecodedObject(objb) : createStringObject("",0);
-            a = obja->ptr;
-            b = objb->ptr;
-            j += 2;
         } else {
             addReplyErrorObject(c,shared.syntaxerr);
             goto cleanup;
@@ -786,14 +774,15 @@ void stralgoLCS(client *c) {
     }
 
     /* Complain if the user passed ambiguous parameters. */
-    if (a == NULL) {
-        addReplyError(c,"Please specify two strings: "
-                        "STRINGS or KEYS options are mandatory");
-        goto cleanup;
-    } else if (getlen && getidx) {
+    if (getlen && getidx) {
         addReplyError(c,
-            "If you want both the length and indexes, please "
-            "just use IDX.");
+            "If you want both the length and indexes, please just use IDX.");
+        goto cleanup;
+    }
+
+    /* Detect string truncation or later overflows. */
+    if (sdslen(a) >= UINT32_MAX-1 || sdslen(b) >= UINT32_MAX-1) {
+        addReplyError(c, "String too long for LCS");
         goto cleanup;
     }
 
@@ -805,8 +794,23 @@ void stralgoLCS(client *c) {
     /* Setup an uint32_t array to store at LCS[i,j] the length of the
      * LCS A0..i-1, B0..j-1. Note that we have a linear array here, so
      * we index it as LCS[j+(blen+1)*j] */
-    uint32_t *lcs = zmalloc((alen+1)*(blen+1)*sizeof(uint32_t));
     #define LCS(A,B) lcs[(B)+((A)*(blen+1))]
+
+    /* Try to allocate the LCS table, and abort on overflow or insufficient memory. */
+    unsigned long long lcssize = (unsigned long long)(alen+1)*(blen+1); /* Can't overflow due to the size limits above. */
+    unsigned long long lcsalloc = lcssize * sizeof(uint32_t);
+    uint32_t *lcs = NULL;
+    if (lcsalloc < SIZE_MAX && lcsalloc / lcssize == sizeof(uint32_t)) {
+        if (lcsalloc > (size_t)server.proto_max_bulk_len) {
+            addReplyError(c, "Insufficient memory, transient memory for LCS exceeds proto-max-bulk-len");
+            goto cleanup;
+        }
+        lcs = ztrymalloc(lcsalloc);
+    }
+    if (!lcs) {
+        addReplyError(c, "Insufficient memory, failed allocating transient memory for LCS");
+        goto cleanup;
+    }
 
     /* Start building the LCS table. */
     for (uint32_t i = 0; i <= alen; i++) {
@@ -836,7 +840,7 @@ void stralgoLCS(client *c) {
      * it backward, but the length is already known, we store it into idx. */
     uint32_t idx = LCS(alen,blen);
     sds result = NULL;        /* Resulting LCS string. */
-    void *arraylenptr = NULL; /* Deffered length of the array for IDX. */
+    void *arraylenptr = NULL; /* Deferred length of the array for IDX. */
     uint32_t arange_start = alen, /* alen signals that values are not set. */
              arange_end = 0,
              brange_start = 0,

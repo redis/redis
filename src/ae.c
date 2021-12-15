@@ -32,6 +32,7 @@
 
 #include "ae.h"
 #include "anet.h"
+#include "redisassert.h"
 
 #include <stdio.h>
 #include <sys/time.h>
@@ -239,7 +240,7 @@ int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id)
     return AE_ERR; /* NO event with the specified ID found */
 }
 
-/* How many milliseconds until the first timer should fire.
+/* How many microseconds until the first timer should fire.
  * If there are no timers, -1 is returned.
  *
  * Note that's O(N) since time events are unsorted.
@@ -248,7 +249,7 @@ int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id)
  *    Much better but still insertion or deletion of timers is O(N).
  * 2) Use a skiplist to have this operation as O(1) and insertion as O(log(N)).
  */
-static long msUntilEarliestTimer(aeEventLoop *eventLoop) {
+static int64_t usUntilEarliestTimer(aeEventLoop *eventLoop) {
     aeTimeEvent *te = eventLoop->timeEventHead;
     if (te == NULL) return -1;
 
@@ -260,8 +261,7 @@ static long msUntilEarliestTimer(aeEventLoop *eventLoop) {
     }
 
     monotime now = getMonotonicUs();
-    return (now >= earliest->when)
-            ? 0 : (long)((earliest->when - now) / 1000);
+    return (now >= earliest->when) ? 0 : earliest->when - now;
 }
 
 /* Process time events */
@@ -340,8 +340,8 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
  * if flags has AE_ALL_EVENTS set, all the kind of events are processed.
  * if flags has AE_FILE_EVENTS set, file events are processed.
  * if flags has AE_TIME_EVENTS set, time events are processed.
- * if flags has AE_DONT_WAIT set the function returns ASAP until all
- * the events that's possible to process without to wait are processed.
+ * if flags has AE_DONT_WAIT set, the function returns ASAP once all
+ * the events that can be handled without a wait are processed.
  * if flags has AE_CALL_AFTER_SLEEP set, the aftersleep callback is called.
  * if flags has AE_CALL_BEFORE_SLEEP set, the beforesleep callback is called.
  *
@@ -361,14 +361,14 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
         ((flags & AE_TIME_EVENTS) && !(flags & AE_DONT_WAIT))) {
         int j;
         struct timeval tv, *tvp;
-        long msUntilTimer = -1;
+        int64_t usUntilTimer = -1;
 
         if (flags & AE_TIME_EVENTS && !(flags & AE_DONT_WAIT))
-            msUntilTimer = msUntilEarliestTimer(eventLoop);
+            usUntilTimer = usUntilEarliestTimer(eventLoop);
 
-        if (msUntilTimer >= 0) {
-            tv.tv_sec = msUntilTimer / 1000;
-            tv.tv_usec = (msUntilTimer % 1000) * 1000;
+        if (usUntilTimer >= 0) {
+            tv.tv_sec = usUntilTimer / 1000000;
+            tv.tv_usec = usUntilTimer % 1000000;
             tvp = &tv;
         } else {
             /* If we have to check for events but need to return
@@ -400,9 +400,9 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
             eventLoop->aftersleep(eventLoop);
 
         for (j = 0; j < numevents; j++) {
-            aeFileEvent *fe = &eventLoop->events[eventLoop->fired[j].fd];
-            int mask = eventLoop->fired[j].mask;
             int fd = eventLoop->fired[j].fd;
+            aeFileEvent *fe = &eventLoop->events[fd];
+            int mask = eventLoop->fired[j].mask;
             int fired = 0; /* Number of events fired for current fd. */
 
             /* Normally we execute the readable event first, and the writable

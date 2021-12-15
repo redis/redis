@@ -1,4 +1,4 @@
-start_server {tags {"repl network"}} {
+start_server {tags {"repl network external:skip"}} {
     start_server {} {
 
         set master [srv -1 client]
@@ -21,15 +21,9 @@ start_server {tags {"repl network"}} {
             stop_bg_complex_data $load_handle0
             stop_bg_complex_data $load_handle1
             stop_bg_complex_data $load_handle2
-            set retry 10
-            while {$retry && ([$master debug digest] ne [$slave debug digest])}\
-            {
-                after 1000
-                incr retry -1
-            }
-            assert {[$master dbsize] > 0}
-
-            if {[$master debug digest] ne [$slave debug digest]} {
+            wait_for_condition 100 100 {
+                [$master debug digest] == [$slave debug digest]
+            } else {
                 set csv1 [csvdump r]
                 set csv2 [csvdump {r -1}]
                 set fd [open /tmp/repldump1.txt w]
@@ -38,15 +32,14 @@ start_server {tags {"repl network"}} {
                 set fd [open /tmp/repldump2.txt w]
                 puts -nonewline $fd $csv2
                 close $fd
-                puts "Master - Replica inconsistency"
-                puts "Run diff -u against /tmp/repldump*.txt for more info"
+                fail "Master - Replica inconsistency, Run diff -u against /tmp/repldump*.txt for more info"
             }
-            assert_equal [r debug digest] [r -1 debug digest]
+            assert {[$master dbsize] > 0}
         }
     }
 }
 
-start_server {tags {"repl"}} {
+start_server {tags {"repl external:skip"}} {
     start_server {} {
         set master [srv -1 client]
         set master_host [srv -1 host]
@@ -92,7 +85,41 @@ start_server {tags {"repl"}} {
     }
 }
 
-start_server {tags {"repl"}} {
+start_server {tags {"repl external:skip"}} {
+    start_server {} {
+        set master [srv -1 client]
+        set master_host [srv -1 host]
+        set master_port [srv -1 port]
+        set slave [srv 0 client]
+
+        test {First server should have role slave after SLAVEOF} {
+            $slave slaveof $master_host $master_port
+            wait_for_condition 50 100 {
+                [s 0 master_link_status] eq {up}
+            } else {
+                fail "Replication not started."
+            }
+        }
+
+        test {Replication of an expired key does not delete the expired key} {
+            $master debug set-active-expire 0
+            $master set k 1 ex 1
+            wait_for_ofs_sync $master $slave
+            exec kill -SIGSTOP [srv 0 pid]
+            $master incr k
+            after 1000
+            # Stopping the replica for one second to makes sure the INCR arrives
+            # to the replica after the key is logically expired.
+            exec kill -SIGCONT [srv 0 pid]
+            wait_for_ofs_sync $master $slave
+            # Check that k is locigally expired but is present in the replica.
+            assert_equal 0 [$slave exists k]
+            $slave debug object k ; # Raises exception if k is gone.
+        }
+    }
+}
+
+start_server {tags {"repl external:skip"}} {
     start_server {} {
         set master [srv -1 client]
         set master_host [srv -1 host]
