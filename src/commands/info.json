@@ -1,6 +1,7 @@
 {
     "INFO": {
         "summary": "Get information and statistics about the server",
+        "complexity": "O(1)",
         "group": "server",
         "since": "1.0.0",
         "arity": -1,
