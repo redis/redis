@@ -27,11 +27,11 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx,"subcommands.bitarray",NULL,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-    RedisModuleCommandProxy *parent = RedisModule_GetCommandProxy(ctx,"subcommands.bitarray");
+    RedisModuleCommand *parent = RedisModule_GetCommand(ctx,"subcommands.bitarray");
 
     if (RedisModule_CreateSubcommand(parent,"set",cmd_set,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-    RedisModuleCommandProxy *subcmd = RedisModule_GetCommandProxy(ctx,"subcommands.bitarray|set");
+    RedisModuleCommand *subcmd = RedisModule_GetCommand(ctx,"subcommands.bitarray|set");
 
     if (RedisModule_AddCommandKeySpec(subcmd,"write",&spec_id) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
@@ -42,7 +42,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateSubcommand(parent,"get",cmd_get,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-    subcmd = RedisModule_GetCommandProxy(ctx,"subcommands.bitarray|get");
+    subcmd = RedisModule_GetCommand(ctx,"subcommands.bitarray|get");
 
     if (RedisModule_AddCommandKeySpec(subcmd,"read",&spec_id) == REDISMODULE_ERR)
         return REDISMODULE_ERR;

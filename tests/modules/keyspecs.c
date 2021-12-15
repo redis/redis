@@ -35,7 +35,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     /* Test legacy range "gluing" */
     if (RedisModule_CreateCommand(ctx,"kspec.legacy",kspec_legacy,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-    RedisModuleCommandProxy *legacy = RedisModule_GetCommandProxy(ctx,"kspec.legacy");
+    RedisModuleCommand *legacy = RedisModule_GetCommand(ctx,"kspec.legacy");
 
     if (RedisModule_AddCommandKeySpec(legacy,"read",&spec_id) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
@@ -54,7 +54,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     /* First is legacy, rest are new specs */
     if (RedisModule_CreateCommand(ctx,"kspec.complex1",kspec_complex1,"",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-    RedisModuleCommandProxy *complex1 = RedisModule_GetCommandProxy(ctx,"kspec.complex1");
+    RedisModuleCommand *complex1 = RedisModule_GetCommand(ctx,"kspec.complex1");
 
     if (RedisModule_AddCommandKeySpec(complex1,"write",&spec_id) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
@@ -73,7 +73,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     /* First is not legacy, more than STATIC_KEYS_SPECS_NUM specs */
     if (RedisModule_CreateCommand(ctx,"kspec.complex2",kspec_complex2,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-    RedisModuleCommandProxy *complex2 = RedisModule_GetCommandProxy(ctx,"kspec.complex2");
+    RedisModuleCommand *complex2 = RedisModule_GetCommand(ctx,"kspec.complex2");
 
     if (RedisModule_AddCommandKeySpec(complex2,"write",&spec_id) == REDISMODULE_ERR)
         return REDISMODULE_ERR;

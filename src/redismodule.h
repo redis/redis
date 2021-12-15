@@ -551,7 +551,7 @@ typedef long long mstime_t;
 
 /* Incomplete structures for compiler checks but opaque access. */
 typedef struct RedisModuleCtx RedisModuleCtx;
-typedef struct RedisModuleCommandProxy RedisModuleCommandProxy;
+typedef struct RedisModuleCommand RedisModuleCommand;
 typedef struct RedisModuleKey RedisModuleKey;
 typedef struct RedisModuleString RedisModuleString;
 typedef struct RedisModuleCallReply RedisModuleCallReply;
@@ -642,17 +642,17 @@ REDISMODULE_API void * (*RedisModule_Calloc)(size_t nmemb, size_t size) REDISMOD
 REDISMODULE_API char * (*RedisModule_Strdup)(const char *str) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetApi)(const char *, void *) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_CreateCommand)(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep) REDISMODULE_ATTR;
-REDISMODULE_API RedisModuleCommandProxy *(*RedisModule_GetCommandProxy)(RedisModuleCtx *ctx, const char *name) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_CreateSubcommand)(RedisModuleCommandProxy *parent, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_SetCommandArity)(RedisModuleCommandProxy *command, int arity) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_SetCommandSummary)(RedisModuleCommandProxy *command, const char *summary) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_SetCommandDebutVersion)(RedisModuleCommandProxy *command, const char *since) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_SetCommandComplexity)(RedisModuleCommandProxy *command, const char *complexity) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_SetCommandHints)(RedisModuleCommandProxy *command, const char *hints) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_AppendCommandHistoryEntry)(RedisModuleCommandProxy *command, const char *since, const char *changes) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleCommand *(*RedisModule_GetCommand)(RedisModuleCtx *ctx, const char *name) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_CreateSubcommand)(RedisModuleCommand *parent, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_SetCommandArity)(RedisModuleCommand *command, int arity) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_SetCommandSummary)(RedisModuleCommand *command, const char *summary) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_SetCommandDebutVersion)(RedisModuleCommand *command, const char *since) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_SetCommandComplexity)(RedisModuleCommand *command, const char *complexity) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_SetCommandHints)(RedisModuleCommand *command, const char *hints) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_AppendCommandHistoryEntry)(RedisModuleCommand *command, const char *since, const char *changes) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleCommandArg *(*RedisModule_CreateCommandArg)(const char* argname, RedisModuleCommandArgType type, int key_spec_index, const char *token, const char *summary, const char* since, int flags) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_AppendSubarg)(RedisModuleCommandArg *parent, RedisModuleCommandArg *subarg) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_AppendArgToCommand)(RedisModuleCommandProxy *command, RedisModuleCommandArg *arg) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_AppendArgToCommand)(RedisModuleCommand *command, RedisModuleCommandArg *arg) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_SetModuleAttribs)(RedisModuleCtx *ctx, const char *name, int ver, int apiver) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_IsModuleNameBusy)(const char *name) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_WrongArity)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
@@ -879,11 +879,11 @@ REDISMODULE_API int (*RedisModule_GetKeyspaceNotificationFlagsAll)() REDISMODULE
 REDISMODULE_API int (*RedisModule_IsSubEventSupported)(RedisModuleEvent event, uint64_t subevent) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetServerVersion)() REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetTypeMethodVersion)() REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_AddCommandKeySpec)(RedisModuleCommandProxy *command, const char *specflags, int *spec_id) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_SetCommandKeySpecBeginSearchIndex)(RedisModuleCommandProxy *command, int spec_id, int index) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_SetCommandKeySpecBeginSearchKeyword)(RedisModuleCommandProxy *command, int spec_id, const char *keyword, int startfrom) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_SetCommandKeySpecFindKeysRange)(RedisModuleCommandProxy *command, int spec_id, int lastkey, int keystep, int limit) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_SetCommandKeySpecFindKeysKeynum)(RedisModuleCommandProxy *command, int spec_id, int keynumidx, int firstkey, int keystep) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_AddCommandKeySpec)(RedisModuleCommand *command, const char *specflags, int *spec_id) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_SetCommandKeySpecBeginSearchIndex)(RedisModuleCommand *command, int spec_id, int index) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_SetCommandKeySpecBeginSearchKeyword)(RedisModuleCommand *command, int spec_id, const char *keyword, int startfrom) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_SetCommandKeySpecFindKeysRange)(RedisModuleCommand *command, int spec_id, int lastkey, int keystep, int limit) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_SetCommandKeySpecFindKeysKeynum)(RedisModuleCommand *command, int spec_id, int keynumidx, int firstkey, int keystep) REDISMODULE_ATTR;
 
 /* Experimental APIs */
 #ifdef REDISMODULE_EXPERIMENTAL_API
@@ -974,7 +974,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(Realloc);
     REDISMODULE_GET_API(Strdup);
     REDISMODULE_GET_API(CreateCommand);
-    REDISMODULE_GET_API(GetCommandProxy);
+    REDISMODULE_GET_API(GetCommand);
     REDISMODULE_GET_API(CreateSubcommand);
     REDISMODULE_GET_API(SetCommandArity);
     REDISMODULE_GET_API(SetCommandSummary);

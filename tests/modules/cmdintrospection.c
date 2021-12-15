@@ -20,7 +20,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx,"cmdintrospection.xadd",cmd_xadd,"write deny-oom random fast",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-    RedisModuleCommandProxy *xadd = RedisModule_GetCommandProxy(ctx,"cmdintrospection.xadd");
+    RedisModuleCommand *xadd = RedisModule_GetCommand(ctx,"cmdintrospection.xadd");
 
     if (RedisModule_AddCommandKeySpec(xadd,"write",&spec_id) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
