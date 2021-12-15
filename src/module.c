@@ -162,10 +162,12 @@ struct RedisModuleCtx {
                                       we reallocate the "also propagate" op
                                       array. Here we save the old one to
                                       restore it later. */
+    long long start_time;
+    long long next_event;
 };
 typedef struct RedisModuleCtx RedisModuleCtx;
 
-#define REDISMODULE_CTX_INIT {(void*)(unsigned long)&RM_GetApi, NULL, NULL, NULL, NULL, 0, 0, 0, NULL, 0, NULL, NULL, NULL, NULL, {0}}
+#define REDISMODULE_CTX_INIT {(void*)(unsigned long)&RM_GetApi, NULL, NULL, NULL, NULL, 0, 0, 0, NULL, 0, NULL, NULL, NULL, NULL, {0}, 0}
 #define REDISMODULE_CTX_AUTO_MEMORY (1<<0)
 #define REDISMODULE_CTX_KEYS_POS_REQUEST (1<<1)
 #define REDISMODULE_CTX_BLOCKED_REPLY (1<<2)
@@ -440,6 +442,29 @@ void RM_Free(void *ptr) {
 /* Like strdup() but returns memory allocated with RedisModule_Alloc(). */
 char *RM_Strdup(const char *str) {
     return zstrdup(str);
+}
+
+void RM_ProcessEventsWhileBlocked(RedisModuleCtx *ctx) {
+    long long now = getMonotonicUs();
+    long long elapsed = elapsedMs(ctx->start_time);
+
+    if (ctx->start_time == 0) {
+        ctx->start_time = ctx->next_event = now;
+        return;
+    }
+
+    if(elapsed < server.lua_time_limit)
+        return;
+
+    if (now >= ctx->next_event) {
+        server.busy_job = 1;
+        blockingOperationStarts();
+        processEventsWhileBlocked();
+        server.busy_job = 0;
+        blockingOperationEnds();
+        /* decide when the next event should fire. */
+        ctx->next_event = now + 1000000 / server.hz;
+    }
 }
 
 /* --------------------------------------------------------------------------
@@ -804,6 +829,7 @@ int64_t commandFlagsFromString(char *s) {
         else if (!strcasecmp(t,"getkeys-api")) flags |= CMD_MODULE_GETKEYS;
         else if (!strcasecmp(t,"no-cluster")) flags |= CMD_MODULE_NO_CLUSTER;
         else if (!strcasecmp(t,"no-mandatory-keys")) flags |= CMD_NO_MANDATORY_KEYS;
+        else if (!strcasecmp(t,"allow-busy")) flags |= CMD_ALLOW_BUSY;
         else break;
     }
     sdsfreesplitres(tokens,count);
@@ -10689,4 +10715,5 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(SetCommandKeySpecBeginSearchKeyword);
     REGISTER_API(SetCommandKeySpecFindKeysRange);
     REGISTER_API(SetCommandKeySpecFindKeysKeynum);
+    REGISTER_API(ProcessEventsWhileBlocked);
 }

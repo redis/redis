@@ -460,7 +460,7 @@ struct redisCommand scriptSubcommands[] = {
      "may-replicate no-script @scripting"},
 
     {"kill",scriptCommand,2,
-     "no-script @scripting"},
+     "no-script allow-busy @scripting"},
 
     {"load",scriptCommand,3,
      "may-replicate no-script @scripting"},
@@ -1528,7 +1528,7 @@ struct redisCommand redisCommandTable[] = {
      "read-only fast @keyspace"},
 
     {"auth",authCommand,-2,
-     "no-auth no-script ok-loading ok-stale fast sentinel @connection"},
+     "no-auth no-script ok-loading ok-stale fast sentinel @connection allow-busy"},
 
     /* We don't allow PING during loading since in Redis PING is used as
      * failure detection, and a loading server is considered to be
@@ -1553,7 +1553,7 @@ struct redisCommand redisCommandTable[] = {
      "admin no-script"},
 
     {"shutdown",shutdownCommand,-1,
-     "admin no-script ok-loading ok-stale sentinel"},
+     "admin no-script ok-loading ok-stale allow-busy sentinel"},
 
     {"lastsave",lastsaveCommand,1,
      "random fast ok-loading ok-stale @admin @dangerous"},
@@ -1565,13 +1565,13 @@ struct redisCommand redisCommandTable[] = {
        KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 
     {"multi",multiCommand,1,
-     "no-script fast ok-loading ok-stale @transaction"},
+     "no-script fast ok-loading ok-stale allow-busy @transaction"},
 
     {"exec",execCommand,1,
      "no-script no-slowlog ok-loading ok-stale @transaction"},
 
     {"discard",discardCommand,1,
-     "no-script fast ok-loading ok-stale @transaction"},
+     "no-script fast ok-loading ok-stale allow-busy @transaction"},
 
     {"sync",syncCommand,1,
      "admin no-script"},
@@ -1580,7 +1580,7 @@ struct redisCommand redisCommandTable[] = {
      "admin no-script"},
 
     {"replconf",replconfCommand,-1,
-     "admin no-script ok-loading ok-stale"},
+     "admin no-script ok-loading ok-stale allow-busy"},
 
     {"flushdb",flushdbCommand,-1,
      "write @keyspace @dangerous"},
@@ -1682,13 +1682,13 @@ struct redisCommand redisCommandTable[] = {
      .subcommands=pubsubSubcommands},
 
     {"watch",watchCommand,-2,
-     "no-script fast ok-loading ok-stale @transaction",
+     "no-script fast ok-loading ok-stale allow-busy @transaction",
      {{"",
        KSPEC_BS_INDEX,.bs.index={1},
        KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
 
     {"unwatch",unwatchCommand,1,
-     "no-script fast ok-loading ok-stale @transaction"},
+     "no-script fast ok-loading ok-stale allow-busy @transaction"},
 
     {"cluster",NULL,-2,
      "",
@@ -1744,7 +1744,7 @@ struct redisCommand redisCommandTable[] = {
      .subcommands=clientSubcommands},
 
     {"hello",helloCommand,-1,
-     "no-auth no-script fast ok-loading ok-stale sentinel @connection"},
+     "no-auth no-script fast ok-loading ok-stale allow-busy sentinel @connection"},
 
     /* EVAL can modify the dataset, however it is not flagged as a write
      * command since we do the check while running commands from Lua.
@@ -2043,7 +2043,7 @@ struct redisCommand redisCommandTable[] = {
      .subcommands=stralgoSubcommands},
 
     {"reset",resetCommand,1,
-     "no-script ok-stale ok-loading fast @connection"},
+     "no-script ok-stale ok-loading allow-busy fast @connection"},
 
     {"failover",failoverCommand,-1,
      "admin no-script ok-stale"}
@@ -3531,7 +3531,7 @@ void createSharedObjects(void) {
     shared.loadingerr = createObject(OBJ_STRING,sdsnew(
         "-LOADING Redis is loading the dataset in memory\r\n"));
     shared.slowscripterr = createObject(OBJ_STRING,sdsnew(
-        "-BUSY Redis is busy running a script. You can only call SCRIPT KILL or SHUTDOWN NOSAVE.\r\n"));
+        "-BUSY Redis is busy running a job. for script You can only call SCRIPT KILL or SHUTDOWN NOSAVE.\r\n"));
     shared.masterdownerr = createObject(OBJ_STRING,sdsnew(
         "-MASTERDOWN Link with MASTER is down and replica-serve-stale-data is set to 'no'.\r\n"));
     shared.bgsaveerr = createObject(OBJ_STRING,sdsnew(
@@ -4183,6 +4183,7 @@ void initServer(void) {
     server.blocked_last_cron = 0;
     server.blocking_op_nesting = 0;
     server.thp_enabled = 0;
+    server.busy_job = 0;
     resetReplicationBuffer();
 
     if ((server.tls_port || server.tls_replication || server.tls_cluster)
@@ -4518,6 +4519,8 @@ void parseCommandFlags(struct redisCommand *c, char *strflags) {
             c->flags |= CMD_ONLY_SENTINEL;
         } else if (!strcasecmp(flag,"no-mandatory-keys")) {
             c->flags |= CMD_NO_MANDATORY_KEYS;
+        } else if (!strcasecmp(flag,"allow-busy")) {
+            c->flags |= CMD_ALLOW_BUSY;
         } else {
             /* Parse ACL categories here if the flag name starts with @. */
             uint64_t catflag;
@@ -5441,28 +5444,14 @@ int processCommand(client *c) {
         return C_OK;
     }
 
-    /* Lua script too slow? Only allow a limited number of commands.
+    /* when a busy job is being done (Lua script/Module command)
+     * Only allow a limited number of commands.
      * Note that we need to allow the transactions commands, otherwise clients
      * sending a transaction with pipelining without error checking, may have
      * the MULTI plus a few initial commands refused, then the timeout
      * condition resolves, and the bottom-half of the transaction gets
      * executed, see Github PR #7022. */
-    if (server.lua_timedout &&
-          c->cmd->proc != authCommand &&
-          c->cmd->proc != helloCommand &&
-          c->cmd->proc != replconfCommand &&
-          c->cmd->proc != multiCommand &&
-          c->cmd->proc != discardCommand &&
-          c->cmd->proc != watchCommand &&
-          c->cmd->proc != unwatchCommand &&
-          c->cmd->proc != resetCommand &&
-        !(c->cmd->proc == shutdownCommand &&
-          c->argc == 2 &&
-          tolower(((char*)c->argv[1]->ptr)[0]) == 'n') &&
-        !(c->cmd->proc == scriptCommand &&
-          c->argc == 2 &&
-          tolower(((char*)c->argv[1]->ptr)[0]) == 'k'))
-    {
+    if ((server.lua_timedout || server.busy_job) && !(c->cmd->flags & CMD_ALLOW_BUSY)) {
         rejectCommand(c, shared.slowscripterr);
         return C_OK;
     }

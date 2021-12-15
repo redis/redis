@@ -63,4 +63,18 @@ start_server {tags {"modules"}} {
         r list.edit k reverse rkr foo bar
         r list.getall k
     } {bar y foo}
+
+    test {Busy module} {
+        set rd [redis_deferring_client]
+        $rd list.busy
+        catch {r ping} e
+        assert_match {BUSY*} $e
+        for {set j 0} {$j<10} {incr j} {
+            catch {r list.getall k} e
+        }
+        assert_match {BUSY*} $e
+        catch {r ping} e
+        r list.stop_busy
+        assert_match [r ping] PONG
+    }
 }

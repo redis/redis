@@ -200,6 +200,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CMD_FAST (1ULL<<14)            /* "fast" flag */
 #define CMD_NO_AUTH (1ULL<<15)         /* "no-auth" flag */
 #define CMD_MAY_REPLICATE (1ULL<<16)   /* "may-replicate" flag */
+#define CMD_ALLOW_BUSY ((1ULL<<17))    /* "allow-busy" flag */
 
 /* Key argument flags. Please check the command table defined in the server.c file
  * for more information about the meaning of every flag. */
@@ -1747,6 +1748,7 @@ struct redisServer {
     int lazyfree_lazy_server_del;
     int lazyfree_lazy_user_del;
     int lazyfree_lazy_user_flush;
+    int busy_job;
     /* Latency monitor */
     long long latency_monitor_threshold;
     dict *latency_events;
