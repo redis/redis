@@ -314,7 +314,9 @@ void functionsDeleteCommand(client *c) {
     }
 
     engineFunctionFree(fi, functions_ctx);
-    forceCommandPropagation(c, PROPAGATE_REPL | PROPAGATE_AOF);
+    /* Indicate that the command changed the data so it will be replicated and
+     * counted as a data change (for persistence configuration) */
+    server.dirty++;
     addReply(c, shared.ok);
 }
 
@@ -484,7 +486,9 @@ void functionsCreateCommand(client *c) {
         addReplyErrorSds(c, err);
         return;
     }
-    forceCommandPropagation(c, PROPAGATE_REPL | PROPAGATE_AOF);
+    /* Indicate that the command changed the data so it will be replicated and
+     * counted as a data change (for persistence configuration) */
+    server.dirty++;
     addReply(c, shared.ok);
 }
 
