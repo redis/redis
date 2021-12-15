@@ -394,7 +394,9 @@ void functionsFlushCommand(client *c) {
     } else {
         functionsCtxClear(functions_ctx);
     }
-    forceCommandPropagation(c, PROPAGATE_REPL | PROPAGATE_AOF);
+    /* Indicate that the command changed the data so it will be replicated and
+     * counted as a data change (for persistence configuration) */
+    server.dirty++;
     addReply(c,shared.ok);
 }
 
