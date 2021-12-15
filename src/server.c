@@ -3380,6 +3380,14 @@ void whileBlockedCron() {
     latencyAddSampleIfNeeded("while-blocked-cron",latency);
 }
 
+static void sendGetackToReplicas(void) {
+    robj *argv[3];
+    argv[0] = shared.replconf;
+    argv[1] = shared.getack;
+    argv[2] = shared.special_asterick; /* Not used argument. */
+    replicationFeedSlaves(server.slaves, server.slaveseldb, argv, 3);
+}
+
 extern int ProcessingEventsWhileBlocked;
 
 /* This function gets called every time Redis is entering the
@@ -3464,12 +3472,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
      * increment the replication backlog, they'll be sent after the pause
      * if we are still the master. */
     if (server.get_ack_from_slaves && !checkClientPauseTimeoutAndReturnIfPaused()) {
-        robj *argv[3];
-
-        argv[0] = shared.replconf;
-        argv[1] = shared.getack;
-        argv[2] = shared.special_asterick; /* Not used argument. */
-        replicationFeedSlaves(server.slaves, server.slaveseldb, argv, 3);
+        sendGetackToReplicas();
         server.get_ack_from_slaves = 0;
     }
 
@@ -5654,6 +5657,7 @@ int prepareForShutdown(int flags) {
     {
         server.shutdown_mstime = server.mstime + server.shutdown_timeout * 1000;
         pauseClients(LLONG_MAX, CLIENT_PAUSE_WRITE);
+        sendGetackToReplicas();
         serverLog(LL_NOTICE, "Waiting for replicas before shutting down.");
         return C_ERR;
     }
