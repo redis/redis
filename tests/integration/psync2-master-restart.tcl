@@ -30,21 +30,19 @@ start_server {} {
     createComplexDataset $master 1000
 
     test "PSYNC2: Partial resync after Master restart using RDB aux fields" {
-        set offset [status $master master_repl_offset]
         wait_for_condition 500 100 {
-            [string match "*slave0:*,offset=$offset,*" [$master info replication]] &&
-            $offset == [status $replica master_repl_offset] &&
-            $offset == [status $sub_replica master_repl_offset]
+            [status $master master_repl_offset] == [status $replica master_repl_offset] &&
+            [status $master master_repl_offset] == [status $sub_replica master_repl_offset]
         } else {
             fail "Replicas and master offsets were unable to match *exactly*."
         }
 
         set replid [status $master master_replid]
-        assert_equal $offset [status $master master_repl_offset]
+        set offset [status $master master_repl_offset]
         $replica config resetstat
 
         catch {
-            restart_server 0 true false
+            $master debug restart
             set master [srv 0 client]
         }
         wait_for_condition 50 1000 {
@@ -79,21 +77,19 @@ start_server {} {
 
         after 20
 
-        set offset [status $master master_repl_offset]
         wait_for_condition 500 100 {
-            [string match "*slave0:*,offset=$offset,*" [$master info replication]] &&
-            $offset == [status $replica master_repl_offset] &&
-            $offset == [status $sub_replica master_repl_offset]
+            [status $master master_repl_offset] == [status $replica master_repl_offset] &&
+            [status $master master_repl_offset] == [status $sub_replica master_repl_offset]
         } else {
             show_cluster_status
             fail "Replicas and master offsets were unable to match *exactly*."
         }
 
-        assert_equal $offset [status $master master_repl_offset]
+        set offset [status $master master_repl_offset]
         $replica config resetstat
 
         catch {
-            restart_server 0 true false
+            $master debug restart
             set master [srv 0 client]
         }
         wait_for_condition 50 1000 {
