@@ -661,7 +661,6 @@ struct RedisModule {
     list *usedby;   /* List of modules using APIs from this one. */
     list *using;    /* List of modules we use some APIs of. */
     list *filters;  /* List of filters the module has registered. */
-    int ctx_nesting;  /* moduleCreateContext() nesting level */
     int in_call;    /* RM_Call() nesting level */
     int in_hook;    /* Hooks callback nesting level for this module (0 or 1). */
     int options;    /* Module options and capabilities. */
@@ -1352,7 +1351,8 @@ struct redisServer {
     int in_script;              /* Are we inside EVAL? */
     int in_exec;                /* Are we inside EXEC? */
     int core_propagates;        /* Is the core (in oppose to the module subsystem) is in charge of calling propagatePendingCommands? */
-    int propagate_no_multi;      /* True if propagatePendingCommands should avoid wrapping command in MULTI/EXEC */
+    int propagate_no_multi;     /* True if propagatePendingCommands should avoid wrapping command in MULTI/EXEC */
+    int module_ctx_nesting;     /* moduleCreateContext() nesting level */
     char *ignore_warnings;      /* Config: warnings that should be ignored. */
     int client_pause_in_transaction; /* Was a client pause executed during this Exec? */
     int thp_enabled;                 /* If true, THP is enabled. */

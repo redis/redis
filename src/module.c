@@ -609,10 +609,10 @@ int RM_GetApi(const char *funcname, void **targetPtrPtr) {
 
 /* Free the context after the user function was called. */
 void moduleFreeContext(RedisModuleCtx *ctx) {
-    if (ctx->module) {
+    if (!(ctx->flags & REDISMODULE_CTX_THREAD_SAFE)) {
         /* Modules take care of their own propagation, when we are
          * outside of call() context (timers, events, etc.). */
-        if (--ctx->module->ctx_nesting == 0 && !server.core_propagates)
+        if (--server.module_ctx_nesting == 0 && !server.core_propagates)
             propagatePendingCommands();
     }
     autoMemoryCollect(ctx);
@@ -641,8 +641,8 @@ void moduleCreateContext(RedisModuleCtx *out_ctx, RedisModule *module, int ctx_f
     out_ctx->getapifuncptr = (void*)(unsigned long)&RM_GetApi;
     out_ctx->module = module;
     out_ctx->flags = ctx_flags;
-    if (out_ctx->module && !(ctx_flags & REDISMODULE_CTX_THREAD_SAFE)) {
-        out_ctx->module->ctx_nesting++;
+    if (!(ctx_flags & REDISMODULE_CTX_THREAD_SAFE)) {
+        server.module_ctx_nesting++;
     }
 }
 
@@ -1252,7 +1252,6 @@ void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int api
     module->usedby = listCreate();
     module->using = listCreate();
     module->filters = listCreate();
-    module->ctx_nesting = 0;
     module->in_call = 0;
     module->in_hook = 0;
     module->options = 0;
@@ -6667,12 +6666,22 @@ void RM_FreeThreadSafeContext(RedisModuleCtx *ctx) {
     zfree(ctx);
 }
 
+void moduleGILAfterLock() {
+    /* We should never get here if we already inside a module
+     * code block which already opened a context. */
+    serverAssert(server.module_ctx_nesting == 0);
+    /* Bump up the nesting level to prevent immediate propagation
+     * of possible RM_Call from th thread */
+    server.module_ctx_nesting++;
+}
+
 /* Acquire the server lock before executing a thread safe API call.
  * This is not needed for `RedisModule_Reply*` calls when there is
  * a blocked client connected to the thread safe context. */
 void RM_ThreadSafeContextLock(RedisModuleCtx *ctx) {
     UNUSED(ctx);
     moduleAcquireGIL();
+    moduleGILAfterLock();
 }
 
 /* Similar to RM_ThreadSafeContextLock but this function
@@ -6689,12 +6698,26 @@ int RM_ThreadSafeContextTryLock(RedisModuleCtx *ctx) {
         errno = res;
         return REDISMODULE_ERR;
     }
+    moduleGILAfterLock();
     return REDISMODULE_OK;
+}
+
+void moduleGILBeforeUnlock() {
+    /* We should never get here if we already inside a module
+     * code block which already opened a context, except
+     * the bump-up from moduleGILAcquired. */
+    serverAssert(server.module_ctx_nesting == 1);
+    /* Restore ctx_nesting and propagate pending commands
+     * (because it's u clear when thread safe contexts are
+     * released we have to propagate here). */
+    server.module_ctx_nesting--;
+    propagatePendingCommands();
 }
 
 /* Release the server lock after a thread safe API call was executed. */
 void RM_ThreadSafeContextUnlock(RedisModuleCtx *ctx) {
     UNUSED(ctx);
+    moduleGILBeforeUnlock();
     moduleReleaseGIL();
 }
 
@@ -9629,9 +9652,6 @@ int moduleLoad(const char *path, void **module_argv, int module_argc) {
         ctx.module->loadmod->argv[i] = module_argv[i];
         incrRefCount(ctx.module->loadmod->argv[i]);
     }
-    /* We can't call moduleCreateContext before we have the RedisModule,
-     * so we have to increment the counter here */
-    ctx.module->ctx_nesting++;
 
     serverLog(LL_NOTICE,"Module '%s' loaded from %s",ctx.module->name,path);
     /* Fire the loaded modules event. */

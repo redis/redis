@@ -1,4 +1,5 @@
 set testmodule [file normalize tests/modules/propagate.so]
+set keyspace_events [file normalize tests/modules/keyspace_events.so]
 
 tags "modules" {
     test {Modules can propagate in async and threaded contexts} {
@@ -6,10 +7,12 @@ tags "modules" {
             set replica [srv 0 client]
             set replica_host [srv 0 host]
             set replica_port [srv 0 port]
+            $replica module load $keyspace_events
             start_server [list overrides [list loadmodule "$testmodule"]] {
                 set master [srv 0 client]
                 set master_host [srv 0 host]
                 set master_port [srv 0 port]
+                $master module load $keyspace_events
 
                 # Start the replication process...
                 $replica replicaof $master_host $master_port
@@ -21,7 +24,7 @@ tags "modules" {
 
                     $master propagate-test.timer
 
-                    wait_for_condition 5000 10 {
+                    wait_for_condition 500 10 {
                         [$replica get timer] eq "3"
                     } else {
                         fail "The two counters don't match the expected value."
@@ -79,7 +82,7 @@ tags "modules" {
                     $master set asdf2 2 PX 300
                     $master set asdf3 3 PX 300
 
-                    wait_for_condition 5000 10 {
+                    wait_for_condition 500 10 {
                         [$replica keys asdf*] eq {}
                     } else {
                         fail "Not all keys have expired"
@@ -134,7 +137,7 @@ tags "modules" {
                     # Bottom line: "notifications" always exists and we can't really determine the order of evictions
                     # This test is here only for sanity
 
-                    wait_for_condition 5000 10 {
+                    wait_for_condition 500 10 {
                         [$replica dbsize] eq 1
                     } else {
                         fail "Not all keys have been evicted"
@@ -157,7 +160,7 @@ tags "modules" {
                     $master config set maxmemory-policy volatile-ttl
                     $master config set maxmemory 1
 
-                    wait_for_condition 5000 10 {
+                    wait_for_condition 500 10 {
                         [$replica dbsize] eq 1
                     } else {
                         fail "Not all keys have been evicted"
@@ -210,7 +213,7 @@ tags "modules" {
 
                     # The replica will have two keys: "notifications" and "timer-maxmemory-middle"
                     # which are not volatile
-                    wait_for_condition 5000 10 {
+                    wait_for_condition 500 10 {
                         [$replica dbsize] eq 2
                     } else {
                         fail "Not all keys have been evicted"
@@ -263,7 +266,7 @@ tags "modules" {
 
                     $master propagate-test.timer-nested
 
-                    wait_for_condition 5000 10 {
+                    wait_for_condition 500 10 {
                         [$replica get timer-nested-end] eq "1"
                     } else {
                         fail "The two counters don't match the expected value."
@@ -288,7 +291,7 @@ tags "modules" {
 
                     $master propagate-test.timer-nested-repl
 
-                    wait_for_condition 5000 10 {
+                    wait_for_condition 500 10 {
                         [$replica get timer-nested-end] eq "1"
                     } else {
                         fail "The two counters don't match the expected value."
@@ -307,6 +310,14 @@ tags "modules" {
                         {incr notifications}
                         {incr after-call}
                         {incr notifications}
+                        {incr before-call-2}
+                        {incr notifications}
+                        {incr asdf}
+                        {incr notifications}
+                        {del asdf}
+                        {incr notifications}
+                        {incr after-call-2}
+                        {incr notifications}
                         {incr timer-nested-middle}
                         {incrby timer-nested-end 1}
                         {exec}
@@ -323,20 +334,61 @@ tags "modules" {
 
                     $master propagate-test.thread
 
-                    wait_for_condition 5000 10 {
+                    wait_for_condition 500 10 {
                         [$replica get a-from-thread] eq "3"
                     } else {
                         fail "The two counters don't match the expected value."
                     }
 
+                    # Known issue: "thread-call" is executed before "b-from-thread"
+                    # but propagated after
                     assert_replication_stream $repl {
                         {select *}
                         {incr a-from-thread}
                         {incr b-from-thread}
+                        {multi}
+                        {incr notifications}
+                        {incr thread-call}
+                        {exec}
                         {incr a-from-thread}
                         {incr b-from-thread}
+                        {multi}
+                        {incr notifications}
+                        {incr thread-call}
+                        {exec}
                         {incr a-from-thread}
                         {incr b-from-thread}
+                        {multi}
+                        {incr notifications}
+                        {incr thread-call}
+                        {exec}
+                    }
+                    close_replication_stream $repl
+                }
+
+                test {module propagates from thread with detached ctx} {
+                    set repl [attach_to_replication_stream]
+
+                    $master propagate-test.detached-thread
+
+                    wait_for_condition 500 10 {
+                        [$replica get thread-detached-after] eq "1"
+                    } else {
+                        fail "The key doesn't match the expected value."
+                    }
+
+                    # Known issue: "thread-detached-1" and "thread-detached-2" are executed before "thread-detached-after"
+                    # but propagated after
+                    assert_replication_stream $repl {
+                        {select *}
+                        {incr thread-detached-before}
+                        {incr thread-detached-after}
+                        {multi}
+                        {incr notifications}
+                        {incr thread-detached-1}
+                        {incr notifications}
+                        {incr thread-detached-2}
+                        {exec}
                     }
                     close_replication_stream $repl
                 }
@@ -451,7 +503,7 @@ tags "modules" {
                     $master propagate-test.timer-nested-repl
                     $master exec
 
-                    wait_for_condition 5000 10 {
+                    wait_for_condition 500 10 {
                         [$replica get timer-nested-end] eq "1"
                     } else {
                         fail "The two counters don't match the expected value."
@@ -479,6 +531,14 @@ tags "modules" {
                         {incr counter-4}
                         {incr notifications}
                         {incr after-call}
+                        {incr notifications}
+                        {incr before-call-2}
+                        {incr notifications}
+                        {incr asdf}
+                        {incr notifications}
+                        {del asdf}
+                        {incr notifications}
+                        {incr after-call-2}
                         {incr notifications}
                         {incr timer-nested-middle}
                         {incrby timer-nested-end 1}

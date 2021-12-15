@@ -4302,6 +4302,7 @@ void initServer(void) {
     server.in_exec = 0;
     server.core_propagates = 0;
     server.propagate_no_multi = 0;
+    server.module_ctx_nesting = 0;
     server.client_pause_in_transaction = 0;
     server.child_pid = -1;
     server.child_type = CHILD_TYPE_NONE;
