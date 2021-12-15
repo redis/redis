@@ -443,6 +443,16 @@ This file also implements both the `SYNC` and `PSYNC` commands that are
 used in order to perform the first synchronization between masters and
 replicas, or to continue the replication after a disconnection.
 
+Script
+---
+The script unit is compose of 3 units
+* `script.c` - integration of scripts with Redis (commands execution, set replication/resp, ..)
+* `script_lua.c` - responsible to execute Lua code, uses script.c to interact with Redis from within the Lua code.
+* `function_lua.c` - contains the Lua engine implementation, uses script_lua.c to execute the Lua code.
+* `functions.c` - Contains Redis Functions implementation (FUNCTION command), uses functions_lua.c if the function it wants to invoke needs the Lua engine.
+* `eval.c` - Contains the `eval` implementation using `script_lua.c` to invoke the Lua code.
+
+
 Other C files
 ---
 
@@ -451,7 +461,6 @@ Other C files
 * `sds.c` is the Redis string library, check https://github.com/antirez/sds for more information.
 * `anet.c` is a library to use POSIX networking in a simpler way compared to the raw interface exposed by the kernel.
 * `dict.c` is an implementation of a non-blocking hash table which rehashes incrementally.
-* `scripting.c` implements Lua scripting. It is completely self-contained and isolated from the rest of the Redis implementation and is simple enough to understand if you are familiar with the Lua API.
 * `cluster.c` implements the Redis Cluster. Probably a good read only after being very familiar with the rest of the Redis code base. If you want to read `cluster.c` make sure to read the [Redis Cluster specification][4].
 
 [4]: https://redis.io/topics/cluster-spec

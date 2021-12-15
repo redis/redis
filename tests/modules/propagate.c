@@ -239,17 +239,17 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx,"propagate-test.mixed",
                 propagateTestMixedCommand,
-                "",1,1,1) == REDISMODULE_ERR)
+                "write",1,1,1) == REDISMODULE_ERR)
             return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"propagate-test.nested",
                 propagateTestNestedCommand,
-                "",1,1,1) == REDISMODULE_ERR)
+                "write",1,1,1) == REDISMODULE_ERR)
             return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"propagate-test.incr",
                 propagateTestIncr,
-                "",1,1,1) == REDISMODULE_ERR)
+                "write",1,1,1) == REDISMODULE_ERR)
             return REDISMODULE_ERR;
 
     return REDISMODULE_OK;

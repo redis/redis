@@ -95,6 +95,40 @@ start_server {tags {"repl external:skip"}} {
         test {First server should have role slave after SLAVEOF} {
             $slave slaveof $master_host $master_port
             wait_for_condition 50 100 {
+                [s 0 master_link_status] eq {up}
+            } else {
+                fail "Replication not started."
+            }
+        }
+
+        test {Replication of an expired key does not delete the expired key} {
+            $master debug set-active-expire 0
+            $master set k 1 ex 1
+            wait_for_ofs_sync $master $slave
+            exec kill -SIGSTOP [srv 0 pid]
+            $master incr k
+            after 1000
+            # Stopping the replica for one second to makes sure the INCR arrives
+            # to the replica after the key is logically expired.
+            exec kill -SIGCONT [srv 0 pid]
+            wait_for_ofs_sync $master $slave
+            # Check that k is locigally expired but is present in the replica.
+            assert_equal 0 [$slave exists k]
+            $slave debug object k ; # Raises exception if k is gone.
+        }
+    }
+}
+
+start_server {tags {"repl external:skip"}} {
+    start_server {} {
+        set master [srv -1 client]
+        set master_host [srv -1 host]
+        set master_port [srv -1 port]
+        set slave [srv 0 client]
+
+        test {First server should have role slave after SLAVEOF} {
+            $slave slaveof $master_host $master_port
+            wait_for_condition 50 100 {
                 [s 0 role] eq {slave}
             } else {
                 fail "Replication not started."

@@ -83,18 +83,17 @@ uint8_t *dictGetHashFunctionSeed(void) {
 uint64_t siphash(const uint8_t *in, const size_t inlen, const uint8_t *k);
 uint64_t siphash_nocase(const uint8_t *in, const size_t inlen, const uint8_t *k);
 
-uint64_t dictGenHashFunction(const void *key, int len) {
+uint64_t dictGenHashFunction(const void *key, size_t len) {
     return siphash(key,len,dict_hash_function_seed);
 }
 
-uint64_t dictGenCaseHashFunction(const unsigned char *buf, int len) {
+uint64_t dictGenCaseHashFunction(const unsigned char *buf, size_t len) {
     return siphash_nocase(buf,len,dict_hash_function_seed);
 }
 
 /* ----------------------------- API implementation ------------------------- */
 
-/* Reset a hash table already initialized with ht_init().
- * NOTE: This function should only be called by ht_destroy(). */
+/* Reset hash table parameters already initialized with _dictInit()*/
 static void _dictReset(dict *d, int htidx)
 {
     d->ht_table[htidx] = NULL;
@@ -1183,6 +1182,7 @@ void dictGetStats(char *buf, size_t bufsize, dict *d) {
 /* ------------------------------- Benchmark ---------------------------------*/
 
 #ifdef REDIS_TEST
+#include "testhelp.h"
 
 #define UNUSED(V) ((void) V)
 
@@ -1235,11 +1235,12 @@ dictType BenchmarkDictType = {
 } while(0)
 
 /* ./redis-server test dict [<count> | --accurate] */
-int dictTest(int argc, char **argv, int accurate) {
+int dictTest(int argc, char **argv, int flags) {
     long j;
     long long start, elapsed;
     dict *dict = dictCreate(&BenchmarkDictType);
     long count = 0;
+    int accurate = (flags & REDIS_TEST_ACCURATE);
 
     if (argc == 4) {
         if (accurate) {

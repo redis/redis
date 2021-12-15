@@ -30,6 +30,7 @@
 #include "server.h"
 #include "atomicvar.h"
 #include "cluster.h"
+#include "script.h"
 #include <sys/socket.h>
 #include <sys/uio.h>
 #include <math.h>
@@ -260,7 +261,7 @@ void clientInstallWriteHandler(client *c) {
 int prepareClientToWrite(client *c) {
     /* If it's the Lua client we always return ok without installing any
      * handler since there is no socket at all. */
-    if (c->flags & (CLIENT_LUA|CLIENT_MODULE)) return C_OK;
+    if (c->flags & (CLIENT_SCRIPT|CLIENT_MODULE)) return C_OK;
 
     /* If CLIENT_CLOSE_ASAP flag is set, we need not write anything. */
     if (c->flags & CLIENT_CLOSE_ASAP) return C_ERR;
@@ -1491,7 +1492,7 @@ void freeClientAsync(client *c) {
      * may access the list while Redis uses I/O threads. All the other accesses
      * are in the context of the main thread while the other threads are
      * idle. */
-    if (c->flags & CLIENT_CLOSE_ASAP || c->flags & CLIENT_LUA) return;
+    if (c->flags & CLIENT_CLOSE_ASAP || c->flags & CLIENT_SCRIPT) return;
     c->flags |= CLIENT_CLOSE_ASAP;
     if (server.io_threads_num == 1) {
         /* no need to bother with locking if there's just one thread (the main thread) */
@@ -2199,7 +2200,7 @@ int processInputBuffer(client *c) {
          * condition on the slave. We want just to accumulate the replication
          * stream (instead of replying -BUSY like we do with other clients) and
          * later resume the processing. */
-        if (server.lua_timedout && c->flags & CLIENT_MASTER) break;
+        if (scriptIsTimedout() && c->flags & CLIENT_MASTER) break;
 
         /* CLIENT_CLOSE_AFTER_REPLY closes the connection once the reply is
          * written to the client. Make sure to not let the reply grow after
@@ -2585,6 +2586,12 @@ void resetCommand(client *c) {
     addReplyStatus(c,"RESET");
 }
 
+/* Disconnect the current client */
+void quitCommand(client *c) {
+    addReply(c,shared.ok);
+    c->flags |= CLIENT_CLOSE_AFTER_REPLY;
+}
+
 void clientCommand(client *c) {
     listNode *ln;
     listIter li;
@@ -2735,10 +2742,11 @@ NULL
                 int moreargs = c->argc > i+1;
 
                 if (!strcasecmp(c->argv[i]->ptr,"id") && moreargs) {
-                    long long tmp;
+                    long tmp;
 
-                    if (getLongLongFromObjectOrReply(c,c->argv[i+1],&tmp,NULL)
-                        != C_OK) return;
+                    if (getRangeLongFromObjectOrReply(c, c->argv[i+1], 1, LONG_MAX, &tmp,
+                                                      "client-id should be greater than 0") != C_OK)
+                        return;
                     id = tmp;
                 } else if (!strcasecmp(c->argv[i]->ptr,"type") && moreargs) {
                     type = getClientTypeByName(c->argv[i+1]->ptr);
@@ -3193,7 +3201,7 @@ void helloCommand(client *c) {
  * when a POST or "Host:" header is seen, and will log the event from
  * time to time (to avoid creating a DOS as a result of too many logs). */
 void securityWarningCommand(client *c) {
-    static time_t logged_time;
+    static time_t logged_time = 0;
     time_t now = time(NULL);
 
     if (llabs(now-logged_time) > 60) {
@@ -3276,9 +3284,16 @@ void replaceClientCommandVector(client *c, int argc, robj **argv) {
 void rewriteClientCommandArgument(client *c, int i, robj *newval) {
     robj *oldval;
     retainOriginalCommandVector(c);
-    if (i >= c->argv_len) {
-        c->argv = zrealloc(c->argv,sizeof(robj*)*(i+1));
-        c->argc = c->argv_len = i+1;
+
+    /* We need to handle both extending beyond argc (just update it and
+     * initialize the new element) or beyond argv_len (realloc is needed).
+     */
+    if (i >= c->argc) {
+        if (i >= c->argv_len) {
+            c->argv = zrealloc(c->argv,sizeof(robj*)*(i+1));
+            c->argv_len = i+1;
+        }
+        c->argc = i+1;
         c->argv[i] = NULL;
     }
     oldval = c->argv[i];

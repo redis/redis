@@ -32,6 +32,7 @@
 #include "zipmap.h"
 #include "endianconv.h"
 #include "stream.h"
+#include "functions.h"
 
 #include <math.h>
 #include <fcntl.h>
@@ -1239,6 +1240,25 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
     if (rdbSaveInfoAuxFields(rdb,rdbflags,rsi) == -1) goto werr;
     if (rdbSaveModulesAux(rdb, REDISMODULE_AUX_BEFORE_RDB) == -1) goto werr;
 
+    /* save functions */
+    dict *functions = functionsGet();
+    dictIterator *iter = dictGetIterator(functions);
+    dictEntry *entry = NULL;
+    while ((entry = dictNext(iter))) {
+        rdbSaveType(rdb, RDB_OPCODE_FUNCTION);
+        functionInfo* fi = dictGetVal(entry);
+        if (rdbSaveRawString(rdb, (unsigned char *) fi->name, sdslen(fi->name)) == -1) goto werr;
+        if (rdbSaveRawString(rdb, (unsigned char *) fi->ei->name, sdslen(fi->ei->name)) == -1) goto werr;
+        if (fi->desc) {
+            if (rdbSaveLen(rdb, 1) == -1) goto werr; /* desc exists */
+            if (rdbSaveRawString(rdb, (unsigned char *) fi->desc, sdslen(fi->desc)) == -1) goto werr;
+        } else {
+            if (rdbSaveLen(rdb, 0) == -1) goto werr; /* desc not exists */
+        }
+        if (rdbSaveRawString(rdb, (unsigned char *) fi->code, sdslen(fi->code)) == -1) goto werr;
+    }
+    dictReleaseIterator(iter);
+
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
         dict *d = db->dict;
@@ -1303,8 +1323,8 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
      * the script cache as well: on successful PSYNC after a restart, we need
      * to be able to process any EVALSHA inside the replication backlog the
      * master will send us. */
-    if (rsi && dictSize(server.lua_scripts)) {
-        di = dictGetIterator(server.lua_scripts);
+    if (rsi && dictSize(evalScriptsDict())) {
+        di = dictGetIterator(evalScriptsDict());
         while((de = dictNext(di)) != NULL) {
             robj *body = dictGetVal(de);
             if (rdbSaveAuxField(rdb,"lua",3,body->ptr,sdslen(body->ptr)) == -1)
@@ -1372,13 +1392,14 @@ int rdbSave(char *filename, rdbSaveInfo *rsi) {
     snprintf(tmpfile,256,"temp-%d.rdb", (int) getpid());
     fp = fopen(tmpfile,"w");
     if (!fp) {
+        char *str_err = strerror(errno);
         char *cwdp = getcwd(cwd,MAXPATHLEN);
         serverLog(LL_WARNING,
-            "Failed opening the RDB file %s (in server root dir %s) "
+            "Failed opening the temp RDB file %s (in server root dir %s) "
             "for saving: %s",
-            filename,
+            tmpfile,
             cwdp ? cwdp : "unknown",
-            strerror(errno));
+            str_err);
         return C_ERR;
     }
 
@@ -1402,6 +1423,7 @@ int rdbSave(char *filename, rdbSaveInfo *rsi) {
     /* Use RENAME to make sure the DB file is changed atomically only
      * if the generate DB file is ok. */
     if (rename(tmpfile,filename) == -1) {
+        char *str_err = strerror(errno);
         char *cwdp = getcwd(cwd,MAXPATHLEN);
         serverLog(LL_WARNING,
             "Error moving temp DB file %s on the final "
@@ -1409,7 +1431,7 @@ int rdbSave(char *filename, rdbSaveInfo *rsi) {
             tmpfile,
             filename,
             cwdp ? cwdp : "unknown",
-            strerror(errno));
+            str_err);
         unlink(tmpfile);
         stopSaving(0);
         return C_ERR;
@@ -1593,6 +1615,45 @@ int ziplistPairsConvertAndValidateIntegrity(unsigned char *zl, size_t size, unsi
     return ret;
 }
 
+/* callback for ziplistValidateIntegrity.
+ * The ziplist element pointed by 'p' will be converted and stored into listpack. */
+static int _ziplistEntryConvertAndValidate(unsigned char *p, unsigned int head_count, void *userdata) {
+    UNUSED(head_count);
+    unsigned char *str;
+    unsigned int slen;
+    long long vll;
+    unsigned char **lp = (unsigned char**)userdata;
+
+    if (!ziplistGet(p, &str, &slen, &vll)) return 0;
+
+    if (str)
+        *lp = lpAppend(*lp, (unsigned char*)str, slen);
+    else
+        *lp = lpAppendInteger(*lp, vll);
+
+    return 1;
+}
+
+/* callback for ziplistValidateIntegrity.
+ * The ziplist element pointed by 'p' will be converted and stored into quicklist. */
+static int _listZiplistEntryConvertAndValidate(unsigned char *p, unsigned int head_count, void *userdata) {
+    UNUSED(head_count);
+    unsigned char *str;
+    unsigned int slen;
+    long long vll;
+    char longstr[32] = {0};
+    quicklist *ql = (quicklist*)userdata;
+
+    if (!ziplistGet(p, &str, &slen, &vll)) return 0;
+    if (!str) {
+        /* Write the longval as a string so we can re-add it */
+        slen = ll2string(longstr, sizeof(longstr), vll);
+        str = (unsigned char *)longstr;
+    }
+    quicklistPushTail(ql, str, slen);
+    return 1;
+}
+
 /* callback for to check the listpack doesn't have duplicate records */
 static int _lpPairsEntryValidation(unsigned char *p, unsigned int head_count, void *userdata) {
     struct {
@@ -1680,7 +1741,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
         if (len == 0) goto emptykey;
 
         o = createQuicklistObject();
-        quicklistSetOptions(o->ptr, server.list_max_ziplist_size,
+        quicklistSetOptions(o->ptr, server.list_max_listpack_size,
                             server.list_compress_depth);
 
         /* Load every single element of the list */
@@ -1950,10 +2011,11 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
         if (len == 0) goto emptykey;
 
         o = createQuicklistObject();
-        quicklistSetOptions(o->ptr, server.list_max_ziplist_size,
+        quicklistSetOptions(o->ptr, server.list_max_listpack_size,
                             server.list_compress_depth);
-        uint64_t container = QUICKLIST_NODE_CONTAINER_ZIPLIST;
+        uint64_t container = QUICKLIST_NODE_CONTAINER_PACKED;
         while (len--) {
+            unsigned char *lp;
             size_t encoded_len;
 
             if (rdbtype == RDB_TYPE_LIST_QUICKLIST_2) {
@@ -1962,7 +2024,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                     return NULL;
                 }
 
-                if (container != QUICKLIST_NODE_CONTAINER_ZIPLIST && container != QUICKLIST_NODE_CONTAINER_PLAIN) {
+                if (container != QUICKLIST_NODE_CONTAINER_PACKED && container != QUICKLIST_NODE_CONTAINER_PLAIN) {
                     rdbReportCorruptRDB("Quicklist integrity check failed.");
                     decrRefCount(o);
                     return NULL;
@@ -1979,24 +2041,39 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
 
             if (container == QUICKLIST_NODE_CONTAINER_PLAIN) {
                 quicklistAppendPlainNode(o->ptr, data, encoded_len);
-                zfree(data);
                 continue;
             }
 
-            if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
-            if (!ziplistValidateIntegrity(data, encoded_len, deep_integrity_validation, NULL, NULL)) {
-                rdbReportCorruptRDB("Ziplist integrity check failed.");
-                decrRefCount(o);
+            if (rdbtype == RDB_TYPE_LIST_QUICKLIST_2) {
+                lp = data;
+                if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
+                if (!lpValidateIntegrity(lp, encoded_len, deep_integrity_validation, NULL, NULL)) {
+                    rdbReportCorruptRDB("Listpack integrity check failed.");
+                    decrRefCount(o);
+                    zfree(lp);
+                    return NULL;
+                }
+            } else {
+                lp = lpNew(encoded_len);
+                if (!ziplistValidateIntegrity(data, encoded_len, 1,
+                        _ziplistEntryConvertAndValidate, &lp))
+                {
+                    rdbReportCorruptRDB("Ziplist integrity check failed.");
+                    decrRefCount(o);
+                    zfree(data);
+                    zfree(lp);
+                    return NULL;
+                }
                 zfree(data);
-                return NULL;
+                lp = lpShrinkToFit(lp);
             }
 
             /* Silently skip empty ziplists, if we'll end up with empty quicklist we'll fail later. */
-            if (ziplistLen(data) == 0) {
-                zfree(data);
+            if (lpLength(lp) == 0) {
+                zfree(lp);
                 continue;
             } else {
-                quicklistAppendZiplist(o->ptr, data);
+                quicklistAppendListpack(o->ptr, lp);
             }
         }
 
@@ -2080,27 +2157,36 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                     }
                 }
                 break;
-            case RDB_TYPE_LIST_ZIPLIST:
-                if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
-                if (!ziplistValidateIntegrity(encoded, encoded_len, deep_integrity_validation, NULL, NULL)) {
-                    rdbReportCorruptRDB("List ziplist integrity check failed.");
-                    zfree(encoded);
-                    o->ptr = NULL;
-                    decrRefCount(o);
-                    return NULL;
-                }
+            case RDB_TYPE_LIST_ZIPLIST: 
+                {
+                    quicklist *ql = quicklistNew(server.list_max_listpack_size,
+                                                 server.list_compress_depth);
 
-                if (ziplistLen(encoded) == 0) {
-                    zfree(encoded);
-                    o->ptr = NULL;
-                    decrRefCount(o);
-                    goto emptykey;
-                }
+                    if (!ziplistValidateIntegrity(encoded, encoded_len, 1,
+                            _listZiplistEntryConvertAndValidate, ql))
+                    {
+                        rdbReportCorruptRDB("List ziplist integrity check failed.");
+                        zfree(encoded);
+                        o->ptr = NULL;
+                        decrRefCount(o);
+                        quicklistRelease(ql);
+                        return NULL;
+                    }
 
-                o->type = OBJ_LIST;
-                o->encoding = OBJ_ENCODING_ZIPLIST;
-                listTypeConvert(o,OBJ_ENCODING_QUICKLIST);
-                break;
+                    if (ql->len == 0) {
+                        zfree(encoded);
+                        o->ptr = NULL;
+                        decrRefCount(o);
+                        quicklistRelease(ql);
+                        goto emptykey;
+                    }
+
+                    zfree(encoded);
+                    o->type = OBJ_LIST;
+                    o->ptr = ql;
+                    o->encoding = OBJ_ENCODING_QUICKLIST;
+                    break;
+                }
             case RDB_TYPE_SET_INTSET:
                 if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
                 if (!intsetValidateIntegrity(encoded, encoded_len, deep_integrity_validation)) {
@@ -2138,6 +2224,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
 
                     if (zsetLength(o) > server.zset_max_listpack_entries)
                         zsetConvert(o,OBJ_ENCODING_SKIPLIST);
+                    else
+                        o->ptr = lpShrinkToFit(o->ptr);
                     break;
                 }
             case RDB_TYPE_ZSET_LISTPACK:
@@ -2180,9 +2268,10 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                         goto emptykey;
                     }
 
-                    if (hashTypeLength(o) > server.hash_max_listpack_entries) {
+                    if (hashTypeLength(o) > server.hash_max_listpack_entries)
                         hashTypeConvert(o, OBJ_ENCODING_HT);
-                    } 
+                    else
+                        o->ptr = lpShrinkToFit(o->ptr);
                     break;
                 }
             case RDB_TYPE_HASH_LISTPACK:
@@ -2386,6 +2475,11 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 streamConsumer *consumer = streamCreateConsumer(cgroup,cname,NULL,0,
                                                         SCC_NO_NOTIFY|SCC_NO_DIRTIFY);
                 sdsfree(cname);
+                if (!consumer) {
+                    rdbReportCorruptRDB("Duplicate stream consumer detected.");
+                    decrRefCount(o);
+                    return NULL;
+                }
                 consumer->seen_time = rdbLoadMillisecondTime(rdb,RDB_VERSION);
                 if (rioGetReadError(rdb)) {
                     rdbReportReadError("Stream short read reading seen time.");
@@ -2618,12 +2712,80 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
     }
 }
 
+static int rdbFunctionLoad(rio *rdb, int ver, functionsCtx* functions_ctx) {
+    UNUSED(ver);
+    sds name = NULL;
+    sds engine_name = NULL;
+    sds desc = NULL;
+    sds blob = NULL;
+    sds err = NULL;
+    uint64_t has_desc;
+    int res = C_ERR;
+    if (!(name = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
+        serverLog(LL_WARNING, "Failed loading function name");
+        goto error;
+    }
+
+    if (!(engine_name = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
+        serverLog(LL_WARNING, "Failed loading engine name");
+        goto error;
+    }
+
+    if ((has_desc = rdbLoadLen(rdb, NULL)) == RDB_LENERR) {
+        serverLog(LL_WARNING, "Failed loading function desc indicator");
+        goto error;
+    }
+
+    if (has_desc && !(desc = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
+        serverLog(LL_WARNING, "Failed loading function desc");
+        goto error;
+    }
+
+    if (!(blob = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
+        serverLog(LL_WARNING, "Failed loading function blob");
+        goto error;
+    }
+
+    if (functionsCreateWithFunctionCtx(name, engine_name, desc, blob, 0, &err, functions_ctx) != C_OK) {
+        serverLog(LL_WARNING, "Failed compiling and saving the function %s", err);
+        goto error;
+    }
+
+    res = C_OK;
+
+error:
+    if (name) sdsfree(name);
+    if (engine_name) sdsfree(engine_name);
+    if (desc) sdsfree(desc);
+    if (blob) sdsfree(blob);
+    if (err)  sdsfree(err);
+    return res;
+}
+
 /* Load an RDB file from the rio stream 'rdb'. On success C_OK is returned,
  * otherwise C_ERR is returned and 'errno' is set accordingly. */
-int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi, redisDb *dbarray) {
+int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
+    functionsCtx* functions_ctx = functionsCtxGetCurrent();
+    functionsCtxClear(functions_ctx);
+    rdbLoadingCtx loading_ctx = { .dbarray = server.db, .functions_ctx = functions_ctx };
+    int retval = rdbLoadRioWithLoadingCtx(rdb,rdbflags,rsi,&loading_ctx);
+    if (retval != C_OK) {
+        /* Loading failed, clear the function ctx */
+        functionsCtxClear(functions_ctx);
+    }
+    return retval;
+}
+
+
+/* Load an RDB file from the rio stream 'rdb'. On success C_OK is returned,
+ * otherwise C_ERR is returned and 'errno' is set accordingly. 
+ * The rdb_loading_ctx argument holds objects to which the rdb will be loaded to,
+ * currently it only allow to set db object and functionsCtx to which the data
+ * will be loaded (in the future it might contains more such objects). */
+int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadingCtx *rdb_loading_ctx) {
     uint64_t dbid = 0;
     int type, rdbver;
-    redisDb *db = dbarray+0;
+    redisDb *db = rdb_loading_ctx->dbarray+0;
     char buf[1024];
     int error;
     long long empty_keys_skipped = 0;
@@ -2695,7 +2857,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi, redisDb *dbarray) {
                     "databases. Exiting\n", server.dbnum);
                 exit(1);
             }
-            db = dbarray+dbid;
+            db = rdb_loading_ctx->dbarray+dbid;
             continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_RESIZEDB) {
             /* RESIZEDB: Hint about the size of the keys in the currently
@@ -2716,7 +2878,10 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi, redisDb *dbarray) {
              * An AUX field is composed of two strings: key and value. */
             robj *auxkey, *auxval;
             if ((auxkey = rdbLoadStringObject(rdb)) == NULL) goto eoferr;
-            if ((auxval = rdbLoadStringObject(rdb)) == NULL) goto eoferr;
+            if ((auxval = rdbLoadStringObject(rdb)) == NULL) {
+                decrRefCount(auxkey);
+                goto eoferr;
+            }
 
             if (((char*)auxkey->ptr)[0] == '%') {
                 /* All the fields with a name staring with '%' are considered
@@ -2736,7 +2901,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi, redisDb *dbarray) {
                 if (rsi) rsi->repl_offset = strtoll(auxval->ptr,NULL,10);
             } else if (!strcasecmp(auxkey->ptr,"lua")) {
                 /* Load the script back in memory. */
-                if (luaCreateFunction(NULL,server.lua,auxval) == NULL) {
+                if (luaCreateFunction(NULL, auxval) == NULL) {
                     rdbReportCorruptRDB(
                         "Can't load Lua script from RDB file! "
                         "BODY: %s", (char*)auxval->ptr);
@@ -2823,6 +2988,12 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi, redisDb *dbarray) {
                 decrRefCount(aux);
                 continue; /* Read next opcode. */
             }
+        } else if (type == RDB_OPCODE_FUNCTION) {
+            if (rdbFunctionLoad(rdb, rdbver, rdb_loading_ctx->functions_ctx) != C_OK) {
+                serverLog(LL_WARNING,"Failed loading function");
+                goto eoferr;
+            }
+            continue;
         }
 
         /* Read key */
@@ -2972,7 +3143,9 @@ int rdbLoad(char *filename, rdbSaveInfo *rsi, int rdbflags) {
     if ((fp = fopen(filename,"r")) == NULL) return C_ERR;
     startLoadingFile(fp, filename,rdbflags);
     rioInitWithFile(&rdb,fp);
-    retval = rdbLoadRio(&rdb,rdbflags,rsi,server.db);
+
+    retval = rdbLoadRio(&rdb,rdbflags,rsi);
+
     fclose(fp);
     stopLoading(retval==C_OK);
     return retval;

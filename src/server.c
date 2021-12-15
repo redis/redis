@@ -35,6 +35,7 @@
 #include "latency.h"
 #include "atomicvar.h"
 #include "mt19937-64.h"
+#include "functions.h"
 
 #include <time.h>
 #include <signal.h>
@@ -200,7 +201,7 @@ struct redisServer server; /* Server global state */
  */
 
 struct redisCommand configSubcommands[] = {
-    {"set",configSetCommand,4,
+    {"set",configSetCommand,-4,
      "admin ok-stale no-script"},
 
     {"get",configGetCommand,3,
@@ -471,6 +472,31 @@ struct redisCommand scriptSubcommands[] = {
     {NULL},
 };
 
+struct redisCommand functionSubcommands[] = {
+    {"create",functionsCreateCommand,-5,
+     "may-replicate no-script @scripting"},
+
+    {"delete",functionsDeleteCommand,3,
+     "may-replicate no-script @scripting"},
+
+    {"kill",functionsKillCommand,2,
+     "no-script @scripting"},
+
+    {"info",functionsInfoCommand,-3,
+     "no-script @scripting"},
+
+    {"list",functionsListCommand,2,
+     "no-script @scripting"},
+
+    {"stats",functionsStatsCommand,2,
+     "no-script @scripting"},
+
+    {"help",functionsHelpCommand,2,
+     "ok-loading ok-stale @scripting"},
+
+    {NULL},
+};
+
 struct redisCommand clientSubcommands[] = {
     {"caching",clientCommand,3,
      "no-script ok-loading ok-stale @connection"},
@@ -519,20 +545,6 @@ struct redisCommand clientSubcommands[] = {
 
     {"help",clientCommand,2,
      "ok-loading ok-stale @connection"},
-
-    {NULL},
-};
-
-struct redisCommand stralgoSubcommands[] = {
-    {"lcs",stralgoCommand,-5,
-     "read-only @string",
-      {{"read incomplete", /* We can't use "keyword" here because we may give false information. */
-        KSPEC_BS_UNKNOWN,{{0}},
-        KSPEC_FK_UNKNOWN,{{0}}}},
-     lcsGetKeys},
-
-    {"help",stralgoCommand,2,
-     "ok-loading ok-stale @string"},
 
     {NULL},
 };
@@ -681,10 +693,10 @@ struct redisCommand sentinelSubcommands[] = {
     {"sentinels",sentinelCommand,3,
      "admin only-sentinel"},
 
-    {"set",sentinelCommand,-3,
+    {"set",sentinelCommand,-5,
      "admin only-sentinel"},
 
-    {"simulate-failure",sentinelCommand,3,
+    {"simulate-failure",sentinelCommand,-3,
      "admin only-sentinel"},
 
     {"help",sentinelCommand,2,
@@ -1530,11 +1542,12 @@ struct redisCommand redisCommandTable[] = {
     {"auth",authCommand,-2,
      "no-auth no-script ok-loading ok-stale fast sentinel @connection allow-busy"},
 
-    /* We don't allow PING during loading since in Redis PING is used as
-     * failure detection, and a loading server is considered to be
-     * not available. */
+    /* PING is used for Redis failure detection and availability check.
+     * So we return LOADING in case there's a synchronous replication in progress,
+     * MASTERDOWN when replica-serve-stale-data=no and link with MASTER is down,
+     * BUSY when blocked by a script, etc. */
     {"ping",pingCommand,-1,
-     "ok-stale fast sentinel @connection"},
+     "fast sentinel @connection"},
 
     {"sentinel",NULL,-2,
      "admin only-sentinel",
@@ -2021,12 +2034,6 @@ struct redisCommand redisCommandTable[] = {
        KSPEC_BS_INDEX,.bs.index={1},
        KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 
-    {"post",securityWarningCommand,-1,
-     "ok-loading ok-stale read-only"},
-
-    {"host:",securityWarningCommand,-1,
-     "ok-loading ok-stale read-only"},
-
     {"latency",NULL,-2,
      "",
      .subcommands=latencySubcommands},
@@ -2038,15 +2045,38 @@ struct redisCommand redisCommandTable[] = {
      "sentinel",
      .subcommands=aclSubcommands},
 
-    {"stralgo",NULL,-2,
-     "",
-     .subcommands=stralgoSubcommands},
+    {"lcs",lcsCommand,-3,
+     "read-only @string",
+      {{"read",
+        KSPEC_BS_INDEX,.bs.index={1},
+        KSPEC_FK_RANGE,.fk.range={1,1,0}}}},
 
+    {"quit",quitCommand,-1,
+     "no-auth no-script ok-stale ok-loading fast @connection"},
+     
     {"reset",resetCommand,1,
      "no-script ok-stale ok-loading allow-busy fast @connection"},
 
     {"failover",failoverCommand,-1,
-     "admin no-script ok-stale"}
+     "admin no-script ok-stale"},
+
+    {"function",NULL,-2,
+        "",
+        .subcommands=functionSubcommands},
+
+    {"fcall",fcallCommand,-3,
+     "no-script no-monitor may-replicate no-mandatory-keys @scripting",
+     {{"read write", /* We pass both read and write because these flag are worst-case-scenario */
+       KSPEC_BS_INDEX,.bs.index={2},
+       KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},
+     functionGetKeys},
+
+    {"fcall_ro",fcallCommandReadOnly,-3,
+     "no-script no-monitor no-mandatory-keys @scripting",
+     {{"read",
+       KSPEC_BS_INDEX,.bs.index={2},
+       KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},
+     functionGetKeys},
 };
 
 /*============================ Utility functions ============================ */
@@ -2222,6 +2252,11 @@ void dictSdsDestructor(dict *d, void *val)
     sdsfree(val);
 }
 
+void *dictSdsDup(dict *d, const void *key) {
+    UNUSED(d);
+    return sdsdup((const sds) key);
+}
+
 int dictObjKeyCompare(dict *d, const void *key1,
         const void *key2)
 {
@@ -2391,7 +2426,7 @@ dictType commandTableDictType = {
     NULL                        /* allow to expand */
 };
 
-/* Hash type hash table (note that small hashes are represented with ziplists) */
+/* Hash type hash table (note that small hashes are represented with listpacks) */
 dictType hashDictType = {
     dictSdsHash,                /* hash function */
     NULL,                       /* key dup */
@@ -3008,7 +3043,7 @@ void cronUpdateMemoryStats() {
             /* LUA memory isn't part of zmalloc_used, but it is part of the process RSS,
              * so we must deduct it in order to be able to calculate correct
              * "allocator fragmentation" ratio */
-            size_t lua_memory = lua_gc(server.lua,LUA_GCCOUNT,0)*1024LL;
+            size_t lua_memory = evalMemory();
             server.cron_malloc_stats.allocator_resident = server.cron_malloc_stats.process_rss - lua_memory;
         }
         if (!server.cron_malloc_stats.allocator_active)
@@ -3532,6 +3567,12 @@ void createSharedObjects(void) {
         "-LOADING Redis is loading the dataset in memory\r\n"));
     shared.slowscripterr = createObject(OBJ_STRING,sdsnew(
         "-BUSY Redis is busy running a job. for script You can only call SCRIPT KILL or SHUTDOWN NOSAVE.\r\n"));
+    shared.slowscripterr = createObject(OBJ_STRING,sdsnew(
+        "-BUSY Redis is busy running a script. You can only call SCRIPT KILL or SHUTDOWN NOSAVE.\r\n"));
+    shared.slowevalerr = createObject(OBJ_STRING,sdsnew(
+        "-BUSY Redis is busy running a script. You can only call SCRIPT KILL or SHUTDOWN NOSAVE.\r\n"));
+    shared.slowscripterr = createObject(OBJ_STRING,sdsnew(
+        "-BUSY Redis is busy running a script. You can only call FUNCTION KILL or SHUTDOWN NOSAVE.\r\n"));
     shared.masterdownerr = createObject(OBJ_STRING,sdsnew(
         "-MASTERDOWN Link with MASTER is down and replica-serve-stale-data is set to 'no'.\r\n"));
     shared.bgsaveerr = createObject(OBJ_STRING,sdsnew(
@@ -3832,18 +3873,6 @@ int restartServer(int flags, mstime_t delay) {
     return C_ERR; /* Never reached. */
 }
 
-static void readOOMScoreAdj(void) {
-#ifdef HAVE_PROC_OOM_SCORE_ADJ
-    char buf[64];
-    int fd = open("/proc/self/oom_score_adj", O_RDONLY);
-
-    if (fd < 0) return;
-    if (read(fd, buf, sizeof(buf)) > 0)
-        server.oom_score_adj_base = atoi(buf);
-    close(fd);
-#endif
-}
-
 /* This function will configure the current process's oom_score_adj according
  * to user specified configuration. This is currently implemented on Linux
  * only.
@@ -3852,23 +3881,51 @@ static void readOOMScoreAdj(void) {
  * depending on current role.
  */
 int setOOMScoreAdj(int process_class) {
-
-    if (server.oom_score_adj == OOM_SCORE_ADJ_NO) return C_OK;
     if (process_class == -1)
         process_class = (server.masterhost ? CONFIG_OOM_REPLICA : CONFIG_OOM_MASTER);
 
     serverAssert(process_class >= 0 && process_class < CONFIG_OOM_COUNT);
 
 #ifdef HAVE_PROC_OOM_SCORE_ADJ
+    /* The following statics are used to indicate Redis has changed the process's oom score.
+     * And to save the original score so we can restore it later if needed.
+     * We need this so when we disabled oom-score-adj (also during configuration rollback
+     * when another configuration parameter was invalid and causes a rollback after
+     * applying a new oom-score) we can return to the oom-score value from before our
+     * adjustments. */
+    static int oom_score_adjusted_by_redis = 0;
+    static int oom_score_adj_base = 0;
+
     int fd;
     int val;
     char buf[64];
 
-    val = server.oom_score_adj_values[process_class];
-    if (server.oom_score_adj == OOM_SCORE_RELATIVE)
-        val += server.oom_score_adj_base;
-    if (val > 1000) val = 1000;
-    if (val < -1000) val = -1000;
+    if (server.oom_score_adj != OOM_SCORE_ADJ_NO) {
+        if (!oom_score_adjusted_by_redis) {
+            oom_score_adjusted_by_redis = 1;
+            /* Backup base value before enabling Redis control over oom score */
+            fd = open("/proc/self/oom_score_adj", O_RDONLY);
+            if (fd < 0 || read(fd, buf, sizeof(buf)) < 0) {
+                serverLog(LL_WARNING, "Unable to read oom_score_adj: %s", strerror(errno));
+                if (fd != -1) close(fd);
+                return C_ERR;
+            }
+            oom_score_adj_base = atoi(buf);
+            close(fd);
+        }
+
+        val = server.oom_score_adj_values[process_class];
+        if (server.oom_score_adj == OOM_SCORE_RELATIVE)
+            val += oom_score_adj_base;
+        if (val > 1000) val = 1000;
+        if (val < -1000) val = -1000;
+    } else if (oom_score_adjusted_by_redis) {
+        oom_score_adjusted_by_redis = 0;
+        val = oom_score_adj_base;
+    }
+    else {
+        return C_OK;
+    }
 
     snprintf(buf, sizeof(buf) - 1, "%d\n", val);
 
@@ -4261,7 +4318,7 @@ void initServer(void) {
     server.pubsub_channels = dictCreate(&keylistDictType);
     server.pubsub_patterns = dictCreate(&keylistDictType);
     server.cronloops = 0;
-    server.in_eval = 0;
+    server.in_script = 0;
     server.in_exec = 0;
     server.propagate_in_transaction = 0;
     server.client_pause_in_transaction = 0;
@@ -4358,6 +4415,7 @@ void initServer(void) {
     if (server.cluster_enabled) clusterInit();
     replicationScriptCacheInit();
     scriptingInit(1);
+    functionsInit();
     slowlogInit();
     latencyMonitorInit();
     
@@ -4900,7 +4958,7 @@ void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t dur
 void call(client *c, int flags) {
     long long dirty;
     monotime call_timer;
-    int client_old_flags = c->flags;
+    uint64_t client_old_flags = c->flags;
     struct redisCommand *real_cmd = c->cmd;
     static long long prev_err_count;
 
@@ -4947,17 +5005,17 @@ void call(client *c, int flags) {
 
     /* When EVAL is called loading the AOF we don't want commands called
      * from Lua to go into the slowlog or to populate statistics. */
-    if (server.loading && c->flags & CLIENT_LUA)
+    if (server.loading && c->flags & CLIENT_SCRIPT)
         flags &= ~(CMD_CALL_SLOWLOG | CMD_CALL_STATS);
 
     /* If the caller is Lua, we want to force the EVAL caller to propagate
      * the script if the command flag or client flag are forcing the
      * propagation. */
-    if (c->flags & CLIENT_LUA && server.lua_caller) {
+    if (c->flags & CLIENT_SCRIPT && server.script_caller) {
         if (c->flags & CLIENT_FORCE_REPL)
-            server.lua_caller->flags |= CLIENT_FORCE_REPL;
+            server.script_caller->flags |= CLIENT_FORCE_REPL;
         if (c->flags & CLIENT_FORCE_AOF)
-            server.lua_caller->flags |= CLIENT_FORCE_AOF;
+            server.script_caller->flags |= CLIENT_FORCE_AOF;
     }
 
     /* Note: the code below uses the real command that was executed
@@ -5086,8 +5144,8 @@ void call(client *c, int flags) {
     /* If the client has keys tracking enabled for client side caching,
      * make sure to remember the keys it fetched via this command. */
     if (c->cmd->flags & CMD_READONLY) {
-        client *caller = (c->flags & CLIENT_LUA && server.lua_caller) ?
-                            server.lua_caller : c;
+        client *caller = (c->flags & CLIENT_SCRIPT && server.script_caller) ?
+                            server.script_caller : c;
         if (caller->flags & CLIENT_TRACKING &&
             !(caller->flags & CLIENT_TRACKING_BCAST))
         {
@@ -5188,25 +5246,21 @@ void populateCommandMovableKeys(struct redisCommand *cmd) {
  * other operations can be performed by the caller. Otherwise
  * if C_ERR is returned the client was destroyed (i.e. after QUIT). */
 int processCommand(client *c) {
-    if (!server.lua_timedout) {
+    if (!scriptIsTimedout()) {
         /* Both EXEC and EVAL call call() directly so there should be
          * no way in_exec or in_eval or propagate_in_transaction is 1.
          * That is unless lua_timedout, in which case client may run
          * some commands. */
         serverAssert(!server.propagate_in_transaction);
         serverAssert(!server.in_exec);
-        serverAssert(!server.in_eval);
+        serverAssert(!server.in_script);
     }
 
     moduleCallCommandFilters(c);
 
-    /* The QUIT command is handled separately. Normal command procs will
-     * go through checking for replication and QUIT will cause trouble
-     * when FORCE_REPLICATION is enabled and would be implemented in
-     * a regular command proc. */
-    if (!strcasecmp(c->argv[0]->ptr,"quit")) {
-        addReply(c,shared.ok);
-        c->flags |= CLIENT_CLOSE_AFTER_REPLY;
+    /* Handle possible security attacks. */
+    if (!strcasecmp(c->argv[0]->ptr,"host:") || !strcasecmp(c->argv[0]->ptr,"post")) {
+        securityWarningCommand(c);
         return C_ERR;
     }
 
@@ -5293,8 +5347,8 @@ int processCommand(client *c) {
      * 2) The command has no key arguments. */
     if (server.cluster_enabled &&
         !(c->flags & CLIENT_MASTER) &&
-        !(c->flags & CLIENT_LUA &&
-          server.lua_caller->flags & CLIENT_MASTER) &&
+        !(c->flags & CLIENT_SCRIPT &&
+          server.script_caller->flags & CLIENT_MASTER) &&
         !(!c->cmd->movablekeys && c->cmd->key_specs_num == 0 &&
           c->cmd->proc != execCommand))
     {
@@ -5329,7 +5383,7 @@ int processCommand(client *c) {
      * the event loop since there is a busy Lua script running in timeout
      * condition, to avoid mixing the propagation of scripts with the
      * propagation of DELs due to eviction. */
-    if (server.maxmemory && !server.lua_timedout) {
+    if (server.maxmemory && !scriptIsTimedout()) {
         int out_of_memory = (performEvictions() == EVICT_FAIL);
 
         /* performEvictions may evict keys, so we need flush pending tracking
@@ -5351,6 +5405,7 @@ int processCommand(client *c) {
         if (c->flags & CLIENT_MULTI &&
             c->cmd->proc != execCommand &&
             c->cmd->proc != discardCommand &&
+            c->cmd->proc != quitCommand &&
             c->cmd->proc != resetCommand) {
             reject_cmd_on_oom = 1;
         }
@@ -5364,7 +5419,7 @@ int processCommand(client *c) {
          * until first write within script, memory used by lua stack and
          * arguments might interfere. */
         if (c->cmd->proc == evalCommand || c->cmd->proc == evalShaCommand) {
-            server.lua_oom = out_of_memory;
+            server.script_oom = out_of_memory;
         }
     }
 
@@ -5418,6 +5473,7 @@ int processCommand(client *c) {
         c->cmd->proc != unsubscribeCommand &&
         c->cmd->proc != psubscribeCommand &&
         c->cmd->proc != punsubscribeCommand &&
+        c->cmd->proc != quitCommand &&
         c->cmd->proc != resetCommand) {
         rejectCommandFormat(c,
             "Can't execute '%s': only (P)SUBSCRIBE / "
@@ -5426,8 +5482,8 @@ int processCommand(client *c) {
         return C_OK;
     }
 
-    /* Only allow commands with flag "t", such as INFO, SLAVEOF and so on,
-     * when slave-serve-stale-data is no and we are a slave with a broken
+    /* Only allow commands with flag "t", such as INFO, REPLICAOF and so on,
+     * when replica-serve-stale-data is no and we are a replica with a broken
      * link with master. */
     if (server.masterhost && server.repl_state != REPL_STATE_CONNECTED &&
         server.repl_serve_stale_data == 0 &&
@@ -5452,7 +5508,11 @@ int processCommand(client *c) {
      * condition resolves, and the bottom-half of the transaction gets
      * executed, see Github PR #7022. */
     if ((server.lua_timedout || server.busy_job) && !(c->cmd->flags & CMD_ALLOW_BUSY)) {
-        rejectCommand(c, shared.slowscripterr);
+        if (scriptIsEval()) {
+            rejectCommand(c, shared.slowevalerr);
+        } else {
+            rejectCommand(c, shared.slowscripterr);
+        }
         return C_OK;
     }
 
@@ -5477,8 +5537,11 @@ int processCommand(client *c) {
 
     /* Exec the command */
     if (c->flags & CLIENT_MULTI &&
-        c->cmd->proc != execCommand && c->cmd->proc != discardCommand &&
-        c->cmd->proc != multiCommand && c->cmd->proc != watchCommand &&
+        c->cmd->proc != execCommand &&
+        c->cmd->proc != discardCommand &&
+        c->cmd->proc != multiCommand &&
+        c->cmd->proc != watchCommand &&
+        c->cmd->proc != quitCommand &&
         c->cmd->proc != resetCommand)
     {
         queueMultiCommand(c);
@@ -6280,13 +6343,15 @@ sds genRedisInfoString(const char *section) {
         char peak_hmem[64];
         char total_system_hmem[64];
         char used_memory_lua_hmem[64];
+        char used_memory_vm_total_hmem[64];
         char used_memory_scripts_hmem[64];
         char used_memory_rss_hmem[64];
         char maxmemory_hmem[64];
         size_t zmalloc_used = zmalloc_used_memory();
         size_t total_system_mem = server.system_memory_size;
         const char *evict_policy = evictPolicyToString();
-        long long memory_lua = server.lua ? (long long)lua_gc(server.lua,LUA_GCCOUNT,0)*1024 : 0;
+        long long memory_lua = evalMemory();
+        long long memory_functions = functionsMemory();
         struct redisMemOverhead *mh = getMemoryOverheadData();
 
         /* Peak memory is updated from time to time by serverCron() so it
@@ -6300,7 +6365,8 @@ sds genRedisInfoString(const char *section) {
         bytesToHuman(peak_hmem,server.stat_peak_memory);
         bytesToHuman(total_system_hmem,total_system_mem);
         bytesToHuman(used_memory_lua_hmem,memory_lua);
-        bytesToHuman(used_memory_scripts_hmem,mh->lua_caches);
+        bytesToHuman(used_memory_vm_total_hmem,memory_functions + memory_lua);
+        bytesToHuman(used_memory_scripts_hmem,mh->lua_caches + mh->functions_caches);
         bytesToHuman(used_memory_rss_hmem,server.cron_malloc_stats.process_rss);
         bytesToHuman(maxmemory_hmem,server.maxmemory);
 
@@ -6323,11 +6389,18 @@ sds genRedisInfoString(const char *section) {
             "allocator_resident:%zu\r\n"
             "total_system_memory:%lu\r\n"
             "total_system_memory_human:%s\r\n"
-            "used_memory_lua:%lld\r\n"
-            "used_memory_lua_human:%s\r\n"
+            "used_memory_lua:%lld\r\n" /* deprecated, renamed to used_memory_vm_eval */
+            "used_memory_vm_eval:%lld\r\n"
+            "used_memory_lua_human:%s\r\n" /* deprecated */
+            "used_memory_scripts_eval:%lld\r\n"
+            "number_of_cached_scripts:%lu\r\n"
+            "number_of_functions:%lu\r\n"
+            "used_memory_vm_functions:%lld\r\n"
+            "used_memory_vm_total:%lld\r\n"
+            "used_memory_vm_total_human:%s\r\n"
+            "used_memory_functions:%lld\r\n"
             "used_memory_scripts:%lld\r\n"
             "used_memory_scripts_human:%s\r\n"
-            "number_of_cached_scripts:%lu\r\n"
             "maxmemory:%lld\r\n"
             "maxmemory_human:%s\r\n"
             "maxmemory_policy:%s\r\n"
@@ -6366,10 +6439,17 @@ sds genRedisInfoString(const char *section) {
             (unsigned long)total_system_mem,
             total_system_hmem,
             memory_lua,
+            memory_lua,
             used_memory_lua_hmem,
             (long long) mh->lua_caches,
+            dictSize(evalScriptsDict()),
+            functionsNum(),
+            memory_functions,
+            memory_functions + memory_lua,
+            used_memory_vm_total_hmem,
+            (long long) mh->functions_caches,
+            (long long) mh->lua_caches + (long long) mh->functions_caches,
             used_memory_scripts_hmem,
-            dictSize(server.lua_scripts),
             server.maxmemory,
             maxmemory_hmem,
             evict_policy,
@@ -7191,57 +7271,19 @@ void redisAsciiArt(void) {
     zfree(buf);
 }
 
-int changeBindAddr(sds *addrlist, int addrlist_len) {
-    int i;
-    int result = C_OK;
-
-    char *prev_bindaddr[CONFIG_BINDADDR_MAX];
-    int prev_bindaddr_count;
-
+int changeBindAddr(void) {
     /* Close old TCP and TLS servers */
     closeSocketListeners(&server.ipfd);
     closeSocketListeners(&server.tlsfd);
 
-    /* Keep previous settings */
-    prev_bindaddr_count = server.bindaddr_count;
-    memcpy(prev_bindaddr, server.bindaddr, sizeof(server.bindaddr));
-
-    /* Copy new settings */
-    memset(server.bindaddr, 0, sizeof(server.bindaddr));
-    for (i = 0; i < addrlist_len; i++) {
-        server.bindaddr[i] = zstrdup(addrlist[i]);
-    }
-    server.bindaddr_count = addrlist_len;
-
     /* Bind to the new port */
     if ((server.port != 0 && listenToPort(server.port, &server.ipfd) != C_OK) ||
         (server.tls_port != 0 && listenToPort(server.tls_port, &server.tlsfd) != C_OK)) {
-        serverLog(LL_WARNING, "Failed to bind, trying to restore old listening sockets.");
+        serverLog(LL_WARNING, "Failed to bind");
 
-        /* Restore old bind addresses */
-        for (i = 0; i < addrlist_len; i++) {
-            zfree(server.bindaddr[i]);
-        }
-        memcpy(server.bindaddr, prev_bindaddr, sizeof(server.bindaddr));
-        server.bindaddr_count = prev_bindaddr_count;
-
-        /* Re-Listen TCP and TLS */
-        server.ipfd.count = 0;
-        if (server.port != 0 && listenToPort(server.port, &server.ipfd) != C_OK) {
-            serverPanic("Failed to restore old listening TCP socket.");
-        }
-
-        server.tlsfd.count = 0;
-        if (server.tls_port != 0 && listenToPort(server.tls_port, &server.tlsfd) != C_OK) {
-            serverPanic("Failed to restore old listening TLS socket.");
-        }
-
-        result = C_ERR;
-    } else {
-        /* Free old bind addresses */
-        for (i = 0; i < prev_bindaddr_count; i++) {
-            zfree(prev_bindaddr[i]);
-        }
+        closeSocketListeners(&server.ipfd);
+        closeSocketListeners(&server.tlsfd);
+        return C_ERR;
     }
 
     /* Create TCP and TLS event handlers */
@@ -7254,15 +7296,17 @@ int changeBindAddr(sds *addrlist, int addrlist_len) {
 
     if (server.set_proc_title) redisSetProcTitle(NULL);
 
-    return result;
+    return C_OK;
 }
 
 int changeListenPort(int port, socketFds *sfd, aeFileProc *accept_handler) {
     socketFds new_sfd = {{0}};
 
+    /* Close old servers */
+    closeSocketListeners(sfd);
+
     /* Just close the server if port disabled */
     if (port == 0) {
-        closeSocketListeners(sfd);
         if (server.set_proc_title) redisSetProcTitle(NULL);
         return C_OK;
     }
@@ -7277,9 +7321,6 @@ int changeListenPort(int port, socketFds *sfd, aeFileProc *accept_handler) {
         closeSocketListeners(&new_sfd);
         return C_ERR;
     }
-
-    /* Close old servers */
-    closeSocketListeners(sfd);
 
     /* Copy new descriptors */
     sfd->count = new_sfd.count;
@@ -7796,7 +7837,15 @@ int iAmMaster(void) {
 }
 
 #ifdef REDIS_TEST
-typedef int redisTestProc(int argc, char **argv, int accurate);
+#include "testhelp.h"
+
+int __failed_tests = 0;
+int __test_num = 0;
+
+/* The flags are the following:
+* --accurate:     Runs tests with more iterations.
+* --large-memory: Enables tests that consume more than 100mb. */
+typedef int redisTestProc(int argc, char **argv, int flags);
 struct redisTest {
     char *name;
     redisTestProc *proc;
@@ -7833,17 +7882,17 @@ int main(int argc, char **argv) {
 
 #ifdef REDIS_TEST
     if (argc >= 3 && !strcasecmp(argv[1], "test")) {
-        int accurate = 0;
+        int flags = 0;
         for (j = 3; j < argc; j++) {
-            if (!strcasecmp(argv[j], "--accurate")) {
-                accurate = 1;
-            }
+            char *arg = argv[j];
+            if (!strcasecmp(arg, "--accurate")) flags |= REDIS_TEST_ACCURATE;
+            else if (!strcasecmp(arg, "--large-memory")) flags |= REDIS_TEST_LARGE_MEMORY;
         }
 
         if (!strcasecmp(argv[2], "all")) {
             int numtests = sizeof(redisTests)/sizeof(struct redisTest);
             for (j = 0; j < numtests; j++) {
-                redisTests[j].failed = (redisTests[j].proc(argc,argv,accurate) != 0);
+                redisTests[j].failed = (redisTests[j].proc(argc,argv,flags) != 0);
             }
 
             /* Report tests result */
@@ -7864,7 +7913,7 @@ int main(int argc, char **argv) {
         } else {
             redisTestProc *proc = getTestProcByName(argv[2]);
             if (!proc) return -1; /* test not found */
-            return proc(argc,argv,accurate);
+            return proc(argc,argv,flags);
         }
 
         return 0;
@@ -8002,7 +8051,6 @@ int main(int argc, char **argv) {
         serverLog(LL_WARNING, "Configuration loaded");
     }
 
-    readOOMScoreAdj();
     initServer();
     if (background || server.pidfile) createPidFile();
     if (server.set_proc_title) redisSetProcTitle(NULL);

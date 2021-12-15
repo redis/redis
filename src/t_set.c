@@ -871,9 +871,7 @@ void sinterGenericCommand(client *c, robj **setkeys,
     int encoding, empty = 0;
 
     for (j = 0; j < setnum; j++) {
-        robj *setobj = dstkey ?
-            lookupKeyWrite(c->db,setkeys[j]) :
-            lookupKeyRead(c->db,setkeys[j]);
+        robj *setobj = lookupKeyRead(c->db, setkeys[j]);
         if (!setobj) {
             /* A NULL is considered an empty set */
             empty += 1;
@@ -1059,9 +1057,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
     int diff_algo = 1;
 
     for (j = 0; j < setnum; j++) {
-        robj *setobj = dstkey ?
-            lookupKeyWrite(c->db,setkeys[j]) :
-            lookupKeyRead(c->db,setkeys[j]);
+        robj *setobj = lookupKeyRead(c->db, setkeys[j]);
         if (!setobj) {
             sets[j] = NULL;
             continue;
