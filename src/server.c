@@ -3715,7 +3715,6 @@ void initServerConfig(void) {
     server.sofd = -1;
     server.active_expire_enabled = 1;
     server.skip_checksum_validation = 0;
-    server.saveparams = NULL;
     server.loading = 0;
     server.async_loading = 0;
     server.loading_rdb_used_mem = 0;
