@@ -8,10 +8,10 @@
         "container": "SENTINEL",
         "function": "sentinelCommand",
         "command_flags": [
-            "loading",
-            "stale",
-            "sentinel",
-            "only_sentinel"
+            "LOADING",
+            "STALE",
+            "SENTINEL",
+            "ONLY_SENTINEL"
         ]
     }
 }

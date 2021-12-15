@@ -13,15 +13,15 @@
             ]
         ],
         "command_flags": [
-            "readonly"
+            "READONLY"
         ],
         "acl_categories": [
-            "sortedset"
+            "SORTEDSET"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "read"
+                    "READ"
                 ],
                 "begin_search": {
                     "index": {

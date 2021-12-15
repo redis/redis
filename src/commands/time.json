@@ -7,10 +7,10 @@
         "arity": 1,
         "function": "timeCommand",
         "command_flags": [
-            "random",
-            "loading",
-            "stale",
-            "fast"
+            "RANDOM",
+            "LOADING",
+            "STALE",
+            "FAST"
         ]
     }
 }

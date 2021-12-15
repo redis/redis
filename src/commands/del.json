@@ -7,15 +7,15 @@
         "arity": -2,
         "function": "delCommand",
         "command_flags": [
-            "write"
+            "WRITE"
         ],
         "acl_categories": [
-            "keyspace"
+            "KEYSPACE"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "write"
+                    "WRITE"
                 ],
                 "begin_search": {
                     "index": {

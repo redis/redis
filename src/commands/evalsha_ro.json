@@ -8,17 +8,17 @@
         "function": "evalShaRoCommand",
         "get_keys_function": "evalGetKeys",
         "command_flags": [
-            "noscript",
-            "skip_monitor",
-            "no_mandatory_keys"
+            "NOSCRIPT",
+            "SKIP_MONITOR",
+            "NO_MANDATORY_KEYS"
         ],
         "acl_categories": [
-            "scripting"
+            "SCRIPTING"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "read"
+                    "READ"
                 ],
                 "begin_search": {
                     "index": {

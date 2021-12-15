@@ -7,16 +7,16 @@
         "arity": 2,
         "function": "hlenCommand",
         "command_flags": [
-            "readonly",
-            "fast"
+            "READONLY",
+            "FAST"
         ],
         "acl_categories": [
-            "hash"
+            "HASH"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "read"
+                    "READ"
                 ],
                 "begin_search": {
                     "index": {

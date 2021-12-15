@@ -8,9 +8,9 @@
         "container": "PUBSUB",
         "function": "pubsubCommand",
         "command_flags": [
-            "pubsub",
-            "loading",
-            "stale"
+            "PUBSUB",
+            "LOADING",
+            "STALE"
         ],
         "arguments": [
             {

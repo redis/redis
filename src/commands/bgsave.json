@@ -13,8 +13,8 @@
             ]
         ],
         "command_flags": [
-            "admin",
-            "noscript"
+            "ADMIN",
+            "NOSCRIPT"
         ],
         "arguments": [
             {

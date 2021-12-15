@@ -82,8 +82,8 @@ class KeySpec(object):
         def _flags_code():
             s = ""
             for flag in self.spec.get("flags", []):
-                s += "%s " % flag
-            return s[:-1]
+                s += "CMD_KEY_%s|" % flag
+            return s[:-1] if s else 0
 
         def _begin_search_code():
             if self.spec["begin_search"].get("index"):
@@ -120,7 +120,7 @@ class KeySpec(object):
                 print("Invalid find_keys! value=%s" % self.spec["find_keys"])
                 exit(1)
 
-        return "\"%s\",%s,%s" % (
+        return "%s,%s,%s" % (
             _flags_code(),
             _begin_search_code(),
             _find_keys_code()
@@ -250,21 +250,15 @@ class Command(object):
         def _flags_code():
             s = ""
             for flag in self.desc.get("command_flags", []):
-                s += "%s " % flag
+                s += "CMD_%s|" % flag
             for cat in self.desc.get("acl_categories", []):
-                s += "@%s " % cat
-            return s[:-1]
+                s += "CMD_CATEGORY_%s|" % cat
+            return s[:-1] if s else 0
 
         def _doc_flags_code():
             s = ""
             for flag in self.desc.get("doc_flags", []):
-                if flag == "deprecated":
-                    s += "CMD_DOC_DEPRECATED|"
-                elif flag == "syscmd":
-                    s += "CMD_DOC_SYSCMD|"
-                else:
-                    print("Invalid doc flag %s" % flag)
-                    exit(1)
+                s += "CMD_DOC_%s|" % flag
             return s[:-1] if s else "CMD_DOC_NONE"
 
         def _key_specs_code():
@@ -273,7 +267,7 @@ class Command(object):
                 s += "{%s}," % KeySpec(spec).struct_code()
             return s[:-1]
 
-        s = "\"%s\",%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%d,\"%s\"," % (
+        s = "\"%s\",%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%d,%s," % (
             self.name.lower(),
             get_optional_desc_string(self.desc, "summary"),
             get_optional_desc_string(self.desc, "complexity"),

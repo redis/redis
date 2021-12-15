@@ -26,17 +26,17 @@
             ]
         ],
         "command_flags": [
-            "write",
-            "random"
+            "WRITE",
+            "RANDOM"
         ],
         "acl_categories": [
-            "keyspace",
-            "dangerous"
+            "KEYSPACE",
+            "DANGEROUS"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "write"
+                    "WRITE"
                 ],
                 "begin_search": {
                     "index": {
@@ -53,8 +53,8 @@
             },
             {
                 "flags": [
-                    "write",
-                    "incomplete"
+                    "WRITE",
+                    "INCOMPLETE"
                 ],
                 "begin_search": {
                     "keyword": {

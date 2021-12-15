@@ -7,12 +7,12 @@
         "arity": 2,
         "function": "keysCommand",
         "command_flags": [
-            "readonly",
-            "sort_for_script"
+            "READONLY",
+            "SORT_FOR_SCRIPT"
         ],
         "acl_categories": [
-            "keyspace",
-            "dangerous"
+            "KEYSPACE",
+            "DANGEROUS"
         ],
         "arguments": [
             {

@@ -17,18 +17,18 @@
             ]
         ],
         "command_flags": [
-            "write",
-            "denyoom",
-            "random",
-            "fast"
+            "WRITE",
+            "DENYOOM",
+            "RANDOM",
+            "FAST"
         ],
         "acl_categories": [
-            "stream"
+            "STREAM"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "write"
+                    "WRITE"
                 ],
                 "begin_search": {
                     "index": {

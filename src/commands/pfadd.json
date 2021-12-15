@@ -7,17 +7,17 @@
         "arity": -2,
         "function": "pfaddCommand",
         "command_flags": [
-            "write",
-            "denyoom",
-            "fast"
+            "WRITE",
+            "DENYOOM",
+            "FAST"
         ],
         "acl_categories": [
-            "hyperloglog"
+            "HYPERLOGLOG"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "write"
+                    "WRITE"
                 ],
                 "begin_search": {
                     "index": {

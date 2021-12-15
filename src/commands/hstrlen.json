@@ -7,16 +7,16 @@
         "arity": 3,
         "function": "hstrlenCommand",
         "command_flags": [
-            "readonly",
-            "fast"
+            "READONLY",
+            "FAST"
         ],
         "acl_categories": [
-            "hash"
+            "HASH"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "read"
+                    "READ"
                 ],
                 "begin_search": {
                     "index": {

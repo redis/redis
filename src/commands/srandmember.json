@@ -13,16 +13,16 @@
             ]
         ],
         "command_flags": [
-            "readonly",
-            "random"
+            "READONLY",
+            "RANDOM"
         ],
         "acl_categories": [
-            "set"
+            "SET"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "read"
+                    "READ"
                 ],
                 "begin_search": {
                     "index": {

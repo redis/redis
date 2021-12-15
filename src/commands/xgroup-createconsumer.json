@@ -8,16 +8,16 @@
         "container": "XGROUP",
         "function": "xgroupCommand",
         "command_flags": [
-            "write",
-            "denyoom"
+            "WRITE",
+            "DENYOOM"
         ],
         "acl_categories": [
-            "stream"
+            "STREAM"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "write"
+                    "WRITE"
                 ],
                 "begin_search": {
                     "index": {

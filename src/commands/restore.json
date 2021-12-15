@@ -7,17 +7,17 @@
         "arity": -4,
         "function": "restoreCommand",
         "command_flags": [
-            "write",
-            "denyoom"
+            "WRITE",
+            "DENYOOM"
         ],
         "acl_categories": [
-            "keyspace",
-            "dangerous"
+            "KEYSPACE",
+            "DANGEROUS"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "write"
+                    "WRITE"
                 ],
                 "begin_search": {
                     "index": {

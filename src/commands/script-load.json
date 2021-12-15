@@ -8,11 +8,11 @@
         "container": "SCRIPT",
         "function": "scriptCommand",
         "command_flags": [
-            "noscript",
-            "may_replicate"
+            "NOSCRIPT",
+            "MAY_REPLICATE"
         ],
         "acl_categories": [
-            "scripting"
+            "SCRIPTING"
         ],
         "arguments": [
             {

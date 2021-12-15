@@ -7,16 +7,16 @@
         "arity": 3,
         "function": "getbitCommand",
         "command_flags": [
-            "readonly",
-            "fast"
+            "READONLY",
+            "FAST"
         ],
         "acl_categories": [
-            "bitmap"
+            "BITMAP"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "read"
+                    "READ"
                 ],
                 "begin_search": {
                     "index": {

@@ -7,13 +7,13 @@
         "arity": 1,
         "function": "pfselftestCommand",
         "doc_flags": [
-            "syscmd"
+            "SYSCMD"
         ],
         "command_flags": [
-            "admin"
+            "ADMIN"
         ],
         "acl_categories": [
-            "hyperloglog"
+            "HYPERLOGLOG"
         ]
     }
 }

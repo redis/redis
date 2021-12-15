@@ -7,13 +7,13 @@
         "arity": -1,
         "function": "commandCommand",
         "command_flags": [
-            "random",
-            "loading",
-            "stale",
-            "sentinel"
+            "RANDOM",
+            "LOADING",
+            "STALE",
+            "SENTINEL"
         ],
         "acl_categories": [
-            "connection"
+            "CONNECTION"
         ]
     }
 }

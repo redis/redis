@@ -7,21 +7,21 @@
         "arity": -4,
         "function": "restoreCommand",
         "doc_flags": [
-            "syscmd"
+            "SYSCMD"
         ],
         "command_flags": [
-            "write",
-            "denyoom",
-            "asking"
+            "WRITE",
+            "DENYOOM",
+            "ASKING"
         ],
         "acl_categories": [
-            "keyspace",
-            "dangerous"
+            "KEYSPACE",
+            "DANGEROUS"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "write"
+                    "WRITE"
                 ],
                 "begin_search": {
                     "index": {

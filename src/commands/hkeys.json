@@ -7,16 +7,16 @@
         "arity": 2,
         "function": "hkeysCommand",
         "command_flags": [
-            "readonly",
-            "sort_for_script"
+            "READONLY",
+            "SORT_FOR_SCRIPT"
         ],
         "acl_categories": [
-            "hash"
+            "HASH"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "read"
+                    "READ"
                 ],
                 "begin_search": {
                     "index": {

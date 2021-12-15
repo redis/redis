@@ -8,19 +8,19 @@
         "function": "sortCommand",
         "get_keys_function": "sortGetKeys",
         "command_flags": [
-            "write",
-            "denyoom"
+            "WRITE",
+            "DENYOOM"
         ],
         "acl_categories": [
-            "set",
-            "sortedset",
-            "list",
-            "dangerous"
+            "SET",
+            "SORTEDSET",
+            "LIST",
+            "DANGEROUS"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "read"
+                    "READ"
                 ],
                 "begin_search": {
                     "index": {
@@ -37,8 +37,8 @@
             },
             {
                 "flags": [
-                    "write",
-                    "incomplete"
+                    "WRITE",
+                    "INCOMPLETE"
                 ],
                 "begin_search": {
                     "unknown": null

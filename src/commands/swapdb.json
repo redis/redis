@@ -7,12 +7,12 @@
         "arity": 3,
         "function": "swapdbCommand",
         "command_flags": [
-            "write",
-            "fast"
+            "WRITE",
+            "FAST"
         ],
         "acl_categories": [
-            "keyspace",
-            "dangerous"
+            "KEYSPACE",
+            "DANGEROUS"
         ],
         "arguments": [
             {

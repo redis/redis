@@ -10,19 +10,19 @@
         "deprecated_since": "6.2.0",
         "replaced_by": "`GEOSEARCH` and `GEOSEARCHSTORE` with the `BYRADIUS` and `FROMMEMBER` arguments",
         "doc_flags": [
-            "deprecated"
+            "DEPRECATED"
         ],
         "command_flags": [
-            "write",
-            "denyoom"
+            "WRITE",
+            "DENYOOM"
         ],
         "acl_categories": [
-            "geo"
+            "GEO"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "read"
+                    "READ"
                 ],
                 "begin_search": {
                     "index": {
@@ -39,7 +39,7 @@
             },
             {
                 "flags": [
-                    "write"
+                    "WRITE"
                 ],
                 "begin_search": {
                     "keyword": {
@@ -57,7 +57,7 @@
             },
             {
                 "flags": [
-                    "write"
+                    "WRITE"
                 ],
                 "begin_search": {
                     "keyword": {

@@ -8,10 +8,10 @@
         "container": "LATENCY",
         "function": "latencyCommand",
         "command_flags": [
-            "admin",
-            "noscript",
-            "loading",
-            "stale"
+            "ADMIN",
+            "NOSCRIPT",
+            "LOADING",
+            "STALE"
         ],
         "arguments": [
             {

@@ -8,11 +8,11 @@
         "container": "XINFO",
         "function": "xinfoCommand",
         "command_flags": [
-            "loading",
-            "stale"
+            "LOADING",
+            "STALE"
         ],
         "acl_categories": [
-            "stream"
+            "STREAM"
         ]
     }
 }

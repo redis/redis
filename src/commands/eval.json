@@ -8,19 +8,19 @@
         "function": "evalCommand",
         "get_keys_function": "evalGetKeys",
         "command_flags": [
-            "noscript",
-            "skip_monitor",
-            "may_replicate",
-            "no_mandatory_keys"
+            "NOSCRIPT",
+            "SKIP_MONITOR",
+            "MAY_REPLICATE",
+            "NO_MANDATORY_KEYS"
         ],
         "acl_categories": [
-            "scripting"
+            "SCRIPTING"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "write",
-                    "read"
+                    "WRITE",
+                    "READ"
                 ],
                 "begin_search": {
                     "index": {

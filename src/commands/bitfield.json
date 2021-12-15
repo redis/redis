@@ -7,16 +7,16 @@
         "arity": -2,
         "function": "bitfieldCommand",
         "command_flags": [
-            "write",
-            "denyoom"
+            "WRITE",
+            "DENYOOM"
         ],
         "acl_categories": [
-            "bitmap"
+            "BITMAP"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "write"
+                    "WRITE"
                 ],
                 "begin_search": {
                     "index": {

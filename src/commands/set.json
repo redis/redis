@@ -25,17 +25,17 @@
             ]
         ],
         "command_flags": [
-            "write",
-            "denyoom"
+            "WRITE",
+            "DENYOOM"
         ],
         "acl_categories": [
-            "string"
+            "STRING"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "write",
-                    "read"
+                    "WRITE",
+                    "READ"
                 ],
                 "begin_search": {
                     "index": {

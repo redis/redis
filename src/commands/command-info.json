@@ -8,11 +8,11 @@
         "container": "COMMAND",
         "function": "commandInfoCommand",
         "command_flags": [
-            "loading",
-            "stale"
+            "LOADING",
+            "STALE"
         ],
         "acl_categories": [
-            "connection"
+            "CONNECTION"
         ],
         "arguments": [
             {

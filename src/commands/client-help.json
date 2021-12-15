@@ -8,11 +8,11 @@
         "container": "CLIENT",
         "function": "clientCommand",
         "command_flags": [
-            "loading",
-            "stale"
+            "LOADING",
+            "STALE"
         ],
         "acl_categories": [
-            "connection"
+            "CONNECTION"
         ]
     }
 }

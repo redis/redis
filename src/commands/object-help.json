@@ -8,11 +8,11 @@
         "container": "OBJECT",
         "function": "objectCommand",
         "command_flags": [
-            "loading",
-            "stale"
+            "LOADING",
+            "STALE"
         ],
         "acl_categories": [
-            "keyspace"
+            "KEYSPACE"
         ]
     }
 }

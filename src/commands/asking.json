@@ -7,10 +7,10 @@
         "arity": 1,
         "function": "askingCommand",
         "command_flags": [
-            "fast"
+            "FAST"
         ],
         "acl_categories": [
-            "connection"
+            "CONNECTION"
         ]
     }
 }

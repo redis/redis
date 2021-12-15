@@ -7,11 +7,11 @@
         "arity": 1,
         "function": "dbsizeCommand",
         "command_flags": [
-            "readonly",
-            "fast"
+            "READONLY",
+            "FAST"
         ],
         "acl_categories": [
-            "keyspace"
+            "KEYSPACE"
         ]
     }
 }

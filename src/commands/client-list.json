@@ -22,14 +22,14 @@
             ]
         ],
         "command_flags": [
-            "admin",
-            "noscript",
-            "random",
-            "loading",
-            "stale"
+            "ADMIN",
+            "NOSCRIPT",
+            "RANDOM",
+            "LOADING",
+            "STALE"
         ],
         "acl_categories": [
-            "connection"
+            "CONNECTION"
         ],
         "arguments": [
             {

@@ -8,8 +8,8 @@
         "container": "CONFIG",
         "function": "configHelpCommand",
         "command_flags": [
-            "loading",
-            "stale"
+            "LOADING",
+            "STALE"
         ]
     }
 }

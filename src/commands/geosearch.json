@@ -7,15 +7,15 @@
         "arity": -7,
         "function": "geosearchCommand",
         "command_flags": [
-            "readonly"
+            "READONLY"
         ],
         "acl_categories": [
-            "geo"
+            "GEO"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "read"
+                    "READ"
                 ],
                 "begin_search": {
                     "index": {

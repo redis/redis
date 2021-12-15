@@ -13,16 +13,16 @@
             ]
         ],
         "command_flags": [
-            "write",
-            "random"
+            "WRITE",
+            "RANDOM"
         ],
         "acl_categories": [
-            "stream"
+            "STREAM"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "write"
+                    "WRITE"
                 ],
                 "begin_search": {
                     "index": {

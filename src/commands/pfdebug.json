@@ -7,20 +7,20 @@
         "arity": -3,
         "function": "pfdebugCommand",
         "doc_flags": [
-            "syscmd"
+            "SYSCMD"
         ],
         "command_flags": [
-            "write",
-            "denyoom",
-            "admin"
+            "WRITE",
+            "DENYOOM",
+            "ADMIN"
         ],
         "acl_categories": [
-            "hyperloglog"
+            "HYPERLOGLOG"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "write"
+                    "WRITE"
                 ],
                 "begin_search": {
                     "index": {

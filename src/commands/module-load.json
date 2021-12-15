@@ -8,8 +8,8 @@
         "container": "MODULE",
         "function": "moduleCommand",
         "command_flags": [
-            "admin",
-            "noscript"
+            "ADMIN",
+            "NOSCRIPT"
         ],
         "arguments": [
             {

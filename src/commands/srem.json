@@ -13,16 +13,16 @@
             ]
         ],
         "command_flags": [
-            "write",
-            "fast"
+            "WRITE",
+            "FAST"
         ],
         "acl_categories": [
-            "set"
+            "SET"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "write"
+                    "WRITE"
                 ],
                 "begin_search": {
                     "index": {

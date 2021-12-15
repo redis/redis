@@ -7,9 +7,9 @@
         "arity": -1,
         "function": "failoverCommand",
         "command_flags": [
-            "admin",
-            "noscript",
-            "stale"
+            "ADMIN",
+            "NOSCRIPT",
+            "STALE"
         ],
         "arguments": [
             {

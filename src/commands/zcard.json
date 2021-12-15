@@ -7,16 +7,16 @@
         "arity": 2,
         "function": "zcardCommand",
         "command_flags": [
-            "readonly",
-            "fast"
+            "READONLY",
+            "FAST"
         ],
         "acl_categories": [
-            "sortedset"
+            "SORTEDSET"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "read"
+                    "READ"
                 ],
                 "begin_search": {
                     "index": {

@@ -8,10 +8,10 @@
         "container": "SLOWLOG",
         "function": "slowlogCommand",
         "command_flags": [
-            "admin",
-            "random",
-            "loading",
-            "stale"
+            "ADMIN",
+            "RANDOM",
+            "LOADING",
+            "STALE"
         ]
     }
 }

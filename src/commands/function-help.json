@@ -8,11 +8,11 @@
         "container": "FUNCTION",
         "function": "functionHelpCommand",
         "command_flags": [
-            "loading",
-            "stale"
+            "LOADING",
+            "STALE"
         ],
         "acl_categories": [
-            "scripting"
+            "SCRIPTING"
         ]
     }
 }

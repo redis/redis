@@ -8,16 +8,16 @@
         "function": "bzmpopCommand",
         "get_keys_function": "blmpopGetKeys",
         "command_flags": [
-            "write"
+            "WRITE"
         ],
         "acl_categories": [
-            "sortedset",
-            "blocking"
+            "SORTEDSET",
+            "BLOCKING"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "write"
+                    "WRITE"
                 ],
                 "begin_search": {
                     "index": {

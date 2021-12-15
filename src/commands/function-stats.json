@@ -8,10 +8,10 @@
         "container": "FUNCTION",
         "function": "functionStatsCommand",
         "command_flags": [
-            "noscript"
+            "NOSCRIPT"
         ],
         "acl_categories": [
-            "scripting"
+            "SCRIPTING"
         ]
     }
 }

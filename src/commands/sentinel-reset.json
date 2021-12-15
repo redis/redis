@@ -8,9 +8,9 @@
         "container": "SENTINEL",
         "function": "sentinelCommand",
         "command_flags": [
-            "admin",
-            "sentinel",
-            "only_sentinel"
+            "ADMIN",
+            "SENTINEL",
+            "ONLY_SENTINEL"
         ]
     }
 }

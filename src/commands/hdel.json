@@ -7,16 +7,16 @@
         "arity": -3,
         "function": "hdelCommand",
         "command_flags": [
-            "write",
-            "fast"
+            "WRITE",
+            "FAST"
         ],
         "acl_categories": [
-            "hash"
+            "HASH"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "write"
+                    "WRITE"
                 ],
                 "begin_search": {
                     "index": {

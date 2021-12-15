@@ -8,8 +8,8 @@
         "container": "MODULE",
         "function": "moduleCommand",
         "command_flags": [
-            "loading",
-            "stale"
+            "LOADING",
+            "STALE"
         ]
     }
 }

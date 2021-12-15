@@ -7,15 +7,15 @@
         "arity": 4,
         "function": "getrangeCommand",
         "command_flags": [
-            "readonly"
+            "READONLY"
         ],
         "acl_categories": [
-            "string"
+            "STRING"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "read"
+                    "READ"
                 ],
                 "begin_search": {
                     "index": {

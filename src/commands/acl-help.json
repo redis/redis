@@ -8,9 +8,9 @@
         "container": "ACL",
         "function": "aclCommand",
         "command_flags": [
-            "loading",
-            "stale",
-            "sentinel"
+            "LOADING",
+            "STALE",
+            "SENTINEL"
         ]
     }
 }

@@ -14,9 +14,9 @@
             ]
         ],
         "command_flags": [
-            "admin",
-            "noscript",
-            "stale"
+            "ADMIN",
+            "NOSCRIPT",
+            "STALE"
         ],
         "arguments": [
             {

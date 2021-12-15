@@ -7,9 +7,9 @@
         "arity": 3,
         "function": "replicaofCommand",
         "command_flags": [
-            "admin",
-            "noscript",
-            "stale"
+            "ADMIN",
+            "NOSCRIPT",
+            "STALE"
         ],
         "arguments": [
             {

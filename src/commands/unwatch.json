@@ -7,13 +7,13 @@
         "arity": 1,
         "function": "unwatchCommand",
         "command_flags": [
-            "noscript",
-            "loading",
-            "stale",
-            "fast"
+            "NOSCRIPT",
+            "LOADING",
+            "STALE",
+            "FAST"
         ],
         "acl_categories": [
-            "transaction"
+            "TRANSACTION"
         ]
     }
 }

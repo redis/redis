@@ -8,11 +8,11 @@
         "container": "XGROUP",
         "function": "xgroupCommand",
         "command_flags": [
-            "loading",
-            "stale"
+            "LOADING",
+            "STALE"
         ],
         "acl_categories": [
-            "stream"
+            "STREAM"
         ]
     }
 }

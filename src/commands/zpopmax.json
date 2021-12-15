@@ -7,16 +7,16 @@
         "arity": -2,
         "function": "zpopmaxCommand",
         "command_flags": [
-            "write",
-            "fast"
+            "WRITE",
+            "FAST"
         ],
         "acl_categories": [
-            "sortedset"
+            "SORTEDSET"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "write"
+                    "WRITE"
                 ],
                 "begin_search": {
                     "index": {

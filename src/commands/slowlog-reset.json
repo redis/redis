@@ -8,9 +8,9 @@
         "container": "SLOWLOG",
         "function": "slowlogCommand",
         "command_flags": [
-            "admin",
-            "loading",
-            "stale"
+            "ADMIN",
+            "LOADING",
+            "STALE"
         ]
     }
 }

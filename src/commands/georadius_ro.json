@@ -9,18 +9,18 @@
         "deprecated_since": "6.2.0",
         "replaced_by": "`GEOSEARCH` with the `BYRADIUS` argument",
         "doc_flags": [
-            "deprecated"
+            "DEPRECATED"
         ],
         "command_flags": [
-            "readonly"
+            "READONLY"
         ],
         "acl_categories": [
-            "geo"
+            "GEO"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "read"
+                    "READ"
                 ],
                 "begin_search": {
                     "index": {

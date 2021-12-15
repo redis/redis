@@ -8,15 +8,15 @@
         "function": "zmpopCommand",
         "get_keys_function": "zmpopGetKeys",
         "command_flags": [
-            "write"
+            "WRITE"
         ],
         "acl_categories": [
-            "sortedset"
+            "SORTEDSET"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "write"
+                    "WRITE"
                 ],
                 "begin_search": {
                     "index": {

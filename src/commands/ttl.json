@@ -7,17 +7,17 @@
         "arity": 2,
         "function": "ttlCommand",
         "command_flags": [
-            "readonly",
-            "random",
-            "fast"
+            "READONLY",
+            "RANDOM",
+            "FAST"
         ],
         "acl_categories": [
-            "keyspace"
+            "KEYSPACE"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "read"
+                    "READ"
                 ],
                 "begin_search": {
                     "index": {

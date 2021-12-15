@@ -8,16 +8,16 @@
         "function": "xreadCommand",
         "get_keys_function": "xreadGetKeys",
         "command_flags": [
-            "write"
+            "WRITE"
         ],
         "acl_categories": [
-            "stream",
-            "blocking"
+            "STREAM",
+            "BLOCKING"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "read"
+                    "READ"
                 ],
                 "begin_search": {
                     "keyword": {

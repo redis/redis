@@ -13,11 +13,11 @@
             ]
         ],
         "command_flags": [
-            "pubsub",
-            "noscript",
-            "loading",
-            "stale",
-            "sentinel"
+            "PUBSUB",
+            "NOSCRIPT",
+            "LOADING",
+            "STALE",
+            "SENTINEL"
         ],
         "arguments": [
             {

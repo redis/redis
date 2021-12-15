@@ -7,14 +7,14 @@
         "arity": 1,
         "function": "lastsaveCommand",
         "command_flags": [
-            "random",
-            "loading",
-            "stale",
-            "fast"
+            "RANDOM",
+            "LOADING",
+            "STALE",
+            "FAST"
         ],
         "acl_categories": [
-            "admin",
-            "dangerous"
+            "ADMIN",
+            "DANGEROUS"
         ]
     }
 }

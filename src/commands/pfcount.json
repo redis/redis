@@ -7,16 +7,16 @@
         "arity": -2,
         "function": "pfcountCommand",
         "command_flags": [
-            "readonly",
-            "may_replicate"
+            "READONLY",
+            "MAY_REPLICATE"
         ],
         "acl_categories": [
-            "hyperloglog"
+            "HYPERLOGLOG"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "read"
+                    "READ"
                 ],
                 "begin_search": {
                     "index": {

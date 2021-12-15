@@ -7,10 +7,10 @@
         "arity": 1,
         "function": "readwriteCommand",
         "command_flags": [
-            "fast"
+            "FAST"
         ],
         "acl_categories": [
-            "connection"
+            "CONNECTION"
         ]
     }
 }

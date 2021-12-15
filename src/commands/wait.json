@@ -7,10 +7,10 @@
         "arity": 3,
         "function": "waitCommand",
         "command_flags": [
-            "noscript"
+            "NOSCRIPT"
         ],
         "acl_categories": [
-            "connection"
+            "CONNECTION"
         ],
         "arguments": [
             {

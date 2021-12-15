@@ -7,18 +7,18 @@
         "arity": -2,
         "function": "sortroCommand",
         "command_flags": [
-            "readonly"
+            "READONLY"
         ],
         "acl_categories": [
-            "set",
-            "sortedset",
-            "list",
-            "dangerous"
+            "SET",
+            "SORTEDSET",
+            "LIST",
+            "DANGEROUS"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "read"
+                    "READ"
                 ],
                 "begin_search": {
                     "index": {

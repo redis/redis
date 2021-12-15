@@ -7,19 +7,19 @@
         "arity": 6,
         "function": "blmoveCommand",
         "command_flags": [
-            "write",
-            "denyoom",
-            "noscript"
+            "WRITE",
+            "DENYOOM",
+            "NOSCRIPT"
         ],
         "acl_categories": [
-            "list",
-            "blocking"
+            "LIST",
+            "BLOCKING"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "write",
-                    "read"
+                    "WRITE",
+                    "READ"
                 ],
                 "begin_search": {
                     "index": {
@@ -36,7 +36,7 @@
             },
             {
                 "flags": [
-                    "write"
+                    "WRITE"
                 ],
                 "begin_search": {
                     "index": {

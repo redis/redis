@@ -6,9 +6,9 @@
         "since": "2.8.4",
         "arity": -2,
         "command_flags": [
-            "admin",
-            "sentinel",
-            "only_sentinel"
+            "ADMIN",
+            "SENTINEL",
+            "ONLY_SENTINEL"
         ]
     }
 }

@@ -7,16 +7,16 @@
         "arity": -2,
         "function": "unlinkCommand",
         "command_flags": [
-            "write",
-            "fast"
+            "WRITE",
+            "FAST"
         ],
         "acl_categories": [
-            "keyspace"
+            "KEYSPACE"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "write"
+                    "WRITE"
                 ],
                 "begin_search": {
                     "index": {

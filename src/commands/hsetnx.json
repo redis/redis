@@ -7,17 +7,17 @@
         "arity": 4,
         "function": "hsetnxCommand",
         "command_flags": [
-            "write",
-            "denyoom",
-            "fast"
+            "WRITE",
+            "DENYOOM",
+            "FAST"
         ],
         "acl_categories": [
-            "hash"
+            "HASH"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "write"
+                    "WRITE"
                 ],
                 "begin_search": {
                     "index": {

@@ -2519,82 +2519,7 @@ void commandAddSubcommand(struct redisCommand *parent, struct redisCommand *subc
     serverAssert(dictAdd(parent->subcommands_dict, sdsnew(subcommand->name), subcommand) == DICT_OK);
 }
 
-
-/* Parse the flags string description 'strflags' and set them to the
- * command 'c'. Abort on error. */
-void parseCommandFlags(struct redisCommand *c, const char *strflags) {
-    int argc;
-    sds *argv;
-
-    /* Split the line into arguments for processing. */
-    argv = sdssplitargs(strflags,&argc);
-    if (argv == NULL)
-        serverPanic("Failed splitting strflags!");
-
-    for (int j = 0; j < argc; j++) {
-        char *flag = argv[j];
-        if (!strcasecmp(flag,"write")) {
-            c->flags |= CMD_WRITE|CMD_CATEGORY_WRITE;
-        } else if (!strcasecmp(flag,"readonly")) {
-            c->flags |= CMD_READONLY|CMD_CATEGORY_READ;
-        } else if (!strcasecmp(flag,"denyoom")) {
-            c->flags |= CMD_DENYOOM;
-        } else if (!strcasecmp(flag,"admin")) {
-            c->flags |= CMD_ADMIN|CMD_CATEGORY_ADMIN|CMD_CATEGORY_DANGEROUS;
-        } else if (!strcasecmp(flag,"pubsub")) {
-            c->flags |= CMD_PUBSUB|CMD_CATEGORY_PUBSUB;
-        } else if (!strcasecmp(flag,"noscript")) {
-            c->flags |= CMD_NOSCRIPT;
-        } else if (!strcasecmp(flag,"random")) {
-            c->flags |= CMD_RANDOM;
-        } else if (!strcasecmp(flag,"sort_for_script")) {
-            c->flags |= CMD_SORT_FOR_SCRIPT;
-        } else if (!strcasecmp(flag,"loading")) {
-            c->flags |= CMD_LOADING;
-        } else if (!strcasecmp(flag,"stale")) {
-            c->flags |= CMD_STALE;
-        } else if (!strcasecmp(flag,"skip_monitor")) {
-            c->flags |= CMD_SKIP_MONITOR;
-        } else if (!strcasecmp(flag,"skip_slowlog")) {
-            c->flags |= CMD_SKIP_SLOWLOG;
-        } else if (!strcasecmp(flag,"asking")) {
-            c->flags |= CMD_ASKING;
-        } else if (!strcasecmp(flag,"fast")) {
-            c->flags |= CMD_FAST | CMD_CATEGORY_FAST;
-        } else if (!strcasecmp(flag,"no_auth")) {
-            c->flags |= CMD_NO_AUTH;
-        } else if (!strcasecmp(flag,"may_replicate")) {
-            c->flags |= CMD_MAY_REPLICATE;
-        } else if (!strcasecmp(flag,"sentinel")) {
-            c->flags |= CMD_SENTINEL;
-        } else if (!strcasecmp(flag,"only_sentinel")) {
-            c->flags |= CMD_SENTINEL; /* Obviously it's s sentinel command */
-            c->flags |= CMD_ONLY_SENTINEL;
-        } else if (!strcasecmp(flag,"no_mandatory_keys")) {
-            c->flags |= CMD_NO_MANDATORY_KEYS;
-        } else {
-            /* Parse ACL categories here if the flag name starts with @. */
-            uint64_t catflag;
-            if (flag[0] == '@' &&
-                (catflag = ACLGetCommandCategoryFlagByName(flag+1)) != 0)
-            {
-                c->flags |= catflag;
-            } else {
-                sdsfreesplitres(argv,argc);
-                serverPanic("Unsupported command flag %s", flag);
-            }
-        }
-    }
-    /* If it's not @fast is @slow in this binary world. */
-    if (!(c->flags & CMD_CATEGORY_FAST)) c->flags |= CMD_CATEGORY_SLOW;
-
-    sdsfreesplitres(argv,argc);
-}
-
 void populateCommandStructure(struct redisCommand *c) {
-    int argc;
-    sds *argv;
-
     /* Redis commands don't need more args than STATIC_KEY_SPECS_NUM (Number of keys
      * specs can be greater than STATIC_KEY_SPECS_NUM only for module commands) */
     c->key_specs = c->key_specs_static;
@@ -2602,28 +2527,8 @@ void populateCommandStructure(struct redisCommand *c) {
 
     for (int i = 0; i < STATIC_KEY_SPECS_NUM; i++) {
         if (c->key_specs[i].begin_search_type == KSPEC_BS_INVALID)
-            continue;
-
-        /* Split the line into arguments for processing. */
-        argv = sdssplitargs(c->key_specs[i].sflags,&argc);
-        if (argv == NULL)
-            serverPanic("Failed splitting key sflags!");
-
-        for (int j = 0; j < argc; j++) {
-            char *flag = argv[j];
-            if (!strcasecmp(flag,"write")) {
-                c->key_specs[i].flags |= CMD_KEY_WRITE;
-            } else if (!strcasecmp(flag,"read")) {
-                c->key_specs[i].flags |= CMD_KEY_READ;
-            } else if (!strcasecmp(flag,"incomplete")) {
-                c->key_specs[i].flags |= CMD_KEY_INCOMPLETE;
-            } else {
-                serverPanic("Unsupported key-arg flag %s", flag);
-            }
-        }
-
+            break;
         c->key_specs_num++;
-        sdsfreesplitres(argv,argc);
     }
 
     populateCommandLegacyRangeSpec(c);
@@ -2641,7 +2546,6 @@ void populateCommandStructure(struct redisCommand *c) {
 
             /* Translate the command string flags description into an actual
              * set of flags. */
-            parseCommandFlags(sub,sub->sflags);
             populateCommandStructure(sub);
             commandAddSubcommand(c,sub);
         }
@@ -2662,10 +2566,6 @@ void populateCommandTable(void) {
             break;
 
         int retval1, retval2;
-
-        /* Translate the command string flags description into an actual
-         * set of flags. */
-        parseCommandFlags(c,c->sflags);
 
         if (!(c->flags & CMD_SENTINEL) && server.sentinel_mode)
             continue;

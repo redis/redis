@@ -181,25 +181,25 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define HASHTABLE_MIN_FILL        10      /* Minimal hash table fill 10% */
 #define HASHTABLE_MAX_LOAD_FACTOR 1.618   /* Maximum hash table load factor. */
 
-/* Command flags. Please check the command table defined in the server.c file
+/* Command flags. Please check the definition of struct redisCommand in this file
  * for more information about the meaning of every flag. */
-#define CMD_WRITE (1ULL<<0)            /* "write" flag */
-#define CMD_READONLY (1ULL<<1)         /* "read-only" flag */
-#define CMD_DENYOOM (1ULL<<2)          /* "use-memory" flag */
+#define CMD_WRITE (1ULL<<0)
+#define CMD_READONLY (1ULL<<1)
+#define CMD_DENYOOM (1ULL<<2)
 #define CMD_MODULE (1ULL<<3)           /* Command exported by module. */
-#define CMD_ADMIN (1ULL<<4)            /* "admin" flag */
-#define CMD_PUBSUB (1ULL<<5)           /* "pub-sub" flag */
-#define CMD_NOSCRIPT (1ULL<<6)         /* "no-script" flag */
-#define CMD_RANDOM (1ULL<<7)           /* "random" flag */
-#define CMD_SORT_FOR_SCRIPT (1ULL<<8)  /* "to-sort" flag */
-#define CMD_LOADING (1ULL<<9)          /* "ok-loading" flag */
-#define CMD_STALE (1ULL<<10)           /* "ok-stale" flag */
-#define CMD_SKIP_MONITOR (1ULL<<11)    /* "no-monitor" flag */
-#define CMD_SKIP_SLOWLOG (1ULL<<12)    /* "no-slowlog" flag */
-#define CMD_ASKING (1ULL<<13)          /* "cluster-asking" flag */
-#define CMD_FAST (1ULL<<14)            /* "fast" flag */
-#define CMD_NO_AUTH (1ULL<<15)         /* "no-auth" flag */
-#define CMD_MAY_REPLICATE (1ULL<<16)   /* "may-replicate" flag */
+#define CMD_ADMIN (1ULL<<4)
+#define CMD_PUBSUB (1ULL<<5)
+#define CMD_NOSCRIPT (1ULL<<6)
+#define CMD_RANDOM (1ULL<<7)
+#define CMD_SORT_FOR_SCRIPT (1ULL<<8)
+#define CMD_LOADING (1ULL<<9)
+#define CMD_STALE (1ULL<<10)
+#define CMD_SKIP_MONITOR (1ULL<<11)
+#define CMD_SKIP_SLOWLOG (1ULL<<12)
+#define CMD_ASKING (1ULL<<13)
+#define CMD_FAST (1ULL<<14)
+#define CMD_NO_AUTH (1ULL<<15)
+#define CMD_MAY_REPLICATE (1ULL<<16)
 
 /* Key argument flags. Please check the command table defined in the server.c file
  * for more information about the meaning of every flag. */
@@ -1834,7 +1834,7 @@ typedef enum {
 
 typedef struct {
     /* Declarative data */
-    const char *sflags;
+    uint64_t flags;
     kspec_bs_type begin_search_type;
     union {
         struct {
@@ -1875,9 +1875,6 @@ typedef struct {
             int keystep;
         } keynum;
     } fk;
-
-    /* Runtime data */
-    uint64_t flags;
 } keySpec;
 
 /* Number of static key specs */
@@ -1973,66 +1970,66 @@ typedef int redisGetKeysProc(struct redisCommand *cmd, robj **argv, int argc, ge
  *
  * This is the meaning of the flags:
  *
- * write:       Write command (may modify the key space).
+ * CMD_WRITE:       Write command (may modify the key space).
  *
- * readonly:    Commands just reading from keys without changing the content.
- *              Note that commands that don't read from the keyspace such as
- *              TIME, SELECT, INFO, administrative commands, and connection
- *              or transaction related commands (multi, exec, discard, ...)
- *              are not flagged as read-only commands, since they affect the
- *              server or the connection in other ways.
+ * CMD_READONLY:    Commands just reading from keys without changing the content.
+ *                  Note that commands that don't read from the keyspace such as
+ *                  TIME, SELECT, INFO, administrative commands, and connection
+ *                  or transaction related commands (multi, exec, discard, ...)
+ *                  are not flagged as read-only commands, since they affect the
+ *                  server or the connection in other ways.
  *
- * denyoom:     May increase memory usage once called. Don't allow if out
- *              of memory.
+ * CMD_DENYOOM:     May increase memory usage once called. Don't allow if out
+ *                  of memory.
  *
- * admin:       Administrative command, like SAVE or SHUTDOWN.
+ * CMD_ADMIN:       Administrative command, like SAVE or SHUTDOWN.
  *
- * pubsub:      Pub/Sub related command.
+ * CMD_PUBSUB:      Pub/Sub related command.
  *
- * noscript:    Command not allowed in scripts.
+ * CMD_NOSCRIPT:    Command not allowed in scripts.
  *
- * random:      Random command. Command is not deterministic, that is, the same
- *              command with the same arguments, with the same key space, may
- *              have different results. For instance SPOP and RANDOMKEY are
- *              two random commands.
+ * CMD_RANDOM:      Random command. Command is not deterministic, that is, the same
+ *                  command with the same arguments, with the same key space, may
+ *                  have different results. For instance SPOP and RANDOMKEY are
+ *                  two random commands.
  *
- * sort_for_script:     Sort command output array if called from script, so that the
- *                      output is deterministic. When this flag is used (not always
- *                      possible), then the "random" flag is not needed.
+ * CMD_SORT_FOR_SCRIPT:     Sort command output array if called from script, so that the
+ *                          output is deterministic. When this flag is used (not always
+ *                          possible), then the "random" flag is not needed.
  *
- * loading:     Allow the command while loading the database.
+ * CMD_LOADING:     Allow the command while loading the database.
  *
- * stale:       Allow the command while a slave has stale data but is not
- *              allowed to serve this data. Normally no command is accepted
- *              in this condition but just a few.
+ * CMD_STALE:       Allow the command while a slave has stale data but is not
+ *                  allowed to serve this data. Normally no command is accepted
+ *                  in this condition but just a few.
  *
- * skip_monitor:  Do not automatically propagate the command on MONITOR.
+ * CMD_SKIP_MONITOR:  Do not automatically propagate the command on MONITOR.
  *
- * skip_slowlog:  Do not automatically propagate the command to the slowlog.
+ * CMD_SKIP_SLOWLOG:  Do not automatically propagate the command to the slowlog.
  *
- * asking:      Perform an implicit ASKING for this command, so the
- *              command will be accepted in cluster mode if the slot is marked
- *              as 'importing'.
+ * CMD_ASKING:      Perform an implicit ASKING for this command, so the
+ *                  command will be accepted in cluster mode if the slot is marked
+ *                  as 'importing'.
  *
- * fast:        Fast command: O(1) or O(log(N)) command that should never
- *              delay its execution as long as the kernel scheduler is giving
- *              us time. Note that commands that may trigger a DEL as a side
- *              effect (like SET) are not fast commands.
+ * CMD_FAST:        Fast command: O(1) or O(log(N)) command that should never
+ *                  delay its execution as long as the kernel scheduler is giving
+ *                  us time. Note that commands that may trigger a DEL as a side
+ *                  effect (like SET) are not fast commands.
  *
- * no_auth:     Command doesn't require authentication
+ * CMD_NO_AUTH:     Command doesn't require authentication
  *
- * may_replicate: Command may produce replication traffic, but should be
- *                allowed under circumstances where write commands are disallowed.
- *                Examples include PUBLISH, which replicates pubsub messages,and
- *                EVAL, which may execute write commands, which are replicated,
- *                or may just execute read commands. A command can not be marked
- *                both "write" and "may-replicate"
+ * CMD_MAY_REPLICATE:   Command may produce replication traffic, but should be
+ *                      allowed under circumstances where write commands are disallowed.
+ *                      Examples include PUBLISH, which replicates pubsub messages,and
+ *                      EVAL, which may execute write commands, which are replicated,
+ *                      or may just execute read commands. A command can not be marked
+ *                      both CMD_WRITE and CMD_MAY_REPLICATE
  *
- * sentinel:    This command is present in sentinel mode too.
+ * CMD_SENTINEL:    This command is present in sentinel mode too.
  *
- * sentinel_only: This command is present only when in sentinel mode.
+ * CMD_SENTINEL_ONLY: This command is present only when in sentinel mode.
  *
- * no_mandatory_keys: This key arguments for this command are optional.
+ * CMD_NO_MANDATORY_KEYS: This key arguments for this command are optional.
  *
  * The following additional flags are only used in order to put commands
  * in a specific ACL category. Commands can have multiple ACL categories.
@@ -2069,7 +2066,7 @@ struct redisCommand {
     const char **hints; /* An array of strings that are meant o be hints for clients/proxies regarding this command */
     redisCommandProc *proc; /* Command implementation */
     int arity; /* Number of arguments, it is possible to use -N to say >= N */
-    const char *sflags;   /* Flags as string representation, see struct comment. */
+    uint64_t flags; /* The actual flags and ACl categoreis, see CMD_*. */
     keySpec key_specs_static[STATIC_KEY_SPECS_NUM]; /* Key specs. See keySpec */
     /* Use a function to determine keys arguments in a command line.
      * Used for Redis Cluster redirect (may be NULL) */
@@ -2080,7 +2077,6 @@ struct redisCommand {
     struct redisCommandArg *args;
 
     /* Runtime data */
-    uint64_t flags; /* The actual flags, obtained from the 'sflags' field. */
     /* What keys should be loaded in background when calling this command? */
     long long microseconds, calls, rejected_calls, failed_calls;
     int id;     /* Command ID. This is a progressive ID starting from 0 that

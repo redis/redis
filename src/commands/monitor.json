@@ -21,10 +21,10 @@
             ]
         ],
         "command_flags": [
-            "admin",
-            "noscript",
-            "loading",
-            "stale"
+            "ADMIN",
+            "NOSCRIPT",
+            "LOADING",
+            "STALE"
         ]
     }
 }

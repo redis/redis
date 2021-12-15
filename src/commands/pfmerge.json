@@ -7,17 +7,17 @@
         "arity": -2,
         "function": "pfmergeCommand",
         "command_flags": [
-            "write",
-            "denyoom"
+            "WRITE",
+            "DENYOOM"
         ],
         "acl_categories": [
-            "hyperloglog"
+            "HYPERLOGLOG"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "write",
-                    "read"
+                    "WRITE",
+                    "READ"
                 ],
                 "begin_search": {
                     "index": {
@@ -34,7 +34,7 @@
             },
             {
                 "flags": [
-                    "read"
+                    "READ"
                 ],
                 "begin_search": {
                     "index": {

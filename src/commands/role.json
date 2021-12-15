@@ -7,15 +7,15 @@
         "arity": 1,
         "function": "roleCommand",
         "command_flags": [
-            "noscript",
-            "loading",
-            "stale",
-            "fast",
-            "sentinel"
+            "NOSCRIPT",
+            "LOADING",
+            "STALE",
+            "FAST",
+            "SENTINEL"
         ],
         "acl_categories": [
-            "admin",
-            "dangerous"
+            "ADMIN",
+            "DANGEROUS"
         ]
     }
 }

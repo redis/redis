@@ -7,14 +7,14 @@
         "arity": 1,
         "function": "resetCommand",
         "command_flags": [
-            "noscript",
-            "loading",
-            "stale",
-            "fast",
-            "no_auth"
+            "NOSCRIPT",
+            "LOADING",
+            "STALE",
+            "FAST",
+            "NO_AUTH"
         ],
         "acl_categories": [
-            "connection"
+            "CONNECTION"
         ]
     }
 }

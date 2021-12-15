@@ -8,8 +8,8 @@
         "container": "MEMORY",
         "function": "memoryCommand",
         "command_flags": [
-            "loading",
-            "stale"
+            "LOADING",
+            "STALE"
         ]
     }
 }

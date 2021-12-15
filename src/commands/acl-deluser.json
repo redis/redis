@@ -8,11 +8,11 @@
         "container": "ACL",
         "function": "aclCommand",
         "command_flags": [
-            "admin",
-            "noscript",
-            "loading",
-            "stale",
-            "sentinel"
+            "ADMIN",
+            "NOSCRIPT",
+            "LOADING",
+            "STALE",
+            "SENTINEL"
         ],
         "arguments": [
             {

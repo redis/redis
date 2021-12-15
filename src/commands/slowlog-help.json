@@ -8,8 +8,8 @@
         "container": "SLOWLOG",
         "function": "slowlogCommand",
         "command_flags": [
-            "loading",
-            "stale"
+            "LOADING",
+            "STALE"
         ]
     }
 }

@@ -7,12 +7,12 @@
         "arity": 2,
         "function": "selectCommand",
         "command_flags": [
-            "loading",
-            "stale",
-            "fast"
+            "LOADING",
+            "STALE",
+            "FAST"
         ],
         "acl_categories": [
-            "connection"
+            "CONNECTION"
         ],
         "arguments": [
             {

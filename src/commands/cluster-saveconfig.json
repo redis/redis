@@ -8,9 +8,9 @@
         "container": "CLUSTER",
         "function": "clusterCommand",
         "command_flags": [
-            "admin",
-            "random",
-            "stale"
+            "ADMIN",
+            "RANDOM",
+            "STALE"
         ]
     }
 }

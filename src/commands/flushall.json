@@ -17,11 +17,11 @@
             ]
         ],
         "command_flags": [
-            "write"
+            "WRITE"
         ],
         "acl_categories": [
-            "keyspace",
-            "dangerous"
+            "KEYSPACE",
+            "DANGEROUS"
         ],
         "arguments": [
             {

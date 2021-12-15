@@ -8,12 +8,12 @@
         "container": "CLIENT",
         "function": "clientCommand",
         "command_flags": [
-            "noscript",
-            "loading",
-            "stale"
+            "NOSCRIPT",
+            "LOADING",
+            "STALE"
         ],
         "acl_categories": [
-            "connection"
+            "CONNECTION"
         ],
         "arguments": [
             {

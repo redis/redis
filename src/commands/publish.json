@@ -7,12 +7,12 @@
         "arity": 3,
         "function": "publishCommand",
         "command_flags": [
-            "pubsub",
-            "loading",
-            "stale",
-            "fast",
-            "may_replicate",
-            "sentinel"
+            "PUBSUB",
+            "LOADING",
+            "STALE",
+            "FAST",
+            "MAY_REPLICATE",
+            "SENTINEL"
         ],
         "arguments": [
             {

@@ -7,13 +7,13 @@
         "arity": -2,
         "function": "watchCommand",
         "command_flags": [
-            "noscript",
-            "loading",
-            "stale",
-            "fast"
+            "NOSCRIPT",
+            "LOADING",
+            "STALE",
+            "FAST"
         ],
         "acl_categories": [
-            "transaction"
+            "TRANSACTION"
         ],
         "key_specs": [
             {

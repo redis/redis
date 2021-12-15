@@ -8,8 +8,8 @@
         "container": "LATENCY",
         "function": "latencyCommand",
         "command_flags": [
-            "loading",
-            "stale"
+            "LOADING",
+            "STALE"
         ]
     }
 }

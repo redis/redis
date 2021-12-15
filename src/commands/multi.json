@@ -7,13 +7,13 @@
         "arity": 1,
         "function": "multiCommand",
         "command_flags": [
-            "noscript",
-            "loading",
-            "stale",
-            "fast"
+            "NOSCRIPT",
+            "LOADING",
+            "STALE",
+            "FAST"
         ],
         "acl_categories": [
-            "transaction"
+            "TRANSACTION"
         ]
     }
 }

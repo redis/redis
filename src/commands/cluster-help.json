@@ -8,8 +8,8 @@
         "container": "CLUSTER",
         "function": "clusterCommand",
         "command_flags": [
-            "loading",
-            "stale"
+            "LOADING",
+            "STALE"
         ]
     }
 }

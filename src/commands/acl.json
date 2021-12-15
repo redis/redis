@@ -6,7 +6,7 @@
         "since": "6.0.0",
         "arity": -2,
         "command_flags": [
-            "sentinel"
+            "SENTINEL"
         ]
     }
 }

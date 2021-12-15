@@ -9,20 +9,20 @@
         "deprecated_since": "4.0.0",
         "replaced_by": "`HSET` with multiple field-value pairs",
         "doc_flags": [
-            "deprecated"
+            "DEPRECATED"
         ],
         "command_flags": [
-            "write",
-            "denyoom",
-            "fast"
+            "WRITE",
+            "DENYOOM",
+            "FAST"
         ],
         "acl_categories": [
-            "hash"
+            "HASH"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "write"
+                    "WRITE"
                 ],
                 "begin_search": {
                     "index": {

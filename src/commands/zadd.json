@@ -21,17 +21,17 @@
             ]
         ],
         "command_flags": [
-            "write",
-            "denyoom",
-            "fast"
+            "WRITE",
+            "DENYOOM",
+            "FAST"
         ],
         "acl_categories": [
-            "sortedset"
+            "SORTEDSET"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "write"
+                    "WRITE"
                 ],
                 "begin_search": {
                     "index": {

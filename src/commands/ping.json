@@ -7,11 +7,11 @@
         "arity": -1,
         "function": "pingCommand",
         "command_flags": [
-            "fast",
-            "sentinel"
+            "FAST",
+            "SENTINEL"
         ],
         "acl_categories": [
-            "connection"
+            "CONNECTION"
         ],
         "arguments": [
             {

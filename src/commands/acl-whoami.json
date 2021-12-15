@@ -8,10 +8,10 @@
         "container": "ACL",
         "function": "aclCommand",
         "command_flags": [
-            "noscript",
-            "loading",
-            "stale",
-            "sentinel"
+            "NOSCRIPT",
+            "LOADING",
+            "STALE",
+            "SENTINEL"
         ]
     }
 }

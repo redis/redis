@@ -14,8 +14,8 @@
             ]
         ],
         "command_flags": [
-            "random",
-            "stale"
+            "RANDOM",
+            "STALE"
         ]
     }
 }

@@ -7,10 +7,10 @@
         "arity": 2,
         "function": "echoCommand",
         "command_flags": [
-            "fast"
+            "FAST"
         ],
         "acl_categories": [
-            "connection"
+            "CONNECTION"
         ],
         "arguments": [
             {

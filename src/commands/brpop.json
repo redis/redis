@@ -13,17 +13,17 @@
             ]
         ],
         "command_flags": [
-            "write",
-            "noscript"
+            "WRITE",
+            "NOSCRIPT"
         ],
         "acl_categories": [
-            "list",
-            "blocking"
+            "LIST",
+            "BLOCKING"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "write"
+                    "WRITE"
                 ],
                 "begin_search": {
                     "index": {

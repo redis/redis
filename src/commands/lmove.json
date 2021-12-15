@@ -7,17 +7,17 @@
         "arity": 5,
         "function": "lmoveCommand",
         "command_flags": [
-            "write",
-            "denyoom"
+            "WRITE",
+            "DENYOOM"
         ],
         "acl_categories": [
-            "list"
+            "LIST"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "write",
-                    "read"
+                    "WRITE",
+                    "READ"
                 ],
                 "begin_search": {
                     "index": {
@@ -34,7 +34,7 @@
             },
             {
                 "flags": [
-                    "write"
+                    "WRITE"
                 ],
                 "begin_search": {
                     "index": {

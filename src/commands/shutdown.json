@@ -7,11 +7,11 @@
         "arity": -1,
         "function": "shutdownCommand",
         "command_flags": [
-            "admin",
-            "noscript",
-            "loading",
-            "stale",
-            "sentinel"
+            "ADMIN",
+            "NOSCRIPT",
+            "LOADING",
+            "STALE",
+            "SENTINEL"
         ],
         "arguments": [
             {

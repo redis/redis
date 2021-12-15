@@ -7,17 +7,17 @@
         "arity": -6,
         "function": "xclaimCommand",
         "command_flags": [
-            "write",
-            "random",
-            "fast"
+            "WRITE",
+            "RANDOM",
+            "FAST"
         ],
         "acl_categories": [
-            "stream"
+            "STREAM"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "write"
+                    "WRITE"
                 ],
                 "begin_search": {
                     "index": {

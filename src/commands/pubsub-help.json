@@ -8,8 +8,8 @@
         "container": "PUBSUB",
         "function": "pubsubCommand",
         "command_flags": [
-            "loading",
-            "stale"
+            "LOADING",
+            "STALE"
         ]
     }
 }
