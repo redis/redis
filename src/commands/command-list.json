@@ -1,9 +1,9 @@
 {
     "LIST": {
-        "summary": "PATCH__TBD__76__",
-        "complexity": "PATCH__TBD__75__",
+        "summary": "Get an array of Redis command names",
+        "complexity": "O(N) where N is the total number of Redis commands",
         "group": "server",
-        "since": "7.0",
+        "since": "7.0.0",
         "arity": -2,
         "container": "COMMAND",
         "function": "commandListCommand",

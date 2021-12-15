@@ -1,7 +1,7 @@
 {
     "PING": {
         "summary": "Ping the server",
-        "complexity": "PATCH__TBD__67__",
+        "complexity": "O(1)",
         "group": "connection",
         "since": "1.0.0",
         "arity": -1,

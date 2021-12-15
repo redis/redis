@@ -1,7 +1,7 @@
 {
     "STATS": {
         "summary": "Show memory usage details",
-        "complexity": "PATCH__TBD__72__",
+        "complexity": "O(1)",
         "group": "server",
         "since": "4.0.0",
         "arity": 2,

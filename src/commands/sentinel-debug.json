@@ -1,9 +1,7 @@
 {
     "DEBUG": {
-        "summary": "PATCH__TBD__7__",
-        "complexity": "PATCH__TBD__6__",
         "group": "sentinel",
-        "since": "PATCH__TBD__9__",
+        "since": "7.0.0",
         "arity": -2,
         "container": "SENTINEL",
         "function": "sentinelCommand",

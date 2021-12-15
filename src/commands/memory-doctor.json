@@ -1,7 +1,7 @@
 {
     "DOCTOR": {
         "summary": "Outputs memory problems report",
-        "complexity": "PATCH__TBD__73__",
+        "complexity": "NA",
         "group": "server",
         "since": "4.0.0",
         "arity": 2,

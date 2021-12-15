@@ -1,7 +1,7 @@
 {
     "FAILOVER": {
         "summary": "Force a failover",
-        "complexity": "PATCH__TBD__22__",
+        "complexity": "NA",
         "group": "sentinel",
         "since": "2.8.4",
         "arity": 3,

@@ -1,9 +1,9 @@
 {
     "REPLCONF": {
         "summary": "An internal command for configuring the replication stream",
-        "complexity": "PATCH__TBD__26__",
+        "complexity": "O(1)",
         "group": "server",
-        "since": "PATCH__TBD__28__",
+        "since": "3.0.0",
         "arity": -1,
         "function": "replconfCommand",
         "doc_flags": [

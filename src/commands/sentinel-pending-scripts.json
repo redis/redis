@@ -1,7 +1,7 @@
 {
     "PENDING-SCRIPTS": {
         "summary": "Get information about pending scripts",
-        "complexity": "PATCH__TBD__54__",
+        "complexity": "NA",
         "group": "sentinel",
         "since": "2.8.4",
         "arity": 2,

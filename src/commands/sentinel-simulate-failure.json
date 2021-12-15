@@ -1,7 +1,7 @@
 {
     "SIMULATE-FAILURE": {
         "summary": "Simulate failover scenarios",
-        "complexity": "PATCH__TBD__81__",
+        "complexity": "NA",
         "group": "sentinel",
         "since": "3.2.0",
         "arity": -3,

@@ -1,7 +1,7 @@
 {
     "REPLICAOF": {
         "summary": "Make the server a replica of another instance, or promote it as master.",
-        "complexity": "PATCH__TBD__59__",
+        "complexity": "O(1)",
         "group": "server",
         "since": "5.0.0",
         "arity": 3,

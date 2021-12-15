@@ -1,7 +1,7 @@
 {
     "INFO": {
         "summary": "Get information and statistics about the server",
-        "complexity": "PATCH__TBD__37__",
+        "complexity": "NA",
         "group": "server",
         "since": "1.0.0",
         "arity": -1,

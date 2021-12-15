@@ -1,7 +1,7 @@
 {
     "SHUTDOWN": {
         "summary": "Synchronously save the dataset to disk and then shut down the server",
-        "complexity": "PATCH__TBD__35__",
+        "complexity": "O(1)",
         "group": "server",
         "since": "1.0.0",
         "arity": -1,

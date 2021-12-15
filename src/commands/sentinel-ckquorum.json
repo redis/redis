@@ -1,7 +1,7 @@
 {
     "CKQUORUM": {
         "summary": "Check for a Sentinel quorum",
-        "complexity": "PATCH__TBD__42__",
+        "complexity": "NA",
         "group": "sentinel",
         "since": "2.8.4",
         "arity": 3,
