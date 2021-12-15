@@ -518,7 +518,7 @@ tags {"aof external:skip"} {
             append_to_aof [formatCommand eval {redis.call("incr",KEYS[1])} 1 foo]
             append_to_aof [formatCommand eval {redis.call("incr",KEYS[1])} 1 foo]
         }
-        start_server [list overrides [list dir $server_path appendonly yes aof-use-rdb-preamble no replica-read-only yes replicaof "1234 1234"]] {
+        start_server [list overrides [list dir $server_path appendonly yes replica-read-only yes replicaof "127.0.0.1 0"]] {
             assert_equal [r get foo] ""
         }
     }
