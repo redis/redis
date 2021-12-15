@@ -511,7 +511,7 @@ tags {"aof external:skip"} {
         }
     }
 
-    test {EVAL can't process writes from AOF in read-only replicas} {
+    test {EVAL can process writes from AOF in read-only replicas} {
         create_aof {
             append_to_aof [formatCommand select 9]
             append_to_aof [formatCommand eval {redis.call("set",KEYS[1],"100")} 1 foo]
@@ -519,7 +519,7 @@ tags {"aof external:skip"} {
             append_to_aof [formatCommand eval {redis.call("incr",KEYS[1])} 1 foo]
         }
         start_server [list overrides [list dir $server_path appendonly yes replica-read-only yes replicaof "127.0.0.1 0"]] {
-            assert_equal [r get foo] ""
+            assert_equal [r get foo] 102
         }
     }
 }

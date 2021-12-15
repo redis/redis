@@ -262,7 +262,7 @@ static int scriptVerifyWriteCommandAllow(scriptRunCtx *run_ctx, char **err) {
      * of this script. */
     int deny_write_type = writeCommandsDeniedByDiskError();
 
-    if (server.masterhost && server.repl_slave_ro && run_ctx->original_client->flags != CLIENT_ID_AOF
+    if (server.masterhost && server.repl_slave_ro && run_ctx->original_client->id != CLIENT_ID_AOF
         && !(run_ctx->original_client->flags & CLIENT_MASTER))
     {
         *err = sdsdup(shared.roslaveerr->ptr);
