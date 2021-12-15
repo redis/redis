@@ -1,7 +1,6 @@
 {
     "CKQUORUM": {
         "summary": "Check for a Sentinel quorum",
-        "complexity": "NA",
         "group": "sentinel",
         "since": "2.8.4",
         "arity": 3,

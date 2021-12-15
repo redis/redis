@@ -1,7 +1,7 @@
 {
     "PURGE": {
         "summary": "Ask the allocator to release memory",
-        "complexity": "NA",
+        "complexity": "Depends on how much memory is allocated, could be slow",
         "group": "server",
         "since": "4.0.0",
         "arity": 2,

@@ -1,7 +1,6 @@
 {
     "PSYNC": {
         "summary": "Internal command used for replication",
-        "complexity": "NA",
         "group": "server",
         "since": "2.8.0",
         "arity": -3,

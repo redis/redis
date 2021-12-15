@@ -1,7 +1,6 @@
 {
     "MONITOR": {
         "summary": "Listen for all requests received by the server in real time",
-        "complexity": "NA",
         "group": "server",
         "since": "1.0.0",
         "arity": 1,
