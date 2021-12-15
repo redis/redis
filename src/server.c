@@ -473,25 +473,25 @@ struct redisCommand scriptSubcommands[] = {
 };
 
 struct redisCommand functionSubcommands[] = {
-    {"create",functionsCreateCommand,-5,
+    {"create",functionCreateCommand,-5,
      "may-replicate no-script @scripting"},
 
-    {"delete",functionsDeleteCommand,3,
+    {"delete",functionDeleteCommand,3,
      "may-replicate no-script @scripting"},
 
-    {"kill",functionsKillCommand,2,
+    {"kill",functionKillCommand,2,
      "no-script @scripting"},
 
-    {"info",functionsInfoCommand,-3,
+    {"info",functionInfoCommand,-3,
      "no-script @scripting"},
 
-    {"list",functionsListCommand,2,
+    {"list",functionListCommand,2,
      "no-script @scripting"},
 
-    {"stats",functionsStatsCommand,2,
+    {"stats",functionStatsCommand,2,
      "no-script @scripting"},
 
-    {"help",functionsHelpCommand,2,
+    {"help",functionHelpCommand,2,
      "ok-loading ok-stale @scripting"},
 
     {NULL},
@@ -5515,8 +5515,8 @@ int processCommand(client *c) {
         !(c->cmd->proc == scriptCommand &&
           c->argc == 2 &&
           tolower(((char*)c->argv[1]->ptr)[0]) == 'k') &&
-        !(c->cmd->proc == functionsKillCommand) &&
-        !(c->cmd->proc == functionsStatsCommand))
+        !(c->cmd->proc == functionKillCommand) &&
+        !(c->cmd->proc == functionStatsCommand))
     {
         if (scriptIsEval()) {
             rejectCommand(c, shared.slowevalerr);
