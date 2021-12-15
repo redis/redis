@@ -3771,8 +3771,8 @@ struct redisCommandArg CONFIG_SET_Args[] = {
 
 /* CONFIG command table */
 struct redisCommand CONFIG_Subcommands[] = {
-{"set","Set configuration parameters to the given values","O(N) when N is the number of configuration parameters","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,CONFIG_SET_History,CONFIG_SET_Hints,configSetCommand,-4,CMD_ADMIN|CMD_NOSCRIPT|CMD_STALE,0,.args=CONFIG_SET_Args},
-{"get","Get the values of configuration parameters","O(N) when N is the number of configuration parameters","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,CONFIG_GET_History,CONFIG_GET_Hints,configGetCommand,3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,.args=CONFIG_GET_Args},
+{"set","Set configuration parameters to the given values","O(N) when N is the number of configuration parameters provided","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,CONFIG_SET_History,CONFIG_SET_Hints,configSetCommand,-4,CMD_ADMIN|CMD_NOSCRIPT|CMD_STALE,0,.args=CONFIG_SET_Args},
+{"get","Get the values of configuration parameters","O(N) when N is the number of configuration parameters provided","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,CONFIG_GET_History,CONFIG_GET_Hints,configGetCommand,3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,.args=CONFIG_GET_Args},
 {"help","Show helpful text about the different subcommands","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,CONFIG_HELP_History,CONFIG_HELP_Hints,configHelpCommand,2,CMD_LOADING|CMD_STALE,0},
 {"resetstat","Reset the stats returned by INFO","O(1)","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,CONFIG_RESETSTAT_History,CONFIG_RESETSTAT_Hints,configResetStatCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_STALE,0},
 {"rewrite","Rewrite the configuration file with the in memory configuration","O(1)","2.8.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,CONFIG_REWRITE_History,CONFIG_REWRITE_Hints,configRewriteCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_STALE,0},
@@ -3965,7 +3965,7 @@ struct redisCommandArg LATENCY_RESET_Args[] = {
 struct redisCommand LATENCY_Subcommands[] = {
 {"reset","Reset latency data for one or more events.","O(1)","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,LATENCY_RESET_History,LATENCY_RESET_Hints,latencyCommand,-2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,.args=LATENCY_RESET_Args},
 {"help","Show helpful text about the different subcommands.","O(1)","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,LATENCY_HELP_History,LATENCY_HELP_Hints,latencyCommand,2,CMD_LOADING|CMD_STALE,0},
-{"doctor","Return a human readable latency analysis report.","NA","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,LATENCY_DOCTOR_History,LATENCY_DOCTOR_Hints,latencyCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0},
+{"doctor","Return a human readable latency analysis report.","O(1)","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,LATENCY_DOCTOR_History,LATENCY_DOCTOR_Hints,latencyCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0},
 {"graph","Return a latency graph for the event.","O(1)","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,LATENCY_GRAPH_History,LATENCY_GRAPH_Hints,latencyCommand,3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,.args=LATENCY_GRAPH_Args},
 {"history","Return timestamp-latency samples for the event.","O(1)","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,LATENCY_HISTORY_History,LATENCY_HISTORY_Hints,latencyCommand,3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,.args=LATENCY_HISTORY_Args},
 {"latest","Return the latest latency samples for all events.","O(1)","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,LATENCY_LATEST_History,LATENCY_LATEST_Hints,latencyCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0},
@@ -4054,7 +4054,7 @@ struct redisCommand MEMORY_Subcommands[] = {
 {"stats","Show memory usage details","O(1)","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MEMORY_STATS_History,MEMORY_STATS_Hints,memoryCommand,2,CMD_RANDOM,0},
 {"help","Show helpful text about the different subcommands","O(1)","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MEMORY_HELP_History,MEMORY_HELP_Hints,memoryCommand,2,CMD_LOADING|CMD_STALE,0},
 {"malloc-stats","Show allocator internal stats","NA","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MEMORY_MALLOC_STATS_History,MEMORY_MALLOC_STATS_Hints,memoryCommand,2,CMD_RANDOM,0},
-{"doctor","Outputs memory problems report","NA","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MEMORY_DOCTOR_History,MEMORY_DOCTOR_Hints,memoryCommand,2,CMD_RANDOM,0},
+{"doctor","Outputs memory problems report","O(1)","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MEMORY_DOCTOR_History,MEMORY_DOCTOR_Hints,memoryCommand,2,CMD_RANDOM,0},
 {"purge","Ask the allocator to release memory","NA","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MEMORY_PURGE_History,MEMORY_PURGE_Hints,memoryCommand,2,0,0},
 {"usage","Estimate the memory usage of a key","O(N) where N is the number of samples.","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MEMORY_USAGE_History,MEMORY_USAGE_Hints,memoryCommand,-3,CMD_READONLY,0,{{CMD_KEY_READ,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=MEMORY_USAGE_Args},
 {0}
@@ -6517,7 +6517,7 @@ struct redisCommand redisCommandTable[] = {
 {"strlen","Get the length of the value stored in a key","O(1)","2.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,STRLEN_History,STRLEN_Hints,strlenCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_STRING,{{CMD_KEY_WRITE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=STRLEN_Args},
 {"substr","Get a substring of the string stored at a key","O(N) where N is the length of the returned string. The complexity is ultimately determined by the returned length, but because creating a substring from an existing string is very cheap, it can be considered O(1) for small strings.","1.0.0",CMD_DOC_DEPRECATED,"`GETRANGE`","2.0.0",COMMAND_GROUP_STRING,SUBSTR_History,SUBSTR_Hints,getrangeCommand,4,CMD_READONLY,ACL_CATEGORY_STRING,{{CMD_KEY_READ,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SUBSTR_Args},
 /* transactions */
-{"discard","Discard all commands issued after MULTI","O(1)","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_TRANSACTIONS,DISCARD_History,DISCARD_Hints,discardCommand,1,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST,ACL_CATEGORY_TRANSACTION},
+{"discard","Discard all commands issued after MULTI","O(N), when N is the number of queued commands","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_TRANSACTIONS,DISCARD_History,DISCARD_Hints,discardCommand,1,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST,ACL_CATEGORY_TRANSACTION},
 {"exec","Execute all commands issued after MULTI","Depends on commands in the transaction","1.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_TRANSACTIONS,EXEC_History,EXEC_Hints,execCommand,1,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SKIP_SLOWLOG,ACL_CATEGORY_TRANSACTION},
 {"multi","Mark the start of a transaction block","O(1)","1.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_TRANSACTIONS,MULTI_History,MULTI_Hints,multiCommand,1,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST,ACL_CATEGORY_TRANSACTION},
 {"unwatch","Forget about all watched keys","O(1)","2.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_TRANSACTIONS,UNWATCH_History,UNWATCH_Hints,unwatchCommand,1,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST,ACL_CATEGORY_TRANSACTION},

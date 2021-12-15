@@ -1,7 +1,7 @@
 {
     "SET": {
         "summary": "Set configuration parameters to the given values",
-        "complexity": "O(N) when N is the number of configuration parameters",
+        "complexity": "O(N) when N is the number of configuration parameters provided",
         "group": "server",
         "since": "2.0.0",
         "arity": -4,
