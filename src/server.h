@@ -200,7 +200,6 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CMD_FAST (1ULL<<14)            /* "fast" flag */
 #define CMD_NO_AUTH (1ULL<<15)         /* "no-auth" flag */
 #define CMD_MAY_REPLICATE (1ULL<<16)   /* "may-replicate" flag */
-#define CMD_ALLOW_BUSY ((1ULL<<17))    /* "allow-busy" flag */
 
 /* Key argument flags. Please check the command table defined in the server.c file
  * for more information about the meaning of every flag. */
@@ -238,6 +237,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CMD_SENTINEL (1ULL<<40)        /* "sentinel" flag */
 #define CMD_ONLY_SENTINEL (1ULL<<41)   /* "only-sentinel" flag */
 #define CMD_NO_MANDATORY_KEYS (1ULL<<42)   /* "no-mandatory-keys" flag */
+#define CMD_ALLOW_BUSY ((1ULL<<43))    /* "allow-busy" flag */
 
 /* AOF states */
 #define AOF_OFF 0             /* AOF is off */

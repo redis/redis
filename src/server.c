@@ -480,7 +480,7 @@ struct redisCommand functionSubcommands[] = {
      "may-replicate no-script @scripting"},
 
     {"kill",functionsKillCommand,2,
-     "no-script @scripting"},
+     "no-script allow-busy @scripting"},
 
     {"info",functionsInfoCommand,-3,
      "no-script @scripting"},
@@ -489,7 +489,7 @@ struct redisCommand functionSubcommands[] = {
      "no-script @scripting"},
 
     {"stats",functionsStatsCommand,2,
-     "no-script @scripting"},
+     "no-script allow-busy @scripting"},
 
     {"help",functionsHelpCommand,2,
      "ok-loading ok-stale @scripting"},
@@ -1757,7 +1757,7 @@ struct redisCommand redisCommandTable[] = {
      .subcommands=clientSubcommands},
 
     {"hello",helloCommand,-1,
-     "no-auth no-script fast ok-loading ok-stale allow-busy sentinel @connection"},
+     "allow-busy no-auth no-script fast ok-loading ok-stale sentinel @connection"},
 
     /* EVAL can modify the dataset, however it is not flagged as a write
      * command since we do the check while running commands from Lua.
@@ -2055,7 +2055,7 @@ struct redisCommand redisCommandTable[] = {
      "no-auth no-script ok-stale ok-loading fast @connection"},
      
     {"reset",resetCommand,1,
-     "no-script ok-stale ok-loading allow-busy fast @connection"},
+     "no-auth no-script ok-stale ok-loading allow-busy fast @connection"},
 
     {"failover",failoverCommand,-1,
      "admin no-script ok-stale"},
@@ -3565,14 +3565,10 @@ void createSharedObjects(void) {
         "-NOSCRIPT No matching script. Please use EVAL.\r\n"));
     shared.loadingerr = createObject(OBJ_STRING,sdsnew(
         "-LOADING Redis is loading the dataset in memory\r\n"));
-    shared.slowscripterr = createObject(OBJ_STRING,sdsnew(
+    shared.slowevalerr = createObject(OBJ_STRING,sdsnew(
         "-BUSY Redis is busy running a job. for script You can only call SCRIPT KILL or SHUTDOWN NOSAVE.\r\n"));
     shared.slowscripterr = createObject(OBJ_STRING,sdsnew(
-        "-BUSY Redis is busy running a script. You can only call SCRIPT KILL or SHUTDOWN NOSAVE.\r\n"));
-    shared.slowevalerr = createObject(OBJ_STRING,sdsnew(
-        "-BUSY Redis is busy running a script. You can only call SCRIPT KILL or SHUTDOWN NOSAVE.\r\n"));
-    shared.slowscripterr = createObject(OBJ_STRING,sdsnew(
-        "-BUSY Redis is busy running a script. You can only call FUNCTION KILL or SHUTDOWN NOSAVE.\r\n"));
+        "-BUSY Redis is busy running a job. for script You can only call SCRIPT KILL or SHUTDOWN NOSAVE.\r\n"));
     shared.masterdownerr = createObject(OBJ_STRING,sdsnew(
         "-MASTERDOWN Link with MASTER is down and replica-serve-stale-data is set to 'no'.\r\n"));
     shared.bgsaveerr = createObject(OBJ_STRING,sdsnew(
@@ -5507,8 +5503,12 @@ int processCommand(client *c) {
      * the MULTI plus a few initial commands refused, then the timeout
      * condition resolves, and the bottom-half of the transaction gets
      * executed, see Github PR #7022. */
-    if ((server.lua_timedout || server.busy_job) && !(c->cmd->flags & CMD_ALLOW_BUSY)) {
-        if (scriptIsEval()) {
+
+    if (c->cmd->proc == shutdownCommand && c->argc == 2 &&
+      tolower(((char*)c->argv[1]->ptr)[0]) == 's') c->cmd->flags |= ~CMD_ALLOW_BUSY;
+
+    if ((scriptIsTimedout() || server.busy_job) && !(c->cmd->flags & CMD_ALLOW_BUSY)) {
+        if (server.busy_job || scriptIsEval()) {
             rejectCommand(c, shared.slowevalerr);
         } else {
             rejectCommand(c, shared.slowscripterr);
