@@ -63,6 +63,7 @@ set ::all_tests {
     unit/pubsub
     unit/slowlog
     unit/scripting
+    unit/functions
     unit/maxmemory
     unit/introspection
     unit/introspection-2
