@@ -513,7 +513,6 @@ NULL
         }
         scriptingReset(async);
         addReply(c,shared.ok);
-        server.dirty++; /* Propagating this command is a good idea. */
     } else if (c->argc >= 2 && !strcasecmp(c->argv[1]->ptr,"exists")) {
         int j;
 
@@ -528,7 +527,6 @@ NULL
         sds sha = luaCreateFunction(c,c->argv[2]);
         if (sha == NULL) return; /* The error was sent by luaCreateFunction(). */
         addReplyBulkCBuffer(c,sha,40);
-        preventCommandPropagation(c);
     } else if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"kill")) {
         scriptKill(c, 1);
     } else if (c->argc == 3 && !strcasecmp(c->argv[1]->ptr,"debug")) {

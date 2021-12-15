@@ -605,11 +605,15 @@ start_server {tags {"multi"}} {
         # make sure that SCRIPT LOAD inside MULTI isn't propagated
         r multi
         r script load {redis.call('set', KEYS[1], 'foo')}
+        r set foo bar
         set res [r exec]
         set sha [lindex $res 0]
 
         assert_replication_stream $repl {
-            {}
+            {select *}
+            {multi}
+            {set foo bar}
+            {exec}
         }
         close_replication_stream $repl
     } {} {needs:repl}
@@ -630,6 +634,24 @@ start_server {tags {"multi"}} {
         }
         close_replication_stream $repl
     } {} {needs:repl}
+
+    test {MULTI propagation of SCRIPT FLUSH} {
+        set repl [attach_to_replication_stream]
+
+        # make sure that SCRIPT FLUSH isn't propagated
+        r multi
+        r script flush
+        r set foo bar
+        r exec
+
+        assert_replication_stream $repl {
+            {select *}
+            {multi}
+            {set foo bar}
+            {exec}
+        }
+        close_replication_stream $repl
+    } {} {need:repl}
 
     tags {"stream"} {
         test {MULTI propagation of XREADGROUP} {

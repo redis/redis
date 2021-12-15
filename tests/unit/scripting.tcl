@@ -503,11 +503,11 @@ start_server {tags {"scripting"}} {
         r del myset
         r sadd myset a b c
         r mset a{t} 1 b{t} 2 c{t} 3 d{t} 4
-        assert {[r spop myset] ne {}}
-        assert {[r spop myset 1] ne {}}
-        assert {[r spop myset] ne {}}
-        assert {[r mget a{t} b{t} c{t} d{t}] eq {1 2 3 4}}
-        assert {[r spop myset] eq {}}
+        assert {[r eval {return redis.call('spop', 'myset')} 0] ne {}}
+        assert {[r eval {return redis.call('spop', 'myset', 1)} 0] ne {}}
+        assert {[r eval {return redis.call('spop', KEYS[1])} 1 myset] ne {}}
+        assert {[r eval {return redis.call('mget', 'a{t}', 'b{t}', 'c{t}', 'd{t}')} 0] eq {1 2 3 4}}
+        assert {[r eval {return redis.call('spop', KEYS[1])} 1 myset] eq {}}
     }
     } ;# is_eval
 

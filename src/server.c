@@ -458,13 +458,13 @@ struct redisCommand scriptSubcommands[] = {
      "no-script @scripting"},
 
     {"flush",scriptCommand,-2,
-     "may-replicate no-script @scripting"},
+     "no-script @scripting"},
 
     {"kill",scriptCommand,2,
      "no-script @scripting"},
 
     {"load",scriptCommand,3,
-     "may-replicate no-script @scripting"},
+     "no-script @scripting"},
 
     {"help",scriptCommand,2,
      "ok-loading ok-stale @scripting"},
