@@ -212,7 +212,7 @@ start_server {tags {"scripting"}} {
     }
 }
 
-start_server {tags {"scripting repl"}} {
+start_server {tags {"scripting repl external:skip"}} {
     start_server {} {
         test "Connect a replica to the master instance" {
             r -1 slaveof [srv 0 host] [srv 0 port]
