@@ -370,7 +370,7 @@ void fcallCommandReadOnly(client *c) {
     fcallCommandGeneric(c, 1);
 }
 
-void functionsFlushCommand(client *c) {
+void functionFlushCommand(client *c) {
     if (c->argc > 3) {
         addReplySubcommandSyntaxError(c);
         return;

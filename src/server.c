@@ -491,7 +491,7 @@ struct redisCommand functionSubcommands[] = {
     {"stats",functionsStatsCommand,2,
      "no-script @scripting"},
 
-    {"flush",functionsFlushCommand,-2,
+    {"flush",functionFlushCommand,-2,
      "may-replicate no-script @scripting"},
 
     {"help",functionsHelpCommand,2,

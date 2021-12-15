@@ -109,7 +109,7 @@ void functionsStatsCommand(client *c);
 void functionsInfoCommand(client *c);
 void functionsListCommand(client *c);
 void functionsHelpCommand(client *c);
-void functionsFlushCommand(client *c);
+void functionFlushCommand(client *c);
 unsigned long functionsMemory();
 unsigned long functionsMemoryOverhead();
 int functionsLoad(rio *rdb, int ver);
