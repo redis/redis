@@ -2519,6 +2519,25 @@ void commandAddSubcommand(struct redisCommand *parent, struct redisCommand *subc
     serverAssert(dictAdd(parent->subcommands_dict, sdsnew(subcommand->name), subcommand) == DICT_OK);
 }
 
+/* Set implicit ACl categories (see comment above the definition of
+ * struct redisCommand). */
+void setImplictACLCategories(struct redisCommand *c) {
+    if (c->flags & CMD_WRITE)
+        c->acl_categories |= ACL_CATEGORY_WRITE;
+    if (c->flags & CMD_READONLY)
+        c->acl_categories |= ACL_CATEGORY_READ;
+    if (c->flags & CMD_ADMIN)
+        c->acl_categories |= ACL_CATEGORY_ADMIN|ACL_CATEGORY_DANGEROUS;
+    if (c->flags & CMD_PUBSUB)
+        c->acl_categories |= ACL_CATEGORY_PUBSUB;
+    if (c->flags & CMD_FAST)
+        c->acl_categories |= ACL_CATEGORY_FAST;
+
+    /* If it's not @fast is @slow in this binary world. */
+    if (!(c->acl_categories & ACL_CATEGORY_FAST))
+        c->acl_categories |= ACL_CATEGORY_SLOW;
+}
+
 void populateCommandStructure(struct redisCommand *c) {
     /* Redis commands don't need more args than STATIC_KEY_SPECS_NUM (Number of keys
      * specs can be greater than STATIC_KEY_SPECS_NUM only for module commands) */
@@ -2546,6 +2565,7 @@ void populateCommandStructure(struct redisCommand *c) {
 
             /* Translate the command string flags description into an actual
              * set of flags. */
+            setImplictACLCategories(sub);
             populateCommandStructure(sub);
             commandAddSubcommand(c,sub);
         }
@@ -2566,6 +2586,8 @@ void populateCommandTable(void) {
             break;
 
         int retval1, retval2;
+
+        setImplictACLCategories(c);
 
         if (!(c->flags & CMD_SENTINEL) && server.sentinel_mode)
             continue;
@@ -4150,7 +4172,7 @@ int shouldFilterFromCommandList(struct redisCommand *cmd, commandListFilter *fil
             uint64_t cat = filter->cache.u.aclcat;
             if (cat == 0)
                 return 1; /* Invalid ACL category */
-            return (!(cmd->flags & cat));
+            return (!(cmd->acl_categories & cat));
             break;
         }
         case (COMMAND_LIST_FILTER_PATTERN):

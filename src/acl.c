@@ -436,7 +436,7 @@ void ACLSetUserCommandBitsForCategoryLogic(dict *commands, user *u, uint64_t cfl
     while ((de = dictNext(di)) != NULL) {
         struct redisCommand *cmd = dictGetVal(de);
         if (cmd->flags & CMD_MODULE) continue; /* Ignore modules commands. */
-        if (cmd->flags & cflag) {
+        if (cmd->acl_categories & cflag) {
             ACLChangeCommandPerm(u,cmd,value);
         }
         if (cmd->subcommands_dict) {
@@ -464,7 +464,7 @@ void ACLCountCategoryBitsForCommands(dict *commands, user *u, unsigned long *on,
     dictEntry *de;
     while ((de = dictNext(di)) != NULL) {
         struct redisCommand *cmd = dictGetVal(de);
-        if (cmd->flags & cflag) {
+        if (cmd->acl_categories & cflag) {
             if (ACLGetUserCommandBit(u,cmd->id))
                 (*on)++;
             else
@@ -2173,7 +2173,7 @@ void aclCommand(client *c) {
         while ((de = dictNext(di)) != NULL) {
             struct redisCommand *cmd = dictGetVal(de);
             if (cmd->flags & CMD_MODULE) continue;
-            if (cmd->flags & cflag) {
+            if (cmd->acl_categories & cflag) {
                 addReplyBulkCString(c,cmd->name);
                 arraylen++;
             }
@@ -2305,7 +2305,7 @@ void addReplyCommandCategories(client *c, struct redisCommand *cmd) {
     int flagcount = 0;
     void *flaglen = addReplyDeferredLen(c);
     for (int j = 0; ACLCommandCategories[j].flag != 0; j++) {
-        if (cmd->flags & ACLCommandCategories[j].flag) {
+        if (cmd->acl_categories & ACLCommandCategories[j].flag) {
             addReplyStatusFormat(c, "@%s", ACLCommandCategories[j].name);
             flagcount++;
         }
