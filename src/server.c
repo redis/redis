@@ -908,6 +908,15 @@ struct redisCommand redisCommandTable[] = {
        KSPEC_BS_INDEX,.bs.index={2},
        KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 
+    {"blmmove", blmMoveCommand, -6,
+     "write use-memory no-script @list @blocking",
+     {{"read write",
+       KSPEC_BS_INDEX,.bs.index={1},
+       KSPEC_FK_RANGE,.fk.range={-5,1,0}},
+      {"write",
+       KSPEC_BS_INDEX,.bs.index={-4},
+       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+
     {"blmove",blmoveCommand,6,
      "write use-memory no-script @list @blocking",
      {{"read write",
@@ -980,6 +989,15 @@ struct redisCommand redisCommandTable[] = {
       {"write",
        KSPEC_BS_INDEX,.bs.index={2},
        KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
+
+    {"lmmove", lmMoveCommand, -5,
+            "write use-memory no-script @list",
+            {{"read write",
+                KSPEC_BS_INDEX, .bs.index={1},
+                KSPEC_FK_RANGE, .fk.range={-4, 1, 0}},
+             {"write",
+              KSPEC_BS_INDEX, .bs.index={2},
+            KSPEC_FK_RANGE, .fk.range={0, 1, 0}}}},
 
     {"lmove",lmoveCommand,5,
      "write use-memory @list",

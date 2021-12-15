@@ -573,6 +573,14 @@ int checkType(client *c, robj *o, int type) {
     return 0;
 }
 
+int checkArgs(client *c, int expected){
+    if(expected != c->argc){
+        addReplyErrorObject(c,shared.syntaxerr);
+        return 1;
+    }
+    return 0;
+}
+
 int isSdsRepresentableAsLongLong(sds s, long long *llval) {
     return string2ll(s,sdslen(s),llval) ? C_OK : C_ERR;
 }
