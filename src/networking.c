@@ -1629,29 +1629,22 @@ int _writeToClient(client *c, ssize_t *nwritten) {
             *nwritten = connWritev(c->conn, iov, iovcnt);
             if (*nwritten <= 0) return C_ERR;
 
-            ssize_t remaining = *nwritten - (ssize_t)iov[0].iov_len;
-            if (remaining >= 0) { /* it's safe to release the first node. */
-                listRewind(c->reply, &iter);
+            /* Locate the new node which has leftover data and
+            * release all nodes in front of it. */
+            ssize_t remaining = *nwritten;
+            listRewind(c->reply, &iter);
+            while (remaining) {
                 next = listNext(&iter);
                 o = listNodeValue(next);
+                if (remaining < (ssize_t)(o->used - c->sentlen)) {
+                    c->sentlen += remaining;
+                    break;
+                }
+                remaining -= (ssize_t)(o->used - c->sentlen);
                 c->reply_bytes -= o->size;
                 listDelNode(c->reply, next);
                 c->sentlen = 0;
-                /* Locate the new node which has leftover data and
-                * release all nodes in front of it. */
-                while (remaining) {
-                    next = listNext(&iter);
-                    o = listNodeValue(next);
-                    if (remaining < (ssize_t)o->used) {
-                        c->sentlen = remaining;
-                        break;
-                    }
-                    remaining -= (ssize_t)o->used;
-                    c->reply_bytes -= o->size;
-                    listDelNode(c->reply, next);
-                }
-            } else /* still stuck in the first node. */
-                c->sentlen += *nwritten;
+            }
         } else {
             clientReplyBlock *o = listNodeValue(listFirst(c->reply));
             size_t objlen = o->used;
