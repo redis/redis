@@ -1273,22 +1273,15 @@ int moduleArgFlagsConvert(int flags) {
  *      RedisModule_AppendArgToCommand(xadd, trimming);
  *      RedisModule_AppendArgToCommand(xadd, id);
  *      RedisModule_AppendArgToCommand(xadd, fieldsvalues); */
-RedisModuleCommandArg *RM_CreateCommandArg(const char *argname, RedisModuleCommandArgType type, int key_spec_index, const char *token, const char *summary, const char* since, int flags, const char *value) {
+RedisModuleCommandArg *RM_CreateCommandArg(const char *argname, RedisModuleCommandArgType type, int key_spec_index, const char *token, const char *summary, const char* since, int flags) {
     int err;
 
     redisCommandArgType realtype = moduleArgTypeConvert(type, &err);
     if (err)
         return NULL;
 
-    if (realtype == ARG_TYPE_PURE_TOKEN) {
-        if (value != NULL || token == NULL)
-            return NULL;
-    } else if ((realtype == ARG_TYPE_ONEOF || realtype == ARG_TYPE_BLOCK)) {
-        if (value != NULL)
-            return NULL;
-    } else if (value == NULL) {
+    if (realtype == ARG_TYPE_PURE_TOKEN && !token)
         return NULL;
-    }
 
     if (realtype == ARG_TYPE_KEY) {
         if (key_spec_index < 0)

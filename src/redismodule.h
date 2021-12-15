@@ -650,7 +650,7 @@ REDISMODULE_API int (*RedisModule_SetCommandDebutVersion)(RedisModuleCommandProx
 REDISMODULE_API int (*RedisModule_SetCommandComplexity)(RedisModuleCommandProxy *command, const char *complexity) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_SetCommandHints)(RedisModuleCommandProxy *command, const char *hints) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_AppendCommandHistoryEntry)(RedisModuleCommandProxy *command, const char *since, const char *changes) REDISMODULE_ATTR;
-REDISMODULE_API RedisModuleCommandArg *(*RedisModule_CreateCommandArg)(const char* argname, RedisModuleCommandArgType type, int key_spec_index, const char *token, const char *summary, const char* since, int flags, const char *value) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleCommandArg *(*RedisModule_CreateCommandArg)(const char* argname, RedisModuleCommandArgType type, int key_spec_index, const char *token, const char *summary, const char* since, int flags) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_AppendSubarg)(RedisModuleCommandArg *parent, RedisModuleCommandArg *subarg) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_AppendArgToCommand)(RedisModuleCommandProxy *command, RedisModuleCommandArg *arg) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_SetModuleAttribs)(RedisModuleCtx *ctx, const char *name, int ver, int apiver) REDISMODULE_ATTR;
