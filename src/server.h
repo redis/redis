@@ -200,43 +200,41 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CMD_FAST (1ULL<<14)
 #define CMD_NO_AUTH (1ULL<<15)
 #define CMD_MAY_REPLICATE (1ULL<<16)
+#define CMD_SENTINEL (1ULL<<17)
+#define CMD_ONLY_SENTINEL (1ULL<<18)
+#define CMD_NO_MANDATORY_KEYS (1ULL<<19)
+/* Command flags used by the module system. */
+#define CMD_MODULE_GETKEYS (1ULL<<20)  /* Use the modules getkeys interface. */
+#define CMD_MODULE_NO_CLUSTER (1ULL<<21) /* Deny on Redis Cluster. */
+
+/* Command flags that describe ACLs categories. */
+#define ACL_CATEGORY_KEYSPACE (1ULL<<0)
+#define ACL_CATEGORY_READ (1ULL<<1)
+#define ACL_CATEGORY_WRITE (1ULL<<2)
+#define ACL_CATEGORY_SET (1ULL<<3)
+#define ACL_CATEGORY_SORTEDSET (1ULL<<4)
+#define ACL_CATEGORY_LIST (1ULL<<5)
+#define ACL_CATEGORY_HASH (1ULL<<6)
+#define ACL_CATEGORY_STRING (1ULL<<7)
+#define ACL_CATEGORY_BITMAP (1ULL<<8)
+#define ACL_CATEGORY_HYPERLOGLOG (1ULL<<9)
+#define ACL_CATEGORY_GEO (1ULL<<10)
+#define ACL_CATEGORY_STREAM (1ULL<<11)
+#define ACL_CATEGORY_PUBSUB (1ULL<<12)
+#define ACL_CATEGORY_ADMIN (1ULL<<13)
+#define ACL_CATEGORY_FAST (1ULL<<14)
+#define ACL_CATEGORY_SLOW (1ULL<<15)
+#define ACL_CATEGORY_BLOCKING (1ULL<<16)
+#define ACL_CATEGORY_DANGEROUS (1ULL<<17)
+#define ACL_CATEGORY_CONNECTION (1ULL<<18)
+#define ACL_CATEGORY_TRANSACTION (1ULL<<19)
+#define ACL_CATEGORY_SCRIPTING (1ULL<<20)
 
 /* Key argument flags. Please check the command table defined in the server.c file
  * for more information about the meaning of every flag. */
-#define CMD_KEY_WRITE (1ULL<<0)        /* "write" flag */
-#define CMD_KEY_READ (1ULL<<1)         /* "read" flag */
-#define CMD_KEY_INCOMPLETE (1ULL<<2)   /* "incomplete" flag (meaning that the keyspec might not point out to all keys it should cover) */
-
-/* Command flags used by the module system. */
-#define CMD_MODULE_GETKEYS (1ULL<<17)  /* Use the modules getkeys interface. */
-#define CMD_MODULE_NO_CLUSTER (1ULL<<18) /* Deny on Redis Cluster. */
-
-/* Command flags that describe ACLs categories. */
-#define CMD_CATEGORY_KEYSPACE (1ULL<<19)
-#define CMD_CATEGORY_READ (1ULL<<20)
-#define CMD_CATEGORY_WRITE (1ULL<<21)
-#define CMD_CATEGORY_SET (1ULL<<22)
-#define CMD_CATEGORY_SORTEDSET (1ULL<<23)
-#define CMD_CATEGORY_LIST (1ULL<<24)
-#define CMD_CATEGORY_HASH (1ULL<<25)
-#define CMD_CATEGORY_STRING (1ULL<<26)
-#define CMD_CATEGORY_BITMAP (1ULL<<27)
-#define CMD_CATEGORY_HYPERLOGLOG (1ULL<<28)
-#define CMD_CATEGORY_GEO (1ULL<<29)
-#define CMD_CATEGORY_STREAM (1ULL<<30)
-#define CMD_CATEGORY_PUBSUB (1ULL<<31)
-#define CMD_CATEGORY_ADMIN (1ULL<<32)
-#define CMD_CATEGORY_FAST (1ULL<<33)
-#define CMD_CATEGORY_SLOW (1ULL<<34)
-#define CMD_CATEGORY_BLOCKING (1ULL<<35)
-#define CMD_CATEGORY_DANGEROUS (1ULL<<36)
-#define CMD_CATEGORY_CONNECTION (1ULL<<37)
-#define CMD_CATEGORY_TRANSACTION (1ULL<<38)
-#define CMD_CATEGORY_SCRIPTING (1ULL<<39)
-
-#define CMD_SENTINEL (1ULL<<40)        /* "sentinel" flag */
-#define CMD_ONLY_SENTINEL (1ULL<<41)   /* "only-sentinel" flag */
-#define CMD_NO_MANDATORY_KEYS (1ULL<<42)   /* "no-mandatory-keys" flag */
+#define CMD_KEY_WRITE (1ULL<<0)
+#define CMD_KEY_READ (1ULL<<1)
+#define CMD_KEY_INCOMPLETE (1ULL<<2)   /* meaning that the keyspec might not point out to all keys it should cover */
 
 /* AOF states */
 #define AOF_OFF 0             /* AOF is off */
@@ -2066,7 +2064,8 @@ struct redisCommand {
     const char **hints; /* An array of strings that are meant o be hints for clients/proxies regarding this command */
     redisCommandProc *proc; /* Command implementation */
     int arity; /* Number of arguments, it is possible to use -N to say >= N */
-    uint64_t flags; /* The actual flags and ACl categoreis, see CMD_*. */
+    uint64_t flags; /* Command flags, see CMD_*. */
+    uint64_t acl_categories; /* ACl categories, see ACL_CATEGORY_*. */
     keySpec key_specs_static[STATIC_KEY_SPECS_NUM]; /* Key specs. See keySpec */
     /* Use a function to determine keys arguments in a command line.
      * Used for Redis Cluster redirect (may be NULL) */

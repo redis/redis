@@ -251,8 +251,12 @@ class Command(object):
             s = ""
             for flag in self.desc.get("command_flags", []):
                 s += "CMD_%s|" % flag
+            return s[:-1] if s else 0
+
+        def _acl_categories_code():
+            s = ""
             for cat in self.desc.get("acl_categories", []):
-                s += "CMD_CATEGORY_%s|" % cat
+                s += "ACL_CATEGORY_%s|" % cat
             return s[:-1] if s else 0
 
         def _doc_flags_code():
@@ -267,7 +271,7 @@ class Command(object):
                 s += "{%s}," % KeySpec(spec).struct_code()
             return s[:-1]
 
-        s = "\"%s\",%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%d,%s," % (
+        s = "\"%s\",%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%d,%s,%s," % (
             self.name.lower(),
             get_optional_desc_string(self.desc, "summary"),
             get_optional_desc_string(self.desc, "complexity"),
@@ -280,7 +284,8 @@ class Command(object):
             self.hints_table_name(),
             self.desc.get("function", "NULL"),
             self.desc["arity"],
-            _flags_code()
+            _flags_code(),
+            _acl_categories_code()
         )
 
         specs = _key_specs_code()
