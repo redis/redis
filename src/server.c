@@ -2084,6 +2084,7 @@ struct redisCommand redisCommandTable[] = {
 static inline int isShutdownInitiated(void);
 int isReadyToShutdown(void);
 int finishShutdown(void);
+const char *replstateToString(int replstate);
 
 /*============================ Utility functions ============================ */
 
@@ -5704,10 +5705,14 @@ int finishShutdown(void) {
         num_replicas++;
         if (replica->repl_ack_off != server.master_repl_offset) {
             num_lagging_replicas++;
+            long lag = replica->replstate == SLAVE_STATE_ONLINE ?
+                time(NULL) - replica->repl_ack_time : 0;
             serverLog(LL_WARNING,
-                      "Lagging replica %s reported offset %lld behind master.",
+                      "Lagging replica %s reported offset %lld behind master, lag=%ld, state=%s.",
                       replicationGetSlaveName(replica),
-                      server.master_repl_offset - replica->repl_ack_off);
+                      server.master_repl_offset - replica->repl_ack_off,
+                      lag,
+                      replstateToString(replica->replstate));
         }
     }
     if (num_replicas > 0) {
@@ -6293,6 +6298,20 @@ sds getFullCommandName(struct redisCommand *cmd) {
         return sdsnew(cmd->name);
     } else {
         return sdscatfmt(sdsempty(),"%s|%s",cmd->parent->name,cmd->name);
+    }
+}
+
+const char *replstateToString(int replstate) {
+    switch (replstate) {
+    case SLAVE_STATE_WAIT_BGSAVE_START:
+    case SLAVE_STATE_WAIT_BGSAVE_END:
+        return "wait_bgsave";
+    case SLAVE_STATE_SEND_BULK:
+        return "send_bulk";
+    case SLAVE_STATE_ONLINE:
+        return "online";
+    default:
+        return "";
     }
 }
 
@@ -6944,7 +6963,6 @@ sds genRedisInfoString(const char *section) {
             listRewind(server.slaves,&li);
             while((ln = listNext(&li))) {
                 client *slave = listNodeValue(ln);
-                char *state = NULL;
                 char ip[NET_IP_STR_LEN], *slaveip = slave->slave_addr;
                 int port;
                 long lag = 0;
@@ -6954,19 +6972,8 @@ sds genRedisInfoString(const char *section) {
                         continue;
                     slaveip = ip;
                 }
-                switch(slave->replstate) {
-                case SLAVE_STATE_WAIT_BGSAVE_START:
-                case SLAVE_STATE_WAIT_BGSAVE_END:
-                    state = "wait_bgsave";
-                    break;
-                case SLAVE_STATE_SEND_BULK:
-                    state = "send_bulk";
-                    break;
-                case SLAVE_STATE_ONLINE:
-                    state = "online";
-                    break;
-                }
-                if (state == NULL) continue;
+                const char *state = replstateToString(slave->replstate);
+                if (state[0] == '\0') continue;
                 if (slave->replstate == SLAVE_STATE_ONLINE)
                     lag = time(NULL) - slave->repl_ack_time;
 
