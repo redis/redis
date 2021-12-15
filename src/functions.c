@@ -372,7 +372,7 @@ void fcallCommandReadOnly(client *c) {
 
 void functionsFlushCommand(client *c) {
     if (c->argc > 3) {
-        addReplyErrorFormat(c,"wrong number of arguments for '%s' command or subcommand", c->cmd->name);
+        addReplySubcommandSyntaxError(c);
         return;
     }
     int async = 0;

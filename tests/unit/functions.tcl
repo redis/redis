@@ -205,7 +205,7 @@ start_server {tags {"scripting"}} {
 
     test {FUNCTION - test function wrong argument} {
         catch {r function flush bad_arg} e
-        assert_match {*only support SYNC|ASYNC*} $e
+        assert_match {*only supports SYNC|ASYNC*} $e
 
         catch {r function flush sync extra_arg} e
         assert_match {*wrong number of arguments*} $e
