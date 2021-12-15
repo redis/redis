@@ -5657,8 +5657,8 @@ int prepareForShutdown(int flags) {
         !isReadyToShutdown())
     {
         server.shutdown_mstime = server.mstime + server.shutdown_timeout * 1000;
-        pauseClients(LLONG_MAX, CLIENT_PAUSE_WRITE);
         sendGetackToReplicas();
+        pauseClients(LLONG_MAX, CLIENT_PAUSE_WRITE);
         serverLog(LL_NOTICE, "Waiting for replicas before shutting down.");
         return C_ERR;
     }
