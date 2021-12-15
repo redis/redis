@@ -14,6 +14,13 @@ start_server {tags {"modules"}} {
         set redis_reply [lindex [r command info xadd] 0]
         set module_reply [lindex [r command info cmdintrospection.xadd] 0]
         for {set i 1} {$i < [llength $redis_reply]} {incr i} {
+            if {$i == 2} {
+                # Remove the "module" flag
+                set mylist [lindex $module_reply $i]
+                set idx [lsearch $mylist "module"]
+                set mylist [lreplace $mylist $idx $idx]
+                lset module_reply $i $mylist
+            }
             if {$i == 6} {
                 # Skip ACL categories
                 continue

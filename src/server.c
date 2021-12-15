@@ -3796,6 +3796,7 @@ void addReplyFlagsForCommand(client *c, struct redisCommand *cmd) {
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_WRITE, "write");
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_READONLY, "readonly");
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_DENYOOM, "denyoom");
+    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_MODULE, "module");
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_ADMIN, "admin");
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_PUBSUB, "pubsub");
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_NOSCRIPT, "noscript");
