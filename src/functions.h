@@ -100,15 +100,6 @@ typedef struct functionInfo {
 int functionsRegisterEngine(const char *engine_name, engine *engine_ctx);
 int functionsCreateWithFunctionCtx(sds function_name, sds engine_name, sds desc, sds code,
                                    int replace, sds* err, functionsCtx *functions);
-void functionsCreateCommand(client *c);
-void fcallCommand(client *c);
-void fcallCommandReadOnly(client *c);
-void functionsDeleteCommand(client *c);
-void functionsKillCommand(client *c);
-void functionsStatsCommand(client *c);
-void functionsInfoCommand(client *c);
-void functionsListCommand(client *c);
-void functionsHelpCommand(client *c);
 unsigned long functionsMemory();
 unsigned long functionsMemoryOverhead();
 int functionsLoad(rio *rdb, int ver);

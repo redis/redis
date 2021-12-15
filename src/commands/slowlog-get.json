@@ -1,0 +1,30 @@
+{
+    "GET": {
+        "summary": "Get the slow log's entries",
+        "complexity": "O(N) where N is the number of entries returned",
+        "group": "server",
+        "since": "2.2.12",
+        "arity": -2,
+        "container": "SLOWLOG",
+        "function": "slowlogCommand",
+        "history": [
+            [
+                "4.0",
+                "Added client IP address, port and name to the reply."
+            ]
+        ],
+        "command_flags": [
+            "ADMIN",
+            "RANDOM",
+            "LOADING",
+            "STALE"
+        ],
+        "arguments": [
+            {
+                "name": "count",
+                "type": "integer",
+                "optional": true
+            }
+        ]
+    }
+}
