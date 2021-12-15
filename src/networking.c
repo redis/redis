@@ -1622,7 +1622,8 @@ int _writeToClient(client *c, ssize_t *nwritten) {
 
                 iov[iovcnt].iov_base = o->buf + offset;
                 iov[iovcnt].iov_len = o->used - offset;
-                if (++iovcnt == 1) offset = 0;
+                ++iovcnt;
+                offset = 0;
             }
             if (iovcnt == 0) return C_OK;
             *nwritten = connWritev(c->conn, iov, iovcnt);
