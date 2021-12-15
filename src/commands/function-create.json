@@ -6,13 +6,39 @@
         "since": "7.0.0",
         "arity": -5,
         "container": "FUNCTION",
-        "function": "functionsCreateCommand",
+        "function": "functionCreateCommand",
         "command_flags": [
             "noscript",
             "may_replicate"
         ],
         "acl_categories": [
             "scripting"
+        ],
+        "arguments": [
+            {
+                "name": "engine-name",
+                "type": "string"
+            },
+            {
+                "name": "function-name",
+                "type": "string"
+            },
+            {
+                "name": "replace",
+                "type": "pure-token",
+                "token": "REPLACE",
+                "optional": true
+            },
+            {
+                "name": "function-description",
+                "type": "string",
+                "token": "DESC",
+                "optional": true
+            },
+            {
+                "name": "function-code",
+                "type": "string"
+            }
         ]
     }
 }

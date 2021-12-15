@@ -6,7 +6,7 @@
         "since": "7.0.0",
         "arity": 2,
         "container": "FUNCTION",
-        "function": "functionsHelpCommand",
+        "function": "functionHelpCommand",
         "command_flags": [
             "loading",
             "stale"

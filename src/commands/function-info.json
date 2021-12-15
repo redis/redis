@@ -6,12 +6,24 @@
         "since": "7.0.0",
         "arity": -3,
         "container": "FUNCTION",
-        "function": "functionsInfoCommand",
+        "function": "functionInfoCommand",
         "command_flags": [
             "noscript"
         ],
         "acl_categories": [
             "scripting"
+        ],
+        "arguments": [
+            {
+                "name": "function-name",
+                "type": "string"
+            },
+            {
+                "name": "withcode",
+                "type": "pure-token",
+                "token": "WITHCODE",
+                "optional": true
+            }
         ]
     }
 }

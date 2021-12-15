@@ -35,6 +35,27 @@
                     }
                 }
             }
+        ],
+        "arguments": [
+            {
+                "name": "function",
+                "type": "string"
+            },
+            {
+                "name": "numkeys",
+                "type": "integer"
+            },
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0,
+                "multiple": true
+            },
+            {
+                "name": "arg",
+                "type": "string",
+                "multiple": true
+            }
         ]
     }
 }

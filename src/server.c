@@ -3520,8 +3520,8 @@ int processCommand(client *c) {
         !(c->cmd->proc == scriptCommand &&
           c->argc == 2 &&
           tolower(((char*)c->argv[1]->ptr)[0]) == 'k') &&
-        !(c->cmd->proc == functionsKillCommand) &&
-        !(c->cmd->proc == functionsStatsCommand))
+        !(c->cmd->proc == functionKillCommand) &&
+        !(c->cmd->proc == functionStatsCommand))
     {
         if (scriptIsEval()) {
             rejectCommand(c, shared.slowevalerr);

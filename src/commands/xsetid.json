@@ -32,6 +32,17 @@
                     }
                 }
             }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "last-id",
+                "type": "string"
+            }
         ]
     }
 }

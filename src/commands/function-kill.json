@@ -6,7 +6,7 @@
         "since": "7.0.0",
         "arity": 2,
         "container": "FUNCTION",
-        "function": "functionsKillCommand",
+        "function": "functionKillCommand",
         "command_flags": [
             "noscript"
         ],

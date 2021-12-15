@@ -6,7 +6,7 @@
         "since": "7.0.0",
         "arity": 2,
         "container": "FUNCTION",
-        "function": "functionsStatsCommand",
+        "function": "functionStatsCommand",
         "command_flags": [
             "noscript"
         ],
