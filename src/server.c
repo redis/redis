@@ -3209,15 +3209,19 @@ int processCommand(client *c) {
         return C_OK;
     }
 
-    /* check if DEBUG/MODULE command not allowed */
-    if ((c->cmd->proc == debugCommand && c->cmd->flags & CMD_PROTECTED && !allowProtectedAction(server.enable_debug_cmd, c)) ||
-        (c->cmd->proc == moduleCommand && c->cmd->flags & CMD_PROTECTED && !allowProtectedAction(server.enable_module_cmd, c))) {
-        rejectCommandFormat(c,"%s command not allowed. If the %s option is set to \"local\","
-                              "you can run it from a local connection, otherwise you need to set this option"
-                              "in the configuration file, and then restart the server.",
-                              c->cmd->proc == debugCommand ? "DEBUG" : "MODULE",
-                              c->cmd->proc == debugCommand ? "enable-debug-command" : "enable-module-command");
-        return C_OK;
+    /* Check if the command is marked as protected and the relevant configuration allows it */
+    if (c->cmd->flags & CMD_PROTECTED) {
+        if ((c->cmd->proc == debugCommand && !allowProtectedAction(server.enable_debug_cmd, c)) ||
+            (c->cmd->proc == moduleCommand && !allowProtectedAction(server.enable_module_cmd, c)))
+        {
+            rejectCommandFormat(c,"%s command not allowed. If the %s option is set to \"local\","
+                                  "you can run it from a local connection, otherwise you need to set this option"
+                                  "in the configuration file, and then restart the server.",
+                                  c->cmd->proc == debugCommand ? "DEBUG" : "MODULE",
+                                  c->cmd->proc == debugCommand ? "enable-debug-command" : "enable-module-command");
+            return C_OK;
+
+        }
     }
 
     int is_read_command = (c->cmd->flags & CMD_READONLY) ||

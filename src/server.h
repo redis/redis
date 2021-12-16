@@ -439,9 +439,9 @@ typedef enum {
 #define SANITIZE_DUMP_CLIENTS 2
 
 /* Enable protected config/command */
-#define PROTECTED_ACTION_NO 0
-#define PROTECTED_ACTION_YES 1
-#define PROTECTED_ACTION_LOCAL 2
+#define PROTECTED_ACTION_ALLOWED_NO 0
+#define PROTECTED_ACTION_ALLOWED_YES 1
+#define PROTECTED_ACTION_ALLOWED_LOCAL 2
 
 /* Sets operations codes */
 #define SET_OP_UNION 0
@@ -1413,9 +1413,9 @@ struct redisServer {
     int io_threads_do_reads;    /* Read and parse from IO threads? */
     int io_threads_active;      /* Is IO threads currently active? */
     long long events_processed_while_blocked; /* processEventsWhileBlocked() */
-    int enable_protected_configs;    /* Enable the modification of protected configs, see PROTECTED_ACTION_* */
-    int enable_debug_cmd;            /* Enable DEBUG commands, see PROTECTED_ACTION_* */
-    int enable_module_cmd;           /* Enable MODULE commands, see PROTECTED_ACTION_* */
+    int enable_protected_configs;    /* Enable the modification of protected configs, see PROTECTED_ACTION_ALLOWED_* */
+    int enable_debug_cmd;            /* Enable DEBUG commands, see PROTECTED_ACTION_ALLOWED_* */
+    int enable_module_cmd;           /* Enable MODULE commands, see PROTECTED_ACTION_ALLOWED_* */
 
     /* RDB / AOF loading information */
     volatile sig_atomic_t loading; /* We are loading data from disk if true */
