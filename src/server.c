@@ -5519,7 +5519,7 @@ void closeListeningSockets(int unlink_unix_socket) {
         for (j = 0; j < server.cfd.count; j++) close(server.cfd.fd[j]);
     if (unlink_unix_socket && server.unixsocket) {
         serverLog(LL_NOTICE,"Removing the unix socket file.");
-        if(unlink(server.unixsocket) != 0)
+        if (unlink(server.unixsocket) != 0)
             serverLog(LL_WARNING,"Error removing the unix socket file: %s",strerror(errno));
     }
 }
