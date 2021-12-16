@@ -1,0 +1,17 @@
+{
+    "LEN": {
+        "summary": "Get the slow log's length",
+        "complexity": "O(1)",
+        "group": "server",
+        "since": "2.2.12",
+        "arity": 2,
+        "container": "SLOWLOG",
+        "function": "slowlogCommand",
+        "command_flags": [
+            "ADMIN",
+            "RANDOM",
+            "LOADING",
+            "STALE"
+        ]
+    }
+}

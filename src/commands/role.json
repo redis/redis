@@ -1,0 +1,21 @@
+{
+    "ROLE": {
+        "summary": "Return the role of the instance in the context of replication",
+        "complexity": "O(1)",
+        "group": "server",
+        "since": "2.8.12",
+        "arity": 1,
+        "function": "roleCommand",
+        "command_flags": [
+            "NOSCRIPT",
+            "LOADING",
+            "STALE",
+            "FAST",
+            "SENTINEL"
+        ],
+        "acl_categories": [
+            "ADMIN",
+            "DANGEROUS"
+        ]
+    }
+}

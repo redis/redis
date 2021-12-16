@@ -1,0 +1,16 @@
+{
+    "READONLY": {
+        "summary": "Enables read queries for a connection to a cluster replica node",
+        "complexity": "O(1)",
+        "group": "cluster",
+        "since": "3.0.0",
+        "arity": 1,
+        "function": "readonlyCommand",
+        "command_flags": [
+            "FAST"
+        ],
+        "acl_categories": [
+            "CONNECTION"
+        ]
+    }
+}

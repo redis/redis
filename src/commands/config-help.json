@@ -1,0 +1,15 @@
+{
+    "HELP": {
+        "summary": "Show helpful text about the different subcommands",
+        "complexity": "O(1)",
+        "group": "server",
+        "since": "5.0.0",
+        "arity": 2,
+        "container": "CONFIG",
+        "function": "configHelpCommand",
+        "command_flags": [
+            "LOADING",
+            "STALE"
+        ]
+    }
+}
