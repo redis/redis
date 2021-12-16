@@ -65,7 +65,7 @@ jobs:
         run: |
           ./runtest \
             --host 127.0.0.1 --port 6379 \
-            --tags -slow -needs:debug
+            --tags "-slow -needs:debug"
       - name: Archive redis log
         if: ${{ failure() }}
         uses: actions/upload-artifact@v2
