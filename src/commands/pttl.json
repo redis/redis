@@ -1,0 +1,44 @@
+{
+    "PTTL": {
+        "summary": "Get the time to live for a key in milliseconds",
+        "complexity": "O(1)",
+        "group": "generic",
+        "since": "2.6.0",
+        "arity": 2,
+        "function": "pttlCommand",
+        "command_flags": [
+            "READONLY",
+            "RANDOM",
+            "FAST"
+        ],
+        "acl_categories": [
+            "KEYSPACE"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "READ"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            }
+        ]
+    }
+}

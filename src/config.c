@@ -674,6 +674,8 @@ static void restoreBackupConfig(standardConfig **set_configs, sds *old_values, i
 
 void configSetCommand(client *c) {
     const char *errstr = NULL;
+    const char *invalid_arg_name = NULL;
+    const char *err_arg_name = NULL;
     standardConfig **set_configs; /* TODO: make this a dict for better performance */
     sds *new_values;
     sds *old_values = NULL;
@@ -712,6 +714,7 @@ void configSetCommand(client *c) {
                     if (config->flags & IMMUTABLE_CONFIG) {
                         /* Note: we don't abort the loop since we still want to handle redacting sensitive configs (above) */
                         errstr = "can't set immutable config";
+                        err_arg_name = c->argv[2+i*2]->ptr;
                         invalid_args = 1;
                     }
 
@@ -720,6 +723,7 @@ void configSetCommand(client *c) {
                         if (set_configs[j] == config) {
                             /* Note: we don't abort the loop since we still want to handle redacting sensitive configs (above) */
                             errstr = "duplicate parameter";
+                            err_arg_name = c->argv[2+i*2]->ptr;
                             invalid_args = 1;
                             break;
                         }
@@ -733,7 +737,7 @@ void configSetCommand(client *c) {
         /* Fail if we couldn't find this config */
         /* Note: we don't abort the loop since we still want to handle redacting sensitive configs (above) */
         if (!invalid_args && !set_configs[i]) {
-            errstr = "unrecognized parameter";
+            invalid_arg_name = c->argv[2+i*2]->ptr;
             invalid_args = 1;
         }
     }
@@ -749,6 +753,7 @@ void configSetCommand(client *c) {
         int res = performInterfaceSet(set_configs[i], new_values[i], &errstr);
         if (!res) {
             restoreBackupConfig(set_configs, old_values, i+1, NULL);
+            err_arg_name = set_configs[i]->name;
             goto err;
         } else if (res == 1) {
             /* A new value was set, if this config has an apply function then store it for execution later */
@@ -775,6 +780,7 @@ void configSetCommand(client *c) {
         if (!apply_fns[i](&errstr)) {
             serverLog(LL_WARNING, "Failed applying new configuration. Possibly related to new %s setting. Restoring previous settings.", set_configs[config_map_fns[i]]->name);
             restoreBackupConfig(set_configs, old_values, config_count, apply_fns);
+            err_arg_name = set_configs[config_map_fns[i]]->name;
             goto err;
         }
     }
@@ -782,10 +788,12 @@ void configSetCommand(client *c) {
     goto end;
 
 err:
-    if (errstr) {
-        addReplyErrorFormat(c,"Config set failed - %s", errstr);
+    if (invalid_arg_name) {
+        addReplyErrorFormat(c,"Unknown option or number of arguments for CONFIG SET - '%s'", invalid_arg_name);
+    } else if (errstr) {
+        addReplyErrorFormat(c,"CONFIG SET failed (possibly related to argument '%s') - %s", err_arg_name, errstr);
     } else {
-        addReplyError(c,"Invalid arguments");
+        addReplyErrorFormat(c,"CONFIG SET failed (possibly related to argument '%s')", err_arg_name);
     }
 end:
     zfree(set_configs);
@@ -802,37 +810,34 @@ end:
  *----------------------------------------------------------------------------*/
 
 void configGetCommand(client *c) {
-    robj *o = c->argv[2];
     void *replylen = addReplyDeferredLen(c);
-    char *pattern = o->ptr;
     int matches = 0;
-    serverAssertWithInfo(c,o,sdsEncodedObject(o));
+    int i;
 
     for (standardConfig *config = configs; config->name != NULL; config++) {
-        /* Hidden configs require an exact match (not a pattern) */
-        if (config->flags & HIDDEN_CONFIG) {
-            if (!strcasecmp(pattern, config->name)) {
+        int matched_conf = 0;
+        int matched_alias = 0;
+        for (i = 0; i < c->argc - 2 && (!matched_conf || !matched_alias); i++) {
+            robj *o = c->argv[2+i];
+            char *pattern = o->ptr;
+
+            /* Note that hidden configs require an exact match (not a pattern) */
+            if (!matched_conf &&
+                (((config->flags & HIDDEN_CONFIG) && !strcasecmp(pattern, config->name)) ||
+                 (!(config->flags & HIDDEN_CONFIG) && stringmatch(pattern, config->name, 1)))) {
                 addReplyBulkCString(c, config->name);
                 addReplyBulkSds(c, config->interface.get(config->data));
                 matches++;
-                break;
-            } else if (config->alias && !strcasecmp(pattern, config->alias)) {
+                matched_conf = 1;
+            }
+            if (!matched_alias && config->alias &&
+                (((config->flags & HIDDEN_CONFIG) && !strcasecmp(pattern, config->alias)) ||
+                 (!(config->flags & HIDDEN_CONFIG) && stringmatch(pattern, config->alias, 1)))) {
                 addReplyBulkCString(c, config->alias);
                 addReplyBulkSds(c, config->interface.get(config->data));
                 matches++;
-                break;
+                matched_alias = 1;
             }
-            continue;
-        }
-        if (stringmatch(pattern,config->name,1)) {
-            addReplyBulkCString(c,config->name);
-            addReplyBulkSds(c, config->interface.get(config->data));
-            matches++;
-        }
-        if (config->alias && stringmatch(pattern,config->alias,1)) {
-            addReplyBulkCString(c,config->alias);
-            addReplyBulkSds(c, config->interface.get(config->data));
-            matches++;
         }
     }
 

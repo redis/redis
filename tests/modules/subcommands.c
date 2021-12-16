@@ -27,29 +27,37 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx,"subcommands.bitarray",NULL,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
+    RedisModuleCommand *parent = RedisModule_GetCommand(ctx,"subcommands.bitarray");
 
-    if (RedisModule_CreateSubcommand(ctx,"subcommands.bitarray","set",cmd_set,"",0,0,0) == REDISMODULE_ERR)
+    if (RedisModule_CreateSubcommand(parent,"set",cmd_set,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-    if (RedisModule_AddCommandKeySpec(ctx,"subcommands.bitarray|set","write",&spec_id) == REDISMODULE_ERR)
+    RedisModuleCommand *subcmd = RedisModule_GetCommand(ctx,"subcommands.bitarray|set");
+
+    if (RedisModule_AddCommandKeySpec(subcmd,"write",&spec_id) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-    if (RedisModule_SetCommandKeySpecBeginSearchIndex(ctx,"subcommands.bitarray|set",spec_id,1) == REDISMODULE_ERR)
+    if (RedisModule_SetCommandKeySpecBeginSearchIndex(subcmd,spec_id,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-    if (RedisModule_SetCommandKeySpecFindKeysRange(ctx,"subcommands.bitarray|set",spec_id,0,1,0) == REDISMODULE_ERR)
+    if (RedisModule_SetCommandKeySpecFindKeysRange(subcmd,spec_id,0,1,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateSubcommand(ctx,"subcommands.bitarray","get",cmd_get,"",0,0,0) == REDISMODULE_ERR)
+    if (RedisModule_CreateSubcommand(parent,"get",cmd_get,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-    if (RedisModule_AddCommandKeySpec(ctx,"subcommands.bitarray|get","read",&spec_id) == REDISMODULE_ERR)
+    subcmd = RedisModule_GetCommand(ctx,"subcommands.bitarray|get");
+
+    if (RedisModule_AddCommandKeySpec(subcmd,"read",&spec_id) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-    if (RedisModule_SetCommandKeySpecBeginSearchIndex(ctx,"subcommands.bitarray|get",spec_id,1) == REDISMODULE_ERR)
+    if (RedisModule_SetCommandKeySpecBeginSearchIndex(subcmd,spec_id,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-    if (RedisModule_SetCommandKeySpecFindKeysRange(ctx,"subcommands.bitarray|get",spec_id,0,1,0) == REDISMODULE_ERR)
+    if (RedisModule_SetCommandKeySpecFindKeysRange(subcmd,spec_id,0,1,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     /* Sanity */
-    RedisModule_Assert(RedisModule_CreateSubcommand(ctx,"bitarray","get",NULL,"",0,0,0) == REDISMODULE_ERR);
-    RedisModule_Assert(RedisModule_CreateSubcommand(ctx,"subcommands.bitarray","get",NULL,"",0,0,0) == REDISMODULE_ERR);
-    RedisModule_Assert(RedisModule_CreateSubcommand(ctx,"subcommands.bitarray|get","get",NULL,"",0,0,0) == REDISMODULE_ERR);
+
+    /* Trying to create the same subcommand fails */
+    RedisModule_Assert(RedisModule_CreateSubcommand(parent,"get",NULL,"",0,0,0) == REDISMODULE_ERR);
+
+    /* Trying to create a sub-subcommand fails */
+    RedisModule_Assert(RedisModule_CreateSubcommand(subcmd,"get",NULL,"",0,0,0) == REDISMODULE_ERR);
 
     return REDISMODULE_OK;
 }

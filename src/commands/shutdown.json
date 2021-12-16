@@ -1,0 +1,35 @@
+{
+    "SHUTDOWN": {
+        "summary": "Synchronously save the dataset to disk and then shut down the server",
+        "group": "server",
+        "since": "1.0.0",
+        "arity": -1,
+        "function": "shutdownCommand",
+        "command_flags": [
+            "ADMIN",
+            "NOSCRIPT",
+            "LOADING",
+            "STALE",
+            "SENTINEL"
+        ],
+        "arguments": [
+            {
+                "name": "nosave_save",
+                "type": "oneof",
+                "optional": true,
+                "arguments": [
+                    {
+                        "name": "nosave",
+                        "type": "pure-token",
+                        "token": "NOSAVE"
+                    },
+                    {
+                        "name": "save",
+                        "type": "pure-token",
+                        "token": "SAVE"
+                    }
+                ]
+            }
+        ]
+    }
+}
