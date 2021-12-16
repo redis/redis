@@ -15,8 +15,7 @@ jobs:
     - name: Build
       run: make REDIS_CFLAGS=-Werror
     - name: Start redis-server
-      run: ./src/redis-server --daemonize yes --logfile external-redis.log \
-            --enable-protected-configs yes --enable-debug-command yes --enable-module-command yes
+      run: ./src/redis-server --daemonize yes --logfile external-redis.log --enable-protected-configs yes --enable-debug-command yes --enable-module-command yes
     - name: Run external test
       run: |
           ./runtest \
@@ -37,8 +36,7 @@ jobs:
     - name: Build
       run: make REDIS_CFLAGS=-Werror
     - name: Start redis-server
-      run: ./src/redis-server --cluster-enabled yes --daemonize yes --logfile external-redis.log \
-            --enable-protected-configs yes --enable-debug-command yes --enable-module-command yes
+      run: ./src/redis-server --cluster-enabled yes --daemonize yes --logfile external-redis.log --enable-protected-configs yes --enable-debug-command yes --enable-module-command yes
     - name: Create a single node cluster
       run: ./src/redis-cli cluster addslots $(for slot in {0..16383}; do echo $slot; done); sleep 5
     - name: Run external test
