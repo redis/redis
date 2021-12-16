@@ -1089,7 +1089,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         # Restore server and client state
         r debug set-active-expire 1
         r select 9
-    } {OK}
+    } {OK} {cluster:skip}
 
 foreach {pop} {BLPOP BLMPOP_LEFT} {
     test "$pop when new key is moved into place" {
