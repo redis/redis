@@ -479,6 +479,10 @@ int anetUnixServer(char *err, char *path, mode_t perm, int backlog)
     int s;
     struct sockaddr_un sa;
 
+    if (strlen(path) > sizeof(sa.sun_path)-1) {
+        anetSetError(err,"unix socket path too long (%zu), must be under %zu", strlen(path), sizeof(sa.sun_path));
+        return ANET_ERR;
+    }
     if ((s = anetCreateSocket(err,AF_LOCAL)) == ANET_ERR)
         return ANET_ERR;
 

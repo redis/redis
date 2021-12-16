@@ -1,0 +1,22 @@
+{
+    "SET-CONFIG-EPOCH": {
+        "summary": "Set the configuration epoch in a new node",
+        "complexity": "O(1)",
+        "group": "cluster",
+        "since": "3.0.0",
+        "arity": 3,
+        "container": "CLUSTER",
+        "function": "clusterCommand",
+        "command_flags": [
+            "ADMIN",
+            "RANDOM",
+            "STALE"
+        ],
+        "arguments": [
+            {
+                "name": "config-epoch",
+                "type": "integer"
+            }
+        ]
+    }
+}

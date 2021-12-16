@@ -1,0 +1,48 @@
+{
+    "SETSLOT": {
+        "summary": "Bind a hash slot to a specific node",
+        "complexity": "O(1)",
+        "group": "cluster",
+        "since": "3.0.0",
+        "arity": -4,
+        "container": "CLUSTER",
+        "function": "clusterCommand",
+        "command_flags": [
+            "ADMIN",
+            "RANDOM",
+            "STALE"
+        ],
+        "arguments": [
+            {
+                "name": "slot",
+                "type": "integer"
+            },
+            {
+                "name": "subcommand",
+                "type": "oneof",
+                "arguments": [
+                    {
+                        "name": "node-id",
+                        "type": "integer",
+                        "token": "IMPORTING"
+                    },
+                    {
+                        "name": "node-id",
+                        "type": "integer",
+                        "token": "MIGRATING"
+                    },
+                    {
+                        "name": "node-id",
+                        "type": "integer",
+                        "token": "NODE"
+                    },
+                    {
+                        "name": "stable",
+                        "type": "pure-token",
+                        "token": "STABLE"
+                    }
+                ]
+            }
+        ]
+    }
+}

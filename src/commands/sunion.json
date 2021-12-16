@@ -1,0 +1,44 @@
+{
+    "SUNION": {
+        "summary": "Add multiple sets",
+        "complexity": "O(N) where N is the total number of elements in all given sets.",
+        "group": "set",
+        "since": "1.0.0",
+        "arity": -2,
+        "function": "sunionCommand",
+        "command_flags": [
+            "READONLY",
+            "SORT_FOR_SCRIPT"
+        ],
+        "acl_categories": [
+            "SET"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "READ"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": -1,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0,
+                "multiple": true
+            }
+        ]
+    }
+}

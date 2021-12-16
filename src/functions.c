@@ -196,7 +196,7 @@ int functionsRegisterEngine(const char *engine_name, engine *engine) {
 /*
  * FUNCTION STATS
  */
-void functionsStatsCommand(client *c) {
+void functionStatsCommand(client *c) {
     if (scriptIsRunning() && scriptIsEval()) {
         addReplyErrorObject(c, shared.slowevalerr);
         return;
@@ -235,7 +235,7 @@ void functionsStatsCommand(client *c) {
 /*
  * FUNCTION LIST
  */
-void functionsListCommand(client *c) {
+void functionListCommand(client *c) {
     /* general information on all the functions */
     addReplyArrayLen(c, dictSize(functions_ctx->functions));
     dictIterator *iter = dictGetIterator(functions_ctx->functions);
@@ -260,7 +260,7 @@ void functionsListCommand(client *c) {
 /*
  * FUNCTION INFO <FUNCTION NAME> [WITHCODE]
  */
-void functionsInfoCommand(client *c) {
+void functionInfoCommand(client *c) {
     if (c->argc > 4) {
         addReplyErrorFormat(c,"wrong number of arguments for '%s' command or subcommand", c->cmd->name);
         return;
@@ -300,7 +300,7 @@ void functionsInfoCommand(client *c) {
 /*
  * FUNCTION DELETE <FUNCTION NAME>
  */
-void functionsDeleteCommand(client *c) {
+void functionDeleteCommand(client *c) {
     if (server.masterhost && server.repl_slave_ro && !(c->flags & CLIENT_MASTER)) {
         addReplyError(c, "Can not delete a function on a read only replica");
         return;
@@ -314,11 +314,13 @@ void functionsDeleteCommand(client *c) {
     }
 
     engineFunctionFree(fi, functions_ctx);
-    forceCommandPropagation(c, PROPAGATE_REPL | PROPAGATE_AOF);
+    /* Indicate that the command changed the data so it will be replicated and
+     * counted as a data change (for persistence configuration) */
+    server.dirty++;
     addReply(c, shared.ok);
 }
 
-void functionsKillCommand(client *c) {
+void functionKillCommand(client *c) {
     scriptKill(c, 0);
 }
 
@@ -366,11 +368,11 @@ void fcallCommand(client *c) {
 /*
  * FCALL_RO <FUNCTION NAME> nkeys <key1 .. keyn> <arg1 .. argn>
  */
-void fcallCommandReadOnly(client *c) {
+void fcallroCommand(client *c) {
     fcallCommandGeneric(c, 1);
 }
 
-void functionsHelpCommand(client *c) {
+void functionHelpCommand(client *c) {
     const char *help[] = {
 "CREATE <ENGINE NAME> <FUNCTION NAME> [REPLACE] [DESC <FUNCTION DESCRIPTION>] <FUNCTION CODE>",
 "    Create a new function with the given function name and code.",
@@ -442,7 +444,7 @@ int functionsCreateWithFunctionCtx(sds function_name,sds engine_name, sds desc, 
  * DESCRIPTION     - optional, function description
  * FUNCTION CODE   - function code to pass to the engine
  */
-void functionsCreateCommand(client *c) {
+void functionCreateCommand(client *c) {
 
     if (server.masterhost && server.repl_slave_ro && !(c->flags & CLIENT_MASTER)) {
         addReplyError(c, "Can not create a function on a read only replica");
@@ -484,7 +486,9 @@ void functionsCreateCommand(client *c) {
         addReplyErrorSds(c, err);
         return;
     }
-    forceCommandPropagation(c, PROPAGATE_REPL | PROPAGATE_AOF);
+    /* Indicate that the command changed the data so it will be replicated and
+     * counted as a data change (for persistence configuration) */
+    server.dirty++;
     addReply(c, shared.ok);
 }
 
