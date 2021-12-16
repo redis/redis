@@ -3210,8 +3210,8 @@ int processCommand(client *c) {
     }
 
     /* check if DEBUG/MODULE command not allowed */
-    if ((c->cmd->proc == debugCommand && !allowProtectedAction(server.enable_debug_cmd, c)) ||
-        (c->cmd->proc == moduleCommand && !allowProtectedAction(server.enable_module_cmd, c))) {
+    if ((c->cmd->proc == debugCommand && c->cmd->flags & CMD_PROTECTED && !allowProtectedAction(server.enable_debug_cmd, c)) ||
+        (c->cmd->proc == moduleCommand && c->cmd->flags & CMD_PROTECTED && !allowProtectedAction(server.enable_module_cmd, c))) {
         rejectCommandFormat(c,"%s command not allowed. If the %s option is set to \"local\","
                               "you can run it from a local connection, otherwise you need to set this option"
                               "in the configuration file, and then restart the server.",

@@ -9,7 +9,8 @@
         "function": "moduleCommand",
         "command_flags": [
             "ADMIN",
-            "NOSCRIPT"
+            "NOSCRIPT",
+            "PROTECTED"
         ],
         "arguments": [
             {

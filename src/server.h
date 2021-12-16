@@ -203,9 +203,10 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CMD_SENTINEL (1ULL<<17)
 #define CMD_ONLY_SENTINEL (1ULL<<18)
 #define CMD_NO_MANDATORY_KEYS (1ULL<<19)
+#define CMD_PROTECTED (1ULL<<20)
 /* Command flags used by the module system. */
-#define CMD_MODULE_GETKEYS (1ULL<<20)  /* Use the modules getkeys interface. */
-#define CMD_MODULE_NO_CLUSTER (1ULL<<21) /* Deny on Redis Cluster. */
+#define CMD_MODULE_GETKEYS (1ULL<<21)  /* Use the modules getkeys interface. */
+#define CMD_MODULE_NO_CLUSTER (1ULL<<22) /* Deny on Redis Cluster. */
 
 /* Command flags that describe ACLs categories. */
 #define ACL_CATEGORY_KEYSPACE (1ULL<<0)
