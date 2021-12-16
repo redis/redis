@@ -500,15 +500,45 @@ start_server {tags {"scripting"}} {
 
     if {$is_eval eq 1} {
     test {We can call scripts rewriting client->argv from Lua} {
+        set repl [attach_to_replication_stream]
         r del myset
         r sadd myset a b c
         r mset a{t} 1 b{t} 2 c{t} 3 d{t} 4
+        r set expirekey 1
         assert {[r eval {return redis.call('spop', 'myset')} 0] ne {}}
         assert {[r eval {return redis.call('spop', 'myset', 1)} 0] ne {}}
         assert {[r eval {return redis.call('spop', KEYS[1])} 1 myset] ne {}}
+        #read-only, won't be replicated
         assert {[r eval {return redis.call('mget', 'a{t}', 'b{t}', 'c{t}', 'd{t}')} 0] eq {1 2 3 4}}
+        #this one below should be replicated by an empty MULTI/EXEC
         assert {[r eval {return redis.call('spop', KEYS[1])} 1 myset] eq {}}
-    }
+        #this one should be replicated as EXPIREAT
+        assert {[r eval {return redis.call('expire', KEYS[1], ARGV[1])} 1 expirekey 3] eq 1}
+
+        assert_replication_stream $repl {
+            {select *}
+            {del *}
+            {sadd *}
+            {mset *}
+            {set *}
+            {multi}
+            {srem myset *}
+            {exec}
+            {multi}
+            {srem myset *}
+            {exec}
+            {multi}
+            {srem myset *}
+            {exec}
+            {multi}
+            {exec}
+            {multi}
+            {pexpireat expirekey *}
+            {exec}
+        }
+
+        close_replication_stream $repl
+    } {} {need:repl}
     } ;# is_eval
 
     test {Call Redis command with many args from Lua (issue #1764)} {
