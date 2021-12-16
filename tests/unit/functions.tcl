@@ -185,9 +185,34 @@ start_server {tags {"scripting"}} {
         after 200 ; # Give some time to Lua to call the hook again...
         assert_equal [r ping] "PONG"
     }
+
+    test {FUNCTION - test function flush} {
+        r function create lua test REPLACE {local a = 1 while true do a = a + 1 end}
+        assert_match {{name test engine LUA description {}}} [r function list]
+        r function flush
+        assert_match {} [r function list]
+
+        r function create lua test REPLACE {local a = 1 while true do a = a + 1 end}
+        assert_match {{name test engine LUA description {}}} [r function list]
+        r function flush async
+        assert_match {} [r function list]
+
+        r function create lua test REPLACE {local a = 1 while true do a = a + 1 end}
+        assert_match {{name test engine LUA description {}}} [r function list]
+        r function flush sync
+        assert_match {} [r function list]
+    }
+
+    test {FUNCTION - test function wrong argument} {
+        catch {r function flush bad_arg} e
+        assert_match {*only supports SYNC|ASYNC*} $e
+
+        catch {r function flush sync extra_arg} e
+        assert_match {*wrong number of arguments*} $e
+    }
 }
 
-start_server {tags {"scripting repl"}} {
+start_server {tags {"scripting repl external:skip"}} {
     start_server {} {
         test "Connect a replica to the master instance" {
             r -1 slaveof [srv 0 host] [srv 0 port]
@@ -214,6 +239,21 @@ start_server {tags {"scripting repl"}} {
 
         test {FUNCTION - delete is replicated to replica} {
             r function delete test
+            wait_for_condition 50 100 {
+                [r -1 function list] eq {}
+            } else {
+                fail "Failed waiting for function to replicate to replica"
+            }
+        }
+
+        test {FUNCTION - flush is replicated to replica} {
+            r function create LUA test DESCRIPTION {some description} {return 'hello'}
+            wait_for_condition 50 100 {
+                [r -1 function list] eq {{name test engine LUA description {some description}}}
+            } else {
+                fail "Failed waiting for function to replicate to replica"
+            }
+            r function flush
             wait_for_condition 50 100 {
                 [r -1 function list] eq {}
             } else {
