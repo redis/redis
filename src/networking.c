@@ -1027,7 +1027,7 @@ int clientHasPendingReplies(client *c) {
 }
 
 /* Return true if client connected from loopback interface */
-int localConnection(client *c) {
+int islocalClient(client *c) {
     /* unix-socket */
     if (c->flags & CLIENT_UNIX_SOCKET) return 1;
 
@@ -1056,7 +1056,7 @@ void clientAcceptHandler(connection *conn) {
     if (server.protected_mode &&
         DefaultUser->flags & USER_FLAG_NOPASS)
     {
-        if (!localConnection(c)) {
+        if (!islocalClient(c)) {
             char *err =
                 "-DENIED Redis is running in protected mode because protected "
                 "mode is enabled and no password is set for the default user. "

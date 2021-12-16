@@ -1409,9 +1409,9 @@ struct redisServer {
     int io_threads_do_reads;    /* Read and parse from IO threads? */
     int io_threads_active;      /* Is IO threads currently active? */
     long long events_processed_while_blocked; /* processEventsWhileBlocked() */
-    int enable_protected_configs;    /* Enable the modification of protected configs */
-    int enable_debug_cmd;            /* Enable DEBUG commands */
-    int enable_module_cmd;           /* Enable MODULE commands */
+    int enable_protected_configs;    /* Enable the modification of protected configs, see PROTECTED_ACTION_* */
+    int enable_debug_cmd;            /* Enable DEBUG commands, see PROTECTED_ACTION_* */
+    int enable_module_cmd;           /* Enable MODULE commands, see PROTECTED_ACTION_* */
 
     /* RDB / AOF loading information */
     volatile sig_atomic_t loading; /* We are loading data from disk if true */
@@ -2161,7 +2161,7 @@ int handleClientsWithPendingWritesUsingThreads(void);
 int handleClientsWithPendingReadsUsingThreads(void);
 int stopThreadedIOIfNeeded(void);
 int clientHasPendingReplies(client *c);
-int localConnection(client *c);
+int islocalClient(client *c);
 int updateClientMemUsage(client *c);
 void updateClientMemUsageBucket(client *c);
 void unlinkClient(client *c);
