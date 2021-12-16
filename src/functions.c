@@ -388,7 +388,7 @@ void functionFlushCommand(client *c) {
     }
 
     if (async) {
-        functionsCtx* old_f_ctx = functions_ctx;
+        functionsCtx *old_f_ctx = functions_ctx;
         functions_ctx = functionsCtxCreate();
         freeFunctionsAsync(old_f_ctx);
     } else {
