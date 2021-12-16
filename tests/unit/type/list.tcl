@@ -1050,7 +1050,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         $rd read
     } {k hello} {singledb:skip}
 
-    test {SWAPDB awakes blocked client, but the key already expired} {
+    test {SWAPDB wants to wake blocked client, but the key already expired} {
         set repl [attach_to_replication_stream]
         r flushall
         r debug set-active-expire 0
@@ -1087,6 +1087,44 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         r debug set-active-expire 1
         r select 9
     } {OK} {singledb:skip}
+
+    test {MULTI + LPUSH + EXPIRE + DEBUG SLEEP on blocked client, key already expired} {
+        set repl [attach_to_replication_stream]
+        r flushall
+        r debug set-active-expire 0
+
+        set rd [redis_deferring_client]
+        $rd client id
+        set id [$rd read]
+        $rd brpop k 0
+        wait_for_blocked_clients_count 1
+
+        r multi
+        r rpush k hello
+        r pexpire k 100
+        r debug sleep 0.2
+        r exec
+
+        # The EXEC command tries to awake the blocked client, but it remains
+        # blocked because the key is expired. Check that the deferred client is
+        # still blocked. Then unblock it.
+        assert_match "*flags=b*" [r client list id $id]
+        r client unblock $id
+        assert_equal {} [$rd read]
+        assert_replication_stream $repl {
+            {select *}
+            {flushall}
+            {multi}
+            {rpush k hello}
+            {pexpireat k *}
+            {exec}
+            {del k}
+        }
+        close_replication_stream $repl
+        # Restore server and client state
+        r debug set-active-expire 1
+        r select 9
+    } {OK}
 
 foreach {pop} {BLPOP BLMPOP_LEFT} {
     test "$pop when new key is moved into place" {
