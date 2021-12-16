@@ -4,9 +4,16 @@ start_server {tags {"modules"}} {
     r module load $testmodule
 
     test "Module subcommands via COMMAND" {
+        # Verify that module subcommands are displayed correctly in COMMAND
         set reply [r command info subcommands.bitarray]
-        set subcmds [lindex [lindex $reply 0] 8]
-        assert_equal [lsort $subcmds] {{get -2 {} 1 1 1 {} {{flags read begin_search {type index spec {index 1}} find_keys {type range spec {lastkey 0 keystep 1 limit 0}}}} {}} {set -2 {} 1 1 1 {} {{flags write begin_search {type index spec {index 1}} find_keys {type range spec {lastkey 0 keystep 1 limit 0}}}} {}}}
+        # create a dict for easy lookup
+        unset -nocomplain mydict
+        foreach {k v} [lindex [lindex $reply 0] 7] {
+            dict append mydict $k $v
+        }
+        set subcmds [lsort [dict get $mydict subcommands]]
+        assert_equal [lindex $subcmds 0] {get -2 module 1 1 1 {} {summary {} since {} group module key-specs {{flags read begin-search {type index spec {index 1}} find-keys {type range spec {lastkey 0 keystep 1 limit 0}}}}}}
+        assert_equal [lindex $subcmds 1] {set -2 module 1 1 1 {} {summary {} since {} group module key-specs {{flags write begin-search {type index spec {index 1}} find-keys {type range spec {lastkey 0 keystep 1 limit 0}}}}}}
     }
 
     test "Module pure-container command fails on arity error" {

@@ -1,0 +1,24 @@
+{
+    "LOAD": {
+        "summary": "Load the specified Lua script into the script cache.",
+        "complexity": "O(N) with N being the length in bytes of the script body.",
+        "group": "scripting",
+        "since": "2.6.0",
+        "arity": 3,
+        "container": "SCRIPT",
+        "function": "scriptCommand",
+        "command_flags": [
+            "NOSCRIPT",
+            "MAY_REPLICATE"
+        ],
+        "acl_categories": [
+            "SCRIPTING"
+        ],
+        "arguments": [
+            {
+                "name": "script",
+                "type": "string"
+            }
+        ]
+    }
+}
