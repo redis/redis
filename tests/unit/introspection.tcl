@@ -322,7 +322,7 @@ start_server {tags {"introspection"}} {
         # Set some value to maxmemory
         assert_equal [r config set maxmemory 10000002] "OK"
         # Set another value to maxmeory together with another invalid config
-        assert_error "ERR Config set failed - percentage argument must be less or equal to 100" {
+        assert_error "ERR CONFIG SET failed (possibly related to argument 'maxmemory-clients') - percentage argument must be less or equal to 100" {
             r config set maxmemory 10000001 maxmemory-clients 200% client-query-buffer-limit invalid
         }
         # Validate we rolled back to original values
@@ -375,7 +375,7 @@ start_server {tags {"introspection"}} {
 
         # Try to listen on the used port, pass some more configs to make sure the
         # returned failure message is for the first bad config and everything is rolled back.
-        assert_error "ERR Config set failed - Unable to listen on this port*" {
+        assert_error "ERR CONFIG SET failed (possibly related to argument 'port') - Unable to listen on this port*" {
             eval "r config set $some_configs"
         }
 
@@ -400,6 +400,32 @@ start_server {tags {"introspection"}} {
 
     test {CONFIG SET set immutable} {
         assert_error "ERR*immutable*" {r config set daemonize yes}
+    }
+
+    test {CONFIG GET hidden configs} {
+        set hidden_config "key-load-delay"
+
+        # When we use a pattern we shouldn't get the hidden config
+        assert {![dict exists [r config get *] $hidden_config]}
+
+        # When we explicitly request the hidden config we should get it
+        assert {[dict exists [r config get $hidden_config] "$hidden_config"]}
+    }
+
+    test {CONFIG GET multiple args} {
+        set res [r config get maxmemory maxmemory* bind *of]
+        
+        # Verify there are no duplicates in the result
+        assert_equal [expr [llength [dict keys $res]]*2] [llength $res]
+        
+        # Verify we got both name and alias in result
+        assert {[dict exists $res slaveof] && [dict exists $res replicaof]}  
+
+        # Verify pattern found multiple maxmemory* configs
+        assert {[dict exists $res maxmemory] && [dict exists $res maxmemory-samples] && [dict exists $res maxmemory-clients]}  
+
+        # Verify we also got the explicit config
+        assert {[dict exists $res bind]}  
     }
 
     # Config file at this point is at a weird state, and includes all

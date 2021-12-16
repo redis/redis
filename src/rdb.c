@@ -2475,6 +2475,11 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 streamConsumer *consumer = streamCreateConsumer(cgroup,cname,NULL,0,
                                                         SCC_NO_NOTIFY|SCC_NO_DIRTIFY);
                 sdsfree(cname);
+                if (!consumer) {
+                    rdbReportCorruptRDB("Duplicate stream consumer detected.");
+                    decrRefCount(o);
+                    return NULL;
+                }
                 consumer->seen_time = rdbLoadMillisecondTime(rdb,RDB_VERSION);
                 if (rioGetReadError(rdb)) {
                     rdbReportReadError("Stream short read reading seen time.");
