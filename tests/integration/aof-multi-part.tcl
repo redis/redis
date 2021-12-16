@@ -3,12 +3,13 @@ set defaults { appendonly {yes} appendfilename {appendonly.aof} auto-aof-rewrite
 set server_path [tmpdir server.multi.aof]
 set basename "appendonly.aof"
 set old_version_aof_path "$server_path/appendonly.aof"
-set base_1_filepath "$server_path/appendonly.aof_1.base.aof"
-set base_2_filepath "$server_path/appendonly.aof_2.base.aof"
-set incr_1_filepath "$server_path/appendonly.aof_1.incr.aof"
-set incr_2_filepath "$server_path/appendonly.aof_2.incr.aof"
-set incr_3_filepath "$server_path/appendonly.aof_3.incr.aof"
-set aof_manifest_path "$server_path/appendonly.aof.manifest"
+set aof_dir "$server_path/appendonly.aof"
+set base_1_filepath "$server_path/appendonly.aof/appendonly.aof_1.base.aof"
+set base_2_filepath "$server_path/appendonly.aof/appendonly.aof_2.base.aof"
+set incr_1_filepath "$server_path/appendonly.aof/appendonly.aof_1.incr.aof"
+set incr_2_filepath "$server_path/appendonly.aof/appendonly.aof_2.incr.aof"
+set incr_3_filepath "$server_path/appendonly.aof/appendonly.aof_3.incr.aof"
+set aof_manifest_path "$server_path/appendonly.aof/appendonly.aof.manifest"
 
 tags {"external:skip"} {
     
@@ -19,6 +20,7 @@ tags {"external:skip"} {
     # the redis behavior is as expected.
 
     # Tests1: Multi Part AOF can't load data when some file missing
+    create_aof_dir $aof_dir
     create_aof $base_1_filepath {
         append_to_aof [formatCommand set k1 v1]
     }
@@ -48,6 +50,7 @@ tags {"external:skip"} {
     clean_aof_persistence $server_path $basename
 
     # Tests2: Multi Part AOF can't load data when the sequence not increase monotonically
+    create_aof_dir $aof_dir
     create_aof $incr_1_filepath {
         append_to_aof [formatCommand set k1 v1]
     }
@@ -74,6 +77,7 @@ tags {"external:skip"} {
     clean_aof_persistence $server_path $basename
 
     # Tests3: Multi Part AOF can't load data when there are blank lines in the manifest file
+    create_aof_dir $aof_dir
     create_aof $incr_1_filepath {
         append_to_aof [formatCommand set k1 v1]
     }
@@ -101,6 +105,7 @@ tags {"external:skip"} {
     clean_aof_persistence $server_path $basename
 
     # Tests4: Multi Part AOF can't load data when there is a duplicate base file
+    create_aof_dir $aof_dir
     create_aof $base_1_filepath {
         append_to_aof [formatCommand set k1 v1]
     }
@@ -132,6 +137,7 @@ tags {"external:skip"} {
     clean_aof_persistence $server_path $basename
 
     # Tests5: Multi Part AOF can't load data when the manifest format is wrong (type unknown)
+    create_aof_dir $aof_dir
     create_aof $base_1_filepath {
         append_to_aof [formatCommand set k1 v1]
     }
@@ -158,6 +164,7 @@ tags {"external:skip"} {
     clean_aof_persistence $server_path $basename
 
     # Tests6: Multi Part AOF can't load data when the manifest format is wrong (missing key)
+    create_aof_dir $aof_dir
     create_aof $base_1_filepath {
         append_to_aof [formatCommand set k1 v1]
     }
@@ -184,6 +191,7 @@ tags {"external:skip"} {
     clean_aof_persistence $server_path $basename
 
     # Tests7: Multi Part AOF can't load data when the manifest format is wrong (line too short)
+    create_aof_dir $aof_dir
     create_aof $base_1_filepath {
         append_to_aof [formatCommand set k1 v1]
     }
@@ -210,6 +218,7 @@ tags {"external:skip"} {
     clean_aof_persistence $server_path $basename
 
     # Tests8: Multi Part AOF can't load data when the manifest format is wrong (line too long)
+    create_aof_dir $aof_dir
     create_aof $base_1_filepath {
         append_to_aof [formatCommand set k1 v1]
     }
@@ -236,6 +245,7 @@ tags {"external:skip"} {
     clean_aof_persistence $server_path $basename
 
     # Tests9: Multi Part AOF can't load data when the manifest format is wrong (odd parameter)
+    create_aof_dir $aof_dir
     create_aof $base_1_filepath {
         append_to_aof [formatCommand set k1 v1]
     }
@@ -262,6 +272,7 @@ tags {"external:skip"} {
     clean_aof_persistence $server_path $basename
 
     # Tests10: Multi Part AOF can't load data when the manifest file is empty
+    create_aof_dir $aof_dir
     create_aof_manifest $aof_manifest_path {
     }
 
@@ -291,7 +302,17 @@ tags {"external:skip"} {
 
     clean_aof_persistence $server_path $basename
 
-    # Tests12: Multi Part AOF can load data discontinuously increasing sequence
+    # Tests12: Multi Part AOF can start when we have en empty AOF dir
+    create_aof_dir $aof_dir
+
+    start_server_aof [list dir $server_path] {
+        test "Multi Part AOF can start when we have en empty AOF dir" {
+            assert_equal 1 [is_alive $srv]
+        }
+    }
+
+    # Tests13: Multi Part AOF can load data discontinuously increasing sequence
+    create_aof_dir $aof_dir
     create_aof $base_1_filepath {
         append_to_aof [formatCommand set k1 v1]
     }
@@ -322,7 +343,10 @@ tags {"external:skip"} {
         }
     }
 
-    # Tests13: Multi Part AOF can load data when manifest add new k-v
+    clean_aof_persistence $server_path $basename
+
+    # Tests14: Multi Part AOF can load data when manifest add new k-v
+    create_aof_dir $aof_dir
     create_aof $base_1_filepath {
         append_to_aof [formatCommand set k1 v1]
     }
@@ -355,7 +379,8 @@ tags {"external:skip"} {
 
     clean_aof_persistence $server_path $basename
 
-    # Tests14: Multi Part AOF can load data when some AOFs are empty
+    # Tests15: Multi Part AOF can load data when some AOFs are empty
+    create_aof_dir $aof_dir
     create_aof $base_1_filepath {
         append_to_aof [formatCommand set k1 v1]
     }
@@ -387,7 +412,7 @@ tags {"external:skip"} {
 
     clean_aof_persistence $server_path $basename
 
-    # Tests15: Multi Part AOF can load data from old version redis
+    # Tests16: Multi Part AOF can load data from old version redis
     create_aof $old_version_aof_path {
         append_to_aof [formatCommand set k1 v1]
         append_to_aof [formatCommand set k2 v2]
@@ -404,17 +429,12 @@ tags {"external:skip"} {
             assert_equal v1 [$client get k1]
             assert_equal v2 [$client get k2]
             assert_equal v3 [$client get k3]
-
-            # Wait first AOFRW
-            wait_for_condition 1000 500 {
-                [check_file_exist $server_path "appendonly.aof_2.base.rdb"] == 1
-            } else {
-                fail "Failed to wait AOFRW"
-            }
-
+            
+            assert_equal 1 [check_file_exist $server_path "appendonly.aof"]
+           
             assert_aof_manifest_content $server_path {
-                {file appendonly.aof_2.base.rdb seq 2 type b} 
-                {file appendonly.aof_2.incr.aof seq 2 type i}
+                {file appendonly.aof seq 1 type b} 
+                {file appendonly.aof_1.incr.aof seq 1 type i}
             }
 
             assert_equal OK [$client set k4 v4]
@@ -432,13 +452,11 @@ tags {"external:skip"} {
                 }
             }
 
-            
-
             assert_equal OK [$client set k5 v5]
 
             assert_aof_manifest_content $server_path {
-                {file appendonly.aof_3.base.rdb seq 3 type b} 
-                {file appendonly.aof_3.incr.aof seq 3 type i}
+                {file appendonly.aof_2.base.rdb seq 2 type b} 
+                {file appendonly.aof_2.incr.aof seq 2 type i}
             }
 
             set d1 [$client debug digest]
@@ -449,7 +467,6 @@ tags {"external:skip"} {
     }
 
     clean_aof_persistence $server_path $basename
-
 
     # Test Part 2
     #
@@ -462,7 +479,7 @@ tags {"external:skip"} {
     
     start_server {tags {"Multi Part AOF"} overrides {aof-use-rdb-preamble {yes} appendonly {no} appendfilename {appendonly.aof}}} {
         set dir [get_redis_dir]
-        set aof_basename [get_aof_basename $::default_aof_basename]
+        set aof_basename "appendonly.aof"
         set master [srv 0 client]
         set master_host [srv 0 host]
         set master_port [srv 0 port]

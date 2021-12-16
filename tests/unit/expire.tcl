@@ -317,7 +317,7 @@ start_server {tags {"expire"}} {
 
             set dir [lindex [r config get dir] 1]
             set last_incr_aof_name [get_last_incr_aof_name $dir]
-            set aof [file join $dir $last_incr_aof_name]
+            set aof [file join $dir "appendonly.aof" $last_incr_aof_name]
 
             # Apply each TTL-related command to a unique key
             # SET commands

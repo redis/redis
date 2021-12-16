@@ -1,12 +1,14 @@
 source tests/support/aofmanifest.tcl
-set defaults { appendonly {yes} appendfilename {appendonly} auto-aof-rewrite-percentage {0}}
+set defaults { appendonly {yes} appendfilename {appendonly.aof} auto-aof-rewrite-percentage {0}}
 set server_path [tmpdir server.aof]
-set aof_path "$server_path/appendonly_1.incr.aof"
-set aof_manifest_path "$server_path/appendonly.manifest"
+set aof_path "$server_path/appendonly.aof/appendonly.aof_1.incr.aof"
+set aof_dir "$server_path/appendonly.aof"
+set aof_manifest_path "$server_path/appendonly.aof/appendonly.aof.manifest"
 
 tags {"aof external:skip"} {
     ## Server can start when aof-load-truncated is set to yes and AOF
     ## is truncated, with an incomplete MULTI block.
+    create_aof_dir $aof_dir
     create_aof $aof_path {
         append_to_aof [formatCommand set foo hello]
         append_to_aof [formatCommand multi]
@@ -14,7 +16,7 @@ tags {"aof external:skip"} {
     }
 
     create_aof_manifest $aof_manifest_path {
-        append_to_manifest "file appendonly_1.incr.aof seq 1 type i\n"
+        append_to_manifest "file appendonly.aof_1.incr.aof seq 1 type i\n"
     }
 
     start_server_aof [list dir $server_path aof-load-truncated yes] {
@@ -260,7 +262,7 @@ tags {"aof external:skip"} {
                 r debug aof-flush-sleep 500000
                 set dir [lindex [r config get dir] 1]
                 set last_incr_aof_name [get_last_incr_aof_name $dir]
-                set aof [file join $dir $last_incr_aof_name]
+                set aof [file join $dir "appendonly.aof" $last_incr_aof_name]
                 set size1 [file size $aof]
                 $rd get x
                 after [expr {int(rand()*30)}]
@@ -277,7 +279,7 @@ tags {"aof external:skip"} {
         test {GETEX should not append to AOF} {
             set dir [lindex [r config get dir] 1]
             set lat_incr_aof_name [get_last_incr_aof_name $dir]
-            set aof [file join $dir $lat_incr_aof_name]
+            set aof [file join $dir "appendonly.aof" $lat_incr_aof_name]
             r set foo bar
             set before [file size $aof]
             r getex foo
@@ -411,7 +413,7 @@ tags {"aof external:skip"} {
             r config set aof-use-rdb-preamble no
             set dir [lindex [r config get dir] 1]
             set last_incr_aof_name [get_last_incr_aof_name $dir]
-            set aof [file join $dir $last_incr_aof_name]
+            set aof [file join $dir "appendonly.aof" $last_incr_aof_name]
 
             r set foo bar
             assert_match "#TS:*" [exec head -n 1 $aof]
@@ -420,7 +422,7 @@ tags {"aof external:skip"} {
             waitForBgrewriteaof r
 
             set cur_base_aof_name [get_cur_base_aof_name $dir]
-            set aof [file join $dir $cur_base_aof_name]
+            set aof [file join $dir "appendonly.aof" $cur_base_aof_name]
             assert_match "#TS:*" [exec head -n 1 $aof]
         }
     }

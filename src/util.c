@@ -40,6 +40,8 @@
 #include <stdint.h>
 #include <errno.h>
 #include <time.h>
+#include <sys/stat.h>
+#include <dirent.h>
 
 #include "util.h"
 #include "sha256.h"
@@ -808,6 +810,76 @@ long getTimeZone(void) {
  * environments where Redis runs. */
 int pathIsBaseName(char *path) {
     return strchr(path,'/') == NULL && strchr(path,'\\') == NULL;
+}
+
+int fileExist(char *filename) {
+    return access(filename, F_OK) == 0;
+}
+
+int dirExists(char *dname) {
+    struct stat statbuf;
+    return stat(dname, &statbuf) == 0 && S_ISDIR(statbuf.st_mode);
+}
+
+int dirCreateIfMissing(char *dname) {
+    if (mkdir(dname, 0755) != 0) {
+        if (errno != EEXIST) {
+            return 0;
+        } else if (!dirExists(dname)) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+int dirRemove(char *dname) {
+    DIR *dir;
+    struct stat stat_path, stat_entry;
+    struct dirent *entry;
+
+    stat(dname, &stat_path);
+
+    if (S_ISDIR(stat_path.st_mode) == 0) {
+        return -1;
+    }
+
+    if ((dir = opendir(dname)) == NULL) {
+        return -1;
+    }
+
+    while ((entry = readdir(dir)) != NULL) {
+        if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")) continue;
+
+        sds full_path = sdscat(sdsnew(dname), "/");
+        full_path = sdscat(full_path, entry->d_name);
+
+        stat(full_path, &stat_entry);
+
+        if (S_ISDIR(stat_entry.st_mode) != 0) {
+            dirRemove(full_path);
+            sdsfree(full_path);
+            continue;
+        }
+
+        if (unlink(full_path) != 0) {
+            sdsfree(full_path);
+            closedir(dir);
+            return -1;
+        }
+        sdsfree(full_path);
+    }
+
+    if (rmdir(dname) != 0) {
+        closedir(dir);
+        return -1;
+    }
+    closedir(dir);
+    return 0;
+}
+
+sds makePath(char *path, char *filename) {
+    sds relpath = sdscat(sdsnew(path), "/");
+    return sdscat(relpath, filename);
 }
 
 #ifdef REDIS_TEST

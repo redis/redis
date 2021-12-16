@@ -7,7 +7,7 @@ set ::aof_format_suffix ".aof"
 set ::rdb_format_suffix ".rdb"
 
 proc get_full_path {dir filename} {
-    set _ [format "%s/%s" $dir $filename]
+    set _ [format "%s/appendonly.aof/%s" $dir $filename]
 }
 
 proc get_redis_dir {} {
@@ -23,16 +23,6 @@ proc check_file_exist {dir filename} {
 proc del_file {dir filename} {
     set file_path [get_full_path $dir $filename]
     catch {exec rm -rf $file_path}
-}
-
-proc get_aof_basename {default_name} {
-    set config [srv config]
-    if {[dict exists $config "appendfilename"]} {
-        set appendfilename [dict get $config "appendfilename"]
-    } else {
-        set appendfilename $default_name
-    }
-    set _ $appendfilename
 }
 
 proc get_cur_base_aof_name {dir} {
@@ -106,7 +96,7 @@ proc assert_aof_manifest_content {dir content} {
 }
 
 proc clean_aof_persistence {dir basename} {
-    set path [format "%s/%s*" $dir $basename]
+    set path [format "%s/%s" $dir $basename]
     catch {eval exec rm -rf [glob $path]}
 }
 
@@ -132,6 +122,10 @@ proc create_aof {aof_path code} {
     set fp [open $aof_path w+]
     uplevel 1 $code
     close $fp
+}
+
+proc create_aof_dir {dir_path} {
+    file mkdir $dir_path
 }
 
 proc start_server_aof {overrides code} {
