@@ -1,0 +1,24 @@
+{
+    "GENPASS": {
+        "summary": "Generate a pseudorandom secure password to use for ACL users",
+        "complexity": "O(1)",
+        "group": "server",
+        "since": "6.0.0",
+        "arity": -2,
+        "container": "ACL",
+        "function": "aclCommand",
+        "command_flags": [
+            "NOSCRIPT",
+            "LOADING",
+            "STALE",
+            "SENTINEL"
+        ],
+        "arguments": [
+            {
+                "name": "bits",
+                "type": "integer",
+                "optional": true
+            }
+        ]
+    }
+}

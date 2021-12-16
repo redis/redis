@@ -1,0 +1,24 @@
+{
+    "PING": {
+        "summary": "Ping the server",
+        "complexity": "O(1)",
+        "group": "connection",
+        "since": "1.0.0",
+        "arity": -1,
+        "function": "pingCommand",
+        "command_flags": [
+            "FAST",
+            "SENTINEL"
+        ],
+        "acl_categories": [
+            "CONNECTION"
+        ],
+        "arguments": [
+            {
+                "name": "message",
+                "type": "string",
+                "optional": true
+            }
+        ]
+    }
+}
