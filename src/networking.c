@@ -3637,6 +3637,7 @@ void processEventsWhileBlocked(void) {
     whileBlockedCron();
 
     ProcessingEventsWhileBlocked--;
+    serverAssert(ProcessingEventsWhileBlocked >= 0);
 }
 
 /* ==========================================================================

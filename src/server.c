@@ -3221,6 +3221,8 @@ int processCommand(client *c) {
                                  (c->cmd->proc == execCommand && (c->mstate.cmd_inv_flags & CMD_LOADING));
     int is_may_replicate_command = (c->cmd->flags & (CMD_WRITE | CMD_MAY_REPLICATE)) ||
                                    (c->cmd->proc == execCommand && (c->mstate.cmd_flags & (CMD_WRITE | CMD_MAY_REPLICATE)));
+    int is_deny_async_loading_command = (c->cmd->flags & CMD_NO_ASYNC_LOADING) ||
+                                        (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_NO_ASYNC_LOADING));
 
     if (authRequired(c)) {
         /* AUTH and HELLO and no auth commands are valid even in
@@ -3419,19 +3421,8 @@ int processCommand(client *c) {
         return C_OK;
     }
 
-    /* During async-loading, block certain commands.
-     * TODO: this should be promoted to a command flag, same as lua_timedout below. */
-    if (server.async_loading && (
-        c->cmd->proc == saveCommand ||
-        c->cmd->proc == bgsaveCommand ||
-        c->cmd->proc == saveCommand ||
-        c->cmd->proc == bgrewriteaofCommand ||
-        c->cmd->proc == clusterCommand || /* I'm not sure that's necessary */
-        c->cmd->proc == sentinelCommand || /* I'm not sure that's necessary */
-        c->cmd->proc == moduleCommand ||
-        c->cmd->proc == syncCommand ||
-        c->cmd->proc == replicaofCommand))
-    {
+    /* During async-loading, block certain commands. */
+    if (server.async_loading && is_deny_async_loading_command) {
         rejectCommand(c,shared.loadingerr);
         return C_OK;
     }
