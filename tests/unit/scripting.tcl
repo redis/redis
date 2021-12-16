@@ -510,7 +510,7 @@ start_server {tags {"scripting"}} {
         assert {[r eval {return redis.call('spop', KEYS[1])} 1 myset] ne {}}
         #this one below should be replicated by an empty MULTI/EXEC
         assert {[r eval {return redis.call('spop', KEYS[1])} 1 myset] eq {}}
-
+        r set trailingkey 1
         assert_replication_stream $repl {
             {select *}
             {sadd *}
@@ -527,19 +527,21 @@ start_server {tags {"scripting"}} {
             {exec}
             {multi}
             {exec}
+            {set *}
         }
         close_replication_stream $repl
     } {} {need:repl}
 
-    test {MGET: We can call scripts rewriting client->argv from Lua} {
+    test {MGET: mget shouldn't be propagated in Lua} {
         set repl [attach_to_replication_stream]
         r mset a{t} 1 b{t} 2 c{t} 3 d{t} 4
         #read-only, won't be replicated
         assert {[r eval {return redis.call('mget', 'a{t}', 'b{t}', 'c{t}', 'd{t}')} 0] eq {1 2 3 4}}
-
+        r set trailingkey 2
         assert_replication_stream $repl {
             {select *}
             {mset *}
+            {set *}
         }
         close_replication_stream $repl
     } {} {need:repl}
