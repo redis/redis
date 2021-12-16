@@ -69,6 +69,7 @@
 #define OUTPUT_STANDARD 0
 #define OUTPUT_RAW 1
 #define OUTPUT_CSV 2
+#define OUTPUT_JSON 3
 #define REDIS_CLI_KEEPALIVE_INTERVAL 15 /* seconds */
 #define REDIS_CLI_DEFAULT_PIPE_TIMEOUT 30 /* seconds */
 #define REDIS_CLI_HISTFILE_ENV "REDISCLI_HISTFILE"
@@ -1142,6 +1143,69 @@ static sds cliFormatReplyCSV(redisReply *r) {
     return out;
 }
 
+static sds cliFormatReplyJson(redisReply *r) {
+    unsigned int i;
+
+    sds out = sdsempty();
+    switch (r->type) {
+    case REDIS_REPLY_ERROR:
+        out = sdscat(out,"error:");
+        out = sdscatrepr(out,r->str,strlen(r->str));
+        break;
+    case REDIS_REPLY_STATUS:
+        out = sdscatrepr(out,r->str,r->len);
+        break;
+    case REDIS_REPLY_INTEGER:
+        out = sdscatprintf(out,"%lld",r->integer);
+        break;
+    case REDIS_REPLY_DOUBLE:
+        out = sdscatprintf(out,"%s",r->str);
+        break;
+    case REDIS_REPLY_STRING:
+    case REDIS_REPLY_VERB:
+        out = sdscatrepr(out,r->str,r->len);
+        break;
+    case REDIS_REPLY_NIL:
+        out = sdscat(out,"null");
+        break;
+    case REDIS_REPLY_BOOL:
+        out = sdscat(out,r->integer ? "true" : "false");
+        break;
+    case REDIS_REPLY_ARRAY:
+    case REDIS_REPLY_SET:
+    case REDIS_REPLY_PUSH:
+        out = sdscat(out,"[");
+        for (i = 0; i < r->elements; i++ ) {
+            sds tmp = cliFormatReplyJson(r->element[i]);
+            out = sdscatlen(out,tmp,sdslen(tmp));
+            if (i != r->elements-1) out = sdscat(out,",");
+            sdsfree(tmp);
+        }
+        out = sdscat(out,"]");
+        break;
+    case REDIS_REPLY_MAP:
+        out = sdscat(out,"{");
+        for (i = 0; i < r->elements; i += 2) {
+            sds tmp = cliFormatReplyJson(r->element[i]);
+            out = sdscatlen(out,tmp,sdslen(tmp));
+            sdsfree(tmp);
+
+            out = sdscat(out,":");
+
+            tmp = cliFormatReplyJson(r->element[i+1]);
+            out = sdscatlen(out,tmp,sdslen(tmp));
+            sdsfree(tmp);
+            if (i != r->elements-1) out = sdscat(out,",");
+        }
+        out = sdscat(out,"}");
+        break;
+    default:
+        fprintf(stderr,"Unknown reply type: %d\n", r->type);
+        exit(1);
+    }
+    return out;
+}
+
 /* Generate reply strings in various output modes */
 static sds cliFormatReply(redisReply *reply, int mode, int verbatim) {
     sds out;
@@ -1155,6 +1219,9 @@ static sds cliFormatReply(redisReply *reply, int mode, int verbatim) {
         out = sdscatsds(out, config.cmd_delim);
     } else if (mode == OUTPUT_CSV) {
         out = cliFormatReplyCSV(reply);
+        out = sdscatlen(out, "\n", 1);
+    } else if (mode == OUTPUT_JSON) {
+        out = cliFormatReplyJson(reply);
         out = sdscatlen(out, "\n", 1);
     } else {
         fprintf(stderr, "Error:  Unknown output encoding %d\n", mode);
@@ -1529,6 +1596,8 @@ static int parseOptions(int argc, char **argv) {
             config.quoted_input = 1;
         } else if (!strcmp(argv[i],"--csv")) {
             config.output = OUTPUT_CSV;
+        } else if (!strcmp(argv[i],"--json")) {
+            config.output = OUTPUT_JSON;
         } else if (!strcmp(argv[i],"--latency")) {
             config.latency_mode = 1;
         } else if (!strcmp(argv[i],"--latency-dist")) {
@@ -1836,6 +1905,7 @@ static void usage(int err) {
 "  --no-raw           Force formatted output even when STDOUT is not a tty.\n"
 "  --quoted-input     Force input to be handled as quoted strings.\n"
 "  --csv              Output in CSV format.\n"
+"  --json             Output in Json format.\n"
 "  --show-pushes <yn> Whether to print RESP3 PUSH messages.  Enabled by default when\n"
 "                     STDOUT is a tty but can be overridden with --show-pushes no.\n"
 "  --stat             Print rolling stats about server: mem, clients, ...\n"
@@ -6757,6 +6827,8 @@ static void latencyModePrint(long long min, long long max, double avg, long long
         printf("%lld,%lld,%.2f,%lld\n", min, max, avg, count);
     } else if (config.output == OUTPUT_RAW) {
         printf("%lld %lld %.2f %lld\n", min, max, avg, count);
+    } else if (config.output == OUTPUT_JSON) {
+        printf("{\"min\": %lld, \"max\": %lld, \"avg\": %.2f, \"count\": %lld}\n", min, max, avg, count);
     }
 }
 
