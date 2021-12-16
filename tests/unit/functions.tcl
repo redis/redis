@@ -361,4 +361,4 @@ test {FUNCTION can processes create, delete and flush commands in AOF when doing
         r slaveof no one
         assert_equal [r function list] {}
     }
-}
+} {} {external:skip}
