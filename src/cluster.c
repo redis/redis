@@ -5987,12 +5987,11 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
                  * error). To do so we set the importing/migrating state and
                  * increment a counter for every missing key. */
                 if (n == myself) {
-                    if (server.cluster->migrating_slots_to[slot] != NULL)
-                    {
+                    if (server.cluster->migrating_slots_to[slot] != NULL) {
                         migrating_slot = 1;
                     } else if (server.cluster->importing_slots_from[slot] != NULL) {
                         importing_slot = 1;
-		    }
+                    }
                 }
             } else {
                 /* If it is not the first key, make sure it is exactly
