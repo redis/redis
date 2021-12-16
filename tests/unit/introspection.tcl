@@ -412,6 +412,22 @@ start_server {tags {"introspection"}} {
         assert {[dict exists [r config get $hidden_config] "$hidden_config"]}
     }
 
+    test {CONFIG GET multiple args} {
+        set res [r config get maxmemory maxmemory* bind *of]
+        
+        # Verify there are no duplicates in the result
+        assert_equal [expr [llength [dict keys $res]]*2] [llength $res]
+        
+        # Verify we got both name and alias in result
+        assert {[dict exists $res slaveof] && [dict exists $res replicaof]}  
+
+        # Verify pattern found multiple maxmemory* configs
+        assert {[dict exists $res maxmemory] && [dict exists $res maxmemory-samples] && [dict exists $res maxmemory-clients]}  
+
+        # Verify we also got the explicit config
+        assert {[dict exists $res bind]}  
+    }
+
     # Config file at this point is at a weird state, and includes all
     # known keywords. Might be a good idea to avoid adding tests here.
 }
