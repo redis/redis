@@ -117,6 +117,22 @@ start_server {tags {"scripting"}} {
         r fcall test 0
     } {hello}
 
+    test {FUNCTION - test debug reload different options} {
+        catch {r debug reload noflush} e
+        assert_match "*Error trying to load the RDB*" $e
+        r debug reload noflush merge
+        r function list
+    } {{name test engine LUA description {some description}}}
+
+    test {FUNCTION - test debug reload with nosave and noflush} {
+        r function delete test
+        r set x 1
+        r debug reload
+        r function create LUA test DESCRIPTION {some description} {return 'hello'}
+        r debug reload nosave noflush merge
+        r function list
+    } {{name test engine LUA description {some description}}}
+
     test {FUNCTION - test fcall_ro with write command} {
         r function create lua test REPLACE {return redis.call('set', 'x', '1')}
         catch { r fcall_ro test 0 } e
@@ -250,14 +266,14 @@ start_server {tags {"scripting repl"}} {
                 r -1 function create LUA test DESCRIPTION {some description} {return 'hello'}
             } e
             set _ $e
-        } {*Can not create a function on a read only replica*}
+        } {*can't write against a read only replica*}
 
         test "FUNCTION - delete on read only replica" {
             catch {
                 r -1 function delete test
             } e
             set _ $e
-        } {*Can not delete a function on a read only replica*}
+        } {*can't write against a read only replica*}
 
         test "FUNCTION - function effect is replicated to replica" {
             r function create LUA test REPLACE {return redis.call('set', 'x', '1')}
@@ -276,5 +292,25 @@ start_server {tags {"scripting repl"}} {
             } e
             set _ $e
         } {*can't write against a read only replica*}
+    }
+}
+
+test {FUNCTION can processes create and delete commands in AOF when doing "debug loadaof" in read-only slaves} {
+    start_server {} {
+        r config set appendonly yes
+        waitForBgrewriteaof r
+        r FUNCTION CREATE lua test "return 'hello'"
+        r config set slave-read-only yes
+        r slaveof 127.0.0.1 0
+        r debug loadaof
+        r slaveof no one
+        assert_equal [r function list] {{name test engine LUA description {}}}
+
+        r FUNCTION DELETE test
+
+        r slaveof 127.0.0.1 0
+        r debug loadaof
+        r slaveof no one
+        assert_equal [r function list] {}
     }
 }

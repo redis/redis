@@ -301,11 +301,6 @@ void functionInfoCommand(client *c) {
  * FUNCTION DELETE <FUNCTION NAME>
  */
 void functionDeleteCommand(client *c) {
-    if (server.masterhost && server.repl_slave_ro && !(c->flags & CLIENT_MASTER)) {
-        addReplyError(c, "Can not delete a function on a read only replica");
-        return;
-    }
-
     robj *function_name = c->argv[2];
     functionInfo *fi = dictFetchValue(functions_ctx->functions, function_name->ptr);
     if (!fi) {
@@ -445,12 +440,6 @@ int functionsCreateWithFunctionCtx(sds function_name,sds engine_name, sds desc, 
  * FUNCTION CODE   - function code to pass to the engine
  */
 void functionCreateCommand(client *c) {
-
-    if (server.masterhost && server.repl_slave_ro && !(c->flags & CLIENT_MASTER)) {
-        addReplyError(c, "Can not create a function on a read only replica");
-        return;
-    }
-
     robj *engine_name = c->argv[2];
     robj *function_name = c->argv[3];
 

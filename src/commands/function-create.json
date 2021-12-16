@@ -9,7 +9,7 @@
         "function": "functionCreateCommand",
         "command_flags": [
             "NOSCRIPT",
-            "MAY_REPLICATE"
+            "WRITE"
         ],
         "acl_categories": [
             "SCRIPTING"

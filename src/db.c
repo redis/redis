@@ -32,6 +32,7 @@
 #include "atomicvar.h"
 #include "latency.h"
 #include "script.h"
+#include "functions.h"
 
 #include <signal.h>
 #include <ctype.h>
@@ -428,6 +429,7 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
  * DB number is out of range, and errno is set to EINVAL. */
 long long emptyDb(int dbnum, int flags, void(callback)(dict*)) {
     int async = (flags & EMPTYDB_ASYNC);
+    int with_functions = (flags & EMPTYDB_WITHFUNCTIONS);
     RedisModuleFlushInfoV1 fi = {REDISMODULE_FLUSHINFO_VERSION,!async,dbnum};
     long long removed = 0;
 
@@ -455,6 +457,8 @@ long long emptyDb(int dbnum, int flags, void(callback)(dict*)) {
     if (server.cluster_enabled) slotToKeyFlush(server.db);
 
     if (dbnum == -1) flushSlaveKeysWithExpireList();
+
+    if (with_functions) functionsCtxClear(functionsCtxGetCurrent());
 
     /* Also fire the end event. Note that this event will fire almost
      * immediately after the start event if the flush is asynchronous. */
