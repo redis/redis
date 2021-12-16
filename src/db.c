@@ -429,7 +429,7 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
  * DB number is out of range, and errno is set to EINVAL. */
 long long emptyDb(int dbnum, int flags, void(callback)(dict*)) {
     int async = (flags & EMPTYDB_ASYNC);
-    int with_functions = (flags & EMPTYDB_WITHFUNCTIONS);
+    int with_functions = !(flags & EMPTYDB_NOFUNCTIONS);
     RedisModuleFlushInfoV1 fi = {REDISMODULE_FLUSHINFO_VERSION,!async,dbnum};
     long long removed = 0;
 
@@ -458,7 +458,10 @@ long long emptyDb(int dbnum, int flags, void(callback)(dict*)) {
 
     if (dbnum == -1) flushSlaveKeysWithExpireList();
 
-    if (with_functions) functionsCtxClear(functionsCtxGetCurrent());
+    if (with_functions) {
+        serverAssert(dbnum == -1);
+        functionsCtxClear(functionsCtxGetCurrent());
+    }
 
     /* Also fire the end event. Note that this event will fire almost
      * immediately after the start event if the flush is asynchronous. */
@@ -618,7 +621,8 @@ void flushdbCommand(client *c) {
     int flags;
 
     if (getFlushCommandFlags(c,&flags) == C_ERR) return;
-    server.dirty += emptyDb(c->db->id,flags,NULL);
+    /* flushdb should not flush the functions */
+    server.dirty += emptyDb(c->db->id,flags | EMPTYDB_NOFUNCTIONS,NULL);
     addReply(c,shared.ok);
 #if defined(USE_JEMALLOC)
     /* jemalloc 5 doesn't release pages back to the OS when there's no traffic.
@@ -635,7 +639,8 @@ void flushdbCommand(client *c) {
 void flushallCommand(client *c) {
     int flags;
     if (getFlushCommandFlags(c,&flags) == C_ERR) return;
-    flushAllDataAndResetRDB(flags);
+    /* flushall should not flush the functions */
+    flushAllDataAndResetRDB(flags | EMPTYDB_NOFUNCTIONS);
     addReply(c,shared.ok);
 }
 

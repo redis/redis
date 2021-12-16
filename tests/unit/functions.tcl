@@ -127,11 +127,21 @@ start_server {tags {"scripting"}} {
     test {FUNCTION - test debug reload with nosave and noflush} {
         r function delete test
         r set x 1
+        r function create LUA test1 DESCRIPTION {some description} {return 'hello'}
         r debug reload
-        r function create LUA test DESCRIPTION {some description} {return 'hello'}
+        r function create LUA test2 DESCRIPTION {some description} {return 'hello'}
         r debug reload nosave noflush merge
+        assert_equal [r fcall test1 0] {hello}
+        assert_equal [r fcall test2 0] {hello}
+    }
+
+    test {FUNCTION - test flushall and flushdb do not clean functions} {
+        r function flush
+        r function create lua test REPLACE {return redis.call('set', 'x', '1')}
+        r flushall
+        r flushdb
         r function list
-    } {{name test engine LUA description {some description}}}
+    } {{name test engine LUA description {}}}
 
     test {FUNCTION - test fcall_ro with write command} {
         r function create lua test REPLACE {return redis.call('set', 'x', '1')}

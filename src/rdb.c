@@ -2712,7 +2712,7 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
     }
 }
 
-static int rdbFunctionLoad(rio *rdb, int ver, functionsCtx* functions_ctx, int flags) {
+static int rdbFunctionLoad(rio *rdb, int ver, functionsCtx* functions_ctx, int rdbflags) {
     UNUSED(ver);
     sds name = NULL;
     sds engine_name = NULL;
@@ -2746,7 +2746,7 @@ static int rdbFunctionLoad(rio *rdb, int ver, functionsCtx* functions_ctx, int f
         goto error;
     }
 
-    if (functionsCreateWithFunctionCtx(name, engine_name, desc, blob, flags & RDBFLAGS_ALLOW_DUP, &err, functions_ctx) != C_OK) {
+    if (functionsCreateWithFunctionCtx(name, engine_name, desc, blob, rdbflags & RDBFLAGS_ALLOW_DUP, &err, functions_ctx) != C_OK) {
         serverLog(LL_WARNING, "Failed compiling and saving the function %s", err);
         goto error;
     }
