@@ -305,12 +305,13 @@ class Command(object):
 
     def write_internal_structs(self, f):
         if self.subcommands:
-            for subcommand in sorted(self.subcommands, key=lambda cmd: cmd.name):
+            subcommand_list = sorted(self.subcommands, key=lambda cmd: cmd.name)
+            for subcommand in subcommand_list:
                 subcommand.write_internal_structs(f)
 
             f.write("/* %s command table */\n" % self.fullname())
             f.write("struct redisCommand %s[] = {\n" % self.subcommand_table_name())
-            for subcommand in self.subcommands:
+            for subcommand in subcommand_list:
                 f.write("{%s},\n" % subcommand.struct_code())
             f.write("{0}\n")
             f.write("};\n\n")
