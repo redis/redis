@@ -2281,7 +2281,7 @@ void initServer(void) {
         server.sofd = anetUnixServer(server.neterr,server.unixsocket,
             (mode_t)server.unixsocketperm, server.tcp_backlog);
         if (server.sofd == ANET_ERR) {
-            serverLog(LL_WARNING, "Opening Unix socket: %s", server.neterr);
+            serverLog(LL_WARNING, "Failed opening Unix socket: %s", server.neterr);
             exit(1);
         }
         anetNonBlock(NULL,server.sofd);
@@ -3518,7 +3518,8 @@ void closeListeningSockets(int unlink_unix_socket) {
         for (j = 0; j < server.cfd.count; j++) close(server.cfd.fd[j]);
     if (unlink_unix_socket && server.unixsocket) {
         serverLog(LL_NOTICE,"Removing the unix socket file.");
-        unlink(server.unixsocket); /* don't care if this fails */
+        if (unlink(server.unixsocket) != 0)
+            serverLog(LL_WARNING,"Error removing the unix socket file: %s",strerror(errno));
     }
 }
 
