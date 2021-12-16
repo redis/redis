@@ -810,37 +810,34 @@ end:
  *----------------------------------------------------------------------------*/
 
 void configGetCommand(client *c) {
-    robj *o = c->argv[2];
     void *replylen = addReplyDeferredLen(c);
-    char *pattern = o->ptr;
     int matches = 0;
-    serverAssertWithInfo(c,o,sdsEncodedObject(o));
+    int i;
 
     for (standardConfig *config = configs; config->name != NULL; config++) {
-        /* Hidden configs require an exact match (not a pattern) */
-        if (config->flags & HIDDEN_CONFIG) {
-            if (!strcasecmp(pattern, config->name)) {
+        int matched_conf = 0;
+        int matched_alias = 0;
+        for (i = 0; i < c->argc - 2 && (!matched_conf || !matched_alias); i++) {
+            robj *o = c->argv[2+i];
+            char *pattern = o->ptr;
+
+            /* Note that hidden configs require an exact match (not a pattern) */
+            if (!matched_conf &&
+                (((config->flags & HIDDEN_CONFIG) && !strcasecmp(pattern, config->name)) ||
+                 (!(config->flags & HIDDEN_CONFIG) && stringmatch(pattern, config->name, 1)))) {
                 addReplyBulkCString(c, config->name);
                 addReplyBulkSds(c, config->interface.get(config->data));
                 matches++;
-                break;
-            } else if (config->alias && !strcasecmp(pattern, config->alias)) {
+                matched_conf = 1;
+            }
+            if (!matched_alias && config->alias &&
+                (((config->flags & HIDDEN_CONFIG) && !strcasecmp(pattern, config->alias)) ||
+                 (!(config->flags & HIDDEN_CONFIG) && stringmatch(pattern, config->alias, 1)))) {
                 addReplyBulkCString(c, config->alias);
                 addReplyBulkSds(c, config->interface.get(config->data));
                 matches++;
-                break;
+                matched_alias = 1;
             }
-            continue;
-        }
-        if (stringmatch(pattern,config->name,1)) {
-            addReplyBulkCString(c,config->name);
-            addReplyBulkSds(c, config->interface.get(config->data));
-            matches++;
-        }
-        if (config->alias && stringmatch(pattern,config->alias,1)) {
-            addReplyBulkCString(c,config->alias);
-            addReplyBulkSds(c, config->interface.get(config->data));
-            matches++;
         }
     }
 
