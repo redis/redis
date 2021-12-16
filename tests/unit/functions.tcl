@@ -335,7 +335,7 @@ start_server {tags {"scripting repl external:skip"}} {
     }
 }
 
-test {FUNCTION can processes create and delete commands in AOF when doing "debug loadaof" in read-only slaves} {
+test {FUNCTION can processes create, delete and flush commands in AOF when doing "debug loadaof" in read-only slaves} {
     start_server {} {
         r config set appendonly yes
         waitForBgrewriteaof r
@@ -347,6 +347,14 @@ test {FUNCTION can processes create and delete commands in AOF when doing "debug
         assert_equal [r function list] {{name test engine LUA description {}}}
 
         r FUNCTION DELETE test
+
+        r slaveof 127.0.0.1 0
+        r debug loadaof
+        r slaveof no one
+        assert_equal [r function list] {}
+
+        r FUNCTION CREATE lua test "return 'hello'"
+        r FUNCTION FLUSH
 
         r slaveof 127.0.0.1 0
         r debug loadaof
