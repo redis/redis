@@ -2352,6 +2352,7 @@ void initServer(void) {
     server.stat_module_progress = 0;
     for (int j = 0; j < CLIENT_TYPE_COUNT; j++)
         server.stat_clients_type_memory[j] = 0;
+    server.stat_cluster_links_memory = 0;
     server.cron_malloc_stats.zmalloc_used = 0;
     server.cron_malloc_stats.process_rss = 0;
     server.cron_malloc_stats.allocator_allocated = 0;
@@ -4559,6 +4560,7 @@ sds genRedisInfoString(const char *section) {
             "mem_total_replication_buffers:%zu\r\n"
             "mem_clients_slaves:%zu\r\n"
             "mem_clients_normal:%zu\r\n"
+            "mem_cluster_links:%zu\r\n"
             "mem_aof_buffer:%zu\r\n"
             "mem_allocator:%s\r\n"
             "active_defrag_running:%d\r\n"
@@ -4611,6 +4613,7 @@ sds genRedisInfoString(const char *section) {
             server.repl_buffer_mem,
             mh->clients_slaves,
             mh->clients_normal,
+            mh->cluster_links,
             mh->aof_buffer,
             ZMALLOC_LIB,
             server.active_defrag_running,
