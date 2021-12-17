@@ -1,6 +1,7 @@
 {
     "SHUTDOWN": {
         "summary": "Synchronously save the dataset to disk and then shut down the server",
+        "complexity": "O(N) where N is the total number of keys in all databases",
         "group": "server",
         "since": "1.0.0",
         "arity": -1,
@@ -29,6 +30,18 @@
                         "token": "SAVE"
                     }
                 ]
+            },
+            {
+                "name": "now",
+                "type": "pure-token",
+                "token": "NOW",
+                "optional": true
+            },
+            {
+                "name": "force",
+                "type": "pure-token",
+                "token": "FORCE",
+                "optional": true
             }
         ]
     }
