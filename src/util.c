@@ -45,6 +45,7 @@
 
 #include "util.h"
 #include "sha256.h"
+#include "config.h"
 
 /* Glob-style pattern matching. */
 int stringmatchlen(const char *pattern, int patternLen,
@@ -834,10 +835,11 @@ int dirCreateIfMissing(char *dname) {
 
 int dirRemove(char *dname) {
     DIR *dir;
-    struct stat stat_path, stat_entry;
+    struct redis_stat stat_path;
+    struct redis_stat stat_entry;
     struct dirent *entry;
 
-    if (stat(dname, &stat_path) == -1 || S_ISDIR(stat_path.st_mode) == 0) {
+    if (redis_stat(dname, &stat_path) == -1 || S_ISDIR(stat_path.st_mode) == 0) {
         return -1;
     }
 
@@ -850,7 +852,7 @@ int dirRemove(char *dname) {
 
         sds full_path = sdscatfmt(sdsempty(), "%s/%s", dname, entry->d_name);
 
-        if (stat(full_path, &stat_entry) == -1) {
+        if (redis_stat(full_path, &stat_entry) == -1) {
             sdsfree(full_path);
             closedir(dir);
             return -1;
