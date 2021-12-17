@@ -7897,6 +7897,7 @@ int RM_InfoAddSection(RedisModuleInfoCtx *ctx, char *name) {
         if ((dictFind(ctx->requested_sections,lower_full_name) == NULL) &&
             (dictFind(ctx->requested_sections,ctx->module->name) == NULL)) {
             sdsfree(full_name);
+            sdsfree(lower_full_name);
             ctx->in_section = 0;
             return REDISMODULE_ERR;
         }
@@ -7905,6 +7906,7 @@ int RM_InfoAddSection(RedisModuleInfoCtx *ctx, char *name) {
     ctx->info = sdscatfmt(ctx->info, "# %S\r\n", full_name);
     ctx->in_section = 1;
 
+    sdsfree(lower_full_name);
     return REDISMODULE_OK;
 }
 
