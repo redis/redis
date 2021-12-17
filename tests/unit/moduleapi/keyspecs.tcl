@@ -16,8 +16,8 @@ start_server {tags {"modules"}} {
         }
         # Verify key-specs
         set keyspecs [dict get $mydict key-specs]
-        assert_equal [lindex $keyspecs 0] {flags read begin-search {type index spec {index 1}} find-keys {type range spec {lastkey 0 keystep 1 limit 0}}}
-        assert_equal [lindex $keyspecs 1] {flags write begin-search {type index spec {index 2}} find-keys {type range spec {lastkey 0 keystep 1 limit 0}}}
+        assert_equal [lindex $keyspecs 0] {flags read begin_search {type index spec {index 1}} find_keys {type range spec {lastkey 0 keystep 1 limit 0}}}
+        assert_equal [lindex $keyspecs 1] {flags write begin_search {type index spec {index 2}} find_keys {type range spec {lastkey 0 keystep 1 limit 0}}}
     }
 
     test "Module key specs: Complex specs, case 1" {
@@ -33,9 +33,9 @@ start_server {tags {"modules"}} {
         }
         # Verify key-specs
         set keyspecs [dict get $mydict key-specs]
-        assert_equal [lindex $keyspecs 0] {flags {} begin-search {type index spec {index 1}} find-keys {type range spec {lastkey 0 keystep 1 limit 0}}}
-        assert_equal [lindex $keyspecs 1] {flags write begin-search {type keyword spec {keyword STORE startfrom 2}} find-keys {type range spec {lastkey 0 keystep 1 limit 0}}}
-        assert_equal [lindex $keyspecs 2] {flags read begin-search {type keyword spec {keyword KEYS startfrom 2}} find-keys {type keynum spec {keynumidx 0 firstkey 1 keystep 1}}}
+        assert_equal [lindex $keyspecs 0] {flags {} begin_search {type index spec {index 1}} find_keys {type range spec {lastkey 0 keystep 1 limit 0}}}
+        assert_equal [lindex $keyspecs 1] {flags write begin_search {type keyword spec {keyword STORE startfrom 2}} find_keys {type range spec {lastkey 0 keystep 1 limit 0}}}
+        assert_equal [lindex $keyspecs 2] {flags read begin_search {type keyword spec {keyword KEYS startfrom 2}} find_keys {type keynum spec {keynumidx 0 firstkey 1 keystep 1}}}
     }
 
     test "Module key specs: Complex specs, case 2" {
@@ -51,11 +51,11 @@ start_server {tags {"modules"}} {
         }
         # Verify key-specs
         set keyspecs [dict get $mydict key-specs]
-        assert_equal [lindex $keyspecs 0] {flags write begin-search {type keyword spec {keyword STORE startfrom 5}} find-keys {type range spec {lastkey 0 keystep 1 limit 0}}}
-        assert_equal [lindex $keyspecs 1] {flags read begin-search {type index spec {index 1}} find-keys {type range spec {lastkey 0 keystep 1 limit 0}}}
-        assert_equal [lindex $keyspecs 2] {flags read begin-search {type index spec {index 2}} find-keys {type range spec {lastkey 0 keystep 1 limit 0}}}
-        assert_equal [lindex $keyspecs 3] {flags write begin-search {type index spec {index 3}} find-keys {type keynum spec {keynumidx 0 firstkey 1 keystep 1}}}
-        assert_equal [lindex $keyspecs 4] {flags write begin-search {type keyword spec {keyword MOREKEYS startfrom 5}} find-keys {type range spec {lastkey -1 keystep 1 limit 0}}}
+        assert_equal [lindex $keyspecs 0] {flags write begin_search {type keyword spec {keyword STORE startfrom 5}} find_keys {type range spec {lastkey 0 keystep 1 limit 0}}}
+        assert_equal [lindex $keyspecs 1] {flags read begin_search {type index spec {index 1}} find_keys {type range spec {lastkey 0 keystep 1 limit 0}}}
+        assert_equal [lindex $keyspecs 2] {flags read begin_search {type index spec {index 2}} find_keys {type range spec {lastkey 0 keystep 1 limit 0}}}
+        assert_equal [lindex $keyspecs 3] {flags write begin_search {type index spec {index 3}} find_keys {type keynum spec {keynumidx 0 firstkey 1 keystep 1}}}
+        assert_equal [lindex $keyspecs 4] {flags write begin_search {type keyword spec {keyword MOREKEYS startfrom 5}} find_keys {type range spec {lastkey -1 keystep 1 limit 0}}}
     }
 
     test "Module command list filtering" {
