@@ -1680,15 +1680,23 @@ void logStackTrace(void *eip, int uplevel) {
 
 /* Log global server info */
 void logServerInfo(void) {
+    
+    if (server.current_client == NULL) return;
+    
+    client *cc = server.current_client;
     sds infostring, clients;
     serverLogRaw(LL_WARNING|LL_RAW, "\n------ INFO OUTPUT ------\n");
-    infostring = genRedisInfoString(NULL,1,0);
+    int all_sections = 0;
+    int everything = 0;
+    dict * sections_dict = genSectionDict(cc, "server", &all_sections, &everything);
+    infostring = genRedisInfoString(sections_dict,1,0);
     serverLogRaw(LL_WARNING|LL_RAW, infostring);
     serverLogRaw(LL_WARNING|LL_RAW, "\n------ CLIENT LIST OUTPUT ------\n");
     clients = getAllClientsInfoString(-1);
     serverLogRaw(LL_WARNING|LL_RAW, clients);
     sdsfree(infostring);
     sdsfree(clients);
+    
 }
 
 /* Log certain config values, which can be used for debuggin */
