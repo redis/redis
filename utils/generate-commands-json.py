@@ -46,11 +46,6 @@ def convert_keyspec(spec):
     rep['find_keys'] = convert_list_to_dict(rep['find_keys'], True)
     return rep
 
-def set_key_if_in_value_and_not_empty_list(obj, key, value):
-    if key in value and (type(value[key]) is not list or len(value[key]) > 0):
-        obj[key] = value[key]
-    return obj
-
 def convert_command_to_objects(container, cmd):
     obj = {}
     rep = [obj]
@@ -88,7 +83,8 @@ def convert_command_to_objects(container, cmd):
     ]
     obj[key] = {}
     for field in FIELDS:
-        obj[key] = set_key_if_in_value_and_not_empty_list(obj[key], field, meta)
+        if field in meta and (type(meta[field]) is not list or len(meta[field]) > 0):
+            obj[key][field] = meta[field]
 
     obj[key] = {
         **obj[key],
