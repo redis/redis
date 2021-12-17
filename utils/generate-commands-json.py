@@ -53,6 +53,7 @@ def convert_command_to_objects(container, cmd):
     key = f'{container} {name}' if container else name
 
     meta = convert_list_to_dict(cmd[7], False)
+    meta['arity'] = cmd[1]
     meta['command_flags'] = cmd[2]
     meta['acl_categories'] = cmd[6]
 
@@ -77,9 +78,10 @@ def convert_command_to_objects(container, cmd):
         'replaced_by',
         'history',
         'acl_categories',
+        'arity',
         'key_specs',
         'arguments',
-        'command_flags'
+        'command_flags',
     ]
     obj[key] = {}
     for field in FIELDS:
@@ -88,10 +90,6 @@ def convert_command_to_objects(container, cmd):
 
     obj[key] = {
         **obj[key],
-        'arity': cmd[1],
-        'first': cmd[3],
-        'last': cmd[4],
-        'step': cmd[5],
         **meta['doc_flags'],
     }
     return rep
