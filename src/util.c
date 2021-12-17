@@ -837,9 +837,7 @@ int dirRemove(char *dname) {
     struct stat stat_path, stat_entry;
     struct dirent *entry;
 
-    stat(dname, &stat_path);
-
-    if (S_ISDIR(stat_path.st_mode) == 0) {
+    if (stat(dname, &stat_path) == -1 || S_ISDIR(stat_path.st_mode) == 0) {
         return -1;
     }
 
@@ -850,10 +848,13 @@ int dirRemove(char *dname) {
     while ((entry = readdir(dir)) != NULL) {
         if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")) continue;
 
-        sds full_path = sdscat(sdsnew(dname), "/");
-        full_path = sdscat(full_path, entry->d_name);
+        sds full_path = sdscatfmt(sdsempty(), "%s/%s", dname, entry->d_name);
 
-        stat(full_path, &stat_entry);
+        if (stat(full_path, &stat_entry) == -1) {
+            sdsfree(full_path);
+            closedir(dir);
+            return -1;
+        }
 
         if (S_ISDIR(stat_entry.st_mode) != 0) {
             dirRemove(full_path);
@@ -873,13 +874,13 @@ int dirRemove(char *dname) {
         closedir(dir);
         return -1;
     }
+
     closedir(dir);
     return 0;
 }
 
 sds makePath(char *path, char *filename) {
-    sds relpath = sdscat(sdsnew(path), "/");
-    return sdscat(relpath, filename);
+    return sdscatfmt(sdsempty(), "%s/%s", path, filename);
 }
 
 #ifdef REDIS_TEST

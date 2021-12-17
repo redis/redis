@@ -79,7 +79,7 @@ off_t getBaseAndIncrAppendOnlyFilesSize(aofManifest *am);
 #define AOF_FORMAT_SUFFIX          ".aof"
 #define MANIFEST_NAME_SUFFIX       ".manifest"   
 #define MANIFEST_TEMP_NAME_PREFIX  "temp_"      
-#define UPGRADE_TEMP_DIR_NAME      ".temp-upgrade"
+#define AOF_TEMP_DIR_NAME_PREFIX    ".temp-"
 
 /* AOF manifest key. */
 #define AOF_MANIFEST_KEY_FILE_NAME   "file"
@@ -147,6 +147,11 @@ sds getAofManifestFileName() {
 sds getTempAofManifestFileName() {
     return sdscatprintf(sdsempty(), "%s%s%s", MANIFEST_TEMP_NAME_PREFIX, 
                 server.aof_filename, MANIFEST_NAME_SUFFIX);
+}
+
+sds getTempAofDirName() {
+    return sdscatprintf(sdsempty(), "%s%s", AOF_TEMP_DIR_NAME_PREFIX, 
+        server.aof_filename);
 }
 
 /* Returns the string representation of aofManifest pointed to by am.
@@ -565,34 +570,37 @@ int persistAofManifest(aofManifest *am) {
 
 /* Called in `loadAppendOnlyFiles` when we upgrade from a old version redis.
  * 
- * 1) Check if the UPGRADE_TEMP_DIR_NAME directory already exists.
+ * 1) Check if the temp AOF directory already exists.
  *    1a) If it exists, then check if 'server.aof_filename' file exists in this 
  *        directory, If it exists, then continue to execute rename and return.
  *    1b) If it exists and the 'server.aof_filename' file not exists in this 
- *        directory, then we directly delete UPGRADE_TEMP_DIR_NAME directory.
- * 2) Create UPGRADE_TEMP_DIR_NAME directory.
+ *        directory, then we directly delete temp AOF directory.
+ * 2) Create temp AOF directory.
  * 3) Use 'server.aof_filename' to construct a BASE type aofInfo and add it to 
- *    aofManifest, then persist the manifest file to UPGRADE_TEMP_DIR_NAME directory.
- * 4) Move the old AOF file (server.aof_filename) to UPGRADE_TEMP_DIR_NAME directory.
- * 5) rename UPGRADE_TEMP_DIR_NAME to server.aof_filename.
+ *    aofManifest, then persist the manifest file to temp AOF directory.
+ * 4) Move the old AOF file (server.aof_filename) to temp AOF directory.
+ * 5) rename temp AOF to server.aof_filename.
  */
 int aofUpgradePrepare(aofManifest *am) {
-    sds aof_filepath = makePath(UPGRADE_TEMP_DIR_NAME, server.aof_filename);
-    /* If the UPGRADE_TEMP_DIR_NAME directory already exists, then we are in an 
+    int ret = C_OK;
+
+    sds tmp_dirname = getTempAofDirName();
+    sds aof_filepath = makePath(tmp_dirname, server.aof_filename);
+
+    /* If the temp AOF directory already exists, then we are in an 
      * interrupted upgrade state. */
-    if (dirExists(UPGRADE_TEMP_DIR_NAME)) {
-        sds aof_filepath = makePath(UPGRADE_TEMP_DIR_NAME, server.aof_filename);
+    if (dirExists(tmp_dirname)) {
         /* If the old AOF file has been successfully copied, we can directly
          * perform the rename operation */
         if (fileExist(aof_filepath)) {
-            sdsfree(aof_filepath);
             goto rename;
         } else {
-            /* Otherwise, we directly delete UPGRADE_TEMP_DIR_NAME dir and re-start
+            /* Otherwise, we directly delete temp AOF dir and re-start
              * the upgrade process. */
-            if (dirRemove(UPGRADE_TEMP_DIR_NAME) != 0) {
-                serverLog(LL_NOTICE, "Failed to remove append-only dir %s",
-                    UPGRADE_TEMP_DIR_NAME);
+            if (dirRemove(tmp_dirname) == -1) {
+                serverLog(LL_NOTICE, "Failed to remove temp append-only dir %s",
+                    tmp_dirname);
+                ret = C_ERR;
                 goto cleanup;
             }
         } 
@@ -600,10 +608,11 @@ int aofUpgradePrepare(aofManifest *am) {
 
     serverAssert(fileExist(server.aof_filename));
 
-    /* Create UPGRADE_TEMP_DIR_NAME directory. */
-    if (!dirCreateIfMissing(UPGRADE_TEMP_DIR_NAME)) {
-        serverLog(LL_WARNING, "Can't open create append-only dir %s", 
-            UPGRADE_TEMP_DIR_NAME);
+    /* Create temp AOF directory. */
+    if (!dirCreateIfMissing(tmp_dirname)) {
+        serverLog(LL_WARNING, "Can't open create temp append-only dir %s", 
+            tmp_dirname);
+        ret = C_ERR;
         goto cleanup;
     }
 
@@ -616,40 +625,40 @@ int aofUpgradePrepare(aofManifest *am) {
     am->curr_base_file_seq = 1;
     am->dirty = 1;
 
-    /* Persist the manifest file to UPGRADE_TEMP_DIR_NAME directory. */
+    /* Persist the manifest file to temp AOF directory. */
     sds amstr = getAofManifestAsString(am);
-    int ret = writeAofManifestFile(UPGRADE_TEMP_DIR_NAME, amstr);
+    ret = writeAofManifestFile(tmp_dirname, amstr);
     sdsfree(amstr);
     if (ret == C_ERR) goto cleanup;
     am->dirty = 0;
 
-    /* Move the old AOF file to UPGRADE_TEMP_DIR_NAME directory. */
+    /* Move the old AOF file to temp AOF directory. */
     if (rename(server.aof_filename, aof_filepath) == -1) {
         serverLog(LL_WARNING,
             "Error trying to move the old AOF file %s into dir %s: %s",
             server.aof_filename,
-            UPGRADE_TEMP_DIR_NAME,
+            tmp_dirname,
             strerror(errno));
+        ret = C_ERR;
         goto cleanup;
     }
 
 rename:
-    /* Atomically rename UPGRADE_TEMP_DIR_NAME to 'server.aof_filename'. */
-    if (rename(UPGRADE_TEMP_DIR_NAME, server.aof_filename) == -1) {
+    /* Atomically rename temp AOF to 'server.aof_filename'. */
+    if (rename(tmp_dirname, server.aof_filename) == -1) {
         serverLog(LL_WARNING,
             "Error trying to rename the temporary AOF dir %s into %s: %s",
-            UPGRADE_TEMP_DIR_NAME,
+            tmp_dirname,
             server.aof_filename,
             strerror(errno));
+        ret = C_ERR;
         goto cleanup;
     }
 
-    sdsfree(aof_filepath); 
-    return C_OK;
-
 cleanup:
    sdsfree(aof_filepath); 
-   return C_ERR;
+   sdsfree(tmp_dirname);
+   return ret;
 }
 
 /* When AOFRW success, the previous BASE and INCR AOFs will 
@@ -711,6 +720,7 @@ void aofOpenIfNeededOnServerStart(void) {
 
     /* Here we should use 'O_APPEND' flag. */
     sds aof_filepath = makePath(server.aof_filename, aof_name);
+    printf("aof_filepath %s\n", aof_filepath);
     server.aof_fd = open(aof_filepath, O_WRONLY|O_APPEND|O_CREAT, 0644);
     sdsfree(aof_filepath);
     if (server.aof_fd == -1) {
@@ -1540,12 +1550,14 @@ int loadAppendOnlyFiles(aofManifest *am) {
      * from an old redis version. so we must fall back to the previous loading mode. */
     if (!dirExists(server.aof_filename)) {
         serverAssert(am->base_aof_info == NULL && listLength(am->incr_aof_list) == 0);
-
-        if (fileExist(server.aof_filename) || dirExists(UPGRADE_TEMP_DIR_NAME)) {
+        sds tmp_dirname = getTempAofDirName();
+        if (fileExist(server.aof_filename) || dirExists(tmp_dirname)) {
             if (aofUpgradePrepare(am) == C_ERR) {
+                sdsfree(tmp_dirname);
                 return AOF_FAILED;
             }
         }
+        sdsfree(tmp_dirname);
     }
 
     if (am->base_aof_info == NULL && listLength(am->incr_aof_list) == 0) {
