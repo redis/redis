@@ -41,9 +41,12 @@ start_server {} {
         set offset [status $master master_repl_offset]
         $replica config resetstat
 
+        set rd [redis_deferring_client]
+        $rd shutdown now
         catch {
-            $master debug restart
+            restart_server 0 true false
             set master [srv 0 client]
+            close $rd
         }
         wait_for_condition 50 1000 {
             [status $replica master_link_status] eq {up} &&
@@ -88,9 +91,12 @@ start_server {} {
         set offset [status $master master_repl_offset]
         $replica config resetstat
 
+        set rd [redis_deferring_client]
+        $rd shutdown now
         catch {
-            $master debug restart
+            restart_server 0 true false
             set master [srv 0 client]
+            close $rd
         }
         wait_for_condition 50 1000 {
             [status $replica master_link_status] eq {up} &&
