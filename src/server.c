@@ -3795,7 +3795,7 @@ void addReplyCommandArgList(client *c, struct redisCommandArg *args) {
         addReplyBulkCString(c, ARG_TYPE_STR[args[j].type]);
         maplen++;
         if (args[j].type == ARG_TYPE_KEY) {
-            addReplyBulkCString(c, "key-spec-index");
+            addReplyBulkCString(c, "key_spec_index");
             addReplyLongLong(c, args[j].key_spec_index);
             maplen++;
         }
@@ -3884,7 +3884,7 @@ void addReplyCommandKeySpecs(client *c, struct redisCommand *cmd) {
         addReplyBulkCString(c, "flags");
         addReplyFlagsForKeyArgs(c,cmd->key_specs[i].flags);
 
-        addReplyBulkCString(c, "begin-search");
+        addReplyBulkCString(c, "begin_search");
         switch (cmd->key_specs[i].begin_search_type) {
             case KSPEC_BS_UNKNOWN:
                 addReplyMapLen(c, 2);
@@ -3917,10 +3917,10 @@ void addReplyCommandKeySpecs(client *c, struct redisCommand *cmd) {
                 addReplyLongLong(c, cmd->key_specs[i].bs.keyword.startfrom);
                 break;
             default:
-                serverPanic("Invalid begin-search key spec type %d", cmd->key_specs[i].begin_search_type);
+                serverPanic("Invalid begin_search key spec type %d", cmd->key_specs[i].begin_search_type);
         }
 
-        addReplyBulkCString(c, "find-keys");
+        addReplyBulkCString(c, "find_keys");
         switch (cmd->key_specs[i].find_keys_type) {
             case KSPEC_FK_UNKNOWN:
                 addReplyMapLen(c, 2);
@@ -3959,7 +3959,7 @@ void addReplyCommandKeySpecs(client *c, struct redisCommand *cmd) {
                 addReplyLongLong(c, cmd->key_specs[i].fk.keynum.keystep);
                 break;
             default:
-                serverPanic("Invalid find-keys key spec type %d", cmd->key_specs[i].begin_search_type);
+                serverPanic("Invalid find_keys key spec type %d", cmd->key_specs[i].begin_search_type);
         }
     }
 }
@@ -4044,17 +4044,17 @@ void addReplyCommand(client *c, struct redisCommand *cmd) {
             maplen++;
         }
         if (cmd->doc_flags) {
-            addReplyBulkCString(c, "doc-flags");
+            addReplyBulkCString(c, "doc_flags");
             addReplyDocFlagsForCommand(c, cmd);
             maplen++;
         }
         if (cmd->deprecated_since) {
-            addReplyBulkCString(c, "deprecated-since");
+            addReplyBulkCString(c, "deprecated_since");
             addReplyBulkCString(c, cmd->deprecated_since);
             maplen++;
         }
         if (cmd->replaced_by) {
-            addReplyBulkCString(c, "replaced-by");
+            addReplyBulkCString(c, "replaced_by");
             addReplyBulkCString(c, cmd->replaced_by);
             maplen++;
         }
