@@ -10,7 +10,7 @@ start_server {tags {"latency-monitor needs:latency"}} {
         after 1100
         r debug sleep 0.5
         assert {[r latency history command] >= 3}
-    }
+    } {} {needs:debug}
 
     test {LATENCY HISTORY output is ok} {
         set min 250
@@ -38,20 +38,6 @@ start_server {tags {"latency-monitor needs:latency"}} {
         }
     }
 
-    test {LATENCY HISTORY / RESET with wrong event name is fine} {
-        assert {[llength [r latency history blabla]] == 0}
-        assert {[r latency reset blabla] == 0}
-    }
-
-    test {LATENCY DOCTOR produces some output} {
-        assert {[string length [r latency doctor]] > 0}
-    }
-
-    test {LATENCY RESET is able to reset events} {
-        assert {[r latency reset] > 0}
-        assert {[r latency latest] eq {}}
-    }
-
     test {LATENCY of expire events are correctly collected} {
         r config set latency-monitor-threshold 20
         r flushdb
@@ -70,6 +56,20 @@ start_server {tags {"latency-monitor needs:latency"}} {
             fail "key wasn't expired"
         }
         assert_match {*expire-cycle*} [r latency latest]
+    }
+
+    test {LATENCY HISTORY / RESET with wrong event name is fine} {
+        assert {[llength [r latency history blabla]] == 0}
+        assert {[r latency reset blabla] == 0}
+    }
+
+    test {LATENCY DOCTOR produces some output} {
+        assert {[string length [r latency doctor]] > 0}
+    }
+
+    test {LATENCY RESET is able to reset events} {
+        assert {[r latency reset] > 0}
+        assert {[r latency latest] eq {}}
     }
 
     test {LATENCY HELP should not have unexpected options} {

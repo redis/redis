@@ -822,11 +822,17 @@ proc punsubscribe {client {channels {}}} {
 }
 
 proc debug_digest_value {key} {
-    if {!$::ignoredigest} {
-        r debug digest-value $key
-    } else {
+    if {[lsearch $::denytags "needs:debug"] >= 0 || $::ignoredigest} {
         return "dummy-digest-value"
     }
+    r debug digest-value $key
+}
+
+proc debug_digest {{level 0}} {
+    if {[lsearch $::denytags "needs:debug"] >= 0 || $::ignoredigest} {
+        return "dummy-digest"
+    }
+    r $level debug digest
 }
 
 proc wait_for_blocked_client {} {

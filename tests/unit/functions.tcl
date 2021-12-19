@@ -115,7 +115,7 @@ start_server {tags {"scripting"}} {
     test {FUNCTION - test loading from rdb} {
         r debug reload
         r fcall test 0
-    } {hello}
+    } {hello} {needs:debug}
 
     test {FUNCTION - test fcall_ro with write command} {
         r function create lua test REPLACE {return redis.call('set', 'x', '1')}
