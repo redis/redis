@@ -3140,9 +3140,18 @@ struct redisCommandArg FUNCTION_INFO_Args[] = {
 /* FUNCTION RESTORE hints */
 #define FUNCTION_RESTORE_Hints NULL
 
+/* FUNCTION RESTORE policy argument table */
+struct redisCommandArg FUNCTION_RESTORE_policy_Subargs[] = {
+{"flush",ARG_TYPE_PURE_TOKEN,-1,"FLUSH",NULL,NULL,CMD_ARG_NONE},
+{"append",ARG_TYPE_PURE_TOKEN,-1,"APPEND",NULL,NULL,CMD_ARG_NONE},
+{"replace",ARG_TYPE_PURE_TOKEN,-1,"REPLACE",NULL,NULL,CMD_ARG_NONE},
+{0}
+};
+
 /* FUNCTION RESTORE argument table */
 struct redisCommandArg FUNCTION_RESTORE_Args[] = {
 {"serialized-value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"policy",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=FUNCTION_RESTORE_policy_Subargs},
 {0}
 };
 

@@ -407,11 +407,11 @@ void functionDumpCommand(client *c) {
  * FUNCTION RESTORE <blob> [FLUSH|APPEND|REPLACE]
  *
  * Restore the functions represented by the give blob.
- * Restore policy to can be given to control how to handle existing functions:
+ * Restore policy to can be given to control how to handle existing functions (default APPEND):
  * * FLUSH: delete all existing functions.
  * * APPEND: appends the restored functions to the existing functions. On collision, abort.
  * * REPLACE: appends the restored functions to the existing functions.
- *   On collision, replace the new function with the old function.
+ *   On collision, replace the old function with the new function.
  */
 void functionRestoreCommand(client *c) {
 #define RESTORE_POLICY_FLUSH 1
@@ -422,7 +422,7 @@ void functionRestoreCommand(client *c) {
         return;
     }
 
-    int restore_replicy = RESTORE_POLICY_FLUSH; /* default policy: FLUSH */
+    int restore_replicy = RESTORE_POLICY_APPEND; /* default policy: FLUSH */
     sds data = c->argv[2]->ptr;
     size_t data_len = sdslen(data);
     rio payload;
@@ -589,11 +589,11 @@ void functionHelpCommand(client *c) {
 "    Returns a blob representing the current functions, can be restored using FUNCTION RESTORE command",
 "RESTORE <BLOB> [FLUSH|APPEND|REPLACE]",
 "    Restore the functions represented by the given BLOB, it is possible to give a restore policy to",
-"    control how to handle existing functions:",
+"    control how to handle existing functions (default APPEND):",
 "    * FLUSH: delete all existing functions.",
 "    * APPEND: appends the restored functions to the existing functions. On collision, abort.",
-"    * REPLACE: appends the restored functions to the existing functions, On collision, replace the new",
-"      function with the old function.",
+"    * REPLACE: appends the restored functions to the existing functions, On collision, replace the old",
+"      function with the new function.",
 NULL };
     addReplyHelp(c, help);
 }

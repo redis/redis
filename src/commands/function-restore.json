@@ -18,6 +18,28 @@
             {
                 "name": "serialized-value",
                 "type": "string"
+            },
+            {
+                "name": "policy",
+                "type": "oneof",
+                "optional": true,
+                "arguments": [
+                    {
+                        "name": "flush",
+                        "type": "pure-token",
+                        "token": "FLUSH"
+                    },
+                    {
+                        "name": "append",
+                        "type": "pure-token",
+                        "token": "APPEND"
+                    },
+                    {
+                        "name": "replace",
+                        "type": "pure-token",
+                        "token": "REPLACE"
+                    }
+                ]
             }
         ]
     }
