@@ -164,7 +164,9 @@ proc test {name code {okpattern undefined} {tags {}}} {
     if {$::external} {
         catch {
             set r [redis [srv 0 host] [srv 0 port] 0 $::tls]
-            $r debug log "### Starting test $::cur_test"
+            catch {
+                $r debug log "### Starting test $::cur_test"
+            }
             $r close
         }
     } else {
