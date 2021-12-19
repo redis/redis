@@ -1590,32 +1590,30 @@ int _writeToClient(client *c, ssize_t *nwritten) {
         return C_OK;
     }
 
-    if (c->bufpos > 0) {
-        *nwritten = connWrite(c->conn,c->buf+c->sentlen,c->bufpos-c->sentlen);
-        if (*nwritten <= 0) return C_ERR;
-        c->sentlen += *nwritten;
-
-        /* If the buffer was sent, set bufpos to zero to continue with
-         * the remainder of the reply. */
-        if ((int)c->sentlen == c->bufpos) {
-            c->bufpos = 0;
-            c->sentlen = 0;
-        }
-    } else {
-        if (listLength(c->reply) > 1) {
-            struct iovec iov[IOV_MAX];
+    int nbuf = listLength(c->reply);
+    if (nbuf > 0) {
+        if (c->bufpos > 0) ++nbuf; 
+        if (nbuf > 1) {
+            struct iovec iov[nbuf > IOV_MAX ? IOV_MAX : nbuf];
             int iovcnt = 0;
+            size_t cum_bytes = 0;
+            /* If the successive buffer of responses is not empty, 
+             * add it to the buffer queue of writev() as well. */
+            if (c->bufpos > 0) {
+                iov[iovcnt].iov_base = c->buf + c->sentlen;
+                iov[iovcnt].iov_len = c->bufpos - c->sentlen;
+                cum_bytes += iov[iovcnt++].iov_len;
+            }
             /* The first node of reply list might be incomplete from the last call,
              * thus it needs to be calibrated to get the actual data address and length. */
-            size_t offset = c->sentlen;
+            size_t offset = c->bufpos > 0 ? 0 : c->sentlen;
             listIter iter;
             listNode *next;
             clientReplyBlock *o;
             listRewind(c->reply, &iter);
-            size_t cum_bytes = 0;
             while ((next = listNext(&iter)) && iovcnt < IOV_MAX && cum_bytes < NET_MAX_WRITES_PER_EVENT) {
                 o = listNodeValue(next);
-                if (o->used == 0) { /* empty node, just release it. */
+                if (o->used == 0) { /* empty node, just release it and skip. */
                     c->reply_bytes -= o->size;
                     listDelNode(c->reply, next);
                     continue;
@@ -1623,8 +1621,7 @@ int _writeToClient(client *c, ssize_t *nwritten) {
 
                 iov[iovcnt].iov_base = o->buf + offset;
                 iov[iovcnt].iov_len = o->used - offset;
-                ++iovcnt;
-                cum_bytes += o->used - offset;
+                cum_bytes += iov[iovcnt++].iov_len;
                 offset = 0;
             }
             if (iovcnt == 0) return C_OK;
@@ -1634,8 +1631,19 @@ int _writeToClient(client *c, ssize_t *nwritten) {
             /* Locate the new node which has leftover data and
             * release all nodes in front of it. */
             ssize_t remaining = *nwritten;
+            if (c->bufpos > 0) { /* deal with successive buffer of responses first. */
+                c->sentlen += remaining;
+
+                /* If the buffer was sent, set bufpos to zero to continue with
+                * the remainder of the reply. */
+                if ((int)c->sentlen >= c->bufpos) {
+                    c->bufpos = 0;
+                    c->sentlen = 0;
+                }
+                remaining -= iov[0].iov_len;
+            }
             listRewind(c->reply, &iter);
-            while (remaining) {
+            while (remaining > 0) {
                 next = listNext(&iter);
                 o = listNodeValue(next);
                 if (remaining < (ssize_t)(o->used - c->sentlen)) {
@@ -1673,7 +1681,19 @@ int _writeToClient(client *c, ssize_t *nwritten) {
          * the count of reply bytes to be exactly zero. */
         if (listLength(c->reply) == 0)
             serverAssert(c->reply_bytes == 0);
-    }
+    } else if (c->bufpos > 0) {
+        *nwritten = connWrite(c->conn, c->buf + c->sentlen, c->bufpos - c->sentlen);
+        if (*nwritten <= 0) return C_ERR;
+        c->sentlen += *nwritten;
+
+        /* If the buffer was sent, set bufpos to zero to continue with
+         * the remainder of the reply. */
+        if ((int)c->sentlen == c->bufpos) {
+            c->bufpos = 0;
+            c->sentlen = 0;
+        }
+    } 
+
     return C_OK;
 }
 
