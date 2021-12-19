@@ -404,7 +404,7 @@ void functionDumpCommand(client *c) {
 }
 
 /*
- * FUNCTION RESTORE [FLUSH|APPEND|REPLACE] <blob>
+ * FUNCTION RESTORE <blob> [FLUSH|APPEND|REPLACE]
  *
  * Restore the functions represented by the give blob.
  * Restore policy to can be given to control how to handle existing functions:
@@ -424,13 +424,13 @@ void functionRestoreCommand(client *c) {
 
     int restore_replicy = RESTORE_POLICY_FLUSH; /* default policy: FLUSH */
     sds data = c->argv[2]->ptr;
-    size_t data_len;
+    size_t data_len = sdslen(data);
     rio payload;
     dictIterator *iter = NULL;
     sds err = NULL;
 
     if (c->argc == 4) {
-        const char *restore_policy_str = c->argv[2]->ptr;
+        const char *restore_policy_str = c->argv[3]->ptr;
         if (!strcasecmp(restore_policy_str, "append")) {
             restore_replicy = RESTORE_POLICY_APPEND;
         } else if (!strcasecmp(restore_policy_str, "replace")) {
@@ -441,10 +441,7 @@ void functionRestoreCommand(client *c) {
             addReplyError(c, "Wrong restore policy given, value should be either FLUSH, APPEND or REPLACE.");
             return;
         }
-        data = c->argv[3]->ptr;
     }
-
-    data_len = sdslen(data);
 
     uint16_t rdbver;
     if (verifyDumpPayload((unsigned char*)data, data_len, &rdbver) != C_OK) {
@@ -590,7 +587,7 @@ void functionHelpCommand(client *c) {
 "    * SYNC: Synchronously flush the functions.",
 "DUMP [ASYNC|SYNC]",
 "    Returns a blob representing the current functions, can be restored using FUNCTION RESTORE command",
-"RESTORE [FLUSH|APPEND|REPLACE] <BLOB>",
+"RESTORE <BLOB> [FLUSH|APPEND|REPLACE]",
 "    Restore the functions represented by the given BLOB, it is possible to give a restore policy to",
 "    control how to handle existing functions:",
 "    * FLUSH: delete all existing functions.",

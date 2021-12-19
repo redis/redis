@@ -5876,7 +5876,7 @@ static int clusterManagerCommandAddNode(int argc, char **argv) {
         } else {
             assert(reply->type == REDIS_REPLY_STRING);
             clusterManagerLogInfo(">>> Send FUNCTION RESTORE to %s:%d\n", ip, port);
-            function_restore_reply = CLUSTER_MANAGER_COMMAND(new_node, "FUNCTION RESTORE APPEND %b", reply->str, reply->len);
+            function_restore_reply = CLUSTER_MANAGER_COMMAND(new_node, "FUNCTION RESTORE %b APPEND", reply->str, reply->len);
             if (!clusterManagerCheckRedisReply(new_node, function_restore_reply, &err)) {
                 clusterManagerLogErr(">>> Failed loading functions to the new node (error = '%s')\r\n", err? err : "NULL reply");
                 if (err) zfree(err);

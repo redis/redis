@@ -129,7 +129,7 @@ start_server {tags {"scripting"}} {
         set e [r function dump]
         r function flush
         assert_match {} [r function list]
-        r function restore FLUSH $e
+        r function restore $e FLUSH
         r function list
     } {{name test engine LUA description {some description}}}
 
@@ -138,11 +138,11 @@ start_server {tags {"scripting"}} {
         r function flush
         assert_match {} [r function list]
         r function create lua test {return 'hello1'}
-        catch {r function restore APPEND $e} err
+        catch {r function restore $e APPEND} err
         assert_match {*already exists*} $err
         r function flush
         r function create lua test1 {return 'hello1'}
-        r function restore APPEND $e
+        r function restore $e APPEND
         assert_match {hello} [r fcall test 0]
         assert_match {hello1} [r fcall test1 0]
     }
@@ -155,7 +155,7 @@ start_server {tags {"scripting"}} {
         assert_match {} [r function list]
         r function create lua test {return 'hello1'}
         assert_match {hello1} [r fcall test 0]
-        r function restore REPLACE $e
+        r function restore $e REPLACE
         assert_match {hello} [r fcall test 0]
     }
 
