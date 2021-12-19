@@ -376,7 +376,7 @@ void fcallroCommand(client *c) {
 }
 
 /*
- * FUNCTTION DUMP
+ * FUNCTION DUMP
  *
  * Returns a binary blob representing all the functions.
  * Can be loaded using FUNCTION RESTORE
@@ -404,7 +404,7 @@ void functionDumpCommand(client *c) {
 }
 
 /*
- * FUNCTTION RESTORE [FLUSH|APPEND|REPLACE] <blob>
+ * FUNCTION RESTORE [FLUSH|APPEND|REPLACE] <blob>
  *
  * Restore the functions represented by the give blob.
  * Restore policy to can be given to control how to handle existing functions:
