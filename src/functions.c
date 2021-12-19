@@ -105,6 +105,16 @@ void functionsCtxClear(functionsCtx *functions_ctx) {
     functions_ctx->cache_memory = 0;
 }
 
+void functionsCtxClearCurrent(int async) {
+    if (async) {
+        functionsCtx *old_f_ctx = functions_ctx;
+        functions_ctx = functionsCtxCreate();
+        freeFunctionsAsync(old_f_ctx);
+    } else {
+        functionsCtxClear(functions_ctx);
+    }
+}
+
 /* Free the given functions ctx */
 void functionsCtxFree(functionsCtx *functions_ctx) {
     functionsCtxClear(functions_ctx);
@@ -384,13 +394,8 @@ void functionFlushCommand(client *c) {
         return;
     }
 
-    if (async) {
-        functionsCtx *old_f_ctx = functions_ctx;
-        functions_ctx = functionsCtxCreate();
-        freeFunctionsAsync(old_f_ctx);
-    } else {
-        functionsCtxClear(functions_ctx);
-    }
+    functionsCtxClearCurrent(async);
+
     /* Indicate that the command changed the data so it will be replicated and
      * counted as a data change (for persistence configuration) */
     server.dirty++;
