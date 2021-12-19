@@ -467,6 +467,9 @@ void functionRestoreCommand(client *c) {
             goto load_error;
         }
         if (rdbFunctionLoad(&payload, rdbver, f_ctx, &err) != C_OK) {
+            if (!err) {
+                err = sdsnew("failed loading the given functions blob");
+            }
             goto load_error;
         }
     }
@@ -494,8 +497,7 @@ void functionRestoreCommand(client *c) {
         while ((entry = dictNext(iter))) {
             functionInfo *fi = dictGetVal(entry);
             dictEntry *existing = NULL;
-            dictEntry *new = dictAddRaw(functions_ctx->functions, fi->name,
-                    &existing);
+            dictEntry *new = dictAddRaw(functions_ctx->functions, fi->name, &existing);
             if (!new) {
                 functionInfo *old_fi = dictGetVal(existing);
                 engineFunctionDispose(NULL, old_fi);

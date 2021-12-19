@@ -5866,7 +5866,7 @@ static int clusterManagerCommandAddNode(int argc, char **argv) {
     added = 1;
 
     if (!master_node) {
-        // Send functions to the new node, if new node is a replica it will get the functions from its primary.
+        /* Send functions to the new node, if new node is a replica it will get the functions from its primary. */
         clusterManagerLogInfo(">>> Getting functions from cluster\n");
         reply = CLUSTER_MANAGER_COMMAND(refnode, "FUNCTION DUMP");
         if (!clusterManagerCheckRedisReply(refnode, reply, &err)) {

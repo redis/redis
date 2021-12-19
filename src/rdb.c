@@ -2719,6 +2719,10 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
     }
 }
 
+/* Save the given functions_ctx to the rdb.
+ * The err output parameter is optional and will be set with relevant error
+ * message on failure, it is the caller responsibility to free the error
+ * message on failure. */
 int rdbFunctionLoad(rio *rdb, int ver, functionsCtx* functions_ctx, sds *err) {
     UNUSED(ver);
     sds name = NULL;
@@ -2726,33 +2730,37 @@ int rdbFunctionLoad(rio *rdb, int ver, functionsCtx* functions_ctx, sds *err) {
     sds desc = NULL;
     sds blob = NULL;
     uint64_t has_desc;
+    sds error = NULL;
     int res = C_ERR;
     if (!(name = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
-        *err = sdsnew("Failed loading function name");
+        error = sdsnew("Failed loading function name");
         goto error;
     }
 
     if (!(engine_name = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
-        *err = sdsnew("Failed loading engine name");
+        error = sdsnew("Failed loading engine name");
         goto error;
     }
 
     if ((has_desc = rdbLoadLen(rdb, NULL)) == RDB_LENERR) {
-        *err = sdsnew("Failed loading function description indicator");
+        error = sdsnew("Failed loading function description indicator");
         goto error;
     }
 
     if (has_desc && !(desc = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
-        *err = sdsnew("Failed loading function description");
+        error = sdsnew("Failed loading function description");
         goto error;
     }
 
     if (!(blob = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
-        *err = sdsnew("Failed loading function blob");
+        error = sdsnew("Failed loading function blob");
         goto error;
     }
 
     if (functionsCreateWithFunctionCtx(name, engine_name, desc, blob, 0, err, functions_ctx) != C_OK) {
+        if (!error) {
+            error = sdsnew("Failed creating the function");
+        }
         goto error;
     }
 
@@ -2763,6 +2771,14 @@ error:
     if (engine_name) sdsfree(engine_name);
     if (desc) sdsfree(desc);
     if (blob) sdsfree(blob);
+    if (error) {
+        if (err) {
+            *err = error;
+        } else {
+            serverLog(LL_WARNING, "Failed creating function, %s", error);
+            sdsfree(error);
+        }
+    }
     return res;
 }
 
