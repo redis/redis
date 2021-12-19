@@ -108,12 +108,20 @@ start_server {tags {"cli"}} {
         _run_cli [srv host] [srv port] $::dbnum {} {*}$args
     }
 
-    proc run_cli_with_input_pipe {cmd args} {
-        _run_cli [srv host] [srv port] $::dbnum [list pipe $cmd] -x {*}$args
+    proc run_cli_with_input_pipe {mode cmd args} {
+        if {$mode == "x" } {
+            _run_cli [srv host] [srv port] $::dbnum [list pipe $cmd] -x {*}$args
+        } elseif {$mode == "X"} {
+            _run_cli [srv host] [srv port] $::dbnum [list pipe $cmd] -X tag {*}$args
+        }
     }
 
-    proc run_cli_with_input_file {path args} {
-        _run_cli [srv host] [srv port] $::dbnum [list path $path] -x {*}$args
+    proc run_cli_with_input_file {mode path args} {
+        if {$mode == "x" } {
+            _run_cli [srv host] [srv port] $::dbnum [list path $path] -x {*}$args
+        } elseif {$mode == "X"} {
+            _run_cli [srv host] [srv port] $::dbnum [list path $path] -X tag {*}$args
+        }
     }
 
     proc run_cli_host_port_db {host port db args} {
@@ -201,14 +209,22 @@ start_server {tags {"cli"}} {
     }
 
     test_tty_cli "Read last argument from pipe" {
-        assert_equal "OK" [run_cli_with_input_pipe "echo foo" set key]
+        assert_equal "OK" [run_cli_with_input_pipe x "echo foo" set key]
         assert_equal "foo\n" [r get key]
+
+        assert_equal "OK" [run_cli_with_input_pipe X "echo foo" set key2 tag]
+        assert_equal "foo\n" [r get key2]
     }
 
     test_tty_cli "Read last argument from file" {
         set tmpfile [write_tmpfile "from file"]
-        assert_equal "OK" [run_cli_with_input_file $tmpfile set key]
+
+        assert_equal "OK" [run_cli_with_input_file x $tmpfile set key]
         assert_equal "from file" [r get key]
+
+        assert_equal "OK" [run_cli_with_input_file X $tmpfile set key2 tag]
+        assert_equal "from file" [r get key2]
+
         file delete $tmpfile
     }
 
@@ -280,14 +296,22 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
     }
 
     test_nontty_cli "Read last argument from pipe" {
-        assert_equal "OK" [run_cli_with_input_pipe "echo foo" set key]
+        assert_equal "OK" [run_cli_with_input_pipe x "echo foo" set key]
         assert_equal "foo\n" [r get key]
+
+        assert_equal "OK" [run_cli_with_input_pipe X "echo foo" set key2 tag]
+        assert_equal "foo\n" [r get key2]
     }
 
     test_nontty_cli "Read last argument from file" {
         set tmpfile [write_tmpfile "from file"]
-        assert_equal "OK" [run_cli_with_input_file $tmpfile set key]
+
+        assert_equal "OK" [run_cli_with_input_file x $tmpfile set key]
         assert_equal "from file" [r get key]
+
+        assert_equal "OK" [run_cli_with_input_file X $tmpfile set key2 tag]
+        assert_equal "from file" [r get key2]
+
         file delete $tmpfile
     }
 
@@ -398,5 +422,13 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
         assert_match "*All data transferred*errors: 0*replies: ${cmds_count}*" $output
 
         file delete $cmds
+    }
+
+    test "Options -X with illegal argument" {
+        assert_error "*-x and -X are mutually exclusive*" {run_cli -x -X tag}
+
+        assert_error "*Unrecognized option or bad number*" {run_cli -X}
+
+        assert_error "*tag not match*" {run_cli_with_input_pipe X "echo foo" set key wrong_tag}
     }
 }
