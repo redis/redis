@@ -88,12 +88,17 @@ proc assert_encoding {enc key} {
     if {$::ignoreencoding} {
         return
     }
-    set dbg [r debug object $key]
-    assert_match "* encoding:$enc *" $dbg
+    set val [r object encoding $key]
+    assert_match $enc $val
 }
 
 proc assert_type {type key} {
     assert_equal $type [r type $key]
+}
+
+proc assert_refcount {ref key} {
+    set val [r object refcount $key]
+    assert_equal $ref $val
 }
 
 # Wait for the specified condition to be true, with the specified number of

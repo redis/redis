@@ -38,7 +38,7 @@ set server_path [tmpdir "server.rdb-startup-test"]
 
 start_server [list overrides [list "dir" $server_path] keep_persistence true] {
     test {Server started empty with non-existing RDB file} {
-        r debug digest
+        debug_digest
     } {0000000000000000000000000000000000000000}
     # Save an RDB file, needed for the next test.
     r save
@@ -46,7 +46,7 @@ start_server [list overrides [list "dir" $server_path] keep_persistence true] {
 
 start_server [list overrides [list "dir" $server_path] keep_persistence true] {
     test {Server started empty with empty RDB file} {
-        r debug digest
+        debug_digest
     } {0000000000000000000000000000000000000000}
 }
 
@@ -63,16 +63,16 @@ start_server [list overrides [list "dir" $server_path] keep_persistence true] {
         set records [r xreadgroup GROUP mygroup Alice COUNT 2 STREAMS stream >]
         r xdel stream [lindex [lindex [lindex [lindex $records 0] 1] 1] 0]
         r xack stream mygroup [lindex [lindex [lindex [lindex $records 0] 1] 0] 0]
-        set digest [r debug digest]
+        set digest [debug_digest]
         r config set sanitize-dump-payload no
         r debug reload
-        set newdigest [r debug digest]
+        set newdigest [debug_digest]
         assert {$digest eq $newdigest}
     }
     test {Test RDB stream encoding - sanitize dump} {
         r config set sanitize-dump-payload yes
         r debug reload
-        set newdigest [r debug digest]
+        set newdigest [debug_digest]
         assert {$digest eq $newdigest}
     }
     # delete the stream, maybe valgrind will find something
