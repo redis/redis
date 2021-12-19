@@ -1223,6 +1223,7 @@ struct redisMemOverhead {
     size_t repl_backlog;
     size_t clients_slaves;
     size_t clients_normal;
+    size_t cluster_links;
     size_t aof_buffer;
     size_t lua_caches;
     size_t functions_caches;
@@ -1471,6 +1472,7 @@ struct redisServer {
     size_t stat_module_cow_bytes;   /* Copy on write bytes during module fork. */
     double stat_module_progress;   /* Module save progress. */
     redisAtomic size_t stat_clients_type_memory[CLIENT_TYPE_COUNT];/* Mem usage by type */
+    size_t stat_cluster_links_memory;/* Mem usage by cluster links */
     long long stat_unexpected_error_replies; /* Number of unexpected (aof-loading, replica to master, etc.) error replies */
     long long stat_total_error_replies; /* Total number of issued error replies ( command + rejected errors ) */
     long long stat_dump_payload_sanitizations; /* Number deep dump payloads integrity validations. */
@@ -1743,6 +1745,7 @@ struct redisServer {
     int cluster_allow_reads_when_down; /* Are reads allowed when the cluster
                                         is down? */
     int cluster_config_file_lock_fd;   /* cluster config fd, will be flock */
+    unsigned long long cluster_link_sendbuf_limit_bytes;  /* Memory usage limit on individual link send buffers*/
     /* Scripting */
     client *script_caller;       /* The client running script right now, or NULL */
     mstime_t script_time_limit;  /* Script timeout in milliseconds */
@@ -2916,6 +2919,7 @@ int ldbPendingChildren(void);
 sds luaCreateFunction(client *c, robj *body);
 void luaLdbLineHook(lua_State *lua, lua_Debug *ar);
 void freeLuaScriptsAsync(dict *lua_scripts);
+void freeFunctionsAsync(functionsCtx *f_ctx);
 int ldbIsEnabled();
 void ldbLog(sds entry);
 void ldbLogRedisReply(char *reply);
@@ -3180,6 +3184,7 @@ void functionStatsCommand(client *c);
 void functionInfoCommand(client *c);
 void functionListCommand(client *c);
 void functionHelpCommand(client *c);
+void functionFlushCommand(client *c);
 void timeCommand(client *c);
 void bitopCommand(client *c);
 void bitcountCommand(client *c);
