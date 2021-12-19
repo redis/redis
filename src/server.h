@@ -203,9 +203,10 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CMD_SENTINEL (1ULL<<17)
 #define CMD_ONLY_SENTINEL (1ULL<<18)
 #define CMD_NO_MANDATORY_KEYS (1ULL<<19)
+#define CMD_PROTECTED (1ULL<<20)
 /* Command flags used by the module system. */
-#define CMD_MODULE_GETKEYS (1ULL<<20)  /* Use the modules getkeys interface. */
-#define CMD_MODULE_NO_CLUSTER (1ULL<<21) /* Deny on Redis Cluster. */
+#define CMD_MODULE_GETKEYS (1ULL<<21)  /* Use the modules getkeys interface. */
+#define CMD_MODULE_NO_CLUSTER (1ULL<<22) /* Deny on Redis Cluster. */
 
 /* Command flags that describe ACLs categories. */
 #define ACL_CATEGORY_KEYSPACE (1ULL<<0)
@@ -436,6 +437,11 @@ typedef enum {
 #define SANITIZE_DUMP_NO 0
 #define SANITIZE_DUMP_YES 1
 #define SANITIZE_DUMP_CLIENTS 2
+
+/* Enable protected config/command */
+#define PROTECTED_ACTION_ALLOWED_NO 0
+#define PROTECTED_ACTION_ALLOWED_YES 1
+#define PROTECTED_ACTION_ALLOWED_LOCAL 2
 
 /* Sets operations codes */
 #define SET_OP_UNION 0
@@ -1408,6 +1414,9 @@ struct redisServer {
     int io_threads_do_reads;    /* Read and parse from IO threads? */
     int io_threads_active;      /* Is IO threads currently active? */
     long long events_processed_while_blocked; /* processEventsWhileBlocked() */
+    int enable_protected_configs;    /* Enable the modification of protected configs, see PROTECTED_ACTION_ALLOWED_* */
+    int enable_debug_cmd;            /* Enable DEBUG commands, see PROTECTED_ACTION_ALLOWED_* */
+    int enable_module_cmd;           /* Enable MODULE commands, see PROTECTED_ACTION_ALLOWED_* */
 
     /* RDB / AOF loading information */
     volatile sig_atomic_t loading; /* We are loading data from disk if true */
@@ -2339,6 +2348,7 @@ int handleClientsWithPendingWritesUsingThreads(void);
 int handleClientsWithPendingReadsUsingThreads(void);
 int stopThreadedIOIfNeeded(void);
 int clientHasPendingReplies(client *c);
+int islocalClient(client *c);
 int updateClientMemUsage(client *c);
 void updateClientMemUsageBucket(client *c);
 void unlinkClient(client *c);
@@ -2799,6 +2809,7 @@ void rewriteConfigMarkAsProcessed(struct rewriteConfigState *state, const char *
 int rewriteConfig(char *path, int force_all);
 void initConfigValues();
 sds getConfigDebugInfo();
+int allowProtectedAction(int config, client *c);
 
 /* db.c -- Keyspace access API */
 int removeExpire(redisDb *db, robj *key);
