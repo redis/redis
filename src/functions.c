@@ -422,7 +422,7 @@ void functionRestoreCommand(client *c) {
         return;
     }
 
-    int restore_replicy = RESTORE_POLICY_APPEND; /* default policy: FLUSH */
+    int restore_replicy = RESTORE_POLICY_APPEND; /* default policy: APPEND */
     sds data = c->argv[2]->ptr;
     size_t data_len = sdslen(data);
     rio payload;
