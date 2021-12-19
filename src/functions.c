@@ -404,9 +404,14 @@ void functionDumpCommand(client *c) {
 }
 
 /*
- * FUNCTTION RESTORE <blob>
+ * FUNCTTION RESTORE [FLUSH|APPEND|REPLACE] <blob>
  *
- * Restore the functions represented by the give blob
+ * Restore the functions represented by the give blob.
+ * Restore policy to can be given to control how to handle existing functions:
+ * * FLUSH: delete all existing functions.
+ * * APPEND: appends the restored functions to the existing functions. On collision, abort.
+ * * REPLACE: appends the restored functions to the existing functions.
+ *   On collision, replace the new function with the old function.
  */
 void functionRestoreCommand(client *c) {
 #define RESTORE_POLICY_FLUSH 1
