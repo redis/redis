@@ -399,6 +399,14 @@ struct redisCommandArg CLUSTER_KEYSLOT_Args[] = {
 {0}
 };
 
+/********** CLUSTER LINKS ********************/
+
+/* CLUSTER LINKS history */
+#define CLUSTER_LINKS_History NULL
+
+/* CLUSTER LINKS hints */
+#define CLUSTER_LINKS_Hints NULL
+
 /********** CLUSTER MEET ********************/
 
 /* CLUSTER MEET history */
@@ -552,6 +560,7 @@ struct redisCommand CLUSTER_Subcommands[] = {
 {"help","Show helpful text about the different subcommands","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_HELP_History,CLUSTER_HELP_Hints,clusterCommand,2,CMD_LOADING|CMD_STALE,0},
 {"info","Provides info about Redis Cluster node state","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_INFO_History,CLUSTER_INFO_Hints,clusterCommand,2,CMD_RANDOM|CMD_STALE,0},
 {"keyslot","Returns the hash slot of the specified key","O(N) where N is the number of bytes in the key","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_KEYSLOT_History,CLUSTER_KEYSLOT_Hints,clusterCommand,3,CMD_RANDOM|CMD_STALE,0,.args=CLUSTER_KEYSLOT_Args},
+{"links","Returns a list of all TCP links to and from peer nodes in cluster","O(N) where N is the total number of Cluster nodes","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_LINKS_History,CLUSTER_LINKS_Hints,clusterCommand,2,CMD_RANDOM|CMD_STALE,0},
 {"meet","Force a node cluster to handshake with another node","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_MEET_History,CLUSTER_MEET_Hints,clusterCommand,-4,CMD_ADMIN|CMD_RANDOM|CMD_STALE,0,.args=CLUSTER_MEET_Args},
 {"myid","Return the node id","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_MYID_History,CLUSTER_MYID_Hints,clusterCommand,2,CMD_RANDOM|CMD_STALE,0},
 {"nodes","Get Cluster config for the node","O(N) where N is the total number of Cluster nodes","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_NODES_History,CLUSTER_NODES_Hints,clusterCommand,2,CMD_RANDOM|CMD_STALE,0},
@@ -4139,8 +4148,8 @@ struct redisCommandArg MODULE_UNLOAD_Args[] = {
 struct redisCommand MODULE_Subcommands[] = {
 {"help","Show helpful text about the different subcommands","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_HELP_History,MODULE_HELP_Hints,moduleCommand,2,CMD_LOADING|CMD_STALE,0},
 {"list","List all modules loaded by the server","O(N) where N is the number of loaded modules.","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_LIST_History,MODULE_LIST_Hints,moduleCommand,2,CMD_ADMIN|CMD_NOSCRIPT,0},
-{"load","Load a module","O(1)","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_LOAD_History,MODULE_LOAD_Hints,moduleCommand,-3,CMD_ADMIN|CMD_NOSCRIPT,0,.args=MODULE_LOAD_Args},
-{"unload","Unload a module","O(1)","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_UNLOAD_History,MODULE_UNLOAD_Hints,moduleCommand,3,CMD_ADMIN|CMD_NOSCRIPT,0,.args=MODULE_UNLOAD_Args},
+{"load","Load a module","O(1)","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_LOAD_History,MODULE_LOAD_Hints,moduleCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_PROTECTED,0,.args=MODULE_LOAD_Args},
+{"unload","Unload a module","O(1)","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_UNLOAD_History,MODULE_UNLOAD_Hints,moduleCommand,3,CMD_ADMIN|CMD_NOSCRIPT|CMD_PROTECTED,0,.args=MODULE_UNLOAD_Args},
 {0}
 };
 
@@ -6422,7 +6431,7 @@ struct redisCommand redisCommandTable[] = {
 {"command","Get array of Redis command details","O(N) where N is the total number of Redis commands","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_History,COMMAND_Hints,commandCommand,-1,CMD_RANDOM|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.subcommands=COMMAND_Subcommands},
 {"config","A container for server configuration commands","Depends on subcommand.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,CONFIG_History,CONFIG_Hints,NULL,-2,0,0,.subcommands=CONFIG_Subcommands},
 {"dbsize","Return the number of keys in the selected database","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,DBSIZE_History,DBSIZE_Hints,dbsizeCommand,1,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE},
-{"debug","A container for debugging commands","Depends on subcommand.","1.0.0",CMD_DOC_SYSCMD,NULL,NULL,COMMAND_GROUP_SERVER,DEBUG_History,DEBUG_Hints,debugCommand,-2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0},
+{"debug","A container for debugging commands","Depends on subcommand.","1.0.0",CMD_DOC_SYSCMD,NULL,NULL,COMMAND_GROUP_SERVER,DEBUG_History,DEBUG_Hints,debugCommand,-2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_PROTECTED,0},
 {"failover","Start a coordinated failover between this server and one of its replicas.","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,FAILOVER_History,FAILOVER_Hints,failoverCommand,-1,CMD_ADMIN|CMD_NOSCRIPT|CMD_STALE,0,.args=FAILOVER_Args},
 {"flushall","Remove all keys from all databases","O(N) where N is the total number of keys in all databases","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,FLUSHALL_History,FLUSHALL_Hints,flushallCommand,-1,CMD_WRITE,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,.args=FLUSHALL_Args},
 {"flushdb","Remove all keys from the current database","O(N) where N is the number of keys in the selected database","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,FLUSHDB_History,FLUSHDB_Hints,flushdbCommand,-1,CMD_WRITE,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,.args=FLUSHDB_Args},

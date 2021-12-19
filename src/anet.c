@@ -529,11 +529,11 @@ static int anetGenericAccept(char *err, int s, struct sockaddr *sa, socklen_t *l
 
 /* Accept a connection and also make sure the socket is non-blocking, and CLOEXEC.
  * returns the new socket FD, or -1 on error. */
-int anetTcpAccept(char *err, int s, char *ip, size_t ip_len, int *port) {
+int anetTcpAccept(char *err, int serversock, char *ip, size_t ip_len, int *port) {
     int fd;
     struct sockaddr_storage sa;
     socklen_t salen = sizeof(sa);
-    if ((fd = anetGenericAccept(err,s,(struct sockaddr*)&sa,&salen)) == ANET_ERR)
+    if ((fd = anetGenericAccept(err,serversock,(struct sockaddr*)&sa,&salen)) == ANET_ERR)
         return ANET_ERR;
 
     if (sa.ss_family == AF_INET) {

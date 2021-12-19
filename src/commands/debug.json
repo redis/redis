@@ -13,7 +13,8 @@
             "ADMIN",
             "NOSCRIPT",
             "LOADING",
-            "STALE"
+            "STALE",
+            "PROTECTED"
         ]
     }
 }

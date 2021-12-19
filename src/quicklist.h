@@ -107,7 +107,7 @@ typedef struct quicklist {
     quicklistNode *tail;
     unsigned long count;        /* total count of all entries in all listpacks */
     unsigned long len;          /* number of quicklistNodes */
-    int fill : QL_FILL_BITS;              /* fill factor for individual nodes */
+    unsigned int fill : QL_FILL_BITS;     /* fill factor for individual nodes */
     unsigned int compress : QL_COMP_BITS; /* depth of end nodes not to compress;0=off */
     unsigned int bookmark_count: QL_BM_BITS;
     quicklistBookmark bookmarks[];
