@@ -129,10 +129,10 @@ configEnum sanitize_dump_payload_enum[] = {
 };
 
 configEnum protected_action_enum[] = {
-        {"no", PROTECTED_ACTION_ALLOWED_NO},
-        {"yes", PROTECTED_ACTION_ALLOWED_YES},
-        {"local", PROTECTED_ACTION_ALLOWED_LOCAL},
-        {NULL, 0}
+    {"no", PROTECTED_ACTION_ALLOWED_NO},
+    {"yes", PROTECTED_ACTION_ALLOWED_YES},
+    {"local", PROTECTED_ACTION_ALLOWED_LOCAL},
+    {NULL, 0}
 };
 
 /* Output buffer limits presets. */
