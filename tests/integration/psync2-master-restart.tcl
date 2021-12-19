@@ -41,12 +41,11 @@ start_server {} {
         set offset [status $master master_repl_offset]
         $replica config resetstat
 
-        set rd [redis_deferring_client]
-        $rd shutdown now
         catch {
-            restart_server 0 true false
+            # SHUTDOWN NOW ensures master doesn't send GETACK to replicas before
+            # shutting down which would affect the replication offset.
+            restart_server 0 true false true now
             set master [srv 0 client]
-            close $rd
         }
         wait_for_condition 50 1000 {
             [status $replica master_link_status] eq {up} &&
@@ -80,9 +79,14 @@ start_server {} {
 
         after 20
 
+        # Wait until master has received ACK from replica. If the master thinks
+        # that any replica is lagging when it shuts down, master would send
+        # GETACK to the replicas, affecting the replication offset.
+        set offset [status $master master_repl_offset]
         wait_for_condition 500 100 {
-            [status $master master_repl_offset] == [status $replica master_repl_offset] &&
-            [status $master master_repl_offset] == [status $sub_replica master_repl_offset]
+            [string match "*slave0:*,offset=$offset,*" [$master info replication]] &&
+            $offset == [status $replica master_repl_offset] &&
+            $offset == [status $sub_replica master_repl_offset]
         } else {
             show_cluster_status
             fail "Replicas and master offsets were unable to match *exactly*."
@@ -91,12 +95,9 @@ start_server {} {
         set offset [status $master master_repl_offset]
         $replica config resetstat
 
-        set rd [redis_deferring_client]
-        $rd shutdown now
         catch {
             restart_server 0 true false
             set master [srv 0 client]
-            close $rd
         }
         wait_for_condition 50 1000 {
             [status $replica master_link_status] eq {up} &&
