@@ -1,0 +1,29 @@
+{
+    "INFO": {
+        "summary": "PATCH__TBD__11__",
+        "complexity": "PATCH__TBD__10__",
+        "group": "scripting",
+        "since": "7.0.0",
+        "arity": -3,
+        "container": "FUNCTION",
+        "function": "functionInfoCommand",
+        "command_flags": [
+            "NOSCRIPT"
+        ],
+        "acl_categories": [
+            "SCRIPTING"
+        ],
+        "arguments": [
+            {
+                "name": "function-name",
+                "type": "string"
+            },
+            {
+                "name": "withcode",
+                "type": "pure-token",
+                "token": "WITHCODE",
+                "optional": true
+            }
+        ]
+    }
+}

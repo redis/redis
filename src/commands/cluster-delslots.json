@@ -1,0 +1,23 @@
+{
+    "DELSLOTS": {
+        "summary": "Set hash slots as unbound in receiving node",
+        "complexity": "O(N) where N is the total number of hash slot arguments",
+        "group": "cluster",
+        "since": "3.0.0",
+        "arity": -3,
+        "container": "CLUSTER",
+        "function": "clusterCommand",
+        "command_flags": [
+            "ADMIN",
+            "RANDOM",
+            "STALE"
+        ],
+        "arguments": [
+            {
+                "name": "slot",
+                "type": "integer",
+                "multiple": true
+            }
+        ]
+    }
+}

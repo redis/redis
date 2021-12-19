@@ -1,0 +1,37 @@
+{
+    "FLUSH": {
+        "summary": "PATCH__TBD__29__",
+        "complexity": "PATCH__TBD__28__",
+        "group": "scripting",
+        "since": "7.0.0",
+        "arity": -2,
+        "container": "FUNCTION",
+        "function": "functionFlushCommand",
+        "command_flags": [
+            "NOSCRIPT",
+            "MAY_REPLICATE"
+        ],
+        "acl_categories": [
+            "SCRIPTING"
+        ],
+        "arguments": [
+            {
+                "name": "async",
+                "type": "oneof",
+                "optional": true,
+                "arguments": [
+                    {
+                        "name": "async",
+                        "type": "pure-token",
+                        "token": "ASYNC"
+                    },
+                    {
+                        "name": "sync",
+                        "type": "pure-token",
+                        "token": "SYNC"
+                    }
+                ]
+            }
+        ]
+    }
+}

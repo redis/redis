@@ -568,11 +568,15 @@ void clusterInit(void) {
     server.cluster->failover_auth_epoch = 0;
     server.cluster->cant_failover_reason = CLUSTER_CANT_FAILOVER_NONE;
     server.cluster->lastVoteEpoch = 0;
+
+    /* Initialize stats */
     for (int i = 0; i < CLUSTERMSG_TYPE_COUNT; i++) {
         server.cluster->stats_bus_messages_sent[i] = 0;
         server.cluster->stats_bus_messages_received[i] = 0;
     }
     server.cluster->stats_pfail_nodes = 0;
+    server.cluster->stat_cluster_links_buffer_limit_exceeded = 0;
+
     memset(server.cluster->slots,0, sizeof(server.cluster->slots));
     clusterCloseAllSlots();
 
@@ -711,8 +715,13 @@ clusterLink *createClusterLink(clusterNode *node) {
     link->sndbuf = sdsempty();
     link->rcvbuf = zmalloc(link->rcvbuf_alloc = RCVBUF_INIT_LEN);
     link->rcvbuf_len = 0;
-    link->node = node;
     link->conn = NULL;
+    link->node = node;
+    /* Related node can only possibly be known at link creation time if this is an outbound link */
+    link->inbound = (node == NULL);
+    if (!link->inbound) {
+        node->link = link;
+    }
     return link;
 }
 
@@ -726,9 +735,31 @@ void freeClusterLink(clusterLink *link) {
     }
     sdsfree(link->sndbuf);
     zfree(link->rcvbuf);
-    if (link->node)
-        link->node->link = NULL;
+    if (link->node) {
+        if (link->node->link == link) {
+            serverAssert(!link->inbound);
+            link->node->link = NULL;
+        } else if (link->node->inbound_link == link) {
+            serverAssert(link->inbound);
+            link->node->inbound_link = NULL;
+        }
+    }
     zfree(link);
+}
+
+void setClusterNodeToInboundClusterLink(clusterNode *node, clusterLink *link) {
+    serverAssert(!link->node);
+    serverAssert(link->inbound);
+    if (node->inbound_link) {
+        /* A peer may disconnect and then reconnect with us, and it's not guaranteed that
+         * we would always process the disconnection of the existing inbound link before
+         * accepting a new existing inbound link. Therefore, it's possible to have more than
+         * one inbound link from the same node at the same time. */
+        serverLog(LL_DEBUG, "Replacing inbound link fd %d from node %s with fd %d",
+                node->inbound_link->conn->fd, node->name, link->conn->fd);
+    }
+    node->inbound_link = link;
+    link->node = node;
 }
 
 static void clusterConnAcceptHandler(connection *conn) {
@@ -879,6 +910,7 @@ clusterNode *createClusterNode(char *nodename, int flags) {
     node->data_received = 0;
     node->fail_time = 0;
     node->link = NULL;
+    node->inbound_link = NULL;
     memset(node->ip,0,sizeof(node->ip));
     node->port = 0;
     node->cport = 0;
@@ -1046,8 +1078,9 @@ void freeClusterNode(clusterNode *n) {
     serverAssert(dictDelete(server.cluster->nodes,nodename) == DICT_OK);
     sdsfree(nodename);
 
-    /* Release link and associated data structures. */
+    /* Release links and associated data structures. */
     if (n->link) freeClusterLink(n->link);
+    if (n->inbound_link) freeClusterLink(n->inbound_link);
     listRelease(n->fail_reports);
     zfree(n->slaves);
     zfree(n);
@@ -1821,6 +1854,26 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
     }
 }
 
+static clusterNode *getNodeFromLinkAndMsg(clusterLink *link, clusterMsg *hdr) {
+    clusterNode *sender;
+    if (link->node && !nodeInHandshake(link->node)) {
+        /* If the link has an associated node, use that so that we don't have to look it
+         * up every time, except when the node is still in handshake, the node still has
+         * a random name thus not truly "known". */
+        sender = link->node;
+    } else {
+        /* Otherwise, fetch sender based on the message */
+        sender = clusterLookupNode(hdr->sender);
+        /* We know the sender node but haven't associate it with the link. This must
+         * be an inbound link because only for inbound links we didn't know which node
+         * to associate when they were created. */
+        if (sender && !link->node) {
+            setClusterNodeToInboundClusterLink(sender, link);
+        }
+    }
+    return sender;
+}
+
 /* When this function is called, there is a packet to process starting
  * at link->rcvbuf. Releasing the buffer is up to the caller, so this
  * function should just handle the higher level stuff of processing the
@@ -1896,10 +1949,7 @@ int clusterProcessPacket(clusterLink *link) {
         if (totlen != explen) return 1;
     }
 
-    /* Check if the sender is a known node. Note that for incoming connections
-     * we don't store link->node information, but resolve the node by the
-     * ID in the header each time in the current implementation. */
-    sender = clusterLookupNode(hdr->sender);
+    sender = getNodeFromLinkAndMsg(link, hdr);
 
     /* Update the last time we saw any data from this node. We
      * use this in order to avoid detecting a timeout from a node that
@@ -2000,7 +2050,7 @@ int clusterProcessPacket(clusterLink *link) {
         serverLog(LL_DEBUG,"%s packet received: %s",
             clusterGetMessageTypeString(type),
             link->node ? link->node->name : "NULL");
-        if (link->node) {
+        if (!link->inbound) {
             if (nodeInHandshake(link->node)) {
                 /* If we already have this node, try to change the
                  * IP/port of the node with the new one. */
@@ -2070,7 +2120,7 @@ int clusterProcessPacket(clusterLink *link) {
         }
 
         /* Update our info about the node */
-        if (link->node && type == CLUSTERMSG_TYPE_PONG) {
+        if (!link->inbound && type == CLUSTERMSG_TYPE_PONG) {
             link->node->pong_received = now;
             link->node->ping_sent = 0;
 
@@ -2673,7 +2723,7 @@ void clusterSendPing(clusterLink *link, int type) {
     hdr = (clusterMsg*) buf;
 
     /* Populate the header. */
-    if (link->node && type == CLUSTERMSG_TYPE_PING)
+    if (!link->inbound && type == CLUSTERMSG_TYPE_PING)
         link->node->ping_sent = mstime();
     clusterBuildMessageHdr(hdr,type);
 
@@ -3588,7 +3638,7 @@ void clusterHandleManualFailover(void) {
 /* Check if the node is disconnected and re-establish the connection.
  * Also update a few stats while we are here, that can be used to make
  * better decisions in other part of the code. */
-int clusterNodeCronHandleReconnect(clusterNode *node, mstime_t handshake_timeout, mstime_t now) {
+static int clusterNodeCronHandleReconnect(clusterNode *node, mstime_t handshake_timeout, mstime_t now) {
     /* Not interested in reconnecting the link with myself or nodes
      * for which we have no address. */
     if (node->flags & (CLUSTER_NODE_MYSELF|CLUSTER_NODE_NOADDR)) return 1;
@@ -3622,20 +3672,57 @@ int clusterNodeCronHandleReconnect(clusterNode *node, mstime_t handshake_timeout
             freeClusterLink(link);
             return 0;
         }
-        node->link = link;
     }
     return 0;
 }
 
-/* Resize the send buffer of a node if it is wasting
- * enough space. */
-int clusterNodeCronResizeBuffers(clusterNode *node) {
+static void resizeClusterLinkBuffer(clusterLink *link) {
      /* If unused space is a lot bigger than the used portion of the buffer then free up unused space.
       * We use a factor of 4 because of the greediness of sdsMakeRoomFor (used by sdscatlen). */
-    if (node->link != NULL && sdsavail(node->link->sndbuf) / 4 > sdslen(node->link->sndbuf)) {
-        node->link->sndbuf = sdsRemoveFreeSpace(node->link->sndbuf);
+    if (link != NULL && sdsavail(link->sndbuf) / 4 > sdslen(link->sndbuf)) {
+        link->sndbuf = sdsRemoveFreeSpace(link->sndbuf);
     }
-    return 0;
+}
+
+/* Resize the send buffer of a node if it is wasting
+ * enough space. */
+static void clusterNodeCronResizeBuffers(clusterNode *node) {
+    resizeClusterLinkBuffer(node->link);
+    resizeClusterLinkBuffer(node->inbound_link);
+}
+
+static void freeClusterLinkOnBufferLimitReached(clusterLink *link) {
+    if (link == NULL || server.cluster_link_sendbuf_limit_bytes == 0) {
+        return;
+    }
+    unsigned long long mem_link = sdsalloc(link->sndbuf);
+    if (mem_link > server.cluster_link_sendbuf_limit_bytes) {
+        serverLog(LL_WARNING, "Freeing cluster link(%s node %s, used memory: %llu) due to "
+                "exceeding send buffer memory limit.", link->inbound ? "from" : "to",
+                link->node ? link->node->name : "", mem_link);
+        freeClusterLink(link);
+        server.cluster->stat_cluster_links_buffer_limit_exceeded++;
+    }
+}
+
+/* Free outbound link to a node if its send buffer size exceeded limit. */
+static void clusterNodeCronFreeLinkOnBufferLimitReached(clusterNode *node) {
+    freeClusterLinkOnBufferLimitReached(node->link);
+    freeClusterLinkOnBufferLimitReached(node->inbound_link);
+}
+
+static size_t getClusterLinkMemUsage(clusterLink *link) {
+    if (link != NULL) {
+        return sizeof(clusterLink) + sdsalloc(link->sndbuf) + link->rcvbuf_alloc;
+    } else {
+        return 0;
+    }
+}
+
+/* Update memory usage statistics of all current cluster links */
+static void clusterNodeCronUpdateClusterLinksMemUsage(clusterNode *node) {
+    server.stat_cluster_links_memory += getClusterLinkMemUsage(node->link);
+    server.stat_cluster_links_memory += getClusterLinkMemUsage(node->inbound_link);
 }
 
 /* This is executed 10 times every second */
@@ -3662,14 +3749,25 @@ void clusterCron(void) {
 
     /* Clear so clusterNodeCronHandleReconnect can count the number of nodes in PFAIL. */
     server.cluster->stats_pfail_nodes = 0;
+    /* Clear so clusterNodeCronUpdateClusterLinksMemUsage can count the current memory usage of all cluster links. */
+    server.stat_cluster_links_memory = 0;
     /* Run through some of the operations we want to do on each cluster node. */
     di = dictGetSafeIterator(server.cluster->nodes);
     while((de = dictNext(di)) != NULL) {
         clusterNode *node = dictGetVal(de);
-        /* The protocol is that they return non-zero if the node was
-         * terminated. */
+        /* The sequence goes:
+         * 1. We try to shrink link buffers if possible.
+         * 2. We free the links whose buffers are still oversized after possible shrinking.
+         * 3. We update the latest memory usage of cluster links.
+         * 4. We immediately attempt reconnecting after freeing links.
+         */
+        clusterNodeCronResizeBuffers(node);
+        clusterNodeCronFreeLinkOnBufferLimitReached(node);
+        clusterNodeCronUpdateClusterLinksMemUsage(node);
+        /* The protocol is that function(s) below return non-zero if the node was
+         * terminated.
+         */
         if(clusterNodeCronHandleReconnect(node, handshake_timeout, now)) continue;
-        if(clusterNodeCronResizeBuffers(node)) continue;
     }
     dictReleaseIterator(di); 
 
@@ -4399,6 +4497,70 @@ sds clusterGenNodesDescription(int filter, int use_pport) {
     return ci;
 }
 
+/* Add to the output buffer of the given client the description of the given cluster link.
+ * The description is a map with each entry being an attribute of the link. */
+void addReplyClusterLinkDescription(client *c, clusterLink *link) {
+    addReplyMapLen(c, 6);
+
+    addReplyBulkCString(c, "direction");
+    addReplyBulkCString(c, link->inbound ? "from" : "to");
+
+    /* addReplyClusterLinkDescription is only called for links that have been
+     * associated with nodes. The association is always bi-directional, so
+     * in addReplyClusterLinkDescription, link->node should never be NULL. */
+    serverAssert(link->node);
+    sds node_name = sdsnewlen(link->node->name, CLUSTER_NAMELEN);
+    addReplyBulkCString(c, "node");
+    addReplyBulkCString(c, node_name);
+    sdsfree(node_name);
+
+    addReplyBulkCString(c, "create-time");
+    addReplyLongLong(c, link->ctime);
+
+    char events[3], *p;
+    p = events;
+    if (link->conn) {
+        if (connHasReadHandler(link->conn)) *p++ = 'r';
+        if (connHasWriteHandler(link->conn)) *p++ = 'w';
+    }
+    *p = '\0';
+    addReplyBulkCString(c, "events");
+    addReplyBulkCString(c, events);
+
+    addReplyBulkCString(c, "send-buffer-allocated");
+    addReplyLongLong(c, sdsalloc(link->sndbuf));
+
+    addReplyBulkCString(c, "send-buffer-used");
+    addReplyLongLong(c, sdslen(link->sndbuf));
+}
+
+/* Add to the output buffer of the given client an array of cluster link descriptions,
+ * with array entry being a description of a single current cluster link. */
+void addReplyClusterLinksDescription(client *c) {
+    dictIterator *di;
+    dictEntry *de;
+    void *arraylen_ptr = NULL;
+    int num_links = 0;
+
+    arraylen_ptr = addReplyDeferredLen(c);
+
+    di = dictGetSafeIterator(server.cluster->nodes);
+    while((de = dictNext(di)) != NULL) {
+        clusterNode *node = dictGetVal(de);
+        if (node->link) {
+            num_links++;
+            addReplyClusterLinkDescription(c, node->link);
+        }
+        if (node->inbound_link) {
+            num_links++;
+            addReplyClusterLinkDescription(c, node->inbound_link);
+        }
+    }
+    dictReleaseIterator(di);
+
+    setDeferredArrayLen(c, arraylen_ptr, num_links);
+}
+
 /* -----------------------------------------------------------------------------
  * CLUSTER command
  * -------------------------------------------------------------------------- */
@@ -4608,6 +4770,9 @@ void clusterCommand(client *c) {
 "SLOTS",
 "    Return information about slots range mappings. Each range is made of:",
 "    start, end, master and replicas IP addresses, ports and ids",
+"LINKS",
+"    Return information about all network links between this node and its peers.",
+"    Output format is an array where each array element is a map containing attributes of a link",
 NULL
         };
         addReplyHelp(c, help);
@@ -4919,6 +5084,10 @@ NULL
         info = sdscatprintf(info,
             "cluster_stats_messages_received:%lld\r\n", tot_msg_received);
 
+        info = sdscatprintf(info,
+            "total_cluster_links_buffer_limit_exceeded:%llu\r\n",
+            server.cluster->stat_cluster_links_buffer_limit_exceeded);
+
         /* Produce the reply protocol. */
         addReplyVerbatim(c,info,sdslen(info),"txt");
         sdsfree(info);
@@ -5182,6 +5351,9 @@ NULL
         }
         clusterReset(hard);
         addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"links") && c->argc == 2) {
+        /* CLUSTER LINKS */
+        addReplyClusterLinksDescription(c);
     } else {
         addReplySubcommandSyntaxError(c);
         return;

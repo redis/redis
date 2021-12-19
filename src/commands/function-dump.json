@@ -1,0 +1,17 @@
+{
+    "DUMP": {
+        "summary": "PATCH__TBD__31__",
+        "complexity": "PATCH__TBD__30__",
+        "group": "scripting",
+        "since": "7.0.0",
+        "arity": 2,
+        "container": "FUNCTION",
+        "function": "functionDumpCommand",
+        "command_flags": [
+            "NOSCRIPT"
+        ],
+        "acl_categories": [
+            "SCRIPTING"
+        ]
+    }
+}

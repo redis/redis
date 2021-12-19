@@ -1,0 +1,24 @@
+{
+    "RESTORE": {
+        "summary": "PATCH__TBD__33__",
+        "complexity": "PATCH__TBD__32__",
+        "group": "scripting",
+        "since": "7.0.0",
+        "arity": 3,
+        "container": "FUNCTION",
+        "function": "functionRestoreCommand",
+        "command_flags": [
+            "NOSCRIPT",
+            "MAY_REPLICATE"
+        ],
+        "acl_categories": [
+            "SCRIPTING"
+        ],
+        "arguments": [
+            {
+                "name": "serialized-value",
+                "type": "string"
+            }
+        ]
+    }
+}
