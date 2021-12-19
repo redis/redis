@@ -2757,7 +2757,7 @@ int rdbFunctionLoad(rio *rdb, int ver, functionsCtx* functions_ctx, sds *err) {
         goto error;
     }
 
-    if (functionsCreateWithFunctionCtx(name, engine_name, desc, blob, 0, err, functions_ctx) != C_OK) {
+    if (functionsCreateWithFunctionCtx(name, engine_name, desc, blob, 0, &error, functions_ctx) != C_OK) {
         if (!error) {
             error = sdsnew("Failed creating the function");
         }
