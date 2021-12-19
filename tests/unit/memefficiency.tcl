@@ -61,7 +61,7 @@ start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-r
             r config set latency-monitor-threshold 5
             r latency reset
             r config set maxmemory 110mb ;# prevent further eviction (not to fail the digest test)
-            set digest [r debug digest]
+            set digest [debug_digest]
             catch {r config set activedefrag yes} e
             if {[r config get activedefrag] eq "activedefrag yes"} {
                 # Wait for the active defrag to start working (decision once a
@@ -110,7 +110,7 @@ start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-r
                 }
             }
             # verify the data isn't corrupted or changed
-            set newdigest [r debug digest]
+            set newdigest [debug_digest]
             assert {$digest eq $newdigest}
             r save ;# saving an rdb iterates over all the data / pointers
 
@@ -234,7 +234,7 @@ start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-r
             r config set latency-monitor-threshold 5
             r latency reset
 
-            set digest [r debug digest]
+            set digest [debug_digest]
             catch {r config set activedefrag yes} e
             if {[r config get activedefrag] eq "activedefrag yes"} {
                 # wait for the active defrag to start working (decision once a second)
@@ -282,7 +282,7 @@ start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-r
                 }
             }
             # verify the data isn't corrupted or changed
-            set newdigest [r debug digest]
+            set newdigest [debug_digest]
             assert {$digest eq $newdigest}
             r save ;# saving an rdb iterates over all the data / pointers
         } {OK}
@@ -330,7 +330,7 @@ start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-r
             r config set latency-monitor-threshold 5
             r latency reset
 
-            set digest [r debug digest]
+            set digest [debug_digest]
             catch {r config set activedefrag yes} e
             if {[r config get activedefrag] eq "activedefrag yes"} {
                 # wait for the active defrag to start working (decision once a second)
@@ -383,7 +383,7 @@ start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-r
                 assert {$misses < $elements}
             }
             # verify the data isn't corrupted or changed
-            set newdigest [r debug digest]
+            set newdigest [debug_digest]
             assert {$digest eq $newdigest}
             r save ;# saving an rdb iterates over all the data / pointers
             r del biglist1 ;# coverage for quicklistBookmarksClear
@@ -450,7 +450,7 @@ start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-r
 
                 assert {$frag >= $expected_frag}
 
-                set digest [r debug digest]
+                set digest [debug_digest]
                 catch {r config set activedefrag yes} e
                 if {[r config get activedefrag] eq "activedefrag yes"} {
                     # wait for the active defrag to start working (decision once a second)
@@ -486,7 +486,7 @@ start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-r
                 }
 
                 # verify the data isn't corrupted or changed
-                set newdigest [r debug digest]
+                set newdigest [debug_digest]
                 assert {$digest eq $newdigest}
                 r save ;# saving an rdb iterates over all the data / pointers
             }

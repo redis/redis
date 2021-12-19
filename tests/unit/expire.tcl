@@ -511,6 +511,7 @@ start_server {tags {"expire"}} {
             {restore foo6 * {*} ABSTTL}
             {restore foo7 * {*} absttl}
         }
+        close_replication_stream $repl
     } {} {needs:repl}
 
     # Start another server to test replication of TTLs
@@ -624,6 +625,7 @@ start_server {tags {"expire"}} {
            {persist foo}
            {del foo}
         }
+        close_replication_stream $repl
     } {} {needs:repl}
 
     test {EXPIRE with NX option on a key with ttl} {

@@ -105,6 +105,7 @@ unsigned long functionsMemoryOverhead();
 int functionsLoad(rio *rdb, int ver);
 unsigned long functionsNum();
 dict* functionsGet();
+size_t functionsLen(functionsCtx *functions_ctx);
 functionsCtx* functionsCtxGetCurrent();
 functionsCtx* functionsCtxCreate();
 void functionsCtxFree(functionsCtx *functions_ctx);
