@@ -81,6 +81,9 @@ static size_t functionMallocSize(functionInfo *fi) {
 /* Dispose function memory */
 static void engineFunctionDispose(dict *d, void *obj) {
     UNUSED(d);
+    if (!obj) {
+        return;
+    }
     functionInfo *fi = obj;
     sdsfree(fi->code);
     sdsfree(fi->name);
@@ -372,59 +375,148 @@ void fcallroCommand(client *c) {
     fcallCommandGeneric(c, 1);
 }
 
+/*
+ * FUNCTTION DUMP
+ *
+ * Returns a binary blob representing all the functions.
+ * Can be loaded using FUNCTION RESTORE
+ */
 void functionDumpCommand(client *c) {
     unsigned char buf[2];
     uint64_t crc;
     rio payload;
-    rioInitWithBuffer(&payload,sdsempty());
+    rioInitWithBuffer(&payload, sdsempty());
 
     functionsSaveRio(&payload);
 
     /* RDB version */
     buf[0] = RDB_VERSION & 0xff;
     buf[1] = (RDB_VERSION >> 8) & 0xff;
-    payload.io.buffer.ptr = sdscatlen(payload.io.buffer.ptr,buf,2);
+    payload.io.buffer.ptr = sdscatlen(payload.io.buffer.ptr, buf, 2);
 
     /* CRC64 */
-    crc = crc64(0,(unsigned char*)payload.io.buffer.ptr,
+    crc = crc64(0, (unsigned char*) payload.io.buffer.ptr,
                 sdslen(payload.io.buffer.ptr));
     memrev64ifbe(&crc);
-    payload.io.buffer.ptr = sdscatlen(payload.io.buffer.ptr,&crc,8);
+    payload.io.buffer.ptr = sdscatlen(payload.io.buffer.ptr, &crc, 8);
 
-    addReplyBulkSds(c,payload.io.buffer.ptr);
+    addReplyBulkSds(c, payload.io.buffer.ptr);
 }
 
+/*
+ * FUNCTTION RESTORE <blob>
+ *
+ * Restore the functions represented by the give blob
+ */
 void functionRestoreCommand(client *c) {
-    uint16_t rdbver;
-    if (verifyDumpPayload(c->argv[2]->ptr, sdslen(c->argv[2]->ptr), &rdbver) != C_OK) {
-        addReplyError(c,"DUMP payload version or checksum are wrong");
+#define RESTORE_POLICY_FLUSH 1
+#define RESTORE_POLICY_APPEND 2
+#define RESTORE_POLICY_REPLACE 3
+    if (c->argc > 4) {
+        addReplySubcommandSyntaxError(c);
         return;
     }
 
+    int restore_replicy = RESTORE_POLICY_FLUSH; /* default policy: FLUSH */
     sds data = c->argv[2]->ptr;
-    size_t data_len = sdslen(data);
+    size_t data_len;
     rio payload;
-    int type;
+    dictIterator *iter = NULL;
+    sds err = NULL;
 
-    functionsCtx* f_ctx = functionsCtxCreate();
+    if (c->argc == 4) {
+        const char *restore_policy_str = c->argv[2]->ptr;
+        if (!strcasecmp(restore_policy_str, "append")) {
+            restore_replicy = RESTORE_POLICY_APPEND;
+        } else if (!strcasecmp(restore_policy_str, "replace")) {
+            restore_replicy = RESTORE_POLICY_REPLACE;
+        } else if (!strcasecmp(restore_policy_str, "flush")) {
+            restore_replicy = RESTORE_POLICY_FLUSH;
+        } else {
+            addReplyError(c, "Wrong restore policy given, value should be either FLUSH, APPEND or REPLACE.");
+            return;
+        }
+        data = c->argv[3]->ptr;
+    }
+
+    data_len = sdslen(data);
+
+    uint16_t rdbver;
+    if (verifyDumpPayload(data, data_len, &rdbver) != C_OK) {
+        addReplyError(c, "DUMP payload version or checksum are wrong");
+        return;
+    }
+
+    functionsCtx *f_ctx = functionsCtxCreate();
     rioInitWithBuffer(&payload, data);
 
     /* Read until reaching last 10 bytes that should contain RDB version and checksum. */
-    while(data_len - payload.io.buffer.pos > 10) {
-        /* Read type. */
-        if ((type = rdbLoadType(&payload)) == -1) goto load_error;
-        if (type != RDB_OPCODE_FUNCTION) goto load_error;
-        if (rdbFunctionLoad(&payload, rdbver, f_ctx) != C_OK) goto load_error;
+    while (data_len - payload.io.buffer.pos > 10) {
+        int type;
+        if ((type = rdbLoadType(&payload)) == -1) {
+            err = sdsnew("can not read data type");
+            goto load_error;
+        }
+        if (type != RDB_OPCODE_FUNCTION) {
+            err = sdsnew("given type is not a function");
+            goto load_error;
+        }
+        if (rdbFunctionLoad(&payload, rdbver, f_ctx, &err) != C_OK) {
+            goto load_error;
+        }
     }
 
-    functionsCtxSwapWithCurrent(f_ctx);
-    forceCommandPropagation(c, PROPAGATE_REPL | PROPAGATE_AOF);
-    addReply(c,shared.ok);
-    return;
+    if (restore_replicy == RESTORE_POLICY_FLUSH) {
+        functionsCtxSwapWithCurrent(f_ctx);
+        f_ctx = NULL; /* avoid releasing the f_ctx in the end */
+    } else {
+        if (restore_replicy == RESTORE_POLICY_APPEND) {
+            /* First make sure there is only new functions */
+            iter = dictGetIterator(f_ctx->functions);
+            dictEntry *entry = NULL;
+            while ((entry = dictNext(iter))) {
+                functionInfo *fi = dictGetVal(entry);
+                if (dictFetchValue(functions_ctx->functions, fi->name)) {
+                    /* function already exists, failed the restore. */
+                    err = sdscatfmt(sdsempty(), "Function %s already exists", fi->name);
+                    goto load_error;
+                }
+            }
+            dictReleaseIterator(iter);
+        }
+        iter = dictGetIterator(f_ctx->functions);
+        dictEntry *entry = NULL;
+        while ((entry = dictNext(iter))) {
+            functionInfo *fi = dictGetVal(entry);
+            dictEntry *existing = NULL;
+            dictEntry *new = dictAddRaw(functions_ctx->functions, fi->name,
+                    &existing);
+            if (!new) {
+                functionInfo *old_fi = dictGetVal(existing);
+                engineFunctionDispose(NULL, old_fi);
+                new = existing;
+            }
+            dictSetVal(functions_ctx->functions, new, fi);
+            dictSetVal(f_ctx->functions, entry, NULL); /* make sure value will not be disposed */
+        }
+    }
+
+    /* Indicate that the command changed the data so it will be replicated and
+     * counted as a data change (for persistence configuration) */
+    server.dirty++;
 
 load_error:
-    functionsCtxFree(f_ctx);
-    addReplyError(c,"Failed loading payload");
+    if (err) {
+        addReplyErrorSds(c, err);
+    } else {
+        addReply(c, shared.ok);
+    }
+    if (iter) {
+        dictReleaseIterator(iter);
+    }
+    if (f_ctx) {
+        functionsCtxFree(f_ctx);
+    }
 }
 
 void functionFlushCommand(client *c) {
@@ -489,6 +581,15 @@ void functionHelpCommand(client *c) {
 "    lazyfree-lazy-user-flush configuration directive. Valid modes are:",
 "    * ASYNC: Asynchronously flush the functions.",
 "    * SYNC: Synchronously flush the functions.",
+"DUMP [ASYNC|SYNC]",
+"    Returns a blob representing the current functions, can be restored using FUNCTION RESTORE command",
+"RESTORE [FLUSH|APPEND|REPLACE] <BLOB>",
+"    Restore the functions represented by the given BLOB, it is possible to give a restore policy to",
+"    control how to handle existing functions:",
+"    * FLUSH: delete all existing functions.",
+"    * APPEND: appends the restored functions to the existing functions. On collision, abort.",
+"    * REPLACE: appends the restored functions to the existing functions, On collision, replace the new",
+"      function with the old function.",
 NULL };
     addReplyHelp(c, help);
 }

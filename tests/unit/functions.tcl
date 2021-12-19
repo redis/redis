@@ -125,11 +125,52 @@ start_server {tags {"scripting"}} {
         r function list
     } {{name test engine LUA description {some description}}}
 
+    test {FUNCTION - test function dump and restore with flush argument} {
+        set e [r function dump]
+        r function flush
+        assert_match {} [r function list]
+        r function restore FLUSH $e
+        r function list
+    } {{name test engine LUA description {some description}}}
+
+    test {FUNCTION - test function dump and restore with append argument} {
+        set e [r function dump]
+        r function flush
+        assert_match {} [r function list]
+        r function create lua test {return 'hello1'}
+        catch {r function restore APPEND $e} err
+        assert_match {*already exists*} $err
+        r function flush
+        r function create lua test1 {return 'hello1'}
+        r function restore APPEND $e
+        assert_match {hello} [r fcall test 0]
+        assert_match {hello1} [r fcall test1 0]
+    }
+
+    test {FUNCTION - test function dump and restore with replace argument} {
+        r function flush
+        r function create LUA test DESCRIPTION {some description} {return 'hello'}
+        set e [r function dump]
+        r function flush
+        assert_match {} [r function list]
+        r function create lua test {return 'hello1'}
+        assert_match {hello1} [r fcall test 0]
+        r function restore REPLACE $e
+        assert_match {hello} [r fcall test 0]
+    }
+
     test {FUNCTION - test function restore with bad payload do not drop existing functions} {
+        r function flush
+        r function create LUA test DESCRIPTION {some description} {return 'hello'}
         catch {r function restore bad_payload} e
         assert_match {*payload version or checksum are wrong*} $e
         r function list
     } {{name test engine LUA description {some description}}}
+
+    test {FUNCTION - test function restore with wrong number of arguments} {
+        catch {r function restore arg1 args2 arg3} e
+        set _ $e
+    } {*wrong number of arguments*}
 
     test {FUNCTION - test fcall_ro with write command} {
         r function create lua test REPLACE {return redis.call('set', 'x', '1')}

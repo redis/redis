@@ -1215,24 +1215,27 @@ ssize_t rdbSaveSingleModuleAux(rio *rdb, int when, moduleType *mt) {
 }
 
 int functionsSaveRio(rio *rdb) {
+    int ret = C_ERR;
     dict *functions = functionsGet();
     dictIterator *iter = dictGetIterator(functions);
     dictEntry *entry = NULL;
     while ((entry = dictNext(iter))) {
         rdbSaveType(rdb, RDB_OPCODE_FUNCTION);
-        functionInfo* fi = dictGetVal(entry);
-        if (rdbSaveRawString(rdb, (unsigned char *) fi->name, sdslen(fi->name)) == -1) return C_ERR;
-        if (rdbSaveRawString(rdb, (unsigned char *) fi->ei->name, sdslen(fi->ei->name)) == -1) return C_ERR;
+        functionInfo *fi = dictGetVal(entry);
+        if (rdbSaveRawString(rdb, (unsigned char *) fi->name, sdslen(fi->name)) == -1) goto done;
+        if (rdbSaveRawString(rdb, (unsigned char *) fi->ei->name, sdslen(fi->ei->name)) == -1) goto done;
         if (fi->desc) {
-            if (rdbSaveLen(rdb, 1) == -1) return C_ERR; /* desc exists */
-            if (rdbSaveRawString(rdb, (unsigned char *) fi->desc, sdslen(fi->desc)) == -1) return C_ERR;
+            if (rdbSaveLen(rdb, 1) == -1) goto done; /* desc exists */
+            if (rdbSaveRawString(rdb, (unsigned char *) fi->desc, sdslen(fi->desc)) == -1) goto done;
         } else {
-            if (rdbSaveLen(rdb, 0) == -1) return C_ERR; /* desc not exists */
+            if (rdbSaveLen(rdb, 0) == -1) goto done; /* desc not exists */
         }
-        if (rdbSaveRawString(rdb, (unsigned char *) fi->code, sdslen(fi->code)) == -1) return C_ERR;
+        if (rdbSaveRawString(rdb, (unsigned char *) fi->code, sdslen(fi->code)) == -1) goto done;
     }
+    ret = C_OK;
+done:
     dictReleaseIterator(iter);
-    return C_OK;
+    return ret;
 }
 
 /* Produces a dump of the database in RDB format sending it to the specified
@@ -2716,42 +2719,40 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
     }
 }
 
-int rdbFunctionLoad(rio *rdb, int ver, functionsCtx* functions_ctx) {
+int rdbFunctionLoad(rio *rdb, int ver, functionsCtx* functions_ctx, sds *err) {
     UNUSED(ver);
     sds name = NULL;
     sds engine_name = NULL;
     sds desc = NULL;
     sds blob = NULL;
-    sds err = NULL;
     uint64_t has_desc;
     int res = C_ERR;
     if (!(name = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
-        serverLog(LL_WARNING, "Failed loading function name");
+        *err = sdsnew("Failed loading function name");
         goto error;
     }
 
     if (!(engine_name = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
-        serverLog(LL_WARNING, "Failed loading engine name");
+        *err = sdsnew("Failed loading engine name");
         goto error;
     }
 
     if ((has_desc = rdbLoadLen(rdb, NULL)) == RDB_LENERR) {
-        serverLog(LL_WARNING, "Failed loading function desc indicator");
+        *err = sdsnew("Failed loading function description indicator");
         goto error;
     }
 
     if (has_desc && !(desc = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
-        serverLog(LL_WARNING, "Failed loading function desc");
+        *err = sdsnew("Failed loading function description");
         goto error;
     }
 
     if (!(blob = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
-        serverLog(LL_WARNING, "Failed loading function blob");
+        *err = sdsnew("Failed loading function blob");
         goto error;
     }
 
-    if (functionsCreateWithFunctionCtx(name, engine_name, desc, blob, 0, &err, functions_ctx) != C_OK) {
-        serverLog(LL_WARNING, "Failed compiling and saving the function %s", err);
+    if (functionsCreateWithFunctionCtx(name, engine_name, desc, blob, 0, err, functions_ctx) != C_OK) {
         goto error;
     }
 
@@ -2762,7 +2763,6 @@ error:
     if (engine_name) sdsfree(engine_name);
     if (desc) sdsfree(desc);
     if (blob) sdsfree(blob);
-    if (err)  sdsfree(err);
     return res;
 }
 
@@ -2993,8 +2993,10 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
                 continue; /* Read next opcode. */
             }
         } else if (type == RDB_OPCODE_FUNCTION) {
-            if (rdbFunctionLoad(rdb, rdbver, rdb_loading_ctx->functions_ctx) != C_OK) {
-                serverLog(LL_WARNING,"Failed loading function");
+            sds err = NULL;
+            if (rdbFunctionLoad(rdb, rdbver, rdb_loading_ctx->functions_ctx, &err) != C_OK) {
+                serverLog(LL_WARNING,"Failed loading function, %s", err);
+                sdsfree(err);
                 goto eoferr;
             }
             continue;

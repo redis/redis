@@ -5398,23 +5398,23 @@ void createDumpPayload(rio *payload, robj *o, robj *key, int dbid) {
 /* Verify that the RDB version of the dump payload matches the one of this Redis
  * instance and that the checksum is ok.
  * If the DUMP payload looks valid C_OK is returned, otherwise C_ERR
- * is returned. */
+ * is returned. If rdbver_ptr is not NULL, its populated with the value read
+ * from the input buffer. */
 int verifyDumpPayload(unsigned char *p, size_t len, uint16_t *rdbver_ptr) {
     unsigned char *footer;
     uint16_t rdbver;
     uint64_t crc;
-
-    if (!rdbver_ptr) {
-        rdbver_ptr = &rdbver;
-    }
 
     /* At least 2 bytes of RDB version and 8 of CRC64 should be present. */
     if (len < 10) return C_ERR;
     footer = p+(len-10);
 
     /* Verify RDB version */
-    *rdbver_ptr = (footer[1] << 8) | footer[0];
-    if (*rdbver_ptr > RDB_VERSION) return C_ERR;
+    rdbver = (footer[1] << 8) | footer[0];
+    if (rdbver_ptr) {
+        *rdbver_ptr = rdbver;
+    }
+    if (rdbver > RDB_VERSION) return C_ERR;
 
     if (server.skip_checksum_validation)
         return C_OK;
