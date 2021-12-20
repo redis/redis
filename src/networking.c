@@ -171,6 +171,7 @@ client *createClient(connection *conn) {
     c->slave_listening_port = 0;
     c->slave_addr = NULL;
     c->slave_capa = SLAVE_CAPA_NONE;
+    c->slave_req = SLAVE_REQ_NONE;
     c->reply = listCreate();
     c->reply_bytes = 0;
     c->obuf_soft_limit_reached_time = 0;

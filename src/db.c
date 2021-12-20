@@ -591,7 +591,7 @@ void flushAllDataAndResetRDB(int flags) {
         int saved_dirty = server.dirty;
         rdbSaveInfo rsi, *rsiptr;
         rsiptr = rdbPopulateSaveInfo(&rsi);
-        rdbSave(server.rdb_filename,rsiptr);
+        rdbSave(SLAVE_REQ_NONE, server.rdb_filename,rsiptr);
         server.dirty = saved_dirty;
     }
 

@@ -1214,50 +1214,51 @@ ssize_t rdbSaveSingleModuleAux(rio *rdb, int when, moduleType *mt) {
     return io.bytes;
 }
 
-/* Produces a dump of the database in RDB format sending it to the specified
- * Redis I/O channel. On success C_OK is returned, otherwise C_ERR
- * is returned and part of the output, or all the output, can be
- * missing because of I/O errors.
- *
- * When the function returns C_ERR and if 'error' is not NULL, the
- * integer pointed by 'error' is set to the value of errno just after the I/O
- * error. */
-int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
-    dictIterator *di = NULL;
-    dictEntry *de;
-    char magic[10];
-    uint64_t cksum;
-    size_t processed = 0;
-    int j;
-    long key_count = 0;
-    long long info_updated_time = 0;
-    char *pname = (rdbflags & RDBFLAGS_AOF_PREAMBLE) ? "AOF rewrite" :  "RDB";
-
-    if (server.rdb_checksum)
-        rdb->update_cksum = rioGenericUpdateChecksum;
-    snprintf(magic,sizeof(magic),"REDIS%04d",RDB_VERSION);
-    if (rdbWriteRaw(rdb,magic,9) == -1) goto werr;
-    if (rdbSaveInfoAuxFields(rdb,rdbflags,rsi) == -1) goto werr;
-    if (rdbSaveModulesAux(rdb, REDISMODULE_AUX_BEFORE_RDB) == -1) goto werr;
-
-    /* save functions */
+ssize_t rdbSaveFunctions(rio *rdb) {
     dict *functions = functionsGet();
     dictIterator *iter = dictGetIterator(functions);
     dictEntry *entry = NULL;
+    ssize_t written = 0;
+    ssize_t ret;
     while ((entry = dictNext(iter))) {
-        rdbSaveType(rdb, RDB_OPCODE_FUNCTION);
+        if ((ret = rdbSaveType(rdb, RDB_OPCODE_FUNCTION)) < 0) goto werr;
+        written += ret;
         functionInfo* fi = dictGetVal(entry);
-        if (rdbSaveRawString(rdb, (unsigned char *) fi->name, sdslen(fi->name)) == -1) goto werr;
-        if (rdbSaveRawString(rdb, (unsigned char *) fi->ei->name, sdslen(fi->ei->name)) == -1) goto werr;
+        if ((ret = rdbSaveRawString(rdb, (unsigned char *) fi->name, sdslen(fi->name))) < 0) goto werr;
+        written += ret;
+        if ((ret = rdbSaveRawString(rdb, (unsigned char *) fi->ei->name, sdslen(fi->ei->name))) < 0) goto werr;
+        written += ret;
         if (fi->desc) {
-            if (rdbSaveLen(rdb, 1) == -1) goto werr; /* desc exists */
-            if (rdbSaveRawString(rdb, (unsigned char *) fi->desc, sdslen(fi->desc)) == -1) goto werr;
+            /* desc exists */
+            if ((ret = rdbSaveLen(rdb, 1)) < 0) return ret;
+            written += ret;
+            if ((ret = rdbSaveRawString(rdb, (unsigned char *) fi->desc, sdslen(fi->desc))) < 0) goto werr;
+            written += ret;
         } else {
-            if (rdbSaveLen(rdb, 0) == -1) goto werr; /* desc not exists */
+            /* desc not exists */
+            if ((ret = rdbSaveLen(rdb, 0)) < 0) goto werr;
+            written += ret;
         }
-        if (rdbSaveRawString(rdb, (unsigned char *) fi->code, sdslen(fi->code)) == -1) goto werr;
+        if ((ret = rdbSaveRawString(rdb, (unsigned char *) fi->code, sdslen(fi->code))) < 0) goto werr;
+        written += ret;
     }
     dictReleaseIterator(iter);
+    return written;
+
+werr:
+    dictReleaseIterator(iter);
+    return -1;
+}
+
+ssize_t rdbSaveDbs(rio *rdb, int rdbflags) {
+    int j;
+    dictIterator *di = NULL;
+    dictEntry *de;
+    ssize_t written = 0;
+    ssize_t res;
+    long key_count = 0;
+    long long info_updated_time = 0;
+    size_t processed = 0;
 
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
@@ -1266,16 +1267,21 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
         di = dictGetSafeIterator(d);
 
         /* Write the SELECT DB opcode */
-        if (rdbSaveType(rdb,RDB_OPCODE_SELECTDB) == -1) goto werr;
-        if (rdbSaveLen(rdb,j) == -1) goto werr;
+        if ((res = rdbSaveType(rdb,RDB_OPCODE_SELECTDB)) < 0) goto werr;
+        written += res;
+        if ((res = rdbSaveLen(rdb,j)) < 0) goto werr;
+        written += res;
 
         /* Write the RESIZE DB opcode. */
         uint64_t db_size, expires_size;
         db_size = dictSize(db->dict);
         expires_size = dictSize(db->expires);
-        if (rdbSaveType(rdb,RDB_OPCODE_RESIZEDB) == -1) goto werr;
-        if (rdbSaveLen(rdb,db_size) == -1) goto werr;
-        if (rdbSaveLen(rdb,expires_size) == -1) goto werr;
+        if ((res = rdbSaveType(rdb,RDB_OPCODE_RESIZEDB)) < 0) goto werr;
+        written += res;
+        if ((res = rdbSaveLen(rdb,db_size)) < 0) goto werr;
+        written += res;
+        if ((res = rdbSaveLen(rdb,expires_size)) < 0) goto werr;
+        written += res;
 
         /* Iterate this DB writing every entry */
         while((de = dictNext(di)) != NULL) {
@@ -1286,7 +1292,8 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
 
             initStaticStringObject(key,keystr);
             expire = getExpire(db,&key);
-            if (rdbSaveKeyValuePair(rdb,&key,o,expire,j) == -1) goto werr;
+            if ((res = rdbSaveKeyValuePair(rdb,&key,o,expire,j)) < 0) goto werr;
+            written += res;
 
             /* In fork child process, we can try to release memory back to the
              * OS and possibly avoid or decrease COW. We give the dismiss
@@ -1297,6 +1304,8 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
             /* When this RDB is produced as part of an AOF rewrite, move
              * accumulated diff from parent to child while rewriting in
              * order to have a smaller final write. */
+            // TODO: make this part of the rio chunk callback mechanism so this will be done periodically regardless of keys (for example during large aux fields or functions)
+            //   Then make sure to setup the rio mechanism based on whether RDBFLAGS_AOF_PREAMBLE is set
             if (rdbflags & RDBFLAGS_AOF_PREAMBLE &&
                 rdb->processed_bytes > processed+AOF_READ_DIFF_INTERVAL_BYTES)
             {
@@ -1310,7 +1319,7 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
             if ((key_count++ & 1023) == 0) {
                 long long now = mstime();
                 if (now - info_updated_time >= 1000) {
-                    sendChildInfo(CHILD_INFO_TYPE_CURRENT_INFO, key_count, pname);
+                    sendChildInfo(CHILD_INFO_TYPE_CURRENT_INFO, key_count, (rdbflags & RDBFLAGS_AOF_PREAMBLE) ? "AOF rewrite" :  "RDB");
                     info_updated_time = now;
                 }
             }
@@ -1318,6 +1327,40 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
         dictReleaseIterator(di);
         di = NULL; /* So that we don't release it again on error. */
     }
+
+    return written;
+
+werr:
+    if (di) dictReleaseIterator(di);
+    return -1;
+}
+
+/* Produces a dump of the database in RDB format sending it to the specified
+ * Redis I/O channel. On success C_OK is returned, otherwise C_ERR
+ * is returned and part of the output, or all the output, can be
+ * missing because of I/O errors.
+ *
+ * When the function returns C_ERR and if 'error' is not NULL, the
+ * integer pointed by 'error' is set to the value of errno just after the I/O
+ * error. */
+int rdbSaveRio(int req, rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
+    dictIterator *di = NULL;
+    dictEntry *de;
+    char magic[10];
+    uint64_t cksum;
+
+    if (server.rdb_checksum)
+        rdb->update_cksum = rioGenericUpdateChecksum;
+    snprintf(magic,sizeof(magic),"REDIS%04d",RDB_VERSION);
+    if (rdbWriteRaw(rdb,magic,9) == -1) goto werr;
+    if (rdbSaveInfoAuxFields(rdb,rdbflags,rsi) == -1) goto werr;
+    if (rdbSaveModulesAux(rdb, REDISMODULE_AUX_BEFORE_RDB) == -1) goto werr;
+
+    /* save functions */
+    if (rdbSaveFunctions(rdb) == -1) goto werr;
+
+    /* save all databases, skip this if we're in functions-only mode */
+    if (!(req & SLAVE_REQ_RDB_FUNCTIONS_ONLY) && rdbSaveDbs(rdb, rdbflags) == -1) goto werr;
 
     /* If we are storing the replication information on disk, persist
      * the script cache as well: on successful PSYNC after a restart, we need
@@ -1360,7 +1403,7 @@ werr:
  * While the suffix is the 40 bytes hex string we announced in the prefix.
  * This way processes receiving the payload can understand when it ends
  * without doing any processing of the content. */
-int rdbSaveRioWithEOFMark(rio *rdb, int *error, rdbSaveInfo *rsi) {
+int rdbSaveRioWithEOFMark(int req, rio *rdb, int *error, rdbSaveInfo *rsi) {
     char eofmark[RDB_EOF_MARK_SIZE];
 
     startSaving(RDBFLAGS_REPLICATION);
@@ -1369,7 +1412,7 @@ int rdbSaveRioWithEOFMark(rio *rdb, int *error, rdbSaveInfo *rsi) {
     if (rioWrite(rdb,"$EOF:",5) == 0) goto werr;
     if (rioWrite(rdb,eofmark,RDB_EOF_MARK_SIZE) == 0) goto werr;
     if (rioWrite(rdb,"\r\n",2) == 0) goto werr;
-    if (rdbSaveRio(rdb,error,RDBFLAGS_NONE,rsi) == C_ERR) goto werr;
+    if (rdbSaveRio(req,rdb,error,RDBFLAGS_NONE,rsi) == C_ERR) goto werr;
     if (rioWrite(rdb,eofmark,RDB_EOF_MARK_SIZE) == 0) goto werr;
     stopSaving(1);
     return C_OK;
@@ -1382,7 +1425,7 @@ werr: /* Write error. */
 }
 
 /* Save the DB on disk. Return C_ERR on error, C_OK on success. */
-int rdbSave(char *filename, rdbSaveInfo *rsi) {
+int rdbSave(int req, char *filename, rdbSaveInfo *rsi) {
     char tmpfile[256];
     char cwd[MAXPATHLEN]; /* Current working dir path for error messages. */
     FILE *fp = NULL;
@@ -1409,7 +1452,7 @@ int rdbSave(char *filename, rdbSaveInfo *rsi) {
     if (server.rdb_save_incremental_fsync)
         rioSetAutoSync(&rdb,REDIS_AUTOSYNC_BYTES);
 
-    if (rdbSaveRio(&rdb,&error,RDBFLAGS_NONE,rsi) == C_ERR) {
+    if (rdbSaveRio(req,&rdb,&error,RDBFLAGS_NONE,rsi) == C_ERR) {
         errno = error;
         goto werr;
     }
@@ -1452,7 +1495,7 @@ werr:
     return C_ERR;
 }
 
-int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
+int rdbSaveBackground(int req, char *filename, rdbSaveInfo *rsi) {
     pid_t childpid;
 
     if (hasActiveChildProcess()) return C_ERR;
@@ -1466,7 +1509,7 @@ int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
         /* Child */
         redisSetProcTitle("redis-rdb-bgsave");
         redisSetCpuAffinity(server.bgsave_cpulist);
-        retval = rdbSave(filename,rsi);
+        retval = rdbSave(req, filename,rsi);
         if (retval == C_OK) {
             sendChildCowInfo(CHILD_INFO_TYPE_RDB_COW_SIZE, "RDB");
         }
@@ -3245,7 +3288,7 @@ void killRDBChild(void) {
 
 /* Spawn an RDB child that writes the RDB to the sockets of the slaves
  * that are currently in SLAVE_STATE_WAIT_BGSAVE_START state. */
-int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
+int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
     listNode *ln;
     listIter li;
     pid_t childpid;
@@ -3284,6 +3327,9 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
     while((ln = listNext(&li))) {
         client *slave = ln->value;
         if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START) {
+            /* Check slave has the exact requirements */
+            if (slave->slave_req != req)
+                continue;
             server.rdb_pipe_conns[server.rdb_pipe_numconns++] = slave->conn;
             replicationSetupSlaveForFullResync(slave,getPsyncInitialOffset());
         }
@@ -3300,7 +3346,7 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
         redisSetProcTitle("redis-rdb-to-slaves");
         redisSetCpuAffinity(server.bgsave_cpulist);
 
-        retval = rdbSaveRioWithEOFMark(&rdb,NULL,rsi);
+        retval = rdbSaveRioWithEOFMark(req,&rdb,NULL,rsi);
         if (retval == C_OK && rioFlush(&rdb) == 0)
             retval = C_ERR;
 
@@ -3362,7 +3408,7 @@ void saveCommand(client *c) {
     }
     rdbSaveInfo rsi, *rsiptr;
     rsiptr = rdbPopulateSaveInfo(&rsi);
-    if (rdbSave(server.rdb_filename,rsiptr) == C_OK) {
+    if (rdbSave(SLAVE_REQ_NONE, server.rdb_filename,rsiptr) == C_OK) {
         addReply(c,shared.ok);
     } else {
         addReplyErrorObject(c,shared.err);
@@ -3399,7 +3445,7 @@ void bgsaveCommand(client *c) {
             "Use BGSAVE SCHEDULE in order to schedule a BGSAVE whenever "
             "possible.");
         }
-    } else if (rdbSaveBackground(server.rdb_filename,rsiptr) == C_OK) {
+    } else if (rdbSaveBackground(SLAVE_REQ_NONE,server.rdb_filename,rsiptr) == C_OK) {
         addReplyStatus(c,"Background saving started");
     } else {
         addReplyErrorObject(c,shared.err);
