@@ -3683,8 +3683,8 @@ void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t dur
 /* This function is called in order to update the total command histogram duration.
  * The latency unit is nano-seconds.
  * If needed it will allocate the histogram memory and trim the duration to the upper/lower tracking limits*/
-void updateCommandLatencyHistogram(struct hdr_histogram** latency_histogram, int64_t duration_hist){
-    if(unlikely(duration_hist<LATENCY_HISTOGRAM_MIN_VALUE))
+void updateCommandLatencyHistogram(struct hdr_histogram **latency_histogram, int64_t duration_hist){
+    if (unlikely(duration_hist < LATENCY_HISTOGRAM_MIN_VALUE))
         duration_hist=LATENCY_HISTOGRAM_MIN_VALUE;
     if(unlikely(duration_hist>LATENCY_HISTOGRAM_MAX_VALUE))
         duration_hist=LATENCY_HISTOGRAM_MAX_VALUE;
@@ -4655,8 +4655,7 @@ sds fillCumulativeDistributionLatencies(sds info, const char* histogram_name, st
     hdr_iter_log_init(&iter, histogram, 1024,2);
     size_t bucket_pos = 0;
     int64_t previous_count = 0;
-    while (hdr_iter_next(&iter))
-    {
+    while (hdr_iter_next(&iter)) {
         const int64_t micros = iter.highest_equivalent_value / 1000;
         const int64_t cumulative_count = iter.cumulative_count;
         if(cumulative_count > previous_count){
@@ -5420,7 +5419,7 @@ sds genRedisInfoString(const char *section) {
             c = (struct redisCommand *) dictGetVal(de);
             if (!c->calls || !c->latency_histogram)
                 continue;
-            info = fillCumulativeDistributionLatencies(info,getSafeInfoString(c->name, strlen(c->name), &tmpsafe),c->latency_histogram);
+            info = fillCumulativeDistributionLatencies(info, getSafeInfoString(c->name, strlen(c->name), &tmpsafe), c->latency_histogram);
             if (tmpsafe != NULL) zfree(tmpsafe);
         }
         dictReleaseIterator(di);
