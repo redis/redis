@@ -2772,14 +2772,9 @@ static int shouldPropagate(int target) {
  *
  * This is an internal low-level function and should not be called!
  *
- * This should not be used inside commands implementation since it will not
- * wrap the resulting commands in MULTI/EXEC. Use instead alsoPropagate(),
- * preventCommandPropagation(), forceCommandPropagation().
- *
- * However in extreme cases, like working with threads, there's no other
- * choice except using this function (see RM_Replicate).
+ * The API for propagating commands is alsoPropagate().
  */
-void propagateNow(int dbid, robj **argv, int argc, int target) {
+static void propagateNow(int dbid, robj **argv, int argc, int target) {
     if (!shouldPropagate(target))
         return;
 

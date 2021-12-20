@@ -2351,15 +2351,7 @@ int RM_Replicate(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...)
     if (!(flags & REDISMODULE_ARGV_NO_AOF)) target |= PROPAGATE_AOF;
     if (!(flags & REDISMODULE_ARGV_NO_REPLICAS)) target |= PROPAGATE_REPL;
 
-    /* Replicate! When we are in a threaded context, we want to just insert
-     * the replicated command ASAP, since it is not clear when the context
-     * will stop being used, so accumulating stuff does not make much sense,
-     * nor we could easily use the alsoPropagate() API from threads. */
-    if (ctx->flags & REDISMODULE_CTX_THREAD_SAFE) {
-        propagateNow(ctx->client->db->id,argv,argc,target);
-    } else {
-        alsoPropagate(ctx->client->db->id,argv,argc,target);
-    }
+    alsoPropagate(ctx->client->db->id,argv,argc,target);
 
     /* Release the argv. */
     for (j = 0; j < argc; j++) decrRefCount(argv[j]);

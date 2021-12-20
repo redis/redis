@@ -2682,7 +2682,6 @@ struct redisCommand *lookupCommandByCStringLogic(dict *commands, const char *s);
 struct redisCommand *lookupCommandByCString(const char *s);
 struct redisCommand *lookupCommandOrOriginal(robj **argv ,int argc);
 void call(client *c, int flags);
-void propagateNow(int dbid, robj **argv, int argc, int target);
 void alsoPropagate(int dbid, robj **argv, int argc, int target);
 void propagatePendingCommands();
 void redisOpArrayInit(redisOpArray *oa);

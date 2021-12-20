@@ -340,27 +340,25 @@ tags "modules" {
                         fail "The two counters don't match the expected value."
                     }
 
-                    # Known issue: "thread-call" is executed before "b-from-thread"
-                    # but propagated after
                     assert_replication_stream $repl {
                         {select *}
-                        {incr a-from-thread}
-                        {incr b-from-thread}
                         {multi}
+                        {incr a-from-thread}
                         {incr notifications}
                         {incr thread-call}
+                        {incr b-from-thread}
                         {exec}
-                        {incr a-from-thread}
-                        {incr b-from-thread}
                         {multi}
+                        {incr a-from-thread}
                         {incr notifications}
                         {incr thread-call}
+                        {incr b-from-thread}
                         {exec}
-                        {incr a-from-thread}
-                        {incr b-from-thread}
                         {multi}
+                        {incr a-from-thread}
                         {incr notifications}
                         {incr thread-call}
+                        {incr b-from-thread}
                         {exec}
                     }
                     close_replication_stream $repl
@@ -377,17 +375,15 @@ tags "modules" {
                         fail "The key doesn't match the expected value."
                     }
 
-                    # Known issue: "thread-detached-1" and "thread-detached-2" are executed before "thread-detached-after"
-                    # but propagated after
                     assert_replication_stream $repl {
                         {select *}
-                        {incr thread-detached-before}
-                        {incr thread-detached-after}
                         {multi}
+                        {incr thread-detached-before}
                         {incr notifications}
                         {incr thread-detached-1}
                         {incr notifications}
                         {incr thread-detached-2}
+                        {incr thread-detached-after}
                         {exec}
                     }
                     close_replication_stream $repl
