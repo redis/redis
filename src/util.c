@@ -835,13 +835,8 @@ int dirCreateIfMissing(char *dname) {
 
 int dirRemove(char *dname) {
     DIR *dir;
-    struct redis_stat stat_path;
     struct redis_stat stat_entry;
     struct dirent *entry;
-
-    if (redis_stat(dname, &stat_path) == -1 || S_ISDIR(stat_path.st_mode) == 0) {
-        return -1;
-    }
 
     if ((dir = opendir(dname)) == NULL) {
         return -1;
