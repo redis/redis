@@ -3608,7 +3608,7 @@ int prepareForShutdown(int flags) {
         }
     }
 
-    aofManifestFree(server.aof_manifest);
+    if (server.aof_manifest) aofManifestFree(server.aof_manifest);
 
     /* Create a new RDB file before exiting. */
     if ((server.saveparamslen > 0 && !nosave) || save) {
