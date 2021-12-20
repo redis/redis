@@ -166,8 +166,9 @@ foreach sanitize_dump {no yes} {
                 # check valgrind report for invalid reads after each RESTORE
                 # payload so that we have a report that is easier to reproduce
                 set valgrind_errors [find_valgrind_errors [srv 0 stderr] false]
-                if {$valgrind_errors != ""} {
-                    puts "valgrind found an issue for payload: $printable_dump"
+                set asan_errors [sanitizer_errors_from_file [srv 0 stderr]]
+                if {$valgrind_errors != "" || $asan_errors != ""} {
+                    puts "valgrind or asan found an issue for payload: $printable_dump"
                     set report_and_restart true
                     set print_commands true
                 }

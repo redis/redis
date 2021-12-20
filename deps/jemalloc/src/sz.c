@@ -2,106 +2,63 @@
 #include "jemalloc/internal/sz.h"
 
 JEMALLOC_ALIGNED(CACHELINE)
-const size_t sz_pind2sz_tab[NPSIZES+1] = {
-#define PSZ_yes(lg_grp, ndelta, lg_delta)				\
-	(((ZU(1)<<lg_grp) + (ZU(ndelta)<<lg_delta))),
-#define PSZ_no(lg_grp, ndelta, lg_delta)
-#define SC(index, lg_grp, lg_delta, ndelta, psz, bin, pgs, lg_delta_lookup) \
-	PSZ_##psz(lg_grp, ndelta, lg_delta)
-	SIZE_CLASSES
-#undef PSZ_yes
-#undef PSZ_no
-#undef SC
-	(LARGE_MAXCLASS + PAGE)
-};
+size_t sz_pind2sz_tab[SC_NPSIZES+1];
+
+static void
+sz_boot_pind2sz_tab(const sc_data_t *sc_data) {
+	int pind = 0;
+	for (unsigned i = 0; i < SC_NSIZES; i++) {
+		const sc_t *sc = &sc_data->sc[i];
+		if (sc->psz) {
+			sz_pind2sz_tab[pind] = (ZU(1) << sc->lg_base)
+			    + (ZU(sc->ndelta) << sc->lg_delta);
+			pind++;
+		}
+	}
+	for (int i = pind; i <= (int)SC_NPSIZES; i++) {
+		sz_pind2sz_tab[pind] = sc_data->large_maxclass + PAGE;
+	}
+}
 
 JEMALLOC_ALIGNED(CACHELINE)
-const size_t sz_index2size_tab[NSIZES] = {
-#define SC(index, lg_grp, lg_delta, ndelta, psz, bin, pgs, lg_delta_lookup) \
-	((ZU(1)<<lg_grp) + (ZU(ndelta)<<lg_delta)),
-	SIZE_CLASSES
-#undef SC
-};
+size_t sz_index2size_tab[SC_NSIZES];
 
+static void
+sz_boot_index2size_tab(const sc_data_t *sc_data) {
+	for (unsigned i = 0; i < SC_NSIZES; i++) {
+		const sc_t *sc = &sc_data->sc[i];
+		sz_index2size_tab[i] = (ZU(1) << sc->lg_base)
+		    + (ZU(sc->ndelta) << (sc->lg_delta));
+	}
+}
+
+/*
+ * To keep this table small, we divide sizes by the tiny min size, which gives
+ * the smallest interval for which the result can change.
+ */
 JEMALLOC_ALIGNED(CACHELINE)
-const uint8_t sz_size2index_tab[] = {
-#if LG_TINY_MIN == 0
-/* The div module doesn't support division by 1. */
-#error "Unsupported LG_TINY_MIN"
-#define S2B_0(i)	i,
-#elif LG_TINY_MIN == 1
-#warning "Dangerous LG_TINY_MIN"
-#define S2B_1(i)	i,
-#elif LG_TINY_MIN == 2
-#warning "Dangerous LG_TINY_MIN"
-#define S2B_2(i)	i,
-#elif LG_TINY_MIN == 3
-#define S2B_3(i)	i,
-#elif LG_TINY_MIN == 4
-#define S2B_4(i)	i,
-#elif LG_TINY_MIN == 5
-#define S2B_5(i)	i,
-#elif LG_TINY_MIN == 6
-#define S2B_6(i)	i,
-#elif LG_TINY_MIN == 7
-#define S2B_7(i)	i,
-#elif LG_TINY_MIN == 8
-#define S2B_8(i)	i,
-#elif LG_TINY_MIN == 9
-#define S2B_9(i)	i,
-#elif LG_TINY_MIN == 10
-#define S2B_10(i)	i,
-#elif LG_TINY_MIN == 11
-#define S2B_11(i)	i,
-#else
-#error "Unsupported LG_TINY_MIN"
-#endif
-#if LG_TINY_MIN < 1
-#define S2B_1(i)	S2B_0(i) S2B_0(i)
-#endif
-#if LG_TINY_MIN < 2
-#define S2B_2(i)	S2B_1(i) S2B_1(i)
-#endif
-#if LG_TINY_MIN < 3
-#define S2B_3(i)	S2B_2(i) S2B_2(i)
-#endif
-#if LG_TINY_MIN < 4
-#define S2B_4(i)	S2B_3(i) S2B_3(i)
-#endif
-#if LG_TINY_MIN < 5
-#define S2B_5(i)	S2B_4(i) S2B_4(i)
-#endif
-#if LG_TINY_MIN < 6
-#define S2B_6(i)	S2B_5(i) S2B_5(i)
-#endif
-#if LG_TINY_MIN < 7
-#define S2B_7(i)	S2B_6(i) S2B_6(i)
-#endif
-#if LG_TINY_MIN < 8
-#define S2B_8(i)	S2B_7(i) S2B_7(i)
-#endif
-#if LG_TINY_MIN < 9
-#define S2B_9(i)	S2B_8(i) S2B_8(i)
-#endif
-#if LG_TINY_MIN < 10
-#define S2B_10(i)	S2B_9(i) S2B_9(i)
-#endif
-#if LG_TINY_MIN < 11
-#define S2B_11(i)	S2B_10(i) S2B_10(i)
-#endif
-#define S2B_no(i)
-#define SC(index, lg_grp, lg_delta, ndelta, psz, bin, pgs, lg_delta_lookup) \
-	S2B_##lg_delta_lookup(index)
-	SIZE_CLASSES
-#undef S2B_3
-#undef S2B_4
-#undef S2B_5
-#undef S2B_6
-#undef S2B_7
-#undef S2B_8
-#undef S2B_9
-#undef S2B_10
-#undef S2B_11
-#undef S2B_no
-#undef SC
-};
+uint8_t sz_size2index_tab[(SC_LOOKUP_MAXCLASS >> SC_LG_TINY_MIN) + 1];
+
+static void
+sz_boot_size2index_tab(const sc_data_t *sc_data) {
+	size_t dst_max = (SC_LOOKUP_MAXCLASS >> SC_LG_TINY_MIN) + 1;
+	size_t dst_ind = 0;
+	for (unsigned sc_ind = 0; sc_ind < SC_NSIZES && dst_ind < dst_max;
+	    sc_ind++) {
+		const sc_t *sc = &sc_data->sc[sc_ind];
+		size_t sz = (ZU(1) << sc->lg_base)
+		    + (ZU(sc->ndelta) << sc->lg_delta);
+		size_t max_ind = ((sz + (ZU(1) << SC_LG_TINY_MIN) - 1)
+				   >> SC_LG_TINY_MIN);
+		for (; dst_ind <= max_ind && dst_ind < dst_max; dst_ind++) {
+			sz_size2index_tab[dst_ind] = sc_ind;
+		}
+	}
+}
+
+void
+sz_boot(const sc_data_t *sc_data) {
+	sz_boot_pind2sz_tab(sc_data);
+	sz_boot_index2size_tab(sc_data);
+	sz_boot_size2index_tab(sc_data);
+}

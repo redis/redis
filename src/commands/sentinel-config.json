@@ -1,0 +1,16 @@
+{
+    "CONFIG": {
+        "summary": "Configure Sentinel",
+        "complexity": "O(1)",
+        "group": "sentinel",
+        "since": "6.2.0",
+        "arity": -3,
+        "container": "SENTINEL",
+        "function": "sentinelCommand",
+        "command_flags": [
+            "ADMIN",
+            "SENTINEL",
+            "ONLY_SENTINEL"
+        ]
+    }
+}

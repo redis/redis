@@ -104,7 +104,8 @@ intset *intsetNew(void) {
 
 /* Resize the intset */
 static intset *intsetResize(intset *is, uint32_t len) {
-    uint32_t size = len*intrev32ifbe(is->encoding);
+    uint64_t size = (uint64_t)len*intrev32ifbe(is->encoding);
+    assert(size <= SIZE_MAX - sizeof(intset));
     is = zrealloc(is,sizeof(intset)+size);
     return is;
 }
@@ -392,7 +393,7 @@ static void checkConsistency(intset *is) {
 }
 
 #define UNUSED(x) (void)(x)
-int intsetTest(int argc, char **argv, int accurate) {
+int intsetTest(int argc, char **argv, int flags) {
     uint8_t success;
     int i;
     intset *is;
@@ -400,7 +401,7 @@ int intsetTest(int argc, char **argv, int accurate) {
 
     UNUSED(argc);
     UNUSED(argv);
-    UNUSED(accurate);
+    UNUSED(flags);
 
     printf("Value encodings: "); {
         assert(_intsetValueEncoding(-32768) == INTSET_ENC_INT16);

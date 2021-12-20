@@ -77,7 +77,12 @@ ifeq ($(USE_SSL),1)
 endif
 
 ifeq ($(uname_S),Linux)
-  SSL_LDFLAGS=-lssl -lcrypto
+  ifdef OPENSSL_PREFIX
+    CFLAGS+=-I$(OPENSSL_PREFIX)/include
+    SSL_LDFLAGS+=-L$(OPENSSL_PREFIX)/lib -lssl -lcrypto
+  else
+    SSL_LDFLAGS=-lssl -lcrypto
+  endif
 else
   OPENSSL_PREFIX?=/usr/local/opt/openssl
   CFLAGS+=-I$(OPENSSL_PREFIX)/include

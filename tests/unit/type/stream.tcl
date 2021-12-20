@@ -85,6 +85,43 @@ start_server {
         assert_error ERR* {r xadd mystream * c d}
     }
 
+    test {XADD auto-generated sequence is incremented for last ID} {
+        r DEL mystream
+        set id1 [r XADD mystream 123-456 item 1 value a]
+        set id2 [r XADD mystream 123-* item 2 value b]
+        lassign [split $id2 -] _ seq
+        assert {$seq == 457}
+        assert {[streamCompareID $id1 $id2] == -1}
+    }
+
+    test {XADD auto-generated sequence is zero for future timestamp ID} {
+        r DEL mystream
+        set id1 [r XADD mystream 123-456 item 1 value a]
+        set id2 [r XADD mystream 789-* item 2 value b]
+        lassign [split $id2 -] _ seq
+        assert {$seq == 0}
+        assert {[streamCompareID $id1 $id2] == -1}
+    }
+
+    test {XADD auto-generated sequence can't be smaller than last ID} {
+        r DEL mystream
+        r XADD mystream 123-456 item 1 value a
+        assert_error ERR* {r XADD mystream 42-* item 2 value b}
+    }
+
+    test {XADD auto-generated sequence can't overflow} {
+        r DEL mystream
+        r xadd mystream 1-18446744073709551615 a b
+        assert_error ERR* {r xadd mystream 1-* c d}
+    }
+
+    test {XADD 0-* should succeed} {
+        r DEL mystream
+        set id [r xadd mystream 0-* a b]
+        lassign [split $id -] _ seq
+        assert {$seq == 1}
+    }
+
     test {XADD with MAXLEN option} {
         r DEL mystream
         for {set j 0} {$j < 1000} {incr j} {
@@ -287,10 +324,12 @@ start_server {
         r XADD s2{t} * old abcd1234
         set rd [redis_deferring_client]
         $rd XREAD BLOCK 20000 STREAMS s1{t} s2{t} s3{t} $ $ $
+        wait_for_blocked_client
         r XADD s2{t} * new abcd1234
         set res [$rd read]
         assert {[lindex $res 0 0] eq {s2{t}}}
         assert {[lindex $res 0 1 0 1] eq {new abcd1234}}
+        $rd close
     }
 
     test {Blocking XREAD waiting old data} {
@@ -300,6 +339,7 @@ start_server {
         set res [$rd read]
         assert {[lindex $res 0 0] eq {s2{t}}}
         assert {[lindex $res 0 1 0 1] eq {old abcd1234}}
+        $rd close
     }
 
     test {Blocking XREAD will not reply with an empty array} {
@@ -311,12 +351,14 @@ start_server {
         $rd XREAD BLOCK 10 STREAMS s1 666
         after 20
         assert {[$rd read] == {}} ;# before the fix, client didn't even block, but was served synchronously with {s1 {}}
+        $rd close
     }
 
     test "XREAD: XADD + DEL should not awake client" {
         set rd [redis_deferring_client]
         r del s1
         $rd XREAD BLOCK 20000 STREAMS s1 $
+        wait_for_blocked_clients_count 1
         r multi
         r XADD s1 * old abcd1234
         r DEL s1
@@ -325,12 +367,14 @@ start_server {
         set res [$rd read]
         assert {[lindex $res 0 0] eq {s1}}
         assert {[lindex $res 0 1 0 1] eq {new abcd1234}}
+        $rd close
     }
 
     test "XREAD: XADD + DEL + LPUSH should not awake client" {
         set rd [redis_deferring_client]
         r del s1
         $rd XREAD BLOCK 20000 STREAMS s1 $
+        wait_for_blocked_clients_count 1
         r multi
         r XADD s1 * old abcd1234
         r DEL s1
@@ -341,22 +385,26 @@ start_server {
         set res [$rd read]
         assert {[lindex $res 0 0] eq {s1}}
         assert {[lindex $res 0 1 0 1] eq {new abcd1234}}
+        $rd close
     }
 
     test {XREAD with same stream name multiple times should work} {
         r XADD s2 * old abcd1234
         set rd [redis_deferring_client]
         $rd XREAD BLOCK 20000 STREAMS s2 s2 s2 $ $ $
+        wait_for_blocked_clients_count 1
         r XADD s2 * new abcd1234
         set res [$rd read]
         assert {[lindex $res 0 0] eq {s2}}
         assert {[lindex $res 0 1 0 1] eq {new abcd1234}}
+        $rd close
     }
 
     test {XREAD + multiple XADD inside transaction} {
         r XADD s2 * old abcd1234
         set rd [redis_deferring_client]
         $rd XREAD BLOCK 20000 STREAMS s2 s2 s2 $ $ $
+        wait_for_blocked_clients_count 1
         r MULTI
         r XADD s2 * field one
         r XADD s2 * field two
@@ -366,6 +414,7 @@ start_server {
         assert {[lindex $res 0 0] eq {s2}}
         assert {[lindex $res 0 1 0 1] eq {field one}}
         assert {[lindex $res 0 1 1 1] eq {field two}}
+        $rd close
     }
 
     test {XDEL basic test} {
@@ -465,11 +514,13 @@ start_server {
         r del x
         set rd [redis_deferring_client]
         $rd XREAD BLOCK 0 STREAMS x 1-18446744073709551615
+        wait_for_blocked_clients_count 1
         r XADD x 1-1 f v
         r XADD x 1-18446744073709551615 f v
         r XADD x 2-1 f v
         set res [$rd read]
         assert {[lindex $res 0 1 0] == {2-1 {f v}}}
+        $rd close
     }
 
     test {XADD streamID edge} {
@@ -712,11 +763,11 @@ start_server {tags {"stream needs:debug"} overrides {appendonly yes aof-use-rdb-
 start_server {tags {"stream"}} {
     test {XGROUP HELP should not have unexpected options} {
         catch {r XGROUP help xxx} e
-        assert_match "*Unknown subcommand or wrong number of arguments*" $e
+        assert_match "*wrong number of arguments*" $e
     }
 
     test {XINFO HELP should not have unexpected options} {
         catch {r XINFO help xxx} e
-        assert_match "*Unknown subcommand or wrong number of arguments*" $e
+        assert_match "*wrong number of arguments*" $e
     }
 }

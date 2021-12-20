@@ -30,7 +30,7 @@ int getkeys_command(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     }
 
     /* Handle real command invocation */
-    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_LEN);
     for (i = 0; i < argc; i++) {
         size_t len;
         const char *str = RedisModule_StringPtrLen(argv[i], &len);

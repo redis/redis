@@ -304,6 +304,7 @@ int pubsubPublishMessage(robj *channel, robj *message) {
         while ((ln = listNext(&li)) != NULL) {
             client *c = ln->value;
             addReplyPubsubMessage(c,channel,message);
+            updateClientMemUsage(c);
             receivers++;
         }
     }
@@ -323,6 +324,7 @@ int pubsubPublishMessage(robj *channel, robj *message) {
             while ((ln = listNext(&li)) != NULL) {
                 client *c = listNodeValue(ln);
                 addReplyPubsubPatMessage(c,pattern,channel,message);
+                updateClientMemUsage(c);
                 receivers++;
             }
         }
@@ -404,6 +406,11 @@ void punsubscribeCommand(client *c) {
 
 /* PUBLISH <channel> <message> */
 void publishCommand(client *c) {
+    if (server.sentinel_mode) {
+        sentinelPublishCommand(c);
+        return;
+    }
+
     int receivers = pubsubPublishMessage(c->argv[1],c->argv[2]);
     if (server.cluster_enabled)
         clusterPropagatePublish(c->argv[1],c->argv[2]);

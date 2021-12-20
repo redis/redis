@@ -251,9 +251,68 @@ start_server {tags {"acl external:skip"}} {
     test {ACLs can include single subcommands} {
         r ACL setuser newuser +@all -client
         r ACL setuser newuser +client|id +client|setname
+        set cmdstr [dict get [r ACL getuser newuser] commands]
+        assert_match {+@all*-client*+client|id*} $cmdstr
+        assert_match {+@all*-client*+client|setname*} $cmdstr
         r CLIENT ID; # Should not fail
         r CLIENT SETNAME foo ; # Should not fail
         catch {r CLIENT KILL type master} e
+        set e
+    } {*NOPERM*}
+
+    test {ACLs can exclude single subcommands, case 1} {
+        r ACL setuser newuser +@all -client|kill
+        set cmdstr [dict get [r ACL getuser newuser] commands]
+        assert_equal {+@all -client|kill} $cmdstr
+        r CLIENT ID; # Should not fail
+        r CLIENT SETNAME foo ; # Should not fail
+        catch {r CLIENT KILL type master} e
+        set e
+    } {*NOPERM*}
+
+    test {ACLs can exclude single subcommands, case 2} {
+        r ACL setuser newuser -@all +acl +config -config|set
+        set cmdstr [dict get [r ACL getuser newuser] commands]
+        assert_match {*+config*} $cmdstr
+        assert_match {*-config|set*} $cmdstr
+        r CONFIG GET loglevel; # Should not fail
+        catch {r CONFIG SET loglevel debug} e
+        set e
+    } {*NOPERM*}
+
+    test {ACLs can include a subcommand with a specific arg} {
+        r ACL setuser newuser +@all -config|get
+        r ACL setuser newuser +config|get|appendonly
+        set cmdstr [dict get [r ACL getuser newuser] commands]
+        assert_match {*-config|get*} $cmdstr
+        assert_match {*+config|get|appendonly*} $cmdstr
+        r CONFIG GET appendonly; # Should not fail
+        catch {r CONFIG GET loglevel} e
+        set e
+    } {*NOPERM*}
+
+    test {ACLs including of a type includes also subcommands} {
+        r ACL setuser newuser -@all +acl +@stream
+        r XADD key * field value
+        r XINFO STREAM key
+    }
+
+    test {ACLs can block SELECT of all but a specific DB} {
+        r ACL setuser newuser -@all +acl +select|0
+        set cmdstr [dict get [r ACL getuser newuser] commands]
+        assert_match {*+select|0*} $cmdstr
+        r SELECT 0
+        catch {r SELECT 1} e
+        set e
+    } {*NOPERM*}
+
+    test {ACLs can block all DEBUG subcommands except one} {
+        r ACL setuser newuser -@all +acl +incr +debug|object
+        set cmdstr [dict get [r ACL getuser newuser] commands]
+        assert_match {*+debug|object*} $cmdstr
+        r INCR key
+        r DEBUG OBJECT key
+        catch {r DEBUG SEGFAULT} e
         set e
     } {*NOPERM*}
 
@@ -272,8 +331,54 @@ start_server {tags {"acl external:skip"}} {
         # Validate the new commands has got engulfed to +@all.
         set cmdstr [dict get [r ACL getuser bob] commands]
         assert_equal {+@all} $cmdstr
+
+        r ACL setuser bob >passwd1 on
+        r AUTH bob passwd1
         r CLIENT ID; # Should not fail
         r MEMORY DOCTOR; # Should not fail
+    }
+
+    test {ACLs set can exclude subcommands, if already full command exists} {
+        r ACL setuser alice +@all -memory|doctor
+        set cmdstr [dict get [r ACL getuser alice] commands]
+        assert_equal {+@all -memory|doctor} $cmdstr
+
+        r ACL setuser alice >passwd1 on
+        r AUTH alice passwd1
+
+        catch {r MEMORY DOCTOR} e
+        assert_match {*NOPERM*} $e
+        r MEMORY STATS ;# should work
+
+        # Validate the commands have got engulfed to -memory.
+        r ACL setuser alice +@all -memory
+        set cmdstr [dict get [r ACL getuser alice] commands]
+        assert_equal {+@all -memory} $cmdstr
+
+        catch {r MEMORY DOCTOR} e
+        assert_match {*NOPERM*} $e
+        catch {r MEMORY STATS} e
+        assert_match {*NOPERM*} $e
+
+        # Appending to the existing access string of alice.
+        r ACL setuser alice -@all
+
+        # Now, alice can't do anything, we need to auth newuser to execute ACL GETUSER
+        r AUTH newuser passwd1
+
+        # Validate the new commands has got engulfed to -@all.
+        set cmdstr [dict get [r ACL getuser alice] commands]
+        assert_equal {-@all} $cmdstr
+
+        r AUTH alice passwd1
+
+        catch {r GET key} e
+        assert_match {*NOPERM*} $e
+        catch {r MEMORY STATS} e
+        assert_match {*NOPERM*} $e
+
+        # Auth newuser before the next test
+        r AUTH newuser passwd1
     }
 
     # Note that the order of the generated ACL rules is not stable in Redis
@@ -459,7 +564,7 @@ start_server {tags {"acl external:skip"}} {
 
     test {ACL HELP should not have unexpected options} {
         catch {r ACL help xxx} e
-        assert_match "*Unknown subcommand or wrong number of arguments*" $e
+        assert_match "*wrong number of arguments*" $e
     }
 
     test {Delete a user that the client doesn't use} {
@@ -628,4 +733,54 @@ start_server {overrides {user "default on nopass ~* +@all"} tags {"external:skip
         r PUNSUBSCRIBE
         r PUBLISH hello world
     }
+}
+
+set server_path [tmpdir "duplicate.acl"]
+exec cp -f tests/assets/user.acl $server_path
+exec cp -f tests/assets/default.conf $server_path
+start_server [list overrides [list "dir" $server_path "aclfile" "user.acl"] tags [list "external:skip"]] {
+
+    test {Test loading an ACL file with duplicate users} {
+        exec cp -f tests/assets/user.acl $server_path
+
+        # Corrupt the ACL file
+        set corruption "\nuser alice on nopass ~* -@all"
+        exec echo $corruption >> $server_path/user.acl
+        catch {r ACL LOAD} err
+        assert_match {*Duplicate user 'alice' found*} $err 
+
+        # Verify the previous users still exist
+        # NOTE: A missing user evaluates to an empty
+        # string. 
+        assert {[r ACL GETUSER alice] != ""}
+        assert_equal [dict get [r ACL GETUSER alice] commands] "+@all"
+        assert {[r ACL GETUSER bob] != ""}
+        assert {[r ACL GETUSER default] != ""}
+    }
+
+    test {Test loading an ACL file with duplicate default user} {
+        exec cp -f tests/assets/user.acl $server_path
+
+        # Corrupt the ACL file
+        set corruption "\nuser default on nopass ~* -@all"
+        exec echo $corruption >> $server_path/user.acl
+        catch {r ACL LOAD} err
+        assert_match {*Duplicate user 'default' found*} $err 
+
+        # Verify the previous users still exist
+        # NOTE: A missing user evaluates to an empty
+        # string. 
+        assert {[r ACL GETUSER alice] != ""}
+        assert_equal [dict get [r ACL GETUSER alice] commands] "+@all"
+        assert {[r ACL GETUSER bob] != ""}
+        assert {[r ACL GETUSER default] != ""}
+    }
+    
+    test {Test loading duplicate users in config on startup} {
+        catch {exec src/redis-server --user foo --user foo} err
+        assert_match {*Duplicate user*} $err
+
+        catch {exec src/redis-server --user default --user default} err
+        assert_match {*Duplicate user*} $err
+    } {} {external:skip}
 }

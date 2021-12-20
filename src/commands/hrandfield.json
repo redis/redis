@@ -1,0 +1,60 @@
+{
+    "HRANDFIELD": {
+        "summary": "Get one or multiple random fields from a hash",
+        "complexity": "O(N) where N is the number of fields returned",
+        "group": "hash",
+        "since": "6.2.0",
+        "arity": -2,
+        "function": "hrandfieldCommand",
+        "command_flags": [
+            "READONLY",
+            "RANDOM"
+        ],
+        "acl_categories": [
+            "HASH"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "READ"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "options",
+                "type": "block",
+                "optional": true,
+                "arguments": [
+                    {
+                        "name": "count",
+                        "type": "integer"
+                    },
+                    {
+                        "name": "withvalues",
+                        "token": "WITHVALUES",
+                        "type": "pure-token",
+                        "optional": true
+                    }
+                ]
+            }
+        ]
+    }
+}

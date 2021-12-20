@@ -6,9 +6,9 @@
  *----------------------------------------------------------------------------*/
 
 #define CLUSTER_SLOTS 16384
-#define CLUSTER_OK 0          /* Everything looks ok */
-#define CLUSTER_FAIL 1        /* The cluster can't work */
-#define CLUSTER_NAMELEN 40    /* sha1 hex length */
+#define CLUSTER_OK 0            /* Everything looks ok */
+#define CLUSTER_FAIL 1          /* The cluster can't work */
+#define CLUSTER_NAMELEN 40      /* sha1 hex length */
 #define CLUSTER_PORT_INCR 10000 /* Cluster port = baseport + PORT_INCR */
 
 /* The following defines are amount of time, sometimes expressed as
@@ -39,7 +39,8 @@ typedef struct clusterLink {
     char *rcvbuf;               /* Packet reception buffer */
     size_t rcvbuf_len;          /* Used size of rcvbuf */
     size_t rcvbuf_alloc;        /* Allocated size of rcvbuf */
-    struct clusterNode *node;   /* Node related to this link if any, or NULL */
+    struct clusterNode *node;   /* Node related to this link. Initialized to NULL when unknown */
+    int inbound;                /* 1 if this link is an inbound link accepted from the related node */
 } clusterLink;
 
 /* Cluster node flags and macros. */
@@ -137,18 +138,22 @@ typedef struct clusterNode {
     int pport;                  /* Latest known clients plaintext port. Only used
                                    if the main clients port is for TLS. */
     int cport;                  /* Latest known cluster port of this node. */
-    clusterLink *link;          /* TCP/IP link with this node */
+    clusterLink *link;          /* TCP/IP link established toward this node */
+    clusterLink *inbound_link;  /* TCP/IP link accepted from this node */
     list *fail_reports;         /* List of nodes signaling this as failing */
 } clusterNode;
 
-/* State for the Slot to Key API, for a single slot. The keys in the same slot
- * are linked together using dictEntry metadata. See also "Slot to Key API" in
- * cluster.c. */
-struct clusterSlotToKeys {
+/* Slot to keys for a single slot. The keys in the same slot are linked together
+ * using dictEntry metadata. */
+typedef struct slotToKeys {
     uint64_t count;             /* Number of keys in the slot. */
     dictEntry *head;            /* The first key-value entry in the slot. */
+} slotToKeys;
+
+/* Slot to keys mapping for all slots, opaque outside this file. */
+struct clusterSlotToKeyMapping {
+    slotToKeys by_slot[CLUSTER_SLOTS];
 };
-typedef struct clusterSlotToKeys clusterSlotsToKeysData[CLUSTER_SLOTS];
 
 /* Dict entry metadata for cluster mode, used for the Slot to Key API to form a
  * linked list of the entries belonging to the same slot. */
@@ -168,7 +173,6 @@ typedef struct clusterState {
     clusterNode *migrating_slots_to[CLUSTER_SLOTS];
     clusterNode *importing_slots_from[CLUSTER_SLOTS];
     clusterNode *slots[CLUSTER_SLOTS];
-    clusterSlotsToKeysData slots_to_keys;
     /* The following fields are used to take the slave state on elections. */
     mstime_t failover_auth_time; /* Time of previous or next election. */
     int failover_auth_count;    /* Number of votes received so far. */
@@ -190,11 +194,13 @@ typedef struct clusterState {
     /* The following fields are used by masters to take state on elections. */
     uint64_t lastVoteEpoch;     /* Epoch of the last vote granted. */
     int todo_before_sleep; /* Things to do in clusterBeforeSleep(). */
+    /* Stats */
     /* Messages received and sent by type. */
     long long stats_bus_messages_sent[CLUSTERMSG_TYPE_COUNT];
     long long stats_bus_messages_received[CLUSTERMSG_TYPE_COUNT];
     long long stats_pfail_nodes;    /* Number of nodes in PFAIL status,
                                        excluding nodes without address. */
+    unsigned long long stat_cluster_links_buffer_limit_exceeded;  /* Total number of cluster links freed due to exceeding buffer limit */
 } clusterState;
 
 /* Redis cluster messages header */
@@ -315,11 +321,13 @@ unsigned long getClusterConnectionsCount(void);
 int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uint8_t type, unsigned char *payload, uint32_t len);
 void clusterPropagatePublish(robj *channel, robj *message);
 unsigned int keyHashSlot(char *key, int keylen);
-void slotToKeyAddEntry(dictEntry *entry);
-void slotToKeyDelEntry(dictEntry *entry);
-void slotToKeyReplaceEntry(dictEntry *entry);
-void slotToKeyCopyToBackup(clusterSlotsToKeysData *backup);
-void slotToKeyRestoreBackup(clusterSlotsToKeysData *backup);
-void slotToKeyFlush(void);
+void slotToKeyAddEntry(dictEntry *entry, redisDb *db);
+void slotToKeyDelEntry(dictEntry *entry, redisDb *db);
+void slotToKeyReplaceEntry(dictEntry *entry, redisDb *db);
+void slotToKeyInit(redisDb *db);
+void slotToKeyFlush(redisDb *db);
+void slotToKeyDestroy(redisDb *db);
+void clusterUpdateMyselfFlags(void);
+void clusterUpdateMyselfIp(void);
 
 #endif /* __CLUSTER_H */

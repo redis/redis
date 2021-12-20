@@ -45,6 +45,9 @@ struct bin_stats_s {
 	/* Current number of slabs in this bin. */
 	size_t		curslabs;
 
+	/* Current size of nonfull slabs heap in this bin. */
+	size_t		nonfull_slabs;
+
 	mutex_prof_data_t mutex_data;
 };
 

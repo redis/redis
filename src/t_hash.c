@@ -39,17 +39,22 @@
  * as their string length can be queried in constant time. */
 void hashTypeTryConversion(robj *o, robj **argv, int start, int end) {
     int i;
+    size_t sum = 0;
 
     if (o->encoding != OBJ_ENCODING_LISTPACK) return;
 
     for (i = start; i <= end; i++) {
-        if (sdsEncodedObject(argv[i]) &&
-            sdslen(argv[i]->ptr) > server.hash_max_listpack_value)
-        {
+        if (!sdsEncodedObject(argv[i]))
+            continue;
+        size_t len = sdslen(argv[i]->ptr);
+        if (len > server.hash_max_listpack_value) {
             hashTypeConvert(o, OBJ_ENCODING_HT);
-            break;
+            return;
         }
+        sum += len;
     }
+    if (!lpSafeToAdd(o->ptr, sum))
+        hashTypeConvert(o, OBJ_ENCODING_HT);
 }
 
 /* Get the value from a listpack encoded hash, identified by field.
@@ -279,8 +284,8 @@ int hashTypeDelete(robj *o, sds field) {
         if (fptr != NULL) {
             fptr = lpFind(zl, fptr, (unsigned char*)field, sdslen(field), 1);
             if (fptr != NULL) {
-                zl = lpDelete(zl,fptr,&fptr); /* Delete the key. */
-                zl = lpDelete(zl,fptr,&fptr); /* Delete the value. */
+                /* Delete both of the key and the value. */
+                zl = lpDeleteRangeWithEntry(zl,&fptr,2);
                 o->ptr = zl;
                 deleted = 1;
             }
@@ -472,6 +477,8 @@ void hashTypeConvertListpack(robj *o, int enc) {
             value = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_VALUE);
             ret = dictAdd(dict, key, value);
             if (ret != DICT_OK) {
+                sdsfree(key); sdsfree(value); /* Needed for gcc ASAN */
+                hashTypeReleaseIterator(hi);  /* Needed for gcc ASAN */
                 serverLogHexDump(LL_WARNING,"listpack with dup elements dump",
                     o->ptr,lpBytes(o->ptr));
                 serverPanic("Listpack corruption detected");
@@ -539,114 +546,6 @@ robj *hashTypeDup(robj *o) {
         serverPanic("Unknown hash encoding");
     }
     return hobj;
-}
-
-/* callback for hashZiplistConvertAndValidateIntegrity.
- * Check that the ziplist doesn't have duplicate hash field names.
- * The ziplist element pointed by 'p' will be converted and stored into listpack. */
-static int _hashZiplistEntryConvertAndValidation(unsigned char *p, void *userdata) {
-    unsigned char *str;
-    unsigned int slen;
-    long long vll;
-
-    struct {
-        long count;
-        dict *fields;
-        unsigned char **lp;
-    } *data = userdata;
-
-    if (!ziplistGet(p, &str, &slen, &vll))
-        return 0;
-
-    /* Even records are field names, add to dict and check that's not a dup */
-    if (((data->count) & 1) == 0) {
-        sds field = str? sdsnewlen(str, slen): sdsfromlonglong(vll);
-        if (dictAdd(data->fields, field, NULL) != DICT_OK) {
-            /* Duplicate, return an error */
-            sdsfree(field);
-            return 0;
-        }
-    }
-
-    if (str) {
-        *(data->lp) = lpAppend(*(data->lp), (unsigned char*)str, slen);
-    } else {
-        *(data->lp) = lpAppendInteger(*(data->lp), vll);
-    }
-
-    (data->count)++;
-    return 1;
-}
-
-/* callback for to check the listpack doesn't have duplicate records */
-static int _hashListpackEntryValidation(unsigned char *p, void *userdata) {
-    struct {
-        long count;
-        dict *fields;
-    } *data = userdata;
-
-    /* Even records are field names, add to dict and check that's not a dup */
-    if (((data->count) & 1) == 0) {
-        unsigned char *str;
-        int64_t slen;
-        unsigned char buf[LP_INTBUF_SIZE];
-
-        str = lpGet(p, &slen, buf);
-        sds field = sdsnewlen(str, slen);
-        if (dictAdd(data->fields, field, NULL) != DICT_OK) {
-            /* Duplicate, return an error */
-            sdsfree(field);
-            return 0;
-        }
-    }
-
-    (data->count)++;
-    return 1;
-}
-
-/* Validate the integrity of the data structure while converting it to 
- * listpack and storing it at 'lp'.
- * The function is safe to call on non-validated ziplists, it returns 0
- * when encounter an integrity validation issue. */
-int hashZiplistConvertAndValidateIntegrity(unsigned char *zl, size_t size, unsigned char **lp) {
-    /* Keep track of the field names to locate duplicate ones */
-    struct {
-        long count;
-        dict *fields;
-        unsigned char **lp;
-    } data = {0, dictCreate(&hashDictType), lp};
-
-    int ret = ziplistValidateIntegrity(zl, size, 1, _hashZiplistEntryConvertAndValidation, &data);
-
-    /* make sure we have an even number of records. */
-    if (data.count & 1)
-        ret = 0;
-
-    dictRelease(data.fields);
-    return ret;
-}
-
-/* Validate the integrity of the listpack structure.
- * when `deep` is 0, only the integrity of the header is validated.
- * when `deep` is 1, we scan all the entries one by one. */
-int hashListpackValidateIntegrity(unsigned char *lp, size_t size, int deep) {
-    if (!deep)
-        return lpValidateIntegrity(lp, size, 0, NULL, NULL);
-
-    /* Keep track of the field names to locate duplicate ones */
-    struct {
-        long count;
-        dict *fields;
-    } data = {0, dictCreate(&hashDictType)};
-
-    int ret = lpValidateIntegrity(lp, size, 1, _hashListpackEntryValidation, &data);
-
-    /* make sure we have an even number of records. */
-    if (data.count & 1)
-        ret = 0;
-
-    dictRelease(data.fields);
-    return ret;
 }
 
 /* Create a new sds string from the listpack entry. */
@@ -1154,7 +1053,7 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
         /* Remove random elements to reach the right count. */
         while (size > count) {
             dictEntry *de;
-            de = dictGetRandomKey(d);
+            de = dictGetFairRandomKey(d);
             dictUnlink(d,dictGetKey(de));
             sdsfree(dictGetKey(de));
             sdsfree(dictGetVal(de));

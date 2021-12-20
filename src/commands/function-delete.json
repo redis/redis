@@ -1,0 +1,24 @@
+{
+    "DELETE": {
+        "summary": "PATCH__TBD__23__",
+        "complexity": "PATCH__TBD__22__",
+        "group": "scripting",
+        "since": "7.0.0",
+        "arity": 3,
+        "container": "FUNCTION",
+        "function": "functionDeleteCommand",
+        "command_flags": [
+            "NOSCRIPT",
+            "MAY_REPLICATE"
+        ],
+        "acl_categories": [
+            "SCRIPTING"
+        ],
+        "arguments": [
+            {
+                "name": "function-name",
+                "type": "string"
+            }
+        ]
+    }
+}
