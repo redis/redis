@@ -96,6 +96,11 @@ start_server {} {
         $replica config resetstat
 
         catch {
+            # Unlike the test above, here we use SIGTERM, which behaves
+            # differently compared to SHUTDOWN NOW if there are lagging
+            # replicas. This is just to increase coverage and let each test use
+            # a different shutdown approach. In this case there are no lagging
+            # replicas though.
             restart_server 0 true false
             set master [srv 0 client]
         }
@@ -143,6 +148,9 @@ start_server {} {
         $replica config resetstat
 
         catch {
+            # Unlike the test above, here we use SIGTERM. This is just to
+            # increase coverage and let each test use a different shutdown
+            # approach.
             restart_server 0 true false
             set master [srv 0 client]
         }

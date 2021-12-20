@@ -675,8 +675,8 @@ proc start_server {options {code undefined}} {
 
 proc restart_server {level wait_ready rotate_logs {reconnect 1} {shutdown sigterm}} {
     set srv [lindex $::servers end+$level]
-    if {$shutdown eq {now}} {
-        catch {[dict get $srv "client"] shutdown now}
+    if {$shutdown ne {sigterm}} {
+        catch {[dict get $srv "client"] shutdown $shutdown}
     }
     # Kill server doesn't mind if the server is already dead
     kill_server $srv
