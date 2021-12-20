@@ -506,11 +506,11 @@ typedef enum {
 #define serverPanic(...) _serverPanic(__FILE__,__LINE__,__VA_ARGS__),redis_unreachable()
 
 /* latency histogram per command init settings */
-#define LATENCY_HISTOGRAM_MIN_VALUE 1L        /* >= 1 usecs */
-#define LATENCY_HISTOGRAM_MAX_VALUE 1000000L  /* <= 1 secs */
-#define LATENCY_HISTOGRAM_PRECISION 3  /* Maintain a value precision of 3 significant digits across LATENCY_HISTOGRAM_MIN_VALUE and LATENCY_HISTOGRAM_MAX_VALUE range.
-                                        * Value quantization within the range will thus be no larger than 1/1,000th (or 0.1%) of any value.
-                                        * The total size per histogram should sit around 104 Bytes. */
+#define LATENCY_HISTOGRAM_MIN_VALUE 1L        /* >= 1 nanosec */
+#define LATENCY_HISTOGRAM_MAX_VALUE 1000000000L  /* <= 1 secs */
+#define LATENCY_HISTOGRAM_PRECISION 2  /* Maintain a value precision of 2 significant digits across LATENCY_HISTOGRAM_MIN_VALUE and LATENCY_HISTOGRAM_MAX_VALUE range.
+                                        * Value quantization within the range will thus be no larger than 1/100th (or 1%) of any value.
+                                        * The total size per histogram should sit around 40 KiB Bytes. */
 
 /*-----------------------------------------------------------------------------
  * Data types

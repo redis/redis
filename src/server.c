@@ -3491,7 +3491,8 @@ void resetCommandTableStats(void) {
         c->rejected_calls = 0;
         c->failed_calls = 0;
         if(c->latency_histogram) {
-            hdr_reset(c->latency_histogram);
+            hdr_close(c->latency_histogram);
+            c->latency_histogram = NULL;
         }
     }
     dictReleaseIterator(di);
@@ -3680,6 +3681,7 @@ void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t dur
 }
 
 /* This function is called in order to update the total command histogram duration.
+ * The latency unit is nano-seconds.
  * If needed it will allocate the histogram memory and trim the duration to the upper/lower tracking limits*/
 void updateCommandLatencyHistogram(struct hdr_histogram** latency_histogram, int64_t duration_hist){
     if(unlikely(duration_hist<LATENCY_HISTOGRAM_MIN_VALUE))
@@ -3823,7 +3825,7 @@ void call(client *c, int flags) {
     if (flags & CMD_CALL_STATS) {
         real_cmd->microseconds += duration;
         real_cmd->calls++;
-        updateCommandLatencyHistogram(&(c->lastcmd->latency_histogram), duration);
+        updateCommandLatencyHistogram(&(c->lastcmd->latency_histogram), duration*1000);
     }
 
     /* Propagate the command into the AOF and replication link */
@@ -4642,20 +4644,20 @@ void bytesToHuman(char *s, unsigned long long n) {
 
 
 /* An array of time buckets, each representing a latency range,
- * between 1 microsecond and roughly 1 second.
- * Each bucket covers twice the previous bucket’s range.
+ * between 1 nanosecond and roughly 1 second.
+ * Each bucket covers twice the previous bucket s range.
  * Empty buckets are not printed.
  * Everything above 1sec is considered +Inf. */
 sds fillCumulativeDistributionLatencies(sds info, const char* histogram_name, struct hdr_histogram* histogram){
     info = sdscatprintf(info, "latencyhist_%s:calls=%lld,histogram=[",
         histogram_name, (long long) histogram->total_count);
     struct hdr_iter iter;
-    hdr_iter_log_init(&iter, histogram, 2,2);
+    hdr_iter_log_init(&iter, histogram, 1024,2);
     size_t bucket_pos = 0;
     int64_t previous_count = 0;
     while (hdr_iter_next(&iter))
     {
-        const int64_t micros = iter.highest_equivalent_value;
+        const int64_t micros = iter.highest_equivalent_value / 1000;
         const int64_t cumulative_count = iter.cumulative_count;
         if(cumulative_count > previous_count){
             if (bucket_pos>0)
@@ -4674,14 +4676,14 @@ sds fillCumulativeDistributionLatencies(sds info, const char* histogram_name, st
 sds fillPercentileDistributionLatencies(sds info, const char* histogram_name, struct hdr_histogram* histogram){
     info = sdscatprintf(info, "latencypercentiles_%s:p0=%.3f,p50=%.3f,p75=%.3f,p90=%.3f,p95=%.3f,p99=%.3f,p999=%.3f,p100=%.3f\r\n",
         histogram_name,
-        ((double)hdr_min(histogram))/1.0f,
-        ((double)hdr_value_at_percentile(histogram,50.0))/1.0f,
-        ((double)hdr_value_at_percentile(histogram,75.0))/1.0f,
-        ((double)hdr_value_at_percentile(histogram,90.0))/1.0f,
-        ((double)hdr_value_at_percentile(histogram,95.0))/1.0f,
-        ((double)hdr_value_at_percentile(histogram,99.0))/1.0f,
-        ((double)hdr_value_at_percentile(histogram,99.9))/1.0f,
-        ((double)hdr_max(histogram))/1.0f);
+        ((double)hdr_min(histogram))/1000.0f,
+        ((double)hdr_value_at_percentile(histogram,50.0))/1000.0f,
+        ((double)hdr_value_at_percentile(histogram,75.0))/1000.0f,
+        ((double)hdr_value_at_percentile(histogram,90.0))/1000.0f,
+        ((double)hdr_value_at_percentile(histogram,95.0))/1000.0f,
+        ((double)hdr_value_at_percentile(histogram,99.0))/1000.0f,
+        ((double)hdr_value_at_percentile(histogram,99.9))/1000.0f,
+        ((double)hdr_max(histogram))/1000.0f);
     return info;
 }
 
@@ -5393,6 +5395,7 @@ sds genRedisInfoString(const char *section) {
 
     if (allsections || !strcasecmp(section,"latencystats")) {
         /* Latency by percentile distribution per command category */
+        if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Latencystats - latency by percentile distribution\r\n");
         struct redisCommand *c;
         dictEntry *de;
