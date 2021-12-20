@@ -291,33 +291,47 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
         file delete $tmpfile
     }
 
-    proc test_redis_cli_rdb_dump {} {
+    proc test_redis_cli_rdb_dump {functions_only} {
         r flushdb
+        r function flush
 
         set dir [lindex [r config get dir] 1]
 
         assert_equal "OK" [r debug populate 100000 key 1000]
-        catch {run_cli --rdb "$dir/cli.rdb"} output
+        assert_equal "OK" [r function create lua func1 "return 123"]
+        set args "--rdb $dir/cli.rdb"
+        if {$functions_only} { lappend args "--functions-rdb" }
+        catch {run_cli {*}$args} output
         assert_match {*Transfer finished with success*} $output
 
         file delete "$dir/dump.rdb"
         file rename "$dir/cli.rdb" "$dir/dump.rdb"
 
         assert_equal "OK" [r set should-not-exist 1]
+        assert_equal "OK" [r function create lua should_not_exist_func "return 456"]
         assert_equal "OK" [r debug reload nosave]
         assert_equal {} [r get should-not-exist]
+        assert_error "ERR Function does not exists" {r function info should_not_exist_func}
+        assert_equal "func1" [dict get [r function info func1] name]
+        if {$functions_only} {
+            assert_equal 0 [r dbsize]
+        } else {
+            assert_equal 100000 [r dbsize]
+        }
     }
 
-    test "Dumping an RDB" {
-        # Disk-based master
-        assert_match "OK" [r config set repl-diskless-sync no]
-        test_redis_cli_rdb_dump
+    foreach {functions_only} {no yes} {
+        test "Dumping an RDB - functions only: $functions_only" {
+            # Disk-based master
+            assert_match "OK" [r config set repl-diskless-sync no]
+            test_redis_cli_rdb_dump $functions_only
 
-        # Disk-less master
-        assert_match "OK" [r config set repl-diskless-sync yes]
-        assert_match "OK" [r config set repl-diskless-sync-delay 0]
-        test_redis_cli_rdb_dump
-    } {} {needs:repl needs:debug}
+            # Disk-less master
+            assert_match "OK" [r config set repl-diskless-sync yes]
+            assert_match "OK" [r config set repl-diskless-sync-delay 0]
+            test_redis_cli_rdb_dump $functions_only
+        } {} {needs:repl needs:debug}
+    }
 
     test "Scan mode" {
         r flushdb
