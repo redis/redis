@@ -493,14 +493,7 @@ void functionRestoreCommand(client *c) {
         dictEntry *entry = NULL;
         while ((entry = dictNext(iter))) {
             functionInfo *fi = dictGetVal(entry);
-            dictEntry *existing = NULL;
-            dictEntry *new = dictAddRaw(functions_ctx->functions, fi->name, &existing);
-            if (!new) {
-                functionInfo *old_fi = dictGetVal(existing);
-                engineFunctionDispose(NULL, old_fi);
-                new = existing;
-            }
-            dictSetVal(functions_ctx->functions, new, fi);
+            dictReplace(functions_ctx->functions, fi->name, fi);
             dictSetVal(f_ctx->functions, entry, NULL); /* make sure value will not be disposed */
         }
     }
@@ -585,7 +578,7 @@ void functionHelpCommand(client *c) {
 "    lazyfree-lazy-user-flush configuration directive. Valid modes are:",
 "    * ASYNC: Asynchronously flush the functions.",
 "    * SYNC: Synchronously flush the functions.",
-"DUMP [ASYNC|SYNC]",
+"DUMP",
 "    Returns a blob representing the current functions, can be restored using FUNCTION RESTORE command",
 "RESTORE <BLOB> [FLUSH|APPEND|REPLACE]",
 "    Restore the functions represented by the given BLOB, it is possible to give a restore policy to",
