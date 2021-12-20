@@ -7904,8 +7904,11 @@ static void statMode(void) {
         int j;
 
         reply = reconnectingRedisCommand(context,"INFO");
-        if (reply->type == REDIS_REPLY_ERROR) {
-            printf("ERROR: %s\n", reply->str);
+        if (reply == NULL) {
+            fprintf(stderr, "\nI/O error\n");
+            exit(1);
+        } else if (reply->type == REDIS_REPLY_ERROR) {
+            fprintf(stderr, "ERROR: %s\n", reply->str);
             exit(1);
         }
 
@@ -8071,7 +8074,7 @@ static void LRUTestMode(void) {
                 if (redisGetReply(context, (void**)&reply) == REDIS_OK) {
                     switch(reply->type) {
                         case REDIS_REPLY_ERROR:
-                            printf("%s\n", reply->str);
+                            fprintf(stderr, "%s\n", reply->str);
                             break;
                         case REDIS_REPLY_NIL:
                             misses++;

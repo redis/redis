@@ -1,0 +1,26 @@
+{
+    "INFO": {
+        "summary": "Get information and statistics about the server",
+        "complexity": "O(1)",
+        "group": "server",
+        "since": "1.0.0",
+        "arity": -1,
+        "function": "infoCommand",
+        "command_flags": [
+            "RANDOM",
+            "LOADING",
+            "STALE",
+            "SENTINEL"
+        ],
+        "acl_categories": [
+            "DANGEROUS"
+        ],
+        "arguments": [
+            {
+                "name": "section",
+                "type": "string",
+                "optional": true
+            }
+        ]
+    }
+}

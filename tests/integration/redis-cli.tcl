@@ -317,7 +317,7 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
         assert_match "OK" [r config set repl-diskless-sync yes]
         assert_match "OK" [r config set repl-diskless-sync-delay 0]
         test_redis_cli_rdb_dump
-    } {} {needs:repl}
+    } {} {needs:repl needs:debug}
 
     test "Scan mode" {
         r flushdb

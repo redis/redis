@@ -63,6 +63,7 @@ set ::all_tests {
     unit/pubsub
     unit/slowlog
     unit/scripting
+    unit/functions
     unit/maxmemory
     unit/introspection
     unit/introspection-2
@@ -85,6 +86,7 @@ set ::all_tests {
     unit/networking
     unit/cluster
     unit/client-eviction
+    unit/violations
 }
 # Index to the next test to run in the ::all_tests list.
 set ::next_test 0

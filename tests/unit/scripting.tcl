@@ -882,7 +882,7 @@ start_server {tags {"scripting"}} {
                     redis.call("incr","z")
                 } 0
                 wait_for_condition 50 100 {
-                    [r -1 debug digest] eq [r debug digest]
+                    [debug_digest -1] eq [debug_digest]
                 } else {
                     fail "Master-Replica desync after Lua script using SELECT."
                 }
