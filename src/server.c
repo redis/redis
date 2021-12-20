@@ -64,6 +64,10 @@
 #include <sys/mman.h>
 #endif
 
+#ifdef HAVE_SYSCTL_SOMAXCONN
+#include <sys/sysctl.h>
+#endif
+
 /* Our shared "common" objects */
 
 struct sharedObjectsStruct shared;
@@ -2028,7 +2032,7 @@ void adjustOpenFilesLimit(void) {
 /* Check that server.tcp_backlog can be actually enforced in Linux according
  * to the value of /proc/sys/net/core/somaxconn, or warn about it. */
 void checkTcpBacklogSettings(void) {
-#ifdef HAVE_PROC_SOMAXCONN
+#if defined(HAVE_PROC_SOMAXCONN)
     FILE *fp = fopen("/proc/sys/net/core/somaxconn","r");
     char buf[1024];
     if (!fp) return;
@@ -2039,6 +2043,19 @@ void checkTcpBacklogSettings(void) {
         }
     }
     fclose(fp);
+#elif defined(HAVE_SYSCTL_SOMAXCONN)
+    int somaxconn, mib[3];
+    size_t len = sizeof(int);
+
+    mib[0] = CTL_KERN;
+    mib[1] = KERN_IPC;
+    mib[2] = KIPC_SOMAXCONN;
+
+    if (sysctl(mib, 3, &somaxconn, &len, NULL, 0) == 0) {
+        if (somaxconn > 0 && somaxconn < server.tcp_backlog) {
+            serverLog(LL_WARNING,"WARNING: The TCP backlog setting of %d cannot be enforced because kern.ipc.somaxconn is set to the lower value of %d.", server.tcp_backlog, somaxconn);
+        }
+    }
 #endif
 }
 
