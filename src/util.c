@@ -835,8 +835,9 @@ int dirCreateIfMissing(char *dname) {
 
 int dirRemove(char *dname) {
     DIR *dir;
-    struct redis_stat stat_entry;
+    struct stat stat_entry;
     struct dirent *entry;
+    char full_path[PATH_MAX + 1];
 
     if ((dir = opendir(dname)) == NULL) {
         return -1;
@@ -845,26 +846,32 @@ int dirRemove(char *dname) {
     while ((entry = readdir(dir)) != NULL) {
         if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")) continue;
 
-        sds full_path = sdscatfmt(sdsempty(), "%s/%s", dname, entry->d_name);
+        snprintf(full_path, sizeof(full_path), "%s/%s", dname, entry->d_name);
 
-        if (redis_stat(full_path, &stat_entry) == -1) {
-            sdsfree(full_path);
+        int fd = open(full_path, O_RDONLY|O_NONBLOCK);
+        if (fd == -1) {
             closedir(dir);
             return -1;
         }
 
+        if (fstat(fd, &stat_entry) == -1) {
+            close(fd);
+            closedir(dir);
+            return -1;
+        }
+        close(fd);
+
         if (S_ISDIR(stat_entry.st_mode) != 0) {
-            dirRemove(full_path);
-            sdsfree(full_path);
+            if (dirRemove(full_path) == -1) {
+                return -1;
+            }
             continue;
         }
 
         if (unlink(full_path) != 0) {
-            sdsfree(full_path);
             closedir(dir);
             return -1;
         }
-        sdsfree(full_path);
     }
 
     if (rmdir(dname) != 0) {
