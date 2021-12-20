@@ -58,6 +58,8 @@
 
 void luaRegisterRedisAPI(lua_State* lua);
 void luaEnableGlobalsProtection(lua_State *lua, int is_eval);
+void luaPushError(lua_State *lua, char *error);
+int luaRaiseError(lua_State *lua);
 void luaSaveOnRegistry(lua_State* lua, const char* name, void* ptr);
 void* luaGetFromRegistry(lua_State* lua, const char* name);
 void luaCallFunction(scriptRunCtx* r_ctx, lua_State *lua, robj** keys, size_t nkeys, robj** args, size_t nargs, int debug_enabled);

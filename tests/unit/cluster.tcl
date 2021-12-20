@@ -182,7 +182,7 @@ start_server [list overrides $base_conf] {
 
         # upload a function to all the cluster
         exec src/redis-cli --cluster-yes --cluster call 127.0.0.1:[srv 0 port] \
-                           FUNCTION CREATE LUA TEST {return 'hello'}
+                           FUNCTION LOAD LUA TEST {redis.register_function('test', function() return 'hello' end)}
 
         # adding node to the cluster
         exec src/redis-cli --cluster-yes --cluster add-node \
@@ -199,13 +199,13 @@ start_server [list overrides $base_conf] {
         }
 
         # make sure 'test' function was added to the new node
-        assert_equal {{name TEST engine LUA description {}}} [$node4_rd FUNCTION LIST]
+        assert_equal {{library_name TEST engine LUA description {} functions {{name test description {}}}}} [$node4_rd FUNCTION LIST]
 
         # add function to node 5
-        assert_equal {OK} [$node5_rd FUNCTION CREATE LUA TEST {return 'hello1'}]
+        assert_equal {OK} [$node5_rd FUNCTION LOAD LUA TEST {redis.register_function('test', function() return 'hello' end)}]
 
         # make sure functions was added to node 5
-        assert_equal {{name TEST engine LUA description {}}} [$node5_rd FUNCTION LIST]
+        assert_equal {{library_name TEST engine LUA description {} functions {{name test description {}}}}} [$node5_rd FUNCTION LIST]
 
         # adding node 5 to the cluster should failed because it already contains the 'test' function
         catch {

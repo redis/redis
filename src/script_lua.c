@@ -80,6 +80,9 @@ void* luaGetFromRegistry(lua_State* lua, const char* name) {
     lua_pushstring(lua, name);
     lua_gettable(lua, LUA_REGISTRYINDEX);
 
+    if (lua_isnil(lua, -1)) {
+        return NULL;
+    }
     /* must be light user data */
     serverAssert(lua_islightuserdata(lua, -1));
 
@@ -427,7 +430,7 @@ static void redisProtocolToLuaType_Double(void *ctx, double d, const char *proto
  * with a single "err" field set to the error string. Note that this
  * table is never a valid reply by proper commands, since the returned
  * tables are otherwise always indexed by integers, never by strings. */
-static void luaPushError(lua_State *lua, char *error) {
+void luaPushError(lua_State *lua, char *error) {
     lua_Debug dbg;
 
     /* If debugging is active and in step mode, log errors resulting from
@@ -455,7 +458,7 @@ static void luaPushError(lua_State *lua, char *error) {
  * by the non-error-trapping version of redis.pcall(), which is redis.call(),
  * this function will raise the Lua error so that the execution of the
  * script will be halted. */
-static int luaRaiseError(lua_State *lua) {
+int luaRaiseError(lua_State *lua) {
     lua_pushstring(lua,"err");
     lua_gettable(lua,-2);
     return lua_error(lua);
@@ -656,6 +659,10 @@ static void luaReplyToRedisReply(client *c, client* script_client, lua_State *lu
 static int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     int j, argc = lua_gettop(lua);
     scriptRunCtx* rctx = luaGetFromRegistry(lua, REGISTRY_RUN_CTX_NAME);
+    if (!rctx) {
+        luaPushError(lua, "redis.call/pcall can only be called inside a function invocation");
+        return raise_error ? luaRaiseError(lua) : 1;
+    }
     sds err = NULL;
     client* c = rctx->c;
     sds reply;
@@ -911,6 +918,10 @@ static int luaRedisSetReplCommand(lua_State *lua) {
     int flags, argc = lua_gettop(lua);
 
     scriptRunCtx* rctx = luaGetFromRegistry(lua, REGISTRY_RUN_CTX_NAME);
+    if (!rctx) {
+        lua_pushstring(lua, "redis.set_repl can only be called inside a function invocation");
+        return lua_error(lua);
+    }
 
     if (argc != 1) {
          lua_pushstring(lua, "redis.set_repl() requires two arguments.");
@@ -966,6 +977,11 @@ static int luaLogCommand(lua_State *lua) {
 
 /* redis.setresp() */
 static int luaSetResp(lua_State *lua) {
+    scriptRunCtx* rctx = luaGetFromRegistry(lua, REGISTRY_RUN_CTX_NAME);
+    if (!rctx) {
+        lua_pushstring(lua, "redis.setresp can only be called inside a function invocation");
+        return lua_error(lua);
+    }
     int argc = lua_gettop(lua);
 
     if (argc != 1) {
@@ -978,7 +994,6 @@ static int luaSetResp(lua_State *lua) {
         lua_pushstring(lua, "RESP version must be 2 or 3.");
         return lua_error(lua);
     }
-    scriptRunCtx* rctx = luaGetFromRegistry(lua, REGISTRY_RUN_CTX_NAME);
     scriptSetResp(rctx, resp);
     return 0;
 }
@@ -1167,7 +1182,7 @@ void luaRegisterRedisAPI(lua_State* lua) {
 
 /* Set an array of Redis String Objects as a Lua array (table) stored into a
  * global variable. */
-static void luaSetGlobalArray(lua_State *lua, char *var, robj **elev, int elec) {
+static void luaCreateArray(lua_State *lua, robj **elev, int elec) {
     int j;
 
     lua_newtable(lua);
@@ -1175,7 +1190,6 @@ static void luaSetGlobalArray(lua_State *lua, char *var, robj **elev, int elec) 
         lua_pushlstring(lua,(char*)elev[j]->ptr,sdslen(elev[j]->ptr));
         lua_rawseti(lua,-2,j+1);
     }
-    lua_setglobal(lua,var);
 }
 
 /* ---------------------------------------------------------------------------
@@ -1189,6 +1203,11 @@ static void luaSetGlobalArray(lua_State *lua, char *var, robj **elev, int elec) 
 /* The following implementation is the one shipped with Lua itself but with
  * rand() replaced by redisLrand48(). */
 static int redis_math_random (lua_State *L) {
+  scriptRunCtx* rctx = luaGetFromRegistry(L, REGISTRY_RUN_CTX_NAME);
+  if (!rctx) {
+    return luaL_error(L, "math.random can only be called inside a function invocation");
+  }
+
   /* the `%' avoids the (rare) case of r==1, and is needed also because on
      some systems (SunOS!) `rand()' may return a value larger than RAND_MAX */
   lua_Number r = (lua_Number)(redisLrand48()%REDIS_LRAND48_MAX) /
@@ -1217,6 +1236,10 @@ static int redis_math_random (lua_State *L) {
 }
 
 static int redis_math_randomseed (lua_State *L) {
+  scriptRunCtx* rctx = luaGetFromRegistry(L, REGISTRY_RUN_CTX_NAME);
+  if (!rctx) {
+    return luaL_error(L, "math.randomseed can only be called inside a function invocation");
+  }
   redisSrand48(luaL_checkint(L, 1));
   return 0;
 }
@@ -1260,13 +1283,16 @@ void luaCallFunction(scriptRunCtx* run_ctx, lua_State *lua, robj** keys, size_t 
 
     /* Populate the argv and keys table accordingly to the arguments that
      * EVAL received. */
-    luaSetGlobalArray(lua,"KEYS",keys,nkeys);
-    luaSetGlobalArray(lua,"ARGV",args,nargs);
+    luaCreateArray(lua,keys,nkeys);
+    /* On eval, keys and arguments are globals. */
+    if (run_ctx->flags & SCRIPT_EVAL_MODE) lua_setglobal(lua,"KEYS");
+    luaCreateArray(lua,args,nargs);
+    if (run_ctx->flags & SCRIPT_EVAL_MODE) lua_setglobal(lua,"ARGV");
 
     /* At this point whether this script was never seen before or if it was
      * already defined, we can call it. We have zero arguments and expect
      * a single return value. */
-    int err = lua_pcall(lua,0,1,-2);
+    int err = lua_pcall(lua,run_ctx->flags & SCRIPT_EVAL_MODE ? 0 : 2,1,run_ctx->flags & SCRIPT_EVAL_MODE ? -2 : -4);
 
     /* Call the Lua garbage collector from time to time to avoid a
      * full cycle performed by Lua, which adds too latency.

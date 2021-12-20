@@ -831,7 +831,7 @@ typedef struct redisDb {
 } redisDb;
 
 /* forward declaration for functions ctx */
-typedef struct functionsCtx functionsCtx;
+typedef struct librariesCtx librariesCtx;
 
 /* Holding object that need to be populated during
  * rdb loading. On loading end it is possible to decide
@@ -840,7 +840,7 @@ typedef struct functionsCtx functionsCtx;
  *              successful loading and dropped on failure. */
 typedef struct rdbLoadingCtx {
     redisDb* dbarray;
-    functionsCtx* functions_ctx;
+    librariesCtx* lib_ctx;
 }rdbLoadingCtx;
 
 /* Client MULTI/EXEC state */
@@ -2916,7 +2916,7 @@ int ldbPendingChildren(void);
 sds luaCreateFunction(client *c, robj *body);
 void luaLdbLineHook(lua_State *lua, lua_Debug *ar);
 void freeLuaScriptsAsync(dict *lua_scripts);
-void freeFunctionsAsync(functionsCtx *f_ctx);
+void freeFunctionsAsync(librariesCtx *lib_ctx);
 int ldbIsEnabled();
 void ldbLog(sds entry);
 void ldbLogRedisReply(char *reply);
@@ -3175,11 +3175,10 @@ void evalShaRoCommand(client *c);
 void scriptCommand(client *c);
 void fcallCommand(client *c);
 void fcallroCommand(client *c);
-void functionCreateCommand(client *c);
+void functionLoadCommand(client *c);
 void functionDeleteCommand(client *c);
 void functionKillCommand(client *c);
 void functionStatsCommand(client *c);
-void functionInfoCommand(client *c);
 void functionListCommand(client *c);
 void functionHelpCommand(client *c);
 void functionFlushCommand(client *c);

@@ -522,10 +522,10 @@ foreach testType {Successful Aborted} {
             $replica set mykey myvalue
 
             # Set a function value on replica to check status during loading, on failure and after swapping db
-            $replica function create LUA test {return 'hello1'}
+            $replica function load LUA test {redis.register_function('test', function() return 'hello1' end)}
 
             # Set a function value on master to check it reaches the replica when replication ends
-            $master function create LUA test {return 'hello2'}
+            $master function load LUA test {redis.register_function('test', function() return 'hello2' end)}
 
             # Force the replica to try another full sync (this time it will have matching master replid)
             $master multi
@@ -658,7 +658,7 @@ test {diskless loading short read} {
             set start [clock clicks -milliseconds]
 
             # Set a function value to check short read handling on functions
-            r function create LUA test {return 'hello1'}
+            r function load LUA test {redis.register_function('test', function() return 'hello1' end)}
 
             for {set k 0} {$k < 3} {incr k} {
                 for {set i 0} {$i < 10} {incr i} {
