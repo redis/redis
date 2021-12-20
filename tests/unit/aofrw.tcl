@@ -47,10 +47,12 @@ start_server {tags {"aofrw external:skip"}} {
             after 1000
 
             # Get the data set digest
-            set d1 [r debug digest]
+            set d1 [debug_digest]
+
             # Load the AOF
             r debug loadaof
-            set d2 [r debug digest]
+            set d2 [debug_digest]
+
             # Make sure they are the same
             assert {$d1 eq $d2}
         }
@@ -86,11 +88,11 @@ start_server {tags {"aofrw external:skip"} overrides {aof-use-rdb-preamble no}} 
                     r lpush key $data
                 }
                 assert_equal [r object encoding key] $e
-                set d1 [r debug digest]
+                set d1 [debug_digest]
                 r bgrewriteaof
                 waitForBgrewriteaof r
                 r debug loadaof
-                set d2 [r debug digest]
+                set d2 [debug_digest]
                 if {$d1 ne $d2} {
                     error "assertion:$d1 is not equal to $d2"
                 }
@@ -114,11 +116,11 @@ start_server {tags {"aofrw external:skip"} overrides {aof-use-rdb-preamble no}} 
                 if {$d ne {string}} {
                     assert_equal [r object encoding key] $e
                 }
-                set d1 [r debug digest]
+                set d1 [debug_digest]
                 r bgrewriteaof
                 waitForBgrewriteaof r
                 r debug loadaof
-                set d2 [r debug digest]
+                set d2 [debug_digest]
                 if {$d1 ne $d2} {
                     error "assertion:$d1 is not equal to $d2"
                 }
@@ -140,11 +142,11 @@ start_server {tags {"aofrw external:skip"} overrides {aof-use-rdb-preamble no}} 
                     r hset key $data $data
                 }
                 assert_equal [r object encoding key] $e
-                set d1 [r debug digest]
+                set d1 [debug_digest]
                 r bgrewriteaof
                 waitForBgrewriteaof r
                 r debug loadaof
-                set d2 [r debug digest]
+                set d2 [debug_digest]
                 if {$d1 ne $d2} {
                     error "assertion:$d1 is not equal to $d2"
                 }
@@ -166,11 +168,11 @@ start_server {tags {"aofrw external:skip"} overrides {aof-use-rdb-preamble no}} 
                     r zadd key [expr rand()] $data
                 }
                 assert_equal [r object encoding key] $e
-                set d1 [r debug digest]
+                set d1 [debug_digest]
                 r bgrewriteaof
                 waitForBgrewriteaof r
                 r debug loadaof
-                set d2 [r debug digest]
+                set d2 [debug_digest]
                 if {$d1 ne $d2} {
                     error "assertion:$d1 is not equal to $d2"
                 }

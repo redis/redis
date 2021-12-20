@@ -1219,6 +1219,7 @@ start_server {tags {"zset"}} {
             {zpopmin myzset{t} 3}
             {zpopmax myzset2{t} 3}
         }
+        close_replication_stream $repl
     } {} {needs:repl}
 
     foreach resp {3 2} {
@@ -2048,6 +2049,7 @@ start_server {tags {"zset"}} {
             {zpopmax myzset2{t} 3}
             {set foo{t} bar}
         }
+        close_replication_stream $repl
     } {} {needs:repl}
 
     test {ZSET skiplist order consistency when elements are moved} {
