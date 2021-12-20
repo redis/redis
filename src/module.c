@@ -268,8 +268,9 @@ typedef struct RedisModuleBlockedClient {
 static pthread_mutex_t moduleUnblockedClientsMutex = PTHREAD_MUTEX_INITIALIZER;
 static list *moduleUnblockedClients;
 
+#define MODULE_MAX_TEMP_CLIENT_COUNT 1024
 static pthread_mutex_t moduleTempClientsMutex = PTHREAD_MUTEX_INITIALIZER;
-static client *moduleTempClients[1024];
+static client *moduleTempClients[MODULE_MAX_TEMP_CLIENT_COUNT];
 static size_t moduleTempClientCount;
 
 /* We need a mutex that is unlocked / relocked in beforeSleep() in order to
@@ -517,10 +518,8 @@ client *moduleAllocTempClient() {
 }
 
 void moduleReleaseTempClient(client *c) {
-    const size_t cap = sizeof(moduleTempClients) / sizeof(moduleTempClients[0]);
-
     pthread_mutex_lock(&moduleTempClientsMutex);
-    if (moduleTempClientCount == cap) {
+    if (moduleTempClientCount == MODULE_MAX_TEMP_CLIENT_COUNT) {
         freeClient(c);
     } else {
         clearClient(c);
