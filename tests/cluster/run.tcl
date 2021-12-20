@@ -15,6 +15,7 @@ proc main {} {
     spawn_instance redis $::redis_base_port $::instances_count {
         "cluster-enabled yes"
         "appendonly yes"
+        "enable-debug-command yes"
     }
     run_tests
     cleanup
