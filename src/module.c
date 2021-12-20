@@ -7878,24 +7878,27 @@ int RM_InfoEndDictField(RedisModuleInfoCtx *ctx);
 int RM_InfoAddSection(RedisModuleInfoCtx *ctx, char *name) {
 
     sds full_name = sdsdup(ctx->module->name);
-    //sds lower_full_name = sdsdup(ctx->module->name);
+    sds lower_full_name = sdsdup(ctx->module->name);
     if (name != NULL && strlen(name) > 0){
         full_name = sdscatfmt(full_name, "_%s", name);
-        sdstolower(full_name);
+        lower_full_name = sdscatfmt(lower_full_name, "_%s", name);        
     }
         
     /* Implicitly end dicts, instead of returning an error which is likely un checked. */
     if (ctx->in_dict_field)
         RM_InfoEndDictField(ctx);
 
+    sdstolower(lower_full_name);
+
     /* proceed only if:
      * 1) no section was requested (emit all)
      * 2) the module name was requested (emit all)
      * 3) this specific section was requested. */
     if (ctx->requested_sections) {
-        if ((dictFind(ctx->requested_sections,full_name) == NULL) &&
+        if ((dictFind(ctx->requested_sections,lower_full_name) == NULL) &&
             (dictFind(ctx->requested_sections,ctx->module->name) == NULL)) {
             sdsfree(full_name);
+            sdsfree(lower_full_name);
             ctx->in_section = 0;
             return REDISMODULE_ERR;
         }
@@ -7904,7 +7907,7 @@ int RM_InfoAddSection(RedisModuleInfoCtx *ctx, char *name) {
     ctx->info = sdscatfmt(ctx->info, "# %S\r\n", sdscatfmt(sdsdup(ctx->module->name), "_%s", name));
     ctx->in_section = 1;
     sdsfree(full_name);
-    //sdsfree(lower_full_name);
+    sdsfree(lower_full_name);
     return REDISMODULE_OK;
 }
 
