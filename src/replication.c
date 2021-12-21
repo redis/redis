@@ -887,8 +887,7 @@ int startBgsaveForReplication(int mincapa, int req) {
                 /* Check slave has the exact requirements */
                 if (slave->slave_req != req)
                     continue;
-                replicationSetupSlaveForFullResync(slave,
-                        getPsyncInitialOffset());
+                replicationSetupSlaveForFullResync(slave, getPsyncInitialOffset());
             }
         }
     }
@@ -1178,7 +1177,7 @@ void replconfCommand(client *c) {
             long rdb_only = 0;
             if (getRangeLongFromObjectOrReply(c,c->argv[j+1],
                     0,1,&rdb_only,NULL) != C_OK)
-                return; // TODO: no reply??
+                return;
             if (rdb_only == 1) c->flags |= CLIENT_REPL_RDBONLY;
             else c->flags &= ~CLIENT_REPL_RDBONLY;
         } else if (!strcasecmp(c->argv[j]->ptr,"rdb-filter-only")) {

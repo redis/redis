@@ -6981,7 +6981,8 @@ static void latencyDistMode(void) {
 
 #define RDB_EOF_MARK_SIZE 40
 
-void sendReplconf(const char* arg1, const char* arg2) {
+int sendReplconf(const char* arg1, const char* arg2) {
+    int res = 1;
     fprintf(stderr, "sending REPLCONF %s %s\n", arg1, arg2);
     redisReply *reply = redisCommand(context, "REPLCONF %s %s", arg1, arg2);
 
@@ -6990,10 +6991,12 @@ void sendReplconf(const char* arg1, const char* arg2) {
         fprintf(stderr, "\nI/O error\n");
         exit(1);
     } else if(reply->type == REDIS_REPLY_ERROR) {
-        fprintf(stderr, "REPLCONF %s error: %s\n", arg1, reply->str);
         /* non fatal, old versions may not support it */
+        fprintf(stderr, "REPLCONF %s error: %s\n", arg1, reply->str);
+        res = 0;
     }
     freeReplyObject(reply);
+    return res;
 }
 
 void sendCapa() {
@@ -7002,10 +7005,6 @@ void sendCapa() {
 
 void sendRdbOnly(void) {
     sendReplconf("rdb-only", "1");
-}
-
-void sendRdbFilterOnlyFunctions(void) {
-    sendReplconf("rdb-filter-only", "functions");
 }
 
 /* Read raw bytes through a redisContext. The read operation is not greedy
@@ -8352,7 +8351,10 @@ int main(int argc, char **argv) {
         if (cliConnect(0) == REDIS_ERR) exit(1);
         sendCapa();
         sendRdbOnly();
-        if (config.functions_rdb) sendRdbFilterOnlyFunctions();
+        if (config.functions_rdb && !sendReplconf("rdb-filter-only", "functions")) {
+            fprintf(stderr, "Failed requesting functions only RDB from server, aborting\n");
+            exit(1);
+        }
         getRDB(NULL);
     }
 
