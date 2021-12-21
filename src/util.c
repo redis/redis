@@ -814,7 +814,8 @@ int pathIsBaseName(char *path) {
 }
 
 int fileExist(char *filename) {
-    return access(filename, F_OK) == 0;
+    struct stat statbuf;
+    return stat(filename, &statbuf) == 0 && S_ISREG(statbuf.st_mode);
 }
 
 int dirExists(char *dname) {
@@ -823,14 +824,15 @@ int dirExists(char *dname) {
 }
 
 int dirCreateIfMissing(char *dname) {
+    if (!pathIsBaseName(dname)) return -1;
     if (mkdir(dname, 0755) != 0) {
         if (errno != EEXIST) {
-            return 0;
+            return -1;
         } else if (!dirExists(dname)) {
-            return 0;
+            return -1;
         }
     }
-    return 1;
+    return 0;
 }
 
 int dirRemove(char *dname) {

@@ -609,7 +609,7 @@ int aofUpgradePrepare(aofManifest *am) {
     serverAssert(fileExist(server.aof_filename));
 
     /* Create temp AOF directory. */
-    if (!dirCreateIfMissing(tmp_dirname)) {
+    if (dirCreateIfMissing(tmp_dirname) == -1) {
         serverLog(LL_WARNING, "Can't open create temp append-only dir %s", 
             tmp_dirname);
         ret = C_ERR;
@@ -708,7 +708,7 @@ void aofOpenIfNeededOnServerStart(void) {
     serverAssert(server.aof_manifest != NULL);
     serverAssert(server.aof_fd == -1);
 
-    if (!dirCreateIfMissing(server.aof_filename)) {
+    if (dirCreateIfMissing(server.aof_filename) == -1) {
         serverLog(LL_WARNING, "Can't open create append-only dir %s", 
             server.aof_filename);
         exit(1);
@@ -2274,7 +2274,7 @@ int rewriteAppendOnlyFileBackground(void) {
 
     if (hasActiveChildProcess()) return C_ERR;
 
-    if (!dirCreateIfMissing(server.aof_filename)) {
+    if (dirCreateIfMissing(server.aof_filename) == -1) {
         serverLog(LL_WARNING, "Can't open create append-only dir %s", 
             server.aof_filename);
         return C_ERR;
