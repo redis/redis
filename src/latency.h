@@ -91,4 +91,8 @@ int THPDisable(void);
 #define latencyRemoveNestedEvent(event_var,nested_var) \
     event_var += nested_var;
 
+void appendServerLatencyPercentileParams(double percentile);
+
+void resetServerLatencyPercentileParams(void);
+
 #endif /* __LATENCY_H */

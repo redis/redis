@@ -656,3 +656,15 @@ nodataerr:
         "No samples available for event '%s'", (char*) c->argv[2]->ptr);
 }
 
+
+void appendServerLatencyPercentileParams(double percentile) {
+    server.latency_track_percentiles = zrealloc(server.latency_track_percentiles,sizeof(double)*(server.latency_percentiles_len+1));
+    server.latency_track_percentiles[server.latency_percentiles_len] = percentile;
+    server.latency_percentiles_len++;
+}
+
+void resetServerLatencyPercentileParams(void) {
+    zfree(server.latency_track_percentiles);
+    server.latency_track_percentiles = NULL;
+    server.latency_percentiles_len = 0;
+}

@@ -2567,6 +2567,66 @@ int allowProtectedAction(int config, client *c) {
            (config == PROTECTED_ACTION_ALLOWED_LOCAL && islocalClient(c));
 }
 
+
+static int setConfigLatencyPercentileOption(typeData data, sds *argv, int argc, const char **err) {
+    UNUSED(data);
+
+    /* Special case: treat single arg "" as zero args indicating empty percentile configuration */
+    if (argc == 1 && !strcasecmp(argv[0],""))
+        argc = 0;
+
+    resetServerLatencyPercentileParams();
+
+    for (int j = 0; j < argc; j++) {
+        double percentile;
+        if (!string2d(argv[j], sdslen(argv[j]), &percentile)){
+            *err = "Invalid latency-track-percentiles parameters";
+            return 0;
+        }
+        appendServerLatencyPercentileParams(percentile);
+    }
+
+    return 1;
+}
+
+static sds getConfigLatencyPercentileOption(typeData data) {
+    UNUSED(data);
+    sds buf = sdsempty();
+    for (int j = 0; j < server.latency_percentiles_len; j++) {
+        buf = sdscatprintf(buf,"%f",
+                        server.latency_track_percentiles[j]);
+        if (j != server.latency_percentiles_len-1)
+            buf = sdscatlen(buf," ",1);
+    }
+    return buf;
+}
+
+/* Rewrite the save option. */
+void rewriteConfigLatencyPercentileOption(typeData data, const char *name, struct rewriteConfigState *state) {
+    UNUSED(data);
+
+    sds line = sdsnew(name);
+    line = sdscatlen(line, " ", 1);
+
+    /* Rewrite latency-track-percentiles parameters, or an empty 'latency-track-percentiles ""' line to avoid the
+     * defaults from being used.
+     */
+    if (!server.latency_percentiles_len) {
+        line = sdscat(line,"\"\"");
+    } else {
+        for (int j = 0; j < server.latency_percentiles_len; j++) {
+            line = sdscatprintf(sdsempty(),"%f",
+                server.latency_track_percentiles[j]);
+            if (j != server.latency_percentiles_len-1)
+                line = sdscatlen(line," ",1);
+        }
+    }
+    rewriteConfigRewriteLine(state,name,line,1);
+
+    /* Mark "latency-track-percentiles" as processed in case server.latency_percentiles_len is zero. */
+    rewriteConfigMarkAsProcessed(state,name);
+}
+
 standardConfig configs[] = {
     /* Bool configs */
     createBoolConfig("rdbchecksum", NULL, IMMUTABLE_CONFIG, server.rdb_checksum, 1, NULL, NULL),
@@ -2612,6 +2672,7 @@ standardConfig configs[] = {
     createBoolConfig("disable-thp", NULL, MODIFIABLE_CONFIG, server.disable_thp, 1, NULL, NULL),
     createBoolConfig("cluster-allow-replica-migration", NULL, MODIFIABLE_CONFIG, server.cluster_allow_replica_migration, 1, NULL, NULL),
     createBoolConfig("replica-announced", NULL, MODIFIABLE_CONFIG, server.replica_announced, 1, NULL, NULL),
+    createBoolConfig("latency-track", NULL, MODIFIABLE_CONFIG, server.latency_track_enabled, 1, NULL, NULL),
 
     /* String Configs */
     createStringConfig("aclfile", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.acl_filename, "", NULL, NULL),
@@ -2759,6 +2820,7 @@ standardConfig configs[] = {
     createSpecialConfig("notify-keyspace-events", NULL, MODIFIABLE_CONFIG, setConfigNotifyKeyspaceEventsOption, getConfigNotifyKeyspaceEventsOption, rewriteConfigNotifyKeyspaceEventsOption, NULL),
     createSpecialConfig("bind", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigBindOption, getConfigBindOption, rewriteConfigBindOption, applyBind),
     createSpecialConfig("replicaof", "slaveof", IMMUTABLE_CONFIG | MULTI_ARG_CONFIG, setConfigReplicaOfOption, getConfigReplicaOfOption, rewriteConfigReplicaOfOption, NULL),
+    createSpecialConfig("latency-track-percentiles", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigLatencyPercentileOption, getConfigLatencyPercentileOption, rewriteConfigLatencyPercentileOption, NULL),
 
     /* NULL Terminator */
     {NULL}

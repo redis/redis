@@ -1745,6 +1745,12 @@ void initServerConfig(void) {
     server.page_size = sysconf(_SC_PAGESIZE);
     server.pause_cron = 0;
 
+    server.latency_track_enabled = 1;
+    resetServerLatencyPercentileParams();
+    appendServerLatencyPercentileParams(50.0);  /* p50 */
+    appendServerLatencyPercentileParams(99.0);  /* p99 */
+    appendServerLatencyPercentileParams(99.9); /* p999 */
+
     unsigned int lruclock = getLRUClock();
     atomicSet(server.lruclock,lruclock);
     resetServerSaveParams();
@@ -2995,7 +3001,8 @@ void call(client *c, int flags) {
     if (flags & CMD_CALL_STATS) {
         real_cmd->microseconds += duration;
         real_cmd->calls++;
-        updateCommandLatencyHistogram(&(c->lastcmd->latency_histogram), duration*1000);
+        if (server.latency_track_enabled)
+            updateCommandLatencyHistogram(&(c->lastcmd->latency_histogram), duration*1000);
     }
 
     /* Propagate the command into the AOF and replication link */
@@ -4344,7 +4351,7 @@ void bytesToHuman(char *s, unsigned long long n) {
  * Empty buckets are not printed.
  * Everything above 1sec is considered +Inf. */
 sds fillCumulativeDistributionLatencies(sds info, const char* histogram_name, struct hdr_histogram* histogram){
-    info = sdscatprintf(info, "latencyhist_%s:calls=%lld,histogram=[",
+    info = sdscatprintf(info, "latency_hist_usec_%s:calls=%lld,histogram=[",
         histogram_name, (long long) histogram->total_count);
     struct hdr_iter iter;
     hdr_iter_log_init(&iter, histogram, 1024,2);
@@ -4368,16 +4375,14 @@ sds fillCumulativeDistributionLatencies(sds info, const char* histogram_name, st
 
 /* Fill percentile distribution of latencies. */
 sds fillPercentileDistributionLatencies(sds info, const char* histogram_name, struct hdr_histogram* histogram){
-    info = sdscatprintf(info, "latencypercentiles_%s:p0=%.3f,p50=%.3f,p75=%.3f,p90=%.3f,p95=%.3f,p99=%.3f,p999=%.3f,p100=%.3f\r\n",
-        histogram_name,
-        ((double)hdr_min(histogram))/1000.0f,
-        ((double)hdr_value_at_percentile(histogram,50.0))/1000.0f,
-        ((double)hdr_value_at_percentile(histogram,75.0))/1000.0f,
-        ((double)hdr_value_at_percentile(histogram,90.0))/1000.0f,
-        ((double)hdr_value_at_percentile(histogram,95.0))/1000.0f,
-        ((double)hdr_value_at_percentile(histogram,99.0))/1000.0f,
-        ((double)hdr_value_at_percentile(histogram,99.9))/1000.0f,
-        ((double)hdr_max(histogram))/1000.0f);
+    info = sdscatfmt(info,"latency_percentiles_usec_%s:",histogram_name);
+    for (int j = 0; j < server.latency_percentiles_len; j++) {
+            info = sdscatprintf(info,"p%f=%.3f", server.latency_track_percentiles[j],
+            ((double)hdr_value_at_percentile(histogram,server.latency_track_percentiles[j]))/1000.0f);
+            if (j != server.latency_percentiles_len-1)
+                info = sdscatlen(info,",",1);
+        }
+    info = sdscatprintf(info,"\r\n");
     return info;
 }
 
@@ -5147,7 +5152,7 @@ sds genRedisInfoString(const char *section) {
         raxStop(&ri);
     }
 
-    if (allsections || !strcasecmp(section,"latencystats")) {
+    if ((allsections || !strcasecmp(section,"latencystats"))) {
         /* Latency by percentile distribution per command category */
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Latencystats - latency by percentile distribution\r\n");
