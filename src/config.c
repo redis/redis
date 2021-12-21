@@ -2604,27 +2604,22 @@ static sds getConfigLatencyPercentileOption(typeData data) {
 /* Rewrite the save option. */
 void rewriteConfigLatencyPercentileOption(typeData data, const char *name, struct rewriteConfigState *state) {
     UNUSED(data);
-
     sds line = sdsnew(name);
-    line = sdscatlen(line, " ", 1);
-
     /* Rewrite latency-track-percentiles parameters, or an empty 'latency-track-percentiles ""' line to avoid the
      * defaults from being used.
      */
     if (!server.latency_percentiles_len) {
         line = sdscat(line,"\"\"");
     } else {
+        line = sdscat(line," ");
         for (int j = 0; j < server.latency_percentiles_len; j++) {
-            line = sdscatprintf(sdsempty(),"%f",
+            line = sdscatprintf(line,"%f",
                 server.latency_track_percentiles[j]);
             if (j != server.latency_percentiles_len-1)
-                line = sdscatlen(line," ",1);
+                line = sdscat(line," ");
         }
     }
     rewriteConfigRewriteLine(state,name,line,1);
-
-    /* Mark "latency-track-percentiles" as processed in case server.latency_percentiles_len is zero. */
-    rewriteConfigMarkAsProcessed(state,name);
 }
 
 standardConfig configs[] = {
