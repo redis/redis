@@ -134,7 +134,7 @@ client *createClient(connection *conn) {
 
     selectDb(c,0);
     uint64_t client_id;
-    atomicGetIncr(server.next_client_id, client_id, 1);
+    atomicGetIncrWithSync(server.next_client_id, client_id, 1);
     c->id = client_id;
     c->resp = 2;
     c->conn = conn;
