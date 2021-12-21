@@ -503,31 +503,38 @@ void *RM_PoolAlloc(RedisModuleCtx *ctx, size_t bytes) {
  * -------------------------------------------------------------------------- */
 
 client *moduleAllocTempClient() {
-    client *c;
+    client *c = NULL;
 
     pthread_mutex_lock(&moduleTempClientsMutex);
-    if (moduleTempClientCount > 0) {
+    if (moduleTempClientCount > 0)
         c = moduleTempClients[--moduleTempClientCount];
-    } else {
+    pthread_mutex_unlock(&moduleTempClientsMutex);
+
+    if (c == NULL) {
         c = createClient(NULL);
         c->flags |= CLIENT_MODULE;
         c->user = NULL; /* Root user */
     }
-    pthread_mutex_unlock(&moduleTempClientsMutex);
     return c;
 }
 
 void moduleReleaseTempClient(client *c) {
+    int full;
+
+    /* clearClient()/freeClient() may involve calls back to modules and they
+     * might also try to allocate temporary clients via moduleAllocTempClient().
+     * To avoid deadlock, we must be careful not to call these functions when we
+     * are holding the `moduleTempClientsMutex` lock. */
+    clearClient(c);
+    c->flags |= CLIENT_MODULE;
+    c->user = NULL; /* Root user */
+
     pthread_mutex_lock(&moduleTempClientsMutex);
-    if (moduleTempClientCount == MODULE_MAX_TEMP_CLIENT_COUNT) {
-        freeClient(c);
-    } else {
-        clearClient(c);
-        c->flags |= CLIENT_MODULE;
-        c->user = NULL; /* Root user */
-        moduleTempClients[moduleTempClientCount++] = c;
-    }
+    full = (moduleTempClientCount == MODULE_MAX_TEMP_CLIENT_COUNT);
+    if (!full) moduleTempClients[moduleTempClientCount++] = c;
     pthread_mutex_unlock(&moduleTempClientsMutex);
+
+    if (full) freeClient(c);
 }
 
 /* Create an empty key of the specified type. `key` must point to a key object
