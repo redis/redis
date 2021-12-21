@@ -33,6 +33,10 @@
 #include "adlist.h"
 #include "atomicvar.h"
 
+typedef enum {
+    restorePolicy_Flush, restorePolicy_Append, restorePolicy_Replace
+} restorePolicy;
+
 static size_t engine_cache_memory = 0;
 
 /* Forward declaration */
@@ -383,8 +387,20 @@ void fcallroCommand(client *c) {
 /*
  * FUNCTION DUMP
  *
- * Returns a binary blob representing all the functions.
+ * Returns a binary payload representing all the functions.
  * Can be loaded using FUNCTION RESTORE
+ *
+ * The payload structure is the same as on RDB. Each function
+ * is saved separately with the following information:
+ * * Function name
+ * * Engine name
+ * * Function description
+ * * Function code
+ * RDB_OPCODE_FUNCTION is saved before each function to present
+ * that the payload is a function.
+ * RDB version and crc64 is saved at the end of the payload.
+ * The RDB version is saved for backward compatibility.
+ * crc64 is saved so we can verify the payload content.
  */
 void functionDumpCommand(client *c) {
     unsigned char buf[2];
@@ -409,9 +425,9 @@ void functionDumpCommand(client *c) {
 }
 
 /*
- * FUNCTION RESTORE <blob> [FLUSH|APPEND|REPLACE]
+ * FUNCTION RESTORE <payload> [FLUSH|APPEND|REPLACE]
  *
- * Restore the functions represented by the give blob.
+ * Restore the functions represented by the give payload.
  * Restore policy to can be given to control how to handle existing functions (default APPEND):
  * * FLUSH: delete all existing functions.
  * * APPEND: appends the restored functions to the existing functions. On collision, abort.
@@ -419,15 +435,12 @@ void functionDumpCommand(client *c) {
  *   On collision, replace the old function with the new function.
  */
 void functionRestoreCommand(client *c) {
-#define RESTORE_POLICY_FLUSH 1
-#define RESTORE_POLICY_APPEND 2
-#define RESTORE_POLICY_REPLACE 3
     if (c->argc > 4) {
         addReplySubcommandSyntaxError(c);
         return;
     }
 
-    int restore_replicy = RESTORE_POLICY_APPEND; /* default policy: APPEND */
+    restorePolicy restore_replicy = restorePolicy_Append; /* default policy: APPEND */
     sds data = c->argv[2]->ptr;
     size_t data_len = sdslen(data);
     rio payload;
@@ -437,11 +450,11 @@ void functionRestoreCommand(client *c) {
     if (c->argc == 4) {
         const char *restore_policy_str = c->argv[3]->ptr;
         if (!strcasecmp(restore_policy_str, "append")) {
-            restore_replicy = RESTORE_POLICY_APPEND;
+            restore_replicy = restorePolicy_Append;
         } else if (!strcasecmp(restore_policy_str, "replace")) {
-            restore_replicy = RESTORE_POLICY_REPLACE;
+            restore_replicy = restorePolicy_Replace;
         } else if (!strcasecmp(restore_policy_str, "flush")) {
-            restore_replicy = RESTORE_POLICY_FLUSH;
+            restore_replicy = restorePolicy_Flush;
         } else {
             addReplyError(c, "Wrong restore policy given, value should be either FLUSH, APPEND or REPLACE.");
             return;
@@ -470,17 +483,17 @@ void functionRestoreCommand(client *c) {
         }
         if (rdbFunctionLoad(&payload, rdbver, f_ctx, RDBFLAGS_NONE, &err) != C_OK) {
             if (!err) {
-                err = sdsnew("failed loading the given functions blob");
+                err = sdsnew("failed loading the given functions payload");
             }
             goto load_error;
         }
     }
 
-    if (restore_replicy == RESTORE_POLICY_FLUSH) {
+    if (restore_replicy == restorePolicy_Flush) {
         functionsCtxSwapWithCurrent(f_ctx);
         f_ctx = NULL; /* avoid releasing the f_ctx in the end */
     } else {
-        if (restore_replicy == RESTORE_POLICY_APPEND) {
+        if (restore_replicy == restorePolicy_Append) {
             /* First make sure there is only new functions */
             iter = dictGetIterator(f_ctx->functions);
             dictEntry *entry = NULL;
@@ -579,9 +592,9 @@ void functionHelpCommand(client *c) {
 "    * ASYNC: Asynchronously flush the functions.",
 "    * SYNC: Synchronously flush the functions.",
 "DUMP",
-"    Returns a blob representing the current functions, can be restored using FUNCTION RESTORE command",
-"RESTORE <BLOB> [FLUSH|APPEND|REPLACE]",
-"    Restore the functions represented by the given BLOB, it is possible to give a restore policy to",
+"    Returns a serialized payload representing the current functions, can be restored using FUNCTION RESTORE command",
+"RESTORE <PAYLOAD> [FLUSH|APPEND|REPLACE]",
+"    Restore the functions represented by the given payload, it is possible to give a restore policy to",
 "    control how to handle existing functions (default APPEND):",
 "    * FLUSH: delete all existing functions.",
 "    * APPEND: appends the restored functions to the existing functions. On collision, abort.",
