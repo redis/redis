@@ -1777,7 +1777,6 @@ int rewriteAppendOnlyFileBackground(void) {
          * accumulated by the parent into server.aof_rewrite_buf will start
          * with a SELECT statement and it will be safe to merge. */
         server.aof_selected_db = -1;
-        replicationScriptCacheFlush();
         return C_OK;
     }
     return C_OK; /* unreached */

@@ -2408,12 +2408,11 @@ void initServer(void) {
     }
 
     if (server.cluster_enabled) clusterInit();
-    replicationScriptCacheInit();
     scriptingInit(1);
     functionsInit();
     slowlogInit();
     latencyMonitorInit();
-    
+
     /* Initialize ACL default password if it exists */
     ACLUpdateDefaultUserPassword(server.requirepass);
 
