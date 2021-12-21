@@ -2352,6 +2352,7 @@ void initServer(void) {
     server.stat_module_progress = 0;
     for (int j = 0; j < CLIENT_TYPE_COUNT; j++)
         server.stat_clients_type_memory[j] = 0;
+    server.stat_cluster_links_memory = 0;
     server.cron_malloc_stats.zmalloc_used = 0;
     server.cron_malloc_stats.process_rss = 0;
     server.cron_malloc_stats.allocator_allocated = 0;
@@ -2407,12 +2408,11 @@ void initServer(void) {
     }
 
     if (server.cluster_enabled) clusterInit();
-    replicationScriptCacheInit();
     scriptingInit(1);
     functionsInit();
     slowlogInit();
     latencyMonitorInit();
-    
+
     /* Initialize ACL default password if it exists */
     ACLUpdateDefaultUserPassword(server.requirepass);
 
@@ -3209,6 +3209,21 @@ int processCommand(client *c) {
         return C_OK;
     }
 
+    /* Check if the command is marked as protected and the relevant configuration allows it */
+    if (c->cmd->flags & CMD_PROTECTED) {
+        if ((c->cmd->proc == debugCommand && !allowProtectedAction(server.enable_debug_cmd, c)) ||
+            (c->cmd->proc == moduleCommand && !allowProtectedAction(server.enable_module_cmd, c)))
+        {
+            rejectCommandFormat(c,"%s command not allowed. If the %s option is set to \"local\", "
+                                  "you can run it from a local connection, otherwise you need to set this option "
+                                  "in the configuration file, and then restart the server.",
+                                  c->cmd->proc == debugCommand ? "DEBUG" : "MODULE",
+                                  c->cmd->proc == debugCommand ? "enable-debug-command" : "enable-module-command");
+            return C_OK;
+
+        }
+    }
+
     int is_read_command = (c->cmd->flags & CMD_READONLY) ||
                            (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_READONLY));
     int is_write_command = (c->cmd->flags & CMD_WRITE) ||
@@ -3794,7 +3809,7 @@ void addReplyCommandArgList(client *c, struct redisCommandArg *args) {
         addReplyBulkCString(c, ARG_TYPE_STR[args[j].type]);
         maplen++;
         if (args[j].type == ARG_TYPE_KEY) {
-            addReplyBulkCString(c, "key-spec-index");
+            addReplyBulkCString(c, "key_spec_index");
             addReplyLongLong(c, args[j].key_spec_index);
             maplen++;
         }
@@ -3883,7 +3898,7 @@ void addReplyCommandKeySpecs(client *c, struct redisCommand *cmd) {
         addReplyBulkCString(c, "flags");
         addReplyFlagsForKeyArgs(c,cmd->key_specs[i].flags);
 
-        addReplyBulkCString(c, "begin-search");
+        addReplyBulkCString(c, "begin_search");
         switch (cmd->key_specs[i].begin_search_type) {
             case KSPEC_BS_UNKNOWN:
                 addReplyMapLen(c, 2);
@@ -3916,10 +3931,10 @@ void addReplyCommandKeySpecs(client *c, struct redisCommand *cmd) {
                 addReplyLongLong(c, cmd->key_specs[i].bs.keyword.startfrom);
                 break;
             default:
-                serverPanic("Invalid begin-search key spec type %d", cmd->key_specs[i].begin_search_type);
+                serverPanic("Invalid begin_search key spec type %d", cmd->key_specs[i].begin_search_type);
         }
 
-        addReplyBulkCString(c, "find-keys");
+        addReplyBulkCString(c, "find_keys");
         switch (cmd->key_specs[i].find_keys_type) {
             case KSPEC_FK_UNKNOWN:
                 addReplyMapLen(c, 2);
@@ -3958,7 +3973,7 @@ void addReplyCommandKeySpecs(client *c, struct redisCommand *cmd) {
                 addReplyLongLong(c, cmd->key_specs[i].fk.keynum.keystep);
                 break;
             default:
-                serverPanic("Invalid find-keys key spec type %d", cmd->key_specs[i].begin_search_type);
+                serverPanic("Invalid find_keys key spec type %d", cmd->key_specs[i].begin_search_type);
         }
     }
 }
@@ -4043,17 +4058,17 @@ void addReplyCommand(client *c, struct redisCommand *cmd) {
             maplen++;
         }
         if (cmd->doc_flags) {
-            addReplyBulkCString(c, "doc-flags");
+            addReplyBulkCString(c, "doc_flags");
             addReplyDocFlagsForCommand(c, cmd);
             maplen++;
         }
         if (cmd->deprecated_since) {
-            addReplyBulkCString(c, "deprecated-since");
+            addReplyBulkCString(c, "deprecated_since");
             addReplyBulkCString(c, cmd->deprecated_since);
             maplen++;
         }
         if (cmd->replaced_by) {
-            addReplyBulkCString(c, "replaced-by");
+            addReplyBulkCString(c, "replaced_by");
             addReplyBulkCString(c, cmd->replaced_by);
             maplen++;
         }
@@ -4559,6 +4574,7 @@ sds genRedisInfoString(const char *section) {
             "mem_total_replication_buffers:%zu\r\n"
             "mem_clients_slaves:%zu\r\n"
             "mem_clients_normal:%zu\r\n"
+            "mem_cluster_links:%zu\r\n"
             "mem_aof_buffer:%zu\r\n"
             "mem_allocator:%s\r\n"
             "active_defrag_running:%d\r\n"
@@ -4611,6 +4627,7 @@ sds genRedisInfoString(const char *section) {
             server.repl_buffer_mem,
             mh->clients_slaves,
             mh->clients_normal,
+            mh->cluster_links,
             mh->aof_buffer,
             ZMALLOC_LIB,
             server.active_defrag_running,

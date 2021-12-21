@@ -1196,6 +1196,9 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
                          server.stat_clients_type_memory[CLIENT_TYPE_NORMAL];
     mem_total += mh->clients_normal;
 
+    mh->cluster_links = server.stat_cluster_links_memory;
+    mem_total += mh->cluster_links;
+
     mem = 0;
     if (server.aof_state != AOF_OFF) {
         mem += sdsZmallocSize(server.aof_buf);
@@ -1205,12 +1208,6 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     mem_total+=mem;
 
     mem = evalScriptsMemory();
-    mem += dictSize(server.repl_scriptcache_dict) * sizeof(dictEntry) +
-        dictSlots(server.repl_scriptcache_dict) * sizeof(dictEntry*);
-    if (listLength(server.repl_scriptcache_fifo) > 0) {
-        mem += listLength(server.repl_scriptcache_fifo) * (sizeof(listNode) +
-            sdsZmallocSize(listNodeValue(listFirst(server.repl_scriptcache_fifo))));
-    }
     mh->lua_caches = mem;
     mem_total+=mem;
     mh->functions_caches = functionsMemoryOverhead();

@@ -39,7 +39,8 @@ typedef struct clusterLink {
     char *rcvbuf;               /* Packet reception buffer */
     size_t rcvbuf_len;          /* Used size of rcvbuf */
     size_t rcvbuf_alloc;        /* Allocated size of rcvbuf */
-    struct clusterNode *node;   /* Node related to this link if any, or NULL */
+    struct clusterNode *node;   /* Node related to this link. Initialized to NULL when unknown */
+    int inbound;                /* 1 if this link is an inbound link accepted from the related node */
 } clusterLink;
 
 /* Cluster node flags and macros. */
@@ -137,7 +138,8 @@ typedef struct clusterNode {
     int pport;                  /* Latest known clients plaintext port. Only used
                                    if the main clients port is for TLS. */
     int cport;                  /* Latest known cluster port of this node. */
-    clusterLink *link;          /* TCP/IP link with this node */
+    clusterLink *link;          /* TCP/IP link established toward this node */
+    clusterLink *inbound_link;  /* TCP/IP link accepted from this node */
     list *fail_reports;         /* List of nodes signaling this as failing */
 } clusterNode;
 
@@ -192,11 +194,13 @@ typedef struct clusterState {
     /* The following fields are used by masters to take state on elections. */
     uint64_t lastVoteEpoch;     /* Epoch of the last vote granted. */
     int todo_before_sleep; /* Things to do in clusterBeforeSleep(). */
+    /* Stats */
     /* Messages received and sent by type. */
     long long stats_bus_messages_sent[CLUSTERMSG_TYPE_COUNT];
     long long stats_bus_messages_received[CLUSTERMSG_TYPE_COUNT];
     long long stats_pfail_nodes;    /* Number of nodes in PFAIL status,
                                        excluding nodes without address. */
+    unsigned long long stat_cluster_links_buffer_limit_exceeded;  /* Total number of cluster links freed due to exceeding buffer limit */
 } clusterState;
 
 /* Redis cluster messages header */
