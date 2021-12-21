@@ -1326,21 +1326,6 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
         di = NULL; /* So that we don't release it again on error. */
     }
 
-    /* If we are storing the replication information on disk, persist
-     * the script cache as well: on successful PSYNC after a restart, we need
-     * to be able to process any EVALSHA inside the replication backlog the
-     * master will send us. */
-    if (rsi && dictSize(evalScriptsDict())) {
-        di = dictGetIterator(evalScriptsDict());
-        while((de = dictNext(di)) != NULL) {
-            robj *body = dictGetVal(de);
-            if (rdbSaveAuxField(rdb,"lua",3,body->ptr,sdslen(body->ptr)) == -1)
-                goto werr;
-        }
-        dictReleaseIterator(di);
-        di = NULL; /* So that we don't release it again on error. */
-    }
-
     if (rdbSaveModulesAux(rdb, REDISMODULE_AUX_AFTER_RDB) == -1) goto werr;
 
     /* EOF opcode */
@@ -2723,7 +2708,7 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
  * The err output parameter is optional and will be set with relevant error
  * message on failure, it is the caller responsibility to free the error
  * message on failure. */
-int rdbFunctionLoad(rio *rdb, int ver, functionsCtx* functions_ctx, sds *err) {
+int rdbFunctionLoad(rio *rdb, int ver, functionsCtx* functions_ctx, int rdbflags, sds *err) {
     UNUSED(ver);
     sds name = NULL;
     sds engine_name = NULL;
@@ -2757,7 +2742,7 @@ int rdbFunctionLoad(rio *rdb, int ver, functionsCtx* functions_ctx, sds *err) {
         goto error;
     }
 
-    if (functionsCreateWithFunctionCtx(name, engine_name, desc, blob, 0, &error, functions_ctx) != C_OK) {
+    if (functionsCreateWithFunctionCtx(name, engine_name, desc, blob, rdbflags & RDBFLAGS_ALLOW_DUP, &error, functions_ctx) != C_OK) {
         if (!error) {
             error = sdsnew("Failed creating the function");
         }
@@ -2786,13 +2771,8 @@ error:
  * otherwise C_ERR is returned and 'errno' is set accordingly. */
 int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
     functionsCtx* functions_ctx = functionsCtxGetCurrent();
-    functionsCtxClear(functions_ctx);
     rdbLoadingCtx loading_ctx = { .dbarray = server.db, .functions_ctx = functions_ctx };
     int retval = rdbLoadRioWithLoadingCtx(rdb,rdbflags,rsi,&loading_ctx);
-    if (retval != C_OK) {
-        /* Loading failed, clear the function ctx */
-        functionsCtxClear(functions_ctx);
-    }
     return retval;
 }
 
@@ -2920,12 +2900,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
             } else if (!strcasecmp(auxkey->ptr,"repl-offset")) {
                 if (rsi) rsi->repl_offset = strtoll(auxval->ptr,NULL,10);
             } else if (!strcasecmp(auxkey->ptr,"lua")) {
-                /* Load the script back in memory. */
-                if (luaCreateFunction(NULL, auxval) == NULL) {
-                    rdbReportCorruptRDB(
-                        "Can't load Lua script from RDB file! "
-                        "BODY: %s", (char*)auxval->ptr);
-                }
+                /* Won't load the script back in memory anymore. */
             } else if (!strcasecmp(auxkey->ptr,"redis-ver")) {
                 serverLog(LL_NOTICE,"Loading RDB produced by version %s",
                     (char*)auxval->ptr);
@@ -3010,7 +2985,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
             }
         } else if (type == RDB_OPCODE_FUNCTION) {
             sds err = NULL;
-            if (rdbFunctionLoad(rdb, rdbver, rdb_loading_ctx->functions_ctx, &err) != C_OK) {
+            if (rdbFunctionLoad(rdb, rdbver, rdb_loading_ctx->functions_ctx, rdbflags, &err) != C_OK) {
                 serverLog(LL_WARNING,"Failed loading function, %s", err);
                 sdsfree(err);
                 goto eoferr;

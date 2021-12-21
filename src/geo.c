@@ -444,7 +444,7 @@ void geoaddCommand(client *c) {
         char *opt = c->argv[longidx]->ptr;
         if (!strcasecmp(opt,"nx")) nx = 1;
         else if (!strcasecmp(opt,"xx")) xx = 1;
-        else if (!strcasecmp(opt,"ch")) {}
+        else if (!strcasecmp(opt,"ch")) { /* Handle in zaddCommand. */ }
         else break;
         longidx++;
     }

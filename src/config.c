@@ -45,6 +45,12 @@ typedef struct configEnum {
     const int val;
 } configEnum;
 
+typedef struct deprecatedConfig {
+    const char *name;
+    const int argc_min;
+    const int argc_max;
+} deprecatedConfig;
+
 configEnum maxmemory_policy_enum[] = {
     {"volatile-lru", MAXMEMORY_VOLATILE_LRU},
     {"volatile-lfu", MAXMEMORY_VOLATILE_LFU},
@@ -405,6 +411,12 @@ void initConfigValues() {
 static int reading_config_file;
 
 void loadServerConfigFromString(char *config) {
+    deprecatedConfig deprecated_configs[] = {
+        {"list-max-ziplist-entries", 2, 2},
+        {"list-max-ziplist-value", 2, 2},
+        {"lua-replicate-commands", 2, 2},
+        {NULL, 0},
+    };
     char buf[1024];
     const char *err = NULL;
     int linenum = 0, totlines, i;
@@ -459,6 +471,19 @@ void loadServerConfigFromString(char *config) {
             }
         }
 
+        /* If there's no matching above, we try matching them with deprecated configs */
+        if (!match) {
+            for (deprecatedConfig *config = deprecated_configs; config->name != NULL; config++) {
+                if (!strcasecmp(argv[0], config->name) && 
+                    config->argc_min <= argc && 
+                    argc <= config->argc_max) 
+                {
+                    match = 1;
+                    break;
+                }
+            }
+        }
+
         if (match) {
             sdsfreesplitres(argv,argc);
             continue;
@@ -467,10 +492,6 @@ void loadServerConfigFromString(char *config) {
         /* Execute config directives */
         if (!strcasecmp(argv[0],"include") && argc == 2) {
             loadServerConfig(argv[1], 0, NULL);
-        } else if (!strcasecmp(argv[0],"list-max-ziplist-entries") && argc == 2){
-            /* DEAD OPTION */
-        } else if (!strcasecmp(argv[0],"list-max-ziplist-value") && argc == 2) {
-            /* DEAD OPTION */
         } else if (!strcasecmp(argv[0],"rename-command") && argc == 3) {
             struct redisCommand *cmd = lookupCommandBySds(argv[1]);
             int retval;
@@ -2572,7 +2593,6 @@ standardConfig configs[] = {
     createBoolConfig("rdbchecksum", NULL, IMMUTABLE_CONFIG, server.rdb_checksum, 1, NULL, NULL),
     createBoolConfig("daemonize", NULL, IMMUTABLE_CONFIG, server.daemonize, 0, NULL, NULL),
     createBoolConfig("io-threads-do-reads", NULL, DEBUG_CONFIG | IMMUTABLE_CONFIG, server.io_threads_do_reads, 0,NULL, NULL), /* Read + parse from threads? */
-    createBoolConfig("lua-replicate-commands", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, server.lua_always_replicate_commands, 1, NULL, NULL),
     createBoolConfig("always-show-logo", NULL, IMMUTABLE_CONFIG, server.always_show_logo, 0, NULL, NULL),
     createBoolConfig("protected-mode", NULL, MODIFIABLE_CONFIG, server.protected_mode, 1, NULL, NULL),
     createBoolConfig("rdbcompression", NULL, MODIFIABLE_CONFIG, server.rdb_compression, 1, NULL, NULL),

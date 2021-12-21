@@ -1,7 +1,7 @@
 {
     "CREATE": {
-        "summary": "PATCH__TBD__15__",
-        "complexity": "PATCH__TBD__14__",
+        "summary": "Create a function with the given arguments (name, code, description)",
+        "complexity": "O(1) (considering compilation time is redundant)",
         "group": "scripting",
         "since": "7.0.0",
         "arity": -5,
@@ -9,7 +9,7 @@
         "function": "functionCreateCommand",
         "command_flags": [
             "NOSCRIPT",
-            "MAY_REPLICATE"
+            "WRITE"
         ],
         "acl_categories": [
             "SCRIPTING"
