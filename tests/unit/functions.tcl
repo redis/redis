@@ -133,7 +133,7 @@ start_server {tags {"scripting"}} {
         r debug reload nosave noflush merge
         assert_equal [r fcall test1 0] {hello}
         assert_equal [r fcall test2 0] {hello}
-    } {needs:debug}
+    } {} {needs:debug}
 
     test {FUNCTION - test flushall and flushdb do not clean functions} {
         r function flush
