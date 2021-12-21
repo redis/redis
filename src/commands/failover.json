@@ -1,0 +1,51 @@
+{
+    "FAILOVER": {
+        "summary": "Start a coordinated failover between this server and one of its replicas.",
+        "complexity": "O(1)",
+        "group": "server",
+        "since": "6.2.0",
+        "arity": -1,
+        "function": "failoverCommand",
+        "command_flags": [
+            "ADMIN",
+            "NOSCRIPT",
+            "STALE"
+        ],
+        "arguments": [
+            {
+                "name": "target",
+                "token": "TO",
+                "type": "block",
+                "optional": true,
+                "arguments": [
+                    {
+                        "name": "host",
+                        "type": "string"
+                    },
+                    {
+                        "name": "port",
+                        "type": "integer"
+                    },
+                    {
+                        "token": "FORCE",
+                        "name": "force",
+                        "type": "pure-token",
+                        "optional": true
+                    }
+                ]
+            },
+            {
+                "token": "ABORT",
+                "name": "abort",
+                "type": "pure-token",
+                "optional": true
+            },
+            {
+                "token": "TIMEOUT",
+                "name": "milliseconds",
+                "type": "integer",
+                "optional": true
+            }
+        ]
+    }
+}

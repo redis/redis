@@ -1,0 +1,12 @@
+{
+    "ACL": {
+        "summary": "A container for Access List Control commands ",
+        "complexity": "Depends on subcommand.",
+        "group": "server",
+        "since": "6.0.0",
+        "arity": -2,
+        "command_flags": [
+            "SENTINEL"
+        ]
+    }
+}

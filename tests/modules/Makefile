@@ -52,7 +52,6 @@ TEST_MODULES = \
     subcommands.so \
     reply.so
 
-
 .PHONY: all
 
 all: $(TEST_MODULES)
