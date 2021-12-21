@@ -3002,7 +3002,7 @@ void call(client *c, int flags) {
         real_cmd->microseconds += duration;
         real_cmd->calls++;
         if (server.latency_track_enabled)
-            updateCommandLatencyHistogram(&(c->lastcmd->latency_histogram), duration*1000);
+            updateCommandLatencyHistogram(&(real_cmd->latency_histogram), duration*1000);
     }
 
     /* Propagate the command into the AOF and replication link */
