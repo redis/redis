@@ -1798,6 +1798,25 @@ int bzmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult
     return genericGetKeys(0, 2, 3, 1, argv, argc, result);
 }
 
+int publishlocalGetChannels(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+    UNUSED(cmd);
+    UNUSED(argv);
+    UNUSED(argc);
+    return genericGetChannels(1,1,1,result);
+}
+
+int subscribelocalGetChannels(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+    UNUSED(cmd);
+    UNUSED(argv);
+    return genericGetChannels(1,argc-1,1,result);
+}
+
+int unsubscribelocalGetChannels(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+    UNUSED(cmd);
+    UNUSED(argv);
+    return genericGetChannels(1,argc-1,1,result);
+}
+
 /* Helper function to extract keys from the SORT command.
  *
  * SORT <sort-key> ... STORE <store-key> ...

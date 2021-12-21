@@ -2707,6 +2707,9 @@ int lmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult 
 int blmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int zmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int bzmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
+int publishlocalGetChannels(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
+int subscribelocalGetChannels(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
+int unsubscribelocalGetChannels(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 
 unsigned short crc16(const char *buf, int len);
 

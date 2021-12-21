@@ -2085,13 +2085,25 @@ struct redisCommand redisCommandTable[] = {
      functionGetKeys},
 
     {"publishlocal",publishLocalCommand,3,
-            "pub-sub ok-loading ok-stale fast may-replicate"},
+     "pub-sub ok-loading ok-stale fast may-replicate",
+     {{"pubsub",
+       KSPEC_BS_INDEX,.bs.index={1},
+       KSPEC_FK_RANGE,.fk.range={0,1,0}}},
+     publishlocalGetChannels},
 
     {"subscribelocal",subscribeLocalCommand,-2,
-            "pub-sub no-script ok-loading ok-stale"},
+     "pub-sub no-script ok-loading ok-stale",
+     {{"pubsub",
+      KSPEC_BS_INDEX,.bs.index={1},
+      KSPEC_FK_RANGE,.fk.range={-1,1,0}}},
+    subscribelocalGetChannels},
 
     {"unsubscribelocal",unsubscribeLocalCommand,-1,
-            "pub-sub no-script ok-loading ok-stale"},
+     "pub-sub no-script ok-loading ok-stale",
+     {{"pubsub",
+        KSPEC_BS_INDEX,.bs.index={1},
+        KSPEC_FK_RANGE,.fk.range={-1,1,0}}},
+     unsubscribelocalGetChannels},
 };
 
 /*============================ Utility functions ============================ */
