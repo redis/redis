@@ -6,8 +6,8 @@ set aof_dir "$server_path/appendonly.aof"
 set aof_manifest_path "$server_path/appendonly.aof/appendonly.aof.manifest"
 
 tags {"aof external:skip"} {
-    ## Server can start when aof-load-truncated is set to yes and AOF
-    ## is truncated, with an incomplete MULTI block.
+    # Server can start when aof-load-truncated is set to yes and AOF
+    # is truncated, with an incomplete MULTI block.
     create_aof_dir $aof_dir
     create_aof $aof_path {
         append_to_aof [formatCommand set foo hello]
@@ -235,7 +235,7 @@ tags {"aof external:skip"} {
         }
     }
 
-    start_server {overrides {appendonly {yes} appendfilename {appendonly}}} {
+    start_server {overrides {appendonly {yes} appendfilename {appendonly.aof}}} {
         test {Redis should not try to convert DEL into EXPIREAT for EXPIRE -1} {
             r set x 10
             r expire x -1
@@ -481,5 +481,46 @@ tags {"aof external:skip"} {
         # truncate to timestamp 1628217469
         catch {exec src/redis-check-aof --truncate-to-timestamp 1628217469 $aof_path} e
         assert_match {*aborting*} $e
+    }
+
+    test {EVAL timeout with slow verbatim Lua script from AOF} {
+        create_aof $aof_path {
+            append_to_aof [formatCommand select 9]
+            append_to_aof [formatCommand eval {redis.call('set',KEYS[1],'y'); for i=1,1500000 do redis.call('ping') end return 'ok'} 1 x]
+        }
+
+        start_server [list overrides [list dir $server_path appendonly no lua-time-limit 1 aof-use-rdb-preamble no]] {
+            # generate a long running script that is propagated to the AOF as script
+            # make sure that the script times out during loading
+            set rd [redis_deferring_client]
+            r config set appendonly yes
+            set start [clock clicks -milliseconds]
+            $rd debug loadaof
+            $rd flush
+            after 100
+            catch {r ping} err
+            assert_match {LOADING*} $err
+            $rd read
+            set elapsed [expr [clock clicks -milliseconds]-$start]
+            if {$::verbose} { puts "loading took $elapsed milliseconds" }
+            $rd close
+            assert_equal [r get x] y
+        }
+    }
+
+    test {EVAL can process writes from AOF in read-only replicas} {
+        create_aof_dir $aof_dir
+        create_aof_manifest $aof_manifest_path {
+            append_to_manifest "file appendonly.aof_1.incr.aof seq 1 type i\n"
+        }
+        create_aof $aof_path {
+            append_to_aof [formatCommand select 9]
+            append_to_aof [formatCommand eval {redis.call("set",KEYS[1],"100")} 1 foo]
+            append_to_aof [formatCommand eval {redis.call("incr",KEYS[1])} 1 foo]
+            append_to_aof [formatCommand eval {redis.call("incr",KEYS[1])} 1 foo]
+        }
+        start_server [list overrides [list dir $server_path appendonly yes replica-read-only yes replicaof "127.0.0.1 0"]] {
+            assert_equal [r get foo] 102
+        }
     }
 }

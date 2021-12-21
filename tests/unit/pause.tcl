@@ -37,18 +37,11 @@ start_server {tags {"pause network"}} {
         $rd2 publish foo bar
         wait_for_blocked_clients_count 2 50 100
 
-        # Test that SCRIPT LOAD, which is replicated. 
-        set rd3 [redis_deferring_client]
-        $rd3 script load "return 1"
-        wait_for_blocked_clients_count 3 50 100
-
         r client unpause 
         assert_match "1" [$rd read]
         assert_match "0" [$rd2 read]
-        assert_match "*" [$rd3 read]
         $rd close
         $rd2 close
-        $rd3 close
     }
 
     test "Test read/admin mutli-execs are not blocked by pause RO" {

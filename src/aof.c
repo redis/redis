@@ -720,7 +720,6 @@ void aofOpenIfNeededOnServerStart(void) {
 
     /* Here we should use 'O_APPEND' flag. */
     sds aof_filepath = makePath(server.aof_filename, aof_name);
-    printf("aof_filepath %s\n", aof_filepath);
     server.aof_fd = open(aof_filepath, O_WRONLY|O_APPEND|O_CREAT, 0644);
     sdsfree(aof_filepath);
     if (server.aof_fd == -1) {
@@ -2313,8 +2312,7 @@ int rewriteAppendOnlyFileBackground(void) {
         serverLog(LL_NOTICE,
             "Background append only file rewriting started by pid %ld",(long) childpid);
         server.aof_rewrite_scheduled = 0;
-        server.aof_rewrite_time_start = time(NULL);      
-        replicationScriptCacheFlush(); 
+        server.aof_rewrite_time_start = time(NULL);
         return C_OK;
     }
     return C_OK; /* unreached */
