@@ -420,17 +420,17 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
  * The dbnum can be -1 if all the DBs should be flushed, or the specified
  * DB number if we want to flush only a single Redis database number.
  *
- * Flags are be EMPTYDATA_NO_FLAGS if no special flags are specified or
- * EMPTYDATA_ASYNC if we want the memory to be freed in a different thread
- * and the function to return ASAP. EMPTYDATA_NOFUNCTIONS can also be set
+ * Flags are be EMPTYDB_NO_FLAGS if no special flags are specified or
+ * EMPTYDB_ASYNC if we want the memory to be freed in a different thread
+ * and the function to return ASAP. EMPTYDB_NOFUNCTIONS can also be set
  * to specify that we do not want to delete the functions.
  *
  * On success the function returns the number of keys removed from the
  * database(s). Otherwise -1 is returned in the specific case the
  * DB number is out of range, and errno is set to EINVAL. */
 long long emptyData(int dbnum, int flags, void(callback)(dict*)) {
-    int async = (flags & EMPTYDATA_ASYNC);
-    int with_functions = !(flags & EMPTYDATA_NOFUNCTIONS);
+    int async = (flags & EMPTYDB_ASYNC);
+    int with_functions = !(flags & EMPTYDB_NOFUNCTIONS);
     RedisModuleFlushInfoV1 fi = {REDISMODULE_FLUSHINFO_VERSION,!async,dbnum};
     long long removed = 0;
 
@@ -577,11 +577,11 @@ void signalFlushedDb(int dbid, int async) {
 int getFlushCommandFlags(client *c, int *flags) {
     /* Parse the optional ASYNC option. */
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"sync")) {
-        *flags = EMPTYDATA_NO_FLAGS;
+        *flags = EMPTYDB_NO_FLAGS;
     } else if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"async")) {
-        *flags = EMPTYDATA_ASYNC;
+        *flags = EMPTYDB_ASYNC;
     } else if (c->argc == 1) {
-        *flags = server.lazyfree_lazy_user_flush ? EMPTYDATA_ASYNC : EMPTYDATA_NO_FLAGS;
+        *flags = server.lazyfree_lazy_user_flush ? EMPTYDB_ASYNC : EMPTYDB_NO_FLAGS;
     } else {
         addReplyErrorObject(c,shared.syntaxerr);
         return C_ERR;
@@ -610,7 +610,7 @@ void flushAllDataAndResetRDB(int flags) {
     /* jemalloc 5 doesn't release pages back to the OS when there's no traffic.
      * for large databases, flushdb blocks for long anyway, so a bit more won't
      * harm and this way the flush and purge will be synchronous. */
-    if (!(flags & EMPTYDATA_ASYNC))
+    if (!(flags & EMPTYDB_ASYNC))
         jemalloc_purge();
 #endif
 }
@@ -623,13 +623,13 @@ void flushdbCommand(client *c) {
 
     if (getFlushCommandFlags(c,&flags) == C_ERR) return;
     /* flushdb should not flush the functions */
-    server.dirty += emptyData(c->db->id,flags | EMPTYDATA_NOFUNCTIONS,NULL);
+    server.dirty += emptyData(c->db->id,flags | EMPTYDB_NOFUNCTIONS,NULL);
     addReply(c,shared.ok);
 #if defined(USE_JEMALLOC)
     /* jemalloc 5 doesn't release pages back to the OS when there's no traffic.
      * for large databases, flushdb blocks for long anyway, so a bit more won't
      * harm and this way the flush and purge will be synchronous. */
-    if (!(flags & EMPTYDATA_ASYNC))
+    if (!(flags & EMPTYDB_ASYNC))
         jemalloc_purge();
 #endif
 }
@@ -641,7 +641,7 @@ void flushallCommand(client *c) {
     int flags;
     if (getFlushCommandFlags(c,&flags) == C_ERR) return;
     /* flushall should not flush the functions */
-    flushAllDataAndResetRDB(flags | EMPTYDATA_NOFUNCTIONS);
+    flushAllDataAndResetRDB(flags | EMPTYDB_NOFUNCTIONS);
     addReply(c,shared.ok);
 }
 
