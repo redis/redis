@@ -1,73 +1,55 @@
 #!/usr/bin/env python
-# Generate a commands.json file from the output of the `COMMAND` command
-# Prerequisites: Python 3.5+ and redis-py
+'''
+Generate a commands.json file from the output of `redis-cli --jspn COMMAND`
+'''
 import argparse
-import functools
 import json
-import redis
-
-def convert_list_to_dict(arr, recurse):
-    rep = {}
-    for i in range(0,len(arr),2):
-        key = arr[i].replace('-', '_')
-        val = arr[i+1]
-        if type(val) is list and recurse:
-            val = convert_list_to_dict(val, recurse)
-        rep[key] = val
-    return rep
+import sys
 
 def convert_flags_to_truthy_dict(flags):
-    rep = {}
-    for f in flags:
-        rep[f] = True
-    return rep
+    ''' Return a dict with a key set to `True` per element in the flags list. '''
+    return {f: True for f in flags} # TODO: remove after guy's PR
 
 def convert_argument(arg):
-    rep = convert_list_to_dict(arg, False)
-    if 'flags' in rep:
-        rep = {
-            **rep,
-            **convert_flags_to_truthy_dict(rep['flags'])
-        }
-        del rep['flags']
-    if 'arguments' in rep:
-        rep['arguments'] = list(map(lambda x: convert_argument(x), rep['arguments']))
-    return rep
+    ''' Transform an argument. '''
+    arg.update(convert_flags_to_truthy_dict(arg.pop('flags', [])))
+    arg['arguments'] = [convert_argument(x) for x in arg.pop('arguments',[])]
+    return arg
 
 def convert_keyspec(spec):
-    rep = convert_list_to_dict(spec, False)
-    if 'flags' in rep:
-        rep = {
-            **rep,
-            **convert_flags_to_truthy_dict(rep['flags'])
-        }
-        del rep['flags']
-    rep['begin_search'] = convert_list_to_dict(rep['begin_search'], True)
-    rep['find_keys'] = convert_list_to_dict(rep['find_keys'], True)
-    return rep
+    ''' Transform a key spec. '''
+    spec.update(convert_flags_to_truthy_dict(spec.pop('flags', [])))
+    return spec
 
-def convert_command_to_objects(container, cmd):
+def convert_entry_to_objects_array(container, cmd):
+    ''' 
+    Transform the JSON output of `COMMAND` to a friendlier format.
+
+    `COMMAND`'s outout per command is a fixed-size (8) list as follows:
+    1. Name (lower case, e.g. "lolwut")
+    2. Arity
+    3. Flags
+    4-6. First/last/step key specification (deprecated as of Redis v7.0)
+    7. ACL categories
+    8. A dict of meta information (as of Redis 7.0)
+
+    This returns a list with a dict for the command and per each of its
+    subcommands. Each dict contains one key, the command's full name, with a
+    value of a dict that's set with the command's properties.
+    '''
     obj = {}
     rep = [obj]
     name = cmd[0].upper()
     key = f'{container} {name}' if container else name
 
-    meta = convert_list_to_dict(cmd[7], False)
+    meta = cmd[7]
     meta['arity'] = cmd[1]
     meta['command_flags'] = cmd[2]
     meta['acl_categories'] = cmd[6]
-
-    if 'key_specs' in meta:
-        meta['key_specs'] = list(map(lambda x: convert_keyspec(x), meta['key_specs']))
-    if 'arguments' in meta:
-        meta['arguments'] = list(map(lambda x: convert_argument(x), meta['arguments']))
-    if 'subcommands' in meta:
-        sub = list(map(lambda x: convert_command_to_objects(name, x), meta['subcommands']))
-        rep += [s for sc in sub for s in sc]
-    if 'doc_flags' in meta:
-        meta['doc_flags'] = convert_flags_to_truthy_dict(meta['doc_flags'])
-    else:
-        meta['doc_flags'] = {}
+    meta['key_specs'] = [convert_keyspec(x) for x in meta.pop('key_specs',[])]
+    meta['arguments'] = [convert_argument(x) for x in meta.pop('arguments', [])]
+    meta['doc_flags'] = [convert_flags_to_truthy_dict(x) for x in meta.pop('doc_flags', [])]
+    rep.extend([convert_entry_to_objects_array(name, x)[0] for x in meta.pop('subcommands', [])])
 
     FIELDS = [
         'summary',
@@ -82,39 +64,33 @@ def convert_command_to_objects(container, cmd):
         'key_specs',
         'arguments',
         'command_flags',
+        'doc_flags',
     ]
     obj[key] = {}
     for field in FIELDS:
         if field in meta and (type(meta[field]) is not list or len(meta[field]) > 0):
             obj[key][field] = meta[field]
 
-    obj[key] = {
-        **obj[key],
-        **meta['doc_flags'],
-    }
     return rep
 
 # MAIN
-
-# Parse arguments
-parser = argparse.ArgumentParser(description="generate commands.json from a Redis server")
-parser.add_argument("-u", "--uri", type=str, help="the server's URI", default="redis://default:@localhost:6379")
+parser = argparse.ArgumentParser()
+# parser.add_argument('input', nargs='?', type=argparse.FileType(), default=sys.stdin)
+parser.add_argument('input', nargs='?', type=argparse.FileType(), default='/Users/itamar/commands.json')
 args = parser.parse_args()
 
-# Get `COMMAND`'s output
-r = redis.Redis().from_url(args.uri, decode_responses=True)
-command_output = r.command()
-r.close()
-
-# Transform the output
-commands = list(map(lambda x: convert_command_to_objects(None,x), command_output))
-commands = [command for cmd in commands for command in cmd]
-commands.sort(key=lambda x: list(x.keys())[0])
-
 payload = {}
+commands = []
+data = json.load(args.input)
+
+for entry in data:
+    cmds = convert_entry_to_objects_array(None, entry)
+    commands.extend(cmds)
+
+# The final output is a dict of all commands, ordered by name.
+commands.sort(key=lambda x: list(x.keys())[0])
 for cmd in commands:
     name = list(cmd.keys())[0]
     payload[name] = cmd[name]
 
-# Output JSON
 print(json.dumps(payload, indent=4))
