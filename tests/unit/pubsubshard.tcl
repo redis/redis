@@ -55,9 +55,9 @@ start_server {tags {"pubsubshard external:skip"}} {
         return $counts
     }
 
-    proc SSUBSCRIBE {client channels} {
-        $client SSUBSCRIBE {*}$channels
-        __consume_ssubscribe_messages $client SSUBSCRIBE $channels
+    proc ssubscribe {client channels} {
+        $client ssubscribe {*}$channels
+        __consume_ssubscribe_messages $client ssubscribe $channels
     }
 
     proc subscribe {client channels} {
@@ -79,8 +79,8 @@ start_server {tags {"pubsubshard external:skip"}} {
         set rd1 [redis_deferring_client]
 
         # subscribe to two channels
-        assert_equal {1} [SSUBSCRIBE $rd1 {chan1}]
-        assert_equal {2} [SSUBSCRIBE $rd1 {chan2}]
+        assert_equal {1} [ssubscribe $rd1 {chan1}]
+        assert_equal {2} [ssubscribe $rd1 {chan2}]
         assert_equal 1 [r SPUBLISH chan1 hello]
         assert_equal 1 [r SPUBLISH chan2 world]
         assert_equal {message chan1 hello} [$rd1 read]
@@ -105,8 +105,8 @@ start_server {tags {"pubsubshard external:skip"}} {
         set rd1 [redis_deferring_client]
         set rd2 [redis_deferring_client]
 
-        assert_equal {1} [SSUBSCRIBE $rd1 {chan1}]
-        assert_equal {1} [SSUBSCRIBE $rd2 {chan1}]
+        assert_equal {1} [ssubscribe $rd1 {chan1}]
+        assert_equal {1} [ssubscribe $rd2 {chan1}]
         assert_equal 2 [r SPUBLISH chan1 hello]
         assert_equal {message chan1 hello} [$rd1 read]
         assert_equal {message chan1 hello} [$rd2 read]
@@ -118,9 +118,9 @@ start_server {tags {"pubsubshard external:skip"}} {
 
     test "PUBLISH/SUBSCRIBE after UNSUBSCRIBE without arguments" {
         set rd1 [redis_deferring_client]
-        assert_equal {1} [SSUBSCRIBE $rd1 {chan1}]
-        assert_equal {2} [SSUBSCRIBE $rd1 {chan2}]
-        assert_equal {3} [SSUBSCRIBE $rd1 {chan3}]
+        assert_equal {1} [ssubscribe $rd1 {chan1}]
+        assert_equal {2} [ssubscribe $rd1 {chan2}]
+        assert_equal {3} [ssubscribe $rd1 {chan3}]
         sunsubscribe $rd1
         assert_equal 0 [r SPUBLISH chan1 hello]
         assert_equal 0 [r SPUBLISH chan2 hello]
@@ -132,7 +132,7 @@ start_server {tags {"pubsubshard external:skip"}} {
 
     test "SUBSCRIBE to one channel more than once" {
         set rd1 [redis_deferring_client]
-        assert_equal {1 1 1} [SSUBSCRIBE $rd1 {chan1 chan1 chan1}]
+        assert_equal {1 1 1} [ssubscribe $rd1 {chan1 chan1 chan1}]
         assert_equal 1 [r SPUBLISH chan1 hello]
         assert_equal {message chan1 hello} [$rd1 read]
 
@@ -158,8 +158,8 @@ start_server {tags {"pubsubshard external:skip"}} {
         set rd1 [redis_deferring_client]
         set rd2 [redis_deferring_client]
 
-        assert_equal {1} [SSUBSCRIBE $rd1 {chan1}]
-        assert_equal {1} [SSUBSCRIBE $rd2 {chan1}]
+        assert_equal {1} [ssubscribe $rd1 {chan1}]
+        assert_equal {1} [ssubscribe $rd2 {chan1}]
         assert_equal 2 [r SPUBLISH chan1 hello]
         assert_equal "chan1 2" [r pubsub shardnumsub chan1]
         assert_equal "chan1" [r pubsub shardchannels]
@@ -173,7 +173,7 @@ start_server {tags {"pubsubshard external:skip"}} {
         set rd1 [redis_deferring_client]
         set rd2 [redis_deferring_client]
 
-        assert_equal {1} [SSUBSCRIBE $rd1 {chan1}]
+        assert_equal {1} [ssubscribe $rd1 {chan1}]
         assert_equal {1} [subscribe $rd2 {chan1}]
         assert_equal 1 [r SPUBLISH chan1 hello]
         assert_equal 1 [r publish chan1 hello]
@@ -203,7 +203,7 @@ start_server {tags {"pubsubshard external:skip"}} {
         set rd0 [redis_deferring_client node_0_host node_0_port]
         set rd1 [redis_deferring_client node_1_host node_1_port]
 
-        assert_equal {1} [SSUBSCRIBE $rd1 {chan1}]
+        assert_equal {1} [ssubscribe $rd1 {chan1}]
         $rd0 SPUBLISH chan1 hello
         assert_equal {message chan1 hello} [$rd1 read]
         $rd0 SPUBLISH chan1 world

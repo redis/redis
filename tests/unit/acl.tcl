@@ -194,7 +194,7 @@ start_server {tags {"acl external:skip"}} {
         $rd SSUBSCRIBE foo:1
         assert_match {ssubscribe foo:1 1} [$rd read]
         $rd SSUBSCRIBE bar:2
-        assert_match {SSUBSCRIBE bar:2 2} [$rd read]
+        assert_match {ssubscribe bar:2 2} [$rd read]
         $rd SSUBSCRIBE zap:3
         catch {$rd read} e
         set e

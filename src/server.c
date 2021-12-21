@@ -2086,24 +2086,21 @@ struct redisCommand redisCommandTable[] = {
 
     {"spublish", spublishCommand, 3,
      "pub-sub ok-loading ok-stale fast may-replicate",
-     {{"pubsub",
+     {{"shard_channel",
        KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}},
-     spublishGetChannels},
+       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 
     {"ssubscribe", ssubscribeCommand, -2,
      "pub-sub no-script ok-loading ok-stale",
-     {{"pubsub",
+     {{"shard_channel",
       KSPEC_BS_INDEX,.bs.index={1},
-      KSPEC_FK_RANGE,.fk.range={-1,1,0}}},
-    ssubscribeGetChannels},
+      KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
 
     {"sunsubscribe", sunsubscribeCommand, -1,
      "pub-sub no-script ok-loading ok-stale",
-     {{"pubsub",
+     {{"shard_channel",
         KSPEC_BS_INDEX,.bs.index={1},
-        KSPEC_FK_RANGE,.fk.range={-1,1,0}}},
-    sunsubscribGetChannels},
+        KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
 };
 
 /*============================ Utility functions ============================ */
@@ -3648,8 +3645,8 @@ void createSharedObjects(void) {
     shared.pmessagebulk = createStringObject("$8\r\npmessage\r\n",14);
     shared.subscribebulk = createStringObject("$9\r\nsubscribe\r\n",15);
     shared.unsubscribebulk = createStringObject("$11\r\nunsubscribe\r\n",18);
-    shared.ssubscribebulk = createStringObject("$14\r\nssubscribe\r\n", 17);
-    shared.sunsubscribebulk = createStringObject("$16\r\nsunsubscribe\r\n", 19);
+    shared.ssubscribebulk = createStringObject("$10\r\nssubscribe\r\n", 17);
+    shared.sunsubscribebulk = createStringObject("$12\r\nsunsubscribe\r\n", 19);
     shared.psubscribebulk = createStringObject("$10\r\npsubscribe\r\n",17);
     shared.punsubscribebulk = createStringObject("$12\r\npunsubscribe\r\n",19);
 
@@ -4495,13 +4492,25 @@ void populateCommandLegacyRangeSpec(struct redisCommand *c) {
     if (c->key_specs_num == 0)
         return;
 
-    if (c->key_specs_num == 1 &&
-        c->key_specs[0].begin_search_type == KSPEC_BS_INDEX &&
-        c->key_specs[0].find_keys_type == KSPEC_FK_RANGE)
-    {
-        /* Quick win */
-        c->legacy_range_key_spec = c->key_specs[0];
-        return;
+    if (c->key_specs_num == 1) {
+        /* Commands SPUBLISH/SSUBSCRIBE/SUNSUBSCRIBE to support sharded channels have
+         * key specs defined for client to be able to handle parsing of channels
+         * using the information from `COMMAND` command.
+         *
+         * However, the sharded channels aren't actual keys and are treated differently
+         * from the keys. Hence, we want to avoid setting legacy range key spec for
+         * commands around sharded channels.
+         */
+        if (c->key_specs[0].flags & CMD_KEY_SHARD_CHANNEL) {
+            return;
+        }
+
+        if (c->key_specs[0].begin_search_type == KSPEC_BS_INDEX &&
+            c->key_specs[0].find_keys_type == KSPEC_FK_RANGE) {
+            /* Quick win */
+            c->legacy_range_key_spec = c->key_specs[0];
+            return;
+        }
     }
 
     int firstkey = INT_MAX, lastkey = 0;
@@ -4645,6 +4654,8 @@ void populateCommandStructure(struct redisCommand *c) {
                 c->key_specs[i].flags |= CMD_KEY_WRITE;
             } else if (!strcasecmp(flag,"read")) {
                 c->key_specs[i].flags |= CMD_KEY_READ;
+            } else if (!strcasecmp(flag,"shard_channel")) {
+                c->key_specs[i].flags |= CMD_KEY_SHARD_CHANNEL;
             } else if (!strcasecmp(flag,"incomplete")) {
                 c->key_specs[i].flags |= CMD_KEY_INCOMPLETE;
             } else {
@@ -5854,6 +5865,7 @@ void addReplyFlagsForKeyArgs(client *c, uint64_t flags) {
     void *flaglen = addReplyDeferredLen(c);
     flagcount += addReplyCommandFlag(c,flags,CMD_KEY_WRITE, "write");
     flagcount += addReplyCommandFlag(c,flags,CMD_KEY_READ, "read");
+    flagcount += addReplyCommandFlag(c,flags,CMD_KEY_SHARD_CHANNEL, "shard_channel");
     flagcount += addReplyCommandFlag(c,flags,CMD_KEY_INCOMPLETE, "incomplete");
     setDeferredSetLen(c, flaglen, flagcount);
 }

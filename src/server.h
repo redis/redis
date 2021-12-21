@@ -205,7 +205,8 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
  * for more information about the meaning of every flag. */
 #define CMD_KEY_WRITE (1ULL<<0)        /* "write" flag */
 #define CMD_KEY_READ (1ULL<<1)         /* "read" flag */
-#define CMD_KEY_INCOMPLETE (1ULL<<2)   /* "incomplete" flag (meaning that the keyspec might not point out to all keys it should cover) */
+#define CMD_KEY_SHARD_CHANNEL (1ULL<<2) /* "shard_channel" flag */
+#define CMD_KEY_INCOMPLETE (1ULL<<3)   /* "incomplete" flag (meaning that the keyspec might not point out to all keys it should cover) */
 
 /* Command flags used by the module system. */
 #define CMD_MODULE_GETKEYS (1ULL<<17)  /* Use the modules getkeys interface. */
@@ -2703,9 +2704,6 @@ int lmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult 
 int blmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int zmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int bzmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
-int spublishGetChannels(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
-int ssubscribeGetChannels(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
-int sunsubscribGetChannels(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 
 unsigned short crc16(const char *buf, int len);
 
