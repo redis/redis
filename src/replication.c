@@ -1921,7 +1921,7 @@ void readSyncBulkPayload(connection *conn) {
         replicationAttachToNewMaster();
 
         serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Flushing old data");
-        emptyDb(-1,empty_db_flags,replicationEmptyDbCallback);
+        emptyData(-1,empty_db_flags,replicationEmptyDbCallback);
     }
 
     /* Before loading the DB into memory we need to delete the readable
@@ -1997,7 +1997,7 @@ void readSyncBulkPayload(connection *conn) {
                 serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Discarding temporary DB in background");
             } else {
                 /* Remove the half-loaded data in case we started with an empty replica. */
-                emptyDb(-1,empty_db_flags,replicationEmptyDbCallback);
+                emptyData(-1,empty_db_flags,replicationEmptyDbCallback);
             }
 
             /* Note that there's no point in restarting the AOF on SYNC

@@ -618,6 +618,15 @@ start_server {tags {"scripting"}} {
         set e
     } {*wrong number*}
 
+    test {CLUSTER RESET can not be invoke from within a script} {
+        catch {
+            run_script {
+                  redis.call('cluster', 'reset', 'hard')
+            } 0
+        } e
+        set _ $e
+    } {*command is not allowed*}
+
     test {Script with RESP3 map} {
         set expected_dict [dict create field value]
         set expected_list [list field value]
@@ -659,7 +668,7 @@ start_server {tags {"scripting"}} {
     }
 
     test {Script check unpack with massive arguments} {
-        r eval {
+        run_script {
             local a = {}
             for i=1,7999 do
                 a[i] = 1

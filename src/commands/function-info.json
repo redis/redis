@@ -1,7 +1,7 @@
 {
     "INFO": {
-        "summary": "PATCH__TBD__11__",
-        "complexity": "PATCH__TBD__10__",
+        "summary": "Return information about a function by function name",
+        "complexity": "O(1)",
         "group": "scripting",
         "since": "7.0.0",
         "arity": -3,

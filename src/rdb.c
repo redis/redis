@@ -2697,7 +2697,7 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
     }
 }
 
-static int rdbFunctionLoad(rio *rdb, int ver, functionsCtx* functions_ctx) {
+static int rdbFunctionLoad(rio *rdb, int ver, functionsCtx* functions_ctx, int rdbflags) {
     UNUSED(ver);
     sds name = NULL;
     sds engine_name = NULL;
@@ -2731,7 +2731,7 @@ static int rdbFunctionLoad(rio *rdb, int ver, functionsCtx* functions_ctx) {
         goto error;
     }
 
-    if (functionsCreateWithFunctionCtx(name, engine_name, desc, blob, 0, &err, functions_ctx) != C_OK) {
+    if (functionsCreateWithFunctionCtx(name, engine_name, desc, blob, rdbflags & RDBFLAGS_ALLOW_DUP, &err, functions_ctx) != C_OK) {
         serverLog(LL_WARNING, "Failed compiling and saving the function %s", err);
         goto error;
     }
@@ -2751,13 +2751,8 @@ error:
  * otherwise C_ERR is returned and 'errno' is set accordingly. */
 int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
     functionsCtx* functions_ctx = functionsCtxGetCurrent();
-    functionsCtxClear(functions_ctx);
     rdbLoadingCtx loading_ctx = { .dbarray = server.db, .functions_ctx = functions_ctx };
     int retval = rdbLoadRioWithLoadingCtx(rdb,rdbflags,rsi,&loading_ctx);
-    if (retval != C_OK) {
-        /* Loading failed, clear the function ctx */
-        functionsCtxClear(functions_ctx);
-    }
     return retval;
 }
 
@@ -2969,7 +2964,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
                 continue; /* Read next opcode. */
             }
         } else if (type == RDB_OPCODE_FUNCTION) {
-            if (rdbFunctionLoad(rdb, rdbver, rdb_loading_ctx->functions_ctx) != C_OK) {
+            if (rdbFunctionLoad(rdb, rdbver, rdb_loading_ctx->functions_ctx, rdbflags) != C_OK) {
                 serverLog(LL_WARNING,"Failed loading function");
                 goto eoferr;
             }
