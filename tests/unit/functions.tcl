@@ -115,14 +115,14 @@ start_server {tags {"scripting"}} {
     test {FUNCTION - test loading from rdb} {
         r debug reload
         r fcall test 0
-    } {hello}
+    } {hello} {needs:debug}
 
     test {FUNCTION - test debug reload different options} {
         catch {r debug reload noflush} e
         assert_match "*Error trying to load the RDB*" $e
         r debug reload noflush merge
         r function list
-    } {{name test engine LUA description {some description}}}
+    } {{name test engine LUA description {some description}}} {needs:debug}
 
     test {FUNCTION - test debug reload with nosave and noflush} {
         r function delete test
@@ -133,7 +133,7 @@ start_server {tags {"scripting"}} {
         r debug reload nosave noflush merge
         assert_equal [r fcall test1 0] {hello}
         assert_equal [r fcall test2 0] {hello}
-    }
+    } {needs:debug}
 
     test {FUNCTION - test flushall and flushdb do not clean functions} {
         r function flush
@@ -371,4 +371,4 @@ test {FUNCTION can processes create, delete and flush commands in AOF when doing
         r slaveof no one
         assert_equal [r function list] {}
     }
-} {} {external:skip}
+} {} {needs:debug external:skip}
