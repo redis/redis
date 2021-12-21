@@ -1194,8 +1194,8 @@ static sds cliFormatReplyJson(redisReply *r) {
 
             tmp = cliFormatReplyJson(r->element[i+1]);
             out = sdscatlen(out,tmp,sdslen(tmp));
+            if (i != r->elements-2) out = sdscat(out,",");
             sdsfree(tmp);
-            if (i != r->elements-1) out = sdscat(out,",");
         }
         out = sdscat(out,"}");
         break;
@@ -1905,7 +1905,7 @@ static void usage(int err) {
 "  --no-raw           Force formatted output even when STDOUT is not a tty.\n"
 "  --quoted-input     Force input to be handled as quoted strings.\n"
 "  --csv              Output in CSV format.\n"
-"  --json             Output in Json format.\n"
+"  --json             Output in JSON format.\n"
 "  --show-pushes <yn> Whether to print RESP3 PUSH messages.  Enabled by default when\n"
 "                     STDOUT is a tty but can be overridden with --show-pushes no.\n"
 "  --stat             Print rolling stats about server: mem, clients, ...\n"
