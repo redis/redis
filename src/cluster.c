@@ -1885,7 +1885,7 @@ int clusterProcessPacket(clusterLink *link) {
 
         explen += sizeof(clusterMsgDataFail);
         if (totlen != explen) return 1;
-    } else if (type == CLUSTERMSG_TYPE_PUBLISH || type == CLUSTERMSG_TYPE_PUBLISHLOCAL) {
+    } else if (type == CLUSTERMSG_TYPE_PUBLISH || type == CLUSTERMSG_TYPE_PUBLISHSHARD) {
         uint32_t explen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
 
         explen += sizeof(clusterMsgDataPublish) -
@@ -2245,7 +2245,7 @@ int clusterProcessPacket(clusterLink *link) {
                 "Ignoring FAIL message from unknown node %.40s about %.40s",
                 hdr->sender, hdr->data.fail.about.nodename);
         }
-    } else if (type == CLUSTERMSG_TYPE_PUBLISH || type == CLUSTERMSG_TYPE_PUBLISHLOCAL) {
+    } else if (type == CLUSTERMSG_TYPE_PUBLISH || type == CLUSTERMSG_TYPE_PUBLISHSHARD) {
         if (!sender) return 1;  /* We don't know that node. */
 
         robj *channel, *message;
@@ -2255,8 +2255,8 @@ int clusterProcessPacket(clusterLink *link) {
          * Pub/Sub subscribers. */
         if ((type == CLUSTERMSG_TYPE_PUBLISH
             && serverPubsubSubscriptionCount() > 0)
-        || (type == CLUSTERMSG_TYPE_PUBLISHLOCAL
-            && serverPubsubLocalSubscriptionCount() > 0))
+        || (type == CLUSTERMSG_TYPE_PUBLISHSHARD
+            && serverPubsubShardSubscriptionCount() > 0))
         {
             channel_len = ntohl(hdr->data.publish.msg.channel_len);
             message_len = ntohl(hdr->data.publish.msg.message_len);
@@ -2265,8 +2265,8 @@ int clusterProcessPacket(clusterLink *link) {
             message = createStringObject(
                         (char*)hdr->data.publish.msg.bulk_data+channel_len,
                         message_len);
-            if (type == CLUSTERMSG_TYPE_PUBLISHLOCAL) {
-                pubsubPublishMessageLocal(channel,message);
+            if (type == CLUSTERMSG_TYPE_PUBLISHSHARD) {
+                pubsubPublishMessageShard(channel, message);
             } else {
                 pubsubPublishMessage(channel,message);
             }
@@ -2951,11 +2951,11 @@ void clusterPropagatePublish(robj *channel, robj *message) {
 }
 
 /* -----------------------------------------------------------------------------
- * CLUSTER Pub/Sub local support
+ * CLUSTER Pub/Sub shard support
  *
  * Publish this message across the slot (primary/replica).
  * -------------------------------------------------------------------------- */
-void clusterPropagatePublishLocal(robj *channel, robj *message) {
+void clusterPropagatePublishShard(robj *channel, robj *message) {
     list *nodes_for_slot = clusterGetNodesServingMySlots(server.cluster->myself);
     if (listLength(nodes_for_slot) != 0) {
         listIter li;
@@ -2964,7 +2964,7 @@ void clusterPropagatePublishLocal(robj *channel, robj *message) {
         while((ln = listNext(&li))) {
             clusterNode *node = listNodeValue(ln);
             if (node != myself) {
-                clusterSendPublish(node->link, channel, message, CLUSTERMSG_TYPE_PUBLISHLOCAL);
+                clusterSendPublish(node->link, channel, message, CLUSTERMSG_TYPE_PUBLISHSHARD);
             }
         }
     }
@@ -4462,7 +4462,7 @@ const char *clusterGetMessageTypeString(int type) {
     case CLUSTERMSG_TYPE_MEET: return "meet";
     case CLUSTERMSG_TYPE_FAIL: return "fail";
     case CLUSTERMSG_TYPE_PUBLISH: return "publish";
-    case CLUSTERMSG_TYPE_PUBLISHLOCAL: return "publishlocal";
+    case CLUSTERMSG_TYPE_PUBLISHSHARD: return "publishshard";
     case CLUSTERMSG_TYPE_FAILOVER_AUTH_REQUEST: return "auth-req";
     case CLUSTERMSG_TYPE_FAILOVER_AUTH_ACK: return "auth-ack";
     case CLUSTERMSG_TYPE_UPDATE: return "update";
@@ -5261,7 +5261,7 @@ void removeChannelsInSlot(unsigned int slot) {
     }
     raxStop(&iter);
 
-    pubsubUnsubscribeLocalChannels(channels,channelcount);
+    pubsubUnsubscribeShardChannels(channels, channelcount);
     zfree(channels);
 }
 
@@ -6020,9 +6020,9 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
         mc.cmd = cmd;
     }
 
-    int is_pubsublocal = cmd->proc == subscribeLocalCommand ||
-                         cmd->proc == unsubscribeLocalCommand ||
-                         cmd->proc == publishLocalCommand;
+    int is_pubsubshard = cmd->proc == ssubscribeCommand ||
+            cmd->proc == sunsubscribeCommand ||
+            cmd->proc == spublishCommand;
 
     /* Check that all the keys are in the same hash slot, and obtain this
      * slot and the node associated. */
@@ -6036,7 +6036,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
         margv = ms->commands[i].argv;
 
         getKeysResult result = GETKEYS_RESULT_INIT;
-        if (is_pubsublocal) {
+        if (is_pubsubshard) {
             numkeys = getChannelsFromCommand(mcmd,margc,&result);
         } else {
             numkeys = getKeysFromCommand(mcmd,margv,margc,&result);
@@ -6097,13 +6097,13 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
             }
 
             /* Migrating / Importing slot? Count keys we don't have.
-             * If it is pubsublocal command, it isn't required to check
+             * If it is pubsubshard command, it isn't required to check
              * the channel being present or not in the node during the
              * slot migration, the channel will be served from the source
              * node until the migration completes with CLUSTER SETSLOT <slot>
              * NODE <node-id>. */
             int flags = LOOKUP_NOTOUCH | LOOKUP_NOSTATS | LOOKUP_NONOTIFY;
-            if ((migrating_slot || importing_slot) && !is_pubsublocal &&
+            if ((migrating_slot || importing_slot) && !is_pubsubshard &&
                 lookupKeyReadWithFlags(&server.db[0], thiskey, flags) == NULL)
             {
                 missing_keys++;
@@ -6119,8 +6119,8 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
     /* Cluster is globally down but we got keys? We only serve the request
      * if it is a read command and when allow_reads_when_down is enabled. */
     if (server.cluster->state != CLUSTER_OK) {
-        if (is_pubsublocal) {
-            if (!server.cluster_allow_pubsublocal_when_down) {
+        if (is_pubsubshard) {
+            if (!server.cluster_allow_pubsubshard_when_down) {
                 if (error_code) *error_code = CLUSTER_REDIR_DOWN_STATE;
                 return NULL;
             }
@@ -6176,7 +6176,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
      * is serving, we can reply without redirection. */
     int is_write_command = (c->cmd->flags & CMD_WRITE) ||
                            (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_WRITE));
-    if (((c->flags & CLIENT_READONLY) || is_pubsublocal) &&
+    if (((c->flags & CLIENT_READONLY) || is_pubsubshard) &&
         !is_write_command &&
         nodeIsSlave(myself) &&
         myself->slaveof == n)

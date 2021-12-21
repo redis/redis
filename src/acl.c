@@ -1402,8 +1402,8 @@ void ACLKillPubsubClientsIfNeeded(user *u, list *upcoming) {
                 }
                 dictReleaseIterator(di);
 
-                /* Check for local channels violation. */
-                di = dictGetIterator(c->pubsublocal_channels);
+                /* Check for shard channels violation. */
+                di = dictGetIterator(c->pubsubshard_channels);
                 while (!kill && ((de = dictNext(di)) != NULL)) {
                     o = dictGetKey(de);
                     kill = (ACLCheckPubsubChannelPerm(o->ptr,upcoming,0) ==
@@ -1459,9 +1459,9 @@ int ACLCheckAllUserCommandPerm(const user *u, struct redisCommand *cmd, robj **a
     int acl_retval = ACLCheckCommandPerm(u,cmd,argv,argc,idxptr);
     if (acl_retval != ACL_OK)
         return acl_retval;
-    if (cmd->proc == publishCommand || cmd->proc == publishLocalCommand)
+    if (cmd->proc == publishCommand || cmd->proc == spublishCommand)
         acl_retval = ACLCheckPubsubPerm(u,argv,1,1,0,idxptr);
-    else if (cmd->proc == subscribeCommand || cmd->proc == subscribeLocalCommand)
+    else if (cmd->proc == subscribeCommand || cmd->proc == ssubscribeCommand)
         acl_retval = ACLCheckPubsubPerm(u,argv,1,argc-1,0,idxptr);
     else if (cmd->proc == psubscribeCommand)
         acl_retval = ACLCheckPubsubPerm(u,argv,1,argc-1,1,idxptr);

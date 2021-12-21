@@ -1,5 +1,5 @@
-start_server {tags {"pubsublocal external:skip"}} {
-    proc __consume_subscribelocal_messages {client type channels} {
+start_server {tags {"pubsubshard external:skip"}} {
+    proc __consume_ssubscribe_messages {client type channels} {
         set numsub -1
         set counts {}
 
@@ -11,7 +11,7 @@ start_server {tags {"pubsublocal external:skip"}} {
             # are ordered. when receiving unsubscribe messages
             # they are unordered
             set idx [lsearch -exact $channels [lindex $msg 1]]
-            if {[string match "unsubscribelocal" $type]} {
+            if {[string match "sunsubscribe" $type]} {
                 assert {$idx >= 0}
             } else {
                 assert {$idx == 0}
@@ -55,9 +55,9 @@ start_server {tags {"pubsublocal external:skip"}} {
         return $counts
     }
 
-    proc subscribelocal {client channels} {
-        $client subscribelocal {*}$channels
-        __consume_subscribelocal_messages $client subscribelocal $channels
+    proc SSUBSCRIBE {client channels} {
+        $client SSUBSCRIBE {*}$channels
+        __consume_ssubscribe_messages $client SSUBSCRIBE $channels
     }
 
     proc subscribe {client channels} {
@@ -65,9 +65,9 @@ start_server {tags {"pubsublocal external:skip"}} {
         __consume_subscribe_messages $client subscribe $channels
     }
 
-    proc unsubscribelocal {client {channels {}}} {
-        $client unsubscribelocal {*}$channels
-        __consume_subscribe_messages $client unsubscribelocal $channels
+    proc sunsubscribe {client {channels {}}} {
+        $client sunsubscribe {*}$channels
+        __consume_subscribe_messages $client sunsubscribe $channels
     }
 
     proc unsubscribe {client {channels {}}} {
@@ -75,39 +75,39 @@ start_server {tags {"pubsublocal external:skip"}} {
         __consume_subscribe_messages $client unsubscribe $channels
     }
 
-    test "PUBLISHLOCAL/SUBSCRIBELOCAL basics" {
+    test "SPUBLISH/SSUBSCRIBE basics" {
         set rd1 [redis_deferring_client]
 
         # subscribe to two channels
-        assert_equal {1} [subscribelocal $rd1 {chan1}]
-        assert_equal {2} [subscribelocal $rd1 {chan2}]
-        assert_equal 1 [r publishlocal chan1 hello]
-        assert_equal 1 [r publishlocal chan2 world]
+        assert_equal {1} [SSUBSCRIBE $rd1 {chan1}]
+        assert_equal {2} [SSUBSCRIBE $rd1 {chan2}]
+        assert_equal 1 [r SPUBLISH chan1 hello]
+        assert_equal 1 [r SPUBLISH chan2 world]
         assert_equal {message chan1 hello} [$rd1 read]
         assert_equal {message chan2 world} [$rd1 read]
 
         # unsubscribe from one of the channels
-        unsubscribelocal $rd1 {chan1}
-        assert_equal 0 [r publishlocal chan1 hello]
-        assert_equal 1 [r publishlocal chan2 world]
+        sunsubscribe $rd1 {chan1}
+        assert_equal 0 [r SPUBLISH chan1 hello]
+        assert_equal 1 [r SPUBLISH chan2 world]
         assert_equal {message chan2 world} [$rd1 read]
 
         # unsubscribe from the remaining channel
-        unsubscribelocal $rd1 {chan2}
-        assert_equal 0 [r publishlocal chan1 hello]
-        assert_equal 0 [r publishlocal chan2 world]
+        sunsubscribe $rd1 {chan2}
+        assert_equal 0 [r SPUBLISH chan1 hello]
+        assert_equal 0 [r SPUBLISH chan2 world]
 
         # clean up clients
         $rd1 close
     }
 
-    test "PUBLISHLOCAL/SUBSCRIBELOCAL with two clients" {
+    test "SPUBLISH/SSUBSCRIBE with two clients" {
         set rd1 [redis_deferring_client]
         set rd2 [redis_deferring_client]
 
-        assert_equal {1} [subscribelocal $rd1 {chan1}]
-        assert_equal {1} [subscribelocal $rd2 {chan1}]
-        assert_equal 2 [r publishlocal chan1 hello]
+        assert_equal {1} [SSUBSCRIBE $rd1 {chan1}]
+        assert_equal {1} [SSUBSCRIBE $rd2 {chan1}]
+        assert_equal 2 [r SPUBLISH chan1 hello]
         assert_equal {message chan1 hello} [$rd1 read]
         assert_equal {message chan1 hello} [$rd2 read]
 
@@ -118,13 +118,13 @@ start_server {tags {"pubsublocal external:skip"}} {
 
     test "PUBLISH/SUBSCRIBE after UNSUBSCRIBE without arguments" {
         set rd1 [redis_deferring_client]
-        assert_equal {1} [subscribelocal $rd1 {chan1}]
-        assert_equal {2} [subscribelocal $rd1 {chan2}]
-        assert_equal {3} [subscribelocal $rd1 {chan3}]
-        unsubscribelocal $rd1
-        assert_equal 0 [r publishlocal chan1 hello]
-        assert_equal 0 [r publishlocal chan2 hello]
-        assert_equal 0 [r publishlocal chan3 hello]
+        assert_equal {1} [SSUBSCRIBE $rd1 {chan1}]
+        assert_equal {2} [SSUBSCRIBE $rd1 {chan2}]
+        assert_equal {3} [SSUBSCRIBE $rd1 {chan3}]
+        sunsubscribe $rd1
+        assert_equal 0 [r SPUBLISH chan1 hello]
+        assert_equal 0 [r SPUBLISH chan2 hello]
+        assert_equal 0 [r SPUBLISH chan3 hello]
 
         # clean up clients
         $rd1 close
@@ -132,8 +132,8 @@ start_server {tags {"pubsublocal external:skip"}} {
 
     test "SUBSCRIBE to one channel more than once" {
         set rd1 [redis_deferring_client]
-        assert_equal {1 1 1} [subscribelocal $rd1 {chan1 chan1 chan1}]
-        assert_equal 1 [r publishlocal chan1 hello]
+        assert_equal {1 1 1} [SSUBSCRIBE $rd1 {chan1 chan1 chan1}]
+        assert_equal 1 [r SPUBLISH chan1 hello]
         assert_equal {message chan1 hello} [$rd1 read]
 
         # clean up clients
@@ -142,50 +142,50 @@ start_server {tags {"pubsublocal external:skip"}} {
 
     test "UNSUBSCRIBE from non-subscribed channels" {
         set rd1 [redis_deferring_client]
-        assert_equal {0} [unsubscribelocal $rd1 {foo}]
-        assert_equal {0} [unsubscribelocal $rd1 {bar}]
-        assert_equal {0} [unsubscribelocal $rd1 {quux}]
+        assert_equal {0} [sunsubscribe $rd1 {foo}]
+        assert_equal {0} [sunsubscribe $rd1 {bar}]
+        assert_equal {0} [sunsubscribe $rd1 {quux}]
 
         # clean up clients
         $rd1 close
     }
 
     test "PUBSUB command basics" {
-        r pubsub localnumsub abc def
+        r pubsub shardnumsub abc def
     } {abc 0 def 0}
 
-    test "PUBLISHLOCAL/SUBSCRIBELOCAL with two clients" {
+    test "SPUBLISH/SSUBSCRIBE with two clients" {
         set rd1 [redis_deferring_client]
         set rd2 [redis_deferring_client]
 
-        assert_equal {1} [subscribelocal $rd1 {chan1}]
-        assert_equal {1} [subscribelocal $rd2 {chan1}]
-        assert_equal 2 [r publishlocal chan1 hello]
-        assert_equal "chan1 2" [r pubsub localnumsub chan1]
-        assert_equal "chan1" [r pubsub localchannels]
+        assert_equal {1} [SSUBSCRIBE $rd1 {chan1}]
+        assert_equal {1} [SSUBSCRIBE $rd2 {chan1}]
+        assert_equal 2 [r SPUBLISH chan1 hello]
+        assert_equal "chan1 2" [r pubsub shardnumsub chan1]
+        assert_equal "chan1" [r pubsub shardchannels]
 
         # clean up clients
         $rd1 close
         $rd2 close
     }
 
-    test "PUBLISHLOCAL/SUBSCRIBELOCAL with PUBLISH/SUBSCRIBE" {
+    test "SPUBLISH/SSUBSCRIBE with PUBLISH/SUBSCRIBE" {
         set rd1 [redis_deferring_client]
         set rd2 [redis_deferring_client]
 
-        assert_equal {1} [subscribelocal $rd1 {chan1}]
+        assert_equal {1} [SSUBSCRIBE $rd1 {chan1}]
         assert_equal {1} [subscribe $rd2 {chan1}]
-        assert_equal 1 [r publishlocal chan1 hello]
+        assert_equal 1 [r SPUBLISH chan1 hello]
         assert_equal 1 [r publish chan1 hello]
-        assert_equal "chan1 1" [r pubsub localnumsub chan1]
+        assert_equal "chan1 1" [r pubsub shardnumsub chan1]
         assert_equal "chan1 1" [r pubsub numsub chan1]
-        assert_equal "chan1" [r pubsub localchannels]
+        assert_equal "chan1" [r pubsub shardchannels]
         assert_equal "chan1" [r pubsub channels]
     }
 }
 
-start_server {tags {"pubsublocal external:skip"}} {
-start_server {tags {"pubsublocal external:skip"}} {
+start_server {tags {"pubsubshard external:skip"}} {
+start_server {tags {"pubsubshard external:skip"}} {
     set node_0 [srv 0 client]
     set node_0_host [srv 0 host]
     set node_0_port [srv 0 port]
@@ -203,10 +203,10 @@ start_server {tags {"pubsublocal external:skip"}} {
         set rd0 [redis_deferring_client node_0_host node_0_port]
         set rd1 [redis_deferring_client node_1_host node_1_port]
 
-        assert_equal {1} [subscribelocal $rd1 {chan1}]
-        $rd0 PUBLISHLOCAL chan1 hello
+        assert_equal {1} [SSUBSCRIBE $rd1 {chan1}]
+        $rd0 SPUBLISH chan1 hello
         assert_equal {message chan1 hello} [$rd1 read]
-        $rd0 PUBLISHLOCAL chan1 world
+        $rd0 SPUBLISH chan1 world
         assert_equal {message chan1 world} [$rd1 read]
     }
 }

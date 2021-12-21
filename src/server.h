@@ -334,10 +334,6 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
                                     buffer configuration. Just the first
                                     three: normal, slave, pubsub. */
 
-/* Pubsub type */
-#define PUBSUB_GLOBAL 0 /* Pubsub global. */
-#define PUBSUB_LOCAL 1 /* Pubsub bounded to slot. */
-
 /* Slave replication state. Used in server.repl_state for slaves to remember
  * what to do next. */
 typedef enum {
@@ -1061,7 +1057,7 @@ typedef struct client {
     list *watched_keys;     /* Keys WATCHED for MULTI/EXEC CAS */
     dict *pubsub_channels;  /* channels a client is interested in (SUBSCRIBE) */
     list *pubsub_patterns;  /* patterns a client is interested in (SUBSCRIBE) */
-    dict *pubsublocal_channels;  /* local channels a client is interested in (SUBSCRIBELOCAL) */
+    dict *pubsubshard_channels;  /* shard level channels a client is interested in (SSUBSCRIBE) */
     sds peerid;             /* Cached peer ID. */
     sds sockname;           /* Cached connection target address. */
     listNode *client_list_node; /* list node in client list */
@@ -1150,7 +1146,7 @@ struct sharedObjectsStruct {
     *time, *pxat, *absttl, *retrycount, *force, *justid, 
     *lastid, *ping, *setid, *keepttl, *load, *createconsumer,
     *getack, *special_asterick, *special_equals, *default_username, *redacted,
-    *subscribelocalbulk,*unsubscribelocalbulk,
+    *ssubscribebulk,*sunsubscribebulk,
     *select[PROTO_SHARED_SELECT_CMDS],
     *integers[OBJ_SHARED_INTEGERS],
     *mbulkhdr[OBJ_SHARED_BULKHDR_LEN], /* "*<value>\r\n" */
@@ -1713,7 +1709,7 @@ struct redisServer {
     dict *pubsub_patterns;  /* A dict of pubsub_patterns */
     int notify_keyspace_events; /* Events to propagate via Pub/Sub. This is an
                                    xor of NOTIFY_... flags. */
-    dict *pubsublocal_channels;  /* Map channels to list of subscribed clients */
+    dict *pubsubshard_channels;  /* Map channels to list of subscribed clients */
     /* Cluster */
     int cluster_enabled;      /* Is cluster enabled? */
     int cluster_port;         /* Set the cluster port for a node. */
@@ -1784,7 +1780,7 @@ struct redisServer {
                                 * failover then any replica can be used. */
     int target_replica_port; /* Failover target port */
     int failover_state; /* Failover state */
-    int cluster_allow_pubsublocal_when_down; /* Is pubsublocal allowed when the cluster
+    int cluster_allow_pubsubshard_when_down; /* Is pubsubshard allowed when the cluster
                                                 is down, doesn't affect pubsub global. */
 };
 
@@ -2603,14 +2599,14 @@ robj *hashTypeDup(robj *o);
 
 /* Pub / Sub */
 int pubsubUnsubscribeAllChannels(client *c, int notify);
-int pubsubUnsubscribeLocalAllChannels(client *c, int notify);
-void pubsubUnsubscribeLocalChannels(robj **channels, unsigned int count);
+int pubsubUnsubscribeShardAllChannels(client *c, int notify);
+void pubsubUnsubscribeShardChannels(robj **channels, unsigned int count);
 int pubsubUnsubscribeAllPatterns(client *c, int notify);
 int pubsubPublishMessage(robj *channel, robj *message);
-int pubsubPublishMessageLocal(robj *channel, robj *message);
+int pubsubPublishMessageShard(robj *channel, robj *message);
 void addReplyPubsubMessage(client *c, robj *channel, robj *msg);
 int serverPubsubSubscriptionCount();
-int serverPubsubLocalSubscriptionCount();
+int serverPubsubShardSubscriptionCount();
 
 /* Keyspace events notification */
 void notifyKeyspaceEvent(int type, char *event, robj *key, int dbid);
@@ -2707,9 +2703,9 @@ int lmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult 
 int blmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int zmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int bzmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
-int publishlocalGetChannels(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
-int subscribelocalGetChannels(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
-int unsubscribelocalGetChannels(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
+int spublishGetChannels(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
+int ssubscribeGetChannels(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
+int sunsubscribGetChannels(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 
 unsigned short crc16(const char *buf, int len);
 
@@ -2976,9 +2972,9 @@ void psubscribeCommand(client *c);
 void punsubscribeCommand(client *c);
 void publishCommand(client *c);
 void pubsubCommand(client *c);
-void publishLocalCommand(client *c);
-void subscribeLocalCommand(client *c);
-void unsubscribeLocalCommand(client *c);
+void spublishCommand(client *c);
+void ssubscribeCommand(client *c);
+void sunsubscribeCommand(client *c);
 void watchCommand(client *c);
 void unwatchCommand(client *c);
 void clusterCommand(client *c);

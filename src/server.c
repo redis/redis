@@ -559,10 +559,10 @@ struct redisCommand pubsubSubcommands[] = {
     {"numsub",pubsubCommand,-2,
      "pub-sub ok-loading ok-stale"},
 
-    {"localchannels",pubsubCommand,-2,
+    {"shardchannels",pubsubCommand,-2,
      "pub-sub ok-loading ok-stale"},
 
-    {"localnumsub",pubsubCommand,-2,
+    {"shardnumsub",pubsubCommand,-2,
      "pub-sub ok-loading ok-stale"},
 
     {"help",pubsubCommand,2,
@@ -2084,26 +2084,26 @@ struct redisCommand redisCommandTable[] = {
        KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},
      functionGetKeys},
 
-    {"publishlocal",publishLocalCommand,3,
+    {"spublish", spublishCommand, 3,
      "pub-sub ok-loading ok-stale fast may-replicate",
      {{"pubsub",
        KSPEC_BS_INDEX,.bs.index={1},
        KSPEC_FK_RANGE,.fk.range={0,1,0}}},
-     publishlocalGetChannels},
+     spublishGetChannels},
 
-    {"subscribelocal",subscribeLocalCommand,-2,
+    {"ssubscribe", ssubscribeCommand, -2,
      "pub-sub no-script ok-loading ok-stale",
      {{"pubsub",
       KSPEC_BS_INDEX,.bs.index={1},
       KSPEC_FK_RANGE,.fk.range={-1,1,0}}},
-    subscribelocalGetChannels},
+    ssubscribeGetChannels},
 
-    {"unsubscribelocal",unsubscribeLocalCommand,-1,
+    {"sunsubscribe", sunsubscribeCommand, -1,
      "pub-sub no-script ok-loading ok-stale",
      {{"pubsub",
         KSPEC_BS_INDEX,.bs.index={1},
         KSPEC_FK_RANGE,.fk.range={-1,1,0}}},
-     unsubscribelocalGetChannels},
+    sunsubscribGetChannels},
 };
 
 /*============================ Utility functions ============================ */
@@ -3648,8 +3648,8 @@ void createSharedObjects(void) {
     shared.pmessagebulk = createStringObject("$8\r\npmessage\r\n",14);
     shared.subscribebulk = createStringObject("$9\r\nsubscribe\r\n",15);
     shared.unsubscribebulk = createStringObject("$11\r\nunsubscribe\r\n",18);
-    shared.subscribelocalbulk = createStringObject("$14\r\nsubscribelocal\r\n",21);
-    shared.unsubscribelocalbulk = createStringObject("$16\r\nunsubscribelocal\r\n",23);
+    shared.ssubscribebulk = createStringObject("$14\r\nssubscribe\r\n", 17);
+    shared.sunsubscribebulk = createStringObject("$16\r\nsunsubscribe\r\n", 19);
     shared.psubscribebulk = createStringObject("$10\r\npsubscribe\r\n",17);
     shared.punsubscribebulk = createStringObject("$12\r\npunsubscribe\r\n",19);
 
@@ -4341,7 +4341,7 @@ void initServer(void) {
     evictionPoolAlloc(); /* Initialize the LRU keys pool. */
     server.pubsub_channels = dictCreate(&keylistDictType);
     server.pubsub_patterns = dictCreate(&keylistDictType);
-    server.pubsublocal_channels = dictCreate(&keylistDictType);
+    server.pubsubshard_channels = dictCreate(&keylistDictType);
     server.cronloops = 0;
     server.in_script = 0;
     server.in_exec = 0;
@@ -5325,9 +5325,9 @@ int processCommand(client *c) {
                                  (c->cmd->proc == execCommand && (c->mstate.cmd_inv_flags & CMD_LOADING));
     int is_may_replicate_command = (c->cmd->flags & (CMD_WRITE | CMD_MAY_REPLICATE)) ||
                                    (c->cmd->proc == execCommand && (c->mstate.cmd_flags & (CMD_WRITE | CMD_MAY_REPLICATE)));
-    int is_pubsublocal_command = c->cmd->proc == subscribeLocalCommand ||
-                                  c->cmd->proc == unsubscribeLocalCommand ||
-                                  c->cmd->proc == publishLocalCommand;
+    int is_pubsubshard_command = c->cmd->proc == ssubscribeCommand ||
+            c->cmd->proc == sunsubscribeCommand ||
+            c->cmd->proc == spublishCommand;
 
 
     if (authRequired(c)) {
@@ -5376,8 +5376,8 @@ int processCommand(client *c) {
         !(c->flags & CLIENT_MASTER) &&
         !(c->flags & CLIENT_SCRIPT &&
           server.script_caller->flags & CLIENT_MASTER) &&
-        (is_pubsublocal_command ||
-        !(!c->cmd->movablekeys && c->cmd->key_specs_num == 0 &&
+        (is_pubsubshard_command ||
+         !(!c->cmd->movablekeys && c->cmd->key_specs_num == 0 &&
           c->cmd->proc != execCommand)))
     {
         int hashslot;
@@ -5498,16 +5498,16 @@ int processCommand(client *c) {
     if ((c->flags & CLIENT_PUBSUB && c->resp == 2) &&
         c->cmd->proc != pingCommand &&
         c->cmd->proc != subscribeCommand &&
-        c->cmd->proc != subscribeLocalCommand &&
+            c->cmd->proc != ssubscribeCommand &&
         c->cmd->proc != unsubscribeCommand &&
-        c->cmd->proc != unsubscribeLocalCommand &&
+            c->cmd->proc != sunsubscribeCommand &&
         c->cmd->proc != psubscribeCommand &&
         c->cmd->proc != punsubscribeCommand &&
         c->cmd->proc != quitCommand &&
         c->cmd->proc != resetCommand) {
         rejectCommandFormat(c,
-            "Can't execute '%s': only (P)SUBSCRIBE(LOCAL) / "
-            "(P)UNSUBSCRIBE(LOCAL) / PING / QUIT / RESET are allowed in this context",
+            "Can't execute '%s': only (P|S)SUBSCRIBE / "
+            "(P|S)UNSUBSCRIBE / PING / QUIT / RESET are allowed in this context",
             c->cmd->name);
         return C_OK;
     }

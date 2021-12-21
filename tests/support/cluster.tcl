@@ -33,8 +33,8 @@ set ::redis_cluster::plain_commands {
     hget hmset hmget hincrby hincrbyfloat hdel hlen hkeys hvals
     hgetall hexists hscan incrby decrby incrbyfloat getset move
     expire expireat pexpire pexpireat type ttl pttl persist restore
-    dump bitcount bitpos pfadd pfcount cluster subscribelocal publishlocal
-    unsubscribelocal
+    dump bitcount bitpos pfadd pfcount cluster ssubscribe spublish
+    sunsubscribe
 }
 
 # Create a cluster client. The nodes are given as a list of host:port. The TLS
@@ -268,7 +268,7 @@ proc ::redis_cluster::get_keys_from_command {cmd argv} {
         mget {return $argv}
         eval {return [lrange $argv 2 1+[lindex $argv 1]]}
         evalsha {return [lrange $argv 2 1+[lindex $argv 1]]}
-        publishlocal {return [list [lindex $argv 1]]}
+        spublish {return [list [lindex $argv 1]]}
     }
 
     # All the remaining commands are not handled.

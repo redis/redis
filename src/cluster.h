@@ -96,7 +96,7 @@ typedef struct clusterLink {
 #define CLUSTERMSG_TYPE_MFSTART 8       /* Pause clients for manual failover */
 #define CLUSTERMSG_TYPE_MODULE 9        /* Module cluster API message. */
 #define CLUSTERMSG_TYPE_COUNT 10        /* Total number of message types. */
-#define CLUSTERMSG_TYPE_PUBLISHLOCAL 11 /* Pub/Sub Publish local propagation */
+#define CLUSTERMSG_TYPE_PUBLISHSHARD 11 /* Pub/Sub Publish shard propagation */
 
 /* Flags that a module can set in order to prevent certain Redis Cluster
  * features to be enabled. Useful when implementing a different distributed
@@ -318,7 +318,7 @@ int verifyClusterConfigWithData(void);
 unsigned long getClusterConnectionsCount(void);
 int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uint8_t type, unsigned char *payload, uint32_t len);
 void clusterPropagatePublish(robj *channel, robj *message);
-void clusterPropagatePublishLocal(robj *channel, robj *message);
+void clusterPropagatePublishShard(robj *channel, robj *message);
 unsigned int keyHashSlot(char *key, int keylen);
 void slotToKeyAddEntry(dictEntry *entry, redisDb *db);
 void slotToKeyDelEntry(dictEntry *entry, redisDb *db);

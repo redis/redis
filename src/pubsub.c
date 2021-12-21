@@ -31,9 +31,9 @@
 #include "cluster.h"
 
 /* Structure to hold the pubsub related metadata. Currently used
- * for pubsub and pubsublocal feature. */
+ * for pubsub and pubsubshard feature. */
 typedef struct pubsubtype {
-    int local;
+    int shard;
     dict *(*clientPubSubChannels)(client*);
     int (*subscriptionCount)(client*);
     dict **serverPubSubChannels;
@@ -42,14 +42,14 @@ typedef struct pubsubtype {
 }pubsubtype;
 
 /*
- * Get client's local Pub/Sub channels subscription count.
+ * Get client's global Pub/Sub channels subscription count.
  */
 int clientSubscriptionsCount(client *c);
 
 /*
- * Get client's global Pub/Sub channels subscription count.
+ * Get client's shard level Pub/Sub channels subscription count.
  */
-int clientLocalSubscriptionsCount(client *c);
+int clientShardSubscriptionsCount(client *c);
 
 /*
  * Get client's global Pub/Sub channels dict.
@@ -57,9 +57,9 @@ int clientLocalSubscriptionsCount(client *c);
 dict* getClientPubSubChannels(client *c);
 
 /*
- * Get client's local Pub/Sub channels dict.
+ * Get client's shard level Pub/Sub channels dict.
  */
-dict* getClientPubSubLocalChannels(client *c);
+dict* getClientPubSubShardChannels(client *c);
 
 /*
  * Get list of channels client is subscribed to.
@@ -72,7 +72,7 @@ void channelList(client *c, sds pat, dict* pubsub_channels);
  * Pub/Sub type for global channels.
  */
 pubsubtype pubSubType = {
-    .local = 0,
+    .shard = 0,
     .clientPubSubChannels = getClientPubSubChannels,
     .subscriptionCount = clientSubscriptionsCount,
     .serverPubSubChannels = &server.pubsub_channels,
@@ -81,15 +81,15 @@ pubsubtype pubSubType = {
 };
 
 /*
- * Pub/Sub type for local channels bounded to a slot.
+ * Pub/Sub type for shard level channels bounded to a slot.
  */
-pubsubtype pubSubLocalType = {
-    .local = 1,
-    .clientPubSubChannels = getClientPubSubLocalChannels,
-    .subscriptionCount = clientLocalSubscriptionsCount,
-    .serverPubSubChannels = &server.pubsublocal_channels,
-    .subscribeMsg = &shared.subscribelocalbulk,
-    .unsubscribeMsg = &shared.unsubscribelocalbulk
+pubsubtype pubSubShardType = {
+    .shard = 1,
+    .clientPubSubChannels = getClientPubSubShardChannels,
+    .subscriptionCount = clientShardSubscriptionsCount,
+    .serverPubSubChannels = &server.pubsubshard_channels,
+    .subscribeMsg = &shared.ssubscribebulk,
+    .unsubscribeMsg = &shared.sunsubscribebulk
 };
 
 /*-----------------------------------------------------------------------------
@@ -190,9 +190,9 @@ int serverPubsubSubscriptionCount() {
     return dictSize(server.pubsub_channels) + dictSize(server.pubsub_patterns);
 }
 
-/* Return the number of pubsub local channels is handled. */
-int serverPubsubLocalSubscriptionCount() {
-    return dictSize(server.pubsublocal_channels);
+/* Return the number of pubsub shard level channels is handled. */
+int serverPubsubShardSubscriptionCount() {
+    return dictSize(server.pubsubshard_channels);
 }
 
 
@@ -201,23 +201,23 @@ int clientSubscriptionsCount(client *c) {
     return dictSize(c->pubsub_channels) + listLength(c->pubsub_patterns);
 }
 
-/* Return the number of local channels a client is subscribed to. */
-int clientLocalSubscriptionsCount(client *c) {
-    return dictSize(c->pubsublocal_channels);
+/* Return the number of shard level channels a client is subscribed to. */
+int clientShardSubscriptionsCount(client *c) {
+    return dictSize(c->pubsubshard_channels);
 }
 
 dict* getClientPubSubChannels(client *c) {
     return c->pubsub_channels;
 }
 
-dict* getClientPubSubLocalChannels(client *c) {
-    return c->pubsublocal_channels;
+dict* getClientPubSubShardChannels(client *c) {
+    return c->pubsubshard_channels;
 }
 
-/* Return the number of pubsub + pubsub local channels
+/* Return the number of pubsub + pubsub shard level channels
  * a client is subscribed to. */
 int clientTotalPubSubSubscriptionCount(client *c) {
-    return clientSubscriptionsCount(c) + clientLocalSubscriptionsCount(c);
+    return clientSubscriptionsCount(c) + clientShardSubscriptionsCount(c);
 }
 
 /* Subscribe a client to a channel. Returns 1 if the operation succeeded, or
@@ -274,7 +274,7 @@ int pubsubUnsubscribeChannel(client *c, robj *channel, int notify, pubsubtype ty
             dictDelete(*type.serverPubSubChannels, channel);
             /* As this channel isn't subscribed by anyone, it's safe
              * to remove the channel from the slot. */
-            if (server.cluster_enabled & type.local) {
+            if (server.cluster_enabled & type.shard) {
                 slotToChannelDel(channel->ptr);
             }
         }
@@ -287,9 +287,9 @@ int pubsubUnsubscribeChannel(client *c, robj *channel, int notify, pubsubtype ty
     return retval;
 }
 
-void pubsubLocalUnsubscribeAllClients(robj *channel) {
+void pubsubShardUnsubscribeAllClients(robj *channel) {
     int retval;
-    dictEntry *de = dictFind(server.pubsublocal_channels,channel);
+    dictEntry *de = dictFind(server.pubsubshard_channels, channel);
     serverAssertWithInfo(NULL,channel,de != NULL);
     list *clients = dictGetVal(de);
     if (listLength(clients) > 0) {
@@ -299,9 +299,9 @@ void pubsubLocalUnsubscribeAllClients(robj *channel) {
         listRewind(clients, &li);
         while ((ln = listNext(&li)) != NULL) {
             client *c = listNodeValue(ln);
-            retval = dictDelete(c->pubsublocal_channels,channel);
+            retval = dictDelete(c->pubsubshard_channels, channel);
             serverAssertWithInfo(c,channel,retval == DICT_OK);
-            addReplyPubsubUnsubscribed(c,channel,pubSubLocalType);
+            addReplyPubsubUnsubscribed(c, channel, pubSubShardType);
             /* If the client has no other pubsub subscription,
              * move out of pubsub mode. */
             if (clientTotalPubSubSubscriptionCount(c) == 0) {
@@ -309,8 +309,8 @@ void pubsubLocalUnsubscribeAllClients(robj *channel) {
             }
         }
     }
-    /* Delete the channel from server pubsublocal channels hash table. */
-    retval = dictDelete(server.pubsublocal_channels,channel);
+    /* Delete the channel from server pubsubshard channels hash table. */
+    retval = dictDelete(server.pubsubshard_channels, channel);
     /* Delete the channel from slots_to_channel mapping. */
     slotToChannelDel(channel->ptr);
     serverAssertWithInfo(NULL,channel,retval == DICT_OK);
@@ -406,21 +406,21 @@ int pubsubUnsubscribeAllChannels(client *c, int notify) {
 }
 
 /*
- * Unsubscribe a client from all local channels.
+ * Unsubscribe a client from all shard subscribed channels.
  */
-int pubsubUnsubscribeLocalAllChannels(client *c, int notify) {
-    int count = pubsubUnsubscribeAllChannelsInternal(c,notify,pubSubLocalType);
+int pubsubUnsubscribeShardAllChannels(client *c, int notify) {
+    int count = pubsubUnsubscribeAllChannelsInternal(c, notify, pubSubShardType);
     return count;
 }
 
 /*
- * Unsubscribe a client from provided local channel(s).
+ * Unsubscribe a client from provided shard subscribed channel(s).
  */
-void pubsubUnsubscribeLocalChannels(robj **channels, unsigned int count) {
+void pubsubUnsubscribeShardChannels(robj **channels, unsigned int count) {
     for (unsigned int j = 0; j < count; j++) {
         /* Remove the channel from server and from the clients
          * subscribed to it as well as notify them. */
-        pubsubLocalUnsubscribeAllClients(channels[j]);
+        pubsubShardUnsubscribeAllClients(channels[j]);
     }
 }
 
@@ -467,8 +467,8 @@ int pubsubPublishMessageInternal(robj *channel, robj *message, pubsubtype type) 
         }
     }
 
-    if (type.local) {
-        /* Local pubsub ignores patterns. */
+    if (type.shard) {
+        /* Shard pubsub ignores patterns. */
         return receivers;
     }
 
@@ -503,9 +503,9 @@ int pubsubPublishMessage(robj *channel, robj *message) {
     return pubsubPublishMessageInternal(channel,message,pubSubType);
 }
 
-/* Publish a local message to all the subscribers. */
-int pubsubPublishMessageLocal(robj *channel, robj *message) {
-    return pubsubPublishMessageInternal(channel,message,pubSubLocalType);
+/* Publish a shard message to all the subscribers. */
+int pubsubPublishMessageShard(robj *channel, robj *message) {
+    return pubsubPublishMessageInternal(channel, message, pubSubShardType);
 }
 
 
@@ -604,10 +604,10 @@ void pubsubCommand(client *c) {
 "NUMSUB [<channel> ...]",
 "    Return the number of subscribers for the specified channels, excluding",
 "    pattern subscriptions(default: no channels)."
-"LOCALCHANNELS [<pattern>]",
-"    Return the currently active local channels matching a <pattern> (default: '*').",
-"LOCAL NUMSUB [<channel> ...]",
-"    Return the number of subscribers for the specified local channel(s)",
+"SHARDCHANNELS [<pattern>]",
+"    Return the currently active shard level channels matching a <pattern> (default: '*').",
+"SHARDNUMSUB [<channel> ...]",
+"    Return the number of subscribers for the specified shard level channel(s)",
 NULL
         };
         addReplyHelp(c, help);
@@ -631,19 +631,19 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"numpat") && c->argc == 2) {
         /* PUBSUB NUMPAT */
         addReplyLongLong(c,dictSize(server.pubsub_patterns));
-    } else if (!strcasecmp(c->argv[1]->ptr,"localchannels") &&
+    } else if (!strcasecmp(c->argv[1]->ptr,"shardchannels") &&
         (c->argc == 2 || c->argc == 3)) 
     {
-        /* PUBSUB LOCALCHANNELS */
+        /* PUBSUB SHARDCHANNELS */
         sds pat = (c->argc == 2) ? NULL : c->argv[2]->ptr;
-        channelList(c,pat,server.pubsublocal_channels);
-    } else if (!strcasecmp(c->argv[1]->ptr,"localnumsub") && c->argc >= 2) {
-        /* PUBSUB LOCALNUMSUB [Channel_1 ... Channel_N] */
+        channelList(c,pat,server.pubsubshard_channels);
+    } else if (!strcasecmp(c->argv[1]->ptr,"shardnumsub") && c->argc >= 2) {
+        /* PUBSUB SHARDNUMSUB [Channel_1 ... Channel_N] */
         int j;
 
         addReplyArrayLen(c, (c->argc-2)*2);
         for (j = 2; j < c->argc; j++) {
-            list *l = dictFetchValue(server.pubsublocal_channels,c->argv[j]);
+            list *l = dictFetchValue(server.pubsubshard_channels, c->argv[j]);
 
             addReplyBulk(c,c->argv[j]);
             addReplyLongLong(c,l ? listLength(l) : 0);
@@ -675,23 +675,23 @@ void channelList(client *c, sds pat, dict *pubsub_channels) {
     setDeferredArrayLen(c,replylen,mblen);
 }
 
-/* PUBLISHLOCAL <channel> <message> */
-void publishLocalCommand(client *c) {
-    int receivers = pubsubPublishMessageInternal(c->argv[1],c->argv[2],pubSubLocalType);
+/* SPUBLISH <channel> <message> */
+void spublishCommand(client *c) {
+    int receivers = pubsubPublishMessageInternal(c->argv[1], c->argv[2], pubSubShardType);
     if (server.cluster_enabled) {
-        clusterPropagatePublishLocal(c->argv[1],c->argv[2]);
+        clusterPropagatePublishShard(c->argv[1], c->argv[2]);
     } else {
         forceCommandPropagation(c,PROPAGATE_REPL);
     }
     addReplyLongLong(c,receivers);
 }
 
-/* SUBSCRIBELOCAL channel [channel ...] */
-void subscribeLocalCommand(client *c) {
+/* SSUBSCRIBE channel [channel ...] */
+void ssubscribeCommand(client *c) {
     if (c->flags & CLIENT_DENY_BLOCKING) {
         /* A client that has CLIENT_DENY_BLOCKING flag on
          * expect a reply per command and so can not execute subscribe. */
-        addReplyError(c, "SUBSCRIBELOCAL isn't allowed for a DENY BLOCKING client");
+        addReplyError(c, "SSUBSCRIBE isn't allowed for a DENY BLOCKING client");
         return;
     }
 
@@ -701,22 +701,22 @@ void subscribeLocalCommand(client *c) {
          * already exists the slotToChannel doesn't needs
          * to be incremented. */
         if (server.cluster_enabled &
-            (dictFind(*pubSubLocalType.serverPubSubChannels,c->argv[j]) == NULL)) {
+            (dictFind(*pubSubShardType.serverPubSubChannels, c->argv[j]) == NULL)) {
             slotToChannelAdd(c->argv[j]->ptr);
         }
-        pubsubSubscribeChannel(c,c->argv[j],pubSubLocalType);
+        pubsubSubscribeChannel(c, c->argv[j], pubSubShardType);
     }
     c->flags |= CLIENT_PUBSUB;
 }
 
 
-/* UNSUBSCRIBELOCAL [channel ...] */
-void unsubscribeLocalCommand(client *c) {
+/* SUNSUBSCRIBE [channel ...] */
+void sunsubscribeCommand(client *c) {
     if (c->argc == 1) {
-        pubsubUnsubscribeLocalAllChannels(c,1);
+        pubsubUnsubscribeShardAllChannels(c, 1);
     } else {
         for (int j = 1; j < c->argc; j++) {
-            pubsubUnsubscribeChannel(c,c->argv[j],1,pubSubLocalType);
+            pubsubUnsubscribeChannel(c, c->argv[j], 1, pubSubShardType);
         }
     }
     if (clientTotalPubSubSubscriptionCount(c) == 0) c->flags &= ~CLIENT_PUBSUB;

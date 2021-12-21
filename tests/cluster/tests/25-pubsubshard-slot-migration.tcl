@@ -10,7 +10,7 @@ test "Cluster is up" {
 
 set cluster [redis_cluster 127.0.0.1:[get_instance_attrib redis 0 port]]
 
-test "Migrate a slot, verify client receives unsubscribelocal on primary serving the slot." {
+test "Migrate a slot, verify client receives sunsubscribe on primary serving the slot." {
 
     # Setup the to and from node
     set channelname mychannel
@@ -21,20 +21,20 @@ test "Migrate a slot, verify client receives unsubscribelocal on primary serving
     set subscribeclient [redis_deferring_client $nodefrom(host) $nodefrom(port)]
 
     $subscribeclient deferred 1
-    $subscribeclient subscribelocal $channelname
+    $subscribeclient ssubscribe $channelname
     $subscribeclient read
 
     assert_equal {OK} [$nodefrom(link) cluster setslot $slot migrating $nodeto(id)]
     assert_equal {OK} [$nodeto(link) cluster setslot $slot importing $nodefrom(id)]
 
     # Verify subscribe is still valid, able to receive messages.
-    $nodefrom(link) publishlocal $channelname hello
+    $nodefrom(link) spublish $channelname hello
     assert_equal {message mychannel hello} [$subscribeclient read]
 
     assert_equal {OK} [$nodeto(link) cluster setslot $slot node $nodeto(id)]
    
     set msg [$subscribeclient read]
-    assert {"unsubscribelocal" eq [lindex $msg 0]}
+    assert {"sunsubscribe" eq [lindex $msg 0]}
     assert {$channelname eq [lindex $msg 1]}
     assert {"0" eq [lindex $msg 2]}
 
@@ -43,7 +43,7 @@ test "Migrate a slot, verify client receives unsubscribelocal on primary serving
     $subscribeclient close
 }
 
-test "Client subscribes to multiple channels, migrate a slot, verify client receives unsubscribelocal on primary serving the slot." {
+test "Client subscribes to multiple channels, migrate a slot, verify client receives sunsubscribe on primary serving the slot." {
 
     # Setup the to and from node
     set channelname ch3
@@ -55,30 +55,30 @@ test "Client subscribes to multiple channels, migrate a slot, verify client rece
     set subscribeclient [redis_deferring_client $nodefrom(host) $nodefrom(port)]
 
     $subscribeclient deferred 1
-    $subscribeclient subscribelocal $channelname
+    $subscribeclient ssubscribe $channelname
     $subscribeclient read
 
-    $subscribeclient subscribelocal $anotherchannelname
+    $subscribeclient ssubscribe $anotherchannelname
     $subscribeclient read
 
     assert_equal {OK} [$nodefrom(link) cluster setslot $slot migrating $nodeto(id)]
     assert_equal {OK} [$nodeto(link) cluster setslot $slot importing $nodefrom(id)]
 
     # Verify subscribe is still valid, able to receive messages.
-    $nodefrom(link) publishlocal $channelname hello
+    $nodefrom(link) spublish $channelname hello
     assert_equal {message ch3 hello} [$subscribeclient read]
 
     assert_equal {OK} [$nodeto(link) cluster setslot $slot node $nodeto(id)]
 
-    # Verify the client receives unsubscribelocal message for the channel(slot) which got migrated.
+    # Verify the client receives sunsubscribe message for the channel(slot) which got migrated.
     set msg [$subscribeclient read]
-    assert {"unsubscribelocal" eq [lindex $msg 0]}
+    assert {"sunsubscribe" eq [lindex $msg 0]}
     assert {$channelname eq [lindex $msg 1]}
     assert {"1" eq [lindex $msg 2]}
 
     assert_equal {OK} [$nodeto(link) cluster setslot $slot node $nodeto(id)]
 
-    $nodefrom(link) publishlocal $anotherchannelname hello
+    $nodefrom(link) spublish $anotherchannelname hello
 
     # Verify the client is still connected and receives message from the other channel.
     set msg [$subscribeclient read]
@@ -89,7 +89,7 @@ test "Client subscribes to multiple channels, migrate a slot, verify client rece
     $subscribeclient close
 }
 
-test "Migrate a slot, verify client receives unsubscribelocal on replica serving the slot." {
+test "Migrate a slot, verify client receives sunsubscribe on replica serving the slot." {
 
     # Setup the to and from node
     set channelname mychannel1
@@ -106,28 +106,28 @@ test "Migrate a slot, verify client receives unsubscribelocal on replica serving
     set subscribeclient [redis_deferring_client $replicahost $replicaport]
 
     $subscribeclient deferred 1
-    $subscribeclient subscribelocal $channelname
+    $subscribeclient ssubscribe $channelname
     $subscribeclient read
 
     assert_equal {OK} [$nodefrom(link) cluster setslot $slot migrating $nodeto(id)]
     assert_equal {OK} [$nodeto(link) cluster setslot $slot importing $nodefrom(id)]
 
     # Verify subscribe is still valid, able to receive messages.
-    $nodefrom(link) publishlocal $channelname hello
+    $nodefrom(link) spublish $channelname hello
     assert_equal {message mychannel1 hello} [$subscribeclient read]
 
     assert_equal {OK} [$nodeto(link) cluster setslot $slot node $nodeto(id)]
     assert_equal {OK} [$nodeto(link) cluster setslot $slot node $nodeto(id)]
 
     set msg [$subscribeclient read]
-    assert {"unsubscribelocal" eq [lindex $msg 0]}
+    assert {"sunsubscribe" eq [lindex $msg 0]}
     assert {$channelname eq [lindex $msg 1]}
     assert {"0" eq [lindex $msg 2]}
     
     $subscribeclient close
 }
 
-test "Delete a slot, verify unsubscribelocal message" {
+test "Delete a slot, verify sunsubscribe message" {
     set channelname ch2
     set slot [$cluster cluster keyslot $channelname]
 
@@ -135,20 +135,20 @@ test "Delete a slot, verify unsubscribelocal message" {
 
     set subscribeclient [redis_deferring_client $primary(host) $primary(port)]
     $subscribeclient deferred 1
-    $subscribeclient subscribelocal $channelname
+    $subscribeclient ssubscribe $channelname
     $subscribeclient read
 
     $primary(link) cluster DELSLOTS $slot
 
     set msg [$subscribeclient read]
-    assert {"unsubscribelocal" eq [lindex $msg 0]}
+    assert {"sunsubscribe" eq [lindex $msg 0]}
     assert {$channelname eq [lindex $msg 1]}
     assert {"0" eq [lindex $msg 2]}
     
     $subscribeclient close
 }
 
-test "Reset cluster, verify unsubscribelocal message" {
+test "Reset cluster, verify sunsubscribe message" {
     set channelname ch4
     set slot [$cluster cluster keyslot $channelname]
 
@@ -156,13 +156,13 @@ test "Reset cluster, verify unsubscribelocal message" {
 
     set subscribeclient [redis_deferring_client $primary(host) $primary(port)]
     $subscribeclient deferred 1
-    $subscribeclient subscribelocal $channelname
+    $subscribeclient ssubscribe $channelname
     $subscribeclient read
 
     $cluster cluster reset HARD
 
     set msg [$subscribeclient read]
-    assert {"unsubscribelocal" eq [lindex $msg 0]}
+    assert {"sunsubscribe" eq [lindex $msg 0]}
     assert {$channelname eq [lindex $msg 1]}
     assert {"0" eq [lindex $msg 2]}
     

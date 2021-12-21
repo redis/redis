@@ -1684,7 +1684,7 @@ int getKeysFromCommand(struct redisCommand *cmd, robj **argv, int argc, getKeysR
 }
 
 /* The method is to extract the channels based on the values in the
- * pubsublocal related commands.
+ * pubsubshard related commands.
  * (first, last, step) - First channel occurrence, last channel occurrence,
  * steps between each key.
  */
@@ -1700,12 +1700,12 @@ int genericGetChannels(int first, int last, int step, getKeysResult *result) {
 
 /*
  * This method extracts channel(s) from
- * subscribelocal/unsubscribelocal/publishlocal commands.
+ * ssubscribe/sunsubscribe/spublish commands.
  */
 int getChannelsFromCommand(struct redisCommand *cmd, int argc, getKeysResult *result) {
-    if (cmd->proc == subscribeLocalCommand || cmd->proc == unsubscribeLocalCommand) {
+    if (cmd->proc == ssubscribeCommand || cmd->proc == sunsubscribeCommand) {
         return genericGetChannels(1,argc-1,1,result);
-    } else if (cmd->proc == publishLocalCommand) {
+    } else if (cmd->proc == spublishCommand) {
         return genericGetChannels(1,1,1,result);
     } else {
         return 0;
@@ -1798,20 +1798,20 @@ int bzmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult
     return genericGetKeys(0, 2, 3, 1, argv, argc, result);
 }
 
-int publishlocalGetChannels(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+int spublishGetChannels(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     UNUSED(cmd);
     UNUSED(argv);
     UNUSED(argc);
     return genericGetChannels(1,1,1,result);
 }
 
-int subscribelocalGetChannels(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+int ssubscribeGetChannels(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     UNUSED(cmd);
     UNUSED(argv);
     return genericGetChannels(1,argc-1,1,result);
 }
 
-int unsubscribelocalGetChannels(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+int sunsubscribGetChannels(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     UNUSED(cmd);
     UNUSED(argv);
     return genericGetChannels(1,argc-1,1,result);

@@ -87,8 +87,8 @@ start_server {tags {"acl external:skip"}} {
         r PUBLISH foo bar
     } {0}
 
-    test {By default users are able to publish to any local channel} {
-        r PUBLISHLOCAL foo bar
+    test {By default users are able to publish to any shard channel} {
+        r SPUBLISH foo bar
     } {0}
 
     test {By default users are able to subscribe to any channel} {
@@ -100,12 +100,12 @@ start_server {tags {"acl external:skip"}} {
         $rd close
     } {0}
 
-    test {By default users are able to subscribe to any local channel} {
+    test {By default users are able to subscribe to any shard channel} {
         set rd [redis_deferring_client]
         $rd AUTH psuser pspass
         $rd read
-        $rd SUBSCRIBELOCAL foo
-        assert_match {subscribelocal foo 1} [$rd read]
+        $rd SSUBSCRIBE foo
+        assert_match {ssubscribe foo 1} [$rd read]
         $rd close
     } {0}
 
@@ -126,11 +126,11 @@ start_server {tags {"acl external:skip"}} {
         set e
     } {*NOPERM*channel*}
 
-    test {It's possible to allow publishing to a subset of local channels} {
+    test {It's possible to allow publishing to a subset of shard channels} {
         r ACL setuser psuser resetchannels &foo:1 &bar:*
-        assert_equal {0} [r PUBLISHLOCAL foo:1 somemessage]
-        assert_equal {0} [r PUBLISHLOCAL bar:2 anothermessage]
-        catch {r PUBLISHLOCAL zap:3 nosuchmessage} e
+        assert_equal {0} [r SPUBLISH foo:1 somemessage]
+        assert_equal {0} [r SPUBLISH bar:2 anothermessage]
+        catch {r SPUBLISH zap:3 nosuchmessage} e
         set e
     } {*NOPERM*channel*}
 
@@ -187,15 +187,15 @@ start_server {tags {"acl external:skip"}} {
         set e
     } {*NOPERM*channel*}
 
-    test {It's possible to allow subscribing to a subset of local channels} {
+    test {It's possible to allow subscribing to a subset of shard channels} {
         set rd [redis_deferring_client]
         $rd AUTH psuser pspass
         $rd read
-        $rd SUBSCRIBELOCAL foo:1
-        assert_match {subscribelocal foo:1 1} [$rd read]
-        $rd SUBSCRIBELOCAL bar:2
-        assert_match {subscribelocal bar:2 2} [$rd read]
-        $rd SUBSCRIBELOCAL zap:3
+        $rd SSUBSCRIBE foo:1
+        assert_match {ssubscribe foo:1 1} [$rd read]
+        $rd SSUBSCRIBE bar:2
+        assert_match {SSUBSCRIBE bar:2 2} [$rd read]
+        $rd SSUBSCRIBE zap:3
         catch {$rd read} e
         set e
     } {*NOPERM*channel*}
@@ -234,7 +234,7 @@ start_server {tags {"acl external:skip"}} {
         $rd read
         $rd CLIENT SETNAME deathrow
         $rd read
-        $rd SUBSCRIBELOCAL foo:1
+        $rd SSUBSCRIBE foo:1
         $rd read
         r ACL setuser psuser resetchannels
         assert_no_match {*deathrow*} [r CLIENT LIST]
@@ -264,7 +264,7 @@ start_server {tags {"acl external:skip"}} {
         $rd read
         $rd SUBSCRIBE foo:1
         $rd read
-        $rd SUBSCRIBELOCAL orders
+        $rd SSUBSCRIBE orders
         $rd read
         $rd PSUBSCRIBE bar:*
         $rd read

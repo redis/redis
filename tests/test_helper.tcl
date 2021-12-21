@@ -61,7 +61,7 @@ set ::all_tests {
     integration/redis-benchmark
     integration/dismiss-mem
     unit/pubsub
-    unit/pubsublocal
+    unit/pubsubshard
     unit/slowlog
     unit/scripting
     unit/maxmemory
