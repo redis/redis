@@ -5163,7 +5163,7 @@ sds genRedisInfoString(const char *section) {
         while((de = dictNext(di)) != NULL) {
             char *tmpsafe;
             c = (struct redisCommand *) dictGetVal(de);
-            if (!c->calls || !c->latency_histogram)
+            if (!c->latency_histogram)
                 continue;
             info = fillPercentileDistributionLatencies(info,getSafeInfoString(c->name, strlen(c->name), &tmpsafe),c->latency_histogram);
             if (tmpsafe != NULL) zfree(tmpsafe);
@@ -5177,7 +5177,7 @@ sds genRedisInfoString(const char *section) {
         while((de = dictNext(di)) != NULL) {
             char *tmpsafe;
             c = (struct redisCommand *) dictGetVal(de);
-            if (!c->calls || !c->latency_histogram)
+            if (!c->latency_histogram)
                 continue;
             info = fillCumulativeDistributionLatencies(info, getSafeInfoString(c->name, strlen(c->name), &tmpsafe), c->latency_histogram);
             if (tmpsafe != NULL) zfree(tmpsafe);
