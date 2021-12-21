@@ -1737,8 +1737,8 @@ void readSyncBulkPayload(connection *conn) {
     int use_diskless_load = useDisklessLoad();
     redisDb *diskless_load_tempDb = NULL;
     functionsCtx* temp_functions_ctx = NULL;
-    int empty_db_flags = server.repl_slave_lazy_flush ? EMPTYDB_ASYNC :
-                                                        EMPTYDB_NO_FLAGS;
+    int empty_db_flags = server.repl_slave_lazy_flush ? EMPTYDATA_ASYNC :
+                                                        EMPTYDATA_NO_FLAGS;
     off_t left;
 
     /* Static vars used to hold the EOF mark, and the last bytes received
