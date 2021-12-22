@@ -540,8 +540,8 @@ foreach testType {Successful Aborted} {
             switch $testType {
                 "Aborted" {
                     # Set master with a slow rdb generation, so that we can easily intercept loading
-                    # 10ms per key, with 1000 keys is 10 seconds
-                    $master config set rdb-key-save-delay 10000
+                    # 30ms per key, with 1000 keys is 30 seconds
+                    $master config set rdb-key-save-delay 30000
 
                     test {Diskless load swapdb (async_loading): replica enter async_loading} {
                         # Wait for the replica to start reading the rdb
