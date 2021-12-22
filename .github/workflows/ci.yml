@@ -4,40 +4,6 @@ on: [push, pull_request]
 
 jobs:
 
-  test-sanitizer-undefined:
-    runs-on: ubuntu-latest
-    timeout-minutes: 14400
-    strategy:
-      matrix:
-        compiler: [ gcc, clang ]
-    env:
-      CC: ${{ matrix.compiler }}
-    steps:
-      - name: prep
-        run: |
-          echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
-          echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
-      - uses: actions/checkout@v2
-        with:
-          repository: ${{ env.GITHUB_REPOSITORY }}
-          ref: ${{ env.GITHUB_HEAD_REF }}
-      - name: make
-        run: make SANITIZER=undefined REDIS_CFLAGS='-DREDIS_TEST -Werror' LUA_DEBUG=yes # we (ab)use this flow to also check Lua C API violations
-      - name: testprep
-        run: |
-          sudo apt-get update
-          sudo apt-get install tcl8.6 tclx -y
-      - name: test
-        run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
-      - name: module api test
-        run: ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
-      - name: sentinel tests
-        run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
-      - name: cluster tests
-        run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
-      - name: unittest
-        run: ./src/redis-server test all --accurate
-
   test-ubuntu-latest:
     runs-on: ubuntu-latest
     steps:
