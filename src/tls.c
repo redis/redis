@@ -333,7 +333,7 @@ typedef struct tls_connection {
 } tls_connection;
 
 connection *connCreateTLS(void) {
-    tls_connection *conn = zcalloc(sizeof(tls_connection));
+    tls_connection *conn = redis_zcalloc(sizeof(tls_connection));
     conn->c.type = &CT_TLS;
     conn->c.fd = -1;
     conn->ssl = SSL_new(redis_tls_ctx);

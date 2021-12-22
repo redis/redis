@@ -2792,7 +2792,7 @@ static int clusterManagerGetAntiAffinityScore(clusterManagerNodeArray *ipnodes,
     int node_len = cluster_manager.nodes->len;
     clusterManagerNode **offending_p = NULL;
     if (offending != NULL) {
-        *offending = zcalloc(node_len * sizeof(clusterManagerNode*));
+        *offending = redis_zcalloc(node_len * sizeof(clusterManagerNode*));
         offending_p = *offending;
     }
     /* For each set of nodes in the same host, split by
@@ -2881,7 +2881,7 @@ static void clusterManagerOptimizeAntiAffinity(clusterManagerNodeArray *ipnodes,
         int rand_idx = rand() % offending_len;
         clusterManagerNode *first = offenders[rand_idx],
                            *second = NULL;
-        clusterManagerNode **other_replicas = zcalloc((node_len - 1) *
+        clusterManagerNode **other_replicas = redis_zcalloc((node_len - 1) *
                                                       sizeof(*other_replicas));
         int other_replicas_count = 0;
         listIter li;
@@ -3399,8 +3399,8 @@ static int clusterManagerCompareKeysValues(clusterManagerNode *n1,
 {
     size_t i, argc = keys_reply->elements + 2;
     static const char *hash_zero = "0000000000000000000000000000000000000000";
-    char **argv = zcalloc(argc * sizeof(char *));
-    size_t  *argv_len = zcalloc(argc * sizeof(size_t));
+    char **argv = redis_zcalloc(argc * sizeof(char *));
+    size_t  *argv_len = redis_zcalloc(argc * sizeof(size_t));
     argv[0] = "DEBUG";
     argv_len[0] = 5;
     argv[1] = "DIGEST-VALUE";
@@ -3468,8 +3468,8 @@ static redisReply *clusterManagerMigrateKeysInReply(clusterManagerNode *source,
     if (config.user) c += 1;
     size_t argc = c + reply->elements;
     size_t i, offset = 6; // Keys Offset
-    argv = zcalloc(argc * sizeof(char *));
-    argv_len = zcalloc(argc * sizeof(size_t));
+    argv = redis_zcalloc(argc * sizeof(char *));
+    argv_len = redis_zcalloc(argc * sizeof(size_t));
     char portstr[255];
     char timeoutstr[255];
     snprintf(portstr, 10, "%d", target->port);
@@ -5313,7 +5313,7 @@ static void clusterManagerLog(int level, const char* fmt, ...) {
 static void clusterManagerNodeArrayInit(clusterManagerNodeArray *array,
                                         int alloc_len)
 {
-    array->nodes = zcalloc(alloc_len * sizeof(clusterManagerNode*));
+    array->nodes = redis_zcalloc(alloc_len * sizeof(clusterManagerNode*));
     array->alloc = array->nodes;
     array->len = alloc_len;
     array->count = 0;
@@ -5452,9 +5452,9 @@ static int clusterManagerCommandCreate(int argc, char **argv) {
     clusterManagerLogInfo(">>> Performing hash slots allocation "
                           "on %d nodes...\n", node_len);
     int interleaved_len = 0, ip_count = 0;
-    clusterManagerNode **interleaved = zcalloc(node_len*sizeof(**interleaved));
-    char **ips = zcalloc(node_len * sizeof(char*));
-    clusterManagerNodeArray *ip_nodes = zcalloc(node_len * sizeof(*ip_nodes));
+    clusterManagerNode **interleaved = redis_zcalloc(node_len*sizeof(**interleaved));
+    char **ips = redis_zcalloc(node_len * sizeof(char*));
+    clusterManagerNodeArray *ip_nodes = redis_zcalloc(node_len * sizeof(*ip_nodes));
     listIter li;
     listNode *ln;
     listRewind(cluster_manager.nodes, &li);

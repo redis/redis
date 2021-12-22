@@ -132,7 +132,7 @@ void zfree_no_tcache(void *ptr) {
 }
 #endif
 
-void *zcalloc(size_t size) {
+void *redis_zcalloc(size_t size) {
     ASSERT_NO_SIZE_OVERFLOW(size);
     void *ptr = calloc(1, size+PREFIX_SIZE);
 

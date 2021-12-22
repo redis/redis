@@ -400,7 +400,7 @@ void *RM_Alloc(size_t bytes) {
  * and in general is taken into account as memory allocated by Redis.
  * You should avoid using calloc() directly. */
 void *RM_Calloc(size_t nmemb, size_t size) {
-    return zcalloc(nmemb*size);
+    return redis_zcalloc(nmemb*size);
 }
 
 /* Use like realloc() for memory obtained with RedisModule_Alloc(). */
@@ -3723,7 +3723,7 @@ moduleType *RM_CreateDataType(RedisModuleCtx *ctx, const char *name, int encver,
         } v2;
     } *tms = (struct typemethods*) typemethods_ptr;
 
-    moduleType *mt = zcalloc(sizeof(*mt));
+    moduleType *mt = redis_zcalloc(sizeof(*mt));
     mt->id = id;
     mt->module = ctx->module;
     mt->rdb_load = tms->rdb_load;

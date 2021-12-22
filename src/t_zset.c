@@ -2214,7 +2214,7 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int op) {
     }
 
     /* read keys to be used for input */
-    src = zcalloc(sizeof(zsetopsrc) * setnum);
+    src = redis_zcalloc(sizeof(zsetopsrc) * setnum);
     for (i = 0, j = 3; i < setnum; i++, j++) {
         robj *obj = lookupKeyWrite(c->db,c->argv[j]);
         if (obj != NULL) {

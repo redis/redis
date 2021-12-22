@@ -290,7 +290,7 @@ cleanup:
 static redisConfig *getRedisConfig(const char *ip, int port,
                                    const char *hostsocket)
 {
-    redisConfig *cfg = zcalloc(sizeof(*cfg));
+    redisConfig *cfg = redis_zcalloc(sizeof(*cfg));
     if (!cfg) return NULL;
     redisContext *c = NULL;
     redisReply *reply = NULL, *sub_reply = NULL;
@@ -1263,7 +1263,7 @@ static int fetchClusterSlotsConfiguration(client c) {
         sdsfree(name);
         clusterNode *node = dictGetVal(entry);
         if (node->updated_slots == NULL)
-            node->updated_slots = zcalloc(CLUSTER_SLOTS * sizeof(int));
+            node->updated_slots = redis_zcalloc(CLUSTER_SLOTS * sizeof(int));
         for (slot = from; slot <= to; slot++)
             node->updated_slots[node->updated_slots_count++] = slot;
     }

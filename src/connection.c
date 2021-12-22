@@ -75,7 +75,7 @@ ConnectionType CT_Socket;
  */
 
 connection *connCreateSocket() {
-    connection *conn = zcalloc(sizeof(connection));
+    connection *conn = redis_zcalloc(sizeof(connection));
     conn->type = &CT_Socket;
     conn->fd = -1;
 

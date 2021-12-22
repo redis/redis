@@ -953,7 +953,7 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     size_t mem_total = 0;
     size_t mem = 0;
     size_t zmalloc_used = zmalloc_used_memory();
-    struct redisMemOverhead *mh = zcalloc(sizeof(*mh));
+    struct redisMemOverhead *mh = redis_zcalloc(sizeof(*mh));
 
     mh->total_allocated = zmalloc_used;
     mh->startup_allocated = server.initial_memory_usage;

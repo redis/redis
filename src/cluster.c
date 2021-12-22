@@ -2551,7 +2551,7 @@ void clusterSendPing(clusterLink *link, int type) {
     /* Note: clusterBuildMessageHdr() expects the buffer to be always at least
      * sizeof(clusterMsg) or more. */
     if (totlen < (int)sizeof(clusterMsg)) totlen = sizeof(clusterMsg);
-    buf = zcalloc(totlen);
+    buf = redis_zcalloc(totlen);
     hdr = (clusterMsg*) buf;
 
     /* Populate the header. */

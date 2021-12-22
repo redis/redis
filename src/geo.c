@@ -413,7 +413,7 @@ void geoaddCommand(client *c) {
 
     int elements = (c->argc - 2) / 3;
     int argc = 2+elements*2; /* ZADD key score ele ... */
-    robj **argv = zcalloc(argc*sizeof(robj*));
+    robj **argv = redis_zcalloc(argc*sizeof(robj*));
     argv[0] = createRawStringObject("zadd",4);
     argv[1] = c->argv[1]; /* key */
     incrRefCount(argv[1]);
