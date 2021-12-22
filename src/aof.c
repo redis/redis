@@ -1509,7 +1509,7 @@ int loadAppendOnlyFiles(aofManifest *am) {
      * from an old redis version. We will use enter upgrade mode in three situations.
      *  
      * 1. If the 'server.aof_dirname' directory not exist
-     * 2. If the 'server.aof_dirname' directory exists but is empty
+     * 2. If the 'server.aof_dirname' directory exists but the manifest file is missing
      * 3. If the 'server.aof_dirname' directory exists and the manifest file it contains 
      *    has only one base AOF record, and the file name of this base AOF is 'server.aof_filename',
      *    and the 'server.aof_filename' file not exist in 'server.aof_dirname' directory
@@ -1518,9 +1518,10 @@ int loadAppendOnlyFiles(aofManifest *am) {
         if (!dirExists(server.aof_dirname) || 
             (am->base_aof_info == NULL && listLength(am->incr_aof_list) == 0) ||
             (am->base_aof_info != NULL && listLength(am->incr_aof_list) == 0 && 
-            !strcmp(am->base_aof_info->file_name, server.aof_filename) && !aofFileExist(server.aof_filename))) {
-                aofUpgradePrepare(am);
-        }  
+            !strcmp(am->base_aof_info->file_name, server.aof_filename) && !aofFileExist(server.aof_filename))) 
+        {
+            aofUpgradePrepare(am);
+        }
     } 
 
     if (am->base_aof_info == NULL && listLength(am->incr_aof_list) == 0) {
