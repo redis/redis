@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 '''
-Generate a commands.json file from the output of `redis-cli --jspn COMMAND`
+Generate a commands.json file from the output of `redis-cli --json COMMAND`
 '''
 import argparse
 import json
