@@ -1,13 +1,15 @@
-set ::aof_manifest_name "appendonly.aof.manifest"
-set ::aof_meta_temp_filename "temp_appendonly.aof.manifest"
-set ::default_aof_basename "appendonly.aof"
 set ::base_aof_sufix ".base"
 set ::incr_aof_sufix ".incr"
+set ::manifest_suffix "_manifest"
 set ::aof_format_suffix ".aof"
 set ::rdb_format_suffix ".rdb"
 
 proc get_full_path {dir filename} {
-    set _ [format "%s/appendonly.aof/%s" $dir $filename]
+    set _ [format "%s/%s" $dir $filename]
+}
+
+proc join_path {dir1 dir2} {
+    return [format "%s/%s" $dir1 $dir2]
 }
 
 proc get_redis_dir {} {
@@ -25,9 +27,8 @@ proc del_file {dir filename} {
     catch {exec rm -rf $file_path}
 }
 
-proc get_cur_base_aof_name {dir} {
-    set meta_path [get_full_path $dir $::aof_manifest_name]
-    set fp [open $meta_path r+]
+proc get_cur_base_aof_name {manifest_filepath} {
+    set fp [open $manifest_filepath r+]
     set lines {}
     while {1} {
         set line [gets $fp]
@@ -49,9 +50,8 @@ proc get_cur_base_aof_name {dir} {
     return ""
 }
 
-proc get_last_incr_aof_name {dir} {
-    set meta_path [get_full_path $dir $::aof_manifest_name]
-    set fp [open $meta_path r+]
+proc get_last_incr_aof_name {manifest_filepath} {
+    set fp [open $manifest_filepath r+]
     set lines {}
     while {1} {
         set line [gets $fp]
@@ -74,9 +74,8 @@ proc get_last_incr_aof_name {dir} {
     return ""
 }
 
-proc assert_aof_manifest_content {dir content} {
-    set meta_path [get_full_path $dir $::aof_manifest_name]
-    set fp [open $meta_path r+]
+proc assert_aof_manifest_content {manifest_path content} {
+    set fp [open $manifest_path r+]
     set lines {}
     while {1} {
         set line [gets $fp]
@@ -95,9 +94,8 @@ proc assert_aof_manifest_content {dir content} {
     }
 }
 
-proc clean_aof_persistence {dir basename} {
-    set path [format "%s/%s" $dir $basename]
-    catch {eval exec rm -rf [glob $path]}
+proc clean_aof_persistence {aof_dirpath} {
+    catch {eval exec rm -rf [glob $aof_dirpath]}
 }
 
 proc append_to_manifest {str} {

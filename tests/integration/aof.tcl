@@ -1,21 +1,23 @@
 source tests/support/aofmanifest.tcl
-set defaults { appendonly {yes} appendfilename {appendonly.aof} auto-aof-rewrite-percentage {0}}
+set defaults { appendonly {yes} appendfilename {appendonly.aof} appenddirname {appendonlydir} auto-aof-rewrite-percentage {0}}
 set server_path [tmpdir server.aof]
-set aof_path "$server_path/appendonly.aof/appendonly.aof_1.incr.aof"
-set aof_dir "$server_path/appendonly.aof"
-set aof_manifest_path "$server_path/appendonly.aof/appendonly.aof.manifest"
+set aof_dirname "appendonlydir"
+set aof_basename "appendonly.aof"
+set aof_dirpath "$server_path/$aof_dirname"
+set aof_filepath "$server_path/$aof_dirname/${aof_basename}_1.incr.aof"
+set aof_manifest_filepath "$server_path/$aof_dirname/$aof_basename$::manifest_suffix"
 
 tags {"aof external:skip"} {
     # Server can start when aof-load-truncated is set to yes and AOF
     # is truncated, with an incomplete MULTI block.
-    create_aof_dir $aof_dir
-    create_aof $aof_path {
+    create_aof_dir $aof_dirpath
+    create_aof $aof_filepath {
         append_to_aof [formatCommand set foo hello]
         append_to_aof [formatCommand multi]
         append_to_aof [formatCommand set bar world]
     }
 
-    create_aof_manifest $aof_manifest_path {
+    create_aof_manifest $aof_manifest_filepath {
         append_to_manifest "file appendonly.aof_1.incr.aof seq 1 type i\n"
     }
 
@@ -26,7 +28,7 @@ tags {"aof external:skip"} {
     }
 
     ## Should also start with truncated AOF without incomplete MULTI block.
-    create_aof $aof_path {
+    create_aof $aof_filepath {
         append_to_aof [formatCommand incr foo]
         append_to_aof [formatCommand incr foo]
         append_to_aof [formatCommand incr foo]
@@ -65,7 +67,7 @@ tags {"aof external:skip"} {
     }
 
     ## Test that the server exits when the AOF contains a format error
-    create_aof $aof_path {
+    create_aof $aof_filepath {
         append_to_aof [formatCommand set foo hello]
         append_to_aof "!!!"
         append_to_aof [formatCommand set foo hello]
@@ -90,7 +92,7 @@ tags {"aof external:skip"} {
     }
 
     ## Test the server doesn't start when the AOF contains an unfinished MULTI
-    create_aof $aof_path {
+    create_aof $aof_filepath {
         append_to_aof [formatCommand set foo hello]
         append_to_aof [formatCommand multi]
         append_to_aof [formatCommand set bar world]
@@ -115,7 +117,7 @@ tags {"aof external:skip"} {
     }
 
     ## Test that the server exits when the AOF contains a short read
-    create_aof $aof_path {
+    create_aof $aof_filepath {
         append_to_aof [formatCommand set foo hello]
         append_to_aof [string range [formatCommand set bar world] 0 end-1]
     }
@@ -141,25 +143,25 @@ tags {"aof external:skip"} {
     ## Test that redis-check-aof indeed sees this AOF is not valid
     test "Short read: Utility should confirm the AOF is not valid" {
         catch {
-            exec src/redis-check-aof $aof_path
+            exec src/redis-check-aof $aof_filepath
         } result
         assert_match "*not valid*" $result
     }
 
     test "Short read: Utility should show the abnormal line num in AOF" {
-        create_aof $aof_path {
+        create_aof $aof_filepath {
             append_to_aof [formatCommand set foo hello]
             append_to_aof "!!!"
         }
 
         catch {
-            exec src/redis-check-aof $aof_path
+            exec src/redis-check-aof $aof_filepath
         } result
         assert_match "*ok_up_to_line=8*" $result
     }
 
     test "Short read: Utility should be able to fix the AOF" {
-        set result [exec src/redis-check-aof --fix $aof_path << "y\n"]
+        set result [exec src/redis-check-aof --fix $aof_filepath << "y\n"]
         assert_match "*Successfully truncated AOF*" $result
     }
 
@@ -178,7 +180,7 @@ tags {"aof external:skip"} {
     }
 
     ## Test that SPOP (that modifies the client's argc/argv) is correctly free'd
-    create_aof $aof_path {
+    create_aof $aof_filepath {
         append_to_aof [formatCommand sadd set foo]
         append_to_aof [formatCommand sadd set bar]
         append_to_aof [formatCommand spop set]
@@ -197,7 +199,7 @@ tags {"aof external:skip"} {
     }
 
     ## Uses the alsoPropagate() API.
-    create_aof $aof_path {
+    create_aof $aof_filepath {
         append_to_aof [formatCommand sadd set foo]
         append_to_aof [formatCommand sadd set bar]
         append_to_aof [formatCommand sadd set gah]
@@ -217,7 +219,7 @@ tags {"aof external:skip"} {
     }
 
     ## Test that PEXPIREAT is loaded correctly
-    create_aof $aof_path {
+    create_aof $aof_filepath {
         append_to_aof [formatCommand rpush list foo]
         append_to_aof [formatCommand pexpireat list 1000]
         append_to_aof [formatCommand rpush list bar]
@@ -235,14 +237,14 @@ tags {"aof external:skip"} {
         }
     }
 
-    start_server {overrides {appendonly {yes} appendfilename {appendonly.aof}}} {
+    start_server {overrides {appendonly {yes} appendfilename {appendonly.aof} appenddirname {appendonlydir}}} {
         test {Redis should not try to convert DEL into EXPIREAT for EXPIRE -1} {
             r set x 10
             r expire x -1
         }
     }
 
-    start_server {overrides {appendonly {yes} appendfilename {appendonly.aof} appendfsync always}} {
+    start_server {overrides {appendonly {yes} appendfilename {appendonly.aof} appenddirname {appendonlydir} appendfsync always}} {
         test {AOF fsync always barrier issue} {
             set rd [redis_deferring_client]
             # Set a sleep when aof is flushed, so that we have a chance to look
@@ -261,8 +263,9 @@ tags {"aof external:skip"} {
                 r setrange x [expr {int(rand()*5000000)+10000000}] x
                 r debug aof-flush-sleep 500000
                 set dir [lindex [r config get dir] 1]
-                set last_incr_aof_name [get_last_incr_aof_name $dir]
-                set aof [file join $dir "appendonly.aof" $last_incr_aof_name]
+                set manifest_filepath [file join $dir "appendonlydir" "appendonly.aof_manifest"]
+                set last_incr_aof_name [get_last_incr_aof_name $manifest_filepath]
+                set aof [file join $dir "appendonlydir" $last_incr_aof_name]
                 set size1 [file size $aof]
                 $rd get x
                 after [expr {int(rand()*30)}]
@@ -275,11 +278,12 @@ tags {"aof external:skip"} {
         }
     }
 
-    start_server {overrides {appendonly {yes} appendfilename {appendonly.aof}}} {
+    start_server {overrides {appendonly {yes} appendfilename {appendonly.aof} appenddirname {appendonlydir}}} {
         test {GETEX should not append to AOF} {
             set dir [lindex [r config get dir] 1]
-            set lat_incr_aof_name [get_last_incr_aof_name $dir]
-            set aof [file join $dir "appendonly.aof" $lat_incr_aof_name]
+            set manifest_filepath [file join $dir "appendonlydir" "appendonly.aof_manifest"]
+            set lat_incr_aof_name [get_last_incr_aof_name $manifest_filepath]
+            set aof [file join $dir "appendonlydir" $lat_incr_aof_name]
             r set foo bar
             set before [file size $aof]
             r getex foo
@@ -289,7 +293,7 @@ tags {"aof external:skip"} {
     }
 
     ## Test that the server exits when the AOF contains a unknown command
-    create_aof $aof_path {
+    create_aof $aof_filepath {
         append_to_aof [formatCommand set foo hello]
         append_to_aof [formatCommand bla foo hello]
         append_to_aof [formatCommand set foo hello]
@@ -314,7 +318,7 @@ tags {"aof external:skip"} {
     }
 
     # Test that LMPOP/BLMPOP work fine with AOF.
-    create_aof $aof_path {
+    create_aof $aof_filepath {
         append_to_aof [formatCommand lpush mylist a b c]
         append_to_aof [formatCommand rpush mylist2 1 2 3]
         append_to_aof [formatCommand lpush mylist3 a b c d e]
@@ -361,7 +365,7 @@ tags {"aof external:skip"} {
     }
 
     # Test that ZMPOP/BZMPOP work fine with AOF.
-    create_aof $aof_path {
+    create_aof $aof_filepath {
         append_to_aof [formatCommand zadd myzset 1 one 2 two 3 three]
         append_to_aof [formatCommand zadd myzset2 4 four 5 five 6 six]
         append_to_aof [formatCommand zadd myzset3 1 one 2 two 3 three 4 four 5 five]
@@ -408,12 +412,13 @@ tags {"aof external:skip"} {
     }
 
     test {Generate timestamp annotations in AOF} {
-        start_server {overrides {appendonly {yes} appendfilename {appendonly.aof}}} {
+        start_server {overrides {appendonly {yes} appendfilename {appendonly.aof} appenddirname {appendonlydir}}} {
             r config set aof-timestamp-enabled yes
             r config set aof-use-rdb-preamble no
             set dir [lindex [r config get dir] 1]
-            set last_incr_aof_name [get_last_incr_aof_name $dir]
-            set aof [file join $dir "appendonly.aof" $last_incr_aof_name]
+            set manifest_filepath [file join $dir "appendonlydir" "appendonly.aof_manifest"]
+            set last_incr_aof_name [get_last_incr_aof_name $manifest_filepath]
+            set aof [file join $dir "appendonlydir" $last_incr_aof_name]
 
             r set foo bar
             assert_match "#TS:*" [exec head -n 1 $aof]
@@ -421,14 +426,14 @@ tags {"aof external:skip"} {
             r bgrewriteaof
             waitForBgrewriteaof r
 
-            set cur_base_aof_name [get_cur_base_aof_name $dir]
-            set aof [file join $dir "appendonly.aof" $cur_base_aof_name]
+            set cur_base_aof_name [get_cur_base_aof_name $manifest_filepath]
+            set aof [file join $dir "appendonlydir" $cur_base_aof_name]
             assert_match "#TS:*" [exec head -n 1 $aof]
         }
     }
 
     # redis could load AOF which has timestamp annotations inside
-    create_aof $aof_path {
+    create_aof $aof_filepath {
         append_to_aof "#TS:1628217470\r\n"
         append_to_aof [formatCommand set foo1 bar1]
         append_to_aof "#TS:1628217471\r\n"
@@ -450,7 +455,7 @@ tags {"aof external:skip"} {
 
     test {Truncate AOF to specific timestamp} {
         # truncate to timestamp 1628217473
-        exec src/redis-check-aof --truncate-to-timestamp 1628217473 $aof_path
+        exec src/redis-check-aof --truncate-to-timestamp 1628217473 $aof_filepath
         start_server_aof [list dir $server_path] {
             set c [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
             wait_done_loading $c
@@ -460,7 +465,7 @@ tags {"aof external:skip"} {
         }
 
         # truncate to timestamp 1628217471
-        exec src/redis-check-aof --truncate-to-timestamp 1628217471 $aof_path
+        exec src/redis-check-aof --truncate-to-timestamp 1628217471 $aof_filepath
         start_server_aof [list dir $server_path] {
             set c [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
             wait_done_loading $c
@@ -470,7 +475,7 @@ tags {"aof external:skip"} {
         }
 
         # truncate to timestamp 1628217470
-        exec src/redis-check-aof --truncate-to-timestamp 1628217470 $aof_path
+        exec src/redis-check-aof --truncate-to-timestamp 1628217470 $aof_filepath
         start_server_aof [list dir $server_path] {
             set c [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
             wait_done_loading $c
@@ -479,12 +484,12 @@ tags {"aof external:skip"} {
         }
 
         # truncate to timestamp 1628217469
-        catch {exec src/redis-check-aof --truncate-to-timestamp 1628217469 $aof_path} e
+        catch {exec src/redis-check-aof --truncate-to-timestamp 1628217469 $aof_filepath} e
         assert_match {*aborting*} $e
     }
 
     test {EVAL timeout with slow verbatim Lua script from AOF} {
-        create_aof $aof_path {
+        create_aof $aof_filepath {
             append_to_aof [formatCommand select 9]
             append_to_aof [formatCommand eval {redis.call('set',KEYS[1],'y'); for i=1,1500000 do redis.call('ping') end return 'ok'} 1 x]
         }
@@ -509,17 +514,17 @@ tags {"aof external:skip"} {
     }
 
     test {EVAL can process writes from AOF in read-only replicas} {
-        create_aof_dir $aof_dir
-        create_aof_manifest $aof_manifest_path {
+        create_aof_dir $aof_dirpath
+        create_aof_manifest $aof_manifest_filepath {
             append_to_manifest "file appendonly.aof_1.incr.aof seq 1 type i\n"
         }
-        create_aof $aof_path {
+        create_aof $aof_filepath {
             append_to_aof [formatCommand select 9]
             append_to_aof [formatCommand eval {redis.call("set",KEYS[1],"100")} 1 foo]
             append_to_aof [formatCommand eval {redis.call("incr",KEYS[1])} 1 foo]
             append_to_aof [formatCommand eval {redis.call("incr",KEYS[1])} 1 foo]
         }
-        start_server [list overrides [list dir $server_path appendonly yes replica-read-only yes replicaof "127.0.0.1 0"]] {
+        start_server [list overrides [list dir $server_path appendonly yes appendfilename appendonly.aof appenddirname appendonlydir replica-read-only yes replicaof "127.0.0.1 0"]] {
             assert_equal [r get foo] 102
         }
     }

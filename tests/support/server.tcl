@@ -32,12 +32,13 @@ proc clean_persistence config {
     set config [dict get $config "config"]
     set dir [dict get $config "dir"]
     set rdb [format "%s/%s" $dir "dump.rdb"]
-    if {[dict exists $config "appendfilename"]} {
-        set basename [dict get $config "appendfilename"]
+    if {[dict exists $config "appenddirname"]} {
+        set aofdir [dict get $config "appenddirname"]
     } else {
-        set basename "appendonly.aof"
+        set aofdir "appendonlydir"
     }
-    clean_aof_persistence $dir $basename
+    set aof_dirpath [format "%s/%s" $dir $aofdir]
+    clean_aof_persistence $aof_dirpath
     catch {exec rm -rf $rdb}
 }
 
