@@ -6,19 +6,19 @@ import argparse
 import json
 import sys
 
-def convert_flags_to_truthy_dict(flags):
+def convert_flags_to_boolean_dict(flags):
     ''' Return a dict with a key set to `True` per element in the flags list. '''
     return {f: True for f in flags} # TODO: remove after guy's PR
 
 def convert_argument(arg):
     ''' Transform an argument. '''
-    arg.update(convert_flags_to_truthy_dict(arg.pop('flags', [])))
+    arg.update(convert_flags_to_boolean_dict(arg.pop('flags', [])))
     arg['arguments'] = [convert_argument(x) for x in arg.pop('arguments',[])]
     return arg
 
 def convert_keyspec(spec):
     ''' Transform a key spec. '''
-    spec.update(convert_flags_to_truthy_dict(spec.pop('flags', [])))
+    spec.update(convert_flags_to_boolean_dict(spec.pop('flags', [])))
     return spec
 
 def convert_entry_to_objects_array(container, cmd):
@@ -48,7 +48,7 @@ def convert_entry_to_objects_array(container, cmd):
     meta['acl_categories'] = cmd[6]
     meta['key_specs'] = [convert_keyspec(x) for x in meta.pop('key_specs',[])]
     meta['arguments'] = [convert_argument(x) for x in meta.pop('arguments', [])]
-    meta['doc_flags'] = [convert_flags_to_truthy_dict(x) for x in meta.pop('doc_flags', [])]
+    meta['doc_flags'] = [convert_flags_to_boolean_dict(x) for x in meta.pop('doc_flags', [])]
     rep.extend([convert_entry_to_objects_array(name, x)[0] for x in meta.pop('subcommands', [])])
 
     FIELDS = [
