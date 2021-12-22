@@ -254,7 +254,7 @@ static struct config {
     clusterManagerCommand cluster_manager_command;
     int no_auth_warning;
     int resp2;
-    int resp3;
+    int resp3; /* value of 1: specified explicitly, value of 2: inplicit like --json option */
     int in_multi;
     int pre_multi_dbnum;
 } config;
@@ -727,7 +727,7 @@ static int cliSelect(void) {
 /* Select RESP3 mode if redis-cli was started with the -3 option.  */
 static int cliSwitchProto(void) {
     redisReply *reply;
-    if (config.resp3 == 0 || config.resp2 == 1) return REDIS_OK;
+    if (config.resp3 == 0 || config.resp2) return REDIS_OK;
 
     reply = redisCommand(context,"HELLO 3");
     if (reply == NULL) {
@@ -737,12 +737,11 @@ static int cliSwitchProto(void) {
 
     int result = REDIS_OK;
     if (reply->type == REDIS_REPLY_ERROR) {
-        if (config.output == OUTPUT_JSON) {
-            result = REDIS_OK;
-            fprintf(stderr,"HELLO 3 failed: %s, but keep executing with RESP2\n",reply->str);
-        } else {
+        fprintf(stderr,"HELLO 3 failed: %s\n",reply->str);
+        if (config.resp3 == 1) {
             result = REDIS_ERR;
-            fprintf(stderr,"HELLO 3 failed: %s\n",reply->str);
+        } else if (config.resp3 == 2) {
+            result = REDIS_OK;
         }
     }
     freeReplyObject(reply);
@@ -1603,7 +1602,10 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"--csv")) {
             config.output = OUTPUT_CSV;
         } else if (!strcmp(argv[i],"--json")) {
-            config.resp3 = 1;
+            /* Not overwrite explicit value by -3*/
+            if (config.resp3 == 0) {
+                config.resp3 = 2;
+            }
             config.output = OUTPUT_JSON;
         } else if (!strcmp(argv[i],"--latency")) {
             config.latency_mode = 1;
@@ -1829,7 +1831,7 @@ static int parseOptions(int argc, char **argv) {
         exit(1);
     }
 
-    if (config.output != OUTPUT_JSON && config.resp2 && config.resp3) {
+    if (config.resp2 && config.resp3 == 1) {
         fprintf(stderr,"Options -2 and -3 are mutually exclusive.\n");
         exit(1);
     }
