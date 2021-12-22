@@ -8,7 +8,6 @@
         "container": "CLUSTER",
         "function": "clusterCommand",
         "command_flags": [
-            "NO_ASYNC_LOADING",
             "ADMIN",
             "RANDOM",
             "STALE"
