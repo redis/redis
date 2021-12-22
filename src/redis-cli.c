@@ -727,7 +727,7 @@ static int cliSelect(void) {
 /* Select RESP3 mode if redis-cli was started with the -3 option.  */
 static int cliSwitchProto(void) {
     redisReply *reply;
-    if (config.resp3 == 0 || config.resp2) return REDIS_OK;
+    if (!config.resp3 || config.resp2) return REDIS_OK;
 
     reply = redisCommand(context,"HELLO 3");
     if (reply == NULL) {
