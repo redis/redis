@@ -609,6 +609,7 @@ void aofUpgradePrepare(aofManifest *am) {
         sdsfree(aof_filepath);
         exit(1);;
     }
+    sdsfree(aof_filepath);
 
     serverLog(LL_NOTICE, "Redis enters the upgrade mode and successfully completes the upgrade preparation!!");
 }
