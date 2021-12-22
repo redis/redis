@@ -3424,9 +3424,9 @@ int processCommand(client *c) {
     if ((c->flags & CLIENT_PUBSUB && c->resp == 2) &&
         c->cmd->proc != pingCommand &&
         c->cmd->proc != subscribeCommand &&
-            c->cmd->proc != ssubscribeCommand &&
+        c->cmd->proc != ssubscribeCommand &&
         c->cmd->proc != unsubscribeCommand &&
-            c->cmd->proc != sunsubscribeCommand &&
+        c->cmd->proc != sunsubscribeCommand &&
         c->cmd->proc != psubscribeCommand &&
         c->cmd->proc != punsubscribeCommand &&
         c->cmd->proc != quitCommand &&

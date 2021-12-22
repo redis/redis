@@ -233,10 +233,12 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 
 /* Key argument flags. Please check the command table defined in the server.c file
  * for more information about the meaning of every flag. */
-#define CMD_KEY_WRITE (1ULL<<0)        /* "write" flag */
-#define CMD_KEY_READ (1ULL<<1)         /* "read" flag */
-#define CMD_KEY_SHARD_CHANNEL (1ULL<<2) /* "shard_channel" flag */
-#define CMD_KEY_INCOMPLETE (1ULL<<3)   /* "incomplete" flag (meaning that the keyspec might not point out to all keys it should cover) */
+#define CMD_KEY_WRITE (1ULL<<0)             /* "write" flag */
+#define CMD_KEY_READ (1ULL<<1)              /* "read" flag */
+#define CMD_KEY_SHARD_CHANNEL (1ULL<<2)     /* "shard_channel" flag */
+#define CMD_KEY_INCOMPLETE (1ULL<<3)        /* "incomplete" flag (meaning that
+                                             * the keyspec might not point out
+                                             * to all keys it should cover) */
 
 /* AOF states */
 #define AOF_OFF 0             /* AOF is off */
