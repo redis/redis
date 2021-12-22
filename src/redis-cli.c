@@ -253,6 +253,7 @@ static struct config {
     int set_errcode;
     clusterManagerCommand cluster_manager_command;
     int no_auth_warning;
+    int resp2;
     int resp3;
     int in_multi;
     int pre_multi_dbnum;
@@ -726,7 +727,7 @@ static int cliSelect(void) {
 /* Select RESP3 mode if redis-cli was started with the -3 option.  */
 static int cliSwitchProto(void) {
     redisReply *reply;
-    if (config.resp3 == 0) return REDIS_OK;
+    if (config.resp3 == 0 || config.resp2 == 1) return REDIS_OK;
 
     reply = redisCommand(context,"HELLO 3");
     if (reply == NULL) {
@@ -736,8 +737,13 @@ static int cliSwitchProto(void) {
 
     int result = REDIS_OK;
     if (reply->type == REDIS_REPLY_ERROR) {
-        result = REDIS_ERR;
-        fprintf(stderr,"HELLO 3 failed: %s\n",reply->str);
+        if (config.output == OUTPUT_JSON) {
+            result = REDIS_OK;
+            fprintf(stderr,"HELLO 3 failed: %s, but keep executing with RESP2\n",reply->str);
+        } else {
+            result = REDIS_ERR;
+            fprintf(stderr,"HELLO 3 failed: %s\n",reply->str);
+        }
     }
     freeReplyObject(reply);
     return result;
@@ -1597,6 +1603,7 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"--csv")) {
             config.output = OUTPUT_CSV;
         } else if (!strcmp(argv[i],"--json")) {
+            config.resp3 = 1;
             config.output = OUTPUT_JSON;
         } else if (!strcmp(argv[i],"--latency")) {
             config.latency_mode = 1;
@@ -1781,6 +1788,8 @@ static int parseOptions(int argc, char **argv) {
             printf("redis-cli %s\n", version);
             sdsfree(version);
             exit(0);
+        } else if (!strcmp(argv[i],"-2")) {
+            config.resp2 = 1;
         } else if (!strcmp(argv[i],"-3")) {
             config.resp3 = 1;
         } else if (!strcmp(argv[i],"--show-pushes") && !lastarg) {
@@ -1817,6 +1826,11 @@ static int parseOptions(int argc, char **argv) {
 
     if (config.hostsocket && config.cluster_mode) {
         fprintf(stderr,"Options -c and -s are mutually exclusive.\n");
+        exit(1);
+    }
+
+    if (config.output != OUTPUT_JSON && config.resp2 && config.resp3) {
+        fprintf(stderr,"Options -2 and -3 are mutually exclusive.\n");
         exit(1);
     }
 
@@ -1874,6 +1888,7 @@ static void usage(int err) {
 "                     This interval is also used in --scan and --stat per cycle.\n"
 "                     and in --bigkeys, --memkeys, and --hotkeys per 100 cycles.\n"
 "  -n <db>            Database number.\n"
+"  -2                 Start session in RESP2 protocol mode.\n"
 "  -3                 Start session in RESP3 protocol mode.\n"
 "  -x                 Read last argument from STDIN.\n"
 "  -d <delimiter>     Delimiter between response bulks for raw formatting (default: \\n).\n"
@@ -1905,7 +1920,7 @@ static void usage(int err) {
 "  --no-raw           Force formatted output even when STDOUT is not a tty.\n"
 "  --quoted-input     Force input to be handled as quoted strings.\n"
 "  --csv              Output in CSV format.\n"
-"  --json             Output in JSON format.\n"
+"  --json             Output in JSON format (default RESP3, use -2 if you want to use with RESP2).\n"
 "  --show-pushes <yn> Whether to print RESP3 PUSH messages.  Enabled by default when\n"
 "                     STDOUT is a tty but can be overridden with --show-pushes no.\n"
 "  --stat             Print rolling stats about server: mem, clients, ...\n"
