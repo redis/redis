@@ -154,7 +154,8 @@ start_server [list overrides $base_conf] {
 }
 }
 
-# start servers
+# Test redis-cli -- cluster create, add-node, call.
+# Test that functions are propagated on add-node
 start_server [list overrides $base_conf] {
 start_server [list overrides $base_conf] {
 start_server [list overrides $base_conf] {
@@ -222,7 +223,7 @@ start_server [list overrides $base_conf] {
         } e
         assert_match {*Failed loading functions to the new node*} $e        
     }
-# stop three servers
+# stop 5 servers
 }
 }
 }
