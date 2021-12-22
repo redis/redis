@@ -216,14 +216,16 @@ ifeq ($(LIBSSL_PKGCONFIG),0)
 	LIBSSL_LIBS=$(shell $(PKG_CONFIG) --libs libssl)
 else
 	LIBSSL_LIBS=-lssl
+	LIBZ_LIBS=-lz
 endif
 	LIBCRYPTO_PKGCONFIG := $(shell $(PKG_CONFIG) --exists libcrypto && echo $$?)
 ifeq ($(LIBCRYPTO_PKGCONFIG),0)
 	LIBCRYPTO_LIBS=$(shell $(PKG_CONFIG) --libs libcrypto)
 else
 	LIBCRYPTO_LIBS=-lcrypto
+	LIBZ_LIBS=-lz
 endif
-	FINAL_LIBS += ../deps/hiredis/libhiredis_ssl.a $(LIBSSL_LIBS) $(LIBCRYPTO_LIBS)
+	FINAL_LIBS += ../deps/hiredis/libhiredis_ssl.a $(LIBSSL_LIBS) $(LIBCRYPTO_LIBS) $(LIBZ_LIBS)
 endif
 
 REDIS_CC=$(QUIET_CC)$(CC) $(FINAL_CFLAGS)
