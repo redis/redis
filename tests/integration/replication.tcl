@@ -515,7 +515,7 @@ foreach testType {Successful Aborted} {
             # Put different data sets on the master and replica
             # We need to put large keys on the master since the replica replies to info only once in 2mb
             $replica debug populate 2000 slave 10
-            $master debug populate 1000 master 100000
+            $master debug populate 2000 master 100000
             $master config set rdbcompression no
 
             # Set a key value on replica to check status during loading, on failure and after swapping db
@@ -540,8 +540,8 @@ foreach testType {Successful Aborted} {
             switch $testType {
                 "Aborted" {
                     # Set master with a slow rdb generation, so that we can easily intercept loading
-                    # 30ms per key, with 1000 keys is 30 seconds
-                    $master config set rdb-key-save-delay 30000
+                    # 10ms per key, with 2000 keys is 20 seconds
+                    $master config set rdb-key-save-delay 10000
 
                     test {Diskless load swapdb (async_loading): replica enter async_loading} {
                         # Wait for the replica to start reading the rdb
@@ -628,7 +628,7 @@ foreach testType {Successful Aborted} {
                         assert_equal [$replica fcall test 0] "hello2"
 
                         # Make sure amount of keys matches master
-                        assert_equal [$replica dbsize] 1010
+                        assert_equal [$replica dbsize] 2010
                     }
                 }
             }
