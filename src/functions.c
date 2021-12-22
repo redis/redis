@@ -54,10 +54,10 @@ dictType engineDictType = {
 };
 
 dictType functionDictType = {
-        dictSdsHash,          /* hash function */
+        dictSdsCaseHash,      /* hash function */
         dictSdsDup,           /* key dup */
         NULL,                 /* val dup */
-        dictSdsKeyCompare,    /* key compare */
+        dictSdsKeyCaseCompare,/* key compare */
         dictSdsDestructor,    /* key destructor */
         engineFunctionDispose,/* val destructor */
         NULL                  /* allow to expand */

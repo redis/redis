@@ -11,6 +11,13 @@ start_server {tags {"scripting"}} {
         set _ $e
     } {*Function already exists*}
 
+    test {FUNCTION - Create an already exiting function raise error (case insensitive)} {
+        catch {
+            r function create LUA TEST {return 'hello1'}
+        } e
+        set _ $e
+    } {*Function already exists*}
+
     test {FUNCTION - Create function with unexisting engine} {
         catch {
             r function create bad_engine test {return 'hello1'}
@@ -28,6 +35,10 @@ start_server {tags {"scripting"}} {
     test {FUNCTION - test replace argument} {
         r function create LUA test REPLACE {return 'hello1'}
         r fcall test 0
+    } {hello1}
+
+    test {FUNCTION - test function case insensitive} {
+        r fcall TEST 0
     } {hello1}
 
     test {FUNCTION - test replace argument with function creation failure keeps old function} {
