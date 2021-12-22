@@ -204,9 +204,9 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CMD_ONLY_SENTINEL (1ULL<<18)
 #define CMD_NO_MANDATORY_KEYS (1ULL<<19)
 #define CMD_PROTECTED (1ULL<<20)
-/* Command flags used by the module system. */
 #define CMD_MODULE_GETKEYS (1ULL<<21)  /* Use the modules getkeys interface. */
 #define CMD_MODULE_NO_CLUSTER (1ULL<<22) /* Deny on Redis Cluster. */
+#define CMD_NO_ASYNC_LOADING (1ULL<<23)
 
 /* Command flags that describe ACLs categories. */
 #define ACL_CATEGORY_KEYSPACE (1ULL<<0)
@@ -2007,6 +2007,9 @@ typedef int redisGetKeysProc(struct redisCommand *cmd, robj **argv, int argc, ge
  *                          possible), then the "random" flag is not needed.
  *
  * CMD_LOADING:     Allow the command while loading the database.
+ *
+ * CMD_NO_ASYNC_LOADING: Deny during async loading (when a replica uses diskless
+                         sync swapdb, and allows access to the old dataset)
  *
  * CMD_STALE:       Allow the command while a slave has stale data but is not
  *                  allowed to serve this data. Normally no command is accepted

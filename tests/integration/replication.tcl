@@ -568,6 +568,23 @@ foreach testType {Successful Aborted} {
                         assert_equal [$replica dbsize] 2001
                     }
 
+                    test {Busy script during async loading} {
+                        set rd_replica [redis_deferring_client -1]
+                        $replica config set lua-time-limit 10
+                        $rd_replica eval {while true do end} 0
+                        after 200
+                        assert_error {BUSY*} {$replica ping}
+                        $replica script kill
+                        after 200 ; # Give some time to Lua to call the hook again...
+                        assert_equal [$replica ping] "PONG"
+                        $rd_replica close
+                    }
+
+                    test {Blocked commands and configs during async-loading} {
+                        assert_error {LOADING*} {$replica config set appendonly no}
+                        assert_error {LOADING*} {$replica REPLICAOF no one}
+                    }
+
                     # Make sure that next sync will not start immediately so that we can catch the replica in between syncs
                     $master config set repl-diskless-sync-delay 5
 
