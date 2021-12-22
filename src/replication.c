@@ -1192,7 +1192,8 @@ void replconfCommand(client *c) {
             int filter_count, i;
             sds *filters;
             if (!(filters = sdssplitargs(c->argv[j+1]->ptr, &filter_count))) {
-                return; // TODO: no reply??
+                addReplyErrorFormat(c, "Missing rdb-filter-only values");
+                return;
             }
             for (i = 0; i < filter_count; i++) {
                 if (!strcasecmp(filters[i], "functions"))
