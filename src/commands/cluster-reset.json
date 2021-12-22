@@ -11,7 +11,8 @@
             "NO_ASYNC_LOADING",
             "ADMIN",
             "RANDOM",
-            "STALE"
+            "STALE",
+            "NOSCRIPT"
         ],
         "arguments": [
             {
