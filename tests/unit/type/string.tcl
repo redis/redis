@@ -173,6 +173,7 @@ start_server {tags {"string"}} {
             {set foo bar}
             {del foo}
         }
+        close_replication_stream $repl
     } {} {needs:repl}
 
     test {GETEX without argument does not propagate to replica} {
@@ -185,6 +186,7 @@ start_server {tags {"string"}} {
             {set foo bar}
             {del foo}
         }
+        close_replication_stream $repl
     } {} {needs:repl}
 
     test {MGET} {

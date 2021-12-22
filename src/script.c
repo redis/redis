@@ -148,9 +148,7 @@ void scriptResetRun(scriptRunCtx *run_ctx) {
         unprotectClient(run_ctx->original_client);
     }
 
-    if (!(run_ctx->flags & SCRIPT_EVAL_REPLICATION)) {
-        preventCommandPropagation(run_ctx->original_client);
-    }
+    preventCommandPropagation(run_ctx->original_client);
 
     /*  unset curr_run_ctx so we will know there is no running script */
     curr_run_ctx = NULL;
@@ -255,17 +253,12 @@ static int scriptVerifyWriteCommandAllow(scriptRunCtx *run_ctx, char **err) {
         return C_ERR;
     }
 
-    if ((run_ctx->flags & SCRIPT_RANDOM_DIRTY) && (run_ctx->flags & SCRIPT_EVAL_REPLICATION)) {
-        *err = sdsnew("Write commands not allowed after non deterministic commands. Call redis.replicate_commands() at the start of your script in order to switch to single commands replication mode.");
-        return C_ERR;
-    }
-
     /* Write commands are forbidden against read-only slaves, or if a
      * command marked as non-deterministic was already called in the context
      * of this script. */
     int deny_write_type = writeCommandsDeniedByDiskError();
 
-    if (server.masterhost && server.repl_slave_ro && run_ctx->original_client->flags != CLIENT_ID_AOF
+    if (server.masterhost && server.repl_slave_ro && run_ctx->original_client->id != CLIENT_ID_AOF
         && !(run_ctx->original_client->flags & CLIENT_MASTER))
     {
         *err = sdsdup(shared.roslaveerr->ptr);
@@ -403,23 +396,16 @@ void scriptCall(scriptRunCtx *run_ctx, robj* *argv, int argc, sds *err) {
         run_ctx->flags |= SCRIPT_WRITE_DIRTY;
     }
 
-    if (cmd->flags & CMD_RANDOM) {
-        /* signify that we already perform a random command in this execution */
-        run_ctx->flags |= SCRIPT_RANDOM_DIRTY;
-    }
-
     if (scriptVerifyClusterState(c, run_ctx->original_client, err) != C_OK) {
         return;
     }
 
     int call_flags = CMD_CALL_SLOWLOG | CMD_CALL_STATS;
-    if (!(run_ctx->flags & SCRIPT_EVAL_REPLICATION)) {
-        if (run_ctx->repl_flags & PROPAGATE_AOF) {
-            call_flags |= CMD_CALL_PROPAGATE_AOF;
-        }
-        if (run_ctx->repl_flags & PROPAGATE_REPL) {
-            call_flags |= CMD_CALL_PROPAGATE_REPL;
-        }
+    if (run_ctx->repl_flags & PROPAGATE_AOF) {
+        call_flags |= CMD_CALL_PROPAGATE_AOF;
+    }
+    if (run_ctx->repl_flags & PROPAGATE_REPL) {
+        call_flags |= CMD_CALL_PROPAGATE_REPL;
     }
     call(c, call_flags);
     serverAssert((c->flags & CLIENT_BLOCKED) == 0);

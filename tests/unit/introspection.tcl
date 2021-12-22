@@ -201,6 +201,12 @@ start_server {tags {"introspection"}} {
             cluster-port
             oom-score-adj
             oom-score-adj-values
+            enable-protected-configs
+            enable-debug-command
+            enable-module-command
+            dbfilename
+            logfile
+            dir
         }
 
         if {!$::tls} {
@@ -431,3 +437,54 @@ start_server {tags {"introspection"}} {
     # Config file at this point is at a weird state, and includes all
     # known keywords. Might be a good idea to avoid adding tests here.
 }
+
+start_server {tags {"introspection external:skip"} overrides {enable-protected-configs {no} enable-debug-command {no}}} {
+    test {cannot modify protected configuration - no} {
+        assert_error "ERR*protected*" {r config set dir somedir}
+        assert_error "ERR*DEBUG command not allowed*" {r DEBUG HELP}
+    } {} {needs:debug}
+}
+
+start_server {config "minimal.conf" tags {"introspection external:skip"} overrides {protected-mode {no} enable-protected-configs {local} enable-debug-command {local}}} {
+    test {cannot modify protected configuration - local} {
+        # verify that for local connection it doesn't error
+        r config set dbfilename somename
+        r DEBUG HELP
+
+        # Get a non-loopback address of this instance for this test.
+        set myaddr [get_nonloopback_addr]
+        if {$myaddr != "" && ![string match {127.*} $myaddr]} {
+            # Non-loopback client should fail
+            set r2 [get_nonloopback_client]
+            assert_error "ERR*protected*" {$r2 config set dir somedir}
+            assert_error "ERR*DEBUG command not allowed*" {$r2 DEBUG HELP}
+        }
+    } {} {needs:debug}
+}
+
+test {config during loading} {
+    start_server [list overrides [list key-load-delay 50 rdbcompression no]] {
+        # create a big rdb that will take long to load. it is important
+        # for keys to be big since the server processes events only once in 2mb.
+        # 100mb of rdb, 100k keys will load in more than 5 seconds
+        r debug populate 100000 key 1000
+
+        restart_server 0 false false
+
+        # make sure it's still loading
+        assert_equal [s loading] 1
+
+        # verify some configs are allowed during loading
+        r config set loglevel debug
+        assert_equal [lindex [r config get loglevel] 1] debug
+
+        # verify some configs are forbidden during loading
+        assert_error {LOADING*} {r config set dir asdf}
+
+        # make sure it's still loading
+        assert_equal [s loading] 1
+
+        # no need to keep waiting for loading to complete
+        exec kill [srv 0 pid]
+    }
+} {} {external:skip}

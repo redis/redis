@@ -1051,7 +1051,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         # Restore server and client state
         r debug set-active-expire 1
         r select 9
-    } {OK} {singledb:skip}
+    } {OK} {singledb:skip needs:debug}
 
     test {MULTI + LPUSH + EXPIRE + DEBUG SLEEP on blocked client, key already expired} {
         set repl [attach_to_replication_stream]
@@ -1261,6 +1261,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
             {rpop mylist2{t} 3}
             {set foo{t} bar}
         }
+        close_replication_stream $repl
     } {} {needs:repl}
 
     test {LPUSHX, RPUSHX - generic} {
@@ -1682,6 +1683,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
             {lpop mylist{t} 3}
             {rpop mylist2{t} 3}
         }
+        close_replication_stream $repl
     } {} {needs:repl}
 
     foreach {type large} [array get largevalue] {

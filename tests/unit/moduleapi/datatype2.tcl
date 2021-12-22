@@ -217,10 +217,10 @@ start_server {tags {"modules"}} {
 
 
         r select 0
-        set digest0 [r debug digest]
+        set digest0 [debug_digest]
 
         r select 1
-        set digest1 [r debug digest]
+        set digest1 [debug_digest]
 
         assert_equal $digest0 $digest1
     }

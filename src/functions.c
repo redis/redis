@@ -105,6 +105,16 @@ void functionsCtxClear(functionsCtx *functions_ctx) {
     functions_ctx->cache_memory = 0;
 }
 
+void functionsCtxClearCurrent(int async) {
+    if (async) {
+        functionsCtx *old_f_ctx = functions_ctx;
+        functions_ctx = functionsCtxCreate();
+        freeFunctionsAsync(old_f_ctx);
+    } else {
+        functionsCtxClear(functions_ctx);
+    }
+}
+
 /* Free the given functions ctx */
 void functionsCtxFree(functionsCtx *functions_ctx) {
     functionsCtxClear(functions_ctx);
@@ -301,11 +311,6 @@ void functionInfoCommand(client *c) {
  * FUNCTION DELETE <FUNCTION NAME>
  */
 void functionDeleteCommand(client *c) {
-    if (server.masterhost && server.repl_slave_ro && !(c->flags & CLIENT_MASTER)) {
-        addReplyError(c, "Can not delete a function on a read only replica");
-        return;
-    }
-
     robj *function_name = c->argv[2];
     functionInfo *fi = dictFetchValue(functions_ctx->functions, function_name->ptr);
     if (!fi) {
@@ -372,6 +377,31 @@ void fcallroCommand(client *c) {
     fcallCommandGeneric(c, 1);
 }
 
+void functionFlushCommand(client *c) {
+    if (c->argc > 3) {
+        addReplySubcommandSyntaxError(c);
+        return;
+    }
+    int async = 0;
+    if (c->argc == 3 && !strcasecmp(c->argv[2]->ptr,"sync")) {
+        async = 0;
+    } else if (c->argc == 3 && !strcasecmp(c->argv[2]->ptr,"async")) {
+        async = 1;
+    } else if (c->argc == 2) {
+        async = server.lazyfree_lazy_user_flush ? 1 : 0;
+    } else {
+        addReplyError(c,"FUNCTION FLUSH only supports SYNC|ASYNC option");
+        return;
+    }
+
+    functionsCtxClearCurrent(async);
+
+    /* Indicate that the command changed the data so it will be replicated and
+     * counted as a data change (for persistence configuration) */
+    server.dirty++;
+    addReply(c,shared.ok);
+}
+
 void functionHelpCommand(client *c) {
     const char *help[] = {
 "CREATE <ENGINE NAME> <FUNCTION NAME> [REPLACE] [DESC <FUNCTION DESCRIPTION>] <FUNCTION CODE>",
@@ -398,6 +428,12 @@ void functionHelpCommand(client *c) {
 "    In addition, returns a list of available engines.",
 "KILL",
 "    Kill the current running function.",
+"FLUSH [ASYNC|SYNC]",
+"    Delete all the functions.",
+"    When called without the optional mode argument, the behavior is determined by the",
+"    lazyfree-lazy-user-flush configuration directive. Valid modes are:",
+"    * ASYNC: Asynchronously flush the functions.",
+"    * SYNC: Synchronously flush the functions.",
 NULL };
     addReplyHelp(c, help);
 }
@@ -445,12 +481,6 @@ int functionsCreateWithFunctionCtx(sds function_name,sds engine_name, sds desc, 
  * FUNCTION CODE   - function code to pass to the engine
  */
 void functionCreateCommand(client *c) {
-
-    if (server.masterhost && server.repl_slave_ro && !(c->flags & CLIENT_MASTER)) {
-        addReplyError(c, "Can not create a function on a read only replica");
-        return;
-    }
-
     robj *engine_name = c->argv[2];
     robj *function_name = c->argv[3];
 
@@ -526,6 +556,10 @@ unsigned long functionsNum() {
 
 dict* functionsGet() {
     return functions_ctx->functions;
+}
+
+size_t functionsLen(functionsCtx *functions_ctx) {
+    return dictSize(functions_ctx->functions);
 }
 
 /* Initialize engine data structures.
