@@ -2314,7 +2314,9 @@ void initServer(void) {
     server.cronloops = 0;
     server.in_script = 0;
     server.in_exec = 0;
-    server.propagate_in_transaction = 0;
+    server.core_propagates = 0;
+    server.propagate_no_multi = 0;
+    server.module_ctx_nesting = 0;
     server.client_pause_in_transaction = 0;
     server.child_pid = -1;
     server.child_type = CHILD_TYPE_NONE;
@@ -2633,12 +2635,21 @@ void resetErrorTableStats(void) {
 void redisOpArrayInit(redisOpArray *oa) {
     oa->ops = NULL;
     oa->numops = 0;
+    oa->capacity = 0;
 }
 
 int redisOpArrayAppend(redisOpArray *oa, int dbid, robj **argv, int argc, int target) {
     redisOp *op;
+    int prev_capacity = oa->capacity;
 
-    oa->ops = zrealloc(oa->ops,sizeof(redisOp)*(oa->numops+1));
+    if (oa->numops == 0) {
+        oa->capacity = 16;
+    } else if (oa->numops >= oa->capacity) {
+        oa->capacity *= 2;
+    }
+
+    if (prev_capacity != oa->capacity)
+        oa->ops = zrealloc(oa->ops,sizeof(redisOp)*oa->capacity);
     op = oa->ops+oa->numops;
     op->dbid = dbid;
     op->argv = argv;
@@ -2660,7 +2671,7 @@ void redisOpArrayFree(redisOpArray *oa) {
         zfree(op->argv);
     }
     zfree(oa->ops);
-    oa->ops = NULL;
+    redisOpArrayInit(oa);
 }
 
 /* ====================== Commands lookup and execution ===================== */
@@ -2735,6 +2746,22 @@ struct redisCommand *lookupCommandOrOriginal(robj **argv ,int argc) {
     return cmd;
 }
 
+static int shouldPropagate(int target) {
+    if (!server.replication_allowed || target == PROPAGATE_NONE || server.loading)
+        return 0;
+
+    if (target & PROPAGATE_AOF) {
+        if (server.aof_state != AOF_OFF)
+            return 1;
+    }
+    if (target & PROPAGATE_REPL) {
+        if (server.masterhost == NULL && (server.repl_backlog || listLength(server.slaves) != 0))
+            return 1;
+    }
+
+    return 0;
+}
+
 /* Propagate the specified command (in the context of the specified database id)
  * to AOF and Slaves.
  *
@@ -2743,33 +2770,21 @@ struct redisCommand *lookupCommandOrOriginal(robj **argv ,int argc) {
  * + PROPAGATE_AOF (propagate into the AOF file if is enabled)
  * + PROPAGATE_REPL (propagate into the replication link)
  *
- * This should not be used inside commands implementation since it will not
- * wrap the resulting commands in MULTI/EXEC. Use instead alsoPropagate(),
- * preventCommandPropagation(), forceCommandPropagation().
+ * This is an internal low-level function and should not be called!
  *
- * However for functions that need to (also) propagate out of the context of a
- * command execution, for example when serving a blocked client, you
- * want to use propagate().
+ * The API for propagating commands is alsoPropagate().
  */
-void propagate(int dbid, robj **argv, int argc, int flags) {
-    if (!server.replication_allowed)
+static void propagateNow(int dbid, robj **argv, int argc, int target) {
+    if (!shouldPropagate(target))
         return;
-
-    /* Propagate a MULTI request once we encounter the first command which
-     * is a write command.
-     * This way we'll deliver the MULTI/..../EXEC block as a whole and
-     * both the AOF and the replication link will have the same consistency
-     * and atomicity guarantees. */
-    if (server.in_exec && !server.propagate_in_transaction)
-        execCommandPropagateMulti(dbid);
 
     /* This needs to be unreachable since the dataset should be fixed during 
      * client pause, otherwise data may be lost during a failover. */
     serverAssert(!(areClientsPaused() && !server.client_pause_in_transaction));
 
-    if (server.aof_state != AOF_OFF && flags & PROPAGATE_AOF)
+    if (server.aof_state != AOF_OFF && target & PROPAGATE_AOF)
         feedAppendOnlyFile(dbid,argv,argc);
-    if (flags & PROPAGATE_REPL)
+    if (target & PROPAGATE_REPL)
         replicationFeedSlaves(server.slaves,dbid,argv,argc);
 }
 
@@ -2788,7 +2803,8 @@ void alsoPropagate(int dbid, robj **argv, int argc, int target) {
     robj **argvcopy;
     int j;
 
-    if (server.loading) return; /* No propagation during loading. */
+    if (!shouldPropagate(target))
+        return;
 
     argvcopy = zmalloc(sizeof(robj*)*argc);
     for (j = 0; j < argc; j++) {
@@ -2835,6 +2851,46 @@ void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t dur
     robj **argv = c->original_argv ? c->original_argv : c->argv;
     int argc = c->original_argv ? c->original_argc : c->argc;
     slowlogPushEntryIfNeeded(c,argv,argc,duration);
+}
+
+/* Handle the alsoPropagate() API to handle commands that want to propagate
+ * multiple separated commands. Note that alsoPropagate() is not affected
+ * by CLIENT_PREVENT_PROP flag. */
+void propagatePendingCommands() {
+    if (server.also_propagate.numops == 0)
+        return;
+
+    int j;
+    redisOp *rop;
+    int multi_emitted = 0;
+
+    /* Wrap the commands in server.also_propagate array,
+     * but don't wrap it if we are already in MULTI context,
+     * in case the nested MULTI/EXEC.
+     *
+     * And if the array contains only one command, no need to
+     * wrap it, since the single command is atomic. */
+    if (server.also_propagate.numops > 1 && !server.propagate_no_multi) {
+        /* We use the first command-to-propagate to set the dbid for MULTI,
+         * so that the SELECT will be propagated beforehand */
+        int multi_dbid = server.also_propagate.ops[0].dbid;
+        propagateNow(multi_dbid,&shared.multi,1,PROPAGATE_AOF|PROPAGATE_REPL);
+        multi_emitted = 1;
+    }
+
+    for (j = 0; j < server.also_propagate.numops; j++) {
+        rop = &server.also_propagate.ops[j];
+        serverAssert(rop->target);
+        propagateNow(rop->dbid,rop->argv,rop->argc,rop->target);
+    }
+
+    if (multi_emitted) {
+        /* We take the dbid from last command so that propagateNow() won't inject another SELECT */
+        int exec_dbid = server.also_propagate.ops[server.also_propagate.numops-1].dbid;
+        propagateNow(exec_dbid,&shared.exec,1,PROPAGATE_AOF|PROPAGATE_REPL);
+    }
+
+    redisOpArrayFree(&server.also_propagate);
 }
 
 /* Call() is the core of Redis execution of a command.
@@ -2884,8 +2940,19 @@ void call(client *c, int flags) {
     /* Initialization: clear the flags that must be set by the command on
      * demand, and initialize the array for additional commands propagation. */
     c->flags &= ~(CLIENT_FORCE_AOF|CLIENT_FORCE_REPL|CLIENT_PREVENT_PROP);
-    redisOpArray prev_also_propagate = server.also_propagate;
-    redisOpArrayInit(&server.also_propagate);
+
+    /* Redis core is in charge of propagation when the first entry point
+     * of call() is processCommand().
+     * The only other option to get to call() without having processCommand
+     * as an entry point is if a module triggers RM_Call outside of call()
+     * context (for example, in a timer).
+     * In that case, the module is in charge of propagation.
+     *
+     * Because call() is re-entrant we have to cache and restore
+     * server.core_propagates. */
+    int prev_core_propagates = server.core_propagates;
+    if (!server.core_propagates && !(flags & CMD_CALL_FROM_MODULE))
+        server.core_propagates = 1;
 
     /* Call the command. */
     dirty = server.dirty;
@@ -2974,9 +3041,14 @@ void call(client *c, int flags) {
         real_cmd->calls++;
     }
 
-    /* Propagate the command into the AOF and replication link */
+    /* Propagate the command into the AOF and replication link.
+     * We never propagate EXEC explicitly, it will be implicitly
+     * propagated if needed (see propagatePendingCommands).
+     * Also, module commands take care of themselves */
     if (flags & CMD_CALL_PROPAGATE &&
-        (c->flags & CLIENT_PREVENT_PROP) != CLIENT_PREVENT_PROP)
+        (c->flags & CLIENT_PREVENT_PROP) != CLIENT_PREVENT_PROP &&
+        c->cmd->proc != execCommand &&
+        !(c->cmd->flags & CMD_MODULE))
     {
         int propagate_flags = PROPAGATE_NONE;
 
@@ -2999,11 +3071,10 @@ void call(client *c, int flags) {
             !(flags & CMD_CALL_PROPAGATE_AOF))
                 propagate_flags &= ~PROPAGATE_AOF;
 
-        /* Call propagate() only if at least one of AOF / replication
-         * propagation is needed. Note that modules commands handle replication
-         * in an explicit way, so we never replicate them automatically. */
-        if (propagate_flags != PROPAGATE_NONE && !(c->cmd->flags & CMD_MODULE))
-            propagate(c->db->id,c->argv,c->argc,propagate_flags);
+        /* Call alsoPropagate() only if at least one of AOF / replication
+         * propagation is needed. */
+        if (propagate_flags != PROPAGATE_NONE)
+            alsoPropagate(c->db->id,c->argv,c->argc,propagate_flags);
     }
 
     /* Restore the old replication flags, since call() can be executed
@@ -3011,54 +3082,6 @@ void call(client *c, int flags) {
     c->flags &= ~(CLIENT_FORCE_AOF|CLIENT_FORCE_REPL|CLIENT_PREVENT_PROP);
     c->flags |= client_old_flags &
         (CLIENT_FORCE_AOF|CLIENT_FORCE_REPL|CLIENT_PREVENT_PROP);
-
-    /* Handle the alsoPropagate() API to handle commands that want to propagate
-     * multiple separated commands. Note that alsoPropagate() is not affected
-     * by CLIENT_PREVENT_PROP flag. */
-    if (server.also_propagate.numops) {
-        int j;
-        redisOp *rop;
-
-        if (flags & CMD_CALL_PROPAGATE) {
-            int multi_emitted = 0;
-            /* Wrap the commands in server.also_propagate array,
-             * but don't wrap it if we are already in MULTI context,
-             * in case the nested MULTI/EXEC.
-             *
-             * And if the array contains only one command, no need to
-             * wrap it, since the single command is atomic. */
-            if (server.also_propagate.numops > 1 &&
-                !(c->cmd->flags & CMD_MODULE) &&
-                !(c->flags & CLIENT_MULTI) &&
-                !(flags & CMD_CALL_NOWRAP))
-            {
-                execCommandPropagateMulti(c->db->id);
-                multi_emitted = 1;
-            }
-
-            for (j = 0; j < server.also_propagate.numops; j++) {
-                rop = &server.also_propagate.ops[j];
-                int target = rop->target;
-                /* Whatever the command wish is, we honor the call() flags. */
-                if (!(flags&CMD_CALL_PROPAGATE_AOF)) target &= ~PROPAGATE_AOF;
-                if (!(flags&CMD_CALL_PROPAGATE_REPL)) target &= ~PROPAGATE_REPL;
-                if (target)
-                    propagate(rop->dbid,rop->argv,rop->argc,target);
-            }
-
-            if (multi_emitted) {
-                execCommandPropagateExec(c->db->id);
-            }
-        }
-        redisOpArrayFree(&server.also_propagate);
-    }
-    server.also_propagate = prev_also_propagate;
-
-    /* Client pause takes effect after a transaction has finished. This needs
-     * to be located after everything is propagated. */
-    if (!server.in_exec && server.client_pause_in_transaction) {
-        server.client_pause_in_transaction = 0;
-    }
 
     /* If the client has keys tracking enabled for client side caching,
      * make sure to remember the keys it fetched via this command. */
@@ -3084,6 +3107,14 @@ void call(client *c, int flags) {
 
     /* Do some maintenance job and cleanup */
     afterCommand(c);
+
+    /* Client pause takes effect after a transaction has finished. This needs
+     * to be located after everything is propagated. */
+    if (!server.in_exec && server.client_pause_in_transaction) {
+        server.client_pause_in_transaction = 0;
+    }
+
+    server.core_propagates = prev_core_propagates;
 }
 
 /* Used when a command that is ready for execution needs to be rejected, due to
@@ -3124,9 +3155,16 @@ void rejectCommandFormat(client *c, const char *fmt, ...) {
 /* This is called after a command in call, we can do some maintenance job in it. */
 void afterCommand(client *c) {
     UNUSED(c);
-    /* Flush pending invalidation messages only when we are not in nested call.
-     * So the messages are not interleaved with transaction response. */
-    if (!server.in_nested_call) trackingHandlePendingKeyInvalidations();
+    if (!server.in_nested_call) {
+        /* If we are at the top-most call() we can propagate what we accumulated.
+         * Should be done before trackingHandlePendingKeyInvalidations so that we
+         * reply to client before invalidating cache (makes more sense) */
+        if (server.core_propagates)
+            propagatePendingCommands();
+        /* Flush pending invalidation messages only when we are not in nested call.
+         * So the messages are not interleaved with transaction response. */
+        trackingHandlePendingKeyInvalidations();
+    }
 }
 
 /* Returns 1 for commands that may have key names in their arguments, but the legacy range
@@ -3167,10 +3205,9 @@ void populateCommandMovableKeys(struct redisCommand *cmd) {
 int processCommand(client *c) {
     if (!scriptIsTimedout()) {
         /* Both EXEC and EVAL call call() directly so there should be
-         * no way in_exec or in_eval or propagate_in_transaction is 1.
+         * no way in_exec or in_eval is 1.
          * That is unless lua_timedout, in which case client may run
          * some commands. */
-        serverAssert(!server.propagate_in_transaction);
         serverAssert(!server.in_exec);
         serverAssert(!server.in_script);
     }

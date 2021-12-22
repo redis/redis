@@ -489,10 +489,9 @@ typedef enum {
 #define CMD_CALL_PROPAGATE_REPL (1<<3)
 #define CMD_CALL_PROPAGATE (CMD_CALL_PROPAGATE_AOF|CMD_CALL_PROPAGATE_REPL)
 #define CMD_CALL_FULL (CMD_CALL_SLOWLOG | CMD_CALL_STATS | CMD_CALL_PROPAGATE)
-#define CMD_CALL_NOWRAP (1<<4)  /* Don't wrap also propagate array into
-                                   MULTI/EXEC: the caller will handle it.  */
+#define CMD_CALL_FROM_MODULE (1<<4)  /* From RM_Call */
 
-/* Command propagation flags, see propagate() function */
+/* Command propagation flags, see propagateNow() function */
 #define PROPAGATE_NONE 0
 #define PROPAGATE_AOF 1
 #define PROPAGATE_REPL 2
@@ -1212,6 +1211,7 @@ typedef struct redisOp {
 typedef struct redisOpArray {
     redisOp *ops;
     int numops;
+    int capacity;
 } redisOpArray;
 
 /* This structure is returned by the getMemoryOverheadData() function in
@@ -1358,9 +1358,11 @@ struct redisServer {
     int sentinel_mode;          /* True if this instance is a Sentinel. */
     size_t initial_memory_usage; /* Bytes used after initialization. */
     int always_show_logo;       /* Show logo even for non-stdout logging. */
-    int in_script;                /* Are we inside EVAL? */
+    int in_script;              /* Are we inside EVAL? */
     int in_exec;                /* Are we inside EXEC? */
-    int propagate_in_transaction;  /* Make sure we don't propagate nested MULTI/EXEC */
+    int core_propagates;        /* Is the core (in oppose to the module subsystem) is in charge of calling propagatePendingCommands? */
+    int propagate_no_multi;     /* True if propagatePendingCommands should avoid wrapping command in MULTI/EXEC */
+    int module_ctx_nesting;     /* moduleCreateContext() nesting level */
     char *ignore_warnings;      /* Config: warnings that should be ignored. */
     int client_pause_in_transaction; /* Was a client pause executed during this Exec? */
     int thp_enabled;                 /* If true, THP is enabled. */
@@ -2420,10 +2422,6 @@ void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with);
 void discardTransaction(client *c);
 void flagTransaction(client *c);
 void execCommandAbort(client *c, sds error);
-void execCommandPropagateMulti(int dbid);
-void execCommandPropagateExec(int dbid);
-void beforePropagateMulti();
-void afterPropagateExec();
 
 /* Redis object implementation */
 void decrRefCount(robj *o);
@@ -2695,8 +2693,8 @@ struct redisCommand *lookupCommandByCStringLogic(dict *commands, const char *s);
 struct redisCommand *lookupCommandByCString(const char *s);
 struct redisCommand *lookupCommandOrOriginal(robj **argv ,int argc);
 void call(client *c, int flags);
-void propagate(int dbid, robj **argv, int argc, int flags);
 void alsoPropagate(int dbid, robj **argv, int argc, int target);
+void propagatePendingCommands();
 void redisOpArrayInit(redisOpArray *oa);
 void redisOpArrayFree(redisOpArray *oa);
 void forceCommandPropagation(client *c, int flags);
@@ -2812,7 +2810,7 @@ int allowProtectedAction(int config, client *c);
 /* db.c -- Keyspace access API */
 int removeExpire(redisDb *db, robj *key);
 void deleteExpiredKeyAndPropagate(redisDb *db, robj *keyobj);
-void propagateExpire(redisDb *db, robj *key, int lazy);
+void propagateDeletion(redisDb *db, robj *key, int lazy);
 int keyIsExpired(redisDb *db, robj *key);
 long long getExpire(redisDb *db, robj *key);
 void setExpire(client *c, redisDb *db, robj *key, long long when);

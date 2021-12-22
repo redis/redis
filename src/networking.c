@@ -3563,7 +3563,7 @@ void pauseClients(mstime_t end, pause_type type) {
     /* We allow write commands that were queued
      * up before and after to execute. We need
      * to track this state so that we don't assert
-     * in propagate(). */
+     * in propagateNow(). */
     if (server.in_exec) {
         server.client_pause_in_transaction = 1;
     }
