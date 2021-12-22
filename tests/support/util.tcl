@@ -851,6 +851,15 @@ proc wait_for_blocked_clients_count {count {maxtries 100} {delay 10}} {
     }
 }
 
+proc wait_for_paused_clients_count {count {maxtries 100} {delay 10}} {
+    wait_for_condition $maxtries $delay  {
+        [s blocked_clients] == $count
+    } else {
+        r client unpause
+        fail "Timeout waiting for blocked clients"
+    }
+}
+
 proc read_from_aof {fp} {
     # Input fp is a blocking binary file descriptor of an opened AOF file.
     if {[gets $fp count] == -1} return ""

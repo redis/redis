@@ -1,11 +1,3 @@
-proc wait_for_paused_clients_count {count {maxtries 100} {delay 10}} {
-    wait_for_condition $maxtries $delay  {
-        [s blocked_clients] == $count
-    } else {
-        r client unpause
-        fail "Timeout waiting for blocked clients"
-    }
-}
 start_server {tags {"pause network"}} {
     test "Test read commands are not blocked by client pause" {
         r client PAUSE 100000000 WRITE
