@@ -1,0 +1,22 @@
+{
+    "REPLICATE": {
+        "summary": "Reconfigure a node as a replica of the specified master node",
+        "complexity": "O(1)",
+        "group": "cluster",
+        "since": "3.0.0",
+        "arity": 3,
+        "container": "CLUSTER",
+        "function": "clusterCommand",
+        "command_flags": [
+            "ADMIN",
+            "RANDOM",
+            "STALE"
+        ],
+        "arguments": [
+            {
+                "name": "node-id",
+                "type": "string"
+            }
+        ]
+    }
+}

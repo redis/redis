@@ -77,7 +77,7 @@ void *HelloBlock_ThreadMain(void *arg) {
 /* An example blocked client disconnection callback.
  *
  * Note that in the case of the HELLO.BLOCK command, the blocked client is now
- * owned by the thread calling sleep(). In this speciifc case, there is not
+ * owned by the thread calling sleep(). In this specific case, there is not
  * much we can do, however normally we could instead implement a way to
  * signal the thread that the client disconnected, and sleep the specified
  * amount of seconds with a while loop calling sleep(1), so that once we
@@ -142,7 +142,7 @@ void *HelloKeys_ThreadMain(void *arg) {
     long long cursor = 0;
     size_t replylen = 0;
 
-    RedisModule_ReplyWithArray(ctx,REDISMODULE_POSTPONED_ARRAY_LEN);
+    RedisModule_ReplyWithArray(ctx,REDISMODULE_POSTPONED_LEN);
     do {
         RedisModule_ThreadSafeContextLock(ctx);
         RedisModuleCallReply *reply = RedisModule_Call(ctx,

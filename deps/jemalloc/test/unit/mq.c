@@ -1,7 +1,7 @@
 #include "test/jemalloc_test.h"
 
-#define	NSENDERS	3
-#define	NMSGS		100000
+#define NSENDERS	3
+#define NMSGS		100000
 
 typedef struct mq_msg_s mq_msg_t;
 struct mq_msg_s {
@@ -9,8 +9,7 @@ struct mq_msg_s {
 };
 mq_gen(static, mq_, mq_t, mq_msg_t, link)
 
-TEST_BEGIN(test_mq_basic)
-{
+TEST_BEGIN(test_mq_basic) {
 	mq_t mq;
 	mq_msg_t msg;
 
@@ -31,8 +30,7 @@ TEST_BEGIN(test_mq_basic)
 TEST_END
 
 static void *
-thd_receiver_start(void *arg)
-{
+thd_receiver_start(void *arg) {
 	mq_t *mq = (mq_t *)arg;
 	unsigned i;
 
@@ -41,12 +39,11 @@ thd_receiver_start(void *arg)
 		assert_ptr_not_null(msg, "mq_get() should never return NULL");
 		dallocx(msg, 0);
 	}
-	return (NULL);
+	return NULL;
 }
 
 static void *
-thd_sender_start(void *arg)
-{
+thd_sender_start(void *arg) {
 	mq_t *mq = (mq_t *)arg;
 	unsigned i;
 
@@ -58,11 +55,10 @@ thd_sender_start(void *arg)
 		msg = (mq_msg_t *)p;
 		mq_put(mq, msg);
 	}
-	return (NULL);
+	return NULL;
 }
 
-TEST_BEGIN(test_mq_threaded)
-{
+TEST_BEGIN(test_mq_threaded) {
 	mq_t mq;
 	thd_t receiver;
 	thd_t senders[NSENDERS];
@@ -71,23 +67,23 @@ TEST_BEGIN(test_mq_threaded)
 	assert_false(mq_init(&mq), "Unexpected mq_init() failure");
 
 	thd_create(&receiver, thd_receiver_start, (void *)&mq);
-	for (i = 0; i < NSENDERS; i++)
+	for (i = 0; i < NSENDERS; i++) {
 		thd_create(&senders[i], thd_sender_start, (void *)&mq);
+	}
 
 	thd_join(receiver, NULL);
-	for (i = 0; i < NSENDERS; i++)
+	for (i = 0; i < NSENDERS; i++) {
 		thd_join(senders[i], NULL);
+	}
 
 	mq_fini(&mq);
 }
 TEST_END
 
 int
-main(void)
-{
-
-	return (test(
+main(void) {
+	return test(
 	    test_mq_basic,
-	    test_mq_threaded));
+	    test_mq_threaded);
 }
 

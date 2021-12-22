@@ -1,4 +1,4 @@
-/* Helloworld cluster -- A ping/pong cluster API example.
+/* Timer API example -- Register and handle timer events
  *
  * -----------------------------------------------------------------------------
  *
@@ -37,13 +37,10 @@
 #include <ctype.h>
 #include <string.h>
 
-#define MSGTYPE_PING 1
-#define MSGTYPE_PONG 2
-
 /* Timer callback. */
 void timerHandler(RedisModuleCtx *ctx, void *data) {
     REDISMODULE_NOT_USED(ctx);
-    printf("Fired %s!\n", data);
+    printf("Fired %s!\n", (char *)data);
     RedisModule_Free(data);
 }
 

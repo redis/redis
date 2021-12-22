@@ -39,18 +39,19 @@
 #include <float.h>
 #include <stdint.h>
 #include <errno.h>
+#include <time.h>
 
 #include "util.h"
-#include "sha1.h"
+#include "sha256.h"
 
 /* Glob-style pattern matching. */
 int stringmatchlen(const char *pattern, int patternLen,
         const char *string, int stringLen, int nocase)
 {
-    while(patternLen) {
+    while(patternLen && stringLen) {
         switch(pattern[0]) {
         case '*':
-            while (pattern[1] == '*') {
+            while (patternLen && pattern[1] == '*') {
                 pattern++;
                 patternLen--;
             }
@@ -66,8 +67,6 @@ int stringmatchlen(const char *pattern, int patternLen,
             return 0; /* no match */
             break;
         case '?':
-            if (stringLen == 0)
-                return 0; /* no match */
             string++;
             stringLen--;
             break;
@@ -95,7 +94,7 @@ int stringmatchlen(const char *pattern, int patternLen,
                     pattern--;
                     patternLen++;
                     break;
-                } else if (pattern[1] == '-' && patternLen >= 3) {
+                } else if (patternLen >= 3 && pattern[1] == '-') {
                     int start = pattern[0];
                     int end = pattern[2];
                     int c = string[0];
@@ -170,25 +169,45 @@ int stringmatch(const char *pattern, const char *string, int nocase) {
     return stringmatchlen(pattern,strlen(pattern),string,strlen(string),nocase);
 }
 
+/* Fuzz stringmatchlen() trying to crash it with bad input. */
+int stringmatchlen_fuzz_test(void) {
+    char str[32];
+    char pat[32];
+    int cycles = 10000000;
+    int total_matches = 0;
+    while(cycles--) {
+        int strlen = rand() % sizeof(str);
+        int patlen = rand() % sizeof(pat);
+        for (int j = 0; j < strlen; j++) str[j] = rand() % 128;
+        for (int j = 0; j < patlen; j++) pat[j] = rand() % 128;
+        total_matches += stringmatchlen(pat, patlen, str, strlen, 0);
+    }
+    return total_matches;
+}
+
+
 /* Convert a string representing an amount of memory into the number of
- * bytes, so for instance memtoll("1Gb") will return 1073741824 that is
+ * bytes, so for instance memtoull("1Gb") will return 1073741824 that is
  * (1024*1024*1024).
  *
  * On parsing error, if *err is not NULL, it's set to 1, otherwise it's
  * set to 0. On error the function return value is 0, regardless of the
  * fact 'err' is NULL or not. */
-long long memtoll(const char *p, int *err) {
+unsigned long long memtoull(const char *p, int *err) {
     const char *u;
     char buf[128];
     long mul; /* unit multiplier */
-    long long val;
+    unsigned long long val;
     unsigned int digits;
 
     if (err) *err = 0;
 
     /* Search the first non digit character. */
     u = p;
-    if (*u == '-') u++;
+    if (*u == '-') {
+        if (err) *err = 1;
+        return 0;
+    }
     while(*u && isdigit(*u)) u++;
     if (*u == '\0' || !strcasecmp(u,"b")) {
         mul = 1;
@@ -221,12 +240,39 @@ long long memtoll(const char *p, int *err) {
 
     char *endptr;
     errno = 0;
-    val = strtoll(buf,&endptr,10);
+    val = strtoull(buf,&endptr,10);
     if ((val == 0 && errno == EINVAL) || *endptr != '\0') {
         if (err) *err = 1;
         return 0;
     }
     return val*mul;
+}
+
+/* Search a memory buffer for any set of bytes, like strpbrk().
+ * Returns pointer to first found char or NULL.
+ */
+const char *mempbrk(const char *s, size_t len, const char *chars, size_t charslen) {
+    for (size_t j = 0; j < len; j++) {
+        for (size_t n = 0; n < charslen; n++)
+            if (s[j] == chars[n]) return &s[j];
+    }
+
+    return NULL;
+}
+
+/* Modify the buffer replacing all occurrences of chars from the 'from'
+ * set with the corresponding char in the 'to' set. Always returns s.
+ */
+char *memmapchars(char *s, size_t len, const char *from, const char *to, size_t setlen) {
+    for (size_t j = 0; j < len; j++) {
+        for (size_t i = 0; i < setlen; i++) {
+            if (s[j] == from[i]) {
+                s[j] = to[i];
+                break;
+            }
+        }
+    }
+    return s;
 }
 
 /* Return the number of digits of 'v' when converted to string in radix 10.
@@ -265,26 +311,12 @@ uint32_t sdigits10(int64_t v) {
 
 /* Convert a long long into a string. Returns the number of
  * characters needed to represent the number.
- * If the buffer is not big enough to store the string, 0 is returned.
- *
- * Based on the following article (that apparently does not provide a
- * novel approach but only publicizes an already used technique):
- *
- * https://www.facebook.com/notes/facebook-engineering/three-optimization-tips-for-c/10151361643253920
- *
- * Modified in order to handle signed integers since the original code was
- * designed for unsigned integers. */
+ * If the buffer is not big enough to store the string, 0 is returned. */
 int ll2string(char *dst, size_t dstlen, long long svalue) {
-    static const char digits[201] =
-        "0001020304050607080910111213141516171819"
-        "2021222324252627282930313233343536373839"
-        "4041424344454647484950515253545556575859"
-        "6061626364656667686970717273747576777879"
-        "8081828384858687888990919293949596979899";
-    int negative;
     unsigned long long value;
+    int negative = 0;
 
-    /* The main loop works with 64bit unsigned integers for simplicity, so
+    /* The ull2string function with 64bit unsigned integers for simplicity, so
      * we convert the number here and remember if it is negative. */
     if (svalue < 0) {
         if (svalue != LLONG_MIN) {
@@ -292,20 +324,45 @@ int ll2string(char *dst, size_t dstlen, long long svalue) {
         } else {
             value = ((unsigned long long) LLONG_MAX)+1;
         }
+        if (dstlen < 2)
+            return 0;
         negative = 1;
+        dst[0] = '-';
+        dst++;
+        dstlen--;
     } else {
         value = svalue;
-        negative = 0;
     }
 
+    /* Converts the unsigned long long value to string*/
+    int length = ull2string(dst, dstlen, value);
+    if (length == 0) return 0;
+    return length + negative;
+}
+
+/* Convert a unsigned long long into a string. Returns the number of
+ * characters needed to represent the number.
+ * If the buffer is not big enough to store the string, 0 is returned.
+ *
+ * Based on the following article (that apparently does not provide a
+ * novel approach but only publicizes an already used technique):
+ *
+ * https://www.facebook.com/notes/facebook-engineering/three-optimization-tips-for-c/10151361643253920 */
+int ull2string(char *dst, size_t dstlen, unsigned long long value) {
+    static const char digits[201] =
+        "0001020304050607080910111213141516171819"
+        "2021222324252627282930313233343536373839"
+        "4041424344454647484950515253545556575859"
+        "6061626364656667686970717273747576777879"
+        "8081828384858687888990919293949596979899";
+
     /* Check length. */
-    uint32_t const length = digits10(value)+negative;
+    uint32_t length = digits10(value);
     if (length >= dstlen) return 0;
 
     /* Null term. */
-    uint32_t next = length;
-    dst[next] = '\0';
-    next--;
+    uint32_t next = length - 1;
+    dst[next + 1] = '\0';
     while (value >= 100) {
         int const i = (value % 100) * 2;
         value /= 100;
@@ -323,8 +380,6 @@ int ll2string(char *dst, size_t dstlen, long long svalue) {
         dst[next - 1] = digits[i];
     }
 
-    /* Add sign. */
-    if (negative) dst[0] = '-';
     return length;
 }
 
@@ -346,6 +401,7 @@ int string2ll(const char *s, size_t slen, long long *value) {
     int negative = 0;
     unsigned long long v;
 
+    /* A zero length string is not a valid number. */
     if (plen == slen)
         return 0;
 
@@ -355,6 +411,8 @@ int string2ll(const char *s, size_t slen, long long *value) {
         return 1;
     }
 
+    /* Handle negative numbers: just set a flag and continue like if it
+     * was a positive number. Later convert into negative. */
     if (p[0] == '-') {
         negative = 1;
         p++; plen++;
@@ -368,13 +426,11 @@ int string2ll(const char *s, size_t slen, long long *value) {
     if (p[0] >= '1' && p[0] <= '9') {
         v = p[0]-'0';
         p++; plen++;
-    } else if (p[0] == '0' && slen == 1) {
-        *value = 0;
-        return 1;
     } else {
         return 0;
     }
 
+    /* Parse all the other digits, checking for overflow at every step. */
     while (plen < slen && p[0] >= '0' && p[0] <= '9') {
         if (v > (ULLONG_MAX / 10)) /* Overflow. */
             return 0;
@@ -391,6 +447,8 @@ int string2ll(const char *s, size_t slen, long long *value) {
     if (plen < slen)
         return 0;
 
+    /* Convert to negative if needed, and do the final overflow check when
+     * converting from unsigned long long to long long. */
     if (negative) {
         if (v > ((unsigned long long)(-(LLONG_MIN+1))+1)) /* Overflow. */
             return 0;
@@ -401,6 +459,26 @@ int string2ll(const char *s, size_t slen, long long *value) {
         if (value != NULL) *value = v;
     }
     return 1;
+}
+
+/* Helper function to convert a string to an unsigned long long value.
+ * The function attempts to use the faster string2ll() function inside
+ * Redis: if it fails, strtoull() is used instead. The function returns
+ * 1 if the conversion happened successfully or 0 if the number is
+ * invalid or out of range. */
+int string2ull(const char *s, unsigned long long *value) {
+    long long ll;
+    if (string2ll(s,strlen(s),&ll)) {
+        if (ll < 0) return 0; /* Negative values are out of range. */
+        *value = ll;
+        return 1;
+    }
+    errno = 0;
+    char *endptr = NULL;
+    *value = strtoull(s,&endptr,10);
+    if (errno == EINVAL || errno == ERANGE || !(*s != '\0' && *endptr == '\0'))
+        return 0; /* strtoull() failed. */
+    return 1; /* Conversion done! */
 }
 
 /* Convert a string into a long. Returns 1 if the string could be parsed into a
@@ -427,17 +505,18 @@ int string2l(const char *s, size_t slen, long *lval) {
  * a double: no spaces or other characters before or after the string
  * representing the number are accepted. */
 int string2ld(const char *s, size_t slen, long double *dp) {
-    char buf[256];
+    char buf[MAX_LONG_DOUBLE_CHARS];
     long double value;
     char *eptr;
 
-    if (slen >= sizeof(buf)) return 0;
+    if (slen == 0 || slen >= sizeof(buf)) return 0;
     memcpy(buf,s,slen);
     buf[slen] = '\0';
 
     errno = 0;
     value = strtold(buf, &eptr);
     if (isspace(buf[0]) || eptr[0] != '\0' ||
+        (size_t)(eptr-buf) != slen ||
         (errno == ERANGE &&
             (value == HUGE_VAL || value == -HUGE_VAL || value == 0)) ||
         errno == EINVAL ||
@@ -448,11 +527,32 @@ int string2ld(const char *s, size_t slen, long double *dp) {
     return 1;
 }
 
+/* Convert a string into a double. Returns 1 if the string could be parsed
+ * into a (non-overflowing) double, 0 otherwise. The value will be set to
+ * the parsed value when appropriate.
+ *
+ * Note that this function demands that the string strictly represents
+ * a double: no spaces or other characters before or after the string
+ * representing the number are accepted. */
+int string2d(const char *s, size_t slen, double *dp) {
+    errno = 0;
+    char *eptr;
+    *dp = strtod(s, &eptr);
+    if (slen == 0 ||
+        isspace(((const char*)s)[0]) ||
+        (size_t)(eptr-(char*)s) != slen ||
+        (errno == ERANGE &&
+            (*dp == HUGE_VAL || *dp == -HUGE_VAL || *dp == 0)) ||
+        isnan(*dp))
+        return 0;
+    return 1;
+}
+
 /* Convert a double to a string representation. Returns the number of bytes
  * required. The representation should always be parsable by strtod(3).
  * This function does not support human-friendly formatting like ld2string
- * does. It is intented mainly to be used inside t_zset.c when writing scores
- * into a ziplist representing a sorted set. */
+ * does. It is intended mainly to be used inside t_zset.c when writing scores
+ * into a listpack representing a sorted set. */
 int d2string(char *buf, size_t len, double value) {
     if (isnan(value)) {
         len = snprintf(buf,len,"nan");
@@ -490,15 +590,17 @@ int d2string(char *buf, size_t len, double value) {
     return len;
 }
 
-/* Convert a long double into a string. If humanfriendly is non-zero
- * it does not use exponential format and trims trailing zeroes at the end,
- * however this results in loss of precision. Otherwise exp format is used
- * and the output of snprintf() is not modified.
+/* Create a string object from a long double.
+ * If mode is humanfriendly it does not use exponential format and trims trailing
+ * zeroes at the end (may result in loss of precision).
+ * If mode is default exp format is used and the output of snprintf()
+ * is not modified (may result in loss of precision).
+ * If mode is hex hexadecimal format is used (no loss of precision)
  *
  * The function returns the length of the string or zero if there was not
  * enough buffer room to store it. */
-int ld2string(char *buf, size_t len, long double value, int humanfriendly) {
-    size_t l;
+int ld2string(char *buf, size_t len, long double value, ld2string_mode mode) {
+    size_t l = 0;
 
     if (isinf(value)) {
         /* Libc in odd systems (Hi Solaris!) will format infinite in a
@@ -511,26 +613,40 @@ int ld2string(char *buf, size_t len, long double value, int humanfriendly) {
             memcpy(buf,"-inf",4);
             l = 4;
         }
-    } else if (humanfriendly) {
-        /* We use 17 digits precision since with 128 bit floats that precision
-         * after rounding is able to represent most small decimal numbers in a
-         * way that is "non surprising" for the user (that is, most small
-         * decimal numbers will be represented in a way that when converted
-         * back into a string are exactly the same as what the user typed.) */
-        l = snprintf(buf,len,"%.17Lf", value);
-        if (l+1 > len) return 0; /* No room. */
-        /* Now remove trailing zeroes after the '.' */
-        if (strchr(buf,'.') != NULL) {
-            char *p = buf+l-1;
-            while(*p == '0') {
-                p--;
-                l--;
-            }
-            if (*p == '.') l--;
-        }
     } else {
-        l = snprintf(buf,len,"%.17Lg", value);
-        if (l+1 > len) return 0; /* No room. */
+        switch (mode) {
+        case LD_STR_AUTO:
+            l = snprintf(buf,len,"%.17Lg",value);
+            if (l+1 > len) return 0; /* No room. */
+            break;
+        case LD_STR_HEX:
+            l = snprintf(buf,len,"%La",value);
+            if (l+1 > len) return 0; /* No room. */
+            break;
+        case LD_STR_HUMAN:
+            /* We use 17 digits precision since with 128 bit floats that precision
+             * after rounding is able to represent most small decimal numbers in a
+             * way that is "non surprising" for the user (that is, most small
+             * decimal numbers will be represented in a way that when converted
+             * back into a string are exactly the same as what the user typed.) */
+            l = snprintf(buf,len,"%.17Lf",value);
+            if (l+1 > len) return 0; /* No room. */
+            /* Now remove trailing zeroes after the '.' */
+            if (strchr(buf,'.') != NULL) {
+                char *p = buf+l-1;
+                while(*p == '0') {
+                    p--;
+                    l--;
+                }
+                if (*p == '.') l--;
+            }
+            if (l == 2 && buf[0] == '-' && buf[1] == '0') {
+                buf[0] = '0';
+                l = 1;
+            }
+            break;
+        default: return 0; /* Invalid mode. */
+        }
     }
     buf[l] = '\0';
     return l;
@@ -544,7 +660,7 @@ int ld2string(char *buf, size_t len, long double value, int humanfriendly) {
 void getRandomBytes(unsigned char *p, size_t len) {
     /* Global state. */
     static int seed_initialized = 0;
-    static unsigned char seed[20]; /* The SHA1 seed, from /dev/urandom. */
+    static unsigned char seed[64]; /* 512 bit internal block size. */
     static uint64_t counter = 0; /* The counter we hash with the seed. */
 
     if (!seed_initialized) {
@@ -569,14 +685,34 @@ void getRandomBytes(unsigned char *p, size_t len) {
     }
 
     while(len) {
-        unsigned char digest[20];
-        SHA1_CTX ctx;
-        unsigned int copylen = len > 20 ? 20 : len;
+        /* This implements SHA256-HMAC. */
+        unsigned char digest[SHA256_BLOCK_SIZE];
+        unsigned char kxor[64];
+        unsigned int copylen =
+            len > SHA256_BLOCK_SIZE ? SHA256_BLOCK_SIZE : len;
 
-        SHA1Init(&ctx);
-        SHA1Update(&ctx, seed, sizeof(seed));
-        SHA1Update(&ctx, (unsigned char*)&counter,sizeof(counter));
-        SHA1Final(digest, &ctx);
+        /* IKEY: key xored with 0x36. */
+        memcpy(kxor,seed,sizeof(kxor));
+        for (unsigned int i = 0; i < sizeof(kxor); i++) kxor[i] ^= 0x36;
+
+        /* Obtain HASH(IKEY||MESSAGE). */
+        SHA256_CTX ctx;
+        sha256_init(&ctx);
+        sha256_update(&ctx,kxor,sizeof(kxor));
+        sha256_update(&ctx,(unsigned char*)&counter,sizeof(counter));
+        sha256_final(&ctx,digest);
+
+        /* OKEY: key xored with 0x5c. */
+        memcpy(kxor,seed,sizeof(kxor));
+        for (unsigned int i = 0; i < sizeof(kxor); i++) kxor[i] ^= 0x5C;
+
+        /* Obtain HASH(OKEY || HASH(IKEY||MESSAGE)). */
+        sha256_init(&ctx);
+        sha256_update(&ctx,kxor,sizeof(kxor));
+        sha256_update(&ctx,digest,SHA256_BLOCK_SIZE);
+        sha256_final(&ctx,digest);
+
+        /* Increment the counter for the next iteration. */
         counter++;
 
         memcpy(p,digest,copylen);
@@ -602,7 +738,7 @@ void getRandomHexChars(char *p, size_t len) {
  * already, this will be detected and handled correctly.
  *
  * The function does not try to normalize everything, but only the obvious
- * case of one or more "../" appearning at the start of "filename"
+ * case of one or more "../" appearing at the start of "filename"
  * relative path. */
 sds getAbsolutePath(char *filename) {
     char cwd[1024];
@@ -647,6 +783,23 @@ sds getAbsolutePath(char *filename) {
     abspath = sdscatsds(abspath,relpath);
     sdsfree(relpath);
     return abspath;
+}
+
+/*
+ * Gets the proper timezone in a more portable fashion
+ * i.e timezone variables are linux specific.
+ */
+long getTimeZone(void) {
+#if defined(__linux__) || defined(__sun)
+    return timezone;
+#else
+    struct timeval tv;
+    struct timezone tz;
+
+    gettimeofday(&tv, &tz);
+
+    return tz.tz_minuteswest * 60L;
+#endif
 }
 
 /* Return true if the specified path is just a file basename without any
@@ -806,9 +959,10 @@ static void test_ll2string(void) {
 }
 
 #define UNUSED(x) (void)(x)
-int utilTest(int argc, char **argv) {
+int utilTest(int argc, char **argv, int flags) {
     UNUSED(argc);
     UNUSED(argv);
+    UNUSED(flags);
 
     test_string2ll();
     test_string2l();

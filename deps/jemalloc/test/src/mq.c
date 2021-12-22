@@ -5,9 +5,7 @@
  * time is guaranteed.
  */
 void
-mq_nanosleep(unsigned ns)
-{
-
+mq_nanosleep(unsigned ns) {
 	assert(ns <= 1000*1000*1000);
 
 #ifdef _WIN32
