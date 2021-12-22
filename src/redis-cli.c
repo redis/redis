@@ -254,7 +254,7 @@ static struct config {
     clusterManagerCommand cluster_manager_command;
     int no_auth_warning;
     int resp2;
-    int resp3; /* value of 1: specified explicitly, value of 2: inplicit like --json option */
+    int resp3; /* value of 1: specified explicitly, value of 2: implicit like --json option */
     int in_multi;
     int pre_multi_dbnum;
 } config;
