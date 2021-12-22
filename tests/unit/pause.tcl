@@ -1,6 +1,6 @@
 start_server {tags {"pause network"}} {
     test "Test read commands are not blocked by client pause" {
-        r client PAUSE 100000000 WRITE
+        r client PAUSE 100000 WRITE
         set rd [redis_deferring_client]
         $rd GET FOO
         $rd PING
@@ -11,7 +11,7 @@ start_server {tags {"pause network"}} {
     }
 
     test "Test write commands are paused by RO" {
-        r client PAUSE 100000000 WRITE
+        r client PAUSE 60000 WRITE
 
         set rd [redis_deferring_client]
         $rd SET FOO BAR
@@ -24,7 +24,7 @@ start_server {tags {"pause network"}} {
 
     test "Test special commands are paused by RO" {
         r PFADD pause-hll test
-        r client PAUSE 100000000 WRITE
+        r client PAUSE 100000 WRITE
 
         # Test that pfcount, which can replicate, is also blocked
         set rd [redis_deferring_client]
@@ -46,7 +46,7 @@ start_server {tags {"pause network"}} {
 
     test "Test read/admin mutli-execs are not blocked by pause RO" {
         r SET FOO BAR
-        r client PAUSE 100000000 WRITE
+        r client PAUSE 100000 WRITE
         set rd [redis_deferring_client]
         $rd MULTI
         assert_equal [$rd read] "OK"
@@ -67,7 +67,7 @@ start_server {tags {"pause network"}} {
         assert_equal [$rd read] "OK"
         $rd SET FOO BAR
         assert_equal [$rd read] "QUEUED"
-        r client PAUSE 100000000 WRITE
+        r client PAUSE 60000 WRITE
         $rd EXEC
         wait_for_blocked_clients_count 1 50 100
         r client unpause 
@@ -76,7 +76,7 @@ start_server {tags {"pause network"}} {
     }
 
     test "Test scripts are blocked by pause RO" {
-        r client PAUSE 100000000 WRITE
+        r client PAUSE 60000 WRITE
         set rd [redis_deferring_client]
         $rd EVAL "return 1" 0
 
@@ -87,7 +87,7 @@ start_server {tags {"pause network"}} {
     }
 
     test "Test multiple clients can be queued up and unblocked" {
-        r client PAUSE 100000000 WRITE
+        r client PAUSE 60000 WRITE
         set clients [list [redis_deferring_client] [redis_deferring_client] [redis_deferring_client]]
         foreach client $clients {
             $client SET FOO BAR
@@ -102,7 +102,7 @@ start_server {tags {"pause network"}} {
     }
 
     test "Test clients with syntax errors will get responses immediately" {
-        r client PAUSE 100000000 WRITE
+        r client PAUSE 100000 WRITE
         catch {r set FOO} err
         assert_match "ERR wrong number of arguments for *" $err
         r client unpause
@@ -113,7 +113,7 @@ start_server {tags {"pause network"}} {
         r multi
         r set foo{t} bar{t} PX 10
         r set bar{t} foo{t} PX 10
-        r client PAUSE 100000000 WRITE
+        r client PAUSE 50000 WRITE
         r exec
 
         wait_for_condition 10 100 {
@@ -138,7 +138,7 @@ start_server {tags {"pause network"}} {
     test "Test that client pause starts at the end of a transaction" {
         r MULTI
         r SET FOO1{t} BAR
-        r client PAUSE 100000000 WRITE
+        r client PAUSE 60000 WRITE
         r SET FOO2{t} BAR
         r exec
 
