@@ -5884,6 +5884,8 @@ static int clusterManagerCommandAddNode(int argc, char **argv) {
                 goto cleanup;
             }
         }
+        if (reply) freeReplyObject(reply);
+        if (function_restore_reply) freeReplyObject(function_restore_reply);
     }
 
     // Send CLUSTER MEET command to the new node
