@@ -5880,6 +5880,7 @@ static int clusterManagerCommandAddNode(int argc, char **argv) {
             if (!clusterManagerCheckRedisReply(new_node, function_restore_reply, &err)) {
                 clusterManagerLogErr(">>> Failed loading functions to the new node (error = '%s')\r\n", err? err : "NULL reply");
                 if (err) zfree(err);
+                success = 0;
                 goto cleanup;
             }
         }

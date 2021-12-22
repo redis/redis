@@ -154,4 +154,79 @@ start_server [list overrides $base_conf] {
 }
 }
 
+# start servers
+start_server [list overrides $base_conf] {
+start_server [list overrides $base_conf] {
+start_server [list overrides $base_conf] {
+start_server [list overrides $base_conf] {
+start_server [list overrides $base_conf] {
+
+    set node1 [srv 0 client]
+    set node2 [srv -1 client]
+    set node3 [srv -2 client]
+    set node4 [srv -3 client]
+    set node4_rd [redis_deferring_client -3]
+    set node5 [srv -4 client]
+    set node5_rd [redis_deferring_client -4]
+
+    test {Add node to the cluster} {
+        exec src/redis-cli --cluster-yes --cluster create \
+                           127.0.0.1:[srv 0 port] \
+                           127.0.0.1:[srv -1 port] \
+                           127.0.0.1:[srv -2 port]
+
+
+        wait_for_condition 1000 50 {
+            [csi 0 cluster_state] eq {ok} &&
+            [csi -1 cluster_state] eq {ok} &&
+            [csi -2 cluster_state] eq {ok}
+        } else {
+            fail "Cluster doesn't stabilize"
+        }
+
+        # upload a function to all the cluster
+        exec src/redis-cli --cluster-yes --cluster call 127.0.0.1:[srv 0 port] \
+                           FUNCTION CREATE LUA TEST {return 'hello'}
+
+        # adding node to the cluster
+        exec src/redis-cli --cluster-yes --cluster add-node \
+                       127.0.0.1:[srv -3 port] \
+                       127.0.0.1:[srv 0 port]
+
+        wait_for_condition 1000 50 {
+            [csi 0 cluster_state] eq {ok} &&
+            [csi -1 cluster_state] eq {ok} &&
+            [csi -2 cluster_state] eq {ok} &&
+            [csi -3 cluster_state] eq {ok}
+        } else {
+            fail "Cluster doesn't stabilize"
+        }
+
+        # make sure 'test' function was added to the new node
+        $node4_rd FUNCTION LIST
+        assert_equal {{name TEST engine LUA description {}}} [$node4_rd read]
+
+        # add function to node 5
+        $node5_rd FUNCTION CREATE LUA TEST {return 'hello1'}
+        assert_equal {OK} [$node5_rd read]
+
+        # make sure functions was added to node 5
+        $node5_rd FUNCTION LIST
+        assert_equal {{name TEST engine LUA description {}}} [$node5_rd read]
+
+        # adding node 5 to the cluster should failed because it already contains the 'test' function
+        catch {
+            exec src/redis-cli --cluster-yes --cluster add-node \
+                        127.0.0.1:[srv -4 port] \
+                        127.0.0.1:[srv 0 port]
+        } e
+        assert_match {*Failed loading functions to the new node*} $e        
+    }
+# stop three servers
+}
+}
+}
+}
+}
+
 } ;# tags
