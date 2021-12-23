@@ -1148,10 +1148,9 @@ static sds cliFormatReplyCSV(redisReply *r) {
     return out;
 }
 
-static sds cliFormatReplyJson(redisReply *r) {
+static sds cliFormatReplyJson(sds out, redisReply *r) {
     unsigned int i;
 
-    sds out = sdsempty();
     switch (r->type) {
     case REDIS_REPLY_ERROR:
         out = sdscat(out,"error:");
@@ -1181,26 +1180,20 @@ static sds cliFormatReplyJson(redisReply *r) {
     case REDIS_REPLY_PUSH:
         out = sdscat(out,"[");
         for (i = 0; i < r->elements; i++ ) {
-            sds tmp = cliFormatReplyJson(r->element[i]);
-            out = sdscatlen(out,tmp,sdslen(tmp));
+            out = cliFormatReplyJson(out, r->element[i]);
             if (i != r->elements-1) out = sdscat(out,",");
-            sdsfree(tmp);
         }
         out = sdscat(out,"]");
         break;
     case REDIS_REPLY_MAP:
         out = sdscat(out,"{");
         for (i = 0; i < r->elements; i += 2) {
-            sds tmp = cliFormatReplyJson(r->element[i]);
-            out = sdscatlen(out,tmp,sdslen(tmp));
-            sdsfree(tmp);
+            out = cliFormatReplyJson(out, r->element[i]);
 
             out = sdscat(out,":");
 
-            tmp = cliFormatReplyJson(r->element[i+1]);
-            out = sdscatlen(out,tmp,sdslen(tmp));
+            out = cliFormatReplyJson(out, r->element[i+1]);
             if (i != r->elements-2) out = sdscat(out,",");
-            sdsfree(tmp);
         }
         out = sdscat(out,"}");
         break;
@@ -1226,7 +1219,7 @@ static sds cliFormatReply(redisReply *reply, int mode, int verbatim) {
         out = cliFormatReplyCSV(reply);
         out = sdscatlen(out, "\n", 1);
     } else if (mode == OUTPUT_JSON) {
-        out = cliFormatReplyJson(reply);
+        out = cliFormatReplyJson(sdsempty(), reply);
         out = sdscatlen(out, "\n", 1);
     } else {
         fprintf(stderr, "Error:  Unknown output encoding %d\n", mode);
