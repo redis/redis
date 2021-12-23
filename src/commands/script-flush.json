@@ -14,8 +14,7 @@
             ]
         ],
         "command_flags": [
-            "NOSCRIPT",
-            "MAY_REPLICATE"
+            "NOSCRIPT"
         ],
         "acl_categories": [
             "SCRIPTING"

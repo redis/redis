@@ -960,7 +960,7 @@ void serveClientBlockedOnList(client *receiver, robj *o, robj *key, robj *dstkey
             serverAssert(llen > 0);
 
             argv[2] = createStringObjectFromLongLong((count > llen) ? llen : count);
-            propagate(db->id, argv, 3, PROPAGATE_AOF|PROPAGATE_REPL);
+            alsoPropagate(db->id, argv, 3, PROPAGATE_AOF|PROPAGATE_REPL);
             decrRefCount(argv[2]);
 
             /* Pop a range of elements in a nested arrays way. */
@@ -968,7 +968,7 @@ void serveClientBlockedOnList(client *receiver, robj *o, robj *key, robj *dstkey
             return;
         }
 
-        propagate(db->id, argv, 2, PROPAGATE_AOF|PROPAGATE_REPL);
+        alsoPropagate(db->id, argv, 2, PROPAGATE_AOF|PROPAGATE_REPL);
 
         /* BRPOP/BLPOP */
         value = listTypePop(o, wherefrom);
@@ -999,7 +999,7 @@ void serveClientBlockedOnList(client *receiver, robj *o, robj *key, robj *dstkey
             argv[2] = dstkey;
             argv[3] = getStringObjectFromListPosition(wherefrom);
             argv[4] = getStringObjectFromListPosition(whereto);
-            propagate(db->id,argv,(isbrpoplpush ? 3 : 5),PROPAGATE_AOF|PROPAGATE_REPL);
+            alsoPropagate(db->id,argv,(isbrpoplpush ? 3 : 5),PROPAGATE_AOF|PROPAGATE_REPL);
 
             /* Notify event ("lpush" or "rpush" was notified by lmoveHandlePush). */
             notifyKeyspaceEvent(NOTIFY_LIST,wherefrom == LIST_TAIL ? "rpop" : "lpop",

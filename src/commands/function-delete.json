@@ -1,7 +1,7 @@
 {
     "DELETE": {
-        "summary": "PATCH__TBD__23__",
-        "complexity": "PATCH__TBD__22__",
+        "summary": "Delete a function by name",
+        "complexity": "O(1)",
         "group": "scripting",
         "since": "7.0.0",
         "arity": 3,
@@ -9,7 +9,7 @@
         "function": "functionDeleteCommand",
         "command_flags": [
             "NOSCRIPT",
-            "MAY_REPLICATE"
+            "WRITE"
         ],
         "acl_categories": [
             "SCRIPTING"

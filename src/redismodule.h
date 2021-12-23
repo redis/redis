@@ -287,68 +287,68 @@ struct RedisModuleDefragCtx;
 typedef void (*RedisModuleEventCallback)(struct RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data);
 
 static const RedisModuleEvent
-        RedisModuleEvent_ReplicationRoleChanged = {
+    RedisModuleEvent_ReplicationRoleChanged = {
         REDISMODULE_EVENT_REPLICATION_ROLE_CHANGED,
         1
-},
-        RedisModuleEvent_Persistence = {
+    },
+    RedisModuleEvent_Persistence = {
         REDISMODULE_EVENT_PERSISTENCE,
         1
-},
-        RedisModuleEvent_FlushDB = {
+    },
+    RedisModuleEvent_FlushDB = {
         REDISMODULE_EVENT_FLUSHDB,
         1
-},
-        RedisModuleEvent_Loading = {
+    },
+    RedisModuleEvent_Loading = {
         REDISMODULE_EVENT_LOADING,
         1
-},
-        RedisModuleEvent_ClientChange = {
+    },
+    RedisModuleEvent_ClientChange = {
         REDISMODULE_EVENT_CLIENT_CHANGE,
         1
-},
-        RedisModuleEvent_Shutdown = {
+    },
+    RedisModuleEvent_Shutdown = {
         REDISMODULE_EVENT_SHUTDOWN,
         1
-},
-        RedisModuleEvent_ReplicaChange = {
+    },
+    RedisModuleEvent_ReplicaChange = {
         REDISMODULE_EVENT_REPLICA_CHANGE,
         1
-},
-        RedisModuleEvent_CronLoop = {
+    },
+    RedisModuleEvent_CronLoop = {
         REDISMODULE_EVENT_CRON_LOOP,
         1
-},
-        RedisModuleEvent_MasterLinkChange = {
+    },
+    RedisModuleEvent_MasterLinkChange = {
         REDISMODULE_EVENT_MASTER_LINK_CHANGE,
         1
-},
-        RedisModuleEvent_ModuleChange = {
+    },
+    RedisModuleEvent_ModuleChange = {
         REDISMODULE_EVENT_MODULE_CHANGE,
         1
-},
-        RedisModuleEvent_LoadingProgress = {
+    },
+    RedisModuleEvent_LoadingProgress = {
         REDISMODULE_EVENT_LOADING_PROGRESS,
         1
-},
-        RedisModuleEvent_SwapDB = {
+    },
+    RedisModuleEvent_SwapDB = {
         REDISMODULE_EVENT_SWAPDB,
         1
-},
-/* Deprecated since Redis 7.0, not used anymore. */
-__attribute__ ((deprecated))
-RedisModuleEvent_ReplBackup = {
-        REDISMODULE_EVENT_REPL_BACKUP,
+    },
+    /* Deprecated since Redis 7.0, not used anymore. */
+    __attribute__ ((deprecated))
+    RedisModuleEvent_ReplBackup = {
+        REDISMODULE_EVENT_REPL_BACKUP, 
         1
-},
-        RedisModuleEvent_ReplAsyncLoad = {
+    },
+    RedisModuleEvent_ReplAsyncLoad = {
         REDISMODULE_EVENT_REPL_ASYNC_LOAD,
         1
-},
-        RedisModuleEvent_ForkChild = {
+    },
+    RedisModuleEvent_ForkChild = {
         REDISMODULE_EVENT_FORK_CHILD,
         1
-};
+    };
 
 /* Those are values that are used for the 'subevent' callback argument. */
 #define REDISMODULE_SUBEVENT_PERSISTENCE_RDB_START 0

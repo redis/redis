@@ -1,7 +1,7 @@
 {
     "STATS": {
-        "summary": "PATCH__TBD__34__",
-        "complexity": "PATCH__TBD__33__",
+        "summary": "Return information about the function currently running (name, description, duration)",
+        "complexity": "O(1)",
         "group": "scripting",
         "since": "7.0.0",
         "arity": 2,
