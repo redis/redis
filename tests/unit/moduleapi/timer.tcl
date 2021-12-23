@@ -64,7 +64,7 @@ start_server {tags {"modules"}} {
         wait_for_condition 50 1000 {
             [expr [clock clicks -milliseconds]-$start] > $scriptTimeLimit
         } else {
-            puts "Failed waiting for busy command to pass script-time-limit"
+            fail "Failed waiting for busy command to pass script-time-limit"
        }
         for {set j 0} {$j<10} {incr j} {
             catch {r ping} e

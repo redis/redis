@@ -158,7 +158,8 @@ struct RedisModuleCtx {
     getKeysResult *keys_result;
 
     struct RedisModulePoolAllocBlock *pa_head;
-    long long start_time;
+    /* this var is used to monitor busy commands,
+     * and according to it decide sending SlowContextHeartbeat */
     long long next_event;
 };
 typedef struct RedisModuleCtx RedisModuleCtx;
@@ -442,24 +443,10 @@ char *RM_Strdup(const char *str) {
  * during a module busy job*/
 void RM_SlowContextHeartbeat(RedisModuleCtx *ctx) {
     long long now = getMonotonicUs();
-    long long elapsed = elapsedMs(ctx->start_time);
-
-    if (ctx->start_time == 0) {
-
-        ctx->start_time = ctx->next_event = now;
-        return;
-    }
-
-    if (elapsed < server.script_time_limit)
-        return;
-
     if (now >= ctx->next_event) {
-        blockingOperationStarts();
         server.busy_module = 1;
-
         processEventsWhileBlocked();
         server.busy_module = 0;
-        blockingOperationEnds();
         /* decide when the next event should fire. */
         ctx->next_event = now + 1000000 / server.hz;
     }
@@ -645,6 +632,7 @@ void moduleFreeContext(RedisModuleCtx *ctx) {
         if (--server.module_ctx_nesting == 0 && !server.core_propagates)
             propagatePendingCommands();
     }
+    blockingOperationEnds();
     autoMemoryCollect(ctx);
     poolAllocRelease(ctx);
     if (ctx->postponed_arrays) {
@@ -671,6 +659,8 @@ void moduleCreateContext(RedisModuleCtx *out_ctx, RedisModule *module, int ctx_f
     out_ctx->getapifuncptr = (void*)(unsigned long)&RM_GetApi;
     out_ctx->module = module;
     out_ctx->flags = ctx_flags;
+    out_ctx->next_event = getMonotonicUs() + server.script_time_limit;
+    blockingOperationStarts();
     if (!(ctx_flags & REDISMODULE_CTX_THREAD_SAFE)) {
         server.module_ctx_nesting++;
     }
