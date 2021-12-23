@@ -5801,6 +5801,7 @@ static int clusterManagerCommandAddNode(int argc, char **argv) {
     int success = 1;
     redisReply *reply = NULL;
     redisReply *function_restore_reply = NULL;
+    redisReply *function_list_reply = NULL;
     char *ref_ip = NULL, *ip = NULL;
     int ref_port = 0, port = 0;
     if (!getClusterHostFromCmdArgs(argc - 1, argv + 1, &ref_ip, &ref_port))
@@ -5875,8 +5876,22 @@ static int clusterManagerCommandAddNode(int argc, char **argv) {
             if (err) zfree(err);
         } else {
             assert(reply->type == REDIS_REPLY_STRING);
+            clusterManagerLogInfo(">>> Send FUNCTION LIST to %s:%d to verify there is no functions in it\n", ip, port);
+            function_list_reply = CLUSTER_MANAGER_COMMAND(new_node, "FUNCTION LIST");
+            if (!clusterManagerCheckRedisReply(new_node, function_list_reply, &err)) {
+                clusterManagerLogErr(">>> Failed on CLUSTER LIST (error = '%s')\r\n", err? err : "NULL reply");
+                if (err) zfree(err);
+                success = 0;
+                goto cleanup;
+            }
+            assert(function_list_reply->type == REDIS_REPLY_ARRAY);
+            if (function_list_reply->elements > 0) {
+                clusterManagerLogErr(">>> New node already contains functions and can not be added to the cluster\r\n");
+                success = 0;
+                goto cleanup;
+            }
             clusterManagerLogInfo(">>> Send FUNCTION RESTORE to %s:%d\n", ip, port);
-            function_restore_reply = CLUSTER_MANAGER_COMMAND(new_node, "FUNCTION RESTORE %b APPEND", reply->str, reply->len);
+            function_restore_reply = CLUSTER_MANAGER_COMMAND(new_node, "FUNCTION RESTORE %b", reply->str, reply->len);
             if (!clusterManagerCheckRedisReply(new_node, function_restore_reply, &err)) {
                 clusterManagerLogErr(">>> Failed loading functions to the new node (error = '%s')\r\n", err? err : "NULL reply");
                 if (err) zfree(err);
@@ -5913,6 +5928,7 @@ cleanup:
     if (!added && new_node) freeClusterManagerNode(new_node);
     if (reply) freeReplyObject(reply);
     if (function_restore_reply) freeReplyObject(function_restore_reply);
+    if (function_list_reply) freeReplyObject(function_list_reply);
     return success;
 invalid_args:
     fprintf(stderr, CLUSTER_MANAGER_INVALID_HOST_ARG);

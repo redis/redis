@@ -162,15 +162,10 @@ start_server [list overrides $base_conf] {
 start_server [list overrides $base_conf] {
 start_server [list overrides $base_conf] {
 
-    set node1 [srv 0 client]
-    set node2 [srv -1 client]
-    set node3 [srv -2 client]
-    set node4 [srv -3 client]
-    set node4_rd [redis_deferring_client -3]
-    set node5 [srv -4 client]
-    set node5_rd [redis_deferring_client -4]
+    set node4_rd [redis_client -3]
+    set node5_rd [redis_client -4]
 
-    test {Add node to the cluster} {
+    test {Functions are added to new node on redis-cli cluster add-node} {
         exec src/redis-cli --cluster-yes --cluster create \
                            127.0.0.1:[srv 0 port] \
                            127.0.0.1:[srv -1 port] \
@@ -204,16 +199,13 @@ start_server [list overrides $base_conf] {
         }
 
         # make sure 'test' function was added to the new node
-        $node4_rd FUNCTION LIST
-        assert_equal {{name TEST engine LUA description {}}} [$node4_rd read]
+        assert_equal {{name TEST engine LUA description {}}} [$node4_rd FUNCTION LIST]
 
         # add function to node 5
-        $node5_rd FUNCTION CREATE LUA TEST {return 'hello1'}
-        assert_equal {OK} [$node5_rd read]
+        assert_equal {OK} [$node5_rd FUNCTION CREATE LUA TEST {return 'hello1'}]
 
         # make sure functions was added to node 5
-        $node5_rd FUNCTION LIST
-        assert_equal {{name TEST engine LUA description {}}} [$node5_rd read]
+        assert_equal {{name TEST engine LUA description {}}} [$node5_rd FUNCTION LIST]
 
         # adding node 5 to the cluster should failed because it already contains the 'test' function
         catch {
@@ -221,7 +213,7 @@ start_server [list overrides $base_conf] {
                         127.0.0.1:[srv -4 port] \
                         127.0.0.1:[srv 0 port]
         } e
-        assert_match {*Failed loading functions to the new node*} $e        
+        assert_match {*node already contains functions*} $e        
     }
 # stop 5 servers
 }
