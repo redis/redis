@@ -1307,8 +1307,11 @@ int ACLCheckCommandPerm(const user *u, struct redisCommand *cmd, robj **argv, in
     }
 
     /* Check if the user can execute commands explicitly touching the keys
-     * mentioned in the command arguments. */
+     * mentioned in the command arguments. Shard channels are treated as
+     * special keys for client library to rely on `COMMAND` command
+     * to discover the node to connect to. These don't need acl key check. */
     if (!(u->flags & USER_FLAG_ALLKEYS) &&
+        !(cmd->flags & CMD_PUBSUB) &&
         (cmd->getkeys_proc || cmd->key_specs_num))
     {
         getKeysResult result = GETKEYS_RESULT_INIT;

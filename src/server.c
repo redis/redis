@@ -2467,25 +2467,13 @@ void populateCommandLegacyRangeSpec(struct redisCommand *c) {
     if (c->key_specs_num == 0)
         return;
 
-    if (c->key_specs_num == 1) {
-        /* Commands SPUBLISH/SSUBSCRIBE/SUNSUBSCRIBE to support sharded channels have
-         * key specs defined for client to be able to handle parsing of channels
-         * using the information from `COMMAND` command.
-         *
-         * However, the sharded channels aren't actual keys and are treated differently
-         * from the keys. Hence, we want to avoid setting legacy range key spec for
-         * commands around sharded channels.
-         */
-        if (c->key_specs[0].flags & CMD_KEY_SHARD_CHANNEL) {
-            return;
-        }
-
-        if (c->key_specs[0].begin_search_type == KSPEC_BS_INDEX &&
-            c->key_specs[0].find_keys_type == KSPEC_FK_RANGE) {
-            /* Quick win */
-            c->legacy_range_key_spec = c->key_specs[0];
-            return;
-        }
+    if (c->key_specs_num == 1 &&
+        c->key_specs[0].begin_search_type == KSPEC_BS_INDEX &&
+        c->key_specs[0].find_keys_type == KSPEC_FK_RANGE)
+    {
+        /* Quick win */
+        c->legacy_range_key_spec = c->key_specs[0];
+        return;
     }
 
     int firstkey = INT_MAX, lastkey = 0;
@@ -3251,10 +3239,6 @@ int processCommand(client *c) {
                                  (c->cmd->proc == execCommand && (c->mstate.cmd_inv_flags & CMD_LOADING));
     int is_may_replicate_command = (c->cmd->flags & (CMD_WRITE | CMD_MAY_REPLICATE)) ||
                                    (c->cmd->proc == execCommand && (c->mstate.cmd_flags & (CMD_WRITE | CMD_MAY_REPLICATE)));
-    int is_pubsubshard_command = c->cmd->proc == ssubscribeCommand ||
-            c->cmd->proc == sunsubscribeCommand ||
-            c->cmd->proc == spublishCommand;
-
 
     if (authRequired(c)) {
         /* AUTH and HELLO and no auth commands are valid even in
@@ -3297,14 +3281,13 @@ int processCommand(client *c) {
     /* If cluster is enabled perform the cluster redirection here.
      * However we don't perform the redirection if:
      * 1) The sender of this command is our master.
-     * 2) The command has no key or local channel arguments. */
+     * 2) The command has no key arguments. */
     if (server.cluster_enabled &&
         !(c->flags & CLIENT_MASTER) &&
         !(c->flags & CLIENT_SCRIPT &&
           server.script_caller->flags & CLIENT_MASTER) &&
-        (is_pubsubshard_command ||
-         !(!c->cmd->movablekeys && c->cmd->key_specs_num == 0 &&
-          c->cmd->proc != execCommand)))
+        !(!c->cmd->movablekeys && c->cmd->key_specs_num == 0 &&
+          c->cmd->proc != execCommand))
     {
         int hashslot;
         int error_code;

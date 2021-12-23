@@ -6208,11 +6208,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
         margv = ms->commands[i].argv;
 
         getKeysResult result = GETKEYS_RESULT_INIT;
-        if (is_pubsubshard) {
-            numkeys = getChannelsFromCommand(mcmd,margc,&result);
-        } else {
-            numkeys = getKeysFromCommand(mcmd,margv,margc,&result);
-        }
+        numkeys = getKeysFromCommand(mcmd,margv,margc,&result);
         keyindex = result.keys;
 
         for (j = 0; j < numkeys; j++) {

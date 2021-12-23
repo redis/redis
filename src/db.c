@@ -1693,35 +1693,6 @@ int getKeysFromCommand(struct redisCommand *cmd, robj **argv, int argc, getKeysR
     }
 }
 
-/* The method is to extract the channels based on the values in the
- * pubsubshard related commands.
- * (first, last, step) - First channel occurrence, last channel occurrence,
- * steps between each key.
- */
-int genericGetChannels(int first, int last, int step, getKeysResult *result) {
-    int cnt = 0;
-    int *keys = getKeysPrepareResult(result,last-first+1);
-    for (int j = first; j <= last; j += step) {
-        keys[cnt++] = j;
-    }
-    result->numkeys = cnt;
-    return cnt;
-}
-
-/*
- * This method extracts channel(s) from
- * ssubscribe/sunsubscribe/spublish commands.
- */
-int getChannelsFromCommand(struct redisCommand *cmd, int argc, getKeysResult *result) {
-    if (cmd->proc == ssubscribeCommand || cmd->proc == sunsubscribeCommand) {
-        return genericGetChannels(1,argc-1,1,result);
-    } else if (cmd->proc == spublishCommand) {
-        return genericGetChannels(1,1,1,result);
-    } else {
-        return 0;
-    }
-}
-
 /* Free the result of getKeysFromCommand. */
 void getKeysFreeResult(getKeysResult *result) {
     if (result && result->keys != result->keysbuf)
