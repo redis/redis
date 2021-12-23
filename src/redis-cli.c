@@ -1908,9 +1908,7 @@ static void usage(int err) {
 "\n"
 "Examples:\n"
 "  cat /etc/passwd | redis-cli -x set mypasswd\n"
-"  redis-cli get mypasswd\n"
-"  cat /etc/passwd | redis-cli -X passwd_tag set mypasswd2 passwd_tag\n"
-"  redis-cli get mypasswd2\n"
+"  redis-cli -D \"\" --raw dump key > key.dump && redis-cli -X dump_tag restore key2 0 dump_tag replace < key.dump\n"
 "  redis-cli -r 100 lpush mylist x\n"
 "  redis-cli -r 100 -i 1 info | grep used_memory_human:\n"
 "  redis-cli --quoted-input set '\"null-\\x00-separated\"' value\n"
@@ -5574,6 +5572,7 @@ static void clusterManagerMode(clusterManagerCommandProc *proc) {
     cluster_manager.nodes = NULL;
     int success = proc(argc, argv);
 
+    /* Initialized in createClusterManagerCommand. */
     if (config.stdin_lastarg) {
         zfree(config.cluster_manager_command.argv);
         sdsfree(config.cluster_manager_command.stdin_arg);
