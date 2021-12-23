@@ -462,7 +462,7 @@ static int functionsVerifyName(sds name) {
 int functionsCreateWithFunctionCtx(sds function_name,sds engine_name, sds desc, sds code,
                                    int replace, sds* err, functionsCtx *functions) {
     if (functionsVerifyName(function_name)) {
-        *err = sdsnew("Bad function name given, function name should follow the following format: [a-zA-Z0-9_][a-zA-Z0-9_]?");
+        *err = sdsnew("Function names can only contain letters and numbers and must be at least one character long");
         return C_ERR;
     }
 
