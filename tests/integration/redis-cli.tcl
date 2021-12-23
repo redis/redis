@@ -321,17 +321,19 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
     }
 
     foreach {functions_only} {no yes} {
-        test "Dumping an RDB - functions only: $functions_only" {
-            # Disk-based master
-            assert_match "OK" [r config set repl-diskless-sync no]
-            test_redis_cli_rdb_dump $functions_only
 
-            # Disk-less master
-            assert_match "OK" [r config set repl-diskless-sync yes]
-            assert_match "OK" [r config set repl-diskless-sync-delay 0]
-            test_redis_cli_rdb_dump $functions_only
-        } {} {needs:repl needs:debug}
-    }
+    test "Dumping an RDB - functions only: $functions_only" {
+        # Disk-based master
+        assert_match "OK" [r config set repl-diskless-sync no]
+        test_redis_cli_rdb_dump $functions_only
+
+        # Disk-less master
+        assert_match "OK" [r config set repl-diskless-sync yes]
+        assert_match "OK" [r config set repl-diskless-sync-delay 0]
+        test_redis_cli_rdb_dump $functions_only
+    } {} {needs:repl needs:debug}
+
+    } ;# foreach functions_only
 
     test "Scan mode" {
         r flushdb
