@@ -84,7 +84,7 @@ def convert_entry_to_objects_array(container, cmd):
 if __name__ == '__main__':
     opts = {
         'description': 'Transform the output from `redis-cli --json COMMAND` to commands.json format.',
-        'epilog': ''
+        'epilog': 'Usage example: src/redis-cli --json COMMAND | utils/generate-commands-json.py'
     }
     parser = argparse.ArgumentParser(**opts)
     parser.add_argument('input', help='JSON-formatted input file (default: stdin)', nargs='?', type=argparse.FileType(), default=stdin)
