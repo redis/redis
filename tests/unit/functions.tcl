@@ -18,6 +18,13 @@ start_server {tags {"scripting"}} {
         set _ $e
     } {*Function already exists*}
 
+    test {FUNCTION - Create a function with wrong name format} {
+        catch {
+            r function create LUA {bad\0foramat} {return 'hello1'}
+        } e
+        set _ $e
+    } {*Bad function name*}
+
     test {FUNCTION - Create function with unexisting engine} {
         catch {
             r function create bad_engine test {return 'hello1'}
