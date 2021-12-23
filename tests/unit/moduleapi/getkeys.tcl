@@ -6,7 +6,7 @@ start_server {tags {"modules"}} {
     test {COMMAND INFO correctly reports a movable keys module command} {
         set info [lindex [r command info getkeys.command] 0]
 
-        assert_equal {movablekeys} [lindex $info 2]
+        assert_equal {module movablekeys} [lindex $info 2]
         assert_equal {0} [lindex $info 3]
         assert_equal {0} [lindex $info 4]
         assert_equal {0} [lindex $info 5]

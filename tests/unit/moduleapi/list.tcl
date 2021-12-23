@@ -63,24 +63,4 @@ start_server {tags {"modules"}} {
         r list.edit k reverse rkr foo bar
         r list.getall k
     } {bar y foo}
-
-    proc sleep {time} {
-        after $time set end 1
-        vwait end
-    }
-
-    test {Busy module} {
-        set rd [redis_deferring_client]
-        $rd list.busy
-        catch {r ping} e
-        assert_match {BUSY*} $e
-        catch {r ping} e
-        for {set j 0} {$j<10} {incr j} {
-            catch {r list.getall k} e
-            assert_match {BUSY*} $e
-        }
-        r list.stop_busy
-        sleep 1
-        assert_match [r ping] PONG
-    }
 }

@@ -79,2006 +79,6 @@ double R_Zero, R_PosInf, R_NegInf, R_Nan;
 /* Global vars */
 struct redisServer server; /* Server global state */
 
-/* Our command table.
- *
- * Every entry is composed of the following fields:
- *
- * name:        A string representing the command name.
- *
- * function:    Pointer to the C function implementing the command.
- *
- * arity:       Number of arguments, it is possible to use -N to say >= N
- *
- * sflags:      Command flags as string. See below for a table of flags.
- *
- * flags:       Flags as bitmask. Computed by Redis using the 'sflags' field.
- *
- * get_keys_proc: An optional function to get key arguments from a command.
- *                This is only used when the following three fields are not
- *                enough to specify what arguments are keys.
- *
- * first_key_index: First argument that is a key
- *
- * last_key_index: Last argument that is a key
- *
- * key_step:    Step to get all the keys from first to last argument.
- *              For instance in MSET the step is two since arguments
- *              are key,val,key,val,...
- *
- * microseconds: Microseconds of total execution time for this command.
- *
- * calls:       Total number of calls of this command.
- *
- * id:          Command bit identifier for ACLs or other goals.
- *
- * The flags, microseconds and calls fields are computed by Redis and should
- * always be set to zero.
- *
- * Command flags are expressed using space separated strings, that are turned
- * into actual flags by the populateCommandTable() function.
- *
- * This is the meaning of the flags:
- *
- * write:       Write command (may modify the key space).
- *
- * read-only:   Commands just reading from keys without changing the content.
- *              Note that commands that don't read from the keyspace such as
- *              TIME, SELECT, INFO, administrative commands, and connection
- *              or transaction related commands (multi, exec, discard, ...)
- *              are not flagged as read-only commands, since they affect the
- *              server or the connection in other ways.
- *
- * use-memory:  May increase memory usage once called. Don't allow if out
- *              of memory.
- *
- * admin:       Administrative command, like SAVE or SHUTDOWN.
- *
- * pub-sub:     Pub/Sub related command.
- *
- * no-script:   Command not allowed in scripts.
- *
- * random:      Random command. Command is not deterministic, that is, the same
- *              command with the same arguments, with the same key space, may
- *              have different results. For instance SPOP and RANDOMKEY are
- *              two random commands.
- *
- * to-sort:     Sort command output array if called from script, so that the
- *              output is deterministic. When this flag is used (not always
- *              possible), then the "random" flag is not needed.
- *
- * ok-loading:  Allow the command while loading the database.
- *
- * ok-stale:    Allow the command while a slave has stale data but is not
- *              allowed to serve this data. Normally no command is accepted
- *              in this condition but just a few.
- *
- * no-monitor:  Do not automatically propagate the command on MONITOR.
- *
- * no-slowlog:  Do not automatically propagate the command to the slowlog.
- *
- * cluster-asking: Perform an implicit ASKING for this command, so the
- *              command will be accepted in cluster mode if the slot is marked
- *              as 'importing'.
- *
- * fast:        Fast command: O(1) or O(log(N)) command that should never
- *              delay its execution as long as the kernel scheduler is giving
- *              us time. Note that commands that may trigger a DEL as a side
- *              effect (like SET) are not fast commands.
- * 
- * may-replicate: Command may produce replication traffic, but should be 
- *                allowed under circumstances where write commands are disallowed. 
- *                Examples include PUBLISH, which replicates pubsub messages,and 
- *                EVAL, which may execute write commands, which are replicated, 
- *                or may just execute read commands. A command can not be marked 
- *                both "write" and "may-replicate"
- *
- * sentinel: This command is present in sentinel mode too.
- *
- * sentinel-only: This command is present only when in sentinel mode.
- *
- * no-mandatory-keys: This key arguments for this command are optional.
- *
- * The following additional flags are only used in order to put commands
- * in a specific ACL category. Commands can have multiple ACL categories.
- * See redis.conf for the exact meaning of each.
- *
- * @keyspace, @read, @write, @set, @sortedset, @list, @hash, @string, @bitmap,
- * @hyperloglog, @stream, @admin, @fast, @slow, @pubsub, @blocking, @dangerous,
- * @connection, @transaction, @scripting, @geo.
- *
- * Note that:
- *
- * 1) The read-only flag implies the @read ACL category.
- * 2) The write flag implies the @write ACL category.
- * 3) The fast flag implies the @fast ACL category.
- * 4) The admin flag implies the @admin and @dangerous ACL category.
- * 5) The pub-sub flag implies the @pubsub ACL category.
- * 6) The lack of fast flag implies the @slow ACL category.
- * 7) The non obvious "keyspace" category includes the commands
- *    that interact with keys without having anything to do with
- *    specific data structures, such as: DEL, RENAME, MOVE, SELECT,
- *    TYPE, EXPIRE*, PEXPIRE*, TTL, PTTL, ...
- */
-
-struct redisCommand configSubcommands[] = {
-    {"set",configSetCommand,-4,
-     "admin ok-stale no-script"},
-
-    {"get",configGetCommand,3,
-     "admin ok-loading ok-stale no-script"},
-
-    {"resetstat",configResetStatCommand,2,
-     "admin ok-stale no-script"},
-
-    {"rewrite",configRewriteCommand,2,
-     "admin ok-stale no-script"},
-
-    {"help",configHelpCommand,2,
-     "ok-stale ok-loading"},
-
-    {NULL},
-};
-
-struct redisCommand xinfoSubcommands[] = {
-    {"consumers",xinfoCommand,4,
-     "read-only random @stream",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={2},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"groups",xinfoCommand,3,
-     "read-only @stream",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={2},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"stream",xinfoCommand,-3,
-     "read-only @stream",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={2},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"help",xinfoCommand,2,
-     "ok-stale ok-loading @stream"},
-
-    {NULL},
-};
-
-struct redisCommand xgroupSubcommands[] = {
-    {"create",xgroupCommand,-5,
-     "write use-memory @stream",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={2},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"setid",xgroupCommand,5,
-     "write @stream",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={2},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"destroy",xgroupCommand,4,
-     "write @stream",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={2},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"createconsumer",xgroupCommand,5,
-     "write use-memory @stream",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={2},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"delconsumer",xgroupCommand,5,
-     "write @stream",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={2},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"help",xgroupCommand,2,
-     "ok-stale ok-loading @stream"},
-
-    {NULL},
-};
-
-struct redisCommand commandSubcommands[] = {
-    {"count",commandCountCommand,2,
-     "ok-loading ok-stale @connection"},
-
-    {"list",commandListCommand,-2,
-     "ok-loading ok-stale @connection"},
-
-    {"info",commandInfoCommand,-3,
-     "ok-loading ok-stale @connection"},
-
-    {"getkeys",commandGetKeysCommand,-4,
-     "ok-loading ok-stale @connection"},
-
-    {"help",commandHelpCommand,2,
-     "ok-loading ok-stale @connection"},
-
-    {NULL},
-};
-
-struct redisCommand memorySubcommands[] = {
-    {"doctor",memoryCommand,2,
-     "random"},
-
-    {"stats",memoryCommand,2,
-     "random"},
-
-    {"malloc-stats",memoryCommand,2,
-     "random"},
-
-    {"purge",memoryCommand,2,
-     ""},
-
-    {"usage",memoryCommand,-3,
-     "read-only",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={2},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"help",memoryCommand,2,
-     "ok-stale ok-loading"},
-
-    {NULL},
-};
-
-struct redisCommand aclSubcommands[] = {
-    {"cat",aclCommand,-2,
-     "no-script ok-loading ok-stale sentinel"},
-
-    {"deluser",aclCommand,-3,
-     "admin no-script ok-loading ok-stale sentinel"},
-
-    {"genpass",aclCommand,-2,
-     "no-script ok-loading ok-stale sentinel"},
-
-    {"getuser",aclCommand,3,
-     "admin no-script ok-loading ok-stale sentinel"},
-
-    {"list",aclCommand,2,
-     "admin no-script ok-loading ok-stale sentinel"},
-
-    {"load",aclCommand,2,
-     "admin no-script ok-loading ok-stale sentinel"},
-
-    {"log",aclCommand,-2,
-     "admin no-script ok-loading ok-stale sentinel"},
-
-    {"save",aclCommand,2,
-     "admin no-script ok-loading ok-stale sentinel"},
-
-    {"setuser",aclCommand,-3,
-     "admin no-script ok-loading ok-stale sentinel"},
-
-    {"users",aclCommand,2,
-     "admin no-script ok-loading ok-stale sentinel"},
-
-    {"whoami",aclCommand,2,
-     "no-script ok-loading ok-stale sentinel"},
-
-    {"help",aclCommand,2,
-     "ok-stale ok-loading sentinel"},
-
-    {NULL},
-};
-
-struct redisCommand latencySubcommands[] = {
-    {"doctor",latencyCommand,2,
-     "admin no-script ok-loading ok-stale"},
-
-    {"graph",latencyCommand,3,
-     "admin no-script ok-loading ok-stale"},
-
-    {"history",latencyCommand,3,
-     "admin no-script ok-loading ok-stale"},
-
-    {"latest",latencyCommand,2,
-     "admin no-script ok-loading ok-stale"},
-
-    {"reset",latencyCommand,-2,
-     "admin no-script ok-loading ok-stale"},
-
-    {"help",latencyCommand,2,
-     "ok-stale ok-loading"},
-
-    {NULL},
-};
-
-struct redisCommand moduleSubcommands[] = {
-    {"list",moduleCommand,2,
-     "admin no-script"},
-
-    {"load",moduleCommand,-3,
-     "admin no-script"},
-
-    {"unload",moduleCommand,3,
-     "admin no-script"},
-
-    {"help",moduleCommand,2,
-     "ok-stale ok-loading"},
-
-    {NULL},
-};
-
-struct redisCommand slowlogSubcommands[] = {
-    {"get",slowlogCommand,-2,
-     "admin random ok-loading ok-stale"},
-
-    {"len",slowlogCommand,2,
-     "admin random ok-loading ok-stale"},
-
-    {"reset",slowlogCommand,2,
-     "admin ok-loading ok-stale"},
-
-    {"help",slowlogCommand,2,
-     "ok-stale ok-loading"},
-
-    {NULL},
-};
-
-struct redisCommand objectSubcommands[] = {
-    {"encoding",objectCommand,3,
-     "read-only @keyspace",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={2},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"freq",objectCommand,3,
-     "read-only random @keyspace",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={2},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"idletime",objectCommand,3,
-     "read-only random @keyspace",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={2},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"refcount",objectCommand,3,
-     "read-only @keyspace",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={2},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"help",objectCommand,2,
-     "ok-stale ok-loading @keyspace"},
-
-    {NULL},
-};
-
-struct redisCommand scriptSubcommands[] = {
-    {"debug",scriptCommand,3,
-     "no-script @scripting"},
-
-    {"exists",scriptCommand,-3,
-     "no-script @scripting"},
-
-    {"flush",scriptCommand,-2,
-     "may-replicate no-script @scripting"},
-
-    {"kill",scriptCommand,2,
-     "no-script allow-busy @scripting"},
-
-    {"load",scriptCommand,3,
-     "may-replicate no-script @scripting"},
-
-    {"help",scriptCommand,2,
-     "ok-loading ok-stale @scripting"},
-
-    {NULL},
-};
-
-struct redisCommand functionSubcommands[] = {
-    {"create",functionsCreateCommand,-5,
-     "may-replicate no-script @scripting"},
-
-    {"delete",functionsDeleteCommand,3,
-     "may-replicate no-script @scripting"},
-
-    {"kill",functionsKillCommand,2,
-     "no-script allow-busy @scripting"},
-
-    {"info",functionsInfoCommand,-3,
-     "no-script @scripting"},
-
-    {"list",functionsListCommand,2,
-     "no-script @scripting"},
-
-    {"stats",functionsStatsCommand,2,
-     "no-script allow-busy @scripting"},
-
-    {"help",functionsHelpCommand,2,
-     "ok-loading ok-stale @scripting"},
-
-    {NULL},
-};
-
-struct redisCommand clientSubcommands[] = {
-    {"caching",clientCommand,3,
-     "no-script ok-loading ok-stale @connection"},
-
-    {"getredir",clientCommand,2,
-     "no-script ok-loading ok-stale @connection"},
-
-    {"id",clientCommand,2,
-     "no-script ok-loading ok-stale @connection"},
-
-    {"info",clientCommand,2,
-     "no-script random ok-loading ok-stale @connection"},
-
-    {"kill",clientCommand,-3,
-     "admin no-script ok-loading ok-stale @connection"},
-
-    {"list",clientCommand,-2,
-     "admin no-script random ok-loading ok-stale @connection"},
-
-    {"unpause",clientCommand,2,
-     "admin no-script ok-loading ok-stale @connection"},
-
-    {"pause",clientCommand,-3,
-     "admin no-script ok-loading ok-stale @connection"},
-
-    {"reply",clientCommand,3,
-     "no-script ok-loading ok-stale @connection"},
-
-    {"setname",clientCommand,3,
-     "no-script ok-loading ok-stale @connection"},
-
-    {"getname",clientCommand,2,
-     "no-script ok-loading ok-stale @connection"},
-
-    {"unblock",clientCommand,-3,
-     "admin no-script ok-loading ok-stale @connection"},
-
-    {"tracking",clientCommand,-3,
-     "no-script ok-loading ok-stale @connection"},
-
-    {"trackinginfo",clientCommand,2,
-     "no-script ok-loading ok-stale @connection"},
-
-    {"no-evict",clientCommand,3,
-     "admin no-script ok-loading ok-stale @connection"},
-
-    {"help",clientCommand,2,
-     "ok-loading ok-stale @connection"},
-
-    {NULL},
-};
-
-struct redisCommand pubsubSubcommands[] = {
-    {"channels",pubsubCommand,-2,
-     "pub-sub ok-loading ok-stale"},
-
-    {"numpat",pubsubCommand,2,
-     "pub-sub ok-loading ok-stale"},
-
-    {"numsub",pubsubCommand,-2,
-     "pub-sub ok-loading ok-stale"},
-
-    {"help",pubsubCommand,2,
-     "ok-loading ok-stale"},
-
-    {NULL},
-};
-
-struct redisCommand clusterSubcommands[] = {
-    {"addslots",clusterCommand,-3,
-     "admin ok-stale random"},
-
-    {"addslotsrange",clusterCommand,-4,
-     "admin ok-stale random"},
-
-    {"bumpepoch",clusterCommand,2,
-     "admin ok-stale random"},
-
-    {"count-failure-reports",clusterCommand,3,
-     "admin ok-stale random"},
-
-    {"countkeysinslot",clusterCommand,3,
-     "ok-stale random"},
-
-    {"delslots",clusterCommand,-3,
-     "admin ok-stale random"},
-
-    {"delslotsrange",clusterCommand,-4,
-     "admin ok-stale random"},
-
-    {"failover",clusterCommand,-2,
-     "admin ok-stale random"},
-
-    {"forget",clusterCommand,3,
-     "admin ok-stale random"},
-
-    {"getkeysinslot",clusterCommand,4,
-     "ok-stale random"},
-
-    {"flushslots",clusterCommand,2,
-     "admin ok-stale random"},
-
-    {"info",clusterCommand,2,
-     "ok-stale random"},
-
-    {"keyslot",clusterCommand,3,
-     "ok-stale random"},
-
-    {"meet",clusterCommand,-4,
-     "admin ok-stale random"},
-
-    {"myid",clusterCommand,2,
-     "ok-stale random"},
-
-    {"nodes",clusterCommand,2,
-     "ok-stale random"},
-
-    {"replicate",clusterCommand,3,
-     "admin ok-stale random"},
-
-    {"reset",clusterCommand,3,
-     "admin ok-stale random"},
-
-    {"set-config-epoch",clusterCommand,3,
-     "admin ok-stale random"},
-
-    {"setslot",clusterCommand,-4,
-     "admin ok-stale random"},
-
-    {"replicas",clusterCommand,3,
-     "admin ok-stale random"},
-
-    {"saveconfig",clusterCommand,2,
-     "admin ok-stale random"},
-
-    {"slots",clusterCommand,2,
-     "ok-stale random"},
-
-    {"help",clusterCommand,2,
-     "ok-loading ok-stale"},
-
-    {NULL},
-};
-
-struct redisCommand sentinelSubcommands[] = {
-    {"ckquorum",sentinelCommand,3,
-     "admin only-sentinel"},
-
-    {"config",sentinelCommand,-3,
-     "admin only-sentinel"},
-
-    {"debug",sentinelCommand,-2,
-     "admin only-sentinel"},
-
-    {"get-master-addr-by-name",sentinelCommand,3,
-     "admin only-sentinel"},
-
-    {"failover",sentinelCommand,3,
-     "admin only-sentinel"},
-
-    {"flushconfig",sentinelCommand,2,
-     "admin only-sentinel"},
-
-    {"info-cache",sentinelCommand,3,
-     "admin only-sentinel"},
-
-    {"is-master-down-by-addr",sentinelCommand,6,
-     "admin only-sentinel"},
-
-    {"master",sentinelCommand,3,
-     "admin only-sentinel"},
-
-    {"masters",sentinelCommand,2,
-     "admin only-sentinel"},
-
-    {"monitor",sentinelCommand,6,
-     "admin only-sentinel"},
-
-    {"myid",sentinelCommand,2,
-     "admin only-sentinel"},
-
-    {"pending-scripts",sentinelCommand,2,
-     "admin only-sentinel"},
-
-    {"remove",sentinelCommand,3,
-     "admin only-sentinel"},
-
-    {"replicas",sentinelCommand,3,
-     "admin only-sentinel"},
-
-    {"reset",sentinelCommand,3,
-     "admin only-sentinel"},
-
-    {"sentinels",sentinelCommand,3,
-     "admin only-sentinel"},
-
-    {"set",sentinelCommand,-5,
-     "admin only-sentinel"},
-
-    {"simulate-failure",sentinelCommand,-3,
-     "admin only-sentinel"},
-
-    {"help",sentinelCommand,2,
-     "ok-loading ok-stale only-sentinel"},
-
-    {NULL},
-};
-
-struct redisCommand redisCommandTable[] = {
-    {"module",NULL,-2,
-     "",
-     .subcommands=moduleSubcommands},
-
-    {"get",getCommand,2,
-     "read-only fast @string",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"getex",getexCommand,-2,
-     "write fast @string",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"getdel",getdelCommand,2,
-     "write fast @string",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    /* Note that we can't flag set as fast, since it may perform an
-     * implicit DEL of a large key. */
-    {"set",setCommand,-3,
-     "write use-memory @string",
-     {{"read write", /* "read" because of the GET token */
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"setnx",setnxCommand,3,
-     "write use-memory fast @string",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"setex",setexCommand,4,
-     "write use-memory @string",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"psetex",psetexCommand,4,
-     "write use-memory @string",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"append",appendCommand,3,
-     "write use-memory fast @string",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"strlen",strlenCommand,2,
-     "read-only fast @string",
-    {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"del",delCommand,-2,
-     "write @keyspace",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
-
-    {"unlink",unlinkCommand,-2,
-     "write fast @keyspace",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
-
-    {"exists",existsCommand,-2,
-     "read-only fast @keyspace",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
-
-    {"setbit",setbitCommand,4,
-     "write use-memory @bitmap",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"getbit",getbitCommand,3,
-     "read-only fast @bitmap",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"bitfield",bitfieldCommand,-2,
-     "write use-memory @bitmap",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"bitfield_ro",bitfieldroCommand,-2,
-     "read-only fast @bitmap",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"setrange",setrangeCommand,4,
-     "write use-memory @string",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"getrange",getrangeCommand,4,
-     "read-only @string",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"substr",getrangeCommand,4,
-     "read-only @string",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"incr",incrCommand,2,
-     "write use-memory fast @string",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"decr",decrCommand,2,
-     "write use-memory fast @string",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"mget",mgetCommand,-2,
-     "read-only fast @string",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
-
-    {"rpush",rpushCommand,-3,
-     "write use-memory fast @list",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"lpush",lpushCommand,-3,
-     "write use-memory fast @list",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"rpushx",rpushxCommand,-3,
-     "write use-memory fast @list",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"lpushx",lpushxCommand,-3,
-     "write use-memory fast @list",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"linsert",linsertCommand,5,
-     "write use-memory @list",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"rpop",rpopCommand,-2,
-     "write fast @list",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"lpop",lpopCommand,-2,
-     "write fast @list",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"lmpop",lmpopCommand,-4,
-     "write @list",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},
-     lmpopGetKeys},
-
-    {"brpop",brpopCommand,-3,
-     "write no-script @list @blocking",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={-2,1,0}}}},
-
-    {"brpoplpush",brpoplpushCommand,4,
-     "write use-memory no-script @list @blocking",
-     {{"read write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}},
-      {"write",
-       KSPEC_BS_INDEX,.bs.index={2},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"blmove",blmoveCommand,6,
-     "write use-memory no-script @list @blocking",
-     {{"read write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}},
-      {"write",
-       KSPEC_BS_INDEX,.bs.index={2},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"blpop",blpopCommand,-3,
-     "write no-script @list @blocking",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={-2,1,0}}}},
-
-    {"blmpop",blmpopCommand,-5,
-     "write @list @blocking",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={2},
-       KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},
-     blmpopGetKeys},
-
-    {"llen",llenCommand,2,
-     "read-only fast @list",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"lindex",lindexCommand,3,
-     "read-only @list",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"lset",lsetCommand,4,
-     "write use-memory @list",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"lrange",lrangeCommand,4,
-     "read-only @list",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"ltrim",ltrimCommand,4,
-     "write @list",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"lpos",lposCommand,-3,
-     "read-only @list",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"lrem",lremCommand,4,
-     "write @list",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"rpoplpush",rpoplpushCommand,3,
-     "write use-memory @list",
-     {{"read write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}},
-      {"write",
-       KSPEC_BS_INDEX,.bs.index={2},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"lmove",lmoveCommand,5,
-     "write use-memory @list",
-     {{"read write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}},
-      {"write",
-       KSPEC_BS_INDEX,.bs.index={2},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"sadd",saddCommand,-3,
-     "write use-memory fast @set",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"srem",sremCommand,-3,
-     "write fast @set",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"smove",smoveCommand,4,
-     "write fast @set",
-     {{"read write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}},
-      {"write",
-       KSPEC_BS_INDEX,.bs.index={2},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"sismember",sismemberCommand,3,
-     "read-only fast @set",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"smismember",smismemberCommand,-3,
-     "read-only fast @set",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"scard",scardCommand,2,
-     "read-only fast @set",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"spop",spopCommand,-2,
-     "write random fast @set",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"srandmember",srandmemberCommand,-2,
-     "read-only random @set",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"sinter",sinterCommand,-2,
-     "read-only to-sort @set",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
-
-    {"sintercard",sinterCardCommand,-3,
-     "read-only @set",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_KEYNUM,.fk.range={0,1,1}}},
-     sintercardGetKeys},
-
-    {"sinterstore",sinterstoreCommand,-3,
-     "write use-memory @set",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}},
-      {"read",
-       KSPEC_BS_INDEX,.bs.index={2},
-       KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
-
-    {"sunion",sunionCommand,-2,
-     "read-only to-sort @set",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
-
-    {"sunionstore",sunionstoreCommand,-3,
-     "write use-memory @set",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}},
-      {"read",
-       KSPEC_BS_INDEX,.bs.index={2},
-       KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
-
-    {"sdiff",sdiffCommand,-2,
-     "read-only to-sort @set",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
-
-    {"sdiffstore",sdiffstoreCommand,-3,
-     "write use-memory @set",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}},
-      {"read",
-       KSPEC_BS_INDEX,.bs.index={2},
-       KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
-
-    {"smembers",sinterCommand,2,
-     "read-only to-sort @set",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"sscan",sscanCommand,-3,
-     "read-only random @set",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"zadd",zaddCommand,-4,
-     "write use-memory fast @sortedset",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"zincrby",zincrbyCommand,4,
-     "write use-memory fast @sortedset",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"zrem",zremCommand,-3,
-     "write fast @sortedset",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"zremrangebyscore",zremrangebyscoreCommand,4,
-     "write @sortedset",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"zremrangebyrank",zremrangebyrankCommand,4,
-     "write @sortedset",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"zremrangebylex",zremrangebylexCommand,4,
-     "write @sortedset",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"zunionstore",zunionstoreCommand,-4,
-     "write use-memory @sortedset",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}},
-      {"read",
-       KSPEC_BS_INDEX,.bs.index={2},
-       KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},
-     zunionInterDiffStoreGetKeys},
-
-    {"zinterstore",zinterstoreCommand,-4,
-     "write use-memory @sortedset",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}},
-      {"read",
-       KSPEC_BS_INDEX,.bs.index={2},
-       KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},
-     zunionInterDiffStoreGetKeys},
-
-    {"zdiffstore",zdiffstoreCommand,-4,
-     "write use-memory @sortedset",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}},
-      {"read",
-       KSPEC_BS_INDEX,.bs.index={2},
-       KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},
-     zunionInterDiffStoreGetKeys},
-
-    {"zunion",zunionCommand,-3,
-     "read-only @sortedset",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},
-     zunionInterDiffGetKeys},
-
-    {"zinter",zinterCommand,-3,
-     "read-only @sortedset",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},
-     zunionInterDiffGetKeys},
-
-    {"zintercard",zinterCardCommand,-3,
-     "read-only @sortedset",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},
-     zunionInterDiffGetKeys},
-
-    {"zdiff",zdiffCommand,-3,
-     "read-only @sortedset",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},
-     zunionInterDiffGetKeys},
-
-    {"zrange",zrangeCommand,-4,
-     "read-only @sortedset",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"zrangestore",zrangestoreCommand,-5,
-     "write use-memory @sortedset",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}},
-      {"read",
-       KSPEC_BS_INDEX,.bs.index={2},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"zrangebyscore",zrangebyscoreCommand,-4,
-     "read-only @sortedset",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"zrevrangebyscore",zrevrangebyscoreCommand,-4,
-     "read-only @sortedset",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"zrangebylex",zrangebylexCommand,-4,
-     "read-only @sortedset",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"zrevrangebylex",zrevrangebylexCommand,-4,
-     "read-only @sortedset",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"zcount",zcountCommand,4,
-     "read-only fast @sortedset",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"zlexcount",zlexcountCommand,4,
-     "read-only fast @sortedset",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"zrevrange",zrevrangeCommand,-4,
-     "read-only @sortedset",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"zcard",zcardCommand,2,
-     "read-only fast @sortedset",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"zscore",zscoreCommand,3,
-     "read-only fast @sortedset",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"zmscore",zmscoreCommand,-3,
-     "read-only fast @sortedset",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"zrank",zrankCommand,3,
-     "read-only fast @sortedset",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"zrevrank",zrevrankCommand,3,
-     "read-only fast @sortedset",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"zscan",zscanCommand,-3,
-     "read-only random @sortedset",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"zpopmin",zpopminCommand,-2,
-     "write fast @sortedset",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"zpopmax",zpopmaxCommand,-2,
-     "write fast @sortedset",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"zmpop", zmpopCommand,-4,
-     "write @sortedset",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},
-     zmpopGetKeys},
-
-    {"bzpopmin",bzpopminCommand,-3,
-     "write no-script fast @sortedset @blocking",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={-2,1,0}}}},
-
-    {"bzpopmax",bzpopmaxCommand,-3,
-     "write no-script fast @sortedset @blocking",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={-2,1,0}}}},
-
-    {"bzmpop",bzmpopCommand,-5,
-     "write @sortedset @blocking",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={2},
-       KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},
-     blmpopGetKeys},
-
-    {"zrandmember",zrandmemberCommand,-2,
-     "read-only random @sortedset",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"hset",hsetCommand,-4,
-     "write use-memory fast @hash",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"hsetnx",hsetnxCommand,4,
-     "write use-memory fast @hash",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"hget",hgetCommand,3,
-     "read-only fast @hash",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"hmset",hsetCommand,-4,
-     "write use-memory fast @hash",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"hmget",hmgetCommand,-3,
-     "read-only fast @hash",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"hincrby",hincrbyCommand,4,
-     "write use-memory fast @hash",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"hincrbyfloat",hincrbyfloatCommand,4,
-     "write use-memory fast @hash",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"hdel",hdelCommand,-3,
-     "write fast @hash",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"hlen",hlenCommand,2,
-     "read-only fast @hash",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"hstrlen",hstrlenCommand,3,
-     "read-only fast @hash",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"hkeys",hkeysCommand,2,
-     "read-only to-sort @hash",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"hvals",hvalsCommand,2,
-     "read-only to-sort @hash",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"hgetall",hgetallCommand,2,
-     "read-only random @hash",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"hexists",hexistsCommand,3,
-     "read-only fast @hash",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"hrandfield",hrandfieldCommand,-2,
-     "read-only random @hash",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"hscan",hscanCommand,-3,
-     "read-only random @hash",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"incrby",incrbyCommand,3,
-     "write use-memory fast @string",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"decrby",decrbyCommand,3,
-     "write use-memory fast @string",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"incrbyfloat",incrbyfloatCommand,3,
-     "write use-memory fast @string",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"getset",getsetCommand,3,
-     "write use-memory fast @string",
-     {{"read write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"mset",msetCommand,-3,
-     "write use-memory @string",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={-1,2,0}}}},
-
-    {"msetnx",msetnxCommand,-3,
-     "write use-memory @string",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={-1,2,0}}}},
-
-    {"randomkey",randomkeyCommand,1,
-     "read-only random @keyspace"},
-
-    {"select",selectCommand,2,
-     "ok-loading fast ok-stale @connection"},
-
-    {"swapdb",swapdbCommand,3,
-     "write fast @keyspace @dangerous"},
-
-    {"move",moveCommand,3,
-     "write fast @keyspace",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"copy",copyCommand,-3,
-     "write use-memory @keyspace",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}},
-      {"write",
-       KSPEC_BS_INDEX,.bs.index={2},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    /* Like for SET, we can't mark RENAME as a fast command because
-     * overwriting the target key may result in an implicit slow DEL. */
-    {"rename",renameCommand,3,
-     "write @keyspace",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={1,1,0}}}},
-
-    {"renamenx",renamenxCommand,3,
-     "write fast @keyspace",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={1,1,0}}}},
-
-    {"expire",expireCommand,-3,
-     "write fast @keyspace",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"expireat",expireatCommand,-3,
-     "write fast @keyspace",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"pexpire",pexpireCommand,-3,
-     "write fast @keyspace",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"pexpireat",pexpireatCommand,-3,
-     "write fast @keyspace",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"keys",keysCommand,2,
-     "read-only to-sort @keyspace @dangerous"},
-
-    {"scan",scanCommand,-2,
-     "read-only random @keyspace"},
-
-    {"dbsize",dbsizeCommand,1,
-     "read-only fast @keyspace"},
-
-    {"auth",authCommand,-2,
-     "no-auth no-script ok-loading ok-stale fast sentinel @connection allow-busy"},
-
-    /* PING is used for Redis failure detection and availability check.
-     * So we return LOADING in case there's a synchronous replication in progress,
-     * MASTERDOWN when replica-serve-stale-data=no and link with MASTER is down,
-     * BUSY when blocked by a script, etc. */
-    {"ping",pingCommand,-1,
-     "fast sentinel @connection"},
-
-    {"sentinel",NULL,-2,
-     "admin only-sentinel",
-     .subcommands=sentinelSubcommands},
-
-    {"echo",echoCommand,2,
-     "fast @connection"},
-
-    {"save",saveCommand,1,
-     "admin no-script"},
-
-    {"bgsave",bgsaveCommand,-1,
-     "admin no-script"},
-
-    {"bgrewriteaof",bgrewriteaofCommand,1,
-     "admin no-script"},
-
-    {"shutdown",shutdownCommand,-1,
-     "admin no-script ok-loading ok-stale allow-busy sentinel"},
-
-    {"lastsave",lastsaveCommand,1,
-     "random fast ok-loading ok-stale @admin @dangerous"},
-
-    {"type",typeCommand,2,
-     "read-only fast @keyspace",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"multi",multiCommand,1,
-     "no-script fast ok-loading ok-stale allow-busy @transaction"},
-
-    {"exec",execCommand,1,
-     "no-script no-slowlog ok-loading ok-stale @transaction"},
-
-    {"discard",discardCommand,1,
-     "no-script fast ok-loading ok-stale allow-busy @transaction"},
-
-    {"sync",syncCommand,1,
-     "admin no-script"},
-
-    {"psync",syncCommand,-3,
-     "admin no-script"},
-
-    {"replconf",replconfCommand,-1,
-     "admin no-script ok-loading ok-stale allow-busy"},
-
-    {"flushdb",flushdbCommand,-1,
-     "write @keyspace @dangerous"},
-
-    {"flushall",flushallCommand,-1,
-     "write @keyspace @dangerous"},
-
-    {"sort",sortCommand,-2,
-     "write use-memory @list @set @sortedset @dangerous",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}},
-      {"write incomplete", /* We can't use "keyword" here because we may give false information. */
-       KSPEC_BS_UNKNOWN,{{0}},
-       KSPEC_FK_UNKNOWN,{{0}}}},
-     sortGetKeys},
-
-    {"sort_ro",sortroCommand,-2,
-     "read-only @list @set @sortedset @dangerous",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"info",infoCommand,-1,
-     "ok-loading ok-stale random sentinel @dangerous"},
-
-    {"monitor",monitorCommand,1,
-     "admin no-script ok-loading ok-stale"},
-
-    {"ttl",ttlCommand,2,
-     "read-only fast random @keyspace",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"touch",touchCommand,-2,
-     "read-only fast @keyspace",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
-
-    {"pttl",pttlCommand,2,
-     "read-only fast random @keyspace",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"expiretime",expiretimeCommand,2,
-     "read-only fast random @keyspace",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"pexpiretime",pexpiretimeCommand,2,
-     "read-only fast random @keyspace",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"persist",persistCommand,2,
-     "write fast @keyspace",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"slaveof",replicaofCommand,3,
-     "admin no-script ok-stale"},
-
-    {"replicaof",replicaofCommand,3,
-     "admin no-script ok-stale"},
-
-    {"role",roleCommand,1,
-     "ok-loading ok-stale no-script fast sentinel @admin @dangerous"},
-
-    {"debug",debugCommand,-2,
-     "admin no-script ok-loading ok-stale"},
-
-    {"config",NULL,-2,
-     "",
-     .subcommands=configSubcommands},
-
-    {"subscribe",subscribeCommand,-2,
-     "pub-sub no-script ok-loading ok-stale sentinel"},
-
-    {"unsubscribe",unsubscribeCommand,-1,
-     "pub-sub no-script ok-loading ok-stale sentinel"},
-
-    {"psubscribe",psubscribeCommand,-2,
-     "pub-sub no-script ok-loading ok-stale sentinel"},
-
-    {"punsubscribe",punsubscribeCommand,-1,
-     "pub-sub no-script ok-loading ok-stale sentinel"},
-
-    {"publish",publishCommand,3,
-     "pub-sub ok-loading ok-stale fast may-replicate sentinel"},
-
-    {"pubsub",NULL,-2,
-     "",
-     .subcommands=pubsubSubcommands},
-
-    {"watch",watchCommand,-2,
-     "no-script fast ok-loading ok-stale allow-busy @transaction",
-     {{"",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
-
-    {"unwatch",unwatchCommand,1,
-     "no-script fast ok-loading ok-stale allow-busy @transaction"},
-
-    {"cluster",NULL,-2,
-     "",
-     .subcommands=clusterSubcommands},
-
-    {"restore",restoreCommand,-4,
-     "write use-memory @keyspace @dangerous",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"restore-asking",restoreCommand,-4,
-     "write use-memory cluster-asking @keyspace @dangerous",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"migrate",migrateCommand,-6,
-     "write random @keyspace @dangerous",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={3},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}},
-      {"write incomplete",
-       KSPEC_BS_KEYWORD,.bs.keyword={"KEYS",-2},
-       KSPEC_FK_RANGE,.fk.range={-1,1,0}}},
-     migrateGetKeys},
-
-    {"asking",askingCommand,1,
-     "fast @connection"},
-
-    {"readonly",readonlyCommand,1,
-     "fast @connection"},
-
-    {"readwrite",readwriteCommand,1,
-     "fast @connection"},
-
-    {"dump",dumpCommand,2,
-     "read-only random @keyspace",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"object",NULL,-2,
-     "",
-    .subcommands=objectSubcommands},
-
-    {"memory",NULL,-2,
-     "",
-     .subcommands=memorySubcommands},
-
-    {"client",NULL,-2,
-     "sentinel",
-     .subcommands=clientSubcommands},
-
-    {"hello",helloCommand,-1,
-     "allow-busy no-auth no-script fast ok-loading ok-stale sentinel @connection"},
-
-    /* EVAL can modify the dataset, however it is not flagged as a write
-     * command since we do the check while running commands from Lua.
-     *
-     * EVAL and EVALSHA also feed monitors before the commands are executed,
-     * as opposed to after.
-      */
-    {"eval",evalCommand,-3,
-     "no-script no-monitor may-replicate no-mandatory-keys @scripting",
-     {{"read write", /* We pass both read and write because these flag are worst-case-scenario */
-       KSPEC_BS_INDEX,.bs.index={2},
-       KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},
-     evalGetKeys},
-
-    {"eval_ro",evalRoCommand,-3,
-     "no-script no-monitor no-mandatory-keys @scripting",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={2},
-       KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},
-     evalGetKeys},
-
-    {"evalsha",evalShaCommand,-3,
-     "no-script no-monitor may-replicate no-mandatory-keys @scripting",
-     {{"read write", /* We pass both read and write because these flag are worst-case-scenario */
-       KSPEC_BS_INDEX,.bs.index={2},
-       KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},
-     evalGetKeys},
-
-    {"evalsha_ro",evalShaRoCommand,-3,
-     "no-script no-monitor no-mandatory-keys @scripting",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={2},
-       KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},
-     evalGetKeys},
-
-    {"slowlog",NULL,-2,
-     "",
-     .subcommands=slowlogSubcommands},
-
-    {"script",NULL,-2,
-     "",
-     .subcommands=scriptSubcommands},
-
-    {"time",timeCommand,1,
-     "random fast ok-loading ok-stale"},
-
-    {"bitop",bitopCommand,-4,
-     "write use-memory @bitmap",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={2},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}},
-      {"read",
-       KSPEC_BS_INDEX,.bs.index={3},
-       KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
-
-    {"bitcount",bitcountCommand,-2,
-     "read-only @bitmap",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"bitpos",bitposCommand,-3,
-     "read-only @bitmap",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"wait",waitCommand,3,
-     "no-script @connection"},
-
-    {"command",commandCommand,-1,
-     "ok-loading ok-stale random sentinel @connection",
-     .subcommands=commandSubcommands},
-
-    {"geoadd",geoaddCommand,-5,
-     "write use-memory @geo",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    /* GEORADIUS has store options that may write. */
-    {"georadius",georadiusCommand,-6,
-     "write use-memory @geo",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}},
-      {"write",
-       KSPEC_BS_KEYWORD,.bs.keyword={"STORE",6},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}},
-      {"write",
-       KSPEC_BS_KEYWORD,.bs.keyword={"STOREDIST",6},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}},
-     georadiusGetKeys},
-
-    {"georadius_ro",georadiusroCommand,-6,
-     "read-only @geo",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"georadiusbymember",georadiusbymemberCommand,-5,"write use-memory @geo",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}},
-      {"write",
-       KSPEC_BS_KEYWORD,.bs.keyword={"STORE",5},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}},
-      {"write",
-       KSPEC_BS_KEYWORD,.bs.keyword={"STOREDIST",5},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}},
-     georadiusGetKeys},
-
-    {"georadiusbymember_ro",georadiusbymemberroCommand,-5,
-     "read-only @geo",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"geohash",geohashCommand,-2,
-     "read-only @geo",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"geopos",geoposCommand,-2,
-     "read-only @geo",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"geodist",geodistCommand,-4,
-     "read-only @geo",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"geosearch",geosearchCommand,-7,
-     "read-only @geo",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"geosearchstore",geosearchstoreCommand,-8,
-     "write use-memory @geo",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}},
-      {"read",
-       KSPEC_BS_INDEX,.bs.index={2},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"pfselftest",pfselftestCommand,1,
-     "admin @hyperloglog"},
-
-    {"pfadd",pfaddCommand,-2,
-     "write use-memory fast @hyperloglog",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    /* Technically speaking PFCOUNT may change the key since it changes the
-     * final bytes in the HyperLogLog representation. However in this case
-     * we claim that the representation, even if accessible, is an internal
-     * affair, and the command is semantically read only. */
-    {"pfcount",pfcountCommand,-2,
-     "read-only may-replicate @hyperloglog",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
-
-    {"pfmerge",pfmergeCommand,-2,
-     "write use-memory @hyperloglog",
-     {{"read write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}},
-      {"read",
-       KSPEC_BS_INDEX,.bs.index={2},
-       KSPEC_FK_RANGE,.fk.range={-1,1,0}}}},
-
-    /* Unlike PFCOUNT that is considered as a read-only command (although
-     * it changes a bit), PFDEBUG may change the entire key when converting
-     * from sparse to dense representation */
-    {"pfdebug",pfdebugCommand,-3,
-     "admin write use-memory @hyperloglog",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={2},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"xadd",xaddCommand,-5,
-     "write use-memory fast random @stream",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"xrange",xrangeCommand,-4,
-     "read-only @stream",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"xrevrange",xrevrangeCommand,-4,
-     "read-only @stream",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"xlen",xlenCommand,2,
-     "read-only fast @stream",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"xread",xreadCommand,-4,
-     "read-only @stream @blocking",
-     {{"read",
-       KSPEC_BS_KEYWORD,.bs.keyword={"STREAMS",1},
-       KSPEC_FK_RANGE,.fk.range={-1,1,2}}},
-     xreadGetKeys},
-
-    {"xreadgroup",xreadCommand,-7,
-     "write @stream @blocking",
-     {{"read",
-       KSPEC_BS_KEYWORD,.bs.keyword={"STREAMS",4},
-       KSPEC_FK_RANGE,.fk.range={-1,1,2}}},
-     xreadGetKeys},
-
-    {"xgroup",NULL,-2,
-     "",
-     .subcommands=xgroupSubcommands},
-
-    {"xsetid",xsetidCommand,3,
-     "write use-memory fast @stream",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"xack",xackCommand,-4,
-     "write fast random @stream",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"xpending",xpendingCommand,-3,
-     "read-only random @stream",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"xclaim",xclaimCommand,-6,
-     "write random fast @stream",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"xautoclaim",xautoclaimCommand,-6,
-     "write random fast @stream",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"xinfo",NULL,-2,
-     "",
-     .subcommands=xinfoSubcommands},
-
-    {"xdel",xdelCommand,-3,
-     "write fast @stream",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"xtrim",xtrimCommand,-4,
-     "write random @stream",
-     {{"write",
-       KSPEC_BS_INDEX,.bs.index={1},
-       KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
-
-    {"latency",NULL,-2,
-     "",
-     .subcommands=latencySubcommands},
-
-    {"lolwut",lolwutCommand,-1,
-     "read-only fast"},
-
-    {"acl",NULL,-2,
-     "sentinel",
-     .subcommands=aclSubcommands},
-
-    {"lcs",lcsCommand,-3,
-     "read-only @string",
-      {{"read",
-        KSPEC_BS_INDEX,.bs.index={1},
-        KSPEC_FK_RANGE,.fk.range={1,1,0}}}},
-
-    {"quit",quitCommand,-1,
-     "no-auth no-script ok-stale ok-loading fast @connection"},
-     
-    {"reset",resetCommand,1,
-     "no-auth no-script ok-stale ok-loading allow-busy fast @connection"},
-
-    {"failover",failoverCommand,-1,
-     "admin no-script ok-stale"},
-
-    {"function",NULL,-2,
-        "",
-        .subcommands=functionSubcommands},
-
-    {"fcall",fcallCommand,-3,
-     "no-script no-monitor may-replicate no-mandatory-keys @scripting",
-     {{"read write", /* We pass both read and write because these flag are worst-case-scenario */
-       KSPEC_BS_INDEX,.bs.index={2},
-       KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},
-     functionGetKeys},
-
-    {"fcall_ro",fcallCommandReadOnly,-3,
-     "no-script no-monitor no-mandatory-keys @scripting",
-     {{"read",
-       KSPEC_BS_INDEX,.bs.index={2},
-       KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},
-     functionGetKeys},
-};
-
 /*============================ Utility functions ============================ */
 
 /* We use a private localtime implementation which is fork-safe. The logging
@@ -2122,7 +122,7 @@ void serverLogRaw(int level, const char *msg) {
             role_char = (server.masterhost ? 'S':'M'); /* Slave or Master. */
         }
         fprintf(fp,"%d:%c %s %c %s\n",
-            (int)getpid(),role_char, buf,c[level],msg);
+                (int)getpid(),role_char, buf,c[level],msg);
     }
     fflush(fp);
 
@@ -2158,7 +158,7 @@ void serverLogFromHandler(int level, const char *msg) {
     if ((level&0xff) < server.verbosity || (log_to_stdout && server.daemonize))
         return;
     fd = log_to_stdout ? STDOUT_FILENO :
-                         open(server.logfile, O_APPEND|O_CREAT|O_WRONLY, 0644);
+         open(server.logfile, O_APPEND|O_CREAT|O_WRONLY, 0644);
     if (fd == -1) return;
     ll2string(buf,sizeof(buf),getpid());
     if (write(fd,buf,strlen(buf)) == -1) goto err;
@@ -2168,7 +168,7 @@ void serverLogFromHandler(int level, const char *msg) {
     if (write(fd,") ",2) == -1) goto err;
     if (write(fd,msg,strlen(msg)) == -1) goto err;
     if (write(fd,"\n",1) == -1) goto err;
-err:
+    err:
     if (!log_to_stdout) close(fd);
 }
 
@@ -2219,7 +219,7 @@ void dictListDestructor(dict *d, void *val)
 }
 
 int dictSdsKeyCompare(dict *d, const void *key1,
-        const void *key2)
+                      const void *key2)
 {
     int l1,l2;
     UNUSED(d);
@@ -2233,7 +233,7 @@ int dictSdsKeyCompare(dict *d, const void *key1,
 /* A case insensitive version used for the command lookup table and other
  * places where case insensitive non binary-safe comparison is needed. */
 int dictSdsKeyCaseCompare(dict *d, const void *key1,
-        const void *key2)
+                          const void *key2)
 {
     UNUSED(d);
     return strcasecmp(key1, key2) == 0;
@@ -2258,7 +258,7 @@ void *dictSdsDup(dict *d, const void *key) {
 }
 
 int dictObjKeyCompare(dict *d, const void *key1,
-        const void *key2)
+                      const void *key2)
 {
     const robj *o1 = key1, *o2 = key2;
     return dictSdsKeyCompare(d, o1->ptr,o2->ptr);
@@ -2284,7 +284,7 @@ int dictEncObjKeyCompare(dict *d, const void *key1, const void *key2)
 
     if (o1->encoding == OBJ_ENCODING_INT &&
         o2->encoding == OBJ_ENCODING_INT)
-            return o1->ptr == o2->ptr;
+        return o1->ptr == o2->ptr;
 
     /* Due to OBJ_STATIC_REFCOUNT, we avoid calling getDecodedObject() without
      * good reasons, because it would incrRefCount() the object, which
@@ -2339,162 +339,162 @@ size_t dictEntryMetadataSize(dict *d) {
 /* Generic hash table type where keys are Redis Objects, Values
  * dummy pointers. */
 dictType objectKeyPointerValueDictType = {
-    dictEncObjHash,            /* hash function */
-    NULL,                      /* key dup */
-    NULL,                      /* val dup */
-    dictEncObjKeyCompare,      /* key compare */
-    dictObjectDestructor,      /* key destructor */
-    NULL,                      /* val destructor */
-    NULL                       /* allow to expand */
+        dictEncObjHash,            /* hash function */
+        NULL,                      /* key dup */
+        NULL,                      /* val dup */
+        dictEncObjKeyCompare,      /* key compare */
+        dictObjectDestructor,      /* key destructor */
+        NULL,                      /* val destructor */
+        NULL                       /* allow to expand */
 };
 
 /* Like objectKeyPointerValueDictType(), but values can be destroyed, if
  * not NULL, calling zfree(). */
 dictType objectKeyHeapPointerValueDictType = {
-    dictEncObjHash,            /* hash function */
-    NULL,                      /* key dup */
-    NULL,                      /* val dup */
-    dictEncObjKeyCompare,      /* key compare */
-    dictObjectDestructor,      /* key destructor */
-    dictVanillaFree,           /* val destructor */
-    NULL                       /* allow to expand */
+        dictEncObjHash,            /* hash function */
+        NULL,                      /* key dup */
+        NULL,                      /* val dup */
+        dictEncObjKeyCompare,      /* key compare */
+        dictObjectDestructor,      /* key destructor */
+        dictVanillaFree,           /* val destructor */
+        NULL                       /* allow to expand */
 };
 
 /* Set dictionary type. Keys are SDS strings, values are not used. */
 dictType setDictType = {
-    dictSdsHash,               /* hash function */
-    NULL,                      /* key dup */
-    NULL,                      /* val dup */
-    dictSdsKeyCompare,         /* key compare */
-    dictSdsDestructor,         /* key destructor */
-    NULL                       /* val destructor */
+        dictSdsHash,               /* hash function */
+        NULL,                      /* key dup */
+        NULL,                      /* val dup */
+        dictSdsKeyCompare,         /* key compare */
+        dictSdsDestructor,         /* key destructor */
+        NULL                       /* val destructor */
 };
 
 /* Sorted sets hash (note: a skiplist is used in addition to the hash table) */
 dictType zsetDictType = {
-    dictSdsHash,               /* hash function */
-    NULL,                      /* key dup */
-    NULL,                      /* val dup */
-    dictSdsKeyCompare,         /* key compare */
-    NULL,                      /* Note: SDS string shared & freed by skiplist */
-    NULL,                      /* val destructor */
-    NULL                       /* allow to expand */
+        dictSdsHash,               /* hash function */
+        NULL,                      /* key dup */
+        NULL,                      /* val dup */
+        dictSdsKeyCompare,         /* key compare */
+        NULL,                      /* Note: SDS string shared & freed by skiplist */
+        NULL,                      /* val destructor */
+        NULL                       /* allow to expand */
 };
 
 /* Db->dict, keys are sds strings, vals are Redis objects. */
 dictType dbDictType = {
-    dictSdsHash,                /* hash function */
-    NULL,                       /* key dup */
-    NULL,                       /* val dup */
-    dictSdsKeyCompare,          /* key compare */
-    dictSdsDestructor,          /* key destructor */
-    dictObjectDestructor,       /* val destructor */
-    dictExpandAllowed,          /* allow to expand */
-    dictEntryMetadataSize       /* size of entry metadata in bytes */
+        dictSdsHash,                /* hash function */
+        NULL,                       /* key dup */
+        NULL,                       /* val dup */
+        dictSdsKeyCompare,          /* key compare */
+        dictSdsDestructor,          /* key destructor */
+        dictObjectDestructor,       /* val destructor */
+        dictExpandAllowed,          /* allow to expand */
+        dictEntryMetadataSize       /* size of entry metadata in bytes */
 };
 
 /* server.lua_scripts sha (as sds string) -> scripts (as robj) cache. */
 dictType shaScriptObjectDictType = {
-    dictSdsCaseHash,            /* hash function */
-    NULL,                       /* key dup */
-    NULL,                       /* val dup */
-    dictSdsKeyCaseCompare,      /* key compare */
-    dictSdsDestructor,          /* key destructor */
-    dictObjectDestructor,       /* val destructor */
-    NULL                        /* allow to expand */
+        dictSdsCaseHash,            /* hash function */
+        NULL,                       /* key dup */
+        NULL,                       /* val dup */
+        dictSdsKeyCaseCompare,      /* key compare */
+        dictSdsDestructor,          /* key destructor */
+        dictObjectDestructor,       /* val destructor */
+        NULL                        /* allow to expand */
 };
 
 /* Db->expires */
 dictType dbExpiresDictType = {
-    dictSdsHash,                /* hash function */
-    NULL,                       /* key dup */
-    NULL,                       /* val dup */
-    dictSdsKeyCompare,          /* key compare */
-    NULL,                       /* key destructor */
-    NULL,                       /* val destructor */
-    dictExpandAllowed           /* allow to expand */
+        dictSdsHash,                /* hash function */
+        NULL,                       /* key dup */
+        NULL,                       /* val dup */
+        dictSdsKeyCompare,          /* key compare */
+        NULL,                       /* key destructor */
+        NULL,                       /* val destructor */
+        dictExpandAllowed           /* allow to expand */
 };
 
 /* Command table. sds string -> command struct pointer. */
 dictType commandTableDictType = {
-    dictSdsCaseHash,            /* hash function */
-    NULL,                       /* key dup */
-    NULL,                       /* val dup */
-    dictSdsKeyCaseCompare,      /* key compare */
-    dictSdsDestructor,          /* key destructor */
-    NULL,                       /* val destructor */
-    NULL                        /* allow to expand */
+        dictSdsCaseHash,            /* hash function */
+        NULL,                       /* key dup */
+        NULL,                       /* val dup */
+        dictSdsKeyCaseCompare,      /* key compare */
+        dictSdsDestructor,          /* key destructor */
+        NULL,                       /* val destructor */
+        NULL                        /* allow to expand */
 };
 
 /* Hash type hash table (note that small hashes are represented with listpacks) */
 dictType hashDictType = {
-    dictSdsHash,                /* hash function */
-    NULL,                       /* key dup */
-    NULL,                       /* val dup */
-    dictSdsKeyCompare,          /* key compare */
-    dictSdsDestructor,          /* key destructor */
-    dictSdsDestructor,          /* val destructor */
-    NULL                        /* allow to expand */
+        dictSdsHash,                /* hash function */
+        NULL,                       /* key dup */
+        NULL,                       /* val dup */
+        dictSdsKeyCompare,          /* key compare */
+        dictSdsDestructor,          /* key destructor */
+        dictSdsDestructor,          /* val destructor */
+        NULL                        /* allow to expand */
 };
 
 /* Dict type without destructor */
 dictType sdsReplyDictType = {
-    dictSdsHash,                /* hash function */
-    NULL,                       /* key dup */
-    NULL,                       /* val dup */
-    dictSdsKeyCompare,          /* key compare */
-    NULL,                       /* key destructor */
-    NULL,                       /* val destructor */
-    NULL                        /* allow to expand */
+        dictSdsHash,                /* hash function */
+        NULL,                       /* key dup */
+        NULL,                       /* val dup */
+        dictSdsKeyCompare,          /* key compare */
+        NULL,                       /* key destructor */
+        NULL,                       /* val destructor */
+        NULL                        /* allow to expand */
 };
 
 /* Keylist hash table type has unencoded redis objects as keys and
  * lists as values. It's used for blocking operations (BLPOP) and to
  * map swapped keys to a list of clients waiting for this keys to be loaded. */
 dictType keylistDictType = {
-    dictObjHash,                /* hash function */
-    NULL,                       /* key dup */
-    NULL,                       /* val dup */
-    dictObjKeyCompare,          /* key compare */
-    dictObjectDestructor,       /* key destructor */
-    dictListDestructor,         /* val destructor */
-    NULL                        /* allow to expand */
+        dictObjHash,                /* hash function */
+        NULL,                       /* key dup */
+        NULL,                       /* val dup */
+        dictObjKeyCompare,          /* key compare */
+        dictObjectDestructor,       /* key destructor */
+        dictListDestructor,         /* val destructor */
+        NULL                        /* allow to expand */
 };
 
 /* Modules system dictionary type. Keys are module name,
  * values are pointer to RedisModule struct. */
 dictType modulesDictType = {
-    dictSdsCaseHash,            /* hash function */
-    NULL,                       /* key dup */
-    NULL,                       /* val dup */
-    dictSdsKeyCaseCompare,      /* key compare */
-    dictSdsDestructor,          /* key destructor */
-    NULL,                       /* val destructor */
-    NULL                        /* allow to expand */
+        dictSdsCaseHash,            /* hash function */
+        NULL,                       /* key dup */
+        NULL,                       /* val dup */
+        dictSdsKeyCaseCompare,      /* key compare */
+        dictSdsDestructor,          /* key destructor */
+        NULL,                       /* val destructor */
+        NULL                        /* allow to expand */
 };
 
 /* Migrate cache dict type. */
 dictType migrateCacheDictType = {
-    dictSdsHash,                /* hash function */
-    NULL,                       /* key dup */
-    NULL,                       /* val dup */
-    dictSdsKeyCompare,          /* key compare */
-    dictSdsDestructor,          /* key destructor */
-    NULL,                       /* val destructor */
-    NULL                        /* allow to expand */
+        dictSdsHash,                /* hash function */
+        NULL,                       /* key dup */
+        NULL,                       /* val dup */
+        dictSdsKeyCompare,          /* key compare */
+        dictSdsDestructor,          /* key destructor */
+        NULL,                       /* val destructor */
+        NULL                        /* allow to expand */
 };
 
 /* Replication cached script dict (server.repl_scriptcache_dict).
  * Keys are sds SHA1 strings, while values are not used at all in the current
  * implementation. */
 dictType replScriptCacheDictType = {
-    dictSdsCaseHash,            /* hash function */
-    NULL,                       /* key dup */
-    NULL,                       /* val dup */
-    dictSdsKeyCaseCompare,      /* key compare */
-    dictSdsDestructor,          /* key destructor */
-    NULL,                       /* val destructor */
-    NULL                        /* allow to expand */
+        dictSdsCaseHash,            /* hash function */
+        NULL,                       /* key dup */
+        NULL,                       /* val dup */
+        dictSdsKeyCaseCompare,      /* key compare */
+        dictSdsDestructor,          /* key destructor */
+        NULL,                       /* val destructor */
+        NULL                        /* allow to expand */
 };
 
 int htNeedsResize(dict *dict) {
@@ -2605,7 +605,7 @@ void trackInstantaneousMetric(int metric, long long current_reading) {
     ops_sec = t > 0 ? (ops*1000/t) : 0;
 
     server.inst_metric[metric].samples[server.inst_metric[metric].idx] =
-        ops_sec;
+            ops_sec;
     server.inst_metric[metric].idx++;
     server.inst_metric[metric].idx %= STATS_METRIC_SAMPLES;
     server.inst_metric[metric].last_sample_time = now;
@@ -2656,7 +656,7 @@ int clientsCronResizeQueryBuffer(client *c) {
     /* We reset to either the current used, or currently processed bulk size,
      * which ever is bigger. */
     if (c->bulklen != -1 && (size_t)c->bulklen > c->querybuf_peak)
-        c->querybuf_peak = c->bulklen;
+    c->querybuf_peak = c->bulklen;
 
     /* Clients representing masters also use a "pending query buffer" that
      * is the yet not applied part of the stream we are reading. Such buffer
@@ -2695,7 +695,7 @@ size_t ClientsPeakMemOutput[CLIENTS_PEAK_MEM_USAGE_SLOTS] = {0};
 
 int clientsCronTrackExpansiveClients(client *c, int time_idx) {
     size_t in_usage = sdsZmallocSize(c->querybuf) + c->argv_len_sum +
-	              (c->argv ? zmalloc_size(c->argv) : 0);
+                      (c->argv ? zmalloc_size(c->argv) : 0);
     size_t out_usage = getClientOutputBufferMemoryUsage(c);
 
     /* Track the biggest values observed so far in this slot. */
@@ -2988,10 +988,10 @@ void checkChildrenDone(void) {
 
         if (pid == -1) {
             serverLog(LL_WARNING,"waitpid() returned an error: %s. "
-                "child_type: %s, child_pid = %d",
-                strerror(errno),
-                strChildType(server.child_type),
-                (int) server.child_pid);
+                                 "child_type: %s, child_pid = %d",
+                      strerror(errno),
+                      strChildType(server.child_type),
+                      (int) server.child_pid);
         } else if (pid == server.child_pid) {
             if (server.child_type == CHILD_TYPE_RDB) {
                 backgroundSaveDoneHandler(exitcode, bysignal);
@@ -3110,9 +1110,9 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
         trackInstantaneousMetric(STATS_METRIC_COMMAND,server.stat_numcommands);
         trackInstantaneousMetric(STATS_METRIC_NET_INPUT,
-                stat_net_input_bytes);
+                                 stat_net_input_bytes);
         trackInstantaneousMetric(STATS_METRIC_NET_OUTPUT,
-                stat_net_output_bytes);
+                                 stat_net_output_bytes);
     }
 
     /* We have just LRU_BITS bits per object for LRU information.
@@ -3159,10 +1159,10 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     if (!server.sentinel_mode) {
         run_with_period(5000) {
             serverLog(LL_DEBUG,
-                "%lu clients connected (%lu replicas), %zu bytes in use",
-                listLength(server.clients)-listLength(server.slaves),
-                listLength(server.slaves),
-                zmalloc_used_memory());
+                      "%lu clients connected (%lu replicas), %zu bytes in use",
+                      listLength(server.clients)-listLength(server.slaves),
+                      listLength(server.slaves),
+                      zmalloc_used_memory());
         }
     }
 
@@ -3202,7 +1202,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
                  server.lastbgsave_status == C_OK))
             {
                 serverLog(LL_NOTICE,"%d changes in %d seconds. Saving...",
-                    sp->changes, (int)sp->seconds);
+                          sp->changes, (int)sp->seconds);
                 rdbSaveInfo rsi, *rsiptr;
                 rsiptr = rdbPopulateSaveInfo(&rsi);
                 rdbSaveBackground(server.rdb_filename,rsiptr);
@@ -3217,7 +1217,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             server.aof_current_size > server.aof_rewrite_min_size)
         {
             long long base = server.aof_rewrite_base_size ?
-                server.aof_rewrite_base_size : 1;
+                             server.aof_rewrite_base_size : 1;
             long long growth = (server.aof_current_size*100/base) - 100;
             if (growth >= server.aof_rewrite_perc) {
                 serverLog(LL_NOTICE,"Starting automatic rewriting of AOF on %lld%% growth",growth);
@@ -3248,8 +1248,8 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     checkClientPauseTimeoutAndReturnIfPaused();
 
     /* Replication cron function -- used to reconnect to master,
-     * detect transfer failures, start background RDB transfers and so forth. 
-     * 
+     * detect transfer failures, start background RDB transfers and so forth.
+     *
      * If Redis is trying to failover then run the replication cron faster so
      * progress on the handshake happens more quickly. */
     if (server.failover_state != NO_FAILOVER) {
@@ -3450,7 +1450,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
      * processUnblockedClients(), so if there are multiple pipelined WAITs
      * and the just unblocked WAIT gets blocked again, we don't have to wait
      * a server cron cycle in absence of other event loop events. See #6623.
-     * 
+     *
      * We also don't send the ACKs while clients are paused, since it can
      * increment the replication backlog, they'll be sent after the pause
      * if we are still the master. */
@@ -3465,7 +1465,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     }
 
     /* We may have received updates from clients about their current offset. NOTE:
-     * this can't be done where the ACK is received since failover will disconnect 
+     * this can't be done where the ACK is received since failover will disconnect
      * our clients. */
     updateFailoverStatus();
 
@@ -3551,40 +1551,40 @@ void createSharedObjects(void) {
 
     /* Shared command error responses */
     shared.wrongtypeerr = createObject(OBJ_STRING,sdsnew(
-        "-WRONGTYPE Operation against a key holding the wrong kind of value\r\n"));
+            "-WRONGTYPE Operation against a key holding the wrong kind of value\r\n"));
     shared.err = createObject(OBJ_STRING,sdsnew("-ERR\r\n"));
     shared.nokeyerr = createObject(OBJ_STRING,sdsnew(
-        "-ERR no such key\r\n"));
+            "-ERR no such key\r\n"));
     shared.syntaxerr = createObject(OBJ_STRING,sdsnew(
-        "-ERR syntax error\r\n"));
+            "-ERR syntax error\r\n"));
     shared.sameobjecterr = createObject(OBJ_STRING,sdsnew(
-        "-ERR source and destination objects are the same\r\n"));
+            "-ERR source and destination objects are the same\r\n"));
     shared.outofrangeerr = createObject(OBJ_STRING,sdsnew(
-        "-ERR index out of range\r\n"));
+            "-ERR index out of range\r\n"));
     shared.noscripterr = createObject(OBJ_STRING,sdsnew(
-        "-NOSCRIPT No matching script. Please use EVAL.\r\n"));
+            "-NOSCRIPT No matching script. Please use EVAL.\r\n"));
     shared.loadingerr = createObject(OBJ_STRING,sdsnew(
-        "-LOADING Redis is loading the dataset in memory\r\n"));
+            "-LOADING Redis is loading the dataset in memory\r\n"));
     shared.slowevalerr = createObject(OBJ_STRING,sdsnew(
-        "-BUSY Redis is busy running a job. for script You can only call SCRIPT KILL or SHUTDOWN NOSAVE.\r\n"));
+            "-BUSY Redis is busy running a script. You can only call SCRIPT KILL or SHUTDOWN NOSAVE.\r\n"));
     shared.slowscripterr = createObject(OBJ_STRING,sdsnew(
-        "-BUSY Redis is busy running a job. for script You can only call SCRIPT KILL or SHUTDOWN NOSAVE.\r\n"));
+            "-BUSY Redis is busy running a script. You can only call FUNCTION KILL or SHUTDOWN NOSAVE.\r\n"));
     shared.masterdownerr = createObject(OBJ_STRING,sdsnew(
-        "-MASTERDOWN Link with MASTER is down and replica-serve-stale-data is set to 'no'.\r\n"));
+            "-MASTERDOWN Link with MASTER is down and replica-serve-stale-data is set to 'no'.\r\n"));
     shared.bgsaveerr = createObject(OBJ_STRING,sdsnew(
-        "-MISCONF Redis is configured to save RDB snapshots, but it is currently not able to persist on disk. Commands that may modify the data set are disabled, because this instance is configured to report errors during writes if RDB snapshotting fails (stop-writes-on-bgsave-error option). Please check the Redis logs for details about the RDB error.\r\n"));
+            "-MISCONF Redis is configured to save RDB snapshots, but it is currently not able to persist on disk. Commands that may modify the data set are disabled, because this instance is configured to report errors during writes if RDB snapshotting fails (stop-writes-on-bgsave-error option). Please check the Redis logs for details about the RDB error.\r\n"));
     shared.roslaveerr = createObject(OBJ_STRING,sdsnew(
-        "-READONLY You can't write against a read only replica.\r\n"));
+            "-READONLY You can't write against a read only replica.\r\n"));
     shared.noautherr = createObject(OBJ_STRING,sdsnew(
-        "-NOAUTH Authentication required.\r\n"));
+            "-NOAUTH Authentication required.\r\n"));
     shared.oomerr = createObject(OBJ_STRING,sdsnew(
-        "-OOM command not allowed when used memory > 'maxmemory'.\r\n"));
+            "-OOM command not allowed when used memory > 'maxmemory'.\r\n"));
     shared.execaborterr = createObject(OBJ_STRING,sdsnew(
-        "-EXECABORT Transaction discarded because of previous errors.\r\n"));
+            "-EXECABORT Transaction discarded because of previous errors.\r\n"));
     shared.noreplicaserr = createObject(OBJ_STRING,sdsnew(
-        "-NOREPLICAS Not enough good replicas to write.\r\n"));
+            "-NOREPLICAS Not enough good replicas to write.\r\n"));
     shared.busykeyerr = createObject(OBJ_STRING,sdsnew(
-        "-BUSYKEY Target key name already exists.\r\n"));
+            "-BUSYKEY Target key name already exists.\r\n"));
 
     /* The shared NULL depends on the protocol version. */
     shared.null[0] = NULL;
@@ -3613,9 +1613,9 @@ void createSharedObjects(void) {
 
         dictid_len = ll2string(dictid_str,sizeof(dictid_str),j);
         shared.select[j] = createObject(OBJ_STRING,
-            sdscatprintf(sdsempty(),
-                "*2\r\n$6\r\nSELECT\r\n$%d\r\n%s\r\n",
-                dictid_len, dictid_str));
+                                        sdscatprintf(sdsempty(),
+                                                     "*2\r\n$6\r\nSELECT\r\n$%d\r\n%s\r\n",
+                                                     dictid_len, dictid_str));
     }
     shared.messagebulk = createStringObject("$7\r\nmessage\r\n",13);
     shared.pmessagebulk = createStringObject("$8\r\npmessage\r\n",14);
@@ -3672,14 +1672,14 @@ void createSharedObjects(void) {
 
     for (j = 0; j < OBJ_SHARED_INTEGERS; j++) {
         shared.integers[j] =
-            makeObjectShared(createObject(OBJ_STRING,(void*)(long)j));
+                makeObjectShared(createObject(OBJ_STRING,(void*)(long)j));
         shared.integers[j]->encoding = OBJ_ENCODING_INT;
     }
     for (j = 0; j < OBJ_SHARED_BULKHDR_LEN; j++) {
         shared.mbulkhdr[j] = createObject(OBJ_STRING,
-            sdscatprintf(sdsempty(),"*%d\r\n",j));
+                                          sdscatprintf(sdsempty(),"*%d\r\n",j));
         shared.bulkhdr[j] = createObject(OBJ_STRING,
-            sdscatprintf(sdsempty(),"$%d\r\n",j));
+                                         sdscatprintf(sdsempty(),"$%d\r\n",j));
     }
     /* The following two shared objects, minstring and maxstring, are not
      * actually used for their value but as a special object meaning
@@ -3715,7 +1715,6 @@ void initServerConfig(void) {
     server.sofd = -1;
     server.active_expire_enabled = 1;
     server.skip_checksum_validation = 0;
-    server.saveparams = NULL;
     server.loading = 0;
     server.async_loading = 0;
     server.loading_rdb_used_mem = 0;
@@ -3954,7 +1953,7 @@ void adjustOpenFilesLimit(void) {
 
     if (getrlimit(RLIMIT_NOFILE,&limit) == -1) {
         serverLog(LL_WARNING,"Unable to obtain the current NOFILE limit (%s), assuming 1024 and setting the max clients configuration accordingly.",
-            strerror(errno));
+                  strerror(errno));
         server.maxclients = 1024-CONFIG_MIN_RESERVED_FDS;
     } else {
         rlim_t oldlimit = limit.rlim_cur;
@@ -3997,30 +1996,30 @@ void adjustOpenFilesLimit(void) {
                  * we test indirectly via bestlimit. */
                 if (bestlimit <= CONFIG_MIN_RESERVED_FDS) {
                     serverLog(LL_WARNING,"Your current 'ulimit -n' "
-                        "of %llu is not enough for the server to start. "
-                        "Please increase your open file limit to at least "
-                        "%llu. Exiting.",
-                        (unsigned long long) oldlimit,
-                        (unsigned long long) maxfiles);
+                                         "of %llu is not enough for the server to start. "
+                                         "Please increase your open file limit to at least "
+                                         "%llu. Exiting.",
+                              (unsigned long long) oldlimit,
+                              (unsigned long long) maxfiles);
                     exit(1);
                 }
                 serverLog(LL_WARNING,"You requested maxclients of %d "
-                    "requiring at least %llu max file descriptors.",
-                    old_maxclients,
-                    (unsigned long long) maxfiles);
+                                     "requiring at least %llu max file descriptors.",
+                          old_maxclients,
+                          (unsigned long long) maxfiles);
                 serverLog(LL_WARNING,"Server can't set maximum open files "
-                    "to %llu because of OS error: %s.",
-                    (unsigned long long) maxfiles, strerror(setrlimit_error));
+                                     "to %llu because of OS error: %s.",
+                          (unsigned long long) maxfiles, strerror(setrlimit_error));
                 serverLog(LL_WARNING,"Current maximum open files is %llu. "
-                    "maxclients has been reduced to %d to compensate for "
-                    "low ulimit. "
-                    "If you need higher maxclients increase 'ulimit -n'.",
-                    (unsigned long long) bestlimit, server.maxclients);
+                                     "maxclients has been reduced to %d to compensate for "
+                                     "low ulimit. "
+                                     "If you need higher maxclients increase 'ulimit -n'.",
+                          (unsigned long long) bestlimit, server.maxclients);
             } else {
                 serverLog(LL_NOTICE,"Increased maximum number of open files "
-                    "to %llu (it was originally set to %llu).",
-                    (unsigned long long) maxfiles,
-                    (unsigned long long) oldlimit);
+                                    "to %llu (it was originally set to %llu).",
+                          (unsigned long long) maxfiles,
+                          (unsigned long long) oldlimit);
             }
         }
     }
@@ -4110,8 +2109,8 @@ int listenToPort(int port, socketFds *sfd) {
         if (sfd->fd[sfd->count] == ANET_ERR) {
             int net_errno = errno;
             serverLog(LL_WARNING,
-                "Warning: Could not create server TCP listening socket %s:%d: %s",
-                addr, port, server.neterr);
+                      "Warning: Could not create server TCP listening socket %s:%d: %s",
+                      addr, port, server.neterr);
             if (net_errno == EADDRNOTAVAIL && optional)
                 continue;
             if (net_errno == ENOPROTOOPT     || net_errno == EPROTONOSUPPORT ||
@@ -4171,7 +2170,7 @@ void resetServerStats(void) {
         server.inst_metric[j].last_sample_time = mstime();
         server.inst_metric[j].last_sample_count = 0;
         memset(server.inst_metric[j].samples,0,
-            sizeof(server.inst_metric[j].samples));
+               sizeof(server.inst_metric[j].samples));
     }
     atomicSet(server.stat_net_input_bytes, 0);
     atomicSet(server.stat_net_output_bytes, 0);
@@ -4200,7 +2199,7 @@ void initServer(void) {
 
     if (server.syslog_enabled) {
         openlog(server.syslog_ident, LOG_PID | LOG_NDELAY | LOG_NOWAIT,
-            server.syslog_facility);
+                server.syslog_facility);
     }
 
     /* Initialization after setting defaults from the config system. */
@@ -4236,11 +2235,10 @@ void initServer(void) {
     server.blocked_last_cron = 0;
     server.blocking_op_nesting = 0;
     server.thp_enabled = 0;
-    server.busy_job = 0;
     resetReplicationBuffer();
 
     if ((server.tls_port || server.tls_replication || server.tls_cluster)
-                && tlsConfigure(&server.tls_ctx_config) == C_ERR) {
+        && tlsConfigure(&server.tls_ctx_config) == C_ERR) {
         serverLog(LL_WARNING, "Failed to configure TLS. Check logs for more info.");
         exit(1);
     }
@@ -4257,8 +2255,8 @@ void initServer(void) {
     server.el = aeCreateEventLoop(server.maxclients+CONFIG_FDSET_INCR);
     if (server.el == NULL) {
         serverLog(LL_WARNING,
-            "Failed creating the event loop. Error message: '%s'",
-            strerror(errno));
+                  "Failed creating the event loop. Error message: '%s'",
+                  strerror(errno));
         exit(1);
     }
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
@@ -4281,9 +2279,9 @@ void initServer(void) {
     if (server.unixsocket != NULL) {
         unlink(server.unixsocket); /* don't care if this fails */
         server.sofd = anetUnixServer(server.neterr,server.unixsocket,
-            (mode_t)server.unixsocketperm, server.tcp_backlog);
+                                     (mode_t)server.unixsocketperm, server.tcp_backlog);
         if (server.sofd == ANET_ERR) {
-            serverLog(LL_WARNING, "Opening Unix socket: %s", server.neterr);
+            serverLog(LL_WARNING, "Failed opening Unix socket: %s", server.neterr);
             exit(1);
         }
         anetNonBlock(NULL,server.sofd);
@@ -4316,7 +2314,9 @@ void initServer(void) {
     server.cronloops = 0;
     server.in_script = 0;
     server.in_exec = 0;
-    server.propagate_in_transaction = 0;
+    server.core_propagates = 0;
+    server.propagate_no_multi = 0;
+    server.module_ctx_nesting = 0;
     server.client_pause_in_transaction = 0;
     server.child_pid = -1;
     server.child_type = CHILD_TYPE_NONE;
@@ -4354,6 +2354,7 @@ void initServer(void) {
     server.stat_module_progress = 0;
     for (int j = 0; j < CLIENT_TYPE_COUNT; j++)
         server.stat_clients_type_memory[j] = 0;
+    server.stat_cluster_links_memory = 0;
     server.cron_malloc_stats.zmalloc_used = 0;
     server.cron_malloc_stats.process_rss = 0;
     server.cron_malloc_stats.allocator_allocated = 0;
@@ -4381,14 +2382,14 @@ void initServer(void) {
         serverPanic("Unrecoverable error creating TLS socket accept handler.");
     }
     if (server.sofd > 0 && aeCreateFileEvent(server.el,server.sofd,AE_READABLE,
-        acceptUnixHandler,NULL) == AE_ERR) serverPanic("Unrecoverable error creating server.sofd file event.");
+                                             acceptUnixHandler,NULL) == AE_ERR) serverPanic("Unrecoverable error creating server.sofd file event.");
 
 
     /* Register a readable event for the pipe used to awake the event loop
      * when a blocked client in a module needs attention. */
     if (aeCreateFileEvent(server.el, server.module_blocked_pipe[0], AE_READABLE,
-        moduleBlockedClientPipeReadable,NULL) == AE_ERR) {
-            serverPanic(
+                          moduleBlockedClientPipeReadable,NULL) == AE_ERR) {
+        serverPanic(
                 "Error registering the readable event for the module "
                 "blocked clients subsystem.");
     }
@@ -4409,12 +2410,11 @@ void initServer(void) {
     }
 
     if (server.cluster_enabled) clusterInit();
-    replicationScriptCacheInit();
     scriptingInit(1);
     functionsInit();
     slowlogInit();
     latencyMonitorInit();
-    
+
     /* Initialize ACL default password if it exists */
     ACLUpdateDefaultUserPassword(server.requirepass);
 
@@ -4520,84 +2520,26 @@ void commandAddSubcommand(struct redisCommand *parent, struct redisCommand *subc
     serverAssert(dictAdd(parent->subcommands_dict, sdsnew(subcommand->name), subcommand) == DICT_OK);
 }
 
+/* Set implicit ACl categories (see comment above the definition of
+ * struct redisCommand). */
+void setImplictACLCategories(struct redisCommand *c) {
+    if (c->flags & CMD_WRITE)
+        c->acl_categories |= ACL_CATEGORY_WRITE;
+    if (c->flags & CMD_READONLY)
+        c->acl_categories |= ACL_CATEGORY_READ;
+    if (c->flags & CMD_ADMIN)
+        c->acl_categories |= ACL_CATEGORY_ADMIN|ACL_CATEGORY_DANGEROUS;
+    if (c->flags & CMD_PUBSUB)
+        c->acl_categories |= ACL_CATEGORY_PUBSUB;
+    if (c->flags & CMD_FAST)
+        c->acl_categories |= ACL_CATEGORY_FAST;
 
-/* Parse the flags string description 'strflags' and set them to the
- * command 'c'. Abort on error. */
-void parseCommandFlags(struct redisCommand *c, char *strflags) {
-    int argc;
-    sds *argv;
-
-    /* Split the line into arguments for processing. */
-    argv = sdssplitargs(strflags,&argc);
-    if (argv == NULL)
-        serverPanic("Failed splitting strflags!");
-
-    for (int j = 0; j < argc; j++) {
-        char *flag = argv[j];
-        if (!strcasecmp(flag,"write")) {
-            c->flags |= CMD_WRITE|CMD_CATEGORY_WRITE;
-        } else if (!strcasecmp(flag,"read-only")) {
-            c->flags |= CMD_READONLY|CMD_CATEGORY_READ;
-        } else if (!strcasecmp(flag,"use-memory")) {
-            c->flags |= CMD_DENYOOM;
-        } else if (!strcasecmp(flag,"admin")) {
-            c->flags |= CMD_ADMIN|CMD_CATEGORY_ADMIN|CMD_CATEGORY_DANGEROUS;
-        } else if (!strcasecmp(flag,"pub-sub")) {
-            c->flags |= CMD_PUBSUB|CMD_CATEGORY_PUBSUB;
-        } else if (!strcasecmp(flag,"no-script")) {
-            c->flags |= CMD_NOSCRIPT;
-        } else if (!strcasecmp(flag,"random")) {
-            c->flags |= CMD_RANDOM;
-        } else if (!strcasecmp(flag,"to-sort")) {
-            c->flags |= CMD_SORT_FOR_SCRIPT;
-        } else if (!strcasecmp(flag,"ok-loading")) {
-            c->flags |= CMD_LOADING;
-        } else if (!strcasecmp(flag,"ok-stale")) {
-            c->flags |= CMD_STALE;
-        } else if (!strcasecmp(flag,"no-monitor")) {
-            c->flags |= CMD_SKIP_MONITOR;
-        } else if (!strcasecmp(flag,"no-slowlog")) {
-            c->flags |= CMD_SKIP_SLOWLOG;
-        } else if (!strcasecmp(flag,"cluster-asking")) {
-            c->flags |= CMD_ASKING;
-        } else if (!strcasecmp(flag,"fast")) {
-            c->flags |= CMD_FAST | CMD_CATEGORY_FAST;
-        } else if (!strcasecmp(flag,"no-auth")) {
-            c->flags |= CMD_NO_AUTH;
-        } else if (!strcasecmp(flag,"may-replicate")) {
-            c->flags |= CMD_MAY_REPLICATE;
-        } else if (!strcasecmp(flag,"sentinel")) {
-            c->flags |= CMD_SENTINEL;
-        } else if (!strcasecmp(flag,"only-sentinel")) {
-            c->flags |= CMD_SENTINEL; /* Obviously it's s sentinel command */
-            c->flags |= CMD_ONLY_SENTINEL;
-        } else if (!strcasecmp(flag,"no-mandatory-keys")) {
-            c->flags |= CMD_NO_MANDATORY_KEYS;
-        } else if (!strcasecmp(flag,"allow-busy")) {
-            c->flags |= CMD_ALLOW_BUSY;
-        } else {
-            /* Parse ACL categories here if the flag name starts with @. */
-            uint64_t catflag;
-            if (flag[0] == '@' &&
-                (catflag = ACLGetCommandCategoryFlagByName(flag+1)) != 0)
-            {
-                c->flags |= catflag;
-            } else {
-                sdsfreesplitres(argv,argc);
-                serverPanic("Unsupported command flag %s", flag);
-            }
-        }
-    }
     /* If it's not @fast is @slow in this binary world. */
-    if (!(c->flags & CMD_CATEGORY_FAST)) c->flags |= CMD_CATEGORY_SLOW;
-
-    sdsfreesplitres(argv,argc);
+    if (!(c->acl_categories & ACL_CATEGORY_FAST))
+        c->acl_categories |= ACL_CATEGORY_SLOW;
 }
 
 void populateCommandStructure(struct redisCommand *c) {
-    int argc;
-    sds *argv;
-
     /* Redis commands don't need more args than STATIC_KEY_SPECS_NUM (Number of keys
      * specs can be greater than STATIC_KEY_SPECS_NUM only for module commands) */
     c->key_specs = c->key_specs_static;
@@ -4605,28 +2547,8 @@ void populateCommandStructure(struct redisCommand *c) {
 
     for (int i = 0; i < STATIC_KEY_SPECS_NUM; i++) {
         if (c->key_specs[i].begin_search_type == KSPEC_BS_INVALID)
-            continue;
-
-        /* Split the line into arguments for processing. */
-        argv = sdssplitargs(c->key_specs[i].sflags,&argc);
-        if (argv == NULL)
-            serverPanic("Failed splitting key sflags!");
-
-        for (int j = 0; j < argc; j++) {
-            char *flag = argv[j];
-            if (!strcasecmp(flag,"write")) {
-                c->key_specs[i].flags |= CMD_KEY_WRITE;
-            } else if (!strcasecmp(flag,"read")) {
-                c->key_specs[i].flags |= CMD_KEY_READ;
-            } else if (!strcasecmp(flag,"incomplete")) {
-                c->key_specs[i].flags |= CMD_KEY_INCOMPLETE;
-            } else {
-                serverPanic("Unsupported key-arg flag %s", flag);
-            }
-        }
-
+            break;
         c->key_specs_num++;
-        sdsfreesplitres(argv,argc);
     }
 
     populateCommandLegacyRangeSpec(c);
@@ -4644,26 +2566,29 @@ void populateCommandStructure(struct redisCommand *c) {
 
             /* Translate the command string flags description into an actual
              * set of flags. */
-            parseCommandFlags(sub,sub->sflags);
+            setImplictACLCategories(sub);
             populateCommandStructure(sub);
             commandAddSubcommand(c,sub);
         }
     }
 }
 
+extern struct redisCommand redisCommandTable[];
+
 /* Populates the Redis Command Table starting from the hard coded list
  * we have on top of server.c file. */
 void populateCommandTable(void) {
     int j;
-    int numcommands = sizeof(redisCommandTable)/sizeof(struct redisCommand);
+    struct redisCommand *c;
 
-    for (j = 0; j < numcommands; j++) {
-        struct redisCommand *c = redisCommandTable+j;
+    for (j = 0;; j++) {
+        c = redisCommandTable + j;
+        if (c->name == NULL)
+            break;
+
         int retval1, retval2;
 
-        /* Translate the command string flags description into an actual
-         * set of flags. */
-        parseCommandFlags(c,c->sflags);
+        setImplictACLCategories(c);
 
         if (!(c->flags & CMD_SENTINEL) && server.sentinel_mode)
             continue;
@@ -4710,12 +2635,21 @@ void resetErrorTableStats(void) {
 void redisOpArrayInit(redisOpArray *oa) {
     oa->ops = NULL;
     oa->numops = 0;
+    oa->capacity = 0;
 }
 
 int redisOpArrayAppend(redisOpArray *oa, int dbid, robj **argv, int argc, int target) {
     redisOp *op;
+    int prev_capacity = oa->capacity;
 
-    oa->ops = zrealloc(oa->ops,sizeof(redisOp)*(oa->numops+1));
+    if (oa->numops == 0) {
+        oa->capacity = 16;
+    } else if (oa->numops >= oa->capacity) {
+        oa->capacity *= 2;
+    }
+
+    if (prev_capacity != oa->capacity)
+        oa->ops = zrealloc(oa->ops,sizeof(redisOp)*oa->capacity);
     op = oa->ops+oa->numops;
     op->dbid = dbid;
     op->argv = argv;
@@ -4737,7 +2671,7 @@ void redisOpArrayFree(redisOpArray *oa) {
         zfree(op->argv);
     }
     zfree(oa->ops);
-    oa->ops = NULL;
+    redisOpArrayInit(oa);
 }
 
 /* ====================== Commands lookup and execution ===================== */
@@ -4812,6 +2746,22 @@ struct redisCommand *lookupCommandOrOriginal(robj **argv ,int argc) {
     return cmd;
 }
 
+static int shouldPropagate(int target) {
+    if (!server.replication_allowed || target == PROPAGATE_NONE || server.loading)
+        return 0;
+
+    if (target & PROPAGATE_AOF) {
+        if (server.aof_state != AOF_OFF)
+            return 1;
+    }
+    if (target & PROPAGATE_REPL) {
+        if (server.masterhost == NULL && (server.repl_backlog || listLength(server.slaves) != 0))
+            return 1;
+    }
+
+    return 0;
+}
+
 /* Propagate the specified command (in the context of the specified database id)
  * to AOF and Slaves.
  *
@@ -4820,33 +2770,21 @@ struct redisCommand *lookupCommandOrOriginal(robj **argv ,int argc) {
  * + PROPAGATE_AOF (propagate into the AOF file if is enabled)
  * + PROPAGATE_REPL (propagate into the replication link)
  *
- * This should not be used inside commands implementation since it will not
- * wrap the resulting commands in MULTI/EXEC. Use instead alsoPropagate(),
- * preventCommandPropagation(), forceCommandPropagation().
+ * This is an internal low-level function and should not be called!
  *
- * However for functions that need to (also) propagate out of the context of a
- * command execution, for example when serving a blocked client, you
- * want to use propagate().
+ * The API for propagating commands is alsoPropagate().
  */
-void propagate(int dbid, robj **argv, int argc, int flags) {
-    if (!server.replication_allowed)
+static void propagateNow(int dbid, robj **argv, int argc, int target) {
+    if (!shouldPropagate(target))
         return;
 
-    /* Propagate a MULTI request once we encounter the first command which
-     * is a write command.
-     * This way we'll deliver the MULTI/..../EXEC block as a whole and
-     * both the AOF and the replication link will have the same consistency
-     * and atomicity guarantees. */
-    if (server.in_exec && !server.propagate_in_transaction)
-        execCommandPropagateMulti(dbid);
-
-    /* This needs to be unreachable since the dataset should be fixed during 
+    /* This needs to be unreachable since the dataset should be fixed during
      * client pause, otherwise data may be lost during a failover. */
     serverAssert(!(areClientsPaused() && !server.client_pause_in_transaction));
 
-    if (server.aof_state != AOF_OFF && flags & PROPAGATE_AOF)
+    if (server.aof_state != AOF_OFF && target & PROPAGATE_AOF)
         feedAppendOnlyFile(dbid,argv,argc);
-    if (flags & PROPAGATE_REPL)
+    if (target & PROPAGATE_REPL)
         replicationFeedSlaves(server.slaves,dbid,argv,argc);
 }
 
@@ -4865,7 +2803,8 @@ void alsoPropagate(int dbid, robj **argv, int argc, int target) {
     robj **argvcopy;
     int j;
 
-    if (server.loading) return; /* No propagation during loading. */
+    if (!shouldPropagate(target))
+        return;
 
     argvcopy = zmalloc(sizeof(robj*)*argc);
     for (j = 0; j < argc; j++) {
@@ -4912,6 +2851,46 @@ void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t dur
     robj **argv = c->original_argv ? c->original_argv : c->argv;
     int argc = c->original_argv ? c->original_argc : c->argc;
     slowlogPushEntryIfNeeded(c,argv,argc,duration);
+}
+
+/* Handle the alsoPropagate() API to handle commands that want to propagate
+ * multiple separated commands. Note that alsoPropagate() is not affected
+ * by CLIENT_PREVENT_PROP flag. */
+void propagatePendingCommands() {
+    if (server.also_propagate.numops == 0)
+        return;
+
+    int j;
+    redisOp *rop;
+    int multi_emitted = 0;
+
+    /* Wrap the commands in server.also_propagate array,
+     * but don't wrap it if we are already in MULTI context,
+     * in case the nested MULTI/EXEC.
+     *
+     * And if the array contains only one command, no need to
+     * wrap it, since the single command is atomic. */
+    if (server.also_propagate.numops > 1 && !server.propagate_no_multi) {
+        /* We use the first command-to-propagate to set the dbid for MULTI,
+         * so that the SELECT will be propagated beforehand */
+        int multi_dbid = server.also_propagate.ops[0].dbid;
+        propagateNow(multi_dbid,&shared.multi,1,PROPAGATE_AOF|PROPAGATE_REPL);
+        multi_emitted = 1;
+    }
+
+    for (j = 0; j < server.also_propagate.numops; j++) {
+        rop = &server.also_propagate.ops[j];
+        serverAssert(rop->target);
+        propagateNow(rop->dbid,rop->argv,rop->argc,rop->target);
+    }
+
+    if (multi_emitted) {
+        /* We take the dbid from last command so that propagateNow() won't inject another SELECT */
+        int exec_dbid = server.also_propagate.ops[server.also_propagate.numops-1].dbid;
+        propagateNow(exec_dbid,&shared.exec,1,PROPAGATE_AOF|PROPAGATE_REPL);
+    }
+
+    redisOpArrayFree(&server.also_propagate);
 }
 
 /* Call() is the core of Redis execution of a command.
@@ -4961,8 +2940,19 @@ void call(client *c, int flags) {
     /* Initialization: clear the flags that must be set by the command on
      * demand, and initialize the array for additional commands propagation. */
     c->flags &= ~(CLIENT_FORCE_AOF|CLIENT_FORCE_REPL|CLIENT_PREVENT_PROP);
-    redisOpArray prev_also_propagate = server.also_propagate;
-    redisOpArrayInit(&server.also_propagate);
+
+    /* Redis core is in charge of propagation when the first entry point
+     * of call() is processCommand().
+     * The only other option to get to call() without having processCommand
+     * as an entry point is if a module triggers RM_Call outside of call()
+     * context (for example, in a timer).
+     * In that case, the module is in charge of propagation.
+     *
+     * Because call() is re-entrant we have to cache and restore
+     * server.core_propagates. */
+    int prev_core_propagates = server.core_propagates;
+    if (!server.core_propagates && !(flags & CMD_CALL_FROM_MODULE))
+        server.core_propagates = 1;
 
     /* Call the command. */
     dirty = server.dirty;
@@ -5023,7 +3013,7 @@ void call(client *c, int flags) {
      * a MULTI-EXEC from inside an AOF). */
     if (flags & CMD_CALL_SLOWLOG) {
         char *latency_event = (real_cmd->flags & CMD_FAST) ?
-                               "fast-command" : "command";
+                              "fast-command" : "command";
         latencyAddSampleIfNeeded(latency_event,duration/1000);
     }
 
@@ -5051,9 +3041,14 @@ void call(client *c, int flags) {
         real_cmd->calls++;
     }
 
-    /* Propagate the command into the AOF and replication link */
+    /* Propagate the command into the AOF and replication link.
+     * We never propagate EXEC explicitly, it will be implicitly
+     * propagated if needed (see propagatePendingCommands).
+     * Also, module commands take care of themselves */
     if (flags & CMD_CALL_PROPAGATE &&
-        (c->flags & CLIENT_PREVENT_PROP) != CLIENT_PREVENT_PROP)
+        (c->flags & CLIENT_PREVENT_PROP) != CLIENT_PREVENT_PROP &&
+        c->cmd->proc != execCommand &&
+        !(c->cmd->flags & CMD_MODULE))
     {
         int propagate_flags = PROPAGATE_NONE;
 
@@ -5071,77 +3066,28 @@ void call(client *c, int flags) {
          * or if we don't have the call() flags to do so. */
         if (c->flags & CLIENT_PREVENT_REPL_PROP ||
             !(flags & CMD_CALL_PROPAGATE_REPL))
-                propagate_flags &= ~PROPAGATE_REPL;
+            propagate_flags &= ~PROPAGATE_REPL;
         if (c->flags & CLIENT_PREVENT_AOF_PROP ||
             !(flags & CMD_CALL_PROPAGATE_AOF))
-                propagate_flags &= ~PROPAGATE_AOF;
+            propagate_flags &= ~PROPAGATE_AOF;
 
-        /* Call propagate() only if at least one of AOF / replication
-         * propagation is needed. Note that modules commands handle replication
-         * in an explicit way, so we never replicate them automatically. */
-        if (propagate_flags != PROPAGATE_NONE && !(c->cmd->flags & CMD_MODULE))
-            propagate(c->db->id,c->argv,c->argc,propagate_flags);
+        /* Call alsoPropagate() only if at least one of AOF / replication
+         * propagation is needed. */
+        if (propagate_flags != PROPAGATE_NONE)
+            alsoPropagate(c->db->id,c->argv,c->argc,propagate_flags);
     }
 
     /* Restore the old replication flags, since call() can be executed
      * recursively. */
     c->flags &= ~(CLIENT_FORCE_AOF|CLIENT_FORCE_REPL|CLIENT_PREVENT_PROP);
     c->flags |= client_old_flags &
-        (CLIENT_FORCE_AOF|CLIENT_FORCE_REPL|CLIENT_PREVENT_PROP);
-
-    /* Handle the alsoPropagate() API to handle commands that want to propagate
-     * multiple separated commands. Note that alsoPropagate() is not affected
-     * by CLIENT_PREVENT_PROP flag. */
-    if (server.also_propagate.numops) {
-        int j;
-        redisOp *rop;
-
-        if (flags & CMD_CALL_PROPAGATE) {
-            int multi_emitted = 0;
-            /* Wrap the commands in server.also_propagate array,
-             * but don't wrap it if we are already in MULTI context,
-             * in case the nested MULTI/EXEC.
-             *
-             * And if the array contains only one command, no need to
-             * wrap it, since the single command is atomic. */
-            if (server.also_propagate.numops > 1 &&
-                !(c->cmd->flags & CMD_MODULE) &&
-                !(c->flags & CLIENT_MULTI) &&
-                !(flags & CMD_CALL_NOWRAP))
-            {
-                execCommandPropagateMulti(c->db->id);
-                multi_emitted = 1;
-            }
-
-            for (j = 0; j < server.also_propagate.numops; j++) {
-                rop = &server.also_propagate.ops[j];
-                int target = rop->target;
-                /* Whatever the command wish is, we honor the call() flags. */
-                if (!(flags&CMD_CALL_PROPAGATE_AOF)) target &= ~PROPAGATE_AOF;
-                if (!(flags&CMD_CALL_PROPAGATE_REPL)) target &= ~PROPAGATE_REPL;
-                if (target)
-                    propagate(rop->dbid,rop->argv,rop->argc,target);
-            }
-
-            if (multi_emitted) {
-                execCommandPropagateExec(c->db->id);
-            }
-        }
-        redisOpArrayFree(&server.also_propagate);
-    }
-    server.also_propagate = prev_also_propagate;
-
-    /* Client pause takes effect after a transaction has finished. This needs
-     * to be located after everything is propagated. */
-    if (!server.in_exec && server.client_pause_in_transaction) {
-        server.client_pause_in_transaction = 0;
-    }
+                (CLIENT_FORCE_AOF|CLIENT_FORCE_REPL|CLIENT_PREVENT_PROP);
 
     /* If the client has keys tracking enabled for client side caching,
      * make sure to remember the keys it fetched via this command. */
     if (c->cmd->flags & CMD_READONLY) {
         client *caller = (c->flags & CLIENT_SCRIPT && server.script_caller) ?
-                            server.script_caller : c;
+                         server.script_caller : c;
         if (caller->flags & CLIENT_TRACKING &&
             !(caller->flags & CLIENT_TRACKING_BCAST))
         {
@@ -5161,6 +3107,14 @@ void call(client *c, int flags) {
 
     /* Do some maintenance job and cleanup */
     afterCommand(c);
+
+    /* Client pause takes effect after a transaction has finished. This needs
+     * to be located after everything is propagated. */
+    if (!server.in_exec && server.client_pause_in_transaction) {
+        server.client_pause_in_transaction = 0;
+    }
+
+    server.core_propagates = prev_core_propagates;
 }
 
 /* Used when a command that is ready for execution needs to be rejected, due to
@@ -5201,9 +3155,16 @@ void rejectCommandFormat(client *c, const char *fmt, ...) {
 /* This is called after a command in call, we can do some maintenance job in it. */
 void afterCommand(client *c) {
     UNUSED(c);
-    /* Flush pending invalidation messages only when we are not in nested call.
-     * So the messages are not interleaved with transaction response. */
-    if (!server.in_nested_call) trackingHandlePendingKeyInvalidations();
+    if (!server.in_nested_call) {
+        /* If we are at the top-most call() we can propagate what we accumulated.
+         * Should be done before trackingHandlePendingKeyInvalidations so that we
+         * reply to client before invalidating cache (makes more sense) */
+        if (server.core_propagates)
+            propagatePendingCommands();
+        /* Flush pending invalidation messages only when we are not in nested call.
+         * So the messages are not interleaved with transaction response. */
+        trackingHandlePendingKeyInvalidations();
+    }
 }
 
 /* Returns 1 for commands that may have key names in their arguments, but the legacy range
@@ -5244,10 +3205,9 @@ void populateCommandMovableKeys(struct redisCommand *cmd) {
 int processCommand(client *c) {
     if (!scriptIsTimedout()) {
         /* Both EXEC and EVAL call call() directly so there should be
-         * no way in_exec or in_eval or propagate_in_transaction is 1.
+         * no way in_exec or in_eval is 1.
          * That is unless lua_timedout, in which case client may run
          * some commands. */
-        serverAssert(!server.propagate_in_transaction);
         serverAssert(!server.in_exec);
         serverAssert(!server.in_script);
     }
@@ -5275,19 +3235,34 @@ int processCommand(client *c) {
         for (i=1; i < c->argc && sdslen(args) < 128; i++)
             args = sdscatprintf(args, "'%.*s' ", 128-(int)sdslen(args), (char*)c->argv[i]->ptr);
         rejectCommandFormat(c,"unknown command '%s', with args beginning with: %s",
-            (char*)c->argv[0]->ptr, args);
+                            (char*)c->argv[0]->ptr, args);
         sdsfree(args);
         return C_OK;
     } else if ((c->cmd->arity > 0 && c->cmd->arity != c->argc) ||
                (c->argc < -c->cmd->arity))
     {
         rejectCommandFormat(c,"wrong number of arguments for '%s' command or subcommand",
-            c->cmd->name);
+                            c->cmd->name);
         return C_OK;
     }
 
+    /* Check if the command is marked as protected and the relevant configuration allows it */
+    if (c->cmd->flags & CMD_PROTECTED) {
+        if ((c->cmd->proc == debugCommand && !allowProtectedAction(server.enable_debug_cmd, c)) ||
+            (c->cmd->proc == moduleCommand && !allowProtectedAction(server.enable_module_cmd, c)))
+        {
+            rejectCommandFormat(c,"%s command not allowed. If the %s option is set to \"local\", "
+                                  "you can run it from a local connection, otherwise you need to set this option "
+                                  "in the configuration file, and then restart the server.",
+                                c->cmd->proc == debugCommand ? "DEBUG" : "MODULE",
+                                c->cmd->proc == debugCommand ? "enable-debug-command" : "enable-module-command");
+            return C_OK;
+
+        }
+    }
+
     int is_read_command = (c->cmd->flags & CMD_READONLY) ||
-                           (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_READONLY));
+                          (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_READONLY));
     int is_write_command = (c->cmd->flags & CMD_WRITE) ||
                            (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_WRITE));
     int is_denyoom_command = (c->cmd->flags & CMD_DENYOOM) ||
@@ -5298,6 +3273,8 @@ int processCommand(client *c) {
                                  (c->cmd->proc == execCommand && (c->mstate.cmd_inv_flags & CMD_LOADING));
     int is_may_replicate_command = (c->cmd->flags & (CMD_WRITE | CMD_MAY_REPLICATE)) ||
                                    (c->cmd->proc == execCommand && (c->mstate.cmd_flags & (CMD_WRITE | CMD_MAY_REPLICATE)));
+    int is_deny_async_loading_command = (c->cmd->flags & CMD_NO_ASYNC_LOADING) ||
+                                        (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_NO_ASYNC_LOADING));
 
     if (authRequired(c)) {
         /* AUTH and HELLO and no auth commands are valid even in
@@ -5315,24 +3292,24 @@ int processCommand(client *c) {
     if (acl_retval != ACL_OK) {
         addACLLogEntry(c,acl_retval,(c->flags & CLIENT_MULTI) ? ACL_LOG_CTX_MULTI : ACL_LOG_CTX_TOPLEVEL,acl_errpos,NULL,NULL);
         switch (acl_retval) {
-        case ACL_DENIED_CMD:
-            rejectCommandFormat(c,
-                "-NOPERM this user has no permissions to run "
-                "the '%s' command or its subcommand", c->cmd->name);
-            break;
-        case ACL_DENIED_KEY:
-            rejectCommandFormat(c,
-                "-NOPERM this user has no permissions to access "
-                "one of the keys used as arguments");
-            break;
-        case ACL_DENIED_CHANNEL:
-            rejectCommandFormat(c,
-                "-NOPERM this user has no permissions to access "
-                "one of the channels used as arguments");
-            break;
-        default:
-            rejectCommandFormat(c, "no permission");
-            break;
+            case ACL_DENIED_CMD:
+                rejectCommandFormat(c,
+                                    "-NOPERM this user has no permissions to run "
+                                    "the '%s' command or its subcommand", c->cmd->name);
+                break;
+            case ACL_DENIED_KEY:
+                rejectCommandFormat(c,
+                                    "-NOPERM this user has no permissions to access "
+                                    "one of the keys used as arguments");
+                break;
+            case ACL_DENIED_CHANNEL:
+                rejectCommandFormat(c,
+                                    "-NOPERM this user has no permissions to access "
+                                    "one of the channels used as arguments");
+                break;
+            default:
+                rejectCommandFormat(c, "no permission");
+                break;
         }
         return C_OK;
     }
@@ -5434,8 +3411,8 @@ int processCommand(client *c) {
             rejectCommand(c, shared.bgsaveerr);
         else
             rejectCommandFormat(c,
-                "-MISCONF Errors writing to the AOF file: %s",
-                strerror(server.aof_last_write_errno));
+                                "-MISCONF Errors writing to the AOF file: %s",
+                                strerror(server.aof_last_write_errno));
         return C_OK;
     }
 
@@ -5472,9 +3449,9 @@ int processCommand(client *c) {
         c->cmd->proc != quitCommand &&
         c->cmd->proc != resetCommand) {
         rejectCommandFormat(c,
-            "Can't execute '%s': only (P)SUBSCRIBE / "
-            "(P)UNSUBSCRIBE / PING / QUIT / RESET are allowed in this context",
-            c->cmd->name);
+                            "Can't execute '%s': only (P)SUBSCRIBE / "
+                            "(P)UNSUBSCRIBE / PING / QUIT / RESET are allowed in this context",
+                            c->cmd->name);
         return C_OK;
     }
 
@@ -5496,19 +3473,38 @@ int processCommand(client *c) {
         return C_OK;
     }
 
-    /* when a busy job is being done (Lua script/Module command)
-     * Only allow a limited number of commands.
+    /* During async-loading, block certain commands. */
+    if (server.async_loading && is_deny_async_loading_command) {
+        rejectCommand(c,shared.loadingerr);
+        return C_OK;
+    }
+
+    /* Lua script too slow? Only allow a limited number of commands.
      * Note that we need to allow the transactions commands, otherwise clients
      * sending a transaction with pipelining without error checking, may have
      * the MULTI plus a few initial commands refused, then the timeout
      * condition resolves, and the bottom-half of the transaction gets
      * executed, see Github PR #7022. */
-
-    if (c->cmd->proc == shutdownCommand && c->argc == 2 &&
-      tolower(((char*)c->argv[1]->ptr)[0]) == 's') c->cmd->flags |= ~CMD_ALLOW_BUSY;
-
-    if ((scriptIsTimedout() || server.busy_job) && !(c->cmd->flags & CMD_ALLOW_BUSY)) {
-        if (server.busy_job || scriptIsEval()) {
+    if (scriptIsTimedout() &&
+        c->cmd->proc != authCommand &&
+        c->cmd->proc != helloCommand &&
+        c->cmd->proc != replconfCommand &&
+        c->cmd->proc != multiCommand &&
+        c->cmd->proc != discardCommand &&
+        c->cmd->proc != watchCommand &&
+        c->cmd->proc != unwatchCommand &&
+        c->cmd->proc != quitCommand &&
+        c->cmd->proc != resetCommand &&
+        !(c->cmd->proc == shutdownCommand &&
+          c->argc == 2 &&
+          tolower(((char*)c->argv[1]->ptr)[0]) == 'n') &&
+        !(c->cmd->proc == scriptCommand &&
+          c->argc == 2 &&
+          tolower(((char*)c->argv[1]->ptr)[0]) == 'k') &&
+        !(c->cmd->proc == functionKillCommand) &&
+        !(c->cmd->proc == functionStatsCommand))
+    {
+        if (scriptIsEval()) {
             rejectCommand(c, shared.slowevalerr);
         } else {
             rejectCommand(c, shared.slowscripterr);
@@ -5526,13 +3522,13 @@ int processCommand(client *c) {
 
     /* If the server is paused, block the client until
      * the pause has ended. Replicas are never paused. */
-    if (!(c->flags & CLIENT_SLAVE) && 
+    if (!(c->flags & CLIENT_SLAVE) &&
         ((server.client_pause_type == CLIENT_PAUSE_ALL) ||
-        (server.client_pause_type == CLIENT_PAUSE_WRITE && is_may_replicate_command)))
+         (server.client_pause_type == CLIENT_PAUSE_WRITE && is_may_replicate_command)))
     {
         c->bpop.timeout = 0;
         blockClient(c,BLOCKED_PAUSE);
-        return C_OK;       
+        return C_OK;
     }
 
     /* Exec the command */
@@ -5582,7 +3578,8 @@ void closeListeningSockets(int unlink_unix_socket) {
         for (j = 0; j < server.cfd.count; j++) close(server.cfd.fd[j]);
     if (unlink_unix_socket && server.unixsocket) {
         serverLog(LL_NOTICE,"Removing the unix socket file.");
-        unlink(server.unixsocket); /* don't care if this fails */
+        if (unlink(server.unixsocket) != 0)
+            serverLog(LL_WARNING,"Error removing the unix socket file: %s",strerror(errno));
     }
 }
 
@@ -5638,7 +3635,7 @@ int prepareForShutdown(int flags) {
                 return C_ERR;
             }
             serverLog(LL_WARNING,
-                "There is a child rewriting the AOF. Killing it!");
+                      "There is a child rewriting the AOF. Killing it!");
             killAppendOnlyChild();
         }
         /* Append only file: flush buffers and fsync() the AOF at exit */
@@ -5646,7 +3643,7 @@ int prepareForShutdown(int flags) {
         flushAppendOnlyFile(1);
         if (redis_fsync(server.aof_fd) == -1) {
             serverLog(LL_WARNING,"Fail to fsync the AOF file: %s.",
-                                 strerror(errno));
+                      strerror(errno));
         }
     }
 
@@ -5687,7 +3684,7 @@ int prepareForShutdown(int flags) {
     /* Close the listening sockets. Apparently this allows faster restarts. */
     closeListeningSockets(1);
     serverLog(LL_WARNING,"%s is now ready to exit, bye bye...",
-        server.sentinel_mode ? "Sentinel" : "Redis");
+              server.sentinel_mode ? "Sentinel" : "Redis");
     return C_OK;
 }
 
@@ -5732,7 +3729,7 @@ void pingCommand(client *c) {
     /* The command takes zero or one arguments. */
     if (c->argc > 2) {
         addReplyErrorFormat(c,"wrong number of arguments for '%s' command",
-            c->cmd->name);
+                            c->cmd->name);
         return;
     }
 
@@ -5781,6 +3778,7 @@ void addReplyFlagsForCommand(client *c, struct redisCommand *cmd) {
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_WRITE, "write");
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_READONLY, "readonly");
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_DENYOOM, "denyoom");
+    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_MODULE, "module");
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_ADMIN, "admin");
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_PUBSUB, "pubsub");
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_NOSCRIPT, "noscript");
@@ -5794,11 +3792,20 @@ void addReplyFlagsForCommand(client *c, struct redisCommand *cmd) {
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_FAST, "fast");
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_NO_AUTH, "no_auth");
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_MAY_REPLICATE, "may_replicate");
+    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_NO_MANDATORY_KEYS, "no_mandatory_keys");
     /* "sentinel" and "only-sentinel" are hidden on purpose. */
     if (cmd->movablekeys) {
         addReplyStatus(c, "movablekeys");
         flagcount += 1;
     }
+    setDeferredSetLen(c, flaglen, flagcount);
+}
+
+void addReplyDocFlagsForCommand(client *c, struct redisCommand *cmd) {
+    int flagcount = 0;
+    void *flaglen = addReplyDeferredLen(c);
+    flagcount += addReplyCommandFlag(c,cmd->doc_flags,CMD_DOC_DEPRECATED, "deprecated");
+    flagcount += addReplyCommandFlag(c,cmd->doc_flags,CMD_DOC_SYSCMD, "syscmd");
     setDeferredSetLen(c, flaglen, flagcount);
 }
 
@@ -5811,7 +3818,124 @@ void addReplyFlagsForKeyArgs(client *c, uint64_t flags) {
     setDeferredSetLen(c, flaglen, flagcount);
 }
 
-void addReplyCommandKeyArgs(client *c, struct redisCommand *cmd) {
+/* Must match redisCommandArgType */
+const char *ARG_TYPE_STR[] = {
+        "string",
+        "integer",
+        "double",
+        "key",
+        "pattern",
+        "unix-time",
+        "pure-token",
+        "oneof",
+        "block",
+};
+
+void addReplyFlagsForArg(client *c, uint64_t flags) {
+    int flagcount = 0;
+    void *flaglen = addReplyDeferredLen(c);
+    flagcount += addReplyCommandFlag(c,flags,CMD_ARG_OPTIONAL, "optional");
+    flagcount += addReplyCommandFlag(c,flags,CMD_ARG_MULTIPLE, "multiple");
+    flagcount += addReplyCommandFlag(c,flags,CMD_ARG_MULTIPLE_TOKEN, "multiple-token");
+    setDeferredSetLen(c, flaglen, flagcount);
+}
+
+void addReplyCommandArgList(client *c, struct redisCommandArg *args) {
+    int j;
+
+    void *setreply = addReplyDeferredLen(c);
+    for (j = 0; args && args[j].name != NULL; j++) {
+        long maplen = 0;
+        void *mapreply = addReplyDeferredLen(c);
+        addReplyBulkCString(c, "name");
+        addReplyBulkCString(c, args[j].name);
+        maplen++;
+        addReplyBulkCString(c, "type");
+        addReplyBulkCString(c, ARG_TYPE_STR[args[j].type]);
+        maplen++;
+        if (args[j].type == ARG_TYPE_KEY) {
+            addReplyBulkCString(c, "key_spec_index");
+            addReplyLongLong(c, args[j].key_spec_index);
+            maplen++;
+        }
+        if (args[j].token) {
+            addReplyBulkCString(c, "token");
+            addReplyBulkCString(c, args[j].token);
+            maplen++;
+        }
+        if (args[j].summary) {
+            addReplyBulkCString(c, "summary");
+            addReplyBulkCString(c, args[j].summary);
+            maplen++;
+        }
+        if (args[j].since) {
+            addReplyBulkCString(c, "since");
+            addReplyBulkCString(c, args[j].since);
+            maplen++;
+        }
+        if (args[j].flags) {
+            addReplyBulkCString(c, "flags");
+            addReplyFlagsForArg(c, args[j].flags);
+            maplen++;
+        }
+        if (args[j].type == ARG_TYPE_ONEOF || args[j].type == ARG_TYPE_BLOCK) {
+            addReplyBulkCString(c, "arguments");
+            addReplyCommandArgList(c, args[j].subargs);
+            maplen++;
+        }
+        setDeferredMapLen(c, mapreply, maplen);
+    }
+    setDeferredSetLen(c, setreply, j);
+}
+
+/* Must match redisCommandRESP2Type */
+const char *RESP2_TYPE_STR[] = {
+        "simple-string",
+        "error",
+        "integer",
+        "bulk-string",
+        "null-bulk-string",
+        "array",
+        "null-array",
+};
+
+/* Must match redisCommandRESP3Type */
+const char *RESP3_TYPE_STR[] = {
+        "simple-string",
+        "error",
+        "integer",
+        "double",
+        "bulk-string",
+        "array",
+        "map",
+        "set",
+        "bool",
+        "null",
+};
+
+void addReplyCommandHistory(client *c, struct redisCommand *cmd) {
+    int j;
+
+    void *array = addReplyDeferredLen(c);
+    for (j = 0; cmd->history && cmd->history[j].since != NULL; j++) {
+        addReplyArrayLen(c, 2);
+        addReplyBulkCString(c, cmd->history[j].since);
+        addReplyBulkCString(c, cmd->history[j].changes);
+    }
+    setDeferredSetLen(c, array, j);
+}
+
+void addReplyCommandHints(client *c, struct redisCommand *cmd) {
+    int j;
+
+    void *array = addReplyDeferredLen(c);
+    for (j = 0; cmd->hints && cmd->hints[j] != NULL; j++) {
+        addReplyBulkCString(c, cmd->hints[j]);
+    }
+    setDeferredSetLen(c, array, j);
+}
+
+void addReplyCommandKeySpecs(client *c, struct redisCommand *cmd) {
     addReplySetLen(c, cmd->key_specs_num);
     for (int i = 0; i < cmd->key_specs_num; i++) {
         addReplyMapLen(c, 3);
@@ -5894,7 +4018,7 @@ void addReplyCommandKeyArgs(client *c, struct redisCommand *cmd) {
                 addReplyLongLong(c, cmd->key_specs[i].fk.keynum.keystep);
                 break;
             default:
-                serverPanic("Invalid begin_search key spec type %d", cmd->key_specs[i].begin_search_type);
+                serverPanic("Invalid find_keys key spec type %d", cmd->key_specs[i].begin_search_type);
         }
     }
 }
@@ -5917,6 +4041,28 @@ void addReplyCommandSubCommands(client *c, struct redisCommand *cmd) {
     dictReleaseIterator(di);
 }
 
+/* Must match redisCommandGroup */
+const char *COMMAND_GROUP_STR[] = {
+        "generic",
+        "string",
+        "list",
+        "set",
+        "sorted-set",
+        "hash",
+        "pubsub",
+        "transactions",
+        "connection",
+        "server",
+        "scripting",
+        "hyperloglog",
+        "cluster",
+        "sentinel",
+        "geo",
+        "stream",
+        "bitmap",
+        "module"
+};
+
 /* Output the representation of a Redis command. Used by the COMMAND command. */
 void addReplyCommand(client *c, struct redisCommand *cmd) {
     if (!cmd) {
@@ -5930,17 +4076,73 @@ void addReplyCommand(client *c, struct redisCommand *cmd) {
                 lastkey += firstkey;
             keystep = cmd->legacy_range_key_spec.fk.range.keystep;
         }
-        /* We are adding: command name, arg count, flags, first, last, offset, categories, key args, subcommands */
-        addReplyArrayLen(c, 9);
+
+        /* We are adding: command name, arg count, flags, first, last, offset, categories, additional information (map) */
+        addReplyArrayLen(c, 8);
         addReplyBulkCString(c, cmd->name);
         addReplyLongLong(c, cmd->arity);
         addReplyFlagsForCommand(c, cmd);
         addReplyLongLong(c, firstkey);
         addReplyLongLong(c, lastkey);
         addReplyLongLong(c, keystep);
-        addReplyCommandCategories(c,cmd);
-        addReplyCommandKeyArgs(c,cmd);
-        addReplyCommandSubCommands(c,cmd);
+        addReplyCommandCategories(c, cmd);
+        long maplen = 0;
+        void *mapreply = addReplyDeferredLen(c);
+        addReplyBulkCString(c, "summary");
+        addReplyBulkCString(c, cmd->summary);
+        maplen++;
+        addReplyBulkCString(c, "since");
+        addReplyBulkCString(c, cmd->since);
+        maplen++;
+        addReplyBulkCString(c, "group");
+        addReplyBulkCString(c, COMMAND_GROUP_STR[cmd->group]);
+        maplen++;
+        if (cmd->complexity) {
+            addReplyBulkCString(c, "complexity");
+            addReplyBulkCString(c, cmd->complexity);
+            maplen++;
+        }
+        if (cmd->doc_flags) {
+            addReplyBulkCString(c, "doc_flags");
+            addReplyDocFlagsForCommand(c, cmd);
+            maplen++;
+        }
+        if (cmd->deprecated_since) {
+            addReplyBulkCString(c, "deprecated_since");
+            addReplyBulkCString(c, cmd->deprecated_since);
+            maplen++;
+        }
+        if (cmd->replaced_by) {
+            addReplyBulkCString(c, "replaced_by");
+            addReplyBulkCString(c, cmd->replaced_by);
+            maplen++;
+        }
+        if (cmd->history) {
+            addReplyBulkCString(c, "history");
+            addReplyCommandHistory(c, cmd);
+            maplen++;
+        }
+        if (cmd->hints) {
+            addReplyBulkCString(c, "hints");
+            addReplyCommandHints(c, cmd);
+            maplen++;
+        }
+        if (cmd->args) {
+            addReplyBulkCString(c, "arguments");
+            addReplyCommandArgList(c, cmd->args);
+            maplen++;
+        }
+        if (cmd->key_specs_num) {
+            addReplyBulkCString(c, "key-specs");
+            addReplyCommandKeySpecs(c, cmd);
+            maplen++;
+        }
+        if (cmd->subcommands_dict) {
+            addReplyBulkCString(c, "subcommands");
+            addReplyCommandSubCommands(c, cmd);
+            maplen++;
+        }
+        setDeferredMapLen(c, mapreply, maplen);
     }
 }
 
@@ -6030,7 +4232,7 @@ int shouldFilterFromCommandList(struct redisCommand *cmd, commandListFilter *fil
             uint64_t cat = filter->cache.u.aclcat;
             if (cat == 0)
                 return 1; /* Invalid ACL category */
-            return (!(cmd->flags & cat));
+            return (!(cmd->acl_categories & cat));
             break;
         }
         case (COMMAND_LIST_FILTER_PATTERN):
@@ -6112,17 +4314,17 @@ void commandGetKeysCommand(client *c) {
 /* COMMAND HELP */
 void commandHelpCommand(client *c) {
     const char *help[] = {
-"(no subcommand)",
-"    Return details about all Redis commands.",
-"COUNT",
-"    Return the total number of commands in this Redis server.",
-"LIST",
-"    Return a list of all commands in this Redis server.",
-"INFO <command-name> [<command-name> ...]",
-"    Return details about multiple Redis commands.",
-"GETKEYS <full-command>",
-"    Return the keys from a full Redis command.",
-NULL
+            "(no subcommand)",
+            "    Return details about all Redis commands.",
+            "COUNT",
+            "    Return the total number of commands in this Redis server.",
+            "LIST",
+            "    Return a list of all commands in this Redis server.",
+            "INFO <command-name> [<command-name> ...]",
+            "    Return details about multiple Redis commands.",
+            "GETKEYS <full-command>",
+            "    Return the keys from a full Redis command.",
+            NULL
     };
 
     addReplyHelp(c, help);
@@ -6196,11 +4398,11 @@ sds genRedisInfoStringCommandStats(sds info, dict *commands) {
             sds cmdnamesds = getFullCommandName(c);
 
             info = sdscatprintf(info,
-                "cmdstat_%s:calls=%lld,usec=%lld,usec_per_call=%.2f"
-                ",rejected_calls=%lld,failed_calls=%lld\r\n",
-                getSafeInfoString(cmdnamesds, sdslen(cmdnamesds), &tmpsafe), c->calls, c->microseconds,
-                (c->calls == 0) ? 0 : ((float)c->microseconds/c->calls),
-                c->rejected_calls, c->failed_calls);
+                                "cmdstat_%s:calls=%lld,usec=%lld,usec_per_call=%.2f"
+                                ",rejected_calls=%lld,failed_calls=%lld\r\n",
+                                getSafeInfoString(cmdnamesds, sdslen(cmdnamesds), &tmpsafe), c->calls, c->microseconds,
+                                (c->calls == 0) ? 0 : ((float)c->microseconds/c->calls),
+                                c->rejected_calls, c->failed_calls);
             if (tmpsafe != NULL) zfree(tmpsafe);
             sdsfree(cmdnamesds);
         }
@@ -6260,57 +4462,57 @@ sds genRedisInfoString(const char *section) {
         unsigned int lruclock;
         atomicGet(server.lruclock,lruclock);
         info = sdscatfmt(info,
-            "# Server\r\n"
-            "redis_version:%s\r\n"
-            "redis_git_sha1:%s\r\n"
-            "redis_git_dirty:%i\r\n"
-            "redis_build_id:%s\r\n"
-            "redis_mode:%s\r\n"
-            "os:%s %s %s\r\n"
-            "arch_bits:%i\r\n"
-            "multiplexing_api:%s\r\n"
-            "atomicvar_api:%s\r\n"
-            "gcc_version:%i.%i.%i\r\n"
-            "process_id:%I\r\n"
-            "process_supervised:%s\r\n"
-            "run_id:%s\r\n"
-            "tcp_port:%i\r\n"
-            "server_time_usec:%I\r\n"
-            "uptime_in_seconds:%I\r\n"
-            "uptime_in_days:%I\r\n"
-            "hz:%i\r\n"
-            "configured_hz:%i\r\n"
-            "lru_clock:%u\r\n"
-            "executable:%s\r\n"
-            "config_file:%s\r\n"
-            "io_threads_active:%i\r\n",
-            REDIS_VERSION,
-            redisGitSHA1(),
-            strtol(redisGitDirty(),NULL,10) > 0,
-            redisBuildIdString(),
-            mode,
-            name.sysname, name.release, name.machine,
-            server.arch_bits,
-            aeGetApiName(),
-            REDIS_ATOMIC_API,
+                         "# Server\r\n"
+                         "redis_version:%s\r\n"
+                         "redis_git_sha1:%s\r\n"
+                         "redis_git_dirty:%i\r\n"
+                         "redis_build_id:%s\r\n"
+                         "redis_mode:%s\r\n"
+                         "os:%s %s %s\r\n"
+                         "arch_bits:%i\r\n"
+                         "multiplexing_api:%s\r\n"
+                         "atomicvar_api:%s\r\n"
+                         "gcc_version:%i.%i.%i\r\n"
+                         "process_id:%I\r\n"
+                         "process_supervised:%s\r\n"
+                         "run_id:%s\r\n"
+                         "tcp_port:%i\r\n"
+                         "server_time_usec:%I\r\n"
+                         "uptime_in_seconds:%I\r\n"
+                         "uptime_in_days:%I\r\n"
+                         "hz:%i\r\n"
+                         "configured_hz:%i\r\n"
+                         "lru_clock:%u\r\n"
+                         "executable:%s\r\n"
+                         "config_file:%s\r\n"
+                         "io_threads_active:%i\r\n",
+                         REDIS_VERSION,
+                         redisGitSHA1(),
+                         strtol(redisGitDirty(),NULL,10) > 0,
+                         redisBuildIdString(),
+                         mode,
+                         name.sysname, name.release, name.machine,
+                         server.arch_bits,
+                         aeGetApiName(),
+                         REDIS_ATOMIC_API,
 #ifdef __GNUC__
-            __GNUC__,__GNUC_MINOR__,__GNUC_PATCHLEVEL__,
+                __GNUC__,__GNUC_MINOR__,__GNUC_PATCHLEVEL__,
 #else
-            0,0,0,
+                         0,0,0,
 #endif
-            (int64_t) getpid(),
-            supervised,
-            server.runid,
-            server.port ? server.port : server.tls_port,
-            (int64_t)server.ustime,
-            (int64_t)uptime,
-            (int64_t)(uptime/(3600*24)),
-            server.hz,
-            server.config_hz,
-            lruclock,
-            server.executable ? server.executable : "",
-            server.configfile ? server.configfile : "",
-            server.io_threads_active);
+                         (int64_t) getpid(),
+                         supervised,
+                         server.runid,
+                         server.port ? server.port : server.tls_port,
+                         (int64_t)server.ustime,
+                         (int64_t)uptime,
+                         (int64_t)(uptime/(3600*24)),
+                         server.hz,
+                         server.config_hz,
+                         lruclock,
+                         server.executable ? server.executable : "",
+                         server.configfile ? server.configfile : "",
+                         server.io_threads_active);
     }
 
     /* Clients */
@@ -6319,22 +4521,22 @@ sds genRedisInfoString(const char *section) {
         getExpansiveClientsInfo(&maxin,&maxout);
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
-            "# Clients\r\n"
-            "connected_clients:%lu\r\n"
-            "cluster_connections:%lu\r\n"
-            "maxclients:%u\r\n"
-            "client_recent_max_input_buffer:%zu\r\n"
-            "client_recent_max_output_buffer:%zu\r\n"
-            "blocked_clients:%d\r\n"
-            "tracking_clients:%d\r\n"
-            "clients_in_timeout_table:%llu\r\n",
-            listLength(server.clients)-listLength(server.slaves),
-            getClusterConnectionsCount(),
-            server.maxclients,
-            maxin, maxout,
-            server.blocked_clients,
-            server.tracking_clients,
-            (unsigned long long) raxSize(server.clients_timeout_table));
+                            "# Clients\r\n"
+                            "connected_clients:%lu\r\n"
+                            "cluster_connections:%lu\r\n"
+                            "maxclients:%u\r\n"
+                            "client_recent_max_input_buffer:%zu\r\n"
+                            "client_recent_max_output_buffer:%zu\r\n"
+                            "blocked_clients:%d\r\n"
+                            "tracking_clients:%d\r\n"
+                            "clients_in_timeout_table:%llu\r\n",
+                            listLength(server.clients)-listLength(server.slaves),
+                            getClusterConnectionsCount(),
+                            server.maxclients,
+                            maxin, maxout,
+                            server.blocked_clients,
+                            server.tracking_clients,
+                            (unsigned long long) raxSize(server.clients_timeout_table));
     }
 
     /* Memory */
@@ -6372,108 +4574,110 @@ sds genRedisInfoString(const char *section) {
 
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
-            "# Memory\r\n"
-            "used_memory:%zu\r\n"
-            "used_memory_human:%s\r\n"
-            "used_memory_rss:%zu\r\n"
-            "used_memory_rss_human:%s\r\n"
-            "used_memory_peak:%zu\r\n"
-            "used_memory_peak_human:%s\r\n"
-            "used_memory_peak_perc:%.2f%%\r\n"
-            "used_memory_overhead:%zu\r\n"
-            "used_memory_startup:%zu\r\n"
-            "used_memory_dataset:%zu\r\n"
-            "used_memory_dataset_perc:%.2f%%\r\n"
-            "allocator_allocated:%zu\r\n"
-            "allocator_active:%zu\r\n"
-            "allocator_resident:%zu\r\n"
-            "total_system_memory:%lu\r\n"
-            "total_system_memory_human:%s\r\n"
-            "used_memory_lua:%lld\r\n" /* deprecated, renamed to used_memory_vm_eval */
-            "used_memory_vm_eval:%lld\r\n"
-            "used_memory_lua_human:%s\r\n" /* deprecated */
-            "used_memory_scripts_eval:%lld\r\n"
-            "number_of_cached_scripts:%lu\r\n"
-            "number_of_functions:%lu\r\n"
-            "used_memory_vm_functions:%lld\r\n"
-            "used_memory_vm_total:%lld\r\n"
-            "used_memory_vm_total_human:%s\r\n"
-            "used_memory_functions:%lld\r\n"
-            "used_memory_scripts:%lld\r\n"
-            "used_memory_scripts_human:%s\r\n"
-            "maxmemory:%lld\r\n"
-            "maxmemory_human:%s\r\n"
-            "maxmemory_policy:%s\r\n"
-            "allocator_frag_ratio:%.2f\r\n"
-            "allocator_frag_bytes:%zu\r\n"
-            "allocator_rss_ratio:%.2f\r\n"
-            "allocator_rss_bytes:%zd\r\n"
-            "rss_overhead_ratio:%.2f\r\n"
-            "rss_overhead_bytes:%zd\r\n"
-            "mem_fragmentation_ratio:%.2f\r\n"
-            "mem_fragmentation_bytes:%zd\r\n"
-            "mem_not_counted_for_evict:%zu\r\n"
-            "mem_replication_backlog:%zu\r\n"
-            "mem_total_replication_buffers:%zu\r\n"
-            "mem_clients_slaves:%zu\r\n"
-            "mem_clients_normal:%zu\r\n"
-            "mem_aof_buffer:%zu\r\n"
-            "mem_allocator:%s\r\n"
-            "active_defrag_running:%d\r\n"
-            "lazyfree_pending_objects:%zu\r\n"
-            "lazyfreed_objects:%zu\r\n",
-            zmalloc_used,
-            hmem,
-            server.cron_malloc_stats.process_rss,
-            used_memory_rss_hmem,
-            server.stat_peak_memory,
-            peak_hmem,
-            mh->peak_perc,
-            mh->overhead_total,
-            mh->startup_allocated,
-            mh->dataset,
-            mh->dataset_perc,
-            server.cron_malloc_stats.allocator_allocated,
-            server.cron_malloc_stats.allocator_active,
-            server.cron_malloc_stats.allocator_resident,
-            (unsigned long)total_system_mem,
-            total_system_hmem,
-            memory_lua,
-            memory_lua,
-            used_memory_lua_hmem,
-            (long long) mh->lua_caches,
-            dictSize(evalScriptsDict()),
-            functionsNum(),
-            memory_functions,
-            memory_functions + memory_lua,
-            used_memory_vm_total_hmem,
-            (long long) mh->functions_caches,
-            (long long) mh->lua_caches + (long long) mh->functions_caches,
-            used_memory_scripts_hmem,
-            server.maxmemory,
-            maxmemory_hmem,
-            evict_policy,
-            mh->allocator_frag,
-            mh->allocator_frag_bytes,
-            mh->allocator_rss,
-            mh->allocator_rss_bytes,
-            mh->rss_extra,
-            mh->rss_extra_bytes,
-            mh->total_frag,       /* This is the total RSS overhead, including
+                            "# Memory\r\n"
+                            "used_memory:%zu\r\n"
+                            "used_memory_human:%s\r\n"
+                            "used_memory_rss:%zu\r\n"
+                            "used_memory_rss_human:%s\r\n"
+                            "used_memory_peak:%zu\r\n"
+                            "used_memory_peak_human:%s\r\n"
+                            "used_memory_peak_perc:%.2f%%\r\n"
+                            "used_memory_overhead:%zu\r\n"
+                            "used_memory_startup:%zu\r\n"
+                            "used_memory_dataset:%zu\r\n"
+                            "used_memory_dataset_perc:%.2f%%\r\n"
+                            "allocator_allocated:%zu\r\n"
+                            "allocator_active:%zu\r\n"
+                            "allocator_resident:%zu\r\n"
+                            "total_system_memory:%lu\r\n"
+                            "total_system_memory_human:%s\r\n"
+                            "used_memory_lua:%lld\r\n" /* deprecated, renamed to used_memory_vm_eval */
+                            "used_memory_vm_eval:%lld\r\n"
+                            "used_memory_lua_human:%s\r\n" /* deprecated */
+                            "used_memory_scripts_eval:%lld\r\n"
+                            "number_of_cached_scripts:%lu\r\n"
+                            "number_of_functions:%lu\r\n"
+                            "used_memory_vm_functions:%lld\r\n"
+                            "used_memory_vm_total:%lld\r\n"
+                            "used_memory_vm_total_human:%s\r\n"
+                            "used_memory_functions:%lld\r\n"
+                            "used_memory_scripts:%lld\r\n"
+                            "used_memory_scripts_human:%s\r\n"
+                            "maxmemory:%lld\r\n"
+                            "maxmemory_human:%s\r\n"
+                            "maxmemory_policy:%s\r\n"
+                            "allocator_frag_ratio:%.2f\r\n"
+                            "allocator_frag_bytes:%zu\r\n"
+                            "allocator_rss_ratio:%.2f\r\n"
+                            "allocator_rss_bytes:%zd\r\n"
+                            "rss_overhead_ratio:%.2f\r\n"
+                            "rss_overhead_bytes:%zd\r\n"
+                            "mem_fragmentation_ratio:%.2f\r\n"
+                            "mem_fragmentation_bytes:%zd\r\n"
+                            "mem_not_counted_for_evict:%zu\r\n"
+                            "mem_replication_backlog:%zu\r\n"
+                            "mem_total_replication_buffers:%zu\r\n"
+                            "mem_clients_slaves:%zu\r\n"
+                            "mem_clients_normal:%zu\r\n"
+                            "mem_cluster_links:%zu\r\n"
+                            "mem_aof_buffer:%zu\r\n"
+                            "mem_allocator:%s\r\n"
+                            "active_defrag_running:%d\r\n"
+                            "lazyfree_pending_objects:%zu\r\n"
+                            "lazyfreed_objects:%zu\r\n",
+                            zmalloc_used,
+                            hmem,
+                            server.cron_malloc_stats.process_rss,
+                            used_memory_rss_hmem,
+                            server.stat_peak_memory,
+                            peak_hmem,
+                            mh->peak_perc,
+                            mh->overhead_total,
+                            mh->startup_allocated,
+                            mh->dataset,
+                            mh->dataset_perc,
+                            server.cron_malloc_stats.allocator_allocated,
+                            server.cron_malloc_stats.allocator_active,
+                            server.cron_malloc_stats.allocator_resident,
+                            (unsigned long)total_system_mem,
+                            total_system_hmem,
+                            memory_lua,
+                            memory_lua,
+                            used_memory_lua_hmem,
+                            (long long) mh->lua_caches,
+                            dictSize(evalScriptsDict()),
+                            functionsNum(),
+                            memory_functions,
+                            memory_functions + memory_lua,
+                            used_memory_vm_total_hmem,
+                            (long long) mh->functions_caches,
+                            (long long) mh->lua_caches + (long long) mh->functions_caches,
+                            used_memory_scripts_hmem,
+                            server.maxmemory,
+                            maxmemory_hmem,
+                            evict_policy,
+                            mh->allocator_frag,
+                            mh->allocator_frag_bytes,
+                            mh->allocator_rss,
+                            mh->allocator_rss_bytes,
+                            mh->rss_extra,
+                            mh->rss_extra_bytes,
+                            mh->total_frag,       /* This is the total RSS overhead, including
                                      fragmentation, but not just it. This field
                                      (and the next one) is named like that just
                                      for backward compatibility. */
-            mh->total_frag_bytes,
-            freeMemoryGetNotCountedMemory(),
-            mh->repl_backlog,
-            server.repl_buffer_mem,
-            mh->clients_slaves,
-            mh->clients_normal,
-            mh->aof_buffer,
-            ZMALLOC_LIB,
-            server.active_defrag_running,
-            lazyfreeGetPendingObjectsCount(),
-            lazyfreeGetFreedObjectsCount()
+                            mh->total_frag_bytes,
+                            freeMemoryGetNotCountedMemory(),
+                            mh->repl_backlog,
+                            server.repl_buffer_mem,
+                            mh->clients_slaves,
+                            mh->clients_normal,
+                            mh->cluster_links,
+                            mh->aof_buffer,
+                            ZMALLOC_LIB,
+                            server.active_defrag_running,
+                            lazyfreeGetPendingObjectsCount(),
+                            lazyfreeGetFreedObjectsCount()
         );
         freeMemoryOverheadData(mh);
     }
@@ -6491,81 +4695,81 @@ sds genRedisInfoString(const char *section) {
         atomicGet(server.aof_bio_fsync_status,aof_bio_fsync_status);
 
         info = sdscatprintf(info,
-            "# Persistence\r\n"
-            "loading:%d\r\n"
-            "async_loading:%d\r\n"
-            "current_cow_peak:%zu\r\n"
-            "current_cow_size:%zu\r\n"
-            "current_cow_size_age:%lu\r\n"
-            "current_fork_perc:%.2f\r\n"
-            "current_save_keys_processed:%zu\r\n"
-            "current_save_keys_total:%zu\r\n"
-            "rdb_changes_since_last_save:%lld\r\n"
-            "rdb_bgsave_in_progress:%d\r\n"
-            "rdb_last_save_time:%jd\r\n"
-            "rdb_last_bgsave_status:%s\r\n"
-            "rdb_last_bgsave_time_sec:%jd\r\n"
-            "rdb_current_bgsave_time_sec:%jd\r\n"
-            "rdb_last_cow_size:%zu\r\n"
-            "rdb_last_load_keys_expired:%lld\r\n"
-            "rdb_last_load_keys_loaded:%lld\r\n"
-            "aof_enabled:%d\r\n"
-            "aof_rewrite_in_progress:%d\r\n"
-            "aof_rewrite_scheduled:%d\r\n"
-            "aof_last_rewrite_time_sec:%jd\r\n"
-            "aof_current_rewrite_time_sec:%jd\r\n"
-            "aof_last_bgrewrite_status:%s\r\n"
-            "aof_last_write_status:%s\r\n"
-            "aof_last_cow_size:%zu\r\n"
-            "module_fork_in_progress:%d\r\n"
-            "module_fork_last_cow_size:%zu\r\n",
-            (int)(server.loading && !server.async_loading),
-            (int)server.async_loading,
-            server.stat_current_cow_peak,
-            server.stat_current_cow_bytes,
-            server.stat_current_cow_updated ? (unsigned long) elapsedMs(server.stat_current_cow_updated) / 1000 : 0,
-            fork_perc,
-            server.stat_current_save_keys_processed,
-            server.stat_current_save_keys_total,
-            server.dirty,
-            server.child_type == CHILD_TYPE_RDB,
-            (intmax_t)server.lastsave,
-            (server.lastbgsave_status == C_OK) ? "ok" : "err",
-            (intmax_t)server.rdb_save_time_last,
-            (intmax_t)((server.child_type != CHILD_TYPE_RDB) ?
-                -1 : time(NULL)-server.rdb_save_time_start),
-            server.stat_rdb_cow_bytes,
-            server.rdb_last_load_keys_expired,
-            server.rdb_last_load_keys_loaded,
-            server.aof_state != AOF_OFF,
-            server.child_type == CHILD_TYPE_AOF,
-            server.aof_rewrite_scheduled,
-            (intmax_t)server.aof_rewrite_time_last,
-            (intmax_t)((server.child_type != CHILD_TYPE_AOF) ?
-                -1 : time(NULL)-server.aof_rewrite_time_start),
-            (server.aof_lastbgrewrite_status == C_OK) ? "ok" : "err",
-            (server.aof_last_write_status == C_OK &&
-                aof_bio_fsync_status == C_OK) ? "ok" : "err",
-            server.stat_aof_cow_bytes,
-            server.child_type == CHILD_TYPE_MODULE,
-            server.stat_module_cow_bytes);
+                            "# Persistence\r\n"
+                            "loading:%d\r\n"
+                            "async_loading:%d\r\n"
+                            "current_cow_peak:%zu\r\n"
+                            "current_cow_size:%zu\r\n"
+                            "current_cow_size_age:%lu\r\n"
+                            "current_fork_perc:%.2f\r\n"
+                            "current_save_keys_processed:%zu\r\n"
+                            "current_save_keys_total:%zu\r\n"
+                            "rdb_changes_since_last_save:%lld\r\n"
+                            "rdb_bgsave_in_progress:%d\r\n"
+                            "rdb_last_save_time:%jd\r\n"
+                            "rdb_last_bgsave_status:%s\r\n"
+                            "rdb_last_bgsave_time_sec:%jd\r\n"
+                            "rdb_current_bgsave_time_sec:%jd\r\n"
+                            "rdb_last_cow_size:%zu\r\n"
+                            "rdb_last_load_keys_expired:%lld\r\n"
+                            "rdb_last_load_keys_loaded:%lld\r\n"
+                            "aof_enabled:%d\r\n"
+                            "aof_rewrite_in_progress:%d\r\n"
+                            "aof_rewrite_scheduled:%d\r\n"
+                            "aof_last_rewrite_time_sec:%jd\r\n"
+                            "aof_current_rewrite_time_sec:%jd\r\n"
+                            "aof_last_bgrewrite_status:%s\r\n"
+                            "aof_last_write_status:%s\r\n"
+                            "aof_last_cow_size:%zu\r\n"
+                            "module_fork_in_progress:%d\r\n"
+                            "module_fork_last_cow_size:%zu\r\n",
+                            (int)(server.loading && !server.async_loading),
+                            (int)server.async_loading,
+                            server.stat_current_cow_peak,
+                            server.stat_current_cow_bytes,
+                            server.stat_current_cow_updated ? (unsigned long) elapsedMs(server.stat_current_cow_updated) / 1000 : 0,
+                            fork_perc,
+                            server.stat_current_save_keys_processed,
+                            server.stat_current_save_keys_total,
+                            server.dirty,
+                            server.child_type == CHILD_TYPE_RDB,
+                            (intmax_t)server.lastsave,
+                            (server.lastbgsave_status == C_OK) ? "ok" : "err",
+                            (intmax_t)server.rdb_save_time_last,
+                            (intmax_t)((server.child_type != CHILD_TYPE_RDB) ?
+                                       -1 : time(NULL)-server.rdb_save_time_start),
+                            server.stat_rdb_cow_bytes,
+                            server.rdb_last_load_keys_expired,
+                            server.rdb_last_load_keys_loaded,
+                            server.aof_state != AOF_OFF,
+                            server.child_type == CHILD_TYPE_AOF,
+                            server.aof_rewrite_scheduled,
+                            (intmax_t)server.aof_rewrite_time_last,
+                            (intmax_t)((server.child_type != CHILD_TYPE_AOF) ?
+                                       -1 : time(NULL)-server.aof_rewrite_time_start),
+                            (server.aof_lastbgrewrite_status == C_OK) ? "ok" : "err",
+                            (server.aof_last_write_status == C_OK &&
+                             aof_bio_fsync_status == C_OK) ? "ok" : "err",
+                            server.stat_aof_cow_bytes,
+                            server.child_type == CHILD_TYPE_MODULE,
+                            server.stat_module_cow_bytes);
 
         if (server.aof_enabled) {
             info = sdscatprintf(info,
-                "aof_current_size:%lld\r\n"
-                "aof_base_size:%lld\r\n"
-                "aof_pending_rewrite:%d\r\n"
-                "aof_buffer_length:%zu\r\n"
-                "aof_rewrite_buffer_length:%lu\r\n"
-                "aof_pending_bio_fsync:%llu\r\n"
-                "aof_delayed_fsync:%lu\r\n",
-                (long long) server.aof_current_size,
-                (long long) server.aof_rewrite_base_size,
-                server.aof_rewrite_scheduled,
-                sdslen(server.aof_buf),
-                aofRewriteBufferSize(),
-                bioPendingJobsOfType(BIO_AOF_FSYNC),
-                server.aof_delayed_fsync);
+                                "aof_current_size:%lld\r\n"
+                                "aof_base_size:%lld\r\n"
+                                "aof_pending_rewrite:%d\r\n"
+                                "aof_buffer_length:%zu\r\n"
+                                "aof_rewrite_buffer_length:%lu\r\n"
+                                "aof_pending_bio_fsync:%llu\r\n"
+                                "aof_delayed_fsync:%lu\r\n",
+                                (long long) server.aof_current_size,
+                                (long long) server.aof_rewrite_base_size,
+                                server.aof_rewrite_scheduled,
+                                sdslen(server.aof_buf),
+                                aofRewriteBufferSize(),
+                                bioPendingJobsOfType(BIO_AOF_FSYNC),
+                                server.aof_delayed_fsync);
         }
 
         if (server.loading) {
@@ -6593,18 +4797,18 @@ sds genRedisInfoString(const char *section) {
             }
 
             info = sdscatprintf(info,
-                "loading_start_time:%jd\r\n"
-                "loading_total_bytes:%llu\r\n"
-                "loading_rdb_used_mem:%llu\r\n"
-                "loading_loaded_bytes:%llu\r\n"
-                "loading_loaded_perc:%.2f\r\n"
-                "loading_eta_seconds:%jd\r\n",
-                (intmax_t) server.loading_start_time,
-                (unsigned long long) server.loading_total_bytes,
-                (unsigned long long) server.loading_rdb_used_mem,
-                (unsigned long long) server.loading_loaded_bytes,
-                perc,
-                (intmax_t)eta
+                                "loading_start_time:%jd\r\n"
+                                "loading_total_bytes:%llu\r\n"
+                                "loading_rdb_used_mem:%llu\r\n"
+                                "loading_loaded_bytes:%llu\r\n"
+                                "loading_loaded_perc:%.2f\r\n"
+                                "loading_eta_seconds:%jd\r\n",
+                                (intmax_t) server.loading_start_time,
+                                (unsigned long long) server.loading_total_bytes,
+                                (unsigned long long) server.loading_rdb_used_mem,
+                                (unsigned long long) server.loading_loaded_bytes,
+                                perc,
+                                (intmax_t)eta
             );
         }
     }
@@ -6614,9 +4818,9 @@ sds genRedisInfoString(const char *section) {
         long long stat_total_reads_processed, stat_total_writes_processed;
         long long stat_net_input_bytes, stat_net_output_bytes;
         long long current_eviction_exceeded_time = server.stat_last_eviction_exceeded_time ?
-            (long long) elapsedUs(server.stat_last_eviction_exceeded_time): 0;
+                                                   (long long) elapsedUs(server.stat_last_eviction_exceeded_time): 0;
         long long current_active_defrag_time = server.stat_last_active_defrag_time ?
-            (long long) elapsedUs(server.stat_last_active_defrag_time): 0;
+                                               (long long) elapsedUs(server.stat_last_active_defrag_time): 0;
         atomicGet(server.stat_total_reads_processed, stat_total_reads_processed);
         atomicGet(server.stat_total_writes_processed, stat_total_writes_processed);
         atomicGet(server.stat_net_input_bytes, stat_net_input_bytes);
@@ -6624,102 +4828,102 @@ sds genRedisInfoString(const char *section) {
 
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
-            "# Stats\r\n"
-            "total_connections_received:%lld\r\n"
-            "total_commands_processed:%lld\r\n"
-            "instantaneous_ops_per_sec:%lld\r\n"
-            "total_net_input_bytes:%lld\r\n"
-            "total_net_output_bytes:%lld\r\n"
-            "instantaneous_input_kbps:%.2f\r\n"
-            "instantaneous_output_kbps:%.2f\r\n"
-            "rejected_connections:%lld\r\n"
-            "sync_full:%lld\r\n"
-            "sync_partial_ok:%lld\r\n"
-            "sync_partial_err:%lld\r\n"
-            "expired_keys:%lld\r\n"
-            "expired_stale_perc:%.2f\r\n"
-            "expired_time_cap_reached_count:%lld\r\n"
-            "expire_cycle_cpu_milliseconds:%lld\r\n"
-            "evicted_keys:%lld\r\n"
-            "evicted_clients:%lld\r\n"
-            "total_eviction_exceeded_time:%lld\r\n"
-            "current_eviction_exceeded_time:%lld\r\n"
-            "keyspace_hits:%lld\r\n"
-            "keyspace_misses:%lld\r\n"
-            "pubsub_channels:%ld\r\n"
-            "pubsub_patterns:%lu\r\n"
-            "latest_fork_usec:%lld\r\n"
-            "total_forks:%lld\r\n"
-            "migrate_cached_sockets:%ld\r\n"
-            "slave_expires_tracked_keys:%zu\r\n"
-            "active_defrag_hits:%lld\r\n"
-            "active_defrag_misses:%lld\r\n"
-            "active_defrag_key_hits:%lld\r\n"
-            "active_defrag_key_misses:%lld\r\n"
-            "total_active_defrag_time:%lld\r\n"
-            "current_active_defrag_time:%lld\r\n"
-            "tracking_total_keys:%lld\r\n"
-            "tracking_total_items:%lld\r\n"
-            "tracking_total_prefixes:%lld\r\n"
-            "unexpected_error_replies:%lld\r\n"
-            "total_error_replies:%lld\r\n"
-            "dump_payload_sanitizations:%lld\r\n"
-            "total_reads_processed:%lld\r\n"
-            "total_writes_processed:%lld\r\n"
-            "io_threaded_reads_processed:%lld\r\n"
-            "io_threaded_writes_processed:%lld\r\n",
-            server.stat_numconnections,
-            server.stat_numcommands,
-            getInstantaneousMetric(STATS_METRIC_COMMAND),
-            stat_net_input_bytes,
-            stat_net_output_bytes,
-            (float)getInstantaneousMetric(STATS_METRIC_NET_INPUT)/1024,
-            (float)getInstantaneousMetric(STATS_METRIC_NET_OUTPUT)/1024,
-            server.stat_rejected_conn,
-            server.stat_sync_full,
-            server.stat_sync_partial_ok,
-            server.stat_sync_partial_err,
-            server.stat_expiredkeys,
-            server.stat_expired_stale_perc*100,
-            server.stat_expired_time_cap_reached_count,
-            server.stat_expire_cycle_time_used/1000,
-            server.stat_evictedkeys,
-            server.stat_evictedclients,
-            (server.stat_total_eviction_exceeded_time + current_eviction_exceeded_time) / 1000,
-            current_eviction_exceeded_time / 1000,
-            server.stat_keyspace_hits,
-            server.stat_keyspace_misses,
-            dictSize(server.pubsub_channels),
-            dictSize(server.pubsub_patterns),
-            server.stat_fork_time,
-            server.stat_total_forks,
-            dictSize(server.migrate_cached_sockets),
-            getSlaveKeyWithExpireCount(),
-            server.stat_active_defrag_hits,
-            server.stat_active_defrag_misses,
-            server.stat_active_defrag_key_hits,
-            server.stat_active_defrag_key_misses,
-            (server.stat_total_active_defrag_time + current_active_defrag_time) / 1000,
-            current_active_defrag_time / 1000,
-            (unsigned long long) trackingGetTotalKeys(),
-            (unsigned long long) trackingGetTotalItems(),
-            (unsigned long long) trackingGetTotalPrefixes(),
-            server.stat_unexpected_error_replies,
-            server.stat_total_error_replies,
-            server.stat_dump_payload_sanitizations,
-            stat_total_reads_processed,
-            stat_total_writes_processed,
-            server.stat_io_reads_processed,
-            server.stat_io_writes_processed);
+                            "# Stats\r\n"
+                            "total_connections_received:%lld\r\n"
+                            "total_commands_processed:%lld\r\n"
+                            "instantaneous_ops_per_sec:%lld\r\n"
+                            "total_net_input_bytes:%lld\r\n"
+                            "total_net_output_bytes:%lld\r\n"
+                            "instantaneous_input_kbps:%.2f\r\n"
+                            "instantaneous_output_kbps:%.2f\r\n"
+                            "rejected_connections:%lld\r\n"
+                            "sync_full:%lld\r\n"
+                            "sync_partial_ok:%lld\r\n"
+                            "sync_partial_err:%lld\r\n"
+                            "expired_keys:%lld\r\n"
+                            "expired_stale_perc:%.2f\r\n"
+                            "expired_time_cap_reached_count:%lld\r\n"
+                            "expire_cycle_cpu_milliseconds:%lld\r\n"
+                            "evicted_keys:%lld\r\n"
+                            "evicted_clients:%lld\r\n"
+                            "total_eviction_exceeded_time:%lld\r\n"
+                            "current_eviction_exceeded_time:%lld\r\n"
+                            "keyspace_hits:%lld\r\n"
+                            "keyspace_misses:%lld\r\n"
+                            "pubsub_channels:%ld\r\n"
+                            "pubsub_patterns:%lu\r\n"
+                            "latest_fork_usec:%lld\r\n"
+                            "total_forks:%lld\r\n"
+                            "migrate_cached_sockets:%ld\r\n"
+                            "slave_expires_tracked_keys:%zu\r\n"
+                            "active_defrag_hits:%lld\r\n"
+                            "active_defrag_misses:%lld\r\n"
+                            "active_defrag_key_hits:%lld\r\n"
+                            "active_defrag_key_misses:%lld\r\n"
+                            "total_active_defrag_time:%lld\r\n"
+                            "current_active_defrag_time:%lld\r\n"
+                            "tracking_total_keys:%lld\r\n"
+                            "tracking_total_items:%lld\r\n"
+                            "tracking_total_prefixes:%lld\r\n"
+                            "unexpected_error_replies:%lld\r\n"
+                            "total_error_replies:%lld\r\n"
+                            "dump_payload_sanitizations:%lld\r\n"
+                            "total_reads_processed:%lld\r\n"
+                            "total_writes_processed:%lld\r\n"
+                            "io_threaded_reads_processed:%lld\r\n"
+                            "io_threaded_writes_processed:%lld\r\n",
+                            server.stat_numconnections,
+                            server.stat_numcommands,
+                            getInstantaneousMetric(STATS_METRIC_COMMAND),
+                            stat_net_input_bytes,
+                            stat_net_output_bytes,
+                            (float)getInstantaneousMetric(STATS_METRIC_NET_INPUT)/1024,
+                            (float)getInstantaneousMetric(STATS_METRIC_NET_OUTPUT)/1024,
+                            server.stat_rejected_conn,
+                            server.stat_sync_full,
+                            server.stat_sync_partial_ok,
+                            server.stat_sync_partial_err,
+                            server.stat_expiredkeys,
+                            server.stat_expired_stale_perc*100,
+                            server.stat_expired_time_cap_reached_count,
+                            server.stat_expire_cycle_time_used/1000,
+                            server.stat_evictedkeys,
+                            server.stat_evictedclients,
+                            (server.stat_total_eviction_exceeded_time + current_eviction_exceeded_time) / 1000,
+                            current_eviction_exceeded_time / 1000,
+                            server.stat_keyspace_hits,
+                            server.stat_keyspace_misses,
+                            dictSize(server.pubsub_channels),
+                            dictSize(server.pubsub_patterns),
+                            server.stat_fork_time,
+                            server.stat_total_forks,
+                            dictSize(server.migrate_cached_sockets),
+                            getSlaveKeyWithExpireCount(),
+                            server.stat_active_defrag_hits,
+                            server.stat_active_defrag_misses,
+                            server.stat_active_defrag_key_hits,
+                            server.stat_active_defrag_key_misses,
+                            (server.stat_total_active_defrag_time + current_active_defrag_time) / 1000,
+                            current_active_defrag_time / 1000,
+                            (unsigned long long) trackingGetTotalKeys(),
+                            (unsigned long long) trackingGetTotalItems(),
+                            (unsigned long long) trackingGetTotalPrefixes(),
+                            server.stat_unexpected_error_replies,
+                            server.stat_total_error_replies,
+                            server.stat_dump_payload_sanitizations,
+                            stat_total_reads_processed,
+                            stat_total_writes_processed,
+                            server.stat_io_reads_processed,
+                            server.stat_io_writes_processed);
     }
 
     /* Replication */
     if (allsections || defsections || !strcasecmp(section,"replication")) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
-            "# Replication\r\n"
-            "role:%s\r\n",
-            server.masterhost == NULL ? "master" : "slave");
+                            "# Replication\r\n"
+                            "role:%s\r\n",
+                            server.masterhost == NULL ? "master" : "slave");
         if (server.masterhost) {
             long long slave_repl_offset = 1;
             long long slave_read_repl_offset = 1;
@@ -6733,22 +4937,22 @@ sds genRedisInfoString(const char *section) {
             }
 
             info = sdscatprintf(info,
-                "master_host:%s\r\n"
-                "master_port:%d\r\n"
-                "master_link_status:%s\r\n"
-                "master_last_io_seconds_ago:%d\r\n"
-                "master_sync_in_progress:%d\r\n"
-                "slave_read_repl_offset:%lld\r\n"
-                "slave_repl_offset:%lld\r\n"
-                ,server.masterhost,
-                server.masterport,
-                (server.repl_state == REPL_STATE_CONNECTED) ?
-                    "up" : "down",
-                server.master ?
-                ((int)(server.unixtime-server.master->lastinteraction)) : -1,
-                server.repl_state == REPL_STATE_TRANSFER,
-                slave_read_repl_offset,
-                slave_repl_offset
+                                "master_host:%s\r\n"
+                                "master_port:%d\r\n"
+                                "master_link_status:%s\r\n"
+                                "master_last_io_seconds_ago:%d\r\n"
+                                "master_sync_in_progress:%d\r\n"
+                                "slave_read_repl_offset:%lld\r\n"
+                                "slave_repl_offset:%lld\r\n"
+                    ,server.masterhost,
+                                server.masterport,
+                                (server.repl_state == REPL_STATE_CONNECTED) ?
+                                "up" : "down",
+                                server.master ?
+                                ((int)(server.unixtime-server.master->lastinteraction)) : -1,
+                                server.repl_state == REPL_STATE_TRANSFER,
+                                slave_read_repl_offset,
+                                slave_repl_offset
             );
 
             if (server.repl_state == REPL_STATE_TRANSFER) {
@@ -6757,45 +4961,45 @@ sds genRedisInfoString(const char *section) {
                     perc = ((double)server.repl_transfer_read / server.repl_transfer_size) * 100;
                 }
                 info = sdscatprintf(info,
-                    "master_sync_total_bytes:%lld\r\n"
-                    "master_sync_read_bytes:%lld\r\n"
-                    "master_sync_left_bytes:%lld\r\n"
-                    "master_sync_perc:%.2f\r\n"
-                    "master_sync_last_io_seconds_ago:%d\r\n",
-                    (long long) server.repl_transfer_size,
-                    (long long) server.repl_transfer_read,
-                    (long long) (server.repl_transfer_size - server.repl_transfer_read),
-                    perc,
-                    (int)(server.unixtime-server.repl_transfer_lastio)
+                                    "master_sync_total_bytes:%lld\r\n"
+                                    "master_sync_read_bytes:%lld\r\n"
+                                    "master_sync_left_bytes:%lld\r\n"
+                                    "master_sync_perc:%.2f\r\n"
+                                    "master_sync_last_io_seconds_ago:%d\r\n",
+                                    (long long) server.repl_transfer_size,
+                                    (long long) server.repl_transfer_read,
+                                    (long long) (server.repl_transfer_size - server.repl_transfer_read),
+                                    perc,
+                                    (int)(server.unixtime-server.repl_transfer_lastio)
                 );
             }
 
             if (server.repl_state != REPL_STATE_CONNECTED) {
                 info = sdscatprintf(info,
-                    "master_link_down_since_seconds:%jd\r\n",
-                    server.repl_down_since ?
-                    (intmax_t)(server.unixtime-server.repl_down_since) : -1);
+                                    "master_link_down_since_seconds:%jd\r\n",
+                                    server.repl_down_since ?
+                                    (intmax_t)(server.unixtime-server.repl_down_since) : -1);
             }
             info = sdscatprintf(info,
-                "slave_priority:%d\r\n"
-                "slave_read_only:%d\r\n"
-                "replica_announced:%d\r\n",
-                server.slave_priority,
-                server.repl_slave_ro,
-                server.replica_announced);
+                                "slave_priority:%d\r\n"
+                                "slave_read_only:%d\r\n"
+                                "replica_announced:%d\r\n",
+                                server.slave_priority,
+                                server.repl_slave_ro,
+                                server.replica_announced);
         }
 
         info = sdscatprintf(info,
-            "connected_slaves:%lu\r\n",
-            listLength(server.slaves));
+                            "connected_slaves:%lu\r\n",
+                            listLength(server.slaves));
 
         /* If min-slaves-to-write is active, write the number of slaves
          * currently considered 'good'. */
         if (server.repl_min_slaves_to_write &&
             server.repl_min_slaves_max_lag) {
             info = sdscatprintf(info,
-                "min_slaves_good_slaves:%d\r\n",
-                server.repl_good_slaves_count);
+                                "min_slaves_good_slaves:%d\r\n",
+                                server.repl_good_slaves_count);
         }
 
         if (listLength(server.slaves)) {
@@ -6817,48 +5021,48 @@ sds genRedisInfoString(const char *section) {
                     slaveip = ip;
                 }
                 switch(slave->replstate) {
-                case SLAVE_STATE_WAIT_BGSAVE_START:
-                case SLAVE_STATE_WAIT_BGSAVE_END:
-                    state = "wait_bgsave";
-                    break;
-                case SLAVE_STATE_SEND_BULK:
-                    state = "send_bulk";
-                    break;
-                case SLAVE_STATE_ONLINE:
-                    state = "online";
-                    break;
+                    case SLAVE_STATE_WAIT_BGSAVE_START:
+                    case SLAVE_STATE_WAIT_BGSAVE_END:
+                        state = "wait_bgsave";
+                        break;
+                    case SLAVE_STATE_SEND_BULK:
+                        state = "send_bulk";
+                        break;
+                    case SLAVE_STATE_ONLINE:
+                        state = "online";
+                        break;
                 }
                 if (state == NULL) continue;
                 if (slave->replstate == SLAVE_STATE_ONLINE)
                     lag = time(NULL) - slave->repl_ack_time;
 
                 info = sdscatprintf(info,
-                    "slave%d:ip=%s,port=%d,state=%s,"
-                    "offset=%lld,lag=%ld\r\n",
-                    slaveid,slaveip,slave->slave_listening_port,state,
-                    slave->repl_ack_off, lag);
+                                    "slave%d:ip=%s,port=%d,state=%s,"
+                                    "offset=%lld,lag=%ld\r\n",
+                                    slaveid,slaveip,slave->slave_listening_port,state,
+                                    slave->repl_ack_off, lag);
                 slaveid++;
             }
         }
         info = sdscatprintf(info,
-            "master_failover_state:%s\r\n"
-            "master_replid:%s\r\n"
-            "master_replid2:%s\r\n"
-            "master_repl_offset:%lld\r\n"
-            "second_repl_offset:%lld\r\n"
-            "repl_backlog_active:%d\r\n"
-            "repl_backlog_size:%lld\r\n"
-            "repl_backlog_first_byte_offset:%lld\r\n"
-            "repl_backlog_histlen:%lld\r\n",
-            getFailoverStateString(),
-            server.replid,
-            server.replid2,
-            server.master_repl_offset,
-            server.second_replid_offset,
-            server.repl_backlog != NULL,
-            server.repl_backlog_size,
-            server.repl_backlog ? server.repl_backlog->offset : 0,
-            server.repl_backlog ? server.repl_backlog->histlen : 0);
+                            "master_failover_state:%s\r\n"
+                            "master_replid:%s\r\n"
+                            "master_replid2:%s\r\n"
+                            "master_repl_offset:%lld\r\n"
+                            "second_repl_offset:%lld\r\n"
+                            "repl_backlog_active:%d\r\n"
+                            "repl_backlog_size:%lld\r\n"
+                            "repl_backlog_first_byte_offset:%lld\r\n"
+                            "repl_backlog_histlen:%lld\r\n",
+                            getFailoverStateString(),
+                            server.replid,
+                            server.replid2,
+                            server.master_repl_offset,
+                            server.second_replid_offset,
+                            server.repl_backlog != NULL,
+                            server.repl_backlog_size,
+                            server.repl_backlog ? server.repl_backlog->offset : 0,
+                            server.repl_backlog ? server.repl_backlog->histlen : 0);
     }
 
     /* CPU */
@@ -6869,15 +5073,15 @@ sds genRedisInfoString(const char *section) {
         getrusage(RUSAGE_SELF, &self_ru);
         getrusage(RUSAGE_CHILDREN, &c_ru);
         info = sdscatprintf(info,
-        "# CPU\r\n"
-        "used_cpu_sys:%ld.%06ld\r\n"
-        "used_cpu_user:%ld.%06ld\r\n"
-        "used_cpu_sys_children:%ld.%06ld\r\n"
-        "used_cpu_user_children:%ld.%06ld\r\n",
-        (long)self_ru.ru_stime.tv_sec, (long)self_ru.ru_stime.tv_usec,
-        (long)self_ru.ru_utime.tv_sec, (long)self_ru.ru_utime.tv_usec,
-        (long)c_ru.ru_stime.tv_sec, (long)c_ru.ru_stime.tv_usec,
-        (long)c_ru.ru_utime.tv_sec, (long)c_ru.ru_utime.tv_usec);
+                            "# CPU\r\n"
+                            "used_cpu_sys:%ld.%06ld\r\n"
+                            "used_cpu_user:%ld.%06ld\r\n"
+                            "used_cpu_sys_children:%ld.%06ld\r\n"
+                            "used_cpu_user_children:%ld.%06ld\r\n",
+                            (long)self_ru.ru_stime.tv_sec, (long)self_ru.ru_stime.tv_usec,
+                            (long)self_ru.ru_utime.tv_sec, (long)self_ru.ru_utime.tv_usec,
+                            (long)c_ru.ru_stime.tv_sec, (long)c_ru.ru_stime.tv_usec,
+                            (long)c_ru.ru_utime.tv_sec, (long)c_ru.ru_utime.tv_usec);
 #ifdef RUSAGE_THREAD
         struct rusage m_ru;
         getrusage(RUSAGE_THREAD, &m_ru);
@@ -6914,8 +5118,8 @@ sds genRedisInfoString(const char *section) {
             char *tmpsafe;
             e = (struct redisError *) ri.data;
             info = sdscatprintf(info,
-                "errorstat_%.*s:count=%lld\r\n",
-                (int)ri.key_len, getSafeInfoString((char *) ri.key, ri.key_len, &tmpsafe), e->count);
+                                "errorstat_%.*s:count=%lld\r\n",
+                                (int)ri.key_len, getSafeInfoString((char *) ri.key, ri.key_len, &tmpsafe), e->count);
             if (tmpsafe != NULL) zfree(tmpsafe);
         }
         raxStop(&ri);
@@ -6925,9 +5129,9 @@ sds genRedisInfoString(const char *section) {
     if (allsections || defsections || !strcasecmp(section,"cluster")) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
-        "# Cluster\r\n"
-        "cluster_enabled:%d\r\n",
-        server.cluster_enabled);
+                            "# Cluster\r\n"
+                            "cluster_enabled:%d\r\n",
+                            server.cluster_enabled);
     }
 
     /* Key space */
@@ -6941,8 +5145,8 @@ sds genRedisInfoString(const char *section) {
             vkeys = dictSize(server.db[j].expires);
             if (keys || vkeys) {
                 info = sdscatprintf(info,
-                    "db%d:keys=%lld,expires=%lld,avg_ttl=%lld\r\n",
-                    j, keys, vkeys, server.db[j].avg_ttl);
+                                    "db%d:keys=%lld,expires=%lld,avg_ttl=%lld\r\n",
+                                    j, keys, vkeys, server.db[j].avg_ttl);
             }
         }
     }
@@ -7208,12 +5412,12 @@ void daemonize(void) {
 
 void version(void) {
     printf("Redis server v=%s sha=%s:%d malloc=%s bits=%d build=%llx\n",
-        REDIS_VERSION,
-        redisGitSHA1(),
-        atoi(redisGitDirty()) > 0,
-        ZMALLOC_LIB,
-        sizeof(long) == 4 ? 32 : 64,
-        (unsigned long long) redisBuildId());
+           REDIS_VERSION,
+           redisGitSHA1(),
+           atoi(redisGitDirty()) > 0,
+           ZMALLOC_LIB,
+           sizeof(long) == 4 ? 32 : 64,
+           (unsigned long long) redisBuildId());
     exit(0);
 }
 
@@ -7254,17 +5458,17 @@ void redisAsciiArt(void) {
 
     if (!show_logo) {
         serverLog(LL_NOTICE,
-            "Running mode=%s, port=%d.",
-            mode, server.port ? server.port : server.tls_port
+                  "Running mode=%s, port=%d.",
+                  mode, server.port ? server.port : server.tls_port
         );
     } else {
         snprintf(buf,1024*16,ascii_logo,
-            REDIS_VERSION,
-            redisGitSHA1(),
-            strtol(redisGitDirty(),NULL,10) > 0,
-            (sizeof(long) == 8) ? "64" : "32",
-            mode, server.port ? server.port : server.tls_port,
-            (long) getpid()
+                 REDIS_VERSION,
+                 redisGitSHA1(),
+                 strtol(redisGitDirty(),NULL,10) > 0,
+                 (sizeof(long) == 8) ? "64" : "32",
+                 mode, server.port ? server.port : server.tls_port,
+                 (long) getpid()
         );
         serverLogRaw(LL_NOTICE|LL_RAW,buf);
     }
@@ -7335,14 +5539,14 @@ static void sigShutdownHandler(int sig) {
     char *msg;
 
     switch (sig) {
-    case SIGINT:
-        msg = "Received SIGINT scheduling shutdown...";
-        break;
-    case SIGTERM:
-        msg = "Received SIGTERM scheduling shutdown...";
-        break;
-    default:
-        msg = "Received shutdown signal, scheduling shutdown...";
+        case SIGINT:
+            msg = "Received SIGINT scheduling shutdown...";
+            break;
+        case SIGTERM:
+            msg = "Received SIGTERM scheduling shutdown...";
+            break;
+        default:
+            msg = "Received shutdown signal, scheduling shutdown...";
     };
 
     /* SIGINT is often delivered via Ctrl+C in an interactive session.
@@ -7626,7 +5830,7 @@ void loadDataFromDisk(void) {
         }
         if (rdbLoad(server.rdb_filename,&rsi,rdb_flags) == C_OK) {
             serverLog(LL_NOTICE,"DB loaded from disk: %.3f seconds",
-                (float)(ustime()-start)/1000000);
+                      (float)(ustime()-start)/1000000);
 
             /* Restore the replication ID / offset from the RDB file. */
             if (rsi.repl_id_is_set &&
@@ -7654,7 +5858,7 @@ void loadDataFromDisk(void) {
                     server.master_repl_offset += rsi.repl_offset;
                     serverAssert(server.repl_backlog);
                     server.repl_backlog->offset = server.master_repl_offset -
-                              server.repl_backlog->histlen + 1;
+                                                  server.repl_backlog->histlen + 1;
                     rebaseReplicationBuffer(rsi.repl_offset);
                     server.repl_no_slaves_since = time(NULL);
                 }
@@ -7676,9 +5880,9 @@ void loadDataFromDisk(void) {
 
 void redisOutOfMemoryHandler(size_t allocation_size) {
     serverLog(LL_WARNING,"Out Of Memory allocating %zu bytes!",
-        allocation_size);
+              allocation_size);
     serverPanic("Redis aborting for OUT OF MEMORY. Allocating %zu bytes!",
-        allocation_size);
+                allocation_size);
 }
 
 /* Callback for sdstemplate on proc-title-template. See redis.conf for
@@ -7776,7 +5980,7 @@ static int redisSupervisedUpstart(void) {
 
     if (!upstart_job) {
         serverLog(LL_WARNING,
-                "upstart supervision requested, but UPSTART_JOB not found!");
+                  "upstart supervision requested, but UPSTART_JOB not found!");
         return 0;
     }
 
@@ -7790,7 +5994,7 @@ static int redisSupervisedUpstart(void) {
 static int redisSupervisedSystemd(void) {
 #ifndef HAVE_LIBSYSTEMD
     serverLog(LL_WARNING,
-            "systemd supervision requested or auto-detected, but Redis is compiled without libsystemd support!");
+              "systemd supervision requested or auto-detected, but Redis is compiled without libsystemd support!");
     return 0;
 #else
     if (redisCommunicateSystemd("STATUS=Redis is loading...\n") <= 0)
@@ -8010,10 +6214,10 @@ int main(int argc, char **argv) {
             if (argv[j][0] == '-' && argv[j][1] == '\0' && (j == 1 || j == argc-1)) {
                 config_from_stdin = 1;
             }
-            /* All the other options are parsed and conceptually appended to the
-             * configuration file. For instance --port 6380 will generate the
-             * string "port 6380\n" to be parsed after the actual config file
-             * and stdin input are parsed (if they exist). */
+                /* All the other options are parsed and conceptually appended to the
+                 * configuration file. For instance --port 6380 will generate the
+                 * string "port 6380\n" to be parsed after the actual config file
+                 * and stdin input are parsed (if they exist). */
             else if (argv[j][0] == '-' && argv[j][1] == '-') {
                 /* Option name */
                 if (sdslen(options)) options = sdscat(options,"\n");
@@ -8038,12 +6242,12 @@ int main(int argc, char **argv) {
 
     serverLog(LL_WARNING, "oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo");
     serverLog(LL_WARNING,
-        "Redis version=%s, bits=%d, commit=%s, modified=%d, pid=%d, just started",
-            REDIS_VERSION,
-            (sizeof(long) == 8) ? 64 : 32,
-            redisGitSHA1(),
-            strtol(redisGitDirty(),NULL,10) > 0,
-            (int)getpid());
+              "Redis version=%s, bits=%d, commit=%s, modified=%d, pid=%d, just started",
+              REDIS_VERSION,
+              (sizeof(long) == 8) ? 64 : 32,
+              redisGitSHA1(),
+              strtol(redisGitDirty(),NULL,10) > 0,
+              (int)getpid());
 
     if (argc == 1) {
         serverLog(LL_WARNING, "Warning: no config file specified, using the default config. In order to specify a config file use %s /path/to/redis.conf", argv[0]);
@@ -8060,7 +6264,7 @@ int main(int argc, char **argv) {
     if (!server.sentinel_mode) {
         /* Things not needed when running in Sentinel mode. */
         serverLog(LL_WARNING,"Server initialized");
-    #ifdef __linux__
+#ifdef __linux__
         linuxMemoryWarnings();
     #if defined (__arm64__)
         int ret;
@@ -8078,7 +6282,7 @@ int main(int argc, char **argv) {
             }
         }
     #endif /* __arm64__ */
-    #endif /* __linux__ */
+#endif /* __linux__ */
         moduleInitModulesSystemLast();
         moduleLoadFromQueue();
         ACLLoadUsersAtStartup();
@@ -8097,8 +6301,8 @@ int main(int argc, char **argv) {
         if (server.cluster_enabled) {
             if (verifyClusterConfigWithData() == C_ERR) {
                 serverLog(LL_WARNING,
-                    "You can't have keys in a DB different than DB 0 when in "
-                    "Cluster mode. Exiting.");
+                          "You can't have keys in a DB different than DB 0 when in "
+                          "Cluster mode. Exiting.");
                 exit(1);
             }
         }

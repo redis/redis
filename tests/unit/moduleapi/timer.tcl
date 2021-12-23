@@ -53,5 +53,29 @@ start_server {tags {"modules"}} {
         # verify id does not exist
         assert_equal {} [r test.gettimer $id]
     }
+
+    test {Busy module} {
+        set start [clock clicks -milliseconds]
+        set elapsed 1
+        set scriptTimeLimit 5
+        r config set script-time-limit $scriptTimeLimit
+        set rd [redis_deferring_client]
+        $rd test.busy_module
+        wait_for_condition 50 1000 {
+            [expr [clock clicks -milliseconds]-$start] > $scriptTimeLimit
+        } else {
+            puts "Failed waiting for busy command to pass script-time-limit"
+       }
+        for {set j 0} {$j<10} {incr j} {
+            catch {r ping} e
+            assert_match {BUSY*} $e
+        }
+        catch {r test.stop_busy_module} e
+        wait_for_condition 50 100 {
+            [r ping] eq {PONG}
+        } else {
+            fail "Failed waiting for busy command to end"
+        }
+    }
 }
 

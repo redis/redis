@@ -128,17 +128,17 @@ int longLatFromMember(robj *zobj, robj *member, double *xy) {
 double extractUnitOrReply(client *c, robj *unit) {
     char *u = unit->ptr;
 
-    if (!strcmp(u, "m")) {
+    if (!strcasecmp(u, "m")) {
         return 1;
-    } else if (!strcmp(u, "km")) {
+    } else if (!strcasecmp(u, "km")) {
         return 1000;
-    } else if (!strcmp(u, "ft")) {
+    } else if (!strcasecmp(u, "ft")) {
         return 0.3048;
-    } else if (!strcmp(u, "mi")) {
+    } else if (!strcasecmp(u, "mi")) {
         return 1609.34;
     } else {
         addReplyError(c,
-            "unsupported unit provided. please use m, km, ft, mi");
+            "unsupported unit provided. please use M, KM, FT, MI");
         return -1;
     }
 }

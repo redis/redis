@@ -201,6 +201,12 @@ start_server {tags {"introspection"}} {
             cluster-port
             oom-score-adj
             oom-score-adj-values
+            enable-protected-configs
+            enable-debug-command
+            enable-module-command
+            dbfilename
+            logfile
+            dir
         }
 
         if {!$::tls} {
@@ -412,6 +418,46 @@ start_server {tags {"introspection"}} {
         assert {[dict exists [r config get $hidden_config] "$hidden_config"]}
     }
 
+    test {CONFIG GET multiple args} {
+        set res [r config get maxmemory maxmemory* bind *of]
+        
+        # Verify there are no duplicates in the result
+        assert_equal [expr [llength [dict keys $res]]*2] [llength $res]
+        
+        # Verify we got both name and alias in result
+        assert {[dict exists $res slaveof] && [dict exists $res replicaof]}  
+
+        # Verify pattern found multiple maxmemory* configs
+        assert {[dict exists $res maxmemory] && [dict exists $res maxmemory-samples] && [dict exists $res maxmemory-clients]}  
+
+        # Verify we also got the explicit config
+        assert {[dict exists $res bind]}  
+    }
+
     # Config file at this point is at a weird state, and includes all
     # known keywords. Might be a good idea to avoid adding tests here.
+}
+
+start_server {tags {"introspection external:skip"} overrides {enable-protected-configs {no} enable-debug-command {no}}} {
+    test {cannot modify protected configuration - no} {
+        assert_error "ERR*protected*" {r config set dir somedir}
+        assert_error "ERR*DEBUG command not allowed*" {r DEBUG HELP}
+    } {} {needs:debug}
+}
+
+start_server {config "minimal.conf" tags {"introspection external:skip"} overrides {protected-mode {no} enable-protected-configs {local} enable-debug-command {local}}} {
+    test {cannot modify protected configuration - local} {
+        # verify that for local connection it doesn't error
+        r config set dbfilename somename
+        r DEBUG HELP
+
+        # Get a non-loopback address of this instance for this test.
+        set myaddr [get_nonloopback_addr]
+        if {$myaddr != "" && ![string match {127.*} $myaddr]} {
+            # Non-loopback client should fail
+            set r2 [get_nonloopback_client]
+            assert_error "ERR*protected*" {$r2 config set dir somedir}
+            assert_error "ERR*DEBUG command not allowed*" {$r2 DEBUG HELP}
+        }
+    } {} {needs:debug}
 }

@@ -2,7 +2,6 @@
 #include <assert.h>
 #include <errno.h>
 #include <strings.h>
-#include <time.h>
 
 /* LIST.GETALL key [REVERSE] */
 int list_getall(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -214,32 +213,6 @@ int list_delete(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_OK;
 }
 
-/* this flag is used to work with busy commands, that might take a while
- * and ability to stop the busy work with a different command*/
-static int abort_flag = 0;
-
-int list_busy(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    REDISMODULE_NOT_USED(argv);
-    REDISMODULE_NOT_USED(argc);
-
-    while (!abort_flag) {
-        RedisModule_ProcessEventsWhileBlocked(ctx);
-        usleep(1000);
-    }
-
-    abort_flag = 0;
-    RedisModule_ReplyWithLongLong(ctx, 1);
-    return REDISMODULE_OK;
-}
-
-int list_stop_busy(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    REDISMODULE_NOT_USED(argv);
-    REDISMODULE_NOT_USED(argc);
-    abort_flag = 1;
-    RedisModule_ReplyWithLongLong(ctx, 1);
-    return REDISMODULE_OK;
-}
-
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -253,10 +226,6 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         RedisModule_CreateCommand(ctx, "list.set", list_set, "write",
                                   1, 1, 1) == REDISMODULE_OK &&
         RedisModule_CreateCommand(ctx, "list.insert", list_insert, "write",
-                                  1, 1, 1) == REDISMODULE_OK &
-        RedisModule_CreateCommand(ctx, "list.busy", list_busy, "",
-                                  1, 1, 1) == REDISMODULE_OK &&
-        RedisModule_CreateCommand(ctx, "list.stop_busy", list_stop_busy, "allow-busy",
                                   1, 1, 1) == REDISMODULE_OK &&
         RedisModule_CreateCommand(ctx, "list.delete", list_delete, "write",
                                   1, 1, 1) == REDISMODULE_OK) {

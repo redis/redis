@@ -908,6 +908,16 @@ proc delete_lines_with_pattern {filename tmpfilename pattern} {
     file rename -force $tmpfilename $filename
 }
 
+proc get_nonloopback_addr {} {
+    set addrlist [list {}]
+    catch { set addrlist [exec hostname -I] }
+    return [lindex $addrlist 0]
+}
+
+proc get_nonloopback_client {} {
+    return [redis [get_nonloopback_addr] [srv 0 "port"] 0 $::tls]
+}
+
 # The following functions and variables are used only when running large-memory
 # tests. We avoid defining them when not running large-memory tests because the 
 # global variables takes up lots of memory.
@@ -977,4 +987,12 @@ proc read_big_bulk {code {compare no} {prefix ""}} {
     assert_equal [r rawread 2] "\r\n"
     r readraw 0
     return $resp_len
+}
+
+proc prepare_value {size} {
+    set _v "c"
+    for {set i 1} {$i < $size} {incr i} {
+        append _v 0
+    }
+    return $_v
 }

@@ -1,0 +1,20 @@
+{
+    "DISCARD": {
+        "summary": "Discard all commands issued after MULTI",
+        "complexity": "O(N), when N is the number of queued commands",
+        "group": "transactions",
+        "since": "2.0.0",
+        "arity": 1,
+        "function": "discardCommand",
+        "command_flags": [
+            "NOSCRIPT",
+            "LOADING",
+            "STALE",
+            "FAST",
+            "ALLOW_BUSY"
+        ],
+        "acl_categories": [
+            "TRANSACTION"
+        ]
+    }
+}
