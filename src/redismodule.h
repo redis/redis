@@ -291,7 +291,7 @@ typedef void (*RedisModuleEventCallback)(struct RedisModuleCtx *ctx, RedisModule
  * event data (RedisModuleFlushInfoV1 for example) we have to avoid renaming the
  * old RedisModuleEvent structure.
  * For example, if we want to add RedisModuleFlushInfoV2, the RedisModuleEvent
- * structures should ne:
+ * structures should be:
  *      RedisModuleEvent_FlushDB = {
  *          REDISMODULE_EVENT_FLUSHDB,
  *          1
@@ -309,8 +309,9 @@ typedef void (*RedisModuleEventCallback)(struct RedisModuleCtx *ctx, RedisModule
  *          REDISMODULE_EVENT_FLUSHDB,
  *          2
  *      }
- * The reason for that is forward-compatibility: A module that compiled with a
- * new redismodule.h must be able to work with a old server.
+ * The reason for that is forward-compatibility: We want that module that
+ * compiled with a new redismodule.h to be able to work with a old server,
+ * unless the author explicitly decided to use the newer event type.
  */
 static const RedisModuleEvent
     RedisModuleEvent_ReplicationRoleChanged = {
