@@ -6,6 +6,7 @@
         "arity": -3,
         "function": "syncCommand",
         "command_flags": [
+            "NO_ASYNC_LOADING",
             "ADMIN",
             "NOSCRIPT"
         ],

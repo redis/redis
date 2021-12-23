@@ -628,6 +628,8 @@ sds genAofTimestampAnnotationIfNeeded(int force) {
 void feedAppendOnlyFile(int dictid, robj **argv, int argc) {
     sds buf = sdsempty();
 
+    serverAssert(dictid >= 0 && dictid < server.dbnum);
+
     /* Feed timestamp if needed */
     if (server.aof_timestamp_enabled) {
         sds ts = genAofTimestampAnnotationIfNeeded(0);

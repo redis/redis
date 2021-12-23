@@ -1466,7 +1466,7 @@ void deleteExpiredKeyAndPropagate(redisDb *db, robj *keyobj) {
     latencyAddSampleIfNeeded("expire-del",expire_latency);
     notifyKeyspaceEvent(NOTIFY_EXPIRED,"expired",keyobj,db->id);
     signalModifiedKey(NULL, db, keyobj);
-    propagateExpire(db,keyobj,server.lazyfree_lazy_expire);
+    propagateDeletion(db,keyobj,server.lazyfree_lazy_expire);
     server.stat_expiredkeys++;
 }
 
@@ -1477,8 +1477,18 @@ void deleteExpiredKeyAndPropagate(redisDb *db, robj *keyobj) {
  * This way the key expiry is centralized in one place, and since both
  * AOF and the master->slave link guarantee operation ordering, everything
  * will be consistent even if we allow write operations against expiring
- * keys. */
-void propagateExpire(redisDb *db, robj *key, int lazy) {
+ * keys.
+ *
+ * This function may be called from:
+ * 1. Within call(): Example: Lazy-expire on key access.
+ *    In this case the caller doesn't have to do anything
+ *    because call() handles server.also_propagate(); or
+ * 2. Outside of call(): Example: Active-expire, eviction.
+ *    In this the caller must remember to call
+ *    propagatePendingCommands, preferably at the end of
+ *    the deletion batch, so that DELs will be wrapped
+ *    in MULTI/EXEC */
+void propagateDeletion(redisDb *db, robj *key, int lazy) {
     robj *argv[2];
 
     argv[0] = lazy ? shared.unlink : shared.del;
@@ -1490,7 +1500,7 @@ void propagateExpire(redisDb *db, robj *key, int lazy) {
      * Even if module executed a command without asking for propagation. */
     int prev_replication_allowed = server.replication_allowed;
     server.replication_allowed = 1;
-    propagate(db->id,argv,2,PROPAGATE_AOF|PROPAGATE_REPL);
+    alsoPropagate(db->id,argv,2,PROPAGATE_AOF|PROPAGATE_REPL);
     server.replication_allowed = prev_replication_allowed;
 
     decrRefCount(argv[0]);

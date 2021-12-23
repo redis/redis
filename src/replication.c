@@ -421,6 +421,10 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
     int j, len;
     char llstr[LONG_STR_SIZE];
 
+    /* In case we propagate a command that doesn't touch keys (PING, REPLCONF) we
+     * pass dbid=server.slaveseldb which may be -1. */
+    serverAssert(dictid == -1 || (dictid >= 0 && dictid < server.dbnum));
+
     /* If the instance is not a top level master, return ASAP: we'll just proxy
      * the stream of data we receive from our master instead, in order to
      * propagate *identical* replication stream. In this way this slave can
@@ -456,8 +460,9 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
 
         if (dictid < 0 || dictid >= PROTO_SHARED_SELECT_CMDS)
             decrRefCount(selectcmd);
+
+        server.slaveseldb = dictid;
     }
-    server.slaveseldb = dictid;
 
     /* Write the command to the replication buffer if any. */
     char aux[LONG_STR_SIZE+3];
