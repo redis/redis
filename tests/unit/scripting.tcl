@@ -508,7 +508,7 @@ start_server {tags {"scripting"}} {
         assert {[r eval {return redis.call('spop', 'myset')} 0] ne {}}
         assert {[r eval {return redis.call('spop', 'myset', 1)} 0] ne {}}
         assert {[r eval {return redis.call('spop', KEYS[1])} 1 myset] ne {}}
-        #this one below should be replicated by an empty MULTI/EXEC
+        # this one below should not be replicated
         assert {[r eval {return redis.call('spop', KEYS[1])} 1 myset] eq {}}
         r set trailingkey 1
         assert_replication_stream $repl {
@@ -516,17 +516,9 @@ start_server {tags {"scripting"}} {
             {sadd *}
             {del *}
             {sadd *}
-            {multi}
             {srem myset *}
-            {exec}
-            {multi}
             {srem myset *}
-            {exec}
-            {multi}
             {srem myset *}
-            {exec}
-            {multi}
-            {exec}
             {set *}
         }
         close_replication_stream $repl
@@ -555,9 +547,7 @@ start_server {tags {"scripting"}} {
         assert_replication_stream $repl {
             {select *}
             {set *}
-            {multi}
             {pexpireat expirekey *}
-            {exec}
         }
         close_replication_stream $repl
     } {} {need:repl}

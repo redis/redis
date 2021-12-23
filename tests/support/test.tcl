@@ -76,11 +76,11 @@ proc assert_range {value min max {detail ""}} {
     }
 }
 
-proc assert_error {pattern code} {
+proc assert_error {pattern code {detail ""}} {
     if {[catch {uplevel 1 $code} error]} {
         assert_match $pattern $error
     } else {
-        error "assertion:Expected an error but nothing was caught"
+        assert_failed "assertion:Expected an error but nothing was caught" $detail
     }
 }
 
