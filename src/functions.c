@@ -445,16 +445,11 @@ static int functionsVerifyName(sds name) {
     }
     for (size_t i = 0 ; i < sdslen(name) ; ++i) {
         char curr_char = name[i];
-        if (curr_char >= 'a' && curr_char <= 'z') {
-            continue;
-        }
-        if (curr_char >= 'A' && curr_char <= 'Z') {
-            continue;
-        }
-        if (curr_char >= '0' && curr_char <= '9') {
-            continue;
-        }
-        if (curr_char == '_') {
+        if ((curr_char >= 'a' && curr_char <= 'z') ||
+            (curr_char >= 'A' && curr_char <= 'Z') ||
+            (curr_char >= '0' && curr_char <= '9') ||
+            (curr_char == '_'))
+        {
             continue;
         }
         return C_ERR;
