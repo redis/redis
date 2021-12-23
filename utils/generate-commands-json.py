@@ -31,7 +31,7 @@ def convert_entry_to_objects_array(container, cmd):
     ''' 
     Transform the JSON output of `COMMAND` to a friendlier format.
 
-    `COMMAND`'s outout per command is a fixed-size (8) list as follows:
+    `COMMAND`'s output per command is a fixed-size (8) list as follows:
     1. Name (lower case, e.g. "lolwut")
     2. Arity
     3. Flags
