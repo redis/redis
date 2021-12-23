@@ -23,7 +23,7 @@ start_server {tags {"scripting"}} {
             r function create LUA {bad\0foramat} {return 'hello1'}
         } e
         set _ $e
-    } {*Bad function name*}
+    } {*Function names can only contain letters and numbers*}
 
     test {FUNCTION - Create function with unexisting engine} {
         catch {
