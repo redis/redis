@@ -108,6 +108,7 @@ dict* functionsGet();
 size_t functionsLen(functionsCtx *functions_ctx);
 functionsCtx* functionsCtxGetCurrent();
 functionsCtx* functionsCtxCreate();
+void functionsCtxClearCurrent(int async);
 void functionsCtxFree(functionsCtx *functions_ctx);
 void functionsCtxClear(functionsCtx *functions_ctx);
 void functionsCtxSwapWithCurrent(functionsCtx *functions_ctx);

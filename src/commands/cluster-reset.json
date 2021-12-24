@@ -10,7 +10,8 @@
         "command_flags": [
             "ADMIN",
             "RANDOM",
-            "STALE"
+            "STALE",
+            "NOSCRIPT"
         ],
         "arguments": [
             {

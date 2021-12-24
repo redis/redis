@@ -69,6 +69,7 @@
 #define OUTPUT_STANDARD 0
 #define OUTPUT_RAW 1
 #define OUTPUT_CSV 2
+#define OUTPUT_JSON 3
 #define REDIS_CLI_KEEPALIVE_INTERVAL 15 /* seconds */
 #define REDIS_CLI_DEFAULT_PIPE_TIMEOUT 30 /* seconds */
 #define REDIS_CLI_HISTFILE_ENV "REDISCLI_HISTFILE"
@@ -252,7 +253,8 @@ static struct config {
     int set_errcode;
     clusterManagerCommand cluster_manager_command;
     int no_auth_warning;
-    int resp3;
+    int resp2;
+    int resp3; /* value of 1: specified explicitly, value of 2: implicit like --json option */
     int in_multi;
     int pre_multi_dbnum;
 } config;
@@ -725,7 +727,7 @@ static int cliSelect(void) {
 /* Select RESP3 mode if redis-cli was started with the -3 option.  */
 static int cliSwitchProto(void) {
     redisReply *reply;
-    if (config.resp3 == 0) return REDIS_OK;
+    if (!config.resp3 || config.resp2) return REDIS_OK;
 
     reply = redisCommand(context,"HELLO 3");
     if (reply == NULL) {
@@ -735,8 +737,12 @@ static int cliSwitchProto(void) {
 
     int result = REDIS_OK;
     if (reply->type == REDIS_REPLY_ERROR) {
-        result = REDIS_ERR;
         fprintf(stderr,"HELLO 3 failed: %s\n",reply->str);
+        if (config.resp3 == 1) {
+            result = REDIS_ERR;
+        } else if (config.resp3 == 2) {
+            result = REDIS_OK;
+        }
     }
     freeReplyObject(reply);
     return result;
@@ -1142,6 +1148,62 @@ static sds cliFormatReplyCSV(redisReply *r) {
     return out;
 }
 
+static sds cliFormatReplyJson(sds out, redisReply *r) {
+    unsigned int i;
+
+    switch (r->type) {
+    case REDIS_REPLY_ERROR:
+        out = sdscat(out,"error:");
+        out = sdscatrepr(out,r->str,strlen(r->str));
+        break;
+    case REDIS_REPLY_STATUS:
+        out = sdscatrepr(out,r->str,r->len);
+        break;
+    case REDIS_REPLY_INTEGER:
+        out = sdscatprintf(out,"%lld",r->integer);
+        break;
+    case REDIS_REPLY_DOUBLE:
+        out = sdscatprintf(out,"%s",r->str);
+        break;
+    case REDIS_REPLY_STRING:
+    case REDIS_REPLY_VERB:
+        out = sdscatrepr(out,r->str,r->len);
+        break;
+    case REDIS_REPLY_NIL:
+        out = sdscat(out,"null");
+        break;
+    case REDIS_REPLY_BOOL:
+        out = sdscat(out,r->integer ? "true" : "false");
+        break;
+    case REDIS_REPLY_ARRAY:
+    case REDIS_REPLY_SET:
+    case REDIS_REPLY_PUSH:
+        out = sdscat(out,"[");
+        for (i = 0; i < r->elements; i++ ) {
+            out = cliFormatReplyJson(out, r->element[i]);
+            if (i != r->elements-1) out = sdscat(out,",");
+        }
+        out = sdscat(out,"]");
+        break;
+    case REDIS_REPLY_MAP:
+        out = sdscat(out,"{");
+        for (i = 0; i < r->elements; i += 2) {
+            out = cliFormatReplyJson(out, r->element[i]);
+
+            out = sdscat(out,":");
+
+            out = cliFormatReplyJson(out, r->element[i+1]);
+            if (i != r->elements-2) out = sdscat(out,",");
+        }
+        out = sdscat(out,"}");
+        break;
+    default:
+        fprintf(stderr,"Unknown reply type: %d\n", r->type);
+        exit(1);
+    }
+    return out;
+}
+
 /* Generate reply strings in various output modes */
 static sds cliFormatReply(redisReply *reply, int mode, int verbatim) {
     sds out;
@@ -1155,6 +1217,9 @@ static sds cliFormatReply(redisReply *reply, int mode, int verbatim) {
         out = sdscatsds(out, config.cmd_delim);
     } else if (mode == OUTPUT_CSV) {
         out = cliFormatReplyCSV(reply);
+        out = sdscatlen(out, "\n", 1);
+    } else if (mode == OUTPUT_JSON) {
+        out = cliFormatReplyJson(sdsempty(), reply);
         out = sdscatlen(out, "\n", 1);
     } else {
         fprintf(stderr, "Error:  Unknown output encoding %d\n", mode);
@@ -1529,6 +1594,12 @@ static int parseOptions(int argc, char **argv) {
             config.quoted_input = 1;
         } else if (!strcmp(argv[i],"--csv")) {
             config.output = OUTPUT_CSV;
+        } else if (!strcmp(argv[i],"--json")) {
+            /* Not overwrite explicit value by -3*/
+            if (config.resp3 == 0) {
+                config.resp3 = 2;
+            }
+            config.output = OUTPUT_JSON;
         } else if (!strcmp(argv[i],"--latency")) {
             config.latency_mode = 1;
         } else if (!strcmp(argv[i],"--latency-dist")) {
@@ -1712,6 +1783,8 @@ static int parseOptions(int argc, char **argv) {
             printf("redis-cli %s\n", version);
             sdsfree(version);
             exit(0);
+        } else if (!strcmp(argv[i],"-2")) {
+            config.resp2 = 1;
         } else if (!strcmp(argv[i],"-3")) {
             config.resp3 = 1;
         } else if (!strcmp(argv[i],"--show-pushes") && !lastarg) {
@@ -1748,6 +1821,11 @@ static int parseOptions(int argc, char **argv) {
 
     if (config.hostsocket && config.cluster_mode) {
         fprintf(stderr,"Options -c and -s are mutually exclusive.\n");
+        exit(1);
+    }
+
+    if (config.resp2 && config.resp3 == 1) {
+        fprintf(stderr,"Options -2 and -3 are mutually exclusive.\n");
         exit(1);
     }
 
@@ -1805,6 +1883,7 @@ static void usage(int err) {
 "                     This interval is also used in --scan and --stat per cycle.\n"
 "                     and in --bigkeys, --memkeys, and --hotkeys per 100 cycles.\n"
 "  -n <db>            Database number.\n"
+"  -2                 Start session in RESP2 protocol mode.\n"
 "  -3                 Start session in RESP3 protocol mode.\n"
 "  -x                 Read last argument from STDIN.\n"
 "  -d <delimiter>     Delimiter between response bulks for raw formatting (default: \\n).\n"
@@ -1836,18 +1915,19 @@ static void usage(int err) {
 "  --no-raw           Force formatted output even when STDOUT is not a tty.\n"
 "  --quoted-input     Force input to be handled as quoted strings.\n"
 "  --csv              Output in CSV format.\n"
+"  --json             Output in JSON format (default RESP3, use -2 if you want to use with RESP2).\n"
 "  --show-pushes <yn> Whether to print RESP3 PUSH messages.  Enabled by default when\n"
 "                     STDOUT is a tty but can be overridden with --show-pushes no.\n"
-"  --stat             Print rolling stats about server: mem, clients, ...\n"
+"  --stat             Print rolling stats about server: mem, clients, ...\n",version);
+
+    fprintf(target,
 "  --latency          Enter a special mode continuously sampling latency.\n"
 "                     If you use this mode in an interactive session it runs\n"
 "                     forever displaying real-time stats. Otherwise if --raw or\n"
 "                     --csv is specified, or if you redirect the output to a non\n"
 "                     TTY, it samples the latency for 1 second (you can use\n"
 "                     -i to change the interval), then produces a single output\n"
-"                     and exits.\n",version);
-
-    fprintf(target,
+"                     and exits.\n"
 "  --latency-history  Like --latency but tracking latency changes over time.\n"
 "                     Default time interval is 15 sec. Change it using -i.\n"
 "  --latency-dist     Shows latency as a spectrum, requires xterm 256 colors.\n"
@@ -6757,6 +6837,8 @@ static void latencyModePrint(long long min, long long max, double avg, long long
         printf("%lld,%lld,%.2f,%lld\n", min, max, avg, count);
     } else if (config.output == OUTPUT_RAW) {
         printf("%lld %lld %.2f %lld\n", min, max, avg, count);
+    } else if (config.output == OUTPUT_JSON) {
+        printf("{\"min\": %lld, \"max\": %lld, \"avg\": %.2f, \"count\": %lld}\n", min, max, avg, count);
     }
 }
 

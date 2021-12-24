@@ -105,6 +105,16 @@ void functionsCtxClear(functionsCtx *functions_ctx) {
     functions_ctx->cache_memory = 0;
 }
 
+void functionsCtxClearCurrent(int async) {
+    if (async) {
+        functionsCtx *old_f_ctx = functions_ctx;
+        functions_ctx = functionsCtxCreate();
+        freeFunctionsAsync(old_f_ctx);
+    } else {
+        functionsCtxClear(functions_ctx);
+    }
+}
+
 /* Free the given functions ctx */
 void functionsCtxFree(functionsCtx *functions_ctx) {
     functionsCtxClear(functions_ctx);
@@ -301,11 +311,6 @@ void functionInfoCommand(client *c) {
  * FUNCTION DELETE <FUNCTION NAME>
  */
 void functionDeleteCommand(client *c) {
-    if (server.masterhost && server.repl_slave_ro && !(c->flags & CLIENT_MASTER)) {
-        addReplyError(c, "Can not delete a function on a read only replica");
-        return;
-    }
-
     robj *function_name = c->argv[2];
     functionInfo *fi = dictFetchValue(functions_ctx->functions, function_name->ptr);
     if (!fi) {
@@ -389,13 +394,8 @@ void functionFlushCommand(client *c) {
         return;
     }
 
-    if (async) {
-        functionsCtx *old_f_ctx = functions_ctx;
-        functions_ctx = functionsCtxCreate();
-        freeFunctionsAsync(old_f_ctx);
-    } else {
-        functionsCtxClear(functions_ctx);
-    }
+    functionsCtxClearCurrent(async);
+
     /* Indicate that the command changed the data so it will be replicated and
      * counted as a data change (for persistence configuration) */
     server.dirty++;
@@ -481,12 +481,6 @@ int functionsCreateWithFunctionCtx(sds function_name,sds engine_name, sds desc, 
  * FUNCTION CODE   - function code to pass to the engine
  */
 void functionCreateCommand(client *c) {
-
-    if (server.masterhost && server.repl_slave_ro && !(c->flags & CLIENT_MASTER)) {
-        addReplyError(c, "Can not create a function on a read only replica");
-        return;
-    }
-
     robj *engine_name = c->argv[2];
     robj *function_name = c->argv[3];
 
