@@ -269,6 +269,9 @@ void aofLoadManifestFromDisk(void) {
 
         linenum++;
 
+        /* Skip comments lines */
+        if (buf[0] == '#') continue;
+
         if (strchr(buf, '\n') == NULL) {
             err = "The AOF manifest file contains too long line";
             goto loaderr;
