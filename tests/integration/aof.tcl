@@ -4,7 +4,7 @@ set server_path [tmpdir server.aof]
 set aof_dirname "appendonlydir"
 set aof_basename "appendonly.aof"
 set aof_dirpath "$server_path/$aof_dirname"
-set aof_filepath "$server_path/$aof_dirname/${aof_basename}_1.incr.aof"
+set aof_filepath "$server_path/$aof_dirname/${aof_basename}.1$::incr_aof_sufix$::aof_format_suffix"
 set aof_manifest_filepath "$server_path/$aof_dirname/$aof_basename$::manifest_suffix"
 
 tags {"aof external:skip"} {
@@ -18,7 +18,7 @@ tags {"aof external:skip"} {
     }
 
     create_aof_manifest $aof_manifest_filepath {
-        append_to_manifest "file appendonly.aof_1.incr.aof seq 1 type i\n"
+        append_to_manifest "file appendonly.aof.1.incr.aof seq 1 type i\n"
     }
 
     start_server_aof [list dir $server_path aof-load-truncated yes] {
@@ -263,7 +263,7 @@ tags {"aof external:skip"} {
                 r setrange x [expr {int(rand()*5000000)+10000000}] x
                 r debug aof-flush-sleep 500000
                 set dir [lindex [r config get dir] 1]
-                set manifest_filepath [file join $dir "appendonlydir" "appendonly.aof_manifest"]
+                set manifest_filepath [file join $dir "appendonlydir" "appendonly.aof.manifest"]
                 set last_incr_aof_name [get_last_incr_aof_name $manifest_filepath]
                 set aof [file join $dir "appendonlydir" $last_incr_aof_name]
                 set size1 [file size $aof]
@@ -281,7 +281,7 @@ tags {"aof external:skip"} {
     start_server {overrides {appendonly {yes} appendfilename {appendonly.aof} appenddirname {appendonlydir}}} {
         test {GETEX should not append to AOF} {
             set dir [lindex [r config get dir] 1]
-            set manifest_filepath [file join $dir "appendonlydir" "appendonly.aof_manifest"]
+            set manifest_filepath [file join $dir "appendonlydir" "appendonly.aof.manifest"]
             set lat_incr_aof_name [get_last_incr_aof_name $manifest_filepath]
             set aof [file join $dir "appendonlydir" $lat_incr_aof_name]
             r set foo bar
@@ -416,7 +416,7 @@ tags {"aof external:skip"} {
             r config set aof-timestamp-enabled yes
             r config set aof-use-rdb-preamble no
             set dir [lindex [r config get dir] 1]
-            set manifest_filepath [file join $dir "appendonlydir" "appendonly.aof_manifest"]
+            set manifest_filepath [file join $dir "appendonlydir" "appendonly.aof.manifest"]
             set last_incr_aof_name [get_last_incr_aof_name $manifest_filepath]
             set aof [file join $dir "appendonlydir" $last_incr_aof_name]
 
@@ -516,7 +516,7 @@ tags {"aof external:skip"} {
     test {EVAL can process writes from AOF in read-only replicas} {
         create_aof_dir $aof_dirpath
         create_aof_manifest $aof_manifest_filepath {
-            append_to_manifest "file appendonly.aof_1.incr.aof seq 1 type i\n"
+            append_to_manifest "file appendonly.aof.1.incr.aof seq 1 type i\n"
         }
         create_aof $aof_filepath {
             append_to_aof [formatCommand select 9]

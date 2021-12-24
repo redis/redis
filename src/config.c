@@ -2133,6 +2133,10 @@ static int isValidDBfilename(char *val, const char **err) {
 }
 
 static int isValidAOFfilename(char *val, const char **err) {
+    if (!strcmp(val, "")) {
+        *err = "appendfilename can't be empty";
+        return 0;
+    }
     if (!pathIsBaseName(val)) {
         *err = "appendfilename can't be a path, just a filename";
         return 0;
@@ -2141,6 +2145,10 @@ static int isValidAOFfilename(char *val, const char **err) {
 }
 
 static int isValidAOFdirname(char *val, const char **err) {
+    if (!strcmp(val, "")) {
+        *err = "appenddirname can't be empty";
+        return 0;
+    }
     if (!pathIsBaseName(val)) {
         *err = "appenddirname can't be a path, just a dirname";
         return 0;

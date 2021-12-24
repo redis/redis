@@ -316,7 +316,7 @@ start_server {tags {"expire"}} {
             # We want the time to logically pass when the server is restarted!
 
             set dir [lindex [r config get dir] 1]
-            set manifest_filepath [file join $dir "appendonlydir" "appendonly.aof_manifest"]
+            set manifest_filepath [file join $dir "appendonlydir" "appendonly.aof.manifest"]
             set last_incr_aof_name [get_last_incr_aof_name $manifest_filepath]
             set aof [file join $dir "appendonlydir" $last_incr_aof_name]
 

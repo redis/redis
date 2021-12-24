@@ -65,12 +65,12 @@ int aofFileExist(char *filename);
  * 
  * The following is a possible AOF manifest file content:
  * 
- * file appendonly_2.base.rdb seq 2 type b
- * file appendonly_1.incr.aof seq 1 type h
- * file appendonly_2.incr.aof seq 2 type h
- * file appendonly_3.incr.aof seq 3 type h
- * file appendonly_4.incr.aof seq 4 type i
- * file appendonly_5.incr.aof seq 5 type i
+ * file appendonly.aof.2.base.rdb seq 2 type b
+ * file appendonly.aof.1.incr.aof seq 1 type h
+ * file appendonly.aof.2.incr.aof seq 2 type h
+ * file appendonly.aof.3.incr.aof seq 3 type h
+ * file appendonly.aof.4.incr.aof seq 4 type i
+ * file appendonly.aof.5.incr.aof seq 5 type i
  * ------------------------------------------------------------------------- */
 
 /* Naming rules. */
@@ -78,7 +78,7 @@ int aofFileExist(char *filename);
 #define INCR_FILE_SUFFIX           ".incr"   
 #define RDB_FORMAT_SUFFIX          ".rdb"
 #define AOF_FORMAT_SUFFIX          ".aof"
-#define MANIFEST_NAME_SUFFIX       "_manifest"   
+#define MANIFEST_NAME_SUFFIX       ".manifest"   
 #define MANIFEST_TEMP_NAME_PREFIX  "temp_"      
 
 /* AOF manifest key. */
@@ -162,7 +162,7 @@ sds getTempAofManifestFileName() {
  * type: Types of AOF file, There are: b(BASE)、h(HISTORY)、i(INCR)
  * 
  * A possible line:
- *    file appendonly_1.base.rdb seq 1 type b
+ *    file appendonly.aof.1.base.rdb seq 1 type b
  * 
  * The BASE file information (if we have) will be placed on the first 
  * line, followed by history type AOFs and finally is the INCR AOFs.
@@ -393,11 +393,11 @@ void aofManifestFreeAndUpdate(aofManifest *am) {
 /* Called in `backgroundRewriteDoneHandler` to get a new BASE file
  * name, and mark the previous (if we have) BASE file as HISTORY type. 
  *
- * BASE file naming rules: `server.aof_filename`_seq.base.format
+ * BASE file naming rules: `server.aof_filename`.seq.base.format
  * 
  * for example:
- *  appendonly.aof_1.base.aof  (server.aof_use_rdb_preamble is no)
- *  appendonly.aof_1.base.rdb  (server.aof_use_rdb_preamble is yes)
+ *  appendonly.aof.1.base.aof  (server.aof_use_rdb_preamble is no)
+ *  appendonly.aof.1.base.rdb  (server.aof_use_rdb_preamble is yes)
  * */
 sds getNewBaseFileNameAndMarkPreAsHistory(aofManifest *am) {
     serverAssert(am != NULL);
@@ -411,7 +411,7 @@ sds getNewBaseFileNameAndMarkPreAsHistory(aofManifest *am) {
         RDB_FORMAT_SUFFIX:AOF_FORMAT_SUFFIX;
 
     aofInfo *ai = aofInfoCreate();
-    ai->file_name = sdscatprintf(sdsempty(), "%s_%lld%s%s", server.aof_filename, 
+    ai->file_name = sdscatprintf(sdsempty(), "%s.%lld%s%s", server.aof_filename, 
                         ++am->curr_base_file_seq, BASE_FILE_SUFFIX, format_suffix);
     ai->file_seq = am->curr_base_file_seq;
     ai->file_type = AOF_FILE_TYPE_BASE;
@@ -422,15 +422,15 @@ sds getNewBaseFileNameAndMarkPreAsHistory(aofManifest *am) {
 
 /* Get a new INCR type AOF name. 
  *  
- * INCR AOF naming rules: `server.aof_filename`_seq.incr.aof
+ * INCR AOF naming rules: `server.aof_filename`.seq.incr.aof
  * 
  * for example:
- *  appendonly.aof_1.incr.aof
+ *  appendonly.aof.1.incr.aof
  */
 sds getNewIncrAofName(aofManifest *am) {
     aofInfo *ai = aofInfoCreate();
     ai->file_type = AOF_FILE_TYPE_INCR;
-    ai->file_name = sdscatprintf(sdsempty(), "%s_%lld%s%s", server.aof_filename, 
+    ai->file_name = sdscatprintf(sdsempty(), "%s.%lld%s%s", server.aof_filename, 
                         ++am->curr_incr_file_seq, INCR_FILE_SUFFIX, AOF_FORMAT_SUFFIX);
     ai->file_seq = am->curr_incr_file_seq;
     listAddNodeTail(am->incr_aof_list, ai);

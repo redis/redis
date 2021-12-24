@@ -1,6 +1,6 @@
 set ::base_aof_sufix ".base"
 set ::incr_aof_sufix ".incr"
-set ::manifest_suffix "_manifest"
+set ::manifest_suffix ".manifest"
 set ::aof_format_suffix ".aof"
 set ::rdb_format_suffix ".rdb"
 
