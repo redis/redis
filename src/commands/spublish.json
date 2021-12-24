@@ -1,7 +1,7 @@
 {
   "SPUBLISH": {
     "summary": "Post a message to a shard channel",
-    "complexity": "O(N+M) where N is the number of clients subscribed to the receiving shard channel and M is the total number of subscribed patterns (by any client).",
+    "complexity": "O(N) where N is the number of clients subscribed to the receiving shard channel.",
     "group": "pubsub",
     "since": "7.0.0",
     "arity": 3,
