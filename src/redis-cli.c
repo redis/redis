@@ -2158,6 +2158,51 @@ static int isSensitiveCommand(int argc, char **argv) {
     return 0;
 }
 
+/* If connected node is replica, use INFO to get master_host and master_port,
+ * then connect to master */
+static void tryConnectMaster(void) {
+    if (context == NULL) {
+        fprintf(stderr, "not connected with any node\n");
+        return;
+    }
+    redisReply *reply = redisCommand(context, "INFO replication");
+    if (reply == NULL) {
+        fprintf(stderr, "\nI/O error\n");
+        return;
+    } else if (reply->type == REDIS_REPLY_ERROR) {
+        fprintf(stderr, "INFO failed: %s\n", reply->str);
+        freeReplyObject(reply);
+        return;
+    } else if (reply->type != REDIS_REPLY_STRING) {
+        fprintf(stderr, "Non STR response from INFO!\n");
+        freeReplyObject(reply);
+        return;
+    }
+
+    char *role = getInfoField(reply->str, "role");
+    if (!role) {
+        fprintf(stderr, "Can't get role of node\n");
+    } else if (!strcasecmp(role, "master")) {
+        fprintf(stderr, "I'm already master\n");
+    } else if (!strcasecmp(role, "slave")) {
+        sdsfree(config.conn_info.hostip);
+        char *host = getInfoField(reply->str, "master_host");
+        char *port = getInfoField(reply->str, "master_port");
+        if (host == NULL || port == NULL) {
+            fprintf(stderr, "Can't get host or port\n");
+        } else {
+            config.conn_info.hostip = sdsnew(host);
+            config.conn_info.hostport = atoi(port);
+            cliRefreshPrompt();
+            cliConnect(CC_FORCE);
+        }
+        zfree(host);
+        zfree(port);
+    }
+    zfree(role);
+    freeReplyObject(reply);
+}
+
 static void repl(void) {
     sds historyfile = NULL;
     int history = 0;
@@ -2254,6 +2299,10 @@ static void repl(void) {
                 config.conn_info.hostport = atoi(argv[2]);
                 cliRefreshPrompt();
                 cliConnect(CC_FORCE);
+            } else if (argc == 2 && !strcasecmp(argv[0],"connect") &&
+                !strcasecmp(argv[1],"master"))
+            {
+                tryConnectMaster();
             } else if (argc == 1 && !strcasecmp(argv[0],"clear")) {
                 linenoiseClearScreen();
             } else {
