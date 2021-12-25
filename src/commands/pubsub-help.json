@@ -1,0 +1,15 @@
+{
+    "HELP": {
+        "summary": "Show helpful text about the different subcommands",
+        "complexity": "O(1)",
+        "group": "pubsub",
+        "since": "6.2.0",
+        "arity": 2,
+        "container": "PUBSUB",
+        "function": "pubsubCommand",
+        "command_flags": [
+            "LOADING",
+            "STALE"
+        ]
+    }
+}

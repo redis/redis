@@ -1,0 +1,14 @@
+{
+    "DEBUG": {
+        "group": "sentinel",
+        "since": "7.0.0",
+        "arity": -2,
+        "container": "SENTINEL",
+        "function": "sentinelCommand",
+        "command_flags": [
+            "ADMIN",
+            "SENTINEL",
+            "ONLY_SENTINEL"
+        ]
+    }
+}

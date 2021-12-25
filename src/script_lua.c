@@ -461,36 +461,6 @@ static int luaRaiseError(lua_State *lua) {
     return lua_error(lua);
 }
 
-/* Sort the array currently in the stack. We do this to make the output
- * of commands like KEYS or SMEMBERS something deterministic when called
- * from Lua (to play well with AOf/replication).
- *
- * The array is sorted using table.sort itself, and assuming all the
- * list elements are strings. */
-static void luaSortArray(lua_State *lua) {
-    /* Initial Stack: array */
-    lua_getglobal(lua,"table");
-    lua_pushstring(lua,"sort");
-    lua_gettable(lua,-2);       /* Stack: array, table, table.sort */
-    lua_pushvalue(lua,-3);      /* Stack: array, table, table.sort, array */
-    if (lua_pcall(lua,1,0,0)) {
-        /* Stack: array, table, error */
-
-        /* We are not interested in the error, we assume that the problem is
-         * that there are 'false' elements inside the array, so we try
-         * again with a slower function but able to handle this case, that
-         * is: table.sort(table, __redis__compare_helper) */
-        lua_pop(lua,1);             /* Stack: array, table */
-        lua_pushstring(lua,"sort"); /* Stack: array, table, sort */
-        lua_gettable(lua,-2);       /* Stack: array, table, table.sort */
-        lua_pushvalue(lua,-3);      /* Stack: array, table, table.sort, array */
-        lua_getglobal(lua,"__redis__compare_helper");
-        /* Stack: array, table, table.sort, array, __redis__compare_helper */
-        lua_call(lua,2,0);
-    }
-    /* Stack: array (sorted), table */
-    lua_pop(lua,1);             /* Stack: array (sorted) */
-}
 
 /* ---------------------------------------------------------------------------
  * Lua reply to Redis reply conversion functions.
@@ -826,13 +796,6 @@ static int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     if (ldbIsEnabled())
         ldbLogRedisReply(reply);
 
-    /* Sort the output array if needed, assuming it is a non-null multi bulk
-     * reply as expected. */
-    if ((c->cmd->flags & CMD_SORT_FOR_SCRIPT) &&
-        (rctx->flags & SCRIPT_EVAL_REPLICATION) &&
-        (reply[0] == '*' && reply[1] != '-')) {
-            luaSortArray(lua);
-    }
     if (reply != c->buf) sdsfree(reply);
     c->reply_bytes = 0;
 
@@ -945,17 +908,13 @@ static int luaRedisStatusReplyCommand(lua_State *lua) {
  * Set the propagation of write commands executed in the context of the
  * script to on/off for AOF and slaves. */
 static int luaRedisSetReplCommand(lua_State *lua) {
-    int argc = lua_gettop(lua);
-    int flags;
+    int flags, argc = lua_gettop(lua);
 
     scriptRunCtx* rctx = luaGetFromRegistry(lua, REGISTRY_RUN_CTX_NAME);
 
-    if (rctx->flags & SCRIPT_EVAL_REPLICATION) {
-        lua_pushstring(lua, "You can set the replication behavior only after turning on single commands replication with redis.replicate_commands().");
-        return lua_error(lua);
-    } else if (argc != 1) {
-        lua_pushstring(lua, "redis.set_repl() requires two arguments.");
-        return lua_error(lua);
+    if (argc != 1) {
+         lua_pushstring(lua, "redis.set_repl() requires two arguments.");
+         return lua_error(lua);
     }
 
     flags = lua_tonumber(lua,-1);

@@ -76,11 +76,11 @@ proc assert_range {value min max {detail ""}} {
     }
 }
 
-proc assert_error {pattern code} {
+proc assert_error {pattern code {detail ""}} {
     if {[catch {uplevel 1 $code} error]} {
         assert_match $pattern $error
     } else {
-        error "assertion:Expected an error but nothing was caught"
+        assert_failed "assertion:Expected an error but nothing was caught" $detail
     }
 }
 
@@ -88,12 +88,17 @@ proc assert_encoding {enc key} {
     if {$::ignoreencoding} {
         return
     }
-    set dbg [r debug object $key]
-    assert_match "* encoding:$enc *" $dbg
+    set val [r object encoding $key]
+    assert_match $enc $val
 }
 
 proc assert_type {type key} {
     assert_equal $type [r type $key]
+}
+
+proc assert_refcount {ref key} {
+    set val [r object refcount $key]
+    assert_equal $ref $val
 }
 
 # Wait for the specified condition to be true, with the specified number of
@@ -159,7 +164,9 @@ proc test {name code {okpattern undefined} {tags {}}} {
     if {$::external} {
         catch {
             set r [redis [srv 0 host] [srv 0 port] 0 $::tls]
-            $r debug log "### Starting test $::cur_test"
+            catch {
+                $r debug log "### Starting test $::cur_test"
+            }
             $r close
         }
     } else {

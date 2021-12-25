@@ -4,14 +4,6 @@ proc info_memory {r property} {
     }
 }
 
-proc prepare_value {size} {
-    set _v "c" 
-    for {set i 1} {$i < $size} {incr i} {
-        append _v 0   
-    }
-    return $_v
-}
-
 start_server {tags {"wait external:skip"}} {
 start_server {} {
     set slave [srv 0 client]

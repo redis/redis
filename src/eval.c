@@ -54,7 +54,6 @@ struct luaCtx {
     char *lua_cur_script; /* SHA1 of the script currently running, or NULL */
     dict *lua_scripts;         /* A dictionary of SHA1 -> Lua scripts */
     unsigned long long lua_scripts_mem;  /* Cached scripts' memory + oh */
-    int lua_replicate_commands; /* True if we are doing single commands repl. */
 } lctx;
 
 /* Debugger shared state is stored inside this global structure. */
@@ -140,23 +139,13 @@ int luaRedisDebugCommand(lua_State *lua) {
 
 /* redis.replicate_commands()
  *
+ * DEPRECATED: Now do nothing and always return true.
  * Turn on single commands replication if the script never called
  * a write command so far, and returns true. Otherwise if the script
  * already started to write, returns false and stick to whole scripts
  * replication, which is our default. */
 int luaRedisReplicateCommandsCommand(lua_State *lua) {
-    scriptRunCtx* rctx = luaGetFromRegistry(lua, REGISTRY_RUN_CTX_NAME);
-    if (rctx->flags & SCRIPT_WRITE_DIRTY) {
-        lua_pushboolean(lua,0);
-    } else {
-        lctx.lua_replicate_commands = 1;
-        rctx->flags &= ~SCRIPT_EVAL_REPLICATION;
-        /* When we switch to single commands replication, we can provide
-         * different math.random() sequences at every call, which is what
-         * the user normally expects. */
-        redisSrand48(rand());
-        lua_pushboolean(lua,1);
-    }
+    lua_pushboolean(lua,1);
     return 1;
 }
 
@@ -373,13 +362,6 @@ void evalGenericCommand(client *c, int evalsha) {
     lua_State *lua = lctx.lua;
     char funcname[43];
     long long numkeys;
-    long long initial_server_dirty = server.dirty;
-
-    /* When we replicate whole scripts, we want the same PRNG sequence at
-     * every call so that our PRNG is not affected by external state. */
-    redisSrand48(0);
-
-    lctx.lua_replicate_commands = server.lua_always_replicate_commands;
 
     /* Get the number of arguments that are keys */
     if (getLongLongFromObjectOrReply(c,c->argv[2],&numkeys,NULL) != C_OK)
@@ -445,7 +427,7 @@ void evalGenericCommand(client *c, int evalsha) {
     scriptPrepareForRun(&rctx, lctx.lua_client, c, lctx.lua_cur_script);
     rctx.flags |= SCRIPT_EVAL_MODE; /* mark the current run as legacy so we
                                     will get legacy error messages and logs */
-    if (!lctx.lua_replicate_commands) rctx.flags |= SCRIPT_EVAL_REPLICATION;
+
     /* This check is for EVAL_RO, EVALSHA_RO. We want to allow only read only commands */
     if ((server.script_caller->cmd->proc == evalRoCommand ||
          server.script_caller->cmd->proc == evalShaRoCommand)) {
@@ -457,43 +439,6 @@ void evalGenericCommand(client *c, int evalsha) {
     scriptResetRun(&rctx);
 
     lctx.lua_cur_script = NULL;
-
-    /* EVALSHA should be propagated to Slave and AOF file as full EVAL, unless
-     * we are sure that the script was already in the context of all the
-     * attached slaves *and* the current AOF file if enabled.
-     *
-     * To do so we use a cache of SHA1s of scripts that we already propagated
-     * as full EVAL, that's called the Replication Script Cache.
-     *
-     * For replication, every time a new slave attaches to the master, we need to
-     * flush our cache of scripts that can be replicated as EVALSHA, while
-     * for AOF we need to do so every time we rewrite the AOF file. */
-    if (evalsha && !lctx.lua_replicate_commands) {
-        if (!replicationScriptCacheExists(c->argv[1]->ptr)) {
-            /* This script is not in our script cache, replicate it as
-             * EVAL, then add it into the script cache, as from now on
-             * slaves and AOF know about it. */
-            robj *script = dictFetchValue(lctx.lua_scripts,c->argv[1]->ptr);
-
-            replicationScriptCacheAdd(c->argv[1]->ptr);
-            serverAssertWithInfo(c,NULL,script != NULL);
-
-            /* If the script did not produce any changes in the dataset we want
-             * just to replicate it as SCRIPT LOAD, otherwise we risk running
-             * an aborted script on slaves (that may then produce results there)
-             * or just running a CPU costly read-only script on the slaves. */
-            if (server.dirty == initial_server_dirty) {
-                rewriteClientCommandVector(c,3,
-                    shared.script,
-                    shared.load,
-                    script);
-            } else {
-                rewriteClientCommandArgument(c,0,shared.eval);
-                rewriteClientCommandArgument(c,1,script);
-            }
-            forceCommandPropagation(c,PROPAGATE_REPL|PROPAGATE_AOF);
-        }
-    }
 }
 
 void evalCommand(client *c) {
@@ -568,8 +513,6 @@ NULL
         }
         scriptingReset(async);
         addReply(c,shared.ok);
-        replicationScriptCacheFlush();
-        server.dirty++; /* Propagating this command is a good idea. */
     } else if (c->argc >= 2 && !strcasecmp(c->argv[1]->ptr,"exists")) {
         int j;
 
@@ -584,7 +527,6 @@ NULL
         sds sha = luaCreateFunction(c,c->argv[2]);
         if (sha == NULL) return; /* The error was sent by luaCreateFunction(). */
         addReplyBulkCBuffer(c,sha,40);
-        forceCommandPropagation(c,PROPAGATE_REPL|PROPAGATE_AOF);
     } else if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"kill")) {
         scriptKill(c, 1);
     } else if (c->argc == 3 && !strcasecmp(c->argv[1]->ptr,"debug")) {
@@ -1389,7 +1331,7 @@ void ldbEval(lua_State *lua, sds *argv, int argc) {
  * implementation, with ldb.step enabled, so as a side effect the Redis command
  * and its reply are logged. */
 void ldbRedis(lua_State *lua, sds *argv, int argc) {
-    int j, saved_rc = lctx.lua_replicate_commands;
+    int j;
 
     if (!lua_checkstack(lua, argc + 1)) {
         /* Increase the Lua stack if needed to make sure there is enough room
@@ -1408,10 +1350,8 @@ void ldbRedis(lua_State *lua, sds *argv, int argc) {
     for (j = 1; j < argc; j++)
         lua_pushlstring(lua,argv[j],sdslen(argv[j]));
     ldb.step = 1;               /* Force redis.call() to log. */
-    lctx.lua_replicate_commands = 1;
     lua_pcall(lua,argc-1,1,0);  /* Stack: redis, result */
     ldb.step = 0;               /* Disable logging. */
-    lctx.lua_replicate_commands = saved_rc;
     lua_pop(lua,2);             /* Discard the result and clean the stack. */
 }
 
