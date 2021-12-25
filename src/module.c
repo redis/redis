@@ -168,7 +168,8 @@ typedef struct RedisModuleCtx RedisModuleCtx;
 #define REDISMODULE_CTX_BLOCKED_TIMEOUT (1<<3)
 #define REDISMODULE_CTX_THREAD_SAFE (1<<4)
 #define REDISMODULE_CTX_BLOCKED_DISCONNECTED (1<<5)
-#define REDISMODULE_CTX_USES_TEMP_CLIENT (1<<6)
+#define REDISMODULE_CTX_TEMP_CLIENT (1<<6)
+#define REDISMODULE_CTX_NEW_CLIENT (1<<7)
 
 /* This represents a Redis key opened with RM_OpenKey(). */
 struct RedisModuleKey {
@@ -249,6 +250,7 @@ typedef struct RedisModuleBlockedClient {
     void *privdata;     /* Module private data that may be used by the reply
                            or timeout callback. It is set via the
                            RedisModule_UnblockClient() API. */
+    client *thread_safe_ctx_client;/* Fake client used for thread safe context.*/
     client *reply_client;           /* Fake client used to accumulate replies
                                        in thread safe contexts. */
     int dbid;           /* Database number selected by the original client. */
@@ -263,7 +265,6 @@ static pthread_mutex_t moduleUnblockedClientsMutex = PTHREAD_MUTEX_INITIALIZER;
 static list *moduleUnblockedClients;
 
 #define MODULE_MAX_TEMP_CLIENT_COUNT 1024
-static pthread_mutex_t moduleTempClientsMutex = PTHREAD_MUTEX_INITIALIZER;
 static client *moduleTempClients[MODULE_MAX_TEMP_CLIENT_COUNT];
 static size_t moduleTempClientCount;
 
@@ -498,12 +499,9 @@ void *RM_PoolAlloc(RedisModuleCtx *ctx, size_t bytes) {
 client *moduleAllocTempClient() {
     client *c = NULL;
 
-    pthread_mutex_lock(&moduleTempClientsMutex);
-    if (moduleTempClientCount > 0)
+    if (moduleTempClientCount > 0) {
         c = moduleTempClients[--moduleTempClientCount];
-    pthread_mutex_unlock(&moduleTempClientsMutex);
-
-    if (c == NULL) {
+    } else {
         c = createClient(NULL);
         c->flags |= CLIENT_MODULE;
         c->user = NULL; /* Root user */
@@ -512,22 +510,14 @@ client *moduleAllocTempClient() {
 }
 
 void moduleReleaseTempClient(client *c) {
-    int full;
-
-    /* clearClient()/freeClient() may involve calls back to modules and they
-     * might also try to allocate temporary clients via moduleAllocTempClient().
-     * To avoid deadlock, we must be careful not to call these functions when we
-     * are holding the `moduleTempClientsMutex` lock. */
-    clearClient(c);
-    c->flags |= CLIENT_MODULE;
-    c->user = NULL; /* Root user */
-
-    pthread_mutex_lock(&moduleTempClientsMutex);
-    full = (moduleTempClientCount == MODULE_MAX_TEMP_CLIENT_COUNT);
-    if (!full) moduleTempClients[moduleTempClientCount++] = c;
-    pthread_mutex_unlock(&moduleTempClientsMutex);
-
-    if (full) freeClient(c);
+    if (moduleTempClientCount == MODULE_MAX_TEMP_CLIENT_COUNT) {
+        freeClient(c);
+    } else {
+        clearClient(c);
+        c->flags |= CLIENT_MODULE;
+        c->user = NULL; /* Root user */
+        moduleTempClients[moduleTempClientCount++] = c;
+    }
 }
 
 /* Create an empty key of the specified type. `key` must point to a key object
@@ -660,8 +650,10 @@ void moduleFreeContext(RedisModuleCtx *ctx) {
             "calls.",
             ctx->module->name);
     }
-    if (ctx->flags & REDISMODULE_CTX_USES_TEMP_CLIENT)
+    if (ctx->flags & REDISMODULE_CTX_TEMP_CLIENT)
         moduleReleaseTempClient(ctx->client);
+    else if (ctx->flags & REDISMODULE_CTX_NEW_CLIENT)
+        freeClient(ctx->client);
 }
 
 /* Create a module ctx and keep track of the nesting level.
@@ -675,6 +667,11 @@ void moduleCreateContext(RedisModuleCtx *out_ctx, RedisModule *module, int ctx_f
     out_ctx->getapifuncptr = (void*)(unsigned long)&RM_GetApi;
     out_ctx->module = module;
     out_ctx->flags = ctx_flags;
+    if (ctx_flags & REDISMODULE_CTX_TEMP_CLIENT)
+        out_ctx->client = moduleAllocTempClient();
+    else if (ctx_flags & REDISMODULE_CTX_NEW_CLIENT)
+        out_ctx->client = createClient(NULL);
+
     if (!(ctx_flags & REDISMODULE_CTX_THREAD_SAFE)) {
         server.module_ctx_nesting++;
     }
@@ -6171,6 +6168,7 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
     bc->free_privdata = free_privdata;
     bc->privdata = privdata;
     bc->reply_client = moduleAllocTempClient();
+    bc->thread_safe_ctx_client = moduleAllocTempClient();
     if (bc->client)
         bc->reply_client->resp = bc->client->resp;
     bc->dbid = c->db->id;
@@ -6498,6 +6496,7 @@ void moduleHandleBlockedClients(void) {
          * free the temporary client we just used for the replies. */
         if (c) AddReplyFromClient(c, bc->reply_client);
         moduleReleaseTempClient(bc->reply_client);
+        moduleReleaseTempClient(bc->thread_safe_ctx_client);
 
         if (c != NULL) {
             /* Before unblocking the client, set the disconnect callback
@@ -6632,16 +6631,16 @@ int RM_BlockedClientDisconnected(RedisModuleCtx *ctx) {
 RedisModuleCtx *RM_GetThreadSafeContext(RedisModuleBlockedClient *bc) {
     RedisModuleCtx *ctx = zmalloc(sizeof(*ctx));
     RedisModule *module = bc ? bc->module : NULL;
-    moduleCreateContext(ctx, module,
-                        REDISMODULE_CTX_THREAD_SAFE |
-                        REDISMODULE_CTX_USES_TEMP_CLIENT);
+    int flags = REDISMODULE_CTX_THREAD_SAFE;
+    if (!bc) flags |= REDISMODULE_CTX_NEW_CLIENT;
+    moduleCreateContext(ctx, module, flags);
     /* Even when the context is associated with a blocked client, we can't
-     * access it safely from another thread, so we create a fake client here
+     * access it safely from another thread, so we use a fake client here
      * in order to keep things like the currently selected database and similar
      * things. */
-    ctx->client = moduleAllocTempClient();
     if (bc) {
         ctx->blocked_client = bc;
+        ctx->client = bc->thread_safe_ctx_client;
         selectDb(ctx->client,bc->dbid);
         if (bc->client) {
             ctx->client->id = bc->client->id;
@@ -6659,9 +6658,7 @@ RedisModuleCtx *RM_GetThreadSafeContext(RedisModuleBlockedClient *bc) {
 RedisModuleCtx *RM_GetDetachedThreadSafeContext(RedisModuleCtx *ctx) {
     RedisModuleCtx *new_ctx = zmalloc(sizeof(*new_ctx));
     moduleCreateContext(new_ctx, ctx->module,
-                        REDISMODULE_CTX_THREAD_SAFE |
-                        REDISMODULE_CTX_USES_TEMP_CLIENT);
-    new_ctx->client = moduleAllocTempClient();
+                        REDISMODULE_CTX_THREAD_SAFE|REDISMODULE_CTX_NEW_CLIENT);
     return new_ctx;
 }
 
@@ -6844,10 +6841,7 @@ void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid)
          * and avoid subscribers triggering themselves */
         if ((sub->event_mask & type) && sub->active == 0) {
             RedisModuleCtx ctx;
-            moduleCreateContext(&ctx, sub->module,
-                                REDISMODULE_CTX_NONE |
-                                REDISMODULE_CTX_USES_TEMP_CLIENT);
-            ctx.client = moduleAllocTempClient();
+            moduleCreateContext(&ctx, sub->module, REDISMODULE_CTX_TEMP_CLIENT);
             selectDb(ctx.client, dbid);
 
             /* mark the handler as active to avoid reentrant loops.
@@ -6909,9 +6903,7 @@ void moduleCallClusterReceivers(const char *sender_id, uint64_t module_id, uint8
     while(r) {
         if (r->module_id == module_id) {
             RedisModuleCtx ctx;
-            moduleCreateContext(&ctx, r->module,
-                                REDISMODULE_CTX_USES_TEMP_CLIENT);
-            ctx.client = moduleAllocTempClient();
+            moduleCreateContext(&ctx, r->module, REDISMODULE_CTX_TEMP_CLIENT);
             selectDb(ctx.client, 0);
             r->callback(&ctx,sender_id,type,payload,len);
             moduleFreeContext(&ctx);
@@ -7182,9 +7174,7 @@ int moduleTimerHandler(struct aeEventLoop *eventLoop, long long id, void *client
         if (now >= expiretime) {
             RedisModuleTimer *timer = ri.data;
             RedisModuleCtx ctx;
-            moduleCreateContext(&ctx, timer->module,
-                                REDISMODULE_CTX_USES_TEMP_CLIENT);
-            ctx.client = moduleAllocTempClient();
+            moduleCreateContext(&ctx,timer->module,REDISMODULE_CTX_TEMP_CLIENT);
             selectDb(ctx.client, timer->dbid);
             timer->callback(&ctx,timer->data);
             moduleFreeContext(&ctx);
@@ -9287,18 +9277,16 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
         RedisModuleEventListener *el = ln->value;
         if (el->event.id == eid) {
             RedisModuleCtx ctx;
-            moduleCreateContext(&ctx, el->module, REDISMODULE_CTX_NONE);
-
             if (eid == REDISMODULE_EVENT_CLIENT_CHANGE) {
                 /* In the case of client changes, we're pushing the real client
                  * so the event handler can mutate it if needed. For example,
                  * to change its authentication state in a way that does not
                  * depend on specific commands executed later.
                  */
+                moduleCreateContext(&ctx,el->module,REDISMODULE_CTX_NONE);
                 ctx.client = (client *) data;
             } else {
-                ctx.client = moduleAllocTempClient();
-                ctx.flags |= REDISMODULE_CTX_USES_TEMP_CLIENT;
+                moduleCreateContext(&ctx,el->module,REDISMODULE_CTX_TEMP_CLIENT);
             }
 
             void *moduledata = NULL;
@@ -9624,8 +9612,7 @@ int moduleLoad(const char *path, void **module_argv, int module_argc) {
         return C_ERR;
     }
     RedisModuleCtx ctx;
-    moduleCreateContext(&ctx, NULL, REDISMODULE_CTX_USES_TEMP_CLIENT); /* We pass NULL since we don't have a module yet. */
-    ctx.client = moduleAllocTempClient();
+    moduleCreateContext(&ctx, NULL, REDISMODULE_CTX_TEMP_CLIENT); /* We pass NULL since we don't have a module yet. */
     selectDb(ctx.client, 0);
     if (onload((void*)&ctx,module_argv,module_argc) == REDISMODULE_ERR) {
         if (ctx.module) {
@@ -9695,9 +9682,7 @@ int moduleUnload(sds name) {
     onunload = (int (*)(void *))(unsigned long) dlsym(module->handle, "RedisModule_OnUnload");
     if (onunload) {
         RedisModuleCtx ctx;
-        moduleCreateContext(&ctx, module, REDISMODULE_CTX_NONE);
-        ctx.client = moduleAllocTempClient();
-        ctx.flags |= REDISMODULE_CTX_USES_TEMP_CLIENT;
+        moduleCreateContext(&ctx, module, REDISMODULE_CTX_TEMP_CLIENT);
         int unload_status = onunload((void*)&ctx);
         moduleFreeContext(&ctx);
 
