@@ -1370,9 +1370,7 @@ struct redisServer {
     dict *sharedapi;            /* Like moduleapi but containing the APIs that
                                    modules share with each other. */
     list *loadmodule_queue;     /* List of modules to load at startup. */
-    int module_blocked_pipe[2]; /* Pipe used to awake the event loop if a
-                                   client blocked on a module command needs
-                                   to be processed. */
+    int module_pipe[2];         /* Pipe used to awake the event loop by module threads. */
     pid_t child_pid;            /* PID of current child */
     int child_type;             /* Type of current child */
     client *module_client;      /* "Fake" client to call Redis from modules */

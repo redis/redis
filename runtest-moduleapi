@@ -44,5 +44,6 @@ $TCLSH tests/test_helper.tcl \
 --single unit/moduleapi/aclcheck \
 --single unit/moduleapi/subcommands \
 --single unit/moduleapi/reply \
+--single unit/moduleapi/eventloop \
 "${@}"
 

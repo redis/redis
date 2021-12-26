@@ -6131,11 +6131,10 @@ void RM_LatencyAddSample(const char *event, mstime_t latency) {
  * https://redis.io/topics/modules-blocking-ops.
  * -------------------------------------------------------------------------- */
 
-/* Readable handler for the awake pipe. We do nothing here, the awake bytes
- * will be actually read in a more appropriate place in the
- * moduleHandleBlockedClients() function that is where clients are actually
- * served. */
 void moduleBlockedClientPipeReadable(aeEventLoop *el, int fd, void *privdata, int mask) {
+    char buf[128];
+    while (read(fd, buf, sizeof(buf)) == sizeof(buf));
+
     UNUSED(el);
     UNUSED(fd);
     UNUSED(mask);
@@ -6407,7 +6406,7 @@ int moduleUnblockClientByHandle(RedisModuleBlockedClient *bc, void *privdata) {
     if (!bc->blocked_on_keys) bc->privdata = privdata;
     bc->unblocked = 1;
     listAddNodeTail(moduleUnblockedClients,bc);
-    if (write(server.module_blocked_pipe[1],"A",1) != 1) {
+    if (write(server.module_pipe[1],"A",1) != 1) {
         /* Ignore the error, this is best-effort. */
     }
     pthread_mutex_unlock(&moduleUnblockedClientsMutex);
@@ -6500,10 +6499,6 @@ void moduleHandleBlockedClients(void) {
     RedisModuleBlockedClient *bc;
 
     pthread_mutex_lock(&moduleUnblockedClientsMutex);
-    /* Here we unblock all the pending clients blocked in modules operations
-     * so we can read every pending "awake byte" in the pipe. */
-    char buf[1];
-    while (read(server.module_blocked_pipe[0],buf,1) == 1);
     while (listLength(moduleUnblockedClients)) {
         ln = listFirst(moduleUnblockedClients);
         bc = ln->value;
@@ -9552,10 +9547,9 @@ void moduleInitModulesSystem(void) {
      * and we do not want to block not in the read nor in the write half.
      * Enable close-on-exec flag on pipes in case of the fork-exec system calls in
      * sentinels or redis servers. */
-    if (anetPipe(server.module_blocked_pipe, O_CLOEXEC|O_NONBLOCK, O_CLOEXEC|O_NONBLOCK) == -1) {
+    if (anetPipe(server.module_pipe, O_CLOEXEC|O_NONBLOCK, O_CLOEXEC|O_NONBLOCK) == -1) {
         serverLog(LL_WARNING,
-            "Can't create the pipe for module blocking commands: %s",
-            strerror(errno));
+            "Can't create the pipe for module threads: %s", strerror(errno));
         exit(1);
     }
 
@@ -10388,6 +10382,148 @@ int RM_GetDbIdFromDefragCtx(RedisModuleDefragCtx *ctx) {
     return ctx->dbid;
 }
 
+/* --------------------------------------------------------------------------
+ * ## Modules EventLoop API
+ * --------------------------------------------------------------------------*/
+
+typedef struct EventLoopData {
+    RedisModuleEventLoopCallback rProc;
+    RedisModuleEventLoopCallback wProc;
+    void *user_data;
+} EventLoopData;
+
+static int eventLoopToAeMask(int mask) {
+    int aeMask = 0;
+    if (mask & REDISMODULE_EVENTLOOP_READABLE)
+        aeMask |= AE_READABLE;
+    if (mask & REDISMODULE_EVENTLOOP_WRITABLE)
+        aeMask |= AE_WRITABLE;
+    return aeMask;
+}
+
+static int eventLoopFromAeMask(int ae_mask) {
+    int mask = 0;
+    if (ae_mask & AE_READABLE)
+        mask |= REDISMODULE_EVENTLOOP_READABLE;
+    if (ae_mask & AE_WRITABLE)
+        mask |= REDISMODULE_EVENTLOOP_WRITABLE;
+    return mask;
+}
+
+static void eventLoopCbReadable(struct aeEventLoop *ae, int fd, void *user_data, int ae_mask) {
+    UNUSED(ae);
+    EventLoopData *data = user_data;
+    data->rProc(fd, data->user_data, eventLoopFromAeMask(ae_mask));
+}
+
+static void eventLoopCbWritable(struct aeEventLoop *ae, int fd, void *user_data, int ae_mask) {
+    UNUSED(ae);
+    EventLoopData *data = user_data;
+    data->wProc(fd, data->user_data, eventLoopFromAeMask(ae_mask));
+}
+
+/* Add an event to the event loop
+ *
+ * On success REDISMODULE_OK is returned, otherwise
+ * REDISMODULE_ERR is returned and errno is set to the following values:
+ *
+ * * ERANGE: 'fd' is negative or higher than 'maxclients' Redis config.
+ * * EINVAL: 'callback' is NULL or 'mask' value is invalid.
+ *            Valid values for 'mask':
+ *               REDISMODULE_EVENTLOOP_READABLE
+ *               REDISMODULE_EVENTLOOP_WRITABLE
+ *               REDISMODULE_EVENTLOOP_READABLE | REDISMODULE_EVENTLOOP_WRITABLE
+ *
+ *  errno might take other values in case of an internal error.  */
+int RM_EventLoopAdd(int fd, int mask, RedisModuleEventLoopCallback callback, void *user_data) {
+    if (fd < 0 || fd >= aeGetSetSize(server.el)) {
+        errno = ERANGE;
+        return REDISMODULE_ERR;
+    }
+
+    if (!callback || mask & ~(REDISMODULE_EVENTLOOP_READABLE |
+                              REDISMODULE_EVENTLOOP_WRITABLE)) {
+        errno = EINVAL;
+        return REDISMODULE_ERR;
+    }
+
+    /* We are going to register stub callbacks to 'ae' for two reasons :
+     * - "ae" callback signature is different from RedisModuleEventLoopCallback,
+     *   that will be handled it in our stub callbacks.
+     * - We need to remap 'mask' value to provide binary compatibility.
+     *
+     *  For the stub callbacks, saving user 'callback' and 'user_data' in an
+     *  EventLoopData object and passing it to ae, later we'll extract
+     *  'callback' and 'user_data' from that.
+     */
+    EventLoopData *data = aeGetFileClientData(server.el, fd);
+    if (!data)
+        data = zcalloc(sizeof(*data));
+
+    aeFileProc *aeProc;
+    if (mask & REDISMODULE_EVENTLOOP_READABLE)
+        aeProc = eventLoopCbReadable;
+    else
+        aeProc = eventLoopCbWritable;
+
+    int aeMask = eventLoopToAeMask(mask);
+
+    if (aeCreateFileEvent(server.el, fd, aeMask, aeProc, data) != AE_OK) {
+        if (aeGetFileEvents(server.el, fd) == AE_NONE)
+            zfree(data);
+        return REDISMODULE_ERR;
+    }
+
+    data->user_data = user_data;
+    if (mask & REDISMODULE_EVENTLOOP_READABLE)
+        data->rProc = callback;
+    if (mask & REDISMODULE_EVENTLOOP_WRITABLE)
+        data->wProc = callback;
+
+    return REDISMODULE_OK;
+}
+
+/* Delete an event from the event loop.
+ *
+ * On success REDISMODULE_OK is returned, otherwise
+ * REDISMODULE_ERR is returned and errno is set to the following values:
+ *
+ * * ERANGE: 'fd' is negative or higher than 'maxclients' Redis config.
+ * * EINVAL: 'mask' value is invalid.
+ *            Valid values for 'mask':
+ *               REDISMODULE_EVENTLOOP_READABLE
+ *               REDISMODULE_EVENTLOOP_WRITABLE
+ *               REDISMODULE_EVENTLOOP_READABLE | REDISMODULE_EVENTLOOP_WRITABLE
+ */
+int RM_EventLoopDel(int fd, int mask) {
+    if (fd < 0 || fd >= aeGetSetSize(server.el)) {
+        errno = ERANGE;
+        return REDISMODULE_ERR;
+    }
+
+    if (mask & ~(REDISMODULE_EVENTLOOP_READABLE |
+                 REDISMODULE_EVENTLOOP_WRITABLE)) {
+        errno = EINVAL;
+        return REDISMODULE_ERR;
+    }
+
+    /* After deleting the event, if fd does not have any registered event
+     * anymore, we can free the EventLoopData object. */
+    EventLoopData *data = aeGetFileClientData(server.el, fd);
+    aeDeleteFileEvent(server.el, fd, eventLoopToAeMask(mask));
+    if (aeGetFileEvents(server.el, fd) == AE_NONE)
+        zfree(data);
+
+    return REDISMODULE_OK;
+}
+
+/* This function can be called from other threads to wake up Redis thread */
+void RM_EventLoopWakeup(void) {
+    if (write(server.module_pipe[1], "A", 1) != 1) {
+        /* Pipe is non-blocking, write() may fail if it's full. */
+    }
+}
+
 /* Register all the APIs we export. Keep this function at the end of the
  * file so that's easy to seek it to add new entries. */
 void moduleRegisterCoreAPI(void) {
@@ -10700,4 +10836,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(SetCommandKeySpecBeginSearchKeyword);
     REGISTER_API(SetCommandKeySpecFindKeysRange);
     REGISTER_API(SetCommandKeySpecFindKeysKeynum);
+    REGISTER_API(EventLoopAdd);
+    REGISTER_API(EventLoopDel);
+    REGISTER_API(EventLoopWakeup);
 }
