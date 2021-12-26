@@ -33,6 +33,10 @@
 #include "adlist.h"
 #include "atomicvar.h"
 
+typedef enum {
+    restorePolicy_Flush, restorePolicy_Append, restorePolicy_Replace
+} restorePolicy;
+
 static size_t engine_cache_memory = 0;
 
 /* Forward declaration */
@@ -54,10 +58,10 @@ dictType engineDictType = {
 };
 
 dictType functionDictType = {
-        dictSdsHash,          /* hash function */
+        dictSdsCaseHash,      /* hash function */
         dictSdsDup,           /* key dup */
         NULL,                 /* val dup */
-        dictSdsKeyCompare,    /* key compare */
+        dictSdsKeyCaseCompare,/* key compare */
         dictSdsDestructor,    /* key destructor */
         engineFunctionDispose,/* val destructor */
         NULL                  /* allow to expand */
@@ -81,6 +85,9 @@ static size_t functionMallocSize(functionInfo *fi) {
 /* Dispose function memory */
 static void engineFunctionDispose(dict *d, void *obj) {
     UNUSED(d);
+    if (!obj) {
+        return;
+    }
     functionInfo *fi = obj;
     sdsfree(fi->code);
     sdsfree(fi->name);
@@ -377,6 +384,156 @@ void fcallroCommand(client *c) {
     fcallCommandGeneric(c, 1);
 }
 
+/*
+ * FUNCTION DUMP
+ *
+ * Returns a binary payload representing all the functions.
+ * Can be loaded using FUNCTION RESTORE
+ *
+ * The payload structure is the same as on RDB. Each function
+ * is saved separately with the following information:
+ * * Function name
+ * * Engine name
+ * * Function description
+ * * Function code
+ * RDB_OPCODE_FUNCTION is saved before each function to present
+ * that the payload is a function.
+ * RDB version and crc64 is saved at the end of the payload.
+ * The RDB version is saved for backward compatibility.
+ * crc64 is saved so we can verify the payload content.
+ */
+void functionDumpCommand(client *c) {
+    unsigned char buf[2];
+    uint64_t crc;
+    rio payload;
+    rioInitWithBuffer(&payload, sdsempty());
+
+    functionsSaveRio(&payload);
+
+    /* RDB version */
+    buf[0] = RDB_VERSION & 0xff;
+    buf[1] = (RDB_VERSION >> 8) & 0xff;
+    payload.io.buffer.ptr = sdscatlen(payload.io.buffer.ptr, buf, 2);
+
+    /* CRC64 */
+    crc = crc64(0, (unsigned char*) payload.io.buffer.ptr,
+                sdslen(payload.io.buffer.ptr));
+    memrev64ifbe(&crc);
+    payload.io.buffer.ptr = sdscatlen(payload.io.buffer.ptr, &crc, 8);
+
+    addReplyBulkSds(c, payload.io.buffer.ptr);
+}
+
+/*
+ * FUNCTION RESTORE <payload> [FLUSH|APPEND|REPLACE]
+ *
+ * Restore the functions represented by the give payload.
+ * Restore policy to can be given to control how to handle existing functions (default APPEND):
+ * * FLUSH: delete all existing functions.
+ * * APPEND: appends the restored functions to the existing functions. On collision, abort.
+ * * REPLACE: appends the restored functions to the existing functions.
+ *   On collision, replace the old function with the new function.
+ */
+void functionRestoreCommand(client *c) {
+    if (c->argc > 4) {
+        addReplySubcommandSyntaxError(c);
+        return;
+    }
+
+    restorePolicy restore_replicy = restorePolicy_Append; /* default policy: APPEND */
+    sds data = c->argv[2]->ptr;
+    size_t data_len = sdslen(data);
+    rio payload;
+    dictIterator *iter = NULL;
+    sds err = NULL;
+
+    if (c->argc == 4) {
+        const char *restore_policy_str = c->argv[3]->ptr;
+        if (!strcasecmp(restore_policy_str, "append")) {
+            restore_replicy = restorePolicy_Append;
+        } else if (!strcasecmp(restore_policy_str, "replace")) {
+            restore_replicy = restorePolicy_Replace;
+        } else if (!strcasecmp(restore_policy_str, "flush")) {
+            restore_replicy = restorePolicy_Flush;
+        } else {
+            addReplyError(c, "Wrong restore policy given, value should be either FLUSH, APPEND or REPLACE.");
+            return;
+        }
+    }
+
+    uint16_t rdbver;
+    if (verifyDumpPayload((unsigned char*)data, data_len, &rdbver) != C_OK) {
+        addReplyError(c, "DUMP payload version or checksum are wrong");
+        return;
+    }
+
+    functionsCtx *f_ctx = functionsCtxCreate();
+    rioInitWithBuffer(&payload, data);
+
+    /* Read until reaching last 10 bytes that should contain RDB version and checksum. */
+    while (data_len - payload.io.buffer.pos > 10) {
+        int type;
+        if ((type = rdbLoadType(&payload)) == -1) {
+            err = sdsnew("can not read data type");
+            goto load_error;
+        }
+        if (type != RDB_OPCODE_FUNCTION) {
+            err = sdsnew("given type is not a function");
+            goto load_error;
+        }
+        if (rdbFunctionLoad(&payload, rdbver, f_ctx, RDBFLAGS_NONE, &err) != C_OK) {
+            if (!err) {
+                err = sdsnew("failed loading the given functions payload");
+            }
+            goto load_error;
+        }
+    }
+
+    if (restore_replicy == restorePolicy_Flush) {
+        functionsCtxSwapWithCurrent(f_ctx);
+        f_ctx = NULL; /* avoid releasing the f_ctx in the end */
+    } else {
+        if (restore_replicy == restorePolicy_Append) {
+            /* First make sure there is only new functions */
+            iter = dictGetIterator(f_ctx->functions);
+            dictEntry *entry = NULL;
+            while ((entry = dictNext(iter))) {
+                functionInfo *fi = dictGetVal(entry);
+                if (dictFetchValue(functions_ctx->functions, fi->name)) {
+                    /* function already exists, failed the restore. */
+                    err = sdscatfmt(sdsempty(), "Function %s already exists", fi->name);
+                    goto load_error;
+                }
+            }
+            dictReleaseIterator(iter);
+        }
+        iter = dictGetIterator(f_ctx->functions);
+        dictEntry *entry = NULL;
+        while ((entry = dictNext(iter))) {
+            functionInfo *fi = dictGetVal(entry);
+            dictReplace(functions_ctx->functions, fi->name, fi);
+            dictSetVal(f_ctx->functions, entry, NULL); /* make sure value will not be disposed */
+        }
+    }
+
+    /* Indicate that the command changed the data so it will be replicated and
+     * counted as a data change (for persistence configuration) */
+    server.dirty++;
+
+load_error:
+    if (err) {
+        addReplyErrorSds(c, err);
+    } else {
+        addReply(c, shared.ok);
+    }
+    if (iter) {
+        dictReleaseIterator(iter);
+    }
+    if (f_ctx) {
+        functionsCtxFree(f_ctx);
+    }
+}
+
 void functionFlushCommand(client *c) {
     if (c->argc > 3) {
         addReplySubcommandSyntaxError(c);
@@ -434,14 +591,47 @@ void functionHelpCommand(client *c) {
 "    lazyfree-lazy-user-flush configuration directive. Valid modes are:",
 "    * ASYNC: Asynchronously flush the functions.",
 "    * SYNC: Synchronously flush the functions.",
+"DUMP",
+"    Returns a serialized payload representing the current functions, can be restored using FUNCTION RESTORE command",
+"RESTORE <PAYLOAD> [FLUSH|APPEND|REPLACE]",
+"    Restore the functions represented by the given payload, it is possible to give a restore policy to",
+"    control how to handle existing functions (default APPEND):",
+"    * FLUSH: delete all existing functions.",
+"    * APPEND: appends the restored functions to the existing functions. On collision, abort.",
+"    * REPLACE: appends the restored functions to the existing functions, On collision, replace the old",
+"      function with the new function.",
 NULL };
     addReplyHelp(c, help);
+}
+
+/* Verify that the function name is of the format: [a-zA-Z0-9_][a-zA-Z0-9_]? */
+static int functionsVerifyName(sds name) {
+    if (sdslen(name) == 0) {
+        return C_ERR;
+    }
+    for (size_t i = 0 ; i < sdslen(name) ; ++i) {
+        char curr_char = name[i];
+        if ((curr_char >= 'a' && curr_char <= 'z') ||
+            (curr_char >= 'A' && curr_char <= 'Z') ||
+            (curr_char >= '0' && curr_char <= '9') ||
+            (curr_char == '_'))
+        {
+            continue;
+        }
+        return C_ERR;
+    }
+    return C_OK;
 }
 
 /* Compile and save the given function, return C_OK on success and C_ERR on failure.
  * In case on failure the err out param is set with relevant error message */
 int functionsCreateWithFunctionCtx(sds function_name,sds engine_name, sds desc, sds code,
                                    int replace, sds* err, functionsCtx *functions) {
+    if (functionsVerifyName(function_name)) {
+        *err = sdsnew("Function names can only contain letters and numbers and must be at least one character long");
+        return C_ERR;
+    }
+
     engineInfo *ei = dictFetchValue(engines, engine_name);
     if (!ei) {
         *err = sdsnew("Engine not found");
