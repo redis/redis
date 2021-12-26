@@ -299,14 +299,6 @@ static long long mstime(void) {
     return ustime()/1000;
 }
 
-/* A helper function that use to free all sds fields in config. */
-static void freeConfigSdsFields(void) {
-    sdsfree(config.conn_info.hostip);
-    sdsfree(config.pattern);
-    sdsfree(config.mb_delim);
-    sdsfree(config.cmd_delim);
-}
-
 static void cliRefreshPrompt(void) {
     if (config.eval_ldb) return;
 
@@ -410,8 +402,6 @@ typedef struct {
 
 static helpEntry *helpEntries;
 static int helpEntriesLen;
-static int groupsLen;
-static int commandsLen;
 
 static sds cliVersion(void) {
     sds version;
@@ -428,16 +418,15 @@ static sds cliVersion(void) {
 }
 
 static void cliInitHelp(void) {
-    int i, pos = 0;
+    int commandslen = sizeof(commandHelp)/sizeof(struct commandHelp);
+    int groupslen = sizeof(commandGroups)/sizeof(char*);
+    int i, len, pos = 0;
     helpEntry tmp;
 
-    groupsLen = sizeof(commandGroups)/sizeof(char*);
-    commandsLen = sizeof(commandHelp)/sizeof(struct commandHelp);
+    helpEntriesLen = len = commandslen+groupslen;
+    helpEntries = zmalloc(sizeof(helpEntry)*len);
 
-    helpEntriesLen = commandsLen + groupsLen;
-    helpEntries = zmalloc(sizeof(helpEntry) * helpEntriesLen);
-
-    for (i = 0; i < groupsLen; i++) {
+    for (i = 0; i < groupslen; i++) {
         tmp.argc = 1;
         tmp.argv = zmalloc(sizeof(sds));
         tmp.argv[0] = sdscatprintf(sdsempty(),"@%s",commandGroups[i]);
@@ -447,7 +436,7 @@ static void cliInitHelp(void) {
         helpEntries[pos++] = tmp;
     }
 
-    for (i = 0; i < commandsLen; i++) {
+    for (i = 0; i < commandslen; i++) {
         tmp.argv = sdssplitargs(commandHelp[i].name,&tmp.argc);
         tmp.full = sdsnew(commandHelp[i].name);
         tmp.type = CLI_HELP_COMMAND;
@@ -465,7 +454,7 @@ static void cliIntegrateHelp(void) {
     if (cliConnect(CC_QUIET) == REDIS_ERR) return;
 
     redisReply *reply = redisCommand(context, "COMMAND");
-    if (reply == NULL || reply->type != REDIS_REPLY_ARRAY) goto cleanup;
+    if(reply == NULL || reply->type != REDIS_REPLY_ARRAY) return;
 
     /* Scan the array reported by COMMAND and fill only the entries that
      * don't already match what we have. */
@@ -474,7 +463,7 @@ static void cliIntegrateHelp(void) {
         if (entry->type != REDIS_REPLY_ARRAY || entry->elements < 4 ||
             entry->element[0]->type != REDIS_REPLY_STRING ||
             entry->element[1]->type != REDIS_REPLY_INTEGER ||
-            entry->element[3]->type != REDIS_REPLY_INTEGER) goto cleanup;
+            entry->element[3]->type != REDIS_REPLY_INTEGER) return;
         char *cmdname = entry->element[0]->str;
         int i;
 
@@ -513,8 +502,6 @@ static void cliIntegrateHelp(void) {
         ch->since = "not known";
         new->org = ch;
     }
-
-cleanup:
     freeReplyObject(reply);
 }
 
@@ -591,42 +578,6 @@ static void cliOutputHelp(int argc, char **argv) {
         }
     }
     printf("\r\n");
-}
-
-/* Free all entries in helpEntries. */
-static void freeHelpEntries(void) {
-    int i, j;
-    helpEntry *entry;
-
-    /* Free groups, initialized in cliInitHelp. */
-    for (i = 0; i < groupsLen; i++) {
-        entry = &helpEntries[i];
-
-        /* No need to free full, full is actually argv[0] */
-        for (j = 0; j < entry->argc; j++) sdsfree(entry->argv[j]);
-        zfree(entry->argv);
-    }
-
-    /* Free commands, initialized in cliInitHelp. */
-    for (; i < commandsLen + groupsLen; i++) {
-        entry = &helpEntries[i];
-
-        sdsfree(entry->full);
-        sdsfreesplitres(entry->argv, entry->argc);
-    }
-
-    /* Free extra commands, initialized in cliIntegrateHelp. */
-    for (; i < helpEntriesLen; i++) {
-        entry = &helpEntries[i];
-
-        for (j = 0; j < entry->argc; j++) sdsfree(entry->argv[j]);
-        zfree(entry->argv);
-
-        sdsfree(entry->org->params);
-        zfree(entry->org);
-    }
-
-    zfree(helpEntries);
 }
 
 /* Linenoise completion callback. */
@@ -808,7 +759,6 @@ static int cliConnect(int flags) {
     if (context == NULL || flags & CC_FORCE) {
         if (context != NULL) {
             redisFree(context);
-            context = NULL;
             config.dbnum = 0;
             config.in_multi = 0;
             cliRefreshPrompt();
@@ -2347,11 +2297,6 @@ static void repl(void) {
         /* linenoise() returns malloc-ed lines like readline() */
         linenoiseFree(line);
     }
-
-    redisFree(context);
-    sdsfree(historyfile);
-    freeHelpEntries();
-    freeConfigSdsFields();
     exit(0);
 }
 
@@ -8645,16 +8590,9 @@ int main(int argc, char **argv) {
 
     /* Otherwise, we have some arguments to execute */
     if (cliConnect(0) != REDIS_OK) exit(1);
-
-    int retval;
     if (config.eval) {
-        retval = evalMode(argc,argv);
+        return evalMode(argc,argv);
     } else {
-        retval = noninteractive(argc,argv);
+        return noninteractive(argc,argv);
     }
-
-    redisFree(context);
-    freeConfigSdsFields();
-
-    return retval;
 }
