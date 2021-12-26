@@ -743,4 +743,35 @@ start_server {tags {"scripting"}} {
         assert_equal [r fcall f5 0] {6}
         assert_equal [r fcall f6 0] {7}
     }
+
+    test {FUNCTION - test function list with code} {
+        r function flush
+        r function load lua library1 {redis.register_function('f6', function(keys, args) return 7 end)}
+        r function list withcode
+    } {{library_name library1 engine LUA description {} functions {{name f6 description {}}} library_code {redis.register_function('f6', function(keys, args) return 7 end)}}}
+
+    test {FUNCTION - test function list with pattern} {
+        r function load lua lib1 {redis.register_function('f7', function(keys, args) return 7 end)}
+        r function list libraryname library*
+    } {{library_name library1 engine LUA description {} functions {{name f6 description {}}}}}
+
+    test {FUNCTION - test function list wrong argument} {
+        catch {r function list bad_argument} e
+        set _ $e
+    } {*Unknown argument bad_argument*}
+
+    test {FUNCTION - test function list with bad argument to library name} {
+        catch {r function list libraryname} e
+        set _ $e
+    } {*library name argument was not given*}
+
+    test {FUNCTION - test function list withcode multiple times} {
+        catch {r function list withcode withcode} e
+        set _ $e
+    } {*Unknown argument withcode*}
+
+    test {FUNCTION - test function list libraryname multiple times} {
+        catch {r function list withcode libraryname foo libraryname foo} e
+        set _ $e
+    } {*Unknown argument libraryname*}
 }

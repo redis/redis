@@ -427,16 +427,52 @@ void functionStatsCommand(client *c) {
 }
 
 /*
- * FUNCTION LIST
+ * FUNCTION LIST [LIBRARYNAME PATTERN] [WITHCODE]
+ *
+ * Return general information about all the libraries:
+ * * Library name
+ * * The engine used to run the Library
+ * * Library description
+ * * Functions list
+ * * Library code (if WITHCODE is given)
+ *
+ * It is also possible to given library name pattern using
+ * LIBRARYNAME argument, if given, return only libraries
+ * that matches the given pattern.
  */
 void functionListCommand(client *c) {
-    /* general information on all the libraries */
-    addReplyArrayLen(c, dictSize(curr_lib_ctx->libraries));
+    int with_code = 0;
+    sds library_name = NULL;
+    for (int i = 2 ; i < c->argc ; ++i) {
+        robj *next_arg = c->argv[i];
+        if (!with_code && !strcasecmp(next_arg->ptr, "withcode")) {
+            with_code = 1;
+            continue;
+        }
+        if (!library_name && !strcasecmp(next_arg->ptr, "libraryname")) {
+            if (i >= c->argc - 1) {
+                addReplyError(c, "library name argument was not given");
+                return;
+            }
+            library_name = c->argv[++i]->ptr;
+            continue;
+        }
+        addReplyErrorSds(c, sdscatfmt(sdsempty(), "Unknown argument %s", next_arg->ptr));
+        return;
+    }
+    size_t reply_len = 0;
+    void *len_ptr = addReplyDeferredLen(c);
     dictIterator *iter = dictGetIterator(curr_lib_ctx->libraries);
     dictEntry *entry = NULL;
     while ((entry = dictNext(iter))) {
         libraryInfo *li = dictGetVal(entry);
-        addReplyMapLen(c, 4);
+        if (library_name) {
+            if (!stringmatchlen(library_name, sdslen(library_name), li->name, sdslen(li->name), 1)) {
+                continue;
+            }
+        }
+        ++reply_len;
+        addReplyMapLen(c, with_code? 5 : 4);
         addReplyBulkCString(c, "library_name");
         addReplyBulkCBuffer(c, li->name, sdslen(li->name));
         addReplyBulkCString(c, "engine");
@@ -465,8 +501,14 @@ void functionListCommand(client *c) {
             }
         }
         dictReleaseIterator(functions_iter);
+
+        if (with_code) {
+            addReplyBulkCString(c, "library_code");
+            addReplyBulkCBuffer(c, li->code, sdslen(li->code));
+        }
     }
     dictReleaseIterator(iter);
+    setDeferredArrayLen(c, len_ptr, reply_len);
 }
 
 /*
@@ -699,17 +741,14 @@ void functionHelpCommand(client *c) {
 "    Create a new library with the given library name and code.",
 "DELETE <LIBRARY NAME>",
 "    Delete the given library.",
-"INFO <LIBRARY NAME> [WITHCODE]",
-"    Print the following information about the library:",
-"    * Library name",
-"    * The engine used to run the library",
-"    * Library description",
-"    * Library code (only if WITHCODE is given)",
-"LIST",
+"LIST [LIBRARYNAME PATTERN] [WITHCODE]",
 "    Return general information on all the libraries:",
 "    * Library name",
 "    * The engine used to run the Library",
 "    * Library description",
+"    * Functions list",
+"    * Library code (if WITHCODE is given)",
+"    It also possible to get only function that matches a pattern using LIBRARYNAME argument.",
 "STATS",
 "    Return information about the current function running:",
 "    * Function name",
