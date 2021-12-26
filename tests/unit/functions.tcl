@@ -161,6 +161,63 @@ start_server {tags {"scripting"}} {
         r function list
     } {{name test engine LUA description {}}}
 
+    test {FUNCTION - test function dump and restore} {
+        r function flush
+        r function create lua test description {some description} {return 'hello'} 
+        set e [r function dump]
+        r function delete test
+        assert_match {} [r function list]
+        r function restore $e
+        r function list
+    } {{name test engine LUA description {some description}}}
+
+    test {FUNCTION - test function dump and restore with flush argument} {
+        set e [r function dump]
+        r function flush
+        assert_match {} [r function list]
+        r function restore $e FLUSH
+        r function list
+    } {{name test engine LUA description {some description}}}
+
+    test {FUNCTION - test function dump and restore with append argument} {
+        set e [r function dump]
+        r function flush
+        assert_match {} [r function list]
+        r function create lua test {return 'hello1'}
+        catch {r function restore $e APPEND} err
+        assert_match {*already exists*} $err
+        r function flush
+        r function create lua test1 {return 'hello1'}
+        r function restore $e APPEND
+        assert_match {hello} [r fcall test 0]
+        assert_match {hello1} [r fcall test1 0]
+    }
+
+    test {FUNCTION - test function dump and restore with replace argument} {
+        r function flush
+        r function create LUA test DESCRIPTION {some description} {return 'hello'}
+        set e [r function dump]
+        r function flush
+        assert_match {} [r function list]
+        r function create lua test {return 'hello1'}
+        assert_match {hello1} [r fcall test 0]
+        r function restore $e REPLACE
+        assert_match {hello} [r fcall test 0]
+    }
+
+    test {FUNCTION - test function restore with bad payload do not drop existing functions} {
+        r function flush
+        r function create LUA test DESCRIPTION {some description} {return 'hello'}
+        catch {r function restore bad_payload} e
+        assert_match {*payload version or checksum are wrong*} $e
+        r function list
+    } {{name test engine LUA description {some description}}}
+
+    test {FUNCTION - test function restore with wrong number of arguments} {
+        catch {r function restore arg1 args2 arg3} e
+        set _ $e
+    } {*wrong number of arguments*}
+
     test {FUNCTION - test fcall_ro with write command} {
         r function create lua test REPLACE {return redis.call('set', 'x', '1')}
         catch { r fcall_ro test 0 } e
@@ -280,6 +337,25 @@ start_server {tags {"scripting repl external:skip"}} {
         test {FUNCTION - call on replica} {
             r -1 fcall test 0
         } {hello}
+
+        test {FUNCTION - restore is replicated to replica} {
+            set e [r function dump]
+
+            r function delete test
+            wait_for_condition 50 100 {
+                [r -1 function list] eq {}
+            } else {
+                fail "Failed waiting for function to replicate to replica"
+            }
+
+            r function restore $e
+
+            wait_for_condition 50 100 {
+                [r -1 function list] eq {{name test engine LUA description {some description}}}
+            } else {
+                fail "Failed waiting for function to replicate to replica"
+            }
+        }
 
         test {FUNCTION - delete is replicated to replica} {
             r function delete test
