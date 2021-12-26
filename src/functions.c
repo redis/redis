@@ -54,10 +54,10 @@ dictType engineDictType = {
 };
 
 dictType functionDictType = {
-        dictSdsHash,          /* hash function */
+        dictSdsCaseHash,      /* hash function */
         dictSdsDup,           /* key dup */
         NULL,                 /* val dup */
-        dictSdsKeyCompare,    /* key compare */
+        dictSdsKeyCaseCompare,/* key compare */
         dictSdsDestructor,    /* key destructor */
         engineFunctionDispose,/* val destructor */
         NULL                  /* allow to expand */
@@ -438,10 +438,34 @@ NULL };
     addReplyHelp(c, help);
 }
 
+/* Verify that the function name is of the format: [a-zA-Z0-9_][a-zA-Z0-9_]? */
+static int functionsVerifyName(sds name) {
+    if (sdslen(name) == 0) {
+        return C_ERR;
+    }
+    for (size_t i = 0 ; i < sdslen(name) ; ++i) {
+        char curr_char = name[i];
+        if ((curr_char >= 'a' && curr_char <= 'z') ||
+            (curr_char >= 'A' && curr_char <= 'Z') ||
+            (curr_char >= '0' && curr_char <= '9') ||
+            (curr_char == '_'))
+        {
+            continue;
+        }
+        return C_ERR;
+    }
+    return C_OK;
+}
+
 /* Compile and save the given function, return C_OK on success and C_ERR on failure.
  * In case on failure the err out param is set with relevant error message */
 int functionsCreateWithFunctionCtx(sds function_name,sds engine_name, sds desc, sds code,
                                    int replace, sds* err, functionsCtx *functions) {
+    if (functionsVerifyName(function_name)) {
+        *err = sdsnew("Function names can only contain letters and numbers and must be at least one character long");
+        return C_ERR;
+    }
+
     engineInfo *ei = dictFetchValue(engines, engine_name);
     if (!ei) {
         *err = sdsnew("Engine not found");
