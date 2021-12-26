@@ -2204,8 +2204,8 @@ static int updateMaxmemory(const char **err) {
         size_t used = zmalloc_used_memory()-freeMemoryGetNotCountedMemory();
         if (server.maxmemory < used) {
             serverLog(LL_WARNING,"WARNING: the new maxmemory value set via CONFIG SET (%llu) is smaller than the current memory usage (%zu). This will result in key eviction and/or the inability to accept new write commands depending on the maxmemory-policy.", server.maxmemory, used);
+            performEvictions();
         }
-        performEvictions();
     }
     /* The function is called via 'CONFIG SET maxmemory', we don't want to propagate it
      * because server.dirty might have been incremented by performEvictions() */
