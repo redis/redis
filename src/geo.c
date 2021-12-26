@@ -33,10 +33,6 @@
 #include "debugmacro.h"
 #include "pqsort.h"
 
-/* Things exported from t_zset.c only for geo.c, since it is the only other
- * part of Redis that requires close zset introspection. */
-unsigned char *zzlFirstInRange(unsigned char *zl, zrangespec *range);
-int zslValueLteMax(double value, zrangespec *spec);
 
 /* ====================================================================
  * This file implements the following commands:

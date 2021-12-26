@@ -63,8 +63,8 @@
  * Skiplist implementation of the low level API
  *----------------------------------------------------------------------------*/
 
-int zslLexValueGteMin(sds value, zlexrangespec *spec);
-int zslLexValueLteMax(sds value, zlexrangespec *spec);
+int zslLexValueGteMin(sds value, const zlexrangespec *spec);
+int zslLexValueLteMax(sds value, const zlexrangespec *spec);
 
 /* Create a skiplist node with the specified number of levels.
  * The SDS string 'ele' is referenced by the node after the call. */
@@ -300,16 +300,16 @@ zskiplistNode *zslUpdateScore(zskiplist *zsl, double curscore, sds ele, double n
     return newnode;
 }
 
-int zslValueGteMin(double value, zrangespec *spec) {
+int zslValueGteMin(double value, const zrangespec *spec) {
     return spec->minex ? (value > spec->min) : (value >= spec->min);
 }
 
-int zslValueLteMax(double value, zrangespec *spec) {
+int zslValueLteMax(double value, const zrangespec *spec) {
     return spec->maxex ? (value < spec->max) : (value <= spec->max);
 }
 
 /* Returns if there is a part of the zset is in range. */
-int zslIsInRange(zskiplist *zsl, zrangespec *range) {
+int zslIsInRange(zskiplist *zsl, const zrangespec *range) {
     zskiplistNode *x;
 
     /* Test for ranges that will always be empty. */
@@ -327,7 +327,7 @@ int zslIsInRange(zskiplist *zsl, zrangespec *range) {
 
 /* Find the first node that is contained in the specified range.
  * Returns NULL when no element is contained in the range. */
-zskiplistNode *zslFirstInRange(zskiplist *zsl, zrangespec *range) {
+zskiplistNode *zslFirstInRange(zskiplist *zsl, const zrangespec *range) {
     zskiplistNode *x;
     int i;
 
@@ -353,7 +353,7 @@ zskiplistNode *zslFirstInRange(zskiplist *zsl, zrangespec *range) {
 
 /* Find the last node that is contained in the specified range.
  * Returns NULL when no element is contained in the range. */
-zskiplistNode *zslLastInRange(zskiplist *zsl, zrangespec *range) {
+zskiplistNode *zslLastInRange(zskiplist *zsl, const zrangespec *range) {
     zskiplistNode *x;
     int i;
 
@@ -634,20 +634,20 @@ int sdscmplex(sds a, sds b) {
     return sdscmp(a,b);
 }
 
-int zslLexValueGteMin(sds value, zlexrangespec *spec) {
+int zslLexValueGteMin(sds value, const zlexrangespec *spec) {
     return spec->minex ?
         (sdscmplex(value,spec->min) > 0) :
         (sdscmplex(value,spec->min) >= 0);
 }
 
-int zslLexValueLteMax(sds value, zlexrangespec *spec) {
+int zslLexValueLteMax(sds value, const zlexrangespec *spec) {
     return spec->maxex ?
         (sdscmplex(value,spec->max) < 0) :
         (sdscmplex(value,spec->max) <= 0);
 }
 
 /* Returns if there is a part of the zset is in the lex range. */
-int zslIsInLexRange(zskiplist *zsl, zlexrangespec *range) {
+int zslIsInLexRange(zskiplist *zsl, const zlexrangespec *range) {
     zskiplistNode *x;
 
     /* Test for ranges that will always be empty. */
@@ -665,7 +665,7 @@ int zslIsInLexRange(zskiplist *zsl, zlexrangespec *range) {
 
 /* Find the first node that is contained in the specified lex range.
  * Returns NULL when no element is contained in the range. */
-zskiplistNode *zslFirstInLexRange(zskiplist *zsl, zlexrangespec *range) {
+zskiplistNode *zslFirstInLexRange(zskiplist *zsl, const zlexrangespec *range) {
     zskiplistNode *x;
     int i;
 
@@ -691,7 +691,7 @@ zskiplistNode *zslFirstInLexRange(zskiplist *zsl, zlexrangespec *range) {
 
 /* Find the last node that is contained in the specified range.
  * Returns NULL when no element is contained in the range. */
-zskiplistNode *zslLastInLexRange(zskiplist *zsl, zlexrangespec *range) {
+zskiplistNode *zslLastInLexRange(zskiplist *zsl, const zlexrangespec *range) {
     zskiplistNode *x;
     int i;
 
@@ -826,7 +826,7 @@ void zzlPrev(unsigned char *zl, unsigned char **eptr, unsigned char **sptr) {
 
 /* Returns if there is a part of the zset is in range. Should only be used
  * internally by zzlFirstInRange and zzlLastInRange. */
-int zzlIsInRange(unsigned char *zl, zrangespec *range) {
+int zzlIsInRange(unsigned char *zl, const zrangespec *range) {
     unsigned char *p;
     double score;
 
@@ -852,7 +852,7 @@ int zzlIsInRange(unsigned char *zl, zrangespec *range) {
 
 /* Find pointer to the first element contained in the specified range.
  * Returns NULL when no element is contained in the range. */
-unsigned char *zzlFirstInRange(unsigned char *zl, zrangespec *range) {
+unsigned char *zzlFirstInRange(unsigned char *zl, const zrangespec *range) {
     unsigned char *eptr = lpSeek(zl,0), *sptr;
     double score;
 
@@ -880,7 +880,7 @@ unsigned char *zzlFirstInRange(unsigned char *zl, zrangespec *range) {
 
 /* Find pointer to the last element contained in the specified range.
  * Returns NULL when no element is contained in the range. */
-unsigned char *zzlLastInRange(unsigned char *zl, zrangespec *range) {
+unsigned char *zzlLastInRange(unsigned char *zl, const zrangespec *range) {
     unsigned char *eptr = lpSeek(zl,-2), *sptr;
     double score;
 
@@ -911,14 +911,14 @@ unsigned char *zzlLastInRange(unsigned char *zl, zrangespec *range) {
     return NULL;
 }
 
-int zzlLexValueGteMin(unsigned char *p, zlexrangespec *spec) {
+int zzlLexValueGteMin(unsigned char *p, const zlexrangespec *spec) {
     sds value = lpGetObject(p);
     int res = zslLexValueGteMin(value,spec);
     sdsfree(value);
     return res;
 }
 
-int zzlLexValueLteMax(unsigned char *p, zlexrangespec *spec) {
+int zzlLexValueLteMax(unsigned char *p, const zlexrangespec *spec) {
     sds value = lpGetObject(p);
     int res = zslLexValueLteMax(value,spec);
     sdsfree(value);
@@ -927,7 +927,7 @@ int zzlLexValueLteMax(unsigned char *p, zlexrangespec *spec) {
 
 /* Returns if there is a part of the zset is in range. Should only be used
  * internally by zzlFirstInRange and zzlLastInRange. */
-int zzlIsInLexRange(unsigned char *zl, zlexrangespec *range) {
+int zzlIsInLexRange(unsigned char *zl, const zlexrangespec *range) {
     unsigned char *p;
 
     /* Test for ranges that will always be empty. */
@@ -950,7 +950,7 @@ int zzlIsInLexRange(unsigned char *zl, zlexrangespec *range) {
 
 /* Find pointer to the first element contained in the specified lex range.
  * Returns NULL when no element is contained in the range. */
-unsigned char *zzlFirstInLexRange(unsigned char *zl, zlexrangespec *range) {
+unsigned char *zzlFirstInLexRange(unsigned char *zl, const zlexrangespec *range) {
     unsigned char *eptr = lpSeek(zl,0), *sptr;
 
     /* If everything is out of range, return early. */
@@ -975,7 +975,7 @@ unsigned char *zzlFirstInLexRange(unsigned char *zl, zlexrangespec *range) {
 
 /* Find pointer to the last element contained in the specified lex range.
  * Returns NULL when no element is contained in the range. */
-unsigned char *zzlLastInLexRange(unsigned char *zl, zlexrangespec *range) {
+unsigned char *zzlLastInLexRange(unsigned char *zl, const zlexrangespec *range) {
     unsigned char *eptr = lpSeek(zl,-2), *sptr;
 
     /* If everything is out of range, return early. */
@@ -1105,7 +1105,7 @@ unsigned char *zzlDeleteRangeByScore(unsigned char *zl, zrangespec *range, unsig
     return zl;
 }
 
-unsigned char *zzlDeleteRangeByLex(unsigned char *zl, zlexrangespec *range, unsigned long *deleted) {
+unsigned char *zzlDeleteRangeByLex(unsigned char *zl, const zlexrangespec *range, unsigned long *deleted) {
     unsigned char *eptr, *sptr;
     unsigned long num = 0;
 

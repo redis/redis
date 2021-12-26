@@ -107,7 +107,7 @@ int setTypeRemove(robj *setobj, sds value) {
     return 0;
 }
 
-int setTypeIsMember(robj *subject, sds value) {
+int setTypeIsMember(const robj *subject, sds value) {
     long long llval;
     if (subject->encoding == OBJ_ENCODING_HT) {
         return dictFind((dict*)subject->ptr,value) != NULL;
