@@ -475,7 +475,7 @@ start_server {tags {"scripting"}} {
         r function list
     } {{library_name lib1 engine LUA description {} functions {*}}}
 
-    test {LIBRARIES - test registeration failure revert the entire load} {
+    test {LIBRARIES - test registration failure revert the entire load} {
         catch {
             r function load LUA lib1 replace {
                 local function add1(a)
@@ -498,7 +498,7 @@ start_server {tags {"scripting"}} {
         assert_equal [r fcall f2 0] {3}
     }
 
-    test {LIBRARIES - test registeration function name collision} {
+    test {LIBRARIES - test registration function name collision} {
         catch {
             r function load LUA lib2 replace {
                 redis.register_function(
@@ -514,7 +514,7 @@ start_server {tags {"scripting"}} {
         assert_equal [r fcall f2 0] {3}
     }
 
-    test {LIBRARIES - test registeration function name collision on same library} {
+    test {LIBRARIES - test registration function name collision on same library} {
         catch {
             r function load LUA lib2 replace {
                 redis.register_function(
@@ -534,7 +534,7 @@ start_server {tags {"scripting"}} {
         set _ $e
     } {*Function already exists in the library*}
 
-    test {LIBRARIES - test registeration with no argument} {
+    test {LIBRARIES - test registration with no argument} {
         catch {
             r function load LUA lib2 replace {
                 redis.register_function()
@@ -543,7 +543,7 @@ start_server {tags {"scripting"}} {
         set _ $e
     } {*wrong number of arguments to redis.register_function*}
 
-    test {LIBRARIES - test registeration with only name} {
+    test {LIBRARIES - test registration with only name} {
         catch {
             r function load LUA lib2 replace {
                 redis.register_function('f1')
@@ -552,7 +552,7 @@ start_server {tags {"scripting"}} {
         set _ $e
     } {*wrong number of arguments to redis.register_function*}
 
-    test {LIBRARIES - test registeration with to many arguments} {
+    test {LIBRARIES - test registration with to many arguments} {
         catch {
             r function load LUA lib2 replace {
                 redis.register_function('f1', function() return 1 end, 'description', 'extra arg')
@@ -561,7 +561,7 @@ start_server {tags {"scripting"}} {
         set _ $e
     } {*wrong number of arguments to redis.register_function*}
 
-    test {LIBRARIES - test registeration with no string name} {
+    test {LIBRARIES - test registration with no string name} {
         catch {
             r function load LUA lib2 replace {
                 redis.register_function(nil, function() return 1 end)
@@ -570,7 +570,7 @@ start_server {tags {"scripting"}} {
         set _ $e
     } {*first argument to redis.register_function must be a string*}
 
-    test {LIBRARIES - test registeration with wrong name format} {
+    test {LIBRARIES - test registration with wrong name format} {
         catch {
             r function load LUA lib2 replace {
                 redis.register_function('test\0test', function() return 1 end)
@@ -579,7 +579,7 @@ start_server {tags {"scripting"}} {
         set _ $e
     } {*Function names can only contain letters and numbers and must be at least one character long*}
 
-    test {LIBRARIES - test registeration with empty name} {
+    test {LIBRARIES - test registration with empty name} {
         catch {
             r function load LUA lib2 replace {
                 redis.register_function('', function() return 1 end)
