@@ -38,8 +38,18 @@
 #include <sys/time.h>
 #include <float.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <errno.h>
 #include <time.h>
+#ifdef __linux__
+#include <sys/syscall.h>
+#ifdef __NR_getrandom
+/* The seed size is below the guaranteed workflow safety of this syscall */
+#define arc4random_buf(ptr, len) do { ssize_t rdr = syscall(__NR_getrandom, ptr, len, 0); (void)rdr; } while(0)
+#else
+#define arc4random_buf(ptr, len) do { srandom(time(NULL)); for (unsigned int rd = 0; rd < len; rd ++) ptr[rd] = random() % INT_MAX; } while(0)
+#endif
+#endif
 
 #include "util.h"
 #include "sha256.h"
@@ -665,23 +675,9 @@ void getRandomBytes(unsigned char *p, size_t len) {
 
     if (!seed_initialized) {
         /* Initialize a seed and use SHA1 in counter mode, where we hash
-         * the same seed with a progressive counter. For the goals of this
-         * function we just need non-colliding strings, there are no
-         * cryptographic security needs. */
-        FILE *fp = fopen("/dev/urandom","r");
-        if (fp == NULL || fread(seed,sizeof(seed),1,fp) != 1) {
-            /* Revert to a weaker seed, and in this case reseed again
-             * at every call.*/
-            for (unsigned int j = 0; j < sizeof(seed); j++) {
-                struct timeval tv;
-                gettimeofday(&tv,NULL);
-                pid_t pid = getpid();
-                seed[j] = tv.tv_sec ^ tv.tv_usec ^ pid ^ (long)fp;
-            }
-        } else {
-            seed_initialized = 1;
-        }
-        if (fp) fclose(fp);
+         * the same seed with a progressive counter. */
+        arc4random_buf(seed, sizeof(seed));
+        seed_initialized = 1;
     }
 
     while(len) {
