@@ -1373,7 +1373,6 @@ void whileBlockedCron() {
     /* We received a SIGTERM during loading, shutting down here in a safe way,
      * as it isn't ok doing so inside the signal handler. */
     if (server.shutdown_asap && server.loading) {
-        serverLog(LL_WARNING,"Received shutdown signal during loading, check the logs for more information");
         if (prepareForShutdown(SHUTDOWN_NOSAVE) == C_OK) exit(0);
         serverLog(LL_WARNING,"SIGTERM received but errors trying to shut down the server, check the logs for more information");
         server.shutdown_asap = 0;
@@ -5566,6 +5565,8 @@ static void sigShutdownHandler(int sig) {
         serverLogFromHandler(LL_WARNING, "You insist... exiting now.");
         rdbRemoveTempFile(getpid(), 1);
         exit(1); /* Exit with an error since this was not a clean shutdown. */
+    } else if (server.loading) {
+        serverLogFromHandler(LL_WARNING, "Received shutdown signal during loading, scheduling shutdown.");
     }
 
     serverLogFromHandler(LL_WARNING, msg);
