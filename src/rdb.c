@@ -1857,6 +1857,13 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 }
             }
 
+            if (isnan(score)) {
+                rdbReportCorruptRDB("Zset with NAN score detected");
+                decrRefCount(o);
+                sdsfree(sdsele);
+                return NULL;
+            }
+
             /* Don't care about integer-encoded strings. */
             if (sdslen(sdsele) > maxelelen) maxelelen = sdslen(sdsele);
             totelelen += sdslen(sdsele);
