@@ -114,6 +114,7 @@ int functionsCreateWithLibraryCtx(sds lib_name, sds engine_name, sds desc, sds c
 unsigned long functionsMemory();
 unsigned long functionsMemoryOverhead();
 unsigned long functionsNum();
+unsigned long librariesNum();
 dict* librariesGet();
 size_t librariesCtxfunctionsLen(librariesCtx *functions_ctx);
 librariesCtx* librariesCtxGetCurrent();

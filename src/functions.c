@@ -105,6 +105,12 @@ static size_t functionMallocSize(functionInfo *fi) {
             + fi->li->ei->engine->get_function_memory_overhead(fi->function);
 }
 
+static size_t libraryMallocSize(libraryInfo *li) {
+    return zmalloc_size(li) + sdsZmallocSize(li->name)
+            + (li->desc ? sdsZmallocSize(li->desc) : 0)
+            + sdsZmallocSize(li->code);
+}
+
 /* Dispose function memory */
 static void engineFunctionDispose(dict *d, void *obj) {
     UNUSED(d);
@@ -242,7 +248,7 @@ static void libraryUnlink(librariesCtx *lib_ctx, libraryInfo* li) {
     entry = dictUnlink(lib_ctx->libraries, li->name);
     dictSetVal(lib_ctx->libraries, entry, NULL);
     dictFreeUnlinkedEntry(lib_ctx->libraries, entry);
-    // todo: decr libraryInfo struct overhead
+    lib_ctx->cache_memory += libraryMallocSize(li);
 }
 
 static int libraryLink(librariesCtx *lib_ctx, libraryInfo* li, sds* err) {
@@ -266,7 +272,7 @@ static int libraryLink(librariesCtx *lib_ctx, libraryInfo* li, sds* err) {
         lib_ctx->cache_memory += functionMallocSize(fi);
     }
     dictAdd(lib_ctx->libraries, li->name, li);
-    // todo: add libraryInfo struct overhead
+    lib_ctx->cache_memory += libraryMallocSize(li);
     ret = C_OK;
 done:
     dictReleaseIterator(iter);
@@ -933,6 +939,10 @@ unsigned long functionsMemoryOverhead() {
 /* Returns the number of functions */
 unsigned long functionsNum() {
     return dictSize(curr_lib_ctx->functions);
+}
+
+unsigned long librariesNum() {
+    return dictSize(curr_lib_ctx->libraries);
 }
 
 dict* librariesGet() {
