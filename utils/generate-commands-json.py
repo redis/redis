@@ -11,6 +11,7 @@ def convert_flags_to_boolean_dict(flags):
     ''' Return a dict with a key set to `True` per element in the flags list. '''
     return {f: True for f in flags}
 
+
 def set_if_not_none_or_empty(dst, key, value):
     ''' Set 'key' in 'dst' if 'value' is not `None` or an empty list. '''
     if value is not None and (type(value) is not list or len(value)):
@@ -20,7 +21,8 @@ def set_if_not_none_or_empty(dst, key, value):
 def convert_argument(arg):
     ''' Transform an argument. '''
     arg.update(convert_flags_to_boolean_dict(arg.pop('flags', [])))
-    set_if_not_none_or_empty(arg, 'arguments', [convert_argument(x) for x in arg.pop('arguments',[])])
+    set_if_not_none_or_empty(arg, 'arguments', 
+                            [convert_argument(x) for x in arg.pop('arguments',[])])
     return arg
 
 
@@ -68,10 +70,14 @@ def convert_entry_to_objects_array(container, cmd):
     set_if_not_none_or_empty(value, 'history', meta.pop('history', []))
     set_if_not_none_or_empty(value, 'acl_categories', meta.pop('acl_categories', []))
     value['arity'] = cmd[1]
-    set_if_not_none_or_empty(value, 'key_specs', [convert_keyspec(x) for x in meta.pop('key_specs',[])])
-    set_if_not_none_or_empty(value, 'arguments', [convert_argument(x) for x in meta.pop('arguments', [])])
-    set_if_not_none_or_empty(value, 'command_flags', [convert_flags_to_boolean_dict(x) for x in meta.pop('command_flags', [])])
-    set_if_not_none_or_empty(value, 'doc_flags', [convert_flags_to_boolean_dict(x) for x in meta.pop('doc_flags', [])])
+    set_if_not_none_or_empty(value, 'key_specs', 
+                            [convert_keyspec(x) for x in meta.pop('key_specs',[])])
+    set_if_not_none_or_empty(value, 'arguments',
+                            [convert_argument(x) for x in meta.pop('arguments', [])])
+    set_if_not_none_or_empty(value, 'command_flags',
+                            [convert_flags_to_boolean_dict(x) for x in meta.pop('command_flags', [])])
+    set_if_not_none_or_empty(value, 'doc_flags',
+                            [convert_flags_to_boolean_dict(x) for x in meta.pop('doc_flags', [])])
     set_if_not_none_or_empty(value, 'hints', meta.pop('hints', []))
 
     # All remaining meta key-value tuples, if any, are appended to the command
@@ -91,7 +97,8 @@ if __name__ == '__main__':
         'epilog': 'Usage example: src/redis-cli --json COMMAND | utils/generate-commands-json.py'
     }
     parser = argparse.ArgumentParser(**opts)
-    parser.add_argument('input', help='JSON-formatted input file (default: stdin)', nargs='?', type=argparse.FileType(), default=stdin)
+    parser.add_argument('input', help='JSON-formatted input file (default: stdin)',
+                        nargs='?', type=argparse.FileType(), default=stdin)
     args = parser.parse_args()
 
     payload = OrderedDict()
