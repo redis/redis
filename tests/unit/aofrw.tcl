@@ -179,13 +179,32 @@ start_server {tags {"aofrw external:skip"} overrides {aof-use-rdb-preamble no}} 
     }
 
     test {BGREWRITEAOF is delayed if BGSAVE is in progress} {
-        r multi
+        set master [srv 0 client]
+        set master_host [srv 0 host]
+        set master_port [srv 0 port]
+        # Write big data to delay bgsave and bgrewrite
+        set load_handle0 [start_write_load $master_host $master_port 10]
+        set load_handle1 [start_write_load $master_host $master_port 10]
+        set load_handle2 [start_write_load $master_host $master_port 10]
+        set load_handle3 [start_write_load $master_host $master_port 10]
+        set load_handle4 [start_write_load $master_host $master_port 10]
+        wait_for_condition 1000 100 {
+            [r dbsize] > 100000
+        } else {
+            fail "No write load detected."
+        }
+
+        stop_write_load $load_handle0
+        stop_write_load $load_handle1
+        stop_write_load $load_handle2
+        stop_write_load $load_handle3
+        stop_write_load $load_handle4
+        wait_load_handlers_disconnected
+
         r bgsave
-        r bgrewriteaof
-        r info persistence
-        set res [r exec]
-        assert_match {*scheduled*} [lindex $res 1]
-        assert_match {*aof_rewrite_scheduled:1*} [lindex $res 2]
+
+        assert_match {*scheduled*} [r bgrewriteaof]
+        assert_match {*aof_rewrite_scheduled:1*} [r info persistence]
         while {[string match {*aof_rewrite_scheduled:1*} [r info persistence]]} {
             after 100
         }
@@ -193,10 +212,8 @@ start_server {tags {"aofrw external:skip"} overrides {aof-use-rdb-preamble no}} 
 
     test {BGREWRITEAOF is refused if already in progress} {
         catch {
-            r multi
             r bgrewriteaof
             r bgrewriteaof
-            r exec
         } e
         assert_match {*ERR*already*} $e
         while {[string match {*aof_rewrite_scheduled:1*} [r info persistence]]} {

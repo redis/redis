@@ -3538,7 +3538,10 @@ int processCommand(client *c) {
         c->cmd->proc != multiCommand &&
         c->cmd->proc != watchCommand &&
         c->cmd->proc != quitCommand &&
-        c->cmd->proc != resetCommand)
+        c->cmd->proc != resetCommand &&
+        c->cmd->proc != bgrewriteaofCommand &&
+        c->cmd->proc != bgsaveCommand &&
+        c->cmd->proc != saveCommand)
     {
         queueMultiCommand(c);
         addReply(c,shared.queued);
