@@ -266,7 +266,7 @@ static list *moduleUnblockedClients;
 
 #define MODULE_MAX_TEMP_CLIENT_COUNT 1024
 static client *moduleTempClients[MODULE_MAX_TEMP_CLIENT_COUNT];
-static size_t moduleTempClientCount;
+static size_t moduleTempClientCount = 0;
 
 /* We need a mutex that is unlocked / relocked in beforeSleep() in order to
  * allow thread safe contexts to execute commands at a safe moment. */
