@@ -31,7 +31,7 @@ def convert_entry_to_objects_array(container, cmd):
     ''' 
     Transform the JSON output of `COMMAND` to a friendlier format.
 
-    `COMMAND`'s outout per command is a fixed-size (8) list as follows:
+    `COMMAND`'s output per command is a fixed-size (8) list as follows:
     1. Name (lower case, e.g. "lolwut")
     2. Arity
     3. Flags
@@ -84,7 +84,7 @@ def convert_entry_to_objects_array(container, cmd):
 if __name__ == '__main__':
     opts = {
         'description': 'Transform the output from `redis-cli --json COMMAND` to commands.json format.',
-        'epilog': ''
+        'epilog': 'Usage example: src/redis-cli --json COMMAND | utils/generate-commands-json.py'
     }
     parser = argparse.ArgumentParser(**opts)
     parser.add_argument('input', help='JSON-formatted input file (default: stdin)', nargs='?', type=argparse.FileType(), default=stdin)
