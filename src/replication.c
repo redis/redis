@@ -892,9 +892,6 @@ int startBgsaveForReplication(int mincapa, int req) {
             client *slave = ln->value;
 
             if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START) {
-                /* Check slave has at least the minimum capabilities */
-                if ((mincapa & slave->slave_capa) != mincapa) // TODO: do we need this check, we already are the min of all slaves
-                    continue;
                 /* Check slave has the exact requirements */
                 if (slave->slave_req != req)
                     continue;
