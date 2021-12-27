@@ -32,6 +32,7 @@
 #include "atomicvar.h"
 #include "latency.h"
 #include "script.h"
+#include "functions.h"
 
 #include <signal.h>
 #include <ctype.h>
@@ -412,22 +413,24 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
     return removed;
 }
 
-/* Remove all keys from all the databases in a Redis server.
- * If callback is given the function is called from time to time to
- * signal that work is in progress.
+/* Remove all data (keys and functions) from all the databases in a
+ * Redis server. If callback is given the function is called from
+ * time to time to signal that work is in progress.
  *
  * The dbnum can be -1 if all the DBs should be flushed, or the specified
  * DB number if we want to flush only a single Redis database number.
  *
  * Flags are be EMPTYDB_NO_FLAGS if no special flags are specified or
  * EMPTYDB_ASYNC if we want the memory to be freed in a different thread
- * and the function to return ASAP.
+ * and the function to return ASAP. EMPTYDB_NOFUNCTIONS can also be set
+ * to specify that we do not want to delete the functions.
  *
  * On success the function returns the number of keys removed from the
  * database(s). Otherwise -1 is returned in the specific case the
  * DB number is out of range, and errno is set to EINVAL. */
-long long emptyDb(int dbnum, int flags, void(callback)(dict*)) {
+long long emptyData(int dbnum, int flags, void(callback)(dict*)) {
     int async = (flags & EMPTYDB_ASYNC);
+    int with_functions = !(flags & EMPTYDB_NOFUNCTIONS);
     RedisModuleFlushInfoV1 fi = {REDISMODULE_FLUSHINFO_VERSION,!async,dbnum};
     long long removed = 0;
 
@@ -455,6 +458,11 @@ long long emptyDb(int dbnum, int flags, void(callback)(dict*)) {
     if (server.cluster_enabled) slotToKeyFlush(server.db);
 
     if (dbnum == -1) flushSlaveKeysWithExpireList();
+
+    if (with_functions) {
+        serverAssert(dbnum == -1);
+        functionsCtxClearCurrent(async);
+    }
 
     /* Also fire the end event. Note that this event will fire almost
      * immediately after the start event if the flush is asynchronous. */
@@ -583,7 +591,7 @@ int getFlushCommandFlags(client *c, int *flags) {
 
 /* Flushes the whole server data set. */
 void flushAllDataAndResetRDB(int flags) {
-    server.dirty += emptyDb(-1,flags,NULL);
+    server.dirty += emptyData(-1,flags,NULL);
     if (server.child_type == CHILD_TYPE_RDB) killRDBChild();
     if (server.saveparamslen > 0) {
         /* Normally rdbSave() will reset dirty, but we don't want this here
@@ -614,7 +622,8 @@ void flushdbCommand(client *c) {
     int flags;
 
     if (getFlushCommandFlags(c,&flags) == C_ERR) return;
-    server.dirty += emptyDb(c->db->id,flags,NULL);
+    /* flushdb should not flush the functions */
+    server.dirty += emptyData(c->db->id,flags | EMPTYDB_NOFUNCTIONS,NULL);
     addReply(c,shared.ok);
 #if defined(USE_JEMALLOC)
     /* jemalloc 5 doesn't release pages back to the OS when there's no traffic.
@@ -631,7 +640,8 @@ void flushdbCommand(client *c) {
 void flushallCommand(client *c) {
     int flags;
     if (getFlushCommandFlags(c,&flags) == C_ERR) return;
-    flushAllDataAndResetRDB(flags);
+    /* flushall should not flush the functions */
+    flushAllDataAndResetRDB(flags | EMPTYDB_NOFUNCTIONS);
     addReply(c,shared.ok);
 }
 
@@ -1456,7 +1466,7 @@ void deleteExpiredKeyAndPropagate(redisDb *db, robj *keyobj) {
     latencyAddSampleIfNeeded("expire-del",expire_latency);
     notifyKeyspaceEvent(NOTIFY_EXPIRED,"expired",keyobj,db->id);
     signalModifiedKey(NULL, db, keyobj);
-    propagateExpire(db,keyobj,server.lazyfree_lazy_expire);
+    propagateDeletion(db,keyobj,server.lazyfree_lazy_expire);
     server.stat_expiredkeys++;
 }
 
@@ -1467,8 +1477,18 @@ void deleteExpiredKeyAndPropagate(redisDb *db, robj *keyobj) {
  * This way the key expiry is centralized in one place, and since both
  * AOF and the master->slave link guarantee operation ordering, everything
  * will be consistent even if we allow write operations against expiring
- * keys. */
-void propagateExpire(redisDb *db, robj *key, int lazy) {
+ * keys.
+ *
+ * This function may be called from:
+ * 1. Within call(): Example: Lazy-expire on key access.
+ *    In this case the caller doesn't have to do anything
+ *    because call() handles server.also_propagate(); or
+ * 2. Outside of call(): Example: Active-expire, eviction.
+ *    In this the caller must remember to call
+ *    propagatePendingCommands, preferably at the end of
+ *    the deletion batch, so that DELs will be wrapped
+ *    in MULTI/EXEC */
+void propagateDeletion(redisDb *db, robj *key, int lazy) {
     robj *argv[2];
 
     argv[0] = lazy ? shared.unlink : shared.del;
@@ -1480,7 +1500,7 @@ void propagateExpire(redisDb *db, robj *key, int lazy) {
      * Even if module executed a command without asking for propagation. */
     int prev_replication_allowed = server.replication_allowed;
     server.replication_allowed = 1;
-    propagate(db->id,argv,2,PROPAGATE_AOF|PROPAGATE_REPL);
+    alsoPropagate(db->id,argv,2,PROPAGATE_AOF|PROPAGATE_REPL);
     server.replication_allowed = prev_replication_allowed;
 
     decrRefCount(argv[0]);
