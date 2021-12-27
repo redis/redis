@@ -10422,7 +10422,7 @@ static void eventLoopCbWritable(struct aeEventLoop *ae, int fd, void *user_data,
     data->wProc(fd, data->user_data, eventLoopFromAeMask(ae_mask));
 }
 
-/* Add an event to the event loop
+/* Add a pipe / socket event to the event loop
  *
  * On success REDISMODULE_OK is returned, otherwise
  * REDISMODULE_ERR is returned and errno is set to the following values:
