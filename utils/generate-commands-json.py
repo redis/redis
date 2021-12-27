@@ -53,6 +53,9 @@ def convert_entry_to_objects_array(container, cmd):
     obj = {}
     rep = [obj]
     name = cmd[0].upper()
+    arity = cmd[1]
+    command_flags = cmd[2]
+    acl_categories   = cmd[6]
     meta = cmd[7]
     key = f'{container} {name}' if container else name
 
@@ -68,16 +71,14 @@ def convert_entry_to_objects_array(container, cmd):
     set_if_not_none_or_empty(value, 'deprecated_since', meta.pop('deprecated_since', None))
     set_if_not_none_or_empty(value, 'replaced_by', meta.pop('replaced_by', None))
     set_if_not_none_or_empty(value, 'history', meta.pop('history', []))
-    set_if_not_none_or_empty(value, 'acl_categories', cmd[6])
-    value['arity'] = cmd[1]
+    set_if_not_none_or_empty(value, 'acl_categories', acl_categories)
+    value['arity'] = arity
     set_if_not_none_or_empty(value, 'key_specs', 
                             [convert_keyspec(x) for x in meta.pop('key_specs',[])])
     set_if_not_none_or_empty(value, 'arguments',
                             [convert_argument(x) for x in meta.pop('arguments', [])])
-    set_if_not_none_or_empty(value, 'command_flags',
-                            [convert_flags_to_boolean_dict(x) for x in meta.pop('command_flags', [])])
-    set_if_not_none_or_empty(value, 'doc_flags',
-                            [convert_flags_to_boolean_dict(x) for x in meta.pop('doc_flags', [])])
+    set_if_not_none_or_empty(value, 'command_flags', command_flags)
+    set_if_not_none_or_empty(value, 'doc_flags', meta.pop('doc_flags', []))
     set_if_not_none_or_empty(value, 'hints', meta.pop('hints', []))
 
     # All remaining meta key-value tuples, if any, are appended to the command
