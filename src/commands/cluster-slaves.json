@@ -1,12 +1,14 @@
 {
-    "REPLICAS": {
+    "SLAVES": {
         "summary": "List replica nodes of the specified master node",
         "complexity": "O(1)",
         "group": "cluster",
-        "since": "6.0.0",
+        "since": "3.0.0",
         "arity": 3,
         "container": "CLUSTER",
         "function": "clusterCommand",
+        "deprecated_since": "6.0.0",
+        "replaced_by": "`CLUSTER REPLICAS`",
         "command_flags": [
             "ADMIN",
             "RANDOM",
