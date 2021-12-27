@@ -179,27 +179,28 @@ start_server {tags {"aofrw external:skip"} overrides {aof-use-rdb-preamble no}} 
     }
 
     test {BGREWRITEAOF is delayed if BGSAVE is in progress} {
-        r config set rdb-key-save-delay 1000000
+        r flushall
+        r set k v
+        r config set rdb-key-save-delay 10000000
         r bgsave
         assert_match {*scheduled*} [r bgrewriteaof]
-        assert_match {*aof_rewrite_scheduled:1*} [r info persistence]
+        assert_equal [s aof_rewrite_scheduled] 1
         r config set rdb-key-save-delay 0
-        while {[string match {*aof_rewrite_scheduled:1*} [r info persistence]]} {
+        catch {exec kill -9 [get_child_pid 0]}
+        while {[s aof_rewrite_scheduled] eq 1} {
             after 100
         }
     }
 
     test {BGREWRITEAOF is refused if already in progress} {
         r config set aof-use-rdb-preamble yes
-        r config set rdb-key-save-delay 1000000
+        r config set rdb-key-save-delay 10000000
         catch {
             r bgrewriteaof
             r bgrewriteaof
         } e
         assert_match {*ERR*already*} $e
         r config set rdb-key-save-delay 0
-        while {[string match {*aof_rewrite_scheduled:1*} [r info persistence]]} {
-            after 100
-        }
+        catch {exec kill -9 [get_child_pid 0]}
     }
 }
