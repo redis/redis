@@ -168,8 +168,10 @@ typedef struct RedisModuleCtx RedisModuleCtx;
 #define REDISMODULE_CTX_BLOCKED_TIMEOUT (1<<3)
 #define REDISMODULE_CTX_THREAD_SAFE (1<<4)
 #define REDISMODULE_CTX_BLOCKED_DISCONNECTED (1<<5)
-#define REDISMODULE_CTX_TEMP_CLIENT (1<<6)
-#define REDISMODULE_CTX_NEW_CLIENT (1<<7)
+#define REDISMODULE_CTX_TEMP_CLIENT (1<<6) /* Return client object to the pool
+                                              when the context is destroyed */
+#define REDISMODULE_CTX_NEW_CLIENT (1<<7)  /* Free client object when the
+ *                                            context is destroyed */
 
 /* This represents a Redis key opened with RM_OpenKey(). */
 struct RedisModuleKey {
@@ -650,6 +652,11 @@ void moduleFreeContext(RedisModuleCtx *ctx) {
             "calls.",
             ctx->module->name);
     }
+    /* If this context has a temp client, we return it back to the pool.
+     * If this context has a newly created client (e.g a detached context), we
+     * destroy the client.
+     * If the client is assigned manually, e.g ctx->client = someClientInstance,
+     * none of these flags will be set and we do not attempt to free it. */
     if (ctx->flags & REDISMODULE_CTX_TEMP_CLIENT)
         moduleReleaseTempClient(ctx->client);
     else if (ctx->flags & REDISMODULE_CTX_NEW_CLIENT)
@@ -6632,6 +6639,16 @@ RedisModuleCtx *RM_GetThreadSafeContext(RedisModuleBlockedClient *bc) {
     RedisModuleCtx *ctx = zmalloc(sizeof(*ctx));
     RedisModule *module = bc ? bc->module : NULL;
     int flags = REDISMODULE_CTX_THREAD_SAFE;
+
+    /* Creating a new client object is costly. To avoid that, we have an
+     * internal pool of client objects. In blockClient(), a client object is
+     * assigned to bc->thread_safe_ctx_client to be used for the thread safe
+     * context.
+     * For detached thread safe contexts, we are creating a new client. As this
+     * function can be called from different threads, we would need to
+     * synchronize access to internal pool of client objects. Assuming creating
+     * detached clients are rare and not that performance critical, we avoid
+     * synchronizing access to the client pool by creating a new client */
     if (!bc) flags |= REDISMODULE_CTX_NEW_CLIENT;
     moduleCreateContext(ctx, module, flags);
     /* Even when the context is associated with a blocked client, we can't
@@ -6657,6 +6674,8 @@ RedisModuleCtx *RM_GetThreadSafeContext(RedisModuleBlockedClient *bc) {
  * a long term, for purposes such as logging. */
 RedisModuleCtx *RM_GetDetachedThreadSafeContext(RedisModuleCtx *ctx) {
     RedisModuleCtx *new_ctx = zmalloc(sizeof(*new_ctx));
+    /* We create a new client object for the detached context.
+     * See RM_GetThreadSafeContext() for more information */
     moduleCreateContext(new_ctx, ctx->module,
                         REDISMODULE_CTX_THREAD_SAFE|REDISMODULE_CTX_NEW_CLIENT);
     return new_ctx;
