@@ -7,7 +7,7 @@
         "arity": 3,
         "container": "CLUSTER",
         "function": "clusterCommand",
-        "deprecated_since": "6.0.0",
+        "deprecated_since": "5.0.0",
         "replaced_by": "`CLUSTER REPLICAS`",
         "command_flags": [
             "ADMIN",
