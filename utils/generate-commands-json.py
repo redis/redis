@@ -68,7 +68,7 @@ def convert_entry_to_objects_array(container, cmd):
     set_if_not_none_or_empty(value, 'deprecated_since', meta.pop('deprecated_since', None))
     set_if_not_none_or_empty(value, 'replaced_by', meta.pop('replaced_by', None))
     set_if_not_none_or_empty(value, 'history', meta.pop('history', []))
-    set_if_not_none_or_empty(value, 'acl_categories', meta.pop('acl_categories', []))
+    set_if_not_none_or_empty(value, 'acl_categories', cmd[6])
     value['arity'] = cmd[1]
     set_if_not_none_or_empty(value, 'key_specs', 
                             [convert_keyspec(x) for x in meta.pop('key_specs',[])])
