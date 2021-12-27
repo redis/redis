@@ -10434,7 +10434,7 @@ static void eventLoopCbWritable(struct aeEventLoop *ae, int fd, void *user_data,
  *               REDISMODULE_EVENTLOOP_WRITABLE
  *               REDISMODULE_EVENTLOOP_READABLE | REDISMODULE_EVENTLOOP_WRITABLE
  *
- *  errno might take other values in case of an internal error.  */
+ *  errno might take other values in case of an internal error. */
 int RM_EventLoopAdd(int fd, int mask, RedisModuleEventLoopCallback callback, void *user_data) {
     if (fd < 0 || fd >= aeGetSetSize(server.el)) {
         errno = ERANGE;
