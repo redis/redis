@@ -250,7 +250,7 @@ typedef struct RedisModuleBlockedClient {
     void *privdata;     /* Module private data that may be used by the reply
                            or timeout callback. It is set via the
                            RedisModule_UnblockClient() API. */
-    client *thread_safe_ctx_client;/* Fake client used for thread safe context.*/
+    client *thread_safe_ctx_client; /* Fake client to be used for thread safe context so that no lock is required. */
     client *reply_client;           /* Fake client used to accumulate replies
                                        in thread safe contexts. */
     int dbid;           /* Database number selected by the original client. */
