@@ -179,43 +179,25 @@ start_server {tags {"aofrw external:skip"} overrides {aof-use-rdb-preamble no}} 
     }
 
     test {BGREWRITEAOF is delayed if BGSAVE is in progress} {
-        set master [srv 0 client]
-        set master_host [srv 0 host]
-        set master_port [srv 0 port]
-        # Write big data to delay bgsave and bgrewrite
-        set load_handle0 [start_write_load $master_host $master_port 10]
-        set load_handle1 [start_write_load $master_host $master_port 10]
-        set load_handle2 [start_write_load $master_host $master_port 10]
-        set load_handle3 [start_write_load $master_host $master_port 10]
-        set load_handle4 [start_write_load $master_host $master_port 10]
-        wait_for_condition 1000 100 {
-            [r dbsize] > 100000
-        } else {
-            fail "No write load detected."
-        }
-
-        stop_write_load $load_handle0
-        stop_write_load $load_handle1
-        stop_write_load $load_handle2
-        stop_write_load $load_handle3
-        stop_write_load $load_handle4
-        wait_load_handlers_disconnected
-
+        r config set rdb-key-save-delay 1000000
         r bgsave
-
         assert_match {*scheduled*} [r bgrewriteaof]
         assert_match {*aof_rewrite_scheduled:1*} [r info persistence]
+        r config set rdb-key-save-delay 0
         while {[string match {*aof_rewrite_scheduled:1*} [r info persistence]]} {
             after 100
         }
     }
 
     test {BGREWRITEAOF is refused if already in progress} {
+        r config set aof-use-rdb-preamble yes
+        r config set rdb-key-save-delay 1000000
         catch {
             r bgrewriteaof
             r bgrewriteaof
         } e
         assert_match {*ERR*already*} $e
+        r config set rdb-key-save-delay 0
         while {[string match {*aof_rewrite_scheduled:1*} [r info persistence]]} {
             after 100
         }
