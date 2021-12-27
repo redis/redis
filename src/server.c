@@ -64,7 +64,7 @@
 #include <sys/mman.h>
 #endif
 
-#ifdef HAVE_SYSCTL_SOMAXCONN
+#if defined(HAVE_SYSCTL_KIPC_SOMAXCONN) || defined(HAVE_SYSCTL_KERN_SOMAXCONN)
 #include <sys/sysctl.h>
 #endif
 
@@ -2043,7 +2043,7 @@ void checkTcpBacklogSettings(void) {
         }
     }
     fclose(fp);
-#elif defined(HAVE_SYSCTL_SOMAXCONN)
+#elif defined(HAVE_SYSCTL_KIPC_SOMAXCONN)
     int somaxconn, mib[3];
     size_t len = sizeof(int);
 
@@ -2054,6 +2054,18 @@ void checkTcpBacklogSettings(void) {
     if (sysctl(mib, 3, &somaxconn, &len, NULL, 0) == 0) {
         if (somaxconn > 0 && somaxconn < server.tcp_backlog) {
             serverLog(LL_WARNING,"WARNING: The TCP backlog setting of %d cannot be enforced because kern.ipc.somaxconn is set to the lower value of %d.", server.tcp_backlog, somaxconn);
+        }
+    }
+#elif defined(HAVE_SYSCTL_KERN_SOMAXCONN)
+    int somaxconn, mib[2];
+    size_t len = sizeof(int);
+
+    mib[0] = CTL_KERN;
+    mib[1] = KERN_SOMAXCONN;
+
+    if (sysctl(mib, 2, &somaxconn, &len, NULL, 0) == 0) {
+        if (somaxconn > 0 && somaxconn < server.tcp_backlog) {
+            serverLog(LL_WARNING,"WARNING: The TCP backlog setting of %d cannot be enforced because kern.somaxconn is set to the lower value of %d.", server.tcp_backlog, somaxconn);
         }
     }
 #endif

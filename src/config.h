@@ -65,7 +65,9 @@
 
 /* Test for somaxconn check */
 #if defined(__APPLE__) || defined(__FreeBSD__)
-#define HAVE_SYSCTL_SOMAXCONN 1
+#define HAVE_SYSCTL_KIPC_SOMAXCONN 1
+#elif defined(__OpenBSD__)
+#define HAVE_SYSCTL_KERN_SOMAXCONN 1
 #endif
 
 /* Test for backtrace() */
